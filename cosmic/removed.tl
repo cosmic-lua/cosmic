@@ -1,7 +1,9 @@
 --- The standard globals cosmic removes (`io`, `os`, `debug`, `dofile`,
---- `loadfile`) and what to write instead of each. Using one is refused
---- at compile time (`unknown variable: os`), and a chunk handed to
---- `load` that reaches for one fails at run time; both errors say
+--- `loadfile`) and the fields of `package` it removes (`path`, `cpath`,
+--- `loadlib`, `searchpath`), and what to write instead of each. Using one is refused
+--- at compile time (`unknown variable: os`, `invalid key 'path' in record
+--- 'package'`), and a program that reaches for one, a `require` of a
+--- removed library included, fails at run time; both errors say
 --- what to use instead, naming the replacement for the very field used
 --- (`os.getenv` is [`Env.get`]). `cosmic docs os` (or any field below)
 --- answers the same thing directly. `members` does the same at compile
@@ -37,6 +39,9 @@ local record Module
   --- resolve at compile time rather than when a running program reaches
   --- for it.
   order: {string}
+  --- The removed fields of `package`, the same four names the dotted
+  --- `package.` entries of `replacements` have.
+  package_fields: {string}
   --- What to write instead of one removed field, by its dotted name
   --- (`os.getenv`), including the `require` that brings it in.
   replacements: {string:string}
@@ -168,13 +173,22 @@ local function moved_to_policy_json(member: string): string
   return "moved to cosmic.policy, apart from the policy's data: use PolicyJson." .. member ..
     " (" .. policy_json .. ")"
 end
+local no_search_path <const> = "there is no file search path: a module comes only " ..
+  "from the database, by require(name), and a file's text comes from Fs.read(path) (" ..
+  fs .. ")"
 local module: Module = {
   fields = {
     io = "io", os = "os", debug = "debug",
     dofile = "dofile", loadfile = "loadfile",
   },
   order = { "io", "os", "debug", "dofile", "loadfile" },
+  package_fields = { "path", "cpath", "loadlib", "searchpath" },
   replacements = {
+    ["package.path"] = no_search_path,
+    ["package.cpath"] = no_search_path,
+    ["package.loadlib"] = "a C library cannot be loaded, and a module comes only " ..
+      "from the database: use require(name)",
+    ["package.searchpath"] = no_search_path,
     ["io.write"] = "use Fs.put(Fs.stdout, text) (" .. fs .. ")",
     ["io.stdout"] = "use Fs.stdout, a descriptor: Fs.put(Fs.stdout, text) (" .. fs .. ")",
     ["io.stderr"] = "use Fs.stderr, a descriptor: Fs.put(Fs.stderr, text) (" .. fs .. ")",

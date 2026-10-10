@@ -119,15 +119,14 @@ static int removed_message (lua_State *L) {
   return 1;
 }
 
-/* Raises what to write instead of the removed `name` -- or of its
- * field `field`, when that is a string -- at the Lua code that reached
- * for it. When cosmic.removed cannot answer (no module searcher yet,
- * no memory, or a held process whose closure lacks it), the bare fact
- * is raised instead, naming the field as the catalog's words would. */
-static _Noreturn void raise_removed (lua_State *L, int name, int field) {
+/* Pushes what to write instead of the removed `name` -- or of its
+ * field `field`, when that is a string. When cosmic.removed cannot
+ * answer (no module searcher yet, no memory, or a held process whose
+ * closure lacks it), the bare fact is pushed instead, naming the field
+ * as the catalog's words would. */
+static void push_removed (lua_State *L, int name, int field) {
   name = lua_absindex(L, name);
   field = field == 0 ? 0 : lua_absindex(L, field);
-  luaL_where(L, 1);
   lua_pushcfunction(L, removed_message);
   lua_pushvalue(L, name);
   if (field != 0 && lua_type(L, field) == LUA_TSTRING) {
@@ -146,9 +145,30 @@ static _Noreturn void raise_removed (lua_State *L, int name, int field) {
     lua_pushliteral(L, " is not available");
     lua_concat(L, 2);
   }
+}
+
+/* Raises what to write instead of the removed `name` -- or of its
+ * field `field` -- at the Lua code that reached for it. */
+static _Noreturn void raise_removed (lua_State *L, int name, int field) {
+  name = lua_absindex(L, name);
+  field = field == 0 ? 0 : lua_absindex(L, field);
+  luaL_where(L, 1);
+  push_removed(L, name, field);
   lua_concat(L, 2);
   lua_error(L);
   abort(); /* lua_error does not return */
+}
+
+bool cosmic_surface_push_removed_library (lua_State *L, const char *name) {
+  for (const struct removed *r = removed_names; r->name != NULL; r++) {
+    if (r->fields && strcmp(r->name, name) == 0) {
+      lua_pushstring(L, name);
+      push_removed(L, -1, 0);
+      lua_remove(L, -2);
+      return true;
+    }
+  }
+  return false;
 }
 
 /* A field of a removed library's stand-in, read or written: the
@@ -160,6 +180,49 @@ static int removed_field (lua_State *L) {
 /* The stand-in itself, called. */
 static int removed_call (lua_State *L) {
   raise_removed(L, lua_upvalueindex(1), 0);
+}
+
+/* The fields of `package` the surface removed: a module comes only from
+ * the database, so none of them has a use. Each is the name of an entry
+ * cosmic.removed's `package.` replacements carry. */
+static const char *const removed_package_fields[] = {
+  "path", "cpath", "loadlib", "searchpath", NULL,
+};
+
+static bool removed_package_field (lua_State *L, int field) {
+  if (lua_type(L, field) != LUA_TSTRING) {
+    return false;
+  }
+  const char *name = lua_tostring(L, field);
+  for (const char *const *f = removed_package_fields; *f != NULL; f++) {
+    if (strcmp(*f, name) == 0) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/* `package`'s __index, reached for a field the table lacks: one of the
+ * removed fields says what to write instead, any other is nil. */
+static int package_missing (lua_State *L) {
+  if (removed_package_field(L, 2)) {
+    lua_pushliteral(L, "package");
+    raise_removed(L, -1, 2);
+  }
+  lua_pushnil(L);
+  return 1;
+}
+
+/* `package`'s __newindex: a removed field is refused as a read is, and
+ * any other field is set as an ordinary table's. */
+static int package_assign (lua_State *L) {
+  if (removed_package_field(L, 2)) {
+    lua_pushliteral(L, "package");
+    raise_removed(L, -1, 2);
+  }
+  lua_settop(L, 3);
+  lua_rawset(L, 1);
+  return 0;
 }
 
 /* Reached when a program reads a global nothing defines: a removed
@@ -328,6 +391,14 @@ lua_State *cosmic_surface_open (const char *logical_executable) {
   clear_field(L, LUA_LOADLIBNAME, "cpath");
   clear_field(L, LUA_LOADLIBNAME, "loadlib");
   clear_field(L, LUA_LOADLIBNAME, "searchpath");
+  lua_getglobal(L, LUA_LOADLIBNAME);
+  lua_createtable(L, 0, 2);
+  lua_pushcfunction(L, package_missing);
+  lua_setfield(L, -2, "__index");
+  lua_pushcfunction(L, package_assign);
+  lua_setfield(L, -2, "__newindex");
+  lua_setmetatable(L, -2);
+  lua_pop(L, 1);
 
   lua_pushcfunction(L, surface_print);
   lua_setglobal(L, "print");

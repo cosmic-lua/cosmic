@@ -274,7 +274,9 @@ reaches outside the process: `string`, `table`, `math`, `utf8`,
 `coroutine`, and the base functions minus `dofile` and `loadfile`.
 `package` keeps `loaded`, `preload`, and `searchers`, and the one
 searcher reads the database; `path`, `cpath`, `loadlib`, and
-`searchpath` do not exist. `io`, `os`, and `debug` are not globals.
+`searchpath` do not exist: reading or writing one errors with what to write
+instead, as the checker refuses it, and so does a `require` of `io`, `os`, or
+`debug`. `io`, `os`, and `debug` are not globals.
 files, standard streams, environment, time, and processes are
 [`cosmic.fs`], [`cosmic.env`], [`cosmic.clock`], [`cosmic.time`], and [`cosmic.proc`], all
 over the syscall table, so the same call behaves the same on both

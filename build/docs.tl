@@ -1721,7 +1721,7 @@ end
 --- when [`cosmic.removed`] lists `query`: a member of a module written
 --- from its last name in either case (`Net.pair`, `net.pair`) or in
 --- full (`cosmic.net.pair`), by its `members`; else a field of a removed
---- global (`os.getenv`), by what `message` answers, with module `""`.
+--- global (`os.getenv`) or a removed field of `package` (`package.path`), by what `message` answers, with module `""`.
 --- The sentence is the compiler's hint ([`build.teal`]'s `replacement`),
 --- or `message` for a global, which is the same words a refusal at run
 --- time raises with.
@@ -1739,7 +1739,7 @@ local function removed_as(query: string): {string} | nil
   if qualifier == nil then
     return nil
   end
-  if Removed.names[qualifier] ~= nil then
+  if Removed.names[qualifier] ~= nil or Removed.replacements[query] ~= nil then
     return { "", Removed.message(qualifier, name) }
   end
   local keys: {string} = {}

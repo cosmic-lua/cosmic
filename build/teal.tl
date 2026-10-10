@@ -25,6 +25,15 @@ local record teal
   --- the catalog -- the replacements a refusal quotes -- compiles
   --- nothing again.
   withheld: {string}
+  --- The fields of `package` the runtime removes
+  --- ([`core/surface.c`]'s `clear_field` calls), which the checker is
+  --- stripped of the same way. They are spelled here for the reason
+  --- `withheld` is, and build/teal_catalog_test.tl holds them to the
+  --- catalog's `package_fields`.
+  withheld_package: {string}
+  --- Removes from `env` the names [`withheld`] and `withheld_package`
+  --- list, so the checker refuses each of them.
+  strip: function(env: compiler.Env)
 
   --- What `io.open` gives back. It reads whole files and writes
   --- strings; the compiler asks nothing else of a handle.
@@ -285,6 +294,34 @@ local function serve(built: compiler, db: Sqlite.Handle, root: string)
 end
 
 teal.withheld = { "io", "os", "debug", "dofile", "loadfile" }
+teal.withheld_package = { "path", "cpath", "loadlib", "searchpath" }
+
+function teal.strip(env: compiler.Env)
+  for _, name in ipairs(teal.withheld) do
+    env.globals[name] = nil
+    env.modules[name] = nil
+  end
+  -- tl declares `package` as a global record; its fields are the
+  -- declaration's `def.fields` and, in declaration order, `field_order`, and a
+  -- key it lacks is refused as `invalid key 'path' in record 'package'`.
+  local declared = env.globals["package"]
+  local declaration = declared ~= nil and declared.t or nil
+  local record_type = declaration ~= nil and declaration.def or nil
+  local fields = record_type ~= nil and record_type.fields or nil
+  local order = record_type ~= nil and record_type.field_order or nil
+  for _, field in ipairs(teal.withheld_package) do
+    if fields ~= nil then
+      fields[field] = nil
+    end
+    if order ~= nil then
+      for i = #order, 1, -1 do
+        if order[i] == field then
+          table.remove(order, i)
+        end
+      end
+    end
+  end
+end
 
 --- A checker environment pointed at a staged tree (see `serve`), with
 --- the strictness this project holds itself to and without the names
@@ -314,10 +351,7 @@ function teal.environment_for(built: compiler, db: Sqlite.Handle,
   if env == nil then
     return nil, trouble
   end
-  for _, name in ipairs(teal.withheld) do
-    env.globals[name] = nil
-    env.modules[name] = nil
-  end
+  teal.strip(env)
   return env
 end
 
@@ -1035,6 +1069,7 @@ end
 
 --- What [`replacement`] reads of [`cosmic.removed`].
 local record Catalog
+  replacements: {string:string}
   names: {string:string}
   members: {string:string}
   arguments: {string:string}
@@ -1061,9 +1096,13 @@ local function catalog(): Catalog | nil
     return nil
   end
   local names, members, arguments, message = loaded.names, loaded.members, loaded.arguments, loaded.message
+  local replacements = loaded.replacements
   if names is {string:string} and members is {string:string} and arguments is {string:string} and
-      message is function(string, string): string then
-    return { names = names, members = members, arguments = arguments, message = message }
+      replacements is {string:string} and message is function(string, string): string then
+    return {
+      names = names, members = members, arguments = arguments,
+      replacements = replacements, message = message,
+    }
   end
   return nil
 end
@@ -1354,6 +1393,14 @@ function teal.replacement(msg: string, source: string, y: integer, x: integer,
   end
   local key, alias, typename = msg:match(
     "^invalid key '([%a_][%w_]*)' in record '([%a_][%w_]*)' of type ([%a_][%w_]*)$")
+  if key ~= nil and alias == "package" and typename == "package" then
+    -- tl's `package` has no field the runtime removed ([`strip`]), and
+    -- the catalog says what to write for each.
+    local removed = catalog()
+    if removed ~= nil and removed.replacements["package." .. key] ~= nil then
+      return removed.message("package", key)
+    end
+  end
   if key == nil then
     -- A module whose record is a local of its own (cosmic.cli's) is
     -- named by its description, `record Module`, not by the alias; the

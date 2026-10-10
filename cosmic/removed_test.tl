@@ -33,13 +33,39 @@ local modules <const>: {string:any} = {
 --- `message` can reach it: an entry under a misspelt library would never
 --- be said.
 local function test_every_replacement_is_for_a_removed_name()
+  local package_fields: {string:boolean} = {}
+  for _, field in ipairs(Removed.package_fields) do
+    package_fields[field] = true
+  end
   for dotted in pairs(Removed.replacements) do
-    local name = dotted:match("^([%a_]+)%.")
-    assert(name ~= nil and Removed.names[name] ~= nil, dotted)
+    local name, field = dotted:match("^([%a_]+)%.([%a_]+)$")
+    if name == "package" then
+      -- `package` is no removed name: only its four removed fields are.
+      assert(package_fields[field], dotted)
+      assert(Removed.names.package == nil)
+    else
+      assert(name ~= nil and Removed.names[name] ~= nil, dotted)
+    end
+  end
+  for _, field in ipairs(Removed.package_fields) do
+    assert(Removed.replacements["package." .. field] ~= nil, field)
   end
   for _, name in ipairs(Removed.order) do
     assert(Removed.names[name] ~= nil, name)
   end
+end
+
+--- Each removed field of `package` says there is no search path and
+--- what a module or a file's text comes from instead.
+local function test_the_removed_package_fields_say_what_to_do_instead()
+  assert(#Removed.package_fields == 4)
+  for _, field in ipairs(Removed.package_fields) do
+    local text = Removed.message("package", field)
+    assert(text:find("package." .. field .. " is not available: ", 1, true) == 1, text)
+    assert(text:find("require(name)", 1, true) ~= nil, text)
+  end
+  assert(Removed.message("package", "path"):find("Fs.read(path)", 1, true) ~= nil)
+  assert(Removed.message("package", "loaded") == "package.loaded is not available")
 end
 
 local function test_a_field_with_no_replacement_names_where_to_look()
