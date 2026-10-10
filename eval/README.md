@@ -125,8 +125,8 @@ directory (`/mnt/skills`, `/home/claude/.claude/skills`), other arena or
 user config is there to read. Its environment is the proxy variables,
 the CA bundle variables, any Anthropic credential or endpoint variable
 the host sets, and its own PATH (the arena's `bin/` first), `HOME`,
-`CLAUDE_CONFIG_DIR` and `TMPDIR`, and nothing else: the variables a
-cloud session sets that bring the checkout's instructions or a synced
+`CLAUDE_CONFIG_DIR`, `TMPDIR` and `COSMIC_TEST_SANDBOX=0`, and nothing
+else: the variables a cloud session sets that bring the checkout's instructions or a synced
 skill back in (`CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD`,
 `CLAUDE_ADDITIONAL_DIRECTORIES`, `CLAUDE_CODE_SYNC_SKILLS`) are never
 passed. It does not isolate the network: the solver reaches the API
@@ -134,7 +134,11 @@ through the host's network and proxy, and so could fetch anything the
 proxy allows; the prompt's rule and the transcript still govern that.
 The solver runs as the caller's user, in a user namespace of its own,
 holding no capability, with every path but the arena's four mounted
-read-only.
+read-only. With no capability, cosmic cannot sandbox a test worker
+there (build/test_policy.tl's `unmet`), so the environment also carries
+`COSMIC_TEST_SANDBOX=0`: the solver's `cosmic test` runs its workers
+unsandboxed, which it would do anyway, and says so. The grader runs
+under the same pin (below).
 
 The sandbox needs Linux with user namespaces the caller may make: where
 `cosmic test` sandboxes its workers, eval/solve sandboxes the solver. A
@@ -155,7 +159,8 @@ trusting the setup.
 config=$(mktemp -d)
 cd "$dir/project" && env -u CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD \
   -u CLAUDE_ADDITIONAL_DIRECTORIES -u CLAUDE_CODE_SYNC_SKILLS \
-  CLAUDE_CONFIG_DIR="$config" TMPDIR="$dir/tmp" PATH="$dir/bin:$PATH" timeout 600 \
+  CLAUDE_CONFIG_DIR="$config" TMPDIR="$dir/tmp" PATH="$dir/bin:$PATH" \
+  COSMIC_TEST_SANDBOX=0 timeout 600 \
   claude -p "$(cat "$dir/PROMPT.md")" \
   --model "$model" --disable-slash-commands \
   --tools "Bash,Read,Write,Edit,Glob,Grep" \
@@ -294,14 +299,15 @@ modules only. For each task it
    in it, as the journal contract asks -- what it says is the
    reader's to judge, not the grader's;
 2. clears the runs `project/o/build.db` records, runs the arena's own
-   `bin/cosmic test`, and requires a passing test and a passing example
-   (or doctest) among the runs that test recorded;
+   `bin/cosmic test` (workers unsandboxed, as for step 4), and requires
+   a passing test and a passing example (or doctest) among the runs
+   that test recorded;
 3. runs `cosmic fix --check` with `JOURNAL.md` set aside;
 4. for a task that names a library API, copies the project, but for
    its `o/`, into a temporary directory, adds the task's hidden test,
    [`eval/check/testdata/<task>_api_test.tl`](check/testdata), and runs
-   `cosmic test` on that file alone there: each test that fails, or
-   each line the compiler refuses (a module, type or method missing, a
+   `cosmic test` on that file alone there (unsandboxed, as step 2):
+   each test that fails, or each line the compiler refuses (a module, type or method missing, a
    type that does not fit), is a `check: FAIL hidden api: ...` line.
    The solver never sees the test, the project never holds it, and
    the copy is removed afterward; its output is kept as a
@@ -311,6 +317,17 @@ modules only. For each task it
    alone into the arena's `empty/`, and runs the task's checks there,
    the executable with an empty environment but for a variable a check
    names.
+
+Both `cosmic test` steps run with `COSMIC_TEST_SANDBOX=0`, and
+`COSMIC_SANDBOX` and `COSMIC_CI_REQUIRE_SANDBOX` removed, whatever the
+grader's own environment holds: the solver is uid 0 of a user namespace
+without capabilities, where cosmic cannot sandbox a worker, so its
+`cosmic test` ran unsandboxed, while the grader's host can sandbox. Left
+to the host, a test that reached the network or a socket file without
+declaring it in [`Test.policy`] would pass for the solver and fail at
+grading. The hidden tests still declare what they use
+([`eval/check/testdata_test.tl`] holds them to it), so they also pass
+sandboxed.
 
 Each step's output is kept in the arena as `check-<n>.out`, and a server
 task's as `check-serve.out` (relay's as `check-relay*.out`). Every check
@@ -354,6 +371,8 @@ ranking. Then:
 [`eval/arena_test.tl`]: arena_test.tl
 [`eval/arena`]: arena
 [`eval/check/grade.tl`]: check/grade.tl
+[`eval/check/testdata_test.tl`]: check/testdata_test.tl
 [`eval/journal.md`]: journal.md
 [`eval/solve`]: solve
 [`eval/summarize`]: summarize
+[`Test.policy`]: ../cosmic/test.tl
