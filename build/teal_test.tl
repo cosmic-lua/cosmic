@@ -928,11 +928,20 @@ local function test_a_named_vararg_is_told_it_takes_no_name()
   hint = syntax_hint("local M = {}\nfunction M.f(a: integer, ...rest: string) end\n")
   assert(hint ~= nil and hint:find("write `...: string`", 1, true) ~= nil, tostring(hint))
   hint = syntax_hint("local function f(... rest: {string}) end\n")
-  assert(hint ~= nil and hint:find("write `...: T`", 1, true) ~= nil, tostring(hint))
+  assert(hint ~= nil and hint:find("write `...: {string}`", 1, true) ~= nil, tostring(hint))
+  hint = syntax_hint("local function f(...rest?: string | nil, b: integer) end\n")
+  assert(hint ~= nil and hint:find("write `...: string | nil`", 1, true) ~= nil, tostring(hint))
+  hint = syntax_hint("local function f(...names: function(string): string) end\n")
+  assert(hint ~= nil and hint:find("write `...: function(string): string`", 1, true) ~= nil,
+    tostring(hint))
+  hint = syntax_hint("local f = function<T>(...names: Map<T>) end\n")
+  assert(hint ~= nil and hint:find("write `...: Map<T>`", 1, true) ~= nil, tostring(hint))
 end
 
 --- Other `expected one of: ')', ','` errors are not about a vararg.
 local function test_other_missing_comma_errors_get_no_vararg_hint()
   assert(syntax_hint("local function f(a b) end\n") == nil)
   assert(syntax_hint("f(a b)\n") == nil)
+  assert(syntax_hint("local function g(...: string) print(... x) end\n") == nil)
+  assert(syntax_hint("f(...x)\n") == nil)
 end

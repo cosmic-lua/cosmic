@@ -1229,18 +1229,66 @@ local function missing_key(msg: string): MissingKey | nil
   return { key = key, owner = owner }
 end
 
+--- Whether `before`, the text of a line up to a `...`, ends inside a
+--- function's parameter list: its nearest unmatched `(` follows `function`,
+--- `function name`, `function a.b`, `function a:b`, with or without a
+--- generic `<...>` after the name. A `(` of a call does not.
+local function in_parameters(before: string): boolean
+  local depth = 0
+  for i = #before, 1, -1 do
+    local c = before:sub(i, i)
+    if c == ")" then
+      depth = depth + 1
+    elseif c == "(" then
+      if depth == 0 then
+        local head = before:sub(1, i - 1):gsub("%s+$", "")
+        head = head:gsub("%b<>$", "")
+        return head:match("%f[%w_]function$") ~= nil or
+          head:match("%f[%w_]function%s+[%a_][%w_]*[%.:]?[%w_%.:]*$") ~= nil
+      end
+      depth = depth - 1
+    end
+  end
+  return false
+end
+
+--- The type text of a parameter whose `:` starts `rest`, up to the `,` or
+--- `)` that ends it outside any brackets; nil when none does on the line.
+local function type_text(rest: string): string | nil
+  local depth = 0
+  local from = rest:match("^%s*:%s*()")
+  if from == nil then
+    return nil
+  end
+  for i = from, #rest do
+    local c = rest:sub(i, i)
+    if c == "(" or c == "{" or c == "[" or c == "<" then
+      depth = depth + 1
+    elseif depth > 0 and (c == ")" or c == "}" or c == "]" or c == ">") then
+      depth = depth - 1
+    elseif depth == 0 and (c == "," or c == ")") then
+      local text = rest:sub(from, i - 1):gsub("%s+$", "")
+      return text ~= "" and text or nil
+    end
+  end
+  return nil
+end
+
 --- What to write for a vararg given a name (`...names: string`), when the
---- syntax error at `y`:`x` is on that name: the text before it ends in
---- `...` and an identifier starts there, followed by `:`, `?`, `,` or `)`.
---- The type is the one the line spells when it is a plain name
---- (`string`, `Http.Request`), else `T`. nil for any other `expected one
---- of: ')', ','` error.
+--- syntax error at `y`:`x` is on that name: the text before it on the line
+--- ends in `...` inside a function's parameter list ([`in_parameters`]) and
+--- an identifier starts there, followed by `:`, `?`, `,` or `)`. The type
+--- is the one the line spells ([`type_text`]), else `<type>`. nil for any
+--- other `expected one of: ')', ','` error, including a `...` that is an
+--- expression (`f(...x)`) and a list whose `...` and name are on different
+--- lines.
 local function vararg_name_hint(source: string, y: integer, x: integer): string | nil
   local line = line_at(source, y)
   if line == nil or x < 1 then
     return nil
   end
-  if line:sub(1, x - 1):match("%.%.%.%s*$") == nil then
+  local before = line:sub(1, x - 1):match("^(.-)%.%.%.%s*$")
+  if before == nil or not in_parameters(before) then
     return nil
   end
   local rest = line:sub(x)
@@ -1248,7 +1296,8 @@ local function vararg_name_hint(source: string, y: integer, x: integer): string 
   if name == nil or rest:sub(#name + 1):match("^%s*[:?,)]") == nil then
     return nil
   end
-  local typed = rest:sub(#name + 1):match("^%s*:%s*([%a_][%w_%.]*)%s*[,)]") or "T"
+  local after = rest:sub(#name + 1):gsub("^%s*%?", "")
+  local typed = type_text(after) or "<type>"
   return "a vararg takes no name: write `...: " .. typed ..
     "` and read it as `{ ... }`, or `select(\"#\", ...)` where a nil may be among them"
 end
@@ -1320,7 +1369,7 @@ end
 --- A vararg given a name (`local function f(...names: string)`, the
 --- parser's `syntax error, expected one of: ')', ','` at the name) is told
 --- it takes none and to write `...: string` ([`vararg_name_hint`]); any other
---- such error is told nothing.
+--- such error is told nothing, nor is a name on a later line than its `...`.
 ---
 --- One nominal type refused for another of the same last name
 --- (`Store is not a Kv.Store`) is told they are two types, and an
