@@ -130,7 +130,7 @@ end
 
 -- A table literal argument is typed from its parameter's type, so a call's
 -- type variables are bound from the variable arguments before the expected
--- result binds them when it would refuse one (patch/tl/41).
+-- result binds them when it would refuse one (patch/tl/42).
 local function test_a_table_literal_for_an_interface_return_takes_the_metatable_s_record(tmp: string)
   local ok, trouble = compiles(tmp, "literal-interface", prelude .. [[
 local function named(): Named
@@ -177,4 +177,72 @@ end
 print(open)
 ]])
   assert(not ok, "a Thing is no Other, but the compile passed: " .. tostring(trouble))
+end
+
+-- TODO: accept `setmetatable({ name = "a" }, R.mt)` and a metatable that is a
+-- call (`g()`) in a function returning an interface Thing implements: patch
+-- 42 binds only from arguments that are plain variables, because a literal
+-- is typed before the arguments after it are. The fix is to visit the
+-- non-literal arguments first, as the binds_context path of patches 37g and
+-- 37h does, and bind from their types.
+local function test_a_metatable_that_is_no_variable_still_takes_the_interface_first(tmp: string)
+  local ok, trouble = compiles(tmp, "literal-index-mt", prelude .. [[
+local R = { mt = thing_mt }
+local function g(): metatable<Thing>
+  return thing_mt
+end
+local function by_field(): Named
+  return setmetatable({ name = "a" }, R.mt)
+end
+print(by_field, g)
+]])
+  assert(not ok, "known limit: only a variable argument binds first, but the compile passed: " .. tostring(trouble))
+  ok, trouble = compiles(tmp, "literal-call-mt", prelude .. [[
+local function g(): metatable<Thing>
+  return thing_mt
+end
+local function by_call(): Named
+  return setmetatable({ name = "a" }, g())
+end
+print(by_call)
+]])
+  assert(not ok, "known limit: only a variable argument binds first, but the compile passed: " .. tostring(trouble))
+end
+
+-- TODO: refuse `id({ name = "a" }, u)` with u: Thing | nil in a function
+-- returning Named, and accepted before patch 42 too: the result of a call
+-- whose T the arguments bind to a Thing | nil is taken for a Named, so the
+-- nil leaks through. The fix is for the check of the result against the
+-- return type to see T's union, not the literal's record.
+local function test_a_nilable_argument_leaks_through_a_shared_type_variable(tmp: string)
+  local ok, trouble = compiles(tmp, "hole-nil", prelude .. [[
+local function id<T>(a: T, b: T): T
+  print(a)
+  return b
+end
+local function named(): Named
+  local u: Thing | nil
+  return id({ name = "a" }, u)
+end
+print(named, thing_mt)
+]])
+  assert(ok, "known hole: the nil of u is not seen, but: " .. tostring(trouble))
+end
+
+-- TODO: refuse `wrap({ { name = "a" } }, ts)` with ts: {Thing} in a function
+-- returning {Named}: arrays are checked covariantly, so a {Thing} passes for
+-- a {Named}, and the caller may store any Named in it. The fix is for the
+-- checker to take an array's element type invariantly, as a map's.
+local function test_an_array_is_taken_covariantly_through_a_type_variable(tmp: string)
+  local ok, trouble = compiles(tmp, "hole-array", prelude .. [[
+local function wrap<T>(a: {T}, b: {T}): {T}
+  print(a)
+  return b
+end
+local function named(ts: {Thing}): {Named}
+  return wrap({ { name = "a" } }, ts)
+end
+print(named, thing_mt)
+]])
+  assert(ok, "known hole: array covariance is accepted, but: " .. tostring(trouble))
 end
