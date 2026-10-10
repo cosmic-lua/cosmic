@@ -274,7 +274,9 @@ reaches outside the process: `string`, `table`, `math`, `utf8`,
 `coroutine`, and the base functions minus `dofile` and `loadfile`.
 `package` keeps `loaded`, `preload`, and `searchers`, and the one
 searcher reads the database; `path`, `cpath`, `loadlib`, and
-`searchpath` do not exist. `io`, `os`, and `debug` are not globals.
+`searchpath` do not exist: reading or writing one errors with what to write
+instead, as the checker refuses it, and so does a `require` of `io`, `os`, or
+`debug`. `io`, `os`, and `debug` are not globals.
 files, standard streams, environment, time, and processes are
 [`cosmic.fs`], [`cosmic.env`], [`cosmic.clock`], [`cosmic.time`], and [`cosmic.proc`], all
 over the syscall table, so the same call behaves the same on both
@@ -283,7 +285,12 @@ syscall table, and `fs` writes to a stream without a newline.
 [`cosmic.errors`] exposes a traceback for error reporting; the coverage
 collector is a C hook behind a private binding, and `debug` itself is
 never opened. a name that is missing errors with the module
-that replaces it.
+that replaces it. reading `io`, `os` or `debug` answers a stand-in
+table, so `if os then` is true and the first field used raises, naming
+the replacement for that very field, at the site that used it.
+`cosmic docs <name>` (`cosmic docs os.exit`) answers the same text, and
+[`cosmic.removed`] is the one place the map from a removed name to its
+replacement lives.
 
 the compiler -- the Lua the vendored `tl.tl` compiles to (below) --
 reaches outside the pure libraries in five
@@ -1174,6 +1181,7 @@ in [roadmap.md](roadmap.md).
 [`cosmic.internal.store`]: ../cosmic/internal/store.d.tl
 [`cosmic.internal.testing`]: ../cosmic/internal/testing.d.tl
 [`cosmic.proc`]: ../cosmic/proc.tl
+[`cosmic.removed`]: ../cosmic/removed.tl
 [`cosmic.sqlite`]: ../cosmic/sqlite.tl
 [`cosmic.store`]: ../cosmic/store.tl
 [`cosmic.sys`]: ../core/syscalls.h

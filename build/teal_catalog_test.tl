@@ -19,6 +19,11 @@ local function test_the_withheld_globals_are_the_catalog_s_order()
   end
 end
 
+--- The same for the fields of `package`, which the runtime removes.
+local function test_the_withheld_package_fields_are_the_catalog_s_order()
+  assert(table.concat(teal.withheld_package, " ") == table.concat(Removed.package_fields, " "))
+end
+
 --- The checker's environment lacks each of them, as a global and as a
 --- module.
 local function test_the_checker_is_stripped_of_each_withheld_global()
@@ -45,4 +50,33 @@ local function test_a_refusal_quotes_the_catalog()
   local cache = 'local Fs = require("cosmic.fs")\nreturn Fs.cache_path("zig")\n'
   assert(teal.replacement("invalid key 'cache_path' in record 'Fs' of type Fs", cache, 2, 11) ==
       "Fs.cache_path was removed: " .. Removed.members["cosmic.fs.cache_path"])
+end
+
+--- `package.path` and its three siblings type-check in tl's own
+--- declarations; cosmic's checker refuses them as a missing key, and the
+--- refusal quotes the catalog. The rest of `package` is untouched.
+local function test_the_checker_refuses_the_removed_package_fields()
+  local built = assert(teal.load())
+  local db = assert(Sqlite.memory())
+  for _, field in ipairs(Removed.package_fields) do
+    local source = "local x = package." .. field .. "\nprint(x)\n"
+    -- A checked environment keeps the errors it found.
+    local fresh = assert(teal.environment_for(built, db, "/nonexistent"))
+    local result = built.check_string(source, fresh, "removed_package", "tl")
+    local found: string | nil = nil
+    for _, e in ipairs(result.type_errors) do
+      if e.msg:find("invalid key '" .. field .. "' in record 'package'", 1, true) then
+        found = e.msg
+      end
+    end
+    local seen: {string} = {}
+    for _, e in ipairs(result.type_errors) do seen[#seen + 1] = e.msg end
+    assert(found ~= nil, field .. " was not refused: " .. table.concat(seen, "; "))
+    assert(teal.replacement(found, source, 1, 11) == Removed.message("package", field), found)
+  end
+  local kept_env = assert(teal.environment_for(built, db, "/nonexistent"))
+  local kept = built.check_string(
+    "print(package.loaded, package.preload, package.searchers, package.config)\n",
+    kept_env, "kept_package", "tl")
+  assert(#kept.type_errors == 0 and #kept.syntax_errors == 0)
 end

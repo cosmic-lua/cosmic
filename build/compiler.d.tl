@@ -38,9 +38,26 @@ local record compiler
     defaults: Defaults
   end
 
+  -- A record global's type: its fields as a table and in declaration
+  -- order.
+  record GlobalType
+    fields: {string:any} | nil
+    field_order: {string} | nil
+  end
+
+  -- The declaration of a record global, whose `def` is its type.
+  record GlobalDeclaration
+    def: GlobalType | nil
+  end
+
+  -- One global of the checker's environment.
+  record Global
+    t: GlobalDeclaration | nil
+  end
+
   record Env
     defaults: Defaults
-    globals: {string:any}
+    globals: {string:Global}
     modules: {string:any}
     -- When set, the checker hands every node's type to `reporter`'s
     -- collector as it checks; see [`build.receivers`].

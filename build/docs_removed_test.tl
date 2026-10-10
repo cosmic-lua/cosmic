@@ -127,6 +127,16 @@ local function test_a_removed_global_s_field_answers_its_replacement(dir: string
   assert(not shown:find("One variable", 1, true), shown)
 end
 
+--- A removed field of `package` answers the catalog too, though
+--- `package` itself is no removed name: its other fields keep theirs.
+local function test_a_removed_package_field_answers_its_replacement(dir: string)
+  local view = assert(docs.view({ fixture.database(dir, tree()) }))
+  local found = assert(docs.lookup(view, "package.path"))
+  assert(found.exact and #found == 1 and found[1].kind == "removed")
+  assert(page(view, found):find("package.path is not available: there is no file search path",
+    1, true))
+end
+
 --- A name that is still documented keeps its own page, though the
 --- catalog lists it, and a name the catalog does not list is searched
 --- as it was.
