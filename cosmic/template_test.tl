@@ -580,6 +580,78 @@ local function test_text_in_runs_is_read_as_it_is_whole()
   end
 end
 
+local function test_a_block_may_add_a_whole_attribute_wherever_it_stands_in_a_tag()
+  for _, src in ipairs({
+      '<input{{if .a}} checked{{end}} name="n">',
+      '<input {{if .a}}checked {{end}}name="n">',
+      '<input type="checkbox"{{if .a}} checked{{end}} name="n">',
+      '<input type="checkbox" {{if .a}}checked {{end}}name="n">',
+      '<input type="checkbox"{{if .a}} checked{{end}}>',
+      '<input type="checkbox" {{if .a}}checked{{end}}>',
+      '<input name=n{{if .a}} checked{{end}} id="i">',
+      '<input{{if .a}} checked{{end}}/>',
+      '<input{{if .a}} checked{{end}} />',
+      '<option{{if .a}} selected{{end}}>x</option>',
+      '<input{{if .a}} disabled{{else}} required{{end}} name="n">',
+      '<select{{if .a}} multiple{{end}}{{if .b}} disabled{{end}} name="n"></select>',
+      '<input{{if .a}} class="c"{{end}} name="n">',
+      '<input{{range .l}} checked{{end}} name="n">',
+      '<input{{if .a}} checked{{end}}\n  name="n">',
+      '<textarea{{if .a}} disabled{{end}}></textarea>',
+  }) do
+    local out = compiled(HEAD .. src .. "{{.x}}")
+    assert(out:find("parts[#parts + 1] = _text(v)", 1, true), src .. ": " .. out)
+  end
+  local out = compiled(HEAD .. '<input{{if .a}} checked{{end}} title="{{.t}}" src="{{.u}}">')
+  assert(out:find("_attr(v)", 1, true) and out:find("_url(v)", 1, true), out)
+  out = compiled(HEAD .. '<img{{if .a}} hidden{{end}}{{with .w}} title="{{.t}}"{{end}} src="{{.u}}">')
+  assert(out:find("_attr(v)", 1, true) and out:find("_url(v)", 1, true), out)
+end
+
+--- Text after a block that adds an attribute, which would read differently
+--- after each arm, and where it is refused. Line 1 is the `{{type}}` line.
+local APART <const>: {{string}} = {
+  -- `checked="x"` in one arm, the tag `<input=x>` in the other.
+  { '<input{{if .a}} checked{{end}}=x>', "2", "31", "reads differently" },
+  { '<input{{if .a}} checked{{end}} =x>', "2", "32", "reads differently" },
+  { '<input{{if .a}} checked{{end}}\n  =x>', "3", "3", "reads differently" },
+  -- `checked` in one arm, `ked` in the other.
+  { '<input {{if .a}}chec{{end}}ked>', "2", "28", "reads differently" },
+  { '<input{{if .a}} checked{{end}}put>', "2", "31", "reads differently" },
+  { '<input{{if .a}} name=n{{end}}/>', "2", "30", "reads differently" },
+  { '<input{{range .l}} checked{{end}}=x>', "2", "34", "reads differently" },
+  { '<meta{{if .a}} http-equiv{{end}} content="{{.c}}">', "2", "33", "reads differently" },
+  -- The arm that names http-equiv is the one the `>` ends, not the place kept.
+  { '<meta content="{{.c}}"{{if .a}}{{else}} http-equiv{{end}}>', "2", "16", "could be a redirect" },
+  { '<input{{range .l}} {{end}}name=x>', "2", "27", "a block before this text" },
+  -- Run again, the body's own `a` carries on the `a` the run before wrote.
+  { '<input {{range .l}}a{{end}}>', "2", "20", "the {{range}} it is in" },
+  { '<input{{if .a}} checked{{end}}{{.x}}>', "2", "31", "a slot" },
+  { '<input{{if .a}} checked{{end}}', "2", "31", "the template ends inside a tag" },
+  { '<in{{if .a}}put checked{{end}}>', "2", "4", "end in different places" },
+  -- An arm that goes on with the name or value the block cut, then adds an attribute.
+  { '<input a{{if .a}}checked {{end}}>', "2", "9", "end in different places" },
+  { '<input name=n{{if .a}}x checked{{end}}>', "2", "14", "end in different places" },
+  { '<input a{{if .a}}=x{{end}}>', "2", "9", "end in different places" },
+  { '<input a {{if .a}}=x{{end}}>', "2", "10", "end in different places" },
+  { '<input/{{if .a}} checked{{end}}>', "2", "8", "end in different places" },
+  { '<p>{{if .a}}<input{{end}} checked>', "2", "4", "end in different places" },
+  { '<a{{if .a}} href{{end}}="{{.u}}">', "2", "24", "reads differently" },
+  { '<meta{{if .a}} http-equiv="refresh"{{end}} content="{{.c}}">', "2", "6", "end in different places" },
+}
+
+local function test_text_that_reads_differently_after_each_arm_of_a_block_is_refused()
+  local wrong: {string} = {}
+  for _, case in ipairs(APART) do
+    local why = refused(HEAD .. case[1])
+    local want = "t.tmpl:" .. case[2] .. ":" .. case[3] .. ": "
+    if why:sub(1, #want) ~= want or not why:find(case[4], 1, true) then
+      wrong[#wrong + 1] = case[1] .. " said " .. why .. ", not " .. want .. "..." .. case[4]
+    end
+  end
+  assert(#wrong == 0, table.concat(wrong, "\n"))
+end
+
 --- `inner` inside `depth` nested ranges, each over `.l`.
 local function nested_ranges(depth: integer, inner: string): string
   return string.rep("{{range .l}}", depth) .. inner .. string.rep("{{end}}", depth)

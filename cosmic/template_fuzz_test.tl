@@ -329,6 +329,7 @@ local function test_modes_agree_on_syntax_and_text_takes_what_html_does(tmp: str
         Fuzz.label("html refuses")
         if not html_why:find(": a slot ", 1, true) and not html_why:find(" end in different places", 1, true) and
             not html_why:find(" ends where it did not", 1, true) and
+            not html_why:find(" reads differently after each", 1, true) and
             not html_why:find("could complete a scheme", 1, true) and
             not html_why:find("protocol-relative", 1, true) and
             not html_why:find(": the template ends ", 1, true) then
@@ -850,6 +851,314 @@ local function test_a_string_action_renders_the_bytes_it_quotes(tmp: string)
       local made = loaded.render({ a = "P" })
       if made ~= table.concat(want) then
         return false, "rendered " .. string.format("%q", made) .. " for " .. string.format("%q", table.concat(want))
+      end
+      return true, ""
+    end,
+  })
+end
+
+--- A start tag as the HTML standard's tokenizer reads the text at the start
+--- of `s`, apart from the tracker: its name, its attributes (`name=value`,
+--- sorted), whether it closes itself, the tokenizer's state where `s` ends
+--- ("" once the tag has ended) and all it holds there (`at`), the text after
+--- the tag, and where each slot stands. A slot is written `\1<n>\2`.
+local record Tag
+  name: string
+  attrs: {string}
+  selfclosing: boolean
+  state: string
+  at: string
+  rest: string
+  --- Each slot in the tag, as its number, then what it is: "attr", "url"
+  --- or "refuse" (outside a quoted value, or the content of a <meta> that
+  --- has http-equiv).
+  slots: {{string}}
+end
+
+local function read_tag(s: string): Tag
+  local tag: Tag = { name = "", attrs = {}, selfclosing = false, state = "tag_name", at = "", rest = "", slots = {} }
+  local name, value = "", ""
+  local function push()
+    tag.attrs[#tag.attrs + 1] = name .. "=" .. value
+    name, value = "", ""
+  end
+  local named: {string} = {}
+  local i = 2
+  while i <= #s and tag.state ~= "" do
+    local c = s:sub(i, i)
+    local white = c:find("^[ \t\n\f\r]") ~= nil
+    local state = tag.state
+    local again = false
+    if c == "\1" then
+      local close = s:find("\2", i, true) or #s
+      local id = s:sub(i + 1, close - 1)
+      if state == "value_dq" or state == "value_sq" then
+        tag.slots[#tag.slots + 1] = { id, name == "href" and value == "" and "url" or "attr" }
+        named[#tag.slots] = name
+        value = value .. s:sub(i, close)
+      else
+        tag.slots[#tag.slots + 1] = { id, "refuse" }
+      end
+      i = close
+    elseif state == "tag_name" then
+      if white then
+        tag.state = "before_attr"
+      elseif c == "/" then
+        tag.state = "selfclosing"
+      elseif c == ">" then
+        tag.state = ""
+      else
+        tag.name = tag.name .. c:lower()
+      end
+    elseif state == "before_attr" then
+      if c == "/" then
+        tag.state = "selfclosing"
+      elseif c == ">" then
+        tag.state = ""
+      elseif not white then
+        name = c:lower()
+        tag.state = "attr_name"
+      end
+    elseif state == "attr_name" then
+      if white or c == "/" or c == ">" then
+        tag.state, again = "after_attr", true
+      elseif c == "=" then
+        tag.state = "before_value"
+      else
+        name = name .. c:lower()
+      end
+    elseif state == "after_attr" then
+      if c == "/" then
+        push()
+        tag.state = "selfclosing"
+      elseif c == "=" then
+        tag.state = "before_value"
+      elseif c == ">" then
+        push()
+        tag.state = ""
+      elseif not white then
+        push()
+        tag.state, again = "before_attr", true
+      end
+    elseif state == "before_value" then
+      if c == "\"" then
+        tag.state = "value_dq"
+      elseif c == "'" then
+        tag.state = "value_sq"
+      elseif c == ">" then
+        push()
+        tag.state = ""
+      elseif not white then
+        tag.state, again = "value_unq", true
+      end
+    elseif state == "value_dq" or state == "value_sq" then
+      if c == (state == "value_dq" and "\"" or "'") then
+        push()
+        tag.state = "after_value"
+      else
+        value = value .. c
+      end
+    elseif state == "after_value" then
+      tag.state, again = "before_attr", true
+    elseif state == "value_unq" then
+      if white then
+        push()
+        tag.state = "before_attr"
+      elseif c == ">" then
+        push()
+        tag.state = ""
+      else
+        value = value .. c
+      end
+    elseif state == "selfclosing" then
+      if c == ">" then
+        tag.selfclosing = true
+        tag.state = ""
+      else
+        tag.state, again = "before_attr", true
+      end
+    end
+    if not again then
+      i = i + 1
+    end
+  end
+  tag.rest = s:sub(i)
+  if tag.state ~= "" then
+    tag.at = table.concat({ tag.state, tag.name, name, value }, "\0")
+  end
+  table.sort(tag.attrs)
+  local equiv = false
+  for _, a in ipairs(tag.attrs) do
+    equiv = equiv or a:find("^http%-equiv=") ~= nil
+  end
+  for n, slot in ipairs(tag.slots) do
+    if tag.name == "meta" and equiv and named[n] == "content" then
+      slot[2] = "refuse"
+    end
+  end
+  return tag
+end
+
+--- What may stand in a tag around a block, and what the block may add.
+local TAG_PIECES <const> = { " ", "\n", "/", " name=\"n\"", " type='checkbox'", " a", "b", "=", "chec", "ked",
+  " http-equiv", " content=\"{{.x}}\"", " color", " face", " size", " title=\"{{.x}}\"", " href=\"{{.x}}\"" }
+local TAG_ARMS <const> = { " checked", "checked ", " checked ", "checked", " disabled", "\nselected\n", " a=\"b\"",
+  "=x", "ked", "/", " /", "", " http-equiv", " http-equiv", " color", " title=\"{{.x}}\"", " content=\"{{.x}}\"" }
+
+--- Whether a `<font>` that has one of these attributes takes the parser
+--- out of `<svg>`.
+local FONT_BREAKS <const>: {string: boolean} = { color = true, face = true, size = true }
+
+--- Whether the opening `<svg>` is there, the tag, the text before a block
+--- in it, the block's kind, what its arms write, and the text after it.
+local function gen_tag_block(src: Fuzz.Source): string
+  local before: {string} = {}
+  while Fuzz.more(src, #before, 3) do
+    before[#before + 1] = Fuzz.pick(src, TAG_PIECES)
+  end
+  local after: {string} = {}
+  while Fuzz.more(src, #after, 3) do
+    after[#after + 1] = Fuzz.pick(src, TAG_PIECES)
+  end
+  local lead = Fuzz.pick(src, { "", "", "", "<svg>" })
+  local open = lead ~= "" and "<font" or Fuzz.pick(src, { "<input", "<option", "<br", "<meta", "<font", "<svg" })
+  if open == "<meta" and src:int(0, 1) == 0 then
+    -- A slot in the content before the block, which an arm that names
+    -- http-equiv makes a redirect.
+    table.insert(before, 1, " content=\"{{.x}}\"")
+  end
+  return Fuzz.pack({ lead, open, table.concat(before), Fuzz.pick(src, { "if", "if", "else", "range" }),
+    Fuzz.pick(src, TAG_ARMS), Fuzz.pick(src, TAG_ARMS), table.concat(after) })
+end
+
+--- The attributes `text` writes by itself, `times` over.
+local function written(text: string, times: integer): {string}
+  local out: {string} = {}
+  for _ = 1, times do
+    for _, a in ipairs(read_tag("<t " .. text .. ">").attrs) do
+      out[#out + 1] = a
+    end
+  end
+  return out
+end
+
+--- `a` and `b` together, sorted and joined.
+local function merged(a: {string}, b: {string}): string
+  local all: {string} = {}
+  for _, x in ipairs(a) do all[#all + 1] = x end
+  for _, x in ipairs(b) do all[#all + 1] = x end
+  table.sort(all)
+  return table.concat(all, " ")
+end
+
+-- A block in a tag that compiles adds only the attributes it writes: each
+-- way it may run, the tag has the same name and closes itself or not alike,
+-- and the attributes the text around the block makes are the same. (Else
+-- `<input{{if .a}} checked{{end}}=x>` could be `<input checked=x>` or the
+-- tag `<input=x>`.) Text that leaves the block inside a value is the
+-- value's, and only compiled; so are the arms of an `{{else}}` that leave
+-- the tag where each other does, which the text after reads alike, as
+-- `<b{{if .a}}r>{{else}}>{{end}}` does. Every way it runs, each slot is
+-- escaped for where the tag puts it, and none stands where nothing escapes.
+local function test_a_block_in_a_tag_adds_only_the_attributes_it_writes(tmp: string)
+  Fuzz.run({
+    name = "template tag block",
+    dir = tmp,
+    gen = gen_tag_block,
+    requires = { "compiled", "refused", "added", "else", "range", "slot", "font in svg", "meta" },
+    shares = { added = 0.05, refused = 0.1 },
+    check = function(input: string): boolean, string
+      local fields = Fuzz.unpack(input)
+      local lead, open, before, kind = fields[1] or "", fields[2] or "<p", fields[3] or "", fields[4] or "if"
+      local arm, other, after = fields[5] or "", fields[6] or "", fields[7] or ""
+      local closer = ">{{.x}}" .. (lead ~= "" and "</font></svg>" or open == "<svg" and "</svg>" or "")
+      local block = kind == "range" and "{{range .l}}" .. arm .. "{{end}}" or
+        kind == "else" and "{{if .a}}" .. arm .. "{{else}}" .. other .. "{{end}}" or "{{if .a}}" .. arm .. "{{end}}"
+      local body = lead .. open .. before .. block .. after .. closer
+      local source = Template.compile("{{type T from m.t}}" .. body, "t.tmpl") or ""
+      if source == "" then
+        Fuzz.label("refused")
+        return true, ""
+      end
+      Fuzz.label("compiled")
+      -- Each slot numbered in the order the source has it, as the helpers are.
+      local count = 0
+      local function number(piece: string): string
+        return (piece:gsub("{{%.x}}", function(): string
+          count = count + 1
+          return "\1" .. count .. "\2"
+        end))
+      end
+      local n_before, n_arm = number(before), number(arm)
+      local n_other = kind == "else" and number(other) or ""
+      local n_after, n_closer = number(after), number(closer)
+      local kinds: {string} = {}
+      for made in source:gmatch("parts%[#parts %+ 1%] = _(%a+)%(v%) end") do
+        kinds[#kinds + 1] = made
+      end
+      if #kinds ~= count then
+        return false, #kinds .. " slots compiled of " .. count .. ": " .. body
+      end
+      -- What each run writes in the block, and the attributes that alone makes.
+      local runs: {string} = { "", n_arm }
+      local own: {{string}} = { {}, written(n_arm, 1) }
+      if kind == "else" then
+        runs[1], own[1] = n_other, written(n_other, 1)
+      elseif kind == "range" then
+        runs[3], own[3] = n_arm .. n_arm, written(n_arm, 2)
+      end
+      local tags: {Tag} = {}
+      for i, run in ipairs(runs) do
+        local tag = read_tag(open .. n_before .. run .. n_after .. n_closer)
+        tags[i] = tag
+        local text = "text"
+        if lead ~= "" then
+          Fuzz.label("font in svg")
+          for _, a in ipairs(tag.attrs) do
+            if FONT_BREAKS[a:match("^[^=]*")] then
+              text = "refuse"
+            end
+          end
+        end
+        for id in tag.rest:gmatch("\1(%d+)\2") do
+          tag.slots[#tag.slots + 1] = { id, text }
+        end
+        for _, slot in ipairs(tag.slots) do
+          local want, made = slot[2], kinds[math.tointeger(tonumber(slot[1])) or 0]
+          if want == "refuse" then
+            return false, "compiled slot " .. slot[1] .. " where nothing escapes it, as " .. tostring(made) .. ": " ..
+              body
+          elseif made ~= want then
+            return false, "slot " .. slot[1] .. " is " .. tostring(made) .. ", not " .. want .. ": " .. body
+          end
+          if want ~= "text" then
+            Fuzz.label("slot")
+          end
+        end
+        if tag.name == "meta" then
+          Fuzz.label("meta")
+        end
+      end
+      local state = read_tag(open .. n_before).state
+      if state ~= "tag_name" and state ~= "before_attr" and state ~= "attr_name" and state ~= "after_attr" and
+          state ~= "selfclosing" then
+        return true, ""
+      end
+      if kind == "else" and read_tag(open .. n_before .. runs[1]).at == read_tag(open .. n_before .. runs[2]).at then
+        return true, ""
+      end
+      for i = 2, #runs do
+        if tags[i].name ~= tags[1].name or tags[i].selfclosing ~= tags[1].selfclosing then
+          return false, "the block changes the tag: " .. body
+        end
+        if merged(tags[i].attrs, own[1]) ~= merged(tags[1].attrs, own[i]) then
+          return false, "the attributes around the block differ as it runs: " .. table.concat(tags[i].attrs, " ") ..
+            " against " .. table.concat(tags[1].attrs, " ") .. ": " .. body
+        end
+      end
+      if arm:find("%a") then
+        Fuzz.label("added")
+        Fuzz.label(kind)
       end
       return true, ""
     end,
