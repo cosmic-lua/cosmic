@@ -94,7 +94,7 @@ static bool out_of_memory (int rc) { return (rc & 0xff) == SQLITE_NOMEM; }
  * are still looked up on its metatable. [`cosmic.zip`] shares
  * [`cosmic.compress`]'s, for the CRC-32 of a body, and [`cosmic.tar`]
  * shares [`cosmic.hash`]'s, for a header's byte sum: neither is a
- * compressor's or a hash, so neither is public there.
+ * compressor's or a hash, so neither Compress nor Hash exports it.
  * [`cosmic.internal.connector`],
  * the one client of the native connector's wire protocol, is handed the
  * process table (to start and reap the connector) and the socket table

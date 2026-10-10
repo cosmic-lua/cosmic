@@ -12,8 +12,11 @@
 local Stream = require("cosmic.stream")
 local String = require("cosmic.string")
 
--- `byte_sum` lives in the raw hash table, under the reserved
--- `cosmic.internal.` namespace -- see cosmic/store.tl for why.
+--- The raw hash table, [`cosmic.hash`]'s too, for `byte_sum`: a header's checksum
+--- is no hash and the C sum keeps the bytes off the Lua loop. It
+--- arrives as the second argument `require` passes this chunk's loader
+--- (core/store.c's `raw_modules`); boot mode falls back to requiring it by
+--- name, which only boot's own preload answers.
 local type raw_hash = require("cosmic.internal.hash")
 
 local handed: any = select(2, ...)

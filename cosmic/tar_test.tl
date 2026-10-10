@@ -626,7 +626,7 @@ local function test_a_header_checksum_counts_unsigned_bytes_and_its_own_field_as
 end
 
 local function test_a_header_with_a_checksum_over_high_bytes_is_read()
-  local block = recompute_checksum(header(("\200"):rep(30), "0", 0))
+  local block = header(("\200"):rep(30), "0", 0)
   local r = Tar.reader(Stream.from_string(block .. END))
   local entry = assert(r:next())
   assert(entry.path == ("\200"):rep(30), entry.path)

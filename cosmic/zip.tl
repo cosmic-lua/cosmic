@@ -15,8 +15,11 @@ local Stream = require("cosmic.stream")
 local Time = require("cosmic.time")
 local String = require("cosmic.string")
 
--- `crc32` lives in the raw compress table, under the reserved
--- `cosmic.internal.` namespace -- see cosmic/store.tl for why.
+--- The raw compress table, [`cosmic.compress`]'s too, for `crc32`: a body's checksum
+--- is no compressor's and the C sum keeps the bytes off the Lua loop. It
+--- arrives as the second argument `require` passes this chunk's loader
+--- (core/store.c's `raw_modules`); boot mode falls back to requiring it by
+--- name, which only boot's own preload answers.
 local type raw_compress = require("cosmic.internal.compress")
 
 local handed: any = select(2, ...)

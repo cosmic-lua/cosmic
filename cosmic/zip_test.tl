@@ -13,10 +13,10 @@ local Zip = require("cosmic.zip")
 local ZIP_B64 <const> =
   "UEsDBAoAAAAAADItN13z+cmLFAAAABQAAAANABwAc3JjL3Nob3J0LnR4dFVUCQADkGazapBms2p1eAsAAQQAAAAABAAAAABzaG9ydCBmaWxlIGNvbnRlbnRzClBLAwQKAAAAAAAyLTddI9j0uAkAAAAJAAAADgAcAHNyYy9hZGlyL2FsaW5rVVQJAAOQZrNqkGazanV4CwABBAAAAAAEAAAAAHNob3J0LnR4dFBLAwQUAAAACAA4LTdd0RXq2CAAAACZCAAACwAcAHNyYy9iaWcudHh0VVQJAAOcZrNqn2azanV4CwABBAAAAAAEAAAAAEtJTctJLElVyE1VSBlljjJHmaPMUeYoc5Q5yhxIJhcAUEsDBAoAAAAAADgtN13z+cmLFAAAABQAAAAUABwAc3JjL3Nob3J0X3N0b3JlZC50eHRVVAkAA5xms2qfZrNqdXgLAAEEAAAAAAQAAAAAc2hvcnQgZmlsZSBjb250ZW50cwpQSwECHgMKAAAAAAAyLTdd8/nJixQAAAAUAAAADQAYAAAAAAABAAAApIEAAAAAc3JjL3Nob3J0LnR4dFVUBQADkGazanV4CwABBAAAAAAEAAAAAFBLAQIeAwoAAAAAADItN10j2PS4CQAAAAkAAAAOABgAAAAAAAAAAAD/oVsAAABzcmMvYWRpci9hbGlua1VUBQADkGazanV4CwABBAAAAAAEAAAAAFBLAQIeAxQAAAAIADgtN13RFerYIAAAAJkIAAALABgAAAAAAAEAAACkgawAAABzcmMvYmlnLnR4dFVUBQADnGazanV4CwABBAAAAAAEAAAAAFBLAQIeAwoAAAAAADgtN13z+cmLFAAAABQAAAAUABgAAAAAAAAAAACkgREBAABzcmMvc2hvcnRfc3RvcmVkLnR4dFVUBQADnGazanV4CwABBAAAAAAEAAAAAFBLBQYAAAAABAAEAFIBAABzAQAAAAA="
 
---- The CRC-32 (IEEE) of `data`, continued from `crc`, a byte at a time:
---- a reference that shares nothing with the core's.
-local function crc32_reference(data: string, crc?: integer): integer
-  local c = (crc or 0) ~ 0xFFFFFFFF
+--- The CRC-32 (IEEE) of `data`, a byte at a time: a reference that
+--- shares nothing with the core's.
+local function crc32_reference(data: string): integer
+  local c = 0xFFFFFFFF
   for i = 1, #data do
     c = c ~ data:byte(i)
     for _ = 1, 8 do
@@ -507,6 +507,7 @@ end
 local function test_a_streamed_body_round_trips_through_the_reader()
   local chunk = "streamed body, "
   local whole = string.rep(chunk, 5000)
+  local whole_crc = crc32_reference(whole)
   for _, method in ipairs({ "deflate", "store" } as {Zip.Method}) do
     local c = Stream.collect()
     local w = Zip.writer(c)
@@ -523,7 +524,7 @@ local function test_a_streamed_body_round_trips_through_the_reader()
     assert(Stream.read_all((assert(by_path(entries, "plain"):open()))) == "after a stream", method)
     assert(Stream.read_all((assert(by_path(entries, "sized"):open()))) == whole, method)
     local a = by_path(entries, "a")
-    assert(a.size == #whole and a.crc32 == crc32_reference(whole))
+    assert(a.size == #whole and a.crc32 == whole_crc)
     assert(a.method == (method == "store" and 0 or 8))
     if method == "deflate" then assert(a.compressed_size < #whole // 10) end
   end
@@ -824,7 +825,10 @@ local function test_the_recorded_crc32_matches_the_known_value_and_continues()
   assert(recorded_crc(long:sub(4, 1000)) == 2769185661)
   -- Streamed in 256-byte reads, each continuing the last's sum.
   assert(recorded_crc(block, 40) == 3150855069)
-  assert(recorded_crc("hello, ", 1) == crc32_reference("hello, "))
+  -- Reads of 37 bytes, past the 16 the hardware paths fold at a time and
+  -- not a multiple of it.
+  local odd = long:sub(1, 37)
+  assert(recorded_crc(odd, 28) == crc32_reference(odd:rep(28)))
   assert(recorded_crc("cosmic!", 3) == crc32_reference("cosmic!cosmic!cosmic!"))
   assert(crc32_reference("hello, cosmic!") == 3327618652)
   assert(crc32_reference(long) == 3150855069)
