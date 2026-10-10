@@ -275,10 +275,9 @@ end
 
 --- Writes `data` to a new file at `path` with exactly `mode`, and syncs
 --- it, its mode included, before closing it.
--- TODO: measure filesystem-wide sync on disk-backed cold misses before
--- replacing per-file fsync. Activate only once ci/cosmic-driver.pin names
--- a release carrying sys.syncfs, and measurements justify the change;
--- preserve this path without both proofs.
+-- One fsync per file rather than one syncfs(2): it costs about half a
+-- second on a cold miss of every tree, syncfs would wait on everything
+-- else dirty on the filesystem, and macOS has none.
 local function write_synced(path: string, data: string,
                             mode: integer): boolean, string
   local fd, trouble = Fs.open_write(path, mode)

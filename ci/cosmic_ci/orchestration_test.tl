@@ -1,3 +1,4 @@
+local BuildPaths = require("cosmic_ci.build_paths")
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
@@ -1587,6 +1588,23 @@ local function test_a_fixture_is_given_its_legs_promises(tmp: string)
   }, tmp .. "/tmp", tmp .. "/c.db")
   assert(unknown.COSMIC_TEST_PROMISES == "proc, unix_socket ,future_requirement,checked",
     "the fixture changed the promises it was given")
+end
+
+--- A fixture project made again at the same path starts with no build
+--- directory: that is outside the project, named by its path, and what
+--- the fixture before had placed there would refuse the next placement.
+local function test_a_fixture_project_made_again_has_no_build_left(tmp: string)
+  local Orchestration = require("cosmic_ci.orchestration")
+  local driver = tmp .. "/ci/cosmic_ci/driver.tl"
+  assert(Fs.mkdirs(tmp .. "/ci/cosmic_ci") and Fs.mkdirs(tmp .. "/ci/fixtures"))
+  assert(Fs.write(driver, "return 0\n"))
+  assert(Fs.write(tmp .. "/ci/fixtures/a_test.tl", "\n"))
+  local project = Orchestration.fixture_project(driver, tmp .. "/work")
+  local placed = BuildPaths.driven(project) .. "/fixtures/launcher"
+  assert(Fs.mkdirs(placed) and Fs.write(placed .. "/file", "earlier"))
+  assert(Orchestration.fixture_project(driver, tmp .. "/work") == project)
+  assert(Fs.read(project .. "/fixtures/a_test.tl") == "\n")
+  assert(not Fs.exists(placed), "the earlier fixture's placement was kept")
 end
 
 --- A bound for a group that should end at once: only a hang reaches it.
