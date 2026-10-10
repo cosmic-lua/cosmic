@@ -391,7 +391,7 @@ For path, query and form input the decoding differs enough that web owns a
 6.3 calls it for typed routes). It walks the
 spec (it reads [`Spec.kind`], `fields`, `names`, `of`, `values`, `optional`,
 the documented-as-"how `into` reads it" fields, shape.tl:89-106), pulls
-strings from the `Url.Query`, coerces each, collects every error, and builds
+strings from the [`Url.Query`], coerces each, collects every error, and builds
 a plain Lua tree. Then, if no error was found, it hands that tree to
 `Shape.into(tree, spec)` as a final authority: the typed record the handler
 gets is exactly what Shape produces, and any coercion bug surfaces as a
@@ -527,7 +527,7 @@ Whether to grow facets in Shape instead is open question 2.
 
 Core calls these when a route names a spec (core.md section 6). For a route
 with `Web.input(path, query, body)` it binds the path parameters with
-`bind_strings` (a `Url.Query` built from the params, so the coercions agree
+`bind_strings` (a [`Url.Query`] built from the params, so the coercions agree
 across sources), then `Input.query_into`, then `Input.form_into` or
 `Input.json_into`, *before* the handler, and passes the typed records to the
 handler as arguments. The decoded views are in the exported keys
@@ -668,7 +668,7 @@ end
 `Input.multipart(req, opts)` streams, writes file parts to disk through
 [`Stream.create`] (stream.tl:1212) with mode 0600, counts bytes against the
 caps as it goes (an over-cap file part aborts and removes the file), and keeps
-text parts in memory as a `Url.Query` so the *same* binder from section 3
+text parts in memory as a [`Url.Query`] so the *same* binder from section 3
 works: `Input.multipart_into<T>(req, spec)` binds `fields`; a [`Shape.record`]
 field that is meant to be an upload is declared in the spec as
 `Input.upload` (a [`Shape.any`]-kind marker) and bound from `files`. Upload
@@ -1825,6 +1825,7 @@ declaration, everything else declares nothing.
 [`Stream.read_up_to`]: ../../../cosmic/stream.tl
 [`Stream.Reader`]: ../../../cosmic/stream.tl
 [`Url.escape`]: ../../../cosmic/url.tl
+[`Url.Query`]: ../../../cosmic/url.tl
 [`Url.segments`]: ../../../cosmic/url.tl
 [`Url.unescape`]: ../../../cosmic/url.tl
 [`wire.check`]: ../../../cosmic/http/wire.tl
