@@ -117,22 +117,35 @@ local function guidance_lines(head: string, text: string): string
   return table.concat(lines, "\n") .. "\n"
 end
 
+--- Whether the first line of `message`, less a `chunk:line: ` location,
+--- is one of the runtime messages the Lua VM and its argument checks write:
+--- `attempt to ...`, `module '...' not found` or `bad argument #n to ...`
+--- (whose `X expected, got Y` is theirs too), which cosmic's own bindings
+--- raise as well. They share ordinary words with doc comments the catalog
+--- holds, and no row answers them (none matched the `bad argument`
+--- messages cosmic's bindings raise); [`Errors.hint`] answers what it can. The location is `file:N: `, or `[string "..."]:N: ` for a
+--- chunk `load` made; a file name with a space in it is not seen.
+local function lua_wrote(message: string): boolean
+  local line = message:match("^[^\n]*")
+  line = line:gsub("^%S+:%d+: ", "", 1)
+  line = line:gsub('^%[string ".-"%]:%d+: ', "", 1)
+  return line:find("^attempt to ") ~= nil or
+    line:find("^module '.-' not found") ~= nil or
+    line:find("^bad argument #%d+ to ") ~= nil
+end
+
 --- What the catalog of the one database `handle` says beneath an
 --- uncaught error's `message`, in the lines [`Errors.guidance`] prints: the
 --- best row's guidance, or nil when it has none -- no catalog, no row
 --- sharing two or more significant words with the message, or no
---- guidance on the row it shares them with. [`Errors.guidance`] asks each
---- database the store holds in turn.
+--- guidance on the row it shares them with. A message Lua itself wrote
+--- (`attempt to ...`, `module '...' not found`, `bad argument #n to ...`)
+--- has none: the catalog is for the messages cosmic's own code raises.
+--- [`Errors.guidance`] asks each database the store holds in turn.
 function Errors.guidance_in(handle: Sqlite.Handle, message: string): string | nil
-  -- TODO: a message Lua itself wrote shares two ordinary words with some
-  -- doc comment and is shown that one's guidance, which has nothing to do
-  -- with the failure: `print(t.path .. "x")` with `t` a `{string:string}`
-  -- (`attempt to concatenate a nil value (field 'path')`) is shown
-  -- `next_record`, and `module 'x' not found: ... no module 'x' in the
-  -- store` is shown `locate`. Return nil here for a message whose first line is one of
-  -- Lua's own `attempt to ...` or `module '...' not found` and leave
-  -- [`Errors.hint`] to answer those; the catalog is for the messages cosmic's
-  -- own code raises.
+  if lua_wrote(message) then
+    return nil
+  end
   local query = catalog_query(message)
   if query == nil then
     return nil
@@ -210,13 +223,16 @@ function Errors.guidance(message: string): string | nil
 end
 
 --- The call stack as text, with `message` at the top when one is given.
---- `level` says how many frames to skip; 1, the default, is the caller.
--- TODO: `level` counts this wrapper's own frame, so the default 1 starts
--- at `trace` and not at its caller, as cosmic/test.tl's level 4 (one more
--- than the frames it means to skip) compensates. Pass `level + 1` to the
--- binding and drop the compensation there once no caller depends on it.
+--- `level` says how many frames to skip; 1, the default, is the caller,
+--- and a level past the stack gives just `stack traceback:`. A `level`
+--- below 1 raises: it would name this wrapper or the binding's own frame.
 function Errors.trace(message?: string, level?: integer): string
-  return errors.trace(message, level or 1)
+  local skip = level or 1
+  if skip < 1 then
+    error("trace: level must be at least 1, got " .. tostring(skip), 2)
+  end
+  -- The binding counts this frame as level 1.
+  return errors.trace(message, skip + 1)
 end
 
 --- The call stack of coroutine `co` as text, from its top, with
@@ -225,9 +241,10 @@ end
 --- answers only the error) and which stays until the coroutine is
 --- closed. One that returned, or was closed, has no frames: the text is
 --- just `stack traceback:`. For the running coroutine the first frame is
---- [`trace_of`] itself, the caller's next.
+--- the caller's, as [`trace`]'s is.
 function Errors.trace_of(co: thread, message?: string): string
-  return errors.trace_of(co, message)
+  -- The binding counts this frame as level 1.
+  return errors.trace_of(co, message, 2)
 end
 
 return Errors
