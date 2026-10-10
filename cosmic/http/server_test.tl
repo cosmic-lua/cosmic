@@ -330,9 +330,13 @@ local function test_a_failing_handler_is_answered_500()
     ["/nocontent"] = { status = 204, body = "not empty" },
     ["/interim"] = { status = 101 },
     ["/typo"] = { status = 200, header = {} },
+    ["/crlist"] = { status = 200, headers = { ["Set-Cookie"] = { "a=1", "b=2\r\nX: y" } } },
+    ["/lenlist"] = { status = 200, headers = { ["Content-Length"] = { "0" } } },
+    ["/datelist"] = { status = 200, headers = { Date = { "x" } } },
+    ["/numlist"] = { status = 200, headers = { ["Set-Cookie"] = { 1 } } },
   }
   local paths = { "/raise", "/nil", "/owned", "/cr", "/nocontent", "/interim", "/typo", "/unsent",
-    "/mismatch" }
+    "/mismatch", "/crlist", "/lenlist", "/datelist", "/numlist" }
   local troubles = serving(function(req: Server.Request): Server.Reply
     if req.path == "/raise" then error("the handler failed") end
     local answer: any = bad[req.path]
@@ -358,6 +362,10 @@ local function test_a_failing_handler_is_answered_500()
   assert(troubles[7]:find("no field header", 1, true) ~= nil, troubles[7])
   assert(troubles[8]:find("Content-Length is 3, but the reply has no body", 1, true) ~= nil, troubles[8])
   assert(troubles[9]:find("Content-Length is 4, but the body is 5 bytes", 1, true) ~= nil, troubles[9])
+  assert(troubles[10]:find("CR, LF or NUL", 1, true) ~= nil, troubles[10])
+  assert(troubles[11]:find("one value, not a list", 1, true) ~= nil, troubles[11])
+  assert(troubles[12]:find("Date: the server writes it itself", 1, true) ~= nil, troubles[12])
+  assert(troubles[13]:find("strings or lists of them", 1, true) ~= nil, troubles[13])
 end
 
 --- A handler may give a reply's Content-Length, under any case of its
@@ -392,6 +400,24 @@ local function test_a_handler_may_give_the_content_length()
     assert(reader.status == 200 and reader.body == "abc" and reader.headers["content-length"] == "3")
     assert(reader.headers["transfer-encoding"] == nil)
     assert(p.buf == "", p.buf)
+  end)
+  assert(#troubles == 0, troubles[1])
+end
+
+--- A reply's list header reaches the wire as one line per element, in
+--- order: two cookies are two Set-Cookie lines, never one joined.
+local function test_a_list_header_is_sent_as_one_line_per_element()
+  local troubles = serving(function(_req: Server.Request): Server.Reply
+    return { status = 200, headers = { ["Set-Cookie"] = { "a=1", "b=2" } }, body = "ok" }
+  end, function(address: Net.Address)
+    local p <close> = peer(address)
+    send(p, "GET / HTTP/1.1\r\nHost: test\r\nConnection: close\r\n\r\n")
+    while more(p) do end
+    local first = p.buf:find("\r\nSet-Cookie: a=1\r\n", 1, true)
+    local second = p.buf:find("\r\nSet-Cookie: b=2\r\n", 1, true)
+    assert(first ~= nil and second ~= nil and first < second, p.buf)
+    local _, lines = p.buf:gsub("\r\nSet%-Cookie:", "")
+    assert(lines == 2, p.buf)
   end)
   assert(#troubles == 0, troubles[1])
 end

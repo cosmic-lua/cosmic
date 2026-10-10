@@ -1121,6 +1121,32 @@ local function test_a_type_require_of_a_value_not_a_record_is_told_to_return_a_t
   end
 end
 
+--- A `local type` require written over two lines, without parentheses,
+--- or with a comment between its tokens is found as one on a line is: its
+--- refusal is told what the module must return, and `Ledger.Month`, with
+--- a `Month` declared beside `Ledger`, is not told to move `Month` into
+--- a local record the file does not declare.
+local function test_a_type_require_however_written_is_told_what_the_module_must_return()
+  for i, case in ipairs({
+      { declaration = 'local type Ledger =\n  require("ledger")', at = "2:3" },
+      { declaration = 'local type Ledger = require "ledger"', at = "1:21" },
+      { declaration = "local type Ledger = require'ledger'", at = "1:21" },
+      { declaration = 'local type Ledger = --[[ the ledger ]] require(\n  "ledger"\n)', at = "1:40" },
+  }) do
+    local root = assert(write_fixture("type-require-written-" .. i, {
+      ["ledger.tl"] = LEDGER_RECORD .. "local ledger: Ledger = {}\nreturn ledger\n",
+      ["main.tl"] = case.declaration .. "\nlocal record Month\n  days: integer\nend\n" ..
+        "return function(m: Ledger.Month): integer\n  return m.days\nend\n",
+    }))
+    local result, trouble = compile_fixture(root)
+    assert(result == nil, "expected the type require of a value to refuse the compile")
+    assert(trouble:find("main.tl:" .. case.at .. ": 'require' did not return a type, " ..
+        "got record Ledger" .. REFUSAL_HINT .. "\n", 1, true) ~= nil, trouble)
+    assert(trouble:find("unknown type Ledger.Month\n", 1, true) ~= nil, trouble)
+    assert(trouble:find("declared beside", 1, true) == nil, trouble)
+  end
+end
+
 --- `ci/` is the pinned CI driver's own project, walked and built by
 --- the pinned host with cwd `ci/`, never by cosmic's own build: staging
 --- cosmic's own tree must record nothing under `ci/`, and deriving

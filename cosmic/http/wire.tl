@@ -53,7 +53,8 @@ local record wire
     query: string
     --- "HTTP/1.1" or "HTTP/1.0".
     version: string
-    --- By lowercased name, a repeated name's values joined with ", ".
+    --- By lowercased name, a repeated name's values joined with ", ",
+    --- but a repeated `cookie`'s with "; " (RFC 6265 5.4).
     headers: {string:string}
     --- The Content-Length, 0 for a request with neither it nor a
     --- chunked body, nil for a chunked one.
@@ -129,7 +130,10 @@ local record wire
     --- Name to value, written as given, in name order, but for a
     --- Content-Length (any case of the name), which is the body's size
     --- as `length` is, and is written as the server frames the body.
-    headers: {string:string}
+    --- A list value writes one line per element, in order, for a
+    --- header that cannot be joined with ", " (Set-Cookie); an empty
+    --- list writes nothing, and a list of Content-Length is refused.
+    headers: {string: string | {string}}
     --- nil for none, a string, or a Reader, which [`wire.send`] closes.
     body: string | Stream.Reader
     --- The body's size: a string's own, a Reader's, or, with no body,
@@ -431,7 +435,10 @@ function wire.read_head(input: wire.Input, limits: wire.Limits): wire.Read
     list[#list + 1] = got.value
   end
   local headers: {string:string} = {}
-  for _, name in ipairs(names) do headers[name] = table.concat(values[name], ", ") end
+  for _, name in ipairs(names) do
+    -- Cookie pairs are separated by "; " (RFC 6265 5.4, RFC 9113 8.2.3).
+    headers[name] = table.concat(values[name], name == "cookie" and "; " or ", ")
+  end
   local spent = input.taken - start
   local hosts = values["host"] ~= nil and #values["host"] or 0
   if hosts > 1 or (version == "HTTP/1.1" and hosts == 0) then
@@ -696,11 +703,19 @@ end
 --- Why the server cannot send `headers` as given, or "": a name that is
 --- no token, a value holding CR, LF or NUL, or a header the server
 --- writes itself.
-local function headers_trouble(headers: {string:string}): string
+local function headers_trouble(headers: {string: string | {string}}): string
   for name, value in pairs(headers) do
     if not name:find(TOKEN) then return ("header %q: its name is no token"):format(name) end
-    if value:find("[\r\n%z]") then
-      return ("header %s: its value holds CR, LF or NUL"):format(name)
+    if value is string then
+      if value:find("[\r\n%z]") then
+        return ("header %s: its value holds CR, LF or NUL"):format(name)
+      end
+    else
+      for _, entry in ipairs(value) do
+        if entry:find("[\r\n%z]") then
+          return ("header %s: its value holds CR, LF or NUL"):format(name)
+        end
+      end
     end
     if OWNED[name:lower()] then return ("header %s: the server writes it itself"):format(name) end
   end
@@ -715,7 +730,7 @@ end
 --- The size a reply's Content-Length header gives, under any case of
 --- its name, nil for none; or nil and why it cannot be sent: no digits,
 --- a size past 18 of them, or the name given twice in different cases.
-local function given_length(headers: {string:string}): integer | nil, string
+local function given_length(headers: {string: string | {string}}): integer | nil, string
   local names: {string} = {}
   for name in pairs(headers) do
     if name:lower() == "content-length" then names[#names + 1] = name end
@@ -726,6 +741,9 @@ local function given_length(headers: {string:string}): integer | nil, string
     return nil, ("headers %s: Content-Length is given twice"):format(table.concat(names, " and "))
   end
   local name, value = names[1], headers[names[1]]
+  if value is {string} then
+    return nil, ("header %s: Content-Length is one value, not a list"):format(name)
+  end
   local size = decimal(value)
   if size == nil then return nil, ("header %s: %q is not digits"):format(name, value) end
   if size == math.maxinteger then return nil, ("header %s: %s is too large"):format(name, value) end
@@ -810,7 +828,14 @@ local function head_text(reply: wire.Reply, length: integer | nil, chunked: bool
     if name:lower() ~= "content-length" then names[#names + 1] = name end
   end
   table.sort(names)
-  for _, name in ipairs(names) do lines[#lines + 1] = name .. ": " .. reply.headers[name] end
+  for _, name in ipairs(names) do
+    local value = reply.headers[name]
+    if value is string then
+      lines[#lines + 1] = name .. ": " .. value
+    else
+      for _, entry in ipairs(value) do lines[#lines + 1] = name .. ": " .. entry end
+    end
+  end
   if length ~= nil then lines[#lines + 1] = "Content-Length: " .. length end
   if chunked then lines[#lines + 1] = "Transfer-Encoding: chunked" end
   if close then lines[#lines + 1] = "Connection: close" end
