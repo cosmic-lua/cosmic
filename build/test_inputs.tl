@@ -397,7 +397,7 @@ function test_inputs.resolve(effective: test_inputs.Effective, roots: {string})
   effective.host = host
   -- Each file above the project must be there, and a file: a test that
   -- reads one the host lacks fails with this, not with its own error.
-  local above = test_inputs.parent_directory(roots[1] or ".")
+  local above = #(effective.parent or {}) > 0 and test_inputs.parent_directory(roots[1] or "") or ""
   for _, relative in ipairs(effective.parent or {}) do
     local st, _ = sys.stat(above .. "/" .. relative)
     if effective.unresolved == "" and (st == nil or st.kind ~= "file") then

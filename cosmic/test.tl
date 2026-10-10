@@ -190,8 +190,8 @@ local record Test
     --- locate it.
     caches: {string}
     --- Files of the project root's parent directory the tests read, each
-    --- a path relative to that directory with no `.`, `..` or `$` in it
-    --- and no trailing "/": for a project that lives in a directory of
+    --- a path relative to that directory of plain names (none empty, `.` or
+    --- `..`, and no `$` anywhere) with no trailing "/": for a project that lives in a directory of
     --- another (the CI driver's `ci/`) and reads that tree's files. A
     --- sandboxed worker has each, read-only, at its fixed place beside
     --- /tree ([`Test.parent`] names it), and its key holds the file's
@@ -319,8 +319,6 @@ end
 --- stands for to the runner: the place `policy` is held to being called once,
 --- as the module loads.
 local function declare(needs: Test.Needs)
-  declared_parents = {}
-  for _, relative in ipairs(needs.parent or {}) do declared_parents[relative] = true end
   local installed = runner_in(Test)
   if installed ~= nil and installed.loaded == true then
     error("test: policy is called at the top of a test module, while it loads", 3)
@@ -330,6 +328,8 @@ local function declare(needs: Test.Needs)
         "a test module never requires another that calls it", 3)
   end
   called_at = caller()
+  declared_parents = {}
+  for _, relative in ipairs(needs.parent or {}) do declared_parents[relative] = true end
   local handed = installed ~= nil and installed.handed or nil
   if handed is function(Test.Needs) then handed(needs) end
 end
@@ -770,8 +770,8 @@ end
 ---
 ---     local Test = require("cosmic.test")
 ---     Test.policy { grants = { { path = "/parent/bin/zig", letters = "r" } } }
----     local function test_reads_the_parents_zig()
----       assert(Fs.read(Test.parent("bin/zig")) ~= nil)
+---     local function test_names_the_parents_zig()
+---       local path = Test.parent("bin/zig") -- "/tree-up/bin/zig" sandboxed
 ---     end
 --- @param relative the file, as the grant spells it after "/parent/"
 --- @return the path the worker reads it at

@@ -25,8 +25,9 @@ Test.policy{
 -- (.github/workflows/ci.yml above all) in a [`Test.policy`] as
 -- `/parent/` grants, read through cosmic.test's `parent`, once
 -- ci/cosmic-driver.pin names a release whose Test.policy takes `/parent/`
--- grants. A grant names files only, so the git history a clone reads
--- stays undeclared even then. Until then a keyed run stands on a verdict
+-- grants. A grant names files only, so the directories these read (build/,
+-- .github/) and the git history a clone reads stay undeclared even then,
+-- until a grant can name a directory above the project. Until then a keyed run stands on a verdict
 -- these reached before an edit to ci.yml (a probe edit left all 32
 -- standing); run them with --all after one, and after an edit to the
 -- history. CI's driver check

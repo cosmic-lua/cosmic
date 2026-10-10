@@ -67,7 +67,8 @@
 ---   but for those every edit of the tree moves (`program`); the
 ---   projection, o/cosmic.db, when it declares `store`, and else the
 ---   address of the store of its closure it is given there in the
----   projection's place; and each `host` path;
+---   projection's place; each `host` path; and each file above the
+---   project a `/parent/` grant names, by its relative path (`parent`);
 --- - the environment its worker is given ([`test_sandbox.environment`]):
 ---   the pinned variables and the declared ones;
 --- - where the tree is, only for a worker no sandbox gives it at /tree
@@ -934,16 +935,18 @@ function declared_key.preimage(digests: declared_key.Digests,
       lines[#lines + 1] = part("h", path, host(digests, path))
     end
   end
+  if installed then lines[#lines + 1] = part("system", spec.system or "", "") end
   -- Each file above the project by its relative path and contents, never
   -- by where the project is.
-  local above = test_inputs.parent_directory(digests.root)
   local parents: {string} = {}
   for _, relative in ipairs(effective.parent or {}) do parents[#parents + 1] = relative end
   table.sort(parents)
-  for _, relative in ipairs(parents) do
-    lines[#lines + 1] = part("up", relative, host(digests, above .. "/" .. relative))
+  if #parents > 0 then
+    local above = test_inputs.parent_directory(digests.root)
+    for _, relative in ipairs(parents) do
+      lines[#lines + 1] = part("up", relative, host(digests, above .. "/" .. relative))
+    end
   end
-  if installed then lines[#lines + 1] = part("system", spec.system or "", "") end
   local names: {string} = {}
   for name in pairs(spec.environment) do names[#names + 1] = name end
   table.sort(names)

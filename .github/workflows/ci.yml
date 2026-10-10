@@ -512,8 +512,9 @@
         # its workers by default and knows `system`, but cosmic_ci's
         # tests read the checkout around ci/ (bin/cosmic-bootstrap,
         # build/, .github/), which a worker held to ci/ is not given and
-        # which a `/parent/` grant names file by file once the pinned
-        # release takes it (the TODO in ci/cosmic_ci/orchestration_test.tl);
+        # which a `/parent/` grant names file by file once
+        # ci/cosmic-driver.pin names a release whose Test.policy takes
+        # `/parent/` grants (the TODO in ci/cosmic_ci/orchestration_test.tl);
         # the macOS leg has no sandbox at all. Then too, the
         # cosmic_ci tests that start the system's own programs
         # (bootstrap_test, fixture_test and runner_test start /bin/sh,

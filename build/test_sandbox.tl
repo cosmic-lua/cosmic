@@ -34,6 +34,9 @@
 ---   `own_scratch`), so its root shows files alone, which holds a unix
 ---   socket it makes below Landlock ABI 9, and, for a module that declares
 ---   `nests` (whose worker has no Landlock ruleset), at any ABI;
+--- - the files above the project the module declares (`/parent/` grants,
+---   [`cosmic.test`]'s `parent`), each read-only at its relative path
+---   beneath /tree-up;
 --- - the host caches the module declares ([`build.caches`]), writable,
 ---   each at its own name, made first where missing, and the variables
 ---   that locate them -- but for the cores a portable cosmic extracts,
@@ -558,9 +561,17 @@ function test_sandbox.plan(root: string, scratch: string, effective: test_inputs
   -- Each file above the project, read-only at its relative path beneath
   -- [`parent_place`]. A file the host lacks is none, as the test
   -- finds ([`test_inputs.resolve`] fails its tests before it starts).
-  local above = test_inputs.parent_directory(root)
+  local above = #(effective.parent or {}) > 0 and test_inputs.parent_directory(root) or ""
   for _, relative in ipairs(effective.parent or {}) do
-    give(above .. "/" .. relative, parent_place .. "/" .. relative)
+    local source = above .. "/" .. relative
+    -- One host path is bound at one place: a file the plan gives already
+    -- (the tree's own, or a `reads` or `host` entry) is not given again.
+    if seen[source] and refused == "" then
+      refused = string.format("Test.policy grant of /parent/%s: %s is given another way " ..
+          "(a file of the tree, a `reads` or a `host` entry); a file is bound at one place",
+        relative, source)
+    end
+    give(source, parent_place .. "/" .. relative)
   end
   local writes: {string} = { scratch }
   at[scratch] = test_sandbox.scratch
