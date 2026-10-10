@@ -235,7 +235,7 @@ note: Teal compares what is nested in a type through is_a in whichever direction
          and not (no_nested_types[t1.typename] and no_nested_types[t2.typename]) then
          local x, y = never_mismatch(t1, t2, true, {})
          if x then
-            return false, { Err("got %s, expected %s: a function that never returns and one that may return do not stand for each other inside another type", x, y) }
+            return false, { Err("got %s, expected %s, which differ in whether the function never returns, inside another type", x, y) }
          end
       end
       self.compare_depth = depth + 1

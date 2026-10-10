@@ -1068,9 +1068,9 @@ end
 local function test_a_record_function_agrees_with_its_field_on_never()
   local record_with_field = "local record Guard\n  die: function(why: string)%s\nend\n"
   assert_refused(record_with_field:format("") ..
-      "function Guard.die(why: string): never error(why) end\n", "only one of them never returns")
+      "function Guard.die(why: string): never error(why) end\n", "which differ in whether the function never returns")
   assert_refused(record_with_field:format(": never") ..
-      "function Guard.die(why: string) print(why) end\n", "only one of them never returns")
+      "function Guard.die(why: string) print(why) end\n", "which differ in whether the function never returns")
   assert_accepted(record_with_field:format(": never") ..
       "function Guard.die(why: string): never error(why) end\nprint(Guard)\n")
 end
@@ -1112,7 +1112,7 @@ local function test_never_agrees_when_nested()
       for _, direction in ipairs({ { 1, 2 }, { 2, 1 } }) do
         local source = prelude .. "local a: " .. declared(pair[direction[1]]) ..
           "\nlocal b: " .. declared(pair[direction[2]]) .. "\nb = a\nprint(a, b)\n"
-        assert_refused(source, "do not stand for each other inside another type")
+        assert_refused(source, "which differ in whether the function never returns, inside another type")
         seen = seen + 1
       end
       for i = 1, 2 do
@@ -1130,9 +1130,9 @@ end
 local function test_never_agrees_in_a_callback_parameter()
   assert_refused("local a: function(cb: function(): never)\n" ..
       "local b: function(cb: function(): string)\nb = a\n",
-    "got function(): never, expected function(): string: a function that never returns")
+    "got function(): never, expected function(): string, which differ in whether")
   assert_refused("local a: function(cb: function(): string)\n" ..
-      "local b: function(cb: function(): never)\nb = a\n", "do not stand for each other")
+      "local b: function(cb: function(): never)\nb = a\n", "which differ in whether the function never returns, inside another type")
 end
 
 --- `as` and `is` give any target type unchecked, so one that contains a
@@ -1282,7 +1282,11 @@ local function test_a_generic_cannot_write_a_returning_function_into_a_never_con
       "local function cb<T>(v: T, f: function(T)) f(v) end\n" ..
         "cb(ret, function(g: function(): never) print(g) end)\n",
   }) do
-    assert_refused(head .. body, "never")
+    local found = refusals(head .. body)
+    -- A container's own comparison drops the reason and reports the two
+    -- types (`got {function(): never}, expected {T}`), so they name never.
+    assert(found[1] ~= nil and found[1]:find("function(): never", 1, true) ~= nil,
+      body .. "refused as: " .. (found[1] or "accepted"))
   end
 end
 

@@ -22,7 +22,7 @@ note: a type variable already bound is compared with the type another argument g
       if vt then
          -- If so, compare it to the other type
          if (self.compare_depth or 0) > 1 and nested_never_mismatch(a or vt, b or vt) then
-            return false, { Err("got %s, expected %s: a function that never returns and one that may return do not stand for each other inside another type", a or vt, b or vt) }
+            return false, { Err("got %s, expected %s, which differ in whether the function never returns, inside another type", a or vt, b or vt) }
          end
          return cmp(self, a or vt, b or vt)
 --- end

@@ -6,7 +6,7 @@ note: two function types are the same type only when both or neither never retur
 --- replace
          ["function"] = function(self:TypeChecker, a: FunctionType, b: FunctionType): boolean, {Error}
             if (not not a.never) ~= (not not b.never) then
-               return false, { Err("got %s, expected %s: only one of them never returns", a, b) }
+               return false, { Err("got %s, expected %s, which differ in whether the function never returns", a, b) }
             end
             local argdelta = a.is_method and 1 or 0
 --- end
