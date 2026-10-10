@@ -309,12 +309,14 @@ static lua_Unsigned check_sequence (lua_State *L, int index,
     lua_pop(L, 1);
     if (!lua_isinteger(L, -1) || lua_tointeger(L, -1) < 1 ||
         (lua_Unsigned)lua_tointeger(L, -1) > count) {
-      return (lua_Unsigned)luaL_error(L, "html: %s is not a sequence", what);
+      luaL_error(L, "html: %s is not a sequence", what);
+      return 0;
     }
     keys++;
   }
   if (keys != count) {
-    return (lua_Unsigned)luaL_error(L, "html: %s is not a sequence", what);
+    luaL_error(L, "html: %s is not a sequence", what);
+    return 0;
   }
   return count;
 }
@@ -480,7 +482,10 @@ static void add_css_escape (luaL_Buffer *b, unsigned char c) {
  * Letters, digits and bytes of 0x80 or more pass; `-` and `_` pass as CSS
  * and are character references as attribute text. A digit first, or
  * after a leading `-`, a lone `-`, and every other ASCII byte is a hex
- * escape; NUL is U+FFFD. The escape ends in a space, so a literal space
+ * escape; NUL is U+FFFD. Where `CSS.escape` writes a backslash and the
+ * character (`\-`, `\ `, `\.`) this writes the hex form, which a CSS
+ * parser reads as the same character and which needs no rule for where
+ * the character stands. The escape ends in a space, so a literal space
  * after the slot is a second space and stays a combinator. The slot may
  * be mid-identifier, where escaping a leading digit does no harm. */
 static int html_escape_css_attr (lua_State *L) {

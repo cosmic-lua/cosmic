@@ -491,6 +491,38 @@ local function css_escape(s: string): string
   return table.concat(out)
 end
 
+--- Reads CSS escapes as a parser does: `\` and one to six hex digits and
+--- an optional single space is that code point, `\` and any other
+--- character is that character. `text` is attribute text, so the character
+--- references the escaper writes are decoded first.
+local function css_unescape(text: string): string
+  local plain = text:gsub("&#(%d+);", function(code: string): string
+    return string.char(tonumber(code) as integer)
+  end)
+  local out: {string} = {}
+  local i = 1
+  while i <= #plain do
+    local c = plain:sub(i, i)
+    if c ~= "\\" then
+      out[#out + 1] = c
+      i = i + 1
+    else
+      local hex = plain:match("^%x%x?%x?%x?%x?%x?", i + 1)
+      if hex then
+        out[#out + 1] = utf8.char(tonumber(hex, 16) as integer)
+        i = i + 1 + #hex
+        if plain:sub(i, i) == " " then
+          i = i + 1
+        end
+      else
+        out[#out + 1] = plain:sub(i + 1, i + 1)
+        i = i + 2
+      end
+    end
+  end
+  return table.concat(out)
+end
+
 local function css_attr_of(s: string | number): string
   return Html.raw_attr(Html.escape_css_attr(s))
 end
@@ -510,6 +542,37 @@ local function test_escape_css_attr_escapes_what_a_selector_would_read()
   assert(css_attr_of("caf\xc3\xa9") == "caf\xc3\xa9")
   assert(css_attr_of(42) == "&#92;34&#32;2")
   assert(css_attr_of("") == "")
+end
+
+--- Outputs of `CSS.escape` written down from the CSSOM specification, not
+--- computed here. `escape_css_attr` always writes a hex escape and its
+--- space where `CSS.escape` writes a backslash and the character (`\-`,
+--- `\ `, `\.`): the two read as the same text, which is what this checks,
+--- and the hex form needs no case for where the character stands. A hex
+--- escape's space also keeps a following literal space a combinator.
+local function test_escape_css_attr_reads_as_the_spec_css_escape()
+  local spec: {{string}} = {
+    { "0a", "\\30 a" },
+    { "-", "\\-" },
+    { "-0", "-\\30 " },
+    { "--", "--" },
+    { "a b", "a\\ b" },
+    { "a.b", "a\\.b" },
+    { "x, body", "x\\,\\ body" },
+    { "\1", "\\1 " },
+    { "\127", "\\7f " },
+    { "a\0b", "a\xef\xbf\xbdb" },
+    { "caf\xc3\xa9", "caf\xc3\xa9" },
+    { "a_b-c", "a_b-c" },
+  }
+  for _, case in ipairs(spec) do
+    local input, expected = case[1], case[2]
+    assert(css_unescape(css_attr_of(input)) == css_unescape(expected), ("%q"):format(input))
+    assert(css_unescape(expected) == css_unescape(css_escape(input)), ("%q"):format(input))
+  end
+  -- The one place the text differs: CSS.escape's `\-` and `\ ` are not hex.
+  assert(css_attr_of("-") == "&#92;2d&#32;")
+  assert(css_attr_of("a b") == "a&#92;20&#32;b")
 end
 
 local function test_escape_css_attr_is_css_escape_then_escape_attr()

@@ -10,8 +10,8 @@
 ---   [`Html.href`] (from data, through an allowlist) or [`Html.trust_url`].
 ---   It is not escaped for an attribute: the page does that where it
 ---   puts the URL in one.
---- - [`Html.SafeUrlPart`] is one piece of a URL (a path segment, a query
----   name or value, a fragment), made by [`Html.url_part`] or
+--- - [`Html.SafeUrlPart`] is percent-escaped text for a URL after literal
+---   text (a path segment or a query), made by [`Html.url_part`] or
 ---   [`Html.url_query`].
 --- - [`Html.SafeJson`] is JSON text for an attribute such as `hx-vals`,
 ---   made by [`Html.json`] or [`Html.json_text`]. It has no unchecked door.
@@ -61,10 +61,10 @@ local record Html
   --- attribute-escaped.
   type SafeUrl = raw_html.SafeUrl
 
-  --- One piece of a URL: a path segment, a query name or value, or a
-  --- fragment. Opaque: a value is made by [`Html.url_part`],
-  --- [`Html.url_query`]. Its text is
-  --- percent-escaped, not attribute-escaped.
+  --- Percent-escaped text that is safe in a URL attribute after literal
+  --- text: a path segment, from [`Html.url_part`], or a query, from
+  --- [`Html.url_query`], which also holds the `&` and `=` it joins with.
+  --- Opaque. Its text is not attribute-escaped.
   type SafeUrlPart = raw_html.SafeUrlPart
 
   --- JSON text. Opaque: a value is made by [`Html.json`] or

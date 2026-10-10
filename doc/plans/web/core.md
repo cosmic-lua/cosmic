@@ -508,13 +508,13 @@ mount's prefix is part of the chain, so no request needed). Rules:
 every `:param` must be given (`nil, 'url_for "item": missing id'`); extra
 params are an error (typos should not be silent); integer values are
 formatted `%d`; `*rest` values are split on `/` and each segment escaped;
-`:param` values are escaped with exactly the escaper `Html.url_part` uses
+`:param` values are escaped with exactly the escaper [`Html.url_part`] uses
 (the C function behind it, core/html.c; templates.md section 3), `/`
 included, so a slash in an id cannot change the route, and a value that is
 exactly `.` or `..` comes out as `%252E`/`%252E%252E` so it cannot become a
 dot segment. That escaper writes the same bytes as [`Url.escape`]
 (cosmic/url.tl:86) for every input but those two values; there is one
-escaper in the web layer, and a test pins [`Url.escape`], `Html.url_part` and
+escaper in the web layer, and a test pins [`Url.escape`], [`Html.url_part`] and
 `Router:reverse` together on a table of hostile values (the same test
 templates.md section 8 describes). `query` encodes `name=value` pairs with
 it, in sorted order (deterministic for tests). Unknown name: `nil, 'url_for: no route named "x"'`.
@@ -1343,6 +1343,7 @@ close, and a raise in it reaches `on_error` without stopping the drain.
 [`Html.raw`]: ../../../cosmic/html.tl
 [`Html.SafeHtml`]: ../../../cosmic/html.tl
 [`Html.trust`]: ../../../cosmic/html.tl
+[`Html.url_part`]: ../../../cosmic/html.tl
 [`Http.get`]: ../../../cosmic/http/init.tl
 [`Json.array`]: ../../../cosmic/json.tl
 [`Json.decode`]: ../../../cosmic/json.tl
