@@ -1,6 +1,6 @@
 --- Lines a command-line program writes: what it found on stdout, what went
 --- wrong on stderr under the program's own name, and the verdict line
---- every cosmic verb ends in -- `fix: PASS (3 files, 0 fixed, 12 ms)`.
+--- every cosmic verb ends in -- `fix: PASS (3 Teal files, 0 fixed, 12 ms)`.
 ---
 ---     local log = Log.new("notes")
 ---     log:complain("no such note: 9") -- stderr: "notes: no such note: 9"
