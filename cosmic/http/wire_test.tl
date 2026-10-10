@@ -231,10 +231,6 @@ local function sent_bytes(reply: wire.Reply): string
   return sink:result()
 end
 
---- A reply's own Content-Length, under any case of its name, is the
---- body's size as `length` is: held to the body, and written once, as
---- the server frames it. Without a body it is a HEAD's size, sent with
-
 --- A list value is one line per element, in order, under the name as
 --- given; an empty list is none.
 local function test_a_list_header_is_written_one_line_per_element()
@@ -245,6 +241,9 @@ local function test_a_list_header_is_written_one_line_per_element()
   assert(text:find("X-A: 1\r\n", 1, true) ~= nil, text)
 end
 
+--- A reply's own Content-Length, under any case of its name, is the
+--- body's size as `length` is: held to the body, and written once, as
+--- the server frames it. Without a body it is a HEAD's size, sent with
 --- no bytes, or a 304's, passed on.
 local function test_a_given_content_length_is_held_to_the_body()
   local function framed(out: string): string, integer, string

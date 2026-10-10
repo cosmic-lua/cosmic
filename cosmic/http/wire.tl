@@ -742,7 +742,7 @@ local function given_length(headers: {string: string | {string}}): integer | nil
   end
   local name, value = names[1], headers[names[1]]
   if value is {string} then
-    return nil, ("header %s: Content-Length is given more than once"):format(name)
+    return nil, ("header %s: Content-Length is one value, not a list"):format(name)
   end
   local size = decimal(value)
   if size == nil then return nil, ("header %s: %q is not digits"):format(name, value) end

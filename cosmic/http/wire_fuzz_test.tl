@@ -486,6 +486,6 @@ local function test_a_reply_is_framed_as_its_status_and_method_say(tmp: string)
       return true, ""
     end,
     requires = { "bodiless", "head", "content-length", "chunked", "until close", "given length",
-      "refused length" },
+      "refused length", "set-cookie" },
   })
 end
