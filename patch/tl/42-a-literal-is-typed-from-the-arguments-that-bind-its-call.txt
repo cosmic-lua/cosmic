@@ -1,0 +1,55 @@
+file: tl.tl
+note: a table literal argument takes its type from its parameter's, so when the call's expected result fixed the call's type variables first, the literal was typed as that result (an interface) and an argument that binds them otherwise (`setmetatable({ ... }, thing_mt)` returning an interface Thing implements) could not be fit; patch 40's second order only re-binds, it cannot re-type the literal. When a call has such a literal and a variable argument that the result-first binding refuses, the arguments that are variables bind the type variables before the expected result does, so the literal is typed from them; a call whose variable arguments the result-first binding takes is typed as before
+--- find
+                  if node.expected then
+                     -- this forces typevars in function return types
+                     self:is_a(e1type.rets, node.expected)
+                  end
+--- replace
+                  if node.expected then
+                     local has_literal = false
+                     local lat = argdelta
+                     for _, typ in ipairs(e1type.args.tuple) do
+                        lat = lat + 1
+                        local arg = node.e2[lat]
+                        if arg and arg.kind == "literal_table" and has_unbound_typevars(self, typ) then
+                           has_literal = true
+                        end
+                     end
+                     if has_literal then
+                        -- Try the result-first binding in a scratch scope: if
+                        -- it refuses a variable argument, bind from those first.
+                        local vars_at: {integer:Type} = {}
+                        local refused = false
+                        local st = self.st
+                        table.insert(st, { vars = {} })
+                        self:is_a(e1type.rets, node.expected)
+                        lat = argdelta
+                        for _, typ in ipairs(e1type.args.tuple) do
+                           lat = lat + 1
+                           local arg = node.e2[lat]
+                           if arg and arg.kind == "variable" then
+                              local given = self:find_var_type(arg.tk)
+                              if given and not given is GenericType and not has_unbound_typevars(self, given) then
+                                 vars_at[lat] = given
+                                 if not self:is_a(given, self:infer_at(arg, typ)) then
+                                    refused = true
+                                 end
+                              end
+                           end
+                        end
+                        table.remove(st)
+                        if refused then
+                           lat = argdelta
+                           for _, typ in ipairs(e1type.args.tuple) do
+                              lat = lat + 1
+                              if vars_at[lat] then
+                                 bind_typevars_from(self, vars_at[lat], typ)
+                              end
+                           end
+                        end
+                     end
+                     -- this forces typevars in function return types
+                     self:is_a(e1type.rets, node.expected)
+                  end
+--- end

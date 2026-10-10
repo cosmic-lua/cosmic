@@ -464,9 +464,9 @@ local function test_a_slot_is_accepted_only_where_the_tree_has_text_or_an_attrib
   table.sort(summary)
   print(("tree: %d cases, %d texts, %d comments, %d values, %d positions; accepted %s"):format(
     reach.cases, reach.texts, reach.hidden, reach.values, reach.positions, table.concat(summary, " ")))
-  -- It reaches 1534 cases, 680 texts, 32 comments, 75 values and 3944
-  -- positions, and accepts 1900 slots of HTML text, 97 of rtext, 90 of
-  -- ftext (56 in foreign content, 34 in a <select>), 109 in attributes and
+  -- It reaches 1534 cases, 675 texts, 31 comments, 74 values and 3914
+  -- positions, and accepts 1892 slots of HTML text, 97 of rtext, 86 of
+  -- ftext (56 in foreign content, 30 in a <select>), 103 in attributes and
   -- 16 in URLs.
   local accepted = reach.accepted
   -- The template's ending is held to: many cases need a closer to compile.

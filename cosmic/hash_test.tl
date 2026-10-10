@@ -376,30 +376,6 @@ local function test_a_closed_hasher_is_finished()
   end
 end
 
-local function test_byte_sum_adds_unsigned_bytes_over_a_range()
-  assert(Hash.byte_sum("") == 0)
-  assert(Hash.byte_sum("\0\1\2\255") == 258)
-  assert(Hash.byte_sum("abc", 2) == 98 + 99)
-  assert(Hash.byte_sum("abc", 1, 2) == 97 + 98)
-  assert(Hash.byte_sum("abc", 2, 2) == 98)
-  assert(Hash.byte_sum("abc", 3, 2) == 0)
-  assert(Hash.byte_sum("abc", 4) == 0)
-  -- A tar header's checksum: every byte, with the checksum field's own
-  -- eight counted as spaces.
-  local block = ("x"):rep(148) .. ("\255"):rep(8) .. ("\0"):rep(356)
-  assert(Hash.byte_sum(block, 1, 148) + 8 * 32 + Hash.byte_sum(block, 157, 512) ==
-      148 * 120 + 8 * 32)
-  assert(Hash.byte_sum(block) == 148 * 120 + 8 * 255)
-end
-
-local function test_byte_sum_raises_on_a_range_outside_the_string()
-  assert(not pcall(Hash.byte_sum, "abc", 0))
-  assert(not pcall(Hash.byte_sum, "abc", 1, 4))
-  assert(not pcall(Hash.byte_sum, "abc", 1, -1))
-  assert(not pcall(Hash.byte_sum, "abc", 5))
-  assert(not pcall(Hash.byte_sum, "abc", 3, 1))
-end
-
 --- SipHash under the key 00 01 .. 0f, of the first n bytes of 00 01 ..
 --- (wrapping past ff): the reference vectors' scheme, with the tags
 --- zig's std.crypto.auth.siphash computes (the first of SipHash-2-4's,

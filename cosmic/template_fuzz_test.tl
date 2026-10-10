@@ -691,7 +691,8 @@ local RAW_PIECES <const> = {
   -- A whole element, so that a cut inside its tags is drawn at default counts.
   "<textarea></textarea><script>", "<title></title><script>", "<style></style><script>",
   "<script><!--<script></script>", "<script><!--<script></script>--></script>", "<script></script><textarea>", "<noscript><!--</noscript>", "<noscript><!-", "--</noscript>",
-  "<svg><style></style></svg>",
+  "<svg><style></style></svg>", "<select>", "</select>", "<frameset>", "<noframes>", "</noframes>",
+  "<select><title></title></select>",
 }
 
 --- The actions that cut a literal run: blocks that emit nothing, one whose

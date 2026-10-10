@@ -53,7 +53,8 @@ local record compress
   -- Raises when `max_memory` is not positive.
   xz_decoder: function(max_memory?: integer): Stream | nil, string
   bz2_decoder: function(): Stream | nil, string
-  -- Raises when `crc` is outside 0 to 0xffffffff.
+  -- The running CRC-32 (IEEE) of `data`; pass the previous value as `crc`
+  -- to continue it. Raises when `crc` is outside 0 to 0xffffffff.
   crc32: function(data: string, crc?: integer): integer
 end
 
