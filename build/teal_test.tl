@@ -1254,7 +1254,8 @@ end
 --- refuses a function that may return, since the type variable binds the
 --- never-function type with its flag: `put<T>(t: {T}, v: T)`, `table.insert`
 --- and `table.remove` on `{function(): never}`, a map, a record's field
---- read as a map, a copy of the array, and a generic record.
+--- read as a map, a copy of the array, and a generic record, with the
+--- value or the container first, nested twice, and as a callback's parameter.
 local function test_a_generic_cannot_write_a_returning_function_into_a_never_container()
   local head = "local function nv(): never error('x') end\nlocal function ret() end\nprint(nv, ret)\n"
   for _, body in ipairs({
@@ -1271,8 +1272,17 @@ local function test_a_generic_cannot_write_a_returning_function_into_a_never_con
         "local function setk<K,V>(t: {K:V}, k: K, v: V) t[k] = v end\nsetk(r, 'die', ret)\n",
       "local record R f: function(): never end\nlocal r: R = { f = nv }\n" ..
         "local function put<T>(t: {string:T}, v: T) t.f = v end\nput(r, ret)\n",
+      -- the value first: T is bound by a returning function before the container
+      "local function put3<T>(v: T, t: {T}) t[1] = v end\nlocal u = { nv }\nput3(ret, u)\n",
+      "local function mput<K, V>(v: V, m: {K: V}, k: K) m[k] = v end\n" ..
+        "local m: {string: function(): never} = { a = nv }\nmput(ret, m, 'a')\n",
+      "local t: {function(): never} = { nv }\nlocal u = { ret }\ntable.move(u, 1, 1, 1, t)\n",
+      "local function nest<T>(v: T, r: {{T}}) r[1][1] = v end\n" ..
+        "local r: {{function(): never}} = {{ nv }}\nnest(ret, r)\n",
+      "local function cb<T>(v: T, f: function(T)) f(v) end\n" ..
+        "cb(ret, function(g: function(): never) print(g) end)\n",
   }) do
-    assert_refused(head .. body, "may return, where")
+    assert_refused(head .. body, "never")
   end
 end
 

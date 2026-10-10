@@ -221,6 +221,10 @@ note: Teal compares what is nested in a type through is_a in whichever direction
       return nil
    end
 
+   nested_never_mismatch = function(a: Type, b: Type): boolean
+      return never_mismatch(a, b, false, {}) ~= nil
+   end
+
    -- compare_types, once the outermost comparison has found that the two
    -- types agree on which of their nested functions never return. A
    -- comparison made inside another (by a relation of 43e2's kind) is not

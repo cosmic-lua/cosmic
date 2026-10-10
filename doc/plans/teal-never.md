@@ -166,11 +166,17 @@ never-specific holes. the checker has one:
 what is not a hole of `never`, because the series closes it. a never-function
 does not stand for one that may return at the root of a comparison or
 nested in any type (43e2, 43e3, 43e5), so a generic cannot write a
-returning function into a container of never-functions
-(`put<T>(t: {T}, v: T)`, `table.insert`, `swap` on a generic record: each
-binds `T` to the never-function type and refuses the other), and the poly
-rows are right (43e4, 43e6). `test_a_generic_cannot_write_a_returning_function_into_a_never_container`
-pins eight such refusals.
+returning function into a container of never-functions, or the reverse, in
+either order of its arguments: `put<T>(t: {T}, v: T)`, `put3<T>(v: T, t:
+{T})`, a map, a nested `{{T}}`, `table.insert`, `table.move`, `swap` on a
+generic record, and a callback `cb<T>(v: T, f: function(T))`. a type
+variable binds the first function type it meets, flag included, and a later
+argument is compared with it as a nested type: 43e7 walks that pair as
+43e5 walks an outermost comparison, since the comparison of a container's
+element with a bound variable is nested and the outermost walk never sees
+it. the poly rows are right (43e4, 43e6).
+`test_a_generic_cannot_write_a_returning_function_into_a_never_container`
+pins thirteen such refusals.
 
 inherited holes, which Teal has for every type. a never-function falls
 into each as a `string` does, `test_never_falls_into_the_holes_every_type_has`
@@ -363,6 +369,7 @@ order they apply):
 43e4  the poly row: every overload never
 43e5  never_mismatch, the outermost walk, is_a and same_type wrapped
 43e6  the poly row asks for an overload below b, not b below an overload
+43e7  a nested comparison with a bound type variable is walked as 43e5 does
 43f1  the call rule in type_check_function_call
 43g1  @never in every function's scope
 43g2  a `return` in a never-function is an error

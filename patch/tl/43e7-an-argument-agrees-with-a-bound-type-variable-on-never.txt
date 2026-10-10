@@ -1,0 +1,28 @@
+file: tl.tl
+note: a type variable already bound is compared with the type another argument gives it inside the comparison of that argument's container or callback (`put3<T>(v: T, t: {T})` given a returning function and then `{function(): never}`), which is nested, so 43e5's walk of the outermost comparison never sees the pair: the bound function type and the element disagreeing on `never` passed. A comparison against a bound type variable that is nested therefore walks the pair as 43e5 does, with nothing at its root, and refuses a disagreement in either direction. The outermost comparison (`put3(ret, nv)`, one argument against the variable) keeps the root rule
+--- find
+   function TypeChecker:compare_or_infer_typevar(typevar: string, a: Type, b: Type, cmp: CompareTypes): boolean, {Error}
+      -- assert((a == nil and b ~= nil) or (a ~= nil and b == nil))
+
+      -- does the typevar currently match to a type?
+      local vt, _, constraint = self:find_var_type(typevar)
+      if vt then
+         -- If so, compare it to the other type
+         return cmp(self, a or vt, b or vt)
+--- replace
+   -- Whether two types, one nested in a comparison, disagree on whether a
+   -- function in the same place never returns (43e5 sets it).
+   local nested_never_mismatch: function(a: Type, b: Type): boolean
+
+   function TypeChecker:compare_or_infer_typevar(typevar: string, a: Type, b: Type, cmp: CompareTypes): boolean, {Error}
+      -- assert((a == nil and b ~= nil) or (a ~= nil and b == nil))
+
+      -- does the typevar currently match to a type?
+      local vt, _, constraint = self:find_var_type(typevar)
+      if vt then
+         -- If so, compare it to the other type
+         if (self.compare_depth or 0) > 1 and nested_never_mismatch(a or vt, b or vt) then
+            return false, { Err("got %s, expected %s: a function that never returns and one that may return do not stand for each other inside another type", a or vt, b or vt) }
+         end
+         return cmp(self, a or vt, b or vt)
+--- end
