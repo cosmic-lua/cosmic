@@ -128,9 +128,11 @@ local record Server
       --- The most bytes of a request's body (1 MiB); past it, 413.
       -- TODO: let a request's route choose its own limit
       -- (`ServeSpec.body_limit(method, path)`, doc/plans/web/core.md
-      -- 13.4): once wire.read_head defers its Content-Length check
-      -- (wire.tl, "the body is longer than limits.body_bytes") to a
-      -- limit chosen after the head is read.
+      -- 13.4). A lower one needs only exchange to consult it before
+      -- wire.body; a higher one (an upload route) waits on
+      -- wire.read_head, which answers 413 for a Content-Length past the
+      -- server-wide `body_bytes` before the route is known: it would
+      -- take the Content-Length check out of read_head into the caller.
       body_bytes: integer
     end
     --- Bounds on what the server takes on; nil for every default.
@@ -150,15 +152,17 @@ local record Server
     --- so a client sending a head a byte at a time holds a connection
     --- no longer.
     head_ns: integer
-    --- How long a request's body may take, from the end of its head
-    --- (30 seconds), however steadily its bytes come; it bounds the
-    --- reads of the body, the handler's and the server's own that
-    --- drop what the handler left. Past it the read fails as a
+    --- How long a request's body may take (30 seconds), however steadily
+    --- its bytes come. The time runs from the handler's first read of
+    --- the body, so a handler working before it reads costs the client
+    --- none; the server's own drop of a body the handler left unread
+    --- has a window of its own. Past it the read fails as a
     --- [`Poll.TIMEOUT`] does and the server answers 408 in place of the
     --- handler's reply and closes, so a client sending a body a byte
-    --- at a time holds a connection no longer. It counts the handler's
-    --- own time before it reads, and a request with no body has none.
-    --- A server taking uploads past what 30 seconds carry raises it.
+    --- at a time holds a connection no longer; a body that was unread
+    --- and is not dropped in time closes the connection after the
+    --- handler's reply. A request with no body has none. A server taking
+    --- uploads past what 30 seconds carry raises it.
     body_ns: integer
     --- As [`Net.ServeSpec.on_ready`].
     on_ready: function(addresses: {Net.Address}, server: Net.Server)
@@ -425,7 +429,7 @@ end
 --- writes its reply, or the server's own. True where the connection
 --- stays open for the next request.
 local function exchange(s: Serving, conn: Net.Conn, input: wire.Input, head: wire.Head,
-                        peer: Net.Address | nil): boolean
+                        timed: Timed, peer: Net.Address | nil): boolean
   -- Whether `100 Continue` went, and whether the final head has: an
   -- interim reply after it would be read as the final reply's body.
   local continued, replied = false, false
@@ -436,7 +440,12 @@ local function exchange(s: Serving, conn: Net.Conn, input: wire.Input, head: wir
       local _, _ = conn:write("HTTP/1.1 100 Continue\r\n\r\n")
     end
   end
-  local body = wire.body(input, head, s.limits, go_on)
+  -- The body's deadline starts at the handler's first read, so the
+  -- handler's own time before it is the client's no more.
+  local body = wire.body(input, head, s.limits, function()
+    timed.deadline = Clock.monotonic_ns() + s.body_ns
+    go_on()
+  end)
   local request: Server.Request = {
     method = head.method, target = head.target, path = head.path, query = head.query,
     version = head.version, headers = head.headers, body = body, length = head.length, peer = peer,
@@ -523,6 +532,10 @@ local function exchange(s: Serving, conn: Net.Conn, input: wire.Input, head: wir
   end
   -- What of the body the handler left is dropped, so the next request
   -- starts where this one ends.
+  if body.state == "open" then
+    -- A window of its own: the handler's time, and its reads', are spent.
+    timed.deadline = Clock.monotonic_ns() + s.body_ns
+  end
   if body.state == "open" and not body:drain() then
     linger(conn)
     return false
@@ -559,12 +572,7 @@ local function serve_conn(s: Serving, conn: Net.Conn)
       end
       return
     end
-    -- The body's reads, the handler's and the drop after its reply, share
-    -- one deadline from here.
-    if head.chunked or (head.length or 0) > 0 then
-      timed.deadline = Clock.monotonic_ns() + s.body_ns
-    end
-    local kept = exchange(s, conn, input, head, peer)
+    local kept = exchange(s, conn, input, head, timed, peer)
     timed.deadline = nil
     if not kept then return end
   end

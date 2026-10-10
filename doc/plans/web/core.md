@@ -1242,7 +1242,13 @@ server; an upload route wants more and a JSON API route less. Proposal:
 nil` consulted once the head is read, before the body Reader is made
 (wire.body takes `s.limits`, server.tl:389); the answer replaces
 `body_bytes` for this request (and a `Content-Length` above it is 413 at
-once, as now). `Web.serve` passes the router's lookup (route.body_limit
+once, as now). Checked against the code: a limit *below* `body_bytes` needs
+only `exchange` to consult the function before `wire.body` and answer 413
+for a larger Content-Length itself; a limit *above* it (the upload route) is
+blocked by `wire.read_head`, which refuses a Content-Length past
+`limits.body_bytes` (wire.tl, 413) before the head, and so the route, is
+known. The change is to move that one check out of `read_head` into its
+caller (`read_head` then returns the head with its length). `Web.serve` passes the router's lookup (route.body_limit
 or the app default). Without it, web enforces smaller limits itself
 (`Input`'s Content-Length check and [`Stream.limit`], stream.tl:690, which
 fails the read -> 413 abort; input.md section 2) but cannot raise the cap
@@ -1262,7 +1268,12 @@ has decode_query".
 
 ### 13.6 Smaller server.tl observations
 
-- server.tl:429 closes the connection after every reply with status >= 400.
+- Landed: a handler's reply of any status keeps the connection, 4xx and 5xx
+  alike (a handler wanting it closed sets `Reply.close`); it closes only
+  where the body was left unread and could not be dropped, or the server
+  wrote the reply itself (`answer`, which closes). What follows is the
+  original observation.
+- server.tl:429 closed the connection after every reply with status >= 400.
   For a server answering htmx fragments and APIs, every validation error,
   404 (a missing favicon) and 401 forces a TCP reconnect. The body is
   already drained or lingered for (server.tl:476-479), so the clause looks

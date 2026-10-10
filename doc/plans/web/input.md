@@ -1771,9 +1771,12 @@ declaration, everything else declares nothing.
    allowed in the raw decoder. Recommendation: as written.
 6. 400 vs 422 for a value that fails its shape spec. Decided: 422, and 400
    for undecodable input (../web.md, decision 7).
-7. Upload deadlines: the `body_ns` TODO in server.tl:485-489 should land
-   before docs recommend uploads on the open internet. Recommendation: land
-   it with this work (a small `Timed` deadline set at head end).
+7. Upload deadlines: landed as `ServeSpec.body_ns` (30 s default), timed
+   from the handler's first read of the body, not the head's end, so a
+   handler's own work costs the client nothing; the server's drop of an
+   unread body has a window of its own. A body past it is answered 408.
+   Docs may recommend uploads on the open internet once a route that takes
+   large ones raises `body_ns`.
 8. Signed-cookie sessions are readable. Recommendation: document, and add
    AEAD encryption when cosmic has a cipher; do not invent one with HMAC
    stream constructions.
