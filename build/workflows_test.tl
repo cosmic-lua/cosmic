@@ -2458,15 +2458,24 @@ local function test_a_queue_leg_takes_the_driver_check_of_the_run_ahead()
     "a key is taken that is not the one the leg's lookup computed")
 
   local kept = upload.with as {string: any}
-  for _, relay in ipairs({ keep, upload }) do
-    local when = relay["if"] as string
-    assert(when:find("github.event_name == 'merge_group'", 1, true) and
-        when:find("steps.driver-check.outcome == 'success'", 1, true) and
-        when:find("steps.driver-check-restore.outputs.cache-hit == 'true'", 1, true) and
-        when:find("steps.driver-ahead-take.outputs.hit == 'true'", 1, true),
-      "the key is kept where no check passed or key was found: " .. when)
+  for _, relay in ipairs({ keep, upload, take }) do
+    local when = (relay["if"] as string) or ""
+    for _, loose in ipairs({ "always()", "!cancelled()", "failure()", "cancelled()" }) do
+      assert(not when:find(loose, 1, true), "the key is kept or taken after a failed or cancelled step: " .. when)
+    end
+    if relay ~= take then
+      assert(when:find("github.event_name == 'merge_group'", 1, true) and
+          when:find("steps.driver-check.outcome == 'success'", 1, true) and
+          when:find("steps.driver-check-restore.outputs.cache-hit == 'true'", 1, true) and
+          when:find("steps.driver-ahead-take.outputs.hit == 'true'", 1, true),
+        "the key is kept where no check passed or key was found: " .. when)
+    end
   end
-  assert(kept.name == env.ARTIFACT and kept["retention-days"] == 1, "the key is kept under another name, or for long")
+  local written = keep.run as string
+  assert(written:find("driver-relay/key", 1, true) and not written:find("driver-checked", 1, true) and
+      written:find('[ -n "$KEY" ]', 1, true), "the kept key goes to main's marker's path, or may be empty")
+  assert((take.run as string):find('[ -n "$KEY" ]', 1, true), "an empty key can match an empty one")
+  assert(kept.name == env.ARTIFACT and kept.overwrite == true, "the key is kept under another name, or not replaced")
   for _, step in ipairs(steps) do
     local saves = (step.uses as string or ""):find("actions/cache/save@", 1, true) ~= nil
     local from = step.with and (step.with as {string: any}).path as string or ""

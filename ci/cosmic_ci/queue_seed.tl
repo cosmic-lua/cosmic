@@ -1,6 +1,11 @@
 --- The merge queue's result, which a push to main reuses rather than
 --- testing the same commit again (README.md's "the queue's result"), and
 --- the run ahead of a queue run in the queue, whose verdicts it takes.
+--- TODO: word this header and `ahead`'s log lines by what ARTIFACT holds
+--- (verdicts, or a driver check's key, which ci.yml's "find the CI driver
+--- check of the run ahead in the queue" asks for), once queue_seed_test.tl
+--- stops pinning "this run takes its verdicts" and the harness-epoch line,
+--- which say verdicts alone.
 --- Both ask the API through [`Github.Host`] and never fail their step: a
 --- full run, or none of the verdicts ahead, costs time, never a result.
 ---

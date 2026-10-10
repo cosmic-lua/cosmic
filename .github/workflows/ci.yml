@@ -573,7 +573,7 @@
           "continue-on-error": true,
           shell: "sh",
           env: {KEY: "${{ steps.driver-check-restore.outputs.cache-primary-key }}"},
-          run: "[ \"$(cat \"$RUNNER_TEMP/driver-ahead/key\")\" = \"$KEY\" ] && echo hit=true >> \"$GITHUB_OUTPUT\" || :",
+          run: "[ -n \"$KEY\" ] && [ -f \"$RUNNER_TEMP/driver-ahead/key\" ] && [ \"$(cat \"$RUNNER_TEMP/driver-ahead/key\")\" = \"$KEY\" ] && echo hit=true >> \"$GITHUB_OUTPUT\" || :",
         },
 
         # --all, unsandboxed: it shares no verdicts, and cosmic_ci's tests
@@ -599,7 +599,7 @@
           "continue-on-error": true,
           shell: "sh",
           env: {KEY: "${{ steps.driver-check-restore.outputs.cache-primary-key }}"},
-          run: "mkdir -p \"$RUNNER_TEMP/driver-relay\" && echo \"$KEY\" > \"$RUNNER_TEMP/driver-relay/key\"",
+          run: "[ -n \"$KEY\" ] && mkdir -p \"$RUNNER_TEMP/driver-relay\" && echo \"$KEY\" > \"$RUNNER_TEMP/driver-relay/key\"",
         },
         {
           name: "upload the CI driver check for the run behind in the queue",
@@ -610,6 +610,7 @@
             name: "driver-checked-${{ matrix.name }}",
             path: "${{ runner.temp }}/driver-relay",
             "if-no-files-found": "error",
+            overwrite: true,
             "retention-days": 1,
           },
         },
