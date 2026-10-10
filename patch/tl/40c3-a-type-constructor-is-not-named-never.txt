@@ -1,0 +1,14 @@
+file: tl.tl
+note: `local record never`, `local interface never` and `local enum never` (and with `global`) declare no type named `never` (40c1)
+--- find
+   i, asgn.var = verify_kind(ps, i, "identifier")
+   if not asgn.var then
+      return fail(ps, i, "expected a type name")
+   end
+--- replace
+   i, asgn.var = verify_kind(ps, i, "identifier")
+   if not asgn.var then
+      return fail(ps, i, "expected a type name")
+   end
+   refuse_type_named_never(ps, i - 1, asgn.var.tk)
+--- end

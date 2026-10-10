@@ -1,0 +1,9 @@
+file: tl.tl
+note: a function, method or function value whose return list is `: never` never returns (40b3). It is not one that omits its return types (37a), and takes nothing from its context
+--- find
+   node.rets_omitted = ps.tokens[i].tk ~= ":"
+   i, node.rets = parse_return_types(ps, i)
+--- replace
+   node.rets_omitted = ps.tokens[i].tk ~= ":"
+   i, node.rets, node.never = parse_return_types(ps, i)
+--- end

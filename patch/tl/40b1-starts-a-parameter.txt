@@ -1,0 +1,15 @@
+file: tl.tl
+note: whether the tokens at an index begin a parameter of an enclosing function type (`name:`, `name?:`, `?` or `...`), which a return list ends before (30). The test is a function of its own so that `: never`, which is not a type list, ends before a parameter by the same rule (40b3)
+--- find
+local function parse_trying_list<T>(ps: ParseState, i: integer, list: {T}, parse_item: ParseItem<T>, ret_lookahead?: boolean): integer, {T}
+--- replace
+local function starts_parameter(ps: ParseState, i: integer): boolean
+   local tk, after, third = ps.tokens[i], ps.tokens[i + 1], ps.tokens[i + 2]
+   return (tk.kind == "identifier" and after ~= nil and after.tk == ":")
+      or (tk.kind == "identifier" and after ~= nil and after.tk == "?" and third ~= nil and third.tk == ":")
+      or tk.tk == "?"
+      or tk.tk == "..."
+end
+
+local function parse_trying_list<T>(ps: ParseState, i: integer, list: {T}, parse_item: ParseItem<T>, ret_lookahead?: boolean): integer, {T}
+--- end

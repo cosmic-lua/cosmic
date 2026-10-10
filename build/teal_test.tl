@@ -945,3 +945,99 @@ local function test_other_missing_comma_errors_get_no_vararg_hint()
   assert(syntax_hint("local function g(...: string) print(... x) end\n") == nil)
   assert(syntax_hint("f(...x)\n") == nil)
 end
+
+--- Everything the parser and the checker refuse in `source`, each as
+--- "line:column message".
+local function refusals(source: string): {string}
+  local built = assert(teal.load(true))
+  local ok, code, result = pcall(built.gen, source, nil, nil, "tl")
+  assert(ok, tostring(code))
+  local out: {string} = {}
+  for _, e in ipairs(assert(result).syntax_errors) do
+    out[#out + 1] = e.y .. ":" .. e.x .. " " .. e.msg
+  end
+  for _, e in ipairs(result.type_errors) do
+    out[#out + 1] = e.y .. ":" .. e.x .. " " .. e.msg
+  end
+  return out
+end
+
+local function assert_accepted(source: string)
+  local found = refusals(source)
+  assert(#found == 0, source .. table.concat(found, "; "))
+end
+
+local function assert_refused(source: string, text: string)
+  local found = refusals(source)
+  assert(found[1] ~= nil and found[1]:find(text, 1, true) ~= nil,
+    source .. "refused as: " .. (found[1] or "accepted"))
+end
+
+--- `: never` is a return list that says a function does not return
+--- (patch/tl's 40b3): it parses on a declaration, a method, a function
+--- type and a function-typed parameter that another follows, and the
+--- Lua it generates is the Lua of the same function without it.
+local function test_never_is_a_return_list()
+  assert_accepted("local record Guard\n  die: function(self: Guard, why: string): never\nend\n" ..
+      "function Guard:die(why: string): never\n  error(why)\nend\n" ..
+      "local function run(f: function(): never, x: integer): integer\n  f()\n  return x\nend\n" ..
+      "local h: function(): never = function(): never error('x') end\nprint(run, h)\n")
+  local built = assert(teal.load(true))
+  local with = assert(built.gen("local function fail(m: string): never\n  error(m)\nend\nfail('x')\n",
+    nil, nil, "tl"))
+  local without = assert(built.gen("local function fail(m: string)\n  error(m)\nend\nfail('x')\n",
+    nil, nil, "tl"))
+  assert(with == without, with)
+end
+
+--- `never` is the flag only as the whole of an unparenthesized return
+--- list: in a list, in parentheses, in a union, as a vararg, as a
+--- parameter or in a container it is a name no type has (40b3).
+local function test_never_is_only_the_whole_return_list()
+  assert_refused("local function f(): never, string error('x') end\nprint(f)\n",
+    "'never' is the whole return list")
+  for _, source in ipairs({
+      "local function f(): (never) error('x') end\nprint(f)\n",
+      "local function f(): never | nil error('x') end\nprint(f)\n",
+      "local function f(): never... error('x') end\nprint(f)\n",
+      "local function f(x: never) print(x) end\nprint(f)\n",
+      "local x: {never}\nprint(x)\n",
+      "local x: {string: never}\nprint(x)\n",
+  }) do
+    assert_refused(source, "unknown type never")
+  end
+  -- A `,` before a parameter ends the list, as it ends any return list.
+  assert_accepted("local function f(cb: function(): never, n?: string) print(cb, n) end\n" ..
+      "local function g(cb: function(): never, ...: any) print(cb) end\nprint(f, g)\n")
+end
+
+--- `never.x` and `never<T>` are names that start a longer type, not the
+--- flag, so they are read as the nominal type they spell.
+local function test_never_followed_by_a_dot_or_arguments_is_a_name()
+  assert_refused("local function f(): never.x end\nprint(f)\n", "unknown type never.x")
+  assert_refused("local function f(): never<integer> end\nprint(f)\n", "unknown type never<integer>")
+  assert(#syntax_errors("local function f(): never.x end\nlocal function g(): never<integer> end\n") == 0)
+end
+
+--- No type is named `never`: a declaration of one would have `: never`
+--- silently mean something else (40c1). Another name that starts with
+--- the word is a type like any.
+local function test_no_type_is_named_never()
+  for _, source in ipairs({
+      "local record never\n  x: integer\nend\n",
+      "global record never\n  x: integer\nend\n",
+      "local interface never\n  x: integer\nend\n",
+      "local enum never\n  \"a\"\nend\n",
+      "local type never = integer\n",
+      "global type never = integer\n",
+      "local record R\n  record never\n    x: integer\n  end\nend\n",
+      "local record R\n  type never = integer\nend\n",
+      "local function f<never>(x: never): never return x end\n",
+      "local record Box<never>\n  v: never\nend\n",
+  }) do
+    assert_refused(source, "a type cannot be named 'never'")
+  end
+  assert_accepted("local record nevermore\n  x: integer\nend\nlocal type never_ = integer\n" ..
+      "local n: nevermore = { x = 1 }\nprint(n)\n")
+end
+

@@ -1,0 +1,7 @@
+file: tl.tl
+note: a function type whose return list is `: never` is a function type that never returns (40b3)
+--- find
+      i, typ.rets = parse_return_types(ps, i)
+--- replace
+      i, typ.rets, typ.never = parse_return_types(ps, i)
+--- end

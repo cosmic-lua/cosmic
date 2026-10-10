@@ -1,0 +1,8 @@
+file: tl.tl
+note: `local type never = ...` and `global type never = ...` (and the same inside a record) declare no type named `never` (40c1)
+--- find
+   local itypeargs = i
+--- replace
+   local itypeargs = i
+   refuse_type_named_never(ps, itypeargs - 1, var.tk)
+--- end

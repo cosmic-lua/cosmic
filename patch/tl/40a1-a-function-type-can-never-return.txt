@@ -1,0 +1,12 @@
+file: tl.tl
+note: a function type can be marked as one that never returns: 40b3 reads `: never` into the flag (40b4), 40d carries it to every function type built from a declaration, 40e makes such a function a subtype of any function and 40f lets a call of one end its block. It is a flag beside an empty `rets`, not a bottom type, so no table of types has a new case
+--- find
+   macroexp: Node
+   special_function_handler: SpecialFunctionName -- special handling for format strings etc
+end
+--- replace
+   macroexp: Node
+   special_function_handler: SpecialFunctionName -- special handling for format strings etc
+   never: boolean -- declared `: never`: a call does not return, and `rets` is empty
+end
+--- end

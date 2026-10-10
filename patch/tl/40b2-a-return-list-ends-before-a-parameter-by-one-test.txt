@@ -1,0 +1,16 @@
+file: tl.tl
+note: a return list that a `,` and a parameter follow ends there (30) by the test of 40b1, the same one `: never` ends by (40b3)
+--- find
+   and (not ret_lookahead
+        or (not (ps.tokens[i + 1].kind == "identifier"
+                 and ps.tokens[i + 2] and ps.tokens[i + 2].tk == ":")
+            and not (ps.tokens[i + 1].kind == "identifier"
+                     and ps.tokens[i + 2] and ps.tokens[i + 2].tk == "?"
+                     and ps.tokens[i + 3] and ps.tokens[i + 3].tk == ":")
+            and ps.tokens[i + 1].tk ~= "?"
+            and ps.tokens[i + 1].tk ~= "..."))
+   do
+--- replace
+   and (not ret_lookahead or not starts_parameter(ps, i + 1))
+   do
+--- end

@@ -1,0 +1,16 @@
+file: tl.tl
+note: `never` after a `:` is the return list of a function that does not return (40b3), so no type may be named so: a declaration of one would have `: never` silently mean something else, and the checker could not tell its uses apart. This refuses the name where a type argument declares it, and 40c2 through 40c4 call it where a type, record, interface or enum does; the message names the return list
+--- find
+local function parse_typearg(ps: ParseState, i: integer): integer, TypeArgType, integer
+   local name = ps.tokens[i].tk
+--- replace
+local function refuse_type_named_never(ps: ParseState, i: integer, name: string)
+   if name == "never" then
+      fail(ps, i, "a type cannot be named 'never': `: never` is the return list of a function that does not return")
+   end
+end
+
+local function parse_typearg(ps: ParseState, i: integer): integer, TypeArgType, integer
+   local name = ps.tokens[i].tk
+   refuse_type_named_never(ps, i, name)
+--- end
