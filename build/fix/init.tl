@@ -900,7 +900,7 @@ local function candidates_of(parsed: ast.Parsed, source: string): {near.Candidat
         entry.text ~= "" then
       candidates[#candidates + 1] = { source_symbol = entry.source_symbol,
         text = entry.text, line = entry.line,
-        method = entry.kind == "method" or entry.signature:find("%(%s*self%s*:") ~= nil }
+        method = entry.kind == "method" or entry.signature:find("^[^(]*%(%s*self%s*:") ~= nil }
     end
   end
   return candidates
@@ -1012,6 +1012,8 @@ local record Fix
   files: {string}
   counted: integer
   changed: {string}
+  --- The changed files whose only change was a link written.
+  link_only: {string:boolean}
   failures: {string}
 
   -- The C ([`lay_out_c`]).
@@ -1473,10 +1475,13 @@ local function check_links(ctx: Fix)
   end
   -- Held no longer than the links need them.
   ctx.facts = {}
+  ctx.link_only = {}
   for _, file in ipairs(linked_out.rewritten) do
     -- What the notes kept of its parse is of the text before.
     ctx.ready[file] = nil
     if not listed[file] then
+      -- Linking was the file's only change.
+      ctx.link_only[file] = true
       listed[file] = true
       changed[#changed + 1] = file
     end
@@ -1518,10 +1523,10 @@ local function say_notes(ctx: Fix)
   end
 end
 
---- What kinds the files of a run are, as " (3 Teal, 2 Markdown)": a Markdown
+--- What kinds the files of a run are, as "3 Teal + 2 Markdown files": a Markdown
 --- file and a Teal one are checked alike but differently fixed. Files
 --- refused before their kind was known are in the count and not here.
-local function kinds(picked: fix.Chosen): string
+local function kind_list(picked: fix.Chosen): string
   local markdown, zig = 0, 0
   for _, file in ipairs(picked.checked) do
     if String.ends_with(file, ".zig") then
@@ -1538,7 +1543,17 @@ local function kinds(picked: fix.Chosen): string
       parts[#parts + 1] = count .. " " .. names[i]
     end
   end
-  return #parts > 0 and " (" .. table.concat(parts, ", ") .. ")" or ""
+  return table.concat(parts, " + ")
+end
+
+--- The count of files a verdict says: "1 Teal file", "3 Teal + 2 Markdown
+--- files", or the bare count where refused paths leave no kind to name.
+local function files_said(ctx: Fix): string
+  local kinds = kind_list(ctx.picked)
+  if kinds == "" or #ctx.picked.refused > 0 then
+    return plural.count(ctx.counted, "file")
+  end
+  return kinds .. (ctx.counted == 1 and " file" or " files")
 end
 
 --- Says each failure, finding and change, then the verdict.
@@ -1584,10 +1599,7 @@ local function report(ctx: Fix): integer
   if links_unbuilt ~= nil then
     log:say("fix: FAIL  " .. links_unbuilt)
   end
-  local linked: {string:boolean} = {}
-  for _, file in ipairs(ctx.linked_out.rewritten) do
-    linked[file] = true
-  end
+  local linked = ctx.link_only
   for _, file in ipairs(changed) do
     log:say("fix: " .. (checking and "would fix  " or "fixed  ") .. file ..
         (linked[file] and " (links)" or ""))
@@ -1626,7 +1638,7 @@ local function report(ctx: Fix): integer
         clock.took(ctx.started) .. "; `cosmic fix` rewrites them in place")
     return 1
   end
-  log:verdict("fix", true, plural.count(counted, "file") .. kinds(ctx.picked) .. ", " .. #changed ..
+  log:verdict("fix", true, files_said(ctx) .. ", " .. #changed ..
       (checking and " to fix, " or " fixed, ") .. clock.took(ctx.started))
   return 0
 end

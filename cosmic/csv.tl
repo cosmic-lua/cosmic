@@ -220,10 +220,9 @@ end
 --- `lines`, which count the lines inside quoted fields); `parse` leaves
 --- blank lines out of the records and keeps no line numbers. Text with no
 --- records is `{}`.
--- TODO: answer each record's start line from `parse` too (the scan in
--- `read` has it), once a fallible function may answer something beyond
--- the reason -- a caller that skips ragged records now has no line to
--- report for them.
+-- TODO: [`Csv.table`] already answers each record's start line; [`Csv.parse`]
+-- could too, once the contract rules (build/contracts.tl) let a fallible
+-- function answer a value beyond the reason.
 function Csv.parse(text: string, opts?: Csv.Options): {{string}} | nil, string
   local delimiter = delimiter_of(opts)
   local scan, trouble = read(text, delimiter)
