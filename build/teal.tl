@@ -1046,6 +1046,97 @@ local function declared_kind(source: string, name: string): string | nil
   return nil
 end
 
+--- A `local type <name> = require("<module>")`.
+local record TypeRequire
+  name: string
+  module: string
+end
+
+--- The `local type` require on line `y` of `source` whose `require` is
+--- at column `x`, where the checker reports a refused one: nil when there
+--- is none. The line need not start with it: a template's module
+--- requires every module on its first line ([`cosmic.template`]).
+local function type_require_at(source: string, y: integer, x: integer): TypeRequire | nil
+  local line = line_at(source, y)
+  if line == nil or x < 1 then
+    return nil
+  end
+  local name = line:sub(1, x - 1):match("%f[%w_]local%s+type%s+([%a_][%w_]*)%s*=%s*$")
+  local module = line:sub(x):match("^require%s*%(%s*[\"']([%w_.]+)[\"']%s*%)")
+  if name == nil or module == nil then
+    return nil
+  end
+  return { name = name, module = module }
+end
+
+--- The checker's refusal of a `local type` require of a module that
+--- returns no type.
+local not_a_type <const> = "^'require' did not return a type, got "
+
+--- The errors of `result` to report for `file`, syntax errors first,
+--- then type errors, then warnings, less each type error of `file` that
+--- follows from a `local type` require of it the checker refused
+--- ("'require' did not return a type"): one that names a type through
+--- the name that require binds (`unknown type Ledger.Month`, `... of type
+--- Ledger.Month`). The name holds no type, so each would blame a type the
+--- module's record may declare, while the refusal itself says what is
+--- wrong ([`teal.replacement`]). Errors are told apart by their text, so
+--- this decides what is said, never whether a compile is accepted: the
+--- refusal stays.
+function teal.reported(file: string, source: string, result: compiler.Result): {compiler.Error}
+  local function own(e: compiler.Error): boolean
+    return e.filename == nil or e.filename == "" or e.filename == file
+  end
+  local refused: {string} = {}
+  for _, e in ipairs(result.type_errors or {}) do
+    if own(e) and e.msg:match(not_a_type) ~= nil then
+      local bound = type_require_at(source, e.y, e.x)
+      if bound ~= nil then
+        refused[#refused + 1] = bound.name
+      end
+    end
+  end
+  local function follows(e: compiler.Error): boolean
+    for _, name in ipairs(refused) do
+      if own(e) and e.msg:find("%f[%w_.]" .. name .. "%.[%a_]") ~= nil then
+        return true
+      end
+    end
+    return false
+  end
+  local out: {compiler.Error} = {}
+  for _, e in ipairs(result.syntax_errors or {}) do
+    out[#out + 1] = e
+  end
+  for _, e in ipairs(result.type_errors or {}) do
+    if not follows(e) then
+      out[#out + 1] = e
+    end
+  end
+  for _, e in ipairs(result.warnings or {}) do
+    out[#out + 1] = e
+  end
+  return out
+end
+
+--- What the refused `local type` require `bound`, on line `y` of
+--- `source`, must change. In a template's module (`file` a `.tmpl`) it is
+--- the record's module its `{{type}}` names, whose type the declaration
+--- of `render` on that line gives.
+local function type_require_hint(file: string, source: string, y: integer,
+                                 bound: TypeRequire): string
+  local name, module = bound.name, bound.module
+  local return_type = "as `local record M ... end return M` or a `.d.tl` does"
+  if file:match("%.tmpl$") ~= nil then
+    local record_type = (line_at(source, y) or ""):match(
+      "local function render%([%a_][%w_]*: " .. name .. "%.([%a_][%w_]*)%)") or "..."
+    return module .. ", which {{type " .. record_type .. " from " .. module ..
+      "}} names, must return its record type, " .. return_type .. ", not a value of it"
+  end
+  return module .. " returns a value, not a type: a `local type` require needs the module " ..
+    "to return its record type, " .. return_type .. "; or require it as a value"
+end
+
 --- The hint for `unknown type Owner.Member`, a type named as declared
 --- inside `Owner` when it is not: told how to move it where `source`
 --- declares both at its top level, and, where `source` binds `Owner` to
@@ -1069,12 +1160,6 @@ local function nesting_hint(source: string, owner: string, member: string): stri
   -- missing field is told them: it waits on the checker giving this
   -- error the required record's types, as patch/tl/33a gives a missing
   -- key's fields.
-  -- TODO: give no hint where the `local type` require binding `owner`
-  -- was refused ("'require' did not return a type"): the module returns
-  -- a value of its record, which may declare `member`, so the hint
-  -- misleads. It waits on [`teal.replacement`] seeing the compile's
-  -- other errors (build/importer.tl and build/standalone.tl pass it one
-  -- error at a time).
   return owner .. " has no type " .. member .. ": check its spelling, or declare `record " ..
     member .. " ... end` inside the record " .. module .. " returns (a `local record " ..
     member .. "` beside that record is its file's alone)"
@@ -1469,8 +1554,21 @@ end
 --- (`Store is not a Kv.Store`) is told they are two types, and an
 --- `unknown type Kv.Kv` whose `Kv` `source` binds to a `require` that
 --- `Kv` itself is the module's record type.
+---
+--- A `local type Ledger = require("ledger")` refused because the module
+--- returns a value (`'require' did not return a type, got record
+--- Ledger`) is told to return the record type, or to require the module
+--- as a value. In a template's module (`file`, the file being compiled,
+--- a `.tmpl`) that require is the one its `{{type Page from ledger}}`
+--- makes, and the module is told to return the record type: a template
+--- requires its record's module as a value only for a stage that reads it.
+--- [`teal.reported`] leaves out the errors that follow from the refusal.
 function teal.replacement(msg: string, source: string, y: integer, x: integer,
-                          fields?: {string}): string | nil
+                          fields?: {string}, file?: string): string | nil
+  if msg:match(not_a_type) ~= nil then
+    local bound = type_require_at(source, y, x)
+    return bound ~= nil and type_require_hint(file or "", source, y, bound) or nil
+  end
   if msg:match("got number, expected integer$") or
       msg:match("got number, expected integer | nil$") or
       msg:match("got number %(inferred at [^)]*%), expected integer$") then

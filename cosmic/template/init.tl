@@ -26,7 +26,8 @@
 --- alone, so a declaration file (`.d.tl`) may export it and its body does not
 --- run, unless a stage reads it too. It must return the record type itself,
 --- as a `.d.tl` or `local record M ... end return M` does: one that returns
---- a value of it is refused. A stage is a function by import path,
+--- a value of it is refused at the `{{type}}`, which says so. A stage is a
+--- function by import path,
 --- whose module the generated source requires; composing one template in
 --- another is a stage naming its `render`. A stage answers exactly one value,
 --- wherever it stands: one declared to answer a fixed number of values

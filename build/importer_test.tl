@@ -1064,6 +1064,29 @@ local function test_a_type_beside_a_module_s_record_is_told_to_nest()
       "file's alone)", 1, true) ~= nil, compile_trouble)
 end
 
+--- A `local type` require of a module that returns a value of its record
+--- is refused, told what the module must return; the errors that follow
+--- from it, each naming a type through the refused name, go unsaid, since
+--- each would blame a type the record may well declare. An error that
+--- names no such type is still said.
+local function test_a_type_require_of_a_value_is_told_what_the_module_must_return()
+  local root = assert(write_fixture("type-require-of-value", {
+    ["ledger.tl"] = "local record Ledger\n  record Month\n    days: integer\n  end\nend\n" ..
+      "local ledger: Ledger = {}\nreturn ledger\n",
+    ["main.tl"] = 'local type Ledger = require("ledger")\n' ..
+      "local n: integer = \"one\"\n" ..
+      "return function(m: Ledger.Month): integer\n  return m.days + n\nend\n",
+  }))
+  local result, compile_trouble = compile_fixture(root)
+  assert(result == nil, "expected the type require of a value to refuse the compile")
+  assert(compile_trouble == "main.tl: the compiler refused it\n" ..
+      "main.tl:1:21: 'require' did not return a type, got record Ledger -- ledger returns a " ..
+      "value, not a type: a `local type` require needs the module to return its record type, as " ..
+      "`local record M ... end return M` or a `.d.tl` does; or require it as a value\n" ..
+      "main.tl:2:20: in local declaration: n: got string \"one\", expected integer",
+    compile_trouble)
+end
+
 --- `ci/` is the pinned CI driver's own project, walked and built by
 --- the pinned host with cwd `ci/`, never by cosmic's own build: staging
 --- cosmic's own tree must record nothing under `ci/`, and deriving

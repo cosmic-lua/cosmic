@@ -844,25 +844,24 @@ local function complain(file: string, source: string, result: compiler.Result,
   local lines: {string} = {}
   local hinted: {string:integer} = {}
   local repeats: {integer:integer} = {}
-  for _, group in ipairs({ result.syntax_errors, result.type_errors, result.warnings }) do
-    for _, e in ipairs(group or {}) do
-      local where = e.filename ~= "" and e.filename or file
-      local instead = where == file and teal.replacement(e.msg, source, e.y, e.x, e.fields) or nil
-      local said = with_hint(e.msg, hints, instead ~= nil)
-      if instead ~= nil then
-        said = e.msg .. " -- " .. instead .. said:sub(#e.msg + 1)
-      end
-      local hint = said:sub(#e.msg + 1)
-      local seen = where .. "\0" .. hint
-      local first = hint ~= "" and hinted[seen] or nil
-      if first ~= nil then
-        repeats[first] = (repeats[first] or 0) + 1
-        said = e.msg
-      elseif hint ~= "" then
-        hinted[seen] = #lines + 1
-      end
-      lines[#lines + 1] = where .. ":" .. e.y .. ":" .. e.x .. ": " .. said
+  for _, e in ipairs(teal.reported(file, source, result)) do
+    local where = e.filename ~= "" and e.filename or file
+    local instead = where == file and
+      teal.replacement(e.msg, source, e.y, e.x, e.fields, file) or nil
+    local said = with_hint(e.msg, hints, instead ~= nil)
+    if instead ~= nil then
+      said = e.msg .. " -- " .. instead .. said:sub(#e.msg + 1)
     end
+    local hint = said:sub(#e.msg + 1)
+    local seen = where .. "\0" .. hint
+    local first = hint ~= "" and hinted[seen] or nil
+    if first ~= nil then
+      repeats[first] = (repeats[first] or 0) + 1
+      said = e.msg
+    elseif hint ~= "" then
+      hinted[seen] = #lines + 1
+    end
+    lines[#lines + 1] = where .. ":" .. e.y .. ":" .. e.x .. ": " .. said
   end
   for at, more in pairs(repeats) do
     lines[at] = lines[at] .. " (same for " .. more .. " more)"

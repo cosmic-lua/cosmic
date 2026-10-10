@@ -250,12 +250,40 @@ local function test_a_module_named_like_the_helpers_parameter_or_type_is_renamed
   end
 end
 
+--- The record's module is required for its type alone, which Teal
+--- refuses when the module returns a value of its record: the refusal is
+--- one line, at the template's `{{type}}`, saying what the module must
+--- return. The checker's errors that follow from it (`unknown type
+--- data.Page`, each read of the type's fields) would each blame `Page`.
 local function test_a_records_module_that_returns_a_value_of_it_is_refused(tmp: string)
   local lua, trouble = project(tmp, "value", {
     ["data.tl"] = "local record Data\n  record Page\n    title: string\n  end\nend\n" ..
       "local data: Data = {}\nreturn data\n",
     ["page.tmpl"] = "{{type Page from data}}{{mode text}}{{.title}}" })
   assert(lua == nil, "built a record's module that returns a value")
-  assert(trouble:find("page.tmpl:1:", 1, true), trouble)
-  assert(trouble:find("'require' did not return a type, got record Data", 1, true), trouble)
+  local lines: {string} = {}
+  for line in trouble:gmatch("[^\n]+") do
+    lines[#lines + 1] = line
+  end
+  assert(#lines == 2 and lines[1] == "page.tmpl: the compiler refused it", trouble)
+  assert(lines[2]:match("^page%.tmpl:1:%d+: ") ~= nil, trouble)
+  assert(lines[2]:find("'require' did not return a type, got record Data -- " ..
+      "data, which {{type Page from data}} names, must return its record type, as " ..
+      "`local record M ... end return M` or a `.d.tl` does, not a value of it", 1, true), trouble)
+  assert(not trouble:find("has no type", 1, true), trouble)
+end
+
+--- A stage that reads the record's module requires it as a value, whose
+--- type names the record's types: a module that returns a value of its
+--- record builds then.
+local function test_a_records_module_that_returns_a_value_builds_when_a_stage_reads_it(tmp: string)
+  local lua, trouble = project(tmp, "value-read", {
+    ["data.tl"] = "local record Data\n  record Page\n    title: string\n  end\n" ..
+      "  shout: function(s: string): string\nend\n" ..
+      "local data: Data = { shout = function(s: string): string return s:upper() end }\n" ..
+      "return data\n",
+    ["page.tmpl"] = "{{type Page from data}}{{mode text}}{{.title | data.shout}}" })
+  assert(lua ~= nil, trouble)
+  local mod = load_module(lua, "page")
+  assert(mod is Loaded and mod.render({ title = "t" }) == "T")
 end

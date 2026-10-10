@@ -354,6 +354,11 @@ function Codegen.generate(template: types.Template): string
   local root: Dot = { name = "d", used = false }
   emit(g, template.body, root)
 
+  -- TODO: put the requires and `render`'s header on the `{{type}}`'s line,
+  -- not line 1: blank lines may come before it, and an error in the header
+  -- (a refused require, an unknown record type) then names a blank line.
+  -- The fix is the declaration's line in types.Template, and the module
+  -- begun with a newline for each line before it.
   local head: {string} = {}
   for _, path in ipairs(g.imports.order) do
     head[#head + 1] = (g.imports.as_value[path] and "local " or "local type ") .. g.imports.alias_of[path] ..
