@@ -442,6 +442,19 @@ local function test_a_refusal_quotes_no_catalog_this_test_does_not_hold()
   assert(package.loaded["cosmic.removed"] == nil)
 end
 
+--- A refused `local type` require is read from the parsed source, so
+--- the text of one in a long string or comment at the refusal's position
+--- is never taken for it.
+local function test_a_type_require_in_a_string_or_comment_is_no_require()
+  local refusal = "'require' did not return a type, got integer"
+  local declared = 'local type X = require("x")\n'
+  assert(teal.replacement(refusal, declared, 1, 16) ==
+      "x returns a value, not a type: a `local type` require needs the module to return one, " ..
+      "as `local record M ... end return M` or a `.d.tl` does")
+  assert(teal.replacement(refusal, "local s = [[\n" .. declared .. "]]\nreturn s\n", 2, 16) == nil)
+  assert(teal.replacement(refusal, "--[[\n" .. declared .. "]]\nreturn 1\n", 2, 16) == nil)
+end
+
 --- What [`teal.replacement`] says for the first diagnostic the checker
 --- reports for `source` (an error or a warning) whose message is
 --- `msg`: "no such diagnostic" when it reports none.
@@ -579,6 +592,36 @@ local function test_a_module_type_named_twice_is_told_its_name()
       "Kv has no type Store: check its spelling, or declare `record Store ... end` " ..
       "inside the record kv returns (a `local record Store` beside that record is its " ..
       "file's alone)")
+end
+
+--- A module bound by a `require` written over two lines, without
+--- parentheses or with a comment between its tokens is named as one on a
+--- line is; the text of one in a long string or comment binds nothing,
+--- nor declares a type.
+local function test_a_module_bound_however_written_is_named()
+  local itself = "Kv is itself the type of the record its module returns: write Kv, not Kv.Kv"
+  local no_store = "Kv has no type Store: check its spelling, or declare `record Store ... end` " ..
+    "inside the record kv returns (a `local record Store` beside that record is its " ..
+    "file's alone)"
+  for _, binding in ipairs({
+      'local Kv =\n  require("kv")',
+      'local Kv = require "kv"',
+      "local Kv <const> = require'kv'",
+      'local Kv = --[[ the store ]] require(\n  "kv"\n)',
+      'local type Kv =\n  require "kv"',
+  }) do
+    local source = binding .. "\nlocal k: Kv.Kv\n"
+    assert(teal.replacement("unknown type Kv.Kv", source, 2, 10) == itself, source)
+    assert(teal.replacement("unknown type Kv.Store", source, 2, 10) == no_store, source)
+  end
+  for _, source in ipairs({
+      'local s = [[\nlocal Kv = require("kv")\n]]\nlocal k: Kv.Kv\n',
+      '--[[\nlocal Kv <const> = require("kv")\n]]\nlocal k: Kv.Kv\n',
+      '--[[\nlocal type Kv = require("kv")\n]]\nlocal k: Kv.Kv\n',
+  }) do
+    assert(teal.replacement("unknown type Kv.Kv", source, 4, 10) == nil, source)
+    assert(teal.replacement("unknown type Kv.Store", source, 4, 10) == nil, source)
+  end
 end
 
 local rec = "local record R\n  alpha: integer\n  beta: string\n  record Inner\n    n: integer\n  end\nend\n" ..
