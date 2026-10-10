@@ -85,16 +85,19 @@ local function test_a_refusal_through_a_link_makes_nothing_inside_the_repository
   assert(not Fs.exists(dir .. "/repo/run"))
 end
 
--- TODO: hold a task's paths to the same rule. Mirror's `sub/b.bin` and
--- `/sub/b.bin`, and pack's `sub/b.txt`, would be linked in a project
--- holding sub/b.bin or sub/b.txt, failing the grader's `fix --check`
--- on TASK.md; quote them as values (`"sub/b.bin"`) or lay TASK.md
--- outside project/, and claim every such file here.
+-- TODO: hold a task's paths to the same rule. Mirror's `sub/b.bin`,
+-- `/sub/b.bin` and `./sub/b.bin`, pack's `sub/b.txt` and ledger's
+-- `America/New_York` would be linked in a project holding such a
+-- file, failing the grader's `fix --check` on TASK.md; quote them as
+-- values (`"sub/b.bin"`) or lay TASK.md outside project/, and claim
+-- every such file here.
 
 --- A project at /p whose module `task` declares every name asked of
---- it (`jobs.Plan`, `jobs.anything`), in <task>.tl. It holds nothing
---- else: no other module's symbol, file or directory, which a task's
---- span would name only by chance.
+--- it (`jobs.Plan`, `jobs.anything`), in <task>.tl, and whose every
+--- capitalized name is a type of that module with every member asked
+--- of it (`Plan.order`), as `cosmic docs` answers a type's member. It
+--- holds nothing else: no other module's symbol, file or directory,
+--- which a task's span would name only by chance.
 local function implementing_everything(task: string): link_resolve.Context
   local function declared(module: string, symbol: string): {link_resolve.Symbol}
     return { { module = module, symbol = symbol, file = module .. ".tl" } }
@@ -111,8 +114,11 @@ local function implementing_everything(task: string): link_resolve.Context
     unbuilt = function(): string | nil return nil end,
     symbols = function(query: string): {link_resolve.Symbol} | nil, string
       local module, symbol = query:match("^([^.:]+)[.:](.+)$")
-      if module ~= task then return {}, "" end
-      return declared(module, symbol), ""
+      if module == task then return declared(task, symbol), "" end
+      if module ~= nil and module:match("^%u") ~= nil then
+        return declared(task, module .. "." .. symbol), ""
+      end
+      return {}, ""
     end,
     member = function(module: string, member: string): {link_resolve.Symbol} | nil, string
       if module ~= task then return {}, "" end
@@ -141,6 +147,7 @@ local function test_fix_links_nothing_in_any_task()
   local built = assert(teal.load())
   -- Such a project links the form tasks took before this rule.
   assert(#would_link(built, "jobs", "- `jobs.Status`, an enum.\n") == 1)
+  assert(#would_link(built, "jobs", "Each `Plan.order` is sorted.\n") == 1)
   local tasks = assert(Fs.list("eval/task"))
   table.sort(tasks)
   assert(#tasks > 0)

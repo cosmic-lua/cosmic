@@ -27,9 +27,8 @@ end
 --- The TASK.md an arena for `task` holds: eval/task/<task>.md with
 --- eval/journal.md after it, `eval` being eval/; nil and why when
 --- there is no such task. It sits in the solver's project, whose
---- `cosmic fix --check` the grader runs, so it is text `fix` leaves as
---- written whatever the project declares: it makes a link of no code
---- span in it.
+--- `cosmic fix --check` the grader runs, so `fix` links no span of it
+--- whatever names the project declares ([`eval/arena_test.tl`]).
 function Arena.task_text(eval: string, task: string): string | nil, string
   if task:find("/", 1, true) then
     return nil, "no task eval/task/" .. task .. ".md"
