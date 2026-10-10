@@ -744,3 +744,127 @@ local function test_the_records_module_is_required_for_its_types_unless_a_stage_
   assert(both:find("local function _one<T>(v: T): T return v end", 1, true), both)
   assert(both:find("= _one(t.f(d.x))", 1, true), both)
 end
+
+local function test_dollar_is_the_render_argument_anywhere()
+  local out = compiled(HEAD .. "{{range .items}}{{.name}}{{$.title}}{{with .owner}}{{$.who | m.f}}{{end}}{{end}}" ..
+      "{{if $.admin}}{{$}}{{end}}")
+  assert(out:find("= d1.name parts", 1, true) and out:find("= d.title parts", 1, true), out)
+  assert(out:find("= _one(m.f(d.who)) parts", 1, true), out)
+  assert(out:find("if d.admin then", 1, true) and out:find("= d parts", 1, true), out)
+  -- Only `$` reads the argument here, so it must be named.
+  local only = compiled(HEAD .. "{{$.x}}")
+  assert(only:find("render(d: t.T)", 1, true) and only:find("= d.x parts", 1, true), only)
+end
+
+local function test_a_range_binds_its_element_and_its_index()
+  local both = compiled(HEAD .. "{{range $i, $x := .items}}{{$i}}{{$x.name}}{{.n}}{{end}}")
+  assert(both:find("for d2, d1 in ipairs(d.items) do", 1, true), both)
+  assert(both:find("= d2 parts", 1, true) and both:find("= d1.name parts", 1, true) and
+      both:find("= d1.n parts", 1, true), both)
+  local element = compiled(HEAD .. "{{range $x := .items}}{{$x.name}}{{end}}")
+  assert(element:find("for _, d1 in ipairs(d.items) do", 1, true), element)
+  local index = compiled(HEAD .. "{{range $i, $x := .items}}{{$i}}{{end}}")
+  assert(index:find("for d2, _ in ipairs(d.items) do", 1, true), index)
+  local unread = compiled(HEAD .. "{{range $i, $x := .items}}x{{end}}")
+  assert(unread:find("for _, _ in ipairs(d.items) do", 1, true), unread)
+  local spaced = compiled(HEAD .. "{{range $i,$x:=.items}}{{$i}}{{end}}")
+  assert(spaced:find("for d2, _ in ipairs(d.items) do", 1, true), spaced)
+end
+
+local function test_a_range_with_bindings_and_an_else_reads_its_list_once()
+  local out = compiled(HEAD .. "{{range $i, $x := .a | m.f}}{{$i}}{{$x}}{{else}}{{.y}}{{end}}")
+  assert(out:find("do local d3 = _one(m.f(d.a)) if d3[1] ~= nil then for d2, d1 in ipairs(d3) do", 1, true), out)
+  assert(out:find("end else", 1, true) and out:find("= d.y parts", 1, true), out)
+end
+
+local function test_nested_ranges_name_the_root_and_each_enclosing_element_and_index()
+  local out = compiled(HEAD .. "{{range $i, $x := .a}}{{range $j, $y := $x.b}}{{$x.n}}{{$i}}{{$y}}{{$j}}" ..
+      "{{$.t}}{{.}}{{end}}{{end}}")
+  assert(out:find("for d2, d1 in ipairs(d.a) do", 1, true), out)
+  assert(out:find("for d4, d3 in ipairs(d1.b) do", 1, true), out)
+  for _, read in ipairs({ "= d1.n parts", "= d2 parts", "= d3 parts", "= d4 parts", "= d.t parts" }) do
+    assert(out:find(read, 1, true), read .. " in " .. out)
+  end
+end
+
+local function test_a_with_keeps_the_root_and_the_enclosing_bindings()
+  local out = compiled(HEAD .. "{{range $i, $x := .a}}{{with .w}}{{.}}{{$x}}{{$i}}{{$.t}}{{end}}{{end}}")
+  assert(out:find("do local d3 = d1.w if d3 then", 1, true), out)
+  assert(out:find("= d3 parts", 1, true) and out:find("= d1 parts", 1, true) and out:find("= d2 parts", 1, true) and
+      out:find("= d.t parts", 1, true), out)
+end
+
+local function test_a_binding_is_never_named_like_a_generated_name_or_a_module()
+  local names = { "html", "d", "d1", "v", "parts", "render", "_one", "_text", "T", "m", "end", "_" }
+  for _, name in ipairs(names) do
+    local out = compiled(HEAD .. "{{range $" .. name .. " := .l}}{{$" .. name .. " | m.f}}{{end}}")
+    assert(out:find("for _, d1 in ipairs(d.l) do", 1, true), name .. ": " .. out)
+    assert(out:find("= _one(m.f(d1)) parts", 1, true), name .. ": " .. out)
+    assert(not out:find("local " .. name .. " ", 1, true) or name == "m" or name == "html", name .. ": " .. out)
+  end
+end
+
+local function test_bindings_keep_the_templates_lines()
+  local src = "{{type T from m.t}}{{mode text}}\n{{range $i,\n  $x := .a}}\nL4 {{$i}}\n{{else}}\nL6 {{$.y}}\n{{end}}\nL8"
+  local out = compiled(src)
+  assert(newlines(out) == newlines(src) + 1, out)
+  local lines: {string} = {}
+  for line in out:gmatch("([^\n]*)\n") do
+    lines[#lines + 1] = line
+  end
+  assert(lines[2]:find("for d2, _ in ipairs(d3) do", 1, true), lines[2])
+  assert(lines[4]:find('"L4 "', 1, true) and lines[4]:find("= d2 ", 1, true), lines[4])
+  assert(lines[6]:find('"L6 "', 1, true) and lines[6]:find("= d.y ", 1, true), lines[6])
+  assert(lines[8]:find('"L8"', 1, true), lines[8])
+end
+
+--- Template source, the line and column it is refused at, and what the
+--- reason says, for variables.
+local VARIABLE_REFUSALS <const>: {{string}} = {
+  { HEAD .. "{{$x}}", "2", "3", "'$x' is not declared here" },
+  { HEAD .. "{{range $x := .l}}{{$y.a}}{{end}}", "2", "21", "'$y' is not declared here" },
+  { HEAD .. "{{range $item := .l}}\n  {{$itme.name}}{{end}}", "3", "5", "'$itme' is not declared here" },
+  { HEAD .. "{{range $x := .l}}{{.}}{{else}}{{$x}}{{end}}", "2", "34", "'$x' is not declared here" },
+  { HEAD .. "{{range $i, $x := .l}}{{else}}{{$i}}{{end}}", "2", "33", "'$i' is not declared here" },
+  { HEAD .. "{{range $x := .l}}{{end}}{{$x}}", "2", "28", "'$x' is not declared here" },
+  { HEAD .. "{{if .a}}{{range $x := .l}}{{end}}{{$x}}{{end}}", "2", "37", "'$x' is not declared here" },
+  { HEAD .. "{{range $x := .l}}{{end}}{{range $x := .l}}{{$x}}{{end}}", "2", "1", "" },
+  { HEAD .. "{{range $x := .l}}{{range $x := .m}}{{end}}{{end}}", "2", "27", "'$x' is already declared at 2:9" },
+  { HEAD .. "{{range $x, $x := .l}}{{end}}", "2", "13", "'$x' is already declared at 2:9" },
+  { HEAD .. "{{range $x := $x.l}}{{end}}", "2", "15", "'$x' is not declared here" },
+  { HEAD .. "{{with $x := .w}}{{end}}", "2", "11", "only {{range}} binds" },
+  { HEAD .. "{{if $x := .w}}{{end}}", "2", "9", "only {{range}} binds" },
+  { HEAD .. "{{$x := .w}}", "2", "6", "only {{range}} binds" },
+  { HEAD .. "{{.a | m.f, .b}}", "2", "11", "only {{range}} binds" },
+  { HEAD .. "{{range $ := .l}}{{end}}", "2", "9", "'$' is not a name to bind" },
+  { HEAD .. "{{range $x.a := .l}}{{end}}", "2", "9", "'$x.a' is not a name to bind" },
+  { HEAD .. "{{range $x .l}}{{end}}", "2", "9", "'$x' is not declared here" },
+  { HEAD .. "{{range $i, $x .l}}{{end}}", "2", "16", "expected := after $x" },
+  { HEAD .. "{{range $i, .l}}{{end}}", "2", "13", "expected a variable to bind" },
+  { HEAD .. "{{range $i, $x, $y := .l}}{{end}}", "2", "15", "expected := after $x" },
+  { HEAD .. "{{range $x :=}}{{end}}", "2", "1", "expected a value" },
+  { HEAD .. "{{range := .l}}{{end}}", "2", "9", "not a field path" },
+  { HEAD .. "{{$.}}", "2", "3", "not a variable" },
+  { HEAD .. "{{$x..a}}", "2", "3", "not a variable" },
+  { HEAD .. "{{$1}}", "2", "3", "not a variable" },
+  { HEAD .. "{{$$}}", "2", "3", "not a variable" },
+  { HEAD .. "{{.a | $.f}}", "2", "8", "module.path.func" },
+}
+
+local function test_a_variable_out_of_scope_or_misspelled_is_refused_where_it_stands()
+  local wrong: {string} = {}
+  for _, case in ipairs(VARIABLE_REFUSALS) do
+    local out, why = Template.compile(case[1], "t.tmpl")
+    if case[4] == "" then
+      if out == nil then
+        wrong[#wrong + 1] = case[1] .. " was refused: " .. why
+      end
+    else
+      local want = "t.tmpl:" .. case[2] .. ":" .. case[3] .. ": "
+      if out ~= nil or why:sub(1, #want) ~= want or not why:find(case[4], 1, true) then
+        wrong[#wrong + 1] = case[1] .. " said " .. tostring(why) .. ", not " .. want .. "..." .. case[4]
+      end
+    end
+  end
+  assert(#wrong == 0, table.concat(wrong, "\n"))
+end

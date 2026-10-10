@@ -6,20 +6,30 @@
 ---     {{type Name from import.path}}     first, after blank text only
 ---     {{mode html}}  {{mode text}}       optional, directly after it
 ---     {{.}}  {{.a.b}}  {{.a | m.f}}      a value, put into the output
+---     {{$}}  {{$.a}}  {{$x}}  {{$x.a}}   the same, from `$` or a variable
 ---     {{"{{"}}                           a string's bytes, as literal text
 ---     {{if P}} .. {{else if P}} .. {{else}} .. {{end}}
 ---     {{range P}} .. {{else}} .. {{end}} dot is each element, in order; the
 ---                                        else, if any, runs when there is none
+---     {{range $x := P}} ..               the same, `$x` the element too
+---     {{range $i, $x := P}} ..           and `$i` its index, from 1
 ---     {{with P}} .. {{else}} .. {{end}}  dot is the value, when it is truthy
 ---
---- where a pipeline `P` is a path of fields from dot (`.` alone is dot)
---- and then stages `| import.path.func`, each applied to what is before
---- it. A path's names and a stage's module and function are identifiers;
---- the module is reached by `require` of its path, and what it is called
---- is the name after the last dot. A string (`"` to `"`, with `\"` and
---- `\\` its only escapes) stands only as the whole of an action, never in
---- a pipeline: its bytes are literal text, the same as if written outside
---- an action, so `html` mode tracks them as markup and escapes nothing.
+--- where a pipeline `P` is a head, a path of fields from it, and then
+--- stages `| import.path.func`, each applied to what is before it. The
+--- head is dot (`.a` is a field of dot, `.` alone is dot), `$` (the value
+--- `render` is given, wherever it stands) or a variable `$name`. A range's
+--- variables are seen in its own body and everything nested in it, not in
+--- its `{{else}}` nor after its `{{end}}`, so a variable used where none of
+--- that name is seen is refused; and a name is bound only where no
+--- variable of that name is seen, so a variable always names one value.
+--- A path's names, a variable's and a stage's module and function are
+--- identifiers; the module is reached by `require` of its path, and what
+--- it is called is the name after the last dot. A string (`"` to `"`,
+--- with `\"` and `\\` its only escapes) stands only as the whole of an
+--- action, never in a pipeline: its bytes are literal text, the same as if
+--- written outside an action, so `html` mode tracks them as markup and
+--- escapes nothing.
 ---
 --- Every refusal reads `name:line:col: reason`, where line and column are
 --- the offending word's, or its action's `{{` for one about the block.
@@ -33,6 +43,9 @@ local record Parser
   items: {types.Item}
   pos: integer
   name: string
+  --- The variables seen where the parse is, by name without the `$`,
+  --- each with the word that bound it.
+  visible: {string: types.Token}
 end
 
 --- `name:line:col: reason`.
@@ -64,30 +77,55 @@ local function trim_hint(token: types.Token): string
   return ""
 end
 
+--- Why `,` or `:=` is refused anywhere but in a range's bindings.
+local BINDS_ALONE <const> = "only {{range}} binds variables, as {{range $i, $x := .list}}"
+
+--- The names of the run of fields `path` (`.a.b`, or "" for none).
+local function fields(path: string): {string}
+  local out: {string} = {}
+  for part in path:gmatch("[^.]+") do
+    out[#out + 1] = part
+  end
+  return out
+end
+
 --- The pipeline `tokens[first ..]` spell, which is all that is left of
 --- the action.
 local function pipeline(p: Parser, item: types.Item, first: integer): types.Pipeline | nil, string
   local tokens = item.tokens
   local head = tokens[first]
   if head == nil then
-    return nil, refuse(p, item.line, item.col, "expected a value: a field path such as . or .name")
+    return nil, refuse(p, item.line, item.col, "expected a value: a field path such as . or .name, or $ or $x.name")
   end
-  if head.kind ~= "field" or (head.value ~= "." and not dotted(head.value:sub(2), 1)) then
+  local result: types.Pipeline = { head = "dot", name = "", path = {}, stages = {} }
+  if head.kind == "variable" then
+    local name = head.value:match("^%$([%a_][%w_]*)") or ""
+    local rest = head.value:sub(2 + #name)
+    if rest ~= "" and (rest:sub(1, 1) ~= "." or not dotted(rest:sub(2), 1)) then
+      return nil, refuse(p, head.line, head.col,
+        "'" .. head.value .. "' is not a variable such as $, $.a, $x or $x.a")
+    end
+    result.head = name == "" and "root" or "variable"
+    result.name = name
+    result.path = fields(rest)
+  elseif head.kind == "field" and (head.value == "." or dotted(head.value:sub(2), 1)) then
+    result.path = fields(head.value:sub(2))
+  else
     return nil, refuse(p, head.line, head.col, head.kind == "string" and STRING_ALONE or
-        "'" .. head.value .. "' is not a field path such as . or .a.b" .. trim_hint(head))
+        "'" .. head.value .. "' is not a field path such as . or .a.b, nor a variable such as $ or $x.a" ..
+        trim_hint(head))
   end
   for at = first + 1, #tokens do
-    if tokens[at].kind == "string" then
-      return nil, refuse(p, tokens[at].line, tokens[at].col, STRING_ALONE)
+    local kind = tokens[at].kind
+    if kind == "string" or kind == "comma" or kind == "declare" then
+      return nil, refuse(p, tokens[at].line, tokens[at].col, kind == "string" and STRING_ALONE or BINDS_ALONE)
     end
   end
-  local path: {string} = {}
-  if head.value ~= "." then
-    for part in head.value:sub(2):gmatch("[^.]+") do
-      path[#path + 1] = part
-    end
+  if result.head == "variable" and p.visible[result.name] == nil then
+    return nil, refuse(p, head.line, head.col, "'$" .. result.name .. "' is not declared here: a variable is seen only in the body of " ..
+        "the {{range}} that binds it, as {{range $x := .list}}")
   end
-  local stages: {types.Stage} = {}
+  local stages = result.stages
   local at = first + 1
   while tokens[at] ~= nil do
     local pipe = tokens[at]
@@ -106,7 +144,58 @@ local function pipeline(p: Parser, item: types.Item, first: integer): types.Pipe
     stages[#stages + 1] = { module_path = module_path, func = func }
     at = at + 2
   end
-  return { path = path, stages = stages }, ""
+  return result, ""
+end
+
+--- What a range binds: the words naming its index and its element (nil
+--- for none), and where its pipeline starts.
+local record Bound
+  index: types.Token
+  element: types.Token
+  first: integer
+end
+
+--- Reads the bindings that open the range action `item`, `$x :=` or
+--- `$i, $x :=`, if it has any.
+local function bindings(p: Parser, item: types.Item): Bound | nil, string
+  local tokens = item.tokens
+  local one, after = tokens[2], tokens[3]
+  if one == nil or one.kind ~= "variable" or after == nil or (after.kind ~= "comma" and after.kind ~= "declare") then
+    return { first = 2 }, ""
+  end
+  local names: {types.Token} = { one }
+  local declare = after
+  if after.kind == "comma" then
+    local two = tokens[4]
+    if two == nil or two.kind ~= "variable" then
+      local at = two or after
+      return nil, refuse(p, at.line, at.col, "expected a variable to bind after ',', as {{range $i, $x := .list}}")
+    end
+    names[2] = two
+    declare = tokens[5]
+    if declare == nil or declare.kind ~= "declare" then
+      local at = declare or two
+      return nil, refuse(p, at.line, at.col, "expected := after " .. two.value .. ", as {{range $i, $x := .list}}")
+    end
+  end
+  local here: {string: types.Token} = {}
+  for _, word in ipairs(names) do
+    local name = word.value:sub(2)
+    if not name:find("^[%a_][%w_]*$") then
+      return nil, refuse(p, word.line, word.col,
+        "'" .. word.value .. "' is not a name to bind: write $ and an identifier, as $x")
+    end
+    local seen = p.visible[name] or here[name]
+    if seen ~= nil then
+      return nil, refuse(p, word.line, word.col, "'" .. word.value .. "' is already declared at " .. seen.line ..
+          ":" .. seen.col .. ": bind another name, so that each names one value")
+    end
+    here[name] = word
+  end
+  if #names == 2 then
+    return { index = names[1], element = names[2], first = 6 }, ""
+  end
+  return { element = names[1], first = 4 }, ""
 end
 
 --- The first word of an action, or "" when it has none.
@@ -126,10 +215,20 @@ local function block(p: Parser): types.Node | nil, string
   local open = p.items[p.pos]
   local word = keyword(open)
   p.pos = p.pos + 1
-  local first, why = pipeline(p, open, 2)
+  local bound: Bound = { first = 2 }
+  if word == "range" then
+    local read, bwhy = bindings(p, open)
+    if read == nil then
+      return nil, bwhy
+    end
+    bound = read
+  end
+  local first, why = pipeline(p, open, bound.first)
   if first == nil then
     return nil, why
   end
+  local index = bound.index and bound.index.value:sub(2) or ""
+  local element = bound.element and bound.element.value:sub(2) or ""
   local kind: types.Kind = "if"
   if word == "range" then
     kind = "range"
@@ -141,13 +240,25 @@ local function block(p: Parser): types.Node | nil, string
   local cond: types.Pipeline = first
   local arm = open
   local seen_else = false
+  -- The range's own arm alone sees its variables.
+  if index ~= "" then
+    p.visible[index] = bound.index
+  end
+  if element ~= "" then
+    p.visible[element] = bound.element
+  end
   while true do
     local body, berr = nodes(p)
     if body == nil then
       return nil, berr
     end
-    node.branches[#node.branches + 1] = { pipeline = cond, body = body, line = arm.line, col = arm.col,
-      end_line = arm.end_line }
+    local own = #node.branches == 0
+    node.branches[#node.branches + 1] = { pipeline = cond, index = own and index or "",
+      element = own and element or "", body = body, line = arm.line, col = arm.col, end_line = arm.end_line }
+    if own then
+      p.visible[index] = nil
+      p.visible[element] = nil
+    end
     local close = p.items[p.pos]
     if close == nil then
       return nil, refuse(p, open.line, open.col, "{{" .. word .. "}} is never closed: missing {{end}}")
@@ -270,7 +381,7 @@ function Parse.parse(src: string, name: string): types.Template | nil, string
   if lexed == nil then
     return nil, lerr
   end
-  local p: Parser = { items = lexed.items, pos = 1, name = name }
+  local p: Parser = { items = lexed.items, pos = 1, name = name, visible = {} }
   if blank_text(p.items[p.pos]) then
     p.pos = p.pos + 1
   end
