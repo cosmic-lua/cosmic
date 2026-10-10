@@ -1419,9 +1419,10 @@
     # On the leg's own runner: an entry's version hashes its path, which
     # is the runner's. Seeds stand only on a run whose every leg passed.
     # TODO: a branch push shows this job as a skipped check, one of the
-    # two exceptions build/workflows_test.tl's
+    # exceptions build/workflows_test.tl's
     # test_a_branch_push_starts_no_job_it_skips names (`reuse`, whose
-    # runner a branch push's legs would wait on, is the other). Moving it, with a
+    # runner a branch push's legs would wait on, `prune` and `invalidate`
+    # are the others). Moving it, with a
     # lookup of its own, to a workflow on a push to main alone would end
     # that, at the cost of a second lookup that could disagree with
     # this one's and saves no longer in this run's concurrency group.
@@ -1642,10 +1643,9 @@
     # checkout that keeps no credentials. After every job
     # that saves, whatever their result, so a red push to main prunes
     # too; beside the join, so the check a ruleset requires waits on
-    # none of it. Only a push to main runs it: on a branch push its
-    # steps were all skipped, and the runner it started for that cost a
-    # queue wait (up to about 170 s in a burst) and showed as a passed
-    # check for nothing. A branch push shows it as a skipped check.
+    # none of it. The job's `if` holds every condition, so a branch push,
+    # which has nothing to prune, starts no runner for it and shows it as
+    # a skipped check.
     prune: {
       needs: ["platform", "checked", "seed"],
       if: "always() && github.event_name == 'push' && github.ref == 'refs/heads/main'",

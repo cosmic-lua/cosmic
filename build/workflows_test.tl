@@ -2051,8 +2051,8 @@ local function test_a_branch_restores_the_verdicts_of_its_base()
   -- The prune: a job of its own, the one whose token may write the
   -- cache, after every job that saves, whatever their result; on every
   -- push to main (the job's `if`, so a branch push starts no runner for
-  -- steps it would all skip), running the pinned driver on ci/'s sources alone, from a main-only checkout
-  -- that keeps no token.
+  -- steps it would all skip), running the pinned driver on ci/'s
+  -- sources alone, from a main-only checkout that keeps no token.
   -- The join, the check a ruleset requires, waits on none of it.
   local prune = jobs.prune
   assert(prune ~= nil, "no job prunes the verdicts under a commit")

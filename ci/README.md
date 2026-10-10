@@ -383,7 +383,8 @@ saves and still carries the products, both taken from the queue's run:
   for a runner's start with nothing to do (seconds, up to about 100 s
   in a burst of runs); the legs' `!cancelled()` runs them past a
   skipped `reuse` as past one that found nothing. `seed` too shows as
-  a skipped check on a branch push (a `TODO:`).
+  a skipped check on a branch push (a `TODO:`), as do `prune` and
+  `invalidate`, which act on main alone.
 
 What the push gives up is a second run of the same commit: a flake the
 queue's run missed is no longer caught on main, where the nightly run
