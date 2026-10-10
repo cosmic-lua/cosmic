@@ -71,7 +71,7 @@ local record Http
   --- `timeout_ns` bounds the whole request and has no default. The
   --- transfer counts them in milliseconds, and `low_speed_ns` in whole
   --- seconds, each rounded up, so no span but 0 is read as none.
-  --- `sha256`, `sha512` and `cancelled` are read only by
+  --- `sha256`, `sha512`, `sha3_256` and `cancelled` are read only by
   --- [`Http.download_result`] and [`Http.download`].
   ---
   --- `script` is for tests: instead of connecting anywhere, the Nth
@@ -118,13 +118,15 @@ local record Http
     --- Tests only: canned replies, one per connection, in place of the
     --- network. Every entry must be a string.
     script: {string}
-    --- Download only: the expected sha256 and sha512, as hex. Each
-    --- given is computed while the body is written and must match, or the
-    --- download fails naming the algorithm, the digest wanted and the one
-    --- got, leaving no file.
+    --- Download only: the expected sha256, sha512 and sha3-256, as hex.
+    --- Each given is computed while the body is written and must match,
+    --- or the download fails naming the algorithm, the digest wanted and
+    --- the one got, leaving no file.
     sha256: string
     --- Download only: see `sha256`.
     sha512: string
+    --- Download only: see `sha256`; sqlite.org publishes this one alone.
+    sha3_256: string
     --- Download only: asked before each chunk is read and once
     --- more when the body is complete, before it is renamed into place;
     --- when it answers true the download stops, removes its temporary
@@ -513,6 +515,7 @@ local function downloading(url: string, path: string,
   local given: {{Hash.Algorithm, string}} = {
     { "sha256", opts.sha256 or "" },
     { "sha512", opts.sha512 or "" },
+    { "sha3-256", opts.sha3_256 or "" },
   }
   local checks: {{Hash.Algorithm, string, Stream.Hashing}} = {}
   for _, pair in ipairs(given) do
@@ -572,8 +575,8 @@ end
 --- to a fresh temporary file beside it ([`Stream.create`]'s, so two
 --- downloads never share one and a planted symlink is never followed)
 --- and renaming into place only once the transfer is complete, synced to
---- disk and, when `opts.sha256` or `opts.sha512` is given, verified: a
---- reader never sees a partial file at the final name. Fails on a
+--- disk and, when `opts.sha256`, `opts.sha512` or `opts.sha3_256` is
+--- given, verified: a reader never sees a partial file at the final name. Fails on a
 --- non-2xx status (a redirect `opts.follow` already took does not count)
 --- or a checksum mismatch, and removes the temporary file on every
 --- failure, `opts.cancelled` answering true ("interrupted", as a

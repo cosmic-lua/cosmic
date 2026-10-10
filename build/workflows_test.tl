@@ -2404,6 +2404,90 @@ local function test_a_queue_run_takes_the_verdicts_of_the_run_ahead()
   assert(names.platform ~= names.checked, "the legs and the checked job keep their verdicts under one name")
 end
 
+--- A queue run's leg skips its driver check on the key the run ahead
+--- kept, not only on main's marker, which main saves only once a commit
+--- lands: the runs queued behind a change to ci/ all checked again.
+--- Each leg keeps the key it checked, found or took, as
+--- `driver-checked-<leg>`, only where that holds; finds the run ahead by
+--- its own name and after its check; and takes the key only if it is
+--- the one its lookup computed. The check still runs on the scheduled
+--- and manual runs, and saves nothing off main.
+local function test_a_queue_leg_takes_the_driver_check_of_the_run_ahead()
+  local ci = decoded_workflows()[DIR .. "/ci.yml"] as {string: any}
+  local steps = ((ci.jobs as {string: {string: any}}).platform).steps as {{string: any}}
+  local at: {string: integer} = {}
+  local keep, upload: {string: any}, {string: any}
+  for i, step in ipairs(steps) do
+    if step.id ~= nil then at[step.id as string] = i end
+    if step.name == "keep the CI driver check for the run behind in the queue" then
+      keep, at.keep = step, i
+    end
+    if step.name == "upload the CI driver check for the run behind in the queue" then
+      upload, at.upload = step, i
+    end
+  end
+  assert(keep ~= nil and upload ~= nil, "the platform job keeps no driver check for the run behind")
+  local order = { "driver-check-restore", "driver-ahead", "driver-ahead-download", "driver-ahead-take",
+    "driver-check", "keep", "upload", "boot" }
+  for n = 2, #order do
+    assert(at[order[n - 1]] ~= nil and at[order[n]] ~= nil and at[order[n - 1]] < at[order[n]],
+      order[n - 1] .. " does not come before " .. order[n])
+  end
+
+  local check = steps[at["driver-check"]]
+  local condition = check["if"] as string
+  assert(condition:find("github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || (", 1, true) and
+      condition:find("steps.driver-check-restore.outputs.cache-hit != 'true' && " ..
+          "steps.driver-ahead-take.outputs.hit != 'true')", 1, true),
+    "the check skips on the run ahead's key where it must run, or runs where the key is found: " .. condition)
+
+  local find = steps[at["driver-ahead"]]
+  local env = find.env as {string: string}
+  assert(find.run == "cosmic-driver cosmic_ci/driver.tl queue-ahead" and find["continue-on-error"] == true and
+      (find["if"] as string):find("github.event_name == 'merge_group'", 1, true) and
+      env.JOB == "${{ matrix.name }}" and env.ARTIFACT == "driver-checked-${{ matrix.name }}" and
+      env.BASE == "${{ github.event.merge_group.base_sha }}" and
+      env.SUITE_STEP == steps[at.boot].name,
+    "the lookup of the run ahead names another job, artifact or step, or fails for it")
+  local within = math.tointeger(tonumber(env.WITHIN_SECONDS))
+  assert(within ~= nil and within <= 30, "the lookup waits too long on a leg ahead: " .. tostring(env.WITHIN_SECONDS))
+
+  local download = steps[at["driver-ahead-download"]]
+  local with = download.with as {string: string}
+  assert(with.name == env.ARTIFACT and with["run-id"] == "${{ steps.driver-ahead.outputs.run }}" and
+      download["continue-on-error"] == true, "the download takes another artifact or run than the one found")
+
+  local take = steps[at["driver-ahead-take"]]
+  assert((take.env as {string: string}).KEY == "${{ steps.driver-check-restore.outputs.cache-primary-key }}" and
+      (take.run as string):find('= "$KEY"', 1, true) and (take.run as string):find(with.path:gsub("^%${{ runner.temp }}", "$RUNNER_TEMP"), 1, true),
+    "a key is taken that is not the one the leg's lookup computed")
+
+  local kept = upload.with as {string: any}
+  for _, relay in ipairs({ keep, upload, take }) do
+    local when = (relay["if"] as string) or ""
+    for _, loose in ipairs({ "always()", "!cancelled()", "failure()", "cancelled()" }) do
+      assert(not when:find(loose, 1, true), "the key is kept or taken after a failed or cancelled step: " .. when)
+    end
+    if relay ~= take then
+      assert(when:find("github.event_name == 'merge_group'", 1, true) and
+          when:find("steps.driver-check.outcome == 'success'", 1, true) and
+          when:find("steps.driver-check-restore.outputs.cache-hit == 'true'", 1, true) and
+          when:find("steps.driver-ahead-take.outputs.hit == 'true'", 1, true),
+        "the key is kept where no check passed or key was found: " .. when)
+    end
+  end
+  local written = keep.run as string
+  assert(written:find("driver-relay/key", 1, true) and not written:find("driver-checked", 1, true) and
+      written:find('[ -n "$KEY" ]', 1, true), "the kept key goes to main's marker's path, or may be empty")
+  assert((take.run as string):find('[ -n "$KEY" ]', 1, true), "an empty key can match an empty one")
+  assert(kept.name == env.ARTIFACT and kept.overwrite == true, "the key is kept under another name, or not replaced")
+  for _, step in ipairs(steps) do
+    local saves = (step.uses as string or ""):find("actions/cache/save@", 1, true) ~= nil
+    local from = step.with and (step.with as {string: any}).path as string or ""
+    assert(not (saves and from:find("driver-relay", 1, true)), "the relayed key is saved as main's marker")
+  end
+end
+
 --- A value of a workflow expression: a string, or a comparison's
 --- boolean.
 local type Value = string | boolean

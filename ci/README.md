@@ -714,7 +714,16 @@ runs on the runner's own userland, so its key holds the runner's image
 saves again. So a full run checks on each leg where its key moved. A branch
 push checks only in the checked job, on linux-x86_64's host. It looks
 up main's marker and skips the check on an exact hit, but saves no marker
-of its own. The queue checks each leg before anything lands.
+of its own. Before anything lands, some trusted run has checked each key: main's earlier marker, the queue run ahead's, or the queue run's own check. Main saves
+a marker only once its commit lands, so the queue runs behind a change to
+what the key hashes would all check again: a queue leg that finds no
+marker looks for the run ahead's, as it does the verdicts (`driver-ahead`
+steps), and skips the check where that run's leg kept the same key as
+`driver-checked-<leg>` after a check that passed, a marker found or one
+taken. It waits only 30 s, and not at all for a leg ahead that has not
+begun its boot (which follows its check), so queue entries that start
+together still each check; the artifact is not main's marker, which `seed` saves
+from the run's staged `driver-checked/` as before.
 
 ### artifacts
 

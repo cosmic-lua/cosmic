@@ -688,7 +688,8 @@ local RAW_PIECES <const> = {
   "<textarea></textarea><script>", "<title></title><script>", "<style></style><script>",
   "<script><!--<script></script>", "<script><!--<script></script>--></script>", "<script></script><textarea>", "<noscript><!--</noscript>", "<noscript><!-", "--</noscript>",
   "<noscript><style></noscript>", "<noscript><st", "<p title=\"</noscript>", "<?",
-  "<svg><style></style></svg>",
+  "<svg><style></style></svg>", "<select>", "</select>", "<frameset>", "<noframes>", "</noframes>",
+  "<select><title></title></select>",
 }
 
 --- The actions that cut a literal run: blocks that emit nothing, one whose
