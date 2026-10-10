@@ -1031,7 +1031,7 @@ local function compile_derived(handle: work.Handle, built: compiler, tool: strin
   if order == nil then
     return nil, why
   end
-  local keys, keys_trouble = compilation.dependency_keys(handle.db, modules, built, tool)
+  local keys, keys_trouble = compilation.dependency_keys(handle.db, modules, tool)
   if keys == nil then
     return nil, keys_trouble
   end

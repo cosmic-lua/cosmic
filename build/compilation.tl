@@ -130,15 +130,19 @@ end
 
 --- The names the standard-library module `name` requires, from the
 --- `decl_imports` rows of the binary's own database, where
---- [`Store.source`] reads it. Nil when that database has no such rows
---- to read, as one written before the table existed.
-local function embedded_edges(name: string): {string} | nil
+--- [`Store.source`] reads it. Nil and why when that database has no row
+--- of it: every database the program runs on carries each module's, a
+--- sealed one too (build/test.tl's `sealed_fill`, [`Store.seal`]).
+local function embedded_edges(name: string): {string} | nil, string
   local databases = Store.databases()
-  local rows, _ = Sqlite.text_rows(databases[#databases],
+  local rows, trouble = Sqlite.text_rows(databases[#databases],
     "SELECT requires FROM decl_imports WHERE path = ?1 ORDER BY requires",
     { text(name) })
-  if rows == nil or #rows == 0 then
-    return nil
+  if rows == nil then
+    return nil, "decl_imports: " .. trouble
+  end
+  if #rows == 0 then
+    return nil, name .. ": the program's database records no edges of it (decl_imports)"
   end
   local out: {string} = {}
   for _, row in ipairs(rows) do
@@ -146,7 +150,7 @@ local function embedded_edges(name: string): {string} | nil
       out[#out + 1] = row[1]
     end
   end
-  return out
+  return out, ""
 end
 
 --- The identity of every source the checker can load from this tree.
@@ -155,7 +159,6 @@ end
 --- are content-addressed when a project imports them. Each module's
 --- [`Keys`], by path.
 function compilation.dependency_keys(db: Sqlite.Handle, modules: {Module},
-                                     built: compiler,
                                      tool: string): {string:Keys} | nil, string
   local requires, requires_trouble = names_by_hash(db, "requires")
   if requires == nil then
@@ -195,24 +198,9 @@ function compilation.dependency_keys(db: Sqlite.Handle, modules: {Module},
       if source == nil then
         return nil, source_trouble
       end
-      -- A database with no `decl_imports` rows to read -- one written
-      -- before the table existed, or a sealed one, which carries no such
-      -- table -- has its source parsed for them.
-      -- TODO: drop this parse once a sealed database carries
-      -- `decl_imports` (build/test.tl's `sealed_schema` and `sealed_fill`,
-      -- and Store.seal): a test worker that builds a project on one
-      -- reaches it.
-      local embedded_requires = embedded_edges(name)
+      local embedded_requires, edges_trouble = embedded_edges(name)
       if embedded_requires == nil then
-        local parsed, parse_trouble = ast.parse(built, source, name)
-        if parsed == nil then
-          return nil, parse_trouble
-        end
-        local parsed_requires, parsed_trouble = ast.all_requires(built, parsed)
-        if parsed_requires == nil then
-          return nil, parsed_trouble
-        end
-        embedded_requires = parsed_requires
+        return nil, edges_trouble
       end
       dependency = {
         kind = "embedded", source_hash = Hash.hex_sha256(source),
