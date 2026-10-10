@@ -6,8 +6,9 @@
 --- it), in a directory of the project's own: every link to a root names
 --- that root's, and no two roots share one, under one base or not.
 ---
----     local directory = assert(Project.directory("."))
----     local projection = directory .. "/cosmic.db"
+---     local location = assert(Project.directory("."))
+---     assert(location.none == "", location.none)
+---     local projection = location.directory .. "/cosmic.db"
 
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
@@ -15,6 +16,18 @@ local Hash = require("cosmic.hash")
 local sys = require("cosmic.sys")
 
 local record Project
+  --- Where [`Project.directory`] puts a project's build, or why there
+  --- can be none here.
+  record Location
+    --- The absolute path of the build directory; "" where `none` says
+    --- why there is none.
+    directory: string
+    --- Why there can be no build directory for this root here, where
+    --- that is no configuration to fix: there is no cache directory to
+    --- put it in and COSMIC_BUILD_HOME is not set, or it would be inside
+    --- the root. "" where there is one.
+    none: string
+  end
 end
 
 --- `path` with its links resolved, or, where it does not exist yet, its
@@ -54,11 +67,13 @@ end
 --- The absolute path of the build directory of the project at `root`,
 --- named without making it or anything above it; it may not be there
 --- yet. `environment` is the variables to read (`COSMIC_BUILD_HOME`,
---- `XDG_CACHE_HOME`, `HOME`), by default the process's own. Nil and why
---- where `root` is no directory, COSMIC_BUILD_HOME is set but not
---- absolute, there is no cache directory to put it in, the base or the
---- directory is not this user's alone, or it would be inside `root`.
-function Project.directory(root: string, environment?: {string:string}): string | nil, string
+--- `XDG_CACHE_HOME`, `HOME`), by default the process's own. Where there
+--- is no cache directory to put it in, or it would be inside `root`, the
+--- location's `none` says so. Nil and why, something to fix, where
+--- `root` is no directory, COSMIC_BUILD_HOME is set but not absolute, or
+--- the base or the directory is not this user's alone.
+function Project.directory(root: string, environment?: {string:string}):
+    Project.Location | nil, string
   if root == "" then return nil, "project root is empty" end
   local canonical, root_trouble = sys.realpath(root)
   if canonical == nil then return nil, "project root " .. root .. ": " .. root_trouble end
@@ -79,8 +94,8 @@ function Project.directory(root: string, environment?: {string:string}): string 
     local selected, home_trouble = Fs.cache_dir("trees",
       { environment = environment, make = false })
     if selected == nil then
-      return nil, "no build directory for " .. canonical .. ": " .. home_trouble ..
-        "; set COSMIC_BUILD_HOME to an absolute directory"
+      return { directory = "", none = "no build directory for " .. canonical .. ": " ..
+          home_trouble .. "; set COSMIC_BUILD_HOME to an absolute directory" }, ""
     end
     home = selected
   elseif given:sub(1, 1) ~= "/" then
@@ -95,12 +110,13 @@ function Project.directory(root: string, environment?: {string:string}): string 
   if not valid then return nil, where .. trust_trouble end
   local output = (base:gsub("/+$", "")) .. "/" .. Hash.hex_sha256(canonical)
   if Fs.within(output, canonical) then
-    return nil, "the build directory " .. output .. " is inside the project root " ..
-      canonical .. "; set COSMIC_BUILD_HOME to a directory outside it"
+    return { directory = "", none = "the build directory " .. output ..
+        " is inside the project root " .. canonical ..
+        "; set COSMIC_BUILD_HOME to a directory outside it" }, ""
   end
   local output_valid, output_trouble = trusted(output)
   if not output_valid then return nil, "build directory " .. output_trouble end
-  return output, ""
+  return { directory = output, none = "" }, ""
 end
 
 return Project
