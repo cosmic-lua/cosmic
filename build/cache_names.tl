@@ -33,7 +33,8 @@ end
 
 cache_names.names = {
   zig = "the pinned zig, and zig's global and project caches",
-  bootstrap = "the bootstrap cosmic, and the cores a portable cosmic extracts",
+  bootstrap = "the bootstrap cosmic, the cores a portable cosmic extracts, and the " ..
+    "compiles its standalone runs keep",
 }
 
 return cache_names

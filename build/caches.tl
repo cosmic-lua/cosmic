@@ -13,8 +13,10 @@
 ---   (COSMIC_ZIG_GLOBAL_CACHE, COSMIC_ZIG_CACHE, and ZIG_GLOBAL_CACHE_DIR
 ---   and ZIG_LOCAL_CACHE_DIR for a command other than `build`) included.
 --- - `bootstrap`: the bootstrap cosmic [`bin/cosmic-bootstrap`] fetches,
----   cached by digest, and the cores a portable cosmic's launcher
----   extracts (build/launcher.tl), COSMIC_PORTABLE_CACHE included.
+---   cached by digest, the cores a portable cosmic's launcher
+---   extracts (build/launcher.tl), COSMIC_PORTABLE_CACHE included, and
+---   the compiles its standalone runs keep ([`build.standalone`]), each
+---   named by the binary and the file's bytes.
 
 local Fs = require("cosmic.fs")
 local zig_caches = require("build.zig_caches")
@@ -57,6 +59,8 @@ local function paths(name: string, root: string, environment: {string:string}): 
     local bootstrap, _ = Fs.cache_dir("bootstrap", { environment = environment, make = false })
     add(bootstrap)
     add(caches.cores(environment))
+    local compiles, _ = Fs.cache_dir("standalone", { environment = environment, make = false })
+    add(compiles)
   end
   return out
 end

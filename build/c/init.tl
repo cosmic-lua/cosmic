@@ -221,6 +221,17 @@ end
 --- walked ([`declared_key.system_identity`]). A compiler confined in an
 --- unsandboxed worker is given them as every confined process is. A
 --- `PATH` directory outside those is not there for it.
+--- Where a standalone run keeps the compiles it checked
+--- ([`build.standalone`]), which bin/zig's run of build/zig.tl reads and
+--- writes, as [`Fs.cache_dir`] vouches for it, or nil where it vouches for
+--- none. Withheld, every compile runs build/zig.tl checked afresh: about
+--- 0.8 s on the release ci/cosmic-driver.pin names, so a check of a few
+--- files under each variant took seconds more than its compiles.
+local function standalone_compiles(variables: {string:string}): string | nil
+  local dir, _ = Fs.cache_dir("standalone", { environment = variables })
+  return dir
+end
+
 local function toolchain(root: string, variables: {string:string}):
     string | nil, {string}
   for _, name in ipairs({ "COSMIC_ZIG", "COSMIC_BOOTSTRAP" }) do
@@ -491,7 +502,10 @@ function c.check(root: string, files: {string}, cwd?: string, limit?: integer):
     for _, path in ipairs(runs_from) do give(path) end
     for _, dir in ipairs(include_dirs(root, cwd)) do give(absolute(dir)) end
     for _, file in ipairs(files) do give(Fs.dirname(absolute(file))) end
-    confine.declaring({ reads = reads, writes = { deps } }, compile)
+    local writes: {string} = { deps }
+    local kept = standalone_compiles(env)
+    if kept ~= nil then writes[#writes + 1] = kept end
+    confine.declaring({ reads = reads, writes = writes }, compile)
     return ""
   end)
   local _, _ = Fs.remove_tree(deps)

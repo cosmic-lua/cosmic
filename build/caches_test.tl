@@ -7,7 +7,8 @@ local zig_caches = require("build.zig_caches")
 local caches = require("build.caches")
 
 --- `zig` is zig's installs, global and project caches, and `bootstrap`
---- the bootstrap cosmic and the launcher's cores, each under the cache
+--- the bootstrap cosmic, the launcher's cores and the compiles a
+--- standalone run keeps, each under the cache
 --- directory XDG_CACHE_HOME or HOME names, as build/zig.tl and
 --- [`Fs.cache_dir`] put them. COSMIC_ZIG_GLOBAL_CACHE and
 --- COSMIC_PORTABLE_CACHE move theirs, and ZIG_LOCAL_CACHE_DIR adds the
@@ -21,7 +22,7 @@ local function test_a_cache_is_where_its_tool_puts_it()
   local moved = caches.all({ "zig", "bootstrap" }, "/repo", { HOME = "/h",
     COSMIC_ZIG_GLOBAL_CACHE = "/g", ZIG_LOCAL_CACHE_DIR = "/l", COSMIC_PORTABLE_CACHE = "/p" })
   assert(table.concat(moved, " ") == "/h/.cache/cosmic/zig /g /h/.cache/cosmic/zig-project " ..
-      "/l /h/.cache/cosmic/bootstrap /p", table.concat(moved, " "))
+      "/l /h/.cache/cosmic/bootstrap /p /h/.cache/cosmic/standalone", table.concat(moved, " "))
   -- With no cache directory there is no build directory either, unless
   -- COSMIC_BUILD_HOME names one, and so no zig cache.
   assert(#caches.all({ "zig" }, "/repo", {}) == 0)

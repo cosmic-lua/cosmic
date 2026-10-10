@@ -1467,6 +1467,7 @@ local function phase_assemble(p: PlatformContext): integer
   s = fixture_test(c, work, "format-contract", "format",
     format_test_timeout_ns, {
       COSMIC_FIXTURE_ROOT = root,
+      COSMIC_FIXTURE_BUILD = BuildPaths.directory(root),
       COSMIC_FIXTURE_FORMAT = contract .. "/format",
       COSMIC_FIXTURE_TARGET = target,
     })
