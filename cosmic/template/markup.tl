@@ -188,6 +188,10 @@ local record Markup
   --- A copy of a place.
   copy: function(p: Place): Place
 
+  --- A string that two places give alike only when every field of the two
+  --- is alike.
+  key: function(p: Place): string
+
   --- Whether two places are the same one.
   same: function(a: Place, b: Place): boolean
 
@@ -284,6 +288,12 @@ local function copy(p: Place): Place
     meta_line = p.meta_line, meta_col = p.meta_col, late = p.late, late_line = p.late_line,
     late_col = p.late_col, raw_tail = p.raw_tail,
     escaped = p.escaped, double = p.double }
+end
+
+local function key(p: Place): string
+  return string.format("%s %q %q %s %s %q %s %s %s %s %s %s %s %s %s %d %d %q %d %d %q %s %s", p.phase, p.tag,
+    p.attr, p.closing, p.fresh, p.stack, p.murky, p.select, p.fontattr, p.slash, p.after_url, p.colon, p.bare,
+    p.rooted, p.equiv, p.meta_line, p.meta_col, p.late, p.late_line, p.late_col, p.raw_tail, p.escaped, p.double)
 end
 
 --- The phases in which the tag and whether it is an end tag mean something;
@@ -910,5 +920,5 @@ local function ending(p: Place): string
 end
 
 local M: Markup = { start = start, ending = ending, copy = copy, same = same, differ = differ, join = join, feed = feed,
-  slot = slot, wrote = wrote }
+  slot = slot, wrote = wrote, key = key }
 return M

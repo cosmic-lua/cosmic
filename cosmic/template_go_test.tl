@@ -108,6 +108,7 @@ local ACCEPTED <const>: {{string}} = {
   { "TestEscape: withBody", "{{with .x}}{{.}}{{end}}", "", "text" },
   { "TestEscape: withElse", "{{with .e}}{{.}}{{else}}{{.x}}{{end}}", "", "text" },
   { "TestEscape: rangeBody", "{{range .l}}{{.}}{{end}}", "", "text" },
+  { "TestEscape: rangeElse", "{{range .e}}{{.}}{{else}}{{.x}}{{end}}", "", "text" },
   { "TestEscape: nonStringValue", "{{.t}}", "", "text" },
   { "TestEscape: urlStartRel, urlStartAbsOk, protocolRelativeURLStart, dangerousURLStart (one template; the values are in RENDERED)", "<a href='{{.x}}'>", "", "url" },
   { "TestEscape: pathRelativeURLStart", "<a href=\"{{.x}}\">", "", "url" },
@@ -398,7 +399,6 @@ local REFUSED <const>: {{string}} = {
   { "TestEscapeText[152]", "<script>`${ `}{{.x}}", "2", "15", "<script>" },
   { "TestEscapeText[153]", "<script>`${1}${ {{.x}}", "2", "17", "<script>" },
   { "TestEscapeText[154]", "<script>`${`${1}${ {{.x}}", "2", "20", "<script>" },
-  { "TestEscape: rangeElse", "{{range .e}}{{.}}{{else}}{{.x}}{{end}}", "2", "18", "not supported" },
   { "TestEscape: constant", "<a href=\"/search?q={{.x}}\">", "2", "20", "must begin" },
   { "TestEscape: multipleAttrs", "<a b=1 c={{.x}}>", "2", "10", "unquoted" },
   { "TestEscape: nonHierURL", "<a href={{.x}}>", "2", "9", "unquoted" },
@@ -722,6 +722,12 @@ local function test_a_number_is_a_text_slot_as_go_prints_a_non_string_value()
   assert(render("{{.n}}", { n = 42 }) == "42")
   assert(render("<p>{{.n}}</p>", { n = 7 }) == "<p>7</p>")
   assert(render("<p title=\"{{.n}}\">", { n = 7 }) == "<p title=\"" .. attr("7") .. "\">")
+end
+
+local function test_a_range_else_renders_as_go_renders_it()
+  -- TestEscape: rangeElse, whose list is empty.
+  assert(render("{{range .e}}{{.}}{{else}}{{.x}}{{end}}", { e = {}, x = "<Hello>" }) == "&lt;Hello&gt;")
+  assert(render("{{range .e}}{{.}}{{else}}{{.x}}{{end}}", { e = { "<a>", "b" }, x = "c" }) == "&lt;a&gt;b")
 end
 
 local function test_hostile_values_are_rendered_for_the_place_they_land_in()

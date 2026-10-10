@@ -45,12 +45,13 @@
 --- cost until something reads columns.
 ---
 --- The names the module declares are `render`, `parts`, `d` and `d1`, `d2`
---- and so on (dot in each `range` and `with`), `v` (a slot's value, in a
---- block of its own, and `_one`'s parameter), `T` (`_one`'s type
---- parameter), and the helpers `_one`, `_text`, `_rtext`, `_attr` and
---- `_url`; a module that is required is named by the last word of its
---- path, or that word, `_` and a number when the name is taken, reserved,
---- or a keyword, so a name is never declared twice. A name a
+--- and so on (dot in each `range` and `with`, and the list of a `range`
+--- that has an `else`), `v` (a slot's value, in a block of its own, and
+--- `_one`'s parameter), `T` (`_one`'s type parameter), and the helpers
+--- `_one`, `_text`, `_rtext`, `_attr` and `_url`; a module that is required
+--- is named by the last word of its path, or that word, `_` and a number
+--- when the name is taken, reserved, or a keyword, so a name is never
+--- declared twice. A name a
 --- loop or `with` does not read is written `_`, which is not a warning.
 
 local types = require("cosmic.template.types")
@@ -230,15 +231,39 @@ end
 local function block(g: Gen, node: types.Node, dot: Dot)
   to_line(g, node.line)
   if node.kind == "range" then
+    -- While its body runs, a range holds five of the function's locals (the
+    -- loop's three hidden ones, `_` and dot), six with an `else`, and Lua
+    -- allows a function 200: a module whose ranges nest about 40 deep (33
+    -- with an `else`) does not load, Lua naming the template's line ("too
+    -- many local variables"). That stays: no template nests so deep, and a
+    -- function per body, which would lift the limit, costs a closure each
+    -- time a range runs.
     local arm = node.branches[1]
+    local other = node.branches[2]
     local inner = new_dot(g)
     local source = value(g, arm.pipeline, dot)
+    local opening = ""
+    if other ~= nil then
+      -- The list is read once, then tested for a first element: ipairs
+      -- makes no step exactly when there is none.
+      local list = new_dot(g).name
+      opening = "do local " .. list .. " = " .. source .. " if " .. list .. "[1] ~= nil then "
+      source = list
+    end
     local head = put(g, "")
     emit(g, arm.body, inner)
-    g.pieces[head] = g.pieces[head] .. "for _, " .. (inner.used and inner.name or "_") ..
+    g.pieces[head] = g.pieces[head] .. opening .. "for _, " .. (inner.used and inner.name or "_") ..
       " in ipairs(" .. source .. ") do"
-    to_line(g, node.close_line)
-    put(g, "end")
+    if other ~= nil then
+      to_line(g, other.line)
+      put(g, "end else")
+      emit(g, other.body, dot)
+      to_line(g, node.close_line)
+      put(g, "end end")
+    else
+      to_line(g, node.close_line)
+      put(g, "end")
+    end
   elseif node.kind == "with" then
     local arm = node.branches[1]
     local inner = new_dot(g)

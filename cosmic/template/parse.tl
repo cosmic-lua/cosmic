@@ -8,7 +8,8 @@
 ---     {{.}}  {{.a.b}}  {{.a | m.f}}      a value, put into the output
 ---     {{"{{"}}                           a string's bytes, as literal text
 ---     {{if P}} .. {{else if P}} .. {{else}} .. {{end}}
----     {{range P}} .. {{end}}             dot is each element, in order
+---     {{range P}} .. {{else}} .. {{end}} dot is each element, in order; the
+---                                        else, if any, runs when there is none
 ---     {{with P}} .. {{else}} .. {{end}}  dot is the value, when it is truthy
 ---
 --- where a pipeline `P` is a path of fields from dot (`.` alone is dot)
@@ -159,10 +160,6 @@ local function block(p: Parser): types.Node | nil, string
       node.close_line = close.line
       return node, ""
     end
-    if kind == "range" then
-      return nil, refuse(p, close.line, close.col,
-        "{{else}} in a {{range}} is not supported: wrap the range in an {{if}} on the list")
-    end
     if seen_else then
       return nil, refuse(p, close.line, close.col, "{{else}} after {{else}}")
     end
@@ -178,7 +175,7 @@ local function block(p: Parser): types.Node | nil, string
       cond = next_cond
     else
       return nil, refuse(p, second.line, second.col,
-        kind == "with" and "{{else}} in a {{with}} takes nothing: nest an {{if}}" or
+        kind ~= "if" and "{{else}} in a {{" .. kind .. "}} takes nothing: nest an {{if}}" or
           "{{else}} takes nothing, or 'if' and a condition")
     end
     arm = close

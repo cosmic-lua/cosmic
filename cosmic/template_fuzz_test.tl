@@ -97,6 +97,10 @@ local function gen_nodes(src: Fuzz.Source, depth: integer, out: {string}, kit: K
     elseif kind == 8 then
       out[#out + 1] = "{{range .l}}"
       gen_nodes(src, depth + 1, out, kit)
+      if src:int(0, 1) == 0 then
+        out[#out + 1] = "{{else}}"
+        gen_nodes(src, depth + 1, out, kit)
+      end
       out[#out + 1] = "{{end}}"
     else
       out[#out + 1] = "{{with .w}}"
@@ -446,9 +450,10 @@ local function gen_sound(src: Fuzz.Source): string
       first = Fuzz.pick(src, of)
     end
     local wrap = src:int(0, 5)
-    if wrap == 1 then
+    if wrap == 1 or wrap == 4 then
       local second = Fuzz.pick(src, pool)
-      body[#body + 1] = "{{if .a}}" .. first[1] .. "{{else}}" .. second[1] .. "{{end}}"
+      local open = wrap == 1 and "{{if .a}}" or "{{range .l}}"
+      body[#body + 1] = open .. first[1] .. "{{else}}" .. second[1] .. "{{end}}"
       kinds[#kinds + 1] = first[2] .. second[2]
     else
       local open = wrap == 2 and "{{range .l}}" or wrap == 3 and "{{with .w}}" or ""
@@ -573,39 +578,42 @@ local function test_a_value_cannot_get_out_of_where_a_slot_puts_it(tmp: string)
         end
         return payload
       end })
-      local ok, made = pcall(loaded.render, { a = payload, l = { each, each }, w = each })
-      if not ok then
-        return false, "render raised: " .. tostring(made) .. "\n" .. lua_of(source)
-      end
-      local out = made.s
-      for piece in out:gmatch("\1([^\2]*)\2") do
-        Fuzz.label("text")
-        if piece:find("[<>\"']") then
-          return false, "markup character in escaped text: " .. piece
+      -- A list of two runs each range's body; an empty one, its else.
+      for _, list in ipairs({ { each, each }, {} } as {{any}}) do
+        local ok, made = pcall(loaded.render, { a = payload, l = list, w = each })
+        if not ok then
+          return false, "render raised: " .. tostring(made) .. "\n" .. lua_of(source)
         end
-      end
-      for piece in out:gmatch("\3([^\4]*)\4") do
-        Fuzz.label("attr")
-        if piece:gsub("&#%d+;", ""):find("[^%w\128-\255]") then
-          return false, "a byte that can end a value in: " .. piece
+        local out = made.s
+        for piece in out:gmatch("\1([^\2]*)\2") do
+          Fuzz.label("text")
+          if piece:find("[<>\"']") then
+            return false, "markup character in escaped text: " .. piece
+          end
         end
-      end
-      if out:find("\3&#5;", 1, true) then
-        Fuzz.label("url")
-        if out:find("\3&#5;javascript", 1, true) then
-          return false, "a URL slot began with the script scheme"
+        for piece in out:gmatch("\3([^\4]*)\4") do
+          Fuzz.label("attr")
+          if piece:gsub("&#%d+;", ""):find("[^%w\128-\255]") then
+            return false, "a byte that can end a value in: " .. piece
+          end
         end
-      end
-      -- Whatever a URL slot is given, the value the browser assembles from
-      -- it and the literal text after it (entities decoded, the bytes a URL
-      -- parser drops removed) is not protocol-relative, which `href` refuses.
-      for value, after in out:gmatch("\3&#5;([^\4]*)\4([^\"']*)") do
-        Fuzz.label("assembled url")
-        local url = (value .. after):gsub("&#(%d+);", function(n: string): string
-          return string.char(tonumber(n) as integer % 256)
-        end):gsub("[\t\n\r]", "")
-        if url:find("^[/\\][/\\]") then
-          return false, "an assembled URL is protocol-relative: " .. url
+        if out:find("\3&#5;", 1, true) then
+          Fuzz.label("url")
+          if out:find("\3&#5;javascript", 1, true) then
+            return false, "a URL slot began with the script scheme"
+          end
+        end
+        -- Whatever a URL slot is given, the value the browser assembles from
+        -- it and the literal text after it (entities decoded, the bytes a URL
+        -- parser drops removed) is not protocol-relative, which `href` refuses.
+        for value, after in out:gmatch("\3&#5;([^\4]*)\4([^\"']*)") do
+          Fuzz.label("assembled url")
+          local url = (value .. after):gsub("&#(%d+);", function(n: string): string
+            return string.char(tonumber(n) as integer % 256)
+          end):gsub("[\t\n\r]", "")
+          if url:find("^[/\\][/\\]") then
+            return false, "an assembled URL is protocol-relative: " .. url
+          end
         end
       end
       if body:find("{{range", 1, true) or body:find("{{if", 1, true) or body:find("{{with", 1, true) then

@@ -118,8 +118,8 @@ local function test_d_unstarted() assert(true) end
   assert(Fs.rename(build_dir(root), tmp .. "/saved-o"))
   local fresh = run("fresh", { "work_test.tl:test_b_observed_failure" }, false)
   assert(fresh:find("1 of 1 failed, 0 infrastructure errors", 1, true), fresh)
-  assert(Fs.remove_tree(build_dir(root)))
-  assert(Fs.rename(tmp .. "/saved-o", build_dir(root)))
+  assert(Fs.remove_tree(build_paths.required(root)))
+  assert(Fs.rename(tmp .. "/saved-o", build_paths.required(root)))
   -- Another checkout may subsequently share a pass. The local failure
   -- still wins: deletion alone would allow this replacement to stand.
   local shared = assert(Sqlite.open(cache, { writable = true }))

@@ -42,6 +42,27 @@ local function test_a_held_flock_keeps_another_run_out(tmp: string)
   assert(assert(sys.stat(path)).size == 0, "the lock's file was written")
 end
 
+--- A directory's lock is claimed without waiting while no run holds it,
+--- and is refused, without trouble, while one does; the claim keeps a
+--- run out until it is closed.
+local function test_a_claim_is_refused_while_a_run_holds_the_lock(tmp: string)
+  local root, path = tree(tmp)
+  local directory = build_dir(root)
+  local other = assert(sys.open(path, sys.O_RDWR | sys.O_CREAT, 0x1a4))
+  assert(sys.flock(other, "exclusive"))
+  local refused, trouble = rebuild_lock.claim(directory)
+  assert(refused == nil and trouble == "", "claimed a held lock: " .. trouble)
+  assert(sys.close(other))
+  do
+    local claimed, claim_trouble = rebuild_lock.claim(directory)
+    assert(claimed ~= nil, claim_trouble)
+    local _held <close> = claimed
+    assert(rebuild_lock.take(root, 0) == "busy", "a claim let a run take the lock")
+  end
+  assert(rebuild_lock.take(root, 0) == "held")
+  rebuild_lock.release()
+end
+
 --- A holder asking again holds it still, and a holder lets go of the
 --- file's flock with the lock. Whether another run is kept out while
 --- it holds the lock is asked from another process
