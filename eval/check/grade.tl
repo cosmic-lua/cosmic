@@ -2188,10 +2188,17 @@ function Grader.next_logs(dir: string): string | nil, string
     local n = name:match("^%d+$") and math.tointeger(tonumber(name)) or nil
     if n ~= nil and n > highest then highest = n end
   end
-  local logs = dir .. "/grades/" .. (highest + 1)
-  local made, trouble = Fs.mkdirs(logs)
+  local made, trouble = Fs.mkdirs(dir .. "/grades")
   if not made then return nil, trouble end
-  return logs, ""
+  -- An exclusive create, so a grade running at the same time takes the
+  -- next number instead of sharing this one.
+  for n = highest + 1, highest + 100 do
+    local logs = dir .. "/grades/" .. n
+    local new, mtrouble, errno = sys.mkdir(logs)
+    if new then return logs, "" end
+    if errno ~= sys.EEXIST then return nil, mtrouble end
+  end
+  return nil, dir .. "/grades: no free number"
 end
 
 local function grade_checks(g: Grade, task: Task, testdata: string): boolean

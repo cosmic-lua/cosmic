@@ -5,6 +5,7 @@ local Fs = require("cosmic.fs")
 local Json = require("cosmic.json")
 local Test = require("cosmic.test")
 local Round = require("eval.round")
+local stand_in = require("build.stand_in")
 
 Test.policy{ grants = { { path = "eval/task/", letters = "r" } } }
 
@@ -179,4 +180,14 @@ local function test_an_arena_that_cannot_be_laid_is_not_solved()
   assert(Round.execute(plan, f.system) == 1)
   assert(position(f.events, "solve notes") == 0 and position(f.events, "solve kv") > 0)
   assert(assert(f.files["/out/index.txt"]):find("notes status=lay_failed", 1, true))
+end
+
+--- The short commit is read through the git found on the PATH given;
+--- with none, "unknown" names the round's directory.
+local function test_the_short_commit_comes_from_the_git_on_the_path(dir: string)
+  local probe = assert(stand_in.build(dir .. "/stand-in"))
+  assert(Fs.mkdirs(dir .. "/bin"))
+  assert(stand_in.place(probe, dir .. "/bin/git", "print abc1234"))
+  assert(Round.short_commit("/anywhere", dir .. "/bin") == "abc1234")
+  assert(Round.short_commit("/anywhere", dir .. "/nowhere") == "unknown")
 end

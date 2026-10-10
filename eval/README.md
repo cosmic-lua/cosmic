@@ -263,12 +263,13 @@ transcript, timestamps, exit status, summary and the grade
 usage from the transcript's final `result` event and the model, Claude
 Code version, tools, skills and MCP servers from its `init` event.
 `status` is `completed`; `turn_cap` (the CLI stopped at `--max-turns`);
-`timeout` (the solver exited 124, or the transcript has no `result`
-event); or `api_error` (the CLI reported an error of another kind).
+`timeout` (the solver exited 124); `no_result` (no `result` event and
+another exit status: a crash); or `api_error` (the CLI reported an
+error of another kind).
 `commit` is the binary's, when the checkout built it, and
 `harness_commit` this checkout's. Thinking tokens are counted in
-`output_tokens`; `thinking_tokens` is `null` unless the CLI reports its
-own figure. By hand, keep a small `result.json` next to PROMPT.md,
+`output_tokens`; `thinking_tokens` is the CLI's own breakdown
+(`usage.output_tokens_details.thinking_tokens`), `null` where it gives none. By hand, keep a small `result.json` next to PROMPT.md,
 written by the evaluator:
 `runner`, `model`, `reasoning_effort`, `commit`, `started_at`, `finished_at`,
 `elapsed_seconds`, `status`, `deadline_method`, `grade_exit_code`,

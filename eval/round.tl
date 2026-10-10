@@ -18,6 +18,7 @@ local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Json = require("cosmic.json")
+local Proc = require("cosmic.proc")
 
 local record Round
   --- What the command line asked for.
@@ -301,6 +302,17 @@ function Round.execute(plan: Round.Plan, system: Round.System): integer
 end
 
 --- The System that runs commands for real.
+--- The checkout's short commit: `git rev-parse --short HEAD` in `root`,
+--- git found on `path` (PATH by default), "unknown" where there is none.
+function Round.short_commit(root: string, path?: string): string
+  local git, _ = Proc.find("git", path)
+  if git == nil then return "unknown" end
+  local ran, _ = Child.run({ git, "-C", root, "rev-parse", "--short", "HEAD" },
+    { stdout = "capture", stderr = "null", stdin = "null", timeout_ns = Clock.seconds(10) })
+  local sha = ran ~= nil and ran.ok and (ran.stdout or ""):match("^(%x+)\n$") or nil
+  return sha or "unknown"
+end
+
 local function real_system(): Round.System
   local handles: {integer: Child.Handle} = {}
   local streams: {integer: integer} = {}
@@ -371,8 +383,7 @@ function Round.main(argv: {integer: string}): integer
     return 2
   end
   local system = real_system()
-  local head = system.run({ "git", "-C", root, "rev-parse", "--short", "HEAD" })
-  local short = head.code == 0 and (head.text:gsub("%s+$", "")) or "unknown"
+  local short = Round.short_commit(root)
   local tool = options.tool
   if tool == nil then
     local built = system.run({ root .. "/bin/cosmic-bootstrap", "--standalone",

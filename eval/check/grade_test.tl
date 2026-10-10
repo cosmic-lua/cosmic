@@ -413,6 +413,7 @@ local function test_a_regrade_keeps_the_evidence_of_the_one_before(dir: string)
   assert(Grader.next_logs(dir) == dir .. "/grades/2")
   assert(Fs.read(dir .. "/grades/1/check-1.out") == "first\n")
   assert(Grader.next_logs(dir) == dir .. "/grades/3", "each call makes its directory")
+  assert(Fs.is_dir(dir .. "/grades/2") and Fs.is_dir(dir .. "/grades/3"))
 end
 
 --- A grade's cosmic runs with its HOME and cache home inside the arena,

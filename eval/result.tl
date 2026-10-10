@@ -14,6 +14,7 @@ local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Json = require("cosmic.json")
+local Proc = require("cosmic.proc")
 local Time = require("cosmic.time")
 
 local record Result
@@ -65,6 +66,13 @@ local function decode(line: string): {string: any} | nil
   return nil
 end
 
+--- `event[key]`, [`Json.null`] where there is no event or no such key
+--- (a `false` is a value).
+local function reported_field(event: {string: any} | nil, key: string): any
+  if event == nil or event[key] == nil then return Json.null end
+  return event[key]
+end
+
 local function number(value: any): any
   if value is number then return value end
   return Json.null
@@ -82,11 +90,13 @@ local function integer_of(text: string | nil): integer | nil
 end
 
 --- The word for how the run ended: `timeout` when the solver's status
---- was 124 or no `result` event closes the transcript, `turn_cap` when
---- the CLI stopped at --max-turns, `api_error` when it reports an error
---- of any other kind, else `completed`.
+--- was 124, `no_result` when no `result` event closes the transcript
+--- under any other status (a crash), `turn_cap` when the CLI stopped at
+--- --max-turns, `api_error` when it reports an error of any other kind,
+--- else `completed`.
 local function status_of(exit_code: integer | nil, result: {string: any} | nil): string
-  if exit_code == 124 or result == nil then return "timeout" end
+  if exit_code == 124 then return "timeout" end
+  if result == nil then return "no_result" end
   if result["subtype"] == "error_max_turns" then return "turn_cap" end
   local subtype = result["subtype"]
   if result["is_error"] == true or (subtype ~= nil and subtype ~= "success") then
@@ -142,6 +152,8 @@ function Result.build(transcript: string | nil, files: Result.Files, grade: Resu
   if reported is {string: any} then
     usage = reported
   end
+  local detailed: any = usage["output_tokens_details"]
+  local details: {string: any} = detailed is {string: any} and detailed or {}
   local function from_init(key: string): any
     if init == nil or init[key] == nil then return Json.null end
     return init[key]
@@ -181,8 +193,8 @@ function Result.build(transcript: string | nil, files: Result.Files, grade: Resu
     max_turns = meta.max_turns or Json.null,
     timeout_seconds = meta.timeout or Json.null,
     exit_code = exit_code or Json.null,
-    result_subtype = result ~= nil and result["subtype"] or Json.null,
-    is_error = result ~= nil and result["is_error"] or Json.null,
+    result_subtype = reported_field(result, "subtype"),
+    is_error = reported_field(result, "is_error"),
     grade_exit_code = grade.exit_code or Json.null,
     grade_verdict = Result.verdict(grade.exit_code),
     grade_log = grade.log or Json.null,
@@ -193,9 +205,9 @@ function Result.build(transcript: string | nil, files: Result.Files, grade: Resu
     cost_usd = result ~= nil and number(result["total_cost_usd"]) or Json.null,
     input_tokens = number(usage["input_tokens"]),
     output_tokens = number(usage["output_tokens"]),
-    -- The CLI reports thinking inside output_tokens; a field of its own
-    -- appears only where a version supplies one.
-    thinking_tokens = number(usage["thinking_tokens"] or usage["reasoning_tokens"]),
+    -- output_tokens includes thinking; the CLI breaks it out in
+    -- usage.output_tokens_details.thinking_tokens.
+    thinking_tokens = number(details["thinking_tokens"]),
     cache_creation_input_tokens = number(usage["cache_creation_input_tokens"]),
     cache_read_input_tokens = number(usage["cache_read_input_tokens"]),
     tools = from_init("tools"),
@@ -225,10 +237,13 @@ end
 local USAGE <const> = "usage: eval/result <arena> [--grade-exit N] [--grade-log PATH] [--model M] " ..
   "[--commit C] [--max-turns N] [--timeout S]"
 
---- The harness commit: `git rev-parse HEAD` in `repo`, nil where git
---- or the repository is not there.
-local function head_of(repo: string): string | nil
-  local ran, _ = Child.run({ "git", "-C", repo, "rev-parse", "HEAD" },
+--- The harness commit: `git rev-parse HEAD` in `repo`, with git found
+--- on `path` (PATH by default) -- Child.run does not search PATH --
+--- nil where git or the repository is not there.
+function Result.git_head(repo: string, path?: string): string | nil
+  local git, _ = Proc.find("git", path)
+  if git == nil then return nil end
+  local ran, _ = Child.run({ git, "-C", repo, "rev-parse", "HEAD" },
     { stdout = "capture", stderr = "null", stdin = "null", timeout_ns = Clock.seconds(10) })
   local sha = ran ~= nil and ran.ok and (ran.stdout or ""):match("^(%x+)\n$") or nil
   return sha
@@ -295,7 +310,7 @@ function Result.main(argv: {integer: string}): integer
     return 2
   end
   local repo = script:match("^(.*)/eval/[^/]+%.tl$")
-  if repo ~= nil then meta.harness_commit = head_of(repo) end
+  if repo ~= nil then meta.harness_commit = Result.git_head(repo) end
   local function read(name: string): string | nil
     local text, _ = Fs.read(arena .. "/" .. name)
     return text
