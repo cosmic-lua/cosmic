@@ -66,9 +66,8 @@ of the solver's project. The prompt varies only in arena paths.
   it; the Work parent monitors elapsed time and interrupts at the deadline.
   Record actual elapsed time and enforcement method. A turn cap is an
   additional runner-specific limit, not a claim of equal model budgets;
-  eval/solve sets it (150) high enough that the deadline binds first, as
-  a run at several seconds a turn that hits the cap leaves a journal no
-  one asked to be short.
+  eval/solve sets it to 150 so that, at the several seconds a turn
+  solvers have taken, the deadline usually binds first.
 - **Independent grading.** After the solver stops, run
   `timeout 30 eval/check/<task> <absolute-arena>` (`timeout 60` for jobs,
   mirror and relay, whose checks wait out timeouts of their own) and save

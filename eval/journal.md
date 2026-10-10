@@ -6,8 +6,8 @@ end. It is the most important deliverable; write it even if the rest
 does not work. You may be stopped at any moment, without warning, and
 what is in the file then is all that is kept. It has two parts:
 
-**Summary**, at the top of the file from your first entry, and rewritten
-after every log entry so that it always matches the log below it:
+**Summary**, at the top of the file from your first entry, and edited in
+place after every log entry so that it always matches the log below it:
 
 - what works and what does not, against the list above
 - the things that most slowed you down, ranked, with the entry numbers
