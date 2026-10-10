@@ -212,9 +212,11 @@ nodes = function(p: Parser): {types.Node} | nil, string
               trim_hint(extra))
         end
         -- An empty string writes nothing: no node, as the lexer makes none
-        -- for an empty run of text.
+        -- for an empty run of text. The text's first byte stands just past
+        -- the opening quote, where a refusal of it points; one past an escape
+        -- is a column early.
         if literal.value ~= "" then
-          out[#out + 1] = { kind = "text", line = literal.line, col = literal.col, end_line = literal.line,
+          out[#out + 1] = { kind = "text", line = literal.line, col = literal.col + 1, end_line = literal.line,
             close_line = literal.line, text = literal.value, branches = {}, ctx = "plain" }
         end
         p.pos = p.pos + 1

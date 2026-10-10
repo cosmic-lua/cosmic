@@ -503,7 +503,7 @@ local function test_a_string_action_is_literal_text_the_html_tracker_reads()
   assert(closed:find("_text(v)", 1, true), closed)
   local cases: {{string}} = {
     { '<a href="{{"/"}}{{.x}}">', "2:17: ", "must begin" },
-    { '<a href="{{.x}}{{"//h"}}">', "2:18: ", "protocol-relative" },
+    { '<a href="{{.x}}{{"//h"}}">', "2:19: ", "protocol-relative" },
     { '<p {{"onclick"}}="{{.x}}">', "2:19: ", "event handler" },
     { '{{"<script>"}}{{.x}}', "2:15: ", "<script>" },
     { '{{"<!--"}}{{.x}}-->', "2:11: ", "comment" },
@@ -613,6 +613,7 @@ end
 local APART <const>: {{string}} = {
   -- `checked="x"` in one arm, the tag `<input=x>` in the other.
   { '<input{{if .a}} checked{{end}}=x>', "2", "31", "reads differently" },
+  { '<input{{if .a}} checked{{end}}{{"="}}x>', "2", "34", "reads differently" },
   { '<input{{if .a}} checked{{end}} =x>', "2", "32", "reads differently" },
   { '<input{{if .a}} checked{{end}}\n  =x>', "3", "3", "reads differently" },
   -- `checked` in one arm, `ked` in the other.
