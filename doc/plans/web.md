@@ -238,9 +238,9 @@ Each is a small PR of its own, landing before the module that needs it.
   WebSockets.
 - [`cosmic.net`]: `Conn:peer()`, over the binding core/socket.c:786
   already has.
-- [`cosmic.url`]: `Url.decode_query` (ordered pairs and by name, `+` as a
+- [`cosmic.url`]: [`Url.decode_query`] (ordered pairs and by name, `+` as a
   space, invalid escapes refused unless lenient, a cap on pairs),
-  `Url.encode_query`, closing the roadmap item.
+  [`Url.encode_query`], closing the roadmap item.
 - [`cosmic.html`] (C in core/): `url_part` and `SafeUrlPart`,
   `url_query`, `local_href`, `escape_css_attr`, and `SafeJson`.
 - [`cosmic.template`]: slots after literal text in a URL (the TODO at
@@ -262,7 +262,7 @@ Each step is one or more PRs with tests; a step starts when the steps it
 needs have merged.
 
 1. **Prerequisites,** the list above that needs nothing else: reply
-   headers and the Cookie join, `Url.decode_query`, `Conn:peer`,
+   headers and the Cookie join, [`Url.decode_query`], `Conn:peer`,
    `on_stop`, the 4xx close, `Hash.equal`, the JSON `ascii` option,
    [`Poll.notifier`].
 2. **A spike on typed-route generics.** Whether Teal infers `P`, `Q` and
@@ -344,3 +344,5 @@ cooperative process.
 [`Server.Reply.headers`]: ../../cosmic/http/server.tl
 [`Server.serve`]: ../../cosmic/http/server.tl
 [`Shape.into`]: ../../cosmic/shape.tl
+[`Url.decode_query`]: ../../cosmic/url.tl
+[`Url.encode_query`]: ../../cosmic/url.tl
