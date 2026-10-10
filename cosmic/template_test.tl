@@ -580,6 +580,88 @@ local function test_text_in_runs_is_read_as_it_is_whole()
   end
 end
 
+--- Templates whose `<noscript>` text a browser with scripting off reads as
+--- markup that puts the slot after `</noscript>` somewhere other than text:
+--- in `<style>`, `<xmp>`, `<textarea>`, `<plaintext>` or a comment, or in
+--- an attribute value.
+local NOSCRIPT_MARKUP <const>: {string} = {
+  "<noscript><style></noscript>{{.x}}</style>",
+  "<noscript><STYLE></noscript>{{.x}}</style>",
+  "<noscript><xmp></noscript>{{.x}}",
+  "<noscript><textarea></noscript>{{.x}}",
+  "<noscript><plaintext></noscript>{{.x}}",
+  "<noscript><!--</noscript>{{.x}}-->",
+  "<noscript><p title=\"</noscript>{{.x}}\">",
+  "<noscript><img src=x onerror=\"</noscript>{{.x}}\">",
+  "<noscript></p title=\"</noscript>{{.x}}\">",
+  "<noscript><svg><style><p title=\"</style></noscript>{{.x}}\">",
+}
+
+--- `src` with an empty block, and then a string action of the one byte
+--- there, at each place before its first slot that a cut can go: not
+--- beside a brace, which would run into the action's own.
+local function cuts_of(src: string): {string}
+  local out: {string} = { src }
+  local slot = src:find("{{", 1, true) as integer
+  for at = 1, slot - 1 do
+    if not src:sub(math.max(at - 1, 1), at + 1):find("[{}]") then
+      out[#out + 1] = src:sub(1, at) .. "{{if .a}}{{end}}" .. src:sub(at + 1)
+      local b = src:sub(at, at)
+      if b ~= "\"" then
+        out[#out + 1] = src:sub(1, at - 1) .. "{{\"" .. b .. "\"}}" .. src:sub(at + 1)
+      end
+    end
+  end
+  return out
+end
+
+local function test_markup_in_noscript_that_scripting_off_reads_differently_refuses_a_later_slot()
+  local wrong: {string} = {}
+  for _, src in ipairs(NOSCRIPT_MARKUP) do
+    for _, cut in ipairs(cuts_of(src)) do
+      local out, why = Template.compile(HEAD .. cut, "t.tmpl")
+      if out ~= nil or not why:find("differently", 1, true) then
+        wrong[#wrong + 1] = cut .. ": " .. tostring(why)
+      end
+    end
+  end
+  assert(#wrong == 0, table.concat(wrong, "\n"))
+  local why = refused(HEAD .. "<noscript>{{if .a}}<p title=\"{{end}}</noscript>{{.x}}\">")
+  assert(why:find("arms", 1, true), why)
+end
+
+--- Templates whose `<noscript>` text a browser with scripting off reads as
+--- markup that ends in plain text, so the slot after it stands in text
+--- either way.
+local NOSCRIPT_PLAIN <const>: {string} = {
+  "<noscript>Turn on JavaScript.</noscript>{{.x}}",
+  "<noscript>a < b, 1 <2 & 3> 2</noscript><p>{{.x}}</p>",
+  "<noscript><</noscript>{{.x}}",
+  "<noscript><p>Turn on <b>JavaScript</b>.</p></noscript>{{.x}}",
+  "<noscript><img height=\"1\" style=\"display:none\" src=\"/tr?id=1&amp;ev=view\"/></noscript>{{.x}}",
+  "<noscript><iframe src=\"/ns.html?id=1\" height=\"0\" width=\"0\"></iframe></noscript>{{.x}}",
+  "<noscript><style>.js { display: none }</style></noscript>{{.x}}",
+  "<noscript><link rel=\"stylesheet\" href=\"/no-js.css\"></noscript>{{.x}}",
+  "<noscript><!-- no script --></noscript>{{.x}}",
+  "<noscript><svg><path d=\"M0 0\"/></svg></noscript>{{.x}}",
+  "<p>{{.x}}</p><noscript><p>Turn on JavaScript.</p></noscript>",
+}
+
+local function test_markup_in_noscript_that_ends_in_text_keeps_the_slots_after_it()
+  local wrong: {string} = {}
+  for _, src in ipairs(NOSCRIPT_PLAIN) do
+    for _, cut in ipairs(cuts_of(src)) do
+      local out, why = Template.compile(HEAD .. cut, "t.tmpl")
+      if out == nil or not out:find("_text(v)", 1, true) then
+        wrong[#wrong + 1] = cut .. ": " .. tostring(why)
+      end
+    end
+  end
+  assert(#wrong == 0, table.concat(wrong, "\n"))
+  local src = HEAD .. "<noscript>{{if .a}}<p>On</p>{{else}}<b>Off</b>{{end}}</noscript>{{.x}}"
+  assert(compiled(src):find("_text(v)", 1, true), src)
+end
+
 local function test_a_block_may_add_a_whole_attribute_wherever_it_stands_in_a_tag()
   for _, src in ipairs({
       '<input{{if .a}} checked{{end}} name="n">',

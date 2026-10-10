@@ -63,7 +63,9 @@
 --- is not the innermost open element's (`</g>` after `<svg><a>`); an
 --- `<svg>` or `<math>` in a `<select>`; and the text of a `<script>`,
 --- `<style>`, `<textarea>` or `<title>` in foreign content when it holds a
---- `<`, and `<noscript>` text with a comment in it. A tag that carries a
+--- `<`, and `<noscript>` text that a browser with scripting off, which reads
+--- it as markup, leaves outside plain text (`<noscript><style></noscript>`,
+--- `<noscript><p title="</noscript>`). A tag that carries a
 --- `/` across a block boundary (`<svg {{if .a}}/{{end}}>`) is a place of
 --- its own, so the arms of a block that differ in it are refused.
 ---
@@ -146,7 +148,8 @@ local record Markup
     --- Set when the browser may read what follows by rules this tracker
     --- does not follow, so every later slot is refused: raw text or
     --- RCDATA inside `<svg>` or `<math>` that holds a `<`, `<noscript>`
-    --- text that holds a comment.
+    --- text that a browser with scripting off leaves outside plain text
+    --- (see `off`).
     murky: boolean
     --- Whether a `<select>` is open in HTML, where an `<svg>` may be ignored.
     select: boolean
@@ -182,8 +185,8 @@ local record Markup
     late_col: integer
     --- In the text of a raw text or RCDATA element, the longest end of its
     --- text that the next run could complete into something read here: a
-    --- start of `</tag` (`<`, `</`, `</tex`); in `<noscript>` also of `<!--`
-    --- (`<!`, `<!-`); in `<script>` also `<scr`, `-`, `--`. The next run,
+    --- start of `</tag` (`<`, `</`, `</tex`); in `<script>` also `<scr`, `-`,
+    --- `--`. The next run,
     --- after a block that emits nothing or a string action, is read after
     --- it, and a slot after it could complete the tag.
     raw_tail: string
@@ -199,6 +202,11 @@ local record Markup
     --- in ways their places do not show: such a tag is never left apart
     --- (see `apart`).
     split: boolean
+    --- In the text of a `<noscript>`, where a browser with scripting off,
+    --- which reads that text as markup, is in it so far; nil elsewhere. At
+    --- its `</noscript>` the place is murky unless this one is in plain text
+    --- (see [`noscript_clean`]).
+    off: Place
     --- The other places this one may be, where the arms of a block left
     --- one tag at different attribute boundaries (`<input{{if .a}} checked{{end}}`):
     --- each as its phase, a `:` and its attribute (empty where the phase
@@ -308,7 +316,7 @@ local function start(): Place
     select = false, fontattr = false, slash = false, after_url = false, colon = false, bare = false, rooted = false,
     equiv = false,
     meta_line = 0, meta_col = 0, late = "", late_line = 0, late_col = 0, raw_tail = "",
-    escaped = false, double = false, split = false, alts = "" }
+    escaped = false, double = false, split = false, off = nil, alts = "" }
 end
 
 local function copy(p: Place): Place
@@ -317,13 +325,14 @@ local function copy(p: Place): Place
     rooted = p.rooted, equiv = p.equiv,
     meta_line = p.meta_line, meta_col = p.meta_col, late = p.late, late_line = p.late_line,
     late_col = p.late_col, raw_tail = p.raw_tail,
-    escaped = p.escaped, double = p.double, split = p.split, alts = p.alts }
+    escaped = p.escaped, double = p.double, split = p.split, off = p.off and copy(p.off), alts = p.alts }
 end
 
 local function key(p: Place): string
-  return string.format("%s %q %q %s %s %q %s %s %s %s %s %s %s %s %s %d %d %q %d %d %q %s %s %s %q", p.phase, p.tag,
+  return string.format("%s %q %q %s %s %q %s %s %s %s %s %s %s %s %s %d %d %q %d %d %q %s %s %s %q %q", p.phase, p.tag,
     p.attr, p.closing, p.fresh, p.stack, p.murky, p.select, p.fontattr, p.slash, p.after_url, p.colon, p.bare,
-    p.rooted, p.equiv, p.meta_line, p.meta_col, p.late, p.late_line, p.late_col, p.raw_tail, p.escaped, p.double, p.split, p.alts)
+    p.rooted, p.equiv, p.meta_line, p.meta_col, p.late, p.late_line, p.late_col, p.raw_tail, p.escaped, p.double, p.split, p.alts,
+    p.off and key(p.off) or "-")
 end
 
 --- The phases in which the tag and whether it is an end tag mean something;
@@ -349,6 +358,9 @@ local function alike(a: Place, b: Place): boolean
   end
   if (a.phase == "rcdata" or a.phase == "raw") and
       (a.raw_tail ~= b.raw_tail or a.escaped ~= b.escaped or a.double ~= b.double) then
+    return false
+  end
+  if (a.off == nil) ~= (b.off == nil) or (a.off ~= nil and not alike(a.off, b.off)) then
     return false
   end
   return not ATTRIBUTED[a.phase] or a.attr == b.attr
@@ -496,15 +508,14 @@ local function plain_end(text: string, from: integer, tag: string): integer | ni
 end
 
 --- The longest end of `region`, in the text of `tag`, that the next run
---- could complete into something read here: the start of `</tag` (whole
---- too, as it needs the delimiter after it) or, in `<noscript>`, a proper
---- start of `<!--`.
+--- could complete into its end tag: the start of `</tag`, or the whole of
+--- it, as it needs the delimiter after it.
 local function plain_tail(region: string, tag: string): string
   local close = "</" .. tag
   for len = math.min(#region, #close), 1, -1 do
-    local tail = region:sub(-len):lower()
-    if close:sub(1, len) == tail or (tag == "noscript" and len < 4 and ("<!--"):sub(1, len) == tail) then
-      return region:sub(-len)
+    local tail = region:sub(-len)
+    if close:sub(1, len) == tail:lower() then
+      return tail
     end
   end
   return ""
@@ -637,6 +648,15 @@ local function end_tag(p: Place, text: string, from: integer, unquoted: boolean)
     p.late_line = p.meta_line
     p.late_col = p.meta_col
   end
+  -- TODO: in a `<select>`, a parser with the standard's "in select" mode
+  -- ignores every start tag but a few (`<option>`, `<optgroup>`, `<hr>`,
+  -- `<input>`, `<textarea>`, `<script>`, `<template>`), so `<style>`,
+  -- `<xmp>`, `<iframe>` and the like open no raw text there, and
+  -- `<select><style><option onclick="</style>{{.x}}">` puts the slot in a
+  -- handler with the text escaper; parsers of the newer select content
+  -- model do not ignore them. A raw text or RCDATA tag other than
+  -- `<script>` and `<textarea>` should make the place murky while `select`
+  -- is set.
   local phase = RAW_TAGS[p.tag]
   p.phase = (p.closing or phase == nil) and "text" or phase
   return from
@@ -661,6 +681,24 @@ local function open_tag(p: Place, closing: boolean)
   p.meta_line = 0
   p.meta_col = 0
   p.split = false
+end
+
+--- Whether `off`, the scripting-off reading of a `<noscript>`'s text up to
+--- its `</noscript>`, leaves that end tag where the tracker's reading does:
+--- in plain text (or after a `<`, which the `<` of the end tag makes text),
+--- with no foreign element open, and inside a `<select>` only if `outer`
+--- is.
+---
+--- A browser with scripting on reads the text as raw text, as the tracker
+--- does; with scripting off (a DOMParser, a sanitizer's parse) it is markup,
+--- and markup can carry the `</noscript>` away: `<noscript><style></noscript>{{.x}}`
+--- puts the slot in `<style>`, `<noscript><img onerror="</noscript>{{.x}}">`
+--- in a handler. Markup that ends in plain text (`<p>Turn on JavaScript</p>`,
+--- a tracking pixel's `<img>`, a closed `<style>` or comment) leaves the end
+--- tag, and what follows it, read alike either way.
+local function noscript_clean(off: Place, outer: Place): boolean
+  return (off.phase == "text" or off.phase == "lt") and not off.murky and off.stack == "" and
+    off.select == outer.select
 end
 
 --- Moves `p` over `text` one state at a time. A run of text ends where a
@@ -899,16 +937,27 @@ local function scan(p: Place, text: string)
       -- The tail is judged with the run that completes it, as it would be
       -- whole: `</sty` that becomes `</style>` holds no `<` of the text.
       local settled = region:sub(1, #region - #tail)
-      -- TODO: `<noscript>` is read as raw text, as a browser with scripting
-      -- on reads it; with scripting off its text is markup, so
-      -- `<noscript><style></noscript>{{.x}}</style>` puts the slot in
-      -- `<style>` (or `<xmp>`, `<textarea>`, ...) with only the text
-      -- escaper. In noscript text, a `<` before a raw text or RCDATA tag
-      -- name (style, script, textarea, title, xmp, iframe, noembed,
-      -- noframes, plaintext), or a `<!` or `<?`, should make the place
-      -- murky, as `<!--` does.
-      if (p.stack ~= "" and settled:find("<", 1, true)) or (p.tag == "noscript" and settled:find("<!--", 1, true)) then
+      if p.stack ~= "" and settled:find("<", 1, true) then
         p.murky = true
+      end
+      if p.tag == "noscript" then
+        -- The tail is left for the run that completes it, as above, and
+        -- read here once it turns out not to be the end tag.
+        local off = p.off
+        if off == nil then
+          off = start()
+          off.select = p.select
+        end
+        if settled ~= "" then
+          scan(off, settled)
+          -- As `feed` keeps it: a `>` that begins the next run closes a
+          -- self-closing tag, which an `<svg>` must be to leave nothing open.
+          off.slash = off.phase == "before_attr" and settled:byte(#settled) == 47
+        end
+        p.off = found == nil and off or nil
+        if found ~= nil and not noscript_clean(off, p) then
+          p.murky = true
+        end
       end
       if found == nil then
         p.raw_tail = tail
