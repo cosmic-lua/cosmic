@@ -1,0 +1,12 @@
+file: tl.tl
+note: a macroexp declared `: never` has a type that never returns
+--- find
+               args = args,
+               rets = rets,
+            }))
+--- replace
+               args = args,
+               rets = rets,
+               never = node.never,
+            }))
+--- end

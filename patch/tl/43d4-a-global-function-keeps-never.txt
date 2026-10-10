@@ -1,0 +1,14 @@
+file: tl.tl
+note: a global function declared `: never` has a type that never returns
+--- find
+               rets = self.get_rets(rets),
+            })))
+
+            return NONE
+--- replace
+               rets = self.get_rets(rets),
+               never = node.never,
+            })))
+
+            return NONE
+--- end

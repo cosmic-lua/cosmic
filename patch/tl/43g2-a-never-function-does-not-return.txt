@@ -1,0 +1,15 @@
+file: tl.tl
+note: a `return` in a function declared `: never`, a bare one included, is refused: the function does not return
+--- find
+      ["return"] = {
+         before = function(self: TypeChecker, node: Node)
+            local rets = self:find_var_type("@return")
+--- replace
+      ["return"] = {
+         before = function(self: TypeChecker, node: Node)
+            local never = self:find_var_type("@never")
+            if never and not (never is NilType) then
+               self.errs:add(node, "this function is declared 'never' and cannot return")
+            end
+            local rets = self:find_var_type("@return")
+--- end
