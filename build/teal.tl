@@ -1323,25 +1323,25 @@ local function interface_self_hint(msg: string): string | nil
   if method == nil or record ~= given then
     return nil
   end
-  return "the interface declares `" .. method .. "` with an unnamed receiver, which is " ..
+  return "if " .. interface .. " declares `" .. method .. "` with an unnamed receiver, that is " ..
     interface .. " itself, not the record that implements it: declare it in " .. interface ..
     " as `" .. method .. ": function(self: " .. interface .. ", ...)` so each implementer's " ..
     "`function " .. record .. ":" .. method .. "` is checked with its own type as self"
 end
 
---- What to write for a call whose expected result type fixed a type
---- parameter its arguments then refuse (`argument 2: type parameter <T>:
---- got R, expected R | nil`, `... R is not a I`): the checker reads the
---- type a `return` or a declaration expects before the arguments, when
---- patch/tl/40 could not bind it from them instead. nil for any other
---- message.
+--- What to try for a call refused on a type parameter (`argument 2: type
+--- parameter <T>: got R, expected R | nil`, `... R is not a I`): where the
+--- call's result is expected to have a type, the checker may have bound the
+--- parameter to it before the arguments, and patch/tl/40 could not bind it
+--- from them instead. The hint says so conditionally, since the arguments
+--- may simply disagree. nil for any other message.
 local function type_parameter_hint(msg: string): string | nil
   if msg:match("^argument %d+: type parameter <[%w_]+>: ") == nil then
     return nil
   end
-  return "this call's type parameter was fixed by the type its result is expected to have " ..
-    "(a return type or a declaration), before its arguments: bind it from them in a local " ..
-    "of their type (`local v: R = setmetatable(t, mt)`) and use that"
+  return "if this call's result is expected to have a type (a return type or a declaration), " ..
+    "that may have fixed the type parameter before the arguments did: bind the result in a local " ..
+    "of the arguments' type (`local v: R = setmetatable(t, mt)`) and use that"
 end
 
 --- What to write instead, when `msg` is the checker refusing a name

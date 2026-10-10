@@ -93,7 +93,7 @@ local function open(t: Thing): Thing | nil, string
 end
 print(open)
 ]])
-  assert(refused(ok, trouble, "Other is not a Thing"),
+  assert(refused(ok, trouble, "argument 2: type parameter <T>: "),
     "a metatable of Other does not fit a Thing, but: " .. tostring(trouble))
   ok, trouble = compiles(tmp, "wrong-interface", prelude .. [[
 local function named(t: Thing): Named
@@ -101,7 +101,7 @@ local function named(t: Thing): Named
 end
 print(named)
 ]])
-  assert(refused(ok, trouble, "Other is not a Thing"),
+  assert(refused(ok, trouble, "argument 2: type parameter <T>: "),
     "a metatable of Other does not fit a Thing, but: " .. tostring(trouble))
 end
 
@@ -113,4 +113,35 @@ end
 print(open)
 ]])
   assert(not ok, "an Other is no Thing | nil, but the compile passed")
+end
+
+local function test_a_refused_call_is_reported_as_the_first_order_found_it(tmp: string)
+  local ok, trouble = compiles(tmp, "report", prelude .. [[
+local function open(o: Other): Thing | nil, string
+  return setmetatable(o, thing_mt), ""
+end
+print(open)
+]])
+  assert(refused(ok, trouble, "argument 1: got Other, expected Thing | nil"),
+    "the arguments-first retry leaves the first order's report, but: " .. tostring(trouble))
+  assert(not refused(ok, trouble, "in return value"),
+    "the retry's own errors are not added, but: " .. tostring(trouble))
+end
+
+-- A table literal as the first argument is typed from the expected result
+-- before the call is checked, so an interface return types it as the
+-- interface and the metatable of its record then disagrees.
+-- TODO: accept `return setmetatable({ ... }, thing_mt)` in a function
+-- returning an interface Thing implements: it waits on the checker typing a
+-- call's table-literal argument after the call's type variables are bound,
+-- which patch/tl/40's retry cannot do once the literal has its type.
+local function test_a_table_literal_for_an_interface_return_is_still_refused(tmp: string)
+  local ok, trouble = compiles(tmp, "literal-interface", prelude .. [[
+local function named(): Named
+  return setmetatable({ name = "a" }, thing_mt)
+end
+print(named)
+]])
+  assert(refused(ok, trouble, "Thing is not a Named"),
+    "known limit: a literal takes the interface's type first, but: " .. tostring(trouble))
 end

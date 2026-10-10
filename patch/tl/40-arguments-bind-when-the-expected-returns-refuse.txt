@@ -1,5 +1,5 @@
 file: tl.tl
-note: a call whose expected result type fixes a type variable its arguments then fail is checked again with the arguments first, so `return setmetatable(t, mt)` in a function returning `R | nil` or an interface `R` implements checks the result against what the arguments made of T; the call stands only if the second order passes whole
+note: a call whose expected result type fixes a type variable its arguments then fail is checked again with the arguments first, so `return setmetatable(t, mt)` in a function returning `R | nil` or an interface `R` implements checks the result against what the arguments made of T; the call stands only if the second order passes whole, and a call both orders refuse is reported as the first order did
 --- find
                if expected_rets then
                   expected_rets = self:infer_at(w, expected_rets)
@@ -45,13 +45,10 @@ note: a call whose expected result type fixes a type variable its arguments then
                      for name, var in pairs(before) do
                         scope.vars[name] = var
                      end
-                     local args_ok2, args_errs2 = check_func_type_list(self, w, wargs, fargs, args, from, argdelta, "contravariant", "argument")
+                     local args_ok2 = check_func_type_list(self, w, wargs, fargs, args, from, argdelta, "contravariant", "argument")
                      if args_ok2 and check_func_type_list(self, w, nil, frets, expected_rets, 1, 0, "covariant", "return") then
                         infer_emptytables(self, w, wargs, args, fargs, argdelta)
                         return true
-                     end
-                     if not args_ok2 then
-                        return nil, args_errs2 or {}
                      end
                      for name in pairs(scope.vars) do
                         scope.vars[name] = nil

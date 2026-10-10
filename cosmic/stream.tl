@@ -358,10 +358,6 @@ local closed_writer <const> = "stream: the writer is closed"
 --   no method an instance could be asked for.
 -- * A method some instances lack is a field of those instances only
 --   (`skip` on a Reader of a regular file), never of the shared table.
---
--- TODO: declare this module's interface methods with a named `self` and drop
--- each record's redeclaration; the documented signatures then read
--- `function(self: Reader, ...)`, as `records_interfaces_methods` teaches.
 
 local record FromStringReader is Stream.Reader
   data: string
