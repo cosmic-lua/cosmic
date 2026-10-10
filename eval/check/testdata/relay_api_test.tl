@@ -3,13 +3,16 @@
 local Clock = require("cosmic.clock")
 local Net = require("cosmic.net")
 local Poll = require("cosmic.poll")
+local Test = require("cosmic.test")
 local relay = require("relay")
 
---- Both ends of a fresh connection over a socket file at `path`: the
---- one that connected and the one accepted.
-local function pair(path: string): Net.Conn, Net.Conn
-  local listener = assert(Net.listen(Net.unix(path)))
-  local near = assert(Net.connect(Net.unix(path), { timeout_ns = Clock.seconds(5) }))
+Test.policy{ loopback = { "127.0.0.1" } }
+
+--- Both ends of a fresh loopback connection: the one that connected
+--- and the one accepted.
+local function pair(): Net.Conn, Net.Conn
+  local listener = assert(Net.listen(Net.tcp("127.0.0.1", 0)))
+  local near = assert(Net.connect(listener.address, { timeout_ns = Clock.seconds(5) }))
   local far = assert(listener:accept(Clock.seconds(5)))
   far:set_timeout(Clock.seconds(5))
   assert(listener:close())
@@ -29,12 +32,12 @@ end
 
 --- Runs `body` with a pipe between two pairs, `client` the far end of
 --- `a` and `target` the far end of `b`, and answers what pipe answered.
-local function piped(dir: string, options: relay.Options,
+local function piped(options: relay.Options,
                      body: function(client: Net.Conn, target: Net.Conn)): relay.Stats
   local stats: relay.Stats = nil
   Poll.run(function()
-    local client, a = pair(dir .. "/a.sock")
-    local target, b = pair(dir .. "/b.sock")
+    local client, a = pair()
+    local target, b = pair()
     local task = Poll.spawn(function()
       stats = relay.pipe(a, b, options)
     end)
@@ -46,8 +49,8 @@ local function piped(dir: string, options: relay.Options,
   return stats
 end
 
-local function test_pipe_copies_both_ways_through_half_closes(dir: string)
-  local stats = piped(dir, {}, function(client: Net.Conn, target: Net.Conn)
+local function test_pipe_copies_both_ways_through_half_closes()
+  local stats = piped({}, function(client: Net.Conn, target: Net.Conn)
     assert(client:write("hello"))
     assert(read_n(target, 5) == "hello", "a to b")
     assert(target:write("world!"))
@@ -67,8 +70,8 @@ local function test_pipe_copies_both_ways_through_half_closes(dir: string)
   assert(stats.idle == false, "idle")
 end
 
-local function test_pipe_lets_b_speak_first(dir: string)
-  local stats = piped(dir, {}, function(client: Net.Conn, target: Net.Conn)
+local function test_pipe_lets_b_speak_first()
+  local stats = piped({}, function(client: Net.Conn, target: Net.Conn)
     assert(target:write("banner"))
     assert(target:shutdown("write"))
     local got, ended = read_n(client, 100)
@@ -81,9 +84,9 @@ local function test_pipe_lets_b_speak_first(dir: string)
       tostring(stats.down))
 end
 
-local function test_pipe_ends_a_quiet_pair_at_its_idle_limit(dir: string)
+local function test_pipe_ends_a_quiet_pair_at_its_idle_limit()
   local started = Clock.monotonic_ns()
-  local stats = piped(dir, { idle_ns = Clock.ms(200) }, function(client: Net.Conn, target: Net.Conn)
+  local stats = piped({ idle_ns = Clock.ms(200) }, function(client: Net.Conn, target: Net.Conn)
     assert(client:write("x"))
     assert(read_n(target, 1) == "x")
     local more, ended = client:read()
@@ -96,8 +99,8 @@ local function test_pipe_ends_a_quiet_pair_at_its_idle_limit(dir: string)
   assert(took >= 150 and took < 2000, "closed after " .. took .. " ms")
 end
 
-local function test_pipe_keeps_a_busy_pair_past_its_idle_limit(dir: string)
-  local stats = piped(dir, { idle_ns = Clock.ms(200) }, function(client: Net.Conn, target: Net.Conn)
+local function test_pipe_keeps_a_busy_pair_past_its_idle_limit()
+  local stats = piped({ idle_ns = Clock.ms(200) }, function(client: Net.Conn, target: Net.Conn)
     for _ = 1, 6 do
       assert(client:write("a"))
       assert(read_n(target, 1) == "a", "a byte was lost")
@@ -109,10 +112,10 @@ local function test_pipe_keeps_a_busy_pair_past_its_idle_limit(dir: string)
   assert(stats.idle == false and stats.up == 6, "stats")
 end
 
-local function test_pipe_moves_megabytes_whole(dir: string)
+local function test_pipe_moves_megabytes_whole()
   local data = string.rep("0123456789abcdef", 128 * 1024)
   local got = ""
-  local stats = piped(dir, {}, function(client: Net.Conn, target: Net.Conn)
+  local stats = piped({}, function(client: Net.Conn, target: Net.Conn)
     local writer = Poll.spawn(function()
       assert(client:write(data))
       assert(client:shutdown("write"))

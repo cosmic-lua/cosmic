@@ -60,10 +60,7 @@ function standalone.environment(built: compiler): compiler.Env | nil, string
   if env == nil then
     return nil, trouble
   end
-  for _, name in ipairs(teal.withheld) do
-    env.globals[name] = nil
-    env.modules[name] = nil
-  end
+  teal.strip(env)
   return env, ""
 end
 
