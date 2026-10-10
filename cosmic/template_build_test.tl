@@ -251,7 +251,7 @@ local function test_a_module_named_like_the_helpers_parameter_or_type_is_renamed
 end
 
 local VALUE_REFUSAL <const> = " -- data, which {{type Page from data}} names, must return its " ..
-  "record type, as `local record M ... end return M` or a `.d.tl` does, not a value of it"
+  "record type, as `local record M ... end return M` or a `.d.tl` does, not a value"
 
 --- The record's module is required for its type alone, which Teal
 --- refuses when the module returns a value of its record: the refusal

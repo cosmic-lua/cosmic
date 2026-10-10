@@ -1080,9 +1080,12 @@ end
 
 local LEDGER_RECORD <const> = "local record Ledger\n  record Month\n    days: integer\n  end\nend\n"
 
-local REFUSAL_HINT <const> = " -- ledger returns a value, not a type: a `local type` require " ..
-  "needs the module to return its record type, as `local record M ... end return M` or a " ..
-  "`.d.tl` does; or require it as a value"
+local REFUSAL_HINT <const> = " -- ledger returns a value of its record, not the record type: " ..
+  "a `local type` require needs the type, as `local record M ... end return M` or a `.d.tl` " ..
+  "does; or require it as a value"
+
+local VALUE_HINT <const> = " -- ledger returns a value, not a type: a `local type` require " ..
+  "needs the module to return one, as `local record M ... end return M` or a `.d.tl` does"
 
 --- A `local type` require of a module that returns a value of its record
 --- is told what the module must return. The checker's other errors stand
@@ -1099,18 +1102,20 @@ local function test_a_type_require_of_a_value_is_told_what_the_module_must_retur
     trouble)
 end
 
---- A module whose value's type names its record (a function taking it, a
---- map of it) is refused with the same answer: the refusal names
---- `Ledger.Month` itself.
-local function test_a_type_require_of_a_value_naming_its_record_is_told_the_same()
+--- A module that returns a value other than a record (a function taking
+--- its record, a map of it, a number) is told to return a type, and not
+--- to require it as a value, whose type would hold none of the record's.
+--- The refusal is said though it names `Ledger.Month` itself.
+local function test_a_type_require_of_a_value_not_a_record_is_told_to_return_a_type()
   for _, value in ipairs({
-      "return function(m: Ledger.Month): integer\n  return m.days\nend\n",
-      "local by_name: {string: Ledger.Month} = {}\nreturn by_name\n",
+      LEDGER_RECORD .. "return function(m: Ledger.Month): integer\n  return m.days\nend\n",
+      LEDGER_RECORD .. "local by_name: {string: Ledger.Month} = {}\nreturn by_name\n",
+      "return 1\n",
   }) do
-    local trouble = type_require_refusal("type-require-of-value-" .. #value, LEDGER_RECORD .. value)
+    local trouble = type_require_refusal("type-require-of-value-" .. #value, value)
     local refusal = trouble:match("main%.tl:1:21: 'require' did not return a type, got [^\n]*")
-    assert(refusal ~= nil and refusal:find("Ledger.Month", 1, true) ~= nil and
-        refusal:sub(-#REFUSAL_HINT) == REFUSAL_HINT, trouble)
+    assert(refusal ~= nil and refusal:sub(-#VALUE_HINT) == VALUE_HINT, trouble)
+    assert(value == "return 1\n" or refusal:find("Ledger.Month", 1, true) ~= nil, refusal)
     assert(trouble:find('n: got string "Ledger.x", expected integer', 1, true) ~= nil, trouble)
     assert(trouble:find("has no type", 1, true) == nil, trouble)
   end
