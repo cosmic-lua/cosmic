@@ -2050,8 +2050,8 @@ local function test_a_branch_restores_the_verdicts_of_its_base()
 
   -- The prune: a job of its own, the one whose token may write the
   -- cache, after every job that saves, whatever their result; on every
-  -- push (a branch's shows it run), its steps on main's alone, running
-  -- the pinned driver on ci/'s sources alone, from a main-only checkout
+  -- push to main (the job's `if`, so a branch push starts no runner for
+  -- steps it would all skip), running the pinned driver on ci/'s sources alone, from a main-only checkout
   -- that keeps no token.
   -- The join, the check a ruleset requires, waits on none of it.
   local prune = jobs.prune
@@ -2076,7 +2076,8 @@ local function test_a_branch_restores_the_verdicts_of_its_base()
   local ipermissions = invalidate.permissions as {string: string}
   assert(ipermissions.actions == "write" and ipermissions.contents == "read",
     "invalidate cannot delete from the cache, or may do more")
-  assert(invalidate["if"] == "always() && (github.event_name == 'push' || github.event_name == 'schedule')",
+  assert(invalidate["if"] == "always() && contains(needs.*.result, 'failure') && " ..
+      "(github.event_name == 'schedule' || (github.event_name == 'push' && github.ref == 'refs/heads/main'))",
     "invalidate runs on another event, or not after a failed job: " .. tostring(invalidate["if"]))
   assert(table.concat(invalidate.needs as {string}, ",") == "platform,checked,seed",
     "invalidate runs before a job that saves")
@@ -2086,15 +2087,14 @@ local function test_a_branch_restores_the_verdicts_of_its_base()
   local isteps = invalidate.steps as {{string: any}}
   assert(#isteps == 3, "invalidate runs more than its checkout, its driver and its command")
   for _, step in ipairs(isteps) do
-    assert(step["if"] == "github.ref == 'refs/heads/main' && contains(needs.*.result, 'failure')",
-      "invalidate runs a step off main or where no job failed: " .. tostring(step["if"]))
+    assert(step["if"] == nil, "invalidate gates a step its job's `if` already gates: " .. tostring(step["if"]))
   end
   local command = isteps[3]
   assert(command.run == "cosmic-driver cosmic_ci/driver.tl invalidate-commit-verdicts" and
       command["working-directory"] == "ci" and command["continue-on-error"] == nil and
       (command.env as {string: string}).COMMIT == "${{ github.sha }}",
     "invalidate runs another command: " .. tostring(command.run))
-  assert(prune["if"] == "always() && github.event_name == 'push'",
+  assert(prune["if"] == "always() && github.event_name == 'push' && github.ref == 'refs/heads/main'",
     "prune runs on another event, or not after a failed job: " .. tostring(prune["if"]))
   assert(table.concat(prune.needs as {string}, ",") == "platform,checked,seed",
     "prune runs before a job that saves")
@@ -2104,7 +2104,7 @@ local function test_a_branch_restores_the_verdicts_of_its_base()
   local psteps = prune.steps as {{string: any}}
   assert(#psteps == 3, "prune runs more than its checkout, its driver and its command")
   for _, step in ipairs(psteps) do
-    assert(step["if"] == "github.ref == 'refs/heads/main'", "prune runs a step off main: " .. tostring(step["if"]))
+    assert(step["if"] == nil, "prune gates a step its job's `if` already gates: " .. tostring(step["if"]))
   end
   local checkout = psteps[1].with as {string: any}
   assert((psteps[1].uses as string):find("actions/checkout@", 1, true) == 1 and
@@ -2262,11 +2262,16 @@ end
 --- ci.yml's `seed`, whose TODO says what would end the exception, and
 --- its `reuse`, which runs on a push to main alone: run on a branch push
 --- with nothing to do, it held the legs, which need it, for a runner's
---- start (some 6 s, up to about 100 s in a burst).
+--- start (some 6 s, up to about 100 s in a burst). Its `prune` and
+--- `invalidate` are too: run on a branch push with every step skipped,
+--- each took a runner's start (up to about 170 s in a burst) to show a
+--- check that did nothing.
 local BRANCH_SKIPS <const> = { "refs/heads/main", "ref_name == 'main'", "event_name != 'push'" }
 local SKIPPED_ON_A_BRANCH <const>: {string: boolean} = {
   [DIR .. "/ci.yml seed"] = true,
   [DIR .. "/ci.yml reuse"] = true,
+  [DIR .. "/ci.yml prune"] = true,
+  [DIR .. "/ci.yml invalidate"] = true,
 }
 
 local function test_a_branch_push_starts_no_job_it_skips()

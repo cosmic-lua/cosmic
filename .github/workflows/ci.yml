@@ -1642,18 +1642,18 @@
     # checkout that keeps no credentials. After every job
     # that saves, whatever their result, so a red push to main prunes
     # too; beside the join, so the check a ruleset requires waits on
-    # none of it. Every push runs it, a branch's with its steps skipped,
-    # so a branch push shows it run rather than skipped: off the legs'
-    # path, it costs a branch push nothing but a runner.
+    # none of it. Only a push to main runs it: on a branch push its
+    # steps were all skipped, and the runner it started for that cost a
+    # queue wait (up to about 170 s in a burst) and showed as a passed
+    # check for nothing. A branch push shows it as a skipped check.
     prune: {
       needs: ["platform", "checked", "seed"],
-      if: "always() && github.event_name == 'push'",
+      if: "always() && github.event_name == 'push' && github.ref == 'refs/heads/main'",
       "runs-on": "ubuntu-24.04",
       "timeout-minutes": 5,
       permissions: {contents: "read", actions: "write"},
       steps: [
         {
-          if: "github.ref == 'refs/heads/main'",
           uses: "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd", # v6
           with: {
             "sparse-checkout": "/ci/\n/bin/cosmic-bootstrap\n/.github/scripts/cosmic-driver.sh\n/.github/actions/cosmic-driver/\n",
@@ -1663,13 +1663,11 @@
         },
         {
           name: "bootstrap the pinned CI driver",
-          if: "github.ref == 'refs/heads/main'",
           "continue-on-error": true,
           uses: "./.github/actions/cosmic-driver",
         },
         {
           name: "prune verdicts saved under a commit, and branches' compiles",
-          if: "github.ref == 'refs/heads/main'",
           "working-directory": "ci",
           "continue-on-error": true,
           env: {GH_TOKEN: "${{ github.token }}", REPOSITORY: "${{ github.repository }}"},
@@ -1686,16 +1684,17 @@
     # took out of its database would still stand for every branch based
     # on that commit. The legs' own saves have finished (`needs`), so the
     # restore by prefix then takes the failed run's. Beside `prune`: the
-    # one other job whose token may write the cache.
+    # one other job whose token may write the cache. The job's `if` holds
+    # every condition, so a green run, and a branch push, start no
+    # runner for it; a scheduled run is on the default branch.
     invalidate: {
       needs: ["platform", "checked", "seed"],
-      if: "always() && (github.event_name == 'push' || github.event_name == 'schedule')",
+      if: "always() && contains(needs.*.result, 'failure') && (github.event_name == 'schedule' || (github.event_name == 'push' && github.ref == 'refs/heads/main'))",
       "runs-on": "ubuntu-24.04",
       "timeout-minutes": 5,
       permissions: {contents: "read", actions: "write"},
       steps: [
         {
-          if: "github.ref == 'refs/heads/main' && contains(needs.*.result, 'failure')",
           uses: "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd", # v6
           with: {
             "sparse-checkout": "/ci/\n/bin/cosmic-bootstrap\n/.github/scripts/cosmic-driver.sh\n/.github/actions/cosmic-driver/\n",
@@ -1705,12 +1704,10 @@
         },
         {
           name: "bootstrap the pinned CI driver",
-          if: "github.ref == 'refs/heads/main' && contains(needs.*.result, 'failure')",
           uses: "./.github/actions/cosmic-driver",
         },
         {
           name: "delete the verdicts saved under a commit",
-          if: "github.ref == 'refs/heads/main' && contains(needs.*.result, 'failure')",
           "working-directory": "ci",
           env: {GH_TOKEN: "${{ github.token }}", REPOSITORY: "${{ github.repository }}", COMMIT: "${{ github.sha }}"},
           run: "cosmic-driver cosmic_ci/driver.tl invalidate-commit-verdicts",
