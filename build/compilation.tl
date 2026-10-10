@@ -195,10 +195,13 @@ function compilation.dependency_keys(db: Sqlite.Handle, modules: {Module},
       if source == nil then
         return nil, source_trouble
       end
-      -- A database written before `decl_imports` existed has no edges
-      -- to read, so the source is parsed for them.
-      -- TODO: drop this parse once ci/cosmic-driver.pin names a release
-      -- whose database carries `decl_imports`.
+      -- A database with no `decl_imports` rows to read -- one written
+      -- before the table existed, or a sealed one, which carries no such
+      -- table -- has its source parsed for them.
+      -- TODO: drop this parse once a sealed database carries
+      -- `decl_imports` (build/test.tl's `sealed_schema` and `sealed_fill`,
+      -- and Store.seal): a test worker that builds a project on one
+      -- reaches it.
       local embedded_requires = embedded_edges(name)
       if embedded_requires == nil then
         local parsed, parse_trouble = ast.parse(built, source, name)

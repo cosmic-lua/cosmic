@@ -4,6 +4,7 @@ local Compiles = require("cosmic_ci.compiles")
 local Fs = require("cosmic.fs")
 local Json = require("cosmic.json")
 local Proc = require("cosmic.proc")
+local Signal = require("cosmic.signal")
 
 local record Payload
   version: any
@@ -179,11 +180,11 @@ end
 local function test_a_guard_failure_cleans_snapshot_without_raising(tmp: string)
   local restored = tmp .. "/restored.db"
   assert(Fs.write(restored, "owned"))
-  local original = Child.guard
-  Child.guard = function(): Child.Guard | nil, string return nil, "injected guard failure" end
+  local original = Signal.guard
+  Signal.guard = function(): Signal.Guard | nil, string return nil, "injected guard failure" end
   local called, code, _, err = pcall(Compiles.command, { "5", restored },
     { COSMIC_BUILD_CACHE = tmp .. "/cache.db", GITHUB_OUTPUT = tmp .. "/output" })
-  Child.guard = original
+  Signal.guard = original
   assert(called and code == 0 and err:find("injected guard failure", 1, true), err)
   assert(Fs.stat(restored) == nil and Fs.stat(tmp .. "/output") == nil)
 end

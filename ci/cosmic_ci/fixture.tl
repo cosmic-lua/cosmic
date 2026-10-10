@@ -65,21 +65,16 @@ end
 --- project the fixture runs in (cosmic_ci/orchestration.tl's `place`),
 --- which its declaration names as the grant of `o/fixtures/<kind>`, so
 --- its key holds what is there. A child of the fixture, in a directory
---- of its own, is given this path. A driver that sets COSMIC_BUILD_HOME
---- in its workers has the project's build directory beneath it, named
---- as build/paths.tl's `in_home` names it; one that sets none builds
---- the project in its o/.
--- TODO: ask build.paths for the directory, rather than spell its key and
--- the o/ of a driver that has none, once ci/cosmic-driver.pin names a
--- release that carries build/paths.tl and puts the build directory
--- outside the project.
+--- of its own, is given this path. The driver sets COSMIC_BUILD_HOME in
+--- its workers, and has the project's build directory beneath it, named
+--- as build/paths.tl's `in_home` names it.
+-- TODO: ask build.paths for the directory, rather than spell its key,
+-- once a project's module can require it: the driver carries it, but its
+-- compiler finds no module of that name for this project.
 function Fixture.placed(kind: string): string
-  local home = Env.get("COSMIC_BUILD_HOME")
-  if home ~= nil and home ~= "" then
-    local root = assert(sys.realpath("."))
-    return home .. "/" .. Hash.hex_sha256(root) .. "/fixtures/" .. kind
-  end
-  return (assert(Fs.absolute("o/fixtures/" .. kind)))
+  local home = Fixture.required("COSMIC_BUILD_HOME")
+  local root = assert(sys.realpath("."))
+  return home .. "/" .. Hash.hex_sha256(root) .. "/fixtures/" .. kind
 end
 
 --- Has every child this fixture starts build under `directory`
@@ -98,8 +93,8 @@ end
 --- The build directory of the project at `project` that this fixture's
 --- children build in ([`builds_beneath`]), named as build/paths.tl's
 --- `in_home` names it, as [`placed`] does.
--- TODO: ask build.paths for the directory, rather than spell its key, once
--- ci/cosmic-driver.pin names a release that carries build/paths.tl.
+-- TODO: ask build.paths for the directory, rather than spell its key,
+-- once a project's module can require it, as for [`placed`].
 function Fixture.built(project: string): string
   local home = assert(build_home, "Fixture.built: call Fixture.builds_beneath first")
   return home .. "/" .. Hash.hex_sha256((assert(sys.realpath(project))))

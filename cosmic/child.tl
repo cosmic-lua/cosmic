@@ -1866,25 +1866,8 @@ local record Child
   type DrainKind = DrainKind
   type DrainResult = DrainResult
   type Handle = Handle
-  --- [`Signal.Guard`] by another name, kept for [`Child.guard`]'s callers.
-  type Guard = Guard
   type PtyStart = PtyStart
   type PtyOptions = PtyOptions
-end
-
--- The release ci/cosmic-driver.pin names, which runs build/zig.tl
--- (through bin/zig) and ci/, has no cosmic.signal: those call this.
--- TODO: remove Child.guard and Child.Guard, moving build/zig.tl,
--- ci/run_local.tl, ci/run_local_proof.tl, ci/run_local_test.tl and
--- ci/cosmic_ci's cache_trim.tl, cache_trim_test.tl and fuzz.tl to
--- Signal.guard and Signal.Guard, and give cosmic.removed's `members`
--- entries for both, once ci/cosmic-driver.pin names a release carrying
--- cosmic.signal.
-
---- [`Signal.guard`] by another name, kept for programs written against
---- a library without cosmic.signal; new code calls Signal.guard.
-function Child.guard(): Guard | nil, string
-  return Signal.guard()
 end
 
 --- The status a shell reports for a child that ended as `result` says:

@@ -9,6 +9,7 @@ local Context = require("cosmic_ci.context")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local State = require("cosmic_ci.state")
+local Signal = require("cosmic.signal")
 local Stream = require("cosmic.stream")
 local sys = require("cosmic.sys")
 local String = require("cosmic.string")
@@ -206,7 +207,7 @@ end
 --- Each bounded drain yields to signal and exit supervision. After exit,
 --- one deadline bounds inherited writers; an incomplete drain is a driver
 --- failure, while any known child status remains available to be saved.
-local function streamed(guard: Child.Guard, argv: {string}, cwd: string,
+local function streamed(guard: Signal.Guard, argv: {string}, cwd: string,
                         env: {string:string}, out: string, log: integer): integer | nil, string
   local out_fd = assert(Fs.open_write(out))
   local status: integer = nil
@@ -291,7 +292,7 @@ function Fuzz.execute(r: Fuzz.Run): integer
     -- Streamed to the log as it runs, and kept for the summary: a run
     -- cancelled at its time limit still shows how far it got. A signal
     -- caught meanwhile is delivered again once the status is kept.
-    local guard <close> = assert(Child.guard())
+    local guard <close> = assert(Signal.guard())
     local trouble: string
     status, trouble = streamed(guard, argv, r.root, env, out, r.log)
     if status ~= nil then

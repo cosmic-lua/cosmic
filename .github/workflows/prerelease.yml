@@ -38,8 +38,8 @@
       },
       steps: [
         # The job checks out, from the commit it publishes, only what the
-        # pinned CI driver needs: ci/ (the driver runs cosmic_ci in place
-        # and keeps its database under ci/o/), bin/cosmic-bootstrap, and the
+        # pinned CI driver needs: ci/ (the driver runs cosmic_ci in place,
+        # keeping its database outside the checkout), bin/cosmic-bootstrap, and the
         # script and the local action that run it (not cone mode, which
         # would add the root's files), and keeps no credential in the
         # checkout. Beyond the actions, the job runs only the scripts that

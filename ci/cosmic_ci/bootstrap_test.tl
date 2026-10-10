@@ -6,6 +6,7 @@ local Predicate = require("cosmic_ci.fs_predicate")
 local Hash = require("cosmic.hash")
 local Proc = require("cosmic.proc")
 local Test = require("cosmic.test")
+local sys = require("cosmic.sys")
 
 -- These tests start this program (the pinned driver's own cosmic, or a copy of it
 -- as the bootstrap), which a worker on a sealed database does not have whole.
@@ -158,7 +159,7 @@ local function driver_context(candidate: string, runner_temp: string,
   return env
 end
 
---- The self-check holds a write transaction on `ci/o/build.db` while
+--- The self-check holds a write transaction on `ci/`'s `build.db` while
 --- tests run, so a test that spawns the host on `driver.tl` must never
 --- give it project root `ci/` -- it copies the namespace into its own
 --- tmp project first, the way `orchestration_test.tl`'s `command()`
@@ -446,10 +447,11 @@ local function test_driver_records_success_failures_timeout_and_interruption(tmp
   end
 
   -- Inside the candidate, so the boundary check fires on the resolved
-  -- target, but under its gitignored ci/o so a regression can only
-  -- ever touch a throwaway file.
-  local sentinel = candidate .. "/ci/o/sentinel.db"
-  assert(Fs.mkdirs(candidate .. "/ci/o") and Fs.write(sentinel, "sentinel"))
+  -- target, but in a hidden directory of its own, taken out after, so a
+  -- regression can only ever touch a throwaway file.
+  local inside = assert(sys.mkdtemp(candidate .. "/ci/.sentinel.XXXXXX"))
+  local sentinel = inside .. "/sentinel.db"
+  assert(Fs.write(sentinel, "sentinel"))
   local before = Hash.hex_sha256((assert(Fs.read(sentinel))))
   local symlink_runner_temp = tmp .. "/symlink-runner-temp"
   assert(Fs.mkdirs(symlink_runner_temp .. "/cosmic-ci"))
@@ -461,6 +463,7 @@ local function test_driver_records_success_failures_timeout_and_interruption(tmp
   assert(not linked.ok, "symlink operation database was accepted")
   assert(Hash.hex_sha256((assert(Fs.read(sentinel)))) == before,
     "rejected symlink changed its target")
+  assert(Fs.remove_tree(inside))
 end
 
 -- `summarize` runs `if: always()`, including after a failed checkout or a

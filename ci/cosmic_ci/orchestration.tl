@@ -47,6 +47,7 @@ local record Orchestration
     verdicts?: string): {string:string}
   fixture_run: function(source: string, env: {string:string}, tmpdir: string,
     compiles: string): {string:string}
+  fixture_project: function(driver: string, work: string, group?: string): string
   forget_run: function(env: {string:string})
   suite_run: function(extra?: {string:string}): {string}, {string:string}
   suite_verdicts: function(env: {string:string}, name: string): string
@@ -602,16 +603,21 @@ local function copy_flat_tl_dir(source: string, destination: string)
   end
 end
 
---- The fixture project beneath `work`, made afresh: the shared one, or
+--- The fixture project beneath `work`, made afresh from the namespace of
+--- `driver` (cosmic_ci/driver.tl) and the fixtures beside it: the shared one, or
 --- where `group` is given (a fixture's source name) the group's own, so
---- groups running at once never remove one another's.
-local function fixture_project(c: Context, work: string, group?: string): string
+--- groups running at once never remove one another's. Its build
+--- directory goes with it ([`BuildPaths.driven`]): that is outside the
+--- project, named by its path, so the fixture before at the same path
+--- would otherwise leave its build and what [`place`] put there.
+function Orchestration.fixture_project(driver: string, work: string, group?: string): string
   local project = work .. "/fixture-project" .. (group and "-" .. group or "")
-  local driver_namespace = Fs.dirname(c.driver)
+  local driver_namespace = Fs.dirname(driver)
   local fixtures_source = Fs.dirname(driver_namespace) .. "/fixtures"
   assert(Fs.remove_tree(project))
   copy_flat_tl_dir(driver_namespace, project .. "/cosmic_ci")
   copy_flat_tl_dir(fixtures_source, project .. "/fixtures")
+  assert(Fs.remove_tree(BuildPaths.driven(project)))
   return project
 end
 
@@ -667,7 +673,7 @@ end
 --- `fixtures.db` beside the leg's `verdicts.db` ([`suite_verdicts`]),
 --- which ci.yml restores and saves with them, and stands on none another
 --- run reached where the leg's suites do not (`stands`). Its project is
---- made afresh each run ([`fixture_project`]), so what stands is only what
+--- made afresh each run ([`Orchestration.fixture_project`]), so what stands is only what
 --- the shared file holds, under a key that holds what the fixture
 --- declares it reads, the product's prefix among them.
 -- TODO: hand a merge-queue run's fixtures.db to the run behind it, as
@@ -702,17 +708,6 @@ end
 --- their own, made afresh for each run (COSMIC_FIXTURE_SHARED_COMPILES).
 function Orchestration.fixture(env: {string:string}, tmpdir: string,
                                compiles: string, verdicts?: string): {string:string}
-  -- The outer fixture runner is the pinned driver, whose requirement
-  -- table predates Unix socket creation. Candidate suites keep their list.
-  -- TODO: pass unix_socket to fixture runners once ci/cosmic-driver.pin names
-  -- a release whose build.host_names accepts unix_socket.
-  if env.COSMIC_TEST_PROMISES ~= nil then
-    local promised: {string} = {}
-    for _, name in ipairs(String.split(env.COSMIC_TEST_PROMISES, ",")) do
-      if name:match("^%s*(.-)%s*$") ~= "unix_socket" then promised[#promised + 1] = name end
-    end
-    env.COSMIC_TEST_PROMISES = table.concat(promised, ",")
-  end
   env.TMPDIR = tmpdir
   env.COSMIC_BUILD_CACHE = compiles
   if verdicts ~= nil then
@@ -804,7 +799,7 @@ local record Prepared
 end
 
 --- Makes the fixture `spec`'s project (a group's own where `group` is
---- given, [`fixture_project`]), places its inputs and its diagnostics
+--- given, [`Orchestration.fixture_project`]), places its inputs and its diagnostics
 --- directory, and says what to run: `jobs` workers where given, else the
 --- runner's default of one per processor.
 local function prepare_fixture(c: Context, work: string, spec: FixtureSpec,
@@ -813,7 +808,7 @@ local function prepare_fixture(c: Context, work: string, spec: FixtureSpec,
   assert(name:match("^[%w-]+$"), "invalid fixture test name")
   assert(source:match("^[%w_]+$"), "invalid fixture test source")
   if spec.setup then spec.setup() end
-  local project = fixture_project(c, work, group)
+  local project = Orchestration.fixture_project(c.driver, work, group)
   place(project, spec.placements or {})
   local diagnostics = work .. "/fixture-test-diagnostics/" .. name
   mkdir(diagnostics)
@@ -1478,6 +1473,7 @@ local function phase_assemble(p: PlatformContext): integer
   s = fixture_test(c, work, "format-contract", "format",
     format_test_timeout_ns, {
       COSMIC_FIXTURE_ROOT = root,
+      COSMIC_FIXTURE_BUILD = BuildPaths.directory(root),
       COSMIC_FIXTURE_FORMAT = contract .. "/format",
       COSMIC_FIXTURE_TARGET = target,
     })

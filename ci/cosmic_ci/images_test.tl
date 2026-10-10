@@ -204,7 +204,7 @@ local function test_missing_docker_fails(tmp: string)
 end
 
 --- driver.tl as a workflow step runs it, from a copy of this project:
---- the self-check holds `ci/o/build.db` while tests run (see
+--- the self-check holds `ci/`'s `build.db` while tests run (see
 --- orchestration_test.tl), so the driver never runs with `ci/` as root.
 local function driver(tmp: string, command: string,
                       env: {string:string}): Child.Result

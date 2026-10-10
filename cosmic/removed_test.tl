@@ -7,6 +7,7 @@ local coverage_hits = require("build.coverage_hits")
 --- ([`build.test_worker`]).
 local modules <const>: {string:any} = {
   ["cosmic.archive"] = require("cosmic.archive"),
+  ["cosmic.child"] = require("cosmic.child"),
   ["cosmic.cli"] = require("cosmic.cli"),
   ["cosmic.codec"] = require("cosmic.codec"),
   ["cosmic.csv"] = require("cosmic.csv"),

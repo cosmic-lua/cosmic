@@ -5,6 +5,7 @@ local Fs = require("cosmic.fs")
 local Local = require("run_local")
 local Hash = require("cosmic.hash")
 local Proc = require("cosmic.proc")
+local Signal = require("cosmic.signal")
 local Test = require("cosmic.test")
 local sys = require("cosmic.sys")
 
@@ -367,7 +368,7 @@ end
 
 local function test_cancelled_credential_probe_removes_its_runtime_grant(tmp: string)
   local root, env = checkout(tmp)
-  local outer <close> = assert(Child.guard())
+  local outer <close> = assert(Signal.guard())
   local user, run = Proc.user, Child.run
   local scratch = ""
   Proc.user = function(_name: string): Proc.User | nil, string

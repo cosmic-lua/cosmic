@@ -49,12 +49,11 @@ local function test_extra_output_is_refused(tmp: string)
   assert(not ok and tostring(why):find("did not print one path", 1, true), tostring(why))
 end
 
---- The running driver names where it builds a project: outside it, by a
---- driver that carries build/paths.tl, and in its o/ by one that does not.
+--- The running driver names where it builds a project: outside it.
 local function test_the_driver_names_where_it_builds_a_project(tmp: string)
   local project = tmp .. "/project"
   assert(Fs.mkdirs(project))
   local built = BuildPaths.driven(project)
   assert(built:sub(1, 1) == "/", built)
-  assert(built == project .. "/o" or not Fs.within(built, project), built)
+  assert(not Fs.within(built, project), built)
 end
