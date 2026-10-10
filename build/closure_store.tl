@@ -15,9 +15,9 @@
 --- writer's need not. What the writer writes reaches a store only
 --- through rows and orderings the address digests
 --- ([`closure_store.basis`]): each module's columns, the stored (deflated)
---- source's bytes among them, and each module's own imports, names
---- bound, docs, uses, catalog, examples and links in the order the
---- store takes them. The order across
+--- source's bytes among them, and each module's own imports, the
+--- edges the checker follows from it, names bound, docs, uses, catalog,
+--- examples and links in the order the store takes them. The order across
 --- modules is this module's (`closed`). So an edit to the writer -- a
 --- query of the projection, a table only the projection fills -- moves
 --- only the addresses of the stores whose rows it moves.
@@ -36,12 +36,13 @@ local record closure_store
   --- Each module is a line naming its path, kind, file, source hash and
   --- tests, then the digests of its bytecode, of its source as stored
   --- (deflated, by [`build.writer`]), and of the rows a store carries of
-  --- it: its imports, the names it binds, its docs, uses, catalog,
+  --- it: its imports, the edges the checker follows from it
+  --- (`decl_imports`), the names it binds, its docs, uses, catalog,
   --- examples and links (those it makes), each in the order the store
   --- takes them within the module (or file). Each declaration is a line
   --- naming its path and the digests of its source as stored, of its
-  --- docs, of its links and of the names it binds, and it records the
-  --- declarations it requires. A digest covers what
+  --- docs, of its links, of the names it binds and of its edges, and it
+  --- records the declarations it requires. A digest covers what
   --- every store holds alike: the `meta` rows it keeps (`closure_meta`).
   ---
   --- What the compiler made of a module is held by what it made, not by
@@ -158,12 +159,14 @@ function closure_store.basis(whole: string): closure_store.Basis | nil, string
     -- its path, or, for its examples, by its file.
     local carried: {{string:string}} = {}
     local by_file: {boolean} = {}
-    -- The links' and the names' digests, which a declaration's line
-    -- takes too.
+    -- The links', the names' and the edges' digests, which a
+    -- declaration's line takes too.
     local linked: {string:string} = {}
     local bound: {string:string} = {}
+    local edges: {string:string} = {}
     for _, group in ipairs({
         { "path", "requires", "imports", "requires" },
+        { "path", "requires", "decl_imports", "requires" },
         { "path", "name requires", "bound", "name" },
         { "module", "symbol source_symbol exported kind signature text file line", "docs", "id" },
         { "from_module", "module symbol from_file line", "uses", "module, symbol, line" },
@@ -179,6 +182,7 @@ function closure_store.basis(whole: string): closure_store.Basis | nil, string
       carried[#carried + 1] = digests
       if group[3] == "links" then linked = digests end
       if group[3] == "bound" then bound = digests end
+      if group[3] == "decl_imports" then edges = digests end
       by_file[#carried] = group[1] == "file"
     end
     local shared, shared_trouble = Sqlite.text_rows(db,
@@ -209,10 +213,11 @@ function closure_store.basis(whole: string): closure_store.Basis | nil, string
     for i, row in ipairs(names) do basis.pairable[i] = row[1] end
     for _, row in ipairs(decl_rows) do
       basis.decls[row[1]] = "decl " .. row[1] .. " " .. row[2] .. " " .. (declared[row[1]] or "") ..
-        " " .. (linked[row[1]] or "") .. " " .. (bound[row[1]] or "")
+        " " .. (linked[row[1]] or "") .. " " .. (bound[row[1]] or "") .. " " ..
+        (edges[row[1]] or "")
       basis.decl_requires[row[1]] = closure_store.required_by(row[3])
     end
-    basis.shared = Hash.hex_sha256("closure-store-6\n" .. shared[1][1])
+    basis.shared = Hash.hex_sha256("closure-store-7\n" .. shared[1][1])
     return basis, ""
   end
   local basis, read_trouble = read()
@@ -331,7 +336,10 @@ end
 --- edges among them, the names they bind, their docs, uses and links
 --- (those they make), catalog, and the examples of the example files
 --- among them; the declarations `temp.declared` names (`declared`), the
---- names they bind, their docs and links; and the `meta` rows `closure_meta` keeps. The zones, CA
+--- names they bind, their docs and links; and of both, every edge the
+--- checker follows (`decl_imports`), which [`build.compilation`] reads of
+--- a standard-library module on a sealed database ([`build.test`]'s
+--- `sealed_fill`); and the `meta` rows `closure_meta` keeps. The zones, CA
 --- roots, components and notices are left out: the core, [`cosmic.time`]
 --- and [`build.bom`] read those from the tool's own database alone.
 --- Each table's rows go in by what the address digests of them
@@ -351,6 +359,8 @@ local function closed(uses_from: string): {string}
       "WHERE path IN temp.wanted ORDER BY path",
     "INSERT INTO main.imports SELECT * FROM whole.imports " ..
       "WHERE path IN temp.wanted AND requires IN temp.wanted ORDER BY path, requires",
+    "INSERT INTO main.decl_imports SELECT * FROM whole.decl_imports " ..
+      "WHERE path IN temp.wanted OR path IN temp.declared ORDER BY path, requires",
     "INSERT INTO main.bound SELECT * FROM whole.bound " ..
       "WHERE path IN temp.wanted OR path IN temp.declared ORDER BY path, name",
     "INSERT INTO main.decls SELECT * FROM whole.decls WHERE path IN temp.declared " ..

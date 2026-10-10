@@ -288,6 +288,26 @@ local function test_seal_digest_ignores_tests_and_drops_dangling_edges(tmp: stri
   assert(before == after, "a test moved the digest")
 end
 
+--- A sealed module carries every edge the checker follows from it, as
+--- the database it came from holds them, an edge to a name left out
+--- among them: a compile of a project on the sealed database resolves
+--- the standard library by them ([`build.compilation`]).
+local function test_seal_carries_the_checkers_edges(tmp: string)
+  local path = tmp .. "/edges.db"
+  assert(Store.seal({ "cosmic.time" }, path))
+  local query = "SELECT requires FROM decl_imports WHERE path = 'cosmic.time' ORDER BY requires"
+  local databases = Store.databases()
+  local want = assert(Sqlite.text_rows(databases[#databases], query))
+  local sealed = assert(Sqlite.open(path))
+  local got = assert(Sqlite.text_rows(sealed, query))
+  assert(sealed:close())
+  assert(#want > 1, "cosmic.time requires nothing")
+  assert(#got == #want, "the sealed database holds " .. #got .. " edges, not " .. #want)
+  for index, row in ipairs(want) do
+    assert(got[index][1] == row[1], row[1])
+  end
+end
+
 --- The tables the core reads, as the build's own schema makes them.
 local function test_seal_schema_is_the_builds(tmp: string)
   local path = tmp .. "/schema.db"
@@ -300,7 +320,8 @@ local function test_seal_schema_is_the_builds(tmp: string)
     assert(reference:exec(statement))
   end
   local sealed = assert(Sqlite.open(path))
-  for _, name in ipairs({ "meta", "modules", "imports", "decls", "zoneinfo", "ca_roots" }) do
+  for _, name in ipairs({ "meta", "modules", "imports", "decl_imports", "decls", "zoneinfo",
+      "ca_roots" }) do
     local query = "SELECT name, type, \"notnull\", pk FROM pragma_table_info('" .. name .. "')"
     local want = assert(Sqlite.text_rows(reference, query))
     local got = assert(Sqlite.text_rows(sealed, query))

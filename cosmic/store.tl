@@ -317,8 +317,10 @@ local function copy_rows(from: Handle, into: Handle, table_name: string,
 end
 
 --- The tables of a program database, as the core reads them
---- (core/store.c): module rows, their requires, declaration sources
---- (empty here: only a type checker reads one), the zones and CA roots
+--- (core/store.c): module rows, their requires, every edge a type
+--- checker follows from each (which a compile of a project reads of a
+--- standard-library module it imports), declaration sources (empty here:
+--- only a type checker reads one), the zones and CA roots
 --- it falls back on, and what was decided at the writing. Their
 --- columns are build/schema.tl's, so a database written here and one
 --- written by the build answer the same queries.
@@ -331,6 +333,8 @@ local seal_schema: {string} = {
     kind TEXT NOT NULL, source_hash BLOB NOT NULL, key BLOB NOT NULL,
     bytecode BLOB NOT NULL, tests TEXT NOT NULL, source BLOB NOT NULL)]],
   [[CREATE TABLE imports (path TEXT NOT NULL, requires TEXT NOT NULL,
+    PRIMARY KEY (path, requires)) WITHOUT ROWID]],
+  [[CREATE TABLE decl_imports (path TEXT NOT NULL, requires TEXT NOT NULL,
     PRIMARY KEY (path, requires)) WITHOUT ROWID]],
   "CREATE TABLE decls (path TEXT PRIMARY KEY, source BLOB NOT NULL) WITHOUT ROWID",
   "CREATE TABLE zoneinfo (name TEXT PRIMARY KEY, data BLOB NOT NULL)",
@@ -379,6 +383,24 @@ local function write_database(names: {string}, file: string, main: string | nil,
             "FROM modules WHERE path = ?1", { text(name) })
         if not copied then
           return false, why
+        end
+        -- Every edge, within the set or not, as the database it came from
+        -- holds them: a compile that resolves the module follows each. A
+        -- database the core reads need not have the table (one attached
+        -- by hand), and gives none.
+        local has_edges, has_trouble = Sqlite.text_rows(source,
+          "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'decl_imports'")
+        if has_edges == nil then
+          return false, "decl_imports: " .. has_trouble
+        end
+        if #has_edges > 0 then
+          local edges_copied, edges_why = copy_rows(source, db, "decl_imports",
+            { "path", "requires" },
+            "SELECT path, requires FROM decl_imports WHERE path = ?1 ORDER BY requires",
+            { text(name) })
+          if not edges_copied then
+            return false, edges_why
+          end
         end
         -- Only edges within the set: one left out (by type alone) would
         -- dangle, and a closure of the sealed program would raise on it.

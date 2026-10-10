@@ -1573,7 +1573,8 @@ end
 
 --- The digest of the modules of the program's own database that the tree
 --- lacks -- the standard library, in a project's tree -- by path, source
---- hash and bytecode, which a sealed database carries whole
+--- hash, bytecode and the edges the checker follows from it
+--- (`decl_imports`), which a sealed database carries whole
 --- ([`sealed_fill`]) and so a key of a worker on one holds
 --- ([`declared_of`]). Worked out once a run needs it, from the program's
 --- own database, which sealing nothing reads; "unread" where it cannot be.
@@ -1581,7 +1582,9 @@ local function extras_digest(rec: Recording): string
   if rec.extras ~= nil then return rec.extras end
   local databases = Store.databases()
   local rows, _ = Sqlite.text_rows(databases[#databases],
-    "SELECT path, lower(hex(source_hash)), lower(hex(sha256(bytecode))) FROM modules ORDER BY path")
+    "SELECT path, lower(hex(source_hash)), lower(hex(sha256(bytecode))), " ..
+      "coalesce((SELECT group_concat(requires, ' ' ORDER BY requires) FROM decl_imports d " ..
+      "WHERE d.path = modules.path), '') FROM modules ORDER BY path")
   local digest = "unread"
   if rows ~= nil then
     local in_tree: {string:boolean} = {}
@@ -2167,6 +2170,8 @@ local sealed_schema <const>: {string} = {
     "bytecode BLOB NOT NULL, tests TEXT NOT NULL, source BLOB NOT NULL)",
   "CREATE TABLE imports (path TEXT NOT NULL, requires TEXT NOT NULL, " ..
     "PRIMARY KEY (path, requires)) WITHOUT ROWID",
+  "CREATE TABLE decl_imports (path TEXT NOT NULL, requires TEXT NOT NULL, " ..
+    "PRIMARY KEY (path, requires)) WITHOUT ROWID",
   "CREATE TABLE decls (path TEXT PRIMARY KEY, source BLOB NOT NULL) WITHOUT ROWID",
   "CREATE TABLE zoneinfo (name TEXT PRIMARY KEY, data BLOB NOT NULL)",
   "CREATE TABLE ca_roots (sha256 BLOB NOT NULL, label TEXT NOT NULL, der BLOB NOT NULL)",
@@ -2179,7 +2184,12 @@ local sealed_schema <const>: {string} = {
 --- and every module the tree lacks (the standard library, in a project's
 --- tree), which a worker's key holds by their digest ([`extras_digest`]).
 --- The key and the tests of a module are left empty (the compile's, and the
---- tree's own). The time zones and CA roots go only where the set holds the
+--- tree's own). Each module's and declaration's `decl_imports` rows, which
+--- [`build.compilation`] reads of a standard-library module a project's
+--- compile resolves, come from where its own row does: the closure's,
+--- which its store's digest holds, else the program's, which the key holds
+--- as it holds the module ([`extras_digest`], or `epoch` for what every
+--- worker loads). The time zones and CA roots go only where the set holds the
 --- module that reads them, as [`Store.seal`] does: they are most of a small
 --- database's bytes.
 -- TODO: carry only the standard library a closure requires, in a project's
@@ -2202,6 +2212,11 @@ local sealed_fill <const>: {string} = {
     "(SELECT path FROM main.modules) ORDER BY path, requires",
   "INSERT OR IGNORE INTO main.imports SELECT path, requires FROM program.imports " ..
     "WHERE path IN temp.extra AND requires IN (SELECT path FROM main.modules) " ..
+    "ORDER BY path, requires",
+  "INSERT INTO main.decl_imports SELECT path, requires FROM closure.decl_imports " ..
+    "ORDER BY path, requires",
+  "INSERT INTO main.decl_imports SELECT path, requires FROM program.decl_imports " ..
+    "WHERE path IN temp.extra AND path NOT IN (SELECT path FROM closure.decl_imports) " ..
     "ORDER BY path, requires",
   "INSERT INTO main.zoneinfo SELECT name, data FROM program.zoneinfo WHERE EXISTS " ..
     "(SELECT 1 FROM main.modules WHERE path = 'cosmic.time') ORDER BY name",

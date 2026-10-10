@@ -77,7 +77,7 @@ local record harness_epoch
   library: {string:string}
 end
 
-harness_epoch.epoch = "42-2ae6c1bc" -- on a conflict keep neither side: set it to the bare count and run build/harness_epoch_test.tl, which prints a fresh value
+harness_epoch.epoch = "43-70386030" -- on a conflict keep neither side: set it to the bare count and run build/harness_epoch_test.tl, which prints a fresh value
 harness_epoch.acknowledged = {
 
   ["build.artifact"] = "4405196f6511a21a7493aa3d1ee196c6318d3ceec2e0202800494c46b9502745",
@@ -108,7 +108,7 @@ harness_epoch.acknowledged = {
 
   ["build.launcher"] = "1bddaa2b691f6aa90da3256d045fc69f38d12c935e981a231841d94c2157b224",
 
-  ["build.paths"] = "e3c27ab207eb7261d27d8f54715762578bf2a8a78c586702e09c078f3e2ef2d9",
+  ["build.paths"] = "7d1eeb094b7166108497e95a1ed2a9310bce3b5f5543ff012c0d11768290ad32",
 
   ["build.plural"] = "08b0e817376c03fe90737c8bb26d6ae1400dadd9d61b23d00c1b0f1051ad8771",
 
@@ -116,7 +116,7 @@ harness_epoch.acknowledged = {
 
   ["build.shared_verdicts"] = "6d1d88c6e192f0eeac3ad9cef9b57849ebae57eb143bb53df1a28331424eb40c",
 
-  ["build.test"] = "d909010e4b2d3f5a8441dbb2f9ae6d1808322cb4b49b3b26136d46dcf115d598",
+  ["build.test"] = "83e68c1f0aa91e05713e4b42476e35991e5d55fd54938a82d02632922f1865da",
 
   ["build.test_inputs"] = "07aeccfae8932518092f6477bda7d19b9df00dfc07866fc7b0c1f36510107b4a",
 
@@ -239,6 +239,7 @@ harness_epoch.retired = {
   "c7eacb64",
   "aabf64e1",
   "9ee7da50",
+  "2ae6c1bc",
 }
 
 return harness_epoch
