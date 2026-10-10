@@ -53,6 +53,9 @@ local record Grade
   empty: string
   steps: integer
   failed: boolean
+  --- The environment the grader was given, which its `cosmic test`
+  --- steps pass on through [`Grader.unsandboxed`].
+  env: {string:string}
   --- How long one run of the executable may take.
   timeout_ns: integer
   --- Whether each run's stdin is /dev/null rather than this process's.
@@ -217,7 +220,7 @@ local function step(g: Grade, label: string, work: function(out: integer): boole
 end
 
 --- `env` (the caller's) for a `cosmic test` step: its workers run
---- unsandboxed, whatever `env` asks, exactly as the solver's did.
+--- unsandboxed, whatever `env` asks, as the solver's do.
 --- The solver is uid 0 of a user namespace with no capabilities
 --- (eval/solve.tl), where cosmic cannot sandbox a worker and runs it
 --- unsandboxed, so a test that reached for the network or a socket file
@@ -401,7 +404,7 @@ local function hidden_api(g: Grade, cosmic: string, project: string, test: strin
     -- the copy; no shared cache keeps the test's compile or verdict
     -- where a solver run by hand, with this HOME, could read it. A test
     -- that hangs is cut short well within the grading's own budget.
-    local env = Grader.unsandboxed(Env.all())
+    local env = Grader.unsandboxed(g.env)
     env.TMPDIR = scratch .. "/tmp"
     env.COSMIC_BUILD_CACHE = "0"
     env.COSMIC_VERDICT_CACHE = "0"
@@ -2124,8 +2127,10 @@ end
 
 --- Grades the arena at `dir` for the task `name`, with the hidden API
 --- tests in `testdata`, printing a line per check and PASS or FAIL
---- last; 0 when everything passed.
-function Grader.grade(name: string, dir: string, testdata: string): integer
+--- last; 0 when everything passed. `env` is the grader's environment
+--- (this process's by default).
+function Grader.grade(name: string, dir: string, testdata: string,
+                      env?: {string:string}): integer
   local task = assert(TASKS[name], name)
   local project = dir .. "/project"
   local cosmic = dir .. "/bin/cosmic"
@@ -2138,7 +2143,7 @@ function Grader.grade(name: string, dir: string, testdata: string): integer
   end
   local built = Grader.build_directory(cosmic, project)
   local g: Grade = { dir = dir, name = name, exe = built .. "/bin/" .. name,
-    empty = dir .. "/empty", steps = 0, failed = false,
+    empty = dir .. "/empty", steps = 0, failed = false, env = env or Env.all(),
     timeout_ns = Clock.seconds(task.timeout), null_stdin = task.null_stdin, own_group = task.own_group }
   local set_aside = put_back_journal(g, project)
   local kept, why = Grader.journal(project .. "/JOURNAL.md")
@@ -2154,7 +2159,7 @@ function Grader.grade(name: string, dir: string, testdata: string): integer
     end
     return reset
   end)
-  command_step(g, { cosmic, "test" }, project, Grader.unsandboxed(Env.all()))
+  command_step(g, { cosmic, "test" }, project, Grader.unsandboxed(g.env))
   step(g, "evidence check " .. db, function(out: integer): boolean
     local evidence, trouble = Grader.evidence(db)
     if evidence == nil then

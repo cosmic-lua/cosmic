@@ -125,8 +125,8 @@ directory (`/mnt/skills`, `/home/claude/.claude/skills`), other arena or
 user config is there to read. Its environment is the proxy variables,
 the CA bundle variables, any Anthropic credential or endpoint variable
 the host sets, and its own PATH (the arena's `bin/` first), `HOME`,
-`CLAUDE_CONFIG_DIR`, `TMPDIR` and `COSMIC_TEST_SANDBOX=0`, and nothing else: the variables a
-cloud session sets that bring the checkout's instructions or a synced
+`CLAUDE_CONFIG_DIR`, `TMPDIR` and `COSMIC_TEST_SANDBOX=0`, and nothing
+else: the variables a cloud session sets that bring the checkout's instructions or a synced
 skill back in (`CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD`,
 `CLAUDE_ADDITIONAL_DIRECTORIES`, `CLAUDE_CODE_SYNC_SKILLS`) are never
 passed. It does not isolate the network: the solver reaches the API
@@ -299,14 +299,15 @@ modules only. For each task it
    in it, as the journal contract asks -- what it says is the
    reader's to judge, not the grader's;
 2. clears the runs `project/o/build.db` records, runs the arena's own
-   `bin/cosmic test` (workers unsandboxed, as for step 4), and requires a passing test and a passing example
-   (or doctest) among the runs that test recorded;
+   `bin/cosmic test` (workers unsandboxed, as for step 4), and requires
+   a passing test and a passing example (or doctest) among the runs
+   that test recorded;
 3. runs `cosmic fix --check` with `JOURNAL.md` set aside;
 4. for a task that names a library API, copies the project, but for
    its `o/`, into a temporary directory, adds the task's hidden test,
    [`eval/check/testdata/<task>_api_test.tl`](check/testdata), and runs
-   `cosmic test` on that file alone there (unsandboxed, as step 2): each test that fails, or
-   each line the compiler refuses (a module, type or method missing, a
+   `cosmic test` on that file alone there (unsandboxed, as step 2):
+   each test that fails, or each line the compiler refuses (a module, type or method missing, a
    type that does not fit), is a `check: FAIL hidden api: ...` line.
    The solver never sees the test, the project never holds it, and
    the copy is removed afterward; its output is kept as a

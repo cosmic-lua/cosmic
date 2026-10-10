@@ -32,16 +32,20 @@ end
 
 local function test_no_hidden_test_listens_on_a_socket_file()
   for name, text in pairs(sources()) do
-    assert(not text:find("Net.unix", 1, true), name .. " uses Net.unix: use loopback TCP and declare it")
+    assert(not text:find("%.unix%("), name .. " names a unix socket: use loopback TCP and declare it")
   end
 end
 
-local function test_a_hidden_test_that_uses_the_network_or_children_declares_a_policy()
+--- The modules that reach the network or start a process.
+local reaching = { "net", "http", "child", "proc", "sandbox", "sys" }
+
+local function test_a_hidden_test_that_reaches_the_network_or_children_declares_a_policy()
   for name, text in pairs(sources()) do
-    local reaches = text:find("%f[%w]Net%.") or text:find("%f[%w]Child%.")
-    if reaches then
-      assert(text:find("\nTest.policy", 1, true) or text:sub(1, 11) == "Test.policy",
-        name .. " uses Net or Child without a top-level Test.policy")
+    for _, module in ipairs(reaching) do
+      if text:find('require%("cosmic%.' .. module .. '"%)') then
+        assert(text:find("\nTest.policy", 1, true) or text:sub(1, 11) == "Test.policy",
+          name .. " requires cosmic." .. module .. " without a top-level Test.policy")
+      end
     end
   end
 end
