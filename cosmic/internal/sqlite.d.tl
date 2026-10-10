@@ -156,7 +156,7 @@ local record sqlite
   open: function(path: string, writable?: boolean, immutable?: boolean, create?: boolean): Handle | nil, string
   --- A captured open outcome. Invalid path/options raise.
   open_result: function(path: string, writable?: boolean, immutable?: boolean, create?: boolean): OpenResult
-  --- The SQLite library's version, such as "3.53.4".
+  --- The SQLite library's version, such as "3.54.0".
   version: string
 end
 
