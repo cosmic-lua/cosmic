@@ -334,18 +334,48 @@ function tree_checks.exports(db: Sqlite.Handle, excused?: {string: string}): {st
   return out
 end
 
---- Whether `source` makes the type `name` a member of its module's
---- returned record: `type Name = ...` or a nested declaration in it, or an
---- assignment to the returned table.
-local function member_type(source: string, name: string): boolean
-  for line in source:gmatch("[^\n]+") do
-    if line:find("^%s+type " .. name .. "%f[^%w_]") ~= nil or
+--- The name of the record `source` returns, or nil for none: the returned
+--- name is the record itself (`return Child`), a record declared beside it
+--- (`local module: Module`) or its capitalized form (`return module`).
+local function returned_record(source: string): string | nil
+  local returned = source:match("\nreturn ([%w_]+)%s*$")
+  if returned == nil then return nil end
+  local record = source:match("\nlocal " .. returned .. "%s*:%s*([%w_]+)")
+  if record == nil then
+    if source:find("\nlocal record " .. returned .. "%f[^%w_]") ~= nil then
+      record = returned
+    else
+      record = returned:sub(1, 1):upper() .. returned:sub(2)
+    end
+  end
+  return record
+end
+
+--- The text of the declaration of the record `record` in `source`, or nil
+--- where it is not declared there.
+local function record_body(source: string, record: string): string | nil
+  local from = source:find("\nlocal record " .. record .. "%f[^%w_]")
+  if from == nil then return nil end
+  local to = source:find("\nend\n", from, true)
+  return source:sub(from, to or #source)
+end
+
+--- Whether the returned record `record` (with `body`, its text) has the
+--- type `name` as a member: `type Any = Name` or a nested declaration in
+--- its body, or an assignment `record.Name = ...` beside it. Where the body
+--- cannot be found the whole of `source` stands in for it.
+local function member_type(source: string, record: string | nil, body: string | nil,
+                           name: string): boolean
+  for line in (body or source):gmatch("[^\n]+") do
+    if line:find("^%s+type [%w_]+%s*=%s*" .. name .. "%f[^%w_]") ~= nil or
         line:find("^%s+record " .. name .. "%f[^%w_]") ~= nil or
         line:find("^%s+enum " .. name .. "%f[^%w_]") ~= nil or
-        line:find("^%s+interface " .. name .. "%f[^%w_]") ~= nil or
-        line:find("^%w+%." .. name .. "%s*=") ~= nil then
+        line:find("^%s+interface " .. name .. "%f[^%w_]") ~= nil then
       return true
     end
+  end
+  if record ~= nil then
+    return source:find("\n" .. record .. "%." .. name .. "%s*=") ~= nil
   end
   return false
 end
@@ -357,15 +387,20 @@ end
 --- the module declares `local` and its record does not re-export is
 --- listed by `cosmic docs` and named in a type error, but [`Child.Stdout`]
 --- is "unknown type". The types reached are those of the module's own
---- top level (a record, enum, interface or type) that a signature of a
---- member of the returned record names, and then those that a member of
---- such a type names, whatever the member's kind. The returned record
---- itself is no member of itself, and a module with no returned record
---- of its own (`cosmic/internal/`) is not asked.
+--- top level (a record, enum, interface or type) that a signature of an
+--- exported member names, and then those that a member of such a type
+--- names, a method declared outside its record included and a member
+--- whose name starts with `_` (private by convention) left out. The returned
+--- record itself is no member of itself, and `cosmic/internal/` is not
+--- asked.
+---
+--- A member is found by text, not by resolving the name: `type Any = Name`
+--- in the returned record's body, a nested declaration there, or
+--- `Record.Name = ...`.
 function tree_checks.unnamed_types(db: Sqlite.Handle): {string}
   local rows, trouble = Sqlite.text_rows(db,
-    "SELECT d.module, d.symbol, d.kind, d.signature, d.file, d.line " ..
-      "FROM docs d WHERE d.exported = 1 AND d.file GLOB 'cosmic/*.tl' " ..
+    "SELECT d.module, d.symbol, d.kind, d.signature, d.file, d.line, d.exported " ..
+      "FROM docs d WHERE d.file GLOB 'cosmic/*.tl' " ..
       "AND d.file NOT GLOB 'cosmic/internal/*' AND d.file NOT GLOB '*_test.tl' " ..
       "AND d.file NOT GLOB '*.d.tl' ORDER BY d.module, d.line")
   if rows == nil then
@@ -391,36 +426,28 @@ function tree_checks.unnamed_types(db: Sqlite.Handle): {string}
   for _, module in ipairs(order) do
     local members = by_module[module]
     local source = text[module] or ""
-    local returned = source:match("\nreturn ([%w_]+)%s*$")
+    local record = returned_record(source)
+    local body = record ~= nil and record_body(source, record) or nil
     local tops: {string:{string}} = {}
     for _, row in ipairs(members) do
-      if row[2] ~= "" and not row[2]:find(".", 1, true) and
+      if row[2] ~= "" and not row[2]:find("[.:]") and row[2] ~= record and
           (row[3] == "record" or row[3] == "enum" or row[3] == "interface" or
               row[3] == "type") then
         tops[row[2]] = row
       end
     end
-    if returned ~= nil then
-      -- The returned table is the record, or a value of the record
-      -- declared beside it (`local module: Module`).
-      tops[returned] = nil
-      tops[returned:sub(1, 1):upper() .. returned:sub(2)] = nil
-      local declared = source:match("\nlocal " .. returned .. "%s*:%s*([%w_]+)")
-      if declared ~= nil then tops[declared] = nil end
-    end
     local reached: {string:boolean} = {}
     local pending: {string} = {}
     local function names_in(signature: string)
       for name in pairs(tops) do
-        if not reached[name] and signature:find("%f[%w_.]" .. name .. "%f[^%w_]") ~= nil and
-            not signature:find("%." .. name .. "%f[^%w_]") then
+        if not reached[name] and signature:find("%f[%w_.]" .. name .. "%f[^%w_]") ~= nil then
           reached[name] = true
           pending[#pending + 1] = name
         end
       end
     end
     for _, row in ipairs(members) do
-      if row[2] ~= "" and not row[2]:find(".", 1, true) and
+      if row[7] == "1" and row[2] ~= "" and not row[2]:find("[.:]") and
           (row[3] == "function" or row[3] == "method" or row[3] == "field" or
               row[3] == "value") then
         names_in(row[4])
@@ -430,19 +457,25 @@ function tree_checks.unnamed_types(db: Sqlite.Handle): {string}
       local name = pending[#pending]
       pending[#pending] = nil
       for _, row in ipairs(members) do
-        if row[2]:sub(1, #name + 1) == name .. "." then names_in(row[4]) end
+        local head = row[2]:sub(1, #name + 1)
+        if (head == name .. "." or head == name .. ":") and
+            row[2]:sub(#name + 2, #name + 2) ~= "_" and
+            (row[3] == "function" or row[3] == "method" or row[3] == "field") then
+          names_in(row[4])
+        end
       end
     end
     local unnamed: {string} = {}
     for name in pairs(reached) do
-      if not member_type(source, name) then unnamed[#unnamed + 1] = name end
+      if not member_type(source, record, body, name) then unnamed[#unnamed + 1] = name end
     end
     table.sort(unnamed)
     for _, name in ipairs(unnamed) do
       local row = tops[name]
+      local owner = record or module:match("[^.]+$")
       out[#out + 1] = row[5] .. ":" .. row[6] .. ": " .. module .. ": " .. name ..
         " is named by the API but is no member of the module: add `type " .. name .. " = " ..
-        name .. "` to its record, so a caller can write " .. module:match("[^.]+$") .. "." .. name
+        name .. "` to " .. owner .. ", so a caller can write " .. owner .. "." .. name
     end
   end
   return out
