@@ -75,6 +75,9 @@ local record test_inputs
     --- then.
     caches: {string}
     cache_paths: {string}
+    --- The files of the project root's parent directory declared
+    --- ([`cosmic.test`]'s `parent`), by their relative paths.
+    parent: {string}
     --- Once `resolve` has run: why a `host` path cannot be given, ""
     --- when every one can.
     unresolved: string
@@ -269,7 +272,7 @@ function test_inputs.effective(m: Module, by_path: {string:Module},
     files = {}, reads = {}, host = {}, env = {}, network = {},
     tool = false, lua = false, nests = false, noexec = false, noexec_ready = false,
     noexec_trouble = "", store = false,
-    system = false, caches = {},
+    system = false, caches = {}, parent = {},
     cache_paths = {}, unresolved = "",
   }
   local files, fuzzes = closure(m, by_path, declarations, type_only)
@@ -289,6 +292,7 @@ function test_inputs.effective(m: Module, by_path: {string:Module},
     out.nests = declared.nests == true
     out.noexec = declared.noexec == true
     out.system = declared.system == true
+    for _, relative in ipairs(declared.parent or {}) do out.parent[#out.parent + 1] = relative end
     -- A cache is declared with the variables that locate it.
     for _, name in ipairs(declared.caches or {}) do
       out.caches[#out.caches + 1] = name
@@ -353,6 +357,16 @@ function test_inputs.resolved(declared: string, roots: {string}): string | nil, 
   return path, ""
 end
 
+--- The directory above the project whose root is `root`, where the files a
+--- `/parent/` grant names are: the root's real path less its last name.
+function test_inputs.parent_directory(root: string): string
+  local real = confine.resolution(root)
+  if real == "" then real = root end
+  local above = real:match("^(.*)/[^/]+/*$")
+  if above == nil or above == "" then return "/" end
+  return above
+end
+
 --- Resolves each `host` path of `effective` (`resolved`), and leaves in
 --- `unresolved` why one cannot be given: see `resolved`, whose `roots`
 --- this takes, or it is a directory, but for /proc, which
@@ -381,6 +395,17 @@ function test_inputs.resolve(effective: test_inputs.Effective, roots: {string})
     end
   end
   effective.host = host
+  -- Each file above the project must be there, and a file: a test that
+  -- reads one the host lacks fails with this, not with its own error.
+  local above = #(effective.parent or {}) > 0 and test_inputs.parent_directory(roots[1] or "") or ""
+  for _, relative in ipairs(effective.parent or {}) do
+    local st, _ = sys.stat(above .. "/" .. relative)
+    if effective.unresolved == "" and (st == nil or st.kind ~= "file") then
+      effective.unresolved = string.format("Test.policy grant of /parent/%s: %s/%s is %s; a " ..
+          "grant of /parent/ names a file of the directory above the project root",
+        relative, above, relative, st == nil and "not there" or "not a file")
+    end
+  end
 end
 
 --- One declaration as text two can be compared by, and one text for
@@ -408,6 +433,7 @@ function test_inputs.canonical(maybe: analyzer.Declared | nil): string
   if declared.store then lines[#lines + 1] = "store true" end
   if declared.system then lines[#lines + 1] = "system true" end
   list("caches", declared.caches or {})
+  list("parent", declared.parent or {})
   list("requires", declared.requires or {})
   return table.concat(lines, "\n")
 end
@@ -422,7 +448,7 @@ function test_inputs.as_declared(needs: inputs.Needs | nil): analyzer.Declared |
     nests = needs.nests == true,
     noexec = needs.noexec == true,
     store = needs.store == true, system = needs.system == true,
-    caches = needs.caches or {}, requires = needs.requires or {} }
+    caches = needs.caches or {}, parent = needs.parent or {}, requires = needs.requires or {} }
 end
 
 return test_inputs
