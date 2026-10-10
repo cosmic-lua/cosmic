@@ -2,7 +2,7 @@
 --- no HTTP/2 and no compressed transfer-encoding.
 ---
 ---     local got = assert(Http.get("https://example.com/"))
----     print(got.status, got.body)
+---     if got.status // 100 ~= 2 then error("HTTP " .. got.status .. ": " .. got.body) end
 ---     local put = assert(Http.request("PUT", "https://example.com/item",
 ---       { headers = { ["Content-Type"] = "text/plain" }, body = "new" }))
 ---     local ok, trouble = Http.download(

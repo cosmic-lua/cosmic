@@ -108,7 +108,7 @@ harness_epoch.acknowledged = {
 
   ["build.launcher"] = "1bddaa2b691f6aa90da3256d045fc69f38d12c935e981a231841d94c2157b224",
 
-  ["build.paths"] = "783e2370060c153d7a5ac66075cccc17ab471cc09b7c57b0ce8813c4df23657e",
+  ["build.paths"] = "02232811d7a8e2b9e709f3a28371a51a41a48ac7de041e7caef77dd8b3b0e763",
 
   ["build.plural"] = "08b0e817376c03fe90737c8bb26d6ae1400dadd9d61b23d00c1b0f1051ad8771",
 
@@ -116,7 +116,7 @@ harness_epoch.acknowledged = {
 
   ["build.shared_verdicts"] = "6d1d88c6e192f0eeac3ad9cef9b57849ebae57eb143bb53df1a28331424eb40c",
 
-  ["build.test"] = "83e68c1f0aa91e05713e4b42476e35991e5d55fd54938a82d02632922f1865da",
+  ["build.test"] = "bf17e024322398fed0b425d62b0c1f96c97cdf71e426cb5bd4f5c3a5d7f10ea3",
 
   ["build.test_inputs"] = "07aeccfae8932518092f6477bda7d19b9df00dfc07866fc7b0c1f36510107b4a",
 
@@ -145,6 +145,8 @@ harness_epoch.acknowledged = {
   ["cosmic.hash"] = "4b3d1c4c29f5c3d9dce83cade96f8a5314232a6da36fa0ef80ba4c7991aa69c6",
 
   ["cosmic.proc"] = "1f2f124e7478daaf5955a2043d03a379d8dbc657ffe938ac71d221376f677bcf",
+
+  ["cosmic.project"] = "ac898dd16fd051e08c47be1dea7b86c8ea4159517e6fde765162a9f7d6678364",
 
   ["cosmic.sandbox"] = "2bf478a77edffb4154f011535dc1e95f08259f8aff369ca675858cddf6f9eb63",
 
@@ -176,6 +178,8 @@ harness_epoch.library = {
     "not declare `tool` is held from running; and finds a program a module requires " ..
     "of the host (`find`) and whether a portable artifact can start again " ..
     "(`relaunch`) for `build.host_requires`",
+  ["cosmic.project"] = "`build.paths` asks its `directory` where a project's build " ..
+    "directory is, where the worker finds its tree's and builds its own",
   ["cosmic.sandbox"] = "`merge` resolves a policy's profiles into the grants a worker " ..
     "is held to (`build.test_policy`'s `runs`); held alone, what it requires is not walked",
   ["cosmic.sandbox.policy"] = "the policy layer cosmic.sandbox answers under its own " ..

@@ -361,8 +361,9 @@ local function test_sql_never_stages_the_tree(tmp: string)
     assert(not under, "sql listed " .. path)
   end
   assert(Fs.read(build_dir(tmp) .. "/build.db") == garbage)
+  -- `used` is the record of use that build_dir's own `prepare` made.
   local names = assert(Fs.list(build_dir(tmp)))
-  assert(#names == 1, table.concat(names, " "))
+  assert(table.concat(names, " ") == "build.db used", table.concat(names, " "))
 end
 
 --- `db` counts the closures' stores under o/stores, and not the store of

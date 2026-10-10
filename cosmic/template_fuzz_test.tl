@@ -96,6 +96,10 @@ local function gen_nodes(src: Fuzz.Source, depth: integer, out: {string}, kit: K
     elseif kind == 8 then
       out[#out + 1] = "{{range .l}}"
       gen_nodes(src, depth + 1, out, kit)
+      if src:int(0, 1) == 0 then
+        out[#out + 1] = "{{else}}"
+        gen_nodes(src, depth + 1, out, kit)
+      end
       out[#out + 1] = "{{end}}"
     else
       out[#out + 1] = "{{with .w}}"
@@ -269,9 +273,10 @@ local function test_literal_text_is_rendered_byte_for_byte(tmp: string)
       if body:find('["\\\\]') then Fuzz.label("quote") end
       if body:find("[%c]") then Fuzz.label("control") end
       if body:find("[\128-\255]") then Fuzz.label("high byte") end
-      -- What Teal strikes out to leave Lua: the annotations, in the one
-      -- shape a template with no action has.
-      local lua = out:gsub("%(_: t%.T%): [%w%.]+", "()"):gsub("local parts: {string}", "local parts")
+      -- What Teal strikes out to leave Lua: the type require and the
+      -- annotations, in the one shape a template with no action has.
+      local lua = out:gsub("^local type t = require%b() ", "")
+      lua = lua:gsub("%(_: t%.T%): [%w%.]+", "()"):gsub("local parts: {string}", "local parts")
       local env: {string: any} = {
         require = function(name: string): any
           if name == "cosmic.html" then
@@ -445,9 +450,10 @@ local function gen_sound(src: Fuzz.Source): string
       first = Fuzz.pick(src, of)
     end
     local wrap = src:int(0, 5)
-    if wrap == 1 then
+    if wrap == 1 or wrap == 4 then
       local second = Fuzz.pick(src, pool)
-      body[#body + 1] = "{{if .a}}" .. first[1] .. "{{else}}" .. second[1] .. "{{end}}"
+      local open = wrap == 1 and "{{if .a}}" or "{{range .l}}"
+      body[#body + 1] = open .. first[1] .. "{{else}}" .. second[1] .. "{{end}}"
       kinds[#kinds + 1] = first[2] .. second[2]
     else
       local open = wrap == 2 and "{{range .l}}" or wrap == 3 and "{{with .w}}" or ""
@@ -496,9 +502,11 @@ local STAND_IN <const>: {string: function} = {
 }
 
 --- The generated source with Teal's types struck out, in the shapes the
---- generator writes, to run as Lua.
+--- generator writes, to run as Lua. Those templates have no stage, so
+--- `_one` and its `<T>` are never there to strike.
 local function lua_of(source: string): string
-  local lua = source:gsub("%(([%a_][%w_]*): [^()]-%)", "(%1)")
+  local lua = source:gsub("local type [%w_]+ = require%b() ", "")
+  lua = lua:gsub("%(([%a_][%w_]*): [^()]-%)", "(%1)")
   lua = lua:gsub("%): [%w%.]+ ", ") ")
   lua = lua:gsub("local v: [^=]+= ", "local v = ")
   lua = lua:gsub("local parts: {string} = {}", "local parts = {}")
@@ -570,39 +578,42 @@ local function test_a_value_cannot_get_out_of_where_a_slot_puts_it(tmp: string)
         end
         return payload
       end })
-      local ok, made = pcall(loaded.render, { a = payload, l = { each, each }, w = each })
-      if not ok then
-        return false, "render raised: " .. tostring(made) .. "\n" .. lua_of(source)
-      end
-      local out = made.s
-      for piece in out:gmatch("\1([^\2]*)\2") do
-        Fuzz.label("text")
-        if piece:find("[<>\"']") then
-          return false, "markup character in escaped text: " .. piece
+      -- A list of two runs each range's body; an empty one, its else.
+      for _, list in ipairs({ { each, each }, {} } as {{any}}) do
+        local ok, made = pcall(loaded.render, { a = payload, l = list, w = each })
+        if not ok then
+          return false, "render raised: " .. tostring(made) .. "\n" .. lua_of(source)
         end
-      end
-      for piece in out:gmatch("\3([^\4]*)\4") do
-        Fuzz.label("attr")
-        if piece:gsub("&#%d+;", ""):find("[^%w\128-\255]") then
-          return false, "a byte that can end a value in: " .. piece
+        local out = made.s
+        for piece in out:gmatch("\1([^\2]*)\2") do
+          Fuzz.label("text")
+          if piece:find("[<>\"']") then
+            return false, "markup character in escaped text: " .. piece
+          end
         end
-      end
-      if out:find("\3&#5;", 1, true) then
-        Fuzz.label("url")
-        if out:find("\3&#5;javascript", 1, true) then
-          return false, "a URL slot began with the script scheme"
+        for piece in out:gmatch("\3([^\4]*)\4") do
+          Fuzz.label("attr")
+          if piece:gsub("&#%d+;", ""):find("[^%w\128-\255]") then
+            return false, "a byte that can end a value in: " .. piece
+          end
         end
-      end
-      -- Whatever a URL slot is given, the value the browser assembles from
-      -- it and the literal text after it (entities decoded, the bytes a URL
-      -- parser drops removed) is not protocol-relative, which `href` refuses.
-      for value, after in out:gmatch("\3&#5;([^\4]*)\4([^\"']*)") do
-        Fuzz.label("assembled url")
-        local url = (value .. after):gsub("&#(%d+);", function(n: string): string
-          return string.char(tonumber(n) as integer % 256)
-        end):gsub("[\t\n\r]", "")
-        if url:find("^[/\\][/\\]") then
-          return false, "an assembled URL is protocol-relative: " .. url
+        if out:find("\3&#5;", 1, true) then
+          Fuzz.label("url")
+          if out:find("\3&#5;javascript", 1, true) then
+            return false, "a URL slot began with the script scheme"
+          end
+        end
+        -- Whatever a URL slot is given, the value the browser assembles from
+        -- it and the literal text after it (entities decoded, the bytes a URL
+        -- parser drops removed) is not protocol-relative, which `href` refuses.
+        for value, after in out:gmatch("\3&#5;([^\4]*)\4([^\"']*)") do
+          Fuzz.label("assembled url")
+          local url = (value .. after):gsub("&#(%d+);", function(n: string): string
+            return string.char(tonumber(n) as integer % 256)
+          end):gsub("[\t\n\r]", "")
+          if url:find("^[/\\][/\\]") then
+            return false, "an assembled URL is protocol-relative: " .. url
+          end
         end
       end
       if body:find("{{range", 1, true) or body:find("{{if", 1, true) or body:find("{{with", 1, true) then

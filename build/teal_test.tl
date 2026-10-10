@@ -910,3 +910,38 @@ local function test_a_module_type_is_told_to_nest_inside_the_record()
   assert(teal.replacement("unknown type Http.Address", 'local Http = require("cosmic.http")\n',
     1, 1) == nil)
 end
+
+--- What [`teal.replacement`] says of the first syntax error in `source`.
+local function syntax_hint(source: string): string | nil
+  local built = assert(teal.load(true))
+  local _, result = built.gen(source, nil, nil, "tl")
+  local e = assert(assert(result).syntax_errors[1], source)
+  assert(e.msg == "syntax error, expected one of: ')', ','", e.msg)
+  return teal.replacement(e.msg, source, e.y, e.x)
+end
+
+--- A vararg given a name is refused by the parser with only its list of
+--- expected tokens; the hint says a vararg takes none.
+local function test_a_named_vararg_is_told_it_takes_no_name()
+  local hint = syntax_hint("local function f(...names: string) end\n")
+  assert(hint ~= nil and hint:find("write `...: string`", 1, true) ~= nil, tostring(hint))
+  hint = syntax_hint("local M = {}\nfunction M.f(a: integer, ...rest: string) end\n")
+  assert(hint ~= nil and hint:find("write `...: string`", 1, true) ~= nil, tostring(hint))
+  hint = syntax_hint("local function f(... rest: {string}) end\n")
+  assert(hint ~= nil and hint:find("write `...: {string}`", 1, true) ~= nil, tostring(hint))
+  hint = syntax_hint("local function f(...rest?: string | nil, b: integer) end\n")
+  assert(hint ~= nil and hint:find("write `...: string | nil`", 1, true) ~= nil, tostring(hint))
+  hint = syntax_hint("local function f(...names: function(string): string) end\n")
+  assert(hint ~= nil and hint:find("write `...: function(string): string`", 1, true) ~= nil,
+    tostring(hint))
+  hint = syntax_hint("local f = function<T>(...names: Map<T>) end\n")
+  assert(hint ~= nil and hint:find("write `...: Map<T>`", 1, true) ~= nil, tostring(hint))
+end
+
+--- Other `expected one of: ')', ','` errors are not about a vararg.
+local function test_other_missing_comma_errors_get_no_vararg_hint()
+  assert(syntax_hint("local function f(a b) end\n") == nil)
+  assert(syntax_hint("f(a b)\n") == nil)
+  assert(syntax_hint("local function g(...: string) print(... x) end\n") == nil)
+  assert(syntax_hint("f(...x)\n") == nil)
+end

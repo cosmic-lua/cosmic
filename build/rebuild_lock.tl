@@ -73,6 +73,14 @@ local record rebuild_lock
     "held"
     "busy"
   end
+
+  --- The lock's descriptor and SQLite handle, each nil once let go or
+  --- never taken.
+  record Claim
+    fd: integer | nil
+    db: Sqlite.Handle | nil
+    metamethod __close: function(Claim)
+  end
 end
 
 --- One millisecond, which [`sys.flock`] and SQLite count their waits in.
@@ -99,13 +107,7 @@ local handed_variable <const> = "COSMIC_REBUILD_LOCK_HANDED"
 --- How long a waiting run waits in one go before it says it still is.
 local reminder_ns <const> = Clock.minutes(5)
 
---- The lock's descriptor and SQLite handle, each nil once let go or
---- never taken.
-local record Lock
-  fd: integer | nil
-  db: Sqlite.Handle | nil
-  metamethod __close: function(Lock)
-end
+local type Lock = rebuild_lock.Claim
 
 local lock_mt: metatable<Lock> = {
   __close = function(self: Lock)
@@ -145,6 +147,49 @@ local function take_sqlite(lock: Lock, path: string,
   return "held", ""
 end
 
+--- Takes both halves of the lock on the file `path`, making it where it
+--- is missing, waiting up to `wait_ns` in all. The lock, or nil and ""
+--- where another run held it past the wait, or nil and why where it
+--- could not be asked for at all. A half taken is let go again whenever
+--- the other is not.
+local function acquire(path: string, wait_ns: integer): Lock | nil, string
+  local started_ns = Clock.monotonic_ns()
+  -- For writing, which an exclusive flock over NFS or SMB needs.
+  local fd, open_trouble = sys.open(path, sys.O_RDWR | sys.O_CREAT, 0x1a4)
+  if fd == nil then
+    return nil, path .. ": " .. open_trouble
+  end
+  local opened: Lock = { fd = fd }
+  local taking <close> = setmetatable(opened, lock_mt)
+  local flocked, flock_trouble, errno = sys.flock(fd, "exclusive", Clock.ceil(wait_ns, MS))
+  if not flocked then
+    local name = sys.errno_name(errno)
+    if name == "ETIMEDOUT" then
+      return nil, ""
+    elseif name == "EINTR" then
+      return nil, "interrupted while waiting for " .. path
+    end
+    return nil, path .. ": " .. flock_trouble
+  end
+  local kind, kind_trouble = sys.flock_kind(fd)
+  if kind == nil then
+    return nil, path .. ": " .. kind_trouble
+  end
+  if kind == "apart" then
+    local left_ns = wait_ns - (Clock.monotonic_ns() - started_ns)
+    local taken, trouble = take_sqlite(taking, path, math.max(left_ns, 0))
+    if taken == nil then
+      return nil, trouble
+    elseif taken == "busy" then
+      return nil, ""
+    end
+  end
+  local holding: Lock = { fd = taking.fd, db = taking.db }
+  taking.fd, taking.db = nil, nil
+  setmetatable(holding, lock_mt)
+  return holding, ""
+end
+
 --- Takes the rebuild lock of `root` as `role` ("rebuild" unless
 --- given), waiting up to `wait_ns` (0 to [`Poll.MOST_NS`], which [`sys.flock`]'s
 --- C int of milliseconds holds; another raises)
@@ -171,40 +216,11 @@ function rebuild_lock.take(root: string, wait_ns: integer,
     return nil, "this process holds " .. tostring(held_lock) ..
       " and cannot take another checkout's too"
   end
-  local started_ns = Clock.monotonic_ns()
-  -- For writing, which an exclusive flock over NFS or SMB needs.
-  local fd, open_trouble = sys.open(path, sys.O_RDWR | sys.O_CREAT, 0x1a4)
-  if fd == nil then
-    return nil, path .. ": " .. open_trouble
+  local holding, trouble = acquire(path, wait_ns)
+  if holding == nil then
+    if trouble == "" then return "busy", "" end
+    return nil, trouble
   end
-  local opened: Lock = { fd = fd }
-  local taking <close> = setmetatable(opened, lock_mt)
-  local flocked, flock_trouble, errno = sys.flock(fd, "exclusive", Clock.ceil(wait_ns, MS))
-  if not flocked then
-    local name = sys.errno_name(errno)
-    if name == "ETIMEDOUT" then
-      return "busy", ""
-    elseif name == "EINTR" then
-      return nil, "interrupted while waiting for " .. path
-    end
-    return nil, path .. ": " .. flock_trouble
-  end
-  local kind, kind_trouble = sys.flock_kind(fd)
-  if kind == nil then
-    return nil, path .. ": " .. kind_trouble
-  end
-  if kind == "apart" then
-    local left_ns = wait_ns - (Clock.monotonic_ns() - started_ns)
-    local taken, trouble = take_sqlite(taking, path, math.max(left_ns, 0))
-    if taken == nil then
-      return nil, trouble
-    elseif taken == "busy" then
-      return "busy", ""
-    end
-  end
-  local holding: Lock = { fd = taking.fd, db = taking.db }
-  taking.fd, taking.db = nil, nil
-  setmetatable(holding, lock_mt)
   held, held_lock = holding, path
   -- Written aside and moved into place, so a waiting run reads a whole
   -- one or the one before.
@@ -214,6 +230,18 @@ function rebuild_lock.take(root: string, wait_ns: integer,
     local _, _ = Fs.rename(aside, layout.holder)
   end
   return "held", ""
+end
+
+--- Takes the rebuild lock of the build directory `directory` without
+--- waiting, for a pass over other checkouts' directories
+--- ([`build.cache_lifetime`]) rather than a run in one of them: it is
+--- the very lock [`take`] takes, so a run that holds it keeps the
+--- directory from this one. The lock, held until it is closed; nil and
+--- "" where another run holds it; nil and why where it cannot be asked
+--- for. It names no holder, and leaves this process's own hold of
+--- another directory as it is.
+function rebuild_lock.claim(directory: string): rebuild_lock.Claim | nil, string
+  return acquire(build_paths.under(directory).lock, 0)
 end
 
 --- Whether this process holds the rebuild lock of `root`.

@@ -212,6 +212,10 @@ local record Markup
   --- A copy of a place.
   copy: function(p: Place): Place
 
+  --- A string that two places give alike only when every field of the two
+  --- is alike.
+  key: function(p: Place): string
+
   --- Whether two places are the same one, or are in one tag at boundaries
   --- between its attributes, which `join` holds as one place until the
   --- text after them decides.
@@ -314,6 +318,12 @@ local function copy(p: Place): Place
     escaped = p.escaped, double = p.double, split = p.split, alts = p.alts }
 end
 
+local function key(p: Place): string
+  return string.format("%s %q %q %s %s %q %s %s %s %s %s %s %s %s %s %d %d %q %d %d %q %s %s %s %q", p.phase, p.tag,
+    p.attr, p.closing, p.fresh, p.stack, p.murky, p.select, p.fontattr, p.slash, p.after_url, p.colon, p.bare,
+    p.rooted, p.equiv, p.meta_line, p.meta_col, p.late, p.late_line, p.late_col, p.raw_tail, p.escaped, p.double, p.split, p.alts)
+end
+
 --- The phases in which the tag and whether it is an end tag mean something;
 --- elsewhere they are what an earlier tag left.
 local TAGGED <const>: {Phase: boolean} = {
@@ -361,7 +371,7 @@ local function apart(a: Place, b: Place): boolean
 end
 
 --- `p`'s phase and attribute as `alts` holds them.
-local function key(p: Place): string
+local function alt_key(p: Place): string
   return p.phase .. ":" .. (ATTRIBUTED[p.phase] and p.attr or "")
 end
 
@@ -369,7 +379,7 @@ end
 local function alts_of(p: Place, set: {string: boolean}): string
   local list: {string} = {}
   for k in pairs(set) do
-    if k ~= key(p) then
+    if k ~= alt_key(p) then
       list[#list + 1] = k
     end
   end
@@ -425,7 +435,7 @@ local function join(a: Place, b: Place)
     a.meta_line = b.meta_line
     a.meta_col = b.meta_col
   end
-  local set: {string: boolean} = { [key(a)] = true, [key(b)] = true }
+  local set: {string: boolean} = { [alt_key(a)] = true, [alt_key(b)] = true }
   for _, alts in ipairs({ a.alts, b.alts }) do
     for k in alts:gmatch("%S+") do
       set[k] = true
@@ -945,7 +955,7 @@ local function settle(p: Place, text: string, line: integer, col: integer): inte
     elseif not extended and together then
       local set: {string: boolean} = {}
       for _, q in ipairs(places) do
-        set[key(q)] = true
+        set[alt_key(q)] = true
       end
       p.alts = alts_of(p, set)
     else
@@ -1062,5 +1072,5 @@ local function ending(p: Place): string
 end
 
 local M: Markup = { start = start, ending = ending, copy = copy, same = same, differ = differ, join = join, feed = feed,
-  slot = slot, wrote = wrote }
+  slot = slot, wrote = wrote, key = key }
 return M
