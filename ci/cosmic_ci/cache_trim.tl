@@ -5,6 +5,7 @@ local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
 local Plural = require("cosmic_ci.plural")
+local Signal = require("cosmic.signal")
 local Shape = require("cosmic.shape")
 
 local record CacheTrim
@@ -186,7 +187,7 @@ end
 --- and publishes save outputs only from a complete validated report.
 function CacheTrim.run(request: CacheTrim.Request, env: {string:string}): string, string
   local verb = request.family .. "-trim"
-  local opened, guard_trouble = Child.guard()
+  local opened, guard_trouble = Signal.guard()
   if opened == nil then
     local cleanup = request.restored ~= nil and remove_snapshot(request.restored) or ""
     return "", verb .. ": " .. guard_trouble .. (cleanup ~= "" and "\n" .. cleanup or "") .. "\n"

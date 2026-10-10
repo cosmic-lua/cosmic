@@ -39,7 +39,7 @@ local function checkout_root(): string
   return (assert(cwd:match("^(.*)/[^/]+$"), cwd .. ": no parent directory"))
 end
 
---- The self-check holds a write transaction on `ci/o/build.db` while
+--- The self-check holds a write transaction on `ci/`'s `build.db` while
 --- tests run, so `driver.tl` must never run with project root `ci/`
 --- itself: this copies the namespace into its own tmp project first.
 local function command(tmp: string): {string}, string
@@ -1558,9 +1558,9 @@ local function test_a_leg_is_given_the_requirements_it_promises()
   assert(chosen.COSMIC_TEST_PROMISES == "proc" and chosen.COSMIC_TEST_LEG == nil)
 end
 
---- Candidate suites keep every promise, while the older fixture runner
---- receives every name but the Unix socket name its table cannot read.
-local function test_a_fixture_is_given_the_promises_its_carrier_knows(tmp: string)
+--- A fixture runner is given its leg's promises whole, as a candidate
+--- suite is, Unix sockets among them.
+local function test_a_fixture_is_given_its_legs_promises(tmp: string)
   local Orchestration = require("cosmic_ci.orchestration")
   for _, source in ipairs({ "format", "runtime" }) do
     local env: {string:string} = {
@@ -1573,8 +1573,7 @@ local function test_a_fixture_is_given_the_promises_its_carrier_knows(tmp: strin
     assert(candidate:find(",unix_socket,", 1, true), candidate)
     local fixture = Orchestration.fixture_run(source, env, tmp .. "/tmp", tmp .. "/c.db")
     local given = "," .. fixture.COSMIC_TEST_PROMISES .. ","
-    assert(given:find(",checked,", 1, true) and given:find(",nest,", 1, true), given)
-    assert(not given:find(",unix_socket,", 1, true), given)
+    assert(given == candidate, given)
     assert(fixture.COSMIC_TEST_LEG == "linux-x86_64-checked")
     assert(fixture.COSMIC_SANDBOX == "must", "fixture confinement is no longer held")
     assert(fixture.COSMIC_TEST_SANDBOX == (source == "runtime" and "1" or "0"))
@@ -1586,8 +1585,8 @@ local function test_a_fixture_is_given_the_promises_its_carrier_knows(tmp: strin
   local unknown = Orchestration.fixture_run("format", {
     COSMIC_TEST_PROMISES = "proc, unix_socket ,future_requirement,checked",
   }, tmp .. "/tmp", tmp .. "/c.db")
-  assert(unknown.COSMIC_TEST_PROMISES == "proc,future_requirement,checked",
-    "the fixture discarded a promise its carrier must reject")
+  assert(unknown.COSMIC_TEST_PROMISES == "proc, unix_socket ,future_requirement,checked",
+    "the fixture changed the promises it was given")
 end
 
 --- A bound for a group that should end at once: only a hang reaches it.

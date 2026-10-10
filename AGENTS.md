@@ -461,9 +461,8 @@ never by its path in the build directory.
    `COSMIC_VERDICT_CACHE=0`; preserve the staged database and report the `ran`
    and `stood` counts with the elapsed time.
 
-`ci/` is a tree of its own, with its own build directory (`ci/o/` while
-the CI driver's release, which builds it, names that; this tree's tool
-builds it in a directory of its own as it does any project). After editing it, run
+`ci/` is a tree of its own, with its own build directory, outside the
+checkout as for any project. After editing it, run
 `../bin/cosmic fix --check` from `ci/`; that also builds and type-checks it.
 Its `fixtures/*_test.tl` run only under the CI driver, which builds every
 target: run [`ci/run-local`] (a few minutes) before pushing a change that

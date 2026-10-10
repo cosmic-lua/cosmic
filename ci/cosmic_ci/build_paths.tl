@@ -34,21 +34,16 @@ end
 
 --- Where the running driver builds the project at `root`, which a
 --- `cosmic test` it runs there reads what is placed for it from: its own
---- build.paths' answer, or `root`/o for a driver that carries none.
--- TODO: take this from build.paths alone, and drop the o/ of a driver that
--- carries none, once ci/cosmic-driver.pin names a release that carries
--- build/paths.tl and puts the build directory outside the project.
+--- build.paths' answer. A child asks it, since build.paths is the
+--- driver's and no module of this project can require it.
 function BuildPaths.driven(root: string): string
-  local argv, env, fds = driver({ "-e", [[
-local Store = require("cosmic.store")
-if Store.source("build.paths") ~= nil then print(require("build.paths").required(...)) end
-]], root }, Env.all())
+  local argv, env, fds = driver({ "-e", 'print(require("build.paths").required(...))', root },
+    Env.all())
   local answer, why = Child.run(argv,
     { env = env, fds = fds, stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) })
   assert(answer, why)
   assert(answer.ok, "build directory: " .. (answer.stderr or ""))
   local said = answer.stdout or ""
-  if said == "" then return root .. "/o" end
   return (assert(said:match("^(/[^\n]+)\n$"), "the driver named no build directory: " .. said))
 end
 

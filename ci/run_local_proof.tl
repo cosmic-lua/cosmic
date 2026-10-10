@@ -5,6 +5,7 @@ local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Proc = require("cosmic.proc")
+local Signal = require("cosmic.signal")
 local sys = require("cosmic.sys")
 
 local record Proof
@@ -23,7 +24,7 @@ end
 
 function Proof.main(argv: {integer:string}): integer
   assert(sys.getuid() == 0, "run-local proof requires root")
-  local _guard <close> = assert(Child.guard())
+  local _guard <close> = assert(Signal.guard())
   local source, driver = assert(argv[1]), assert(argv[2])
   local relaunch = assert(Proc.relaunch())
   local cached = assert(Fs.stat(relaunch.argv[1]))

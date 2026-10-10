@@ -7,6 +7,7 @@ local Clock = require("cosmic.clock")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
+local Signal = require("cosmic.signal")
 local Stream = require("cosmic.stream")
 local sys = require("cosmic.sys")
 
@@ -293,8 +294,8 @@ local function execute(argv: {integer:string}): integer
   -- The phase project belongs to the driver, which is the checkout's own
   -- tool and so builds it in a build directory under the phases'
   -- XDG_CACHE_HOME, kept from run to run. Refresh every entry of the
-  -- project, even on named-phase reruns; ci/'s o/, the pinned driver's
-  -- build of ci/, is no input and is not copied.
+  -- project, even on named-phase reruns; an o/ in ci/, where a driver
+  -- older than the pinned one built it, is no input and is not copied.
   owned_root(project)
   assert(Fs.mkdirs(project))
   reown(project, false)
@@ -410,7 +411,7 @@ end
 
 function Local.main(argv: {integer:string}): integer
   -- Keep cancellation caught until private-index/log cleanup completes.
-  local _guard <close> = assert(Child.guard())
+  local _guard <close> = assert(Signal.guard())
   local ok, answer = pcall(execute, argv)
   if not ok then
     say(tostring(answer))

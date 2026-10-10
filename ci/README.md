@@ -2,12 +2,14 @@
 
 `ci/` is a project of its own inside the checkout, distinct from cosmic's
 own tree: the outer build excludes its modules and tests, but walks its
-files outside `ci/o/` for TODOs ([input policy](https://github.com/cosmic-lua/cosmic/blob/main/build/identity.tl)). The
+files for TODOs ([input policy](https://github.com/cosmic-lua/cosmic/blob/main/build/identity.tl)). The
 pinned host never tries to rebuild itself from the candidate. It is run in
 place by the pinned, digest-verified host, with cwd `ci/`, so the host's project root is `ci/`
 itself. `cosmic_ci/` is its Teal namespace; `testdata/` holds fixture input
 and is excluded from module and test discovery. Its working database lands
-at `ci/o/build.db` (gitignored).
+in `ci/`'s build directory, outside the checkout, where
+[build/paths.tl](https://github.com/cosmic-lua/cosmic/blob/main/build/paths.tl)
+names it.
 
 `bin/cosmic-bootstrap` downloads and verifies the pinned host, caching it by
 digest under `$XDG_CACHE_HOME/cosmic/bootstrap`, and tries a failed download

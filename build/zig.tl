@@ -74,6 +74,7 @@ local Hash = require("cosmic.hash")
 local Log = require("cosmic.log")
 local Proc = require("cosmic.proc")
 local Sqlite = require("cosmic.sqlite")
+local Signal = require("cosmic.signal")
 local String = require("cosmic.string")
 local sys = require("cosmic.sys")
 
@@ -673,7 +674,7 @@ local PASS_ON_NS <const> = Clock.ms(250)
 --- Runs `argv` (`argv[1]` an exact path) to its end in this process
 --- group, with the standard streams shared, and answers its status.
 ---
---- SIGINT and SIGTERM are held by a [`Child.guard`] meanwhile, so this
+--- SIGINT and SIGTERM are held by a [`Signal.guard`] meanwhile, so this
 --- process outlives the child whatever it is sent. A terminal's Ctrl-C
 --- reaches the child directly, since it shares this group. A signal sent
 --- to this process alone does not, so one the child has not answered by
@@ -690,7 +691,7 @@ local PASS_ON_NS <const> = Clock.ms(250)
 --- just like a SIGINT sent to this process alone. A terminal never sends
 --- SIGTERM.
 function Zig.run(argv: {string}, env?: {string:string}): integer
-  local opened, guard_trouble = Child.guard()
+  local opened, guard_trouble = Signal.guard()
   if opened == nil then
     log:complain("signal guard: " .. guard_trouble)
     return 1

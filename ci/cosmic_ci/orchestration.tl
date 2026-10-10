@@ -702,17 +702,6 @@ end
 --- their own, made afresh for each run (COSMIC_FIXTURE_SHARED_COMPILES).
 function Orchestration.fixture(env: {string:string}, tmpdir: string,
                                compiles: string, verdicts?: string): {string:string}
-  -- The outer fixture runner is the pinned driver, whose requirement
-  -- table predates Unix socket creation. Candidate suites keep their list.
-  -- TODO: pass unix_socket to fixture runners once ci/cosmic-driver.pin names
-  -- a release whose build.host_names accepts unix_socket.
-  if env.COSMIC_TEST_PROMISES ~= nil then
-    local promised: {string} = {}
-    for _, name in ipairs(String.split(env.COSMIC_TEST_PROMISES, ",")) do
-      if name:match("^%s*(.-)%s*$") ~= "unix_socket" then promised[#promised + 1] = name end
-    end
-    env.COSMIC_TEST_PROMISES = table.concat(promised, ",")
-  end
   env.TMPDIR = tmpdir
   env.COSMIC_BUILD_CACHE = compiles
   if verdicts ~= nil then
