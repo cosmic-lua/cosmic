@@ -37,9 +37,12 @@ nil` as they are.
 `never` is accepted only as the whole of an unparenthesized return list, in
 the places that call `parse_return_types` (2890): a function type, a
 function or method declaration, and a `macroexp`. the word is the flag
-only when the token after it cannot continue a type (not `.`, `<`, `|`,
-`,` or `...`); otherwise it is read as a name, so `: never.x` still parses
-as a nominal type.
+only when the token after it cannot continue a type (not `.`, `<`, `|` or
+`...`); otherwise it is read as a name, so `: never.x` still parses as a
+nominal type. a `,` after it ends the return list where patch 30 ends one,
+before the next parameter of an enclosing function type
+(`function(f: function(): never, x: integer)`); any other `,`
+(`: never, string`) is refused, since `never` is the whole list.
 
 ```teal skip=intended
 local function fail(m: string): never
@@ -262,7 +265,9 @@ tests, in [`test/narrowing_test.tl`]'s style (a one-file project compiled
 with [`build.importer`]; [`build/teal_test.tl`] holds compiler tests of the
 same shape):
 
-- 40b: `: never` parses on a declaration, a method and a function type;
+- 40b: `: never` parses on a declaration, a method, a function type and a
+  function-typed parameter followed by another (`function(f: function():
+  never, x: integer)`);
   `(never)`, `never, string`, `{never}`, `never | nil`, a `never` parameter
   and each declaration of the name (`local record never`, `local type
   never`, an `enum`, an `interface`, a typearg `<never>`) are refused;
