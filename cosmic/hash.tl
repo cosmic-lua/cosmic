@@ -7,6 +7,8 @@
 ---   or a stream; [`cosmic.stream`]'s `hashing` feeds one as data passes.
 --- - [`Hash.sha256`] and [`Hash.hex_sha256`] are the common case in one
 ---   call.
+--- - [`Hash.equal`] compares two MACs or tokens without leaking where
+---   they differ.
 --- - [`Hash.siphash`] is SipHash, a keyed hash for short inputs: a hash
 ---   table's, or a cache key a format defines by it.
 ---
@@ -128,6 +130,19 @@ end
 function Hash.siphash(key: string, data: string, options?: Hash.SipHashOptions): string
   local o = options or {}
   return raw.siphash(key, data, o.compression, o.finalization, o.size)
+end
+
+--- Whether the strings `a` and `b` are the same bytes, for checking a MAC or a
+--- token against one a client sent: the time taken depends on the
+--- length alone, never on where the strings first differ, so a caller
+--- timing the answer learns nothing about the secret. Strings of
+--- different lengths are unequal at once, as a length (a MAC's, by its
+--- algorithm) is not a secret. Use it rather than `==` whenever one
+--- side is secret.
+---
+---     local ok = Hash.equal(Hash.hmac("sha256", key, message), received)
+function Hash.equal(a: string, b: string): boolean
+  return raw.equal(a, b)
 end
 
 return Hash

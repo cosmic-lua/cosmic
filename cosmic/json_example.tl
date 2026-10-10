@@ -62,6 +62,17 @@ function Example.encode_pretty()
   print(text)
 end
 
+--- ASCII only, for a place that cannot carry UTF-8, such as an HTTP
+--- header: every other character becomes a `\uXXXX` escape, and decoding
+--- gives the original back.
+function Example.encode_ascii()
+  local text = assert(Json.encode({ greeting = "caf\xc3\xa9 \xf0\x9f\x98\x80" }, { ascii = true }))
+  print(text)
+  assert(text == '{"greeting":"caf\\u00e9 \\ud83d\\ude00"}')
+  local back = assert(Json.decode_object(text))
+  assert(back.greeting == "caf\xc3\xa9 \xf0\x9f\x98\x80")
+end
+
 --- Keep a document's nulls and empty arrays through a round trip.
 function Example.null_value()
   local text = '{"note": null, "tags": []}'

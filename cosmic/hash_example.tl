@@ -53,4 +53,14 @@ function Example.hmac()
   assert(code == "f7bc83f430538424b13298e6aa6fb143ef4d59a14946175997479dbc2d1a3cd8", code)
 end
 
+--- Checking a received MAC against the one computed, without a timing
+--- leak: `==` stops at the first differing byte, [`Hash.equal`] does not.
+function Example.equal()
+  local key = "server secret"
+  local expected = Hash.hmac("sha256", key, "user=7")
+  assert(Hash.equal(expected, Hash.hmac("sha256", key, "user=7")))
+  assert(not Hash.equal(expected, Hash.hmac("sha256", key, "user=8")))
+  assert(not Hash.equal(expected, expected:sub(1, 31)))
+end
+
 return Example

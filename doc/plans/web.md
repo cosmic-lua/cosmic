@@ -246,10 +246,10 @@ Each is a small PR of its own, landing before the module that needs it.
 - [`cosmic.template`]: slots after literal text in a URL (the TODO at
   markup.tl:1052), selector and JSON slots, `{{use}}`, the dialect
   registry, and the `hx-on*` and `hx-vars` refusals, always on.
-- [`cosmic.json`]: an `ascii` encode option, for JSON in a response
-  header (`HX-Trigger`).
-- [`cosmic.hash`]: `Hash.equal`, a constant-time compare, in Teal with a
-  `TODO:` for a C binding.
+- [`cosmic.json`]: an `ascii` encode option in the C encoder, for JSON in a
+  response header (`HX-Trigger`).
+- [`cosmic.hash`]: [`Hash.equal`], a constant-time compare, a C binding
+  in core/hash.c.
 - [`cosmic.poll`]: `Poll.notifier`, a wait another task wakes.
 - [`cosmic.layout`], build/derivation.tl and build/schema.tl: the
   `static/` convention, carried in the reserved `payload` table with each
@@ -263,7 +263,7 @@ needs have merged.
 
 1. **Prerequisites,** the list above that needs nothing else: reply
    headers and the Cookie join, [`Url.decode_query`], `Conn:peer`,
-   `on_stop`, the 4xx close, `Hash.equal`, the JSON `ascii` option,
+   `on_stop`, the 4xx close, [`Hash.equal`], the JSON `ascii` option,
    `Poll.notifier`.
 2. **A spike on typed-route generics.** Whether Teal infers `P`, `Q` and
    `B` through `Input<P,Q,B>` into the handler's parameters. If not, the
@@ -340,6 +340,7 @@ cooperative process.
 [`Url.escape`]: ../../cosmic/url.tl
 
 [`cosmic.http.wire`]: ../../cosmic/http/wire.tl
+[`Hash.equal`]: ../../cosmic/hash.tl
 [`Html.url_part`]: ../../cosmic/html.tl
 [`Server.Reply.headers`]: ../../cosmic/http/server.tl
 [`Server.serve`]: ../../cosmic/http/server.tl
