@@ -132,6 +132,9 @@ end
 --- directory to put it in, or one inside the root itself -- rather than
 --- a configuration to fix. Those two refusals, and no other, begin so:
 --- every other names the root, the base or the directory first.
+-- TODO: tell these apart by the kind cosmic.project's `directory` returns
+-- beside its message, not by the message's words, once that API carries
+-- one and ci/cosmic-driver.pin names a release that carries it.
 local function none(trouble: string): boolean
   return trouble:sub(1, #"no build directory for ") == "no build directory for " or
     trouble:sub(1, #"the build directory ") == "the build directory "
