@@ -4,6 +4,7 @@ local Clock = require("cosmic.clock")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
+local Project = require("cosmic.project")
 local Runner = require("cosmic_ci.runner")
 local Plural = require("cosmic_ci.plural")
 local sys = require("cosmic.sys")
@@ -66,15 +67,10 @@ end
 --- which its declaration names as the grant of `o/fixtures/<kind>`, so
 --- its key holds what is there. A child of the fixture, in a directory
 --- of its own, is given this path. The driver sets COSMIC_BUILD_HOME in
---- its workers, and has the project's build directory beneath it, named
---- as build/paths.tl's `in_home` names it.
--- TODO: ask cosmic.project's `directory` for the build directory of ".",
--- rather than spell its key, once ci/cosmic-driver.pin names a release
--- that carries cosmic.project: the fixtures run on the driver that names.
+--- its workers, and has the project's build directory beneath it.
 function Fixture.placed(kind: string): string
   local home = Fixture.required("COSMIC_BUILD_HOME")
-  local root = assert(sys.realpath("."))
-  return home .. "/" .. Hash.hex_sha256(root) .. "/fixtures/" .. kind
+  return assert(Project.directory(".", { COSMIC_BUILD_HOME = home })) .. "/fixtures/" .. kind
 end
 
 --- Has every child this fixture starts build under `directory`
@@ -91,14 +87,10 @@ function Fixture.builds_beneath(directory: string)
 end
 
 --- The build directory of the project at `project` that this fixture's
---- children build in ([`builds_beneath`]), named as build/paths.tl's
---- `in_home` names it, as [`placed`] does.
--- TODO: ask cosmic.project's `directory` for it, under COSMIC_BUILD_HOME
--- `build_home`, rather than spell its key, once ci/cosmic-driver.pin
--- names a release that carries cosmic.project, as for [`placed`].
+--- children build in ([`builds_beneath`]).
 function Fixture.built(project: string): string
   local home = assert(build_home, "Fixture.built: call Fixture.builds_beneath first")
-  return home .. "/" .. Hash.hex_sha256((assert(sys.realpath(project))))
+  return (assert(Project.directory(project, { COSMIC_BUILD_HOME = home })))
 end
 
 function Fixture.mkdir(path: string)
