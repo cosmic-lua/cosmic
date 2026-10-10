@@ -124,11 +124,12 @@ end
 --- guidance on the row it shares them with. [`Errors.guidance`] asks each
 --- database the store holds in turn.
 function Errors.guidance_in(handle: Sqlite.Handle, message: string): string | nil
-  -- TODO: a message Lua itself wrote (`attempt to concatenate a nil value
-  -- (field 'path')`, `module 'x' not found: ... no module 'x' in the store`)
-  -- shares two ordinary words with some doc comment and is shown that
-  -- one's guidance, which has nothing to do with the failure (`grants_of`,
-  -- `locate`). Return nil here for a message whose first line is one of
+  -- TODO: a message Lua itself wrote shares two ordinary words with some
+  -- doc comment and is shown that one's guidance, which has nothing to do
+  -- with the failure: `print(t.path .. "x")` with `t` a `{string:string}`
+  -- (`attempt to concatenate a nil value (field 'path')`) is shown
+  -- `next_record`, and `module 'x' not found: ... no module 'x' in the
+  -- store` is shown `locate`. Return nil here for a message whose first line is one of
   -- Lua's own `attempt to ...` or `module '...' not found` and leave
   -- [`Errors.hint`] to answer those; the catalog is for the messages cosmic's
   -- own code raises.

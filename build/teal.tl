@@ -301,6 +301,13 @@ function teal.strip(env: compiler.Env)
     env.globals[name] = nil
     env.modules[name] = nil
   end
+  -- new_env hands every environment the same `package` record (tl
+  -- builds its standard globals once per process and copies them by
+  -- reference), so this edits it for all of them, where the removal of
+  -- `io` above touches only `env`. That is harmless while every
+  -- environment cosmic makes is stripped, and the edit is idempotent; one
+  -- made unstripped later in the same process would find the fields gone.
+  --
   -- tl declares `package` as a global record; its fields are the
   -- declaration's `def.fields` and, in declaration order, `field_order`, and a
   -- key it lacks is refused as `invalid key 'path' in record 'package'`.

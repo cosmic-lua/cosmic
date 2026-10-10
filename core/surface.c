@@ -391,6 +391,8 @@ lua_State *cosmic_surface_open (const char *logical_executable) {
   clear_field(L, LUA_LOADLIBNAME, "cpath");
   clear_field(L, LUA_LOADLIBNAME, "loadlib");
   clear_field(L, LUA_LOADLIBNAME, "searchpath");
+  /* No __metatable, as with the stand-ins below and _G's: a program that
+   * removes this metatable gets plain nils back. */
   lua_getglobal(L, LUA_LOADLIBNAME);
   lua_createtable(L, 0, 2);
   lua_pushcfunction(L, package_missing);
