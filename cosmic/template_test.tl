@@ -226,7 +226,7 @@ local REFUSALS <const>: {{string}} = {
   { "<title></title{{.x}}><script>{{.y}}</script>", "2", "15", "complete its end tag" },
   { "<title><{{.x}}title><a href={{.y}}>", "2", "9", "complete its end tag" },
   { "<textarea></textarea {{.x}}>", "2", "22", "attribute" },
-  { "<svg><textarea></textarea{{.x}}></textarea></svg>", "2", "26", "differently" },
+  { "<svg><textarea></textarea{{.x}}></textarea></svg>", "2", "26", "complete its end tag" },
   { "<a href=\"x\">{{.x}}<a href=\"", "2", "28", "the template ends inside the value of the attribute 'href'" },
   { "<a href=\"x\">\n<a title='", "3", "11", "the template ends inside the value of the attribute 'title'" },
   { "<a ", "2", "4", "the template ends inside a tag" },
@@ -541,7 +541,9 @@ local STRINGS <const>: {{string}} = {
   { HEAD .. '{{if "x"}}{{end}}', "2", "6", "string" },
   { HEAD .. '{{if .a}}{{else if "x"}}{{end}}', "2", "20", "string" },
   { HEAD .. '{{range "x"}}{{end}}', "2", "9", "string" },
-  { HEAD .. '{{"x"-}}', "2", "6", "string" },
+  { HEAD .. '{{"x"-}}', "2", "6", "trim marker takes a space" },
+  { HEAD .. '{{-"x"-}}', "2", "3", "trim marker takes a space" },
+  { '{{type T "from" m.t}}', "1", "1", "write {{type" },
 }
 
 local function test_a_string_action_that_is_malformed_or_not_alone_is_refused_where_it_goes_wrong()
@@ -554,4 +556,26 @@ local function test_a_string_action_that_is_malformed_or_not_alone_is_refused_wh
     end
   end
   assert(#wrong == 0, table.concat(wrong, "\n"))
+end
+
+-- A run of text cut short, by a string action or a block that emits
+-- nothing, is read as the text whole: a `<!--` in `<noscript>` text, which
+-- the tracker cannot follow, is seen when its bytes come in two runs, and
+-- the `<` of an end tag cut short in `<svg><style>` is not taken for text.
+local function test_text_in_runs_is_read_as_it_is_whole()
+  local cases: {{string}} = {
+    { '<noscript><!--</noscript>{{.x}}', '<noscript>{{"<!"}}--</noscript>{{.x}}' },
+    { '<noscript><!--</noscript><p title="{{.x}}">--></noscript>',
+      '<noscript>{{"<!-"}}-</noscript><p title="{{.x}}">--></noscript>' },
+    { '<noscript><!--</noscript>{{.x}}', '<noscript><!{{if .a}}{{end}}--</noscript>{{.x}}' },
+  }
+  for _, case in ipairs(cases) do
+    for _, src in ipairs(case) do
+      assert(refused(HEAD .. src):find("<noscript>", 1, true), src)
+    end
+  end
+  for _, src in ipairs({ '<svg><style></style></svg>{{.x}}', '<svg><style></sty{{"le>"}}</svg>{{.x}}',
+      '<svg><style></sty{{if .a}}{{end}}le></svg>{{.x}}', '<math><script></scr{{"ipt>"}}</math>{{.x}}' }) do
+    assert(compiled(HEAD .. src):find("_text(v)", 1, true), src)
+  end
 end

@@ -619,15 +619,25 @@ end
 local RAW_PIECES <const> = {
   "<textarea>", "</textarea>", "</text", "area>", "<title>", "</ti", "tle >", "<style>", "</style>", "</sty", "le>",
   "<script>", "</script>", "</scr", "ipt>", "<scr", "ipt ", "<!--", "<!-", "-", "--", ">", "-->", "<", "</", "/", "!", "x",
-  " ", "\n", "<svg>", "</svg>", "<p>", "<a href=\"", "\"", "'",
+  " ", "\n", "<svg>", "</svg>", "<p>", "<a href=\"", "\"", "'", "<noscript>", "</noscript>", "</nos", "<!-",
   -- A whole element, so that a cut inside its tags is drawn at default counts.
   "<textarea></textarea><script>", "<title></title><script>", "<style></style><script>",
-  "<script><!--<script></script>", "<script><!--<script></script>--></script>", "<script></script><textarea>",
+  "<script><!--<script></script>", "<script><!--<script></script>--></script>", "<script></script><textarea>", "<noscript><!--</noscript>",
+  "<svg><style></style></svg>",
 }
 
---- The blocks that cut a literal run: ones that emit nothing, and one whose
---- arms emit the same text `X`, which reads as `X` put there.
-local CUTS <const>: {string} = { "{{if .a}}{{end}}", "{{range .l}}{{end}}", "{{with .a}}{{end}}", "{{if .a}}X{{else}}X{{end}}" }
+--- The actions that cut a literal run: blocks that emit nothing, one whose
+--- arms emit the same text `X`, and string actions that write `X`, each
+--- of which reads as `X` put there.
+local CUTS <const>: {string} = { "{{if .a}}{{end}}", "{{range .l}}{{end}}", "{{with .a}}{{end}}", "{{if .a}}X{{else}}X{{end}}",
+  "S" }
+
+--- `text` written as string actions, one to a line, its newlines outside them.
+local function as_strings(text: string): string
+  return (text:gsub("[^\n]+", function(line: string): string
+    return '{{"' .. line:gsub('[\\"]', "\\%0") .. '"}}'
+  end))
+end
 
 --- A literal run, how it is cut (an index of `CUTS`) and the text `X` of a
 --- cut whose arms emit it.
@@ -665,7 +675,7 @@ local function test_a_cut_in_the_text_does_not_move_where_a_slot_lands(tmp: stri
     name = "template cut",
     dir = tmp,
     gen = gen_cut,
-    requires = { "agreed", "cut refused", "raw text", "script slot refused", "range", "with", "arms" },
+    requires = { "agreed", "cut refused", "raw text", "script slot refused", "range", "with", "arms", "string" },
     shares = { agreed = 0.2, ["raw text"] = 0.3, ["cut refused"] = 0.05, ["script slot refused"] = 0.02 },
     check = function(input: string): boolean, string
       local fields = Fuzz.unpack(input)
@@ -682,13 +692,15 @@ local function test_a_cut_in_the_text_does_not_move_where_a_slot_lands(tmp: stri
       if whole == nil and why:find("<script>", 1, true) then
         Fuzz.label("script slot refused")
       end
-      Fuzz.label(kind == 2 and "range" or kind == 3 and "with" or kind == 4 and "arms" or "if")
-      local block = (CUTS[kind]:gsub("X", function(): string return extra end))
+      Fuzz.label(kind == 2 and "range" or kind == 3 and "with" or kind == 4 and "arms" or kind == 5 and "string" or "if")
+      local block = kind == 5 and as_strings(extra) or (CUTS[kind]:gsub("X", function(): string
+        return extra
+      end))
       for cut = 0, #literal do
         local body = literal:sub(1, cut) .. block .. literal:sub(cut + 1) .. tail
         local split = Template.compile(head .. body, "t.tmpl")
         local reference = whole
-        if kind == 4 then
+        if kind >= 4 then
           reference = Template.compile(head .. literal:sub(1, cut) .. extra .. literal:sub(cut + 1) .. tail, "t.tmpl")
         end
         if split == nil then
@@ -757,123 +769,75 @@ local function test_a_url_suffix_cannot_make_the_assembled_value_leave_the_polic
   })
 end
 
---- Text with `{` and `"` and `\` in it, cut into runs: each written as it
---- is or as a string action, or a slot. Packed as the mode, then a kind
+--- Text with braces, quotes and backslashes in it, cut into runs: each
+--- written as it is or as a string action, or a slot. Packed as a kind
 --- (`t` text, `q` string, `s` slot) and its text for each run.
 local function gen_quoted(src: Fuzz.Source): string
-  local fields: {string} = { Fuzz.pick(src, { "html", "text" }) }
-  while Fuzz.more(src, (#fields - 1) // 2, 12) do
+  local fields: {string} = {}
+  while Fuzz.more(src, #fields // 2, 12) do
     local kind = Fuzz.pick(src, { "t", "q", "q", "s" })
-    local text = ""
-    if kind ~= "s" then
-      local run: {string} = {}
-      while Fuzz.more(src, #run, 4) do
-        local pick = src:int(0, 4)
-        run[#run + 1] = pick == 0 and Fuzz.bytes(src, 3) or
-          pick == 1 and Fuzz.pick(src, { "{{", "}}", "{", "\"", "\\", "{{.a}}", "-}}", "{{- ", "|" }) or
-          Fuzz.pick(src, MARKUP)
-      end
-      text = table.concat(run)
+    local run: {string} = {}
+    while kind ~= "s" and Fuzz.more(src, #run, 4) do
+      local pick = src:int(0, 4)
+      run[#run + 1] = pick == 0 and Fuzz.bytes(src, 3) or
+        pick == 1 and Fuzz.pick(src, { "{{", "}}", "{", "\"", "\\", "{{.a}}", "-}}", "{{- ", "|" }) or
+        Fuzz.pick(src, MARKUP)
     end
     fields[#fields + 1] = kind
-    fields[#fields + 1] = text
+    fields[#fields + 1] = table.concat(run)
   end
   return Fuzz.pack(fields)
 end
 
---- `text` written outside an action: each `{` as a string action, so none
---- starts one.
-local function as_text(text: string): string
-  return (text:gsub("{", '{{"{"}}'))
-end
-
---- `text` written as string actions, one to a line, its newlines outside them.
-local function as_strings(text: string): string
-  return (text:gsub("[^\n]+", function(line: string): string
-    return '{{"' .. line:gsub('[\\"]', "\\%0") .. '"}}'
-  end))
-end
-
--- A string action is literal text: a template whose text is written in
--- string actions anywhere, cutting it at any byte, compiles where the
--- template with that text written outside actions does, with the same
--- slots, and renders the same bytes; in `text` mode, the text exactly.
-local function test_a_string_action_is_the_text_it_quotes(tmp: string)
+-- A `text` template renders the bytes its string actions quote, exactly,
+-- whatever they hold: braces, quotes, backslashes, newlines (kept outside
+-- them), control and high bytes. Where else a string action may cut text
+-- is the cut property's to check, against the text whole.
+local function test_a_string_action_renders_the_bytes_it_quotes(tmp: string)
   Fuzz.run({
     name = "template string",
     dir = tmp,
     gen = gen_quoted,
-    requires = { "text", "html", "html refused", "brace", "escape", "newline" },
-    shares = { text = 0.2, html = 0.03 },
+    requires = { "brace", "escape", "newline", "slot" },
+    shares = { brace = 0.2, escape = 0.2 },
     check = function(input: string): boolean, string
       local fields = Fuzz.unpack(input)
-      local mode = fields[1] or "html"
-      local quoted: {string} = {}
-      local plain: {string} = {}
+      local body: {string} = {}
       local want: {string} = {}
-      for at = 2, #fields - 1, 2 do
+      for at = 1, #fields - 1, 2 do
         local kind = fields[at]
         local text = fields[at + 1]
         if kind == "s" then
-          quoted[#quoted + 1] = "{{.a}}"
-          plain[#plain + 1] = "{{.a}}"
+          Fuzz.label("slot")
+          body[#body + 1] = "{{.a}}"
           want[#want + 1] = "P"
         else
-          quoted[#quoted + 1] = kind == "q" and as_strings(text) or as_text(text)
-          plain[#plain + 1] = as_text(text)
+          -- A `{` outside a string could start an action with the next one.
+          body[#body + 1] = kind == "q" and as_strings(text) or (text:gsub("{", '{{"{"}}'))
           want[#want + 1] = text
-          if kind == "q" then
-            if text:find("{{", 1, true) then Fuzz.label("brace") end
-            if text:find('["\\]') then Fuzz.label("escape") end
-            if text:find("\n", 1, true) then Fuzz.label("newline") end
-          end
+          if text:find("{{", 1, true) then Fuzz.label("brace") end
+          if text:find('["\\]') then Fuzz.label("escape") end
+          if text:find("\n", 1, true) then Fuzz.label("newline") end
         end
       end
-      local head = mode == "text" and "{{type T from m.t}}{{mode text}}" or "{{type T from m.t}}"
-      local source, why = Template.compile(head .. table.concat(quoted), "t.tmpl")
-      local reference, rwhy = Template.compile(head .. table.concat(plain), "t.tmpl")
-      if (source == nil) ~= (reference == nil) then
-        return false, "string actions: " .. tostring(why) .. "; written as text: " .. tostring(rwhy)
-      end
+      local src = "{{type T from m.t}}{{mode text}}" .. table.concat(body)
+      local source, why = Template.compile(src, "t.tmpl")
       if source == nil then
-        if mode == "text" then
-          return false, "text mode refused: " .. why
-        end
-        Fuzz.label("html refused")
-        return true, ""
+        return false, "refused: " .. why
       end
-      if helpers(source) ~= helpers(reference) then
-        return false, "slots " .. helpers(source) .. ", written as text " .. helpers(reference)
-      end
-      if newlines(source) ~= newlines(head .. table.concat(quoted)) + 1 then
+      if newlines(source) ~= newlines(src) + 1 then
         return false, "the module does not have the template's lines"
       end
-      local outputs: {string} = {}
-      for _, module in ipairs({ source, reference }) do
-        local env: {string: any} = {
-          require = function(name: string): any
-            return name == "cosmic.html" and STAND_IN or {}
-          end,
-          table = table,
-          tostring = tostring,
-          type = type,
-        }
-        local chunk, trouble = load(lua_of(module), "=module", "t", env)
-        if chunk == nil then
-          return false, "the module does not load: " .. tostring(trouble) .. "\n" .. lua_of(module)
-        end
-        local loaded = chunk() as {string: function({string: string}): any}
-        local made = loaded.render({ a = "P" })
-        outputs[#outputs + 1] = made is string and made or (made as {string: string}).s
+      local env: {string: any} = { require = function(_: string): any return {} end, table = table,
+        tostring = tostring, type = type }
+      local chunk, trouble = load(lua_of(source), "=module", "t", env)
+      if chunk == nil then
+        return false, "the module does not load: " .. tostring(trouble) .. "\n" .. lua_of(source)
       end
-      if outputs[1] ~= outputs[2] then
-        return false, "rendered " .. string.format("%q", outputs[1]) .. ", written as text " ..
-          string.format("%q", outputs[2])
-      end
-      Fuzz.label(mode)
-      if mode == "text" and outputs[1] ~= table.concat(want) then
-        return false, "rendered " .. string.format("%q", outputs[1]) .. " for " ..
-          string.format("%q", table.concat(want))
+      local loaded = chunk() as {string: function({string: string}): string}
+      local made = loaded.render({ a = "P" })
+      if made ~= table.concat(want) then
+        return false, "rendered " .. string.format("%q", made) .. " for " .. string.format("%q", table.concat(want))
       end
       return true, ""
     end,

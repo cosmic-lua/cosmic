@@ -540,7 +540,7 @@ local REFUSED <const>: {{string}} = {
   { "RCDATA end tag: slot after '<' across an if", "<textarea><{{if .a}}b{{end}}{{.x}}", "2", "12", "the arms" },
   { "RCDATA end tag: end tag then a space: out of RCDATA", "<textarea></textarea {{.x}}>", "2", "22", "attribute" },
   { "RCDATA end tag: end tag with a tab", "<textarea></textarea\t{{.x}}>", "2", "22", "attribute" },
-  { "RCDATA end tag: foreign content: textarea after '<'", "<svg><textarea></textarea{{.x}}></textarea></svg>", "2", "26", "differently" },
+  { "RCDATA end tag: foreign content: textarea after '<'", "<svg><textarea></textarea{{.x}}></textarea></svg>", "2", "26", "complete its end tag" },
   { "RCDATA end tag: foreign content: title after '</'", "<svg><title></{{.x}}></title></svg>", "2", "15", "differently" },
   { "RCDATA end tag: text '<' then slot", "a <{{.x}}", "2", "4", "tag name" },
   { "RCDATA end tag: text '</' then slot", "a </{{.x}}>", "2", "5", "tag name" },
