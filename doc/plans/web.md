@@ -203,7 +203,7 @@ The parts were written in parallel; these are where they met.
   messages and an API's problem+json `errors` lists them all. A route's
   `on_invalid` turns that into the re-render in one line.
 - **One URL escaper.** `Router:reverse` and `url_for` escape a path
-  parameter exactly as the template's `Html.url_part` does, which agrees
+  parameter exactly as the template's [`Html.url_part`] does, which agrees
   with [`Url.escape`]; a test pins the three together. A Mount answers
   reverse lookups, so `url_for("static", { path = "app.css" })` gives the
   fingerprinted URL. `/_web/` is reserved for cosmic.web's own assets.
@@ -341,6 +341,7 @@ cooperative process.
 
 [`cosmic.http.wire`]: ../../cosmic/http/wire.tl
 [`Hash.equal`]: ../../cosmic/hash.tl
+[`Html.url_part`]: ../../cosmic/html.tl
 [`Server.Reply.headers`]: ../../cosmic/http/server.tl
 [`Server.serve`]: ../../cosmic/http/server.tl
 [`Shape.into`]: ../../cosmic/shape.tl

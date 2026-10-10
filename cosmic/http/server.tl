@@ -46,7 +46,8 @@ local record Server
     --- "HTTP/1.1" or "HTTP/1.0".
     version: string
     --- The headers, by lowercased name; a name sent more than once has
-    --- its values joined with ", ". For an absolute-form target, `host`
+    --- its values joined with ", ", but `cookie`'s with "; " (RFC
+    --- 6265 5.4). For an absolute-form target, `host`
     --- is the target's host and port, whatever Host said.
     headers: {string:string}
     --- The body, read as it arrives: a Content-Length's bytes, or a
@@ -87,8 +88,11 @@ local record Server
     --- is 0, but in a reply to HEAD, where it is the size of the body a
     --- GET would get, sent with no bytes; and in a 304, where RFC 9110
     --- 8.6 has it the size of a 200's body, and it is passed on
-    --- unchecked. A 204 has none.
-    headers: {string:string}
+    --- unchecked. A 204 has none. A list value writes one line per
+    --- element, in order: use it for Set-Cookie, which cannot be joined
+    --- with ", " (RFC 6265 3, RFC 9110 5.3). An empty list writes
+    --- nothing; a list of Content-Length is refused.
+    headers: {string: string | {string}}
     --- nil for none, the bytes, or a Reader, which the server reads to
     --- its end (or to `length`) as it writes and then closes, read or
     --- not.
@@ -340,8 +344,23 @@ local function reply_trouble(reply: any): string
   if headers ~= nil then
     if not headers is {any: any} then return "the reply's headers must be a table" end
     for name, value in pairs(headers) do
-      if not (name is string and value is string) then
-        return "the reply's headers must map names to strings"
+      if not name is string then return "the reply's headers must map names to strings" end
+      if value is {any: any} then
+        -- A list: keys 1..n, all strings.
+        local count = 0
+        for key, line in pairs(value) do
+          if not (key is integer and line is string) then
+            return "the reply's headers must map names to strings or lists of them"
+          end
+          count = count + 1
+        end
+        for i = 1, count do
+          if value[i] == nil then
+            return "the reply's headers must map names to strings or lists of them"
+          end
+        end
+      elseif not value is string then
+        return "the reply's headers must map names to strings or lists of them"
       end
     end
   end

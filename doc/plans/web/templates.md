@@ -29,7 +29,7 @@ Decisions in one place:
 - One new URL escaper (`url_part`) serves path segments, query names and
   values, and fragments alike; the tracker does not need to know which
   component a slot is in. It is the escaper `Router:reverse` uses too
-  (core.md section 5.7). New types: `Html.SafeUrlPart` and
+  (core.md section 5.7). New types: [`Html.SafeUrlPart`] and
   `Html.SafeJson`. Selector slots use a C escaper that returns an existing
   type (`SafeAttr`).
 - `cosmic.web.htmx` holds request parsing, response headers and
@@ -263,7 +263,7 @@ so the URL decides which HTML is inserted into the DOM: a cross-origin or
 `//host` URL is a stored-XSS channel by itself. `htmx.config.selfRequestsOnly`
 defaults to true in 2.x and blocks cross-origin requests, but it is client
 configuration an app may turn off; the dialect adds a same-origin
-requirement at the slot. A plain string is checked by `Html.local_href`
+requirement at the slot. A plain string is checked by [`Html.local_href`]
 (section 3.4): relative references only. A deliberate cross-origin URL is a
 `SafeUrl` from [`Html.href`] or [`Html.trust_url`], which passes unchanged. The
 whole-value and part rules are those of `href`.
@@ -415,7 +415,7 @@ treats a value that is exactly `.` or `..` as unrepresentable and writes
 `%252E` / `%252E%252E` (the percent sign itself escaped), so the server
 decodes the literal text `%2E`, which matches no record and 404s. That is a
 safe failure rather than a silent change to the link's target. It is
-documented on `Html.url_part`, with its limit: the escaper sees the value,
+documented on [`Html.url_part`], with its limit: the escaper sees the value,
 not the template, so author text next to the slot (`/a/.{{.x}}` with `.`)
 can still make a dot segment. The compile-time check "literal text ending
 in `.` or `/` is fine, ending `.` directly before a part slot is refused"
@@ -424,7 +424,7 @@ is cheap (one more `ident`-like bit) and is open question 2.
 ### 3.4 New C functions in core/html.c
 
 Registered beside the existing ten (html.c module table) with metatables
-for two new types, `cosmic.html.SafeUrlPart` and `cosmic.html.SafeJson`,
+for two new types, [`cosmic.html.SafeUrlPart`] and [`cosmic.html.SafeJson`],
 created like the others (`cosmic_open_html`). Each new function is
 `static` with a binding, and each needs a test that enters it
 ([`build/c_functions.tl`]).
@@ -432,7 +432,9 @@ created like the others (`cosmic_open_html`). Each new function is
 - `url_part(s: string | number): SafeUrlPart`: as above. The same
   "plain input is its own escape" shortcut as `html_escape`
   (core/html.c:51-56).
-- `raw_url_part(x): string`, `trust_url_part(s): SafeUrlPart`.
+- `raw_url_part(x): string`. `trust_url_part(s): SafeUrlPart` arrives with
+  its first caller: an export nothing uses fails `fix --check`'s
+  every-export-earned rule.
 - `local_href(s: string): SafeUrl`: `s` if it is a relative reference
   (no scheme: a colon before the first `/`, `?`, `#` is refused), no C0
   control, DEL or edge space, and not beginning with two of `/` and `\`
@@ -453,7 +455,6 @@ end
 
 function Html.url_part(s: string | number): Html.SafeUrlPart
 function Html.url_query(pairs: {{string}}): Html.SafeUrlPart | nil, string
-function Html.trust_url_part(s: string): Html.SafeUrlPart
 function Html.raw_url_part(x: Html.SafeUrlPart): string
 function Html.local_href(s: string): Html.SafeUrl
 function Html.escape_css_attr(s: string | number): Html.SafeAttr
@@ -482,7 +483,7 @@ A `SafeUrlPart` slot is not a whole-URL slot: it never goes through
   allowed can be completed into a scheme or `//host` by it; the literal
   checks after the first slot still run.
 - `hx-get="/items/{{.id}}"` (htmx dialect): same, class `url_local`:
-  part after text, `Html.local_href` for a whole string.
+  part after text, [`Html.local_href`] for a whole string.
 - A `SafeUrl` in a part position is a type error (the helper accepts
   `string | number | SafeUrlPart`): a whole URL is not a part.
 - `{{range}}` bodies are walked twice and `fresh` is already joined that
@@ -622,7 +623,7 @@ anything. They are also not a CSRF defense by themselves. A cross-site
 page cannot add custom headers to a simple request without a CORS
 preflight, so `HX-Request: true` is in practice a weak signal, but the
 CSRF middleware (input.md section 8) uses a token; `hx-headers` carries it.
-`current_url` is untrusted text; `Html.local_href` it before using it as a
+`current_url` is untrusted text; [`Html.local_href`] it before using it as a
 redirect.
 
 ### 6.2 Writing the response: `Htmx.Reply`
@@ -675,7 +676,7 @@ partial set, and never raises on data. Rules:
   comma, a quote, a control byte or empty is refused.
 - URL fields: `redirect` is navigated to by script (`window.location`), so
   a `javascript:` URL here is an XSS and an attacker-chosen URL is an open
-  redirect. A `string` goes through `Html.local_href` and a value that
+  redirect. A `string` goes through [`Html.local_href`] and a value that
   comes back as `about:invalid` is refused (`nil, "htmx: redirect is not a
   same-origin reference"`); an external destination is a `SafeUrl` (made by
   [`Html.href`], an allowlist, or [`Html.trust_url`]). The same for `location`
@@ -945,8 +946,8 @@ Reasons:
   type error at the stage, not an empty hole.
 - No hidden global: the module value is the router, as everywhere else.
 - `Router:reverse(name, params, query?)` and `app:url_for` (core.md section
-  5.7) percent-escape params with exactly the escaper `Html.url_part` uses
-  (one C escaper; [`Url.escape`] and `Html.url_part` agree on every byte but
+  5.7) percent-escape params with exactly the escaper [`Html.url_part`] uses
+  (one C escaper; [`Url.escape`] and [`Html.url_part`] agree on every byte but
   the `.`/`..` case of 3.3, and a test pins the three together on a table of
   hostile values, section 8), refuse a missing param by `nil, reason`, and
   honor Mount prefixes, so a sub-app mounted under `/admin` produces
@@ -955,7 +956,7 @@ Reasons:
   fingerprinted URL (assets.md section 3.4).
 - A builder that returns a plain `string` instead of `SafeUrl` is also fine
   for a `url` slot (checked by [`Html.href`], `//` refused). In an htmx
-  attribute (`url_local`) a plain string is checked by `Html.local_href`.
+  attribute (`url_local`) a plain string is checked by [`Html.local_href`].
   `trust_url` here asserts that `url_for` escaped the parts, which is the
   one place a human vouches.
 
@@ -1053,7 +1054,7 @@ with [`cosmic.http`]; the template and html tests need no policy.
   and `includeIndicatorStyles` false); the script tag's `integrity` equals an
   independent SHA-384 of the vendored file; `sse = true` adds the extension's
   tag; a nonce appears on the tags and as `inlineScriptNonce`.
-- `Router:reverse`, `Html.url_part` and [`Url.escape`] agree byte for byte on
+- `Router:reverse`, [`Html.url_part`] and [`Url.escape`] agree byte for byte on
   every byte value 0-255 and a table of hostile strings (the `.`/`..`
   exception included): the test that pins the one escaper (it needs
   `cosmic.web` and [`cosmic.html`], so it lives in `cosmic/web`).
@@ -1084,7 +1085,7 @@ same change.
   `Web.add_header` (which merges `Vary` and appends `Set-Cookie`); the
   widened `Reply.headers` of core.md section 13.1.
 - Router (core.md section 5.7): `Router:reverse(name, params, query?)` and
-  `app:url_for`, with per-segment escaping equal to `Html.url_part` and Mount
+  `app:url_for`, with per-segment escaping equal to [`Html.url_part`] and Mount
   prefixes included; and the reserved prefix `/_web/` where the vendored
   files are served.
 - Middleware shape is `function(Handler): Handler` (core.md section 7).
@@ -1140,7 +1141,7 @@ same change.
    before `shouldSwap` is decided), but this must be confirmed against the
    pinned file before the exception layer's `HX-Trigger` (6.7) depends on it. Same check for
    `hx-vars` removal and for the `responseHandling` option names.
-6. `Html.local_href` as the default checker for htmx request URLs, versus
+6. [`Html.local_href`] as the default checker for htmx request URLs, versus
    reusing [`Html.href`] plus relying on `selfRequestsOnly`. Recommend
    `local_href`: an app that turns `selfRequestsOnly` off to call an API
    keeps the template-level guard, and passes a `SafeUrl` where it means it.
@@ -1168,6 +1169,8 @@ is):
 
 [`build/c_functions.tl`]: ../../../build/c_functions.tl
 [`Context.annotate`]: ../../../cosmic/template/context.tl
+[`cosmic.html.SafeJson`]: ../../../cosmic/html.tl
+[`cosmic.html.SafeUrlPart`]: ../../../cosmic/html.tl
 [`cosmic.html`]: ../../../cosmic/html.tl
 [`cosmic.http`]: ../../../cosmic/http/init.tl
 [`cosmic.internal.html`]: ../../../cosmic/internal/html.d.tl
@@ -1177,8 +1180,11 @@ is):
 [`Html.concat`]: ../../../cosmic/html.tl
 [`html.escape`]: ../../../cosmic/internal/html.d.tl
 [`Html.href`]: ../../../cosmic/html.tl
+[`Html.local_href`]: ../../../cosmic/html.tl
+[`Html.SafeUrlPart`]: ../../../cosmic/html.tl
 [`Html.trust_url`]: ../../../cosmic/html.tl
 [`Html.trust`]: ../../../cosmic/html.tl
+[`Html.url_part`]: ../../../cosmic/html.tl
 [`Json.decode`]: ../../../cosmic/json.tl
 [`Json.encode`]: ../../../cosmic/json.tl
 [`Json.EncodeOptions.ascii`]: ../../../cosmic/json.tl
