@@ -241,6 +241,42 @@ local function test_a_closed_connection_says_so_and_closes_again()
   assert(not shut and shut_trouble == "net: the connection is closed", shut_trouble)
 end
 
+--- Each end of a TCP connection names the other: the accepted end the
+--- client's address, whose port is the one the client was given and
+--- which differs from the listener's, and the client the listener's.
+local function test_a_tcp_connection_names_its_peer()
+  local p <close> = pair()
+  local client_sees = assert(p.client:peer())
+  assert(client_sees.kind == "tcp" and client_sees.host == "127.0.0.1")
+  assert(client_sees.port == p.server.address.port)
+  local server_sees = assert(p.accepted:peer())
+  assert(server_sees.kind == "tcp" and server_sees.host == "127.0.0.1")
+  assert(server_sees.port > 0 and server_sees.port ~= p.server.address.port)
+  local again = assert(p.accepted:peer())
+  assert(again.port == server_sees.port)
+end
+
+--- A closed connection has no peer to name, whichever end closed it.
+local function test_a_closed_connection_has_no_peer()
+  local p <close> = pair()
+  assert(p.client:close())
+  local address, why = p.client:peer()
+  assert(address == nil and why == "net: the connection is closed", why)
+end
+
+--- A unix connection has no TCP address to give: it answers nil and
+--- why, rather than a made-up address.
+local function test_a_unix_connection_has_no_peer_address(tmp: string)
+  if unix_socket.skipped(tmp) then return end
+  local server <close> = assert(Net.listen(Net.unix(tmp .. "/p.sock")))
+  local client <close> = assert(Net.connect(server.address))
+  local accepted <close> = assert(server:accept())
+  local address, why = accepted:peer()
+  assert(address == nil and why ~= "" and why ~= nil)
+  local other, other_why = client:peer()
+  assert(other == nil and other_why ~= "")
+end
+
 --- A `max_bytes` below 1 and a `how` of none of the three raise, at the line
 --- that called, in the module's own style.
 local function test_a_degenerate_read_or_shutdown_raises_at_the_caller()

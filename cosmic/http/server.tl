@@ -64,6 +64,11 @@ local record Server
     --- The Content-Length: the body's size, 0 for a request with no
     --- body, nil for a chunked one.
     length: integer
+    --- Where the request came from: the numeric TCP address of the
+    --- connection's far end, as the kernel names it, and the proxy's
+    --- where one sits between (no header is read). Nil where the
+    --- connection has none ([`Net.Conn.peer`] says when).
+    peer: Net.Address
   end
 
   --- What a handler answers. The server writes `Date`,
@@ -121,6 +126,11 @@ local record Server
       --- extensions and trailers, past which 413.
       head_bytes: integer
       --- The most bytes of a request's body (1 MiB); past it, 413.
+      -- TODO: let a request's route choose its own limit
+      -- (`ServeSpec.body_limit(method, path)`, doc/plans/web/core.md
+      -- 13.4): once wire.read_head defers its Content-Length check
+      -- (wire.tl, "the body is longer than limits.body_bytes") to a
+      -- limit chosen after the head is read.
       body_bytes: integer
     end
     --- Bounds on what the server takes on; nil for every default.
@@ -140,8 +150,26 @@ local record Server
     --- so a client sending a head a byte at a time holds a connection
     --- no longer.
     head_ns: integer
+    --- How long a request's body may take, from the end of its head
+    --- (30 seconds), however steadily its bytes come; it bounds the
+    --- reads of the body, the handler's and the server's own that
+    --- drop what the handler left. Past it the read fails as a
+    --- [`Poll.TIMEOUT`] does and the server answers 408 in place of the
+    --- handler's reply and closes, so a client sending a body a byte
+    --- at a time holds a connection no longer. It counts the handler's
+    --- own time before it reads, and a request with no body has none.
+    --- A server taking uploads past what 30 seconds carry raises it.
+    body_ns: integer
     --- As [`Net.ServeSpec.on_ready`].
     on_ready: function(addresses: {Net.Address}, server: Net.Server)
+    --- As [`Net.ServeSpec.on_stop`]: called once, as the server begins
+    --- to stop, in a task of its run. The server has by then marked
+    --- itself stopping (a reply in flight is sent with `Connection:
+    --- close`) and closed the connections idle between requests, so it
+    --- is where a long-lived reply, a stream, is told to end. What it
+    --- raises goes to [`Server.ServeSpec.on_error`] and the server stops
+    --- all the same.
+    on_stop: function(server: Net.Server)
     --- Given what a handler raised, with its stack, or why its reply
     --- could not be sent; nil to write each to stderr. See
     --- [`Net.ServeSpec.on_error`].
@@ -185,7 +213,8 @@ local LINGER_BYTES <const> = 256 * KIB
 
 local SPEC_FIELDS <const>: {string:boolean} = {
   listeners = true, handle = true, limits = true, timeout_ns = true, grace_ns = true,
-  idle_ns = true, head_ns = true, on_ready = true, on_error = true,
+  idle_ns = true, head_ns = true, body_ns = true, on_ready = true, on_stop = true,
+  on_error = true,
 }
 
 local LIMIT_FIELDS <const>: {string:boolean} = {
@@ -230,10 +259,10 @@ local function checked_spec(spec: any)
       end
     end
   end
-  for _, field in ipairs({ "timeout_ns", "grace_ns", "idle_ns", "head_ns" }) do
+  for _, field in ipairs({ "timeout_ns", "grace_ns", "idle_ns", "head_ns", "body_ns" }) do
     Poll.checked_ns(spec[field], "http", "spec." .. field, 3)
   end
-  for _, field in ipairs({ "on_ready", "on_error" }) do
+  for _, field in ipairs({ "on_ready", "on_stop", "on_error" }) do
     local fn = spec[field]
     if fn ~= nil and type(fn) ~= "function" then spec_error(field, "nil or a function") end
   end
@@ -275,6 +304,7 @@ local record Serving
   timeout_ns: integer
   idle_ns: integer
   head_ns: integer
+  body_ns: integer
   stopping: boolean
   --- Each connection waiting for its next request's first byte, which
   --- stopping closes at once.
@@ -394,7 +424,8 @@ end
 --- Serves the request `head` read from `input`: calls the handler and
 --- writes its reply, or the server's own. True where the connection
 --- stays open for the next request.
-local function exchange(s: Serving, conn: Net.Conn, input: wire.Input, head: wire.Head): boolean
+local function exchange(s: Serving, conn: Net.Conn, input: wire.Input, head: wire.Head,
+                        peer: Net.Address | nil): boolean
   -- Whether `100 Continue` went, and whether the final head has: an
   -- interim reply after it would be read as the final reply's body.
   local continued, replied = false, false
@@ -408,7 +439,7 @@ local function exchange(s: Serving, conn: Net.Conn, input: wire.Input, head: wir
   local body = wire.body(input, head, s.limits, go_on)
   local request: Server.Request = {
     method = head.method, target = head.target, path = head.path, query = head.query,
-    version = head.version, headers = head.headers, body = body, length = head.length,
+    version = head.version, headers = head.headers, body = body, length = head.length, peer = peer,
   }
   local reply: Server.Reply = nil
   local ok, raised: boolean, any = xpcall(function() reply = s.spec.handle(request) end, traced)
@@ -421,7 +452,7 @@ local function exchange(s: Serving, conn: Net.Conn, input: wire.Input, head: wir
       answer(s, conn, head, state == "over" and 413 or 400, (body.failure:gsub("^http: ", "")))
       linger(conn)
     elseif body.failure == Poll.TIMEOUT then
-      answer(s, conn, head, 408, "the body came slower than timeout_ns")
+      answer(s, conn, head, 408, "the body came slower than body_ns or timeout_ns")
       linger(conn)
     end
     return false
@@ -445,7 +476,7 @@ local function exchange(s: Serving, conn: Net.Conn, input: wire.Input, head: wir
     if body.state == "open" then linger(conn) end
     return false
   end
-  local close = reply.close == true or head.close or s.stopping or reply.status >= 400
+  local close = reply.close == true or head.close or s.stopping
   -- A client still waiting for `100 Continue` sends its body only once
   -- told to, or not at all. A Reader reply may read the request's body
   -- as it goes, so the client is told now; after another, what follows
@@ -501,14 +532,11 @@ end
 
 --- Serves `conn`, one request after another, until it closes, fails,
 --- or idles past `idle_ns`.
--- TODO: bound a request's body as head_ns bounds its head, with a
--- `body_ns` from the head's end (the reads' deadline, as Timed's is for
--- the head): today only timeout_ns, each read's, holds it, so a client
--- sending a body a byte a read holds its connection, and a stop with
--- no grace_ns, for as long as the body lasts.
 local function serve_conn(s: Serving, conn: Net.Conn)
   local timed: Timed = setmetatable({ conn = conn, each = s.timeout_ns }, timed_mt)
   local input = wire.input(timed)
+  -- Nil where the connection has none (a unix one); the request then has no peer.
+  local peer, _ = conn:peer()
   while true do
     if not wire.buffered(input) then
       if s.stopping then return end
@@ -531,7 +559,14 @@ local function serve_conn(s: Serving, conn: Net.Conn)
       end
       return
     end
-    if not exchange(s, conn, input, head) then return end
+    -- The body's reads, the handler's and the drop after its reply, share
+    -- one deadline from here.
+    if head.chunked or (head.length or 0) > 0 then
+      timed.deadline = Clock.monotonic_ns() + s.body_ns
+    end
+    local kept = exchange(s, conn, input, head, peer)
+    timed.deadline = nil
+    if not kept then return end
   end
 end
 
@@ -552,8 +587,12 @@ end
 ---
 --- A connection serves one request after another (keep-alive), and
 --- answers requests pipelined on it in order; it closes after a reply
---- to HTTP/1.0, to `Connection: close`, with `Reply.close`, with a 4xx or
---- 5xx status, and once the server is stopping. It closes once idle
+--- to HTTP/1.0, to `Connection: close`, with `Reply.close`, and once the server is
+--- stopping; a 4xx or 5xx reply keeps it open (a handler wanting it
+--- closed says `close`), unless the request's body was left unread and
+--- could not be dropped (past `limits.body_bytes`, malformed, or slower
+--- than `body_ns`), or the server answered for the handler: its own
+--- 4xx and 5xx close the connection. It closes once idle
 --- for `idle_ns` too, and at once when the server stops: a request in
 --- flight then finishes, answered with `Connection: close`.
 ---
@@ -563,8 +602,8 @@ end
 --- Transfer-Encoding, or a transfer coding other than a last chunked
 --- (400, or 501 for a coding it does not decode); a version but 1.0 or
 --- 1.1 (505); a head past `limits.head_bytes` (431); a head slower than
---- `head_ns` (408), or a body read slower than `timeout_ns` (408); a
---- body past `limits.body_bytes` (413, at once where the Content-Length
+--- `head_ns` (408), or a body slower than `body_ns` or one of its reads
+--- slower than `timeout_ns` (408); a body past `limits.body_bytes` (413, at once where the Content-Length
 --- says so, before a client waiting with `Expect: 100-continue` sends
 --- it); any other expectation (417). A client sending that expectation
 --- is sent `100 Continue` when the handler first reads the body.
@@ -599,6 +638,7 @@ function Server.serve(spec: Server.ServeSpec): boolean, string
     timeout_ns = spec.timeout_ns or Clock.seconds(30),
     idle_ns = spec.idle_ns or Clock.seconds(5),
     head_ns = spec.head_ns or Clock.seconds(30),
+    body_ns = spec.body_ns or Clock.seconds(30),
     stopping = false,
     idle = {},
   }
@@ -609,11 +649,12 @@ function Server.serve(spec: Server.ServeSpec): boolean, string
     timeout_ns = s.timeout_ns,
     grace_ns = spec.grace_ns,
     on_ready = spec.on_ready,
-    on_stop = function(_server: Net.Server)
+    on_stop = function(server: Net.Server)
       s.stopping = true
       local idle: {Net.Conn} = {}
       for conn in pairs(s.idle) do idle[#idle + 1] = conn end
       for _, conn in ipairs(idle) do local _, _ = conn:close() end
+      if spec.on_stop ~= nil then spec.on_stop(server) end
     end,
     on_error = spec.on_error,
   }

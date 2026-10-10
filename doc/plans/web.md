@@ -230,13 +230,13 @@ The parts were written in parallel; these are where they met.
 Each is a small PR of its own, landing before the module that needs it.
 
 - [`cosmic.http.server`] and [`cosmic.http.wire`]: multi-valued reply
-  headers; Cookie joined with `"; "` (wire.tl:434); `Request.peer`; a
+  headers; Cookie joined with `"; "` (wire.tl:434); [`Request.peer`]; a
   per-route body limit; forwarding `on_stop`; a body deadline (the
   `body_ns` TODO at server.tl:485), before uploads are recommended; and
   no longer closing the connection after every 4xx and 5xx (server.tl:429),
   which costs a reconnect per validation error. Later, `Reply.take` for
   WebSockets.
-- [`cosmic.net`]: `Conn:peer()`, over the binding core/socket.c:786
+- [`cosmic.net`]: [`Conn:peer()`], over the binding core/socket.c:786
   already has.
 - [`cosmic.url`]: [`Url.decode_query`] (ordered pairs and by name, `+` as a
   space, invalid escapes refused unless lenient, a cap on pairs),
@@ -262,7 +262,7 @@ Each step is one or more PRs with tests; a step starts when the steps it
 needs have merged.
 
 1. **Prerequisites,** the list above that needs nothing else: reply
-   headers and the Cookie join, [`Url.decode_query`], `Conn:peer`,
+   headers and the Cookie join, [`Url.decode_query`], [`Conn:peer`],
    `on_stop`, the 4xx close, `Hash.equal`, the JSON `ascii` option,
    `Poll.notifier`.
 2. **A spike on typed-route generics.** Whether Teal infers `P`, `Q` and
@@ -339,7 +339,10 @@ cooperative process.
 [`cosmic.url`]: ../../cosmic/url.tl
 [`Url.escape`]: ../../cosmic/url.tl
 
+[`Conn:peer()`]: ../../cosmic/internal/connection.tl
+[`Conn:peer`]: ../../cosmic/internal/connection.tl
 [`cosmic.http.wire`]: ../../cosmic/http/wire.tl
+[`Request.peer`]: ../../cosmic/http/server.tl
 [`Server.Reply.headers`]: ../../cosmic/http/server.tl
 [`Server.serve`]: ../../cosmic/http/server.tl
 [`Shape.into`]: ../../cosmic/shape.tl

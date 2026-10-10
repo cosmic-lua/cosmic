@@ -153,7 +153,7 @@ middleware and the handler share one decode. Rules that bind the core:
 ### 2.2 Client info
 
 `req.client` comes from the connection's peer address. Core exposes it only
-where `Server.Request.peer` exists (13.3). `X-Forwarded-For` is never read
+where [`Server.Request.peer`] exists (13.3). `X-Forwarded-For` is never read
 by default. `Web.app{ trusted_proxy = true }` (off by default; ../web.md,
 open question 4) makes `req.scheme`, `req.host` and `req.client` come from
 `X-Forwarded-Proto`, `X-Forwarded-Host` and `X-Forwarded-For`. Reason:
@@ -1358,6 +1358,7 @@ close, and a raise in it reaches `on_error` without stopping the drain.
 [`Server.none_match`]: ../../../cosmic/http/server.tl
 [`Server.range`]: ../../../cosmic/http/server.tl
 [`Server.Reply`]: ../../../cosmic/http/server.tl
+[`Server.Request.peer`]: ../../../cosmic/http/server.tl
 [`Server.Request`]: ../../../cosmic/http/server.tl
 [`Server.serve`]: ../../../cosmic/http/server.tl
 [`Server.ServeSpec`]: ../../../cosmic/http/server.tl

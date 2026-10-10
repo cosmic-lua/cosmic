@@ -305,7 +305,7 @@ line. [`Net.serve`] with `workers` and [`Net.listen`] with `reclaim` raise namin
 the removal. of the four asserts, one went with `reclaim` and one had
 become [`Poll.checked_ns`] in PR 10; the two left, `read`'s `max` and
 `shutdown`'s `how`, raise `net: ...` at the caller. the raw bindings only
-the supervisor and `Net.pair`/`Conn:peer` used went from the core with them:
+the supervisor and `Net.pair`/[`Conn:peer`] used went from the core with them:
 `pair`, `peer`, `adopt`, `handed`, `cosmic_socket_entered` (the removal of
 `COSMIC_NET_WORKER` from the environment) and process's `arguments`, with
 their tests.
@@ -453,7 +453,7 @@ description.
 [`Compress.inflate`]: ../../cosmic/compress.tl
 [`Compress.Stream`]: ../../cosmic/compress.tl
 [`Conn.write`]: ../../cosmic/internal/connection.tl
-[`Conn:peer`]: ../../cosmic/net.tl
+[`Conn:peer`]: ../../cosmic/internal/connection.tl
 [`Conn:writer`]: ../../cosmic/net.tl
 [`core/allocation_test.tl`]: ../../core/allocation_test.tl
 [`core/hash.c`]: ../../core/hash.c
