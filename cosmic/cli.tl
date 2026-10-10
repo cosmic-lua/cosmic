@@ -485,8 +485,8 @@ local record Cli
   --- `cosmic uses <sym> [path...]`: every place that refers to a
   --- symbol, as file:line -- only those under the paths, when given --
   --- each link to it, in a comment or a Markdown file, marked `link`.
-  --- The symbol may be a file's path instead (doc/meta.md, or
-  --- doc/meta.md#heading for one heading), which only links name. The
+  --- The symbol may be a file's path instead (doc/writing.md, or
+  --- doc/writing.md#heading for one heading), which only links name. The
   --- tree is found as `test` finds it
   uses: string
   --- `cosmic todos [options] [path | words...]`: every `TODO:` comment

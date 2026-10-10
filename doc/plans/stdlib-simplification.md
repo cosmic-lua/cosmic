@@ -44,7 +44,7 @@ these were taken up front and are not reopened per PR.
 ## rules every PR follows
 
 1. it stands alone and passes CI; it starts from `origin/main` in a worktree of
-   its own, per [`.claude/skills/ship/SKILL.md`], and is never stacked.
+   its own, per [`doc/contributing.md`], and is never stacked.
 2. the change has a test that fails without it, and the suite passes:
    `bin/zig build boot`, `bin/cosmic fix <changed-paths>`, `timeout 30
    bin/cosmic test`, `bin/cosmic fix --check .` before pushing, and
@@ -424,7 +424,7 @@ land goes to [`doc/roadmap.md`] under "shape", with the reason.
 ## process
 
 each PR is implemented by an agent in a worktree of its own, following
-[`.claude/skills/ship/SKILL.md`]; a second agent reviews the diff
+[`doc/contributing.md`]; a second agent reviews the diff
 adversarially, with the worktree path and `git diff origin/main...HEAD`,
 and the first fixes what it finds; the PR opens as a draft with auto-merge
 enabled and is marked ready once its own CI is green; the next PR on the
@@ -432,7 +432,6 @@ same files starts from the merged main. a PR that cannot land as written
 lands what it can and moves the rest to the roadmap, saying so in its
 description.
 
-[`.claude/skills/ship/SKILL.md`]: ../../.claude/skills/ship/SKILL.md
 [`Archive.list`]: ../../cosmic/archive.tl
 [`Archive.open`]: ../../cosmic/archive.tl
 [`Archive.Reader`]: ../../cosmic/archive.tl
@@ -483,6 +482,7 @@ description.
 [`Coverage.snapshot`]: ../../cosmic/coverage.tl
 [`Csv.parse`]: ../../cosmic/csv.tl
 [`Csv.table`]: ../../cosmic/csv.tl
+[`doc/contributing.md`]: ../contributing.md
 [`doc/roadmap.md`]: ../roadmap.md
 [`Duration.nanoseconds`]: ../../cosmic/time.tl
 [`ExtractOptions.unsupported`]: ../../cosmic/archive.tl

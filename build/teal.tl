@@ -968,6 +968,46 @@ local function nil_answer(who: string, value: string): string
     value .. " = assert(<the call>)`"
 end
 
+--- The kind of type `source` declares as `name` at its top level, by a
+--- line of its own (`local record Month`, `local type Month = ...`):
+--- nil when none does.
+local function declared_kind(source: string, name: string): string | nil
+  for line in source:gmatch("[^\n]+") do
+    local kind, named = line:match("^local%s+(%a+)%s+([%a_][%w_]*)")
+    if named == name and (kind == "record" or kind == "enum" or kind == "interface" or
+        kind == "type") then
+      return kind
+    end
+  end
+  return nil
+end
+
+--- Types the checker prints that are no record to give a `__close`.
+local not_records <const>: {string:boolean} = {
+  ["nil"] = true, any = true, number = true, integer = true, string = true,
+  boolean = true, thread = true, ["function"] = true, table = true,
+}
+
+--- What to declare for `<close>` on a value whose type `closing` the
+--- checker refused as non-closable: a record names a `__close` metamethod
+--- in its body and carries one in the metatable of each value. `closing`
+--- must be a name, and not one `source` declares as anything but a record
+--- (an enum, an alias); nil for any other type.
+local function closable_hint(closing: string, source: string): string | nil
+  if closing:match("^[%a_][%w_%.]*$") == nil or not_records[closing] then
+    return nil
+  end
+  local kind = declared_kind(source, closing)
+  if kind ~= nil and kind ~= "record" then
+    return nil
+  end
+  return (kind == "record" and "" or "if " .. closing .. " is a record of yours, ") ..
+    "`<close>` calls a `__close` the value's metatable holds: declare `metamethod __close: " ..
+    "function(" .. closing .. ")` in the record and make the value with `setmetatable(v, mt)`, " ..
+    "`local mt: metatable<" .. closing .. "> = { __close = function(self: " .. closing ..
+    ") ... end }`; `cosmic docs Fs.Scratch.__close` shows one"
+end
+
 --- The hint for a value the checker refused because it is `any` or may
 --- be nil (see [`teal.replacement`]), whose fix is a line every such
 --- refusal shares: nil for any other message.
@@ -993,7 +1033,7 @@ local function narrowing_hint(msg: string, source: string): string | nil
       return "the call may answer nil: `local " .. closed .. " <close> = assert(<the call>)` " ..
         "closes what it answers, and raises its error in place of the nil"
     end
-    return nil
+    return closable_hint(closing, source)
   end
   local iterated = msg:match("^attempting ipairs on something that's not an array: (.+)$")
   local iterator = "ipairs"
@@ -1028,20 +1068,6 @@ local function narrowing_hint(msg: string, source: string): string | nil
   if left ~= nil and (#type_members(left) > 1 or #type_members(right) > 1) then
     return "an operand is a union: narrow it first, as `if v is string then ... end` " ..
       "or `type(v) == \"string\"` does"
-  end
-  return nil
-end
-
---- The kind of type `source` declares as `name` at its top level, by a
---- line of its own (`local record Month`, `local type Month = ...`):
---- nil when none does.
-local function declared_kind(source: string, name: string): string | nil
-  for line in source:gmatch("[^\n]+") do
-    local kind, named = line:match("^local%s+(%a+)%s+([%a_][%w_]*)")
-    if named == name and (kind == "record" or kind == "enum" or kind == "interface" or
-        kind == "type") then
-      return kind
-    end
   end
   return nil
 end
@@ -1390,6 +1416,137 @@ local function type_parameter_hint(msg: string): string | nil
     "of the arguments' type (`local v: R = setmetatable(t, mt)`) and use that"
 end
 
+--- What to write for a generic record's method declared as `function
+--- Rec:m`, when `msg` is the checker refusing `Rec` for its missing type
+--- arguments at the `function` line `y` of `source`: Teal has no
+--- `function Rec<K, V>:m`, so the method is a function of `Rec` taking
+--- `self` explicitly, the type arguments on its own name. nil for any
+--- other message, and for a line that does not declare a method of that
+--- record.
+local function method_type_arguments_hint(msg: string, source: string, y: integer): string | nil
+  local arguments, name = msg:match("^missing type arguments in record<(.-)> ([%a_][%w_]*)$")
+  local line = arguments ~= nil and line_at(source, y) or nil
+  if line == nil then
+    return nil
+  end
+  local owner, method = line:match("^%s*function%s+([%a_][%w_%.]*):([%a_][%w_]*)%s*[%(<]")
+  if owner == nil or (owner ~= name and owner:sub(-#name - 1) ~= "." .. name) then
+    return nil
+  end
+  return "a generic record's method takes its type arguments on its name, and `self` as an " ..
+    "explicit first parameter: `function " .. owner .. "." .. method .. "<" .. arguments ..
+    ">(self: " .. owner .. "<" .. arguments .. ">, ...)`, followed by the method's other " ..
+    "parameters; `x:" .. method .. "(...)` still calls it"
+end
+
+--- What to declare instead of a string literal in a type position
+--- (`local s: integer | "null"`), when the parser refused a type list at
+--- `y`:`x` of `source`: the `:` or other token that should have been
+--- followed by a type. nil for any other message, and where no string
+--- literal follows one of the separators that precede a type before the
+--- line's first `=`.
+local function string_type_hint(source: string, y: integer, x: integer): string | nil
+  local line = line_at(source, y)
+  if line == nil or x < 1 then
+    return nil
+  end
+  local rest = line:sub(x)
+  local stop = rest:find("=", 1, true)
+  local segment = stop ~= nil and rest:sub(1, stop - 1) or rest
+  local literals: {string} = {}
+  for quote, text in segment:gmatch("[:|<{,(?]%s*([\"'])(.-)%1") do
+    literals[#literals + 1] = quote .. text .. quote
+  end
+  if #literals == 0 then
+    return nil
+  end
+  return "a string literal is not a type: declare an enum, `local enum Name " ..
+    table.concat(literals, " ") .. " end`, and write `Name` here"
+end
+
+--- What Teal does with type arguments given at a call, whichever
+--- message the checker reads them as.
+local call_type_arguments_answer <const> =
+  "Teal has no type arguments at a call: `f<string>(x)` reads as a comparison. The " ..
+  "call binds the function's type parameters from its arguments, so give the argument the " ..
+  "type (`local v: string = ...`), or call through a typed local " ..
+  "(`local g: function(string): string = f`)"
+
+--- What to write for type arguments given at a call (`f<string>("a")`),
+--- when `msg` is the checker refusing `<` for a generic function and a
+--- type at `y`:`x` of `source`, which reads the line as a comparison; or
+--- the type argument itself read as a variable (`f<integer>(1)`,
+--- `unknown variable: integer`), with a callable name and `<` before it
+--- and `>(` after. nil for any other message, and where the line has no
+--- `>(` after the `<`.
+local function call_type_arguments_hint(msg: string, source: string, y: integer, x: integer): string | nil
+  local line = line_at(source, y)
+  if line == nil then
+    return nil
+  end
+  if msg:match("^cannot use operator '<' for types function<.- and ") ~= nil then
+    if line:sub(x, x) == "<" and line:sub(x):match("^<.->%s*%(") ~= nil then
+      return call_type_arguments_answer
+    end
+    return nil
+  end
+  local name = msg:match("^unknown variable: ([%a_][%w_]*)$")
+  if name ~= nil and line:sub(x, x + #name - 1) == name and
+      line:sub(1, x - 1):match("[%a_][%w_%.:]*<%s*$") ~= nil and
+      line:sub(x + #name):match("^[%w_%s,%.]*>%s*%(") ~= nil then
+    return call_type_arguments_answer
+  end
+  return nil
+end
+
+--- Where a function is defined, and how its name is written.
+local record Definition
+  line: integer
+  --- ":" or "."
+  separator: string
+end
+
+--- Where `source` defines `function Owner:key` or `function Owner.key`
+--- below line `y`; nil when it does not.
+local function defined_below(source: string, y: integer, owner: string,
+                             key: string): Definition | nil
+  local n = 0
+  local at = owner:gsub("%p", "%%%0") .. "([:.])" .. key:gsub("%p", "%%%0")
+  for line in (source .. "\n"):gmatch("(.-)\n") do
+    n = n + 1
+    if n > y then
+      local separator = line:match("^%s*function%s+" .. at .. "%f[^%w_]")
+      if separator ~= nil then
+        return { line = n, separator = separator }
+      end
+    end
+  end
+  return nil
+end
+
+--- What to do for a key a record lacks (`invalid key 'close' in record 's'
+--- of type Store`) when `source` defines it below the use: the checker
+--- reads a file top to bottom, so a method is known only from its
+--- declaration on. The declaration offered is a template, to be given the
+--- definition's own parameters. nil for any other message, and a key not
+--- defined below.
+local function later_method_hint(msg: string, source: string, y: integer): string | nil
+  local key, owner = msg:match("^invalid key '([%a_][%w_]*)' in record '[%a_][%w_]*' of type ([%a_][%w_%.]*)$")
+  if key == nil then
+    return nil
+  end
+  local below = defined_below(source, y, owner, key)
+  if below == nil then
+    return nil
+  end
+  local separator = below.separator
+  local template = separator == ":" and "function(self: " .. owner .. ", ...)" or "function(...)"
+  return "`" .. key .. "` is defined below, at line " .. below.line .. ", and the checker reads a file " ..
+    "top to bottom: define `function " .. owner .. separator .. key .. "` above this use, or " ..
+    "declare `" .. key .. ": " .. template .. "` in the record, with the definition's own " ..
+    "parameters, and keep the definition where it is"
+end
+
 --- What to write instead, when `msg` is the checker refusing a name
 --- [`environment_for`] stripped or a member [`cosmic.removed`] lists; nil
 --- for any other message, and for those where the catalog cannot be
@@ -1465,6 +1622,17 @@ end
 --- whose type parameter the expected result type fixed before its arguments
 --- is told to bind it in a local ([`type_parameter_hint`]).
 ---
+--- A generic record's method declared `function Rec:m` (`missing type
+--- arguments in record<K, V> Rec`) is told to write `function Rec.m<K, V>(self:
+--- Rec<K, V>, ...)` ([`method_type_arguments_hint`]); a string literal in a
+--- type position (`expected a type list`) to declare an enum
+--- ([`string_type_hint`]); type arguments at a call (`f<string>(x)`, refused
+--- as `cannot use operator '<' for types function<K>(K): K and string`) that
+--- Teal has none ([`call_type_arguments_hint`]); a key a record lacks that
+--- the file defines below the use as a method, to define it above or declare
+--- it in the record ([`later_method_hint`]); and `<close>` on a record
+--- type, to declare a `__close` ([`closable_hint`]).
+---
 --- One nominal type refused for another of the same last name
 --- (`Store is not a Kv.Store`) is told they are two types, and an
 --- `unknown type Kv.Kv` whose `Kv` `source` binds to a `require` that
@@ -1490,6 +1658,14 @@ function teal.replacement(msg: string, source: string, y: integer, x: integer,
       "return, so `function(): never | nil` is a function returning `never | nil`. " ..
       "To allow nil, name the function type, `local type Fail = function(): never`, " ..
       "and write `Fail | nil`"
+  end
+  if msg == "expected a type list" then
+    return string_type_hint(source, y, x)
+  end
+  local call_typed = call_type_arguments_hint(msg, source, y, x) or
+    method_type_arguments_hint(msg, source, y)
+  if call_typed ~= nil then
+    return call_typed
   end
   local self_hint = interface_self_hint(msg) or type_parameter_hint(msg)
   if self_hint ~= nil then
@@ -1584,6 +1760,10 @@ function teal.replacement(msg: string, source: string, y: integer, x: integer,
   -- (patch/tl/33d); the fix is fields for each record member. One
   -- record or nil is told to check for nil ([`narrowing_hint`]) even
   -- where the record lacks the key too, which its fields would tell.
+  local later = later_method_hint(msg, source, y)
+  if later ~= nil then
+    return later
+  end
   local missing = missing_key(msg)
   if missing ~= nil and fields ~= nil then
     return field_hint(missing.key, missing.owner, fields)
