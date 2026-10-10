@@ -18,6 +18,12 @@ defines the target; once something ships, it leaves this file.
   raises (and [`Proc.exit`]) narrows below a guard as `error` does:
   [doc/plans/teal-never.md](plans/teal-never.md) has the design and the
   patch series.
+- declare cosmic.stream's interface methods with a named receiver
+  (`read: function(self: Reader, ...)`) and drop each implementing record's
+  redeclaration of them: the documented signatures then read as
+  `records_interfaces_methods` teaches, and the design note above
+  `FromStringReader` in [`cosmic/stream.tl`] shrinks. every interface of the
+  module and every record that implements one changes together.
 - add earned lint rules and their fixes to [`build/fix/rule.tl`]'s rule list.
   the rewrite stage is in place and the list is still empty.
 - add a floor for line coverage, C included: `cosmic test --min PCT
@@ -402,6 +408,7 @@ four-producer provenance join.
 [`cosmic/errors.tl`]: ../cosmic/errors.tl
 [`cosmic/json_fuzz_test.tl`]: ../cosmic/json_fuzz_test.tl
 [`cosmic/shape_example.tl`]: ../cosmic/shape_example.tl
+[`cosmic/stream.tl`]: ../cosmic/stream.tl
 [`cosmic/template/markup.tl`]: ../cosmic/template/markup.tl
 [`Errors.guidance`]: ../cosmic/errors.tl
 [`eval/summarize.tl`]: ../eval/summarize.tl
