@@ -184,6 +184,11 @@ end
 --- its scratch directory, which a portable cosmic it starts makes.
 local own_cores <const> = test_sandbox.scratch .. "/cores"
 
+--- Where a sandboxed worker has the files above the project, one at its
+--- relative path beneath: beside /tree, at a fixed name like it, so no
+--- key holds where the host keeps them.
+local parent_place <const> = "/tree-up"
+
 --- A sandboxed worker's environment: of `environment`, the runner's
 --- view of a worker's ([`build.test`]'s `worker_environment`), the pinned
 --- variables and those `effective` declares, and TMPDIR, set to its
@@ -193,6 +198,7 @@ function test_sandbox.environment(environment: {string:string},
   local out: {string:string} = {}
   for name in pairs(effective.env) do out[name] = environment[name] end
   out.COSMIC_TEST_NOEXEC = effective.noexec_ready and "/noexec" or nil
+  out.COSMIC_TEST_PARENT = #(effective.parent or {}) > 0 and parent_place or nil
   out.TMPDIR = test_sandbox.scratch
   out.COSMIC_BUILD_HOME = build_home
   -- The cores of its own a worker that declares the `bootstrap` cache
@@ -216,6 +222,7 @@ function test_sandbox.unenforced_view(environment: {string:string},
                                       effective: test_inputs.Effective): {string:string}
   local out = test_sandbox.environment(environment, effective)
   out.COSMIC_TEST_NOEXEC = nil
+  out.COSMIC_TEST_PARENT = nil
   if out.COSMIC_PORTABLE_CACHE == own_cores then
     out.COSMIC_PORTABLE_CACHE = environment.COSMIC_PORTABLE_CACHE
   end
@@ -225,11 +232,14 @@ end
 --- The environment such a worker is given: its key's
 --- ([`unenforced_view`]), but with TMPDIR `scratch`, its own scratch
 --- directory on the host, where the key names a sandbox's, and
---- COSMIC_BUILD_HOME beneath it, as [`unenforced_home`] makes it.
+--- COSMIC_BUILD_HOME beneath it, as [`unenforced_home`] makes it, and, for a
+--- module that declares files above the project, COSMIC_TEST_PARENT the
+--- directory above the project's `root`.
 function test_sandbox.unenforced_environment(environment: {string:string},
                                              effective: test_inputs.Effective,
-                                             scratch: string): {string:string}
+                                             scratch: string, root: string): {string:string}
   local out = test_sandbox.unenforced_view(environment, effective)
+  if #(effective.parent or {}) > 0 then out.COSMIC_TEST_PARENT = root .. "/.." end
   out.TMPDIR = scratch
   out.COSMIC_BUILD_HOME = scratch .. "/build"
   return out
@@ -544,6 +554,13 @@ function test_sandbox.plan(root: string, scratch: string, effective: test_inputs
       -- that declares the host's /proc is given there too.
       if plain ~= "/proc" then give(trimmed(path), nil, true) end
     end
+  end
+  -- Each file above the project, read-only at its relative path beneath
+  -- [`parent_place`]. A file the host lacks is none, as the test
+  -- finds ([`test_inputs.resolve`] fails its tests before it starts).
+  local above = test_inputs.parent_directory(root)
+  for _, relative in ipairs(effective.parent or {}) do
+    give(above .. "/" .. relative, parent_place .. "/" .. relative)
   end
   local writes: {string} = { scratch }
   at[scratch] = test_sandbox.scratch

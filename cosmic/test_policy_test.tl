@@ -86,6 +86,13 @@ local SAME: {{string}} = {
       '{ path = "a", letters = "r" }, { path = "/noexec", letters = "rwc" }, ' ..
       '{ path = "/cache/bootstrap", letters = "rwxc" }, ' ..
       '{ path = "o/cosmic.db", letters = "r" }, { path = "/etc/hosts", letters = "r" } } }' },
+  -- A file above the project root is a field, not a host read.
+  { '{ parent = { "bin/cosmic-bootstrap", ".github/workflows/ci.yml" } }',
+    'Test.policy { grants = { { path = "/parent/bin/cosmic-bootstrap", letters = "r" }, ' ..
+      '{ path = "/parent/.github/workflows/ci.yml", letters = "r" } } }' },
+  { '{ parent = { "a" }, host = { "/etc/hosts" }, reads = { "b" } }',
+    'Test.policy { grants = { { path = "/etc/hosts", letters = "r" }, ' ..
+      '{ path = "/parent/a", letters = "r" }, { path = "b", letters = "r" } } }' },
   -- A promise with no `needs` field changes no key before the filter runs.
   { "{ }", 'Test.policy { promises = { "fork", "jit", "fattr" }, tmp = true }' },
   { '{ reads = { "testdata" }, system = true, tool = true, nests = true, ' ..
@@ -186,6 +193,16 @@ local function test_a_policy_with_no_needs_is_refused()
       "test.policy: grants[1].letters takes letters of rwxcu, in that order" },
     { 'Test.policy { grants = { { letters = "r" } } }', "test.policy: grants[1].path takes a path" },
     { 'Test.policy { profiles = { "net" } }', "test.policy: profiles: no profile net" },
+    { 'Test.policy { grants = { { path = "/parent/a", letters = "rw" } } }',
+      "grants[1].path /parent/<file> is a file of the project root's parent directory" },
+    { 'Test.policy { grants = { { path = "/parent/a", letters = "r", from = "/e" } } }',
+      "grants[1].path /parent/<file> is a file" },
+    { 'Test.policy { grants = { { path = "/parent/", letters = "r" } } }', "names no file" },
+    { 'Test.policy { grants = { { path = "/parent/a/", letters = "r" } } }', 'ends in a "/"' },
+    { 'Test.policy { grants = { { path = "/parent/../a", letters = "r" } } }', 'has a ".." name' },
+    { 'Test.policy { grants = { { path = "/parent/a/./b", letters = "r" } } }', 'has a "." name' },
+    { 'Test.policy { grants = { { path = "/parent/a//b", letters = "r" } } }', "has an empty name" },
+    { 'Test.policy { grants = { { path = "/parent/$HOME", letters = "r" } } }', "holds a $" },
     { 'Test.policy { database = "x.db" }', "test.policy: database is refused" },
     { 'Test.policy { promises = { "exec" } }', "test.policy: promises: no promise exec" },
     { "Test.policy { reeds = {} }", "test.policy: has no field reeds; it has connect, database, env" },
@@ -221,6 +238,14 @@ local function test_a_policy_with_no_needs_is_refused()
       assert(why ~= "")
     end
   end
+end
+
+--- A path the module never declared is a mistake of the test, which
+--- `parent` raises for, whether or not a runner gives it a parent directory.
+local function test_parent_refuses_a_path_the_module_never_declared()
+  local ok, why = pcall(Test.parent, "bin/cosmic-bootstrap")
+  assert(not ok and tostring(why):find("parent(\"bin/cosmic-bootstrap\") is not declared", 1, true),
+    tostring(why))
 end
 
 --- A module declares its policy once, at the top level.

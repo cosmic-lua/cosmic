@@ -394,7 +394,7 @@ never by its path in the build directory.
    `bin/cosmic docs cosmic.test`), in the fields of cosmic.sandbox's
    `Policy`. The harness translates it into the `needs` it stands for,
    whose fields these paragraphs name (`reads`, `host`, `env`, `network`,
-   `system`, `tool`, `lua`, `nests`, `store`, `noexec`, `caches`): a grant
+   `system`, `tool`, `lua`, `nests`, `store`, `noexec`, `caches`, `parent`): a grant
    "r" of a path of the tree is a read and of an absolute path a host
    file, the profile "system" is `system`, "proc" is the host path /proc
    (the kernel's process information, read: [`Sandbox.profile`]'s gives
@@ -403,7 +403,15 @@ never by its path in the build directory.
    which gives and keys nothing), "cosmic" is `lua`, and `tool`
    with the grant `{ path = "o/bin", letters = "rx" }` beside it, the
    promise "nest" is `nests`, `loopback` is `network`, the grant
-   `{ path = "o/cosmic.db", letters = "r" }` is `store`; what has no
+   `{ path = "o/cosmic.db", letters = "r" }` is `store`, and the reserved
+   `{ path = "/parent/<file>", letters = "r" }` is `parent`: a file
+   relative to the project root's parent directory, for a project such as
+   `ci/` that lives in another's tree (a plain relative path of files:
+   no `.`, `..`, `$` or trailing "/"). The worker reads it at the path
+   `Test.parent("<file>")` returns, `/tree-up/<file>` sandboxed and
+   `<root>/../<file>` not; its key holds the relative path and the
+   contents, never where the tree is, and a file the host lacks fails the
+   module's tests. What has no
    `needs` (a grant to write, `isolate`, `limits`, `set_env`) is refused.
    `o/` in a grant names the build directory wherever it is, as a name of
    the policy language; a test reaches what is there by the path

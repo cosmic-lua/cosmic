@@ -934,6 +934,15 @@ function declared_key.preimage(digests: declared_key.Digests,
       lines[#lines + 1] = part("h", path, host(digests, path))
     end
   end
+  -- Each file above the project by its relative path and contents, never
+  -- by where the project is.
+  local above = test_inputs.parent_directory(digests.root)
+  local parents: {string} = {}
+  for _, relative in ipairs(effective.parent or {}) do parents[#parents + 1] = relative end
+  table.sort(parents)
+  for _, relative in ipairs(parents) do
+    lines[#lines + 1] = part("up", relative, host(digests, above .. "/" .. relative))
+  end
   if installed then lines[#lines + 1] = part("system", spec.system or "", "") end
   local names: {string} = {}
   for name in pairs(spec.environment) do names[#names + 1] = name end

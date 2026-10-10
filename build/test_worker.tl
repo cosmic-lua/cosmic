@@ -897,6 +897,9 @@ function worker.run(argv: {integer:string}): integer
     loaded = false,
     deliberate = function(reason: string) deliberate = reason end,
     handed = function(needs: Test.Needs) handed = needs end,
+    -- Where the files above the project are, for a module that declares
+    -- some ([`Test.parent`]).
+    parent = Env.get("COSMIC_TEST_PARENT"),
     skipped = function(reason: string): {string:string}
       local seen = false
       for _, given in ipairs(reasons) do

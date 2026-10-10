@@ -18,4 +18,13 @@ function Example.needs()
   print(user ~= nil)
 end
 
+--- A file of the directory above the project root is read at the path
+--- `parent` returns, for a file the policy grants as
+--- `{ path = "/parent/<file>", letters = "r" }`. It raises for one the
+--- module never declared.
+function Example.parent()
+  local ok, _ = pcall(Test.parent, "bin/zig")
+  print(ok) -- false
+end
+
 return Example
