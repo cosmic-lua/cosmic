@@ -1600,14 +1600,16 @@ local function policy_declared(data: PolicyData, line: integer): analyzer.Declar
   }
   local not_yet = " is not yet taken: a worker is held to, and a key made of, what a " ..
     "policy's paths, profiles and variables say, and nothing holds a test to this"
-  local bin, cosmic = false, false
+  local bin, cosmic, proc = false, false, false
   for _, profile in ipairs(data.profiles or {}) do
     if profile == "system" then
       out.system = true
     elseif profile == "cosmic" then
       cosmic = true
+    elseif profile == "proc" then
+      proc = true
     else
-      return nil, "profiles: no profile " .. profile .. "; the profiles are cosmic, system"
+      return nil, "profiles: no profile " .. profile .. "; the profiles are cosmic, proc, system"
     end
   end
   for i, grant in ipairs(data.grants or {}) do
@@ -1678,12 +1680,10 @@ local function policy_declared(data: PolicyData, line: integer): analyzer.Declar
     return nil, "connect is refused: no test reaches a host but loopback, whose answer no " ..
       "key holds; declare the addresses in loopback and start the service in the test"
   end
-  -- TODO: take `database` once a module's [`Test.policy`] may name a database
-  -- of its own, whose digest the key then holds (as cosmic/test.tl's
-  -- `needs_of` waits on): the harness gives every worker its own sealed
-  -- database already, which a module's cannot replace.
+  -- A limit decided for good, as cosmic/test.tl's `needs_of` says.
   if data.database ~= nil then
-    return nil, "database" .. not_yet .. "; a module cannot declare a database of its own yet"
+    return nil, "database is refused: every worker runs on the sealed database the " ..
+      "harness gives it, which a module cannot replace or add to"
   end
   if data.tmp == false then
     return nil, "tmp = false" .. not_yet .. "; every test has a temporary directory today"
@@ -1701,6 +1701,7 @@ local function policy_declared(data: PolicyData, line: integer): analyzer.Declar
     return nil, "grants: .path o/bin is the program's directory, granted only beside " ..
       "the profile \"cosmic\"; add the profile, or drop the grant"
   end
+  if proc then out.host[#out.host + 1] = "/proc" end
   out.tool, out.lua = cosmic and bin, cosmic and not bin
   if out.lua then
     local beside = out.store and "o/cosmic.db" or out.system and "system" or

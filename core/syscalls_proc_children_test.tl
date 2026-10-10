@@ -23,8 +23,7 @@ local function probe_in(tmp: string): string
   return (assert(stand_in.build(tmp .. "/probe")))
 end
 
-Test.policy{ grants = { { path = "/proc", letters = "r" } },
-  requires = { "path:/proc/thread-self/children" } }
+Test.policy{ profiles = { "proc" }, requires = { "path:/proc/thread-self/children" } }
 
 --- `children` lists the children of the thread that starts them, a
 --- child still running among them and gone once reaped; off Linux there

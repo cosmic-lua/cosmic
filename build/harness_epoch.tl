@@ -148,15 +148,15 @@ harness_epoch.acknowledged = {
 
   ["cosmic.project"] = "ac898dd16fd051e08c47be1dea7b86c8ea4159517e6fde765162a9f7d6678364",
 
-  ["cosmic.sandbox"] = "2bf478a77edffb4154f011535dc1e95f08259f8aff369ca675858cddf6f9eb63",
+  ["cosmic.sandbox"] = "73315b1ad7a3e0cdcd65b7bca5cdd3e101b96b5237d5c9cf0986001016280188",
 
-  ["cosmic.sandbox.policy"] = "7d17eb803602b3148338e4616c6284090e11953844d5a7af8a4cbd74dbaa9267",
+  ["cosmic.sandbox.policy"] = "f8c667221e669a59ca26aaafcd8454e89c6a015e80e6245d3db65e9a99df4338",
 
   ["cosmic.sqlite"] = "ac3fd16dd89251feaee572e4e4b1d29257037afeca3b5c9b141557f2ce732390",
 
   ["cosmic.string"] = "bf0e5e828de84f23aa818887e0280a3ebc844c9ca5e384c33227cb42715b8655",
 
-  ["cosmic.test"] = "26b2e860fad10109ece6e948c8f291ab6cdbc60c78a30b45bcc660b43cdc06b9",
+  ["cosmic.test"] = "e9131ba377d9a508c609e84f401a23e400a89419df882a142fd8e738ed0cdd95",
 
 }
 

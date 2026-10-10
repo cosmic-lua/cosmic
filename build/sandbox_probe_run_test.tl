@@ -6,8 +6,7 @@ local Test = require("cosmic.test")
 --- the system's paths (`system`). The parts it tries unveil a root of
 --- the shell's own (`nests`).
 Test.policy{
-  profiles = { "system" },
-  grants = { { path = "/proc", letters = "r" } },
+  profiles = { "system", "proc" },
   promises = { "nest" },
 }
 

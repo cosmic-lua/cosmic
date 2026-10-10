@@ -10,7 +10,7 @@
 ---   joins the letters of a path, unions the lists, and refuses two values
 ---   for one `set_env` name or one limit.
 --- - [`Sandbox.profile`] is what a named profile holds on this host:
----   "system" and "cosmic".
+---   "system", "cosmic" and "proc".
 --- - [`Sandbox.loaders`] is what a program needs read and run to start.
 --- - [`Sandbox.restrict`] holds the calling process, and what it starts,
 ---   to a policy for good.
@@ -147,11 +147,16 @@ end
 --- the first host's paths; "cosmic"
 --- grants `rx` on the path this program is started by ([`Proc.executable`]),
 --- which is its launcher where it has one: what [`Child.start`] runs as
---- this program's core, by a relaunch.
+--- this program's core, by a relaunch; "proc" is this process's view of
+--- the kernel's process information: `r` on /proc on Linux, and nothing
+--- on macOS, where sysctl answers with no file to grant, so a policy that
+--- names it reads the same on both.
 --- Nil and why for a name it has not, or one this host cannot give.
 ---
 ---     local system = assert(Sandbox.profile("system"))
 ---     print(system.grants[1].path, system.grants[1].letters) -- /usr  rx (Linux and macOS)
+---     local proc = assert(Sandbox.profile("proc"))
+---     print(#(proc.grants or {}) <= 1) -- true (/proc on Linux, none on macOS)
 function Sandbox.profile(name: string): Sandbox.Policy | nil, string
   return rules.profile(name)
 end

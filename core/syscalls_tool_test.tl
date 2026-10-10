@@ -17,10 +17,6 @@ local this_program = require("build.this_program")
 local stand_in = require("build.stand_in")
 local Clock = require("cosmic.clock")
 
--- TODO: declare /proc for Linux alone once a declaration can name a
--- host path per platform (a `host` entry for Linux and one for macOS):
--- macOS has no /proc, so there this declares a path that is not there,
--- which gives and keys nothing but says what the tests need wrongly.
 --- What these cases are tested on: /proc and the program itself, which
 --- they start only to run a chunk (`lua`); and `nests`, since the
 --- unveiling cases give a child a root of its own, which a worker held
@@ -28,8 +24,7 @@ local Clock = require("cosmic.clock")
 --- loopback, which the offline child's own `lo` answers, as a worker under a
 --- policy makes no inet socket without it.
 Test.policy{
-  profiles = { "cosmic" },
-  grants = { { path = "/proc", letters = "r" } },
+  profiles = { "cosmic", "proc" },
   promises = { "nest" },
   loopback = { "127.0.0.1" },
   requires = { "nest" },

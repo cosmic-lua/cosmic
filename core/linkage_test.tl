@@ -10,7 +10,7 @@ local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 
 --- /proc, where a process's own mappings are listed.
-Test.policy{ grants = { { path = "/proc", letters = "r" } } }
+Test.policy{ profiles = { "proc" } }
 
 --- The shared objects mapped into this process, by their paths in
 --- /proc/self/maps, each once, sorted.
