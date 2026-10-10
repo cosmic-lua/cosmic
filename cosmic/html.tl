@@ -37,14 +37,22 @@
 -- `cosmic.internal.` namespace -- see cosmic/store.tl for why this
 -- indirection exists.
 local type raw_html = require("cosmic.internal.html")
-local Json = require("cosmic.json")
+
+-- The raw JSON reader and writer, not [`cosmic.json`]: that module's types
+-- reach [`cosmic.stream`] and [`cosmic.string`], which every template that
+-- imports this module would then load to type-check. The store hands both
+-- raw values in one table (core/store.c's `raw_modules`).
+local type raw_json = require("cosmic.internal.json")
 
 local extra: any = select(2, ...)
 local raw: raw_html
+local json: raw_json
 if type(extra) == "table" then
   raw = extra as raw_html
+  json = extra as raw_json
 else
   raw = require("cosmic.internal.html")
+  json = require("cosmic.internal.json")
 end
 
 local record Html
@@ -214,16 +222,16 @@ end
 ---
 ---     Html.raw_json(assert(Html.json({ id = 7 }))) -- '{"id":7}'
 function Html.json(value: any): Html.SafeJson | nil, string
-  local text, why = Json.encode(value)
-  if text == nil then return nil, why end
+  local text, why = json.encode(value)
+  if text == nil then return nil, "json: " .. why end
   return raw.trust_json(text), ""
 end
 
 --- `text` as JSON text already encoded, if [`Json.check`] reads it.
 --- Answers `nil` and why otherwise.
 function Html.json_text(text: string): Html.SafeJson | nil, string
-  local ok, why = Json.check(text)
-  if not ok then return nil, why end
+  local ok, why = json.check(text)
+  if not ok then return nil, "json: " .. why end
   return raw.trust_json(text), ""
 end
 

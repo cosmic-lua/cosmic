@@ -328,6 +328,7 @@ local wrappers <const>: {string: string} = {
 --- modules they are handed, in the order `raw_modules` lists them.
 local merged <const>: {string: {string}} = {
   ["cosmic.internal.connector"] = { "process", "socket" },
+  ["cosmic.html"] = { "html", "json" },
 }
 
 --- The raw module a declaration names, as the running core registers it.
@@ -345,8 +346,24 @@ local function raw_module(name: string): any
   end
   assert(wrapper ~= nil, "cosmic/internal/" .. name .. ".d.tl declares a module " ..
       "this test does not know how to reach")
-  return (assert(raw_behind(wrapper), wrapper .. " is handed no raw value " ..
-      "(require it with `local type` at the top so it is in the closure)"))
+  local raw = assert(raw_behind(wrapper), wrapper .. " is handed no raw value " ..
+      "(require it with `local type` at the top so it is in the closure)")
+  local joined = merged[wrapper]
+  if joined == nil then return raw end
+  -- The wrapper is handed the fields of all its raw modules in one
+  -- table: leave this one's own, the fields of no other.
+  local own: {string: any} = {}
+  for key, value in pairs(raw as {string: any}) do -- cast: a raw value is a table of fields
+    own[key] = value
+  end
+  for _, other in ipairs(joined) do
+    if other ~= name then
+      for key in pairs(raw_module(other) as {string: any}) do -- cast: as above
+        own[key] = nil
+      end
+    end
+  end
+  return own
 end
 
 --- The raw modules whose declaration the build derives from a header

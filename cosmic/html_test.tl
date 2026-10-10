@@ -12,8 +12,6 @@ local work = require("build.work")
 -- A fixture reads the `cosmic.*` modules it requires out of the store,
 -- which holds a test to its import closure.
 local type _html = require("cosmic.html")
-local type _json = require("cosmic.json")
-local type _stream = require("cosmic.stream")
 
 local built, load_trouble = teal.load()
 if built == nil then
