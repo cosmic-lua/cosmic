@@ -145,6 +145,7 @@ local REFUSALS <const>: {{string}} = {
   { "<svg><br><textarea>{{.x}}", "2", "20", "differently" },
   { "<svg><font size=1><textarea>{{.x}}", "2", "29", "differently" },
   { "<select><svg><textarea>{{.x}}", "2", "24", "differently" },
+  { "<frameset><title></title>{{.x}}", "2", "26", "differently" },
   { "<math><svg></math><textarea>{{.x}}", "2", "29", "differently" },
   { "<svg><math></svg><textarea>{{.x}}", "2", "28", "differently" },
   { "<svg></math><textarea>{{.x}}", "2", "23", "differently" },
@@ -578,6 +579,68 @@ local function test_text_in_runs_is_read_as_it_is_whole()
       '<svg><style></sty{{if .a}}{{end}}le></svg>{{.x}}', '<math><script></scr{{"ipt>"}}</math>{{.x}}' }) do
     assert(compiled(HEAD .. src):find("_text(v)", 1, true), src)
   end
+end
+
+--- `src` cut at every byte of its literal text, with `{{.x}}` its one slot:
+--- by a block that emits nothing, and by that byte written as a string action.
+local function cuts(src: string): {string}
+  local at = src:find("{{.x}}", 1, true)
+  local out: {string} = { src }
+  for i = 1, #src do
+    if i < at or i >= at + #"{{.x}}" then
+      local byte = src:sub(i, i):gsub('[\\"]', "\\%0")
+      out[#out + 1] = src:sub(1, i - 1) .. "{{if .a}}{{end}}" .. src:sub(i)
+      out[#out + 1] = src:sub(1, i - 1) .. '{{"' .. byte .. '"}}' .. src:sub(i + 1)
+    end
+  end
+  return out
+end
+
+-- A parser in the classic "in select" mode ignores a start tag of raw text
+-- or RCDATA other than `<script>` and `<textarea>`, and one in "in frameset"
+-- every one but `<noframes>`, and reads the markup inside as tags; a newer
+-- one opens the element. A `<template>` in a select hides a `</select>` from
+-- the classic parser, which is in select again after `</template>`. A slot
+-- after such a tag is refused, as is one in the same text cut into runs.
+local function test_raw_text_in_select_or_frameset_is_refused()
+  local wrong: {string} = {}
+  for _, src in ipairs({
+      '<select><title><option onclick="{{.x}}"></title></select>',
+      '<select><title><script>{{.x}}</script></title></select>',
+      '<select><style><option style="</style>{{.x}}">',
+      '<select><noscript><option title="</noscript>{{.x}}">',
+      '<select><xmp></xmp></select>{{.x}}',
+      '<html><head></head><frameset><title><frame src="about:blank" onload="{{.x}}"></title></frameset>',
+      '<frameset><textarea></textarea>{{.x}}',
+      '<frameset><script></script>{{.x}}',
+      '<select><template></select></template><title><option onclick="{{.x}}"></title>',
+      '<select><template><div><select></select></template><title><option onclick="{{.x}}"></title>',
+      '<select><template></select></template><style><option onclick="</style>{{.x}}">',
+  }) do
+    for _, cut in ipairs(cuts(src)) do
+      local out = Template.compile(HEAD .. cut, "t.tmpl")
+      if out ~= nil then
+        wrong[#wrong + 1] = cut
+      end
+    end
+  end
+  assert(#wrong == 0, "compiled:\n" .. table.concat(wrong, "\n"))
+end
+
+local function test_raw_text_the_select_mode_reads_still_takes_a_slot()
+  for _, src in ipairs({
+      '<select><option>{{.x}}</option></select>',
+      '<select><textarea>{{.x}}</textarea></select>',
+      '<select><script></script><option>{{.x}}</option></select>',
+      '<select></select><title>{{.x}}</title>',
+      '<select><option>a</option></select><style>p</style>{{.x}}',
+  }) do
+    for _, cut in ipairs(cuts(src)) do
+      local out = compiled(HEAD .. cut)
+      assert(out:find("_rtext(v)", 1, true) or out:find("_text(v)", 1, true), cut)
+    end
+  end
+  assert(refused(HEAD .. "<frameset><frame src=\"a\"></frameset>"):find("inside <frameset>", 1, true))
 end
 
 local function test_a_block_may_add_a_whole_attribute_wherever_it_stands_in_a_tag()
