@@ -132,7 +132,7 @@ urlencoded form, JSON and multipart decoding are `cosmic.web.input`'s
 (`Input.query(req)`, `Input.form(req)`, `Input.json(req)`,
 `Input.multipart(req)`; input.md sections 1 and 2), which keeps the
 request type free of a dependency on the decoder. They share the decoder
-`Url.decode_query` (input.md section 1, 13.5 here) and cache their results
+[`Url.decode_query`] (input.md section 1, 13.5 here) and cache their results
 under exported keys (`Input.QUERY`, `Input.FORM`, `Input.JSON`, 2.3), so a
 middleware and the handler share one decode. Rules that bind the core:
 
@@ -626,7 +626,7 @@ urlencoded form fields are all strings. Typed routes therefore bind through
 `cosmic.web.input`'s spec-directed binder (input.md section 3), not through
 a coercion pass of their own:
 
-- Path: the matched `params` become a `Url.Query` (names are unique) and go
+- Path: the matched `params` become a [`Url.Query`] (names are unique) and go
   through `Input.bind_strings(q, spec, { source = "path" })`, so path, query and
   form coerce by one set of rules (input.md section 3, "Coercion rules").
 - Query: `Input.query_into(req, spec)`; urlencoded form body:
@@ -1162,7 +1162,7 @@ Order of work (each a PR, tests included):
 1. Server/Wire/Url prerequisites (13).
 2. Spike: typed route generics across `Input<P,Q,B>`.
 3. Response constructors, header helpers (`Web.add_header`); the query/form
-   decoder is `Url.decode_query` from step 1.
+   decoder is [`Url.decode_query`] from step 1.
 4. Router: parse, trie, match, 404/405, HEAD/OPTIONS, reverse, mounts,
    canonical path, redirects; fuzz.
 5. Request, middleware composition, exception layer, App, serve, lifespan.
@@ -1252,10 +1252,10 @@ server-wide `body_bytes` to the largest route limit.
 ### 13.5 Query/form decoding in cosmic.url
 
 Land the doc/roadmap.md:243-247 item as input.md section 1 specifies it:
-`Url.decode_query(text, opts?)` returning a `Url.Query` (ordered pairs and
+`Url.decode_query(text, opts?)` returning a [`Url.Query`] (ordered pairs and
 values by name), `+` as space, `%XX` decoded, a malformed escape or more
 than `max_pairs` refused (`lenient` is an option no cosmic.web caller sets),
-with `Url.encode_query` and the accessors. `cosmic.web.input` wraps it for
+with [`Url.encode_query`] and the accessors. `cosmic.web.input` wraps it for
 both the query and the urlencoded body. If this lands slowly,
 `cosmic/web/input.tl` carries a private copy with a TODO "once cosmic.url
 has decode_query".
@@ -1370,8 +1370,11 @@ close, and a raise in it reaches `on_error` without stopping the drain.
 [`Stream.open`]: ../../../cosmic/stream.tl
 [`Stream.Reader`]: ../../../cosmic/stream.tl
 [`Stream.transform`]: ../../../cosmic/stream.tl
+[`Url.decode_query`]: ../../../cosmic/url.tl
+[`Url.encode_query`]: ../../../cosmic/url.tl
 [`Url.escape`]: ../../../cosmic/url.tl
 [`Url.parse`]: ../../../cosmic/url.tl
+[`Url.Query`]: ../../../cosmic/url.tl
 [`Url.segments`]: ../../../cosmic/url.tl
 [`wire.check`]: ../../../cosmic/http/wire.tl
 [`wire.Reply.headers`]: ../../../cosmic/http/wire.tl
