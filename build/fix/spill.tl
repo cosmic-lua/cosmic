@@ -46,7 +46,7 @@ local record spill
 end
 
 spill.message = "assert(...) passes on every value it was given, not only " ..
-  "the first; write (assert(...)) to keep only the first"
+  "the first; write (assert(...)) to keep only the first (`cosmic fix` writes the parentheses)"
 
 --- The sites a build's refusal names, read off its diagnostics: every
 --- `<file>:<line>:<column>: <spill.message>` line.
