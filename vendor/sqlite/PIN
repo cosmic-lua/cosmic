@@ -1,7 +1,7 @@
-version 3.53.4
-url https://www.sqlite.org/2026/sqlite-amalgamation-3530400.zip
-sha256 1e71ddf93849c6a6ecf58b827c0692073d2dd7ee40196158068f7b29f422e87d
-strip sqlite-amalgamation-3530400/
+version 3.54.0
+url https://www.sqlite.org/2026/sqlite-amalgamation-3540000.zip
+sha256 68e913b0fe8ec6b4e5f391c594a28872884e80d6cd042a1e50c957be46b5aa4d
+strip sqlite-amalgamation-3540000/
 keep sqlite3.c
 keep sqlite3.h
 license blessing
