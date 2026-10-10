@@ -163,6 +163,13 @@ end
 
 --- Where `root`'s build directory is, or nil and why: a location whose
 --- `none` says why there is none where that is no configuration to fix.
+--- [`cosmic.project`]'s `directory` names the same and refuses the same,
+--- which build/paths_test.tl holds them to.
+-- TODO: answer the location from cosmic.project (its `directory`, with
+-- what is left of `none` and `cache` told apart there), and drop `named`,
+-- `trusted`'s check of a base and this copy of the rules, once
+-- ci/cosmic-driver.pin names a release that carries cosmic.project:
+-- bin/zig and bin/cosmic run this file standalone on that release.
 local function location(root: string, environment?: {string:string}): Location | nil, string
   if root == "" then return nil, "project root is empty" end
   local canonical, root_trouble = realpath(root)

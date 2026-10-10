@@ -68,9 +68,9 @@ end
 --- of its own, is given this path. The driver sets COSMIC_BUILD_HOME in
 --- its workers, and has the project's build directory beneath it, named
 --- as build/paths.tl's `in_home` names it.
--- TODO: ask build.paths for the directory, rather than spell its key,
--- once a project's module can require it: the driver carries it, but its
--- compiler finds no module of that name for this project.
+-- TODO: ask cosmic.project's `directory` for the build directory of ".",
+-- rather than spell its key, once ci/cosmic-driver.pin names a release
+-- that carries cosmic.project: the fixtures run on the driver that names.
 function Fixture.placed(kind: string): string
   local home = Fixture.required("COSMIC_BUILD_HOME")
   local root = assert(sys.realpath("."))
@@ -93,8 +93,9 @@ end
 --- The build directory of the project at `project` that this fixture's
 --- children build in ([`builds_beneath`]), named as build/paths.tl's
 --- `in_home` names it, as [`placed`] does.
--- TODO: ask build.paths for the directory, rather than spell its key,
--- once a project's module can require it, as for [`placed`].
+-- TODO: ask cosmic.project's `directory` for it, under COSMIC_BUILD_HOME
+-- `build_home`, rather than spell its key, once ci/cosmic-driver.pin
+-- names a release that carries cosmic.project, as for [`placed`].
 function Fixture.built(project: string): string
   local home = assert(build_home, "Fixture.built: call Fixture.builds_beneath first")
   return home .. "/" .. Hash.hex_sha256((assert(sys.realpath(project))))
