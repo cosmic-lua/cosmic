@@ -409,8 +409,7 @@ For a request whose relative path is `/css/app.3f9a1c8e2b.css`:
    was for the mount root: 404, or `index.html` when `html`.
 4. Reject (404) any segment that begins with `.` (dotfiles) and any
    `rel` over 255 bytes. Both are already impossible in an embedded
-   source; in directory mode they stop a request for a file in a
-   `.git` directory.
+   source; in directory mode they stop `/.git/config`.
 5. Look up `rel` in the source. If found, it is a plain-name request.
    If not found, try the fingerprint form (section 3.4). If neither, call
    the app's `not_found` or answer 404.

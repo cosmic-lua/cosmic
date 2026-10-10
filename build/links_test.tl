@@ -891,6 +891,30 @@ local function rewritten(context: link_resolve.Context, path: string, kind: stri
   return out.source, out.linked
 end
 
+--- A path through a `.git` is git's own metadata, not a file of the
+--- project: in a git worktree `.git` is a file, so such a link would
+--- resolve in one checkout and not another. It is refused wherever it
+--- is, and a code span naming it stays as written.
+local function test_a_path_through_git_metadata_is_never_a_file_of_the_tree()
+  local context = world({
+    ["/p/.git/config"] = "",
+    ["/p/vendor/lib/.git/HEAD"] = "",
+    ["/p/.gitignore"] = "",
+    ["/p/.github/x.yml"] = "",
+    ["/p/foo.git/x"] = "",
+  })
+  same(checked(context, "/p/doc/a.md", "markdown",
+    "[c](../.git/config) [h](/vendor/lib/.git/HEAD) [i](../.gitignore) [g](../.github/x.yml) " ..
+      "[f](../foo.git/x)\n"), {
+        "/p/doc/a.md:1: link: ../.git/config does not resolve (it is under .git, git's own metadata)",
+        "/p/doc/a.md:1: link: /vendor/lib/.git/HEAD does not resolve (it is under .git, git's own metadata)",
+      })
+  local source = "A server stops `/.git/config` and `vendor/lib/.git/HEAD`.\n"
+  local out, linked = rewritten(context, "/p/doc/a.md", "markdown", source)
+  assert(out == source, out)
+  assert(#linked == 0, table.concat(linked, ", "))
+end
+
 --- The world the rewriting tests share: a symbol declared in a file of
 --- the tree, a name two symbols answer, a file, and a directory.
 local function linking_world(): link_resolve.Context

@@ -47,4 +47,20 @@ function Example.parse()
   print(why) -- url: the URL holds a space at byte 22; escape a path segment or query value with Url.escape
 end
 
+--- A search form's fields read off a query string: `+` is a space, a name
+--- sent twice keeps both values in order, and a bad escape is a failure
+--- for the caller to answer with a 400.
+function Example.query()
+  local q = assert(Url.decode_query("q=hello+world&tag=a&tag=b%2Bc&page=2"))
+  assert(Url.query_first(q, "q") == "hello world")
+  assert(table.concat(Url.query_all(q, "tag"), ",") == "a,b+c")
+  assert(Url.query_last(q, "page") == "2")
+  local text = Url.encode_query({ { name = "q", value = "a&b c" }, { name = "page", value = "2" } })
+  print(text) -- q=a%26b+c&page=2
+  assert(text == "q=a%26b+c&page=2", text)
+  local bad, why = Url.decode_query("q=100%")
+  assert(bad == nil)
+  print(why) -- url: '%' at byte 6 is not followed by two hex digits
+end
+
 return Example
