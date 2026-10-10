@@ -14,6 +14,10 @@ defines the target; once something ships, it leaves this file.
   about seventy `as` casts to migrate or justify first. old's
   `3p/tl/tl_patch/cast.tl` and `docs/design/cast-legality.md` are useful
   implementation and migration evidence.
+- add `: never` to Teal as a flag on a function type, so a helper that only
+  raises (and [`Proc.exit`]) narrows below a guard as `error` does:
+  [doc/plans/teal-never.md](plans/teal-never.md) has the design and the
+  patch series.
 - add earned lint rules and their fixes to [`build/fix/rule.tl`]'s rule list.
   the rewrite stage is in place and the list is still empty.
 - add a floor for line coverage, C included: `cosmic test --min PCT
@@ -395,6 +399,7 @@ four-producer provenance join.
 [`eval/summarize.tl`]: ../eval/summarize.tl
 [`Json.decode`]: ../cosmic/json.tl
 [`Net.serve`]: ../cosmic/net.tl
+[`Proc.exit`]: ../cosmic/proc.tl
 [`receivers.record_named`]: ../build/receivers.tl
 [`Sandbox.Limits`]: ../cosmic/sandbox/init.tl
 [`Sandbox.Policy`]: ../cosmic/sandbox/init.tl
