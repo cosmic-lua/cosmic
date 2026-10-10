@@ -595,19 +595,120 @@ local function test_text_in_runs_is_read_as_it_is_whole()
   end
 end
 
+--- Templates whose `<noscript>` text a browser with scripting off reads as
+--- markup that puts the slot after `</noscript>` somewhere other than text:
+--- in `<style>`, `<xmp>`, `<textarea>`, `<plaintext>` or a comment, or in
+--- an attribute value.
+local NOSCRIPT_MARKUP <const>: {string} = {
+  "<noscript><style></noscript>{{.x}}</style>",
+  "<noscript><STYLE></noscript>{{.x}}</style>",
+  "<noscript><xmp></noscript>{{.x}}",
+  "<noscript><textarea></noscript>{{.x}}",
+  "<noscript><plaintext></noscript>{{.x}}",
+  "<noscript><!--</noscript>{{.x}}-->",
+  "<noscript><p title=\"</noscript>{{.x}}\">",
+  "<noscript><img src=x onerror=\"</noscript>{{.x}}\">",
+  "<noscript></p title=\"</noscript>{{.x}}\">",
+  "<noscript><svg><style><p title=\"</style></noscript>{{.x}}\">",
+  -- With scripting off the frameset pops the noscript, and the classic
+  -- "in frameset" mode then ignores `<title>`.
+  "<noscript><frameset></noscript><title><frame onload=\"{{.x}}\"></title>",
+  -- An arm that leaves the scripting-off reading in a tag where the text
+  -- after it reads differently, joined with an arm that does not.
+  "<noscript>{{if .a}}<a>{{else}}<a{{if .b}} style{{end}}=\"{{if .c}}{{end}}>{{end}}</noscript>{{.x}}\">",
+  "<noscript>{{with .a}}<a>{{else}}<a{{if .b}} style{{end}}=\"{{if .c}}{{end}}>{{end}}</noscript>{{.x}}\">",
+  "<noscript>{{range .l}}<a>{{else}}<a{{if .b}} style{{end}}=\"{{if .c}}{{end}}>{{end}}</noscript>{{.x}}\">",
+  "<noscript>{{if .a}}{{else}}<a{{if .b}} style{{end}}=\"{{if .c}}{{end}}>{{end}}</noscript>{{.x}}\">",
+  "<noscript>{{if .a}}<a>{{else}}<a{{if .b}} style{{end}}=\"{{\"\"}}>{{end}}</noscript>{{.x}}\">",
+  "<noscript><a{{if .b}} style{{end}}=\"{{\"\"}}></noscript>{{.x}}\">",
+  "<noscript><a{{if .b}} style{{end}}=\"></noscript>{{.x}}\">",
+}
+
 --- `src` cut at every byte of its literal text, with `{{.x}}` its one slot:
---- by a block that emits nothing, and by that byte written as a string action.
+--- by a block that emits nothing, and by that byte written as a string
+--- action. No cut goes beside a brace of the literal text, which would run
+--- into an action's own.
 local function cuts(src: string): {string}
-  local at = src:find("{{.x}}", 1, true)
+  local literal: {boolean} = {}
+  local at = 1
+  while at <= #src do
+    local open, close = src:find("{{.-}}", at)
+    for i = at, (open or #src + 1) - 1 do
+      literal[i] = not src:sub(i, i):find("[{}]")
+    end
+    at = (close or #src) + 1
+  end
   local out: {string} = { src }
   for i = 1, #src do
-    if i < at or i >= at + #"{{.x}}" then
+    if literal[i] and literal[i - 1] ~= false and literal[i + 1] ~= false then
       local byte = src:sub(i, i):gsub('[\\"]', "\\%0")
-      out[#out + 1] = src:sub(1, i - 1) .. "{{if .a}}{{end}}" .. src:sub(i)
+      out[#out + 1] = src:sub(1, i - 1) .. "{{if .cut}}{{end}}" .. src:sub(i)
       out[#out + 1] = src:sub(1, i - 1) .. '{{"' .. byte .. '"}}' .. src:sub(i + 1)
     end
   end
   return out
+end
+
+local function test_markup_in_noscript_that_scripting_off_reads_differently_refuses_a_later_slot()
+  local wrong: {string} = {}
+  for _, src in ipairs(NOSCRIPT_MARKUP) do
+    for _, cut in ipairs(cuts(src)) do
+      local out, why = Template.compile(HEAD .. cut, "t.tmpl")
+      if out ~= nil or not (why:find("differently", 1, true) or why:find("the arms", 1, true)) then
+        wrong[#wrong + 1] = cut .. ": " .. tostring(why)
+      end
+    end
+  end
+  assert(#wrong == 0, table.concat(wrong, "\n"))
+  local why = refused(HEAD .. "<noscript>{{if .a}}<p title=\"{{end}}</noscript>{{.x}}\">")
+  assert(why:find("arms", 1, true), why)
+end
+
+--- Templates whose `<noscript>` text a browser with scripting off reads as
+--- markup that ends in plain text, so the slot after it stands in text
+--- either way.
+local NOSCRIPT_PLAIN <const>: {string} = {
+  "<noscript>Turn on JavaScript.</noscript>{{.x}}",
+  "<noscript>a < b, 1 <2 & 3> 2</noscript><p>{{.x}}</p>",
+  "<noscript><</noscript>{{.x}}",
+  "<noscript><p>Turn on <b>JavaScript</b>.</p></noscript>{{.x}}",
+  "<noscript><img height=\"1\" style=\"display:none\" src=\"/tr?id=1&amp;ev=view\"/></noscript>{{.x}}",
+  "<noscript><iframe src=\"/ns.html?id=1\" height=\"0\" width=\"0\"></iframe></noscript>{{.x}}",
+  "<noscript><style>.js { display: none }</style></noscript>{{.x}}",
+  "<noscript><link rel=\"stylesheet\" href=\"/no-js.css\"></noscript>{{.x}}",
+  "<noscript><!-- no script --></noscript>{{.x}}",
+  "<noscript><svg><path d=\"M0 0\"/></svg></noscript>{{.x}}",
+  "<p>{{.x}}</p><noscript><p>Turn on JavaScript.</p></noscript>",
+}
+
+local function test_markup_in_noscript_that_ends_in_text_keeps_the_slots_after_it()
+  local wrong: {string} = {}
+  for _, src in ipairs(NOSCRIPT_PLAIN) do
+    for _, cut in ipairs(cuts(src)) do
+      local out, why = Template.compile(HEAD .. cut, "t.tmpl")
+      if out == nil or not out:find("_text(v)", 1, true) then
+        wrong[#wrong + 1] = cut .. ": " .. tostring(why)
+      end
+    end
+  end
+  assert(#wrong == 0, table.concat(wrong, "\n"))
+  for _, src in ipairs({
+      "<noscript>{{if .a}}<p>On</p>{{else}}<b>Off</b>{{end}}</noscript>{{.x}}",
+      "<noscript>{{if .a}}Turn on JS{{end}}</noscript>{{.x}}",
+      "<noscript>{{if .a}}<p>On</p>{{end}}</noscript>{{.x}}",
+      "<noscript>{{range .l}}<p>x</p>{{end}}</noscript>{{.x}}",
+      "<noscript><input{{if .a}} checked{{end}}></noscript>{{.x}}",
+      "<noscript><input{{if .a}} checked{{end}} name=\"n\"></noscript>{{.x}}",
+  }) do
+    assert(compiled(HEAD .. src):find("_text(v)", 1, true), src)
+  end
+  -- Arms that leave the scripting-off reading apart up to `</noscript>`.
+  for _, src in ipairs({
+      "<noscript><input{{if .a}} checked{{end}}</noscript>{{.x}}",
+      "<noscript><input{{if .a}} chec{{end}}ked></noscript>{{.x}}",
+  }) do
+    refused(HEAD .. src)
+  end
 end
 
 -- A parser in the classic "in select" mode ignores a start tag of raw text
