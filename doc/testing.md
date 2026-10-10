@@ -61,7 +61,9 @@ moved path.
 ## declaring inputs
 
 A module declares what its tests read with one top-level
-`Test.policy { ... }` ([`Test.policy`]).
+`Test.policy { ... }` ([`Test.policy`]). Its fields are those of
+[`cosmic.sandbox`]'s `Policy`: `profiles`, `grants`, `env`, `promises`,
+`loopback` and `requires`. The harness takes only some of the rest (below).
 
 ```text
 local Test = require("cosmic.test")
@@ -85,8 +87,10 @@ The rules:
   test that starts a host program (a shell, `sleep`, a compiler, the
   `#!/bin/sh` launcher, [`bin/cosmic`]) needs it. A test that only reads a
   file or two of the system names them as absolute grants.
-- A grant or field that the harness does not take yet is refused: the
-  build fails and names it.
+- The harness refuses a field it has no key for, and the build fails
+  naming it: a grant to write, run or connect to, `isolate`, `limits`,
+  `set_env`, `set_env_digests`, `connect`, `database`, `tmp = false`,
+  `user` and `group`. [`Test.policy`]'s doc lists them.
 - Narrow a test before declaring a large set.
 
 The key holds no file times, inode, device, link count or owner. They
@@ -118,6 +122,15 @@ refuses a module of the tree outside the closure.
   the program and nothing else.
 - To run Lua in the program only (`-e`), the profile `"cosmic"` alone
   is enough (`lua`). Its key holds the closure, not the whole program.
+  It is refused beside the profile `"system"`, the `o/cosmic.db` store
+  grant or a `/cache/` grant, since a host program or a cosmic a cache
+  holds could start the program with no hold on what it loads. Declare
+  the `o/bin` grant beside the profile instead, to run the program
+  itself.
+- A test that starts cosmic's core past the launcher uses
+  [`build.this_program`]'s `program` and needs no `"system"` profile.
+  Build a child's environment from its `environment()` only where the
+  test means to choose it.
 - To read the tree's projection or rows of modules outside the closure,
   grant `{ path = "o/cosmic.db", letters = "r" }` (`store`). A test that
   does so runs again on every edit to the tree. Put it in a module of
@@ -160,6 +173,9 @@ Test.policy {
   requires = { "program:jq" },
 }
 ```
+
+Only what the module writes is required. Nothing is inferred from its
+promises or grants.
 
 The names come from the closed table in [`build.host_names`]. The
 table says what each means. Read it before writing one. An unknown name
@@ -279,8 +295,7 @@ table in the build directory's `build.db`, and run with
 and `stood` counts with the elapsed time. [`doc/performance.md`] covers
 the repository's own timing fixtures, not this recipe.
 
-`bin/cosmic db` names the databases by their paths. `bin/cosmic sql
---build` is read-only, so it can check the row count but not delete.
+`bin/cosmic db` names the databases by their paths.
 
 ## changing the harness
 
@@ -342,9 +357,11 @@ Other rules:
 [`build.sandboxed_verdicts_test`]: ../build/sandboxed_verdicts_test.tl
 [`build.test_sandbox_probe`]: ../build/test_sandbox_probe.tl
 [`build.test_sandbox`]: ../build/test_sandbox.tl
+[`build.this_program`]: ../build/this_program.tl
 [`build.tree_checks`]: ../build/tree_checks.tl
 [`ci.cosmic_ci.capabilities`]: ../ci/cosmic_ci/capabilities.tl
 [`cosmic.layout`]: ../cosmic/layout.tl
+[`cosmic.sandbox`]: ../cosmic/sandbox/init.tl
 [`doc/performance.md`]: performance.md
 [`Fuzz.label`]: ../build/fuzz/init.tl
 [`Fuzz.more`]: ../build/fuzz/init.tl

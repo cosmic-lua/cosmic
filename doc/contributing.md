@@ -19,7 +19,8 @@ conflict with the parent's squash.
    comment and example by what it does (`cosmic docs find program path`
    answers [`Proc.find`]). open PRs may carry it too.
 2. cut one branch per PR, named for the change, fresh from
-   `origin/main`. never reuse a branch whose PR has merged or closed.
+   `origin/main`. never reuse a branch whose PR has merged or closed, even one a
+   session was started on or told to push to.
 3. give it a worktree of its own:
 
    ```text
@@ -44,7 +45,7 @@ conflict with the parent's squash.
   fixtures), and the C checklist in [`AGENTS.md`].
 - a change to a harness module can alter what a pass or fail means:
   see "changing the harness" in [`doc/testing.md`].
-- a documentation-only edit needs no rebuild or test run, but still
+- a documentation-only edit needs no test run, but still
   `bin/cosmic fix` on the doc. comments follow [`doc/writing.md`].
 
 ## review
@@ -76,7 +77,8 @@ removed lines in `git diff origin/main...HEAD | grep '^-.*TODO:'`.
 ## open the PR
 
 - if main has moved, `git fetch origin` and `git merge origin/main`,
-  re-run the checks, and review again if the merge conflicted. CI on a
+  re-run the checks and the TODO listing, and review again if the
+  merge conflicted. CI on a
   branch cut from an old main can fail on what main has since fixed.
 - `git push -u origin <branch>`.
 - title it `area: summary`.

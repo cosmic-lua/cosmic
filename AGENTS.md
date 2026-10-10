@@ -92,20 +92,19 @@ build), `bin/cosmic todos <paths>`.
   host are unchanged since it last passed is not run again, and checkouts
   share passing verdicts. `--all` runs everything.
 - A test declares what it reads in a top-level `Test.policy { ... }`
-  ([`Test.policy`]). Sandboxed (the Linux default), an undeclared read
-  finds nothing and the test fails with its own error: declare it. A test
-  must not depend on the tree's path, file times, inodes, owners or the
-  network beyond declared loopback.
+  ([`Test.policy`]); an undeclared read fails sandboxed.
 - A test that cannot check its subject on this host declares `requires`
-  ([`build/host_names.tl`] holds the names) or calls `Test.skip(reason)`;
-  it never returns early. A new `requires` name also goes in each leg that
-  promises it in [`ci/cosmic_ci/capabilities.tl`]. A test must call
-  `assert`, or its pass is listed as `NO ASSERT` and keeps no verdict.
-- Treat a timeout as a failure to investigate; do not silently raise the
-  limit. A parser of untrusted bytes gets a `*_fuzz_test.tl` driving
-  [`build.fuzz`]'s `run`. A change to a harness module
-  ([`build/harness_epoch.tl`] lists them) needs the epoch handling in the
-  last section of [`doc/testing.md`].
+  ([`build/host_names.tl`] holds the names) or calls `Test.skip(reason)`, never returns early. Add a new `requires`
+  name to the list of each leg that should run it in
+  [`ci/cosmic_ci/capabilities.tl`], in the same change: `fix --check .`
+  fails a name no leg promises.
+- A test calls `assert`, or its pass is listed as `NO ASSERT`.
+- A parser of untrusted bytes gets a `*_fuzz_test.tl` driving
+  [`build.fuzz`]'s `run`.
+- A timeout is a failure to investigate; do not silently raise the limit.
+  A change to a harness module
+  ([`build/harness_epoch.tl`] lists them) needs the epoch handling in the last
+  section of [`doc/testing.md`].
 
 ## ci
 
