@@ -751,6 +751,8 @@ local function test_a_never_function_narrows_below_its_guard(tmp: string)
     ["method"] = { "local record Guard\n   die: function(self: Guard, why: string): never\nend\n" ..
         "local g: Guard = { die = function(_self: Guard, why: string): never error(why) end }\n", 'g:die("no")' },
     ["generic"] = { "local function fail<T>(m: T): never error(m) end\n", 'fail("no")' },
+    ["instantiated"] = { "local function id<T>(f: T): T return f end\n" ..
+        "local function raise(m: string): never error(m) end\nlocal fail = id(raise)\n", 'fail("no")' },
     ["global-function"] = { "global function fail(m: string): never error(m) end\n", 'fail("no")' },
     ["recursion"] = { "local function fail(m: string): never fail(m) end\n", 'fail("no")' },
     ["poly-all-never"] = { "local record P\n   f: function(string): never\n   f: function(integer): never\nend\n" ..
@@ -771,7 +773,6 @@ end
 --- (poly), an `if` without an `else` around it, a `pcall` of it, the
 --- iterator of a `for` and the metamethod of an operator.
 local function test_what_does_not_end_a_block_keeps_its_guard_open(tmp: string)
-  local wrap_nv = "local function nv(): never coroutine.yield() error('x') end\n"
   local cases: {string:{string}} = {
     ["control"] = { "local function fail(m: string) error(m) end\n", 'fail("no")' },
     ["poly-chosen-returns"] = { "local record P\n   f: function(string): never\n   f: function(integer): string\nend\n" ..
@@ -780,26 +781,6 @@ local function test_what_does_not_end_a_block_keeps_its_guard_open(tmp: string)
       'if print then fail("no") end' },
     ["pcall"] = { "local function fail(m: string): never error(m) end\n", 'pcall(fail, "no")' },
     ["iterator"] = { "local function fail(): never error('x') end\n", 'for _ in fail do end' },
-    -- A call through `__call` ends no block: a metatable's function is
-    -- attached at run time and never checked against the declaration.
-    ["call-metamethod"] = { "local record C\n   metamethod __call: function(self: C): never\nend\n" ..
-        "local mt = { __call = function(_s: any) end }\nlocal c: C = setmetatable({}, mt)\n", 'c()' },
-    -- `never` survives only where a declaration writes it: a type variable
-    -- bound to a never-function drops it, so every way to reach
-    -- `coroutine.wrap` (which answers a function that returns) is closed.
-    ["generic-over-never"] = { "local function fail(m: string): never error(m) end\n" ..
-        "local function id<F>(f: F): F return f end\nlocal g = id(fail)\n", 'g("no")' },
-    ["wrap-applied"] = { wrap_nv .. "local function ap<F>(g: function(F): F, f: F): F return g(f) end\n" ..
-        "local g = ap(coroutine.wrap, nv)\n", 'g()' },
-    ["wrap-field"] = { wrap_nv .. "local record R\n   w: function<F>(F): F\nend\n" ..
-        "local r: R = { w = coroutine.wrap }\nlocal g = r.w(nv)\n", 'g()' },
-    ["wrap-parameter"] = { wrap_nv .. "local function use(w: function<F>(F): F): function()\n   return w(nv)\nend\n" ..
-        "local g = use(coroutine.wrap)\n", 'g()' },
-    ["wrap-through-id"] = { wrap_nv .. "local function id<F>(f: F): F return f end\n" ..
-        "local g = id(coroutine.wrap)(nv)\n", 'g()' },
-    ["wrap-constant"] = { wrap_nv .. "local cw <const> = coroutine.wrap\nlocal g = cw(nv)\n", 'g()' },
-    ["wrap"] = { "local function nv(m: string): never coroutine.yield(1) error(m) end\n" ..
-        "local co = coroutine.wrap(nv)\n", 'co("a")' },
     ["operator"] = { "local record V\n   metamethod __add: function(a: V, b: V): never\nend\n" ..
         "local v: V\n", 'local _ = v + v' },
   }
@@ -807,5 +788,25 @@ local function test_what_does_not_end_a_block_keeps_its_guard_open(tmp: string)
     local ok, trouble = try_build(tmp, "never-open-" .. name, case[1] .. never_guard:format(case[2]))
     assert(not ok and trouble:find("cannot index key 'len'", 1, true) ~= nil,
       name .. ": the guard must stay open, but: " .. tostring(trouble))
+  end
+end
+
+--- Holes Teal has for every type, which a never-function falls into as a
+--- `string` does (doc/plans/teal-never.md lists them, and doc/roadmap.md
+--- the soundness item): `coroutine.wrap` is declared `F -> F` although its
+--- wrapper returns whatever the coroutine yields, and a metatable's
+--- `__call` is attached at run time and checked against nothing. Never is
+--- exactly as sound as Teal's other types, so both are accepted. When they
+--- are closed this test fails, and the case moves to a refusal.
+local function test_never_falls_into_the_holes_every_type_has(tmp: string)
+  local cases: {string:{string}} = {
+    ["wrap"] = { "local function nv(): never coroutine.yield() error('x') end\n" ..
+        "local co = coroutine.wrap(nv)\n", 'co()' },
+    ["setmetatable-call"] = { "local record C\n   metamethod __call: function(self: C): never\nend\n" ..
+        "local mt = { __call = function(_s: any) end }\nlocal c: C = setmetatable({}, mt)\n", 'c()' },
+  }
+  for name, case in pairs(cases) do
+    local ok, trouble = try_build(tmp, "inherited-" .. name, case[1] .. never_guard:format(case[2]))
+    assert(ok, name .. ": a hole Teal has for every type should stay open, but: " .. tostring(trouble))
   end
 end

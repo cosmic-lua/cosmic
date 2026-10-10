@@ -1228,35 +1228,45 @@ local function test_a_fixed_type_parameter_is_told_to_bind_in_a_local()
   assert(teal.replacement("argument 2: got R, expected S", "", 1, 1) == nil)
 end
 
---- A type variable bound to a function type that never returns is bound to
---- it without the flag (patch/tl's 40e7), so `coroutine.wrap(f)`, which is
---- declared to answer the type of `f` but returns to its caller whenever the
---- coroutine yields, never answers a never-function, however it is reached:
---- directly, by a generic, a field or a parameter that holds it, or by a
---- signature that asks for a never-function (refused). An ordinary function
---- keeps its type.
-local function test_a_wrapped_never_function_may_return()
+--- `coroutine.wrap` is declared `F -> F`, which is wrong for any type
+--- (its wrapper returns whatever the coroutine yields), so a wrapped
+--- never-function is typed never, as a wrapped function returning a string
+--- is typed to return one whatever it yields. Never is exactly as sound as
+--- Teal's other types: the plan lists this among the holes every type has,
+--- and this pins that the compiler accepts it today.
+local function test_coroutine_wrap_forges_a_never_function_as_it_forges_any_type()
   local wrapped = "local function nv(): never\n  coroutine.yield(1)\n  error('x')\nend\n"
-  assert_accepted(wrapped .. "local c: function() = coroutine.wrap(nv)\nprint(c)\n")
-  assert_refused(wrapped .. "local c: function(): never = coroutine.wrap(nv)\nprint(c)\n", "may return, where")
+  assert_accepted(wrapped .. "local c: function(): never = coroutine.wrap(nv)\nprint(c)\n")
+  local never_signature = "function(function(): never): function(): never"
+  assert_accepted(wrapped .. "local w: " .. never_signature .. " = coroutine.wrap\nprint(w)\n")
   assert_accepted("local w = coroutine.wrap(function(a: integer): integer return a end)\n" ..
       "local n: integer = w(1)\nprint(n)\n")
-  local never_signature = "function(function(): never): function(): never"
-  assert_refused(wrapped .. "local w: " .. never_signature .. " = coroutine.wrap\nprint(w)\n",
-    "does not stand for one that never returns")
-  assert_refused(wrapped .. "local record R\n  w: " .. never_signature .. "\nend\n" ..
-      "local r: R = { w = coroutine.wrap }\nprint(r)\n", "does not stand for one that never returns")
-  assert_refused(wrapped .. "local function use(w: " .. never_signature .. "): function(): never\n" ..
-      "  return w(nv)\nend\nprint(use(coroutine.wrap))\n", "does not stand for one that never returns")
 end
 
---- A generic over a never-function answers it without the flag (40e7), and
---- `pcall(fail)` still compiles.
-local function test_a_generic_over_a_never_function_loses_never()
-  assert_accepted(never_fail .. "local function id<F>(f: F): F return f end\n" ..
-      "local g: function(string) = id(fail)\nprint(g, pcall(fail, 'x'))\n")
-  assert_refused(never_fail .. "local function id<F>(f: F): F return f end\n" ..
-      "local g: function(string): never = id(fail)\nprint(g)\n", "may return, where")
+--- A generic that writes a value into a container of never-functions
+--- refuses a function that may return, since the type variable binds the
+--- never-function type with its flag: `put<T>(t: {T}, v: T)`, `table.insert`
+--- and `table.remove` on `{function(): never}`, a map, a record's field
+--- read as a map, a copy of the array, and a generic record.
+local function test_a_generic_cannot_write_a_returning_function_into_a_never_container()
+  local head = "local function nv(): never error('x') end\nlocal function ret() end\nprint(nv, ret)\n"
+  for _, body in ipairs({
+      "local a: {function(): never} = { nv }\ntable.insert(a, 1, ret)\n",
+      "local a: {function(): never} = { nv }\ntable.insert(a, ret)\n",
+      "local a: {function(): never} = { nv, nv }\nlocal function put<T>(t: {T}, v: T) t[1] = v end\nput(a, ret)\n",
+      "local a: {string:function(): never} = { k = nv }\n" ..
+        "local function put<T>(t: {string:T}, v: T) t.k = v end\nput(a, ret)\n",
+      "local a: {function(): never} = { nv }\nlocal function cp<T>(x: {T}): {T} return x end\n" ..
+        "local b = cp(a)\nb[1] = ret\n",
+      "local record R<T> f: T end\nlocal r: R<function(): never> = { f = nv }\n" ..
+        "local function swap<T>(x: R<T>, v: T) x.f = v end\nswap(r, ret)\n",
+      "local record R die: function(): never end\nlocal r: R = { die = nv }\n" ..
+        "local function setk<K,V>(t: {K:V}, k: K, v: V) t[k] = v end\nsetk(r, 'die', ret)\n",
+      "local record R f: function(): never end\nlocal r: R = { f = nv }\n" ..
+        "local function put<T>(t: {string:T}, v: T) t.f = v end\nput(r, ret)\n",
+  }) do
+    assert_refused(head .. body, "may return, where")
+  end
 end
 
 --- A macroexp field declared `never` is held to the rule of a macroexp: its
