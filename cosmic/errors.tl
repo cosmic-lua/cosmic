@@ -124,6 +124,15 @@ end
 --- guidance on the row it shares them with. [`Errors.guidance`] asks each
 --- database the store holds in turn.
 function Errors.guidance_in(handle: Sqlite.Handle, message: string): string | nil
+  -- TODO: a message Lua itself wrote shares two ordinary words with some
+  -- doc comment and is shown that one's guidance, which has nothing to do
+  -- with the failure: `print(t.path .. "x")` with `t` a `{string:string}`
+  -- (`attempt to concatenate a nil value (field 'path')`) is shown
+  -- `next_record`, and `module 'x' not found: ... no module 'x' in the
+  -- store` is shown `locate`. Return nil here for a message whose first line is one of
+  -- Lua's own `attempt to ...` or `module '...' not found` and leave
+  -- [`Errors.hint`] to answer those; the catalog is for the messages cosmic's
+  -- own code raises.
   local query = catalog_query(message)
   if query == nil then
     return nil
@@ -202,8 +211,23 @@ end
 
 --- The call stack as text, with `message` at the top when one is given.
 --- `level` says how many frames to skip; 1, the default, is the caller.
+-- TODO: `level` counts this wrapper's own frame, so the default 1 starts
+-- at `trace` and not at its caller, as cosmic/test.tl's level 4 (one more
+-- than the frames it means to skip) compensates. Pass `level + 1` to the
+-- binding and drop the compensation there once no caller depends on it.
 function Errors.trace(message?: string, level?: integer): string
   return errors.trace(message, level or 1)
+end
+
+--- The call stack of coroutine `co` as text, from its top, with
+--- `message` at the top when one is given. For a coroutine that raised,
+--- it is where it raised, which `coroutine.resume` does not say (it
+--- answers only the error) and which stays until the coroutine is
+--- closed. One that returned, or was closed, has no frames: the text is
+--- just `stack traceback:`. For the running coroutine the first frame is
+--- [`trace_of`] itself, the caller's next.
+function Errors.trace_of(co: thread, message?: string): string
+  return errors.trace_of(co, message)
 end
 
 return Errors

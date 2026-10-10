@@ -22,6 +22,22 @@ function Example.trace()
   assert(text:find("traceback", 1, true) ~= nil, text)
 end
 
+--- Where a coroutine stopped when it raised: `coroutine.resume` answers
+--- the error alone, and the stack it was raised from is read before the
+--- coroutine is closed.
+function Example.trace_of()
+  local function fail_deep()
+    error("disk full")
+  end
+  local worker = coroutine.create(function() fail_deep() end)
+  local ok, err = coroutine.resume(worker)
+  assert(not ok)
+  local text = Errors.trace_of(worker, tostring(err))
+  print(text)
+  assert(text:find("disk full", 1, true) ~= nil, text)
+  assert(text:find("fail_deep", 1, true) ~= nil, text)
+end
+
 --- What cosmic prints beneath an error nothing caught: the doc comment
 --- of the function the message came from, found in the error catalog by
 --- the words the two share.
