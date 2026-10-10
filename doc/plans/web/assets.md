@@ -789,8 +789,8 @@ It is the one place that touches the scheduler; everything else in this
 file is ordinary Lua above it. The interface is in the source
 (`bin/cosmic docs Poll.Notifier`); in short:
 
-- `wait(timeout_ns?)`: true once a notice came, false and `Poll.TIMEOUT` or
-  `Poll.CANCELLED` otherwise; waiters are woken longest first.
+- `wait(timeout_ns?)`: true once a notice came, false and [`Poll.TIMEOUT`] or
+  [`Poll.CANCELLED`] otherwise; waiters are woken longest first.
 - `notify_one()` wakes the longest waiter, `notify_all()` every task
   waiting now; both are no-ops when none waits and never wait, so a
   `<close>` handler may call them (the woken tasks run on the next turn).
@@ -1594,6 +1594,7 @@ parts, multi-process hub.
 [`Net.Conn`]: ../../../cosmic/net.tl
 [`Net.connect`]: ../../../cosmic/net.tl
 [`Net.serve`]: ../../../cosmic/net.tl
+[`Poll.CANCELLED`]: ../../../cosmic/poll.tl
 [`Poll.delay`]: ../../../cosmic/poll.tl
 [`Poll.notifier()`]: ../../../cosmic/poll.tl
 [`Poll.run`]: ../../../cosmic/poll.tl
