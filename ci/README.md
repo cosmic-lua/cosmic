@@ -674,6 +674,13 @@ nothing is saved, so every main run builds vendor/ cold until one
 passes assemble or the nightly saves; a branch stays warm through the
 restore of another vendor part.
 
+A run of main or the queue that restored an entry of its own vendor and
+core part still grew it by tens of megabytes. Such a run marks the cache
+right after the restore and lists, before the prune, the runner's CPU and
+what the build wrote since (`.github/scripts/zig-build-writes.sh`, the
+step "list what the build wrote to the zig build cache"), for the `TODO:`
+on the restore in ci.yml.
+
 actions/cache archives with `tar -C $GITHUB_WORKSPACE` and a path
 relative to it (`../../_temp/...`), which names nothing through the
 link `place-tree` leaves were the tree more than one directory deep.
