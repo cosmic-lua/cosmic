@@ -1,0 +1,17 @@
+file: tl.tl
+note: the literal under a context that never returns is a function that never returns, and is refused if it can reach its end, as one declared so is (43g3). Its omitted returns are the context's, none
+--- find
+               if required > 0 and not body_ends(body) then
+                  self.errs:add(node, "missing return: this function can reach its end, where %s is expected of it: return a value there, or declare its return types", rets)
+               end
+            end
+--- replace
+               if node.context_never then
+                  if not body_ends(body) then
+                     self.errs:add(node, "missing never: this function can reach its end, where a function that never returns is expected of it: end it with a call that never returns, or declare its return types")
+                  end
+               elseif required > 0 and not body_ends(body) then
+                  self.errs:add(node, "missing return: this function can reach its end, where %s is expected of it: return a value there, or declare its return types", rets)
+               end
+            end
+--- end

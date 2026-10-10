@@ -996,6 +996,265 @@ local function test_other_missing_comma_errors_get_no_vararg_hint()
   assert(syntax_hint("f(...x)\n") == nil)
 end
 
+--- Everything the parser and the checker refuse in `source`, each as
+--- "line:column message".
+local function refusals(source: string): {string}
+  local built = assert(teal.load(true))
+  local ok, code, result = pcall(built.gen, source, nil, nil, "tl")
+  assert(ok, tostring(code))
+  local out: {string} = {}
+  for _, e in ipairs(assert(result).syntax_errors) do
+    out[#out + 1] = e.y .. ":" .. e.x .. " " .. e.msg
+  end
+  for _, e in ipairs(result.type_errors) do
+    out[#out + 1] = e.y .. ":" .. e.x .. " " .. e.msg
+  end
+  return out
+end
+
+local function assert_accepted(source: string)
+  local found = refusals(source)
+  assert(#found == 0, source .. table.concat(found, "; "))
+end
+
+local function assert_refused(source: string, text: string)
+  local found = refusals(source)
+  assert(found[1] ~= nil and found[1]:find(text, 1, true) ~= nil,
+    source .. "refused as: " .. (found[1] or "accepted"))
+end
+
+--- `: never` is a return list that says a function does not return
+--- (patch/tl's 43b3): it parses on a declaration, a method, a function
+--- type and a function-typed parameter that another follows, and the
+--- Lua it generates is the Lua of the same function without it.
+local function test_never_is_a_return_list()
+  assert_accepted("local record Guard\n  die: function(self: Guard, why: string): never\nend\n" ..
+      "function Guard:die(why: string): never\n  error(why)\nend\n" ..
+      "local function run(f: function(): never, x: integer): integer\n  f()\n  return x\nend\n" ..
+      "local h: function(): never = function(): never error('x') end\nprint(run, h)\n")
+  local built = assert(teal.load(true))
+  local with = assert(built.gen("local function fail(m: string): never\n  error(m)\nend\nfail('x')\n",
+    nil, nil, "tl"))
+  local without = assert(built.gen("local function fail(m: string)\n  error(m)\nend\nfail('x')\n",
+    nil, nil, "tl"))
+  assert(with == without, with)
+end
+
+--- `never` is the flag only as the whole of an unparenthesized return
+--- list: in a list, in parentheses, in a union, as a vararg, as a
+--- parameter or in a container it is a name no type has (43b3).
+local function test_never_is_only_the_whole_return_list()
+  assert_refused("local function f(): never, string error('x') end\nprint(f)\n",
+    "'never' is the whole return list")
+  for _, source in ipairs({
+      "local function f(): (never) error('x') end\nprint(f)\n",
+      "local function f(): never | nil error('x') end\nprint(f)\n",
+      "local function f(): never... error('x') end\nprint(f)\n",
+      "local function f(x: never) print(x) end\nprint(f)\n",
+      "local x: {never}\nprint(x)\n",
+      "local x: {string: never}\nprint(x)\n",
+  }) do
+    assert_refused(source, "unknown type never")
+  end
+  -- A `,` before a parameter ends the list, as it ends any return list.
+  assert_accepted("local function f(cb: function(): never, n?: string) print(cb, n) end\n" ..
+      "local function g(cb: function(): never, ...: any) print(cb) end\nprint(f, g)\n")
+end
+
+--- `never.x` and `never<T>` are names that start a longer type, not the
+--- flag, so they are read as the nominal type they spell.
+local function test_never_followed_by_a_dot_or_arguments_is_a_name()
+  assert_refused("local function f(): never.x end\nprint(f)\n", "unknown type never.x")
+  assert_refused("local function f(): never<integer> end\nprint(f)\n", "unknown type never<integer>")
+  assert(#syntax_errors("local function f(): never.x end\nlocal function g(): never<integer> end\n") == 0)
+end
+
+--- No type is named `never`: a declaration of one would have `: never`
+--- silently mean something else (43c1). Another name that starts with
+--- the word is a type like any.
+local function test_no_type_is_named_never()
+  for _, source in ipairs({
+      "local record never\n  x: integer\nend\n",
+      "global record never\n  x: integer\nend\n",
+      "local interface never\n  x: integer\nend\n",
+      "local enum never\n  \"a\"\nend\n",
+      "local type never = integer\n",
+      "global type never = integer\n",
+      "local record R\n  record never\n    x: integer\n  end\nend\n",
+      "local record R\n  type never = integer\nend\n",
+      "local function f<never>(x: never): never return x end\n",
+      "local record Box<never>\n  v: never\nend\n",
+  }) do
+    assert_refused(source, "a type cannot be named 'never'")
+  end
+  assert_accepted("local record nevermore\n  x: integer\nend\nlocal type never_ = integer\n" ..
+      "local n: nevermore = { x = 1 }\nprint(n)\n")
+end
+
+local never_fail = "local function fail(m: string): never\n  error(m)\nend\n"
+
+--- A function that never returns stands for a function of any returns
+--- (patch/tl's 43e2), `pcall`'s parameter among them; one that may return
+--- does not stand for one that never does, which would make `f("x")` end
+--- a block that `print` returns from.
+local function test_a_never_function_is_a_subtype_of_any_function()
+  assert_accepted(never_fail .. "local g: function(string) = fail\n" ..
+      "local h: function(string): integer = fail\nprint(pcall(fail, 'x'))\nprint(g, h)\n")
+  assert_refused("local f: function(): never = print\nprint(f)\n", "may return, where")
+  assert_refused(never_fail .. "local f: function(string): never = fail\n" ..
+      "local g: function(string) = print\nf = g\n", "may return, where")
+end
+
+--- Two function types are the same type only when both or neither
+--- never return (43e3): a record function is held to its field, which
+--- must say `: never` as the function does, and the reverse.
+local function test_a_record_function_agrees_with_its_field_on_never()
+  local record_with_field = "local record Guard\n  die: function(why: string)%s\nend\n"
+  assert_refused(record_with_field:format("") ..
+      "function Guard.die(why: string): never error(why) end\n", "which differ in whether the function never returns")
+  assert_refused(record_with_field:format(": never") ..
+      "function Guard.die(why: string) print(why) end\n", "which differ in whether the function never returns")
+  assert_accepted(record_with_field:format(": never") ..
+      "function Guard.die(why: string): never error(why) end\nprint(Guard)\n")
+end
+
+--- An overloaded function stands for one that never returns only when
+--- every overload does (43e4); the overload a call picks decides
+--- whether the call ends a block (43f1).
+local function test_a_poly_function_is_never_only_when_every_overload_is()
+  local poly = "local record P\n  f: function(string): never\n  f: function(%s)%s\nend\nlocal p: P\n"
+  assert_accepted(poly:format("integer", ": never") .. "local g: function(any): never = p.f\nprint(g)\n")
+  assert_refused(poly:format("integer", ": string") .. "local g: function(string): never = p.f\nprint(g)\n",
+    "polymorphic function with an overload that may return")
+end
+
+--- A type nested in another keeps its never-ness: a function that never
+--- returns does not stand for one that may inside an array, a map, a
+--- record, a union, an alias or a generic's type argument, as a
+--- parameter or as a return, in either direction (43e5). Teal compares
+--- what is nested through is_a in whichever direction passes, so
+--- without this `{function(): never}` stood for `{function(): string}`.
+local function test_never_agrees_when_nested()
+  local prelude = "local record Box<X>\n  v: X\nend\n" ..
+    "local record RecN\n  f: function(): never\nend\nlocal record RecS\n  f: function(): string\nend\n" ..
+    "local type AliasN = {function(): never}\nlocal type AliasS = {function(): string}\n"
+  local kinds: {string:{string}} = {
+    array = { "{function(): never}", "{function(): string}" },
+    map = { "{string:function(): never}", "{string:function(): string}" },
+    union = { "nil | function(): never", "nil | function(): string" },
+    alias = { "AliasN", "AliasS" },
+    generic = { "Box<function(): never>", "Box<function(): string>" },
+    record = { "RecN", "RecS" },
+  }
+  local seen = 0
+  for _, pair in pairs(kinds) do
+    for _, place in ipairs({ "param", "return" }) do
+      local function declared(t: string): string
+        return place == "param" and "function(p: " .. t .. ")" or "function(): " .. t
+      end
+      for _, direction in ipairs({ { 1, 2 }, { 2, 1 } }) do
+        local source = prelude .. "local a: " .. declared(pair[direction[1]]) ..
+          "\nlocal b: " .. declared(pair[direction[2]]) .. "\nb = a\nprint(a, b)\n"
+        assert_refused(source, "which differ in whether the function never returns, inside another type")
+        seen = seen + 1
+      end
+      for i = 1, 2 do
+        assert_accepted(prelude .. "local a: " .. declared(pair[i]) .. "\nlocal b: " ..
+            declared(pair[i]) .. "\nb = a\nprint(a, b)\n")
+      end
+    end
+  end
+  assert(seen == 24, tostring(seen))
+end
+
+--- A parameter that is itself a never-function compares with the callback
+--- a function expects: the forward direction forges too (a function taking
+--- a never-callback stands for one taking a callback that returns).
+local function test_never_agrees_in_a_callback_parameter()
+  assert_refused("local a: function(cb: function(): never)\n" ..
+      "local b: function(cb: function(): string)\nb = a\n",
+    "got function(): never, expected function(): string, which differ in whether")
+  assert_refused("local a: function(cb: function(): string)\n" ..
+      "local b: function(cb: function(): never)\nb = a\n", "which differ in whether the function never returns, inside another type")
+end
+
+--- `as` and `is` give any target type unchecked, so one that contains a
+--- never-function forges the guarantee: `print as function(): never`, `is`
+--- on an `any`, and a record whose field is one (`q as P`, with `P.die`
+--- never and `Q.die` returning). The hole is accepted until doc/roadmap.md's
+--- cast policy closes it for `as` and `is` alike; this pins what the
+--- compiler does today.
+local function test_as_and_is_forge_a_never_function()
+  assert_accepted("local function f(v: any): integer\n  if v is function(): never then\n" ..
+      "    v()\n  end\n  return 1\nend\nprint(f)\n")
+  assert_accepted("local v = print as function(): never\nprint(v)\n")
+  local records = "local record P\n  die: function(): never\nend\n" ..
+    "local record Q\n  die: function()\nend\n"
+  assert_accepted(records .. "local function f(q: Q): P\n  local p: P = q as P\n  return p\nend\nprint(f)\n")
+  assert_accepted(records .. "local function f(v: any): integer\n  if v is P then\n" ..
+      "    v.die()\n  end\n  return 1\nend\nprint(f)\n")
+end
+
+--- A function declared `: never` contains no `return`, not even a bare
+--- one, and must not reach its end: its last statement ends the block
+--- (43g). A closure inside has its own returns.
+local function test_a_never_function_neither_returns_nor_reaches_its_end()
+  assert_refused("local function f(m: string): never\n  if m == '' then return end\n  error(m)\nend\n",
+    "cannot return")
+  assert_refused("local function f(): never\n  return 1\nend\n", "cannot return")
+  assert_refused("local function f(m: string): never\n  print(m)\nend\n", "can reach its end")
+  assert_refused("local function f(n: integer): never\n  if n > 1 then error('a') end\nend\n",
+    "can reach its end")
+  assert_refused("local function f(): never\n  while true do break end\nend\n", "can reach its end")
+  assert_refused("local record R\nend\nfunction R.f(): never\n  print('x')\nend\n", "can reach its end")
+  assert_accepted("local function a(): never\n  error('x')\nend\n" ..
+      "local function b(): never\n  while true do end\nend\n" ..
+      "local function c(): never\n  c()\nend\n" ..
+      "local function d(): never\n  repeat until false\nend\n" ..
+      "local function e(n: integer): never\n  if n > 1 then error('a') else error('b') end\nend\n" ..
+      "local function g(): never\n  do error('x') end\nend\n" ..
+      "local function h(m: string): never\n  local k = function(): integer return 1 end\n" ..
+      "  print(k())\n  error(m)\nend\nprint(a, b, c, d, e, g, h)\n")
+  -- the type inside its own body carries the flag, and so does a method's
+  assert_accepted("local record R\n  die: function(self: R): never\nend\n" ..
+      "function R:die(): never\n  self:die()\nend\nprint(R)\n")
+end
+
+--- A function literal that omits its return list takes `never` from its
+--- context as it takes the returns (43h): it must not return and must not
+--- reach its end, and its type never returns. The seam shape:
+--- `sys.exit = function(_?: integer) refuse("sys.exit") end`.
+local function test_a_literal_takes_never_from_its_context()
+  local seam = "local record Seam\n  exit: function(status?: integer)%s\nend\n"
+  local refuse = "local function refuse(m: string): never error(m) end\n"
+  assert_accepted(seam:format(": never") .. refuse ..
+      "local s: Seam = { exit = function(_?: integer) refuse('exit') end }\n" ..
+      "s.exit = function(_?: integer) error('y') end\nprint(s)\n")
+  assert_refused(seam:format(": never") ..
+      "local s: Seam = { exit = function(_?: integer) print('x') end }\n", "missing never")
+  assert_refused(seam:format(": never") ..
+      "local s: Seam = { exit = function(_?: integer) return end }\n", "cannot return")
+  -- A context that may return asks nothing of the literal.
+  assert_accepted(seam:format("") .. "local s: Seam = { exit = function(_?: integer) print('x') end }\nprint(s)\n")
+end
+
+--- A macroexp declared `: never` must be a call that never returns, which
+--- replaces the call of it (43g3).
+local function test_a_never_macroexp_is_a_never_call()
+  assert_accepted("local macroexp die(m: string): never return error(m) end\ndie('x')\n")
+  assert_refused("local macroexp die(m: string): never return m end\n", "its expression is no call")
+  assert_refused("local macroexp die(m: string): never return (error(m)) end\n", "its expression is no call")
+end
+
+--- The standard `error` never returns (patch/tl's 44a): it stands for a
+--- never-function, and a variable holding it keeps that.
+local function test_error_is_a_never_function()
+  assert_accepted("local e: function(string): never = error\nlocal f = error\nprint(e, f)\n")
+  assert_accepted("print(pcall(error, 'x'))\nlocal g: function(any) = error\nprint(g)\n")
+  assert_refused("local f = error\nf = print\n", "may return, where")
+  assert(#syntax_errors("local g: function(string): never = error\n") == 0)
+end
+
 --- A record's method refused against an interface method with an unnamed
 --- receiver is told to name the receiver `self`.
 local function test_an_unnamed_interface_receiver_is_told_to_name_self()
@@ -1017,6 +1276,89 @@ local function test_a_fixed_type_parameter_is_told_to_bind_in_a_local()
     tostring(hint))
   assert(teal.replacement("argument 2: type parameter <T>: got R, expected R | nil", "", 1, 1) ~= nil)
   assert(teal.replacement("argument 2: got R, expected S", "", 1, 1) == nil)
+end
+
+--- `coroutine.wrap` is declared `F -> F`, which is wrong for any type
+--- (its wrapper returns whatever the coroutine yields), so a wrapped
+--- never-function is typed never, as a wrapped function returning a string
+--- is typed to return one whatever it yields. Never is exactly as sound as
+--- Teal's other types: the plan lists this among the holes every type has,
+--- and this pins that the compiler accepts it today.
+local function test_coroutine_wrap_forges_a_never_function_as_it_forges_any_type()
+  local wrapped = "local function nv(): never\n  coroutine.yield(1)\n  error('x')\nend\n"
+  assert_accepted(wrapped .. "local c: function(): never = coroutine.wrap(nv)\nprint(c)\n")
+  local never_signature = "function(function(): never): function(): never"
+  assert_accepted(wrapped .. "local w: " .. never_signature .. " = coroutine.wrap\nprint(w)\n")
+  assert_accepted("local w = coroutine.wrap(function(a: integer): integer return a end)\n" ..
+      "local n: integer = w(1)\nprint(n)\n")
+end
+
+--- A generic that writes a value into a container of never-functions
+--- refuses a function that may return, since the type variable binds the
+--- never-function type with its flag: `put<T>(t: {T}, v: T)`, `table.insert`
+--- and `table.remove` on `{function(): never}`, a map, a record's field
+--- read as a map, a copy of the array, and a generic record, with the
+--- value or the container first, nested twice, and as a callback's parameter.
+local function test_a_generic_cannot_write_a_returning_function_into_a_never_container()
+  local head = "local function nv(): never error('x') end\nlocal function ret() end\nprint(nv, ret)\n"
+  for _, body in ipairs({
+      "local a: {function(): never} = { nv }\ntable.insert(a, 1, ret)\n",
+      "local a: {function(): never} = { nv }\ntable.insert(a, ret)\n",
+      "local a: {function(): never} = { nv, nv }\nlocal function put<T>(t: {T}, v: T) t[1] = v end\nput(a, ret)\n",
+      "local a: {string:function(): never} = { k = nv }\n" ..
+        "local function put<T>(t: {string:T}, v: T) t.k = v end\nput(a, ret)\n",
+      "local a: {function(): never} = { nv }\nlocal function cp<T>(x: {T}): {T} return x end\n" ..
+        "local b = cp(a)\nb[1] = ret\n",
+      "local record R<T> f: T end\nlocal r: R<function(): never> = { f = nv }\n" ..
+        "local function swap<T>(x: R<T>, v: T) x.f = v end\nswap(r, ret)\n",
+      "local record R die: function(): never end\nlocal r: R = { die = nv }\n" ..
+        "local function setk<K,V>(t: {K:V}, k: K, v: V) t[k] = v end\nsetk(r, 'die', ret)\n",
+      "local record R f: function(): never end\nlocal r: R = { f = nv }\n" ..
+        "local function put<T>(t: {string:T}, v: T) t.f = v end\nput(r, ret)\n",
+      -- the value first: T is bound by a returning function before the container
+      "local function put3<T>(v: T, t: {T}) t[1] = v end\nlocal u = { nv }\nput3(ret, u)\n",
+      "local function mput<K, V>(v: V, m: {K: V}, k: K) m[k] = v end\n" ..
+        "local m: {string: function(): never} = { a = nv }\nmput(ret, m, 'a')\n",
+      "local t: {function(): never} = { nv }\nlocal u = { ret }\ntable.move(u, 1, 1, 1, t)\n",
+      "local function nest<T>(v: T, r: {{T}}) r[1][1] = v end\n" ..
+        "local r: {{function(): never}} = {{ nv }}\nnest(ret, r)\n",
+      "local function cb<T>(v: T, f: function(T)) f(v) end\n" ..
+        "cb(ret, function(g: function(): never) print(g) end)\n",
+  }) do
+    local found = refusals(head .. body)
+    -- A container's own comparison drops the reason and reports the two
+    -- types (`got {function(): never}, expected {T}`), so they name never.
+    assert(found[1] ~= nil and found[1]:find("function(): never", 1, true) ~= nil,
+      body .. "refused as: " .. (found[1] or "accepted"))
+  end
+end
+
+--- A macroexp field declared `never` is held to the rule of a macroexp: its
+--- expression must be a call that never returns (43g3).
+local function test_a_never_macroexp_field_is_a_never_call()
+  local record_with = "local record Guard\n  die: function(why: string): never = macroexp(why: string): never\n" ..
+    "    return %s\n  end\nend\nprint(Guard)\n"
+  assert_accepted(record_with:format("error(why)"))
+  assert_refused(record_with:format("why"), "its expression is no call that never returns")
+end
+
+--- `function(): never | nil` is a function returning the unknown type `never | nil`;
+--- the hint says how to write a function that never returns, or nil.
+local function test_never_or_nil_is_told_to_name_the_function_type()
+  local hint = teal.replacement("unknown type never", "local f: function(): never | nil\n", 1, 21)
+  assert(hint ~= nil and hint:find("local type Fail = function(): never", 1, true) ~= nil, tostring(hint))
+  assert_accepted("local type Fail = function(): never\nlocal f: Fail | nil\nprint(f)\n")
+end
+
+--- A poly value stands for a function type when some overload is a subtype
+--- of it (patch/tl's 43e6): `string -> nothing` overloads do not stand for a
+--- function that returns a string, which the row used to accept by asking
+--- for the reverse.
+local function test_a_poly_function_stands_for_what_an_overload_stands_for()
+  local poly = "local record P\n  f: function(string)\n  f: function(integer)\nend\nlocal p: P\n"
+  assert_accepted(poly .. "local g: function(string) = p.f\nprint(g)\n")
+  assert_refused(poly .. "local g: function(string): string = p.f\nprint(g)\n",
+    "cannot match against any alternatives of the polymorphic type")
 end
 
 --- The messages the checker reports for `source`, each with its hint

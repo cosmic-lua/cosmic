@@ -689,15 +689,31 @@ print(upper(1))
       "another function, so a test of it must not narrow")
 end
 
-local function test_a_reassignable_local_error_does_not_narrow(tmp: string)
+--- `local error = error` has the type of `error`, so it narrows as `error`
+--- does (patch/tl's 44a, 44b): the guarantee is checked where the variable
+--- is written, and assigning it a function that may return is refused.
+local function test_a_local_holding_error_narrows(tmp: string)
   local ok, trouble = try_build(tmp, "error-localized", entry_prelude .. [[
 local error = error
 local e = next_entry()
 if e == nil then error("x") end
 print(e.size)
 ]])
-  assert(refused_nil_index(ok, trouble), "`local error = error` can be assigned " ..
-      "a function that returns, so calling it must not narrow")
+  assert(ok, "`local error = error` holds a function that never returns, so calling it " ..
+      "should narrow, but: " .. tostring(trouble))
+end
+
+local function test_a_local_holding_error_cannot_be_given_a_function_that_returns(tmp: string)
+  local ok, trouble = try_build(tmp, "error-reassigned", entry_prelude .. [[
+local error = error
+error = print
+local e = next_entry()
+if e == nil then error("x") end
+print(e.size)
+]])
+  assert(not ok and trouble:find("may return, where", 1, true) ~= nil,
+    "a function that may return given to a variable of error's type must be refused, but: " ..
+      tostring(trouble))
 end
 
 local function test_type_test_with_an_interface_member_does_not_narrow(tmp: string)
@@ -713,4 +729,84 @@ print(size("a"))
 ]])
   assert(refused_index(ok, trouble, "n"), "a userdata record may implement an interface, " ..
       "so type() telling a table says nothing of it")
+end
+
+--- A call of a function declared `: never` ends its block as `error(...)`
+--- does (patch/tl's 43f1), so the guard narrows below it. The helper is
+--- declared as a local function, a record field, a method, a `__call`
+--- and a generic; each case declares `fail` and the guard is the same.
+local never_guard = [[
+local function guard(x: string | nil): integer
+   if x == nil then %s end
+   return x:len()
+end
+print(guard)
+]]
+
+local function test_a_never_function_narrows_below_its_guard(tmp: string)
+  local cases: {string:{string}} = {
+    ["local-function"] = { "local function fail(m: string): never error(m) end\n", 'fail("no")' },
+    ["record-field"] = { "local record Guard\n   die: function(why: string): never\nend\n" ..
+        "local g: Guard = { die = function(why: string): never error(why) end }\n", 'g.die("no")' },
+    ["method"] = { "local record Guard\n   die: function(self: Guard, why: string): never\nend\n" ..
+        "local g: Guard = { die = function(_self: Guard, why: string): never error(why) end }\n", 'g:die("no")' },
+    ["generic"] = { "local function fail<T>(m: T): never error(m) end\n", 'fail("no")' },
+    ["instantiated"] = { "local function id<T>(f: T): T return f end\n" ..
+        "local function raise(m: string): never error(m) end\nlocal fail = id(raise)\n", 'fail("no")' },
+    ["global-function"] = { "global function fail(m: string): never error(m) end\n", 'fail("no")' },
+    ["recursion"] = { "local function fail(m: string): never fail(m) end\n", 'fail("no")' },
+    ["poly-all-never"] = { "local record P\n   f: function(string): never\n   f: function(integer): never\nend\n" ..
+        "local p: P\n", 'p.f("no")' },
+    ["poly-chosen-never"] = { "local record P\n   f: function(string): never\n   f: function(integer): string\nend\n" ..
+        "local p: P\n", 'p.f("no")' },
+    ["macroexp"] = { "local macroexp fail(m: string): never return error(m) end\n", 'fail("no")' },
+  }
+  for name, case in pairs(cases) do
+    local ok, trouble = try_build(tmp, "never-" .. name, case[1] .. never_guard:format(case[2]))
+    assert(ok, name .. ": a guard ending in a call of a function that never returns " ..
+        "should narrow below it, but: " .. tostring(trouble))
+  end
+end
+
+--- What a call of a function that never returns does not end: a function
+--- that may return (control-case), the overload a call chose that does
+--- (poly), an `if` without an `else` around it, a `pcall` of it, the
+--- iterator of a `for` and the metamethod of an operator.
+local function test_what_does_not_end_a_block_keeps_its_guard_open(tmp: string)
+  local cases: {string:{string}} = {
+    ["control"] = { "local function fail(m: string) error(m) end\n", 'fail("no")' },
+    ["poly-chosen-returns"] = { "local record P\n   f: function(string): never\n   f: function(integer): string\nend\n" ..
+        "local p: P\n", 'p.f(1)' },
+    ["inner-if"] = { "local function fail(m: string): never error(m) end\n",
+      'if print then fail("no") end' },
+    ["pcall"] = { "local function fail(m: string): never error(m) end\n", 'pcall(fail, "no")' },
+    ["iterator"] = { "local function fail(): never error('x') end\n", 'for _ in fail do end' },
+    ["operator"] = { "local record V\n   metamethod __add: function(a: V, b: V): never\nend\n" ..
+        "local v: V\n", 'local _ = v + v' },
+  }
+  for name, case in pairs(cases) do
+    local ok, trouble = try_build(tmp, "never-open-" .. name, case[1] .. never_guard:format(case[2]))
+    assert(not ok and trouble:find("cannot index key 'len'", 1, true) ~= nil,
+      name .. ": the guard must stay open, but: " .. tostring(trouble))
+  end
+end
+
+--- Holes Teal has for every type, which a never-function falls into as a
+--- `string` does (doc/plans/teal-never.md lists them, and doc/roadmap.md
+--- the soundness item): `coroutine.wrap` is declared `F -> F` although its
+--- wrapper returns whatever the coroutine yields, and a metatable's
+--- `__call` is attached at run time and checked against nothing. Never is
+--- exactly as sound as Teal's other types, so both are accepted. When they
+--- are closed this test fails, and the case moves to a refusal.
+local function test_never_falls_into_the_holes_every_type_has(tmp: string)
+  local cases: {string:{string}} = {
+    ["wrap"] = { "local function nv(): never coroutine.yield() error('x') end\n" ..
+        "local co = coroutine.wrap(nv)\n", 'co()' },
+    ["setmetatable-call"] = { "local record C\n   metamethod __call: function(self: C): never\nend\n" ..
+        "local mt = { __call = function(_s: any) end }\nlocal c: C = setmetatable({}, mt)\n", 'c()' },
+  }
+  for name, case in pairs(cases) do
+    local ok, trouble = try_build(tmp, "inherited-" .. name, case[1] .. never_guard:format(case[2]))
+    assert(ok, name .. ": a hole Teal has for every type should stay open, but: " .. tostring(trouble))
+  end
 end

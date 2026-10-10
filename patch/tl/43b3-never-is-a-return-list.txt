@@ -1,0 +1,43 @@
+file: tl.tl
+note: `: never` is a return list that says a function does not return: it is read as the flag, with an empty `rets`, when the word is the whole list, that is when no `.`, `<`, `|` or `...` follows it to make it a name that starts a longer type or a vararg (`never.x`, `never<T>`, `never | nil`, `never...`, which stay names). A `,` after it ends the list before the next parameter of an enclosing function type, as it ends any return list (30), and is refused anywhere else, since `never` stands for the whole list (the list is then read as types, `never` among them). Only the unparenthesized form is read: `(never)` and `never, string` name an unknown type, as does `never` anywhere else
+--- find
+local function parse_return_types(ps: ParseState, i: integer): integer, TupleType
+   local iprev = i - 1
+   local t: TupleType
+   i, t = parse_type_list(ps, i, "rets")
+   if #t.tuple == 0 then
+      t.x = ps.tokens[iprev].x
+      t.y = ps.tokens[iprev].y
+   end
+   return i, t
+end
+--- replace
+local function is_never_return_list(ps: ParseState, i: integer): boolean
+   if ps.tokens[i].tk ~= ":" or ps.tokens[i + 1].tk ~= "never" or ps.tokens[i + 1].kind ~= "identifier" then
+      return false
+   end
+   local after = ps.tokens[i + 2].tk
+   return after ~= "." and after ~= "<" and after ~= "|" and after ~= "..."
+end
+
+local function parse_return_types(ps: ParseState, i: integer): integer, TupleType, boolean
+   local iprev = i - 1
+   local t: TupleType
+   local never = is_never_return_list(ps, i)
+   if never and ps.tokens[i + 2].tk == "," and not starts_parameter(ps, i + 3) then
+      fail(ps, i + 2, "'never' is the whole return list: nothing follows it")
+      never = false
+   end
+   if never then
+      t = new_tuple(ps, i)
+      i = i + 2
+   else
+      i, t = parse_type_list(ps, i, "rets")
+   end
+   if #t.tuple == 0 then
+      t.x = ps.tokens[iprev].x
+      t.y = ps.tokens[iprev].y
+   end
+   return i, t, never
+end
+--- end
