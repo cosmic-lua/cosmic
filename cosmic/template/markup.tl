@@ -203,7 +203,8 @@ local record Markup
     --- (see `apart`).
     split: boolean
     --- In the text of a `<noscript>`, where a browser with scripting off,
-    --- which reads that text as markup, is in it so far; nil elsewhere. At
+    --- which reads that text as markup, is in it so far, from the end of
+    --- the `<noscript>` start tag; nil elsewhere. At
     --- its `</noscript>` the place is murky unless this one is in plain text
     --- (see [`noscript_clean`]).
     off: Place
@@ -360,9 +361,6 @@ local function alike(a: Place, b: Place): boolean
       (a.raw_tail ~= b.raw_tail or a.escaped ~= b.escaped or a.double ~= b.double) then
     return false
   end
-  if (a.off == nil) ~= (b.off == nil) or (a.off ~= nil and not alike(a.off, b.off)) then
-    return false
-  end
   return not ATTRIBUTED[a.phase] or a.attr == b.attr
 end
 
@@ -413,7 +411,9 @@ end
 
 local function same(a: Place, b: Place): boolean
   if a.alts == "" and b.alts == "" and alike(a, b) then
-    return true
+    -- In `<noscript>` text, where both have one, the scripting-off
+    -- readings may themselves stand apart in a tag, as `join` holds them.
+    return a.off == nil or same(a.off, b.off)
   end
   return apart(a, b)
 end
@@ -441,6 +441,9 @@ local function differ(a: Place, b: Place): string
 end
 
 local function join(a: Place, b: Place)
+  if a.off ~= nil then
+    join(a.off, b.off)
+  end
   a.fresh = a.fresh and b.fresh
   a.after_url = a.after_url or b.after_url
   a.bare = a.bare or b.bare
@@ -648,17 +651,24 @@ local function end_tag(p: Place, text: string, from: integer, unquoted: boolean)
     p.late_line = p.meta_line
     p.late_col = p.meta_col
   end
-  -- TODO: in a `<select>`, a parser with the standard's "in select" mode
-  -- ignores every start tag but a few (`<option>`, `<optgroup>`, `<hr>`,
-  -- `<input>`, `<textarea>`, `<script>`, `<template>`), so `<style>`,
-  -- `<xmp>`, `<iframe>` and the like open no raw text there, and
-  -- `<select><style><option onclick="</style>{{.x}}">` puts the slot in a
-  -- handler with the text escaper; parsers of the newer select content
-  -- model do not ignore them. A raw text or RCDATA tag other than
-  -- `<script>` and `<textarea>` should make the place murky while `select`
-  -- is set.
+  -- TODO: a parser with the standard's classic "in select" mode ignores
+  -- every start tag in a `<select>` but a few (`<option>`, `<optgroup>`,
+  -- `<hr>`, `<input>`, `<textarea>`, `<script>`, `<template>`), so a raw
+  -- text or RCDATA tag there opens nothing: `<select><title><option
+  -- onclick="{{.x}}"></title>` compiles with `_rtext` and puts `.x` in a
+  -- live handler for such parsers (html5lib, older engines), and
+  -- `<select><style><option onclick="</style>{{.x}}">` likewise with
+  -- `_text`. Parsers of the newer select content model do not ignore them.
+  -- "In frameset" is the same family: it ignores every raw text and RCDATA
+  -- tag but `<noframes>`. A raw text or RCDATA tag other than `<script>`
+  -- and `<textarea>` should make the place murky while `select` is set, and
+  -- the tracker should follow `<frameset>` far enough to do the same.
   local phase = RAW_TAGS[p.tag]
   p.phase = (p.closing or phase == nil) and "text" or phase
+  if p.phase == "raw" and p.tag == "noscript" then
+    p.off = start()
+    p.off.select = p.select
+  end
   return from
 end
 
@@ -686,8 +696,8 @@ end
 --- Whether `off`, the scripting-off reading of a `<noscript>`'s text up to
 --- its `</noscript>`, leaves that end tag where the tracker's reading does:
 --- in plain text (or after a `<`, which the `<` of the end tag makes text),
---- with no foreign element open, and inside a `<select>` only if `outer`
---- is.
+--- with no foreign element open, inside a `<select>` only if `outer` is,
+--- and with the arms of any block in the text agreed (no `alts`, no `late`).
 ---
 --- A browser with scripting on reads the text as raw text, as the tracker
 --- does; with scripting off (a DOMParser, a sanitizer's parse) it is markup,
@@ -698,8 +708,10 @@ end
 --- tag, and what follows it, read alike either way.
 local function noscript_clean(off: Place, outer: Place): boolean
   return (off.phase == "text" or off.phase == "lt") and not off.murky and off.stack == "" and
-    off.select == outer.select
+    off.select == outer.select and off.alts == "" and off.late == ""
 end
+
+local feed: function(p: Place, text: string, line: integer, col: integer)
 
 --- Moves `p` over `text` one state at a time. A run of text ends where a
 --- slot or the template does, so the places a slot may not stand in
@@ -943,17 +955,14 @@ local function scan(p: Place, text: string)
       if p.tag == "noscript" then
         -- The tail is left for the run that completes it, as above, and
         -- read here once it turns out not to be the end tag.
+        -- `feed`, not `scan`, so that a block whose arms leave a tag here at
+        -- different attributes is settled as it is outside (`settle`). The
+        -- line and column only place a `late`, which [`noscript_clean`] reads
+        -- as a refusal and never reports. A run cut before a held tail is
+        -- a boundary only this reading sees, and may mark a tag `split`,
+        -- which can refuse, never admit.
         local off = p.off
-        if off == nil then
-          off = start()
-          off.select = p.select
-        end
-        if settled ~= "" then
-          scan(off, settled)
-          -- As `feed` keeps it: a `>` that begins the next run closes a
-          -- self-closing tag, which an `<svg>` must be to leave nothing open.
-          off.slash = off.phase == "before_attr" and settled:byte(#settled) == 47
-        end
+        feed(off, settled, 0, 0)
         p.off = found == nil and off or nil
         if found ~= nil and not noscript_clean(off, p) then
           p.murky = true
@@ -1045,7 +1054,7 @@ local function settle(p: Place, text: string, line: integer, col: integer): inte
   return i
 end
 
-local function feed(p: Place, text: string, line: integer, col: integer)
+feed = function(p: Place, text: string, line: integer, col: integer)
   -- Empty text moves nothing; past here it would forget a tag's last `/`.
   if text == "" then
     return

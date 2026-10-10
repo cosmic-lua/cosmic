@@ -658,8 +658,23 @@ local function test_markup_in_noscript_that_ends_in_text_keeps_the_slots_after_i
     end
   end
   assert(#wrong == 0, table.concat(wrong, "\n"))
-  local src = HEAD .. "<noscript>{{if .a}}<p>On</p>{{else}}<b>Off</b>{{end}}</noscript>{{.x}}"
-  assert(compiled(src):find("_text(v)", 1, true), src)
+  for _, src in ipairs({
+      "<noscript>{{if .a}}<p>On</p>{{else}}<b>Off</b>{{end}}</noscript>{{.x}}",
+      "<noscript>{{if .a}}Turn on JS{{end}}</noscript>{{.x}}",
+      "<noscript>{{if .a}}<p>On</p>{{end}}</noscript>{{.x}}",
+      "<noscript>{{range .l}}<p>x</p>{{end}}</noscript>{{.x}}",
+      "<noscript><input{{if .a}} checked{{end}}></noscript>{{.x}}",
+      "<noscript><input{{if .a}} checked{{end}} name=\"n\"></noscript>{{.x}}",
+  }) do
+    assert(compiled(HEAD .. src):find("_text(v)", 1, true), src)
+  end
+  -- Arms that leave the scripting-off reading apart up to `</noscript>`.
+  for _, src in ipairs({
+      "<noscript><input{{if .a}} checked{{end}}</noscript>{{.x}}",
+      "<noscript><input{{if .a}} chec{{end}}ked></noscript>{{.x}}",
+  }) do
+    refused(HEAD .. src)
+  end
 end
 
 local function test_a_block_may_add_a_whole_attribute_wherever_it_stands_in_a_tag()
