@@ -4,6 +4,7 @@
 --- hold to their types.
 local Fs = require("cosmic.fs")
 local Html = require("cosmic.html")
+local Url = require("cosmic.url")
 local importer = require("build.importer")
 local teal = require("build.teal")
 local work = require("build.work")
@@ -22,6 +23,10 @@ local type Call = function(...: any): any...
 --- `value` with its type forgotten, as the checker would not let it be.
 local function untyped(value: any): any
   return value
+end
+
+local function metatable_of(value: any): any
+  return getmetatable(value)
 end
 
 --- Calls `f` with `...` as the checker would not allow: whatever it is
@@ -135,9 +140,6 @@ local function test_a_safe_value_has_no_string_behavior()
     assert(tostring(value):find("^cosmic%.html%.Safe%w+: ") ~= nil, tostring(value))
   end
   -- The metatable is hidden, so no program adds an operator to every value.
-  local function metatable_of(value: any): any
-    return getmetatable(value)
-  end
   assert(metatable_of(html) == false and metatable_of(attr) == false and metatable_of(url) == false)
   assert(not attempt(setmetatable, html, {}))
 end
@@ -305,6 +307,362 @@ local function compiles(tmp: string, case: string, source: string): boolean, str
     return false, trouble
   end
   return true, ""
+end
+
+local function part_of(s: string | number): string
+  return Html.raw_url_part(Html.url_part(s))
+end
+
+--- Strings from a fixed generator, spread over every byte, so the
+--- agreement tests need no random source and name the same inputs each run.
+local function sample_strings(count: integer): {string}
+  local strings: {string} = {}
+  local state = 12345
+  for _ = 1, count do
+    local bytes: {string} = {}
+    for _ = 1, state % 9 do
+      state = (state * 1103515245 + 12345) % 2147483648
+      bytes[#bytes + 1] = string.char((state >> 8) % 256)
+    end
+    state = (state * 1103515245 + 12345) % 2147483648
+    strings[#strings + 1] = table.concat(bytes)
+  end
+  return strings
+end
+
+local function test_url_part_keeps_the_unreserved_set_and_escapes_the_rest()
+  assert(part_of("AZaz09-._~") == "AZaz09-._~")
+  assert(part_of("") == "")
+  assert(part_of("a b/c?d#e&f=g+h:i@j%k\\l") == "a%20b%2Fc%3Fd%23e%26f%3Dg%2Bh%3Ai%40j%25k%5Cl")
+  assert(part_of("\0\n\127\xc3\xa9\xff") == "%00%0A%7F%C3%A9%FF")
+end
+
+local function test_url_part_writes_a_number_as_tostring_does()
+  assert(part_of(7) == "7")
+  assert(part_of(-7) == "-7")
+  assert(part_of(1.5) == "1.5")
+  assert(part_of(1e100) == "1e%2B100")
+  assert(part_of(math.huge) == "inf")
+  assert(part_of(math.mininteger) == tostring(math.mininteger))
+end
+
+local function test_url_part_agrees_with_url_escape_on_every_byte_and_many_strings()
+  for byte = 0, 255 do
+    local c = string.char(byte)
+    if c ~= "." then
+      assert(part_of(c) == Url.escape(c), "byte " .. byte)
+    end
+  end
+  for _, text in ipairs(sample_strings(500)) do
+    if text ~= "." and text ~= ".." then
+      assert(part_of(text) == Url.escape(text), ("%q"):format(text))
+    end
+  end
+end
+
+local function test_url_part_writes_a_whole_dot_segment_with_its_percent_escaped()
+  assert(part_of(".") == "%252E")
+  assert(part_of("..") == "%252E%252E")
+  -- Only the whole value is a dot segment; the rest is escaped as ever.
+  for _, text in ipairs({ "...", ".a", "a.", "a..", "..a", " .", "%2e", "%2e%2e", "./", "" }) do
+    assert(part_of(text) == Url.escape(text), text)
+  end
+  assert(Url.unescape(part_of("..")) == "%2E%2E")
+end
+
+local function test_url_part_refuses_a_value_that_is_not_text()
+  local others: {any} = { {}, true, false, Html.escape("x") }
+  for _, other in ipairs(others) do
+    local ok, why = attempt(Html.url_part, other)
+    assert(not ok and tostring(why):find("string or number expected", 1, true), tostring(why))
+  end
+  assert(not attempt(Html.url_part))
+end
+
+local function test_url_query_joins_escaped_pairs_in_order()
+  local query = (assert(Html.url_query({ { "q", "a b" }, { "tag", "x&y" }, { "tag", "z=1" } })))
+  assert(Html.raw_url_part(query) == "q=a%20b&tag=x%26y&tag=z%3D1")
+  assert(Html.raw_url_part((assert(Html.url_query({})))) == "")
+  assert(Html.raw_url_part((assert(Html.url_query({ { "", "" } })))) == "=")
+  assert(Html.raw_url_part((assert(Html.url_query({ { "a&b=c", "\xc3\xa9" } })))) == "a%26b%3Dc=%C3%A9")
+  -- A dot segment is about a path; in a query a dot is a dot.
+  assert(Html.raw_url_part((assert(Html.url_query({ { ".", ".." } })))) == ".=..")
+end
+
+local function test_url_query_names_a_pair_that_is_not_two_strings()
+  local cases: {{any}} = {
+    { { "a" } }, { { "a", "b", "c" } }, { { "a", 1 } }, { { 1, "a" } }, { "ab" }, { {} },
+    { { "a", "b" }, { "c" } },
+  }
+  for _, given in ipairs(cases) do
+    local part, why = (Html.url_query as function(any): any, string)(given)
+    assert(part == nil and why:find("is not two strings", 1, true), tostring(why))
+  end
+  local part, why = (Html.url_query as function(any): any, string)({ { "a", "b" }, { "c" } })
+  assert(part == nil and why == "html: pair 2 is not two strings", why)
+end
+
+local function test_url_query_raises_for_a_table_that_is_no_sequence()
+  local holes = table_of({ "a", "b" })
+  holes[3] = { "c", "d" }
+  local extra = table_of({ "a", "b" })
+  extra["note"] = 1
+  local cases: {{any: any}} = { holes, extra }
+  for _, given in ipairs(cases) do
+    local ok, why = attempt(Html.url_query, given)
+    assert(not ok and tostring(why):find("pairs is not a sequence", 1, true), tostring(why))
+  end
+  assert(not attempt(Html.url_query, "a=b"))
+end
+
+local function test_raw_url_part_holds_to_its_type()
+  local html = untyped(Html.escape("x"))
+  local url = untyped(Html.trust_url("x"))
+  local part = untyped(Html.url_part("x"))
+  for _, other in ipairs({ html, url }) do
+    local ok, why = attempt(Html.raw_url_part, other)
+    assert(not ok and tostring(why):find("SafeUrlPart expected", 1, true), tostring(why))
+  end
+  assert(not attempt(Html.raw_url_part, "x"))
+  assert(not attempt(Html.raw_url, part) and not attempt(Html.raw, part) and not attempt(Html.raw_attr, part))
+  assert(type(part) == "userdata" and metatable_of(part) == false)
+  assert(not lua("return ... .. 'y'", part))
+end
+
+local LOCAL_CASES <const>: {UrlCase} = {
+  { "/a/b?c=d#e", true },
+  { "a/b", true },
+  { "?x:y", true },
+  { "#x:y", true },
+  { "/a:b", true },
+  { "", true },
+  { "caf\xc3\xa9/ x", true },
+  { "https://example.com/", false },
+  { "http:evil.com", false },
+  { "mailto:a@b", false },
+  { "javascript:alert(1)", false },
+  { "a:b", false },
+  { ":x", false },
+  { "//host/x", false },
+  { "\\\\host", false },
+  { "/\\host", false },
+  { "\\/host", false },
+  { " /a", false },
+  { "/a ", false },
+  { "/a\tb", false },
+  { "/a\nb", false },
+  { "/a\0b", false },
+  { "/a\127b", false },
+}
+
+local function test_local_href_lets_only_a_relative_reference_through()
+  for _, case in ipairs(LOCAL_CASES) do
+    local input, allowed = case[1], case[2]
+    local out = Html.raw_url(Html.local_href(input))
+    if allowed then
+      assert(out == input, ("%q was changed to %q"):format(input, out))
+    else
+      assert(out == "about:invalid", ("%q was let through as %q"):format(input, out))
+    end
+  end
+  assert(not attempt(Html.local_href, {}))
+end
+
+--- `CSS.escape` as the plan for [`Html.escape_css_attr`] states it, written
+--- on its own: a leading digit (or one after a leading `-`), a lone `-`
+--- and every ASCII byte but a letter, digit, `-` and `_` is a hex escape
+--- ending in a space, and NUL is U+FFFD.
+local function css_escape(s: string): string
+  local out: {string} = {}
+  for i = 1, #s do
+    local c = s:sub(i, i)
+    local byte = c:byte()
+    local leading_digit = c:find("^%d$") and (i == 1 or (i == 2 and s:sub(1, 1) == "-"))
+    if byte == 0 then
+      out[#out + 1] = "\xef\xbf\xbd"
+    elseif byte >= 128 or (c:find("^[%w_-]$") and not leading_digit and not (c == "-" and #s == 1)) then
+      out[#out + 1] = c
+    else
+      out[#out + 1] = ("\\%x "):format(byte)
+    end
+  end
+  return table.concat(out)
+end
+
+--- Reads CSS escapes as a parser does: `\` and one to six hex digits and
+--- an optional single space is that code point, `\` and any other
+--- character is that character. `text` is attribute text, so the character
+--- references the escaper writes are decoded first.
+local function css_unescape(text: string): string
+  local plain = text:gsub("&#(%d+);", function(code: string): string
+    return string.char(tonumber(code) as integer)
+  end)
+  local out: {string} = {}
+  local i = 1
+  while i <= #plain do
+    local c = plain:sub(i, i)
+    if c ~= "\\" then
+      out[#out + 1] = c
+      i = i + 1
+    else
+      local hex = plain:match("^%x%x?%x?%x?%x?%x?", i + 1)
+      if hex then
+        out[#out + 1] = utf8.char(tonumber(hex, 16) as integer)
+        i = i + 1 + #hex
+        if plain:sub(i, i) == " " then
+          i = i + 1
+        end
+      else
+        out[#out + 1] = plain:sub(i + 1, i + 1)
+        i = i + 2
+      end
+    end
+  end
+  return table.concat(out)
+end
+
+local function css_attr_of(s: string | number): string
+  return Html.raw_attr(Html.escape_css_attr(s))
+end
+
+local function test_escape_css_attr_escapes_what_a_selector_would_read()
+  assert(css_attr_of("row") == "row")
+  assert(css_attr_of("x, body") == "x&#92;2c&#32;&#92;20&#32;body")
+  assert(css_attr_of("a.b#c") == "a&#92;2e&#32;b&#92;23&#32;c")
+  assert(css_attr_of("row-123") == "row&#45;123")
+  assert(css_attr_of("a_b") == "a&#95;b")
+  assert(css_attr_of("123") == "&#92;31&#32;23")
+  assert(css_attr_of("-1") == "&#45;&#92;31&#32;")
+  assert(css_attr_of("-") == "&#92;2d&#32;")
+  assert(css_attr_of("--") == "&#45;&#45;")
+  assert(css_attr_of("a\0b") == "a\xef\xbf\xbdb")
+  assert(css_attr_of("\1\127") == "&#92;1&#32;&#92;7f&#32;")
+  assert(css_attr_of("caf\xc3\xa9") == "caf\xc3\xa9")
+  assert(css_attr_of(42) == "&#92;34&#32;2")
+  assert(css_attr_of("") == "")
+end
+
+--- Outputs of `CSS.escape` written down from the CSSOM specification, not
+--- computed here. `escape_css_attr` always writes a hex escape and its
+--- space where `CSS.escape` writes a backslash and the character (`\-`,
+--- `\ `, `\.`): the two read as the same text, which is what this checks,
+--- and the hex form needs no case for where the character stands. A hex
+--- escape's space also keeps a following literal space a combinator.
+local function test_escape_css_attr_reads_as_the_spec_css_escape()
+  local spec: {{string}} = {
+    { "0a", "\\30 a" },
+    { "-", "\\-" },
+    { "-0", "-\\30 " },
+    { "--", "--" },
+    { "a b", "a\\ b" },
+    { "a.b", "a\\.b" },
+    { "x, body", "x\\,\\ body" },
+    { "\1", "\\1 " },
+    { "\127", "\\7f " },
+    { "a\0b", "a\xef\xbf\xbdb" },
+    { "caf\xc3\xa9", "caf\xc3\xa9" },
+    { "a_b-c", "a_b-c" },
+  }
+  for _, case in ipairs(spec) do
+    local input, expected = case[1], case[2]
+    assert(css_unescape(css_attr_of(input)) == css_unescape(expected), ("%q"):format(input))
+    assert(css_unescape(expected) == css_unescape(css_escape(input)), ("%q"):format(input))
+  end
+  -- The one place the text differs: CSS.escape's `\-` and `\ ` are not hex.
+  assert(css_attr_of("-") == "&#92;2d&#32;")
+  assert(css_attr_of("a b") == "a&#92;20&#32;b")
+end
+
+local function test_escape_css_attr_is_css_escape_then_escape_attr()
+  for byte = 0, 255 do
+    for _, text in ipairs({ string.char(byte), "a" .. string.char(byte), "-" .. string.char(byte),
+        string.char(byte) .. "1" }) do
+      assert(css_attr_of(text) == Html.raw_attr(Html.escape_attr(css_escape(text))), ("%q"):format(text))
+    end
+  end
+  for _, text in ipairs(sample_strings(500)) do
+    assert(css_attr_of(text) == Html.raw_attr(Html.escape_attr(css_escape(text))), ("%q"):format(text))
+  end
+end
+
+local function test_escape_css_attr_refuses_a_value_that_is_not_text()
+  local others: {any} = { {}, true, Html.escape("x") }
+  for _, other in ipairs(others) do
+    assert(not attempt(Html.escape_css_attr, other))
+  end
+end
+
+local function test_json_holds_the_encoded_value()
+  local json = (assert(Html.json({ id = 7, kind = "note" })))
+  local text = Html.raw_json(json)
+  assert(text == '{"id":7,"kind":"note"}' or text == '{"kind":"note","id":7}', text)
+  assert(Html.raw_json((assert(Html.json("a\"b<c>&'")))) == '"a\\"b<c>&\'"')
+  assert(Html.raw_json((assert(Html.json(nil)))) == "null")
+  assert(Html.raw_json((assert(Html.json({ "x", 1, true })))) == '["x",1,true]')
+  -- The text is JSON, not attribute text: the slot escapes it.
+  assert(Html.raw(Html.escape(Html.raw_json((assert(Html.json({ a = "b" })))))) == "{&quot;a&quot;:&quot;b&quot;}")
+end
+
+local function test_json_names_what_it_cannot_encode()
+  local json, why = Html.json({ users = { { name = print } } })
+  assert(json == nil and why:find("/users/0/name", 1, true), tostring(why))
+  json, why = Html.json(0 / 0)
+  assert(json == nil and why ~= "")
+  local cycle: {string: any} = {}
+  cycle.me = cycle
+  json, why = Html.json(cycle)
+  assert(json == nil and why ~= "")
+  json, why = Html.json("\xff")
+  assert(json == nil and why ~= "")
+end
+
+local function test_json_text_wraps_only_text_that_is_json()
+  assert(Html.raw_json((assert(Html.json_text(' {"a": [1, 2]} ')))) == ' {"a": [1, 2]} ')
+  for _, text in ipairs({ "", "{", "{'a':1}", "<script>", "1 2", "alert(1)" }) do
+    local json, why = Html.json_text(text)
+    assert(json == nil and why ~= "", text)
+  end
+end
+
+local function test_json_has_no_unchecked_door_and_holds_to_its_type()
+  local html_module: {string: any} = Html as {string: any}
+  assert(html_module.trust_json == nil and html_module.trust_json_text == nil)
+  local json = untyped((assert(Html.json(1))))
+  assert(type(json) == "userdata" and metatable_of(json) == false)
+  assert(not lua("return ... .. 'y'", json))
+  for _, other in ipairs({ untyped(Html.escape("1")), untyped(Html.url_part("1")), "1", 1 }) do
+    local ok, why = attempt(Html.raw_json, other)
+    assert(not ok and tostring(why):find("SafeJson expected", 1, true), tostring(why))
+  end
+  assert(not attempt(Html.raw, json) and not attempt(Html.raw_attr, json) and not attempt(Html.raw_url_part, json))
+end
+
+local function test_url_parts_and_json_type_check_where_they_belong(tmp: string)
+  local ok, trouble = compiles(tmp, "part-valid", [[
+local Html = require("cosmic.html")
+local part: Html.SafeUrlPart = Html.url_part("a")
+local json = (assert(Html.json({})))
+local as_json: Html.SafeJson = json
+local url: Html.SafeUrl = Html.local_href("/a")
+return Html.raw_url_part(part) .. Html.raw_json(as_json) .. Html.raw_url(url)
+]])
+  assert(ok, trouble)
+  local forged_cases: {{string}} = {
+    { "part-string", 'local f: Html.SafeUrlPart = "a"\nreturn Html.raw_url_part(f)', "SafeUrlPart" },
+    { "part-table", 'local f: Html.SafeUrlPart = {}\nreturn Html.raw_url_part(f)', "got {}, expected Html.SafeUrlPart" },
+    { "json-string", 'local f: Html.SafeJson = "{}"\nreturn Html.raw_json(f)', "SafeJson" },
+    { "json-table", 'local f: Html.SafeJson = {}\nreturn Html.raw_json(f)', "got {}, expected Html.SafeJson" },
+    { "url-for-part", 'return Html.raw_url_part(Html.href("/a"))', "SafeUrl is not a" },
+    { "part-for-url", 'return Html.raw_url(Html.url_part("a"))', "SafeUrlPart is not a" },
+    { "json-for-attr", 'local j = assert(Html.json({}))\nreturn Html.raw_attr(j)', "SafeJson is not a" },
+    { "json-for-html", 'return Html.raw(Html.escape("a")) .. Html.raw_json(Html.escape("a"))', "SafeHtml is not a" },
+    { "part-concat", 'return Html.url_part("a") .. "b"', "cannot use operator '..'" },
+  }
+  for _, case in ipairs(forged_cases) do
+    ok, trouble = compiles(tmp, case[1], 'local Html = require("cosmic.html")\n' .. case[2] .. "\n")
+    assert(not ok, case[1] .. " type-checked")
+    assert(trouble:find(case[3], 1, true), case[1] .. ": " .. trouble)
+  end
 end
 
 local function test_safe_values_type_check_where_they_belong(tmp: string)

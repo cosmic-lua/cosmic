@@ -6,10 +6,15 @@
 --- of its parts' strings; and `href` answers `about:invalid` or a URL
 --- with no control byte or edge space whose scheme a browser would see is
 --- http, https or mailto, or that is relative and no host.
+--- `url_part` writes only unreserved bytes and `%XX`, reads back as its
+--- input (but for a whole `.` or `..`) and agrees with [`Url.escape`];
+--- `escape_css_attr` leaves no backslash, quote or delimiter, only
+--- letters, digits, character references and bytes of 0x80 or more.
 --- `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (build/fuzz/init.tl).
 
 local Fuzz = require("build.fuzz")
 local Html = require("cosmic.html")
+local Url = require("cosmic.url")
 
 --- Bytes that matter to either escaper, drawn more often than chance would.
 local TOKENS <const> = { "<", ">", "&", '"', "'", " ", "=", "`", "/", "\0", "\n", "&amp;", "&#39;", "&lt;",
@@ -202,6 +207,76 @@ local function test_href_answers_a_safe_url_or_about_invalid(tmp: string)
       if out == "about:invalid" then Fuzz.label("refused") else Fuzz.label("allowed") end
       if scheme_of(input) ~= nil then Fuzz.label("scheme") else Fuzz.label("relative") end
       if input == "" then Fuzz.label("empty") end
+      return true, ""
+    end,
+  })
+end
+
+local PART_TOKENS <const> = { ".", "..", "%", "%2e", "%41", "/", "?", "#", "&", "=", "+", ":", "@", "\\", " ",
+  "-", "_", "~", "a", "Z", "0", "\0", "\n", "\xc3\xa9", "\xff" }
+
+local function gen_part(src: Fuzz.Source): string
+  -- A whole dot segment is a case of its own, drawn often enough to be reached.
+  if src:int(0, 7) == 0 then return Fuzz.pick(src, { ".", ".." }) end
+  local parts: {string} = {}
+  while Fuzz.more(src, #parts, 6) do
+    parts[#parts + 1] = src:int(0, 3) == 0 and Fuzz.bytes(src, 3) or Fuzz.pick(src, PART_TOKENS)
+  end
+  return table.concat(parts)
+end
+
+local function test_url_part_writes_only_unreserved_bytes_and_escapes(tmp: string)
+  Fuzz.run({
+    name = "html url part",
+    dir = tmp,
+    gen = gen_part,
+    requires = { "escaped", "plain", "empty", "dot segment" },
+    shares = { escaped = 0.5 },
+    check = function(input: string): boolean, string
+      local out = Html.raw_url_part(Html.url_part(input))
+      local bare = out:gsub("%%%x%x", "")
+      if bare:find("[^%w%-._~]") then
+        return false, "a byte outside the unreserved set in " .. out
+      end
+      if out:find("%%%l") or out:find("%%%x%f[%X]") then
+        return false, "a malformed or lower-case escape in " .. out
+      end
+      if input == "." or input == ".." then
+        Fuzz.label("dot segment")
+        if out ~= (input == "." and "%252E" or "%252E%252E") then
+          return false, "a dot segment became " .. out
+        end
+        return true, ""
+      end
+      if out ~= Url.escape(input) then return false, "differs from Url.escape: " .. out end
+      if Url.unescape(out) ~= input then return false, "reads back as another text: " .. out end
+      if out ~= input then Fuzz.label("escaped") else Fuzz.label("plain") end
+      if input == "" then Fuzz.label("empty") end
+      return true, ""
+    end,
+  })
+end
+
+local function test_escape_css_attr_leaves_no_delimiter(tmp: string)
+  Fuzz.run({
+    name = "html escape css attr",
+    dir = tmp,
+    gen = gen_text,
+    requires = { "escaped", "plain", "empty", "high" },
+    shares = { escaped = 0.5 },
+    check = function(input: string): boolean, string
+      local out = Html.raw_attr(Html.escape_css_attr(input))
+      local bare = out:gsub("&#%d+;", "")
+      if bare:find("[^%w\128-\255]") then return false, "a byte left that is neither in " .. out end
+      -- A hex escape is a reference to `\`, its digits and a reference to a space.
+      for _ in out:gmatch("&#92;") do
+        if not out:find("&#92;%x%x?&#32;") then
+          return false, "a backslash with no hex escape in " .. out
+        end
+      end
+      if input:find("[^%w\128-\255]") then Fuzz.label("escaped") else Fuzz.label("plain") end
+      if input == "" then Fuzz.label("empty") end
+      if input:find("[\128-\255]") then Fuzz.label("high") end
       return true, ""
     end,
   })
