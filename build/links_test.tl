@@ -899,13 +899,16 @@ local function test_a_path_through_git_metadata_is_never_a_file_of_the_tree()
   local context = world({
     ["/p/.git/config"] = "",
     ["/p/vendor/lib/.git/HEAD"] = "",
-    ["/p/a.gitignore"] = "",
+    ["/p/.gitignore"] = "",
+    ["/p/.github/x.yml"] = "",
+    ["/p/foo.git/x"] = "",
   })
   same(checked(context, "/p/doc/a.md", "markdown",
-    "[c](../.git/config) [h](/vendor/lib/.git/HEAD) [i](../a.gitignore)\n"), {
-      "/p/doc/a.md:1: link: ../.git/config does not resolve (it is under .git, git's own metadata)",
-      "/p/doc/a.md:1: link: /vendor/lib/.git/HEAD does not resolve (it is under .git, git's own metadata)",
-    })
+    "[c](../.git/config) [h](/vendor/lib/.git/HEAD) [i](../.gitignore) [g](../.github/x.yml) " ..
+      "[f](../foo.git/x)\n"), {
+        "/p/doc/a.md:1: link: ../.git/config does not resolve (it is under .git, git's own metadata)",
+        "/p/doc/a.md:1: link: /vendor/lib/.git/HEAD does not resolve (it is under .git, git's own metadata)",
+      })
   local source = "A server stops `/.git/config` and `vendor/lib/.git/HEAD`.\n"
   local out, linked = rewritten(context, "/p/doc/a.md", "markdown", source)
   assert(out == source, out)
