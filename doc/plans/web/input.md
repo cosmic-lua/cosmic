@@ -3,7 +3,7 @@
 Part of the cosmic.web design: see ../web.md for the overview, decisions and phasing.
 
 This file covers how a request's data gets in (query, urlencoded forms,
-multipart, JSON) and is bound to `cosmic.shape` specs, and the state and
+multipart, JSON) and is bound to [`cosmic.shape`] specs, and the state and
 protections layered on it: cookies, sessions, CSRF, CORS, security headers
 and secrets. It builds on core.md: `Handler = function(Web.Request):
 Web.Response`, `Middleware = function(Handler): Handler`, and the typed
@@ -16,17 +16,17 @@ What this file uses of core.md, stated once:
 - `Web.Request` exposes `method`, `path`, `segments`, `query_string` (the
   raw escaped text), `headers` (lowercased names), `params`, `scheme`, the
   server's request as `raw` (so the body is `req.raw.body`, a
-  `Stream.Reader`, and its length `req.raw.length`; today's fields are at
+  [`Stream.Reader`], and its length `req.raw.length`; today's fields are at
   cosmic/http/server.tl:30-66), and `req:get(KEY)` / `req:set(KEY, v)` for
   per-request state. Every piece of state in this file is an exported
   `Web.Key<T>`, never a `req.state.x` field: `Input.QUERY`, `Input.FORM`,
   `Input.JSON` and `Input.CLEANUP` (section 2), `Session.KEY` (section 7),
   `Headers.NONCE` (section 10). `req.state` is core's untyped escape
   hatch and nothing here uses it.
-- `Web.Response` is `Server.Reply` with `headers: {string: string |
+- `Web.Response` is [`Server.Reply`] with `headers: {string: string |
   {string}}` (core.md 13.1; server.tl:91 is `{string:string}` today and is
   checked at server.tl:343, so the multi-valued change must reach
-  `wire.check`/`wire.send`). Headers are read, set and appended with core's
+  [`wire.check`]/[`wire.send`]). Headers are read, set and appended with core's
   `Web.header(res, name)`, `Web.set_header` and `Web.add_header` (core.md
   section 3); `add_header` is how a `Set-Cookie` line or a `Vary` token is
   appended, and it merges `Vary` tokens. A header "set if absent" is
@@ -54,7 +54,7 @@ Layout of what this file adds (new files next to `cosmic/web/init.tl`):
   `cosmic/web/secret.tl` (key loading, used by the session stores).
 - `cosmic/http/multipart.tl` (`cosmic.http.multipart`): a standalone
   RFC 7578 parser, usable without cosmic.web (it sits beside
-  `cosmic.http.server`).
+  [`cosmic.http.server`]).
 
 Changes to existing modules are listed in one place at the end ("Changes to
 existing files").
@@ -64,11 +64,11 @@ existing files").
 ### What exists, what is missing
 
 `Request.query` is the raw text after the first `?`, still escaped
-(server.tl:44-45, wire.tl:363-364). `Url.unescape` deliberately leaves `+`
+(server.tl:44-45, wire.tl:363-364). [`Url.unescape`] deliberately leaves `+`
 alone (url.tl:104-114: "a form's rule, not a URL's"), and doc/roadmap.md:243-249
 already lists "a query string decoded into names and values (`+` as a space, a
 name given more than once kept as a list)" as wanted once a caller needs it.
-cosmic.web is that caller, so it lands in `cosmic.url`, not in cosmic.web:
+cosmic.web is that caller, so it lands in [`cosmic.url`], not in cosmic.web:
 `application/x-www-form-urlencoded` is the same grammar as a query string
 (WHATWG URL "urlencoded parsing"), and a client-side `Http` caller sending a
 form wants the encoder too.
@@ -151,7 +151,7 @@ without a second walk. Both are built in one pass.
   is the binder's rule, not the decoder's: both accessors exist.
 - Invalid percent escape (`%`, `%4`, `%zz`): by default the whole decode is
   refused with `nil, "url: '%' at byte N is not followed by two hex digits"`,
-  the same wording and byte position `Url.segments` gives (url.tl:97), N
+  the same wording and byte position [`Url.segments`] gives (url.tl:97), N
   counted in the whole text (the existing `unescape(text, offset)` helper at
   url.tl:93 already takes the offset, so the new function reuses it per
   piece). The caller answers 400. With `lenient = true` the `%` is kept as a
@@ -161,12 +161,12 @@ without a second walk. Both are built in one pass.
   templates and JSON; a request that silently decodes two ways in two parsers
   is the classic smuggling input, and a 400 is cheap.
 - Invalid UTF-8 after decoding (`%FF`): refused unless `utf8 = false`.
-  Reason: `Json.encode` and the template escapers expect text, and a lone
+  Reason: [`Json.encode`] and the template escapers expect text, and a lone
   `0xFF` in a name is never a legitimate browser submission. Checked with
   `utf8.len(s)` (strict: rejects surrogates and > U+10FFFF). The error names
   the pair index, not the bytes.
 - NUL: a decoded `%00` in a name or value is allowed through the decoder
-  (it is a byte, as `Url.unescape` allows it, url.tl:106-107) but the form
+  (it is a byte, as [`Url.unescape`] allows it, url.tl:106-107) but the form
   binder refuses it in a scalar string (SQLite text, C strings and log lines
   mishandle it), unless the spec asks for `any`. Open question 5.
 - Limits: `max_pairs` default 1000 (a legitimate form with a few hundred
@@ -223,9 +223,9 @@ local record Input
   end
 
   record Invalid
-    --- 400 for undecodable input and, in v1, for a value that fails its
-    --- spec; 413 over the cap; 415 for a wrong Content-Type; never 422,
-    --- which is a handler's own re-render (see "Status" below).
+    --- 400 for undecodable input, 422 for a value that fails its spec,
+    --- 413 over the cap, 415 for a wrong Content-Type (see "Status"
+    --- below).
     status: integer
     --- What went wrong overall; one line, no user data echoed unescaped.
     message: string
@@ -316,8 +316,8 @@ function Input.json_into<T>(req, spec: Shape.Spec, opts?): T | nil, Input.Invali
 function Input.multipart(req, opts?: Input.MultipartOptions): Input.Multipart | nil, Input.Invalid
 ```
 
-`T` is inferred from the caller's annotation, exactly as `Shape.into`
-(shape.tl:496) requires; the same `Shape.record_of` pattern gives the type
+`T` is inferred from the caller's annotation, exactly as [`Shape.into`]
+(shape.tl:496) requires; the same [`Shape.record_of`] pattern gives the type
 for free. `Typed<T>` gets matching sugar so a route can write
 `SIGNUP:form(req)`: `Typed` stays in shape.tl, and web wraps it
 (`Input.typed_form(typed, req)`), so shape.tl does not learn about requests.
@@ -344,33 +344,29 @@ Failure mapping (all `Input.Invalid`):
 - Truncated or malformed chunked body: 400 (server.tl:402).
 - Body read timing out: pass the failure through; the server answers 408
   (server.tl:404).
-- JSON syntax error: 400, message from `Json.decode` (it names line and
+- JSON syntax error: 400, message from [`Json.decode`] (it names line and
   column), `code = "json"`.
 - Body empty where a form or JSON is required: `required` on `""`.
 
-### Status: 400, 413, 415, and 422 for a re-render
+### Status: 400, 413, 415 and 422
 
 The statuses are the same in every part of cosmic.web (core.md section 6.4):
 
 - Undecodable input (a bad percent-escape, malformed JSON, bad multipart
   framing): 400.
 - A wrong Content-Type: 415. An oversized body: 413.
-- A value that decodes but fails its shape spec: 400 too, in v1. This is the
-  user's call, and "400 versus 422 for spec failures" stays an open question
-  (core.md section 14, ../web.md open question 1).
-- A handler re-rendering a form with its errors uses 422. htmx 2's default
-  `responseHandling` swaps only 2xx and treats 4xx/5xx as errors without
-  swapping, so a 400 re-render is *discarded by htmx*; the config that
-  `Htmx.head` writes (templates.md section 6.6) swaps 422, which is why a
-  re-render answers 422 and not 400.
+- A value that decodes but fails its shape spec: 422 (../web.md, decision
+  7). htmx 2's default `responseHandling` swaps only 2xx, so a 422
+  re-render would be discarded; the config that `Htmx.head` writes
+  (templates.md section 6.6) swaps 422, so a form's re-render with its
+  errors reaches the page.
 
-`Input.Invalid.status` is therefore 400, 413 or 415, never 422; a handler
-that wants 422 passes its own status to its own response, which is what a
-route's `on_invalid` does (section 3, "Route-level wiring"). The generic
-router fallback (no handler re-render) uses `Invalid.status`.
+`Input.Invalid.status` is one of these. A route's `on_invalid` (section 3,
+"Route-level wiring") re-renders with it; without one, the router answers
+the problem response with it.
 
 JSON APIs get `application/problem+json` with
-`{type:"about:blank", title:"Bad Request", status:400, detail, errors:[...]}`,
+`{type:"about:blank", title:"Unprocessable Content", status:422, detail, errors:[...]}`,
 each entry a `FieldError` (`source`, `field`, `pointer`, `message`, `code`), so
 API clients can render per-field messages (core.md section 6.4 builds it).
 
@@ -378,18 +374,18 @@ API clients can render per-field messages (core.md section 6.4 builds it).
 
 ### What Shape does and does not do today
 
-`Shape.into` (shape.tl:496) checks one decoded value against a spec and
+[`Shape.into`] (shape.tl:496) checks one decoded value against a spec and
 reports only the *first* failure, as a JSON Pointer string (shape.tl:62-69,
 446-485). It converts nothing except float-to-integer (shape.tl:59-61,
-458-462); `Shape.number` refuses `"1"`; a missing boolean is an error. Both
+458-462); [`Shape.number`] refuses `"1"`; a missing boolean is an error. Both
 are right for JSON and wrong for forms and query strings, where every value
 is text, a checkbox is *absent* when unchecked, an empty text input is
 submitted as `""`, and a page wants all the field errors at once.
 
-JSON binding therefore goes straight through `Shape.into` unchanged, with the
+JSON binding therefore goes straight through [`Shape.into`] unchanged, with the
 pointer converted into a `FieldError.field` (`/address/city` -> `address.city`,
 numeric steps kept: `items.0.name`) by parsing the failure message the same
-way `Json.from_pointer` (json.tl:778) reads a pointer. Only the first error
+way [`Json.from_pointer`] (json.tl:778) reads a pointer. Only the first error
 is available there; for JSON APIs that is acceptable (the client is a
 program), and it is Shape's documented rule. If a collect-all mode is wanted
 for JSON too, the better change is in shape.tl (open question 2), not in web.
@@ -397,7 +393,7 @@ for JSON too, the better change is in shape.tl (open question 2), not in web.
 For path, query and form input the decoding differs enough that web owns a
 *spec-directed binder*, `cosmic.web.input`'s `bind_strings` (core.md section
 6.3 calls it for typed routes). It walks the
-spec (it reads `Spec.kind`, `fields`, `names`, `of`, `values`, `optional`,
+spec (it reads [`Spec.kind`], `fields`, `names`, `of`, `values`, `optional`,
 the documented-as-"how `into` reads it" fields, shape.tl:89-106), pulls
 strings from the `Url.Query`, coerces each, collects every error, and builds
 a plain Lua tree. Then, if no error was found, it hands that tree to
@@ -462,7 +458,7 @@ Let `strings` be the values for a field's name.
   name `field`. A nested record reads its fields from `parent.child`
   (dotted names, which are what `name="address.city"` inputs send). Nesting
   depth is limited to 3.
-- `Shape.map` and a `list` of records are refused when the route is
+- [`Shape.map`] and a `list` of records are refused when the route is
   registered, not at request time: `Input.check_spec(spec, "form")` walks the
   spec once and raises (naming the field path) for a kind a form cannot
   carry. A list of records is the common wish (`items.0.name`,
@@ -548,13 +544,13 @@ re-render case one line: it renders the form with `Invalid` and answers 422.
 
 ## 4. Multipart/form-data
 
-**Phase 5, pending the user's call on v1 scope.** The design below is
+**In v1, last (../web.md, decision 8).** The design below is
 complete so that the call can be made; nothing else in this file depends on
 it. The case for including it: file upload is the most common thing a plain
 HTML form (`<form enctype="multipart/form-data">`) and
 `hx-encoding="multipart/form-data"` do that urlencoded cannot; omitting it
 makes the first "upload a profile picture" example impossible, and the body
-is already a streaming `Stream.Reader`, which is exactly the input a
+is already a streaming [`Stream.Reader`], which is exactly the input a
 streaming parser wants. The cost is real but bounded: ~400 lines of pure Teal
 plus a fuzz test, and temp-file handling. Recommendation: include it, last,
 after the body-deadline change (open question 7) has landed.
@@ -562,7 +558,7 @@ after the body-deadline change (open question 7) has landed.
 ### The seam: `cosmic.http.multipart`
 
 It knows nothing of cosmic.web, in the same relationship as
-`Server.range` to the handler.
+[`Server.range`] to the handler.
 
 ```teal
 local record Multipart
@@ -616,14 +612,14 @@ Parsing rules (RFC 7578 and 2046 section 5.1.1, hardened):
   folded header, or a bare LF: refused (400).
 - `Content-Transfer-Encoding` other than absent/`binary`/`7bit`/`8bit`: refused
   (RFC 7578 4.7 deprecated base64/quoted-printable).
-- Streaming with bounded memory: the body Reader of a part is `Stream.limit`
+- Streaming with bounded memory: the body Reader of a part is [`Stream.limit`]
   style over the source with a rolling window of `#delimiter - 1` bytes, so a
   delimiter split across reads is found; memory is O(window), not O(part).
 - A part that is not read before `next_part` is skipped (dropped), so a
   handler ignoring a file does not buffer it.
 - Truncated body (no closing delimiter): `nil, "multipart: the body ended
   before the closing boundary"`, mapped to 400.
-- Fuzz test (`multipart_fuzz_test.tl`, `Fuzz.label`s `header_parsed`,
+- Fuzz test (`multipart_fuzz_test.tl`, [`Fuzz.label`]s `header_parsed`,
   `part_read`, `file_part`): a property that any generated well-formed
   multipart round-trips; another that arbitrary bytes never raise and never
   yield a part whose body exceeds the input.
@@ -674,19 +670,19 @@ end
 ```
 
 `Input.multipart(req, opts)` streams, writes file parts to disk through
-`Stream.create` (stream.tl:1212) with mode 0600, counts bytes against the
+[`Stream.create`] (stream.tl:1212) with mode 0600, counts bytes against the
 caps as it goes (an over-cap file part aborts and removes the file), and keeps
 text parts in memory as a `Url.Query` so the *same* binder from section 3
-works: `Input.multipart_into<T>(req, spec)` binds `fields`; a `Shape.record`
+works: `Input.multipart_into<T>(req, spec)` binds `fields`; a [`Shape.record`]
 field that is meant to be an upload is declared in the spec as
-`Input.upload` (a `Shape.any`-kind marker) and bound from `files`. Upload
+`Input.upload` (a [`Shape.any`]-kind marker) and bound from `files`. Upload
 specs are refused when the route's spec is registered if the route is not
 declared `multipart`.
 
 Cleanup: files are removed by the router in a `finally`-style step after the
 response is written (or the Reader body closes), via a list under the
 exported key `Input.CLEANUP` (`Web.Key<{string}>`); the handler moves a file it keeps
-(`Fs.rename`) and the cleanup tolerates its absence. A crash leaves
+([`Fs.rename`]) and the cleanup tolerates its absence. A crash leaves
 orphans in `dir`; `Input.sweep_uploads(dir, older_than_ns)` is a sweeper for
 a lifespan hook.
 
@@ -699,7 +695,7 @@ body. Rule: for multipart the token must be in the `X-CSRF-Token` header (what
 htmx and `fetch` send) or be the **first part** of the form
 (`<input type=hidden name=csrf_token>` first in DOM order; browsers send in
 document order). The middleware peeks at most 16 KiB with
-`Stream.read_up_to` (stream.tl:744), parses the first part header and, if it
+[`Stream.read_up_to`] (stream.tl:744), parses the first part header and, if it
 is `csrf_token`, reads its small value; it then restores the consumed bytes
 with `Stream.prepend(prefix, req.raw.body)` (stream.tl:730). If the first part is
 not the token and the header is absent, 403. This keeps uploads from being
@@ -709,28 +705,28 @@ buffered whole to find a token.
 
 `Input.json(req)` is `Json.decode(text, { null_value = Json.null,
 max_depth = 32 })` (json.tl:405, 165-172, 365-370) over the body, after the
-Content-Type and size checks. `Json.null` is used so Shape's rule "missing and
+Content-Type and size checks. [`Json.null`] is used so Shape's rule "missing and
 null are the same thing" holds (shape.tl:54-58).
 
-`Input.json_into<T>(req, spec)` = `Input.json` then `Shape.into`. The
+`Input.json_into<T>(req, spec)` = `Input.json` then [`Shape.into`]. The
 failure, `pointer "/address/city": expected string, got integer`, is
 parsed into a `FieldError` (`field = "address.city"`, `message = "expected
 string, got integer"`, `code = "type"`); a non-parseable message goes in
 `field = ""`. Parsing a message we produce ourselves is fragile, so shape.tl
-should expose the pieces: a tiny change, `Shape.into` unchanged but a new
+should expose the pieces: a tiny change, [`Shape.into`] unchanged but a new
 `Shape.into_at(value, spec): T | nil, string, Json.Steps` (or a record with
 `path` and `reason`) returning the failing path as steps beside the text.
 Recommended (open question 2). Until it lands, a single regexp on `^pointer
-"(.-)": (.*)$` and `Json.from_pointer` is the fallback, with a `TODO: once
+"(.-)": (.*)$` and [`Json.from_pointer`] is the fallback, with a `TODO: once
 cosmic.shape reports a failing path as steps`.
 
 Other JSON rules:
 
-- Duplicate keys in an object: whatever `Json.decode` does (documented
+- Duplicate keys in an object: whatever [`Json.decode`] does (documented
   there); not re-decided here.
 - A top-level non-object when the spec is a record: Shape's error at pointer
   `""`.
-- Responses: `Web.json(value, opts)` is the core's (it calls `Json.encode`
+- Responses: `Web.json(value, opts)` is the core's (it calls [`Json.encode`]
   and sets `Content-Type: application/json`); no change here.
 - An API that accepts either JSON or a form on the same route: not supported
   by one spec. The router can register the route twice (same path, two
@@ -824,7 +820,7 @@ function Cookies.parse_set_cookie(line: string): Cookies.Parsed | nil, string
   a smarter parse.
 - A value may be wrapped in double quotes (RFC 6265 allows it); the quotes are
   stripped. Values are not percent-decoded (cookies have no such rule), so
-  apps that store arbitrary text escape it with `Url.escape` first
+  apps that store arbitrary text escape it with [`Url.escape`] first
   (the sessions use base64url, so need nothing).
 - Limits: at most 100 cookies and 8 KiB of header read (the server's
   `head_bytes` is 64 KiB for everything); the rest are ignored.
@@ -836,7 +832,7 @@ idiom, and raises only for a degenerate call):
 - `name` must be an RFC 7230 token (letters, digits, `!#$%&'*+-.^_`|~`);
   value must be cookie-octets (no CTL, space, `"`, `,`, `;`, `\`). A value
   with others: `nil, "cookies: value holds ';'"`. The apps's escape hatch is
-  `Cookies.escape_value` = `Url.escape` (the reverse is the app's).
+  `Cookies.escape_value` = [`Url.escape`] (the reverse is the app's).
 - Attributes are written in a fixed order:
   `name=value; Path=/; Max-Age=N; Domain=d; Secure; HttpOnly; SameSite=Lax`.
   `Path`/`Domain` must contain no `;`, CTL or space. A domain with a
@@ -871,7 +867,7 @@ another is one response).
 ### The interface
 
 One user-facing type, two stores behind it. The unit stored is a JSON object;
-values must be what `Json.encode` accepts (strings, numbers, booleans,
+values must be what [`Json.encode`] accepts (strings, numbers, booleans,
 lists, string-keyed maps); a `set` of anything else raises at the `set`
 (`json.tl` rejects functions/userdata), not at save time, so the stack trace is
 the handler's.
@@ -1086,11 +1082,11 @@ Token format, fixed:
     payload = Json.encode({ v = 1, c = created, e = expires, d = values })
     mac = Hash.hmac("sha256", key, context .. "\0" .. cookie_name .. "\0" .. b64url(payload))
 
-- `Codec.base64url` (codec.tl:230) is unpadded and URL- and cookie-safe, so
-  no escaping is needed; `Codec.unbase64url` (codec.tl:241) is strict (rejects
+- [`Codec.base64url`] (codec.tl:230) is unpadded and URL- and cookie-safe, so
+  no escaping is needed; [`Codec.unbase64url`] (codec.tl:241) is strict (rejects
   padding and nonzero trailing bits), so the token has exactly one spelling.
 - `Hash.hmac("sha256", ...)` (hash.tl:83). Comparison: **constant time**.
-  cosmic has none today (`grep` finds none; `Hash.digest` results compare with
+  cosmic has none today (`grep` finds none; [`Hash.digest`] results compare with
   `==`). Add `Hash.equal(a: string, b: string): boolean` to cosmic/hash.tl:
   `false` at once when lengths differ (lengths of MACs are public), otherwise
   OR-accumulate `a:byte(i) ~ b:byte(i)` over all bytes with no early exit.
@@ -1122,7 +1118,7 @@ Token format, fixed:
 - **Signed, not encrypted.** Anyone holding the cookie can read it
   (base64-decode the payload). Say so loudly in the docs: never store
   secrets, other users' data or anything the user must not see. cosmic ships
-  no authenticated cipher today (`cosmic.hash` and `cosmic.codec` only), so
+  no authenticated cipher today ([`cosmic.hash`] and [`cosmic.codec`] only), so
   encryption is not offered; if one lands, an `encrypt = true` option
   (AEAD, nonce in token) is the extension and the token's `v` field is the
   version hook. This is the same position as Starlette's `SessionMiddleware`
@@ -1172,16 +1168,16 @@ CREATE INDEX IF NOT EXISTS web_sessions_subject ON web_sessions (subject)
 - Id: `Codec.base64url(Rand.entropy(32))` (rand.tl:155): 256 random bits, 43
   characters, the cookie value. No MAC needed: an unguessable id is the
   credential. The table stores `Hash.sha256(id)`, so a read of the database
-  (a backup, an injection) does not yield live cookies. `Rand.entropy`
+  (a backup, an injection) does not yield live cookies. [`Rand.entropy`]
   failing is `nil, why`: the request is a 500, never a weak id from
-  `Rand.new` (rand.tl:114, the seeded generator, which is not for secrets).
+  [`Rand.new`] (rand.tl:114, the seeded generator, which is not for secrets).
 - `subject`: set by `session:set("user_id", ...)` is not enough for the store
   to find sessions by user; so `Handle:bind_subject(s)` (SQLite only, a no-op
   on the cookie store with `revocable = false`) writes the column. It is what
   makes "sign out everywhere" and "password changed" work. Optional.
 - `load`: `SELECT data, created, expires FROM web_sessions WHERE id_hash = ?1
   AND expires > ?2`; absent row is anonymous. Parameters bound with
-  `Sqlite.Value` (`{ blob = ... }`, `{ integer = ... }`), never
+  [`Sqlite.Value`] (`{ blob = ... }`, `{ integer = ... }`), never
   concatenated; the table name, the only concatenated part, is validated as
   `^[A-Za-z_][A-Za-z0-9_]*$` at `store()`.
 - `save` (merging): one transaction around: re-read the row's `data`, apply
@@ -1190,7 +1186,7 @@ CREATE INDEX IF NOT EXISTS web_sessions_subject ON web_sessions (subject)
   cooperative and the transaction contains no yield (no I/O wait, only
   synchronous SQLite calls), it is atomic with respect to other requests in
   this process; two requests writing disjoint keys both land. A single
-  `Sqlite.transact` (sqlite.tl:639) cannot nest, so the store never opens
+  [`Sqlite.transact`] (sqlite.tl:639) cannot nest, so the store never opens
   one in the request path outside `save`/`destroy`, and the middleware does
   *not* hold a transaction open across the handler.
 - Cross-process writers (another process sharing the file): SQLite's own
@@ -1206,7 +1202,7 @@ CREATE INDEX IF NOT EXISTS web_sessions_subject ON web_sessions (subject)
   (one `DELETE ... WHERE id_hash IN (SELECT id_hash ... WHERE expires <= ?1
   LIMIT 500)`, so a big backlog never stalls the loop), and by
   `SessionSqlite.sweep` for apps that run it from a lifespan timer
-  (`Poll.delay` loop).
+  ([`Poll.delay`] loop).
 
 The blocking-SQLite caveat, concretely:
 
@@ -1251,7 +1247,7 @@ choice (and the key) is visible at the app's top.
 trusted proxy changes it (open question 1), otherwise a request is http as
 the server speaks http. The consequence to document: behind a TLS proxy
 without `trusted_proxy` the session cookie is sent without `Secure`; the
-app is warned once at startup by `cosmic.log` when `secure` is auto and the
+app is warned once at startup by [`cosmic.log`] when `secure` is auto and the
 server listens on a non-loopback address. A production app sets
 `secure = true` explicitly; then the default cookie name is `__Host-session`
 (requires Secure, Path=/, no Domain), which is also the defense against
@@ -1600,7 +1596,7 @@ templates.md section 6.6, and written by `Htmx.head`):
   the config if inline script tags in responses are ever allowed (not by
   default).
 - SSE/`EventSource`: `connect-src 'self'` covers it.
-- The nonce is 16 random bytes from `Rand.entropy`, base64url, per request,
+- The nonce is 16 random bytes from [`Rand.entropy`], base64url, per request,
   kept under the exported key `Headers.NONCE` (`Web.Key<string>`, "" when
   `nonce = false`); it is a one-time value, so the response must not be
   cached shared (`Cache-Control: private` or `no-store` is added to
@@ -1688,9 +1684,9 @@ declaration, everything else declares nothing.
 - `session/cookie_test.tl`: round trip; tamper any byte -> anonymous; token
   signed under old key verifies and is re-issued; expired; over-size error
   text; wrong cookie name's token rejected; fuzz of arbitrary tokens never
-  loads data and never raises (`Fuzz.label` `mac_ok` / `mac_bad`). `now` is
+  loads data and never raises ([`Fuzz.label`] `mac_ok` / `mac_bad`). `now` is
   injected, so no sleeps.
-- `session/sqlite_test.tl`: `Sqlite.memory()`; create/load/update/merge of
+- `session/sqlite_test.tl`: [`Sqlite.memory()`]; create/load/update/merge of
   disjoint keys from two handles loaded before either saves; regenerate
   removes the old row; expiry; sweep bounded by limit; `destroy_subject`;
   id is unguessable length and the table holds only a hash.
@@ -1759,7 +1755,7 @@ declaration, everything else declares nothing.
 
 1. `Request.scheme` and trusted proxies. Secure cookies, HSTS and the
    CSRF origin comparison all need to know the request was https; the server
-   cannot. Recommendation: the core adds `Web.app{ trusted_proxy = true }`,
+   cannot. Decided (../web.md, decision 10): the core adds `Web.app{ trusted_proxy = true }`,
    which makes `Request.scheme`/`host` come from `X-Forwarded-Proto/Host` and
    is off by default; with it off, `Secure` is explicit config and the startup
    warning in section 7 applies.
@@ -1777,12 +1773,8 @@ declaration, everything else declares nothing.
    rejected as one more concept.
 5. NUL in decoded strings: refused in scalar string fields by the binder,
    allowed in the raw decoder. Recommendation: as written.
-6. 400 vs 422 for a value that fails its shape spec. v1 answers 400, which
-   is the user's call; htmx does not swap 4xx by default. Recommendation (as
-   in ../web.md open question 1, which holds the argument): 422 for a spec
-   failure and 400 for undecodable input; until then keep 400 for generic
-   failures, have the htmx config swap 422, and document 422 as the status
-   for a handler's own form re-render (section 2).
+6. 400 vs 422 for a value that fails its shape spec. Decided: 422, and 400
+   for undecodable input (../web.md, decision 7).
 7. Upload deadlines: the `body_ns` TODO in server.tl:485-489 should land
    before docs recommend uploads on the open internet. Recommendation: land
    it with this work (a small `Timed` deadline set at head end).
@@ -1793,11 +1785,51 @@ declaration, everything else declares nothing.
    leave out of v1; `csp_report_only` is enough to trial a policy by the
    browser console.
 10. `Hash.equal` in pure Teal vs a C binding. Recommendation: Teal now with
-    the `TODO:` naming cosmic.sys; the C binding needs the `core/syscalls.h`
+    the `TODO:` naming cosmic.sys; the C binding needs the [`core/syscalls.h`]
     contract and a test that enters it, so it is a separate change.
 11. Should `Session.middleware` fall back to an ephemeral key in dev without
     configuration? Recommendation: only through an explicit
     `Secret.ephemeral()` in the app's own code, never implicitly.
-12. Multipart in v1 (section 4). It is step 7 of ../web.md's order, pending the user's call on
-    v1 scope. Recommendation: include it, last, once the body deadline of
-    question 7 has landed.
+12. Multipart in v1 (section 4). Decided: in v1, last, once the body
+    deadline of question 7 has landed (../web.md, decision 8).
+
+[`Codec.base64url`]: ../../../cosmic/codec.tl
+[`Codec.unbase64url`]: ../../../cosmic/codec.tl
+[`core/syscalls.h`]: ../../../core/syscalls.h
+[`cosmic.codec`]: ../../../cosmic/codec.tl
+[`cosmic.hash`]: ../../../cosmic/hash.tl
+[`cosmic.http.server`]: ../../../cosmic/http/server.tl
+[`cosmic.log`]: ../../../cosmic/log.tl
+[`cosmic.shape`]: ../../../cosmic/shape.tl
+[`cosmic.url`]: ../../../cosmic/url.tl
+[`Fs.rename`]: ../../../cosmic/fs.tl
+[`Fuzz.label`]: ../../../build/fuzz/init.tl
+[`Hash.digest`]: ../../../cosmic/hash.tl
+[`Json.decode`]: ../../../cosmic/json.tl
+[`Json.encode`]: ../../../cosmic/json.tl
+[`Json.from_pointer`]: ../../../cosmic/json.tl
+[`Json.null`]: ../../../cosmic/json.tl
+[`Poll.delay`]: ../../../cosmic/poll.tl
+[`Rand.entropy`]: ../../../cosmic/rand.tl
+[`Rand.new`]: ../../../cosmic/rand.tl
+[`Server.range`]: ../../../cosmic/http/server.tl
+[`Server.Reply`]: ../../../cosmic/http/server.tl
+[`Shape.any`]: ../../../cosmic/shape.tl
+[`Shape.into`]: ../../../cosmic/shape.tl
+[`Shape.map`]: ../../../cosmic/shape.tl
+[`Shape.number`]: ../../../cosmic/shape.tl
+[`Shape.record_of`]: ../../../cosmic/shape.tl
+[`Shape.record`]: ../../../cosmic/shape.tl
+[`Spec.kind`]: ../../../cosmic/shape.tl
+[`Sqlite.memory()`]: ../../../cosmic/sqlite.tl
+[`Sqlite.transact`]: ../../../cosmic/sqlite.tl
+[`Sqlite.Value`]: ../../../cosmic/sqlite.tl
+[`Stream.create`]: ../../../cosmic/stream.tl
+[`Stream.limit`]: ../../../cosmic/stream.tl
+[`Stream.read_up_to`]: ../../../cosmic/stream.tl
+[`Stream.Reader`]: ../../../cosmic/stream.tl
+[`Url.escape`]: ../../../cosmic/url.tl
+[`Url.segments`]: ../../../cosmic/url.tl
+[`Url.unescape`]: ../../../cosmic/url.tl
+[`wire.check`]: ../../../cosmic/http/wire.tl
+[`wire.send`]: ../../../cosmic/http/wire.tl

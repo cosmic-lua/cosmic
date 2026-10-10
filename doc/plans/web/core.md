@@ -3,7 +3,7 @@
 Part of the cosmic.web design: see ../web.md for the overview, decisions and phasing.
 
 This file designs the spine of `cosmic.web`: everything an application
-needs to turn a `Server.Request` into a `Server.Reply` through a routing
+needs to turn a [`Server.Request`] into a [`Server.Reply`] through a routing
 table and a middleware stack. Input binding, cookies, sessions, CSRF, CORS
 and security headers are input.md; templates and the htmx dialect are
 templates.md; assets, SSE and the dev loop are assets.md. They plug into
@@ -15,19 +15,19 @@ Facts read from the tree are cited as path:line.
 
 What the tree already gives us:
 
-- `Server.serve` calls one `handle: function(Request): Reply` per request,
+- [`Server.serve`] calls one `handle: function(Request): Reply` per request,
   in the connection's task (cosmic/http/server.tl:571, 395). Everything
-  cooperative: a read of `req.body`, a `Poll.delay`, a `Net` wait yields;
-  SQLite and `Http.get` block every connection (server.tl:561-566).
-- A raise in `handle`, or a reply `reply_trouble`/`wire.check` refuses, is
+  cooperative: a read of `req.body`, a [`Poll.delay`], a `Net` wait yields;
+  SQLite and [`Http.get`] block every connection (server.tl:561-566).
+- A raise in `handle`, or a reply `reply_trouble`/[`wire.check`] refuses, is
   answered 500 (plain text) and the trace goes to `ServeSpec.on_error`
   (server.tl:411-428).
 - HEAD arrives as HEAD; the handler answers as for GET and the server drops
   the body (server.tl:31-37).
 - `req.path` is the still-escaped path, `req.query` the still-escaped query
-  (server.tl:43-45); `cosmic.url` has `escape`, `unescape`, `segments` and
+  (server.tl:43-45); [`cosmic.url`] has `escape`, `unescape`, `segments` and
   no query decoding (cosmic/url.tl:86-131, doc/roadmap.md:243).
-- `Shape.into` does no string coercion: `integer` refuses `"1"`
+- [`Shape.into`] does no string coercion: `integer` refuses `"1"`
   (cosmic/shape.tl:59-61); input.md section 3 therefore owns the
   spec-directed binder that typed routes call.
 
@@ -39,7 +39,7 @@ Where this design departs from Starlette, and why:
   and cosmic's `Server` already provide the plumbing ASGI exists to
   standardise. Middleware is therefore `function(Handler): Handler` over
   records, not "pure ASGI" classes, and cannot see the connection.
-- `Response` is `Server.Reply` itself (an alias, section 3), not a second
+- `Response` is [`Server.Reply`] itself (an alias, section 3), not a second
   class: zero conversion and the server's validation applies unchanged.
 - One `Route` record covers both leaf routes and mounts (Teal cannot
   discriminate a union of two table types), built by `Web.route`/`Web.get`
@@ -48,14 +48,14 @@ Where this design departs from Starlette, and why:
   matches first-declared; that makes route order a hidden input and a
   file-based generator would have to sort. Here order never matters.
 - Path parameters carry no converter syntax (`{id:int}`). Types come from
-  `cosmic.shape` specs attached to the route (section 6), so the pattern
+  [`cosmic.shape`] specs attached to the route (section 6), so the pattern
   stays a plain string usable for reverse routing and for a generator.
 - Typed handlers: the type flows through a generic constructor
   (`Web.route_typed<P,Q,B>`), the Teal answer to FastAPI's signature
   inspection.
 - The error middleware sits innermost, not outermost (section 8), so
   middleware such as CORS and logging see the 500 the handler produced.
-- No `BackgroundTask`: spawn with `Poll.spawn` (a task outlives the
+- No `BackgroundTask`: spawn with [`Poll.spawn`] (a task outlives the
   request; document, don't wrap).
 - No per-request threads, so no sync-handler thread pool story: a handler
   that blocks stalls the server, as server.tl:561 says. The docs repeat it.
@@ -143,7 +143,7 @@ middleware and the handler share one decode. Rules that bind the core:
 - `bytes()`/`text()`: the body read once, bounded by `limits.body_bytes`
   and the route's `body_limit` (13.4). Reading twice returns the cached
   string. The cached bytes are also put back as `req.raw.body`
-  (`Stream.from_string`), so a later `Input.form` or a handler reading
+  ([`Stream.from_string`]), so a later `Input.form` or a handler reading
   `req.raw.body` still sees them. A handler streaming an upload uses
   `req.raw.body` and never calls the helpers.
 - Cookies: the cookie jar is `cosmic.web.cookies` (input.md section 6). Core
@@ -190,7 +190,7 @@ resources (section 9.3).
 
 ## 3. Response
 
-`Web.Response` is `Server.Reply`:
+`Web.Response` is [`Server.Reply`]:
 
 ```teal
 type Response = Server.Reply
@@ -215,20 +215,20 @@ function Web.problem(status: integer, detail?: string, extra?: {string:any}): Re
 
 Behaviours and edge cases:
 
-- `html` takes only `Html.SafeHtml` (cosmic/html.tl:46), unwrapped with
-  `Html.raw`. A plain string does not type check. The escape hatch is
-  `Html.trust`, which is greppable. `Content-Type: text/html; charset=utf-8`.
-- `json` encodes with `Json.encode`. Encode failure (a cycle, a function)
+- `html` takes only [`Html.SafeHtml`] (cosmic/html.tl:46), unwrapped with
+  [`Html.raw`]. A plain string does not type check. The escape hatch is
+  [`Html.trust`], which is greppable. `Content-Type: text/html; charset=utf-8`.
+- `json` encodes with [`Json.encode`]. Encode failure (a cycle, a function)
   is a programming error: it raises, the error middleware answers 500.
   `Content-Type: application/json` (no charset; it is UTF-8 by definition).
-  `Json.array` and `Json.null` follow cosmic.json's rules, nothing added.
+  [`Json.array`] and [`Json.null`] follow cosmic.json's rules, nothing added.
   Always sets `X-Content-Type-Options: nosniff` (cheap and always right for
   API bodies).
 - `text`: `text/plain; charset=utf-8`, plus nosniff.
 - `redirect`: default 303 See Other (right after a POST; htmx follows it).
   `opts.status` accepts 301/302/303/307/308. `location` is validated:
   it must be a path starting with exactly one `/` (not `//`, not `/\`), or
-  an absolute `http:`/`https:` URL (`Url.parse`), and hold no control
+  an absolute `http:`/`https:` URL ([`Url.parse`]), and hold no control
   byte; otherwise it raises. This is the guard against open redirects in
   `Web.redirect(req:query():get("next"))`: that call raises (500) for
   `next=//evil.com`; apps must pass user input through
@@ -236,7 +236,7 @@ Behaviours and edge cases:
   is a local path. (Safe by default rather than by memory.)
 - `empty`: no body, no Content-Type. Default 204; `status = 200` gives an
   empty 200 with `Content-Length: 0` from the server.
-- `stream`: body is a `Stream.Reader`; no length means chunked
+- `stream`: body is a [`Stream.Reader`]; no length means chunked
   (HTTP/1.0 clients: close-delimited), see server.tl:96-98. The Reader is
   read cooperatively and closed by the server when sent or abandoned
   (server.tl:93-94, 363-373): a client disconnect surfaces as a failed
@@ -244,15 +244,15 @@ Behaviours and edge cases:
   (`Sse.EventStream`, assets.md section 5) is `stream` with
   `text/event-stream`, `Cache-Control: no-cache, no-transform` and a
   Reader over the channel; it adds no server feature.
-- `file`: opens `path`, `Stream.open`, sets `Content-Length` from stat,
+- `file`: opens `path`, [`Stream.open`], sets `Content-Length` from stat,
   weak ETag from size+mtime unless `opts.etag`, `Last-Modified`, answers
-  304 via `Server.none_match` (server.tl:747) and Range via `Server.range`
+  304 via [`Server.none_match`] (server.tl:747) and Range via [`Server.range`]
   (server.tl:678) for GET only. `FileOptions`: `content_type` (default
   `Mime.of(name)` from cosmic.web.mime, assets.md section 1.4;
   octet-stream if unknown), `download_name` (sets `Content-Disposition:
   attachment; filename*=UTF-8''<escaped>`), `cache_control`. Path
   containment is the caller's (`StaticFiles` in assets.md section 3 checks
-  segments with `Url.segments`); `Web.file` takes a path the app trusts and
+  segments with [`Url.segments`]); `Web.file` takes a path the app trusts and
   says so.
 - `problem(status, detail, extra)`: RFC 9457 `application/problem+json`
   `{type:"about:blank", title:<reason>, status, detail, ...extra}`. Used by
@@ -280,7 +280,7 @@ gets a line of its own. `Set-Cookie` MUST use `add_header`; `set_header` on
 it replaces every cookie, and the helper raises for `Set-Cookie` to say so
 (use `Cookies.set`, which calls `add_header`).
 
-Mapping to `Server.Reply` is the identity; nothing is copied, so a
+Mapping to [`Server.Reply`] is the identity; nothing is copied, so a
 middleware that mutates `res.headers` after `next(req)` is cheap.
 
 ## 4. Handler shapes and the plain (untyped) route
@@ -367,7 +367,7 @@ local routes = {
 - `:name`: one non-empty segment, percent-decoded. Name matches
   `[A-Za-z_][A-Za-z0-9_]*`, unique within the pattern.
 - `*name`: must be last; matches zero or more remaining segments, decoded
-  and rejoined with `/` (so it never contains `..`; `Url.segments` already
+  and rejoined with `/` (so it never contains `..`; [`Url.segments`] already
   refused those, cosmic/url.tl:131-153). Empty string when none. A
   segment cannot mix literal and param (`/items/id-:id` is a registration
   error): keeps reverse routing and generation trivial.
@@ -395,14 +395,14 @@ is canonical. `Web.App.trailing_slash`:
 
 ### 5.4 Canonical paths (a security rule)
 
-Before matching, the router parses `raw.path` with `Url.segments`:
+Before matching, the router parses `raw.path` with [`Url.segments`]:
 
-- `..` or an encoded `/` or NUL in a segment: `Url.segments` returns
+- `..` or an encoded `/` or NUL in a segment: [`Url.segments`] returns
   `nil, why` and the router answers 400 (not 404: the request is malformed).
 - An empty segment (`//a`) or a `.`/`%2e` segment is normalised away by
-  `Url.segments` (cosmic/url.tl:137-152). If that changed the path, the
+  [`Url.segments`] (cosmic/url.tl:137-152). If that changed the path, the
   router answers 308 to the canonical form, built from the decoded
-  segments re-escaped with `Url.escape`, always starting with exactly one
+  segments re-escaped with [`Url.escape`], always starting with exactly one
   `/`. Because the Location is rebuilt from segments, a request for
   `//evil.com/` redirects to `/evil.com/`, never to the protocol-relative
   `//evil.com/`: no open redirect.
@@ -512,9 +512,9 @@ formatted `%d`; `*rest` values are split on `/` and each segment escaped;
 (the C function behind it, core/html.c; templates.md section 3), `/`
 included, so a slash in an id cannot change the route, and a value that is
 exactly `.` or `..` comes out as `%252E`/`%252E%252E` so it cannot become a
-dot segment. That escaper writes the same bytes as `Url.escape`
+dot segment. That escaper writes the same bytes as [`Url.escape`]
 (cosmic/url.tl:86) for every input but those two values; there is one
-escaper in the web layer, and a test pins `Url.escape`, `Html.url_part` and
+escaper in the web layer, and a test pins [`Url.escape`], `Html.url_part` and
 `Router:reverse` together on a table of hostile values (the same test
 templates.md section 8 describes). `query` encodes `name=value` pairs with
 it, in sorted order (deterministic for tests). Unknown name: `nil, 'url_for: no route named "x"'`.
@@ -631,13 +631,13 @@ a coercion pass of their own:
   form coerce by one set of rules (input.md section 3, "Coercion rules").
 - Query: `Input.query_into(req, spec)`; urlencoded form body:
   `Input.form_into(req, spec)`; JSON body: `Input.json_into(req, spec)`,
-  which is `Shape.into` over the decoded value (input.md section 5).
-- The binder collects every field's error and ends with `Shape.into` on the
+  which is [`Shape.into`] over the decoded value (input.md section 5).
+- The binder collects every field's error and ends with [`Shape.into`] on the
   coerced tree as the final check, so the typed record the handler gets is
   exactly what Shape produces. A failure is an `Input.Invalid` (fields in
   6.4), with all errors for the source in `errors`.
-- Multipart bodies are `Input.multipart_into` (input.md section 4, step 7 of ../web.md's order,
-  pending the user's call on v1 scope); a route names it with a
+- Multipart bodies are `Input.multipart_into` (input.md section 4, step 7
+  of ../web.md's order); a route names it with a
   `Web.multipart_body(t)` body slot once that lands.
 - Unknown query/form keys are ignored (the spec is the allow-list), as
   input.md section 3 states; `Web.strict(typed)` is not provided in v1
@@ -662,9 +662,8 @@ question 1 is about the last row of this list):
 - Wrong Content-Type for the body the route declares: 415.
 - Over the body limit: 413 (the server answers; web maps the read failure
   to `abort(413)` so middleware sees it).
-- A value that decodes but fails its shape spec: 400 in v1.
-- A handler that re-renders a form with its errors answers 422 itself, and
-  the shipped htmx config swaps 422 (templates.md section 6.6).
+- A value that decodes but fails its shape spec: 422 (../web.md, decision
+  7), which the shipped htmx config swaps (templates.md section 6.6).
 
 A route that wants the re-render passes `on_invalid` (`RouteOptions` and
 `Route`, 5.1): `function(Web.Request, Input.Invalid): Web.Response`. Core
@@ -686,20 +685,20 @@ JSON (`application/problem+json`, built by `Web.problem` with `errors`
 filled from `Input.Invalid.errors`):
 
 ```json
-{"type":"about:blank","title":"Bad Request","status":400,
+{"type":"about:blank","title":"Unprocessable Content","status":422,
  "detail":"qty: expected integer, got \"x\"",
  "errors":[{"source":"body","field":"qty","pointer":"/qty",
             "message":"expected integer, got \"x\"","code":"integer"}]}
 ```
 
 `errors` holds every failed field of a path, query or form source, and one
-entry for a JSON body in v1, because `Shape.into` reports only the first
+entry for a JSON body in v1, because [`Shape.into`] reports only the first
 failure of a JSON value (input.md section 5). It is a list so a later
 collect-all mode in Shape changes no client.
 
 HTML: a small page from `App.error_view` (section 8.3), by default a
 minimal self-contained document with the status and `detail` escaped
-(`Html.escape`). For an htmx request the page should be a fragment; that is
+([`Html.escape`]). For an htmx request the page should be a fragment; that is
 what `error_view` and `on_invalid` are for, and both get the `Request` to
 branch on `HX-Request`. (htmx by default does not swap 4xx; templates.md
 section 6.7 covers the swap config.)
@@ -759,7 +758,7 @@ rule. The order "app > mount > route" is fixed.
 Middleware may short-circuit by returning without calling `next` (auth,
 CORS preflight, rate limit), may change the request (`req:set`), and may
 post-process the response (`add_header`). It must not read `res.body` if
-it is a Reader (the gzip middleware wraps it with `Stream.transform`,
+it is a Reader (the gzip middleware wraps it with [`Stream.transform`],
 stream.tl:655, and drops `Content-Length`).
 
 ### 7.2 Which pieces are middleware
@@ -781,7 +780,7 @@ Nothing is built; the places are reserved so adding it later is additive:
 - `Route.kind = "http"`, with `"websocket"` reserved; a `Web.websocket(pattern,
   fn)` constructor would produce a route of that kind.
 - The router already distinguishes handler results by returning a
-  `Response`; an upgrade is a `Response` with a new `Server.Reply` field
+  `Response`; an upgrade is a `Response` with a new [`Server.Reply`] field
   `take: function(conn: Net.Conn, rest: string)` (assets.md section 7),
   status 101 allowed only with it. The server writes the head, then calls
   `take` in the connection's task with any bytes it had read past the head,
@@ -810,7 +809,7 @@ middleware never see the 500. Here two layers cooperate:
 ### 8.2 Exception layer
 
 `xpcall(next, handler)` with a message handler that keeps the stack
-(`errors.trace`, as server.tl:290 does). Cases:
+([`errors.trace`], as server.tl:290 does). Cases:
 
 - `Web.abort` table: build `Web.problem` or HTML via `error_view`, status
   and detail as given. No logging (a 404 is not a fault); 5xx aborts are
@@ -820,7 +819,7 @@ middleware never see the 500. Here two layers cooperate:
   (problem+json or HTML by Accept) with the request id if present, no
   detail. In `app.debug = true` the body is an HTML page (or JSON
   `{"error":..., "trace":...}` for JSON clients) holding the message and
-  trace, escaped with `Html.escape`, and a note that debug is on. Debug
+  trace, escaped with [`Html.escape`], and a note that debug is on. Debug
   exposes source paths and values, so: `debug` defaults false, is
   never derived from the environment implicitly, and `serve` prints a
   warning line when `debug` and a non-loopback listener are combined.
@@ -846,7 +845,7 @@ them without a server hook. Accepted for v1 and documented; an
 
 ### 8.4 Request logging
 
-`cosmic.log` is a command-line logger: `say`, `complain`, `verdict`, no
+[`cosmic.log`] is a command-line logger: `say`, `complain`, `verdict`, no
 levels, no fields (cosmic/log.tl:11-30). It is the wrong shape for a
 server. Core defines the small interface web needs and adapts to it:
 
@@ -866,7 +865,7 @@ user puts it (typically first/outermost, so it times everything and sees
 mounts' 404s). It never logs the query string by default (tokens in
 queries); `opts.log_query = true` opts in. Application errors go to
 `ServeSpec.on_error` (the sink wraps it, 9.2). Open question 14.6: whether
-`cosmic.log` itself should grow levels.
+[`cosmic.log`] itself should grow levels.
 
 ## 9. App and serve
 
@@ -918,7 +917,7 @@ errors raised. A `Web.App{...}` literal is not constructible directly
 because `handle` and the compiled router are derived; the constructor is
 `Web.app{routes=..., middleware=...}` (a function call, so derivation has a
 place to happen). The AppSpec rejects unknown fields by name, like
-`Server.ServeSpec` (server.tl:195-236).
+[`Server.ServeSpec`] (server.tl:195-236).
 
 `app.handle` is a `Handler`, so an App is itself mountable: another app's
 route can `Web.mount_handler("/legacy", other.handle)`.
@@ -949,7 +948,7 @@ graceful stop hangs forever otherwise. Documented in `ServeOptions`.
 
 ### 9.3 Lifespan and graceful stop
 
-`Server.serve` runs its own `Poll.run` and refuses to start inside a task
+[`Server.serve`] runs its own [`Poll.run`] and refuses to start inside a task
 (server.tl:573). Hence lifespan functions cannot be tasks that wait on
 `Poll`. Design: `Web.serve` does
 
@@ -963,7 +962,7 @@ return ok, err
 
 The startup runs synchronously before any listener opens: opening a SQLite
 file, migrating, loading templates are fine; anything needing `Poll`
-(an HTTP client wait, a timer) is not. Shutdown runs after `Server.serve`
+(an HTTP client wait, a timer) is not. Shutdown runs after [`Server.serve`]
 returns, i.e. after requests in flight finished or the grace passed, so
 closing the database there is safe. A startup error returns `false, why`
 without listening. `lifespan` is a single function returning the cleanup
@@ -982,7 +981,7 @@ function covers both and keeps open/close paired.
 
 Graceful stop is the existing behaviour: SIGINT/SIGTERM stop accepting,
 idle keep-alives close, in-flight requests finish within `grace_ns`
-(net.tl:203-228, server.tl:593-598), and `Server.stop` from `on_ready` or a
+(net.tl:203-228, server.tl:593-598), and [`Server.stop`] from `on_ready` or a
 task works for tests. One mechanism makes long-lived responses (SSE streams)
 end promptly instead of at the grace; assets.md section 6.3 describes the
 streaming side of it and refers back here:
@@ -990,7 +989,7 @@ streaming side of it and refers back here:
 1. `grace_ns` defaults to 10 s in `Web.serve`. The server's default
    (nil) waits for every request, and an event stream never ends, so a
    graceful stop would hang forever.
-2. `Server.serve` forwards a caller's `on_stop`: `ServeSpec` gains
+2. [`Server.serve`] forwards a caller's `on_stop`: `ServeSpec` gains
    `on_stop: function(server: Net.Server)`, called at the end of the
    server's own `on_stop` (server.tl:597-603), after it has closed the idle
    connections and marked the server stopping; an error in it goes to
@@ -1010,7 +1009,7 @@ streaming side of it and refers back here:
 
 `app:stopping()` is for a Reader or task that polls rather than being
 closed (a custom `EventSource`, a background task started in the lifespan).
-The lifespan's shutdown function runs after `Server.serve` returns (above),
+The lifespan's shutdown function runs after [`Server.serve`] returns (above),
 so it sees streams already closed.
 
 A startup-time TODO is placed in `Web.serve`: "once Server.ServeSpec has an
@@ -1036,7 +1035,7 @@ res = client:post("/login", { form = { user = "u", password = "p" } })
   (string or Reader) + `content_type`, `follow_redirects` (default false;
   when true follows 301/302/303/307/308, switching to GET for 301/302/303
   after POST), `cookies` (extra, not jar).
-- It builds a `Server.Request` (`method`, `target`, `path`, `query`,
+- It builds a [`Server.Request`] (`method`, `target`, `path`, `query`,
   `headers` with `host: testserver`, lowercased, `body = Stream.from_string`,
   `length`, `version = "HTTP/1.1"`) and calls `app.handle` directly: no
   socket, same middleware, same router. A cookie jar is kept across calls
@@ -1047,9 +1046,9 @@ res = client:post("/login", { form = { user = "u", password = "p" } })
   a first version may keep name=value and delete on `Max-Age=0`).
 - Fidelity: the in-process path skips the server's checks, so a handler
   can return an invalid reply that passes in tests and 500s live. The
-  client therefore runs the same `wire.check` the server does
+  client therefore runs the same [`wire.check`] the server does
   (cosmic/http/wire.tl:742-790) on every reply and fails with the server's
-  message (tests may require `cosmic.http.wire`; the harness epoch is
+  message (tests may require [`cosmic.http.wire`]; the harness epoch is
   untouched). A HEAD reply is emulated the same way: body dropped,
   `Content-Length` of the GET kept. A Reader body is drained for
   `res.body` (`res:text()`) unless `stream = true`, in which case
@@ -1057,10 +1056,10 @@ res = client:post("/login", { form = { user = "u", password = "p" } })
 - `TestResponse`: `status`, `headers` (lowercased names, value joined),
   `header_list(name)` (every line, for Set-Cookie), `body`, `text()`,
   `json()`, `redirect_location`, `ok`.
-- Context: a handler may wait (`Poll.delay`, a channel read). Each call
-  runs inside `Poll.run` when the caller is not already in a task
-  (`Poll.in_task()`, poll.tl:831); `Web.with_client(app, fn)` runs the
-  lifespan (startup/shutdown) around `fn(client)` in one `Poll.run`, so a
+- Context: a handler may wait ([`Poll.delay`], a channel read). Each call
+  runs inside [`Poll.run`] when the caller is not already in a task
+  ([`Poll.in_task()`], poll.tl:831); `Web.with_client(app, fn)` runs the
+  lifespan (startup/shutdown) around `fn(client)` in one [`Poll.run`], so a
   test using the database resource works; the simple `Web.test_client(app)`
   runs lifespan lazily at the first request and registers shutdown via
   `<close>` (`local client <close> = Web.test_client(app)`).
@@ -1082,11 +1081,11 @@ end
 ```
 
 `Web.with_server(app, fn)` calls `Web.serve` on `127.0.0.1:0` from a test
-(not inside a task; `Server.serve` makes its own `Poll.run`), runs `fn`
-from `on_ready` in a task via `Net.connect`, then `server:stop()` and
+(not inside a task; [`Server.serve`] makes its own [`Poll.run`]), runs `fn`
+from `on_ready` in a task via [`Net.connect`], then `server:stop()` and
 returns. The loopback client speaks plain HTTP/1.1 itself (write a request,
 read status line, headers, Content-Length or chunked body) rather than
-going through `Http.get`, which holds the thread the server runs on
+going through [`Http.get`], which holds the thread the server runs on
 (server_example.tl:23-25). The response reader is about 80 lines
 (`cosmic/web/testing.tl`), tested against hand-written frames. It exists
 for what in-process cannot see: real framing (HEAD, chunked streams,
@@ -1108,7 +1107,7 @@ tests; the bulk run in-process (no loopback policy, and cheap to key).
   `Location` produced starts with exactly one `/`), `accept_fuzz_test.tl`
   (Accept parsing; query/form decoding is fuzzed in `url_fuzz_test.tl`,
   input.md section 12), using
-  `build.fuzz`'s `run`, `Fuzz.label` for what an input reached; corpora
+  [`build.fuzz`]'s `run`, [`Fuzz.label`] for what an input reached; corpora
   under `testdata/fuzz/<property>/` after any failure.
 - Typed-route tests build tiny apps inline; shape-dependent ones need the
   `record_of` build splice, so they are ordinary modules, not
@@ -1135,11 +1134,11 @@ tests; the bulk run in-process (no loopback policy, and cheap to key).
 - Header injection: Server already refuses CR/LF/NUL (wire.tl:699-707);
   `add_header` and constructors do not re-implement.
 - DoS: query pair cap; body read once and bounded by `limits.body_bytes` and
-  a per-route `body_limit`; JSON depth limit via `Json.decode`'s
+  a per-route `body_limit`; JSON depth limit via [`Json.decode`]'s
   `max_depth`; typed routes bounded lists (`list` of at most 1000 values).
   Cooperative scheduling means a CPU-bound handler stalls all (docs).
 - Problem and error bodies never echo raw user input unescaped: JSON is
-  encoded by `Json.encode`, HTML via `Html.escape`; shape messages quote
+  encoded by [`Json.encode`], HTML via [`Html.escape`]; shape messages quote
   values (`shown`, truncated to 40 bytes, shape.tl:281-287).
 - Typed keys prevent middleware state collisions (2.3).
 
@@ -1206,7 +1205,7 @@ Places to change:
   element; wire.tl:718-731 `given_length`: a list value for
   Content-Length is refused ("Content-Length is given more than once");
   wire.tl:809-813 `head_text`: emit one line per element (sorted by name
-  as today; elements keep their order). `wire.Reply.headers` (wire.tl:132)
+  as today; elements keep their order). [`wire.Reply.headers`] (wire.tl:132)
   gets the same type.
 - Docs: Reply.headers comment gains: "A list writes one line per element;
   use it for Set-Cookie, which cannot be joined". `Web.add_header` (section
@@ -1226,14 +1225,14 @@ in wire_test. (Not needed for correctness of well-behaved clients; cheap.)
 
 ### 13.3 Peer address on Request
 
-Add `peer: Net.Address` to `Server.Request` (server.tl:30-66), filled in
-`exchange` from the connection (server.tl:390). `Net.Conn` has no peer
+Add `peer: Net.Address` to [`Server.Request`] (server.tl:30-66), filled in
+`exchange` from the connection (server.tl:390). [`Net.Conn`] has no peer
 accessor today (connection.tl documents read/write/shutdown only), yet a
 raw `peer` binding exists (core/socket.c:786). Needed: `Conn:peer(): Address
-| nil, string` on `Net.Conn`, backed by it, with a net_test. Unix-socket
+| nil, string` on [`Net.Conn`], backed by it, with a net_test. Unix-socket
 connections give a unix Address with no path; `web.Client` is then nil.
 Without this change `req.client` stays nil and everything else works
-(TODO placed at `Request.client`: "once Net.Conn:peer exists").
+(TODO placed at [`Request.client`]: "once Net.Conn:peer exists").
 
 ### 13.4 Per-route body limit
 
@@ -1245,7 +1244,7 @@ nil` consulted once the head is read, before the body Reader is made
 `body_bytes` for this request (and a `Content-Length` above it is 413 at
 once, as now). `Web.serve` passes the router's lookup (route.body_limit
 or the app default). Without it, web enforces smaller limits itself
-(`Input`'s Content-Length check and `Stream.limit`, stream.tl:690, which
+(`Input`'s Content-Length check and [`Stream.limit`], stream.tl:690, which
 fails the read -> 413 abort; input.md section 2) but cannot raise the cap
 for one route, so input.md section 2 describes the fallback of raising the
 server-wide `body_bytes` to the largest route limit.
@@ -1282,12 +1281,12 @@ has decode_query".
 
 ### 13.7 Forwarding `on_stop`
 
-`Server.ServeSpec` has no `on_stop` and the server's own (server.tl:597) is
+[`Server.ServeSpec`] has no `on_stop` and the server's own (server.tl:597) is
 fixed. Add `on_stop: function(server: Net.Server)` to `ServeSpec` (server.tl
 106-146) and call it at the end of the server's own `on_stop`, after the
 idle connections are closed and `stopping` is set; an error in it goes to
 `on_error`, as Net does for its own. `Web.serve` uses it (9.3). Test: a
-`ServeSpec.on_stop` runs once on `Server.stop`, after the idle connections
+[`ServeSpec.on_stop`] runs once on [`Server.stop`], after the idle connections
 close, and a raise in it reaches `on_error` without stopping the drain.
 
 ## 14. Open questions and recommendations
@@ -1299,15 +1298,12 @@ close, and a raise in it reaches `on_error` without stopping the drain.
    route still "exists".
 3. `Web.app{}` instead of `Web.App{}` (derived fields). Recommendation:
    keep `Web.App` as the type name and `Web.app` as the constructor.
-4. `Response` as an alias of `Server.Reply` versus a distinct record.
+4. `Response` as an alias of [`Server.Reply`] versus a distinct record.
    Recommendation: alias (zero cost); revisit only if the `take` field makes
    some Replies illegal in some contexts.
 5. 400 versus 422 for input that decodes but fails its shape spec (6.4).
-   v1 answers 400, which is the user's call; a handler's own re-render is
-   422 and the shipped htmx config swaps it. See open question 1 in
-   ../web.md for the argument and the recommendation (422 for a spec failure,
-   400 for undecodable input).
-6. `cosmic.log` is CLI-only. Recommendation: do not extend it for web v1;
+   Decided: 422 (../web.md, decision 7).
+6. [`cosmic.log`] is CLI-only. Recommendation: do not extend it for web v1;
    `Web.Sink` over `Log.new(...)`, and decide on levels when a second
    consumer exists.
 7. Async lifespan (waiting on Poll before listening). Recommendation:
@@ -1323,15 +1319,58 @@ close, and a raise in it reaches `on_error` without stopping the drain.
     override it.
 11. 4xx closing the connection (13.6). Recommendation: change, with a test,
     as a separate PR before web ships.
-12. Whether `Web.test_client` should run `wire.check` (10.1).
+12. Whether `Web.test_client` should run [`wire.check`] (10.1).
     Recommendation: yes, always; the point of a test client is that a 200
     in the test is a 200 on the wire.
 13. A gzip middleware: assets.md and input.md assume one (it must leave
     `text/event-stream`, `Content-Encoding` and `take` responses
     alone), but no part designs it. Recommendation: a small `Web.gzip`
     middleware in the core, after the first release, using
-    `Stream.transform` (stream.tl:655).
+    [`Stream.transform`] (stream.tl:655).
 14. Shutdown awareness for streams is settled (9.3): `app:stopping()` and
-    `app:on_stop(fn)`, fed by a forwarded `ServeSpec.on_stop`; the
+    `app:on_stop(fn)`, fed by a forwarded [`ServeSpec.on_stop`]; the
     alternative of `Poll` task cancellation was rejected because `Server`
     has no per-connection cancel today.
+
+[`build.fuzz`]: ../../../build/fuzz/init.tl
+[`cosmic.http.wire`]: ../../../cosmic/http/wire.tl
+[`cosmic.log`]: ../../../cosmic/log.tl
+[`cosmic.shape`]: ../../../cosmic/shape.tl
+[`cosmic.url`]: ../../../cosmic/url.tl
+[`errors.trace`]: ../../../cosmic/internal/errors.d.tl
+[`Fuzz.label`]: ../../../build/fuzz/init.tl
+[`Html.escape`]: ../../../cosmic/html.tl
+[`Html.raw`]: ../../../cosmic/html.tl
+[`Html.SafeHtml`]: ../../../cosmic/html.tl
+[`Html.trust`]: ../../../cosmic/html.tl
+[`Http.get`]: ../../../cosmic/http/init.tl
+[`Json.array`]: ../../../cosmic/json.tl
+[`Json.decode`]: ../../../cosmic/json.tl
+[`Json.encode`]: ../../../cosmic/json.tl
+[`Json.null`]: ../../../cosmic/json.tl
+[`Net.Conn`]: ../../../cosmic/net.tl
+[`Net.connect`]: ../../../cosmic/net.tl
+[`Poll.delay`]: ../../../cosmic/poll.tl
+[`Poll.in_task()`]: ../../../cosmic/poll.tl
+[`Poll.run`]: ../../../cosmic/poll.tl
+[`Poll.spawn`]: ../../../cosmic/poll.tl
+[`Request.client`]: ../../../cosmic/internal/relay_server.tl
+[`Server.none_match`]: ../../../cosmic/http/server.tl
+[`Server.range`]: ../../../cosmic/http/server.tl
+[`Server.Reply`]: ../../../cosmic/http/server.tl
+[`Server.Request`]: ../../../cosmic/http/server.tl
+[`Server.serve`]: ../../../cosmic/http/server.tl
+[`Server.ServeSpec`]: ../../../cosmic/http/server.tl
+[`Server.stop`]: ../../../cosmic/net.tl
+[`ServeSpec.on_stop`]: ../../../cosmic/net.tl
+[`Shape.into`]: ../../../cosmic/shape.tl
+[`Stream.from_string`]: ../../../cosmic/stream.tl
+[`Stream.limit`]: ../../../cosmic/stream.tl
+[`Stream.open`]: ../../../cosmic/stream.tl
+[`Stream.Reader`]: ../../../cosmic/stream.tl
+[`Stream.transform`]: ../../../cosmic/stream.tl
+[`Url.escape`]: ../../../cosmic/url.tl
+[`Url.parse`]: ../../../cosmic/url.tl
+[`Url.segments`]: ../../../cosmic/url.tl
+[`wire.check`]: ../../../cosmic/http/wire.tl
+[`wire.Reply.headers`]: ../../../cosmic/http/wire.tl

@@ -26,10 +26,10 @@ Code is cited as `path:line` from the tree at the time of writing.
   through the project's database; a dev mode reads the directory instead.
 - `StaticFiles` (`cosmic.web.static`) is a `Mount`-able handler built on a
   new `Assets` source (`cosmic.web.assets`). It answers GET and HEAD with strong ETags from the build-time
-  hash, `If-None-Match` through `Server.none_match`, `Range` through
-  `Server.range`, a stored gzip variant, immutable fingerprinted URLs
+  hash, `If-None-Match` through [`Server.none_match`], `Range` through
+  [`Server.range`], a stored gzip variant, immutable fingerprinted URLs
   (`/static/app.3f9a1c8e2b.css`), and refuses traversal through
-  `Url.segments`.
+  [`Url.segments`].
 - htmx 2.0.11 (`dist/htmx.min.js`, 0BSD) and htmx-ext-sse 2.2.4
   (`dist/sse.min.js`, 0BSD) are vendored as `vendor/htmx/` and
   `vendor/htmx-ext-sse/` with PINs, built into the binary's own database
@@ -91,13 +91,13 @@ executable, so the files must be in it.
 for a file under `static/` when `own_tree` is false (a project, not
 cosmic's own tree, whose `static`-named directories, if any, are not
 this convention). The walk already reaches every non-hidden file
-(`identity.skip_input` at build/identity.tl:140 skips only hidden names
+([`identity.skip_input`] at build/identity.tl:140 skips only hidden names
 and `not_input` top-level directories), so no walk change is needed;
 `is_input` is the filter.
 
 Consequence: every asset becomes a `files` row (path, size, mtime, sha256,
 data) in the working database through the staging in build/work.tl:821
-(`work.stage`), with the unchanged-file stat shortcut that applies to all
+([`work.stage`]), with the unchanged-file stat shortcut that applies to all
 inputs. The `sha256` column is already the content hash the ETag and the
 fingerprint need; nothing extra is computed for them.
 
@@ -114,10 +114,10 @@ Rules checked at staging, each a build error naming the file:
   writes, and nothing legitimate needs it. A path longer than 255 bytes is
   refused. Case-colliding names (`App.css` and `app.css`) are refused so
   a tree builds the same on a case-insensitive disk.
-- Symlinks: `Fs.walk_following` (build/work.tl:906) follows links. A link
+- Symlinks: [`Fs.walk_following`] (build/work.tl:906) follows links. A link
   out of the tree would make the executable depend on files outside the
   checkout; it is refused for `static/`, as for a link escaping the root
-  elsewhere (to confirm in `link_files.skipper`, build/work.tl:847).
+  elsewhere (to confirm in [`link_files.skipper`], build/work.tl:847).
 
 ### 1.3 The projection and the executable
 
@@ -152,7 +152,7 @@ Put the generation in build/derivation.tl as `derive_assets`, next to
 writing derived rows of kind `asset`; the writer then copies them into
 `payload`. The TODO at build/schema.tl:74 is deleted by this change.
 
-`build/embed.tl` (the `cosmic build` verb) copies the project's rows into
+[`build/embed.tl`] (the `cosmic build` verb) copies the project's rows into
 the executable's database (build/embed.tl:170-215 shows the `ATTACH
 project` pattern for modules). Add one statement there: `INSERT INTO
 main.payload SELECT * FROM project.payload`. Tests and examples are
@@ -246,22 +246,22 @@ end
 ```
 
 Embedded source: one prepared statement against the project's database
-(`Store.databases()`, cosmic/store.tl:111, whose first handle is the
+([`Store.databases()`], cosmic/store.tl:111, whose first handle is the
 project's own, ahead of the binary's) selecting
 `data, sha256, type, gzip FROM payload WHERE path = ?`. Hits are cached
 in a Lua table keyed by path for the life of the process, so a hot asset
 costs one SQLite call ever. The cache holds whole files (limit above is
 16 MiB each); the process's memory is bounded by the total of `static/`,
-which the 256 MiB warning makes visible. `Store.databases()` is the only
-door: no new C and no `cosmic.internal.store` change. SQLite calls block
+which the 256 MiB warning makes visible. [`Store.databases()`] is the only
+door: no new C and no [`cosmic.internal.store`] change. SQLite calls block
 every task (section 6.2), but an embedded read is a primary-key lookup in
 a local file, microseconds for small assets; a 16 MiB blob read is
 milliseconds, once.
 
-Directory source: `Fs.stat` on every request (one `stat` per request is
+Directory source: [`Fs.stat`] on every request (one `stat` per request is
 cheap against a socket round trip), re-reading and re-hashing only when
 `mtime_ns`/`size` change. It never lists the directory on the hot path.
-Paths come from `Url.segments` (section 3.7) and are joined to the root
+Paths come from [`Url.segments`] (section 3.7) and are joined to the root
 with `/`; `Fs` is not asked to resolve symlinks, so a link under the
 directory that points out is followed. In dev mode that is the
 developer's own tree, accepted; section 3.7 says why it must not be used
@@ -277,7 +277,7 @@ on a sealed database that holds only its closure's modules
 `Assets.memory` or `Assets.directory(tmp)`; the one test of the embedded
 source is a `store = true` test in a module of its own (as AGENTS.md
 asks for such tests) that builds a project in a temp directory
-(`build.confine`/project fixtures), runs `cosmic build` on it and
+([`build.confine`]/project fixtures), runs `cosmic build` on it and
 queries `payload` of the result.
 
 ### 1.6 Dev mode reading from disk
@@ -301,7 +301,7 @@ the wrong files. Embedded wins unless dev is asked for.
 
 - Edit time: a file in `static/` is a file on disk. In dev mode the app
   reads it from there.
-- Build: `work.stage` reads it into `files`; `derive_assets` adds its
+- Build: [`work.stage`] reads it into `files`; `derive_assets` adds its
   type and gzip; the writer puts a `payload` row in `cosmic.db`;
   `cosmic build` copies the row into the executable's database.
 - Run: `Assets.default()` selects embedded or directory; `StaticFiles`
@@ -356,7 +356,7 @@ end
 `Handler`, `Request` and `Response` are core.md section 2 and 3's types
 (`function(Web.Request): Web.Response`). All that this file needs of
 `Request` is the method, the path relative to the mount (after the mount
-stripped its prefix and before the percent-decoding that `Url.segments`
+stripped its prefix and before the percent-decoding that [`Url.segments`]
 does), and header access by lowercase name. All it needs of `Response` is a
 status, headers and a string or Reader body; headers are appended with
 `Web.add_header` (core.md section 3), so `Vary` merges.
@@ -409,7 +409,7 @@ For a request whose relative path is `/css/app.3f9a1c8e2b.css`:
    was for the mount root: 404, or `index.html` when `html`.
 4. Reject (404) any segment that begins with `.` (dotfiles) and any
    `rel` over 255 bytes. Both are already impossible in an embedded
-   source; in directory mode they stop `/.git/config`.
+   source; in directory mode they stop [`/.git/config`].
 5. Look up `rel` in the source. If found, it is a plain-name request.
    If not found, try the fingerprint form (section 3.4). If neither, call
    the app's `not_found` or answer 404.
@@ -418,7 +418,7 @@ For a request whose relative path is `/css/app.3f9a1c8e2b.css`:
    etag)` (cosmic/http/server.tl:747) decides; true answers 304 with
    `ETag`, `Cache-Control` and `Vary` and no body, for both GET and HEAD.
    `If-Modified-Since` is not implemented in v1 (embedded assets have no
-   time; an ETag-less client is rare); a TODO notes `Time.parse_http` as
+   time; an ETag-less client is rare); a TODO notes [`Time.parse_http`] as
    the missing piece (check it exists before relying on it).
 8. Encoding: if the asset has a `gzip` and the request has no `Range`
    and `Accept-Encoding` lists `gzip` (token match, `q=0` honored), serve
@@ -434,7 +434,7 @@ For a request whose relative path is `/css/app.3f9a1c8e2b.css`:
    "span" answers 206 with `Content-Range: bytes first-last/size`; and
    "unsatisfiable" answers 416 with `Content-Range: bytes */size`. Always
    `Accept-Ranges: bytes`. A multi-range request is answered whole, which
-   is what `Server.range` does for it (cosmic/http/server.tl:650-680).
+   is what [`Server.range`] does for it (cosmic/http/server.tl:650-680).
 10. Headers: `Content-Type`, `ETag`, `Cache-Control` (immutable form for a
     fingerprint hit, otherwise `cache_control`), `X-Content-Type-Options:
     nosniff`, the SVG CSP, `opts.headers`, and `Last-Modified` in directory
@@ -445,7 +445,7 @@ Large embedded files: the whole `data` string is already in memory
 (section 1.5), so a body is a string and no Reader is involved. In
 directory mode a file over 1 MiB is served as a `Stream.open(path)` Reader
 (cosmic/stream.tl:563) with `length` set, so dev mode does not hold big
-files (and a span uses `Reader:skip`, present on file readers,
+files (and a span uses [`Reader:skip`], present on file readers,
 cosmic/stream.tl:504). The ETag then is a weak-by-construction mtime/size
 value rather than a content hash (hashing 200 MB per request is not
 acceptable): `W/"<size-hex>-<mtime_ns-hex>"`.
@@ -518,7 +518,7 @@ gzip` so that middleware skips them. It must also skip `text/event-stream`
 - Embedded mode has no filesystem path at all: a request path is a key
   into a table. Traversal needs no `..` defense beyond the key not
   existing.
-- Directory mode joins `Url.segments` output to the root. The function's
+- Directory mode joins [`Url.segments`] output to the root. The function's
   own comment says a symlink inside `root` can still climb out
   (cosmic/url.tl:121-126). Directory mode is therefore a development
   feature and `Assets.directory` documents that it must never serve
@@ -529,7 +529,7 @@ gzip` so that middleware skips them. It must also skip `text/event-stream`
   rule makes this harmless.
 - Only GET/HEAD; no directory listings, ever.
 - Lookup is by exact normalized path, so `a%2Fb` (escaped slash) is
-  already rejected by `Url.segments`, and a double-encoded `%252e%252e`
+  already rejected by [`Url.segments`], and a double-encoded `%252e%252e`
   stays a literal segment `%2e%2e`, which names no file.
 
 ## 4. Vendored htmx and the SSE extension
@@ -567,10 +567,10 @@ and `dist/htmx.min.js` at a fixed path, which is what the PIN grammar
 
 ### 4.2 Where it lives
 
-Following the existing "kind data" trees (`vendor/cacert/PIN`,
-`vendor/tzdata/PIN`) and the PIN grammar `build/vendor.tl:1-40` (`url`,
-`sha256`, `strip`, `keep`, `drop`; `bin/vendor` fetches into the cache
-with a checksum and unpacks with `cosmic.archive`, which reads `.tgz`):
+Following the existing "kind data" trees ([`vendor/cacert/PIN`],
+[`vendor/tzdata/PIN`]) and the PIN grammar `build/vendor.tl:1-40` (`url`,
+`sha256`, `strip`, `keep`, `drop`; [`bin/vendor`] fetches into the cache
+with a checksum and unpacks with [`cosmic.archive`], which reads `.tgz`):
 
 `vendor/htmx/PIN`:
 
@@ -634,22 +634,22 @@ at boot, kept in the binary's database, carried by `cosmic build`):
   ```
 
 - build/boot.tl:164-172 reads `vendor/tzdata/zoneinfo` with
-  `work.read_zoneinfo` and `work.put_zoneinfo` into the working database;
+  [`work.read_zoneinfo`] and [`work.put_zoneinfo`] into the working database;
   add `work.read_web_assets` / `work.put_web_assets` for the two PIN trees
   beside them, hashing as it reads. `build/reboot.tl:256-260` (a Teal-only
   rebuild carries the running binary's rows over) gets the same line.
   build/embed.tl:205 (`copy_rows ... "zoneinfo"`) gets one for
   `web_assets`.
 - The hash is computed here, at boot, from the vendored bytes, with
-  `Hash.digest("sha384", data)` and `Codec.base64` (cosmic/hash.tl:77,
-  cosmic/codec.tl:210). `sha384` is in `Hash.Algorithm`
+  `Hash.digest("sha384", data)` and [`Codec.base64`] (cosmic/hash.tl:77,
+  cosmic/codec.tl:210). `sha384` is in [`Hash.Algorithm`]
   (cosmic/hash.tl, the enum). A mismatch between the PIN's archive checksum and
-  the bytes cannot arise: `bin/vendor` verified the archive.
+  the bytes cannot arise: [`bin/vendor`] verified the archive.
 - Read side: `Store.web_asset(name): {data: string, sha256: string,
   sha384: string, version: string} | nil, string`, next to
-  `Store.zoneinfo` (cosmic/store.tl:119), backed by a new function in the
-  internal store (`cosmic.internal.store`, C, like `zoneinfo`) or, if the
-  team prefers no C for this, a query over `Store.databases()`'s last
+  [`Store.zoneinfo`] (cosmic/store.tl:119), backed by a new function in the
+  internal store ([`cosmic.internal.store`], C, like `zoneinfo`) or, if the
+  team prefers no C for this, a query over [`Store.databases()`]'s last
   handle (the binary's own), exactly the technique section 1.5 uses for
   `payload`. Recommendation: the query; the core's database access is
   already a handle, and zoneinfo is C only because `core/` needs it before
@@ -683,7 +683,7 @@ max-age=31536000, immutable`, `Cross-Origin-Resource-Policy: same-origin`
 and `X-Content-Type-Options: nosniff`. Both are served from a
 `memory` `Assets.Source` built from `Store.web_asset`, so `StaticFiles`'s
 whole algorithm applies unchanged (ETag, 304, Range, gzip computed once at
-first use with `Compress.deflate` and kept).
+first use with [`Compress.deflate`] and kept).
 
 The page head. `Htmx.head(opts)` (templates.md section 6.6) is the one
 helper that writes the `<meta name="htmx-config">` and the `<script>` tags
@@ -759,8 +759,8 @@ roadmap line to revisit once 4.x is `latest`. Open question 1.
 
 ### 5.1 What exists, and what does not
 
-- `Server.Reply.body` may be a `Stream.Reader`; the server writes the head
-  first (cosmic/http/wire.tl:866-889, `wire.send` writes `head` before
+- [`Server.Reply.body`] may be a [`Stream.Reader`]; the server writes the head
+  first (cosmic/http/wire.tl:866-889, [`wire.send`] writes `head` before
   `copy_body`), then pulls the Reader, framing each non-empty chunk as an
   HTTP chunk (wire.tl:820-860: a chunk must be non-empty, or the reply is
   cut short as a Reader fault) until the Reader returns nil, `""`.
@@ -769,7 +769,7 @@ roadmap line to revisit once 4.x is `latest`. Open question 1.
   So an SSE response needs no server change to be streamed.
 - The Reader's `read` runs in the connection's task. A `read` that waits
   through `Poll` (a delay, a descriptor, a join) lets the other tasks
-  run (cosmic/poll.tl:560-570 `Poll.delay`; cosmic/http/server.tl:586-596
+  run (cosmic/poll.tl:560-570 [`Poll.delay`]; cosmic/http/server.tl:586-596
   on handlers). `timeout_ns` (30 s) is each socket read/write's timeout
   (cosmic/http/server.tl:99-103) and does not cap a Reader's own waiting;
   `idle_ns` (5 s) applies only to the wait for the first byte of the NEXT
@@ -818,7 +818,7 @@ on the next turn, `notify` from a `<close>` handler does not violate the
 "cannot wait, spawn or kill" rule (poll.tl: Task.kill docs).
 
 Hazards documented on the type: a notifier is one-run; calling `wait`
-outside a task raises as `Poll.delay` does; a notice is not stored, so
+outside a task raises as [`Poll.delay`] does; a notice is not stored, so
 the pattern is "while not condition do wait() end".
 
 Tests (cosmic/poll_notifier_test.tl): wake all; wake none; timeout; cancel
@@ -954,7 +954,7 @@ end
 Response: status 200, `Content-Type: text/event-stream`, `Cache-Control:
 no-cache, no-transform`, `X-Accel-Buffering: no` (nginx), no
 `Content-Length`, `Connection` left to the server. The body is a
-`Stream.Reader` (cosmic/stream.tl `interface Reader`: `read`, `close`):
+[`Stream.Reader`] (cosmic/stream.tl `interface Reader`: `read`, `close`):
 
 - The first `read` returns `retry: N\n\n` (and the `initial` events), so the
   client has bytes at once and the proxy sees the response start.
@@ -972,10 +972,10 @@ no-cache, no-transform`, `X-Accel-Buffering: no` (nginx), no
   after every reply, delivered or failed (cosmic/http/wire.tl:880-886).
   Safe to call twice (the Reader contract).
 - If the task is killed (the grace period ends, cosmic/net.tl:1103 spawns
-  the grace task which kills the connection tasks), `wire.send` never
+  the grace task which kills the connection tasks), [`wire.send`] never
   returns and `close()` is never called. The Reader therefore keeps its
   unsubscribe in a `<close>` variable local to `read`'s frame while it is
-  waiting: `Task.kill` closes the pending `<close>` variables of the
+  waiting: [`Task.kill`] closes the pending `<close>` variables of the
   killed coroutine (cosmic/poll.tl: kill docs), and an unsubscribe only
   removes a table entry, which a `<close>` handler may do (it cannot wait).
 
@@ -996,7 +996,7 @@ middleware must log the status at head time rather than after the body
   under all of those and it costs 8 bytes.
 - `Server.timeout_ns` (30 s) bounds each write. A client that stops reading
   while its kernel buffer fills makes the write wait up to 30 s and then fail
-  (`Poll.TIMEOUT` from `conn:write`); `wire.send` returns with a write
+  ([`Poll.TIMEOUT`] from `conn:write`); [`wire.send`] returns with a write
   failure, the connection closes, and `close()` unsubscribes it. So a
   stalled client costs a task for at most `timeout_ns` after its buffer
   is full.
@@ -1117,7 +1117,7 @@ multi-process deployments. v1 says so plainly.
 
 - During a write: a gone client makes the next write fail (`EPIPE` or
   `ECONNRESET`, the first write after RST, or a timeout if the peer
-  vanished without RST): `wire.send` returns with `write_failure`, the
+  vanished without RST): [`wire.send`] returns with `write_failure`, the
   server closes the connection and calls `reader:close()` (wire.tl:880).
   The Subscription unsubscribes in `close`.
 - While waiting: nothing reads the socket, so a client that closed
@@ -1135,8 +1135,8 @@ multi-process deployments. v1 says so plainly.
 
 ### 5.9 Connection limits and long-lived streams
 
-`Server.ServeSpec.Limits.connections` is 256 (cosmic/http/server.tl:112-116,
-default at line 571-575). `Net.serve` accepts nothing at the limit: new
+[`Server.ServeSpec.Limits.connections`] is 256 (cosmic/http/server.tl:112-116,
+default at line 571-575). [`Net.serve`] accepts nothing at the limit: new
 connections wait in the backlog (cosmic/net.tl:190-198). Each open SSE
 stream keeps its connection for its whole life, so 256 browsers with one
 tab each saturate the server and the 257th page load hangs. This is the
@@ -1183,18 +1183,18 @@ programming error, not a runtime one).
 
 ### 6.1 Cooperative tasks
 
-All handlers of one `Server.serve` run in one OS thread, each in a task
-of one `Poll.run`. Tasks switch only at waits: a socket read or write, a
-`Poll.delay`, a `join`, a `Notifier`/`Channel` wait. A handler that
+All handlers of one [`Server.serve`] run in one OS thread, each in a task
+of one [`Poll.run`]. Tasks switch only at waits: a socket read or write, a
+[`Poll.delay`], a `join`, a `Notifier`/`Channel` wait. A handler that
 computes for 200 ms stalls every other connection for 200 ms. This is the
 cost of the model and the benefit is the absence of data races: a hub
 needs no locks, `publish` is atomic with respect to other tasks.
 
-Guidance for the docs ("what blocks"): CPU-bound loops, `Http.get` and
-`Http.request` to another server (cosmic/http/server.tl:571-595 TODO),
-`cosmic.sqlite` calls, `Child.run`'s synchronous form and file reads of
+Guidance for the docs ("what blocks"): CPU-bound loops, [`Http.get`] and
+[`Http.request`] to another server (cosmic/http/server.tl:571-595 TODO),
+[`cosmic.sqlite`] calls, [`Child.run`]'s synchronous form and file reads of
 large files. Use `Poll.delay(0)` to yield in a long loop; use the
-task-aware forms (`Child.start` with `wait`) for processes.
+task-aware forms ([`Child.start`] with `wait`) for processes.
 
 ### 6.2 SQLite
 
@@ -1221,18 +1221,18 @@ A SQLite call blocks the thread until it returns (cosmic/http/server.tl:
   stalls the server briefly and surfaces as an error. A 5 s timeout, the
   copy-pasted default elsewhere, would freeze every connection for 5 s.
 - Long queries (reports) belong in a child process or a thread-less
-  worker: `Child.start` a `cosmic` subprocess that opens the database
+  worker: [`Child.start`] a `cosmic` subprocess that opens the database
   read-only and writes JSON, awaited through the poll-aware `wait`. A
   worker pool (a Channel of jobs to N children) is a later module; the
   `Channel` type is its foundation.
-- Readonly `Sqlite.open` with no lock exists for snapshot reads
+- Readonly [`Sqlite.open`] with no lock exists for snapshot reads
   (cosmic/sqlite.tl:191-193): not for a live app.
 
 ### 6.3 Graceful shutdown
 
-SIGINT/SIGTERM stop the server: `Net.serve` closes the listeners, calls
+SIGINT/SIGTERM stop the server: [`Net.serve`] closes the listeners, calls
 `on_stop` once, drains the connections and, past `grace_ns`, closes them
-and kills their tasks (cosmic/net.tl:203-228, 1103). In `Server.serve`,
+and kills their tasks (cosmic/net.tl:203-228, 1103). In [`Server.serve`],
 `on_stop` closes the idle connections (cosmic/http/server.tl:597-603)
 and marks `stopping`, so each reply in flight is answered with `Connection:
 close`.
@@ -1244,7 +1244,7 @@ section 9.3, and this is its streaming half:
    `grace_ns` (nil, wait for every request) would hang a deploy for ever.
    `Web.serve` defaults `grace_ns` to 10 s.
 2. Even with the grace, every deploy would cost 10 s unless the streams end
-   at once. `Server.serve` forwards a caller's `on_stop` (core.md section
+   at once. [`Server.serve`] forwards a caller's `on_stop` (core.md section
    13.7), and `Web.serve` uses it to flip `app:stopping()` and run every
    function registered with `app:on_stop(fn)`.
 3. Every `Sse.Hub` and every `Sse.EventStream` registered with the App closes
@@ -1255,7 +1255,7 @@ section 9.3, and this is its streaming half:
    `nil, ""`, which the Reader turns into the end of the stream: a clean
    last chunk, and the browsers reconnect to the next process within the
    `retry:` delay. The lifespan's shutdown function (core.md section 9.3)
-   runs after `Server.serve` returns, so it sees the streams already closed.
+   runs after [`Server.serve`] returns, so it sees the streams already closed.
 4. A stream whose Reader never returns (a custom `EventSource` that ignores
    close and does not poll `app:stopping()`) is killed at the grace and its
    `<close>` guard runs (section 5.5).
@@ -1270,8 +1270,8 @@ What exists: nothing. `cosmic app.tl` (the file-run verb,
 build/dispatch.tl:297, 354) builds the working directory's tree for the
 run and then runs the file; a second invocation after an edit rebuilds
 incrementally (AGENTS.md: "a run after a small edit takes seconds").
-There is no file watcher in the tree: nothing in `cosmic.fs`,
-`cosmic.sys` (core/syscalls.h: no inotify/kqueue binding;
+There is no file watcher in the tree: nothing in [`cosmic.fs`],
+[`cosmic.sys`] (core/syscalls.h: no inotify/kqueue binding;
 `rg -i 'inotify|kqueue|fswatch' core cosmic doc` finds only unrelated
 mentions), no `cosmic dev` or `watch` verb (build/verb_list.tl:33-52).
 
@@ -1292,17 +1292,17 @@ is "restart the process on the rebuilt tree". Design, in three parts:
    ```
 
    run as `cosmic dev.tl` where dev.tl is two lines. It starts the child
-   with `Child.start` (cosmic/child.tl:4013) and env `COSMIC_WEB_DEV=1`,
+   with [`Child.start`] (cosmic/child.tl:4013) and env `COSMIC_WEB_DEV=1`,
    `COSMIC_WEB_BOOT=<n>` (n increments per start), forwards its output, and
-   every `interval_ns` stats the watched files with `Fs.walk` +
-   `Fs.stat` (cosmic/fs.tl:612, 313) comparing mtime and size to the last
+   every `interval_ns` stats the watched files with [`Fs.walk`] +
+   [`Fs.stat`] (cosmic/fs.tl:612, 313) comparing mtime and size to the last
    pass; this is what the build's own staging does (build/work.tl
    `moved`), and for a project of hundreds of files it is a millisecond or
    two. On a change it sends SIGTERM (graceful: section 6.3), waits, and
    starts the next. A compile error makes the child exit non-zero at once;
    the supervisor prints it, waits for the next change, and does not
    restart-loop. `kqueue`/`inotify` is a later improvement (a `TODO:` in the
-   supervisor naming the missing `cosmic.fs` watch binding).
+   supervisor naming the missing [`cosmic.fs`] watch binding).
 2. Browser reload without a proxy. In dev mode only, the App adds:
    `GET /_web/dev.js` (a 30-line script, static file, no inline script so
    a strict CSP is fine), `GET /_web/dev/events` (an SSE stream on a
@@ -1317,7 +1317,7 @@ is "restart the process on the rebuilt tree". Design, in three parts:
    process needs no proxy to hold connections open across restarts. A
    `css` event (below) swaps `<link rel=stylesheet>` hrefs without a reload.
 3. Static changes without a restart: in dev mode the App spawns a watcher
-   task that stats `static/` every 250 ms (`Poll.delay`) and publishes `css`
+   task that stats `static/` every 250 ms ([`Poll.delay`]) and publishes `css`
    when only `.css` files moved, `reload` otherwise, on the dev hub. The
    directory source (1.6) already serves the new bytes with a new
    fingerprint; the script does the rest. Templates changes still restart
@@ -1340,7 +1340,7 @@ reload script is deliberately plain.
 
 Built later; v1 leaves one hook. The shape is "take the connection": after
 the handler answers, the server writes the status line and headers of the
-reply, then hands the raw `Net.Conn` and any bytes already read past the
+reply, then hands the raw [`Net.Conn`] and any bytes already read past the
 request to a callback and stops serving that connection as HTTP.
 
 ```teal
@@ -1361,20 +1361,20 @@ end
 
 Changes in cosmic/http/server.tl and wire.tl:
 
-- `reply_trouble` / `wire.check` (server.tl:326-365, wire.tl:750): allow
+- `reply_trouble` / [`wire.check`] (server.tl:326-365, wire.tl:750): allow
   status 101 and a `Connection` header when `take` is set; otherwise the
   checks stay (status 200 to 999, no `Connection`, no
   `Transfer-Encoding`).
-- `wire.send` (wire.tl:866): a `head_only` path: write `head_text` with no
+- [`wire.send`] (wire.tl:866): a `head_only` path: write `head_text` with no
   framing and return; the `close` flag is forced.
-- `exchange` (server.tl:378): after `wire.send` for a `take` reply, drain
-  nothing, take `wire.buffered`'s bytes as `rest`, call `take(conn, rest)`
+- `exchange` (server.tl:378): after [`wire.send`] for a `take` reply, drain
+  nothing, take [`wire.buffered`]'s bytes as `rest`, call `take(conn, rest)`
   in an `xpcall` like the handler (server.tl:392), and return false (the
   connection serves nothing more).
 - The server tracks taken connections in a set like `s.idle`; `on_stop`
   closes them (a WebSocket would be sent a close frame by its owner first
-  through `ServeSpec.on_stop`, section 6.3), and they count toward
-  `limits.connections` for free as they remain tasks of `Net.serve`.
+  through [`ServeSpec.on_stop`], section 6.3), and they count toward
+  `limits.connections` for free as they remain tasks of [`Net.serve`].
 - `idle_ns`, `head_ns`, `timeout_ns` stop applying. A WebSocket sets its own
   ping interval and read deadline.
 
@@ -1383,7 +1383,7 @@ What a WebSocket module (`cosmic.web.ws`) would then need:
 - The handshake: validate `Upgrade: websocket`, `Connection: Upgrade`,
   `Sec-WebSocket-Version: 13`, a 16-byte base64 `Sec-WebSocket-Key`;
   answer 101 with `Sec-WebSocket-Accept` = base64(SHA-1(key + GUID)) (both
-  `Hash.digest("sha1")` and `Codec.base64` exist). A wrong Origin is refused
+  `Hash.digest("sha1")` and [`Codec.base64`] exist). A wrong Origin is refused
   (cross-site WebSocket hijacking is the web analogue of CSRF; cookies
   authenticate the handshake): an allowlist in the App.
 - A frame codec (RFC 6455): mask/unmask (client frames are masked),
@@ -1399,7 +1399,7 @@ What a WebSocket module (`cosmic.web.ws`) would then need:
   handler gets the `Request` (session, headers, path params) and a `ws`
   with `receive()` and `send()`, so it looks like the HTTP handlers.
 - permessage-deflate: not in v1 of ws either (it needs a streaming
-  deflater with a shared window; `Compress.deflater` exists but a
+  deflater with a shared window; [`Compress.deflater`] exists but a
   no-context-takeover mode first).
 
 Estimate: the seam is about 60 lines plus tests; the ws module about
@@ -1420,14 +1420,14 @@ All small; each with its reason.
 - build/embed.tl: copy `payload` and `web_assets` (near 170-215).
 - build/boot.tl, build/reboot.tl, build/work.tl: read the two vendored
   trees into `web_assets` (like `zoneinfo`).
-- vendor/htmx/PIN, vendor/htmx-ext-sse/PIN and the trees `bin/vendor`
+- vendor/htmx/PIN, vendor/htmx-ext-sse/PIN and the trees [`bin/vendor`]
   writes; doc/design.md:412 (payload) and a `web_assets` line next to
   `zoneinfo`.
-- cosmic/store.tl: `Store.web_asset` beside `Store.zoneinfo` (line 119).
+- cosmic/store.tl: `Store.web_asset` beside [`Store.zoneinfo`] (line 119).
 - cosmic/poll.tl: `Poll.Notifier`, `Poll.notifier`.
 - cosmic/channel.tl: new.
 - cosmic/http/server.tl: forward `on_stop` in `ServeSpec` and
-  `Server.serve` (line 106-146, 597; core.md section 13.7); `Reply.take`
+  [`Server.serve`] (line 106-146, 597; core.md section 13.7); `Reply.take`
   seam later.
 - cosmic/web/mime.tl, cosmic/web/assets.tl (support modules),
   cosmic/web/static.tl (`cosmic.web.static`), cosmic/web/sse.tl
@@ -1442,7 +1442,7 @@ All small; each with its reason.
   htmx refresh, request-level `Last-Modified`.
 
 Each module that is new needs `*_test.tl`; each exported symbol must be
-used or earn its export (`build/tree_checks.tl`'s every-export-earned rule).
+used or earn its export ([`build/tree_checks.tl`]'s every-export-earned rule).
 Because new C is avoided, none of the C rules apply.
 
 ## 9. Tests
@@ -1471,7 +1471,7 @@ runs on `127.0.0.1`-range addresses only.
   round-trip/injection properties (5.4).
 - cosmic/web/sse_hub_test.tl: subscribe/publish/unsubscribe, replay with and
   without a gap, overflow close, limits, `close()`, ids.
-- cosmic/web/sse_test.tl: a loopback server with a raw client (`Net.connect`
+- cosmic/web/sse_test.tl: a loopback server with a raw client ([`Net.connect`]
   to the server): the headers (content type, no `Content-Length`,
   `Transfer-Encoding: chunked`), `retry:` first, an event arrives within a
   poll of publish, a heartbeat arrives with `heartbeat_ns` of 50 ms,
@@ -1483,17 +1483,17 @@ runs on `127.0.0.1`-range addresses only.
   `cosmic build` carries them; the `web_assets` table holds the two files,
   and `sha384` equals an independent computation; a `store = true`
   test reads them through `Store.web_asset`.
-- vendor: `build/vendor_test.tl` already exercises PIN parsing; add the two
+- vendor: [`build/vendor_test.tl`] already exercises PIN parsing; add the two
   PINs to whatever list asserts every `vendor/*/PIN` has `license` and
   `notice` (bom).
 - sealed workers: the web tests that need no store rows stay sealed;
-  `Test.policy` for the loopback ones only; the test that needs
+  [`Test.policy`] for the loopback ones only; the test that needs
   `payload` and `web_assets` sits in its own `store = true` module with
   the reason above its declaration (AGENTS.md).
 
 ## 10. Security
 
-- Path traversal: section 3.7; `Url.segments` is the only decoder; the
+- Path traversal: section 3.7; [`Url.segments`] is the only decoder; the
   embedded source has no path at all.
 - Stale immutable content: the fingerprint is verified, never trusted.
 - MIME confusion: types from a fixed table, `nosniff`, SVG sandboxed.
@@ -1517,7 +1517,7 @@ runs on `127.0.0.1`-range addresses only.
 - htmx config: the one defined in templates.md section 6.6 (`allowEval`,
   `allowScriptTags` and `includeIndicatorStyles` off, `selfRequestsOnly`
   on), written by `Htmx.head`; SRI on the tag; vendored bytes verified by
-  PIN checksum at `bin/vendor` and by a test of the stored digest.
+  PIN checksum at [`bin/vendor`] and by a test of the stored digest.
 - Dev: loopback only and environment-gated (section 6.4).
 - Supply chain: the PIN's checksum and the BOM entry; the licence is 0BSD
   and carries no obligation.
@@ -1527,8 +1527,8 @@ runs on `127.0.0.1`-range addresses only.
 Each belongs in the code the moment it is due (AGENTS.md):
 
 - `TODO:` in cosmic/web/static.tl for `If-Modified-Since`, once
-  `Time.parse_http` (confirm it exists) is available.
-- `TODO:` in cosmic/web/dev.tl for inotify/kqueue, once `cosmic.fs` has a
+  [`Time.parse_http`] (confirm it exists) is available.
+- `TODO:` in cosmic/web/dev.tl for inotify/kqueue, once [`cosmic.fs`] has a
   watch binding.
 - `TODO:` in cosmic/web/sse.tl for prompt disconnect detection, once
   `Reply.take` exists.
@@ -1555,7 +1555,7 @@ parts, multi-process hub.
    per-connection Notifier-based lock; for v1 document the rule.
 4. Name and home of `Poll.Notifier`. Recommend `Poll.notifier()` in
    cosmic.poll (it needs the scheduler's internals); the alternative of a
-   polling `Poll.delay` loop is wasteful and rejected.
+   polling [`Poll.delay`] loop is wasteful and rejected.
 5. `payload` repurposed vs a new `assets` table. Recommend reusing
    `payload` (it is reserved and documented for exactly this) and changing
    its columns; the table has never been written, so nothing migrates.
@@ -1571,7 +1571,7 @@ parts, multi-process hub.
    guide and tests (build/verb_list.tl header) for little gain.
 10. `Reply.take` shape (callback) vs `Request.conn`. Recommend the callback:
     the server keeps ownership of the connection's lifetime, and the head is
-    validated by the same `wire.check` rules.
+    validated by the same [`wire.check`] rules.
 11. Prompt disconnect detection for SSE: ship v1 with heartbeats (<=15 s
     lag) or pull `Reply.take` forward. Recommend v1 with heartbeats.
 12. A Mount's reverse resolver, so `url_for("static", ...)` reaches
@@ -1581,3 +1581,57 @@ parts, multi-process hub.
     design (reproducible builds have no time). Recommend omit.
 14. Should `Hub` be per-App or global? Recommend explicit values (no
     hidden globals), registered with the App for shutdown.
+
+[`/.git/config`]: ../../../.git/config
+[`bin/vendor`]: ../../../bin/vendor
+[`build.confine`]: ../../../build/confine.tl
+[`build/embed.tl`]: ../../../build/embed.tl
+[`build/tree_checks.tl`]: ../../../build/tree_checks.tl
+[`build/vendor_test.tl`]: ../../../build/vendor_test.tl
+[`Child.run`]: ../../../cosmic/child.tl
+[`Child.start`]: ../../../cosmic/child.tl
+[`Codec.base64`]: ../../../cosmic/codec.tl
+[`Compress.deflate`]: ../../../cosmic/compress.tl
+[`Compress.deflater`]: ../../../cosmic/compress.tl
+[`cosmic.archive`]: ../../../cosmic/archive.tl
+[`cosmic.fs`]: ../../../cosmic/fs.tl
+[`cosmic.internal.store`]: ../../../cosmic/internal/store.d.tl
+[`cosmic.sqlite`]: ../../../cosmic/sqlite.tl
+[`cosmic.sys`]: ../../../core/syscalls.h
+[`Fs.stat`]: ../../../cosmic/fs.tl
+[`Fs.walk_following`]: ../../../cosmic/fs.tl
+[`Fs.walk`]: ../../../cosmic/fs.tl
+[`Hash.Algorithm`]: ../../../cosmic/hash.tl
+[`Http.get`]: ../../../cosmic/http/init.tl
+[`Http.request`]: ../../../cosmic/http/init.tl
+[`identity.skip_input`]: ../../../build/identity.tl
+[`link_files.skipper`]: ../../../build/link_files.tl
+[`Net.Conn`]: ../../../cosmic/net.tl
+[`Net.connect`]: ../../../cosmic/net.tl
+[`Net.serve`]: ../../../cosmic/net.tl
+[`Poll.delay`]: ../../../cosmic/poll.tl
+[`Poll.run`]: ../../../cosmic/poll.tl
+[`Poll.TIMEOUT`]: ../../../cosmic/poll.tl
+[`Reader:skip`]: ../../../cosmic/stream.tl
+[`Server.none_match`]: ../../../cosmic/http/server.tl
+[`Server.range`]: ../../../cosmic/http/server.tl
+[`Server.Reply.body`]: ../../../cosmic/http/server.tl
+[`Server.serve`]: ../../../cosmic/http/server.tl
+[`Server.ServeSpec.Limits.connections`]: ../../../cosmic/http/server.tl
+[`ServeSpec.on_stop`]: ../../../cosmic/net.tl
+[`Sqlite.open`]: ../../../cosmic/sqlite.tl
+[`Store.databases()`]: ../../../cosmic/store.tl
+[`Store.zoneinfo`]: ../../../cosmic/store.tl
+[`Stream.Reader`]: ../../../cosmic/stream.tl
+[`Task.kill`]: ../../../cosmic/poll.tl
+[`Test.policy`]: ../../../cosmic/test.tl
+[`Time.parse_http`]: ../../../cosmic/time.tl
+[`Url.segments`]: ../../../cosmic/url.tl
+[`vendor/cacert/PIN`]: ../../../vendor/cacert/PIN
+[`vendor/tzdata/PIN`]: ../../../vendor/tzdata/PIN
+[`wire.buffered`]: ../../../cosmic/http/wire.tl
+[`wire.check`]: ../../../cosmic/http/wire.tl
+[`wire.send`]: ../../../cosmic/http/wire.tl
+[`work.put_zoneinfo`]: ../../../build/work.tl
+[`work.read_zoneinfo`]: ../../../build/work.tl
+[`work.stage`]: ../../../build/work.tl

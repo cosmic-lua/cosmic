@@ -57,8 +57,23 @@ Taken up front with the user and not reopened per PR.
 5. **Middleware is Starlette's:** `function(Handler): Handler`, stacked
    around the app, each Mount with its own stack. Sessions, CSRF, CORS,
    security headers, logging and error pages are middleware.
-6. **v1 includes server-sent events and a pinned htmx.** WebSockets are
+2. **v1 includes server-sent events and a pinned htmx.** WebSockets are
    designed for (the seam is named) and built later. No OpenAPI in v1.
+
+Taken after the parts were written:
+
+3. **A value that fails its spec is 422;** input that cannot be decoded is
+   400. "The request was malformed" and "the values were wrong" stay
+   apart, as FastAPI keeps them.
+4. **Multipart is in v1,** last, once the server's body deadline has
+   landed.
+5. **A slot in `hx-on*` or `hx-vars` is refused in every template,** with
+   or without `{{use htmx}}`: it is script, and attribute escaping does not
+   make it safe.
+10. **`Web.app{ trusted_proxy = true }`,** off by default, takes the
+    scheme, host and client from `X-Forwarded-Proto`, `X-Forwarded-Host`
+    and `X-Forwarded-For`; with it off, `Secure` is configuration and a
+    startup warning says so.
 
 ## the shape of it
 
@@ -180,11 +195,11 @@ The parts were written in parallel; these are where they met.
   The session, the CSRF token, the CSP nonce and a typed route's records
   are each a key. `req.state` is the untyped escape hatch only.
 - **Status codes.** Undecodable input is 400, a wrong Content-Type 415, an
-  oversized body 413, and in v1 a value that decodes but fails its spec is
-  400 too. A handler re-rendering a form with its errors answers 422, which
-  the shipped htmx config swaps (open question 1).
+  oversized body 413, and a value that decodes but fails its spec 422
+  (decision 7), which the shipped htmx config swaps, so a form's re-render
+  with its errors reaches the page.
 - **Validation collects every field's error** through `cosmic.web.input`,
-  with `Shape.into` as the last check, so a form re-renders with all its
+  with [`Shape.into`] as the last check, so a form re-renders with all its
   messages and an API's problem+json `errors` lists them all. A route's
   `on_invalid` turns that into the re-render in one line.
 - **One URL escaper.** `Router:reverse` and `url_for` escape a path
@@ -198,9 +213,9 @@ The parts were written in parallel; these are where they met.
   and `responseHandling` swapping 2xx and 422 but not 204.
 - **Shutdown.** `Web.serve` gives `grace_ns` a default of 10 seconds,
   where the server's waits for every request and so for every event stream;
-  `Server.serve` forwards a caller's `on_stop`; `app:stopping()` turns
+  [`Server.serve`] forwards a caller's `on_stop`; `app:stopping()` turns
   true, and every Hub and EventStream registered with the app closes.
-- **Response headers take a list.** `Server.Reply.headers` widens to
+- **Response headers take a list.** [`Server.Reply.headers`] widens to
   `{string: string | {string}}`, one header line per element, so a reply
   can set two cookies; existing literals still type-check. The Cookie
   request header is joined with `"; "`, not `", "`. `Web.add_header` is
@@ -214,7 +229,7 @@ The parts were written in parallel; these are where they met.
 
 Each is a small PR of its own, landing before the module that needs it.
 
-- [`cosmic.http.server`] and `cosmic.http.wire`: multi-valued reply
+- [`cosmic.http.server`] and [`cosmic.http.wire`]: multi-valued reply
   headers; Cookie joined with `"; "` (wire.tl:434); `Request.peer`; a
   per-route body limit; forwarding `on_stop`; a body deadline (the
   `body_ns` TODO at server.tl:485), before uploads are recommended; and
@@ -269,34 +284,17 @@ needs have merged.
    PINs, the `static/` convention and `StaticFiles`, `cosmic.web.htmx`
    and `Htmx.head`.
 7. **Streaming and the rest:** `cosmic.channel`, `cosmic.web.sse`,
-   `cosmic.http.multipart` (if v1 takes it: open question 2), and
+   `cosmic.http.multipart` (decision 8), and
    `cosmic.web.dev`.
 8. **A guide,** doc/guides/web.md, which is a test of its own: one app
    built from an empty directory, its page, its form and its API.
 
 ## open questions
 
-Each has a recommendation; the parts list smaller ones of their own.
+Each has a recommendation, which the work follows unless it is
+overruled; the parts list smaller ones of their own.
 
-1. **400 or 422 for input that fails its spec?** v1 answers 400, as
-   decided. FastAPI and most htmx guidance answer 422, which separates
-   "the request was malformed" from "the values were wrong", and the htmx
-   config already swaps 422. Recommendation: 422 for a spec failure, 400
-   for undecodable input.
-2. **Multipart in v1?** It was not in the v1 list, but a form with a file
-   is common. input.md, section 4, designs a streaming parser that spools
-   files to disk under random names. Recommendation: include it, last, and
-   only once the body deadline has landed.
-3. **The `hx-on*` and `hx-vars` refusal without `{{use htmx}}`.** A slot
-   there is script today, merely attribute-escaped. Refusing it in every
-   template breaks any that has one (the tree has none). Recommendation:
-   always on.
-4. **The scheme behind a proxy.** `Secure` cookies, HSTS and the CSRF
-   origin check need to know a request was https, which the server cannot
-   see. Recommendation: `Web.app{ trusted_proxy = true }`, off by default,
-   reading `X-Forwarded-Proto` and `Host`; with it off, `Secure` is set by
-   configuration and a startup warning says so.
-5. **Signed-cookie sessions are readable by the client:** cosmic has no
+1. **Signed-cookie sessions are readable by the client:** cosmic has no
    cipher. Recommendation: document it, and add an AEAD store when a cipher
    lands, rather than building one from HMAC.
 6. **htmx in every executable** (about 55 KB) or only in a program that
@@ -340,3 +338,8 @@ cooperative process.
 [`cosmic.template`]: ../../cosmic/template/init.tl
 [`cosmic.url`]: ../../cosmic/url.tl
 [`Url.escape`]: ../../cosmic/url.tl
+
+[`cosmic.http.wire`]: ../../cosmic/http/wire.tl
+[`Server.Reply.headers`]: ../../cosmic/http/server.tl
+[`Server.serve`]: ../../cosmic/http/server.tl
+[`Shape.into`]: ../../cosmic/shape.tl

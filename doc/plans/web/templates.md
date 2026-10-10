@@ -2,7 +2,7 @@
 
 Part of the cosmic.web design: see ../web.md for the overview, decisions and phasing.
 
-Scope: the attribute-dialect mechanism in `cosmic.template`, the `htmx`
+Scope: the attribute-dialect mechanism in [`cosmic.template`], the `htmx`
 dialect, the URL-component escaper and its safe types, `SafeJson`, the
 htmx helpers in `cosmic.web.htmx` (including `Htmx.head`, which writes the
 page's one htmx configuration), and how a template reaches reverse routing.
@@ -15,7 +15,7 @@ Decisions in one place:
 
 - A template opts in with `{{use htmx}}`, an action in the header, after
   `{{type}}` and beside `{{mode}}`. Dialects are a built-in registry inside
-  `cosmic.template` (data modules under `cosmic/template/dialect/`), not
+  [`cosmic.template`] (data modules under `cosmic/template/dialect/`), not
   resolved from `cosmic.web` or a project module path, and the `htmx`
   dialect's data lives there too; `cosmic.web.htmx` only reuses it (the
   version string, the tests that tie the table to the vendored file).
@@ -87,7 +87,7 @@ each blank-text-separated, `mode` at most once, a name at most once.
 a `text` template is refused ("a text template has no attributes"). An
 unknown name reads `name:line:col: unknown dialect 'x' (known: htmx)`.
 
-`Types.Template` (types.tl:152) gains `dialects: {string}`, in order.
+[`Types.Template`] (types.tl:152) gains `dialects: {string}`, in order.
 Compiled output does not change for a template that uses no dialect, so
 existing derived rows stay valid in content (they regenerate once anyway
 because the compiler's identity moves).
@@ -178,7 +178,7 @@ and it makes the compiler non-hermetic. If a project needs its own
 
 - Signature: `Markup.slot(p, table)`; `Walk` in context.tl carries the
   `Dialect.Table` and passes it (context.tl:173, `walk`/`block`/`range_after`
-  thread `Walk` already). `Context.annotate` gets the table as a parameter
+  thread `Walk` already). [`Context.annotate`] gets the table as a parameter
   (init.tl:105 resolves it from `template.dialects`).
 - In `slot` (markup.tl:1026-1059), after the existing `on`/`CODE_ATTRS`
   checks and before `return "attr"`, consult `table:classify(attr)`:
@@ -240,7 +240,7 @@ Each is one small generated function like the existing four
 `number` is discriminable (codegen.tl:17-21); `json` takes the one type
 alone, so there is nothing to discriminate.
 
-Why `html.escape` and not `escape_attr` for `urlpart` and `json`: both
+Why [`html.escape`] and not `escape_attr` for `urlpart` and `json`: both
 produce a quoted-attribute-safe string with the five-entity escaper
 (html.tl:58-61 says it is for quoted attribute values too), and the output
 stays readable (`%20` is not turned into `&#37;20`). The existing `_url`
@@ -265,7 +265,7 @@ defaults to true in 2.x and blocks cross-origin requests, but it is client
 configuration an app may turn off; the dialect adds a same-origin
 requirement at the slot. A plain string is checked by `Html.local_href`
 (section 3.4): relative references only. A deliberate cross-origin URL is a
-`SafeUrl` from `Html.href` or `Html.trust_url`, which passes unchanged. The
+`SafeUrl` from [`Html.href`] or [`Html.trust_url`], which passes unchanged. The
 whole-value and part rules are those of `href`.
 
 History URLs (`url_local`): `hx-push-url`, `hx-replace-url`. Their value is
@@ -359,7 +359,7 @@ afterthought: a test compiles `data-hx-on:click="{{.x}}"` and
 `cosmic/web/htmx_dialect_test.tl` (it lives under `cosmic/web` because it
 needs both the dialect and `cosmic.web.htmx`): reads the vendored
 `vendor/htmx/dist/htmx.min.js` (assets.md section 4.2; a `reads` input
-declared in the test's `Test.policy`), extracts every `hx-[a-z-]+`
+declared in the test's [`Test.policy`]), extracts every `hx-[a-z-]+`
 token, and requires each to be classified in the dialect's `exact`,
 covered by a prefix, or listed in the dialect's `plain` list (a field of
 `Def` used by this test only). Bumping htmx adds names to the pinned file
@@ -373,14 +373,14 @@ vendored PIN (a second assertion).
 
 `href="/a/{{.id}}"` and `hx-get="/items/{{.id}}?q={{.q}}"` are the common
 shape and are refused today (markup.tl:1051). The slot is a piece of a
-URL. Using `Html.href` on a piece is wrong in two directions: it would
+URL. Using [`Html.href`] on a piece is wrong in two directions: it would
 accept `a/../../x` and `x?y#z` as pieces (structure injection), and it
 passes `javascript:` only as a whole.
 
 ### 3.2 One escaper for all components
 
 `Html.url_part(s)` percent-escapes every byte except the unreserved set
-(`A-Z a-z 0-9 - . _ ~`), exactly as `Url.escape` (cosmic/url.tl:86) does
+(`A-Z a-z 0-9 - . _ ~`), exactly as [`Url.escape`] (cosmic/url.tl:86) does
 (the two agree on every byte except the whole values `.` and `..` of 3.3;
 `Router:reverse` uses this same escaper, core.md section 5.7, and a test
 pins the three together).
@@ -427,7 +427,7 @@ Registered beside the existing ten (html.c module table) with metatables
 for two new types, `cosmic.html.SafeUrlPart` and `cosmic.html.SafeJson`,
 created like the others (`cosmic_open_html`). Each new function is
 `static` with a binding, and each needs a test that enters it
-(`build/c_functions.tl`).
+([`build/c_functions.tl`]).
 
 - `url_part(s: string | number): SafeUrlPart`: as above. The same
   "plain input is its own escape" shortcut as `html_escape`
@@ -441,7 +441,7 @@ created like the others (`cosmic_open_html`). Each new function is
   `url_allowed(s, len, schemes)`.
 - `escape_css_attr(s: string): SafeAttr`: section 4.2.
 - `raw_json(x): string`; internal `trust_json(s)`, not exported through
-  `cosmic.html` (section 5).
+  [`cosmic.html`] (section 5).
 
 Teal in cosmic/html.tl:
 
@@ -475,7 +475,7 @@ A `SafeUrlPart` slot is not a whole-URL slot: it never goes through
 
 ### 3.5 Interaction summary
 
-- `href="{{.u}}"` (fresh): whole URL, `Html.href` allowlist. Unchanged.
+- `href="{{.u}}"` (fresh): whole URL, [`Html.href`] allowlist. Unchanged.
 - `href="/a/{{.id}}"`: literal `/a/`, then a part. New.
 - `href="{{.base}}{{.id}}"`: first a whole URL (fresh), second a part
   (not fresh). The second contains no `:` `/` `\`, so nothing the first
@@ -539,10 +539,10 @@ the string, no operators, `__metatable = false`). It is JSON text.
 There is deliberately no unchecked `trust_json`. For a type whose job is
 "this is a JSON document, not code", validation is cheap and makes the
 type stronger than the three trust-door types: the one unchecked door is a
-C function that `cosmic.html` does not re-export, and the Teal constructors
+C function that [`cosmic.html`] does not re-export, and the Teal constructors
 are the only callers. The wrapping lives in Teal because the encoder is
-`cosmic.json`, which `cosmic.html` already can `require` (it requires
-`cosmic.internal.html` the same way, html.tl:33-41); the C part is the
+`cosmic.json`, which [`cosmic.html`] already can `require` (it requires
+[`cosmic.internal.html`] the same way, html.tl:33-41); the C part is the
 type, `raw_json`, and the internal door.
 
 ### 5.2 In a slot
@@ -551,7 +551,7 @@ Class `json`, whole value, `html.SafeJson` only (a string or a table is a
 type error naming the template line). Output is
 `html.raw(html.escape(html.raw_json(v)))`: `"` becomes `&quot;`, so the
 attribute round-trips through the browser to the original JSON text for
-either quote style. JSON text from `Json.encode` contains no raw control
+either quote style. JSON text from [`Json.encode`] contains no raw control
 bytes. An example:
 
 ```
@@ -574,7 +574,7 @@ refused (init.tl:79-82 roadmap); not part of this.
 HTTP header values are bytes, and `XMLHttpRequest.getResponseHeader` reads
 them as Latin-1, so UTF-8 in a header becomes mojibake before htmx parses
 the JSON. Header JSON must be ASCII with `\uXXXX` escapes. Small change to
-an existing module: `Json.EncodeOptions` (json.tl:123) gains
+an existing module: [`Json.EncodeOptions`] (json.tl:123) gains
 `ascii: boolean` (default false), passed to the yyjson writer as
 `YYJSON_WRITE_ESCAPE_UNICODE` in the core's encode (core/json.c) beside
 `pretty` (json.tl:462-464 passes `opts.pretty, opts.max_depth` to
@@ -674,14 +674,14 @@ partial set, and never raises on data. Rules:
 - Event lists: if no event has a detail, the header is the plain
   comma-separated names (`showMessage, closeModal`); otherwise a JSON
   object `{"showMessage": {"level": "info"}, "closeModal": {}}` through
-  `Json.encode` with `ascii = true` (section 5.3). An event name with a
+  [`Json.encode`] with `ascii = true` (section 5.3). An event name with a
   comma, a quote, a control byte or empty is refused.
 - URL fields: `redirect` is navigated to by script (`window.location`), so
   a `javascript:` URL here is an XSS and an attacker-chosen URL is an open
   redirect. A `string` goes through `Html.local_href` and a value that
   comes back as `about:invalid` is refused (`nil, "htmx: redirect is not a
   same-origin reference"`); an external destination is a `SafeUrl` (made by
-  `Html.href`, an allowlist, or `Html.trust_url`). The same for `location`
+  [`Html.href`], an allowlist, or [`Html.trust_url`]). The same for `location`
   (its `path`), `push_url` and `replace_url` (browsers refuse cross-origin
   `pushState`, but the check is free). `push_url = false` writes the
   literal `false`.
@@ -766,7 +766,7 @@ is an `rtext` slot (escaped, no markup), fine in a fragment.
 ### 6.5 Out-of-band swaps
 
 Out-of-band content is more top-level elements in the response with
-`hx-swap-oob="true"` (or `outerHTML:#sel`), composed with `Html.concat`:
+`hx-swap-oob="true"` (or `outerHTML:#sel`), composed with [`Html.concat`]:
 
 ```
 local main = row.render(r)
@@ -778,7 +778,7 @@ No new API: the types already say each part is markup. Two htmx rules go
 in the docs: an OOB element must be a top-level child of the response, and
 a table row or cell OOB must be wrapped in `<template>` (the HTML parser
 drops a bare `<tr>` outside a table). A test checks that
-`Html.concat` of two template outputs is what a client expects.
+[`Html.concat`] of two template outputs is what a client expects.
 
 ### 6.6 Middleware and `Htmx.head`
 
@@ -819,7 +819,7 @@ crossorigin="anonymous" defer></script>`, then the same for the SSE
 extension when `sse` is set. The paths, versions and SRI values are the
 vendored files' (assets.md sections 4.3 and 4.4, read through
 `Store.web_asset`); nothing in the tag comes from user data, so the
-function's `Html.trust` is justified and is the only one in `cosmic.web`
+function's [`Html.trust`] is justified and is the only one in `cosmic.web`
 for it. `crossorigin` is harmless on a same-origin script and keeps the tag
 valid if an app later serves the file from a CDN. A layout that writes its
 own tags uses `Htmx.path()` and `Htmx.integrity()`; `Htmx.version` is the
@@ -903,7 +903,7 @@ Recommendation:
 `hx-trigger="every 2s"` polls; a response with status 286 is swapped and
 stops the poll. `Htmx.stop_polling(body?)` returns a 286 response. The
 server's reply check accepts statuses 200-999 (server.tl:336); the reason
-phrase for 286 comes from `wire.reason`, which has none; to be confirmed
+phrase for 286 comes from [`wire.reason`], which has none; to be confirmed
 in wire.tl: an unknown status gets a generic reason ("Stop Polling" by
 convention). A poll that wants to continue returns 200.
 
@@ -949,7 +949,7 @@ Reasons:
 - No hidden global: the module value is the router, as everywhere else.
 - `Router:reverse(name, params, query?)` and `app:url_for` (core.md section
   5.7) percent-escape params with exactly the escaper `Html.url_part` uses
-  (one C escaper; `Url.escape` and `Html.url_part` agree on every byte but
+  (one C escaper; [`Url.escape`] and `Html.url_part` agree on every byte but
   the `.`/`..` case of 3.3, and a test pins the three together on a table of
   hostile values, section 8), refuse a missing param by `nil, reason`, and
   honor Mount prefixes, so a sub-app mounted under `/admin` produces
@@ -957,7 +957,7 @@ Reasons:
   files', answers `url_for("static", { path = "app.css" })` with the
   fingerprinted URL (assets.md section 3.4).
 - A builder that returns a plain `string` instead of `SafeUrl` is also fine
-  for a `url` slot (checked by `Html.href`, `//` refused). In an htmx
+  for a `url` slot (checked by [`Html.href`], `//` refused). In an htmx
   attribute (`url_local`) a plain string is checked by `Html.local_href`.
   `trust_url` here asserts that `url_for` escaped the parts, which is the
   one place a human vouches.
@@ -978,16 +978,16 @@ as a stage taking one dot always has.
 Conventions: `*_test.tl`, top-level `local function test_*`, no top-level
 `return`, small regressions that fail for the bug. Tests that start a
 server declare `Test.policy { loopback = { "127.0.0.1" } }` and talk to it
-with `cosmic.http`; the template and html tests need no policy.
+with [`cosmic.http`]; the template and html tests need no policy.
 
-`cosmic/html_test.tl` (extended) and `cosmic/html_fuzz_test.tl`:
+[`cosmic/html_test.tl`] (extended) and [`cosmic/html_fuzz_test.tl`]:
 
-- `url_part` equals `Url.escape` for every byte value 0-255 and for UTF-8
+- `url_part` equals [`Url.escape`] for every byte value 0-255 and for UTF-8
   strings (an oracle test between a C function and a Teal one); `.` and
   `..` give the `%25` forms; the output matches `^[A-Za-z0-9._~%-]*$`;
   `Url.unescape(url_part(s)) == s` except for the two dot cases.
 - A fuzz property: a `url_part` placed in `/a/<p>/b?<p>#<p>` parses with
-  `Url.parse` to a path of three segments, a query of the exact value and a
+  [`Url.parse`] to a path of three segments, a query of the exact value and a
   fragment of the exact value. (Fuzz runs only when `FUZZ_ITERS` > 0;
   properties `requires` the labels they exercise, per AGENTS.md.)
 - `url_query` structure: names and values with `& = # + %` round-trip.
@@ -1002,7 +1002,7 @@ with `cosmic.http`; the template and html tests need no policy.
   with `j`. The type is opaque (a table or string is a type error; follow
   the existing opaqueness tests).
 
-`cosmic/template_dialect_test.tl` (new), using `Template.compile`:
+`cosmic/template_dialect_test.tl` (new), using [`Template.compile`]:
 
 - `{{use htmx}}` accepted after `{{type}}`, before or after `{{mode}}`;
   refused in `{{mode text}}`; unknown name refused with line and column;
@@ -1051,15 +1051,15 @@ with `cosmic.http`; the template and html tests need no policy.
 - `page`: partial returns content bare; full returns `wrap`; `Vary`
   includes all three names and merges with an existing one; history restore
   gets the full page.
-- `Htmx.head`: the meta content parses back with `Json.decode` and equals
+- `Htmx.head`: the meta content parses back with [`Json.decode`] and equals
   the section 6.6 configuration (including the 422 rule, `allowEval` false
   and `includeIndicatorStyles` false); the script tag's `integrity` equals an
   independent SHA-384 of the vendored file; `sse = true` adds the extension's
   tag; a nonce appears on the tags and as `inlineScriptNonce`.
-- `Router:reverse`, `Html.url_part` and `Url.escape` agree byte for byte on
+- `Router:reverse`, `Html.url_part` and [`Url.escape`] agree byte for byte on
   every byte value 0-255 and a table of hostile strings (the `.`/`..`
   exception included): the test that pins the one escaper (it needs
-  `cosmic.web` and `cosmic.html`, so it lives in `cosmic/web`).
+  `cosmic.web` and [`cosmic.html`], so it lives in `cosmic/web`).
 - An integration test over loopback (`Test.policy { loopback = ... }`)
   runs a `cosmic.web` app with a route, sends requests with and without
   `HX-Request`, `HX-Boosted` and `HX-History-Restore-Request`, and checks
@@ -1119,7 +1119,7 @@ same change.
 ## 11. Open questions
 
 1. Should the always-on `hx-on*`/`hx-vars` refusal also ship without
-   `{{use htmx}}`? Recommend yes (this file assumes it). It makes
+   `{{use htmx}}`? Decided: yes (../web.md, decision 9). It makes
    already-compiling templates with a slot in `hx-on:*` stop compiling,
    which is the point; the tree has none (grep of cosmic/ and doc/ shows
    only comments).
@@ -1144,7 +1144,7 @@ same change.
    pinned file before the exception layer's `HX-Trigger` (6.7) depends on it. Same check for
    `hx-vars` removal and for the `responseHandling` option names.
 6. `Html.local_href` as the default checker for htmx request URLs, versus
-   reusing `Html.href` plus relying on `selfRequestsOnly`. Recommend
+   reusing [`Html.href`] plus relying on `selfRequestsOnly`. Recommend
    `local_href`: an app that turns `selfRequestsOnly` off to call an API
    keeps the template-level guard, and passes a `SafeUrl` where it means it.
 7. Should `Htmx.page` set `Cache-Control: no-cache`? Recommend yes by
@@ -1154,9 +1154,9 @@ same change.
    Teal post-pass. Recommend the core option: it is one flag, and the
    Teal fallback is kept only until it lands (a `TODO:` at the post-pass).
 9. Names: `urlpart` vs `url_part`; `url_local` vs `local_url`; whether
-   `Html.json` should live on `cosmic.html` (needs `cosmic.json`) or on
-   `cosmic.web`. Recommend `cosmic.html`, because the template's generated
-   code requires only `cosmic.html` and the type must be creatable by any
+   `Html.json` should live on [`cosmic.html`] (needs `cosmic.json`) or on
+   `cosmic.web`. Recommend [`cosmic.html`], because the template's generated
+   code requires only [`cosmic.html`] and the type must be creatable by any
    handler, with or without `cosmic.web`.
 
 `TODO:` comments this work leaves in the code (to be written when the code
@@ -1170,3 +1170,26 @@ is):
 - In the template's `ident` rule: `\`-escaped identifiers written in the
   literal text are treated as the end of an identifier; waiting on a
   CSS-aware scan if anyone writes them.
+
+[`build/c_functions.tl`]: ../../../build/c_functions.tl
+[`Context.annotate`]: ../../../cosmic/template/context.tl
+[`cosmic.html`]: ../../../cosmic/html.tl
+[`cosmic.http`]: ../../../cosmic/http/init.tl
+[`cosmic.internal.html`]: ../../../cosmic/internal/html.d.tl
+[`cosmic.template`]: ../../../cosmic/template/init.tl
+[`cosmic/html_fuzz_test.tl`]: ../../../cosmic/html_fuzz_test.tl
+[`cosmic/html_test.tl`]: ../../../cosmic/html_test.tl
+[`Html.concat`]: ../../../cosmic/html.tl
+[`html.escape`]: ../../../cosmic/internal/html.d.tl
+[`Html.href`]: ../../../cosmic/html.tl
+[`Html.trust_url`]: ../../../cosmic/html.tl
+[`Html.trust`]: ../../../cosmic/html.tl
+[`Json.decode`]: ../../../cosmic/json.tl
+[`Json.encode`]: ../../../cosmic/json.tl
+[`Json.EncodeOptions`]: ../../../cosmic/json.tl
+[`Template.compile`]: ../../../cosmic/template/init.tl
+[`Test.policy`]: ../../../cosmic/test.tl
+[`Types.Template`]: ../../../cosmic/template/types.tl
+[`Url.escape`]: ../../../cosmic/url.tl
+[`Url.parse`]: ../../../cosmic/url.tl
+[`wire.reason`]: ../../../cosmic/http/wire.tl
