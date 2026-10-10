@@ -1,7 +1,7 @@
 --- The review checklist's mechanical items, checked over a C file's
 --- syntax tree ([`build.c.tree`]) rather than by a reader.
 ---
---- Each rule is a promise AGENTS.md's C checklist makes, narrowed to what
+--- Each rule is a promise doc/c.md's checklist makes, narrowed to what
 --- can be decided from one function's tree in source order:
 ---
 --- - "narrowed-integer": an integer taken from Lua is cast to a narrower

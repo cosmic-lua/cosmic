@@ -482,3 +482,86 @@ local function test_a_stage_is_given_one_value_when_the_one_before_answers_more(
     { title = "a" })
   assert(out == "a|none A|none", out)
 end
+
+--- What the module built from `template` renders for each page of `pages`.
+local function renders(tmp: string, case: string, template: string, pages: {{string: any}}): {string}
+  local lua, trouble = project(tmp, case, template)
+  assert(lua ~= nil, trouble)
+  local mod = load_module(lua, "page")
+  assert(mod is Loaded, "page exports no render")
+  local outs: {string} = {}
+  for _, page in ipairs(pages) do
+    local out = mod.render(page)
+    if out is Html.SafeHtml then
+      outs[#outs + 1] = Html.raw(out)
+    else
+      assert(out is string, "render answered a " .. type(out))
+      outs[#outs + 1] = out
+    end
+  end
+  return outs
+end
+
+local function test_an_item_loop_reads_the_root_and_a_1_based_index(tmp: string)
+  local page: {string: any} = { title = "<t>", items = { { name = "a", n = 1 }, { name = "b&", n = 2 } } }
+  local out = render(tmp, "root-index", HEAD ..
+      "{{range $i, $x := .items}}<p title=\"{{$.title}}\">{{$i}}:{{$x.name}}/{{.n}} of {{$.title}}</p>{{end}}", page)
+  local title = esc_attr("<t>")
+  assert(out == '\n<p title="' .. title .. '">1:a/1 of &lt;t&gt;</p><p title="' .. title .. '">2:b&amp;/2 of &lt;t&gt;</p>',
+    out)
+end
+
+local function test_the_index_is_an_integer_to_the_checker(tmp: string)
+  local trouble = refused(tmp, "index-integer", HEAD .. "ok\n{{range $i, $x := .items}}{{$i | fmt.upper}}{{end}}")
+  assert(trouble:find("page.tmpl:3:", 1, true) and trouble:find("integer", 1, true), trouble)
+end
+
+local function test_nested_ranges_read_the_outer_element_index_and_root(tmp: string)
+  local page: {string: any} = { title = "T", items = { { name = "a", n = 1 }, { name = "b", n = 2 } },
+    list = { "x", "y" } }
+  local out = render(tmp, "nested-bindings", "{{type Page from data}}{{mode text}}" ..
+      "{{range $i, $x := .items}}{{range $j, $s := $.list}}{{$i}}.{{$j}}={{$x.name}}{{$s}}{{.}}{{$.title}} {{end}}{{end}}",
+    page)
+  assert(out == "1.1=axxT 1.2=ayyT 2.1=bxxT 2.2=byyT ", out)
+end
+
+local function test_with_keeps_the_root_and_the_enclosing_bindings(tmp: string)
+  local outs = renders(tmp, "with-bindings", "{{type Page from data}}{{mode text}}" ..
+      "{{range $i, $x := .items}}{{with $.user}}{{.name}}{{$x.name}}{{$i}}{{$.title}}{{else}}-{{$x.n}}{{end}};{{end}}", {
+        { title = "T", user = { name = "u" }, items = { { name = "a", n = 1 }, { name = "b", n = 2 } } },
+        { title = "T", items = { { name = "a", n = 1 } } },
+      })
+  assert(outs[1] == "ua1T;ub2T;", outs[1])
+  assert(outs[2] == "-1;", outs[2])
+end
+
+local function test_a_misspelled_field_after_a_variable_is_a_type_error_on_its_line(tmp: string)
+  local trouble = refused(tmp, "binding-typo", HEAD .. "{{range $x := .items}}\n{{$x.nmae}}{{end}}")
+  assert(trouble:find("page.tmpl:3:", 1, true) and trouble:find("nmae", 1, true), trouble)
+  local root = refused(tmp, "root-typo", HEAD .. "{{range .items}}\n\n{{$.titel}}{{end}}")
+  assert(root:find("page.tmpl:4:", 1, true) and root:find("titel", 1, true), root)
+end
+
+local function test_a_binding_named_like_a_generated_name_or_a_module_builds_and_renders(tmp: string)
+  local names = { "html", "d", "d1", "v", "parts", "render", "_one", "_text", "T", "fmt", "data", "end", "table" }
+  local body: {string} = {}
+  for _, name in ipairs(names) do
+    body[#body + 1] = "{{range $i, $" .. name .. " := .items}}{{$" .. name .. ".name | fmt.upper}}{{$i}}{{end}}"
+  end
+  local out = render(tmp, "binding-names", HEAD .. table.concat(body) .. "{{.title | fmt.bracket}}",
+    { title = "t", items = { { name = "a", n = 1 } } })
+  assert(out == "\n" .. string.rep("A1", #names) .. "[t]", out)
+end
+
+local function test_a_range_with_bindings_reads_its_list_once(tmp: string)
+  local lua, trouble = build(tmp, "bindings-once", { ["data.tl"] = DATA, ["counter.tl"] = COUNTER,
+    ["page.tmpl"] = "{{type Page from data}}{{mode text}}" ..
+      "{{range $i, $s := .list | counter.each}}{{$i}}{{$s}}{{else}}none{{end}}|" ..
+      "{{range $i, $s := .list | counter.each}}{{$i}}{{$s}}{{end}}|" ..
+      "{{with $.list | counter.each}}{{range $s := .}}{{$s}}{{end}}{{end}}|{{.title | counter.count}}" })
+  assert(lua ~= nil, trouble)
+  local mod = load_module(lua, "page")
+  assert(mod is Loaded, "page exports no render")
+  local out = mod.render({ list = { "a", "b" }, title = "" })
+  assert(out == "1a2b|1a2b|ab|3", tostring(out))
+end

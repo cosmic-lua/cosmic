@@ -1,9 +1,9 @@
 --- Turns a markdown doc's fenced code-block examples into one Teal
---- source string, per doc/meta.md's grammar. The result is the source of
+--- source string, per doc/writing.md's grammar. The result is the source of
 --- an ordinary `kind = "test"` module: [`build.compilation.collect`]
 --- treats it like a hand-written `_test.tl`. [`build.analyzer.analyze`]
 --- discovers its tests and [`build.test`] runs them. Nothing
---- here runs a test, discovers one, or records a verdict: doc/meta.md
+--- here runs a test, discovers one, or records a verdict: doc/writing.md
 --- says a doc needs no doctest machinery of its own.
 local markdown = require("build.doctest.markdown")
 local generate = require("build.doctest.generate")
@@ -19,7 +19,7 @@ end
 ---   prefixes with `file` the same way it does for every other input
 --- @return string | nil generated Teal source, or nil on a grammar
 ---   error -- an unterminated fence, an unknown tag, or
----   a block ordering the grammar in doc/meta.md does not allow
+---   a block ordering the grammar in doc/writing.md does not allow
 --- @return string why, naming the source line the trouble sits at
 function doctest.extract(source: string, file: string): string | nil, string
   local blocks, block_trouble = markdown.parse_blocks(source)

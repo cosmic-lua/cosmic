@@ -27,7 +27,8 @@ local record Types
   end
 
   --- What a node of the tree is. `if`, `with` and `range` hold their
-  --- branches; `interp` is a `{{.a.b}}` and `text` literal text.
+  --- branches; `interp` is a value such as `{{.a.b}}` and `text` literal
+  --- text.
   enum Kind
     "text"
     "interp"
@@ -37,12 +38,17 @@ local record Types
   end
 
   --- What a word inside an action is: a dotted field path starting with
-  --- `.`, a bare word, the `|` between pipeline stages, or a quoted string.
+  --- `.`, a variable starting with `$` (and any field path after it), a
+  --- bare word, the `|` between pipeline stages, a quoted string, or the
+  --- `,` and `:=` of a range's bindings.
   enum Part
     "field"
+    "variable"
     "word"
     "pipe"
     "string"
+    "comma"
+    "declare"
   end
 
   --- One word of an action, with where it began (a byte column, from 1).
@@ -93,20 +99,39 @@ local record Types
     func: string
   end
 
-  --- A value: a path of fields from dot (empty for dot itself), then
-  --- each stage applied to what came before.
+  --- What a pipeline's path starts from: dot, `$` (the value `render` is
+  --- given), or a variable a range binds.
+  enum Head
+    "dot"
+    "root"
+    "variable"
+  end
+
+  --- A value: a path of fields from its head (empty for the head itself),
+  --- then each stage applied to what came before.
   record Pipeline
-    --- The field names after dot, none for dot itself.
+    --- What the path starts from.
+    head: Head
+    --- The variable's name, without its `$`, when `head` is `variable`;
+    --- else "".
+    name: string
+    --- The field names after the head, none for the head itself.
     path: {string}
     --- The stages, applied first to last.
     stages: {Stage}
   end
 
   --- One arm of an `if`, `with` or `range`: its condition (none for
-  --- `else`), its body and where its action stands.
+  --- `else`), the variables a range's own arm binds, its body and where
+  --- its action stands.
   record Branch
     --- The condition or value, nil for `else`.
     pipeline: Pipeline
+    --- The name a range binds each element's index to, without its `$`,
+    --- or "".
+    index: string
+    --- The name a range binds each element to, without its `$`, or "".
+    element: string
     --- What the arm holds.
     body: {Node}
     --- Where the arm's action begins.
