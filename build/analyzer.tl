@@ -103,6 +103,9 @@ local record analyzer
     store: boolean
     system: boolean
     caches: {string}
+    --- The files of the project root's parent directory a policy
+    --- grants (`/parent/<file>`), relative to it.
+    parent: {string}
     --- The host requirements a policy declares ([`Test.policy`]'s
     --- `requires`), as written.
     requires: {string}
@@ -1590,6 +1593,21 @@ local function policy_data(node: ast.Node): PolicyData | nil, string
   return out, ""
 end
 
+--- Why `relative`, the part of a `/parent/` grant after the prefix, names no
+--- file of the parent directory a grant may hold, or "": the one rule of
+--- cosmic/test.tl's `needs_of`, which this module cannot require.
+local function parent_fault(relative: string): string
+  if relative == "" then return "names no file" end
+  if relative:find("\0", 1, true) then return "holds a NUL" end
+  if relative:find("$", 1, true) then return "holds a $" end
+  if relative:sub(-1) == "/" then return "ends in a \"/\": it names a file, not a directory" end
+  for name in (relative .. "/"):gmatch("([^/]*)/") do
+    if name == "" then return "has an empty name" end
+    if name == "." or name == ".." then return "has a \"" .. name .. "\" name" end
+  end
+  return ""
+end
+
 --- The declaration the policy `data` stands for ([`Test.needs_of`] of
 --- cosmic.test, whose refusals these are): nil and why where it is none.
 local function policy_declared(data: PolicyData, line: integer): analyzer.Declared | nil, string
@@ -1598,6 +1616,7 @@ local function policy_declared(data: PolicyData, line: integer): analyzer.Declar
     tool = false, lua = false, nests = false, noexec = false, store = false,
     system = false, caches = {}, requires = {},
   }
+  local parents: {string} = {}
   local not_yet = " is not yet taken: a worker is held to, and a key made of, what a " ..
     "policy's paths, profiles and variables say, and nothing holds a test to this"
   local bin, cosmic, proc = false, false, false
@@ -1620,6 +1639,7 @@ local function policy_declared(data: PolicyData, line: integer): analyzer.Declar
       return nil, at .. ".letters takes letters of rwxcu, in that order"
     end
     local named = path:match("^/cache/(.*)$")
+    local above = path:match("^/parent/(.*)$")
     if path == "o/cosmic.db" then
       if letters ~= "r" or grant.from ~= nil then
         return nil, at .. ".path o/cosmic.db is the store, granted " ..
@@ -1652,6 +1672,14 @@ local function policy_declared(data: PolicyData, line: integer): analyzer.Declar
           "; the caches are " .. table.concat(known, ", ")
       end
       out.caches[#out.caches + 1] = named
+    elseif above ~= nil then
+      if letters ~= "r" or grant.from ~= nil then
+        return nil, at .. ".path /parent/<file> is a file of the project root's parent " ..
+          "directory, granted { path = \"/parent/<file>\", letters = \"r\" } with no from"
+      end
+      local fault = parent_fault(above)
+      if fault ~= "" then return nil, at .. ".path /parent/" .. above .. " " .. fault end
+      parents[#parents + 1] = above
     else
       if grant.from ~= nil then return nil, at .. ".from" .. not_yet end
       if letters ~= "r" then
@@ -1702,6 +1730,7 @@ local function policy_declared(data: PolicyData, line: integer): analyzer.Declar
       "the profile \"cosmic\"; add the profile, or drop the grant"
   end
   if proc then out.host[#out.host + 1] = "/proc" end
+  out.parent = parents
   out.tool, out.lua = cosmic and bin, cosmic and not bin
   if out.lua then
     local beside = out.store and "o/cosmic.db" or out.system and "system" or

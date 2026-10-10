@@ -1,6 +1,7 @@
 --- [`build/vendor.tl`] over archives built here -- tar and zip -- and
 --- over a plain file for the single-file PIN: what the tree holds
 --- afterward, and what it refuses.
+local Codec = require("cosmic.codec")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Stream = require("cosmic.stream")
@@ -181,6 +182,7 @@ local function test_read_pin_takes_the_first_word_and_the_first_line()
       "keep a/*.c \r\nkeep b.h\n"))
   assert(pin.url == "https://example.com/a.tar")
   assert(pin.sha256 == "abc123")
+  assert(pin.sha3_256 == "")
   assert(#pin.keep == 2 and pin.keep[1] == "a/*.c" and pin.keep[2] == "b.h")
 end
 
@@ -213,10 +215,31 @@ local function test_matches_compares_sha256_case_insensitively(dir: string)
   local path = dir .. "/data"
   assert(Fs.write(path, "hello"))
   local digest = Hash.hex_sha256("hello")
-  assert(Vendor.matches(path, digest))
-  assert(Vendor.matches(path, digest:upper()))
-  assert(not Vendor.matches(path, (digest:gsub("^.", "0"))))
-  assert(not Vendor.matches(dir .. "/nothing-here", digest))
+  assert(Vendor.matches(path, { { "sha256", digest } }))
+  assert(Vendor.matches(path, { { "sha256", digest:upper() } }))
+  assert(not Vendor.matches(path, { { "sha256", (digest:gsub("^.", "0")) } }))
+  assert(not Vendor.matches(dir .. "/nothing-here", { { "sha256", digest } }))
+end
+
+--- sqlite.org publishes SHA3-256 alone, so a PIN may name it in
+--- sha256's place, or beside it, and every digest named must hold.
+local function test_a_pin_may_name_sha3_256_and_every_digest_must_match(dir: string)
+  local pin = Vendor.read_pin("url https://example.com/a.zip\nsha3-256 ABC\n")
+  assert(pin.sha3_256 == "ABC" and pin.sha256 == "", pin.sha3_256)
+  local digests = Vendor.digests(pin)
+  assert(#digests == 1 and digests[1][1] == "sha3-256", tostring(digests[1]))
+  local path = dir .. "/data"
+  assert(Fs.write(path, "hello"))
+  local sha256 = Hash.hex_sha256("hello")
+  local sha3 = Codec.hex(Hash.digest("sha3-256", "hello"))
+  assert(Vendor.matches(path, { { "sha3-256", sha3:upper() } }))
+  assert(Vendor.matches(path, { { "sha256", sha256 }, { "sha3-256", sha3 } }))
+  assert(not Vendor.matches(path, { { "sha256", sha256 }, { "sha3-256", (sha3:gsub("^.", "0")) } }),
+    "a right sha256 does not excuse a wrong sha3-256")
+  assert(not Vendor.matches(path, {}), "no digest matches nothing")
+  local fetched, trouble = Vendor.fetch("https://example.invalid/a.zip", path, {})
+  assert(fetched == nil and trouble:find("no digest", 1, true), trouble)
+  assert(Fs.read(path) == "hello", "a refused fetch leaves the cache alone")
 end
 
 --- A verified cached download is reused: the url is one no fetch
@@ -232,7 +255,8 @@ local function test_the_fetch_step_is_a_cache_hit_when_already_verified(dir: str
   local cached = dir .. "/cache/thing-1.tar"
   assert(Fs.mkdirs(dir .. "/cache"))
   assert(Fs.write(cached, data))
-  local fetched = assert(Vendor.fetch("https://example.invalid/thing-1.tar", cached, digest))
+  local fetched = assert(Vendor.fetch("https://example.invalid/thing-1.tar", cached,
+    { { "sha256", digest } }))
   assert(fetched == cached)
 
   local tree = dir .. "/vendor/thing"

@@ -844,10 +844,12 @@ local function complain(file: string, source: string, result: compiler.Result,
   local lines: {string} = {}
   local hinted: {string:integer} = {}
   local repeats: {integer:integer} = {}
+  local refused = teal.refused_type_requires(file, source, result)
   for _, group in ipairs({ result.syntax_errors, result.type_errors, result.warnings }) do
     for _, e in ipairs(group or {}) do
       local where = e.filename ~= "" and e.filename or file
-      local instead = where == file and teal.replacement(e.msg, source, e.y, e.x, e.fields) or nil
+      local instead = where == file and
+        teal.replacement(e.msg, source, e.y, e.x, e.fields, file, refused) or nil
       local said = with_hint(e.msg, hints, instead ~= nil)
       if instead ~= nil then
         said = e.msg .. " -- " .. instead .. said:sub(#e.msg + 1)

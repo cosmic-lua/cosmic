@@ -267,7 +267,7 @@ local function test_the_run_ahead_is_found_with_its_verdicts()
         "&per_page=20", fake.calls[1])
     assert(fake.calls[2] == "GET repos/o/r/actions/runs/42/artifacts?per_page=100", fake.calls[2])
     assert(lookups(fake) == 1 and GithubFake.count(fake, "/jobs") == 0, table.concat(fake.calls, "\n"))
-    assert(said(fake):find("this run takes its verdicts", 1, true), said(fake))
+    assert(said(fake):find("this run takes it.", 1, true), said(fake))
   end
 end
 
@@ -390,7 +390,7 @@ local function test_a_change_that_moves_the_harness_takes_nothing()
   fake.moved = true
   code = QueueSeed.ahead({ REPOSITORY = "o/r", BASE = SHA, JOB = "a", ARTIFACT = "verdicts-a" }, fake.host)
   assert(code == 0 and outputs(fake) == "run=\n" and #fake.calls == 0, outputs(fake) .. table.concat(fake.calls, "\n"))
-  assert(said(fake):find("every test runs (--all)", 1, true), said(fake))
+  assert(said(fake):find("a suite runs every test (--all)", 1, true), said(fake))
 end
 
 --- The step's words reach where the live host writes them: $GITHUB_OUTPUT

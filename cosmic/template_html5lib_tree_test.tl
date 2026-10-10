@@ -138,7 +138,7 @@ end
 
 --- What a slot is, from the Teal the template compiles to.
 local function kind_of(out: string): string
-  for _, kind in ipairs({ "text", "rtext", "attr", "url" }) do
+  for _, kind in ipairs({ "text", "rtext", "ftext", "attr", "url" }) do
     if out:find("parts[#parts + 1] = _" .. kind .. "(", 1, true) then
       return kind
     end
@@ -223,7 +223,7 @@ local function text_trouble(kind: string, up: {Element}): string | nil
       return "rtext but it is not in an HTML textarea or title"
     end
     return nil
-  elseif kind ~= "text" then
+  elseif kind ~= "text" and kind ~= "ftext" then
     return kind .. " in text"
   end
   if parent.name == "script" or parent.name == "style" then
@@ -233,6 +233,11 @@ local function text_trouble(kind: string, up: {Element}): string | nil
   end
   local html_below = false
   for _, element in ipairs(up) do
+    -- Another template's markup, checked as plain HTML text, would be read
+    -- by other rules there.
+    if kind == "text" and (element.foreign or element.name == "select") then
+      return "text, which takes markup, inside " .. element.name
+    end
     if element.foreign then
       if INTEGRATION[element.name] then
         return "text in or under " .. element.name .. ", where a browser reads HTML"
@@ -459,15 +464,17 @@ local function test_a_slot_is_accepted_only_where_the_tree_has_text_or_an_attrib
   table.sort(summary)
   print(("tree: %d cases, %d texts, %d comments, %d values, %d positions; accepted %s"):format(
     reach.cases, reach.texts, reach.hidden, reach.values, reach.positions, table.concat(summary, " ")))
-  -- It reaches 1534 cases, 680 texts, 32 comments, 75 values and 3944
-  -- positions, and accepts 1934 slots of HTML text, 97 of rtext, 56 of
-  -- foreign text, 109 in attributes and 17 in URLs.
+  -- It reaches 1534 cases, 675 texts, 31 comments, 74 values and 3914
+  -- positions, and accepts 1892 slots of HTML text, 97 of rtext, 86 of
+  -- ftext (56 in foreign content, 30 in a <select>), 103 in attributes and
+  -- 16 in URLs.
   local accepted = reach.accepted
   -- The template's ending is held to: many cases need a closer to compile.
   assert(reach.closers >= 100, "only " .. reach.closers .. " cases needed a closer")
   assert(reach.cases >= 1400 and reach.texts >= 600 and reach.hidden >= 25 and reach.values >= 65 and
       reach.positions >= 3500, "only " .. reach.texts .. " texts and " .. reach.values .. " values were reached")
   assert((accepted["html text"] or 0) >= 1700 and (accepted["html rtext"] or 0) >= 85 and
-      (accepted["foreign text"] or 0) >= 45 and (accepted["value attr"] or 0) >= 95 and
+      (accepted["foreign ftext"] or 0) >= 45 and
+      (accepted["html ftext"] or 0) >= 25 and (accepted["value attr"] or 0) >= 95 and
       (accepted["value url"] or 0) >= 14, "too few slots were accepted: " .. table.concat(summary, " "))
 end

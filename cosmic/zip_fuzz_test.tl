@@ -10,6 +10,19 @@ local Zip = require("cosmic.zip")
 
 local PARTS <const> = { "a", "b", "dir", "x.txt", "é", "a b", "..", ".", "" }
 
+--- The CRC-32 (IEEE) of `data`, a byte at a time: a reference that
+--- shares nothing with the core's.
+local function crc32_reference(data: string): integer
+  local c = 0xFFFFFFFF
+  for i = 1, #data do
+    c = c ~ data:byte(i)
+    for _ = 1, 8 do
+      c = (c >> 1) ~ (0xEDB88320 & -(c & 1))
+    end
+  end
+  return c ~ 0xFFFFFFFF
+end
+
 local function gen_path(src: Fuzz.Source): string
   local parts: {string} = {}
   repeat parts[#parts + 1] = Fuzz.pick(src, PARTS) until not Fuzz.more(src, #parts, 3)
@@ -204,7 +217,7 @@ local function gen_laid_out(src: Fuzz.Source): string
     local method = Fuzz.pick(src, { 0, 8, 8, 12 })
     local body = data
     if method == 8 then body = Compress.deflate("raw", data) end
-    local crc = Compress.crc32(data)
+    local crc = crc32_reference(data)
     local lfh: Rec = {
       fields = LFH_FIELDS,
       values = { "PK\3\4", 20, 0, method, 0, 0x21, crc, #body, #data, #name, 0 },

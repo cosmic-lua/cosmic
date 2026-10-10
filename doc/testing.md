@@ -91,6 +91,13 @@ The rules:
   Linux and nothing on macOS. A test that reads /proc declares
   `profiles = { "proc" }`, not a grant of /proc: on macOS the grant names
   a path that is not there.
+- A grant of `"r"` on `/parent/<file>` reads a file beside the project
+  root, for a project such as `ci/` that lives in another's tree: plain
+  names, none empty, `.` or `..`, no `$` and no trailing `/`. The test
+  reads it at the path `Test.parent("<file>")` returns (`/tree-up/<file>`
+  sandboxed, `<root>/../<file>` not). The key holds the relative path and
+  the contents, never where the tree is; a file the host lacks fails the
+  module's tests.
 - The harness refuses a field it has no key for, and the build fails
   naming it: a grant to write, run or connect to, `isolate`, `limits`,
   `set_env`, `set_env_digests`, `connect`, `database`, `tmp = false`,

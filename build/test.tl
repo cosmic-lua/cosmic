@@ -1947,6 +1947,7 @@ function test.worker_environment(environment: {string:string}): {string:string}
   -- that runs `cosmic test` says for itself what that run does.
   out.COSMIC_TEST_NO_SHARED = nil
   out.COSMIC_TEST_NOEXEC = nil
+  out.COSMIC_TEST_PARENT = nil
   -- Nor a rebuild lock handed to this run (build.rebuild_lock): what a
   -- test starts holds none of this run's.
   return rebuild_lock.unhanded(out)
@@ -2780,7 +2781,8 @@ local function launch(rec: Recording, job: Job, start: Proc.Relaunch,
       finish(rec, job, nil, home_trouble, limits)
       return false
     end
-    env = test_sandbox.unenforced_environment(worker_view(), rec.effective[job.m.path], scratch)
+    env = test_sandbox.unenforced_environment(worker_view(), rec.effective[job.m.path], scratch,
+      rec.root)
   end
   job.started_ns = Clock.monotonic_ns()
   job.deadline_ns = job.started_ns + limits.timeout_ns
