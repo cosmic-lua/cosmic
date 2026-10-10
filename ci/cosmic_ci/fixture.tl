@@ -234,7 +234,7 @@ Fixture.inherited = {
 --- tally, not its sandbox, and a fixture's own worker is sandboxed
 --- (`Orchestration.fixture`), which a sandbox of the child's would nest
 --- in only as deep as the host allows. So it means the same on every
---- host, as AGENTS.md asks of a test's own `cosmic test`.
+--- host, as doc/testing.md asks of a test's own `cosmic test`.
 function Fixture.environment_of(base: {string:string},
                                 extra?: {string:string}): {string:string}
   local environment: {string:string} = {}
