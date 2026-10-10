@@ -1243,9 +1243,9 @@ nil` consulted once the head is read, before the body Reader is made
 (wire.body takes `s.limits`, server.tl:389); the answer replaces
 `body_bytes` for this request (and a `Content-Length` above it is 413 at
 once, as now). Checked against the code: a limit *below* `body_bytes` needs
-only `exchange` to consult the function before `wire.body` and answer 413
+only `exchange` to consult the function before [`wire.body`] and answer 413
 for a larger Content-Length itself; a limit *above* it (the upload route) is
-blocked by `wire.read_head`, which refuses a Content-Length past
+blocked by [`wire.read_head`], which refuses a Content-Length past
 `limits.body_bytes` (wire.tl, 413) before the head, and so the route, is
 known. The change is to move that one check out of `read_head` into its
 caller (`read_head` then returns the head with its length). `Web.serve` passes the router's lookup (route.body_limit
@@ -1387,5 +1387,7 @@ close, and a raise in it reaches `on_error` without stopping the drain.
 [`Url.parse`]: ../../../cosmic/url.tl
 [`Url.Query`]: ../../../cosmic/url.tl
 [`Url.segments`]: ../../../cosmic/url.tl
+[`wire.body`]: ../../../cosmic/http/wire.tl
 [`wire.check`]: ../../../cosmic/http/wire.tl
+[`wire.read_head`]: ../../../cosmic/http/wire.tl
 [`wire.Reply.headers`]: ../../../cosmic/http/wire.tl
