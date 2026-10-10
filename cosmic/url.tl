@@ -6,6 +6,9 @@
 ---   one way for a path segment, a query name and a query value.
 --- - [`Url.segments`]: a path's segments, unescaped, refusing one that
 ---   would climb out of the directory they are joined under.
+--- - [`Url.decode_query`] and [`Url.encode_query`]: a query string or an
+---   urlencoded form body read into a [`Query`] of names and values, and
+---   written back.
 --- - [`Url.parse`]: `scheme://[userinfo@]host[:port][/path][?query][#fragment]`
 ---   read into a [`Parts`].
 ---
@@ -40,6 +43,37 @@ local record Url
     query: string
     --- What follows the first `#`, or nil when there is no `#`.
     fragment: string
+  end
+
+  --- One name and value of a query or form, unescaped.
+  record Pair
+    --- The name, which may be "".
+    name: string
+    --- The value, "" when the piece had no `=`.
+    value: string
+  end
+
+  --- A decoded query or urlencoded form: the pairs in the order sent, and
+  --- each name's values in that order.
+  record Query
+    --- Every pair, in the order sent.
+    pairs: {Pair}
+    --- Each name's values in the order sent; every name in `pairs` is a key.
+    by_name: {string:{string}}
+  end
+
+  --- What [`Url.decode_query`] is told; each field is optional.
+  record QueryOptions
+    --- The most pairs read; more is a refusal (1000).
+    max_pairs: integer
+    --- The most bytes of text read; more is a refusal (nil: no bound, as
+    --- the caller of a server bounds the head and body it hands over).
+    max_bytes: integer
+    --- Read a `%` not followed by two hex digits as itself rather than
+    --- refusing (false).
+    lenient: boolean
+    --- Refuse a name or value that is not valid UTF-8 (true).
+    utf8: boolean
   end
 end
 
@@ -154,6 +188,138 @@ function Url.segments(path: string): {string} | nil, string
     at = slash + 1
   end
   return out, ""
+end
+
+--- Reads `piece`, which starts at byte `at` of the whole text, as a name
+--- or a value: `+` as a space, then escapes. In `lenient` mode a stray `%`
+--- stays.
+local function decode_piece(piece: string, at: integer, lenient: boolean): string | nil, string
+  piece = (piece:gsub("%+", " "))
+  if lenient then
+    return (piece:gsub("%%(%x%x)", byte_of_hex)), ""
+  end
+  return unescape(piece, at - 1)
+end
+
+--- `text` as a query string or an urlencoded form body
+--- (`application/x-www-form-urlencoded`, which share a grammar): split on
+--- `&` alone (a `;` is data, as an intermediary that splits on `&` would
+--- read it), each piece on its first `=`, a `+` read as a space and then
+--- each escape unescaped. Pairs keep the order sent, and an empty piece
+--- (`a=1&&b=2`) is skipped and not counted. A piece without `=` is a name
+--- with the value "", and one that starts with `=` a pair named "".
+---
+--- Answers `nil` and why when a `%` is not followed by two hex digits
+--- (naming its byte in `text`, as [`Url.segments`] does; `lenient` keeps
+--- it as a `%` instead), when a decoded name or value is not valid UTF-8
+--- (naming the pair; `utf8 = false` allows any bytes), or when the text
+--- is past `max_bytes` or holds more than `max_pairs` pairs (1000). A
+--- decoded NUL is allowed through, as in [`Url.unescape`]. Raises when
+--- `text` is not a string.
+--- @param text string A query string, without its `?`, or a form body
+--- @param opts QueryOptions | nil Limits and leniency
+--- @return Query | nil The pairs, in order and by name
+--- @return string Why it was refused, or "" when it was not
+function Url.decode_query(text: string, opts?: Url.QueryOptions): Url.Query | nil, string
+  if type(text) ~= "string" then
+    error("Url.decode_query: text must be a string, not " .. type(text), 2)
+  end
+  local max_pairs = opts and opts.max_pairs or 1000
+  local max_bytes = opts and opts.max_bytes
+  local lenient = opts ~= nil and opts.lenient == true
+  local check_utf8 = opts == nil or opts.utf8 ~= false
+  if max_bytes ~= nil and #text > max_bytes then
+    return refuse(("the query is longer than max_bytes (%d)"):format(max_bytes))
+  end
+  local pairs_: {Url.Pair} = {}
+  local by_name: {string:{string}} = {}
+  local at = 1
+  while at <= #text + 1 do
+    local amp = text:find("&", at, true) or #text + 1
+    if amp > at then
+      if #pairs_ >= max_pairs then
+        return refuse(("the query holds more pairs than max_pairs (%d)"):format(max_pairs))
+      end
+      local piece = text:sub(at, amp - 1)
+      local eq = piece:find("=", 1, true)
+      local raw_name, raw_value = piece, ""
+      if eq ~= nil then
+        raw_name, raw_value = piece:sub(1, eq - 1), piece:sub(eq + 1)
+      end
+      local name, why = decode_piece(raw_name, at, lenient)
+      if name == nil then
+        return nil, why
+      end
+      local value: string | nil
+      value, why = decode_piece(raw_value, at + (eq or 0), lenient)
+      if value == nil then
+        return nil, why
+      end
+      if check_utf8 and (not utf8.len(name) or not utf8.len(value)) then
+        return refuse(("the name or value of pair %d is not valid UTF-8"):format(#pairs_ + 1))
+      end
+      pairs_[#pairs_ + 1] = { name = name, value = value }
+      local values = by_name[name]
+      if values == nil then
+        by_name[name] = { value }
+      else
+        values[#values + 1] = value
+      end
+    end
+    at = amp + 1
+  end
+  return { pairs = pairs_, by_name = by_name }, ""
+end
+
+--- The first value sent for `name` in `query`, or nil when none was.
+--- @param query Query A decoded query
+--- @param name string The name
+--- @return string | nil Its first value
+function Url.query_first(query: Url.Query, name: string): string | nil
+  local values = query.by_name[name]
+  return values and values[1]
+end
+
+--- The last value sent for `name` in `query`, or nil when none was; a
+--- scalar field takes this one or [`Url.query_first`] by its own rule.
+--- @param query Query A decoded query
+--- @param name string The name
+--- @return string | nil Its last value
+function Url.query_last(query: Url.Query, name: string): string | nil
+  local values = query.by_name[name]
+  return values and values[#values]
+end
+
+--- Every value sent for `name` in `query`, in order; `{}` when none was.
+--- The list is a copy.
+--- @param query Query A decoded query
+--- @param name string The name
+--- @return {string} Its values
+function Url.query_all(query: Url.Query, name: string): {string}
+  local out: {string} = {}
+  for i, v in ipairs(query.by_name[name] or {}) do
+    out[i] = v
+  end
+  return out
+end
+
+--- `list` written as a query string or urlencoded body, `name=value`
+--- joined by `&`, a space as `+` and every byte but the unreserved ones
+--- ([`Url.escape`]) percent-escaped, so that [`Url.decode_query`] reads
+--- back the same pairs. Raises when a name or value is not a string.
+--- @param list {Pair} The pairs, in the order to write
+--- @return string The encoded text
+function Url.encode_query(list: {Url.Pair}): string
+  local out: {string} = {}
+  for i, pair in ipairs(list) do
+    if type(pair.name) ~= "string" or type(pair.value) ~= "string" then
+      error(("Url.encode_query: pair %d needs a string name and value"):format(i), 2)
+    end
+    local name = Url.escape(pair.name):gsub("%%20", "+")
+    local value = Url.escape(pair.value):gsub("%%20", "+")
+    out[i] = name .. "=" .. value
+  end
+  return table.concat(out, "&")
 end
 
 --- Why `text` is no URL when it holds a space or control byte, which a
