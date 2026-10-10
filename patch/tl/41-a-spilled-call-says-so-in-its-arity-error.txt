@@ -64,8 +64,18 @@ note: a call refused for its number of arguments whose last argument is a call t
       end
       for i = before + 1, #self.errs.errors do
          local err = self.errs.errors[i]
-         if err.msg:find("^wrong number of arguments %(") then
-            err.msg = err.msg .. said
+         local given, expects = err.msg:match("^wrong number of arguments %(given (%d+), expects (.-)%)")
+         if given then
+            -- Only too many arguments, for a callee that takes some, is
+            -- cured by passing one value; a handler that re-enters this
+            -- check has already said so.
+            local most = 0
+            for n in expects:gmatch("%d+") do
+               most = math.max(most, math.tointeger(n) or 0)
+            end
+            if (math.tointeger(given) or 0) > most and most >= 1 and not err.msg:find(" -- the last argument", 1, true) then
+               err.msg = err.msg .. said
+            end
             return
          end
       end

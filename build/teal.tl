@@ -1464,34 +1464,61 @@ local function string_type_hint(source: string, y: integer, x: integer): string 
     table.concat(literals, " ") .. " end`, and write `Name` here"
 end
 
+--- What Teal does with type arguments given at a call, whichever
+--- message the checker reads them as.
+local call_type_arguments_answer <const> =
+  "Teal has no type arguments at a call: `f<string>(x)` reads as a comparison. The " ..
+  "call binds the function's type parameters from its arguments, so give the argument the " ..
+  "type (`local v: string = ...`), or call through a typed local " ..
+  "(`local g: function(string): string = f`)"
+
 --- What to write for type arguments given at a call (`f<string>("a")`),
 --- when `msg` is the checker refusing `<` for a generic function and a
---- type at `y`:`x` of `source`, which reads the line as a comparison. nil
---- for any other message, and where the line has no `>(` after the `<`.
+--- type at `y`:`x` of `source`, which reads the line as a comparison; or
+--- the type argument itself read as a variable (`f<integer>(1)`,
+--- `unknown variable: integer`), with a callable name and `<` before it
+--- and `>(` after. nil for any other message, and where the line has no
+--- `>(` after the `<`.
 local function call_type_arguments_hint(msg: string, source: string, y: integer, x: integer): string | nil
-  local left = msg:match("^cannot use operator '<' for types (function<.-) and ")
-  if left == nil then
-    return nil
-  end
   local line = line_at(source, y)
-  if line == nil or line:sub(x, x) ~= "<" or line:sub(x):match("^<.->%s*%(") == nil then
+  if line == nil then
     return nil
   end
-  return "Teal has no type arguments at a call: `f<string>(x)` reads as a comparison. The " ..
-    "call binds the function's type parameters from its arguments, so give the argument the " ..
-    "type (`local v: string = ...`), or call through a typed local " ..
-    "(`local g: function(string): string = f`)"
+  if msg:match("^cannot use operator '<' for types function<.- and ") ~= nil then
+    if line:sub(x, x) == "<" and line:sub(x):match("^<.->%s*%(") ~= nil then
+      return call_type_arguments_answer
+    end
+    return nil
+  end
+  local name = msg:match("^unknown variable: ([%a_][%w_]*)$")
+  if name ~= nil and line:sub(x, x + #name - 1) == name and
+      line:sub(1, x - 1):match("[%a_][%w_%.:]*<%s*$") ~= nil and
+      line:sub(x + #name):match("^[%w_%s,%.]*>%s*%(") ~= nil then
+    return call_type_arguments_answer
+  end
+  return nil
+end
+
+--- Where a function is defined, and how its name is written.
+local record Definition
+  line: integer
+  --- ":" or "."
+  separator: string
 end
 
 --- Where `source` defines `function Owner:key` or `function Owner.key`
---- below line `y`: its line number; nil when it does not.
-local function defined_below(source: string, y: integer, owner: string, key: string): integer | nil
+--- below line `y`; nil when it does not.
+local function defined_below(source: string, y: integer, owner: string,
+                             key: string): Definition | nil
   local n = 0
-  local at = owner:gsub("%p", "%%%0") .. "[:.]" .. key:gsub("%p", "%%%0")
+  local at = owner:gsub("%p", "%%%0") .. "([:.])" .. key:gsub("%p", "%%%0")
   for line in (source .. "\n"):gmatch("(.-)\n") do
     n = n + 1
-    if n > y and line:match("^%s*function%s+" .. at .. "%f[^%w_]") ~= nil then
-      return n
+    if n > y then
+      local separator = line:match("^%s*function%s+" .. at .. "%f[^%w_]")
+      if separator ~= nil then
+        return { line = n, separator = separator }
+      end
     end
   end
   return nil
@@ -1500,7 +1527,9 @@ end
 --- What to do for a key a record lacks (`invalid key 'close' in record 's'
 --- of type Store`) when `source` defines it below the use: the checker
 --- reads a file top to bottom, so a method is known only from its
---- declaration on. nil for any other message, and a key not defined below.
+--- declaration on. The declaration offered is a template, to be given the
+--- definition's own parameters. nil for any other message, and a key not
+--- defined below.
 local function later_method_hint(msg: string, source: string, y: integer): string | nil
   local key, owner = msg:match("^invalid key '([%a_][%w_]*)' in record '[%a_][%w_]*' of type ([%a_][%w_%.]*)$")
   if key == nil then
@@ -1510,9 +1539,12 @@ local function later_method_hint(msg: string, source: string, y: integer): strin
   if below == nil then
     return nil
   end
-  return "`" .. key .. "` is defined below, at line " .. below .. ", and the checker reads a file " ..
-    "top to bottom: define `function " .. owner .. ":" .. key .. "` above this use, or declare `" ..
-    key .. ": function(self: " .. owner .. ")` in the record and keep the definition where it is"
+  local separator = below.separator
+  local template = separator == ":" and "function(self: " .. owner .. ", ...)" or "function(...)"
+  return "`" .. key .. "` is defined below, at line " .. below.line .. ", and the checker reads a file " ..
+    "top to bottom: define `function " .. owner .. separator .. key .. "` above this use, or " ..
+    "declare `" .. key .. ": " .. template .. "` in the record, with the definition's own " ..
+    "parameters, and keep the definition where it is"
 end
 
 --- What to write instead, when `msg` is the checker refusing a name

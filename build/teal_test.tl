@@ -1115,7 +1115,7 @@ local function test_a_method_used_before_its_definition_is_told_so()
       "function Store:close()\n  print(self.db)\nend\nprint(mt)\n")
   assert(says(lines, "invalid key 'close' in record 's' of type Store -- `close` is defined below, " ..
       "at line 5"), table.concat(lines, "\n"))
-  assert(says(lines, "`close: function(self: Store)`"), table.concat(lines, "\n"))
+  assert(says(lines, "`close: function(self: Store, ...)`"), table.concat(lines, "\n"))
   local declared = checker_says("local record Store\n  db: integer\n  close: function(self: Store)\nend\n" ..
       "local mt = { __gc = function(s: Store) s:close() end }\n" ..
       "function Store:close()\n  print(self.db)\nend\nprint(mt)\n")
@@ -1128,4 +1128,47 @@ local function test_a_missing_key_not_defined_below_gets_no_order_hint()
       "local mt = { __gc = function(s: Store) s:close() end }\nprint(mt)\n")
   assert(says(lines, "invalid key 'close'"), table.concat(lines, "\n"))
   assert(not says(lines, "defined below"), table.concat(lines, "\n"))
+end
+
+--- Parenthesizing cures only too many arguments for a callee that takes
+--- some: a short call, or one to a callee taking none, is told nothing,
+--- and a call a special function handler checks twice is told once.
+local function test_a_spill_hint_is_for_too_many_arguments_only()
+  local callees = "local function four(a: string, b: string, c: string, d: string) end\n" ..
+    "local function many(a: string, b: string, c: string, ...: string) end\n" ..
+    "local function none() end\n"
+  for _, body in ipairs({ "four(\"x\", two())\n", "many(two())\n", "none(two())\n" }) do
+    local lines = checker_says(two_values .. callees .. body)
+    assert(says(lines, "wrong number of arguments"), body .. table.concat(lines, "\n"))
+    assert(not says(lines, "the last argument"), body .. table.concat(lines, "\n"))
+  end
+  local lines = checker_says(two_values .. callees .. "pcall(one, two())\n")
+  local seen = 0
+  for _, line in ipairs(lines) do
+    local _, count = line:gsub(" %-%- the last argument", "")
+    seen = seen + count
+  end
+  assert(seen <= 1, table.concat(lines, "\n"))
+end
+
+--- A method defined below with a dot is offered as the template it is.
+local function test_a_later_dotted_function_is_told_as_written()
+  local lines = checker_says("local record Store\n  db: integer\nend\n" ..
+      "local function use(s: Store) s.later(1) end\n" ..
+      "function Store.later(n: integer)\n  print(n)\nend\nprint(use)\n")
+  assert(says(lines, "define `function Store.later` above this use"), table.concat(lines, "\n"))
+  assert(says(lines, "`later: function(...)` in the record, with the definition's own parameters"),
+    table.concat(lines, "\n"))
+  assert(not says(lines, "self: Store"), table.concat(lines, "\n"))
+end
+
+--- A type argument at a call that the checker reads as a variable is
+--- told the same, and a comparison of unknown names is not.
+local function test_a_call_site_type_name_is_told_there_are_none()
+  local lines = checker_says("local function f<K>(k: K): K\n  return k\nend\nprint(f<integer>(1))\n")
+  assert(says(lines, "unknown variable: integer -- Teal has no type arguments at a call"),
+    table.concat(lines, "\n"))
+  local compared = checker_says("print(missing < 1)\n")
+  assert(says(compared, "unknown variable: missing"), table.concat(compared, "\n"))
+  assert(not says(compared, "no type arguments"), table.concat(compared, "\n"))
 end
