@@ -622,7 +622,7 @@ local RAW_PIECES <const> = {
   " ", "\n", "<svg>", "</svg>", "<p>", "<a href=\"", "\"", "'", "<noscript>", "</noscript>", "</nos", "<!-",
   -- A whole element, so that a cut inside its tags is drawn at default counts.
   "<textarea></textarea><script>", "<title></title><script>", "<style></style><script>",
-  "<script><!--<script></script>", "<script><!--<script></script>--></script>", "<script></script><textarea>", "<noscript><!--</noscript>",
+  "<script><!--<script></script>", "<script><!--<script></script>--></script>", "<script></script><textarea>", "<noscript><!--</noscript>", "<noscript><!-", "--</noscript>",
   "<svg><style></style></svg>",
 }
 
@@ -658,10 +658,11 @@ local function helpers(source: string): string
   return table.concat(out, " ")
 end
 
--- A block that emits nothing, or whose arms emit the same text, between any
--- two bytes of the literal text, does not change where a slot after it
--- lands: a template that compiles with the block compiles without it (with
--- the text it emits put there) and gives its slots the same escaping.
+-- A block that emits nothing, or whose arms emit the same text, or a string
+-- action, between any two bytes of the literal text, does not change where
+-- a slot after it lands: a template that compiles with the cut compiles
+-- without it (with the text it emits put there) and gives its slots the
+-- same escaping.
 -- (Else a value could be escaped for text where the browser reads script,
 -- as in `<textarea></text{{if .a}}{{end}}area><script>{{.b}}`.)
 --
@@ -799,7 +800,7 @@ local function test_a_string_action_renders_the_bytes_it_quotes(tmp: string)
     dir = tmp,
     gen = gen_quoted,
     requires = { "brace", "escape", "newline", "slot" },
-    shares = { brace = 0.2, escape = 0.2 },
+    shares = { brace = 0.1, escape = 0.1 },
     check = function(input: string): boolean, string
       local fields = Fuzz.unpack(input)
       local body: {string} = {}

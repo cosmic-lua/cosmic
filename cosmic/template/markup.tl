@@ -167,12 +167,12 @@ local record Markup
     late_line: integer
     --- Its column.
     late_col: integer
-    --- In the text of a raw text or RCDATA element, the literal text since
-    --- the last point that could still begin something the tokenizer acts
-    --- on (`<`, `</`, `</tex`; in a `<script>` also `<!-`, `<scr`, `-`,
-    --- `--`): the next run of text, which a block that emits nothing may
-    --- have put between, is read after it, and a slot after it could
-    --- complete the tag.
+    --- In the text of a raw text or RCDATA element, the longest end of its
+    --- text that the next run could complete into something read here: a
+    --- start of `</tag` (`<`, `</`, `</tex`); in `<noscript>` also of `<!--`
+    --- (`<!`, `<!-`); in `<script>` also `<scr`, `-`, `--`. The next run,
+    --- after a block that emits nothing or a string action, is read after
+    --- it, and a slot after it could complete the tag.
     raw_tail: string
     --- In the text of a `<script>`, whether a `<!--` has opened (and no `-->`
     --- has closed) the escaped state, in which a `<script` opens a nested
@@ -385,7 +385,8 @@ end
 
 --- The longest end of `region`, in the text of `tag`, that the next run
 --- could complete into something read here: the start of `</tag` (whole
---- too, as it needs the delimiter after it) or, in `<noscript>`, of a `<!--`.
+--- too, as it needs the delimiter after it) or, in `<noscript>`, a proper
+--- start of `<!--`.
 local function plain_tail(region: string, tag: string): string
   local close = "</" .. tag
   for len = math.min(#region, #close), 1, -1 do
@@ -785,6 +786,14 @@ local function scan(p: Place, text: string)
       -- The tail is judged with the run that completes it, as it would be
       -- whole: `</sty` that becomes `</style>` holds no `<` of the text.
       local settled = region:sub(1, #region - #tail)
+      -- TODO: `<noscript>` is read as raw text, as a browser with scripting
+      -- on reads it; with scripting off its text is markup, so
+      -- `<noscript><style></noscript>{{.x}}</style>` puts the slot in
+      -- `<style>` (or `<xmp>`, `<textarea>`, ...) with only the text
+      -- escaper. In noscript text, a `<` before a raw text or RCDATA tag
+      -- name (style, script, textarea, title, xmp, iframe, noembed,
+      -- noframes, plaintext), or a `<!` or `<?`, should make the place
+      -- murky, as `<!--` does.
       if (p.stack ~= "" and settled:find("<", 1, true)) or (p.tag == "noscript" and settled:find("<!--", 1, true)) then
         p.murky = true
       end
