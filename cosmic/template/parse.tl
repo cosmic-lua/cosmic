@@ -77,8 +77,14 @@ local function trim_hint(token: types.Token): string
   return ""
 end
 
---- Why `,` or `:=` is refused anywhere but in a range's bindings.
+--- Why `:=` is refused outside a range.
 local BINDS_ALONE <const> = "only {{range}} binds variables, as {{range $i, $x := .list}}"
+
+--- Why `:=` is refused in a range's list.
+local BINDS_ONCE <const> = "unexpected ':=': a range binds once, before its list, as {{range $i, $x := .list}}"
+
+--- Why `,` is refused anywhere but between a range's two variables.
+local STRAY_COMMA <const> = "unexpected ',': only a range's two variables take one, as {{range $i, $x := .list}}"
 
 --- The names of the run of fields `path` (`.a.b`, or "" for none).
 local function fields(path: string): {string}
@@ -90,8 +96,8 @@ local function fields(path: string): {string}
 end
 
 --- The pipeline `tokens[first ..]` spell, which is all that is left of
---- the action.
-local function pipeline(p: Parser, item: types.Item, first: integer): types.Pipeline | nil, string
+--- the action; `ranged` when it is a range's list.
+local function pipeline(p: Parser, item: types.Item, first: integer, ranged: boolean): types.Pipeline | nil, string
   local tokens = item.tokens
   local head = tokens[first]
   if head == nil then
@@ -117,8 +123,16 @@ local function pipeline(p: Parser, item: types.Item, first: integer): types.Pipe
   end
   for at = first + 1, #tokens do
     local kind = tokens[at].kind
-    if kind == "string" or kind == "comma" or kind == "declare" then
-      return nil, refuse(p, tokens[at].line, tokens[at].col, kind == "string" and STRING_ALONE or BINDS_ALONE)
+    local why = ""
+    if kind == "string" then
+      why = STRING_ALONE
+    elseif kind == "comma" then
+      why = STRAY_COMMA
+    elseif kind == "declare" then
+      why = ranged and BINDS_ONCE or BINDS_ALONE
+    end
+    if why ~= "" then
+      return nil, refuse(p, tokens[at].line, tokens[at].col, why)
     end
   end
   if result.head == "variable" and p.visible[result.name] == nil then
@@ -160,6 +174,9 @@ end
 local function bindings(p: Parser, item: types.Item): Bound | nil, string
   local tokens = item.tokens
   local one, after = tokens[2], tokens[3]
+  if one ~= nil and one.kind == "variable" and after ~= nil and (after.kind == "field" or after.kind == "variable") then
+    return nil, refuse(p, after.line, after.col, "expected := after " .. one.value .. ", as {{range $x := .list}}")
+  end
   if one == nil or one.kind ~= "variable" or after == nil or (after.kind ~= "comma" and after.kind ~= "declare") then
     return { first = 2 }, ""
   end
@@ -223,7 +240,7 @@ local function block(p: Parser): types.Node | nil, string
     end
     bound = read
   end
-  local first, why = pipeline(p, open, bound.first)
+  local first, why = pipeline(p, open, bound.first, word == "range")
   if first == nil then
     return nil, why
   end
@@ -279,7 +296,7 @@ local function block(p: Parser): types.Node | nil, string
       cond = nil
       seen_else = true
     elseif kind == "if" and second.kind == "word" and second.value == "if" then
-      local next_cond, cerr = pipeline(p, close, 3)
+      local next_cond, cerr = pipeline(p, close, 3, false)
       if next_cond == nil then
         return nil, cerr
       end
@@ -332,7 +349,7 @@ nodes = function(p: Parser): {types.Node} | nil, string
         end
         p.pos = p.pos + 1
       else
-        local pipe, why = pipeline(p, item, 1)
+        local pipe, why = pipeline(p, item, 1, false)
         if pipe == nil then
           return nil, why
         end

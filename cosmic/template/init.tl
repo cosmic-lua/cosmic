@@ -25,7 +25,17 @@
 ---     {{"{{"}}                          literal text: writes {{
 ---
 --- A name in a field path is a field of the record: a typo is a type
---- error, not an empty hole.
+--- error, not an empty hole. The record's module is required for its types
+--- alone, so a declaration file (`.d.tl`) may export it and its body does not
+--- run, unless a stage reads it too. It must return the record type itself,
+--- as a `.d.tl` or `local record M ... end return M` does: one that returns
+--- a value of it is refused. A stage is a function by import path,
+--- whose module the generated source requires; composing one template in
+--- another is a stage naming its `render`. A stage answers exactly one value,
+--- wherever it stands: one declared to answer a fixed number of values
+--- above one is a type error on the template's line, so a function that can fail (`nil, reason`) is wrapped by
+--- the caller into a stage that answers a value. Truthiness is Lua's: only `nil` and
+--- `false` are false, not `""` or `0`.
 ---
 --- A value starts from dot, from `$` or from a variable. `range` and `with`
 --- make dot the element or the value, so `$` is how a block reaches the
@@ -43,17 +53,7 @@
 --- or misspelled, is refused with its line and column; one bound where a
 --- variable of its name is already seen is refused too, so a name means
 --- one value wherever it stands. A field after a variable is checked as
---- one after dot is. `with` binds no variable. The record's module is required for its types
---- alone, so a declaration file (`.d.tl`) may export it and its body does not
---- run, unless a stage reads it too. It must return the record type itself,
---- as a `.d.tl` or `local record M ... end return M` does: one that returns
---- a value of it is refused. A stage is a function by import path,
---- whose module the generated source requires; composing one template in
---- another is a stage naming its `render`. A stage answers exactly one value,
---- wherever it stands: one declared to answer a fixed number of values
---- above one is a type error on the template's line, so a function that can fail (`nil, reason`) is wrapped by
---- the caller into a stage that answers a value. Truthiness is Lua's: only `nil` and
---- `false` are false, not `""` or `0`.
+--- one after dot is. `with` binds no variable.
 ---
 --- `{{-` drops the whitespace before an action (newlines too) and `-}}`
 --- the whitespace after it; each needs a space inside it.

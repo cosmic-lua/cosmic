@@ -173,6 +173,9 @@ local function value(g: Gen, pipe: types.Pipeline, dot: Dot): string
     head = g.root
   elseif pipe.head == "variable" then
     head = g.vars[pipe.name]
+    if head == nil then
+      error("cosmic.template: codegen met $" .. pipe.name .. ", which the parser let through unbound")
+    end
   end
   head.used = true
   local expr = head.name
@@ -259,12 +262,15 @@ local function block(g: Gen, node: types.Node, dot: Dot)
     local index: Dot = { name = "_", used = false }
     if arm.index ~= "" then
       index = new_dot(g)
+    end
+    -- The list is read where the range stands, before its variables are.
+    local source = value(g, arm.pipeline, dot)
+    if arm.index ~= "" then
       g.vars[arm.index] = index
     end
     if arm.element ~= "" then
       g.vars[arm.element] = inner
     end
-    local source = value(g, arm.pipeline, dot)
     local opening = ""
     if other ~= nil then
       -- The list is read once, then tested for a first element: ipairs

@@ -254,7 +254,9 @@ local function test_compile_is_total_and_keeps_the_lines_on_any_bytes(tmp: strin
       end
       if input:find("{{mode text}}", 1, true) then Fuzz.label("text mode") end
       if input:find("\n.*{{") then Fuzz.label("multiline") end
-      if input:find(":=", 1, true) then Fuzz.label("bound") end
+      -- `{{` always starts an action, so this is never literal text, and a
+      -- range that opens so compiles only as one that binds.
+      if input:find("{{range %$[%a_][%w_]*%s*[,:]") then Fuzz.label("bound") end
       return true, ""
     end,
   })
@@ -568,7 +570,7 @@ local function test_a_value_cannot_get_out_of_where_a_slot_puts_it(tmp: string)
     name = "template sound",
     dir = tmp,
     gen = gen_sound,
-    requires = { "refused", "text", "rtext", "attr", "url", "block", "assembled url", "variable" },
+    requires = { "refused", "text", "rtext", "attr", "url", "block", "assembled url", "root", "range binding" },
     shares = { refused = 0.01, text = 0.05, rtext = 0.01, attr = 0.01, url = 0.01 },
     check = function(input: string): boolean, string
       local fields = Fuzz.unpack(input)
@@ -664,8 +666,11 @@ local function test_a_value_cannot_get_out_of_where_a_slot_puts_it(tmp: string)
       if body:find("{{range", 1, true) or body:find("{{if", 1, true) or body:find("{{with", 1, true) then
         Fuzz.label("block")
       end
-      if body:find("{{$", 1, true) then
-        Fuzz.label("variable")
+      if body:find("{{$.a}}", 1, true) then
+        Fuzz.label("root")
+      end
+      if body:find("{{range $", 1, true) then
+        Fuzz.label("range binding")
       end
       return true, ""
     end,
