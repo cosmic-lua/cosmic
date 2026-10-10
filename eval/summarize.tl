@@ -1,12 +1,23 @@
 --- Numbers from a Claude Code stream-json transcript: turns, tool calls,
 --- minutes, cost, then the friction the journal may not admit to --
 --- failed tool calls, `cosmic docs` lookups that found no exact match,
---- the tool call at which `cosmic test` first passed, and how many times
---- the journal was written (one write at the end is a retelling, not a
---- log). Last, every absolute path a tool call named outside the arena,
---- and any mention of this repository or a skills or plugins directory:
---- those are contamination or boundary breaches to check before
---- trusting the run.
+--- the tool call at which `cosmic test` first passed (a Bash call that
+--- ran `cosmic test`, its result holding a line `test: PASS`), and how
+--- many times the journal was written (one write at the end is a
+--- retelling, not a log). Last, the paths a tool call named outside the
+--- arena, in tiers: `BREACH` for this checkout, `.claude`, a skills
+--- directory, CLAUDE.md, AGENTS.md, Claude Code's managed settings, a
+--- home directory or another arena; `sandbox-tmp`, a count, for the rest
+--- of /tmp, which the solver's sandbox makes private; `outside-arena`
+--- for any other. Any mention of this repository or a skills or plugins
+--- directory is flagged as contamination. These are leads to check
+--- before trusting the run.
+---
+--- The path lists are advisory evidence, read from what the tool calls
+--- say: a path a shell builds at run time, or names inside a command
+--- substitution in quotes, is not seen, and a word that only looks like
+--- a path is skipped or reported by a small lexer's rules, not a shell's.
+--- The sandbox ([`eval/solve`]) is the enforcement.
 --- Another agent's transcript needs its own reader.
 ---
 ---     cosmic --standalone eval/summarize.tl <arena>/transcript.jsonl
@@ -22,13 +33,13 @@ local String = require("cosmic.string")
 local record Summarize
 end
 
---- What `summarize` reads from one tool call: its name, its input as
---- JSON text, and the input's fields that say where it acts.
+--- What `summarize` reads from one tool call: its name, its input and
+--- the input as JSON text.
 local record Call
   id: string
   name: string
   given: string
-  where: string
+  input: {string: any}
 end
 
 --- What a tool call answered: whether it failed, and its text.
@@ -58,112 +69,298 @@ local function count(text: string, needle: string): integer
   end
 end
 
---- The code point of the UTF-8 character at `at`, and its length; a
---- byte that does not start one is a character of its own.
-local function char_at(text: string, at: integer): integer, integer
-  local b = text:byte(at)
-  local size = b >= 0xf0 and 4 or b >= 0xe0 and 3 or b >= 0xc0 and 2 or 1
-  if size == 1 or at + size - 1 > #text then
-    return b, 1
-  end
-  local cp = b & (0x7f >> size)
-  for i = at + 1, at + size - 1 do
-    local c = text:byte(i)
-    if c & 0xc0 ~= 0x80 then
-      return b, 1
+--- One word of a shell command: its text with quotes removed, and
+--- whether it can be a path -- false when a quoted part held whitespace
+--- or a pattern's metacharacters, which makes it prose or a regex.
+local record Word
+  text: string
+  literal: boolean
+end
+
+local function is_prose(piece: string): boolean
+  return piece:find("[%s%(%)%[%]{}|%^%*%+%?\\]") ~= nil
+end
+
+--- The word starting at `from` and where it ends: at whitespace or one
+--- of `;|&`, outside quotes.
+local function read_word(src: string, from: integer): Word, integer
+  local buf: {string} = {}
+  local literal = true
+  local i, n = from, #src
+  while i <= n do
+    local ch = src:sub(i, i)
+    if ch:find("[%s;|&]") then
+      break
+    elseif ch == "'" or ch == '"' then
+      local close = i + 1
+      while close <= n and src:sub(close, close) ~= ch do
+        close = close + (ch == '"' and src:sub(close, close) == "\\" and 2 or 1)
+      end
+      local piece = src:sub(i + 1, close - 1)
+      literal = literal and not is_prose(piece)
+      buf[#buf + 1] = ch == '"' and (piece:gsub("\\([\"\\$`])", "%1")) or piece
+      i = close + 1
+    elseif ch == "\\" then
+      if src:sub(i + 1, i + 1) ~= "\n" then
+        buf[#buf + 1] = src:sub(i + 1, i + 1)
+      end
+      i = i + 2
+    else
+      buf[#buf + 1] = ch
+      i = i + 1
     end
-    cp = (cp << 6) | (c & 0x3f)
   end
-  return cp, size
+  return { text = table.concat(buf), literal = literal }, i
 end
 
---- The start of the UTF-8 character that ends just before `at`.
-local function char_before(text: string, at: integer): integer
-  local start = at - 1
-  while start > 1 and at - start < 4 and text:byte(start) & 0xc0 == 0x80 do
-    start = start - 1
+--- The simple commands of a shell script as lists of words. Comments
+--- and here-document bodies are left out; a command substitution or
+--- subshell is not entered (its words join the command around it),
+--- which is enough for an advisory list.
+local function lex(src: string): {{Word}}
+  local commands: {{Word}} = {}
+  local current: {Word} = {}
+  local delims: {string} = {}
+  local dashed: {boolean} = {}
+  local i, n = 1, #src
+  local function flush()
+    if #current > 0 then
+      commands[#commands + 1] = current
+      current = {}
+    end
   end
-  return start
-end
-
---- Whether a code point is a word character, as Python's `\w` takes
---- it: a letter, digit or `_`. Past ASCII, anything but the spaces
---- and punctuation a command is likely to hold -- Latin-1's, the
---- General and CJK Punctuation blocks, and the fullwidth forms' --
---- counts as one.
-local function is_word(cp: integer): boolean
-  if cp < 0x80 then
-    local c = string.char(cp)
-    return c:match("[%w_]") ~= nil
+  while i <= n do
+    local ch = src:sub(i, i)
+    if ch == "\n" then
+      flush()
+      i = i + 1
+      for d = 1, #delims do
+        while i <= n do
+          local e = src:find("\n", i, true) or n + 1
+          local line = src:sub(i, e - 1)
+          i = e + 1
+          if dashed[d] then
+            line = line:gsub("^\t+", "")
+          end
+          if line == delims[d] then
+            break
+          end
+        end
+      end
+      delims, dashed = {}, {}
+    elseif ch:find("%s") then
+      i = i + 1
+    elseif ch == "#" then
+      i = src:find("\n", i, true) or n + 1
+    elseif ch == ";" or ch == "|" or ch == "&" then
+      flush()
+      i = i + 1
+    elseif src:sub(i, i + 1) == "<<" and src:sub(i + 2, i + 2) ~= "<" then
+      i = i + 2
+      local dash = src:sub(i, i) == "-"
+      if dash then
+        i = i + 1
+      end
+      while src:sub(i, i):find("^[ \t]") do
+        i = i + 1
+      end
+      local word: Word
+      word, i = read_word(src, i)
+      delims[#delims + 1] = word.text
+      dashed[#dashed + 1] = dash
+    else
+      local word: Word
+      word, i = read_word(src, i)
+      current[#current + 1] = word
+    end
   end
-  return not (cp <= 0xbf or (cp >= 0x2000 and cp <= 0x206f) or
-    (cp >= 0x2e00 and cp <= 0x2e7f) or (cp >= 0x3000 and cp <= 0x303f) or
-    (cp >= 0xff00 and cp <= 0xff0f) or (cp >= 0xff1a and cp <= 0xff20) or
-    (cp >= 0xff3b and cp <= 0xff40) or (cp >= 0xff5b and cp <= 0xff65))
+  flush()
+  return commands
 end
 
--- is_word's ranges approximate Python's `\w` past ASCII, so a symbol
--- such as `→` counts as part of a path here: close enough for an eval's
--- summary, which does not warrant a table of Unicode's categories.
+--- For each program that takes a script or pattern as an argument, the
+--- letters of the flags that introduce it (`sed -e`, `python -c`).
+local script_flags <const>: {string: string} = {
+  sed = "e", awk = "e", gawk = "e", grep = "e", egrep = "e", fgrep = "e", rg = "e",
+  perl = "eE", ruby = "e", node = "e", python = "c", python3 = "c",
+  sh = "c", bash = "c", dash = "c",
+}
 
---- A character a path is made of: a word character, or `.@+-`.
-local function is_path_char(cp: integer): boolean
-  return is_word(cp) or cp == 0x2e or cp == 0x40 or cp == 0x2b or cp == 0x2d
+--- Programs whose first argument that is no option is the script or
+--- pattern when no flag gave one.
+local script_first <const>: {string: boolean} = {
+  sed = true, awk = true, gawk = true, grep = true, egrep = true, fgrep = true, rg = true,
+}
+
+--- Programs that run their script argument as shell.
+local shells <const>: {string: boolean} = { sh = true, bash = true, dash = true }
+
+--- grep's options that take a number as a separate word.
+local counts <const>: {string: boolean} = { ["-m"] = true, ["-A"] = true, ["-B"] = true, ["-C"] = true }
+
+--- What follows `$HOME`, `${HOME}` or `~` in `word` when it starts with
+--- one, else nil.
+local function home_rest(word: string): string
+  for _, home in ipairs({ "~", "${HOME}", "$HOME" }) do
+    if word == home or String.starts_with(word, home .. "/") then
+      return word:sub(#home + 1)
+    end
+  end
+  return nil
 end
 
---- A character that, just before a `/`, makes it part of something
---- other than an absolute path: `a/b`, `./b`, `$HOME/b`, `~/b`, `<x>/b`.
---- Only ASCII ones do: past ASCII, where is_word only approximates
---- Python, a path is reported rather than missed.
-local function is_not_before(cp: integer): boolean
-  return cp < 0x80 and (is_word(cp) or cp == 0x2e or cp == 0x24 or cp == 0x7e or
-    cp == 0x3c or cp == 0x3e)
-end
-
---- Where the `/name` segment at `at` ends, or nil when `at` holds none.
-local function segment(text: string, at: integer): integer | nil
-  if text:byte(at) ~= 0x2f then
+--- `word` as a path to look at, or nil when it is not one: it starts
+--- with `/`, `~`, `$HOME`, `${HOME}` or `..`, or climbs through `/../`.
+--- Redirection and `VAR=` / `--opt=` prefixes come off first. A URL is
+--- no path, nor is a lone `/` or `/12`, which an arithmetic expression
+--- divides by, nor a bare `VAR=$HOME`, which names the variable's value
+--- without opening anything.
+local function candidate(word: Word): string
+  if not word.literal then
     return nil
   end
-  local stop: integer = nil
-  local i = at + 1
-  while i <= #text do
-    local cp, size = char_at(text, i)
-    if not is_path_char(cp) then
-      break
-    end
-    stop = i + size - 1
-    i = i + size
+  local text = word.text
+  text = text:gsub("^%d*[<>]+&?", "")
+  local assigned = text:find("^[%w_]+=") ~= nil
+  text = text:gsub("^[%w_]+=", "")
+  text = text:gsub("^%-%-[%w%-]+=", "")
+  text = text:gsub("^%$?%(+", "")
+  text = text:gsub("^`", "")
+  text = text:gsub("[%)`]+$", "")
+  if assigned and home_rest(text) == "" then
+    return nil
   end
-  return stop
+  if text:find("://", 1, true) or text == "/" or text:find("^/%d+$") then
+    return nil
+  end
+  if home_rest(text) ~= nil or text:find("^/") or text == ".." or text:find("^%.%./") or
+      text:find("/%.%./") or text:find("/%.%.$") then
+    return text
+  end
+  return nil
 end
 
---- Every absolute path in `text`, in order: a `/` no path character
---- precedes, then one or more `/name` segments.
-function Summarize.paths(text: string): {string}
-  local found: {string} = {}
-  local at = 1
-  while at <= #text do
-    local slash = text:find("/", at, true)
-    if slash == nil then
-      break
+--- Every path-like word of the shell script `src`, in order, unresolved.
+--- The script argument of `sed`, `grep`, `python -c` and the like is
+--- not looked at, and `sh -c`'s is read as a script of its own. Words
+--- inside `"$(...)"` are not found: a limit, as the list is advisory.
+local function shell_words(src: string, found: {string}, nested: boolean)
+  for _, words in ipairs(lex(src)) do
+    local first = 1
+    while words[first] ~= nil and words[first].text:find("^[%w_]+=") do
+      first = first + 1
     end
-    local after = slash + 1
-    if slash == 1 or not is_not_before((char_at(text, char_before(text, slash)))) then
-      local stop = slash - 1
-      while true do
-        local e = segment(text, stop + 1)
-        if e == nil then
-          break
+    local head = words[first]
+    local program = head ~= nil and head.text:match("[^/]*$") or ""
+    local letters = script_flags[program]
+    local skipped: {integer: boolean} = {}
+    local scripts: {string} = {}
+    local flagged = false
+    local bare: integer = nil
+    if letters ~= nil then
+      local k = first + 1
+      while k <= #words do
+        local text = words[k].text
+        local group = text:match("^%-(%a+)$")
+        if group ~= nil and letters:find(group:sub(-1), 1, true) and words[k + 1] ~= nil then
+          flagged = true
+          skipped[k + 1] = true
+          scripts[#scripts + 1] = words[k + 1].text
+          k = k + 1
+        elseif (program == "grep" or program == "rg") and counts[text] then
+          skipped[k + 1] = true
+          k = k + 1
+        elseif text:sub(1, 1) ~= "-" and bare == nil then
+          bare = k
         end
-        stop = e
+        k = k + 1
       end
-      if stop >= slash then
-        found[#found + 1] = text:sub(slash, stop)
-        after = stop + 1
+      if not flagged and bare ~= nil and script_first[program] then
+        skipped[bare] = true
       end
     end
-    at = after
+    for k, word in ipairs(words) do
+      local path = not skipped[k] and candidate(word) or nil
+      if path ~= nil then
+        found[#found + 1] = path
+      end
+    end
+    if shells[program] and not nested then
+      for _, script in ipairs(scripts) do
+        shell_words(script, found, true)
+      end
+    end
+  end
+end
+
+--- Whether a shell command runs `cosmic test`: a word naming `cosmic`
+--- followed by `test`, as `timeout 30 bin/cosmic test` has it.
+local function runs_cosmic_test(command: string): boolean
+  for _, words in ipairs(lex(command)) do
+    for k = 1, #words - 1 do
+      if words[k].text:match("[^/]*$") == "cosmic" and words[k + 1].text == "test" then
+        return true
+      end
+    end
+  end
+  return false
+end
+
+--- `path` with its `.` and `..` segments resolved and slashes
+--- collapsed, as an absolute path; a `..` at the root stays there.
+local function normalize(path: string): string
+  local parts: {string} = {}
+  for part in path:gmatch("[^/]+") do
+    if part == ".." then
+      table.remove(parts)
+    elseif part ~= "." then
+      parts[#parts + 1] = part
+    end
+  end
+  return "/" .. table.concat(parts, "/")
+end
+
+--- Where `word` points: an absolute path normalized, one relative to
+--- `project` joined to it first. A home directory is not known (the
+--- solver's own is inside its arena, a manual launch's is the user's),
+--- so `~/x` and `$HOME/x` stay as `~/x`.
+local function resolve(word: string, project: string): string
+  local rest = home_rest(word)
+  if rest ~= nil then
+    local tail = normalize(rest)
+    return tail == "/" and "~" or "~" .. tail
+  end
+  return normalize(word:sub(1, 1) == "/" and word or project .. "/" .. word)
+end
+
+--- The paths a tool call names, in order, resolved: what its input says
+--- about where it acts, never what it writes. Read, Write and Edit name
+--- a file; Glob a directory, and a pattern if absolute; Grep a directory
+--- (its pattern is a regex); Bash a command, whose words are read as a
+--- shell would split them.
+function Summarize.paths(name: string, input: {string: any}, project: string): {string}
+  local raw: {string} = {}
+  local function field(key: string): string
+    local value = input[key]
+    return value is string and value or ""
+  end
+  if name == "Bash" then
+    shell_words(field("command"), raw, false)
+  elseif name == "Grep" then
+    raw[1] = field("path")
+  elseif name == "Glob" then
+    raw[1] = field("path")
+    raw[2] = field("pattern"):sub(1, 1) == "/" and field("pattern") or ""
+  else
+    raw[1] = field("file_path")
+    raw[2] = field("notebook_path")
+    raw[3] = field("path")
+  end
+  local found: {string} = {}
+  for _, path in ipairs(raw) do
+    if path ~= "" then
+      found[#found + 1] = resolve(path, project)
+    end
   end
   return found
 end
@@ -184,6 +381,32 @@ local function is_system(path: string): boolean
     end
   end
   return false
+end
+
+--- Where outside the arena `path` is, as a tier: "breach" for what the
+--- solver must not reach (this checkout, a `.claude` directory, a skills
+--- directory, CLAUDE.md or AGENTS.md, Claude Code's managed settings, a
+--- home directory, another arena), "tmp" for the rest of /tmp, which the
+--- sandbox gives the solver a private copy of, "outside" for any other
+--- path; nil for one in the arena or a system location.
+local function tier_of(path: string, arena: string, repo: string): string
+  if Fs.within(path, arena) then
+    return nil
+  end
+  local name = path:match("[^/]*$")
+  if Fs.within(path, repo) or ("/" .. path .. "/"):find("/%.claude/") or
+      name == "CLAUDE.md" or name == "AGENTS.md" then
+    return "breach"
+  end
+  for _, root in ipairs({ "/mnt/skills", "/etc/claude-code", "/root", "/home", "/tmp/cosmic-evals" }) do
+    if Fs.within(path, root) then
+      return "breach"
+    end
+  end
+  if is_system(path) then
+    return nil
+  end
+  return Fs.within(path, "/tmp") and "tmp" or "outside"
 end
 
 --- A value as text, for a field whose value need not be a string.
@@ -251,17 +474,13 @@ function Summarize.report(transcript: string, arena: string, repo: string): stri
         for _, part in ipairs(content) do
           if part is {string: any} and part["type"] == "tool_use" then
             local input = part["input"]
-            local where: {string} = {}
-            for _, key in ipairs({ "command", "file_path", "path", "pattern" }) do
-              where[#where + 1] = input is {string: any} and as_text(input[key]) or ""
-            end
             -- Input too deep to encode is given as nothing.
             local given, _ = Json.encode(input, { max_depth = max_depth })
             calls[#calls + 1] = {
               id = id_key(part["id"]),
               name = as_text(part["name"]),
               given = given or "",
-              where = table.concat(where, " "),
+              input = input is {string: any} and input or {},
             }
           end
         end
@@ -275,7 +494,7 @@ function Summarize.report(transcript: string, arena: string, repo: string): stri
               for _, piece in ipairs(body) do
                 pieces[#pieces + 1] = piece is {string: any} and as_text(piece["text"]) or ""
               end
-              text = table.concat(pieces, " ")
+              text = table.concat(pieces, "\n")
             else
               text = as_text(body)
             end
@@ -293,6 +512,8 @@ function Summarize.report(transcript: string, arena: string, repo: string): stri
 
   local failed, docs_misses, journal_writes = 0, 0, 0
   local first_green: integer = nil
+  local breach: {string: boolean} = {}
+  local sandbox_tmp: {string: boolean} = {}
   local outside: {string: boolean} = {}
   local tainted: {string: boolean} = {}
   for index, call in ipairs(calls) do
@@ -302,7 +523,9 @@ function Summarize.report(transcript: string, arena: string, repo: string): stri
       failed = failed + 1
     end
     docs_misses = docs_misses + count(text, "No exact symbol match") + count(text, "docs: FAIL")
-    if first_green == nil and text:find("test: PASS", 1, true) then
+    if first_green == nil and call.name == "Bash" and
+        runs_cosmic_test(as_text(call.input["command"])) and
+        ("\n" .. text):find("\ntest: PASS", 1, true) then
       first_green = index
     end
     if writes_journal(call) then
@@ -310,8 +533,13 @@ function Summarize.report(transcript: string, arena: string, repo: string): stri
     end
     -- Where the call acts, not what it writes: a file's own contents
     -- would otherwise count every path its prose mentions.
-    for _, path in ipairs(Summarize.paths(call.where)) do
-      if not (Fs.within(path, arena) or is_system(path)) then
+    for _, path in ipairs(Summarize.paths(call.name, call.input, arena .. "/project")) do
+      local tier = tier_of(path, arena, repo)
+      if tier == "breach" then
+        breach[path] = true
+      elseif tier == "tmp" then
+        sandbox_tmp[path] = true
+      elseif tier == "outside" then
         outside[path] = true
       end
     end
@@ -345,6 +573,13 @@ function Summarize.report(transcript: string, arena: string, repo: string): stri
     end
     table.sort(list)
     return list
+  end
+  for _, path in ipairs(sorted(breach)) do
+    out[#out + 1] = "BREACH: " .. path
+  end
+  local tmp_count = #sorted(sandbox_tmp)
+  if tmp_count > 0 then
+    out[#out + 1] = "sandbox-tmp: " .. tmp_count
   end
   for _, path in ipairs(sorted(outside)) do
     out[#out + 1] = "outside-arena: " .. path
