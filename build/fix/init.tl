@@ -899,7 +899,8 @@ local function candidates_of(parsed: ast.Parsed, source: string): {near.Candidat
     if entry.exported and (entry.kind == "function" or entry.kind == "method") and
         entry.text ~= "" then
       candidates[#candidates + 1] = { source_symbol = entry.source_symbol,
-        text = entry.text, line = entry.line }
+        text = entry.text, line = entry.line,
+        method = entry.kind == "method" or entry.signature:find("%(%s*self%s*:") ~= nil }
     end
   end
   return candidates
@@ -1517,6 +1518,29 @@ local function say_notes(ctx: Fix)
   end
 end
 
+--- What kinds the files of a run are, as " (3 Teal, 2 Markdown)": a Markdown
+--- file and a Teal one are checked alike but differently fixed. Files
+--- refused before their kind was known are in the count and not here.
+local function kinds(picked: fix.Chosen): string
+  local markdown, zig = 0, 0
+  for _, file in ipairs(picked.checked) do
+    if String.ends_with(file, ".zig") then
+      zig = zig + 1
+    else
+      markdown = markdown + 1
+    end
+  end
+  local counts = { #picked.files, #picked.c_files, #picked.flow_files, markdown, zig, #picked.templates }
+  local names = { "Teal", "C", "YAML", "Markdown", "Zig", "template" }
+  local parts: {string} = {}
+  for i, count in ipairs(counts) do
+    if count > 0 then
+      parts[#parts + 1] = count .. " " .. names[i]
+    end
+  end
+  return #parts > 0 and " (" .. table.concat(parts, ", ") .. ")" or ""
+end
+
 --- Says each failure, finding and change, then the verdict.
 --- @return integer The exit code: 0 when nothing is left to fix
 local function report(ctx: Fix): integer
@@ -1560,8 +1584,13 @@ local function report(ctx: Fix): integer
   if links_unbuilt ~= nil then
     log:say("fix: FAIL  " .. links_unbuilt)
   end
+  local linked: {string:boolean} = {}
+  for _, file in ipairs(ctx.linked_out.rewritten) do
+    linked[file] = true
+  end
   for _, file in ipairs(changed) do
-    log:say("fix: " .. (checking and "would fix  " or "fixed  ") .. file)
+    log:say("fix: " .. (checking and "would fix  " or "fixed  ") .. file ..
+        (linked[file] and " (links)" or ""))
   end
   if #failures > 0 or #findings > 0 or #broken > 0 or #would > 0 or #redefined > 0 or
       unbuilt ~= nil or links_unbuilt ~= nil then
@@ -1597,7 +1626,7 @@ local function report(ctx: Fix): integer
         clock.took(ctx.started) .. "; `cosmic fix` rewrites them in place")
     return 1
   end
-  log:verdict("fix", true, plural.count(counted, "file") .. ", " .. #changed ..
+  log:verdict("fix", true, plural.count(counted, "file") .. kinds(ctx.picked) .. ", " .. #changed ..
       (checking and " to fix, " or " fixed, ") .. clock.took(ctx.started))
   return 0
 end

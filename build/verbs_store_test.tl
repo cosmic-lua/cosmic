@@ -294,10 +294,10 @@ end
 local function test_fix_says_one_file_not_one_files(tmp: string)
   local tree = verbs_fixture.write_tree(tmp)
   local one = verbs_fixture.expect(tree, "fix", { "fix", "good/ok_test.tl" }, 0).stdout or ""
-  assert(one:find("fix: PASS (1 file, 0 fixed", 1, true), one)
+  assert(one:find("fix: PASS (1 file (1 Teal), 0 fixed", 1, true), one)
   local two = verbs_fixture.expect(tree, "fix",
     { "fix", "good/ok_test.tl", "bad/no_test.tl" }, 0).stdout or ""
-  assert(two:find("fix: PASS (2 files, 0 fixed", 1, true), two)
+  assert(two:find("fix: PASS (2 files (2 Teal), 0 fixed", 1, true), two)
 end
 
 local function test_db_takes_paths_to_narrow_it(tmp: string)
