@@ -32,7 +32,7 @@ function Example.profile()
   local merged = assert(Sandbox.merge({ profiles = { "cosmic" } }))
   assert(merged.profiles == nil and merged.grants[1].path == cosmic.grants[1].path)
   local none, why = Sandbox.profile("everything")
-  print(why) -- sandbox: unknown profile "everything" (known: cosmic, system)
+  print(why) -- sandbox: unknown profile "everything" (known: cosmic, proc, system)
   assert(none == nil)
 end
 

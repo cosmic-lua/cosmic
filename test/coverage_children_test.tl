@@ -18,8 +18,8 @@ local Clock = require("cosmic.clock")
 --- itself, which its tests start; and `nests`, for the child it confines
 --- in a root of its own.
 Test.policy{
-  profiles = { "cosmic" },
-  grants = { { path = "o/bin", letters = "rx" }, { path = "/proc", letters = "r" } },
+  profiles = { "cosmic", "proc" },
+  grants = { { path = "o/bin", letters = "rx" } },
   promises = { "nest" },
 }
 

@@ -21,7 +21,7 @@ local type _ = require("cosmic.child")
 --- /proc and loopback, as core/syscalls_test.tl declares them: the child
 --- connects to a listener of this process's on loopback.
 Test.policy{
-  grants = { { path = "/proc", letters = "r" } },
+  profiles = { "proc" },
   loopback = { "127.0.0.1" },
   requires = { "landlock" },
 }

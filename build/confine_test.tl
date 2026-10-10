@@ -11,17 +11,13 @@ local stand_in = require("build.stand_in")
 local this_program = require("build.this_program")
 local type raw_process = require("cosmic.internal.process")
 
--- TODO: declare /proc for Linux alone once a declaration can name a
--- host path per platform (a `host` entry for Linux and one for macOS):
--- macOS has no /proc, so there this declares a path that is not there,
--- which gives and keys nothing but says what the tests need wrongly.
 --- What a sandboxed worker of this very program reads: /proc, where the
 --- stand-in it starts finds itself, and the program itself, which its
 --- tests start again as that worker; and `nests`, since they confine
 --- what they start in a root of its own.
 Test.policy{
-  profiles = { "cosmic" },
-  grants = { { path = "o/bin", letters = "rx" }, { path = "/proc", letters = "r" } },
+  profiles = { "cosmic", "proc" },
+  grants = { { path = "o/bin", letters = "rx" } },
   promises = { "nest" },
   env = { "COSMIC_SANDBOX" },
 }

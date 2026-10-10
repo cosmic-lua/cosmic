@@ -80,6 +80,14 @@ untouched. Both meanings could then coexist.
 
 The sandbox's own next steps, none of which a caller needs yet:
 
+- let a test module's [`Test.policy`] name a `database` of its own. None needs
+  one, and the only coherent meaning is an overlay on the sealed database the
+  harness gives every worker, which the core's `--database` cannot layer. The
+  shape would be a path of the tree, whose digest is a `reads` entry of the
+  module's key, plus a core that opens a second database as a layer over the
+  first. [`Test.needs_of`] and build/analyzer.tl refuse the field until then.
+- add a `--proc` flag to `cosmic sandbox` for the profile "proc", beside
+  `--system` and `--cosmic`; `--path r:/proc` says it today.
 - hold a sandbox's memory and CPU as a whole, by a cgroup of its own.
   [`Sandbox.Limits`] sets rlimits on each process and counts the
   sandbox's processes by its user namespace; nothing bounds what the
@@ -411,6 +419,8 @@ four-producer provenance join.
 [`Shape.record`]: ../cosmic/shape.tl
 [`Shape.Spec`]: ../cosmic/shape.tl
 [`Shape.strict_record`]: ../cosmic/shape.tl
+[`Test.needs_of`]: ../cosmic/test.tl
+[`Test.policy`]: ../cosmic/test.tl
 [`Typed.spec`]: ../cosmic/shape.tl
 [`Url.parse`]: ../cosmic/url.tl
 [`Url.Parts`]: ../cosmic/url.tl
