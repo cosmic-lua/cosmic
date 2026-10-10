@@ -52,12 +52,13 @@
 --- `cosmic sql --from` names the columns of a data file by the same rule.
 ---
 --- `table` also answers the line of the text each row's record began on,
---- in `lines`, so a caller that refuses a row can say where it is; `records`
---- answers each record of `parse` with its line, for a caller that skips a
---- ragged record rather than refusing the file. A line
---- counts as the refusals above count it: a quoted line break starts a
---- line, so a record that spans two pushes every later one down, and a
---- skipped blank line is still a line.
+--- in `lines`, so a caller that refuses a row can say where it is.
+--- `records` answers each record of `parse` with its line, for a caller
+--- that skips a ragged record rather than refusing the file.
+---
+--- A line counts as the refusals above count it: a quoted line break
+--- starts a line, so a record that spans two pushes every later one down,
+--- and a skipped blank line is still a line.
 
 --- What `read` found: the records, and the line each began on.
 local record Scan
@@ -223,6 +224,22 @@ local function read(text: string, delimiter: string): Scan | nil, string
   return { records = records, lines = lines }, ""
 end
 
+--- The records of `text` with the line each began on, blank lines left
+--- out: the one home of that rule, for `parse` and `records`.
+local function located(text: string, delimiter: string): {Csv.Record} | nil, string
+  local scan, trouble = read(text, delimiter)
+  if scan == nil then
+    return nil, trouble
+  end
+  local found: {Csv.Record} = {}
+  for number, record in ipairs(scan.records) do
+    if #record > 0 then
+      found[#found + 1] = { fields = record, line = scan.lines[number] }
+    end
+  end
+  return found, ""
+end
+
 --- The records of `text`: each a list of its fields, all strings. Nil
 --- and why (with its `line N, column M`) for a quote in an unquoted
 --- field, text after a closing quote, or a quote never closed. Raises
@@ -232,16 +249,13 @@ end
 --- line, which counts the lines inside quoted fields, use [`Csv.records`].
 --- Text with no records is `{}`.
 function Csv.parse(text: string, opts?: Csv.Options): {{string}} | nil, string
-  local delimiter = delimiter_of(opts)
-  local scan, trouble = read(text, delimiter)
-  if scan == nil then
+  local found, trouble = located(text, delimiter_of(opts))
+  if found == nil then
     return nil, trouble
   end
   local records: {{string}} = {}
-  for _, record in ipairs(scan.records) do
-    if #record > 0 then
-      records[#records + 1] = record
-    end
+  for index, record in ipairs(found) do
+    records[index] = record.fields
   end
   return records, ""
 end
@@ -256,18 +270,7 @@ end
 ---     local found = assert(Csv.records('id,name\n1\n2,Bob\n'))
 ---     assert(#found[2].fields == 1 and found[3].line == 3)
 function Csv.records(text: string, opts?: Csv.Options): {Csv.Record} | nil, string
-  local delimiter = delimiter_of(opts)
-  local scan, trouble = read(text, delimiter)
-  if scan == nil then
-    return nil, trouble
-  end
-  local found: {Csv.Record} = {}
-  for number, record in ipairs(scan.records) do
-    if #record > 0 then
-      found[#found + 1] = { fields = record, line = scan.lines[number] }
-    end
-  end
-  return found, ""
+  return located(text, delimiter_of(opts))
 end
 
 --- The column names for `header`'s fields, one to a field and in its

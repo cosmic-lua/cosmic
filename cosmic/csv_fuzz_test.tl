@@ -3,8 +3,8 @@
 --- `parse` and `table` are total on any bytes, and what they read is a fixed point
 --- of writing and reading again; and a defect put into well-formed text is
 --- refused naming the line and column it was put at; and `table` answers
---- the line each row was written to begin on; `records` agrees with `parse` and
---- its lines rise.
+--- the line each row was written to begin on; `records` refuses what `parse`
+--- refuses, reads its records, and puts each at the line `table` gives its row.
 --- `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (build/fuzz/init.tl).
 
 local Csv = require("cosmic.csv")
@@ -184,16 +184,32 @@ local function test_parse_and_table_are_total_on_any_bytes(tmp: string)
         Fuzz.label("refused")
         if not why:find("line %d+, column %d+") then return false, "no place in: " .. why end
         if rows ~= nil then return false, "table read what parse refused" end
+        local none_ok, none, none_why = pcall(Csv.records, fields[2], options)
+        if not none_ok then return false, "records raised: " .. tostring(none) end
+        if none ~= nil or none_why ~= why then
+          return false, "records said " .. tostring(none_why) .. ", not " .. why
+        end
         return true, ""
       end
       Fuzz.label("read")
       local located = Csv.records(fields[2], options)
+      local made = Csv.table(fields[2], options)
       if located == nil or #located ~= #records then
         return false, "records disagrees with parse"
       end
       for index, row in ipairs(located) do
         if not same({ row.fields }, { records[index] }) or (index > 1 and row.line <= located[index - 1].line) then
           return false, "records differs from parse at record " .. index
+        end
+      end
+      -- Where table reads a header of two or more columns, its row i is
+      -- the record after the header's and begins on the same line.
+      if made ~= nil and #located > 0 and #located[1].fields > 1 then
+        if #made.lines ~= #located - 1 then return false, "table has " .. #made.lines .. " rows" end
+        for index, began in ipairs(made.lines) do
+          if located[index + 1].line ~= began then
+            return false, "record " .. index + 1 .. " at line " .. located[index + 1].line .. ", table's " .. began
+          end
         end
       end
       local text = assert(encode(records, fields[1]))
