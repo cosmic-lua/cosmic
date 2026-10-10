@@ -1,0 +1,30 @@
+file: tl.tl
+note: a parameter or return compared bivariantly passes if either direction does (patch 40e5 explains why nothing nested may differ on `never`), and the walk of 40e5 cannot see a type variable's binding, which the comparison makes as it goes: `coroutine.wrap`, instantiated against `function(function(): never): function(): never`, binds its `F` to the argument without the flag (40e7), fails `F <: function(): never` for the return and passed the fallback `function(): never <: F`. The fallback is refused when the type it would take in the subtype position never returns and the other, once a type variable is looked up, may return
+--- find
+         ok = self:is_a(b, a)
+         if ok then
+            return true
+         end
+--- replace
+         local ra, rb = a, b
+         if ra is TypeVarType then
+            ra = self:find_var_type(ra.typevar) or ra
+         end
+         if rb is TypeVarType then
+            rb = self:find_var_type(rb.typevar) or rb
+         end
+         if ra is NominalType then
+            ra = self:resolve_nominal(ra)
+         end
+         if rb is NominalType then
+            rb = self:resolve_nominal(rb)
+         end
+         if ra is FunctionType and rb is FunctionType and rb.never and not ra.never then
+            errs = { Err("got %s, expected %s: a function that may return does not stand for one that never returns", ra, rb) }
+         else
+            ok = self:is_a(b, a)
+            if ok then
+               return true
+            end
+         end
+--- end

@@ -13,7 +13,7 @@ note: a call of a function whose type says it never returns ends the block holdi
             self.errs:collect(errs)
          end
 
-         if f and f.never and node_is_funcall(node) then
+         if f and f.never and not via_call and node_is_funcall(node) then
             node.block_returns = true
          end
 

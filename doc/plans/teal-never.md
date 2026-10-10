@@ -1,7 +1,7 @@
 # a bottom return type for Teal
 
 this document describes `: never`, a return list that says a function does
-not return, as a series of records under `patch/tl/` (`40a1` through `42c`).
+not return, as a series of records under `patch/tl/` (`40a1` through `41b`).
 the series is built; what is not (the declarations of [`Proc.exit`] and
 [`sys.exit`], `refuse`, the generator and the dummy returns they let go) is
 listed under "declarations". line numbers are those of [`vendor/tl/tl.tl`]
@@ -106,10 +106,13 @@ leaves a `for ... in` iterator that reaches this function at 13108 unmarked
 unless the iterator expression is itself a call, which is no statement and
 so harmless) set `block_returns` on
 `node`. for an overloaded callee `f` is the overload `check_poly_call`
-picked, so the flag is per overload. a method call, and a call of a record
-with a never `__call`, resolve to a never `f` and end a block too. only an
-operator metamethod (10659) reaches the function with a node that is no
-statement, and the guard leaves it alone.
+picked, so the flag is per overload. a method call resolves to a never `f`
+and ends a block too. a call dispatched through a `__call` metamethod ends
+none (40f2): the metamethod's function is attached at run time and checked
+against nothing, so a record may declare a never `__call` and be given a
+metatable whose function returns. only an operator metamethod (10659)
+reaches the function with a node that is no statement, and the guard leaves
+it alone.
 
 `pcall(fail, x)` does not end a block: `special_pcall_xpcall` (11594)
 checks the inner call on a synthetic `@funcall` node, so the flag lands
@@ -149,7 +152,7 @@ registered special function with no behavior of its own. dropping the
 registration means rewriting 36a and 36c; that is a later cleanup, not part
 of this series.
 
-the holes the series accepts:
+the series accepts one hole, the first entry; the others say what is closed and what stays as it is:
 
 - an `as` cast returns its target type unchecked (13867), and so does `is`
   on an `any`. any target that contains a never-function forges the
@@ -158,20 +161,25 @@ the holes the series accepts:
   one. the cast policy in [`doc/roadmap.md`], which covers `as` and `is`,
   closes it; until then `test_as_and_is_forge_a_never_function` in
   [`build/teal_test.tl`] pins the accepting behavior.
-- a generic declared `function<F>(F): F` instantiates `F` to the argument's
-  type, flag included. that is right for a function that returns its
-  argument and wrong for one that does not. the only such declaration in the
-  standard library is `coroutine.wrap`, whose result returns to its caller
-  whenever the coroutine yields: 42c makes a call of it answer the type
-  without the flag. the call is all it closes: `coroutine.wrap` assigned to a
-  variable declared `function(function(): never): function(): never` is
-  accepted. a generic of the program's own that wraps a never-function in
-  another is the author's to declare.
-- `setmetatable(t, mt)` answers the type of `t`, so a table typed as a
-  record with a never `__call` (by a cast) is trusted to have one.
-  `coroutine.create`, `resume`, `pcall` and `xpcall` take a function and
+- `never` survives only where a declaration writes it, never through a type
+  variable (40e7): a type variable bound to a never-function is bound to
+  the function type without the flag, because a generic declared
+  `function<F>(F): F` is right for a function that answers its argument and
+  wrong for one that does not (`coroutine.wrap`, whose result returns to its
+  caller whenever the coroutine yields), and the checker cannot tell them
+  apart. every way to reach `coroutine.wrap` is closed by it: a direct call,
+  a generic that applies it (`ap(coroutine.wrap, nv)`), a record field or
+  parameter that holds it, `id(coroutine.wrap)(nv)`, and a signature that
+  gives it a never result, `function(function(): never): function(): never`,
+  which the comparison refuses (the bivariant fallback of a parameter or
+  return does not cross a never disagreement, 40e8). the cost is that a
+  generic over a never-function loses `never`: `id(fail)` does not narrow,
+  and `pcall(fail, x)` never did.
+- `coroutine.create`, `resume`, `pcall` and `xpcall` take a function and
   answer values that no call can mistake for it; `table.sort` and the
-  string functions take callbacks and answer none.
+  string functions take callbacks and answer none. `setmetatable` answers
+  the type of its table, which is sound now that a call through `__call`
+  ends no block.
 - a call through `any` carries no flag, and a declaration that says `never`
   and returns is a bug in the declaration.
 
@@ -346,7 +354,10 @@ order they apply):
 40e4  the poly row: every overload never
 40e5  never_mismatch, the outermost walk, is_a and same_type wrapped
 40e6  the poly row asks for an overload below b, not b below an overload
+40e7  a type variable bound to a never-function drops the flag
+40e8  the bivariant fallback does not cross a never disagreement
 40f1  the call rule in type_check_function_call
+40f2  a call through `__call` is not a never call
 40g1  @never in every function's scope
 40g2  a `return` in a never-function is an error
 40g3  body_ends, and end_function_scope refuses a reachable end
@@ -356,9 +367,6 @@ order they apply):
 40h5  its type carries the flag
 41a   stdlib error: never
 41b   25's handler only forwards
-42a   coroutine.wrap is a special function name
-42b   it gets its handler
-42c   the handler answers the wrapped type without the flag
 ```
 
 until 41a lands `error` is not declared `never`, so 25 alone handles it.
@@ -381,16 +389,20 @@ with [`build.importer`]) for what narrows, and [`build/teal_test.tl`]'s
   `test_never_agrees_in_a_callback_parameter` and
   `test_as_and_is_forge_a_never_function`.
 - 40f: `test_a_never_function_narrows_below_its_guard` (a local function,
-  a record field, a method, a `__call`, a generic, a recursive one, a poly
-  overload, a macroexp and an instantiated generic) and
+  a record field, a method, a generic, a recursive one, a poly overload and
+  a macroexp) and
   `test_what_does_not_end_a_block_keeps_its_guard_open` (a function that may
   return, the overload that returns, an inner `if`, `pcall`, a `for`
-  iterator, an operator metamethod).
+  iterator, an operator metamethod, a `__call`, a generic over a
+  never-function, and `coroutine.wrap` reached by a call, a generic, a
+  field, a parameter, `id` and a constant).
 - 40g, 40h: `test_a_never_function_neither_returns_nor_reaches_its_end`,
   `test_a_literal_takes_never_from_its_context` and
   `test_a_never_macroexp_is_a_never_call`,
-  `test_a_never_macroexp_field_is_a_never_call` and
-  `test_a_wrapped_never_function_may_return` (42).
+  `test_a_never_macroexp_field_is_a_never_call`.
+- 40e7, 40e8: `test_a_wrapped_never_function_may_return` (a call, and each
+  signature, field and parameter that asks for a never result) and
+  `test_a_generic_over_a_never_function_loses_never`.
 - 41: `test_error_is_a_never_function`; in [`test/narrowing_test.tl`] the first
   two tests of 25 pass unchanged and the third is inverted (above).
 - generator ([`build/gen_syscalls_test.tl`]), with the follow-up: a block

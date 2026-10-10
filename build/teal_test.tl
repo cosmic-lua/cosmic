@@ -1228,19 +1228,35 @@ local function test_a_fixed_type_parameter_is_told_to_bind_in_a_local()
   assert(teal.replacement("argument 2: got R, expected S", "", 1, 1) == nil)
 end
 
---- `coroutine.wrap(f)` answers the type of `f`, except for a function that
---- never returns: the wrapper returns to its caller whenever the coroutine
---- yields, so its type does not carry `never` (patch/tl's 42c). An ordinary
---- function keeps its type. The assignment of `coroutine.wrap` itself to a
---- never signature is accepted, a hole the plan lists.
+--- A type variable bound to a function type that never returns is bound to
+--- it without the flag (patch/tl's 40e7), so `coroutine.wrap(f)`, which is
+--- declared to answer the type of `f` but returns to its caller whenever the
+--- coroutine yields, never answers a never-function, however it is reached:
+--- directly, by a generic, a field or a parameter that holds it, or by a
+--- signature that asks for a never-function (refused). An ordinary function
+--- keeps its type.
 local function test_a_wrapped_never_function_may_return()
-  local wrapped = "local function nv(m: string): never\n  coroutine.yield(1)\n  error(m)\nend\n" ..
-    "local co = coroutine.wrap(nv)\n"
-  assert_accepted(wrapped .. "local c: function(string) = co\nprint(c)\n")
-  assert_refused(wrapped .. "local c: function(string): never = co\nprint(c)\n", "may return, where")
+  local wrapped = "local function nv(): never\n  coroutine.yield(1)\n  error('x')\nend\n"
+  assert_accepted(wrapped .. "local c: function() = coroutine.wrap(nv)\nprint(c)\n")
+  assert_refused(wrapped .. "local c: function(): never = coroutine.wrap(nv)\nprint(c)\n", "may return, where")
   assert_accepted("local w = coroutine.wrap(function(a: integer): integer return a end)\n" ..
       "local n: integer = w(1)\nprint(n)\n")
-  assert_accepted("local w: function(function(): never): function(): never = coroutine.wrap\nprint(w)\n")
+  local never_signature = "function(function(): never): function(): never"
+  assert_refused(wrapped .. "local w: " .. never_signature .. " = coroutine.wrap\nprint(w)\n",
+    "does not stand for one that never returns")
+  assert_refused(wrapped .. "local record R\n  w: " .. never_signature .. "\nend\n" ..
+      "local r: R = { w = coroutine.wrap }\nprint(r)\n", "does not stand for one that never returns")
+  assert_refused(wrapped .. "local function use(w: " .. never_signature .. "): function(): never\n" ..
+      "  return w(nv)\nend\nprint(use(coroutine.wrap))\n", "does not stand for one that never returns")
+end
+
+--- A generic over a never-function answers it without the flag (40e7), and
+--- `pcall(fail)` still compiles.
+local function test_a_generic_over_a_never_function_loses_never()
+  assert_accepted(never_fail .. "local function id<F>(f: F): F return f end\n" ..
+      "local g: function(string) = id(fail)\nprint(g, pcall(fail, 'x'))\n")
+  assert_refused(never_fail .. "local function id<F>(f: F): F return f end\n" ..
+      "local g: function(string): never = id(fail)\nprint(g)\n", "may return, where")
 end
 
 --- A macroexp field declared `never` is held to the rule of a macroexp: its

@@ -1,0 +1,14 @@
+file: tl.tl
+note: a type variable bound to a function type that never returns is bound to the same function type without the flag: `never` survives only where a declaration writes it, not through a type variable. A generic `function<F>(F): F` is right for a function that answers its argument and wrong for one that does not (`coroutine.wrap`, whose result returns to its caller whenever the coroutine yields), and the checker cannot tell the two apart; this binding rule makes every use of such a generic sound whatever way it is reached (a direct call, a generic that applies it, a record field or parameter that holds it, or a signature that gives its `F` a never function type, which the subtype rule 40e2 then refuses). A generic over a never-function therefore loses `never` (`id(fail)` does not narrow)
+--- find
+         self:add_var(nil, typevar, r)
+         return true
+--- replace
+         if r is FunctionType and r.never then
+            local bound = shallow_copy_new_type(r)
+            bound.never = nil
+            r = bound
+         end
+         self:add_var(nil, typevar, r)
+         return true
+--- end
