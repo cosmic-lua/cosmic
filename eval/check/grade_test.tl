@@ -73,13 +73,14 @@ end
 --- written to stdout -- taken into a file there, and answers its
 --- status and those lines. The hidden API tests are under
 --- `dir`/testdata.
-local function graded(name: string, dir: string, env?: {string:string}): integer, string
+local function graded(name: string, dir: string, env?: {string:string},
+                      deadline_ns?: integer): integer, string
   local lines = dir .. "/graded.out"
   local out = assert(sys.open(lines, sys.O_WRONLY | sys.O_CREAT | sys.O_TRUNC, 420))
   local saved = assert(sys.dup(1))
   assert(sys.dup2(out, 1))
   assert(sys.close(out))
-  local ok, status = pcall(Grader.grade, name, dir, dir .. "/testdata", env)
+  local ok, status = pcall(Grader.grade, name, dir, dir .. "/testdata", env, deadline_ns)
   assert(sys.dup2(saved, 1))
   assert(sys.close(saved))
   if not ok then error(status, 0) end
@@ -335,7 +336,7 @@ local function test_a_hidden_test_runs_on_a_copy_and_reports_each_failure(dir: s
   assert(status == 1, said)
   assert(said:find("check: FAIL hidden api: test_lru: kv_api_test:3: evicted the wrong key\n",
     1, true), said)
-  local listed = assert(Fs.read(dir .. "/check-5.out"))
+  local listed = assert(Fs.read(dir .. "/grades/1/check-5.out"))
   assert(listed:find("kv_api_test.tl\n", 1, true) and listed:find("kv.tl\n", 1, true), listed)
   assert(not listed:find("\no\n", 1, true) and not listed:match("^o\n"), listed)
   assert(not Fs.exists(dir .. "/project/kv_api_test.tl"), "the hidden test reached the project")
@@ -366,10 +367,10 @@ local function test_both_cosmic_test_steps_get_the_unsandboxed_environment(dir: 
   local expected = "COSMIC_TEST_SANDBOX=0\nCOSMIC_SANDBOX unset\nCOSMIC_CI_REQUIRE_SANDBOX unset\n"
   local seen = 0
   for n = 1, 8 do
-    local out = Fs.read(dir .. "/check-" .. n .. ".out")
+    local out = Fs.read(dir .. "/grades/1/check-" .. n .. ".out")
     if out ~= nil and out:find("COSMIC_TEST_SANDBOX", 1, true) then
       seen = seen + 1
-      assert(out:sub(1, #expected) == expected, "check-" .. n .. ".out: " .. out)
+      assert(out:sub(1, #expected) == expected, "grades/1/check-" .. n .. ".out: " .. out)
     end
   end
   assert(seen == 2, "env-of ran in " .. seen .. " steps, not the test step and the hidden one")
@@ -387,4 +388,40 @@ local function test_a_missing_hidden_test_fails(dir: string)
   assert(status == 1, said)
   assert(said:find("check: FAIL hidden api: ", 1, true), said)
   assert(not said:find("check: ok   hidden api", 1, true), said)
+end
+
+--- A grade that outlasts its deadline stops where it is, says TIMEOUT
+--- rather than FAIL and exits 124.
+local function test_a_grade_past_its_deadline_is_a_timeout_not_a_failure(dir: string)
+  assert(Fs.mkdirs(dir .. "/bin") and Fs.mkdirs(dir .. "/project"))
+  local probe = assert(stand_in.build(dir .. "/stand-in"))
+  assert(stand_in.place(probe, dir .. "/bin/cosmic", "[test] sleep 5000\n[test] exit 0\nexit 0"))
+  assert(Fs.write(dir .. "/project/JOURNAL.md", "**Log**\n"))
+  local clock = require("cosmic.clock")
+  local started = clock.monotonic_ns()
+  local status, said = graded("notes", dir, nil, clock.ms(700))
+  assert(status == 124, said)
+  assert(said:find("check: TIMEOUT", 1, true), said)
+  assert(not said:find("check: FAIL\n", 1, true) and not said:find("check: PASS", 1, true), said)
+  assert(clock.monotonic_ns() - started < clock.seconds(4), "the deadline did not cut the stand-in short")
+end
+
+--- Each grade keeps its check-*.out in a directory of its own.
+local function test_a_regrade_keeps_the_evidence_of_the_one_before(dir: string)
+  assert(Grader.next_logs(dir) == dir .. "/grades/1")
+  assert(Fs.write(dir .. "/grades/1/check-1.out", "first\n"))
+  assert(Grader.next_logs(dir) == dir .. "/grades/2")
+  assert(Fs.read(dir .. "/grades/1/check-1.out") == "first\n")
+  assert(Grader.next_logs(dir) == dir .. "/grades/3", "each call makes its directory")
+end
+
+--- A grade's cosmic runs with its HOME and cache home inside the arena,
+--- and no shared cache or build directory of the evaluator's.
+local function test_a_grade_runs_with_a_home_inside_the_arena()
+  local held: {string:string} = { HOME = "/root", XDG_CACHE_HOME = "/root/.cache", PATH = "/bin",
+    COSMIC_BUILD_HOME = "/elsewhere", COSMIC_BUILD_CACHE = "/x", COSMIC_VERDICT_CACHE = "/y" }
+  local env = Grader.isolated(held, "/arena")
+  assert(env.HOME == "/arena/grade-home" and env.XDG_CACHE_HOME == "/arena/grade-home/.cache")
+  assert(env.COSMIC_BUILD_HOME == nil and env.COSMIC_BUILD_CACHE == nil and env.COSMIC_VERDICT_CACHE == nil)
+  assert(env.PATH == "/bin" and held.HOME == "/root", "the input was changed or the rest dropped")
 end

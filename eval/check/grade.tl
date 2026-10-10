@@ -48,11 +48,19 @@ end
 --- yet.
 local record Grade
   dir: string
+  --- Where this grade's check-*.out files go: a directory of its own
+  --- under the arena's grades/, so a re-grade keeps the evidence of the
+  --- ones before.
+  logs: string
+  --- When the grade must be over, on the monotonic clock.
+  deadline: integer
   name: string
   exe: string
   empty: string
   steps: integer
   failed: boolean
+  --- The build directory of the arena's cosmic for the project.
+  built: string
   --- The environment the grader was given, which its `cosmic test`
   --- steps pass on through [`Grader.unsandboxed`].
   env: {string:string}
@@ -66,6 +74,24 @@ local record Grade
   own_group: boolean
 end
 
+--- Raised, as an error value, when a grade passes its deadline.
+local DEADLINE <const> = {}
+
+--- Ends the grade, by raising `DEADLINE`, once its deadline has passed.
+local function due(g: Grade)
+  if Clock.monotonic_ns() >= g.deadline then
+    error(DEADLINE, 0)
+  end
+end
+
+--- `ns`, or the time left to the deadline when that is less: what a
+--- child that could outlast the grade is given.
+local function within(g: Grade, ns: integer): integer
+  local left = g.deadline - Clock.monotonic_ns()
+  if left < Clock.ms(1) then left = Clock.ms(1) end
+  return left < ns and left or ns
+end
+
 local function say(line: string)
   local _, _ = Fs.put(Fs.stdout, "check: " .. line .. "\n")
 end
@@ -75,12 +101,14 @@ local function ok(line: string)
 end
 
 local function fail(g: Grade, line: string)
+  due(g)
   say("FAIL " .. line)
   g.failed = true
 end
 
 --- Passes `line` when `holds`, else fails it with `why` after it.
 local function check(g: Grade, holds: boolean, line: string, why?: string)
+  due(g)
   if holds then
     ok(line)
   else
@@ -193,8 +221,9 @@ end
 --- function standing for one under `label`, answering whether it
 --- passed and what it printed. Answers whether it passed.
 local function step(g: Grade, label: string, work: function(out: integer): boolean): boolean
+  due(g)
   g.steps = g.steps + 1
-  local log = g.dir .. "/check-" .. g.steps .. ".out"
+  local log = g.logs .. "/check-" .. g.steps .. ".out"
   local out, trouble = Fs.open_write(log)
   if out == nil then
     fail(g, label .. ": " .. trouble)
@@ -202,6 +231,7 @@ local function step(g: Grade, label: string, work: function(out: integer): boole
   end
   local passed = work(out)
   local _, _ = Fs.close(out)
+  due(g)
   if passed then
     ok(label)
     return true
@@ -241,8 +271,8 @@ end
 local function command_step(g: Grade, argv: {string}, cwd: string,
                             env?: {string:string}): boolean
   return step(g, table.concat(argv, " "), function(out: integer): boolean
-    local result, trouble = Child.run(argv, { cwd = cwd, env = env, stdout = out, stderr = "stdout",
-      timeout_ns = Clock.seconds(120) })
+    local result, trouble = Child.run(argv, { cwd = cwd, env = env or g.env, stdout = out, stderr = "stdout",
+      timeout_ns = within(g, Clock.seconds(120)) })
     if result == nil then
       local _, _ = Fs.put(out, trouble .. "\n")
       return false
@@ -381,8 +411,9 @@ end
 --- again. Its output is kept as the next check-<n>.out; each failure
 --- is a `hidden api:` line.
 local function hidden_api(g: Grade, cosmic: string, project: string, test: string)
+  due(g)
   g.steps = g.steps + 1
-  local log = g.dir .. "/check-" .. g.steps .. ".out"
+  local log = g.logs .. "/check-" .. g.steps .. ".out"
   local source, trouble = Fs.read(test)
   if source == nil then
     fail(g, "hidden api: " .. trouble)
@@ -409,7 +440,7 @@ local function hidden_api(g: Grade, cosmic: string, project: string, test: strin
     env.COSMIC_BUILD_CACHE = "0"
     env.COSMIC_VERDICT_CACHE = "0"
     local result, rtrouble = Child.run({ cosmic, "test", "--timeout", "5", name }, { cwd = copy,
-      env = env, stdout = "capture", stderr = "stdout", timeout_ns = Clock.seconds(20) })
+      env = env, stdout = "capture", stderr = "stdout", timeout_ns = within(g, Clock.seconds(20)) })
     if result == nil then
       ready, why = false, rtrouble
     else
@@ -443,9 +474,11 @@ end
 --- empty environment by default), answering its result.
 local function run(g: Grade, args: {string}, env?: {string: string}): Child.Result
   local options: Child.Options = { cwd = g.empty, env = env or {}, stdout = "capture",
-    stderr = "capture", process_group = g.own_group, timeout_ns = g.timeout_ns }
+    stderr = "capture", process_group = g.own_group, timeout_ns = within(g, g.timeout_ns) }
   if g.null_stdin then options.stdin = "null" end
+  due(g)
   local result, trouble = Child.run(argv_of(g, args), options)
+  due(g)
   if result == nil then
     return { code = 127, ok = false, timed_out = false, stdout = "", stderr = trouble,
       captured = {}, truncated = false }
@@ -586,7 +619,7 @@ end
 --- and its port, or nil once it has failed.
 local function serves(g: Grade, args: {string}, log?: string): Child.Handle, integer
   local what = g.name .. " " .. table.concat(args, " ")
-  local out_path = g.dir .. "/" .. (log or "check-serve.out")
+  local out_path = g.logs .. "/" .. (log or "check-serve.out")
   local out = assert(Fs.open_write(out_path))
   local options: Child.Options = { cwd = g.empty, env = {}, stdout = out, stderr = out }
   if g.null_stdin then options.stdin = "null" end
@@ -768,7 +801,7 @@ local function notes(g: Grade)
   local result, _ = Child.run(argv_of(g, { "rm", "9" }), { cwd = g.empty, env = {},
     stdout = "null", stderr = "capture", process_group = g.own_group, timeout_ns = g.timeout_ns })
   local err = result ~= nil and result.stderr or ""
-  local _, _ = Fs.write(g.dir .. "/check.err", err)
+  local _, _ = Fs.write(g.logs .. "/check.err", err)
   if result ~= nil and status(result) == 0 then
     fail(g, "rm of an unknown id exited 0")
   elseif err == "" then
@@ -1983,7 +2016,7 @@ local function relay_idle(g: Grade, target_port: integer)
     local _, _ = busy:close()
   end
   stops(g, server, "relay --idle 0.5")
-  local said, _ = Fs.read(g.dir .. "/check-relay-idle.out")
+  local said, _ = Fs.read(g.logs .. "/check-relay-idle.out")
   local want = "relayed 2 connections, 9 bytes up, 14 bytes down"
   check(g, said ~= nil and said:find(want .. "\n", 1, true) ~= nil,
     "on SIGTERM it printed '" .. want .. "'", "printed '" .. trimmed(said or "") .. "'")
@@ -2015,7 +2048,7 @@ local function relay_refused(g: Grade)
     end
   end
   stops(g, server, "relay to a refusing target")
-  local said, _ = Fs.read(g.dir .. "/check-relay-refused.out")
+  local said, _ = Fs.read(g.logs .. "/check-relay-refused.out")
   -- stdout and stderr share the log: a line that is neither stdout's
   -- `listening` nor its `relayed` is stderr's.
   local lines = 0
@@ -2082,6 +2115,9 @@ local record Task
   checks: function(Grade)
   --- How long one run of the executable may take, in seconds.
   timeout: integer
+  --- How long the whole grade may take, in seconds: 30, and 60 for the
+  --- tasks whose checks wait out timeouts of their own.
+  deadline: integer
   null_stdin: boolean
   own_group: boolean
   --- Files of the project's a solver's own runs may leave behind, which
@@ -2093,21 +2129,21 @@ local record Task
 end
 
 local TASKS <const>: {string: Task} = {
-  notes = { checks = notes, timeout = 10, null_stdin = false, own_group = true,
+  notes = { checks = notes, timeout = 10, deadline = 30, null_stdin = false, own_group = true,
     stale = { "notes.db" }, api = true },
-  pack = { checks = pack, timeout = 10, null_stdin = false, own_group = true, stale = {},
+  pack = { checks = pack, timeout = 10, deadline = 30, null_stdin = false, own_group = true, stale = {},
     api = false },
-  ledger = { checks = ledger, timeout = 10, null_stdin = false, own_group = true, stale = {},
+  ledger = { checks = ledger, timeout = 10, deadline = 30, null_stdin = false, own_group = true, stale = {},
     api = true },
-  kv = { checks = kv, timeout = 10, null_stdin = false, own_group = true, stale = {}, api = true },
+  kv = { checks = kv, timeout = 10, deadline = 30, null_stdin = false, own_group = true, stale = {}, api = true },
   -- jobs's checks look for what a job left after its run, so it must
   -- outlive the run; both drive processes and sockets that wait out
   -- timeouts of their own, so a run may take longer.
-  jobs = { checks = jobs, timeout = 15, null_stdin = true, own_group = false, stale = {},
+  jobs = { checks = jobs, timeout = 15, deadline = 60, null_stdin = true, own_group = false, stale = {},
     api = true },
-  mirror = { checks = mirror, timeout = 15, null_stdin = true, own_group = false, stale = {},
+  mirror = { checks = mirror, timeout = 15, deadline = 60, null_stdin = true, own_group = false, stale = {},
     api = true },
-  relay = { checks = relay, timeout = 10, null_stdin = true, own_group = true, stale = {},
+  relay = { checks = relay, timeout = 10, deadline = 60, null_stdin = true, own_group = true, stale = {},
     api = true },
 }
 
@@ -2116,41 +2152,59 @@ local TASKS <const>: {string: Task} = {
 --- checkout whose bin/cosmic could answer: its own build/paths.tl's
 --- answer, or, for one that carries none, or answers nothing (a
 --- stand-in), the project's o/, where a cosmic from before it built.
-function Grader.build_directory(cosmic: string, project: string): string
+function Grader.build_directory(cosmic: string, project: string, env?: {string:string}): string
   local asked, _ = Child.run({ cosmic, "-e", [[
 local Store = require("cosmic.store")
 if Store.source("build.paths") ~= nil then print(require("build.paths").required(...)) end
-]], project }, { stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) })
+]], project }, { env = env, stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) })
   local answer = asked ~= nil and asked.ok and (asked.stdout or ""):match("^(/[^\n]+)\n$") or nil
   return answer or project .. "/o"
 end
 
---- Grades the arena at `dir` for the task `name`, with the hidden API
---- tests in `testdata`, printing a line per check and PASS or FAIL
---- last; 0 when everything passed. `env` is the grader's environment
---- (this process's by default).
-function Grader.grade(name: string, dir: string, testdata: string,
-                      env?: {string:string}): integer
-  local task = assert(TASKS[name], name)
-  local project = dir .. "/project"
-  local cosmic = dir .. "/bin/cosmic"
-  local is_project, project_trouble = Fs.is_dir(project)
-  if not is_project then
-    say("FAIL no project at " .. project ..
-        (project_trouble ~= "" and ": " .. project_trouble or ""))
-    say("FAIL")
-    return 1
+--- `env` for a grade in the arena at `dir`: HOME and the cache home
+--- inside the arena, and no override of where cosmic builds or what
+--- caches it shares, so a grade writes nothing under the evaluator's
+--- own ~/.cache and a verdict or compile another run left cannot answer
+--- for this one.
+function Grader.isolated(env: {string:string}, dir: string): {string:string}
+  local pinned: {string:string} = {}
+  for name, value in pairs(env) do
+    pinned[name] = value
   end
-  local built = Grader.build_directory(cosmic, project)
-  local g: Grade = { dir = dir, name = name, exe = built .. "/bin/" .. name,
-    empty = dir .. "/empty", steps = 0, failed = false, env = env or Env.all(),
-    timeout_ns = Clock.seconds(task.timeout), null_stdin = task.null_stdin, own_group = task.own_group }
+  pinned.HOME = dir .. "/grade-home"
+  pinned.XDG_CACHE_HOME = dir .. "/grade-home/.cache"
+  pinned.COSMIC_BUILD_HOME = nil
+  pinned.COSMIC_BUILD_CACHE = nil
+  pinned.COSMIC_VERDICT_CACHE = nil
+  return pinned
+end
+
+--- The next directory for a grade's evidence under the arena at `dir`:
+--- grades/<n>, n one past the highest there, made. Answers its path.
+function Grader.next_logs(dir: string): string | nil, string
+  local names, _ = Fs.list(dir .. "/grades")
+  local highest = 0
+  for _, name in ipairs(names or {}) do
+    local n = name:match("^%d+$") and math.tointeger(tonumber(name)) or nil
+    if n ~= nil and n > highest then highest = n end
+  end
+  local logs = dir .. "/grades/" .. (highest + 1)
+  local made, trouble = Fs.mkdirs(logs)
+  if not made then return nil, trouble end
+  return logs, ""
+end
+
+local function grade_checks(g: Grade, task: Task, testdata: string): boolean
+  local name = g.name
+  local project = g.dir .. "/project"
+  local cosmic = g.dir .. "/bin/cosmic"
   local set_aside = put_back_journal(g, project)
   local kept, why = Grader.journal(project .. "/JOURNAL.md")
   check(g, kept, "JOURNAL.md kept, as TASK.md's journal contract asks", why)
   for _, file in ipairs(task.stale) do
     local _, _ = Fs.remove(project .. "/" .. file)
   end
+  local built = g.built
   local db = built .. "/build.db"
   step(g, "evidence reset " .. db, function(out: integer): boolean
     local reset, trouble = Grader.reset_evidence(db)
@@ -2181,7 +2235,7 @@ function Grader.grade(name: string, dir: string, testdata: string,
   -- is an earlier build's. It stays in place -- it is the solver's
   -- deliverable, not the grader's to delete -- but it is not run.
   -- A build log that cannot be read names no binary.
-  local read, _ = Fs.read(g.dir .. "/check-" .. g.steps .. ".out")
+  local read, _ = Fs.read(g.logs .. "/check-" .. g.steps .. ".out")
   if not passed then
     say("skip " .. g.exe .. ": cosmic build failed; not running an earlier build's binary")
   elseif not Grader.built(read or "", name) or not is_executable(g.exe) then
@@ -2197,6 +2251,56 @@ function Grader.grade(name: string, dir: string, testdata: string,
     else
       task.checks(g)
     end
+  end
+  return true
+end
+
+--- Grades the arena at `dir` for the task `name`, with the hidden API
+--- tests in `testdata`, printing a line per check and PASS or FAIL
+--- last; 0 when everything passed, 124 and TIMEOUT when the task's
+--- deadline (or `deadline_ns`) passed first. `env` is the grader's
+--- environment (this process's by default). The evidence of each grade
+--- is kept in a directory of its own, grades/<n> in the arena, named
+--- on the first line.
+function Grader.grade(name: string, dir: string, testdata: string,
+                      env?: {string:string}, deadline_ns?: integer): integer
+  local task = assert(TASKS[name], name)
+  local started = Clock.monotonic_ns()
+  local project = dir .. "/project"
+  local cosmic = dir .. "/bin/cosmic"
+  local is_project, project_trouble = Fs.is_dir(project)
+  if not is_project then
+    say("FAIL no project at " .. project ..
+        (project_trouble ~= "" and ": " .. project_trouble or ""))
+    say("FAIL")
+    return 1
+  end
+  local logs, ltrouble = Grader.next_logs(dir)
+  if logs == nil then
+    say("FAIL " .. ltrouble)
+    say("FAIL")
+    return 1
+  end
+  say("logs " .. logs)
+  local grading = Grader.isolated(env or Env.all(), dir)
+  local homed, htrouble = Fs.mkdirs(grading.XDG_CACHE_HOME)
+  if not homed then
+    say("FAIL " .. htrouble)
+    say("FAIL")
+    return 1
+  end
+  local built = Grader.build_directory(cosmic, project, grading)
+  local limit = deadline_ns or Clock.seconds(task.deadline)
+  local g: Grade = { dir = dir, logs = logs, deadline = started + limit, name = name,
+    exe = built .. "/bin/" .. name, built = built, empty = dir .. "/empty", steps = 0,
+    failed = false, env = grading, timeout_ns = Clock.seconds(task.timeout),
+    null_stdin = task.null_stdin, own_group = task.own_group }
+  local ran, err = pcall(grade_checks, g, task, testdata)
+  if not ran then
+    local caught: any = err
+    if caught ~= DEADLINE then error(err, 0) end
+    say("TIMEOUT (past the " .. string.format("%.0f", limit / 1e9) .. " s deadline)")
+    return 124
   end
   if g.failed then
     say("FAIL")
