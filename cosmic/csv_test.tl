@@ -167,6 +167,48 @@ local function test_each_row_carries_the_line_its_record_began_on()
   assert(lines_of("") == "" and lines_of("a,b\n") == "")
 end
 
+--- Records as `line:fields` text, to compare: records joined by `;`.
+local function records_text(text: string, opts?: Csv.Options): string
+  local rows, why = Csv.records(text, opts)
+  assert(rows ~= nil, why)
+  local out: {string} = {}
+  for index, row in ipairs(rows) do
+    out[index] = row.line .. ":" .. table.concat(row.fields, "|")
+  end
+  return table.concat(out, ";")
+end
+
+local function test_records_answer_each_record_with_its_line()
+  assert(records_text("a,b\n1,2\n") == "1:a|b;2:1|2")
+  assert(records_text("a,b\r\n1,2\r\n3,4") == "1:a|b;2:1|2;3:3|4")
+  -- A quoted line break, LF or CRLF, pushes every later record down.
+  assert(records_text('a,b\n1,"x\ny"\n3,4\n') == "1:a|b;2:1|x\ny;4:3|4")
+  assert(records_text('a\r\n"x\r\ny"\r\nb\r\n') == "1:a;2:x\r\ny;4:b")
+  -- Blank lines are no record but still count as lines.
+  assert(records_text("\n\na,b\n\n1,2\n\r\n3,4\n") == "3:a|b;5:1|2;7:3|4")
+  -- A ragged record is kept, with its line, where table refuses it.
+  assert(records_text("a,b\n1\n2,3,4\n") == "1:a|b;2:1;3:2|3|4")
+  assert(rows_of("a,b\n1\n") == nil)
+  assert(records_text("") == "" and records_text("\n\n") == "")
+  assert(records_text("\xEF\xBB\xBFa\n1\n") == "1:a;2:1")
+  assert(records_text("a\tb\n1\t\"\n\"\n", { delimiter = "\t" }) == "1:a|b;2:1|\n")
+end
+
+local function test_records_agree_with_parse_and_table_and_refuse_as_parse_does()
+  local text = 'h,g\n1,"x\ny"\n\n3,4\n'
+  local rows = assert(Csv.records(text))
+  local records = assert(Csv.parse(text))
+  local made = assert(Csv.table(text))
+  assert(#rows == #records)
+  for index, row in ipairs(rows) do
+    assert(show({ row.fields }) == show({ records[index] }))
+    if index > 1 then assert(row.line == made.lines[index - 1]) end
+  end
+  local none, why = Csv.records('a\n"x\n')
+  assert(none == nil and why == refused('a\n"x\n'), why)
+  assert(not pcall(Csv.records, "a", { delimiter = "ab" }))
+end
+
 local function test_headers_are_renamed_deterministically()
   local rows = assert(rows_of("a,a,A,,,a_2,a\n1,2,3,4,5,6,7\n"))
   local row = rows[1]
