@@ -442,6 +442,19 @@ local function test_a_refusal_quotes_no_catalog_this_test_does_not_hold()
   assert(package.loaded["cosmic.removed"] == nil)
 end
 
+--- A refused `local type` require is read from the parsed source, so
+--- the text of one in a long string or comment at the refusal's position
+--- is never taken for it.
+local function test_a_type_require_in_a_string_or_comment_is_no_require()
+  local refusal = "'require' did not return a type, got integer"
+  local declared = 'local type X = require("x")\n'
+  assert(teal.replacement(refusal, declared, 1, 16) ==
+      "x returns a value, not a type: a `local type` require needs the module to return one, " ..
+      "as `local record M ... end return M` or a `.d.tl` does")
+  assert(teal.replacement(refusal, "local s = [[\n" .. declared .. "]]\nreturn s\n", 2, 16) == nil)
+  assert(teal.replacement(refusal, "--[[\n" .. declared .. "]]\nreturn 1\n", 2, 16) == nil)
+end
+
 --- What [`teal.replacement`] says for the first diagnostic the checker
 --- reports for `source` (an error or a warning) whose message is
 --- `msg`: "no such diagnostic" when it reports none.

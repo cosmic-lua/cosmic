@@ -380,6 +380,11 @@ end
 --- (`local Hash <const> = require("cosmic.hash")`, or `local type
 --- Ledger = require("ledger")`): nil when no line does, or when lines
 --- bind it to more than one module.
+-- TODO: read the binding from the parsed source, as [`type_requires`]
+-- does: a require written over several lines or without parentheses
+-- (`require "x"`) binds nothing here, so the hints that name its module
+-- (a removed member, `Owner has no type`, `is itself the type`) are not
+-- given for it.
 local function module_bound(source: string, name: string): string | nil
   local module: string | nil = nil
   local head = "^%s*local%s+" .. name
@@ -1078,26 +1083,59 @@ local record TypeRequire
   module: string
 end
 
---- The `local type` require on line `y` of `source` whose `require` is
---- at column `x`, where the checker reports a refused one: nil when there
---- is none. The line need not start with it: a template's module
---- requires every module on its `{{type}}`'s line ([`cosmic.template`]).
--- TODO: find the require from the parsed source at the error's position,
--- not from one line of text: one written over several lines (`local type
--- X =` and `require("x")` below it) or without parentheses (`require
--- "x"`) is not found, so its refusal gets no hint and its owner's types
--- keep [`nesting_hint`]'s, which mislead there.
+--- The source [`type_requires`] last parsed, and what it found there.
+local parsed_source: string | nil = nil
+local parsed_requires: {string: TypeRequire} = {}
+
+--- Every `local type` require `source` parses into, by the position of
+--- its `require` (`"<y>:<x>"`), which is where the checker reports a
+--- refused one, however the declaration is spelt: over several lines,
+--- without parentheses (`require "x"`), with comments between its tokens.
+--- One under a `.` (`require("x").T`) counts too. A template's module
+--- requires every module on its `{{type}}`'s line ([`cosmic.template`]),
+--- so a declaration need not start its line. Empty when `source` does not
+--- parse. The last source's answer is kept: a compile asks once for its
+--- refused requires and once for each refusal's hint.
+local function type_requires(source: string): {string: TypeRequire}
+  if source == parsed_source then
+    return parsed_requires
+  end
+  local found: {string: TypeRequire} = {}
+  local built, _ = teal.load()
+  local parsed: ast.Parsed | nil = nil
+  if built ~= nil then
+    parsed, _ = ast.parse(built, source, "hint")
+  end
+  if parsed ~= nil then
+    ast.walk(parsed.node, function(n: ast.Node)
+      local var, call = n.var, n.value
+      if n.kind ~= "local_type" or var == nil or var.tk == nil then
+        return
+      end
+      local op = call ~= nil and call.op or nil
+      while call ~= nil and op ~= nil and op.op == "." do
+        call = call.e1
+        op = call ~= nil and call.op or nil
+      end
+      if call == nil or op == nil or op.op ~= "@funcall" then
+        return
+      end
+      local callee, arguments = call.e1, call.e2
+      local argument = arguments ~= nil and #arguments == 1 and arguments[1] or nil
+      if callee ~= nil and callee.kind == "variable" and callee.tk == "require" and
+          argument ~= nil and argument.kind == "string" and argument.conststr ~= nil then
+        found[callee.y .. ":" .. callee.x] = { name = var.tk, module = argument.conststr }
+      end
+    end)
+  end
+  parsed_source, parsed_requires = source, found
+  return found
+end
+
+--- The `local type` require of `source` whose `require` is at `y`:`x`,
+--- where the checker reports a refused one: nil when there is none.
 local function type_require_at(source: string, y: integer, x: integer): TypeRequire | nil
-  local line = line_at(source, y)
-  if line == nil or x < 1 then
-    return nil
-  end
-  local name = line:sub(1, x - 1):match("%f[%w_]local%s+type%s+([%a_][%w_]*)%s*=%s*$")
-  local module = line:sub(x):match("^require%s*%(%s*[\"']([%w_.]+)[\"']%s*%)")
-  if name == nil or module == nil then
-    return nil
-  end
-  return { name = name, module = module }
+  return type_requires(source)[y .. ":" .. x]
 end
 
 --- The checker's refusal of a `local type` require of a module that
