@@ -96,6 +96,39 @@ local function test_a_removed_function_says_what_replaced_it()
   end
 end
 
+--- The fields of `package` that are gone raise what replaced them,
+--- read or written, rather than yielding a nil that fails somewhere
+--- else; the fields that remain are untouched.
+local function test_a_removed_package_field_says_what_replaced_it()
+  for _, field in ipairs(Removed.package_fields) do
+    local expected = "plain.lua:1: " .. Removed.message("package", field)
+    local trouble = raised("return package." .. field)
+    assert(trouble == expected, trouble)
+    trouble = raised("package." .. field .. " = 'x'")
+    assert(trouble == expected, trouble)
+  end
+  local trouble = raised('return package.path .. "x"')
+  assert(trouble:find("there is no file search path", 1, true) ~= nil, trouble)
+  assert(package.loaded ~= nil and package.preload ~= nil and package.searchers ~= nil)
+  assert(package.config ~= nil)
+  local other = assert(load("package.frobnicate = 1\nlocal seen = package.frobnicate\n" ..
+      "package.frobnicate = nil\nreturn seen, package.frobnicate", "=other.lua", "t"))
+  local seen, gone = other() as (integer, any)
+  assert(seen == 1 and gone == nil)
+end
+
+--- A `require` of a removed library says what replaced it, as the
+--- checker's `module not found` does.
+local function test_requiring_a_removed_library_says_what_replaced_it()
+  for _, name in ipairs({ "io", "os", "debug" }) do
+    local trouble = raised("return require('" .. name .. "')")
+    assert(trouble:find("no module '" .. name .. "' in the store", 1, true) ~= nil, trouble)
+    assert(trouble:find(Removed.message(name), 1, true) ~= nil, trouble)
+  end
+  local trouble = raised("return require('not_a_removed_library')")
+  assert(trouble:find("is not available", 1, true) == nil, trouble)
+end
+
 local function test_a_name_that_never_existed_is_nil()
   local globals = _G as {string: any}
   assert(globals["cosmic_surface_test_never_defined"] == nil)

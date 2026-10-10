@@ -29,6 +29,7 @@
 #include "portable.h"
 #include "sqlite.h"
 #include "startup.h"
+#include "surface.h"
 
 #define STORE_LIST "cosmic.store.databases"
 #define STORE_ARTIFACT "cosmic.store.artifact"
@@ -353,6 +354,12 @@ static int store_searcher (lua_State *L) {
   }
 
   lua_pushfstring(L, "\n\tno module '%s' in the store", name);
+  if (cosmic_surface_push_removed_library(L, name)) {
+    /* cosmic.removed's words, as a refused compile of the same name says them. */
+    lua_pushliteral(L, "\n\t");
+    lua_insert(L, -2);
+    lua_concat(L, 3);
+  }
   return 1;
 }
 
