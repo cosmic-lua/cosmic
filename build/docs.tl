@@ -877,7 +877,7 @@ end
 --- The places that refer to what `query` names, by the rule
 --- [`symbols.used_where`] keeps: the uses, then the links, which also
 --- answer a query that is a file's path from the root, alone or with
---- `#` and a heading's anchor (`doc/meta.md#every-example-runs`). A
+--- `#` and a heading's anchor (`doc/writing.md#every-example-runs`). A
 --- path alone finds the links to its headings too, and a bare lowercase
 --- name the links to each module it is the last name of, as
 --- [`docs.exact`] reads one (`plural` for [`build.plural`]). A public source
@@ -2611,7 +2611,7 @@ end
 --- symbol, one `file:line` per line -- only those in a file under one
 --- of the paths, when there are any -- and a verdict line. A link is
 --- marked `link`; the symbol may be a file instead, which only links
---- name ([`doc/meta.md`], `doc/meta.md#every-example-runs`).
+--- name ([`doc/writing.md`], `doc/writing.md#every-example-runs`).
 local function run_uses(argv: {integer:string}): integer
   local parsed, parse_trouble = Flags.parse(argv, 2, {})
   if parsed == nil then
@@ -2621,7 +2621,7 @@ local function run_uses(argv: {integer:string}): integer
   local query = parsed.words[1] or ""
   if query == "" then
     log:complain("uses: which symbol? as declared (Fs.read) or by its last name (read), " ..
-        "or which file (doc/meta.md, doc/meta.md#heading)")
+        "or which file (doc/writing.md, doc/writing.md#heading)")
     return 2
   end
   local exit = reboot.stale_exit(argv)

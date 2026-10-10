@@ -1,5 +1,5 @@
 --- Turns the block sequence [`build.doctest.markdown`] reads out of a doc
---- into one Teal source string: the compiled file doc/meta.md promises,
+--- into one Teal source string: the compiled file doc/writing.md promises,
 --- shaped like a hand-written `_test.tl`. Every example is a top-level
 --- function. Running them and discovering them stay [`build.test`]'s and
 --- [`build.analyzer`]'s jobs.

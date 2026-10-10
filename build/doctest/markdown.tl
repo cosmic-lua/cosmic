@@ -1,6 +1,6 @@
 --- Fenced code blocks out of a markdown doc, in document order. This
 --- is the whole of what [`build.doctest`] reads from the markdown itself;
---- everything the grammar in doc/meta.md means by a block's tag
+--- everything the grammar in doc/writing.md means by a block's tag
 --- (`teal`, `lua`, `output`, `text`, and the `continue`/`file=`/
 --- `skip=` modifiers on `teal`/`lua`) is decided here, once, so
 --- [`build.doctest.generate`] never re-parses a tag string.
