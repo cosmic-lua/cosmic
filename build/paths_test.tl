@@ -108,6 +108,23 @@ local function test_prepare_makes_a_private_directory(tmp: string)
   assert(Fs.exists(root .. "/o") == false)
 end
 
+--- `prepare` records the directory's use in `used`, each time it is
+--- asked, and a lookup does not.
+local function test_prepare_records_the_use(tmp: string)
+  local root, home = project(tmp)
+  local env = { COSMIC_BUILD_HOME = home }
+  local directory = assert(paths.required(root, env))
+  local used = paths.under(directory).used
+  assert(used == directory .. "/used")
+  assert(not Fs.exists(used), "a lookup recorded a use")
+  assert(paths.prepare(root, env) == directory)
+  local now = Clock.now_ns() // 1000000000
+  assert(math.abs(assert(sys.stat(used)).mtime - now) < 60, "no use was recorded")
+  assert(sys.utimensat(used, nil, nil, now - 7200, 0))
+  assert(paths.prepare(root, env) == directory)
+  assert(assert(sys.stat(used)).mtime > now - 600, "a use was not recorded again")
+end
+
 --- A lookup above the base -- an ancestor of COSMIC_BUILD_HOME, whose
 --- build directory would be inside it -- or with no cache directory to
 --- put one in finds no build directory and no trouble, as for a project

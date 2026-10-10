@@ -102,6 +102,7 @@ local testing = require("cosmic.internal.testing")
 local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
 local build_paths = require("build.paths")
+local cache_lifetime = require("build.cache_lifetime")
 local Poll = require("cosmic.poll")
 local Proc = require("cosmic.proc")
 local type Sandbox = require("cosmic.sandbox")
@@ -3226,6 +3227,22 @@ local function read_command(ctx: Run): integer | nil
   return nil
 end
 
+--- Removes the build directories no run has used for thirty days
+--- ([`build.cache_lifetime`]), saying so when it removes any. It holds
+--- this checkout's rebuild lock, and fails no run.
+local function prune_trees(root: string)
+  local own, _ = build_paths.directory(root)
+  if own == nil then return end
+  local report = cache_lifetime.prune(own)
+  if #report.removed > 0 then
+    log:say("test: removed " .. plural.count(#report.removed, "build directory") ..
+        " unused for thirty days")
+  end
+  for _, line in ipairs(report.troubles) do
+    log:complain("test: pruning build directories: " .. line)
+  end
+end
+
 --- The checkout taken: its rebuild lock held, its working database
 --- opened and staged, and a stale tool rebuilt. The exit code to stop
 --- with, or nil to go on.
@@ -3243,6 +3260,7 @@ local function hold_checkout(ctx: Run): integer | nil
     return 1
   end
   ctx.started = Clock.monotonic_ns()
+  prune_trees(root)
   local own_tree, own_trouble = tree.is_own(root)
   if own_tree == nil then
     log:complain(own_trouble)
