@@ -15,8 +15,8 @@ local stand_in = require("build.stand_in")
 --- starts again, and the host's setsid program, beneath the system's
 --- own paths.
 Test.policy{
-  profiles = { "system", "cosmic" },
-  grants = { { path = "o/bin", letters = "rx" }, { path = "/proc", letters = "r" } },
+  profiles = { "system", "cosmic", "proc" },
+  grants = { { path = "o/bin", letters = "rx" } },
 }
 
 local type raw_process = require("cosmic.internal.process")

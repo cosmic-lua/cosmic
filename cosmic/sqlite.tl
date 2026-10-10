@@ -43,7 +43,8 @@ end
 
 local record Sqlite
   --- An open database, as `open` and `memory` return it: the type to
-  --- name for a parameter or field that holds one.
+  --- name for a parameter or field that holds one. Its methods (`exec`,
+  --- `prepare`, ...) are listed by `cosmic docs Sqlite.Handle`.
   type Handle = raw_sqlite.Handle
   --- One prepared statement.
   type Statement = raw_sqlite.Statement

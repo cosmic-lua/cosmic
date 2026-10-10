@@ -18,8 +18,8 @@ local child_tool_fixture = require("build.child_tool_fixture")
 --- (`tool`), started past its launcher, `/proc`, and `nests`, for a child
 --- sandboxed in a root of its own.
 Test.policy{
-  profiles = { "cosmic" },
-  grants = { { path = "o/bin", letters = "rx" }, { path = "/proc", letters = "r" } },
+  profiles = { "cosmic", "proc" },
+  grants = { { path = "o/bin", letters = "rx" } },
   promises = { "nest" },
   requires = { "sandbox" },
 }

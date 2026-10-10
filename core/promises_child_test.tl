@@ -23,7 +23,7 @@ local type _ = require("cosmic.child")
 -- These tests need a seccomp filter alone, which `sandbox` asks for with
 -- more (core/promises_system_test.tl's TODO names the narrower requirement).
 Test.policy{
-  grants = { { path = "/proc", letters = "r" } },
+  profiles = { "proc" },
   requires = { "sandbox" },
 }
 

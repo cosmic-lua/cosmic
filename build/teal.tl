@@ -1354,6 +1354,42 @@ local function vararg_name_hint(source: string, y: integer, x: integer): string 
     "` and read it as `{ ... }`, or `select(\"#\", ...)` where a nil may be among them"
 end
 
+--- What to write for an interface method declared with an unnamed
+--- receiver, when `msg` is a record's `function Rec:m` refused against it
+--- (`type signature of 'm' does not match its declaration in Rec: argument
+--- 0: Rec is not a Iface`): the unnamed `m: function(Iface, ...)` takes
+--- the interface itself, which a method of the record taking the record is
+--- no substitute for; `m: function(self: Iface, ...)` takes whatever
+--- implements it. nil for any other message, and for one whose argument 0
+--- is not the record named in it.
+local function interface_self_hint(msg: string): string | nil
+  local method, record, given, interface = msg:match(
+    "^type signature of '([%a_][%w_]*)' does not match its declaration in " ..
+      "([%a_][%w_%.]*): argument 0: ([%a_][%w_%.]*) is not an? ([%a_][%w_%.]*)$")
+  if method == nil or record ~= given then
+    return nil
+  end
+  return "if " .. interface .. " declares `" .. method .. "` with an unnamed receiver, that is " ..
+    interface .. " itself, not the record that implements it: declare it in " .. interface ..
+    " as `" .. method .. ": function(self: " .. interface .. ", ...)` so each implementer's " ..
+    "`function " .. record .. ":" .. method .. "` is checked with its own type as self"
+end
+
+--- What to try for a call refused on a type parameter (`argument 2: type
+--- parameter <T>: got R, expected R | nil`, `... R is not a I`): where the
+--- call's result is expected to have a type, the checker may have bound the
+--- parameter to it before the arguments, and patch/tl/40 could not bind it
+--- from them instead. The hint says so conditionally, since the arguments
+--- may simply disagree. nil for any other message.
+local function type_parameter_hint(msg: string): string | nil
+  if msg:match("^argument %d+: type parameter <[%w_]+>: ") == nil then
+    return nil
+  end
+  return "if this call's result is expected to have a type (a return type or a declaration), " ..
+    "that may have fixed the type parameter before the arguments did: bind the result in a local " ..
+    "of the arguments' type (`local v: R = setmetatable(t, mt)`) and use that"
+end
+
 --- What to write instead, when `msg` is the checker refusing a name
 --- [`environment_for`] stripped or a member [`cosmic.removed`] lists; nil
 --- for any other message, and for those where the catalog cannot be
@@ -1423,6 +1459,12 @@ end
 --- it takes none and to write `...: string` ([`vararg_name_hint`]); any other
 --- such error is told nothing, nor is a name on a later line than its `...`.
 ---
+--- A record's `function Rec:m` refused against an interface method declared
+--- with an unnamed receiver (`m: function(Iface, ...)`) is told to declare
+--- it `function(self: Iface, ...)` ([`interface_self_hint`]), and a call
+--- whose type parameter the expected result type fixed before its arguments
+--- is told to bind it in a local ([`type_parameter_hint`]).
+---
 --- One nominal type refused for another of the same last name
 --- (`Store is not a Kv.Store`) is told they are two types, and an
 --- `unknown type Kv.Kv` whose `Kv` `source` binds to a `require` that
@@ -1442,6 +1484,10 @@ function teal.replacement(msg: string, source: string, y: integer, x: integer,
   end
   if msg == "syntax error, expected one of: ')', ','" then
     return vararg_name_hint(source, y, x)
+  end
+  local self_hint = interface_self_hint(msg) or type_parameter_hint(msg)
+  if self_hint ~= nil then
+    return self_hint
   end
   local passed, takes = msg:match("^wrong number of arguments %(given (%d+), expects (%d+)%)$")
   local short = passed ~= nil and math.tointeger(tonumber(passed)) or nil

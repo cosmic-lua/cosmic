@@ -91,10 +91,10 @@ local function positive(text: string): integer
 end
 
 --- Reads the command line: the arena, then `--model` (required),
---- `--max-turns` (60 by default) and `--timeout` (600 seconds by
+--- `--max-turns` (150 by default) and `--timeout` (600 seconds by
 --- default), as eval/README.md's manual launch has them.
 function Solve.parse(argv: {integer: string}): Solve.Options | nil, string
-  local options: Solve.Options = { max_turns = 60, timeout = 600 }
+  local options: Solve.Options = { max_turns = 150, timeout = 600 }
   local i = 1
   while argv[i] ~= nil do
     local word = argv[i]

@@ -80,7 +80,7 @@ local record rules
   --- What a program is held to; every field is optional, and what a policy
   --- leaves out it does not have.
   record Policy
-    --- Named policies to join in, by [`Sandbox.merge`]: "system", "cosmic".
+    --- Named policies to join in, by [`Sandbox.merge`]: "system", "cosmic", "proc".
     profiles: {string}
     --- The paths the program reaches.
     grants: {Grant}
@@ -226,7 +226,7 @@ local function loopback_ok(address: string): boolean
   return true
 end
 
-local PROFILES <const>: {string} = { "cosmic", "system" }
+local PROFILES <const>: {string} = { "cosmic", "proc", "system" }
 
 local function listed(name: string, names: {string}): boolean
   for _, known in ipairs(names) do
@@ -536,9 +536,19 @@ local function cosmic_profile(): rules.Policy | nil, string
   return { grants = { { path = path, letters = "rx" } } }, ""
 end
 
+--- The "proc" profile: `r` on the host's /proc where there is one (Linux),
+--- the kernel's process information, and nothing on macOS, where sysctl
+--- answers with no file to grant. As the "system" profile does, it grants
+--- only a path the host has, so a Linux host with no /proc mounted gets none.
+local function proc_profile(): rules.Policy
+  if on_darwin() or not present("/proc") then return {} end
+  return { grants = { { path = "/proc", letters = "r" } } }
+end
+
 --- What the profile `name` holds on this host: [`Sandbox.profile`], which
 --- says how.
 function rules.profile(name: string): rules.Policy | nil, string
+  if name == "proc" then return proc_profile(), "" end
   if name == "system" then
     return rules.system_profile(on_darwin() and "darwin" or "linux", present), ""
   end

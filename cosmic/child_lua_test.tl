@@ -22,8 +22,7 @@ local fixture = require("build.child_lua_fixture")
 --- and the program itself, started past its launcher so that no host
 --- program is read, only to run Lua (`lua`).
 Test.policy{
-  profiles = { "cosmic" },
-  grants = { { path = "/proc", letters = "r" } },
+  profiles = { "cosmic", "proc" },
 }
 
 local function path_exists(path: string): boolean
