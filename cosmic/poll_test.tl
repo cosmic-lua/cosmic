@@ -1149,3 +1149,286 @@ local function test_a_wait_raises_while_the_run_closes_its_tasks(tmp: string)
   sys.close(reader)
   sys.close(writer)
 end
+
+--- Starts `n` tasks that each wait on `notifier` and note `id` in `order`
+--- when woken, then yields once so they all wait.
+local function spawn_waiters(notifier: Poll.Notifier, n: integer, order: {integer}): {Poll.Task}
+  local tasks: {Poll.Task} = {}
+  for id = 1, n do
+    tasks[id] = Poll.spawn(function()
+      local ok = notifier:wait(Clock.seconds(30))
+      if ok then order[#order + 1] = id end
+    end)
+  end
+  assert(Poll.delay(0))
+  assert(notifier:waiting() == n)
+  return tasks
+end
+
+local function test_notify_one_wakes_the_longest_waiter_only()
+  local order: {integer} = {}
+  Poll.run(function()
+    local notifier = Poll.notifier()
+    local tasks = spawn_waiters(notifier, 3, order)
+    notifier:notify_one()
+    assert(notifier:waiting() == 2)
+    assert(Poll.delay(0))
+    assert(#order == 1 and order[1] == 1)
+    notifier:notify_one()
+    assert(Poll.delay(0))
+    assert(#order == 2 and order[2] == 2)
+    notifier:notify_all()
+    for _, task in ipairs(tasks) do assert(task:join()) end
+    assert(table.concat(order as {string}, ",") == "1,2,3")
+  end)
+end
+
+local function test_notify_all_wakes_every_waiter_in_order_and_not_later_ones()
+  local order: {integer} = {}
+  Poll.run(function()
+    local notifier = Poll.notifier()
+    local tasks = spawn_waiters(notifier, 50, order)
+    notifier:notify_all()
+    assert(notifier:waiting() == 0)
+    local late = Poll.spawn(function() assert(notifier:wait(Clock.ms(5)) == false) end)
+    for _, task in ipairs(tasks) do assert(task:join()) end
+    assert(late:join())
+    assert(#order == 50)
+    for i = 1, 50 do assert(order[i] == i, "woken out of order at " .. i) end
+  end)
+end
+
+local function test_a_notifier_wait_times_out()
+  Poll.run(function()
+    local notifier = Poll.notifier()
+    local ok, why = notifier:wait(Clock.ms(5))
+    assert(not ok and why == Poll.TIMEOUT)
+    assert(notifier:waiting() == 0)
+  end)
+end
+
+local function test_a_cancelled_notifier_wait_answers_cancelled_and_leaves()
+  local answer = ""
+  Poll.run(function()
+    local notifier = Poll.notifier()
+    local task = Poll.spawn(function()
+      local _, why = notifier:wait()
+      answer = why
+      local _, again = notifier:wait()
+      assert(again == Poll.CANCELLED)
+    end)
+    assert(Poll.delay(0))
+    assert(notifier:waiting() == 1)
+    task:cancel()
+    assert(task:join())
+    assert(notifier:waiting() == 0)
+  end)
+  assert(answer == Poll.CANCELLED)
+end
+
+local function test_a_notice_with_no_waiter_is_not_remembered()
+  Poll.run(function()
+    local notifier = Poll.notifier()
+    notifier:notify_one()
+    notifier:notify_all()
+    assert(notifier:waiting() == 0)
+    local ok, why = notifier:wait(Clock.ms(5))
+    assert(not ok and why == Poll.TIMEOUT)
+  end)
+end
+
+local function test_a_killed_waiter_is_removed_and_the_next_one_is_woken()
+  local order: {integer} = {}
+  Poll.run(function()
+    local notifier = Poll.notifier()
+    local tasks = spawn_waiters(notifier, 3, order)
+    tasks[1]:kill()
+    assert(notifier:waiting() == 2)
+    notifier:notify_one()
+    assert(tasks[2]:join())
+    assert(#order == 1 and order[1] == 2)
+    notifier:notify_all()
+    assert(tasks[3]:join())
+  end)
+end
+
+local function test_a_queue_pattern_loses_no_item()
+  local queue: {integer} = {}
+  local got: {integer} = {}
+  Poll.run(function()
+    local notifier = Poll.notifier()
+    local consumer = Poll.spawn(function()
+      while #got < 3 do
+        while #queue == 0 do assert(notifier:wait(Clock.seconds(30))) end
+        got[#got + 1] = table.remove(queue, 1)
+      end
+    end)
+    -- Queued before the consumer first waits, and in a burst.
+    queue[#queue + 1] = 1
+    notifier:notify_one()
+    assert(Poll.delay(0))
+    queue[#queue + 1] = 2
+    notifier:notify_one()
+    queue[#queue + 1] = 3
+    notifier:notify_one()
+    assert(consumer:join(Clock.seconds(30)))
+  end)
+  assert(table.concat(got as {string}, ",") == "1,2,3")
+end
+
+local function test_notify_is_callable_from_a_close_handler()
+  local done = false
+  Poll.run(function()
+    local notifier = Poll.notifier()
+    local waiter = Poll.spawn(function()
+      assert(notifier:wait(Clock.seconds(30)))
+      done = true
+    end)
+    assert(Poll.delay(0))
+    local closing_mt: metatable<Closer> = { __close = function() notifier:notify_all() end }
+    local victim = Poll.spawn(function()
+      local _ <close> = setmetatable({} as Closer, closing_mt)
+      local _, _ = Poll.delay(Clock.seconds(30))
+    end)
+    assert(Poll.delay(0))
+    victim:kill()
+    assert(waiter:join(Clock.seconds(30)))
+  end)
+  assert(done)
+end
+
+local function test_a_notifier_is_one_runs_and_waits_only_in_a_task()
+  raises(function() Poll.notifier() end, "Poll.notifier outside Poll.run")
+  local kept: Poll.Notifier
+  Poll.run(function()
+    kept = Poll.notifier()
+    raises(function() kept:wait(-1) end, "timeout_ns must be")
+  end)
+  kept:notify_all()
+  assert(kept:waiting() == 0)
+  raises(function() kept:wait(0) end, "Notifier:wait outside Poll.run")
+  Poll.run(function()
+    raises(function() kept:wait(0) end, "notifier of another run")
+    local co = coroutine.wrap(function() kept:wait(0) end)
+    raises(function() co() end, "outside a task's own coroutine")
+  end)
+end
+
+local function test_a_notice_for_a_waiter_killed_before_it_runs_passes_on()
+  local woken: {integer} = {}
+  Poll.run(function()
+    local notifier = Poll.notifier()
+    local tasks: {Poll.Task} = {}
+    for id = 1, 2 do
+      tasks[id] = Poll.spawn(function()
+        if notifier:wait(Clock.ms(300)) then woken[#woken + 1] = id end
+      end)
+    end
+    assert(Poll.delay(0))
+    notifier:notify_one()
+    tasks[1]:kill()
+    assert(tasks[2]:join(Clock.seconds(30)))
+    assert(#woken == 1 and woken[1] == 2)
+  end)
+end
+
+local function test_a_notice_for_a_waiter_killed_in_the_same_batch_passes_on()
+  local woken: {integer} = {}
+  Poll.run(function()
+    local notifier = Poll.notifier()
+    local tasks: {Poll.Task} = {}
+    for id = 1, 2 do
+      tasks[id] = Poll.spawn(function()
+        if notifier:wait(Clock.ms(300)) then woken[#woken + 1] = id end
+      end)
+    end
+    assert(Poll.delay(0))
+    assert(notifier:waiting() == 2)
+    -- Ready before the notice, so it runs ahead of the woken waiter in
+    -- the one batch and kills it there.
+    local killer = Poll.spawn(function() tasks[1]:kill() end)
+    notifier:notify_one()
+    assert(killer:join(Clock.seconds(30)))
+    assert(tasks[2]:join(Clock.seconds(30)))
+    assert(#woken == 1 and woken[1] == 2)
+  end)
+end
+
+local function test_a_waiter_cancelled_after_its_notice_still_answers_true()
+  local ok = false
+  Poll.run(function()
+    local notifier = Poll.notifier()
+    local task = Poll.spawn(function() ok = notifier:wait(Clock.seconds(30)) end)
+    assert(Poll.delay(0))
+    notifier:notify_one()
+    task:cancel()
+    assert(task:join(Clock.seconds(30)))
+  end)
+  assert(ok)
+end
+
+local function test_a_notice_beats_a_timeout_reached_in_the_same_tick()
+  local answers: {string} = {}
+  Poll.run(function()
+    local notifier = Poll.notifier()
+    local task = Poll.spawn(function()
+      local ok, why = notifier:wait(Clock.ms(2))
+      answers[#answers + 1] = tostring(ok) .. ":" .. why
+    end)
+    assert(Poll.delay(0))
+    -- Past the deadline, but not yet expired by the run.
+    local until_ns = Clock.monotonic_ns() + Clock.ms(10)
+    while Clock.monotonic_ns() < until_ns do end
+    notifier:notify_one()
+    assert(task:join(Clock.seconds(30)))
+    assert(notifier:waiting() == 0)
+  end)
+  assert(#answers == 1 and answers[1] == "true:")
+end
+
+local function test_a_timeout_beats_a_notice_sent_in_the_same_tick()
+  local answers: {string} = {}
+  local spare = false
+  Poll.run(function()
+    local notifier = Poll.notifier()
+    local task = Poll.spawn(function()
+      local ok, why = notifier:wait(Clock.ms(5))
+      answers[#answers + 1] = tostring(ok) .. ":" .. why
+    end)
+    local sender = Poll.spawn(function()
+      assert(Poll.delay(Clock.ms(5)))
+      notifier:notify_one()
+      spare = true
+    end)
+    assert(task:join(Clock.seconds(30)))
+    assert(sender:join(Clock.seconds(30)))
+    assert(notifier:waiting() == 0)
+  end)
+  assert(spare)
+  assert(#answers == 1 and answers[1] == "false:" .. Poll.TIMEOUT)
+end
+
+local function test_a_notifier_wait_without_a_timeout_is_woken_by_a_later_task()
+  local woken = false
+  Poll.run(function()
+    local notifier = Poll.notifier()
+    local waiter = Poll.spawn(function() woken = notifier:wait() end)
+    local sender = Poll.spawn(function()
+      assert(Poll.delay(Clock.ms(20)))
+      assert(notifier:waiting() == 1)
+      notifier:notify_one()
+    end)
+    assert(waiter:join())
+    assert(sender:join())
+  end)
+  assert(woken)
+end
+
+local function test_a_notifier_wait_nobody_can_end_is_a_deadlock()
+  raises(function()
+    Poll.run(function()
+      local notifier = Poll.notifier()
+      notifier:wait()
+    end)
+  end, "every task waits on another")
+end
