@@ -214,8 +214,8 @@ end
 --- `message` at the top when one is given. For a coroutine that raised,
 --- it is where it raised, which `coroutine.resume` does not say (it
 --- answers only the error) and which stays until the coroutine is
---- closed. A dead or closed coroutine has no frames: the text is just
---- `stack traceback:`. For the running coroutine the first frame is
+--- closed. One that returned, or was closed, has no frames: the text is
+--- just `stack traceback:`. For the running coroutine the first frame is
 --- [`trace_of`] itself, the caller's next.
 function Errors.trace_of(co: thread, message?: string): string
   return errors.trace_of(co, message)
