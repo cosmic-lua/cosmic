@@ -183,7 +183,7 @@ assert(reply.status == 422 and reply.text:find("qty", 1, true))
 - `cosmic.web.dev`: a supervisor that restarts the app on an edit and
   reloads the browser, on the loopback only.
 - Beside it, not under it: `cosmic.channel` (a queue between tasks),
-  `Poll.notifier` in [`cosmic.poll`], `cosmic.http.multipart`, and the
+  [`Poll.notifier`] in [`cosmic.poll`], `cosmic.http.multipart`, and the
   htmx dialect in `cosmic/template/dialect/`.
 
 ## settled across the parts
@@ -250,7 +250,7 @@ Each is a small PR of its own, landing before the module that needs it.
   header (`HX-Trigger`).
 - [`cosmic.hash`]: `Hash.equal`, a constant-time compare, in Teal with a
   `TODO:` for a C binding.
-- [`cosmic.poll`]: `Poll.notifier`, a wait another task wakes.
+- [`cosmic.poll`]: [`Poll.notifier`], a wait another task wakes.
 - [`cosmic.layout`], build/derivation.tl and build/schema.tl: the
   `static/` convention, carried in the reserved `payload` table with each
   file's SHA-256, type and gzip; the vendored htmx in a `web_assets`
@@ -264,7 +264,7 @@ needs have merged.
 1. **Prerequisites,** the list above that needs nothing else: reply
    headers and the Cookie join, `Url.decode_query`, `Conn:peer`,
    `on_stop`, the 4xx close, `Hash.equal`, the JSON `ascii` option,
-   `Poll.notifier`.
+   [`Poll.notifier`].
 2. **A spike on typed-route generics.** Whether Teal infers `P`, `Q` and
    `B` through `Input<P,Q,B>` into the handler's parameters. If not, the
    constructor takes explicit type arguments; the rest of the design does
@@ -340,6 +340,7 @@ cooperative process.
 [`Url.escape`]: ../../cosmic/url.tl
 
 [`cosmic.http.wire`]: ../../cosmic/http/wire.tl
+[`Poll.notifier`]: ../../cosmic/poll.tl
 [`Server.Reply.headers`]: ../../cosmic/http/server.tl
 [`Server.serve`]: ../../cosmic/http/server.tl
 [`Shape.into`]: ../../cosmic/shape.tl

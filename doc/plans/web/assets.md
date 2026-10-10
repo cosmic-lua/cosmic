@@ -1553,7 +1553,7 @@ parts, multi-process hub.
 3. Should a SQLite transaction wrapper detect a wait inside a transaction
    (an interleaving hazard, section 6.2)? Recommend yes, later, with a
    per-connection Notifier-based lock; for v1 document the rule.
-4. Name and home of `Poll.Notifier`. Recommend `Poll.notifier()` in
+4. Name and home of `Poll.Notifier`. Recommend [`Poll.notifier()`] in
    cosmic.poll (it needs the scheduler's internals); the alternative of a
    polling [`Poll.delay`] loop is wasteful and rejected.
 5. `payload` repurposed vs a new `assets` table. Recommend reusing
@@ -1610,6 +1610,7 @@ parts, multi-process hub.
 [`Net.connect`]: ../../../cosmic/net.tl
 [`Net.serve`]: ../../../cosmic/net.tl
 [`Poll.delay`]: ../../../cosmic/poll.tl
+[`Poll.notifier()`]: ../../../cosmic/poll.tl
 [`Poll.run`]: ../../../cosmic/poll.tl
 [`Poll.TIMEOUT`]: ../../../cosmic/poll.tl
 [`Reader:skip`]: ../../../cosmic/stream.tl
