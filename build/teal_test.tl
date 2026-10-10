@@ -968,3 +968,207 @@ local function test_a_fixed_type_parameter_is_told_to_bind_in_a_local()
   assert(teal.replacement("argument 2: type parameter <T>: got R, expected R | nil", "", 1, 1) ~= nil)
   assert(teal.replacement("argument 2: got R, expected S", "", 1, 1) == nil)
 end
+
+--- The messages the checker reports for `source`, each with its hint
+--- appended as the importer prints it, in the order they are reported.
+local function checker_says(source: string): {string}
+  local built = assert(teal.load(true))
+  local _, result = built.gen(source, nil, nil, "tl")
+  local out: {string} = {}
+  for _, group in ipairs({ assert(result).syntax_errors, result.type_errors }) do
+    for _, e in ipairs(group) do
+      local instead = teal.replacement(e.msg, source, e.y, e.x, e.fields)
+      out[#out + 1] = e.msg .. (instead ~= nil and " -- " .. instead or "")
+    end
+  end
+  return out
+end
+
+--- Whether any of `lines` has `part` in it.
+local function says(lines: {string}, part: string): boolean
+  for _, line in ipairs(lines) do
+    if line:find(part, 1, true) ~= nil then
+      return true
+    end
+  end
+  return false
+end
+
+local two_values = "local function two(): string, string\n  return \"a\", \"b\"\nend\n" ..
+  "local function one(s: string): boolean\n  return #s > 0\nend\n"
+
+--- A call whose last argument returns several values and has room for
+--- one is told, on the arity error itself, to parenthesize that argument.
+local function test_a_spilled_last_argument_is_told_to_parenthesize()
+  local lines = checker_says(two_values .. "print(one(two()))\n")
+  assert(#lines == 1, table.concat(lines, "\n"))
+  assert(lines[1]:find("^wrong number of arguments %(given 2, expects 1%) %-%- the last argument " ..
+      "two%(%.%.%.%) returns 2 values"), lines[1])
+  assert(lines[1]:find("`(two(...))`", 1, true) ~= nil, lines[1])
+  local method = checker_says(two_values .. "local o = { f = one }\nprint(o.f(two()))\n")
+  assert(says(method, "the last argument two(...) returns 2 values"), table.concat(method, "\n"))
+  local qualified = checker_says("local record M\n  two: function(): string, string\n" ..
+      "  one: function(string): boolean\nend\nlocal m: M = {}\nprint(m.one(m.two()))\n")
+  assert(says(qualified, "the last argument m.two(...) returns 2 values"),
+    table.concat(qualified, "\n"))
+end
+
+--- An assert in the last position is told the same on the arity error,
+--- and its own message, which `cosmic fix` reads, stays.
+local function test_a_spilled_assert_is_told_on_the_arity_error()
+  local lines = checker_says(two_values .. "local function pair(): string | nil, string\n" ..
+      "  return \"a\", \"b\"\nend\nprint(one(assert(pair())))\n")
+  assert(lines[1]:find("^wrong number of arguments %(given 2, expects 1%) %-%- the last " ..
+      "argument assert%(%.%.%.%)"), lines[1])
+  assert(lines[1]:find("`cosmic fix` writes the parentheses", 1, true) ~= nil, lines[1])
+  assert(says(lines, "write (assert(...)) to keep only the first"), table.concat(lines, "\n"))
+end
+
+--- A call that is short, or given one value by each argument, or whose
+--- last argument is parenthesized or returns one value, gets no such hint.
+local function test_other_arity_errors_get_no_spill_hint()
+  for _, body in ipairs({
+      "print(one())\n",
+      "print(one(\"a\", \"b\"))\n",
+      "print(one(tostring(1), tostring(2)))\n",
+      "print(one(two(), \"b\"))\n",
+  }) do
+    local lines = checker_says(two_values .. body)
+    assert(#lines > 0, body)
+    assert(not says(lines, "the last argument"), body .. table.concat(lines, "\n"))
+  end
+  assert(#checker_says(two_values .. "print(one((two())))\n") == 0)
+end
+
+local nested_generic = "local record Kv\n  record Lru<K, V>\n    map: {K: V}\n  end\nend\n"
+
+--- A method declared on a generic record nested in another is told the
+--- form that works, with the type arguments and owner as written.
+local function test_a_nested_generic_method_is_told_its_form()
+  local lines = checker_says(nested_generic ..
+      "function Kv.Lru:get(k: K): V\n  return self.map[k]\nend\nreturn Kv\n")
+  assert(says(lines, "missing type arguments in record<K, V> Lru -- a generic record's method"),
+    table.concat(lines, "\n"))
+  assert(says(lines, "`function Kv.Lru.get<K, V>(self: Kv.Lru<K, V>, ...)`"), table.concat(lines, "\n"))
+  assert(#checker_says(nested_generic .. "function Kv.Lru.get<K, V>(self: Kv.Lru<K, V>, k: K): V\n" ..
+      "  return self.map[k]\nend\nreturn Kv\n") == 0)
+end
+
+--- The same message on a line that declares no method is told nothing.
+local function test_missing_type_arguments_elsewhere_get_no_method_hint()
+  local lines = checker_says(nested_generic .. "local l: Kv.Lru = nil\nreturn l\n")
+  assert(says(lines, "missing type arguments in record<K, V> Lru"), table.concat(lines, "\n"))
+  assert(not says(lines, "a generic record's method"), table.concat(lines, "\n"))
+end
+
+--- `<close>` on a record is told to declare a `__close`; a type that
+--- cannot have one, or an enum, is not.
+local function test_a_non_closable_record_is_told_to_declare_close()
+  local source = "local record S\n  n: integer\nend\nlocal s <close> = nil\n"
+  local hint = teal.replacement("to-be-closed variable s has a non-closable type S", source, 4, 7)
+  assert(hint ~= nil and hint:find("^`<close>` calls a `__close` the value's metatable holds"), tostring(hint))
+  assert(hint:find("metamethod __close: function(S)", 1, true) ~= nil, hint)
+  assert(hint:find("metatable<S> = { __close = function(self: S)", 1, true) ~= nil, hint)
+  assert(hint:find("cosmic docs Fs.Scratch.__close", 1, true) ~= nil, hint)
+  assert(hint:find("is a record of yours", 1, true) == nil, hint)
+  local qualified = teal.replacement("to-be-closed variable s has a non-closable type Fs.Scratch",
+    source, 4, 7)
+  assert(qualified ~= nil and qualified:find("^if Fs.Scratch is a record of yours, "), tostring(qualified))
+  local enum = "to-be-closed variable e has a non-closable type E"
+  assert(teal.replacement(enum, 'local enum E "a" end\n', 1, 1) == nil)
+  assert(teal.replacement(enum, 'local type E = integer\n', 1, 1) == nil)
+  for _, plain in ipairs({ "integer", "string", "{string}", "function(): integer", "boolean" }) do
+    assert(teal.replacement("to-be-closed variable n has a non-closable type " .. plain, source, 4, 7) == nil,
+      plain)
+  end
+end
+
+--- A string literal in a type position is told to declare an enum.
+local function test_a_string_literal_type_is_told_to_declare_an_enum()
+  local lines = checker_says("local s: integer | \"null\" = \"null\"\nprint(s)\n")
+  assert(lines[1]:find("^expected a type list %-%- a string literal is not a type"), lines[1])
+  assert(says(lines, "`local enum Name \"null\" end`"), table.concat(lines, "\n"))
+  local two = checker_says("local x: \"a\" | \"b\" = \"a\"\nprint(x)\n")
+  assert(says(two, "`local enum Name \"a\" \"b\" end`"), table.concat(two, "\n"))
+end
+
+--- A missing type that is no string literal is told nothing about one.
+local function test_a_missing_type_without_a_literal_gets_no_enum_hint()
+  local lines = checker_says("local s: = \"null\"\nprint(s)\n")
+  assert(says(lines, "expected a type list"), table.concat(lines, "\n"))
+  assert(not says(lines, "string literal"), table.concat(lines, "\n"))
+end
+
+--- Type arguments at a call are told Teal has none.
+local function test_call_site_type_arguments_are_told_there_are_none()
+  local lines = checker_says("local function f<K>(k: K): K\n  return k\nend\nprint(f<string>(\"a\"))\n")
+  assert(says(lines, "for types function<K>(K): K and string -- Teal has no type arguments at a call"),
+    table.concat(lines, "\n"))
+  local comparison = checker_says("local function f<K>(k: K): K\n  return k\nend\nprint(f < 1)\n")
+  assert(not says(comparison, "no type arguments"), table.concat(comparison, "\n"))
+end
+
+--- A method used above its definition is told to move it or declare it.
+local function test_a_method_used_before_its_definition_is_told_so()
+  local lines = checker_says("local record Store\n  db: integer\nend\n" ..
+      "local mt = { __gc = function(s: Store) s:close() end }\n" ..
+      "function Store:close()\n  print(self.db)\nend\nprint(mt)\n")
+  assert(says(lines, "invalid key 'close' in record 's' of type Store -- `close` is defined below, " ..
+      "at line 5"), table.concat(lines, "\n"))
+  assert(says(lines, "`close: function(self: Store, ...)`"), table.concat(lines, "\n"))
+  local declared = checker_says("local record Store\n  db: integer\n  close: function(self: Store)\nend\n" ..
+      "local mt = { __gc = function(s: Store) s:close() end }\n" ..
+      "function Store:close()\n  print(self.db)\nend\nprint(mt)\n")
+  assert(#declared == 0, table.concat(declared, "\n"))
+end
+
+--- A key the file never defines, or defines above, is told only its fields.
+local function test_a_missing_key_not_defined_below_gets_no_order_hint()
+  local lines = checker_says("local record Store\n  db: integer\nend\n" ..
+      "local mt = { __gc = function(s: Store) s:close() end }\nprint(mt)\n")
+  assert(says(lines, "invalid key 'close'"), table.concat(lines, "\n"))
+  assert(not says(lines, "defined below"), table.concat(lines, "\n"))
+end
+
+--- Parenthesizing cures only too many arguments for a callee that takes
+--- some: a short call, or one to a callee taking none, is told nothing,
+--- and a call a special function handler checks twice is told once.
+local function test_a_spill_hint_is_for_too_many_arguments_only()
+  local callees = "local function four(a: string, b: string, c: string, d: string) end\n" ..
+    "local function many(a: string, b: string, c: string, ...: string) end\n" ..
+    "local function none() end\n"
+  for _, body in ipairs({ "four(\"x\", two())\n", "many(two())\n", "none(two())\n" }) do
+    local lines = checker_says(two_values .. callees .. body)
+    assert(says(lines, "wrong number of arguments"), body .. table.concat(lines, "\n"))
+    assert(not says(lines, "the last argument"), body .. table.concat(lines, "\n"))
+  end
+  local lines = checker_says(two_values .. callees .. "pcall(one, two())\n")
+  local seen = 0
+  for _, line in ipairs(lines) do
+    local _, count = line:gsub(" %-%- the last argument", "")
+    seen = seen + count
+  end
+  assert(seen <= 1, table.concat(lines, "\n"))
+end
+
+--- A method defined below with a dot is offered as the template it is.
+local function test_a_later_dotted_function_is_told_as_written()
+  local lines = checker_says("local record Store\n  db: integer\nend\n" ..
+      "local function use(s: Store) s.later(1) end\n" ..
+      "function Store.later(n: integer)\n  print(n)\nend\nprint(use)\n")
+  assert(says(lines, "define `function Store.later` above this use"), table.concat(lines, "\n"))
+  assert(says(lines, "`later: function(...)` in the record, with the definition's own parameters"),
+    table.concat(lines, "\n"))
+  assert(not says(lines, "self: Store"), table.concat(lines, "\n"))
+end
+
+--- A type argument at a call that the checker reads as a variable is
+--- told the same, and a comparison of unknown names is not.
+local function test_a_call_site_type_name_is_told_there_are_none()
+  local lines = checker_says("local function f<K>(k: K): K\n  return k\nend\nprint(f<integer>(1))\n")
+  assert(says(lines, "unknown variable: integer -- Teal has no type arguments at a call"),
+    table.concat(lines, "\n"))
+  local compared = checker_says("print(missing < 1)\n")
+  assert(says(compared, "unknown variable: missing"), table.concat(compared, "\n"))
+  assert(not says(compared, "no type arguments"), table.concat(compared, "\n"))
+end
