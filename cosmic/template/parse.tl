@@ -6,6 +6,7 @@
 ---     {{type Name from import.path}}     first, after blank text only
 ---     {{mode html}}  {{mode text}}       optional, directly after it
 ---     {{.}}  {{.a.b}}  {{.a | m.f}}      a value, put into the output
+---     {{"{{"}}                           a string's bytes, as literal text
 ---     {{if P}} .. {{else if P}} .. {{else}} .. {{end}}
 ---     {{range P}} .. {{end}}             dot is each element, in order
 ---     {{with P}} .. {{else}} .. {{end}}  dot is the value, when it is truthy
@@ -14,7 +15,10 @@
 --- and then stages `| import.path.func`, each applied to what is before
 --- it. A path's names and a stage's module and function are identifiers;
 --- the module is reached by `require` of its path, and what it is called
---- is the name after the last dot.
+--- is the name after the last dot. A string (`"` to `"`, with `\"` and
+--- `\\` its only escapes) stands only as the whole of an action, never in
+--- a pipeline: its bytes are literal text, the same as if written outside
+--- an action, so `html` mode tracks them as markup and escapes nothing.
 ---
 --- Every refusal reads `name:line:col: reason`, where line and column are
 --- the offending word's, or its action's `{{` for one about the block.
@@ -51,6 +55,12 @@ end
 --- the action.
 local function pipeline(p: Parser, item: types.Item, first: integer): types.Pipeline | nil, string
   local tokens = item.tokens
+  for at = first, #tokens do
+    if tokens[at].kind == "string" then
+      return nil, refuse(p, tokens[at].line, tokens[at].col,
+        "a string is not a value: it stands alone, as {{\"{{\"}}, to write its bytes as literal text")
+    end
+  end
   local head = tokens[first]
   if head == nil then
     return nil, refuse(p, item.line, item.col, "expected a value: a field path such as . or .name")
@@ -184,6 +194,20 @@ nodes = function(p: Parser): {types.Node} | nil, string
       elseif word == "type" or word == "mode" then
         return nil, refuse(p, item.line, item.col, word == "type" and
             "{{type}} must be the first action" or "{{mode}} must directly follow {{type}}")
+      elseif item.tokens[1] ~= nil and item.tokens[1].kind == "string" then
+        local literal = item.tokens[1]
+        local extra = item.tokens[2]
+        if extra ~= nil then
+          return nil, refuse(p, extra.line, extra.col,
+            "a string stands alone in its action: {{\"...\"}} writes its bytes and takes nothing after them")
+        end
+        -- An empty string writes nothing, and `markup.feed` of empty text
+        -- forgets a tag's trailing `/` (`<svg/{{""}}>` would open the svg).
+        if literal.value ~= "" then
+          out[#out + 1] = { kind = "text", line = literal.line, col = literal.col, end_line = literal.line,
+            close_line = literal.line, text = literal.value, branches = {}, ctx = "plain" }
+        end
+        p.pos = p.pos + 1
       else
         local pipe, why = pipeline(p, item, 1)
         if pipe == nil then

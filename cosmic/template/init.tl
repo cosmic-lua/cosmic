@@ -18,6 +18,7 @@
 ---     {{if .admin}}..{{else if .user}}..{{else}}..{{end}}
 ---     {{range .items}}<li>{{.name}}</li>{{end}}   dot is each element
 ---     {{with .owner}}{{.name}}{{else}}nobody{{end}}  dot is the value, if truthy
+---     {{"{{"}}                          literal text: writes {{
 ---
 --- A name in a field path is a field of the record: a typo is a type
 --- error, not an empty hole. A stage is a function by import path, whose
@@ -46,11 +47,17 @@
 --- slot. `{{mode text}}` returns a `string` and escapes nothing, for
 --- anything that is not HTML; a slot there takes a string or a number.
 ---
---- `{{` always starts an action: it cannot be written as literal text
---- (a stage that answers the string is the way). Attributes that
---- frameworks read as code (`hx-*`, `x-on:`, `@click`, `ng-*`) are not
---- recognised; and a slot in any attribute whose name begins with `on`
---- is refused (a literal `onclick="..."` compiles).
+--- `{{` always starts an action. To write it as text, write an action
+--- that is one double-quoted string, as Go's templates do: its bytes are
+--- literal text, so `{{"{{"}}` writes `{{` and `{{"{{.name}}"}}` writes
+--- `{{.name}}`. `\"` and `\\` are its only escapes, it is on one line,
+--- and it takes no stage and stands in no condition. It is text, not a
+--- slot: `html` mode escapes nothing in it and reads it as markup, as it
+--- does the text around it.
+---
+--- Attributes that frameworks read as code (`hx-*`, `x-on:`, `@click`,
+--- `ng-*`) are not recognised; and a slot in any attribute whose name
+--- begins with `on` is refused (a literal `onclick="..."` compiles).
 ---
 --- `{{range}}` has no `{{else}}`, and `{{with}}` takes `{{else}}` but no
 --- `{{else if}}`: nest an `{{if}}`.

@@ -40,7 +40,8 @@ local HTML_HEADS <const> = { HEADS[1], HEADS[3] }
 local ACTIONS <const> = {
   "{{.a}}", "{{.}}", "{{.b.c | m.f}}", "{{.a | m.f | n.g}}", "{{if .a}}", "{{if .a.b | m.f}}", "{{else}}",
   "{{else if .b}}", "{{end}}", "{{range .l}}", "{{with .w}}", "{{- ", " -}}", "{{-", "-}}", "{{ . }}", "{{.end}}",
-  "{{", "}}", "{{foo}}", "{{.a..b}}", "{{.a |}}", "{{.a | f}}", "{{}}",
+  "{{", "}}", "{{foo}}", "{{.a..b}}", "{{.a |}}", "{{.a | f}}", "{{}}", '{{"{{"}}', '{{"}}"}}', '{{ "a\\"b\\\\" }}',
+  '{{"', '{{"\\q"}}', '{{- "x" -}}', '{{"x" | m.f}}', '{{if "x"}}', '"',
 }
 
 --- What only the first line may hold, which a template that has a type
@@ -750,6 +751,129 @@ local function test_a_url_suffix_cannot_make_the_assembled_value_leave_the_polic
       local cut = literal:find("[/?#]")
       if (cut and literal:sub(1, cut - 1) or literal):find("[:&]") then
         return false, "compiled a suffix that could complete a scheme: " .. body
+      end
+      return true, ""
+    end,
+  })
+end
+
+--- Text with `{` and `"` and `\` in it, cut into runs: each written as it
+--- is or as a string action, or a slot. Packed as the mode, then a kind
+--- (`t` text, `q` string, `s` slot) and its text for each run.
+local function gen_quoted(src: Fuzz.Source): string
+  local fields: {string} = { Fuzz.pick(src, { "html", "text" }) }
+  while Fuzz.more(src, (#fields - 1) // 2, 12) do
+    local kind = Fuzz.pick(src, { "t", "q", "q", "s" })
+    local text = ""
+    if kind ~= "s" then
+      local run: {string} = {}
+      while Fuzz.more(src, #run, 4) do
+        local pick = src:int(0, 4)
+        run[#run + 1] = pick == 0 and Fuzz.bytes(src, 3) or
+          pick == 1 and Fuzz.pick(src, { "{{", "}}", "{", "\"", "\\", "{{.a}}", "-}}", "{{- ", "|" }) or
+          Fuzz.pick(src, MARKUP)
+      end
+      text = table.concat(run)
+    end
+    fields[#fields + 1] = kind
+    fields[#fields + 1] = text
+  end
+  return Fuzz.pack(fields)
+end
+
+--- `text` written outside an action: each `{` as a string action, so none
+--- starts one.
+local function as_text(text: string): string
+  return (text:gsub("{", '{{"{"}}'))
+end
+
+--- `text` written as string actions, one to a line, its newlines outside them.
+local function as_strings(text: string): string
+  return (text:gsub("[^\n]+", function(line: string): string
+    return '{{"' .. line:gsub('[\\"]', "\\%0") .. '"}}'
+  end))
+end
+
+-- A string action is literal text: a template whose text is written in
+-- string actions anywhere, cutting it at any byte, compiles where the
+-- template with that text written outside actions does, with the same
+-- slots, and renders the same bytes; in `text` mode, the text exactly.
+local function test_a_string_action_is_the_text_it_quotes(tmp: string)
+  Fuzz.run({
+    name = "template string",
+    dir = tmp,
+    gen = gen_quoted,
+    requires = { "text", "html", "html refused", "brace", "escape", "newline" },
+    shares = { text = 0.2, html = 0.03 },
+    check = function(input: string): boolean, string
+      local fields = Fuzz.unpack(input)
+      local mode = fields[1] or "html"
+      local quoted: {string} = {}
+      local plain: {string} = {}
+      local want: {string} = {}
+      for at = 2, #fields - 1, 2 do
+        local kind = fields[at]
+        local text = fields[at + 1]
+        if kind == "s" then
+          quoted[#quoted + 1] = "{{.a}}"
+          plain[#plain + 1] = "{{.a}}"
+          want[#want + 1] = "P"
+        else
+          quoted[#quoted + 1] = kind == "q" and as_strings(text) or as_text(text)
+          plain[#plain + 1] = as_text(text)
+          want[#want + 1] = text
+          if kind == "q" then
+            if text:find("{{", 1, true) then Fuzz.label("brace") end
+            if text:find('["\\]') then Fuzz.label("escape") end
+            if text:find("\n", 1, true) then Fuzz.label("newline") end
+          end
+        end
+      end
+      local head = mode == "text" and "{{type T from m.t}}{{mode text}}" or "{{type T from m.t}}"
+      local source, why = Template.compile(head .. table.concat(quoted), "t.tmpl")
+      local reference, rwhy = Template.compile(head .. table.concat(plain), "t.tmpl")
+      if (source == nil) ~= (reference == nil) then
+        return false, "string actions: " .. tostring(why) .. "; written as text: " .. tostring(rwhy)
+      end
+      if source == nil then
+        if mode == "text" then
+          return false, "text mode refused: " .. why
+        end
+        Fuzz.label("html refused")
+        return true, ""
+      end
+      if helpers(source) ~= helpers(reference) then
+        return false, "slots " .. helpers(source) .. ", written as text " .. helpers(reference)
+      end
+      if newlines(source) ~= newlines(head .. table.concat(quoted)) + 1 then
+        return false, "the module does not have the template's lines"
+      end
+      local outputs: {string} = {}
+      for _, module in ipairs({ source, reference }) do
+        local env: {string: any} = {
+          require = function(name: string): any
+            return name == "cosmic.html" and STAND_IN or {}
+          end,
+          table = table,
+          tostring = tostring,
+          type = type,
+        }
+        local chunk, trouble = load(lua_of(module), "=module", "t", env)
+        if chunk == nil then
+          return false, "the module does not load: " .. tostring(trouble) .. "\n" .. lua_of(module)
+        end
+        local loaded = chunk() as {string: function({string: string}): any}
+        local made = loaded.render({ a = "P" })
+        outputs[#outputs + 1] = made is string and made or (made as {string: string}).s
+      end
+      if outputs[1] ~= outputs[2] then
+        return false, "rendered " .. string.format("%q", outputs[1]) .. ", written as text " ..
+          string.format("%q", outputs[2])
+      end
+      Fuzz.label(mode)
+      if mode == "text" and outputs[1] ~= table.concat(want) then
+        return false, "rendered " .. string.format("%q", outputs[1]) .. " for " ..
+          string.format("%q", table.concat(want))
       end
       return true, ""
     end,

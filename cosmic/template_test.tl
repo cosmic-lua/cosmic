@@ -461,3 +461,97 @@ local function test_an_html_template_must_end_in_plain_text_since_another_splice
   compiled(HEAD .. "<select><option>a</option></select>")
   compiled("{{type T from m.t}}{{mode text}}\n<a href=\"")
 end
+
+--- What the module [`Template.compile`] makes of `src`, which has no
+--- slot, renders: its types struck out, it is run as Lua.
+local function rendered(src: string): string
+  local lua = compiled(src):gsub("%(_: t%.T%): [%w%.]+", "()"):gsub("local parts: {string}", "local parts")
+  local env: {string: any} = {
+    require = function(name: string): any
+      if name == "cosmic.html" then
+        return { trust = function(s: string): string return s end }
+      end
+      return {}
+    end,
+    table = table,
+  }
+  local chunk = assert(load(lua, "=module", "t", env))
+  local module = chunk() as {string: function(): string}
+  return module.render()
+end
+
+local TEXT <const> = "{{type T from m.t}}{{mode text}}\n"
+
+local function test_a_string_action_writes_its_bytes_as_literal_text()
+  assert(rendered(TEXT .. '{{"{{"}}') == "\n{{")
+  assert(rendered(TEXT .. '{{"}}"}}') == "\n}}")
+  assert(rendered(TEXT .. 'a {{"{{.name}}"}} b') == "\na {{.name}} b")
+  assert(rendered(TEXT .. '{{"{{"}}{{"}}"}}{{"{{{{"}}}}') == "\n{{}}{{{{}}")
+  assert(rendered(TEXT .. '{{ "\\"\\\\" }}') == '\n"\\')
+  assert(rendered(TEXT .. 'a\n {{- "{{" -}} \n b') == "\na{{b")
+  assert(rendered(TEXT .. '{{""}}x') == "\nx")
+  assert(rendered(TEXT .. '{{"if"}} {{"end"}} {{".a | m.f"}}') == "\nif end .a | m.f")
+end
+
+local function test_a_string_action_is_literal_text_the_html_tracker_reads()
+  assert(rendered(HEAD .. '<p>{{"{{"}}.x}}</p>') == "\n<p>{{.x}}</p>")
+  assert(rendered(HEAD .. '<a title="{{"{{"}}">x</a>') == '\n<a title="{{">x</a>')
+  assert(rendered(HEAD .. '{{"<b>"}}x</b>') == "\n<b>x</b>")
+  local slot = compiled(HEAD .. '<a{{" "}}title="{{.x}}">')
+  assert(slot:find("_attr(v)", 1, true), slot)
+  local closed = compiled(HEAD .. '<svg/{{""}}><p>{{.x}}</p>')
+  assert(closed:find("_text(v)", 1, true), closed)
+  local cases: {{string}} = {
+    { '<a href="{{"/"}}{{.x}}">', "2:17: ", "must begin" },
+    { '<a href="{{.x}}{{"//h"}}">', "2:18: ", "protocol-relative" },
+    { '<p {{"onclick"}}="{{.x}}">', "2:19: ", "event handler" },
+    { '{{"<script>"}}{{.x}}', "2:15: ", "<script>" },
+    { '{{"<!--"}}{{.x}}-->', "2:11: ", "comment" },
+    { '<a{{"{{"}}', "2:11: ", "ends inside a tag" },
+  }
+  for _, case in ipairs(cases) do
+    local why = refused(HEAD .. case[1])
+    assert(why:find("t.tmpl:" .. case[2], 1, true) and why:find(case[3], 1, true), case[1] .. ": " .. why)
+  end
+end
+
+local function test_a_string_action_keeps_the_templates_lines()
+  local src = TEXT .. "L2 {{\n  \"{{\"\n}} L4\n{{- \"x\" -}}\n\nL6"
+  local out = compiled(src)
+  assert(newlines(out) == newlines(src) + 1, out)
+  local lines: {string} = {}
+  for line in out:gmatch("([^\n]*)\n") do
+    lines[#lines + 1] = line
+  end
+  assert(lines[2]:find('"L2 "', 1, true) and lines[3]:find('"{{"', 1, true), out)
+  assert(lines[4]:find('" L4"', 1, true) and lines[5]:find('"x"', 1, true), out)
+  assert(lines[7]:find('"L6"', 1, true), out)
+end
+
+local STRINGS <const>: {{string}} = {
+  { HEAD .. '{{"abc}}', "2", "3", "unterminated string" },
+  { HEAD .. '{{"abc', "2", "3", "unterminated string" },
+  { HEAD .. '{{"a\nb"}}', "2", "3", "newline" },
+  { HEAD .. '{{"a\\nb"}}', "2", "5", "escape" },
+  { HEAD .. '{{"\\{"}}', "2", "4", "escape" },
+  { HEAD .. '{{"a" | m.f}}', "2", "7", "string" },
+  { HEAD .. '{{"a" "b"}}', "2", "7", "string" },
+  { HEAD .. '{{.a | "m.f"}}', "2", "8", "string" },
+  { HEAD .. '{{.a"b"}}', "2", "5", "string" },
+  { HEAD .. '{{if "x"}}{{end}}', "2", "6", "string" },
+  { HEAD .. '{{if .a}}{{else if "x"}}{{end}}', "2", "20", "string" },
+  { HEAD .. '{{range "x"}}{{end}}', "2", "9", "string" },
+  { HEAD .. '{{"x"-}}', "2", "6", "string" },
+}
+
+local function test_a_string_action_that_is_malformed_or_not_alone_is_refused_where_it_goes_wrong()
+  local wrong: {string} = {}
+  for _, case in ipairs(STRINGS) do
+    local why = refused(case[1])
+    local want = "t.tmpl:" .. case[2] .. ":" .. case[3] .. ": "
+    if why:sub(1, #want) ~= want or not why:find(case[4], 1, true) then
+      wrong[#wrong + 1] = case[1] .. " said " .. why .. ", not " .. want .. "..." .. case[4]
+    end
+  end
+  assert(#wrong == 0, table.concat(wrong, "\n"))
+end
