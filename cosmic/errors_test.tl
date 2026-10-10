@@ -148,3 +148,28 @@ local function test_trace_starts_at_its_caller()
   local skipped = here(2):match("stack traceback:\n\t([^\n]*)")
   assert(skipped ~= nil and skipped:find("'here'", 1, true) == nil, tostring(skipped))
 end
+
+--- A message Lua wrote shares ordinary words with a row about something
+--- else; the catalog is for cosmic's own messages, so it earns no guidance.
+local function test_a_message_lua_wrote_gets_no_guidance()
+  local db = catalog({
+    row("the record has a nil value in its field", "Reads the next record."),
+    row("no module found in the store", "Finds a module."),
+    row("table expected, got nil for the string", "Takes a policy."),
+  })
+  local own = {
+    "attempt to concatenate a nil value (field 'path')",
+    "t.tl:7: attempt to concatenate a nil value (field 'path')\nstack traceback:\n\t[C]: in ?",
+    "module 'x' not found:\n\tno field package.preload['x']\n\tno module 'x' in the store",
+    "bad argument #1 to 'insert' (table expected, got nil for the string)",
+    "t.tl:3: bad argument #2 to 'open' (table expected, got nil for the string)",
+  }
+  for _, message in ipairs(own) do
+    assert(Errors.guidance_in(db, message) == nil, message)
+  end
+  -- The same words in a message cosmic wrote, or one that only quotes
+  -- Lua's, still match.
+  assert(Errors.guidance_in(db, "the record has a nil value in its field") ~= nil)
+  assert(Errors.guidance_in(db, "wrapped: t.tl:7: attempt to concatenate a nil value " ..
+      "in its field of the record") ~= nil)
+end

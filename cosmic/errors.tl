@@ -117,22 +117,32 @@ local function guidance_lines(head: string, text: string): string
   return table.concat(lines, "\n") .. "\n"
 end
 
+--- Whether the first line of `message`, less a `chunk:line: ` location,
+--- is one Lua's own runtime wrote: `attempt to ...`, `module '...' not
+--- found` or `bad argument #n to ...` (whose `X expected, got Y` is Lua's
+--- too). They share ordinary words with doc comments the catalog holds and
+--- say nothing of cosmic's own failures, which [`Errors.hint`] answers
+--- where it can. A location with a space in the chunk name is not seen.
+local function lua_wrote(message: string): boolean
+  local line = message:match("^[^\n]*")
+  line = line:gsub("^%S+:%d+: ", "", 1)
+  return line:find("^attempt to ") ~= nil or
+    line:find("^module '.-' not found") ~= nil or
+    line:find("^bad argument #%d+ to ") ~= nil
+end
+
 --- What the catalog of the one database `handle` says beneath an
 --- uncaught error's `message`, in the lines [`Errors.guidance`] prints: the
 --- best row's guidance, or nil when it has none -- no catalog, no row
 --- sharing two or more significant words with the message, or no
---- guidance on the row it shares them with. [`Errors.guidance`] asks each
---- database the store holds in turn.
+--- guidance on the row it shares them with. A message Lua itself wrote
+--- (`attempt to ...`, `module '...' not found`, `bad argument #n to ...`)
+--- has none: the catalog is for the messages cosmic's own code raises.
+--- [`Errors.guidance`] asks each database the store holds in turn.
 function Errors.guidance_in(handle: Sqlite.Handle, message: string): string | nil
-  -- TODO: a message Lua itself wrote shares two ordinary words with some
-  -- doc comment and is shown that one's guidance, which has nothing to do
-  -- with the failure: `print(t.path .. "x")` with `t` a `{string:string}`
-  -- (`attempt to concatenate a nil value (field 'path')`) is shown
-  -- `next_record`, and `module 'x' not found: ... no module 'x' in the
-  -- store` is shown `locate`. Return nil here for a message whose first line is one of
-  -- Lua's own `attempt to ...` or `module '...' not found` and leave
-  -- [`Errors.hint`] to answer those; the catalog is for the messages cosmic's
-  -- own code raises.
+  if lua_wrote(message) then
+    return nil
+  end
   local query = catalog_query(message)
   if query == nil then
     return nil
