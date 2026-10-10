@@ -118,14 +118,17 @@ local function guidance_lines(head: string, text: string): string
 end
 
 --- Whether the first line of `message`, less a `chunk:line: ` location,
---- is one Lua's own runtime wrote: `attempt to ...`, `module '...' not
---- found` or `bad argument #n to ...` (whose `X expected, got Y` is Lua's
---- too). They share ordinary words with doc comments the catalog holds and
---- say nothing of cosmic's own failures, which [`Errors.hint`] answers
---- where it can. A location with a space in the chunk name is not seen.
+--- is one of the runtime messages the Lua VM and its argument checks write:
+--- `attempt to ...`, `module '...' not found` or `bad argument #n to ...`
+--- (whose `X expected, got Y` is theirs too), which cosmic's own bindings
+--- raise as well. They share ordinary words with doc comments the catalog
+--- holds, and no row answers them (none matched the `bad argument`
+--- messages cosmic's bindings raise); [`Errors.hint`] answers what it can. The location is `file:N: `, or `[string "..."]:N: ` for a
+--- chunk `load` made; a file name with a space in it is not seen.
 local function lua_wrote(message: string): boolean
   local line = message:match("^[^\n]*")
   line = line:gsub("^%S+:%d+: ", "", 1)
+  line = line:gsub('^%[string ".-"%]:%d+: ', "", 1)
   return line:find("^attempt to ") ~= nil or
     line:find("^module '.-' not found") ~= nil or
     line:find("^bad argument #%d+ to ") ~= nil
@@ -220,10 +223,16 @@ function Errors.guidance(message: string): string | nil
 end
 
 --- The call stack as text, with `message` at the top when one is given.
---- `level` says how many frames to skip; 1, the default, is the caller.
+--- `level` says how many frames to skip; 1, the default, is the caller,
+--- and a level past the stack gives just `stack traceback:`. A `level`
+--- below 1 raises: it would name this wrapper or the binding's own frame.
 function Errors.trace(message?: string, level?: integer): string
+  local skip = level or 1
+  if skip < 1 then
+    error("trace: level must be at least 1, got " .. tostring(skip), 2)
+  end
   -- The binding counts this frame as level 1.
-  return errors.trace(message, (level or 1) + 1)
+  return errors.trace(message, skip + 1)
 end
 
 --- The call stack of coroutine `co` as text, from its top, with

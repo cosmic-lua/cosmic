@@ -162,6 +162,8 @@ local function test_a_message_lua_wrote_gets_no_guidance()
     "t.tl:7: attempt to concatenate a nil value (field 'path')\nstack traceback:\n\t[C]: in ?",
     "module 'x' not found:\n\tno field package.preload['x']\n\tno module 'x' in the store",
     "bad argument #1 to 'insert' (table expected, got nil for the string)",
+    "[string \"a b\"]:1: attempt to concatenate a nil value (field 'path')",
+    "[string \"a b...\"]:2: bad argument #2 to 'open' (table expected, got nil for the string)",
     "t.tl:3: bad argument #2 to 'open' (table expected, got nil for the string)",
   }
   for _, message in ipairs(own) do
@@ -172,4 +174,13 @@ local function test_a_message_lua_wrote_gets_no_guidance()
   assert(Errors.guidance_in(db, "the record has a nil value in its field") ~= nil)
   assert(Errors.guidance_in(db, "wrapped: t.tl:7: attempt to concatenate a nil value " ..
       "in its field of the record") ~= nil)
+end
+
+--- A level below 1 would name the wrapper or the binding, so it raises;
+--- one past the stack leaves just the heading.
+local function test_trace_refuses_a_level_below_one()
+  local ok, err = pcall(Errors.trace, nil, 0)
+  assert(not ok and tostring(err):find("level must be at least 1", 1, true) ~= nil, tostring(err))
+  assert(not pcall(Errors.trace, nil, -1))
+  assert(Errors.trace(nil, 1000) == "stack traceback:")
 end
