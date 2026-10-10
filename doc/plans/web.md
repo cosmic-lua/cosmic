@@ -340,8 +340,8 @@ cooperative process.
 [`Url.escape`]: ../../cosmic/url.tl
 
 [`cosmic.http.wire`]: ../../cosmic/http/wire.tl
-[`Poll.notifier`]: ../../cosmic/poll.tl
 [`Html.url_part`]: ../../cosmic/html.tl
+[`Poll.notifier`]: ../../cosmic/poll.tl
 [`Server.Reply.headers`]: ../../cosmic/http/server.tl
 [`Server.serve`]: ../../cosmic/http/server.tl
 [`Shape.into`]: ../../cosmic/shape.tl
