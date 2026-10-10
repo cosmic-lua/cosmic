@@ -1,0 +1,10 @@
+file: tl.tl
+note: `coroutine.wrap` joins the names a special-function handler may carry (42c): its result is declared the type of its argument, which is wrong for a function that never returns, since the wrapped function returns to its caller whenever the coroutine yields
+--- find
+   "rawget"
+   "require"
+--- replace
+   "rawget"
+   "require"
+   "coroutine.wrap"
+--- end

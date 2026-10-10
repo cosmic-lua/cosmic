@@ -784,6 +784,8 @@ local function test_what_does_not_end_a_block_keeps_its_guard_open(tmp: string)
       'if print then fail("no") end' },
     ["pcall"] = { "local function fail(m: string): never error(m) end\n", 'pcall(fail, "no")' },
     ["iterator"] = { "local function fail(): never error('x') end\n", 'for _ in fail do end' },
+    ["wrap"] = { "local function nv(m: string): never coroutine.yield(1) error(m) end\n" ..
+        "local co = coroutine.wrap(nv)\n", 'co("a")' },
     ["operator"] = { "local record V\n   metamethod __add: function(a: V, b: V): never\nend\n" ..
         "local v: V\n", 'local _ = v + v' },
   }

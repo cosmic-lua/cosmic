@@ -1485,6 +1485,12 @@ function teal.replacement(msg: string, source: string, y: integer, x: integer,
   if msg == "syntax error, expected one of: ')', ','" then
     return vararg_name_hint(source, y, x)
   end
+  if msg == "unknown type never" then
+    return "`never` is no type: `: never` is the whole return list of a function that does not " ..
+      "return, so `function(): never | nil` is a function returning `never | nil`. " ..
+      "To allow nil, name the function type, `local type Fail = function(): never`, " ..
+      "and write `Fail | nil`"
+  end
   local self_hint = interface_self_hint(msg) or type_parameter_hint(msg)
   if self_hint ~= nil then
     return self_hint

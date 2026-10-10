@@ -13,9 +13,10 @@ defines the target; once something ships, it leaves this file.
   variable. none of `patch/tl` enforces it yet, and the tree's own Teal holds
   about seventy `as` casts to migrate or justify first. old's
   `3p/tl/tl_patch/cast.tl` and `docs/design/cast-legality.md` are useful
-  implementation and migration evidence. the policy covers `is` on a function
-  type too, which narrows an `any` to `function(): never` unchecked, as `as`
-  does.
+  implementation and migration evidence. the policy covers `is` too: `as` and `is`
+  give any target type unchecked, so one that contains a never-function (a
+  function type, or a record or container with such a field) forges the
+  guarantee of `: never`.
 - add `: never` to Teal as a flag on a function type, so a helper that only
   raises (and [`Proc.exit`]) narrows below a guard as `error` does:
   [doc/plans/teal-never.md](plans/teal-never.md) has the design and the

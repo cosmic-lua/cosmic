@@ -18,9 +18,5 @@ note: an overloaded function stands for a function that never returns only when 
                   end
                end
             end
-            -- TODO: this asks for b <: t of some overload t, the reverse of what
-            -- the comment above says (some t <: b), so a poly stands for any function
-            -- one of its overloads accepts; the fix is to ask for t <: b, which may
-            -- refuse programs that pass now, so compile the tree with it first.
             if self:exists_supertype_in(b, a) then
 --- end

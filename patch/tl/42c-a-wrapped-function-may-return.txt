@@ -1,0 +1,23 @@
+file: tl.tl
+note: `coroutine.wrap(f)` is declared to answer the type of f, which keeps `never` (40d8) for a function that never returns; the wrapper returns to its caller whenever the coroutine yields, so a call of it must not end a block. The handler checks the call as any, then answers the function type without the flag. This closes the call only: `wrap` given to a variable declared `function(function(): never): function(): never` is accepted (the generic instantiates F to both), as is any generic declared `function<F>(F): F` that does not return its argument
+--- find
+      ["rawget"] = function(self: TypeChecker, node: Node, _a: Type, b: TupleType, _argdelta?: integer): InvalidOrTupleType
+--- replace
+      ["coroutine.wrap"] = function(self: TypeChecker, node: Node, a: Type, b: TupleType, argdelta?: integer): InvalidOrTupleType
+         local ret = self:type_check_function_call(node, a, b, argdelta)
+         if ret is TupleType and #ret.tuple == 1 then
+            local wrapped: Type = ret.tuple[1]
+            if wrapped is NominalType then
+               wrapped = self:resolve_nominal(wrapped)
+            end
+            if wrapped is FunctionType and wrapped.never then
+               local copy = shallow_copy_new_type(wrapped)
+               copy.never = nil
+               return a_tuple(node, { copy })
+            end
+         end
+         return ret
+      end,
+
+      ["rawget"] = function(self: TypeChecker, node: Node, _a: Type, b: TupleType, _argdelta?: integer): InvalidOrTupleType
+--- end

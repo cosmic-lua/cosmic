@@ -1,0 +1,9 @@
+file: tl.tl
+note: the standard `coroutine.wrap` gets a special-function handler (42c)
+--- find
+      set_special_function(stdlib_globals["type"].t, "type")
+--- replace
+      set_special_function(stdlib_globals["type"].t, "type")
+      local coroutine_t = (stdlib_globals["coroutine"].t as TypeDeclType).def as RecordType
+      set_special_function(coroutine_t.fields["wrap"], "coroutine.wrap")
+--- end
