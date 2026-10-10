@@ -1,11 +1,7 @@
 --- The merge queue's result, which a push to main reuses rather than
 --- testing the same commit again (README.md's "the queue's result"), and
---- the run ahead of a queue run in the queue, whose verdicts it takes.
---- TODO: word this header and `ahead`'s log lines by what ARTIFACT holds
---- (verdicts, or a driver check's key, which ci.yml's "find the CI driver
---- check of the run ahead in the queue" asks for), once queue_seed_test.tl
---- stops pinning "this run takes its verdicts" and the harness-epoch line,
---- which say verdicts alone.
+--- the run ahead of a queue run in the queue, whose verdicts or driver
+--- check it takes.
 --- Both ask the API through [`Github.Host`] and never fail their step: a
 --- full run, or none of the verdicts ahead, costs time, never a result.
 ---
@@ -310,9 +306,9 @@ function QueueSeed.ahead(env: {string:string}, host: Github.Host): integer
   local found, said = "", ""
   local deadline = host.now() + within
   if not Github.is_commit(base) then
-    said = "no base to find the run ahead by: the restore's verdicts alone."
+    said = "no base to find the run ahead by: nothing taken from the run ahead."
   elseif host.moved(base) then
-    said = "build/harness_epoch.tl moved from " .. base .. "'s: every test runs (--all), and stands on no verdict."
+    said = "build/harness_epoch.tl moved from " .. base .. "'s: nothing taken from the run ahead; a suite runs every test (--all)."
   end
   while said == "" do
     -- At most three calls a round, each cut off at CALL_SECONDS.
@@ -329,7 +325,7 @@ function QueueSeed.ahead(env: {string:string}, host: Github.Host): integer
         end
       end
       if run == "" then
-        said = base .. " is no merge queue run's head: the restore's verdicts alone."
+        said = base .. " is no merge queue run's head: nothing taken from the run ahead."
       end
     else
       pending = true
@@ -342,7 +338,7 @@ function QueueSeed.ahead(env: {string:string}, host: Github.Host): integer
       elseif names[artifact] then
         found = run
       elseif status == "completed" then
-        said = "the run ahead, " .. run .. ", completed without " .. artifact .. ": the restore's verdicts alone."
+        said = "the run ahead, " .. run .. ", completed without " .. artifact .. ": nothing taken from the run ahead."
       else
         local answered = Github.ask(host, run_path(s, run, "jobs"), false, s.call)
         local jobs = answered and jobs_of(answered, suite) or nil
@@ -358,7 +354,7 @@ function QueueSeed.ahead(env: {string:string}, host: Github.Host): integer
           end
           if mine ~= nil and mine.status == "completed" then
             said = job .. " of the run ahead, " .. run .. ", completed without " .. artifact ..
-              ": the restore's verdicts alone."
+              ": nothing taken from the run ahead."
           else
             pending = true
             -- A job with none listed has not started: nor reached its suite.
@@ -366,13 +362,13 @@ function QueueSeed.ahead(env: {string:string}, host: Github.Host): integer
             local started = mine ~= nil and mine.started or nil
             if suite ~= "" and not reached then
               said = job .. " of the run ahead, " .. run .. ", has not begun '" .. suite ..
-                "' (not started, building, or waiting on its own run ahead): the restore's verdicts alone."
+                "' (not started, building, or waiting on its own run ahead): nothing taken from the run ahead."
             elseif ready ~= nil then
               if started == nil then
-                said = job .. " of the run ahead, " .. run .. ", has not started: the restore's verdicts alone."
+                said = job .. " of the run ahead, " .. run .. ", has not started: nothing taken from the run ahead."
               elseif started + ready > deadline then
                 said = job .. " of the run ahead, " .. run .. ", keeps " .. artifact ..
-                  " only after the wait: the restore's verdicts alone."
+                  " only after the wait: nothing taken from the run ahead."
               end
             end
           end
@@ -384,9 +380,9 @@ function QueueSeed.ahead(env: {string:string}, host: Github.Host): integer
   end
   host.output("run=" .. found)
   if found ~= "" then
-    said = "the run ahead, " .. found .. ", holds " .. artifact .. ": this run takes its verdicts."
+    said = "the run ahead, " .. found .. ", holds " .. artifact .. ": this run takes it."
   elseif said == "" then
-    said = "the run ahead of " .. base .. " left no " .. artifact .. " in time: the restore's verdicts alone."
+    said = "the run ahead of " .. base .. " left no " .. artifact .. " in time: nothing taken from the run ahead."
   end
   Github.say(host, said)
   return 0
