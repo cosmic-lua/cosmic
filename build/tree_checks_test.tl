@@ -43,6 +43,38 @@ local function test_an_unearned_export_and_a_stale_allowance_are_refused(dir: st
     table.concat(found, "\n"))
 end
 
+--- A type a member of the returned record names must itself be a member:
+--- one left local is refused, naming the module and the line; the same
+--- type re-exported with `type Name = Name` passes.
+local function test_a_type_the_api_names_but_does_not_export_is_refused(dir: string)
+  local function tree(exported: boolean): Sqlite.Handle
+    return fixture.database(dir, {
+      ["cosmic/thing.tl"] = source(
+        "--- Where.",
+        "local enum Where",
+        "  \"here\"",
+        "end",
+        "",
+        "local record Options",
+        "  place: Where",
+        "end",
+        "",
+        "local record Thing",
+        "  type Options = Options",
+        exported and "  type Where = Where" or "",
+        "end",
+        "",
+        "function Thing.run(options: Options) end",
+        "return Thing"),
+    })
+  end
+  local found = tree_checks.unnamed_types(tree(false))
+  assert(#found == 1 and found[1]:find("^cosmic/thing%.tl:2: cosmic%.thing: Where is named") ~= nil,
+    table.concat(found, "\n"))
+  found = tree_checks.unnamed_types(tree(true))
+  assert(#found == 0, table.concat(found, "\n"))
+end
+
 --- A Teal module of `cosmic/internal/` is held to the rule a public one
 --- is: an export no other module calls is flagged, one a `cosmic/` module
 --- calls is earned, and a raw declaration beside them is left out.
