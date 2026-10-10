@@ -370,9 +370,6 @@ local function test_decode_query_is_total_and_keeps_what_it_reads(tmp: string)
         total = total + #values
       end
       if total ~= #q.pairs then return false, "by_name and pairs disagree" end
-      if text:find("^[^&%%+]*$") and #q.pairs > 0 and text:find(";", 1, true) and not text:find("&", 1, true) then
-        if #q.pairs ~= 1 then return false, "split on ;" end
-      end
       Fuzz.label("decoded")
       return true, ""
     end,

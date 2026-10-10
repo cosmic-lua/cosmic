@@ -121,10 +121,6 @@ function Url.query_all(q: Url.Query, name: string): {string}
 --- decodes back to the same pairs. Raises on a pair whose name or value is
 --- not a string.
 function Url.encode_query(pairs: {Url.Pair}): string
-
---- `Url.unescape` with "+" read as a space first: the form rule for one
---- piece. (Order matters: "%2B" must stay "+".)
-function Url.form_unescape(text: string): string | nil, string
 ```
 
 Why a `Query` with both `pairs` and `by_name`: `pairs` keeps the order a
@@ -1716,7 +1712,7 @@ declaration, everything else declares nothing.
 ## Changes to existing files
 
 - cosmic/url.tl: `Pair`, `Query`, `QueryOptions`, `decode_query`,
-  `encode_query`, `form_unescape`, `query_first`, `query_last`, `query_all`;
+  `encode_query`, `query_first`, `query_last`, `query_all`;
   remove the corresponding roadmap bullet (doc/roadmap.md:243-249 partially).
   The module comment says "Nothing here raises on its text", which stays true.
 - cosmic/http/wire.tl:434: join `cookie` with `"; "`.

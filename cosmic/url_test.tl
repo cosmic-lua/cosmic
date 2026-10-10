@@ -248,8 +248,16 @@ local function test_decode_query_refuses_invalid_utf8_unless_told_not_to()
   local q, why = Url.decode_query("a=1&b=%FF")
   assert(q == nil and why == "url: the name or value of pair 2 is not valid UTF-8", why)
   assert(Url.decode_query("%ED%A0%80=1") == nil)
+  assert(Url.decode_query("a=%C0%80") == nil, "overlong NUL")
+  assert(Url.decode_query("a=%F4%90%80%80") == nil, "past U+10FFFF")
   assert(names_values(decoded("a=%C3%A9")) == "a=\xc3\xa9")
   assert(names_values(decoded("b=%FF%00", { utf8 = false })) == "b=\xff\0")
+end
+
+local function test_decode_query_lenient_without_utf8_keeps_stray_percent_and_raw_bytes()
+  local text = "a=%FF%&b=%4"
+  assert(Url.decode_query(text, { lenient = true }) == nil)
+  assert(names_values(decoded(text, { lenient = true, utf8 = false })) == "a=\xff%|b=%4")
 end
 
 local function test_decode_query_caps_pairs_and_bytes()
