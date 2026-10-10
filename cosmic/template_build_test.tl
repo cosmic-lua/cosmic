@@ -12,6 +12,12 @@ local work = require("build.work")
 local profile_page = require("test.profile_page")
 local sample = require("test.profile_page_sample")
 
+-- A fixture type-checks against the `cosmic.*` modules it requires, read
+-- out of the store, which holds this test to its import closure:
+-- [`cosmic.html`] reaches the types of `cosmic.json` and [`cosmic.stream`].
+local type _json = require("cosmic.json")
+local type _stream = require("cosmic.stream")
+
 local built, load_trouble = teal.load()
 if built == nil then
   error("could not load the compiler: " .. tostring(load_trouble))

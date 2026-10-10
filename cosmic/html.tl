@@ -10,14 +10,20 @@
 ---   [`Html.href`] (from data, through an allowlist) or [`Html.trust_url`].
 ---   It is not escaped for an attribute: the page does that where it
 ---   puts the URL in one.
---- - [`Html.raw`], [`Html.raw_attr`] and [`Html.raw_url`] are the way back
----   to the string.
+--- - [`Html.SafeUrlPart`] is one piece of a URL (a path segment, a query
+---   name or value, a fragment), made by [`Html.url_part`] or
+---   [`Html.url_query`].
+--- - [`Html.SafeJson`] is JSON text for an attribute such as `hx-vals`,
+---   made by [`Html.json`] or [`Html.json_text`]. It has no unchecked door.
+--- - [`Html.raw`], [`Html.raw_attr`], [`Html.raw_url`],
+---   [`Html.raw_url_part`] and [`Html.raw_json`] are the way back to the
+---   string.
 ---
 ---     local item = Html.escape("Fish & Chips")
 ---     local row = Html.concat({ Html.trust("<li>"), item, Html.trust("</li>") })
 ---     local markup = Html.raw(row) -- "<li>Fish &amp; Chips</li>"
 ---
---- All three types are opaque: a table literal, a string, or one in the other's
+--- All the types are opaque: a table literal, a string, or one in the other's
 --- place is a type error, and a value is made only in this module, by the
 --- escaping or by the `trust` functions, which a review can search for.
 --- There is no `__concat` and no `__tostring`: a safe value cannot reach a
@@ -31,6 +37,7 @@
 -- `cosmic.internal.` namespace -- see cosmic/store.tl for why this
 -- indirection exists.
 local type raw_html = require("cosmic.internal.html")
+local Json = require("cosmic.json")
 
 local extra: any = select(2, ...)
 local raw: raw_html
@@ -53,6 +60,16 @@ local record Html
   --- by [`Html.href`] or [`Html.trust_url`]. Its text is a URL, not
   --- attribute-escaped.
   type SafeUrl = raw_html.SafeUrl
+
+  --- One piece of a URL: a path segment, a query name or value, or a
+  --- fragment. Opaque: a value is made by [`Html.url_part`],
+  --- [`Html.url_query`]. Its text is
+  --- percent-escaped, not attribute-escaped.
+  type SafeUrlPart = raw_html.SafeUrlPart
+
+  --- JSON text. Opaque: a value is made by [`Html.json`] or
+  --- [`Html.json_text`], which check it. Its text is not attribute-escaped.
+  type SafeJson = raw_html.SafeJson
 end
 
 --- `s` as text in element content, or in a quoted attribute value: `&`,
@@ -124,6 +141,96 @@ end
 --- The string a [`Html.SafeUrl`] holds.
 function Html.raw_url(x: Html.SafeUrl): string
   return raw.raw_url(x)
+end
+
+--- `s` as a URL that may only be a relative reference on this origin, for
+--- an `href` or `src` the page must not point elsewhere. Like
+--- [`Html.href`] but with no scheme allowed: a colon before the first
+--- `/`, `?` or `#` is refused, as are a C0 control byte, a DEL, a space at
+--- either end, and a start of two of `/` and `\`. Anything refused is
+--- `about:invalid`.
+---
+---     Html.raw_url(Html.local_href("/a?b=c")) -- "/a?b=c"
+---     Html.raw_url(Html.local_href("https://example.com/")) -- "about:invalid"
+function Html.local_href(s: string): Html.SafeUrl
+  return raw.local_href(s)
+end
+
+--- `s`, a string or a number, as one piece of a URL: every byte but the
+--- unreserved ones (`A-Z a-z 0-9 - . _ ~`) is written `%` and two
+--- uppercase hex digits, exactly as [`Url.escape`] writes it. So it is
+--- right as a path segment, a query name or value, or a fragment, and
+--- holds no `:`, `/`, `\`, `?`, `#`, `&`, `=`, `+` or `@`. A number is
+--- written as `tostring` writes it.
+---
+--- A value that is exactly `.` or `..` is the one difference from
+--- [`Url.escape`], because a browser takes those, and their `%2e` spellings,
+--- for a dot segment and drops or climbs a segment, so they are written
+--- `%252E` and `%252E%252E`, text a server reads as a name that matches
+--- nothing. Only the value is seen: author text beside the slot
+--- (`/a/.` and a part of `.`) can still make a dot segment.
+---
+---     Html.raw_url_part(Html.url_part("a b/c")) -- "a%20b%2Fc"
+---     Html.raw_url_part(Html.url_part("..")) -- "%252E%252E"
+function Html.url_part(s: string | number): Html.SafeUrlPart
+  return raw.url_part(s)
+end
+
+--- `entries` as a query string: each `{name, value}` written
+--- `name=value` with both halves escaped as by [`Html.url_part`] but for
+--- the dot rule, joined by `&`, in order. A name may repeat. Answers
+--- `nil` and why for a pair that is not two strings; raises for
+--- `entries` that is no sequence.
+---
+---     Html.raw_url_part(Html.url_query({ { "q", "a b" }, { "t", "x&y" } })) -- "q=a%20b&t=x%26y"
+function Html.url_query(entries: {{string}}): Html.SafeUrlPart | nil, string
+  local part, why = raw.url_query(entries)
+  if part == nil then return nil, why end
+  return part, ""
+end
+
+--- The string a [`Html.SafeUrlPart`] holds.
+function Html.raw_url_part(x: Html.SafeUrlPart): string
+  return raw.raw_url_part(x)
+end
+
+--- `s`, a string or a number, as CSS identifier text in a quoted
+--- attribute, for a selector such as `hx-target="#row-..."`. It is
+--- `CSS.escape`, then [`Html.escape_attr`]. Letters, digits (but a
+--- leading one) and bytes of 0x80 or more stay; `-` and `_` stay as CSS
+--- (as character references in the attribute); every other ASCII byte is
+--- a backslash, its code in lowercase hex and a space (`,` is
+--- `\2c `); NUL is U+FFFD. The space ends the escape, so a literal space
+--- after the slot is still a combinator. Only identifier text is
+--- covered, not the inside of a CSS string.
+---
+---     Html.raw_attr(Html.escape_css_attr("x, body")) -- "x&#92;2c&#32;&#92;20&#32;body"
+function Html.escape_css_attr(s: string | number): Html.SafeAttr
+  return raw.escape_css_attr(s)
+end
+
+--- `value` as JSON text, from [`Json.encode`]. Answers `nil` and why
+--- where it cannot be encoded (a function, a cycle, NaN, ...).
+---
+---     Html.raw_json(assert(Html.json({ id = 7 }))) -- '{"id":7}'
+function Html.json(value: any): Html.SafeJson | nil, string
+  local text, why = Json.encode(value)
+  if text == nil then return nil, why end
+  return raw.trust_json(text), ""
+end
+
+--- `text` as JSON text already encoded, if [`Json.check`] reads it.
+--- Answers `nil` and why otherwise.
+function Html.json_text(text: string): Html.SafeJson | nil, string
+  local ok, why = Json.check(text)
+  if not ok then return nil, why end
+  return raw.trust_json(text), ""
+end
+
+--- The string a [`Html.SafeJson`] holds: JSON, not escaped for an
+--- attribute.
+function Html.raw_json(x: Html.SafeJson): string
+  return raw.raw_json(x)
 end
 
 --- `s` as markup that is already safe, unchecked: the one way to put
