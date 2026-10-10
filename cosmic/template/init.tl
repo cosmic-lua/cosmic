@@ -20,9 +20,16 @@
 ---     {{with .owner}}{{.name}}{{else}}nobody{{end}}  dot is the value, if truthy
 ---
 --- A name in a field path is a field of the record: a typo is a type
---- error, not an empty hole. A stage is a function by import path, whose
---- module the generated source requires; composing one template in another
---- is a stage naming its `render`. Truthiness is Lua's: only `nil` and
+--- error, not an empty hole. The record's module is required for its types
+--- alone, so a declaration file (`.d.tl`) may export it and its body does not
+--- run, unless a stage reads it too. It must return the record type itself,
+--- as a `.d.tl` or `local record M ... end return M` does: one that returns
+--- a value of it is refused. A stage is a function by import path,
+--- whose module the generated source requires; composing one template in
+--- another is a stage naming its `render`. A stage answers exactly one value,
+--- wherever it stands: one declared to answer a fixed number of values
+--- above one is a type error on the template's line, so a function that can fail (`nil, reason`) is wrapped by
+--- the caller into a stage that answers a value. Truthiness is Lua's: only `nil` and
 --- `false` are false, not `""` or `0`.
 ---
 --- `{{-` drops the whitespace before an action (newlines too) and `-}}`
@@ -72,7 +79,7 @@ end
 
 --- Compiles a template to the source of a Teal module that exports
 --- `render`, requiring [`cosmic.html`] in an `html` template, the record's
---- module, and each stage's.
+--- module (for its types alone, unless a stage reads it), and each stage's.
 --- @param src string The template source
 --- @param name string The template's name (its file), which heads each reason
 --- @return string|nil The module source, with line N the template's line N
