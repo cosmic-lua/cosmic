@@ -575,13 +575,10 @@ HTTP header values are bytes, and `XMLHttpRequest.getResponseHeader` reads
 them as Latin-1, so UTF-8 in a header becomes mojibake before htmx parses
 the JSON. Header JSON must be ASCII with `\uXXXX` escapes. Small change to
 an existing module: [`Json.EncodeOptions`] (json.tl:123) gains
-`ascii: boolean` (default false), passed to the yyjson writer as
-`YYJSON_WRITE_ESCAPE_UNICODE` in the core's encode (core/json.c) beside
-`pretty` (json.tl:462-464 passes `opts.pretty, opts.max_depth` to
-`raw.encode`; the third flag is one more argument). Fallback if that is
-unwanted: a Teal post-pass in `cosmic.web.htmx` that decodes UTF-8 with
-`utf8.codepoint` and writes surrogate pairs; about twenty lines and tested
-against the C option when it lands.
+`ascii: boolean` (default false), passed to the core's encoder (core/json.c), which writes every non-ASCII
+character as `\uXXXX` escapes, beside `pretty` (json.tl:462-464 passes `opts.pretty, opts.max_depth` to
+`raw.encode`; the third flag is one more argument). Built as the C
+option; no Teal post-pass exists.
 
 ## 6. cosmic.web htmx support
 
@@ -1151,8 +1148,8 @@ same change.
    default (it prevents the fragment-on-Back bug even when a proxy ignores
    `Vary`), overridable by the handler setting its own.
 8. [`Json.EncodeOptions.ascii`] in the core encoder (section 5.3) versus a
-   Teal post-pass. Recommend the core option: it is one flag, and the
-   Teal fallback is kept only until it lands (a `TODO:` at the post-pass).
+   Teal post-pass. Decided: the core option, one flag in the C
+   encoder; there is no Teal fallback.
 9. Names: `urlpart` vs `url_part`; `url_local` vs `local_url`; whether
    `Html.json` should live on [`cosmic.html`] (needs `cosmic.json`) or on
    `cosmic.web`. Recommend [`cosmic.html`], because the template's generated
@@ -1165,8 +1162,6 @@ is):
 - In the htmx dialect: attribute selectors with data and a whole-selector
   hatch, waiting on a CSS string escaper (roadmap item for JS and CSS).
 - In the htmx dialect: `hx-trigger` slots, waiting on a `SafeTrigger`.
-- In `cosmic.web.htmx`: the Teal ASCII-JSON post-pass, once
-  [`Json.EncodeOptions.ascii`] lands.
 - In the template's `ident` rule: `\`-escaped identifiers written in the
   literal text are treated as the end of an identifier; waiting on a
   CSS-aware scan if anyone writes them.

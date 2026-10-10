@@ -1090,10 +1090,9 @@ Token format, fixed:
   `==`). Add `Hash.equal(a: string, b: string): boolean` to cosmic/hash.tl:
   `false` at once when lengths differ (lengths of MACs are public), otherwise
   OR-accumulate `a:byte(i) ~ b:byte(i)` over all bytes with no early exit.
-  Pure Teal now, with `TODO: once cosmic.sys carries a constant-time compare
-  (CRYPTO_memcmp)`, because a C binding is the only form that cannot be
-  optimized into an early exit; for 32-byte MACs the Lua loop has no
-  data-dependent branch. It also serves the CSRF compare.
+  A C binding (core/hash.c, a volatile accumulator over every byte), the only
+  form that cannot be optimized into an early exit. It also serves the CSRF
+  compare.
 - Verify order: split on the last `.`; refuse a token over `max_bytes` *before*
   decoding (no big allocations from a hostile cookie); MAC first, against
   every key in `keys` (so rotation window = number of keys; at most 5
@@ -1784,9 +1783,8 @@ declaration, everything else declares nothing.
 9. CSP reporting (`report-to`, a `/csp-report` endpoint). Recommendation:
    leave out of v1; `csp_report_only` is enough to trial a policy by the
    browser console.
-10. [`Hash.equal`] in pure Teal vs a C binding. Recommendation: Teal now with
-    the `TODO:` naming cosmic.sys; the C binding needs the [`core/syscalls.h`]
-    contract and a test that enters it, so it is a separate change.
+10. [`Hash.equal`] in pure Teal vs a C binding. Decided: a C binding in
+    core/hash.c, as only C keeps the compiler from adding an early exit.
 11. Should `Session.middleware` fall back to an ephemeral key in dev without
     configuration? Recommendation: only through an explicit
     `Secret.ephemeral()` in the app's own code, never implicitly.
@@ -1795,7 +1793,6 @@ declaration, everything else declares nothing.
 
 [`Codec.base64url`]: ../../../cosmic/codec.tl
 [`Codec.unbase64url`]: ../../../cosmic/codec.tl
-[`core/syscalls.h`]: ../../../core/syscalls.h
 [`cosmic.codec`]: ../../../cosmic/codec.tl
 [`cosmic.hash`]: ../../../cosmic/hash.tl
 [`cosmic.http.server`]: ../../../cosmic/http/server.tl

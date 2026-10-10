@@ -132,7 +132,7 @@ function Hash.siphash(key: string, data: string, options?: Hash.SipHashOptions):
   return raw.siphash(key, data, o.compression, o.finalization, o.size)
 end
 
---- Whether `a` and `b` are the same bytes, for checking a MAC or a
+--- Whether the strings `a` and `b` are the same bytes, for checking a MAC or a
 --- token against one a client sent: the time taken depends on the
 --- length alone, never on where the strings first differ, so a caller
 --- timing the answer learns nothing about the secret. Strings of

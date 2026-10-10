@@ -71,6 +71,11 @@ local function test_equal_raises_on_a_non_string()
   assert(not ok)
   ok = pcall(equal, "1", nil)
   assert(not ok)
+  -- A number converts to a string in Lua; a MAC is never one.
+  ok = pcall(equal, 123, "123")
+  assert(not ok)
+  ok = pcall(equal, "123", 123)
+  assert(not ok)
 end
 
 local function test_digests_match_published_vectors()

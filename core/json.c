@@ -1068,15 +1068,15 @@ static int put_string (struct encoding *e, const char *s, size_t n) {
       i += extra;
       start = i + 1;
       char escape[12];
-      size_t length = 6;
+      enum { escape_length = 6 };
       if (code >= 0x10000) {
         uint32_t high = 0xd800 + ((code - 0x10000) >> 10);
         code = 0xdc00 + ((code - 0x10000) & 0x3ff);
         snprintf(escape, sizeof escape, "\\u%04x", (unsigned)high);
-        if (put(e, escape, length) < 0) return -1;
+        if (put(e, escape, escape_length) < 0) return -1;
       }
       snprintf(escape, sizeof escape, "\\u%04x", (unsigned)code);
-      if (put(e, escape, length) < 0) return -1;
+      if (put(e, escape, escape_length) < 0) return -1;
       continue;
     }
     if (c >= 0x20 && c != '"' && c != '\\') continue;

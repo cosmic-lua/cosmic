@@ -246,10 +246,10 @@ Each is a small PR of its own, landing before the module that needs it.
 - [`cosmic.template`]: slots after literal text in a URL (the TODO at
   markup.tl:1052), selector and JSON slots, `{{use}}`, the dialect
   registry, and the `hx-on*` and `hx-vars` refusals, always on.
-- [`cosmic.json`]: an `ascii` encode option, for JSON in a response
-  header (`HX-Trigger`).
-- [`cosmic.hash`]: [`Hash.equal`], a constant-time compare, in Teal with a
-  `TODO:` for a C binding.
+- [`cosmic.json`]: an `ascii` encode option in the C encoder, for JSON in a
+  response header (`HX-Trigger`).
+- [`cosmic.hash`]: [`Hash.equal`], a constant-time compare, a C binding
+  in core/hash.c.
 - [`cosmic.poll`]: `Poll.notifier`, a wait another task wakes.
 - [`cosmic.layout`], build/derivation.tl and build/schema.tl: the
   `static/` convention, carried in the reserved `payload` table with each

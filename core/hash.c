@@ -156,7 +156,7 @@ static int hash_byte_sum (lua_State *L) {
   return 1;
 }
 
-/* Whether two strings hold the same bytes, in a time that depends on their
+/* equal(a, b): whether two strings hold the same bytes, in a time that depends on their
  * length alone: every byte is compared and the differences accumulate, with
  * no branch on a byte. The accumulator is volatile so the compiler cannot
  * stop the loop at the first difference. Different lengths answer false at
@@ -164,6 +164,9 @@ static int hash_byte_sum (lua_State *L) {
 static int hash_equal (lua_State *L) {
   size_t a_len;
   size_t b_len;
+  /* A number would convert to a string; a MAC is never one. */
+  luaL_checktype(L, 1, LUA_TSTRING);
+  luaL_checktype(L, 2, LUA_TSTRING);
   const unsigned char *a =
       (const unsigned char *)luaL_checklstring(L, 1, &a_len);
   const unsigned char *b =
