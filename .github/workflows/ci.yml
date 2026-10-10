@@ -320,8 +320,18 @@
         # runner's detected CPU is the likeliest: its maker (11 MB, in
         # the global cache) and the configurer compiled from build.zig
         # (22 MB, in the project cache, beside its configuration under
-        # `c/`); a step listing what the build wrote under zig-build
-        # (find -newer a stamp made after the restore) would say.
+        # `c/`). A second boot of an unchanged tree on one machine writes
+        # only dependencies.zig, and the maker and configurer are built
+        # for the detected CPU with no flag, variable or library file to
+        # name another (zig 0.17 compiles them inside its binary), so
+        # that stays unverified here and unfixed until a zig that builds
+        # them for a baseline CPU is pinned. The step "list what the
+        # build wrote to the zig build cache" (below, on runs of main and
+        # the queue that restored a match) prints the runner's CPU and
+        # what the build wrote since the restore; read it on a run of
+        # main, and once bin/zig.pin names a zig that builds them for
+        # the baseline CPU, or the writes name another cause, replace
+        # this TODO.
         # An entry restored here gives every file a new inode, which zig
         # 0.17 reads as a changed C source: the driver's boot takes the
         # new inodes into the manifests before it builds
@@ -359,6 +369,17 @@
             key: "${{ steps.zig-cache-restore.outputs.cache-primary-key }}",
             "restore-keys": "zig-build-${{ matrix.name }}-\n",
           },
+        },
+
+        # The mark the report below counts the build's writes from: after
+        # both restores, before the driver's boot (which rewrites the
+        # manifests of the restored files, cosmic_ci/zig_restat.tl).
+        {
+          name: "mark the restored zig build cache",
+          "continue-on-error": true,
+          shell: "sh",
+          "working-directory": ".",
+          run: "sh .github/scripts/zig-build-writes.sh stamp",
         },
 
         # Restored on the host, bootstrapped in the container: a composite
@@ -748,6 +769,21 @@
           id: "assemble",
           if: "env.COSMIC_CI_SCOPE == 'full'",
           run: "cosmic-driver cosmic_ci/driver.tl platform assemble",
+        },
+
+        # Where a run of main or the merge queue restored an entry of its
+        # own vendor and core part, what it wrote to zig-build is what
+        # the TODO at the restore asks about; before the prune below
+        # removes any of it. Not the scheduled run, which restores
+        # nothing (it only looks the entry up) and builds cold.
+        {
+          name: "list what the build wrote to the zig build cache",
+          "continue-on-error": true,
+          if: "always() && github.event_name != 'schedule' && steps.assemble.outcome != 'skipped' && (env.COSMIC_CI_SAVES == 'true' || github.event_name == 'merge_group') && startsWith(steps.zig-cache-restore.outputs.cache-matched-key, format('{0}full-{1}-', steps.names.outputs.vendor, steps.names.outputs.core))",
+          shell: "sh",
+          "working-directory": ".",
+          env: {RESTORED: "${{ steps.zig-cache-restore.outputs.cache-matched-key }}"},
+          run: "sh .github/scripts/zig-build-writes.sh report",
         },
 
         # What a save of zig's caches below would carry that no build of
