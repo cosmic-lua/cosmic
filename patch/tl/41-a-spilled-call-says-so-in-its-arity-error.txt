@@ -1,0 +1,108 @@
+file: tl.tl
+note: a call refused for its number of arguments whose last argument is a call that returns several values says so in the arity error itself, which comes first: the extra values are what the callee has no room for, and the fix is parentheses around that call (an assert(...) is also reported at itself, 17b, which `cosmic fix` reads)
+--- find
+   function TypeChecker:type_check_funcall(node: Node, a: Type, b: TupleType, argdelta?: integer): InvalidOrTupleType
+      if node.e1.op and node.e1.op.op == ":" then
+         table.insert(b.tuple, 1, node.e1.receiver)
+         argdelta = -1
+      else
+         argdelta = argdelta or 0
+      end
+
+      local before = #self.errs.errors
+      local given = node.e2 and #node.e2 or 0
+      local spilled = #b.tuple > given + (argdelta == -1 and 1 or 0)
+
+      local sa = resolve_for_special_function(a)
+      if sa then
+         local special_tyck = special_functions[sa.special_function_handler]
+         if special_tyck then
+            local ret = special_tyck(self, node, a, b, argdelta)
+            if spilled then self:assert_spill_hint(node.e2[given], before) end
+            return ret
+         end
+      end
+
+      local ret = self:type_check_function_call(node, a, b, argdelta)
+      if spilled then self:assert_spill_hint(node.e2[given], before) end
+      return ret
+   end
+--- replace
+   -- A callee as written (`Json.decode`, `obj:get`, `f`); nil for any other
+   -- expression.
+   local function callee_text(n: Node): string | nil
+      if n.kind == "variable" then
+         return n.tk
+      end
+      if n.kind == "op" and n.op and (n.op.op == "." or n.op.op == ":") and n.e1 and n.e2 and n.e2.tk then
+         local left = callee_text(n.e1)
+         if left then
+            return left .. n.op.op .. n.e2.tk
+         end
+      end
+      return nil
+   end
+
+   -- Appends to the first "wrong number of arguments" error since the error
+   -- count `before` that `exp`, the last argument of the call, is a call
+   -- returning `values` (more than one) and passes them all on.
+   function TypeChecker:spill_arity_hint(exp: Node, before: integer, values: integer)
+      if not (exp and node_is_funcall(exp)) then
+         return
+      end
+      local callee = callee_text(exp.e1)
+      local call = (callee or "the call") .. "(...)"
+      local said: string
+      if callee == "assert" then
+         said = " -- the last argument assert(...) passes on every value it was given, so " ..
+            "the call is given " .. values .. " there: write (assert(...)) to keep only the first " ..
+            "(`cosmic fix` writes the parentheses)"
+      else
+         said = " -- the last argument " .. call .. " returns " .. values .. " values and the call is " ..
+            "given them all: wrap it in parentheses to pass only the first, `(" .. call .. ")`, " ..
+            "or assign it to a local first"
+      end
+      for i = before + 1, #self.errs.errors do
+         local err = self.errs.errors[i]
+         if err.msg:find("^wrong number of arguments %(") then
+            err.msg = err.msg .. said
+            return
+         end
+      end
+   end
+
+   function TypeChecker:type_check_funcall(node: Node, a: Type, b: TupleType, argdelta?: integer): InvalidOrTupleType
+      if node.e1.op and node.e1.op.op == ":" then
+         table.insert(b.tuple, 1, node.e1.receiver)
+         argdelta = -1
+      else
+         argdelta = argdelta or 0
+      end
+
+      local before = #self.errs.errors
+      local given = node.e2 and #node.e2 or 0
+      local receiver = argdelta == -1 and 1 or 0
+      local spilled = #b.tuple > given + receiver
+      local values = #b.tuple - receiver - (given - 1)
+
+      local sa = resolve_for_special_function(a)
+      if sa then
+         local special_tyck = special_functions[sa.special_function_handler]
+         if special_tyck then
+            local ret = special_tyck(self, node, a, b, argdelta)
+            if spilled then
+               self:assert_spill_hint(node.e2[given], before)
+               if not b.is_va then self:spill_arity_hint(node.e2[given], before, values) end
+            end
+            return ret
+         end
+      end
+
+      local ret = self:type_check_function_call(node, a, b, argdelta)
+      if spilled then
+         self:assert_spill_hint(node.e2[given], before)
+         if not b.is_va then self:spill_arity_hint(node.e2[given], before, values) end
+      end
+      return ret
+   end
+--- end

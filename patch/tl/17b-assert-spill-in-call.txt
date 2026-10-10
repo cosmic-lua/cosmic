@@ -24,7 +24,7 @@ note: when a call fails and its last argument is an assert(...) that expanded to
    -- list, a table constructor, or a return, when the values it expands
    -- to beyond the first are what the surrounding check refused.
    -- `cosmic fix` parenthesizes the call it names.
-   TypeChecker.assert_spill_message = "assert(...) passes on every value it was given, not only the first; write (assert(...)) to keep only the first"
+   TypeChecker.assert_spill_message = "assert(...) passes on every value it was given, not only the first; write (assert(...)) to keep only the first (`cosmic fix` writes the parentheses)"
 
    -- Adds that report at `exp` when `exp` is an assert(...) call and a
    -- check since the error count `before` failed.
