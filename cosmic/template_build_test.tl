@@ -236,3 +236,26 @@ local function test_a_data_module_a_stage_reads_is_required_once_as_a_value(tmp:
   local mod = load_module(lua, "page")
   assert(mod is Loaded and mod.render({ title = "t" }) == "T")
 end
+
+local function test_a_module_named_like_the_helpers_parameter_or_type_is_renamed(tmp: string)
+  for _, name in ipairs({ "x", "T" }) do
+    local lua, trouble = project(tmp, "helper-" .. name, {
+      [name .. ".tl"] = "local record m\n  record Page\n    title: string\n  end\n" ..
+        "  up: function(s: string): string\nend\nfunction m.up(s: string): string\n" ..
+        "  return s:upper()\nend\nreturn m\n",
+      ["page.tmpl"] = "{{type Page from " .. name .. "}}{{mode text}}{{.title | " .. name .. ".up}}" })
+    assert(lua ~= nil, name .. ": " .. trouble)
+    local mod = load_module(lua, "page")
+    assert(mod is Loaded and mod.render({ title = "t" }) == "T", name)
+  end
+end
+
+local function test_a_records_module_that_returns_a_value_of_it_is_refused(tmp: string)
+  local lua, trouble = project(tmp, "value", {
+    ["data.tl"] = "local record Data\n  record Page\n    title: string\n  end\nend\n" ..
+      "local data: Data = {}\nreturn data\n",
+    ["page.tmpl"] = "{{type Page from data}}{{mode text}}{{.title}}" })
+  assert(lua == nil, "built a record's module that returns a value")
+  assert(trouble:find("page.tmpl:1:", 1, true), trouble)
+  assert(trouble:find("'require' did not return a type, got record Data", 1, true), trouble)
+end

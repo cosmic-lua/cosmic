@@ -496,7 +496,8 @@ local STAND_IN <const>: {string: function} = {
 }
 
 --- The generated source with Teal's types struck out, in the shapes the
---- generator writes, to run as Lua.
+--- generator writes, to run as Lua. Those templates have no stage, so
+--- `_one` and its `<T>` are never there to strike.
 local function lua_of(source: string): string
   local lua = source:gsub("local type [%w_]+ = require%b() ", "")
   lua = lua:gsub("%(([%a_][%w_]*): [^()]-%)", "(%1)")

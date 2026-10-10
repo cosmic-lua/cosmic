@@ -469,6 +469,6 @@ local function test_the_records_module_is_required_for_its_types_unless_a_stage_
   local both = compiled("{{type T from m.t}}{{mode text}}{{.x | m.t.f}}")
   assert(both:find('local t = require("m.t")', 1, true), both)
   assert(not both:find("local type", 1, true), both)
-  assert(both:find("local function _one<T>(x: T): T return x end", 1, true), both)
+  assert(both:find("local function _one<T>(v: T): T return v end", 1, true), both)
   assert(both:find("= _one(t.f(d.x))", 1, true), both)
 end
