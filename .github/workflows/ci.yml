@@ -511,12 +511,10 @@
         # and the pinned release sandboxes its workers by default, knows
         # `system` and takes `/parent/` grants (orchestration_test and
         # queue_stage_test declare theirs), but a sandboxed `cosmic test
-        # cosmic_ci` from ci/ still fails tests of bootstrap_test,
-        # cache_trim_test, cache_trim_tool_test, compiles_test, fixture_test,
-        # fuzz_test, images_test, process_test, runner_test, verdicts_test
-        # and zig_prune_test, for the host programs they start and the files
-        # they read without declaring them (`system` profiles, grants); the
-        # macOS leg has no sandbox at all.
+        # cosmic_ci` from ci/ still fails tests, for the host programs they
+        # start and the files they read without declaring them (`system`
+        # profiles, grants), which that run lists; the macOS leg has no
+        # sandbox at all.
         {
           name: "move the tree to a path of its own",
           run: "cosmic-driver cosmic_ci/driver.tl place-tree",

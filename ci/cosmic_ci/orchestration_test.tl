@@ -14,14 +14,10 @@ local State = require("cosmic_ci.state")
 local Test = require("cosmic.test")
 
 -- The driver's namespace, which `command` copies into a project of its
--- own, and the fixture modules, whose sources [`code_of`] reads (their declarations
--- are what [`test_every_sandboxed_fixture_is_keyed_by_the_product`]
--- checks), so an edit to one moves this module's key; and the workflow
--- the tests read of the checkout around ci/.
--- TODO: declare the directories these read of that checkout (build/,
--- .github/) and the git history a clone reads once a grant can name a
--- directory above the project; /parent/ grants name files only, so an
--- edit to those is met by a keyed run only with --all.
+-- own with the system's `cp` (and `git` and `sh` run the fixtures); the
+-- fixture modules, whose sources [`code_of`] reads; the one testdata
+-- file a fixture checkout takes a copy of; and the workflow the tests
+-- read of the checkout around ci/.
 Test.policy{
   profiles = { "cosmic", "system" },
   grants = {
