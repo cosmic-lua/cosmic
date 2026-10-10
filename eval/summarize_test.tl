@@ -94,6 +94,9 @@ local function test_text_that_is_not_a_path_is_not_reported()
     "echo $(( a / 1000 ))",
     "echo $((1 << 3)) $(( 4 / 2 ))",
     "awk -F/ '{ print $1 }' f",
+    "cut -d '/' -f1 f",
+    "tr '/' '_' < f",
+    "IFS=/ read a b",
     "echo \"HOME=$HOME\"",
     "curl http://127.0.0.1:8080/x",
     "curl -s 'https://example.com/a/b' -o out",
@@ -159,6 +162,14 @@ local function test_a_path_that_leaves_the_arena_is_reported()
     -- A shift is no here-document, and a redirect needs no space.
     { "echo $((1 << 3))\ncat /root/x", "BREACH: /root/x\n" },
     { "x=$(( 1 << 3 ))\ncat /root/x", "BREACH: /root/x\n" },
+    { "echo $((1 << n))\ncat /root/x", "BREACH: /root/x\n" },
+    { "echo $((x<<y))\ncat /root/x", "BREACH: /root/x\n" },
+    { "((x = y << z))\ncat /root/x", "BREACH: /root/x\n" },
+    { "timeout 5 sh -c 'cat /root/x'", "BREACH: /root/x\n" },
+    { "env F=1 sh -c 'cat /root/x'", "BREACH: /root/x\n" },
+    { "nohup sh -c 'cat /root/x'", "BREACH: /root/x\n" },
+    { "ls | xargs sh -c 'cat /root/x'", "BREACH: /root/x\n" },
+    { "timeout -k 1 5 env -i eval cat /root/x", "BREACH: /root/x\n" },
     { "echo hi>/root/x", "BREACH: /root/x\n" },
     { "cat</root/x", "BREACH: /root/x\n" },
     { "cmd 2>&1>/root/x", "BREACH: /root/x\n" },
@@ -234,6 +245,9 @@ local function test_only_a_cosmic_test_run_is_green()
   assert(green("sh -c 'cd p && cosmic test'", pass) == "1")
   assert(green("cosmic test | grep -v x | tail -3", pass) == "1")
   -- A command that prints the line itself, or a call that failed, is no run.
+  assert(green("cosmic test && echo PASS", pass) == "1")
+  assert(green("cosmic test; cat <<EOF\ntest: PASS\nEOF", "test: PASS") == "null")
+  assert(green("cosmic test; python3 -c 'print(\"test: PASS\")'", "test: PASS") == "null")
   assert(green("cosmic test; echo 'test: PASS'", "test: PASS") == "null")
   assert(green("cosmic test || echo test: PASS", "test: PASS") == "null")
   assert(green("cosmic test; printf 'test: PASS\\n'", "test: PASS") == "null")
