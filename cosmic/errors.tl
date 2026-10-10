@@ -232,13 +232,10 @@ end
 --- answers only the error) and which stays until the coroutine is
 --- closed. One that returned, or was closed, has no frames: the text is
 --- just `stack traceback:`. For the running coroutine the first frame is
---- [`trace_of`] itself, the caller's next.
--- TODO: unlike [`trace`], which starts at its caller, this starts at the
--- wrapper for the running coroutine, as the binding's [`trace_of`] takes no
--- level. Once `surface_trace_of` in core/surface.c takes one, pass 2 here
--- for the running coroutine and say the caller's frame is the first.
+--- the caller's, as [`trace`]'s is.
 function Errors.trace_of(co: thread, message?: string): string
-  return errors.trace_of(co, message)
+  -- The binding counts this frame as level 1.
+  return errors.trace_of(co, message, 2)
 end
 
 return Errors
