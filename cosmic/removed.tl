@@ -19,8 +19,9 @@ local record Removed
   --- (Time.local_zone() for the host's), and there is no os.setlocale
   --- equivalent
   os: string
-  --- a traceback is cosmic.errors.trace. The debug library and hooks,
-  --- registry, locals/upvalues and debug.getinfo are unavailable
+  --- a traceback is cosmic.errors.trace, or cosmic.errors.trace_of for
+  --- a coroutine's. The debug library's hooks, registry, locals,
+  --- upvalues and getinfo are unavailable
   debug: string
   --- a module comes from require, and a file's bytes come from
   --- cosmic.fs.read
@@ -197,6 +198,9 @@ local module: Module = {
       "Fs.open_write(dir .. \"/name\") (" .. fs .. ")",
     ["io.popen"] = "use Child.run(argv, { stdout = \"capture\" }); argv is a " ..
       "list, run without a shell or a PATH search (" .. child .. ")",
+    ["io.type"] = "a descriptor is a plain integer, and nothing tells an open one " ..
+      "from a closed one or from any other integer: keep that in the caller's own " ..
+      "bookkeeping, as a later Fs.take or Fs.put on a closed descriptor fails (" .. fs .. ")",
     ["os.getenv"] = "use Env.get(name) (" .. env .. ")",
     ["os.exit"] = "use Proc.exit(status) (" .. proc .. ")",
     ["os.time"] = "use Clock.now_ns(), the wall clock in nanoseconds since " ..
@@ -220,7 +224,40 @@ local module: Module = {
       "shell or a PATH search (" .. child .. ")",
     ["os.setlocale"] = "cosmic runs in the C locale, and there is no way to " ..
       "change it",
-    ["debug.traceback"] = "use Errors.trace(message, level) (" .. errors .. ")",
+    ["debug.traceback"] = "use Errors.trace(message, level) for the running " ..
+      "coroutine's stack, or Errors.trace_of(co, message) for another's, which " ..
+      "for one that raised is where it raised (" .. errors .. ")",
+    ["debug.getinfo"] = "there is no replacement: nothing answers a caller's file " ..
+      "or line or a function's source as values, but Errors.trace(message, level) " ..
+      "writes them into a traceback as text (" .. errors .. ")",
+    ["debug.getmetatable"] = "use getmetatable(value); it answers a table's or a " ..
+      "string's metatable, but its `__metatable` field in place of one that sets it, " ..
+      "and there is no way past that field",
+    ["debug.setmetatable"] = "use setmetatable(table, metatable); it sets a table's " ..
+      "alone, refuses one whose metatable has a `__metatable` field, and there is no " ..
+      "way to set the metatable of a number, function, boolean or nil value",
+    ["debug.gethook"] = "there is no replacement: a program installs no hook",
+    ["debug.sethook"] = "there is no replacement: a program installs no hook",
+    ["debug.getlocal"] = "there is no replacement: a running function's locals " ..
+      "cannot be read",
+    ["debug.setlocal"] = "there is no replacement: a running function's locals " ..
+      "cannot be set",
+    ["debug.getupvalue"] = "there is no replacement: a function's upvalues cannot " ..
+      "be read",
+    ["debug.setupvalue"] = "there is no replacement: a function's upvalues cannot " ..
+      "be set",
+    ["debug.upvalueid"] = "there is no replacement: a function's upvalues cannot " ..
+      "be told apart",
+    ["debug.upvaluejoin"] = "there is no replacement: a function's upvalues cannot " ..
+      "be shared with another's",
+    ["debug.getregistry"] = "there is no replacement: the registry is not reachable",
+    ["debug.getuservalue"] = "there is no replacement: a userdata's user values " ..
+      "cannot be read",
+    ["debug.setuservalue"] = "there is no replacement: a userdata's user values " ..
+      "cannot be set",
+    ["debug.setcstacklimit"] = "there is no replacement: the C stack limit cannot " ..
+      "be changed",
+    ["debug.debug"] = "there is no replacement: there is no interactive debugger",
   },
   names = {
     io = "files are cosmic.fs, the standard streams are Fs.stdout, " ..
@@ -228,8 +265,8 @@ local module: Module = {
       "and io.popen is cosmic.child",
     os = "time is cosmic.time, the environment is cosmic.env, processes " ..
       "are cosmic.proc and cosmic.child, and files are cosmic.fs",
-    debug = "a traceback is cosmic.errors.trace; hooks, locals, upvalues " ..
-      "and debug.getinfo have no replacement",
+    debug = "a traceback is Errors.trace, or Errors.trace_of for a coroutine's (" ..
+      errors .. "); hooks, locals, upvalues and debug.getinfo have no replacement",
     dofile = "Teal code is loaded by require(\"dotted.name\"), and a " ..
       "file's bytes are Fs.read(path) (" .. fs .. ")",
     loadfile = "Teal code is loaded by require(\"dotted.name\"), and a " ..

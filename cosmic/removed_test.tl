@@ -8,10 +8,13 @@ local coverage_hits = require("build.coverage_hits")
 local modules <const>: {string:any} = {
   ["cosmic.archive"] = require("cosmic.archive"),
   ["cosmic.child"] = require("cosmic.child"),
+  ["cosmic.clock"] = require("cosmic.clock"),
   ["cosmic.cli"] = require("cosmic.cli"),
   ["cosmic.codec"] = require("cosmic.codec"),
   ["cosmic.csv"] = require("cosmic.csv"),
   ["cosmic.coverage"] = require("cosmic.coverage"),
+  ["cosmic.env"] = require("cosmic.env"),
+  ["cosmic.errors"] = require("cosmic.errors"),
   ["cosmic.fs"] = require("cosmic.fs"),
   ["cosmic.hash"] = require("cosmic.hash"),
   ["cosmic.http"] = require("cosmic.http"),
@@ -20,8 +23,10 @@ local modules <const>: {string:any} = {
   ["cosmic.proc"] = require("cosmic.proc"),
   ["cosmic.sandbox"] = require("cosmic.sandbox"),
   ["cosmic.shape"] = require("cosmic.shape"),
+  ["cosmic.signal"] = require("cosmic.signal"),
   ["cosmic.sqlite"] = require("cosmic.sqlite"),
   ["cosmic.stream"] = require("cosmic.stream"),
+  ["cosmic.string"] = require("cosmic.string"),
   ["cosmic.sys"] = require("cosmic.sys"),
   ["cosmic.tar"] = require("cosmic.tar"),
   ["cosmic.test"] = require("cosmic.test"),
@@ -43,8 +48,8 @@ local function test_every_replacement_is_for_a_removed_name()
 end
 
 local function test_a_field_with_no_replacement_names_where_to_look()
-  assert(Removed.message("debug", "getinfo") ==
-      "debug.getinfo is not available: " .. Removed.names.debug)
+  assert(Removed.message("debug", "nonesuch") ==
+      "debug.nonesuch is not available: " .. Removed.names.debug)
   assert(Removed.message("print") == "print is not available")
 end
 
@@ -59,6 +64,43 @@ local function test_every_removed_member_is_gone_from_its_module()
     assert(loaded ~= nil, module .. " is not among this test's modules: add it")
     assert(loaded is {string: any} and loaded[member] == nil, dotted)
   end
+end
+
+--- Every [`Alias.name`] a replacement quotes names a function or value the
+--- module that entry's `local Alias = require("...")` brings in still
+--- has, so a rename there cannot leave a hint pointing at nothing. A
+--- capitalized name is a type (Stream.EntryKind), which is no field of
+--- the module's table and is not checked; a qualifier no entry requires
+--- (a record such as ExtractOptions, a name in prose) is not a module
+--- and is passed over.
+local function test_every_quoted_function_exists_in_the_module_it_names()
+  local aliases: {string:string} = {}
+  local entries: {string:string} = {}
+  for _, group in ipairs({ Removed.replacements, Removed.names, Removed.members }) do
+    for key, text in pairs(group) do
+      entries[key] = text
+      for alias, module in text:gmatch("local ([%a_][%w_]*) = require%(\"([%w_.]+)\"%)") do
+        assert(aliases[alias] == nil or aliases[alias] == module, alias)
+        aliases[alias] = module
+      end
+    end
+  end
+  local checked = 0
+  for key, text in pairs(entries) do
+    for alias, field in text:gmatch("%f[%w_]([%a_][%w_]*)%.([%a_][%w_]*)") do
+      local module = aliases[alias]
+      -- An entry may say the removed name itself ("Net.pair is gone").
+      local own = key:match("([%w_]+)$")
+      if module ~= nil and not field:find("^%u") and field:lower() ~= own:lower() then
+        local loaded = modules[module]
+        assert(loaded ~= nil, module .. " is not among this test's modules: add it")
+        assert(loaded is {string: any} and loaded[field] ~= nil,
+          key .. " quotes " .. alias .. "." .. field .. ", which " .. module .. " lacks")
+        checked = checked + 1
+      end
+    end
+  end
+  assert(checked > 100, "only " .. checked .. " quoted names were checked")
 end
 
 --- A program that called a streaming coder is told that `cosmic codec`

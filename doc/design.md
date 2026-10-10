@@ -283,7 +283,12 @@ syscall table, and `fs` writes to a stream without a newline.
 [`cosmic.errors`] exposes a traceback for error reporting; the coverage
 collector is a C hook behind a private binding, and `debug` itself is
 never opened. a name that is missing errors with the module
-that replaces it.
+that replaces it. reading `io`, `os` or `debug` answers a stand-in
+table, so `if os then` is true and the first field used raises, naming
+the replacement for that very field, at the site that used it.
+`cosmic docs <name>` (`cosmic docs os.exit`) answers the same text, and
+[`cosmic.removed`] is the one place the map from a removed name to its
+replacement lives.
 
 the compiler -- the Lua the vendored `tl.tl` compiles to (below) --
 reaches outside the pure libraries in five
@@ -1174,6 +1179,7 @@ in [roadmap.md](roadmap.md).
 [`cosmic.internal.store`]: ../cosmic/internal/store.d.tl
 [`cosmic.internal.testing`]: ../cosmic/internal/testing.d.tl
 [`cosmic.proc`]: ../cosmic/proc.tl
+[`cosmic.removed`]: ../cosmic/removed.tl
 [`cosmic.sqlite`]: ../cosmic/sqlite.tl
 [`cosmic.store`]: ../cosmic/store.tl
 [`cosmic.sys`]: ../core/syscalls.h

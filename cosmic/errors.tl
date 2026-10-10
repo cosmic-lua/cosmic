@@ -206,4 +206,14 @@ function Errors.trace(message?: string, level?: integer): string
   return errors.trace(message, level or 1)
 end
 
+--- The call stack of coroutine `co` as text, from its top, with
+--- `message` at the top when one is given. For a coroutine that raised,
+--- it is where it raised, which `coroutine.resume` does not say (it
+--- answers only the error) and which stays until the coroutine is
+--- closed. The running coroutine's stack starts at its caller, as
+--- [`Errors.trace`]'s does.
+function Errors.trace_of(co: thread, message?: string): string
+  return errors.trace_of(co, message)
+end
+
 return Errors

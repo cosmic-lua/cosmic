@@ -104,3 +104,18 @@ local function test_a_database_without_a_catalog_has_none()
   local db = assert(Sqlite.memory())
   assert(Errors.guidance_in(db, "the quuxifier refused the zorblax") == nil)
 end
+
+--- A coroutine that raised is traced from where it raised, not from
+--- the resume that reported it.
+local function test_trace_of_names_where_a_coroutine_raised()
+  local function inner()
+    error("boom")
+  end
+  local worker = coroutine.create(function() inner() end)
+  local ok, err = coroutine.resume(worker)
+  assert(not ok)
+  local text = Errors.trace_of(worker, tostring(err))
+  assert(text:find("boom", 1, true) ~= nil, text)
+  assert(text:find("inner", 1, true) ~= nil, text)
+  assert(Errors.trace_of(worker):find("stack traceback:", 1, true) == 1)
+end
