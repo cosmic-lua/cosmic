@@ -73,13 +73,13 @@ end
 --- written to stdout -- taken into a file there, and answers its
 --- status and those lines. The hidden API tests are under
 --- `dir`/testdata.
-local function graded(name: string, dir: string): integer, string
+local function graded(name: string, dir: string, env?: {string:string}): integer, string
   local lines = dir .. "/graded.out"
   local out = assert(sys.open(lines, sys.O_WRONLY | sys.O_CREAT | sys.O_TRUNC, 420))
   local saved = assert(sys.dup(1))
   assert(sys.dup2(out, 1))
   assert(sys.close(out))
-  local ok, status = pcall(Grader.grade, name, dir, dir .. "/testdata")
+  local ok, status = pcall(Grader.grade, name, dir, dir .. "/testdata", env)
   assert(sys.dup2(saved, 1))
   assert(sys.close(saved))
   if not ok then error(status, 0) end
@@ -302,14 +302,19 @@ end
 --- directory's path, and answers `lines` and `code`: as a hidden API
 --- test that ran on a copy of the project. Answers the status and the
 --- grader's lines.
-local function graded_api(dir: string, lines: {string}, code: integer): integer, string
+local function graded_api(dir: string, lines: {string}, code: integer,
+                          env?: {string:string}, probes?: {string}): integer, string
   assert(Fs.mkdirs(dir .. "/bin") and Fs.mkdirs(dir .. "/project/o") and
       Fs.mkdirs(dir .. "/testdata"))
   assert(Fs.write(dir .. "/project/kv.tl", "return {}\n"))
   assert(Fs.write(dir .. "/project/o/marker", "built\n"))
   assert(Fs.write(dir .. "/testdata/kv_api_test.tl", "-- hidden\n"))
-  local script = { "[test] present kv_api_test.tl || exit 0", "[test] ls .",
-    "[test] write leftover.txt written by the hidden test", "[test] cwd " .. dir .. "/copy.txt" }
+  local script: {string} = {}
+  for _, probe in ipairs(probes or {}) do script[#script + 1] = "[test] env-of " .. probe end
+  for _, line in ipairs({ "[test] present kv_api_test.tl || exit 0", "[test] ls .",
+      "[test] write leftover.txt written by the hidden test", "[test] cwd " .. dir .. "/copy.txt" }) do
+    script[#script + 1] = line
+  end
   for _, line in ipairs(lines) do
     script[#script + 1] = "[test] print " .. line
   end
@@ -317,7 +322,7 @@ local function graded_api(dir: string, lines: {string}, code: integer): integer,
   script[#script + 1] = "exit 0"
   local probe = assert(stand_in.build(dir .. "/stand-in"))
   assert(stand_in.place(probe, dir .. "/bin/cosmic", table.concat(script, "\n")))
-  return graded("kv", dir)
+  return graded("kv", dir, env)
 end
 
 --- The hidden test runs on a copy of the project without its o/, and
@@ -338,6 +343,36 @@ local function test_a_hidden_test_runs_on_a_copy_and_reports_each_failure(dir: s
   assert(Fs.read(dir .. "/project/o/marker") == "built\n")
   local copy = String.trim((assert(Fs.read(dir .. "/copy.txt"))))
   assert(copy ~= dir .. "/project" and not Fs.exists(copy), "the copy is left at " .. copy)
+end
+
+local function test_cosmic_test_steps_run_unsandboxed_whatever_the_caller_holds()
+  local held: {string:string} = { PATH = "/bin", COSMIC_TEST_SANDBOX = "1", COSMIC_SANDBOX = "must",
+    COSMIC_CI_REQUIRE_SANDBOX = "1" }
+  local env = Grader.unsandboxed(held)
+  assert(env.COSMIC_TEST_SANDBOX == "0", tostring(env.COSMIC_TEST_SANDBOX))
+  assert(env.COSMIC_SANDBOX == nil and env.COSMIC_CI_REQUIRE_SANDBOX == nil, "a held run stayed")
+  assert(env.PATH == "/bin", "the rest of the environment is kept")
+  assert(held.COSMIC_TEST_SANDBOX == "1" and held.COSMIC_SANDBOX == "must", "the input was changed")
+  assert(Grader.unsandboxed({}).COSMIC_TEST_SANDBOX == "0")
+end
+
+--- A grader holding its tests to sandboxing still runs both `cosmic
+--- test` steps, the project's own and the hidden one, unsandboxed.
+local function test_both_cosmic_test_steps_get_the_unsandboxed_environment(dir: string)
+  local names = { "COSMIC_TEST_SANDBOX", "COSMIC_SANDBOX", "COSMIC_CI_REQUIRE_SANDBOX" }
+  local held: {string:string} = { COSMIC_TEST_SANDBOX = "1", COSMIC_SANDBOX = "must",
+    COSMIC_CI_REQUIRE_SANDBOX = "1" }
+  graded_api(dir, {}, 0, held, names)
+  local expected = "COSMIC_TEST_SANDBOX=0\nCOSMIC_SANDBOX unset\nCOSMIC_CI_REQUIRE_SANDBOX unset\n"
+  local seen = 0
+  for n = 1, 8 do
+    local out = Fs.read(dir .. "/check-" .. n .. ".out")
+    if out ~= nil and out:find("COSMIC_TEST_SANDBOX", 1, true) then
+      seen = seen + 1
+      assert(out:sub(1, #expected) == expected, "check-" .. n .. ".out: " .. out)
+    end
+  end
+  assert(seen == 2, "env-of ran in " .. seen .. " steps, not the test step and the hidden one")
 end
 
 local function test_a_hidden_test_that_passes_is_one_check_that_passes(dir: string)

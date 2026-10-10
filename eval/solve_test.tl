@@ -48,10 +48,11 @@ local function test_the_environment_keeps_only_what_the_cli_needs()
   local names: {string} = {}
   for name in pairs(env) do names[#names + 1] = name end
   table.sort(names)
-  assert(table.concat(names, " ") == "CLAUDE_CONFIG_DIR HOME HTTPS_PROXY PATH SSL_CERT_FILE TMPDIR",
+  assert(table.concat(names, " ") == "CLAUDE_CONFIG_DIR COSMIC_TEST_SANDBOX HOME HTTPS_PROXY PATH SSL_CERT_FILE TMPDIR",
     table.concat(names, " "))
   assert(env.PATH == "/r/bin:/opt/node/bin:/usr/local/bin:/usr/bin:/bin", env.PATH)
   assert(env.HOME == "/r/home" and env.CLAUDE_CONFIG_DIR == "/r/config" and env.TMPDIR == "/r/tmp")
+  assert(env.COSMIC_TEST_SANDBOX == "0", "the solver's tests run unsandboxed")
 end
 
 local function test_a_native_cli_is_given_alone_and_a_script_with_its_interpreter()

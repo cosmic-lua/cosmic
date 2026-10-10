@@ -6,11 +6,13 @@
 ---
 --- A slot's place must not depend on which branch ran. The arms of an
 --- `if` or `with` (counting the arm that is missing when there is no
---- `else`) must leave the markup in the same place; the body of a
---- `range` must leave it where it found it (walked a second time, from the
---- join of the two, as the loop runs again), and a range's `else`, which
---- runs in place of the first time round, where the body does. The next
---- slot, or the next time round the loop, is judged from there:
+--- `else`) must leave the markup in the same place, or at boundaries
+--- between one tag's attributes, settled by the text after (see markup);
+--- the body of a `range` must leave it where it found it (walked a second
+--- time, from the join of the two, as the loop runs again), and a range's
+--- `else`, which runs in place of the first time round, where the body
+--- does. The next slot, or the next time round the loop, is judged from
+--- there:
 --- `{{if .a}}<b class="{{else}}<i class="{{end}}` is refused at the `{{if}}`
 --- rather than guessed at.
 
@@ -157,7 +159,7 @@ walk = function(w: Walk, body: {types.Node}, from: markup.Place, marks: Marks): 
   local at = markup.copy(from)
   for _, node in ipairs(body) do
     if node.kind == "text" then
-      markup.feed(at, node.text)
+      markup.feed(at, node.text, node.line, node.col)
       if at.colon then
         return nil, refuse(name, node.line, node.col,
           "text after a URL slot, before its first / ? or #, holds a ':' and could complete a scheme")
