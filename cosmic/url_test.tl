@@ -183,3 +183,106 @@ local function test_parse_keeps_bytes_past_ascii_as_written()
   local p = assert(Url.parse("http://h/caf\xc3\xa9"))
   assert(p.path == "/caf\xc3\xa9")
 end
+
+local function names_values(q: Url.Query): string
+  local out: {string} = {}
+  for _, p in ipairs(q.pairs) do
+    out[#out + 1] = p.name .. "=" .. p.value
+  end
+  return table.concat(out, "|")
+end
+
+local function decoded(text: string, opts?: Url.QueryOptions): Url.Query
+  local q, why = Url.decode_query(text, opts)
+  assert(q ~= nil, text .. ": " .. why)
+  assert(why == "")
+  return q
+end
+
+local function test_decode_query_splits_on_ampersand_and_first_equals()
+  assert(names_values(decoded("a=1&b=2=3&c")) == "a=1|b=2=3|c=")
+  assert(names_values(decoded("=v&a=")) == "=v|a=")
+  assert(#decoded("").pairs == 0)
+end
+
+local function test_decode_query_skips_empty_pieces_without_counting_them()
+  assert(names_values(decoded("&&a=1&&b=2&")) == "a=1|b=2")
+  assert(#decoded("&&&&&&", { max_pairs = 1 }).pairs == 0)
+end
+
+local function test_decode_query_reads_plus_as_space_and_percent_2b_as_plus()
+  assert(names_values(decoded("a+b=c+d%2Be%20f")) == "a b=c d+e f")
+end
+
+local function test_decode_query_does_not_split_on_semicolon_or_brackets()
+  local q = decoded("a=1;b=2&x[]=1&x[y]=2")
+  assert(names_values(q) == "a=1;b=2|x[]=1|x[y]=2")
+end
+
+local function test_decode_query_keeps_order_and_repeated_names()
+  local q = decoded("a=1&b=2&a=3&a=")
+  assert(names_values(q) == "a=1|b=2|a=3|a=")
+  assert(Url.query_first(q, "a") == "1")
+  assert(Url.query_last(q, "a") == "")
+  assert(table.concat(Url.query_all(q, "a"), ",") == "1,3,")
+  assert(Url.query_first(q, "z") == nil and Url.query_last(q, "z") == nil)
+  assert(#Url.query_all(q, "z") == 0)
+  Url.query_all(q, "a")[1] = "changed"
+  assert(Url.query_first(q, "a") == "1")
+end
+
+local function test_decode_query_refuses_a_bad_escape_naming_its_byte_in_the_whole_text()
+  local cases: {string: integer} = { ["a=1&b=%"] = 7, ["%zz=1"] = 1, ["a=1&bb=2&c%4=3"] = 11, ["a=x%4&b"] = 4 }
+  for text, at in pairs(cases) do
+    local q, why = Url.decode_query(text)
+    assert(q == nil, text)
+    assert(why == ("url: '%%' at byte %d is not followed by two hex digits"):format(at), text .. ": " .. why)
+  end
+end
+
+local function test_decode_query_lenient_keeps_a_stray_percent()
+  assert(names_values(decoded("q=100%&r=%4&s=%41%zz", { lenient = true })) == "q=100%|r=%4|s=A%zz")
+end
+
+local function test_decode_query_refuses_invalid_utf8_unless_told_not_to()
+  local q, why = Url.decode_query("a=1&b=%FF")
+  assert(q == nil and why == "url: the name or value of pair 2 is not valid UTF-8", why)
+  assert(Url.decode_query("%ED%A0%80=1") == nil)
+  assert(names_values(decoded("a=%C3%A9")) == "a=\xc3\xa9")
+  assert(names_values(decoded("b=%FF%00", { utf8 = false })) == "b=\xff\0")
+end
+
+local function test_decode_query_caps_pairs_and_bytes()
+  local many: {string} = {}
+  for i = 1, 1001 do many[i] = "a=" .. i end
+  local q, why = Url.decode_query(table.concat(many, "&"))
+  assert(q == nil and why == "url: the query holds more pairs than max_pairs (1000)", why)
+  assert(#decoded(table.concat(many, "&", 1, 1000)).pairs == 1000)
+  assert(Url.decode_query("a=1&b=2&c=3", { max_pairs = 2 }) == nil)
+  local _, bytes_why = Url.decode_query("abcdef", { max_bytes = 5 })
+  assert(bytes_why == "url: the query is longer than max_bytes (5)", bytes_why)
+  assert(Url.decode_query("abcde", { max_bytes = 5 }) ~= nil)
+end
+
+local function test_decode_query_raises_on_a_text_that_is_no_string()
+  local ok = pcall(function() Url.decode_query(nil as string) end)
+  assert(not ok)
+end
+
+local function test_encode_query_writes_plus_for_space_and_round_trips()
+  local pairs_: {Url.Pair} = { { name = "a b", value = "c&d=e" }, { name = "", value = "" },
+    { name = "q", value = "+%\xff" }, { name = "q", value = "~" } }
+  local text = Url.encode_query(pairs_)
+  assert(text == "a+b=c%26d%3De&=&q=%2B%25%FF&q=~", text)
+  assert(Url.encode_query({}) == "")
+  local q = decoded(text, { utf8 = false })
+  assert(#q.pairs == #pairs_)
+  for i, p in ipairs(pairs_) do
+    assert(q.pairs[i].name == p.name and q.pairs[i].value == p.value)
+  end
+end
+
+local function test_encode_query_raises_on_a_value_that_is_no_string()
+  local ok = pcall(function() Url.encode_query({ { name = "a", value = 1 as string } }) end)
+  assert(not ok)
+end

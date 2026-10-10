@@ -239,13 +239,10 @@ promises lean on come first:
   needs the caller to hand the body over again (a function answering a
   fresh Reader) behind `CURLOPT_SEEKFUNCTION`; curl answers "necessary data
   rewind was not possible" without one.
-- [`cosmic.url`] past escaping, unescaping, a path's segments and an
+- [`cosmic.url`] past escaping, unescaping, query decoding, a path's segments and an
   absolute URL's parts, each once a caller needs it: `Url.format(parts)`,
   writing a [`Url.Parts`] back into a URL (an IPv6 host bracketed again);
-  a query string decoded into names and values (`+` as a space, a name
-  given more than once kept as a list), which [`Url.unescape`] leaves to
-  the caller since `+` is a form's rule; and a relative reference
-  resolved against a base URL (RFC 3986 section 5), which a client
+  a relative reference resolved against a base URL (RFC 3986 section 5), which a client
   following a `Location` or a crawler needs and [`Url.parse`] refuses;
   and an IPv6 host with a zone (`[fe80::1%25eth0]`, RFC 6874), which
   [`Url.parse`] refuses.
@@ -432,4 +429,3 @@ four-producer provenance join.
 [`Url.parse`]: ../cosmic/url.tl
 [`Url.Parts`]: ../cosmic/url.tl
 [`Url.segments`]: ../cosmic/url.tl
-[`Url.unescape`]: ../cosmic/url.tl

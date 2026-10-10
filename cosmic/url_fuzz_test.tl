@@ -280,3 +280,101 @@ local function test_parse_reads_back_the_parts_a_url_was_built_from(tmp: string)
     end,
   })
 end
+
+--- Pairs drawn from [`gen_text`], packed as the names and values in turn.
+local function gen_pairs(src: Fuzz.Source): string
+  local fields: {string} = {}
+  while Fuzz.more(src, #fields // 2, 8) do
+    fields[#fields + 1] = gen_text(src)
+    fields[#fields + 1] = gen_text(src)
+  end
+  return Fuzz.pack(fields)
+end
+
+local function test_encode_query_decodes_back_to_the_same_pairs(tmp: string)
+  Fuzz.run({
+    name = "url query round trip",
+    dir = tmp,
+    gen = gen_pairs,
+    requires = { "pairs", "repeated" },
+    shares = { pairs = 0.5 },
+    check = function(input: string): boolean, string
+      local fields = Fuzz.unpack(input)
+      local want: {Url.Pair} = {}
+      for i = 1, #fields - 1, 2 do
+        want[#want + 1] = { name = fields[i], value = fields[i + 1] }
+      end
+      local text = Url.encode_query(want)
+      if text:find("[^A-Za-z0-9._~%%&=+-]") then
+        return false, ("encode wrote %q"):format(text)
+      end
+      local q, why = Url.decode_query(text, { utf8 = false, max_pairs = 100 })
+      if q == nil then return false, ("%q refused: %s"):format(text, why) end
+      if #q.pairs ~= #want then
+        return false, ("%q read %d pairs, not %d"):format(text, #q.pairs, #want)
+      end
+      local seen: {string:integer} = {}
+      for i, p in ipairs(want) do
+        local got = q.pairs[i]
+        if got.name ~= p.name or got.value ~= p.value then
+          return false, ("pair %d of %q read as %q=%q"):format(i, text, got.name, got.value)
+        end
+        seen[p.name] = (seen[p.name] or 0) + 1
+        if Url.query_all(q, p.name)[seen[p.name]] ~= p.value then
+          return false, ("by_name misses pair %d of %q"):format(i, text)
+        end
+      end
+      for name, n in pairs(seen) do
+        if #Url.query_all(q, name) ~= n then return false, "by_name holds the wrong count" end
+        if n > 1 then Fuzz.label("repeated") end
+      end
+      if #want > 0 then Fuzz.label("pairs") end
+      return true, ""
+    end,
+  })
+end
+
+local function test_decode_query_is_total_and_keeps_what_it_reads(tmp: string)
+  Fuzz.run({
+    name = "url query total",
+    dir = tmp,
+    gen = function(src: Fuzz.Source): string
+      local pieces: {string} = {}
+      while Fuzz.more(src, #pieces, 12) do
+        pieces[#pieces + 1] = (gen_text(src):gsub("&", "%%26"))
+      end
+      local text = table.concat(pieces, src:int(0, 3) == 0 and ";" or "&")
+      if src:int(0, 2) == 0 then
+        text = Fuzz.mutate(src, text, 3)
+      end
+      return Fuzz.pack({ tostring(src:int(0, 3)), text })
+    end,
+    requires = { "decoded", "refused" },
+    shares = { decoded = 0.2, refused = 0.1 },
+    check = function(input: string): boolean, string
+      local f = Fuzz.unpack(input)
+      local mode = math.tointeger(tonumber(f[1])) or 0
+      local text = f[2] or ""
+      local opts: Url.QueryOptions = { lenient = mode & 1 == 1, utf8 = mode & 2 == 0, max_pairs = 6 }
+      local ok, q, why = pcall(Url.decode_query, text, opts)
+      if not ok then return false, "raised: " .. tostring(q) end
+      if q == nil then
+        if not why:find("^url: ") then return false, "refused with " .. why end
+        Fuzz.label("refused")
+        return true, ""
+      end
+      if why ~= "" or #q.pairs > 6 then return false, "decoded with a reason or past the cap" end
+      local total = 0
+      for name, values in pairs(q.by_name) do
+        if #values == 0 then return false, "empty list for " .. name end
+        total = total + #values
+      end
+      if total ~= #q.pairs then return false, "by_name and pairs disagree" end
+      if text:find("^[^&%%+]*$") and #q.pairs > 0 and text:find(";", 1, true) and not text:find("&", 1, true) then
+        if #q.pairs ~= 1 then return false, "split on ;" end
+      end
+      Fuzz.label("decoded")
+      return true, ""
+    end,
+  })
+end
