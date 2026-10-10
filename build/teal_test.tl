@@ -594,6 +594,36 @@ local function test_a_module_type_named_twice_is_told_its_name()
       "file's alone)")
 end
 
+--- A module bound by a `require` written over two lines, without
+--- parentheses or with a comment between its tokens is named as one on a
+--- line is; the text of one in a long string or comment binds nothing,
+--- nor declares a type.
+local function test_a_module_bound_however_written_is_named()
+  local itself = "Kv is itself the type of the record its module returns: write Kv, not Kv.Kv"
+  local no_store = "Kv has no type Store: check its spelling, or declare `record Store ... end` " ..
+    "inside the record kv returns (a `local record Store` beside that record is its " ..
+    "file's alone)"
+  for _, binding in ipairs({
+      'local Kv =\n  require("kv")',
+      'local Kv = require "kv"',
+      "local Kv <const> = require'kv'",
+      'local Kv = --[[ the store ]] require(\n  "kv"\n)',
+      'local type Kv =\n  require "kv"',
+  }) do
+    local source = binding .. "\nlocal k: Kv.Kv\n"
+    assert(teal.replacement("unknown type Kv.Kv", source, 2, 10) == itself, source)
+    assert(teal.replacement("unknown type Kv.Store", source, 2, 10) == no_store, source)
+  end
+  for _, source in ipairs({
+      'local s = [[\nlocal Kv = require("kv")\n]]\nlocal k: Kv.Kv\n',
+      '--[[\nlocal Kv <const> = require("kv")\n]]\nlocal k: Kv.Kv\n',
+      '--[[\nlocal type Kv = require("kv")\n]]\nlocal k: Kv.Kv\n',
+  }) do
+    assert(teal.replacement("unknown type Kv.Kv", source, 4, 10) == nil, source)
+    assert(teal.replacement("unknown type Kv.Store", source, 4, 10) == nil, source)
+  end
+end
+
 local rec = "local record R\n  alpha: integer\n  beta: string\n  record Inner\n    n: integer\n  end\nend\n" ..
   "local r: R = {alpha = 1}\n"
 

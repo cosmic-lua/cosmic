@@ -52,6 +52,19 @@ local function test_a_refusal_quotes_the_catalog()
       "Fs.cache_path was removed: " .. Removed.members["cosmic.fs.cache_path"])
 end
 
+--- A removed member is quoted for a module bound by a `require` written
+--- over two lines or without parentheses, as for one on a line.
+local function test_a_refusal_quotes_the_catalog_however_the_require_is_written()
+  for _, source in ipairs({
+      'local Hash =\n  require("cosmic.hash")\nreturn Hash.hex\n',
+      'local Hash <const> = require "cosmic.hash"\nreturn Hash.hex\n',
+      "local Hash = require'cosmic.hash'\nreturn Hash.hex\n",
+  }) do
+    assert(teal.replacement("invalid key 'hex' in record 'Hash' of type Hash", source, 2, 13) ==
+        "Hash.hex was removed: " .. Removed.members["cosmic.hash.hex"], source)
+  end
+end
+
 --- `package.path` and its three siblings type-check in tl's own
 --- declarations; cosmic's checker refuses them as a missing key, and the
 --- refusal quotes the catalog. The rest of `package` is untouched.
