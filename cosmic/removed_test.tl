@@ -20,6 +20,7 @@ local modules <const>: {string:any} = {
   ["cosmic.http"] = require("cosmic.http"),
   ["cosmic.json"] = require("cosmic.json"),
   ["cosmic.net"] = require("cosmic.net"),
+  ["cosmic.policy"] = require("cosmic.policy"),
   ["cosmic.proc"] = require("cosmic.proc"),
   ["cosmic.sandbox"] = require("cosmic.sandbox"),
   ["cosmic.shape"] = require("cosmic.shape"),
@@ -66,41 +67,59 @@ local function test_every_removed_member_is_gone_from_its_module()
   end
 end
 
---- Every [`Alias.name`] a replacement quotes names a function or value the
---- module that entry's `local Alias = require("...")` brings in still
---- has, so a rename there cannot leave a hint pointing at nothing. A
---- capitalized name is a type (Stream.EntryKind), which is no field of
---- the module's table and is not checked; a qualifier no entry requires
---- (a record such as ExtractOptions, a name in prose) is not a module
---- and is passed over.
+--- Modules an entry quotes that no test can require: private to their
+--- directory, so their names are not looked up.
+local unreachable <const>: {string:boolean} = { ["cosmic.http.server"] = true }
+
+--- Every dotted [`Alias.name`] a replacement quotes names a function or
+--- value that the module the same entry's `local Alias =
+--- require("...")` brings in still has, so a rename there cannot leave a
+--- hint pointing at nothing. Only that form is read: not `Alias:method`
+--- nor a second segment (`Alias.record.field`). A capitalized name is a
+--- type (Stream.EntryKind), which is no field of the module's table and
+--- is not checked; a qualifier the entry does not require (a record such
+--- as ExtractOptions, a name in prose) is not a module and is passed
+--- over. An entry that requires a module must quote at least one name of
+--- it (a type counts, though it is not looked up), so a pattern that stopped matching would fail rather than check
+--- nothing.
 local function test_every_quoted_function_exists_in_the_module_it_names()
-  local aliases: {string:string} = {}
   local entries: {string:string} = {}
   for _, group in ipairs({ Removed.replacements, Removed.names, Removed.members }) do
     for key, text in pairs(group) do
       entries[key] = text
-      for alias, module in text:gmatch("local ([%a_][%w_]*) = require%(\"([%w_.]+)\"%)") do
-        assert(aliases[alias] == nil or aliases[alias] == module, alias)
-        aliases[alias] = module
-      end
     end
   end
-  local checked = 0
   for key, text in pairs(entries) do
+    local aliases: {string:string} = {}
+    local required = 0
+    for alias, module in text:gmatch("local ([%a_][%w_]*) = require%(\"([%w_.]+)\"%)") do
+      aliases[alias] = module
+      required = required + 1
+    end
+    -- A removed member's entry may say the removed name itself
+    -- ("Net.pair is gone"): the one name of its own module not checked.
+    local gone_module, gone = key:match("^(cosmic%.[%w_.]-)%.([%w_]+)$")
+    local checked = 0
     for alias, field in text:gmatch("%f[%w_]([%a_][%w_]*)%.([%a_][%w_]*)") do
       local module = aliases[alias]
-      -- An entry may say the removed name itself ("Net.pair is gone").
-      local own = key:match("([%w_]+)$")
-      if module ~= nil and not field:find("^%u") and field:lower() ~= own:lower() then
-        local loaded = modules[module]
-        assert(loaded ~= nil, module .. " is not among this test's modules: add it")
-        assert(loaded is {string: any} and loaded[field] ~= nil,
-          key .. " quotes " .. alias .. "." .. field .. ", which " .. module .. " lacks")
+      if module ~= nil then
         checked = checked + 1
       end
+      if module ~= nil and not field:find("^%u") then
+        if not (module == gone_module and field:lower() == gone:lower()) then
+          local loaded = modules[module]
+          if loaded == nil and unreachable[module] then
+            -- Unreachable from here; see `unreachable`.
+          else
+            assert(loaded ~= nil, module .. " is not among this test's modules: add it")
+            assert(loaded is {string: any} and loaded[field] ~= nil,
+              key .. " quotes " .. alias .. "." .. field .. ", which " .. module .. " lacks")
+          end
+        end
+      end
     end
+    assert(required == 0 or checked > 0, key .. " requires a module and quotes none of its names")
   end
-  assert(checked > 100, "only " .. checked .. " quoted names were checked")
 end
 
 --- A program that called a streaming coder is told that `cosmic codec`

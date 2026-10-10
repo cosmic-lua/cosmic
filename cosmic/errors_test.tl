@@ -119,3 +119,16 @@ local function test_trace_of_names_where_a_coroutine_raised()
   assert(text:find("inner", 1, true) ~= nil, text)
   assert(Errors.trace_of(worker):find("stack traceback:", 1, true) == 1)
 end
+
+--- For the running coroutine the first frame is `trace_of` itself, as
+--- its doc says, and the caller's follows.
+local function test_trace_of_the_running_coroutine_starts_at_trace_of()
+  local function caller_frame(): string
+    local text = Errors.trace_of((coroutine.running()))
+    return text
+  end
+  local frames = caller_frame()
+  local first, second = frames:match("stack traceback:\n\t([^\n]*)\n\t([^\n]*)")
+  assert(first ~= nil and first:find("trace_of", 1, true) ~= nil, tostring(first))
+  assert(second ~= nil and second:find("caller_frame", 1, true) ~= nil, tostring(second))
+end

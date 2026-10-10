@@ -199,8 +199,9 @@ local module: Module = {
     ["io.popen"] = "use Child.run(argv, { stdout = \"capture\" }); argv is a " ..
       "list, run without a shell or a PATH search (" .. child .. ")",
     ["io.type"] = "a descriptor is a plain integer, and nothing tells an open one " ..
-      "from a closed one or from any other integer: keep that in the caller's own " ..
-      "bookkeeping, as a later Fs.take or Fs.put on a closed descriptor fails (" .. fs .. ")",
+      "from a closed one or from any other integer: the number Fs.close frees " ..
+      "may name the next file opened, so keep track of what was closed (" ..
+      fs .. ")",
     ["os.getenv"] = "use Env.get(name) (" .. env .. ")",
     ["os.exit"] = "use Proc.exit(status) (" .. proc .. ")",
     ["os.time"] = "use Clock.now_ns(), the wall clock in nanoseconds since " ..
