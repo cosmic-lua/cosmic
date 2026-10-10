@@ -337,11 +337,15 @@ local closed_writer <const> = "stream: the writer is closed"
 --   so a public type that a record here implements is an interface
 --   (FileWriter, FdWriter, Collector, Hashing, Lines and Sticky), whatever
 --   fields it documents.
--- * An interface method's `self` is the interface, but `function Rec:m`
---   is checked against the record's own declaration, so a record
---   redeclares each method it defines as a field whose `self` is itself.
---   That redeclaration is in turn checked against the interface's, which
---   a `{string:any}` method table would not be.
+-- * An interface method declared with an unnamed receiver
+--   (`read: function(Reader, ...)`, as here) takes the interface itself,
+--   and `function Rec:m` is checked against it as it stands, which a
+--   method taking Rec is not. So a record redeclares each method it
+--   defines as a field whose `self` is itself, and that redeclaration is
+--   in turn checked against the interface's, which a `{string:any}` method
+--   table would not be. Declared `read: function(self: Reader, ...)`, an
+--   interface method takes whatever implements it and needs no
+--   redeclaration.
 -- * Each constructor builds its table into a local of the record's type
 --   (`local r: Rec = setmetatable({ ... }, rec_mt)`), which is what checks
 --   the literal's field names; a return type alone would not.

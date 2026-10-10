@@ -98,6 +98,8 @@ with `attempt to call a nil value (method 'add')`.
 ```teal file=counts.tl
 --- How many times each word appears in some text.
 
+local Fs = require("cosmic.fs")
+
 local record Counts
   --- One word and how many times it appeared.
   record Entry
@@ -115,6 +117,20 @@ local counts_mt: metatable<Counts> = { __index = Counts }
 --- Counts with no words in them yet.
 function Counts.new(): Counts
   return setmetatable({ seen = {} }, counts_mt)
+end
+
+--- Counts the words in the file at `path`, or nil and why it could not be
+--- read. A constructor that can fail returns `Counts | nil, string`.
+function Counts.open(path: string): Counts | nil, string
+  local text, why = Fs.read(path)
+  if text == nil then
+    return nil, why
+  end
+  local seen: {string:integer} = {}
+  for word in text:gmatch("%S+") do
+    seen[word] = (seen[word] or 0) + 1
+  end
+  return setmetatable({ seen = seen }, counts_mt), ""
 end
 
 --- Counts each word of `text`, split on whitespace.
@@ -139,6 +155,10 @@ end
 
 return Counts
 ```
+
+`Counts.open` shows the usual shape of a constructor that can fail: it
+returns `Counts | nil, string`, and `setmetatable` may be returned
+straight from it.
 
 A record declared inside another, like `Entry` here, is `Counts.Entry`
 to every module; `record Counts.Entry` written outside the record's body
@@ -283,10 +303,15 @@ supported system and the program appended. On a host's first run the
 launcher copies that host's core into a private cache
 (`~/.cache/cosmic/cores`, `~/Library/Caches/cosmic/cores` on macOS, or
 `/tmp/cosmic-cores-<uid>` with no `HOME`; `cosmic help build` lists the
-rest) and runs it from there. `cosmic build --host` writes instead a
-native executable for this system alone, which needs no shell and writes
-no cache: the choice for a container with no /bin/sh, or a host with
-nowhere to write.
+rest) and runs it from there; the launcher then `exec`s the core, so the process
+you start is the program's own and signals reach it directly. The file
+is in the project's build directory, `$XDG_CACHE_HOME/cosmic/trees/<key>/bin/tally`
+(`~/.cache/cosmic/trees/<key>/bin/tally`; `COSMIC_BUILD_HOME` moves the
+`<key>` directories), and `cosmic build` prints its path. `cosmic build
+--host` writes instead a native executable for this system alone, which
+needs no shell and writes no cache: the choice for a container with no
+/bin/sh, or a host with nowhere to write. It writes the same
+`bin/tally`, replacing the launcher build.
 
 ## trying it
 

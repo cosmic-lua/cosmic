@@ -3438,8 +3438,9 @@ local function choose_sandbox(ctx: Run): integer | nil
         return 1
       end
       sandbox_summary = "; unsandboxed, as no worker can be sandboxed here (" .. why .. ")"
-      log:say("test: no worker can be sandboxed here: " .. why .. "; " .. unenforced ..
-          "; " .. test_sandbox.switch .. "=0 runs them unsandboxed without asking")
+      log:say("test: running unsandboxed: no worker can be sandboxed here: " .. why .. "; " ..
+          unenforced .. "; " .. test_sandbox.switch .. "=0 chooses this on purpose, " ..
+          test_sandbox.switch .. "=1 makes it a failure")
     end
   else
     sandbox_summary = "; unsandboxed (" .. test_sandbox.switch .. "=0)"

@@ -120,15 +120,67 @@ local function test_trace_of_names_where_a_coroutine_raised()
   assert(Errors.trace_of(worker):find("stack traceback:", 1, true) == 1)
 end
 
---- For the running coroutine the first frame is `trace_of` itself, as
---- its doc says, and the caller's follows.
-local function test_trace_of_the_running_coroutine_starts_at_trace_of()
+--- For the running coroutine the first frame is the caller's, as
+--- `trace`'s is.
+local function test_trace_of_the_running_coroutine_starts_at_its_caller()
   local function caller_frame(): string
     local text = Errors.trace_of((coroutine.running()))
     return text
   end
   local frames = caller_frame()
-  local first, second = frames:match("stack traceback:\n\t([^\n]*)\n\t([^\n]*)")
-  assert(first ~= nil and first:find("trace_of", 1, true) ~= nil, tostring(first))
-  assert(second ~= nil and second:find("caller_frame", 1, true) ~= nil, tostring(second))
+  local first = frames:match("stack traceback:\n\t([^\n]*)")
+  assert(first ~= nil and first:find("caller_frame", 1, true) ~= nil, tostring(first))
+  assert(first:find("errors.tl", 1, true) == nil, first)
+end
+
+--- The default level 1 is the caller: the first frame is the line that
+--- called `trace`, not `trace` itself; each level after skips one more.
+local function test_trace_starts_at_its_caller()
+  local function here(level?: integer): string
+    local text = Errors.trace(nil, level)
+    return text
+  end
+  local first, second = here():match("stack traceback:\n\t([^\n]*)\n\t([^\n]*)")
+  assert(first ~= nil and first:find("'here'", 1, true) ~= nil, tostring(first))
+  assert(first:find("errors.tl", 1, true) == nil, first)
+  assert(second ~= nil and second:find("test_trace_starts_at_its_caller", 1, true) ~= nil,
+    tostring(second))
+  local skipped = here(2):match("stack traceback:\n\t([^\n]*)")
+  assert(skipped ~= nil and skipped:find("'here'", 1, true) == nil, tostring(skipped))
+end
+
+--- A message Lua wrote shares ordinary words with a row about something
+--- else; the catalog is for cosmic's own messages, so it earns no guidance.
+local function test_a_message_lua_wrote_gets_no_guidance()
+  local db = catalog({
+    row("the record has a nil value in its field", "Reads the next record."),
+    row("no module found in the store", "Finds a module."),
+    row("table expected, got nil for the string", "Takes a policy."),
+  })
+  local own = {
+    "attempt to concatenate a nil value (field 'path')",
+    "t.tl:7: attempt to concatenate a nil value (field 'path')\nstack traceback:\n\t[C]: in ?",
+    "module 'x' not found:\n\tno field package.preload['x']\n\tno module 'x' in the store",
+    "bad argument #1 to 'insert' (table expected, got nil for the string)",
+    "[string \"a b\"]:1: attempt to concatenate a nil value (field 'path')",
+    "[string \"a b...\"]:2: bad argument #2 to 'open' (table expected, got nil for the string)",
+    "t.tl:3: bad argument #2 to 'open' (table expected, got nil for the string)",
+  }
+  for _, message in ipairs(own) do
+    assert(Errors.guidance_in(db, message) == nil, message)
+  end
+  -- The same words in a message cosmic wrote, or one that only quotes
+  -- Lua's, still match.
+  assert(Errors.guidance_in(db, "the record has a nil value in its field") ~= nil)
+  assert(Errors.guidance_in(db, "wrapped: t.tl:7: attempt to concatenate a nil value " ..
+      "in its field of the record") ~= nil)
+end
+
+--- A level below 1 would name the wrapper or the binding, so it raises;
+--- one past the stack leaves just the heading.
+local function test_trace_refuses_a_level_below_one()
+  local ok, err = pcall(Errors.trace, nil, 0)
+  assert(not ok and tostring(err):find("level must be at least 1", 1, true) ~= nil, tostring(err))
+  assert(not pcall(Errors.trace, nil, -1))
+  assert(Errors.trace(nil, 1000) == "stack traceback:")
 end

@@ -147,7 +147,12 @@ local record Cli
   --- `cosmic build [options] [path...]`: builds the tree in the working
   --- directory, then writes one executable in its build directory's
   --- bin/ for each cmd/<name>/main.tl it holds -- or only those under
-  --- the paths -- bin/<name>, whose path it prints -- see cmd. That one file is the whole program: copied
+  --- the paths -- bin/<name>, whose path it prints -- see cmd. The
+  --- build directory is $XDG_CACHE_HOME/cosmic/trees/<key> (the
+  --- home directory's .cache/cosmic/trees/<key>), <key> the SHA-256 of
+  --- the project root's canonical path, so the file is
+  --- <that>/bin/<name>; COSMIC_BUILD_HOME=/absolute/path puts the
+  --- <key> directories there instead. That one file is the whole program: copied
   --- alone to a host with no cosmic, it runs with an empty environment
   --- (`env -i ./name`) on every supported system. It is a /bin/sh
   --- launcher with a core for each system and the program appended;
@@ -159,7 +164,11 @@ local record Cli
   --- cosmic-cores-<uid>. `--host` writes this cosmic's own core and the
   --- program alone, which the kernel runs directly -- no shell, PATH or
   --- cache -- but only on this system and processor: the choice for a
-  --- container with no /bin/sh or a host with nowhere to write. Either
+  --- container with no /bin/sh or a host with nowhere to write. It
+  --- writes the same bin/<name>, replacing a launcher build of it (and
+  --- the other way round). The launcher `exec`s the core once ready, so
+  --- the process you start is the program's own and signals reach it
+  --- directly. Either
   --- carries this binary's CA roots and time zones: `cosmic refresh
   --- --binary <path> -o <copy>` writes a copy with newer ones
   --- later. The tree is found as `test` finds it

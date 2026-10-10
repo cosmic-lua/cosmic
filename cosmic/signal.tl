@@ -4,7 +4,10 @@
 --- signal rather than acting on it until it closes, and then delivers it
 --- again. [`Child.run`] holds one of its own, as [`Net.serve`] does; the
 --- waits of [`cosmic.child`], [`cosmic.net`] and [`cosmic.http`] end once
---- the innermost open guard catches one.
+--- the innermost open guard catches one. A signal the process ignores
+--- stays ignored and is never caught: a non-interactive shell starts a
+--- background job (`cmd &`) with SIGINT ignored, so `kill -INT` of one
+--- does nothing; send SIGTERM, or start it with the signal restored.
 local Clock = require("cosmic.clock")
 local Innermost = require("cosmic.internal.innermost_guard")
 local Poll = require("cosmic.poll")
@@ -216,8 +219,9 @@ end
 --- Holds SIGINT and SIGTERM for this process while it supervises
 --- children, so it can end them before it is ended itself. Until the
 --- guard closes, either signal is caught rather than acted on:
---- `g:cancelled()` answers the last one delivered, 0 until one is.
---- Only `h:wait` reads the guard -- it ends its child and answers
+--- `g:cancelled()` answers the last one delivered, 0 until one is. A signal
+--- the process ignores stays ignored (a shell's `cmd &` starts with SIGINT
+--- ignored). Only `h:wait` reads the guard -- it ends its child and answers
 --- "child: cancelled by signal N" once a signal is caught -- and a stream's
 --- read or write, which fails with the same message and leaves the
 --- child running; [`Child.wait_any`] and `h:try_wait` do not, so a loop
@@ -229,7 +233,9 @@ end
 --- of [`Poll.run`], `g:wait(timeout_ns)` waits for the next signal to
 --- take while the other tasks run, and takes it: the signal, or 0 and
 --- why once `timeout_ns` passes, the task is cancelled, or the guard
---- closes. A signal this process ignores stays ignored.
+--- closes. A signal this process ignores stays ignored: a non-interactive
+--- shell starts `cmd &` with SIGINT ignored, so the guard never catches
+--- it there.
 ---
 --- Guards nest: one opened while another is open -- a [`Child.run`]'s
 --- too -- is the innermost until it closes, and the waits (`h:wait`,

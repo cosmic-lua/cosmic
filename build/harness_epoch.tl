@@ -116,7 +116,7 @@ harness_epoch.acknowledged = {
 
   ["build.shared_verdicts"] = "6d1d88c6e192f0eeac3ad9cef9b57849ebae57eb143bb53df1a28331424eb40c",
 
-  ["build.test"] = "77f23118e504006334ed893217729dfd0edc883001422259915435b6b64ace44",
+  ["build.test"] = "fb3fe18bcafdad9d044868e1723d7f27281ddaa9afde20c85fc2b4f102417d1f",
 
   ["build.test_inputs"] = "77ba8a9c5e482ba9a381bd1f9b84e2ba8f9f388914b8ff844d44d672f5e9f48b",
 
@@ -152,7 +152,7 @@ harness_epoch.acknowledged = {
 
   ["cosmic.sandbox.policy"] = "db6869cad86bb141c487378306def095e6123a006f19de55a55d64db3d66c529",
 
-  ["cosmic.sqlite"] = "ac3fd16dd89251feaee572e4e4b1d29257037afeca3b5c9b141557f2ce732390",
+  ["cosmic.sqlite"] = "5bae6b294053cf597e8c25fa02bffdbb580953fc30a32972dbb4de7b88e9a78e",
 
   ["cosmic.string"] = "bf0e5e828de84f23aa818887e0280a3ebc844c9ca5e384c33227cb42715b8655",
 
