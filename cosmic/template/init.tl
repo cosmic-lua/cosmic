@@ -17,6 +17,7 @@
 ---     {{.when | site.fmt.date}}         then each stage `| module.path.func`
 ---     {{if .admin}}..{{else if .user}}..{{else}}..{{end}}
 ---     {{range .items}}<li>{{.name}}</li>{{end}}   dot is each element
+---     {{range .items}}..{{else}}none{{end}}       `none` when there is no element
 ---     {{with .owner}}{{.name}}{{else}}nobody{{end}}  dot is the value, if truthy
 ---
 --- A name in a field path is a field of the record: a typo is a type
@@ -52,8 +53,11 @@
 --- recognised; and a slot in any attribute whose name begins with `on`
 --- is refused (a literal `onclick="..."` compiles).
 ---
---- `{{range}}` has no `{{else}}`, and `{{with}}` takes `{{else}}` but no
---- `{{else if}}`: nest an `{{if}}`.
+--- `{{range}}` and `{{with}}` take one `{{else}}` but no `{{else if}}`:
+--- nest an `{{if}}`. A range's `{{else}}` runs when the list has no first
+--- element, and dot there is what it is outside the range; the list is
+--- read once. It is the way to say "none": `{{if .items}}` is true of an
+--- empty list, which is a table.
 ---
 --- Line N of the template is line N of the source, so a type error reads
 --- as `page.tmpl:12: ...`.

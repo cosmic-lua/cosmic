@@ -96,6 +96,10 @@ local function gen_nodes(src: Fuzz.Source, depth: integer, out: {string}, kit: K
     elseif kind == 8 then
       out[#out + 1] = "{{range .l}}"
       gen_nodes(src, depth + 1, out, kit)
+      if src:int(0, 1) == 0 then
+        out[#out + 1] = "{{else}}"
+        gen_nodes(src, depth + 1, out, kit)
+      end
       out[#out + 1] = "{{end}}"
     else
       out[#out + 1] = "{{with .w}}"
@@ -444,9 +448,10 @@ local function gen_sound(src: Fuzz.Source): string
       first = Fuzz.pick(src, of)
     end
     local wrap = src:int(0, 5)
-    if wrap == 1 then
+    if wrap == 1 or wrap == 4 then
       local second = Fuzz.pick(src, pool)
-      body[#body + 1] = "{{if .a}}" .. first[1] .. "{{else}}" .. second[1] .. "{{end}}"
+      local open = wrap == 1 and "{{if .a}}" or "{{range .l}}"
+      body[#body + 1] = open .. first[1] .. "{{else}}" .. second[1] .. "{{end}}"
       kinds[#kinds + 1] = first[2] .. second[2]
     else
       local open = wrap == 2 and "{{range .l}}" or wrap == 3 and "{{with .w}}" or ""

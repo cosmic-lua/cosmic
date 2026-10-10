@@ -209,16 +209,11 @@ local function test_a_type_error_in_a_text_template_is_on_the_templates_line(tmp
 end
 
 local function test_a_slot_takes_what_its_place_accepts(tmp: string)
-  local lua, trouble = project(tmp, "accepts", HEAD .. [[
-<h1 class="{{.cls}}" title='{{.a}}'>{{.title}} {{.n}} {{.h}} {{.cls | fmt.upper}}</h1>
-<a href="{{.url}}">{{.user.name}}</a><a href="{{.u}}"></a><a href=" {{.url | fmt.bracket}}">x</a>
-{{range .items}}<i title="{{.n}}">{{.name}}</i>{{else}}{{end}}
-]])
-  assert(lua == nil and trouble:find("{{else}} in a {{range}}", 1, true), tostring(trouble))
   local ok, why = project(tmp, "accepts", HEAD .. [[
 <h1 class="{{.cls}}" title='{{.a}}'>{{.title}} {{.n}} {{.h}} {{.cls | fmt.upper}}</h1>
 <a href="{{.url}}">{{.user.name}}</a><a href="{{.u}}"></a><a href="{{.url | fmt.bracket}}">x</a>
 {{range .items}}<i title="{{.n}}">{{.name}}</i>{{end}}
+{{range .items}}<i title="{{.n}}">{{.name}}</i>{{else}}<i title="{{.title}}">{{.h}}</i>{{end}}
 {{if .flag}}{{.h}}{{else if .title}}a{{else}}b{{end}}
 {{with .user}}{{.name}}{{end}}{{with .user}}x{{else}}{{.title}}{{end}}
 ]])
@@ -384,4 +379,55 @@ local function test_a_repeated_attribute_is_judged_each_time(tmp: string)
   local page: {string: any} = { url = "javascript:x" }
   local out = render(tmp, "dup", HEAD .. '<a href="x" href="{{.url}}">', page)
   assert(out == '\n<a href="x" href="' .. esc_attr("about:invalid") .. '">', out)
+end
+
+--- A stage that counts its calls, and one that answers the count.
+local COUNTER <const> = [[
+local record counter
+  calls: integer
+  each: function(l: {string}): {string}
+  count: function(s: string): string
+end
+counter.calls = 0
+function counter.each(l: {string}): {string}
+  counter.calls = counter.calls + 1
+  return l
+end
+function counter.count(_: string): string
+  return tostring(counter.calls)
+end
+return counter
+]]
+
+local function test_a_range_runs_its_else_when_the_list_is_empty_and_reads_the_list_once(tmp: string)
+  local lua, trouble = build(tmp, "range-else", { ["data.tl"] = DATA, ["counter.tl"] = COUNTER,
+    ["page.tmpl"] = HEAD .. "<ul>{{range .list | counter.each}}<li>{{.}}</li>{{else}}<p>{{.title}}</p>{{end}}</ul>" ..
+      "{{.title | counter.count}}" })
+  assert(lua ~= nil, trouble)
+  local full = load_module(lua, "page")
+  assert(full is Loaded, "page exports no render")
+  local listed = full.render({ list = { "a", "<" }, title = "none" })
+  assert(listed is Html.SafeHtml and Html.raw(listed) == "\n<ul><li>a</li><li>&lt;</li></ul>1", tostring(listed))
+  local empty = load_module(lua, "page")
+  assert(empty is Loaded, "page exports no render")
+  local none = empty.render({ list = {}, title = "<none>" })
+  assert(none is Html.SafeHtml and Html.raw(none) == "\n<ul><p>&lt;none&gt;</p></ul>1", tostring(none))
+end
+
+local function test_a_range_else_reads_the_enclosing_dot(tmp: string)
+  local lua, trouble = project(tmp, "else-dot", HEAD ..
+      "{{range .items}}{{.name}};{{else}}{{range .list}}{{.}}{{else}}{{.title}}{{end}}{{end}}")
+  assert(lua ~= nil, trouble)
+  local mod = load_module(lua, "page")
+  assert(mod is Loaded, "page exports no render")
+  for _, case in ipairs({
+      { { items = { { name = "a", n = 1 }, { name = "b", n = 2 } } } as {string: any}, "\na;b;" },
+      { { items = {}, list = { "x", "y" } } as {string: any}, "\nxy" },
+      { { items = {}, list = {}, title = "t<" } as {string: any}, "\nt&lt;" },
+  } as {{any}}) do
+    local out = mod.render(case[1] as {string: any})
+    assert(out is Html.SafeHtml and Html.raw(out) == case[2], tostring(case[2]))
+  end
+  local wrong = refused(tmp, "else-dot-wrong", HEAD .. "{{range .items}}{{.name}}\n{{else}}{{.name}}{{end}}")
+  assert(wrong:find("page.tmpl:3:", 1, true) and wrong:find("name", 1, true), wrong)
 end
