@@ -595,20 +595,39 @@ local NOSCRIPT_MARKUP <const>: {string} = {
   "<noscript><img src=x onerror=\"</noscript>{{.x}}\">",
   "<noscript></p title=\"</noscript>{{.x}}\">",
   "<noscript><svg><style><p title=\"</style></noscript>{{.x}}\">",
+  -- An arm that leaves the scripting-off reading in a tag where the text
+  -- after it reads differently, joined with an arm that does not.
+  "<noscript>{{if .a}}<a>{{else}}<a{{if .b}} style{{end}}=\"{{if .c}}{{end}}>{{end}}</noscript>{{.x}}\">",
+  "<noscript>{{with .a}}<a>{{else}}<a{{if .b}} style{{end}}=\"{{if .c}}{{end}}>{{end}}</noscript>{{.x}}\">",
+  "<noscript>{{range .l}}<a>{{else}}<a{{if .b}} style{{end}}=\"{{if .c}}{{end}}>{{end}}</noscript>{{.x}}\">",
+  "<noscript>{{if .a}}{{else}}<a{{if .b}} style{{end}}=\"{{if .c}}{{end}}>{{end}}</noscript>{{.x}}\">",
+  "<noscript>{{if .a}}<a>{{else}}<a{{if .b}} style{{end}}=\"{{\"\"}}>{{end}}</noscript>{{.x}}\">",
+  "<noscript><a{{if .b}} style{{end}}=\"{{\"\"}}></noscript>{{.x}}\">",
+  "<noscript><a{{if .b}} style{{end}}=\"></noscript>{{.x}}\">",
 }
 
 --- `src` with an empty block, and then a string action of the one byte
---- there, at each place before its first slot that a cut can go: not
---- beside a brace, which would run into the action's own.
+--- there, at each place in its literal text before its slot `{{.x}}` that
+--- a cut can go: not beside a brace, which would run into an action's own.
 local function cuts_of(src: string): {string}
   local out: {string} = { src }
-  local slot = src:find("{{", 1, true) as integer
-  for at = 1, slot - 1 do
-    if not src:sub(math.max(at - 1, 1), at + 1):find("[{}]") then
-      out[#out + 1] = src:sub(1, at) .. "{{if .a}}{{end}}" .. src:sub(at + 1)
-      local b = src:sub(at, at)
+  local literal: {boolean} = {}
+  local at = 1
+  while at <= #src do
+    local open, close = src:find("{{.-}}", at)
+    for i = at, (open or #src + 1) - 1 do
+      literal[i] = true
+    end
+    at = (close or #src) + 1
+  end
+  local slot = src:find("{{.x}}", 1, true) as integer
+  for i = 1, slot - 1 do
+    if literal[i] and literal[i + 1] and (i == 1 or literal[i - 1]) and
+        not src:sub(math.max(i - 1, 1), i + 1):find("[{}]") then
+      out[#out + 1] = src:sub(1, i) .. "{{if .cut}}{{end}}" .. src:sub(i + 1)
+      local b = src:sub(i, i)
       if b ~= "\"" then
-        out[#out + 1] = src:sub(1, at - 1) .. "{{\"" .. b .. "\"}}" .. src:sub(at + 1)
+        out[#out + 1] = src:sub(1, i - 1) .. "{{\"" .. b .. "\"}}" .. src:sub(i + 1)
       end
     end
   end
@@ -620,7 +639,7 @@ local function test_markup_in_noscript_that_scripting_off_reads_differently_refu
   for _, src in ipairs(NOSCRIPT_MARKUP) do
     for _, cut in ipairs(cuts_of(src)) do
       local out, why = Template.compile(HEAD .. cut, "t.tmpl")
-      if out ~= nil or not why:find("differently", 1, true) then
+      if out ~= nil or not (why:find("differently", 1, true) or why:find("the arms", 1, true)) then
         wrong[#wrong + 1] = cut .. ": " .. tostring(why)
       end
     end
