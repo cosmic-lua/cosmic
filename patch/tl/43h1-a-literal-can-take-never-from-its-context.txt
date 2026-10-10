@@ -1,0 +1,8 @@
+file: tl.tl
+note: a function literal that omits its return list and is checked where a function that never returns is expected (37c) takes that too, as it takes the returns of its context (37d, 37f): it must not return and must not reach its end, and its type never returns
+--- find
+   context_rets: TupleType
+--- replace
+   context_rets: TupleType
+   context_never: boolean
+--- end

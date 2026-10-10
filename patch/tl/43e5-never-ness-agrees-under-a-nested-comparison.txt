@@ -1,0 +1,258 @@
+file: tl.tl
+note: Teal compares what is nested in a type through is_a in whichever direction passes (a function's parameters and returns bivariantly, arrays, maps, records and unions covariantly), so the rule of 43e2 and 43e3, which holds at the root of a comparison, would let a function that never returns stand for one that may inside another type, and a call through the second ends a block it returns from: `{function(): never}` for `{function(): string}`, and a function taking a never-callback for one taking a callback that returns. The outermost is_a or same_type therefore walks both types in step, through function parameters and returns, array elements, map keys and values, tuple entries, record fields and metafields, union members and the type arguments of a name, and refuses a pair of function types anywhere but at the root that disagrees on `never`, in either direction. A union at the root keeps its members at the root, and an overloaded function counts as one that never returns when every overload does. This also refuses the sound `{function(): never}` for `{function()}`: never-ness must agree wherever a type is nested. A name not resolved yet is not looked into (resolving it here could report an error the comparison reports, or settle it for the wrong scope), and the walk reports nothing and changes nothing but its answer
+--- find
+   -- subtyping comparison
+   function TypeChecker:is_a(t1: Type, t2: Type): boolean, {Error}
+      return compare_types(self, self.subtype_relations, t1, t2)
+   end
+
+   -- invariant type comparison
+   function TypeChecker:same_type(t1: Type, t2: Type): boolean, {Error}
+      -- except for error messages, behavior is the same as
+      -- `return (is_a(t1, t2) and self:is_a(t2, t1))`
+      return compare_types(self, self.eqtype_relations, t1, t2)
+   end
+--- replace
+   -- Whether t is a function that never returns: true for a function
+   -- declared so and for an overloaded one whose every overload is;
+   -- false for one that may return; nil for a type that is no function.
+   local function never_of(t: Type): boolean
+      if t is GenericType then
+         t = t.t
+      end
+      if t is FunctionType then
+         return not not t.never
+      elseif t is PolyType then
+         for _, overload in ipairs(t.types) do
+            if not never_of(overload) then
+               return false
+            end
+         end
+         return #t.types > 0
+      end
+      return nil
+   end
+
+   -- What a walk looks into in place of t: the type a name was resolved
+   -- to, a declaration's definition, a generic's body. A name not
+   -- resolved yet stays itself: resolving it here could report an error
+   -- the comparison would report, or settle it for the wrong scope.
+   local function walk_target(t: Type): Type
+      for _ = 1, 16 do
+         if t is NominalType then
+            local resolved = t.resolved
+            if resolved == nil and t.found and not t.typevals then
+               resolved = t.found.def
+            end
+            if resolved == nil then
+               return t
+            end
+            t = resolved
+         elseif t is TypeDeclType then
+            t = t.def
+         elseif t is GenericType then
+            t = t.t
+         else
+            return t
+         end
+      end
+      return t
+   end
+
+   -- Walks a and b in step, as a comparison of them would reach their
+   -- parts, and answers the first two function types it meets in the same
+   -- place that disagree on whether the function never returns, or nil.
+   -- The pair at the root is the comparison's own to judge (43e2): `root`
+   -- holds while the walk has gone through nothing but names and unions.
+   local function never_mismatch(a: Type, b: Type, root: boolean, seen: {Type:{Type:boolean}}): Type, Type
+      a, b = walk_target(a), walk_target(b)
+      if a == b then
+         return nil
+      end
+      if not root then
+         local with_a = seen[a]
+         if with_a and with_a[b] then
+            return nil
+         end
+         if not with_a then
+            with_a = {}
+            seen[a] = with_a
+         end
+         with_a[b] = true
+      end
+
+      if a is TupleType or b is TupleType then
+         local ats: {Type} = a is TupleType and a.tuple or { a }
+         local bts: {Type} = b is TupleType and b.tuple or { b }
+         for i = 1, math.min(#ats, #bts) do
+            local x, y = never_mismatch(ats[i], bts[i], root, seen)
+            if x then
+               return x, y
+            end
+         end
+         return nil
+      end
+
+      if a is UnionType or b is UnionType then
+         local ams: {Type} = a is UnionType and a.types or { a }
+         local bms: {Type} = b is UnionType and b.types or { b }
+         for _, am in ipairs(ams) do
+            for _, bm in ipairs(bms) do
+               local x, y = never_mismatch(am, bm, root, seen)
+               if x then
+                  return x, y
+               end
+            end
+         end
+         return nil
+      end
+
+      if a is PolyType or b is PolyType then
+         if not root then
+            local an, bn = never_of(a), never_of(b)
+            if an ~= nil and bn ~= nil and an ~= bn then
+               return a, b
+            end
+            return nil
+         end
+         local aos: {Type} = a is PolyType and a.types or { a }
+         local bos: {Type} = b is PolyType and b.types or { b }
+         for _, ao in ipairs(aos) do
+            for _, bo in ipairs(bos) do
+               local x, y = never_mismatch(ao, bo, root, seen)
+               if x then
+                  return x, y
+               end
+            end
+         end
+         return nil
+      end
+
+      if a is FunctionType and b is FunctionType then
+         if not root and (not not a.never) ~= (not not b.never) then
+            return a, b
+         end
+         local x, y = never_mismatch(a.args, b.args, false, seen)
+         if x then
+            return x, y
+         end
+         return never_mismatch(a.rets, b.rets, false, seen)
+      end
+
+      if a is ArrayType and b is ArrayType then
+         return never_mismatch(a.elements, b.elements, false, seen)
+      end
+
+      if a is MapType and b is MapType then
+         local x, y = never_mismatch(a.keys, b.keys, false, seen)
+         if x then
+            return x, y
+         end
+         return never_mismatch(a.values, b.values, false, seen)
+      end
+
+      if a is MapType and b is ArrayType then
+         return never_mismatch(a.values, b.elements, false, seen)
+      end
+
+      if a is ArrayType and b is MapType then
+         return never_mismatch(a.elements, b.values, false, seen)
+      end
+
+      if a is TupleTableType and b is TupleTableType then
+         for i = 1, math.min(#a.types, #b.types) do
+            local x, y = never_mismatch(a.types[i], b.types[i], false, seen)
+            if x then
+               return x, y
+            end
+         end
+         return nil
+      end
+
+      if a is TupleTableType and b is ArrayType then
+         for _, at in ipairs(a.types) do
+            local x, y = never_mismatch(at, b.elements, false, seen)
+            if x then
+               return x, y
+            end
+         end
+         return nil
+      end
+
+      if a is RecordLikeType and b is RecordLikeType then
+         if a.elements and b.elements then
+            local x, y = never_mismatch(a.elements, b.elements, false, seen)
+            if x then
+               return x, y
+            end
+         end
+         for _, k in ipairs(a.field_order) do
+            local bf = b.fields[k]
+            if bf then
+               local x, y = never_mismatch(a.fields[k], bf, false, seen)
+               if x then
+                  return x, y
+               end
+            end
+         end
+         if a.meta_fields and b.meta_fields then
+            for _, k in ipairs(a.meta_field_order) do
+               local bf = b.meta_fields[k]
+               if bf then
+                  local x, y = never_mismatch(a.meta_fields[k], bf, false, seen)
+                  if x then
+                     return x, y
+                  end
+               end
+            end
+         end
+         return nil
+      end
+
+      if a is NominalType and b is NominalType and a.typevals and b.typevals then
+         for i = 1, math.min(#a.typevals, #b.typevals) do
+            local x, y = never_mismatch(a.typevals[i], b.typevals[i], false, seen)
+            if x then
+               return x, y
+            end
+         end
+      end
+
+      return nil
+   end
+
+   nested_never_mismatch = function(a: Type, b: Type): boolean
+      return never_mismatch(a, b, false, {}) ~= nil
+   end
+
+   -- compare_types, once the outermost comparison has found that the two
+   -- types agree on which of their nested functions never return. A
+   -- comparison made inside another (by a relation of 43e2's kind) is not
+   -- the outermost, and walks nothing: the walk covered it.
+   local function compare_agreeing(self: TypeChecker, relations: TypeRelations, t1: Type, t2: Type): boolean, {Error}
+      local depth = self.compare_depth or 0
+      if depth == 0 and t1.typeid ~= t2.typeid
+         and not (no_nested_types[t1.typename] and no_nested_types[t2.typename]) then
+         local x, y = never_mismatch(t1, t2, true, {})
+         if x then
+            return false, { Err("got %s, expected %s, which differ in whether the function never returns, inside another type", x, y) }
+         end
+      end
+      self.compare_depth = depth + 1
+      local ok, errs = compare_types(self, relations, t1, t2)
+      self.compare_depth = depth
+      return ok, errs
+   end
+
+   -- subtyping comparison
+   function TypeChecker:is_a(t1: Type, t2: Type): boolean, {Error}
+      return compare_agreeing(self, self.subtype_relations, t1, t2)
+   end
+
+   -- invariant type comparison
+   function TypeChecker:same_type(t1: Type, t2: Type): boolean, {Error}
+      -- except for error messages, behavior is the same as
+      -- `return (is_a(t1, t2) and self:is_a(t2, t1))`
+      return compare_agreeing(self, self.eqtype_relations, t1, t2)
+   end
+--- end

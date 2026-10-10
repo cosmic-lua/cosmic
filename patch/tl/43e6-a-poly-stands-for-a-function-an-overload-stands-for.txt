@@ -1,0 +1,14 @@
+file: tl.tl
+note: a poly value stands for a function type b when some overload is a subtype of b, as the comment of the row says; the row asked for b to be a subtype of some overload, the reverse, so a poly stood for any function one of its overloads accepts
+--- find
+            if self:exists_supertype_in(b, a) then
+--- replace
+            local found = false
+            for _, overload in ipairs(a.types) do
+               if self:is_a(overload, b) then
+                  found = true
+                  break
+               end
+            end
+            if found then
+--- end
