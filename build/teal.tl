@@ -376,26 +376,145 @@ local function line_at(source: string, y: integer): string | nil
   return source:sub(start, stop ~= nil and stop - 1 or #source)
 end
 
---- The module `source` binds to the local `name` by a line of its own
---- (`local Hash <const> = require("cosmic.hash")`, or `local type
---- Ledger = require("ledger")`): nil when no line does, or when lines
---- bind it to more than one module.
-local function module_bound(source: string, name: string): string | nil
-  local module: string | nil = nil
-  local head = "^%s*local%s+" .. name
-  local typed = "^%s*local%s+type%s+" .. name
-  local tail = "%s*=%s*require%(%s*[\"']([%w_.]+)[\"']%s*%)"
-  for line in source:gmatch("[^\n]+") do
-    local named = line:match(head .. tail) or line:match(head .. "%s*<%s*%a+%s*>" .. tail) or
-      line:match(typed .. tail)
-    if named ~= nil then
-      if module ~= nil and module ~= named then
-        return nil
-      end
-      module = named
+--- A `local type <name> = require("<module>")`.
+local record TypeRequire
+  name: string
+  module: string
+end
+
+--- What [`declarations_of`] reads from a source.
+local record Declarations
+  --- Each `local type` require, by the position of its `require`
+  --- (`"<y>:<x>"`), which is where the checker reports a refused one.
+  typed: {string: TypeRequire}
+  --- The module each local is bound to by a `require` of its own; none
+  --- for a local bound to more than one.
+  bound: {string: string}
+  --- The kind of each type declared at the top level, as its keyword
+  --- says: "record", "enum", "interface" or "type"; the first where a
+  --- name is declared twice.
+  kinds: {string: string}
+end
+
+--- The module the call `n` requires, `require("m")` however spelt, and
+--- the node of its `require`: nil for any other expression.
+local function required_module(n: ast.Node | nil): string | nil, ast.Node | nil
+  local op = n ~= nil and n.op or nil
+  if n == nil or op == nil or op.op ~= "@funcall" then
+    return nil, nil
+  end
+  local callee, arguments = n.e1, n.e2
+  local argument = arguments ~= nil and #arguments == 1 and arguments[1] or nil
+  if callee == nil or callee.kind ~= "variable" or callee.tk ~= "require" or
+      argument == nil or argument.kind ~= "string" then
+    return nil, nil
+  end
+  return argument.conststr, callee
+end
+
+--- The expression a local's value `n` binds it to the module of: the
+--- left side of an `or` (`require("m") or {}`), whose record the checker
+--- still names the value after, and what parentheses hold.
+local function bound_value(n: ast.Node | nil): ast.Node | nil
+  local op = n ~= nil and n.op or nil
+  while n ~= nil and (n.kind == "paren" or (op ~= nil and op.op == "or")) do
+    n = n.e1
+    op = n ~= nil and n.op or nil
+  end
+  return n
+end
+
+--- The source [`declarations_of`] last parsed, and what it found there.
+local parsed_source: string | nil = nil
+local parsed_declarations: Declarations | nil = nil
+
+--- The requires and top-level types `source` parses into, however each
+--- is spelt: over several lines, without parentheses (`require "x"`),
+--- with comments between its tokens; text in a string or a comment is
+--- none. A `local type` require under a `.` (`require("x").T`) is in
+--- `typed` but binds no module, since its name is the type it reaches;
+--- nor does a local declared with a type (`local X: T = require("x")`).
+--- Empty when `source` does not parse. The last source's answer is kept:
+--- a compile asks for each refusal's hint, and the hints of a file share
+--- one parse.
+local function declarations_of(source: string): Declarations
+  if source == parsed_source and parsed_declarations ~= nil then
+    return parsed_declarations
+  end
+  local found: Declarations = { typed = {}, bound = {}, kinds = {} }
+  local ambiguous: {string: boolean} = {}
+  local function bind(name: string | nil, module: string | nil)
+    if name == nil or module == nil or ambiguous[name] then
+      return
+    end
+    local before = found.bound[name]
+    if before ~= nil and before ~= module then
+      found.bound[name], ambiguous[name] = nil, true
+    else
+      found.bound[name] = module
     end
   end
-  return module
+  local built, _ = teal.load()
+  local parsed: ast.Parsed | nil = nil
+  if built ~= nil then
+    parsed, _ = ast.parse(built, source, "hint")
+  end
+  if parsed ~= nil then
+    ast.walk(parsed.node, function(n: ast.Node)
+      local var = n.var
+      if n.kind == "local_type" and var ~= nil and var.tk ~= nil then
+        local call = n.value
+        local op = call ~= nil and call.op or nil
+        while call ~= nil and op ~= nil and op.op == "." do
+          call = call.e1
+          op = call ~= nil and call.op or nil
+        end
+        local module, callee = required_module(call)
+        if module ~= nil and callee ~= nil then
+          found.typed[callee.y .. ":" .. callee.x] = { name = var.tk, module = module }
+          if call == n.value then
+            bind(var.tk, module)
+          end
+        end
+      elseif n.kind == "local_declaration" and n.vars ~= nil and n.exps ~= nil then
+        local written = n.decltuple ~= nil and n.decltuple.tuple or nil
+        if written == nil or #written == 0 then
+          for i, name in ipairs(n.vars) do
+            bind(name.tk, (required_module(bound_value(n.exps[i]))))
+          end
+        end
+      end
+    end)
+    for _, statement in ipairs(parsed.node) do
+      local var, value = statement.var, statement.value
+      local name = statement.kind == "local_type" and var ~= nil and var.tk or nil
+      if name ~= nil and var ~= nil and found.kinds[name] == nil then
+        -- The parser places `local type X` at `X`, and `local record X`
+        -- at `local`, with the declared type's own kind in its value.
+        local declared = value ~= nil and value.newtype or nil
+        local def = declared ~= nil and declared.def or nil
+        if def ~= nil and def.typename == "generic" then
+          def = def.t
+        end
+        local constructed = def ~= nil and def.typename or nil
+        if statement.y == var.y and statement.x == var.x then
+          found.kinds[name] = "type"
+        elseif constructed == "record" or constructed == "enum" or constructed == "interface" then
+          found.kinds[name] = constructed
+        end
+      end
+    end
+  end
+  parsed_source, parsed_declarations = source, found
+  return found
+end
+
+--- The module `source` binds to the local `name` by a `require` of its
+--- own (`local Hash <const> = require("cosmic.hash")`, or `local type
+--- Ledger = require("ledger")`), read by [`declarations_of`]: nil when none
+--- does, or when the file binds it to more than one module.
+local function module_bound(source: string, name: string): string | nil
+  return declarations_of(source).bound[name]
 end
 
 --- What a name in scope is bound to, as far as a hint cares: the
@@ -968,18 +1087,11 @@ local function nil_answer(who: string, value: string): string
     value .. " = assert(<the call>)`"
 end
 
---- The kind of type `source` declares as `name` at its top level, by a
---- line of its own (`local record Month`, `local type Month = ...`):
---- nil when none does.
+--- The kind of type `source` declares as `name` at its top level
+--- (`local record Month`, `local type Month = ...`), nil when none does,
+--- as [`declarations_of`] reads it.
 local function declared_kind(source: string, name: string): string | nil
-  for line in source:gmatch("[^\n]+") do
-    local kind, named = line:match("^local%s+(%a+)%s+([%a_][%w_]*)")
-    if named == name and (kind == "record" or kind == "enum" or kind == "interface" or
-        kind == "type") then
-      return kind
-    end
-  end
-  return nil
+  return declarations_of(source).kinds[name]
 end
 
 --- Types the checker prints that are no record to give a `__close`.
@@ -1072,32 +1184,10 @@ local function narrowing_hint(msg: string, source: string): string | nil
   return nil
 end
 
---- A `local type <name> = require("<module>")`.
-local record TypeRequire
-  name: string
-  module: string
-end
-
---- The `local type` require on line `y` of `source` whose `require` is
---- at column `x`, where the checker reports a refused one: nil when there
---- is none. The line need not start with it: a template's module
---- requires every module on its `{{type}}`'s line ([`cosmic.template`]).
--- TODO: find the require from the parsed source at the error's position,
--- not from one line of text: one written over several lines (`local type
--- X =` and `require("x")` below it) or without parentheses (`require
--- "x"`) is not found, so its refusal gets no hint and its owner's types
--- keep [`nesting_hint`]'s, which mislead there.
+--- The `local type` require of `source` whose `require` is at `y`:`x`,
+--- where the checker reports a refused one: nil when there is none.
 local function type_require_at(source: string, y: integer, x: integer): TypeRequire | nil
-  local line = line_at(source, y)
-  if line == nil or x < 1 then
-    return nil
-  end
-  local name = line:sub(1, x - 1):match("%f[%w_]local%s+type%s+([%a_][%w_]*)%s*=%s*$")
-  local module = line:sub(x):match("^require%s*%(%s*[\"']([%w_.]+)[\"']%s*%)")
-  if name == nil or module == nil then
-    return nil
-  end
-  return { name = name, module = module }
+  return declarations_of(source).typed[y .. ":" .. x]
 end
 
 --- The checker's refusal of a `local type` require of a module that
@@ -1644,11 +1734,11 @@ end
 --- The checker names a module's record after the local its `require` was
 --- first bound to, whatever alias reads it now; one whose record is a local
 --- of its own ([`cosmic.cli`]'s) is `of type record Module`, and the alias
---- answers for it. There is no answer for a
---- record of the program's own, a name bound to more than one module, a
---- module bound among several names (`local A, Hash = ...`) or by a line
---- that does not start with its `local` (`do local Hash = ...`). Scope is
---- not read: a `require` in a nested block counts as the file's own.
+--- answers for it. There is no answer for a record of the program's own,
+--- a name bound to more than one module, or a binding whose value is more
+--- than the `require` (`local Hash: T = ...`, a `global`, `require("m").sub`),
+--- though the left side of an `or` and parentheses are read through. Scope
+--- is not read: a `require` in a nested block counts as the file's own.
 ---
 --- `argument 2: got boolean, expected Sqlite.OpenOptions` is answered from
 --- [`cosmic.removed`]'s `arguments` the same way: a type that replaced a

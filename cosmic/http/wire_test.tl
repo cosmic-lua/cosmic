@@ -36,6 +36,14 @@ local function test_the_three_target_forms_are_read()
   assert(refusal("GET /a#b HTTP/1.1\r\nHost: h\r\n\r\n") == 400)
 end
 
+--- Repeated Cookie headers are joined as RFC 6265 5.4 has pairs,
+--- every other repeated header with a comma.
+local function test_repeated_cookie_headers_are_joined_with_semicolons()
+  local got = assert(read("GET / HTTP/1.1\r\nHost: h\r\nCookie: a=1\r\nAccept: x\r\nCookie: b=2\r\nAccept: y\r\n\r\n").head)
+  assert(got.headers["cookie"] == "a=1; b=2", got.headers["cookie"])
+  assert(got.headers["accept"] == "x, y", got.headers["accept"])
+end
+
 --- Bare LF ends a line as CRLF does, blank lines before the request
 --- line are passed over, and repeated headers are joined.
 local function test_a_lenient_head_is_read_as_its_strict_form()
@@ -202,6 +210,17 @@ local function test_check_refuses_what_cannot_be_sent()
   assert(wire.check({ status = 200, body = Stream.from_string("x"), length = -1 }) ~= "")
 end
 
+--- What a list of header values may and may not be.
+local function test_check_takes_lists_of_header_values()
+  assert(wire.check({ status = 200, headers = { ["Set-Cookie"] = { "a=1", "b=2" } } }) == "")
+  assert(wire.check({ status = 200, headers = { ["Set-Cookie"] = {} } }) == "")
+  assert(wire.check({ status = 200, headers = { ["Set-Cookie"] = { "a=1", "b\rc" } } }) ~= "")
+  assert(wire.check({ status = 200, headers = { ["Set-Cookie"] = { "a\0" } } }) ~= "")
+  for _, owned in ipairs({ "Date", "content-length", "Transfer-Encoding", "CONNECTION" }) do
+    assert(wire.check({ status = 200, headers = { [owned] = { "x" } } }) ~= "", owned)
+  end
+end
+
 --- `reply`, checked and sent: the bytes written.
 local function sent_bytes(reply: wire.Reply): string
   reply.version, reply.date = "HTTP/1.1", "Thu, 01 Jan 1970 00:00:00 GMT"
@@ -210,6 +229,16 @@ local function sent_bytes(reply: wire.Reply): string
   local sink = Stream.collect()
   local _ = wire.send(sink, reply)
   return sink:result()
+end
+
+--- A list value is one line per element, in order, under the name as
+--- given; an empty list is none.
+local function test_a_list_header_is_written_one_line_per_element()
+  local text = sent_bytes({ status = 200, headers = { ["Set-Cookie"] = { "a=1; Expires=Wed, 21 Oct 2026", "b=2" },
+    ["X-None"] = {}, ["X-A"] = "1" } })
+  assert(text:find("Set-Cookie: a=1; Expires=Wed, 21 Oct 2026\r\nSet-Cookie: b=2\r\n", 1, true) ~= nil, text)
+  assert(text:find("X-None", 1, true) == nil, text)
+  assert(text:find("X-A: 1\r\n", 1, true) ~= nil, text)
 end
 
 --- A reply's own Content-Length, under any case of its name, is the
