@@ -192,6 +192,8 @@ local record Web
   json_body: function<B>(t: Shape.Typed<B>): Types.Body<B>
   --- An urlencoded form body slot: see [`Typed.form_body`].
   form_body: function<B>(t: Shape.Typed<B>): Types.Body<B>
+  --- A multipart/form-data body slot: see [`Typed.multipart_body`].
+  multipart_body: function<B>(t: Shape.Typed<B>): Types.Body<B>
   --- The path, query and body specs of a typed route: see [`Typed.input`].
   input: function<P,Q,B>(path: Shape.Typed<P>, query: Shape.Typed<Q>,
       body: Types.Body<B>): Types.Input<P,Q,B>
@@ -258,6 +260,7 @@ Web.NONE = Typed.NONE
 Web.no_body = Typed.no_body
 Web.json_body = Typed.json_body
 Web.form_body = Typed.form_body
+Web.multipart_body = Typed.multipart_body
 Web.input = Typed.input
 Web.route_typed = Typed.route_typed
 Web.get_typed = Typed.get_typed
