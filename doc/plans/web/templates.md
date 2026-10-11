@@ -23,9 +23,11 @@ Decisions in one place:
   name)` and the compiler's identity only covers `build.*` and
   `cosmic.template.*` (build/identity.tl:397-402). A dialect anywhere else
   would not regenerate stale templates when it changed.
-- The refusals of code-bearing `hx-*` attributes (`hx-on*`, `hx-vars`) are
-  always on, with or without `{{use htmx}}`. Only the enabling classes
-  (URL, JSON, selector) are opt-in.
+- The refusals of code-bearing `hx-*` attributes (`hx-on*`, `hx-vars`,
+  `hx-trigger`) are always on, with or without `{{use htmx}}`. Only the
+  enabling classes (URL, JSON, selector) are opt-in; `hx-vals`,
+  `hx-headers` and `hx-request` stay refused until a template says
+  `{{use htmx}}`, as they were before the dialect existed.
 - One new URL escaper (`url_part`) serves path segments, query names and
   values, and fragments alike; the tracker does not need to know which
   component a slot is in. It is the escaper `Router:reverse` uses too
@@ -100,9 +102,21 @@ element change how `hx-get` is read; opt-in is explicit and diffable.
 
 ### 1.3 The dialect value
 
+As built (cosmic/template/dialect/init.tl, types.tl): the data shapes
+(`Class`, `Rule`, `Prefix`, `Def`) are in `types.tl`, so the data modules
+under `dialect/` import no logic; the lookup (`Table`, `resolve`) and the
+built-in `registry` are `dialect/init.tl`; the always-on dialect is
+`dialect/html.tl`. The class `code` is called `refused` and a rule carries
+the end of its refusal in `why`. The always-on dialect holds only the
+`hx-*` refusals; the HTML constants (`URL_ATTRS`, `CODE_ATTRS`, the `on`
+rule) stay in markup.tl, as nothing else reads them. A `Place` carries its
+template's `Table` ([`Place.dialect`]), so `slot` and `scan` take no extra
+parameter, and an attribute's rule is looked up in the value branch of `scan`
+too, to track a URL or an identifier. The sketch below is the plan's.
+
 New private module `cosmic/template/dialect.tl` (data and one lookup),
 registry `cosmic/template/dialects.tl`, and one data module per dialect,
-`cosmic/template/dialect/htmx.tl`.
+[`cosmic/template/dialect/htmx.tl`].
 
 ```
 local record Dialect
@@ -177,7 +191,7 @@ and it makes the compiler non-hermetic. If a project needs its own
 ### 1.5 Changes to markup.tl
 
 - Signature: `Markup.slot(p, table)`; `Walk` in context.tl carries the
-  `Dialect.Table` and passes it (context.tl:173, `walk`/`block`/`range_after`
+  [`Dialect.Table`] and passes it (context.tl:173, `walk`/`block`/`range_after`
   thread `Walk` already). [`Context.annotate`] gets the table as a parameter
   (init.tl:105 resolves it from `template.dialects`).
 - In `slot` (markup.tl:1026-1059), after the existing `on`/`CODE_ATTRS`
@@ -275,17 +289,19 @@ reads. `javascript:` is refused by the same function.
 
 Extension URLs (`url_local`): `sse-connect`, `ws-connect` (htmx-ext-sse and
 htmx-ext-ws; assets.md section 4 vendors the SSE extension for v1, and the
-`ws-connect` entry costs nothing). `hx-sse` and `hx-ws` were
-removed in 2.0 and are not listed.
+`ws-connect` entry costs nothing). `hx-sse` was removed in 2.0 and is not
+listed. `hx-ws` is: htmx-ext-ws 2.0.2 still reads `hx-ws="connect:URL"`
+(getLegacyWebsocketURL), a URL after a prefix the URL tracker does not
+follow, so a slot there is refused with `{{use htmx}}` and plain without.
 
 Code (`code`, always on, refused with a slot): `hx-on` (the 1.x
 multi-line form, still read), and every attribute starting `hx-on`:
 `hx-on:click`, `hx-on::after-request` (the `::` shorthand for `htmx:`),
 `hx-on--after-request` (the dash form for HTML that cannot carry colons).
 The prefix rule `hx-on` matches them all, as the HTML rule `on` does.
-`hx-vars`: htmx 1.x evaluated its value as JavaScript by default; 2.0
-removed it (verify against the pinned file), and the entry stays so an
-older page's slot is refused. `hx-trigger`: the grammar allows a filter
+`hx-vars`: htmx 1.x evaluated its value as JavaScript by default, and the
+2.0.11 file still reads and evaluates it (`getHXVarsForElement`, with
+`allowEval`), so the refusal is live, not a courtesy. `hx-trigger`: the grammar allows a filter
 in brackets, `click[ctrlKey && target.matches('.x')]`, which htmx
 evaluates with `new Function`; a slot anywhere in the value is therefore
 code. Refuse it. Triggers are static in practice; a data-driven `every`
@@ -307,7 +323,10 @@ The whole-value rule is what makes SafeJson the right granularity.
 Selectors (`selector`): `hx-target`, `hx-select`, `hx-select-oob`,
 `hx-include`, `hx-indicator`, `hx-disabled-elt`, `hx-sync`, `hx-swap` (its
 `scroll:`/`show:` modifiers take selectors and `swap:`/`settle:` take
-times), `hx-swap-oob` (`outerHTML:#sel`), and by prefix `hx-target-`
+times; whitespace separates its modifiers, so the space an escape ends in
+splits a selector there, which breaks a modifier and makes none, as every
+modifier has a colon and the escaper writes none), `hx-swap-oob`
+(`outerHTML:#sel`), and by prefix `hx-target-`
 (htmx-ext-response-targets: `hx-target-422`, `hx-target-error`). These are
 not code, but a selector chosen by data retargets where a response lands.
 Both shapes of selector use are handled by one rule: a slot is allowed only
@@ -356,6 +375,14 @@ afterthought: a test compiles `data-hx-on:click="{{.x}}"` and
 
 ### 2.4 Keeping the table honest
 
+As built, before the vendored file exists: [`cosmic/template/dialect_test.tl`]
+pins the class of every attribute of htmx 2.0.11, htmx-ext-sse 2.2.2,
+htmx-ext-ws 2.0.2 and htmx-ext-response-targets 2.0.2 that the dialect has
+looked at (and fails on an exact name, a `plain` name or a prefix it does
+not list), with a `data-` and an upper case form of each. The test below
+(the vendored file's `hx-*` tokens against the table) arrives with the
+vendored file, in assets.md's PR.
+
 `cosmic/web/htmx_dialect_test.tl` (it lives under `cosmic/web` because it
 needs both the dialect and `cosmic.web.htmx`): reads the vendored
 `vendor/htmx/dist/htmx.min.js` (assets.md section 4.2; a `reads` input
@@ -363,7 +390,7 @@ declared in the test's [`Test.policy`]), extracts every `hx-[a-z-]+`
 token, and requires each to be classified in the dialect's `exact`,
 covered by a prefix, or listed in the dialect's `plain` list (a field of
 `Def` used by this test only). Bumping htmx adds names to the pinned file
-and the test fails until a person classifies them. `Def.targets` must equal
+and the test fails until a person classifies them. [`Def.targets`] must equal
 `Htmx.version`, the version string `cosmic.web.htmx` exports from the
 vendored PIN (a second assertion).
 
@@ -1141,8 +1168,9 @@ same change.
 5. Does htmx 2.0.x process `HX-Trigger` response headers on a response that
    is not swapped (4xx/5xx)? From memory it does (the header handlers run
    before `shouldSwap` is decided), but this must be confirmed against the
-   pinned file before the exception layer's `HX-Trigger` (6.7) depends on it. Same check for
-   `hx-vars` removal and for the `responseHandling` option names.
+   pinned file before the exception layer's `HX-Trigger` (6.7) depends on it. `hx-vars`
+   is checked: htmx 2.0.11 still evaluates it (section 2.1). Still to check:
+   the `responseHandling` option names.
 6. [`Html.local_href`] as the default checker for htmx request URLs, versus
    reusing [`Html.href`] plus relying on `selfRequestsOnly`. Recommend
    `local_href`: an app that turns `selfRequestsOnly` off to call an API
@@ -1179,6 +1207,10 @@ is):
 [`cosmic.template`]: ../../../cosmic/template/init.tl
 [`cosmic/html_fuzz_test.tl`]: ../../../cosmic/html_fuzz_test.tl
 [`cosmic/html_test.tl`]: ../../../cosmic/html_test.tl
+[`cosmic/template/dialect/htmx.tl`]: ../../../cosmic/template/dialect/htmx.tl
+[`cosmic/template/dialect_test.tl`]: ../../../cosmic/template/dialect_test.tl
+[`Def.targets`]: ../../../cosmic/template/types.tl
+[`Dialect.Table`]: ../../../cosmic/template/dialect/init.tl
 [`Html.concat`]: ../../../cosmic/html.tl
 [`html.escape`]: ../../../cosmic/internal/html.d.tl
 [`Html.href`]: ../../../cosmic/html.tl
@@ -1191,6 +1223,7 @@ is):
 [`Json.encode`]: ../../../cosmic/json.tl
 [`Json.EncodeOptions.ascii`]: ../../../cosmic/json.tl
 [`Json.EncodeOptions`]: ../../../cosmic/json.tl
+[`Place.dialect`]: ../../../cosmic/template/markup.tl
 [`Template.compile`]: ../../../cosmic/template/init.tl
 [`Test.policy`]: ../../../cosmic/test.tl
 [`Types.Template`]: ../../../cosmic/template/types.tl

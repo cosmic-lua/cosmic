@@ -425,13 +425,305 @@ local function test_an_ampersand_in_a_query_or_fragment_keeps_the_part_slot()
   compiled(HEAD .. "<a href=\"{{.u}}?a&amp;{{.x}}\">")
 end
 
-local function test_a_slot_in_an_htmx_json_or_trigger_attribute_is_refused()
-  for _, attr in ipairs({ "hx-headers", "hx-request", "hx-trigger", "data-hx-headers", "DATA-HX-REQUEST", "Hx-Trigger" }) do
+local function test_a_slot_in_an_htmx_json_attribute_is_refused_without_use_htmx()
+  for _, attr in ipairs({ "hx-vals", "hx-headers", "hx-request", "data-hx-headers", "DATA-HX-REQUEST", "Hx-Vals" }) do
     local why = refused(HEAD .. "<a " .. attr .. "=\"{{.x}}\">")
     assert(why:find("{{use htmx}}", 1, true), attr .. ": " .. why)
     why = refused(HEAD .. "<a " .. attr .. "='x {{.x}}'>")
     assert(why:find("{{use htmx}}", 1, true), attr .. ": " .. why)
   end
+end
+
+local function test_a_slot_in_hx_trigger_is_refused_with_and_without_use_htmx()
+  for _, use in ipairs({ "", "{{use htmx}}\n" }) do
+    for _, attr in ipairs({ "hx-trigger", "data-hx-trigger", "Hx-Trigger" }) do
+      for _, value in ipairs({ "{{.x}}", "click[{{.x}}]", "every {{.n}}s" }) do
+        local why = refused(HEAD .. use .. "<a " .. attr .. "=\"" .. value .. "\">")
+        assert(why:find("'" .. attr:lower() .. "' attribute would be a trigger", 1, true), attr .. ": " .. why)
+      end
+    end
+  end
+end
+
+--- The classes a slot has in each attribute with `{{use htmx}}`: the
+--- helper its generated code writes, or "" for a refusal.
+local HTMX_CLASSES <const>: {{string}} = {
+  { "hx-get=\"{{.u}}\"", "_lurl" },
+  { "hx-post=\"{{.u}}\"", "_lurl" },
+  { "hx-put=\"{{.u}}\"", "_lurl" },
+  { "hx-patch=\"{{.u}}\"", "_lurl" },
+  { "hx-delete=\"{{.u}}\"", "_lurl" },
+  { "hx-push-url=\"{{.u}}\"", "_lurl" },
+  { "hx-replace-url=\"{{.u}}\"", "_lurl" },
+  { "sse-connect=\"{{.u}}\"", "_lurl" },
+  { "ws-connect=\"{{.u}}\"", "_lurl" },
+  { "hx-get=\"/items/{{.id}}\"", "_part" },
+  { "hx-delete=\"/items/{{.id}}?x={{.x}}#{{.f}}\"", "_part" },
+  { "hx-push-url=\"/items/{{.id}}\"", "_part" },
+  { "hx-get=\"{{.u}}?q={{.q}}\"", "_lurl" },
+  { "hx-vals='{{.v}}'", "_json" },
+  { "hx-headers=\"{{.v}}\"", "_json" },
+  { "hx-request='{{.v}}'", "_json" },
+  { "hx-target=\"#row-{{.id}}\"", "_sel" },
+  { "hx-select=\".tab-{{.id}} p\"", "_sel" },
+  { "hx-select-oob=\"#a-{{.id}}:outerHTML,#b-{{.id}}\"", "_sel" },
+  { "hx-include=\"closest form, #f-{{.id}}\"", "_sel" },
+  { "hx-indicator=\"#spin-{{.id}}\"", "_sel" },
+  { "hx-disabled-elt=\"find button.b-{{.id}}\"", "_sel" },
+  { "hx-sync=\"#f-{{.id}}:abort\"", "_sel" },
+  { "hx-swap=\"innerHTML scroll:#top-{{.id}}:top\"", "_sel" },
+  { "hx-swap-oob=\"outerHTML:#x-{{.id}}\"", "_sel" },
+  { "hx-target-422=\"#err-{{.id}}\"", "_sel" },
+  { "hx-target-error=\"#err-{{.id}}\"", "_sel" },
+  { "hx-confirm=\"{{.x}}\"", "_attr" },
+  { "hx-prompt=\"{{.x}}\"", "_attr" },
+  { "hx-boost=\"{{.x}}\"", "_attr" },
+  { "hx-params=\"{{.x}}\"", "_attr" },
+  { "hx-encoding=\"{{.x}}\"", "_attr" },
+  { "hx-ext=\"{{.x}}\"", "_attr" },
+  { "hx-history=\"{{.x}}\"", "_attr" },
+  { "hx-preserve=\"{{.x}}\"", "_attr" },
+  { "hx-validate=\"{{.x}}\"", "_attr" },
+  { "hx-disable=\"{{.x}}\"", "_attr" },
+  { "hx-disinherit=\"{{.x}}\"", "_attr" },
+  { "sse-swap=\"{{.x}}\"", "_attr" },
+  { "ws-send=\"{{.x}}\"", "_attr" },
+  { "hx-trigger=\"{{.x}}\"", "" },
+  { "hx-vars=\"{{.x}}\"", "" },
+  { "hx-on:click=\"{{.x}}\"", "" },
+  { "hx-ws=\"{{.x}}\"", "" },
+}
+
+--- The helpers `out` calls for the slots in its body, in order.
+local function helpers_called(out: string): {string}
+  local calls: {string} = {}
+  for name in out:gmatch("parts%[#parts %+ 1%] = (_[a-z]+)%(v%)") do
+    calls[#calls + 1] = name
+  end
+  return calls
+end
+
+local function test_with_use_htmx_each_attribute_has_its_class()
+  for _, case in ipairs(HTMX_CLASSES) do
+    local src = HEAD .. "{{use htmx}}\n<a " .. case[1] .. ">"
+    if case[2] == "" then
+      refused(src)
+    else
+      local calls = helpers_called(compiled(src))
+      assert(calls[1] == case[2], case[1] .. ": " .. table.concat(calls, " "))
+    end
+  end
+end
+
+local function test_without_use_htmx_only_the_script_and_json_attributes_are_refused()
+  for _, case in ipairs(HTMX_CLASSES) do
+    local src = HEAD .. "<a " .. case[1] .. ">"
+    local out, why = Template.compile(src, "t.tmpl")
+    local attr = case[1]:match("^[%w:-]+")
+    if attr == "hx-trigger" or attr == "hx-vars" or attr == "hx-on:click" or attr == "hx-vals" or
+        attr == "hx-headers" or attr == "hx-request" then
+      assert(out == nil, case[1])
+      assert(why:find("'" .. attr .. "' attribute", 1, true), why)
+    else
+      -- A plain attribute, attribute-escaped as before (`hx-ws` is read only
+      -- by an extension, so it too is plain until a template opts in).
+      assert(out ~= nil, case[1] .. ": " .. why)
+      for _, call in ipairs(helpers_called(out)) do
+        assert(call == "_attr", case[1] .. ": " .. call)
+      end
+    end
+  end
+end
+
+local function test_the_attribute_forms_htmx_reads_are_classified_alike()
+  for _, form in ipairs({ "hx-vals", "data-hx-vals", "HX-VALS", "Data-Hx-Vals", "dAtA-hX-vAlS" }) do
+    local calls = helpers_called(compiled(HEAD .. "{{use htmx}}\n<a " .. form .. "='{{.v}}'>"))
+    assert(calls[1] == "_json", form)
+  end
+  for _, form in ipairs({ "hx-target", "data-hx-target", "HX-TARGET", "DATA-HX-TARGET" }) do
+    local calls = helpers_called(compiled(HEAD .. "{{use htmx}}\n<a " .. form .. "='#a{{.v}}'>"))
+    assert(calls[1] == "_sel", form)
+  end
+  for _, form in ipairs({ "hx-on:click", "hx-on::after-request", "hx-on--after-request", "hx-on", "HX-ON:CLICK",
+      "data-hx-on:click", "DATA-HX-ON--click", "data-hx-on-click", "hx-vars", "data-hx-vars", "hx-onclick" }) do
+    for _, use in ipairs({ "", "{{use htmx}}\n" }) do
+      local why = refused(HEAD .. use .. "<a " .. form .. "=\"{{.x}}\">")
+      assert(why:find("would be script", 1, true), form .. ": " .. why)
+    end
+  end
+  -- Only the families htmx reads with a `data-` prefix: this is not one.
+  compiled(HEAD .. "{{use htmx}}\n<a data-data-hx-get=\"{{.x}}\" data-hxget=\"{{.x}}\" xhx-get=\"{{.x}}\">")
+end
+
+local function test_a_whole_url_slot_in_an_htmx_request_url_is_checked_as_local()
+  local out = compiled(HEAD .. "{{use htmx}}\n<a hx-get=\"{{.u}}\" href=\"{{.u}}\">")
+  assert(out:find("html.local_href(v)", 1, true), out)
+  assert(helpers_called(out)[1] == "_lurl" and helpers_called(out)[2] == "_url", out)
+  -- The same rules as an href for the text beside a whole-URL slot.
+  assert(refused(HEAD .. "{{use htmx}}\n<a hx-get=\"{{.u}}{{.v}}\">"):find("follows a whole-URL slot", 1, true))
+  assert(refused(HEAD .. "{{use htmx}}\n<a hx-get=\"{{.u}}:x\">"):find("complete a scheme", 1, true))
+  assert(refused(HEAD .. "{{use htmx}}\n<a hx-post=\"java{{.x}}\">"):find("fixes where the URL goes", 1, true))
+  assert(refused(HEAD .. "{{use htmx}}\n<a hx-post=\"/a/.{{.x}}\">"):find("'..' segment", 1, true))
+  assert(refused(HEAD .. "{{use htmx}}\n<link hx-get=\"{{.u}}\">"):find("<link>", 1, true))
+  -- A literal host is the author's own.
+  compiled(HEAD .. "{{use htmx}}\n<a hx-get=\"//example.com/{{.x}}\" hx-post=\"https://example.com/{{.x}}\">")
+end
+
+local function test_a_url_part_in_an_htmx_url_follows_the_rules_of_href()
+  for _, src in ipairs(PARTS) do
+    local swapped = src:gsub("<a href=", "<a hx-get=")
+    local calls = helpers_called(compiled(HEAD .. "{{use htmx}}\n" .. swapped))
+    local part = false
+    for _, call in ipairs(calls) do
+      part = part or call == "_part"
+    end
+    assert(part, swapped .. ": " .. table.concat(calls, " "))
+  end
+  for _, case in ipairs(DECODED) do
+    if case[2] ~= "" then
+      local swapped = case[1]:gsub("href=", "hx-get=")
+      local why = refused(HEAD .. "{{use htmx}}\n" .. swapped)
+      assert(why:find(case[2], 1, true), swapped .. ": " .. why)
+    end
+  end
+end
+
+local function test_a_json_slot_is_the_whole_value()
+  compiled(HEAD .. "{{use htmx}}\n<a hx-vals='{{.v}}'>")
+  compiled(HEAD .. "{{use htmx}}\n<a hx-vals=' {{.v}}\n'>")
+  compiled(HEAD .. "{{use htmx}}\n<a hx-vals='{{if .a}}{{.v}}{{else}}{\"a\": 1}{{end}}'>")
+  for _, case in ipairs({
+      { "<a hx-vals='{\"a\":{{.v}}}'>", "must be the whole value" },
+      { "<a hx-vals='x{{.v}}'>", "must be the whole value" },
+      { "<a hx-vals='{{.v}}{{.v}}'>", "must be the whole value" },
+      { "<a hx-vals='{{.v}}x'>", "text after a JSON slot" },
+      { "<a hx-vals='{{.v}} x'>", "text after a JSON slot" },
+      { "<a hx-vals='{{if .a}}{{.v}}{{end}}x'>", "text after a JSON slot" },
+      { "<a hx-vals='{{.v}}{{if .a}}x{{end}}'>", "text after a JSON slot" },
+      { "<a hx-vals='{{if .a}}x{{end}}{{.v}}'>", "must be the whole value" },
+      { "<a hx-vals='{{range .l}}{{.}}{{end}}'>", "must be the whole value" },
+      { "<a hx-vals=\"{{.v}}'\">", "text after a JSON slot" },
+      { "<a hx-headers=unquoted{{.v}}>", "unquoted" },
+  }) do
+    local why = refused(HEAD .. "{{use htmx}}\n" .. case[1])
+    assert(why:find(case[2], 1, true), case[1] .. ": " .. why)
+  end
+end
+
+local function test_a_selector_slot_stands_only_inside_an_identifier_after_a_hash_or_dot()
+  for _, src in ipairs({
+      "<a hx-target=\"#row-{{.id}}\">",
+      "<a hx-target=\"body, #x{{.i}}\">",
+      "<a hx-target=\"#a-{{.x}}{{.y}}\">",
+      "<a hx-target=\"#a-{{.x}}-b-{{.y}}\">",
+      "<a hx-target=\"#a-{{.x}}-b.c-{{.y}}\">",
+      "<a hx-target=\"#a-{{.x}}\u{e9}{{.y}}\">",
+      "<a hx-target=\"#a-{{if .x}}b{{else}}{{.y}}{{end}}{{.z}}\">",
+      "<a hx-target=\"#a-{{if .x}}{{.y}}{{end}}{{.z}}\">",
+      "<a hx-target=\"#a-{{range .l}}{{.}}-{{end}}{{.z}}\">",
+      "<a hx-target=\"#{{.id}}\">",
+      "<a hx-target=\"closest #card-{{.id}} .x-{{.n}}\">",
+      "<a hx-target='#a-{{.x}}' hx-select='.b-{{.y}}'>",
+  }) do
+    assert(helpers_called(compiled(HEAD .. "{{use htmx}}\n" .. src))[1] == "_sel", src)
+  end
+  for _, src in ipairs({
+      "<a hx-target=\"{{.sel}}\">",
+      "<a hx-target=\" {{.sel}}\">",
+      "<a hx-target=\"body, {{.sel}}\">",
+      "<a hx-target=\"#a, b{{.sel}}\">",
+      "<a hx-target=\"#a {{.sel}}\">",
+      "<a hx-target=\"#a >{{.sel}}\">",
+      "<a hx-target=\"[data-id='{{.id}}']\">",
+      "<a hx-target='[data-id=\"{{.id}}\"]'>",
+      "<a hx-target=\"#a:not({{.sel}})\">",
+      "<a hx-target=\"#a:{{.sel}}\">",
+      "<a hx-target=\"#a\\2c {{.sel}}\">",
+      "<a hx-target=\"#a[{{.sel}}]\">",
+      "<a hx-target=\"closest {{.sel}}\">",
+      "<a hx-target=\"#a-{{.x}}, {{.y}}\">",
+      "<a hx-target=\"#a-{{.x}} {{.y}}\">",
+      "<a hx-target=\"#a-{{.x}}.{{.y}}-{{.z}} {{.w}}\">",
+      "<a hx-target=\"#a-{{if .x}}b{{else}} {{end}}{{.z}}\">",
+      "<a hx-target=\"#a-{{if .x}}{{.y}}{{else}}, {{end}}{{.z}}\">",
+      "<a hx-target=\"#a-{{if .x}}b{{end}}{{if .y}}, {{end}}{{.z}}\">",
+      "<a hx-swap=\"swap:{{.t}}\">",
+      "<a hx-swap=\"{{.style}}\">",
+      "<a hx-swap-oob=\"{{.style}}:#x\">",
+  }) do
+    local why = refused(HEAD .. "{{use htmx}}\n" .. src)
+    assert(why:find("part of a CSS selector", 1, true), src .. ": " .. why)
+  end
+end
+
+local function test_the_dialect_names_are_checked_in_the_header()
+  local function header(extra: string): string
+    return "{{type T from m.t}}" .. extra .. "\n<p>{{.x}}</p>"
+  end
+  compiled(header("{{use htmx}}"))
+  compiled(header("\n{{mode html}}\n{{use htmx}}"))
+  compiled(header("\n{{use htmx}}\n{{mode html}}"))
+  compiled(header("{{use htmx}}{{mode html}}"))
+  compiled("\n{{type T from m.t}}\n\n{{use htmx}}\n\n<p>{{.x}}</p>")
+  assert(refused(header("{{mode text}}{{use htmx}}")):find("t.tmpl:1:", 1, true))
+  assert(refused(header("{{use htmx}}{{mode text}}")):find("a text template has no attributes", 1, true))
+  assert(refused(header("{{use htmx}}{{use htmx}}")):find("t.tmpl:1:", 1, true))
+  assert(refused(header("{{use htmx}}\n{{use htmx}}")):find("t.tmpl:2:1: {{use htmx}} is given once", 1, true))
+  assert(refused(header("{{mode html}}{{mode text}}")):find("{{mode}} is given once", 1, true))
+  assert(refused(header("\n{{use alpine}}")):find("t.tmpl:2:7: unknown dialect 'alpine' (known: htmx)", 1, true))
+  assert(refused(header("{{use}}")):find("write {{use name}}", 1, true))
+  assert(refused(header("{{use htmx extra}}")):find("write {{use name}}", 1, true))
+  assert(refused(header("{{use \"htmx\"}}")):find("write {{use name}}", 1, true))
+  assert(refused("{{type T from m.t}}\n<p>{{.x}}</p>{{use htmx}}"):find("t.tmpl:2:", 1, true))
+  assert(refused(header("{{if .a}}{{use htmx}}{{end}}")):find("must directly follow", 1, true))
+  local after = refused(header("text\n{{use htmx}}"))
+  assert(after:find("{{use}} must directly follow {{type}} or {{mode}}", 1, true), after)
+end
+
+local function test_a_use_adds_nothing_to_a_template_that_has_no_hx_attribute()
+  local plain = compiled(HEAD .. "<a href=\"/a/{{.x}}\" class=\"{{.c}}\">{{.t}}</a>\n")
+  local used = compiled("{{type T from m.t}}{{use htmx}}\n<a href=\"/a/{{.x}}\" class=\"{{.c}}\">{{.t}}</a>\n")
+  assert(plain == used, used)
+end
+
+local function test_a_project_dialect_replaces_the_registry()
+  local alpine: Template.Dialect = {
+    name = "alpine",
+    targets = "3",
+    exact = { ["x-html"] = { class = "refused", why = "would be markup Alpine inserts" },
+      ["x-link"] = { class = "url_local", why = "" } },
+    prefixes = { { prefix = "@", rule = { class = "refused", why = "would be script" } } },
+    families = { "x-" },
+    plain = {},
+  }
+  local options: Template.Options = { dialects = { alpine = alpine } }
+  local function compile(src: string): string | nil, string
+    return Template.compile("{{type T from m.t}}{{use alpine}}\n" .. src, "t.tmpl", options)
+  end
+  local out = assert(compile("<a x-link=\"{{.u}}\" data-x-link=\"/a/{{.i}}\">"))
+  assert(helpers_called(out)[1] == "_lurl" and helpers_called(out)[2] == "_part", out)
+  local html, why = compile("<a data-x-html=\"{{.u}}\">")
+  assert(html == nil and why:find("'data-x-html' attribute would be markup Alpine inserts", 1, true), tostring(why))
+  local click, click_why = compile("<a @click=\"{{.u}}\">")
+  assert(click == nil and click_why:find("would be script", 1, true), tostring(click_why))
+  -- The always-on refusals hold, and the built-in registry is not there.
+  local on, on_why = compile("<a hx-on:click=\"{{.u}}\">")
+  assert(on == nil and on_why:find("would be script", 1, true), tostring(on_why))
+  local gone, gone_why = Template.compile("{{type T from m.t}}{{use htmx}}\n", "t.tmpl", options)
+  assert(gone == nil and gone_why:find("unknown dialect 'htmx' (known: alpine)", 1, true), tostring(gone_why))
+  -- Two dialects must agree on an attribute they both name.
+  local other: Template.Dialect = {
+    name = "other",
+    targets = "1",
+    exact = { ["x-link"] = { class = "json", why = "" } },
+    prefixes = {},
+    families = {},
+    plain = {},
+  }
+  local clash, clash_why = Template.compile("{{type T from m.t}}{{use alpine}}{{use other}}\n", "t.tmpl",
+    { dialects = { alpine = alpine, other = other } })
+  assert(clash == nil and clash_why:find("dialects 'alpine' and 'other' give 'x-link' different rules", 1, true),
+    tostring(clash_why))
 end
 
 local function test_a_slot_that_begins_a_url_is_judged_by_where_its_branch_left_off()
