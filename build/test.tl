@@ -4403,9 +4403,7 @@ local function report(ctx: Run): integer
     for _, function_line in ipairs(assert(ctx.function_lines)) do log:say(function_line) end
   end
   log:verdict("test", false, test_report.failed(#failures, total + #assert(ctx.result).refused,
-    #errors, clock.took(started) .. ctx.sandbox_summary .. ctx.share_summary))
-  --- Whether the run starts no job after the first failure (`--bail`).
-  bail?: boolean
+    #errors, clock.took(started) .. ctx.sandbox_summary .. ctx.share_summary, rec.not_run))
   return 1
 end
 
