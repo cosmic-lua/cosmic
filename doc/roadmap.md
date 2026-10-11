@@ -25,8 +25,10 @@ defines the target; once something ships, it leaves this file.
   module and every record that implements one changes together. it also
   lets the receiver exemption go from `patch/tl`'s 48e: the first
   parameter of a function-typed record field, when it is a record or an
-  interface, is the one place Teal still compares a function's parameter
-  in either direction, because those redeclarations narrow it.
+  interface, is the one place a record parameter is compared in either
+  direction, because those redeclarations narrow it. it closes the hole
+  that comes with it: a callback field `function(Event)` also takes a
+  `function(k: KeyEvent)`.
 - close the holes in Teal's own typing that forge any type, `: never`
   functions among them (`test_never_falls_into_the_holes_every_type_has` and
   `test_coroutine_wrap_forges_a_never_function_as_it_forges_any_type` in
@@ -310,9 +312,9 @@ promises lean on come first:
   escaping for them is a different language's rule (old's #1654 and #1658 were
   its bugs there). Each needs an escaper made in C with a type of its own, as
   [`cosmic.html`]'s are, and the context tracker ([`cosmic/template/markup.tl`])
-  to say which one a slot is in. Likewise a slot after literal text in a URL
-  (`href="/a/{{.id}}"`), which wants an escaper for one component of a URL, a
-  path segment or a query value, beside [`cosmic.url`]'s.
+  to say which one a slot is in. A slot after literal text in a URL
+  (`href="/a/{{.id}}"`) is not on this list: [`Html.url_part`] escapes any one
+  component of a URL, and the template takes it.
 
 ## documentation and examples
 
@@ -424,6 +426,7 @@ four-producer provenance join.
 [`cosmic/template/markup.tl`]: ../cosmic/template/markup.tl
 [`Errors.guidance`]: ../cosmic/errors.tl
 [`eval/summarize.tl`]: ../eval/summarize.tl
+[`Html.url_part`]: ../cosmic/html.tl
 [`Json.decode`]: ../cosmic/json.tl
 [`Net.serve`]: ../cosmic/net.tl
 [`receivers.record_named`]: ../build/receivers.tl

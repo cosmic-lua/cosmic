@@ -928,7 +928,10 @@ and the expected one are records or interfaces, the method-receiver
 convention that cosmic.stream's implementers use (`read:
 function(FromStringReader, ...)` for `read: function(Reader, ...)`); a
 call that names another receiver (`r.read(other, 1)`) still checks, as it
-always did. the roadmap item for named receivers retires the second. the
+always did. nothing tells a receiver from another record parameter of a
+field's function, so a callback field `function(Event)` also takes a
+`function(k: KeyEvent)`, as on main. the roadmap item for named receivers
+retires the second, and that hole with it. the
 patches are `patch/tl/48*`.
 
 the spirit is consistent, strong, explicit typing, the same shape the

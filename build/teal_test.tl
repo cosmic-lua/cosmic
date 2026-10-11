@@ -1218,6 +1218,20 @@ local function test_a_narrower_receiver_is_taken_wherever_fields_are_compared()
     "argument 1")
 end
 
+--- The receiver exemption cannot tell a receiver from another record
+--- parameter of a field's function, so a callback field that takes an
+--- interface also takes a function over one of its records: a known limit,
+--- as on main, that named receivers (doc/roadmap.md) close. A record
+--- unrelated to the expected one is refused.
+local function test_a_callback_field_with_a_record_parameter_is_the_known_limit()
+  local events = "local interface Event\n  name: string\nend\n" ..
+    "local record KeyEvent is Event\n  key: string\nend\n" ..
+    "local record MouseEvent is Event\n  x: integer\nend\n" ..
+    "local record Opts\n  cb: function(Event)\n  cb2: function(KeyEvent)\nend\n"
+  assert_refused(events .. "local o: Opts = { cb2 = function(m: MouseEvent) print(m) end }\nprint(o)\n", "argument 1")
+  assert_accepted(events .. "local o: Opts = { cb = function(k: KeyEvent) print(k.key) end }\nprint(o)\n")
+end
+
 --- A parameter expected as `any` is satisfied by a function of any
 --- parameter type (patch/tl's 48l), as `any` is the unchecked type: the
 --- standard library's callbacks take it, so `coroutine.create` of a
