@@ -18,6 +18,11 @@ note: a write to `x` or `x.field` drops the field's narrow before the LHS is eve
 --- replace
       ["assignment"] = {
          before = function(self: TypeChecker, node: Node)
+            -- TODO: after `x.f = v` with v not nil, narrow `x.f` to v's
+            -- type instead of only dropping the narrow, and keep that
+            -- narrow across the end of an `if x.f == nil then x.f = {} end`:
+            -- as it is, `local h = x.f` below that still reads `T | nil`,
+            -- so cosmic's own code binds `x.f or {}` to a local first.
             for _, varnode in ipairs(node.vars) do
                local varname = varnode.tk
                if varname then

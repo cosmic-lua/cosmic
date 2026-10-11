@@ -89,14 +89,16 @@ local function make_app(opts?: Csrf.Options, spec?: Web.AppSpec): Web.App
     Web.post("/form", function(req: Web.Request): Web.Response
       local got = Input.form(req)
       if got.invalid ~= nil then return Web.text("invalid", { status = 400 }) end
-      return Web.text("name=" .. (got.value.by_name["name"] or { "-" })[1])
+      local query = assert(got.value)
+      return Web.text("name=" .. (query.by_name["name"] or { "-" })[1])
     end),
     Web.post("/upload", function(req: Web.Request): Web.Response
       local got = Input.multipart(req)
       if got.invalid ~= nil then return Web.text("invalid", { status = 400 }) end
+      local multipart = assert(got.value)
       local count = 0
-      for _ in pairs(got.value.files) do count = count + 1 end
-      return Web.text(("name=%s files=%d"):format((got.value.fields.by_name["name"] or { "-" })[1], count))
+      for _ in pairs(multipart.files) do count = count + 1 end
+      return Web.text(("name=%s files=%d"):format((multipart.fields.by_name["name"] or { "-" })[1], count))
     end),
   }
   return Web.app(made)

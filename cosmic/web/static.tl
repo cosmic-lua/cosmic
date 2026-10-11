@@ -34,26 +34,26 @@ local record StaticFiles
   --- What [`StaticFiles.handler`] and [`StaticFiles.mount`] take.
   record Options
     --- Where the files come from; nil for [`Assets.default`].
-    source: Assets.Source
+    source?: Assets.Source
     --- Cache-Control of a file requested by its plain name (default
     --- "public, no-cache": cached, but revalidated by ETag every time).
-    cache_control: string
+    cache_control?: string
     --- Cache-Control of a fingerprinted name (default "public,
     --- max-age=31536000, immutable").
-    immutable_control: string
+    immutable_control?: string
     --- Serve `index.html` for a directory ("/docs/" is docs/index.html,
     --- and "/docs" redirects to "/docs/"); default false, where a
     --- directory is a 404.
-    html: boolean
+    html?: boolean
     --- Answers a path no file has (default: a 404 through the app's error
     --- page). A stale fingerprint is never answered by it.
     not_found: Types.Handler
     --- Added to every 200, 206, 304 and 416, replacing a header of the
     --- same name.
-    headers: {string:string}
+    headers?: {string:string}
     --- Serve the source's gzip variant; default true. `false` serves the
     --- plain bytes.
-    gzip: boolean
+    gzip?: boolean
   end
 end
 
@@ -272,15 +272,16 @@ function StaticFiles.handler(opts?: StaticFiles.Options): Types.Handler
       return with_headers(res, o.headers)
     end
 
-    local res: Types.Response = { status = 200, headers = validators(asset, etag, control, encoded) }
+    local headers = validators(asset, etag, control, encoded)
+    local res: Types.Response = { status = 200, headers = headers }
     local data = encoded and asset.gzip or asset.data
-    res.headers["Accept-Ranges"] = "bytes"
+    headers["Accept-Ranges"] = "bytes"
     if method == "GET" and not encoded and has_range and
         if_range_holds(req:header("if-range"), asset.etag) then
       local range = Server.range(req:header("range"), #data)
       if range.kind == "span" then
         res.status = 206
-        res.headers["Content-Range"] = ("bytes %d-%d/%d"):format(range.first, range.last, #data)
+        headers["Content-Range"] = ("bytes %d-%d/%d"):format(range.first, range.last, #data)
         data = data:sub(range.first + 1, range.last + 1)
       elseif range.kind == "unsatisfiable" then
         res = { status = 416, headers = { ["Content-Range"] = "bytes */" .. #data,
@@ -323,13 +324,13 @@ end
 --- @param opts Options | nil Where the files come from and how they are cached
 --- @return Types.Route The mount
 function StaticFiles.mount(prefix: string, opts?: StaticFiles.Options): Types.Route
+  local source: Assets.Source = opts and opts.source or Assets.default()
   local o: StaticFiles.Options = {
-    source = opts and opts.source or Assets.default(), cache_control = opts and opts.cache_control,
+    source = source, cache_control = opts and opts.cache_control,
     immutable_control = opts and opts.immutable_control, html = opts and opts.html,
     not_found = opts and opts.not_found, headers = opts and opts.headers,
     gzip = opts and opts.gzip,
   }
-  local source = o.source
   return Route.mount_handler(prefix, StaticFiles.handler(o), { name = "static",
     reverse = function(full: string, params: {string:string}): string | nil, string
       local path = params.path

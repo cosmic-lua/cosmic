@@ -10,7 +10,7 @@ local record Middleware
   --- What [`Web.access_log`] takes; every field is optional.
   record AccessLogOptions
     --- Where the lines go; the app's own sink by default.
-    sink: Types.Sink
+    sink?: Types.Sink
     --- Makes the line from the request, the response and the time the
     --- handler took in nanoseconds, in place of the default.
     format: function(Types.Request, Types.Response, integer): string
@@ -18,7 +18,7 @@ local record Middleware
     skip: function(Types.Request): boolean
     --- Log the query string too (false): a token in a query would be
     --- written down.
-    log_query: boolean
+    log_query?: boolean
   end
 end
 
@@ -80,7 +80,7 @@ function Middleware.access_log(opts?: Middleware.AccessLogOptions): Types.Middle
       local started = Clock.monotonic_ns()
       local res = inner(req)
       local elapsed = Clock.monotonic_ns() - started
-      local sink = opts.sink or req.app.spec.sink
+      local sink = opts.sink or assert(req.app.spec.sink)
       local line: string
       if opts.format ~= nil then
         line = opts.format(req, res, elapsed)
@@ -92,8 +92,9 @@ function Middleware.access_log(opts?: Middleware.AccessLogOptions): Types.Middle
             return ("%%%02X"):format(byte:byte())
           end)
         end
+        local client = req.client
         line = ("%s %s %d %dms %s client=%s"):format(req.method, path, res.status,
-          elapsed // 1000000, size_of(res), req.client and req.client.host or "-")
+          elapsed // 1000000, size_of(res), client and client.host or "-")
       end
       sink:line(line)
       return res

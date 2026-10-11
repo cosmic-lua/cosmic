@@ -316,7 +316,8 @@ local function execute(argv: {integer:string}): integer
   local function git_run(words: {string}, values?: {string:string}, input?: string): string
     local args = { git, "-C", root }
     for _, word in ipairs(words) do args[#args + 1] = word end
-    local result = privileged(args, { env = values or caller_env, input = input, stdout = "capture", stderr = "capture" })
+    local environment = values or caller_env
+    local result = privileged(args, { env = environment, input = input, stdout = "capture", stderr = "capture" })
     successful(result, "git")
     return ((result.stdout or ""):gsub("\n$", ""))
   end

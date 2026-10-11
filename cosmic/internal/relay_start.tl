@@ -78,18 +78,18 @@ local record relay
     --- Whether a target opens a name (`*` included).
     names: boolean
     --- The upstream proxy, nil for none; its `addresses` not yet set.
-    upstream: Config.Upstream
+    upstream?: Config.Upstream
   end
 
   --- Where [`relay.name_servers`] reads, and the lookup's time.
   record NameServerOptions
     --- A resolv.conf to read in place of the system's, for tests.
-    resolv_conf: string
+    resolv_conf?: string
     --- The lookup's whole time (5 seconds), which the connector's wait for
     --- each server is a share of: a positive integer of nanoseconds.
-    resolve: integer
+    resolve?: integer
     --- The servers in place of the system's, for tests.
-    servers: {Config.Endpoint}
+    servers?: {Config.Endpoint}
   end
 
   --- The name servers a lookup through a connector asks, and that
@@ -425,7 +425,9 @@ function relay.table(plan: relay.Plan, addresses: {string} | nil): {Config.Endpo
   for _, entry in ipairs(plan.literals) do all[#all + 1] = entry end
   for _, address in ipairs(addresses or {}) do
     local bytes = Address.parse(address)
-    if bytes ~= nil then all[#all + 1] = { host = numeric(bytes), port = plan.upstream.port } end
+    if bytes ~= nil then
+      all[#all + 1] = { host = numeric(bytes), port = assert(plan.upstream).port }
+    end
   end
   local rows = normalized(all)
   local passed = limit_passed(rows)

@@ -76,7 +76,7 @@ local function test_a_plan_for_the_policy_leaves_the_system_and_proc_to_the_poli
   inputs.host = { "/proc", "/dev/urandom" }
   local policy = test_sandbox.plan(root, scratch, inputs, {})
   assert(policy.trouble == "", policy.trouble)
-  local reads = policy.sandbox.unveil.reads
+  local reads = assert(policy.sandbox.unveil).reads
   assert(not holds(reads, "/proc") and not holds(reads, "/usr") and not holds(reads, "/etc"),
     table.concat(reads, " "))
   assert(holds(reads, "/dev/urandom") and holds(reads, "/dev/null"))
@@ -108,20 +108,20 @@ local function test_a_plan_rebound_to_another_scratch_is_the_plan_made_for_it(tm
       assert(table.concat(a, " ") == table.concat(b, " "), what .. ": " .. table.concat(a, " ") ..
           " is not " .. table.concat(b, " "))
     end
-    same(rebound.sandbox.unveil.reads, fresh.sandbox.unveil.reads, "reads")
-    same(rebound.sandbox.unveil.writes, fresh.sandbox.unveil.writes, "writes")
-    for path, inside in pairs(fresh.sandbox.unveil.at) do
-      assert(rebound.sandbox.unveil.at[path] == inside, path)
+    same(assert(rebound.sandbox.unveil).reads, assert(fresh.sandbox.unveil).reads, "reads")
+    same((assert(rebound.sandbox.unveil).writes or {}), (assert(fresh.sandbox.unveil).writes or {}), "writes")
+    for path, inside in pairs((assert(fresh.sandbox.unveil).at or {})) do
+      assert((assert(rebound.sandbox.unveil).at or {})[path] == inside, path)
     end
-    for path in pairs(rebound.sandbox.unveil.at) do
-      assert(fresh.sandbox.unveil.at[path] ~= nil, path)
+    for path in pairs((assert(rebound.sandbox.unveil).at or {})) do
+      assert((assert(fresh.sandbox.unveil).at or {})[path] ~= nil, path)
     end
     for path in pairs(fresh.runs) do assert(rebound.runs[path], path) end
-    assert(not holds(rebound.sandbox.unveil.writes, first))
+    assert(not holds((assert(rebound.sandbox.unveil).writes or {}), first))
     -- Changing the copy leaves the plan it came from alone.
-    table.insert(rebound.sandbox.unveil.reads, "/changed")
+    table.insert(assert(rebound.sandbox.unveil).reads, "/changed")
     rebound.env.CHANGED = "yes"
-    assert(not holds(made.sandbox.unveil.reads, "/changed") and made.env.CHANGED == nil)
+    assert(not holds(assert(made.sandbox.unveil).reads, "/changed") and made.env.CHANGED == nil)
   end
 end
 
@@ -159,7 +159,7 @@ for _, case in ipairs({
   local ok, trouble = Sandbox.check(policy)
   assert(ok, case.name .. ": " .. tostring(trouble))
   if case.name ~= "tool" then
-    local unveil = plan.sandbox.unveil
+    local unveil = assert(plan.sandbox.unveil)
     assert(plan.program == artifact, case.name .. " is told " .. tostring(plan.program))
     assert(holds(unveil.reads, artifact), case.name)
   end
@@ -213,10 +213,10 @@ local function test_a_plan_for_a_nesting_worker_grants_the_artifact_only_with_st
   local plain = test_sandbox.plan(root, scratch, bare, {})
   local with = test_sandbox.plan(root, scratch, storing, {})
   assert(with.trouble == "", with.trouble)
-  assert(holds(with.sandbox.unveil.reads, artifact), table.concat(with.sandbox.unveil.reads, " "))
+  assert(holds(assert(with.sandbox.unveil).reads, artifact), table.concat(assert(with.sandbox.unveil).reads, " "))
   assert(not with.runs[artifact], "the artifact is read, not run")
-  assert(not holds(plain.sandbox.unveil.reads, artifact),
-    table.concat(plain.sandbox.unveil.reads, " "))
+  assert(not holds(assert(plain.sandbox.unveil).reads, artifact),
+    table.concat(assert(plain.sandbox.unveil).reads, " "))
   assert(test_policy.worker(plain, bare) ~= nil)
   assert(test_policy.worker(with, storing) ~= nil)
 end
@@ -241,11 +241,11 @@ local function test_a_plan_gives_a_scratch_of_its_own_only_where_no_host_directo
   local bare = effective({})
   local own = planned(bare)
   assert(own.own_scratch and own.why_shared == "", own.why_shared)
-  assert(#own.sandbox.unveil.writes == 0 and own.sandbox.unveil.at[scratch] == nil)
+  assert(#(assert(own.sandbox.unveil).writes or {}) == 0 and (assert(own.sandbox.unveil).at or {})[scratch] == nil)
   local policy = assert(test_policy.worker(own, bare))
   assert(policy.tmp == true)
   local tmp_grant: Sandbox.Grant = nil
-  for _, grant in ipairs(policy.grants) do
+  for _, grant in ipairs(policy.grants or {}) do
     assert(grant.from == nil or grant.from ~= scratch, "a bind of the host's scratch directory")
     if grant.path == "/tmp" then tmp_grant = grant end
   end
@@ -265,7 +265,7 @@ local function test_a_plan_gives_a_scratch_of_its_own_only_where_no_host_directo
     change(inputs)
     local made = planned(inputs)
     assert(not made.own_scratch and made.why_shared:find(word, 1, true), word .. ": " .. made.why_shared)
-    assert(made.sandbox.unveil.writes[1] == scratch)
+    assert((assert(made.sandbox.unveil).writes or {})[1] == scratch)
     local held = assert(test_policy.worker(made, inputs))
     assert(held.tmp == nil, word)
   end

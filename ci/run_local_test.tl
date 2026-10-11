@@ -299,14 +299,15 @@ local function test_root_probe_grants_a_copy_without_mutating_cached_relaunch(tm
     local file = assert(Fs.stat(words[1]))
     assert(file.uid == owner and file.mode & 0x1ff == 0x16d and file.size == original.size)
     assert(Hash.hex_sha256((assert(Fs.read(words[1])))) == digest)
-    local given = options.fds[slot]
+    local option_fds, option_env = assert(options.fds), assert(options.env)
+    local given = option_fds[slot]
     assert(type(given) == "number")
     handed = given as integer
     assert(handed ~= borrowed and assert(sys.fstat(handed)).ino == file.ino)
     for number, fd in pairs(launched.fds) do
-      assert(options.fds[number] == (number == slot and handed or fd), "another runtime grant changed")
+      assert(option_fds[number] == (number == slot and handed or fd), "another runtime grant changed")
     end
-    for name, value in pairs(launched.env) do assert(options.env[name] == value) end
+    for name, value in pairs(launched.env) do assert(option_env[name] == value) end
     local probe: {string} = {}
     for _, word in ipairs(words) do probe[#probe + 1] = word end
     probe[#probe] = "assert(require('cosmic.proc').executable()==" ..

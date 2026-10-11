@@ -148,7 +148,7 @@ local function under_nest(tmp: string, mode: string, policy: Sandbox.Policy): {s
   local scratch = tmp .. "/scratch"
   assert(Fs.mkdirs(scratch))
   searchable.share(scratch)
-  policy.database = policy.database or { path = path }
+  if policy.database == nil then policy.database = { path = path } end
   policy.isolate = { "file" }
   policy.promises = { "fork", "nest" }
   policy.set_env = { TMPDIR = scratch }

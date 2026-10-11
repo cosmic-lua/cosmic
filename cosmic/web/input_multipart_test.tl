@@ -13,6 +13,12 @@ local Types = require("cosmic.web.types")
 local Url = require("cosmic.url")
 local Web = require("cosmic.web")
 
+--- Why `invalid` refuses, or nil for none.
+local function message_of(invalid: Types.Invalid | nil): string | nil
+  if invalid == nil then return nil end
+  return invalid.message
+end
+
 local B <const> = "----boundary123"
 local FORM_TYPE <const> = "multipart/form-data; boundary=" .. B
 
@@ -71,8 +77,8 @@ local function test_text_and_file_parts_are_read_and_the_file_is_spooled(tmp: st
     field("email", "a@b.test"), field("tags", "x"), field("tags", "y"),
     file("avatar", "../../etc/passwd", "PNG\0\r\n--data", "image/png")), function(req: Web.Request): Web.Response
       local read = Input.multipart(req, { dir = tmp })
-      assert(read.invalid == nil, read.invalid and read.invalid.message)
-      seen = read.value
+      assert(read.invalid == nil, message_of(read.invalid))
+      seen = assert(read.value)
       local up = seen.files["avatar"][1]
       contents = assert(Fs.read(up.path))
       listing = assert(Fs.list(tmp))
@@ -150,8 +156,8 @@ local function test_the_text_parts_bind_as_a_forms_fields_do()
   local reply = post(body_of(field("email", "a@b.test"), field("age", " 42 "), field("tags", "x"), field("tags", "y"),
     field("news", "on"), field("is_admin", "1"), file("avatar", "me.png", "x")), function(req: Web.Request): Web.Response
       local read = Input.form_into(req, SIGNUP)
-      bound = assert(read.value, read.invalid and read.invalid.message)
-      assert(Input.multipart(req).value.files["avatar"][1].filename == "me.png", "the files are still there")
+      bound = assert(read.value, message_of(read.invalid))
+      assert(assert(Input.multipart(req).value).files["avatar"][1].filename == "me.png", "the files are still there")
       return Web.empty()
     end)
   assert(reply.status == 204)
@@ -188,7 +194,7 @@ local function test_a_typed_multipart_route_binds_and_answers_problems(tmp: stri
     Web.post_typed("/up", Web.input(Web.NONE, Web.NONE, Web.multipart_body(SIGNUP)),
       function(req: Web.Request, _p: Web.None, _q: Web.None, b: Signup): Web.Response
         got = b
-        files = #Input.multipart(req).value.files["pic"]
+        files = #assert(Input.multipart(req).value).files["pic"]
         return Web.empty()
       end, { input_options = { dir = tmp, max_file_bytes = 10 } }),
   }, sink = { line = function(_self: Web.Sink, _text: string) end } }
@@ -225,7 +231,7 @@ local function test_a_form_route_takes_multipart_within_its_own_small_limit(tmp:
   local text = body_of(field("email", "e"), file("f", "a", ("x"):rep(70000)))
   local status = 0
   post(text, function(req: Web.Request): Web.Response
-    status = Input.form(req, { dir = tmp }).invalid.status
+    status = assert(Input.form(req, { dir = tmp }).invalid).status
     return Web.empty()
   end)
   assert(status == 413, "a form's 64 KiB default is not the upload's")
@@ -361,11 +367,11 @@ local function test_the_body_is_read_once_and_kept()
     local first = Input.multipart(req)
     local again = Input.multipart(req)
     assert(first.value == again.value, "one read")
-    assert(Input.form(req).value == first.value.fields, "the form is its text parts")
+    assert(Input.form(req).value == assert(first.value).fields, "the form is its text parts")
     assert(Input.form(req).value == Input.form(req).value)
     local bytes, why = req:bytes()
     assert(bytes == nil and why:find("already read"), "the spent body is no empty body")
-    assert(Input.multipart(req, { max_bytes = 5 }).invalid.status == 413, "held to a later, smaller limit")
+    assert(assert(Input.multipart(req, { max_bytes = 5 }).invalid).status == 413, "held to a later, smaller limit")
     return Web.empty()
   end)
   local failed = post("junk", function(req: Web.Request): Web.Response
@@ -444,7 +450,7 @@ local function test_a_blank_file_input_makes_no_directory()
   end)
   assert(upload_dirs() == before, "a blank file input leaked its directory")
   post(body_of(file("none", "", ""), file("f", "x.txt", "data")), function(req: Web.Request): Web.Response
-    assert(Input.multipart(req).value.files["f"][1].size == 4)
+    assert(assert(Input.multipart(req).value).files["f"][1].size == 4)
     return Web.empty()
   end)
   assert(upload_dirs() == before, "the directory goes with the files")
@@ -454,7 +460,7 @@ local function test_a_limit_failure_is_not_kept_for_a_reader_with_a_higher_limit
   local text = body_of(field("email", "e"), file("f", "a", ("x"):rep(70000)))
   local seen: Input.Multipart = nil
   post(text, function(req: Web.Request): Web.Response
-    assert(Input.form(req, { dir = tmp }).invalid.status == 413)
+    assert(assert(Input.form(req, { dir = tmp }).invalid).status == 413)
     seen = assert(Input.multipart(req, { dir = tmp }).value)
     return Web.empty()
   end)
@@ -462,7 +468,7 @@ local function test_a_limit_failure_is_not_kept_for_a_reader_with_a_higher_limit
   local again: Types.Invalid = nil
   post(text, function(req: Web.Request): Web.Response
     local first = Input.form(req, { dir = tmp })
-    assert(first.invalid.status == 413)
+    assert(assert(first.invalid).status == 413)
     again = Input.multipart(req, { dir = tmp }).invalid
     return Web.empty()
   end, nil, true)

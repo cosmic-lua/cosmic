@@ -71,7 +71,7 @@ local record Assets
   --- What [`Assets.default`] takes.
   record DefaultOptions
     --- Read `root` from disk whatever is embedded: the development mode.
-    dev: boolean
+    dev?: boolean
     --- The directory read from disk ("static", against the working
     --- directory).
     root: string
@@ -113,10 +113,10 @@ end
 
 --- What an asset has beside its path and bytes, when its source knows it.
 local record Known
-  sha256: string
-  type: string
-  gzip: string
-  mtime: integer
+  sha256?: string
+  type?: string
+  gzip?: string
+  mtime?: integer
 end
 
 --- An asset of `data` at `path`, its hash and entity tag computed unless

@@ -57,6 +57,12 @@ local verb_spec = require("build.verb_spec")
 local record verb
   --- The verb's registration: see build/verb_spec.tl.
   spec: verb_spec.Spec
+  --- A moment the verb read: its epoch and the zone the text named, none for
+  --- an epoch or a date, which name an instant and no zone.
+  record Moment
+    ns: integer
+    zone?: Time.Zone
+  end
   --- Where `run` reads and writes: what a test stands in for.
   record Io
     --- Writes to standard output, as given: the caller adds newlines.
@@ -73,7 +79,7 @@ end
 
 local NS <const> = 1000000000
 
-local spec = Cli.verbs.time.spec
+local spec = Cli.verbs.time.spec or {}
 
 local usage = "cosmic time now [--zone Z] [--format F] [--json] | " ..
   "convert <time> [--from Z] [--to Z] [--format F] [--json] [--disambiguate H] | " ..
@@ -202,7 +208,7 @@ end
 
 --- [`verb.parse_input`] less the forms' names in its failures.
 local function read_input(text: string, zone: Time.Zone | nil,
-                          how: Time.Disambiguation): Time.Zoned | nil, string
+                          how: Time.Disambiguation): verb.Moment | nil, string
   if text:sub(1, 1) == "@" then
     local sign, whole, dot, frac = text:match("^@([+-]?)(%d+)(%.?)(%d*)$")
     if whole == nil or #whole > 10 or #frac > 9 or (dot == "." and frac == "") then
@@ -228,7 +234,7 @@ local function read_input(text: string, zone: Time.Zone | nil,
   local year, month, day, hour, minute, tail = text:match(
     "^(%d%d%d%d)%-(%d%d)%-(%d%d)[Tt](%d%d):(%d%d)(.*)$")
   if tail ~= nil and (tail == "" or tail:match("^:%d%d$") or tail:match("^:%d%d%.%d+$")) then
-    local c: Time.Civil = {
+    local c: Time.CivilFields = {
       year = math.tointeger(tonumber(year)), month = math.tointeger(tonumber(month)),
       day = math.tointeger(tonumber(day)), hour = math.tointeger(tonumber(hour)),
       minute = math.tointeger(tonumber(minute)), second = 0, ns = 0,
@@ -266,7 +272,7 @@ local function read_input(text: string, zone: Time.Zone | nil,
     zoned, why = Time.parse_rfc3339_zoned(text)
   end
   if zoned == nil then return nil, plain(why) end
-  return zoned, ""
+  return { ns = zoned.ns, zone = zoned.zone }, ""
 end
 
 --- The moment a user's text names, in whichever form they wrote it, or
@@ -284,7 +290,7 @@ end
 --- names the forms, then the fault. The zone returned is nil for the
 --- last three, which name none. Any text answers a moment or a failure.
 --- Raises for a `zone` no function of [`cosmic.time`] made.
-function verb.parse_input(text: string, zone?: Time.Zone, how?: Time.Disambiguation): Time.Zoned | nil, string
+function verb.parse_input(text: string, zone?: Time.Zone, how?: Time.Disambiguation): verb.Moment | nil, string
   local zoned, why = read_input(text, zone, how or "compatible")
   if zoned == nil then return nil, INPUT_FORMS .. ": " .. why end
   return zoned, ""
@@ -398,7 +404,7 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
     return written(shown(seen, format, digits) .. "\n")
   end
   --- What a time argument names: nil after a complaint.
-  local function read_time(text: string, zone: Time.Zone): Time.Zoned | nil
+  local function read_time(text: string, zone: Time.Zone): verb.Moment | nil
     local zoned, why = verb.parse_input(text, zone, disambiguation)
     if zoned == nil then
       complain(("%q: %s"):format(text, why))

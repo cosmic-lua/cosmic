@@ -360,7 +360,7 @@ function Csrf.middleware(opts?: Csrf.Options): Types.Middleware
         if secret == nil or sent == nil or not valid(secret, sent) then reason = "token" end
       end
       if reason == nil then return inner(req) end
-      req.app.spec.sink:line(("csrf: refused %s %s (%s) Origin: %s"):format(
+      assert(req.app.spec.sink):line(("csrf: refused %s %s (%s) Origin: %s"):format(
         req.method, plain(req.path), reason, plain(req.headers["origin"])))
       return on_failure(req, reason)
     end

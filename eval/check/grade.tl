@@ -271,7 +271,8 @@ end
 local function command_step(g: Grade, argv: {string}, cwd: string,
                             env?: {string:string}): boolean
   return step(g, table.concat(argv, " "), function(out: integer): boolean
-    local result, trouble = Child.run(argv, { cwd = cwd, env = env or g.env, stdout = out, stderr = "stdout",
+    local environment = env or g.env
+    local result, trouble = Child.run(argv, { cwd = cwd, env = environment, stdout = out, stderr = "stdout",
       timeout_ns = within(g, Clock.seconds(120)) })
     if result == nil then
       local _, _ = Fs.put(out, trouble .. "\n")

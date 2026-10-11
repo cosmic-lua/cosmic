@@ -348,18 +348,18 @@ end
 --- The nodes `segments` descend through to a route, most specific first:
 --- a literal child, then the parameter child, then `*name`.
 local record Hit
-  methods: Types.Methods
+  methods?: Types.Methods
   values: {string}
   rest_from: integer
-  mount: Types.Mount
-  at: integer
+  mount?: Types.Mount
+  at?: integer
 end
 
 --- What a walk carries: the method looked up, and the most specific node
 --- the path reached that answers some other method.
 local record Walk
   method: string
-  other: Hit
+  other?: Hit
 end
 
 --- Whether `methods` answers `method` (HEAD by a GET).
@@ -454,7 +454,7 @@ function Router.lookup(router: Types.Router, method: string, segments: {string},
     return { kind = "match", route = mount.info, params = {}, handler = mount.handler,
       mount_path = mount.prefix }
   end
-  local methods = hit.methods
+  local methods = assert(hit.methods)
   local terminal = methods.by_method[method]
   if terminal == nil and method == "HEAD" then terminal = methods.by_method["GET"] end
   if terminal == nil then
@@ -531,7 +531,7 @@ local function reverse(self: Types.Router, name: string, params?: {string: strin
     local used: {string:boolean} = {}
     local parts: {string} = {}
     local open_rest = false
-    for _, segment in ipairs(entry.segments) do
+    for _, segment in ipairs(assert(entry.segments)) do
       if segment.kind == "literal" then
         parts[#parts + 1] = raw_part(segment.text)
       else
@@ -574,7 +574,8 @@ local function reverse(self: Types.Router, name: string, params?: {string: strin
   return path, ""
 end
 
-local router_mt: metatable<Types.Router> = { __index = { match = match, reverse = reverse } }
+local router_methods = { match = match, reverse = reverse }
+local router_mt: metatable<Types.Router> = { __index = router_methods }
 
 --- Compiles `routes` into a router. Raises, naming the pattern, for a route
 --- or mount that cannot be registered: a pattern that is not valid, two

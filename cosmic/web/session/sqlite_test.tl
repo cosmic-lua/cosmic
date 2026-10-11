@@ -32,7 +32,7 @@ local function test_a_new_session_gets_a_256_bit_id_and_the_table_holds_only_its
   assert(#id == 43 and Codec.unbase64url(id) ~= nil and #assert(Codec.unbase64url(id)) == 32)
   local rows = assert(Sqlite.rows(db, "SELECT id_hash, data FROM web_sessions"))
   assert(#rows == 1 and rows[1][1].blob == Hash.sha256(id))
-  assert(rows[1][2].text:find("ada", 1, true))
+  assert(assert(rows[1][2].text):find("ada", 1, true))
   local seen = assert(Sqlite.rows(db, "SELECT count(*) FROM web_sessions WHERE id_hash = ?1 OR data = ?2",
     { { blob = id }, { text = id } }))
   assert(seen[1][1].integer == 0, "the id itself is nowhere in the table")

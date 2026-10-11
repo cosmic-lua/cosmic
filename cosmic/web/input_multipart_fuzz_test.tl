@@ -50,7 +50,7 @@ local function test_any_multipart_body_is_bounded_and_leaves_no_file(tmp: string
     outcome = Input.multipart(req, opts)
     if outcome.value ~= nil then
       -- What a handler could still read while the request lasts.
-      for _, list in pairs(outcome.value.files) do
+      for _, list in pairs(assert(outcome.value).files) do
         for _, up in ipairs(list) do
           local st = assert(Fs.stat(up.path))
           assert(st.size == up.size, "the size is the file's")
@@ -94,7 +94,7 @@ local function test_any_multipart_body_is_bounded_and_leaves_no_file(tmp: string
         Fuzz.label("refused_" .. read.invalid.status)
         return true, ""
       end
-      local m = read.value
+      local m = assert(read.value)
       local files = 0
       for _, list in pairs(m.files) do
         for _, up in ipairs(list) do

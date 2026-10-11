@@ -112,13 +112,14 @@ end
 --- @param seed integer The seed
 --- @return Source A fresh source
 function Rand.new(seed: integer): Rand.Source
-  local st: State = {}
+  local s0, s1, s2, s3: integer, integer, integer, integer
   local x = seed
-  x, st.s0 = splitmix(x)
-  x, st.s1 = splitmix(x)
-  x, st.s2 = splitmix(x)
-  local _, s3 = splitmix(x)
-  st.s3 = s3
+  x, s0 = splitmix(x)
+  x, s1 = splitmix(x)
+  x, s2 = splitmix(x)
+  local _, last = splitmix(x)
+  s3 = last
+  local st: State = { s0 = s0, s1 = s1, s2 = s2, s3 = s3 }
 
   local source: Rand.Source = {}
 

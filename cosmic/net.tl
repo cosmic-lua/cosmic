@@ -80,11 +80,11 @@ local record Net
   record ListenOptions
     --- How long `accept` waits, in nanoseconds, from 0; nil for no
     --- limit. The connections it accepts start with the same.
-    timeout_ns: integer
+    timeout_ns?: integer
     --- How many connections may wait to be accepted (64 by default).
     --- A unix connection past it fails at once rather than waiting (see
     --- [`ConnectOptions.timeout_ns`]).
-    backlog: integer
+    backlog?: integer
   end
 
   --- A socket listening at an address, answered by [`Net.listen`].
@@ -125,12 +125,12 @@ local record Net
     --- process starts. A connect waits `min(opts.timeout_ns, ceiling)`
     --- ([`ConnectOptions.timeout_ns`] of the call), and a call with no
     --- `timeout_ns` waits the ceiling.
-    timeout_ns: integer
+    timeout_ns?: integer
     --- Makes the connector public: it also connects to an address its
     --- endpoints lack, judged by the process itself against the lists given
     --- here (see [`Net.connector`]). Without it, the endpoints are the
     --- connector's whole authority.
-    public: PublicOptions
+    public?: PublicOptions
   end
 
   --- What a public connector refuses, as data its process holds: the
@@ -143,7 +143,7 @@ local record Net
     --- The refused prefixes, numeric "address/bits" text.
     deny: {string}
     --- The host's own numeric addresses, refused as their own.
-    own: {string}
+    own?: {string}
   end
 
   --- One address a name resolves to, answered by [`Net.resolve`]: its
@@ -154,12 +154,12 @@ local record Net
   record ResolveOptions
     --- How long the lookup waits in all, in nanoseconds, from 0; nil for
     --- no limit beyond the resolver's own retries.
-    timeout_ns: integer
+    timeout_ns?: integer
     --- Name servers to ask in place of the system's: one or more
     --- numeric [`Net.Endpoint`]s, such as [`Net.nameservers`] lists.
-    servers: {Endpoint}
+    servers?: {Endpoint}
     --- A hosts file to read in place of the system's.
-    hosts_file: string
+    hosts_file?: string
     --- Resolves over TCP alone, every socket of the lookup made by this
     --- connector, one [`Net.connector`] made with
     --- a table, and no datagram sent: the servers asked are `servers`, or
@@ -170,7 +170,7 @@ local record Net
     --- one connection at a time, sharing the connector's stream with
     --- any other request, each in its place by tag. Linux only, as the
     --- connector is.
-    connector: Connector
+    connector?: Connector
   end
 
 
@@ -193,17 +193,17 @@ local record Net
       --- in its listener's backlog until one open closes, and a unix one
       --- past the backlog fails at once (see
       --- [`ConnectOptions.timeout_ns`]).
-      connections: integer
+      connections?: integer
     end
     --- Bounds on what the server takes on; nil for none.
-    limits: Limits
+    limits?: Limits
     --- Each connection's `timeout_ns`: how long any one read or write of
     --- it waits, from 0; nil for no limit.
-    timeout_ns: integer
+    timeout_ns?: integer
     --- On stopping, how long open connections have to finish, from 0,
     --- before they are closed and their tasks killed
     --- ([`Poll.Task.kill`]); nil to wait for every one.
-    grace_ns: integer
+    grace_ns?: integer
     --- Called once every listener listens, in a task of the server's
     --- run, with where each listens -- a port the kernel chose for one
     --- at port 0 included -- in the order of `listeners`, and the
@@ -423,7 +423,7 @@ end
 local function named(address: Net.Address): string
   if address.kind ~= "tcp" then return address.path end
   local host = address.host
-  if host:find(":", 1, true) then host = "[" .. host .. "]" end
+  if assert(host):find(":", 1, true) then host = "[" .. host .. "]" end
   return host .. ":" .. tostring(address.port)
 end
 
@@ -495,9 +495,9 @@ end
 --- went wrong and its errno, which `said` words. `errno` is 0 for a
 --- wait's own [`Poll.TIMEOUT`] or "cancelled" in a task.
 local record Attempt
-  socket: raw_socket.Socket
-  trouble: string
-  errno: integer
+  socket?: raw_socket.Socket
+  trouble?: string
+  errno?: integer
 end
 
 --- A socket being connected in a task, closed when the task leaves it
@@ -975,7 +975,7 @@ end
 local record Accepting
   listener: Net.Listener
   fd: integer
-  task: Poll.Task
+  task?: Poll.Task
   --- The errno the last accept failed with, reported once until another
   --- answer comes; 0 after one that did not fail.
   failing: integer
@@ -995,16 +995,16 @@ local record Serving
   --- Each connection open, by the task serving it.
   conns: {Poll.Task: Net.Conn}
   --- Waits for `stop` to cancel it.
-  waiter: Poll.Task
+  waiter?: Poll.Task
   --- Holds SIGINT and SIGTERM for the run.
-  guard: Signal.Guard
+  guard?: Signal.Guard
   --- Waits on `guard`: its first signal stops the server, and the next
   --- ends the grace.
-  watcher: Poll.Task
+  watcher?: Poll.Task
   --- Waits for `waiter` to end, then runs [`on_stop`].
-  stopper: Poll.Task
+  stopper?: Poll.Task
   --- Waits out the grace while the server drains.
-  grace: Poll.Task
+  grace?: Poll.Task
   --- Set once a signal has ended the grace.
   hurried: boolean
   --- Set once a signal `guard` caught has stopped the server: only
@@ -1106,7 +1106,7 @@ local function drain(s: Serving)
     local grace = s.spec.grace_ns
     local deadline = grace ~= nil and Clock.monotonic_ns() + grace or nil
     -- A task of its own, so a signal can end the grace by cancelling it.
-    s.grace = Poll.spawn(function()
+    local grace_task = Poll.spawn(function()
       while true do
         local task = next(s.conns)
         if task == nil then return end
@@ -1116,7 +1116,8 @@ local function drain(s: Serving)
         if not ended then return end
       end
     end)
-    local _, _ = s.grace:join()
+    s.grace = grace_task
+    local _, _ = grace_task:join()
   end
   local left: {Poll.Task} = {}
   for task in pairs(s.conns) do left[#left + 1] = task end
@@ -1144,14 +1145,15 @@ local function stop(s: Serving)
     if not closed then report(s, why) end
     if a.task ~= nil then a.task:cancel() end
   end
-  s.waiter:cancel()
+  assert(s.waiter):cancel()
 end
 
 --- Stops `s` at the first signal its guard takes, and ends its grace at
 --- the next, until the task is cancelled.
 local function watch(s: Serving)
+  local guard = assert(s.guard)
   while true do
-    local signal, _ = s.guard:wait()
+    local signal, _ = guard:wait()
     if signal == 0 then return end
     if not s.stopping then
       s.signalled = true
@@ -1166,8 +1168,9 @@ end
 
 --- The body of [`Net.serve`]'s run, over listeners of its own.
 local function serving(spec: Net.ServeSpec): boolean, string
+  local limits = spec.limits
   local state: Serving = {
-    spec = spec, most = spec.limits and spec.limits.connections or math.maxinteger,
+    spec = spec, most = limits and limits.connections or math.maxinteger,
     open = 0, stopping = false, accepts = {}, conns = {}, hurried = false,
     signalled = false,
   }
@@ -1186,9 +1189,10 @@ local function serving(spec: Net.ServeSpec): boolean, string
     addresses = addresses,
     stop = function(_self: Net.Server) stop(s) end,
   }
-  s.waiter = Poll.spawn(function()
+  local waiter = Poll.spawn(function()
     while not s.stopping do local _, _ = Poll.delay(Poll.MOST_NS) end
   end)
+  s.waiter = waiter
   local on_stop = spec.on_stop
   if on_stop ~= nil then
     -- Spawned here, not by `stop`, which may be called from a coroutine
@@ -1197,17 +1201,18 @@ local function serving(spec: Net.ServeSpec): boolean, string
     -- and what it raises is not taken for the failure of a connection
     -- whose protocol called `stop`.
     s.stopper = Poll.spawn(function()
-      local _, _ = s.waiter:join()
+      local _, _ = waiter:join()
       local ok, trouble: boolean, any = xpcall(on_stop, traced, server)
       if not ok then report(s, tostring(trouble)) end
     end)
   end
   resume_accepting(s)
-  s.watcher = Poll.spawn(function() watch(s) end)
+  local watcher = Poll.spawn(function() watch(s) end)
+  s.watcher = watcher
   if spec.on_ready ~= nil then spec.on_ready(addresses, server) end
-  local _, _ = s.waiter:join()
+  local _, _ = waiter:join()
   drain(s)
-  s.watcher:cancel()
+  watcher:cancel()
   -- Released where a signal stopped the server, which has acted on it;
   -- closed otherwise, so one caught in a drain that `stop` began is
   -- delivered as it would be without this guard.

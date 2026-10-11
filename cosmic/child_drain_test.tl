@@ -283,7 +283,7 @@ end
 
 local function test_saved_source_failure_follows_prefix_and_wins_at_exact_limit()
   local h <close> = start('assert(require("cosmic.fs").put(1, "abcdef"))')
-  local fd = h._streams[1].fd
+  local fd = assert(h._streams)[1].fd
   local read = sys.read
   local seen = false
   sys.read = function(which: integer, count: integer): string | nil, string, integer

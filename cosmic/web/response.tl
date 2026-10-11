@@ -17,9 +17,9 @@ local record Response
     --- The status to answer.
     status: integer
     --- What to tell the client, or nil.
-    detail: string
+    detail?: string
     --- More members of a problem body.
-    extra: {string:any}
+    extra?: {string:any}
   end
 end
 
@@ -40,8 +40,8 @@ end
 --- Sets header `name` of `res` to a string or a list, replacing the
 --- header in any case; the first of the two helpers below.
 local function put(res: Types.Response, name: string, value: string | {string})
-  if res.headers == nil then res.headers = {} end
-  local headers = res.headers
+  local headers: {string: string | {string}} = res.headers or {}
+  res.headers = headers
   local want = name:lower()
   local stale: {string} = {}
   for key in pairs(headers) do
@@ -126,8 +126,8 @@ end
 --- @param name string The header's name
 --- @param value string The line to add
 function Response.add_header(res: Types.Response, name: string, value: string)
-  if res.headers == nil then res.headers = {} end
-  local headers = res.headers
+  local headers: {string: string | {string}} = res.headers or {}
+  res.headers = headers
   local key = key_of(headers, name)
   if name:lower() == "vary" then
     local old = ""

@@ -194,7 +194,7 @@ local function test_a_record_of_the_standard_library_is_read_too()
       'local OPTIONS = Shape.record_of("cosmic.json.DecodeOptions")',
       "local options = OPTIONS:into({})",
       "if options ~= nil then",
-      "  local depth: integer = options.max_depth",
+      "  local depth: integer | nil = options.max_depth",
       "  return depth",
       "end",
       "",
@@ -203,7 +203,7 @@ local function test_a_record_of_the_standard_library_is_read_too()
   local lua, trouble = compiled("stdlib", files, "main")
   assert(lua ~= nil, trouble)
   has(lua, [[Shape.record_of("cosmic.json.DecodeOptions", Shape.record({]])
-  has(lua, [["max_depth"] = Shape.integer]])
+  has(lua, [["max_depth"] = Shape.optional(Shape.integer)]])
 end
 
 local function test_a_nested_own_record_is_named_by_its_path()

@@ -49,7 +49,7 @@ local function test_a_read_failure_follows_queued_stdout_and_stderr()
   for _, child_fd in ipairs({ 1, 2 }) do
     local h <close> = output(child_fd)
     local reader = assert(child_fd == 1 and h.stdout_stream or h.stderr_stream)
-    local fd = h._streams[1].fd
+    local fd = assert(h._streams)[1].fd
     local reason = "read: injected terminal failure"
     local bytes, refused = 0, false
     patched(function()
@@ -77,7 +77,7 @@ end
 --- another operation found it before the Reader was used.
 local function test_a_raw_poll_failure_follows_queued_bytes()
   local h <close> = output(1)
-  local pipe = h._streams[1]
+  local pipe = assert(h._streams)[1]
   local fd = pipe.fd
   local reason = "poll: injected terminal failure"
   local refused = false
@@ -130,7 +130,7 @@ local function test_a_source_failure_does_not_replace_sticky_guard_cancellation(
   local chunk, cancellation = reader:read()
   assert(g:release() == sys.SIGTERM)
   assert(chunk == nil and cancellation == "child: cancelled by signal " .. tostring(sys.SIGTERM))
-  local pipe = h._streams[1]
+  local pipe = assert(h._streams)[1]
   local fd = pipe.fd
   local reason = "read: cancelled by signal is only diagnostic text here"
   local refused = false
@@ -153,7 +153,7 @@ end
 --- failure nor EOF, so the output remains readable.
 local function test_transient_read_errors_leave_the_stream_readable()
   local h <close> = output(1)
-  local fd = h._streams[1].fd
+  local fd = assert(h._streams)[1].fd
   local transient = 0
   patched(function()
     local read = sys.read
@@ -178,7 +178,7 @@ end
 local function test_a_failed_pump_does_not_close_a_reused_descriptor()
   local h <close> = output(1)
   local reader = assert(h.stdout_stream)
-  local fd = h._streams[1].fd
+  local fd = assert(h._streams)[1].fd
   local replacement: integer
   local ok, why: boolean, any = pcall(function()
     patched(function()

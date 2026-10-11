@@ -90,7 +90,8 @@ local function test_a_response_a_handler_shares_is_not_changed()
   local client = Web.test_client(make_app{ allow_origins = { APP }, allow_credentials = true })
   assert(get(client, APP, "/shared").headers["access-control-allow-origin"] == APP)
   assert(get(client, "https://evil.example", "/shared").headers["access-control-allow-origin"] == nil)
-  assert(shared.headers["Access-Control-Allow-Origin"] == nil and shared.headers["Vary"] == "Accept",
+  local shared_headers = assert(shared.headers)
+  assert(shared_headers["Access-Control-Allow-Origin"] == nil and shared_headers["Vary"] == "Accept",
     "the shared table is the handler's")
 end
 

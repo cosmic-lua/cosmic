@@ -104,7 +104,7 @@ local function test_a_response_a_handler_shares_is_not_changed()
   assert(client:get("/shared").headers["content-security-policy"] ~= nil)
   assert(client:get("/shared").headers["x-frame-options"] == "DENY")
   local count = 0
-  for _ in pairs(shared.headers) do count = count + 1 end
+  for _ in pairs(assert(shared.headers)) do count = count + 1 end
   assert(count == 1, "the shared table still holds its one header")
 end
 

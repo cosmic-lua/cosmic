@@ -55,7 +55,7 @@ local record rules
     letters: string
     --- The host's path, when it differs from `path`: the program sees this
     --- file or directory under another name. Needs `isolate` file.
-    from: string
+    from?: string
   end
 
   --- Resource limits on every process the program starts. Nil is the
@@ -64,60 +64,60 @@ local record rules
   --- nothing else.
   record Limits
     --- The most descriptors a process may hold open (at least 1).
-    open_files: integer
+    open_files?: integer
     --- The most bytes a process may write to one file.
-    file_bytes: integer
+    file_bytes?: integer
     --- The CPU seconds a process may spend (at least 1). Soft and hard
     --- limit are the same, so a process past it is ended by SIGKILL, with
     --- no SIGXCPU to catch first.
-    cpu_seconds: integer
+    cpu_seconds?: integer
     --- The most processes and threads of the whole sandbox, counted by
     --- the user namespace it runs in (at least 1): a child's, with
     --- `isolate` "proc" or "file", on a Linux kernel from 5.17.
-    processes: integer
+    processes?: integer
   end
 
   --- What a program is held to; every field is optional, and what a policy
   --- leaves out it does not have.
   record Policy
     --- Named policies to join in, by [`Sandbox.merge`]: "system", "cosmic", "proc".
-    profiles: {string}
+    profiles?: {string}
     --- The paths the program reaches.
-    grants: {Grant}
+    grants?: {Grant}
     --- How far it is isolated from the host. With "file", a writable grant on a tree that user does not own (`/etc`
     --- as `rwc`, say) is mounted so that it is the tree's owner there: it
     --- writes the owner's files, root's included, through that mount.
-    isolate: {Isolate}
+    isolate?: {Isolate}
     --- The system calls it may make beyond its basics.
-    promises: {Promise}
+    promises?: {Promise}
     --- The hosts it may reach, "host:port", where the host or the port is
     --- "*" for any. A host is a DNS name, an IPv4 address or an IPv6 address
     --- in brackets, and a name is read lower-case without a final dot; a
     --- pattern, an underscore and anything else the relay's readers refuse
     --- is refused here too ([`cosmic.relay.grant`]).
-    connect: {string}
+    connect?: {string}
     --- The addresses of 127/8 it uses inside its own network.
-    loopback: {string}
+    loopback?: {string}
     --- The variables passed through from the caller's environment.
-    env: {string}
+    env?: {string}
     --- The variables set, by name. With `env`, the program's whole
     --- environment; a name in both is set.
-    set_env: {string:string}
+    set_env?: {string:string}
     --- What a decoded, encoded policy holds in place of `set_env`'s
     --- values: for each name, the SHA-256 of its value in lowercase
     --- hex. [`PolicyJson.encode`] writes these, so the text shows a value
     --- changed without showing it; a policy that holds one, and no value
     --- for the name, cannot start a program.
-    set_env_digests: {string:string}
+    set_env_digests?: {string:string}
     --- Whether the program has a fresh temporary directory of its own,
     --- named by `TMPDIR`, that it may write. Under `isolate` file it is
     --- the root's own /tmp, which a grant of "/tmp" with no `from` and the
     --- letters `rwxc` lets the program run files from (`rwc`, the default,
     --- does not), and a `set_env` TMPDIR beneath /tmp is kept, for a
     --- directory the program makes there.
-    tmp: boolean
+    tmp?: boolean
     --- The resources it may spend.
-    limits: Limits
+    limits?: Limits
     --- The user a child runs as (1 to 4294967294, never root, nor the
     --- overflow ids 65534 and 65535), in place of the one of its own a root
     --- caller's child is given from a pool ([`Sandbox.user_id`]): the same
@@ -141,11 +141,11 @@ local record rules
     --- owner's), and stay its own on the host. Any other user's there
     --- show as owned by the overflow id: read and run as their mode lets
     --- everyone (or its group, where theirs is the owner's), never written.
-    user: integer
+    user?: integer
     --- The group a child runs as, with `user`: for a root caller, `user`'s
     --- own number where it is left out; for any other, its own group. On
     --- macOS only the caller's own group is met, as for `user`.
-    group: integer
+    group?: integer
     --- A database the program runs on, by its absolute path ([`rules.Database`]): the program
     --- is this program's core started on that database
     --- (`core --database <path>`), so what it can `require` is the
@@ -166,7 +166,7 @@ local record rules
     --- file of that digest, and [`PolicyJson.encode`] writes it, so the
     --- text holds what the database is and not only where; merging keeps
     --- it.
-    database: rules.Database
+    database?: rules.Database
   end
   --- A database a policy names: its absolute `path`, and the SHA-256 of
   --- its bytes (`sha256`, 64 lowercase hex digits) where the policy is to

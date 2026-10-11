@@ -633,7 +633,7 @@ local function test_a_body_failing_under_the_reply_closes_the_connection()
     read: function(Lenient, max_bytes?: integer): string | nil, string
     close: function(Lenient): boolean, string
   end
-  local lenient_mt: metatable<Lenient> = { __index = {
+  local lenient_methods = {
     -- Reads every failure as the end.
     read = function(self: Lenient, max_bytes?: integer): string | nil, string
       local piece, _ = self.source:read(max_bytes)
@@ -641,7 +641,8 @@ local function test_a_body_failing_under_the_reply_closes_the_connection()
       return piece, ""
     end,
     close = function(_self: Lenient): boolean, string return true, "" end,
-  } }
+  }
+  local lenient_mt: metatable<Lenient> = { __index = lenient_methods }
   serving(function(req: Server.Request): Server.Reply
     paths[#paths + 1] = req.path
     local lenient: Lenient = setmetatable({ source = req.body }, lenient_mt)

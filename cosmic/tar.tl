@@ -274,7 +274,7 @@ local record Fields
   gid: integer
   mode: integer
   typeflag: string
-  kind: Stream.EntryKind
+  kind?: Stream.EntryKind
   --- Whether a pax record named a GNU sparse file, which `kind` says too.
   sparse: boolean
 end
@@ -425,16 +425,16 @@ local record EntryReader is Tar.Reader
   pax_global: {string:string}
   ended: boolean
   closed: boolean
-  failed: string
+  failed?: string
   pending_skip: integer
   generation: integer
   --- The entry `next` last returned, and whether it has been opened.
-  current: Tar.Entry
+  current?: Tar.Entry
   opened: boolean
   --- The current entry's body size, as its header gave it.
   size: integer
   --- What every entry of this reader gets as its metatable.
-  entry_mt: metatable<Tar.Entry>
+  entry_mt?: metatable<Tar.Entry>
   next: function(EntryReader): Tar.Entry | nil, string
   close: function(EntryReader): boolean, string
 end
@@ -446,7 +446,7 @@ local record BodyReader is Stream.Reader
   state: EntryReader
   generation: integer
   left: integer
-  failed: string
+  failed?: string
   closed: boolean
   read: function(BodyReader, max_bytes?: integer): string | nil, string
   close: function(BodyReader): boolean, string
