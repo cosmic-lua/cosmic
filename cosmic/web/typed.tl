@@ -211,7 +211,7 @@ function Typed.route_typed<P,Q,B>(methods: string | {string}, pattern: string, i
   route.input = {
     path = has_path and input.path.spec or nil, query = has_query and input.query.spec or nil,
     body_kind = kind, body = kind ~= "none" and input.body.typed.spec or nil,
-    max_bytes = options and options.max_bytes or 64 * 1024,
+    max_bytes = options and options.max_bytes or Input.DEFAULT_MAX,
   }
   return route
 end

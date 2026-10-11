@@ -48,8 +48,14 @@
 ---   ignored, so `is_admin=1` binds nothing; only a `strict_record`
 ---   refuses one, except `csrf_token`.
 ---
+--- `csrf_token` is exempt from a `strict_record` only at the top level, and
+--- a list element's name (`tags.0`) is not checked for strictness. A `one_of`
+--- that lists `""` never binds from text: an empty value is "required" (or
+--- nil if optional) before the list is consulted.
+---
 --- A JSON body goes through [`Shape.into`] unchanged, so only its first
---- failure is reported.
+--- failure is reported. A JSON client should read an error's `pointer`, not
+--- its `field`: the dotted `field` is ambiguous for a key that holds a `.`.
 
 local Json = require("cosmic.json")
 local Poll = require("cosmic.poll")
@@ -81,6 +87,8 @@ local record Input
   FORM: Types.Key<Url.Query>
   --- The JSON body once decoded, kept the same way by [`Input.json`].
   JSON: Types.Key<any>
+  --- The body limit when `max_bytes` is not given, 64 KiB.
+  DEFAULT_MAX: integer
 end
 
 Input.FORM = Request.key("input.form")
@@ -89,6 +97,11 @@ Input.JSON = Request.key("input.json")
 --- The largest body read unless told: a form or a JSON document, not an
 --- upload.
 local DEFAULT_MAX <const> = 64 * 1024
+Input.DEFAULT_MAX = DEFAULT_MAX
+
+--- What a body read that passed its limit leaves on the request as
+--- `body_failure`, in the words of the server's own for the same fault.
+local OVER_LIMIT <const> = "http: the body is longer than limits.body_bytes"
 
 --- The deepest nesting of records below the top one a form can carry.
 local MAX_DEPTH <const> = 3
@@ -189,8 +202,8 @@ local function utf8_charset(params: {string:string}): boolean
   return charset == nil or charset:lower() == "utf-8"
 end
 
---- The 415 for a body of another type than `wanted`, or nil when it is
---- that type.
+--- The 415 for a body of another type than `kind` ("form" or "json"), or
+--- nil when it is that type, in UTF-8 or no charset.
 local function wrong_type(req: Types.Request, kind: string): Types.Invalid | nil
   local type_ = Input.media_type(req)
   local media, params = type_.essence, type_.params
@@ -202,6 +215,10 @@ local function wrong_type(req: Types.Request, kind: string): Types.Invalid | nil
   end
   if good and utf8_charset(params) then return nil end
   local wanted = kind == "form" and "application/x-www-form-urlencoded" or "application/json"
+  if good then
+    return stop(415, "body", "", "content_type",
+      ("a charset of utf-8 is needed, not %s, for %s"):format(params["charset"], media))
+  end
   return stop(415, "body", "", "content_type", media == "" and
       ("the body needs a Content-Type of " .. wanted) or
       ("a Content-Type of " .. wanted .. " is needed, not " .. media))
@@ -211,7 +228,7 @@ end
 -- TODO: once cosmic.http.server reports why a body read failed as a kind,
 -- not only a message, read that in place of the server's words.
 local function read_failed(why: string): Types.Invalid
-  if why:find("longer than limits.body_bytes", 1, true) then
+  if why == OVER_LIMIT or why:find("longer than limits.body_bytes", 1, true) then
     return stop(413, "body", "", "too_large", "the body is too large")
   elseif why == Poll.TIMEOUT then
     return stop(408, "body", "", "malformed", "the body came too slowly")
@@ -246,6 +263,10 @@ local function body_text(req: Types.Request, kind: string, opts: Types.InputOpti
     if #data <= limit then
       req.body_text = data
       req.raw.body = Stream.from_string(data)
+    else
+      -- The stream is spent past the limit: a later reader, whatever its
+      -- limit, must not take the truncated bytes for the body.
+      req.body_failure = OVER_LIMIT
     end
   end
   if #data > limit then
@@ -511,10 +532,18 @@ bind_record = function(w: Walk, prefix: string, spec: Shape.Spec, depth: integer
   return out
 end
 
+--- The scalar kinds [`coerce`] reads from text.
+local SCALARS <const>: {string:boolean} = {
+  string = true, any = true, integer = true, number = true, boolean = true, one_of = true,
+}
+
 --- Why `spec` cannot be carried by `source`, or "" when it can.
 local function check_node(spec: Shape.Spec, field: string, source: string, depth: integer): string
   local kind = spec.kind
   local at = field == "" and "the spec" or ("field " .. field)
+  if not (SCALARS[kind] or kind == "map" or kind == "record" or kind == "list") then
+    return ("input: %s of a %s is of kind %s, which text cannot carry"):format(at, source, tostring(kind))
+  end
   if kind == "map" then
     return ("input: %s of a %s is a map, which text cannot carry"):format(at, source)
   elseif kind == "record" then
@@ -536,6 +565,9 @@ local function check_node(spec: Shape.Spec, field: string, source: string, depth
     if of == "list" or of == "record" or of == "map" then
       return ("input: %s of a %s is a list of %ss, which text cannot carry"):format(at, source, of)
     end
+    if not SCALARS[of] then
+      return ("input: %s of a %s is a list of kind %s, which text cannot carry"):format(at, source, tostring(of))
+    end
   elseif source == "path" and (kind == "number" or kind == "any" or spec.optional) then
     return ("input: %s of a path must be a string, integer, boolean or one_of, and present"):format(at)
   end
@@ -544,8 +576,8 @@ end
 
 --- Raises, naming the field, unless `spec` is one a `source` can carry: a
 --- record of strings, integers, numbers, booleans, `one_of`, lists of
---- those, and records of the same nested three deep. A `map` and a list of
---- records cannot be read from text; a path holds only a string, integer,
+--- those, and records of the same nested three deep. A `map`, a list of
+--- records and a spec of another kind cannot be read from text; a path holds only a string, integer,
 --- boolean or `one_of` per name, none optional. A "body" (JSON) carries
 --- any spec. [`Web.route_typed`] calls it when a route is registered, so a
 --- spec text cannot satisfy fails at startup.

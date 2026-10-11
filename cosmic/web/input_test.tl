@@ -1,5 +1,6 @@
 local Input = require("cosmic.web.input")
 local Json = require("cosmic.json")
+local Poll = require("cosmic.poll")
 local Server = require("cosmic.http.server")
 local Shape = require("cosmic.shape")
 local Stream = require("cosmic.stream")
@@ -284,6 +285,15 @@ local function test_check_spec_refuses_what_text_cannot_carry()
   refuses(Shape.record({ n = Shape.optional(Shape.integer) }), "path", "and present")
   refuses(Shape.record({ l = Shape.list(Shape.string) }), "path", "a list")
   refuses(Shape.string, "form", "binds to a record")
+  -- Shape.record refuses a hand-built kind, so corrupt a built spec.
+  local odd = Shape.record({ x = Shape.optional(Shape.string) })
+  local leaf = odd.fields.x as any as {string:any}
+  leaf["kind"] = "bogus"
+  refuses(odd, "form", "x of a form is of kind bogus")
+  local listing = Shape.record({ x = Shape.list(Shape.optional(Shape.string)) })
+  local element = listing.fields.x.of as any as {string:any}
+  element["kind"] = "bogus"
+  refuses(listing, "query", "list of kind bogus")
   refuses(Shape.record({}), "cookie", "is not a source")
   Input.check_spec(Shape.record({ m = Shape.map(Shape.string) }), "body")
   Input.check_spec(EVERYTHING.spec, "form")
@@ -417,6 +427,80 @@ local function test_a_chunked_body_over_the_limit_is_413_without_reading_it_all(
   assert(app.handle(raw).status == 200)
   assert(status == 413)
   assert(pulled < 10, "the read stopped one byte past the limit")
+end
+
+--- The status [`Input.form`] answers for a chunked request whose body reader
+--- fails with `why` on its first read, and the body_failure left after, and
+--- what a second read with a larger limit answers.
+local function failing_body(why: string): integer, integer
+  local reader: Stream.Reader = {
+    read = function(_self: Stream.Reader, _max_bytes?: integer): string | nil, string
+      return nil, why
+    end,
+    close = function(_self: Stream.Reader): boolean, string
+      return true, ""
+    end,
+  }
+  local first, second = 0, 0
+  local app = Web.app{ routes = { Web.post("/x", function(req: Web.Request): Web.Response
+    local bad = Input.form(req).invalid
+    first = bad and bad.status or 0
+    bad = Input.form(req, { max_bytes = 1 << 20 }).invalid
+    second = bad and bad.status or 0
+    return Web.text("ok")
+  end) } }
+  local raw: Server.Request = { method = "POST", target = "/x", path = "/x", query = "", version = "HTTP/1.1",
+    headers = { host = "x", ["content-type"] = "application/x-www-form-urlencoded" }, body = reader }
+  assert(app.handle(raw).status == 200)
+  return first, second
+end
+
+local function test_the_servers_over_limit_failure_is_413()
+  local first, second = failing_body("http: the body is longer than limits.body_bytes")
+  assert(first == 413 and second == 413, "413 both times: " .. first .. " " .. second)
+end
+
+local function test_a_body_read_that_times_out_is_408()
+  local first, second = failing_body(Poll.TIMEOUT)
+  assert(first == 408 and second == 408, "408 both times: " .. first .. " " .. second)
+end
+
+local function test_a_body_read_over_the_limit_stays_failed_for_a_later_reader()
+  local pulled = 0
+  local reader: Stream.Reader = {
+    read = function(_self: Stream.Reader, max_bytes?: integer): string | nil, string
+      pulled = pulled + 1
+      if pulled > 100 then return nil, "" end
+      return ("y"):rep(math.min(max_bytes or 10, 10)), ""
+    end,
+    close = function(_self: Stream.Reader): boolean, string
+      return true, ""
+    end,
+  }
+  local statuses: {integer} = {}
+  local bytes_status = ""
+  local app = Web.app{ routes = { Web.post("/x", function(req: Web.Request): Web.Response
+    statuses[1] = Input.form(req, { max_bytes = 25 }).invalid.status
+    local larger = Input.form(req, { max_bytes = 1 << 20 }).invalid
+    statuses[2] = larger and larger.status or 0
+    local data = req:bytes()
+    bytes_status = data == nil and "failed" or "truncated"
+    return Web.text("ok")
+  end) } }
+  local raw: Server.Request = { method = "POST", target = "/x", path = "/x", query = "", version = "HTTP/1.1",
+    headers = { host = "x", ["content-type"] = "application/x-www-form-urlencoded" }, body = reader }
+  assert(app.handle(raw).status == 200)
+  assert(statuses[1] == 413 and statuses[2] == 413, "a larger limit later is still 413")
+  assert(bytes_status == "failed", "req:bytes() does not hand out the truncated body")
+end
+
+local function test_a_wrong_charset_names_the_charset()
+  with_request("POST", { body = "{}", content_type = "application/json; charset=utf-16" }, function(req: Web.Request)
+    local bad = Input.json(req).invalid
+    assert(bad ~= nil and bad.status == 415)
+    assert(bad.message:find("utf-16", 1, true) and bad.message:find("charset", 1, true), bad.message)
+    assert(not bad.message:find("not application/json", 1, true), bad.message)
+  end)
 end
 
 local function test_json_that_does_not_parse_is_400_with_the_decoders_position()
