@@ -54,19 +54,19 @@ local record Time
     --- Nanoseconds after the second, 0 through 999999999.
     ns: integer
     --- ISO 8601's: 1 (Monday) through 7 (Sunday). [`from_civil`] ignores it.
-    weekday: integer
+    weekday?: integer
     --- The day of the year, 1 through 366. [`from_civil`] ignores it.
-    yday: integer
+    yday?: integer
     --- Seconds east of UTC the local time is: 0 on the UTC calendar.
     --- [`from_civil`] reads it only to choose between the two moments a
     --- zone gives one local time when its clocks go back.
-    offset: integer
+    offset?: integer
     --- What the zone calls its time then, as "EDT"; "UTC" on the UTC
     --- calendar. [`from_civil`] ignores it.
-    abbreviation: string
+    abbreviation?: string
     --- Whether the zone counts it daylight saving time. [`from_civil`]
     --- ignores it.
-    dst: boolean
+    dst?: boolean
   end
 
   --- A time zone: the offset from UTC, abbreviation and daylight saving
@@ -76,7 +76,7 @@ local record Time
     --- IANA's name for it, as "America/New_York" -- the one
     --- [`format_rfc3339`]'s `zone_name` writes -- or else the POSIX TZ
     --- string it was read from, or the name [`zone_from_tzif`] was given.
-    name: string
+    name?: string
   end
 
   --- Which moment a zone's local time names when its clocks skipped it
@@ -109,19 +109,19 @@ local record Time
   record AddOptions
     --- For a local time in a gap or a fold of the zone; "reject" when
     --- absent.
-    disambiguation: Time.Disambiguation
+    disambiguation?: Time.Disambiguation
     --- Only [`add_calendar`] reads it: "reject" when absent.
-    overflow: Time.Overflow
+    overflow?: Time.Overflow
   end
 
   --- What [`format_rfc3339`] may be told. Every field is optional.
   record FormatOptions
     --- Digits of fraction to write, 0 through 9, cut toward the past; by
     --- default as many as the nanoseconds need, none when they are zero.
-    digits: integer
+    digits?: integer
     --- Also write the zone's IANA name after the offset, as RFC 9557
     --- does: `[America/New_York]`.
-    zone_name: boolean
+    zone_name?: boolean
   end
 
   --- What [`local_zone`] reads in place of the host's.
@@ -131,11 +131,11 @@ local record Time
     tz: string
     --- With no `tz`, read as though `TZ` were unset rather than the
     --- environment's.
-    unset: boolean
+    unset?: boolean
     --- The link read in place of /etc/localtime.
-    localtime: string
+    localtime?: string
     --- The file read in place of /etc/timezone.
-    timezone: string
+    timezone?: string
   end
 
   --- A moment read from RFC 3339 text, and the zone it names.
@@ -145,7 +145,7 @@ local record Time
     --- The zone its RFC 9557 suffix names or, with none, its offset's:
     --- a zone always that offset, named "+05:30". UTC for `Z` and
     --- `-00:00`, which say the local offset is unknown.
-    zone: Time.Zone
+    zone?: Time.Zone
   end
 
   --- A span of time as people write it, `1y2mo3d4h5m6s`: a calendar
@@ -155,15 +155,15 @@ local record Time
   --- zero.
   record Duration
     --- Whole years of the calendar part.
-    years: integer
+    years?: integer
     --- Whole months of the calendar part.
-    months: integer
+    months?: integer
     --- Whole days of the calendar part.
-    days: integer
+    days?: integer
     --- The hours, minutes and seconds, as nanoseconds. [`between`]'s can
     --- exceed a day, where the day step would overshoot into a fold or a
     --- skipped day.
-    ns: integer
+    ns?: integer
   end
 
   --- Coordinated Universal Time, the zone every other is an offset from.
@@ -232,6 +232,10 @@ local function civil_from_days(z: integer): Time.Civil
     year = yoe + era * 400 + (month <= 2 and 1 or 0),
     month = month,
     day = doy - (153 * mp + 2) // 5 + 1,
+    hour = 0,
+    minute = 0,
+    second = 0,
+    ns = 0,
   }
 end
 
@@ -364,7 +368,7 @@ local record Cursor
   --- The byte the next read starts at.
   at: integer
   --- Why a read failed, with the byte it failed at; nil while none has.
-  why: string
+  why?: string
   metamethod __close: function(Cursor)
 end
 
@@ -503,11 +507,11 @@ end
 --- One of a POSIX TZ string's two yearly changes: a day, and the local
 --- time on it, in seconds, the change happens at.
 local record Rule
-  form: Form
-  day: integer
-  month: integer
-  week: integer
-  weekday: integer
+  form?: Form
+  day?: integer
+  month?: integer
+  week?: integer
+  weekday?: integer
   time: integer
 end
 
@@ -516,9 +520,9 @@ end
 --- it starts and ends by, if there is any.
 local record Posix
   std: Kind
-  dst: Kind
-  start: Rule
-  finish: Rule
+  dst?: Kind
+  start?: Rule
+  finish?: Rule
   --- Each year's two changes, as seconds since the epoch, once worked
   --- out: at most one per year a moment can fall in.
   years: {integer:{integer}}
@@ -535,12 +539,12 @@ local record Rules
   --- What it said before the first.
   first: Kind
   --- The TZ string for moments after the last transition, if any.
-  footer: Posix
+  footer?: Posix
   --- The zone's name: what [`Zone.name`] reads, and what every message
   --- and `zone_name` write, whatever a caller does to the record.
-  name: string
+  name?: string
   --- Whether the name is one RFC 9557 can write, which `zone_name` can.
-  named: boolean
+  named?: boolean
 end
 
 --- Each zone's rules, kept apart from the record a caller holds.
@@ -595,14 +599,16 @@ Time.UTC = make_zone("UTC", { transitions = {}, kinds = {}, first = UTC_KIND, na
 local function rule_day(r: Rule, year: integer): integer
   local jan1 = days_from_civil(year, 1, 1)
   if r.form == "J" then
-    return jan1 + r.day - 1 + ((r.day >= 60 and leap(year)) and 1 or 0)
+    local day = assert(r.day)
+    return jan1 + day - 1 + ((day >= 60 and leap(year)) and 1 or 0)
   elseif r.form == "n" then
-    return jan1 + r.day
+    return jan1 + assert(r.day)
   end
-  local first = days_from_civil(year, r.month, 1)
+  local month, week, weekday = assert(r.month), assert(r.week), assert(r.weekday)
+  local first = days_from_civil(year, month, 1)
   -- 1970-01-01 was a Thursday, weekday 4 counting Sunday as 0.
-  local day = first + (r.weekday - (first + 4) % 7 + 7) % 7 + (r.week - 1) * 7
-  local last = first + month_days(year, r.month) - 1
+  local day = first + (weekday - (first + 4) % 7 + 7) % 7 + (week - 1) * 7
+  local last = first + month_days(year, month) - 1
   while day > last do day = day - 7 end
   return day
 end
@@ -613,13 +619,14 @@ end
 --- rules end it the moment they start it again keeps it all year.
 local function posix_kind(p: Posix, s: integer): Kind
   if p.dst == nil then return p.std end
+  local start, stop = assert(p.start), assert(p.finish)
   local year = civil_from_days((s + p.std.offset) // DAY).year
   local best, starts = math.mininteger, false
   for y = year - 2, year + 1 do
     local changes = p.years[y]
     if changes == nil then
-      changes = { rule_day(p.start, y) * DAY + p.start.time - p.std.offset,
-        rule_day(p.finish, y) * DAY + p.finish.time - p.dst.offset }
+      changes = { rule_day(start, y) * DAY + start.time - p.std.offset,
+        rule_day(stop, y) * DAY + stop.time - p.dst.offset }
       p.years[y] = changes
     end
     if changes[2] <= s and changes[2] > best then
@@ -1624,7 +1631,7 @@ end
 --- [`parse_rfc3339_zoned`]'s work.
 local function parse(text: string): Time.Zoned | nil, string
   local cur <close> = borrow(text)
-  local c: Time.Civil = {}
+  local c: Time.Civil = { year = 0, month = 0, day = 0, hour = 0, minute = 0, second = 0, ns = 0 }
   date_into(cur, c)
   expect(cur, "T", "between the date and the time")
   clock_into(cur, c)
@@ -1694,7 +1701,7 @@ local function parse(text: string): Time.Zoned | nil, string
   end
   finish(cur)
   if cur.why ~= nil then return nil, cur.why end
-  zoned.zone = zoned.zone or (unknown and Time.UTC or fixed_zone(offset))
+  if zoned.zone == nil then zoned.zone = unknown and Time.UTC or fixed_zone(offset) end
   return zoned, ""
 end
 
@@ -1743,7 +1750,7 @@ end
 --- moment is outside the range, as the range's first, 1677-09-21, in
 --- UTC. Raises for a `zone` no function here made.
 function Time.parse_date(text: string, zone?: Time.Zone): integer | nil, string
-  local c: Time.Civil = { hour = 0, minute = 0, second = 0, ns = 0 }
+  local c: Time.Civil = { year = 0, month = 0, day = 0, hour = 0, minute = 0, second = 0, ns = 0 }
   local cur <close> = borrow(text)
   date_into(cur, c)
   finish(cur)
@@ -1785,7 +1792,7 @@ local MONTHS <const> = { "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug",
 --- [`parse_http`] refuses.
 function Time.format_http(ns: integer): string
   local c = Time.civil(ns)
-  return ("%s, %02d %s %04d %s GMT"):format(SHORT_DAYS[c.weekday], c.day, MONTHS[c.month],
+  return ("%s, %02d %s %04d %s GMT"):format(SHORT_DAYS[assert(c.weekday)], c.day, MONTHS[c.month],
     c.year, civil_text(c, "clock"))
 end
 
@@ -1802,7 +1809,7 @@ end
 --- the clock as RFC 9110's fifty years ahead would. Nil and why for
 --- anything else, a leap second, or a moment outside the range.
 function Time.parse_http(text: string): integer | nil, string
-  local c: Time.Civil = { ns = 0 }
+  local c: Time.Civil = { year = 0, month = 0, day = 0, hour = 0, minute = 0, second = 0, ns = 0 }
   local cur <close> = borrow(text)
   local separator = text:sub(4, 4)
   if separator == "," then

@@ -175,12 +175,12 @@ end
 --- zone come back, and an offset the zone did not have then is refused.
 function Example.parse_rfc3339_zoned()
   local zoned = assert(Time.parse_rfc3339_zoned("2026-07-01T12:00:00-04:00[America/New_York]"))
-  print(zoned.ns, zoned.zone.name)
-  assert(zoned.zone.name == "America/New_York" and zoned.ns == 1782921600 * 1000000000)
+  print(zoned.ns, assert(zoned.zone).name)
+  assert(assert(zoned.zone).name == "America/New_York" and zoned.ns == 1782921600 * 1000000000)
   print(Time.parse_rfc3339_zoned("2026-07-01T12:00:00-05:00[America/New_York]"))
   local plain = assert(Time.parse_rfc3339_zoned("2026-07-01T21:30:00+05:30"))
-  print(plain.zone.name)
-  assert(plain.zone.name == "+05:30" and plain.ns == zoned.ns)
+  print(assert(plain.zone).name)
+  assert(assert(plain.zone).name == "+05:30" and plain.ns == zoned.ns)
 end
 
 return Example
