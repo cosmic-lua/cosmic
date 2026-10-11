@@ -626,7 +626,7 @@ local function test_no_connect_means_no_relay_and_no_extra_descriptors(tmp: stri
   local kept = tmp .. "/kept"
   local fd = assert(sys.open(kept, sys.O_CREAT | sys.O_RDWR, 420))
   local options = granting(database, 9)
-  options.policy.grants = { { path = "/proc", letters = "r" } }
+  assert(options.policy).grants = { { path = "/proc", letters = "r" } }
   local program = assert(Child.run({ assert(Proc.executable()), "fds" }, options))
   assert(program.ok, tostring(program.stderr))
   local held = fields(assert(program.stdout))
@@ -682,7 +682,7 @@ local function test_more_literal_targets_than_a_connector_holds_fail_the_start(t
   local options = granting(sealed_client(tmp), 9)
   local targets: {string} = {}
   for port = 1, 129 do targets[port] = "127.0.0.2:" .. port end
-  options.policy.connect = targets
+  assert(options.policy).connect = targets
   local started, why = Child.start({ assert(Proc.executable()), "wait" }, options)
   if started ~= nil then
     assert(started:stop())

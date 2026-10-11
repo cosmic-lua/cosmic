@@ -32,26 +32,26 @@ local record Cookies
   record Attributes
     --- Where the cookie is sent ("/" by default); no `;`, space or control
     --- byte.
-    path: string
+    path?: string
     --- A domain the cookie is sent to as well as its subdomains (none by
     --- default: a host-only cookie). A leading dot is dropped.
-    domain: string
+    domain?: string
     --- Its lifetime in seconds; zero or less deletes it. Nil makes a
     --- session cookie, which browsers may keep across restarts, so it is no
     --- reliable expiry.
-    max_age: integer
+    max_age?: integer
     --- An absolute expiry in nanoseconds since the epoch, written as
     --- `Expires` beside `Max-Age` for a client that ignores the latter
     --- (never by default).
-    expires_ns: integer
+    expires_ns?: integer
     --- Hidden from script (true by default; pass false to turn it off).
-    http_only: boolean
+    http_only?: boolean
     --- Only sent over https (false by default).
-    secure: boolean
+    secure?: boolean
     --- "Lax" by default.
-    same_site: SameSite
+    same_site?: SameSite
     --- A partitioned (CHIPS) cookie; needs `secure`.
-    partitioned: boolean
+    partitioned?: boolean
   end
 
   --- A `Set-Cookie` line read back by [`Cookies.parse_set_cookie`]; a
@@ -63,20 +63,20 @@ local record Cookies
     --- Its value, quotes kept.
     value: string
     --- `Path`; nil when absent or not an absolute path.
-    path: string
+    path?: string
     --- `Domain`, lowercase and without a leading dot.
-    domain: string
+    domain?: string
     --- `Max-Age` in seconds.
-    max_age: integer
+    max_age?: integer
     --- `Expires` in nanoseconds since the epoch; nil when absent or not a
     --- date.
-    expires_ns: integer
+    expires_ns?: integer
     --- Whether `Secure` was given.
     secure: boolean
     --- Whether `HttpOnly` was given.
     http_only: boolean
     --- [`SameSite`]; nil when absent or not one of the three.
-    same_site: SameSite
+    same_site?: SameSite
     --- Whether `Partitioned` was given.
     partitioned: boolean
   end

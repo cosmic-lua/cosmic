@@ -111,7 +111,7 @@ local function check_path(pattern: string, spec: Shape.Spec | nil)
   local names = param_names(pattern)
   local fields: {string:boolean} = {}
   if spec ~= nil then
-    for _, name in ipairs(spec.names) do fields[name] = true end
+    for _, name in ipairs(assert(spec.names)) do fields[name] = true end
   end
   local seen: {string:boolean} = {}
   for _, name in ipairs(names) do

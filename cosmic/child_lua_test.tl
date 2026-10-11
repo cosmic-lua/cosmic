@@ -461,7 +461,7 @@ local function test_a_wait_holds_a_streamed_output_to_its_limit()
   Clock.sleep_ns(Clock.ms(100))
   assert(assert(h:try_wait()).finished)
   local queued = 0
-  for _, stream in ipairs(h._streams) do queued = queued + stream.size end
+  for _, stream in ipairs(h._streams or {}) do queued = queued + stream.size end
   assert(queued <= 1024, "the wait queued " .. tostring(queued) .. " bytes")
   local chunk = assert(assert(h.stdout_stream):read())
   assert(#chunk > 0)
@@ -502,7 +502,7 @@ local function test_try_wait_services_a_chatty_child()
     polled = assert(h:try_wait())
   end
   assert(polled.finished, "a full pipe stalled the child")
-  assert(#polled.result.stdout == 200000)
+  assert(#assert(polled.result).stdout == 200000)
 end
 
 local function test_timeout_keeps_what_was_captured()
@@ -655,7 +655,7 @@ local function test_a_timeout_of_0_ends_the_child_at_the_first_wait()
   assert(about(began, 0), ms_since(began))
   local h <close> = assert(Child.start(lua(sleep(30000), nil, { timeout_ns = 0 })))
   local look = assert(h:try_wait())
-  assert(look.finished and look.result.timed_out, "the first try_wait left the child running")
+  assert(look.finished and assert(look.result).timed_out, "the first try_wait left the child running")
 end
 
 --- [`Child.wait_any`] ends a handle whose start's deadline passes while
@@ -701,7 +701,7 @@ local function test_try_wait_ends_a_child_past_its_start_timeout()
   assert(not look.finished)
   local _, _ = Clock.sleep_ns(Clock.ms(350))
   look = assert(h:try_wait())
-  assert(look.finished and look.result.timed_out, "try_wait left the child past its deadline")
+  assert(look.finished and assert(look.result).timed_out, "try_wait left the child past its deadline")
 end
 
 --- A read of a streamed output waits no longer than the child's start

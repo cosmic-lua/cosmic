@@ -99,7 +99,7 @@ local function test_binding_never_raises_and_answers_a_value_or_every_error(tmp:
           return false, ("a bad error: %s/%s/%s"):format(e.source, e.field, e.code)
         end
       end
-      if bad.submitted.by_name["name"] ~= nil then return false, "a secret was kept" end
+      if assert(bad.submitted).by_name["name"] ~= nil then return false, "a secret was kept" end
       Fuzz.label("invalid")
       if #bad.errors > 2 then Fuzz.label("many_errors") end
       return true, ""

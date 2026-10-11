@@ -39,7 +39,7 @@ function Example.hub()
   Web.with_client(app, function(client: Web.TestClient)
     hub:publish("orders", Sse.Event.text("order-added", "order 16"))
     local res = client:get("/events", { stream = true, headers = { ["Last-Event-ID"] = "0" } })
-    local body = res.stream
+    local body = assert(res.stream)
     print(res.status, res.headers["content-type"])
     assert(res.status == 200 and res.headers["content-type"] == "text/event-stream")
     assert(body:read() == "retry: 1000\n\n")
@@ -63,7 +63,7 @@ function Example.queue()
   end) } }
   Web.with_client(app, function(client: Web.TestClient)
     local res = client:get("/progress", { stream = true })
-    local body = res.stream
+    local body = assert(res.stream)
     assert(queue:send(Sse.Event.json("progress", { done = 40 })))
     assert(body:read() == ":\n\n", "the stream begins with a comment when it has no retry to send")
     local update = assert(body:read())

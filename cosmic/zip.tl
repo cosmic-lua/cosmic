@@ -85,11 +85,11 @@ local record Zip
   record WriterOptions
     --- Every entry's timestamp becomes 1980-01-01 00:00:00, so the
     --- same tree zips to the same bytes.
-    deterministic: boolean
+    deterministic?: boolean
     --- How many bytes precede this zip in the file it is written into
     --- (an executable it is appended to, say): every offset the zip
     --- records counts from the start of that file. 0 by default.
-    offset: integer
+    offset?: integer
   end
 
   --- Once any call fails, the underlying Stream.Writer is aborted and every
@@ -178,7 +178,7 @@ local last_midnight: integer = 0
 --- and a day past its month's end (February 31) to the month's last.
 local function dos_to_unix(date: integer, clock: integer): integer
   if date ~= last_date then
-    local c: Time.Civil = {
+    local c: Time.CivilFields = {
       year = ((date >> 9) & 0x7F) + 1980,
       month = math.min(math.max((date >> 5) & 0x0F, 1), 12),
       day = math.max(date & 0x1F, 1),
@@ -287,7 +287,7 @@ local record SpanReader is Stream.Reader
   pos: integer
   left: integer
   held: string
-  failed: string
+  failed?: string
   read: function(SpanReader, max_bytes?: integer): string | nil, string
   close: function(SpanReader): boolean, string
 end
@@ -340,8 +340,8 @@ local record CheckedReader is Stream.Reader
   crc: integer
   size: integer
   seen: integer
-  state: integer
-  failed: string
+  state?: integer
+  failed?: string
   read: function(CheckedReader, max_bytes?: integer): string | nil, string
   close: function(CheckedReader): boolean, string
 end
@@ -477,7 +477,10 @@ end
 local CDFH_FIELDS <const> = "<I2I2I2I2I2I2I4I4I4I2I2I2I2I2I4I4"
 
 --- What [`next_record`] returns for an entry it was asked only to check.
-local CHECKED: Zip.Entry = { path = "", kind = "file", linkpath = "" }
+local CHECKED: Zip.Entry = {
+  path = "", kind = "file", linkpath = "", mode = 0, size = 0, mtime = 0, compressed_size = 0,
+  method = 0, crc32 = 0, offset = 0,
+}
 
 --- The central directory's next entry, or nil and `""` at its end.
 --- A symlink's `linkpath` is left "": its target is its body, which
@@ -586,7 +589,7 @@ local record EntryReader is Zip.Reader
   walk: Cursor
   walked: integer
   --- What `entries` has built, once it has.
-  listed: {Zip.Entry}
+  listed?: {Zip.Entry}
   closed: boolean
   entries: function(EntryReader): {Zip.Entry} | nil, string
   next: function(EntryReader): Zip.Entry | nil, string
@@ -670,13 +673,12 @@ local function open_reader(size: integer, pread: Pread, closer: function(): bool
 
   -- One `open` serves every entry this reader makes, through their
   -- shared metatable.
-  local entry_mt: metatable<Zip.Entry> = {
-    __index = {
-      open = function(e: Zip.Entry): Stream.Reader | nil, string
-        return open_entry(pread, e)
-      end,
-    },
+  local entry_methods = {
+    open = function(e: Zip.Entry): Stream.Reader | nil, string
+      return open_entry(pread, e)
+    end,
   }
+  local entry_mt: metatable<Zip.Entry> = { __index = entry_methods }
 
   -- One pass over the whole directory up front, keeping no entry, so
   -- a malformed one, or a count that disagrees with the end record,
@@ -886,7 +888,7 @@ local record FeedWriter is Stream.Writer
   owner: EntryWriter
   done: Written
   --- The body's deflater, or nil for a stored one.
-  deflater: Compress.Stream
+  deflater?: Compress.Stream
   --- Whether the entry is written as zip64, so that its sizes may pass 4 GiB.
   wide: boolean
   too_big: string

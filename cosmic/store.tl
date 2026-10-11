@@ -33,7 +33,7 @@ local record Store
     --- Follows the requires a module makes only to name types
     --- (`local type t = require("x")`, which Teal erases) as well. Off by
     --- default: a program that runs never loads such a module.
-    types: boolean
+    types?: boolean
   end
 
   --- What [`Store.seal`] is told beyond the modules to carry.
@@ -41,11 +41,11 @@ local record Store
     --- The module the sealed program runs, recorded as the database's
     --- `main`. It must be one of the sealed names. Without it the database
     --- names no main.
-    main: string
+    main?: string
     --- A module the store does not hold, carried as well and recorded as
     --- the database's `main` (so `main` is left out): a script compiled
     --- this run. Its name is none of the sealed names.
-    extra: Store.Extra
+    extra?: Store.Extra
   end
 
   --- A file the binary carries for [`cosmic.web`] to serve, from [`Store.web_asset`].

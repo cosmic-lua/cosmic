@@ -51,8 +51,9 @@ end
 --- ends the test, skipped, where the host gave the sandbox it asked for none.
 local function verb(dir: string, words: {string}, input: string, env?: {string:string}): Ran
   searchable.open(dir)
+  local environment = env or this_program.environment()
   local started = this_program.program(words, {
-    cwd = dir, env = env or this_program.environment(), input = input, stdout = "capture",
+    cwd = dir, env = environment, input = input, stdout = "capture",
     stderr = "capture", timeout_ns = Clock.seconds(60),
   })
   local result = assert(Child.run(started.argv, started.options))

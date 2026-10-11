@@ -70,18 +70,18 @@ local record relay_wire
     --- when `done`.
     consumed: integer
     --- When `refused`, why, worded to be shown to the program.
-    reason: string
+    reason?: string
     --- When `refused`, the status line's code to answer with.
-    http_status: integer
+    http_status?: integer
     --- When `done`, the host, in the form the module's header describes.
-    host: string
+    host?: string
     --- When `done`, what the host is.
-    kind: Kind
+    kind?: Kind
     --- When `done`, the port.
-    port: integer
+    port?: integer
     --- When `done`, the value of the `Proxy-Authorization` header, or nil
     --- when there is none. No other header is kept.
-    authorization: string
+    authorization?: string
   end
 
   --- Reads a CONNECT head from the bytes fed to it.
@@ -97,12 +97,12 @@ local record relay_wire
     --- Bytes of the greeting, when `done`.
     consumed: integer
     --- When `refused`, why.
-    reason: string
+    reason?: string
     --- When `done`, the method to select: 0 (no authentication) or 2
     --- (username and password). When `refused` because none offered is
     --- acceptable, 255, which [`socks_method_reply`] sends; when refused for
     --- another version, nil, and the caller closes without replying.
-    method: integer
+    method?: integer
   end
 
   --- Reads a SOCKS5 greeting from the bytes fed to it.
@@ -119,11 +119,11 @@ local record relay_wire
     --- Bytes of everything fed that the message took, when `done`.
     consumed: integer
     --- When `refused`, why.
-    reason: string
+    reason?: string
     --- The username, when `done`.
-    username: string
+    username?: string
     --- The password, when `done`.
-    password: string
+    password?: string
   end
 
   --- Reads a username and password from the bytes fed to it.
@@ -152,15 +152,15 @@ local record relay_wire
     --- Bytes of everything fed that the message took, when `done`.
     consumed: integer
     --- When `refused`, why, and the reply to answer with.
-    reason: string
+    reason?: string
     --- The reply to answer with.
-    reply: SocksReply
+    reply?: SocksReply
     --- When `done`, the host.
-    host: string
+    host?: string
     --- When `done`, what the host is.
-    kind: Kind
+    kind?: Kind
     --- When `done`, the port.
-    port: integer
+    port?: integer
   end
 
   --- Reads a SOCKS5 request from the bytes fed to it.
@@ -177,12 +177,12 @@ local record relay_wire
     --- Bytes of the answer, when `done`.
     consumed: integer
     --- When `refused`, why.
-    reason: string
+    reason?: string
     --- When `done`, the method chosen: 0, or 2 when the reader was made for
     --- a password, the one [`socks_client_greeting`] offers. When `refused`
     --- because the server accepts none of those offered, 255; nil for a
     --- refusal of another kind.
-    method: integer
+    method?: integer
   end
 
   --- Reads a SOCKS5 server's method choice from the bytes fed to it.
@@ -199,10 +199,10 @@ local record relay_wire
     --- Bytes of the answer, when `done`.
     consumed: integer
     --- When `refused`, why.
-    reason: string
+    reason?: string
     --- When `done`, whether the server accepted the credentials; the
     --- connection is closed by the server where it did not.
-    accepted: boolean
+    accepted?: boolean
   end
 
   --- Reads a SOCKS5 server's verdict on a username and password from the
@@ -219,13 +219,13 @@ local record relay_wire
     --- Bytes of the answer, when `done`: what follows is the tunnel's.
     consumed: integer
     --- When `refused`, why.
-    reason: string
+    reason?: string
     --- When `done`, the reply code: 0 for success, any other a refusal,
     --- whether or not [`SocksReply`] names it.
-    code: integer
+    code?: integer
     --- When `done`, the [`SocksReply`] that `code` is, or nil for a code
     --- the protocol does not define.
-    reply: SocksReply
+    reply?: SocksReply
   end
 
   --- Reads a SOCKS5 server's answer to a request from the bytes fed to it.
@@ -260,9 +260,9 @@ local record relay_wire
     --- when `name`, `no_sni` or `encrypted_sni`.
     consumed: integer
     --- When `name`, the server name.
-    name: string
+    name?: string
     --- When `encrypted_sni`, `not_tls` or `malformed`, why.
-    reason: string
+    reason?: string
   end
 
   --- Reads a ClientHello from the bytes fed to it.
@@ -1157,7 +1157,7 @@ end
 --- What a TLS record header says: a refusal, or the record's payload length
 --- (0 while the five bytes are not all there).
 local record Header
-  refusal: relay_wire.Hello
+  refusal?: relay_wire.Hello
   length: integer
 end
 

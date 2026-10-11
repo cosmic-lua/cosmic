@@ -264,7 +264,7 @@ local function test_the_policy_record_is_the_sandboxs()
   local text = assert(Fs.read("cosmic/sandbox/policy.tl"))
   local record = assert(text:match("\n  record Policy\n(.-)\n  end\n"), "no Policy")
   local theirs: {string} = {}
-  for name in ("\n" .. record):gmatch("\n    ([%a_]+): ") do theirs[#theirs + 1] = name end
+  for name in ("\n" .. record):gmatch("\n    ([%a_]+)%??: ") do theirs[#theirs + 1] = name end
   theirs[#theirs + 1] = "requires"
   table.sort(theirs)
   local _, said = Test.needs_of({ nothing = true })

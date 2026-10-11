@@ -81,7 +81,7 @@ end
 --- @param req Types.Request The request, whose `outcome` says what to answer
 --- @return Types.Response The response
 function Errors.terminal(req: Types.Request): Types.Response
-  local outcome = req.outcome
+  local outcome = assert(req.outcome)
   local kind = outcome.kind
   if kind == "not_allowed" then
     return respond(req, 405, nil, nil, { Allow = outcome.allow })
@@ -109,7 +109,7 @@ end
 --- The response for the fault `trace`, which `req` raised.
 local function fault(req: Types.Request, trace: string): Types.Response
   local spec = req.app.spec
-  req.app.spec.sink:line(("%s %s: %s"):format(req.method, req.path, trace))
+  assert(req.app.spec.sink):line(("%s %s: %s"):format(req.method, req.path, trace))
   if spec.debug then
     local message = trace:match("^[^\n]*") or trace
     if wants_json(req) then
@@ -126,7 +126,7 @@ end
 --- status. A 5xx goes to the sink too.
 local function answer_abort(req: Types.Request, abort: Response.Abort): Types.Response
   if abort.status >= 500 then
-    req.app.spec.sink:line(("%s %s: aborted %d: %s"):format(req.method, req.path, abort.status,
+    assert(req.app.spec.sink):line(("%s %s: aborted %d: %s"):format(req.method, req.path, abort.status,
       abort.detail or ""))
   end
   local answered, answer = pcall(respond, req, abort.status, abort.detail, abort.extra)

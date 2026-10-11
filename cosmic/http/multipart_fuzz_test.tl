@@ -24,7 +24,7 @@ local PREAMBLES <const>: {string} = { "", "", "This is a preamble.\r\n", "\r\n",
 --- A part as drawn, and what reading it back must give.
 local record Drawn
   name: string
-  filename: string
+  filename?: string
   content_type: string
   body: string
 end

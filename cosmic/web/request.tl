@@ -25,7 +25,7 @@ local record Request
     --- The lowercase host: a name, or an IPv6 literal in brackets.
     host: string
     --- The port, or nil where the header names none.
-    port: integer
+    port?: integer
   end
 end
 

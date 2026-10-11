@@ -142,14 +142,14 @@ local function test_on_invalid_re_renders_in_place_of_the_handler()
         input_options = { secret = { "secret" } },
         on_invalid = function(req: Web.Request, bad: Web.Invalid): Web.Response
           seen = bad
-          return Web.text(("%s:%s:%s"):format(req.method, bad.errors[1].field, bad.submitted.by_name.name[1]),
+          return Web.text(("%s:%s:%s"):format(req.method, bad.errors[1].field, assert(bad.submitted).by_name.name[1]),
             { status = bad.status })
         end,
       }),
   } }
   local reply = Web.test_client(app):post("/settings", { form = { name = "Ada", notify = "perhaps", secret = "s3" } })
   assert(reply.status == 422 and reply:text() == "POST:notify:Ada", reply:text())
-  assert(not called and seen.submitted.by_name.secret == nil, "the secret is not sent back")
+  assert(not called and assert(seen.submitted).by_name.secret == nil, "the secret is not sent back")
   local ok = Web.test_client(app):post("/settings", { form = { name = "Ada" } })
   assert(ok.status == 204 and called, "an absent checkbox is false")
 end
@@ -196,14 +196,16 @@ local function test_a_route_records_what_it_binds()
     return Web.empty()
   end
   local plain = Web.get_typed("/a", Web.input(Web.NONE, Web.NONE, Web.no_body), noop)
-  assert(plain.input.body_kind == "none" and plain.input.path == nil and plain.input.body == nil)
-  assert(plain.input.max_bytes == 64 * 1024)
+  local plain_input = assert(plain.input)
+  assert(plain_input.body_kind == "none" and plain_input.path == nil and plain_input.body == nil)
+  assert(plain_input.max_bytes == 64 * 1024)
   local big = Web.post_typed("/b", Web.input(Web.NONE, QUERY, Web.form_body(NEW)),
     function(_req: Web.Request, _p: Web.None, _q: Listing, _b: NewItem): Web.Response
       return Web.empty()
     end, { input_options = { max_bytes = 1 << 20 } })
-  assert(big.input.body_kind == "form" and big.input.query == QUERY.spec and big.input.body == NEW.spec)
-  assert(big.input.max_bytes == 1 << 20 and big.methods[1] == "POST")
+  local big_input = assert(big.input)
+  assert(big_input.body_kind == "form" and big_input.query == QUERY.spec and big_input.body == NEW.spec)
+  assert(big_input.max_bytes == 1 << 20 and big.methods[1] == "POST")
   assert(Web.get("/c", noop as Web.Handler).input == nil)
 end
 

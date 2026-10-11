@@ -72,7 +72,7 @@ local record verb
   end
 end
 
-local spec = Cli.verbs.json.spec
+local spec = Cli.verbs.json.spec or {}
 
 local usage = "cosmic json [--flat | --exists | --keys | --shape | --compact | -r] [--] [<path>] [<file>|-]" ..
   "; a file whose name begins with $ is written ./name, or follows --"

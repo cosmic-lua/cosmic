@@ -130,19 +130,19 @@ function PolicyJson.encode(p: Sandbox.Policy): string
   if made == nil then error(why, 2) end
   local merged: Sandbox.Policy = made
   local digests: {string:string} = {}
-  for name, digest in pairs(merged.set_env_digests) do digests[name] = digest end
-  for name, value in pairs(merged.set_env) do digests[name] = digest_of(value) end
+  for name, digest in pairs(merged.set_env_digests or {}) do digests[name] = digest end
+  for name, value in pairs(merged.set_env or {}) do digests[name] = digest_of(value) end
   local fields: {string:any} = {}
   local function put(name: string, list: {any})
     if #list > 0 then fields[name] = list end
   end
-  put("isolate", merged.isolate)
-  put("promises", merged.promises)
-  put("connect", merged.connect)
-  put("loopback", merged.loopback)
-  put("env", merged.env)
+  put("isolate", merged.isolate or {})
+  put("promises", merged.promises or {})
+  put("connect", merged.connect or {})
+  put("loopback", merged.loopback or {})
+  put("env", merged.env or {})
   local grants: {{string:string}} = {}
-  for _, grant in ipairs(merged.grants) do
+  for _, grant in ipairs(merged.grants or {}) do
     grants[#grants + 1] = { path = grant.path, letters = grant.letters, from = grant.from }
   end
   put("grants", grants)
@@ -164,7 +164,7 @@ function PolicyJson.encode(p: Sandbox.Policy): string
     end
     fields.database = { path = database.path, sha256 = database.sha256 }
   end
-  local limits = merged.limits
+  local limits = merged.limits or {}
   if limits.open_files ~= nil or limits.file_bytes ~= nil or limits.cpu_seconds ~= nil or
       limits.processes ~= nil then
     fields.limits = limits

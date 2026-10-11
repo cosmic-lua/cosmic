@@ -482,7 +482,8 @@ local function test_stopping_the_server_ends_every_stream_long_before_the_grace(
   local queue: Channel.Queue<Sse.Event>
   local ended: {string} = {}
   local app = hub_app(hub, { heartbeat_ns = Clock.seconds(30), retry_ms = 100 }, { hubs = { hub } })
-  app.spec.routes[#app.spec.routes + 1] = Web.get("/queue", function(req: Web.Request): Web.Response
+  local routes = assert(app.spec.routes)
+  routes[#routes + 1] = Web.get("/queue", function(req: Web.Request): Web.Response
     queue = Channel.new()
     return Sse.EventStream(req, Sse.from_queue(queue), { heartbeat_ns = Clock.seconds(30),
       on_close = function(why: string) ended[#ended + 1] = why end })

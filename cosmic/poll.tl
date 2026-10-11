@@ -142,33 +142,33 @@ local STALE_FLOOR <const> = 64
 --- answered it, so the others that still hold it pass it by.
 local record Wait
   task: State
-  fd: integer
-  events: integer
+  fd?: integer
+  events?: integer
   --- For a wait on several descriptors ([`Poll.ready`]) in place of
   --- `fd` and `events`: each descriptor, its events, and what happened
   --- to it, by place.
-  fds: {integer}
-  masks: {integer}
-  answers: {integer}
+  fds?: {integer}
+  masks?: {integer}
+  answers?: {integer}
   --- Its descriptors' entries among the run's, while it waits on them.
-  watches: {Watch}
-  at: integer
+  watches?: {Watch}
+  at?: integer
   --- When it began among the run's waits: the order those a poll
   --- answers together are woken in, and the tie-break between timers.
-  seq: integer
+  seq?: integer
   --- Set while it is in the run's `timers`, done or not.
-  in_heap: boolean
+  in_heap?: boolean
   --- The task a join waits on.
-  joined: State
+  joined?: State
   --- The notifier a wait for a notice is in the waiters of, until it ends.
-  gate: NotifierState
+  gate?: NotifierState
   --- Set once a poll, or a descriptor closing, has answered it.
-  hit: boolean
+  hit?: boolean
   --- What the wait answers once `at` is reached: a delay's success, or
   --- a `ready`'s, which answers no descriptor ready; any other wait's
   --- TIMEOUT.
-  expiry_ok: boolean
-  done: boolean
+  expiry_ok?: boolean
+  done?: boolean
 end
 
 --- One descriptor of a wait, among the waits on that descriptor.
@@ -216,7 +216,7 @@ local record State is Poll.Task
   --- How many [`Poll.shielded`] calls the task is in: while any, a
   --- cancel answers none of its waits.
   shields: integer
-  parked: Wait
+  parked?: Wait
   joiners: {Wait}
   join: function(State, timeout_ns?: integer): boolean, string
   cancel: function(State)
@@ -245,7 +245,7 @@ local record Wake
   why: string
   --- The notifier whose [`notify_one`] made this wake, so that a task
   --- ended before it resumes passes the notice to the next waiter.
-  notice: NotifierState
+  notice?: NotifierState
 end
 
 --- A [`Poll.shielded`] call's hold on its task, let go as the call
@@ -273,7 +273,7 @@ local record Loop
   stale: integer
   seq: integer
   --- Set while the run closes its tasks, when nothing may start or wait.
-  closing: boolean
+  closing?: boolean
 end
 
 local loop: Loop = nil
@@ -352,7 +352,8 @@ local function enter(w: Wait, fd: integer, mask: integer, place: integer)
   entry.watches[watch.index] = watch
   entry.masks[mask] = (entry.masks[mask] or 0) + 1
   loop.events[entry.slot] = loop.events[entry.slot] | mask
-  w.watches[#w.watches + 1] = watch
+  local watches = assert(w.watches)
+  watches[#watches + 1] = watch
 end
 
 --- Takes `watch` from among the waits on its descriptor, and the
@@ -387,7 +388,7 @@ end
 --- Takes a join's wait from the joiners of the task it waits on, the
 --- rest left in their order.
 local function unjoin(w: Wait)
-  local joiners = w.joined.joiners
+  local joiners = assert(w.joined).joiners
   for i = #joiners, 1, -1 do
     if joiners[i] == w then
       table.remove(joiners, i)
@@ -400,7 +401,7 @@ end
 --- Linear in the waiters, as is the removal in [`notify_one`]: a list is
 --- the tasks parked on one condition, and a wake costs more than the shift.
 local function ungate(w: Wait)
-  local waiters = w.gate.waiters
+  local waiters = assert(w.gate).waiters
   for i = 1, #waiters do
     if waiters[i] == w then
       table.remove(waiters, i)
@@ -489,7 +490,8 @@ local function park(task: State, w: Wait, timeout_ns: integer | nil): boolean, s
       enter(w, w.fd, w.events, 0)
     elseif w.fds ~= nil then
       w.watches = {}
-      for place, fd in ipairs(w.fds) do enter(w, fd, w.masks[place], place) end
+      local masks = assert(w.masks)
+      for place, fd in ipairs(w.fds) do enter(w, fd, masks[place], place) end
     end
     if timeout_ns ~= nil then
       w.at, w.in_heap = Clock.monotonic_ns() + timeout_ns, true
@@ -868,7 +870,7 @@ local function poll_once(timeout: integer)
         local answer = happened & (watch.mask | UNASKED)
         if answer ~= 0 then
           local w = watch.wait
-          if watch.place > 0 then w.answers[watch.place] = answer end
+          if watch.place > 0 then assert(w.answers)[watch.place] = answer end
           if not w.hit then
             w.hit = true
             hits[#hits + 1] = w
@@ -921,7 +923,7 @@ local function answer_waits(fd: integer, answer: integer | nil)
   local hits: {Wait} = {}
   for _, watch in ipairs(entry.watches) do
     local w = watch.wait
-    if watch.place > 0 then w.answers[watch.place] = answer or watch.mask end
+    if watch.place > 0 then assert(w.answers)[watch.place] = answer or watch.mask end
     if not w.hit then
       w.hit = true
       hits[#hits + 1] = w

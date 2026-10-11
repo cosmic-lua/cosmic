@@ -42,9 +42,9 @@ int cosmic_open_socket (lua_State *L);
  * --- Where a socket is, read by its `kind`.
  * ---@class Address
  * ---@field kind string "unix", a socket file named by `path`, or "tcp", a TCP `port` of a `host`, or "udp", a datagram `port` of a `host`
- * ---@field path string the socket file's path, for "unix", never empty: of any length a path may have, but the file's own name, past its last "/", at most `SOCKET_NAME_MAX` bytes (107 on Linux, 103 on macOS), which a longer one fails with ENAMETOOLONG rather than being cut short. A path past that bound whole is reached from its directory
- * ---@field host string the host's numeric IPv4 or IPv6 address, for "tcp" and "udp": IPv4 is four decimal octets without leading zeroes, including an IPv6 dotted tail; a name is not looked up, nor an IPv6 scope read, and either fails with EINVAL, as a NUL in it does
- * ---@field port integer the port, for "tcp" and "udp", from 0 to 65535: 0 to listen at a port the kernel chooses, which the listener's `address` then names
+ * ---@field path string|nil the socket file's path, for "unix", never empty: of any length a path may have, but the file's own name, past its last "/", at most `SOCKET_NAME_MAX` bytes (107 on Linux, 103 on macOS), which a longer one fails with ENAMETOOLONG rather than being cut short. A path past that bound whole is reached from its directory
+ * ---@field host string|nil the host's numeric IPv4 or IPv6 address, for "tcp" and "udp": IPv4 is four decimal octets without leading zeroes, including an IPv6 dotted tail; a name is not looked up, nor an IPv6 scope read, and either fails with EINVAL, as a NUL in it does
+ * ---@field port integer|nil the port, for "tcp" and "udp", from 0 to 65535: 0 to listen at a port the kernel chooses, which the listener's `address` then names
  */
 
 /*

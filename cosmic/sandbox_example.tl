@@ -16,8 +16,8 @@ function Example.merge()
   local reads: Sandbox.Policy = { grants = { { path = "/srv", letters = "r" } }, promises = { "fork" } }
   local runs: Sandbox.Policy = { grants = { { path = "/srv", letters = "x" } }, promises = { "jit", "fork" } }
   local both = assert(Sandbox.merge(reads, runs))
-  print(both.grants[1].letters, table.concat(both.promises, ",")) -- rx  fork,jit
-  assert(both.grants[1].letters == "rx" and table.concat(both.promises, ",") == "fork,jit")
+  print(assert(both.grants)[1].letters, table.concat(both.promises or {}, ",")) -- rx  fork,jit
+  assert(assert(both.grants)[1].letters == "rx" and table.concat(both.promises or {}, ",") == "fork,jit")
   local clash, why = Sandbox.merge({ limits = { open_files = 64 } }, { limits = { open_files = 128 } })
   print(why) -- sandbox: limits.open_files is given two values, 64 and 128
   assert(clash == nil and why:find("limits.open_files", 1, true), why)
@@ -28,9 +28,9 @@ end
 --- resolved by `merge`.
 function Example.profile()
   local cosmic = assert(Sandbox.profile("cosmic"))
-  assert(cosmic.grants[1].path == assert(Proc.executable()) and cosmic.grants[1].letters == "rx")
+  assert(assert(cosmic.grants)[1].path == assert(Proc.executable()) and assert(cosmic.grants)[1].letters == "rx")
   local merged = assert(Sandbox.merge({ profiles = { "cosmic" } }))
-  assert(merged.profiles == nil and merged.grants[1].path == cosmic.grants[1].path)
+  assert(merged.profiles == nil and assert(merged.grants)[1].path == assert(cosmic.grants)[1].path)
   local none, why = Sandbox.profile("everything")
   print(why) -- sandbox: unknown profile "everything" (known: cosmic, proc, system)
   assert(none == nil)

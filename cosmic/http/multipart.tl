@@ -71,13 +71,13 @@ local record Multipart
   --- What [`Multipart.reader`] takes.
   record Options
     --- The `boundary` parameter of the request's Content-Type.
-    boundary: string
+    boundary?: string
     --- Most parts (100).
-    max_parts: integer
+    max_parts?: integer
     --- Longest header block of a part, and longest preamble, in bytes (8 KiB).
-    max_header_bytes: integer
+    max_header_bytes?: integer
     --- Most header lines in a part (16).
-    max_header_lines: integer
+    max_header_lines?: integer
   end
 
   --- A parser over a body.
@@ -338,7 +338,7 @@ end
 
 --- The part the header block `block` (without its last line end) describes
 --- apart from its body.
-local function parse_headers(p: Parser, block: string): Multipart.Part | nil, string
+local function parse_headers(p: Parser, block: string, body: Stream.Reader): Multipart.Part | nil, string
   if block == "" then return nil, "multipart: a part has no headers" end
   local headers: {string:string} = {}
   local lines = 0
@@ -395,12 +395,12 @@ local function parse_headers(p: Parser, block: string): Multipart.Part | nil, st
     end
   end
   return { headers = headers, name = name, filename = filename,
-    content_type = headers["content-type"] or "text/plain" }, ""
+    content_type = headers["content-type"] or "text/plain", body = body }, ""
 end
 
 --- Reads the header block after a delimiter's line end and the part it
 --- describes; the buffer is left at the start of the body.
-local function read_part_headers(p: Parser): Multipart.Part | nil, string
+local function read_part_headers(p: Parser, body: Stream.Reader): Multipart.Part | nil, string
   local from = 1
   while true do
     local at = p.buf:find("\r\n\r\n", from, true)
@@ -410,7 +410,7 @@ local function read_part_headers(p: Parser): Multipart.Part | nil, string
       end
       local block = p.buf:sub(3, at - 1)
       p.buf = p.buf:sub(at + 4)
-      return parse_headers(p, block)
+      return parse_headers(p, block, body)
     end
     if #p.buf > p.max_header_bytes + 4 then
       return nil, "multipart: a part's headers are longer than max_header_bytes"
@@ -514,13 +514,12 @@ function Parser:next_part(): Multipart.Part | nil, string
   end
   self.count = self.count + 1
   if self.count > self.max_parts then return fail(self, "multipart: more than max_parts parts") end
-  local part, bad = read_part_headers(self)
+  local body: BodyReader = setmetatable({ parser = self, generation = self.generation + 1, finished = false }, body_mt)
+  local part, bad = read_part_headers(self, body)
   if part == nil then return fail(self, bad) end
   self.state = "body"
   self.safe = 0
-  self.generation = self.generation + 1
-  local body: BodyReader = setmetatable({ parser = self, generation = self.generation, finished = false }, body_mt)
-  part.body = body
+  self.generation = body.generation
   return part, ""
 end
 

@@ -64,12 +64,12 @@ local record Archive
     --- A path prefix to drop from every path, whole components only,
     --- with or without a trailing `/`. An entry the prefix does not
     --- match is skipped.
-    strip_prefix: string
+    strip_prefix?: string
     --- A number of leading path components to drop from every path
     --- (tar's --strip-components), after `strip_prefix` when both are
     --- given. An entry that runs out of components is skipped; a
     --- negative count raises.
-    strip_components: integer
+    strip_components?: integer
     --- Asked with a path already stripped; false skips the entry.
     filter: function(string): boolean
     --- "skip" (the default) or "create". Created symlinks are made
@@ -78,25 +78,25 @@ local record Archive
     --- `dest` -- can redirect a write outside `dest`. A link's target
     --- may pass only through directories already extracted, never
     --- through another link or a name that does not exist yet.
-    links: Links
+    links?: Links
     --- Fails once more than this many entries would be written.
     --- Unlimited by default; a negative limit raises.
-    max_entries: integer
+    max_entries?: integer
     --- Fails once the files written would hold more than this many bytes
     --- in all, counted as they are written and not from the sizes the
     --- archive records, so a body that expands far past its header's
     --- claim stops at the cap. 8 GiB by default; `math.maxinteger`
     --- lifts it. A negative or fractional limit raises.
-    max_bytes: integer
+    max_bytes?: integer
     --- Fails once one file would hold more than this many bytes, counted
     --- as `max_bytes` is. 1 GiB by default; `math.maxinteger` lifts it.
     --- A negative or fractional limit raises.
-    max_entry_bytes: integer
+    max_entry_bytes?: integer
     --- A directory whose real directories a symlink's target may also
     --- pass through, for entries unpacked apart from where they will
     --- be put: a staging directory that is later moved into this one.
     --- Only read for links, and only to look; nothing is written there.
-    resolve_in: string
+    resolve_in?: string
   end
 end
 

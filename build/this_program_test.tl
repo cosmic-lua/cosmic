@@ -47,10 +47,10 @@ local function test_program_starts_the_relaunch_or_else_the_executable()
     local argv = started.argv
     assert(#argv == 3 and argv[1] == assert(Proc.executable()) and argv[2] == "-e" and
         argv[3] == "", table.concat(argv, " "))
-    local env = started.options.env
+    local env = assert(started.options.env)
     assert(env.HOME == "/home" and env.COSMIC_PORTABLE_STARTUP_TEST_READY == nil and
         env.COSMIC_PORTABLE_STARTUP_TEST_GO == nil)
-    assert(started.options.fds[3] == 1 and next(started.options.fds, 3) == nil)
+    assert(assert(started.options.fds)[3] == 1 and next(assert(started.options.fds), 3) == nil)
   end)
   -- And this very program's: its relaunch where it has one.
   local relaunch = Proc.relaunch()
@@ -81,12 +81,12 @@ local function test_program_adds_the_relaunch_to_a_copy_of_the_options()
       process_group = true, timeout_ns = Clock.ms(5), sandbox = sandbox }
     local opts = this_program.program({}, given).options
     assert(opts.env ~= env and opts.fds ~= fds, "the caller's tables are copied")
-    assert(opts.env.HOME == "/home" and opts.env.COSMIC_PORTABLE_ARTIFACT == "/a" and
-        opts.env.SHARED == "relaunch")
-    assert(opts.env.COSMIC_PORTABLE_STARTUP_TEST_READY == nil and
-        opts.env.COSMIC_PORTABLE_STARTUP_TEST_GO == nil)
-    assert(opts.fds[3] == 1 and opts.fds[4] == "capture" and opts.fds[254] == 7 and
-        opts.fds[255] == 8)
+    assert(assert(opts.env).HOME == "/home" and assert(opts.env).COSMIC_PORTABLE_ARTIFACT == "/a" and
+        assert(opts.env).SHARED == "relaunch")
+    assert(assert(opts.env).COSMIC_PORTABLE_STARTUP_TEST_READY == nil and
+        assert(opts.env).COSMIC_PORTABLE_STARTUP_TEST_GO == nil)
+    assert(assert(opts.fds)[3] == 1 and assert(opts.fds)[4] == "capture" and assert(opts.fds)[254] == 7 and
+        assert(opts.fds)[255] == 8)
     assert(opts.cwd == "/somewhere" and opts.stdin == "stream" and opts.stdout == "capture" and
         opts.input == "bytes" and opts.stderr == "stdout" and opts.capture_limit == 9 and opts.process_group == true and
         opts.timeout_ns == Clock.ms(5) and opts.sandbox == sandbox)
@@ -108,13 +108,13 @@ local function test_program_adds_the_relaunch_to_a_copy_of_the_options()
     for name, value in pairs(own) do
       if name ~= "COSMIC_PORTABLE_STARTUP_TEST_READY" and name ~= "COSMIC_PORTABLE_STARTUP_TEST_GO" and
           relaunch.env[name] == nil then
-        assert(whole.env[name] == value, name)
+        assert(assert(whole.env)[name] == value, name)
       end
     end
-    for name, value in pairs(relaunch.env) do assert(whole.env[name] == value, name) end
-    assert(whole.env.COSMIC_PORTABLE_STARTUP_TEST_READY == nil and
-        whole.env.COSMIC_PORTABLE_STARTUP_TEST_GO == nil)
-    assert(whole.fds[254] == 7 and whole.fds[255] == 8)
+    for name, value in pairs(relaunch.env) do assert(assert(whole.env)[name] == value, name) end
+    assert(assert(whole.env).COSMIC_PORTABLE_STARTUP_TEST_READY == nil and
+        assert(whole.env).COSMIC_PORTABLE_STARTUP_TEST_GO == nil)
+    assert(assert(whole.fds)[254] == 7 and assert(whole.fds)[255] == 8)
   end)
 end
 
@@ -152,9 +152,9 @@ local function test_program_under_a_policy_leaves_the_relaunch_to_the_start()
     local opts = started.options
     assert(opts.policy == policy and opts.cwd == "/w")
     assert(opts.env == nil, "the policy's env and set_env are the whole environment")
-    assert(opts.fds[3] == 1 and opts.fds[254] == nil)
+    assert(assert(opts.fds)[3] == 1 and assert(opts.fds)[254] == nil)
     -- The relaunch's descriptors are not this start's to refuse.
-    assert(this_program.program({}, { policy = policy, fds = { [254] = "capture" } }).options.fds[254] ==
+    assert(assert(this_program.program({}, { policy = policy, fds = { [254] = "capture" } }).options.fds)[254] ==
         "capture")
     -- Child.start refuses an env beside a policy; so does this, rather than drop it.
     local ok, why = pcall(this_program.program, {}, { policy = policy, env = { A = "1" } })
@@ -164,6 +164,6 @@ local function test_program_under_a_policy_leaves_the_relaunch_to_the_start()
   relaunching(relaunch, function()
     local started = this_program.program({ "-e", "x" })
     assert(started.argv[1] == "/cache/core-x" and started.argv[2] == "--database")
-    assert(started.options.env ~= nil and started.options.fds[254] == 7)
+    assert(started.options.env ~= nil and assert(started.options.fds)[254] == 7)
   end)
 end

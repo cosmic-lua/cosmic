@@ -73,7 +73,7 @@ local record Sqlite
   --- All typed rows, or no rows on a captured failure.
   record RowsResult is raw_sqlite.Outcome
     --- Every row on success; nil on failure, including a failed later step.
-    rows: Rows
+    rows?: Rows
     --- The primary SQLite code; [`Sqlite.OK`] on success.
     code: integer
     --- The extended SQLite code, captured before cleanup; zero on success.
@@ -86,7 +86,7 @@ local record Sqlite
   --- All text rows, or no rows on a captured failure.
   record TextRowsResult is raw_sqlite.Outcome
     --- Every row on success; nil on failure, including a failed later step.
-    rows: {{string}}
+    rows?: {{string}}
     --- The primary SQLite code; [`Sqlite.OK`] on success.
     code: integer
     --- The extended SQLite code, captured before cleanup; zero on success.
@@ -128,13 +128,13 @@ local record Sqlite
   --- How [`Sqlite.open`] opens a database.
   record OpenOptions
     --- Opens for reading and writing. Without it the database is read-only.
-    writable: boolean
+    writable?: boolean
     --- With `writable`, creates a missing file unless explicitly false.
     --- False refuses a missing named file; read-only opens never create.
-    create: boolean
+    create?: boolean
     --- Opens read-only a database that nothing will change while it is
     --- open: see [`Sqlite.open`]. Giving it with `writable` raises.
-    immutable: boolean
+    immutable?: boolean
   end
 
   --- One query result value. Exactly the field its `kind` names is
@@ -143,13 +143,13 @@ local record Sqlite
     --- Which field holds the value.
     kind: Kind
     --- The value of an integer cell.
-    integer: integer
+    integer?: integer
     --- The value of a number cell.
-    number: number
+    number?: number
     --- The value of a text cell.
-    text: string
+    text?: string
     --- The bytes of a blob cell.
-    blob: string
+    blob?: string
   end
 
   --- One result row: its cells in column order.

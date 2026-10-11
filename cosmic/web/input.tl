@@ -644,8 +644,9 @@ function Input.form(req: Types.Request, opts?: Types.InputOptions): Types.Parsed
     if seen ~= nil then return { value = seen } end
     local got = read_multipart(req, opts and opts.max_bytes or DEFAULT_MAX, opts)
     if got.invalid ~= nil then return { invalid = got.invalid } end
-    req:set(Input.FORM, got.value.fields)
-    return { value = got.value.fields }
+    local fields = assert(got.value).fields
+    req:set(Input.FORM, fields)
+    return { value = fields }
   end
   local text, bad = body_text(req, "form", opts)
   if text == nil then return { invalid = bad } end
@@ -781,7 +782,7 @@ end
 
 local function listed(spec: Shape.Spec): string
   local parts: {string} = {}
-  for i, v in ipairs(spec.values) do parts[i] = tostring(v) end
+  for i, v in ipairs(assert(spec.values)) do parts[i] = tostring(v) end
   return table.concat(parts, ", ")
 end
 
@@ -811,7 +812,7 @@ local function coerce(w: Walk, field: string, spec: Shape.Spec, text: string): a
     end
     return b
   elseif kind == "one_of" then
-    for _, want in ipairs(spec.values) do
+    for _, want in ipairs(assert(spec.values)) do
       if want is string then
         if text == want then return want end
       elseif want is boolean then
@@ -895,12 +896,13 @@ local function component(name: string, prefix: string): string | nil
 end
 
 bind_record = function(w: Walk, prefix: string, spec: Shape.Spec, depth: integer): {string:any}
+  local fields, names = assert(spec.fields), assert(spec.names)
   if spec.strict then
     local unknown: {string} = {}
     local seen: {string:boolean} = {}
     for name in pairs(w.q.by_name) do
       local part = component(name, prefix)
-      if part ~= nil and spec.fields[part] == nil and not (prefix == "" and RESERVED[part]) and not seen[name] then
+      if part ~= nil and fields[part] == nil and not (prefix == "" and RESERVED[part]) and not seen[name] then
         seen[name] = true
         unknown[#unknown + 1] = name
       end
@@ -909,9 +911,9 @@ bind_record = function(w: Walk, prefix: string, spec: Shape.Spec, depth: integer
     for _, name in ipairs(unknown) do refuse(w, name, "unknown", "is not a known field") end
   end
   local out: {string:any} = {}
-  for _, name in ipairs(spec.names) do
+  for _, name in ipairs(names) do
     local field = prefix == "" and name or (prefix .. "." .. name)
-    out[name] = bind_node(w, field, spec.fields[name], depth)
+    out[name] = bind_node(w, field, fields[name], depth)
   end
   return out
 end
@@ -937,12 +939,13 @@ local function check_node(spec: Shape.Spec, field: string, source: string, depth
     if depth > MAX_DEPTH + 1 then
       return ("input: %s of a %s nests records deeper than %d"):format(at, source, MAX_DEPTH)
     end
-    for _, name in ipairs(spec.names) do
-      local trouble = check_node(spec.fields[name], field == "" and name or (field .. "." .. name), source, depth + 1)
+    local fields = assert(spec.fields)
+    for _, name in ipairs(assert(spec.names)) do
+      local trouble = check_node(fields[name], field == "" and name or (field .. "." .. name), source, depth + 1)
       if trouble ~= "" then return trouble end
     end
   elseif kind == "list" then
-    local of = spec.of.kind
+    local of = assert(spec.of).kind
     if source == "path" then
       return ("input: %s of a path is a list: a path holds one value per name"):format(at)
     end
@@ -1115,7 +1118,7 @@ end
 function Input.multipart_into<T>(req: Types.Request, typed: Shape.Typed<T>, opts?: Types.InputOptions): Types.Parsed<T>
   local read = Input.multipart(req, opts)
   if read.invalid ~= nil then return { invalid = read.invalid } end
-  local out: Types.Parsed<T> = Input.bind_strings(read.value.fields, typed.spec, with_source(opts, "form"))
+  local out: Types.Parsed<T> = Input.bind_strings(assert(read.value).fields, typed.spec, with_source(opts, "form"))
   return out
 end
 

@@ -45,7 +45,9 @@ note: a truthy `x.field` read (an `if x.field then` guard, or any other read in 
                -- set it at their own call sites, keyed the same way.
                -- TODO: the left operand of `and` is not read in a
                -- boolean context, so `if x.f and x.f.y then` does not
-               -- narrow `x.f` for the right operand; give `and`'s left
+               -- narrow `x.f` for the right operand (nor `local y = x.f and
+               -- x.f.g or d`, which cosmic's own code hoists `x.f` into a local
+               -- to write); give `and`'s left
                -- operand `boolean_context` in the `op` visitor, as `not`'s
                -- operand has, and test the narrow it then carries.
                local field_key = fact_key(node)

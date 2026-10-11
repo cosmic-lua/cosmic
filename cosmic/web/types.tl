@@ -60,7 +60,7 @@ local record Types
     host: string
     --- The port; nil where the address came from a header, which names
     --- none.
-    port: integer
+    port?: integer
   end
 
   --- What a request matched, for logs and middleware.
@@ -102,16 +102,16 @@ local record Types
     --- "bad_path" (400) or "bad_host" (400).
     kind: OutcomeKind
     --- What matched; nil unless `kind` is "match".
-    route: RouteInfo
+    route?: RouteInfo
     --- The path parameters, decoded.
-    params: {string:string}
+    params?: {string:string}
     --- The `Allow` header's value for "not_allowed" and "options".
-    allow: string
+    allow?: string
     --- Where "redirect" leads: a path starting with one "/", its query
     --- kept.
-    location: string
+    location?: string
     --- Why "bad_path" or "bad_host".
-    detail: string
+    detail?: string
     --- The handler to call: the route's with its stacks of middleware
     --- around it for a match, the terminal inside the middleware of the
     --- innermost mount entered for any other kind.
@@ -149,7 +149,7 @@ local record Types
     mount_path: string
     --- The route matched; nil for a 404, a 405 and the router's other
     --- answers.
-    route: RouteInfo
+    route?: RouteInfo
     --- The app serving this request.
     app: App
     --- The untyped escape hatch for ad-hoc scratch values; a module
@@ -157,15 +157,15 @@ local record Types
     state: {string:any}
     --- The peer, or nil where the connection has none (a unix socket). With
     --- `trusted_proxy`, the address `X-Forwarded-For` ends in.
-    client: Client
+    client?: Client
     --- "http", or "https" when `trusted_proxy` is set and the proxy said so.
     scheme: string
     --- The host asked for, as the Host header gives it (with its port),
     --- or, with `trusted_proxy`, `X-Forwarded-Host`; nil where none was
     --- sent.
-    host: string
+    host?: string
     --- What the router decided; set before the middleware stack runs.
-    outcome: Outcome
+    outcome?: Outcome
 
     --- Whether the path ended in "/" after its last segment.
     trailing: boolean
@@ -175,9 +175,9 @@ local record Types
     --- the app closes those the final reply does not carry.
     bodies: {Stream.Reader}
     --- The body once read, nil until then.
-    body_text: string
+    body_text?: string
     --- Why reading the body failed, nil until it did.
-    body_failure: string
+    body_failure?: string
 
     --- The first value of header `name`, matched in any case; nil when
     --- the request has none.
@@ -227,20 +227,20 @@ local record Types
     --- The pattern; a mount's prefix.
     pattern: string
     --- The leaf's handler; nil for a mount.
-    handler: Handler
+    handler?: Handler
     --- The name [`App.url_for`] finds it by; "" for none.
     name: string
     --- Its own middleware, outermost first.
     middleware: {Middleware}
     --- A mount's routes; nil for a leaf and for a mount of a handler.
-    routes: {Route}
+    routes?: {Route}
     --- A mount of a handler: everything under the prefix is sent to it.
     fallback: Handler
     --- A mount's reverse resolver: see [`Web.MountOptions.reverse`].
     reverse: function(prefix: string, params: {string:string}): string | nil, string
     --- What a typed route binds, erased of its types; nil for a plain
     --- route and for a mount.
-    input: RouteInput
+    input?: RouteInput
   end
 
   --- What [`Web.route`] and the method constructors take beside the handler.
@@ -249,16 +249,16 @@ local record Types
   -- `Route.input.max_bytes`.
   record RouteOptions
     --- The name [`App.url_for`] finds the route by, unique in its router.
-    name: string
+    name?: string
     --- The route's own middleware, outermost first; inside the mount's and
     --- the app's.
-    middleware: {Middleware}
+    middleware?: {Middleware}
     --- For a typed route ([`Web.route_typed`]): answers input that fails
     --- the route's specs in place of the default problem or error page.
-    on_invalid: InvalidHandler
+    on_invalid?: InvalidHandler
     --- For a typed route: the body limit, the names left out of a
     --- re-render and the rest of [`Input.Options`].
-    input_options: InputOptions
+    input_options?: InputOptions
   end
 
   --- What [`Web.mount`] and [`Web.mount_handler`] take.
@@ -266,10 +266,10 @@ local record Types
     --- The mount's name: its routes are named "name:inner", and a
     --- handler mount answers `url_for(name, ...)` through `reverse`.
     --- Without one the routes keep their own names.
-    name: string
+    name?: string
     --- The mount's middleware, outermost first, around its whole router,
     --- so a 404 or 405 raised inside passes through it.
-    middleware: {Middleware}
+    middleware?: {Middleware}
     --- Answers `url_for(<mount name>, params)` for a handler mount: the
     --- full URL, given the mount's full prefix (outer mounts included)
     --- and the params as strings. Nil and why for params it cannot
@@ -282,7 +282,7 @@ local record Types
     --- "redirect" (default): a request that differs from a route's
     --- spelling only by a trailing "/" is answered 308 to the spelling;
     --- "strict": it is a 404.
-    trailing_slash: TrailingSlash
+    trailing_slash?: TrailingSlash
   end
 
   --- The type of an absent slot of [`Web.input`]: a path, query or body
@@ -301,7 +301,7 @@ local record Types
     field: string
     --- For a JSON body only: the JSON Pointer of the failing value
     --- ("/address/city", "" for the whole body); nil for the other sources.
-    pointer: string
+    pointer?: string
     --- Plain text for a person ("must be a whole number"); it holds no
     --- more of the submitted value than a JSON type error names.
     message: string
@@ -327,16 +327,16 @@ local record Types
     errors: {FieldError}
     --- The values submitted, for re-rendering a form; the names in
     --- [`Input.Options.secret`] are left out. Nil for a JSON body.
-    submitted: Url.Query
+    submitted?: Url.Query
   end
 
   --- What a reader or binder of cosmic.web.input answers: the value, or
   --- why there is none: `invalid` is set exactly when `value` is nil.
   record Parsed<T>
     --- What was read or bound; nil when `invalid` is set.
-    value: T
+    value?: T
     --- Why not; nil when the input was read.
-    invalid: Invalid
+    invalid?: Invalid
   end
 
   --- What the readers and binders of cosmic.web.input take; every
@@ -347,28 +347,28 @@ local record Types
     --- comes first where it is lower: a larger upload needs [`Web.serve`]
     --- given a higher `limits.body_bytes`, for every route
     --- (see [`Input.multipart`]).
-    max_bytes: integer
+    max_bytes?: integer
     --- Field names left out of [`Invalid.submitted`]: passwords, tokens.
-    secret: {string}
+    secret?: {string}
     --- The `source` of the errors a binder writes: "form" by default, or
     --- "query" or "path". [`Input.bind_strings`] reads it.
-    source: string
+    source?: string
     --- "error" refuses a scalar field sent twice (`code = "repeated"`);
     --- by default the last value wins.
-    repeated: string
+    repeated?: string
     --- For a multipart body (the rest of these too): the largest file part,
     --- in bytes (8 MiB). A file part over it is a 413.
-    max_file_bytes: integer
+    max_file_bytes?: integer
     --- The largest text part, in bytes as sent (1 MiB).
-    max_field_bytes: integer
+    max_field_bytes?: integer
     --- Most file parts (10).
-    max_files: integer
+    max_files?: integer
     --- Most parts of either kind (100).
-    max_parts: integer
+    max_parts?: integer
     --- The directory file parts are spooled to, under random names. It must
     --- exist. Without one, a private directory made under the system's temp
     --- directory is removed with its files when the request ends.
-    dir: string
+    dir?: string
   end
 
   --- A route's body slot: see [`Web.json_body`], [`Web.form_body`] and
@@ -436,11 +436,11 @@ local record Types
     --- The mount's full prefix: "/api".
     prefix: string
     --- Its description, for a mount that serves a handler.
-    info: RouteInfo
+    info?: RouteInfo
     --- A mount of a handler: the handler with its middleware folded in.
     handler: Handler
     --- A mount of routes: their router.
-    router: Router
+    router?: Router
   end
 
   --- One node of the trie of segments.
@@ -448,25 +448,25 @@ local record Types
     --- The children matching one literal segment.
     literal: {string: Node}
     --- The child matching any one segment, parameter names aside.
-    param: Node
+    param?: Node
     --- The routes whose pattern ends here.
-    exact: Methods
+    exact?: Methods
     --- The routes whose pattern ends here in `*name`.
-    wild: Methods
+    wild?: Methods
     --- A mount at this prefix; it has no other content.
-    mount: Mount
+    mount?: Mount
   end
 
   --- How [`url_for`] finds a name.
   record ReverseEntry
     --- The segments of the whole pattern; nil for a mount.
-    segments: {Segment}
+    segments?: {Segment}
     --- Whether the pattern ends in "/".
-    slash: boolean
+    slash?: boolean
     --- A mount's prefix.
-    prefix: string
+    prefix?: string
     --- Whether the name is a mount's.
-    mount: boolean
+    mount?: boolean
     --- A mount's resolver.
     resolve: function(prefix: string, params: {string:string}): string | nil, string
   end
@@ -504,9 +504,9 @@ local record Types
   --- What [`Web.app`] takes. A field not named here raises, naming it.
   record AppSpec
     --- The routes; order does not matter.
-    routes: {Route}
+    routes?: {Route}
     --- The app's middleware, outermost first.
-    middleware: {Middleware}
+    middleware?: {Middleware}
     --- Called once before the listeners open, outside the event loop (it
     --- must not wait on [`cosmic.poll`]); returns the function that
     --- cleans up after the server stops, or nil for none. Nil and why
@@ -515,40 +515,40 @@ local record Types
     --- Answers a fault with a page holding its message and stack
     --- (false by default, never taken from the environment): it
     --- exposes source paths and values.
-    debug: boolean
+    debug?: boolean
     --- "redirect" (default) or "strict": see [`Web.RouterOptions`].
-    trailing_slash: TrailingSlash
+    trailing_slash?: TrailingSlash
     --- Hosts the app answers to, each a name (or an IPv6 literal in
     --- brackets) without a port: an entry with a port, or that is no host,
     --- raises when the app is made. A request for another host, at any
     --- port, or whose Host header is not `host[:port]` whole, is a 400.
-    trusted_hosts: {string}
+    trusted_hosts?: {string}
     --- Take the scheme, host and client from `X-Forwarded-Proto`,
     --- `X-Forwarded-Host` and `X-Forwarded-For` (false by default). Only
     --- the last entry of each is read: the one the proxy next to the app
     --- added, since the earlier ones are the client's.
-    trusted_proxy: boolean
+    trusted_proxy?: boolean
     --- Answers a status in place of the default error page, by status.
-    error_pages: {integer: Handler}
+    error_pages?: {integer: Handler}
     --- Makes the page of an error that has no entry in `error_pages`: the
     --- request, the status and the detail.
     error_view: function(Request, integer, string): Response
     --- Where the app's lines go; [`Web.stderr_sink`] by default.
-    sink: Sink
+    sink?: Sink
     --- Serve htmx and its SSE extension under `/_web/` (true by default),
     --- ahead of the routes: a catch-all route cannot shadow them, and no
     --- route may be at or under `/_web/`. A path there that is none of
     --- these files is a 404. With false the app answers `/_web/` paths as
     --- any other, and a page that loads [`Htmx.head`] serves the files itself.
-    builtin: boolean
+    builtin?: boolean
     --- Closed when the server begins to stop, in order, after the
     --- functions of `app:on_stop`: a hub's streams end at once, not at
-    --- the grace.
-    hubs: {Closable}
+    --- the grace. None by default.
+    hubs?: {Closable}
     --- The most event streams open at once ([`Sse.EventStream`] answers
     --- 503 past it); half of the server's connection limit by default, so
     --- ordinary requests keep the other half.
-    max_streams: integer
+    max_streams?: integer
     --- Set by [`Dev.app`] for an app in development mode: [`Web.serve`]
     --- refuses (false and why) a listener beyond the loopback and a
     --- `trusted_proxy`, since such an app shows a fault's stack and reloads
@@ -556,7 +556,7 @@ local record Types
     --- an app served through [`Server.serve`] directly skips it. Only
     --- [`Dev.app`] reads `COSMIC_WEB_DEV`; a [`Web.app`] ignores it. False
     --- by default.
-    dev: boolean
+    dev?: boolean
   end
 
   --- A built app: [`Web.app`] derives the router and the handler.
@@ -602,19 +602,19 @@ local record Types
     --- Where to listen, as [`Server.ServeSpec.listeners`].
     listeners: {Net.Address}
     --- As [`Server.ServeSpec.limits`].
-    limits: Server.ServeSpec.Limits
+    limits?: Server.ServeSpec.Limits
     --- As [`Server.ServeSpec.timeout_ns`].
-    timeout_ns: integer
+    timeout_ns?: integer
     --- As [`Server.ServeSpec.idle_ns`].
-    idle_ns: integer
+    idle_ns?: integer
     --- As [`Server.ServeSpec.head_ns`].
-    head_ns: integer
+    head_ns?: integer
     --- As [`Server.ServeSpec.body_ns`].
-    body_ns: integer
+    body_ns?: integer
     --- How long requests in flight have to finish once the server stops
     --- (10 seconds): the server's own default waits for every request,
     --- and an event stream never ends.
-    grace_ns: integer
+    grace_ns?: integer
     --- As [`Server.ServeSpec.on_ready`].
     on_ready: function({Net.Address}, Net.Server)
     --- Called when the server begins to stop, after `app:stopping()` is
@@ -625,39 +625,39 @@ local record Types
   --- What a constructor takes beside its body.
   record ResponseOptions
     --- Replaces the constructor's status.
-    status: integer
+    status?: integer
     --- Added to the constructor's headers, replacing one of the same name
     --- in any case; a list writes one line per element.
-    headers: {string: string | {string}}
+    headers?: {string: string | {string}}
     --- Close the connection after the reply.
-    close: boolean
+    close?: boolean
     --- The size of a [`Web.stream`] body, when it is known.
-    length: integer
+    length?: integer
   end
 
   --- What a test client's request takes.
   record TestOptions
     --- Request headers.
-    headers: {string:string}
+    headers?: {string:string}
     --- Appended to the path's query, in name order; a list repeats the
     --- name.
-    query: {string: string | {string}}
+    query?: {string: string | {string}}
     --- An urlencoded form body.
-    form: {string: string | {string}}
+    form?: {string: string | {string}}
     --- A JSON body, with its Content-Type.
     json: any
     --- A body as it is, with `content_type`.
-    body: string | Stream.Reader
+    body?: string | Stream.Reader
     --- The Content-Type of `body`.
-    content_type: string
+    content_type?: string
     --- Follow 301, 302, 303, 307 and 308 (false): the first three turn a
     --- POST into a GET.
-    follow_redirects: boolean
+    follow_redirects?: boolean
     --- Cookies for this request alone, beside the client's jar.
-    cookies: {string:string}
+    cookies?: {string:string}
     --- Leave a Reader body unread in `stream` (false: it is read whole
     --- into `body`).
-    stream: boolean
+    stream?: boolean
   end
 
   --- A reply as a test client saw it.
@@ -672,11 +672,11 @@ local record Types
     --- The body; "" for a stream, a HEAD and a status with none.
     body: string
     --- The unread Reader, only where the request asked for `stream`.
-    stream: Stream.Reader
+    stream?: Stream.Reader
     --- Whether the status is from 200 to 299.
     ok: boolean
     --- The Location header of a redirect; nil for any other reply.
-    redirect_location: string
+    redirect_location?: string
 
     --- Every line of header `name`, in order; `{}` when it has none.
     header_list: function(self: TestResponse, name: string): {string}

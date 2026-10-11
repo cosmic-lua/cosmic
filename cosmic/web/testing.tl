@@ -196,9 +196,8 @@ local function json(self: Response): any | nil, string
   return value, ""
 end
 
-local response_mt: metatable<Response> = {
-  __index = { header_list = header_list, text = text, json = json },
-}
+local response_methods = { header_list = header_list, text = text, json = json }
+local response_mt: metatable<Response> = { __index = response_methods }
 
 --- A response from `lines`, header lines as `{name, value}` in order.
 local function response_of(status: integer, lines: {{string}}, body: string): Response
@@ -350,8 +349,10 @@ local function send(client: Testing.Client, method: string, path: string, opts: 
     local trouble = Server.check(reply, method)
     if trouble ~= "" then
       local unsent = type(reply) == "table" and reply.body or nil
-      if unsent ~= nil and not unsent is string then
-        local _, _ = unsent:close()
+      if unsent ~= nil then
+        if not unsent is string then
+          local _, _ = unsent:close()
+        end
       end
       error("web: test client: the server would answer 500 for this reply: " .. trouble, 0)
     end
@@ -433,11 +434,13 @@ local function verb(method: string): function(self: Testing.Client, path: string
   end
 end
 
+local client_methods = {
+  request = request, get = verb("GET"), head = verb("HEAD"), post = verb("POST"),
+  put = verb("PUT"), patch = verb("PATCH"), delete = verb("DELETE"), options = verb("OPTIONS"),
+}
+
 client_mt = {
-  __index = {
-    request = request, get = verb("GET"), head = verb("HEAD"), post = verb("POST"),
-    put = verb("PUT"), patch = verb("PATCH"), delete = verb("DELETE"), options = verb("OPTIONS"),
-  },
+  __index = client_methods,
   __close = function(self: Testing.Client)
     local shutdown = self.shutdown
     self.shutdown = nil
@@ -592,12 +595,11 @@ local function loopback_verb(method: string): function(Testing.Loopback, string,
   end
 end
 
-local loopback_mt: metatable<Testing.Loopback> = {
-  __index = {
-    request = loopback_request, raw = loopback_raw, get = loopback_verb("GET"),
-    post = loopback_verb("POST"), head = loopback_verb("HEAD"),
-  },
+local loopback_methods = {
+  request = loopback_request, raw = loopback_raw, get = loopback_verb("GET"),
+  post = loopback_verb("POST"), head = loopback_verb("HEAD"),
 }
+local loopback_mt: metatable<Testing.Loopback> = { __index = loopback_methods }
 
 --- Serves `app` through [`Web.serve`] on 127.0.0.1 at a port the kernel
 --- chooses, calls `fn` with a client of it over one kept-alive connection,

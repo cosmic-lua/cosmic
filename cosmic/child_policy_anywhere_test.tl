@@ -356,8 +356,8 @@ end
 
 local function test_every_path_of_the_profile_exists_and_is_read_only_or_run()
   local system = assert(Sandbox.profile("system"))
-  assert(#system.grants > 0 or sys.stat("/usr") == nil)
-  for _, grant in ipairs(system.grants) do
+  assert(#(system.grants or {}) > 0 or sys.stat("/usr") == nil)
+  for _, grant in ipairs(system.grants or {}) do
     assert(sys.stat(grant.path) ~= nil, grant.path)
     -- /dev/dtracehelper is macOS's: libSystem opens it for writing as a program starts.
     local written = grant.path == "/dev/null" or grant.path == "/dev/dtracehelper"

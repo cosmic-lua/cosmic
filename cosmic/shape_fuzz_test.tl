@@ -90,20 +90,20 @@ gen_value = function(r: Recipe, spec: Shape.Spec, depth: integer, strict: boolea
   elseif kind == "boolean" then
     return byte(r, 2) == 0
   elseif kind == "one_of" then
-    return spec.values[byte(r, #spec.values) + 1]
+    return assert(spec.values)[byte(r, #assert(spec.values)) + 1]
   elseif kind == "list" then
     local t: {any} = {}
-    for i = 1, byte(r, 4) do t[i] = gen_value(r, spec.of, depth - 1, strict) end
+    for i = 1, byte(r, 4) do t[i] = gen_value(r, assert(spec.of), depth - 1, strict) end
     if byte(r, 4) ~= 0 then Json.array(t) end
     return t
   elseif kind == "map" then
     local t: {string: any} = {}
-    for _ = 1, byte(r, 4) do t[key(r)] = gen_value(r, spec.of, depth - 1, strict) end
+    for _ = 1, byte(r, 4) do t[key(r)] = gen_value(r, assert(spec.of), depth - 1, strict) end
     return t
   elseif kind == "record" then
     local t: {string: any} = {}
-    for _, name in ipairs(spec.names) do
-      local field = spec.fields[name]
+    for _, name in ipairs(assert(spec.names)) do
+      local field = assert(spec.fields)[name]
       local pick = byte(r, 6)
       if pick == 0 and (field.optional or not strict) then
         -- left out
@@ -116,7 +116,7 @@ gen_value = function(r: Recipe, spec: Shape.Spec, depth: integer, strict: boolea
     -- A strict value for a strict record has no key the record lacks.
     if byte(r, 4) == 0 and not (strict and spec.strict) then
       local extra = key(r)
-      if spec.fields[extra] == nil then t[extra] = "extra" end
+      if assert(spec.fields)[extra] == nil then t[extra] = "extra" end
     end
     return t
   end
@@ -164,7 +164,7 @@ fits = function(v: any, spec: Shape.Spec): boolean
   elseif kind == "any" then
     return true
   elseif kind == "one_of" then
-    for _, want in ipairs(spec.values) do
+    for _, want in ipairs(assert(spec.values)) do
       if v == want then return true end
     end
     return false
@@ -175,26 +175,26 @@ fits = function(v: any, spec: Shape.Spec): boolean
     if not Json.is_array(t) then return false end
     local n = 0
     for k, e in next, t do
-      if not (k is integer) or k < 1 or not fits(e, spec.of) then return false end
+      if not (k is integer) or k < 1 or not fits(e, assert(spec.of)) then return false end
       if k > n then n = k end
     end
     for i = 1, n do
-      if rawget(t, i) == nil and not spec.of.optional then return false end
+      if rawget(t, i) == nil and not assert(spec.of).optional then return false end
     end
     return true
   end
   if Json.is_array(t) then return false end
   if kind == "map" then
     for k, e in next, t do
-      if not (k is string) or not fits(e, spec.of) then return false end
+      if not (k is string) or not fits(e, assert(spec.of)) then return false end
     end
     return true
   end
   for k in next, t do
-    if not (k is string) or spec.fields[k] == nil then return false end
+    if not (k is string) or assert(spec.fields)[k] == nil then return false end
   end
-  for _, name in ipairs(spec.names) do
-    if not fits(rawget(t, name), spec.fields[name]) then return false end
+  for _, name in ipairs(assert(spec.names)) do
+    if not fits(rawget(t, name), assert(spec.fields)[name]) then return false end
   end
   return true
 end

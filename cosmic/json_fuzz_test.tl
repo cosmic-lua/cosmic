@@ -436,8 +436,8 @@ local record Built
   json5: boolean
   --- Whether objects but the top one repeat no key, so that a key twice
   --- in a large top object is the first in the text.
-  quiet: boolean
-  first: Repeat
+  quiet?: boolean
+  first?: Repeat
 end
 
 --- FNV-1a as core/json.c's `key_hash` computes it. A change to that hash

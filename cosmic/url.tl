@@ -28,21 +28,21 @@ local record Url
     scheme: string
     --- What comes before an `@` in the authority, as written, or nil
     --- when there is no `@`.
-    userinfo: string
+    userinfo?: string
     --- The host, lowercased: a name, an IPv4 address, or an IPv6
     --- address without its brackets ("::1").
     host: string
     --- The port, or nil when the URL names none (or an empty one, as
     --- "http://h:/").
-    port: integer
+    port?: integer
     --- The path, as written: "" when the URL has none, else starting
     --- with "/".
     path: string
     --- What follows the first `?`, up to a `#`, or nil when there is no
     --- `?`.
-    query: string
+    query?: string
     --- What follows the first `#`, or nil when there is no `#`.
-    fragment: string
+    fragment?: string
   end
 
   --- One name and value of a query or form, unescaped.
@@ -65,15 +65,15 @@ local record Url
   --- What [`Url.decode_query`] is told; each field is optional.
   record QueryOptions
     --- The most pairs read; more is a refusal (1000).
-    max_pairs: integer
+    max_pairs?: integer
     --- The most bytes of text read; more is a refusal (nil: no bound, as
     --- the caller of a server bounds the head and body it hands over).
-    max_bytes: integer
+    max_bytes?: integer
     --- Read a `%` not followed by two hex digits as itself rather than
     --- refusing (false).
-    lenient: boolean
+    lenient?: boolean
     --- Refuse a name or value that is not valid UTF-8 (true).
-    utf8: boolean
+    utf8?: boolean
   end
 end
 
@@ -452,7 +452,7 @@ function Url.parse(text: string): Url.Parts | nil, string
   end
   local _, authority_end, authority = text:find("^([^/?#]*)", scheme_end + 1)
   local _, path_end, path = text:find("^([^?#]*)", authority_end + 1)
-  local parts: Url.Parts = { scheme = scheme:lower(), path = path }
+  local parts: Url.Parts = { scheme = scheme:lower(), host = "", path = path }
   local hostport = authority
   local at = authority:find("@", 1, true)
   if at ~= nil then

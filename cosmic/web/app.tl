@@ -53,7 +53,7 @@ end
 --- 127/8 address (not a name that merely starts with "127.").
 local function loopback(address: Net.Address): boolean
   return address.kind == "unix" or address.host == "::1" or
-    address.host:find("^127%.%d+%.%d+%.%d+$") ~= nil
+    assert(address.host):find("^127%.%d+%.%d+%.%d+$") ~= nil
 end
 
 --- What `fn` raised, or nil when it returned.
@@ -80,9 +80,8 @@ local function on_stop(self: Types.App, fn: function())
   self.stoppers[#self.stoppers + 1] = fn
 end
 
-local app_mt: metatable<Types.App> = {
-  __index = { url_for = url_for, stopping = stopping, on_stop = on_stop },
-}
+local app_methods = { url_for = url_for, stopping = stopping, on_stop = on_stop }
+local app_mt: metatable<Types.App> = { __index = app_methods }
 
 --- Compiles `spec` into an app. Raises, naming it, for a field of the
 --- wrong shape or one `spec` should not have, and for a route that cannot
@@ -91,18 +90,20 @@ local app_mt: metatable<Types.App> = {
 --- @return Types.App The app
 function App.new(spec: Types.AppSpec): Types.App
   checked(spec, SPEC_FIELDS, "app")
+  local sink: Types.Sink = spec.sink or Middleware.stderr_sink()
+  local hubs: {Types.Closable} = spec.hubs or {}
   local kept: Types.AppSpec = {
     routes = spec.routes or {}, middleware = spec.middleware or {}, lifespan = spec.lifespan,
     debug = spec.debug == true, trailing_slash = spec.trailing_slash,
     trusted_proxy = spec.trusted_proxy == true, error_pages = spec.error_pages,
-    error_view = spec.error_view, sink = spec.sink or Middleware.stderr_sink(),
+    error_view = spec.error_view, sink = sink,
     builtin = spec.builtin ~= false,
-    hubs = spec.hubs or {}, max_streams = spec.max_streams, dev = spec.dev == true,
+    hubs = hubs, max_streams = spec.max_streams, dev = spec.dev == true,
   }
   if kept.max_streams ~= nil and (math.type(kept.max_streams) ~= "integer" or kept.max_streams < 0) then
     error("web: max_streams must be a non-negative integer", 2)
   end
-  for _, hub in ipairs(kept.hubs) do
+  for _, hub in ipairs(hubs) do
     if type(hub) ~= "table" or type(hub.close) ~= "function" then
       error("web: hubs holds only what has a close method", 2)
     end
@@ -110,31 +111,29 @@ function App.new(spec: Types.AppSpec): Types.App
   local trusted: {string:boolean} = nil
   if spec.trusted_hosts ~= nil then
     trusted = {}
-    kept.trusted_hosts = {}
+    local hosts: {string} = {}
+    kept.trusted_hosts = hosts
     for i, host in ipairs(spec.trusted_hosts) do
       local parsed = type(host) == "string" and Request.parse_host(host) or nil
       if parsed == nil or parsed.port ~= nil then
         error(("web: trusted_hosts: %q is not a host name without a port"):format(tostring(host)), 2)
       end
       trusted[parsed.host] = true
-      kept.trusted_hosts[i] = parsed.host
+      hosts[i] = parsed.host
     end
   end
-  local app: Types.App = { spec = kept, state = {}, stopped = false, stoppers = {},
-    streams = {}, stream_count = 0, stream_limit = kept.max_streams or DEFAULT_STREAM_LIMIT }
   local router = Router.build(kept.routes, Errors.terminal, kept.trailing_slash, kept.builtin)
-  app.router = router
+  local app: Types.App = { spec = kept, state = {}, router = router, stopped = false, stoppers = {},
+    streams = {}, stream_count = 0, stream_limit = kept.max_streams or DEFAULT_STREAM_LIMIT }
   local function dispatch(req: Types.Request): Types.Response
-    local outcome = req.outcome
-    if outcome == nil and kept.builtin then
+    local given = req.outcome
+    if given == nil and kept.builtin then
       -- Ahead of the routes, so that a catch-all cannot shadow the files.
       local served = Builtin.handle(req)
       if served ~= nil then return served end
     end
-    if outcome == nil then
-      outcome = Router.lookup(router, req.method, req.segments, req.trailing)
-      req.outcome = outcome
-    end
+    local outcome = given or Router.lookup(router, req.method, req.segments, req.trailing)
+    req.outcome = outcome
     if outcome.kind == "match" then
       req.params = outcome.params
       req.route = outcome.route
@@ -196,7 +195,7 @@ end
 --- @return string Why not
 function App.serve(app: Types.App, opts: Types.ServeOptions): boolean, string
   checked(opts, SERVE_FIELDS, "serve")
-  local sink = app.spec.sink
+  local sink = assert(app.spec.sink)
   if app.spec.dev then
     if app.spec.trusted_proxy then
       return false, "web: an app in development mode (Dev.app) cannot also have a trusted_proxy"
@@ -239,7 +238,7 @@ function App.serve(app: Types.App, opts: Types.ServeOptions): boolean, string
           local trouble = raised_by(fn)
           if trouble ~= nil then sink:line("on_stop: " .. trouble) end
         end
-        for _, hub in ipairs(app.spec.hubs) do
+        for _, hub in ipairs(assert(app.spec.hubs)) do
           local trouble = raised_by(function() hub:close() end)
           if trouble ~= nil then sink:line("on_stop: " .. trouble) end
         end

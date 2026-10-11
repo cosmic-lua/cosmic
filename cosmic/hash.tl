@@ -65,12 +65,12 @@ local record Hash
   record SipHashOptions
     --- Rounds per 8-byte word of the message (`c`): 1 to 64, 2 by
     --- default.
-    compression: integer
+    compression?: integer
     --- Rounds once the message is in (`d`): 1 to 64, 4 by default.
-    finalization: integer
+    finalization?: integer
     --- The tag's length in bytes: 8 (SipHash-64, the default) or 16
     --- (SipHash-128).
-    size: integer
+    size?: integer
   end
 end
 

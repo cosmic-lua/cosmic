@@ -68,15 +68,15 @@ local record Htmx
     --- Where to go: a local path or a [`Html.SafeUrl`].
     path: string | Html.SafeUrl
     --- A CSS selector for the target element.
-    target: string
+    target?: string
     --- How to swap, as `hx-swap`.
-    swap: string
+    swap?: string
     --- A CSS selector for the part of the response to swap.
-    select: string
+    select?: string
     --- A CSS selector for the element the request is said to come from.
-    source: string
+    source?: string
     --- An event to trigger on the source.
-    event: string
+    event?: string
     --- Values to submit with the request.
     values: any
     --- Headers to send with the request.
@@ -87,27 +87,27 @@ local record Htmx
   --- [`Htmx.apply`].
   record Reply
     --- `HX-Redirect`: navigate the whole window.
-    redirect: string | Html.SafeUrl
+    redirect?: string | Html.SafeUrl
     --- `HX-Location`: navigate without a reload.
-    location: string | Html.SafeUrl | Htmx.Location
+    location?: string | Html.SafeUrl | Htmx.Location
     --- `HX-Push-Url`: push this URL, or with `false` push none.
-    push_url: string | Html.SafeUrl | boolean
+    push_url?: string | Html.SafeUrl | boolean
     --- `HX-Replace-Url`: replace the URL in place, or with `false` leave it.
-    replace_url: string | Html.SafeUrl | boolean
+    replace_url?: string | Html.SafeUrl | boolean
     --- `HX-Refresh`: reload the page.
-    refresh: boolean
+    refresh?: boolean
     --- `HX-Retarget`: a CSS selector to swap into instead.
-    retarget: string
+    retarget?: string
     --- `HX-Reswap`: how to swap, as `hx-swap`.
-    reswap: string
+    reswap?: string
     --- `HX-Reselect`: a CSS selector for the part of the response to swap.
-    reselect: string
+    reselect?: string
     --- `HX-Trigger`: events to fire on receipt.
-    trigger: {Htmx.Event}
+    trigger?: {Htmx.Event}
     --- `HX-Trigger-After-Swap`: events to fire after the swap.
-    trigger_after_swap: {Htmx.Event}
+    trigger_after_swap?: {Htmx.Event}
     --- `HX-Trigger-After-Settle`: events to fire after the settle.
-    trigger_after_settle: {Htmx.Event}
+    trigger_after_settle?: {Htmx.Event}
   end
 
   --- Overrides of the configuration [`Htmx.head`] writes; nil keeps each
@@ -115,24 +115,24 @@ local record Htmx
   record Config
     --- `allowEval` (false): `hx-on`, trigger filters and `js:` values
     --- need it, and so does a CSP that allows `'unsafe-eval'`.
-    allow_eval: boolean
+    allow_eval?: boolean
     --- `allowScriptTags` (false): run a `<script>` in swapped HTML.
-    allow_script_tags: boolean
+    allow_script_tags?: boolean
     --- `historyCacheSize` (htmx's own); 0 keeps no snapshot of a page.
-    history_cache_size: integer
+    history_cache_size?: integer
   end
 
   --- What [`Htmx.head`] takes.
   record HeadOptions
     --- Also load the SSE extension. The page still writes `hx-ext="sse"`.
-    sse: boolean
+    sse?: boolean
     --- Overrides of the configuration.
-    config: Htmx.Config
+    config?: Htmx.Config
     --- A CSP nonce for the tags, also written as `inlineScriptNonce`.
-    nonce: string
+    nonce?: string
     --- A URL prefix for the script paths (""): the files are served under
     --- `/_web/` at the app's root.
-    prefix: string
+    prefix?: string
   end
 
   --- The file [`Htmx.path`] and [`Htmx.integrity`] name.

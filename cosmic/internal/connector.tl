@@ -63,7 +63,7 @@ local record Process
   --- Whether `close` has not been called.
   open: boolean
   --- Whether the descriptor is another's, which `close` leaves open.
-  borrowed: boolean
+  borrowed?: boolean
   --- Ends the connector, which holds no state worth finishing, and reaps
   --- it (an adopted one is only disconnected): true, and true again once
   --- closed. A connector dropped unclosed is ended and reaped when it is
@@ -152,10 +152,10 @@ local record Pending
   refusal: string
   given_up: boolean
   done: boolean
-  socket: raw_socket.Socket
-  why: string
+  socket?: raw_socket.Socket
+  why?: string
   -- Whether its caller took `socket`: one answered but left behind is closed.
-  taken: boolean
+  taken?: boolean
   -- On a connector with a table and public lists, which kind it is,
   -- "table" or "public", counted in its channel's table_count or
   -- public_count until answered; "" on any other.
@@ -189,13 +189,13 @@ local record Channel
   header: string
   -- The request whose socket comes next, its header read, and its tag;
   -- nil for none.
-  passing: Pending
-  passing_tag: integer
+  passing?: Pending
+  passing_tag?: integer
   -- Why the stream is out of step or gone; nil while it is in step. Once
   -- set, the process's descriptor is closed and its number is never used
   -- again: every predicate a caller waits on before it writes or hands
   -- the stream on requires this nil.
-  lost: string
+  lost?: string
   -- How many times a read changed what a waiter looks at (the hello read,
   -- a request answered), so a reader knows to wake the others.
   progress: integer
@@ -264,13 +264,14 @@ end
 --- so the stream is given up as one that misbehaves. False where the
 --- socket has not come yet or the stream is lost.
 local function take_socket(channel: Channel, tag: integer): boolean
-  local pending = channel.passing
+  local waiting = channel.passing
   local received, because, failure = raw.recvfds(channel.process.fd, 1)
   if received == nil then
     if failure ~= raw.EAGAIN then lose(channel, because) end
     return false
   end
   channel.passing = nil
+  local pending = assert(waiting)
   local socket = received[1]
   local peer, peer_why, peer_errno = raw.peer(socket:fd())
   local wanted = named(pending.host, pending.port)
@@ -492,16 +493,16 @@ local record Served is Connection.Connector
   timeout_ms: integer
   -- What a public process refuses, kept to start it again; nil for a
   -- connector whose process is not public.
-  public: raw_process.ConnectorPublic
+  public?: raw_process.ConnectorPublic
   -- Whether the process serves an inherited stream, which is never started
   -- again.
-  inherited: boolean
+  inherited?: boolean
   -- Whether its process takes public requests.
   accepts_public: boolean
   -- The stream of the process serving a table, nil before its first
   -- start; one lost is replaced at the next request where the process is
   -- this one's to start.
-  channel: Channel
+  channel?: Channel
   open: boolean
 
   connect: function(Served, address: Connection.Address, opts?: Connection.ConnectOptions):
