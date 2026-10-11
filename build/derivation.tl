@@ -375,6 +375,10 @@ function derivation.parse_new(db: Sqlite.Handle, built: compiler, tally: derivat
         return false, file .. ": " .. why
       end
     end
+    -- TODO: once build.doctest's generated source carries a line map for
+    -- every line of an example (it names only the line each example's
+    -- block opens on, `-- line NAME N`), keep a guide example's global at
+    -- its Markdown line: it is kept at the generated module's own.
     for ordinal, place in ipairs(globals.found(parsed)) do
       ok, why = Sqlite.run(db,
         "INSERT INTO globals (source_hash, ordinal, line, column) VALUES (?1, ?2, ?3, ?4)",

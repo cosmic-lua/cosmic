@@ -48,6 +48,7 @@ local function test_each_kind_of_global_is_refused_at_its_line(tmp: string)
     { "names", "global a, b: integer\n", "2:1" },
     { "function", "global function f(): integer\n  return 1\nend\n", "2:1" },
     { "implicit", "function f(): integer\n  return 1\nend\n", "2:1" },
+    { "generic", "function f<T>(x: T): T\n  return x\nend\n", "2:1" },
     { "record", "global record R\n  n: integer\nend\n", "2:1" },
     { "interface", "global interface I\n  n: integer\nend\n", "2:1" },
     { "enum", 'global enum E\n  "a"\nend\n', "2:1" },
@@ -85,8 +86,10 @@ local function test_a_global_read_by_a_module_compiled_before_it_is_refused(tmp:
 end
 
 --- A `function NAME()` assigns to a local `NAME` where one is in scope,
---- which is legal Teal, and declares a global where none is: only that
---- is refused.
+--- which is legal Teal, and declares a global where none is: only that is
+--- refused. Where the local is bound decides it: a local declared after
+--- the function, or in a block or function that has ended, is no local at
+--- the function.
 local function test_a_function_over_a_local_of_its_name_is_no_global(tmp: string)
   local legal: {{string}} = {
     { "forward", "local f: function(): integer\nfunction f(): integer\n  return 1\nend\n" ..
@@ -95,16 +98,34 @@ local function test_a_function_over_a_local_of_its_name_is_no_global(tmp: string
         "function g(): integer\n  return 2\nend\nreturn g\n" },
     { "nested", "local function outer(): integer\n  local h: function(): integer\n" ..
         "  function h(): integer\n    return 1\n  end\n  return h()\nend\nreturn outer\n" },
+    { "parameter", "local function w(f: function(): integer): integer\n" ..
+        "  function f(): integer\n    return 1\n  end\n  return f()\nend\nreturn w\n" },
+    { "in-if", "local n = 1\nlocal f: function(): integer\nif n == 1 then\n" ..
+        "  function f(): integer\n    return 1\n  end\nend\nreturn f\n" },
   }
   for _, c in ipairs(legal) do
     local result, trouble = compile_project(tmp, "legal-" .. c[1], { ["main.tl"] = c[2] })
     assert(result ~= nil, c[1] .. ": " .. tostring(trouble))
   end
-  local _, undeclared = compile_project(tmp, "undeclared-nested", {
-    ["main.tl"] = "local function outer(): integer\n  function h(): integer\n    return 1\n  end\n" ..
-      "  return h()\nend\nreturn outer\n",
-  })
-  assert(undeclared == "main.tl:2:3" .. REFUSED, tostring(undeclared))
+  local f = "function f(): integer\n  return 1\nend\n"
+  local declared = "local f: function(): integer\n"
+  local undeclared: {{string}} = {
+    { "nested", "local function outer(): integer\n  function h(): integer\n    return 1\n" ..
+        "  end\n  return h()\nend\nreturn outer\n", "2:3" },
+    { "later", "local n = 1\n" .. f .. declared .. "return n\n", "2:1" },
+    { "closed-do", "do\n  " .. declared .. "end\n" .. f .. "return 1\n", "4:1" },
+    { "other-branch", "local n = 1\nif n == 1 then\n  " .. declared .. "else\n  " ..
+        "function f(): integer\n    return 1\n  end\nend\nreturn n\n", "5:3" },
+    { "closed-for", "for _ = 1, 2 do\n  " .. declared .. "end\n" .. f, "4:1" },
+    { "closed-while", "while false do\n  " .. declared .. "end\n" .. f, "4:1" },
+    { "closed-repeat", "repeat\n  " .. declared .. "until true\n" .. f, "4:1" },
+    { "inner-function", "local function inner()\n  " .. declared .. "end\n" .. f ..
+        "return inner\n", "4:1" },
+  }
+  for _, c in ipairs(undeclared) do
+    local _, trouble = compile_project(tmp, "undeclared-" .. c[1], { ["main.tl"] = c[2] })
+    assert(trouble == "main.tl:" .. c[3] .. REFUSED, c[1] .. ": " .. tostring(trouble))
+  end
 end
 
 --- A global a `.d.tl` declares would reach each module the checker reads
