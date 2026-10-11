@@ -384,7 +384,7 @@ The statuses are the same in every part of cosmic.web (core.md section 6.4):
 - A wrong Content-Type: 415. An oversized body: 413.
 - A value that decodes but fails its shape spec: 422 (../web.md, decision
   7). htmx 2's default `responseHandling` swaps only 2xx, so a 422
-  re-render would be discarded; the config that `Htmx.head` writes
+  re-render would be discarded; the config that [`Htmx.head`] writes
   (templates.md section 6.6) swaps 422, so a form's re-render with its
   errors reaches the page.
 
@@ -1447,7 +1447,7 @@ inherits it. Things to know:
 
 - htmx 2 sends `hx-headers` only to same-origin URLs by default
   (`selfRequestsOnly` true), so the token does not leak with a cross-origin
-  `hx-get`; the htmx config `Htmx.head` writes (templates.md section 6.6)
+  `hx-get`; the htmx config [`Htmx.head`] writes (templates.md section 6.6)
   sets it explicitly and nothing should loosen it.
 - With `hx-boost`, navigating swaps the body's *content* not its attributes;
   the token on `<body>` stays valid because every masked token unmasks to the
@@ -1618,20 +1618,20 @@ function Csp.htmx_default(): Csp.Policy
 
 What this requires of the htmx integration (the contract with
 templates.md and assets.md; the htmx config itself is defined once, in
-templates.md section 6.6, and written by `Htmx.head`):
+templates.md section 6.6, and written by [`Htmx.head`]):
 
 - htmx itself is a same-origin script (`/_web/htmx-2.0.11.min.js`, assets.md
-  section 4.4, SRI-hashed by `Htmx.head`), so `script-src 'self'` allows it.
+  section 4.4, SRI-hashed by [`Htmx.head`]), so `script-src 'self'` allows it.
   An SRI hash is not a CSP source; it is checked in addition.
 - htmx uses `eval` (via `new Function`) for `hx-on:*`, `hx-trigger` filter
   expressions, `hx-vals='js:...'` and inline `<script>` in responses. Under a
-  CSP with no `'unsafe-eval'` these fail, so the config `Htmx.head` writes
+  CSP with no `'unsafe-eval'` these fail, so the config [`Htmx.head`] writes
   has `allowEval` and `allowScriptTags` off (and `selfRequestsOnly` on). The
   template compiler refusing slots in `hx-on:*` and `hx-vars` is the other
   half (templates.md section 2).
 - `includeIndicatorStyles` is off in that config: htmx otherwise injects a
   `<style>` for `.htmx-indicator` and `style-src 'self'` blocks it; the
-  rules ship as `Htmx.indicator_css()` (templates.md section 6.6) for the
+  rules ship as [`Htmx.indicator_css()`] (templates.md section 6.6) for the
   app's stylesheet instead.
 - `style-src 'self'` also blocks `style="..."` attributes: templates use
   classes. If a project needs inline style, `'unsafe-inline'` for styles
@@ -1876,6 +1876,8 @@ declaration, everything else declares nothing.
 [`Handle:id()`]: ../../../cosmic/web/session/init.tl
 [`Hash.digest`]: ../../../cosmic/hash.tl
 [`Hash.equal`]: ../../../cosmic/hash.tl
+[`Htmx.head`]: ../../../cosmic/web/htmx.tl
+[`Htmx.indicator_css()`]: ../../../cosmic/web/htmx.tl
 [`Input.form_into`]: ../../../cosmic/web/input.tl
 [`Input.Invalid.status`]: ../../../cosmic/web/types.tl
 [`Input.Invalid`]: ../../../cosmic/web/input.tl

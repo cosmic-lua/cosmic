@@ -274,7 +274,7 @@ constructor always has a `headers` table, so middleware never nil-checks.
 `Vary` is merged rather than repeated: `add_header(res, "Vary", "Cookie")`
 adds the token to the existing `Vary` line unless it is already listed
 (case-insensitively), and a `Vary: *` absorbs everything; [`Cookies.set`]
-(input.md section 6), `Htmx.page` (templates.md section 6.4), the CORS and
+(input.md section 6), [`Htmx.page`] (templates.md section 6.4), the CORS and
 session middleware and `StaticFiles` all go through it. Every other name
 gets a line of its own. `Set-Cookie` MUST use `add_header`; `set_header` on
 it replaces every cookie, and the helper raises for `Set-Cookie` to say so
@@ -776,7 +776,7 @@ Shipped in core: [`Web.access_log`], `Web.timing`, `Web.request_id`
 (sets `X-Request-ID` and a key), `Web.trusted_hosts` (also an App field),
 `Web.limit_body(n)`. Others by their modules: sessions ([`cosmic.web.session`]),
 CSRF (`cosmic.web.csrf`), CORS (`cosmic.web.cors`), security headers
-(`cosmic.web.headers`) and htmx (`cosmic.web.htmx`), all in input.md and
+(`cosmic.web.headers`) and htmx ([`cosmic.web.htmx`]), all in input.md and
 templates.md. A gzip middleware is named by assets.md (it must skip
 `text/event-stream` and already-encoded responses) but no part designs it:
 open question 13. Because a middleware is just a function, user code mixes
@@ -1162,7 +1162,7 @@ tests; the bulk run in-process (no loopback policy, and cheap to key).
 - The other files add modules beside: `cosmic.web.input`,
   [`cosmic.web.cookies`], [`cosmic.web.session`] (with `.cookie` and `.sqlite`
   stores), `cosmic.web.csrf`, `cosmic.web.cors`, `cosmic.web.headers`
-  (input.md); `cosmic.web.htmx` (templates.md); [`cosmic.web.static`],
+  (input.md); [`cosmic.web.htmx`] (templates.md); [`cosmic.web.static`],
   [`cosmic.web.sse`], `cosmic.web.dev`, and the support modules
   [`cosmic.web.assets`] and `cosmic.web.mime` (assets.md).
 
@@ -1362,6 +1362,7 @@ close, and a raise in it reaches `on_error` without stopping the drain.
 [`cosmic.url`]: ../../../cosmic/url.tl
 [`cosmic.web.assets`]: ../../../cosmic/web/assets.tl
 [`cosmic.web.cookies`]: ../../../cosmic/web/cookies.tl
+[`cosmic.web.htmx`]: ../../../cosmic/web/htmx.tl
 [`cosmic.web.session`]: ../../../cosmic/web/session/init.tl
 [`cosmic.web.sse`]: ../../../cosmic/web/sse.tl
 [`cosmic.web.static`]: ../../../cosmic/web/static.tl
@@ -1376,6 +1377,7 @@ close, and a raise in it reaches `on_error` without stopping the drain.
 [`Html.SafeHtml`]: ../../../cosmic/html.tl
 [`Html.trust`]: ../../../cosmic/html.tl
 [`Html.url_part`]: ../../../cosmic/html.tl
+[`Htmx.page`]: ../../../cosmic/web/htmx.tl
 [`Http.get`]: ../../../cosmic/http/init.tl
 [`Input.check_spec`]: ../../../cosmic/web/input.tl
 [`Input.Invalid.errors`]: ../../../cosmic/web/types.tl

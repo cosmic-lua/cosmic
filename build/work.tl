@@ -17,6 +17,7 @@
 
 local build_paths = require("build.paths")
 local Clock = require("cosmic.clock")
+local Codec = require("cosmic.codec")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Sqlite = require("cosmic.sqlite")
@@ -31,6 +32,15 @@ local link_files = require("build.link_files")
 local log = require("build.verdict").log
 
 local record work
+  --- One file of `web_assets`: its name in the table, its bytes, their
+  --- SHA-256 as hex, their SHA-384 as base64 and the vendored version.
+  record WebAsset
+    name: string
+    data: string
+    sha256: string
+    sha384: string
+    version: string
+  end
   --- An open working database, for one run. A run is one transaction
   --- from `open` to `commit`: staging, deriving and compiling all land
   --- together with the in-memory projection. Its vacuum and publication
@@ -173,6 +183,12 @@ local version <const> = "28"
 --- keeps a row inside an index page, where a zone file past about a
 --- kilobyte spills into overflow pages, and rows are only ever written
 --- in name order, so the rowid never varies.
+---
+--- `web_assets` is the browser-side files [`cosmic.web`] serves under
+--- `/_web/` (`vendor/htmx`, `vendor/htmx-ext-sse`), each with its
+--- SHA-256, its SHA-384 as base64 (the value of a `integrity` attribute)
+--- and its version, which a boot computes from the vendored bytes. Like
+--- `zoneinfo` it has no staged file behind it.
 ---
 --- `compiled` is one compile of one module, keyed by the module's key
 --- -- the hash of its kind, its source, its import closure's keys and
@@ -341,6 +357,11 @@ for _, statement in ipairs({
                                        PRIMARY KEY (path, line)) WITHOUT ROWID]],
     [[CREATE TABLE IF NOT EXISTS zoneinfo (name TEXT PRIMARY KEY,
                                          data BLOB NOT NULL)]],
+    [[CREATE TABLE IF NOT EXISTS web_assets (name TEXT PRIMARY KEY,
+                                           data BLOB NOT NULL,
+                                           sha256 TEXT NOT NULL,
+                                           sha384 TEXT NOT NULL,
+                                           version TEXT NOT NULL) WITHOUT ROWID]],
     [[CREATE TABLE IF NOT EXISTS compiled (key TEXT PRIMARY KEY,
                                          tool TEXT NOT NULL,
                                          lua TEXT NOT NULL,
@@ -1343,6 +1364,83 @@ end
 --- Replaces the zones the binary will carry with `zones`, by name.
 function work.put_zoneinfo(handle: work.Handle, zones: {string:string}): boolean, string
   return work.write_zones(handle.db, zones)
+end
+
+--- The files `web_assets` carries, as the vendored trees hold them: the
+--- table name, the directory under `vendor/` and the path in it.
+local web_files: {{string}} = {
+  { "htmx.min.js", "htmx", "dist/htmx.min.js" },
+  { "htmx-ext-sse.min.js", "htmx-ext-sse", "dist/sse.min.js" },
+}
+
+--- The files of `web_assets` read from the trees under `vendor` (a
+--- checkout's `vendor/` directory), each hashed here, in name order.
+function work.read_web_assets(vendor: string): {work.WebAsset} | nil, string
+  local assets: {work.WebAsset} = {}
+  for _, file in ipairs(web_files) do
+    local pin, pin_trouble = Fs.read(vendor .. "/" .. file[2] .. "/PIN")
+    if pin == nil then
+      return nil, pin_trouble
+    end
+    local pinned = pin:match("^version%s+(%S+)") or pin:match("\nversion%s+(%S+)")
+    if pinned == nil then
+      return nil, vendor .. "/" .. file[2] .. "/PIN names no version"
+    end
+    local data, read_trouble = Fs.read(vendor .. "/" .. file[2] .. "/" .. file[3])
+    if data == nil then
+      return nil, read_trouble
+    end
+    assets[#assets + 1] = { name = file[1], data = data,
+      sha256 = Hash.hex_sha256(data), sha384 = Codec.base64(Hash.digest("sha384", data)),
+      version = pinned }
+  end
+  table.sort(assets, function(a: work.WebAsset, b: work.WebAsset): boolean
+    return a.name < b.name
+  end)
+  return assets, ""
+end
+
+--- Every row of the `web_assets` table `db` holds, by name: none when it
+--- has no such table.
+function work.web_assets_of(db: Sqlite.Handle): {work.WebAsset} | nil, string
+  local tables, trouble = Sqlite.text_rows(db,
+    "SELECT count(*) FROM sqlite_schema WHERE type = 'table' AND name = 'web_assets'")
+  if tables == nil then
+    return nil, trouble
+  end
+  local assets: {work.WebAsset} = {}
+  if tables[1][1] == "0" then
+    return assets, ""
+  end
+  local rows, rows_trouble = Sqlite.rows(db,
+    "SELECT name, data, sha256, sha384, version FROM web_assets ORDER BY name")
+  if rows == nil then
+    return nil, rows_trouble
+  end
+  for _, row in ipairs(rows) do
+    assets[#assets + 1] = { name = row[1].text, data = row[2].blob or row[2].text,
+      sha256 = row[3].text, sha384 = row[4].text, version = row[5].text }
+  end
+  return assets, ""
+end
+
+--- Replaces the files the binary will carry under `/_web/` with `assets`.
+function work.put_web_assets(handle: work.Handle, assets: {work.WebAsset}): boolean, string
+  local cleared, trouble = handle.db:exec("DELETE FROM web_assets")
+  if not cleared then
+    return false, trouble
+  end
+  for _, asset in ipairs(assets) do
+    local ok, why = Sqlite.run(handle.db,
+      "INSERT INTO web_assets (name, data, sha256, sha384, version) " ..
+        "VALUES (?1, ?2, ?3, ?4, ?5)",
+      { text(asset.name), { blob = asset.data }, text(asset.sha256), text(asset.sha384),
+        text(asset.version) })
+    if not ok then
+      return false, why
+    end
+  end
+  return true, ""
 end
 
 --- Writes this run's row into `builds`.
