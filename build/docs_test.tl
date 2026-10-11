@@ -348,6 +348,27 @@ local function test_a_module_listing_lists_data_fields_under_their_record(dir: s
   assert(not text:find("More words", 1, true), text)
 end
 
+--- An optional field (`name?: T`) is listed under its record as written,
+--- the `?` kept, with its first sentence.
+local function test_a_module_listing_shows_an_optional_field(dir: string)
+  local db = built(dir, { ["cosmic/calls.tl"] = source(
+    "--- A table of calls.",
+    "",
+    "local record calls",
+    "  --- The most it takes. More words.",
+    "  limit?: integer",
+    "  name: string",
+    "  [\"a b\"]?: {string}",
+    "end",
+    "",
+    "return calls") })
+  local found = assert(docs.lookup(view({ db }), "cosmic.calls"))
+  local lines = assert(docs.render(view({ db }), found[1]))
+  local text = table.concat(lines, "\n")
+  assert(text:find("\n  record calls\n    limit?: integer -- The most it takes.\n" ..
+      "    name: string\n    [\"a b\"]?: {string}", 1, true), text)
+end
+
 --- A callable module's own `metamethod` is listed with its signature,
 --- and documented; a nested record's (`__close`) stays that record's.
 local function test_a_module_listing_shows_its_metamethods(dir: string)

@@ -17,6 +17,24 @@ defines the target; once something ships, it leaves this file.
   give any target type unchecked, so one that contains a never-function (a
   function type, or a record or container with such a field) forges the
   guarantee of `: never`.
+- refuse a table literal that omits a record field. records are open: `local r:
+  R = {}` type-checks for an `R` with `name: string`, and `r.name` is nil.
+  `name?: T` (patch/tl 49a to 49e4) declares a field a literal may omit, typed
+  `T | nil`, and nothing is marked yet. a measurement that refused every
+  omission, function fields included, flagged 4,590 literals, 24,475 omitted
+  fields and 993 distinct record.field pairs, about three quarters of the sites
+  in tests, and the tree no longer built; the pairs are the work, and the sites
+  follow from them. what is left:
+  - mark the fields that are optional `name?: T` and fill the literals that
+    omit a required one, an area of the tree at a time, each change building
+    on its own with no rule in force. a marked field's reads that do not check
+    for nil are refused, so each change guards them or finds a real nil.
+  - make the check an error for the whole tree at once, with function fields
+    exempt (they cover methods supplied by `__index`, metamethods, and type
+    declarations). a warning first is no option: every warning cosmic sees is
+    a refused compile ([`build/compilation.tl`]'s `generate`,
+    [`build/standalone.tl`] and [`build/example_checks.tl`] each reject on
+    one), and the compile cache keeps no warnings to show again on a hit.
 - declare cosmic.stream's interface methods with a named receiver
   (`read: function(self: Reader, ...)`) and drop each implementing record's
   redeclaration of them: the documented signatures then read as
@@ -382,14 +400,17 @@ four-producer provenance join.
 [`build/archive_test.tl`]: ../build/archive_test.tl
 [`build/c/tree.tl`]: ../build/c/tree.tl
 [`build/c_functions.tl`]: ../build/c_functions.tl
+[`build/compilation.tl`]: ../build/compilation.tl
 [`build/contracts.tl`]: ../build/contracts.tl
 [`build/dataset.tl`]: ../build/dataset.tl
+[`build/example_checks.tl`]: ../build/example_checks.tl
 [`build/fix/rule.tl`]: ../build/fix/rule.tl
 [`build/flow.tl`]: ../build/flow.tl
 [`build/hash_test.tl`]: ../build/hash_test.tl
 [`build/json.tl`]: ../build/json.tl
 [`build/locator_fuzz_test.tl`]: ../build/locator_fuzz_test.tl
 [`build/shape_specs.tl`]: ../build/shape_specs.tl
+[`build/standalone.tl`]: ../build/standalone.tl
 [`build/workflows_test.tl`]: ../build/workflows_test.tl
 [`Child.end_strays`]: ../cosmic/child.tl
 [`ci/cosmic-driver.pin`]: ../ci/cosmic-driver.pin
