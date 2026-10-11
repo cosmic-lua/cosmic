@@ -292,18 +292,6 @@ the replacement for that very field, at the site that used it.
 [`cosmic.removed`] is the one place the map from a removed name to its
 replacement lives.
 
-a build refuses a Teal `global` declaration (`global x`, `global function`,
-`global record`, `global type`, and a `function f` that declares no local)
-in every module it compiles, at the line and column of the declaration. a
-module's compile key holds its kind, its source, the keys of the modules
-it requires, and the compiler's identity. a global reaches other modules by
-none of those, so a cached compile could stand after the module that
-declares it changed, the verdict of a serial build would depend on the
-order modules are checked in, and parallel workers could not reproduce it.
-everything a module sees comes through a `require`, which the key covers.
-`.d.tl` files and the checker's own standard library are not modules the
-build compiles, and are unaffected.
-
 the compiler -- the Lua the vendored `tl.tl` compiles to (below) --
 reaches outside the pure libraries in five
 places: `io.open` and the file handle it returns, `os.getenv`,
@@ -985,6 +973,23 @@ names the modules that cast from `any`; the expected list is the
 shape module, the codec decoders, the C declaration layer, and the
 build step that loads the compiler chunk.
 
+a build refuses a Teal `global` declaration (`global x`, `global function`,
+`global record`, `global interface`, `global enum`, `global type`, and an
+undeclared `function f()`, which tl reads as a global function) in every
+source it holds: modules, tests, examples, guide examples and `.d.tl`
+files. the refusal names the declaration's line and column and is made
+before any module is compiled, so it does not depend on the order modules
+are checked in. a module's compile key holds its kind, its source, the
+keys of the modules it requires, and the compiler's identity. a global
+reaches other modules by none of those, so a cached compile could stand
+after the module that declares it changed, the verdict of a serial build
+would depend on that order, and parallel workers could not reproduce it.
+everything a module sees comes through a `require`, which the key covers.
+tl's own prelude and standard-library declarations ([`vendor/tl/tl.tl`]) are
+read by the checker's environment, not built as a source, and are
+unaffected. a Lua runtime trick the checker cannot see, `setmetatable(_G,
+...)` or `local _ENV = ...`, is not refused.
+
 ### the runtime
 
 one Lua state, one thread, coroutines over `poll`. every blocking
@@ -1269,3 +1274,4 @@ in [roadmap.md](roadmap.md).
 [`Store.web_asset`]: ../cosmic/store.tl
 [`Test.policy`]: ../cosmic/test.tl
 [`test/narrowing_test.tl`]: ../test/narrowing_test.tl
+[`vendor/tl/tl.tl`]: ../vendor/tl/tl.tl

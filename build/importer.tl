@@ -1033,6 +1033,13 @@ local function compile_derived(handle: work.Handle, built: compiler, tool: strin
   if order == nil then
     return nil, why
   end
+  local refused_globals, globals_trouble = compilation.refuse_globals(handle.db, built)
+  if globals_trouble ~= "" then
+    return nil, globals_trouble
+  end
+  if refused_globals ~= nil then
+    return nil, refused_globals
+  end
   -- TODO: drop this once ci/cosmic-driver.pin names a release whose
   -- Teal reads `name?:`: the pinned driver compiles ci/ (the one project
   -- that holds the pin at its root), so ci/'s records cannot be marked

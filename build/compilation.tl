@@ -571,39 +571,75 @@ local function global_start(tokens: {compiler.Token}, n: ast.Node): integer, int
   return n.y, n.x
 end
 
---- Why the module `file`, whose checked `source` has syntax tree `root`,
---- may not be compiled for the globals it declares (`global x`,
---- `global function`, `global record`, an undeclared `function f`), one
---- line each at the declaration, or nil when it declares none. A module's
---- compile key holds its kind, its source, the keys of what it requires
---- and the compiler, and a global reaches other modules by none of those:
---- a cached compile could stand after the global's type changed, and what
---- a build accepts would depend on the order modules are checked in.
-local function global_refusal(built: compiler, file: string, source: string,
-                              root: ast.Node): string | nil
-  local found: {ast.Node} = {}
-  ast.walk(root, function(n: ast.Node)
+--- The globals the source of `file` declares (`global x`, `global
+--- function`, `global record`, an undeclared `function f`), one line each
+--- at the declaration. A source that does not parse declares none here:
+--- the checker reports it when it is compiled.
+local function globals_of(built: compiler, file: string, source: string): {string}
+  -- A candidate is a token code wrote: `global`, or `function NAME`
+  -- with no `local` before it, which tl reads as a global function where
+  -- no local of the name is in scope. A source that merely mentions the
+  -- word in a comment or a string is not parsed.
+  local lexed = built.lex(source, file)
+  local written = false
+  for i, t in ipairs(lexed) do
+    local after = lexed[i + 1]
+    local before = lexed[i - 1]
+    if t.tk == "global" or (t.tk == "function" and after ~= nil and after.kind == "identifier" and
+        lexed[i + 2] ~= nil and (lexed[i + 2].tk == "(" or lexed[i + 2].tk == "<") and
+        not (before ~= nil and before.tk == "local")) then
+      written = true
+      break
+    end
+  end
+  local lines: {string} = {}
+  if not written then
+    return lines
+  end
+  local parsed, _ = ast.parse(built, source, file)
+  if parsed == nil then
+    return lines
+  end
+  ast.walk(parsed.node, function(n: ast.Node)
     -- `global x: T = v` also holds a "global_declaration" the parser made
     -- of the same text, which has no position of its own.
     if n.kind:sub(1, 7) == "global_" and n.y ~= nil then
-      found[#found + 1] = n
+      local y, x = global_start(parsed.tokens, n)
+      lines[#lines + 1] = file .. ":" .. y .. ":" .. x ..
+        ": a global is not allowed in a cosmic build: it reaches other modules by no " ..
+        "`require`, which is all a build's cache and its order see -- put the value " ..
+        "in a module and `require` it"
     end
   end)
-  if #found == 0 then
-    return nil
+  return lines
+end
+
+--- Why the build may not go on: the globals declared by any source the
+--- tree holds but tl's own (`global x`, `global function`, `global
+--- record`, an undeclared `function f`), one line each, in file order, or
+--- nil when there are none. A module's compile key holds its kind, its
+--- source, the keys of what it requires and the compiler, and a global
+--- reaches other modules by none of those: a cached compile could stand
+--- after the global's type changed, and what a build accepts would depend
+--- on the order modules are checked in. Every source is read, a `.d.tl`
+--- and a compile that stands in a cache included, before any module is
+--- compiled, so the refusal does not depend on that order.
+function compilation.refuse_globals(db: Sqlite.Handle, built: compiler): string | nil, string
+  local rows, trouble = Sqlite.text_rows(db,
+    "SELECT file, source FROM inputs WHERE kind <> 'vendor' ORDER BY file")
+  if rows == nil then
+    return nil, trouble
   end
-  -- Lexed only here: a module with no global is not read twice.
-  local tokens = built.lex(source, file)
   local lines: {string} = {}
-  for _, n in ipairs(found) do
-    local y, x = global_start(tokens, n)
-    lines[#lines + 1] = file .. ":" .. y .. ":" .. x ..
-      ": a global is not allowed in a cosmic build: it reaches other modules by no " ..
-      "`require`, which is all a build's cache and its order see -- put the value " ..
-      "in a module and `require` it"
+  for _, row in ipairs(rows) do
+    for _, line in ipairs(globals_of(built, row[1], row[2])) do
+      lines[#lines + 1] = line
+    end
   end
-  table.sort(lines)
-  return table.concat(lines, "\n")
+  if #lines == 0 then
+    return nil, ""
+  end
+  return table.concat(lines, "\n"), ""
 end
 
 --- Compiles one module: the checker over its source (with each
@@ -635,11 +671,6 @@ function compilation.generate(m: Module, built: compiler, env: compiler.Env,
   end
   local code: string | nil = nil
   if result.ast ~= nil and #result.syntax_errors == 0 then
-    local tree = result.ast
-    local refused_globals = tree is ast.Node and global_refusal(built, m.file, source, tree) or nil
-    if refused_globals ~= nil then
-      return nil, refused_globals
-    end
     local written, write_trouble = built.generate(result.ast, env.defaults.gen_target, nil)
     if written == nil then
       return nil, m.file .. ": " .. write_trouble

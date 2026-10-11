@@ -33,8 +33,10 @@ A file's name says what it is.
 the same in full.
 
 A module shares a value by returning it for another to `require`. A
-build refuses `global` (`global x`, `global function`, `global record`),
-at the line of the declaration: put the value in a module and require it.
+build refuses `global` (`global x`, `global function`, `global record`)
+and an undeclared `function f()`, which Teal reads as a global function,
+at the line and column of the declaration: put the value in a module and
+require it. It refuses them in a `.d.tl` file too.
 
 ## a library module
 

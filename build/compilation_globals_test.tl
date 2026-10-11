@@ -25,6 +25,10 @@ local function compile_project(tmp: string, case: string,
   local root = tmp .. "/" .. case
   assert(Fs.mkdirs(root))
   for filename, source in pairs(files) do
+    local parent = filename:match("^(.+)/[^/]+$")
+    if parent ~= nil then
+      assert(Fs.mkdirs(root .. "/" .. parent))
+    end
     assert(Fs.write(root .. "/" .. filename, source))
   end
   local handle = assert(work.open(root))
@@ -61,14 +65,40 @@ local function test_each_kind_of_global_is_refused_at_its_line(tmp: string)
 end
 
 --- A global one module declares and another reads is refused where it is
---- declared, not accepted in the order the modules happen to compile in.
+--- declared, whichever of them the build would compile first: the
+--- reader's own "unknown type" never stands in for it.
 local function test_a_global_another_module_would_read_is_refused_at_its_declaration(tmp: string)
-  local result, trouble = compile_project(tmp, "leak", {
-    ["shared.tl"] = "global record Shared\n  n: integer\nend\nreturn 1\n",
-    ["user.tl"] = "local s: Shared = { n = 1 }\nreturn s.n\n",
+  for _, names in ipairs({ { "shared", "user" }, { "user", "shared" } }) do
+    local declarer, reader = names[1], names[2]
+    local _, trouble = compile_project(tmp, "leak-" .. declarer, {
+      [declarer .. ".tl"] = "global record Shared\n  n: integer\nend\nreturn 1\n",
+      [reader .. ".tl"] = "local s: Shared = { n = 1 }\nreturn s.n\n",
+    })
+    assert(trouble == declarer .. ".tl:1:1" .. REFUSED, tostring(trouble))
+  end
+end
+
+--- A global a `.d.tl` declares would reach each module the checker reads
+--- after a `require` of it, and none before: the build refuses it, though
+--- no module of the project is the declaration.
+local function test_a_global_in_a_declaration_file_is_refused(tmp: string)
+  local _, trouble = compile_project(tmp, "decl", {
+    ["foo.d.tl"] = "global record Foo\n  n: integer\nend\n",
+    ["a.tl"] = 'local _ = require("foo")\nreturn 1\n',
+    ["b.tl"] = "local f: Foo = { n = 1 }\nreturn f.n\n",
   })
-  assert(result == nil and trouble:find("shared.tl:1:1" .. REFUSED, 1, true) ~= nil,
-    tostring(trouble))
+  assert(trouble == "foo.d.tl:1:1" .. REFUSED, tostring(trouble))
+end
+
+--- A global written in an example of a guide is refused at the example's
+--- line in the file extracted from the guide, as a module's own is.
+local function test_a_global_in_a_guide_example_is_refused(tmp: string)
+  local _, trouble = compile_project(tmp, "doc-guide", {
+    ["doc/guides/g.md"] = "# g\n\n```teal\nglobal n: integer = 1\n```\n",
+    ["lib.tl"] = "return 1\n",
+  })
+  assert(trouble ~= nil and trouble:find("doc/guides/g.md:", 1, true) == 1 and
+      trouble:find(REFUSED, 1, true) ~= nil, tostring(trouble))
 end
 
 --- Every module's own name is the way to share, so a project that
