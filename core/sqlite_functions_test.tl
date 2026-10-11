@@ -37,3 +37,89 @@ local function test_percentile_aggregates_are_built_in()
     assert(got[i] == value, "column " .. i .. ": " .. tostring(got[i]))
   end
 end
+
+local function test_generate_series_is_built_in()
+  local got = row("SELECT group_concat(value) FROM generate_series(1, 9, 4)")
+  assert(got[1] == "1,5,9", got[1])
+end
+
+local function test_regexp_is_built_in()
+  local got = row("SELECT 'abc123' REGEXP '^[a-z]+[0-9]+$', 'abc' REGEXP '\\d'")
+  assert(got[1] == "1" and got[2] == "0", got[1] .. " " .. got[2])
+end
+
+local function test_decimal_arithmetic_is_exact()
+  local got = row("SELECT decimal_add('0.1', '0.2'), decimal_cmp('1.10', '1.1'), " ..
+      "decimal_mul('1.5', '-2'), decimal_sum(x) FROM (SELECT '0.1' AS x UNION ALL SELECT '0.2')")
+  local want = { "0.3", "0", "-3", "0.3" }
+  for i, value in ipairs(want) do
+    assert(got[i] == value, "column " .. i .. ": " .. tostring(got[i]))
+  end
+end
+
+local function test_uuid_is_built_in()
+  local id = "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11"
+  local got = row("SELECT length(uuid()), uuid() <> uuid(), " ..
+      "uuid_str(uuid_blob('" .. id .. "')), length(uuid_blob('" .. id .. "'))")
+  local want = { "36", "1", id, "16" }
+  for i, value in ipairs(want) do
+    assert(got[i] == value, "column " .. i .. ": " .. tostring(got[i]))
+  end
+end
+
+local function test_sha1_and_sha3_answer_their_test_vectors()
+  local got = row("SELECT sha1('abc'), hex(sha3('abc')), hex(sha3('abc', 512))")
+  assert(got[1] == "a9993e364706816aba3e25717850c26c9cd0d89d", got[1])
+  assert(got[2] == "3A985DA74FE225B2045C172D6BD390BD855F086E3E9D525B46BFE24511431532", got[2])
+  assert(got[3] == "B751850B1A57168A5693CD924B6B096E08F621827444F70D884F5D0240D2712E" ..
+      "10E116E9192AF3C91A7EC57647E3934057340B4CF408D5A56592F8274EEC53F0", got[3])
+end
+
+local function test_base64_and_base85_round_trip()
+  local got = row("SELECT base64(x'4d616e'), hex(base64(base64(x'00ff10'))), " ..
+      "hex(base85(base85(x'00ff10e0'))), is_base85(base85(x'00ff10e0'))")
+  assert(got[1]:match("^TWFu%s*$") ~= nil, got[1])
+  assert(got[2] == "00FF10", got[2])
+  assert(got[3] == "00FF10E0", got[3])
+  assert(got[4] == "1", got[4])
+end
+
+local function test_compress_round_trips_through_uncompress()
+  local got = row("WITH t(x) AS (SELECT replace(printf('%.500c', 'x'), 'x', 'abc')) " ..
+      "SELECT CAST(uncompress(compress(x)) AS TEXT) = x, length(compress(x)) < length(x) FROM t")
+  assert(got[1] == "1" and got[2] == "1", got[1] .. " " .. got[2])
+end
+
+--- compress.c's length prefix: seven bits a byte, most significant
+--- first, the last byte's top bit set.
+local function length_prefix(n: integer): string
+  local bytes: {integer} = {}
+  repeat
+    table.insert(bytes, 1, n & 0x7f)
+    n = n >> 7
+  until n == 0
+  bytes[#bytes] = bytes[#bytes] | 0x80
+  return string.char(table.unpack(bytes))
+end
+
+local function test_uncompress_bounds_a_claimed_length_by_deflates_ratio()
+  local handle = assert(Sqlite.memory())
+  -- Zeros compress about as far as deflate goes, near 1029:1.
+  local size = 10000000
+  local packed = assert(Sqlite.rows(handle, "SELECT compress(zeroblob(?1))",
+    { { integer = size } }))[1][1].blob
+  assert(packed ~= nil)
+  local prefix = #length_prefix(size)
+  local stream = packed:sub(prefix + 1)
+  local function read(claim: integer): string
+    local rows = assert(Sqlite.text_rows(handle,
+      "SELECT ifnull(length(uncompress(?1)), 'NULL')",
+      { { blob = length_prefix(claim) .. stream } }))
+    return rows[1][1]
+  end
+  assert(read(size) == tostring(size), "a stream at deflate's ratio must read back")
+  assert(read(#stream * 1032) == tostring(size), "a claim at the bound must be read")
+  assert(read(#stream * 1032 + 1) == "NULL", "a claim past the bound must be NULL")
+  assert(read((1 << 35) - 1) == "NULL", "the largest claim must be NULL, not a failure")
+  handle:close()
+end

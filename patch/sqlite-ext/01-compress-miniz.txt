@@ -1,0 +1,10 @@
+file: ext/misc/compress.c
+note: compress() and uncompress() call zlib, which the core does not carry: miniz, which it does, has the same two calls and status code under its own `mz_` names. miniz's zlib-named aliases stay off (build.zig), so this file names miniz's own. Both take the length in an `mz_ulong`, an `unsigned long`, as this file's own lengths are.
+--- find
+#include <zlib.h>
+--- replace
+#include "miniz.h"
+#define compress mz_compress
+#define uncompress mz_uncompress
+#define Z_OK MZ_OK
+--- end
