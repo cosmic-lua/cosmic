@@ -1,0 +1,8 @@
+file: tl.tl
+note: map_type copies a function type field by field (every instantiation of a generic one, a fresh type variable or a resolved one among them), so it must copy `never`, or a never-function is forgotten at its first instantiation
+--- find
+            copy.special_function_handler = t.special_function_handler
+--- replace
+            copy.special_function_handler = t.special_function_handler
+            copy.never = t.never
+--- end

@@ -1,0 +1,11 @@
+file: tl.tl
+note: a function type that never returns is shown with `: never`, so a message about one says what the declaration did
+--- find
+      if t.rets.tuple and #t.rets.tuple > 0 then
+         table.insert(out, ": ")
+--- replace
+      if t.never then
+         table.insert(out, ": never")
+      elseif t.rets.tuple and #t.rets.tuple > 0 then
+         table.insert(out, ": ")
+--- end
