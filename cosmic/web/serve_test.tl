@@ -293,11 +293,13 @@ local function test_an_upload_above_the_servers_body_limit_is_the_servers_413()
     reached = true
     return Web.text(tostring(Input.multipart(req, { max_bytes = 16 * 1024 * 1024 }).invalid))
   end) } }
-  local boundary = "xx"
-  local body = "--xx\r\nContent-Disposition: form-data; name=\"f\"; filename=\"a\"\r\n\r\n" ..
-    ("y"):rep(1100 * 1024) .. "\r\n--xx--\r\n"
+  -- Only the head goes out: the server answers 413 on the Content-Length
+  -- and closes, so a client still writing the body would meet EPIPE.
+  local head = "POST /up HTTP/1.1\r\nHost: x\r\n" ..
+    "Content-Type: multipart/form-data; boundary=xx\r\n" ..
+    "Content-Length: " .. tostring(1100 * 1024) .. "\r\n\r\n"
   Web.with_server(app, function(client: Web.LoopbackClient)
-    local reply = assert(client:post("/up", { body = body, content_type = "multipart/form-data; boundary=" .. boundary }))
+    local reply = assert(client:raw(head))
     assert(reply.status == 413, reply.status)
     assert(not reached, "max_bytes above limits.body_bytes changes nothing")
   end)
