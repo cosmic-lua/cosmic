@@ -18,7 +18,7 @@
 --- A failure is data, an [`Input.Invalid`]: a status, a one-line message,
 --- every [`Input.FieldError`], and the values submitted. The statuses are
 --- those of the whole package: 400 for input that cannot be decoded (a bad
---- percent-escape, malformed JSON), 413 for a body over its limit, 415 for
+--- percent-escape, malformed JSON or multipart), 413 for a body over its limit, 415 for
 --- a wrong Content-Type, and 422 for a value that decodes but fails its
 --- spec.
 ---
@@ -57,11 +57,16 @@
 --- failure is reported. A JSON client should read an error's `pointer`, not
 --- its `field`: the dotted `field` is ambiguous for a key that holds a `.`.
 
+local Codec = require("cosmic.codec")
+local Fs = require("cosmic.fs")
 local Json = require("cosmic.json")
+local Multipart = require("cosmic.http.multipart")
 local Poll = require("cosmic.poll")
+local Rand = require("cosmic.rand")
 local Request = require("cosmic.web.request")
 local Shape = require("cosmic.shape")
 local Stream = require("cosmic.stream")
+local String = require("cosmic.string")
 local Types = require("cosmic.web.types")
 local Url = require("cosmic.url")
 
@@ -89,15 +94,64 @@ local record Input
   JSON: Types.Key<any>
   --- The body limit when `max_bytes` is not given, 64 KiB.
   DEFAULT_MAX: integer
+  --- The body limit of [`Input.multipart`] when `max_bytes` is not given,
+  --- 16 MiB.
+  DEFAULT_MULTIPART_MAX: integer
+
+  --- A file part of a multipart body, spooled to disk.
+  record Upload
+    --- The name of the form field it came in.
+    field: string
+    --- The client's filename cut to its last path component: to show a
+    --- person, never to name a file or build a path.
+    filename: string
+    --- The Content-Type the client claimed ("text/plain" when it sent none):
+    --- a claim, not a fact about the bytes, to be checked before it is
+    --- served back as the file's type.
+    content_type: string
+    --- How many bytes the file holds.
+    size: integer
+    --- Where the bytes are: a file of this process's user, mode 0600, under a
+    --- random name. It is removed when the request ends, so a handler that
+    --- keeps the file moves it ([`Fs.rename`]) first.
+    path: string
+  end
+
+  --- A multipart body, read.
+  record Multipart
+    --- The text parts, as a urlencoded form's pairs are, in the order sent.
+    fields: Url.Query
+    --- The file parts by field name, in the order sent. A file input left
+    --- blank (an empty filename and no bytes) is not here.
+    files: {string:{Input.Upload}}
+    --- How many bytes the body held.
+    size: integer
+    --- Removes the spooled files (and the directory made for them), now
+    --- rather than when the request ends. It is safe to call twice and
+    --- when a file is gone.
+    discard: function(Multipart)
+  end
 end
 
 Input.FORM = Request.key("input.form")
 Input.JSON = Request.key("input.json")
 
+--- The multipart body once read, kept on the request so that a middleware,
+--- [`Input.form`] and the handler share one read and one set of files.
+local MULTIPART <const>: Types.Key<Types.Parsed<Input.Multipart>> = Request.key("input.multipart")
+
 --- The largest body read unless told: a form or a JSON document, not an
 --- upload.
 local DEFAULT_MAX <const> = 64 * 1024
 Input.DEFAULT_MAX = DEFAULT_MAX
+
+local DEFAULT_MULTIPART_MAX <const> = 16 * 1024 * 1024
+Input.DEFAULT_MULTIPART_MAX = DEFAULT_MULTIPART_MAX
+
+local DEFAULT_FILE_MAX <const> = 8 * 1024 * 1024
+local DEFAULT_FIELD_MAX <const> = 1024 * 1024
+local DEFAULT_FILES <const> = 10
+local DEFAULT_PARTS <const> = 100
 
 --- What a body read that passed its limit leaves on the request as
 --- `body_failure`, in the words of the server's own for the same fault.
@@ -148,6 +202,16 @@ local function without(q: Url.Query, secret: {string} | nil): Url.Query
   return out
 end
 
+--- `text` without the whitespace at either end, found by scanning from the
+--- ends: a pattern's `^%s*(.-)%s*$` costs the square of a run of spaces.
+local function trim(text: string): string
+  local first = text:find("[^%s]")
+  if first == nil then return "" end
+  local last = #text
+  while text:sub(last, last):find("^%s") do last = last - 1 end
+  return text:sub(first, last)
+end
+
 --- Parses the Content-Type header of `req`.
 --- @param req Types.Request The request
 --- @return Input.MediaType The media type and its parameters; `essence` is "" when none was sent
@@ -184,11 +248,11 @@ function Input.media_type(req: Types.Request): Input.MediaType
     else
       local token = rest:match("^[^;]*", pos)
       pos = pos + #token
-      text = token:match("^%s*(.-)%s*$")
+      text = trim(token)
     end
     params[name:lower()] = text
   end
-  return { essence = (head:match("^%s*(.-)%s*$"):lower()), params = params }
+  return { essence = (trim(head):lower()), params = params }
 end
 
 --- Whether the request has a body: a chunked one always does.
@@ -202,11 +266,17 @@ local function utf8_charset(params: {string:string}): boolean
   return charset == nil or charset:lower() == "utf-8"
 end
 
---- The 415 for a body of another type than `kind` ("form" or "json"), or
+--- The 415 for a body of another type than `kind` ("form", "json" or "multipart"), or
 --- nil when it is that type, in UTF-8 or no charset.
 local function wrong_type(req: Types.Request, kind: string): Types.Invalid | nil
   local type_ = Input.media_type(req)
   local media, params = type_.essence, type_.params
+  if kind == "multipart" then
+    if media == "multipart/form-data" then return nil end
+    return stop(415, "body", "", "content_type", media == "" and
+        "the body needs a Content-Type of multipart/form-data" or
+        ("a Content-Type of multipart/form-data is needed, not " .. media))
+  end
   local good: boolean
   if kind == "form" then
     good = media == "application/x-www-form-urlencoded"
@@ -279,6 +349,269 @@ local function body_text(req: Types.Request, kind: string, opts: Types.InputOpti
   return data, nil
 end
 
+--- Bytes read from the body, and from a part, at a time.
+local CHUNK <const> = 16384
+
+--- `name`, a client's text, fit for a message: plain bytes and short.
+local function shown(name: string): string
+  local plain = name:sub(1, 40):gsub("[^%w _.%-]", "?")
+  return plain .. (#name > 40 and "..." or "")
+end
+
+--- The status and code a failed read of a multipart body has: the
+--- parser's own reasons are the client's malformed body, any other is the
+--- body source's (see [`read_failed`]).
+local function multipart_failed(why: string, limit: integer): Types.Invalid
+  if why == OVER_LIMIT then
+    return stop(413, "body", "", "too_large", ("the body is over the limit, max_bytes = %d"):format(limit))
+  end
+  if why:find("^multipart: ") then return stop(400, "body", "", "malformed", why) end
+  return read_failed(why)
+end
+
+--- The charset a part's Content-Type names, lowercase; "" for none.
+local function part_charset(content_type: string): string
+  return content_type:lower():match(";%s*charset%s*=%s*\"?([^\";%s]*)") or ""
+end
+
+--- A Reader over `source` that fails with [`OVER_LIMIT`] when it would pass
+--- `limit` bytes, and the count of the bytes it passed so far.
+local function counted(source: Stream.Reader, limit: integer): Stream.Reader, function(): integer
+  local total = 0
+  local reader: Stream.Reader = {
+    read = function(_self: Stream.Reader, max?: integer): string | nil, string
+      local chunk, why = source:read(math.min(max or CHUNK, limit + 1 - total))
+      if chunk == nil then return nil, why end
+      total = total + #chunk
+      if total > limit then return nil, OVER_LIMIT end
+      return chunk, ""
+    end,
+    close = function(_self: Stream.Reader): boolean, string return true, "" end,
+  }
+  return reader, function(): integer return total end
+end
+
+--- The value of a `<close>` variable: only its `__close` matters.
+local record Unwinding
+  metamethod __close: function(Unwinding)
+end
+
+--- The multipart body of `req`, at most `limit` bytes, read once and kept.
+--- The text parts are held in memory, each file part is spooled to disk
+--- as it arrives, and a part over its cap ends the read at once: memory
+--- is bounded by the parser's buffer and the text parts' caps, not by the
+--- body.
+local function read_multipart(req: Types.Request, limit: integer, opts: Types.InputOptions | nil
+): Types.Parsed<Input.Multipart>
+  local cached = req:get(MULTIPART)
+  if cached ~= nil then
+    if cached.value ~= nil and cached.value.size > limit then
+      return { invalid = stop(413, "body", "", "too_large",
+        ("the body is over the limit, max_bytes = %d"):format(limit)) }
+    end
+    return cached
+  end
+  local function remember(result: Types.Parsed<Input.Multipart>): Types.Parsed<Input.Multipart>
+    req:set(MULTIPART, result)
+    return result
+  end
+  local wrong = wrong_type(req, "multipart")
+  if wrong ~= nil then return remember({ invalid = wrong }) end
+  local header = (req.headers["content-type"] or ""):lower()
+  local _, named = header:gsub(";%s*boundary%s*=", "")
+  local boundary = Input.media_type(req).params["boundary"]
+  if boundary == nil or named ~= 1 then
+    return remember({ invalid = stop(400, "body", "", "malformed",
+      "the Content-Type needs exactly one boundary") })
+  end
+  local length = req.raw.length
+  if length ~= nil and length > limit then
+    -- Not kept: nothing is read yet, and a reader with a higher limit may
+    -- still take the body.
+    return { invalid = stop(413, "body", "", "too_large",
+      ("the body is over the limit, max_bytes = %d"):format(limit)) }
+  end
+  if req.body_failure ~= nil then return { invalid = read_failed(req.body_failure) } end
+
+  local max_file = opts and opts.max_file_bytes or DEFAULT_FILE_MAX
+  local max_field = opts and opts.max_field_bytes or DEFAULT_FIELD_MAX
+  local max_files = opts and opts.max_files or DEFAULT_FILES
+  local max_parts = opts and opts.max_parts or DEFAULT_PARTS
+  local dir = opts and opts.dir
+  -- TODO: a sweeper for the orphans a crash leaves in `opts.dir` (an
+  -- `Input.sweep_uploads(dir, older_than_ns)` for a lifespan hook), once an
+  -- app keeps uploads in a directory of its own that outlives a request; a
+  -- private directory under the temp directory is the system's to clean.
+  local made: string = nil
+  local kept: {Input.Upload} = {}
+  local fields: Url.Query = { pairs = {}, by_name = {} }
+  local files: {string:{Input.Upload}} = {}
+  local m: Input.Multipart = { fields = fields, files = files, size = 0 }
+  m.discard = function(_self: Input.Multipart)
+    for _, upload in ipairs(kept) do
+      local _, _ = Fs.remove(upload.path)
+    end
+    kept = {}
+    if made ~= nil then
+      local _, _ = Fs.remove_tree(made)
+      made = nil
+    end
+  end
+  -- A task killed while it waits for the body (a client that went away)
+  -- runs no code after the wait, only its pending closes: they remove what
+  -- is spooled so far.
+  local settled = false
+  local spooling: Stream.FileWriter = nil
+  local unwinding_mt: metatable<Unwinding> = { __close = function()
+    if settled then return end
+    if spooling ~= nil then
+      local _, _ = spooling:abort()
+    end
+    m:discard()
+  end }
+  local _unwinding <close>: Unwinding = setmetatable({}, unwinding_mt)
+  -- The body is spent from here, whatever the outcome: a later reader of
+  -- the bytes is told so, not given an empty body.
+  local source, total = counted(req.raw.body, limit)
+  if req.body_text == nil then req.body_failure = "http: the multipart body was already read" end
+  local function stop_with(invalid_: Types.Invalid): Types.Parsed<Input.Multipart>
+    m:discard()
+    return remember({ invalid = invalid_ })
+  end
+  local function storage_failed(why: string): Types.Parsed<Input.Multipart>
+    m:discard()
+    error("input: cannot store an upload: " .. why, 0)
+  end
+
+  local reader, bad = Multipart.reader(source, { boundary = boundary, max_parts = max_parts + 1 })
+  if reader == nil then return stop_with(stop(400, "body", "", "malformed", bad)) end
+  local parts = 0
+  while true do
+    local part, why = reader:next_part()
+    if part == nil then
+      if why ~= "" then return stop_with(multipart_failed(why, limit)) end
+      break
+    end
+    parts = parts + 1
+    if parts > max_parts then
+      return stop_with(stop(413, "body", "", "too_many", ("the body has more than %s"):format(String.counted(max_parts, "part"))))
+    end
+    if part.filename ~= nil then
+      if #kept >= max_files then
+        return stop_with(stop(413, "body", "", "too_many", ("the body has more than %s"):format(String.counted(max_files, "file"))))
+      end
+      -- The first bytes decide whether this is a file: a browser's blank
+      -- file input is a part with no filename and no bytes, which keeps
+      -- nothing and makes no directory.
+      local first, fwhy = part.body:read(CHUNK)
+      if first == nil and fwhy ~= "" then return stop_with(multipart_failed(fwhy, limit)) end
+      if first ~= nil or part.filename ~= "" then
+        if dir == nil then
+          local made_dir, trouble = Fs.mkdtemp("cosmic-upload-")
+          if made_dir == nil then return storage_failed(trouble) end
+          made = made_dir
+          dir = made_dir
+        end
+        local path = dir .. "/" .. Codec.hex((assert(Rand.entropy(16))))
+        local writer, trouble = Stream.create(path, 384)
+        if writer == nil then return storage_failed(trouble) end
+        spooling = writer
+        local size = 0
+        local verdict, detail = "ok", ""
+        local chunk: string | nil = first
+        local rwhy = ""
+        while chunk ~= nil do
+          size = size + #chunk
+          if size > max_file then
+            verdict = "over"
+            break
+          end
+          local wrote, wwhy = writer:write(chunk)
+          if not wrote then
+            verdict, detail = "disk", wwhy
+            break
+          end
+          chunk, rwhy = part.body:read(CHUNK)
+        end
+        if verdict == "ok" and rwhy ~= "" then verdict, detail = "source", rwhy end
+        if verdict == "ok" then
+          local closed, cwhy = writer:close()
+          if not closed then verdict, detail = "disk", cwhy end
+        else
+          local _, _ = writer:abort()
+        end
+        spooling = nil
+        if verdict == "disk" then return storage_failed(detail) end
+        if verdict == "source" then return stop_with(multipart_failed(detail, limit)) end
+        if verdict == "over" then
+          return stop_with(stop(413, "body", "", "too_large",
+            ("the file %s is over the limit, max_file_bytes = %d"):format(shown(part.name), max_file)))
+        end
+        local upload: Input.Upload = { field = part.name, filename = part.filename,
+          content_type = part.content_type, size = size, path = path }
+        kept[#kept + 1] = upload
+        local list = files[part.name]
+        if list == nil then
+          list = {}
+          files[part.name] = list
+        end
+        list[#list + 1] = upload
+      end
+    else
+      local pieces: {string} = {}
+      local size = 0
+      while true do
+        local chunk, rwhy = part.body:read(CHUNK)
+        if chunk == nil then
+          if rwhy ~= "" then return stop_with(multipart_failed(rwhy, limit)) end
+          break
+        end
+        size = size + #chunk
+        if size > max_field then
+          return stop_with(stop(413, "body", "", "too_large",
+            ("the field %s is over the limit, max_field_bytes = %d"):format(shown(part.name), max_field)))
+        end
+        pieces[#pieces + 1] = chunk
+      end
+      local value = table.concat(pieces)
+      local charset = part_charset(part.content_type)
+      if charset == "iso-8859-1" or charset == "latin1" then
+        value = value:gsub("[\128-\255]", function(c: string): string return utf8.char(c:byte()) end)
+      elseif charset ~= "" and charset ~= "utf-8" and charset ~= "us-ascii" then
+        return stop_with(stop(415, "body", "", "content_type",
+          ("the field %s is in a charset other than UTF-8 and ISO-8859-1"):format(shown(part.name))))
+      elseif not utf8.len(value) then
+        return stop_with(stop(400, "body", "", "utf8", ("the field %s is not valid UTF-8"):format(shown(part.name))))
+      end
+      fields.pairs[#fields.pairs + 1] = { name = part.name, value = value }
+      local list = fields.by_name[part.name]
+      if list == nil then
+        list = {}
+        fields.by_name[part.name] = list
+      end
+      list[#list + 1] = value
+    end
+  end
+  local _, _ = reader:close()
+  settled = true
+  m.size = total()
+  if #kept > 0 or made ~= nil then
+    -- The app closes a request's bodies when the handler has returned: the
+    -- files go with them.
+    -- TODO: once the app can run a hook after the reply is written, remove
+    -- the files there, so a handler may answer with a stream over an upload.
+    local cleanup: Stream.Reader = {
+      read = function(_self: Stream.Reader, _max?: integer): string | nil, string return nil, "" end,
+      close = function(_self: Stream.Reader): boolean, string
+        m:discard()
+        return true, ""
+      end,
+    }
+    req.bodies[#req.bodies + 1] = cleanup
+  end
+  return remember({ value = m })
+end
+
 --- The query string of `req`, decoded. A query is not read leniently.
 --- Without `opts` the decode is kept on the request and shared with
 --- [`Types.Request.query`].
@@ -306,6 +639,14 @@ end
 --- @param opts Types.InputOptions | nil The limit
 --- @return Types.Parsed<Url.Query> The form, or status 400, 408, 413 or 415
 function Input.form(req: Types.Request, opts?: Types.InputOptions): Types.Parsed<Url.Query>
+  if has_body(req) and Input.media_type(req).essence == "multipart/form-data" then
+    local seen = req:get(Input.FORM)
+    if seen ~= nil then return { value = seen } end
+    local got = read_multipart(req, opts and opts.max_bytes or DEFAULT_MAX, opts)
+    if got.invalid ~= nil then return { invalid = got.invalid } end
+    req:set(Input.FORM, got.value.fields)
+    return { value = got.value.fields }
+  end
   local text, bad = body_text(req, "form", opts)
   if text == nil then return { invalid = bad } end
   local cached = req:get(Input.FORM)
@@ -314,6 +655,45 @@ function Input.form(req: Types.Request, opts?: Types.InputOptions): Types.Parsed
   if q == nil then return { invalid = stop(400, "form", "", "malformed", why) } end
   req:set(Input.FORM, q)
   return { value = q }
+end
+
+--- The multipart body of `req` (`multipart/form-data`), read once and kept
+--- on the request, at most `opts.max_bytes` (16 MiB): the text
+--- parts as a form's pairs, each file part spooled to a file of its own as
+--- it arrives, so memory holds the parser's buffer and the text parts, not
+--- the upload. The files go when the handler returns (the app closes the
+--- request's bodies) or at [`Input.Multipart.discard`]; a handler that keeps
+--- one moves it first. Nothing the client sent names a file.
+---
+--- Refused: 415 for another Content-Type; 400 for a body that is not
+--- well-formed multipart (a missing, repeated or bad boundary, a part
+--- without a name, a header or filename the parser refuses, a text part
+--- that is not UTF-8, a body that ends early); 413 over `max_bytes`, a file
+--- over `max_file_bytes` (8 MiB), a text part over `max_field_bytes`
+--- (1 MiB), more than `max_files` (10) files or `max_parts` (100) parts;
+--- 408 for a body that came too slowly. A text part in ISO-8859-1 is
+--- converted; another charset is 415. The body is spent by the read:
+--- `req:bytes()` afterward fails, unless it was read first.
+---
+--- The server's own `limits.body_bytes` (1 MiB) comes first: it answers 413
+--- to a body above it before any handler runs, so `max_bytes` above it
+--- changes nothing until [`Web.serve`] is given a higher `limits.body_bytes`,
+--- which it applies to every route.
+---
+--- A body read past a limit is spent: a reader with a higher limit after a
+--- lower one that passed it (an [`Input.form`] before this, on a body with no
+--- Content-Length) is refused 413 naming the earlier limit. A body whose
+--- Content-Length is over a limit is refused without being read, so a later
+--- reader with a higher limit still takes it.
+--- @param req Types.Request The request
+--- @param opts Types.InputOptions | nil The limits and `dir`
+--- @return Types.Parsed<Input.Multipart> The parts, or why not
+-- TODO: let a route raise the server's limit for its own uploads, once
+-- `ServeSpec.body_limit` exists (the TODO at `Server.Limits.body_bytes` in
+-- cosmic/http/server.tl); until then a large upload raises `limits.body_bytes`
+-- for the whole server.
+function Input.multipart(req: Types.Request, opts?: Types.InputOptions): Types.Parsed<Input.Multipart>
+  return read_multipart(req, opts and opts.max_bytes or DEFAULT_MULTIPART_MAX, opts)
 end
 
 --- The JSON body of `req`, decoded by [`Json.decode`] with `null` read as
@@ -346,7 +726,11 @@ local ints <const> = "^[+-]?%d+$"
 
 --- `text` without leading and trailing spaces and tabs.
 local function trimmed(text: string): string
-  return (text:match("^[ \t]*(.-)[ \t]*$"))
+  local first = text:find("[^ \t]")
+  if first == nil then return "" end
+  local last = #text
+  while text:byte(last) == 32 or text:byte(last) == 9 do last = last - 1 end
+  return text:sub(first, last)
 end
 
 --- The integer `text` spells, or nil.
@@ -716,6 +1100,22 @@ function Input.form_into<T>(req: Types.Request, typed: Shape.Typed<T>, opts?: Ty
   local read = Input.form(req, opts)
   if read.invalid ~= nil then return { invalid = read.invalid } end
   local out: Types.Parsed<T> = Input.bind_strings(read.value, typed.spec, with_source(opts, "form"))
+  return out
+end
+
+--- The text parts of the multipart body of `req`, read by
+--- [`Input.multipart`], bound to `typed` by [`Input.bind_strings`] as a
+--- form's fields are, with the same errors; the files are in
+--- `Input.multipart(req).value.files`. The statuses are
+--- [`Input.multipart`]'s, and 422 for a value that fails the spec.
+--- @param req Types.Request The request
+--- @param typed Shape.Typed<T> The record and its spec
+--- @param opts Types.InputOptions | nil The limits, `repeated`, `secret`
+--- @return Types.Parsed<T> The record, or why not
+function Input.multipart_into<T>(req: Types.Request, typed: Shape.Typed<T>, opts?: Types.InputOptions): Types.Parsed<T>
+  local read = Input.multipart(req, opts)
+  if read.invalid ~= nil then return { invalid = read.invalid } end
+  local out: Types.Parsed<T> = Input.bind_strings(read.value.fields, typed.spec, with_source(opts, "form"))
   return out
 end
 
