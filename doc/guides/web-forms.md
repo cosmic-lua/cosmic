@@ -288,7 +288,7 @@ for name, value in pairs(relaunch.env) do env[name] = value end
 env["COSMIC_TEST_SANDBOX"] = "0"
 local argv = { table.unpack(relaunch.argv) }
 argv[#argv + 1] = "test"
-for _, jobs in ipairs({ "1", "" }) do
+for _, jobs in ipairs({ "", "1" }) do
   env["COSMIC_BUILD_JOBS"] = jobs ~= "" and jobs or nil
   local said = assert(Child.run(argv,
     { env = env, fds = relaunch.fds, cwd = tmp, stdout = "capture", stderr = "capture",
