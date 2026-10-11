@@ -253,6 +253,9 @@ local function test_a_closure_store_holds_what_the_compiler_made(tmp: string)
       "VALUES ('greet', 'cosmic.fs')")
   held("an edge of a module outside the closure", "INSERT INTO decl_imports (path, requires) " ..
       "VALUES ('other', 'cosmic.fs')")
+  moved("a stub", "INSERT INTO stubs (path, source) VALUES ('greet', deflate('return {}'))")
+  held("a stub of a module outside the closure", "INSERT INTO stubs (path, source) " ..
+      "VALUES ('other', deflate('return {}'))")
   moved("an example", "INSERT INTO examples (module, name, text, file, line, source) " ..
       "VALUES ('greet', 'hello', 'Greets.', 'greet.tl', 1, 'greet.hello()')")
   -- What the projection's writer decides of a row and not the closure's
