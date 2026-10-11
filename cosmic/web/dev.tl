@@ -102,7 +102,9 @@ local record Dev
     --- restarts the program once a look finds nothing further moved.
     interval_ns: integer
     --- How long a program has to stop after SIGTERM before SIGKILL (3
-    --- seconds by default).
+    --- seconds by default). It holds when the supervisor itself is
+    --- signalled too; a second SIGINT or SIGTERM during it does not cut it
+    --- short.
     grace_ns: integer
     --- Where the supervisor's lines go (standard error by default).
     log: function(text: string)
@@ -630,19 +632,17 @@ function Dev.supervise(opts?: Dev.SuperviseOptions): boolean, string
     local h = handle
     handle = nil
     local _, _ = h:stop()
-    -- Not `h:wait(grace_ns)`: with the guard holding the signal that is
-    -- stopping this supervisor, that wait ends at once and cosmic.child
-    -- gives the program only its own 250 ms before SIGKILL, and a host
-    -- slow to tear the program down (macOS under load) outlasts the
-    -- second cosmic.child then waits to reap it, leaving it behind.
-    -- `wait_any` is not ended by the guard, and returns the program reaped.
+    -- Not `h:wait(grace_ns)`: it stops at the guard's pending signal, the
+    -- one that is ending this supervisor, and skips the grace. `wait_any`
+    -- is not ended by the guard and answers the program reaped.
     local done, trouble = Child.wait_any({ h }, grace_ns)
     if done == nil and trouble == Poll.TIMEOUT then
       local _, _ = h:stop(sys.SIGKILL)
       local _, _ = Child.wait_any({ h }, KILLED_NS)
     end
-    -- TODO: decide on a second SIGINT or SIGTERM during the grace: end the
-    -- program at once, or wait on as it does today (the guard keeps it).
+    -- TODO: end the program at once on a second SIGINT or SIGTERM during
+    -- the grace, once someone needs a second Ctrl-C to cut a slow program
+    -- short: the guard keeps the signal and this wait goes on.
     local _, _ = h:close()
   end
 
