@@ -133,7 +133,7 @@ local record Server
       -- wire.read_head, which answers 413 for a Content-Length past the
       -- server-wide `body_bytes` before the route is known: it would
       -- take the Content-Length check out of read_head into the caller.
-      body_bytes: integer
+      body_bytes?: integer
     end
     --- Bounds on what the server takes on; nil for every default.
     limits?: Limits
