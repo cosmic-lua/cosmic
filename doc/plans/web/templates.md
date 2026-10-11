@@ -914,7 +914,7 @@ Recommendation:
    for anyone listening. Input that fails a route's specs is a 400 in v1
    (core.md section 6.4; whether it should be 422 is the overview's open
    question 1), and 400 is not swapped; so a form route supplies
-   `on_invalid`, which core calls with the request and the `Input.Invalid`
+   `on_invalid`, which core calls with the request and the [`Input.Invalid`]
    (input.md section 2), and which renders the form fragment with the errors
    and answers 422. The same hook can branch on `Htmx.request(req).active`
    to give an htmx request the fragment and a browser or API client the
@@ -1127,7 +1127,7 @@ same change.
   prefixes included; and the reserved prefix `/_web/` where the vendored
   files are served.
 - Middleware shape is `function(Handler): Handler` (core.md section 7).
-- Routes' `on_invalid` (core.md section 6.4) and `Input.Invalid` (input.md
+- Routes' `on_invalid` (core.md section 6.4) and [`Input.Invalid`] (input.md
   section 2) for the 422 re-render of 6.7.
 - Assets (assets.md sections 4.2 to 4.4): the vendored `htmx.min.js` and
   its path under `vendor/`, the version string, and the SRI values, read
@@ -1240,6 +1240,7 @@ is):
 [`Htmx.page`]: ../../../cosmic/web/htmx.tl
 [`Htmx.path()`]: ../../../cosmic/web/htmx.tl
 [`Htmx.version`]: ../../../cosmic/web/htmx.tl
+[`Input.Invalid`]: ../../../cosmic/web/input.tl
 [`Json.decode`]: ../../../cosmic/json.tl
 [`Json.encode`]: ../../../cosmic/json.tl
 [`Json.EncodeOptions.ascii`]: ../../../cosmic/json.tl

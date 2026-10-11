@@ -20,7 +20,7 @@ What this file uses of core.md, stated once:
   cosmic/http/server.tl:30-66), and `req:get(KEY)` / `req:set(KEY, v)` for
   per-request state. Every piece of state in this file is an exported
   `Web.Key<T>`, never a `req.state.x` field: `Input.QUERY`, `Input.FORM`,
-  `Input.JSON` and `Input.CLEANUP` (section 2), `Session.KEY` (section 7),
+  [`Input.JSON`] and `Input.CLEANUP` (section 2), `Session.KEY` (section 7),
   `Headers.NONCE` (section 10). `req.state` is core's untyped escape
   hatch and nothing here uses it.
 - [`Web.Response`] is [`Server.Reply`] with `headers: {string: string |
@@ -35,12 +35,12 @@ What this file uses of core.md, stated once:
   `X-Forwarded-Proto` only when the app declares a trusted proxy (open
   question 1). The server itself is plain HTTP; TLS is always a proxy's.
 - [`Web.problem`] and a route's `on_invalid` (core.md section 6.4). This file
-  produces `Input.Invalid` and core turns it into the response; nothing here
+  produces [`Input.Invalid`] and core turns it into the response; nothing here
   renders error pages itself.
 
 Layout of what this file adds (new files next to [`cosmic/web/init.tl`]):
 
-- `cosmic.web.input` (`cosmic/web/input.tl`): query / form / JSON reading
+- `cosmic.web.input` ([`cosmic/web/input.tl`]): query / form / JSON reading
   and shape binding.
 - `cosmic.web.cookies` (`cosmic/web/cookies.tl`): Cookie parsing and
   Set-Cookie building.
@@ -243,7 +243,7 @@ local record Input
 end
 ```
 
-`Input.Invalid` is data, not a response: core turns it into a problem
+[`Input.Invalid`] is data, not a response: core turns it into a problem
 response (HTML or JSON by Accept, core.md section 6.4) unless the route has
 an `on_invalid`, and a handler that wants to re-render takes it instead
 (section 3).
@@ -312,6 +312,20 @@ function Input.json_into<T>(req, spec: Shape.Spec, opts?): T | nil, Input.Invali
 function Input.multipart(req, opts?: Input.MultipartOptions): Input.Multipart | nil, Input.Invalid
 ```
 
+**As built (the PR that landed `cosmic.web.input`).** The build's contracts
+let an exported function answer two results only as a value and a string
+reason, so every reader and binder answers one record, `Parsed<T>` (`value`
+or `invalid`), and `media_type` a record (`essence`, `params`). The `*_into`
+functions take the `Shape.Typed<T>` that `record_of` makes, so `T` needs no
+annotation; `bind_strings<T>` takes a bare `Spec` and `T` is the caller's.
+[`Input.path_into`] binds `req.params`. `Input.QUERY` is not exported: the
+request's own `req:query()` already keeps that decode, and `Input.query`
+shares it. A failure to decode a form or query is code `malformed` (the
+decoder's reason is the message); a body that is not UTF-8 is `utf8`. A
+list's element error is named from 0 (`tags.0`), as a JSON Pointer counts.
+Not built yet: `Input.empty_as_nil`, `require_nonempty` and the other
+one-line validators, `form_or_json`, and multipart.
+
 `T` is inferred from the caller's annotation, exactly as [`Shape.into`]
 (shape.tl:496) requires; the same [`Shape.record_of`] pattern gives the type
 for free. `Typed<T>` gets matching sugar so a route can write
@@ -323,7 +337,7 @@ calls them directly only on a route without specs.
 ### Reading and caching the body
 
 `Input.form` and `Input.json` read the body once, store the parsed value
-under the exported keys `Input.FORM` (`Web.Key<Url.Query>`) and `Input.JSON`
+under the exported keys `Input.FORM` (`Web.Key<Url.Query>`) and [`Input.JSON`]
 (`Web.Key<any>`), and replace `req.raw.body` with
 `Stream.from_string(bytes)` (stream.tl:404; core's `req:bytes()` does the
 same, core.md section 2.1), so a middleware that peeks at the form (CSRF) and
@@ -332,7 +346,7 @@ a handler that reads it again both work, and a handler that calls
 body is never parsed twice: the second call returns the cache or, for a
 different kind (`form` after `json`), a 415.
 
-Failure mapping (all `Input.Invalid`):
+Failure mapping (all [`Input.Invalid`]):
 
 - Read failure past the server's limit: the server already marked the body
   `over` and answers 413 in place of the handler's reply (server.tl:398-403);
@@ -357,7 +371,7 @@ The statuses are the same in every part of cosmic.web (core.md section 6.4):
   (templates.md section 6.6) swaps 422, so a form's re-render with its
   errors reaches the page.
 
-`Input.Invalid.status` is one of these. A route's `on_invalid` (section 3,
+[`Input.Invalid.status`] is one of these. A route's `on_invalid` (section 3,
 "Route-level wiring") re-renders with it; without one, the router answers
 the problem response with it.
 
@@ -379,7 +393,7 @@ is text, a checkbox is *absent* when unchecked, an empty text input is
 submitted as `""`, and a page wants all the field errors at once.
 
 JSON binding therefore goes straight through [`Shape.into`] unchanged, with the
-pointer converted into a `FieldError.field` (`/address/city` -> `address.city`,
+pointer converted into a [`FieldError.field`] (`/address/city` -> `address.city`,
 numeric steps kept: `items.0.name`) by parsing the failure message the same
 way [`Json.from_pointer`] (json.tl:778) reads a pointer. Only the first error
 is available there; for JSON APIs that is acceptable (the client is a
@@ -482,7 +496,7 @@ function Input.bind_strings<T>(q: Url.Query, spec: Shape.Spec, opts?: Input.Opti
 ```
 
 `opts.source` (`"path"|"query"|"form"`, default `"form"`) is what the binder
-writes into each `FieldError.source`.
+writes into each [`FieldError.source`].
 
 On any failure the result is `nil, Invalid` with every field's error in
 `errors`, ordered by the spec's field order (byte order, as Shape already
@@ -528,12 +542,12 @@ Whether to grow facets in Shape instead is open question 2.
 Core calls these when a route names a spec (core.md section 6). For a route
 with `Web.input(path, query, body)` it binds the path parameters with
 `bind_strings` (a [`Url.Query`] built from the params, so the coercions agree
-across sources), then `Input.query_into`, then `Input.form_into` or
-`Input.json_into`, *before* the handler, and passes the typed records to the
+across sources), then [`Input.query_into`], then [`Input.form_into`] or
+[`Input.json_into`], *before* the handler, and passes the typed records to the
 handler as arguments. The decoded views are in the exported keys
-`Input.QUERY`, `Input.FORM` and `Input.JSON`, so a middleware and the
+`Input.QUERY`, `Input.FORM` and [`Input.JSON`], so a middleware and the
 handler read the same decode; the typed records are not stored on the
-request. On failure core answers from the `Input.Invalid`, unless the route
+request. On failure core answers from the [`Input.Invalid`], unless the route
 has `on_invalid: function(Web.Request, Input.Invalid): Web.Response` (core
 owns the hook, core.md section 6.4). That hook is what makes the htmx
 re-render case one line: it renders the form with `Invalid` and answers 422.
@@ -1800,12 +1814,22 @@ declaration, everything else declares nothing.
 [`cosmic.url`]: ../../../cosmic/url.tl
 [`cosmic.web.testing`]: ../../../cosmic/web/testing.tl
 [`cosmic/web/init.tl`]: ../../../cosmic/web/init.tl
+[`cosmic/web/input.tl`]: ../../../cosmic/web/input.tl
+[`FieldError.field`]: ../../../cosmic/web/types.tl
+[`FieldError.source`]: ../../../cosmic/web/types.tl
 [`Fs.rename`]: ../../../cosmic/fs.tl
 [`Fuzz.label`]: ../../../build/fuzz/init.tl
 [`Hash.digest`]: ../../../cosmic/hash.tl
 [`Hash.equal`]: ../../../cosmic/hash.tl
 [`Htmx.head`]: ../../../cosmic/web/htmx.tl
 [`Htmx.indicator_css()`]: ../../../cosmic/web/htmx.tl
+[`Input.form_into`]: ../../../cosmic/web/input.tl
+[`Input.Invalid.status`]: ../../../cosmic/web/types.tl
+[`Input.Invalid`]: ../../../cosmic/web/input.tl
+[`Input.json_into`]: ../../../cosmic/web/input.tl
+[`Input.JSON`]: ../../../cosmic/web/input.tl
+[`Input.path_into`]: ../../../cosmic/web/input.tl
+[`Input.query_into`]: ../../../cosmic/web/input.tl
 [`Json.decode`]: ../../../cosmic/json.tl
 [`Json.encode`]: ../../../cosmic/json.tl
 [`Json.from_pointer`]: ../../../cosmic/json.tl

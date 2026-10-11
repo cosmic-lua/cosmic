@@ -269,6 +269,12 @@ promises lean on come first:
   needs the caller to hand the body over again (a function answering a
   fresh Reader) behind `CURLOPT_SEEKFUNCTION`; curl answers "necessary data
   rewind was not possible" without one.
+- `cosmic.web.input` past what the first form binds, each once a route wants
+  it: `Input.empty_as_nil(spec)` (an optional string whose `""` is nil),
+  `require_nonempty`, `min_length` and `matches` over an [`Input.Invalid`],
+  `Input.form_or_json` for a route that takes either body with one spec, a
+  `list` of records read from `items.0.name` names, and a collect-all mode in
+  [`cosmic.shape`] so a JSON body reports every failure, as a form does.
 - [`cosmic.url`] past escaping, unescaping, query decoding, a path's
   segments and an absolute URL's parts, each once a caller needs it:
   `Url.format(parts)`, writing a [`Url.Parts`] back into a URL (an IPv6
@@ -449,6 +455,7 @@ four-producer provenance join.
 [`Errors.guidance`]: ../cosmic/errors.tl
 [`eval/summarize.tl`]: ../eval/summarize.tl
 [`Html.url_part`]: ../cosmic/html.tl
+[`Input.Invalid`]: ../cosmic/web/input.tl
 [`Json.decode`]: ../cosmic/json.tl
 [`Net.serve`]: ../cosmic/net.tl
 [`receivers.record_named`]: ../build/receivers.tl

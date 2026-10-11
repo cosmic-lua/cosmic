@@ -167,7 +167,7 @@ assert(reply.status == 422 and reply.text:find("qty", 1, true))
   typed routes, middleware composition, the exception layer, App, serve,
   lifespan, typed per-request keys (`Web.key<T>`).
 - `cosmic.web.input`: query, form and JSON decoding, and binding them to
-  a spec with every field's error collected (`Input.Invalid`).
+  a spec with every field's error collected ([`Input.Invalid`]).
 - `cosmic.web.mime`: content types by file name.
 - `cosmic.web.cookies`, `cosmic.web.session` (with its stores
   `cosmic.web.session.cookie` and `cosmic.web.session.sqlite`),
@@ -283,7 +283,7 @@ needs have merged.
 6. **htmx and assets:** vendored htmx and its SSE extension with their
    PINs, the `static/` convention and `StaticFiles`, [`cosmic.web.htmx`]
    and [`Htmx.head`].
-7. **Streaming and the rest:** [`cosmic.channel`], `cosmic.web.sse`,
+7. **Streaming and the rest:** [`cosmic.channel`], [`cosmic.web.sse`],
    `cosmic.http.multipart` (decision 8), and
    `cosmic.web.dev`.
 8. **A guide,** doc/guides/web.md, which is a test of its own: one app
@@ -344,12 +344,14 @@ cooperative process.
 [`cosmic.channel`]: ../../cosmic/channel.tl
 [`cosmic.http.wire`]: ../../cosmic/http/wire.tl
 [`cosmic.web.htmx`]: ../../cosmic/web/htmx.tl
+[`cosmic.web.sse`]: ../../cosmic/web/sse.tl
 [`cosmic.web`]: ../../cosmic/web/init.tl
 [`Hash.equal`]: ../../cosmic/hash.tl
 [`Html.url_part`]: ../../cosmic/html.tl
 [`Htmx.head()`]: ../../cosmic/web/htmx.tl
 [`Htmx.head`]: ../../cosmic/web/htmx.tl
 [`Htmx.page`]: ../../cosmic/web/htmx.tl
+[`Input.Invalid`]: ../../cosmic/web/input.tl
 [`Poll.notifier`]: ../../cosmic/poll.tl
 [`Request.peer`]: ../../cosmic/http/server.tl
 [`Router:reverse`]: ../../cosmic/web/types.tl

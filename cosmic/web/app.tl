@@ -19,6 +19,7 @@ local SPEC_FIELDS <const>: {string:boolean} = {
   routes = true, middleware = true, lifespan = true, debug = true, trailing_slash = true,
   trusted_hosts = true, trusted_proxy = true, error_pages = true, error_view = true, sink = true,
   builtin = true,
+  hubs = true, max_streams = true,
 }
 
 local SERVE_FIELDS <const>: {string:boolean} = {
@@ -28,6 +29,10 @@ local SERVE_FIELDS <const>: {string:boolean} = {
 
 --- How long requests in flight have to finish once the server stops.
 local GRACE_NS <const> = Clock.seconds(10)
+
+--- The streams an app allows when it is not served: half the server's
+--- default of 256 connections.
+local DEFAULT_STREAM_LIMIT <const> = 128
 
 --- Raises where `spec` is no table or holds a field `known` lacks.
 local function checked(spec: any, known: {string:boolean}, what: string)
@@ -85,7 +90,16 @@ function App.new(spec: Types.AppSpec): Types.App
     trusted_proxy = spec.trusted_proxy == true, error_pages = spec.error_pages,
     error_view = spec.error_view, sink = spec.sink or Middleware.stderr_sink(),
     builtin = spec.builtin ~= false,
+    hubs = spec.hubs or {}, max_streams = spec.max_streams,
   }
+  if kept.max_streams ~= nil and (math.type(kept.max_streams) ~= "integer" or kept.max_streams < 0) then
+    error("web: max_streams must be a non-negative integer", 2)
+  end
+  for _, hub in ipairs(kept.hubs) do
+    if type(hub) ~= "table" or type(hub.close) ~= "function" then
+      error("web: hubs holds only what has a close method", 2)
+    end
+  end
   local trusted: {string:boolean} = nil
   if spec.trusted_hosts ~= nil then
     trusted = {}
@@ -99,7 +113,8 @@ function App.new(spec: Types.AppSpec): Types.App
       kept.trusted_hosts[i] = parsed.host
     end
   end
-  local app: Types.App = { spec = kept, state = {}, stopped = false, stoppers = {} }
+  local app: Types.App = { spec = kept, state = {}, stopped = false, stoppers = {},
+    streams = {}, stream_count = 0, stream_limit = kept.max_streams or DEFAULT_STREAM_LIMIT }
   local router = Router.build(kept.routes, Errors.terminal, kept.trailing_slash, kept.builtin)
   app.router = router
   local function dispatch(req: Types.Request): Types.Response
@@ -146,7 +161,15 @@ function App.new(spec: Types.AppSpec): Types.App
       end
     end
     req.outcome = outcome
-    return stack(req)
+    local reply: Types.Response = nil
+    local ok, raised = pcall(function() reply = stack(req) end)
+    for _, body in ipairs(req.bodies) do
+      if not (ok and reply.body == body) then
+        local _, _ = body:close()
+      end
+    end
+    if not ok then error(raised, 0) end
+    return reply
   end
   return setmetatable(app, app_mt)
 end
@@ -170,6 +193,7 @@ function App.serve(app: Types.App, opts: Types.ServeOptions): boolean, string
     end
   end
   app.stopped = false
+  app.stream_limit = app.spec.max_streams or ((opts.limits or {}).connections or 256) // 2
   local shutdown: Types.Shutdown = nil
   if app.spec.lifespan ~= nil then
     local cleanup, why = app.spec.lifespan(app)
@@ -188,6 +212,16 @@ function App.serve(app: Types.App, opts: Types.ServeOptions): boolean, string
         app.stopped = true
         for _, fn in ipairs(app.stoppers) do
           local trouble = raised_by(fn)
+          if trouble ~= nil then sink:line("on_stop: " .. trouble) end
+        end
+        for _, hub in ipairs(app.spec.hubs) do
+          local trouble = raised_by(function() hub:close() end)
+          if trouble ~= nil then sink:line("on_stop: " .. trouble) end
+        end
+        local open: {function()} = {}
+        for _, close in pairs(app.streams) do open[#open + 1] = close end
+        for _, close in ipairs(open) do
+          local trouble = raised_by(close)
           if trouble ~= nil then sink:line("on_stop: " .. trouble) end
         end
         if opts.on_stop ~= nil then opts.on_stop(server) end

@@ -40,8 +40,8 @@ Code is cited as `path:line` from the tree at the time of writing.
   htmx 4.0.0 exists on npm as the `next` tag; v1 stays on 2.x (section 4.7).
 - There is no condition variable in cosmic.poll today. SSE needs one, so
   this file adds `Poll.Notifier` (in cosmic/poll.tl),
-  a new small module [`cosmic.channel`] built on it, and `Sse.Hub` /
-  `Sse.EventStream` (`cosmic.web.sse`) on top of that.
+  a new small module [`cosmic.channel`] built on it, and [`Sse.Hub`] /
+  [`Sse.EventStream`] ([`cosmic.web.sse`]) on top of that.
 - SSE needs one change to cosmic/http/server.tl (forward `on_stop`, core.md
   section 9.3 and 13.7) and a second seam (`Reply.take`) that WebSockets will
   also use. Heartbeats
@@ -1032,7 +1032,7 @@ record Sse.Hub
     max_total: integer
   end
 
-  new: function(opts?: Options): Hub
+  new: function(opts?: Options): Hub   -- built as `Sse.new_hub(opts)`
   --- Delivers `ev` to every subscriber of `topic`, assigns it the next
   --- id when `ev.id` is nil (a hub-wide monotonic integer, as text),
   --- and returns how many subscribers it reached. Never waits.
@@ -1088,7 +1088,7 @@ and the per-user permission check in one place (the GET).
 Usage:
 
 ```teal
-local hub = Sse.Hub.new{}
+local hub = Sse.new_hub{}
 
 local function events(req: Web.Request): Web.Response
   local user = Session.of(req):get_string("user")   -- input.md section 7
@@ -1250,9 +1250,9 @@ section 9.3, and this is its streaming half:
    at once. [`Server.serve`] forwards a caller's `on_stop` (core.md section
    13.7), and [`Web.serve`] uses it to flip `app:stopping()` and run every
    function registered with `app:on_stop(fn)`.
-3. Every `Sse.Hub` and every `Sse.EventStream` registered with the App closes
+3. Every [`Sse.Hub`] and every [`Sse.EventStream`] registered with the App closes
    its streams from that hook. A Hub registers with `hub:attach(app)` or
-   `Web.app{ hubs = { hub } }`; an `Sse.EventStream` registers when it is made
+   `Web.app{ hubs = { hub } }`; an [`Sse.EventStream`] registers when it is made
    from a request (`Sse.EventStream(req, source, opts)` reaches the app
    through `req.app`). A `Subscription:next` on a closed hub returns
    `nil, ""`, which the Reader turns into the end of the stream: a clean
@@ -1434,7 +1434,7 @@ All small; each with its reason.
   seam later.
 - cosmic/web/mime.tl, cosmic/web/assets.tl (support modules),
   cosmic/web/static.tl (`cosmic.web.static`), cosmic/web/sse.tl
-  (`cosmic.web.sse`: `Event`, `EventStream`, `Hub`, `Subscription`) and
+  ([`cosmic.web.sse`]: `Event`, `EventStream`, `Hub`, `Subscription`) and
   cosmic/web/dev.tl (`cosmic.web.dev`): new, under the [`cosmic.web`]
   namespace. [`cosmic/web/init.tl`] re-exports. [`Htmx.head`], [`Htmx.path`],
   [`Htmx.integrity`] and [`Htmx.indicator_css`] are in cosmic/web/htmx.tl
@@ -1603,6 +1603,7 @@ parts, multi-process hub.
 [`cosmic.sqlite`]: ../../../cosmic/sqlite.tl
 [`cosmic.sys`]: ../../../core/syscalls.h
 [`cosmic.web.htmx`]: ../../../cosmic/web/htmx.tl
+[`cosmic.web.sse`]: ../../../cosmic/web/sse.tl
 [`cosmic.web`]: ../../../cosmic/web/init.tl
 [`cosmic/web/init.tl`]: ../../../cosmic/web/init.tl
 [`Fs.stat`]: ../../../cosmic/fs.tl
@@ -1636,6 +1637,8 @@ parts, multi-process hub.
 [`Server.ServeSpec.Limits.connections`]: ../../../cosmic/http/server.tl
 [`ServeSpec.on_stop`]: ../../../cosmic/net.tl
 [`Sqlite.open`]: ../../../cosmic/sqlite.tl
+[`Sse.EventStream`]: ../../../cosmic/web/sse.tl
+[`Sse.Hub`]: ../../../cosmic/web/sse.tl
 [`Store.databases()`]: ../../../cosmic/store.tl
 [`Store.web_asset`]: ../../../cosmic/store.tl
 [`Store.zoneinfo`]: ../../../cosmic/store.tl
