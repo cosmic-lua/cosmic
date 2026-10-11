@@ -10,8 +10,8 @@
 #
 # TODO: nothing checks that what this runs, and ci/, which the driver
 # compiles on the same release, parse under that release's Teal: a
-# syntax the tree's compiler gained since (a record field's `name?:`)
-# breaks them only when they are run. A check that compiles them with
+# syntax the tree's compiler gains after that release (as a record
+# field's `name?:` once did) breaks them only when they are run. A check that compiles them with
 # the pinned cosmic would catch it, once tests can reach its cached copy.
 #
 # COSMIC_BOOTSTRAP, when set, names another cosmic to stand in for the
