@@ -190,6 +190,8 @@ of its own:
   `coroutine.wrap(f)` of a function returning a string is typed to return
   one whatever it yields.
 - `rawset(r, "name", 1)` writes a number into a record's string field.
+- `setmetatable`: a function `__index` is declared to return `any`, so it may
+  serve a number for a string field (a table `__index` is checked, 47a).
 - a call through `any` carries no flag, and a declaration that says `never`
   and returns is a bug in the declaration, as a function declared to
   return a string that returns a number is.

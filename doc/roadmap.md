@@ -31,7 +31,9 @@ defines the target; once something ships, it leaves this file.
   functions among them ([doc/plans/teal-never.md](plans/teal-never.md) lists
   them with tests that pin today's behavior): `coroutine.wrap` is declared
   `function<F>(F): F` though its wrapper returns whatever the coroutine
-  yields; `rawset` writes a value of any type into a record's field.
+  yields; `rawset` writes a value of any type into a record's field; a function `__index`
+  given to `setmetatable` is declared to return `any`, so what it serves is
+  not checked against the record (a table `__index` is, patch/tl's 47a).
 - add earned lint rules and their fixes to [`build/fix/rule.tl`]'s rule list.
   the rewrite stage is in place and the list is still empty.
 - add a floor for line coverage, C included: `cosmic test --min PCT
