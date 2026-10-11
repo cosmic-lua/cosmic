@@ -228,10 +228,16 @@ function Orchestration.shares(env: {string:string})
 end
 
 --- A suite's `cosmic test` words in `env`: `--all` where it stands on
---- nothing (`stands`).
+--- nothing (`stands`), and `--bail` in a merge-queue run, which has
+--- failed once any test fails and gains nothing from the rest of the
+--- suite. Every other event runs every test and reports them all. The
+--- suites run the tree's own tool, which parses the flag, never the
+--- pinned release the driver itself runs on.
 function Orchestration.test_words(env: {string:string}): {string}
-  if Orchestration.stands(env) then return { "test" } end
-  return { "test", "--all" }
+  local words: {string} = { "test" }
+  if not Orchestration.stands(env) then words[#words + 1] = "--all" end
+  if env.COSMIC_CI_EVENT == "merge_group" then words[#words + 1] = "--bail" end
+  return words
 end
 
 --- Sets `env`, a suite's, to the requirements the leg it runs on
@@ -1249,7 +1255,8 @@ end
 --- The `cosmic test` words of the darwin suite, given `words`, the
 --- native suite's ([`test_words`]), and `modules`, the darwin list's
 --- ([`darwin_modules`]): `--all` over those modules where the native
---- suite stands on verdicts, so none of them stands on one. A verdict
+--- suite stands on verdicts, so none of them stands on one, with its
+--- `--bail` where it has one. A verdict
 --- keyed by declarations stands on macOS for the key a Linux leg
 --- reached, whose run never took the macOS branch its code has. Nil on
 --- a run of every test already (the scheduled run, the backstop).
@@ -1259,6 +1266,9 @@ function Orchestration.darwin_words(words: {string}, modules: {string}): {string
     if word == "--all" then return nil end
   end
   local out: {string} = { "test", "--all", "--census" }
+  for _, word in ipairs(words) do
+    if word == "--bail" then out[#out + 1] = word end
+  end
   for _, module in ipairs(modules) do out[#out + 1] = module end
   return out
 end

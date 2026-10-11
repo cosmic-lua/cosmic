@@ -69,7 +69,15 @@ local function test_a_failing_run()
   assert(figures.parts and figures.parts.harness == "dddddddddddd")
   assert(SuiteOutput.status(figures, 1) == "fail")
   local bare = SuiteOutput.parse("test: FAIL (1 of 3 failed, 0 infrastructure errors, 9 ms)\n")
-  assert(bare.verdict == "fail" and bare.sandbox == "")
+  assert(bare.verdict == "fail" and bare.sandbox == "" and bare.not_run == nil)
+  -- A bailing run's tail is no part of the sandbox's words.
+  local bailed = SuiteOutput.parse("test: FAIL (1 of 3 failed, 0 infrastructure errors, 9 ms; " ..
+      "sandboxed; 2 not run after the first failure)\n")
+  assert(bailed.verdict == "fail" and bailed.failed == 1 and bailed.sandbox == "sandboxed" and
+      bailed.not_run == 2, tostring(bailed.sandbox))
+  local bare_bailed = SuiteOutput.parse("test: FAIL (1 of 3 failed, 0 infrastructure errors, " ..
+      "9 ms; 2 not run after the first failure)\n")
+  assert(bare_bailed.sandbox == "" and bare_bailed.not_run == 2)
 end
 
 --- A run that stood on none of a cache's rows says its key parts in the
