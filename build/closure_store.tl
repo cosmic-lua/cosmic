@@ -174,6 +174,7 @@ function closure_store.basis(whole: string): closure_store.Basis | nil, string
         { "file", "module name text line source", "examples", "id" },
         { "from_module", "module symbol path anchor from_file line column kind form source text",
             "links", "module, symbol, path, anchor, from_file, line, column" },
+        { "path", "source", "stubs", "path" },
     }) do
       local columns: {string} = {}
       for column in group[2]:gmatch("%S+") do columns[#columns + 1] = column end
@@ -335,12 +336,12 @@ end
 --- Fills a closure store's fresh schema from the projection attached
 --- as `whole`, for the modules `temp.wanted` names: their rows, the
 --- edges among them, the names they bind, their docs, uses and links
---- (those they make), catalog, and the examples of the example files
---- among them; the declarations `temp.declared` names (`declared`), the
---- names they bind, their docs and links; and of both, every edge the
---- checker follows (`decl_imports`), which [`build.compilation`] reads of
---- a standard-library module on a sealed database ([`build.test`]'s
---- `sealed_fill`); and the `meta` rows `closure_meta` keeps. The zones, CA
+--- (those they make), catalog, stubs, and the examples of the example
+--- files among them; the declarations `temp.declared` names
+--- (`declared`), the names they bind, their docs and links; and of both,
+--- every edge the checker follows (`decl_imports`), which
+--- [`build.compilation`] reads of a standard-library module on a sealed
+--- database ([`build.test`]'s `sealed_fill`); and the `meta` rows `closure_meta` keeps. The zones, CA
 --- roots, components and notices are left out: the core, [`cosmic.time`]
 --- and [`build.bom`] read those from the tool's own database alone.
 --- Each table's rows go in by what the address digests of them
@@ -366,6 +367,10 @@ local function closed(uses_from: string): {string}
       "WHERE path IN temp.wanted OR path IN temp.declared ORDER BY path, name",
     "INSERT INTO main.decls SELECT * FROM whole.decls WHERE path IN temp.declared " ..
       "ORDER BY path",
+    -- The stubs ([`build.stub`]) of its standard-library modules, which a
+    -- checker run in the worker ([`teal.standard_text`]) reads as a
+    -- project's does.
+    "INSERT INTO main.stubs SELECT * FROM whole.stubs WHERE path IN temp.wanted ORDER BY path",
     "INSERT INTO main.docs (module, symbol, source_symbol, exported, kind, signature, " ..
       "text, file, line) SELECT module, symbol, source_symbol, exported, kind, signature, " ..
       "text, file, line FROM whole.docs WHERE module IN temp.wanted " ..
