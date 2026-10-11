@@ -58,7 +58,7 @@ local record wire
     headers: {string:string}
     --- The Content-Length, 0 for a request with neither it nor a
     --- chunked body, nil for a chunked one.
-    length: integer
+    length?: integer
     --- Whether the body is chunked.
     chunked: boolean
     --- Whether the connection closes after this request: the client
@@ -74,7 +74,7 @@ local record wire
   --- What [`wire.read_head`] read: a head, or why there is none.
   record Read
     --- The head; nil where none was read.
-    head: Head
+    head?: Head
     --- The status a refused request is answered with, 0 where none was
     --- refused.
     status: integer
@@ -133,20 +133,20 @@ local record wire
     --- A list value writes one line per element, in order, for a
     --- header that cannot be joined with ", " (Set-Cookie); an empty
     --- list writes nothing, and a list of Content-Length is refused.
-    headers: {string: string | {string}}
+    headers?: {string: string | {string}}
     --- nil for none, a string, or a Reader, which [`wire.send`] closes.
-    body: string | Stream.Reader
+    body?: string | Stream.Reader
     --- The body's size: a string's own, a Reader's, or, with no body,
     --- 0, but for a HEAD the size of a GET's body, and for a 304 a
     --- 200's. A Reader without it goes chunked to an HTTP/1.1 client,
     --- and to an HTTP/1.0 one until the connection closes.
-    length: integer
+    length?: integer
     --- Whether the connection closes after the reply.
-    close: boolean
+    close?: boolean
     --- The request's method; nil is taken for one that is not HEAD.
-    method: string
+    method?: string
     --- The request's version.
-    version: string
+    version?: string
     --- The Date header's value.
     date: string
   end
@@ -340,7 +340,7 @@ local record Target
   query: string
   --- An absolute-form target's host, and port when it names one; nil
   --- for another form.
-  authority: string
+  authority?: string
 end
 
 --- The request line's target as a [`Target`], or nil and why.
@@ -824,12 +824,13 @@ local function head_text(reply: wire.Reply, length: integer | nil, chunked: bool
     "Date: " .. reply.date,
   }
   local names: {string} = {}
-  for name in pairs(reply.headers or {}) do
+  local headers = reply.headers or {}
+  for name in pairs(headers) do
     if name:lower() ~= "content-length" then names[#names + 1] = name end
   end
   table.sort(names)
   for _, name in ipairs(names) do
-    local value = reply.headers[name]
+    local value = headers[name]
     if value is string then
       lines[#lines + 1] = name .. ": " .. value
     else

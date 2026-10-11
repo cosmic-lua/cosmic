@@ -134,8 +134,8 @@ local function test_a_download_fetches_the_redirect_without_the_token(tmp: strin
   for name in pairs(options.headers or {}) do
     assert(name:lower() ~= "authorization", "the token went to the redirect's host")
   end
-  assert(options.redirect_protocols and #options.redirect_protocols == 1 and
-      options.redirect_protocols[1] == "https", "a redirect may leave https")
+  local protocols = options.redirect_protocols
+  assert(protocols and #protocols == 1 and protocols[1] == "https", "a redirect may leave https")
   assert(options.follow ~= false and (options.max_redirects or 0) <= 3)
 end
 

@@ -676,13 +676,13 @@ end
 --- with no `trouble` is rebound; the copy shares nothing with `plan`.
 function test_sandbox.rebind(plan: test_sandbox.Plan, from: string, scratch: string,
                              effective: test_inputs.Effective): test_sandbox.Plan
-  local unveil = plan.sandbox.unveil
+  local unveil = assert(plan.sandbox.unveil)
   local reads: {string} = {}
   for i, path in ipairs(unveil.reads) do reads[i] = path end
   local writes: {string} = {}
-  for i, path in ipairs(unveil.writes) do writes[i] = path == from and scratch or path end
+  for i, path in ipairs(unveil.writes or {}) do writes[i] = path == from and scratch or path end
   local at: {string:string} = {}
-  for path, inside in pairs(unveil.at) do at[path == from and scratch or path] = inside end
+  for path, inside in pairs(unveil.at or {}) do at[path == from and scratch or path] = inside end
   local env: {string:string} = {}
   for name, value in pairs(plan.env) do env[name] = value end
   local runs: {string:boolean} = {}

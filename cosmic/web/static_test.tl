@@ -23,7 +23,7 @@ end
 
 local function app_of(opts?: StaticFiles.Options): Web.App
   local o: StaticFiles.Options = opts or {}
-  o.source = o.source or files()
+  if o.source == nil then o.source = files() end
   return Web.app{ routes = { StaticFiles.mount("/static", o), Web.get("/", function(_req: Web.Request): Web.Response
     return Web.text("home")
   end) } }

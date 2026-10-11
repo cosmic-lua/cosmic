@@ -28,14 +28,14 @@ local record resolv
   --- What [`resolv.lookup`] is asked.
   record Request
     --- The most the lookup takes, nil for no limit beyond c-ares's own.
-    timeout_ns: integer
+    timeout_ns?: integer
     --- Name servers to ask in place of the system's, as c-ares writes them.
-    servers: string
+    servers?: string
     --- A hosts file to read in place of the system's.
-    hosts: string
+    hosts?: string
     --- The name servers to ask through a connector, in place of `servers`:
     --- each connect to one is made by `connect`.
-    through: {raw_socket.ThroughServer}
+    through?: {raw_socket.ThroughServer}
     --- Makes the connection to the entry `index` of the connector's table
     --- at `port` by `deadline` (a monotonic time in nanoseconds, nil for
     --- none): the connected socket, or nil and why ([`Poll.TIMEOUT`] where

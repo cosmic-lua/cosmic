@@ -105,11 +105,11 @@ local function test_lookup_is_total_and_redirects_stay_local(tmp: string)
       if not KINDS[outcome.kind] then return false, "kind " .. tostring(outcome.kind) end
       Fuzz.label(outcome.kind)
       if outcome.kind == "match" then
-        for name, value in pairs(outcome.params) do
+        for name, value in pairs(outcome.params or {}) do
           if value == "" and name == "id" then return false, "an empty :id" end
         end
       elseif outcome.kind == "redirect" then
-        local location = outcome.location
+        local location = assert(outcome.location)
         if location:sub(1, 1) ~= "/" or location:sub(2, 2) == "/" or location:find("[%z\1-\31\127\\]") then
           return false, ("redirect to %q"):format(location)
         end
@@ -118,12 +118,14 @@ local function test_lookup_is_total_and_redirects_stay_local(tmp: string)
           return false, "the redirect leads to a refused path"
         end
         if next_outcome.kind == "redirect" then
-          if router:match(method, next_outcome.location).kind == "redirect" then
+          if router:match(method, assert(next_outcome.location)).kind == "redirect" then
             return false, ("redirects chain from %q through %q"):format(path, location)
           end
         end
       elseif outcome.kind == "not_allowed" or outcome.kind == "options" then
-        if not outcome.allow:find("OPTIONS", 1, true) then return false, "Allow lacks OPTIONS" end
+        if not assert(outcome.allow):find("OPTIONS", 1, true) then
+          return false, "Allow lacks OPTIONS"
+        end
       end
       return true, ""
     end,
@@ -201,7 +203,8 @@ local function test_a_path_and_its_reescaped_spelling_reach_the_same_outcome(tmp
       local params: {string} = {}
       for name, value in pairs(req.params) do params[#params + 1] = name .. "=" .. value end
       table.sort(params)
-      seen[#seen + 1] = ("%s|%s|%s"):format(req.path, req.route and req.route.pattern or "-",
+      local route = req.route
+      seen[#seen + 1] = ("%s|%s|%s"):format(req.path, route and route.pattern or "-",
         table.concat(params, "&"))
       return inner(req)
     end

@@ -13,6 +13,12 @@ note: an `if` whose every block ends in a return still falls through when it has
                if not node.if_blocks[#node.if_blocks].exp then
                   node.block_returns = true
                end
+               -- TODO: the negation below does not distribute over a
+               -- condition that is an `or`: after `if p == nil or p == ""
+               -- then return end`, p is still `string | nil`, though
+               -- `not (a or b)` is `not a and not b`; two ifs narrow it.
+               -- cosmic's own code splits such guards or defaults first
+               -- (`local p = x.p or ""`).
                self:infer_negation_of_if_blocks(node, node, #node.if_blocks)
             end
 --- end

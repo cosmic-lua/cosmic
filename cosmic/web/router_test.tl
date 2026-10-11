@@ -18,7 +18,7 @@ end
 --- The pattern `router` matches `path` to for a GET, or the kind it fails with.
 local function route_of(router: Web.Router, path: string, method?: string): string
   local outcome = router:match(method or "GET", path)
-  if outcome.kind == "match" then return outcome.route.pattern end
+  if outcome.kind == "match" then return assert(outcome.route).pattern end
   return outcome.kind
 end
 
@@ -36,19 +36,19 @@ local function test_a_pattern_binds_literals_params_and_the_rest()
   local router = table_of({ "/", "/about", "/items/:id", "/items/:id/tags/:tag", "/static/*path" })
   assert(route_of(router, "/") == "/" and route_of(router, "/about") == "/about")
   local item = router:match("GET", "/items/a%20b")
-  assert(item.kind == "match" and item.params.id == "a b" and item.route.name == "/items/:id")
+  assert(item.kind == "match" and assert(item.params).id == "a b" and assert(item.route).name == "/items/:id")
   local tag = router:match("GET", "/items/7/tags/x")
-  assert(tag.params.id == "7" and tag.params.tag == "x")
+  assert(assert(tag.params).id == "7" and assert(tag.params).tag == "x")
   assert(route_of(router, "/items") == "not_found" and route_of(router, "/items/7/tags") == "not_found")
   assert(route_of(router, "/About") == "not_found", "literals are case-sensitive")
 end
 
 local function test_the_rest_takes_zero_or_more_decoded_segments_joined()
   local router = table_of({ "/static/*path" })
-  assert(router:match("GET", "/static/css/app%20x.css").params.path == "css/app x.css")
-  assert(router:match("GET", "/static/a").params.path == "a")
-  assert(router:match("GET", "/static").params.path == "")
-  assert(router:match("GET", "/static/").params.path == "", "the rest swallows the slash: no redirect")
+  assert(assert(router:match("GET", "/static/css/app%20x.css").params).path == "css/app x.css")
+  assert(assert(router:match("GET", "/static/a").params).path == "a")
+  assert(assert(router:match("GET", "/static").params).path == "")
+  assert(assert(router:match("GET", "/static/").params).path == "", "the rest swallows the slash: no redirect")
   assert(route_of(router, "/other") == "not_found")
 end
 
@@ -85,8 +85,8 @@ end
 
 local function test_head_uses_the_get_route_unless_one_is_declared()
   local router = Web.router({ Web.get("/a", ok, { name = "a" }), Web.get("/b", ok), Web.route("HEAD", "/b", ok, { name = "b" }) })
-  assert(router:match("HEAD", "/a").route.name == "a")
-  assert(router:match("HEAD", "/b").route.methods[1] == "HEAD")
+  assert(assert(router:match("HEAD", "/a").route).name == "a")
+  assert(assert(router:match("HEAD", "/b").route).methods[1] == "HEAD")
   local post_only = Web.router({ Web.post("/p", ok) })
   assert(post_only:match("HEAD", "/p").kind == "not_allowed")
   assert(post_only:match("HEAD", "/p").allow == "OPTIONS, POST")
@@ -96,7 +96,7 @@ local function test_options_is_answered_with_allow_unless_a_route_declares_it()
   local router = Web.router({ Web.get("/a", ok), Web.route("OPTIONS", "/b", ok, { name = "b" }) })
   local auto = router:match("OPTIONS", "/a")
   assert(auto.kind == "options" and auto.allow == "GET, HEAD, OPTIONS")
-  assert(router:match("OPTIONS", "/b").route.name == "b")
+  assert(assert(router:match("OPTIONS", "/b").route).name == "b")
   assert(route_of(router, "/missing", "OPTIONS") == "not_found")
   local star = router:match("OPTIONS", "*")
   assert(star.kind == "options" and star.allow == "GET, HEAD, OPTIONS", star.allow)
@@ -139,7 +139,7 @@ local function test_a_path_that_climbs_or_hides_a_separator_is_a_bad_request()
   for _, path in ipairs({ "/a/../b", "/a/%2e%2e/b", "/a/%2E%2e", "/..", "/a%2fb", "/a%2Fb", "/a%00b",
       "/a/%zz", "/a/%" }) do
     local outcome = router:match("GET", path)
-    assert(outcome.kind == "bad_path" and outcome.detail:find("url:", 1, true), path .. ": " .. outcome.kind)
+    assert(outcome.kind == "bad_path" and assert(outcome.detail):find("url:", 1, true), path .. ": " .. outcome.kind)
   end
   assert(router:match("GET", "a/b").kind == "bad_path")
   assert(router:match("GET", "").kind == "bad_path")
@@ -169,11 +169,11 @@ local function test_a_mount_hands_the_rest_to_its_routes_and_answers_its_own_404
   }
   local router = Web.router({ Web.get("/home", ok), Web.mount("/api", api, { name = "api" }) })
   local item = router:match("GET", "/api/items/7")
-  assert(item.kind == "match" and item.params.id == "7" and item.route.name == "api:item")
-  assert(item.route.pattern == "/api/items/:id")
-  assert(router:match("GET", "/api").route.name == "api:root")
-  assert(router:match("GET", "/api/v1/ping").route.pattern == "/api/v1/ping")
-  assert(router:match("GET", "/api/v1/ping").route.name == "api:v1:ping")
+  assert(item.kind == "match" and assert(item.params).id == "7" and assert(item.route).name == "api:item")
+  assert(assert(item.route).pattern == "/api/items/:id")
+  assert(assert(router:match("GET", "/api").route).name == "api:root")
+  assert(assert(router:match("GET", "/api/v1/ping").route).pattern == "/api/v1/ping")
+  assert(assert(router:match("GET", "/api/v1/ping").route).name == "api:v1:ping")
   assert(route_of(router, "/api/nope") == "not_found", "no fallthrough from a mount")
   assert(router:match("POST", "/api/items/7").kind == "not_allowed")
   assert(route_of(router, "/api/") == "redirect" and router:match("GET", "/api/").location == "/api")
@@ -184,7 +184,7 @@ local function test_a_mount_of_a_handler_takes_every_method_and_path_below()
   local router = Web.router({ Web.mount_handler("/legacy", ok, { name = "legacy" }) })
   for _, method in ipairs({ "GET", "POST", "DELETE" }) do
     local outcome = router:match(method, "/legacy/a/b")
-    assert(outcome.kind == "match" and outcome.route.pattern == "/legacy/*" and outcome.mount_path == "/legacy")
+    assert(outcome.kind == "match" and assert(outcome.route).pattern == "/legacy/*" and outcome.mount_path == "/legacy")
   end
   assert(router:match("GET", "/legacy").kind == "match")
   assert(route_of(router, "/legacyx") == "not_found")
@@ -324,14 +324,14 @@ local function test_a_reversed_url_matches_back_to_its_params()
   for _, value in ipairs(hostile) do
     local url = assert(router:reverse("tag", { id = value, tag = "t" }))
     local found = router:match("GET", url)
-    assert(found.kind == "match" and found.params.id == value and found.params.tag == "t", url)
+    assert(found.kind == "match" and assert(found.params).id == value and assert(found.params).tag == "t", url)
     local user = assert(router:reverse("api:user", { name = value }))
-    assert(router:match("GET", user).params.name == value, user)
+    assert(assert(router:match("GET", user).params).name == value, user)
   end
   local slash = assert(router:reverse("tag", { id = "a/b", tag = "t" }))
   assert(router:match("GET", slash).kind == "bad_path", "an escaped slash is refused, never another route")
   local file = assert(router:reverse("file", { path = "a/b c/d" }))
-  assert(router:match("GET", file).params.path == "a/b c/d")
+  assert(assert(router:match("GET", file).params).path == "a/b c/d")
 end
 
 local function test_url_escape_html_url_part_and_reverse_agree()
@@ -360,16 +360,16 @@ local function test_a_method_the_most_specific_node_lacks_falls_back_to_the_next
     Web.put("/files/:id", ok, { name = "put" }),
   })
   local get = router:match("GET", "/files")
-  assert(get.kind == "match" and get.route.name == "download" and get.params.r == "", "the wildcard answers")
+  assert(get.kind == "match" and assert(get.route).name == "download" and assert(get.params).r == "", "the wildcard answers")
   assert(router:match("HEAD", "/files").kind == "match")
-  assert(router:match("POST", "/files").route.name == "upload")
+  assert(assert(router:match("POST", "/files").route).name == "upload")
   local other = router:match("DELETE", "/files")
   assert(other.kind == "not_allowed" and other.allow == "OPTIONS, POST",
     "405 names the most specific node's methods: " .. other.allow)
   local one = router:match("GET", "/files/7")
-  assert(one.kind == "match" and one.route.name == "download" and one.params.r == "7",
+  assert(one.kind == "match" and assert(one.route).name == "download" and assert(one.params).r == "7",
     "the param node lacks GET: the wildcard above it answers")
-  assert(router:match("PUT", "/files/7").route.name == "put")
+  assert(assert(router:match("PUT", "/files/7").route).name == "put")
   local nobody = router:match("PATCH", "/files/7")
   assert(nobody.kind == "not_allowed" and nobody.allow == "OPTIONS, PUT", nobody.allow)
   assert(router:match("OPTIONS", "/files").kind == "options")

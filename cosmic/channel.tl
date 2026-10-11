@@ -41,9 +41,9 @@ local record Channel
 
   record Options
     --- How many items the queue holds, at least 1 (256 when nil).
-    capacity: integer
+    capacity?: integer
     --- What a full queue does ("block" when nil).
-    overflow: Channel.Overflow
+    overflow?: Channel.Overflow
   end
 
   --- A queue of `T`, answered by [`Channel.new`]. Items leave in the

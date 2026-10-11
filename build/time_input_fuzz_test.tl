@@ -54,9 +54,8 @@ local function input_is_total(input: string): boolean, string
   else
     Fuzz.label("rfc3339")
   end
-  local moment = got as Time.Zoned
   -- What it read is a moment the calendar holds: one `format_rfc3339` can write.
-  local _ = Time.format_rfc3339(moment.ns, zone)
+  local _ = Time.format_rfc3339(got.ns, zone)
   return true, ""
 end
 

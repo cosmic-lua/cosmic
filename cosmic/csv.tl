@@ -71,7 +71,7 @@ local record Csv
   record Options
     --- The one byte between fields (default `,`). It may not be `"`, CR
     --- or LF: the readers raise for one that is.
-    delimiter: string
+    delimiter?: string
   end
 
   --- A record `records` read: its fields and the line it began on.

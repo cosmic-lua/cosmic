@@ -177,7 +177,7 @@ local function test_connect_keeps_only_proxy_authorization()
     connect_splits_agree(input)
   end
   local twice = connect_head(Fixture.connect("a.example:1", { "Proxy-Authorization: a", "proxy-authorization: b" }))
-  assert(twice.status == "refused" and twice.reason:find("repeated Proxy%-Authorization"), shown_connect(twice))
+  assert(twice.status == "refused" and assert(twice.reason):find("repeated Proxy%-Authorization"), shown_connect(twice))
 end
 
 local function test_connect_refuses_what_is_not_a_clean_connect()
@@ -270,7 +270,7 @@ local function test_connect_refuses_what_is_not_a_clean_connect()
   for _, case in ipairs(cases) do
     local r = connect_head(case[1])
     assert(r.status == "refused", ("%q: %s"):format(case[1], shown_connect(r)))
-    assert(r.reason:find(case[2], 1, true), ("%q: reason %q lacks %q"):format(case[1], r.reason, case[2]))
+    assert(assert(r.reason):find(case[2], 1, true), ("%q: reason %q lacks %q"):format(case[1], r.reason, case[2]))
     assert(r.http_status == math.tointeger(tonumber(case[3])), ("%q: status %s"):format(case[1], tostring(r.http_status)))
     assert(r.consumed == 0)
     connect_splits_agree(case[1])
@@ -298,9 +298,9 @@ local function test_connect_caps_a_line_at_8192_bytes()
   -- A request line: at the cap it is read (and refused for its shape), past it for its length.
   local at_cap = padded_line(8192) .. "\r\n\r\n"
   local r = connect_head(at_cap)
-  assert(r.status == "refused" and not r.reason:find("longer than"), shown_connect(r))
+  assert(r.status == "refused" and not assert(r.reason):find("longer than"), shown_connect(r))
   local over = connect_head(padded_line(8193) .. "\r\n\r\n")
-  assert(over.status == "refused" and over.http_status == 414 and over.reason:find("request line longer than 8192"),
+  assert(over.status == "refused" and over.http_status == 414 and assert(over.reason):find("request line longer than 8192"),
     shown_connect(over))
   -- A line still being read is refused without waiting for its end.
   local open = connect_head(padded_line(8193))
@@ -312,13 +312,13 @@ local function test_connect_caps_a_line_at_8192_bytes()
   local fits = connect_head(first .. "X: " .. ("v"):rep(8192 - 3) .. "\r\n\r\n")
   assert(fits.status == "done", shown_connect(fits))
   local long = connect_head(first .. "X: " .. ("v"):rep(8192 - 2) .. "\r\n\r\n")
-  assert(long.status == "refused" and long.http_status == 431 and long.reason:find("header line longer than 8192"),
+  assert(long.status == "refused" and long.http_status == 431 and assert(long.reason):find("header line longer than 8192"),
     shown_connect(long))
   -- The control byte is found first when it comes first.
   local early = connect_head(first .. "X: \1" .. ("v"):rep(9000))
-  assert(early.status == "refused" and early.reason:find("control byte 0x01"), shown_connect(early))
+  assert(early.status == "refused" and assert(early.reason):find("control byte 0x01"), shown_connect(early))
   local late = connect_head(first .. "X: " .. ("v"):rep(9000) .. "\1")
-  assert(late.status == "refused" and late.reason:find("header line longer"), shown_connect(late))
+  assert(late.status == "refused" and assert(late.reason):find("header line longer"), shown_connect(late))
 end
 
 local function test_connect_caps_the_head_at_16384_bytes()
@@ -340,7 +340,7 @@ local function test_connect_caps_the_head_at_16384_bytes()
   local over = head_of(16385)
   assert(#over == 16385)
   local o = connect_head(over)
-  assert(o.status == "refused" and o.http_status == 431 and o.reason:find("request head longer than 16384"),
+  assert(o.status == "refused" and o.http_status == 431 and assert(o.reason):find("request head longer than 16384"),
     shown_connect(o))
   -- Without its final CRLF the head at the cap still waits for it.
   assert(connect_head(exact:sub(1, -2)).status == "more")
@@ -388,7 +388,7 @@ local function test_connect_caps_headers_at_100()
   local ok = connect_head(with(100))
   assert(ok.status == "done" and ok.consumed == #with(100), shown_connect(ok))
   local over = connect_head(with(101))
-  assert(over.status == "refused" and over.http_status == 431 and over.reason:find("more than 100 headers"),
+  assert(over.status == "refused" and over.http_status == 431 and assert(over.reason):find("more than 100 headers"),
     shown_connect(over))
   connect_splits_agree(with(100))
   connect_splits_agree(with(101))
@@ -403,7 +403,7 @@ local function test_connect_names_bound_by_their_lengths()
     assert(r.status == "done" and r.host == (name:gsub("%.$", "")), shown_connect(r))
   end
   local r = connect_head(Fixture.connect(name253 .. "a:80"))
-  assert(r.status == "refused" and r.reason:find("longer than 253"), shown_connect(r))
+  assert(r.status == "refused" and assert(r.reason):find("longer than 253"), shown_connect(r))
 end
 
 local function test_connect_reply_forms()
@@ -432,7 +432,7 @@ local record GreetingCase
   password: boolean
   input: string
   status: string
-  method: integer
+  method?: integer
 end
 
 local function test_socks_greeting_picks_the_method()
@@ -465,7 +465,7 @@ local function test_socks_greeting_picks_the_method()
   assert(socks_greeting("").status == "more")
   assert(socks_greeting("\5").status == "more")
   assert(socks_greeting("\5\3\0").status == "more")
-  assert(socks_greeting("\4\1\0").reason:find("version 4 is not supported"))
+  assert(assert(socks_greeting("\4\1\0").reason):find("version 4 is not supported"))
   assert(Wire.socks_method_reply(0) == "\5\0")
   assert(Wire.socks_method_reply(2) == "\5\2")
   assert(Wire.socks_method_reply(255) == "\5\255")
@@ -543,7 +543,7 @@ local function test_socks_request_refusals_name_their_reply()
     local r = socks_request(input)
     assert(r.status == "refused", ("%q: %s"):format(input, r.status))
     assert(tostring(r.reply) == case[2], ("%q: reply %s"):format(input, tostring(r.reply)))
-    assert(r.reason:find(case[3], 1, true), ("%q: reason %q"):format(input, r.reason))
+    assert(assert(r.reason):find(case[3], 1, true), ("%q: reason %q"):format(input, r.reason))
     assert(r.consumed == 0)
     for cut = 0, #input do
       local part = socks_request(input:sub(1, cut))
@@ -628,7 +628,7 @@ local function test_client_hello_spans_records()
   assert(client_hello(trailing).consumed == #trailing - 6)
   -- A second message in the hello's last record is refused: nothing follows a ClientHello there.
   local two = client_hello(Fixture.records(message .. "\2\0\0\0"))
-  assert(two.status == "malformed" and two.reason:find("bytes after the ClientHello"), two.status)
+  assert(two.status == "malformed" and assert(two.reason):find("bytes after the ClientHello"), two.status)
   local split_two = client_hello(Fixture.records(message .. "x", { #message - 3 }))
   assert(split_two.status == "malformed", split_two.status)
   -- Versions the legacy field takes.
@@ -650,7 +650,7 @@ local function test_client_hello_caps_records_and_size()
     sizes65[i] = 1
   end
   local r = client_hello(Fixture.records(message, sizes65))
-  assert(r.status == "malformed" and r.reason:find("more than 64 records"), r.status .. tostring(r.reason))
+  assert(r.status == "malformed" and assert(r.reason):find("more than 64 records"), r.status .. tostring(r.reason))
   -- The hello at 16384 bytes of message body is read; one more is not.
   local exact = Fixture.hello({ name = "caps.example", size = 16384 })
   assert(#exact == 16388)
@@ -659,7 +659,7 @@ local function test_client_hello_caps_records_and_size()
   assert(sni_of(Fixture.records(exact, { 1000 })) == "caps.example")
   local over = Fixture.hello({ name = "caps.example", size = 16385 })
   local o = client_hello(Fixture.records(over, sizes))
-  assert(o.status == "malformed" and o.reason:find("16385 bytes"), o.status .. tostring(o.reason))
+  assert(o.status == "malformed" and assert(o.reason):find("16385 bytes"), o.status .. tostring(o.reason))
   -- A hello is judged only with its whole record.
   local early = client_hello(Fixture.records(over, sizes):sub(1, 12))
   assert(early.status == "more", early.status)
@@ -743,7 +743,7 @@ local function test_client_hello_refuses_broken_lengths()
   for _, case in ipairs(cases) do
     local r = client_hello(case[1])
     assert(r.status == "malformed", ("%q: %s"):format(case[1], r.status))
-    assert(r.reason:find(case[2], 1, true), ("%q: reason %q lacks %q"):format(case[1], r.reason, case[2]))
+    assert(assert(r.reason):find(case[2], 1, true), ("%q: reason %q lacks %q"):format(case[1], r.reason, case[2]))
     assert(r.consumed == 0)
     hello_splits_agree(case[1], "malformed")
   end
@@ -775,7 +775,7 @@ local function test_a_handshake_record_of_an_unknown_version_is_refused_not_pass
     local input = Fixture.records(hello, nil, version)
     local r = client_hello(input)
     assert(r.status == "malformed", ("%04x: %s"):format(version, r.status))
-    assert(r.reason:find("version", 1, true), r.reason)
+    assert(assert(r.reason):find("version", 1, true), r.reason)
     hello_splits_agree(input, "malformed")
   end
   -- Only a first byte that is no handshake's is not TLS.
@@ -791,7 +791,7 @@ local function test_client_hello_waits_for_the_rest_of_a_short_message()
   assert(client_hello(short .. Fixture.records(message:sub(21))).status == "name")
   -- But not a record of another kind.
   local other = client_hello(short .. "\23\3\3\0\1x")
-  assert(other.status == "malformed" and other.reason:find("not a TLS handshake record"), other.status)
+  assert(other.status == "malformed" and assert(other.reason):find("not a TLS handshake record"), other.status)
   local version = client_hello(short .. "\22\3\9\0\1x")
   assert(version.status == "malformed", version.status)
   local empty = client_hello(short .. "\22\3\1\0\0")
@@ -964,7 +964,7 @@ local function test_an_encrypted_server_name_extension_is_its_own_answer()
       local input = Fixture.records(hello)
       local r = client_hello(input)
       assert(r.status == "encrypted_sni", ("%x: %s"):format(kind, r.status))
-      assert(r.name == nil and r.consumed == #input and r.reason:find("encrypted server name"), r.reason)
+      assert(r.name == nil and r.consumed == #input and assert(r.reason):find("encrypted server name"), r.reason)
       hello_splits_agree(input, "encrypted_sni")
     end
   end

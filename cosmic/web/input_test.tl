@@ -8,6 +8,12 @@ local Types = require("cosmic.web.types")
 local Url = require("cosmic.url")
 local Web = require("cosmic.web")
 
+--- Why `invalid` refuses, or nil for none.
+local function message_of(invalid: Types.Invalid | nil): string | nil
+  if invalid == nil then return nil end
+  return invalid.message
+end
+
 local type Color = enum
   "red"
   "green"
@@ -65,8 +71,8 @@ local GOOD <const> = "name=Ada&age=36&score=1.5&admin=on&color=red&tags=a&tags=b
 local function test_every_kind_is_read_from_text()
   local r: Types.Parsed<Everything> = Input.bind_strings(decoded(GOOD .. "&nick=&limit=&ratio=&flag="),
     EVERYTHING.spec)
-  assert(r.invalid == nil, r.invalid and r.invalid.message)
-  local e = r.value
+  assert(r.invalid == nil, message_of(r.invalid))
+  local e = assert(r.value)
   assert(e.name == "Ada" and e.age == 36 and math.type(e.age) == "integer")
   assert(e.score == 1.5 and e.admin == true and e.color == "red")
   assert(e.tags[1] == "a" and e.tags[2] == "b" and #e.tags == 2)
@@ -79,7 +85,7 @@ end
 local function bound_count(text: string): integer | nil, string
   local r: Types.Parsed<Counts> = Input.bind_strings(decoded(text), COUNTS.spec)
   if r.invalid ~= nil then return nil, r.invalid.errors[1].code end
-  return r.value.n, ""
+  return assert(r.value).n, ""
 end
 
 local function test_an_integer_is_digits_with_a_sign_that_fit()
@@ -108,7 +114,7 @@ local NUMS <const> = Shape.record_of("Nums")
 local function number_of(text: string): number | nil
   local r: Types.Parsed<Nums> = Input.bind_strings(decoded("x=" .. text), NUMS.spec)
   if r.invalid ~= nil then return nil end
-  return r.value.x
+  return assert(r.value).x
 end
 
 local function test_a_number_is_a_finite_decimal()
@@ -167,7 +173,7 @@ local function test_repeated_error_refuses_a_repeated_scalar()
   local r: Types.Parsed<Counts> = Input.bind_strings(decoded("n=1&n=2"), COUNTS.spec, { repeated = "error" })
   assert(r.invalid ~= nil and r.invalid.errors[1].code == "repeated" and r.invalid.errors[1].field == "n")
   r = Input.bind_strings(decoded("n=1"), COUNTS.spec, { repeated = "error" })
-  assert(r.invalid == nil and r.value.n == 1)
+  assert(r.invalid == nil and assert(r.value).n == 1)
 end
 
 local record Pick
@@ -179,14 +185,14 @@ local PICK <const> = Shape.record_of("Pick")
 local function test_one_of_compares_text_or_the_listed_kind()
   local spec = Shape.record({ c = Shape.one_of("red", "green"), n = Shape.one_of(1, 2.5), t = Shape.one_of(true) })
   local r: Types.Parsed<{string:any}> = Input.bind_strings(decoded("c=green&n=2.50&t=on"), spec)
-  assert(r.invalid == nil, r.invalid and r.invalid.message)
-  assert(r.value.c == "green" and r.value.n == 2.5 and r.value.t == true)
+  assert(r.invalid == nil, message_of(r.invalid))
+  assert(assert(r.value).c == "green" and assert(r.value).n == 2.5 and assert(r.value).t == true)
   r = Input.bind_strings(decoded("c=blue&n=3&t=no"), spec)
   assert(r.invalid ~= nil and #r.invalid.errors == 3)
   for _, e in ipairs(r.invalid.errors) do assert(e.code == "one_of", e.field) end
   assert(r.invalid.errors[1].message == "must be one of red, green")
   local p: Types.Parsed<Pick> = Input.bind_strings(decoded("color=red"), PICK.spec)
-  assert(p.invalid == nil and p.value.color == "red")
+  assert(p.invalid == nil and assert(p.value).color == "red")
 end
 
 local function test_a_string_with_a_nul_is_refused()
@@ -195,17 +201,17 @@ local function test_a_string_with_a_nul_is_refused()
   assert(r.invalid ~= nil and #r.invalid.errors == 1)
   assert(r.invalid.errors[1].field == "s" and r.invalid.errors[1].code == "type")
   r = Input.bind_strings(pairs_of({ { "s", "" } }), spec)
-  assert(r.invalid == nil and r.value.s == "", "an empty string is a string")
+  assert(r.invalid == nil and assert(r.value).s == "", "an empty string is a string")
 end
 
 local function test_a_list_takes_every_value_and_names_the_bad_element()
   local spec = Shape.record({ nums = Shape.list(Shape.integer), tags = Shape.optional(Shape.list(Shape.string)) })
   local r: Types.Parsed<{string:any}> = Input.bind_strings(decoded("nums=1"), spec)
   assert(r.invalid == nil)
-  local nums = r.value.nums as {integer}
-  assert(#nums == 1 and nums[1] == 1 and r.value.tags == nil)
+  local nums = assert(r.value).nums as {integer}
+  assert(#nums == 1 and nums[1] == 1 and assert(r.value).tags == nil)
   r = Input.bind_strings(decoded(""), spec)
-  assert(r.invalid == nil and Json.is_array(r.value.nums), "no value is the empty list")
+  assert(r.invalid == nil and Json.is_array(assert(r.value).nums), "no value is the empty list")
   r = Input.bind_strings(decoded("nums=1&nums=x&nums=3&nums=y"), spec)
   assert(r.invalid ~= nil and #r.invalid.errors == 2)
   assert(r.invalid.errors[1].field == "nums.1" and r.invalid.errors[2].field == "nums.3")
@@ -227,13 +233,13 @@ end
 
 local function test_nested_records_read_dotted_names()
   local r: Types.Parsed<Everything> = Input.bind_strings(decoded(GOOD .. "&address.zip=0123"), EVERYTHING.spec)
-  assert(r.invalid == nil and r.value.address.zip == 123)
+  assert(r.invalid == nil and assert(r.value).address.zip == 123)
   local spec = Shape.record({ a = Shape.record({ b = Shape.record({ c = Shape.record({ d = Shape.string }) }) }) })
   local deep: Types.Parsed<{string:any}> = Input.bind_strings(decoded("a.b.c.d=x"), spec)
   assert(deep.invalid == nil, "three levels below the top are read")
   local opt = Shape.record({ a = Shape.optional(Shape.record({ x = Shape.integer })) })
   local none: Types.Parsed<{string:any}> = Input.bind_strings(decoded("y=1"), opt)
-  assert(none.invalid == nil and none.value.a == nil, "no name under a. leaves the optional record nil")
+  assert(none.invalid == nil and assert(none.value).a == nil, "no name under a. leaves the optional record nil")
   local some: Types.Parsed<{string:any}> = Input.bind_strings(decoded("a.x="), opt)
   assert(some.invalid ~= nil and some.invalid.errors[1].field == "a.x", "one name under it asks for the rest")
 end
@@ -255,7 +261,7 @@ local function test_every_field_error_is_collected_in_field_order()
   assert(Input.value(bad, "age") == "x", "what was submitted comes back")
   local by_field = Input.errors_by_field(bad)
   assert(by_field.age == "must be a whole number" and by_field["address.city"] == "is required")
-  assert(#bad.submitted.pairs == 7 and bad.submitted.by_name.password == nil, "secret names are left out")
+  assert(#assert(bad.submitted).pairs == 7 and assert(bad.submitted).by_name.password == nil, "secret names are left out")
 end
 
 local function test_errors_by_field_joins_several_messages()
@@ -287,11 +293,11 @@ local function test_check_spec_refuses_what_text_cannot_carry()
   refuses(Shape.string, "form", "binds to a record")
   -- Shape.record refuses a hand-built kind, so corrupt a built spec.
   local odd = Shape.record({ x = Shape.optional(Shape.string) })
-  local leaf = odd.fields.x as any as {string:any}
+  local leaf = assert(odd.fields).x as any as {string:any}
   leaf["kind"] = "bogus"
   refuses(odd, "form", "x of a form is of kind bogus")
   local listing = Shape.record({ x = Shape.list(Shape.optional(Shape.string)) })
-  local element = listing.fields.x.of as any as {string:any}
+  local element = assert(assert(listing.fields).x.of) as any as {string:any}
   element["kind"] = "bogus"
   refuses(listing, "query", "list of kind bogus")
   refuses(Shape.record({}), "cookie", "is not a source")
@@ -322,8 +328,9 @@ end
 local function test_media_type_parses_parameters()
   local function of(content_type: string | nil): Input.MediaType
     local got: Input.MediaType
-    local opts: Web.TestOptions = { headers = {} }
-    if content_type ~= nil then opts.headers["content-type"] = content_type end
+    local headers: {string:string} = {}
+    local opts: Web.TestOptions = { headers = headers }
+    if content_type ~= nil then headers["content-type"] = content_type end
     with_request("GET", opts, function(req: Web.Request)
       got = Input.media_type(req)
     end)
@@ -388,7 +395,7 @@ end
 local function test_a_request_with_no_body_is_an_empty_form_and_no_json()
   with_request("GET", {}, function(req: Web.Request)
     local form = Input.form(req)
-    assert(form.invalid == nil and #form.value.pairs == 0, "no type is asked of no body")
+    assert(form.invalid == nil and #assert(form.value).pairs == 0, "no type is asked of no body")
     local json = Input.json(req)
     assert(json.invalid ~= nil and json.invalid.status == 422 and json.invalid.errors[1].code == "required")
   end)
@@ -480,7 +487,7 @@ local function test_a_body_read_over_the_limit_stays_failed_for_a_later_reader()
   local statuses: {integer} = {}
   local bytes_status = ""
   local app = Web.app{ routes = { Web.post("/x", function(req: Web.Request): Web.Response
-    statuses[1] = Input.form(req, { max_bytes = 25 }).invalid.status
+    statuses[1] = assert(Input.form(req, { max_bytes = 25 }).invalid).status
     local larger = Input.form(req, { max_bytes = 1 << 20 }).invalid
     statuses[2] = larger and larger.status or 0
     local data = req:bytes()
@@ -599,10 +606,10 @@ local function test_a_valid_json_body_is_a_record()
   with_request("POST", { json = { title = "t", qty = 3, extra = true, tags = { "x" } } }, function(req: Web.Request)
     local read = Input.json_into(req, ITEM)
     assert(read.invalid == nil)
-    assert(read.value.title == "t" and read.value.qty == 3 and assert(read.value.tags)[1] == "x")
+    assert(assert(read.value).title == "t" and assert(read.value).qty == 3 and assert(assert(read.value).tags)[1] == "x")
     assert((read.value as {string:any})["extra"] == nil)
     assert(req:get(Input.JSON) ~= nil)
-    assert(Input.json_into(req, ITEM).value.qty == 3, "bound again from the cache")
+    assert(assert(Input.json_into(req, ITEM).value).qty == 3, "bound again from the cache")
   end)
 end
 
@@ -621,7 +628,7 @@ end
 local function test_form_into_and_query_into_bind_a_request()
   local app = Web.app{ routes = { Web.post("/x", function(req: Web.Request): Web.Response
     local q = Input.query_into(req, COUNTS)
-    assert(q.invalid == nil and q.value.n == 4)
+    assert(q.invalid == nil and assert(q.value).n == 4)
     local f = Input.form_into(req, COUNTS)
     assert(f.invalid ~= nil and f.invalid.errors[1].source == "form")
     local g: Web.Invalid = Input.form_into(req, COUNTS, { source = "path" }).invalid

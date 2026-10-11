@@ -40,15 +40,15 @@ local record SessionSqlite
   --- What [`SessionSqlite.store`] takes; every field is optional.
   record Options
     --- The table's name, a plain identifier ("web_sessions").
-    table: string
+    table?: string
     --- The least seconds between two opportunistic sweeps of expired rows,
     --- run after a save (600).
-    sweep_interval: integer
+    sweep_interval?: integer
     --- The most rows one sweep deletes (500).
-    sweep_limit: integer
+    sweep_limit?: integer
     --- Set journal mode WAL, synchronous NORMAL and a 250 ms busy timeout
     --- on the handle (true); false leaves the connection as it is.
-    configure: boolean
+    configure?: boolean
   end
 
 end

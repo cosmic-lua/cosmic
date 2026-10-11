@@ -40,21 +40,21 @@ local record Sse
     --- The `id:` field: the client echoes the last one it saw in
     --- `Last-Event-ID`. Must not hold CR, LF or NUL (raises). An empty id
     --- resets the client's.
-    id: string
+    id?: string
     --- The `event:` field (a client sees "message" when none): htmx's
     --- `sse-swap="name"` listens for it. Must not hold CR, LF or NUL
     --- (raises; a browser drops an event whose name holds NUL).
-    event: string
+    event?: string
     --- The `data:` field; any line ending (LF, CR, CRLF) splits it into
     --- one `data:` line each, so a client rejoins them with LF. For htmx,
     --- an HTML fragment. A client drops an event that has no data.
-    data: string
+    data?: string
     --- The `retry:` field, the client's reconnection delay in
     --- milliseconds; nil or 0 for none. Anything else but a positive
     --- integer raises.
-    retry: integer
+    retry?: integer
     --- A comment (`: text` lines), which a client ignores: a heartbeat.
-    comment: string
+    comment?: string
 
     --- An event named `name` whose data is the markup `body`; typed
     --- [`Html.SafeHtml`] so a handler cannot send an unescaped string as
@@ -85,20 +85,20 @@ local record Sse
     --- A heartbeat comment every this many nanoseconds without an event
     --- (15 seconds when nil; 0 sends none). A write is how a client that
     --- left is found, so a stream without one outlives it.
-    heartbeat_ns: integer
+    heartbeat_ns?: integer
     --- The `retry:` sent first, in milliseconds (3000 when nil; 0 sends
     --- none).
-    retry_ms: integer
+    retry_ms?: integer
     --- Events sent before the first of the source.
-    initial: {Event}
+    initial?: {Event}
     --- Headers added to the response, replacing one of the same name; a
     --- list writes one line per element.
-    headers: {string: string | {string}}
+    headers?: {string: string | {string}}
     --- The longest the stream lives, in nanoseconds (none when nil): it
     --- ends cleanly then, and the browser reconnects with its
     --- `Last-Event-ID`. How a deploy rotates streams, and a session is
     --- checked again.
-    max_age_ns: integer
+    max_age_ns?: integer
     --- Called once when the stream is over, with why: "end" (the source
     --- or `max_age_ns` ended it, also the app stopping), "client" (the
     --- server closed it unfinished: the client left, or the task was
@@ -153,22 +153,22 @@ local record Sse
   record HubOptions
     --- Events kept per topic for `Last-Event-ID` replay (256 when nil; 0
     --- for none, which makes every reconnect a gap).
-    replay: integer
+    replay?: integer
     --- Each subscription's queue, in events (256 when nil), beside the
     --- events its replay queues first.
-    queue: integer
+    queue?: integer
     --- What a full queue does: "close" (the default: the subscription is
     --- cut off once it has delivered what it holds, and the browser
     --- reconnects and replays), "drop_oldest" (a view that wants only
     --- the latest) or "drop_newest". "block" is not offered: it would
     --- make a publisher wait.
-    overflow: Channel.Overflow
+    overflow?: Channel.Overflow
     --- Subscriptions per topic (no limit when nil).
-    max_per_topic: integer
+    max_per_topic?: integer
     --- Subscriptions in all (no limit when nil).
-    max_total: integer
+    max_total?: integer
     --- The most bytes of data one event may hold (65536 when nil).
-    max_event_bytes: integer
+    max_event_bytes?: integer
   end
 
   --- What [`Sse.Hub.subscribe`] takes.
@@ -316,14 +316,14 @@ local record Body is Stream.Reader
   app: Types.App
   source: Sse.EventSource
   heartbeat_ns: integer
-  deadline: integer
+  deadline?: integer
   on_close: function(why: string)
   pending: string
   started: boolean
   held: boolean
   done: boolean
   waiting: boolean
-  guard: Guard
+  guard?: Guard
   prologue: string
   read: function(Body, max_bytes?: integer): string | nil, string
   close: function(Body): boolean, string
@@ -345,10 +345,10 @@ local function finish(self: Body, why: string)
   local source = self.source
   local on_close = self.on_close
   local ran, raised = pcall(function() source:close() end)
-  if not ran then app.spec.sink:line("sse: closing a source: " .. tostring(raised)) end
+  if not ran then assert(app.spec.sink):line("sse: closing a source: " .. tostring(raised)) end
   if on_close ~= nil then
     ran, raised = pcall(function() on_close(why) end)
-    if not ran then app.spec.sink:line("sse: on_close: " .. tostring(raised)) end
+    if not ran then assert(app.spec.sink):line("sse: on_close: " .. tostring(raised)) end
   end
 end
 
@@ -392,7 +392,7 @@ function Body.read(self: Body, max_bytes?: integer): string | nil, string
       -- only once it has sent or abandoned the reply. A wait that returns
       -- clears `waiting` first, so the guard then does nothing.
       self.waiting = true
-      local _guard <close> = self.guard
+      local _guard <close> = assert(self.guard)
       ev, why = self.source:next(timeout)
       self.waiting = false
     end

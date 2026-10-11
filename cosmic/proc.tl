@@ -57,7 +57,7 @@ local record Proc
     fds: {integer:integer}
     --- The working directory this process started in, for the child's
     --- [`Child.Options.cwd`]; nil where it could not be read then.
-    cwd: string
+    cwd?: string
   end
 end
 

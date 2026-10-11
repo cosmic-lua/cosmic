@@ -137,7 +137,7 @@ end
 local function read_until(res: Web.TestResponse, needle: string): string
   local got = ""
   for _ = 1, 20 do
-    local piece, why = res.stream:read()
+    local piece, why = assert(res.stream):read()
     assert(piece ~= nil, "the stream ended: " .. why)
     got = got .. piece
     if got:find(needle, 1, true) then return got end
@@ -174,7 +174,7 @@ local function test_the_stream_tells_the_boot_then_what_moved_under_static(tmp: 
     put(static .. "/new.js", "c", 1000003)
     local mixed = read_until(res, "event: ")
     assert(mixed:find("event: reload", 1, true), "a css change with a script change reloads")
-    assert(res.stream:close())
+    assert(assert(res.stream):close())
   end)
   assert(app.stream_count == 0)
 end
@@ -188,7 +188,7 @@ local function test_a_stream_ends_when_the_app_stops(tmp: string)
     assert(app.stream_count == 1)
     app.stopped = true
     for _, close in pairs(app.streams) do close() end
-    local piece = res.stream:read()
+    local piece = assert(res.stream):read()
     assert(piece == nil, "the stream ended")
     assert(app.stream_count == 0)
   end)
@@ -258,7 +258,7 @@ end
 
 local function test_a_host_the_app_does_not_trust_is_refused()
   local app = Dev.app({ routes = routes(), sink = quiet() }, { enabled = true })
-  assert(app.spec.trusted_hosts[1] == "localhost")
+  assert(assert(app.spec.trusted_hosts)[1] == "localhost")
   Web.with_client(app, function(client: Web.TestClient)
     for _, path in ipairs({ "/", "/_web/dev.js", "/_web/dev/events", "/boom" }) do
       local res = client:get(path, local_opts(nil, "evil.example"))
@@ -300,6 +300,6 @@ local function test_a_missing_static_directory_is_watched_without_a_spurious_rel
     assert(got:find("event: css", 1, true) and not got:find("event: reload", 1, true), got)
     assert(Fs.remove(static .. "/a.css"))
     assert(read_until(res, "event: css"))
-    assert(res.stream:close())
+    assert(assert(res.stream):close())
   end)
 end

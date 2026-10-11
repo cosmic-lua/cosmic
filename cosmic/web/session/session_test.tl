@@ -21,9 +21,20 @@ local function sqlite_store(): Session.Store, Sqlite.Handle
 end
 
 --- Sessions for tests: the options, with the clock.
-local function options(store: Session.Store, extra?: Session.Options): Session.Options
-  local o: Session.Options = extra or {}
-  o.store = store
+local record Extra
+  cookie_name?: string
+  max_age?: integer
+  rolling?: boolean
+  secure?: boolean
+  same_site?: Cookies.SameSite
+end
+
+local function options(store: Session.Store, extra?: Extra): Session.Options
+  local o: Session.Options = { store = store }
+  if extra ~= nil then
+    o.cookie_name, o.max_age, o.rolling = extra.cookie_name, extra.max_age, extra.rolling
+    o.secure, o.same_site = extra.secure, extra.same_site
+  end
   o.now = function(): integer return clock.now end
   return o
 end
@@ -34,9 +45,11 @@ local seen: {Session.Handle} = {}
 local function make_app(opts: Session.Options, spec?: Web.AppSpec): Web.App
   local lines: {string} = {}
   local made: Web.AppSpec = spec or {}
-  made.sink = made.sink or { line = function(_self: Web.Sink, text: string)
-    lines[#lines + 1] = text
-  end }
+  if made.sink == nil then
+    made.sink = { line = function(_self: Web.Sink, text: string)
+      lines[#lines + 1] = text
+    end }
+  end
   made.middleware = { Session.middleware(opts) }
   made.routes = {
     Web.get("/nothing", function(_req: Web.Request): Web.Response
@@ -516,7 +529,7 @@ local function test_a_response_shared_between_requests_is_not_given_a_cookie()
       assert(own == 1 and #set_cookies(res) == 3, "its own one session cookie beside the shared two")
     end
     assert(set_cookies(first)[3] ~= set_cookies(second)[3])
-    local lines = shared.headers["Set-Cookie"]
+    local lines = assert(shared.headers)["Set-Cookie"]
     assert(lines is {string} and #lines == 2, "the shared response is unchanged")
     assert(Web.header(shared, "Vary") == nil and Web.header(shared, "Cache-Control") == nil)
   end
@@ -631,4 +644,32 @@ local function test_invalidate_revokes_even_when_the_response_is_a_500()
   assert(assert(Sqlite.rows(db, "SELECT count(*) FROM web_sessions"))[1][1].integer == 0, "the row is gone")
   assert(store:load(before, clock.now, "session") == nil)
   assert(#set_cookies(res) == 1 and client.jar.session == nil, "and the cookie is expired")
+end
+
+local function test_regenerate_drops_the_csrf_secret_and_keeps_the_rest()
+  local store = sqlite_store()
+  local app = Web.app{
+    middleware = { Session.middleware(options(store)) },
+    routes = {
+      Web.post("/seed", function(req: Web.Request): Web.Response
+        local s = Session.of(req)
+        s:set(Session.CSRF_KEY, "secret")
+        s:set("user", "ada")
+        return Web.text("ok")
+      end),
+      Web.post("/regenerate", function(req: Web.Request): Web.Response
+        Session.of(req):regenerate()
+        return Web.text("ok")
+      end),
+      Web.get("/peek", function(req: Web.Request): Web.Response
+        local s = Session.of(req)
+        return Web.text((s:get_string(Session.CSRF_KEY) or "-") .. "/" .. (s:get_string("user") or "-"))
+      end),
+    },
+  }
+  local client = Web.test_client(app)
+  client:post("/seed")
+  assert(client:get("/peek").body == "secret/ada")
+  client:post("/regenerate")
+  assert(client:get("/peek").body == "-/ada")
 end

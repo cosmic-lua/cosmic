@@ -21,9 +21,9 @@ local record Flags
   record Option
     --- What its value is called in help ("n", "path"), for an option
     --- that takes one; nil for one that takes none.
-    value: string
+    value?: string
     --- One line on what it does.
-    about: string
+    about?: string
   end
 
   --- What a command line held.
@@ -56,12 +56,12 @@ local record Flags
   record Command
     --- The options the command takes, as [`Flags.parse`] reads a spec;
     --- none when nil.
-    spec: {string:boolean | Option}
+    spec?: {string:boolean | Option}
     --- One line on what the command does, for help.
-    about: string
+    about?: string
     --- What follows the command in its usage line ("[options] <file>"),
     --- for help; "[options]" when nil and the command takes any.
-    usage: string
+    usage?: string
     --- Runs the command with what its line held, answering its exit
     --- status.
     run: function(Parsed): integer

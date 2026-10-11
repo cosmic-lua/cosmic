@@ -76,7 +76,7 @@ local record Test
   record Needs
     --- Paths of the tree, relative to its root, each a file or a
     --- directory and everything beneath it.
-    reads: {string}
+    reads?: {string}
     --- Absolute paths outside the tree, each a file of the host's -- or
     --- /proc, or a path beneath it, which every worker is given and no
     --- key could hold by what it holds. A directory is refused: one
@@ -84,9 +84,9 @@ local record Test
     --- that is a directory on the host fails each test of the module,
     --- naming it, as does a path that is the tree's, or above it.
     --- Declare the files the tests read.
-    host: {string}
+    host?: {string}
     --- Environment variables beyond the pinned ones.
-    env: {string}
+    env?: {string}
     --- The loopback addresses the tests reach, each a dotted quad of
     --- 127/8, `127.a.b.c`, as a request names it: a sandboxed worker
     --- runs offline, with a loopback of its own that answers them, and
@@ -97,15 +97,15 @@ local record Test
     --- sets up IPv6 -- and a spelling no request's host is (a port,
     --- brackets, a leading zero) are refused, naming this rule, as the
     --- build refuses them before the module runs.
-    network: {string}
+    network?: {string}
     --- What the tests need of the host, as `requires` of [`Policy`]
     --- says.
-    requires: {string}
+    requires?: {string}
     --- Whether the tests read the tool itself, in the build directory, or the
     --- program running them, or start either: it gives them the program
     --- and nothing else -- not the store beyond their closure (`store`),
     --- nor a root of their own for what they start (`nests`).
-    tool: boolean
+    tool?: boolean
     --- Whether the tests start this program only to run Lua in it: a
     --- `-e` chunk, past its launcher or by [`Proc.relaunch`] -- and a
     --- file `--standalone` too, where the test module requires at its top
@@ -126,7 +126,7 @@ local record Test
     --- program carries is not held to the closure. It is refused beside
     --- `tool`, `store`, `system` or `caches`: a host program, or a cosmic
     --- a cache holds, could start a program of its own.
-    lua: boolean
+    lua?: boolean
     --- Whether the tests confine a process in a root of its own: a
     --- `sandbox` that unveils ([`cosmic.child`]), or a `cosmic test` they
     --- start whose workers are sandboxed. A sandboxed worker whose
@@ -138,12 +138,12 @@ local record Test
     --- Linux sandbox -- on macOS, or with COSMIC_TEST_SANDBOX=0 -- no
     --- worker is held, so a test that
     --- confines without it passes there and fails on a Linux leg.
-    nests: boolean
+    nests?: boolean
     --- Requests private writable scratch at COSMIC_TEST_NOEXEC whose
     --- files cannot execute. Ordinary scratch is unchanged. Reading,
     --- interpreting or copying the bytes elsewhere remains possible.
     --- Unsupported hosts skip these tests; a held-sandbox run fails them.
-    noexec: boolean
+    noexec?: boolean
     --- Whether the tests read the tree's projection, `cosmic.db` in its
     --- build directory (`o/cosmic.db`, as a grant names it), or
     --- the rows of modules of the tree outside their import closure.
@@ -158,7 +158,7 @@ local record Test
     --- `tool` lets a test start the program, but not read its database
     --- through the descriptor a portable start keeps on it: that read is
     --- refused, whatever the test declares.
-    store: boolean
+    store?: boolean
     -- The descriptor is refused by core/check.h's `cosmic_checkfd`, and a
     -- sandboxed worker that does not declare `tool` has no name to open the
     -- program by.
@@ -177,7 +177,7 @@ local record Test
     --- (a `#!/bin/sh` script) needs it. One that reads a file or two
     --- of the system rather names them in `host`, which keys a file by
     --- its contents.
-    system: boolean
+    system?: boolean
     --- Host caches the tests, or the processes they start, write, by
     --- name: `"zig"` (the pinned zig, and zig's global and project
     --- caches) or `"bootstrap"` (the bootstrap cosmic, and the cores a
@@ -188,7 +188,7 @@ local record Test
     --- verdict's key. A sandboxed
     --- worker has each writable at its own path, with the variables that
     --- locate it.
-    caches: {string}
+    caches?: {string}
     --- Files of the project root's parent directory the tests read, each
     --- a path relative to that directory of plain names (none empty, `.` or
     --- `..`, and no `$` anywhere) with no trailing "/": for a project that lives in a directory of
@@ -197,32 +197,32 @@ local record Test
     --- /tree ([`Test.parent`] names it), and its key holds the file's
     --- contents and its relative path, never where the project is. A file
     --- the host lacks fails the module's tests.
-    parent: {string}
+    parent?: {string}
   end
 
   --- One path a test may reach, and how: [`cosmic.sandbox`]'s [`Grant`].
   record Grant
     --- A path of the tree, relative to its root (the worker's directory),
     --- or an absolute path of the host's.
-    path: string
+    path?: string
     --- What the test may do there: letters of "rwxcu". Only "r" takes
     --- effect so far.
-    letters: string
+    letters?: string
     --- The host's path where it differs from `path`. Not yet taken.
-    from: string
+    from?: string
   end
 
   --- The resource limits of a policy: [`cosmic.sandbox`]'s [`Limits`]. None
   --- is taken yet.
   record Limits
     --- The most descriptors a process may hold open.
-    open_files: integer
+    open_files?: integer
     --- The most bytes a process may write to one file.
-    file_bytes: integer
+    file_bytes?: integer
     --- The CPU seconds a process may spend.
-    cpu_seconds: integer
+    cpu_seconds?: integer
     --- The most processes and threads of the whole sandbox.
-    processes: integer
+    processes?: integer
   end
 
   --- What the tests of one module are held to: the fields of
@@ -235,39 +235,39 @@ local record Test
     --- "cosmic" (`lua`; `tool` with the grant of o/bin beside it) and
     --- "proc" (the host path /proc, read, in `host` of [`Needs`]: the
     --- kernel's process information, every process's entries).
-    profiles: {string}
+    profiles?: {string}
     --- The paths the tests read: a grant of "r" on a path of the tree is
     --- a read of it, on an absolute path a host file.
-    grants: {Grant}
+    grants?: {Grant}
     --- How far the worker is isolated. Not yet taken.
-    isolate: {string}
+    isolate?: {string}
     --- What the tests may do beyond their basics: "nest" is `nests`;
     --- "fork", "jit" and "fattr" are accepted and change nothing yet.
-    promises: {string}
+    promises?: {string}
     --- The hosts the tests reach. Refused: no test reaches a host but
     --- loopback.
-    connect: {string}
+    connect?: {string}
     --- The loopback addresses the tests reach: `network` of [`Needs`].
-    loopback: {string}
+    loopback?: {string}
     --- The variables passed through: `env` of [`Needs`].
-    env: {string}
+    env?: {string}
     --- The variables set, by name. Not yet taken.
-    set_env: {string:string}
+    set_env?: {string:string}
     --- Digests of values set. Refused: a digest holds no value to set.
-    set_env_digests: {string:string}
+    set_env_digests?: {string:string}
     --- Whether the tests have a temporary directory of their own, as
     --- every test has: `false` is not yet taken.
-    tmp: boolean
+    tmp?: boolean
     --- The resources the tests may spend. Not yet taken.
-    limits: Limits
+    limits?: Limits
     --- The user the tests run as. Refused: the harness chooses a worker's.
-    user: integer
+    user?: integer
     --- The group the tests run as. Refused, as `user` is.
-    group: integer
+    group?: integer
     --- The database the tests' program runs on. Refused: the harness
     --- chooses it (a sealed one of the closure, or the program's whole for
     --- `store` and `tool`).
-    database: string
+    database?: string
     --- What the tests need of the host that no other field says, by name
     --- from a closed table: `portable`, `root`, `unix_socket` (Unix stream
     --- socket creation), `path:<absolute path>` and
@@ -280,7 +280,7 @@ local record Test
     --- fails the build. A `path:` needs a `host` grant of that
     --- path and a `program:` the profile "system" and the variable PATH in
     --- `env`, so the worker can see what the runner found.
-    requires: {string}
+    requires?: {string}
   end
 end
 
@@ -605,9 +605,9 @@ function Test.needs_of(given: any): Test.Needs | nil, string
   end
   for i, grant in ipairs(policy.grants or {}) do
     local at = "grants[" .. i .. "]"
-    local path, letters = grant.path, grant.letters
-    if path == nil or path == "" then return nil, at .. ".path takes a path" end
-    if letters == nil or letters == "" or letters:find("^r?w?x?c?u?$") == nil then
+    local path, letters = grant.path or "", grant.letters or ""
+    if path == "" then return nil, at .. ".path takes a path" end
+    if letters == "" or letters:find("^r?w?x?c?u?$") == nil then
       return nil, at .. ".letters takes letters of rwxcu, in that order"
     end
     local named = path:match("^/cache/(.*)$")

@@ -31,7 +31,7 @@ local function at(text: string): integer
 end
 
 local function civil(year: integer, month: integer, day: integer, hour?: integer, minute?: integer,
-                     second?: integer): Time.Civil
+                     second?: integer): Time.CivilFields
   return { year = year, month = month, day = day, hour = hour or 0, minute = minute or 0,
     second = second or 0, ns = 0 }
 end

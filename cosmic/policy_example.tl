@@ -12,8 +12,9 @@ local Example = {}
 --- its author meant.
 function Example.decode()
   local policy = assert(PolicyJson.decode('{"env":["HOME"],"grants":[{"path":"data","letters":"rx"}],"tmp":true}'))
-  print(policy.env[1], policy.grants[1].letters, policy.tmp) -- HOME  rx  true
-  assert(policy.env[1] == "HOME" and policy.grants[1].letters == "rx" and policy.tmp)
+  local env, grants = assert(policy.env), assert(policy.grants)
+  print(env[1], grants[1].letters, policy.tmp) -- HOME  rx  true
+  assert(env[1] == "HOME" and grants[1].letters == "rx" and policy.tmp)
   local bad, why = PolicyJson.decode('{"grants":[{"path":"data","letters":"xr"}]}')
   print(why) -- sandbox: pointer "/grants/0/letters": "xr" is not in the order of "rwxcu", each letter once: "rx"
   assert(bad == nil and why:find("/grants/0/letters", 1, true), why)

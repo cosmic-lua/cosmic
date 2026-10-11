@@ -369,7 +369,7 @@ function verb.decoder(name: verb.Name): verb.Coder
   error("codec: no such encoding: " .. tostring(name), 2)
 end
 
-local spec = Cli.verbs.codec.spec
+local spec = Cli.verbs.codec.spec or {}
 
 local usage = "cosmic codec <hex|base64|base64url> [-d] [--wrap N] [--lenient] [<file>|-]"
 

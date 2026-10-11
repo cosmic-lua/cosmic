@@ -142,7 +142,7 @@ end
 --- @return the policy
 function test_policy.worker(plan: test_sandbox.Plan, effective: test_inputs.Effective): Sandbox.Policy
   local policy = shape(effective)
-  local unveil = plan.sandbox.unveil
+  local unveil = assert(plan.sandbox.unveil)
   local at = unveil.at or {}
   local grants: {Sandbox.Grant} = {}
   for _, path in ipairs(unveil.reads) do
@@ -151,7 +151,7 @@ function test_policy.worker(plan: test_sandbox.Plan, effective: test_inputs.Effe
       letters = letters_of(path, inside, plan.runs) }
   end
   local scratch: string = nil
-  for _, path in ipairs(unveil.writes) do
+  for _, path in ipairs(unveil.writes or {}) do
     local inside = at[path] or path
     grants[#grants + 1] = { path = inside, from = at[path] ~= nil and path or nil, letters = "rwxc" }
     scratch = scratch or path
@@ -182,7 +182,7 @@ function test_policy.runs(policy: Sandbox.Policy): {string} | nil, string
   local merged, why = Sandbox.merge(policy)
   if merged == nil then return nil, why end
   local out: {string} = {}
-  for _, grant in ipairs(merged.grants) do
+  for _, grant in ipairs(merged.grants or {}) do
     if grant.letters:find("x", 1, true) then out[#out + 1] = grant.path end
   end
   return out, ""

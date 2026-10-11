@@ -17,9 +17,9 @@ local record Response
     --- The status to answer.
     status: integer
     --- What to tell the client, or nil.
-    detail: string
+    detail?: string
     --- More members of a problem body.
-    extra: {string:any}
+    extra?: {string:any}
   end
 end
 
@@ -40,8 +40,8 @@ end
 --- Sets header `name` of `res` to a string or a list, replacing the
 --- header in any case; the first of the two helpers below.
 local function put(res: Types.Response, name: string, value: string | {string})
-  if res.headers == nil then res.headers = {} end
-  local headers = res.headers
+  local headers: {string: string | {string}} = res.headers or {}
+  res.headers = headers
   local want = name:lower()
   local stale: {string} = {}
   for key in pairs(headers) do
@@ -91,6 +91,28 @@ local function tokens(value: string): {string}
   return out
 end
 
+--- A copy of `res` with headers of its own, which a middleware may add to
+--- without touching the original: a handler may return a response it shares
+--- (a module-level `Web.text("not found")`), and a `Set-Cookie` or a CSP
+--- added to that one would go to every later request. The body is shared (a
+--- Reader is not copied), and the copy holds every field of a reply, as the
+--- server refuses one it does not know.
+--- @param res Types.Response The response
+--- @return Types.Response The copy
+function Response.copy(res: Types.Response): Types.Response
+  local headers: {string: string | {string}} = {}
+  for name, value in pairs(res.headers or {}) do
+    if value is string then
+      headers[name] = value
+    else
+      local lines: {string} = {}
+      for i, line in ipairs(value) do lines[i] = line end
+      headers[name] = lines
+    end
+  end
+  return { status = res.status, headers = headers, body = res.body, length = res.length, close = res.close }
+end
+
 --- Appends `value` to header `name`, which keeps the lines it has: a
 --- string value becomes a list. `Vary` is merged instead of repeated: a
 --- token already listed (in any case) is not added again, and `*` absorbs
@@ -98,13 +120,14 @@ end
 --- It changes `res` in place, headers and all: a response shared between
 --- requests (a module-level `Web.text("not found")`) gets the line for every
 --- later request too, so a middleware that adds to a response it did not
---- make copies it first, as [`cosmic.web.session`]'s does.
+--- make copies it first with [`Response.copy`], as [`cosmic.web.session`]'s
+--- does.
 --- @param res Types.Response The response
 --- @param name string The header's name
 --- @param value string The line to add
 function Response.add_header(res: Types.Response, name: string, value: string)
-  if res.headers == nil then res.headers = {} end
-  local headers = res.headers
+  local headers: {string: string | {string}} = res.headers or {}
+  res.headers = headers
   local key = key_of(headers, name)
   if name:lower() == "vary" then
     local old = ""

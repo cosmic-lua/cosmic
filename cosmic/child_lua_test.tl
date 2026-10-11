@@ -180,6 +180,33 @@ local function test_non_group_timeout_returns_graceful_term_status(tmp: string)
   assert(r.code == 19 and r.signal == nil and r.timed_out)
 end
 
+--- Darwin refuses a signal to a process from the start of its exit until
+--- it is a zombie (ESRCH), and waitpid cannot reap it before then: a wait
+--- that ends a child caught there still reaps it. The SIGTERM here is
+--- delivered, then answered as Darwin answers it in that moment.
+local function test_a_child_exiting_as_a_wait_ends_it_is_reaped()
+  local h <close> = assert(Child.start(lua(sleep(30000))))
+  local kill = sys.kill
+  local refused = false
+  local ok, trouble: boolean, any = pcall(function()
+    sys.kill = function(pid: integer, signal: integer): boolean, string, integer
+      -- The child leads its group, which the handle signals.
+      if pid == -h.pid and signal == sys.SIGTERM and not refused then
+        refused = true
+        assert(kill(pid, signal))
+        return false, "No such process", sys.ESRCH
+      end
+      return kill(pid, signal)
+    end
+    local r, why = h:wait(0)
+    assert(r ~= nil, why)
+    assert(r.signal == sys.SIGTERM and r.timed_out, "the wait reaped the exit the SIGTERM began")
+  end)
+  sys.kill = kill
+  assert(ok, tostring(trouble))
+  assert(refused and not sys.kill(h.pid, 0), "the child is reaped")
+end
+
 -- The `/bin/sh` a refusal case in this module names is never started:
 -- its option is refused before a start, and a sandboxed worker has no
 -- sh to find, so a refusal that regressed fails the case either way.
@@ -461,7 +488,7 @@ local function test_a_wait_holds_a_streamed_output_to_its_limit()
   Clock.sleep_ns(Clock.ms(100))
   assert(assert(h:try_wait()).finished)
   local queued = 0
-  for _, stream in ipairs(h._streams) do queued = queued + stream.size end
+  for _, stream in ipairs(h._streams or {}) do queued = queued + stream.size end
   assert(queued <= 1024, "the wait queued " .. tostring(queued) .. " bytes")
   local chunk = assert(assert(h.stdout_stream):read())
   assert(#chunk > 0)
@@ -502,7 +529,7 @@ local function test_try_wait_services_a_chatty_child()
     polled = assert(h:try_wait())
   end
   assert(polled.finished, "a full pipe stalled the child")
-  assert(#polled.result.stdout == 200000)
+  assert(#assert(polled.result).stdout == 200000)
 end
 
 local function test_timeout_keeps_what_was_captured()
@@ -655,7 +682,7 @@ local function test_a_timeout_of_0_ends_the_child_at_the_first_wait()
   assert(about(began, 0), ms_since(began))
   local h <close> = assert(Child.start(lua(sleep(30000), nil, { timeout_ns = 0 })))
   local look = assert(h:try_wait())
-  assert(look.finished and look.result.timed_out, "the first try_wait left the child running")
+  assert(look.finished and assert(look.result).timed_out, "the first try_wait left the child running")
 end
 
 --- [`Child.wait_any`] ends a handle whose start's deadline passes while
@@ -701,7 +728,7 @@ local function test_try_wait_ends_a_child_past_its_start_timeout()
   assert(not look.finished)
   local _, _ = Clock.sleep_ns(Clock.ms(350))
   look = assert(h:try_wait())
-  assert(look.finished and look.result.timed_out, "try_wait left the child past its deadline")
+  assert(look.finished and assert(look.result).timed_out, "try_wait left the child past its deadline")
 end
 
 --- A read of a streamed output waits no longer than the child's start

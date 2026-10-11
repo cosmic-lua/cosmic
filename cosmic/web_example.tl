@@ -90,7 +90,7 @@ function Example.responses()
   Web.add_header(text, "vary", "cookie, HX-Request")
   print(Web.header(text, "X-Request-ID"), Web.header(text, "vary")) -- abc  Cookie, HX-Request
   assert(Web.header(text, "X-Request-ID") == "abc" and Web.header(text, "vary") == "Cookie, HX-Request")
-  local cookies = text.headers["Set-Cookie"]
+  local cookies = assert(text.headers)["Set-Cookie"]
   assert(cookies is {string} and #cookies == 2)
   local empty = Web.empty()
   assert(empty.status == 204 and empty.body == nil)
@@ -123,11 +123,12 @@ function Example.routing()
     Web.get("/files/readme", handler),
     Web.get("/files/:name/info", handler),
   })
-  print(router:match("GET", "/files/readme").route.pattern) -- /files/readme
-  print(router:match("GET", "/files/a/info").route.pattern) -- /files/:name/info
+  print(assert(router:match("GET", "/files/readme").route).pattern) -- /files/readme
+  print(assert(router:match("GET", "/files/a/info").route).pattern) -- /files/:name/info
   local rest = router:match("GET", "/files/css/app.css")
-  print(rest.route.pattern, rest.params.path) -- /files/*path  css/app.css
-  assert(rest.params.path == "css/app.css")
+  local rest_params = assert(rest.params)
+  print(assert(rest.route).pattern, rest_params.path) -- /files/*path  css/app.css
+  assert(rest_params.path == "css/app.css")
   local twice = router:match("GET", "//files//readme")
   print(twice.kind, twice.location) -- redirect  /files/readme
   assert(twice.kind == "redirect" and twice.location == "/files/readme")
@@ -142,7 +143,7 @@ end
 --- handler and answers `url_for` through a resolver of its own.
 function Example.mounts()
   local function show(req: Web.Request): Web.Response
-    return Web.text(req.mount_path .. " " .. req.route.pattern)
+    return Web.text(req.mount_path .. " " .. assert(req.route).pattern)
   end
   local app = Web.app{ routes = {
     Web.get("/", show, { name = "home" }),

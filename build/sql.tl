@@ -105,7 +105,7 @@ end
 
 --- The options `cosmic sql` takes: each names a database, and at most
 --- one may be given.
-local spec = Cli.verbs.sql.spec
+local spec = Cli.verbs.sql.spec or {}
 
 --- The database a command line names under `root`, the working
 --- directory: `--db <path>`, `--build` (its build directory's

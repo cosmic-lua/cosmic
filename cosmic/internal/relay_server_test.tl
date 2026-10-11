@@ -120,20 +120,20 @@ end
 
 local record Options
   grants: {string}
-  upstream: Relay.Upstream
-  timeouts: Relay.Timeouts
-  limits: Relay.Limits
-  tls_ports: {integer}
+  upstream?: Relay.Upstream
+  timeouts?: Relay.Timeouts
+  limits?: Relay.Limits
+  tls_ports?: {integer}
   connector: Relay.Connector
-  resolve: Net.ResolveOptions
+  resolve?: Net.ResolveOptions
   --- Address of a name's answer, to the port of the server it stands for.
-  redirect: {string: integer}
-  own_addresses: {string}
-  token: string
-  unresolved: string
+  redirect?: {string: integer}
+  own_addresses?: {string}
+  token?: string
+  unresolved?: string
   --- Serve both protocols at one listener, as a relay on the host's
   --- loopback does: `http` and `socks` are then its one address.
-  mixed: boolean
+  mixed?: boolean
 end
 
 --- A running relay and what a test needs of it.
@@ -155,19 +155,23 @@ local function start(tmp: string, opts: Options): Rig
   local hosts = tmp .. "/hosts"
   assert(Fs.write(hosts, HOSTS))
   local http, socks, mixed: Net.Listener, Net.Listener, Net.Listener
-  local rig: Rig = { log = {}, asked = {}, given = {}, server = nil as Relay.Serving }
+  local at_http, at_socks: Net.Address, Net.Address
+  local listeners: {Net.Listener}
   if opts.mixed then
     mixed = listen_here()
-    rig.http, rig.socks, rig.listeners = mixed.address, mixed.address, { mixed }
+    at_http, at_socks, listeners = mixed.address, mixed.address, { mixed }
   else
     http, socks = listen_here(), listen_here()
-    rig.http, rig.socks, rig.listeners = http.address, socks.address, { http, socks }
+    at_http, at_socks, listeners = http.address, socks.address, { http, socks }
   end
+  local rig: Rig = { http = at_http, socks = at_socks, listeners = listeners, log = {}, asked = {},
+    given = {}, server = nil as Relay.Serving }
   local redirect = opts.redirect or {}
+  local resolve: Net.ResolveOptions = opts.resolve or { hosts_file = hosts }
   local spec: Relay.Spec = {
     http = http, socks = socks, mixed = mixed ~= nil and { mixed } or nil, grants = opts.grants, upstream = opts.upstream,
     timeouts = opts.timeouts, limits = opts.limits, tls_ports = opts.tls_ports,
-    resolve = opts.resolve or { hosts_file = hosts }, own_addresses = opts.own_addresses, token = opts.token,
+    resolve = resolve, own_addresses = opts.own_addresses, token = opts.token,
     unresolved = opts.unresolved,
     log = function(line: string)
       rig.log[#rig.log + 1] = line
@@ -1138,8 +1142,8 @@ local record Proxy
 end
 
 local function proxy(status: string): Proxy
-  local state: Proxy = { head = "" }
-  state.server = origin(function(conn: Net.Conn, seen: Origin)
+  local state: Proxy
+  local server = origin(function(conn: Net.Conn, seen: Origin)
     local text = ""
     while not text:find("\r\n\r\n", 1, true) do
       local data, _ = conn:read()
@@ -1156,6 +1160,7 @@ local function proxy(status: string): Proxy
     local _, _ = conn:write("HTTP/1.1 200 Connection established\r\n\r\n")
     echo(conn, seen)
   end)
+  state = { head = "", server = server }
   return state
 end
 

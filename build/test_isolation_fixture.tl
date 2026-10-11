@@ -27,8 +27,9 @@ function fixture.invoke(root: string, output: string, args: {string},
   local words: {string} = { "test" }
   for _, value in ipairs(args) do words[#words + 1] = value end
   local fd = assert(Fs.open_write(output))
+  local environment = env or fixture.environment()
   local started = this_program.program(words, {
-    cwd = root, env = env or fixture.environment(), stdout = fd, stderr = fd, timeout_ns = Clock.seconds(60),
+    cwd = root, env = environment, stdout = fd, stderr = fd, timeout_ns = Clock.seconds(60),
   })
   local result, trouble = Child.run(started.argv, started.options)
   assert(Fs.close(fd))

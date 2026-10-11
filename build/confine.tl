@@ -756,7 +756,8 @@ local function plain_sandbox(sandbox: raw_process.Sandbox): raw_process.Sandbox 
   if unveil is {any:any} then
     local reads, writes = raw_strings(rawget(unveil, "reads")), raw_strings(rawget(unveil, "writes"))
     if reads == nil or writes == nil then return nil end
-    plain.unveil = { reads = reads, writes = writes }
+    local plain_unveil: raw_process.Unveil = { reads = reads, writes = writes }
+    plain.unveil = plain_unveil
     local at = rawget(unveil, "at")
     if at is {any:any} then
       local names: {string:string} = {}
@@ -764,7 +765,7 @@ local function plain_sandbox(sandbox: raw_process.Sandbox): raw_process.Sandbox 
         if not given is string or not name is string then return nil end
         names[given] = name
       end
-      plain.unveil.at = names
+      plain_unveil.at = names
     elseif at ~= nil then
       return nil
     end

@@ -298,7 +298,7 @@ local record Markup
     --- the `<noscript>` start tag; nil elsewhere. At
     --- its `</noscript>` the place is murky unless this one is in plain text
     --- (see [`noscript_clean`]).
-    off: Place
+    off?: Place
     --- The other places this one may be, where the arms of a block left
     --- one tag at different attribute boundaries (`<input{{if .a}} checked{{end}}`):
     --- each as its phase, a `:` and its attribute (empty where the phase
@@ -970,9 +970,10 @@ local function end_tag(p: Place, text: string, from: integer, unquoted: boolean)
   end
   p.phase = (p.closing or phase == nil) and "text" or phase
   if p.phase == "raw" and p.tag == "noscript" then
-    p.off = start(p.dialect)
-    p.off.select = p.select
-    p.off.frameset = p.frameset
+    local off = start(p.dialect)
+    off.select = p.select
+    off.frameset = p.frameset
+    p.off = off
   end
   return from
 end
@@ -1323,7 +1324,7 @@ local function scan(p: Place, text: string)
         -- as a refusal and never reports. A run cut before a held tail is
         -- a boundary only this reading sees, and may mark a tag `split`,
         -- which can refuse, never admit.
-        local off = p.off
+        local off = assert(p.off)
         feed(off, settled, 0, 0)
         -- Refused at once, as `late` is outside: `settle` has stopped
         -- reading, and `alike` compares `murky`, so the arm this happens in

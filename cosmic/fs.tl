@@ -60,10 +60,10 @@ local record Fs
   record CacheOptions
     --- The variables to read (`XDG_CACHE_HOME`, `HOME`), by name; the
     --- process's own when nil.
-    environment: {string:string}
+    environment?: {string:string}
     --- Whether to make and check the directory; true when nil. False
     --- answers the name alone.
-    make: boolean
+    make?: boolean
   end
 
   --- A private directory made by [`Fs.scratch`], removed with everything

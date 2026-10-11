@@ -24,7 +24,7 @@ function Example.bind()
   local q = assert(Url.decode_query("email=ada%40example.org&age=&tags=a&tags=b"))
   local bound: Web.Parsed<Signup> = Input.bind_strings(q, SIGNUP.spec)
   assert(bound.invalid == nil)
-  local form = bound.value
+  local form = assert(bound.value)
   assert(form.email == "ada@example.org" and form.age == nil)
   assert(form.news == false, "an unchecked box sends nothing")
   assert(#form.tags == 2 and form.tags[2] == "b")
@@ -136,7 +136,7 @@ function Example.plain_route()
     Web.get("/page", function(req: Web.Request): Web.Response
       local q = Input.query(req)
       if q.invalid ~= nil then return Web.text(q.invalid.message, { status = q.invalid.status }) end
-      return Web.text(tostring(#q.value.pairs))
+      return Web.text(tostring(#assert(q.value).pairs))
     end),
   } }
   local client = Web.test_client(app)

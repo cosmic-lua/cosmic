@@ -58,11 +58,11 @@ local function test_options_replace_the_status_and_headers_in_any_case()
   assert(res.status == 202 and res.close == true)
   assert(Response.header(res, "Content-Type") == "text/csv")
   local count = 0
-  for name in pairs(res.headers) do
+  for name in pairs(res.headers or {}) do
     if name:lower() == "content-type" then count = count + 1 end
   end
   assert(count == 1, "one Content-Type")
-  local many = res.headers["X-Many"]
+  local many = assert(res.headers)["X-Many"]
   assert(many is {string} and #many == 2 and many[2] == "b")
   sendable(res)
 end
@@ -126,12 +126,12 @@ end
 local function test_add_header_appends_lines_and_keeps_the_first_as_a_string()
   local res = Response.text("x")
   Response.add_header(res, "Set-Cookie", "a=1")
-  assert(res.headers["Set-Cookie"] == "a=1")
+  assert(assert(res.headers)["Set-Cookie"] == "a=1")
   Response.add_header(res, "set-cookie", "b=2; Expires=Wed, 21 Oct 2026 07:28:00 GMT")
   Response.add_header(res, "Set-Cookie", "c=3")
-  local lines = res.headers["Set-Cookie"]
+  local lines = assert(res.headers)["Set-Cookie"]
   assert(lines is {string} and #lines == 3 and lines[1] == "a=1" and lines[3] == "c=3")
-  assert(res.headers["set-cookie"] == nil)
+  assert(assert(res.headers)["set-cookie"] == nil)
   sendable(res)
 end
 
@@ -140,12 +140,12 @@ local function test_add_header_merges_vary_tokens_without_repeating_them()
   Response.add_header(res, "Vary", "Cookie")
   Response.add_header(res, "vary", "HX-Request, cookie")
   Response.add_header(res, "Vary", "Accept-Encoding")
-  assert(res.headers["Vary"] == "Cookie, HX-Request, Accept-Encoding", tostring(res.headers["Vary"]))
-  assert(res.headers["vary"] == nil)
+  assert(assert(res.headers)["Vary"] == "Cookie, HX-Request, Accept-Encoding", tostring(assert(res.headers)["Vary"]))
+  assert(assert(res.headers)["vary"] == nil)
   Response.add_header(res, "Vary", "*")
-  assert(res.headers["Vary"] == "*")
+  assert(assert(res.headers)["Vary"] == "*")
   Response.add_header(res, "Vary", "Cookie")
-  assert(res.headers["Vary"] == "*")
+  assert(assert(res.headers)["Vary"] == "*")
   local listed = Response.text("x", { headers = { Vary = { "Accept", "Origin" } } })
   Response.add_header(listed, "Vary", "origin")
   Response.add_header(listed, "Vary", "Cookie")
@@ -156,18 +156,18 @@ local function test_add_header_gives_every_other_name_a_line_of_its_own()
   local res: Types.Response = { status = 200 }
   Response.add_header(res, "Link", "</a>; rel=preload")
   Response.add_header(res, "Link", "</b>; rel=preload")
-  local lines = res.headers["Link"]
+  local lines = assert(res.headers)["Link"]
   assert(lines is {string} and #lines == 2)
 end
 
 local function test_set_header_replaces_every_case_and_refuses_set_cookie()
   local res: Types.Response = { status = 200, headers = { ["x-a"] = "1", ["X-A"] = "2" } }
   Response.set_header(res, "X-a", "3")
-  assert(res.headers["X-a"] == "3" and res.headers["x-a"] == nil and res.headers["X-A"] == nil)
+  assert(assert(res.headers)["X-a"] == "3" and assert(res.headers)["x-a"] == nil and assert(res.headers)["X-A"] == nil)
   assert(raised(function() Response.set_header(res, "set-cookie", "a=1") end):find("add_header", 1, true))
   local bare: Types.Response = { status = 200 }
   Response.set_header(bare, "X-B", "1")
-  assert(bare.headers["X-B"] == "1")
+  assert(assert(bare.headers)["X-B"] == "1")
 end
 
 local function test_header_reads_in_any_case_and_the_first_of_a_list()
@@ -184,7 +184,7 @@ local function test_abort_raises_a_tagged_table_the_exception_layer_reads()
   end)
   assert(not ok)
   local abort = Response.aborted(err)
-  assert(abort ~= nil and abort.status == 404 and abort.detail == "gone" and abort.extra.code == "x")
+  assert(abort ~= nil and abort.status == 404 and abort.detail == "gone" and assert(abort.extra).code == "x")
   assert(Response.aborted("an ordinary error") == nil)
   assert(Response.aborted({ web_abort = true }) == nil)
   assert(raised(function() Response.abort(200) end):find("400 to 599", 1, true))
@@ -216,4 +216,22 @@ local function test_stream_is_nosniff_like_the_other_constructors()
   local res = Response.stream(Stream.from_string("abc"), "text/plain")
   assert(Response.header(res, "x-content-type-options") == "nosniff")
   assert(Response.header(res, "content-type") == "text/plain")
+end
+
+local function test_copy_has_headers_of_its_own_and_every_field_of_a_reply()
+  local lines: {string} = { "a=1" }
+  local original: Types.Response = { status = 201, headers = { ["Set-Cookie"] = lines, Vary = "Accept" },
+    body = "x", length = 1, close = true }
+  local copy = Response.copy(original)
+  assert(copy.status == 201 and copy.body == "x" and copy.length == 1 and copy.close == true)
+  Response.add_header(copy, "Set-Cookie", "b=2")
+  Response.add_header(copy, "Vary", "Origin")
+  Response.set_header(copy, "X-New", "1")
+  local original_headers = assert(original.headers)
+  local copy_headers = assert(copy.headers)
+  assert(#lines == 1 and original_headers["Vary"] == "Accept" and original_headers["X-New"] == nil,
+    "the original is as it was")
+  assert(#(copy_headers["Set-Cookie"] as {string}) == 2 and copy_headers["Vary"] == "Accept, Origin")
+  local bare = Response.copy({ status = 204 })
+  assert(bare.status == 204 and next(assert(bare.headers)) == nil)
 end

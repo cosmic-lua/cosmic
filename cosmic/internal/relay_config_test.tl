@@ -183,9 +183,9 @@ local function test_the_config_travels_as_one_line_and_reads_back()
   assert(not text:find("\n", 1, true), "one line")
   local read = assert(RelayConfig.decode(text))
   assert(table.concat(read.grants, ",") == "api.example.com:443,127.0.0.2:8080")
-  local up = read.upstream
+  local up = assert(read.upstream)
   assert(up.host == "proxy" and up.port == 3128 and up.authorization == "Basic dXNlcjpwYXNz" and
-      table.concat(up.no_proxy, ",") == ".corp" and table.concat(up.addresses, ",") == "10.0.0.9,::1")
+      table.concat(up.no_proxy, ",") == ".corp" and table.concat(assert(up.addresses), ",") == "10.0.0.9,::1")
   assert(table.concat(read.own_addresses, ",") == "10.1.0.2" and read.log == "stderr")
   local bare = assert(RelayConfig.decode(RelayConfig.encode({ grants = { "a.test:1" },
     own_addresses = {}, log = "null" })))
@@ -195,9 +195,10 @@ local function test_the_config_travels_as_one_line_and_reads_back()
     log = "null", public = true, table = { { host = "127.0.0.1", port = 0 } },
     name_servers = { { host = "127.0.0.1", port = 53 } }, name_server_wait_ns = 2500000000,
     upstream = { host = "p.test", port = 80, no_proxy = {}, addresses = { "127.0.0.1" } } })))
-  assert(handed.public == true and handed.table[1].port == 0 and handed.name_servers[1].port == 53 and
-      handed.name_server_wait_ns == 2500000000 and handed.upstream.addresses[1] == "127.0.0.1" and
-      handed.upstream.authorization == nil)
+  local handed_upstream = assert(handed.upstream)
+  assert(handed.public == true and assert(handed.table)[1].port == 0 and
+      assert(handed.name_servers)[1].port == 53 and handed.name_server_wait_ns == 2500000000 and
+      assert(handed_upstream.addresses)[1] == "127.0.0.1" and handed_upstream.authorization == nil)
   assert(handed.direct == false and handed.token == nil, "Linux's relay is handed its listeners")
   local direct = assert(RelayConfig.decode(RelayConfig.encode({ grants = { "a.test:1" }, own_addresses = {},
     log = "null", direct = true, token = "0123456789abcdef0123" })))
