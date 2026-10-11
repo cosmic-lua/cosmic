@@ -1255,6 +1255,41 @@ local function test_error_is_a_never_function()
   assert(#syntax_errors("local g: function(string): never = error\n") == 0)
 end
 
+--- `local x = fail()` is refused as any call that answers nothing is,
+--- which says nothing of why a never-function has no value: the hint
+--- says it never returns. A function that merely returns nothing gets none.
+local function test_a_never_call_has_no_value_to_assign()
+  local msg = "assignment in declaration did not produce an initial value for variable 'x'"
+  local function hint(source: string): string | nil
+    local found = refusals(source)
+    assert(found[1] ~= nil and found[1]:find(msg, 1, true) ~= nil, source .. (found[1] or "accepted"))
+    local line, column = found[1]:match("^(%d+):(%d+) ")
+    return teal.replacement(msg, source, math.tointeger(line) or 0, math.tointeger(column) or 0)
+  end
+  local never_said = "`fail` never returns, so it has no value to assign"
+  local declared = hint("local function fail(m: string): never\n  error(m)\nend\nlocal x = fail('a')\nprint(x)\n")
+  assert(declared ~= nil and declared:find(never_said, 1, true) ~= nil, tostring(declared))
+  local method = hint("local record G\n  fail: function(self: G, m: string): never\nend\n" ..
+      "local g: G = {}\nlocal x = g:fail('a')\nprint(x)\n")
+  assert(method ~= nil and method:find("`g:fail` never returns", 1, true) ~= nil, tostring(method))
+  local standard = hint("local x = error('a')\nprint(x)\n")
+  assert(standard ~= nil and standard:find("`error` never returns", 1, true) ~= nil, tostring(standard))
+  assert(hint("local function nothing(m: string)\nend\nlocal x = nothing('a')\nprint(x)\n") == nil)
+  assert(hint("local function fail(m: string): never\n  error(m)\nend\n" ..
+      "local function other(m: string)\nend\nlocal x = other('a')\nprint(x)\n") == nil)
+  -- a longer name that ends in the callee's is another function
+  assert(hint("local function xfail(m: string): never\n  error(m)\nend\n" ..
+      "local function fail(m: string)\nend\nlocal x = fail('a')\nprint(x)\n") == nil)
+  -- a field is not the bare name it shares its last segment with
+  assert(hint("local function fail(m: string): never\n  error(m)\nend\n" ..
+      "local o = { fail = function(m: string) end }\nlocal x = o.fail('a')\nprint(x)\n") == nil)
+  local dotted = hint("local o = {}\nfunction o.fail(m: string): never\n  error(m)\nend\n" ..
+      "local x = o.fail('a')\nprint(x)\n")
+  assert(dotted ~= nil and dotted:find("`o.fail` never returns", 1, true) ~= nil, tostring(dotted))
+  -- a local that hides the standard error
+  assert(hint("local function error(m: string)\nend\nlocal x = error('a')\nprint(x)\n") == nil)
+end
+
 --- A record's method refused against an interface method with an unnamed
 --- receiver is told to name the receiver `self`.
 local function test_an_unnamed_interface_receiver_is_told_to_name_self()
@@ -1278,19 +1313,62 @@ local function test_a_fixed_type_parameter_is_told_to_bind_in_a_local()
   assert(teal.replacement("argument 2: got R, expected S", "", 1, 1) == nil)
 end
 
---- `coroutine.wrap` is declared `F -> F`, which is wrong for any type
---- (its wrapper returns whatever the coroutine yields), so a wrapped
---- never-function is typed never, as a wrapped function returning a string
---- is typed to return one whatever it yields. Never is exactly as sound as
---- Teal's other types: the plan lists this among the holes every type has,
---- and this pins that the compiler accepts it today.
-local function test_coroutine_wrap_forges_a_never_function_as_it_forges_any_type()
+--- `coroutine.wrap` gives a function that answers what the coroutine yields
+--- or finally returns (patch/tl's 45), so a wrapped function's results are
+--- `any...`: a wrapped function returning a string is not typed to return
+--- one, and a wrapped never-function is not typed never. The wrapper keeps
+--- the parameters of the function passed.
+local function test_coroutine_wrap_answers_any_and_not_what_the_function_returns()
+  local yields = "local g = coroutine.wrap(function(): string coroutine.yield(1) return 'x' end)\n"
+  assert_refused(yields .. "local s: string = g()\nprint(s)\n", "got <any type>")
+  assert_accepted(yields .. "local s = g() as string\nprint(s)\n")
   local wrapped = "local function nv(): never\n  coroutine.yield(1)\n  error('x')\nend\n"
-  assert_accepted(wrapped .. "local c: function(): never = coroutine.wrap(nv)\nprint(c)\n")
-  local never_signature = "function(function(): never): function(): never"
-  assert_accepted(wrapped .. "local w: " .. never_signature .. " = coroutine.wrap\nprint(w)\n")
-  assert_accepted("local w = coroutine.wrap(function(a: integer): integer return a end)\n" ..
-      "local n: integer = w(1)\nprint(n)\n")
+  assert_refused(wrapped .. "local c: function(): never = coroutine.wrap(nv)\nprint(c)\n", "function")
+  assert_refused(wrapped .. "local w: function(function(): never): function(): never = coroutine.wrap\nprint(w)\n",
+    "function")
+end
+
+local function test_a_wrapped_function_refuses_wrong_arguments()
+  local head = "local g = coroutine.wrap(function(a: string, b?: integer) coroutine.yield(a) end)\n"
+  assert_refused(head .. "g(1)\n", "argument 1")
+  assert_refused(head .. "g('a', 'b')\n", "argument 2")
+  assert_refused(head .. "g()\n", "wrong number of arguments")
+  assert_refused(head .. "g('a', 1, 2)\n", "wrong number of arguments")
+end
+
+--- The handler of `coroutine.wrap` (patch/tl's 45d) meets no argument, a
+--- `nil`, an `any`, a union, an overloaded function and a vararg of unknown
+--- arity without raising: each is refused, or accepted as the call check
+--- of the declaration decides.
+local function test_wrap_meets_degenerate_arguments()
+  assert_refused("local g = coroutine.wrap()\nprint(g)\n", "wrong number of arguments")
+  assert_accepted("local g = coroutine.wrap(nil)\nprint(g)\n")
+  assert_refused("local function f(x: any) local g = coroutine.wrap(x)\nprint(g()) end\nf(1)\n",
+    "argument 1: got <any type>, expected Function")
+  assert_refused("local type A = function(): string\nlocal type B = function(a: integer)\n" ..
+      "local function f(x: A | B)\n" ..
+      "local g = coroutine.wrap(x)\nprint(g) end\nf(print)\n",
+    "cannot discriminate a union")
+  assert_accepted("local g = coroutine.wrap(string.format)\nprint(g('%d', 1))\n")
+  assert_refused("local function f(...: any) local g = coroutine.wrap(...)\nprint(g) end\nf(print)\n",
+    "argument 1: got <any type>, expected Function")
+end
+
+--- A generic function wrapped stays generic in its parameters, so the
+--- arity of a call of the wrapper is still checked.
+local function test_a_wrapped_generic_function_keeps_its_arity()
+  local head = "local c = coroutine.wrap(function<T>(x: T): T coroutine.yield(x) return x end)\n"
+  assert_accepted(head .. "c(1)\nc('a')\n")
+  assert_refused(head .. "c(1, 2)\n", "wrong number of arguments")
+  assert_refused(head .. "c()\n", "wrong number of arguments")
+end
+
+local function test_an_ordinary_wrap_call_type_checks()
+  assert_accepted("local g = coroutine.wrap(function(a: string, b?: integer) coroutine.yield(a) end)\n" ..
+      "g('a')\ng('a', 1)\nlocal v = g('a')\nprint(v)\n")
+  assert_accepted("local h = coroutine.wrap(function() end)\nh()\nlocal ok = pcall(h)\nprint(ok)\n")
+  assert_accepted("for v in coroutine.wrap(function() coroutine.yield(1) end) do print(v) end\n")
+  assert_accepted("local co = coroutine.wrap(coroutine.yield)\nprint(co)\n")
 end
 
 --- A generic that writes a value into a container of never-functions
@@ -1563,4 +1641,105 @@ local function test_a_call_site_type_name_is_told_there_are_none()
   local compared = checker_says("print(missing < 1)\n")
   assert(says(compared, "unknown variable: missing"), table.concat(compared, "\n"))
   assert(not says(compared, "no type arguments"), table.concat(compared, "\n"))
+end
+
+--- `name?: T` declares a field that a table literal may omit and whose
+--- type admits nil, as `name: T | nil` does (patch/tl's 49a to 49c): a
+--- read is `T | nil`, a guard narrows it, and nil may be assigned to it.
+--- Its record is open, so the literal omitting a plain field compiles
+--- too; what tells the two apart is the type a read has.
+local function test_an_optional_field_admits_nil()
+  local declared = "local record R\n  name?: string\nend\nlocal r: R = {}\n"
+  assert_accepted(declared .. "r.name = nil\nr.name = 'x'\nprint(r)\n")
+  assert_refused(declared .. "print(r.name:upper())\n", "cannot index key 'upper' in type string | nil")
+  assert_refused(declared .. "r.name = 1\n", "in assignment: got integer")
+  assert_accepted(declared .. "if r.name then\n  print(r.name:upper())\nend\n")
+  assert_accepted(declared .. "local n: string = r.name or 'none'\nprint(n)\n")
+  assert_accepted("local record P\n  name: string\nend\nlocal p: P = {}\nprint(p.name:upper())\n")
+end
+
+--- The optional field written with its nil spelled out is the same
+--- field: its generated Lua is the plain one, and a union that already
+--- holds nil gains no second member.
+local function test_an_optional_field_is_the_union_with_nil()
+  local built = assert(teal.load(true))
+  local function lua(field: string): string
+    return (assert(built.gen("local record R\n  " .. field .. "\nend\nlocal r: R = {}\nprint(r)\n",
+      nil, nil, "tl")))
+  end
+  assert(lua("name?: string") == lua("name: string | nil"))
+  local function read_as(field: string): string
+    return refusals("local record R\n  " .. field .. "\nend\nlocal r: R = {}\nprint(r.name.x)\n")[1] or ""
+  end
+  assert(read_as("name?: string | number"):find("in type string | number | nil", 1, true) ~= nil)
+  assert(read_as("name?: string | number | nil"):find("in type string | number | nil", 1, true) ~= nil)
+  assert(read_as("name?: string | nil"):find("in type string | nil", 1, true) ~= nil)
+end
+
+--- An interface field may be optional, and a record that implements
+--- the interface inherits the field, optional.
+local function test_an_optional_interface_field()
+  local source = "local interface Named\n  name?: string\nend\n" ..
+    "local record Dog\n  is Named\n  age: integer\nend\n" ..
+    "local d: Dog = { age = 3 }\nlocal n: Named = d\n"
+  assert_accepted(source .. "if d.name then\n  print(d.name:upper())\nend\nprint(n)\n")
+  assert_refused(source .. "print(d.name:upper(), n)\n", "cannot index key 'upper' in type string | nil")
+  assert_accepted("local interface Named\n  name?: string\nend\nlocal n: Named = {}\nprint(n)\n")
+end
+
+--- A field of a nested or generic record may be optional, as may one
+--- of a record type, whose own fields are read after a guard.
+local function test_an_optional_field_in_nested_and_generic_records()
+  local nested = "local record Outer\n  record Inner\n    depth?: integer\n  end\n" ..
+    "  inner?: Inner\nend\nlocal o: Outer = {}\n"
+  assert_accepted(nested .. "o.inner = {}\nlocal i = o.inner\nif i then\n  local d: integer = i.depth or 0\n  print(d)\nend\n")
+  assert_refused(nested .. "local d = o.inner.depth\nprint(d)\n", "cannot index")
+  local generic = "local record Box<T>\n  value?: T\nend\nlocal b: Box<string> = {}\n"
+  assert_accepted(generic .. "b.value = 's'\nif b.value then\n  print(b.value:upper())\nend\n")
+  assert_refused(generic .. "print(b.value:upper())\n", "cannot index key 'upper' in type string | nil")
+  assert_refused(generic .. "b.value = 1\n", "in assignment: got integer")
+end
+
+--- A key written as a string may be optional too, and so may a function
+--- field, which is called after a guard as any function that may be nil.
+local function test_an_optional_field_with_a_string_key_or_a_function_type()
+  assert_accepted("local record R\n  [\"a b\"]?: integer\nend\nlocal r: R = {}\nprint(r[\"a b\"])\n")
+  local callback = "local record R\n  done?: function(code: integer)\nend\nlocal r: R = {}\n"
+  assert_accepted(callback .. "if r.done then\n  r.done(1)\nend\n")
+  assert_refused(callback .. "r.done(1)\n", "not a function: function(integer) | nil")
+end
+
+--- `<total>` asks for every field, the optional ones too: `name?: T` is
+--- `name: T | nil` and a total literal states a nil-admitting field,
+--- `name = nil` where it has no value.
+local function test_a_total_literal_states_its_optional_fields()
+  local declared = "local record R\n  id: integer\n  name?: string\nend\n"
+  assert_refused(declared .. "local r <total>: R = { id = 1 }\nprint(r)\n", "missing: name")
+  assert_accepted(declared .. "local r <total>: R = { id = 1, name = nil }\nprint(r)\n")
+  assert_accepted(declared .. "local r <total>: R = { id = 1, name = 'x' }\nprint(r)\n")
+end
+
+--- What `?` cannot mark: a metamethod, a generic function type, and a
+--- name with no `:` after it.
+local function test_what_an_optional_field_refuses()
+  assert_refused("local record R\n  metamethod __index?: function(R, string): any\nend\n",
+    "a metamethod cannot be optional")
+  assert_refused("local record R\n  pick?: function<T>(T): T\nend\n",
+    "an optional field cannot have a generic type")
+  assert_refused("local record R\n  name? string\nend\n", "expected ':'")
+  assert_accepted("local function f(a?: string) print(a) end\nprint(f)\n")
+end
+
+--- A field named by a word that starts a declaration (`type`, `record`,
+--- `enum`, `interface`, `userdata`, `metamethod`) may be optional, as it
+--- may be plain (patch/tl's 49d and 49e).
+local function test_an_optional_field_may_be_named_for_a_declaration_word()
+  for _, word in ipairs({ "type", "record", "enum", "interface", "userdata", "metamethod" }) do
+    assert_accepted("local record R\n  " .. word .. "?: integer\n  other: string\nend\n" ..
+        "local r: R = {}\nif r." .. word .. " then\n  print(r." .. word .. " + 1)\nend\n")
+    assert_refused("local record R\n  " .. word .. "?: integer\nend\nlocal r: R = {}\n" ..
+        "print(r." .. word .. ".x)\n", "in type integer | nil")
+    assert_accepted("local interface I\n  " .. word .. "?: string\nend\nlocal i: I = {}\nprint(i)\n")
+  end
+  assert_accepted("local record R\n  userdata\n  type?: string\n  record Inner\n    x?: integer\n  end\nend\nprint(R)\n")
 end

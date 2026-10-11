@@ -1,0 +1,11 @@
+file: tl.tl
+note: the field 49b read as optional is stored with 49a's type, after the macroexp check (a macroexp must be a function type, which an optional one is not) and the method mark, which belong to the function and not to the union around it
+--- find
+            store_field_in_record(ps, iv, field_name, t, def, comments, is_metamethod and "meta" or nil)
+--- replace
+            if optional then
+               t = optional_field_type(ps, type_at, t)
+            end
+
+            store_field_in_record(ps, iv, field_name, t, def, comments, is_metamethod and "meta" or nil)
+--- end

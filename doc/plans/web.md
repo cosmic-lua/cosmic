@@ -182,7 +182,7 @@ assert(reply.status == 422 and reply.text:find("qty", 1, true))
 - `cosmic.web.testing`: the in-process client and the loopback one.
 - `cosmic.web.dev`: a supervisor that restarts the app on an edit and
   reloads the browser, on the loopback only.
-- Beside it, not under it: `cosmic.channel` (a queue between tasks),
+- Beside it, not under it: [`cosmic.channel`] (a queue between tasks),
   [`Poll.notifier`] in [`cosmic.poll`], `cosmic.http.multipart`, and the
   htmx dialect in `cosmic/template/dialect/`.
 
@@ -283,7 +283,7 @@ needs have merged.
 6. **htmx and assets:** vendored htmx and its SSE extension with their
    PINs, the `static/` convention and `StaticFiles`, `cosmic.web.htmx`
    and `Htmx.head`.
-7. **Streaming and the rest:** `cosmic.channel`, `cosmic.web.sse`,
+7. **Streaming and the rest:** [`cosmic.channel`], `cosmic.web.sse`,
    `cosmic.http.multipart` (decision 8), and
    `cosmic.web.dev`.
 8. **A guide,** doc/guides/web.md, which is a test of its own: one app
@@ -341,6 +341,7 @@ cooperative process.
 
 [`Conn:peer()`]: ../../cosmic/internal/connection.tl
 [`Conn:peer`]: ../../cosmic/internal/connection.tl
+[`cosmic.channel`]: ../../cosmic/channel.tl
 [`cosmic.http.wire`]: ../../cosmic/http/wire.tl
 [`cosmic.web`]: ../../cosmic/web/init.tl
 [`Hash.equal`]: ../../cosmic/hash.tl

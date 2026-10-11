@@ -178,6 +178,19 @@ local function test_function_return_types_end_before_a_parameter()
     "local function g(...: any): any return a as function(): integer, ... end\n")
 end
 
+--- `: never` is a return list with no types, and is written back: a
+--- declaration, a literal, a method and a macroexp lose nothing.
+local function test_a_never_return_list_is_written_back()
+  writes("local function f(m: string): never error(m) end\n",
+    "local function f(m: string): never error(m) end\n")
+  writes("local f = function(m: string): never error(m) end\n",
+    "local f = function(m: string): never error(m) end\n")
+  writes("function R:die(m: string): never error(m) end\n",
+    "function R:die(m: string): never error(m) end\n")
+  writes("local macroexp die(m: string): never return error(m) end\n",
+    "local macroexp die(m: string): never return error(m) end\n")
+end
+
 --- Blocks: the closing keyword goes where the source put it, so a
 --- one-line `if` stays on one line and a spread-out one stays spread.
 local function test_blocks_keep_the_shape_the_source_gave_them()
@@ -616,6 +629,19 @@ local function test_a_double_angle_closing_two_type_argument_lists_is_kept()
       "local function f(r: R<K>): R<K>\n  return setmetatable(r, {} as metatable<R<K>>)\nend\n",
       "local record R<K>\n  m: metatable<R<K>>\n  f: function(): S<T<K>>\nend\n",
       "local x = a >> b\n",
+  }) do
+    writes(source, source)
+  end
+end
+
+--- A field declared `name?: T` keeps its `?`: a record body is written
+--- as it was, and the tree it parses to (the field's type united with
+--- nil) is the one the fix compares.
+local function test_an_optional_field_keeps_its_question_mark()
+  for _, source in ipairs({
+      "local record R\n  name?: string\n  [\"a b\"]?: {string}\n  done?: function(code: integer)\nend\n",
+      "local interface I\n  name?: string | number\nend\n",
+      "local function f()\n  local record R<T>\n    value?: T\n  end\n  return {} as R<string>\nend\n",
   }) do
     writes(source, source)
   end
