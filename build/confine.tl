@@ -996,7 +996,7 @@ local function enter(own?: {string}, sandboxed?: boolean): Leave, {string}
                            cwd: string | nil, stdin: integer | nil, stdout: integer | nil,
                            stderr: integer | nil, process_group: boolean,
                            fds?: {integer:integer}, sandbox?: raw_process.Sandbox,
-                           credentials?: raw_process.Credentials, terminal?: boolean):
+                           credentials?: raw_process.Credentials, terminal?: boolean | string):
       integer | nil, string, integer
     if ended then
       -- A reference to a stand-in that no longer stands in starts a

@@ -1123,17 +1123,148 @@ end
 --- whether the call ends a block (43f1).
 local function test_a_poly_function_is_never_only_when_every_overload_is()
   local poly = "local record P\n  f: function(string): never\n  f: function(%s)%s\nend\nlocal p: P\n"
-  assert_accepted(poly:format("integer", ": never") .. "local g: function(any): never = p.f\nprint(g)\n")
+  assert_accepted(poly:format("integer", ": never") .. "local g: function(string): never = p.f\nprint(g)\n")
   assert_refused(poly:format("integer", ": string") .. "local g: function(string): never = p.f\nprint(g)\n",
     "polymorphic function with an overload that may return")
+end
+
+--- A function type takes the parameters of the one it stands for
+--- contravariantly (patch/tl's 48a): it must accept all that one is
+--- given, so one that takes a narrower type is refused, where a wider
+--- one is fine. `cb` is called by `f`'s caller with a function returning
+--- a number, which the body would use as an integer.
+local function test_a_function_parameter_is_contravariant()
+  assert_refused("local f: function(cb: function(): number) = function(cb: function(): integer) print(cb) end\n" ..
+      "print(f)\n", "argument 1")
+  assert_refused("local f: function(number) = function(n: integer) print(n) end\nprint(f)\n", "argument 1")
+  assert_refused("local f: function(string, number) = function(s: string, n: integer) print(s, n) end\n" ..
+      "print(f)\n", "argument 2")
+  assert_accepted("local f: function(integer) = function(n: number) print(n) end\nprint(f)\n")
+  assert_accepted("local f: function(cb: function(): integer) = function(cb: function(): number) print(cb) end\n" ..
+      "print(f)\n")
+end
+
+--- A function type gives its returns covariantly (patch/tl's 48b): a
+--- narrower return is accepted, and a wider one refused, since its
+--- caller would use the number as the integer it was promised.
+local function test_a_function_return_is_covariant()
+  assert_accepted("local f: function(): number = function(): integer return 1 end\nprint(f)\n")
+  assert_refused("local f: function(): integer = function(): number return 1.5 end\nprint(f)\n", "return 1")
+  assert_refused("local f: function(): (integer, string) = function(): (integer, number) return 1, 2.5 end\n" ..
+      "print(f)\n", "return 2")
+end
+
+local receiver_types = "local interface Reader\n  read: function(Reader, integer): string\nend\n" ..
+  "local record Mine is Reader\n  extra: integer\nend\n"
+
+--- The first parameter of a function-typed field is the receiver, and
+--- may be narrower than the field declares (patch/tl's 48e): the record
+--- that holds the function is what it is called with. A record that
+--- redeclares the field with its own type as the receiver is an
+--- implementation of the interface that declares it.
+local function test_a_field_function_takes_a_narrower_receiver()
+  assert_accepted("local interface Reader\n  read: function(Reader, integer): string\nend\n" ..
+      "local record Mine is Reader\n  extra: integer\n  read: function(Mine, integer): string\nend\n" ..
+      "print(Mine)\n")
+end
+
+--- Only the first parameter of a field's function is exempt, and only
+--- where the function is compared as a field: its other parameters, its
+--- returns, and a function of a variable are held to the rule (48a, 48b).
+local function test_only_a_record_receiver_of_a_field_function_is_exempt()
+  assert_accepted("local interface Reader\n  read: function(Reader, integer): string\nend\n" ..
+      "local record Mine is Reader\n  read: function(Mine, number): string\nend\nprint(Mine)\n")
+  assert_refused("local interface Reader\n  read: function(Reader, number): string\nend\n" ..
+      "local record Mine is Reader\n  read: function(Mine, integer): string\nend\nprint(Mine)\n",
+    "field 'read' does not match definition in interface Reader")
+  assert_refused("local interface Reader\n  read: function(Reader): integer\nend\n" ..
+      "local record Mine is Reader\n  read: function(Mine): number\nend\nprint(Mine)\n",
+    "field 'read' does not match definition in interface Reader")
+  assert_refused(receiver_types .. "local f: function(Reader) = function(m: Mine) print(m) end\nprint(f)\n",
+    "argument 1")
+  assert_refused(receiver_types .. "local record Box\n  run: function(Box, function(Mine))\nend\n" ..
+      "local b: Box = { run = function(self: Box, f: function(Reader)) print(self, f) end }\nprint(b)\n",
+    "argument 2")
+  -- a first parameter that is no record or interface is no receiver
+  assert_refused("local record Opts\n  cb: function(number): number\nend\n" ..
+      "local o: Opts = { cb = function(n: integer): number return n end }\nprint(o)\n", "argument 1")
+  assert_refused("local record Opts\n  cb: function(number): number\nend\nlocal o: Opts\n" ..
+      "o.cb = function(n: integer): number return n end\nprint(o)\n", "argument 1")
+  assert_refused("local interface Named\n  f: function(string): string\nend\n" ..
+      "local record Impl is Named\n  f: function(integer): string\nend\nprint(Impl)\n",
+    "field 'f' does not match definition in interface Named")
+end
+
+--- The fields of a record are compared as fields wherever a record is
+--- compared with another type (patch/tl's 48g, 48h, 48i, 48k): a table
+--- whose function takes a narrower receiver is taken for the interface,
+--- as a literal of it and as an assignment to its field.
+local function test_a_narrower_receiver_is_taken_wherever_fields_are_compared()
+  -- 48g: an inferred table, compared with the interface structurally
+  assert_accepted(receiver_types ..
+      "local t = { read = function(self: Mine, n: integer): string print(self, n) return '' end }\n" ..
+      "local r: Reader = t\nprint(r)\n")
+  -- 48h is the record that declares the interface's field itself, above
+  -- 48i: a literal of the interface's own type
+  assert_accepted(receiver_types ..
+      "local r: Reader = { read = function(self: Mine, n: integer): string print(self, n) return '' end }\n" ..
+      "print(r)\n")
+  -- 48k: an assignment to a field of a value
+  assert_accepted(receiver_types .. "local m: Mine\n" ..
+      "m.read = function(self: Mine, n: integer): string print(self, n) return '' end\nprint(m)\n")
+  assert_refused(receiver_types .. "local m: Mine\nlocal set: function(Reader) = function(_: Reader) end\n" ..
+      "local f: function(Reader, integer): string = m.read\n" ..
+      "f = function(self: Mine, n: integer): string print(self, n) return '' end\nprint(f, set)\n",
+    "argument 1")
+end
+
+--- The receiver exemption cannot tell a receiver from another record
+--- parameter of a field's function, so a callback field that takes an
+--- interface also takes a function over one of its records: a known limit,
+--- as on main, that named receivers (doc/roadmap.md) close. A record
+--- unrelated to the expected one is refused.
+local function test_a_callback_field_with_a_record_parameter_is_the_known_limit()
+  local events = "local interface Event\n  name: string\nend\n" ..
+    "local record KeyEvent is Event\n  key: string\nend\n" ..
+    "local record MouseEvent is Event\n  x: integer\nend\n" ..
+    "local record Opts\n  cb: function(Event)\n  cb2: function(KeyEvent)\nend\n"
+  assert_refused(events .. "local o: Opts = { cb2 = function(m: MouseEvent) print(m) end }\nprint(o)\n", "argument 1")
+  assert_accepted(events .. "local o: Opts = { cb = function(k: KeyEvent) print(k.key) end }\nprint(o)\n")
+end
+
+--- A parameter expected as `any` is satisfied by a function of any
+--- parameter type (patch/tl's 48l), as `any` is the unchecked type: the
+--- standard library's callbacks take it, so `coroutine.create` of a
+--- function with typed parameters and a `__call` metamethod with them are
+--- accepted. A parameter expected as a `number` is still not.
+local function test_an_any_parameter_takes_any_parameter()
+  assert_accepted("local co = coroutine.create(function(a: string, b: integer) print(a, b) end)\n" ..
+      "print(coroutine.resume(co, 'x', 1))\n")
+  assert_accepted("local o = setmetatable({}, { __call = function(_: {any:any}, a: string) print(a) end })\nprint(o)\n")
+  assert_accepted("local f: function(any...): any... = function(a: string, b: integer): string print(b) return a end\n" ..
+      "print(f)\n")
+  assert_refused("local f: function(number, any) = function(n: integer, s: string) print(n, s) end\nprint(f)\n",
+    "argument 1")
+end
+
+--- `string.gsub`'s replacement function takes strings (patch/tl's 48j),
+--- as `string.gmatch` returns its captures, so a function over strings
+--- stands for it when the pattern is not a literal that is read capture by
+--- capture; a literal pattern with a position capture gives an integer.
+local function test_a_gsub_replacement_takes_strings()
+  assert_accepted("local pattern: string = '%d'\n" ..
+      "print(('a1'):gsub(pattern, function(c: string): string return c end))\n")
+  assert_refused("local pattern: string = '%d'\n" ..
+      "print(('a1'):gsub(pattern, function(c: integer): string return tostring(c) end))\n", "got function(integer): string")
+  assert_accepted("print(('a1'):gsub('()%d', function(at: integer): string return tostring(at) end))\n")
 end
 
 --- A type nested in another keeps its never-ness: a function that never
 --- returns does not stand for one that may inside an array, a map, a
 --- record, a union, an alias or a generic's type argument, as a
 --- parameter or as a return, in either direction (43e5). Teal compares
---- what is nested through is_a in whichever direction passes, so
---- without this `{function(): never}` stood for `{function(): string}`.
+--- what is nested through is_a, an element covariantly, so without this
+--- `{function(): never}` stood for `{function(): string}`.
 local function test_never_agrees_when_nested()
   local prelude = "local record Box<X>\n  v: X\nend\n" ..
     "local record RecN\n  f: function(): never\nend\nlocal record RecS\n  f: function(): string\nend\n" ..
@@ -1313,19 +1444,62 @@ local function test_a_fixed_type_parameter_is_told_to_bind_in_a_local()
   assert(teal.replacement("argument 2: got R, expected S", "", 1, 1) == nil)
 end
 
---- `coroutine.wrap` is declared `F -> F`, which is wrong for any type
---- (its wrapper returns whatever the coroutine yields), so a wrapped
---- never-function is typed never, as a wrapped function returning a string
---- is typed to return one whatever it yields. Never is exactly as sound as
---- Teal's other types: the plan lists this among the holes every type has,
---- and this pins that the compiler accepts it today.
-local function test_coroutine_wrap_forges_a_never_function_as_it_forges_any_type()
+--- `coroutine.wrap` gives a function that answers what the coroutine yields
+--- or finally returns (patch/tl's 45), so a wrapped function's results are
+--- `any...`: a wrapped function returning a string is not typed to return
+--- one, and a wrapped never-function is not typed never. The wrapper keeps
+--- the parameters of the function passed.
+local function test_coroutine_wrap_answers_any_and_not_what_the_function_returns()
+  local yields = "local g = coroutine.wrap(function(): string coroutine.yield(1) return 'x' end)\n"
+  assert_refused(yields .. "local s: string = g()\nprint(s)\n", "got <any type>")
+  assert_accepted(yields .. "local s = g() as string\nprint(s)\n")
   local wrapped = "local function nv(): never\n  coroutine.yield(1)\n  error('x')\nend\n"
-  assert_accepted(wrapped .. "local c: function(): never = coroutine.wrap(nv)\nprint(c)\n")
-  local never_signature = "function(function(): never): function(): never"
-  assert_accepted(wrapped .. "local w: " .. never_signature .. " = coroutine.wrap\nprint(w)\n")
-  assert_accepted("local w = coroutine.wrap(function(a: integer): integer return a end)\n" ..
-      "local n: integer = w(1)\nprint(n)\n")
+  assert_refused(wrapped .. "local c: function(): never = coroutine.wrap(nv)\nprint(c)\n", "function")
+  assert_refused(wrapped .. "local w: function(function(): never): function(): never = coroutine.wrap\nprint(w)\n",
+    "function")
+end
+
+local function test_a_wrapped_function_refuses_wrong_arguments()
+  local head = "local g = coroutine.wrap(function(a: string, b?: integer) coroutine.yield(a) end)\n"
+  assert_refused(head .. "g(1)\n", "argument 1")
+  assert_refused(head .. "g('a', 'b')\n", "argument 2")
+  assert_refused(head .. "g()\n", "wrong number of arguments")
+  assert_refused(head .. "g('a', 1, 2)\n", "wrong number of arguments")
+end
+
+--- The handler of `coroutine.wrap` (patch/tl's 45d) meets no argument, a
+--- `nil`, an `any`, a union, an overloaded function and a vararg of unknown
+--- arity without raising: each is refused, or accepted as the call check
+--- of the declaration decides.
+local function test_wrap_meets_degenerate_arguments()
+  assert_refused("local g = coroutine.wrap()\nprint(g)\n", "wrong number of arguments")
+  assert_accepted("local g = coroutine.wrap(nil)\nprint(g)\n")
+  assert_refused("local function f(x: any) local g = coroutine.wrap(x)\nprint(g()) end\nf(1)\n",
+    "argument 1: got <any type>, expected Function")
+  assert_refused("local type A = function(): string\nlocal type B = function(a: integer)\n" ..
+      "local function f(x: A | B)\n" ..
+      "local g = coroutine.wrap(x)\nprint(g) end\nf(print)\n",
+    "cannot discriminate a union")
+  assert_accepted("local g = coroutine.wrap(string.format)\nprint(g('%d', 1))\n")
+  assert_refused("local function f(...: any) local g = coroutine.wrap(...)\nprint(g) end\nf(print)\n",
+    "argument 1: got <any type>, expected Function")
+end
+
+--- A generic function wrapped stays generic in its parameters, so the
+--- arity of a call of the wrapper is still checked.
+local function test_a_wrapped_generic_function_keeps_its_arity()
+  local head = "local c = coroutine.wrap(function<T>(x: T): T coroutine.yield(x) return x end)\n"
+  assert_accepted(head .. "c(1)\nc('a')\n")
+  assert_refused(head .. "c(1, 2)\n", "wrong number of arguments")
+  assert_refused(head .. "c()\n", "wrong number of arguments")
+end
+
+local function test_an_ordinary_wrap_call_type_checks()
+  assert_accepted("local g = coroutine.wrap(function(a: string, b?: integer) coroutine.yield(a) end)\n" ..
+      "g('a')\ng('a', 1)\nlocal v = g('a')\nprint(v)\n")
+  assert_accepted("local h = coroutine.wrap(function() end)\nh()\nlocal ok = pcall(h)\nprint(ok)\n")
+  assert_accepted("for v in coroutine.wrap(function() coroutine.yield(1) end) do print(v) end\n")
+  assert_accepted("local co = coroutine.wrap(coroutine.yield)\nprint(co)\n")
 end
 
 --- A generic that writes a value into a container of never-functions
@@ -1598,4 +1772,134 @@ local function test_a_call_site_type_name_is_told_there_are_none()
   local compared = checker_says("print(missing < 1)\n")
   assert(says(compared, "unknown variable: missing"), table.concat(compared, "\n"))
   assert(not says(compared, "no type arguments"), table.concat(compared, "\n"))
+end
+
+--- `rawset` takes a map and writes the key's value type (patch/tl's
+--- 46a): a record's declared field cannot be written through it with a
+--- value of another type, whether the record's fields share a type (it
+--- reads as a map of it) or not.
+local function test_rawset_refuses_a_record()
+  local head = "local record R\n  name: string\n  n: integer\nend\nlocal r: R = { name = 'a', n = 1 }\n"
+  assert_refused(head .. "rawset(r, 'name', 1)\n", "argument 1")
+  local same = "local record S\n  name: string\nend\nlocal s: S = { name = 'a' }\n"
+  assert_refused(same .. "rawset(s, 'name', 1)\n", "argument 3")
+end
+
+--- A map takes `rawset` of its own key and value types and refuses any
+--- other value.
+local function test_rawset_checks_a_maps_value_type()
+  local head = "local m: {string:integer} = {}\n"
+  assert_refused(head .. "rawset(m, 'k', 'text')\n", "argument 3")
+  assert_accepted(head .. "rawset(m, 'k', 2)\nlocal n: {string:integer} = rawset(m, 'j', 3)\nprint(n)\n")
+end
+
+--- A record is refused where the same record cast to `{any:any}` or to a
+--- map of `any` still takes `rawset`, as does an `{any:any}` table: the
+--- cast is where a write that the declaration does not describe is said.
+local function test_rawset_takes_a_cast_table()
+  local head = "local record R\n  name: string\n  n: integer\nend\nlocal r: R = { name = 'a', n = 1 }\n"
+  assert_refused(head .. "rawset(r, 'n', 'x')\n", "argument 1")
+  assert_accepted(head .. "rawset(r as {any:any}, 'name', 1)\nrawset(r as {string:any}, 'extra', true)\n")
+  assert_accepted("local t: {any:any} = {}\nrawset(t, 1, 'x')\nrawset(t, 'k', 2)\n")
+end
+
+--- `name?: T` declares a field that a table literal may omit and whose
+--- type admits nil, as `name: T | nil` does (patch/tl's 49a to 49c): a
+--- read is `T | nil`, a guard narrows it, and nil may be assigned to it.
+--- Its record is open, so the literal omitting a plain field compiles
+--- too; what tells the two apart is the type a read has.
+local function test_an_optional_field_admits_nil()
+  local declared = "local record R\n  name?: string\nend\nlocal r: R = {}\n"
+  assert_accepted(declared .. "r.name = nil\nr.name = 'x'\nprint(r)\n")
+  assert_refused(declared .. "print(r.name:upper())\n", "cannot index key 'upper' in type string | nil")
+  assert_refused(declared .. "r.name = 1\n", "in assignment: got integer")
+  assert_accepted(declared .. "if r.name then\n  print(r.name:upper())\nend\n")
+  assert_accepted(declared .. "local n: string = r.name or 'none'\nprint(n)\n")
+  assert_accepted("local record P\n  name: string\nend\nlocal p: P = {}\nprint(p.name:upper())\n")
+end
+
+--- The optional field written with its nil spelled out is the same
+--- field: its generated Lua is the plain one, and a union that already
+--- holds nil gains no second member.
+local function test_an_optional_field_is_the_union_with_nil()
+  local built = assert(teal.load(true))
+  local function lua(field: string): string
+    return (assert(built.gen("local record R\n  " .. field .. "\nend\nlocal r: R = {}\nprint(r)\n",
+      nil, nil, "tl")))
+  end
+  assert(lua("name?: string") == lua("name: string | nil"))
+  local function read_as(field: string): string
+    return refusals("local record R\n  " .. field .. "\nend\nlocal r: R = {}\nprint(r.name.x)\n")[1] or ""
+  end
+  assert(read_as("name?: string | number"):find("in type string | number | nil", 1, true) ~= nil)
+  assert(read_as("name?: string | number | nil"):find("in type string | number | nil", 1, true) ~= nil)
+  assert(read_as("name?: string | nil"):find("in type string | nil", 1, true) ~= nil)
+end
+
+--- An interface field may be optional, and a record that implements
+--- the interface inherits the field, optional.
+local function test_an_optional_interface_field()
+  local source = "local interface Named\n  name?: string\nend\n" ..
+    "local record Dog\n  is Named\n  age: integer\nend\n" ..
+    "local d: Dog = { age = 3 }\nlocal n: Named = d\n"
+  assert_accepted(source .. "if d.name then\n  print(d.name:upper())\nend\nprint(n)\n")
+  assert_refused(source .. "print(d.name:upper(), n)\n", "cannot index key 'upper' in type string | nil")
+  assert_accepted("local interface Named\n  name?: string\nend\nlocal n: Named = {}\nprint(n)\n")
+end
+
+--- A field of a nested or generic record may be optional, as may one
+--- of a record type, whose own fields are read after a guard.
+local function test_an_optional_field_in_nested_and_generic_records()
+  local nested = "local record Outer\n  record Inner\n    depth?: integer\n  end\n" ..
+    "  inner?: Inner\nend\nlocal o: Outer = {}\n"
+  assert_accepted(nested .. "o.inner = {}\nlocal i = o.inner\nif i then\n  local d: integer = i.depth or 0\n  print(d)\nend\n")
+  assert_refused(nested .. "local d = o.inner.depth\nprint(d)\n", "cannot index")
+  local generic = "local record Box<T>\n  value?: T\nend\nlocal b: Box<string> = {}\n"
+  assert_accepted(generic .. "b.value = 's'\nif b.value then\n  print(b.value:upper())\nend\n")
+  assert_refused(generic .. "print(b.value:upper())\n", "cannot index key 'upper' in type string | nil")
+  assert_refused(generic .. "b.value = 1\n", "in assignment: got integer")
+end
+
+--- A key written as a string may be optional too, and so may a function
+--- field, which is called after a guard as any function that may be nil.
+local function test_an_optional_field_with_a_string_key_or_a_function_type()
+  assert_accepted("local record R\n  [\"a b\"]?: integer\nend\nlocal r: R = {}\nprint(r[\"a b\"])\n")
+  local callback = "local record R\n  done?: function(code: integer)\nend\nlocal r: R = {}\n"
+  assert_accepted(callback .. "if r.done then\n  r.done(1)\nend\n")
+  assert_refused(callback .. "r.done(1)\n", "not a function: function(integer) | nil")
+end
+
+--- `<total>` asks for every field, the optional ones too: `name?: T` is
+--- `name: T | nil` and a total literal states a nil-admitting field,
+--- `name = nil` where it has no value.
+local function test_a_total_literal_states_its_optional_fields()
+  local declared = "local record R\n  id: integer\n  name?: string\nend\n"
+  assert_refused(declared .. "local r <total>: R = { id = 1 }\nprint(r)\n", "missing: name")
+  assert_accepted(declared .. "local r <total>: R = { id = 1, name = nil }\nprint(r)\n")
+  assert_accepted(declared .. "local r <total>: R = { id = 1, name = 'x' }\nprint(r)\n")
+end
+
+--- What `?` cannot mark: a metamethod, a generic function type, and a
+--- name with no `:` after it.
+local function test_what_an_optional_field_refuses()
+  assert_refused("local record R\n  metamethod __index?: function(R, string): any\nend\n",
+    "a metamethod cannot be optional")
+  assert_refused("local record R\n  pick?: function<T>(T): T\nend\n",
+    "an optional field cannot have a generic type")
+  assert_refused("local record R\n  name? string\nend\n", "expected ':'")
+  assert_accepted("local function f(a?: string) print(a) end\nprint(f)\n")
+end
+
+--- A field named by a word that starts a declaration (`type`, `record`,
+--- `enum`, `interface`, `userdata`, `metamethod`) may be optional, as it
+--- may be plain (patch/tl's 49d and 49e).
+local function test_an_optional_field_may_be_named_for_a_declaration_word()
+  for _, word in ipairs({ "type", "record", "enum", "interface", "userdata", "metamethod" }) do
+    assert_accepted("local record R\n  " .. word .. "?: integer\n  other: string\nend\n" ..
+        "local r: R = {}\nif r." .. word .. " then\n  print(r." .. word .. " + 1)\nend\n")
+    assert_refused("local record R\n  " .. word .. "?: integer\nend\nlocal r: R = {}\n" ..
+        "print(r." .. word .. ".x)\n", "in type integer | nil")
+    assert_accepted("local interface I\n  " .. word .. "?: string\nend\nlocal i: I = {}\nprint(i)\n")
+  end
+  assert_accepted("local record R\n  userdata\n  type?: string\n  record Inner\n    x?: integer\n  end\nend\nprint(R)\n")
 end

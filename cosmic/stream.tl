@@ -271,21 +271,41 @@ local record Stream
     close: function(ArchiveReader): boolean, string
   end
 
+  --- How an archive stores an entry's bytes where it has the choice:
+  --- "deflate" compresses them (zip's method 8), "store" keeps them as
+  --- they are (method 0).
+  enum EntryMethod
+    "deflate"
+    "store"
+  end
+
   --- What [`ArchiveWriter`] may be told about an entry. Every field is
-  --- optional. A zip's own options, [`Zip.EntryOptions`], add the `method`
-  --- a body is stored by.
-  interface EntryOptions
+  --- optional. A format reads the fields it has a use for and leaves the
+  --- rest: a tar has no `method`, and a zip has no use for the size of a
+  --- string body. A zip's options, [`Zip.EntryOptions`], are this type,
+  --- so a zip writer is an [`ArchiveWriter`] taking what any is told.
+  record EntryOptions
     --- The permission bits (the low 12 are written). Defaults to 0644
     --- for a file, 0755 for a directory and 0777 for a symlink.
     mode: integer
     --- Modification time in Unix epoch seconds; defaults to 0. Ignored
-    --- (the archive's own zero) when the writer is `deterministic`.
+    --- (the archive's own zero) when the writer is `deterministic`. A
+    --- zip's own resolution is two seconds, and only 1980 through 2107
+    --- is representable -- anything outside that is clamped to its
+    --- nearer end, 0 to 1980-01-01.
     mtime: integer
     --- The body's size, for a file whose body is a [`Stream.Reader`]: required
     --- by a tar, whose header states it before the body, and optional
-    --- for a zip. One that is no integer, or is negative, raises, whatever
-    --- the body.
+    --- for a zip, which ignores it for a string, whose length is its
+    --- size. A zip entry whose size is known to reach 2 GiB must say so,
+    --- since its local header has to announce zip64 before any of the
+    --- body is read. When given, the body must turn out exactly this
+    --- long, or the write fails. One that is no integer, or is negative,
+    --- raises, whatever the body.
     size: integer
+    --- "deflate" (the default) or "store". Only a zip's [`add_file`] reads
+    --- it: a directory and a symlink are stored, and a tar has no method.
+    method: EntryMethod
   end
 
   --- The writer a tar or a zip gives: [`cosmic.tar`]'s and

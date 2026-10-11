@@ -1,0 +1,7 @@
+file: tl.tl
+note: a field named by the word that starts a declaration is a field when `?:` follows it as when `:` does (49d)
+--- find
+      elseif parse_type_body_fns[tn] and ps.tokens[i+1].tk ~= ":" then
+--- replace
+      elseif parse_type_body_fns[tn] and not field_name_follows(ps, i) then
+--- end

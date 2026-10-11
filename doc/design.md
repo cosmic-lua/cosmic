@@ -916,6 +916,24 @@ casts and the holes every type has (`coroutine.wrap`, `rawset`,
 [`build/teal_test.tl`] pin today's behavior of each. the patches are
 `patch/tl/43*` and `44*`.
 
+a function type stands for another when its parameters accept what the
+other's do (contravariant) and its returns are subtypes of the other's
+(covariant); Teal's own rule took either direction for each, so
+`function(cb: function(): integer)` stood for `function(cb: function():
+number)`. two places stay loose: a parameter expected as `any`, the
+unchecked type, takes a function of any parameter type there (the
+standard library's callbacks are declared with it), and the first
+parameter of a function-typed record field may be narrower when both it
+and the expected one are records or interfaces, the method-receiver
+convention that cosmic.stream's implementers use (`read:
+function(FromStringReader, ...)` for `read: function(Reader, ...)`); a
+call that names another receiver (`r.read(other, 1)`) still checks, as it
+always did. nothing tells a receiver from another record parameter of a
+field's function, so a callback field `function(Event)` also takes a
+`function(k: KeyEvent)`, as on main. the roadmap item for named receivers
+retires the second, and that hole with it. the
+patches are `patch/tl/48*`.
+
 the spirit is consistent, strong, explicit typing, the same shape the
 languages that hold it converged on: the top type inert until
 narrowed, casts confined to subtype moves or runtime-checked, the
