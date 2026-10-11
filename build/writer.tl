@@ -16,6 +16,7 @@
 
 local build_paths = require("build.paths")
 local Fs = require("cosmic.fs")
+local Hash = require("cosmic.hash")
 local Mime = require("cosmic.mime")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
@@ -257,12 +258,21 @@ local function signature_sql(): string
     "char(10) || ?2 || char(10) || ?3 || char(10) || ?4)))"
 end
 
+--- The digest of the [`cosmic.mime`] this writer runs, which the `type` and
+--- `gzip` of a `payload` row come from: the signature holds it, so an edit
+--- to that module writes the rows again.
+local function mime_digest(): string
+  local bytecode, _ = Store.bytecode("cosmic.mime")
+  return Hash.hex_sha256(bytecode or "")
+end
+
 --- The signature of the projection of `result`, whose links are
 --- `pending`, as the writer whose identity is `binary` would write it.
 local function signed(handle: work.Handle, result: importer.Result, pending: link_index.Pending,
                       binary: string): string | nil, string
   local rows, trouble = Sqlite.text_rows(handle.db, signature_sql(),
-    { text(result.main or ""), text("portable-v1"), text(binary), text(pending.digest) })
+    { text(result.main or ""), text("portable-v1"), text(binary .. "\n" .. mime_digest()),
+      text(pending.digest) })
   if rows == nil then
     return nil, trouble
   end
@@ -317,10 +327,9 @@ end
 --- the type [`Mime.of`] gives, and the gzip [`Mime.gzip`] finds worth
 --- keeping. Both are functions of the path and bytes alone, so the
 --- projection stays a function of the tree.
--- TODO: keep the gzip of a file in the working database by its hash, so an
--- edit elsewhere in the tree does not compress every asset again, once
--- cosmic.mime is in the compiler's identity (build/identity.tl's
--- `compiler_modules` keeps only build.* and cosmic.template.*).
+-- TODO: keep the gzip of a file in the working database by its hash and
+-- [`mime_digest`], so an edit elsewhere in the tree does not compress every
+-- asset again; the cache needs a table in [`build/schema.tl`].
 local function fill_payload(db: Sqlite.Handle): boolean, string
   local files, trouble = Sqlite.text_rows(db,
     "SELECT substr(path, 8), data, sha256 FROM files WHERE path GLOB 'static/*' ORDER BY path")

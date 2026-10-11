@@ -2,6 +2,7 @@ local Assets = require("cosmic.web.assets")
 local Codec = require("cosmic.codec")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
+local Store = require("cosmic.store")
 local Test = require("cosmic.test")
 
 Test.policy{}
@@ -108,12 +109,65 @@ local function test_directory_refuses_a_file_past_the_embedded_limit(tmp: string
   assert(asset == nil and why:find("16 MiB", 1, true))
 end
 
-local function test_default_prefers_the_directory_in_dev_and_logs_when_nothing_is_embedded(tmp: string)
+--- Calls `fn` as a program whose database records `main` as its main
+--- module ("" for the tool, which records none).
+local function as_program(main: string, fn: function())
+  local real = Store.meta
+  Store.meta = function(key: string): string | nil
+    if key == "main" then return main end
+    return real(key)
+  end
+  local ok, err = pcall(function(): any
+    fn()
+    return nil
+  end)
+  Store.meta = real
+  assert(ok, tostring(err))
+end
+
+local function test_default_reads_the_directory_in_dev_and_for_a_program_not_built(tmp: string)
   assert(Fs.write(tmp .. "/a.txt", "x"))
   local lines: {string} = {}
   local logged = function(text: string) lines[#lines + 1] = text end
-  local dev = Assets.default({ dev = true, root = tmp, log = logged })
-  assert(dev:dynamic() and #lines == 0 and assert(dev:get("a.txt")).data == "x")
-  local fallback = Assets.default({ root = tmp, log = logged })
-  assert(fallback:dynamic() and #lines == 1 and lines[1]:find("serving", 1, true))
+  as_program("", function()
+    local dev = Assets.default({ dev = true, root = tmp, log = logged })
+    assert(dev:dynamic() and #lines == 0 and assert(dev:get("a.txt")).data == "x")
+    local fallback = Assets.default({ root = tmp, log = logged })
+    assert(fallback:dynamic() and #lines == 1 and lines[1]:find("not a built program", 1, true))
+    assert(assert(fallback:get("a.txt")).data == "x")
+  end)
+end
+
+local function test_default_of_a_built_program_serves_only_what_it_carries(tmp: string)
+  assert(Fs.write(tmp .. "/a.txt", "x"))
+  local lines: {string} = {}
+  local logged = function(text: string) lines[#lines + 1] = text end
+  as_program("cmd.site.main", function()
+    local source = Assets.default({ root = tmp, log = logged })
+    assert(not source:dynamic(), "an embedded source, not the directory")
+    assert(source:get("a.txt") == nil, "the directory beside a built program is not served")
+    assert(#source:paths() == 0 and #lines == 0)
+    local dev = Assets.default({ dev = true, root = tmp, log = logged })
+    assert(assert(dev:get("a.txt")).data == "x", "dev still reads the directory")
+  end)
+end
+
+local function test_directory_refuses_a_hidden_file_as_paths_does(tmp: string)
+  assert(Fs.mkdirs(tmp .. "/root/.git"))
+  assert(Fs.write(tmp .. "/root/.env", "SECRET"))
+  assert(Fs.write(tmp .. "/root/.git/config", "SECRET"))
+  assert(Fs.write(tmp .. "/root/a.txt", "x"))
+  local source = Assets.directory(tmp .. "/root")
+  assert(source:get("a.txt") ~= nil)
+  for _, path in ipairs({ ".env", ".git/config" }) do
+    local asset, why = source:get(path)
+    assert(asset == nil and why:find("hidden", 1, true), path)
+  end
+end
+
+local function test_directory_of_the_filesystem_root_serves_its_files(tmp: string)
+  assert(Fs.write(tmp .. "/f.txt", "inside"))
+  local real = assert(Fs.absolute(tmp))
+  local asset, why = Assets.directory("/"):get(real:sub(2) .. "/f.txt")
+  assert(asset ~= nil and asset.data == "inside", why)
 end

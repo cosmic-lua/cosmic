@@ -39,3 +39,14 @@ local function test_gzip_keeps_only_a_text_file_it_shrinks_enough()
   end
   assert(Mime.gzip("random.txt", table.concat(noise)) == nil, "no gzip that saves under 10%")
 end
+
+local function test_scripted_names_the_types_a_browser_runs_script_from()
+  for _, kind in ipairs({ "image/svg+xml; charset=utf-8", "application/xml", "TEXT/XML ;x=y",
+      "application/xhtml+xml", Mime.of("a.xml"), Mime.of("a.xhtml"), Mime.of("s.XSL") }) do
+    assert(Mime.scripted(kind), kind)
+  end
+  for _, kind in ipairs({ "text/html; charset=utf-8", "image/png", "application/json",
+      "text/plain", "application/xmlish" }) do
+    assert(not Mime.scripted(kind), kind)
+  end
+end

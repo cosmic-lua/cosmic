@@ -17,7 +17,8 @@ local TYPES <const>: {string:string} = {
   js = "text/javascript" .. TEXT, mjs = "text/javascript" .. TEXT,
   json = "application/json" .. TEXT, map = "application/json" .. TEXT,
   txt = "text/plain" .. TEXT,
-  xml = "application/xml" .. TEXT,
+  xml = "application/xml" .. TEXT, xsl = "application/xml" .. TEXT,
+  xhtml = "application/xhtml+xml" .. TEXT,
   svg = "image/svg+xml" .. TEXT,
   webmanifest = "application/manifest+json",
   csv = "text/csv" .. TEXT,
@@ -57,6 +58,18 @@ end
 function Mime.of(path: string): string
   local ext = extension(path)
   return ext ~= nil and TYPES[ext] or "application/octet-stream"
+end
+
+--- Whether a file of `content_type` can carry script a browser runs when it
+--- is opened as a page: SVG, XML (an XSLT stylesheet or an inline XHTML
+--- namespace runs script) and XHTML. A server sends such a file under a
+--- `Content-Security-Policy: sandbox`.
+--- @param content_type string A Content-Type, with or without parameters
+--- @return boolean Whether the type needs the sandbox
+function Mime.scripted(content_type: string): boolean
+  local kind = content_type:match("^[^;]*"):lower():gsub("%s+$", "")
+  return kind == "image/svg+xml" or kind == "application/xml" or kind == "text/xml" or
+    kind == "application/xhtml+xml"
 end
 
 --- The most bytes of a file that are not worth gzipping.

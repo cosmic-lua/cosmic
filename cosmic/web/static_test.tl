@@ -209,6 +209,15 @@ local function test_svg_is_sandboxed_and_an_option_header_replaces_a_default()
   assert(custom:get("/static/data.bin", { headers = { ["If-None-Match"] = "*" } }).headers["access-control-allow-origin"] == "*")
 end
 
+local function test_xml_and_xhtml_are_sandboxed_as_svg_is()
+  local client = client_of({ source = Assets.memory({
+    ["a.xml"] = "<a/>", ["page.xhtml"] = "<html/>", ["s.xsl"] = "<x/>", ["a.txt"] = "x" }) })
+  for _, name in ipairs({ "a.xml", "page.xhtml", "s.xsl" }) do
+    assert(client:get("/static/" .. name).headers["content-security-policy"] == "sandbox", name)
+  end
+  assert(client:get("/static/a.txt").headers["content-security-policy"] == nil)
+end
+
 local function test_cache_control_options_replace_both_defaults()
   local client = client_of({ cache_control = "no-store", immutable_control = "public, max-age=60" })
   assert(client:get("/static/data.bin").headers["cache-control"] == "no-store")

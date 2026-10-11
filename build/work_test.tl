@@ -574,6 +574,16 @@ local function test_stage_takes_every_file_under_static(tmp: string)
   assert(db:close())
 end
 
+--- A `.tl` or `.tmpl` under `static/` is no module: staging says so, one
+--- line naming the file, when it reads the file; other assets earn none.
+local function test_stage_notes_a_module_shaped_asset(tmp: string)
+  local staged = assert(stage_files(tmp, { ["static/notes.tl"] = "x", ["static/p.tmpl"] = "{{",
+    ["static/a.css"] = "a{}", ["main.tl"] = "return 1\n" }))
+  table.sort(staged.notes)
+  assert(#staged.notes == 2, table.concat(staged.notes, "\n"))
+  assert(staged.notes[1]:find("^static/notes%.tl: ") and staged.notes[2]:find("^static/p%.tmpl: "))
+end
+
 --- Each rule the build refuses an asset by, named by the file.
 local function test_stage_refuses_an_asset_it_cannot_carry(tmp: string)
   local cases: {{string}} = {

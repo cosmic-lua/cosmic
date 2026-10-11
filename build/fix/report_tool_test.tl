@@ -12,9 +12,10 @@ local Clock = require("cosmic.clock")
 --- The program itself, which its test starts.
 Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
 
-local function fix(root: string, check: boolean): string
+local function fix(root: string, check: boolean, paths?: {string}): string
   local args: {string} = { "fix" }
   if check then args[#args + 1] = "--check" end
+  for _, path in ipairs(paths or {}) do args[#args + 1] = path end
   local started = this_program.program(args, { cwd = root,
     stdout = "capture", stderr = "stdout", timeout_ns = Clock.seconds(60) })
   return assert((assert(Child.run(started.argv, started.options))).stdout)
@@ -65,4 +66,19 @@ local function test_a_method_named_like_a_command_earns_no_note(tmp: string)
       "return Lru\n"))
   local again = fix(root, false)
   assert(again:find("stands in for `unlink`", 1, true), again)
+end
+
+--- A file named under `static/` is refused, saying why, and the run ends in
+--- a failure; the same project's whole-tree run passes it over.
+local function test_a_path_under_static_is_refused(tmp: string)
+  local root = tmp .. "/project"
+  assert(Fs.mkdirs(root .. "/static"))
+  assert(Fs.write(root .. "/static/notes.tl", "not   teal {{\n"))
+  assert(Fs.write(root .. "/main.tl", "return 1\n"))
+  local named = fix(root, false, { "static/notes.tl" })
+  assert(named:find("carried verbatim", 1, true), named)
+  assert(named:find("fix: FAIL", 1, true), named)
+  assert(assert(Fs.read(root .. "/static/notes.tl")) == "not   teal {{\n", "the asset is untouched")
+  local whole = fix(root, false)
+  assert(whole:find("fix: PASS", 1, true) and not whole:find("carried verbatim", 1, true), whole)
 end

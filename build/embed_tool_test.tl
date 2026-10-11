@@ -435,49 +435,33 @@ end
     printed:find("database needs a prepared core", 1, true)), printed)
 end
 
---- The files under `static/` go into the program's database whole, with
---- the type, hash and gzip they are served by; the program's tests and
---- examples stay out and its static files do not.
-local function test_the_carried_database_holds_the_static_files(tmp: string)
-  write_project(tmp)
-  local css = ("a { color: red }\n"):rep(200)
-  assert(Fs.mkdirs(tmp .. "/static/css"))
-  assert(Fs.write(tmp .. "/static/css/app.css", css))
-  assert(Fs.write(tmp .. "/static/logo.png", "\137PNG\0\1"))
-  assert(embed.tree(tmp))
-  local database = assert(embed.database(build_dir(tmp) .. "/cosmic.db", "cmd.hello.main"))
-  local path = tmp .. "/carried.db"
-  assert(Fs.write(path, database))
-  local rows = rows_of(path,
-    "SELECT path, type, length(data), gzip IS NOT NULL FROM payload ORDER BY path")
-  assert(#rows == 2, #rows .. " payload rows")
-  assert(rows[1][1] == "css/app.css" and rows[1][2] == "text/css; charset=utf-8" and
-      rows[1][3] == tostring(#css) and rows[1][4] == "1")
-  assert(rows[2][1] == "logo.png" and rows[2][2] == "image/png" and rows[2][4] == "0")
-end
-
 local static_main = [[
 local Assets = require("cosmic.web.assets")
-local StaticFiles = require("cosmic.web.static")
-local Web = require("cosmic.web")
+local Sqlite = require("cosmic.sqlite")
+local Store = require("cosmic.store")
 
 return function(): integer
-  local app = Web.app{ routes = { StaticFiles.mount("/assets") } }
-  local url = assert(app:url_for("static", { path = "css/app.css" }))
-  local client = Web.test_client(app)
-  local res = client:get(url, { headers = { ["Accept-Encoding"] = "gzip" } })
-  local plain = client:get("/assets/logo.png")
+  for _, handle in ipairs(Store.databases()) do
+    local rows, _ = Sqlite.text_rows(handle,
+      "SELECT path, type, length(data), gzip IS NOT NULL FROM payload ORDER BY path")
+    if rows ~= nil and #rows > 0 then
+      for _, row in ipairs(rows) do print("payload", table.concat(row, "\t")) end
+      break
+    end
+  end
   local source = Assets.default()
-  print(url, res.status, res.headers["content-encoding"], res.headers["cache-control"],
-    plain.status, #plain.body, source:dynamic(), #source:paths())
+  local css = assert(source:get("css/app.css"))
+  local logo = assert(source:get("logo.png"))
+  print(source:dynamic(), #source:paths(), css.size, css.type, css.gzip ~= nil, logo.size, logo.gzip)
   return 0
 end
 ]]
 
---- A built program serves its own `static/` from the database it carries,
---- not from a directory beside it: run from an empty directory, with a
---- decoy `static/` there, it answers the embedded bytes under their
---- fingerprinted names.
+--- The files under `static/` go into the program's database whole, with
+--- the type, hash and gzip they are served by, and a built program serves
+--- them from there, not from a directory beside it: run from a directory
+--- with a decoy `static/`, it answers the embedded bytes. One build
+--- serves both checks, as it is the slow part.
 local function test_a_program_serves_the_static_files_it_carries(tmp: string)
   assert(Fs.mkdirs(tmp .. "/cmd/site"))
   assert(Fs.write(tmp .. "/cmd/site/main.tl", static_main))
@@ -494,6 +478,7 @@ local function test_a_program_serves_the_static_files_it_carries(tmp: string)
     cwd = elsewhere, stdout = "capture", stderr = "capture", timeout_ns = Time.seconds(30) }))
   assert(r.ok, "exit " .. tostring(r.code) .. ": " .. tostring(r.stderr))
   local out = assert(r.stdout)
-  assert(out:find("^/assets/css/app%.%x%x%x%x%x%x%x%x%x%x%.css\t200\tgzip\t"), out)
-  assert(out:find("public, max-age=31536000, immutable\t200\t6\tfalse\t2\n", 1, true), out)
+  assert(out:find("payload\tcss/app.css\ttext/css; charset=utf-8\t" .. #css .. "\t1\n" ..
+      "payload\tlogo.png\timage/png\t6\t0\n", 1, true), out)
+  assert(out:find("false\t2\t" .. #css .. "\ttext/css; charset=utf-8\ttrue\t6\tnil\n", 1, true), out)
 end

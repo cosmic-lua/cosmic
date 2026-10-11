@@ -21,6 +21,7 @@
 --- nothing private there.
 
 local Assets = require("cosmic.web.assets")
+local Mime = require("cosmic.mime")
 local Response = require("cosmic.web.response")
 local Route = require("cosmic.web.route")
 local Server = require("cosmic.http.server")
@@ -167,7 +168,7 @@ local function validators(asset: Assets.Asset, etag: string, control: string,
     ["X-Content-Type-Options"] = "nosniff",
   }
   if asset.mtime > 0 then headers["Last-Modified"] = Time.format_http(asset.mtime * NS) end
-  if asset.type:sub(1, 13) == "image/svg+xml" then
+  if Mime.scripted(asset.type) then
     headers["Content-Security-Policy"] = "sandbox"
   end
   if encoded then headers["Content-Encoding"] = "gzip" end

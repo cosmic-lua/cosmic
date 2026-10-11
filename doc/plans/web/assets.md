@@ -289,9 +289,12 @@ queries `payload` of the result.
    source on `opts.root` ("static" resolved against the process's working
    directory, which for `cosmic app.tl` and the dev supervisor is the
    project root);
-2. else the embedded source if `payload` has any row;
-3. else the directory source, with a one-time log line, so a project run
-   from a checkout works before it is built.
+2. else the embedded source if the program is a built executable (its
+   database records a main module), which serves only what `payload`
+   holds, none if it was built without `static/`;
+3. else (a program run from source, as `cosmic app.tl`) the directory
+   source, with a one-time log line, so a project run from a checkout
+   works before it is built.
 
 Why not "always directory when the directory exists": a built executable
 run in a directory that happens to hold an unrelated `static/` would serve

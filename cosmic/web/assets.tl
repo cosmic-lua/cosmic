@@ -194,7 +194,8 @@ end
 -- modification-time tag, as doc/plans/web/assets.md section 3.3 has it, once
 -- [`Source.get`] can answer a file without its bytes in memory; every file is
 -- read whole today, so development holds the largest asset in memory.
---- A source reading the files under `root` from disk, re-reading a file
+--- A source reading the files under `root` from disk, hidden files (a
+--- component starting with ".") excepted, re-reading a file
 --- when its size or modification time changed: for development, where
 --- the files are edited while the program runs. A request costs a
 --- stat call, a real-path check and, after an edit, a read.
@@ -214,12 +215,14 @@ function Assets.directory(root: string): Assets.Source
   source.get = function(_self: Assets.Source, path: string): Assets.Asset | nil, string
     local why = path_refusal(path)
     if why ~= nil then return miss(path, why) end
+    if ("/" .. path):find("/%.") then return miss(path, "a hidden file") end
     local base, base_why = Fs.absolute(root)
     if base == nil then return miss(path, base_why) end
     local full = root .. "/" .. path
     local real, real_why = Fs.absolute(full)
     if real == nil then return miss(path, real_why) end
-    if real:sub(1, #base + 1) ~= base .. "/" then return miss(path, "outside the root") end
+    local prefix = base:sub(-1) == "/" and base or base .. "/"
+    if real:sub(1, #prefix) ~= prefix then return miss(path, "outside the root") end
     local st, st_why = Fs.stat(real)
     if st == nil then return miss(path, st_why) end
     if st.kind ~= "file" then return miss(path, "not a file") end
@@ -295,26 +298,30 @@ function Assets.embedded(): Assets.Source
   return source
 end
 
---- Whether the executable carries any file under `static/`.
-local function embeds_any(): boolean
-  return payload_query("SELECT path FROM payload LIMIT 1", {}) ~= nil
+--- Whether this program is a built executable, which carries its own
+--- database with its main module recorded: the `cosmic` tool and a script
+--- it runs record none.
+local function is_built(): boolean
+  local main = Store.meta("main")
+  return main ~= nil and main ~= ""
 end
 
 --- The source for an app: with `opts.dev` the directory `opts.root`
---- ("static" against the working directory); else the embedded source
---- when the executable carries files, so a built program never serves an
---- unrelated `static/` it is run beside; else the directory, with one log
---- line, so a project run from a checkout works before it is built.
+--- ("static" against the working directory); else the embedded source of
+--- a built program, which serves only what it carries (none, if it was
+--- built without `static/`) and never an unrelated `static/` it is run
+--- beside; else, for a program run from source before it is built, the
+--- directory, with one log line.
 --- @param opts DefaultOptions | nil Dev mode, the directory and the log
 --- @return Assets.Source The source
 function Assets.default(opts?: Assets.DefaultOptions): Assets.Source
   local root = opts and opts.root or "static"
   if opts ~= nil and opts.dev then return Assets.directory(root) end
-  if embeds_any() then return Assets.embedded() end
+  if is_built() then return Assets.embedded() end
   local log = opts and opts.log or function(text: string)
     local _, _ = Fs.put(Fs.stderr, text .. "\n")
   end
-  log(("web: no embedded static files; serving %q from disk"):format(root))
+  log(("web: not a built program; serving %q from disk"):format(root))
   return Assets.directory(root)
 end
 

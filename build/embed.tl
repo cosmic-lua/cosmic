@@ -294,7 +294,8 @@ function embed.database(project: string, main: string): string | nil, string
       -- The files under the project's `static/`, which [`cosmic.web.assets`]
       -- reads from the program's own database. Tests and examples are
       -- dropped; assets are not.
-      "INSERT INTO payload SELECT * FROM project.payload ORDER BY path",
+      "INSERT INTO payload (path, data, sha256, type, gzip) " ..
+        "SELECT path, data, sha256, type, gzip FROM project.payload ORDER BY path",
     }
     for _, rebuild in ipairs(schema.rebuild("")) do project_rows[#project_rows + 1] = rebuild end
     for _, statement in ipairs(project_rows) do

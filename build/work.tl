@@ -51,6 +51,10 @@ local record work
   record Staged
     files: integer
     read: integer
+    --- One line for each file under `static/` newly staged whose name
+    --- says it was meant as a module (`.tl`, `.tmpl`): it is carried as an
+    --- asset. Also complained of as it is found.
+    notes: {string}
   end
 
   --- The statements that create the database, in order. `IF NOT
@@ -956,7 +960,7 @@ function work.stage(handle: work.Handle, own_tree: boolean): work.Staged | nil, 
     put[name] = statement
   end
   local now = Clock.now_ns()
-  local staged: work.Staged = { files = 0, read = 0 }
+  local staged: work.Staged = { files = 0, read = 0, notes = {} }
   -- The real path of `root`, once a static asset asks for it, and the
   -- static paths seen by their lowercase spelling.
   local real_root: string = nil
@@ -1011,6 +1015,12 @@ function work.stage(handle: work.Handle, own_tree: boolean): work.Staged | nil, 
           return nil, read_trouble
         end
         staged.read = staged.read + 1
+        if write_files and identity.is_static(file) and
+            (file:match("%.tl$") ~= nil or file:match("%.tmpl$") ~= nil) then
+          local note = file .. ": under static/, so it is carried as an asset and is no module"
+          staged.notes[#staged.notes + 1] = note
+          log:complain(note)
+        end
         local sha256 = Hash.hex_sha256(data)
         if (input or tool or scan) and holds_own_todos(file) then
           local ok, why = put_todos(put["todo"], data, sha256)

@@ -9,6 +9,7 @@ local Compress = require("cosmic.compress")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Sqlite = require("cosmic.sqlite")
+local Store = require("cosmic.store")
 local importer = require("build.importer")
 local schema = require("build.schema")
 local teal = require("build.teal")
@@ -634,6 +635,23 @@ local function test_an_edit_to_an_asset_moves_the_projection(tmp: string)
   local rows = assert(Sqlite.text_rows(db, "SELECT data FROM payload WHERE path = 'css/app.css'"))
   assert(rows[1][1] == "body { margin: 0 }")
   assert(db:close())
+end
+
+--- The `type` and `gzip` of a payload row come from cosmic.mime, so an
+--- edit to it moves the signature although no file did.
+local function test_an_edit_to_cosmic_mime_moves_the_signature(tmp: string)
+  local handle, result = build_and_write(tmp .. "/a", "world", tmp .. "/out.db")
+  local before = assert(writer.signature(handle, result, "binary"))
+  local real = Store.bytecode
+  Store.bytecode = function(name: string): string | nil, string
+    if name == "cosmic.mime" then return "an edited cosmic.mime" end
+    return real(name)
+  end
+  local after, trouble = writer.signature(handle, result, "binary")
+  Store.bytecode = real
+  assert(work.close(handle))
+  assert(after ~= nil, trouble)
+  assert(after ~= before, "cosmic.mime must be part of the signature")
 end
 
 --- A tree with no `static/` has an empty payload.
