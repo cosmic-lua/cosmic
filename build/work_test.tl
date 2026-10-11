@@ -3,6 +3,7 @@
 -- build/work_nested_tool_test.tl's.
 
 local Clock = require("cosmic.clock")
+local Codec = require("cosmic.codec")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local sys = require("cosmic.sys")
@@ -265,6 +266,38 @@ local function test_zoneinfo_is_replaced_whole_and_read_back(tmp: string)
   local older = assert(Sqlite.memory())
   local none = assert(work.zoneinfo_of(older))
   assert(next(none) == nil)
+  assert(older:close())
+end
+
+--- The web assets a boot reads from the vendored trees are hashed as they
+--- are read, replace whatever the working database held, and read back
+--- out of a database that has them -- and out of one without the table, as none.
+local function test_web_assets_are_hashed_replaced_whole_and_read_back(tmp: string)
+  for _, tree in ipairs({ { "htmx", "dist/htmx.min.js", "1.2.3", "js one" },
+      { "htmx-ext-sse", "dist/sse.min.js", "4.5.6", "js two" } }) do
+    assert(Fs.mkdirs(tmp .. "/vendor/" .. tree[1] .. "/dist"))
+    assert(Fs.write(tmp .. "/vendor/" .. tree[1] .. "/PIN", "version " .. tree[3] .. "\nurl x\n"))
+    assert(Fs.write(tmp .. "/vendor/" .. tree[1] .. "/" .. tree[2], tree[4]))
+  end
+  local assets = assert(work.read_web_assets(tmp .. "/vendor"))
+  assert(#assets == 2 and assets[1].name == "htmx-ext-sse.min.js" and assets[2].name == "htmx.min.js")
+  local first = assets[2]
+  assert(first.data == "js one" and first.version == "1.2.3")
+  assert(first.sha256 == Hash.hex_sha256("js one"))
+  assert(first.sha384 == Codec.base64(Hash.digest("sha384", "js one")))
+  local missing, trouble = work.read_web_assets(tmp .. "/nowhere")
+  assert(missing == nil and trouble ~= "")
+
+  local handle = assert(work.open(tmp))
+  assert(work.put_web_assets(handle, { { name = "old.js", data = "x", sha256 = "a", sha384 = "b", version = "0" } }))
+  assert(work.put_web_assets(handle, assets))
+  local back = assert(work.web_assets_of(handle.db))
+  assert(#back == 2 and back[1].name == "htmx-ext-sse.min.js", "an asset the tree no longer has is gone")
+  assert(back[2].data == "js one" and back[2].sha384 == first.sha384 and back[2].version == "1.2.3")
+  assert(work.close(handle))
+
+  local older = assert(Sqlite.memory())
+  assert(#assert(work.web_assets_of(older)) == 0)
   assert(older:close())
 end
 

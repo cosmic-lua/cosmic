@@ -2,6 +2,7 @@
 --- handler that answers a server's request, and [`App.serve`], which runs
 --- it over [`cosmic.http.server`] with its lifespan and graceful stop.
 
+local Builtin = require("cosmic.web.builtin")
 local Clock = require("cosmic.clock")
 local Errors = require("cosmic.web.errors")
 local Middleware = require("cosmic.web.middleware")
@@ -17,6 +18,7 @@ end
 local SPEC_FIELDS <const>: {string:boolean} = {
   routes = true, middleware = true, lifespan = true, debug = true, trailing_slash = true,
   trusted_hosts = true, trusted_proxy = true, error_pages = true, error_view = true, sink = true,
+  builtin = true,
 }
 
 local SERVE_FIELDS <const>: {string:boolean} = {
@@ -82,6 +84,7 @@ function App.new(spec: Types.AppSpec): Types.App
     debug = spec.debug == true, trailing_slash = spec.trailing_slash,
     trusted_proxy = spec.trusted_proxy == true, error_pages = spec.error_pages,
     error_view = spec.error_view, sink = spec.sink or Middleware.stderr_sink(),
+    builtin = spec.builtin ~= false,
   }
   local trusted: {string:boolean} = nil
   if spec.trusted_hosts ~= nil then
@@ -101,6 +104,11 @@ function App.new(spec: Types.AppSpec): Types.App
   app.router = router
   local function dispatch(req: Types.Request): Types.Response
     local outcome = req.outcome
+    if outcome == nil and kept.builtin then
+      -- Ahead of the routes, so that a catch-all cannot shadow the files.
+      local served = Builtin.handle(req)
+      if served ~= nil then return served end
+    end
     if outcome == nil then
       outcome = Router.lookup(router, req.method, req.segments, req.trailing)
       req.outcome = outcome

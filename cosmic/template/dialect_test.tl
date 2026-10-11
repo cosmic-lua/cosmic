@@ -25,7 +25,7 @@ local HTMX <const>: {string: string} = {
   ["hx-confirm"] = "plain", ["hx-prompt"] = "plain",
   ["hx-encoding"] = "plain", ["hx-disinherit"] = "plain", ["hx-inherit"] = "plain",
   ["hx-history"] = "plain", ["hx-history-elt"] = "plain", ["hx-preserve"] = "plain",
-  ["hx-validate"] = "plain", ["sse-swap"] = "plain", ["sse-close"] = "plain", ["ws-send"] = "plain",
+  ["hx-validate"] = "plain", ["hx-revealed"] = "plain", ["sse-swap"] = "plain", ["sse-close"] = "plain", ["ws-send"] = "plain",
 }
 
 local function htmx_table(): dialect.Table

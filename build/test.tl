@@ -2176,6 +2176,8 @@ local sealed_schema <const>: {string} = {
     "PRIMARY KEY (path, requires)) WITHOUT ROWID",
   "CREATE TABLE decls (path TEXT PRIMARY KEY, source BLOB NOT NULL) WITHOUT ROWID",
   "CREATE TABLE zoneinfo (name TEXT PRIMARY KEY, data BLOB NOT NULL)",
+  "CREATE TABLE web_assets (name TEXT PRIMARY KEY NOT NULL, data BLOB NOT NULL, " ..
+    "sha256 TEXT NOT NULL, sha384 TEXT NOT NULL, version TEXT NOT NULL) WITHOUT ROWID",
   "CREATE TABLE ca_roots (sha256 BLOB NOT NULL, label TEXT NOT NULL, der BLOB NOT NULL)",
 }
 
@@ -2191,7 +2193,7 @@ local sealed_schema <const>: {string} = {
 --- compile resolves, come from where its own row does: the closure's,
 --- which its store's digest holds, else the program's, which the key holds
 --- as it holds the module ([`extras_digest`], or `epoch` for what every
---- worker loads). The time zones and CA roots go only where the set holds the
+--- worker loads). The time zones, CA roots and web assets go only where the set holds the
 --- module that reads them, as [`Store.seal`] does: they are most of a small
 --- database's bytes.
 -- TODO: carry only the standard library a closure requires, in a project's
@@ -2222,6 +2224,9 @@ local sealed_fill <const>: {string} = {
     "ORDER BY path, requires",
   "INSERT INTO main.zoneinfo SELECT name, data FROM program.zoneinfo WHERE EXISTS " ..
     "(SELECT 1 FROM main.modules WHERE path = 'cosmic.time') ORDER BY name",
+  "INSERT INTO main.web_assets SELECT name, data, sha256, sha384, version FROM " ..
+    "program.web_assets WHERE EXISTS (SELECT 1 FROM main.modules WHERE path = " ..
+    "'cosmic.web.htmx') ORDER BY name",
   "INSERT INTO main.ca_roots SELECT sha256, label, der FROM program.ca_roots WHERE EXISTS " ..
     "(SELECT 1 FROM main.modules WHERE path = 'cosmic.http') ORDER BY sha256",
 }

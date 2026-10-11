@@ -175,6 +175,19 @@ local function boot(root: string, argv: {integer:string},
     log:verdict("boot", false, zoned_trouble)
     return 1
   end
+  -- Likewise the files cosmic.web serves under /_web/, hashed here.
+  local web, web_trouble = work.read_web_assets(root .. "/vendor")
+  if web == nil then
+    local _, _ = work.close(handle)
+    log:verdict("boot", false, web_trouble)
+    return 1
+  end
+  local web_put, web_put_trouble = work.put_web_assets(handle, web)
+  if not web_put then
+    local _, _ = work.close(handle)
+    log:verdict("boot", false, web_put_trouble)
+    return 1
+  end
 
   -- The tree's own identities, which are this boot's: the bridge runs the
   -- tree's build code. Parsed first, so the compiler closure is whole on a

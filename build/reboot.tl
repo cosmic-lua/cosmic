@@ -251,7 +251,8 @@ local function into(handle: work.Handle, built: compiler,
   if not kept then
     return closing(handle, keep_trouble), false
   end
-  -- And the zones it carries, which only a boot reads from the tree.
+  -- And the zones and web assets it carries, which only a boot reads from
+  -- the tree.
   local databases = Store.databases()
   local zones, zones_trouble = work.zoneinfo_of(databases[#databases])
   if zones == nil then
@@ -260,6 +261,20 @@ local function into(handle: work.Handle, built: compiler,
   local zoned, zoned_trouble = work.put_zoneinfo(handle, zones)
   if not zoned then
     return closing(handle, zoned_trouble), false
+  end
+  local web, web_trouble = work.web_assets_of(databases[#databases])
+  if web == nil then
+    return closing(handle, "the web assets in this binary: " .. web_trouble), false
+  end
+  if #web == 0 then
+    -- A binary from before the table carries none: take the tree's, where
+    -- there is one (a project's tree has no vendor/).
+    local vendored, _ = work.read_web_assets(handle.root .. "/vendor")
+    if vendored ~= nil then web = vendored end
+  end
+  local web_put, web_put_trouble = work.put_web_assets(handle, web)
+  if not web_put then
+    return closing(handle, web_put_trouble), false
   end
 
   -- Compiled by this tool's compiler and keyed by its identity, which is

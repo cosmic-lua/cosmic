@@ -50,9 +50,8 @@ end
 --- The prefix under which cosmic.web serves its own assets: no route of
 --- an app may be at or under it, by its full path (a mount's prefix and the
 --- pattern): `/x/_web/a` inside a mount at `/x` is the app's. A catch-all
---- at the root (`/*p`, `/:x`, a mount of "/") is allowed.
--- TODO: once cosmic.web serves its own assets under /_web/, the router tries
--- that prefix before the app's routes, so a root catch-all cannot shadow them.
+--- at the root (`/*p`, `/:x`, a mount of "/") is allowed: [`Web.app`] tries
+--- the prefix before the routes.
 local RESERVED <const> = "_web"
 
 --- A parameter's name.
@@ -243,8 +242,6 @@ local function add_leaf(route: Types.Route, ctx: Router.Context, root: Types.Nod
   if type(route.handler) ~= "function" then refuse(what, "it has no handler") end
   if #route.methods == 0 then refuse(what, "it names no method") end
   if reserved(ctx.prefix, segments) then
-    -- TODO: once cosmic.web serves its own assets under /_web/, Web.app
-    -- registers them through an option that lifts this for its own routes.
     refuse(what, "/_web/ is reserved for cosmic.web's own assets")
   end
   local node = descend(root, segments, what)

@@ -421,6 +421,13 @@ input to the build, never to the runtime. one database holds:
   a rowid, written in name order: a WITHOUT ROWID row lives in an
   index page, where a zone file past about a kilobyte spills into
   overflow pages, and the table would take two thirds more room.
+- **web_assets**: the browser-side files [`cosmic.web`] serves under
+  `/_web/` (`vendor/htmx`, `vendor/htmx-ext-sse`), one row each with its
+  SHA-256 and its SHA-384 as base64 (the value of an `integrity`
+  attribute), hashed at boot. A boot reads them from the tree, a
+  Teal-only rebuild carries the running binary's rows over, and `cosmic
+  build` copies them into every executable it writes;
+  [`Store.web_asset`] reads one.
 - **the compiler**: the Lua the vendored `tl.tl`, patched, compiles to,
   one row, loaded with its own environment.
 - **decls**: every declaration the tree holds, generated or written,
@@ -1222,6 +1229,7 @@ in [roadmap.md](roadmap.md).
 [`cosmic.store`]: ../cosmic/store.tl
 [`cosmic.sys`]: ../core/syscalls.h
 [`cosmic.time`]: ../cosmic/time.tl
+[`cosmic.web`]: ../cosmic/web/init.tl
 [`cosmic/fs.tl`]: ../cosmic/fs.tl
 [`cosmic/fs_example.tl`]: ../cosmic/fs_example.tl
 [`Proc.exit`]: ../cosmic/proc.tl
@@ -1233,5 +1241,6 @@ in [roadmap.md](roadmap.md).
 [`Store.meta`]: ../cosmic/store.tl
 [`Store.requires`]: ../cosmic/store.tl
 [`Store.source`]: ../cosmic/store.tl
+[`Store.web_asset`]: ../cosmic/store.tl
 [`Test.policy`]: ../cosmic/test.tl
 [`test/narrowing_test.tl`]: ../test/narrowing_test.tl

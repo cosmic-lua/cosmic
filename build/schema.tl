@@ -82,6 +82,15 @@ local tables: {{string}} = {
   { "zoneinfo", [[(name TEXT PRIMARY KEY,
                    data BLOB NOT NULL)]] },
 
+  -- The browser-side files [`cosmic.web`] serves under `/_web/` (htmx and
+  -- its SSE extension), each with its SHA-256 as hex and its SHA-384 as
+  -- base64, the value of an `integrity` attribute, computed at boot.
+  { "web_assets", [[(name TEXT PRIMARY KEY,
+                     data BLOB NOT NULL,
+                     sha256 TEXT NOT NULL,
+                     sha384 TEXT NOT NULL,
+                     version TEXT NOT NULL) WITHOUT ROWID]] },
+
   { "docs", [[(id INTEGER PRIMARY KEY,
                module TEXT NOT NULL,
                symbol TEXT NOT NULL,
@@ -275,7 +284,8 @@ end
 --- The query answering one digest of the data tables a binary carries
 --- that `cosmic refresh` replaces without moving its runtime identity
 --- (core/store.c, `runtime`): every zone by name and bytes, every CA
---- root by digest, label and bytes, in key order, under the schema
+--- root by digest, label and bytes, every web asset by name, version and
+--- digest, in key order, under the schema
 --- `qualifier` names. `cosmic test` keys each verdict on it, computed
 --- from the running binary's own rows ([`build.test`]), so a test that
 --- read a zone or a root runs again on a binary that carries others.
@@ -285,7 +295,9 @@ function schema.tables_digest(qualifier: string): string
     "char(10) ORDER BY name) FROM " .. qualifier .. "zoneinfo), '') || char(10) || " ..
     "'ca_roots' || char(10) || coalesce((SELECT group_concat(lower(hex(sha256)) || " ..
     "' ' || lower(hex(label)) || ' ' || lower(hex(sha256(der))), char(10) " ..
-    "ORDER BY sha256, label, der) FROM " .. qualifier .. "ca_roots), ''))))"
+    "ORDER BY sha256, label, der) FROM " .. qualifier .. "ca_roots), '') || char(10) || " ..
+    "'web_assets' || char(10) || coalesce((SELECT group_concat(name || ' ' || version || " ..
+    "' ' || sha256, char(10) ORDER BY name) FROM " .. qualifier .. "web_assets), ''))))"
 end
 
 return schema

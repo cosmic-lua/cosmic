@@ -46,8 +46,12 @@ end
 --- from outside it: [`cosmic.http.server`] is a module of the standard
 --- library like any other, apart from the client that is the directory's
 --- entry only so that a program that fetches does not carry the
---- networking stack, and [`cosmic.web`] is built on it.
-local OPEN_MEMBERS <const>: {string:boolean} = { ["cosmic.http.server"] = true }
+--- networking stack, and [`cosmic.web`] is built on it. [`cosmic.web.htmx`]
+--- is the app's htmx support, which a program requires by its own name
+--- beside [`cosmic.web`].
+local OPEN_MEMBERS <const>: {string:boolean} = {
+  ["cosmic.http.server"] = true, ["cosmic.web.htmx"] = true,
+}
 
 --- Whether a file may import `build.*`: one inside `build/` itself, the
 --- binary it implements (`cmd/`), a test, or test support (`test/`).
