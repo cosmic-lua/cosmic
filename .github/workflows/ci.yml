@@ -1682,6 +1682,44 @@
       ],
     },
 
+    # Cancels the queue's run once a leg or the checked job has failed
+    # (cancel-on-failure.sh), so `ci` reports at once and the queue restarts
+    # the entries behind sooner; a branch's, main's and the scheduled run
+    # let every leg finish. A job of its own, not a step of each leg: only
+    # it holds `actions: write`, where the legs run test code, and the
+    # failed leg has finished, so it keeps its `failure`. It starts with
+    # the legs, waits on none and is waited on by none (the gate does not
+    # need it), and always exits 0, so no result of its own can fail a
+    # run or a ruleset.
+    cancel: {
+      name: "cancel the run on a failed leg",
+      if: "github.event_name == 'merge_group'",
+      "runs-on": "ubuntu-24.04",
+      "timeout-minutes": 50,
+      permissions: {actions: "write"},
+      steps: [
+        {
+          uses: "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd", # v6
+          with: {
+            "sparse-checkout": "/.github/scripts/cancel-on-failure.sh\n",
+            "sparse-checkout-cone-mode": false,
+            "persist-credentials": false,
+            "fetch-depth": 1,
+          },
+        },
+        {
+          env: {
+            GH_TOKEN: "${{ github.token }}",
+            REPOSITORY: "${{ github.repository }}",
+            RUN_ID: "${{ github.run_id }}",
+            ATTEMPT: "${{ github.run_attempt }}",
+            SELF: "cancel the run on a failed leg",
+          },
+          run: ".github/scripts/cancel-on-failure.sh",
+        },
+      ],
+    },
+
     # The one check a ruleset requires, whatever the scope: it fails when
     # any leg or the checked job failed or was cancelled (a seeded run's
     # `seed` legs; a `reuse` that failed or was skipped found nothing,
@@ -1702,8 +1740,9 @@
             QUEUE_RUN: "${{ needs.reuse.outputs.run }}",
             RESULT: "${{ needs.reuse.outputs.run != '' && needs.seed.result || needs.platform.result }}",
             CHECKED: "${{ needs.reuse.outputs.run != '' && needs.seed.result || needs.checked.result }}",
+            EVENT: "${{ github.event_name }}",
           },
-          run: "echo \"queue run: ${QUEUE_RUN:-(none)}; legs: $RESULT; checked suite: $CHECKED\"; [ \"$RESULT\" = success ] && [ \"$CHECKED\" = success ]",
+          run: "echo \"queue run: ${QUEUE_RUN:-(none)}; legs: $RESULT; checked suite: $CHECKED\"; [ \"$RESULT\" = success ] && [ \"$CHECKED\" = success ] || { [ \"$EVENT\" != merge_group ] || echo \"a queue run cancels itself when a leg fails, so a result may read cancelled: the error annotation on the run names the leg that failed\"; exit 1; }",
         },
         # Only a full run's legs attest and upload a product.
         {

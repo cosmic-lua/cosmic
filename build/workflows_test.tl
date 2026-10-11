@@ -1495,10 +1495,12 @@ local function test_a_main_push_reuses_the_queue_run()
   assert(check_env.CHECKED == "${{ needs.reuse.outputs.run != '' && needs.seed.result || needs.checked.result }}",
     "the join reads another checked suite than the one that ran: " .. tostring(check_env.CHECKED))
   assert(check.run == "echo \"queue run: ${QUEUE_RUN:-(none)}; legs: $RESULT; checked suite: $CHECKED\"; " ..
-      "[ \"$RESULT\" = success ] && [ \"$CHECKED\" = success ]",
+      "[ \"$RESULT\" = success ] && [ \"$CHECKED\" = success ] || { [ \"$EVENT\" != merge_group ] || " ..
+      "echo \"a queue run cancels itself when a leg fails, so a result may read cancelled: " ..
+      "the error annotation on the run names the leg that failed\"; exit 1; }",
     "the join passes on more or less than the legs and the checked suite: " .. tostring(check.run))
   for name, value in pairs(check_env) do
-    assert(name == "RESULT" or name == "CHECKED" or name == "QUEUE_RUN", "the join reads " .. name .. ": " .. value)
+    assert(name == "RESULT" or name == "CHECKED" or name == "QUEUE_RUN" or name == "EVENT", "the join reads " .. name .. ": " .. value)
   end
 end
 
@@ -1959,6 +1961,45 @@ local function test_a_job_moves_its_tree_once_and_puts_it_back_once()
   assert(placed >= 3, "only " .. placed .. " jobs move their tree")
 end
 
+--- A failed job of the merge queue's run has the run cancelled at once,
+--- so the gate reports without waiting on the legs still running. A job
+--- of its own does it, the only one of the run with `actions: write` but
+--- the cache's: it starts with the legs, needs nothing, is needed by
+--- nothing (the gate, which a ruleset requires, never waits on it), and
+--- is on the queue's run alone. The legs keep `actions: read`.
+local function test_a_failed_queue_job_has_the_run_cancelled_by_a_job_of_its_own()
+  local ci = decoded_workflows()[DIR .. "/ci.yml"] as {string: any}
+  local jobs = ci.jobs as {string: {string: any}}
+  local cancel = jobs.cancel
+  assert(cancel ~= nil, "no job cancels the queue's run")
+  assert(cancel["if"] == "github.event_name == 'merge_group'", "cancel runs on: " .. tostring(cancel["if"]))
+  assert(cancel.needs == nil, "cancel waits on a job, so it cannot start with the legs")
+  local permissions = cancel.permissions as {string: string}
+  local count = 0
+  for key, value in pairs(permissions) do
+    count = count + 1
+    assert(key == "actions" and value == "write", "cancel holds " .. key .. ": " .. value)
+  end
+  assert(count == 1, "cancel holds more than `actions: write`")
+  assert(cancel.name == "cancel the run on a failed leg", "cancel's name: " .. tostring(cancel.name))
+  assert((cancel["timeout-minutes"] as integer) > (jobs.platform["timeout-minutes"] as integer),
+    "cancel stops before the legs may")
+  for name, job in pairs(jobs) do
+    local needs = job.needs
+    local list: {string} = needs is string and { needs } or (needs as {string} or {})
+    for _, need in ipairs(list) do
+      assert(need ~= "cancel", name .. " waits on the job that cancels the run")
+    end
+  end
+  for _, name in ipairs({ "platform", "checked" }) do
+    assert((jobs[name].permissions as {string: string}).actions == "read", name .. " can write `actions`")
+  end
+  local env = (cancel.steps as {{string: any}})[2].env as {string: string}
+  assert(env.SELF == cancel.name, "cancel does not know its own name")
+  assert(((cancel.steps as {{string: any}})[2].run as string) == ".github/scripts/cancel-on-failure.sh",
+    "cancel runs another script")
+end
+
 --- A branch several commits behind main restores the verdicts main
 --- saved at its base rather than main's newest, whose tree it does not
 --- have: main saves each job's verdicts once, under their content, and
@@ -2061,7 +2102,8 @@ local function test_a_branch_restores_the_verdicts_of_its_base()
     "prune cannot prune the cache, or may do more")
   for name, job in pairs(jobs) do
     local p = job.permissions as {string: string}
-    assert(name == "prune" or name == "invalidate" or p == nil or p.actions ~= "write",
+    -- `cancel` writes `actions` to cancel the queue's run, and no more.
+    assert(name == "prune" or name == "invalidate" or name == "cancel" or p == nil or p.actions ~= "write",
       "job " .. name .. " may write the cache")
   end
 
@@ -2265,13 +2307,16 @@ end
 --- start (some 6 s, up to about 100 s in a burst). Its `prune` and
 --- `invalidate` are too: run on a branch push with every step skipped,
 --- each took a runner's start (up to about 170 s in a burst) to show a
---- check that did nothing.
+--- check that did nothing. So is `cancel`, which watches the merge
+--- queue's run alone: its `if` is the event, as a leg of no other run
+--- could cancel it.
 local BRANCH_SKIPS <const> = { "refs/heads/main", "ref_name == 'main'", "event_name != 'push'" }
 local SKIPPED_ON_A_BRANCH <const>: {string: boolean} = {
   [DIR .. "/ci.yml seed"] = true,
   [DIR .. "/ci.yml reuse"] = true,
   [DIR .. "/ci.yml prune"] = true,
   [DIR .. "/ci.yml invalidate"] = true,
+  [DIR .. "/ci.yml cancel"] = true,
 }
 
 local function test_a_branch_push_starts_no_job_it_skips()
