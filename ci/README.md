@@ -330,6 +330,35 @@ one. Pushes to the merge queue's `gh-readonly-queue/`
 branches are ignored: they run as `merge_group`, and a push run there
 would share its group and cancel it, which the queue reads as a failure.
 
+### the queue's run cancels itself
+
+On the queue's run the job `cancel` watches the run's other jobs
+(`.github/scripts/cancel-on-failure.sh`, every 30 s) and cancels the
+run once one has failed, naming it in an error annotation. The gate
+(`ci`) has `always()`, so it still runs, and fails a minute or two
+later (its runner starts), where it would otherwise wait for every leg
+still running. The queue then drops
+the entry and restarts the entries behind it, which wait on a run that
+cannot merge.
+
+It is a job of its own, not a step of each leg, for two reasons. Only
+it holds `actions: write`, where the legs run test code with `read`. And
+the failed leg has finished when the cancel comes, so it keeps its
+`failure` instead of reading `cancelled`; the legs cancelled with it do
+read `cancelled`, so a result at the gate may too.
+
+Nothing waits on `cancel`: the gate does not need it, and it names no
+required check. It starts with the legs and stops when a job has failed
+and the run is cancelled, when the gate starts (every leg has
+finished), or after 48 minutes. A call that fails is asked again, and it
+always exits 0. A cancel it fails to make leaves the legs running to the
+end.
+
+Every other run keeps its legs running to the end (`fail-fast: false`):
+no entry waits on a branch's run, a leg that goes on shows every failure
+at once, and main's and the scheduled run save from the legs that
+finish. `cancel` shows as a skipped check there.
+
 ### the queue's result
 
 main takes changes only through the merge queue, whose `merge_group`
