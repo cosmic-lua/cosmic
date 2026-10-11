@@ -23,10 +23,10 @@
 --- file, the sessions in a file of their own. A save is one transaction
 --- that never yields, so it is atomic against the other requests of this
 --- process and two requests that change different keys both land.
----
---- TODO: once cosmic.poll or cosmic.web offers a blocking-call offload (a
---- worker thread or a task pool), run the session queries there instead of
---- on the serving thread.
+
+-- TODO: once cosmic.poll or cosmic.web offers a blocking-call offload (a
+-- worker thread or a task pool), run the session queries there instead of
+-- on the serving thread.
 
 local Clock = require("cosmic.clock")
 local Codec = require("cosmic.codec")
