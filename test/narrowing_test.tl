@@ -794,16 +794,14 @@ end
 --- Holes Teal has for every type, which a never-function falls into as a
 --- `string` does (doc/plans/teal-never.md lists them, and doc/roadmap.md
 --- the soundness item): `coroutine.wrap` is declared `F -> F` although its
---- wrapper returns whatever the coroutine yields, and a metatable's
---- `__call` is attached at run time and checked against nothing. Never is
---- exactly as sound as Teal's other types, so both are accepted. When they
---- are closed this test fails, and the case moves to a refusal.
+--- wrapper returns whatever the coroutine yields. Never is exactly as sound
+--- as Teal's other types, so it is accepted. When it is closed this test
+--- fails, and the case moves to a refusal. (A metatable's `__call` was one
+--- until patch/tl's 47a-47d held a metatable to its record.)
 local function test_never_falls_into_the_holes_every_type_has(tmp: string)
   local cases: {string:{string}} = {
     ["wrap"] = { "local function nv(): never coroutine.yield() error('x') end\n" ..
         "local co = coroutine.wrap(nv)\n", 'co()' },
-    ["setmetatable-call"] = { "local record C\n   metamethod __call: function(self: C): never\nend\n" ..
-        "local mt = { __call = function(_s: any) end }\nlocal c: C = setmetatable({}, mt)\n", 'c()' },
   }
   for name, case in pairs(cases) do
     local ok, trouble = try_build(tmp, "inherited-" .. name, case[1] .. never_guard:format(case[2]))
