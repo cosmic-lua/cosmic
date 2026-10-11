@@ -704,6 +704,9 @@ local module: Module = {
             "checkout or another (COSMIC_TEST_ALL=1)" },
         ["--no-shared"] = { about = "stand on no verdict another checkout reached; what " ..
             "this run reaches is still shared (COSMIC_TEST_NO_SHARED=1)" },
+        ["--bail"] = { about = "start no test after the first failure; those already running " ..
+            "finish, the tests not started keep no verdict, and the run fails " ..
+            "(COSMIC_TEST_BAIL=1)" },
         ["--census"] = { about = "say the digests every key of the run holds, and where none " ..
             "stood on the shared cache, how many rows it holds, even in a checkout " ..
             "that ran before" },

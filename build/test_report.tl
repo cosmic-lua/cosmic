@@ -165,10 +165,15 @@ function test_report.passed(counts: test_report.Passed, elapsed: string): string
 end
 
 --- The runner has already decided failure before asking for its summary.
+---
+--- `not_run` counts the tests a bailing run (`cosmic test --bail`) never
+--- started: they are in neither figure above, and are said last, after
+--- what a reader of the figures by their places expects.
 function test_report.failed(failures: integer, total: integer, errors: integer,
-                            elapsed: string): string
+                            elapsed: string, not_run?: integer): string
   return failures .. " of " .. total .. " failed, " ..
-    plural.count(errors, "infrastructure error") .. ", " .. elapsed
+    plural.count(errors, "infrastructure error") .. ", " .. elapsed ..
+    ((not_run or 0) > 0 and ("; " .. not_run .. " not run after the first failure") or "")
 end
 
 return test_report
