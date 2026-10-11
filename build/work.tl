@@ -140,6 +140,10 @@ local version <const> = "28"
 --- `links` is each link its comments hold ([`build.link_text`]), as
 --- written: what it names is resolved only once every module is
 --- known, as a projection is written ([`build.link_index`]).
+--- `stubs` is the stub of a module source ([`build.stub`]): the text a
+--- project's checker reads in its place, which cosmic's own projection
+--- carries for its standard library. Only a source some input names a
+--- module (`kind = 'module'`) has one.
 ---
 --- `executable` is [`build.coverage.lines.executable`]'s answer for one
 --- source, keyed by content hash the same way as `parsed`: which lines

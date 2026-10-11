@@ -11,6 +11,8 @@ local ast = require("build.ast")
 local contracts = require("build.contracts")
 local receivers = require("build.receivers")
 local shape_specs = require("build.shape_specs")
+local stub = require("build.stub")
+local teal = require("build.teal")
 local bind = require("build.bind")
 local type compiler = require("build.compiler")
 local type module = require("build.module")
@@ -159,8 +161,9 @@ end
 
 --- The identity of every source the checker can load from this tree.
 --- A declaration wins over a source of the same name, just as
---- [`build.teal`]'s module search does. Embedded standard-library sources
---- are content-addressed when a project imports them. Each module's
+--- [`build.teal`]'s module search does. An embedded standard-library
+--- module is content-addressed by what the checker reads of it when a
+--- project imports it ([`teal.standard_text`]). Each module's
 --- [`Keys`], by path.
 function compilation.dependency_keys(db: Sqlite.Handle, modules: {Module},
                                      tool: string): {string:Keys} | nil, string
@@ -198,8 +201,12 @@ function compilation.dependency_keys(db: Sqlite.Handle, modules: {Module},
       if name:sub(1, 7) ~= "cosmic." then
         return nil, ""
       end
-      local source, source_trouble = Store.source(name)
-      if source == nil then
+      -- Keyed by what the checker reads of it, a stub or a source, and
+      -- by which: a project compiled against one is never taken for
+      -- one compiled against the other.
+      local served = teal.standard_text(name)
+      if served == nil then
+        local _, source_trouble = Store.source(name)
         return nil, source_trouble
       end
       local embedded_requires, edges_trouble = embedded_edges(name)
@@ -207,7 +214,8 @@ function compilation.dependency_keys(db: Sqlite.Handle, modules: {Module},
         return nil, edges_trouble
       end
       dependency = {
-        kind = "embedded", source_hash = Hash.hex_sha256(source),
+        kind = served.stubbed and "embedded stub" or "embedded",
+        source_hash = Hash.hex_sha256(served.text),
         requires = embedded_requires,
       }
       dependencies[slot] = dependency
@@ -503,6 +511,34 @@ local function bytecode_of(code: string, name: string,
   return bytecode
 end
 
+--- Whether the stub ([`build.stub`]) of the module `m`, which `result`
+--- is the checker's reading of, types it the same, and if not why: a
+--- type error in the stub, or where its type and `result.type` part
+--- ([`stub.difference`]). The stub is checked in `env`, where `m`'s
+--- source was, so each module it requires is the one the source's check
+--- read, under a file name of its own; its warnings are of the bodies it
+--- leaves out, and no reader of the module sees them.
+local function held_to_stub(m: Module, built: compiler, env: compiler.Env,
+                            result: compiler.Result): boolean, string
+  local parsed, parse_trouble = ast.parse(built, m.source, m.file)
+  if parsed == nil then
+    return false, parse_trouble
+  end
+  local stubbed = built.check_string(stub.of(parsed), env, m.file .. " (stub)", "tl")
+  local refusal = (stubbed.syntax_errors or {})[1] or (stubbed.type_errors or {})[1]
+  local trouble: string | nil = nil
+  if refusal ~= nil then
+    trouble = refusal.y .. ":" .. refusal.x .. ": " .. refusal.msg
+  else
+    trouble = stub.difference(result.type, stubbed.type)
+  end
+  if trouble ~= nil then
+    return false, m.file .. ": the stub a project's checker reads in its place " ..
+      "(build/stub.tl) types it differently from its source: " .. trouble
+  end
+  return true, ""
+end
+
 --- Compiles one module: the checker over its source (with each
 --- [`Shape.record_of`] call resolved first, [`build.shape_specs`]), the test
 --- tail when it is a test, and the bytecode.
@@ -552,6 +588,14 @@ function compilation.generate(m: Module, built: compiler, env: compiler.Env,
   if code == nil or rejected then
     local complaint = result ~= nil and render(m.file, m.source, result) or ""
     return nil, m.file .. ": the compiler refused it\n" .. complaint
+  end
+  -- A standard-library module is what a project's checker reads its
+  -- stub for, in the tool this tree builds ([`build.writer`]).
+  if own_tree and m.kind == "module" and m.path:sub(1, 7) == "cosmic." then
+    local held, hold_trouble = held_to_stub(m, built, env, result)
+    if not held then
+      return nil, hold_trouble
+    end
   end
   -- The checker has just seen this module whole; a module compiled
   -- after it that requires it is checked against that, rather than
