@@ -1163,7 +1163,7 @@ tests; the bulk run in-process (no loopback policy, and cheap to key).
   [`cosmic.web.cookies`], [`cosmic.web.session`] (with `.cookie` and `.sqlite`
   stores), [`cosmic.web.csrf`], [`cosmic.web.cors`], [`cosmic.web.headers`]
   (input.md); [`cosmic.web.htmx`] (templates.md); [`cosmic.web.static`],
-  [`cosmic.web.sse`], `cosmic.web.dev`, and the support modules
+  [`cosmic.web.sse`], [`cosmic.web.dev`], and the support modules
   [`cosmic.web.assets`] and `cosmic.web.mime` (assets.md).
 
 Order of work (each a PR, tests included):
@@ -1364,6 +1364,7 @@ close, and a raise in it reaches `on_error` without stopping the drain.
 [`cosmic.web.cookies`]: ../../../cosmic/web/cookies.tl
 [`cosmic.web.cors`]: ../../../cosmic/web/cors.tl
 [`cosmic.web.csrf`]: ../../../cosmic/web/csrf.tl
+[`cosmic.web.dev`]: ../../../cosmic/web/dev.tl
 [`cosmic.web.headers`]: ../../../cosmic/web/headers.tl
 [`cosmic.web.htmx`]: ../../../cosmic/web/htmx.tl
 [`cosmic.web.session`]: ../../../cosmic/web/session/init.tl
