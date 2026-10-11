@@ -46,7 +46,7 @@ Code is cited as `path:line` from the tree at the time of writing.
   section 9.3 and 13.7) and a second seam (`Reply.take`) that WebSockets will
   also use. Heartbeats
   detect a gone client in v1; `take` makes it prompt later.
-- A dev supervisor (`cosmic.web.dev`) restarts the app on source changes
+- A dev supervisor ([`cosmic.web.dev`]) restarts the app on source changes
   and a tiny script reloads the browser; static changes reload without a
   restart. Nothing in the repo watches files today.
 
@@ -1285,7 +1285,7 @@ Template and Teal changes need a rebuild: templates compile to modules at
 build time (build/derivation.tl:109-140), so "live reload of a template"
 is "restart the process on the rebuilt tree". Design, in three parts:
 
-1. `cosmic.web.dev`, a library function (no new verb in v1):
+1. [`cosmic.web.dev`], a library function (no new verb in v1):
 
    ```teal
    function dev.supervise(opts: {
@@ -1313,7 +1313,7 @@ is "restart the process on the rebuilt tree". Design, in three parts:
    `GET /_web/dev.js` (a 30-line script, static file, no inline script so
    a strict CSP is fine), `GET /_web/dev/events` (an SSE stream on a
    dedicated Hub, first event `boot` with `COSMIC_WEB_BOOT`) and, through a
-   middleware `Dev.reload()` in `cosmic.web.dev` (added to the App's stack in
+   middleware `Dev.reload()` in [`cosmic.web.dev`] (added to the App's stack in
    dev mode), one
    `<script src="/_web/dev.js" defer>` tag appended before `</body>` of
    string `text/html` responses. The script opens an `EventSource`;
@@ -1438,7 +1438,7 @@ All small; each with its reason.
 - cosmic/web/mime.tl, cosmic/web/assets.tl (support modules),
   cosmic/web/static.tl ([`cosmic.web.static`]), cosmic/web/sse.tl
   ([`cosmic.web.sse`]: `Event`, `EventStream`, `Hub`, `Subscription`) and
-  cosmic/web/dev.tl (`cosmic.web.dev`): new, under the [`cosmic.web`]
+  cosmic/web/dev.tl ([`cosmic.web.dev`]): new, under the [`cosmic.web`]
   namespace. [`cosmic/web/init.tl`] re-exports. [`Htmx.head`], [`Htmx.path`],
   [`Htmx.integrity`] and [`Htmx.indicator_css`] are in cosmic/web/htmx.tl
   (templates.md section 6.6), reading [`Store.web_asset`].
@@ -1610,6 +1610,7 @@ parts, multi-process hub.
 [`cosmic.sqlite`]: ../../../cosmic/sqlite.tl
 [`cosmic.sys`]: ../../../core/syscalls.h
 [`cosmic.web.assets`]: ../../../cosmic/web/assets.tl
+[`cosmic.web.dev`]: ../../../cosmic/web/dev.tl
 [`cosmic.web.htmx`]: ../../../cosmic/web/htmx.tl
 [`cosmic.web.sse`]: ../../../cosmic/web/sse.tl
 [`cosmic.web.static`]: ../../../cosmic/web/static.tl
