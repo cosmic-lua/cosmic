@@ -1,5 +1,5 @@
 file: tl.tl
-note: A table literal expected as a union that also holds a function type is a table served only for the keys it holds, as a function would serve them: the `__index` of a metatable (47a gives it `T | function(T, any): any...`). 50c does not hold such a literal to every field of its record, so `setmetatable(t, { __index = { name = "x" } })` and `__index = {}` stay accepted, as before; a literal given only where the record is wanted is held to all of it. A function type here is a function, a generic function or an overload
+note: A table literal given where the metatable's `__index` type is expected, `T | function(T, any): any...` (47a), is a fallback served only for the keys it holds, so 50c does not require it to give every field of T. Any other union holding a function, such as `R | function()`, is held to all of R
 --- find
             if decltype is UnionType then
                local single_table_type: Type
@@ -10,13 +10,16 @@ note: A table literal expected as a union that also holds a function type is a t
                local single_table_type: Type
                local single_table_rt: Type
 
-               for _, t in ipairs(decltype.types) do
-                  local ft = self:to_structural(t)
-                  if ft is GenericType then
-                     ft = ft.t
-                  end
-                  if ft is FunctionType or ft is PolyType then
-                     serves_in_place_of_function = true
+               if #decltype.types == 2 then
+                  for _, t in ipairs(decltype.types) do
+                     local ft = self:to_structural(t)
+                     if ft is FunctionType
+                        and #ft.args.tuple == 2
+                        and ft.args.tuple[2].typename == "any"
+                        and ft.rets.tuple[1]
+                        and ft.rets.tuple[1].typename == "any" then
+                        serves_in_place_of_function = true
+                     end
                   end
                end
 --- end

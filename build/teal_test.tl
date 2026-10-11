@@ -2009,6 +2009,33 @@ local function test_a_literal_may_omit_what_admits_nil_or_is_a_function()
       "local r: R = { done = nil }\nprint(r)\n", "omits field(s) of record R that do not admit nil: id")
 end
 
+--- A literal passed for a type variable is held to the record the call
+--- binds it to (patch/tl's 50f): `table.insert`'s value, a generic
+--- function's, and a literal nested in one.
+local function test_a_literal_argument_of_a_type_variable_is_checked()
+  local declared = "local record R\n  name: string\n  tag?: string\nend\nlocal list: {R} = {}\n"
+  assert_refused(declared .. "table.insert(list, {})\n", "of record R that do not admit nil: name")
+  assert_refused(declared .. "table.insert(list, 1, {})\n", "of record R that do not admit nil: name")
+  assert_refused(declared .. "local function push<T>(l: {T}, v: T) table.insert(l, v) end\npush(list, {})\n",
+    "of record R that do not admit nil: name")
+  assert_accepted(declared .. "table.insert(list, { name = 'a' })\ntable.insert(list, 1, { name = 'b' })\n")
+  assert_accepted(declared .. "local function push<T>(l: {T}, v: T) table.insert(l, v) end\npush(list, { name = 'a' })\n")
+  local outer = "local record Inner\n  x: integer\nend\nlocal record Outer\n  inner: Inner\nend\n" ..
+    "local list: {Outer} = {}\n"
+  assert_refused(outer .. "table.insert(list, { inner = {} })\n", "of record Inner that do not admit nil: x")
+  assert_accepted(outer .. "table.insert(list, { inner = { x = 1 } })\n")
+end
+
+--- Only the `__index` type of a metatable (47a) takes a part of its
+--- record: a union with another function is held to all of it.
+local function test_a_union_with_a_function_is_held_to_its_record()
+  local declared = "local record R\n  name: string\nend\n"
+  assert_refused(declared .. "local t: R | function() = {}\nprint(t)\n", "do not admit nil: name")
+  assert_refused(declared .. "local record H\n  make: R | function(): R\nend\n" ..
+      "local h: H = { make = {} }\nprint(h)\n", "do not admit nil: name")
+  assert_accepted(declared .. "local mt: metatable<R> = { __index = {} }\nprint(mt)\n")
+end
+
 --- An environment whose `lenient_literals` is set (patch/tl's 50a) takes
 --- the omission, as the project the pinned release also compiles needs.
 local function test_a_lenient_environment_takes_an_omitted_field()
@@ -2050,7 +2077,7 @@ local function test_a_nested_literal_and_an_interface_are_checked()
     "of record Inner that do not admit nil: x")
   assert_refused(declared .. "local o: Outer = {}\nprint(o)\n", "of record Outer that do not admit nil: inner")
   assert_refused("local interface Named\n  name: string\nend\nlocal n: Named = {}\nprint(n)\n",
-    "of record Named that do not admit nil: name")
+    "of interface Named that do not admit nil: name")
   assert_accepted("local interface Named\n  name: string\nend\nlocal n: Named = { name = 'a' }\nprint(n)\n")
   assert_accepted("local record Box<T>\n  value: T\n  note?: string\nend\n" ..
       "local b: Box<string> = { value = 'a' }\nprint(b)\n")
