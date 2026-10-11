@@ -1,5 +1,5 @@
 file: tl.tl
-note: `a and b` yields a itself when a is falsy, so when a's type carries nil the result may be nil whatever b is. Teal typed it as b alone, so `(x and x) .. "a"` passed for an `x` that may be nil; with the nil in the type, 51b refuses the operand. The nil is added to b's type as one more member, which `or` drops again (20, 26), so `a and b or c` keeps b's type united with c's. A variable on the left that a guard or an earlier `and` narrowed (35) is not nil here, and carries none
+note: `a and b` yields a itself when a is falsy, so when a's type carries nil the result may be nil whatever b is. Teal typed it as b alone, so `(x and x) .. "a"` passed for an `x` that may be nil; with the nil in the type, 51b refuses the operand. The nil is added to b's type as one more member, which `or` drops again (20, 26), so `a and b or c` keeps b's type united with c's. A variable on the left that a guard or an earlier `and` narrowed (35) is not nil here, and carries none. An invalid type is left as it is, so one error does not cascade into another
 --- find
             if node.op.op == "and" then
                node.known = facts_and(node, node.e1.known, node.e2.known)
@@ -9,9 +9,15 @@ note: `a and b` yields a itself when a is falsy, so when a's type carries nil th
             if node.op.op == "and" then
                node.known = facts_and(node, node.e1.known, node.e2.known)
                local t = discard_tuple(node, ub, gb)
-               -- TODO: a false `a` ends the expression as false too, and
-               -- only a nil is added: once a union with boolean can be
-               -- narrowed to its true member, add the false as well.
+               -- TODO: a left operand that may be false (a boolean, or a union
+               -- with boolean) ends the `and` as false, which is not modelled:
+               -- `(flag and "x") .. "a"` passes. Waits on a false literal type
+               -- the checker can unite and narrow (`a or b` and the truthiness
+               -- facts of 02 would drop it as they drop nil), so `boolean` is
+               -- no longer taken for a truthy-or-falsy unknown.
+               if t is InvalidType then
+                  return t
+               end
                if without_nil(self, node, ua, false) and not admits_nil(self, node, t) then
                   local members: {Type} = {}
                   if t is UnionType then

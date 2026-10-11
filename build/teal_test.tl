@@ -2045,6 +2045,26 @@ local function test_a_literal_nested_in_an_argument_literal_is_checked()
       "nested(list, { { { name = 'a' } } })\n")
   assert_refused(declared .. "local function pair<T>(l: {T}, vs: {T, integer}) print(l, vs) end\n" ..
       "pair(list, { {}, 1 })\n", "of record R that do not admit nil: name")
+  -- The one member of a union parameter that holds a table or a type
+  -- variable is the one the literal is held to.
+  assert_refused(declared .. "local function pu<T>(l: {T}, vs: {T} | nil) print(l, vs) end\npu(list, { {} })\n",
+    "of record R that do not admit nil: name")
+  assert_refused(declared .. "local function pt<T>(l: {T}, v: T | string) print(l, v) end\npt(list, {})\n",
+    "of record R that do not admit nil: name")
+  assert_accepted(declared .. "local function pu<T>(l: {T}, vs: {T} | nil) print(l, vs) end\n" ..
+      "pu(list, { { name = 'a' } })\n")
+  -- A method call counts its receiver out of the arguments.
+  assert_refused(declared .. "local record Bag\n  add: function<T>(self: Bag, l: {T}, vs: {T})\nend\n" ..
+      "local b: Bag = {}\nb:add(list, { {} })\n", "of record R that do not admit nil: name")
+  assert_accepted(declared .. "local record Bag\n  add: function<T>(self: Bag, l: {T}, vs: {T})\nend\n" ..
+      "local b: Bag = {}\nb:add(list, { { name = 'a' } })\n")
+  -- An alias of the array type, written with the record or with the
+  -- variable, is refused too (by the literal's own check or the call's).
+  assert_refused(declared .. "local type Alias<T> = {T}\n" ..
+      "local function pa<T>(l: {T}, vs: Alias<T>) print(l, vs) end\npa(list, { {} })\n", "got {}, expected R")
+  assert_refused(declared .. "local type Alias<T> = {T}\n" ..
+      "local function pa(l: {R}, vs: Alias<R>) print(l, vs) end\npa(list, { {} })\n",
+    "of record R that do not admit nil: name")
   -- The elements of the literal are the only record that binds the
   -- variable: no one declared it, so none is held to it.
   assert_accepted("for _, c in ipairs({ { ok = true }, { ok = false, why = 'x' } }) do print(c) end\n")
@@ -2176,6 +2196,15 @@ local function test_a_conjunction_with_a_nil_left_operand_may_be_nil()
   assert_accepted(head .. "print((x and y or z) .. 'a', #(x and y or 'none'))\n")
   assert_accepted(head .. "local w = x and y\nif w then\n  print(w .. 'a')\nend\n")
   assert_accepted(head .. "local flag: boolean = (x and y) == z\nprint(flag)\n")
+end
+
+--- An `and` whose right operand is already an error is not given a nil
+--- too: one mistake is one error (patch/tl's 52c).
+local function test_a_conjunction_with_an_invalid_right_operand_reports_once()
+  local found = refusals("local record T\n  f?: string\nend\nlocal function takes(s: string) print(s) end\n" ..
+      "local t: T = {}\ntakes(t.f and t.f:upper())\n")
+  assert(#found == 1, table.concat(found, "; "))
+  assert(found[1]:find("upper", 1, true) ~= nil, found[1])
 end
 
 --- A field fact is read against its base without the nil the field's

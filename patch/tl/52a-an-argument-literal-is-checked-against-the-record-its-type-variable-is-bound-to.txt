@@ -1,5 +1,5 @@
 file: tl.tl
-note: `check_argument_omissions` holds a table literal passed for a parameter to the record a type variable in that parameter is bound to (50f), in the scope infer_emptytables is in, since the enclosing function is at Lua's limit of local variables: the parameter itself `T`, or the element of an array, map or tuple parameter `{T}`, `{string:T}`, `{T, U}`, to any depth, so `push_all(list, { {} })` is refused as `push(list, {})` is. A literal already checked where it was written (50c) is left to that check
+note: `check_argument_omissions` holds a table literal passed for a parameter to the record a type variable in that parameter is bound to (50f), in the scope infer_emptytables is in, since the enclosing function is at Lua's limit of local variables: the parameter itself `T`, or the element of an array, map or tuple parameter `{T}`, `{string:T}`, `{T, U}`, to any depth, so `push_all(list, { {} })` is refused as `push(list, {})` is. The member of a union parameter that can hold the literal is the one checked. A literal already checked where it was written (50c) is left to that check
 --- find
       local function infer_emptytables(self: TypeChecker, w: Where, wheres: {Where}, xs: TupleType, ys: TupleType, delta: integer)
 --- replace
@@ -16,6 +16,23 @@ note: `check_argument_omissions` holds a table literal passed for a parameter to
             -- is a record to hold an element to.
             if record is RecordLikeType and (not nested or record.declname) then
                check_literal_omissions(self, literal, record)
+            end
+         elseif param is UnionType then
+            -- A table literal can only be the one member that holds a
+            -- table or a type variable (`{T} | nil`, `T | string`); with
+            -- two such members it is not known which, and none is checked.
+            -- TODO: a union of two table members (`{T} | {string:T}`) is
+            -- left unchecked: choose the member the literal's keys fit.
+            local holder: Type
+            local count = 0
+            for _, member in ipairs(param.types) do
+               if member is TypeVarType or member is ArrayType or member is MapType or member is TupleTableType then
+                  holder = member
+                  count = count + 1
+               end
+            end
+            if count == 1 then
+               check_argument_omissions(self, literal, holder, nested)
             end
          elseif param is ArrayType then
             for _, item in ipairs(literal) do
