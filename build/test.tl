@@ -1958,7 +1958,7 @@ local launch_only: {string:boolean} = { COSMIC_REBOOTED = true, OLDPWD = true, S
 ---   pause one startup of a fixture runtime for a handshake and belong to
 ---   this process's own launch, not to every worker it starts;
 --- - what `launch_only` names; and
---- - COSMIC_TEST_NO_SHARED;
+--- - COSMIC_TEST_NO_SHARED and COSMIC_TEST_BAIL;
 ---
 --- and with the shared verdict cache off (`COSMIC_VERDICT_CACHE=0`) and
 --- the shared compiles too (`COSMIC_BUILD_CACHE=0`).
@@ -1981,6 +1981,7 @@ function test.worker_environment(environment: {string:string}): {string:string}
   -- Nor does it take this run's choice not to stand on them: a test
   -- that runs `cosmic test` says for itself what that run does.
   out.COSMIC_TEST_NO_SHARED = nil
+  out.COSMIC_TEST_BAIL = nil
   out.COSMIC_TEST_NOEXEC = nil
   out.COSMIC_TEST_PARENT = nil
   -- Nor a rebuild lock handed to this run (build.rebuild_lock): what a
@@ -2908,8 +2909,8 @@ end
 --- to be ended by it when the guard closes. Without a guard, a signal
 --- acts as it would, and the return is 0.
 ---
---- With `bail`, a failure (any entry `finish` adds to `rec.failures`)
---- stops the starting of jobs. Those already running finish with their
+--- With `bail`, a failure (any entry in `rec.failures`, one recorded
+--- before the run included) stops the starting of jobs. Those already running finish with their
 --- own verdicts, and the jobs never started are counted in
 --- `rec.not_run` and recorded as nothing.
 local function run_jobs(rec: Recording, jobs: {Job}, limits: test.Limits,
@@ -2923,7 +2924,9 @@ local function run_jobs(rec: Recording, jobs: {Job}, limits: test.Limits,
   local running: {Job} = {}
   local next_job = 1
   local cancelled = 0
-  local failures_before = #rec.failures
+  -- A failure recorded before any job starts (an unmet requirement, say)
+  -- stops a bailing run as one a job makes does: baseline 0.
+  local failures_before = 0
   while next_job <= #jobs or #running > 0 do
     while #running < limits.jobs and next_job <= #jobs and
         not (bail and #rec.failures > failures_before) do
