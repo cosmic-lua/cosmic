@@ -607,14 +607,17 @@ local PART_RUN: PartRun = { calls = 0, only = 0, skip = 0 }
 --- and \5 ahead of what `href` answered. A payload `A|B` is `A` to a
 --- whole-URL slot and `B` to a part, as a template given an origin in one
 --- slot and a hostile value in another.
-local STAND_IN <const>: {string: function} = {
+local STAND_IN <const>: {string: function(any): any} = {
   escape = function(s: any): {string: string} return { s = "\1" .. esc(s) .. "\2" } end,
   escape_attr = function(s: any): {string: string} return { s = "\3" .. esc_attr(s) .. "\4" } end,
   href = function(s: any): {string: string}
     local text = s is string and s:match("^[^|]*") or ""
     return { s = "\5" .. (text:lower():find("^%s*javascript:") and "about:invalid" or text) }
   end,
-  trust = function(s: string): {string: string} return { s = s } end,
+  trust = function(s: any): {string: string}
+    if not s is string then error("trust: a string is expected, got " .. type(s), 2) end
+    return { s = s }
+  end,
   -- The bytes of the escaped part between \6 and \7: only unreserved ones
   -- and %XX, except that a whole `.` or `..` is written with its `%` escaped.
   url_part = function(s: any): {string: string}
@@ -630,10 +633,30 @@ local STAND_IN <const>: {string: function} = {
       return string.format("%%%02X", c:byte())
     end) .. "\7" }
   end,
-  raw_url_part = function(v: {string: string}): string return v.s end,
-  raw = function(v: {string: string}): string return v.s end,
-  raw_attr = function(v: {string: string}): string return v.s end,
-  raw_url = function(v: {string: string}): string return v.s end,
+  raw_url_part = function(v: any): string
+    if not v is {string: string} then
+      error("raw_url_part: a made value is expected, got " .. type(v), 2)
+    end
+    return v.s
+  end,
+  raw = function(v: any): string
+    if not v is {string: string} then
+      error("raw: a made value is expected, got " .. type(v), 2)
+    end
+    return v.s
+  end,
+  raw_attr = function(v: any): string
+    if not v is {string: string} then
+      error("raw_attr: a made value is expected, got " .. type(v), 2)
+    end
+    return v.s
+  end,
+  raw_url = function(v: any): string
+    if not v is {string: string} then
+      error("raw_url: a made value is expected, got " .. type(v), 2)
+    end
+    return v.s
+  end,
 }
 
 --- The generated source with Teal's types struck out, in the shapes the

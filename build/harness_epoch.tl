@@ -82,7 +82,7 @@ harness_epoch.acknowledged = {
 
   ["build.artifact"] = "4405196f6511a21a7493aa3d1ee196c6318d3ceec2e0202800494c46b9502745",
 
-  ["build.assertions"] = "9a37be1602aa1540dd0248a267964b00c667843089d44bfb3f1828f324a739ce",
+  ["build.assertions"] = "a4385b7259b97e88c39510bf5147094c13225a5f79d36e8bf47945d65b4d3dcc",
 
   ["build.bind"] = "9fee5bf681f9fcb8a2e2e88ba7982b1d3546b5c438ddd598e5de1c27e12c80ec",
 
@@ -92,7 +92,7 @@ harness_epoch.acknowledged = {
 
   ["build.caches"] = "cf7287d6ba2af1cc8e299e9ced24863c444f58a12281181663e115058ac7b6aa",
 
-  ["build.confine"] = "d0da92bd014e0554778c8a914082f74e75364314ca79d94aec257ed4f6a3eada",
+  ["build.confine"] = "fad7ecff0a1552163f4f435601024b58a003f6925ba7880f0e592053de560497",
 
   ["build.core_image"] = "dfc18e0e6316237ab9fb11a957df68d6217e42cffc6f2f3a767018c5313700ac",
 
