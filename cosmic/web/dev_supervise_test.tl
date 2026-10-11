@@ -206,20 +206,22 @@ local function test_a_static_directory_named_by_the_option_is_ignored(tmp: strin
   assert(ok and rounds > 12)
 end
 
-local sent = false
-
-local function test_a_sigterm_to_the_supervisor_stops_it_and_its_program(tmp: string)
+--- Runs the program `chunk` under the supervisor, sends the supervisor
+--- (this process) a SIGTERM once `marks/<ready>` exists, and answers the
+--- program's pid after [`Dev.supervise`] returns.
+local function sigterm_the_supervisor(tmp: string, chunk: string, ready: string, grace_ns?: integer): integer
   assert(Fs.mkdirs(tmp .. "/src") and Fs.mkdirs(tmp .. "/marks"))
   assert(Fs.write(tmp .. "/src/a.tl", "one"))
   local pid: integer = 0
+  local sent = false
   local give_up = deadline()
   local ok = Dev.supervise{
-    start = program(marking(tmp)), watch = { tmp .. "/src" }, interval_ns = Clock.ms(10),
+    start = program(chunk), watch = { tmp .. "/src" }, interval_ns = Clock.ms(10), grace_ns = grace_ns,
     log = function(_text: string) end,
     on_boot = function(_boot: integer, started: integer) pid = started end,
     stop = function(): boolean
       give_up()
-      if pid ~= 0 and Fs.exists(tmp .. "/marks/1") == true and not sent then
+      if pid ~= 0 and Fs.exists(tmp .. "/marks/" .. ready) == true and not sent then
         sent = true
         assert(sys.kill(sys.getpid(), sys.SIGTERM))
       end
@@ -227,8 +229,37 @@ local function test_a_sigterm_to_the_supervisor_stops_it_and_its_program(tmp: st
     end,
   }
   assert(ok and sent and pid ~= 0)
+  return pid
+end
+
+local function test_a_sigterm_to_the_supervisor_stops_it_and_its_program(tmp: string)
+  local pid = sigterm_the_supervisor(tmp, marking(tmp), "1")
   -- The program is reaped before supervise returns: a zombie would answer.
   assert(not alive(pid), "the program was ended with the supervisor")
+end
+
+--- A program that holds SIGTERM, as a server finishing its requests does,
+--- and takes `ms` more milliseconds to finish before it writes `marks/done`.
+local function finishing(tmp: string, ms: integer): string
+  return 'local Fs = require("cosmic.fs") local Clock = require("cosmic.clock") ' ..
+    'local guard = assert(require("cosmic.signal").guard()) ' ..
+    'assert(Fs.write("' .. tmp .. '/marks/ready", "x")) ' ..
+    'while guard:cancelled() == 0 do Clock.sleep_ns(Clock.ms(10)) end ' ..
+    'Clock.sleep_ns(Clock.ms(' .. tostring(ms) .. ')) ' ..
+    'assert(Fs.write("' .. tmp .. '/marks/done", "x"))'
+end
+
+local function test_a_sigterm_to_the_supervisor_gives_the_program_its_grace(tmp: string)
+  -- Longer than cosmic.child's own 250 ms, well within the supervisor's.
+  local pid = sigterm_the_supervisor(tmp, finishing(tmp, 800), "ready", Clock.seconds(5))
+  assert(not alive(pid), "the program was ended with the supervisor")
+  assert(Fs.exists(tmp .. "/marks/done") == true, "the program finished within its grace")
+end
+
+local function test_a_program_that_outlasts_the_grace_is_killed(tmp: string)
+  local pid = sigterm_the_supervisor(tmp, finishing(tmp, 60000), "ready", Clock.ms(300))
+  assert(not alive(pid), "the program was ended with the supervisor")
+  assert(Fs.exists(tmp .. "/marks/done") ~= true, "the program did not finish")
 end
 
 local function test_options_of_the_wrong_kind_raise()
