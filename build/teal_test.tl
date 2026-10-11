@@ -1774,6 +1774,35 @@ local function test_a_call_site_type_name_is_told_there_are_none()
   assert(not says(compared, "no type arguments"), table.concat(compared, "\n"))
 end
 
+--- `rawset` takes a map and writes the key's value type (patch/tl's
+--- 46a): a record's declared field cannot be written through it with a
+--- value of another type, whether the record's fields share a type (it
+--- reads as a map of it) or not.
+local function test_rawset_refuses_a_record()
+  local head = "local record R\n  name: string\n  n: integer\nend\nlocal r: R = { name = 'a', n = 1 }\n"
+  assert_refused(head .. "rawset(r, 'name', 1)\n", "argument 1")
+  local same = "local record S\n  name: string\nend\nlocal s: S = { name = 'a' }\n"
+  assert_refused(same .. "rawset(s, 'name', 1)\n", "argument 3")
+end
+
+--- A map takes `rawset` of its own key and value types and refuses any
+--- other value.
+local function test_rawset_checks_a_maps_value_type()
+  local head = "local m: {string:integer} = {}\n"
+  assert_refused(head .. "rawset(m, 'k', 'text')\n", "argument 3")
+  assert_accepted(head .. "rawset(m, 'k', 2)\nlocal n: {string:integer} = rawset(m, 'j', 3)\nprint(n)\n")
+end
+
+--- A record is refused where the same record cast to `{any:any}` or to a
+--- map of `any` still takes `rawset`, as does an `{any:any}` table: the
+--- cast is where a write that the declaration does not describe is said.
+local function test_rawset_takes_a_cast_table()
+  local head = "local record R\n  name: string\n  n: integer\nend\nlocal r: R = { name = 'a', n = 1 }\n"
+  assert_refused(head .. "rawset(r, 'n', 'x')\n", "argument 1")
+  assert_accepted(head .. "rawset(r as {any:any}, 'name', 1)\nrawset(r as {string:any}, 'extra', true)\n")
+  assert_accepted("local t: {any:any} = {}\nrawset(t, 1, 'x')\nrawset(t, 'k', 2)\n")
+end
+
 --- `name?: T` declares a field that a table literal may omit and whose
 --- type admits nil, as `name: T | nil` does (patch/tl's 49a to 49c): a
 --- read is `T | nil`, a guard narrows it, and nil may be assigned to it.

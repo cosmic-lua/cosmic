@@ -210,7 +210,7 @@ function standalone.run(argv: {integer:string}, why?: string): integer
     slot = slot + 1
   end
   -- Its top level finds them in `arg`, as `lua file a b` gives them.
-  rawset(_G, "arg", arguments)
+  rawset(_G as {string:any}, "arg", arguments)
   local main = standalone.entry(chunk())
   if main == nil then
     return 0
