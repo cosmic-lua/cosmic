@@ -1328,8 +1328,8 @@
         # What bin/cosmic-bootstrap runs (bin/zig, bin/vendor,
         # bin/verify-codesign and build/paths.tl) must compile under the
         # pinned driver's Teal, not only the tree's: the check above
-        # compiles ci/ on it, and this the rest. Every scope, since it is
-        # a few milliseconds a file.
+        # compiles ci/ on it, and this the rest. Every scope, since it takes
+        # well under a second a file.
         {
           name: "compile the bootstrap's scripts on the pinned driver",
           run: "sh ../.github/scripts/pinned-parse.sh",

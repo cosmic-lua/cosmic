@@ -5,12 +5,14 @@
 # ci/cosmic-driver.pin names, whose Teal is the one those scripts must
 # parse under. Each runs standalone, which type-checks the file before
 # calling it, with an argument that does nothing: --help, and for zig.tl
-# a COSMIC_ZIG that is `true`, so no zig is installed. A refusal names
+# a COSMIC_ZIG that is the path of `true`, so no zig is installed. A refusal names
 # the file, with the compiler's complaints above.
 set -u
 
 root=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd -P)
 failed=0
+true_path=/usr/bin/true
+[ -x "$true_path" ] || true_path=/bin/true
 
 check() {
   file=$1
@@ -21,7 +23,7 @@ check() {
   fi
 }
 
-check zig.tl env COSMIC_ZIG="$(command -v true)" cosmic-driver --standalone "$root/build/zig.tl" --help
+check zig.tl env COSMIC_ZIG="$true_path" cosmic-driver --standalone "$root/build/zig.tl" --help
 check vendor.tl cosmic-driver --standalone "$root/build/vendor.tl" --help
 check verify_codesign.tl cosmic-driver --standalone "$root/build/verify_codesign.tl" --help
 check paths.tl cosmic-driver --standalone "$root/build/paths.tl" "$root"

@@ -1859,13 +1859,18 @@ function tree_checks.ci_sources(root: string): {{string}}
 end
 
 --- The Teal under `ci/testdata` that fails to type-check in
---- [`build.standalone`]'s environment, one line per complaint. CI
---- compiles each file there when a leg runs it, so a refusal would be met
---- late; `cosmic fix --check` in `ci/` only parses them. `built` must
---- be a compiler of its own ([`teal.load`]), as [`standalone.environment`]
---- points its search at this binary's sources. A file shaped as a test
---- is not run standalone but by a leg's `cosmic test`, so its unused
---- functions are no complaint.
+--- [`build.standalone`]'s environment, one line per complaint. No leg runs
+--- these with `--standalone`: they are copied into fixture directories and
+--- run there, `cmd/*/main.tl` as modules of a project the candidate builds,
+--- `retained_probe.tl` and `work_db_integrity.tl` as files, and
+--- `runtime_test.tl` by `cosmic test`. Each requires `cosmic.*` modules
+--- alone and is held to a build's own strictness, which standalone's
+--- environment models, so a refusal that would otherwise be met only when
+--- a leg runs it is met here; `cosmic fix --check` in `ci/` only parses
+--- them. `built` must be a compiler of its own ([`teal.load`]), as
+--- [`standalone.environment`] points its search at this binary's sources.
+--- A test module's unused functions are no complaint (a test runner
+--- calls them); any other file's unused locals are.
 function tree_checks.ci_testdata(root: string, built: compiler): {string}
   local out: {string} = {}
   local listed, _ = Fs.walk(root .. "/ci/testdata")
@@ -1885,13 +1890,14 @@ function tree_checks.ci_testdata(root: string, built: compiler): {string}
         out[#out + 1] = file .. ": " .. env_trouble
       else
         local code, result = built.gen(source, env, nil, "tl")
+        local testy = name:match("_test%.tl$") ~= nil
         local found = 0
         local errors = result and result.syntax_errors or {}
         local typed = result and result.type_errors or {}
         local warned = result and result.warnings or {}
         for _, group in ipairs({ errors, typed, warned }) do
           for _, e in ipairs(group) do
-            if group ~= warned or not e.msg:match("^unused ") then
+            if group ~= warned or not testy or not e.msg:match("^unused ") then
               found = found + 1
               out[#out + 1] = file .. ":" .. e.y .. ":" .. e.x .. ": " .. e.msg
             end
