@@ -97,34 +97,34 @@ local record Server
     --- element, in order: use it for Set-Cookie, which cannot be joined
     --- with ", " (RFC 6265 3, RFC 9110 5.3). An empty list writes
     --- nothing; a list of Content-Length is refused.
-    headers: {string: string | {string}}
+    headers?: {string: string | {string}}
     --- nil for none, the bytes, or a Reader, which the server reads to
     --- its end (or to `length`) as it writes and then closes, read or
     --- not.
-    body: string | Stream.Reader
+    body?: string | Stream.Reader
     --- The body's size in bytes, as a `Content-Length` header gives it:
     --- the two, given both, must agree. A Reader without either goes
     --- chunked, or, to an HTTP/1.0 client, until the connection closes.
-    length: integer
+    length?: integer
     --- Close the connection after this reply.
-    close: boolean
+    close?: boolean
   end
 
   --- What [`Server.serve`] serves, and how. A field of the wrong shape, or
   --- one not named here, raises, naming it.
   record ServeSpec
     --- Where to listen, as [`Net.ServeSpec.listeners`].
-    listeners: {Net.Address}
+    listeners?: {Net.Address}
     --- Answers one request, in the connection's task: see [`Server.serve`].
     handle: function(Request): Reply
     --- What a server takes on at most; a field left nil has its default.
     record Limits
       --- The most connections open at once (256).
-      connections: integer
+      connections?: integer
       --- The most bytes of a request's head (64 KiB), past which it is
       --- answered 431, and of the head with a chunked body's chunk
       --- extensions and trailers, past which 413.
-      head_bytes: integer
+      head_bytes?: integer
       --- The most bytes of a request's body (1 MiB); past it, 413.
       -- TODO: let a request's route choose its own limit
       -- (`ServeSpec.body_limit(method, path)`, doc/plans/web/core.md
@@ -136,22 +136,22 @@ local record Server
       body_bytes: integer
     end
     --- Bounds on what the server takes on; nil for every default.
-    limits: Limits
+    limits?: Limits
     --- How long any one read or write of a connection waits once a
     --- request's head is in -- the body's reads, the reply's writes
     --- -- (30 seconds); see [`Net.ServeSpec.timeout_ns`].
-    timeout_ns: integer
+    timeout_ns?: integer
     --- As [`Net.ServeSpec.grace_ns`]: how long requests in flight have
     --- to finish once the server stops; nil to wait for every one.
-    grace_ns: integer
+    grace_ns?: integer
     --- How long a connection waits for the first byte of a request, its
     --- first or the next after a reply, before it is closed (5 seconds).
-    idle_ns: integer
+    idle_ns?: integer
     --- How long a request's head may take to arrive whole, from its
     --- first byte (30 seconds): past it, 408 and the connection closed,
     --- so a client sending a head a byte at a time holds a connection
     --- no longer.
-    head_ns: integer
+    head_ns?: integer
     --- How long a request's body may take (30 seconds), however steadily
     --- its bytes come. The time runs from the handler's first read of
     --- the body, so a handler working before it reads costs the client
@@ -163,7 +163,7 @@ local record Server
     --- and is not dropped in time closes the connection after the
     --- handler's reply. A request with no body has none. A server taking
     --- uploads past what 30 seconds carry raises it.
-    body_ns: integer
+    body_ns?: integer
     --- As [`Net.ServeSpec.on_ready`].
     on_ready: function(addresses: {Net.Address}, server: Net.Server)
     --- As [`Net.ServeSpec.on_stop`]: called once, as the server begins
@@ -195,10 +195,10 @@ local record Server
     --- bytes from `first` to `last`, "unsatisfiable" for a 416.
     kind: RangeKind
     --- The span's first byte, counted from 0; set only for "span".
-    first: integer
+    first?: integer
     --- The span's last byte, counted from 0 and sent with it; set only
     --- for "span".
-    last: integer
+    last?: integer
   end
 end
 
@@ -278,7 +278,7 @@ end
 local record Timed is Stream.Reader
   conn: Net.Conn
   each: integer
-  deadline: integer
+  deadline?: integer
   read: function(Timed, max_bytes?: integer): string | nil, string
   close: function(Timed): boolean, string
 end
@@ -419,6 +419,7 @@ end
 local function drop_body(reply: Server.Reply)
   if type(reply) ~= "table" then return end
   local body = reply.body
+  if body == nil then return end
   if type(body) == "table" and not body is string and type(body.close) == "function" then
     -- Protected: a close that raised once, in the reply's send, may again.
     local _, _ = pcall(body.close, body)

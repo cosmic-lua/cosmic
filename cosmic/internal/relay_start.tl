@@ -84,12 +84,12 @@ local record relay
   --- Where [`relay.name_servers`] reads, and the lookup's time.
   record NameServerOptions
     --- A resolv.conf to read in place of the system's, for tests.
-    resolv_conf: string
+    resolv_conf?: string
     --- The lookup's whole time (5 seconds), which the connector's wait for
     --- each server is a share of: a positive integer of nanoseconds.
-    resolve: integer
+    resolve?: integer
     --- The servers in place of the system's, for tests.
-    servers: {Config.Endpoint}
+    servers?: {Config.Endpoint}
   end
 
   --- The name servers a lookup through a connector asks, and that

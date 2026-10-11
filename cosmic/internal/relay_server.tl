@@ -138,33 +138,33 @@ local record Relay
   --- default.
   record Timeouts
     --- A name's lookup (5 seconds).
-    resolve: integer
+    resolve?: integer
     --- A connection's making, and an upstream's CONNECT (10 seconds).
-    connect: integer
+    connect?: integer
     --- No byte in either direction of a tunnel (5 minutes).
-    idle: integer
+    idle?: integer
     --- A request, and a ClientHello that has begun, to be read whole (10
     --- seconds): a program that dribbles one is not held.
-    head: integer
+    head?: integer
     --- With a [`Spec.token`], the whole of authenticating: a CONNECT's head
     --- with its credential, a SOCKS5 greeting with its username and password
     --- (3 seconds). The `head` wait starts only after it.
-    auth: integer
+    auth?: integer
   end
 
   --- What the relay takes on at most; a nil field takes its default.
   record Limits
     --- Connections open at once (64).
-    connections: integer
+    connections?: integer
     --- Bytes of a request head (16384, the most [`cosmic.internal.relay_wire`] reads).
-    header_bytes: integer
+    header_bytes?: integer
     --- Connections served in all, the relay's life being the sandbox's
     --- (100000).
-    total: integer
+    total?: integer
     --- With a [`Spec.token`], connections open at once that have not yet
     --- authenticated (64): the listeners wait while that many are, and each
     --- is ended by the `auth` timeout at the latest. Unused without one.
-    pre_auth: integer
+    pre_auth?: integer
   end
 
 
@@ -181,7 +181,7 @@ local record Relay
     --- ([`Net.connector`]'s `public`) for the addresses those names
     --- resolve to. [`Net.Connector.connect`] asks the table first, so an
     --- address the table holds is reached whatever the public lists refuse.
-    connector: Net.Connector
+    connector?: Net.Connector
     --- Told why the first time a request finds the connector has ended:
     --- nothing it reaches can be reached again, as no connector is started
     --- anew. The relay's process ends then ([`cosmic.internal.relay_main`]). Nil to
@@ -193,14 +193,14 @@ local record Relay
   record Spec
     --- The listener that takes HTTP CONNECT requests, already bound; nil
     --- for none.
-    http: Net.Listener
+    http?: Net.Listener
     --- The listener that takes SOCKS5 requests, already bound; nil for
     --- none.
-    socks: Net.Listener
+    socks?: Net.Listener
     --- Listeners that take both, each connection read as its first byte
     --- says (a relay on the host's loopback holds one port on 127.0.0.1
     --- and ::1); nil or empty for none. One of the three is needed.
-    mixed: {Net.Listener}
+    mixed?: {Net.Listener}
     --- The policy's `connect` targets, `host:port`.
     grants: {string}
     --- How a connection is made.
@@ -210,23 +210,23 @@ local record Relay
     --- The sandbox's relay resolves through a connector of the name
     --- servers alone, over TCP ([`cosmic.internal.relay_start`]). Its `timeout_ns`
     --- is [`Timeouts.resolve`]'s.
-    resolve: Net.ResolveOptions
+    resolve?: Net.ResolveOptions
     --- Why no name can be resolved, or nil: set, every name fails with it
     --- (502, "host_unreachable") and nothing is asked, while an address a
     --- grant names literally is still connected.
-    unresolved: string
+    unresolved?: string
     --- The host's own addresses, which the relay refuses to connect to
     --- ([`cosmic.relay.address`]'s `own_addresses`).
-    own_addresses: {string}
+    own_addresses?: {string}
     --- The proxy to connect through, or nil to connect directly.
-    upstream: Upstream
+    upstream?: Upstream
     --- The ports that carry TLS (443 and 853 by default): a hello on one
     --- must name its server.
-    tls_ports: {integer}
+    tls_ports?: {integer}
     --- The waits' lengths.
-    timeouts: Timeouts
+    timeouts?: Timeouts
     --- The caps.
-    limits: Limits
+    limits?: Limits
     --- Where decision lines go, one call each; nil for stderr.
     log: function(line: string)
     --- The per-sandbox token every connection must present, 16 to 255 bytes
@@ -234,7 +234,7 @@ local record Relay
     --- for none. A caller draws 128 bits or more from a secure source and
     --- writes them in a printable form (hex, base64url): a guess is bounded
     --- by nothing but the token's entropy.
-    token: string
+    token?: string
     --- Told why, once, the first time a lookup fails through a `resolve`
     --- connector that has ended: no name can be resolved again, as no
     --- connector is started anew. The relay's process ends then
@@ -719,7 +719,7 @@ end
 --- says why none was.
 local record Found
   addresses: {string}
-  refused: Refusal
+  refused?: Refusal
 end
 
 --- Resolves `name` once, and every address the checks allow, in order.
@@ -729,7 +729,7 @@ local function address_of(run: Running, name: string, kind: Wire.Kind, port: int
     return { addresses = { name } }
   end
   local answers: {Address.Answer} = {}
-  local resolved_once = trusted and run.spec.upstream.addresses or nil
+  local resolved_once = trusted and assert(run.spec.upstream).addresses or nil
   if resolved_once ~= nil then
     -- The upstream's addresses, which its starter resolved: no lookup.
     for i, address in ipairs(resolved_once) do
@@ -742,9 +742,10 @@ local function address_of(run: Running, name: string, kind: Wire.Kind, port: int
         "host_unreachable") }
     end
     local opts: Net.ResolveOptions = { timeout_ns = run.timeouts.resolve }
-    if run.spec.resolve ~= nil then
-      opts.servers, opts.hosts_file = run.spec.resolve.servers, run.spec.resolve.hosts_file
-      opts.connector = run.spec.resolve.connector
+    local resolve = run.spec.resolve
+    if resolve ~= nil then
+      opts.servers, opts.hosts_file = resolve.servers, resolve.hosts_file
+      opts.connector = resolve.connector
     end
     -- A connection between `stop` setting this and its cancellation must
     -- not start a lookup `stop` has already passed over.
@@ -809,9 +810,9 @@ end
 --- A connection made, with the address it was made to, or the refusal
 --- that says why none could be.
 local record Connected
-  conn: Net.Conn
-  address: string
-  refused: Refusal
+  conn?: Net.Conn
+  address?: string
+  refused?: Refusal
 end
 
 --- Connects to the first of `addresses` on `port` that answers, trying
@@ -1152,7 +1153,7 @@ local function serve_connection(run: Running, protocol: string, client: Net.Conn
       reject(made.refused, true)
       return
     end
-    local conn, address = made.conn, made.address
+    local conn, address = assert(made.conn), assert(made.address)
     run.live[id] = { client, conn }
     far, how = conn, "via " .. target(address, req.port)
   else
@@ -1168,7 +1169,7 @@ local function serve_connection(run: Running, protocol: string, client: Net.Conn
       reject(made.refused, true)
       return
     end
-    local conn, address = made.conn, made.address
+    local conn, address = assert(made.conn), assert(made.address)
     run.live[id] = { client, conn }
     local ask = ("CONNECT %s HTTP/1.1\r\nHost: %s\r\n%s\r\n"):format(shown, shown,
       up.authorization ~= nil and ("Proxy-Authorization: " .. up.authorization .. "\r\n") or "")

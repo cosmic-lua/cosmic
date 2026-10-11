@@ -439,14 +439,15 @@ local function test_a_socks_request_built_from_an_answer_reads_back_the_same(tmp
       end
       Fuzz.label(first.kind)
       local address: string
+      local host = assert(first.host)
       if first.kind == "name" then
-        address = string.char(#first.host) .. first.host
+        address = string.char(#host) .. host
       elseif first.kind == "ipv4" then
-        local a, b, c, d = first.host:match("^(%d+)%.(%d+)%.(%d+)%.(%d+)$")
+        local a, b, c, d = host:match("^(%d+)%.(%d+)%.(%d+)%.(%d+)$")
         address = string.char(math.tointeger(tonumber(a)), math.tointeger(tonumber(b)), math.tointeger(tonumber(c)),
           math.tointeger(tonumber(d)))
       else
-        address = Fixture.ipv6_bytes(first.host)
+        address = Fixture.ipv6_bytes(host)
       end
       local atyp = first.kind == "name" and 3 or first.kind == "ipv4" and 1 or 4
       local rebuilt = Fixture.socks_request(1, atyp, address, first.port)

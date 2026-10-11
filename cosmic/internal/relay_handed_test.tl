@@ -288,8 +288,8 @@ return function(argv: {string}): integer
     up.addresses = assert(SandboxRelay.upstream_addresses(up, { fd = dns.fd, name_servers = name_servers }, ""))
     assert(dns:close())
     lines[#lines + 1] = "upstream " .. table.concat(up.addresses, ",")
-    local resolve: Net.ResolveOptions = { servers = servers,
-      connector = assert(Net.connector(servers, { timeout_ns = name_servers.wait_ns })) }
+    local resolve_connector = assert(Net.connector(servers, { timeout_ns = name_servers.wait_ns }))
+    local resolve: Net.ResolveOptions = { servers = servers, connector = resolve_connector }
     local http = assert(Net.listen(Net.tcp("127.0.0.1", 0)))
     local relay = Relay.start({
       http = http, grants = { "api.test:443", "direct.test:443" }, upstream = up, resolve = resolve,
@@ -314,7 +314,7 @@ return function(argv: {string}): integer
     end
     relay:stop()
     relay:wait()
-    assert(resolve.connector:close())
+    assert(resolve_connector:close())
     serving:cancel()
     assert(http:close())
     assert(proxy:close())

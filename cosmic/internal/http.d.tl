@@ -36,29 +36,29 @@ local record http
     -- The HTTP method, case-sensitive; GET, or POST when there is a `body`.
     method: string
     -- Request headers, name to value.
-    headers: {string:string}
+    headers?: {string:string}
     -- The request body, sent whole.
-    body: string
+    body?: string
     -- Whether to follow redirects; true by default.
-    follow: boolean
+    follow?: boolean
     -- The most redirects followed, 10 by default.
-    max_redirects: integer
+    max_redirects?: integer
     -- The schemes a redirect may lead to, "http" and "https" by default.
-    redirect_protocols: {string}
+    redirect_protocols?: {string}
     -- How long connecting may take, in milliseconds; 30000 by default.
-    connect_timeout_ms: integer
+    connect_timeout_ms?: integer
     -- How long the whole request may take, in milliseconds; no limit by default.
-    timeout_ms: integer
+    timeout_ms?: integer
     -- The transfer rate, in bytes per second, under which a request
     -- is too slow; 1 by default and 0 turns the check off.
-    low_speed_bytes: integer
+    low_speed_bytes?: integer
     -- How many seconds it may stay under `low_speed_bytes`; 60 by default.
-    low_speed_seconds: integer
+    low_speed_seconds?: integer
     -- Whether curl logs the transfer to standard error.
-    verbose: boolean
+    verbose?: boolean
     -- Tests only: canned replies, one per connection, in place of the
     -- network. Every entry must be a string.
-    script: {string}
+    script?: {string}
   end
 
   -- Blocks until the final response's headers have arrived (after

@@ -67,8 +67,9 @@ function Example.range()
     return { status = 200, body = data }
   end
   local tail = answer("bytes=-3")
-  print(tail.status, tail.headers["Content-Range"], tail.body)
-  assert(tail.status == 206 and tail.body == "789" and tail.headers["Content-Range"] == "bytes 7-9/10")
+  local tail_headers = assert(tail.headers)
+  print(tail.status, tail_headers["Content-Range"], tail.body)
+  assert(tail.status == 206 and tail.body == "789" and tail_headers["Content-Range"] == "bytes 7-9/10")
   assert(answer("bytes=20-").status == 416)
   assert(answer("bytes=0-1,5-6").status == 200 and answer(nil).status == 200)
 end

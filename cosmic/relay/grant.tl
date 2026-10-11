@@ -45,7 +45,7 @@ local record Grant
     --- RFC 5952's form without brackets.
     host: string
     --- For an address, its bytes (4 or 16); nil otherwise.
-    bytes: {integer}
+    bytes?: {integer}
     --- The port, 0 for any.
     port: integer
     --- The target in its canonical text: `host:port` with an IPv6 host in

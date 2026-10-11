@@ -119,7 +119,7 @@ end
 local function test_an_expectation_but_100_continue_is_417()
   assert(refusal("PUT / HTTP/1.1\r\nHost: h\r\nExpect: something\r\n\r\n") == 417)
   assert(refusal("PUT / HTTP/1.1\r\nHost: h\r\nExpect: 100-continue, x\r\n\r\n") == 417)
-  assert(read("PUT / HTTP/1.1\r\nHost: h\r\nExpect: 100-Continue\r\n\r\n").head.continue)
+  assert(assert(read("PUT / HTTP/1.1\r\nHost: h\r\nExpect: 100-Continue\r\n\r\n").head).continue)
   local old = assert(read("PUT / HTTP/1.0\r\nExpect: 100-continue\r\n\r\n").head)
   assert(not old.continue)
 end
@@ -128,7 +128,7 @@ local function test_a_declared_body_past_its_limit_is_413()
   local head = "POST / HTTP/1.1\r\nHost: h\r\n"
   assert(refusal(head .. "Content-Length: 101\r\n\r\n") == 413)
   assert(refusal(head .. "Content-Length: 99999999999999999999999999\r\n\r\n") == 413)
-  assert(read(head .. "Content-Length: 100\r\n\r\n").head.length == 100)
+  assert(assert(read(head .. "Content-Length: 100\r\n\r\n").head).length == 100)
 end
 
 --- Where the input ends: before a byte, a clean end; within a head, a
@@ -231,6 +231,16 @@ local function sent_bytes(reply: wire.Reply): string
   return sink:result()
 end
 
+--- A reply with no `date` is sent without a Date header, where it once
+--- raised on concatenating nil.
+local function test_a_reply_with_no_date_is_sent_without_one()
+  local sink = Stream.collect()
+  local sent = wire.send(sink, { status = 204, version = "HTTP/1.1" })
+  assert(sent.write_failure == "" and sent.body_failure == "")
+  local text = sink:result()
+  assert(text:find("HTTP/1.1 204", 1, true) == 1 and text:find("Date:", 1, true) == nil, text)
+end
+
 --- A list value is one line per element, in order, under the name as
 --- given; an empty list is none.
 local function test_a_list_header_is_written_one_line_per_element()
@@ -328,7 +338,7 @@ local function test_a_reader_breaking_its_contract_cuts_the_reply_short()
     close = function(_self: Giving): boolean, string return true, "" end,
   } }
   local record Case
-    length: integer
+    length?: integer
     pieces: {string}
   end
   local cases: {Case} = { { pieces = { "ab", "", "HTTP/1.1 200 OK\r\n\r\n" } },

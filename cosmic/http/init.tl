@@ -92,41 +92,41 @@ local record Http
   --- empty or holds ':'), a URL holding NUL or one curl rejects.
   record Options
     --- The HTTP method, case-sensitive; GET, or POST when there is a `body`.
-    method: string
+    method?: string
     --- Request headers, name to value.
-    headers: {string:string}
+    headers?: {string:string}
     --- The request body, sent whole.
-    body: string
+    body?: string
     --- Whether to follow redirects; true by default.
-    follow: boolean
+    follow?: boolean
     --- The most redirects followed, 10 by default.
-    max_redirects: integer
+    max_redirects?: integer
     --- The schemes a redirect may lead to, "http" and "https" by default.
-    redirect_protocols: {string}
+    redirect_protocols?: {string}
     --- How long connecting may take, in nanoseconds; 30 seconds by default.
-    connect_timeout_ns: integer
+    connect_timeout_ns?: integer
     --- How long the whole request may take, in nanoseconds; no limit by default.
-    timeout_ns: integer
+    timeout_ns?: integer
     --- The transfer rate, in bytes per second, under which a request
     --- is too slow; 1 by default and 0 turns the check off.
-    low_speed_bytes: integer
+    low_speed_bytes?: integer
     --- How long it may stay under `low_speed_bytes`, in nanoseconds; 60
     --- seconds by default.
-    low_speed_ns: integer
+    low_speed_ns?: integer
     --- Whether curl logs the transfer to standard error.
-    verbose: boolean
+    verbose?: boolean
     --- Tests only: canned replies, one per connection, in place of the
     --- network. Every entry must be a string.
-    script: {string}
+    script?: {string}
     --- Download only: the expected sha256, sha512 and sha3-256, as hex.
     --- Each given is computed while the body is written and must match,
     --- or the download fails naming the algorithm, the digest wanted and
     --- the one got, leaving no file.
-    sha256: string
+    sha256?: string
     --- Download only: see `sha256`.
-    sha512: string
+    sha512?: string
     --- Download only: see `sha256`; sqlite.org publishes this one alone.
-    sha3_256: string
+    sha3_256?: string
     --- Download only: asked before each chunk is read and once
     --- more when the body is complete, before it is renamed into place;
     --- when it answers true the download stops, removes its temporary
@@ -495,8 +495,8 @@ end
 -- Own both resources while user cancellation code may raise: a failed
 -- call must not leave a staged file waiting for garbage collection.
 local record PendingDownload
-  response: Http.Response
-  file: Stream.FileWriter
+  response?: Http.Response
+  file?: Stream.FileWriter
   metamethod __close: function(PendingDownload)
 end
 

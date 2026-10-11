@@ -366,7 +366,8 @@ local function test_a_reply_is_framed_as_its_status_and_method_say(tmp: string)
       local method, status, version, kind, text = f[1], math.tointeger(tonumber(f[2])), f[3], f[4], f[5]
       local given, given_name = f[6] or "", f[7] or "Content-Length"
       local cookies = math.tointeger(tonumber(f[8] or "0")) or 0
-      local reply: wire.Reply = { status = status, headers = { ["X-A"] = "1" }, method = method,
+      local reply_headers: {string: string | {string}} = { ["X-A"] = "1" }
+      local reply: wire.Reply = { status = status, headers = reply_headers, method = method,
         version = version, date = "Thu, 01 Jan 1970 00:00:00 GMT" }
       if kind == "string" then reply.body = text end
       if kind == "reader" then reply.body = Stream.from_string(text) end
@@ -375,12 +376,12 @@ local function test_a_reply_is_framed_as_its_status_and_method_say(tmp: string)
       if cookies > 0 then
         local list: {string} = {}
         for i = 1, cookies do list[i] = ("c%d=v; Expires=Wed, 21 Oct 2026"):format(i) end
-        reply.headers["Set-Cookie"] = list
+        reply_headers["Set-Cookie"] = list
       end
       local declared: integer = nil
       if given ~= "" then
         declared = given == "same" and #text or #text + 1
-        reply.headers[given_name] = tostring(declared)
+        reply_headers[given_name] = tostring(declared)
       end
       local bodiless = status < 200 or status == 204 or status == 304
       local sent_text = kind == "none" and "" or text

@@ -112,10 +112,11 @@ local Net = require("cosmic.net")
 local RelayStart = require("cosmic.internal.relay_start")
 return function(argv: {string}): integer
   local request: RelayStart.NameServerOptions = { servers = {} }
+  local asked = assert(request.servers)
   local servers: {Net.Endpoint} = {}
   for text in argv[2]:gmatch("[^,]+") do
     local port = assert(math.tointeger(tonumber(text)))
-    request.servers[#request.servers + 1] = { host = "127.0.0.1", port = port }
+    asked[#asked + 1] = { host = "127.0.0.1", port = port }
     servers[#servers + 1] = { host = "127.0.0.1", port = port }
   end
   local dns: Net.Connector
@@ -581,8 +582,9 @@ local function test_the_relays_name_servers_stand_when_the_system_names_others(t
   local hosts = tmp .. "/hosts"
   assert(Fs.write(hosts, "198.51.100.9 kept.example.test\n"))
   local opts = assert(name_server_options({ resolv_conf = conf }))
-  local _dns <close> = opts.connector
-  assert(#opts.servers == 1 and opts.servers[1].host == "192.0.2.53" and opts.servers[1].port == 53)
+  local _dns <close> = assert(opts.connector)
+  local servers = assert(opts.servers)
+  assert(#servers == 1 and servers[1].host == "192.0.2.53" and servers[1].port == 53)
   local system = Resolv.nameservers()
   assert(system == nil or system[1].host ~= "192.0.2.53", "the system names the test's server")
   local found, why = Net.resolve("kept.example.test",
@@ -631,7 +633,7 @@ local function silent_lookup(count: integer, lookup_ms: integer)
   local found, why = Net.resolve("silent.example.test",
     { connector = opts.connector, servers = opts.servers, timeout_ns = Clock.ms(lookup_ms) })
   local took = (Clock.monotonic_ns() - began) // 1000000
-  assert(opts.connector:close())
+  assert(assert(opts.connector):close())
   for _, close in ipairs(held) do close() end
   assert(found == nil and why == Poll.TIMEOUT, tostring(why))
   assert(took >= wait and took < lookup_ms + wait + 1000 + 300, took .. " ms")
