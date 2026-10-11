@@ -125,7 +125,7 @@ function invoke.run(args: {string}, opts: invoke.Options): invoke.Result
   local exit, execve, attach = sys.exit, sys.execve, Store.attach
   local given = verdict.given
   local refused: string | nil = nil
-  local function refuse(what: string)
+  local function refuse(what: string): never
     refused = refused or ("invoke: the command line called " .. what ..
       ", which only a process of its own can: start the binary instead")
     error(refused, 0)
@@ -150,11 +150,9 @@ function invoke.run(args: {string}, opts: invoke.Options): invoke.Result
     sys.execve = function(_: string, _: {string}, _: {string:string}):
         boolean, string, integer
       refuse("sys.execve")
-      return false, "", 0
     end
     Store.attach = function(_: string): boolean, string
       refuse("Store.attach")
-      return false, ""
     end
     verdict.given = false
     Store.alone(function()

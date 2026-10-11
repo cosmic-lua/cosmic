@@ -175,6 +175,9 @@ local record Node is {Node}
   --- are its parameters and `exp` the one expression it returns.
   macrodef: Node | nil
   rets: TypeNode | nil
+  --- The same nodes, declared `: never`: the return list is that one
+  --- word, and `rets` holds no types.
+  never: boolean | nil
   --- Comments tl's parser attached to a statement directly. The
   --- renderer reads comments off the token stream instead, uniformly,
   --- so it never has to ask which kinds carry this and which do not.

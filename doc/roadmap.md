@@ -17,10 +17,6 @@ defines the target; once something ships, it leaves this file.
   give any target type unchecked, so one that contains a never-function (a
   function type, or a record or container with such a field) forges the
   guarantee of `: never`.
-- add `: never` to Teal as a flag on a function type, so a helper that only
-  raises (and [`Proc.exit`]) narrows below a guard as `error` does:
-  [doc/plans/teal-never.md](plans/teal-never.md) has the design and the
-  patch series.
 - declare cosmic.stream's interface methods with a named receiver
   (`read: function(self: Reader, ...)`) and drop each implementing record's
   redeclaration of them: the documented signatures then read as
@@ -28,12 +24,16 @@ defines the target; once something ships, it leaves this file.
   `FromStringReader` in [`cosmic/stream.tl`] shrinks. every interface of the
   module and every record that implements one changes together.
 - close the holes in Teal's own typing that forge any type, `: never`
-  functions among them ([doc/plans/teal-never.md](plans/teal-never.md) lists
-  them with tests that pin today's behavior): `coroutine.wrap` is declared
+  functions among them (`test_never_falls_into_the_holes_every_type_has` and
+  `test_coroutine_wrap_forges_a_never_function_as_it_forges_any_type` in
+  [`test/narrowing_test.tl`] pin today's behavior, and [doc/design.md](design.md)'s
+  teal section states the bar): `coroutine.wrap` is declared
   `function<F>(F): F` though its wrapper returns whatever the coroutine
-  yields; `rawset` writes a value of any type into a record's field; a function `__index`
-  given to `setmetatable` is declared to return `any`, so what it serves is
-  not checked against the record (a table `__index` is, patch/tl's 47a).
+  yields, so `coroutine.wrap(nv)` is typed never though it returns after a
+  `coroutine.yield`; `rawset` writes a value of any type into a record's
+  field; a function `__index` given to `setmetatable` is declared to return
+  `any`, so what it serves is not checked against the record (a table
+  `__index` is, patch/tl's 47a). a call through `any` carries no flag either.
 - add earned lint rules and their fixes to [`build/fix/rule.tl`]'s rule list.
   the rewrite stage is in place and the list is still empty.
 - add a floor for line coverage, C included: `cosmic test --min PCT
@@ -421,7 +421,6 @@ four-producer provenance join.
 [`eval/summarize.tl`]: ../eval/summarize.tl
 [`Json.decode`]: ../cosmic/json.tl
 [`Net.serve`]: ../cosmic/net.tl
-[`Proc.exit`]: ../cosmic/proc.tl
 [`receivers.record_named`]: ../build/receivers.tl
 [`Sandbox.Limits`]: ../cosmic/sandbox/init.tl
 [`Sandbox.Policy`]: ../cosmic/sandbox/init.tl
@@ -435,6 +434,7 @@ four-producer provenance join.
 [`Shape.strict_record`]: ../cosmic/shape.tl
 [`Test.needs_of`]: ../cosmic/test.tl
 [`Test.policy`]: ../cosmic/test.tl
+[`test/narrowing_test.tl`]: ../test/narrowing_test.tl
 [`Typed.spec`]: ../cosmic/shape.tl
 [`Url.parse`]: ../cosmic/url.tl
 [`Url.Parts`]: ../cosmic/url.tl
