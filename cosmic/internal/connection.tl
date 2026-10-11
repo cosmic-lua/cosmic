@@ -49,6 +49,16 @@ local record Connection
     --- or why not may leave part of it sent,
     --- so it is every write's after; reading is left be.
     write: function(Conn, data: string): boolean, string
+    --- Where the peer is: its numeric TCP address, as the kernel names it
+    --- (an IPv4 client of a dual-stack listener may be an IPv4-mapped
+    --- IPv6 one). Nil and why where it has none to give: a unix
+    --- connection (EAFNOSUPPORT), a peer that has reset the connection
+    --- (ENOTCONN on Linux, EINVAL on macOS), or a connection already
+    --- closed.
+    -- TODO: answer a unix connection's peer too, once core/socket.c's
+    -- `peer` does (its Address needs a path, which an unbound client
+    -- has none of).
+    peer: function(Conn): Address | nil, string
     --- Ends one direction, or both: after "write" the peer reads the
     --- end of what was sent, and this side can still read its answer.
     --- A `how` that is none of "read", "write" and "both" raises.

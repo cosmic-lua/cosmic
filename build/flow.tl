@@ -325,7 +325,7 @@ end
 --- `parse` catches and returns; any other error passes on.
 local FAILURE <const> = "\0flow\0"
 
-local function fail(line: integer, why: string)
+local function fail(line: integer, why: string): never
   error(FAILURE .. ("line %d: %s"):format(line, why), 0)
 end
 
