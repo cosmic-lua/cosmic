@@ -1,6 +1,6 @@
 # web apps
 
-<!-- policy: loopback = { "127.0.0.1" }, profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } -->
+<!-- policy: profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } -->
 
 [`cosmic.web`] makes an htmx page, a JSON API, or both in one program a
 matter of a route table, a few templates and a call to [`Web.serve`]. It
@@ -8,13 +8,14 @@ layers on [`cosmic.http.server`] and borrows Starlette's vocabulary:
 a request and a response that are plain data, routes, mounts, middleware
 as `function(Handler): Handler`, a test client, `StaticFiles`.
 
-This guide builds `tasks`, a small task list: a page whose buttons talk
-to the server with htmx, a form that checks its input, a live list that
-every open page shares, and a JSON API under `/api`. It starts from an
-empty directory. Each file below is written there, and the last section
-runs the tests of the finished project, so what you read is what runs.
-The guide for a first project, `cosmic docs doc.guides.project`, covers
-the verbs this one uses.
+This is the first of seven guides. It builds `tasks`, a small task list
+whose buttons talk to the server with htmx, from an empty directory: each
+file below is written there, and the block at the end of the guide runs the
+tests of the finished project, so what you read is what runs. The other
+guides each take one subject further, with a small project of their own, and
+can be read alone; the map at the end of this one lists them. The guide for
+a first project, `cosmic docs doc.guides.project`, covers the verbs this one
+uses.
 
 ## the files
 
@@ -27,19 +28,15 @@ conventions added.
       pages/layout.tmpl         templates: pages.layout, pages.row, ...
       store.tl                  the tasks, in memory
       view.tl  site.tl          the pages
-      live.tl                   the event stream
       tasks.tl                  the app, with its middleware
       app.tl  dev.tl            the program, and its development loop
       cmd/tasks/main.tl         what `cosmic build` makes into `tasks`
-      tasks_test.tl             tests of the pages and the live list
+      tasks_test.tl             tests of the pages
 
 Every file under `static/` is a public asset. `cosmic build` carries
 them in the executable and [`cosmic.web.static`] serves them; run from
 source, the same code serves the directory. A `.tmpl` file is a typed
 template, built into a module of the same path.
-
-The JSON API, the tests of forms and uploads and the tests of the session
-stores are small projects of their own, in the sections after the app.
 
 ## templates
 
@@ -84,7 +81,6 @@ end
 7
 ```
 
-
 A template names the record it is given, so a misspelled field is a type
 error with the template's own line number. Here the records live in one
 module, and `{{type Task from pages.data}}` names one of them.
@@ -102,16 +98,13 @@ local record data
   record Tasks
     tasks: {Task}
   end
-  record Form
+  record Panel
     title: string
     error: string | nil
+    rows: Html.SafeHtml
   end
   record Page
-    notes: {string}
-    name: string
-    field: Html.SafeHtml
-    rows: Html.SafeHtml
-    form: Html.SafeHtml
+    panel: Html.SafeHtml
   end
   record Layout
     title: string
@@ -148,39 +141,33 @@ path: the list is the row, once per task, or a line saying there are none.
 {{range .tasks}}{{. | pages.row.render}}{{else}}<li>nothing to do</li>{{end}}
 ```
 
-The form is its own template, because the server answers a refusal with
-the form alone.
+The panel is the form and the list together, because the server answers
+an `add` with the whole panel: the new row appears and the form is empty
+again, or shows what was wrong with it. `{{.rows}}` is
+markup the program already made safe (an [`Html.SafeHtml`]), taken as it is.
 
-```teal file=pages/form.tmpl
-{{type Form from pages.data}}{{use htmx}}
-<form id="new" hx-post="/tasks" hx-target="#new" hx-swap="outerHTML">
-  <input name="title" value="{{.title}}" placeholder="what needs doing?" autofocus>
-  <button>add</button>
-  {{if .error}}<p class="error">{{.error}}</p>{{end}}
-</form>
+```teal file=pages/panel.tmpl
+{{type Panel from pages.data}}{{use htmx}}
+<section id="panel">
+  <form hx-post="/tasks" hx-target="#panel" hx-swap="outerHTML">
+    <input name="title" value="{{.title}}" placeholder="what needs doing?" autofocus>
+    <button>add</button>
+    {{if .error}}<p class="error">{{.error}}</p>{{end}}
+  </form>
+  <ul id="tasks">{{.rows}}</ul>
+</section>
 ```
 
-The page puts the pieces together. `{{.field}}` and `{{.rows}}` are
-`Html.SafeHtml`: markup the program already made safe, taken as it is.
-The list opens a stream with `sse-connect` and swaps in whatever the
-server sends under the event name `tasks`.
-
 ```teal file=pages/index.tmpl
-{{type Page from pages.data}}{{use htmx}}
-{{range .notes}}<p class="note">{{.}}</p>{{end}}
+{{type Page from pages.data}}
 <h1>tasks</h1>
-<form method="post" action="/hello">
-  {{.field}}
-  <input name="name" value="{{.name}}" placeholder="your name">
-  <button>say hello</button>
-</form>
-<ul id="tasks" hx-ext="sse" sse-connect="/events" sse-swap="tasks">{{.rows}}</ul>
-{{.form}}
+{{.panel}}
 ```
 
 The layout is the page around it. `hx-headers` takes an [`Html.SafeJson`]
-as its whole value; the head arrives ready made, for a reason the next
-example shows.
+as its whole value (it carries the CSRF token, which [the security
+guide](web-security.md) explains); the head arrives ready made, for a
+reason a later section shows.
 
 ```teal file=pages/layout.tmpl
 {{type Layout from pages.data}}{{use htmx}}
@@ -284,109 +271,73 @@ end
 return Store
 ```
 
-The pages' routes follow. `home` answers a whole page or a fragment,
-`create`, `toggle` and `remove` answer what a button asked for and tell
-every open page. Their parameters are the checked records that the section on forms
-below explains.
+The pages' routes follow. `home` answers a whole page or a fragment;
+`create`, `toggle` and `remove` answer what a button asked for. `create`
+reads the form with [`Input.form`], which answers a body it cannot decode
+with a status to pass on; [the forms guide](web-forms.md) shows routes that
+name the shape of their input and have it checked before the handler runs.
 
 ```teal file=site.tl
 --- The pages: the list, the form, and what a button does to a task.
 
-local Csrf = require("cosmic.web.csrf")
 local Html = require("cosmic.html")
 local Input = require("cosmic.web.input")
-local Session = require("cosmic.web.session")
-local Shape = require("cosmic.shape")
-local Sse = require("cosmic.web.sse")
 local Store = require("store")
 local Url = require("cosmic.url")
 local View = require("view")
 local Web = require("cosmic.web")
-local form = require("pages.form")
 local index = require("pages.index")
+local panel = require("pages.panel")
 local row = require("pages.row")
 local rows = require("pages.rows")
 
 local record Site
 end
 
-local record NewTask
-  title: string
-end
-local NEW <const> = Shape.record_of("NewTask")
-
-local record TaskPath
-  id: integer
-end
-local TASK <const> = Shape.record_of("TaskPath")
-
---- Routes over `store`; a change is published on `hub` for every open page.
-function Site.routes(store: Store, hub: Sse.Hub): {Web.Route}
-  local function publish()
-    hub:publish("tasks", Sse.Event.html("tasks", rows.render({ tasks = store.tasks })))
+--- Routes over `store`.
+function Site.routes(store: Store): {Web.Route}
+  local function shown(title: string, problem?: string): Html.SafeHtml
+    return panel.render({ title = title, error = problem, rows = rows.render({ tasks = store.tasks }) })
   end
 
   local function home(req: Web.Request): Web.Response
-    local session = Session.of(req)
-    local notes: {string} = {}
-    for _, note in ipairs(session:take_flashes()) do notes[#notes + 1] = note.text end
-    local body = index.render({
-      notes = notes,
-      name = session:get_string("name") or "",
-      field = Csrf.field(req),
-      rows = rows.render({ tasks = store.tasks }),
-      form = form.render({ title = "" }),
-    })
-    return View.page(req, "tasks", body)
+    return View.page(req, "tasks", index.render({ panel = shown("") }))
   end
 
-  local function hello(req: Web.Request): Web.Response
+  local function create(req: Web.Request): Web.Response
     local read = Input.form(req)
     if read.invalid ~= nil then return Web.abort(read.invalid.status, read.invalid.message) end
-    local name = Url.query_last(read.value, "name") or ""
-    local session = Session.of(req)
-    session:set("name", name)
-    session:flash("success", "hello, " .. name)
-    return Web.redirect((assert(req:url_for("home"))))
-  end
-
-  local function refuse(_req: Web.Request, bad: Web.Invalid): Web.Response
-    local shown = form.render({ title = Input.value(bad, "title"), error = Input.errors_by_field(bad).title })
-    return Web.html(shown, { status = bad.status })
-  end
-
-  local function create(req: Web.Request, _p: Web.None, _q: Web.None, b: NewTask): Web.Response
-    local title = b.title:match("^%s*(.-)%s*$")
+    local title = (Url.query_last(read.value, "title") or ""):match("^%s*(.-)%s*$")
     if title == "" then
-      return refuse(req, Input.fail(req, "title", "give the task a name"))
+      return Web.html(shown("", "give the task a name"), { status = 422 })
     end
     store:add(title)
-    publish()
-    return Web.html(form.render({ title = "" }), { status = 201 })
+    return Web.html(shown(""), { status = 201 })
   end
 
-  local function toggle(_req: Web.Request, p: TaskPath, _q: Web.None, _b: Web.None): Web.Response
-    local task = store:toggle(p.id)
+  --- The task a request's `:id` names, or nil.
+  local function named(req: Web.Request): integer | nil
+    return math.tointeger(tonumber(req.params.id))
+  end
+
+  local function toggle(req: Web.Request): Web.Response
+    local id = named(req)
+    local task = id ~= nil and store:toggle(id) or nil
     if task == nil then return Web.abort(404, "no such task") end
-    publish()
     return Web.html(row.render(task))
   end
 
-  local function remove(_req: Web.Request, p: TaskPath, _q: Web.None, _b: Web.None): Web.Response
-    if not store:remove(p.id) then return Web.abort(404, "no such task") end
-    publish()
+  local function remove(req: Web.Request): Web.Response
+    local id = named(req)
+    if id == nil or not store:remove(id) then return Web.abort(404, "no such task") end
     return Web.html(Html.trust(""))
   end
 
   return {
     Web.get("/", home, { name = "home" }),
-    Web.post("/hello", hello, { name = "hello" }),
-    Web.post_typed("/tasks", Web.input(Web.NONE, Web.NONE, Web.form_body(NEW)), create,
-      { name = "create", on_invalid = refuse }),
-    Web.post_typed("/tasks/:id/toggle", Web.input(TASK, Web.NONE, Web.no_body), toggle,
-      { name = "toggle" }),
-    Web.delete_typed("/tasks/:id", Web.input(TASK, Web.NONE, Web.no_body), remove,
-      { name = "remove" }),
+    Web.post("/tasks", create, { name = "create" }),
+    Web.post("/tasks/:id/toggle", toggle, { name = "toggle" }),
+    Web.delete("/tasks/:id", remove, { name = "remove" }),
   }
 end
 
@@ -443,8 +394,7 @@ end
 
 [`Web.key`] makes a typed key for per-request state: `req:set(KEY, v)` and
 `req:get(KEY)`. A module exports the keys it owns, as the session, CSRF and
-CSP modules below do. `req.state` is an untyped table for scratch values
-only.
+CSP modules do. `req.state` is an untyped table for scratch values only.
 
 ## htmx
 
@@ -475,7 +425,7 @@ local function head(req: Web.Request): Html.SafeHtml
   local link = '<link rel="stylesheet" href="' .. Html.raw_attr(Html.escape_attr(css)) .. '">'
   return Html.concat({
     Html.trust(link),
-    Htmx.head{ sse = true, nonce = req:get(Headers.NONCE) },
+    Htmx.head{ nonce = req:get(Headers.NONCE) },
   })
 end
 
@@ -492,14 +442,15 @@ return View
 
 [`Htmx.head`] writes the `<meta name="htmx-config">` tag and the script
 tags for the htmx the binary carries (and for its SSE extension, with
-`sse = true`), each with a subresource integrity value computed from the
-bytes served. The configuration is closed: no `eval`, no script in swapped
-HTML, no injected style, same-origin requests only, and a 422 is swapped in
-so a form's errors reach the page while other 4xx and 5xx responses are not.
-The files themselves are served under `/_web/` by every [`Web.app`], ahead
-of the routes, at paths that carry the version, so no route may live there.
-The head is Teal because `<link href>` and `<script src>` take no slot in
-a template.
+`sse = true`, which [the live guide](web-live.md) uses), each with a
+subresource integrity value computed from the bytes served. The
+configuration is closed: no `eval`, no script in swapped HTML, no injected
+style, same-origin requests only, and a 422 is swapped in so a form's errors
+reach the page while other 4xx and 5xx responses are not. The files
+themselves are served under `/_web/` by every [`Web.app`], ahead of the
+routes, at paths that carry the version, so no route may live there. The
+head is Teal because `<link href>` and `<script src>` take no slot in a
+template.
 
 An answer says what htmx should do with it in headers. [`Htmx.apply`] writes
 them, and refuses a redirect to another origin since htmx navigates by
@@ -542,121 +493,31 @@ li.done .title { text-decoration: line-through; }
 
 [`StaticFiles.mount`] serves the project's `static/` under a prefix and
 names itself `static`; [`Dev.static`] is the same route that reads the
-directory from disk, uncached, while the app is in development. A file is
-answered with a strong ETag from its content hash, `If-None-Match`,
-`Range` and a stored gzip variant. A request for a hidden file or a path
-that climbs out of the root is a 404.
-
-`app:url_for("static", { path = "app.css" })` is the fingerprinted name,
-`/static/app.b481c67fb0.css`: ten hex digits of the content hash are part
-of the name, so a changed file has a new URL and an old one may be cached for a
-year. A page links the fingerprinted name (`view.tl` above does) and a
-plain name still works with revalidation. A stale fingerprint is a 404,
-never a different file's bytes.
-
-## csrf
-
-A cookie is sent by the browser whoever made the page, so a form on
-another site could post to yours. [`Csrf.middleware`] answers that on every
-request whose method changes state. It checks that the `Origin` (or the
-`Referer`'s origin) is the app's own, and that a masked synchronizer token
-kept in the session (see the section on sessions below) came back in the `X-CSRF-Token` header or the
-`csrf_token` field of the form. GET and TRACE are never checked, so a GET
-must not change anything. It sits inside the session middleware.
-
-A page carries the token two ways. `Csrf.hx_headers(req)` is a JSON value
-for `<body hx-headers='...'>`: every htmx request below the element sends
-the header, so no form needs to remember it (`layout.tmpl` above does this).
-[`Csrf.field`] is the hidden input of a plain form, for `hello` in
-`index.tmpl`, and [`Csrf.meta`] a `<meta>` tag for a script that sets the
-header itself. A urlencoded form's token must lie in the first 16 KiB of
-the body, and a multipart form's must be its first part: put the field
-first. `session:regenerate()` drops the secret, so tokens seen before a
-login stop working; a boosted login should end with `HX-Redirect`, which
-loads a fresh page.
-
-The `HX-Request` header exempts nothing. A request with `Authorization:
-Bearer` skips the token layer by default, since a cross-site page cannot
-set that header without a preflight; the better answer for an API is that
-no cookie authenticates it, which the section on the API below shows.
-
-## security headers
-
-[`Headers.middleware`] sets, on every response that passes out through
-it: `X-Content-Type-Options: nosniff`, `Referrer-Policy`,
-`X-Frame-Options: DENY`, `Cross-Origin-Opener-Policy` and a
-`Permissions-Policy` that turns the camera, the microphone and
-geolocation off. A header the handler already set stays. `hsts` is
-sent on https requests only (behind a proxy, `trusted_proxy` decides
-that), and a CSP is off until asked for.
-
-`Headers.Csp.htmx_default()` is a policy that lets an htmx app load its
-own scripts, styles, images and connections and nothing else. With
-`nonce = true` each request draws a nonce, `req:get(Headers.NONCE)` reads
-it, and a `{nonce}` source in a directive becomes `'nonce-<value>'`. The
-nonce is for an inline script the layout carries; pass it to [`Htmx.head`]
-too, as `view.tl` does, so htmx's tags and its own inline use carry it. A
-page with a nonce is not for a shared cache, and the response is marked
-private. Try a new policy with `csp_report_only = true` first.
-
-## live updates
-
-[`cosmic.web.sse`] streams server-sent events. A `Hub` fans events out to
-the streams of many pages by topic and keeps a short replay ring, so a
-browser that reconnects with `Last-Event-ID` resumes where it left off, and
-one whose last id is not in the ring gets a `reset` event, on which
-the page fetches its state anew. `publish` never waits, and a slow client costs only its own queue.
-The app is given the hub in `hubs`, which closes its streams when the
-server stops; the stream also sends a heartbeat so a client that left is
-found. [`Sse.Event.html`] makes an event whose data is markup, which is what
-the list's `sse-swap="tasks"` swaps in.
-
-```teal file=live.tl
---- The event stream every open page listens to.
-
-local Sse = require("cosmic.web.sse")
-local Web = require("cosmic.web")
-
-local record Live
-end
-
---- A route streaming `hub`'s "tasks" topic. A browser that reconnects
---- sends `Last-Event-ID`, and the stream resumes after it.
-function Live.routes(hub: Sse.Hub): {Web.Route}
-  return {
-    Web.get("/events", function(req: Web.Request): Web.Response
-      local sub, why = hub:subscribe({ "tasks" }, { after = Sse.last_event_id(req) })
-      if sub == nil then
-        return Web.text(why, { status = 503, headers = { ["Retry-After"] = "5" } })
-      end
-      return Sse.EventStream(req, sub)
-    end, { name = "events" }),
-  }
-end
-
-return Live
-```
+directory from disk, uncached, while the app is in development. A page asks
+for a file by `app:url_for("static", { path = "app.css" })`, which gives the
+fingerprinted name `view.tl` links; [the deployment guide](web-deploy.md)
+explains the fingerprint and what a deployed program serves.
 
 ## the app
 
 [`Dev.app`] is [`Web.app`] with a development mode: in production it is the
 plain app. The pieces of the middleware list are stacked in order, the
-first outermost: the log, then the headers (so errors get them too), the
-session and the CSRF check. The exception layer sits inside, so a 500
-passes out through all of it.
+first outermost: the log, then the security headers (so errors get them
+too), the session and the CSRF check. The exception layer sits inside, so a
+500 passes out through all of it. Each piece has a guide of its own: the
+[sessions](web-sessions.md) and [security](web-security.md) guides explain
+what they do, and this app uses them as they come.
 
 ```teal file=tasks.tl
---- The tasks app: the pages, the event stream and the middleware they share.
+--- The tasks app: the pages and the middleware they share.
 
 local Assets = require("cosmic.web.assets")
 local Csrf = require("cosmic.web.csrf")
 local Dev = require("cosmic.web.dev")
 local Headers = require("cosmic.web.headers")
-local Live = require("live")
 local Session = require("cosmic.web.session")
 local SessionCookie = require("cosmic.web.session.cookie")
 local Site = require("site")
-local Sse = require("cosmic.web.sse")
 local StaticFiles = require("cosmic.web.static")
 local Store = require("store")
 local Web = require("cosmic.web")
@@ -666,8 +527,6 @@ local record Tasks
   record Options
     --- Signing keys for the session cookie, newest first.
     keys: {string}
-    --- Whether the app is behind a proxy that ends TLS.
-    behind_proxy: boolean
     --- Where `/static` comes from; nil for the project's `static/`
     --- (the executable's, or the directory in development).
     assets: Assets.Source
@@ -676,13 +535,10 @@ end
 
 --- The app. In development mode (`COSMIC_WEB_DEV=1`) it reloads pages.
 function Tasks.app(opts: Tasks.Options): Web.App
-  local store = Store.new()
-  local hub = Sse.new_hub{}
   local csp = Headers.Csp.htmx_default()
   csp.directives["script-src"] = { "'self'", "{nonce}" }
 
-  local routes = Site.routes(store, hub)
-  for _, route in ipairs(Live.routes(hub)) do routes[#routes + 1] = route end
+  local routes = Site.routes(Store.new())
   if opts.assets ~= nil then
     routes[#routes + 1] = StaticFiles.mount("/static", { source = opts.assets })
   else
@@ -693,12 +549,10 @@ function Tasks.app(opts: Tasks.Options): Web.App
     routes = routes,
     middleware = {
       Web.access_log(),
-      Headers.middleware{ csp = csp, nonce = true, hsts = { max_age = 31536000 } },
+      Headers.middleware{ csp = csp, nonce = true },
       Session.middleware{ store = SessionCookie.store{ keys = opts.keys } },
       Csrf.middleware(),
     },
-    hubs = { hub },
-    trusted_proxy = opts.behind_proxy,
   }
 end
 
@@ -707,8 +561,7 @@ return Tasks
 
 The program reads its secrets from the environment and serves on the
 loopback. [`Web.serve`] runs the lifespan, listens and, on SIGINT or SIGTERM,
-stops gracefully: open requests have `grace_ns` (10 seconds) to finish, and
-the app's hubs close their streams.
+stops gracefully: open requests have `grace_ns` (10 seconds) to finish.
 
 ```teal file=app.tl
 --- The program: serves the app on the loopback. `cosmic app.tl` runs it.
@@ -756,7 +609,7 @@ template compiles into a module, so a restart is what an edit to one
 needs.
 
 ```teal file=dev.tl
---- The development loop: restarts `app.tl` when a file changes.
+--- The development loop: restarts `app.tl` when a file changed.
 
 local Dev = require("cosmic.web.dev")
 local Log = require("cosmic.log")
@@ -773,17 +626,17 @@ return function(): integer
 end
 ```
 
-Run it with `cosmic dev.tl`. Because the supervisor sets `COSMIC_WEB_DEV=1`
-the app, built by [`Dev.app`], is in development mode: it shows a fault's
-stack, serves `static/` from disk with `Cache-Control: no-store`, adds
-a script to every page that reloads the browser when the process is
-replaced and swaps the stylesheets when only a `.css` file changed, and
-carries the page's CSP nonce on that script's tag. An app that shows
-source paths to whoever asks serves the loopback only: [`Web.serve`]
-refuses a development app a listener elsewhere and a `trusted_proxy`, and
-the app answers only `localhost`, `127.0.0.1` and `[::1]` unless
-`trusted_hosts` names others, so a page on another site cannot reach it by a
-name that resolves to the loopback.
+Run it with `TASKS_KEYS=$(cosmic -e 'print(require("cosmic.web.secret").generate())') cosmic dev.tl`.
+Because the supervisor sets `COSMIC_WEB_DEV=1` the app, built by
+[`Dev.app`], is in development mode: it shows a fault's stack, serves
+`static/` from disk with `Cache-Control: no-store`, adds a script to every
+page that reloads the browser when the process is replaced and swaps the
+stylesheets when only a `.css` file changed, and carries the page's CSP
+nonce on that script's tag. An app that shows source paths to whoever asks
+serves the loopback only: [`Web.serve`] refuses a development app a listener
+elsewhere and a `trusted_proxy`, and the app answers only `localhost`,
+`127.0.0.1` and `[::1]` unless `trusted_hosts` names others, so a page on
+another site cannot reach it by a name that resolves to the loopback.
 
 ## testing
 
@@ -803,7 +656,7 @@ it [`Assets.memory`]. [`Assets.directory`] reads a directory and
 [`Assets.embedded`] the executable's own.
 
 The tests of the finished app go through a page for its tokens as a
-browser does, check the 422, the flash, the nonce and the live stream:
+browser does, and check the 422 and the refusal of a post without a token:
 
 ```teal file=tasks_test.tl
 local Assets = require("cosmic.web.assets")
@@ -842,7 +695,7 @@ local function test_adding_a_task()
   local client = Web.test_client(app())
   local token = csrf_of(client)
   local added = client:post("/tasks", { form = { title = "write the guide" }, headers = htmx(token) })
-  assert(added.status == 201 and added.body:find('id="new"', 1, true))
+  assert(added.status == 201 and added.body:find("write the guide", 1, true))
   assert(client:get("/").body:find("write the guide", 1, true))
   local done = client:post("/tasks/1/toggle", { headers = htmx(token) })
   assert(done.status == 200 and done.body:find('class="done"', 1, true))
@@ -855,50 +708,15 @@ local function test_a_blank_title_is_refused_with_its_message()
   local client = Web.test_client(app())
   local refused = client:post("/tasks", { form = { title = "  " }, headers = htmx(csrf_of(client)) })
   assert(refused.status == 422 and refused.body:find("give the task a name", 1, true))
-  local missing = client:post("/tasks", { form = {}, headers = htmx(csrf_of(client)) })
-  assert(missing.status == 422 and missing.body:find("is required", 1, true))
 end
 
 local function test_a_post_without_the_token_is_refused()
   local client = Web.test_client(app())
   csrf_of(client)
-  local refused = client:post("/tasks", { form = { title = "x" } })
-  assert(refused.status == 403)
+  assert(client:post("/tasks", { form = { title = "x" } }).status == 403)
   local stranger = Web.test_client(app()):post("/tasks", { form = { title = "x" },
     headers = { ["X-CSRF-Token"] = "forged" } })
   assert(stranger.status == 403)
-end
-
-local function test_hello_flashes_once()
-  local client = Web.test_client(app())
-  local token = csrf_of(client)
-  local sent = client:post("/hello", { form = { name = "Ada", csrf_token = token }, follow_redirects = true })
-  assert(sent.body:find("hello, Ada", 1, true))
-  assert(not client:get("/").body:find("hello, Ada</p>", 1, true), "a flash is shown once")
-end
-
-local function test_the_nonce_in_the_policy_is_the_one_in_the_tags()
-  local page = Web.test_client(app()):get("/")
-  local nonce = assert(page.headers["content-security-policy"]:match("'nonce%-([%w_-]+)'"))
-  -- The page writes a byte that is no letter or digit as a character reference.
-  local written = nonce:gsub("[_-]", function(byte: string): string
-    return ("&#%d;"):format(byte:byte())
-  end)
-  assert(page.body:find('nonce="' .. written .. '"', 1, true))
-end
-
-local function test_a_new_task_reaches_an_open_page()
-  Web.with_client(app(), function(client: Web.TestClient)
-    local token = csrf_of(client)
-    local open = client:get("/events", { stream = true })
-    assert(open.status == 200 and open.headers["content-type"] == "text/event-stream")
-    local body = assert(open.stream)
-    assert(body:read() == "retry: 3000\n\n")
-    client:post("/tasks", { form = { title = "live" }, headers = htmx(token) })
-    local event = assert(body:read())
-    assert(event:find("event: tasks", 1, true) and event:find("live", 1, true), event)
-    assert(body:close())
-  end)
 end
 ```
 
@@ -930,482 +748,37 @@ print(((said.stderr or "") .. (said.stdout or "")):match("test: [A-Z]+"))
 test: PASS
 ```
 
-## forms and uploads
+## where next
 
-The routes of `site.tl` are typed. A route made with [`Web.post_typed`] and its siblings names
-[`cosmic.shape`] specs for its path parameters, its query and its body
-([`Web.input`]). The handler is then given checked records in that order,
-after the request, and input that fails them is answered before it runs:
-`NEW` above is `Shape.record_of("NewTask")`, so `create` reads `b.title` as
-a `string` that is certainly there. A slot a route does not read is
-[`Web.NONE`] (or [`Web.no_body`]) and its parameter is nil.
+Each guide below builds a small project of its own and can be read alone.
 
-The statuses keep two failures apart. Input that cannot be decoded is 400
-(a bad percent-escape, malformed JSON). A wrong `Content-Type` is 415, a
-body over its limit is 413, and a value that decodes but fails its spec is
-422. A form re-renders on 422 with every field's error; an API answers
-`application/problem+json`, each error with the JSON Pointer of the value
-that failed (a JSON body reports its first failure). A route's `on_invalid` turns the
-refusal into whatever the route wants, as `refuse` does for the form;
-[`Input.errors_by_field`] gives the messages and [`Input.value`] the text
-the person typed (leave a password out with `secret`). A rule no spec can
-state, such as a blank title, is the handler's, reported the same way with
-[`Input.fail`].
-
-The next two files are tests of small projects of their own, which the last
-block of the API section runs.
-
-A form is text, so the binder reads by the spec: `integer` from digits,
-a `boolean` from its presence, a list from a name sent twice, an empty
-optional field as nil. [`Web.form_body`] reads a urlencoded form,
-[`Web.json_body`] a JSON body and [`Web.multipart_body`] an upload. A route
-that wants to read for itself calls [`Input.form`], [`Input.json`] or
-[`Input.multipart`] on its request.
-
-```teal file=signup_test.tl
-local Shape = require("cosmic.shape")
-local Web = require("cosmic.web")
-
-local record Signup
-  email: string
-  age: integer | nil
-end
-local SIGNUP <const> = Shape.record_of("Signup")
-
-local function client(): Web.TestClient
-  return Web.test_client(Web.app{ routes = {
-    Web.post_typed("/signup", Web.input(Web.NONE, Web.NONE, Web.form_body(SIGNUP)),
-      function(_req: Web.Request, _p: Web.None, _q: Web.None, form: Signup): Web.Response
-        return Web.text("welcome " .. form.email, { status = 201 })
-      end),
-  } })
-end
-
-local function test_a_form_that_binds_reaches_the_handler()
-  local reply = client():post("/signup", { form = { email = "ada@example.org", age = "36" } })
-  assert(reply.status == 201 and reply:text() == "welcome ada@example.org")
-end
-
-local function test_a_value_that_fails_its_spec_is_422()
-  assert(client():post("/signup", { form = { age = "old" } }).status == 422)
-end
-
-local function test_input_that_cannot_be_decoded_is_400()
-  local reply = client():post("/signup", { body = "email=%zz",
-    content_type = "application/x-www-form-urlencoded" })
-  assert(reply.status == 400)
-end
-
-local function test_a_form_route_reads_no_json()
-  assert(client():post("/signup", { json = { email = "x" } }).status == 415)
-end
-```
-
-An upload is a multipart form. Its text parts bind to the record and each
-file part is spooled to a private file under a random name, removed when
-the handler returns unless it moves the file. The client's file name is for
-display only. Two limits apply and the smaller wins: the route's
-`input_options` (`max_file_bytes` is 8 MiB by default) and the server's
-`limits.body_bytes`, 1 MiB for every route, past which the server answers
-413 before the route is known. A larger upload needs [`Web.serve`] given a
-higher `limits.body_bytes`, for the whole app. The test client calls the
-app in-process and does not meet the server's limit; [`Web.with_server`]
-serves the app on the loopback and does. A test that opens a socket
-declares `loopback` in its [`Test.policy`].
-
-```teal file=upload_test.tl
-local Input = require("cosmic.web.input")
-local Shape = require("cosmic.shape")
-local Test = require("cosmic.test")
-local Web = require("cosmic.web")
-
-Test.policy{ loopback = { "127.0.0.1" } }
-
-local record Avatar
-  name: string
-end
-local AVATAR <const> = Shape.record_of("Avatar")
-
-local BOUNDARY <const> = "multipart/form-data; boundary=xyz"
-
-local function app(): Web.App
-  return Web.app{ routes = {
-    Web.post_typed("/avatar", Web.input(Web.NONE, Web.NONE, Web.multipart_body(AVATAR)),
-      function(req: Web.Request, _p: Web.None, _q: Web.None, form: Avatar): Web.Response
-        local file = assert(Input.multipart(req).value).files["avatar"][1]
-        return Web.text(form.name .. ":" .. file.filename .. ":" .. file.size)
-      end, { input_options = { max_file_bytes = 4 * 1024 * 1024 } }),
-  } }
-end
-
-local function test_a_file_part_is_spooled_and_the_text_part_bound()
-  local body = '--xyz\r\nContent-Disposition: form-data; name="name"\r\n\r\nAda\r\n' ..
-    '--xyz\r\nContent-Disposition: form-data; name="avatar"; filename="../a.png"\r\n' ..
-    'Content-Type: image/png\r\n\r\nPNG\r\n--xyz--\r\n'
-  local sent = Web.test_client(app()):post("/avatar", { body = body, content_type = BOUNDARY })
-  assert(sent:text() == "Ada:a.png:3", "the client's path is cut to its last component")
-end
-
-local function test_the_servers_body_limit_comes_before_the_route_allows_more()
-  Web.with_server(app(), function(client: Web.LoopbackClient)
-    local big = ("x"):rep(2 * 1024 * 1024)
-    local refused = assert(client:post("/avatar", { body = big, content_type = BOUNDARY }))
-    assert(refused.status == 413)
-  end)
-end
-```
-
-## sessions
-
-A session is a small JSON object kept for a browser, behind one interface
-and two stores. [`Session.middleware`] reads the cookie lazily: a request
-that never touches the session sends no cookie, and one that only reads
-sends none either. A handler gets the handle with [`Session.of`] and uses
-`get`, `set`, `delete`, `flash` and `take_flashes`, as `site.tl` above does.
-A flash is shown once, on the next page.
-
-- [`SessionCookie.store`] keeps the whole session in a signed cookie
-  and nothing on the server. **The cookie is signed, not encrypted**: the
-  browser can read it, so never put a secret in it. A copy stays valid until
-  it expires, even after logout.
-- [`SessionSqlite.store`] keeps the data in a SQLite table under a random id
-  that the cookie holds alone. A session can be revoked, and
-  `destroy_subject` ends all of one user's.
-
-Call `session:regenerate()` at login and on any change of privilege, and
-`session:invalidate()` at logout. Keys come from the environment, never
-from source: [`Secret.keys_from_env`] reads a comma-separated list, newest
-first (`new,old` while a key is rotated out), and refuses a key that is
-short or has too few distinct bytes. [`Secret.generate`] makes one:
-`cosmic -e 'print(require("cosmic.web.secret").generate())'`.
-
-```teal file=session_test.tl
-local Secret = require("cosmic.web.secret")
-local Session = require("cosmic.web.session")
-local SessionCookie = require("cosmic.web.session.cookie")
-local SessionSqlite = require("cosmic.web.session.sqlite")
-local Sqlite = require("cosmic.sqlite")
-local Web = require("cosmic.web")
-
-local function login(store: Session.Store): Web.App
-  return Web.app{
-    routes = {
-      Web.post("/login", function(req: Web.Request): Web.Response
-        local session = Session.of(req)
-        session:regenerate()
-        session:set("user", "ada")
-        session:bind_subject("ada")
-        return Web.text("in")
-      end),
-      Web.get("/me", function(req: Web.Request): Web.Response
-        return Web.text(Session.of(req):get_string("user") or "anonymous")
-      end),
-    },
-    middleware = { Session.middleware{ store = store } },
-  }
-end
-
-local function test_a_weak_key_is_refused()
-  local ok, why = Secret.check("changeme")
-  assert(not ok and why:find("at least 32 bytes", 1, true))
-  assert(#assert(Secret.parse_keys(Secret.generate() .. "," .. Secret.generate())) == 2)
-end
-
-local function test_a_stored_session_can_be_revoked()
-  local store = assert(SessionSqlite.store((assert(Sqlite.memory()))))
-  local laptop = Web.test_client(login(store))
-  laptop:post("/login")
-  assert(laptop:get("/me"):text() == "ada")
-  assert(SessionSqlite.destroy_subject(store, "ada") == 1)
-  assert(laptop:get("/me"):text() == "anonymous")
-end
-
-local function test_a_signed_cookie_is_not_readable_to_script()
-  local store = SessionCookie.store{ keys = { Secret.generate() } }
-  local cookie = Web.test_client(login(store)):post("/login").headers["set-cookie"]
-  assert(cookie:find("HttpOnly", 1, true) and cookie:find("SameSite=Lax", 1, true))
-end
-```
-
-The tests show the three: a weak key refused, a stored session revoked
-for every device of a user, and the cookie a signed session sets.
-
-The SQLite store runs its queries on the serving thread: a point lookup
-is microseconds, but give the sessions a database of their own if another
-process writes to the file.
-
-## a JSON API
-
-An API is routes under a prefix, here `Web.mount("/api", ...)` returned by
-`Api.mount`. Its routes are typed routes: `json_body` reads and checks the
-body, and a refusal is an `application/problem+json` with each error's JSON
-Pointer. A handler that wants an error calls [`Web.abort`]; a client that
-asks for JSON (an `Accept` header) gets a problem body and a browser gets a
-page. An empty Lua table encodes as `{}`, so a list that may be empty goes
-through [`Json.array`] to encode as `[]`.
-
-```teal file=api.tl
---- A JSON API over a list of notes, to mount in any app.
-
-local Cors = require("cosmic.web.cors")
-local Hash = require("cosmic.hash")
-local Json = require("cosmic.json")
-local Shape = require("cosmic.shape")
-local Web = require("cosmic.web")
-
-local record Api
-  --- What [`Api.mount`] takes.
-  record Options
-    --- The bearer token a change needs.
-    token: string
-    --- The origins whose pages may call the API.
-    origins: {string}
-  end
-  --- One note.
-  record Note
-    id: integer
-    title: string
-  end
-end
-
-local record NewNote
-  title: string
-end
-local NEW <const> = Shape.record_of("NewNote")
-
-local record NotePath
-  id: integer
-end
-local NOTE <const> = Shape.record_of("NotePath")
-
-local record Page
-  limit: integer | nil
-end
-local PAGE <const> = Shape.record_of("Page")
-
---- Middleware: a change needs `Authorization: Bearer <token>`; a read does not.
-local function require_token(token: string): Web.Middleware
-  if token == "" then error("api: the token must not be empty", 2) end
-  local wanted = "Bearer " .. token
-  return function(inner: Web.Handler): Web.Handler
-    return function(req: Web.Request): Web.Response
-      if req.method ~= "GET" and req.method ~= "HEAD" and req.method ~= "OPTIONS" then
-        if not Hash.equal(req:header("authorization") or "", wanted) then
-          local denied = Web.problem(401, "a bearer token is required")
-          Web.set_header(denied, "WWW-Authenticate", "Bearer")
-          return denied
-        end
-      end
-      return inner(req)
-    end
-  end
-end
-
---- The API under `/api`, with its own notes.
-function Api.mount(opts: Api.Options): Web.Route
-  local notes: {Api.Note} = {}
-
-  local function list(_req: Web.Request, _p: Web.None, q: Page, _b: Web.None): Web.Response
-    local out: {Api.Note} = {}
-    for _, note in ipairs(notes) do
-      if q.limit == nil or #out < q.limit then out[#out + 1] = note end
-    end
-    return Web.json({ notes = Json.array(out) })
-  end
-
-  local function create(req: Web.Request, _p: Web.None, _q: Web.None, b: NewNote): Web.Response
-    local note: Api.Note = { id = #notes + 1, title = b.title }
-    notes[#notes + 1] = note
-    return Web.json(note, { status = 201, headers = { Location = assert(req:url_for("api:show", { id = note.id })) } })
-  end
-
-  local function show(_req: Web.Request, p: NotePath, _q: Web.None, _b: Web.None): Web.Response
-    local note = notes[p.id]
-    if note == nil then return Web.abort(404, "no such note") end
-    return Web.json(note)
-  end
-
-  return Web.mount("/api", {
-    Web.get_typed("/notes", Web.input(Web.NONE, PAGE, Web.no_body), list),
-    Web.post_typed("/notes", Web.input(Web.NONE, Web.NONE, Web.json_body(NEW)), create),
-    Web.get_typed("/notes/:id", Web.input(NOTE, Web.NONE, Web.no_body), show, { name = "show" }),
-  }, {
-    name = "api",
-    middleware = { Cors.middleware{
-      allow_origins = opts.origins,
-      allow_methods = { "GET", "POST" },
-      allow_headers = { "Authorization", "Content-Type" },
-    }, require_token(opts.token) },
-  })
-end
-
-return Api
-```
-
-The API is guarded by a bearer token, not a cookie. A secret is compared
-with [`Hash.equal`], never `==`. An app that has pages as well puts the API
-beside them, and tells the CSRF middleware to leave it alone (`exempt`):
-no cookie authenticates a request to it, so a cross-site page has nothing
-to forge. An app that is only an API has no session and no CSRF middleware
-at all.
-
-[`cosmic.web.cors`] is for pages on another origin that call the API.
-[`Cors.middleware`] answers a preflight and marks the responses a listed
-origin may read; it is not authorization, it only tells a browser whose
-scripts may read a response. It goes on the mount here, so a 404 or a 401 from
-the API carries the headers too and a browser shows the problem. Origins
-match exactly on scheme, host and port; `"*"` cannot be combined with
-credentials. The test builds a site with a page, the cookie and CSRF
-middleware and the API:
-
-```teal file=api_test.tl
-local Api = require("api")
-local Csrf = require("cosmic.web.csrf")
-local Secret = require("cosmic.web.secret")
-local Session = require("cosmic.web.session")
-local SessionCookie = require("cosmic.web.session.cookie")
-local Web = require("cosmic.web")
-
-local TOKEN <const> = "s3cret-token"
-local ORIGIN <const> = "https://app.example.com"
-
---- The API beside a page, behind the cookie and CSRF middleware a site has;
---- the API is exempt, as no cookie authenticates it.
-local function client(): Web.TestClient
-  return Web.test_client(Web.app{
-    routes = {
-      Web.get("/", function(_req: Web.Request): Web.Response return Web.text("page") end),
-      Api.mount{ token = TOKEN, origins = { ORIGIN } },
-    },
-    middleware = {
-      Session.middleware{ store = SessionCookie.store{ keys = { Secret.generate() } } },
-      Csrf.middleware{ exempt = function(req: Web.Request): boolean
-        return req.path == "/api" or req.path:sub(1, 5) == "/api/"
-      end },
-    },
-  })
-end
-
-local function test_a_change_needs_the_token()
-  local c = client()
-  assert(c:get("/api/notes").body == '{"notes":[]}', "an empty list is [], not {}")
-  assert(c:post("/api/notes", { json = { title = "x" } }).status == 401)
-  local made = c:post("/api/notes", { json = { title = "first" },
-    headers = { Authorization = "Bearer " .. TOKEN } })
-  assert(made.status == 201 and made.headers["location"] == "/api/notes/1")
-  assert(c:get("/api/notes/1"):text() == '{"id":1,"title":"first"}')
-  assert(c:post("/", { form = {} }).status == 403, "the page is still behind CSRF")
-end
-
-local function test_a_refusal_is_a_problem_body()
-  local c = client()
-  local bad = c:post("/api/notes", { json = { title = 7 }, headers = { Authorization = "Bearer " .. TOKEN } })
-  assert(bad.status == 422 and bad.headers["content-type"] == "application/problem+json")
-  local missing = c:get("/api/notes/9", { headers = { Accept = "application/json" } })
-  assert(missing.status == 404 and missing.headers["content-type"] == "application/problem+json")
-  assert(c:get("/api/notes/one").status == 422)
-  assert(c:get("/api/notes?limit=0"):text() == '{"notes":[]}')
-end
-
-local function test_cors_admits_only_the_listed_origin()
-  local c = client()
-  local ask = { Origin = ORIGIN, ["Access-Control-Request-Method"] = "POST",
-    ["Access-Control-Request-Headers"] = "authorization" }
-  local preflight = c:options("/api/notes", { headers = ask })
-  assert(preflight.status == 204 and preflight.headers["access-control-allow-origin"] == ORIGIN)
-  ask.Origin = "https://evil.example"
-  assert(c:options("/api/notes", { headers = ask }).headers["access-control-allow-origin"] == nil)
-  local read = c:get("/api/notes", { headers = { Origin = ORIGIN } })
-  assert(read.headers["access-control-allow-origin"] == ORIGIN)
-end
-```
-
-These small projects are tested together, apart from the tasks app: the
-form, upload, session and API tests above. The runner is the one used before.
-
-```teal
-local Child = require("cosmic.child")
-local Env = require("cosmic.env")
-local Proc = require("cosmic.proc")
-local Clock = require("cosmic.clock")
-
-local relaunch = assert(Proc.relaunch())
-local env = Env.all()
-for name, value in pairs(relaunch.env) do env[name] = value end
-env["COSMIC_TEST_SANDBOX"] = "0"
-local argv = { table.unpack(relaunch.argv) }
-argv[#argv + 1] = "test"
-local said = assert(Child.run(argv,
-  { env = env, fds = relaunch.fds, cwd = tmp, stdout = "capture", stderr = "capture",
-    timeout_ns = Clock.seconds(120) }))
-print(((said.stderr or "") .. (said.stdout or "")):match("test: [A-Z]+"))
-```
-
-## deploying
-
-Build one program: `cosmic build` writes `tasks` into the build directory,
-with `static/` and htmx inside it, and `cosmic build --host` a native
-executable that needs no shell. The program is configured by environment:
-`TASKS_KEYS` here.
-
-- **A proxy.** Behind a proxy that ends TLS, set `trusted_proxy = true`
-  (`behind_proxy` in `Tasks.Options`): the scheme, host and client then come
-  from `X-Forwarded-Proto`, `X-Forwarded-Host` and `X-Forwarded-For`, of
-  which only the last entry is read, the one the proxy added. The session
-  cookie is then `Secure` and the CSRF origin check compares https origins.
-  Without it, every https `Origin` looks foreign to CSRF and the session
-  cookie needs `secure = true` by hand.
-- **Hosts.** `trusted_hosts` lists the hosts the app answers to; a request
-  for another host is a 400, and `req:base_url()` becomes available for
-  building absolute links.
-- **Limits.** [`Web.serve`] takes `limits` (`body_bytes` is 1 MiB), the
-  timeouts (`head_ns`, `body_ns`, `idle_ns`, `timeout_ns`) and `grace_ns`.
-  A handler runs in its connection's task and must not block the thread.
-- **Errors.** `debug` stays false: it shows stacks. `error_pages` and
-  `error_view` make the pages that answer a status.
-- **HSTS.** Turn it on once the site is https for good; a browser keeps it
-  for the whole `max_age`.
-
-```teal continue
-do
-  local Web = require("cosmic.web")
-  local app = Web.app{
-    routes = { Web.get("/", function(req: Web.Request): Web.Response
-      return Web.text(req.scheme .. " " .. (req.client ~= nil and req.client.host or "?"))
-    end) },
-    trusted_proxy = true,
-  }
-  local seen = Web.test_client(app):get("/", { headers = {
-    ["X-Forwarded-Proto"] = "https", ["X-Forwarded-For"] = "203.0.113.9" } })
-  assert(seen:text() == "https 203.0.113.9")
-end
-```
-
-```output
-test: PASS
-```
+- [Forms and uploads](web-forms.md): typed routes, how input is checked
+  and refused (400, 413, 415, 422), re-rendering a form with its errors,
+  multipart uploads and their limits.
+- [Sessions](web-sessions.md): the cookie and SQLite stores, secrets from
+  the environment, flash messages, login and `regenerate`.
+- [Security](web-security.md): CSRF with and without htmx, the security
+  headers and the CSP nonce, `trusted_proxy` and `trusted_hosts`, and the
+  defaults to leave alone.
+- [Live updates](web-live.md): server-sent events, hubs, reconnection with
+  `Last-Event-ID` and htmx's SSE extension.
+- [A JSON API](web-api.md): JSON in and out, problem responses, bearer
+  tokens and CORS.
+- [Deploying](web-deploy.md): `cosmic build`, `static/` and fingerprints,
+  body limits, running behind a proxy and what [`Web.serve`] takes.
 
 [`Assets.directory`]: ../../cosmic/web/assets.tl
 [`Assets.embedded`]: ../../cosmic/web/assets.tl
 [`Assets.memory`]: ../../cosmic/web/assets.tl
-[`Cors.middleware`]: ../../cosmic/web/cors.tl
 [`cosmic.child`]: ../../cosmic/child.tl
 [`cosmic.http.server`]: ../../cosmic/http/server.tl
 [`cosmic.layout`]: ../../cosmic/layout.tl
-[`cosmic.shape`]: ../../cosmic/shape.tl
-[`cosmic.web.cors`]: ../../cosmic/web/cors.tl
 [`cosmic.web.htmx`]: ../../cosmic/web/htmx.tl
-[`cosmic.web.sse`]: ../../cosmic/web/sse.tl
 [`cosmic.web.static`]: ../../cosmic/web/static.tl
 [`cosmic.web`]: ../../cosmic/web/init.tl
-[`Csrf.field`]: ../../cosmic/web/csrf.tl
-[`Csrf.meta`]: ../../cosmic/web/csrf.tl
-[`Csrf.middleware`]: ../../cosmic/web/csrf.tl
 [`Dev.app`]: ../../cosmic/web/dev.tl
 [`Dev.static`]: ../../cosmic/web/dev.tl
 [`Dev.supervise`]: ../../cosmic/web/dev.tl
-[`Hash.equal`]: ../../cosmic/hash.tl
-[`Headers.middleware`]: ../../cosmic/web/headers.tl
 [`Html.SafeHtml`]: ../../cosmic/html.tl
 [`Html.SafeJson`]: ../../cosmic/html.tl
 [`Htmx.apply`]: ../../cosmic/web/htmx.tl
@@ -1415,39 +788,18 @@ test: PASS
 [`Htmx.redirect_to`]: ../../cosmic/web/htmx.tl
 [`Htmx.request`]: ../../cosmic/web/htmx.tl
 [`Htmx.stop_polling`]: ../../cosmic/web/htmx.tl
-[`Input.errors_by_field`]: ../../cosmic/web/input.tl
-[`Input.fail`]: ../../cosmic/web/input.tl
 [`Input.form`]: ../../cosmic/web/input.tl
-[`Input.json`]: ../../cosmic/web/input.tl
-[`Input.multipart`]: ../../cosmic/web/input.tl
-[`Input.value`]: ../../cosmic/web/input.tl
-[`Json.array`]: ../../cosmic/json.tl
-[`Secret.generate`]: ../../cosmic/web/secret.tl
-[`Secret.keys_from_env`]: ../../cosmic/web/secret.tl
-[`Session.middleware`]: ../../cosmic/web/session/init.tl
-[`Session.of`]: ../../cosmic/web/session/init.tl
-[`SessionCookie.store`]: ../../cosmic/web/session/cookie.tl
-[`SessionSqlite.store`]: ../../cosmic/web/session/sqlite.tl
-[`Sse.Event.html`]: ../../cosmic/web/sse.tl
 [`StaticFiles.mount`]: ../../cosmic/web/static.tl
-[`Test.policy`]: ../../cosmic/test.tl
 [`Web.abort`]: ../../cosmic/web/init.tl
 [`Web.add_header`]: ../../cosmic/web/init.tl
 [`Web.app`]: ../../cosmic/web/init.tl
 [`Web.delete`]: ../../cosmic/web/init.tl
 [`Web.empty`]: ../../cosmic/web/init.tl
-[`Web.form_body`]: ../../cosmic/web/init.tl
 [`Web.get`]: ../../cosmic/web/init.tl
 [`Web.html`]: ../../cosmic/web/init.tl
-[`Web.input`]: ../../cosmic/web/init.tl
-[`Web.json_body`]: ../../cosmic/web/init.tl
 [`Web.json`]: ../../cosmic/web/init.tl
 [`Web.key`]: ../../cosmic/web/init.tl
 [`Web.mount`]: ../../cosmic/web/init.tl
-[`Web.multipart_body`]: ../../cosmic/web/init.tl
-[`Web.no_body`]: ../../cosmic/web/init.tl
-[`Web.NONE`]: ../../cosmic/web/init.tl
-[`Web.post_typed`]: ../../cosmic/web/init.tl
 [`Web.post`]: ../../cosmic/web/init.tl
 [`Web.problem`]: ../../cosmic/web/init.tl
 [`Web.redirect`]: ../../cosmic/web/init.tl

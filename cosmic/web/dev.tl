@@ -414,9 +414,9 @@ end
 
 -- The app's half.
 
---- `res` with the script's tag (`tag`) before its last `</body>`, as a
---- copy; `res` itself where it is no page of markup in a string, or has no
---- end of body.
+--- `res` with the script's tag (what `tag` makes of `nonce`) before its
+--- last `</body>`, as a copy; `res` itself where it is no page of markup
+--- in a string, or has no end of body.
 local function injected(res: Types.Response, nonce: string | nil): Types.Response
   local body = res.body
   if not body is string then return res end

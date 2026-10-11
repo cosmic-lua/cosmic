@@ -113,6 +113,15 @@ local function test_the_tag_carries_the_nonce_the_headers_middleware_drew()
   end)
 end
 
+local function test_the_tag_is_bare_where_the_headers_middleware_draws_no_nonce()
+  local app = Dev.app({ routes = routes(), sink = quiet(),
+    middleware = { Headers.middleware{} } }, { enabled = true })
+  Web.with_client(app, function(client: Web.TestClient)
+    local page = get(client, "/")
+    assert(page.body == "<html><body><p>hi</p>" .. TAG .. "</body></html>", page.body)
+  end)
+end
+
 local function test_only_pages_with_an_end_of_body_are_touched()
   local app = Dev.app({ routes = routes(), sink = quiet() }, { enabled = true })
   Web.with_client(app, function(client: Web.TestClient)
