@@ -94,7 +94,9 @@ end
 --- `--max-turns` (150 by default) and `--timeout` (600 seconds by
 --- default), as eval/README.md's manual launch has them.
 function Solve.parse(argv: {integer: string}): Solve.Options | nil, string
-  local options: Solve.Options = { max_turns = 150, timeout = 600 }
+  local arena: string = nil
+  local model: string = nil
+  local max_turns, timeout = 150, 600
   local i = 1
   while argv[i] ~= nil do
     local word = argv[i]
@@ -102,25 +104,25 @@ function Solve.parse(argv: {integer: string}): Solve.Options | nil, string
       local value = argv[i + 1]
       if value == nil then return nil, word .. " needs a value" end
       if word == "--model" then
-        options.model = value
+        model = value
       else
         local n = positive(value)
         if n == nil then return nil, word .. " takes a positive integer: " .. value end
-        if word == "--max-turns" then options.max_turns = n else options.timeout = n end
+        if word == "--max-turns" then max_turns = n else timeout = n end
       end
       i = i + 2
     elseif word:sub(1, 1) == "-" then
       return nil, "unknown option " .. word
-    elseif options.arena ~= nil then
+    elseif arena ~= nil then
       return nil, "one arena only: " .. word
     else
-      options.arena = word
+      arena = word
       i = i + 1
     end
   end
-  if options.arena == nil then return nil, "an arena is required" end
-  if options.model == nil or options.model == "" then return nil, "--model is required" end
-  return options, ""
+  if arena == nil then return nil, "an arena is required" end
+  if model == nil or model == "" then return nil, "--model is required" end
+  return { arena = arena, model = model, max_turns = max_turns, timeout = timeout }, ""
 end
 
 --- The arguments the CLI is given after its own name: eval/README.md's

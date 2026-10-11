@@ -116,7 +116,7 @@ local record Terminal
   --- LF there, for the terminal is raw where its input is a terminal, and
   --- is written whole, between the program's writes, with the bytes a
   --- terminal could act on shown as "?" ([`TermRelay.note_lines`]).
-  notes: integer
+  notes?: integer
 end
 
 local record TermRelay

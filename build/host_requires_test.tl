@@ -12,9 +12,10 @@ local host_requires = require("build.host_requires")
 
 --- A run's probes with a stand-in for the runner's sandbox probe.
 local function host_with(answer: host_requires.Sandbox, path?: string, system?: {string}): host_requires.Host
+  local given = system
+  if given == nil and path ~= nil then given = { path, (Fs.absolute(path)) } end
   return host_requires.new({ sandbox = function(): host_requires.Sandbox return answer end,
-    path = path,
-    system = system or (path ~= nil and { path, (Fs.absolute(path)) } or nil) })
+    path = path, system = given })
 end
 
 --- The one answer for `name` of `host`.

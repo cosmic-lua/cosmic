@@ -4,6 +4,10 @@ local Sqlite = require("cosmic.sqlite")
 
 local record State
   schema: string
+  -- TODO: mark the fields of ci/'s records that a literal leaves out
+  -- `name?:` (this one's figures, among them) once ci/cosmic-driver.pin
+  -- names a release whose Teal reads it; the pinned driver compiles ci/
+  -- and has no such syntax.
   --- One suite's row of `suite_runs`: what ran it, how it ended, and
   --- the figures and key parts its output said ([`cosmic_ci.suite_output`]),
   --- each nil where the output said none.

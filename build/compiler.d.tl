@@ -35,7 +35,7 @@ local record compiler
   end
 
   record Options
-    defaults: Defaults
+    defaults?: Defaults
   end
 
   -- A record global's type: its fields as a table and in declaration

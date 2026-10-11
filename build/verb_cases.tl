@@ -14,7 +14,7 @@ local record verb_cases
   record Case
     pass: {string}
     fail: {string} | string
-    fail_in: string
+    fail_in?: string
   end
 
   passthrough: {string:string}

@@ -160,8 +160,9 @@ local record Session
     pop: function(Handle, key: string): any
     --- Removes every value.
     clear: function(Handle)
-    --- Gives the session a new id (and a new lifetime), keeping its data:
-    --- call it at login and on any change of privilege. A signed cookie
+    --- Gives the session a new id (and a new lifetime), keeping its data
+    --- but the CSRF secret, which the next [`Csrf.token`] draws anew: call it
+    --- at login and on any change of privilege. A signed cookie
     --- cannot revoke the old one.
     regenerate: function(Handle)
     --- Revokes the session and expires the cookie (logout), even when the
@@ -187,6 +188,11 @@ local record Session
 
   --- The key the middleware keeps the request's [`Session.Handle`] under.
   KEY: Types.Key<Handle>
+  --- The key [`cosmic.web.csrf`] keeps its secret under ("_csrf"). The session
+  --- drops it at `regenerate`, `clear` and `invalidate`: a token belongs to one
+  --- identity of the session, so what a login changes, and a fixed session
+  --- cookie planted before it, cannot carry a token across.
+  CSRF_KEY: string
   --- How many arrays and objects a session may nest, counting the object
   --- that holds the values (16): `set` refuses a deeper value and a store
   --- refuses to save, or to load, one.
@@ -195,6 +201,7 @@ end
 
 Session.KEY = Request.key("session")
 Session.MAX_DEPTH = 16
+Session.CSRF_KEY = "_csrf"
 
 local DAY <const> = 86400
 local MAX_FLASHES <const> = 10
@@ -378,6 +385,7 @@ local function make_handle(st: State): Session.Handle
     end,
     regenerate = function(_: Session.Handle)
       writable(st)
+      delete_value(st, Session.CSRF_KEY)
       st.changes.regenerated = true
       st.data.created = st.now
       st.data.expires = st.now + st.max_age
@@ -475,25 +483,6 @@ local function expire(res: Types.Response, cookie: string, opts: Session.Options
   Response.add_header(res, "Set-Cookie", line)
 end
 
---- A copy of `res` with headers of its own, which the middleware may add
---- to: a handler may return a response it shares (a module-level
---- `Web.text("not found")`), and a `Set-Cookie` added to that one would go
---- to every later user.
-local function own(res: Types.Response): Types.Response
-  local headers: {string: string | {string}} = {}
-  for name, value in pairs(res.headers or {}) do
-    if value is string then
-      headers[name] = value
-    else
-      local lines: {string} = {}
-      for i, line in ipairs(value) do lines[i] = line end
-      headers[name] = lines
-    end
-  end
-  -- Every field of a reply: the server refuses one it does not know.
-  return { status = res.status, headers = headers, body = res.body, length = res.length, close = res.close }
-end
-
 --- Builds the middleware that gives each request a lazy session: see this
 --- module's description. Raises for an option that cannot work, naming it,
 --- before the app serves.
@@ -530,7 +519,7 @@ function Session.middleware(opts: Session.Options): Types.Middleware
       local handled = inner(req)
       st.frozen = true
       if not st.accessed then return handled end
-      local res = own(handled)
+      local res = Response.copy(handled)
       Response.add_header(res, "Vary", "Cookie")
       if Response.header(res, "Cache-Control") == nil then
         Response.set_header(res, "Cache-Control", "private")

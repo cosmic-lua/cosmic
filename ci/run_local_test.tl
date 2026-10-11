@@ -136,7 +136,7 @@ local function test_default_phases_keep_the_workflow_order(tmp: string)
   local root, env = checkout(tmp)
   assert(invoke(root, env, {}) == 0)
   assert(Fs.read(env.TRACE) ==
-      "build\nlocal-boundary\ndarwin-suite\nsandbox\nassemble\nportable\nportable-boundary\nfixtures\n")
+      "build\nlocal-boundary\ndarwin-suite\nsandbox\nassemble\nfixtures\nportable\nportable-boundary\n")
 end
 
 local function test_phase_failure_stops_and_preserves_its_status(tmp: string)

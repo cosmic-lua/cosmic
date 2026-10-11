@@ -1,0 +1,23 @@
+file: tf-psa-crypto/core/tf_psa_crypto_common.h
+note: this header is the first one nearly every file of the crypto
+  library and the TLS layer includes, and on an Armv8 target it pulls
+  in <arm_neon.h>, clang's header of NEON intrinsics, which is slow to
+  parse. Only the files that use NEON intrinsics, or call
+  mbedtls_xor() (whose fast path uses them), need it. A file compiled
+  with -DCOSMIC_NO_NEON_HEADER leaves it out, and with it
+  MBEDTLS_HAVE_NEON_INTRINSICS; build.zig passes the macro only to
+  files whose object is the same either way. Without the macro this is
+  upstream's header.
+--- find
+#if defined(__ARM_NEON)
+#include <arm_neon.h>
+#define MBEDTLS_HAVE_NEON_INTRINSICS
+#elif defined(MBEDTLS_PLATFORM_IS_WINDOWS_ON_ARM64)
+--- replace
+#if defined(COSMIC_NO_NEON_HEADER)
+/* No NEON in this file; see patch/mbedtls. */
+#elif defined(__ARM_NEON)
+#include <arm_neon.h>
+#define MBEDTLS_HAVE_NEON_INTRINSICS
+#elif defined(MBEDTLS_PLATFORM_IS_WINDOWS_ON_ARM64)
+--- end

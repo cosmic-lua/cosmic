@@ -16,15 +16,15 @@ local sandbox = require("build.sandbox")
 local record Ran
   code: integer
   err: string
-  --- What it asked to start: nil when it started nothing.
-  argv: {string}
+  --- What it asked to start: nil when it started nothing, and then `opts` is empty.
+  argv?: {string}
   opts: Child.Options
 end
 
 --- What a stood-in start answers: a result, or nil and why.
 local record Answer
-  result: Child.Result
-  why: string
+  result?: Child.Result
+  why?: string
 end
 
 local function finished(code: integer | nil, signal?: integer, timed_out?: boolean): Child.Result
@@ -37,7 +37,7 @@ end
 local function run(words: {string}, answer?: Answer): Ran
   local argv: {integer:string} = { [0] = "cosmic", [1] = "sandbox" }
   for index, word in ipairs(words) do argv[index + 1] = word end
-  local ran: Ran = { code = -1, err = "" }
+  local ran: Ran = { code = -1, err = "", opts = {} }
   local given = answer or { result = finished(0) }
   ran.code = sandbox.run(argv, {
     err = function(line: string) ran.err = ran.err .. line .. "\n" end,
@@ -257,7 +257,8 @@ local function test_a_connect_right_after_the_verb_is_the_relays_client()
   assert(client_of({ "--system", "connect", "github.com", "22" }) == nil, "after an option it is a program")
   assert(client_of({ "--", "connect", "github.com", "22" }) == nil, "after -- it is a program")
   assert(client_of({ "prog", "connect", "github.com", "22" }) == nil, "after a program it is an argument")
-  assert(run({ "--", "connect" }).argv[1] == "connect", "a program of that name is still run")
+  assert(assert(run({ "--", "connect" }).argv)[1] == "connect",
+    "a program of that name is still run")
   same(run({ "--", "connect", "a", "b" }).argv, { "connect", "a", "b" })
   same(run({ "--cosmic", "connect" }).argv, { "connect" })
 end

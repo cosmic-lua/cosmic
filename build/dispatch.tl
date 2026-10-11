@@ -659,6 +659,9 @@ local function spec_of(word: string): verb_spec.Spec | nil
         return inner(argv)
       end,
       bare = found.bare,
+      takes = found.takes,
+      guide = found.guide,
+      tests = found.tests,
     }
   end
   return found
@@ -771,6 +774,9 @@ function dispatch.main(argv: {integer:string}): integer
         return help(line, asked)
       end,
       bare = false,
+      takes = help_spec.takes,
+      guide = help_spec.guide,
+      tests = help_spec.tests,
     }
   end
   if chosen ~= nil and verb ~= "help" then

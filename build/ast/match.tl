@@ -187,10 +187,8 @@ end
 --- @param elements {any} The matched trailing elements, in order
 --- @return Node A bare-list node wrapping `elements`
 local function rest_value(marker: any, elements: {any}): Node
-  local out: Node = { kind = "rest_capture" }
-  if marker is Node then
-    out.f, out.y, out.x = marker.f, marker.y, marker.x
-  end
+  assert(marker is Node, "a rest-capture marker is a node")
+  local out: Node = { kind = "rest_capture", f = marker.f, y = marker.y, x = marker.x }
   for i, e in ipairs(elements) do
     if e is Node then out[i] = e end
   end

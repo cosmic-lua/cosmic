@@ -11,6 +11,7 @@ local ast = require("build.ast")
 local doctest = require("build.doctest")
 local gen_syscalls = require("build.gen_syscalls")
 local link_text = require("build.link_text")
+local stub = require("build.stub")
 local Template = require("cosmic.template")
 local bind = require("build.bind")
 local type compiler = require("build.compiler")
@@ -395,6 +396,11 @@ function derivation.parse_fresh(db: Sqlite.Handle, built: compiler, fresh: {deri
       if not ok then
         return false, file .. ": " .. why
       end
+    end
+    ok, why = Sqlite.run(db, "INSERT INTO stubs (source_hash, text) VALUES (?1, ?2)",
+      { text(source_hash), text(stub.of(parsed)) })
+    if not ok then
+      return false, file .. ": " .. why
     end
   end
   return true, ""

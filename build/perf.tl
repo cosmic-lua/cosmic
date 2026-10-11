@@ -238,11 +238,11 @@ local record Workload
   name: string
   args: {string}
   batch: integer
-  executable: string
-  change: boolean
-  builds: boolean
-  ran: integer
-  stood: integer
+  executable?: string
+  change?: boolean
+  builds?: boolean
+  ran?: integer
+  stood?: integer
 end
 
 local record Observation
@@ -258,7 +258,7 @@ local record Observation
   stderr: string
   before: {string}
   after: {string}
-  leaf_value: integer
+  leaf_value?: integer
 end
 
 local function json_bounds(value: any): any

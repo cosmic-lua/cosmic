@@ -552,7 +552,7 @@ end
 --- What a job's steps have checked out so far, and what they ran.
 local record Walk
   checkout: boolean
-  sparse: {string}
+  sparse?: {string}
   scripts: {string}
   actions: {string: boolean}
 end
@@ -1495,10 +1495,12 @@ local function test_a_main_push_reuses_the_queue_run()
   assert(check_env.CHECKED == "${{ needs.reuse.outputs.run != '' && needs.seed.result || needs.checked.result }}",
     "the join reads another checked suite than the one that ran: " .. tostring(check_env.CHECKED))
   assert(check.run == "echo \"queue run: ${QUEUE_RUN:-(none)}; legs: $RESULT; checked suite: $CHECKED\"; " ..
-      "[ \"$RESULT\" = success ] && [ \"$CHECKED\" = success ]",
+      "[ \"$RESULT\" = success ] && [ \"$CHECKED\" = success ] || { [ \"$EVENT\" != merge_group ] || " ..
+      "echo \"a failed leg cancels a queue run, so the other legs may read cancelled; " ..
+      "an error annotation names the failed leg\"; exit 1; }",
     "the join passes on more or less than the legs and the checked suite: " .. tostring(check.run))
   for name, value in pairs(check_env) do
-    assert(name == "RESULT" or name == "CHECKED" or name == "QUEUE_RUN", "the join reads " .. name .. ": " .. value)
+    assert(name == "RESULT" or name == "CHECKED" or name == "QUEUE_RUN" or name == "EVENT", "the join reads " .. name .. ": " .. value)
   end
 end
 
@@ -1959,6 +1961,50 @@ local function test_a_job_moves_its_tree_once_and_puts_it_back_once()
   assert(placed >= 3, "only " .. placed .. " jobs move their tree")
 end
 
+--- A failed job of the merge queue's run has the run cancelled,
+--- so the gate reports without waiting on the legs still running. A job
+--- of its own does it, the only job of the run that holds `actions: write`
+--- besides the cache's `prune` and `invalidate`: it starts with the legs, needs nothing, is needed by
+--- nothing (the gate, which a ruleset requires, never waits on it), and
+--- is on the queue's run alone. The legs keep `actions: read`.
+local function test_a_failed_queue_job_has_the_run_cancelled_by_a_job_of_its_own()
+  local ci = decoded_workflows()[DIR .. "/ci.yml"] as {string: any}
+  local jobs = ci.jobs as {string: {string: any}}
+  local cancel = jobs.cancel
+  assert(cancel ~= nil, "no job cancels the queue's run")
+  assert(cancel["if"] == "github.event_name == 'merge_group'", "cancel runs on: " .. tostring(cancel["if"]))
+  assert(cancel.needs == nil, "cancel waits on a job, so it cannot start with the legs")
+  local permissions = cancel.permissions as {string: string}
+  local count = 0
+  for _ in pairs(permissions) do count = count + 1 end
+  assert(count == 2 and permissions.actions == "write" and permissions.contents == "read",
+    "cancel holds more than `contents: read` and `actions: write`")
+  local checkout = (cancel.steps as {{string: any}})[1]
+  local with = checkout.with as {string: any}
+  assert(checkout.uses == CHECKOUT,
+    "cancel's first step is no checkout")
+  assert(with["persist-credentials"] == false and with["fetch-depth"] == 1 and
+      with["sparse-checkout"] == "/.github/scripts/cancel-on-failure.sh\n",
+    "cancel checks out more than its script, or keeps the token")
+  assert(cancel.name == "cancel the run on a failed leg", "cancel's name: " .. tostring(cancel.name))
+  assert((cancel["timeout-minutes"] as integer) > (jobs.platform["timeout-minutes"] as integer),
+    "cancel stops before the legs may")
+  for name, job in pairs(jobs) do
+    local needs = job.needs
+    local list: {string} = needs is string and { needs } or (needs as {string} or {})
+    for _, need in ipairs(list) do
+      assert(need ~= "cancel", name .. " waits on the job that cancels the run")
+    end
+  end
+  for _, name in ipairs({ "platform", "checked" }) do
+    assert((jobs[name].permissions as {string: string}).actions == "read", name .. " can write `actions`")
+  end
+  local env = (cancel.steps as {{string: any}})[2].env as {string: string}
+  assert(env.SELF == cancel.name, "cancel does not know its own name")
+  assert(((cancel.steps as {{string: any}})[2].run as string) == ".github/scripts/cancel-on-failure.sh",
+    "cancel runs another script")
+end
+
 --- A branch several commits behind main restores the verdicts main
 --- saved at its base rather than main's newest, whose tree it does not
 --- have: main saves each job's verdicts once, under their content, and
@@ -2061,7 +2107,8 @@ local function test_a_branch_restores_the_verdicts_of_its_base()
     "prune cannot prune the cache, or may do more")
   for name, job in pairs(jobs) do
     local p = job.permissions as {string: string}
-    assert(name == "prune" or name == "invalidate" or p == nil or p.actions ~= "write",
+    -- `cancel` writes `actions` to cancel the queue's run, and no more.
+    assert(name == "prune" or name == "invalidate" or name == "cancel" or p == nil or p.actions ~= "write",
       "job " .. name .. " may write the cache")
   end
 
@@ -2265,13 +2312,16 @@ end
 --- start (some 6 s, up to about 100 s in a burst). Its `prune` and
 --- `invalidate` are too: run on a branch push with every step skipped,
 --- each took a runner's start (up to about 170 s in a burst) to show a
---- check that did nothing.
+--- check that did nothing. So is `cancel`, which watches the merge
+--- queue's run alone: its `if` is the event, as a leg of no other run
+--- could cancel it.
 local BRANCH_SKIPS <const> = { "refs/heads/main", "ref_name == 'main'", "event_name != 'push'" }
 local SKIPPED_ON_A_BRANCH <const>: {string: boolean} = {
   [DIR .. "/ci.yml seed"] = true,
   [DIR .. "/ci.yml reuse"] = true,
   [DIR .. "/ci.yml prune"] = true,
   [DIR .. "/ci.yml invalidate"] = true,
+  [DIR .. "/ci.yml cancel"] = true,
 }
 
 local function test_a_branch_push_starts_no_job_it_skips()
@@ -2656,9 +2706,11 @@ local function test_a_leg_that_skips_the_portable_suite_still_attests_what_it_ra
   local ci = decoded_workflows()[DIR .. "/ci.yml"] as {string: any}
   local platform = (ci.jobs as {string: {string: any}}).platform
   local seen: {string: boolean} = {}
-  for _, step in ipairs(platform.steps as {{string: any}}) do
+  local at: {string: integer} = {}
+  for i, step in ipairs(platform.steps as {{string: any}}) do
     local run = step.run as string or ""
     local phase = run:match("^cosmic%-driver cosmic_ci/driver%.tl platform ([%w-]+)")
+    if phase ~= nil then at[phase] = i end
     local with = step.with as {string: string}
     local upload = with ~= nil and with.name == "portable-product-${{ matrix.name }}"
     if phase == "portable" or phase == "fixtures" or phase == "attest" or upload then
@@ -2675,6 +2727,11 @@ local function test_a_leg_that_skips_the_portable_suite_still_attests_what_it_ra
   end
   assert(seen.portable and seen.fixtures and seen.attest and seen.upload,
     "a full run's leg misses a step of the product's")
+  -- A regression's failure in the queue surfaces sooner. Attest reads
+  -- the digest the portable step records, so it follows.
+  assert(at.fixtures < at.portable, "the regressions run after the portable suite")
+  assert(at.portable < at["portable-boundary"] and at["portable-boundary"] < at.attest,
+    "the portable suite, its boundary and the attestation are out of order")
 end
 
 --- The vendor part of the zig build cache's key hashes the vendored

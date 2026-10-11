@@ -109,39 +109,39 @@ local record Fuzz
     -- "kept at" paths below are gone once such a worker ends.
     --- The directory the input under test is kept in: a test's own
     --- temporary directory. Nothing is kept without one.
-    dir: string
+    dir?: string
     --- Iterations, in place of `FUZZ_ITERS`.
-    iters: integer
+    iters?: integer
     --- The most iterations `FUZZ_ITERS` may ask for, for a property whose
     --- every input costs a process or a file the size of a core: a deep
     --- run raises every other property's count, and this one's only to
     --- here.
-    max_iters: integer
+    max_iters?: integer
     --- VM instructions one check may spend.
-    budget: integer
+    budget?: integer
     --- The directory of inputs checked before any is drawn: failures
     --- found before, kept so they stay fixed. `testdata/fuzz/` and the
     --- property's name, slugged, by default; one that does not exist
     --- holds nothing.
-    corpus: string
+    corpus?: string
     --- One input to check in place of a run, as a report's `reproduce`
     --- line names it: `<property>:<case seed>`. `FUZZ_CASE` sets it for
     --- every property run, so it is for the one test file a report
     --- names: a property whose name it does not match checks nothing,
     --- its corpus included.
-    case: string
+    case?: string
     --- Labels (see `label`) at least one drawn input must reach, or the
     --- run fails: what the property is meant to exercise. Not held when
     --- `FUZZ_ITERS` asks for fewer inputs than the default 64, as
     --- reproducing one failure does.
-    requires: {string}
+    requires?: {string}
     --- The least share of the drawn inputs, above 0 and at most 1, that
     --- must reach each label named, held when `requires` is: for a
     --- property whose generator could come to reach what it exists to
     --- exercise rarely rather than never. Set it well under the share
     --- a run reaches, so that another seed does not fall under it by
     --- chance.
-    shares: {string: number}
+    shares?: {string: number}
   end
 end
 
@@ -441,8 +441,9 @@ local function run(p: Fuzz.Property): integer
   local named: {string} = {}
   local is_named: {string: boolean} = {}
   for _, name in ipairs(p.requires or {}) do named[#named + 1], is_named[name] = name, true end
+  local shares = p.shares or {}
   local shared: {string} = {}
-  for name in pairs(p.shares or {}) do shared[#shared + 1] = name end
+  for name in pairs(shares) do shared[#shared + 1] = name end
   table.sort(shared)
   for _, name in ipairs(shared) do
     if not is_named[name] then named[#named + 1] = name end
@@ -460,11 +461,11 @@ local function run(p: Fuzz.Property): integer
     end
     for _, name in ipairs(shared) do
       local reached_by = counts[name] or 0
-      if reached_by < p.shares[name] * iters then
+      if reached_by < shares[name] * iters then
         if kept ~= nil then local _, _ = Fs.remove(kept) end
         error(("fuzz %s: seed=%d: %s of %d reached %q, under the share of %g the property " ..
           "requires: its inputs exercise it too rarely"):format(p.name, seed, plural.count(reached_by, "input"), iters, name,
-            p.shares[name]), 0)
+            shares[name]), 0)
       end
     end
   end

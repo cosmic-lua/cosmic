@@ -38,15 +38,17 @@ local function test_an_abbreviated_position_reads_against_the_last()
 end
 
 local function test_a_sugared_type_reads_both_ways()
-  local node: tree.Node = { kind = "CallExpr", text = "'lua_Integer':'long long'", children = {} }
+  local node: tree.Node = { kind = "CallExpr", id = "0x1", file = "core/a.c", line = 1, col = 1,
+    text = "'lua_Integer':'long long'", children = {} }
   assert(tree.type_of(node) == "lua_Integer")
   assert(tree.canonical_type(node) == "long long")
 end
 
 local function test_a_macro_expansion_is_placed_where_it_was_used()
-  local parent: tree.Node = { kind = "CallExpr", file = "core/a.c", line = 3, children = {} }
-  local child: tree.Node = { kind = "CallExpr", file = "vendor/lua/src/lua.h", line = 9,
-    children = {}, parent = parent }
+  local parent: tree.Node = { kind = "CallExpr", id = "0x1", file = "core/a.c", line = 3, col = 1,
+    text = "", children = {} }
+  local child: tree.Node = { kind = "CallExpr", id = "0x2", file = "vendor/lua/src/lua.h", line = 9,
+    col = 1, text = "", children = {}, parent = parent }
   local at = assert(tree.placed(child))
   assert(at.file == "core/a.c" and at.line == 3)
 end

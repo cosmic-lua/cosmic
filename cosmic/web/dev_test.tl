@@ -4,6 +4,7 @@
 
 local Dev = require("cosmic.web.dev")
 local Fs = require("cosmic.fs")
+local Headers = require("cosmic.web.headers")
 local Html = require("cosmic.html")
 local Net = require("cosmic.net")
 local Test = require("cosmic.test")
@@ -90,6 +91,34 @@ local function test_a_page_gets_the_script_before_its_last_body_end()
     assert(page.headers["content-length"] == tostring(#page.body))
     assert(get(client, "/upper").body == "<HTML><BODY>x" .. TAG .. "</BODY></HTML>")
     assert(get(client, "/twice").body == "<body>a</body><pre>&lt;/body&gt;</pre>" .. TAG .. "</body>")
+  end)
+end
+
+local function test_the_tag_carries_the_nonce_the_headers_middleware_drew()
+  local policy = Headers.Csp.htmx_default()
+  policy.directives["script-src"] = { "'self'", "{nonce}" }
+  local app = Dev.app({ routes = routes(), sink = quiet(),
+    middleware = { Headers.middleware{ csp = policy, nonce = true } } }, { enabled = true })
+  Web.with_client(app, function(client: Web.TestClient)
+    local page = get(client, "/")
+    local nonce = assert(page.headers["content-security-policy"]:match("'nonce%-([%w_-]+)'"))
+    -- A byte that is no letter or digit is written as a character reference.
+    local written = nonce:gsub("[_-]", function(byte: string): string
+      return ("&#%d;"):format(byte:byte())
+    end)
+    assert(page.body == '<html><body><p>hi</p><script src="/_web/dev.js" nonce="' .. written ..
+        '" defer></script></body></html>', page.body)
+    local second = get(client, "/").headers["content-security-policy"]
+    assert(second ~= page.headers["content-security-policy"], "each request draws its own nonce")
+  end)
+end
+
+local function test_the_tag_is_bare_where_the_headers_middleware_draws_no_nonce()
+  local app = Dev.app({ routes = routes(), sink = quiet(),
+    middleware = { Headers.middleware{} } }, { enabled = true })
+  Web.with_client(app, function(client: Web.TestClient)
+    local page = get(client, "/")
+    assert(page.body == "<html><body><p>hi</p>" .. TAG .. "</body></html>", page.body)
   end)
 end
 

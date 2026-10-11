@@ -71,6 +71,13 @@ local tables: {{string}} = {
   { "decls", [[(path TEXT PRIMARY KEY,
                 source BLOB NOT NULL) WITHOUT ROWID]] },
 
+  -- The stub of each of the standard library's modules ([`build.stub`]),
+  -- raw-deflated like a source: what [`build.teal`] gives a project's
+  -- checker in place of the module's source. Only cosmic's own projection
+  -- and the tool fill it; a program has no checker to read it.
+  { "stubs", [[(path TEXT PRIMARY KEY,
+                source BLOB NOT NULL) WITHOUT ROWID]] },
+
   -- A project's static assets ([`Layout.static`]), one row per
   -- file under `static/`: `path` relative to it ("css/app.css"), the
   -- bytes, their lowercase hex SHA-256, the Content-Type

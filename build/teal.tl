@@ -35,6 +35,14 @@ local record teal
   --- list, so the checker refuses each of them.
   strip: function(env: compiler.Env)
 
+  --- What the checker reads for a standard-library module:
+  --- [`teal.standard_text`].
+  record Standard
+    text: string
+    --- Whether `text` is the module's stub rather than its source.
+    stubbed: boolean
+  end
+
   --- What `io.open` gives back. It reads whole files and writes
   --- strings; the compiler asks nothing else of a handle.
   record Handle
@@ -245,21 +253,49 @@ local function served(text: string): Served
   }
 end
 
---- A `cosmic.*` module from this binary's own sources, under the name
---- it would have on disk below `at`; nil for any other name.
-local function standard(name: string, at: string): string | nil, any
+--- What the checker reads for the standard-library module `name`: what
+--- [`Store.source`] answers, a declaration's source or the module's, but
+--- for a module with no declaration whose stub ([`build.stub`]) the
+--- binary's own database carries; nil for a name the binary holds
+--- neither of. A declaration wins, as it does in [`serve`]: a stub is
+--- held to its module's source, never to a declaration beside it.
+--- It says which it is, so a compile keyed on one is never taken for one
+--- keyed on the other ([`build.compilation`]'s `dependency_keys`). A stub
+--- keeps every position of its source, so either is served under the
+--- module's own file name. A database without the table (a sealed
+--- worker's, or a tool's from before it) answers sources.
+function teal.standard_text(name: string): teal.Standard | nil
   if name:sub(1, 7) ~= "cosmic." then
     return nil
+  end
+  local databases = Store.databases()
+  local rows, _ = Sqlite.text_rows(databases[#databases],
+    "SELECT inflate(source) FROM stubs WHERE path = ?1 " ..
+      "AND path NOT IN (SELECT path FROM decls)", { { text = name } })
+  if rows ~= nil and #rows > 0 then
+    return { text = rows[1][1], stubbed = true }
   end
   local source, _ = Store.source(name)
   if source == nil then
     return nil
   end
-  return at .. name:gsub("%.", "/") .. ".tl", served(source)
+  return { text = source, stubbed = false }
 end
 
---- Points the checker at this binary's own `cosmic.*` sources and
---- nothing else: no path is searched, and any other name is not found.
+--- A `cosmic.*` module from this binary's own database
+--- ([`teal.standard_text`]), under the name it would have on disk below
+--- `at`; nil for any other name.
+local function standard(name: string, at: string): string | nil, any
+  local found = teal.standard_text(name)
+  if found == nil then
+    return nil
+  end
+  return at .. name:gsub("%.", "/") .. ".tl", served(found.text)
+end
+
+--- Points the checker at this binary's own `cosmic.*` modules, each its
+--- stub or its source ([`teal.standard_text`]), and nothing else: no path
+--- is searched, and any other name is not found.
 function teal.serve_standard(built: compiler)
   built.path = ""
   built.search_module = function(name: string, _search_all: boolean): string | nil, any
@@ -271,12 +307,13 @@ end
 --- database `db`. A module asked for by name is answered from `inputs`
 --- (a declaration ahead of a source of the same name) under the name the
 --- module would have on disk. A `cosmic.*` name the stage lacks is
---- answered by the binary's own rows, which is how a project outside
---- this tree types its `require` of the standard library. Nothing is
---- read from a path and nothing falls through to the compiler's own
---- search of the filesystem: a name neither holds is not found, however
---- a file of that name sits on disk, so a module reaches a build only by
---- being staged.
+--- answered by the binary's own rows ([`teal.standard_text`]), which is
+--- how a project outside this tree types its `require` of the standard
+--- library; cosmic's own tree stages every one, so it checks its
+--- sources. Nothing is read from a path and nothing falls through to the
+--- compiler's own search of the filesystem: a name neither holds is not
+--- found, however a file of that name sits on disk, so a module reaches
+--- a build only by being staged.
 local function serve(built: compiler, db: Sqlite.Handle, root: string)
   built.path = ""
   built.search_module = function(name: string, _search_all: boolean): string | nil, any

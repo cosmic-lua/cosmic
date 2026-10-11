@@ -61,10 +61,10 @@ local record c
   --- be checked.
   record Outcome
     file: string
-    findings: {rules.Finding}
-    trouble: string
+    findings?: {rules.Finding}
+    trouble?: string
     --- The names of the variants it was checked under, in order.
-    variants: {string}
+    variants?: {string}
   end
 
   --- One way the core is built, as far as its C can tell: the compiler's
@@ -523,7 +523,9 @@ function c.check(root: string, files: {string}, cwd?: string, limit?: integer):
   local first_unit: {integer: rules.Unit} = {}
   local at: {string: rules.Finding} = {}
   for i, file in ipairs(files) do
-    local out: c.Outcome = { file = file, variants = {} }
+    local variants: {string} = {}
+    local findings: {rules.Finding} = {}
+    local out: c.Outcome = { file = file, variants = variants }
     outcomes[i] = out
     for _, v in ipairs(ran[i]) do
       local job = 0
@@ -535,14 +537,14 @@ function c.check(root: string, files: {string}, cwd?: string, limit?: integer):
       end
       local result = results[job]
       local name = c.variants[v].name
-      out.variants[#out.variants + 1] = name
+      variants[#variants + 1] = name
       if result.findings == nil then
         out.findings = nil
         out.trouble = (v == 1 and "" or name .. ": ") .. result.trouble
         break
       end
       if v == 1 then
-        out.findings = {}
+        out.findings = findings
         first_unit[i] = units[job]
       end
       for _, f in ipairs(result.findings) do
@@ -551,9 +553,10 @@ function c.check(root: string, files: {string}, cwd?: string, limit?: integer):
         if same == nil then
           f.variants = { name }
           at[key] = f
-          out.findings[#out.findings + 1] = f
+          findings[#findings + 1] = f
         else
-          same.variants[#same.variants + 1] = name
+          local named = assert(same.variants)
+          named[#named + 1] = name
         end
       end
     end
