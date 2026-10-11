@@ -167,7 +167,7 @@ assert(reply.status == 422 and reply.text:find("qty", 1, true))
   typed routes, middleware composition, the exception layer, App, serve,
   lifespan, typed per-request keys (`Web.key<T>`).
 - `cosmic.web.input`: query, form and JSON decoding, and binding them to
-  a spec with every field's error collected (`Input.Invalid`).
+  a spec with every field's error collected ([`Input.Invalid`]).
 - `cosmic.web.mime`: content types by file name.
 - `cosmic.web.cookies`, `cosmic.web.session` (with its stores
   `cosmic.web.session.cookie` and `cosmic.web.session.sqlite`),
@@ -176,14 +176,14 @@ assert(reply.status == 422 and reply.text:find("qty", 1, true))
   headers and CSP).
 - `cosmic.web.htmx`: HX-* request headers, HX-* response headers,
   `Htmx.page` (fragment or whole page, `Vary: HX-Request`), `Htmx.head`.
-- `cosmic.web.static` and `cosmic.web.assets`: `StaticFiles` over
+- [`cosmic.web.static`] and [`cosmic.web.assets`]: `StaticFiles` over
   embedded or on-disk assets, fingerprinted URLs.
 - `cosmic.web.sse`: `Event`, `EventStream`, `Hub`.
 - `cosmic.web.testing`: the in-process client and the loopback one.
 - `cosmic.web.dev`: a supervisor that restarts the app on an edit and
   reloads the browser, on the loopback only.
 - Beside it, not under it: [`cosmic.channel`] (a queue between tasks),
-  [`Poll.notifier`] in [`cosmic.poll`], `cosmic.http.multipart`, and the
+  [`Poll.notifier`] in [`cosmic.poll`], [`cosmic.http.multipart`], and the
   htmx dialect in `cosmic/template/dialect/`.
 
 ## settled across the parts
@@ -284,7 +284,7 @@ needs have merged.
    PINs, the `static/` convention and `StaticFiles`, `cosmic.web.htmx`
    and `Htmx.head`.
 7. **Streaming and the rest:** [`cosmic.channel`], [`cosmic.web.sse`],
-   `cosmic.http.multipart` (decision 8), and
+   [`cosmic.http.multipart`] (decision 8), and
    `cosmic.web.dev`.
 8. **A guide,** doc/guides/web.md, which is a test of its own: one app
    built from an empty directory, its page, its form and its API.
@@ -342,11 +342,15 @@ cooperative process.
 [`Conn:peer()`]: ../../cosmic/internal/connection.tl
 [`Conn:peer`]: ../../cosmic/internal/connection.tl
 [`cosmic.channel`]: ../../cosmic/channel.tl
+[`cosmic.http.multipart`]: ../../cosmic/http/multipart.tl
 [`cosmic.http.wire`]: ../../cosmic/http/wire.tl
+[`cosmic.web.assets`]: ../../cosmic/web/assets.tl
 [`cosmic.web.sse`]: ../../cosmic/web/sse.tl
+[`cosmic.web.static`]: ../../cosmic/web/static.tl
 [`cosmic.web`]: ../../cosmic/web/init.tl
 [`Hash.equal`]: ../../cosmic/hash.tl
 [`Html.url_part`]: ../../cosmic/html.tl
+[`Input.Invalid`]: ../../cosmic/web/input.tl
 [`Poll.notifier`]: ../../cosmic/poll.tl
 [`Request.peer`]: ../../cosmic/http/server.tl
 [`Router:reverse`]: ../../cosmic/web/types.tl

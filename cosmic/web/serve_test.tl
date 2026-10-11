@@ -2,6 +2,7 @@
 --- worker's own loopback.
 
 local Clock = require("cosmic.clock")
+local Input = require("cosmic.web.input")
 local Net = require("cosmic.net")
 local Poll = require("cosmic.poll")
 local Server = require("cosmic.http.server")
@@ -283,5 +284,23 @@ local function test_the_loopback_client_fails_when_the_server_goes_silent()
     local res, why = client:get("/")
     assert(res == nil and why ~= "", "a silent server is a failure, not a wait")
     assert(Clock.monotonic_ns() - started < Clock.seconds(3))
+  end)
+end
+
+local function test_an_upload_above_the_servers_body_limit_is_the_servers_413()
+  local reached = false
+  local app = Web.app{ routes = { Web.post("/up", function(req: Web.Request): Web.Response
+    reached = true
+    return Web.text(tostring(Input.multipart(req, { max_bytes = 16 * 1024 * 1024 }).invalid))
+  end) } }
+  -- Only the head goes out: the server answers 413 on the Content-Length
+  -- and closes, so a client still writing the body would meet EPIPE.
+  local head = "POST /up HTTP/1.1\r\nHost: x\r\n" ..
+    "Content-Type: multipart/form-data; boundary=xx\r\n" ..
+    "Content-Length: " .. tostring(1100 * 1024) .. "\r\n\r\n"
+  Web.with_server(app, function(client: Web.LoopbackClient)
+    local reply = assert(client:raw(head))
+    assert(reply.status == 413, reply.status)
+    assert(not reached, "max_bytes above limits.body_bytes changes nothing")
   end)
 end

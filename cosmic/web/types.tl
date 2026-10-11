@@ -5,6 +5,7 @@
 
 local Net = require("cosmic.net")
 local Server = require("cosmic.http.server")
+local Shape = require("cosmic.shape")
 local Stream = require("cosmic.stream")
 local Url = require("cosmic.url")
 
@@ -27,6 +28,11 @@ local record Types
   --- not read the body of a response that is a Reader, which belongs to the
   --- server.
   type Middleware = function(Handler): Handler
+
+  --- What a handler of a typed route answers when its input fails: see
+  --- [`Web.route_typed`]. It is given the request and every error the
+  --- route's specs found.
+  type InvalidHandler = function(Request, Invalid): Response
 
   --- Cleans up after the server has stopped: what an app's `lifespan`
   --- returns.
@@ -232,20 +238,27 @@ local record Types
     fallback: Handler
     --- A mount's reverse resolver: see [`Web.MountOptions.reverse`].
     reverse: function(prefix: string, params: {string:string}): string | nil, string
+    --- What a typed route binds, erased of its types; nil for a plain
+    --- route and for a mount.
+    input?: RouteInput
   end
 
   --- What [`Web.route`] and the method constructors take beside the handler.
-  -- TODO: once cosmic.web.input lands (typed routes), add `input` and
-  -- `on_invalid` here and to Route, and bind them in the handler the
-  -- constructor makes (doc/plans/web/core.md section 6).
   -- TODO: once Server.ServeSpec has `body_limit(method, path)`, add
-  -- `body_limit` here and give Web.serve the router's lookup of it.
+  -- `body_limit` here and give Web.serve the router's lookup of it, from
+  -- `Route.input.max_bytes`.
   record RouteOptions
     --- The name [`App.url_for`] finds the route by, unique in its router.
     name?: string
     --- The route's own middleware, outermost first; inside the mount's and
     --- the app's.
     middleware?: {Middleware}
+    --- For a typed route ([`Web.route_typed`]): answers input that fails
+    --- the route's specs in place of the default problem or error page.
+    on_invalid?: InvalidHandler
+    --- For a typed route: the body limit, the names left out of a
+    --- re-render and the rest of [`Input.Options`].
+    input_options?: InputOptions
   end
 
   --- What [`Web.mount`] and [`Web.mount_handler`] take.
@@ -270,6 +283,126 @@ local record Types
     --- spelling only by a trailing "/" is answered 308 to the spelling;
     --- "strict": it is a 404.
     trailing_slash?: TrailingSlash
+  end
+
+  --- The type of an absent slot of [`Web.input`]: a path, query or body
+  --- the route does not read. A handler is given nil for it.
+  record None
+  end
+
+  --- One refused field of an input, as [`Input.Invalid`] lists it and as a
+  --- problem body's `errors` repeats it.
+  record FieldError
+    --- Where the value came from: "path", "query", "form" or "body". (Not
+    --- `in`, OpenAPI's word: it is a Lua keyword.)
+    source: string
+    --- The field: "email", "address.city", "tags.0", or "" for the whole
+    --- body.
+    field: string
+    --- For a JSON body only: the JSON Pointer of the failing value
+    --- ("/address/city", "" for the whole body); nil for the other sources.
+    pointer?: string
+    --- Plain text for a person ("must be a whole number"); it holds no
+    --- more of the submitted value than a JSON type error names.
+    message: string
+    --- A stable code for a program: "required", "integer", "number",
+    --- "boolean", "one_of", "type", "unknown", "repeated" and "invalid" (a
+    --- handler's own, [`Input.fail`]) for a value that fails its spec, and
+    --- "json", "utf8", "too_large", "content_type" and "malformed" for
+    --- input that cannot be read.
+    code: string
+  end
+
+  --- Input that was refused: data, not a response. [`Web.route_typed`]
+  --- turns it into a problem body or an error page, or gives it to the
+  --- route's `on_invalid`.
+  record Invalid
+    --- 400 for input that cannot be decoded, 408 for a body that came too
+    --- slowly, 413 over the limit, 415 for a wrong Content-Type and 422 for
+    --- a value that decodes but fails its spec.
+    status: integer
+    --- One line: the first error, and how many more there are.
+    message: string
+    --- Every error of the source that failed, in the spec's field order.
+    errors: {FieldError}
+    --- The values submitted, for re-rendering a form; the names in
+    --- [`Input.Options.secret`] are left out. Nil for a JSON body.
+    submitted?: Url.Query
+  end
+
+  --- What a reader or binder of cosmic.web.input answers: the value, or
+  --- why there is none: `invalid` is set exactly when `value` is nil.
+  record Parsed<T>
+    --- What was read or bound; nil when `invalid` is set.
+    value?: T
+    --- Why not; nil when the input was read.
+    invalid?: Invalid
+  end
+
+  --- What the readers and binders of cosmic.web.input take; every
+  --- field is optional.
+  record InputOptions
+    --- The largest body read, in bytes (64 KiB; 16 MiB for
+    --- [`Input.multipart`]). The server's own `limits.body_bytes` (1 MiB)
+    --- comes first where it is lower: a larger upload needs [`Web.serve`]
+    --- given a higher `limits.body_bytes`, for every route
+    --- (see [`Input.multipart`]).
+    max_bytes?: integer
+    --- Field names left out of [`Invalid.submitted`]: passwords, tokens.
+    secret?: {string}
+    --- The `source` of the errors a binder writes: "form" by default, or
+    --- "query" or "path". [`Input.bind_strings`] reads it.
+    source?: string
+    --- "error" refuses a scalar field sent twice (`code = "repeated"`);
+    --- by default the last value wins.
+    repeated?: string
+    --- For a multipart body (the rest of these too): the largest file part,
+    --- in bytes (8 MiB). A file part over it is a 413.
+    max_file_bytes?: integer
+    --- The largest text part, in bytes as sent (1 MiB).
+    max_field_bytes?: integer
+    --- Most file parts (10).
+    max_files?: integer
+    --- Most parts of either kind (100).
+    max_parts?: integer
+    --- The directory file parts are spooled to, under random names. It must
+    --- exist. Without one, a private directory made under the system's temp
+    --- directory is removed with its files when the request ends.
+    dir?: string
+  end
+
+  --- A route's body slot: see [`Web.json_body`], [`Web.form_body`] and
+  --- [`Web.multipart_body`].
+  record Body<B>
+    --- "json", "form", "multipart" or "none".
+    kind: string
+    --- The body's spec.
+    typed: Shape.Typed<B>
+  end
+
+  --- A route's three slots, which [`Web.route_typed`] binds before the
+  --- handler runs: see [`Web.input`].
+  record Input<P,Q,B>
+    --- The path parameters' spec.
+    path: Shape.Typed<P>
+    --- The query's spec.
+    query: Shape.Typed<Q>
+    --- The body's.
+    body: Body<B>
+  end
+
+  --- What a typed route binds, without the types.
+  record RouteInput
+    --- The path spec; nil for none.
+    path: Shape.Spec
+    --- The query spec; nil for none.
+    query: Shape.Spec
+    --- "json", "form", "multipart" or "none".
+    body_kind: string
+    --- The body spec; nil for none.
+    body: Shape.Spec
+    --- The body limit the route enforces.
+    max_bytes: integer
   end
 
   --- One segment of a pattern: a literal, `:name`, or `*name`.

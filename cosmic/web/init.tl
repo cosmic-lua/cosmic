@@ -32,6 +32,10 @@
 ---   a path is canonical before any middleware sees it, a HEAD is answered
 ---   by the GET, an OPTIONS and a 405 by `Allow`, and
 ---   `app:url_for("item", { id = 7 })` builds a URL back.
+--- - A typed route ([`Web.route_typed`], [`Web.post_typed`], ...) names
+---   [`cosmic.shape`] specs for its path, query and body ([`Web.input`]); its
+---   handler is given the checked records, and input that fails them is
+---   answered before it runs (see cosmic.web.input).
 --- - Middleware is a function from a handler to a handler, stacked app,
 ---   then mount, then route. The exception layer sits inside the app's
 ---   middleware, so a 500 passes out through all of it; with `debug` off
@@ -51,6 +55,8 @@ local Response = require("cosmic.web.response")
 local Route = require("cosmic.web.route")
 local Router = require("cosmic.web.router")
 local Testing = require("cosmic.web.testing")
+local Typed = require("cosmic.web.typed")
+local Shape = require("cosmic.shape")
 local Stream = require("cosmic.stream")
 local Types = require("cosmic.web.types")
 
@@ -99,6 +105,18 @@ local record Web
   type TestOptions = Types.TestOptions
   --- A reply as a test client saw it.
   type TestResponse = Types.TestResponse
+  --- The type of an absent slot of a typed route.
+  type None = Types.None
+  --- Input that was refused: see [`Input.Invalid`].
+  type Invalid = Types.Invalid
+  --- What a reader or binder of input answers: see [`Types.Parsed`].
+  type Parsed<T> = Types.Parsed<T>
+  --- Answers input that fails a typed route's specs.
+  type InvalidHandler = Types.InvalidHandler
+  --- A typed route's body slot.
+  type Body<B> = Types.Body<B>
+  --- A typed route's three slots.
+  type Input<P,Q,B> = Types.Input<P,Q,B>
   --- An app driven in-process.
   type TestClient = Testing.Client
   --- A client of an app served on the loopback.
@@ -166,6 +184,38 @@ local record Web
   mount_handler: function(prefix: string, handler: Types.Handler,
       opts?: Types.MountOptions): Types.Route
 
+  --- The spec of an absent path or query slot of [`Web.input`].
+  NONE: Shape.Typed<Types.None>
+  --- The body slot of a typed route that reads none.
+  no_body: Types.Body<Types.None>
+  --- A JSON body slot: see [`Typed.json_body`].
+  json_body: function<B>(t: Shape.Typed<B>): Types.Body<B>
+  --- An urlencoded form body slot: see [`Typed.form_body`].
+  form_body: function<B>(t: Shape.Typed<B>): Types.Body<B>
+  --- A multipart/form-data body slot: see [`Typed.multipart_body`].
+  multipart_body: function<B>(t: Shape.Typed<B>): Types.Body<B>
+  --- The path, query and body specs of a typed route: see [`Typed.input`].
+  input: function<P,Q,B>(path: Shape.Typed<P>, query: Shape.Typed<Q>,
+      body: Types.Body<B>): Types.Input<P,Q,B>
+  --- A typed route answering some methods: see [`Typed.route_typed`].
+  route_typed: function<P,Q,B>(methods: string | {string}, pattern: string, input: Types.Input<P,Q,B>,
+      fn: function(Types.Request, P, Q, B): Types.Response, opts?: Types.RouteOptions): Types.Route
+  --- A typed route answering GET: see [`Typed.get_typed`].
+  get_typed: function<P,Q,B>(pattern: string, input: Types.Input<P,Q,B>,
+      fn: function(Types.Request, P, Q, B): Types.Response, opts?: Types.RouteOptions): Types.Route
+  --- A typed route answering POST: see [`Typed.post_typed`].
+  post_typed: function<P,Q,B>(pattern: string, input: Types.Input<P,Q,B>,
+      fn: function(Types.Request, P, Q, B): Types.Response, opts?: Types.RouteOptions): Types.Route
+  --- A typed route answering PUT: see [`Typed.put_typed`].
+  put_typed: function<P,Q,B>(pattern: string, input: Types.Input<P,Q,B>,
+      fn: function(Types.Request, P, Q, B): Types.Response, opts?: Types.RouteOptions): Types.Route
+  --- A typed route answering PATCH: see [`Typed.patch_typed`].
+  patch_typed: function<P,Q,B>(pattern: string, input: Types.Input<P,Q,B>,
+      fn: function(Types.Request, P, Q, B): Types.Response, opts?: Types.RouteOptions): Types.Route
+  --- A typed route answering DELETE: see [`Typed.delete_typed`].
+  delete_typed: function<P,Q,B>(pattern: string, input: Types.Input<P,Q,B>,
+      fn: function(Types.Request, P, Q, B): Types.Response, opts?: Types.RouteOptions): Types.Route
+
   --- Middleware writing one line per request: see [`Stack.access_log`].
   access_log: function(opts?: Stack.AccessLogOptions): Types.Middleware
   --- A sink writing lines to standard error: see [`Stack.stderr_sink`].
@@ -206,6 +256,18 @@ Web.patch = Route.patch
 Web.delete = Route.delete
 Web.mount = Route.mount
 Web.mount_handler = Route.mount_handler
+Web.NONE = Typed.NONE
+Web.no_body = Typed.no_body
+Web.json_body = Typed.json_body
+Web.form_body = Typed.form_body
+Web.multipart_body = Typed.multipart_body
+Web.input = Typed.input
+Web.route_typed = Typed.route_typed
+Web.get_typed = Typed.get_typed
+Web.post_typed = Typed.post_typed
+Web.put_typed = Typed.put_typed
+Web.patch_typed = Typed.patch_typed
+Web.delete_typed = Typed.delete_typed
 Web.access_log = Stack.access_log
 Web.stderr_sink = Stack.stderr_sink
 Web.app = App.new

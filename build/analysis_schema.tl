@@ -55,6 +55,7 @@ analysis_schema.statements = {
              CAST(data AS TEXT) AS source,
              sha256 AS source_hash
         FROM files WHERE path GLOB '*.tl'
+          AND path NOT GLOB 'static/*'
           AND path NOT GLOB 'testdata/*'
           AND path NOT GLOB '*/testdata/*'
       UNION ALL

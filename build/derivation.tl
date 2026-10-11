@@ -109,7 +109,8 @@ end
 local function derive_templates(db: Sqlite.Handle): boolean, string
   local templates, trouble = Sqlite.text_rows(db,
     "SELECT path, CAST(data AS TEXT), sha256 FROM files " ..
-      "WHERE path GLOB '*.tmpl' AND path NOT GLOB 'testdata/*' " ..
+      "WHERE path GLOB '*.tmpl' AND path NOT GLOB 'static/*' " ..
+      "AND path NOT GLOB 'testdata/*' " ..
       "AND path NOT GLOB '*/testdata/*' " ..
       "AND path NOT IN (SELECT file FROM derived) ORDER BY path")
   if templates == nil then
