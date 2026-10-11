@@ -899,6 +899,23 @@ while `cosmic fix`'s structural rule list ([`build/fix/rule.tl`]) is still
 empty: its one type-driven fix wraps a multi-value `assert(...)` in
 parentheses.
 
+`: never` is a flag on a function type, declared by a helper that only
+raises or exits (`error`, [`Proc.exit`], a module's `spec_error`): a call of
+one ends its block, so code below an `if x == nil then fail() end` guard
+sees `x` narrowed. nothing infers it from a body, and a declaration that
+returns anyway is a bug in the declaration. its soundness bar: never is
+exactly as sound as Teal's other types, no sounder. a hole that forges a
+`: never` function forges a `string` as easily and is not the flag's to
+close, but the flag must add none of its own: a never-function is a subtype
+of every function with the same parameters, a function that may return is
+never taken for one (at the root of a comparison or nested in any type:
+a container, a generic's argument, a callback's parameter), and a function
+declared `: never` neither returns nor reaches its end. the `as` and `is`
+casts and the holes every type has (`coroutine.wrap`, `rawset`,
+`setmetatable`) are on the roadmap, and [`test/narrowing_test.tl`] and
+[`build/teal_test.tl`] pin today's behavior of each. the patches are
+`patch/tl/43*` and `44*`.
+
 the spirit is consistent, strong, explicit typing, the same shape the
 languages that hold it converged on: the top type inert until
 narrowed, casts confined to subtype moves or runtime-checked, the
@@ -1150,6 +1167,7 @@ in [roadmap.md](roadmap.md).
 [`build/rebuild_lock.tl`]: ../build/rebuild_lock.tl
 [`build/refresh.tl`]: ../build/refresh.tl
 [`build/shared_compiles.tl`]: ../build/shared_compiles.tl
+[`build/teal_test.tl`]: ../build/teal_test.tl
 [`build/test.tl`]: ../build/test.tl
 [`build/test_worker.tl`]: ../build/test_worker.tl
 [`build/vendor.tl`]: ../build/vendor.tl
@@ -1188,6 +1206,7 @@ in [roadmap.md](roadmap.md).
 [`cosmic.time`]: ../cosmic/time.tl
 [`cosmic/fs.tl`]: ../cosmic/fs.tl
 [`cosmic/fs_example.tl`]: ../cosmic/fs_example.tl
+[`Proc.exit`]: ../cosmic/proc.tl
 [`schema.tables_digest`]: ../build/schema.tl
 [`Server.serve`]: ../cosmic/http/server.tl
 [`Spec.tree`]: ../build/declared_key.tl
@@ -1197,3 +1216,4 @@ in [roadmap.md](roadmap.md).
 [`Store.requires`]: ../cosmic/store.tl
 [`Store.source`]: ../cosmic/store.tl
 [`Test.policy`]: ../cosmic/test.tl
+[`test/narrowing_test.tl`]: ../test/narrowing_test.tl

@@ -147,6 +147,27 @@ local function test_a_fallible_call_is_an_effect_or_a_value()
   assert(gen_syscalls.read(fallible("string|nil")) ~= nil)
 end
 
+--- A call with no `@return` never returns, and the declaration says so:
+--- `: never` ends the block of a guard that calls it. One with a result
+--- does not.
+local function test_a_call_with_no_return_is_declared_never()
+  local source = assert(gen_syscalls.declaration(lines({
+    "/*",
+    " * --- Ends the process.",
+    " * ---@param status? integer the exit status",
+    " */",
+    "COSMIC_SYSCALL(leave, 1);",
+    "",
+    "/*",
+    " * --- The process id.",
+    " * ---@return integer pid the id",
+    " */",
+    "COSMIC_SYSCALL(getpid, 0);",
+  })))
+  assert(source:find("leave: function(status?: integer): never", 1, true) ~= nil, source)
+  assert(source:find("getpid: function(): integer", 1, true) ~= nil, source)
+end
+
 --- The `COSMIC_CONSTANT` lines after the `Constants` block are what
 --- core/syscalls.c sets the constants from, so they name its fields
 --- exactly, in order: none missing, none extra, none out of place.

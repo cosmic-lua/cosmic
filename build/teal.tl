@@ -1120,6 +1120,54 @@ local function closable_hint(closing: string, source: string): string | nil
     ") ... end }`; `cosmic docs Fs.Scratch.__close` shows one"
 end
 
+--- The hint for `local x = fail()` where `fail` is declared `: never`: the
+--- checker refuses it as it does any call that answers nothing, but a
+--- never-function is no mistaken call to fix, it ends the block, so there
+--- is no value for the variable. Nil for another message, a line that is
+--- no such declaration, or a callee `source` does not declare `: never`
+--- (the standard `error` and [`Proc.exit`] apart).
+local function never_value_hint(msg: string, source: string, y: integer): string | nil
+  -- TODO: hint a callee declared `: never` in another module
+  -- (`local x = Mod.fail()`): it waits on the checker's message for a call
+  -- that returns nothing saying the callee is a never-function (a
+  -- patch/tl record), as the hint reads only `source`.
+  if not msg:match("^assignment in declaration did not produce an initial value for variable ") then
+    return nil
+  end
+  local line = line_at(source, y)
+  local callee = line ~= nil and line:match("^%s*local%s+[%w_,%s]-=%s*([%a_][%w_%.:]*)%s*%(") or nil
+  if callee == nil then
+    return nil
+  end
+  local function escaped(text: string): string
+    return (text:gsub("%p", "%%%0"))
+  end
+  local never = false
+  if callee == "error" then
+    -- the standard one, unless the source binds a local of that name
+    never = source:find("local%s+function%s+error%f[^%w_]") == nil and
+      source:find("local%s+error%f[^%w_]") == nil
+  elseif callee == "Proc.exit" then
+    never = true
+  else
+    -- a declaration names the callee as written, `o.die` or `o:die`
+    -- alike; a bare name is only a bare name, and a field is declared
+    -- by its last segment.
+    local method = callee:gsub("%.([%w_]+)$", ":%1")
+    local plain = callee:gsub(":([%w_]+)$", ".%1")
+    local last = callee:match("[%.:]([%w_]+)$")
+    never = source:find("function%s+" .. escaped(plain) .. "%s*%b()%s*:%s*never%f[^%w_.<]") ~= nil or
+      source:find("function%s+" .. escaped(method) .. "%s*%b()%s*:%s*never%f[^%w_.<]") ~= nil or
+      (last ~= nil and
+        source:find("%f[%w_]" .. last .. "%s*:%s*function%s*%b()%s*:%s*never%f[^%w_.<]") ~= nil)
+  end
+  if not never then
+    return nil
+  end
+  return "`" .. callee .. "` never returns, so it has no value to assign: call it as a " ..
+    "statement, and the code after it is unreachable"
+end
+
 --- The hint for a value the checker refused because it is `any` or may
 --- be nil (see [`teal.replacement`]), whose fix is a line every such
 --- refusal shares: nil for any other message.
@@ -1806,6 +1854,10 @@ end
 --- `unknown type Kv.Kv` whose `Kv` `source` binds to a `require` that
 --- `Kv` itself is the module's record type, unless `refused` holds `Kv`.
 ---
+--- `local x = fail()` where `source` declares `fail` `: never` is told
+--- that `fail` never returns, so it has no value to assign
+--- ([`never_value_hint`]).
+---
 --- A `local type Ledger = require("ledger")` refused because the module
 --- returns a value (`'require' did not return a type, got record
 --- Ledger`) is told to return a type, and, for a value of a record, that
@@ -1846,6 +1898,10 @@ function teal.replacement(msg: string, source: string, y: integer, x: integer,
   end
   if msg == "expected a type list" then
     return string_type_hint(source, y, x)
+  end
+  local never_value = never_value_hint(msg, source, y)
+  if never_value ~= nil then
+    return never_value
   end
   local call_typed = call_type_arguments_hint(msg, source, y, x) or
     method_type_arguments_hint(msg, source, y)
