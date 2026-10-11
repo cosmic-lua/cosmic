@@ -10,6 +10,14 @@ local Types = require("cosmic.web.types")
 local record Builtin
 end
 
+-- TODO: serve these through Assets.Source / StaticFiles, which the assets
+-- plan (doc/plans/web/assets.md) gives Range and gzip, once the static-files
+-- part lands; this answers whole and uncompressed. The Web.file TODO in
+-- cosmic/web/response.tl (cosmic/web/response.tl:293) waits on the same part.
+
+--- The files by path, built once: the bytes never change.
+local files = Htmx.assets()
+
 --- The first segment of every path served here.
 local PREFIX <const> = "_web"
 
@@ -32,7 +40,7 @@ function Builtin.handle(req: Types.Request): Types.Response | nil
   local segments = req.segments
   if segments[1] ~= PREFIX then return nil end
   local asset = #segments == 2 and not req.trailing and
-    Htmx.assets()["/" .. PREFIX .. "/" .. segments[2]] or nil
+    files["/" .. PREFIX .. "/" .. segments[2]] or nil
   if asset == nil then return Response.abort(404) end
   local method = req.method
   if method ~= "GET" and method ~= "HEAD" then

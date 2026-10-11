@@ -490,11 +490,19 @@ local function write_database(names: {string}, file: string, main: string | nil,
         end
       end
       if web then
-        local copied, why = copy_rows(binary_db, db, "web_assets",
-          { "name", "data", "sha256", "sha384", "version" },
-          "SELECT name, data, sha256, sha384, version FROM web_assets ORDER BY name")
-        if not copied then
-          return false, why
+        -- A binary from before the table has none to carry.
+        local has_web, has_trouble = Sqlite.text_rows(binary_db,
+          "SELECT 1 FROM sqlite_master WHERE name = 'web_assets'")
+        if has_web == nil then
+          return false, has_trouble
+        end
+        if #has_web > 0 then
+          local copied, why = copy_rows(binary_db, db, "web_assets",
+            { "name", "data", "sha256", "sha384", "version" },
+            "SELECT name, data, sha256, sha384, version FROM web_assets ORDER BY name")
+          if not copied then
+            return false, why
+          end
         end
       end
       if roots then

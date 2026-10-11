@@ -152,8 +152,18 @@ local function plain(value: string): boolean
   return not value:find("[%z\1-\31\127]")
 end
 
-local htmx_file = assert(Store.web_asset("htmx.min.js"))
-local sse_file = assert(Store.web_asset("htmx-ext-sse.min.js"))
+--- The file `name` of the binary's web assets, else an error saying to
+--- rebuild: a binary written before the table has none.
+local function carried(name: string): Store.WebAsset
+  local file, why = Store.web_asset(name)
+  if file == nil then
+    error("cosmic.web.htmx: " .. why .. " (a binary from before cosmic.web carries no web assets: rebuild it)", 0)
+  end
+  return file
+end
+
+local htmx_file = carried("htmx.min.js")
+local sse_file = carried("htmx-ext-sse.min.js")
 
 Htmx.version = htmx_file.version
 Htmx.sse_version = sse_file.version
@@ -266,14 +276,18 @@ local function events_of(what: string, events: {Htmx.Event}): string | nil, stri
   local detailed = false
   for _, event in ipairs(events) do
     local name = event.name
-    if not (name is string) or name == "" or name:find("[,\"'\\%z\1-\31\127]") then
-      return nil, "htmx: " .. what .. ": an event name is empty or holds a comma, a quote or a control byte"
+    if not (name is string) or name == "" or name:find("[,\"'\\%z\1-\31\127]") or
+        name:find("^{") then
+      return nil, "htmx: " .. what .. ": an event name is empty, starts with a brace or holds a comma, a quote or a control byte"
     end
     if event.detail ~= nil then detailed = true end
   end
   local parts: {string} = {}
   for i, event in ipairs(events) do
     if not detailed then
+      if event.name:find("[\128-\255]") then
+        return nil, "htmx: " .. what .. ": an event name without a detail holds a byte past ASCII"
+      end
       parts[i] = event.name
     else
       local key, key_why = header_json(what, event.name)
@@ -478,6 +492,9 @@ function Htmx.head(opts?: Htmx.HeadOptions): Html.SafeHtml
   if opts.prefix ~= nil and opts.prefix ~= "" and
       not (opts.prefix:find("^/[%w._~/-]*$") and not opts.prefix:find("^//") and opts.prefix:sub(-1) ~= "/") then
     error("htmx: head: the prefix is a path on this origin without a trailing slash, like /app", 2)
+  end
+  if opts.nonce ~= nil and opts.nonce:find("[%z\1-\31\127]") then
+    error("htmx: head: the nonce is text without a control byte", 2)
   end
   local json = assert(Html.json(config_of(opts)))
   -- Everything written here is the binary's own constants or has been

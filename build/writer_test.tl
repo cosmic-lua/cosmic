@@ -342,6 +342,32 @@ local function test_the_zones_ship_and_sign_the_projection(tmp: string)
   assert(kept[1][1] == "A/Zone blob,Test/Zone blob", kept[1][1])
 end
 
+--- The web assets the working database holds ship in the projection and
+--- the tool built from it, and are part of what it is a function of.
+local function test_the_web_assets_ship_and_sign_the_projection(tmp: string)
+  local out = tmp .. "/out.db"
+  local handle, result = build_and_write(tmp .. "/a", "world", out)
+  local before = projected(out)
+  assert(work.put_web_assets(handle, {
+    { name = "b.js", data = "bee\0", sha256 = "s2", sha384 = "t2", version = "2" },
+    { name = "a.js", data = "ay", sha256 = "s1", sha384 = "t1", version = "1" } }))
+  assert(writer.write_result(handle, out, result))
+  assert(work.close(handle))
+  assert(projected(out) ~= before, "new web assets sign a new projection")
+  local function listed(path: string): string
+    local db = assert(Sqlite.open(path))
+    local rows = assert(Sqlite.text_rows(db,
+      "SELECT group_concat(name || ' ' || typeof(data) || ' ' || length(data) || ' ' || " ..
+        "sha256 || ' ' || sha384 || ' ' || version, ',' ORDER BY name) FROM web_assets"))
+    assert(db:close())
+    return rows[1][1]
+  end
+  local expected = "a.js blob 2 s1 t1 1,b.js blob 4 s2 t2 2"
+  assert(listed(out) == expected, listed(out))
+  assert(writer.carried(out, tmp .. "/carried.db"))
+  assert(listed(tmp .. "/carried.db") == expected, listed(tmp .. "/carried.db"))
+end
+
 --- Of a projection's docs, uses and examples, the tool carries what a
 --- reader asks it for outside cosmic's own tree -- the public standard
 --- library's -- and, of every other doc row, those the catalog's

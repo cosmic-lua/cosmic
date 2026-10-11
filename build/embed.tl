@@ -211,11 +211,20 @@ function embed.database(project: string, main: string): string | nil, string
     -- TODO: carry them only for a project whose closure requires
     -- cosmic.web, as Store.seal does for the zones, once embed.database
     -- computes that closure.
-    copied, copy_trouble = copy_rows(binary, out, "web_assets",
-      { "name", "data", "sha256", "sha384", "version" },
-      "SELECT name, data, sha256, sha384, version FROM web_assets ORDER BY name")
-    if not copied then
-      return false, copy_trouble
+    -- A binary written before `web_assets` existed has no such table:
+    -- the program then carries none, and cosmic.web.htmx says to rebuild.
+    local has_web, web_trouble = Sqlite.text_rows(binary,
+      "SELECT 1 FROM sqlite_master WHERE name = 'web_assets'")
+    if has_web == nil then
+      return false, web_trouble
+    end
+    if #has_web > 0 then
+      copied, copy_trouble = copy_rows(binary, out, "web_assets",
+        { "name", "data", "sha256", "sha384", "version" },
+        "SELECT name, data, sha256, sha384, version FROM web_assets ORDER BY name")
+      if not copied then
+        return false, copy_trouble
+      end
     end
     -- The guidance a program's own errors can match: the standard
     -- library's own extracted rows. It never runs the build, so a row

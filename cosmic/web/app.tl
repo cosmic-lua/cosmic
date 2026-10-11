@@ -100,7 +100,7 @@ function App.new(spec: Types.AppSpec): Types.App
     end
   end
   local app: Types.App = { spec = kept, state = {}, stopped = false, stoppers = {} }
-  local router = Router.build(kept.routes, Errors.terminal, kept.trailing_slash)
+  local router = Router.build(kept.routes, Errors.terminal, kept.trailing_slash, kept.builtin)
   app.router = router
   local function dispatch(req: Types.Request): Types.Response
     local outcome = req.outcome

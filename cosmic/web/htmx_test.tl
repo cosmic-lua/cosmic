@@ -155,6 +155,7 @@ local function test_selectors_swaps_and_events_are_checked()
       { reswap = "innerHTMLx" }, { reswap = "" },
       { trigger = {} }, { trigger = { { name = "" } } }, { trigger = { { name = "a,b" } } },
       { trigger = { { name = "a\"b" } } }, { trigger = { { name = "a\nb" } } },
+      { trigger = { { name = "{\"a\":1}" } } }, { trigger = { { name = "caf\u{e9}" } } },
       { trigger = { { name = "ok", detail = { fn = print } } } },
   } as {Htmx.Reply}) do
     local res, why = applied(reply)
@@ -273,6 +274,10 @@ local function test_head_takes_a_nonce_a_prefix_and_the_overrides_it_names()
   assert(not markup:find('n"1', 1, true), "the nonce is escaped")
   assert(select(2, markup:gsub(" nonce=", "")) == 2, markup)
   assert(markup:find('src="/app/_web/htmx-', 1, true) and markup:find('src="/app/_web/htmx-ext-sse-', 1, true), markup)
+  for _, nonce in ipairs({ "a\nb", "a\0b", "a\rb", "a\127b" }) do
+    local ok, err = pcall(Htmx.head, { nonce = nonce })
+    assert(not ok and tostring(err):find("nonce", 1, true), nonce)
+  end
   for _, prefix in ipairs({ '"><script>x</script>', "app", "//evil.example", "/a b", "/app/" }) do
     local ok, err = pcall(Htmx.head, { prefix = prefix })
     assert(not ok and tostring(err):find("prefix", 1, true), prefix)
@@ -323,9 +328,9 @@ end
 local function test_other_paths_and_methods_under_the_prefix_are_refused()
   local client = Web.test_client(Web.app{})
   assert(client:get("/_web/nothing.js").status == 404)
-  assert(client:get("/_web").status == 404 or client:get("/_web").status == 308)
-  assert(client:get("/_web/").status == 404 or client:get("/_web/").status == 308)
-  assert(client:get(Htmx.path() .. "/").status == 404 or client:get(Htmx.path() .. "/").status == 308)
+  assert(client:get("/_web").status == 404)
+  assert(client:get("/_web/").status == 404)
+  assert(client:get(Htmx.path() .. "/").status == 404)
   assert(client:get("/_web/a/b").status == 404)
   local post = client:post(Htmx.path(), {})
   assert(post.status == 405 and post.headers["allow"] == "GET, HEAD")
@@ -340,6 +345,16 @@ local function test_a_root_catch_all_does_not_shadow_the_assets_and_builtin_fals
   assert(on:get("/_web/nothing").status == 404)
   local off = Web.test_client(Web.app{ routes = routes, builtin = false })
   assert(off:get(Htmx.path()).body == "catch-all")
+  -- The reservation is the built-in files': without them an app routes /_web/ itself.
+  local own: {Web.Route} = { Web.get("/_web/mine", function(_req: Web.Request): Web.Response
+    return Web.text("mine")
+  end), Web.mount("/_web/sub", { Web.get("/x", function(_req: Web.Request): Web.Response
+    return Web.text("sub")
+  end) }) }
+  local routed = Web.test_client(Web.app{ routes = own, builtin = false })
+  assert(routed:get("/_web/mine").body == "mine" and routed:get("/_web/sub/x").body == "sub")
+  local ok, err = pcall(Web.app, { routes = own })
+  assert(not ok and tostring(err):find("reserved", 1, true), tostring(err))
 end
 
 local function test_the_assets_arrive_through_the_middleware_of_the_app()

@@ -54,3 +54,23 @@ local function test_module_names_are_indexed_apart_from_their_payloads()
   assert(#missing == 0)
   assert(db:close())
 end
+
+local function digest_of(db: Sqlite.Handle, sql: string): string
+  return assert(Sqlite.text_rows(db, sql))[1][1]
+end
+
+--- The data tables' digest holds the web assets, and leaves them out for a
+--- database from before the table, which it then reads without error.
+local function test_tables_digest_holds_the_web_assets_and_reads_an_older_database()
+  local db = database()
+  local empty = digest_of(db, schema.tables_digest(""))
+  assert(db:exec("INSERT INTO web_assets VALUES ('a.js', X'01', 's', 't', '1')"))
+  local one = digest_of(db, schema.tables_digest(""))
+  assert(one ~= empty, "a web asset moved no digest")
+  assert(db:exec("UPDATE web_assets SET version = '2'"))
+  assert(digest_of(db, schema.tables_digest("")) ~= one, "a version moved no digest")
+  assert(db:exec("DROP TABLE web_assets"))
+  assert(Sqlite.text_rows(db, schema.tables_digest("")) == nil, "the table was read though absent")
+  local older = digest_of(db, schema.tables_digest("", false))
+  assert(older ~= empty and #older == 64)
+end

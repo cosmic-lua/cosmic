@@ -289,15 +289,20 @@ end
 --- `qualifier` names. `cosmic test` keys each verdict on it, computed
 --- from the running binary's own rows ([`build.test`]), so a test that
 --- read a zone or a root runs again on a binary that carries others.
-function schema.tables_digest(qualifier: string): string
+--- `web` false leaves the web assets out, for a database from before
+--- that table, which has none to read.
+function schema.tables_digest(qualifier: string, web?: boolean): string
+  local assets = ""
+  if web ~= false then
+    assets = " || char(10) || 'web_assets' || char(10) || coalesce((SELECT group_concat(name || ' ' || " ..
+      "version || ' ' || sha256, char(10) ORDER BY name) FROM " .. qualifier .. "web_assets), '')"
+  end
   return "SELECT lower(hex(sha256('zoneinfo' || char(10) || " ..
     "coalesce((SELECT group_concat(name || ' ' || lower(hex(sha256(data))), " ..
     "char(10) ORDER BY name) FROM " .. qualifier .. "zoneinfo), '') || char(10) || " ..
     "'ca_roots' || char(10) || coalesce((SELECT group_concat(lower(hex(sha256)) || " ..
     "' ' || lower(hex(label)) || ' ' || lower(hex(sha256(der))), char(10) " ..
-    "ORDER BY sha256, label, der) FROM " .. qualifier .. "ca_roots), '') || char(10) || " ..
-    "'web_assets' || char(10) || coalesce((SELECT group_concat(name || ' ' || version || " ..
-    "' ' || sha256, char(10) ORDER BY name) FROM " .. qualifier .. "web_assets), ''))))"
+    "ORDER BY sha256, label, der) FROM " .. qualifier .. "ca_roots), '')" .. assets .. ")))"
 end
 
 return schema

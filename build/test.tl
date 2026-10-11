@@ -828,7 +828,14 @@ local function binary_tables(): string | nil, string
     local databases = Store.databases()
     local binary = databases[#databases]
     if binary ~= nil then
-      rows, trouble = Sqlite.text_rows(binary, schema.tables_digest(""))
+      local has_web, web_trouble = Sqlite.text_rows(binary,
+        "SELECT 1 FROM sqlite_master WHERE name = 'web_assets'")
+      if has_web == nil then
+        trouble = web_trouble
+      else
+        -- A binary from before the table has no assets to key on.
+        rows, trouble = Sqlite.text_rows(binary, schema.tables_digest("", #has_web > 0))
+      end
     end
   end)
   if rows == nil then return nil, trouble end
@@ -2377,9 +2384,15 @@ local function write_sealed(sealing: Sealing, store: string, whole: string, out:
           "INSERT OR IGNORE INTO temp.extra (path) VALUES (?1)", { { text = name } })
         if not inserted then return false, insert_trouble end
       end
+      -- A program from before `web_assets` has no such table to carry.
+      local has_web, web_trouble = Sqlite.text_rows(db,
+        "SELECT 1 FROM program.sqlite_master WHERE name = 'web_assets'")
+      if has_web == nil then return false, web_trouble end
       for _, statement in ipairs(sealed_fill) do
-        local done, done_trouble = db:exec(statement)
-        if not done then return false, done_trouble end
+        if #has_web > 0 or not statement:find("program.web_assets", 1, true) then
+          local done, done_trouble = db:exec(statement)
+          if not done then return false, done_trouble end
+        end
       end
       for _, pair in ipairs(meta) do
         local inserted, insert_trouble = Sqlite.run(db,
