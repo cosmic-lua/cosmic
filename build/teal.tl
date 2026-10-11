@@ -1139,13 +1139,28 @@ local function never_value_hint(msg: string, source: string, y: integer): string
   if callee == nil then
     return nil
   end
-  local name = callee:match("([%a_][%w_]*)$")
-  if name == nil then
-    return nil
+  local function escaped(text: string): string
+    return (text:gsub("%p", "%%%0"))
   end
-  local never = callee == "error" or callee == "Proc.exit" or
-    source:find("function%s+[%w_%.:]-" .. name .. "%s*%b()%s*:%s*never%f[^%w_.<]") ~= nil or
-    source:find("%f[%w_]" .. name .. "%s*:%s*function%s*%b()%s*:%s*never%f[^%w_.<]") ~= nil
+  local never = false
+  if callee == "error" then
+    -- the standard one, unless the source binds a local of that name
+    never = source:find("local%s+function%s+error%f[^%w_]") == nil and
+      source:find("local%s+error%f[^%w_]") == nil
+  elseif callee == "Proc.exit" then
+    never = true
+  else
+    -- a declaration names the callee as written, `o.die` or `o:die`
+    -- alike; a bare name is only a bare name, and a field is declared
+    -- by its last segment.
+    local method = callee:gsub("%.([%w_]+)$", ":%1")
+    local plain = callee:gsub(":([%w_]+)$", ".%1")
+    local last = callee:match("[%.:]([%w_]+)$")
+    never = source:find("function%s+" .. escaped(plain) .. "%s*%b()%s*:%s*never%f[^%w_.<]") ~= nil or
+      source:find("function%s+" .. escaped(method) .. "%s*%b()%s*:%s*never%f[^%w_.<]") ~= nil or
+      (last ~= nil and
+        source:find("%f[%w_]" .. last .. "%s*:%s*function%s*%b()%s*:%s*never%f[^%w_.<]") ~= nil)
+  end
   if not never then
     return nil
   end

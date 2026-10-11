@@ -1277,6 +1277,17 @@ local function test_a_never_call_has_no_value_to_assign()
   assert(hint("local function nothing(m: string)\nend\nlocal x = nothing('a')\nprint(x)\n") == nil)
   assert(hint("local function fail(m: string): never\n  error(m)\nend\n" ..
       "local function other(m: string)\nend\nlocal x = other('a')\nprint(x)\n") == nil)
+  -- a longer name that ends in the callee's is another function
+  assert(hint("local function xfail(m: string): never\n  error(m)\nend\n" ..
+      "local function fail(m: string)\nend\nlocal x = fail('a')\nprint(x)\n") == nil)
+  -- a field is not the bare name it shares its last segment with
+  assert(hint("local function fail(m: string): never\n  error(m)\nend\n" ..
+      "local o = { fail = function(m: string) end }\nlocal x = o.fail('a')\nprint(x)\n") == nil)
+  local dotted = hint("local o = {}\nfunction o.fail(m: string): never\n  error(m)\nend\n" ..
+      "local x = o.fail('a')\nprint(x)\n")
+  assert(dotted ~= nil and dotted:find("`o.fail` never returns", 1, true) ~= nil, tostring(dotted))
+  -- a local that hides the standard error
+  assert(hint("local function error(m: string)\nend\nlocal x = error('a')\nprint(x)\n") == nil)
 end
 
 --- A record's method refused against an interface method with an unnamed
