@@ -176,7 +176,7 @@ assert(reply.status == 422 and reply.text:find("qty", 1, true))
   headers and CSP).
 - `cosmic.web.htmx`: HX-* request headers, HX-* response headers,
   `Htmx.page` (fragment or whole page, `Vary: HX-Request`), `Htmx.head`.
-- `cosmic.web.static` and `cosmic.web.assets`: `StaticFiles` over
+- [`cosmic.web.static`] and [`cosmic.web.assets`]: `StaticFiles` over
   embedded or on-disk assets, fingerprinted URLs.
 - `cosmic.web.sse`: `Event`, `EventStream`, `Hub`.
 - `cosmic.web.testing`: the in-process client and the loopback one.
@@ -343,6 +343,8 @@ cooperative process.
 [`Conn:peer`]: ../../cosmic/internal/connection.tl
 [`cosmic.channel`]: ../../cosmic/channel.tl
 [`cosmic.http.wire`]: ../../cosmic/http/wire.tl
+[`cosmic.web.assets`]: ../../cosmic/web/assets.tl
+[`cosmic.web.static`]: ../../cosmic/web/static.tl
 [`cosmic.web`]: ../../cosmic/web/init.tl
 [`Hash.equal`]: ../../cosmic/hash.tl
 [`Html.url_part`]: ../../cosmic/html.tl

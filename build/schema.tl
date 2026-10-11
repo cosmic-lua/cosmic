@@ -71,11 +71,17 @@ local tables: {{string}} = {
   { "decls", [[(path TEXT PRIMARY KEY,
                 source BLOB NOT NULL) WITHOUT ROWID]] },
 
-  -- TODO: nothing writes payload, which doc/design.md says holds an
-  -- embed-built executable's own files: have build/embed.tl carry a
-  -- project's files here, or drop the table and the doc's line.
+  -- A project's static assets ([`Layout.static`]), one row per
+  -- file under `static/`: `path` relative to it ("css/app.css"), the
+  -- bytes, their lowercase hex SHA-256, the Content-Type
+  -- ([`cosmic.mime`]), and the gzip of the bytes when that is worth
+  -- sending ([`Mime.gzip`]), else NULL. [`cosmic.web.assets`] reads it
+  -- from the program's own database.
   { "payload", [[(path TEXT PRIMARY KEY,
-                  data BLOB NOT NULL) WITHOUT ROWID]] },
+                  data BLOB NOT NULL,
+                  sha256 TEXT NOT NULL,
+                  type TEXT NOT NULL,
+                  gzip BLOB) WITHOUT ROWID]] },
 
   -- The IANA time zone database, one TZif file per zone name, which
   -- [`cosmic.time`] reads where the host has no zone files of its own.

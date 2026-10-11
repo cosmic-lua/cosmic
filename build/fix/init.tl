@@ -173,9 +173,10 @@ end
 
 --- What is never a file to fix: the build's own output, the upstream
 --- sources and the records that patch them, the C core, the one shell
---- script that fetches zig, and anything hidden.
+--- script that fetches zig, a project's static assets, and anything hidden.
 local not_source: {string:boolean} = {
   ["o"] = true,
+  ["static"] = true,
   ["vendor"] = true,
   ["patch"] = true,
   ["bin"] = true,
@@ -483,10 +484,19 @@ function fix.chosen(root: string, paths: {string}): fix.Chosen | nil, string
   local checked_out: {string} = {}
   local templates_out: {string} = {}
   local refused: {string} = {}
+  local static_root, _ = Fs.absolute(root .. "/static")
   for _, path in ipairs(paths) do
     local what, missing = Fs.stat(path)
+    local real: string = nil
+    if what ~= nil then
+      local resolved, _ = Fs.absolute(path)
+      real = resolved
+    end
     if what == nil then
       refused[#refused + 1] = missing
+    elseif static_root ~= nil and real ~= nil and
+        (real == static_root or real:sub(1, #static_root + 1) == static_root .. "/") then
+      refused[#refused + 1] = path .. ": under static/, which is carried verbatim, not laid out"
     elseif what.kind == "dir" then
       local under, trouble = sources(path)
       if under == nil then

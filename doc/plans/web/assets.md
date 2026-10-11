@@ -19,13 +19,13 @@ Code is cited as `path:line` from the tree at the time of writing.
 ## 0. Decisions at a glance
 
 - Static files live in a top-level `static/` directory of a project
-  (`Layout.static`). They are staged by the build like a `.tmpl`, recorded
+  ([`Layout.static`]). They are staged by the build like a `.tmpl`, recorded
   with their SHA-256, and carried in the project's one executable in the
   `payload` table the schema already reserves
   (build/schema.tl:74-78, doc/design.md:412). They are read at run time
   through the project's database; a dev mode reads the directory instead.
-- `StaticFiles` (`cosmic.web.static`) is a `Mount`-able handler built on a
-  new `Assets` source (`cosmic.web.assets`). It answers GET and HEAD with strong ETags from the build-time
+- `StaticFiles` ([`cosmic.web.static`]) is a `Mount`-able handler built on a
+  new `Assets` source ([`cosmic.web.assets`]). It answers GET and HEAD with strong ETags from the build-time
   hash, `If-None-Match` through [`Server.none_match`], `Range` through
   [`Server.range`], a stored gzip variant, immutable fingerprinted URLs
   (`/static/app.3f9a1c8e2b.css`), and refuses traversal through
@@ -274,7 +274,7 @@ Sealed test workers: a sandboxed test worker without `store = true` runs
 on a sealed database that holds only its closure's modules
 (AGENTS.md, "A worker whose module declares neither `store` nor
 `tool`"), so `payload` rows are not there. Tests of `StaticFiles` use
-`Assets.memory` or `Assets.directory(tmp)`; the one test of the embedded
+[`Assets.memory`] or `Assets.directory(tmp)`; the one test of the embedded
 source is a `store = true` test in a module of its own (as AGENTS.md
 asks for such tests) that builds a project in a temp directory
 ([`build.confine`]/project fixtures), runs `cosmic build` on it and
@@ -304,7 +304,7 @@ the wrong files. Embedded wins unless dev is asked for.
 - Build: [`work.stage`] reads it into `files`; `derive_assets` adds its
   type and gzip; the writer puts a `payload` row in `cosmic.db`;
   `cosmic build` copies the row into the executable's database.
-- Run: `Assets.default()` selects embedded or directory; `StaticFiles`
+- Run: [`Assets.default()`] selects embedded or directory; `StaticFiles`
   answers requests from it; templates ask `url_for` for fingerprinted
   names.
 - The vendored htmx follows the same road from `vendor/htmx` to the
@@ -521,7 +521,7 @@ gzip` so that middleware skips them. It must also skip `text/event-stream`
 - Directory mode joins [`Url.segments`] output to the root. The function's
   own comment says a symlink inside `root` can still climb out
   (cosmic/url.tl:121-126). Directory mode is therefore a development
-  feature and `Assets.directory` documents that it must never serve
+  feature and [`Assets.directory`] documents that it must never serve
   directories that contain user-supplied files. The Landlock-style sandbox
   of the process is the second defense, not the first.
 - Case: embedded lookup is exact. On a case-insensitive disk (macOS dev
@@ -681,7 +681,7 @@ construction error, core.md section 5.5). Responses carry `Content-Type:
 text/javascript; charset=utf-8`, `ETag`, `Cache-Control: public,
 max-age=31536000, immutable`, `Cross-Origin-Resource-Policy: same-origin`
 and `X-Content-Type-Options: nosniff`. Both are served from a
-`memory` `Assets.Source` built from `Store.web_asset`, so `StaticFiles`'s
+`memory` [`Assets.Source`] built from `Store.web_asset`, so `StaticFiles`'s
 whole algorithm applies unchanged (ETag, 304, Range, gzip computed once at
 first use with [`Compress.deflate`] and kept).
 
@@ -1412,7 +1412,7 @@ Estimate: the seam is about 60 lines plus tests; the ws module about
 
 All small; each with its reason.
 
-- cosmic/layout.tl: `Layout.static` and its value (section 1.1).
+- cosmic/layout.tl: [`Layout.static`] and its value (section 1.1).
 - build/identity.tl `is_input` (line 186): accept `static/` files for a
   project tree.
 - build/derivation.tl: `derive_assets` (type, gzip, size limits, name rules)
@@ -1433,7 +1433,7 @@ All small; each with its reason.
   [`Server.serve`] (line 106-146, 597; core.md section 13.7); `Reply.take`
   seam later.
 - cosmic/web/mime.tl, cosmic/web/assets.tl (support modules),
-  cosmic/web/static.tl (`cosmic.web.static`), cosmic/web/sse.tl
+  cosmic/web/static.tl ([`cosmic.web.static`]), cosmic/web/sse.tl
   (`cosmic.web.sse`: `Event`, `EventStream`, `Hub`, `Subscription`) and
   cosmic/web/dev.tl (`cosmic.web.dev`): new, under the [`cosmic.web`]
   namespace. [`cosmic/web/init.tl`] re-exports. `Htmx.head`, `Htmx.path`,
@@ -1462,7 +1462,7 @@ runs on `127.0.0.1`-range addresses only.
 - cosmic/web/assets_test.tl: memory and directory sources, hit/miss,
   re-read on change, symlink behavior documented, hash and etag, gzip,
   integrity value equals a fixed known SHA-384 of fixed bytes.
-- cosmic/web/static_test.tl: against `Assets.memory`, driven through the
+- cosmic/web/static_test.tl: against [`Assets.memory`], driven through the
   handler directly (no socket): 200, HEAD, 304 by ETag and `*` and weak
   match, 206/416/whole by Range and `If-Range`, traversal inputs
   (`/..%2f`, `/%2e%2e/`, `//`, `/./`, NUL, over-long, dotfile), fingerprint
@@ -1584,6 +1584,10 @@ parts, multi-process hub.
 14. Should `Hub` be per-App or global? Recommend explicit values (no
     hidden globals), registered with the App for shutdown.
 
+[`Assets.default()`]: ../../../cosmic/web/assets.tl
+[`Assets.directory`]: ../../../cosmic/web/assets.tl
+[`Assets.memory`]: ../../../cosmic/web/assets.tl
+[`Assets.Source`]: ../../../cosmic/web/assets.tl
 [`bin/vendor`]: ../../../bin/vendor
 [`build.confine`]: ../../../build/confine.tl
 [`build/embed.tl`]: ../../../build/embed.tl
@@ -1602,6 +1606,8 @@ parts, multi-process hub.
 [`cosmic.internal.store`]: ../../../cosmic/internal/store.d.tl
 [`cosmic.sqlite`]: ../../../cosmic/sqlite.tl
 [`cosmic.sys`]: ../../../core/syscalls.h
+[`cosmic.web.assets`]: ../../../cosmic/web/assets.tl
+[`cosmic.web.static`]: ../../../cosmic/web/static.tl
 [`cosmic.web`]: ../../../cosmic/web/init.tl
 [`cosmic/web/init.tl`]: ../../../cosmic/web/init.tl
 [`Fs.stat`]: ../../../cosmic/fs.tl
@@ -1611,6 +1617,7 @@ parts, multi-process hub.
 [`Http.get`]: ../../../cosmic/http/init.tl
 [`Http.request`]: ../../../cosmic/http/init.tl
 [`identity.skip_input`]: ../../../build/identity.tl
+[`Layout.static`]: ../../../cosmic/layout.tl
 [`link_files.skipper`]: ../../../build/link_files.tl
 [`Net.Conn`]: ../../../cosmic/net.tl
 [`Net.connect`]: ../../../cosmic/net.tl

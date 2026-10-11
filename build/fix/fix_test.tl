@@ -670,3 +670,22 @@ local function test_a_plain_span_would_link_and_a_fix_links_it(tmp: string)
   local again = fix.links(context, built, { root .. "/a.md" }, "check")
   assert(#again.would == 0 and #again.broken == 0, table.concat(again.would, "\n"))
 end
+
+--- A project's `static/` is carried verbatim: no Teal, template, Markdown
+--- or other file under it is laid out, parsed or link-checked, whether the
+--- run names it or the whole tree.
+local function test_nothing_under_static_is_chosen(tmp: string)
+  assert(Fs.mkdirs(tmp .. "/static/docs"))
+  assert(Fs.write(tmp .. "/static/a.tl", "this is   not Teal {{\n"))
+  assert(Fs.write(tmp .. "/static/p.tmpl", "{{ unclosed\n"))
+  assert(Fs.write(tmp .. "/static/docs/readme.md", "[dead](nowhere.md)\n"))
+  assert(Fs.write(tmp .. "/main.tl", "return 1\n"))
+  local every = assert(fix.chosen(tmp, {}))
+  assert(#every.files == 1 and every.files[1] == "main.tl", table.concat(every.files, " "))
+  assert(#every.templates == 0 and #every.checked == 0 and #every.refused == 0)
+  for _, path in ipairs({ tmp .. "/static", tmp .. "/static/a.tl", tmp .. "/static/docs/readme.md" }) do
+    local named = assert(fix.chosen(tmp, { path }))
+    assert(#named.files == 0 and #named.templates == 0 and #named.checked == 0, path)
+    assert(#named.refused == 1 and named.refused[1]:find("carried verbatim", 1, true), path)
+  end
+end
