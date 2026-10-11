@@ -1,0 +1,24 @@
+file: tf-psa-crypto/core/tf_psa_crypto_common.h
+note: a file that leaves out <arm_neon.h> (01-neon-header-opt-out) would
+  silently take mbedtls_xor()'s scalar path, slower than the NEON one,
+  if it called it. The name is poisoned there instead, so a call is an
+  error whatever the warning flags, and a file that comes to use
+  mbedtls_xor() has to be taken off build.zig's list of those without
+  the header.
+--- find
+        r[i] = a[i] ^ b[i];
+    }
+}
+
+/* Always inline mbedtls_xor_no_simd() as we see significant perf regressions when it does not get
+--- replace
+        r[i] = a[i] ^ b[i];
+    }
+}
+
+#if defined(COSMIC_NO_NEON_HEADER)
+#pragma GCC poison mbedtls_xor
+#endif
+
+/* Always inline mbedtls_xor_no_simd() as we see significant perf regressions when it does not get
+--- end

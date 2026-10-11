@@ -184,9 +184,10 @@ const mbedtls_config = [_][]const u8{
 /// `library/`. Server-only (`ssl_tls12_server.c`, `ssl_tls13_server.c`),
 /// session-cache/ticket/cookie, DTLS, CRL and certificate-writing sources
 /// are left out: nothing here serves, resumes from a ticket, or signs.
+/// `ssl_msg.c`, which reads <arm_neon.h> where the rest do not, is listed
+/// beside them in [`vendorLibraries`].
 const mbedtls_tls_sources = [_][]const u8{
     "ssl_tls.c",
-    "ssl_msg.c",
     "ssl_ciphersuites.c",
     "ssl_client.c",
     "ssl_tls12_client.c",
@@ -1601,6 +1602,17 @@ fn vendorLibraries(
     // [`mbedtls_config`]). The crypto files below are the ones that hold
     // code under that configuration; every other one compiles to nothing.
     const mbedtls_flags = [_][]const u8{ "-std=c11", debug_dir } ++ mbedtls_config;
+    // <arm_neon.h> is slow to parse, and on aarch64 nearly every file
+    // reads it. Only the files compiled with `mbedtls_flags` below use
+    // it; the rest leave it out (patch/mbedtls) and make the same
+    // objects. A call to mbedtls_xor() in one of them is a compile error,
+    // but NEON code behind MBEDTLS_HAVE_NEON_INTRINSICS would compile to
+    // its scalar path unnoticed.
+    // TODO: hold the list below to what the objects say, with a check
+    // that compiles each file without the header for both aarch64
+    // targets and refuses one whose object differs, run where the
+    // cores are built.
+    const mbedtls_flags_no_neon = mbedtls_flags ++ [_][]const u8{"-DCOSMIC_NO_NEON_HEADER"};
     const mbedtls_part = vendorPart(b, &libraries, configuration, target, "mbedtls", &(cryptoIncludes(b, crypto, &crypto_include_dirs) ++ [_]std.Build.LazyPath{
         mbedtls.path(b, "include"),
         mbedtls.path(b, "library"),
@@ -1619,9 +1631,7 @@ fn vendorLibraries(
             // Digests, MACs, and the PSA cipher and AEAD drivers.
             "drivers/builtin/src/md5.c",
             "drivers/builtin/src/sha1.c",
-            "drivers/builtin/src/sha256.c",
             "drivers/builtin/src/sha3.c",
-            "drivers/builtin/src/sha512.c",
             "drivers/builtin/src/psa_crypto_aead.c",
             "drivers/builtin/src/psa_crypto_cipher.c",
             "drivers/builtin/src/psa_crypto_ecp.c",
@@ -1646,17 +1656,12 @@ fn vendorLibraries(
             // Record protection. aesni.c holds the x86_64 AES-NI path
             // and aesce.c the Armv8 one; each is empty on the other
             // architecture. On aarch64, chacha20_neon.c holds the
-            // NEON-multiblock update() and is empty elsewhere.
-            "drivers/builtin/src/aes.c",
+            // NEON-multiblock update() and is empty elsewhere. Those two,
+            // aes.c, gcm.c and chacha20.c are in the NEON list below.
             "drivers/builtin/src/aesni.c",
-            "drivers/builtin/src/aesce.c",
-            "drivers/builtin/src/gcm.c",
-            "drivers/builtin/src/chacha20.c",
-            "drivers/builtin/src/chacha20_neon.c",
             "drivers/builtin/src/chachapoly.c",
             "drivers/builtin/src/poly1305.c",
             // Certificate public keys and the encodings under them.
-            "extras/md.c",
             "extras/pk.c",
             "extras/pkparse.c",
             "extras/pk_wrap.c",
@@ -1668,11 +1673,35 @@ fn vendorLibraries(
             "utilities/pem.c",
             "utilities/oid.c",
         },
+        .flags = &mbedtls_flags_no_neon,
+    });
+    // The files that read <arm_neon.h>: the NEON and Armv8 crypto
+    // intrinsics (aesce.c and chacha20_neon.c, and the Armv8 SHA paths
+    // of sha256.c and sha512.c, which this configuration leaves off but
+    // a change to it could turn on), aes.c, which calls aesce.c's, and
+    // the callers of mbedtls_xor(), whose NEON path is the fast one.
+    mbedtls_part.addCSourceFiles(.{
+        .root = crypto,
+        .files = &.{
+            "drivers/builtin/src/aes.c",
+            "drivers/builtin/src/aesce.c",
+            "drivers/builtin/src/chacha20.c",
+            "drivers/builtin/src/chacha20_neon.c",
+            "drivers/builtin/src/gcm.c",
+            "drivers/builtin/src/sha256.c",
+            "drivers/builtin/src/sha512.c",
+            "extras/md.c",
+        },
         .flags = &mbedtls_flags,
     });
     mbedtls_part.addCSourceFiles(.{
         .root = mbedtls.path(b, "library"),
         .files = &mbedtls_tls_sources,
+        .flags = &mbedtls_flags_no_neon,
+    });
+    mbedtls_part.addCSourceFiles(.{
+        .root = mbedtls.path(b, "library"),
+        .files = &.{"ssl_msg.c"},
         .flags = &mbedtls_flags,
     });
 
