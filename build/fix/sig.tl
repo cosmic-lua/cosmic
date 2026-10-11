@@ -132,10 +132,11 @@ end
 --- @param list Node The argument list, whose `)` anchors the region
 --- @param by integer The line of the first token after the types
 --- @param bx integer That token's column
+--- @param never boolean | nil Whether the list is `never`, which has no types
 local function returns(c: Ctx, rets: TypeNode, list: Node, by: integer,
-                       bx: integer)
+                       bx: integer, never: boolean | nil)
   local declared = rets.tuple
-  if declared == nil or #declared == 0 then
+  if (declared == nil or #declared == 0) and not never then
     return
   end
   local close = typescan.index_at(c.scan, list.yend or list.y, list.xend or list.x)
@@ -152,7 +153,7 @@ end
 local record SigModule
   typeargs: function(c: Ctx, anchor: integer | nil)
   arguments: function(c: Ctx, list: Node)
-  returns: function(c: Ctx, rets: TypeNode, list: Node, by: integer, bx: integer)
+  returns: function(c: Ctx, rets: TypeNode, list: Node, by: integer, bx: integer, never: boolean | nil)
 end
 
 local M: SigModule = {
