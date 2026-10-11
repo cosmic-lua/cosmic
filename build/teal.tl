@@ -1251,17 +1251,32 @@ local function narrowing_hint(msg: string, source: string): string | nil
   if given == nil then
     given, wanted = msg:match("^in [%a ]+: got (.+), expected (.+)$")
   end
-  -- A value that may be nil is handed on where nil is not taken
-  -- without a refusal, so only `any` is answered here.
+  -- A value that may be nil is refused as an argument of `table.insert`
+  -- and `table.concat` alone (patch/tl 51c), where the type expected is
+  -- the value's own, less the nil; other calls answer only `any`.
   if given ~= nil and wanted ~= nil and untyped(given) then
     local expected = type_members(wanted)
     return untyped_answer("the value", "value", source,
       #expected == 1 and expected[1] or table.concat(expected, " | "))
   end
+  if given ~= nil and wanted ~= nil and one_or_nil(given) and type_members(given)[1] == wanted then
+    return nil_answer("the argument", "value")
+  end
+  -- A unary operator's operand that may be nil (patch/tl 51b).
+  local operand = msg:match("^cannot use operator '.-' on type (.+)$")
+  if operand ~= nil and one_or_nil(operand) then
+    return nil_answer("the operand", "value")
+  end
   -- The first " and " parts the operands: only a string literal's type
   -- (`string "a and b"`) holds one, and parting there at worst says
   -- nothing of a union it misses.
   local left, right = msg:match("^cannot use operator '.-' for types (.-) and (.+)$")
+  if left ~= nil and one_or_nil(left) then
+    return nil_answer("the left operand", "value")
+  end
+  if right ~= nil and one_or_nil(right) then
+    return nil_answer("the right operand", "value")
+  end
   if left ~= nil and (#type_members(left) > 1 or #type_members(right) > 1) then
     return "an operand is a union: narrow it first, as `if v is string then ... end` " ..
       "or `type(v) == \"string\"` does"
@@ -1986,7 +2001,7 @@ function teal.replacement(msg: string, source: string, y: integer, x: integer,
   if given == "boolean" and owner ~= nil and option ~= nil then
     local module = module_bound(source, owner)
     local removed = module ~= nil and catalog() or nil
-    local instead = removed ~= nil and removed.arguments[module .. "." .. option] or nil
+    local instead = module ~= nil and removed ~= nil and removed.arguments[module .. "." .. option] or nil
     if instead ~= nil then
       return owner .. "." .. option .. " replaced a boolean argument: " .. instead
     end
@@ -2019,7 +2034,7 @@ function teal.replacement(msg: string, source: string, y: integer, x: integer,
   if key ~= nil then
     local module = module_bound(source, typename)
     local removed = module ~= nil and catalog() or nil
-    local instead = removed ~= nil and removed.members[module .. "." .. key] or nil
+    local instead = module ~= nil and removed ~= nil and removed.members[module .. "." .. key] or nil
     if instead ~= nil then
       return alias .. "." .. key .. " was removed: " .. instead
     end

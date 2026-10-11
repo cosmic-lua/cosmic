@@ -1,0 +1,14 @@
+file: tl.tl
+note: a field fact's base variable is read for its type when the fact is applied, and in `if m ~= nil and m.f ~= nil` the base `m` is still the nil union it was declared as, so `m.f` cannot be resolved and the fact is dropped silently: `m.f` stayed a nil union in the branch. The fact for `m.f` is only built after the read of `m.f` proved `m` is not nil, so the base is read without its nil member
+--- find
+      local base = self:find_var_type(string.sub(f.var, 1, dot - 1), "check_only")
+      if not base then
+         return nil
+      end
+--- replace
+      local base = self:find_var_type(string.sub(f.var, 1, dot - 1), "check_only")
+      if not base then
+         return nil
+      end
+      base = without_nil(self, f.w, base, false) or base
+--- end

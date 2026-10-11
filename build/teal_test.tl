@@ -2003,3 +2003,96 @@ local function test_an_optional_field_may_be_named_for_a_declaration_word()
   end
   assert_accepted("local record R\n  userdata\n  type?: string\n  record Inner\n    x?: integer\n  end\nend\nprint(R)\n")
 end
+
+--- A value that may be nil, whatever holds it, is no operand of `..`,
+--- `#`, arithmetic, a bit operator or an ordered comparison (patch/tl's
+--- 50b): the operator raises at run time when it is nil.
+local function test_an_operand_that_may_be_nil_is_refused()
+  local head = "local record R\n  name?: string\n  n?: integer\n  items?: {string}\nend\n" ..
+    "local r: R = {}\nlocal function find(): string | nil return nil end\n" ..
+    "local function count(): integer | nil return nil end\nlocal s = find()\nlocal n = count()\n"
+  for _, use in ipairs({
+      "s .. 'x'", "'x' .. s", "r.name .. 'x'", "'x' .. r.name", "#s", "#r.items", "-r.n", "~r.n",
+      "r.n + 1", "1 + r.n", "n * 2", "r.n // 2", "r.n % 2", "r.n ^ 2", "r.n & 1", "r.n << 1",
+      "r.n < 3", "3 <= r.n", "r.n > 3", "3 >= r.n", "r.name < 'a'", "s .. s",
+  }) do
+    assert_refused(head .. "print(" .. use .. ")\n", "cannot use operator")
+  end
+  assert_refused(head .. "print(#s)\n", "cannot use operator '#' on type string | nil")
+  assert_refused(head .. "print(s .. 'x')\n", "for types string | nil and string")
+end
+
+--- What narrows a nil-admitting operand stays accepted: a guard, an
+--- `assert`, a default, a comparison with nil, and a value that is not a
+--- union with nil (`any` among them).
+local function test_a_narrowed_operand_is_accepted()
+  local head = "local record R\n  name?: string\n  n?: integer\n  items?: {string}\nend\n" ..
+    "local r: R = {}\nlocal function find(): string | nil return nil end\n" ..
+    "local s = find()\nlocal a: any = 1\n"
+  assert_accepted(head .. "if s then\n  print(s .. 'x', #s)\nend\n")
+  assert_accepted(head .. "if s ~= nil then\n  print('x' .. s)\nend\n")
+  assert_accepted(head .. "if s == nil then return end\nprint(s .. 'x', #s)\n")
+  assert_accepted(head .. "assert(s)\nprint(s .. 'x')\n")
+  assert_accepted(head .. "local t = assert(find())\nprint(t .. 'x')\n")
+  assert_accepted(head .. "print((s or '') .. 'x', #(r.items or {}), (r.n or 0) + 1)\n")
+  assert_accepted(head .. "if r.n then\n  print(r.n + 1, r.n < 3)\nend\n")
+  assert_accepted(head .. "if r.n ~= nil and r.n > 1 then\n  print(r.n - 1)\nend\n")
+  assert_accepted(head .. "if r.items then\n  print(#r.items)\nend\n")
+  assert_accepted(head .. "print(s == nil, s ~= 'a', not s, s and #s, s or 'none')\n")
+  assert_accepted(head .. "print(a .. 'x', a + 1, a < 2, -a)\n")
+  assert_accepted(head .. "local plain: string = 'p'\nprint(plain .. 'x', #plain)\n")
+end
+
+--- A field fact is read against its base without the nil the field's
+--- read proved away (patch/tl's 51a): `m ~= nil and m.f ~= nil` narrows
+--- `m.f` for a base that is itself a union with nil.
+local function test_a_field_guard_after_its_nil_base_check_narrows()
+  local head = "local record Node\n  tk?: string\n  e2?: Node\nend\n" ..
+    "local function f(owner: Node): string\n  local m = owner.e2\n"
+  assert_accepted(head .. "  if m ~= nil and m.tk ~= nil then\n    return '.' .. m.tk\n  end\n  return ''\nend\nprint(f)\n")
+  assert_accepted(head .. "  if m and m.tk then\n    return '.' .. m.tk\n  end\n  return ''\nend\nprint(f)\n")
+  assert_refused(head .. "  if m ~= nil then\n    return '.' .. m.tk\n  end\n  return ''\nend\nprint(f)\n",
+    "cannot use operator '..'")
+  assert_refused(head .. "  if m.tk ~= nil then\n    return ''\n  end\n  return ''\nend\nprint(f)\n",
+    "cannot index key 'tk' in variable 'm' of type Node | nil")
+end
+
+--- A value that may be nil is no argument of `table.insert` or
+--- `table.concat` where the list it joins or extends takes none
+--- (patch/tl's 51c).
+local function test_a_table_argument_that_may_be_nil_is_refused()
+  local head = "local record R\n  name?: string\n  items?: {string}\nend\nlocal r: R = {}\n" ..
+    "local function find(): string | nil return nil end\nlocal s = find()\n" ..
+    "local list: {string} = {}\n"
+  for _, use in ipairs({
+      "table.insert(list, s)", "table.insert(list, r.name)", "table.insert(list, 1, s)",
+      "table.insert(r.items, 'x')", "print(table.concat(r.items, ','))",
+  }) do
+    assert_refused(head .. use .. "\n", "argument")
+  end
+  assert_refused(head .. "table.insert(list, s)\n", "argument 2: got string | nil, expected string")
+  assert_accepted(head .. "if s then\n  table.insert(list, s)\nend\n")
+  assert_accepted(head .. "assert(s)\ntable.insert(list, s)\n")
+  assert_accepted(head .. "table.insert(list, s or 'none')\n")
+  assert_accepted(head .. "table.insert(assert(r.items), 'x')\nprint(table.concat(r.items or {}, ','))\n")
+  assert_accepted(head .. "if r.items then\n  print(table.concat(r.items, ','))\nend\n")
+  assert_accepted(head .. "local maybe: {string | nil} = {}\ntable.insert(maybe, s)\n")
+  assert_accepted(head .. "local anything: {any} = {}\ntable.insert(anything, s)\n")
+end
+
+--- A refusal of a value that may be nil tells the check that drops it.
+local function test_a_nil_operand_or_argument_is_told_the_check()
+  local head = "local function find(): string | nil return nil end\nlocal s = find()\n" ..
+    "local list: {string} = {}\n"
+  local left = "the left operand may be nil: check it first (`if value == nil then return nil, err end`), " ..
+    "or, where a call answers it, take it with `local value = assert(<the call>)`"
+  local right = (left:gsub("left", "right"))
+  answers(head .. "print(s .. 'x')\n", "cannot use operator '..' for types string | nil and string \"x\"", left)
+  answers(head .. "print('x' .. s)\n", "cannot use operator '..' for types string \"x\" and string | nil", right)
+  answers(head .. "print(#s)\n", "cannot use operator '#' on type string | nil",
+    "the operand may be nil: check it first (`if value == nil then return nil, err end`), " ..
+      "or, where a call answers it, take it with `local value = assert(<the call>)`")
+  answers(head .. "table.insert(list, s)\n", "argument 2: got string | nil, expected string",
+    "the argument may be nil: check it first (`if value == nil then return nil, err end`), " ..
+      "or, where a call answers it, take it with `local value = assert(<the call>)`")
+end

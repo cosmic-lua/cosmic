@@ -1,0 +1,22 @@
+file: tl.tl
+note: an operand of `..`, `#`, `-`, arithmetic, a bit operator or an ordered comparison (`<`, `<=`, `>`, `>=`) whose type is a union carrying nil is refused, as an index of one is. nil is a subtype of every type, and the operator tables are keyed by the operand's structural type with a union squashed to its non-nil members, so `s .. "x"` for a `string | nil` was accepted and raised at run time when `s` was nil. The refusal is the operator's own message, which the hint in build/teal.tl turns into the check that drops the nil. `==` and `~=` compare nil fine, and `and`, `or` and `not` take any value, so they are left alone; `any`, an unknown and a type variable are not unions with nil, and keep passing
+--- find
+            if node.op.arity == 1 and unop_types[node.op.op] then
+               if ra is UnionType then
+--- replace
+            do
+               local op = node.op.op
+               if op ~= "or" and ((node.op.arity == 1 and unop_types[op]) or (node.op.arity == 2 and binop_types[op])) then
+                  if node.op.arity == 1 then
+                     if without_nil(self, node, ua, false) ~= nil then
+                        return self.errs:invalid_at(node, "cannot use operator '" .. op:gsub("%%", "%%%%") .. "' on type %s", ua)
+                     end
+                  elseif without_nil(self, node, ua, false) ~= nil or without_nil(self, node, ub, false) ~= nil then
+                     return self.errs:invalid_at(node, "cannot use operator '" .. op:gsub("%%", "%%%%") .. "' for types %s and %s", ua, ub)
+                  end
+               end
+            end
+
+            if node.op.arity == 1 and unop_types[node.op.op] then
+               if ra is UnionType then
+--- end

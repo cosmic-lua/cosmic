@@ -1,0 +1,35 @@
+file: tl.tl
+note: an argument of `table.insert` or `table.concat` whose type is a union carrying nil is refused where the parameter, with its type variables bound by the arguments before it, does not take nil. nil is a subtype of every type, so `table.insert(list, name)` for a `string | nil` was accepted: it appends nothing and `table.concat` raises at run time on a nil element or list. These two are named because they are the standard calls that fail in this way and every site they hit was measured and fixed; any other call keeps accepting nil for a parameter that does not take it (doc/roadmap.md has the rest). A parameter that is a type variable not yet bound takes the argument's type, nil included, and one of `any` or a union with nil takes it too
+--- find
+                     if not self:arg_check(iw, errs, x, y, v, mode, pos) then
+                        return nil, errs
+                     end
+--- replace
+                     if not self:arg_check(iw, errs, x, y, v, mode, pos) then
+                        return nil, errs
+                     end
+                     -- TODO: refuse the argument of every call whose parameter does not
+                     -- take nil, not only of these two functions: 791 other sites in
+                     -- 178 files (328 of them in tests) pass a `T | nil` to such a
+                     -- parameter, and 707 in 101 files (649 in tests, which check an
+                     -- argument's refusal that way) pass a literal nil.
+                     if mode == "argument" and v == "contravariant" then
+                        local call = w as Node
+                        local callee: Node
+                        if call.kind == "op" then
+                           callee = call.e1
+                        end
+                        if callee and callee.kind == "op" and callee.op.op == "." and
+                           callee.e1.kind == "variable" and callee.e1.tk == "table" and
+                           (callee.e2.tk == "insert" or callee.e2.tk == "concat") then
+                           local taken = x
+                           if taken is TypeVarType then
+                              taken = self:find_var_type(taken.typevar)
+                           end
+                           if taken and without_nil(self, iw, y, false) ~= nil and not admits_nil(self, iw, taken) then
+                              self.errs:add_prefixing(iw, { Err("got %s, expected %s", y, taken) }, "argument " .. pos .. ": ", errs)
+                              return nil, errs
+                           end
+                        end
+                     end
+--- end
