@@ -719,6 +719,7 @@ pub fn build(b: *std.Build) void {
     const trees = patchedTrees(b);
     const lua = patched(b, trees, "lua");
     const sqlite = patched(b, trees, "sqlite");
+    const sqlite_ext = patched(b, trees, "sqlite-ext");
     const tl = patched(b, trees, "tl");
     const miniz = patched(b, trees, "miniz");
     const mbedtls = patched(b, trees, "mbedtls");
@@ -738,6 +739,7 @@ pub fn build(b: *std.Build) void {
         .{ "mbedtls", mbedtls }, .{ "bzip2", bzip2 },
         .{ "xz", xz },           .{ "cares", cares },
         .{ "curl", curl },       .{ "yyjson", yyjson },
+        .{ "sqlite-ext", sqlite_ext },
     }) |pair| {
         const install = b.addInstallDirectory(.{
             .source_dir = pair[1],
@@ -887,7 +889,7 @@ pub fn build(b: *std.Build) void {
             .optimize = .debug,
         }),
     });
-    const sources: Sources = .{ .own = own, .lua = lua, .sqlite = sqlite, .miniz = miniz, .mbedtls = mbedtls, .bzip2 = bzip2, .xz = xz, .cares = cares, .curl = curl, .yyjson = yyjson, .config = config };
+    const sources: Sources = .{ .own = own, .lua = lua, .sqlite = sqlite, .sqlite_ext = sqlite_ext, .miniz = miniz, .mbedtls = mbedtls, .bzip2 = bzip2, .xz = xz, .cares = cares, .curl = curl, .yyjson = yyjson, .config = config };
 
     for (targets) |t| {
         const resolved = b.resolveTargetQuery(t.query);
@@ -1300,6 +1302,8 @@ const Sources = struct {
     own: *Own,
     lua: std.Build.LazyPath,
     sqlite: std.Build.LazyPath,
+    /// SQLite's own extensions, from its source tree's ext/misc/.
+    sqlite_ext: std.Build.LazyPath,
     miniz: std.Build.LazyPath,
     mbedtls: std.Build.LazyPath,
     bzip2: std.Build.LazyPath,
@@ -1406,6 +1410,7 @@ fn vendorLibraries(
     const config = sources.config;
     const lua = sources.lua;
     const sqlite = sources.sqlite;
+    const sqlite_ext = sources.sqlite_ext;
     const miniz = sources.miniz;
     const mbedtls = sources.mbedtls;
     const bzip2 = sources.bzip2;
@@ -1434,7 +1439,7 @@ fn vendorLibraries(
     // (`sqrt`, `ln`, `pow`, ...) and the percentile aggregates
     // (`median`, `percentile`, ...) are on, which the bare amalgamation
     // leaves out: about 12 KB per raw core on Linux, 17 KB on macOS.
-    const sqlite_flags: []const []const u8 = &.{
+    const sqlite_flags = [_][]const u8{
         "-std=c11",
         debug_dir,
         "-DSQLITE_THREADSAFE=0",
@@ -1459,7 +1464,27 @@ fn vendorLibraries(
     vendorPart(b, &libraries, configuration, target, "sqlite", &.{sqlite}).addCSourceFiles(.{
         .root = sqlite,
         .files = &.{"sqlite3.c"},
-        .flags = sqlite_flags,
+        .flags = &sqlite_flags,
+    });
+
+    // SQLite's own extensions from ext/misc/, which core/sqlite.c
+    // registers on every handle it opens. Each is compiled as part of
+    // SQLite (SQLITE_CORE), so it calls SQLite directly rather than
+    // through a loader's table, under SQLite's own configuration.
+    // basexx.c holds base64.c and base85.c, which it includes, and
+    // compress.c calls miniz (patch/sqlite-ext/). They cost about 50 KB
+    // per raw core.
+    const sqlite_ext_misc = sqlite_ext.path(b, "ext/misc");
+    vendorPart(b, &libraries, configuration, target, "sqlite-ext", &.{ sqlite, sqlite_ext.path(b, "src"), miniz }).addCSourceFiles(.{
+        .root = sqlite_ext_misc,
+        .files = &.{
+            "basexx.c", "compress.c", "decimal.c",  "regexp.c",
+            "series.c", "sha1.c",     "shathree.c", "uuid.c",
+        },
+        .flags = &(sqlite_flags ++ [_][]const u8{
+            "-DSQLITE_CORE=1",
+            "-DMINIZ_NO_ZLIB_COMPATIBLE_NAMES",
+        }),
     });
 
     // yyjson reads JSON for cosmic.json, and writes each number's

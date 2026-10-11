@@ -27,6 +27,11 @@
 --- SQLite's math functions (`sqrt`, `pow`, `ln`, `floor`, ...) and its
 --- percentile aggregates (`median`, `percentile`, `percentile_cont`,
 --- `percentile_disc`) are built in.
+--- So are these of SQLite's own extensions, on every handle this module
+--- opens: `generate_series`, the `REGEXP` operator, exact `decimal`
+--- arithmetic (`decimal_add`, `decimal_sum`, ...), `uuid`, `sha1` and
+--- `sha3`, `base64` and `base85`, and `compress` and `uncompress` (a
+--- zlib stream after its length, as the `sqlite3` shell writes it).
 
 -- The raw module behind this one lives under the reserved
 -- `cosmic.internal.` namespace, which never satisfies an ordinary
