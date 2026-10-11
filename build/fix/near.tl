@@ -75,7 +75,7 @@ local record near
     --- Whether it is called on a value (`Lru:unlink`, or a first
     --- parameter `self`): a method named for a command does not stand
     --- in for it.
-    method: boolean
+    method?: boolean
   end
 end
 

@@ -89,9 +89,9 @@ local record sql
     --- The format's name, as [`dataset.read`] takes it.
     format: string
     --- Where in the document the rows are; nil for all of it.
-    at: Json.Steps
+    at?: Json.Steps
     --- Keep every cell of a CSV or TSV as text.
-    raw: boolean
+    raw?: boolean
   end
 
   --- A database `open` made read-only.

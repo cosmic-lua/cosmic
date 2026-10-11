@@ -94,7 +94,7 @@ local record rules
     message: string
     --- The names of the variants ([`build.c`]'s `variants`) whose syntax
     --- tree it was found in; nil from `check`, which sees one tree.
-    variants: {string}
+    variants?: {string}
   end
 
   --- What one translation unit defines that a header declares, and

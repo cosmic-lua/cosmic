@@ -25,9 +25,9 @@ local record database_start_fixture
   --- What a fixture database records of itself.
   record Made
     --- The program the database names as `main`; nil for none.
-    main: string
+    main?: string
     --- The digest of the core it was written for; nil for none.
-    core: string
+    core?: string
     --- Whether it carries the standard library modules its programs load.
     library: boolean
   end
