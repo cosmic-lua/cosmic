@@ -20,16 +20,9 @@ defines the target; once something ships, it leaves this file.
 - refuse the uses of a nil-admitting record field that raise at run time.
   a table literal must give every field that does not admit nil (patch/tl 50),
   and `name?: T` (49a to 49e4) declares one it may omit, typed `T | nil`.
-  the checker refuses a nil-admitting value, a marked field or any `T | nil`,
-  as an index, in `ipairs` and `pairs`, as an operand of `..`, `#`, arithmetic,
-  a bit operator or an ordered comparison (patch/tl 51b) and as an argument of
-  `table.insert` and `table.concat` (51c); 267 operand sites and 16 of those
-  arguments were measured and fixed, none a nil the code could reach.
-  TODO: refuse it as an argument for any other parameter that does not admit
-  nil (the TODO in patch/tl 51c): 791 sites in 178 files, 328 of them in
-  tests, pass a `T | nil`, and 707 in 101 files pass a literal nil, 649 of
-  them in tests that check an argument's refusal that way, so a literal nil
-  may stay accepted.
+  TODO: refuse a nil-admitting value as an argument for any parameter that
+  does not admit nil, not only of `table.insert` and `table.concat` (the TODO
+  in patch/tl 51f).
   a warning first is no option: every warning cosmic sees is
   a refused compile ([`build/compilation.tl`]'s `generate`,
   [`build/standalone.tl`] and [`build/example_checks.tl`] each reject on

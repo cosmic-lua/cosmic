@@ -78,6 +78,10 @@ function ChangedPaths.changed_paths(env: {string:string}, host: Github.Host, git
   end
   -- A stale list must not outlive a refusal: a later step reads OUT.
   local _, _ = Fs.remove(out)
+  local function whole_tree(reason: string): integer
+    host.print("the format check covers the whole tree: " .. reason)
+    return 0
+  end
   local limit, why = whole(env, "LIMIT", 400)
   local wait: integer | nil
   if limit ~= nil then wait, why = whole(env, "FETCH_SECONDS", 60) end
@@ -85,13 +89,7 @@ function ChangedPaths.changed_paths(env: {string:string}, host: Github.Host, git
     local _, _ = Fs.put(Fs.stderr, "changed-paths: " .. why .. "\n")
     return 2
   end
-  -- Read here, before the local function below, after which the checker no longer knows `limit` is set.
-  local most_paths: integer = limit
   local base = env.BASE or ""
-  local function whole_tree(reason: string): integer
-    host.print("the format check covers the whole tree: " .. reason)
-    return 0
-  end
   if not Github.is_commit(base) then return whole_tree("no base on main") end
   if not git({ "fetch", "--quiet", "--no-tags", "--depth=1", "origin", base }, wait) then
     return whole_tree("could not fetch " .. base)
@@ -102,8 +100,8 @@ function ChangedPaths.changed_paths(env: {string:string}, host: Github.Host, git
   -- too many.
   if listed:find("\n", 1, true) then return whole_tree("a path changed holds a line break") end
   local _, paths = listed:gsub("\0", "\n")
-  if paths > most_paths then
-    return whole_tree(Plural.count(paths, "path") .. " changed, more than " .. most_paths)
+  if paths > limit then
+    return whole_tree(Plural.count(paths, "path") .. " changed, more than " .. limit)
   end
   if not Fs.write(out, (listed:gsub("\0", "\n"))) then
     return whole_tree("could not write " .. out)

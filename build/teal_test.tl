@@ -2165,7 +2165,7 @@ end
 
 --- A value that may be nil is no argument of `table.insert` or
 --- `table.concat` where the list it joins or extends takes none
---- (patch/tl's 51c).
+--- (patch/tl's 51f).
 local function test_a_table_argument_that_may_be_nil_is_refused()
   local head = "local record R\n  name?: string\n  items?: {string}\nend\nlocal r: R = {}\n" ..
     "local function find(): string | nil return nil end\nlocal s = find()\n" ..
@@ -2200,5 +2200,29 @@ local function test_a_nil_operand_or_argument_is_told_the_check()
       "or, where a call answers it, take it with `local value = assert(<the call>)`")
   answers(head .. "table.insert(list, s)\n", "argument 2: got string | nil, expected string",
     "the argument may be nil: check it first (`if value == nil then return nil, err end`), " ..
+      "or, where a call answers it, take it with `local value = assert(<the call>)`")
+end
+
+--- The optional parameters of `table.concat` take nil: the separator and
+--- the bounds (patch/tl's 51f, which leaves optional parameters alone).
+local function test_an_optional_table_parameter_takes_nil()
+  local head = "local list: {string} = {}\nlocal function sep(): string | nil return nil end\n" ..
+    "local function at(): integer | nil return nil end\n"
+  assert_accepted(head .. "print(table.concat(list, sep()))\n")
+  assert_accepted(head .. "print(table.concat(list, ',', at(), at()))\n")
+  assert_refused(head .. "table.insert(list, sep())\n", "argument")
+end
+
+--- A numeric `for` takes no start, limit or step that may be nil
+--- (patch/tl's 51c).
+local function test_a_numeric_for_bound_that_may_be_nil_is_refused()
+  local head = "local function count(): number | nil return nil end\nlocal n = count()\n"
+  assert_refused(head .. "for i = 1, n do print(i) end\n", "cannot use number | nil as the 'for' limit")
+  assert_refused(head .. "for i = n, 3 do print(i) end\n", "as the 'for' start")
+  assert_refused(head .. "for i = 1, 3, n do print(i) end\n", "as the 'for' step")
+  assert_accepted(head .. "if n then\n  for i = 1, n do print(i) end\nend\n")
+  assert_accepted(head .. "for i = 1, n or 0 do print(i) end\n")
+  answers(head .. "for i = 1, n do print(i) end\n", "cannot use number | nil as the 'for' limit",
+    "the bound may be nil: check it first (`if value == nil then return nil, err end`), " ..
       "or, where a call answers it, take it with `local value = assert(<the call>)`")
 end

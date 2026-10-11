@@ -1,9 +1,11 @@
 file: tl.tl
-note: an operand of `..`, `#`, `-`, arithmetic, a bit operator or an ordered comparison (`<`, `<=`, `>`, `>=`) whose type is a union carrying nil is refused, as an index of one is. nil is a subtype of every type, and the operator tables are keyed by the operand's structural type with a union squashed to its non-nil members, so `s .. "x"` for a `string | nil` was accepted and raised at run time when `s` was nil. The refusal is the operator's own message, which the hint in build/teal.tl turns into the check that drops the nil. `==` and `~=` compare nil fine, and `and`, `or` and `not` take any value, so they are left alone; `any`, an unknown and a type variable are not unions with nil, and keep passing
+note: refuses an operand of `..`, `#`, unary `-` and `~`, arithmetic, a bit operator or an ordered comparison (`<`, `<=`, `>`, `>=`) whose type is a union carrying nil, with the operator's own message, because the operator raises when it is nil. `==`, `~=`, `and`, `or`, `not`, `any`, unknown and type variables take any value and are left alone. Narrowing is the checker's own: a closure after an early return and a loop that assigns the value do not narrow, so the operator refuses them
 --- find
             if node.op.arity == 1 and unop_types[node.op.op] then
                if ra is UnionType then
 --- replace
+            -- TODO: `(x and x) .. "a"` passes, since Teal types `a and b` as `b`
+            -- alone: once `and` yields its left operand's nil, refuse it here.
             do
                local op = node.op.op
                if op ~= "or" and ((node.op.arity == 1 and unop_types[op]) or (node.op.arity == 2 and binop_types[op])) then

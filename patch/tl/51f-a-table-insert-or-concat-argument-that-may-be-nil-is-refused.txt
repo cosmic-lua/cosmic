@@ -1,5 +1,5 @@
 file: tl.tl
-note: an argument of `table.insert` or `table.concat` whose type is a union carrying nil is refused where the parameter, with its type variables bound by the arguments before it, does not take nil. nil is a subtype of every type, so `table.insert(list, name)` for a `string | nil` was accepted: it appends nothing and `table.concat` raises at run time on a nil element or list. These two are named because they are the standard calls that fail in this way and every site they hit was measured and fixed; any other call keeps accepting nil for a parameter that does not take it (doc/roadmap.md has the rest). A parameter that is a type variable not yet bound takes the argument's type, nil included, and one of `any` or a union with nil takes it too
+note: refuses an argument of `table.insert` or `table.concat` whose type is a union carrying nil where the parameter does not take nil (its type variables bound by the arguments before it), since the call raises or appends nothing when it is nil. A parameter that is optional (`table.concat`'s separator and bounds), `any`, a union with nil or a type variable not yet bound takes it. Any other call accepts nil for a parameter that does not take it
 --- find
                      if not self:arg_check(iw, errs, x, y, v, mode, pos) then
                         return nil, errs
@@ -9,11 +9,13 @@ note: an argument of `table.insert` or `table.concat` whose type is a union carr
                         return nil, errs
                      end
                      -- TODO: refuse the argument of every call whose parameter does not
-                     -- take nil, not only of these two functions: 791 other sites in
-                     -- 178 files (328 of them in tests) pass a `T | nil` to such a
-                     -- parameter, and 707 in 101 files (649 in tests, which check an
-                     -- argument's refusal that way) pass a literal nil.
-                     if mode == "argument" and v == "contravariant" then
+                     -- take nil, not only of these two functions: it waits on the
+                     -- call sites that pass a `T | nil`, and on those (mostly tests
+                     -- checking an argument's refusal) that pass a literal nil.
+                     -- The callee is matched by name, so a local named `table` is
+                     -- checked too and an alias (`local ins = table.insert`) is not:
+                     -- it waits on the checker naming the function a call resolves to.
+                     if mode == "argument" and v == "contravariant" and i <= call_min_arity then
                         local call = w as Node
                         local callee: Node
                         if call.kind == "op" then

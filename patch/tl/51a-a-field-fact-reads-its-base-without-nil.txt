@@ -1,5 +1,5 @@
 file: tl.tl
-note: a field fact's base variable is read for its type when the fact is applied, and in `if m ~= nil and m.f ~= nil` the base `m` is still the nil union it was declared as, so `m.f` cannot be resolved and the fact is dropped silently: `m.f` stayed a nil union in the branch. The fact for `m.f` is only built after the read of `m.f` proved `m` is not nil, so the base is read without its nil member
+note: a field fact (`m.f ~= nil`) is applied against the type of its base `m`; the base is read without its nil member, since reading `m.f` proved `m` is not nil, so `if m ~= nil and m.f ~= nil` narrows `m.f` for a base that is itself a nil union
 --- find
       local base = self:find_var_type(string.sub(f.var, 1, dot - 1), "check_only")
       if not base then

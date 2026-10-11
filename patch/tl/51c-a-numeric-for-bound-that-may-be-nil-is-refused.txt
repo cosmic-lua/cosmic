@@ -1,0 +1,17 @@
+file: tl.tl
+note: refuses the start, limit or step of a numeric `for` whose type is a union carrying nil, since the loop raises when it is nil
+--- find
+            local from_t = self:to_structural(resolve_tuple(children[2]))
+            local to_t = self:to_structural(resolve_tuple(children[3]))
+--- replace
+            for bound = 2, 4 do
+               if children[bound] then
+                  local bound_t = resolve_tuple(children[bound])
+                  if without_nil(self, node, bound_t, false) ~= nil then
+                     self.errs:add(node, "cannot use %s as the 'for' " .. (bound == 2 and "start" or bound == 3 and "limit" or "step"), bound_t)
+                  end
+               end
+            end
+            local from_t = self:to_structural(resolve_tuple(children[2]))
+            local to_t = self:to_structural(resolve_tuple(children[3]))
+--- end

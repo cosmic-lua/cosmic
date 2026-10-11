@@ -1256,7 +1256,7 @@ local function narrowing_hint(msg: string, source: string): string | nil
     given, wanted = msg:match("^in [%a ]+: got (.+), expected (.+)$")
   end
   -- A value that may be nil is refused as an argument of `table.insert`
-  -- and `table.concat` alone (patch/tl 51c), where the type expected is
+  -- and `table.concat` alone (patch/tl 51f), where the type expected is
   -- the value's own, less the nil; other calls answer only `any`.
   if given ~= nil and wanted ~= nil and untyped(given) then
     local expected = type_members(wanted)
@@ -1265,6 +1265,11 @@ local function narrowing_hint(msg: string, source: string): string | nil
   end
   if given ~= nil and wanted ~= nil and one_or_nil(given) and type_members(given)[1] == wanted then
     return nil_answer("the argument", "value")
+  end
+  -- A numeric `for` bound that may be nil (patch/tl 51c).
+  local bound = msg:match("^cannot use (.+) as the 'for' %a+$")
+  if bound ~= nil and one_or_nil(bound) then
+    return nil_answer("the bound", "value")
   end
   -- A unary operator's operand that may be nil (patch/tl 51b).
   local operand = msg:match("^cannot use operator '.-' on type (.+)$")
