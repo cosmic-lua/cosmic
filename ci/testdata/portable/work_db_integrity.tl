@@ -64,7 +64,7 @@ return function(argv: {string}): integer
     return 1
   end
   print("work database integrity: PASS (SQLite " .. Sqlite.version ..
-      ", " .. page_count .. " pages, " .. freelist .. " free, " ..
-      coverage .. " coverage rows, " .. by_test .. " per-test rows)")
+      ", " .. assert(page_count) .. " pages, " .. assert(freelist) .. " free, " ..
+      assert(coverage) .. " coverage rows, " .. assert(by_test) .. " per-test rows)")
   return 0
 end

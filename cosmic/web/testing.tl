@@ -624,7 +624,7 @@ function Testing.with_server(app: Types.App, fn: function(client: Testing.Loopba
       end
       conn:set_timeout(IO_TIMEOUT_NS)
       local client: Testing.Loopback = setmetatable({ conn = conn, buf = "",
-        host = "127.0.0.1:" .. addresses[1].port }, loopback_mt)
+        host = "127.0.0.1:" .. assert(addresses[1].port) }, loopback_mt)
       local ran, raised = pcall(function() fn(client) end)
       if not ran then failure = tostring(raised) end
       local _, _ = conn:close()

@@ -173,7 +173,8 @@ local function notice_text(directory: string, notice: bom.Notice): string | nil,
     return nil, trouble
   end
   data = data:gsub("\r\n", "\n")
-  if notice.first == nil then
+  local first, last = notice.first, notice.last
+  if first == nil or last == nil then
     if data:sub(-1) ~= "\n" then
       return data .. "\n"
     end
@@ -184,12 +185,12 @@ local function notice_text(directory: string, notice: bom.Notice): string | nil,
   local ended = data:sub(-1) == "\n" and data or data .. "\n"
   for line in ended:gmatch("([^\n]*)\n") do
     number = number + 1
-    if number >= notice.first and number <= notice.last then
+    if number >= first and number <= last then
       kept[#kept + 1] = line
     end
   end
-  if number < notice.last then
-    return nil, path .. ": has " .. plural.count(number, "line") .. ", not " .. notice.last
+  if number < last then
+    return nil, path .. ": has " .. plural.count(number, "line") .. ", not " .. last
   end
   return table.concat(kept, "\n") .. "\n"
 end

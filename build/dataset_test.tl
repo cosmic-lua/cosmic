@@ -17,9 +17,9 @@ local function grid(db: Sqlite.Handle, sql: string): {string}
       if cell.kind == "null" then
         cells[index] = "NULL"
       elseif cell.kind == "integer" then
-        cells[index] = "i" .. cell.integer
+        cells[index] = "i" .. assert(cell.integer)
       elseif cell.kind == "number" then
-        cells[index] = "r" .. cell.number
+        cells[index] = "r" .. assert(cell.number)
       else
         cells[index] = cell.text
       end

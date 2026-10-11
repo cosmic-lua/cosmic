@@ -836,7 +836,7 @@ local function test_extract_of_a_tar_stream_makes_no_temporary_copy(tmp: string)
     end)
     assert(made == 0, "a tar stream was written to a temporary file")
     assert(Fs.read(dest .. "/proj/sub/b.txt") == "bravo!")
-    assert(#Fs.list(tmp .. "/") >= 1 and not Fs.exists(dest .. "/stdin"))
+    assert(#assert(Fs.list(tmp .. "/")) >= 1 and not Fs.exists(dest .. "/stdin"))
   end
   local zip = assert(Fs.read(make_zip(tmp .. "/z.zip", SAMPLE)))
   local made = counting_mkdtemp(function()

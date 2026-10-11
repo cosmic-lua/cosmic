@@ -35,6 +35,13 @@ stands on another checkout's pass.
 - `--no-shared` (`COSMIC_TEST_NO_SHARED=1`) stands on no shared verdict.
 - `COSMIC_VERDICT_CACHE` names another cache file. `0` means none.
 
+`--bail` (`COSMIC_TEST_BAIL=1`) starts no test after the first failure.
+The tests already running finish with their own verdicts, and the run
+reports every failure it met and fails. A test never started keeps no
+verdict, pass or fail, and the summary says how many did not run. The
+merge queue's suites use it ([`ci/README.md`]). A run without it runs
+every test.
+
 A test must not depend on where the tree is. CI moves the checkout to
 a path chosen by the commit and the leg to catch one that does.
 
@@ -372,6 +379,7 @@ Other rules:
 [`build.this_program`]: ../build/this_program.tl
 [`build.tree_checks`]: ../build/tree_checks.tl
 [`ci.cosmic_ci.capabilities`]: ../ci/cosmic_ci/capabilities.tl
+[`ci/README.md`]: ../ci/README.md
 [`cosmic.layout`]: ../cosmic/layout.tl
 [`cosmic.sandbox`]: ../cosmic/sandbox/init.tl
 [`doc/performance.md`]: performance.md

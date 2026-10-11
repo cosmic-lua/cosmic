@@ -62,7 +62,7 @@ local function open(t: Thing): Thing | nil, string
   return setmetatable(t, thing_mt), ""
 end
 local function fresh(): Thing | nil, string
-  return setmetatable({}, thing_mt), ""
+  return setmetatable({ name = "" }, thing_mt), ""
 end
 print(open, fresh)
 ]])

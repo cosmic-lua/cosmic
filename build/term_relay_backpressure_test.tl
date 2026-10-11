@@ -99,7 +99,8 @@ local function test_a_program_that_ends_does_not_wait_for_a_terminal_that_takes_
     local ready, _ = Poll.readable(caller.master, 0)
     if not ready then break end
     local data, _ = sys.read(caller.master, 65536)
-    if data == nil or data == "" then break end
+    if data == nil then break end
+    if data == "" then break end
     held = held + #data
   end
   assert(held < 400000, "the stalled output was delivered whole: " .. held)

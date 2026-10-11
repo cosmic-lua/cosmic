@@ -6,12 +6,14 @@
 --- serves one phase after another, on a line of its standard input,
 --- answering a line on its standard output ([`build.worker`] is the
 --- other half, and owns what a phase's job and results hold). A phase's
---- files live in the pool's scratch directory, which `close` removes and
---- the next build's pool sweeps if this one's process died first
---- ([`Fs.scratch`]). A worker stays in its starter's process group, so a
---- signal that ends the build from a terminal ends it too, and one the
---- build dies without finishes the job it has and ends at the end of its
---- input.
+--- files live in the pool's scratch directory, under a directory of this
+--- user's alone in the temporary directory, which `close` empties. A
+--- build that is interrupted or killed leaves its scratch directory
+--- until the next pool starts, which sweeps it ([`Fs.scratch`]). A
+--- worker stays in its starter's process group, so a signal to the
+--- group from a terminal ends it with the build. After a build is killed
+--- some other way a worker finishes the job it is on, and ends once it
+--- reads the end of its input.
 ---
 --- A pool that cannot start, or loses a worker, says so once on stderr
 --- and leaves the work to the build's own process, which does what it
@@ -137,6 +139,31 @@ local function stderr_of(handle: Child.Handle): string
   return ": " .. (said:gsub("%s+$", ""):gsub("\n", " / "))
 end
 
+--- Makes `path` a directory of this user's alone if it is not there, 0700,
+--- and answers whether it is one: the pool's job files become code in the
+--- tool, so a directory another user owns or can write is refused, as
+--- [`Fs.cache_dir`] refuses one. A link is none.
+local function private_dir(path: string): boolean, string
+  local made, why, number = sys.mkdir(path, 0x1c0)
+  if not made and number ~= sys.EEXIST then
+    return false, path .. ": " .. why
+  end
+  local st, trouble = sys.lstat(path)
+  if st == nil then
+    return false, path .. ": " .. trouble
+  end
+  if st.kind ~= "dir" then
+    return false, path .. ": not a directory"
+  end
+  if st.uid ~= sys.getuid() then
+    return false, path .. ": owned by another user"
+  end
+  if st.mode & 0x12 ~= 0 then
+    return false, path .. ": writable by its group or others"
+  end
+  return true, ""
+end
+
 --- A pool of up to `jobs` workers started as `spec` says, none yet.
 --- `jobs` is what `COSMIC_BUILD_JOBS` names, or one fewer than the
 --- processors, by default. The caller closes it.
@@ -184,7 +211,7 @@ function workers.pool(spec: workers.Spec, jobs?: integer): importer.Workers
 
   local function start(): boolean
     local parent = Env.get_or("TMPDIR", "/tmp") .. "/cosmic-workers-" .. sys.getuid()
-    local parent_made, parent_trouble = Fs.mkdirs(parent)
+    local parent_made, parent_trouble = private_dir(parent)
     if not parent_made then
       give_up(parent_trouble)
       return false
@@ -203,9 +230,16 @@ function workers.pool(spec: workers.Spec, jobs?: integer): importer.Workers
     -- module can start a process without that closure, start workers
     -- with it.
     local child = require("cosmic.child")
+    -- TODO: end a worker when its starter dies: one whose starter was killed
+    -- finishes its job, and a hung one lives until the end of its own
+    -- lifetime, which only the starter enforces. Waits on a binding for
+    -- PR_SET_PDEATHSIG (and kqueue's equivalent on macOS) in cosmic.sys,
+    -- which a worker's start would set.
     for _ = 1, most do
       local handle, trouble = child.start(spec.argv, {
         env = env, fds = fds, stdin = "stream", stdout = "stream", stderr = "capture",
+        -- In the starter's own group, not one of its own, so a signal to
+        -- the build's group ends its workers too.
         timeout_ns = lifetime_ns, process_group = false,
       })
       if handle == nil then
@@ -242,6 +276,10 @@ function workers.pool(spec: workers.Spec, jobs?: integer): importer.Workers
       jobs_made = jobs_made + 1
       return scratch.path .. "/" .. name .. "-" .. jobs_made, ""
     end,
+    -- TODO: give a phase a deadline: a hung worker holds the build, and
+    -- the rebuild lock, until its lifetime ends. Waits on a read of a
+    -- worker's reply that takes a timeout of its own, which cosmic.stream's
+    -- readers lack, so the build could end the phase and do its work.
     run = function(phase: string, job: string, count: integer): {string}
       local answers: {string} = {}
       local serving: {Process} = {}
@@ -294,8 +332,8 @@ function workers.pool(spec: workers.Spec, jobs?: integer): importer.Workers
     end,
     compile = function(db: Sqlite.Handle, root: string, order: {importer.Module},
                        wanted: {string:boolean}, own_tree: boolean,
-                       judged: boolean): importer.Ahead | nil, string
-      return worker.compile(pool, db, root, order, wanted, own_tree, judged)
+                       judged: boolean, lenient: boolean): importer.Ahead | nil, string
+      return worker.compile(pool, db, root, order, wanted, own_tree, judged, lenient)
     end,
     close = function()
       finish_workers()

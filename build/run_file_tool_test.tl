@@ -47,14 +47,14 @@ local function test_a_paired_declaration_runs_its_implementation(tmp: string)
   end
   for _ = 1, 2 do
     local result = run()
-    assert(result.code == 0 and result.stdout == "42\n", result.stdout .. result.stderr)
+    assert(result.code == 0 and result.stdout == "42\n", (result.stdout or "") .. (result.stderr or ""))
   end
   assert(Fs.write(root .. "/foo.tl", implementation(43)))
   local edited = run()
-  assert(edited.code == 0 and edited.stdout == "43\n", edited.stdout .. edited.stderr)
+  assert(edited.code == 0 and edited.stdout == "43\n", (edited.stdout or "") .. (edited.stderr or ""))
   assert(Fs.write(root .. "/foo.d.tl",
     "local record Foo\n  renamed: integer\nend\nreturn Foo\n"))
   local refused = run()
   assert(refused.code ~= 0 and (refused.stderr or ""):find("answer", 1, true),
-    refused.stdout .. refused.stderr)
+    (refused.stdout or "") .. (refused.stderr or ""))
 end

@@ -224,13 +224,21 @@ local function recording_worker(dir: string): string
     'Proc.exit(require("build.worker").serve())'
 end
 
---- A chunk for a process that starts a pool of recording workers as a
---- tool does, and then does `ending`.
-local function starting_pool(dir: string, ending: string): string
+--- A chunk for a worker that writes its process number to a file of `dir`
+--- as it starts, then sleeps a minute without reading its input.
+local function sleeping_worker(dir: string): string
+  return 'local Proc = require("cosmic.proc") ' ..
+    string.format('require("cosmic.fs").write(%q .. "/" .. Proc.pid(), "") ', dir) ..
+    'local Clock = require("cosmic.clock") Clock.sleep_ns(Clock.seconds(60))'
+end
+
+--- A chunk for a process that starts a pool of workers running `worker`
+--- as a tool does, and then does `ending`.
+local function starting_pool(dir: string, ending: string, worker?: string): string
   return 'local workers = require("build.workers") ' ..
     "local spec = workers.tool_spec() " ..
     "spec.open_bytes = 0 " ..
-    string.format("spec.argv[#spec.argv] = %q ", recording_worker(dir)) ..
+    string.format("spec.argv[#spec.argv] = %q ", worker or recording_worker(dir)) ..
     "local pool = workers.pool(spec) " ..
     'print(pool.ready(1)) ' .. ending
 end
@@ -275,12 +283,27 @@ local function eventually(what: string, holds: function(): boolean)
   end
 end
 
+--- The scratch directories a pool of this user left in the test's
+--- temporary directory.
+local function scratch_left(): {string}
+  local parent = (this_program.environment().TMPDIR or "/tmp") .. "/cosmic-workers-" .. sys.getuid()
+  local found: {string} = {}
+  if Fs.exists(parent) then
+    for _, name in ipairs(names_in(parent)) do
+      if name:match("^%.scratch%.") then found[#found + 1] = name end
+    end
+  end
+  return found
+end
+
 --- How many workers a pool of a process that has `value` as
 --- COSMIC_BUILD_JOBS starts, and what that process said.
 local function workers_started(expected: integer, value?: string): integer, string
   local dir = assert(Fs.mkdtemp("cosmic-pids-"))
   local _, said = run_chunk(starting_pool(dir, waiting_for(dir, expected) .. " pool.close()"), value)
   local count = #names_in(dir)
+  -- A pool that was closed leaves no scratch directory.
+  assert(#scratch_left() == 0, "a closed pool left its scratch directory")
   assert(Fs.remove_tree(dir))
   return count, said
 end
@@ -470,5 +493,39 @@ local function test_a_pool_beside_the_shared_compiles_counts_and_marks_as_a_buil
   local pooled_rows, pooled_used = cache_of(dir .. "/pooled.db", since)
   assert(table.concat(alone_rows, "\n") == table.concat(pooled_rows, "\n"), "caches differ")
   assert(alone_used == pooled_used, "used " .. alone_used .. " against " .. pooled_used)
+  assert(Fs.remove_tree(dir))
+end
+
+local function test_a_pool_refuses_a_scratch_parent_another_user_could_write()
+  local tmp = this_program.environment().TMPDIR or "/tmp"
+  local parent = tmp .. "/cosmic-workers-" .. sys.getuid()
+  assert(Fs.mkdirs(parent))
+  assert(Fs.chmod(parent, 0x1ff))
+  local dir = assert(Fs.mkdtemp("cosmic-refused-"))
+  local printed, said = run_chunk(starting_pool(dir, ""), "2")
+  assert(printed == "false", "a pool started in a directory anyone can write: " .. printed)
+  assert(said:find(parent .. ": writable by its group or others", 1, true), said)
+  assert(said:find("building in this process", 1, true), said)
+  assert(#names_in(dir) == 0 and #names_in(parent) == 0, "something was put there")
+  assert(Fs.remove_tree(dir))
+end
+
+local function test_a_signal_to_the_builds_group_ends_its_workers()
+  local dir = assert(Fs.mkdtemp("cosmic-group-"))
+  local env = this_program.environment()
+  env.COSMIC_BUILD_JOBS = "2"
+  -- Workers that never read their input, as one busy with a job does,
+  -- end only by the signal.
+  local started = this_program.program({ "-e", starting_pool(dir, waiting_for(dir, 2) ..
+      ' Clock.sleep_ns(Clock.seconds(60))', sleeping_worker(dir)) }, {
+        env = env, stdout = "capture", stderr = "capture",
+      })
+  local build = assert(Child.start(started.argv, started.options))
+  eventually("workers started", function(): boolean return #names_in(dir) == 2 end)
+  assert(build:stop())
+  assert(build:wait())
+  for _, pid in ipairs(names_in(dir)) do
+    eventually("worker " .. pid .. " ended", function(): boolean return not running(pid) end)
+  end
   assert(Fs.remove_tree(dir))
 end

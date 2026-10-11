@@ -1,0 +1,26 @@
+file: tl.tl
+note: A table literal passed for a parameter whose type is a type variable (`table.insert(list, {})`, `push(list, {})`) has no record to be checked against where it is written. Once the call has bound the variable, a literal that is not yet checked is held to the record it was bound to, as 50c holds it where the record is known, and so are the literals nested in it
+--- find
+         for i = 1, n_xs do
+            local x = xt[i]
+            if x is EmptyTableType then
+--- replace
+         for i = 1, n_xs do
+            local x = xt[i]
+            -- TODO: a literal nested in an array literal passed for `{T}`
+            -- (`push_all(list, { {} })`) is not checked: only a parameter that
+            -- is a type variable itself is; walk an array literal's elements
+            -- against the bound element type here to close it.
+            local literal = wheres and (wheres[i + delta] as Node)
+            if literal and literal.kind == "literal_table" and not literal.omissions_checked then
+               local param = yt[i] or (ys.is_va and yt[n_ys])
+               if param is TypeVarType then
+                  local bound = self:find_var_type(param.typevar)
+                  local record = bound and self:to_structural(bound)
+                  if record is RecordLikeType then
+                     check_literal_omissions(self, literal, record)
+                  end
+               end
+            end
+            if x is EmptyTableType then
+--- end

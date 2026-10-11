@@ -478,7 +478,7 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
     value = whole
   else
     local span = Time.between(first.ns, second.ns, calendar)
-    value = unit == "months" and span.years * 12 + span.months or Time.format_duration(span)
+    value = unit == "months" and (span.years or 0) * 12 + (span.months or 0) or Time.format_duration(span)
   end
   if as_json then
     local encoded, why = Json.encode({

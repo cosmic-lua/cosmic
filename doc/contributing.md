@@ -114,6 +114,15 @@ merged.
 on a failure, find the cause, fix it in the worktree, re-run the checks
 and push. never skip or disable a test to get green.
 
+a queue run tests the change merged with every entry ahead of it, so it
+can fail where the branch's run passed. when it fails building, on a
+type error in code the change did not touch, it has met another change:
+never queue the same head again. find the entry it met (the error names
+its code); if that entry is still queued, wait for it to land or leave.
+then bring main in as "open the PR" says, fix what the checks report,
+push, and enable auto-merge again. a flake or a runner's loss is not
+this: find its cause as above.
+
 once it has merged, clean up:
 
 ```text

@@ -1128,7 +1128,8 @@ function Json.from_path(text: string): Json.Steps | nil, string
     if seg.kind == "name" then
       steps[i] = seg.name
     else
-      steps[i] = seg.index >= 0 and seg.index + 1 or seg.index
+      local index = assert(seg.index)
+      steps[i] = index >= 0 and index + 1 or index
     end
   end
   return steps, ""
@@ -1177,8 +1178,9 @@ local function apply(seg: Json.Segment, node: Json.Match, out: {Json.Match}): bo
     end
   elseif seg.kind == "index" then
     if shape == "array" then
-      local position = seg.index + 1
-      if seg.index < 0 then position = last_position(t) + 1 + seg.index end
+      local index = assert(seg.index)
+      local position = index + 1
+      if index < 0 then position = last_position(t) + 1 + index end
       if position >= 1 and t[position] ~= nil then
         out[#out + 1] = { steps = extended(node.steps, position), value = t[position] }
       end

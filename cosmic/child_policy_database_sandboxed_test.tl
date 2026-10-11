@@ -152,8 +152,9 @@ local function under_nest(tmp: string, mode: string, policy: Sandbox.Policy): {s
   policy.isolate = { "file" }
   policy.promises = { "fork", "nest" }
   policy.set_env = { TMPDIR = scratch }
-  policy.grants = policy.grants or {}
-  table.insert(policy.grants, { path = scratch, letters = "rwc" })
+  local grants = policy.grants or {}
+  policy.grants = grants
+  table.insert(grants, { path = scratch, letters = "rwc" })
   local executable = assert(Proc.executable())
   local result, why = Child.run({ executable, executable, mode, scratch },
     { policy = policy, cwd = tmp, stdout = "capture", stderr = "capture",

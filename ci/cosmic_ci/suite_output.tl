@@ -35,6 +35,9 @@ local record SuiteOutput
     elapsed_ms: integer
     --- What the summary line says after its time: "sandboxed", or why not.
     sandbox: string
+    --- How many tests a bailing run (`cosmic test --bail`) started none
+    --- of after its first failure; nil where the line says none.
+    not_run: integer
     --- Each key part by the name the line gives it ("host features",
     --- "runtime", ...), its digest's prefix as said ("" for none).
     parts: {string:string}
@@ -86,6 +89,11 @@ local function fail_figures(detail: string, into: SuiteOutput.Figures): boolean
   into.verdict = "fail"
   into.failed, into.tests = number(failed), number(total)
   into.errors, into.elapsed_ms = number(errors), number(ms)
+  local tail, skipped = rest:match("^(.*); (%d+) not run after the first failure$")
+  if skipped then
+    into.not_run = number(skipped)
+    rest = tail
+  end
   into.sandbox = rest:match("^; (.*)$") or ""
   return true
 end

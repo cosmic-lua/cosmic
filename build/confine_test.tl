@@ -198,10 +198,11 @@ local function resolved_by_names(path: string): string
   while true do
     local real, _ = sys.realpath(at)
     if real ~= nil then
+      local resolved: string = real
       for i = #missing, 1, -1 do
-        real = (real == "/" and "" or real) .. "/" .. missing[i]
+        resolved = (resolved == "/" and "" or resolved) .. "/" .. missing[i]
       end
-      return real
+      return resolved
     end
     local parent = Fs.dirname(at)
     if parent == at then return "" end

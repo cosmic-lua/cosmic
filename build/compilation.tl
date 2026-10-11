@@ -300,7 +300,11 @@ end
 function compilation.collect(db: Sqlite.Handle): {Module} | nil, string
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT i.path, i.file, i.kind, i.origin, i.source, i.source_hash, " ..
-      "p.has_return FROM inputs i JOIN parsed p ON p.source_hash = i.source_hash " ..
+      "p.has_return, s.source_hash IS NOT NULL, " ..
+      -- Only cosmic's own build reads a stub, of a standard-library module.
+      "CASE WHEN i.path GLOB 'cosmic.*' THEN s.text ELSE '' END, coalesce(s.pruned, 0) " ..
+      "FROM inputs i JOIN parsed p ON p.source_hash = i.source_hash " ..
+      "LEFT JOIN stubs s ON s.source_hash = i.source_hash " ..
       "WHERE i.kind NOT IN ('decl', 'vendor') ORDER BY i.path")
   if rows == nil then
     return nil, trouble
@@ -350,6 +354,7 @@ function compilation.collect(db: Sqlite.Handle): {Module} | nil, string
       key = "",
       graph_key = "",
       lua = "",
+      stub = row[8] == "1" and { text = row[9], pruned = row[10] == "1" } or nil,
     }
   end
   return out, ""
@@ -512,27 +517,33 @@ local function bytecode_of(code: string, name: string,
 end
 
 --- Whether the stub ([`build.stub`]) of the module `m`, which `result`
---- is the checker's reading of, types it the same, and if not why: a
---- global it declares, a type error in the stub, or where its type and
---- `result.type` part ([`stub.difference`]). The stub is checked in `env`, where `m`'s
---- source was, so each module it requires is the one the source's check
---- read, under a file name of its own; its warnings are of the bodies it
---- leaves out, and no reader of the module sees them.
+--- is the checker's reading of and `checked` its syntax tree, types it the
+--- same, and if not why: a global it declares, a stub that is not
+--- declaration-only (or none, for a module that returns nothing), a type
+--- error in the stub, or where its type and
+--- `result.type` part ([`stub.difference`]). The stub is the one the
+--- projection carries ([`build.writer`]). It is checked in `env`, where
+--- `m`'s source was, so each module it requires is the one the source's
+--- check read, under a file name of its own; its warnings are of the bodies
+--- it leaves out, and no reader of the module sees them.
 local function held_to_stub(m: Module, built: compiler, env: compiler.Env,
-                            result: compiler.Result): boolean, string
-  local parsed, parse_trouble = ast.parse(built, m.source, m.file)
-  if parsed == nil then
-    return false, parse_trouble
-  end
+                            result: compiler.Result, checked: ast.Node): boolean, string
   -- A global would reach a project through a require a stub of a module
   -- that requires this one may leave out, unseen by the check below,
   -- which runs where the global is already declared.
-  local declared = stub.global_declaration(parsed)
+  local declared = stub.global_declaration(checked)
   if declared ~= nil then
     return false, m.file .. ":" .. declared.y .. ": a standard-library module may declare " ..
       "no global: a stub of a module requiring it may leave the require out (build/stub.tl)"
   end
-  local stubbed = built.check_string(stub.of(parsed), env, m.file .. " (stub)", "tl")
+  local made = m.stub
+  if made == nil or not made.pruned then
+    return false, m.file .. ": its stub keeps every statement, so a project's checker " ..
+      "would read and load all of it: a standard-library module must end by returning a " ..
+      "name whose last top-level declaration spells its type (`local record M ... end`, " ..
+      "a local function, or `local m: M = ...`) (build/stub.tl)"
+  end
+  local stubbed = built.check_string(made.text, env, m.file .. " (stub)", "tl")
   local refusal = (stubbed.syntax_errors or {})[1] or (stubbed.type_errors or {})[1]
   local trouble: string | nil = nil
   if refusal ~= nil then
@@ -602,9 +613,13 @@ function compilation.generate(m: Module, built: compiler, env: compiler.Env,
   -- unjudged run keeps a module whose stub its own, older build.stub
   -- refuses, as it keeps one its contracts refuse (below), for the tool
   -- it builds to judge.
+  local checked = result.ast
+  if not (checked is ast.Node) then
+    return nil, m.file .. ": the compiler answered no syntax tree"
+  end
   local refused = false
   if own_tree and m.kind == "module" and m.path:sub(1, 7) == "cosmic." then
-    local held, hold_trouble = held_to_stub(m, built, env, result)
+    local held, hold_trouble = held_to_stub(m, built, env, result, checked)
     if not held and judged then
       return nil, hold_trouble
     end
@@ -614,10 +629,6 @@ function compilation.generate(m: Module, built: compiler, env: compiler.Env,
   -- after it that requires it is checked against that, rather than
   -- against a second read and check of the same source.
   env.modules[m.path] = result.type
-  local checked = result.ast
-  if not (checked is ast.Node) then
-    return nil, m.file .. ": the compiler answered no syntax tree"
-  end
   if own_tree and contracts.applies(m.kind, m.generated) then
     local problems = contracts.check(m.file, checked, typed, contracts.quiet_records(env),
       contracts.binding_tables(env), nil, result.type)

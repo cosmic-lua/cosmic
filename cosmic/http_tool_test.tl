@@ -89,7 +89,7 @@ return function(argv: {string}): integer
 end
 ]]))
   local server <close> = assert(Net.listen(Net.tcp("127.0.0.1", 0), { timeout_ns = Clock.seconds(20) }))
-  local url = "http://127.0.0.1:" .. server.address.port .. "/"
+  local url = "http://127.0.0.1:" .. assert(server.address.port) .. "/"
   local marker = tmp .. "/marker"
   local started = this_program.program({ "--standalone", script, url, marker },
     { stdout = "capture", stderr = "capture" })
@@ -166,7 +166,7 @@ return function(argv: {string}): integer
 end
 ]]))
   local server <close> = assert(Net.listen(Net.tcp("127.0.0.1", 0), { timeout_ns = Clock.seconds(20) }))
-  local url = "http://127.0.0.1:" .. server.address.port .. "/items/1"
+  local url = "http://127.0.0.1:" .. assert(server.address.port) .. "/items/1"
   local args = { "--standalone", script, method, url }
   if body ~= nil then args[#args + 1] = body end
   local started = this_program.program(args, { stdout = "capture", stderr = "capture" })

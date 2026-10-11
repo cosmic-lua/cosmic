@@ -177,7 +177,9 @@ end
 function Multipart.reader(source: Stream.Reader, opts: Multipart.Options): Multipart.Reader | nil, string
   for field, v in pairs({ max_parts = opts.max_parts, max_header_bytes = opts.max_header_bytes,
       max_header_lines = opts.max_header_lines }) do
-    if v < 1 then error(("multipart: %s is a positive integer, not %d"):format(field, v), 2) end
+    if v ~= nil and v < 1 then
+      error(("multipart: %s is a positive integer, not %d"):format(field, v), 2)
+    end
   end
   local boundary = opts.boundary
   if type(boundary) ~= "string" or not good_boundary(boundary) then

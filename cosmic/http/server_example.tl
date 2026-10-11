@@ -59,8 +59,9 @@ function Example.range()
   local function answer(range: string | nil): Server.Reply
     local r = Server.range(range, #data)
     if r.kind == "span" then
-      return { status = 206, body = data:sub(r.first + 1, r.last + 1),
-        headers = { ["Content-Range"] = ("bytes %d-%d/%d"):format(r.first, r.last, #data) } }
+      local first, last = assert(r.first), assert(r.last)
+      return { status = 206, body = data:sub(first + 1, last + 1),
+        headers = { ["Content-Range"] = ("bytes %d-%d/%d"):format(first, last, #data) } }
     elseif r.kind == "unsatisfiable" then
       return { status = 416, headers = { ["Content-Range"] = ("bytes */%d"):format(#data) } }
     end

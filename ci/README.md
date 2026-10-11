@@ -347,6 +347,19 @@ the failed leg has finished when the cancel comes, so it keeps its
 `failure` instead of reading `cancelled`; the legs cancelled with it do
 read `cancelled`, so a result at the gate may too.
 
+A leg that has failed should also stop sooner itself. On the queue's run
+each suite (`cosmic test --bail`: native, checked, portable and darwin;
+`test_words`) starts no test after its first failure. The tests already
+running finish with their own verdicts, so the failure list may name a
+few more than one, and the tests never started keep no verdict, pass or
+fail, so none stands on a later run. The suite's summary says how many
+did not run (`N not run after the first failure`). The leg then fails
+at once, which the `cancel` job turns into a cancelled run without
+waiting on the rest of that suite. The suites run the tree's own tool,
+which parses the flag, not the pinned release the driver runs on. A
+push, the scheduled and a manual run, and `ci/run-local` do not pass
+it: they report every failing test.
+
 Nothing waits on `cancel`: the gate does not need it, and it names no
 required check. It starts with the legs and stops when a job has failed
 and the run is cancelled, when the gate starts (every leg has

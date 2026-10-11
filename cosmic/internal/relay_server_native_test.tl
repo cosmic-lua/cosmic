@@ -56,7 +56,7 @@ local function test_the_relay_connects_through_the_native_connector()
   require_native_connector()
   Poll.run(function()
     local listener = assert(Net.listen(Net.tcp("127.0.0.1", 0)))
-    local port = listener.address.port
+    local port = assert(listener.address.port)
     local echoed = Poll.spawn(function()
       while true do
         local conn = listener:accept()
@@ -78,7 +78,7 @@ local function test_the_relay_connects_through_the_native_connector()
     local front = assert(Net.listen(Net.tcp("127.0.0.1", 0)))
     -- A port that was free a moment ago.
     local free = assert(Net.listen(Net.tcp("127.0.0.1", 0)))
-    local closed = free.address.port
+    local closed = assert(free.address.port)
     local _, _ = free:close()
     local asked = 0
     local connector = assert(Net.connector({}, { public = { deny = {} } }))

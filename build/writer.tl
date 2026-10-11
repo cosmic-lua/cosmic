@@ -619,6 +619,22 @@ local nested_type <const> =
   "THEN substr(d.source_symbol, instr(d.source_symbol, '.') + 1) " ..
   "ELSE substr(d.symbol, 1, instr(d.symbol, '.') - 1) END)"
 
+--- The public declarations that can name an internal type through a
+--- module binding: the `signature` of each public alias (`type Handle =
+--- raw_sqlite.Handle`) or declaration with bases (`record Options is
+--- raw_http.Options`), beside each module `requires` its module binds,
+--- and the `name` it binds it to ([`build.analyzer.Bound`]). It follows
+--- `dropped` as one more common table expression, materialized so that
+--- it is computed once, not for each internal doc row
+--- [`carried_internal_types`] asks about.
+local carried_alias_signatures <const> =
+  ", alias_signatures AS MATERIALIZED (" ..
+  "SELECT b.requires, b.name, p.signature FROM whole.docs p " ..
+  "JOIN whole.bound b ON b.path = p.module WHERE " ..
+  symbols.public_only("p.module", true) .. " AND " ..
+  "(p.signature GLOB 'type * = *' OR p.signature GLOB '*record * is *' OR " ..
+  "p.signature GLOB '*interface * is *')) "
+
 --- The condition under which a doc row `d` of a `cosmic.internal.*`
 --- module is a nested type -- [`sqlite.Handle`] -- or a member of one
 --- ([`Handle.exec`]) that a public declaration reaches: an alias
@@ -631,13 +647,9 @@ local carried_internal_types =
   "(d.module LIKE 'cosmic.internal.%' AND d.symbol <> '' AND " ..
   "((d.kind IN ('record', 'interface', 'enum') AND instr(d.source_symbol, '.') > 0) OR " ..
   "(d.kind IN ('field', 'value', 'metamethod') AND instr(d.symbol, '.') > 0)) AND " ..
-  "EXISTS (SELECT 1 FROM whole.docs p " ..
-  "JOIN whole.bound b ON b.path = p.module AND b.requires = d.module WHERE " ..
-  symbols.public_only("p.module", true) .. " AND " ..
-  "(p.signature GLOB 'type * = *' OR p.signature GLOB '*record * is *' OR " ..
-  "p.signature GLOB '*interface * is *') AND " ..
-  "(p.signature GLOB '*[ ,]' || b.name || '.' || " .. nested_type .. " OR " ..
-  "p.signature GLOB '*[ ,]' || b.name || '.' || " .. nested_type .. " || ',*')))"
+  "EXISTS (SELECT 1 FROM alias_signatures a WHERE a.requires = d.module AND " ..
+  "(a.signature GLOB '*[ ,]' || a.name || '.' || " .. nested_type .. " OR " ..
+  "a.signature GLOB '*[ ,]' || a.name || '.' || " .. nested_type .. " || ',*')))"
 
 --- Copies a projection's rows into a fresh schema of the same shape,
 --- leaving out each row `dropped_modules` names. Both schemas come from
@@ -679,8 +691,9 @@ local carry: {string} = {
   -- A user guide ([`symbols.guide_module`]) is a generated test module, so
   -- `dropped` names it, but its own row -- the guide's prose -- is what
   -- `cosmic docs quickstart` answers with.
-  dropped_modules .. "INSERT INTO main.docs (module, symbol, source_symbol, " ..
-    "exported, kind, signature, text, file, line) SELECT module, symbol, " ..
+  dropped_modules .. carried_alias_signatures ..
+    "INSERT INTO main.docs (module, symbol, source_symbol, exported, " ..
+    "kind, signature, text, file, line) SELECT module, symbol, " ..
     "source_symbol, exported, kind, signature, text, file, line " ..
     "FROM whole.docs d WHERE (d.symbol = '' AND " ..
     symbols.guide_module("d.module") .. ") OR (module NOT IN dropped AND (" ..

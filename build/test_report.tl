@@ -152,23 +152,29 @@ end
 --- A figure the summary adds goes after `stood`: CI's driver reads the
 --- figures before it by their places (ci/cosmic_ci/suite_output.tl).
 function test_report.passed(counts: test_report.Passed, elapsed: string): string
+  local unchecked, na = counts.unchecked or 0, counts.na or 0
   return plural.count(counts.total, "test") .. ", " ..
     plural.count(counts.modules, "module") .. "; " ..
     counts.ran .. " ran, " .. counts.cached .. " stood, " ..
     (counts.skipped > 0 and (counts.skipped .. " skipped (this host could not check " ..
       (counts.skipped == 1 and "it" or "them") .. "), ") or "") ..
-    ((counts.unchecked or 0) > 0 and (counts.unchecked .. " made no call to assert, ") or "") ..
-    ((counts.na or 0) > 0 and (counts.na .. " n/a (this platform has none of what they check), ") or "") ..
+    (unchecked > 0 and (unchecked .. " made no call to assert, ") or "") ..
+    (na > 0 and (na .. " n/a (this platform has none of what they check), ") or "") ..
     (counts.every > 0 and (counts.every .. " run every time (no key holds them), ") or "") ..
     (counts.shared > 0 and (counts.shared .. " of them on another checkout's verdict, ") or "") ..
     elapsed
 end
 
 --- The runner has already decided failure before asking for its summary.
+---
+--- `not_run` counts the tests a bailing run (`cosmic test --bail`) never
+--- started: they are in neither figure above, and are said last, after
+--- what a reader of the figures by their places expects.
 function test_report.failed(failures: integer, total: integer, errors: integer,
-                            elapsed: string): string
+                            elapsed: string, not_run?: integer): string
   return failures .. " of " .. total .. " failed, " ..
-    plural.count(errors, "infrastructure error") .. ", " .. elapsed
+    plural.count(errors, "infrastructure error") .. ", " .. elapsed ..
+    ((not_run or 0) > 0 and ("; " .. not_run .. " not run after the first failure") or "")
 end
 
 return test_report

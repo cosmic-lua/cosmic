@@ -31,7 +31,7 @@ return function(): integer
   end
   local again = assert(Time.local_zone())
   local only, _ = Time.zone("Test/Here")
-  Fs.put(Fs.stdout, z.name .. " " .. Time.civil(0, z).offset .. " " .. tostring(rawequal(z, again)) ..
+  Fs.put(Fs.stdout, tostring(z.name) .. " " .. tostring(Time.civil(0, z).offset) .. " " .. tostring(rawequal(z, again)) ..
     " " .. tostring(only) .. "\n")
   return 0
 end

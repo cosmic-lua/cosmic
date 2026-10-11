@@ -1,0 +1,25 @@
+file: tl.tl
+note: A table literal given where the metatable's `__index` type is expected, `T | function(T, any): any...` (47a), is a fallback served only for the keys it holds, so 50c does not require it to give every field of T. Any other union holding a function, such as `R | function()`, is held to all of R
+--- find
+            if decltype is UnionType then
+               local single_table_type: Type
+               local single_table_rt: Type
+--- replace
+            local serves_in_place_of_function = false
+            if decltype is UnionType then
+               local single_table_type: Type
+               local single_table_rt: Type
+
+               if #decltype.types == 2 then
+                  for _, t in ipairs(decltype.types) do
+                     local ft = self:to_structural(t)
+                     if ft is FunctionType
+                        and #ft.args.tuple == 2
+                        and ft.args.tuple[2].typename == "any"
+                        and ft.rets.tuple[1]
+                        and ft.rets.tuple[1].typename == "any" then
+                        serves_in_place_of_function = true
+                     end
+                  end
+               end
+--- end

@@ -211,7 +211,7 @@ local function test_a_waiting_projection_keeps_its_compiled_snapshot(tmp: string
           cwd = root, env = this_program.environment(), stdout = "capture", stderr = "capture",
         })
         local failed = assert(Child.run(command.argv, command.options))
-        assert(not failed.ok, failed.stdout .. failed.stderr)
+        assert(not failed.ok, (failed.stdout or "") .. (failed.stderr or ""))
       end
       rebuild_lock.release()
       local result = assert(a:wait(Clock.seconds(20)))

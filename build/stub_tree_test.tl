@@ -47,18 +47,20 @@ local function own_tree(tmp: string, source?: string): work.Handle, string
   return handle, identities.compiler
 end
 
---- [`stub.of`] for the duration of `run`, with the stub of cosmic/thing.tl
---- typing `Box.n` as a string.
+--- [`stub.made`] for the duration of `run`, with the stub of
+--- cosmic/thing.tl typing `Box.n` as a string, so a tree `run` stages and
+--- parses carries that stub.
 local function with_a_wrong_stub(run: function())
-  local of = stub.of
-  stub.of = function(parsed: ast.Parsed): string
-    return (of(parsed):gsub("n: integer", "n: string"))
+  local made = stub.made
+  stub.made = function(parsed: ast.Parsed): stub.Made
+    local right = made(parsed)
+    return { text = (right.text:gsub("n: integer", "n: string")), pruned = right.pruned }
   end
   local ok, raised = pcall(function(): string
     run()
     return ""
   end)
-  stub.of = of
+  stub.made = made
   assert(ok, raised)
 end
 
@@ -75,29 +77,29 @@ local function test_the_tool_carries_each_standard_module_s_stub(tmp: string)
   assert(db:close())
   assert(#rows == 1 and rows[1][1] == "cosmic.thing",
     "the stubs carried are those of the standard library's modules alone")
-  assert(rows[1][2] == stub.of((assert(ast.parse(built, thing, "cosmic/thing.tl")))),
+  assert(rows[1][2] == stub.made((assert(ast.parse(built, thing, "cosmic/thing.tl")))).text,
     rows[1][2])
 end
 
 local function test_a_stub_that_types_its_module_otherwise_fails_the_build(tmp: string)
-  local handle, tool = own_tree(tmp)
   with_a_wrong_stub(function()
+    local handle, tool = own_tree(tmp)
     local result, trouble = importer.compile(handle, built, tool)
     assert(result == nil and trouble:find("cosmic/thing.tl: the stub", 1, true) ~= nil and
         trouble:find("types it differently", 1, true) ~= nil, trouble)
+    assert(work.close(handle))
   end)
-  assert(work.close(handle))
 end
 
 --- A stale tool rebuilding itself compiles unjudged: it keeps a module
 --- its own build.stub refuses, for the tool it builds to judge.
 local function test_an_unjudged_build_keeps_a_module_whose_stub_it_refuses(tmp: string)
-  local handle, tool = own_tree(tmp)
   with_a_wrong_stub(function()
+    local handle, tool = own_tree(tmp)
     local result, trouble = importer.compile(handle, built, tool, true)
     assert(result ~= nil, trouble)
+    assert(work.close(handle))
   end)
-  assert(work.close(handle))
 end
 
 local function test_a_projection_missing_a_stub_is_refused(tmp: string)
@@ -121,5 +123,16 @@ local function test_a_standard_module_declaring_a_global_fails_the_build(tmp: st
   local result, trouble = importer.compile(handle, built, tool)
   assert(result == nil and trouble:find("cosmic/thing.tl:1: a standard-library module may declare no global",
     1, true) ~= nil, trouble)
+  assert(work.close(handle))
+end
+
+--- A standard-library module whose stub would keep every statement -- the
+--- name it returns is a local whose type is inferred -- fails the build: a
+--- project's checker would read all of it.
+local function test_a_standard_module_with_no_declaration_only_stub_fails_the_build(tmp: string)
+  local handle, tool = own_tree(tmp, "local thing = { n = 1 }\nreturn thing\n")
+  local result, trouble = importer.compile(handle, built, tool)
+  assert(result == nil and trouble:find("cosmic/thing.tl: its stub keeps every statement", 1, true) ~= nil,
+    trouble)
   assert(work.close(handle))
 end

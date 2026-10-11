@@ -239,8 +239,9 @@ local function option_lines(spec: {string:boolean | Flags.Option}): {string}
   for index, name in ipairs(names) do
     local entry = spec[name]
     local head = name
-    if entry is Flags.Option and entry.value ~= nil then
-      head = name .. " <" .. entry.value .. ">"
+    local value = entry is Flags.Option and entry.value or nil
+    if value ~= nil then
+      head = name .. " <" .. value .. ">"
     elseif entry == true then
       head = name .. " <value>"
     end
@@ -297,10 +298,7 @@ function Flags.help(command: Flags.Command, name: string): string
     error("flags: help's name is empty", 2)
   end
   local spec = command.spec or {}
-  local usage = command.usage
-  if usage == nil then
-    usage = next(spec) ~= nil and "[options]" or ""
-  end
+  local usage = command.usage or (next(spec) ~= nil and "[options]" or "")
   local parts: {string} = { "usage: " .. (usage ~= "" and name .. " " .. usage or name) }
   if command.about ~= nil and command.about ~= "" then
     parts[#parts + 1] = "\n" .. command.about

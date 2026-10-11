@@ -469,7 +469,9 @@ local function serving(app: Web.App, grace_ns: integer, fn: function(host: strin
   local failure: string = nil
   local ok, why = Web.serve(app, { listeners = { Net.tcp("127.0.0.1", 0) }, grace_ns = grace_ns,
     on_ready = function(addresses: {Net.Address}, server: Net.Server)
-      local ran, trouble = pcall(function() fn("127.0.0.1:" .. addresses[1].port, server) end)
+      local ran, trouble = pcall(function()
+        fn("127.0.0.1:" .. assert(addresses[1].port), server)
+      end)
       if not ran then failure = tostring(trouble) end
       server:stop()
     end })
@@ -613,7 +615,7 @@ local function test_a_quiet_stream_with_heartbeats_outlives_the_servers_timeouts
     timeout_ns = Clock.ms(100), idle_ns = Clock.ms(100), grace_ns = Clock.seconds(1),
     on_ready = function(addresses: {Net.Address}, server: Net.Server)
       local ran, trouble = pcall(function()
-        local feed = open("127.0.0.1:" .. addresses[1].port, "/events/t")
+        local feed = open("127.0.0.1:" .. assert(addresses[1].port), "/events/t")
         assert(chunk(feed) == "retry: 100\n\n")
         local beats = 0
         local started = Clock.monotonic_ns()

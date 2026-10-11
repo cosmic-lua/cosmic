@@ -77,7 +77,7 @@ local function test_repeated_connections_use_only_the_granted_address_and_port()
   local ok, failure = pcall(function()
     greeted(pair[1])
     for tag, request in ipairs({ { 0, bound.port }, { 2, bound.port }, { 1, 0 }, { 1, 65536 },
-        { 1, bound.port == 65535 and 1 or bound.port + 1 } }) do
+        { 1, bound.port == 65535 and 1 or assert(bound.port) + 1 } }) do
       assert(asked(pair[1], table_request(tag, request[1], request[2])) == sys.EPERM)
     end
     -- A table request that carries a family or an address is malformed.
@@ -162,7 +162,7 @@ local function test_mixed_tables_keep_each_range_at_its_own_stride()
   local accepted <close> = assert(socket.accept(listener:fd()))
   assert(accepted:fd() >= 0)
   -- A port the single slot does not hold (any but its own) is refused, not read from the next slot.
-  local other = bound.port % 65535 + 1
+  local other = assert(bound.port) % 65535 + 1
   assert(other ~= bound.port)
   assert(asked(pair[1], table_request(2, 3, other)) == sys.EPERM)
   assert(sys.close(pair[1]))

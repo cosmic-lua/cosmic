@@ -301,6 +301,8 @@ end
 --- @param wanted the modules to compile, by path
 --- @param own_tree whether the tree is cosmic's own ([`compilation.generate`])
 --- @param judged whether a module the contracts refuse is refused
+--- @param lenient whether a table literal may omit a field ([`build.teal`]'s
+---   `environment_for`)
 --- @return what they made, or nil and why the job could not be made: ""
 ---   where one process does as well, and the build compiles it all itself
 -- TODO: compile a shard in this process too: it waits, a processor idle,
@@ -308,7 +310,7 @@ end
 -- compiling a module ahead of the loop that takes each result in order.
 function worker.compile(pool: worker.Pool, db: Sqlite.Handle, root: string,
                         order: {Module}, wanted: {string:boolean}, own_tree: boolean,
-                        judged: boolean): importer.Ahead | nil, string
+                        judged: boolean, lenient: boolean): importer.Ahead | nil, string
   local items: {shards.Item} = {}
   local by_path: {string:Module} = {}
   for _, m in ipairs(order) do
@@ -344,7 +346,7 @@ function worker.compile(pool: worker.Pool, db: Sqlite.Handle, root: string,
     if not ok then return fail(why) end
   end
   for name, value in pairs({ root = root, own_tree = own_tree and "1" or "0",
-      judged = judged and "1" or "0" }) do
+      judged = judged and "1" or "0", lenient = lenient and "1" or "0" }) do
     local ok, why = Sqlite.run(writing, "INSERT INTO meta (name, value) VALUES (?1, ?2)",
       { text(name), text(value) })
     if not ok then return fail(why) end
@@ -425,7 +427,7 @@ local function serve_compile(built: compiler, job: string, index: integer): stri
       "WHERE m.shard = ?1 ORDER BY m.seq", { integer(index) })
   if rows == nil then return close_with(rows_trouble) end
   local modules: {{string}} = rows
-  local env, env_trouble = teal.environment_for(built, jobs, settings.root)
+  local env, env_trouble = teal.environment_for(built, jobs, settings.root, settings.lenient == "1")
   if env == nil then return close_with(env_trouble) end
   local typed = receivers.install(env)
   local own_tree, judged = settings.own_tree == "1", settings.judged == "1"

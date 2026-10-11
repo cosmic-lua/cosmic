@@ -365,7 +365,7 @@ local function test_a_method_the_most_specific_node_lacks_falls_back_to_the_next
   assert(assert(router:match("POST", "/files").route).name == "upload")
   local other = router:match("DELETE", "/files")
   assert(other.kind == "not_allowed" and other.allow == "OPTIONS, POST",
-    "405 names the most specific node's methods: " .. other.allow)
+    "405 names the most specific node's methods: " .. tostring(other.allow))
   local one = router:match("GET", "/files/7")
   assert(one.kind == "match" and assert(one.route).name == "download" and assert(one.params).r == "7",
     "the param node lacks GET: the wildcard above it answers")

@@ -52,6 +52,16 @@ local function fallback_value(values: {string:string}, name: string, fallback: s
   return found ~= nil and found ~= "" and found or fallback
 end
 
+--- The user a root caller's driver runs as: `COSMIC_CI_LOCAL_USER`, else
+--- the user `sudo` came from, else "nobody".
+local function dropped_user(values: {string:string}): string
+  local named = values.COSMIC_CI_LOCAL_USER
+  if named ~= nil and named ~= "" then return named end
+  local sudo = values.SUDO_USER
+  if sudo ~= nil and sudo ~= "" and sudo ~= "root" then return sudo end
+  return "nobody"
+end
+
 local function copy(values: {string:string}): {string:string}
   local out: {string:string} = {}
   for name, value in pairs(values) do out[name] = value end
@@ -149,13 +159,9 @@ local function execute(argv: {integer:string}): integer
     "state must be outside and not contain the checkout")
   local candidate, project = state .. "/candidate", state .. "/ci"
   local credentials: Child.Credentials | nil = nil
-  local user: string | nil = nil
+  local user = ""
   if uid == 0 then
-    user = env.COSMIC_CI_LOCAL_USER
-    if user == nil or user == "" then
-      user = env.SUDO_USER
-      if user == nil or user == "" or user == "root" then user = "nobody" end
-    end
+    user = dropped_user(env)
     local account, why = Proc.user(user)
     assert(account ~= nil, why ~= "" and why or "no user " .. user .. "; set COSMIC_CI_LOCAL_USER")
     assert(account.uid ~= 0 and account.gid ~= 0, "COSMIC_CI_LOCAL_USER must have nonzero user and group IDs")
