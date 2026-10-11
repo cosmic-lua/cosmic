@@ -517,25 +517,16 @@ local function bytecode_of(code: string, name: string,
 end
 
 --- Whether the stub ([`build.stub`]) of the module `m`, which `result`
---- is the checker's reading of and `checked` its syntax tree, types it the
---- same, and if not why: a global it declares, a stub that is not
---- declaration-only (or none, for a module that returns nothing), a type
---- error in the stub, or where its type and
+--- is the checker's reading of, types it the same, and if not why: a stub
+--- that is not declaration-only (or none, for a module that returns
+--- nothing), a type error in the stub, or where its type and
 --- `result.type` part ([`stub.difference`]). The stub is the one the
 --- projection carries ([`build.writer`]). It is checked in `env`, where
 --- `m`'s source was, so each module it requires is the one the source's
 --- check read, under a file name of its own; its warnings are of the bodies
 --- it leaves out, and no reader of the module sees them.
 local function held_to_stub(m: Module, built: compiler, env: compiler.Env,
-                            result: compiler.Result, checked: ast.Node): boolean, string
-  -- A global would reach a project through a require a stub of a module
-  -- that requires this one may leave out, unseen by the check below,
-  -- which runs where the global is already declared.
-  local declared = stub.global_declaration(checked)
-  if declared ~= nil then
-    return false, m.file .. ":" .. declared.y .. ": a standard-library module may declare " ..
-      "no global: a stub of a module requiring it may leave the require out (build/stub.tl)"
-  end
+                            result: compiler.Result): boolean, string
   local made = m.stub
   if made == nil or not made.pruned then
     return false, m.file .. ": its stub keeps every statement, so a project's checker " ..
@@ -556,6 +547,63 @@ local function held_to_stub(m: Module, built: compiler, env: compiler.Env,
       "(build/stub.tl) types it differently from its source: " .. trouble
   end
   return true, ""
+end
+
+--- Where the declaration `n` of a global starts: its `global` keyword,
+--- which tl's tree puts the node at only for some kinds, the name's own
+--- position for others. A `function f` with no keyword starts at the node.
+local function global_start(tokens: {compiler.Token}, n: ast.Node): integer, integer
+  if n.implicit_global_function then
+    return n.y, n.x
+  end
+  for i, t in ipairs(tokens) do
+    if t.y == n.y and t.x == n.x then
+      -- `global`, `global type T`, `global function f`: the keyword is
+      -- at most two tokens before the name.
+      for back = i, math.max(1, i - 2), -1 do
+        if tokens[back].tk == "global" then
+          return tokens[back].y, tokens[back].x
+        end
+      end
+      break
+    end
+  end
+  return n.y, n.x
+end
+
+--- Why the module `file`, whose checked `source` has syntax tree `root`,
+--- may not be compiled for the globals it declares (`global x`,
+--- `global function`, `global record`, an undeclared `function f`), one
+--- line each at the declaration, or nil when it declares none. A module's
+--- compile key holds its kind, its source, the keys of what it requires
+--- and the compiler, and a global reaches other modules by none of those:
+--- a cached compile could stand after the global's type changed, and what
+--- a build accepts would depend on the order modules are checked in.
+local function global_refusal(built: compiler, file: string, source: string,
+                              root: ast.Node): string | nil
+  local found: {ast.Node} = {}
+  ast.walk(root, function(n: ast.Node)
+    -- `global x: T = v` also holds a "global_declaration" the parser made
+    -- of the same text, which has no position of its own.
+    if n.kind:sub(1, 7) == "global_" and n.y ~= nil then
+      found[#found + 1] = n
+    end
+  end)
+  if #found == 0 then
+    return nil
+  end
+  -- Lexed only here: a module with no global is not read twice.
+  local tokens = built.lex(source, file)
+  local lines: {string} = {}
+  for _, n in ipairs(found) do
+    local y, x = global_start(tokens, n)
+    lines[#lines + 1] = file .. ":" .. y .. ":" .. x ..
+      ": a global is not allowed in a cosmic build: it reaches other modules by no " ..
+      "`require`, which is all a build's cache and its order see -- put the value " ..
+      "in a module and `require` it"
+  end
+  table.sort(lines)
+  return table.concat(lines, "\n")
 end
 
 --- Compiles one module: the checker over its source (with each
@@ -587,6 +635,11 @@ function compilation.generate(m: Module, built: compiler, env: compiler.Env,
   end
   local code: string | nil = nil
   if result.ast ~= nil and #result.syntax_errors == 0 then
+    local tree = result.ast
+    local refused_globals = tree is ast.Node and global_refusal(built, m.file, source, tree) or nil
+    if refused_globals ~= nil then
+      return nil, refused_globals
+    end
     local written, write_trouble = built.generate(result.ast, env.defaults.gen_target, nil)
     if written == nil then
       return nil, m.file .. ": " .. write_trouble
@@ -619,7 +672,7 @@ function compilation.generate(m: Module, built: compiler, env: compiler.Env,
   end
   local refused = false
   if own_tree and m.kind == "module" and m.path:sub(1, 7) == "cosmic." then
-    local held, hold_trouble = held_to_stub(m, built, env, result, checked)
+    local held, hold_trouble = held_to_stub(m, built, env, result)
     if not held and judged then
       return nil, hold_trouble
     end

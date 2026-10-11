@@ -292,6 +292,18 @@ the replacement for that very field, at the site that used it.
 [`cosmic.removed`] is the one place the map from a removed name to its
 replacement lives.
 
+a build refuses a Teal `global` declaration (`global x`, `global function`,
+`global record`, `global type`, and a `function f` that declares no local)
+in every module it compiles, at the line and column of the declaration. a
+module's compile key holds its kind, its source, the keys of the modules
+it requires, and the compiler's identity. a global reaches other modules by
+none of those, so a cached compile could stand after the module that
+declares it changed, the verdict of a serial build would depend on the
+order modules are checked in, and parallel workers could not reproduce it.
+everything a module sees comes through a `require`, which the key covers.
+`.d.tl` files and the checker's own standard library are not modules the
+build compiles, and are unaffected.
+
 the compiler -- the Lua the vendored `tl.tl` compiles to (below) --
 reaches outside the pure libraries in five
 places: `io.open` and the file handle it returns, `os.getenv`,

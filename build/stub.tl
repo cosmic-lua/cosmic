@@ -152,9 +152,9 @@ end
 --- declaration spells its type. An `if`, an `assert` or an assignment may
 --- narrow the union a local is written to be (`local m: A | B`), which
 --- [`stub.difference`] tells, so cosmic's own build refuses that stub. A
---- require of a module that declares a global brings a type in by no name
---- the stub spells, but cosmic's own build refuses a standard-library
---- module that declares one ([`build.compilation`]). A statement of any
+--- require of a module that declares a global would bring a type in by no
+--- name the stub spells, but a build refuses a module that declares one
+--- ([`build.compilation`]). A statement of any
 --- other kind is kept wherever it is.
 local droppable <const>: {string:boolean} = {
   local_declaration = true, local_function = true, local_type = true, record_function = true,
@@ -362,17 +362,6 @@ function stub.made(parsed: ast.Parsed): stub.Made
     end
   end
   return { text = table.concat(out) .. "\n", pruned = dropped ~= nil }
-end
-
---- The first statement of the chunk `root` that declares a global, or
---- nil: a standard-library module may declare none (see `droppable`).
-function stub.global_declaration(root: ast.Node): ast.Node | nil
-  for _, s in ipairs(root) do
-    if s.kind:sub(1, 7) == "global_" then
-      return s
-    end
-  end
-  return nil
 end
 
 --- Fields of a checked type that say where it was read, which a stub
