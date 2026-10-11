@@ -146,7 +146,7 @@ middleware and the handler share one decode. Rules that bind the core:
   ([`Stream.from_string`]), so a later `Input.form` or a handler reading
   `req.raw.body` still sees them. A handler streaming an upload uses
   `req.raw.body` and never calls the helpers.
-- Cookies: the cookie jar is `cosmic.web.cookies` (input.md section 6). Core
+- Cookies: the cookie jar is [`cosmic.web.cookies`] (input.md section 6). Core
   guarantees only that `req:header("cookie")` is the single joined line
   (13.2) and that [`Web.Response`] can carry several Set-Cookie lines (13.1).
 
@@ -164,7 +164,7 @@ spoofable by default is worse than absent.
 Starlette's `request.state` is an attribute bag. Teal has no attribute bag,
 and string keys collide between middleware. So per-request state is typed
 keys; the session, the CSRF token, the CSP nonce, htmx's parsed request and
-the decoded input are each an exported key (`Session.KEY`,
+the decoded input are each an exported key ([`Session.KEY`],
 `Headers.NONCE`, `Htmx.KEY`, `Input.QUERY` and the like in their modules),
 never a field of `req.state`:
 
@@ -273,12 +273,12 @@ function Web.add_header(res: Response, name: string, value: string)   -- appends
 constructor always has a `headers` table, so middleware never nil-checks.
 `Vary` is merged rather than repeated: `add_header(res, "Vary", "Cookie")`
 adds the token to the existing `Vary` line unless it is already listed
-(case-insensitively), and a `Vary: *` absorbs everything; `Cookies.set`
+(case-insensitively), and a `Vary: *` absorbs everything; [`Cookies.set`]
 (input.md section 6), `Htmx.page` (templates.md section 6.4), the CORS and
 session middleware and `StaticFiles` all go through it. Every other name
 gets a line of its own. `Set-Cookie` MUST use `add_header`; `set_header` on
 it replaces every cookie, and the helper raises for `Set-Cookie` to say so
-(use `Cookies.set`, which calls `add_header`).
+(use [`Cookies.set`], which calls `add_header`).
 
 Mapping to [`Server.Reply`] is the identity; nothing is copied, so a
 middleware that mutates `res.headers` after `next(req)` is cheap.
@@ -765,7 +765,7 @@ stream.tl:655, and drops `Content-Length`).
 
 Shipped in core: [`Web.access_log`], `Web.timing`, `Web.request_id`
 (sets `X-Request-ID` and a key), `Web.trusted_hosts` (also an App field),
-`Web.limit_body(n)`. Others by their modules: sessions (`cosmic.web.session`),
+`Web.limit_body(n)`. Others by their modules: sessions ([`cosmic.web.session`]),
 CSRF (`cosmic.web.csrf`), CORS (`cosmic.web.cors`), security headers
 (`cosmic.web.headers`) and htmx (`cosmic.web.htmx`), all in input.md and
 templates.md. A gzip middleware is named by assets.md (it must skip
@@ -1041,7 +1041,7 @@ res = client:post("/login", { form = { user = "u", password = "p" } })
   socket, same middleware, same router. A cookie jar is kept across calls
   (reads Set-Cookie lines, sends `Cookie`), so session tests are one
   client. The jar understands path/expiry/Secure minimally (the cookies
-  module, `cosmic.web.cookies`, owns semantics; the client uses a
+  module, [`cosmic.web.cookies`], owns semantics; the client uses a
   `Cookies.parse_set_cookie(line)` that input.md section 6 adds for it, and
   a first version may keep name=value and delete on `Max-Age=0`).
 - Fidelity: the in-process path skips the server's checks, so a handler
@@ -1063,7 +1063,7 @@ res = client:post("/login", { form = { user = "u", password = "p" } })
   test using the database resource works; the simple `Web.test_client(app)`
   runs lifespan lazily at the first request and registers shutdown via
   `<close>` (`local client <close> = Web.test_client(app)`).
-- A deterministic clock for sessions/expiry is `Session.Options.now`
+- A deterministic clock for sessions/expiry is [`Session.Options.now`]
   (input.md section 7); the client does not fake time.
 
 ### 10.2 Over loopback
@@ -1151,7 +1151,7 @@ tests; the bulk run in-process (no loopback policy, and cheap to key).
   (log, timing, request id), `errors.tl` (exception layer, negotiation,
   problem), `app.tl` (App, serve, lifespan), `testing.tl`.
 - The other files add modules beside: `cosmic.web.input`,
-  `cosmic.web.cookies`, `cosmic.web.session` (with `.cookie` and `.sqlite`
+  [`cosmic.web.cookies`], [`cosmic.web.session`] (with `.cookie` and `.sqlite`
   stores), `cosmic.web.csrf`, `cosmic.web.cors`, `cosmic.web.headers`
   (input.md); `cosmic.web.htmx` (templates.md); `cosmic.web.static`,
   `cosmic.web.sse`, `cosmic.web.dev`, and the support modules
@@ -1345,10 +1345,13 @@ close, and a raise in it reaches `on_error` without stopping the drain.
 
 [`App.handle`]: ../../../cosmic/web/types.tl
 [`build.fuzz`]: ../../../build/fuzz/init.tl
+[`Cookies.set`]: ../../../cosmic/web/cookies.tl
 [`cosmic.http.wire`]: ../../../cosmic/http/wire.tl
 [`cosmic.log`]: ../../../cosmic/log.tl
 [`cosmic.shape`]: ../../../cosmic/shape.tl
 [`cosmic.url`]: ../../../cosmic/url.tl
+[`cosmic.web.cookies`]: ../../../cosmic/web/cookies.tl
+[`cosmic.web.session`]: ../../../cosmic/web/session/init.tl
 [`cosmic.web`]: ../../../cosmic/web/init.tl
 [`cosmic/web/request.tl`]: ../../../cosmic/web/request.tl
 [`cosmic/web/testing.tl`]: ../../../cosmic/web/testing.tl
@@ -1382,6 +1385,8 @@ close, and a raise in it reaches `on_error` without stopping the drain.
 [`Server.ServeSpec`]: ../../../cosmic/http/server.tl
 [`Server.stop`]: ../../../cosmic/net.tl
 [`ServeSpec.on_stop`]: ../../../cosmic/net.tl
+[`Session.KEY`]: ../../../cosmic/web/session/init.tl
+[`Session.Options.now`]: ../../../cosmic/web/session/init.tl
 [`Shape.into`]: ../../../cosmic/shape.tl
 [`Stream.from_string`]: ../../../cosmic/stream.tl
 [`Stream.limit`]: ../../../cosmic/stream.tl

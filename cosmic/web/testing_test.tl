@@ -244,3 +244,96 @@ local function test_a_lifespan_that_failed_is_run_again_by_the_next_request()
   assert(starts == 2)
   assert(client:get("/").status == 200 and starts == 2, "started once it has succeeded")
 end
+
+local function test_the_jar_sends_a_cookie_only_where_its_path_matches()
+  local app = Web.app{ routes = {
+    Web.get("/set", function(_req: Web.Request): Web.Response
+      local res = Web.text("set")
+      Web.add_header(res, "Set-Cookie", "deep=1; Path=/admin")
+      Web.add_header(res, "Set-Cookie", "root=1; Path=/")
+      return res
+    end),
+    Web.get("/area/set", function(_req: Web.Request): Web.Response
+      local res = Web.text("set")
+      Web.add_header(res, "Set-Cookie", "here=1")
+      return res
+    end),
+    Web.get("/*rest", function(req: Web.Request): Web.Response
+      return Web.text(req:header("cookie") or "none")
+    end),
+  } }
+  local client = Web.test_client(app)
+  client:get("/set")
+  client:get("/area/set")
+  assert(client:get("/admin"):text() == "deep=1; root=1")
+  assert(client:get("/admin/users"):text() == "deep=1; root=1")
+  assert(client:get("/administrator"):text() == "root=1", "/admin is not a prefix of /administrator by segment")
+  assert(client:get("/other"):text() == "root=1")
+  assert(client:get("/area/page"):text() == "here=1; root=1", "no Path: the directory of the request")
+end
+
+local function test_the_jar_expires_a_cookie_by_max_age_and_by_expires_date()
+  local app = Web.app{ routes = {
+    Web.get("/set", function(_req: Web.Request): Web.Response
+      local res = Web.text("set")
+      Web.add_header(res, "Set-Cookie", "short=1; Max-Age=60")
+      Web.add_header(res, "Set-Cookie", "old=1; Expires=Thu, 01 Jan 1970 00:00:00 GMT")
+      Web.add_header(res, "Set-Cookie", "future=1; Expires=Fri, 01 Jan 2100 00:00:00 GMT")
+      Web.add_header(res, "Set-Cookie", "plain=1")
+      return res
+    end),
+    Web.get("/see", function(req: Web.Request): Web.Response
+      return Web.text(req:header("cookie") or "none")
+    end),
+  } }
+  local client = Web.test_client(app)
+  client:get("/set")
+  assert(client:get("/see"):text() == "future=1; plain=1; short=1", "a cookie set already expired is not kept")
+  client.attrs.short.expires_ns = 1
+  assert(client:get("/see"):text() == "future=1; plain=1", "a lapsed cookie is dropped")
+  assert(client.jar.short == nil)
+end
+
+local function test_the_jar_sends_a_secure_cookie_only_for_an_https_client()
+  local app = Web.app{ trusted_proxy = true, routes = {
+    Web.get("/set", function(_req: Web.Request): Web.Response
+      local res = Web.text("set")
+      Web.add_header(res, "Set-Cookie", "s=1; Secure")
+      return res
+    end),
+    Web.get("/see", function(req: Web.Request): Web.Response
+      return Web.text((req:header("cookie") or "none") .. " " .. req.scheme)
+    end),
+  } }
+  local client = Web.test_client(app)
+  client:get("/set")
+  assert(client:get("/see"):text() == "none http")
+  client.scheme = "https"
+  assert(client:get("/see"):text() == "s=1 https")
+end
+
+local function test_a_delete_at_another_path_leaves_the_cookie_as_a_browser_does()
+  local app = Web.app{ routes = {
+    Web.get("/set", function(_req: Web.Request): Web.Response
+      local res = Web.text("set")
+      Web.add_header(res, "Set-Cookie", "a=1; Path=/x")
+      return res
+    end),
+    Web.get("/drop", function(_req: Web.Request): Web.Response
+      local res = Web.text("drop")
+      Web.add_header(res, "Set-Cookie", "a=; Path=/y; Max-Age=0")
+      return res
+    end),
+    Web.get("/drop-x", function(_req: Web.Request): Web.Response
+      local res = Web.text("drop")
+      Web.add_header(res, "Set-Cookie", "a=; Path=/x; Max-Age=0")
+      return res
+    end),
+  } }
+  local client = Web.test_client(app)
+  client:get("/set")
+  client:get("/drop")
+  assert(client.jar.a == "1")
+  client:get("/drop-x")
+  assert(client.jar.a == nil)
+end
