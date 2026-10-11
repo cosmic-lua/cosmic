@@ -59,37 +59,37 @@ local record Headers
     --- Seconds the browser remembers (required).
     max_age: integer
     --- Add `includeSubDomains` (false).
-    include_subdomains: boolean
+    include_subdomains?: boolean
     --- Add `preload` (false); needs `include_subdomains` and a `max_age`
     --- of a year or more.
-    preload: boolean
+    preload?: boolean
   end
 
   --- What [`Headers.middleware`] takes; every field is optional.
   record Options
     --- X-Content-Type-Options: nosniff (true).
-    nosniff: boolean
+    nosniff?: boolean
     --- Referrer-Policy ("strict-origin-when-cross-origin"; "" omits).
-    referrer_policy: string
+    referrer_policy?: string
     --- X-Frame-Options: "DENY" (default), "SAMEORIGIN" or "" for none. A
     --- `csp` without a `frame-ancestors` directive gets the matching one
     --- ('none' or 'self').
-    frame_options: string
+    frame_options?: string
     --- Cross-Origin-Opener-Policy ("same-origin"; "" omits).
-    coop: string
+    coop?: string
     --- Cross-Origin-Resource-Policy: omitted unless set to "same-origin",
     --- "same-site" or "cross-origin".
-    corp: string
+    corp?: string
     --- Permissions-Policy ("camera=(), microphone=(), geolocation=()"; "" omits).
-    permissions_policy: string
+    permissions_policy?: string
     --- Strict-Transport-Security, sent on https requests only; nil omits.
-    hsts: Hsts
+    hsts?: Hsts
     --- The Content-Security-Policy; nil sends none.
-    csp: Csp.Policy
+    csp?: Csp.Policy
     --- Send the policy as Content-Security-Policy-Report-Only (false).
-    csp_report_only: boolean
+    csp_report_only?: boolean
     --- Draw a nonce for each request (false): see [`Headers.NONCE`].
-    nonce: boolean
+    nonce?: boolean
   end
 
   --- The request's CSP nonce, "" where no [`Headers.middleware`] with `nonce`

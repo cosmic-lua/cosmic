@@ -81,8 +81,8 @@ end
 
 local record Fault
   point: string
-  skip: integer
-  headers: {string: string}
+  skip?: integer
+  headers?: {string: string}
 end
 
 --- Every point `open` passes on a scripted request with a header, the
