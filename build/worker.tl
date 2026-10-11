@@ -289,6 +289,10 @@ end
 
 -- Compiling
 
+-- TODO: compile a shard in this process too: it waits, a processor idle,
+-- for the whole phase. Waits on `compile_derived` ([`build.importer`])
+-- compiling a module ahead of the loop that takes each result in order.
+
 --- Compiles `wanted`, as [`compilation.generate`] does one by one, in
 --- the pool's workers, and answers what they made, to be read as the
 --- build reaches each module. A module's imports are checked by each
@@ -304,10 +308,8 @@ end
 --- @param lenient whether a table literal may omit a field ([`build.teal`]'s
 ---   `environment_for`)
 --- @return what they made, or nil and why the job could not be made: ""
----   where one process does as well, and the build compiles it all itself
--- TODO: compile a shard in this process too: it waits, a processor idle,
--- for the whole phase. Waits on `compile_derived` ([`build.importer`])
--- compiling a module ahead of the loop that takes each result in order.
+---   where one process does as well, or where a source declares a `global`,
+---   and the build compiles it all itself
 function worker.compile(pool: worker.Pool, db: Sqlite.Handle, root: string,
                         order: {Module}, wanted: {string:boolean}, own_tree: boolean,
                         judged: boolean, lenient: boolean): importer.Ahead | nil, string
@@ -316,6 +318,21 @@ function worker.compile(pool: worker.Pool, db: Sqlite.Handle, root: string,
   for _, m in ipairs(order) do
     items[#items + 1] = { path = m.path, requires = m.requires, size = #m.source }
     by_path[m.path] = m
+  end
+  local sources, sources_trouble = Sqlite.text_rows(db,
+    "SELECT path, kind, source FROM inputs WHERE kind <> 'vendor'")
+  if sources == nil then return nil, sources_trouble end
+  local inputs: {{string}} = sources
+  -- A `global` a module declares stays in the checker's environment for
+  -- every module checked after it, in the same process: one is refused for
+  -- declaring it again unlike another, and one that names it is accepted
+  -- without requiring its declarer. Workers each check some of the modules,
+  -- so they would answer differently. No source of the tree declares one
+  -- (its standard library's are the vendored compiler's), so a build that
+  -- finds a line leading with the word, in code or in a string, compiles
+  -- alone.
+  for _, row in ipairs(inputs) do
+    if row[3]:find("^%s*global%s") or row[3]:find("[\n;]%s*global%s") then return nil, "" end
   end
   local plan = shards.best(items, wanted, pool.size())
   local count = #plan
@@ -338,10 +355,7 @@ function worker.compile(pool: worker.Pool, db: Sqlite.Handle, root: string,
     local _, _ = writing:close()
     return nil, why
   end
-  local sources, sources_trouble = Sqlite.text_rows(db,
-    "SELECT path, kind, source FROM inputs WHERE kind <> 'vendor'")
-  if sources == nil then return fail(sources_trouble) end
-  for _, row in ipairs(sources) do
+  for _, row in ipairs(inputs) do
     local ok, why = Sqlite.run(writing, "INSERT OR IGNORE INTO inputs (path, kind, source) VALUES (?1, ?2, ?3)",
       { text(row[1]), text(row[2]), text(row[3]) })
     if not ok then return fail(why) end

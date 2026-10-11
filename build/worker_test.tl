@@ -257,9 +257,10 @@ end
 
 --- Runs `chunk` in a process of this program, with `value` as
 --- COSMIC_BUILD_JOBS (none for nil): what it printed and wrote to stderr.
-local function run_chunk(chunk: string, value?: string): string, string
+local function run_chunk(chunk: string, value?: string, tmpdir?: string): string, string
   local env = this_program.environment()
   env.COSMIC_BUILD_JOBS = value
+  if tmpdir ~= nil then env.TMPDIR = tmpdir end
   local started = this_program.program({ "-e", chunk }, {
     env = env, stdout = "capture", stderr = "capture",
   })
@@ -527,5 +528,84 @@ local function test_a_signal_to_the_builds_group_ends_its_workers()
   for _, pid in ipairs(names_in(dir)) do
     eventually("worker " .. pid .. " ended", function(): boolean return not running(pid) end)
   end
+  assert(Fs.remove_tree(dir))
+end
+
+--- `pool` as a build is given it, and how many times it handed back
+--- compiled modules for the build to take.
+local function counted(pool: importer.Workers): importer.Workers, {integer}
+  local taken = { 0 }
+  return {
+    ready = pool.ready,
+    parse = pool.parse,
+    compile = function(db: Sqlite.Handle, root: string, order: {importer.Module},
+                       wanted: {string:boolean}, own: boolean, judged: boolean,
+                       lenient: boolean): importer.Ahead | nil, string
+      local ahead, trouble = pool.compile(db, root, order, wanted, own, judged, lenient)
+      if ahead ~= nil then taken[1] = taken[1] + 1 end
+      return ahead, trouble
+    end,
+    close = pool.close,
+  }, taken
+end
+
+local function test_a_build_that_declares_a_global_compiles_alone_as_it_would_have()
+  -- A global stays in the checker's environment for the modules checked
+  -- after it in a process, so shards of modules would answer otherwise:
+  -- the second declaration, unlike the first, is refused alone.
+  local clash = project()
+  clash["ga.tl"] = 'global G: string = "x"\nreturn {}\n'
+  clash["gb.tl"] = "global G: integer = 1\nreturn {}\n"
+  -- And a module that names a global without requiring its declarer is
+  -- accepted alone, for whatever came before it.
+  local named = project()
+  named["ga.tl"] = "global G: integer = 1\nreturn {}\n"
+  named["zc.tl"] = "local x: integer = G\nreturn x\n"
+  for case, files in pairs({ clash = clash, named = named }) do
+    local alone = build_with("global-alone-" .. case, files)
+    local pool, taken = counted(pool_of())
+    local pooled = build_with("global-pooled-" .. case, files, pool)
+    assert((alone.result == nil) == (pooled.result == nil),
+      case .. ": alone " .. alone.trouble .. " against pooled " .. pooled.trouble)
+    assert(pooled.trouble == alone.trouble, case .. ": " .. pooled.trouble)
+    if alone.result ~= nil then same_rows(alone, pooled) end
+    assert(taken[1] == 0, case .. ": the pool compiled a build that declares a global")
+  end
+  assert(build_with("global-clash", clash).result == nil, "a clashing global compiled")
+end
+
+local function test_workers_compile_with_lenient_literals_where_the_build_does()
+  local files = project()
+  files["cosmic-driver.pin"] = "a release\n"
+  files["omit.tl"] = "local record Pair\n  a: integer\n  b: integer\nend\n" ..
+    "local function omit(): Pair\n  return { a = 1 }\nend\nreturn omit\n"
+  local alone = build_with("lenient-alone", files)
+  assert(alone.result ~= nil, alone.trouble)
+  local pooled = build_with("lenient-pooled", files, pool_of())
+  assert(pooled.result ~= nil, pooled.trouble)
+  same_rows(alone, pooled)
+  local result = pooled.result as importer.Result
+  assert(result.worked > 0 and result.worked == result.compiled,
+    "workers compiled " .. result.worked .. " of " .. result.compiled)
+end
+
+local function test_a_pool_refuses_a_scratch_parent_that_is_a_link()
+  local tmp = this_program.environment().TMPDIR or "/tmp"
+  local elsewhere = assert(Fs.mkdtemp("cosmic-elsewhere-"))
+  assert(Fs.symlink(elsewhere, tmp .. "/cosmic-workers-" .. sys.getuid()))
+  local dir = assert(Fs.mkdtemp("cosmic-linked-"))
+  local printed, said = run_chunk(starting_pool(dir, ""), "2")
+  assert(printed == "false", "a pool started through a link: " .. printed)
+  assert(said:find(": is a link", 1, true), said)
+  assert(#names_in(elsewhere) == 0, "something was put through the link")
+  assert(Fs.remove_tree(dir))
+end
+
+local function test_a_pool_takes_an_empty_temporary_directory_for_none()
+  local dir = assert(Fs.mkdtemp("cosmic-empty-"))
+  local printed = run_chunk(starting_pool(dir, waiting_for(dir, 2) .. " pool.close()"), "2", "")
+  assert(printed == "true", printed)
+  assert(#names_in(dir) == 2, "workers started: " .. #names_in(dir))
+  assert(not Fs.exists("/cosmic-workers-" .. sys.getuid()), "a scratch parent at the root")
   assert(Fs.remove_tree(dir))
 end

@@ -109,13 +109,14 @@ local function again(args: {string}): {string}, {string:string}, {integer:intege
   return argv, env, fds
 end
 
+-- TODO: once core/bridge.lua takes its compiles from the compiles every
+-- checkout shares (the TODOs there), a worker of a boot starts in about
+-- two seconds, not nine: lower `startup_ns` and `open_bytes` to match.
+
 --- How a boot starts a worker: the core it runs on, asked to boot the
 --- tree at `root` with the compiler in `tl_dir` and then serve as a
 --- worker ([`build.boot`]). The worker loads the build's code from that
 --- source, which takes seconds a worker of a tool does not.
--- TODO: once core/bridge.lua takes its compiles from the compiles every
--- checkout shares (the TODOs there), a worker of a boot starts in about
--- two seconds, not nine: lower `startup_ns` and `open_bytes` to match.
 function workers.boot_spec(root: string, tl_dir: string): workers.Spec
   local argv, _, _ = again({ "--boot", root, tl_dir, "--worker" })
   return { argv = argv, open_bytes = 3 * 1024 * 1024, phase_bytes = 128 * 1024,
@@ -151,6 +152,9 @@ local function private_dir(path: string): boolean, string
   local st, trouble = sys.lstat(path)
   if st == nil then
     return false, path .. ": " .. trouble
+  end
+  if st.kind == "link" then
+    return false, path .. ": is a link"
   end
   if st.kind ~= "dir" then
     return false, path .. ": not a directory"
@@ -210,7 +214,11 @@ function workers.pool(spec: workers.Spec, jobs?: integer): importer.Workers
   end
 
   local function start(): boolean
-    local parent = Env.get_or("TMPDIR", "/tmp") .. "/cosmic-workers-" .. sys.getuid()
+    -- An empty or relative TMPDIR names no place to keep files: they would
+    -- land at the root, or wherever the process later stands.
+    local tmp = Env.get_or("TMPDIR", "")
+    if tmp:sub(1, 1) ~= "/" then tmp = "/tmp" end
+    local parent = tmp .. "/cosmic-workers-" .. sys.getuid()
     local parent_made, parent_trouble = private_dir(parent)
     if not parent_made then
       give_up(parent_trouble)
