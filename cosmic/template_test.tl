@@ -521,12 +521,11 @@ local function test_without_use_htmx_only_the_script_and_json_attributes_are_ref
     local out, why = Template.compile(src, "t.tmpl")
     local attr = case[1]:match("^[%w:-]+")
     if attr == "hx-trigger" or attr == "hx-vars" or attr == "hx-on:click" or attr == "hx-vals" or
-        attr == "hx-headers" or attr == "hx-request" then
+        attr == "hx-headers" or attr == "hx-request" or attr == "hx-ws" then
       assert(out == nil, case[1])
       assert(why:find("'" .. attr .. "' attribute", 1, true), why)
     else
-      -- A plain attribute, attribute-escaped as before (`hx-ws` is read only
-      -- by an extension, so it too is plain until a template opts in).
+      -- A plain attribute, attribute-escaped as before.
       assert(out ~= nil, case[1] .. ": " .. why)
       for _, call in ipairs(helpers_called(out)) do
         assert(call == "_attr", case[1] .. ": " .. call)

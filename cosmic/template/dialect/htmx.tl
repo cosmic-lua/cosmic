@@ -94,10 +94,8 @@ local def: types.Def = {
     -- trigger's `[filter]` is a JavaScript expression (maybeGenerateConditional),
     -- and `from:` takes a selector.
 
-    -- The legacy form of the ws extension, `hx-ws="connect:URL"`, which
-    -- still opens a socket; use `ws-connect`.
-    ["hx-ws"] = { class = "refused",
-      why = "is the legacy WebSocket form, whose URL follows 'connect:'; use ws-connect" },
+    -- `hx-ws`, the legacy WebSocket form, is refused by the always-on
+    -- dialect (dialect/html.tl).
   },
   prefixes = {
     -- htmx-ext-response-targets: `hx-target-422`, `hx-target-error`, `hx-target-*`.

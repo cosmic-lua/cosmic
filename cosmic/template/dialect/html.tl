@@ -1,6 +1,7 @@
 --- The dialect every template has, whether or not it says `{{use}}`: the
---- attributes of htmx that run their value as script, or read it as JSON
---- that may run, are refused a slot (with or without a `data-` prefix).
+--- attributes of htmx that run their value as script, read it as JSON
+--- that may run, or open a socket to a URL no slot rule can follow, are
+--- refused a slot (with or without a `data-` prefix).
 --- `{{use htmx}}` replaces the rule for the JSON attributes with a slot that
 --- takes a `SafeJson`; the rest stay. Private to [`cosmic.template`].
 
@@ -30,6 +31,12 @@ local def: types.Def = {
     ["hx-headers"] = JSON,
     ["hx-request"] = JSON,
     ["hx-trigger"] = TRIGGER,
+    -- The legacy form of htmx-ext-ws 2.0.2, `hx-ws="connect:URL"`, which
+    -- still opens a socket to a URL after a prefix no slot rule can follow.
+    -- A page that loads the extension reads it whether or not the template
+    -- says `{{use htmx}}`, so it is refused in every template; use ws-connect.
+    ["hx-ws"] = { class = "refused",
+      why = "is the legacy WebSocket form, whose URL follows 'connect:'; use ws-connect" },
   },
   prefixes = {
     -- `hx-on:click`, `hx-on::after-request`, `hx-on--after-request` and the

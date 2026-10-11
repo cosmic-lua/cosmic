@@ -91,7 +91,8 @@
 --- a type error naming the template's line. Where there is no escaping to
 --- be had the template is refused, with its line and column: after `<`, in
 --- a tag or attribute name, in an unquoted value, in a comment, in an
---- `on...` or `style` attribute, in `hx-on*`, `hx-vars` or `hx-trigger` (htmx runs them as script),
+--- `on...` or `style` attribute, in `hx-on*`, `hx-vars` or `hx-trigger` (htmx runs them as script)
+--- or the legacy `hx-ws` (a socket URL after `connect:`),
 --- in `hx-vals`, `hx-headers` or `hx-request` unless the template says
 --- `{{use htmx}}` (they are JSON that htmx may run), in `<script>` or `<style>`, and a few like them
 --- (cosmic/template/markup.tl lists them). An `html` template must also end in plain text, since its
@@ -126,16 +127,18 @@
 --- inside an identifier after `#` or `.` (`hx-target="#row-{{.id}}"`), a
 --- string or a number escaped by [`html.escape_css_attr`] as CSS identifier
 --- text; a slot anywhere else in a selector (`[data-id='{{.id}}']`) is
---- refused. Other `hx-*` attributes (`hx-confirm`, `hx-swap`'s time modifiers
---- aside, `hx-boost`, `hx-params`, ...) are plain attributes. `hx-trigger`
---- stays refused: its `[filter]` is script. A dialect is a name in the
+--- refused. `hx-swap`, `hx-ext`, `hx-disable`, `hx-boost` and `hx-params`
+--- take no slot: their values change what htmx does for a whole subtree, so
+--- they are the author's text. Other `hx-*` attributes (`hx-confirm`,
+--- `hx-prompt`, ...) are plain attributes. `hx-trigger` stays refused: its
+--- `[filter]` is script. A dialect is a name in the
 --- header, never inferred from the attributes in the text. [`Template.compile`]
 --- takes a registry of other dialects as its `options`.
 ---
 --- Other attributes that frameworks read as code (`x-on:`, `@click`,
 --- `ng-*`) are not recognised; a slot in any attribute whose name begins
 --- with `on` is refused (a literal `onclick="..."` compiles), and so is a
---- slot in `hx-on*`, `hx-vars` and `hx-trigger`, with or without `{{use
+--- slot in `hx-on*`, `hx-vars`, `hx-trigger` and `hx-ws`, with or without `{{use
 --- htmx}}` and a `data-` prefix, and in `hx-vals`, `hx-headers` and
 --- `hx-request` without `{{use htmx}}`.
 ---

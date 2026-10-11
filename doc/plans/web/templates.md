@@ -292,7 +292,8 @@ htmx-ext-ws; assets.md section 4 vendors the SSE extension for v1, and the
 `ws-connect` entry costs nothing). `hx-sse` was removed in 2.0 and is not
 listed. `hx-ws` is: htmx-ext-ws 2.0.2 still reads `hx-ws="connect:URL"`
 (getLegacyWebsocketURL), a URL after a prefix the URL tracker does not
-follow, so a slot there is refused with `{{use htmx}}` and plain without.
+follow, so a slot there is refused in every template (the always-on
+dialect), as a page that loads the extension reads it either way.
 
 Code (`code`, always on, refused with a slot): `hx-on` (the 1.x
 multi-line form, still read), and every attribute starting `hx-on`:
