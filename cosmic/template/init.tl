@@ -70,15 +70,29 @@
 --- by (in `<svg>`, an `<img onerror>` inside a `<title>` is a live
 --- element), it takes a string or a number. In a quoted attribute value,
 --- a slot takes a string, a number or a `SafeAttr`; in a quoted URL
---- attribute value (`href`, `src`, `action` and the like, at the start of
---- the value), a string (checked by [`html.href`], which allows a web or
---- mail link or a relative reference and else answers `about:invalid`) or
---- a `SafeUrl`. Another type there is a type error naming the template's
---- line. Where there is no escaping to be had the template is refused,
---- with its line and column: after `<`, in a tag or attribute name, in
---- an unquoted value, in a comment, in an `on...` or `style` attribute, in
---- `<script>` or `<style>`, and a few like them (cosmic/template/markup.tl
---- lists them). An `html` template must also end in plain text, since its
+--- attribute value (`href`, `src`, `action` and the like), a slot that
+--- begins the value takes a string (checked by [`html.href`], which allows
+--- a web or mail link or a relative reference and else answers
+--- `about:invalid`) or a `SafeUrl`; a slot after literal text is one piece
+--- of the URL (`href="/items/{{.id}}"`, `href="/s?q={{.q}}"`) and takes a
+--- string, a number or a `SafeUrlPart`, escaped by [`html.url_part`] so
+--- that it is a path segment, a query name or value or a fragment and
+--- nothing else. The text before such a slot must fix where the URL goes:
+--- begin with `/`, `.`, `?` or `#`, or with `http:`, `https:` or `mailto:`
+--- and a path (a slot in a host is refused), or be a relative path that
+--- reaches a `/`, `?` or `#` first (`href="java{{.x}}"` is refused); it
+--- must not end in a dot segment or the start of a `%2e` (`.`, `%2e`, `%`
+--- or `%2` alone in its segment: a value could make `..`, which a browser
+--- climbs by: `/.{{.x}}` is refused, `/v1.{{.x}}` is not); it must not
+--- hold an `&` before the first `?` or `#` (a browser reads `&sol;` as `/`
+--- before it parses the URL: write `/` literally); and after a whole-URL
+--- slot it needs a `?` or `#` in the text first. Another type is
+--- a type error naming the template's line. Where there is no escaping to
+--- be had the template is refused, with its line and column: after `<`, in
+--- a tag or attribute name, in an unquoted value, in a comment, in an
+--- `on...` or `style` attribute, in `hx-on*`, `hx-vars`, `hx-vals`, `hx-headers`, `hx-request` or
+--- `hx-trigger` (htmx runs them as script, or reads JSON it may run), in `<script>` or `<style>`, and a few like them
+--- (cosmic/template/markup.tl lists them). An `html` template must also end in plain text, since its
 --- `SafeHtml` can go into another's text slot. `{{mode text}}` returns a
 --- `string` and escapes nothing, for anything that is not HTML; a slot
 --- there takes a string or a number.
@@ -91,9 +105,12 @@
 --- slot: `html` mode escapes nothing in it and reads it as markup, as it
 --- does the text around it.
 ---
---- Attributes that frameworks read as code (`hx-*`, `x-on:`, `@click`,
---- `ng-*`) are not recognised; and a slot in any attribute whose name
---- begins with `on` is refused (a literal `onclick="..."` compiles).
+--- Other attributes that frameworks read as code (`x-on:`, `@click`,
+--- `ng-*`, and `hx-*` but for `hx-on*`, `hx-vars`, `hx-vals`, `hx-headers`,
+--- `hx-request` and `hx-trigger`, with or
+--- without a `data-` prefix) are not recognised; a slot in any attribute
+--- whose name begins with `on` is refused (a literal `onclick="..."`
+--- compiles).
 ---
 --- `{{range}}` and `{{with}}` take one `{{else}}` but no `{{else if}}`:
 --- nest an `{{if}}`. A range's `{{else}}` runs when the list has no first

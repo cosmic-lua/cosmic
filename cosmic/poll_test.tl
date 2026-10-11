@@ -438,7 +438,7 @@ local function test_in_task_answers_only_in_a_task()
   local inside, nested = false, true
   Poll.run(function()
     inside = Poll.in_task()
-    nested = coroutine.wrap(function(): boolean return Poll.in_task() end)()
+    nested = coroutine.wrap(function(): boolean return Poll.in_task() end)() as boolean
   end)
   assert(inside and not nested, tostring(inside) .. " " .. tostring(nested))
 end

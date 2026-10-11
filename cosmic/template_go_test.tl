@@ -111,6 +111,13 @@ local ACCEPTED <const>: {{string}} = {
   { "TestEscape: rangeElse", "{{range .e}}{{.}}{{else}}{{.x}}{{end}}", "", "text" },
   { "TestEscape: nonStringValue", "{{.t}}", "", "text" },
   { "TestEscape: urlStartRel, urlStartAbsOk, protocolRelativeURLStart, dangerousURLStart (one template; the values are in RENDERED)", "<a href='{{.x}}'>", "", "url" },
+  { "TestEscape: constant", "<a href=\"/search?q={{.x}}\">", "", "part" },
+  { "TestEscape: urlQuery", "<a href='/search?q={{.x}}'>", "", "part" },
+  { "TestEscape: urlFragment", "<a href='/faq#{{.x}}'>", "", "part" },
+  { "TestEscape: urlBranchConflictMoot", "<a href=\"{{if .t}}/foo?a={{else}}/bar#{{end}}{{.x}}\">", "", "part" },
+  { "TestEscape: optional attrs", "<img class=\"{{.x}}\"{{if .t}} id=\"{{.x}}\"{{end}} src={{if .t}}\"?{{.x}}\"{{else}}\"images/cleardot.gif\"{{end}}{{if .t}}title=\"{{.x}}\"{{end}} alt=\"{{if .t}}{{.x}}{{else}}{{if .f}}{{.y}}{{end}}{{end}}\">", "", "attr,part" },
+  { "TestErrors: non-error: range in a URL query", "<a href='/foo?{{range .l}}&{{.k}}={{.v}}{{end}}'>", "", "part" },
+  { "TestErrors: ambiguous URL context", "<a href=\"{{if .f}}/foo?a={{else}}/bar/{{end}}{{.x}}\">", "", "part" },
   { "TestEscape: pathRelativeURLStart", "<a href=\"{{.x}}\">", "", "url" },
   { "TestEscape: dangerousURLStart2", "<a href='  {{.x}}'>", "", "url" },
   { "TestEscape: urlBranch", "<a href=\"{{if .f}}/foo?a=b{{else}}/bar{{end}}\">", "", "none" },
@@ -273,13 +280,13 @@ local REFUSED <const>: {{string}} = {
   { "TestEscapeText[12]", "<a href=x {{.x}}", "2", "11", "attribute" },
   { "TestEscapeText[16]", "<a href=''{{.x}}", "2", "11", "attribute" },
   { "TestEscapeText[18]", "<a href=\"\"{{.x}}", "2", "11", "attribute" },
-  { "TestEscapeText[20]", "<a HREF='http:{{.x}}", "2", "15", "must begin" },
-  { "TestEscapeText[21]", "<a Href='/{{.x}}", "2", "11", "must begin" },
-  { "TestEscapeText[22]", "<a href='\"{{.x}}", "2", "11", "must begin" },
-  { "TestEscapeText[23]", "<a href=\"'{{.x}}", "2", "11", "must begin" },
-  { "TestEscapeText[24]", "<a href='&apos;{{.x}}", "2", "16", "must begin" },
-  { "TestEscapeText[25]", "<a href=\"&quot;{{.x}}", "2", "16", "must begin" },
-  { "TestEscapeText[26]", "<a href=\"&#34;{{.x}}", "2", "15", "must begin" },
+  { "TestEscapeText[20]", "<a HREF='http:{{.x}}", "2", "15", "fixes where the URL goes" },
+  { "TestEscapeText[21]", "<a Href='/{{.x}}", "2", "17", "the template ends" },
+  { "TestEscapeText[22]", "<a href='\"{{.x}}", "2", "11", "fixes where the URL goes" },
+  { "TestEscapeText[23]", "<a href=\"'{{.x}}", "2", "11", "fixes where the URL goes" },
+  { "TestEscapeText[24]", "<a href='&apos;{{.x}}", "2", "16", "fixes where the URL goes" },
+  { "TestEscapeText[25]", "<a href=\"&quot;{{.x}}", "2", "16", "fixes where the URL goes" },
+  { "TestEscapeText[26]", "<a href=\"&#34;{{.x}}", "2", "15", "fixes where the URL goes" },
   { "TestEscapeText[27]", "<a href=&quot;{{.x}}", "2", "15", "unquoted" },
   { "TestEscapeText[29]", "<img alt=\"1>\"{{.x}}", "2", "14", "attribute" },
   { "TestEscapeText[31]", "<input checked type=\"checkbox\"{{.x}}", "2", "31", "attribute" },
@@ -403,13 +410,9 @@ local REFUSED <const>: {{string}} = {
   { "TestEscapeText[152]", "<script>`${ `}{{.x}}", "2", "15", "<script>" },
   { "TestEscapeText[153]", "<script>`${1}${ {{.x}}", "2", "17", "<script>" },
   { "TestEscapeText[154]", "<script>`${`${1}${ {{.x}}", "2", "20", "<script>" },
-  { "TestEscape: constant", "<a href=\"/search?q={{.x}}\">", "2", "20", "must begin" },
   { "TestEscape: multipleAttrs", "<a b=1 c={{.x}}>", "2", "10", "unquoted" },
   { "TestEscape: nonHierURL", "<a href={{.x}}>", "2", "9", "unquoted" },
-  { "TestEscape: urlPath", "<a href='http://{{.x}}/foo'>", "2", "17", "must begin" },
-  { "TestEscape: urlQuery", "<a href='/search?q={{.x}}'>", "2", "20", "must begin" },
-  { "TestEscape: urlFragment", "<a href='/faq#{{.x}}'>", "2", "15", "must begin" },
-  { "TestEscape: urlBranchConflictMoot", "<a href=\"{{if .t}}/foo?a={{else}}/bar#{{end}}{{.x}}\">", "2", "46", "must begin" },
+  { "TestEscape: urlPath", "<a href='http://{{.x}}/foo'>", "2", "17", "fixes where the URL goes" },
   { "TestEscape: jsStrValue", "<button onclick='alert({{.x}})'>", "2", "24", "event handler" },
   { "TestEscape: jsNumericValue", "<button onclick='alert({{.n}})'>", "2", "24", "event handler" },
   { "TestEscape: jsBoolValue", "<button onclick='alert({{.t}})'>", "2", "24", "event handler" },
@@ -460,7 +463,6 @@ local REFUSED <const>: {{string}} = {
   { "TestEscape: No tag injection", "{{.x}}<{{.y}}...", "2", "8", "tag name" },
   { "TestEscape: No comment injection", "<{{.x}}", "2", "2", "tag name" },
   { "TestEscape: No RCDATA end tag injection", "<textarea><{{.x}}...</textarea>", "2", "12", "complete its end tag" },
-  { "TestEscape: optional attrs", "<img class=\"{{.x}}\"{{if .t}} id=\"{{.x}}\"{{end}} src={{if .t}}\"?{{.x}}\"{{else}}\"images/cleardot.gif\"{{end}}{{if .t}}title=\"{{.x}}\"{{end}} alt=\"{{if .t}}{{.x}}{{else}}{{if .f}}{{.y}}{{end}}{{end}}\">", "2", "64", "must begin" },
   -- Without the arm, the tag is `<inputname=n>`.
   { "TestEscape: conditional valueless attr name (space after)", "<input{{if .t}} checked {{end}}name=n>", "2", "32",
     "reads differently" },
@@ -495,7 +497,6 @@ local REFUSED <const>: {{string}} = {
   { "TestEscape: Issue81823 property yield", "<script>const pct = bond.yield / 100;\nconst user = {{.x}}; // state\n</script>", "3", "14", "<script>" },
   { "TestEscape: Issue81823 property in", "<script>const kb = traffic.in / 1024;\nconst user = {{.x}}; // state\n</script>", "3", "14", "<script>" },
   { "TestEscape: MetaContentEscapeGODEBUG", "<meta http-equiv=\"refresh\" content=\"asd; url={{.x}}; asd; url={{.y}}; asd\">", "2", "46", "http-equiv" },
-  { "TestErrors: non-error: range in a URL query", "<a href='/foo?{{range .l}}&{{.k}}={{.v}}{{end}}'>", "2", "28", "must begin" },
   { "TestErrors: non-error: script slot 1", "<script>var tmpl = `${return {{.x}} }`;</script>", "2", "30", "<script>" },
   { "TestErrors: non-error: script slot 2", "<script>var tmpl = `${ let a = {1:1} {{.x}} }`;</script>", "2", "38", "<script>" },
   { "TestErrors: branches: tag open in if", "{{if .c}}<a{{end}}", "2", "1", "the arms" },
@@ -508,7 +509,6 @@ local REFUSED <const>: {{string}} = {
   { "TestErrors: branches: range attr", "\n{{range .l}} x='<a{{end}}", "3", "1", "ends where it did not begin" },
   { "TestErrors: ends: unquoted attr", "<a b=1 c={{.x}}", "2", "10", "unquoted" },
   { "TestErrors: ends: script", "<script>foo();", "2", "15", "the template ends" },
-  { "TestErrors: ambiguous URL context", "<a href=\"{{if .f}}/foo?a={{else}}/bar/{{end}}{{.x}}\">", "2", "46", "must begin" },
   { "TestErrors: js string unfinished escape 1", "<a onclick=\"alert('Hello \\", "2", "27", "the template ends" },
   { "TestErrors: js string unfinished escape 2", "<a onclick='alert(\"Hello\\, World\\", "2", "34", "the template ends" },
   { "TestErrors: js regexp unfinished", "<a onclick='alert(/x+\\", "2", "23", "the template ends" },
@@ -562,7 +562,7 @@ local REFUSED <const>: {{string}} = {
   { "TestEscape: jsNilValueUntyped", "<button onclick='alert(typeof{{.x}})'>", "2", "30", "event handler" },
 }
 
-local KINDS <const>: {string} = { "attr", "rtext", "text", "url" }
+local KINDS <const>: {string} = { "attr", "rtext", "text", "url", "part" }
 
 --- The kinds of slot `out`, a compiled template, writes: "attr,url", "none".
 local function kinds_of(out: string): string
@@ -619,30 +619,11 @@ local function split_at(body: string, cut: integer): string | nil
   return body:sub(1, cut) .. "{{if .f}}{{end}}" .. body:sub(cut + 1)
 end
 
--- A block that emits nothing, put between any two bytes of a template's
--- text, must not change what the browser reads, so it must not change the
--- kind of any slot: a template that compiles with it compiles without it,
--- with the same kinds.
-local function test_an_empty_action_at_any_byte_boundary_leaves_the_slots_as_they_were()
+--- Compiles each of `cases` with the empty block put at every byte boundary
+--- and answers what differs from the case compiled whole, and how many
+--- splits it compiled.
+local function split_wrong(cases: {string}): {string}, integer
   local wrong: {string} = {}
-  local cases: {string} = {}
-  for _, case in ipairs(ACCEPTED) do
-    cases[#cases + 1] = case[2] .. case[3]
-  end
-  for _, case in ipairs(REFUSED) do
-    cases[#cases + 1] = case[2]
-  end
-  for _, body in ipairs({
-      "<textarea></textarea><script>{{.x}}</script></textarea>",
-      "<title></title><style>a</style><script>{{.x}}</script>",
-      "<script><!--\n/*<script>*/\n//</script>\n{{.x}}\n</script>",
-      "<script><!--<script></script>-->{{.x}}</script>{{.y}}",
-      "<script><!--<script></script>--></script>{{.y}}",
-      "<script>a</script >{{.y}}<textarea>b</TextArea\n>{{.z}}",
-      "<style>x</style>{{.x}}<textarea></textareax></textarea>{{.y}}",
-  }) do
-    cases[#cases + 1] = body
-  end
   local checked = 0
   for _, body in ipairs(cases) do
     local plain = Template.compile(HEAD .. body, "t.tmpl")
@@ -659,7 +640,45 @@ local function test_an_empty_action_at_any_byte_boundary_leaves_the_slots_as_the
       end
     end
   end
-  assert(checked > 1000, "too few splits checked: " .. checked)
+  return wrong, checked
+end
+
+-- A block that emits nothing, put between any two bytes of a template's
+-- text, must not change what the browser reads, so it must not change the
+-- kind of any slot: a template that compiles with it compiles without it,
+-- with the same kinds. Three tests, so that each stays well inside the
+-- time one test may take.
+local function test_an_empty_action_at_any_byte_boundary_leaves_accepted_slots_as_they_were()
+  local cases: {string} = {}
+  for _, case in ipairs(ACCEPTED) do
+    cases[#cases + 1] = case[2] .. case[3]
+  end
+  local wrong, checked = split_wrong(cases)
+  assert(checked > 500, "too few splits checked: " .. checked)
+  assert(#wrong == 0, table.concat(wrong, "\n"))
+end
+
+local function test_an_empty_action_at_any_byte_boundary_leaves_refused_slots_as_they_were()
+  local cases: {string} = {}
+  for _, case in ipairs(REFUSED) do
+    cases[#cases + 1] = case[2]
+  end
+  local wrong, checked = split_wrong(cases)
+  assert(checked > 500, "too few splits checked: " .. checked)
+  assert(#wrong == 0, table.concat(wrong, "\n"))
+end
+
+local function test_an_empty_action_at_any_byte_boundary_leaves_raw_text_slots_as_they_were()
+  local wrong, checked = split_wrong({
+    "<textarea></textarea><script>{{.x}}</script></textarea>",
+    "<title></title><style>a</style><script>{{.x}}</script>",
+    "<script><!--\n/*<script>*/\n//</script>\n{{.x}}\n</script>",
+    "<script><!--<script></script>-->{{.x}}</script>{{.y}}",
+    "<script><!--<script></script>--></script>{{.y}}",
+    "<script>a</script >{{.y}}<textarea>b</TextArea\n>{{.z}}",
+    "<style>x</style>{{.x}}<textarea></textareax></textarea>{{.y}}",
+  })
+  assert(checked > 100, "too few splits checked: " .. checked)
   assert(#wrong == 0, table.concat(wrong, "\n"))
 end
 

@@ -11,6 +11,7 @@
 ---     text  string | number | html.SafeHtml       escaped, or taken as it is
 ---     attr  string | number | html.SafeAttr       likewise, for an attribute
 ---     url   string | html.SafeUrl                 `html.href`, then attribute-escaped
+---     urlpart string | number | html.SafeUrlPart  `html.url_part`, after literal text in a URL
 ---     rtext string | number                       `<title>`, `<textarea>`: escaped, no markup
 ---     ftext string | number                       text in `<svg>`, `<math>`, `<select>`: likewise
 ---     plain string | number                       a `text` template: as it is
@@ -59,7 +60,7 @@
 --- so a template's variable is never declared under its own name and can
 --- shadow nothing; `v` (a slot's value, in a block of its own, and
 --- `_one`'s parameter), `T` (`_one`'s type parameter), and the helpers
---- `_one`, `_text`, `_rtext`, `_ftext`, `_attr` and `_url`; a module that
+--- `_one`, `_text`, `_rtext`, `_ftext`, `_attr`, `_url` and `_part`; a module that
 --- is required is named by the last word of its path, or that word, `_`
 --- and a number when the name is taken, reserved, or a keyword, so a name
 --- is never declared twice. A name a
@@ -72,7 +73,7 @@ local types = require("cosmic.template.types")
 --- module is never named.
 local RESERVED <const>: {string: boolean} = {}
 for _, word in ipairs({
-    "parts", "render", "d", "v", "T", "_", "_one", "_text", "_rtext", "_ftext", "_attr", "_url", "record", "enum", "type", "global",
+    "parts", "render", "d", "v", "T", "_", "_one", "_text", "_rtext", "_ftext", "_attr", "_url", "_part", "record", "enum", "type", "global",
     "interface", "is", "as", "where", "self", "macroexp",
     -- The standard library and its globals, which a required module must
     -- not shadow (a module named `string` would break every `string.format`
@@ -87,7 +88,7 @@ for _, word in ipairs({
 end
 
 --- The helpers, in the order they are declared.
-local HELPER_ORDER <const>: {types.Slot} = { "plain", "text", "rtext", "ftext", "attr", "url" }
+local HELPER_ORDER <const>: {types.Slot} = { "plain", "text", "rtext", "ftext", "attr", "url", "urlpart" }
 
 --- A name the template takes, and whether the loop or `with` that made
 --- it has read it.
@@ -221,6 +222,8 @@ local emit: function(g: Gen, body: {types.Node}, dot: Dot)
 local function accepts(g: Gen, ctx: types.Slot): string
   if ctx == "url" then
     return "string | " .. g.html .. ".SafeUrl"
+  elseif ctx == "urlpart" then
+    return "string | number | " .. g.html .. ".SafeUrlPart"
   elseif ctx == "attr" then
     return "string | number | " .. g.html .. ".SafeAttr"
   elseif ctx == "text" then
@@ -239,6 +242,8 @@ local function slot_statement(g: Gen, ctx: types.Slot, expr: string): string
   local helper_name = "_text"
   if ctx == "url" then
     helper_name = "_url"
+  elseif ctx == "urlpart" then
+    helper_name = "_part"
   elseif ctx == "attr" then
     helper_name = "_attr"
   elseif ctx == "rtext" then
@@ -371,6 +376,11 @@ local function helper(g: Gen, ctx: types.Slot): string
     return "local function _attr(v: string | number | " .. html .. ".SafeAttr): string " ..
       "if v is string then return " .. html .. ".raw_attr(" .. html .. ".escape_attr(v)) end " ..
       "if v is number then return tostring(v) end return " .. html .. ".raw_attr(v) end"
+  elseif ctx == "urlpart" then
+    return "local function _part(v: string | number | " .. html .. ".SafeUrlPart): string " ..
+      "local p: " .. html .. ".SafeUrlPart if v is string then p = " .. html .. ".url_part(v) " ..
+      "elseif v is number then p = " .. html .. ".url_part(v) else p = v end " ..
+      "return " .. html .. ".raw(" .. html .. ".escape(" .. html .. ".raw_url_part(p))) end"
   end
   return "local function _url(v: string | " .. html .. ".SafeUrl): string " ..
     "if v is string then return " .. html .. ".raw_attr(" .. html .. ".escape_attr(" .. html ..

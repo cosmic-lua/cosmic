@@ -17,7 +17,8 @@ local record Types
   --- `plain` is any slot of a `text` template: it is spliced as it is.
   --- `text`, `rtext` (the text of `<title>` and `<textarea>`, which
   --- takes no markup), `ftext` (text inside `<svg>`, `<math>` or
-  --- `<select>`, which takes no markup either), `attr` and `url` are the
+  --- `<select>`, which takes no markup either), `attr`, `url` (a whole URL)
+  --- and `urlpart` (a piece of one, after literal text) are the
   --- places a slot can stand in an `html` template (see `markup`).
   enum Slot
     "plain"
@@ -26,6 +27,7 @@ local record Types
     "ftext"
     "attr"
     "url"
+    "urlpart"
   end
 
   --- What a node of the tree is. `if`, `with` and `range` hold their

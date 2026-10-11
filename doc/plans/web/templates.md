@@ -478,10 +478,12 @@ A `SafeUrlPart` slot is not a whole-URL slot: it never goes through
 
 - `href="{{.u}}"` (fresh): whole URL, [`Html.href`] allowlist. Unchanged.
 - `href="/a/{{.id}}"`: literal `/a/`, then a part. New.
-- `href="{{.base}}{{.id}}"`: first a whole URL (fresh), second a part
-  (not fresh). The second contains no `:` `/` `\`, so nothing the first
-  allowed can be completed into a scheme or `//host` by it; the literal
-  checks after the first slot still run.
+- `href="{{.base}}{{.id}}"`: refused. [`Html.href`] accepts a bare origin
+  (`https://api.example.com`) or `http:`, so a part straight after it
+  could extend the host (`.evil.example`) or begin the path: a part after
+  a whole-URL slot needs literal text that has reached a `?` or `#`
+  first (`href="{{.base}}?q={{.q}}"`). A `/` after the slot is refused
+  already (`rooted`).
 - `hx-get="/items/{{.id}}"` (htmx dialect): same, class `url_local`:
   part after text, [`Html.local_href`] for a whole string.
 - A `SafeUrl` in a part position is a type error (the helper accepts

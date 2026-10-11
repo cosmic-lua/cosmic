@@ -1,0 +1,7 @@
+file: tl.tl
+note: a field named by the word that starts a declaration is a field when `?:` follows it as when `:` does (49d)
+--- find
+      if ps.tokens[i].tk == "userdata" and ps.tokens[i+1].tk ~= ":" then
+--- replace
+      if ps.tokens[i].tk == "userdata" and not field_name_follows(ps, i) then
+--- end

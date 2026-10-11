@@ -1,0 +1,31 @@
+file: tl.tl
+note: `name?: T` in a record or interface body: the `?` after a field's name, written before its `:`, marks it optional (49c gives it its type). It follows a name or a `["string"]` key alike. Only an ordinary field can be optional: a `metamethod` is looked up by the runtime, which has no use for a field that may be absent in a declaration that says what it holds. A `?` that no `:` follows is left for the error that already names the `:` expected
+--- find
+         local iv = i
+         if not v then
+            return fail(ps, i, "expected a variable name")
+         end
+
+         if ps.tokens[i].tk == ":" then
+            i = i + 1
+            local t: Type
+--- replace
+         local iv = i
+         if not v then
+            return fail(ps, i, "expected a variable name")
+         end
+
+         local optional = false
+         if ps.tokens[i].tk == "?" and ps.tokens[i + 1].tk == ":" then
+            if is_metamethod then
+               fail(ps, i, "a metamethod cannot be optional")
+            end
+            optional = true
+            i = i + 1
+         end
+
+         if ps.tokens[i].tk == ":" then
+            i = i + 1
+            local type_at = i
+            local t: Type
+--- end
