@@ -324,3 +324,11 @@ local function test_a_stub_of_a_module_returning_a_typed_local_types_it_the_same
   assert(#from_stub.type_errors == 0, from_stub.type_errors[1] and from_stub.type_errors[1].msg)
   assert(stub.difference(from_source.type, from_stub.type) == nil)
 end
+
+--- A checker run where this test runs -- a sealed worker's database
+--- among them ([`build.test`]) -- reads a standard-library module this
+--- module requires from its stub, as a project's checker does.
+local function test_a_standard_module_this_test_requires_is_served_from_its_stub()
+  local served = teal.standard_text("cosmic.web")
+  assert(served ~= nil and served.stubbed, "cosmic.web was served from its source")
+end

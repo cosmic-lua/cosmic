@@ -1608,7 +1608,7 @@ end
 
 --- The digest of the modules of the program's own database that the tree
 --- lacks -- the standard library, in a project's tree -- by path, source
---- hash, bytecode and the edges the checker follows from it
+--- hash, bytecode, stub and the edges the checker follows from it
 --- (`decl_imports`), which a sealed database carries whole
 --- ([`sealed_fill`]) and so a key of a worker on one holds
 --- ([`declared_of`]). Worked out once a run needs it, from the program's
@@ -1616,10 +1616,17 @@ end
 local function extras_digest(rec: Recording): string
   if rec.extras ~= nil then return rec.extras end
   local databases = Store.databases()
-  local rows, _ = Sqlite.text_rows(databases[#databases],
-    "SELECT path, lower(hex(source_hash)), lower(hex(sha256(bytecode))), " ..
-      "coalesce((SELECT group_concat(requires, ' ' ORDER BY requires) FROM decl_imports d " ..
-      "WHERE d.path = modules.path), '') FROM modules ORDER BY path")
+  local query = "SELECT path, lower(hex(source_hash)), lower(hex(sha256(bytecode))), " ..
+    "coalesce((SELECT group_concat(requires, ' ' ORDER BY requires) FROM decl_imports d " ..
+    "WHERE d.path = modules.path), '')"
+  -- With its stub ([`sealed_fill`] carries it), where the program has
+  -- them: a program from before `stubs` has no such table to read.
+  local rows, _ = Sqlite.text_rows(databases[#databases], query ..
+      ", coalesce((SELECT lower(hex(sha256(source))) FROM stubs s WHERE s.path = modules.path), '') " ..
+      "FROM modules ORDER BY path")
+  if rows == nil then
+    rows, _ = Sqlite.text_rows(databases[#databases], query .. " FROM modules ORDER BY path")
+  end
   local digest = "unread"
   if rows ~= nil then
     local in_tree: {string:boolean} = {}
@@ -2193,7 +2200,8 @@ end
 --- which writes the same from the store's search order, restated here
 --- since a closure's modules are rows of its store, which the runner's own
 --- search order does not carry (the tree's tests are in none of the
---- program's databases).
+--- program's databases). Beside those, `stubs`, which [`build.teal`] reads
+--- for a checker the worker runs and a sealed program has no use for.
 local sealed_schema <const>: {string} = {
   "PRAGMA page_size = 4096",
   "PRAGMA auto_vacuum = 0",
@@ -2207,6 +2215,7 @@ local sealed_schema <const>: {string} = {
   "CREATE TABLE decl_imports (path TEXT NOT NULL, requires TEXT NOT NULL, " ..
     "PRIMARY KEY (path, requires)) WITHOUT ROWID",
   "CREATE TABLE decls (path TEXT PRIMARY KEY, source BLOB NOT NULL) WITHOUT ROWID",
+  "CREATE TABLE stubs (path TEXT PRIMARY KEY, source BLOB NOT NULL) WITHOUT ROWID",
   "CREATE TABLE zoneinfo (name TEXT PRIMARY KEY, data BLOB NOT NULL)",
   "CREATE TABLE web_assets (name TEXT PRIMARY KEY NOT NULL, data BLOB NOT NULL, " ..
     "sha256 TEXT NOT NULL, sha384 TEXT NOT NULL, version TEXT NOT NULL) WITHOUT ROWID",
@@ -2225,9 +2234,11 @@ local sealed_schema <const>: {string} = {
 --- compile resolves, come from where its own row does: the closure's,
 --- which its store's digest holds, else the program's, which the key holds
 --- as it holds the module ([`extras_digest`], or `epoch` for what every
---- worker loads). The time zones, CA roots and web assets go only where the set holds the
---- module that reads them, as [`Store.seal`] does: they are most of a small
---- database's bytes.
+--- worker loads). A standard-library module's stub ([`build.stub`]), which
+--- a checker the worker runs reads in place of its source, comes from
+--- where its row does too. The time zones, CA roots and web assets go only
+--- where the set holds the module that reads them, as [`Store.seal`] does:
+--- they are most of a small database's bytes.
 -- TODO: carry only the standard library a closure requires, in a project's
 -- tree, once the projection's `imports` rows record the requires of its
 -- modules that name no module of the tree (today they are edges within the
@@ -2243,6 +2254,9 @@ local sealed_fill <const>: {string} = {
   "INSERT OR IGNORE INTO main.modules SELECT path, file, kind, source_hash, X'', bytecode, '', " ..
     "source FROM program.modules WHERE path IN temp.extra ORDER BY path",
   "INSERT INTO main.decls SELECT path, source FROM closure.decls ORDER BY path",
+  "INSERT INTO main.stubs SELECT path, source FROM closure.stubs ORDER BY path",
+  "INSERT OR IGNORE INTO main.stubs SELECT path, source FROM program.stubs " ..
+    "WHERE path IN temp.extra AND path NOT IN (SELECT path FROM closure.modules) ORDER BY path",
   "INSERT OR IGNORE INTO main.imports SELECT path, requires FROM closure.imports " ..
     "WHERE path IN (SELECT path FROM main.modules) AND requires IN " ..
     "(SELECT path FROM main.modules) ORDER BY path, requires",
@@ -2410,12 +2424,16 @@ local function write_sealed(sealing: Sealing, store: string, whole: string, out:
           "INSERT OR IGNORE INTO temp.extra (path) VALUES (?1)", { { text = name } })
         if not inserted then return false, insert_trouble end
       end
-      -- A program from before `web_assets` has no such table to carry.
-      local has_web, web_trouble = Sqlite.text_rows(db,
-        "SELECT 1 FROM program.sqlite_master WHERE name = 'web_assets'")
-      if has_web == nil then return false, web_trouble end
+      -- A program from before `web_assets` or `stubs` has no such table to
+      -- carry.
+      local held, held_trouble = Sqlite.text_rows(db,
+        "SELECT name FROM program.sqlite_master WHERE name IN ('web_assets', 'stubs')")
+      if held == nil then return false, held_trouble end
+      local absent: {string:boolean} = { web_assets = true, stubs = true }
+      for _, row in ipairs(held) do absent[row[1]] = nil end
       for _, statement in ipairs(sealed_fill) do
-        if #has_web > 0 or not statement:find("program.web_assets", 1, true) then
+        local reads = statement:match("program%.([%w_]+)")
+        if reads == nil or not absent[reads] then
           local done, done_trouble = db:exec(statement)
           if not done then return false, done_trouble end
         end
