@@ -306,9 +306,9 @@ promises lean on come first:
   escaping for them is a different language's rule (old's #1654 and #1658 were
   its bugs there). Each needs an escaper made in C with a type of its own, as
   [`cosmic.html`]'s are, and the context tracker ([`cosmic/template/markup.tl`])
-  to say which one a slot is in. Likewise a slot after literal text in a URL
-  (`href="/a/{{.id}}"`), which wants an escaper for one component of a URL, a
-  path segment or a query value, beside [`cosmic.url`]'s.
+  to say which one a slot is in. A slot after literal text in a URL
+  (`href="/a/{{.id}}"`) is not on this list: [`Html.url_part`] escapes any one
+  component of a URL, and the template takes it.
 
 ## documentation and examples
 
@@ -420,6 +420,7 @@ four-producer provenance join.
 [`cosmic/template/markup.tl`]: ../cosmic/template/markup.tl
 [`Errors.guidance`]: ../cosmic/errors.tl
 [`eval/summarize.tl`]: ../eval/summarize.tl
+[`Html.url_part`]: ../cosmic/html.tl
 [`Json.decode`]: ../cosmic/json.tl
 [`Net.serve`]: ../cosmic/net.tl
 [`receivers.record_named`]: ../build/receivers.tl

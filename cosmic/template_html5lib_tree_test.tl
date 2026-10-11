@@ -138,7 +138,7 @@ end
 
 --- What a slot is, from the Teal the template compiles to.
 local function kind_of(out: string): string
-  for _, kind in ipairs({ "text", "rtext", "ftext", "attr", "url" }) do
+  for _, kind in ipairs({ "text", "rtext", "ftext", "attr", "url", "part" }) do
     if out:find("parts[#parts + 1] = _" .. kind .. "(", 1, true) then
       return kind
     end
@@ -431,10 +431,10 @@ local function check_case(file: string, case: Case, reach: Reach)
           if is_code(written) then
             fail(reach, file, kind, cut, input, "the tree has the value of the code attribute " .. name)
           elseif URL_ATTRS[written] then
-            if kind ~= "url" then
+            if kind ~= "url" and kind ~= "part" then
               fail(reach, file, kind, cut, input, "the tree has the value of the URL attribute " .. name)
             end
-          elseif not (kind == "attr" or (kind == "url" and written == "archive")) then
+          elseif not (kind == "attr" or ((kind == "url" or kind == "part") and written == "archive")) then
             fail(reach, file, kind, cut, input, "the tree has the value of " .. name)
           end
         end)

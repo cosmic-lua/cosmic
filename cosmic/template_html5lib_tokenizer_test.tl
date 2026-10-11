@@ -687,7 +687,7 @@ local URL_ATTRS <const>: {string: boolean} = {
 
 --- What a slot is, from the Teal the template compiles to.
 local function kind_of(out: string): string
-  for _, kind in ipairs({ "text", "rtext", "ftext", "attr", "url" }) do
+  for _, kind in ipairs({ "text", "rtext", "ftext", "attr", "url", "part" }) do
     if out:find("parts[#parts + 1] = _" .. kind .. "(", 1, true) then
       return kind
     end
@@ -721,9 +721,9 @@ local function allowed(state: string, kind: string, attr: string, tail: string, 
     if is_code(attr) then
       return false
     elseif URL_ATTRS[attr] then
-      return kind == "url"
+      return kind == "url" or kind == "part"
     end
-    return kind == "attr" or (kind == "url" and attr == "archive")
+    return kind == "attr" or ((kind == "url" or kind == "part") and attr == "archive")
   end
   return false
 end
