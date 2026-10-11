@@ -40,7 +40,13 @@ defines the target; once something ships, it leaves this file.
   redeclaration of them: the documented signatures then read as
   `records_interfaces_methods` teaches, and the design note above
   `FromStringReader` in [`cosmic/stream.tl`] shrinks. every interface of the
-  module and every record that implements one changes together.
+  module and every record that implements one changes together. it also
+  lets the receiver exemption go from `patch/tl`'s 48e: the first
+  parameter of a function-typed record field, when it is a record or an
+  interface, is the one place a record parameter is compared in either
+  direction, because those redeclarations narrow it. it closes the hole
+  that comes with it: a callback field `function(Event)` also takes a
+  `function(k: KeyEvent)`.
 - close the holes in Teal's own typing that forge any type, `: never`
   functions among them (`test_never_falls_into_the_holes_every_type_has` in
   [`test/narrowing_test.tl`] pins today's behavior, and [doc/design.md](design.md)'s

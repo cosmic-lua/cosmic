@@ -373,7 +373,7 @@ local module: Module = {
     ["cosmic.tar.Kind"] = entry_kind,
     ["cosmic.zip.Kind"] = entry_kind,
     ["cosmic.tar.EntryOptions"] = "use Stream.EntryOptions, which Tar.Writer's add_file, " ..
-      "add_dir and add_symlink take and Zip's EntryOptions extends (" .. stream .. ")",
+      "add_dir and add_symlink take, and Zip.EntryOptions is (" .. stream .. ")",
     ["cosmic.archive.Unsupported"] = "an entry Archive.extract cannot extract (a hard " ..
       "link, a device, a FIFO, a sparse file) always fails it, naming the entry; " ..
       "leave its path out with ExtractOptions.filter (" .. archive .. ")",

@@ -1,0 +1,15 @@
+file: tl.tl
+note: an assignment to a field (`obj.write = function(self: Collector, ...) end`) compares the value with the field's type as a field (48f), so a function stored in a field of an object may take a narrower receiver (48e), as a function written in the record's declaration does. A variable, or a key looked up by a computed name, is compared as it was
+--- find
+      self:assert_is_a(varnode, valtype, vartype, "in assignment")
+
+      local val = self:to_structural(valtype)
+--- replace
+      if varnode.kind == "op" and varnode.op.op == "." then
+         self:mark_receiver(valtype, vartype)
+      end
+      self:assert_is_a(varnode, valtype, vartype, "in assignment")
+      self.receiver_field = nil
+
+      local val = self:to_structural(valtype)
+--- end
