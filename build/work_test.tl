@@ -46,6 +46,23 @@ local function test_recording_error_rolls_back_every_table(tmp: string)
   assert(reopened:close())
 end
 
+--- A fresh working database's tables go in in one transaction, so a
+--- statement that fails leaves none of them, where each in a transaction
+--- of its own would have left those before it (and paid a sync apiece).
+local function test_a_fresh_schema_is_made_in_one_transaction(tmp: string)
+  work.schema[#work.schema + 1] = "CREATE TABLE fails ("
+  local ran, handle, trouble = pcall(work.open, tmp)
+  work.schema[#work.schema] = nil
+  assert(ran and handle == nil and trouble ~= "", "the planted statement fails the open")
+  local db = assert(Sqlite.open(build_dir(tmp) .. "/build.db"))
+  assert(count(db, "sqlite_master") == 0, "a failed fresh schema leaves no table")
+  assert(db:close())
+  -- And the schema goes in whole once nothing fails.
+  local opened = assert(work.open(tmp))
+  assert(count(opened.db, "files") == 0)
+  assert(work.close(opened))
+end
+
 local function test_assertion_failure_records_atomically(tmp: string)
   local handle = assert(work.open(tmp))
   assert(work.commit(handle))
