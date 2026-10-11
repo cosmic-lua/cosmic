@@ -233,7 +233,7 @@ local function signature_and_body(c: Ctx, n: Node, name: Node)
   c.header = 4
   sig.typeargs(c, typescan.index_at(c.scan, name.y, name.x))
   sig.arguments(c, args)
-  sig.returns(c, rets, args, body.y, body.x)
+  sig.returns(c, rets, args, body.y, body.x, n.never)
   c.header = 2
   block(c, body)
   closes(c, n, "end")
@@ -365,7 +365,7 @@ local function macroexp(c: Ctx, n: Node)
   c.header = 4
   sig.typeargs(c, typescan.index_at(c.scan, name.y, name.x))
   sig.arguments(c, args)
-  sig.returns(c, rets, args, t.y, t.x)
+  sig.returns(c, rets, args, t.y, t.x, def.never)
   c.header = 2
   local listed: Node = { kind = "expression_list", f = n.f, y = at.y, x = at.x }
   listed[1] = exp

@@ -17,10 +17,6 @@ defines the target; once something ships, it leaves this file.
   give any target type unchecked, so one that contains a never-function (a
   function type, or a record or container with such a field) forges the
   guarantee of `: never`.
-- add `: never` to Teal as a flag on a function type, so a helper that only
-  raises (and [`Proc.exit`]) narrows below a guard as `error` does:
-  [doc/plans/teal-never.md](plans/teal-never.md) has the design and the
-  patch series.
 - declare cosmic.stream's interface methods with a named receiver
   (`read: function(self: Reader, ...)`) and drop each implementing record's
   redeclaration of them: the documented signatures then read as
@@ -28,10 +24,13 @@ defines the target; once something ships, it leaves this file.
   `FromStringReader` in [`cosmic/stream.tl`] shrinks. every interface of the
   module and every record that implements one changes together.
 - close the holes in Teal's own typing that forge any type, `: never`
-  functions among them ([doc/plans/teal-never.md](plans/teal-never.md) lists
-  them with tests that pin today's behavior): `rawset` writes a value of any
-  type into a record's field; `setmetatable` trusts a `__index` or `__call`
-  attached at run time against no declaration.
+  functions among them (`test_never_falls_into_the_holes_every_type_has` in
+  [`test/narrowing_test.tl`] pins today's behavior, and [doc/design.md](design.md)'s
+  teal section states the bar): `rawset` writes a value of any type into a
+  record's field; `setmetatable` trusts a `__index` that serves a number for a
+  string field, or a `__call` attached at run time (a record that declares a
+  never `__call` may be given a metatable whose function returns), against no
+  declaration. a call through `any` carries no flag either.
 - add earned lint rules and their fixes to [`build/fix/rule.tl`]'s rule list.
   the rewrite stage is in place and the list is still empty.
 - add a floor for line coverage, C included: `cosmic test --min PCT
@@ -419,7 +418,6 @@ four-producer provenance join.
 [`eval/summarize.tl`]: ../eval/summarize.tl
 [`Json.decode`]: ../cosmic/json.tl
 [`Net.serve`]: ../cosmic/net.tl
-[`Proc.exit`]: ../cosmic/proc.tl
 [`receivers.record_named`]: ../build/receivers.tl
 [`Sandbox.Limits`]: ../cosmic/sandbox/init.tl
 [`Sandbox.Policy`]: ../cosmic/sandbox/init.tl
@@ -433,6 +431,7 @@ four-producer provenance join.
 [`Shape.strict_record`]: ../cosmic/shape.tl
 [`Test.needs_of`]: ../cosmic/test.tl
 [`Test.policy`]: ../cosmic/test.tl
+[`test/narrowing_test.tl`]: ../test/narrowing_test.tl
 [`Typed.spec`]: ../cosmic/shape.tl
 [`Url.parse`]: ../cosmic/url.tl
 [`Url.Parts`]: ../cosmic/url.tl
