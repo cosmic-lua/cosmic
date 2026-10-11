@@ -288,16 +288,16 @@ for name, value in pairs(relaunch.env) do env[name] = value end
 env["COSMIC_TEST_SANDBOX"] = "0"
 local argv = { table.unpack(relaunch.argv) }
 argv[#argv + 1] = "test"
-for _, jobs in ipairs({ "", "1" }) do
-  env["COSMIC_BUILD_JOBS"] = jobs ~= "" and jobs or nil
-  local said = assert(Child.run(argv,
-    { env = env, fds = relaunch.fds, cwd = tmp, stdout = "capture", stderr = "capture",
-      timeout_ns = Clock.seconds(120) }))
-  print("=== JOBS=" .. jobs .. " status " .. tostring(said.code) .. " timed_out " .. tostring(said.timed_out))
-  print(said.stderr or "")
-  print(said.stdout or "")
+local said = assert(Child.run(argv,
+  { env = env, fds = relaunch.fds, cwd = tmp, stdout = "capture", stderr = "capture",
+    timeout_ns = Clock.seconds(120) }))
+local all = (said.stderr or "") .. (said.stdout or "")
+local verdict = all:match("test: [A-Z]+")
+print(verdict)
+if verdict ~= "test: PASS" then
+  print("code " .. tostring(said.code) .. " timed_out " .. tostring(said.timed_out))
+  print(all)
 end
-print(env["TMPDIR"], env["COSMIC_BUILD_CACHE"], env["COSMIC_BUILD_HOME"])
 ```
 
 ```output
