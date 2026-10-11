@@ -168,6 +168,15 @@ local parsing: {string: string} = {
 }
 
 local casts: {string: string} = {
+  ["build/assertions.tl:assertions.install"] =
+    "_G is a record and rawset takes a map; the write is of a name the record does not declare",
+  ["build/standalone.tl:standalone.run"] =
+    "_G is a record and rawset takes a map; the write is of a name the record does not declare",
+  ["build/dispatch.tl:run"] =
+    "_G is a record and rawset takes a map; the write is of a name the record does not declare",
+  ["cosmic/time.tl:make_zone"] =
+    "Teal's metatable record has no __metatable, which Lua reads; rawset takes a map",
+
   ["test/terminal/pty.tl:process_table"] =
     "the CI fixture reaches cosmic.child's raw process loader argument to test " ..
     "the controlling-terminal spawn step; core/process.h declares its shape",
@@ -238,6 +247,9 @@ local casts: {string: string} = {
   ["cosmic/sqlite.tl:checked"] =
     "a caller's parameter table is checked for keys its " ..
     "declaration does not name, which only a map view of it lists",
+  ["cosmic/web/request.tl:get"] =
+    "a request's slots hold values of every key's type in one table; " ..
+    "`set` stores a T under its Key<T>, so the one read back is that T",
 }
 
 --- The string fields rule 9 lets be compared with literals, each

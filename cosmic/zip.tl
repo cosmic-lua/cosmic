@@ -76,29 +76,11 @@ local record Zip
 
   --- How [`add_file`] stores an entry's bytes: "deflate" compresses them
   --- (zip's method 8), "store" keeps them as they are (method 0).
-  enum Method
-    "deflate"
-    "store"
-  end
+  type Method = Stream.EntryMethod
 
-  record EntryOptions is Stream.EntryOptions
-    --- Unix epoch seconds; zip's own resolution is two seconds, and
-    --- only 1980 through 2107 is representable -- anything outside
-    --- that is clamped to its nearer end. Defaults to 0, which is
-    --- clamped to 1980-01-01. Ignored when the writer is `deterministic`.
-    mtime?: integer
-    --- The body's uncompressed size, for a body given as a
-    --- [`Stream.Reader`]; ignored for a string, whose length is its size.
-    --- Optional: a streamed entry whose size is known to reach 2 GiB
-    --- must say so, since its local header has to announce zip64
-    --- before any of the body is read. When given, the body must turn
-    --- out exactly this long, or the write fails. A size that is no
-    --- integer, or is negative, raises, whatever the body.
-    size?: integer
-    --- "deflate" (the default) or "store". Only [`add_file`] reads it:
-    --- a directory and a symlink are stored.
-    method?: Method
-  end
+  --- What [`Writer`] may be told about an entry: [`Stream.EntryOptions`],
+  --- whose `method` a zip is the one to read.
+  type EntryOptions = Stream.EntryOptions
 
   record WriterOptions
     --- Every entry's timestamp becomes 1980-01-01 00:00:00, so the
@@ -691,13 +673,12 @@ local function open_reader(size: integer, pread: Pread, closer: function(): bool
 
   -- One `open` serves every entry this reader makes, through their
   -- shared metatable.
-  local entry_mt: metatable<Zip.Entry> = {
-    __index = {
-      open = function(e: Zip.Entry): Stream.Reader | nil, string
-        return open_entry(pread, e)
-      end,
-    },
+  local entry_methods = {
+    open = function(e: Zip.Entry): Stream.Reader | nil, string
+      return open_entry(pread, e)
+    end,
   }
+  local entry_mt: metatable<Zip.Entry> = { __index = entry_methods }
 
   -- One pass over the whole directory up front, keeping no entry, so
   -- a malformed one, or a count that disagrees with the end record,

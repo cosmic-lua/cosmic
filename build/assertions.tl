@@ -42,7 +42,7 @@ local installed = false
 function assertions.install()
   if installed then return end
   installed = true
-  rawset(_G, "assert", raw.assert)
+  rawset(_G as {string:any}, "assert", raw.assert)
 end
 
 assertions.lua_assert = lua_assert

@@ -454,7 +454,7 @@ local function run(file: string, argv: {integer:string}): integer
   end
   -- The file's top level, which `require` hands its own name and loader
   -- data as `...`, finds its words in `arg`, as `lua file a b` gives them.
-  rawset(_G, "arg", arguments)
+  rawset(_G as {string:any}, "arg", arguments)
   local entry = standalone.entry(require(name))
   if entry ~= nil then
     return exit_status.of(file, entry(arguments))

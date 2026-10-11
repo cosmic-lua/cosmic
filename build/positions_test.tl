@@ -68,6 +68,21 @@ local function test_position_opens_a_top_level_namespace()
   assert(ok, trouble)
 end
 
+--- The server is the one closed member of cosmic's own tree that a file
+--- outside its directory may import; its siblings stay private.
+local function test_position_opens_the_http_server_to_the_standard_library()
+  local ok, trouble = positioned({
+    { "cosmic/http/init.tl" }, { "cosmic/http/server.tl" }, { "cosmic/http/wire.tl" },
+    { "cosmic/web/init.tl", "cosmic.http.server" },
+  }, true)
+  assert(ok, trouble)
+  ok, trouble = positioned({
+    { "cosmic/http/init.tl" }, { "cosmic/http/wire.tl" },
+    { "cosmic/web/init.tl", "cosmic.http.wire" },
+  }, true)
+  assert(not ok and trouble:find("cosmic.http.wire is private to cosmic/http/", 1, true), trouble)
+end
+
 --- A directory's own entry is a member of the directory around it: one
 --- nested in a closed directory is reachable only from inside that one.
 local function test_position_closes_an_entry_nested_in_a_closed_directory()

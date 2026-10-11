@@ -329,14 +329,15 @@ local function test_a_reader_breaking_its_contract_cuts_the_reply_short()
     read: function(Giving, max_bytes?: integer): string | nil, string
     close: function(Giving): boolean, string
   end
-  local giving_mt: metatable<Giving> = { __index = {
+  local giving_methods = {
     read = function(self: Giving, _max_bytes?: integer): string | nil, string
       local piece = table.remove(self.pieces, 1)
       if piece == nil then return nil, "" end
       return piece, ""
     end,
     close = function(_self: Giving): boolean, string return true, "" end,
-  } }
+  }
+  local giving_mt: metatable<Giving> = { __index = giving_methods }
   local record Case
     length?: integer
     pieces: {string}
