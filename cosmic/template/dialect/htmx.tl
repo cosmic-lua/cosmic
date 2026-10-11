@@ -64,12 +64,29 @@ local def: types.Def = {
     ["hx-disabled-elt"] = SELECTOR,
     -- `closest form:abort`: a selector, then a strategy after a colon.
     ["hx-sync"] = SELECTOR,
-    -- Its `scroll:` and `show:` modifiers take a selector (getSwapSpecification),
-    -- `swap:` and `settle:` take a time. Whitespace separates the modifiers,
-    -- so the space an escape ends in splits a selector there: that breaks a
-    -- modifier, it does not make one (every modifier has a colon, and the
-    -- escaper writes none).
-    ["hx-swap"] = SELECTOR,
+    -- `hx-swap` is refused a slot: it is a spec the author writes (a style,
+    -- then modifiers such as `scroll:`, `show:`, `swap:` and `settle:`
+    -- split on whitespace, getSwapSpecification). The escaper passes bytes
+    -- from 0x80 raw, so a value with U+00A0 or U+2028 in it splits there and
+    -- can write a modifier of its own (`scroll:#{{.id}}:top` with an id of
+    -- "x scroll"). A selector in `scroll:` or `show:` seldom comes from data;
+    -- write the variants as literal text.
+    ["hx-swap"] = { class = "refused",
+      why = "is the swap spec the author writes: a value with a no-break space or U+2028 in it splits into " ..
+        "modifiers of its own; write the variants as literal text" },
+    -- Attributes whose value, inherited by a subtree, changes what htmx does
+    -- there. Data in them is no code but it is not data either: it can turn
+    -- extensions on or off (`ignore:csrf-ext`), htmx itself off (`hx-disable`),
+    -- links into requests (`hx-boost`) or the parameters sent away
+    -- (`hx-params="none"`). Their values are the author's text.
+    ["hx-ext"] = { class = "refused",
+      why = "is the author's text: a value can enable an extension or, with 'ignore:', disable one for the subtree" },
+    ["hx-disable"] = { class = "refused",
+      why = "is the author's text: it turns htmx off for the subtree" },
+    ["hx-boost"] = { class = "refused",
+      why = "is the author's text: it turns the links and forms of the subtree into requests" },
+    ["hx-params"] = { class = "refused",
+      why = "is the author's text: it chooses which parameters a request sends" },
     -- `true`, a swap style, or `style:selector` (oobSwap).
     ["hx-swap-oob"] = SELECTOR,
 
@@ -90,11 +107,8 @@ local def: types.Def = {
   plain = {
     -- A dialog's text (window.confirm and window.prompt): no markup, no code.
     "hx-confirm", "hx-prompt",
-    -- Behavior, not execution: `true`; `*`, `none` or a list of names;
-    -- an encoding; extension names (only a registered one loads); attribute
-    -- names; `false`; an id-less flag.
-    "hx-boost", "hx-params", "hx-encoding", "hx-ext", "hx-disinherit", "hx-inherit", "hx-history",
-    "hx-history-elt", "hx-preserve", "hx-disable", "hx-validate",
+    -- Behavior, not execution: an encoding; attribute names; `false`; flags.
+    "hx-encoding", "hx-disinherit", "hx-inherit", "hx-history", "hx-history-elt", "hx-preserve", "hx-validate",
     -- SSE event names, and a WebSocket send flag.
     "sse-swap", "sse-close", "ws-send",
   },

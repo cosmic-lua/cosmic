@@ -78,6 +78,60 @@ local function classify(self: Dialect.Table, attr: string): Rule | nil
   return rule
 end
 
+--- `attr` without the `data-` that htmx reads `data-hx-x` through.
+local function bare(attr: string): string
+  if attr:sub(1, 8) == "data-hx-" then
+    return attr:sub(6)
+  end
+  return attr
+end
+
+--- The attributes the always-on dialect refuses that a dialect may give the
+--- class `json` (and no other): a JSON text made by Html.json cannot run.
+local RELAXABLE <const>: {string: boolean} = { ["hx-vals"] = true, ["hx-headers"] = true, ["hx-request"] = true }
+
+--- Whether the always-on dialect refuses a slot in the attribute `attr`
+--- (without a `data-` prefix: see `bare`).
+local function locked(attr: string): boolean
+  local rule = base.exact[attr]
+  if rule == nil then
+    for _, entry in ipairs(base.prefixes) do
+      if attr:sub(1, #entry.prefix) == entry.prefix then
+        rule = entry.rule
+        break
+      end
+    end
+  end
+  return rule ~= nil and rule.class == "refused"
+end
+
+--- Why the dialect `def` may not hold `rule` for the attribute `attr`, or "".
+--- The refusals that are always on cannot be taken off by a dialect: only
+--- the JSON attributes may be given the class `json`.
+local function unlockable(def: types.Def): string
+  local function bad(what: string): string
+    return "dialect '" .. def.name .. "' gives " .. what .. ", which the always-on dialect refuses a slot in " ..
+      "and no dialect may change"
+  end
+  for attr, rule in pairs(def.exact) do
+    local name = bare(attr)
+    if locked(name) and not (RELAXABLE[name] and rule.class == "json") and rule.class ~= "refused" then
+      return bad("'" .. attr .. "' the class " .. rule.class)
+    end
+  end
+  for _, entry in ipairs(def.prefixes) do
+    -- A prefix at least as long as a refused one covers only names it also
+    -- covers, and the tie goes to the later dialect.
+    for _, held in ipairs(base.prefixes) do
+      if held.rule.class == "refused" and bare(entry.prefix):sub(1, #held.prefix) == held.prefix and
+          entry.rule.class ~= "refused" then
+        return bad("the prefix '" .. entry.prefix .. "' the class " .. entry.rule.class)
+      end
+    end
+  end
+  return ""
+end
+
 --- Whether two rules are the same one.
 local function same(a: Rule, b: Rule): boolean
   return a.class == b.class and a.why == b.why
@@ -97,6 +151,10 @@ function Dialect.resolve(names: {string}, registry: {string: types.Def}): Dialec
     local def = registry[name]
     if def == nil then
       return nil, "unknown dialect '" .. name .. "'"
+    end
+    local bad = unlockable(def)
+    if bad ~= "" then
+      return nil, bad
     end
     defs[#defs + 1] = def
   end

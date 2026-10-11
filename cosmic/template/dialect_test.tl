@@ -15,14 +15,16 @@ local HTMX <const>: {string: string} = {
   ["hx-vals"] = "json", ["hx-headers"] = "json", ["hx-request"] = "json",
   ["hx-target"] = "selector", ["hx-select"] = "selector", ["hx-select-oob"] = "selector",
   ["hx-include"] = "selector", ["hx-indicator"] = "selector", ["hx-disabled-elt"] = "selector",
-  ["hx-sync"] = "selector", ["hx-swap"] = "selector", ["hx-swap-oob"] = "selector",
+  ["hx-sync"] = "selector", ["hx-swap-oob"] = "selector",
+  ["hx-swap"] = "refused", ["hx-ext"] = "refused", ["hx-disable"] = "refused", ["hx-boost"] = "refused",
+  ["hx-params"] = "refused",
   ["hx-target-422"] = "selector", ["hx-target-error"] = "selector", ["hx-target-*"] = "selector",
   ["hx-trigger"] = "refused", ["hx-vars"] = "refused", ["hx-ws"] = "refused",
   ["hx-on"] = "refused", ["hx-on:click"] = "refused", ["hx-on::after-request"] = "refused",
   ["hx-on--after-request"] = "refused", ["hx-on-click"] = "refused",
-  ["hx-confirm"] = "plain", ["hx-prompt"] = "plain", ["hx-boost"] = "plain", ["hx-params"] = "plain",
-  ["hx-encoding"] = "plain", ["hx-ext"] = "plain", ["hx-disinherit"] = "plain", ["hx-inherit"] = "plain",
-  ["hx-history"] = "plain", ["hx-history-elt"] = "plain", ["hx-preserve"] = "plain", ["hx-disable"] = "plain",
+  ["hx-confirm"] = "plain", ["hx-prompt"] = "plain",
+  ["hx-encoding"] = "plain", ["hx-disinherit"] = "plain", ["hx-inherit"] = "plain",
+  ["hx-history"] = "plain", ["hx-history-elt"] = "plain", ["hx-preserve"] = "plain",
   ["hx-validate"] = "plain", ["sse-swap"] = "plain", ["sse-close"] = "plain", ["ws-send"] = "plain",
 }
 
@@ -40,7 +42,8 @@ local function test_the_htmx_table_is_what_is_pinned_here()
   for attr, want in pairs(HTMX) do
     assert(class_of(table_, attr) == want, attr .. " is " .. class_of(table_, attr) .. ", not " .. want)
     assert(class_of(table_, "data-" .. attr) == want, "data-" .. attr)
-    assert(class_of(table_, attr:upper():lower()) == want, attr)
+    -- `classify` takes the lower-case name the tokenizer gives it; the
+    -- upper-case spellings of a page are compiled in template_test.
   end
   local def = dialect.registry.htmx
   assert(def.targets == "2.0.11", def.targets)
@@ -119,4 +122,41 @@ local function test_a_name_is_checked_and_two_dialects_must_agree_on_an_attribut
   assert(dialect.resolve({ "one", "same" }, registry) ~= nil)
   -- The always-on dialect is the one a named dialect may override.
   assert(class_of(assert(dialect.resolve({ "htmx" }, dialect.registry)), "hx-headers") == "json")
+end
+
+local function lock_def(exact: {string: types.Rule}, prefixes: {types.Prefix}): Def
+  return { name = "mine", targets = "1", plain = {}, families = { "hx-" }, exact = exact, prefixes = prefixes }
+end
+
+local function test_no_dialect_takes_off_a_refusal_that_is_always_on()
+  local classes: {types.Class} = { "url", "url_local", "selector", "json" }
+  for _, attr in ipairs({ "hx-vars", "hx-trigger", "hx-on", "hx-on:click", "hx-on-click", "hx-onx", "data-hx-on:click",
+      "data-hx-trigger" }) do
+    for _, class in ipairs(classes) do
+      local table_, why = dialect.resolve({ "mine" }, { mine = lock_def({ [attr] = { class = class, why = "" } }, {}) })
+      assert(table_ == nil and why:find("no dialect may change", 1, true) and why:find("'" .. attr .. "'", 1, true),
+        attr .. " " .. class .. ": " .. tostring(why))
+    end
+  end
+  for _, prefix in ipairs({ "hx-on", "hx-on:", "hx-on-click", "hx-onx" }) do
+    local table_, why = dialect.resolve({ "mine" }, { mine = lock_def({}, { { prefix = prefix, rule = { class = "url", why = "" } } }) })
+    assert(table_ == nil and why:find("the prefix '" .. prefix .. "'", 1, true), prefix .. ": " .. tostring(why))
+  end
+  -- A shorter prefix is beaten by the longer, and a refusal stays one.
+  local ok = assert(dialect.resolve({ "mine" }, { mine = lock_def({ ["hx-vars"] = { class = "refused", why = "x" } },
+    { { prefix = "hx-", rule = { class = "url", why = "" } } }) }))
+  assert(class_of(ok, "hx-on:click") == "refused" and class_of(ok, "hx-trigger") == "refused" and
+      class_of(ok, "hx-vars") == "refused")
+end
+
+local function test_a_dialect_may_give_the_json_attributes_the_json_class_and_no_other()
+  for _, attr in ipairs({ "hx-vals", "hx-headers", "hx-request", "data-hx-vals" }) do
+    local table_ = assert(dialect.resolve({ "mine" }, { mine = lock_def({ [attr] = { class = "json", why = "" } }, {}) }))
+    -- A `data-` name in a table is never looked up: the form is stripped first.
+    assert(attr:find("^data%-") or class_of(table_, attr) == "json", attr)
+    local other, why = dialect.resolve({ "mine" }, { mine = lock_def({ [attr] = { class = "selector", why = "" } }, {}) })
+    assert(other == nil and why:find("no dialect may change", 1, true), attr .. ": " .. tostring(why))
+  end
+  local other, why = dialect.resolve({ "mine" }, { mine = lock_def({}, { { prefix = "hx-vals", rule = { class = "json", why = "" } } }) })
+  assert(other ~= nil, tostring(why))
 end

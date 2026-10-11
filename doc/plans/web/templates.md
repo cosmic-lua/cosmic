@@ -321,11 +321,7 @@ refused: tracking JSON inside an attribute would be a second tokenizer.
 The whole-value rule is what makes SafeJson the right granularity.
 
 Selectors (`selector`): `hx-target`, `hx-select`, `hx-select-oob`,
-`hx-include`, `hx-indicator`, `hx-disabled-elt`, `hx-sync`, `hx-swap` (its
-`scroll:`/`show:` modifiers take selectors and `swap:`/`settle:` take
-times; whitespace separates its modifiers, so the space an escape ends in
-splits a selector there, which breaks a modifier and makes none, as every
-modifier has a colon and the escaper writes none), `hx-swap-oob`
+`hx-include`, `hx-indicator`, `hx-disabled-elt`, `hx-sync`, `hx-swap-oob`
 (`outerHTML:#sel`), and by prefix `hx-target-`
 (htmx-ext-response-targets: `hx-target-422`, `hx-target-error`). These are
 not code, but a selector chosen by data retargets where a response lands.
@@ -338,12 +334,27 @@ refused. Attribute selectors with data, `[data-id="{{.id}}"]`, need a CSS
 string escaper and are not supported in v1; use `#row-{{.id}}`. (Open
 question 4.)
 
+Refused for slots, as the author's text (a `refused` rule in the htmx
+dialect): `hx-swap`, whose modifiers (`scroll:`, `show:`, `swap:`,
+`settle:`) are split on whitespace, and the escaper passes bytes from 0x80
+raw, so a value with U+00A0 or U+2028 in it can write a modifier of its own
+(`scroll:#{{.id}}:top` with an id of "x scroll"); and `hx-ext`, `hx-disable`,
+`hx-boost` and `hx-params`, whose value, inherited by a subtree, turns
+extensions on or off (`ignore:csrf-ext`), htmx itself off, links into
+requests, or chooses the parameters sent. Write the variants as literal
+text.
+
 Plain attributes (no rule; a slot is attr-escaped text): `hx-confirm` and
-`hx-prompt` (shown in a dialog as text), `hx-boost`, `hx-params`,
-`hx-encoding`, `hx-ext`, `hx-history`, `hx-history-elt`, `hx-preserve`,
-`hx-disable`, `hx-disinherit`, `hx-inherit`, `hx-validate`, `hx-replace-url`
-is above, `sse-swap`, `sse-close`, `ws-send`. The test in section 2.4 lists
-them so an unclassified `hx-*` name fails the build of the dialect.
+`hx-prompt` (shown in a dialog as text), `hx-encoding`, `hx-history`,
+`hx-history-elt`, `hx-preserve`, `hx-disinherit`, `hx-inherit`,
+`hx-validate`, `sse-swap`, `sse-close`, `ws-send`. The test in section 2.4
+lists them so an unclassified `hx-*` name fails the build of the dialect.
+
+A project dialect cannot relax the refusals that are always on (`hx-on*`,
+`hx-vars`, `hx-trigger`): `Dialect.resolve` fails, naming the attribute,
+when a dialect gives one of them (by name or by a prefix at least as long
+as a refused one) any class but `refused`. Only `hx-vals`, `hx-headers` and
+`hx-request` may be given the class `json`.
 
 `hx-swap-oob` value `true` is a literal in practice; see the OOB pattern in
 section 6.
@@ -366,8 +377,8 @@ afterthought: a test compiles `data-hx-on:click="{{.x}}"` and
   filters, `js:` values) entirely; input.md section 10 owns the CSP
   recommendation, and the configuration `Htmx.head` writes (section 6.6)
   turns `allowEval` off by default.
-- `hx-swap` modifiers and `hx-params` values are plain text or selector
-  identifiers; they change behavior, not execution.
+- A literal `hx-swap`, `hx-params`, `hx-ext` or `hx-boost` changes
+  behavior, not execution; a slot in one is refused (section 2.1).
 - Inline `<script>` in swapped HTML: htmx executes script tags in swapped
   content when `allowScriptTags` is true (the default). The config meta
   sets it false. A response fragment that includes user data goes through

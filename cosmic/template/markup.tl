@@ -267,8 +267,8 @@ local record Markup
     meta_line: integer
     --- Its column.
     meta_col: integer
-    --- A refusal found at the end of a tag, for the slot that stood at
-    --- `late_line` and `late_col`.
+    --- A refusal found at the end of a tag or of a JSON slot's value, for
+    --- the slot or byte at `late_line` and `late_col`.
     late: string
     --- The line of that slot.
     late_line: integer
@@ -1170,9 +1170,14 @@ local function scan(p: Place, text: string)
       elseif class == "selector" then
         -- The value is in an identifier if its last byte that is not an
         -- identifier byte is a `#` or `.`, or if it has none and the value was.
-        -- TODO: a `\` escape written in the literal text (`#a\2c `) ends the
-        -- identifier here, so a slot after it is refused; waiting on a
-        -- CSS-aware scan, if anyone writes one.
+        -- TODO: the scan does not read `\` escapes. A slot after one is
+        -- refused when the literal text before it ends in the escape or in
+        -- the space that ends a hex escape (`#a\{{x}}`, `#a\2c {{x}}`,
+        -- `#a\2c b{{x}}`), though each stands in an identifier; one whose
+        -- escaped byte is `.` or `#` (`#a\.{{x}}`, `#a\#{{x}}`) is accepted,
+        -- as the scan takes that byte for the start of an identifier, which
+        -- the slot is in either way. Waiting on a CSS-aware scan, if anyone
+        -- writes selectors with escapes.
         local stop = text:sub(i, last):match(".*()[^%w_%-\128-\255]")
         if stop ~= nil then
           local mark = text:byte(i + stop - 1)
@@ -1181,6 +1186,17 @@ local function scan(p: Place, text: string)
       end
       if close == nil then
         return
+      end
+      if p.sole_trail then
+        -- The value ends here, and the next opening quote resets the flag
+        -- before the node's end could see it, so the refusal is recorded
+        -- now, and `feed` places it (`late_line` of -1 until then).
+        if p.late == "" then
+          p.late = "text after a JSON slot in the '" .. p.attr .. "' attribute: a JSON slot is the whole value"
+          p.late_line = -1
+          p.late_col = close
+        end
+        p.sole_trail = false
       end
       p.phase = "before_attr"
       p.fresh = false
@@ -1377,6 +1393,9 @@ local function settle(p: Place, text: string, line: integer, col: integer): inte
     for _, q in ipairs(places) do
       extended = extended or continues(q.phase, c:byte())
       scan(q, c)
+      if q.late_line == -1 then
+        q.late_line, q.late_col = locate(text, i, line, col)
+      end
       q.slash = q.phase == "before_attr" and c == "/"
       one = one and alike(p, q)
       together = together and apart(p, q)
@@ -1414,6 +1433,9 @@ feed = function(p: Place, text: string, line: integer, col: integer)
   p.split = p.split or continues(p.phase, text:byte(1))
   local from = p.alts ~= "" and settle(p, text, line, col) or 1
   scan(p, from == 1 and text or text:sub(from))
+  if p.late_line == -1 then
+    p.late_line, p.late_col = locate(text, from + p.late_col - 1, line, col)
+  end
   p.slash = p.phase == "before_attr" and text:byte(#text) == 47
 end
 

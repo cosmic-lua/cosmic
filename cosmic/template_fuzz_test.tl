@@ -1435,7 +1435,7 @@ end
 --- the page may spell them.
 local SELECTOR_ATTRS <const>: {string} = {
   "hx-target", "HX-TARGET", "data-hx-target", "Data-Hx-Select", "hx-select", "hx-select-oob", "hx-include",
-  "hx-indicator", "hx-disabled-elt", "hx-sync", "hx-swap", "hx-swap-oob", "hx-target-422", "hx-target-error",
+  "hx-indicator", "hx-disabled-elt", "hx-sync", "hx-swap-oob", "hx-target-422", "hx-target-error",
 }
 
 --- What may stand before a selector slot, and after it. The text before

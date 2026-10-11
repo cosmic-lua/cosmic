@@ -471,20 +471,20 @@ local HTMX_CLASSES <const>: {{string}} = {
   { "hx-indicator=\"#spin-{{.id}}\"", "_sel" },
   { "hx-disabled-elt=\"find button.b-{{.id}}\"", "_sel" },
   { "hx-sync=\"#f-{{.id}}:abort\"", "_sel" },
-  { "hx-swap=\"innerHTML scroll:#top-{{.id}}:top\"", "_sel" },
+  { "hx-swap=\"innerHTML scroll:#top-{{.id}}:top\"", "" },
   { "hx-swap-oob=\"outerHTML:#x-{{.id}}\"", "_sel" },
   { "hx-target-422=\"#err-{{.id}}\"", "_sel" },
   { "hx-target-error=\"#err-{{.id}}\"", "_sel" },
   { "hx-confirm=\"{{.x}}\"", "_attr" },
   { "hx-prompt=\"{{.x}}\"", "_attr" },
-  { "hx-boost=\"{{.x}}\"", "_attr" },
-  { "hx-params=\"{{.x}}\"", "_attr" },
+  { "hx-boost=\"{{.x}}\"", "" },
+  { "hx-params=\"{{.x}}\"", "" },
   { "hx-encoding=\"{{.x}}\"", "_attr" },
-  { "hx-ext=\"{{.x}}\"", "_attr" },
+  { "hx-ext=\"{{.x}}\"", "" },
   { "hx-history=\"{{.x}}\"", "_attr" },
   { "hx-preserve=\"{{.x}}\"", "_attr" },
   { "hx-validate=\"{{.x}}\"", "_attr" },
-  { "hx-disable=\"{{.x}}\"", "_attr" },
+  { "hx-disable=\"{{.x}}\"", "" },
   { "hx-disinherit=\"{{.x}}\"", "_attr" },
   { "sse-swap=\"{{.x}}\"", "_attr" },
   { "ws-send=\"{{.x}}\"", "_attr" },
@@ -532,6 +532,38 @@ local function test_without_use_htmx_only_the_script_and_json_attributes_are_ref
         assert(call == "_attr", case[1] .. ": " .. call)
       end
     end
+  end
+end
+
+local function test_every_attribute_is_classified_alike_in_upper_case_and_with_data()
+  for _, case in ipairs(HTMX_CLASSES) do
+    local name, rest = case[1]:match("^([%w:-]+)(.*)$")
+    for _, spelled in ipairs({ name:upper(), "data-" .. name, "DATA-" .. name:upper() }) do
+      local src = HEAD .. "{{use htmx}}\n<a " .. spelled .. rest .. ">"
+      if case[2] == "" then
+        refused(src)
+      else
+        assert(helpers_called(compiled(src))[1] == case[2], spelled .. rest)
+      end
+    end
+  end
+end
+
+local function test_an_hx_swap_spec_and_the_attributes_that_change_a_subtree_are_the_authors()
+  -- U+00A0 passes the attribute escaper raw and splits a swap spec in htmx.
+  for _, src in ipairs({
+      "<a hx-swap=\"innerHTML scroll:#{{.id}}:top\">",
+      "<a hx-swap=\"swap:{{.t}}\">",
+      "<a hx-swap=\"{{.style}}\">",
+      "<a hx-ext=\"ignore:{{.x}}\">",
+      "<a hx-disable=\"{{.x}}\">",
+      "<a hx-boost=\"{{.x}}\">",
+      "<a hx-params=\"{{.x}}\">",
+  }) do
+    local why = refused(HEAD .. "{{use htmx}}\n" .. src)
+    assert(why:find("author", 1, true), src .. ": " .. why)
+    -- Literal text is the author's own.
+    compiled(HEAD .. "{{use htmx}}\n" .. src:gsub("{{[^}]*}}", "x"))
   end
 end
 
@@ -604,10 +636,31 @@ local function test_a_json_slot_is_the_whole_value()
       { "<a hx-vals='{{range .l}}{{.}}{{end}}'>", "must be the whole value" },
       { "<a hx-vals=\"{{.v}}'\">", "text after a JSON slot" },
       { "<a hx-headers=unquoted{{.v}}>", "unquoted" },
+      -- The next attribute's quote must not forget text after the slot.
+      { "<a hx-vals='{{.v}}x' title='q'>", "text after a JSON slot" },
+      { "<a hx-vals='{{.v}}}' title='q'>", "text after a JSON slot" },
+      { "<a hx-vals='{{.v}}x'><b title='q'>", "text after a JSON slot" },
+      { "<a hx-vals='{{.v}}x' hx-get='/a'>", "text after a JSON slot" },
+      { "<a hx-vals='{{.v}}x\"y' title=\"q\">", "text after a JSON slot" },
+      { "<a hx-vals='{{.v}}\n x' title='q'>", "text after a JSON slot" },
+      { "<a hx-vals='{{if .a}}{{.v}}{{end}}x' title='q'>", "text after a JSON slot" },
+      { "<a hx-vals='{{if .a}}{{.v}}x' title='q'{{else}}'{{end}}>", "text after a JSON slot" },
+      { "<a hx-vals='{{if .a}}{{.v}}{{else}}{{.v}}x{{end}}' title='q'>", "text after a JSON slot" },
+      { "<a hx-vals='{{.v}}{{if .a}}x' title='q'{{else}}'{{end}}>", "text after a JSON slot" },
+      { "<a hx-vals='{{range .l}}{{.v}}x' title='q'{{end}}>", "text after a JSON slot" },
   }) do
     local why = refused(HEAD .. "{{use htmx}}\n" .. case[1])
     assert(why:find(case[2], 1, true), case[1] .. ": " .. why)
   end
+end
+
+local function test_a_refusal_after_a_json_slot_is_placed_at_the_byte_that_ends_it()
+  local why = refused(HEAD .. "{{use htmx}}\n<a hx-vals='{{.v}}ab' title='q'>")
+  assert(why:find("t.tmpl:3:21:", 1, true) and why:find("text after a JSON slot", 1, true), why)
+  -- Blanks after the slot, then the closing quote: the whole value still.
+  compiled(HEAD .. "{{use htmx}}\n<a hx-vals='{{.v}} ' title='q'>")
+  compiled(HEAD .. "{{use htmx}}\n<a hx-vals='{{.v}}' title='q' hx-vals='{{.v}}'>")
+  compiled(HEAD .. "{{use htmx}}\n<a hx-vals='{{if .a}}{{.v}}{{end}}' title='q'>")
 end
 
 local function test_a_selector_slot_stands_only_inside_an_identifier_after_a_hash_or_dot()
@@ -647,8 +700,6 @@ local function test_a_selector_slot_stands_only_inside_an_identifier_after_a_has
       "<a hx-target=\"#a-{{if .x}}b{{else}} {{end}}{{.z}}\">",
       "<a hx-target=\"#a-{{if .x}}{{.y}}{{else}}, {{end}}{{.z}}\">",
       "<a hx-target=\"#a-{{if .x}}b{{end}}{{if .y}}, {{end}}{{.z}}\">",
-      "<a hx-swap=\"swap:{{.t}}\">",
-      "<a hx-swap=\"{{.style}}\">",
       "<a hx-swap-oob=\"{{.style}}:#x\">",
   }) do
     local why = refused(HEAD .. "{{use htmx}}\n" .. src)
