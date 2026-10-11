@@ -80,12 +80,13 @@ local record Testing
     --- The `Host` the requests name.
     host: string
     --- How long a read or a write of the connection waits, as [`set_timeout`]
-    --- last set it.
-    timeout_ns: integer
+    --- last set it (nil: no limit).
+    timeout_ns?: integer
 
     --- Sets how long a read or a write of the connection waits (nil: no
-    --- limit). Use it, not `conn:set_timeout`, which a request sending a
-    --- large body overrides.
+    --- limit). A request sending a large body sets the connection's own
+    --- timeout back to this after each look for the reply, so one set on
+    --- `conn` directly does not last past it.
     set_timeout: function(self: Loopback, wait_ns: integer | nil)
 
     --- One request over the connection; nil and why when the server's reply
@@ -580,6 +581,18 @@ local function read_reply(lb: Testing.Loopback, method: string): Response | nil,
   return response_of(status, lines, body), ""
 end
 
+--- Whether `buf`, the reply read so far, holds the start of a final reply:
+--- something past every whole interim (1xx) reply it opens with.
+local function final_begun(buf: string): boolean
+  local at = 1
+  while buf:find("^HTTP/%d%.%d 1%d%d ", at) ~= nil do
+    local _, stop = buf:find("\r\n\r\n", at, true)
+    if stop == nil then return false end
+    at = stop + 1
+  end
+  return at <= #buf
+end
+
 --- How much of a request goes out between looks for the server's reply.
 local SEND_SLICE <const> = 64 * 1024
 
@@ -587,8 +600,14 @@ local SEND_SLICE <const> = 64 * 1024
 --- says why a write failed ("" where none did). A server refusing a body
 --- (413) answers at once, reads a bounded amount more and closes, and a
 --- close with bytes unread resets the connection, which on BSD discards
---- the reply from the client's buffer: the reply is taken between slices,
---- before the reset can come, never after a failed write alone.
+--- the reply from the client's buffer. So the reply is looked for between
+--- slices: a refusal sent while the server still drains is read before
+--- its reset. An interim reply (`100 Continue`) is kept and the body goes
+--- on.
+-- TODO: a refusal the server sends only after more than it drains
+-- (cosmic/http/server.tl's `linger`), or one whose reset meets the first
+-- slice's write, can still be lost on BSD; reading the reply before the
+-- first write, or half-closing instead of resetting, would close that.
 local function send_until_answered(lb: Testing.Loopback, bytes: string): string
   local from = 1
   while from <= #bytes do
@@ -602,9 +621,10 @@ local function send_until_answered(lb: Testing.Loopback, bytes: string): string
       lb.conn:set_timeout(lb.timeout_ns)
       if piece ~= nil then
         lb.buf = lb.buf .. piece
+        if final_begun(lb.buf) then return "" end
+      elseif read_why ~= Poll.TIMEOUT then
         return ""
       end
-      if read_why ~= Poll.TIMEOUT then return "" end
     end
   end
   return ""
@@ -612,6 +632,9 @@ end
 
 local function loopback_raw(self: Testing.Loopback, bytes: string, method?: string): Response | nil, string
   local write_why = send_until_answered(self, bytes)
+  -- A write that timed out met a server that stopped reading: waiting as
+  -- long again for a reply would only double the failure's time.
+  if write_why == Poll.TIMEOUT then return nil, write_why end
   local reply, why = read_reply(self, method or "GET")
   if reply == nil then return nil, write_why ~= "" and write_why or why end
   return reply, ""
