@@ -425,6 +425,33 @@ local function drop_body(reply: Server.Reply)
   end
 end
 
+--- Why the server cannot send `reply`, what a handler answered to a request
+--- of `method` (GET when nil), or "": the checks it makes before it
+--- writes one, and for which it answers 500 instead -- a field the
+--- [`Server.Reply`] lacks, a header that cannot be written, a body or a
+--- Content-Length that disagree. A test that calls a handler without a
+--- server asks it what the server would.
+---
+---     assert(Server.check({ status = 200, body = "hi" }) == "")
+---     assert(Server.check({ status = 200, body = "hi", length = 5 }) ~= "")
+--- @param reply Server.Reply The handler's answer
+--- @param method string | nil The request's method
+--- @return string Why it cannot be sent, or ""
+function Server.check(reply: Server.Reply, method?: string): string
+  local trouble = reply_trouble(reply)
+  if trouble ~= "" then return trouble end
+  return wire.check({ status = reply.status, headers = reply.headers, body = reply.body,
+    length = reply.length, method = method })
+end
+
+--- The reason phrase of `status` as the server writes it ("Not Found"),
+--- or "" for a status it does not name.
+--- @param status integer An HTTP status
+--- @return string Its phrase
+function Server.reason(status: integer): string
+  return wire.reason(status)
+end
+
 --- Serves the request `head` read from `input`: calls the handler and
 --- writes its reply, or the server's own. True where the connection
 --- stays open for the next request.
@@ -473,11 +500,7 @@ local function exchange(s: Serving, conn: Net.Conn, input: wire.Input, head: wir
     if body.state == "open" then linger(conn) end
     return false
   end
-  local trouble = reply_trouble(reply)
-  if trouble == "" then
-    trouble = wire.check({ status = reply.status, headers = reply.headers, body = reply.body,
-      length = reply.length, method = head.method })
-  end
+  local trouble = Server.check(reply, head.method)
   if trouble ~= "" then
     drop_body(reply)
     report(s, "http: " .. where .. ": " .. trouble)

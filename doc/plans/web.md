@@ -1,8 +1,8 @@
 # cosmic.web
 
-A plan for `cosmic.web`: a standard-library module that makes an htmx web
+A plan for [`cosmic.web`]: a standard-library module that makes an htmx web
 interface, or a JSON HTTP API, or both in one program, a matter of a route
-table, a few templates and a call to `Web.serve`. It layers on
+table, a few templates and a call to [`Web.serve`]. It layers on
 [`cosmic.http.server`], which stays the low-level server it is.
 
 [Starlette] is the reference: its Request and Response, Router, Route and
@@ -38,11 +38,11 @@ the plan was written against.
 
 Taken up front with the user and not reopened per PR.
 
-1. **A new module, `cosmic.web`,** on [`cosmic.http.server`]. Small
-   changes to existing modules are in scope where `cosmic.web` needs them;
+1. **A new module, [`cosmic.web`],** on [`cosmic.http.server`]. Small
+   changes to existing modules are in scope where [`cosmic.web`] needs them;
    the server does not grow opinions.
 2. **Routes are an explicit table in code**, built by constructors
-   (`Web.get`, `Web.route`, `Web.mount`) into plain data, so a file-based
+   ([`Web.get`], [`Web.route`], [`Web.mount`]) into plain data, so a file-based
    routing layer can later generate the same table. A route may name
    [`cosmic.shape`] specs for its path parameters, query, and form or JSON
    body: its handler is then given checked, typed records, and input that
@@ -202,7 +202,7 @@ The parts were written in parallel; these are where they met.
   with [`Shape.into`] as the last check, so a form re-renders with all its
   messages and an API's problem+json `errors` lists them all. A route's
   `on_invalid` turns that into the re-render in one line.
-- **One URL escaper.** `Router:reverse` and `url_for` escape a path
+- **One URL escaper.** [`Router:reverse`] and `url_for` escape a path
   parameter exactly as the template's [`Html.url_part`] does, which agrees
   with [`Url.escape`]; a test pins the three together. A Mount answers
   reverse lookups, so `url_for("static", { path = "app.css" })` gives the
@@ -211,16 +211,16 @@ The parts were written in parallel; these are where they met.
   `allowScriptTags` off (so a CSP without `unsafe-eval` holds),
   `includeIndicatorStyles` off (no inline style), `selfRequestsOnly` on,
   and `responseHandling` swapping 2xx and 422 but not 204.
-- **Shutdown.** `Web.serve` gives `grace_ns` a default of 10 seconds,
+- **Shutdown.** [`Web.serve`] gives `grace_ns` a default of 10 seconds,
   where the server's waits for every request and so for every event stream;
   [`Server.serve`] forwards a caller's `on_stop`; `app:stopping()` turns
   true, and every Hub and EventStream registered with the app closes.
 - **Response headers take a list.** [`Server.Reply.headers`] widens to
   `{string: string | {string}}`, one header line per element, so a reply
   can set two cookies; existing literals still type-check. The Cookie
-  request header is joined with `"; "`, not `", "`. `Web.add_header` is
+  request header is joined with `"; "`, not `", "`. [`Web.add_header`] is
   the one way to append (a `Vary` token, a `Set-Cookie`).
-- **Dialects live in [`cosmic.template`],** not in `cosmic.web`: the
+- **Dialects live in [`cosmic.template`],** not in [`cosmic.web`]: the
   build's compiler identity hashes `build.*` and `cosmic.template.*` alone
   (build/identity.tl:400), so a dialect anywhere else would leave stale
   templates after an edit.
@@ -298,7 +298,7 @@ overruled; the parts list smaller ones of their own.
    cipher. Recommendation: document it, and add an AEAD store when a cipher
    lands, rather than building one from HMAC.
 6. **htmx in every executable** (about 55 KB) or only in a program that
-   requires `cosmic.web`. Recommendation: every executable in v1, since
+   requires [`cosmic.web`]. Recommendation: every executable in v1, since
    the store has no per-program pruning of tables yet.
 7. **The dev loop as a library or a verb.** Recommendation: a library
    (`cosmic.web.dev`) in v1; a `cosmic web dev` verb needs its own entry,
@@ -342,12 +342,19 @@ cooperative process.
 [`Conn:peer()`]: ../../cosmic/internal/connection.tl
 [`Conn:peer`]: ../../cosmic/internal/connection.tl
 [`cosmic.http.wire`]: ../../cosmic/http/wire.tl
+[`cosmic.web`]: ../../cosmic/web/init.tl
 [`Hash.equal`]: ../../cosmic/hash.tl
 [`Html.url_part`]: ../../cosmic/html.tl
 [`Poll.notifier`]: ../../cosmic/poll.tl
 [`Request.peer`]: ../../cosmic/http/server.tl
+[`Router:reverse`]: ../../cosmic/web/types.tl
 [`Server.Reply.headers`]: ../../cosmic/http/server.tl
 [`Server.serve`]: ../../cosmic/http/server.tl
 [`Shape.into`]: ../../cosmic/shape.tl
 [`Url.decode_query`]: ../../cosmic/url.tl
 [`Url.encode_query`]: ../../cosmic/url.tl
+[`Web.add_header`]: ../../cosmic/web/init.tl
+[`Web.get`]: ../../cosmic/web/init.tl
+[`Web.mount`]: ../../cosmic/web/init.tl
+[`Web.route`]: ../../cosmic/web/init.tl
+[`Web.serve`]: ../../cosmic/web/init.tl

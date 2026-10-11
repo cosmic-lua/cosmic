@@ -33,7 +33,7 @@ Code is cited as `path:line` from the tree at the time of writing.
 - htmx 2.0.11 (`dist/htmx.min.js`, 0BSD) and htmx-ext-sse 2.2.4
   (`dist/sse.min.js`, 0BSD) are vendored as `vendor/htmx/` and
   `vendor/htmx-ext-sse/` with PINs, built into the binary's own database
-  (a new `web_assets` table beside `zoneinfo`) and served by `cosmic.web`
+  (a new `web_assets` table beside `zoneinfo`) and served by [`cosmic.web`]
   at versioned fixed paths under the reserved `/_web/` prefix with a SHA-384
   SRI value computed at build time; `Htmx.head` (templates.md section 6.6)
   writes the page's tags and the one htmx configuration.
@@ -139,7 +139,7 @@ payload(path TEXT PRIMARY KEY,   -- relative to static/, "css/app.css"
 ```
 
 The `type` column is a function of the extension and fixed in the
-build, so the same table serves a program that never loads `cosmic.web`.
+build, so the same table serves a program that never loads [`cosmic.web`].
 `gzip` is written when the file is a compressible type, over 1 KiB, and
 the gzip is at least 10% smaller. `Compress.deflate("gzip", data, 9)`
 (cosmic/compress.tl:90) writes a header with mtime 0 (compress.tl:128-130),
@@ -164,12 +164,12 @@ the columns above.
 
 ### 1.4 Content types
 
-One function in `cosmic.web` and one table in the build, which must agree
+One function in [`cosmic.web`] and one table in the build, which must agree
 (the build stores the result, the dev-mode directory source recomputes it).
 To avoid two tables, put the function in a small module the build can
 require without loading the web stack: `cosmic/web/mime.tl`, exporting
 `Mime.of(path: string): string`, required by both build/derivation.tl and
-`cosmic.web`. The tree's contracts need the build to require only
+[`cosmic.web`]. The tree's contracts need the build to require only
 standard-library modules in the tool's closure; `cosmic.web.mime` is one.
 
 The table (lowercase extension to type):
@@ -359,7 +359,7 @@ end
 stripped its prefix and before the percent-decoding that [`Url.segments`]
 does), and header access by lowercase name. All it needs of `Response` is a
 status, headers and a string or Reader body; headers are appended with
-`Web.add_header` (core.md section 3), so `Vary` merges.
+[`Web.add_header`] (core.md section 3), so `Vary` merges.
 
 Usage:
 
@@ -656,16 +656,16 @@ at boot, kept in the binary's database, carried by `cosmic build`):
   Lua starts.
 
 The size cost is 55 KB per executable (and the stdlib's database grows by
-that). Executables that never load `cosmic.web` carry it anyway, as they
+that). Executables that never load [`cosmic.web`] carry it anyway, as they
 carry the zone database and CA roots; `cosmic build` could omit it when
-the project does not require `cosmic.web` (the same closure computation it
+the project does not require [`cosmic.web`] (the same closure computation it
 does for modules). Recommendation: carry always in v1; omit as a later
 optimization (a `TODO:` in embed.tl).
 
 ### 4.4 Serving it and the SRI hash
 
-`cosmic.web` registers two routes automatically in the app (not as part of
-the user's table; `Web.app` takes `builtin = true`, default true, to turn
+[`cosmic.web`] registers two routes automatically in the app (not as part of
+the user's table; [`Web.app`] takes `builtin = true`, default true, to turn
 that off; core.md section 5.5 reserves the `/_web/` prefix so no user route
 can collide):
 
@@ -1128,7 +1128,7 @@ stream keeps its connection for its whole life, so 256 browsers with one
 tab each saturate the server and the 257th page load hangs. This is the
 most likely operational surprise of SSE on this server.
 
-Mitigations, all in `cosmic.web`:
+Mitigations, all in [`cosmic.web`]:
 
 - A stream budget: `Web.app{ max_streams = n }` (core.md section 9.1;
   default: half of `limits.connections`). An `EventStream` acquires a slot at response
@@ -1228,10 +1228,10 @@ section 9.3, and this is its streaming half:
 
 1. A stream is "in flight" for its whole life, so the server's default
    `grace_ns` (nil, wait for every request) would hang a deploy for ever.
-   `Web.serve` defaults `grace_ns` to 10 s.
+   [`Web.serve`] defaults `grace_ns` to 10 s.
 2. Even with the grace, every deploy would cost 10 s unless the streams end
    at once. [`Server.serve`] forwards a caller's `on_stop` (core.md section
-   13.7), and `Web.serve` uses it to flip `app:stopping()` and run every
+   13.7), and [`Web.serve`] uses it to flip `app:stopping()` and run every
    function registered with `app:on_stop(fn)`.
 3. Every `Sse.Hub` and every `Sse.EventStream` registered with the App closes
    its streams from that hook. A Hub registers with `hub:attach(app)` or
@@ -1316,7 +1316,7 @@ must be off in a built executable: `dev` defaults to the environment only,
 a production `cosmic build` binary with `COSMIC_WEB_DEV=1` set by accident
 would expose the stack traces, so the `/_web/dev*` routes and error pages
 are refused unless the listener address is loopback (`127.0.0.0/8`, `::1`
-is refused by the sandbox anyway). The check is made in `Web.serve`, where
+is refused by the sandbox anyway). The check is made in [`Web.serve`], where
 the listener addresses are known.
 
 Live reload of the htmx page uses htmx's own boost where possible; the
@@ -1418,8 +1418,8 @@ All small; each with its reason.
 - cosmic/web/mime.tl, cosmic/web/assets.tl (support modules),
   cosmic/web/static.tl (`cosmic.web.static`), cosmic/web/sse.tl
   (`cosmic.web.sse`: `Event`, `EventStream`, `Hub`, `Subscription`) and
-  cosmic/web/dev.tl (`cosmic.web.dev`): new, under the `cosmic.web`
-  namespace. `cosmic/web/init.tl` re-exports. `Htmx.head`, `Htmx.path`,
+  cosmic/web/dev.tl (`cosmic.web.dev`): new, under the [`cosmic.web`]
+  namespace. [`cosmic/web/init.tl`] re-exports. `Htmx.head`, `Htmx.path`,
   `Htmx.integrity` and `Htmx.indicator_css` are in cosmic/web/htmx.tl
   (templates.md section 6.6), reading `Store.web_asset`.
 - AGENTS.md: a sentence on `static/` in the layout paragraph (documentation
@@ -1519,7 +1519,7 @@ Each belongs in the code the moment it is due (AGENTS.md):
 - `TODO:` in cosmic/web/sse.tl for prompt disconnect detection, once
   `Reply.take` exists.
 - `TODO:` in build/embed.tl: omit `web_assets` for a project that does not
-  require `cosmic.web`.
+  require [`cosmic.web`].
 - `TODO:` in cosmic/web/sse.tl: a hub that spans processes.
 - `TODO:` in the stream budget: benchmark `poll_once` at several thousand
   idle streams, once doc/performance has a harness for it.
@@ -1546,7 +1546,7 @@ parts, multi-process hub.
    `payload` (it is reserved and documented for exactly this) and changing
    its columns; the table has never been written, so nothing migrates.
 6. Embed `web_assets` in every executable (recommended, 55 KB) or only
-   when `cosmic.web` is required.
+   when [`cosmic.web`] is required.
 7. A single cap of 16 MiB per embedded file, and whole-file memory
    caching. Recommend yes; large media belongs elsewhere. An incremental
    blob API could stream big embedded files later.
@@ -1561,7 +1561,7 @@ parts, multi-process hub.
 11. Prompt disconnect detection for SSE: ship v1 with heartbeats (<=15 s
     lag) or pull `Reply.take` forward. Recommend v1 with heartbeats.
 12. A Mount's reverse resolver, so `url_for("static", ...)` reaches
-    `StaticFiles:url`. Decided: `reverse` on `Web.mount_handler`'s options
+    `StaticFiles:url`. Decided: `reverse` on [`Web.mount_handler`]'s options
     (core.md section 5.7).
 13. `If-Modified-Since` and `Last-Modified` for embedded assets: omitted by
     design (reproducible builds have no time). Recommend omit.
@@ -1583,6 +1583,8 @@ parts, multi-process hub.
 [`cosmic.internal.store`]: ../../../cosmic/internal/store.d.tl
 [`cosmic.sqlite`]: ../../../cosmic/sqlite.tl
 [`cosmic.sys`]: ../../../core/syscalls.h
+[`cosmic.web`]: ../../../cosmic/web/init.tl
+[`cosmic/web/init.tl`]: ../../../cosmic/web/init.tl
 [`Fs.stat`]: ../../../cosmic/fs.tl
 [`Fs.walk_following`]: ../../../cosmic/fs.tl
 [`Fs.walk`]: ../../../cosmic/fs.tl
@@ -1616,6 +1618,10 @@ parts, multi-process hub.
 [`Url.segments`]: ../../../cosmic/url.tl
 [`vendor/cacert/PIN`]: ../../../vendor/cacert/PIN
 [`vendor/tzdata/PIN`]: ../../../vendor/tzdata/PIN
+[`Web.add_header`]: ../../../cosmic/web/init.tl
+[`Web.app`]: ../../../cosmic/web/init.tl
+[`Web.mount_handler`]: ../../../cosmic/web/init.tl
+[`Web.serve`]: ../../../cosmic/web/init.tl
 [`wire.buffered`]: ../../../cosmic/http/wire.tl
 [`wire.check`]: ../../../cosmic/http/wire.tl
 [`wire.send`]: ../../../cosmic/http/wire.tl

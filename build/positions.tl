@@ -42,6 +42,13 @@ local function home_of(file: string): string
   return dir
 end
 
+--- The members of a closed directory that cosmic's own tree may import
+--- from outside it: [`cosmic.http.server`] is a module of the standard
+--- library like any other, apart from the client that is the directory's
+--- entry only so that a program that fetches does not carry the
+--- networking stack, and [`cosmic.web`] is built on it.
+local OPEN_MEMBERS <const>: {string:boolean} = { ["cosmic.http.server"] = true }
+
 --- Whether a file may import `build.*`: one inside `build/` itself, the
 --- binary it implements (`cmd/`), a test, or test support (`test/`).
 local function may_import_build(m: positions.Module): boolean
@@ -113,7 +120,7 @@ function positions.check(modules: {positions.Module}, own_tree: boolean,
       if other ~= nil then
         local home = home_of(other.file)
         local open = home == "" or (not home:find("/", 1, true) and entries[home] == nil) or
-          (own_tree and home == "cosmic/internal")
+          (own_tree and (home == "cosmic/internal" or OPEN_MEMBERS[name] == true))
         if not open and not Fs.within(m.file, home) then
           local entry = entries[home] ~= nil and ("its entry is " .. entries[home]) or
             (home .. "/ has no init.tl entry")
