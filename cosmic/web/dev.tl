@@ -43,6 +43,8 @@ local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
+local Headers = require("cosmic.web.headers")
+local Html = require("cosmic.html")
 local Poll = require("cosmic.poll")
 local Proc = require("cosmic.proc")
 local Response = require("cosmic.web.response")
@@ -135,10 +137,9 @@ local SUPERVISE_FIELDS <const>: {string:boolean} = {
 
 --- The browser's half: a reload when the process changed, a swap of the
 --- stylesheets when the stream says css. The script itself is not inline
---- (it is served from `/_web/dev.js`); the tag that loads it is an element
---- a CSP with a nonce or hash requirement refuses.
--- TODO: once the CSP middleware lands (cosmic-lua/cosmic PR web-security),
--- add its nonce to the injected tag in `injected`.
+--- (it is served from `/_web/dev.js`); the tag that loads it carries the
+--- request's CSP nonce ([`Headers.NONCE`]) when the app draws one, as a CSP
+--- that requires a nonce refuses an element without it.
 -- The guard keeps a second copy of the script (htmx runs the scripts of a
 -- swapped page) from opening another stream.
 local SCRIPT <const> = [==[
@@ -200,7 +201,11 @@ local SCRIPT <const> = [==[
 })();
 ]==]
 
-local TAG <const> = '<script src="/_web/dev.js" defer></script>'
+--- The tag that loads the script, with `nonce` when the request drew one.
+local function tag(nonce: string | nil): string
+  if nonce == nil or nonce == "" then return '<script src="/_web/dev.js" defer></script>' end
+  return '<script src="/_web/dev.js" nonce="' .. Html.raw_attr(Html.escape_attr(nonce)) .. '" defer></script>'
+end
 
 --- Raises for an `opts` that is no table or holds a field `known` lacks.
 local function checked(opts: any, known: {string:boolean}, what: string)
@@ -409,9 +414,10 @@ end
 
 -- The app's half.
 
---- `res` with the script's tag before its last `</body>`, as a copy; `res`
---- itself where it is no page of markup in a string, or has no end of body.
-local function injected(res: Types.Response): Types.Response
+--- `res` with the script's tag (what `tag` makes of `nonce`) before its
+--- last `</body>`, as a copy; `res` itself where it is no page of markup
+--- in a string, or has no end of body.
+local function injected(res: Types.Response, nonce: string | nil): Types.Response
   local body = res.body
   if not body is string then return res end
   local kind = Response.header(res, "Content-Type")
@@ -426,7 +432,7 @@ local function injected(res: Types.Response): Types.Response
     at, from = found, found + 1
   end
   if at == nil then return res end
-  local page = body:sub(1, at - 1) .. TAG .. body:sub(at)
+  local page = body:sub(1, at - 1) .. tag(nonce) .. body:sub(at)
   local headers: {string: string | {string}} = {}
   for name, value in pairs(res.headers or {}) do headers[name] = value end
   local copy: Types.Response = {}
@@ -469,7 +475,7 @@ local function reload(boot: string, static: string, interval_ns: integer): Types
       end
       local reply = inner(req)
       if req.headers["hx-request"] ~= nil then return reply end
-      return injected(reply)
+      return injected(reply, req:get(Headers.NONCE))
     end
   end
 end

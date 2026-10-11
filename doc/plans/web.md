@@ -286,8 +286,12 @@ needs have merged.
 7. **Streaming and the rest:** [`cosmic.channel`], [`cosmic.web.sse`],
    [`cosmic.http.multipart`] (decision 8), and
    [`cosmic.web.dev`].
-8. **A guide,** doc/guides/web.md, which is a test of its own: one app
-   built from an empty directory, its page, its form and its API.
+8. **The guides,** doc/guides/web*.md, each a test of its own: one
+   [getting-started guide](../guides/web.md) builds an htmx app from an
+   empty directory, and six more take one subject each (forms and uploads,
+   sessions, security, live updates, a JSON API, deploying) with a small
+   project of their own, since each project that requires [`cosmic.web`]
+   costs a cold type-check of it and a test function has 10 seconds.
 
 ## open questions
 
