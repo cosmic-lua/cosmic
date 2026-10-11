@@ -17,6 +17,24 @@ defines the target; once something ships, it leaves this file.
   give any target type unchecked, so one that contains a never-function (a
   function type, or a record or container with such a field) forges the
   guarantee of `: never`.
+- refuse a table literal that omits a record field. records are open: `local r:
+  R = {}` type-checks for an `R` with `name: string`, and `r.name` is nil.
+  `name?: T` (patch/tl 49a to 49e4) declares a field a literal may omit, typed
+  `T | nil`, and nothing is marked yet. a measurement that refused every
+  omission, function fields included, flagged 4,590 literals, 24,475 omitted
+  fields and 993 distinct record.field pairs, about three quarters of the sites
+  in tests, and the tree no longer built; the pairs are the work, and the sites
+  follow from them. what is left:
+  - mark the fields that are optional `name?: T` and fill the literals that
+    omit a required one, an area of the tree at a time, each change building
+    on its own with no rule in force. a marked field's reads that do not check
+    for nil are refused, so each change guards them or finds a real nil.
+  - make the check an error for the whole tree at once, with function fields
+    exempt (they cover methods supplied by `__index`, metamethods, and type
+    declarations). a warning first is no option: every warning cosmic sees is
+    a refused compile ([`build/compilation.tl`]'s `generate`,
+    [`build/standalone.tl`] and [`build/example_checks.tl`] each reject on
+    one), and the compile cache keeps no warnings to show again on a hit.
 - declare cosmic.stream's interface methods with a named receiver
   (`read: function(self: Reader, ...)`) and drop each implementing record's
   redeclaration of them: the documented signatures then read as
@@ -24,16 +42,12 @@ defines the target; once something ships, it leaves this file.
   `FromStringReader` in [`cosmic/stream.tl`] shrinks. every interface of the
   module and every record that implements one changes together.
 - close the holes in Teal's own typing that forge any type, `: never`
-  functions among them (`test_never_falls_into_the_holes_every_type_has` and
-  `test_coroutine_wrap_forges_a_never_function_as_it_forges_any_type` in
-  [`test/narrowing_test.tl`] pin today's behavior, and [doc/design.md](design.md)'s
-  teal section states the bar): `coroutine.wrap` is declared
-  `function<F>(F): F` though its wrapper returns whatever the coroutine
-  yields, so `coroutine.wrap(nv)` is typed never though it returns after a
-  `coroutine.yield`; `rawset` writes a value of any type into a record's
-  field; a function `__index` given to `setmetatable` is declared to return
-  `any`, so what it serves is not checked against the record (a table
-  `__index` is, patch/tl's 47a). a call through `any` carries no flag either.
+  functions among them ([doc/design.md](design.md)'s teal section states the
+  bar): `rawset` writes a value of any type into a record's field; a function
+  `__index` given to `setmetatable` is declared to return `any`, so what it
+  serves is not checked against the record (a table `__index` is, patch/tl's
+  47a, and `test_a_function_index_serves_any` in [`build/teal_test.tl`] pins
+  the rest). a call through `any` carries no flag either.
 - add earned lint rules and their fixes to [`build/fix/rule.tl`]'s rule list.
   the rewrite stage is in place and the list is still empty.
 - add a floor for line coverage, C included: `cosmic test --min PCT
@@ -305,9 +319,9 @@ promises lean on come first:
   escaping for them is a different language's rule (old's #1654 and #1658 were
   its bugs there). Each needs an escaper made in C with a type of its own, as
   [`cosmic.html`]'s are, and the context tracker ([`cosmic/template/markup.tl`])
-  to say which one a slot is in. Likewise a slot after literal text in a URL
-  (`href="/a/{{.id}}"`), which wants an escaper for one component of a URL, a
-  path segment or a query value, beside [`cosmic.url`]'s.
+  to say which one a slot is in. A slot after literal text in a URL
+  (`href="/a/{{.id}}"`) is not on this list: [`Html.url_part`] escapes any one
+  component of a URL, and the template takes it.
 
 ## documentation and examples
 
@@ -385,14 +399,18 @@ four-producer provenance join.
 [`build/archive_test.tl`]: ../build/archive_test.tl
 [`build/c/tree.tl`]: ../build/c/tree.tl
 [`build/c_functions.tl`]: ../build/c_functions.tl
+[`build/compilation.tl`]: ../build/compilation.tl
 [`build/contracts.tl`]: ../build/contracts.tl
 [`build/dataset.tl`]: ../build/dataset.tl
+[`build/example_checks.tl`]: ../build/example_checks.tl
 [`build/fix/rule.tl`]: ../build/fix/rule.tl
 [`build/flow.tl`]: ../build/flow.tl
 [`build/hash_test.tl`]: ../build/hash_test.tl
 [`build/json.tl`]: ../build/json.tl
 [`build/locator_fuzz_test.tl`]: ../build/locator_fuzz_test.tl
 [`build/shape_specs.tl`]: ../build/shape_specs.tl
+[`build/standalone.tl`]: ../build/standalone.tl
+[`build/teal_test.tl`]: ../build/teal_test.tl
 [`build/workflows_test.tl`]: ../build/workflows_test.tl
 [`Child.end_strays`]: ../cosmic/child.tl
 [`ci/cosmic-driver.pin`]: ../ci/cosmic-driver.pin
@@ -419,6 +437,7 @@ four-producer provenance join.
 [`cosmic/template/markup.tl`]: ../cosmic/template/markup.tl
 [`Errors.guidance`]: ../cosmic/errors.tl
 [`eval/summarize.tl`]: ../eval/summarize.tl
+[`Html.url_part`]: ../cosmic/html.tl
 [`Json.decode`]: ../cosmic/json.tl
 [`Net.serve`]: ../cosmic/net.tl
 [`receivers.record_named`]: ../build/receivers.tl
@@ -434,7 +453,6 @@ four-producer provenance join.
 [`Shape.strict_record`]: ../cosmic/shape.tl
 [`Test.needs_of`]: ../cosmic/test.tl
 [`Test.policy`]: ../cosmic/test.tl
-[`test/narrowing_test.tl`]: ../test/narrowing_test.tl
 [`Typed.spec`]: ../cosmic/shape.tl
 [`Url.parse`]: ../cosmic/url.tl
 [`Url.Parts`]: ../cosmic/url.tl

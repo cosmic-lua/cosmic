@@ -790,21 +790,3 @@ local function test_what_does_not_end_a_block_keeps_its_guard_open(tmp: string)
       name .. ": the guard must stay open, but: " .. tostring(trouble))
   end
 end
-
---- Holes Teal has for every type, which a never-function falls into as a
---- `string` does (doc/roadmap.md lists them as a soundness item):
---- `coroutine.wrap` is declared `F -> F` although its wrapper returns
---- whatever the coroutine yields. Never is exactly as sound as Teal's other
---- types, so it is accepted. When it is closed this test fails, and the case
---- moves to a refusal. (A metatable's `__call` was one until patch/tl's
---- 47a-47d held a metatable to its record.)
-local function test_never_falls_into_the_holes_every_type_has(tmp: string)
-  local cases: {string:{string}} = {
-    ["wrap"] = { "local function nv(): never coroutine.yield() error('x') end\n" ..
-        "local co = coroutine.wrap(nv)\n", 'co()' },
-  }
-  for name, case in pairs(cases) do
-    local ok, trouble = try_build(tmp, "inherited-" .. name, case[1] .. never_guard:format(case[2]))
-    assert(ok, name .. ": a hole Teal has for every type should stay open, but: " .. tostring(trouble))
-  end
-end
