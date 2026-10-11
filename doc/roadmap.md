@@ -20,7 +20,7 @@ defines the target; once something ships, it leaves this file.
 - refuse a table literal that omits a record field. records are open: `local r:
   R = {}` type-checks for an `R` with `name: string`, and `r.name` is nil.
   `name?: T` (patch/tl 49a to 49e4) declares a field a literal may omit, typed
-  `T | nil`, and nothing is marked yet. a measurement that refused every
+  `T | nil`, and the records declared under cosmic/ are marked. a measurement that refused every
   omission, function fields included, flagged 4,590 literals, 24,475 omitted
   fields and 993 distinct record.field pairs, about three quarters of the sites
   in tests, and the tree no longer built; the pairs are the work, and the sites
