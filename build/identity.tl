@@ -179,14 +179,52 @@ function identity.skip_in_own_tree(entry: string, name: string): boolean
   return identity.skip_input(entry, name)
 end
 
+--- Whether `file` is under the top-level `static/` directory
+--- ([`cosmic.layout`]'s `static`): an asset the project carries verbatim,
+--- whatever its extension, never a module.
+function identity.is_static(file: string): boolean
+  return file:sub(1, 7) == "static/"
+end
+
+--- The most bytes of a static asset the build embeds: the cost is memory
+--- at run time, where an embedded file is read whole.
+local static_limit <const> = 16 * 1024 * 1024
+
+--- The longest path of a static asset, relative to `static/`.
+local static_path_limit <const> = 255
+
+--- Why `file`, a path under `static/`, of `size` bytes, cannot be carried,
+--- or nil when it can: too big, a name that needs escaping in every URL
+--- and tag the app writes (a control byte, `\`, `%`, `?` or `#`), or a
+--- path too long. The reason leads with the file's own path.
+function identity.static_refusal(file: string, size: integer): string | nil
+  local name = file:sub(8)
+  if size > static_limit then
+    return ("%s: %d MiB is past the %d MiB limit for an embedded asset; serve it from disk " ..
+      "or object storage"):format(file, (size + 1048575) // 1048576, static_limit // 1048576)
+  end
+  if name:find("[\0-\31\127\\%%?#]") then
+    return file .. ": the name holds a control byte, a backslash or one of % ? #, which " ..
+      "every URL and tag that names it would have to escape; rename it"
+  end
+  if #name > static_path_limit then
+    return ("%s: the path is %s, past the %d-byte limit for an asset"):format(
+      file, String.counted(#name, "byte"), static_path_limit)
+  end
+  return nil
+end
+
 --- Whether a file the walk found is one the build consumes: Teal
---- source and declarations, a template or a doc guide. Generated header
+--- source and declarations, a template, a doc guide or a static asset. Generated header
 --- inputs are added by [`build.work`]. Never anything under the trees the tool alone
 --- is made of.
 function identity.is_input(file: string, own_tree: boolean): boolean
   local first = identity.first_of(file)
   if not_input[first] or (own_tree and foreign_trees[first]) then
     return false
+  end
+  if identity.is_static(file) then
+    return true
   end
   if String.ends_with(file, ".tl") or String.ends_with(file, ".tmpl") then
     return true
@@ -210,7 +248,7 @@ end
 --- reboot costs less than a stale tool.
 local function carried_teal(file: string, own_tree: boolean): boolean
   if not (String.ends_with(file, ".tl") or String.ends_with(file, ".tmpl")) or
-      not identity.is_input(file, own_tree) then
+      identity.is_static(file) or not identity.is_input(file, own_tree) then
     return false
   end
   return file:sub(1, 9) ~= "testdata/" and file:find("/testdata/", 1, true) == nil

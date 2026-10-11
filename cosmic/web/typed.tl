@@ -57,6 +57,28 @@ function Typed.form_body<B>(t: Shape.Typed<B>): Types.Body<B>
   return { kind = "form", typed = t }
 end
 
+--- A body slot for a `multipart/form-data` body: the text parts are bound
+--- to the record as a form's fields are, and the Content-Type must be
+--- multipart (a urlencoded body is a 415). The files are the handler's to
+--- take from [`Input.multipart`]; they are removed when it returns. Raise
+--- `input_options.max_bytes` (16 MiB by default here) and the file caps for
+--- a route that takes large uploads, and give [`Web.serve`] a higher
+--- `limits.body_bytes` (1 MiB): the server refuses a larger body with 413
+--- before the route runs, whatever `max_bytes` is.
+--- @param t Shape.Typed<B> The body's record and spec, of the text fields
+--- @return Types.Body<B> The slot
+-- TODO: let a route raise the server's body limit for its own uploads, once
+-- `ServeSpec.body_limit` exists (the TODO at `Server.Limits.body_bytes` in
+-- cosmic/http/server.tl).
+-- TODO: bind a file part into the record, as `Input.upload` in input.md
+-- section 4 has it, once cosmic.shape can carry a marker kind a
+-- `record_of` field may name; until then a handler reads the files from
+-- `Input.multipart(req)`.
+function Typed.multipart_body<B>(t: Shape.Typed<B>): Types.Body<B>
+  need_typed(t, "multipart_body")
+  return { kind = "multipart", typed = t }
+end
+
 --- The three slots of a typed route, in the order the handler receives
 --- them; [`Web.NONE`] and [`Web.no_body`] fill one the route does not read.
 --- @param path Shape.Typed<P> The path parameters
@@ -68,7 +90,7 @@ function Typed.input<P,Q,B>(path: Shape.Typed<P>, query: Shape.Typed<Q>, body: T
   need_typed(query, "input's query")
   local slot: any = body
   if not (slot is {string:any}) or slot["typed"] == nil then
-    error("web: input's body takes Web.json_body, Web.form_body or Web.no_body", 2)
+    error("web: input's body takes Web.json_body, Web.form_body, Web.multipart_body or Web.no_body", 2)
   end
   return { path = path, query = query, body = body }
 end
@@ -159,8 +181,8 @@ function Typed.route_typed<P,Q,B>(methods: string | {string}, pattern: string, i
   local has_path = not rawequal(input.path, NONE)
   local has_query = not rawequal(input.query, NONE)
   local kind = input.body.kind
-  if kind ~= "json" and kind ~= "form" and kind ~= "none" then
-    error(("web: route_typed %s: the body is a %s, not json, form or none"):format(pattern, tostring(kind)), 2)
+  if kind ~= "json" and kind ~= "form" and kind ~= "multipart" and kind ~= "none" then
+    error(("web: route_typed %s: the body is a %s, not json, form, multipart or none"):format(pattern, tostring(kind)), 2)
   end
   local verbs: {string} = methods is string and { methods } or methods
   if kind ~= "none" then
@@ -173,7 +195,7 @@ function Typed.route_typed<P,Q,B>(methods: string | {string}, pattern: string, i
   check_path(pattern, has_path and input.path.spec or nil)
   if has_path then Input.check_spec(input.path.spec, "path") end
   if has_query then Input.check_spec(input.query.spec, "query") end
-  if kind == "form" then Input.check_spec(input.body.typed.spec, "form") end
+  if kind == "form" or kind == "multipart" then Input.check_spec(input.body.typed.spec, "form") end
   local options = opts and opts.input_options
   local on_invalid = opts and opts.on_invalid
   local json_first = kind == "json"
@@ -200,6 +222,10 @@ function Typed.route_typed<P,Q,B>(methods: string | {string}, pattern: string, i
       local read: Types.Parsed<B> = Input.form_into(req, input.body.typed, options)
       if read.invalid ~= nil then return refuse(req, read.invalid) end
       b = read.value
+    elseif kind == "multipart" then
+      local read: Types.Parsed<B> = Input.multipart_into(req, input.body.typed, options)
+      if read.invalid ~= nil then return refuse(req, read.invalid) end
+      b = read.value
     elseif kind == "json" then
       local read: Types.Parsed<B> = Input.json_into(req, input.body.typed, options)
       if read.invalid ~= nil then return refuse(req, read.invalid) end
@@ -211,7 +237,8 @@ function Typed.route_typed<P,Q,B>(methods: string | {string}, pattern: string, i
   route.input = {
     path = has_path and input.path.spec or nil, query = has_query and input.query.spec or nil,
     body_kind = kind, body = kind ~= "none" and input.body.typed.spec or nil,
-    max_bytes = options and options.max_bytes or Input.DEFAULT_MAX,
+    max_bytes = options and options.max_bytes or
+      (kind == "multipart" and Input.DEFAULT_MULTIPART_MAX or Input.DEFAULT_MAX),
   }
   return route
 end
@@ -225,7 +252,8 @@ function Typed.get_typed<P,Q,B>(pattern: string, input: Types.Input<P,Q,B>,
 end
 
 --- A typed route for what a form submits or an action that creates: POST,
---- whose body is urlencoded ([`Web.form_body`]) or JSON ([`Web.json_body`]).
+--- whose body is urlencoded ([`Web.form_body`]), multipart
+--- ([`Web.multipart_body`]) or JSON ([`Web.json_body`]).
 --- See [`Web.route_typed`].
 function Typed.post_typed<P,Q,B>(pattern: string, input: Types.Input<P,Q,B>,
                                  fn: function(Types.Request, P, Q, B): Types.Response, opts?: Types.RouteOptions): Types.Route

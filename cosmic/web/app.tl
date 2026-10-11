@@ -12,6 +12,11 @@ local Router = require("cosmic.web.router")
 local Server = require("cosmic.http.server")
 local Types = require("cosmic.web.types")
 
+--- The value of a `<close>` variable: only its `__close` matters.
+local record Closing
+  metamethod __close: function(Closing)
+end
+
 local record App
 end
 
@@ -162,12 +167,19 @@ function App.new(spec: Types.AppSpec): Types.App
     end
     req.outcome = outcome
     local reply: Types.Response = nil
-    local ok, raised = pcall(function() reply = stack(req) end)
-    for _, body in ipairs(req.bodies) do
-      if not (ok and reply.body == body) then
-        local _, _ = body:close()
+    -- A `<close>` variable, not code after the call: a task killed where
+    -- its handler waits (a client that went away mid-upload) runs the
+    -- pending closes of its coroutine and nothing after them. The bodies
+    -- a reply streams are the server's to close.
+    local closing_mt: metatable<Closing> = { __close = function()
+      for _, body in ipairs(req.bodies) do
+        if reply == nil or reply.body ~= body then
+          local _, _ = body:close()
+        end
       end
-    end
+    end }
+    local _closing <close>: Closing = setmetatable({}, closing_mt)
+    local ok, raised = pcall(function() reply = stack(req) end)
     if not ok then error(raised, 0) end
     return reply
   end

@@ -1,66 +1,44 @@
 --- The files an app serves itself under `/_web/`: htmx and its SSE
 --- extension, from the bytes the binary carries. A path holds the file's
 --- version, so the content at a path never changes: the reply is
---- immutable, with the SHA-256 of the bytes as a strong ETag.
+--- immutable. [`StaticFiles`] answers, so the files have its ETag, Range and
+--- gzip handling.
 
+local Assets = require("cosmic.web.assets")
 local Htmx = require("cosmic.web.htmx")
-local Response = require("cosmic.web.response")
+local StaticFiles = require("cosmic.web.static")
 local Types = require("cosmic.web.types")
 
 local record Builtin
 end
 
--- TODO: serve these through Assets.Source / StaticFiles, which the assets
--- plan (doc/plans/web/assets.md) gives Range and gzip, once the static-files
--- part lands; this answers whole and uncompressed. The Web.file TODO in
--- cosmic/web/response.tl (cosmic/web/response.tl:293) waits on the same part.
-
---- The files by path, built once: the bytes never change.
-local files = Htmx.assets()
-
 --- The first segment of every path served here.
 local PREFIX <const> = "_web"
 
---- Whether `header`, an If-None-Match value, matches `etag`: `*`, or one
---- of its entity tags by the weak comparison RFC 9110 13.1.2 gives it.
-local function matches(header: string, etag: string): boolean
-  if header:match("^%s*%*%s*$") then return true end
-  for piece in header:gmatch("[^,]+") do
-    local tag = piece:match("^%s*(.-)%s*$")
-    if tag:sub(1, 2) == "W/" then tag = tag:sub(3) end
-    if tag == etag then return true end
+--- The handler over the files, built on first use: the bytes never change,
+--- and gzipping them is paid by a program that serves them only.
+local served: Types.Handler = nil
+
+local function handler(): Types.Handler
+  if served == nil then
+    local held: {string:string} = {}
+    for path, file in pairs(Htmx.assets()) do held[path:sub(#PREFIX + 3)] = file.data end
+    served = StaticFiles.handler{
+      source = Assets.memory(held, { gzip = true }),
+      cache_control = "public, max-age=31536000, immutable",
+      headers = { ["Cross-Origin-Resource-Policy"] = "same-origin" },
+    }
   end
-  return false
+  return served
 end
 
 --- Answers `req` where it is under `/_web/`, else nil.
 --- @param req Types.Request The request
 --- @return Types.Response | nil The reply, or nil for a path that is not ours
 function Builtin.handle(req: Types.Request): Types.Response | nil
-  local segments = req.segments
-  if segments[1] ~= PREFIX then return nil end
-  local asset = #segments == 2 and not req.trailing and
-    files["/" .. PREFIX .. "/" .. segments[2]] or nil
-  if asset == nil then return Response.abort(404) end
-  local method = req.method
-  if method ~= "GET" and method ~= "HEAD" then
-    local refusal = Response.problem(405)
-    Response.set_header(refusal, "Allow", "GET, HEAD")
-    return refusal
-  end
-  local etag = '"' .. asset.sha256 .. '"'
-  local headers: {string: string} = {
-    ["ETag"] = etag,
-    ["Cache-Control"] = "public, max-age=31536000, immutable",
-    ["Cross-Origin-Resource-Policy"] = "same-origin",
-    ["X-Content-Type-Options"] = "nosniff",
-  }
-  local sent = req.headers["if-none-match"]
-  if sent ~= nil and matches(sent, etag) then
-    return Response.empty(304, { headers = headers })
-  end
-  headers["Content-Type"] = "text/javascript; charset=utf-8"
-  return { status = 200, headers = headers, body = asset.data }
+  if req.segments[1] ~= PREFIX then return nil end
+  req.mount_path = "/" .. PREFIX
+  return handler()(req)
 end
 
 return Builtin

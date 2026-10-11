@@ -409,7 +409,10 @@ input to the build, never to the runtime. one database holds:
   body, which compiles and runs like any other test, says how -- one
   assertion mechanism for code, not a second, output-diffing one only
   doc guides need.
-- **payload**: for an embed-built executable, the user's files.
+- **payload**: for an embed-built executable, the files under the
+  project's `static/` directory: `path` relative to it,
+  `data`, the lowercase hex `sha256`, the Content-Type `type`, and `gzip`,
+  the gzip of `data` when that is worth sending, else NULL.
 - **ca_roots**: Mozilla's CA bundle, one DER certificate a row,
   which [`core/http.c`] reads from the binary's own database alone.
 - **zoneinfo**: the IANA time zone database (`vendor/tzdata`), one

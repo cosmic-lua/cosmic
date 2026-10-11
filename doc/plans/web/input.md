@@ -52,7 +52,7 @@ Layout of what this file adds (new files next to [`cosmic/web/init.tl`]):
 - `cosmic.web.csrf`, `cosmic.web.cors`, `cosmic.web.headers`
   (`cosmic/web/headers.tl`: security headers and CSP), and
   `cosmic/web/secret.tl` (key loading, used by the session stores).
-- `cosmic/http/multipart.tl` (`cosmic.http.multipart`): a standalone
+- [`cosmic/http/multipart.tl`] ([`cosmic.http.multipart`]): a standalone
   RFC 7578 parser, usable without cosmic.web (it sits beside
   [`cosmic.http.server`]).
 
@@ -324,7 +324,24 @@ shares it. A failure to decode a form or query is code `malformed` (the
 decoder's reason is the message); a body that is not UTF-8 is `utf8`. A
 list's element error is named from 0 (`tags.0`), as a JSON Pointer counts.
 Not built yet: `Input.empty_as_nil`, `require_nonempty` and the other
-one-line validators, `form_or_json`, and multipart.
+one-line validators, and `form_or_json`.
+
+**As built (multipart).** [`cosmic.http.multipart`] is as section 4 has it,
+with these differences: a part's `body` ends at its delimiter and goes
+dead once `next_part` has passed it; a delimiter line followed by anything
+but `--` or a line end is refused, not read as data; a control byte in a
+name, filename or header is refused (a `%0D%0A` in a quoted name is
+refused for the same reason); the preamble is capped by
+`max_header_bytes`. Section 4's `Input.upload` marker is not built: a
+route's multipart body spec ([`Web.multipart_body`]) binds the text parts as
+a form's, and the files are read from `Input.multipart(req)`, which
+`Input.form` shares (a `form_body` route accepts a multipart body too,
+within its own small `max_bytes`). Uploads are removed when the handler
+returns, not after the reply is written, and there is no
+`Input.CLEANUP` key or `sweep_uploads`: the cleanup is a Reader in
+`req.bodies`, which the app closes. The multipart options live on
+[`Input.Options`] (`max_file_bytes`, `max_field_bytes`, `max_files`,
+`max_parts`, `dir`), not a subtype.
 
 `T` is inferred from the caller's annotation, exactly as [`Shape.into`]
 (shape.tl:496) requires; the same [`Shape.record_of`] pattern gives the type
@@ -636,7 +653,7 @@ Parsing rules (RFC 7578 and 2046 section 5.1.1, hardened):
 
 ### Filenames are hostile
 
-`Part.filename` is the client's string: path separators (`../../etc/passwd`,
+[`Part.filename`] is the client's string: path separators (`../../etc/passwd`,
 `C:\x`), NUL, control bytes, leading dots, absurd length. The parser returns it
 reduced to the part after the last `/` or `\`, NUL and control bytes refused
 (not stripped: silently altering is how `a.php\0.jpg` bugs start), at most
@@ -1757,7 +1774,7 @@ declaration, everything else declares nothing.
 - Starlette's CORS preflight failure is 400 and `allow_methods` defaults to
   GET; ours is 403, and the default is GET, HEAD, POST.
 - Starlette decodes forms through python-multipart into an `UploadFile`
-  (spooled temp file); same shape here (`Upload.path`), without a
+  (spooled temp file); same shape here ([`Upload.path`]), without a
   `SpooledTemporaryFile` memory tier.
 
 ## Open questions, with recommendations
@@ -1808,11 +1825,13 @@ declaration, everything else declares nothing.
 [`Codec.unbase64url`]: ../../../cosmic/codec.tl
 [`cosmic.codec`]: ../../../cosmic/codec.tl
 [`cosmic.hash`]: ../../../cosmic/hash.tl
+[`cosmic.http.multipart`]: ../../../cosmic/http/multipart.tl
 [`cosmic.http.server`]: ../../../cosmic/http/server.tl
 [`cosmic.log`]: ../../../cosmic/log.tl
 [`cosmic.shape`]: ../../../cosmic/shape.tl
 [`cosmic.url`]: ../../../cosmic/url.tl
 [`cosmic.web.testing`]: ../../../cosmic/web/testing.tl
+[`cosmic/http/multipart.tl`]: ../../../cosmic/http/multipart.tl
 [`cosmic/web/init.tl`]: ../../../cosmic/web/init.tl
 [`cosmic/web/input.tl`]: ../../../cosmic/web/input.tl
 [`FieldError.field`]: ../../../cosmic/web/types.tl
@@ -1828,12 +1847,14 @@ declaration, everything else declares nothing.
 [`Input.Invalid`]: ../../../cosmic/web/input.tl
 [`Input.json_into`]: ../../../cosmic/web/input.tl
 [`Input.JSON`]: ../../../cosmic/web/input.tl
+[`Input.Options`]: ../../../cosmic/web/input.tl
 [`Input.path_into`]: ../../../cosmic/web/input.tl
 [`Input.query_into`]: ../../../cosmic/web/input.tl
 [`Json.decode`]: ../../../cosmic/json.tl
 [`Json.encode`]: ../../../cosmic/json.tl
 [`Json.from_pointer`]: ../../../cosmic/json.tl
 [`Json.null`]: ../../../cosmic/json.tl
+[`Part.filename`]: ../../../cosmic/http/multipart.tl
 [`Poll.delay`]: ../../../cosmic/poll.tl
 [`Rand.entropy`]: ../../../cosmic/rand.tl
 [`Rand.new`]: ../../../cosmic/rand.tl
@@ -1855,11 +1876,13 @@ declaration, everything else declares nothing.
 [`Stream.limit`]: ../../../cosmic/stream.tl
 [`Stream.read_up_to`]: ../../../cosmic/stream.tl
 [`Stream.Reader`]: ../../../cosmic/stream.tl
+[`Upload.path`]: ../../../cosmic/web/input.tl
 [`Url.escape`]: ../../../cosmic/url.tl
 [`Url.Query`]: ../../../cosmic/url.tl
 [`Url.segments`]: ../../../cosmic/url.tl
 [`Url.unescape`]: ../../../cosmic/url.tl
 [`Web.add_header`]: ../../../cosmic/web/init.tl
+[`Web.multipart_body`]: ../../../cosmic/web/init.tl
 [`Web.problem`]: ../../../cosmic/web/init.tl
 [`Web.Request`]: ../../../cosmic/web/init.tl
 [`Web.Response`]: ../../../cosmic/web/init.tl

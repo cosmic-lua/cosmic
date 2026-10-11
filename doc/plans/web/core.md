@@ -645,7 +645,7 @@ a coercion pass of their own:
   coerced tree as the final check, so the typed record the handler gets is
   exactly what Shape produces. A failure is an [`Input.Invalid`] (fields in
   6.4), with all errors for the source in `errors`.
-- Multipart bodies are `Input.multipart_into` (input.md section 4, step 7
+- Multipart bodies are [`Input.multipart_into`] (input.md section 4, step 7
   of ../web.md's order); a route names it with a
   `Web.multipart_body(t)` body slot once that lands.
 - Unknown query/form keys are ignored (the spec is the allow-list), as
@@ -1162,9 +1162,9 @@ tests; the bulk run in-process (no loopback policy, and cheap to key).
 - The other files add modules beside: `cosmic.web.input`,
   `cosmic.web.cookies`, `cosmic.web.session` (with `.cookie` and `.sqlite`
   stores), `cosmic.web.csrf`, `cosmic.web.cors`, `cosmic.web.headers`
-  (input.md); [`cosmic.web.htmx`] (templates.md); `cosmic.web.static`,
+  (input.md); [`cosmic.web.htmx`] (templates.md); [`cosmic.web.static`],
   [`cosmic.web.sse`], `cosmic.web.dev`, and the support modules
-  `cosmic.web.assets` and `cosmic.web.mime` (assets.md).
+  [`cosmic.web.assets`] and `cosmic.web.mime` (assets.md).
 
 Order of work (each a PR, tests included):
 
@@ -1334,7 +1334,7 @@ close, and a raise in it reaches `on_error` without stopping the drain.
    stays open is a collect-all mode for JSON bodies, which needs a change in
    cosmic.shape (input.md open question 2); until then a JSON body gives one
    entry in `errors`.
-10. The mime table lives in cosmic.web.mime (`Mime.of`, assets.md section
+10. The mime table lives in cosmic.web.mime ([`Mime.of`], assets.md section
     1.4), which `Web.file` calls; `file` takes `content_type` explicitly to
     override it.
 11. 4xx closing the connection (13.6). Recommendation: change, with a test,
@@ -1359,8 +1359,10 @@ close, and a raise in it reaches `on_error` without stopping the drain.
 [`cosmic.log`]: ../../../cosmic/log.tl
 [`cosmic.shape`]: ../../../cosmic/shape.tl
 [`cosmic.url`]: ../../../cosmic/url.tl
+[`cosmic.web.assets`]: ../../../cosmic/web/assets.tl
 [`cosmic.web.htmx`]: ../../../cosmic/web/htmx.tl
 [`cosmic.web.sse`]: ../../../cosmic/web/sse.tl
+[`cosmic.web.static`]: ../../../cosmic/web/static.tl
 [`cosmic.web`]: ../../../cosmic/web/init.tl
 [`cosmic/web/input.tl`]: ../../../cosmic/web/input.tl
 [`cosmic/web/request.tl`]: ../../../cosmic/web/request.tl
@@ -1378,10 +1380,12 @@ close, and a raise in it reaches `on_error` without stopping the drain.
 [`Input.Invalid.errors`]: ../../../cosmic/web/types.tl
 [`Input.Invalid`]: ../../../cosmic/web/input.tl
 [`Input.JSON`]: ../../../cosmic/web/input.tl
+[`Input.multipart_into`]: ../../../cosmic/web/input.tl
 [`Json.array`]: ../../../cosmic/json.tl
 [`Json.decode`]: ../../../cosmic/json.tl
 [`Json.encode`]: ../../../cosmic/json.tl
 [`Json.null`]: ../../../cosmic/json.tl
+[`Mime.of`]: ../../../cosmic/mime.tl
 [`Net.Conn`]: ../../../cosmic/net.tl
 [`Net.connect`]: ../../../cosmic/net.tl
 [`Poll.delay`]: ../../../cosmic/poll.tl
