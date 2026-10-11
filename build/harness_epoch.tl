@@ -92,17 +92,17 @@ harness_epoch.acknowledged = {
 
   ["build.caches"] = "cf7287d6ba2af1cc8e299e9ced24863c444f58a12281181663e115058ac7b6aa",
 
-  ["build.confine"] = "d7d29b96e31efa6e0c828284254a383025e1987eef3a0ea9e85bc48738ab50be",
+  ["build.confine"] = "f231dd07a0e1bc3d92c4c94cfe0dceae97ac775c04030520a5874f9c19366910",
 
   ["build.core_image"] = "dfc18e0e6316237ab9fb11a957df68d6217e42cffc6f2f3a767018c5313700ac",
 
-  ["build.declared_key"] = "513d7f99d8058cb0377f1085ec51c9e3a6287cab62afb0f687ffde2b1fd7a720",
+  ["build.declared_key"] = "068c559b34219eb717fab9b00d1cc706e230df1d25d95b192ba4af1a6790ff13",
 
   ["build.digest"] = "dccca5b63f2992d4d23213450142bdd05eee403ebaf3a4e0acf7437da72558f0",
 
-  ["build.host_names"] = "7ca5b73e739e20ad64e243ba3de0f3eb422d9f40527ab5340848bee8078e5f99",
+  ["build.host_names"] = "710cff9499675bfc7c89aa7966d0a692ede499e85de2493d602444748529e64e",
 
-  ["build.host_requires"] = "8c17d5873cecb2318f579a3b0bf9ce3f18a3901f8f674956ac9321e823fdbae9",
+  ["build.host_requires"] = "fb9f46f88cb2a16c874bf166ed9ba9b46f3e0a91e9e72a18c9ea190408c6f00b",
 
   ["build.key_parts"] = "ec094aee1c9558c44690eba0429337ec3048f1506be1bc3aa5672923b35ec978",
 
@@ -114,17 +114,17 @@ harness_epoch.acknowledged = {
 
   ["build.shared_sqlite"] = "788981d831e67bb29bdf3e91e685e06904288d211d44fb671b8ece4c0ae00f77",
 
-  ["build.shared_verdicts"] = "6d1d88c6e192f0eeac3ad9cef9b57849ebae57eb143bb53df1a28331424eb40c",
+  ["build.shared_verdicts"] = "8bcb5739980af35bed92f19a435b1176c57bc42c8f6b37de09888e4f0d656b43",
 
-  ["build.test"] = "eba48f4c54c2f4b2cbffc3d658c75d609e2bb7e8ae907ba8244faad0568dc99d",
+  ["build.test"] = "118bb845cef185bdf69dece9fec12926319bea54002de705babd0c173acf0019",
 
-  ["build.test_inputs"] = "77ba8a9c5e482ba9a381bd1f9b84e2ba8f9f388914b8ff844d44d672f5e9f48b",
+  ["build.test_inputs"] = "3ebe26a785ccc10da18f4f352a39299b77642153d662705acc78d9213635f46c",
 
   ["build.test_policy"] = "ad4fd0b02c79dcadd4689a38770015c75d2b129e6e91aa599e07b2ff28194dde",
 
-  ["build.test_sandbox"] = "171f7aaf75d2b6897c27220f5c6cc6f20559cdfe05412ce27e9adbfbb52114fa",
+  ["build.test_sandbox"] = "396d158d2b2dc3c95c7152c734f07ca68d823b47d7abed434abbbb360f3091d0",
 
-  ["build.test_worker"] = "9d961d5bb7770b3fab80a966b2969cb7d88ae084c1b427fa10b320a5dc86f5b1",
+  ["build.test_worker"] = "f5fb5ca2901fc58dcc1e4e24fa181b3beac6c0016601ae5cd0dd5848649efb89",
 
   ["build.this_program"] = "2a4156f49f5f2a7e997efc3d3ac8cdbeca9eb265aec7a8e591057a06b17d9d4d",
 
