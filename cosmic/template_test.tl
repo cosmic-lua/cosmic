@@ -179,14 +179,16 @@ local REFUSALS <const>: {{string}} = {
   { "<a href=\"{{.url}}{{if .a}}{{end}}/evil.example\">", "2", "34", "protocol-relative" },
   { "<a href=\"{{.url}}{{if .a}}x{{end}}/evil.example\">", "2", "35", "protocol-relative" },
   { "<a href=\"{{.url}}{{if .a}}{{end}}\\evil.example\">", "2", "34", "protocol-relative" },
-  { "<a href=\"{{range .l}}{{.url}}{{end}}/evil\">", "2", "22", "must begin" },
+  { "<a href=\"{{range .l}}{{.url}}{{end}}/evil\">", "2", "22", "fixes where the URL goes" },
+  { "<a href=\"{{.url}}{{.p}}/evil.example\">", "2", "24", "protocol-relative" },
+  { "<a href=\"{{.url}}{{.p}}:x\">", "2", "24", "complete a scheme" },
   { "<a href=\"{{.x}}&colon;alert(1)\">", "2", "16", "complete a scheme" },
   { "<a href=\"{{.x}}&#58;alert(1)\">", "2", "16", "complete a scheme" },
   { "<meta charset=\"{{.x}}\">", "2", "16", "charset" },
   { "<script type=\"{{.x}}\">", "2", "15", "<script>" },
   { "<object classid=\"{{.x}}\">", "2", "18", "<object>" },
   { "<applet codebase=\"{{.x}}\">", "2", "19", "<applet>" },
-  { "<a href=\"{{range .l}}{{.x}}{{end}}\">", "2", "22", "must begin" },
+  { "<a href=\"{{range .l}}{{.x}}{{end}}\">", "2", "22", "fixes where the URL goes" },
   { "<a href=\"{{range .l}}{{.x}}:{{end}}\">", "2", "28", "complete a scheme" },
   { "<svg><script>{{.x}}</script>", "2", "14", "<script>" },
   { "<svg><g><a title=x{{.x}}", "2", "19", "unquoted" },
@@ -218,8 +220,39 @@ local REFUSALS <const>: {{string}} = {
   { "<script><!-- <script> </script> {{.x}} </script>", "2", "33", "<script>" },
   { "<script>\n{{.x}}", "3", "1", "<script>" },
   { "<script/>{{.x}}", "2", "10", "<script>" },
-  { "<a href=\"/a/{{.x}}\">", "2", "13", "must begin" },
-  { "<a href=\"{{.x}}{{.y}}\">", "2", "16", "must begin" },
+  { "<a href=\"java{{.x}}\">", "2", "14", "fixes where the URL goes" },
+  { "<a href=\"a{{.x}}\">", "2", "11", "fixes where the URL goes" },
+  { "<a href=\"x &{{.x}}\">", "2", "13", "fixes where the URL goes" },
+  { "<a href=\"java&#115;cript:{{.x}}\">", "2", "26", "fixes where the URL goes" },
+  { "<a href=\"&sol;{{.x}}\">", "2", "15", "fixes where the URL goes" },
+  { "<a href=\"javascript:{{.x}}\">", "2", "21", "fixes where the URL goes" },
+  { "<a href=\"data:text/html,{{.x}}\">", "2", "25", "fixes where the URL goes" },
+  { "<a href=\"tel:{{.x}}\">", "2", "14", "fixes where the URL goes" },
+  { "<a href=\"//{{.x}}\">", "2", "12", "fixes where the URL goes" },
+  { "<a href=\"\\\\{{.x}}\">", "2", "12", "fixes where the URL goes" },
+  { "<a href=\"https://{{.x}}/a\">", "2", "18", "fixes where the URL goes" },
+  { "<a href=\"https:{{.x}}\">", "2", "16", "fixes where the URL goes" },
+  { "<a href=\"https://host{{.x}}\">", "2", "22", "fixes where the URL goes" },
+  { "<a href=\"{{if .a}}/x/{{else}}y{{end}}{{.z}}\">", "2", "38", "fixes where the URL goes" },
+  { "<a href=\"{{if .a}}https://{{else}}/x/{{end}}{{.z}}\">", "2", "45", "fixes where the URL goes" },
+  { "<a href=\"/{{if .a}}{{end}}/{{.x}}\">", "2", "28", "fixes where the URL goes" },
+  { "<a href=\"/v1.{{.x}}\">", "2", "14", "'..' segment" },
+  { "<a href=\"/a/.{{.x}}\">", "2", "14", "'..' segment" },
+  { "<a href=\"/a/%{{.x}}\">", "2", "14", "'..' segment" },
+  { "<a href=\"/a/%2{{.x}}\">", "2", "15", "'..' segment" },
+  { "<a href=\"/a/{{.x}}/..{{if .a}}{{end}}.{{.y}}\">", "2", "39", "'..' segment" },
+  { "<a href=\"/a/..\t{{.x}}\">", "2", "16", "'..' segment" },
+  { "<a href=\"{{.u}}.{{.x}}\">", "2", "17", "'..' segment" },
+  { "<a hx-on:click=\"{{.x}}\">", "2", "17", "would be script" },
+  { "<a hx-on::after-request=\"{{.x}}\">", "2", "26", "would be script" },
+  { "<a hx-on-click=\"{{.x}}\">", "2", "17", "would be script" },
+  { "<a data-hx-on:click=\"{{.x}}\">", "2", "22", "would be script" },
+  { "<a HX-ON:Click=\"{{.x}}\">", "2", "17", "would be script" },
+  { "<a hx-vars=\"{{.x}}\">", "2", "13", "would be script" },
+  { "<a data-hx-vars=\"{{.x}}\">", "2", "18", "would be script" },
+  { "<a hx-vals=\"{{.x}}\">", "2", "13", "{{use htmx}}" },
+  { "<a data-hx-vals='{\"a\": \"{{.x}}\"}'>", "2", "25", "{{use htmx}}" },
+  { "<a hx-vals=\"x\" hx-get=\"/a\" hx-on:click=\"a{{if .a}}b{{end}}{{.x}}\">", "2", "59", "would be script" },
   { "<script src=\"{{.x}}\">", "2", "14", "<script>" },
   { "<link href=\"{{.x}}\">", "2", "13", "<link>" },
   { "<object data=\"{{.x}}\">", "2", "15", "<object>" },
@@ -276,11 +309,59 @@ local function test_the_arms_of_a_branch_must_end_in_the_same_place()
   compiled(HEAD .. "{{if .a}}<script>1</script>{{else}}<p>x</p>{{end}}{{.y}}")
 end
 
+--- Templates whose slot stands after text that fixes the URL: a part.
+local PARTS <const>: {string} = {
+  "<a href=\"/items/{{.x}}\">",
+  "<a href=\"/s?q={{.x}}\">",
+  "<a href=\"/s#{{.x}}\">",
+  "<a href=\"?q={{.x}}\">",
+  "<a href=\"#{{.x}}\">",
+  "<a href=\"./{{.x}}\">",
+  "<a href=\"../{{.x}}\">",
+  "<a href=\"items/{{.x}}\">",
+  "<a href=\"a:b\" title=\"x\"><a href=' /{{.x}}'>",
+  "<a href=\"//example.com/{{.x}}\">",
+  "<a href=\"https://example.com/{{.x}}\">",
+  "<a href=\"HTTP://example.com?q={{.x}}\">",
+  "<a href=\"ht\ntps://example.com/{{.x}}\">",
+  "<a href=\"mailto:{{.x}}\">",
+  "<a href=\"mailto:a@b.example?subject={{.x}}\">",
+  "<a href=\"/a/{{.x}}{{.y}}\">",
+  "<a href=\"/a/{{.x}}/b/{{.y}}?c={{.z}}#{{.w}}\">",
+  "<a href=\"{{.u}}{{.x}}\">",
+  "<a href=\"{{.u}}x{{.y}}\">",
+  "<a href=\"{{.u}}?q={{.x}}\">",
+  "<a href=\"/x/{{range .l}}{{.}}{{end}}\">",
+  "<a href=\"/x/{{range .l}}{{.}}/{{end}}\">",
+  "<a href=\"{{if .a}}/x/{{else}}/y/{{end}}{{.z}}\">",
+  "<a href=\"{{if .a}}https://h/{{else}}/y?{{end}}{{.z}}\">",
+  "<a href=\"{{if .a}}{{.u}}{{else}}/y/{{end}}{{.z}}\">",
+  "<a href=\"/a%20{{.x}}\">",
+  "<a href=\"/a.b/{{.x}}\">",
+  "<a href=\"/a/b.{{if .a}}c{{end}}/{{.x}}\">",
+  "<img src=\"/i/{{.x}}.png\">",
+  "<form action=\"/f/{{.x}}\">",
+  "<svg><a xlink:href=\"/a/{{.x}}\"></a></svg>",
+  "<a href=\"/a/{{.x}}\">{{.y}}</a>",
+  "<a href='/a/{{.x}}'>",
+}
+
+local function test_a_slot_after_text_that_fixes_the_url_is_one_part_of_it()
+  for _, src in ipairs(PARTS) do
+    local out = compiled(HEAD .. src)
+    assert(out:find("_part(v)", 1, true), src .. ": " .. out)
+  end
+  local out = compiled(HEAD .. "<a href=\"/a/{{.x}}\">")
+  assert(out:find("local function _part(v: string | number | html.SafeUrlPart): string", 1, true), out)
+  assert(out:find("do local v: string | number | html.SafeUrlPart = d.x ", 1, true), out)
+  assert(not out:find("_url(v", 1, true), out)
+end
+
 local function test_a_slot_that_begins_a_url_is_judged_by_where_its_branch_left_off()
   compiled(HEAD .. "<a href=\"{{if .a}}{{.x}}{{else}}{{.y}}{{end}}\">")
   compiled(HEAD .. "<a href=\"{{if .a}}{{.x}}{{end}}\">")
   local why = refused(HEAD .. "<a href=\"{{if .a}}{{.x}}{{end}}{{.y}}\">")
-  assert(why:find("t.tmpl:2:", 1, true) and why:find("must begin", 1, true), why)
+  assert(why:find("t.tmpl:2:", 1, true) and why:find("fixes where", 1, true), why)
 end
 
 local SYNTAX <const>: {{string}} = {
@@ -517,7 +598,7 @@ local function test_a_string_action_is_literal_text_the_html_tracker_reads()
   local closed = compiled(HEAD .. '<svg/{{""}}><p>{{.x}}</p>')
   assert(closed:find("_text(v)", 1, true), closed)
   local cases: {{string}} = {
-    { '<a href="{{"/"}}{{.x}}">', "2:17: ", "must begin" },
+    { '<a href="{{"java"}}{{.x}}">', "2:20: ", "fixes where" },
     { '<a href="{{.x}}{{"//h"}}">', "2:19: ", "protocol-relative" },
     { '<p {{"onclick"}}="{{.x}}">', "2:19: ", "event handler" },
     { '{{"<script>"}}{{.x}}', "2:15: ", "<script>" },
@@ -855,7 +936,7 @@ local function test_nested_ranges_refuse_a_body_that_does_not_end_where_it_began
   -- The innermost body ends where it began, but a second time round its
   -- URL slot no longer begins the value.
   local url = refused(HEAD .. "<a href=\"" .. nested_ranges(40, "{{.u}}") .. "\">")
-  assert(url:find("^t.tmpl:2:490: a slot in a URL must begin"), url)
+  assert(url:find("^t.tmpl:2:490: a slot in the 'href' attribute that does not begin"), url)
 end
 
 local function test_a_range_takes_an_else_run_when_the_list_is_empty()
@@ -899,7 +980,7 @@ local function test_a_range_else_is_judged_from_where_the_range_begins()
   -- The body runs again after itself, so its URL slot no longer begins the
   -- value; the else arm does not run again.
   local again = refused(HEAD .. "<a href=\"{{range .l}}{{.u}}{{else}}/x{{end}}\">")
-  assert(again:find("^t.tmpl:2:22: a slot in a URL must begin"), again)
+  assert(again:find("^t.tmpl:2:22: a slot in the 'href' attribute that does not begin"), again)
   -- What follows is judged from where the else arm leaves off too.
   local after = refused(HEAD .. "<a href=\"{{range .l}}x{{else}}{{.u}}{{end}}/evil\">")
   assert(after:find("^t.tmpl:2:44: ") and after:find("protocol-relative", 1, true), after)

@@ -30,6 +30,23 @@ function Example.html()
   assert(source:find("_attr(v)", 1, true) and source:find("_url(v)", 1, true) and source:find("_text(v)", 1, true))
 end
 
+--- A slot after literal text in a URL attribute is one piece of the URL,
+--- escaped by [`html.url_part`] (so a value cannot add a `/`, `?` or `:`);
+--- the text before it must fix where the URL goes, so `java{{.x}}` and a
+--- slot in a host are refused, and so is any slot in an attribute htmx
+--- runs as script.
+function Example.url_parts()
+  local source = assert(Template.compile([[
+{{type Page from site.page}}
+<a href="/items/{{.id}}?q={{.query}}">{{.title}}</a>
+]], "link.tmpl"))
+  assert(source:find("_part(v)", 1, true) and not source:find("_url(v)", 1, true))
+  local java, scheme = Template.compile('{{type Page from site.page}}\n<a href="java{{.x}}">x</a>\n', "link.tmpl")
+  assert(java == nil and scheme:find("link.tmpl:2:", 1, true) and scheme:find("fixes where the URL goes", 1, true), scheme)
+  local on, script = Template.compile('{{type Page from site.page}}\n<a hx-on:click="{{.x}}">x</a>\n', "link.tmpl")
+  assert(on == nil and script:find("would be script", 1, true), script)
+end
+
 --- A slot where no escaping is right is refused, with its line and column.
 function Example.refusal()
   local source, why = Template.compile("{{type Page from site.page}}\n<a href={{.url}}>x</a>\n", "link.tmpl")

@@ -384,7 +384,8 @@ end
 
 --- Self-contained fragments, each with the kinds its slots must be judged
 --- as, in order: `t` text, `r` RCDATA text, `f` text inside `<svg>`,
---- `<math>` or `<select>`, `a` attribute, `u` URL, and
+--- `<math>` or `<select>`, `a` attribute, `u` URL, `p` a piece of a URL
+--- after text that fixes it, and
 --- `x` for one the compiler must refuse. Each leaves the markup in text,
 --- so the kinds of a template are those of its fragments, whatever order
 --- they come in. What each says about markup is written down here, apart
@@ -397,6 +398,28 @@ local UNITS <const>: {{string}} = {
   { "<a href=\"{{.a}}?/x\">x</a>", "u" },
   { "<a href=\"{{.a}}/x\">x</a>", "x" },
   { "<a href=\"{{.a}}\\x\">x</a>", "x" },
+  { "<a href=\"/i/{{.a}}\">x</a>", "p" },
+  { "<a href='/s?q={{.a}}&r={{.a}}#{{.a}}'>x</a>", "ppp" },
+  { "<a href=\"/i/{{.a}}{{.a}}\">x</a>", "pp" },
+  { "<a href=\"{{.a}}x/{{.a}}\">x</a>", "up" },
+  { "<a href=\"https://h.example/{{.a}}\">x</a>", "p" },
+  { "<a href=\"mailto:{{.a}}\">x</a>", "p" },
+  { "<a href=\"?q={{range .l}}{{.a}}{{end}}\">x</a>", "p" },
+  { "<a href=\"{{if .a}}/x/{{else}}/y?{{end}}{{.a}}\">x</a>", "p" },
+  { "<img src=\"/i/{{.a}}.png\" alt=\"{{.a}}\">", "pa" },
+  { "<a href=\"java{{.a}}\">x</a>", "x" },
+  { "<a href=\"j{{if .a}}ava{{end}}{{.a}}\">x</a>", "x" },
+  { "<a href=\" x{{.a}}\">x</a>", "x" },
+  { "<a href=\"https://{{.a}}\">x</a>", "x" },
+  { "<a href=\"//{{.a}}\">x</a>", "x" },
+  { "<a href=\"javascript:{{.a}}\">x</a>", "x" },
+  { "<a href=\"&#106;avascript:{{.a}}\">x</a>", "x" },
+  { "<a href=\"/v1.{{.a}}\">x</a>", "x" },
+  { "<a href=\"/%{{.a}}\">x</a>", "x" },
+  { "<a hx-on:click=\"{{.a}}\">x</a>", "x" },
+  { "<a data-hx-on-click=\"{{.a}}\">x</a>", "x" },
+  { "<a hx-vars=\"{{.a}}\">x</a>", "x" },
+  { "<a hx-vals=\"{{.a}}\">x</a>", "x" },
   { "<a href=\"{{.a}}\n/x\">x</a>", "x" },
   { "<a href=\"{{.a}}{{if .a}}{{end}}//x\">x</a>", "x" },
   { "<img lowsrc=\"{{.a}}\">", "u" },
@@ -465,7 +488,7 @@ local UNITS <const>: {{string}} = {
 local function gen_sound(src: Fuzz.Source): string
   local body: {string} = {}
   local kinds: {string} = {}
-  local want = Fuzz.pick(src, { "t", "r", "f", "a", "u", "x" })
+  local want = Fuzz.pick(src, { "t", "r", "f", "a", "u", "p", "x" })
   local drawn = 0
   -- Only a template drawn to be refused holds a fragment that is, so the kinds
   -- that compile are not starved by one stray refusal in five.
@@ -512,11 +535,11 @@ local function gen_sound(src: Fuzz.Source): string
     end
   end
   return Fuzz.pack({ Fuzz.pick(src, { "<\"'>& onload=x", "javascript:alert(1)", "\"'\n\t<script>", "/",
-    "\\", "/\t" }),
+    "\\", "/\t", ".", "..", "%2e", "a b/c?d#e&f=g:h@i" }),
     table.concat(kinds), table.concat(body) })
 end
 
-local HELPER_KIND <const>: {string: string} = { _text = "t", _rtext = "r", _ftext = "f", _attr = "a", _url = "u" }
+local HELPER_KIND <const>: {string: string} = { _text = "t", _rtext = "r", _ftext = "f", _attr = "a", _url = "u", _part = "p" }
 
 local function esc(s: any): string
   if not s is string then
@@ -546,6 +569,18 @@ local STAND_IN <const>: {string: function} = {
     return { s = "\5" .. (text:lower():find("^%s*javascript:") and "about:invalid" or text) }
   end,
   trust = function(s: string): {string: string} return { s = s } end,
+  -- The bytes of the escaped part between \6 and \7: only unreserved ones
+  -- and %XX, except that a whole `.` or `..` is written with its `%` escaped.
+  url_part = function(s: any): {string: string}
+    local text = tostring(s)
+    if text == "." or text == ".." then
+      return { s = "\6" .. text:gsub("%.", "%%252E") .. "\7" }
+    end
+    return { s = "\6" .. text:gsub("[^%w%-._~]", function(c: string): string
+      return string.format("%%%02X", c:byte())
+    end) .. "\7" }
+  end,
+  raw_url_part = function(v: {string: string}): string return v.s end,
   raw = function(v: {string: string}): string return v.s end,
   raw_attr = function(v: {string: string}): string return v.s end,
   raw_url = function(v: {string: string}): string return v.s end,
@@ -559,6 +594,7 @@ local function lua_of(source: string): string
   lua = lua:gsub("%(([%a_][%w_]*): [^()]-%)", "(%1)")
   lua = lua:gsub("%): [%w%.]+ ", ") ")
   lua = lua:gsub("local v: [^=]+= ", "local v = ")
+  lua = lua:gsub("local p: [%w%.]+ ", "local p ")
   lua = lua:gsub("local parts: {string} = {}", "local parts = {}")
   lua = lua:gsub("if v is (%a+) then", 'if type(v) == "%1" then')
   return lua
@@ -573,8 +609,8 @@ local function test_a_value_cannot_get_out_of_where_a_slot_puts_it(tmp: string)
     name = "template sound",
     dir = tmp,
     gen = gen_sound,
-    requires = { "refused", "text", "rtext", "ftext", "attr", "url", "block", "assembled url", "root", "range binding" },
-    shares = { refused = 0.01, text = 0.05, rtext = 0.01, ftext = 0.01, attr = 0.01, url = 0.01 },
+    requires = { "refused", "text", "rtext", "ftext", "attr", "url", "part", "block", "assembled url", "root", "range binding" },
+    shares = { refused = 0.01, text = 0.05, rtext = 0.01, ftext = 0.01, attr = 0.01, url = 0.01, part = 0.01 },
     check = function(input: string): boolean, string
       local fields = Fuzz.unpack(input)
       local payload = fields[1] or ""
@@ -646,6 +682,32 @@ local function test_a_value_cannot_get_out_of_where_a_slot_puts_it(tmp: string)
           Fuzz.label("attr")
           if piece:gsub("&#%d+;", ""):find("[^%w\128-\255]") then
             return false, "a byte that can end a value in: " .. piece
+          end
+        end
+        -- A part holds only unreserved bytes and %XX, so it cannot end the
+        -- attribute, start a scheme, or be a segment that climbs.
+        for part in out:gmatch("\6([^\7]*)\7") do
+          Fuzz.label("part")
+          if part:gsub("%%%x%x", ""):find("[^%w%-._~]") then
+            return false, "a byte of a URL part that is not unreserved or %XX: " .. part
+          elseif part == "." or part == ".." then
+            return false, "a URL part that is a dot segment: " .. part
+          end
+        end
+        -- Whatever a part is given, a URL that begins in literal text
+        -- (not a whole-URL slot) has the scheme that text gave it.
+        for value in out:gmatch('href=[\'"]([^\'"]*)[\'"]') do
+          if value:find("\6", 1, true) and not value:find("[\3\5]") then
+            Fuzz.label("assembled part")
+            local url = value:gsub("[\1\2\6\7]", ""):gsub("&#(%d+);", function(n: string): string
+              return string.char(tonumber(n) as integer % 256)
+            end):gsub("[\t\n\r]", "")
+            local scheme = url:match("^([%a][%w+.-]*):")
+            if url:find("^[/\\][/\\]") and not url:find("^[/\\][/\\][^/\\?#]+[/\\?#]") then
+              return false, "a URL part chose the host: " .. url
+            elseif scheme ~= nil and scheme:lower() ~= "http" and scheme:lower() ~= "https" and scheme:lower() ~= "mailto" then
+              return false, "a URL part followed the scheme " .. scheme .. ": " .. url
+            end
           end
         end
         if out:find("\3&#5;", 1, true) then

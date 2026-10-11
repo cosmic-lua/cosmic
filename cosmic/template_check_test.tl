@@ -37,6 +37,7 @@ local record data
     h: html.SafeHtml
     a: html.SafeAttr
     u: html.SafeUrl
+    p: html.SafeUrlPart
     items: {Item}
     user: User
     flag: boolean
@@ -224,6 +225,7 @@ local function test_a_slot_takes_what_its_place_accepts(tmp: string)
   local ok, why = project(tmp, "accepts", HEAD .. [[
 <h1 class="{{.cls}}" title='{{.a}}'>{{.title}} {{.n}} {{.h}} {{.cls | fmt.upper}}</h1>
 <a href="{{.url}}">{{.user.name}}</a><a href="{{.u}}"></a><a href="{{.url | fmt.bracket}}">x</a>
+<a href="/i/{{.title}}/{{.n}}?{{.p}}&q={{.cls}}#{{.p}}">x</a>
 {{range .items}}<i title="{{.n}}">{{.name}}</i>{{end}}
 {{range .items}}<i title="{{.n}}">{{.name}}</i>{{else}}<i title="{{.title}}">{{.h}}</i>{{end}}
 {{if .flag}}{{.h}}{{else if .title}}a{{else}}b{{end}}
@@ -253,6 +255,18 @@ local function test_a_slot_given_what_its_place_refuses_is_a_type_error_on_its_l
     local trouble = refused(tmp, "wrong" .. index, HEAD .. "ok\n" .. case[1])
     assert(trouble:find("page.tmpl:3:", 1, true), case[1] .. ": " .. trouble)
     assert(trouble:find(case[2], 1, true), case[1] .. ": " .. trouble)
+  end
+end
+
+local function test_a_part_slot_given_what_its_place_refuses_is_a_type_error_on_its_line(tmp: string)
+  -- One build: each wrong slot is its own error, on its own line. A
+  -- whole URL is not a part, nor is attribute or markup text.
+  local trouble = refused(tmp, "wrong-part", HEAD .. "ok\n<a href=\"/a/{{.u}}\">\n<a href=\"/a/{{.h}}\">\n" ..
+      "<a href=\"/a/{{.items}}\">\n<a href=\"/a/{{.a}}\">\n")
+  for line, want in pairs({ [3] = "SafeUrl", [4] = "SafeHtml", [5] = "{Item}", [6] = "SafeAttr" }) do
+    local at = trouble:find("page.tmpl:" .. line .. ":", 1, true)
+    assert(at ~= nil, "no error on line " .. line .. ": " .. trouble)
+    assert(trouble:find(want, at, true), "line " .. line .. " is not " .. want .. ": " .. trouble)
   end
 end
 
@@ -318,14 +332,18 @@ end
 local function test_html_mode_escapes_by_place(tmp: string)
   local page: {string: any} = { title = "<i>&", cls = "a\"b'c", n = 7, url = "javascript:alert(1)",
     h = Html.trust("<b>x</b>"), a = Html.escape_attr("q&r"), u = Html.href("/x"), user = { name = "<u>" },
+    p = assert(Html.url_query({ { "a b", "c&d" }, { "e", ".." } })),
     items = { { name = "p", n = 1 }, { name = "<q>", n = 2 } } }
   local out = render(tmp, "html-run", HEAD .. [[
 <h1 class="{{.cls}}" title='{{.a}}'>{{.title}} {{.n}} {{.h}}</h1>
 <a href="{{.url}}">{{.user.name}}</a> <a href='{{.u}}'></a>
+<a href="/i/{{.title}}/{{.n}}?{{.p}}&q={{.cls}}">x</a><a href='mailto:{{.title}}'>y</a>
 {{range .items}}<i title="{{.n}}">{{.name}}</i>{{end}}
 ]], page)
   assert(out == '\n<h1 class="a&#34;b&#39;c" title=\'q&#38;r\'>&lt;i&gt;&amp; 7 <b>x</b></h1>\n' ..
       '<a href="' .. esc_attr("about:invalid") .. '">&lt;u&gt;</a> <a href=\'' .. esc_attr("/x") .. '\'></a>\n' ..
+      '<a href="/i/%3Ci%3E%26/7?a%20b=c%26d&amp;e=..&q=a%22b%27c">x</a>' ..
+      '<a href=\'mailto:%3Ci%3E%26\'>y</a>\n' ..
       '<i title="1">p</i><i title="2">&lt;q&gt;</i>\n', out)
   page.url = "/a?x=1&y=2"
   local second = render(tmp, "html-run2", HEAD .. '<a href="{{.url}}">', page)
