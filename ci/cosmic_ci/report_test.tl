@@ -95,12 +95,10 @@ local function test_a_run_qualifies_by_what_its_restored_cache_held()
   local function run(id: string, harness: string, held?: string): Report.Run
     local suites: {State.SuiteRun} = {}
     for _, suite in ipairs({ "local", "checked" }) do
-      suites[#suites + 1] = { worker = "linux-x86_64", run = id, attempt = "1",
-        phase = suite == "local" and "build" or "assemble", suite = suite, status = "pass",
+      suites[#suites + 1] = { worker = "linux-x86_64", suite = suite,
         parts = { runtime = "rrrr", harness = harness }, held = held }
     end
-    return { id = id, event = "push", branch = "main", sha = "a", attempt = "1", conclusion = "success",
-      jobs = {}, suites = suites, missing = {}, qualifies = false, why = "" }
+    return { id = id, conclusion = "success", jobs = {}, suites = suites, missing = {} }
   end
   local runs = {
     run("50", "h2", "10 rows under runtime rrrr, harness h2; 2 rows under no parts named"),

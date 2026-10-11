@@ -48,12 +48,11 @@ local record GithubApi
     --- The origin release assets are uploaded to, as `upload` compares it:
     --- uploads.github.com for api.github.com, uploads.<x> for api.<x>
     --- (a data-residency host), and the API's own for an Enterprise
-    --- Server's. Nil for a client that cannot upload, which
-    --- [`GithubApi.upload`] refuses every URL.
-    upload_origin?: string
+    --- Server's.
+    upload_origin: string
     --- What precedes `/repos/` in an upload's path: "" on the hosts
     --- above, "/api/uploads" on an Enterprise Server.
-    upload_path?: string
+    upload_path: string
     --- The monotonic clock, in nanoseconds, that a paginated call's
     --- deadline is measured on; [`Clock.monotonic_ns`] where nil. A test
     --- sets it to step time by hand.
@@ -65,7 +64,7 @@ local record GithubApi
   --- `send` wrote to its connection.
   record Live
     script: {{string}}
-    sent?: {string}
+    sent: {string}
   end
 end
 
@@ -341,10 +340,8 @@ function GithubApi.upload(client: GithubApi.Client, upload_url: string, name: st
   local parts, why = Url.parse(url)
   if parts == nil then return false, "upload URL: " .. why end
   local path = parts.path
-  local upload_origin, upload_path = client.upload_origin, client.upload_path
-  if upload_origin == nil or upload_path == nil or origin_of(url) ~= upload_origin or
-      parts.userinfo ~= nil or parts.query ~= nil or parts.fragment ~= nil or
-      not is_assets_path(path, upload_path) then
+  if origin_of(url) ~= client.upload_origin or parts.userinfo ~= nil or parts.query ~= nil or
+      parts.fragment ~= nil or not is_assets_path(path, client.upload_path) then
     return false, "refusing to upload to " .. url .. ": not a release's assets on the upload origin"
   end
   if name == "" then return false, "upload: no asset name" end

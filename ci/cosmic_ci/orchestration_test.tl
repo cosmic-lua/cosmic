@@ -872,8 +872,7 @@ local function test_only_a_leg_that_runs_the_checked_suite_runs_the_checked_cosm
       assert(row.worker == "worker" and row.phase == "checked" and row.suite == "checked")
       assert(row.status == "pass" and row.exit_code == 0 and row.tests == 7)
       assert(row.ran == 3 and row.stood == 4 and row.elapsed_ms == 55)
-      local parts = assert(row.parts)
-      assert(parts.runtime == "04" and parts.harness == "06" and parts.system == "")
+      assert(row.parts.runtime == "04" and row.parts.harness == "06" and row.parts.system == "")
     else
       assert(#rows == 0, case.name .. ": a suite that did not run wrote a row")
     end
@@ -967,8 +966,7 @@ local function test_the_native_suite_writes_its_row_and_a_lost_row_fails_nothing
       assert(row.suite == "local" and row.phase == "build" and row.status == "pass")
       assert(row.exit_code == 0 and row.tests == 9 and row.ran == 5 and row.stood == 4)
       assert(row.elapsed_ms == 77 and row.sandbox == "sandboxed")
-      local parts = assert(row.parts)
-      assert(parts.runtime == "04" and parts.harness == "06")
+      assert(row.parts.runtime == "04" and row.parts.harness == "06")
     end
     local phases = assert(Sqlite.text_rows(db, "SELECT phase, status FROM operation_events " ..
         "WHERE event = 'complete' AND phase IN ('local suite', 'platform: build') ORDER BY id"))
