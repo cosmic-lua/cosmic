@@ -12,6 +12,7 @@ local Server = require("cosmic.http.server")
 local Stream = require("cosmic.stream")
 local Types = require("cosmic.web.types")
 local Url = require("cosmic.url")
+local String = require("cosmic.string")
 
 local record Testing
   --- An app driven in-process: see [`Testing.test_client`].
@@ -444,8 +445,9 @@ local function read_reply(lb: Testing.Loopback, method: string): Response | nil,
     local line, line_why = next_line(lb)
     if line == nil then return nil, line_why end
     if line == "" then break end
-    local name, value = line:match("^([^:]+):%s*(.-)%s*$")
+    local name, rest = line:match("^([^:]+):(.*)$")
     if name == nil then return nil, "not a header line: " .. line end
+    local value = String.trim(rest)
     lines[#lines + 1] = { name, value }
     headers[name:lower()] = value
   end

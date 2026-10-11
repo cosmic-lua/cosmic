@@ -28,6 +28,7 @@ local Server = require("cosmic.http.server")
 local Time = require("cosmic.time")
 local Types = require("cosmic.web.types")
 local Url = require("cosmic.url")
+local String = require("cosmic.string")
 
 local record StaticFiles
   --- What [`StaticFiles.handler`] and [`StaticFiles.mount`] take.
@@ -129,8 +130,9 @@ local function takes_gzip(header: string | nil): boolean
   if header == nil then return false end
   local star: boolean = nil
   for item in (header .. ","):gmatch("([^,]*),") do
-    local token, params = item:match("^%s*([^;%s]*)%s*(.-)%s*$")
+    local token, rest = item:match("^%s*([^;%s]*)(.*)$")
     if token ~= nil then
+      local params = String.trim(rest)
       token = token:lower()
       local q = params:match(";%s*[qQ]%s*=%s*([%d.]+)")
       local accepted = not (q ~= nil and (tonumber(q) or 0) == 0)

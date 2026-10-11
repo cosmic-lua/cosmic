@@ -1,3 +1,4 @@
+local Clock = require("cosmic.clock")
 local Negotiate = require("cosmic.web.negotiate")
 
 local HTML_OR_JSON <const>: {string} = { "text/html", "application/json" }
@@ -56,4 +57,14 @@ end
 local function test_case_and_spaces_do_not_matter()
   assert(Negotiate.best("Application/JSON ; Q=0.5 , TEXT/HTML ; q=0.2", HTML_OR_JSON) == "application/json")
   assert(Negotiate.best("text/html;level=1;q=0.4, application/json;q=0.3", HTML_OR_JSON) == "text/html")
+end
+
+local function test_blanks_after_a_parameter_cost_time_linear_in_their_run()
+  local start = Clock.monotonic_ns()
+  local pick = Negotiate.best("text/html;q=0.5" .. (" "):rep(60000) .. "y, application/json;q=0.4", HTML_OR_JSON)
+  local took = Clock.monotonic_ns() - start
+  assert(pick == "text/html", "a weight with junk after it is no weight, so the range keeps 1: " .. tostring(pick))
+  assert(took < Clock.seconds(1), "took " .. took // 1000000 .. " ms")
+  assert(Negotiate.best("  text/html ; q=0.2  ,  application/json;q=0.4 ", HTML_OR_JSON) == "application/json")
+  assert(Negotiate.best("text/html ;q=0.9 ,application/json ; q=0.4", HTML_OR_JSON) == "text/html")
 end
