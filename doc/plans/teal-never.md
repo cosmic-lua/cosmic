@@ -180,15 +180,9 @@ pins thirteen such refusals.
 
 inherited holes, which Teal has for every type. a never-function falls
 into each as a `string` does, `test_never_falls_into_the_holes_every_type_has`
-and `test_coroutine_wrap_forges_a_never_function_as_it_forges_any_type` pin
-the accepting behavior, and [`doc/roadmap.md`] lists them as a soundness item
+pins the accepting behavior, and [`doc/roadmap.md`] lists them as a soundness item
 of its own:
 
-- `coroutine.wrap` is declared `function<F>(F): F`, but its wrapper
-  returns whatever the coroutine yields: `coroutine.wrap(nv)` is typed
-  never though it returns after a `coroutine.yield`, and
-  `coroutine.wrap(f)` of a function returning a string is typed to return
-  one whatever it yields.
 - `rawset(r, "name", 1)` writes a number into a record's string field.
 - `setmetatable`: a `__index` that serves a number for a string field, and
   a `__call` attached at run time and checked against nothing (a record
@@ -411,8 +405,7 @@ with [`build.importer`]) for what narrows, and [`build/teal_test.tl`]'s
   `test_a_literal_takes_never_from_its_context` and
   `test_a_never_macroexp_is_a_never_call`,
   `test_a_never_macroexp_field_is_a_never_call`.
-- inherited holes, pinned as accepted: `test_never_falls_into_the_holes_every_type_has`
-  and `test_coroutine_wrap_forges_a_never_function_as_it_forges_any_type`;
+- inherited holes, pinned as accepted: `test_never_falls_into_the_holes_every_type_has`;
   generic writes into a never container, refused:
   `test_a_generic_cannot_write_a_returning_function_into_a_never_container`.
 - 44: `test_error_is_a_never_function`; in [`test/narrowing_test.tl`] the first

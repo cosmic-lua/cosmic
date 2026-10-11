@@ -1,0 +1,19 @@
+file: tl.tl
+note: the function `coroutine.wrap` returns takes the parameters of the function passed, so a call of it with wrong arguments is still refused, and answers `any...`, whatever the coroutine yields or finally returns. The call itself is checked as a call of 45a's declaration, which takes any function and gives the `any...` function that a non-function argument keeps
+--- find
+      ["pcall"] = special_pcall_xpcall,
+--- replace
+      ["coroutine.wrap"] = function(self: TypeChecker, node: Node, a: Type, b: TupleType, argdelta?: integer): InvalidOrTupleType
+         local f = b.tuple[1] and self:to_structural(b.tuple[1])
+         local r = self:type_check_function_call(node, a, b, argdelta)
+         if r is InvalidType or not (f is FunctionType) then
+            return r
+         end
+         return a_tuple(node, { a_function(node, {
+            min_arity = f.min_arity,
+            args = f.args,
+            rets = a_vararg(node, { a_type(node, "any", {}) }),
+         }) })
+      end,
+      ["pcall"] = special_pcall_xpcall,
+--- end
