@@ -142,7 +142,7 @@ local function test_the_relay_ports_default_to_http_connect_and_socks(tmp: strin
   local first = assert(socket.bound(received[1]:fd()))
   local second = assert(socket.bound(received[2]:fd()))
   assert(first.port == 3128 and second.port == 1080,
-    "the defaults are " .. first.port .. " and " .. second.port)
+    "the defaults are " .. tostring(first.port) .. " and " .. tostring(second.port))
   for index = 1, 2 do assert(received[index]:close()) end
   finished(tmp, pid)
   assert(sys.close(pair[1]) and sys.close(pair[2]))
@@ -195,7 +195,7 @@ end
 local function test_an_offline_childs_loopback_is_its_own(tmp: string)
   local probe = assert(stand_in.build(tmp .. "/stand-in"))
   local alone = assert(Net.listen(Net.tcp("127.0.0.1", 0)))
-  local target = "connect-tcp 127.0.0.1 " .. alone.address.port
+  local target = "connect-tcp 127.0.0.1 " .. assert(alone.address.port)
   local private, why = start(tmp, probe, target,
     { offline = true, promises = {}, sockets = { "inet" } })
   if private == nil then

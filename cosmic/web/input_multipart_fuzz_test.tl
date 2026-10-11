@@ -74,8 +74,12 @@ local function test_any_multipart_body_is_bounded_and_leaves_no_file(tmp: string
     check = function(input: string): boolean, string
       local f = Fuzz.unpack(input)
       local text = f[1]
-      opts = { dir = uploads, max_file_bytes = math.tointeger(tonumber(f[2])), max_field_bytes = math.tointeger(tonumber(f[3])),
-        max_files = math.tointeger(tonumber(f[4])), max_parts = math.tointeger(tonumber(f[5])), max_bytes = 600 }
+      local max_file_bytes = assert(math.tointeger(tonumber(f[2])))
+      local max_field_bytes = assert(math.tointeger(tonumber(f[3])))
+      local max_files = assert(math.tointeger(tonumber(f[4])))
+      local max_parts = assert(math.tointeger(tonumber(f[5])))
+      opts = { dir = uploads, max_file_bytes = max_file_bytes, max_field_bytes = max_field_bytes,
+        max_files = max_files, max_parts = max_parts, max_bytes = 600 }
       local chunked = f[6] == "1"
       outcome = nil
       local raw: Server.Request = { method = "POST", target = "/x", path = "/x", query = "", version = "HTTP/1.1",
@@ -99,7 +103,7 @@ local function test_any_multipart_body_is_bounded_and_leaves_no_file(tmp: string
       for _, list in pairs(m.files) do
         for _, up in ipairs(list) do
           files = files + 1
-          if up.size > opts.max_file_bytes then return false, "a file over its cap" end
+          if up.size > max_file_bytes then return false, "a file over its cap" end
           if up.filename:find("[/\\]") or up.filename:find("%c") then
             return false, "an unsafe filename"
           end
@@ -108,12 +112,12 @@ local function test_any_multipart_body_is_bounded_and_leaves_no_file(tmp: string
           end
         end
       end
-      if files > opts.max_files then return false, "more files than max_files" end
-      if files + #m.fields.pairs > opts.max_parts then return false, "more parts than max_parts" end
+      if files > max_files then return false, "more files than max_files" end
+      if files + #m.fields.pairs > max_parts then return false, "more parts than max_parts" end
       if m.size > #text then return false, "a size beyond the body" end
       for _, pair in ipairs(m.fields.pairs) do
         -- ISO-8859-1 text grows by at most a byte per byte on conversion.
-        if #pair.value > 2 * opts.max_field_bytes or not utf8.len(pair.value) then
+        if #pair.value > 2 * max_field_bytes or not utf8.len(pair.value) then
           return false, "a bad text field"
         end
       end

@@ -595,13 +595,13 @@ function shared_compiles.for_build(environment?: {string:string}): importer.Shar
         if look_trouble ~= "" then drop(look_trouble) end
         return nil
       end
-      table.insert(owed.parses_used, key)
+      table.insert(assert(owed.parses_used), key)
       return found
     end,
     offer = function(analyzer: string, source_hash: string, mapped: boolean,
                      made: importer.Shared.Parse)
       if cache == nil then return end
-      table.insert(owed.parses, {
+      table.insert(assert(owed.parses), {
         key = { analyzer = analyzer, source_hash = source_hash, mapped = mapped },
         made = made,
       })

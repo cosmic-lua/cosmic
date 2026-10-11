@@ -80,7 +80,7 @@ local function prepare(request: Runner.Request): Child.Options, {integer}
   end
   local options: Child.Options = { cwd = request.cwd, process_group = true }
   if request.env then options.env = request.env end
-  if request.timeout_ns and request.timeout_ns > 0 then
+  if request.timeout_ns ~= nil and request.timeout_ns > 0 then
     options.timeout_ns = request.timeout_ns
   end
   if input_fd then options.stdin = input_fd end
@@ -172,7 +172,7 @@ local function finish(recording: Recording, phase: string, outcome: Runner.Outco
   -- so an operation that fails without output of its own (a timeout, a
   -- command that never started) is named where the failure is read.
   if outcome.status ~= "success" then
-    local why = outcome.trouble and (": " .. outcome.trouble) or ""
+    local why = outcome.trouble ~= nil and (": " .. outcome.trouble) or ""
     Fs.put(Fs.stderr, phase .. ": " .. outcome.status .. " (status " ..
         tostring(outcome.code) .. ")" .. why .. "\n")
   end

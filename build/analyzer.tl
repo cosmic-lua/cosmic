@@ -317,9 +317,9 @@ local function owner_name(owner: ast.Node | nil): string
     return owner.tk
   end
   local op, member = owner.op, owner.e2
-  if owner.kind == "op" and op ~= nil and op.op == "." and member ~= nil and
-      member.tk ~= nil then
-    return owner_name(owner.e1) .. "." .. member.tk
+  local member_name = member ~= nil and member.tk or nil
+  if owner.kind == "op" and op ~= nil and op.op == "." and member_name ~= nil then
+    return owner_name(owner.e1) .. "." .. member_name
   end
   return ""
 end
@@ -846,6 +846,7 @@ local function canonicalize_docs(entries: {analyzer.DocEntry}, parsed: ast.Parse
   local values: {string: string} = {}
   local members: {string: string} = {}
   for _, stmt in ipairs(parsed.node) do
+    local fn_name = stmt.name
     if stmt.kind == "local_function" and stmt.name ~= nil and stmt.name.tk ~= nil then
       values[stmt.name.tk] = stmt.name.tk
     elseif stmt.kind == "local_declaration" and stmt.vars ~= nil then
@@ -857,9 +858,9 @@ local function canonicalize_docs(entries: {analyzer.DocEntry}, parsed: ast.Parse
         end
       end
     elseif export ~= "" and stmt.kind == "record_function" and stmt.fn_owner ~= nil and
-        stmt.fn_owner.tk == export and stmt.name ~= nil and
-        stmt.name.tk ~= nil then
-      local public_source = export .. "." .. stmt.name.tk
+        stmt.fn_owner.tk == export and fn_name ~= nil and
+        fn_name.tk ~= nil then
+      local public_source = export .. "." .. fn_name.tk
       members[public_source] = public_source
     elseif stmt.kind == "assignment" and stmt.vars ~= nil then
       local rhs_values: {string} = {}
@@ -869,12 +870,13 @@ local function canonicalize_docs(entries: {analyzer.DocEntry}, parsed: ast.Parse
           rhs.tk ~= nil and (values[rhs.tk] or "") or ""
       end
       for index, lhs in ipairs(stmt.vars) do
+        local member = lhs.e2
         if lhs.kind == "op" and lhs.op ~= nil and lhs.op.op == "." and
             lhs.e1 ~= nil and lhs.e1.kind == "variable" and
             export ~= "" and lhs.e1.tk == export and
-            lhs.e2 ~= nil and lhs.e2.tk ~= nil
+            member ~= nil and member.tk ~= nil
             then
-          members[export .. "." .. lhs.e2.tk] = rhs_values[index]
+          members[export .. "." .. member.tk] = rhs_values[index]
         elseif lhs.kind == "variable" and lhs.tk ~= nil then
           values[lhs.tk] = rhs_values[index]
         end

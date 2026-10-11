@@ -1197,8 +1197,7 @@ function declared_key.host_identity(digests: declared_key.Digests,
   local own = from.own_proc
   if own == nil then own = confine.own_proc_given() end
   lines[#lines + 1] = "own proc " .. tostring(own)
-  local host_id = from.host_id
-  if host_id == nil then host_id = sys.getenv(host_variable) or "" end
+  local host_id = from.host_id or sys.getenv(host_variable) or ""
   lines[#lines + 1] = "host " .. host_id
   digests.spent_ns = digests.spent_ns + (monotonic_ns() - started)
   return hex_sha256(table.concat(lines, "\n"))
@@ -1373,8 +1372,7 @@ function declared_key.system_identity(digests: declared_key.Digests,
     local text, _ = Fs.read(release)
     lines[#lines + 1] = release .. " " .. (text or "missing")
   end
-  local system_id = from.system_id
-  if system_id == nil then system_id = sys.getenv(system_variable) or "" end
+  local system_id = from.system_id or sys.getenv(system_variable) or ""
   lines[#lines + 1] = "system " .. system_id
   if walk then
     lines[#lines + 1] = "walked " .. remembered_walk(digests, walked_paths(from.walked or confine.system_paths),

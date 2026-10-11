@@ -1302,7 +1302,7 @@ local function sys_call_in(fn: Node, index: Index, callees: {integer: Type},
         fallible_type(callees[position(e1.y, e1.x)]) then
       local owner = records[position(receiver.y, receiver.x)]
       local module = owner ~= nil and owner.typeid ~= nil and bindings[owner.typeid] or nil
-      if module ~= nil then found = module .. "." .. member.tk end
+      if module ~= nil then found = module .. "." .. assert(member.tk) end
     end
     for _, child in ipairs(index.kids[n] or {}) do
       if not is_function(child) then go(child) end

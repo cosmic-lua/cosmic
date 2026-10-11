@@ -281,8 +281,9 @@ function StaticFiles.handler(opts?: StaticFiles.Options): Types.Handler
       local range = Server.range(req:header("range"), #data)
       if range.kind == "span" then
         res.status = 206
-        headers["Content-Range"] = ("bytes %d-%d/%d"):format(range.first, range.last, #data)
-        data = data:sub(range.first + 1, range.last + 1)
+        local first, last = assert(range.first), assert(range.last)
+        headers["Content-Range"] = ("bytes %d-%d/%d"):format(first, last, #data)
+        data = data:sub(first + 1, last + 1)
       elseif range.kind == "unsatisfiable" then
         res = { status = 416, headers = { ["Content-Range"] = "bytes */" .. #data,
           ["X-Content-Type-Options"] = "nosniff" } }

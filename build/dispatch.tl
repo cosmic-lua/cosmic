@@ -265,7 +265,7 @@ local function index_help(): string
       local verb = group[slot]
       local usage = usage_line(verb)
       lines[#lines + 1] = "  " .. usage .. string.rep(" ", width - #usage + 2) ..
-        Cli.verbs[verb].about
+        assert(Cli.verbs[verb].about)
     end
   end
   for _, line in ipairs({

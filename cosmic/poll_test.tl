@@ -251,7 +251,7 @@ local function test_many_tasks_wait_on_descriptors_at_once(tmp: string)
       end)
     end
     assert(Poll.delay(0))
-    for i = count, 1, -1 do assert(sys.write(writers[i], tostring(i)) > 0) end
+    for i = count, 1, -1 do assert(assert(sys.write(writers[i], tostring(i))) > 0) end
   end)
   for i = 1, count do
     assert(got[i] == tostring(i), "task " .. i .. " read " .. tostring(got[i]))

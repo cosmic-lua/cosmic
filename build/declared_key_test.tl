@@ -501,7 +501,7 @@ local function test_every_field_of_a_spec_moves_it(tmp: string)
     store = { change = function(s: declared_key.Spec) s.effective.store = false end },
     system = { change = function(s: declared_key.Spec) s.effective.system = false end },
     parent = { change = function(s: declared_key.Spec)
-      table.insert(s.effective.parent, "up.txt")
+      table.insert(assert(s.effective.parent), "up.txt")
     end },
   }
   local declaration = "what the module declares, which `declaration` keys as " ..

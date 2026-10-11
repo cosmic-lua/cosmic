@@ -32,7 +32,7 @@ local function test_each_reads_every_row()
   local db = numbers(100)
   local q = assert(Sqlite.query(db, "SELECT n FROM t ORDER BY n"))
   local total = 0
-  for row in q:each() do total = total + row[1].integer end
+  for row in q:each() do total = total + assert(row[1].integer) end
   assert(total == 5050 and q:failure() == "")
   assert(db:close())
 end

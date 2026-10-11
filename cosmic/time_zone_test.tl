@@ -606,7 +606,7 @@ local function test_add_calendar_keeps_local_time_across_a_change()
   local after = assert(Time.add_calendar(before, { days = 1 }, ny))
   assert(Time.format_rfc3339(after, ny) == "2026-03-08T12:00:00-04:00")
   assert(after - before == 23 * 3600 * NS, "the day was 23 hours long")
-  assert(Time.add_calendar(before, { days = 1 }) - before == 86400 * NS, "UTC's are all 24")
+  assert(assert(Time.add_calendar(before, { days = 1 })) - before == 86400 * NS, "UTC's are all 24")
   local night = at("2026-03-07T07:30:00Z") -- 02:30 EST
   local v, why = Time.add_calendar(night, { days = 1 }, ny)
   assert(v == nil and why:find("does not exist in America/New_York", 1, true), why)
@@ -672,7 +672,8 @@ local function test_between_holds_across_folds_and_skipped_days()
       local d = Time.between(pair[1], pair[2], z)
       local dir = pair[2] > pair[1] and 1 or -1
       local text = Time.format_duration(d)
-      assert(d.years * dir >= 0 and d.months * dir >= 0 and d.days * dir >= 0 and d.ns * dir >= 0,
+      assert((d.years or 0) * dir >= 0 and (d.months or 0) * dir >= 0 and (d.days or 0) * dir >= 0 and
+          (d.ns or 0) * dir >= 0,
         case[1] .. " " .. text)
       assert(Time.add_calendar(pair[1], d, z, options) == pair[2], case[1] .. " " .. text)
     end

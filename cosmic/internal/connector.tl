@@ -313,13 +313,15 @@ local function read_replies(channel: Channel)
     else
       local want = channel.greeted and 8 - #channel.header or 4 - #channel.hello
       local data, why, errno = sys.read(channel.process.fd, want)
+      if data == nil then
+        if errno ~= raw.EAGAIN then lose(channel, why) end
+        return
+      end
       if data == "" then
         lose(channel, "net: the connector has ended")
         return
-      elseif data == nil then
-        if errno ~= raw.EAGAIN then lose(channel, why) end
-        return
-      elseif not channel.greeted then
+      end
+      if not channel.greeted then
         channel.hello = channel.hello .. data
         if #channel.hello == 4 then
           local said_first = string.unpack(">I4", channel.hello)
@@ -745,7 +747,7 @@ function Served:connect(address: Connection.Address, opts?: Connection.ConnectOp
     error("net: timeout_ns must be an integer from 0", 2)
   end
   if not self.open then return nil, "net: the connector is closed" end
-  local target, port = address.host, address.port
+  local target, port = assert(address.host), assert(address.port)
   -- The process holds the ceiling too; this wait is the one it is asked for.
   local ceiling_ns = Clock.ms(self.timeout_ms)
   local wait_ns = math.min(conn_ns or ceiling_ns, ceiling_ns)

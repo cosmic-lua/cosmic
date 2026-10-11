@@ -267,8 +267,12 @@ end
 --- A run's slowest platform job, or nil where none has both times.
 function Report.slowest(run: Report.Run): Report.Job | nil
   local slowest: Report.Job | nil = nil
+  local slowest_seconds = 0
   for _, job in ipairs(platform_jobs(run)) do
-    if job.seconds and (slowest == nil or job.seconds > slowest.seconds) then slowest = job end
+    local seconds = job.seconds
+    if seconds ~= nil and (slowest == nil or seconds > slowest_seconds) then
+      slowest, slowest_seconds = job, seconds
+    end
   end
   return slowest
 end
@@ -424,7 +428,7 @@ end
 --- `runs`, qualified (`qualify`), as the report's markdown.
 function Report.render(runs: {Report.Run}, o: Report.Options): string
   local out: {string} = { string.format("# CI runs: %s, %s event%s, last %d\n",
-    o.workflow, o.event, o.branch and (" on " .. o.branch) or "", #runs) }
+    o.workflow, o.event, o.branch ~= nil and (" on " .. o.branch) or "", #runs) }
   local qualifying: {Report.Run} = {}
   for _, run in ipairs(runs) do
     out[#out + 1] = string.format("\n## Run %s (%s, %s, attempt %s, %s)\n\n",

@@ -289,7 +289,7 @@ end
 local function test_loopback_gives_a_network_of_its_own_the_host_does_not_share(tmp: string)
   local at = placed(tmp)
   local host = assert(Net.listen(Net.tcp("127.0.0.1", 0), { timeout_ns = 1000000000 }))
-  local port = host.address.port
+  local port = assert(host.address.port)
   -- Nothing is vacuous: the test itself reaches that listener.
   local probe_conn = assert(Net.connect(Net.tcp("127.0.0.1", port)))
   assert(probe_conn:close())

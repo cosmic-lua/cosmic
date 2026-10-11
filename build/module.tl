@@ -3,6 +3,7 @@
 --- the shape without depending on code generation or contract checking.
 
 local type analyzer = require("build.analyzer")
+local type build_stub = require("build.stub")
 
 local record module
   record Plan
@@ -37,6 +38,10 @@ local record module
     --- The compiled Lua, once [`build.importer.compile`] has it: made
     --- this run or read back from the cache under the same key.
     lua?: string
+    --- Its source's stub ([`build.stub`]), which cosmic's own build holds
+    --- to the source's type, and whether it is declaration-only; none for
+    --- a source with no top-level `return`, which has none.
+    stub?: build_stub.Made
   end
 end
 

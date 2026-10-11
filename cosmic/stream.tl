@@ -537,10 +537,14 @@ local function file_skip(self: FdReader, n: integer): boolean, string
   -- lseek happily moves past the end; the size says whether that
   -- skipped bytes the file never had. It is asked for again only
   -- when the one from opening says so, in case the file grew.
-  if at > self.size then
+  local size = assert(self.size)
+  if at > size then
     local now, _ = sys.fstat(self.fd)
-    if now ~= nil then self.size = now.size end
-    if at > self.size then
+    if now ~= nil then
+      size = now.size
+      self.size = size
+    end
+    if at > size then
       self.failed = "stream: skip past the end of the file"
       return false, self.failed
     end

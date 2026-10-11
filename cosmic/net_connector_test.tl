@@ -235,7 +235,7 @@ local function test_a_table_connector_connects_to_its_endpoints_and_refuses_the_
   local before = descriptor_count()
   Poll.run(function()
     local listener, task = echo_server()
-    local port = listener.address.port
+    local port = assert(listener.address.port)
     local connector = assert(Net.connector({
       { host = "127.0.0.1", port = port },
       { host = "127.0.0.2", port = 0 },

@@ -1123,11 +1123,12 @@ end
 --- the choice already holds.
 local function start_tally(ctx: Fix)
   local picked = assert(ctx.picked)
-  ctx.files = picked.files
+  local files = picked.files
+  ctx.files = files
   -- A named path the verb would not take counts among the files the run
   -- covers, so the verdict says how many of everything asked for was
   -- refused rather than only how many of what survived the naming.
-  ctx.counted = #ctx.files + #picked.c_files + #picked.flow_files + #picked.checked +
+  ctx.counted = #files + #picked.c_files + #picked.flow_files + #picked.checked +
     #picked.templates + #picked.refused
   local failures: {string} = {}
   ctx.changed = {}
@@ -1157,7 +1158,7 @@ end
 --- Lays out and checks the C files, then lays out the YAML.
 local function lay_out_c(ctx: Fix)
   local picked = assert(ctx.picked)
-  local root = ctx.root
+  local root = assert(ctx.root)
   local changed = assert(ctx.changed)
   local failures = assert(ctx.failures)
   -- The C is compiled from the root, so a path named from elsewhere is
@@ -1201,12 +1202,12 @@ local function lay_out_c(ctx: Fix)
   end
   for _, outcome in ipairs(c_check.check(root, compiled)) do
     if outcome.findings == nil then
-      failures[#failures + 1] = outcome.file .. ": " .. outcome.trouble
+      failures[#failures + 1] = outcome.file .. ": " .. assert(outcome.trouble)
     else
       for _, f in ipairs(outcome.findings) do
         -- Named only when the variants it was found in are not all that
         -- its file was checked under.
-        local seen = f.variants ~= nil and #f.variants < #outcome.variants and
+        local seen = f.variants ~= nil and #f.variants < #assert(outcome.variants) and
           " [" .. table.concat(f.variants, ", ") .. "]" or ""
         failures[#failures + 1] = f.file .. ":" .. f.line .. ": " .. f.rule ..
           " in " .. f.within .. seen .. ": " .. f.message
@@ -1266,7 +1267,7 @@ end
 --- check reports the files once and a fix repeats until it settles.
 local function wrap_asserts(ctx: Fix)
   local every = assert(ctx.every)
-  local root = ctx.root
+  local root = assert(ctx.root)
   local checking = ctx.checking
   local built = assert(ctx.built)
   local changed = assert(ctx.changed)
@@ -1394,7 +1395,7 @@ end
 --- a finding is the tree's, not a file's, so it is counted apart.
 local function run_tree_checks(ctx: Fix)
   local picked = assert(ctx.picked)
-  local root = ctx.root
+  local root = assert(ctx.root)
   local built = assert(ctx.built)
   local findings: {string} = {}
   ctx.findings = findings

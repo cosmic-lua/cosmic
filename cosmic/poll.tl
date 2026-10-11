@@ -279,8 +279,9 @@ end
 local loop: Loop = nil
 
 local function earlier(a: Wait, b: Wait): boolean
-  if a.at ~= b.at then return a.at < b.at end
-  return a.seq < b.seq
+  local a_at, b_at = assert(a.at), assert(b.at)
+  if a_at ~= b_at then return a_at < b_at end
+  return assert(a.seq) < assert(b.seq)
 end
 
 local function heap_push(heap: {Wait}, w: Wait)
@@ -439,7 +440,7 @@ local function wake(w: Wait, ok: boolean, why: string, notice?: NotifierState)
 end
 
 local function began_first(a: Wait, b: Wait): boolean
-  return a.seq < b.seq
+  return assert(a.seq) < assert(b.seq)
 end
 
 --- Answers each of `hits` ready, in the order they began.
@@ -840,7 +841,7 @@ local function next_timeout(): integer
   if #loop.ready > 0 then return 0 end
   while #loop.timers > 0 and loop.timers[1].done do pop_timer() end
   if #loop.timers == 0 then return -1 end
-  local left = loop.timers[1].at - Clock.monotonic_ns()
+  local left = assert(loop.timers[1].at) - Clock.monotonic_ns()
   if left <= 0 then return 0 end
   return math.min(Clock.ceil(left, MS), Clock.ceil(Poll.MOST_NS, MS))
 end
@@ -885,7 +886,7 @@ end
 --- Answers every time wait whose time has come.
 local function expire()
   local t = Clock.monotonic_ns()
-  while #loop.timers > 0 and (loop.timers[1].done or loop.timers[1].at <= t) do
+  while #loop.timers > 0 and (loop.timers[1].done or assert(loop.timers[1].at) <= t) do
     local w = pop_timer()
     if not w.done then
       if w.expiry_ok then wake(w, true, "") else wake(w, false, Poll.TIMEOUT) end

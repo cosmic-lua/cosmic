@@ -121,7 +121,10 @@ end
 
 local function test_a_unix_socket_is_made_only_where_the_root_the_network_and_landlock_hold_it(tmp: string)
   local abi, trouble = process.landlock_abi()
-  if abi == nil then Test.skip("no Landlock here: " .. tostring(trouble)) end
+  if abi == nil then
+    Test.skip("no Landlock here: " .. tostring(trouble))
+    return
+  end
   local probe = assert(stand_in.build(tmp .. "/stand-in"))
   local script = "connect /none.sock"
   local held = in_sandbox(tmp, probe, rooted(probe, true), script)
@@ -170,7 +173,10 @@ end
 
 local function test_a_root_of_its_own_tmpfs_alone_makes_a_unix_socket_there(tmp: string)
   local abi, trouble = process.landlock_abi()
-  if abi == nil then Test.skip("no Landlock here: " .. tostring(trouble)) end
+  if abi == nil then
+    Test.skip("no Landlock here: " .. tostring(trouble))
+    return
+  end
   if unix_socket.skipped(tmp) then return end
   local probe = assert(stand_in.build(tmp .. "/stand-in"))
   -- What it makes in its own /tmp it also reaches there, whatever Landlock's ABI.
@@ -227,7 +233,10 @@ end
 
 local function test_a_root_that_shows_a_directory_of_the_host_is_held_by_landlock_alone(tmp: string)
   local abi, trouble = process.landlock_abi()
-  if abi == nil then Test.skip("no Landlock here: " .. tostring(trouble)) end
+  if abi == nil then
+    Test.skip("no Landlock here: " .. tostring(trouble))
+    return
+  end
   if unix_socket.skipped(tmp) then return end
   local probe = assert(stand_in.build(tmp .. "/stand-in"))
   local socket, listener = host_socket(tmp)
@@ -244,7 +253,10 @@ end
 
 local function test_a_socket_file_in_the_root_is_not_held_below_abi_9(tmp: string)
   local abi, trouble = process.landlock_abi()
-  if abi == nil then Test.skip("no Landlock here: " .. tostring(trouble)) end
+  if abi == nil then
+    Test.skip("no Landlock here: " .. tostring(trouble))
+    return
+  end
   if unix_socket.skipped(tmp) then return end
   local probe = assert(stand_in.build(tmp .. "/stand-in"))
   local socket, listener = host_socket(tmp)
@@ -261,7 +273,10 @@ local O_PATH <const> = 2097152
 
 local function test_a_descriptor_that_opens_a_directory_or_a_socket_is_not_held_below_abi_9(tmp: string)
   local abi, trouble = process.landlock_abi()
-  if abi == nil then Test.skip("no Landlock here: " .. tostring(trouble)) end
+  if abi == nil then
+    Test.skip("no Landlock here: " .. tostring(trouble))
+    return
+  end
   if unix_socket.skipped(tmp) then return end
   local probe = assert(stand_in.build(tmp .. "/stand-in"))
   local socket, listener = host_socket(tmp)
@@ -303,7 +318,12 @@ end
 
 local function test_a_unix_socket_below_abi_9_fails_a_start_that_binds_a_directory(tmp: string)
   local abi, trouble = process.landlock_abi()
-  if abi == nil then Test.skip("no Landlock here: " .. tostring(trouble)) end
+  if abi == nil then
+    Test.skip("no Landlock here: " .. tostring(trouble))
+    return
+  end
+  -- Read before the local function below, after which the checker no longer knows `abi` is set.
+  local below_abi_9 = abi < 9
   local probe = assert(stand_in.build(tmp .. "/stand-in"))
   assert(Fs.mkdirs(tmp .. "/socks") and Fs.write(tmp .. "/u.file", "x"))
   -- A `u` grant allows unix sockets (the start's `sockets`), so the root alone must
@@ -320,7 +340,7 @@ local function test_a_unix_socket_below_abi_9_fails_a_start_that_binds_a_directo
   local pid, why = start(probe, with_u({}))
   if pid == nil then Test.skip("no such sandbox: " .. tostring(why)) end
   local shown, refusal = start(probe, with_u({ tmp .. "/socks" }))
-  if abi < 9 then
+  if below_abi_9 then
     assert(shown == nil and tostring(refusal):find("changed kind", 1, true), "refused: " .. tostring(refusal))
   else
     assert(shown ~= nil, "Landlock holds it from ABI 9: " .. tostring(refusal))
@@ -329,7 +349,10 @@ end
 
 local function test_a_path_swapped_for_a_directory_after_the_check_fails_the_start(tmp: string)
   local abi, trouble = process.landlock_abi()
-  if abi == nil then Test.skip("no Landlock here: " .. tostring(trouble)) end
+  if abi == nil then
+    Test.skip("no Landlock here: " .. tostring(trouble))
+    return
+  end
   if abi >= 9 then return end
   local probe = assert(stand_in.build(tmp .. "/stand-in"))
   assert(Fs.write(tmp .. "/swap-a", "x") and Fs.mkdirs(tmp .. "/swap-b"))

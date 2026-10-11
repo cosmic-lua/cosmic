@@ -78,6 +78,10 @@ function ChangedPaths.changed_paths(env: {string:string}, host: Github.Host, git
   end
   -- A stale list must not outlive a refusal: a later step reads OUT.
   local _, _ = Fs.remove(out)
+  local function whole_tree(reason: string): integer
+    host.print("the format check covers the whole tree: " .. reason)
+    return 0
+  end
   local limit, why = whole(env, "LIMIT", 400)
   local wait: integer | nil
   if limit ~= nil then wait, why = whole(env, "FETCH_SECONDS", 60) end
@@ -86,10 +90,6 @@ function ChangedPaths.changed_paths(env: {string:string}, host: Github.Host, git
     return 2
   end
   local base = env.BASE or ""
-  local function whole_tree(reason: string): integer
-    host.print("the format check covers the whole tree: " .. reason)
-    return 0
-  end
   if not Github.is_commit(base) then return whole_tree("no base on main") end
   if not git({ "fetch", "--quiet", "--no-tags", "--depth=1", "origin", base }, wait) then
     return whole_tree("could not fetch " .. base)

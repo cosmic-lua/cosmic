@@ -71,7 +71,8 @@ local function drained(fd: integer): string
   local at = 0
   while true do
     local chunk, _ = sys.pread(fd, 65536, at)
-    if chunk == nil or chunk == "" then break end
+    if chunk == nil then break end
+    if chunk == "" then break end
     out[#out + 1] = chunk
     at = at + #chunk
   end

@@ -529,7 +529,7 @@ local function test_try_wait_services_a_chatty_child()
     polled = assert(h:try_wait())
   end
   assert(polled.finished, "a full pipe stalled the child")
-  assert(#assert(polled.result).stdout == 200000)
+  assert(#assert(assert(polled.result).stdout) == 200000)
 end
 
 local function test_timeout_keeps_what_was_captured()

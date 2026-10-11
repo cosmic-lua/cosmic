@@ -67,12 +67,15 @@ function State.external_path(path: string, candidate: string): string
   local directory = State.canonical_directory(Fs.dirname(path))
   local leaf = Fs.basename(path)
   local unresolved = directory == "/" and "/" .. leaf or directory .. "/" .. leaf
-  local absolute, trouble = Fs.absolute(unresolved)
-  if not absolute then
+  local resolved, trouble = Fs.absolute(unresolved)
+  local absolute: string
+  if resolved == nil then
     for _, entry in ipairs((assert(Fs.list(directory)))) do
       assert(entry ~= leaf, "path cannot be resolved: " .. trouble)
     end
     absolute = unresolved
+  else
+    absolute = resolved
   end
   local candidate_absolute = State.canonical_directory(candidate)
   assert(not Fs.within(absolute, candidate_absolute),

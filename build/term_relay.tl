@@ -400,7 +400,8 @@ function TermRelay.run(argv: {string}, opts: Child.Options, terminal?: Terminal)
       if errno == sys.EAGAIN or errno == sys.EINTR then return 0 end
       master_open = false
       return -1
-    elseif data == "" then
+    end
+    if data == "" then
       master_open = false
       return -1
     end

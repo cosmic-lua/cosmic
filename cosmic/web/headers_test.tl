@@ -17,7 +17,7 @@ local function make_app(opts?: Headers.Options, more?: {Web.Route}, spec?: Web.A
       return Web.text("plain")
     end),
     Web.get("/page", function(req: Web.Request): Web.Response
-      local nonce = req:get(Headers.NONCE)
+      local nonce = assert(req:get(Headers.NONCE))
       return Web.html(Html.concat({ Html.trust("<head>"), Htmx.head{ nonce = nonce },
         Html.trust('</head><script nonce="' .. nonce .. '">1</script>') }))
     end),

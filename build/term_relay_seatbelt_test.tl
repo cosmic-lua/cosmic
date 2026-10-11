@@ -27,7 +27,8 @@ local function shown(master: integer): string
     local ready, _ = Poll.readable(master, Clock.ms(200))
     if not ready then return text end
     local data, _ = sys.read(master, 4096)
-    if data == nil or data == "" then return text end
+    if data == nil then return text end
+    if data == "" then return text end
     text = text .. data
   end
 end

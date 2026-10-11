@@ -254,7 +254,7 @@ end
 local function test_adopted_connector_gives_up_a_stream_that_passes_the_wrong_descriptor()
   Poll.run(function()
     local listener = assert(Net.listen(Net.tcp("127.0.0.1", 0)))
-    local port = listener.address.port
+    local port = assert(listener.address.port)
     local elsewhere = assert(socket.start({ kind = "tcp", host = "127.0.0.1", port = port }))
     assert(Poll.writable(elsewhere:fd(), Clock.seconds(5)))
     local null = assert(sys.open("/dev/null", sys.O_RDONLY))

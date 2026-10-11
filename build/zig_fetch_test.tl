@@ -61,8 +61,9 @@ local function scripted(replies: {string:{Http.DownloadResult}}, calls: {string}
   return {
     download = function(url: string, path: string, opts: Http.Options): Http.DownloadResult
       assert(opts.sha256 == "abc")
-      assert(opts.connect_timeout_ns > 0 and opts.low_speed_bytes >= 1024 and
-          opts.low_speed_ns > 0, "an attempt has no stall guard")
+      assert(opts.connect_timeout_ns ~= nil and opts.connect_timeout_ns > 0 and
+          opts.low_speed_bytes ~= nil and opts.low_speed_bytes >= 1024 and
+          opts.low_speed_ns ~= nil and opts.low_speed_ns > 0, "an attempt has no stall guard")
       assert(Fs.exists(path) == false, "an attempt started over an earlier file")
       calls[#calls + 1] = url
       if seen ~= nil then

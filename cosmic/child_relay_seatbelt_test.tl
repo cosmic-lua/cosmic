@@ -295,7 +295,7 @@ local function flows(tmp: string): Flows
     local second = assert(Net.listen(Net.tcp("127.0.0.1", 0)))
     local granted_count, ungranted_count = { 0 }, { 0 }
     local tasks = { echoing(first, granted_count), echoing(second, ungranted_count) }
-    local granted, ungranted = first.address.port, second.address.port
+    local granted, ungranted = assert(first.address.port), assert(second.address.port)
     local result, why = Child.run({ assert(Proc.executable()), "flows", tostring(granted), tostring(ungranted) },
       { policy = { database = { path = database }, profiles = { "system" },
         connect = { "127.0.0.1:" .. granted, "localhost:" .. granted } },

@@ -338,7 +338,8 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
         if segment.kind == "name" then
           steps[i] = segment.name
         else
-          steps[i] = segment.index >= 0 and segment.index + 1 or segment.index
+          local index = assert(segment.index)
+          steps[i] = index >= 0 and index + 1 or index
         end
       end
       local _, missing = Json.get(document, steps)
