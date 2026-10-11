@@ -74,7 +74,7 @@ end
 local function test_each_option_sets_its_field()
   local ran = run({ "--read", "a", "--run", "b", "--write", "c", "--path", "rwxc:d", "--", "prog" })
   assert(ran.code == 0 and ran.err == "", ran.err)
-  local policy = ran.opts.policy
+  local policy = assert(ran.opts.policy)
   assert(letters(policy, "a") == "r" and letters(policy, "b") == "rx", letters(policy, "b"))
   assert(letters(policy, "c") == "rwc" and letters(policy, "d") == "rwxc")
   same(ran.argv, { "prog" })
@@ -82,21 +82,21 @@ local function test_each_option_sets_its_field()
   ran = run({ "--system", "--cosmic", "--isolate", "file", "--isolate", "proc", "--promise", "fork",
     "--promise", "nest", "--connect", "github.com:443", "--loopback", "127.0.0.2", "--env", "HOME",
     "--env", "TERM", "--set-env", "LANG=C", "--set-env", "EMPTY=", "--tmp", "prog" })
-  policy = ran.opts.policy
+  policy = assert(ran.opts.policy)
   same(policy.profiles, { "system", "cosmic" })
   same(policy.isolate, { "file", "proc" })
   same(policy.promises, { "fork", "nest" })
   same(policy.connect, { "github.com:443" })
   same(policy.loopback, { "127.0.0.2" })
   same(policy.env, { "HOME", "TERM" })
-  assert(policy.set_env.LANG == "C" and policy.set_env.EMPTY == "" and policy.tmp == true)
+  assert(assert(policy.set_env).LANG == "C" and assert(policy.set_env).EMPTY == "" and policy.tmp == true)
 
   ran = run({ "--open-files", "64", "--file-bytes", "0", "--cpu-seconds", "9", "--processes", "5",
     "--fd", "3", "--fd", "7", "--timeout", "30", "prog" })
-  local limits = ran.opts.policy.limits
+  local limits = assert(assert(ran.opts.policy).limits)
   assert(limits.open_files == 64 and limits.file_bytes == 0 and limits.cpu_seconds == 9 and
       limits.processes == 5)
-  assert(ran.opts.fds[3] == 3 and ran.opts.fds[7] == 7 and ran.opts.fds[4] == nil)
+  assert(assert(ran.opts.fds)[3] == 3 and assert(ran.opts.fds)[7] == 7 and assert(ran.opts.fds)[4] == nil)
   assert(ran.opts.timeout_ns == 30000000000, tostring(ran.opts.timeout_ns))
   assert(ran.opts.env == nil, "the policy's environment alone")
   assert(ran.opts.cwd == nil, "this process's own directory")
@@ -113,16 +113,16 @@ end
 local function test_a_policy_with_no_option_is_the_empty_one()
   local ran = run({ "prog" })
   assert(ran.code == 0)
-  local policy = ran.opts.policy
+  local policy = assert(ran.opts.policy)
   assert(#(policy.grants or {}) == 0 and #(policy.profiles or {}) == 0 and not policy.tmp)
-  assert(ran.opts.timeout_ns == nil and next(ran.opts.fds) == nil)
+  assert(ran.opts.timeout_ns == nil and next(ran.opts.fds or {}) == nil)
 end
 
 local function test_a_value_is_the_next_word_or_follows_an_equals_sign()
   local ran = run({ "--read=a b", "--set-env=PATH=/x=y", "--timeout=5", "--path=r:c:d", "prog" })
-  local policy = ran.opts.policy
+  local policy = assert(ran.opts.policy)
   assert(letters(policy, "a b") == "r" and letters(policy, "c:d") == "r", "a path may hold a colon")
-  assert(policy.set_env.PATH == "/x=y" and ran.opts.timeout_ns == 5000000000)
+  assert(assert(policy.set_env).PATH == "/x=y" and ran.opts.timeout_ns == 5000000000)
 end
 
 local function test_the_program_is_the_first_word_no_option_claims()
@@ -144,7 +144,7 @@ end
 local function test_words_after_the_program_are_the_programs()
   local ran = run({ "--system", "ls", "--read", "x", "-l", "--", "--tmp" })
   same(ran.argv, { "ls", "--read", "x", "-l", "--", "--tmp" })
-  assert(#(ran.opts.policy.grants or {}) == 0 and not ran.opts.policy.tmp)
+  assert(#(assert(ran.opts.policy).grants or {}) == 0 and not assert(ran.opts.policy).tmp)
   ran = run({ "--", "--read", "x" })
   same(ran.argv, { "--read", "x" })
   ran = run({ "--read", "a", "--", "prog", "--", "b" })
@@ -167,9 +167,9 @@ end
 
 local function test_user_names_the_user_and_group_by_number()
   local ran = run({ "--user", "1000", "prog" })
-  assert(ran.code == 0 and ran.opts.policy.user == 1000 and ran.opts.policy.group == nil, ran.err)
+  assert(ran.code == 0 and assert(ran.opts.policy).user == 1000 and assert(ran.opts.policy).group == nil, ran.err)
   ran = run({ "--user=1000:100", "prog" })
-  assert(ran.opts.policy.user == 1000 and ran.opts.policy.group == 100, ran.err)
+  assert(assert(ran.opts.policy).user == 1000 and assert(ran.opts.policy).group == 100, ran.err)
   for _, given in ipairs({ "0", "me", "1000:", ":100", "1000:0", "4294967295", "1:2:3" }) do
     local why = refused({ "--user", given, "prog" }).err
     assert(why:find("--user takes UID or UID:GID", 1, true), given .. ": " .. why)
@@ -223,7 +223,7 @@ local function test_a_connect_is_the_starts_to_serve_and_its_failure_is_the_star
     { why = "child: start: sandbox: relay: the relay ended (status 1) before it served" })
   assert(ran.code == 125, ran.code .. ran.err)
   assert(ran.err:find("relay: the relay ended", 1, true), ran.err)
-  same(ran.opts.policy.connect, { "github.com:443" })
+  same(assert(ran.opts.policy).connect, { "github.com:443" })
 end
 
 --- Runs the verb on `words` with the relay's client stood in for: the words
@@ -337,11 +337,11 @@ local function test_database_sets_the_policys_database(tmp: string)
   local real = assert(sys.realpath(tmp .. "/work/p.db"))
   local ran = run({ "--database", tmp .. "/work/p.db", "--", "prog", "a" })
   assert(ran.code == 0 and ran.err == "", ran.err)
-  assert(ran.opts.policy.database.path == real, tostring(ran.opts.policy.database.path))
+  assert(assert(assert(ran.opts.policy).database).path == real, tostring(assert(assert(ran.opts.policy).database).path))
   same(ran.argv, { "prog", "a" })
   ran = run({ "--cwd", tmp .. "/work", "--database=p.db" })
   assert(ran.code == 0 and ran.err == "", ran.err)
-  assert(ran.opts.policy.database.path == real, tostring(ran.opts.policy.database.path))
+  assert(assert(assert(ran.opts.policy).database).path == real, tostring(assert(assert(ran.opts.policy).database).path))
   same(ran.argv, { (assert(Proc.executable())) })
   local missing = refused({ "--database", tmp .. "/absent.db", "prog" })
   assert(missing.err:find("absent.db", 1, true), missing.err)
@@ -410,7 +410,7 @@ local function policy_after(words: {string}): {string:any}
   line[#line + 1] = "prog"
   local ran = run(line)
   assert(ran.code == 0, words[1] .. ": " .. ran.err)
-  return ran.opts.policy as {string:any}
+  return assert(ran.opts.policy) as {string:any}
 end
 
 --- Whether a field holds something: a non-empty list or map, or a value.
@@ -420,21 +420,23 @@ local function holds(value: any): boolean
 end
 
 local function test_every_policy_field_has_a_flag()
-  assert(POLICY.spec.kind == "record" and #POLICY.spec.names > 0)
+  local names = assert(POLICY.spec.names)
+  assert(POLICY.spec.kind == "record" and #names > 0)
   local seen: {string:boolean} = {}
-  for _, name in ipairs(POLICY.spec.names) do
+  for _, name in ipairs(names) do
     if exempt[name] == nil and name ~= "limits" then
       local words = samples[name]
       assert(words ~= nil, "Policy." .. name .. " has no flag: add one to cosmic sandbox and to " ..
           "Cli.verbs.sandbox.spec, and a sample here")
-      assert(Cli.verbs.sandbox.spec[words[1]] ~= nil, words[1] .. " is not in the spec")
+      assert(assert(Cli.verbs.sandbox.spec)[words[1]] ~= nil, words[1] .. " is not in the spec")
       seen[words[1]] = true
       assert(holds(policy_after(words)[name]), words[1] .. " does not set Policy." .. name)
     end
   end
-  local limits = POLICY.spec.fields.limits
-  assert(limits ~= nil and limits.kind == "record" and #limits.names > 0)
-  for _, name in ipairs(limits.names) do
+  local fields = assert(POLICY.spec.fields)
+  local limits = fields.limits
+  assert(limits ~= nil and limits.kind == "record" and #assert(limits.names) > 0)
+  for _, name in ipairs(assert(limits.names)) do
     local words = samples[name]
     assert(words ~= nil, "Policy.limits." .. name .. " has no flag: add one to cosmic sandbox " ..
         "and to Cli.verbs.sandbox.spec, and a sample here")
@@ -445,14 +447,14 @@ local function test_every_policy_field_has_a_flag()
   -- A grant's path and letters are one option's. `from` has none: it needs
   -- isolate file and names a host path; it waits on policy files (the
   -- design's Roadmap).
-  for _, name in ipairs(POLICY.spec.fields.grants.of.names) do
+  for _, name in ipairs(assert(assert(fields.grants).of).names or {}) do
     assert(name == "path" or name == "letters" or name == "from", "Policy.grants[]." .. name ..
         " has no flag: add one, and say so here")
   end
-  for flag in pairs(Cli.verbs.sandbox.spec) do
+  for flag in pairs(Cli.verbs.sandbox.spec or {}) do
     assert(seen[flag] or others[flag], flag .. " sets no field of the policy")
   end
   for name in pairs(samples) do
-    assert(Cli.verbs.sandbox.spec[samples[name][1]] ~= nil, name .. ": no such flag")
+    assert(assert(Cli.verbs.sandbox.spec)[samples[name][1]] ~= nil, name .. ": no such flag")
   end
 end

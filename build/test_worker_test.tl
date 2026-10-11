@@ -112,9 +112,9 @@ local function test_a_worker_is_started_as_its_command_line_says()
     "--tree", "suite.a_test", "suite.b" }
   assert(#argv == #expected, table.concat(argv, " "))
   for i, value in ipairs(expected) do assert(argv[i] == value, i .. ": " .. argv[i]) end
-  assert(options.env.PATH == "/bin" and options.env.COVERAGE == "1")
-  assert(options.env.COSMIC_COVERAGE_STARTUP == "1")
-  assert(options.fds[worker.report_fd] == "capture" and options.fds[254] == 7)
+  assert(assert(options.env).PATH == "/bin" and assert(options.env).COVERAGE == "1")
+  assert(assert(options.env).COSMIC_COVERAGE_STARTUP == "1")
+  assert(assert(options.fds)[worker.report_fd] == "capture" and assert(options.fds)[254] == 7)
   assert(options.process_group and options.sandbox == nil and options.stdin == "null")
   -- Held by a ruleset that forbids running nothing, or by none.
   for hold, flag in pairs({ mounts = "--worker-held", none = "--worker" } as {string:string}) do
@@ -159,14 +159,14 @@ local function test_a_nesting_worker_is_handed_no_descriptor_of_the_program()
     })
   end
   local nesting = started({ "fork", "nest" })
-  local env = nesting.options.policy.set_env
+  local env = assert(assert(nesting.options.policy).set_env)
   assert(env.COSMIC_PORTABLE_ARTIFACT_FD == nil and env.COSMIC_PORTABLE_CORE_FD == nil)
   assert(env.COSMIC_PORTABLE_CORE_LENGTH == "9", "the rest of the contract stays")
-  assert(nesting.options.fds[254] == nil and nesting.options.fds[255] == nil)
-  assert(nesting.options.fds[worker.report_fd] == "capture")
+  assert(assert(nesting.options.fds)[254] == nil and assert(nesting.options.fds)[255] == nil)
+  assert(assert(nesting.options.fds)[worker.report_fd] == "capture")
   local plain = started({ "fork" })
-  assert(plain.options.policy.set_env.COSMIC_PORTABLE_ARTIFACT_FD == "254")
-  assert(plain.options.fds[254] == 7 and plain.options.fds[255] == 8)
+  assert(assert(assert(plain.options.policy).set_env).COSMIC_PORTABLE_ARTIFACT_FD == "254")
+  assert(assert(plain.options.fds)[254] == 7 and assert(plain.options.fds)[255] == 8)
 end
 
 --- A test that said it could not check what it exists to check

@@ -111,7 +111,7 @@ local NOT_EXECUTABLE <const> = 126
 --- The exit status of a program that is not there.
 local NOT_FOUND <const> = 127
 
-local spec = Cli.verbs.sandbox.spec
+local spec = Cli.verbs.sandbox.spec or {}
 
 --- The longest `--timeout`, a year, well inside what a start accepts.
 local MOST_SECONDS <const> = 31536000

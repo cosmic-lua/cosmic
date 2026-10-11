@@ -670,8 +670,8 @@ end
 local function test_the_relays_policy_grants_reads_alone(_tmp: string)
   macos_only()
   local policy = RelayStart.seatbelt_policy("/tmp/relay.db", string.rep("0", 64))
-  assert(policy.database.path == "/tmp/relay.db" and policy.profiles[1] == "system")
-  for _, grant in ipairs(policy.grants) do
+  assert(assert(policy.database).path == "/tmp/relay.db" and assert(policy.profiles)[1] == "system")
+  for _, grant in ipairs(policy.grants or {}) do
     assert(grant.letters == "r", grant.path .. " is granted " .. grant.letters)
   end
   assert(#(policy.connect or {}) == 0 and #(policy.promises or {}) == 0)

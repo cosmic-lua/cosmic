@@ -28,22 +28,22 @@ local record Seatbelt
     paths: {string:Path}
     --- The name of this program for the "cosmic" profile, with its
     --- resolved path and kind in `paths` like an explicit grant.
-    executable: string
+    executable?: string
     --- The name of the core a start of this program runs (past the
     --- launcher, which unpacks a core into a cache no profile grants), in
     --- `paths` like an explicit grant: granted `rx`. Required with the
     --- policy's `database`.
-    core: string
+    core?: string
     --- The name of the database that core runs on (`core --database <path>`),
     --- in `paths` like an explicit grant: granted `r`, and no more, since
     --- the core opens it read-only and immutable, which takes no lock, no
     --- `-wal` and no `-shm`. Required with the policy's `database`, which it
     --- names (resolved).
-    database: string
+    database?: string
     --- The resolved path of the pty slave that is the child's controlling
     --- terminal, or nil for none. With it the profile grants the slave and
     --- `/dev/tty`, and `/dev` to list, which no other profile does.
-    terminal: string
+    terminal?: string
     --- The port the network relay that serves the policy's `connect`
     --- listens at on the host's loopback ([`Child.start`]), which the
     --- profile lets the program connect to over TCP and nothing else of the
@@ -51,7 +51,7 @@ local record Seatbelt
     --- is `localhost:PORT`, which holds 127.0.0.1 and ::1 alike (the relay
     --- holds the port on both) and lets it bind and listen nowhere. Required with `connect`; a policy without
     --- `connect` is refused one.
-    relay_port: integer
+    relay_port?: integer
     --- The port of the host's loopback the network relay accepts at, for
     --- the relay's own profile; nil for any other. The relay may connect to
     --- any address and port (Seatbelt cannot name one by number, so the
@@ -62,7 +62,7 @@ local record Seatbelt
     --- reaches, and run no program but `core`: the rest of what it is granted
     --- `x` it may map as a library and not run. Only the start of the relay
     --- sets it.
-    serves_relay: integer
+    serves_relay?: integer
   end
 
   --- Text to pass to sandbox_init_with_parameters, values kept outside
@@ -263,7 +263,7 @@ function Seatbelt.compile(policy: rules.Policy, options?: Seatbelt.Options): Sea
     "(allow file-read-metadata)", '(allow file-read-data (literal (param "ROOT")))',
     "(allow sysctl-read)",
     "(allow signal (target self))", "(allow process-info-pidinfo (target self))" }
-  for _, promise in ipairs(merged.promises) do
+  for _, promise in ipairs(merged.promises or {}) do
     if promise == "fork" then text[#text + 1] = "(allow process-fork)" end
     if promise == "jit" then text[#text + 1] = "(allow dynamic-code-generation)" end
     if promise == "fattr" then fattr = true end
@@ -273,7 +273,7 @@ function Seatbelt.compile(policy: rules.Policy, options?: Seatbelt.Options): Sea
   -- The relay runs its core alone, which the start executes under the profile.
   local runs: string
   if serves ~= nil and options.core ~= nil then runs = paths[options.core].path end
-  for i, grant in ipairs(merged.grants) do
+  for i, grant in ipairs(merged.grants or {}) do
     local name = "PATH_" .. i
     parameters[name] = grant.path
     allow(text, fattr, grant.letters, '(' .. (directories[grant.path] and "subpath" or "literal") ..
@@ -314,8 +314,9 @@ function Seatbelt.compile(policy: rules.Policy, options?: Seatbelt.Options): Sea
     text[#text + 1] = '(allow network-inbound (local tcp "localhost:' .. serves .. '"))'
     text[#text + 1] = '(allow mach-lookup (global-name "com.apple.SystemConfiguration.DNSConfiguration"))'
   end
-  local rlimits: {string:integer} = { nofile = merged.limits.open_files or 1024, core = 0 }
-  rlimits.fsize, rlimits.cpu = merged.limits.file_bytes, merged.limits.cpu_seconds
+  local limits = merged.limits or {}
+  local rlimits: {string:integer} = { nofile = limits.open_files or 1024, core = 0 }
+  rlimits.fsize, rlimits.cpu = limits.file_bytes, limits.cpu_seconds
   return { text = table.concat(text, "\n") .. "\n", parameters = parameters, rlimits = rlimits,
     tmp = tmp }, ""
 end
@@ -402,7 +403,8 @@ function Seatbelt.resolve(policy: rules.Policy, base?: string, executable?: stri
       return refuse("executable " .. string.format("%q", executable) .. ": " .. trouble)
     end
   end
-  for _, name in ipairs({ core or "", database or "", policy.database and policy.database.path or "" }) do
+  local policy_database = policy.database
+  for _, name in ipairs({ core or "", database or "", policy_database and policy_database.path or "" }) do
     if name ~= "" then
       local trouble = look(name, name)
       if trouble ~= "" then return refuse(string.format("%q", name) .. ": " .. trouble) end

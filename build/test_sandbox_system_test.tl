@@ -43,7 +43,7 @@ local function test_a_module_that_declares_system_is_given_the_system_profile(tm
     network = {}, tool = false, store = false, system = true }
   local plan = test_sandbox.plan(root, scratch, inputs, {})
   assert(plan.trouble == "", plan.trouble)
-  assert(not holds(plan.sandbox.unveil.reads, "/usr"))
+  assert(not holds(assert(plan.sandbox.unveil).reads, "/usr"))
   local policy = assert(test_policy.worker(plan, inputs))
   assert(holds(policy.profiles or {}, "system"))
 end

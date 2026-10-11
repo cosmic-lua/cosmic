@@ -349,24 +349,27 @@ local function not_in_process(merged: Sandbox.Policy): string
     return "database \"" .. merged.database.path .. "\" is the program a child runs on, which a " ..
       "running process cannot change: start a child with Child.start and a policy instead"
   end
-  if #merged.isolate > 0 then
-    return "isolate \"" .. merged.isolate[1] .. "\" needs a namespace of its own: start " ..
+  -- A merged policy holds every list, empty where it names none.
+  local isolate, connect, loopback = merged.isolate or {}, merged.connect or {}, merged.loopback or {}
+  local env = merged.env or {}
+  if #isolate > 0 then
+    return "isolate \"" .. isolate[1] .. "\" needs a namespace of its own: start " ..
       "a child with Child.start and a policy instead"
   end
-  if #merged.connect > 0 then
-    return "connect \"" .. merged.connect[1] .. "\" needs a relay in a network namespace of " ..
+  if #connect > 0 then
+    return "connect \"" .. connect[1] .. "\" needs a relay in a network namespace of " ..
       "its own: start a child with Child.start and a policy instead"
   end
-  if #merged.loopback > 0 then
-    return "loopback \"" .. merged.loopback[1] .. "\" needs a network namespace of its own: " ..
+  if #loopback > 0 then
+    return "loopback \"" .. loopback[1] .. "\" needs a network namespace of its own: " ..
       "start a child with Child.start and a policy instead"
   end
-  for _, promise in ipairs(merged.promises) do
+  for _, promise in ipairs(merged.promises or {}) do
     if promise == "nest" then
       return "promises \"nest\" needs isolate file, which only a child can have"
     end
   end
-  for _, grant in ipairs(merged.grants) do
+  for _, grant in ipairs(merged.grants or {}) do
     if grant.from ~= nil then
       return "grant \"" .. grant.path .. "\" has from, which needs isolate file, which only a " ..
         "child can have"
@@ -386,21 +389,21 @@ local function not_in_process(merged: Sandbox.Policy): string
         "a socket the filter allows: start a child with Child.start and a policy instead"
     end
   end
-  if next(merged.env) ~= nil then
-    return "env \"" .. merged.env[1] .. "\" is the environment of a child, which a running " ..
+  if next(env) ~= nil then
+    return "env \"" .. env[1] .. "\" is the environment of a child, which a running " ..
       "process already has"
   end
-  for name, _ in pairs(merged.set_env) do
+  for name, _ in pairs(merged.set_env or {}) do
     return "set_env \"" .. name .. "\" is the environment of a child, which a running " ..
       "process already has"
   end
-  for name, _ in pairs(merged.set_env_digests) do
+  for name, _ in pairs(merged.set_env_digests or {}) do
     return "set_env_digests \"" .. name .. "\" holds a digest, not a value to set"
   end
   if merged.tmp then
     return "tmp is a directory made for a child, which a running process makes for itself"
   end
-  if merged.limits.processes ~= nil then
+  if (merged.limits or {}).processes ~= nil then
     return "limits.processes counts the processes of a user namespace of its own, which only " ..
       "a child has"
   end
@@ -583,15 +586,16 @@ function Sandbox.restrict(policy: Sandbox.Policy, options?: Sandbox.RestrictOpti
   if logged ~= "" then return denied(logged) end
   if darwin() then return held_by_seatbelt(policy, kept) end
   local grants: {raw_process.Grant} = {}
-  for _, grant in ipairs(merged.grants) do
+  for _, grant in ipairs(merged.grants or {}) do
     grants[#grants + 1] = { path = grant.path, access = grant.letters }
   end
-  local rlimits: {string:integer} = { nofile = merged.limits.open_files or DEFAULT_OPEN_FILES,
+  local limits = merged.limits or {}
+  local rlimits: {string:integer} = { nofile = limits.open_files or DEFAULT_OPEN_FILES,
     core = 0 }
-  rlimits.fsize = merged.limits.file_bytes
-  rlimits.cpu = merged.limits.cpu_seconds
+  rlimits.fsize = limits.file_bytes
+  rlimits.cpu = limits.cpu_seconds
   local promises: {string} = {}
-  for _, promise in ipairs(merged.promises) do promises[#promises + 1] = promise end
+  for _, promise in ipairs(merged.promises or {}) do promises[#promises + 1] = promise end
   local done, held, failure = raw.restrict_self({ grants = grants, promises = promises,
     rlimits = rlimits }, kept)
   if not done then

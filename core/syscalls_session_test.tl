@@ -45,7 +45,7 @@ end
 --- reads.
 local function spawn_fds(started: this_program.Program): {integer:integer}
   local fds: {integer:integer} = {}
-  for number, fd in pairs(started.options.fds) do
+  for number, fd in pairs(started.options.fds or {}) do
     if fd is integer then
       fds[number] = fd
     else

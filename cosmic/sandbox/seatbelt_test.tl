@@ -281,7 +281,7 @@ local function test_system_profile_means_the_same_raw_merged_and_through_json()
   for _, other in ipairs({ profile, merged, decoded }) do
     assert(other.profiles == nil)
     local seen: {string:string} = {}
-    for _, grant in ipairs(other.grants) do seen[grant.path] = grant.letters end
+    for _, grant in ipairs(other.grants or {}) do seen[grant.path] = grant.letters end
     assert(seen["/System/Library"] == "rx" and seen["/sbin"] == "rx" and seen["/lib64"] == nil)
     assert(seen["/private/var/db/dyld"] == "r" and seen["/dev/dtracehelper"] == "rw")
     local got = compile(other, paths)
@@ -308,8 +308,8 @@ local function test_compiling_does_not_mutate_the_policy_or_paths()
   local paths: {string:Seatbelt.Path} = { ["a//b"] = { path = "/real", directory = false } }
   local out = compile(policy, paths)
   assert(out.parameters.PATH_1 == "/real")
-  assert(policy.grants[1].path == "a//b" and policy.grants[1].letters == "xr")
-  assert(policy.profiles[1] == "system" and paths["a//b"].path == "/real")
+  assert(assert(policy.grants)[1].path == "a//b" and assert(policy.grants)[1].letters == "xr")
+  assert(assert(policy.profiles)[1] == "system" and paths["a//b"].path == "/real")
 end
 
 local function test_a_terminal_grants_its_slave_and_dev_tty_by_parameter_and_nothing_otherwise()

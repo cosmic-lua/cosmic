@@ -148,8 +148,9 @@ end
 --- `shown`, files or directories of the host, at their own names.
 local function rooted_with(probe: string, shown: {string}): raw_process.Sandbox
   local sandbox = rooted(probe, true)
-  for _, path in ipairs(shown) do sandbox.unveil.reads[#sandbox.unveil.reads + 1] = path end
-  sandbox.unveil.tmp = 1 << 20
+  local unveil = assert(sandbox.unveil)
+  for _, path in ipairs(shown) do unveil.reads[#unveil.reads + 1] = path end
+  unveil.tmp = 1 << 20
   return sandbox
 end
 
@@ -312,7 +313,8 @@ local function test_a_unix_socket_below_abi_9_fails_a_start_that_binds_a_directo
     local sandbox = rooted_with(probe, shown)
     sandbox.sockets = { "unix" }
     sandbox.grants = { { path = probe, access = "rx" }, { path = tmp .. "/u.file", access = "u" } }
-    sandbox.unveil.reads[#sandbox.unveil.reads + 1] = tmp .. "/u.file"
+    local reads = assert(sandbox.unveil).reads
+    reads[#reads + 1] = tmp .. "/u.file"
     return sandbox
   end
   local pid, why = start(probe, with_u({}))
