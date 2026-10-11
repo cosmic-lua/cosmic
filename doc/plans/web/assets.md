@@ -40,7 +40,7 @@ Code is cited as `path:line` from the tree at the time of writing.
   htmx 4.0.0 exists on npm as the `next` tag; v1 stays on 2.x (section 4.7).
 - There is no condition variable in cosmic.poll today. SSE needs one, so
   this file adds `Poll.Notifier` (in cosmic/poll.tl),
-  a new small module `cosmic.channel` built on it, and `Sse.Hub` /
+  a new small module [`cosmic.channel`] built on it, and `Sse.Hub` /
   `Sse.EventStream` (`cosmic.web.sse`) on top of that.
 - SSE needs one change to cosmic/http/server.tl (forward `on_stop`, core.md
   section 9.3 and 13.7) and a second seam (`Reply.take`) that WebSockets will
@@ -817,43 +817,57 @@ notice not remembered; a wait with no timeout woken by a later task.
 A new small module (cosmic/channel.tl): a bounded FIFO between tasks.
 Generic because worker pools, job queues and the hub all need it, and a
 queue is the correct name for what the web hub builds per subscriber.
+Built as written, the interface is in the source
+(`bin/cosmic docs cosmic.channel`):
 
 ```teal
-local record Channel<T>
-  enum Overflow
-    "block"        -- send waits for room
-    "drop_oldest"  -- discard the oldest queued item
-    "drop_newest"  -- discard the item being sent
-    "close"        -- close the channel (a slow consumer is cut off)
-  end
+local record Channel
+  enum Overflow "block" "drop_oldest" "drop_newest" "close" end
   record Options
     capacity: integer       -- default 256, at least 1
     overflow: Overflow      -- default "block"
   end
-  new: function(opts?: Options): Channel<T>
-  --- Queues `item`. For "block", waits for room (false, TIMEOUT or
-  --- CANCELLED are possible). Returns false and "closed" once closed.
-  send: function(self: Channel<T>, item: T, timeout_ns?: integer): boolean, string
-  --- Never waits: true, or false and why ("full", "closed").
-  try_send: function(self: Channel<T>, item: T): boolean, string
-  --- The next item, waiting up to `timeout_ns`; nil and "" once the
-  --- channel is closed and drained; nil and TIMEOUT / CANCELLED.
-  recv: function(self: Channel<T>, timeout_ns?: integer): T | nil, string
-  close: function(self: Channel<T>)
-  len: function(self: Channel<T>): integer
-  closed: function(self: Channel<T>): boolean
-  --- How many items were dropped by overflow, for logging.
-  dropped: function(self: Channel<T>): integer
+  interface Queue<T>
+    send: function(self: Queue<T>, item: T, timeout_ns?: integer): boolean, string
+    try_send: function(self: Queue<T>, item: T): boolean, string
+    receive: function(self: Queue<T>, timeout_ns?: integer): T | nil, string
+    close: function(self: Queue<T>)
+    len: function(self: Queue<T>): integer
+    closed: function(self: Queue<T>): boolean
+    dropped: function(self: Queue<T>): integer
+  end
+  CLOSED: string   -- "closed"
+  FULL: string     -- "full"
+  new: function<T>(opts?: Options): Queue<T>
 end
 ```
 
-Two `Notifier`s inside (not-empty, not-full). `close` calls `notify_all` on both. No
-`select` in v1 (a hub does not need it); `Poll.notifier` is the building
-block when it does. Generic records in Teal are fine (`Channel<T>`) but
-the repo's contracts (build/contracts.tl) must be consulted for generic
-records in the standard library; if they forbid it, specialize to
-`{any}`-free `Channel` over `string` events, which is all this file
-uses. Open question 2.
+- The module is `Channel`; a queue is a `Channel.Queue<T>`, bound as
+  `local q: Channel.Queue<string> = Channel.new({ capacity = 8 })` (this
+  Teal has no explicit type arguments at a call; `T` comes from the
+  declaration). The receive is `receive`, not `recv`.
+- `send` queues the item and answers true. "block" waits for room (false
+  and [`Poll.TIMEOUT`] / [`Poll.CANCELLED`] are possible); "drop_oldest" and
+  "drop_newest" settle a full queue by a drop and answer true, counted in
+  `dropped()`; "close" closes the queue and answers false, [`Channel.CLOSED`].
+  A closed queue answers false and [`Channel.CLOSED`]. `try_send` never
+  waits: false and [`Channel.FULL`] where "block" would wait.
+- `receive` answers the next item; once the queue is closed and drained,
+  nil and [`Channel.CLOSED`] (not ""); else nil and TIMEOUT / CANCELLED.
+  A closed queue gives up what it holds first.
+- `close` is idempotent, never waits (a `<close>` handler may call it),
+  and wakes every waiter on both sides.
+
+Two `Notifier`s inside (not-empty, not-full), a notice per item queued or
+slot freed, so a producer or consumer killed after being noticed passes it
+on (Poll.notifier's kill re-delivery), and one that gives up (timeout,
+cancel) with room or an item still there notifies the next. No `select`
+in v1 (a hub does not need it); `Poll.notifier` is the building block when
+it does. A [`Stream.Reader`] over a queue is left to cosmic.web.sse (5.4+),
+which frames events; the channel carries no framing. Generic records are
+allowed in the standard library (cosmic/shape.tl's `Typed<T>`;
+build/contracts.tl has no rule against them), so open question 2 is
+settled: generic.
 
 ### 5.4 Events and formatting
 
@@ -1533,9 +1547,8 @@ parts, multi-process hub.
 1. htmx 2.0.11 or 4.0.0? Decided: 2.x, and 4.0.0 is only the `next`
    tag. Recommend 2.0.11 with SSE as an extension; revisit when 4.x is
    `latest` and has a stable SSE contract.
-2. Generic `Channel<T>`: does build/contracts.tl allow generic records in
-   the standard library? Recommend generic if allowed, else a `Channel` of
-   `string`.
+2. Generic `Channel.Queue<T>`: decided generic; build/contracts.tl allows
+   it (section 5.3).
 3. Should a SQLite transaction wrapper detect a wait inside a transaction
    (an interleaving hazard, section 6.2)? Recommend yes, later, with a
    per-connection Notifier-based lock; for v1 document the rule.
@@ -1573,12 +1586,15 @@ parts, multi-process hub.
 [`build/embed.tl`]: ../../../build/embed.tl
 [`build/tree_checks.tl`]: ../../../build/tree_checks.tl
 [`build/vendor_test.tl`]: ../../../build/vendor_test.tl
+[`Channel.CLOSED`]: ../../../cosmic/channel.tl
+[`Channel.FULL`]: ../../../cosmic/channel.tl
 [`Child.run`]: ../../../cosmic/child.tl
 [`Child.start`]: ../../../cosmic/child.tl
 [`Codec.base64`]: ../../../cosmic/codec.tl
 [`Compress.deflate`]: ../../../cosmic/compress.tl
 [`Compress.deflater`]: ../../../cosmic/compress.tl
 [`cosmic.archive`]: ../../../cosmic/archive.tl
+[`cosmic.channel`]: ../../../cosmic/channel.tl
 [`cosmic.fs`]: ../../../cosmic/fs.tl
 [`cosmic.internal.store`]: ../../../cosmic/internal/store.d.tl
 [`cosmic.sqlite`]: ../../../cosmic/sqlite.tl
