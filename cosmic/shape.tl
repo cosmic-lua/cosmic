@@ -94,15 +94,15 @@ local record Shape
     --- Whether a missing value satisfies it.
     optional: boolean
     --- The element's spec, for "list" and "map".
-    of: Spec
+    of?: Spec
     --- The fields' specs, for "record".
-    fields: {string: Spec}
+    fields?: {string: Spec}
     --- The fields' names in byte order, for "record".
-    names: {string}
+    names?: {string}
     --- Whether a key `fields` does not name is refused, for "record".
-    strict: boolean
+    strict?: boolean
     --- The values admitted, for "one_of".
-    values: {string | number | boolean}
+    values?: {string | number | boolean}
   end
 
   --- A [`Spec`] and the record `T` it was built from, which
@@ -290,7 +290,7 @@ end
 local function wanted(spec: Spec): string
   if spec.kind == "one_of" then
     local parts: {string} = {}
-    for i, v in ipairs(spec.values) do parts[i] = shown(v) end
+    for i, v in ipairs(assert(spec.values)) do parts[i] = shown(v) end
     return "one of " .. table.concat(parts, ", ")
   end
   return spec.kind
@@ -366,8 +366,9 @@ local function unknown_key(t: {any: any}, spec: Spec, path: string): string
     if refused ~= nil then return refusal(path, "record", refused) end
     return ""
   end
+  local fields = assert(spec.fields)
   for _, k in ipairs(members.keys) do
-    if k is string and spec.fields[k] == nil then
+    if k is string and fields[k] == nil then
       return where(field_path(path, k)) .. ": unknown key"
     end
   end
@@ -385,8 +386,9 @@ local function walk_record(t: {any: any}, spec: Spec, path: string): any, string
     if unknown ~= "" then return nil, unknown end
   end
   local out: {string: any} = {}
-  for _, name in ipairs(spec.names) do
-    local got, failed = walk(rawget(t, name), spec.fields[name], field_path(path, name))
+  local fields = assert(spec.fields)
+  for _, name in ipairs(assert(spec.names)) do
+    local got, failed = walk(rawget(t, name), fields[name], field_path(path, name))
     if failed ~= "" then return nil, failed end
     out[name] = got
   end
@@ -413,7 +415,7 @@ local function walk_list(t: {any: any}, spec: Spec, path: string): any, string
     -- A hole is a missing element: it fails a list whose elements are
     -- not optional, as a missing field fails a record, and each run of
     -- holes is one miss, at its first index.
-    if not spec.of.optional and k > after + 1 then
+    if not assert(spec.of).optional and k > after + 1 then
       return nil, mismatch(index_path(path, after + 1), spec.of, nil)
     end
     after = k
@@ -465,7 +467,7 @@ walk = function(v: any, spec: Spec, path: string): any, string
   elseif kind == "any" then
     return v, ""
   elseif kind == "one_of" then
-    for _, want in ipairs(spec.values) do
+    for _, want in ipairs(assert(spec.values)) do
       if v == want then return v, "" end
     end
     if v is string or v is number or v is boolean then

@@ -86,7 +86,7 @@ local record Zip
     --- only 1980 through 2107 is representable -- anything outside
     --- that is clamped to its nearer end. Defaults to 0, which is
     --- clamped to 1980-01-01. Ignored when the writer is `deterministic`.
-    mtime: integer
+    mtime?: integer
     --- The body's uncompressed size, for a body given as a
     --- [`Stream.Reader`]; ignored for a string, whose length is its size.
     --- Optional: a streamed entry whose size is known to reach 2 GiB
@@ -94,20 +94,20 @@ local record Zip
     --- before any of the body is read. When given, the body must turn
     --- out exactly this long, or the write fails. A size that is no
     --- integer, or is negative, raises, whatever the body.
-    size: integer
+    size?: integer
     --- "deflate" (the default) or "store". Only [`add_file`] reads it:
     --- a directory and a symlink are stored.
-    method: Method
+    method?: Method
   end
 
   record WriterOptions
     --- Every entry's timestamp becomes 1980-01-01 00:00:00, so the
     --- same tree zips to the same bytes.
-    deterministic: boolean
+    deterministic?: boolean
     --- How many bytes precede this zip in the file it is written into
     --- (an executable it is appended to, say): every offset the zip
     --- records counts from the start of that file. 0 by default.
-    offset: integer
+    offset?: integer
   end
 
   --- Once any call fails, the underlying Stream.Writer is aborted and every
@@ -305,7 +305,7 @@ local record SpanReader is Stream.Reader
   pos: integer
   left: integer
   held: string
-  failed: string
+  failed?: string
   read: function(SpanReader, max_bytes?: integer): string | nil, string
   close: function(SpanReader): boolean, string
 end
@@ -358,8 +358,8 @@ local record CheckedReader is Stream.Reader
   crc: integer
   size: integer
   seen: integer
-  state: integer
-  failed: string
+  state?: integer
+  failed?: string
   read: function(CheckedReader, max_bytes?: integer): string | nil, string
   close: function(CheckedReader): boolean, string
 end
@@ -495,7 +495,10 @@ end
 local CDFH_FIELDS <const> = "<I2I2I2I2I2I2I4I4I4I2I2I2I2I2I4I4"
 
 --- What [`next_record`] returns for an entry it was asked only to check.
-local CHECKED: Zip.Entry = { path = "", kind = "file", linkpath = "" }
+local CHECKED: Zip.Entry = {
+  path = "", kind = "file", linkpath = "", mode = 0, size = 0, mtime = 0, compressed_size = 0,
+  method = 0, crc32 = 0, offset = 0,
+}
 
 --- The central directory's next entry, or nil and `""` at its end.
 --- A symlink's `linkpath` is left "": its target is its body, which
@@ -604,7 +607,7 @@ local record EntryReader is Zip.Reader
   walk: Cursor
   walked: integer
   --- What `entries` has built, once it has.
-  listed: {Zip.Entry}
+  listed?: {Zip.Entry}
   closed: boolean
   entries: function(EntryReader): {Zip.Entry} | nil, string
   next: function(EntryReader): Zip.Entry | nil, string

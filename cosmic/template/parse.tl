@@ -164,8 +164,8 @@ end
 --- What a range binds: the words naming its index and its element (nil
 --- for none), and where its pipeline starts.
 local record Bound
-  index: types.Token
-  element: types.Token
+  index?: types.Token
+  element?: types.Token
   first: integer
 end
 
@@ -244,8 +244,9 @@ local function block(p: Parser): types.Node | nil, string
   if first == nil then
     return nil, why
   end
-  local index = bound.index and bound.index.value:sub(2) or ""
-  local element = bound.element and bound.element.value:sub(2) or ""
+  local index_token, element_token = bound.index, bound.element
+  local index = index_token and index_token.value:sub(2) or ""
+  local element = element_token and element_token.value:sub(2) or ""
   local kind: types.Kind = "if"
   if word == "range" then
     kind = "range"

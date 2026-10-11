@@ -147,7 +147,7 @@ local EOCD_FIELDS <const> = { "c4", "I2", "I2", "I2", "I2", "I4", "I4", "I2" }
 local record Rec
   fields: {string}
   values: {any}
-  tail: string
+  tail?: string
 end
 
 local function packed(r: Rec): string

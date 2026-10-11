@@ -163,7 +163,7 @@ local record Types
     --- A text node's literal text.
     text: string
     --- An interpolation's value.
-    pipeline: Pipeline
+    pipeline?: Pipeline
     --- A block's arms in order: a `with` or `range` has its own first and
     --- then its `else`, if any.
     branches: {Branch}

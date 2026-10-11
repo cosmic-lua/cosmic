@@ -123,35 +123,35 @@ local record Json
   record EncodeOptions
     --- Lay the text out over lines, one member or element to a line,
     --- indented by two spaces (default false).
-    pretty: boolean
+    pretty?: boolean
     --- How many arrays and objects may nest, 1 to [`Json.depth_limit`]
     --- (1000; default [`Json.default_depth`], 64). A table that contains
     --- itself fails here.
-    max_depth: integer
+    max_depth?: integer
     --- Write every character past U+007F as a `\uXXXX` escape, a pair
     --- of them above U+FFFF, so that the text is ASCII throughout and
     --- can travel in an HTTP header (default false). Decoding it gives
     --- the same value. A string that is not UTF-8 is refused as it is
     --- without this.
-    ascii: boolean
+    ascii?: boolean
   end
 
   --- What [`Json.format`] may be told. Every field is optional, and those
   --- that say how to read the text mean what they mean to `decode`.
   record FormatOptions
     --- Lay the text out as `encode`'s `pretty` does (default false).
-    pretty: boolean
+    pretty?: boolean
     --- How many arrays and objects may nest, as `decode` takes it.
-    max_depth: integer
+    max_depth?: integer
     --- Read JSON5, as `decode` does; what is written is RFC 8259.
-    json5: boolean
+    json5?: boolean
     --- Read `#` line comments, as `decode` does.
-    hash_comments: boolean
+    hash_comments?: boolean
     --- Read a lone surrogate escape as U+FFFD, as `decode` does.
-    lone_surrogates: boolean
+    lone_surrogates?: boolean
     --- Read an object that holds a key twice rather than refusing it
     --- (default false); each member is written, in its place.
-    duplicate_keys: boolean
+    duplicate_keys?: boolean
   end
 
   --- What [`Json.canonical`] may be told: how to read the text, as
@@ -159,13 +159,13 @@ local record Json
   --- refused: RFC 8785 has no form for it.
   record CanonicalOptions
     --- How many arrays and objects may nest, as `decode` takes it.
-    max_depth: integer
+    max_depth?: integer
     --- Read JSON5, as `decode` does.
     json5: boolean
     --- Read `#` line comments, as `decode` does.
-    hash_comments: boolean
+    hash_comments?: boolean
     --- Read a lone surrogate escape as U+FFFD, as `decode` does.
-    lone_surrogates: boolean
+    lone_surrogates?: boolean
   end
 
   --- What `decode` may be told. Every field is optional.
@@ -175,20 +175,20 @@ local record Json
     null_value: any
     --- How many arrays and objects may nest, 1 to [`Json.depth_limit`]
     --- (1000; default [`Json.default_depth`], 64).
-    max_depth: integer
+    max_depth?: integer
     --- Read JSON5 rather than RFC 8259 JSON (default false). NaN and
     --- Infinity decode to the float they name.
-    json5: boolean
+    json5?: boolean
     --- Read a line comment that begins with `#`, as YAML and shells
     --- write one, besides whatever else the text is (default false). It
     --- ends where a `//` comment would.
-    hash_comments: boolean
+    hash_comments?: boolean
     --- Decode an integer that does not fit in 64 bits, or a number
     --- past a double's range, as its digits in a string rather than
     --- the nearest float (default false): `18446744073709551615` stays
     --- exact as `"18446744073709551615"`. For large unsigned IDs. It
     --- encodes back as a string, not a number.
-    big_numbers_as_strings: boolean
+    big_numbers_as_strings?: boolean
     --- Read a lone surrogate escape -- `\ud83d` with no low half after
     --- it, or a low half alone -- as U+FFFD rather than failing
     --- (default false), for text a writer cut in the middle of a
@@ -196,10 +196,10 @@ local record Json
     --- can hold. A pair still reads as the character it names. Keys
     --- that differ only in their lone surrogates become the same key,
     --- refused as any key twice is unless `duplicate_keys` is given.
-    lone_surrogates: boolean
+    lone_surrogates?: boolean
     --- Read an object that holds a key twice, the last of its members
     --- standing, rather than refusing it (default false).
-    duplicate_keys: boolean
+    duplicate_keys?: boolean
   end
 
   --- How a Lua table encodes: see [`Json.layout`].
@@ -249,7 +249,7 @@ local record Json
     kind: Json.TokenKind
     --- A key's or a string's text, a number, a boolean; nil for the
     --- rest.
-    value: string | number | boolean
+    value?: string | number | boolean
   end
 
   --- What [`Json.reader`] may be told. Every field is optional, and each
@@ -257,20 +257,20 @@ local record Json
   record ReaderOptions
     --- How many arrays and objects may be open at once, 1 to
     --- [`Json.depth_limit`] (default [`Json.default_depth`]).
-    max_depth: integer
+    max_depth?: integer
     --- Read an object that holds a key twice rather than refusing it.
-    duplicate_keys: boolean
+    duplicate_keys?: boolean
     --- Read a number past 64 bits or a double's range as its digits.
-    big_numbers_as_strings: boolean
+    big_numbers_as_strings?: boolean
     --- Read a lone surrogate escape as U+FFFD.
-    lone_surrogates: boolean
+    lone_surrogates?: boolean
     --- Read JSON5, as `decode` does: comments, single-quoted strings,
     --- unquoted keys, trailing commas, hex and signed numbers, `Infinity`
     --- and `NaN`, and JSON5's whitespace, whose U+2028 and U+2029 end a
     --- line.
-    json5: boolean
+    json5?: boolean
     --- Read `#` line comments, as `decode` does, with or without `json5`.
-    hash_comments: boolean
+    hash_comments?: boolean
     --- What `value` puts where the text says `null`.
     null_value: any
   end
@@ -330,12 +330,12 @@ local record Json
     --- Whether it is a descendant segment.
     descendant: boolean
     --- What it selects.
-    kind: Json.SelectorKind
+    kind?: Json.SelectorKind
     --- The member's name, for a "name" selector.
-    name: string
+    name?: string
     --- The element's index, for an "index" selector: counted from 0,
     --- or from the end when negative, as JSONPath writes it.
-    index: integer
+    index?: integer
   end
 
   --- A JSONPath query (RFC 9535), as [`Json.query`] reads one.
@@ -924,8 +924,8 @@ end
 
 --- What a piece of a JSONPath query reads as, and the byte after it.
 local record Piece
-  segment: Json.Segment
-  name: string
+  segment?: Json.Segment
+  name?: string
   after: integer
 end
 
@@ -1263,7 +1263,7 @@ local record Frame
   --- An array's elements, or an object's members, begun so far.
   count: integer
   --- An object's last key.
-  key: string
+  key?: string
   --- An object's keys, unless duplicate keys are read.
   seen: {string: boolean}
 end

@@ -73,14 +73,14 @@ local record Stream
     --- no room, waits for the descriptor instead of failing, through
     --- [`Poll.wait`], so in a task of [`Poll.run`] the other tasks run
     --- meanwhile.
-    nonblocking: boolean
+    nonblocking?: boolean
     --- The longest one `read` or one `write` waits in all, in
     --- nanoseconds, from its call; nil for no limit. A call that runs
     --- out of it fails with [`Poll.TIMEOUT`], and the stream stays
     --- usable: a read took nothing, and a write says how much it wrote
     --- (`written` of [`Stream.FdWriter`]). A value outside what [`Poll.checked_ns`]
     --- allows raises.
-    timeout_ns: integer
+    timeout_ns?: integer
     --- Waits in place of [`Poll.wait`], for a caller that waits on more
     --- than this descriptor (a supervisor servicing other pipes
     --- meanwhile). It is called with the descriptor, the events wanted
@@ -277,15 +277,15 @@ local record Stream
   interface EntryOptions
     --- The permission bits (the low 12 are written). Defaults to 0644
     --- for a file, 0755 for a directory and 0777 for a symlink.
-    mode: integer
+    mode?: integer
     --- Modification time in Unix epoch seconds; defaults to 0. Ignored
     --- (the archive's own zero) when the writer is `deterministic`.
-    mtime: integer
+    mtime?: integer
     --- The body's size, for a file whose body is a [`Stream.Reader`]: required
     --- by a tar, whose header states it before the body, and optional
     --- for a zip. One that is no integer, or is negative, raises, whatever
     --- the body.
-    size: integer
+    size?: integer
   end
 
   --- The writer a tar or a zip gives: [`cosmic.tar`]'s and
@@ -446,10 +446,10 @@ local record FdReader is Stream.Reader
   -- is an explicit close (reads fail); `failed` is a sticky error.
   ended: boolean
   closed: boolean
-  failed: string
+  failed?: string
   -- The file's size, which `skip` checks the new position against; set
   -- with `skip`, only on a regular file.
-  size: integer
+  size?: integer
   read: function(FdReader, max_bytes?: integer): string | nil, string
   close: function(FdReader): boolean, string
   skip: function(FdReader, n: integer): boolean, string
@@ -585,7 +585,7 @@ local record TransformReader is Stream.Reader
   at: integer
   at_eof: boolean
   finished: boolean
-  failed: string
+  failed?: string
   closed: boolean
   read: function(TransformReader, max_bytes?: integer): string | nil, string
   close: function(TransformReader): boolean, string
@@ -814,7 +814,7 @@ local record StickyWriter is Stream.Sticky
   writer: Stream.Writer
   name: string
   closed: boolean
-  failed: string
+  failed?: string
   put: function(StickyWriter, data: string): boolean, string
   fail: function(StickyWriter, trouble: string): boolean, string
   usable: function(StickyWriter): boolean, string
@@ -1085,7 +1085,7 @@ local record ToFdWriter is Stream.FdWriter
   fd: integer
   options: Stream.FdOptions
   closed: boolean
-  failed: string
+  failed?: string
   went: integer
   write: function(ToFdWriter, data: string): boolean, string
   written: function(ToFdWriter): integer
@@ -1266,7 +1266,7 @@ end
 local record HashingWriter is Stream.Hashing
   hasher: Hash.Hasher
   closed: boolean
-  result: string
+  result?: string
   failure: string
   write: function(HashingWriter, data: string): boolean, string
   close: function(HashingWriter): boolean, string
@@ -1366,7 +1366,7 @@ local record TransformWriter is Stream.Writer
   codec: Stream.Transform
   hold: integer
   closed: boolean
-  failed: string
+  failed?: string
   -- With `hold`, one entry per write: its output, in order.
   held: {string}
   write: function(TransformWriter, data: string): boolean, string
