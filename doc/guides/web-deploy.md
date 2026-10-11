@@ -139,13 +139,13 @@ local record Hello
     --- Signing keys for the session cookie, newest first.
     keys: {string}
     --- Where `/static` comes from; nil for the executable's own files.
-    assets: Assets.Source
+    assets?: Assets.Source
     --- Whether a proxy that ends TLS is in front.
-    behind_proxy: boolean
+    behind_proxy?: boolean
     --- The hosts the app answers to; nil for any.
-    hosts: {string}
+    hosts?: {string}
     --- Whether the site is https for good.
-    https: boolean
+    https?: boolean
   end
 end
 

@@ -529,7 +529,7 @@ local record Tasks
     keys: {string}
     --- Where `/static` comes from; nil for the project's `static/`
     --- (the executable's, or the directory in development).
-    assets: Assets.Source
+    assets?: Assets.Source
   end
 end
 
