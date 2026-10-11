@@ -36,6 +36,8 @@ local record Router
     chain: {Types.Middleware}
     --- The segments of the mounts' prefixes.
     prefix: {string}
+    --- Whether `/_web/` is refused to routes (cosmic.web serves it).
+    keep_prefix: boolean
     --- The prefix of the mount that holds this level, as text.
     mount_path: string
     --- What a route's name is prefixed with: "api:".
@@ -50,9 +52,8 @@ end
 --- The prefix under which cosmic.web serves its own assets: no route of
 --- an app may be at or under it, by its full path (a mount's prefix and the
 --- pattern): `/x/_web/a` inside a mount at `/x` is the app's. A catch-all
---- at the root (`/*p`, `/:x`, a mount of "/") is allowed.
--- TODO: once cosmic.web serves its own assets under /_web/, the router tries
--- that prefix before the app's routes, so a root catch-all cannot shadow them.
+--- at the root (`/*p`, `/:x`, a mount of "/") is allowed: [`Web.app`] tries
+--- the prefix before the routes.
 local RESERVED <const> = "_web"
 
 --- A parameter's name.
@@ -242,9 +243,7 @@ local function add_leaf(route: Types.Route, ctx: Router.Context, root: Types.Nod
   local what = ("%q"):format(pattern)
   if type(route.handler) ~= "function" then refuse(what, "it has no handler") end
   if #route.methods == 0 then refuse(what, "it names no method") end
-  if reserved(ctx.prefix, segments) then
-    -- TODO: once cosmic.web serves its own assets under /_web/, Web.app
-    -- registers them through an option that lifts this for its own routes.
+  if ctx.keep_prefix and reserved(ctx.prefix, segments) then
     refuse(what, "/_web/ is reserved for cosmic.web's own assets")
   end
   local node = descend(root, segments, what)
@@ -290,7 +289,7 @@ local function add_mount(route: Types.Route, ctx: Router.Context, root: Types.No
   end
   local segments = parsed.segments
   local what = ("mount %q"):format(route.pattern)
-  if reserved(ctx.prefix, segments) then
+  if ctx.keep_prefix and reserved(ctx.prefix, segments) then
     refuse(what, "/_web/ is reserved for cosmic.web's own assets")
   end
   local node = descend(root, segments, what)
@@ -317,7 +316,7 @@ local function add_mount(route: Types.Route, ctx: Router.Context, root: Types.No
     local inner: Router.Context = {
       policy = ctx.policy, terminal = ctx.terminal, miss = Middleware.compose(own, ctx.terminal),
       chain = own,
-      prefix = inner_prefix, mount_path = full_prefix,
+      prefix = inner_prefix, keep_prefix = ctx.keep_prefix, mount_path = full_prefix,
       name_prefix = route.name ~= "" and ctx.name_prefix .. route.name .. ":" or ctx.name_prefix,
       names = ctx.names, verbs = ctx.verbs,
     }
@@ -581,17 +580,21 @@ local router_mt: metatable<Types.Router> = { __index = { match = match, reverse 
 --- or mount that cannot be registered: a pattern that is not valid, two
 --- routes answering the same paths for one method, a name used twice, a
 --- route under a mount's prefix, or one whose full path (a mount's prefix
---- and its pattern) starts with the reserved `/_web/`.
+--- and its pattern) starts with the reserved `/_web/` (unless `served` is
+--- false: an app without the built-in files leaves the prefix to its routes).
 --- @param routes {Types.Route} The routes
 --- @param terminal Types.Handler Answers a request no route takes
 --- @param policy TrailingSlash | nil "redirect" (default) or "strict"
+--- @param served boolean | nil Whether cosmic.web serves `/_web/` (default true)
 --- @return Types.Router The router
-function Router.build(routes: {Types.Route}, terminal: Types.Handler, policy?: Types.TrailingSlash): Types.Router
+function Router.build(routes: {Types.Route}, terminal: Types.Handler, policy?: Types.TrailingSlash,
+                      served?: boolean): Types.Router
   if policy ~= nil and policy ~= "redirect" and policy ~= "strict" then
     error("web: trailing_slash must be \"redirect\" or \"strict\"", 2)
   end
   local ctx: Router.Context = {
     policy = policy or "redirect", terminal = terminal, miss = terminal, chain = {}, prefix = {},
+    keep_prefix = served ~= false,
     mount_path = "", name_prefix = "", names = {}, verbs = {},
   }
   local router: Types.Router = { root = new_node(), policy = ctx.policy, names = ctx.names,

@@ -4,7 +4,7 @@ Part of the cosmic.web design: see ../web.md for the overview, decisions and pha
 
 Scope: the attribute-dialect mechanism in [`cosmic.template`], the `htmx`
 dialect, the URL-component escaper and its safe types, `SafeJson`, the
-htmx helpers in `cosmic.web.htmx` (including `Htmx.head`, which writes the
+htmx helpers in [`cosmic.web.htmx`] (including [`Htmx.head`], which writes the
 page's one htmx configuration), and how a template reaches reverse routing.
 Routing, Request/Response and the error layer are core.md; input, sessions
 and security headers are input.md; the vendored htmx, static assets and SSE
@@ -17,7 +17,7 @@ Decisions in one place:
   `{{type}}` and beside `{{mode}}`. Dialects are a built-in registry inside
   [`cosmic.template`] (data modules under `cosmic/template/dialect/`), not
   resolved from [`cosmic.web`] or a project module path, and the `htmx`
-  dialect's data lives there too; `cosmic.web.htmx` only reuses it (the
+  dialect's data lives there too; [`cosmic.web.htmx`] only reuses it (the
   version string, the tests that tie the table to the vendored file).
   Reason: the build compiles templates with a pure `Template.compile(src,
   name)` and the compiler's identity only covers `build.*` and
@@ -34,7 +34,7 @@ Decisions in one place:
   (core.md section 5.7). New types: [`Html.SafeUrlPart`] and
   `Html.SafeJson`. Selector slots use a C escaper that returns an existing
   type (`SafeAttr`).
-- `cosmic.web.htmx` holds request parsing, response headers and
+- [`cosmic.web.htmx`] holds request parsing, response headers and
   `Htmx.head(opts)`, the single helper that writes the page head: the
   `<meta name="htmx-config">` and the `<script>` tags with SRI for the
   vendored htmx (and the SSE extension when asked). The configuration is
@@ -376,7 +376,7 @@ afterthought: a test compiles `data-hx-on:click="{{.x}}"` and
 - A literal `hx-on:click="doThing()"` compiles, like a literal `onclick`.
   CSP without `unsafe-eval` breaks htmx's `new Function` use (hx-on, trigger
   filters, `js:` values) entirely; input.md section 10 owns the CSP
-  recommendation, and the configuration `Htmx.head` writes (section 6.6)
+  recommendation, and the configuration [`Htmx.head`] writes (section 6.6)
   turns `allowEval` off by default.
 - A literal `hx-swap`, `hx-params`, `hx-ext` or `hx-boost` changes
   behavior, not execution; a slot in one is refused (section 2.1).
@@ -387,24 +387,21 @@ afterthought: a test compiles `data-hx-on:click="{{.x}}"` and
 
 ### 2.4 Keeping the table honest
 
-As built, before the vendored file exists: [`cosmic/template/dialect_test.tl`]
-pins the class of every attribute of htmx 2.0.11, htmx-ext-sse 2.2.2,
+As built: [`cosmic/template/dialect_test.tl`]
+pins the class of every attribute of htmx 2.0.11, htmx-ext-sse 2.2.4,
 htmx-ext-ws 2.0.2 and htmx-ext-response-targets 2.0.2 that the dialect has
 looked at (and fails on an exact name, a `plain` name or a prefix it does
 not list), with a `data-` and an upper case form of each. The test below
-(the vendored file's `hx-*` tokens against the table) arrives with the
-vendored file, in assets.md's PR.
+holds the table to the vendored files.
 
-`cosmic/web/htmx_dialect_test.tl` (it lives under `cosmic/web` because it
-needs both the dialect and `cosmic.web.htmx`): reads the vendored
-`vendor/htmx/dist/htmx.min.js` (assets.md section 4.2; a `reads` input
-declared in the test's [`Test.policy`]), extracts every `hx-[a-z-]+`
-token, and requires each to be classified in the dialect's `exact`,
-covered by a prefix, or listed in the dialect's `plain` list (a field of
-`Def` used by this test only). Bumping htmx adds names to the pinned file
-and the test fails until a person classifies them. [`Def.targets`] must equal
-`Htmx.version`, the version string `cosmic.web.htmx` exports from the
-vendored PIN (a second assertion).
+[`cosmic/template/dialect_vendored_test.tl`] (it lives under `cosmic/template`
+because the dialect is private to it; [`cosmic.web.htmx`] is open to it): reads
+the vendored [`vendor/htmx/dist/htmx.min.js`] and [`vendor/htmx-ext-sse/dist/sse.min.js`]
+(`grants` in the test's [`Test.policy`]), extracts every `hx-*` and `sse-*` name, and
+requires each to be classified by the dialect or listed in its `plain` list. Bumping
+htmx changes the pinned file and the test fails until a person classifies the
+new names. [`Def.targets`] must equal [`Htmx.version`], the version string
+[`cosmic.web.htmx`] exports from the vendored PIN (a second assertion).
 
 ## 3. URL-component escaping
 
@@ -624,7 +621,7 @@ option; no Teal post-pass exists.
 
 ## 6. cosmic.web htmx support
 
-New module `cosmic/web/htmx.tl` (name `cosmic.web.htmx`). It depends on
+New module [`cosmic/web/htmx.tl`] (name [`cosmic.web.htmx`]). It depends on
 core.md's `Request` and `Response` types only through the accessors listed in
 section 9.
 
@@ -730,7 +727,7 @@ partial set, and never raises on data. Rules:
 - `reswap`: must start with one of `innerHTML outerHTML textContent
   beforebegin afterbegin beforeend afterend delete none` (htmx 2) then
   optional modifiers; else refused.
-- `location` as a `Htmx.Location` is JSON (`ascii = true`), as htmx's
+- `location` as a [`Htmx.Location`] is JSON (`ascii = true`), as htmx's
   documented object form.
 
 One-line helpers over `apply` for the common cases, so handlers read:
@@ -787,7 +784,7 @@ Template composition already exists as stages that name another template's
    would otherwise show the fragment on Back, the classic htmx caching
    bug). Each token is added with `Web.add_header(resp, "Vary", token)`
    (core.md section 3), which merges it into any existing `Vary` line.
-   `Htmx.page` also sets `Cache-Control: no-cache` unless the response
+   [`Htmx.page`] also sets `Cache-Control: no-cache` unless the response
    already has one: validators still work (ETag/304 per representation),
    and Back never shows a stale fragment.
 
@@ -851,17 +848,17 @@ end
 Htmx.head(opts?: Htmx.HeadOptions): Html.SafeHtml
 ```
 
-`Htmx.head` is the one place the page head for htmx is written: the
+[`Htmx.head`] is the one place the page head for htmx is written: the
 `<meta name="htmx-config" content='...'>` first, then
 `<script src="/_web/htmx-2.0.11.min.js" integrity="sha384-..."
 crossorigin="anonymous" defer></script>`, then the same for the SSE
 extension when `sse` is set. The paths, versions and SRI values are the
 vendored files' (assets.md sections 4.3 and 4.4, read through
-`Store.web_asset`); nothing in the tag comes from user data, so the
+[`Store.web_asset`]); nothing in the tag comes from user data, so the
 function's [`Html.trust`] is justified and is the only one in [`cosmic.web`]
 for it. `crossorigin` is harmless on a same-origin script and keeps the tag
 valid if an app later serves the file from a CDN. A layout that writes its
-own tags uses `Htmx.path()` and `Htmx.integrity()`; `Htmx.version` is the
+own tags uses [`Htmx.path()`] and [`Htmx.integrity()`]; [`Htmx.version`] is the
 version string the dialect's test ties to (2.4).
 
 The configuration, defined here and nowhere else (assets.md and input.md
@@ -882,7 +879,7 @@ refer to it). The content is `Html.json(...)`, entity-escaped:
 
 - `allowEval: false` breaks literal `hx-on`, trigger filters and `js:` values,
   and is what lets a CSP omit `'unsafe-eval'`; an app that wants them sets
-  it true in `HeadOptions.config` and adds `'unsafe-eval'` to its CSP
+  it true in [`HeadOptions.config`] and adds `'unsafe-eval'` to its CSP
   knowingly. `allowScriptTags: false` stops htmx running `<script>` in
   swapped HTML, so a server rendering user content does not rely on
   escaping alone.
@@ -895,7 +892,7 @@ refer to it). The content is `Html.json(...)`, entity-escaped:
   the client as well as by the dialect's `url_local` rule.
 - `responseHandling` swaps 2xx and 422 and not 204, and marks 422 and the
   other 4xx/5xx as errors (`htmx:responseError` still fires for 422).
-- `nonce`, when given, adds `inlineScriptNonce`; `HeadOptions.config` can set
+- `nonce`, when given, adds `inlineScriptNonce`; [`HeadOptions.config`] can set
   `history_cache_size` (the `historyCacheSize` key). No other key is
   touched.
 
@@ -911,7 +908,7 @@ that re-renders with validation errors therefore cannot just return 400.
 Recommendation:
 
 1. **Validation errors: 422 with the form re-rendered**, swapped because
-   the configuration `Htmx.head` writes (6.6) marks 422 as `swap: true,
+   the configuration [`Htmx.head`] writes (6.6) marks 422 as `swap: true,
    error: true`. The status is honest (logs, API clients, tests), the form
    fragment replaces itself with errors, and `htmx:responseError` still fires
    for anyone listening. Input that fails a route's specs is a 400 in v1
@@ -922,7 +919,7 @@ Recommendation:
    and answers 422. The same hook can branch on `Htmx.request(req).active`
    to give an htmx request the fragment and a browser or API client the
    default page or problem body.
-2. **Fallback without `Htmx.head`'s meta tag: 200 with the form
+2. **Fallback without [`Htmx.head`]'s meta tag: 200 with the form
    re-rendered.** Cheap and works with stock htmx, wrong for non-browser
    clients. Offered as the documented alternative for people who cannot set
    the meta.
@@ -952,7 +949,7 @@ convention). A poll that wants to continue returns 200.
 `localStorage`. A page showing private data must opt out with
 `hx-history="false"` on an element (or the whole body), and an app should
 clear the cache on logout (`htmx.config.historyCacheSize = 0` is in
-`Htmx.Config` as `history_cache_size`, default unchanged). The docs list this
+[`Htmx.Config`] as `history_cache_size`, default unchanged). The docs list this
 under private pages. The request side is the
 `history_restore` flag in 6.1.
 
@@ -1134,7 +1131,7 @@ same change.
   section 2) for the 422 re-render of 6.7.
 - Assets (assets.md sections 4.2 to 4.4): the vendored `htmx.min.js` and
   its path under `vendor/`, the version string, and the SRI values, read
-  through `Store.web_asset`.
+  through [`Store.web_asset`].
 - Security (input.md sections 8 and 10): CSRF token delivery via
   `hx-headers` (this file supplies `SafeJson`), the CSP `script-src` /
   `style-src` choices that follow from `allowEval` and indicator styles, and
@@ -1152,8 +1149,8 @@ same change.
 4. The `htmx` dialect data and its tests, including the pinned-file test
    once the vendored file exists (assets.md section 4.2).
 5. [`Json.EncodeOptions.ascii`] (core/json.c and json.tl).
-6. `cosmic.web.htmx` once the core types exist; `Htmx.head` once the
-   vendored files and `Store.web_asset` exist (assets.md section 4).
+6. [`cosmic.web.htmx`] once the core types exist; [`Htmx.head`] once the
+   vendored files and [`Store.web_asset`] exist (assets.md section 4).
 
 ## 11. Open questions
 
@@ -1187,7 +1184,7 @@ same change.
    reusing [`Html.href`] plus relying on `selfRequestsOnly`. Recommend
    `local_href`: an app that turns `selfRequestsOnly` off to call an API
    keeps the template-level guard, and passes a `SafeUrl` where it means it.
-7. Should `Htmx.page` set `Cache-Control: no-cache`? Recommend yes by
+7. Should [`Htmx.page`] set `Cache-Control: no-cache`? Recommend yes by
    default (it prevents the fragment-on-Back bug even when a proxy ignores
    `Vary`), overridable by the handler setting its own.
 8. [`Json.EncodeOptions.ascii`] in the core encoder (section 5.3) versus a
@@ -1217,13 +1214,17 @@ is):
 [`cosmic.http`]: ../../../cosmic/http/init.tl
 [`cosmic.internal.html`]: ../../../cosmic/internal/html.d.tl
 [`cosmic.template`]: ../../../cosmic/template/init.tl
+[`cosmic.web.htmx`]: ../../../cosmic/web/htmx.tl
 [`cosmic.web`]: ../../../cosmic/web/init.tl
 [`cosmic/html_fuzz_test.tl`]: ../../../cosmic/html_fuzz_test.tl
 [`cosmic/html_test.tl`]: ../../../cosmic/html_test.tl
 [`cosmic/template/dialect/htmx.tl`]: ../../../cosmic/template/dialect/htmx.tl
 [`cosmic/template/dialect_test.tl`]: ../../../cosmic/template/dialect_test.tl
+[`cosmic/template/dialect_vendored_test.tl`]: ../../../cosmic/template/dialect_vendored_test.tl
+[`cosmic/web/htmx.tl`]: ../../../cosmic/web/htmx.tl
 [`Def.targets`]: ../../../cosmic/template/types.tl
 [`Dialect.Table`]: ../../../cosmic/template/dialect/init.tl
+[`HeadOptions.config`]: ../../../cosmic/web/htmx.tl
 [`Html.concat`]: ../../../cosmic/html.tl
 [`html.escape`]: ../../../cosmic/internal/html.d.tl
 [`Html.href`]: ../../../cosmic/html.tl
@@ -1232,6 +1233,13 @@ is):
 [`Html.trust_url`]: ../../../cosmic/html.tl
 [`Html.trust`]: ../../../cosmic/html.tl
 [`Html.url_part`]: ../../../cosmic/html.tl
+[`Htmx.Config`]: ../../../cosmic/web/htmx.tl
+[`Htmx.head`]: ../../../cosmic/web/htmx.tl
+[`Htmx.integrity()`]: ../../../cosmic/web/htmx.tl
+[`Htmx.Location`]: ../../../cosmic/web/htmx.tl
+[`Htmx.page`]: ../../../cosmic/web/htmx.tl
+[`Htmx.path()`]: ../../../cosmic/web/htmx.tl
+[`Htmx.version`]: ../../../cosmic/web/htmx.tl
 [`Input.Invalid`]: ../../../cosmic/web/input.tl
 [`Json.decode`]: ../../../cosmic/json.tl
 [`Json.encode`]: ../../../cosmic/json.tl
@@ -1239,11 +1247,14 @@ is):
 [`Json.EncodeOptions`]: ../../../cosmic/json.tl
 [`Place.dialect`]: ../../../cosmic/template/markup.tl
 [`Router:reverse`]: ../../../cosmic/web/types.tl
+[`Store.web_asset`]: ../../../cosmic/store.tl
 [`Template.compile`]: ../../../cosmic/template/init.tl
 [`Test.policy`]: ../../../cosmic/test.tl
 [`Types.Template`]: ../../../cosmic/template/types.tl
 [`Url.escape`]: ../../../cosmic/url.tl
 [`Url.parse`]: ../../../cosmic/url.tl
+[`vendor/htmx-ext-sse/dist/sse.min.js`]: ../../../vendor/htmx-ext-sse/dist/sse.min.js
+[`vendor/htmx/dist/htmx.min.js`]: ../../../vendor/htmx/dist/htmx.min.js
 [`Web.add_header`]: ../../../cosmic/web/init.tl
 [`Web.html`]: ../../../cosmic/web/init.tl
 [`Web.Response`]: ../../../cosmic/web/init.tl

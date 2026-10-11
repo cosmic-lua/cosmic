@@ -253,6 +253,8 @@ local function signature_sql(): string
     "FROM meta WHERE key IN " .. metadata .. "), '') || char(10) || " ..
     "coalesce((SELECT group_concat(name || ' ' || lower(hex(sha256(data))), " ..
     "char(10) ORDER BY name) FROM zoneinfo), '') || char(10) || " ..
+    "coalesce((SELECT group_concat(name || ' ' || sha256, char(10) ORDER BY name) " ..
+    "FROM web_assets), '') || char(10) || " ..
     "coalesce((SELECT group_concat(path || ' ' || sha256, char(10) ORDER BY path) " ..
     "FROM files WHERE path GLOB 'static/*'), '') || char(10) || ?1 || " ..
     "char(10) || ?2 || char(10) || ?3 || char(10) || ?4)))"
@@ -380,6 +382,9 @@ local function project(handle: work.Handle,
   statements[#statements + 1] =
     "INSERT INTO out.zoneinfo (name, data) SELECT name, data FROM zoneinfo " ..
     "ORDER BY name"
+  statements[#statements + 1] =
+    "INSERT INTO out.web_assets (name, data, sha256, sha384, version) " ..
+    "SELECT name, data, sha256, sha384, version FROM web_assets ORDER BY name"
   for _, statement in ipairs(statements) do
     local ok, failure = db:exec(statement)
     if not ok then
@@ -625,6 +630,7 @@ local carry: {string} = {
   "INSERT INTO main.payload SELECT * FROM whole.payload ORDER BY path",
   "INSERT INTO main.zoneinfo (name, data) SELECT name, data FROM whole.zoneinfo " ..
     "ORDER BY name",
+  "INSERT INTO main.web_assets SELECT * FROM whole.web_assets ORDER BY name",
   "INSERT INTO main.components SELECT * FROM whole.components ORDER BY name",
   "INSERT INTO main.notices SELECT * FROM whole.notices ORDER BY component, ordinal",
   "INSERT INTO main.ca_roots SELECT * FROM whole.ca_roots ORDER BY sha256",

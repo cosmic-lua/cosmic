@@ -10,7 +10,7 @@ server seam WebSockets will need.
 
 core.md owns the router, `Request`/`Response`, middleware, `url_for` and
 the shutdown mechanism; input.md the sessions, CSRF, CORS and security
-headers; templates.md the `htmx` dialect and `Htmx.head`. Where this file
+headers; templates.md the `htmx` dialect and [`Htmx.head`]. Where this file
 needs something from them it says what in a sentence and cites the file and
 section.
 
@@ -35,7 +35,7 @@ Code is cited as `path:line` from the tree at the time of writing.
   `vendor/htmx-ext-sse/` with PINs, built into the binary's own database
   (a new `web_assets` table beside `zoneinfo`) and served by [`cosmic.web`]
   at versioned fixed paths under the reserved `/_web/` prefix with a SHA-384
-  SRI value computed at build time; `Htmx.head` (templates.md section 6.6)
+  SRI value computed at build time; [`Htmx.head`] (templates.md section 6.6)
   writes the page's tags and the one htmx configuration.
   htmx 4.0.0 exists on npm as the `next` tag; v1 stays on 2.x (section 4.7).
 - There is no condition variable in cosmic.poll today. SSE needs one, so
@@ -638,7 +638,7 @@ at boot, kept in the binary's database, carried by `cosmic build`):
 
 - build/boot.tl:164-172 reads `vendor/tzdata/zoneinfo` with
   [`work.read_zoneinfo`] and [`work.put_zoneinfo`] into the working database;
-  add `work.read_web_assets` / `work.put_web_assets` for the two PIN trees
+  add [`work.read_web_assets`] / [`work.put_web_assets`] for the two PIN trees
   beside them, hashing as it reads. `build/reboot.tl:256-260` (a Teal-only
   rebuild carries the running binary's rows over) gets the same line.
   build/embed.tl:205 (`copy_rows ... "zoneinfo"`) gets one for
@@ -684,15 +684,15 @@ construction error, core.md section 5.5). Responses carry `Content-Type:
 text/javascript; charset=utf-8`, `ETag`, `Cache-Control: public,
 max-age=31536000, immutable`, `Cross-Origin-Resource-Policy: same-origin`
 and `X-Content-Type-Options: nosniff`. Both are served from a
-`memory` [`Assets.Source`] built from `Store.web_asset`, so `StaticFiles`'s
+`memory` [`Assets.Source`] built from [`Store.web_asset`], so `StaticFiles`'s
 whole algorithm applies unchanged (ETag, 304, Range, gzip computed once at
 first use with [`Compress.deflate`] and kept).
 
 The page head. `Htmx.head(opts)` (templates.md section 6.6) is the one
 helper that writes the `<meta name="htmx-config">` and the `<script>` tags
 with SRI for these two files; this file supplies what it reads. From
-`Store.web_asset` (4.3) it takes each file's path, version and SHA-384 SRI
-value; `Htmx.path()` ("/_web/htmx-2.0.11.min.js") and `Htmx.integrity()`
+[`Store.web_asset`] (4.3) it takes each file's path, version and SHA-384 SRI
+value; [`Htmx.path()`] ("/_web/htmx-2.0.11.min.js") and [`Htmx.integrity()`]
 ("sha384-...") expose them for a layout that writes its own tag, and
 `Htmx.head{ sse = true }` adds the extension's tag. The tag is
 `<script src="/_web/htmx-2.0.11.min.js" integrity="sha384-2Oat..."
@@ -709,7 +709,7 @@ off, `selfRequestsOnly` on, and `responseHandling` swapping 2xx and 422 but
 not 204. This file's part of it is the stylesheet half of
 `includeIndicatorStyles: false`: htmx otherwise injects an inline `<style>`
 at startup (htmx.js:118) which a strict `style-src` CSP blocks, so
-`cosmic.web.htmx` ships the `.htmx-indicator` rules as `Htmx.indicator_css()`
+[`cosmic.web.htmx`] ships the `.htmx-indicator` rules as [`Htmx.indicator_css()`]
 for the app's own stylesheet (a `static/` file). (The defaults in the
 vendored file are `allowEval` true, htmx.js:154, and `selfRequestsOnly`
 true, htmx.js:241.)
@@ -1429,7 +1429,7 @@ All small; each with its reason.
 - vendor/htmx/PIN, vendor/htmx-ext-sse/PIN and the trees [`bin/vendor`]
   writes; doc/design.md:412 (payload) and a `web_assets` line next to
   `zoneinfo`.
-- cosmic/store.tl: `Store.web_asset` beside [`Store.zoneinfo`] (line 119).
+- cosmic/store.tl: [`Store.web_asset`] beside [`Store.zoneinfo`] (line 119).
 - cosmic/poll.tl: `Poll.Notifier`, `Poll.notifier`.
 - cosmic/channel.tl: new.
 - cosmic/http/server.tl: forward `on_stop` in `ServeSpec` and
@@ -1439,9 +1439,9 @@ All small; each with its reason.
   cosmic/web/static.tl ([`cosmic.web.static`]), cosmic/web/sse.tl
   ([`cosmic.web.sse`]: `Event`, `EventStream`, `Hub`, `Subscription`) and
   cosmic/web/dev.tl (`cosmic.web.dev`): new, under the [`cosmic.web`]
-  namespace. [`cosmic/web/init.tl`] re-exports. `Htmx.head`, `Htmx.path`,
-  `Htmx.integrity` and `Htmx.indicator_css` are in cosmic/web/htmx.tl
-  (templates.md section 6.6), reading `Store.web_asset`.
+  namespace. [`cosmic/web/init.tl`] re-exports. [`Htmx.head`], [`Htmx.path`],
+  [`Htmx.integrity`] and [`Htmx.indicator_css`] are in cosmic/web/htmx.tl
+  (templates.md section 6.6), reading [`Store.web_asset`].
 - AGENTS.md: a sentence on `static/` in the layout paragraph (documentation
   only).
 - doc/roadmap.md: epoll/kqueue, multi-process hub, WebSockets, brotli,
@@ -1488,7 +1488,7 @@ runs on `127.0.0.1`-range addresses only.
   (the existing determinism tests); `payload` rows and the gzip column;
   `cosmic build` carries them; the `web_assets` table holds the two files,
   and `sha384` equals an independent computation; a `store = true`
-  test reads them through `Store.web_asset`.
+  test reads them through [`Store.web_asset`].
 - vendor: [`build/vendor_test.tl`] already exercises PIN parsing; add the two
   PINs to whatever list asserts every `vendor/*/PIN` has `license` and
   `notice` (bom).
@@ -1522,7 +1522,7 @@ runs on `127.0.0.1`-range addresses only.
   size bound, `max_age_ns`, replay ring bound, header writes bounded.
 - htmx config: the one defined in templates.md section 6.6 (`allowEval`,
   `allowScriptTags` and `includeIndicatorStyles` off, `selfRequestsOnly`
-  on), written by `Htmx.head`; SRI on the tag; vendored bytes verified by
+  on), written by [`Htmx.head`]; SRI on the tag; vendored bytes verified by
   PIN checksum at [`bin/vendor`] and by a test of the stored digest.
 - Dev: loopback only and environment-gated (section 6.4).
 - Supply chain: the PIN's checksum and the BOM entry; the licence is 0BSD
@@ -1610,6 +1610,7 @@ parts, multi-process hub.
 [`cosmic.sqlite`]: ../../../cosmic/sqlite.tl
 [`cosmic.sys`]: ../../../core/syscalls.h
 [`cosmic.web.assets`]: ../../../cosmic/web/assets.tl
+[`cosmic.web.htmx`]: ../../../cosmic/web/htmx.tl
 [`cosmic.web.sse`]: ../../../cosmic/web/sse.tl
 [`cosmic.web.static`]: ../../../cosmic/web/static.tl
 [`cosmic.web`]: ../../../cosmic/web/init.tl
@@ -1618,6 +1619,13 @@ parts, multi-process hub.
 [`Fs.walk_following`]: ../../../cosmic/fs.tl
 [`Fs.walk`]: ../../../cosmic/fs.tl
 [`Hash.Algorithm`]: ../../../cosmic/hash.tl
+[`Htmx.head`]: ../../../cosmic/web/htmx.tl
+[`Htmx.indicator_css()`]: ../../../cosmic/web/htmx.tl
+[`Htmx.indicator_css`]: ../../../cosmic/web/htmx.tl
+[`Htmx.integrity()`]: ../../../cosmic/web/htmx.tl
+[`Htmx.integrity`]: ../../../cosmic/web/htmx.tl
+[`Htmx.path()`]: ../../../cosmic/web/htmx.tl
+[`Htmx.path`]: ../../../cosmic/web/htmx.tl
 [`Http.get`]: ../../../cosmic/http/init.tl
 [`Http.request`]: ../../../cosmic/http/init.tl
 [`identity.skip_input`]: ../../../build/identity.tl
@@ -1642,6 +1650,7 @@ parts, multi-process hub.
 [`Sse.EventStream`]: ../../../cosmic/web/sse.tl
 [`Sse.Hub`]: ../../../cosmic/web/sse.tl
 [`Store.databases()`]: ../../../cosmic/store.tl
+[`Store.web_asset`]: ../../../cosmic/store.tl
 [`Store.zoneinfo`]: ../../../cosmic/store.tl
 [`Stream.Reader`]: ../../../cosmic/stream.tl
 [`Task.kill`]: ../../../cosmic/poll.tl
@@ -1657,6 +1666,8 @@ parts, multi-process hub.
 [`wire.buffered`]: ../../../cosmic/http/wire.tl
 [`wire.check`]: ../../../cosmic/http/wire.tl
 [`wire.send`]: ../../../cosmic/http/wire.tl
+[`work.put_web_assets`]: ../../../build/work.tl
 [`work.put_zoneinfo`]: ../../../build/work.tl
+[`work.read_web_assets`]: ../../../build/work.tl
 [`work.read_zoneinfo`]: ../../../build/work.tl
 [`work.stage`]: ../../../build/work.tl

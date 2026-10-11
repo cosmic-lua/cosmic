@@ -1,4 +1,5 @@
 local Fs = require("cosmic.fs")
+local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local type Log = require("cosmic.log")
 local paths = require("build.paths")
@@ -205,4 +206,31 @@ local function test_carries_tree_code_compares_every_module(tmp: string)
   assert(Fs.write(tmp .. "/build/bind.tl", source))
   assert(Fs.write(tmp .. "/build/nowhere.tl", "return {}\n"))
   assert(not carries(), "a module the binary does not carry carried the tree's code")
+end
+
+--- A rebuilt tool carries the running binary's web assets; from a binary
+--- from before the table it takes the vendored trees', and a tree with
+--- none (a project's) leaves it with none.
+local function test_web_assets_fall_back_to_the_vendored_trees_for_an_older_binary(tmp: string)
+  assert(Fs.mkdirs(tmp .. "/vendor/htmx/dist"))
+  assert(Fs.write(tmp .. "/vendor/htmx/PIN", "version 9.9.9\nurl x\n"))
+  assert(Fs.write(tmp .. "/vendor/htmx/dist/htmx.min.js", "vendored"))
+  assert(Fs.mkdirs(tmp .. "/vendor/htmx-ext-sse/dist"))
+  assert(Fs.write(tmp .. "/vendor/htmx-ext-sse/PIN", "version 8.8.8\nurl x\n"))
+  assert(Fs.write(tmp .. "/vendor/htmx-ext-sse/dist/sse.min.js", "sse"))
+  local older = assert(Sqlite.memory())
+  local fallen = assert(reboot.web_assets(older, tmp))
+  assert(#fallen == 2 and fallen[2].name == "htmx.min.js" and fallen[2].version == "9.9.9" and
+      fallen[2].data == "vendored", "an older binary's rebuild took the tree's files")
+  local bare = assert(reboot.web_assets(older, tmp .. "/nowhere"))
+  assert(#bare == 0, "a tree with no vendor/ leaves none")
+  assert(older:close())
+
+  local newer = assert(Sqlite.memory())
+  assert(newer:exec("CREATE TABLE web_assets (name TEXT PRIMARY KEY NOT NULL, data BLOB NOT NULL, " ..
+      "sha256 TEXT NOT NULL, sha384 TEXT NOT NULL, version TEXT NOT NULL)"))
+  assert(newer:exec("INSERT INTO web_assets VALUES ('htmx.min.js', x'01', 'a', 'b', '1.0.0')"))
+  local kept = assert(reboot.web_assets(newer, tmp))
+  assert(#kept == 1 and kept[1].version == "1.0.0", "the binary's own files are kept")
+  assert(newer:close())
 end
