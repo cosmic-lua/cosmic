@@ -786,11 +786,22 @@ local function test_a_body_slower_than_body_ns_is_answered_408()
     local p <close> = peer(address)
     send(p, "PUT / HTTP/1.1\r\nHost: test\r\nContent-Length: 40\r\n\r\n")
     local started = Clock.monotonic_ns()
+    -- Each byte is followed by a short wait for the reply, and the client
+    -- stops sending once it comes: bytes sent after the server's linger
+    -- ends meet a closed socket, whose reset discards the unread 408 on
+    -- BSD, so how late the 408 is read must not set whether it arrives.
+    p.conn:set_timeout(Clock.ms(30))
     for _ = 1, 40 do
       if not p.conn:write("x") then break end
-      local _, _ = Poll.delay(Clock.ms(30))
+      local piece, why = p.conn:read()
+      if piece ~= nil then
+        p.buf = p.buf .. piece
+        break
+      end
+      assert(why == Poll.TIMEOUT, "reading: " .. why)
       if Clock.monotonic_ns() - started > Clock.seconds(3) then break end
     end
+    p.conn:set_timeout(Clock.seconds(5))
     local got = reply(p)
     assert(got.status == 408 and got.headers["connection"] == "close", tostring(got.status))
     assert(Clock.monotonic_ns() - started < Clock.seconds(3))
