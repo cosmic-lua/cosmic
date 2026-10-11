@@ -1,0 +1,17 @@
+file: tl.tl
+note: the type of a function literal carries the `never` it declares or takes from its context
+--- find
+               rets = self.get_rets(rets),
+               never = node.never,
+            }))
+         end,
+      },
+      ["macroexp"] = {
+--- replace
+               rets = self.get_rets(rets),
+               never = node.never or node.context_never,
+            }))
+         end,
+      },
+      ["macroexp"] = {
+--- end

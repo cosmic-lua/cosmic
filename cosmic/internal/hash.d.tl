@@ -36,6 +36,9 @@ local record hash
   -- inclusive; the whole string by default). Raises when first < 1,
   -- last > #data, or first > last + 1; an empty range sums to 0.
   byte_sum: function(data: string, first?: integer, last?: integer): integer
+  -- Whether a and b hold the same bytes, in a time that depends on their
+  -- length alone; different lengths answer false at once.
+  equal: function(a: string, b: string): boolean
   -- The raw SipHash tag of data under a 16-byte key: `compression` and
   -- `finalization` rounds (2 and 4 by default, 1 to 64), and `size`
   -- bytes (8 by default, or 16). Raises on any other key length, round

@@ -13,7 +13,10 @@ defines the target; once something ships, it leaves this file.
   variable. none of `patch/tl` enforces it yet, and the tree's own Teal holds
   about seventy `as` casts to migrate or justify first. old's
   `3p/tl/tl_patch/cast.tl` and `docs/design/cast-legality.md` are useful
-  implementation and migration evidence.
+  implementation and migration evidence. the policy covers `is` too: `as` and `is`
+  give any target type unchecked, so one that contains a never-function (a
+  function type, or a record or container with such a field) forges the
+  guarantee of `: never`.
 - add `: never` to Teal as a flag on a function type, so a helper that only
   raises (and [`Proc.exit`]) narrows below a guard as `error` does:
   [doc/plans/teal-never.md](plans/teal-never.md) has the design and the
@@ -24,6 +27,13 @@ defines the target; once something ships, it leaves this file.
   `records_interfaces_methods` teaches, and the design note above
   `FromStringReader` in [`cosmic/stream.tl`] shrinks. every interface of the
   module and every record that implements one changes together.
+- close the holes in Teal's own typing that forge any type, `: never`
+  functions among them ([doc/plans/teal-never.md](plans/teal-never.md) lists
+  them with tests that pin today's behavior): `coroutine.wrap` is declared
+  `function<F>(F): F` though its wrapper returns whatever the coroutine
+  yields; `rawset` writes a value of any type into a record's field;
+  `setmetatable` trusts a `__index` or `__call` attached at run time against
+  no declaration.
 - add earned lint rules and their fixes to [`build/fix/rule.tl`]'s rule list.
   the rewrite stage is in place and the list is still empty.
 - add a floor for line coverage, C included: `cosmic test --min PCT

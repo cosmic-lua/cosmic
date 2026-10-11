@@ -1,0 +1,22 @@
+file: tl.tl
+note: a local function declared `: never` has a type that never returns
+--- find
+               rets = self.get_rets(rets),
+            }))
+
+            self:add_var(node, node.name.tk, t)
+            return t
+         end,
+      },
+      ["local_macroexp"] = {
+--- replace
+               rets = self.get_rets(rets),
+               never = node.never,
+            }))
+
+            self:add_var(node, node.name.tk, t)
+            return t
+         end,
+      },
+      ["local_macroexp"] = {
+--- end

@@ -1,0 +1,22 @@
+file: tl.tl
+note: an overloaded function stands for a function that never returns only when every overload does: a call of the value picks an overload at run time, and one that returns would carry on past a call the checker took as the end of its block
+--- find
+            if self:exists_supertype_in(b, a) then
+--- replace
+            local rb = b
+            if rb is NominalType then
+               rb = self:resolve_nominal(rb)
+            end
+            if rb is FunctionType and rb.never then
+               for _, overload in ipairs(a.types) do
+                  local fn: Type = overload
+                  if fn is GenericType then
+                     fn = fn.t
+                  end
+                  if not (fn is FunctionType and fn.never) then
+                     return false, { Err("a polymorphic function with an overload that may return cannot stand for %s, which never returns", b) }
+                  end
+               end
+            end
+            if self:exists_supertype_in(b, a) then
+--- end

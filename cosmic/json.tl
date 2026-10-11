@@ -128,6 +128,12 @@ local record Json
     --- (1000; default [`Json.default_depth`], 64). A table that contains
     --- itself fails here.
     max_depth: integer
+    --- Write every character past U+007F as a `\uXXXX` escape, a pair
+    --- of them above U+FFFF, so that the text is ASCII throughout and
+    --- can travel in an HTTP header (default false). Decoding it gives
+    --- the same value. A string that is not UTF-8 is refused as it is
+    --- without this.
+    ascii: boolean
   end
 
   --- What [`Json.format`] may be told. Every field is optional, and those
@@ -461,7 +467,7 @@ function Json.encode(value: any, opts?: Json.EncodeOptions): string | nil, strin
   if opts == nil then
     text, err = raw.encode(value)
   else
-    text, err = raw.encode(value, opts.pretty, opts.max_depth)
+    text, err = raw.encode(value, opts.pretty, opts.max_depth, opts.ascii)
   end
   if text == nil then return refuse(err) end
   return text, ""
