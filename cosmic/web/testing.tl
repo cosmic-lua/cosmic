@@ -4,6 +4,7 @@
 --- that speaks HTTP/1.1 over a socket.
 
 local Clock = require("cosmic.clock")
+local Cookies = require("cosmic.web.cookies")
 local Json = require("cosmic.json")
 local Net = require("cosmic.net")
 local Poll = require("cosmic.poll")
@@ -15,12 +16,34 @@ local Url = require("cosmic.url")
 local String = require("cosmic.string")
 
 local record Testing
+  --- What the jar remembers about a cookie besides its value.
+  record JarEntry
+    --- Where it is sent: the `Path` it was set with, else the directory of
+    --- the request that set it.
+    path: string
+    --- Whether it is sent only over https.
+    secure: boolean
+    --- When it lapses in ns since the epoch (`Max-Age` first, else
+    --- `Expires`); nil for a session cookie, kept as long as the client.
+    expires_ns: integer
+  end
+
   --- An app driven in-process: see [`Testing.test_client`].
   record Client
     --- The app.
     app: Types.App
-    --- The cookies the replies set, by name: sent back on every request.
+    --- The cookies the replies set, by name: sent back on the requests
+    --- they belong to. A browser keys a cookie by name, domain and path;
+    --- this jar by name alone, as the client speaks to one host, so two
+    --- cookies of a name at different paths replace each other.
     jar: {string:string}
+    --- What the jar knows of each cookie's `Path`, `Secure` and expiry, by name.
+    attrs: {string:JarEntry}
+    --- "http" (the default) or "https": whether the client acts as a browser
+    --- on an https page. A `Secure` cookie is sent only when it is "https",
+    --- which also adds `X-Forwarded-Proto: https` for an app with
+    --- `trusted_proxy`.
+    scheme: string
     --- Whether the app's lifespan has run.
     started: boolean
     --- The cleanup the lifespan returned.
@@ -221,20 +244,55 @@ local function start(client: Testing.Client)
   client.started = true
 end
 
---- Updates the jar with a `Set-Cookie` line: the name and value, and a
---- cookie with `Max-Age` of 0 or less deleted. Its other attributes are
---- not read.
--- TODO: once cosmic.web.cookies has `parse_set_cookie`, read Path, Expires
--- and Secure here as a browser does.
-local function remember(jar: {string:string}, line: string)
-  local name, value = line:match("^%s*([^=;%s]+)=([^;]*)")
-  if name == nil then return end
-  local max_age = line:lower():match(";%s*max%-age%s*=%s*(%-?%d+)")
-  if max_age ~= nil and math.tointeger(tonumber(max_age)) <= 0 then
-    jar[name] = nil
-  else
-    jar[name] = value
+--- The directory of `path`, where a cookie set without a `Path` is sent
+--- (RFC 6265 5.1.4).
+local function default_path(path: string): string
+  if path:sub(1, 1) ~= "/" then return "/" end
+  local last = path:match("^.*()/")
+  if last == nil or last == 1 then return "/" end
+  return path:sub(1, last - 1)
+end
+
+--- Whether a cookie of `cookie_path` is sent for `path` (RFC 6265 5.1.4).
+local function path_matches(cookie_path: string, path: string): boolean
+  if cookie_path == path then return true end
+  if path:sub(1, #cookie_path) ~= cookie_path then return false end
+  return cookie_path:sub(-1) == "/" or path:sub(#cookie_path + 1, #cookie_path + 1) == "/"
+end
+
+--- Updates the jar with a `Set-Cookie` line the reply to a request for
+--- `path` carried, as a browser does for what it can tell: a cookie with a
+--- `Max-Age` of 0 or less, or an `Expires` in the past, deletes the one at
+--- its path; `Path`, `Secure` and the expiry are kept for the requests that
+--- follow. `Domain` and `SameSite` are not read, as the client has one
+--- host and sends every request itself.
+local function remember(client: Testing.Client, line: string, path: string)
+  local parsed, _ = Cookies.parse_set_cookie(line)
+  if parsed == nil then return end
+  local name = parsed.name
+  local cookie_path = parsed.path or default_path(path)
+  local now = Clock.now_ns()
+  local expires: integer = nil
+  local gone = false
+  if parsed.max_age ~= nil then
+    gone = parsed.max_age <= 0
+    -- A huge Max-Age lasts as long as the clock can say.
+    local room = (math.maxinteger - now) // 1000000000
+    expires = now + math.min(parsed.max_age, room) * 1000000000
+  elseif parsed.expires_ns ~= nil then
+    gone = parsed.expires_ns <= now
+    expires = parsed.expires_ns
   end
+  if gone then
+    local old = client.attrs[name]
+    if old == nil or old.path == cookie_path then
+      client.jar[name] = nil
+      client.attrs[name] = nil
+    end
+    return
+  end
+  client.jar[name] = parsed.value
+  client.attrs[name] = { path = cookie_path, secure = parsed.secure, expires_ns = expires }
 end
 
 --- The header lines of `reply`, in name order: `{name, value}`.
@@ -257,7 +315,20 @@ local function send(client: Testing.Client, method: string, path: string, opts: 
   start(client)
   local prepared = prepare(method, path, opts)
   local cookies: {string:string} = {}
-  for name, value in pairs(client.jar) do cookies[name] = value end
+  local now = Clock.now_ns()
+  for name, value in pairs(client.jar) do
+    local entry = client.attrs[name]
+    if entry ~= nil and entry.expires_ns ~= nil and entry.expires_ns <= now then
+      client.jar[name] = nil
+      client.attrs[name] = nil
+    elseif entry == nil or ((not entry.secure or client.scheme == "https") and
+        path_matches(entry.path, prepared.path)) then
+      cookies[name] = value
+    end
+  end
+  if client.scheme == "https" and prepared.headers["x-forwarded-proto"] == nil then
+    prepared.headers["x-forwarded-proto"] = "https"
+  end
   for name, value in pairs(opts.cookies or {}) do cookies[name] = value end
   if next(cookies) ~= nil then
     local list: {string} = {}
@@ -319,7 +390,9 @@ local function send(client: Testing.Client, method: string, path: string, opts: 
     result = response_of(reply.status, lines, body)
     result.stream = stream
   end)
-  for _, line in ipairs(result.lines["set-cookie"] or {}) do remember(client.jar, line) end
+  for _, line in ipairs(result.lines["set-cookie"] or {}) do
+    remember(client, line, prepared.path)
+  end
   return result
 end
 
@@ -381,7 +454,8 @@ client_mt = {
 --- @param app Types.App The app
 --- @return Testing.Client The client
 function Testing.test_client(app: Types.App): Testing.Client
-  return setmetatable({ app = app, jar = {}, started = false }, client_mt)
+  return setmetatable({ app = app, jar = {}, attrs = {}, scheme = "http", started = false },
+    client_mt)
 end
 
 --- Runs `fn` with a client of `app` in one [`Poll.run`], the lifespan
