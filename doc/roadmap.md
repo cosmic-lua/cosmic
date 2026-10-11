@@ -29,14 +29,16 @@ defines the target; once something ships, it leaves this file.
     omit a required one, an area of the tree at a time, each change building
     on its own with no rule in force. a marked field's reads that do not check
     for nil are refused, so each change guards them or finds a real nil.
-  - TODO: the checker refuses only an index, `ipairs` and `pairs` of a
-    nil-admitting field, not its use as an operand of `..`, `#`, arithmetic
-    or a comparison, as a `table.concat` or `table.insert` argument, or as an
-    argument for a non-nil parameter; those raise at run time when the field
-    is omitted (the marking found no such read that a constructor reaches:
-    [`wire.Reply.date`], which `send` concatenates, stays required).
-    Refuse them where the binary operators and calls are checked in tl.tl
-    before the final change, so the marking's reads are all seen.
+  - the checker refuses a nil-admitting value, a marked field or any `T |
+    nil`, as an index, in `ipairs` and `pairs`, as an operand of `..`, `#`,
+    arithmetic, a bit operator or an ordered comparison (patch/tl 51b) and as
+    an argument of `table.insert` and `table.concat` (51c); 267 operand sites
+    and 16 of those arguments were measured and fixed, none a nil the code
+    could reach. TODO: refuse it as an argument for any other
+    parameter that does not admit nil (the TODO in patch/tl 51c): 791 sites in
+    178 files, 328 of them in tests, pass a `T | nil`, and 707 in 101 files
+    pass a literal nil, 649 of them in tests that check an argument's
+    refusal that way, so a literal nil may stay accepted.
   - make the check an error for the whole tree at once, with function fields
     exempt (they cover methods supplied by `__index`, metamethods, and type
     declarations). TODO: that exemption must include generic function fields ([`Request.get`]
