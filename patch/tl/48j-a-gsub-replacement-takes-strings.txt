@@ -1,0 +1,7 @@
+file: tl.tl
+note: the replacement function of `string.gsub` is given the captures as strings, as `string.gmatch` returns them (a literal pattern is typed capture by capture, a position capture `()` as an integer, by the special function), so a function whose parameters are strings stands for it when the pattern is not a literal. Parameters that accept strings and integers stay accepted (48a)
+--- find
+      gsub: function(string, string, function((string|integer)...): ((string|integer|number)...), ? integer): string, integer --[[special_function]]
+--- replace
+      gsub: function(string, string, function(string...): ((string|integer|number)...), ? integer): string, integer --[[special_function]]
+--- end

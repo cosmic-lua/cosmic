@@ -1,0 +1,9 @@
+file: tl.tl
+note: the function type of the field being compared, so that the comparison of that function with the type it stands for (48d) can tell its first parameter is a receiver (48e). It is set by 48f and cleared by the comparison that reads it, so it names one comparison and no nested one
+--- find
+      compare_depth: integer
+--- replace
+      compare_depth: integer
+
+      receiver_field: FunctionType
+--- end

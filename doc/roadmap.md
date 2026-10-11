@@ -26,7 +26,11 @@ defines the target; once something ships, it leaves this file.
   redeclaration of them: the documented signatures then read as
   `records_interfaces_methods` teaches, and the design note above
   `FromStringReader` in [`cosmic/stream.tl`] shrinks. every interface of the
-  module and every record that implements one changes together.
+  module and every record that implements one changes together. it also
+  lets the receiver exemption go from `patch/tl`'s 48e: the first
+  parameter of a function-typed record field is the one place Teal still
+  compares a function's parameter in either direction, because those
+  redeclarations narrow it.
 - close the holes in Teal's own typing that forge any type, `: never`
   functions among them ([doc/plans/teal-never.md](plans/teal-never.md) lists
   them with tests that pin today's behavior): `coroutine.wrap` is declared

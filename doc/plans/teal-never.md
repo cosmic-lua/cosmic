@@ -221,18 +221,21 @@ where `function(): string` is expected. the rule:
   rule.
 
 this must hold at the root of a comparison only. Teal compares nested
-types with `is_a` in whichever direction passes: `arg_check` is
-`"bivariant"` for the parameters and returns of two function types (8993,
-9860, 9871) and falls back to `is_a(b, a)`, and arrays, maps, records and
-unions compare their elements covariantly through `is_a` (`subtype_array`
-9224, `compare_map` 9310, the union rows 9615-9640, the nominal and alias
-rows); none uses `same_type`. so `{function(): never}` is an `is_a` of
-`{function(): string}`, and `local h: function(): {function(): never} =
-function(): {function(): string} ... end` would pass, and `h()[1]()` would
-end a block that returns. refusing only the bivariant fallback is not
-enough: the forward direction forges too, since a function whose parameter
-is a never-function, assigned where a `function(cb: function(): string)` is
-expected, is called with a callback that returns.
+types with `is_a`: arrays, maps, records and unions compare their elements
+covariantly (`subtype_array` 9224, `compare_map` 9310, the union rows
+9615-9640, the nominal and alias rows), and none uses `same_type`. so
+`{function(): never}` is an `is_a` of `{function(): string}`, and `local h:
+function(): {function(): never} = function(): {function(): string} ...
+end` would pass, and `h()[1]()` would end a block that returns. the
+parameters and returns of two function types were compared in whichever
+direction passed (`"bivariant"`, 8993, 9860, 9871) until 48a and 48b made
+them contravariant and covariant: the forward direction forges too, since
+a function whose parameter is a never-function, assigned where a
+`function(cb: function(): string)` is expected, is called with a callback
+that returns, and 43e5 still refuses it, in the one direction the rule
+now compares. the first parameter of a function-typed record field, the
+receiver, stays bivariant (48e, doc/roadmap.md), so a receiver whose
+type holds a never-function is the one place that direction is not held.
 
 the rule, chosen over making `arg_check` non-bivariant for such pairs
 (which would also change how every ordinary pair compares): the outermost
