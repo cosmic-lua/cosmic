@@ -167,7 +167,7 @@ assert(reply.status == 422 and reply.text:find("qty", 1, true))
   typed routes, middleware composition, the exception layer, App, serve,
   lifespan, typed per-request keys (`Web.key<T>`).
 - `cosmic.web.input`: query, form and JSON decoding, and binding them to
-  a spec with every field's error collected (`Input.Invalid`).
+  a spec with every field's error collected ([`Input.Invalid`]).
 - `cosmic.web.mime`: content types by file name.
 - `cosmic.web.cookies`, `cosmic.web.session` (with its stores
   `cosmic.web.session.cookie` and `cosmic.web.session.sqlite`),
@@ -347,6 +347,7 @@ cooperative process.
 [`cosmic.web`]: ../../cosmic/web/init.tl
 [`Hash.equal`]: ../../cosmic/hash.tl
 [`Html.url_part`]: ../../cosmic/html.tl
+[`Input.Invalid`]: ../../cosmic/web/input.tl
 [`Poll.notifier`]: ../../cosmic/poll.tl
 [`Request.peer`]: ../../cosmic/http/server.tl
 [`Router:reverse`]: ../../cosmic/web/types.tl
