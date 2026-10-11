@@ -12,7 +12,7 @@ end
 local function test_packets_keep_their_boundaries_and_name_their_sender()
   local server <close> = bind()
   local client <close> = bind()
-  assert(server.address.kind == "udp" and server.address.port > 0)
+  assert(server.address.kind == "udp" and assert(server.address.port) > 0)
   for _, data in ipairs({ "a\0b", "", "third" }) do
     assert(Udp.send(client, data, server.address))
   end

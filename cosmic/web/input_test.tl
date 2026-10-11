@@ -598,7 +598,7 @@ local function test_a_json_pointer_with_escapes_is_one_dotted_field()
   with_request("POST", { json = { ["a/b"] = { ["c~d"] = "x" } } }, function(req: Web.Request)
     local read = Input.json_into(req, typed)
     local e = assert(read.invalid).errors[1]
-    assert(e.pointer == "/a~1b/c~0d" and e.field == "a/b.c~d", e.pointer .. " " .. e.field)
+    assert(e.pointer == "/a~1b/c~0d" and e.field == "a/b.c~d", tostring(e.pointer) .. " " .. tostring(e.field))
   end)
 end
 

@@ -257,7 +257,8 @@ end
 
 --- Whether the request has a body: a chunked one always does.
 local function has_body(req: Types.Request): boolean
-  return req.raw.length == nil or req.raw.length > 0
+  local length = req.raw.length
+  return length == nil or length > 0
 end
 
 --- Whether the charset parameter is absent or UTF-8.
@@ -321,8 +322,11 @@ local function body_text(req: Types.Request, kind: string, opts: Types.InputOpti
     return nil, stop(413, "body", "", "too_large",
       ("the body is over the limit, max_bytes = %d"):format(limit))
   end
-  local data = req.body_text
-  if data == nil then
+  local cached = req.body_text
+  local data: string
+  if cached ~= nil then
+    data = cached
+  else
     if req.body_failure ~= nil then return nil, read_failed(req.body_failure) end
     local read, why = Stream.read_all(Stream.limit(req.raw.body, limit + 1))
     if read == nil then
@@ -506,13 +510,17 @@ local function read_multipart(req: Types.Request, limit: integer, opts: Types.In
       local first, fwhy = part.body:read(CHUNK)
       if first == nil and fwhy ~= "" then return stop_with(multipart_failed(fwhy, limit)) end
       if first ~= nil or part.filename ~= "" then
+        local into: string
         if dir == nil then
           local made_dir, trouble = Fs.mkdtemp("cosmic-upload-")
           if made_dir == nil then return storage_failed(trouble) end
           made = made_dir
           dir = made_dir
+          into = made_dir
+        else
+          into = dir
         end
-        local path = dir .. "/" .. Codec.hex((assert(Rand.entropy(16))))
+        local path = into .. "/" .. Codec.hex((assert(Rand.entropy(16))))
         local writer, trouble = Stream.create(path, 384)
         if writer == nil then return storage_failed(trouble) end
         spooling = writer

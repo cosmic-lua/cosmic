@@ -268,11 +268,29 @@ local record Relay
   end
 end
 
-local DEFAULT_TIMEOUTS <const>: Relay.Timeouts = {
+--- A running relay's timeouts: each of [`Relay.Timeouts`] chosen, its
+--- default where the spec gave none.
+local record HeldTimeouts
+  resolve: integer
+  connect: integer
+  idle: integer
+  head: integer
+  auth: integer
+end
+
+--- A running relay's limits: each of [`Relay.Limits`] chosen.
+local record HeldLimits
+  connections: integer
+  header_bytes: integer
+  total: integer
+  pre_auth: integer
+end
+
+local DEFAULT_TIMEOUTS <const>: HeldTimeouts = {
   resolve = Clock.seconds(5), connect = Clock.seconds(10), idle = Clock.minutes(5), head = Clock.seconds(10),
   auth = Clock.seconds(3),
 }
-local DEFAULT_LIMITS <const>: Relay.Limits = { connections = 64, header_bytes = 16384, total = 100000, pre_auth = 64 }
+local DEFAULT_LIMITS <const>: HeldLimits = { connections = 64, header_bytes = 16384, total = 100000, pre_auth = 64 }
 local DEFAULT_TLS_PORTS <const>: {integer} = { 443, 853 }
 
 --- How many connections past `connections` are accepted to be refused
@@ -416,8 +434,8 @@ local record Running
   spec: Relay.Spec
   names: {NameGrant}
   own: {{integer}}
-  timeouts: Relay.Timeouts
-  limits: Relay.Limits
+  timeouts: HeldTimeouts
+  limits: HeldLimits
   tls_ports: {integer: boolean}
   log: function(line: string)
   --- The SHA-256 of the spec's token, or nil where it has none.
@@ -676,7 +694,7 @@ local function read_socks(run: Running, conn: Net.Conn, authenticated: function(
     end
     if given.status == "refused" then
       local _ = send(conn, Wire.socks_auth_reply(false), run.timeouts.head)
-      return early("not authenticated: " .. given.reason, "failure", false)
+      return early("not authenticated: " .. assert(given.reason), "failure", false)
     end
     if not is_token(run, given.password) then
       local _ = send(conn, Wire.socks_auth_reply(false), run.timeouts.head)
@@ -893,7 +911,7 @@ end
 local function judged(sniff: Sniff, seen: Wire.Hello, requested: string): boolean, string
   if seen.status == "not_tls" then return true, "" end
   if seen.status == "malformed" then
-    return false, "refused a malformed TLS ClientHello: " .. seen.reason
+    return false, "refused a malformed TLS ClientHello: " .. assert(seen.reason)
   end
   if seen.status == "encrypted_sni" then
     return false, ("refused a ClientHello with an encrypted server name (ECH or ESNI), which the relay cannot match " ..
@@ -907,8 +925,9 @@ local function judged(sniff: Sniff, seen: Wire.Hello, requested: string): boolea
     return true, ""
   end
   if sniff.kind ~= "name" then
+    local named = assert(seen.name)
     return false, ("refused a ClientHello naming %s for a connection to the address %s: " ..
-      "connect by name and grant --connect %s"):format(seen.name, requested, seen.name .. ":<port>")
+      "connect by name and grant --connect %s"):format(named, requested, named .. ":<port>")
   end
   if seen.name ~= sniff.host then
     return false, ("refused a ClientHello naming %s for a connection to %s: connect to %s by name, " ..
@@ -1344,14 +1363,14 @@ function Relay.start(spec: Relay.Spec): Relay.Serving
   end
   local given_timeouts: Relay.Timeouts = spec.timeouts or {}
   local given_limits: Relay.Limits = spec.limits or {}
-  local timeouts: Relay.Timeouts = {
+  local timeouts: HeldTimeouts = {
     resolve = chosen(given_timeouts.resolve, DEFAULT_TIMEOUTS.resolve, "timeouts.resolve"),
     connect = chosen(given_timeouts.connect, DEFAULT_TIMEOUTS.connect, "timeouts.connect"),
     idle = chosen(given_timeouts.idle, DEFAULT_TIMEOUTS.idle, "timeouts.idle"),
     head = chosen(given_timeouts.head, DEFAULT_TIMEOUTS.head, "timeouts.head"),
     auth = chosen(given_timeouts.auth, DEFAULT_TIMEOUTS.auth, "timeouts.auth"),
   }
-  local limits: Relay.Limits = {
+  local limits: HeldLimits = {
     connections = chosen(given_limits.connections, DEFAULT_LIMITS.connections, "limits.connections"),
     header_bytes = chosen(given_limits.header_bytes, DEFAULT_LIMITS.header_bytes, "limits.header_bytes"),
     total = chosen(given_limits.total, DEFAULT_LIMITS.total, "limits.total"),

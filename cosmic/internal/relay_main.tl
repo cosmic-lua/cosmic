@@ -206,8 +206,8 @@ local function serve(config: Config.Config): integer
       end
       http, socks = listeners[1], listeners[2]
       if http.address.port ~= Config.http_port or socks.address.port ~= Config.socks_port then
-        status = failed("the listeners are at ports " .. http.address.port .. " and " ..
-            socks.address.port .. ", not " .. Config.http_port .. " and " .. Config.socks_port)
+        status = failed("the listeners are at ports " .. tostring(http.address.port) .. " and " ..
+            tostring(socks.address.port) .. ", not " .. Config.http_port .. " and " .. Config.socks_port)
         return
       end
     end

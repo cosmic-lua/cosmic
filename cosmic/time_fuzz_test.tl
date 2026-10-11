@@ -265,7 +265,8 @@ local function between_holds(input: string): boolean, string
     return false, text .. " does not read back"
   end
   local dir = to > from and 1 or to < from and -1 or 0
-  if (d.years * dir < 0) or (d.months * dir < 0) or (d.days * dir < 0) or (d.ns * dir < 0) then
+  if ((d.years or 0) * dir < 0) or ((d.months or 0) * dir < 0) or ((d.days or 0) * dir < 0) or
+      ((d.ns or 0) * dir < 0) then
     return false, ("%d to %d in %s: %s is against the sign of the span"):format(from, to, name, text)
   end
   Fuzz.label(to < from and "negative" or "positive")

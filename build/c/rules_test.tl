@@ -694,7 +694,7 @@ local function test_a_violation_under_each_target_is_found(tmp: string)
     assert(outcome.findings ~= nil, outcome.trouble)
     local found = only(outcome.findings, "narrowed-integer")
     assert(#found == 1, condition .. ": " .. #found .. " findings")
-    local named = table.concat(found[1].variants, ",")
+    local named = table.concat(assert(found[1].variants), ",")
     assert(named:find(variant, 1, true), condition .. " was found under " .. named)
   end
 end

@@ -575,7 +575,8 @@ local function run_here(argv: {string}, opts: Child.Options): Child.Result | nil
   if not (sys.isatty(0) or sys.isatty(1) or sys.isatty(2)) then return Child.run(argv, opts) end
   local terminal: TermRelay.Terminal | nil
   local notes: Notes | nil
-  local connects = opts.policy ~= nil and opts.policy.connect ~= nil and #opts.policy.connect > 0
+  local policy = opts.policy
+  local connects = policy ~= nil and policy.connect ~= nil and #policy.connect > 0
   if opts.relay_log == "inherit" and connects and sys.isatty(2) then
     local made, why = notes_pipe()
     if made == nil then return nil, "the relay's log: " .. why end
@@ -664,7 +665,7 @@ local function execute(argv: {integer:string}, io: verb.Io | nil, held: {string}
     return code
   end
   if result.timed_out then
-    complain("timed out after " .. plural.count(request.timeout_ns // 1000000000, "second"))
+    complain("timed out after " .. plural.count(assert(request.timeout_ns) // 1000000000, "second"))
     return TIMED_OUT
   end
   return Child.shell_status(result)

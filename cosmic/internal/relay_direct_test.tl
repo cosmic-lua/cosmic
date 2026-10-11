@@ -100,7 +100,7 @@ local function test_a_direct_relay_listens_itself_and_serves_both_protocols_behi
         end)
       end
     end)
-    local granted, ungranted = server.address.port, other.address.port
+    local granted, ungranted = assert(server.address.port), assert(other.address.port)
     local loopback = assert(RelayStart.loopback_listeners())
     local port = loopback.port
     local fds: {integer:integer} = {}

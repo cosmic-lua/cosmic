@@ -834,11 +834,15 @@ local function check_case(
   -- stands only if its tokens are the same.
   local borrowed = false
   if state ~= "data" then
-    if last == nil or not WRAPPERS[state][last] then
+    local named: string
+    if last ~= nil and WRAPPERS[state][last] then
+      named = last
+    else
       borrowed = last ~= nil
-      last = DEFAULT_WRAPPER[state]
+      named = DEFAULT_WRAPPER[state]
     end
-    wrapper = "<" .. last .. ">"
+    last = named
+    wrapper = "<" .. named .. ">"
   end
   reach.cases = reach.cases + 1
   local run = tokenize(input, state, last or "")

@@ -168,7 +168,7 @@ local function substitute(text: string, name: string, value: string): string
   local pos = 1
   while true do
     local a, b = find_name(text, name, pos)
-    if not a then
+    if not a or not b then
       out[#out + 1] = text:sub(pos)
       break
     end

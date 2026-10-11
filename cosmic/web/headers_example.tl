@@ -19,7 +19,7 @@ function Example.middleware()
       nonce = true,
     } },
     routes = { Web.get("/", function(req: Web.Request): Web.Response
-      return Web.text("nonce " .. req:get(Headers.NONCE))
+      return Web.text("nonce " .. assert(req:get(Headers.NONCE)))
     end) },
   }
   local res = Web.test_client(app):get("/")

@@ -674,7 +674,7 @@ local function test_a_request_carries_its_peer_address()
   end)
   assert(#troubles == 0, troubles[1])
   assert(seen ~= nil and seen.kind == "tcp" and seen.host == "127.0.0.1", "no peer")
-  assert(seen.port > 0 and seen.port ~= server_port)
+  assert(assert(seen.port) > 0 and seen.port ~= server_port)
 end
 
 --- A caller's on_stop runs once, as the server stops, with the server;

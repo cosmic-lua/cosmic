@@ -46,7 +46,7 @@ local function test_a_settled_source_rewrite_runs_new_bytecode(tmp: string)
       env = this_program.environment(), stdout = "capture", stderr = "capture",
       timeout_ns = Clock.seconds(60) })
     local result = assert(Child.run(started.argv, started.options))
-    assert(result.ok, result.stdout .. result.stderr)
+    assert(result.ok, (result.stdout or "") .. (result.stderr or ""))
     return result.stdout
   end
   assert(run() == "OLD\n")

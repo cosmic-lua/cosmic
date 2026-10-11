@@ -482,7 +482,7 @@ local function test_socks_username_password()
   end
   local bounds = "\1\255" .. ("u"):rep(255) .. "\255" .. ("p"):rep(255)
   local b = socks_auth(bounds)
-  assert(b.status == "done" and #b.username == 255 and #b.password == 255 and b.consumed == #bounds)
+  assert(b.status == "done" and #assert(b.username) == 255 and #assert(b.password) == 255 and b.consumed == #bounds)
   assert(socks_auth("\2\1u\1p").status == "refused")
   assert(socks_auth("\1\0").reason == "empty username")
   assert(socks_auth("\1\1u\0").reason == "empty password")

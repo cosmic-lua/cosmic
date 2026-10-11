@@ -190,7 +190,7 @@ local function dos_to_unix(date: integer, clock: integer): integer
       c.day = c.day - 1
       ns, _ = Time.from_civil(c)
     end
-    last_date, last_midnight = date, ns // NS_PER_SECOND
+    last_date, last_midnight = date, assert(ns) // NS_PER_SECOND
   end
   return last_midnight + math.min((clock >> 11) & 0x1F, 23) * 3600 +
     math.min((clock >> 5) & 0x3F, 59) * 60 + math.min((clock & 0x1F) * 2, 59)

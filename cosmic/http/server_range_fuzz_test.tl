@@ -133,8 +133,9 @@ local function test_reading_a_range_is_total_and_within_the_representation(tmp: 
         return true, ""
       end
       if r.kind ~= "span" then return false, "kind " .. tostring(r.kind) end
-      if not (0 <= r.first and r.first <= r.last and r.last <= size - 1) then
-        return false, ("span %d-%d of %d bytes"):format(r.first, r.last, size)
+      local from, to = assert(r.first), assert(r.last)
+      if not (0 <= from and from <= to and to <= size - 1) then
+        return false, ("span %d-%d of %d bytes"):format(from, to, size)
       end
       local a, b = small(first), small(last)
       if first == "" then
@@ -146,7 +147,7 @@ local function test_reading_a_range_is_total_and_within_the_representation(tmp: 
         local want_last = last == "" and size - 1 or math.min(b, size - 1)
         if last == "" then
           Fuzz.label("open")
-        elseif b > size - 1 then
+        elseif assert(b) > size - 1 then
           Fuzz.label("clamped")
         else
           Fuzz.label("within")

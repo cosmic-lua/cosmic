@@ -168,7 +168,7 @@ local function driver_project(tmp: string): string
   local project = tmp .. "/project"
   assert(Fs.mkdirs(project))
   assert(assert(Child.run({ "/bin/cp", "-R",
-    Fs.absolute(".") .. "/cosmic_ci", project })).ok)
+    assert(Fs.absolute(".")) .. "/cosmic_ci", project })).ok)
   return project
 end
 

@@ -422,8 +422,8 @@ end
 --- port, an IPv6 host in brackets.
 local function named(address: Net.Address): string
   if address.kind ~= "tcp" then return address.path end
-  local host = address.host
-  if assert(host):find(":", 1, true) then host = "[" .. host .. "]" end
+  local host = assert(address.host)
+  if host:find(":", 1, true) then host = "[" .. host .. "]" end
   return host .. ":" .. tostring(address.port)
 end
 

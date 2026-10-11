@@ -205,7 +205,10 @@ local function test_the_filter_stacks_with_a_pledge(tmp: string)
   under(tmp, {}, "status-field Seccomp", probe) -- skips where the kernel gives no filter
   local inherited = assert(filters(tmp, probe, nil))
   local both = filters(tmp, probe, { promises = {}, pledge = {} })
-  if both == nil then Test.skip("the kernel gives no seccomp filter beside a pledge") end
+  if both == nil then
+    Test.skip("the kernel gives no seccomp filter beside a pledge")
+    return
+  end
   assert(both == inherited + 2, "filters: " .. inherited .. " inherited, " .. both .. " under both")
 end
 

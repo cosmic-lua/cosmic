@@ -103,7 +103,8 @@ local function on_pty(binary: string, streams: {integer}, policy?: Sandbox.Polic
     local ready, _ = Poll.readable(started.master, wait_ns)
     if not ready then return false end
     local data, _ = sys.read(started.master, 4096)
-    if data == nil or data == "" then return false end
+    if data == nil then return false end
+    if data == "" then return false end
     said = said .. data
     return true
   end

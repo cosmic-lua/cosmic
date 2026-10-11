@@ -1681,7 +1681,7 @@ local function declared_of(rec: Recording, m: importer.Module, id: string): stri
     epoch = rec.epoch, timeout_ns = rec.timeout_ns,
     -- Held only where the key holds the program ([`declared_key.compute`]).
     program = (effective.tool or runs_tool) and program_of(rec) or nil,
-    launcher = seals(rec, m) and (rec.core .. "\0" .. extras_digest(rec)) or rec.launcher,
+    launcher = seals(rec, m) and (assert(rec.core) .. "\0" .. extras_digest(rec)) or rec.launcher,
     declaration = test_inputs.canonical(m.inputs), effective = effective,
     requires = rec.answered[m.path],
     environment = view_of(rec, m), runs_tool = runs_tool,
@@ -1821,7 +1821,7 @@ local function finish(rec: Recording, job: Job, result: Child.Result,
                       trouble: string, limits: test.Limits, refused?: boolean, unavailable?: string)
   rec.tally.ran = rec.tally.ran + 1
   local id = job.id
-  local wall_ns = Clock.monotonic_ns() - job.started_ns
+  local wall_ns = Clock.monotonic_ns() - assert(job.started_ns)
   local judged: worker.Judgement
   if unavailable ~= nil then
     judged = { passed = true, skipped = unavailable, message = "" }
@@ -2081,7 +2081,7 @@ local function address_stores(rec: Recording, modules: {importer.Module},
   -- and its bindings -- whose bytes it follows from too: so one address
   -- names one store's bytes wherever it is written, which a digest kept
   -- by address relies on ([`address_digest`]).
-  local salt = hex_sha256(rec.store_salt .. "\0" .. rec.store_runtime)
+  local salt = hex_sha256(rec.store_salt .. "\0" .. assert(rec.store_runtime))
   rec.base_store = closure_store.address(basis, {}, salt)
   for _, m in ipairs(modules) do
     local declared = m.inputs
@@ -2310,11 +2310,12 @@ local function sealing_for(rec: Recording): Sealing | nil, string
   end
   local made, made_trouble = Fs.mkdtemp("sealed-")
   if made == nil then return refuse("a directory for the sealed databases: " .. made_trouble) end
-  local directory, real_trouble = sys.realpath(made)
-  if directory == nil then
+  local real, real_trouble = sys.realpath(made)
+  if real == nil then
     local _, _ = Fs.remove_tree(made)
     return refuse(made .. ": " .. real_trouble)
   end
+  local directory: string = real
   local shut = shut_above(directory)
   if shut ~= "" then
     local _, _ = Fs.remove_tree(directory)
@@ -2671,7 +2672,7 @@ local function policy_of(rec: Recording, job: Job): Sandbox.Policy | nil, string
   local effective = rec.effective[job.m.path]
   local policy = test_policy.worker(job.plan, effective)
   if effective.noexec_ready then
-    local made, made_trouble = Fs.mkdirs(job.scratch .. "/noexec")
+    local made, made_trouble = Fs.mkdirs(assert(job.scratch) .. "/noexec")
     if not made then return nil, "its private noexec scratch: " .. made_trouble end
   end
   return policy, ""
@@ -2823,8 +2824,9 @@ local function launch(rec: Recording, job: Job, start: Proc.Relaunch,
     env = test_sandbox.unenforced_environment(worker_view(), rec.effective[job.m.path], scratch,
       rec.root)
   end
-  job.started_ns = Clock.monotonic_ns()
-  job.deadline_ns = job.started_ns + limits.timeout_ns
+  local started_ns = Clock.monotonic_ns()
+  job.started_ns = started_ns
+  job.deadline_ns = started_ns + limits.timeout_ns
   -- Sandboxed, a worker whose module does not declare `tool` may not
   -- run this program ([`confine.forbid_running`]): what it would run
   -- is no input of its test's key; and one whose module does not
@@ -3358,8 +3360,8 @@ local function read_identities(ctx: Run): integer | nil
     compiled_by = tool
   end
   ctx.tool, ctx.compiled_by = tool, compiled_by
-  local identity = Store.meta("runtime")
-  if identity == nil or identity == "" then
+  local identity = Store.meta("runtime") or ""
+  if identity == "" then
     local _, _ = work.close(handle)
     log:complain("the running binary names no runtime identity")
     return 1
@@ -3461,7 +3463,7 @@ local function choose_sandbox(ctx: Run): integer | nil
       -- that makes a worker's policy, so an edit to a grant runs the
       -- tests again without a bump of the epoch.
       local made = assert(ctx.harness).modules
-      ctx.runtime = ctx.runtime .. " sandboxed" .. (must and " must" or "") .. " policy " ..
+      ctx.runtime = assert(ctx.runtime) .. " sandboxed" .. (must and " must" or "") .. " policy " ..
         hashing.hex_sha256(test_policy.common() .. "\0" ..
             (made["build.test_policy"] or "") .. "\0" .. (made["build.test_sandbox"] or ""))
       sandbox_summary = "; sandboxed, under a policy"
@@ -3493,7 +3495,7 @@ local function choose_sandbox(ctx: Run): integer | nil
     -- The pinned COSMIC_TEST_SANDBOX and the " sandboxed" mark already
     -- tell these verdicts from a sandboxed run's; the tag says so in
     -- the key itself (build/declared_unenforced_test.tl).
-    ctx.runtime = ctx.runtime .. " declared" .. (must and " must" or "")
+    ctx.runtime = assert(ctx.runtime) .. " declared" .. (must and " must" or "")
     sandbox_summary = sandbox_summary .. ", keyed by declared inputs" ..
       (shares and "" or ", sharing no verdicts")
   end
@@ -3752,8 +3754,8 @@ end
 local function gather_key_inputs(ctx: Run): integer | nil
   local handle, records = assert(ctx.handle), assert(ctx.records)
   local rec, result = assert(ctx.rec), assert(ctx.result)
-  local records_path, selected_modules = ctx.records_path, assert(ctx.selected_modules)
-  local identity = ctx.identity
+  local records_path, selected_modules = assert(ctx.records_path), assert(ctx.selected_modules)
+  local identity = assert(ctx.identity)
   local by_path: {string:importer.Module} = {}
   for _, m in ipairs(result.modules) do by_path[m.path] = m end
   local declaration_rows, declaration_trouble = Sqlite.text_rows(records,
@@ -3811,21 +3813,22 @@ local function gather_key_inputs(ctx: Run): integer | nil
   -- and no test's verdict turns on it. A release core, stripped, keys
   -- as the binary names it.
   local host_image = Store.meta("host_image")
-  rec.store_runtime = identity
+  local store_runtime = identity
   if host_image ~= nil and String.starts_with(rec.runtime, identity) then
-    rec.store_runtime = declared_key.runtime_identity(rec.digests, identity, host_image,
+    store_runtime = declared_key.runtime_identity(rec.digests, identity, host_image,
       Store.meta("runtime_basis") or "")
-    rec.runtime = rec.store_runtime .. rec.runtime:sub(#identity + 1)
+    rec.runtime = store_runtime .. rec.runtime:sub(#identity + 1)
   end
-  rec.core = rec.store_runtime
+  rec.core = store_runtime
   -- A core that writes stores otherwise a test stands in for, in a tree
   -- not cosmic's own, so it can see the core move every store's address
   -- (build/sandboxed_verdicts_test.tl): mixed into the stores' salt
   -- alone, never in its place.
   local store_core = Env.get("COSMIC_TEST_STORE_RUNTIME")
   if not ctx.own_tree and store_core ~= nil and store_core ~= "" then
-    rec.store_runtime = hex_sha256(rec.store_runtime .. "\0" .. store_core)
+    store_runtime = hex_sha256(store_runtime .. "\0" .. store_core)
   end
+  rec.store_runtime = store_runtime
   -- The store of each test module's closure, by its address, salted with
   -- the core above, and none that no module names any longer.
   rec.projection = ctx.database
@@ -3837,7 +3840,7 @@ local function gather_key_inputs(ctx: Run): integer | nil
     return 1
   end
   sweep_stores(rec)
-  rec.compiler = ctx.tool .. " " .. ctx.compiled_by
+  rec.compiler = assert(ctx.tool) .. " " .. assert(ctx.compiled_by)
   rec.host = declared_key.host_identity(rec.digests)
   -- What the system's paths hold is walked only for a run that holds
   -- a module given them, whose key alone holds it: half a second of
@@ -3936,7 +3939,7 @@ local function require_of_host(ctx: Run): integer | nil
           local said = "requires " .. answer.name .. ": " .. answer.why
           local kind = answer.kind
           if held and kind ~= "refused" and host_names.promised(ctx.promises, answer.name) then
-            said = said .. " (" .. (ctx.leg == "" and "this run" or "the leg " .. ctx.leg) ..
+            said = said .. " (" .. (ctx.leg == "" and "this run" or "the leg " .. assert(ctx.leg)) ..
               " promises " .. answer.name .. ", and a held run fails what its leg promised)"
             kind = "refused"
           end
@@ -4011,7 +4014,7 @@ end
 local function look_up_verdicts(ctx: Run)
   local rec, selected_modules = assert(ctx.rec), assert(ctx.selected_modules)
   local selected_tests = assert(ctx.selected_tests)
-  local verdicts, forced, consult, keying = assert(ctx.verdicts), ctx.forced, ctx.consult, ctx.keying
+  local verdicts, forced, consult, keying = assert(ctx.verdicts), ctx.forced, ctx.consult, assert(ctx.keying)
   local previous, credited, sandboxed = assert(ctx.previous), assert(ctx.credited), ctx.sandboxed
   local jobs: {Job} = {}
   ctx.jobs = jobs
@@ -4283,7 +4286,7 @@ local function settle(ctx: Run)
       function_lines[#function_lines + 1] = "test: C exemptions a test entered on this core: " ..
         table.concat(entered.stale, ", ")
     end
-  elseif ctx.own_tree and #ctx.selectors == 0 and #functions > 0 then
+  elseif ctx.own_tree and #assert(ctx.selectors) == 0 and #functions > 0 then
     -- A share's tests enter only some of them; a whole run, which CI's
     -- merge queue makes on every leg, holds the core to all of them.
     function_lines[1] = string.format("test: C functions not checked: shard %d of %d " ..
@@ -4354,7 +4357,7 @@ end
 local function report(ctx: Run): integer
   local rec, tally = assert(ctx.rec), assert(ctx.tally)
   local failures, errors = assert(ctx.failures), assert(ctx.errors)
-  local total, started = ctx.total, ctx.started
+  local total, started = assert(ctx.total), ctx.started
   if #failures == 0 and #errors == 0 then
     if total == 0 then
       log:say("test: nothing to run: a test is a top-level `local function " ..
@@ -4365,23 +4368,23 @@ local function report(ctx: Run): integer
     log:say(ctx.cov_line)
     for _, function_line in ipairs(assert(ctx.function_lines)) do log:say(function_line) end
     log:verdict("test", true, test_report.passed({ total = total,
-      modules = #ctx.selected_modules,
+      modules = #assert(ctx.selected_modules),
       ran = tally.ran, cached = tally.cached, skipped = tally.skipped, unchecked = tally.unchecked, na = tally.na,
       every = tally.every, shared = tally.shared },
-      clock.took(started) .. ctx.sandbox_summary .. ctx.share_summary))
+      clock.took(started) .. assert(ctx.sandbox_summary) .. assert(ctx.share_summary)))
     return 0
   end
   say_skips(rec)
   say_failures(rec, failures)
   for _, line in ipairs(errors) do
-    log:say("test: ERROR  " .. ctx.records_path .. ": " .. line)
+    log:say("test: ERROR  " .. assert(ctx.records_path) .. ": " .. line)
   end
   if #errors == 0 then
     log:say(ctx.cov_line)
     for _, function_line in ipairs(assert(ctx.function_lines)) do log:say(function_line) end
   end
   log:verdict("test", false, test_report.failed(#failures, total + #assert(ctx.result).refused,
-    #errors, clock.took(started) .. ctx.sandbox_summary .. ctx.share_summary))
+    #errors, clock.took(started) .. assert(ctx.sandbox_summary) .. assert(ctx.share_summary)))
   return 1
 end
 

@@ -218,20 +218,20 @@ local function carry(conn: Net.Conn, first: string, io: sandbox_connect.Io, trac
       trace("up: read " .. (data ~= nil and plural.count(#data, "byte") or "failed: " .. tostring(why)))
       if data == nil then
         return fail("standard input: " .. why)
-      elseif data == "" then
+      end
+      if data == "" then
         -- What the program sends has ended: the far side hears it as one.
         local shut, shut_why = conn:shutdown("write")
         trace("up: end of input, shutdown(write) " .. (shut and "ok" or "failed: " .. tostring(shut_why)))
         return
-      else
-        local sent, send_why = conn:write(data)
-        trace("up: wrote " .. plural.count(#data, "byte") .. " to the relay: " .. (sent and "ok" or tostring(send_why)))
-        if not sent then
-          -- Whether this is a fault or the far side's closing is known once
-          -- the other task has read to the end of what it sends.
-          write_failed = "writing to the relay: " .. send_why
-          return
-        end
+      end
+      local sent, send_why = conn:write(data)
+      trace("up: wrote " .. plural.count(#data, "byte") .. " to the relay: " .. (sent and "ok" or tostring(send_why)))
+      if not sent then
+        -- Whether this is a fault or the far side's closing is known once
+        -- the other task has read to the end of what it sends.
+        write_failed = "writing to the relay: " .. send_why
+        return
       end
     end
   end

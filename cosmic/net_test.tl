@@ -50,7 +50,7 @@ local function test_a_connection_carries_bytes_both_ways_to_the_end()
   assert(accepted:write("answered"))
   assert(accepted:close())
   assert(assert(Stream.read_all(client)) == "answered")
-  assert(server.address.kind == "tcp" and server.address.port > 0)
+  assert(server.address.kind == "tcp" and assert(server.address.port) > 0)
 end
 
 --- A write larger than the socket holds goes out whole, waiting as the
@@ -251,7 +251,7 @@ local function test_a_tcp_connection_names_its_peer()
   assert(client_sees.port == p.server.address.port)
   local server_sees = assert(p.accepted:peer())
   assert(server_sees.kind == "tcp" and server_sees.host == "127.0.0.1")
-  assert(server_sees.port > 0 and server_sees.port ~= p.server.address.port)
+  assert(assert(server_sees.port) > 0 and server_sees.port ~= p.server.address.port)
   local again = assert(p.accepted:peer())
   assert(again.port == server_sees.port)
 end

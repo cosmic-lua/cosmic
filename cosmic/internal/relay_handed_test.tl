@@ -41,7 +41,7 @@ local function test_handed_connector_asks_its_table_before_its_public_lists()
   require_native_connector()
   Poll.run(function()
     local listener = assert(Net.listen(Net.tcp("127.0.0.1", 0)))
-    local port = listener.address.port
+    local port = assert(listener.address.port)
     local accepting = Poll.spawn(function()
       while true do
         local conn = listener:accept()
@@ -280,14 +280,15 @@ return function(argv: {string}): integer
     end)
     -- As the starter does: the upstream's host resolved once, through a
     -- connector of the name servers.
-    local plan = assert(SandboxRelay.plan({}, { https_proxy = "http://proxy.test:" .. proxy.address.port,
+    local plan = assert(SandboxRelay.plan({}, { https_proxy = "http://proxy.test:" .. assert(proxy.address.port),
       no_proxy = "direct.test" }))
     local up = assert(plan.upstream)
     local name_servers = assert(SandboxRelay.name_servers({ servers = { { host = "127.0.0.1", port = dns_port } } }))
     local dns = assert(Connector.start(name_servers.servers, name_servers.wait_ns // 1000000))
-    up.addresses = assert(SandboxRelay.upstream_addresses(up, { fd = dns.fd, name_servers = name_servers }, ""))
+    local resolved = assert(SandboxRelay.upstream_addresses(up, { fd = dns.fd, name_servers = name_servers }, ""))
+    up.addresses = resolved
     assert(dns:close())
-    lines[#lines + 1] = "upstream " .. table.concat(up.addresses, ",")
+    lines[#lines + 1] = "upstream " .. table.concat(resolved, ",")
     local resolve_connector = assert(Net.connector(servers, { timeout_ns = name_servers.wait_ns }))
     local resolve: Net.ResolveOptions = { servers = servers, connector = resolve_connector }
     local http = assert(Net.listen(Net.tcp("127.0.0.1", 0)))
