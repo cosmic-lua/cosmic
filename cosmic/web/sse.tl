@@ -42,7 +42,8 @@ local record Sse
     --- resets the client's.
     id: string
     --- The `event:` field (a client sees "message" when none): htmx's
-    --- `sse-swap="name"` listens for it. Must not hold CR or LF (raises).
+    --- `sse-swap="name"` listens for it. Must not hold CR, LF or NUL
+    --- (raises; a browser drops an event whose name holds NUL).
     event: string
     --- The `data:` field; any line ending (LF, CR, CRLF) splits it into
     --- one `data:` line each, so a client rejoins them with LF. For htmx,
@@ -124,7 +125,9 @@ local record Sse
   interface Hub is Types.Closable
     --- Delivers `ev` to every subscription of `topic`, keeping it in the
     --- topic's replay ring, and returns how many it reached. Never waits.
-    --- An event without an id gets the hub's next (a count, as text).
+    --- An event without an id, or with an empty one, gets the hub's next
+    --- (a count, as text): an empty id would reset the client's, and the
+    --- event could not be resumed after.
     --- Raises for an event [`Sse.format_event`] refuses and one whose data
     --- is over `max_event_bytes`: a fault of the program.
     publish: function(Hub, topic: string, ev: Event): integer
@@ -235,7 +238,7 @@ local function format_event(ev: Sse.Event): string
     for _, line in ipairs(lines_of(ev.comment)) do out[#out + 1] = ": " .. line .. "\n" end
   end
   if ev.event ~= nil and ev.event ~= "" then
-    out[#out + 1] = "event: " .. field_text("event", ev.event, "[\r\n]") .. "\n"
+    out[#out + 1] = "event: " .. field_text("event", ev.event, "[\r\n%z]") .. "\n"
   end
   if ev.id ~= nil then
     out[#out + 1] = "id: " .. field_text("id", ev.id, "[\r\n%z]") .. "\n"
@@ -317,6 +320,7 @@ local record Body is Stream.Reader
   on_close: function(why: string)
   pending: string
   started: boolean
+  held: boolean
   done: boolean
   waiting: boolean
   guard: Guard
@@ -325,16 +329,19 @@ local record Body is Stream.Reader
   close: function(Body): boolean, string
 end
 
---- Ends the stream once: frees its slot, closes the source, tells the
---- caller. Never waits, and never raises (it may run in a `<close>`
+--- Ends the stream once: frees its slot (if it took one), closes the
+--- source, tells the caller. Never waits, and never raises (it may run in a `<close>`
 --- handler of a killed task or inside the app's stop).
 local function finish(self: Body, why: string)
   if self.done then return end
   self.done = true
   self.pending = ""
   local app = self.app
-  app.streams[self] = nil
-  app.stream_count = app.stream_count - 1
+  if self.held then
+    self.held = false
+    app.streams[self] = nil
+    app.stream_count = app.stream_count - 1
+  end
   local source = self.source
   local on_close = self.on_close
   local ran, raised = pcall(function() source:close() end)
@@ -352,6 +359,18 @@ function Body.read(self: Body, max_bytes?: integer): string | nil, string
   if self.done then return nil, "" end
   if not self.started then
     self.started = true
+    -- The slot is taken here, as the reply begins, not when the response is
+    -- made: a response a handler or middleware drops is never read. The
+    -- limit was checked at the response, so streams made but not yet read
+    -- can overshoot it by the few the server has yet to start.
+    if self.app:stopping() then
+      finish(self, "end")
+      return nil, ""
+    end
+    self.held = true
+    self.app.stream_count = self.app.stream_count + 1
+    local source = self.source
+    self.app.streams[self] = function() source:close() end
     self.pending = self.prologue
     self.prologue = ""
   end
@@ -368,8 +387,10 @@ function Body.read(self: Body, max_bytes?: integer): string | nil, string
     local ev: Sse.Event = nil
     local why = ""
     do
-      -- A task killed in this wait closes the guard, which frees the stream;
-      -- a wait that returns clears `waiting` first, so the guard does nothing.
+      -- The guard covers only a wait in `source:next`: a task killed there
+      -- would otherwise leave the stream open, as the server closes a body
+      -- only once it has sent or abandoned the reply. A wait that returns
+      -- clears `waiting` first, so the guard then does nothing.
       self.waiting = true
       local _guard <close> = self.guard
       ev, why = self.source:next(timeout)
@@ -410,22 +431,36 @@ local EVENT_STREAM_FIELDS <const>: {string:boolean} = {
   heartbeat_ns = true, retry_ms = true, initial = true, headers = true, max_age_ns = true, on_close = true,
 }
 
+--- Why `value` is no integer of at least `least`; nil when it is, or nil.
+local function not_counted(what: string, value: integer, least: integer): string | nil
+  if value ~= nil and (math.type(value) ~= "integer" or value < least) then
+    return ("sse: %s must be an integer of at least %d"):format(what, least)
+  end
+  return nil
+end
+
+--- Why `given` is no table or holds a field `known` lacks; nil when fine.
+local function not_checked(given: any, known: {string:boolean}, what: string): string | nil
+  if given == nil then return nil end
+  if not given is {any:any} then return "sse: " .. what .. " takes a table of options" end
+  for key in pairs(given) do
+    if not (key is string and known[key]) then
+      return ("sse: %s has no option %s"):format(what, tostring(key))
+    end
+  end
+  return nil
+end
+
 --- Raises unless `value` is nil or an integer of at least `least`.
 local function counted(what: string, value: integer, least: integer)
-  if value ~= nil and (math.type(value) ~= "integer" or value < least) then
-    error(("sse: %s must be an integer of at least %d"):format(what, least), 3)
-  end
+  local why = not_counted(what, value, least)
+  if why ~= nil then error(why, 3) end
 end
 
 --- Raises where `given` is no table or holds a field `known` lacks.
 local function checked(given: any, known: {string:boolean}, what: string)
-  if given == nil then return end
-  if not given is {any:any} then error("sse: " .. what .. " takes a table of options", 3) end
-  for key in pairs(given) do
-    if not (key is string and known[key]) then
-      error(("sse: %s has no option %s"):format(what, tostring(key)), 3)
-    end
-  end
+  local why = not_checked(given, known, what)
+  if why ~= nil then error(why, 3) end
 end
 
 local function refused(source: Sse.EventSource, why: string): Types.Response
@@ -445,13 +480,26 @@ end
 --- default) or is stopping. The stream ends cleanly when the app begins
 --- to stop; a task killed at the grace has it released by a `<close>`
 --- guard. Compression middleware must leave `text/event-stream` alone.
+---
+--- The stream takes its slot when the server starts to read it. A response
+--- a handler or middleware drops instead is closed, with its source, once
+--- the request is answered. A raise for a bad option closes `source` too.
+--
+-- TODO: cap the streams per client (assets.md 5.9) once Web.Request carries
+-- a trusted client key; until then one client may hold every slot.
 local function event_stream(req: Types.Request, source: Sse.EventSource,
                             opts?: Sse.EventStreamOptions): Types.Response
-  checked(opts, EVENT_STREAM_FIELDS, "EventStream")
+  local function bad(why: string | nil)
+    if why ~= nil then
+      source:close()
+      error(why, 3)
+    end
+  end
+  bad(not_checked(opts, EVENT_STREAM_FIELDS, "EventStream"))
   local given: Sse.EventStreamOptions = opts or {}
-  counted("heartbeat_ns", given.heartbeat_ns, 0)
-  counted("retry_ms", given.retry_ms, 0)
-  counted("max_age_ns", given.max_age_ns, 1)
+  bad(not_counted("heartbeat_ns", given.heartbeat_ns, 0))
+  bad(not_counted("retry_ms", given.retry_ms, 0))
+  bad(not_counted("max_age_ns", given.max_age_ns, 1))
   local app = req.app
   if app:stopping() then return refused(source, "the server is stopping") end
   if app.stream_count >= app.stream_limit then return refused(source, "too many open streams") end
@@ -459,12 +507,16 @@ local function event_stream(req: Types.Request, source: Sse.EventSource,
   local first: {string} = {}
   if retry_ms > 0 then first[1] = ("retry: %d\n\n"):format(retry_ms) end
   local initial: {Sse.Event} = given.initial or {}
-  for _, ev in ipairs(initial) do first[#first + 1] = format_event(ev) end
+  for _, ev in ipairs(initial) do
+    local ok, text = pcall(format_event, ev)
+    if not ok then bad(tostring(text)) end
+    first[#first + 1] = text
+  end
   local prologue = table.concat(first)
   if prologue == "" then prologue = ":\n\n" end
   local body: Body = {
     app = app, source = source, heartbeat_ns = given.heartbeat_ns or DEFAULT_HEARTBEAT_NS,
-    on_close = given.on_close, pending = "", started = false, done = false, waiting = false,
+    on_close = given.on_close, pending = "", started = false, held = false, done = false, waiting = false,
     prologue = prologue, read = Body.read, close = Body.close,
   }
   if given.max_age_ns ~= nil then body.deadline = Clock.monotonic_ns() + given.max_age_ns end
@@ -476,8 +528,7 @@ local function event_stream(req: Types.Request, source: Sse.EventSource,
     end
   end }
   body.guard = setmetatable(guard, guard_mt)
-  app.stream_count = app.stream_count + 1
-  app.streams[body] = function() source:close() end
+  req.bodies[#req.bodies + 1] = body
   local headers: {string: string | {string}} = {
     ["Cache-Control"] = "no-cache, no-transform", ["X-Accel-Buffering"] = "no",
   }
@@ -523,6 +574,7 @@ local record Topic
   ring: {integer: Entry}
   first: integer
   last: integer
+  evicted: integer
 end
 
 local record State is Sse.Hub
@@ -553,10 +605,20 @@ local function topic_of(self: State, name: string): Topic
   if topic == nil then
     -- TODO: drop the ring of a topic nothing has published to for a while;
     -- a hub keyed by user or order keeps one ring per name it has seen.
-    topic = { subs = {}, ring = {}, first = 1, last = 0 }
+    topic = { subs = {}, ring = {}, first = 1, last = 0, evicted = 0 }
     self.topics[name] = topic
   end
   return topic
+end
+
+--- Forgets the topic `name` when it has no subscriber and holds no event,
+--- so a name only ever subscribed to (or published to with no ring) costs
+--- nothing once it is left.
+local function release(self: State, name: string)
+  local topic = self.topics[name]
+  if topic ~= nil and next(topic.subs) == nil and topic.last < topic.first then
+    self.topics[name] = nil
+  end
 end
 
 function State.publish(self: State, name: string, ev: Sse.Event): integer
@@ -568,13 +630,18 @@ function State.publish(self: State, name: string, ev: Sse.Event): integer
   end
   if self.shut then return 0 end
   self.seq = self.seq + 1
-  local kept: Sse.Event = { id = ev.id or tostring(self.seq), event = ev.event, data = ev.data,
+  -- Ids are a count that restarts at 1 with the process, so a Last-Event-ID
+  -- from before a restart can match an unrelated event. That stays: the
+  -- rings are lost with the process anyway, and an app whose clients must
+  -- resume across restarts publishes ids of its own.
+  local kept: Sse.Event = { id = (ev.id ~= nil and ev.id ~= "") and ev.id or tostring(self.seq), event = ev.event, data = ev.data,
     retry = ev.retry, comment = ev.comment }
   local topic = topic_of(self, name)
   if self.replay > 0 then
     topic.last = topic.last + 1
     topic.ring[topic.last] = { seq = self.seq, event = kept }
     while topic.last - topic.first + 1 > self.replay do
+      topic.evicted = topic.ring[topic.first].seq
       topic.ring[topic.first] = nil
       topic.first = topic.first + 1
     end
@@ -590,6 +657,7 @@ function State.publish(self: State, name: string, ev: Sse.Event): integer
     end
   end
   for _, sub in ipairs(cut) do sub.detach() end
+  release(self, name)
   return reached
 end
 
@@ -610,6 +678,12 @@ local function replayed(self: State, names: {string}, after: string): {Sse.Event
     end
   end
   if found == nil then return nil end
+  -- A topic that has dropped an event newer than `found` cannot replay
+  -- what the client missed in it.
+  for _, name in ipairs(names) do
+    local topic = self.topics[name]
+    if topic ~= nil and topic.evicted > found then return nil end
+  end
   local later: {Entry} = {}
   for _, name in ipairs(names) do
     local topic = self.topics[name]
@@ -688,6 +762,7 @@ function State.subscribe(self: State, topics: {string}, opts?: Sse.SubscribeOpti
     for _, name in ipairs(names) do
       local topic = self.topics[name]
       if topic ~= nil then topic.subs[sub] = nil end
+      release(self, name)
     end
   end
   self.total = self.total + 1

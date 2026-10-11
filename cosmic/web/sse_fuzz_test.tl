@@ -48,9 +48,9 @@ local function unified(text: string): string
   return lf
 end
 
---- Whether the text could not be carried by the field: a line ending, or NUL for an id.
-local function carried(value: string, id: boolean): boolean
-  return not value:find("[\r\n]") and not (id and value:find("%z"))
+--- Whether the field can carry the text: no line ending and no NUL.
+local function carried(value: string): boolean
+  return not value:find("[\r\n%z]")
 end
 
 local function test_format_event_makes_one_event_with_the_fields_given_and_no_other(tmp: string)
@@ -69,7 +69,7 @@ local function test_format_event_makes_one_event_with_the_fields_given_and_no_ot
       if present:sub(3, 3) == "1" then ev.id = fields[4] end
       if present:sub(4, 4) == "1" then ev.comment = fields[5] end
       local expect_refusal = (retry ~= nil and retry < 0) or
-        (ev.event ~= nil and not carried(ev.event, false)) or (ev.id ~= nil and not carried(ev.id, true))
+        (ev.event ~= nil and not carried(ev.event)) or (ev.id ~= nil and not carried(ev.id))
       local ok, out = pcall(Sse.format_event, ev)
       if not ok then
         if not expect_refusal then return false, "refused a valid event: " .. tostring(out) end

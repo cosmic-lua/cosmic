@@ -165,6 +165,9 @@ local record Types
     trailing: boolean
     --- The typed values of [`Web.key`], by key.
     slots: {any:any}
+    --- The stream bodies made for this request ([`Sse.EventStream`]):
+    --- the app closes those the final reply does not carry.
+    bodies: {Stream.Reader}
     --- The body once read, nil until then.
     body_text: string
     --- Why reading the body failed, nil until it did.

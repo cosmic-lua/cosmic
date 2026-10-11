@@ -259,6 +259,68 @@ local function test_a_last_event_id_the_ring_lost_starts_with_a_reset()
   end)
 end
 
+local function test_a_topic_that_dropped_newer_events_makes_a_replay_across_topics_a_gap()
+  Poll.run(function()
+    local hub = Sse.new_hub({ replay = 2 })
+    hub:publish("a", { data = "a1" })
+    for i = 1, 5 do hub:publish("b", { data = "b" .. i }) end
+    local sub = assert(hub:subscribe({ "a", "b" }, { after = "1" }))
+    assert(sub.gap, "b has dropped events newer than the client's")
+    assert(assert(sub:next(0)).event == "reset")
+    local alone = assert(hub:subscribe({ "a" }, { after = "1" }))
+    assert(not alone.gap and select(2, alone:next(0)) == Poll.TIMEOUT, "a alone lost nothing")
+  end)
+end
+
+local function test_the_ring_boundary_is_oldest_minus_one_against_oldest()
+  Poll.run(function()
+    local hub = Sse.new_hub({ replay = 3 })
+    for i = 1, 5 do hub:publish("t", { data = "e" .. i }) end
+    local lost = assert(hub:subscribe({ "t" }, { after = "2" }))
+    assert(lost.gap, "the event before the oldest is gone, and so may be its successors")
+    local held = assert(hub:subscribe({ "t" }, { after = "3" }))
+    assert(not held.gap)
+    assert(assert(held:next(0)).id == "4" and assert(held:next(0)).id == "5")
+  end)
+end
+
+local function test_subscribing_to_names_and_leaving_leaves_no_topic_behind()
+  Poll.run(function()
+    local hub = Sse.new_hub({})
+    for i = 1, 50 do
+      local sub = assert(hub:subscribe({ "fresh" .. i }, { after = "x" }))
+      sub:close()
+    end
+    local none = Sse.new_hub({ replay = 0 })
+    none:publish("gone", { data = "x" })
+    local count = 0
+    for _, each in ipairs({ hub, none }) do
+      local inner: any = each
+      for _ in pairs((inner as {string:{string:any}}).topics as {string:any}) do
+        count = count + 1
+      end
+    end
+    assert(count == 0, "topics left: " .. count)
+    local keep = assert(hub:subscribe({ "live" }))
+    hub:publish("live", { data = "x" })
+    keep:close()
+    local again = assert(hub:subscribe({ "live" }, { after = "1" }))
+    assert(not again.gap, "a topic with a ring is kept")
+  end)
+end
+
+local function test_an_empty_or_missing_id_gets_the_hubs_and_nul_in_event_is_refused()
+  Poll.run(function()
+    local hub = Sse.new_hub({})
+    local sub = assert(hub:subscribe({ "t" }))
+    hub:publish("t", { id = "", data = "a" })
+    hub:publish("t", { id = "mine", data = "b" })
+    assert(assert(sub:next(0)).id == "1" and assert(sub:next(0)).id == "mine")
+    assert(raised(function() hub:publish("t", { event = "a\0b" }) end):find("NUL", 1, true))
+    assert(raised(function() local _ = Sse.format_event({ event = "a\0b" }) end):find("NUL", 1, true))
+  end)
+end
+
 local function test_replay_across_topics_is_in_publication_order()
   Poll.run(function()
     local hub = Sse.new_hub({})
@@ -492,4 +554,79 @@ local function test_attach_closes_a_hub_when_the_app_stops()
     assert(chunk(feed) == nil)
   end)
   assert(hub:subscribers() == 0)
+end
+
+local function test_a_response_the_handler_never_returns_releases_its_stream()
+  local hub = Sse.new_hub({})
+  local closed: {string} = {}
+  local app = Web.app{ routes = { Web.get("/raises", function(req: Web.Request): Web.Response
+    local sub = assert(hub:subscribe({ "t" }))
+    local _ = Sse.EventStream(req, sub, { on_close = function(why: string)
+      closed[#closed + 1] = why
+    end })
+    error("after the stream was made")
+  end) }, sink = { line = function(_self: Web.Sink, _text: string) end } }
+  Web.with_client(app, function(client: Web.TestClient)
+    assert(client:get("/raises").status == 500)
+    assert(app.stream_count == 0 and hub:subscribers() == 0)
+    assert(closed[1] == "client" and #closed == 1)
+  end)
+end
+
+local function test_a_response_middleware_replaces_releases_its_stream()
+  local hub = Sse.new_hub({})
+  local function replace(inner: Web.Handler): Web.Handler
+    return function(req: Web.Request): Web.Response
+      local _ = inner(req)
+      return Web.text("replaced")
+    end
+  end
+  local app = hub_app(hub, nil, { middleware = { replace } })
+  Web.with_client(app, function(client: Web.TestClient)
+    local res = client:get("/events/t")
+    assert(res.status == 200 and res.body == "replaced")
+    assert(app.stream_count == 0 and hub:subscribers() == 0)
+  end)
+end
+
+local function test_a_bad_option_closes_the_source_it_was_given()
+  local queues: {Channel.Queue<Sse.Event>} = {}
+  local app = Web.app{ routes = { Web.get("/s", function(req: Web.Request): Web.Response
+    local queue: Channel.Queue<Sse.Event> = Channel.new()
+    queues[#queues + 1] = queue
+    local wrong: any = { retry_ms = -1 }
+    if #queues == 2 then wrong = { initial = { { id = "a\nb" } } } end
+    return Sse.EventStream(req, Sse.from_queue(queue), wrong as Sse.EventStreamOptions)
+  end) }, sink = { line = function(_self: Web.Sink, _text: string) end } }
+  Web.with_client(app, function(client: Web.TestClient)
+    assert(client:get("/s").status == 500 and client:get("/s").status == 500)
+    assert(queues[1]:closed() and queues[2]:closed() and app.stream_count == 0)
+  end)
+end
+
+local function test_a_quiet_stream_with_heartbeats_outlives_the_servers_timeouts()
+  local hub = Sse.new_hub({})
+  local app = hub_app(hub, { heartbeat_ns = Clock.ms(25), retry_ms = 100 })
+  local failure: string = nil
+  local ok, why = Web.serve(app, { listeners = { Net.tcp("127.0.0.1", 0) },
+    timeout_ns = Clock.ms(100), idle_ns = Clock.ms(100), grace_ns = Clock.seconds(1),
+    on_ready = function(addresses: {Net.Address}, server: Net.Server)
+      local ran, trouble = pcall(function()
+        local feed = open("127.0.0.1:" .. addresses[1].port, "/events/t")
+        assert(chunk(feed) == "retry: 100\n\n")
+        local beats = 0
+        local started = Clock.monotonic_ns()
+        while Clock.monotonic_ns() - started < Clock.ms(400) do
+          assert(chunk(feed) == ": ping\n\n", "the stream was cut")
+          beats = beats + 1
+        end
+        assert(beats >= 4)
+        assert(hub:publish("t", { data = "late" }) == 1)
+        assert(chunk(feed) == "id: 1\ndata: late\n\n")
+      end)
+      if not ran then failure = tostring(trouble) end
+      server:stop()
+    end })
+  if failure ~= nil then error(failure, 0) end
+  assert(ok, why)
 end

@@ -153,7 +153,15 @@ function App.new(spec: Types.AppSpec): Types.App
       end
     end
     req.outcome = outcome
-    return stack(req)
+    local reply: Types.Response = nil
+    local ok, raised = pcall(function() reply = stack(req) end)
+    for _, body in ipairs(req.bodies) do
+      if not (ok and reply.body == body) then
+        local _, _ = body:close()
+      end
+    end
+    if not ok then error(raised, 0) end
+    return reply
   end
   return setmetatable(app, app_mt)
 end
