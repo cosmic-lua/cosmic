@@ -1301,6 +1301,33 @@ local function test_a_wrapped_function_refuses_wrong_arguments()
   assert_refused(head .. "g('a', 1, 2)\n", "wrong number of arguments")
 end
 
+--- The handler of `coroutine.wrap` (patch/tl's 45d) meets no argument, a
+--- `nil`, an `any`, a union, an overloaded function and a vararg of unknown
+--- arity without raising: each is refused, or accepted as the call check
+--- of the declaration decides.
+local function test_wrap_meets_degenerate_arguments()
+  assert_refused("local g = coroutine.wrap()\nprint(g)\n", "wrong number of arguments")
+  assert_accepted("local g = coroutine.wrap(nil)\nprint(g)\n")
+  assert_refused("local function f(x: any) local g = coroutine.wrap(x)\nprint(g()) end\nf(1)\n",
+    "argument 1: got <any type>, expected Function")
+  assert_refused("local type A = function(): string\nlocal type B = function(a: integer)\n" ..
+      "local function f(x: A | B)\n" ..
+      "local g = coroutine.wrap(x)\nprint(g) end\nf(print)\n",
+    "cannot discriminate a union")
+  assert_accepted("local g = coroutine.wrap(string.format)\nprint(g('%d', 1))\n")
+  assert_refused("local function f(...: any) local g = coroutine.wrap(...)\nprint(g) end\nf(print)\n",
+    "argument 1: got <any type>, expected Function")
+end
+
+--- A generic function wrapped stays generic in its parameters, so the
+--- arity of a call of the wrapper is still checked.
+local function test_a_wrapped_generic_function_keeps_its_arity()
+  local head = "local c = coroutine.wrap(function<T>(x: T): T coroutine.yield(x) return x end)\n"
+  assert_accepted(head .. "c(1)\nc('a')\n")
+  assert_refused(head .. "c(1, 2)\n", "wrong number of arguments")
+  assert_refused(head .. "c()\n", "wrong number of arguments")
+end
+
 local function test_an_ordinary_wrap_call_type_checks()
   assert_accepted("local g = coroutine.wrap(function(a: string, b?: integer) coroutine.yield(a) end)\n" ..
       "g('a')\ng('a', 1)\nlocal v = g('a')\nprint(v)\n")

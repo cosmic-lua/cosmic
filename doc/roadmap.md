@@ -30,8 +30,8 @@ defines the target; once something ships, it leaves this file.
 - close the holes in Teal's own typing that forge any type, `: never`
   functions among them ([doc/plans/teal-never.md](plans/teal-never.md) lists
   them with tests that pin today's behavior): `rawset` writes a value of any
-  type into a record's field; `setmetatable` trusts a `__index` or `__call` attached at run time against
-  no declaration.
+  type into a record's field; `setmetatable` trusts a `__index` or `__call`
+  attached at run time against no declaration.
 - add earned lint rules and their fixes to [`build/fix/rule.tl`]'s rule list.
   the rewrite stage is in place and the list is still empty.
 - add a floor for line coverage, C included: `cosmic test --min PCT

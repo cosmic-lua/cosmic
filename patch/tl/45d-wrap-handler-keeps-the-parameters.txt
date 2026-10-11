@@ -1,19 +1,31 @@
 file: tl.tl
-note: the function `coroutine.wrap` returns takes the parameters of the function passed, so a call of it with wrong arguments is still refused, and answers `any...`, whatever the coroutine yields or finally returns. The call itself is checked as a call of 45a's declaration, which takes any function and gives the `any...` function that a non-function argument keeps
+note: the function `coroutine.wrap` returns takes the parameters of the function passed, so a call of it with wrong arguments is still refused, and answers `any...`, whatever the coroutine yields or finally returns. The call itself is checked as a call of 45a's declaration, which takes any function and gives the `any...` function that a non-function argument keeps. A generic function passed stays generic in its parameters, and no argument, `nil` or an `any` is left to the call check
 --- find
       ["pcall"] = special_pcall_xpcall,
 --- replace
       ["coroutine.wrap"] = function(self: TypeChecker, node: Node, a: Type, b: TupleType, argdelta?: integer): InvalidOrTupleType
-         local f = b.tuple[1] and self:to_structural(b.tuple[1])
          local r = self:type_check_function_call(node, a, b, argdelta)
-         if r is InvalidType or not (f is FunctionType) then
+         local f = b.tuple[1] and self:to_structural(b.tuple[1])
+         if r is InvalidType or not f then
             return r
          end
-         return a_tuple(node, { a_function(node, {
+         local generic: GenericType
+         if f is GenericType then
+            generic = f
+            f = f.t
+         end
+         if not (f is FunctionType) then
+            return r
+         end
+         local wrapper: Type = a_function(node, {
             min_arity = f.min_arity,
             args = f.args,
             rets = a_vararg(node, { a_type(node, "any", {}) }),
-         }) })
+         })
+         if generic then
+            wrapper = a_type(node, "generic", { typeargs = generic.typeargs, t = wrapper } as GenericType)
+         end
+         return a_tuple(node, { wrapper })
       end,
       ["pcall"] = special_pcall_xpcall,
 --- end
