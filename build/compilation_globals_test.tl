@@ -66,16 +66,45 @@ end
 
 --- A global one module declares and another reads is refused where it is
 --- declared, whichever of them the build would compile first: the
---- reader's own "unknown type" never stands in for it.
-local function test_a_global_another_module_would_read_is_refused_at_its_declaration(tmp: string)
-  for _, names in ipairs({ { "shared", "user" }, { "user", "shared" } }) do
-    local declarer, reader = names[1], names[2]
-    local _, trouble = compile_project(tmp, "leak-" .. declarer, {
-      [declarer .. ".tl"] = "global record Shared\n  n: integer\nend\nreturn 1\n",
-      [reader .. ".tl"] = "local s: Shared = { n = 1 }\nreturn s.n\n",
-    })
-    assert(trouble == declarer .. ".tl:1:1" .. REFUSED, tostring(trouble))
+--- reader's own "unknown type" never stands in for it. `shared` sorts
+--- after `user` here, so the reader is compiled first.
+local function refused_at_the_declaration(tmp: string, declarer: string, reader: string)
+  local _, trouble = compile_project(tmp, "leak-" .. declarer, {
+    [declarer .. ".tl"] = "global record Shared\n  n: integer\nend\nreturn 1\n",
+    [reader .. ".tl"] = "local s: Shared = { n = 1 }\nreturn s.n\n",
+  })
+  assert(trouble == declarer .. ".tl:1:1" .. REFUSED, tostring(trouble))
+end
+
+local function test_a_global_read_by_a_module_compiled_after_it_is_refused(tmp: string)
+  refused_at_the_declaration(tmp, "a_shared", "b_user")
+end
+
+local function test_a_global_read_by_a_module_compiled_before_it_is_refused(tmp: string)
+  refused_at_the_declaration(tmp, "b_shared", "a_user")
+end
+
+--- A `function NAME()` assigns to a local `NAME` where one is in scope,
+--- which is legal Teal, and declares a global where none is: only that
+--- is refused.
+local function test_a_function_over_a_local_of_its_name_is_no_global(tmp: string)
+  local legal: {{string}} = {
+    { "forward", "local f: function(): integer\nfunction f(): integer\n  return 1\nend\n" ..
+        "return f\n" },
+    { "redefined", "local function g(): integer\n  return 1\nend\n" ..
+        "function g(): integer\n  return 2\nend\nreturn g\n" },
+    { "nested", "local function outer(): integer\n  local h: function(): integer\n" ..
+        "  function h(): integer\n    return 1\n  end\n  return h()\nend\nreturn outer\n" },
+  }
+  for _, c in ipairs(legal) do
+    local result, trouble = compile_project(tmp, "legal-" .. c[1], { ["main.tl"] = c[2] })
+    assert(result ~= nil, c[1] .. ": " .. tostring(trouble))
   end
+  local _, undeclared = compile_project(tmp, "undeclared-nested", {
+    ["main.tl"] = "local function outer(): integer\n  function h(): integer\n    return 1\n  end\n" ..
+      "  return h()\nend\nreturn outer\n",
+  })
+  assert(undeclared == "main.tl:2:3" .. REFUSED, tostring(undeclared))
 end
 
 --- A global a `.d.tl` declares would reach each module the checker reads
@@ -90,8 +119,8 @@ local function test_a_global_in_a_declaration_file_is_refused(tmp: string)
   assert(trouble == "foo.d.tl:1:1" .. REFUSED, tostring(trouble))
 end
 
---- A global written in an example of a guide is refused at the example's
---- line in the file extracted from the guide, as a module's own is.
+--- A global written in an example of a guide is refused in the file
+--- extracted from the guide, as a module's own is.
 local function test_a_global_in_a_guide_example_is_refused(tmp: string)
   local _, trouble = compile_project(tmp, "doc-guide", {
     ["doc/guides/g.md"] = "# g\n\n```teal\nglobal n: integer = 1\n```\n",

@@ -1033,7 +1033,7 @@ local function compile_derived(handle: work.Handle, built: compiler, tool: strin
   if order == nil then
     return nil, why
   end
-  local refused_globals, globals_trouble = compilation.refuse_globals(handle.db, built)
+  local refused_globals, globals_trouble = compilation.refuse_globals(handle.db)
   if globals_trouble ~= "" then
     return nil, globals_trouble
   end

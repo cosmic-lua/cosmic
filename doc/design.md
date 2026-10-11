@@ -975,7 +975,8 @@ build step that loads the compiler chunk.
 
 a build refuses a Teal `global` declaration (`global x`, `global function`,
 `global record`, `global interface`, `global enum`, `global type`, and an
-undeclared `function f()`, which tl reads as a global function) in every
+`function f()` with no local `f` in scope, which tl reads as a global function)
+in every
 source it holds: modules, tests, examples, guide examples and `.d.tl`
 files. the refusal names the declaration's line and column and is made
 before any module is compiled, so it does not depend on the order modules
@@ -988,7 +989,8 @@ everything a module sees comes through a `require`, which the key covers.
 tl's own prelude and standard-library declarations ([`vendor/tl/tl.tl`]) are
 read by the checker's environment, not built as a source, and are
 unaffected. a Lua runtime trick the checker cannot see, `setmetatable(_G,
-...)` or `local _ENV = ...`, is not refused.
+...)` or `local _ENV = ...`, is not refused. neither is a file run by `cosmic --standalone`, which no
+build checks.
 
 ### the runtime
 

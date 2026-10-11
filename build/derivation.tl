@@ -6,6 +6,7 @@
 
 local Sqlite = require("cosmic.sqlite")
 local analysis_schema = require("build.analysis_schema")
+local globals = require("build.globals")
 local analyzer = require("build.analyzer")
 local ast = require("build.ast")
 local doctest = require("build.doctest")
@@ -370,6 +371,15 @@ function derivation.parse_new(db: Sqlite.Handle, built: compiler, tally: derivat
           "line) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
         { text(source_hash), { integer = ordinal }, text(entry.name),
           text(entry.text), text(entry.source), { integer = entry.line } })
+      if not ok then
+        return false, file .. ": " .. why
+      end
+    end
+    for ordinal, place in ipairs(globals.found(parsed)) do
+      ok, why = Sqlite.run(db,
+        "INSERT INTO globals (source_hash, ordinal, line, column) VALUES (?1, ?2, ?3, ?4)",
+        { text(source_hash), { integer = ordinal }, { integer = place.line },
+          { integer = place.column } })
       if not ok then
         return false, file .. ": " .. why
       end
