@@ -172,7 +172,7 @@ assert(reply.status == 422 and reply.text:find("qty", 1, true))
 - [`cosmic.web.cookies`], [`cosmic.web.session`] (with its stores
   [`cosmic.web.session.cookie`] and [`cosmic.web.session.sqlite`]),
   [`cosmic.web.secret`] (keys from the environment, weak ones refused),
-  `cosmic.web.csrf`, `cosmic.web.cors`, `cosmic.web.headers` (security
+  [`cosmic.web.csrf`], [`cosmic.web.cors`], [`cosmic.web.headers`] (security
   headers and CSP).
 - `cosmic.web.htmx`: HX-* request headers, HX-* response headers,
   [`Htmx.page`] (fragment or whole page, `Vary: HX-Request`), [`Htmx.head`].
@@ -286,8 +286,12 @@ needs have merged.
 7. **Streaming and the rest:** [`cosmic.channel`], [`cosmic.web.sse`],
    [`cosmic.http.multipart`] (decision 8), and
    [`cosmic.web.dev`].
-8. **A guide,** doc/guides/web.md, which is a test of its own: one app
-   built from an empty directory, its page, its form and its API.
+8. **The guides,** doc/guides/web*.md, each a test of its own: one
+   [getting-started guide](../guides/web.md) builds an htmx app from an
+   empty directory, and six more take one subject each (forms and uploads,
+   sessions, security, live updates, a JSON API, deploying) with a small
+   project of their own, since each project that requires [`cosmic.web`]
+   costs a cold type-check of it and a test function has 10 seconds.
 
 ## open questions
 
@@ -346,7 +350,10 @@ cooperative process.
 [`cosmic.http.wire`]: ../../cosmic/http/wire.tl
 [`cosmic.web.assets`]: ../../cosmic/web/assets.tl
 [`cosmic.web.cookies`]: ../../cosmic/web/cookies.tl
+[`cosmic.web.cors`]: ../../cosmic/web/cors.tl
+[`cosmic.web.csrf`]: ../../cosmic/web/csrf.tl
 [`cosmic.web.dev`]: ../../cosmic/web/dev.tl
+[`cosmic.web.headers`]: ../../cosmic/web/headers.tl
 [`cosmic.web.htmx`]: ../../cosmic/web/htmx.tl
 [`cosmic.web.secret`]: ../../cosmic/web/secret.tl
 [`cosmic.web.session.cookie`]: ../../cosmic/web/session/cookie.tl

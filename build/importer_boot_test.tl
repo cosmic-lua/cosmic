@@ -8,6 +8,7 @@ local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local Test = require("cosmic.test")
+local analysis_schema = require("build.analysis_schema")
 local identity = require("build.identity")
 local importer = require("build.importer")
 local teal = require("build.teal")
@@ -175,8 +176,7 @@ local function test_a_boot_names_its_analyzer_as_the_tool_it_writes()
   -- mends them, though nothing was forgotten: every row is forgotten
   -- and the tree parsed again.
   before, after, recorded, kept = boot(function(cut: work.Handle)
-    for _, table_name in ipairs({ "parsed", "requires", "tests", "catalog", "docs",
-        "refs", "bound", "examples", "test_inputs" }) do
+    for _, table_name in ipairs(analysis_schema.tables) do
       assert(cut.db:exec("DELETE FROM " .. table_name .. " WHERE source_hash IN " ..
           "(SELECT source_hash FROM inputs WHERE path = 'build.ast')"))
     end

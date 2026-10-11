@@ -87,7 +87,7 @@ local record dataset
   --- has one (a CSV's header): `load` puts the columns in it.
   record Rows is {dataset.Row}
     --- The column names, in the order the format gives them.
-    columns: {string}
+    columns?: {string}
   end
 
   --- What a reader may be told.
@@ -96,11 +96,11 @@ local record dataset
     --- `{ "a", "rows", 1 }` is `$['a']['rows'][0]`; the whole document
     --- when nil. Only a format that reads a document takes one
     --- (`json`); the others refuse it.
-    at: Json.Steps
+    at?: Json.Steps
     --- Keep every cell as the text it is: no number is read and an empty
     --- cell is `''`, not NULL. Only a format of text cells (`csv`,
     --- `tsv`) takes it; the JSON formats, typed by their syntax, refuse it.
-    raw: boolean
+    raw?: boolean
   end
 
   --- A table `load` made.

@@ -43,6 +43,8 @@ local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
+local Headers = require("cosmic.web.headers")
+local Html = require("cosmic.html")
 local Poll = require("cosmic.poll")
 local Proc = require("cosmic.proc")
 local Response = require("cosmic.web.response")
@@ -50,6 +52,7 @@ local Signal = require("cosmic.signal")
 local Sse = require("cosmic.web.sse")
 local StaticFiles = require("cosmic.web.static")
 local Types = require("cosmic.web.types")
+local sys = require("cosmic.sys")
 local App = require("cosmic.web.app")
 local Request = require("cosmic.web.request")
 
@@ -99,7 +102,9 @@ local record Dev
     --- restarts the program once a look finds nothing further moved.
     interval_ns: integer
     --- How long a program has to stop after SIGTERM before SIGKILL (3
-    --- seconds by default).
+    --- seconds by default). It holds when the supervisor itself is
+    --- signalled too; a second SIGINT or SIGTERM during it does not cut it
+    --- short.
     grace_ns: integer
     --- Where the supervisor's lines go (standard error by default).
     log: function(text: string)
@@ -115,6 +120,10 @@ end
 local DEFAULT_INTERVAL_NS <const> = Clock.ms(250)
 local SUPERVISE_INTERVAL_NS <const> = Clock.ms(300)
 local DEFAULT_GRACE_NS <const> = Clock.seconds(3)
+-- How long a program that outlasted its grace has to be gone once SIGKILL
+-- is sent: more than cosmic.child's own second, for a host slow to tear a
+-- process down (macOS under load).
+local KILLED_NS <const> = Clock.seconds(10)
 local RECONNECT_MS <const> = 300
 local LISTED <const> = 20
 
@@ -135,10 +144,9 @@ local SUPERVISE_FIELDS <const>: {string:boolean} = {
 
 --- The browser's half: a reload when the process changed, a swap of the
 --- stylesheets when the stream says css. The script itself is not inline
---- (it is served from `/_web/dev.js`); the tag that loads it is an element
---- a CSP with a nonce or hash requirement refuses.
--- TODO: once the CSP middleware lands (cosmic-lua/cosmic PR web-security),
--- add its nonce to the injected tag in `injected`.
+--- (it is served from `/_web/dev.js`); the tag that loads it carries the
+--- request's CSP nonce ([`Headers.NONCE`]) when the app draws one, as a CSP
+--- that requires a nonce refuses an element without it.
 -- The guard keeps a second copy of the script (htmx runs the scripts of a
 -- swapped page) from opening another stream.
 local SCRIPT <const> = [==[
@@ -200,7 +208,11 @@ local SCRIPT <const> = [==[
 })();
 ]==]
 
-local TAG <const> = '<script src="/_web/dev.js" defer></script>'
+--- The tag that loads the script, with `nonce` when the request drew one.
+local function tag(nonce: string | nil): string
+  if nonce == nil or nonce == "" then return '<script src="/_web/dev.js" defer></script>' end
+  return '<script src="/_web/dev.js" nonce="' .. Html.raw_attr(Html.escape_attr(nonce)) .. '" defer></script>'
+end
 
 --- Raises for an `opts` that is no table or holds a field `known` lacks.
 local function checked(opts: any, known: {string:boolean}, what: string)
@@ -409,9 +421,10 @@ end
 
 -- The app's half.
 
---- `res` with the script's tag before its last `</body>`, as a copy; `res`
---- itself where it is no page of markup in a string, or has no end of body.
-local function injected(res: Types.Response): Types.Response
+--- `res` with the script's tag (what `tag` makes of `nonce`) before its
+--- last `</body>`, as a copy; `res` itself where it is no page of markup
+--- in a string, or has no end of body.
+local function injected(res: Types.Response, nonce: string | nil): Types.Response
   local body = res.body
   if not body is string then return res end
   local kind = Response.header(res, "Content-Type")
@@ -426,7 +439,7 @@ local function injected(res: Types.Response): Types.Response
     at, from = found, found + 1
   end
   if at == nil then return res end
-  local page = body:sub(1, at - 1) .. TAG .. body:sub(at)
+  local page = body:sub(1, at - 1) .. tag(nonce) .. body:sub(at)
   local headers: {string: string | {string}} = {}
   for name, value in pairs(res.headers or {}) do headers[name] = value end
   local copy: Types.Response = {}
@@ -469,7 +482,7 @@ local function reload(boot: string, static: string, interval_ns: integer): Types
       end
       local reply = inner(req)
       if req.headers["hx-request"] ~= nil then return reply end
-      return injected(reply)
+      return injected(reply, req:get(Headers.NONCE))
     end
   end
 end
@@ -619,7 +632,17 @@ function Dev.supervise(opts?: Dev.SuperviseOptions): boolean, string
     local h = handle
     handle = nil
     local _, _ = h:stop()
-    local _, _ = h:wait(grace_ns)
+    -- Not `h:wait(grace_ns)`: it stops at the guard's pending signal, the
+    -- one that is ending this supervisor, and skips the grace. `wait_any`
+    -- is not ended by the guard and answers the program reaped.
+    local done, trouble = Child.wait_any({ h }, grace_ns)
+    if done == nil and trouble == Poll.TIMEOUT then
+      local _, _ = h:stop(sys.SIGKILL)
+      local _, _ = Child.wait_any({ h }, KILLED_NS)
+    end
+    -- TODO: end the program at once on a second SIGINT or SIGTERM during
+    -- the grace, once someone needs a second Ctrl-C to cut a slow program
+    -- short: the guard keeps the signal and this wait goes on.
     local _, _ = h:close()
   end
 

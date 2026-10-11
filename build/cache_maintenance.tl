@@ -18,19 +18,19 @@ local record maintenance
   record Options
     family: Family
     paths: {string}
-    since_ns: integer
+    since_ns?: integer
     whole: boolean
-    restored: string
+    restored?: string
   end
   record File
     path: string
     state: string
     reason: string
-    kept: integer
-    removed: integer
-    before_bytes: integer
-    after_bytes: integer
-    reached: boolean
+    kept?: integer
+    removed?: integer
+    before_bytes?: integer
+    after_bytes?: integer
+    reached?: boolean
     unknown_tables: {string}
     unstamped_tables: {string}
     removed_set_aside: {string}
@@ -42,8 +42,8 @@ local record maintenance
   record Report
     version: integer
     files: {File}
-    digest: string
-    fresh: integer
+    digest?: string
+    fresh?: integer
     warnings: {string}
   end
 end

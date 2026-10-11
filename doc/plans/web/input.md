@@ -21,7 +21,7 @@ What this file uses of core.md, stated once:
   per-request state. Every piece of state in this file is an exported
   `Web.Key<T>`, never a `req.state.x` field: `Input.QUERY`, `Input.FORM`,
   [`Input.JSON`] and `Input.CLEANUP` (section 2), [`Session.KEY`] (section 7),
-  `Headers.NONCE` (section 10). `req.state` is core's untyped escape
+  [`Headers.NONCE`] (section 10). `req.state` is core's untyped escape
   hatch and nothing here uses it.
 - [`Web.Response`] is [`Server.Reply`] with `headers: {string: string |
   {string}}` (core.md 13.1; server.tl:91 is `{string:string}` today and is
@@ -49,8 +49,8 @@ Layout of what this file adds (new files next to [`cosmic/web/init.tl`]):
   [`cosmic.web.session.cookie`] and [`cosmic.web.session.sqlite`]
   ([`cosmic/web/session/cookie.tl`], `sqlite.tl`); the sections below write
   `SessionCookie` and `SessionSqlite` for those two modules.
-- `cosmic.web.csrf`, `cosmic.web.cors`, `cosmic.web.headers`
-  (`cosmic/web/headers.tl`: security headers and CSP), and
+- [`cosmic.web.csrf`], [`cosmic.web.cors`], [`cosmic.web.headers`]
+  ([`cosmic/web/headers.tl`]: security headers and CSP), and
   [`cosmic/web/secret.tl`] (key loading, used by the session stores).
 - [`cosmic/http/multipart.tl`] ([`cosmic.http.multipart`]): a standalone
   RFC 7578 parser, usable without cosmic.web (it sits beside
@@ -1419,7 +1419,7 @@ Order of checks and token lookup, for an unsafe-method request:
    multipart per section 4 (header, or the first part); JSON bodies take the
    header only. Missing or wrong: 403. A request with no session cookie at all
    and `token = true`: 403 (nothing to check against) unless it is the login
-   case: any form page was rendered with `Csrf.token`, which created the
+   case: any form page was rendered with [`Csrf.token`], which created the
    session; so a cookieless POST is a forgery or a cookie-blocking browser.
 
 Safe methods: never checked and never rejected. The corollary stated in the
@@ -1460,6 +1460,27 @@ inherits it. Things to know:
 - The fallback that avoids inline attributes (a `<meta name=csrf-token>` read
   by script on `htmx:configRequest`) needs a script; avoided because the CSP
   in section 10 forbids inline script.
+
+### As built (CSRF)
+
+- The secret is kept under `_csrf` in the session as base64url, and
+  `session:regenerate()` drops it itself ([`Session.CSRF_KEY`]), so no
+  separate rotate call is needed at login; `clear` and `invalidate` drop it
+  too. A request with no session, or one that never drew a secret, is
+  refused.
+- When there is no `Origin`, the `Referer`'s origin is checked the same way
+  (a `Referer` that names no origin is refused); with neither header the
+  request passes the layer, as the text says. A listed trusted origin passes
+  the layer even with `Sec-Fetch-Site: cross-site` and still needs its token.
+- [`Csrf.field`], [`Csrf.meta`] and [`Csrf.hx_headers`] build the hidden input, the
+  `<meta name="csrf-token">` tag and the `hx-headers` JSON.
+- HEAD and OPTIONS are checked when the matched route lists that method
+  itself; any method but GET and TRACE otherwise unsafe (a lowercase or
+  unknown one included). `HX-Request` exempts nothing; it only picks the
+  wording of the refusal.
+- [`Csrf.Options.on_failure`] is given the reason ("origin", "cross-site",
+  "referer" or "token"); the default answer goes through `Web.abort(403)`, so
+  the app's error page is used.
 
 ## 9. CORS
 
@@ -1534,9 +1555,22 @@ Behavior:
   departure.
 - Interaction with CSRF: a credentialed CORS partner sends
   `Sec-Fetch-Site: cross-site`; its origin must also be in
-  `Csrf.Options.trusted_origins`. A tiny helper
+  [`Csrf.Options.trusted_origins`]. A tiny helper
   `Cors.trusted(opts): {string}` returns the list so the two stay in one place.
 - CORS is not authorization. Docs say it three times.
+
+### As built (CORS)
+
+- An origin the middleware cannot read (a path, userinfo, a repeated
+  `Origin`) is simply not allowed, and the predicate is not called with it.
+- `Vary: Origin` is added to every response of an app with the middleware,
+  `*` included, as a request with no `Origin` or `Origin: null` is answered
+  differently from the rest.
+- `allow_methods` entries are uppercase tokens ("*" raises); `allow_headers`
+  `{"*"}` repeats the requested names after checking each is a token, never
+  a literal `*`. The wildcard origin stands alone.
+- [`Cors.trusted`] leaves out "*" and "null": trusting either for state
+  changes would trust every site or every sandboxed frame.
 
 ## 10. Security headers and CSP
 
@@ -1592,7 +1626,7 @@ Rules:
 
 ### Csp
 
-`Csp` is a record exported by `cosmic.web.headers` (`Headers.Csp`, written
+`Csp` is a record exported by [`cosmic.web.headers`] ([`Headers.Csp`], written
 `Csp` below).
 
 ```teal
@@ -1646,13 +1680,24 @@ templates.md section 6.6, and written by [`Htmx.head`]):
   default).
 - SSE/`EventSource`: `connect-src 'self'` covers it.
 - The nonce is 16 random bytes from [`Rand.entropy`], base64url, per request,
-  kept under the exported key `Headers.NONCE` (`Web.Key<string>`, "" when
+  kept under the exported key [`Headers.NONCE`] (`Web.Key<string>`, "" when
   `nonce = false`); it is a one-time value, so the response must not be
   cached shared (`Cache-Control: private` or `no-store` is added to
   responses that carry a nonce and have no Cache-Control).
 
 `csp_report_only = true` ships a policy as `Content-Security-Policy-Report-Only`
 to try it; reporting endpoints are not designed in v1 (open question 9).
+
+### As built (headers)
+
+- A header an option leaves to its default is omitted by setting it to ""
+  (`false` is not a Teal `string`). `permissions_policy` is on by default
+  as its field says.
+- A `csp` with no `frame-ancestors` directive gets one from `frame_options`.
+- The nonce is reused when a [`Headers.middleware`] nearer the handler finds one
+  already drawn, and `Cache-Control: private` is added to an HTML response
+  with none when `nonce` is on. A route's own `middleware` list is the
+  per-route override: it sets its headers first, so the app's see them present.
 
 ## 11. Secrets
 
@@ -1849,6 +1894,7 @@ declaration, everything else declares nothing.
 [`Cookies.format`]: ../../../cosmic/web/cookies.tl
 [`Cookies.parse`]: ../../../cosmic/web/cookies.tl
 [`Cookies.set`]: ../../../cosmic/web/cookies.tl
+[`Cors.trusted`]: ../../../cosmic/web/cors.tl
 [`cosmic.codec`]: ../../../cosmic/codec.tl
 [`cosmic.hash`]: ../../../cosmic/hash.tl
 [`cosmic.http.multipart`]: ../../../cosmic/http/multipart.tl
@@ -1857,17 +1903,27 @@ declaration, everything else declares nothing.
 [`cosmic.shape`]: ../../../cosmic/shape.tl
 [`cosmic.url`]: ../../../cosmic/url.tl
 [`cosmic.web.cookies`]: ../../../cosmic/web/cookies.tl
+[`cosmic.web.cors`]: ../../../cosmic/web/cors.tl
+[`cosmic.web.csrf`]: ../../../cosmic/web/csrf.tl
+[`cosmic.web.headers`]: ../../../cosmic/web/headers.tl
 [`cosmic.web.session.cookie`]: ../../../cosmic/web/session/cookie.tl
 [`cosmic.web.session.sqlite`]: ../../../cosmic/web/session/sqlite.tl
 [`cosmic.web.session`]: ../../../cosmic/web/session/init.tl
 [`cosmic.web.testing`]: ../../../cosmic/web/testing.tl
 [`cosmic/http/multipart.tl`]: ../../../cosmic/http/multipart.tl
 [`cosmic/web/cookies.tl`]: ../../../cosmic/web/cookies.tl
+[`cosmic/web/headers.tl`]: ../../../cosmic/web/headers.tl
 [`cosmic/web/init.tl`]: ../../../cosmic/web/init.tl
 [`cosmic/web/input.tl`]: ../../../cosmic/web/input.tl
 [`cosmic/web/secret.tl`]: ../../../cosmic/web/secret.tl
 [`cosmic/web/session/cookie.tl`]: ../../../cosmic/web/session/cookie.tl
 [`cosmic/web/session/init.tl`]: ../../../cosmic/web/session/init.tl
+[`Csrf.field`]: ../../../cosmic/web/csrf.tl
+[`Csrf.hx_headers`]: ../../../cosmic/web/csrf.tl
+[`Csrf.meta`]: ../../../cosmic/web/csrf.tl
+[`Csrf.Options.on_failure`]: ../../../cosmic/web/csrf.tl
+[`Csrf.Options.trusted_origins`]: ../../../cosmic/web/csrf.tl
+[`Csrf.token`]: ../../../cosmic/web/csrf.tl
 [`Data.stale`]: ../../../cosmic/web/session/init.tl
 [`FieldError.field`]: ../../../cosmic/web/types.tl
 [`FieldError.source`]: ../../../cosmic/web/types.tl
@@ -1876,6 +1932,9 @@ declaration, everything else declares nothing.
 [`Handle:id()`]: ../../../cosmic/web/session/init.tl
 [`Hash.digest`]: ../../../cosmic/hash.tl
 [`Hash.equal`]: ../../../cosmic/hash.tl
+[`Headers.Csp`]: ../../../cosmic/web/headers.tl
+[`Headers.middleware`]: ../../../cosmic/web/headers.tl
+[`Headers.NONCE`]: ../../../cosmic/web/headers.tl
 [`Htmx.head`]: ../../../cosmic/web/htmx.tl
 [`Htmx.indicator_css()`]: ../../../cosmic/web/htmx.tl
 [`Input.form_into`]: ../../../cosmic/web/input.tl
@@ -1901,6 +1960,7 @@ declaration, everything else declares nothing.
 [`Server.range`]: ../../../cosmic/http/server.tl
 [`Server.Reply`]: ../../../cosmic/http/server.tl
 [`ServeSpec.body_ns`]: ../../../cosmic/http/server.tl
+[`Session.CSRF_KEY`]: ../../../cosmic/web/session/init.tl
 [`Session.KEY`]: ../../../cosmic/web/session/init.tl
 [`Session.middleware`]: ../../../cosmic/web/session/init.tl
 [`Session.Store`]: ../../../cosmic/web/session/init.tl

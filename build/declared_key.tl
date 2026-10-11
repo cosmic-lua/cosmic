@@ -216,7 +216,7 @@ local record declared_key
     --- While set, each answer by what asked for it: the whole
     --- selection of a run keys its tests before any of them starts, so
     --- one answer serves them all. Nil after, when each asks again.
-    snapshot: {string:string}
+    snapshot?: {string:string}
     --- How many files were read to be hashed, and the time spent keying.
     read: integer
     spent_ns: integer
@@ -245,12 +245,12 @@ local record declared_key
     --- The program a test that runs this program runs
     --- ([`program_identity`]): the tree's tool, or the sanitized one, or a
     --- portable cosmic, whichever is running.
-    program: string
+    program?: string
     --- The host's identity ([`host_identity`]), which every key holds.
     host: string
     --- What the host has installed ([`system_identity`]), which only the
     --- key of a module that declares `system` holds; nil for none.
-    system: string
+    system?: string
     --- Where an artifact runs the tests (Store.meta's
     --- `runtime_context` "portable-v1": the tree's tool, or a portable
     --- cosmic), what runs its core ([`launcher_identity`]); for a worker
@@ -258,7 +258,7 @@ local record declared_key
     --- the core it runs; nil where a host program ("host-v1") or a core run
     --- against a database of its own ("database-v1") does, whose core is
     --- all there is ahead of its database.
-    launcher: string
+    launcher?: string
     --- The module's declaration, as [`test_inputs.canonical`] spells it.
     declaration: string
     --- What the host answered to each requirement the module declares
@@ -266,25 +266,25 @@ local record declared_key
     --- of an answer that is `present`. Only a module whose requirements
     --- were all present is keyed at all, so it holds those, and nil or empty
     --- for a module that declares none, whose key has no such part.
-    requires: {string:string}
+    requires?: {string:string}
     effective: test_inputs.Effective
     --- The environment its worker is given.
     environment: {string:string}
     --- Whether its worker may run this program though its module does
     --- not declare `tool` ([`build.test`]'s `can_forbid`): o/bin is keyed
     --- as if it did.
-    runs_tool: boolean
+    runs_tool?: boolean
     --- The digest of the bytes of the store of its module's import
     --- closure its worker is given at o/cosmic.db where its module does
     --- not declare `store` ([`store_digest`]), or nil where it is given
     --- the whole projection, keyed by its contents.
-    closure_store: string
+    closure_store?: string
     --- Where the tree is, for a worker no sandbox gives it at /tree
     --- ([`build.test`]'s `launch`, unsandboxed),
     --- which sees it where it is: its verdict may turn on that path, so
     --- it stands only in a checkout there. Nil for a sandboxed worker,
     --- whose key names no place of the tree.
-    tree: string
+    tree?: string
   end
 
   --- Where [`host_identity`] and [`system_identity`] look, for a test: each
@@ -292,32 +292,32 @@ local record declared_key
   --- a /proc of its own, `host_id`, the value of `host_variable`,
   --- `system_id`, the value of `system_variable`, and the ids.
   record HostSources
-    packages: {string}
+    packages?: {string}
     --- The system the host says it is, then its kernel's release and
     --- version: [`system_identity`] reads the first, [`host_identity`] the
     --- other two. Where it is nil, `system_sources(sysname)`.
     system: {string}
     --- The kernel `uname` names, which chooses where `system` looks
     --- when it is nil ([`system_sources`]).
-    sysname: string
-    system_id: string
-    status: string
+    sysname?: string
+    system_id?: string
+    status?: string
     --- The processor's features, as [`sys.cpu_features`] names them.
-    cpu_features: {string}
+    cpu_features?: {string}
     --- The machine whose features `cpu_features` keys (`dispatched`).
-    machine: string
-    own_proc: boolean
-    host_id: string
-    uid: integer
+    machine?: string
+    own_proc?: boolean
+    host_id?: string
+    uid?: integer
     --- The group and the supplementary groups this process runs with,
     --- as [`sys.getgid`] and [`sys.getgroups`] answer them, which a host
     --- with no /proc/self/status (`status`) is keyed by in place of its
     --- Gid and Groups lines.
-    gid: integer
-    groups: {integer}
+    gid?: integer
+    groups?: {integer}
     --- The system's paths [`system_identity`] walks, where it walks them:
     --- by default [`confine.system_paths`], less /etc ([`walked_paths`]).
-    walked: {string}
+    walked?: {string}
   end
 end
 
@@ -864,11 +864,12 @@ function declared_key.preimage(digests: declared_key.Digests,
     part("host", spec.host, ""),
     part("declaration", spec.declaration, ""),
   }
+  local answers = spec.requires or {}
   local required: {string} = {}
-  for name in pairs(spec.requires or {}) do required[#required + 1] = name end
+  for name in pairs(answers) do required[#required + 1] = name end
   table.sort(required)
   for _, name in ipairs(required) do
-    lines[#lines + 1] = part("requires", name, spec.requires[name])
+    lines[#lines + 1] = part("requires", name, answers[name])
   end
   if effective.noexec then
     lines[#lines + 1] = part("noexec", effective.noexec_ready and "granted" or "unavailable", "")

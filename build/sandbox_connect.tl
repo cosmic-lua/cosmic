@@ -60,7 +60,7 @@ local record sandbox_connect
     finish: function(): boolean, string
     --- How long the relay has to answer the greeting and the request, each,
     --- in nanoseconds: 30 seconds when nil.
-    answer_ns: integer
+    answer_ns?: integer
   end
 end
 
@@ -159,8 +159,8 @@ end
 local record Proxy
   port: integer
   --- The percent-decoded userinfo's user and password, or nil for none.
-  user: string
-  password: string
+  user?: string
+  password?: string
 end
 
 --- `text` with each `%XX` replaced by its byte.

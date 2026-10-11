@@ -178,6 +178,10 @@ local record Node is {Node}
   --- The same nodes, declared `: never`: the return list is that one
   --- word, and `rets` holds no types.
   never: boolean | nil
+  --- The same nodes, written with no return list at all (no `:`): a
+  --- "function" literal so written takes its return types from its
+  --- context (patch/tl/37).
+  rets_omitted: boolean | nil
   --- Comments tl's parser attached to a statement directly. The
   --- renderer reads comments off the token stream instead, uniformly,
   --- so it never has to ask which kinds carry this and which do not.

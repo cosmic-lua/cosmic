@@ -5,18 +5,18 @@ local record relay_wire_fixture
   --- What a synthetic ClientHello holds.
   record HelloOptions
     --- The host name its server_name extension carries, none when nil.
-    name: string
+    name?: string
     --- Length of the session id, 0 to 255.
-    session: integer
+    session?: integer
     --- Cipher suites, each two bytes; 1 when nil.
-    suites: integer
+    suites?: integer
     --- Extensions written after the server_name one, whole, in order.
-    extra: {string}
+    extra?: {string}
     --- The server_name extension's data in place of one built from `name`.
-    server_name: string
+    server_name?: string
     --- Bytes the hello's body is to hold, made up with a padding extension
     --- last; nil for no padding.
-    size: integer
+    size?: integer
   end
 end
 

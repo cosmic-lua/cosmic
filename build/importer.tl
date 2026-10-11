@@ -96,7 +96,7 @@ local record importer
     end
     --- One parse: what a parse writes of a source in every table
     --- `analysis_tables` names.
-    Parse: derivation.Parse
+    type Parse = derivation.Parse
     --- The analyzers another checkout parsed every one of `hashes`
     --- with, the most lately used first.
     analyzers: function(hashes: {string}): {string}

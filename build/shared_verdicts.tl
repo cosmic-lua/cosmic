@@ -79,7 +79,7 @@ local record shared_verdicts
     --- holds, and the system, compiler and program that only some do.
     --- Each row it keeps, or stands on unnamed, is stamped with them;
     --- nil for none.
-    parts: string
+    parts?: string
     kept: {Kept}
     --- Keys the run relied on, which stay the longer for it.
     used: {string}
@@ -89,7 +89,7 @@ local record shared_verdicts
     --- test by, by the store's address ([`build.closure_store`]'s
     --- `address`): kept, or stamped as relied on, so a checkout without
     --- the store keys its tests without writing it ([`store_digest`]).
-    stores: {string:string}
+    stores?: {string:string}
   end
 end
 
@@ -403,8 +403,9 @@ function shared_verdicts.settle(cache: shared_verdicts.Cache, origin: string,
         if not ok then return false, trouble end
       end
     end
+    local stored = owed.stores or {}
     local addresses: {string} = {}
-    for address in pairs(owed.stores or {}) do addresses[#addresses + 1] = address end
+    for address in pairs(stored) do addresses[#addresses + 1] = address end
     table.sort(addresses)
     -- A digest here that differs from the run's for the same address
     -- was reported by the run as an error ([`build.test`]'s
@@ -412,7 +413,7 @@ function shared_verdicts.settle(cache: shared_verdicts.Cache, origin: string,
     for _, address in ipairs(addresses) do
       local ok, trouble = Sqlite.run(db, "INSERT OR REPLACE INTO " .. stores ..
           " (address, digest, used_ns) VALUES (?1, ?2, ?3)",
-        { text(address), text(owed.stores[address]), { integer = now_ns } })
+        { text(address), text(stored[address]), { integer = now_ns } })
       if not ok then return false, trouble end
     end
     for _, bound in ipairs({ { declared, "key" }, { stores, "address" } }) do

@@ -175,7 +175,8 @@ local function test_a_chunk_module_is_keyed_without_what_standalone_loads(tmp: s
       local file = name:gsub("%.", "/") .. ".tl"
       assert(Fs.mkdirs(tmp .. "/" .. file:match("^(.*)/")))
       assert(Fs.write(tmp .. "/" .. file, "return {} -- " .. name .. "\n"))
-      by_path[name] = { path = name, file = file, kind = "lib", requires = {}, tests = {} }
+      by_path[name] = { path = name, file = file, kind = "lib", source = "", source_hash = "",
+        requires = {}, tests = {} }
     end
   end
   local needed: {string} = {}
@@ -185,14 +186,15 @@ local function test_a_chunk_module_is_keyed_without_what_standalone_loads(tmp: s
   by_path["build.standalone"].requires = needed
   local function key_declaring(standalone: boolean): string
     local declared: analyzer.Declared = { line = 1, reads = {}, host = {}, env = {},
-      network = {}, tool = false, lua = true, nests = false,
-      store = false, system = false, caches = {} }
+      network = {}, tool = false, lua = true, nests = false, noexec = false,
+      store = false, system = false, caches = {}, requires = {} }
     local m: positions.Module = { path = "suite.t_test", file = "suite/t_test.tl",
-      kind = "test", requires = standalone and { "suite.lib", "build.standalone" } or
-        { "suite.lib" }, tests = { "test_t" }, inputs = declared }
+      kind = "test", source = "", source_hash = "",
+      requires = standalone and { "suite.lib", "build.standalone" } or { "suite.lib" },
+      tests = { "test_t" }, inputs = declared }
     by_path[m.path] = m
     by_path["suite.lib"] = { path = "suite.lib", file = "suite/lib.tl", kind = "lib",
-      requires = {}, tests = {} }
+      source = "", source_hash = "", requires = {}, tests = {} }
     local s = spec()
     s.effective = test_inputs.effective(m, by_path, {})
     s.declaration = test_inputs.canonical(declared)
@@ -219,15 +221,16 @@ local function test_a_type_only_module_is_no_part_of_the_key(tmp: string)
   end
   local function key_with(type_only: {string:{string:boolean}}): string
     local lib: positions.Module = { path = "suite.lib", file = "suite/lib.tl", kind = "module",
-      requires = { "suite.typed", "suite.valued" }, tests = {} }
+      source = "", source_hash = "", requires = { "suite.typed", "suite.valued" }, tests = {} }
     local by_path: {string:positions.Module} = { ["suite.lib"] = lib }
     for _, name in ipairs({ "typed", "valued", "named" }) do
       local path = "suite." .. name
       by_path[path] = { path = path, file = "suite/" .. name .. ".tl", kind = "module",
-        requires = {}, tests = {} }
+        source = "", source_hash = "", requires = {}, tests = {} }
     end
     local m: positions.Module = { path = "suite.t_test", file = "suite/t_test.tl",
-      kind = "test", requires = { "suite.lib", "suite.named" }, tests = { "test_t" } }
+      kind = "test", source = "", source_hash = "", requires = { "suite.lib", "suite.named" },
+      tests = { "test_t" } }
     by_path[m.path] = m
     local s = spec()
     s.effective = test_inputs.effective(m, by_path, {}, type_only)
@@ -454,7 +457,8 @@ local function test_every_field_of_a_spec_moves_it(tmp: string)
     launcher = append("launcher"), declaration = append("declaration"),
     -- Each present answer, by name and by what it holds.
     requires = { change = function(s: declared_key.Spec)
-      s.requires["program:jq"] = "sha256:other"
+      local answers = assert(s.requires)
+      answers["program:jq"] = "sha256:other"
     end },
     -- Keyed only for an unsandboxed worker, which sees the tree there.
     tree = append("tree"),
@@ -712,7 +716,7 @@ local function test_a_host_path_is_keyed_by_what_it_holds(tmp: string)
   -- A directory is refused; /proc, which no key could hold by what it
   -- holds, and what is beneath it, are given.
   for _, declared in ipairs({ one, build_dir(one) }) do
-    local refused = resolved(declared).effective.unresolved
+    local refused = assert(resolved(declared).effective.unresolved)
     assert(refused:find(string.format("Test.policy grant of the host path %q: ", declared), 1, true) and
         refused:find(" is a directory; a grant of the host names files, or /proc", 1, true), refused)
   end

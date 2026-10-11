@@ -360,6 +360,13 @@ input to the build, never to the runtime. one database holds:
   tree, the self-rebuild reading the compiler) read it, and each
   inflates it. `inflate(X)`, which every [`cosmic.sqlite`] handle knows,
   reads it back in a query.
+- **stubs**: the tool's alone, one per standard-library module: its
+  source with every function body left out and every other token
+  where it was ([`build.stub`]), raw-deflated. a project's checker
+  reads a module's stub in place of its source, which types it the
+  same in a fraction of the time, since the bodies are most of what a
+  check costs; cosmic's own build refuses a stub whose type differs
+  from its source's.
 - **docs**: one row per symbol a module declares at its top level --
   the module itself, each function, each record, enum or alias and
   every field and value under it, and each documented value -- with
@@ -1180,6 +1187,7 @@ in [roadmap.md](roadmap.md).
 [`build.importer`]: ../build/importer.tl
 [`build.positions`]: ../build/positions.tl
 [`build.reboot.own_tool`]: ../build/reboot.tl
+[`build.stub`]: ../build/stub.tl
 [`build.work`]: ../build/work.tl
 [`build.writer`]: ../build/writer.tl
 [`build/bom.tl`]: ../build/bom.tl

@@ -180,6 +180,33 @@ local function test_non_group_timeout_returns_graceful_term_status(tmp: string)
   assert(r.code == 19 and r.signal == nil and r.timed_out)
 end
 
+--- Darwin refuses a signal to a process from the start of its exit until
+--- it is a zombie (ESRCH), and waitpid cannot reap it before then: a wait
+--- that ends a child caught there still reaps it. The SIGTERM here is
+--- delivered, then answered as Darwin answers it in that moment.
+local function test_a_child_exiting_as_a_wait_ends_it_is_reaped()
+  local h <close> = assert(Child.start(lua(sleep(30000))))
+  local kill = sys.kill
+  local refused = false
+  local ok, trouble: boolean, any = pcall(function()
+    sys.kill = function(pid: integer, signal: integer): boolean, string, integer
+      -- The child leads its group, which the handle signals.
+      if pid == -h.pid and signal == sys.SIGTERM and not refused then
+        refused = true
+        assert(kill(pid, signal))
+        return false, "No such process", sys.ESRCH
+      end
+      return kill(pid, signal)
+    end
+    local r, why = h:wait(0)
+    assert(r ~= nil, why)
+    assert(r.signal == sys.SIGTERM and r.timed_out, "the wait reaped the exit the SIGTERM began")
+  end)
+  sys.kill = kill
+  assert(ok, tostring(trouble))
+  assert(refused and not sys.kill(h.pid, 0), "the child is reaped")
+end
+
 -- The `/bin/sh` a refusal case in this module names is never started:
 -- its option is refused before a start, and a sandboxed worker has no
 -- sh to find, so a refusal that regressed fails the case either way.

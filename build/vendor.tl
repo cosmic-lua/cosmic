@@ -50,7 +50,7 @@ local record Vendor
   record Pin
     url: string
     sha256: string
-    sha3_256: string
+    sha3_256?: string
     strip: string
     --- The name a single-file PIN vendors its download as; empty for
     --- an archive.

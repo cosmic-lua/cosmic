@@ -200,8 +200,10 @@ function closure_store.basis(whole: string): closure_store.Basis | nil, string
     local names, names_trouble = Sqlite.text_rows(db,
       "SELECT path FROM modules WHERE kind NOT IN ('test', 'example') ORDER BY path")
     if names == nil then return nil, names_trouble end
-    local basis: closure_store.Basis = { modules = {}, kinds = {}, pairable = {}, decls = {},
-      decl_requires = {} }
+    local basis: closure_store.Basis = {
+      modules = {}, shared = Hash.hex_sha256("closure-store-7\n" .. shared[1][1]),
+      kinds = {}, pairable = {}, decls = {}, decl_requires = {},
+    }
     for _, row in ipairs(rows) do
       local line: {string} = { row[2] }
       for i, digests in ipairs(carried) do
@@ -217,7 +219,6 @@ function closure_store.basis(whole: string): closure_store.Basis | nil, string
         (edges[row[1]] or "")
       basis.decl_requires[row[1]] = closure_store.required_by(row[3])
     end
-    basis.shared = Hash.hex_sha256("closure-store-7\n" .. shared[1][1])
     return basis, ""
   end
   local basis, read_trouble = read()

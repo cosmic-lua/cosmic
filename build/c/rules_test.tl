@@ -224,7 +224,7 @@ local function test_c_clang_cannot_read_is_refused(tmp: string)
   assert(Fs.write(tmp .. "/case.c", "int f(void) { return undeclared; }\n"))
   local outcome = c.check(root, { "case.c" }, tmp)[1]
   assert(outcome.findings == nil)
-  assert(outcome.trouble:find("undeclared", 1, true) ~= nil, outcome.trouble)
+  assert(assert(outcome.trouble):find("undeclared", 1, true) ~= nil, outcome.trouble)
 end
 
 --- A pointer into a string counted from the top is good only while the
@@ -631,7 +631,7 @@ local function test_a_tree_larger_than_the_limit_is_refused(tmp: string)
   assert(Fs.write(tmp .. "/case.c", header .. "int f(void) { return 0; }\n"))
   local outcome = c.check(root, { "case.c" }, tmp, 4096)[1]
   assert(outcome.findings == nil, "a cut tree was checked")
-  assert(outcome.trouble:find("larger than 4096", 1, true) ~= nil, outcome.trouble)
+  assert(assert(outcome.trouble):find("larger than 4096", 1, true) ~= nil, outcome.trouble)
 end
 
 --- A file that could not be read leaves what it refers to unknown, so
@@ -672,7 +672,7 @@ local function test_a_compiler_reads_no_path_it_was_not_given(tmp: string)
     return
   end
   assert(outcome.findings == nil, "the header was read")
-  assert(outcome.trouble:find("AGENTS.md' file not found", 1, true), outcome.trouble)
+  assert(assert(outcome.trouble):find("AGENTS.md' file not found", 1, true), outcome.trouble)
 end
 
 --- A violation under a guard of one target or of the checked core is
@@ -703,17 +703,16 @@ end
 --- file that includes it.
 local function test_a_file_no_guard_reaches_is_checked_once(tmp: string)
   assert(Fs.write(tmp .. "/case.c", "int total(void) { return 1; }\n"))
-  local outcome = c.check(root, { "case.c" }, tmp)[1]
-  assert(#outcome.variants == 1, table.concat(outcome.variants, ","))
+  local variants = assert(c.check(root, { "case.c" }, tmp)[1].variants)
+  assert(#variants == 1, table.concat(variants, ","))
   assert(Fs.write(tmp .. "/guard.h", "#ifdef __APPLE__\n#endif\n"))
   assert(Fs.write(tmp .. "/case.c", '#include "guard.h"\nint total(void) { return 1; }\n'))
-  outcome = c.check(root, { "case.c" }, tmp)[1]
-  assert(#outcome.variants == #c.variants - 1, table.concat(outcome.variants, ","))
+  variants = assert(c.check(root, { "case.c" }, tmp)[1].variants)
+  assert(#variants == #c.variants - 1, table.concat(variants, ","))
   assert(Fs.write(tmp .. "/guard.h", "#ifdef COSMIC_CHECKED\n#endif\n"))
-  outcome = c.check(root, { "case.c" }, tmp)[1]
-  assert(outcome.variants[#outcome.variants] == c.variants[#c.variants].name,
-    table.concat(outcome.variants, ","))
-  assert(#outcome.variants == 2, table.concat(outcome.variants, ","))
+  variants = assert(c.check(root, { "case.c" }, tmp)[1].variants)
+  assert(variants[#variants] == c.variants[#c.variants].name, table.concat(variants, ","))
+  assert(#variants == 2, table.concat(variants, ","))
 end
 
 --- A target that cannot compile the file fails it, naming the target.
@@ -722,5 +721,5 @@ local function test_a_variant_that_cannot_compile_a_file_is_named(tmp: string)
     "#ifdef __APPLE__\nint broken = ;\n#endif\nint total(void) { return 1; }\n"))
   local outcome = c.check(root, { "case.c" }, tmp)[1]
   assert(outcome.findings == nil)
-  assert(outcome.trouble:find("aarch64-macos: ", 1, true), outcome.trouble)
+  assert(assert(outcome.trouble):find("aarch64-macos: ", 1, true), outcome.trouble)
 end

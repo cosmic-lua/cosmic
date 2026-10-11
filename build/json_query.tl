@@ -21,10 +21,10 @@ local record json_query
     --- How many arrays and objects may nest below the value walked,
     --- 1 to [`Json.depth_limit`] (default [`Json.default_depth`], 64), as
     --- [`Json.EncodeOptions.max_depth`] counts. Deeper fails the walk.
-    max_depth: integer
+    max_depth?: integer
     --- The steps the value was found at (default none), each position
     --- counted from 1, so its leaves' steps run from the document.
-    root: Json.Steps
+    root?: Json.Steps
   end
 end
 
@@ -177,7 +177,7 @@ local record Node
   arrays: integer
   shortest: integer
   longest: integer
-  elements: Node
+  elements?: Node
   cut: boolean
 end
 

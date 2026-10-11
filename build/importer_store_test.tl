@@ -358,24 +358,26 @@ local function test_a_compile_does_not_parse_the_standard_library()
   assert(#parsed == 0, "parsed " .. table.concat(parsed, ", "))
 end
 
---- An edit to a standard-library source moves the key of a module that
---- reaches it, whether it requires that module or a module that does, by
---- the stored edges.
+--- An edit to what the checker reads of a standard-library module, its
+--- stub or its source ([`teal.standard_text`]), moves the key of a module
+--- that reaches it, whether it requires that module or a module that
+--- does, by the stored edges; so does the same text served as the other.
 local function test_an_edit_to_an_embedded_source_moves_the_key_of_what_reaches_it()
-  local function key_with(edited: string | nil): string
+  local function key_with(edited: string | nil, flipped?: boolean): string
     local root = assert(write_fixture("embedded-edit" .. tostring(edited), {
       ["main.tl"] = 'local Json = require("cosmic.json")\nreturn Json\n',
     }))
-    local source = Store.source
-    Store.source = function(name: string): string | nil, string
-      local text, trouble = source(name)
-      if text ~= nil and name == edited then
-        return text .. "\n-- edited\n", ""
+    local standard_text = teal.standard_text
+    teal.standard_text = function(name: string): teal.Standard | nil
+      local found = standard_text(name)
+      if found ~= nil and name == edited then
+        return { text = flipped and found.text or found.text .. "\n-- edited\n",
+          stubbed = (flipped == true) ~= found.stubbed }
       end
-      return text, trouble
+      return found
     end
     local result, trouble = compile_fixture(root)
-    Store.source = source
+    teal.standard_text = standard_text
     assert(result ~= nil, tostring(trouble))
     for _, m in ipairs(result.modules) do
       if m.path == "main" then return m.key end
@@ -385,6 +387,8 @@ local function test_an_edit_to_an_embedded_source_moves_the_key_of_what_reaches_
   local plain = key_with(nil)
   assert(key_with(nil) == plain, "an unchanged tree moved a key")
   assert(key_with("cosmic.json") ~= plain, "an edit to a required module kept the key")
+  assert(key_with("cosmic.json", true) ~= plain,
+    "a required module served as a stub rather than its source, or the other way, kept the key")
   assert(key_with("cosmic.internal.json") ~= plain,
     "an edit to a module required by a required module kept the key")
 end

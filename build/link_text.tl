@@ -81,7 +81,7 @@ local record link_text
     line: integer
     lines: {string}
     doc: boolean
-    column: integer
+    column?: integer
     starts: {integer} | nil
   end
 

@@ -57,18 +57,18 @@ local record tree
     --- names, a cast's kind, an operator.
     text: string
     children: {tree.Node}
-    parent: tree.Node
+    parent?: tree.Node
     --- What [`referent`], [`callee`], [`canonical_type`] and [`operator`]
     --- answered the first time, so a rule that asks again reads it.
     --- Each has a flag saying it was asked, since nil is an answer.
-    referent_cache: tree.Referent
-    referent_asked: boolean
-    callee_cache: string
-    callee_asked: boolean
-    canonical_cache: string
-    canonical_asked: boolean
-    operator_cache: string
-    operator_asked: boolean
+    referent_cache?: tree.Referent
+    referent_asked?: boolean
+    callee_cache?: string
+    callee_asked?: boolean
+    canonical_cache?: string
+    canonical_asked?: boolean
+    operator_cache?: string
+    operator_asked?: boolean
   end
   --- What a reference refers to, as the dump spells it.
   record Referent

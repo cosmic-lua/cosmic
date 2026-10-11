@@ -12,17 +12,29 @@ local type Module = positions.Module
 --- it declares.
 local function module(path: string, file: string, requires: {string},
                       inputs?: analyzer.Declared): Module
-  return { path = path, file = file, kind = "test", requires = requires,
-    tests = { "test_one", "test_two" }, inputs = inputs }
+  return { path = path, file = file, kind = "test", source = "", source_hash = "",
+    requires = requires, tests = { "test_one", "test_two" }, inputs = inputs }
+end
+
+--- What [`declaring`] takes of a declaration: the fields a test names.
+local record Fields
+  reads?: {string}
+  host?: {string}
+  env?: {string}
+  network?: {string}
+  tool?: boolean
+  lua?: boolean
+  noexec?: boolean
+  store?: boolean
 end
 
 --- A declaration of what `fields` names, the rest left out.
-local function declaring(fields: analyzer.Declared): analyzer.Declared
+local function declaring(fields: Fields): analyzer.Declared
   return { line = 1, reads = fields.reads or {}, host = fields.host or {},
     env = fields.env or {}, network = fields.network or {},
-    tool = fields.tool == true, lua = fields.lua == true,
-    noexec = fields.noexec == true,
-    store = fields.store == true }
+    tool = fields.tool == true, lua = fields.lua == true, nests = false,
+    noexec = fields.noexec == true, store = fields.store == true,
+    system = false, caches = {}, requires = {} }
 end
 
 --- A tree of four modules: a test requiring a helper, which requires a
