@@ -403,6 +403,42 @@ local function test_pretty()
   assert(encoded({ a = { 1 } }) == '{"a":[1]}', "compact without pretty")
 end
 
+local function test_ascii_escapes_every_character_past_ascii()
+  local ascii = { ascii = true }
+  assert(encoded("caf\xc3\xa9", ascii) == '"caf\\u00e9"', "two bytes")
+  assert(encoded("\xe2\x82\xac", ascii) == '"\\u20ac"', "three bytes")
+  assert(encoded("\xf0\x9f\x98\x80", ascii) == '"\\ud83d\\ude00"', "a surrogate pair above U+FFFF")
+  assert(encoded("\xf4\x8f\xbf\xbf", ascii) == '"\\udbff\\udfff"', "the last code point")
+  assert(encoded("\xef\xbf\xbf", ascii) == '"\\uffff"', "the last of the plane")
+  assert(encoded("\xc2\x80", ascii) == '"\\u0080"', "the first past ASCII")
+  assert(encoded("a\"\\\n\127\xc3\xa9z", ascii) == '"a\\"\\\\\\n\127\\u00e9z"',
+    "ASCII escapes and DEL are as without the option")
+  assert(encoded({ ["\xc3\xa9"] = { "\xe2\x82\xac" } }, ascii) == '{"\\u00e9":["\\u20ac"]}', "keys too")
+  assert(encoded({ a = "\xc3\xa9" }, { ascii = true, pretty = true }) == '{\n  "a": "\\u00e9"\n}',
+    "with pretty")
+  assert(encoded("\xc3\xa9", { ascii = false }) == '"\xc3\xa9"', "false leaves the text alone")
+  assert(encoded("\xc3\xa9") == '"\xc3\xa9"', "off by default")
+  assert(encoded("plain", ascii) == '"plain"')
+end
+
+local function test_ascii_round_trips_through_decode()
+  local value = { name = "Zo\xc3\xab \xe2\x82\xac \xf0\x9f\x98\x80", ["k\xc3\xa9y"] = { "\xc2\x80", "\xef\xbf\xbf" } }
+  local text = encoded(value, { ascii = true })
+  assert(not text:find("[\128-\255]"), "no byte past 0x7f: " .. text)
+  local back = decoded(text) as {string: any}
+  assert(back.name == value.name and back["k\xc3\xa9y"] ~= nil, "decodes to the value written")
+  assert(encoded(decoded(text)) == encoded(value), "and to the same plain text")
+end
+
+local function test_ascii_still_refuses_what_is_not_utf8()
+  local ascii = { ascii = true }
+  assert(encode_failure("\xff", ascii) == "json: cannot encode a string that is not UTF-8", "a stray byte")
+  encode_failure("\xc3", ascii)
+  encode_failure("\xed\xa0\x80", ascii)
+  encode_failure({ x = { ["\xff"] = 1 } }, ascii)
+  assert(encode_failure("a\xc3\xa9\xff", ascii) == encode_failure("a\xc3\xa9\xff"), "the same message")
+end
+
 local function test_sorted_is_byte_order()
   assert(encoded({ ["b"] = 1, ["a"] = 2, ["ab"] = 3, ["B"] = 4, ["\xc3\xa9"] = 5 }) ==
       '{"B":4,"a":2,"ab":3,"b":1,"\xc3\xa9":5}', "keys in byte order")
@@ -466,6 +502,9 @@ local function test_random_values_round_trip()
     assert(same(decoded(text, keep), value), "round trip of " .. text)
     local pretty = encoded(value, { pretty = true })
     assert(same(decoded(pretty, keep), value), "pretty round trip of " .. pretty)
+    local ascii = encoded(value, { ascii = true })
+    assert(not ascii:find("[\128-\255]"), "ascii text is ASCII: " .. ascii)
+    assert(same(decoded(ascii, keep), value), "ascii round trip of " .. ascii)
   end
 end
 

@@ -908,6 +908,7 @@ local function recipe_options(r: Recipe): Json.EncodeOptions
   local bits = next_byte(r)
   local opts: Json.EncodeOptions = { pretty = bits & 1 ~= 0 }
   if bits & 2 ~= 0 then opts.max_depth = next_byte(r) % 8 + 1 end
+  opts.ascii = bits & 4 ~= 0
   return opts
 end
 
@@ -918,6 +919,18 @@ local function encode_holds(input: string): boolean, string
   local ok, text, err = pcall(Json.encode, value, opts)
   if not ok then return false, "raised: " .. tostring(text) end
   Fuzz.label(text ~= nil and "encoded" or "refused")
+  if opts.ascii then
+    -- `ascii` changes how a string is written, never whether the value
+    -- encodes, and the text has no byte past 0x7f.
+    local plain = Json.encode(value, { pretty = opts.pretty, max_depth = opts.max_depth })
+    if (plain == nil) ~= (text == nil) then
+      return false, "ascii changed whether the value encodes"
+    end
+    if text ~= nil then
+      if text:find("[\128-\255]") then return false, "ascii wrote a byte past 0x7f: " .. text end
+      Fuzz.label(plain ~= text and "ascii escaped" or "ascii plain")
+    end
+  end
   if text == nil then
     if not (err is string) or err == "" then return false, "a failure without a message" end
     -- A path too long to tell whole names its innermost part.
@@ -948,6 +961,59 @@ local function test_encode_is_total_and_round_trips(tmp: string)
     gen = function(src: Fuzz.Source): string return Fuzz.bytes(src, 200) end,
     check = encode_holds,
     requires = { "encoded", "refused" },
+  })
+end
+
+--- A string of the code points a recipe's bytes name, three bytes to
+--- one, surrogates moved out of their range: any scalar value, in every
+--- width of UTF-8.
+local function scalars(input: string): string
+  local parts: {string} = {}
+  for at = 1, #input - 2, 3 do
+    local b1, b2, b3 = input:byte(at, at + 2)
+    local code = (b1 << 16 | b2 << 8 | b3) % 0x110000
+    -- Two draws in three are kept small, so that the short widths and
+    -- ASCII are drawn as often as the astral planes.
+    if b1 % 3 == 1 then code = code % 0x800 elseif b1 % 3 == 2 then code = code % 0x10000 end
+    if code >= 0xd800 and code <= 0xdfff then code = code - 0x800 end
+    parts[#parts + 1] = utf8.char(code)
+  end
+  return table.concat(parts)
+end
+
+--- With `ascii`, any string of scalar values encodes to ASCII alone
+--- that decodes to the same string, whatever it holds, as a value and
+--- as a key; and the same string with a stray byte after it is refused,
+--- as it is without the option.
+local function ascii_holds(input: string): boolean, string
+  local text = scalars(input)
+  local value = { [text] = text }
+  local out, err = Json.encode(value, { ascii = true })
+  if out == nil then return false, "refused a string of scalar values: " .. err end
+  if out:find("[\128-\255]") then return false, "wrote a byte past 0x7f: " .. out end
+  Fuzz.label(text:find("[\128-\255]") and "escaped" or "plain")
+  local back, berr = Json.decode(out)
+  if back == nil then return false, "wrote what decode refuses: " .. berr end
+  local object = back as {string: any}
+  if object[text] ~= text then
+    return false, "did not read back the same: " .. out
+  end
+  local plain = assert(Json.encode(value))
+  if Json.encode((assert(Json.decode(plain)))) ~= Json.encode(back) then
+    return false, "reads differently from the text without the option: " .. out
+  end
+  local stray = Json.encode(text .. "\xff", { ascii = true })
+  if stray ~= nil then return false, "wrote a string that is not UTF-8" end
+  return true, ""
+end
+
+local function test_ascii_text_decodes_to_the_same_string(tmp: string)
+  Fuzz.run({
+    name = "json ascii",
+    dir = tmp,
+    gen = function(src: Fuzz.Source): string return Fuzz.bytes(src, 90) end,
+    check = ascii_holds,
+    requires = { "escaped" },
   })
 end
 

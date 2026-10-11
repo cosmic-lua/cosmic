@@ -39,7 +39,7 @@ Code is cited as `path:line` from the tree at the time of writing.
   writes the page's tags and the one htmx configuration.
   htmx 4.0.0 exists on npm as the `next` tag; v1 stays on 2.x (section 4.7).
 - There is no condition variable in cosmic.poll today. SSE needs one, so
-  this file adds `Poll.Notifier` (about 50 lines in cosmic/poll.tl),
+  this file adds `Poll.Notifier` (in cosmic/poll.tl),
   a new small module `cosmic.channel` built on it, and `Sse.Hub` /
   `Sse.EventStream` (`cosmic.web.sse`) on top of that.
 - SSE needs one change to cosmic/http/server.tl (forward `on_stop`, core.md
@@ -783,48 +783,34 @@ roadmap line to revisit once 4.x is `latest`. Open question 1.
 
 ### 5.2 `Poll.Notifier`
 
-Add to cosmic/poll.tl a wait for "something happened" among tasks of one
-run. It is the one place that touches the scheduler; everything else in
-this file is ordinary Lua above it.
+Added to cosmic/poll.tl as [`Poll.notifier()`], which answers a
+`Poll.Notifier`: a wait for "something happened" among tasks of one run.
+It is the one place that touches the scheduler; everything else in this
+file is ordinary Lua above it. The interface is in the source
+(`bin/cosmic docs Poll.Notifier`); in short:
 
-```teal
---- A place tasks wait for a notice from another. One notifier belongs to
---- the run it was made in.
-interface Poll.Notifier
-  --- Waits for `notify`: true and "" once one came, false and
-  --- [`Poll.TIMEOUT`] after `timeout_ns` (no limit when nil), false
-  --- and [`Poll.CANCELLED`] once the task is cancelled. A notice sent
-  --- before the call is not remembered: a caller checks its condition
-  --- first, then waits, and the checks and the wait are not interleaved with
-  --- another task (tasks switch only at waits), so none is lost.
-  wait: function(Notifier, timeout_ns?: integer): boolean, string
-  --- Wakes every task waiting now; a no-op when none waits. Callable
-  --- from a task or from a `<close>` handler (it never waits).
-  notify: function(Notifier)
-  --- How many tasks wait now.
-  waiting: function(Notifier): integer
-end
-function Poll.notifier(): Poll.Notifier
-```
+- `wait(timeout_ns?)`: true once a notice came, false and [`Poll.TIMEOUT`] or
+  [`Poll.CANCELLED`] otherwise; waiters are woken longest first.
+- `notify_one()` wakes the longest waiter, `notify_all()` every task
+  waiting now; both are no-ops when none waits and never wait, so a
+  `<close>` handler may call them (the woken tasks run on the next turn).
+- `waiting()` counts the waiters.
 
-Implementation sketch, from `State:join` (cosmic/poll.tl:596-605) and
-`unjoin`/`finish`/`wake` (poll.tl:330-366): a `Wait` gets a field `gate:
-Notifier`; `wait` creates `{ task = task, gate = self }`, appends it to
-`self.waiters`, and `park`s it with the timeout; `notify` walks a copy of
-`waiters` and `wake(w, true, "")`s each; `finish` removes a wait from its
-gate's list when it ends another way (timeout, cancel, kill), as it does
-for `joined`. Since `wake` appends to `loop.ready` and the woken tasks run
-on the next turn, `notify` from a `<close>` handler does not violate the
-"cannot wait, spawn or kill" rule (poll.tl: Task.kill docs).
+A `Wait` has a `gate` field; `finish` removes a wait from its notifier's
+waiters when it ends another way (timeout, cancel, kill), as it does for
+`joined`. A notice a woken task never receives, because it was killed
+before it ran, passes to the next waiter. One cancelled after its notice
+still answers true.
 
 Hazards documented on the type: a notifier is one-run; calling `wait`
 outside a task raises as [`Poll.delay`] does; a notice is not stored, so
 the pattern is "while not condition do wait() end".
 
-Tests (cosmic/poll_notifier_test.tl): wake all; wake none; timeout; cancel
-while waiting; kill while waiting removes the waiter; notify from a
-`<close>` handler; notify before wait is not remembered; a wait and
-immediate notify in one turn.
+Tests are in cosmic/poll_test.tl (`test_notify_*`, `test_a_notifier_*`
+and the like): wake order; wake none; timeout; cancel while waiting;
+kill while waiting; a notice for a killed waiter passing on; a notice and
+a timeout in one tick, both orders; notify from a `<close>` handler; a
+notice not remembered; a wait with no timeout woken by a later task.
 
 ### 5.3 `cosmic.channel`
 
@@ -861,7 +847,7 @@ local record Channel<T>
 end
 ```
 
-Two `Notifier`s inside (not-empty, not-full). `close` notifies both. No
+Two `Notifier`s inside (not-empty, not-full). `close` calls `notify_all` on both. No
 `select` in v1 (a hub does not need it); `Poll.notifier` is the building
 block when it does. Generic records in Teal are fine (`Channel<T>`) but
 the repo's contracts (build/contracts.tl) must be consulted for generic
@@ -1452,7 +1438,7 @@ test_*`; no `return`; every test calls `assert`; loopback addresses are
 declared with `Test.policy { loopback = {"127.0.1.1"} }` and the server
 runs on `127.0.0.1`-range addresses only.
 
-- cosmic/poll_notifier_test.tl: as in 5.2.
+- cosmic/poll_test.tl: as in 5.2.
 - cosmic/channel_test.tl: FIFO order; capacity; each overflow policy;
   close wakes receivers and senders; timeout; cancel; drop counter.
 - cosmic/web/mime_test.tl: the table, charset, unknown, case.
@@ -1553,7 +1539,7 @@ parts, multi-process hub.
 3. Should a SQLite transaction wrapper detect a wait inside a transaction
    (an interleaving hazard, section 6.2)? Recommend yes, later, with a
    per-connection Notifier-based lock; for v1 document the rule.
-4. Name and home of `Poll.Notifier`. Recommend `Poll.notifier()` in
+4. Name and home of `Poll.Notifier`. Recommend [`Poll.notifier()`] in
    cosmic.poll (it needs the scheduler's internals); the alternative of a
    polling [`Poll.delay`] loop is wasteful and rejected.
 5. `payload` repurposed vs a new `assets` table. Recommend reusing
@@ -1608,7 +1594,9 @@ parts, multi-process hub.
 [`Net.Conn`]: ../../../cosmic/net.tl
 [`Net.connect`]: ../../../cosmic/net.tl
 [`Net.serve`]: ../../../cosmic/net.tl
+[`Poll.CANCELLED`]: ../../../cosmic/poll.tl
 [`Poll.delay`]: ../../../cosmic/poll.tl
+[`Poll.notifier()`]: ../../../cosmic/poll.tl
 [`Poll.run`]: ../../../cosmic/poll.tl
 [`Poll.TIMEOUT`]: ../../../cosmic/poll.tl
 [`Reader:skip`]: ../../../cosmic/stream.tl

@@ -50,7 +50,7 @@ local record json
   -- JSON cannot say, naming where: `... at pointer "/users/2/name"`. Keys are
   -- sorted by their bytes; `pretty` lays it out two spaces a level. Raises
   -- when `max_depth` is outside 1 to `depth_limit`.
-  encode: function(value: any, pretty?: boolean, max_depth?: integer): string | nil, string
+  encode: function(value: any, pretty?: boolean, max_depth?: integer, ascii?: boolean): string | nil, string
   -- Marks `t`, or a new table, as a JSON array and answers it. Raises
   -- when `t` has another metatable.
   array: function(t?: {any}): {any}
