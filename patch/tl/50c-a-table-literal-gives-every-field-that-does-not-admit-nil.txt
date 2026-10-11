@@ -1,0 +1,38 @@
+file: tl.tl
+note: Records are open: `local r: R = {}` type-checked for an `R` with `name: string`, and `r.name` was nil. A table literal checked against a record or an interface now gives every field whose declared type does not admit nil (01-nil-union.txt's admits_nil, so `name?: T` and `name: T | nil` may be omitted), and is refused otherwise, as "table literal omits field(s) of record R that do not admit nil: a, b" at the literal. Exempt, because a literal does not supply them: a field typed as a function (a callback, a generic function field, an overload), optional in practice, and for a method supplied by `__index`; a method declared in the record body (is_record_function); a nested type declaration; and a metamethod key ("__..."). A literal that stands where a function would also do is exempt (50b), and so is any literal checked under an `Env` whose `lenient_literals` is set (50a). A nested literal is checked against its own field's record. `<total>` is unchanged: it asks for every field, the optional ones too
+--- find
+            if decltype is RecordType then
+               local rt = self:to_structural(t)
+               if rt is RecordType then
+                  node.is_total, node.missing = total_record_check(decltype, seen_keys)
+--- replace
+            if decltype is RecordLikeType and not serves_in_place_of_function and not self.env.lenient_literals then
+               local absent: {string} = {}
+               for _, fname in ipairs(decltype.field_order) do
+                  local ftype = decltype.fields[fname]
+                  if not seen_keys[fname]
+                     and not (ftype is TypeDeclType)
+                     and not (ftype is FunctionType and ftype.is_record_function)
+                     and fname:sub(1, 2) ~= "__"
+                     and not admits_nil(self, node, ftype) then
+                     local sft = self:to_structural(ftype)
+                     if sft is GenericType then
+                        sft = sft.t
+                     end
+                     if not (sft is FunctionType or sft is PolyType) then
+                        table.insert(absent, fname)
+                     end
+                  end
+               end
+               if #absent > 0 then
+                  self.errs:add_in_context(node, node, "table literal omits field(s) of record " ..
+                     tostring(decltype.declname or "(anonymous)") .. " that do not admit nil: " ..
+                     table.concat(absent, ", ") .. " (mark a field that may be absent `name?: T`)")
+               end
+            end
+
+            if decltype is RecordType then
+               local rt = self:to_structural(t)
+               if rt is RecordType then
+                  node.is_total, node.missing = total_record_check(decltype, seen_keys)
+--- end

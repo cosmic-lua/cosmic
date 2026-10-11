@@ -1774,7 +1774,7 @@ local function test_a_call_site_type_name_is_told_there_are_none()
   assert(not says(compared, "no type arguments"), table.concat(compared, "\n"))
 end
 
-local meta_record = "local record R\n  name: string\n  metamethod __call: function(R, string): string\nend\n" ..
+local meta_record = "local record R\n  name?: string\n  metamethod __call: function(R, string): string\nend\n" ..
   "local record Other\n  x: number\nend\n"
 
 --- A table given as `__index` is checked against the record's fields
@@ -1843,7 +1843,7 @@ end
 --- A generic record's metamethods are not held to a metatable yet (the TODO
 --- is in patch/tl's 47a, where `meta_fields` is read), which the last case pins.
 local function test_a_generic_records_index_is_checked_with_its_arguments()
-  local g = "local record G<T>\n  v: T\nend\n"
+  local g = "local record G<T>\n  v?: T\nend\n"
   assert_refused(g .. "local mt: metatable<G<string>> = { __index = { v = 1 } }\nprint(mt)\n",
     "v: got integer, expected string")
   assert_refused(g .. "local g: G<string> = setmetatable({}, { __index = { v = 1 } })\nprint(g)\n",
@@ -1915,7 +1915,7 @@ local function test_an_optional_field_admits_nil()
   assert_refused(declared .. "r.name = 1\n", "in assignment: got integer")
   assert_accepted(declared .. "if r.name then\n  print(r.name:upper())\nend\n")
   assert_accepted(declared .. "local n: string = r.name or 'none'\nprint(n)\n")
-  assert_accepted("local record P\n  name: string\nend\nlocal p: P = {}\nprint(p.name:upper())\n")
+  assert_accepted("local record P\n  name: string\nend\nlocal p: P = { name = 'a' }\nprint(p.name:upper())\n")
 end
 
 --- The optional field written with its nil spelled out is the same
@@ -1979,6 +1979,85 @@ local function test_a_total_literal_states_its_optional_fields()
   assert_accepted(declared .. "local r <total>: R = { id = 1, name = 'x' }\nprint(r)\n")
 end
 
+--- A table literal gives every field of its record that does not admit
+--- nil (patch/tl's 50), and the refusal names the record and the fields
+--- left out, in declaration order.
+local function test_a_literal_omitting_a_required_field_is_refused()
+  local declared = "local record Person\n  name: string\n  age: integer\n  nick?: string\nend\n"
+  assert_refused(declared .. "local p: Person = {}\nprint(p)\n",
+    "table literal omits field(s) of record Person that do not admit nil: name, age")
+  assert_refused(declared .. "local p: Person = { age = 3 }\nprint(p)\n",
+    "of record Person that do not admit nil: name (")
+  assert_accepted(declared .. "local p: Person = { name = 'a', age = 3 }\nprint(p)\n")
+  assert_refused(declared .. "local function f(p: Person) print(p) end\nf({ name = 'a' })\n",
+    "of record Person that do not admit nil: age")
+end
+
+--- A field marked `name?:` or typed `T | nil` may be omitted, and a
+--- function field may be too: a callback is optional and a method is
+--- served by `__index`.
+local function test_a_literal_may_omit_what_admits_nil_or_is_a_function()
+  assert_accepted("local record R\n  id: integer\n  name?: string\nend\nlocal r: R = { id = 1 }\nprint(r)\n")
+  assert_accepted("local record R\n  name: string | nil\nend\nlocal r: R = {}\nprint(r)\n")
+  assert_accepted("local record R\n  done: function(code: integer)\n  id: integer\nend\n" ..
+      "local r: R = { id = 1 }\nprint(r)\n")
+  assert_accepted("local record R\n  pick: function<T>(T): T\n  id: integer\nend\n" ..
+      "local r: R = { id = 1 }\nprint(r)\n")
+  assert_accepted("local record R\n  id: integer\n  record Inner\n    x: integer\n  end\n" ..
+      "  size: function(self: R): integer\nend\nlocal r: R = { id = 1 }\nprint(r)\n")
+  assert_refused("local record R\n  id: integer\n  done: function(code: integer)\nend\n" ..
+      "local r: R = { done = nil }\nprint(r)\n", "omits field(s) of record R that do not admit nil: id")
+end
+
+--- An environment whose `lenient_literals` is set (patch/tl's 50a) takes
+--- the omission, as the project the pinned release also compiles needs.
+local function test_a_lenient_environment_takes_an_omitted_field()
+  local built = assert(teal.load(true))
+  local source = "local record R\n  name: string\nend\nlocal r: R = {}\nprint(r)\n"
+  local function found(lenient: boolean): integer
+    local env = assert(built.new_env({ defaults = { feat_lax = "off", gen_compat = "off", gen_target = "5.4" } }))
+    env.lenient_literals = lenient
+    local ok, code, result = pcall(built.gen, source, env, nil, "tl")
+    assert(ok, tostring(code))
+    return #assert(result).type_errors
+  end
+  assert(found(true) == 0)
+  assert(found(false) == 1)
+end
+
+--- A literal that stands where a function would also do is a table served
+--- for the keys it holds (the `__index` of a metatable, 47a), so it may
+--- give a part of its record; a literal given only where the record is
+--- wanted may not.
+local function test_an_index_literal_may_give_part_of_its_record()
+  local declared = "local record R\n  name: string\n  n: integer\n  size: function(self: R): integer\nend\n"
+  assert_accepted(declared .. "local mt: metatable<R> = { __index = {} }\nprint(mt)\n")
+  assert_accepted(declared .. "local mt: metatable<R> = { __index = { name = 'x' } }\nprint(mt)\n")
+  assert_accepted(declared ..
+      "local mt: metatable<R> = { __index = { size = function(self: R): integer return 1 end } }\nprint(mt)\n")
+  assert_refused(declared .. "local mt: metatable<R> = { __index = { name = 1 } }\nprint(mt)\n", "name")
+  assert_refused(declared .. "local x: R = {}\nprint(x)\n", "do not admit nil: name, n")
+  assert_refused(declared .. "local x: R = { name = 'a' }\nprint(x)\n", "do not admit nil: n (")
+end
+
+--- A literal nested in another is checked against its own field's record,
+--- and an interface is checked as a record is.
+local function test_a_nested_literal_and_an_interface_are_checked()
+  local declared = "local record Inner\n  x: integer\n  y?: integer\nend\n" ..
+    "local record Outer\n  inner: Inner\n  tag?: string\nend\n"
+  assert_accepted(declared .. "local o: Outer = { inner = { x = 1 } }\nprint(o)\n")
+  assert_refused(declared .. "local o: Outer = { inner = {} }\nprint(o)\n",
+    "of record Inner that do not admit nil: x")
+  assert_refused(declared .. "local o: Outer = {}\nprint(o)\n", "of record Outer that do not admit nil: inner")
+  assert_refused("local interface Named\n  name: string\nend\nlocal n: Named = {}\nprint(n)\n",
+    "of record Named that do not admit nil: name")
+  assert_accepted("local interface Named\n  name: string\nend\nlocal n: Named = { name = 'a' }\nprint(n)\n")
+  assert_accepted("local record Box<T>\n  value: T\n  note?: string\nend\n" ..
+      "local b: Box<string> = { value = 'a' }\nprint(b)\n")
+  assert_refused("local record Box<T>\n  value: T\nend\nlocal b: Box<string> = {}\nprint(b)\n",
+    "of record Box that do not admit nil: value")
+end
+
 --- What `?` cannot mark: a metamethod, a generic function type, and a
 --- name with no `:` after it.
 local function test_what_an_optional_field_refuses()
@@ -1995,7 +2074,7 @@ end
 --- may be plain (patch/tl's 49d and 49e).
 local function test_an_optional_field_may_be_named_for_a_declaration_word()
   for _, word in ipairs({ "type", "record", "enum", "interface", "userdata", "metamethod" }) do
-    assert_accepted("local record R\n  " .. word .. "?: integer\n  other: string\nend\n" ..
+    assert_accepted("local record R\n  " .. word .. "?: integer\n  other?: string\nend\n" ..
         "local r: R = {}\nif r." .. word .. " then\n  print(r." .. word .. " + 1)\nend\n")
     assert_refused("local record R\n  " .. word .. "?: integer\nend\nlocal r: R = {}\n" ..
         "print(r." .. word .. ".x)\n", "in type integer | nil")
