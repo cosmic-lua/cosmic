@@ -92,8 +92,9 @@ function Middleware.access_log(opts?: Middleware.AccessLogOptions): Types.Middle
             return ("%%%02X"):format(byte:byte())
           end)
         end
+        local client = req.client
         line = ("%s %s %d %dms %s client=%s"):format(req.method, path, res.status,
-          elapsed // 1000000, size_of(res), req.client and req.client.host or "-")
+          elapsed // 1000000, size_of(res), client and client.host or "-")
       end
       sink:line(line)
       return res

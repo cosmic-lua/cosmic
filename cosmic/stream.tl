@@ -139,7 +139,7 @@ local record Stream
     --- An empty write differs: with `hold` it is skipped, no write and
     --- the codec not called, whereas without `hold` `write("")` still
     --- calls `update("")`. A negative or non-integer `hold` raises.
-    hold: integer
+    hold?: integer
   end
 
   --- The lines of a Reader, one at a time: see [`Stream.lines`].

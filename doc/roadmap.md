@@ -33,7 +33,8 @@ defines the target; once something ships, it leaves this file.
     nil-admitting field, not its use as an operand of `..`, `#`, arithmetic
     or a comparison, as a `table.concat` or `table.insert` argument, or as an
     argument for a non-nil parameter; those raise at run time when the field
-    is omitted (the one found in the marking, [`wire.Reply.date`], is fixed).
+    is omitted (the marking found no such read that a constructor reaches:
+    [`wire.Reply.date`], which `send` concatenates, stays required).
     Refuse them where the binary operators and calls are checked in tl.tl
     before the final change, so the marking's reads are all seen.
   - make the check an error for the whole tree at once, with function fields

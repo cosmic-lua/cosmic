@@ -24,7 +24,7 @@ local record Connection
     --- `min(timeout_ns, ceiling)` to connect instead, the ceiling being
     --- [`ConnectorOptions.timeout_ns`], and a nil `timeout_ns` waits the
     --- ceiling; the connection's reads and writes wait `timeout_ns` as here.
-    timeout_ns: integer
+    timeout_ns?: integer
   end
 
   --- A connection, answered by `accept` and [`Net.connect`]: a

@@ -4,6 +4,8 @@
 local Stream = require("cosmic.stream")
 local wire = require("cosmic.http.wire")
 
+local DATE <const> = "Thu, 01 Jan 1970 00:00:00 GMT"
+
 local LIMITS <const>: wire.Limits = { head_bytes = 1024, body_bytes = 100 }
 
 --- What reading `text` as one request's head gives.
@@ -195,35 +197,35 @@ end
 
 --- What the writer refuses, for the server to answer 500.
 local function test_check_refuses_what_cannot_be_sent()
-  assert(wire.check({ status = 200, headers = { ["X-Ok"] = "fine" } }) == "")
-  assert(wire.check({ status = 99 }) ~= "")
-  assert(wire.check({ status = 200, headers = { ["Bad Name"] = "x" } }) ~= "")
-  assert(wire.check({ status = 200, headers = { X = "a\nb" } }) ~= "")
-  assert(wire.check({ status = 200, headers = { X = "a\0b" } }) ~= "")
+  assert(wire.check({ date = DATE, status = 200, headers = { ["X-Ok"] = "fine" } }) == "")
+  assert(wire.check({ date = DATE, status = 99 }) ~= "")
+  assert(wire.check({ date = DATE, status = 200, headers = { ["Bad Name"] = "x" } }) ~= "")
+  assert(wire.check({ date = DATE, status = 200, headers = { X = "a\nb" } }) ~= "")
+  assert(wire.check({ date = DATE, status = 200, headers = { X = "a\0b" } }) ~= "")
   for _, owned in ipairs({ "Date", "content-length", "Transfer-Encoding", "CONNECTION" }) do
-    assert(wire.check({ status = 200, headers = { [owned] = "x" } }) ~= "", owned)
+    assert(wire.check({ date = DATE, status = 200, headers = { [owned] = "x" } }) ~= "", owned)
   end
-  assert(wire.check({ status = 304, body = "x" }) ~= "")
-  assert(wire.check({ status = 204, body = Stream.from_string("") }) ~= "")
-  assert(wire.check({ status = 204, body = "" }) == "")
-  assert(wire.check({ status = 200, body = "x", length = 2 }) ~= "")
-  assert(wire.check({ status = 200, body = Stream.from_string("x"), length = -1 }) ~= "")
+  assert(wire.check({ date = DATE, status = 304, body = "x" }) ~= "")
+  assert(wire.check({ date = DATE, status = 204, body = Stream.from_string("") }) ~= "")
+  assert(wire.check({ date = DATE, status = 204, body = "" }) == "")
+  assert(wire.check({ date = DATE, status = 200, body = "x", length = 2 }) ~= "")
+  assert(wire.check({ date = DATE, status = 200, body = Stream.from_string("x"), length = -1 }) ~= "")
 end
 
 --- What a list of header values may and may not be.
 local function test_check_takes_lists_of_header_values()
-  assert(wire.check({ status = 200, headers = { ["Set-Cookie"] = { "a=1", "b=2" } } }) == "")
-  assert(wire.check({ status = 200, headers = { ["Set-Cookie"] = {} } }) == "")
-  assert(wire.check({ status = 200, headers = { ["Set-Cookie"] = { "a=1", "b\rc" } } }) ~= "")
-  assert(wire.check({ status = 200, headers = { ["Set-Cookie"] = { "a\0" } } }) ~= "")
+  assert(wire.check({ date = DATE, status = 200, headers = { ["Set-Cookie"] = { "a=1", "b=2" } } }) == "")
+  assert(wire.check({ date = DATE, status = 200, headers = { ["Set-Cookie"] = {} } }) == "")
+  assert(wire.check({ date = DATE, status = 200, headers = { ["Set-Cookie"] = { "a=1", "b\rc" } } }) ~= "")
+  assert(wire.check({ date = DATE, status = 200, headers = { ["Set-Cookie"] = { "a\0" } } }) ~= "")
   for _, owned in ipairs({ "Date", "content-length", "Transfer-Encoding", "CONNECTION" }) do
-    assert(wire.check({ status = 200, headers = { [owned] = { "x" } } }) ~= "", owned)
+    assert(wire.check({ date = DATE, status = 200, headers = { [owned] = { "x" } } }) ~= "", owned)
   end
 end
 
 --- `reply`, checked and sent: the bytes written.
 local function sent_bytes(reply: wire.Reply): string
-  reply.version, reply.date = "HTTP/1.1", "Thu, 01 Jan 1970 00:00:00 GMT"
+  reply.version, reply.date = "HTTP/1.1", DATE
   local why = wire.check(reply)
   assert(why == "", why)
   local sink = Stream.collect()
@@ -231,20 +233,10 @@ local function sent_bytes(reply: wire.Reply): string
   return sink:result()
 end
 
---- A reply with no `date` is sent without a Date header, where it once
---- raised on concatenating nil.
-local function test_a_reply_with_no_date_is_sent_without_one()
-  local sink = Stream.collect()
-  local sent = wire.send(sink, { status = 204, version = "HTTP/1.1" })
-  assert(sent.write_failure == "" and sent.body_failure == "")
-  local text = sink:result()
-  assert(text:find("HTTP/1.1 204", 1, true) == 1 and text:find("Date:", 1, true) == nil, text)
-end
-
 --- A list value is one line per element, in order, under the name as
 --- given; an empty list is none.
 local function test_a_list_header_is_written_one_line_per_element()
-  local text = sent_bytes({ status = 200, headers = { ["Set-Cookie"] = { "a=1; Expires=Wed, 21 Oct 2026", "b=2" },
+  local text = sent_bytes({ date = DATE, status = 200, headers = { ["Set-Cookie"] = { "a=1; Expires=Wed, 21 Oct 2026", "b=2" },
     ["X-None"] = {}, ["X-A"] = "1" } })
   assert(text:find("Set-Cookie: a=1; Expires=Wed, 21 Oct 2026\r\nSet-Cookie: b=2\r\n", 1, true) ~= nil, text)
   assert(text:find("X-None", 1, true) == nil, text)
@@ -348,7 +340,7 @@ local function test_a_reader_breaking_its_contract_cuts_the_reply_short()
     local body: Giving = setmetatable({ pieces = case.pieces }, giving_mt)
     local sink = Stream.collect()
     local sent = wire.send(sink, { status = 200, body = body, length = case.length, method = "GET",
-      version = "HTTP/1.1", date = "Thu, 01 Jan 1970 00:00:00 GMT" })
+      version = "HTTP/1.1", date = DATE })
     assert(sent.close and sent.body_failure ~= "", tostring(case.length))
     assert(not sink:result():find("200 OK\r\n\r\n$"), sink:result())
   end

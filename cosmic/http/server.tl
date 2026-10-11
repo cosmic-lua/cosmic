@@ -63,7 +63,7 @@ local record Server
     body: Stream.Reader
     --- The Content-Length: the body's size, 0 for a request with no
     --- body, nil for a chunked one.
-    length: integer
+    length?: integer
     --- Where the request came from: the numeric TCP address of the
     --- connection's far end, as the kernel names it, and the proxy's
     --- where one sits between (no header is read). Nil where the
@@ -441,8 +441,9 @@ end
 function Server.check(reply: Server.Reply, method?: string): string
   local trouble = reply_trouble(reply)
   if trouble ~= "" then return trouble end
+  -- `check` reads no date: the one sent is made as the reply goes out.
   return wire.check({ status = reply.status, headers = reply.headers, body = reply.body,
-    length = reply.length, method = method })
+    length = reply.length, method = method, date = "" })
 end
 
 --- The reason phrase of `status` as the server writes it ("Not Found"),

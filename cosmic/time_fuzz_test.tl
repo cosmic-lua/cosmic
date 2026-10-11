@@ -163,12 +163,12 @@ local function http_round_trips(input: string): boolean, string
   local day = (" %d"):format(c.day):sub(-2)
   if c.day < 10 then Fuzz.label("one-digit day") end
   local clock = ("%02d:%02d:%02d"):format(c.hour, c.minute, c.second)
-  ok, why = parses_as(Time.parse_http, ("%s %s %s %s %04d"):format(DAYS[assert(c.weekday)]:sub(1, 3),
+  ok, why = parses_as(Time.parse_http, ("%s %s %s %s %04d"):format(DAYS[c.weekday]:sub(1, 3),
     MONTHS[c.month], day, clock, c.year), second, ns)
   if not ok then return false, why end
   if c.year >= 1969 and c.year <= 2068 then
     Fuzz.label("rfc850")
-    ok, why = parses_as(Time.parse_http, ("%s, %02d-%s-%02d %s GMT"):format(DAYS[assert(c.weekday)],
+    ok, why = parses_as(Time.parse_http, ("%s, %02d-%s-%02d %s GMT"):format(DAYS[c.weekday],
       c.day, MONTHS[c.month], c.year % 100, clock), second, ns)
     if not ok then return false, why end
   end

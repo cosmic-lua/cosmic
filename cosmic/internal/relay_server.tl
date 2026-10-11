@@ -421,7 +421,7 @@ local record Running
   tls_ports: {integer: boolean}
   log: function(line: string)
   --- The SHA-256 of the spec's token, or nil where it has none.
-  token_digest: string
+  token_digest?: string
   stopping: boolean
   --- Connections that have not authenticated yet, where there is a token.
   pending: integer
@@ -471,7 +471,7 @@ end
 --- hashed to a fixed length, and every byte of the digests is compared.
 local function is_token(run: Running, given: string): boolean
   local have = Hash.sha256(given)
-  local want = run.token_digest
+  local want = assert(run.token_digest)
   local diff = #have ~ #want
   for i = 1, #want do
     diff = diff | (have:byte(i) ~ want:byte(i))

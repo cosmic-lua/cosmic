@@ -143,13 +143,13 @@ local record Types
     state: {string:any}
     --- The peer, or nil where the connection has none (a unix socket). With
     --- `trusted_proxy`, the address `X-Forwarded-For` ends in.
-    client: Client
+    client?: Client
     --- "http", or "https" when `trusted_proxy` is set and the proxy said so.
     scheme: string
     --- The host asked for, as the Host header gives it (with its port),
     --- or, with `trusted_proxy`, `X-Forwarded-Host`; nil where none was
     --- sent.
-    host: string
+    host?: string
     --- What the router decided; set before the middleware stack runs.
     outcome?: Outcome
 
@@ -210,7 +210,7 @@ local record Types
     --- The pattern; a mount's prefix.
     pattern: string
     --- The leaf's handler; nil for a mount.
-    handler: Handler
+    handler?: Handler
     --- The name [`App.url_for`] finds it by; "" for none.
     name: string
     --- Its own middleware, outermost first.
@@ -258,7 +258,7 @@ local record Types
     --- "redirect" (default): a request that differs from a route's
     --- spelling only by a trailing "/" is answered 308 to the spelling;
     --- "strict": it is a 404.
-    trailing_slash: TrailingSlash
+    trailing_slash?: TrailingSlash
   end
 
   --- One segment of a pattern: a literal, `:name`, or `*name`.

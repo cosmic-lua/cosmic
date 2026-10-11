@@ -34,7 +34,7 @@ local function test_merge_joins_the_letters_of_a_path_in_order()
   local out = merged(
     { grants = { { path = "/a", letters = "x" }, { path = "/b", letters = "c" } } },
     { grants = { { path = "/a", letters = "wr" }, { path = "/b", letters = "ur" } } })
-  assert(#(out.grants or {}) == 2)
+  assert(#assert(out.grants) == 2)
   assert(assert(out.grants)[1].path == "/a" and assert(out.grants)[1].letters == "rwx")
   assert(assert(out.grants)[2].path == "/b" and assert(out.grants)[2].letters == "rcu")
 end
@@ -44,7 +44,7 @@ local function test_merge_keeps_a_path_with_another_host_path_apart()
     { path = "/a", letters = "r", from = "/x" }, { path = "/a", letters = "w" },
     { path = "/a", letters = "x", from = "/x" },
   } })
-  assert(#(out.grants or {}) == 2)
+  assert(#assert(out.grants) == 2)
   assert(assert(out.grants)[1].from == nil and assert(out.grants)[1].letters == "w")
   assert(assert(out.grants)[2].from == "/x" and assert(out.grants)[2].letters == "rx")
 end
@@ -65,9 +65,9 @@ end
 local function test_merge_answers_every_field_even_for_nothing()
   local out = merged()
   assert(out.profiles == nil and out.tmp == false)
-  assert(#(out.grants or {}) == 0 and #(out.isolate or {}) == 0 and #(out.promises or {}) == 0 and #(out.connect or {}) == 0)
-  assert(#(out.loopback or {}) == 0 and #(out.env or {}) == 0 and next(out.set_env or {}) == nil)
-  assert(next(out.set_env_digests or {}) == nil and assert(out.limits).open_files == nil)
+  assert(#assert(out.grants) == 0 and #assert(out.isolate) == 0 and #assert(out.promises) == 0 and #assert(out.connect) == 0)
+  assert(#assert(out.loopback) == 0 and #assert(out.env) == 0 and next(assert(out.set_env)) == nil)
+  assert(next(assert(out.set_env_digests)) == nil and assert(out.limits).open_files == nil)
   assert(merged({}, { tmp = false }).tmp == false and merged({ tmp = false }, { tmp = true }).tmp)
 end
 
@@ -190,7 +190,7 @@ local function test_merge_resolves_profiles_away()
   assert(out.profiles == nil)
   local executable = assert(Proc.executable())
   local found, data = false, false
-  for _, grant in ipairs(out.grants or {}) do
+  for _, grant in ipairs(assert(out.grants)) do
     if grant.path == executable and grant.letters == "rx" then found = true end
     if grant.path == "/data" then data = true end
   end
@@ -203,7 +203,7 @@ local function test_a_profile_joins_with_the_policys_own_grant_of_the_same_path(
   local executable = assert(Proc.executable())
   local out = merged({ profiles = { "cosmic" }, grants = { { path = executable, letters = "w" } } })
   local count = 0
-  for _, grant in ipairs(out.grants or {}) do
+  for _, grant in ipairs(assert(out.grants)) do
     if grant.path == executable then
       count = count + 1
       assert(grant.letters == "rwx", grant.letters)
@@ -218,7 +218,7 @@ local function test_profile_names_what_it_holds_and_refuses_what_it_has_not()
   local system = assert(Sandbox.profile("system"))
   assert(system.profiles == nil and system.grants ~= nil)
   local cosmic = assert(Sandbox.profile("cosmic"))
-  assert(#(cosmic.grants or {}) == 1 and assert(cosmic.grants)[1].path == assert(Proc.executable()))
+  assert(#assert(cosmic.grants) == 1 and assert(cosmic.grants)[1].path == assert(Proc.executable()))
   assert(assert(cosmic.grants)[1].letters == "rx")
   local none, why = Sandbox.profile("bogus")
   assert(none == nil and why:find("unknown profile \"bogus\"", 1, true), why)
@@ -228,12 +228,12 @@ local function test_proc_profile_is_proc_on_linux_and_nothing_on_macos()
   local proc = assert(Sandbox.profile("proc"))
   local names = assert(sys.uname())
   if names.sysname == "Darwin" then
-    assert(proc.grants == nil or #(proc.grants or {}) == 0)
+    assert(proc.grants == nil or #assert(proc.grants) == 0)
   else
-    assert(#(proc.grants or {}) == 1 and assert(proc.grants)[1].path == "/proc" and assert(proc.grants)[1].letters == "r")
+    assert(#assert(proc.grants) == 1 and assert(proc.grants)[1].path == "/proc" and assert(proc.grants)[1].letters == "r")
   end
   local both = assert(Sandbox.merge({ profiles = { "proc" } }, { grants = { { path = "/proc", letters = "r" } } }))
-  assert(both.profiles == nil and #(both.grants or {}) == 1 and assert(both.grants)[1].path == "/proc")
+  assert(both.profiles == nil and #assert(both.grants) == 1 and assert(both.grants)[1].path == "/proc")
 end
 
 local function test_loaders_names_a_static_program_alone(tmp: string)
@@ -328,9 +328,9 @@ local function test_merge_writes_a_path_once_and_joins_its_spellings()
     { path = "//", letters = "r" },
   } })
   local seen: {string:string} = {}
-  for _, grant in ipairs(out.grants or {}) do seen[grant.path] = grant.letters end
+  for _, grant in ipairs(assert(out.grants)) do seen[grant.path] = grant.letters end
   assert(seen["/a/b"] == "rx" and seen["rel/x"] == "r" and seen["."] == "w", "paths")
-  assert(seen["/"] == "rx" and #(out.grants or {}) == 4)
+  assert(seen["/"] == "rx" and #assert(out.grants) == 4)
 end
 
 local function test_a_dot_dot_in_a_grant_path_is_refused_naming_the_field()
@@ -485,15 +485,15 @@ local function test_a_database_beside_the_cosmic_profile_leaves_the_programs_fil
   local executable = assert(Proc.executable())
   local plain = merged({ profiles = { "cosmic" } })
   local found = false
-  for _, grant in ipairs(plain.grants or {}) do
+  for _, grant in ipairs(assert(plain.grants)) do
     if grant.path == executable then found = true end
   end
   assert(found, "the profile no longer grants the program")
   local out = merged({ profiles = { "cosmic" }, database = { path = path } })
-  assert(#(out.grants or {}) == 0 and assert(out.database).path == path)
+  assert(#assert(out.grants) == 0 and assert(out.database).path == path)
   -- In either order of the two.
   out = merged({ database = { path = path } }, { profiles = { "cosmic", "system" } })
-  for _, grant in ipairs(out.grants or {}) do
+  for _, grant in ipairs(assert(out.grants)) do
     assert(grant.path ~= executable, "the profile's grant stayed")
   end
 end

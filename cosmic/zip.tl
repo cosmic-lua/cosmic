@@ -178,7 +178,7 @@ local last_midnight: integer = 0
 --- and a day past its month's end (February 31) to the month's last.
 local function dos_to_unix(date: integer, clock: integer): integer
   if date ~= last_date then
-    local c: Time.Civil = {
+    local c: Time.CivilFields = {
       year = ((date >> 9) & 0x7F) + 1980,
       month = math.min(math.max((date >> 5) & 0x0F, 1), 12),
       day = math.max(date & 0x1F, 1),
@@ -888,7 +888,7 @@ local record FeedWriter is Stream.Writer
   owner: EntryWriter
   done: Written
   --- The body's deflater, or nil for a stored one.
-  deflater: Compress.Stream
+  deflater?: Compress.Stream
   --- Whether the entry is written as zip64, so that its sizes may pass 4 GiB.
   wide: boolean
   too_big: string

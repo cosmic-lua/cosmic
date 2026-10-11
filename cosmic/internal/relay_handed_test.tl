@@ -282,7 +282,7 @@ return function(argv: {string}): integer
     -- connector of the name servers.
     local plan = assert(SandboxRelay.plan({}, { https_proxy = "http://proxy.test:" .. proxy.address.port,
       no_proxy = "direct.test" }))
-    local up = plan.upstream
+    local up = assert(plan.upstream)
     local name_servers = assert(SandboxRelay.name_servers({ servers = { { host = "127.0.0.1", port = dns_port } } }))
     local dns = assert(Connector.start(name_servers.servers, name_servers.wait_ns // 1000000))
     up.addresses = assert(SandboxRelay.upstream_addresses(up, { fd = dns.fd, name_servers = name_servers }, ""))

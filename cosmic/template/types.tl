@@ -184,7 +184,7 @@ local record Types
   --- its action stands.
   record Branch
     --- The condition or value, nil for `else`.
-    pipeline: Pipeline
+    pipeline?: Pipeline
     --- The name a range binds each element's index to, without its `$`,
     --- or "".
     index: string

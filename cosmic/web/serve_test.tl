@@ -45,7 +45,7 @@ end
 local function test_a_connection_is_kept_across_requests_including_after_a_404()
   local app = Web.app{ routes = {
     Web.get("/port", function(req: Web.Request): Web.Response
-      return Web.text(tostring(req.client.port))
+      return Web.text(tostring(assert(req.client).port))
     end),
     Web.post("/echo", function(req: Web.Request): Web.Response return Web.text(req:text() or "") end),
   } }

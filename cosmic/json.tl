@@ -360,7 +360,7 @@ local record Json
     --- How deep a descendant segment (`..`) may walk, 1 to
     --- [`Json.depth_limit`] (the default): a table that contains itself
     --- fails here.
-    max_depth: integer
+    max_depth?: integer
   end
 
   --- The stand-in for JSON `null`: pass it as `null_value` to keep a

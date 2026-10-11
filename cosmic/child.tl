@@ -2237,7 +2237,7 @@ local record Held
   tmp_parameter?: string
   --- The policy's `connect` targets, which the network relay serves; nil
   --- for a policy with none, which starts no relay.
-  relay: {string}
+  relay?: {string}
   --- Under Seatbelt with a relay, the policy and the host facts its profile
   --- is compiled from once the relay's port is known ([`relay_held`]).
   seatbelt_policy?: Rules.Policy
@@ -3487,9 +3487,9 @@ local record RelayPrep
   seatbelt: boolean
   --- The token the program presents to a relay on the host's loopback; nil
   --- for Linux's, whose listeners are in the program's own network.
-  token: string
+  token?: string
   --- The port of the host's loopback such a relay listens at; nil for Linux's.
-  port: integer
+  port?: integer
 end
 
 --- The database a relay runs on, in a directory of its own.

@@ -78,7 +78,7 @@ local record Seatbelt
     --- which the caller sets, to the directory's real path, once it has made
     --- it and before it applies the profile; nil without `tmp`. Not in
     --- `parameters`.
-    tmp: string
+    tmp?: string
   end
 end
 

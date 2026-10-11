@@ -37,8 +37,9 @@ local String = require("cosmic.string")
 local sys = require("cosmic.sys")
 
 local record Time
-  --- A moment as a calendar names it: UTC's, or a zone's local time.
-  record Civil
+  --- The fields [`from_civil`] reads of a moment on a calendar, which a
+  --- caller writes without the rest. [`Civil`] has them all.
+  interface CivilFields
     --- 1677 through 2262.
     year: integer
     --- 1 (January) through 12.
@@ -53,20 +54,25 @@ local record Time
     second: integer
     --- Nanoseconds after the second, 0 through 999999999.
     ns: integer
-    --- ISO 8601's: 1 (Monday) through 7 (Sunday). [`from_civil`] ignores it.
-    weekday?: integer
-    --- The day of the year, 1 through 366. [`from_civil`] ignores it.
-    yday?: integer
-    --- Seconds east of UTC the local time is: 0 on the UTC calendar.
-    --- [`from_civil`] reads it only to choose between the two moments a
-    --- zone gives one local time when its clocks go back.
+    --- Seconds east of UTC the local time is, read only to choose between
+    --- the two moments a zone gives one local time when its clocks go back.
     offset?: integer
+  end
+
+  --- A moment as a calendar names it: UTC's, or a zone's local time, as
+  --- [`civil`] answers it, with the fields [`from_civil`] ignores.
+  record Civil is CivilFields
+    --- Seconds east of UTC the local time is: 0 on the UTC calendar.
+    offset: integer
+    --- ISO 8601's: 1 (Monday) through 7 (Sunday).
+    weekday: integer
+    --- The day of the year, 1 through 366.
+    yday: integer
     --- What the zone calls its time then, as "EDT"; "UTC" on the UTC
-    --- calendar. [`from_civil`] ignores it.
-    abbreviation?: string
-    --- Whether the zone counts it daylight saving time. [`from_civil`]
-    --- ignores it.
-    dst?: boolean
+    --- calendar.
+    abbreviation: string
+    --- Whether the zone counts it daylight saving time.
+    dst: boolean
   end
 
   --- A time zone: the offset from UTC, abbreviation and daylight saving
@@ -128,7 +134,7 @@ local record Time
   record LocalOptions
     --- The `TZ` value to read, in place of the environment's: nil reads
     --- the environment's, unless `unset` is set.
-    tz: string
+    tz?: string
     --- With no `tz`, read as though `TZ` were unset rather than the
     --- environment's.
     unset?: boolean
@@ -145,7 +151,7 @@ local record Time
     --- The zone its RFC 9557 suffix names or, with none, its offset's:
     --- a zone always that offset, named "+05:30". UTC for `Z` and
     --- `-00:00`, which say the local offset is unknown.
-    zone?: Time.Zone
+    zone: Time.Zone
   end
 
   --- A span of time as people write it, `1y2mo3d4h5m6s`: a calendar
@@ -220,7 +226,7 @@ local function days_from_civil(y: integer, m: integer, d: integer): integer
 end
 
 --- The inverse of [`days_from_civil`]: Hinnant's [`civil_from_days`].
-local function civil_from_days(z: integer): Time.Civil
+local function civil_from_days(z: integer): Time.CivilFields
   z = z + 719468
   local era = z // 146097
   local doe = z - era * 146097
@@ -275,7 +281,7 @@ end
 --- The seconds the fields of `c` name on the UTC calendar, or nil and
 --- which field is wrong. A year either side of the range is let through,
 --- so an offset can still reach the range's edges.
-local function seconds_of(c: Time.Civil): integer | nil, string
+local function seconds_of(c: Time.CivilFields): integer | nil, string
   local why = outside("year", c.year, math.mininteger, math.maxinteger) or
     outside("month", c.month, 1, 12)
   if why ~= nil then return nil, why end
@@ -304,7 +310,7 @@ end
 --- The nanoseconds of a calendar moment `offset` seconds east of UTC,
 --- or nil and which field is wrong, or that the moment is outside what
 --- an integer holds.
-local function moment(c: Time.Civil, offset: integer): integer | nil, string
+local function moment(c: Time.CivilFields, offset: integer): integer | nil, string
   local s, why = seconds_of(c)
   if s == nil then return nil, why end
   return instant(s - offset, c.ns)
@@ -314,12 +320,13 @@ end
 --- calendar.
 local function civil_at(s: integer, n: integer): Time.Civil
   local days, into = s // DAY, s % DAY
-  local c = civil_from_days(days)
-  c.hour, c.minute, c.second = into // 3600, into % 3600 // 60, into % 60
-  c.ns = n
-  c.weekday = (days + 3) % 7 + 1
-  c.yday = days - days_from_civil(c.year, 1, 1) + 1
-  return c
+  local d = civil_from_days(days)
+  return {
+    year = d.year, month = d.month, day = d.day,
+    hour = into // 3600, minute = into % 3600 // 60, second = into % 60, ns = n,
+    weekday = (days + 3) % 7 + 1, yday = days - days_from_civil(d.year, 1, 1) + 1,
+    offset = 0, abbreviation = "UTC", dst = false,
+  }
 end
 
 -- Text.
@@ -352,7 +359,7 @@ local enum Part
 end
 
 --- The `part` of `c`, zero-padded.
-local function civil_text(c: Time.Civil, part: Part): string
+local function civil_text(c: Time.CivilFields, part: Part): string
   local date = ("%04d-%02d-%02d"):format(c.year, c.month, c.day)
   local clock = ("%02d:%02d:%02d"):format(c.hour, c.minute, c.second)
   if part == "date" then return date end
@@ -1317,7 +1324,7 @@ end
 --- The whole seconds since the epoch the local time of `c` names on the
 --- calendar of `zone`, UTC's when nil, resolved as `how` says, or nil and
 --- why: [`from_civil`] less its nanoseconds and their range.
-local function resolve(c: Time.Civil, zone: Time.Zone, how: Time.Disambiguation): integer | nil, string
+local function resolve(c: Time.CivilFields, zone: Time.Zone, how: Time.Disambiguation): integer | nil, string
   if zone == nil then return seconds_of(c) end
   local rules = rules_for(zone)
   local s, why = seconds_of(c)
@@ -1371,7 +1378,7 @@ end
 --- whatever the disambiguation, so `from_civil(civil(ns, zone), zone)`
 --- is always `ns`. Raises for a `disambiguation` that is none of
 --- [`Disambiguation`]'s, or a `zone` no function here made.
-function Time.from_civil(c: Time.Civil, zone?: Time.Zone, opts?: Time.AddOptions): integer | nil, string
+function Time.from_civil(c: Time.CivilFields, zone?: Time.Zone, opts?: Time.AddOptions): integer | nil, string
   local how = disambiguation_of(opts ~= nil and opts.disambiguation or nil)
   integral("year", c.year)
   integral("month", c.month)
@@ -1558,7 +1565,7 @@ function Time.format_rfc3339(ns: integer, zone?: Time.Zone, opts?: Time.FormatOp
 end
 
 --- `YYYY-MM-DD` at the cursor into `c`.
-local function date_into(cur: Cursor, c: Time.Civil)
+local function date_into(cur: Cursor, c: Time.CivilFields)
   c.year = read_digits(cur, 4, "year")
   expect(cur, "-", "after the year")
   c.month = read_digits(cur, 2, "month")
@@ -1567,7 +1574,7 @@ local function date_into(cur: Cursor, c: Time.Civil)
 end
 
 --- `hh:mm:ss` at the cursor into `c`.
-local function clock_into(cur: Cursor, c: Time.Civil)
+local function clock_into(cur: Cursor, c: Time.CivilFields)
   c.hour = read_digits(cur, 2, "hour")
   expect(cur, ":", "after the hour")
   c.minute = read_digits(cur, 2, "minute")
@@ -1631,7 +1638,7 @@ end
 --- [`parse_rfc3339_zoned`]'s work.
 local function parse(text: string): Time.Zoned | nil, string
   local cur <close> = borrow(text)
-  local c: Time.Civil = { year = 0, month = 0, day = 0, hour = 0, minute = 0, second = 0, ns = 0 }
+  local c: Time.CivilFields = { year = 0, month = 0, day = 0, hour = 0, minute = 0, second = 0, ns = 0 }
   date_into(cur, c)
   expect(cur, "T", "between the date and the time")
   clock_into(cur, c)
@@ -1653,7 +1660,7 @@ local function parse(text: string): Time.Zoned | nil, string
   end
   local ns, range_why = moment(c, offset)
   if ns == nil then return nil, range_why end
-  local zoned: Time.Zoned = { ns = ns }
+  local named: Time.Zone = nil
   local first = true
   while text:sub(cur.at, cur.at) == "[" do
     local at = cur.at
@@ -1681,7 +1688,7 @@ local function parse(text: string): Time.Zoned | nil, string
         return nil, ("offset %s does not match the suffix's, %s"):format(offset_text(offset),
           offset_text(annotated))
       end
-      zoned.zone = fixed_zone(annotated)
+      named = fixed_zone(annotated)
     else
       local problem = writable_problem(body)
       if problem ~= nil then return nil, ("suffix at byte %d: %s"):format(at, problem) end
@@ -1694,15 +1701,15 @@ local function parse(text: string): Time.Zoned | nil, string
             body, offset_text(want))
         end
       end
-      zoned.zone = zone
+      named = zone
     end
     first = false
     cur.at = close + 1
   end
   finish(cur)
   if cur.why ~= nil then return nil, cur.why end
-  if zoned.zone == nil then zoned.zone = unknown and Time.UTC or fixed_zone(offset) end
-  return zoned, ""
+  if named == nil then named = unknown and Time.UTC or fixed_zone(offset) end
+  return { ns = ns, zone = named }, ""
 end
 
 --- The nanoseconds an RFC 3339 timestamp names, as
@@ -1750,7 +1757,7 @@ end
 --- moment is outside the range, as the range's first, 1677-09-21, in
 --- UTC. Raises for a `zone` no function here made.
 function Time.parse_date(text: string, zone?: Time.Zone): integer | nil, string
-  local c: Time.Civil = { year = 0, month = 0, day = 0, hour = 0, minute = 0, second = 0, ns = 0 }
+  local c: Time.CivilFields = { year = 0, month = 0, day = 0, hour = 0, minute = 0, second = 0, ns = 0 }
   local cur <close> = borrow(text)
   date_into(cur, c)
   finish(cur)
@@ -1792,7 +1799,7 @@ local MONTHS <const> = { "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug",
 --- [`parse_http`] refuses.
 function Time.format_http(ns: integer): string
   local c = Time.civil(ns)
-  return ("%s, %02d %s %04d %s GMT"):format(SHORT_DAYS[assert(c.weekday)], c.day, MONTHS[c.month],
+  return ("%s, %02d %s %04d %s GMT"):format(SHORT_DAYS[c.weekday], c.day, MONTHS[c.month],
     c.year, civil_text(c, "clock"))
 end
 
@@ -1809,7 +1816,7 @@ end
 --- the clock as RFC 9110's fifty years ahead would. Nil and why for
 --- anything else, a leap second, or a moment outside the range.
 function Time.parse_http(text: string): integer | nil, string
-  local c: Time.Civil = { year = 0, month = 0, day = 0, hour = 0, minute = 0, second = 0, ns = 0 }
+  local c: Time.CivilFields = { year = 0, month = 0, day = 0, hour = 0, minute = 0, second = 0, ns = 0 }
   local cur <close> = borrow(text)
   local separator = text:sub(4, 4)
   if separator == "," then

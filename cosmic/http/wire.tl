@@ -58,7 +58,7 @@ local record wire
     headers: {string:string}
     --- The Content-Length, 0 for a request with neither it nor a
     --- chunked body, nil for a chunked one.
-    length: integer
+    length?: integer
     --- Whether the body is chunked.
     chunked: boolean
     --- Whether the connection closes after this request: the client
@@ -148,7 +148,7 @@ local record wire
     --- The request's version.
     version?: string
     --- The Date header's value.
-    date?: string
+    date: string
   end
 end
 
@@ -819,8 +819,10 @@ end
 --- The head of `reply`, framed by `length` and `chunked`.
 local function head_text(reply: wire.Reply, length: integer | nil, chunked: boolean,
                          close: boolean): string
-  local lines: {string} = { ("HTTP/1.1 %d %s"):format(reply.status, wire.reason(reply.status)) }
-  if reply.date ~= nil then lines[#lines + 1] = "Date: " .. reply.date end
+  local lines: {string} = {
+    ("HTTP/1.1 %d %s"):format(reply.status, wire.reason(reply.status)),
+    "Date: " .. reply.date,
+  }
   local names: {string} = {}
   local headers = reply.headers or {}
   for name in pairs(headers) do

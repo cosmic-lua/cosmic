@@ -4,13 +4,13 @@ local Time = require("cosmic.time")
 local NS <const> = 1000000000
 
 local function civil(year: integer, month: integer, day: integer, hour?: integer, minute?: integer,
-                     second?: integer, ns?: integer): Time.Civil
+                     second?: integer, ns?: integer): Time.CivilFields
   return { year = year, month = month, day = day, hour = hour or 0, minute = minute or 0,
     second = second or 0, ns = ns or 0 }
 end
 
-local function same_moment(got: Time.Civil, want: Time.Civil)
-  local function text(c: Time.Civil): string
+local function same_moment(got: Time.CivilFields, want: Time.CivilFields)
+  local function text(c: Time.CivilFields): string
     return ("%d-%d-%d %d:%d:%d.%d"):format(c.year, c.month, c.day, c.hour, c.minute, c.second,
       c.ns)
   end
@@ -107,7 +107,7 @@ local function test_from_civil_raises_for_a_field_that_is_no_integer()
 end
 
 local function test_from_civil_refuses_what_an_integer_cannot_hold()
-  local edges: {{Time.Civil, boolean}} = {
+  local edges: {{Time.CivilFields, boolean}} = {
     { civil(1677, 9, 21, 0, 12, 43, 145224192), true },
     { civil(1677, 9, 21, 0, 12, 43, 145224191), false },
     { civil(2262, 4, 11, 23, 47, 16, 854775807), true },

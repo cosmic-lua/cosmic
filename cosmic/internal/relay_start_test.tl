@@ -39,7 +39,7 @@ local function test_more_addresses_than_a_table_holds_are_refused()
       "grant fewer addresses, or names", why)
   grants[129] = nil
   local plan = assert(SandboxRelay.plan(grants, { https_proxy = "http://10.0.0.1:3128" }))
-  assert(plan.upstream.host == "10.0.0.1" and plan.upstream.port == 3128)
+  assert(assert(plan.upstream).host == "10.0.0.1" and assert(plan.upstream).port == 3128)
   local over, over_why = SandboxRelay.table(plan, { "10.0.0.1" })
   assert(over == nil and over_why:find("connect and the upstream proxy together name 129 endpoints", 1, true), over_why)
   local bad, bad_why = SandboxRelay.plan({ "a.test:1" }, { https_proxy = "https://proxy.test:3128" })

@@ -106,16 +106,16 @@ local function test_the_declaration_beside_the_paths_is_the_policys_other_fields
   local plan = plan_of({}, { "/host/scratch" }, { ["/host/scratch"] = test_sandbox.scratch }, {})
   local inputs = effective()
   local policy = worker_of(plan, inputs)
-  assert(#(policy.isolate or {}) == 1 and assert(policy.isolate)[1] == "file")
+  assert(#assert(policy.isolate) == 1 and assert(policy.isolate)[1] == "file")
   assert(holds(policy.promises, "fork") and holds(policy.promises, "fattr") and
       holds(policy.promises, "jit") and not holds(policy.promises, "nest"),
     table.concat(policy.promises, ","))
-  assert(policy.profiles == nil and #(policy.loopback or {}) == 0)
+  assert(policy.profiles == nil and #assert(policy.loopback) == 0)
   inputs.nests, inputs.system, inputs.tool = true, true, true
   inputs.network = { ["127.0.0.3"] = true, ["127.0.0.1"] = true }
   policy = worker_of(plan, inputs)
   assert(holds(policy.promises, "nest"), table.concat(policy.promises, ","))
-  assert(#(policy.profiles or {}) == 1 and assert(policy.profiles)[1] == "system")
+  assert(#assert(policy.profiles) == 1 and assert(policy.profiles)[1] == "system")
   assert(table.concat(policy.loopback, " ") == "127.0.0.1 127.0.0.3",
     table.concat(policy.loopback, " "))
   -- Whole, as a start takes it: merging it refuses nothing.

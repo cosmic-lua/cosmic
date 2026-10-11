@@ -193,7 +193,7 @@ local record Net
       --- in its listener's backlog until one open closes, and a unix one
       --- past the backlog fails at once (see
       --- [`ConnectOptions.timeout_ns`]).
-      connections: integer
+      connections?: integer
     end
     --- Bounds on what the server takes on; nil for none.
     limits?: Limits

@@ -35,11 +35,11 @@ end
 function Example.from_civil()
   local tokyo = assert(Time.zone("Asia/Tokyo"))
   local midnight = assert(Time.parse_rfc3339("2026-09-25T00:00:00Z"))
-  local nine: Time.Civil = { year = 2026, month = 9, day = 25, hour = 9, minute = 0, second = 0,
+  local nine: Time.CivilFields = { year = 2026, month = 9, day = 25, hour = 9, minute = 0, second = 0,
     ns = 0 }
   assert(Time.from_civil(nine, tokyo) == midnight, "09:00 in Tokyo is midnight UTC")
   local ny = assert(Time.zone("America/New_York"))
-  local twice: Time.Civil = { year = 2026, month = 11, day = 1, hour = 1, minute = 30, second = 0,
+  local twice: Time.CivilFields = { year = 2026, month = 11, day = 1, hour = 1, minute = 30, second = 0,
     ns = 0 }
   print(Time.from_civil(twice, ny))
   for _, how in ipairs({ "earlier", "later" } as {Time.Disambiguation}) do
@@ -137,7 +137,7 @@ function Example.zone()
   print(c.hour, c.offset, c.abbreviation, c.dst)
   assert(c.hour == 12 and c.offset == -14400 and c.abbreviation == "EDT" and c.dst)
   print(Time.format_rfc3339(ns, ny, { zone_name = true }))
-  local skipped: Time.Civil = { year = 2026, month = 3, day = 8, hour = 2, minute = 30, second = 0,
+  local skipped: Time.CivilFields = { year = 2026, month = 3, day = 8, hour = 2, minute = 30, second = 0,
     ns = 0 }
   print(Time.from_civil(skipped, ny))
   local later = assert(Time.from_civil(skipped, ny, { disambiguation = "compatible" }))
@@ -175,12 +175,12 @@ end
 --- zone come back, and an offset the zone did not have then is refused.
 function Example.parse_rfc3339_zoned()
   local zoned = assert(Time.parse_rfc3339_zoned("2026-07-01T12:00:00-04:00[America/New_York]"))
-  print(zoned.ns, assert(zoned.zone).name)
-  assert(assert(zoned.zone).name == "America/New_York" and zoned.ns == 1782921600 * 1000000000)
+  print(zoned.ns, zoned.zone.name)
+  assert(zoned.zone.name == "America/New_York" and zoned.ns == 1782921600 * 1000000000)
   print(Time.parse_rfc3339_zoned("2026-07-01T12:00:00-05:00[America/New_York]"))
   local plain = assert(Time.parse_rfc3339_zoned("2026-07-01T21:30:00+05:30"))
-  print(assert(plain.zone).name)
-  assert(assert(plain.zone).name == "+05:30" and plain.ns == zoned.ns)
+  print(plain.zone.name)
+  assert(plain.zone.name == "+05:30" and plain.ns == zoned.ns)
 end
 
 return Example

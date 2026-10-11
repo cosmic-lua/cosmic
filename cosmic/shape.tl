@@ -386,8 +386,9 @@ local function walk_record(t: {any: any}, spec: Spec, path: string): any, string
     if unknown ~= "" then return nil, unknown end
   end
   local out: {string: any} = {}
-  local fields = assert(spec.fields)
-  for _, name in ipairs(assert(spec.names)) do
+  local fields, names = spec.fields, spec.names
+  if fields == nil or names == nil then error("shape: a record spec holds no fields", 2) end
+  for _, name in ipairs(names) do
     local got, failed = walk(rawget(t, name), fields[name], field_path(path, name))
     if failed ~= "" then return nil, failed end
     out[name] = got
@@ -406,6 +407,7 @@ local function walk_list(t: {any: any}, spec: Spec, path: string): any, string
   local count = #keys > 0 and #keys or members.extent
   local out: {any} = {}
   local after = 0
+  local of = assert(spec.of)
   for i = 1, count do
     local k: integer = i
     if #keys > 0 then
@@ -415,11 +417,11 @@ local function walk_list(t: {any: any}, spec: Spec, path: string): any, string
     -- A hole is a missing element: it fails a list whose elements are
     -- not optional, as a missing field fails a record, and each run of
     -- holes is one miss, at its first index.
-    if not assert(spec.of).optional and k > after + 1 then
-      return nil, mismatch(index_path(path, after + 1), spec.of, nil)
+    if not of.optional and k > after + 1 then
+      return nil, mismatch(index_path(path, after + 1), of, nil)
     end
     after = k
-    local got, failed = walk(rawget(t, k), spec.of, index_path(path, k))
+    local got, failed = walk(rawget(t, k), of, index_path(path, k))
     if failed ~= "" then return nil, failed end
     out[k] = got
   end
@@ -467,7 +469,9 @@ walk = function(v: any, spec: Spec, path: string): any, string
   elseif kind == "any" then
     return v, ""
   elseif kind == "one_of" then
-    for _, want in ipairs(assert(spec.values)) do
+    local values = spec.values
+    if values == nil then error("shape: a one_of spec holds no values", 2) end
+    for _, want in ipairs(values) do
       if v == want then return v, "" end
     end
     if v is string or v is number or v is boolean then

@@ -28,7 +28,7 @@ local function test_a_handler_sees_the_canonical_path_params_and_route()
   local route = assert(req.route)
   assert(route.pattern == "/items/:id" and route.methods[1] == "GET")
   assert(req.app == app and req.scheme == "http" and req.host == "testserver")
-  assert(req.client.host == "127.0.0.1")
+  assert(assert(req.client).host == "127.0.0.1")
 end
 
 local function test_header_reads_a_name_in_any_case()
@@ -127,15 +127,15 @@ local function test_client_info_ignores_forwarded_headers_unless_the_proxy_is_tr
   local headers = { ["x-forwarded-for"] = "6.6.6.6, 203.0.113.9", ["x-forwarded-proto"] = "https",
     ["x-forwarded-host"] = "app.example.com" }
   Web.test_client(app):get("/items/1", { headers = headers })
-  assert(seen[1].client.host == "127.0.0.1" and seen[1].scheme == "http" and seen[1].host == "testserver")
+  assert(assert(seen[1].client).host == "127.0.0.1" and seen[1].scheme == "http" and seen[1].host == "testserver")
   local trusting, trusted_seen = recording({ trusted_proxy = true })
   Web.test_client(trusting):get("/items/1", { headers = headers })
   local req = trusted_seen[1]
-  assert(req.client.host == "203.0.113.9" and req.client.port == nil, "the last entry is the proxy's")
+  assert(assert(req.client).host == "203.0.113.9" and assert(req.client).port == nil, "the last entry is the proxy's")
   assert(req.scheme == "https" and req.host == "app.example.com")
   Web.test_client(trusting):get("/items/1", { headers = { ["x-forwarded-for"] = "not an address",
     ["x-forwarded-proto"] = "gopher" } })
-  assert(trusted_seen[2].client.host == "127.0.0.1" and trusted_seen[2].scheme == "http")
+  assert(assert(trusted_seen[2].client).host == "127.0.0.1" and trusted_seen[2].scheme == "http")
 end
 
 local function test_a_connection_without_a_peer_has_no_client()
@@ -250,6 +250,6 @@ local function test_a_forwarded_client_is_an_address_or_the_peer()
   }
   for i, case in ipairs(cases) do
     client:get("/items/1", { headers = { ["x-forwarded-for"] = case[1] } })
-    assert(seen[i].client.host == case[2], ("%q gave %s"):format(case[1], seen[i].client.host))
+    assert(assert(seen[i].client).host == case[2], ("%q gave %s"):format(case[1], assert(seen[i].client).host))
   end
 end
