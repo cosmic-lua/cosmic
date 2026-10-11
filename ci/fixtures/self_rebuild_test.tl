@@ -80,6 +80,20 @@ local fifo, await_ready, release = Process.fifo, Process.await_ready, Process.re
 -- this leaves room inside.
 local rebuild_timeout_ns <const> = Clock.seconds(150)
 
+-- The `rename`/`unlink` cases' run once the rebuilt tool is released: it
+-- builds the tree from the seeded compiles, runs four tests, and writes
+-- their coverage, which in a build directory as fresh as the case's finds
+-- the executable lines of every module of the tree, cached for none:
+-- 18 s of one core for some 800 modules in October 2026, against 4 s for
+-- the rest, so it grows with the tree. Process.finish's default 30 s
+-- held it until the tree reached that size (merge-queue run 38110857516
+-- ended the child with SIGTERM, which says nothing on its streams).
+-- TODO: share a module's executable lines across checkouts as its
+-- compiles are (build/shared_compiles.tl), keyed by its source, so a
+-- fresh build directory's first `cosmic test` does not compute them for
+-- the whole tree; then this bound can come back down.
+local rerun_timeout_ns <const> = Clock.seconds(90)
+
 --- A copy of the leg's compiles (COSMIC_FIXTURE_COMPILES, orchestration.tl's
 --- `seed_compiles`) for one case's rebuild to take back
 --- (COSMIC_BUILD_CACHE), so one case's rows never stand in another's,
@@ -335,9 +349,11 @@ local function run_rebuild_case(fixture_dir: string,
       child, rebuild_timeout_ns)
     release(case_root, diagnostics, "second-" .. action, go)
 
-    local result = finish(child)
+    local result = finish(child, rerun_timeout_ns)
     assert(result.ok, action .. ": self-rebuild child did not exit " ..
-        "successfully")
+        "successfully (code " .. tostring(result.code) .. ", signal " ..
+        tostring(result.signal) .. ", timed out " .. tostring(result.timed_out) ..
+        "); it said:\n" .. Fixture.read(child.err))
 
     Fixture.assert_executable(program)
     assert(Fixture.read(child.out):match(
