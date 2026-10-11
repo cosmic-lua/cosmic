@@ -3,6 +3,7 @@ local Cors = require("cosmic.web.cors")
 local Html = require("cosmic.html")
 local Input = require("cosmic.web.input")
 local Session = require("cosmic.web.session")
+local Stream = require("cosmic.stream")
 local Web = require("cosmic.web")
 
 local SELF <const> = "http://testserver"
@@ -432,12 +433,41 @@ local function test_a_multipart_token_anywhere_but_first_is_refused_and_a_header
     "a token behind more than the peek reads is not looked for")
 end
 
-local function test_a_cookieless_multipart_post_is_refused_before_the_upload_is_read()
-  local app = make_app()
+local function test_a_cookieless_post_is_refused_before_its_body_is_read()
+  local read = 0
+  local app = make_app({ exempt = function(req: Web.Request): boolean
+    local inner = req.raw.body
+    req.raw.body = { read = function(_self: Stream.Reader, max_bytes?: integer): string | nil, string
+      read = read + 1
+      return inner:read(max_bytes)
+    end, close = function(_self: Stream.Reader): boolean, string
+      return inner:close()
+    end }
+    return false
+  end })
   local _, token = session_with_token(app)
   local body = multipart(part("csrf_token", token), part("file", ("x"):rep(100), "a.bin"))
   local res = Web.test_client(app):post("/upload", { body = body, content_type = TYPE })
   assert(res.status == 403)
+  local form = Web.test_client(app):post("/form", { body = "csrf_token=" .. token,
+    content_type = "application/x-www-form-urlencoded" })
+  assert(form.status == 403)
+  assert(read == 0, "no secret, no read: " .. read)
+end
+
+local function test_a_big_urlencoded_form_carries_its_token_within_the_peek()
+  local client, token = session_with_token(make_app())
+  local pad = ("y"):rep(70000)
+  local FORM <const> = "application/x-www-form-urlencoded"
+  local body = "a=1&csrf_token=" .. token .. "&pad=" .. pad
+  local res = client:post("/do", { body = body, content_type = FORM })
+  assert(res.status == 200 and res.body == "done:" .. body, "the whole body reaches the handler")
+  local behind = client:post("/do", { body = "pad=" .. pad .. "&csrf_token=" .. token, content_type = FORM })
+  assert(behind.status == 403, "a field behind the peek is not looked for")
+  local twice = client:post("/do", { body = "csrf_token=" .. token .. "&csrf_token=" .. token, content_type = FORM })
+  assert(twice.status == 403, "a repeated field")
+  local other = client:post("/do", { body = "xcsrf_token=" .. token, content_type = FORM })
+  assert(other.status == 403, "another name")
 end
 
 local function test_a_urlencoded_body_is_still_there_for_the_handler()

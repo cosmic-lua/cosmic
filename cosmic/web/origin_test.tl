@@ -12,13 +12,20 @@ local function test_an_origin_has_one_spelling()
   assert(Origin.normalize("http://127.0.0.1") == "http://127.0.0.1")
 end
 
+local function test_a_host_may_have_underscores_and_inner_dashes()
+  assert(Origin.normalize("http://My_App:8080") == "http://my_app:8080")
+  assert(Origin.normalize("https://a-b.c_d.example") == "https://a-b.c_d.example")
+  assert(Origin.of_url("http://my_app:8080/x") == "http://my_app:8080")
+end
+
 local function test_what_is_no_origin_is_nil()
   for _, text in ipairs({ "", "null", "example.com", "//example.com", "ftp://example.com", "file:///x",
       "javascript://example.com", "https://", "https://example.com/", "https://example.com/x",
       "https://example.com?x", "https://example.com#x", "https://user@example.com",
       "https://example.com:", "https://example.com:0", "https://example.com:65536", "https://example.com:x",
-      "https://exa mple.com", "https://example.com, https://evil.example", "https://exa_mple.com",
-      "https://[::1", "https://example.com\r\n", ("https://" .. ("a"):rep(400)) }) do
+      "https://exa mple.com", "https://example.com, https://evil.example",
+      "https://[::1", "https://example.com\r\n", "https://..", "https://-.", "https://a..b",
+      "https://.example.com", "https://example.com.", "https://-a.com", "https://a-.com", "https://a.-b.com", ("https://" .. ("a"):rep(400)) }) do
     assert(Origin.normalize(text) == nil, "accepted " .. text)
   end
 end
@@ -42,5 +49,7 @@ local function test_the_origin_of_a_request_is_its_scheme_and_host()
   local client = Web.test_client(app)
   client:get("/", { headers = { Host = "App.Example:8080" } })
   client:get("/", { headers = { Host = "app.example", ["X-Forwarded-Proto"] = "https" } })
-  assert(seen[1] == "http://app.example:8080" and seen[2] == "https://app.example", table.concat(seen, ","))
+  client:get("/", { headers = { Host = "my_app:8080" } })
+  assert(seen[1] == "http://app.example:8080" and seen[2] == "https://app.example" and seen[3] == "http://my_app:8080",
+    table.concat(seen, ","))
 end

@@ -112,7 +112,9 @@ end
 --- The named origins of `opts.allow_origins` that are safe to trust with
 --- state changes, in a spelling [`Csrf.Options.trusted_origins`] takes: for
 --- a partner that sends credentialed unsafe requests, which must be
---- listed in both. "*" and "null" are left out.
+--- listed in both. "*" and "null" are left out, and so is any origin that
+--- only the [`allow_origin`] predicate admits: list those in `trusted_origins`
+--- by hand.
 --- @param opts Cors.Options The config
 --- @return {string} The origins
 function Cors.trusted(opts: Cors.Options): {string}

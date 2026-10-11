@@ -33,11 +33,13 @@
 --- itself: a handler registered for it is a handler that can change state.
 --- Any other method, a lowercase "get" included, is unsafe.
 ---
---- A JSON body takes its token in the header alone, a urlencoded form in the
---- header or its `csrf_token` field (read through [`Input.form`], the body
---- kept for the handler), a multipart form in the header or as its first
---- part, of which at most 16 KiB are read to find out: an upload is not
---- buffered to look for a token.
+--- A JSON body takes its token in the header alone. A form takes it in the
+--- header or its `csrf_token` field, which must lie within the body's first
+--- 16 KiB (a urlencoded form: any field there) or be its first part (a
+--- multipart form): no more than that is read to find out, so an upload is
+--- not buffered to look for a token, and the bytes read are put back for the
+--- handler. Put [`Csrf.field`] first in a form, and send the header from a
+--- script that posts a larger one.
 ---
 --- A request with `Authorization: Bearer` skips the token layer by default
 --- (`bearer_exempt`): a cross-site page cannot set that header, and a
@@ -46,6 +48,11 @@
 --- back to the cookie. Basic authentication is ambient in a browser and is
 --- never exempt. The better answer for an API is structural: mount it
 --- with no session and no CSRF middleware at all.
+---
+--- Behind a proxy that ends TLS, the request's scheme is http unless the
+--- app sets `trusted_proxy`: an https `Origin` then differs from the
+--- origin the request was made to and every unsafe request is refused. Set
+--- `trusted_proxy`.
 ---
 --- The `HX-Request` header exempts nothing: it is sent by script, and
 --- script that sets a header cross-site needs a CORS preflight, but the
@@ -98,7 +105,7 @@ end
 Csrf.FIELD = "csrf_token"
 Csrf.HEADER = "X-CSRF-Token"
 
---- How many bytes of a multipart body are read to find the token.
+--- How many bytes of a form body are read to find the token.
 local PEEK <const> = 16384
 
 --- The token's length: 32 bytes of mask and 32 of masked secret, base64url.
@@ -208,23 +215,45 @@ local function multipart_token(req: Types.Request): string | nil
   return value
 end
 
+--- The token field of a urlencoded body when it lies within the first `PEEK`
+--- bytes and appears once; the bytes are put back on the request.
+local function urlencoded_token(req: Types.Request): string | nil
+  local cached = req:get(Input.FORM)
+  if cached ~= nil then
+    local list = cached.by_name[Csrf.FIELD]
+    return list ~= nil and #list == 1 and list[1] or nil
+  end
+  local body = req.raw.body
+  local head, _ = Stream.read_up_to(body, PEEK)
+  if head == nil then return nil end
+  req.raw.body = Stream.prepend(head, body)
+  local found: string = nil
+  local count = 0
+  local from = 1
+  while from <= #head do
+    local stop = head:find("&", from, true)
+    -- A field the peek cut short is not read.
+    if stop == nil and #head == PEEK then break end
+    local pair = head:sub(from, (stop or #head + 1) - 1)
+    local name, value = pair:match("^([^=]*)=(.*)$")
+    if name == Csrf.FIELD then
+      count = count + 1
+      found = value
+    end
+    from = (stop or #head) + 1
+  end
+  if count ~= 1 then return nil end
+  return found
+end
+
 --- The token the request carries: the header, else the form's field.
 local function token_of(req: Types.Request): string | nil
   local header = req.headers["x-csrf-token"]
   if header ~= nil then return header end
   local essence = Input.media_type(req).essence
   if essence == "multipart/form-data" then return multipart_token(req) end
-  if essence ~= "application/x-www-form-urlencoded" then return nil end
-  local form = req:get(Input.FORM)
-  if form == nil then
-    local got = Input.form(req)
-    if got.invalid ~= nil then return nil end
-    form = got.value
-  end
-  if form == nil then return nil end
-  local list = form.by_name[Csrf.FIELD]
-  if list == nil or #list ~= 1 then return nil end
-  return list[1]
+  if essence == "application/x-www-form-urlencoded" then return urlencoded_token(req) end
+  return nil
 end
 
 --- Whether the request names itself a bearer token.
@@ -288,6 +317,8 @@ end
 
 --- The default answer to a refused request.
 local function refuse(req: Types.Request, reason: string): Types.Response
+  -- TODO: once Response.abort can carry headers, answer an htmx request with
+  -- `HX-Trigger: {"csrf-failed": {"reason": ...}}` so a page can react to it.
   if req.headers["hx-request"] == "true" then
     return Response.abort(403, "The request was refused; reload the page and try again.")
   elseif reason == "token" then
@@ -324,7 +355,8 @@ function Csrf.middleware(opts?: Csrf.Options): Types.Middleware
       if origin_on then reason = origin_refusal(req, trusted, strict) end
       if reason == nil and token_on and not (bearer_exempt and bearer(req)) then
         local secret = secret_of(Session.of(req))
-        local sent = token_of(req)
+        -- With no secret nothing can match: the body is not read.
+        local sent = secret ~= nil and token_of(req) or nil
         if secret == nil or sent == nil or not valid(secret, sent) then reason = "token" end
       end
       if reason == nil then return inner(req) end

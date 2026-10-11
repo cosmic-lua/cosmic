@@ -113,6 +113,7 @@ local function test_a_wildcard_grants_any_origin_but_never_with_credentials_or_n
   assert(res.headers["access-control-allow-credentials"] == nil)
   assert(get(client, "null").headers["access-control-allow-origin"] == nil, "* does not cover null")
   assert(get(client, "not an origin").headers["access-control-allow-origin"] == nil)
+  assert(not pcall(Cors.middleware, { allow_origins = { "https://.." } }), "a host of empty labels")
   assert(not pcall(Cors.middleware, { allow_origins = { "*" }, allow_credentials = true }))
   assert(not pcall(Cors.middleware, { allow_origins = { "*", APP } }))
 end

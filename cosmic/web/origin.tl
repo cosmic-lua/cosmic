@@ -14,8 +14,9 @@ local DEFAULT_PORT <const>: {string:string} = { http = "80", https = "443" }
 local MAX_LENGTH <const> = 300
 
 --- `scheme://authority` reduced to one spelling, or nil: an http or https
---- scheme, a host of letters, digits, dots and dashes (or a bracketed IP
---- literal), an optional port from 1 to 65535, in lowercase, the scheme's
+--- scheme, a host of labels of letters, digits, dashes and underscores
+--- (docker-compose names have them) joined by dots, none empty or starting or
+--- ending in a dash (or a bracketed IP literal), an optional port from 1 to 65535, in lowercase, the scheme's
 --- default port dropped.
 local function reduce(scheme: string, authority: string): string | nil
   scheme = scheme:lower()
@@ -23,10 +24,15 @@ local function reduce(scheme: string, authority: string): string | nil
   local host, port = authority:match("^(%[[%x:.]+%])(:%d+)$")
   if host == nil then host = authority:match("^(%[[%x:.]+%])$") end
   if host == nil then
-    host, port = authority:match("^([%w.-]+)(:%d+)$")
-    if host == nil then host = authority:match("^([%w.-]+)$") end
+    host, port = authority:match("^([%w._-]+)(:%d+)$")
+    if host == nil then host = authority:match("^([%w._-]+)$") end
   end
   if host == nil or host == "" then return nil end
+  if host:sub(1, 1) ~= "[" then
+    for label in (host .. "."):gmatch("([^.]*)%.") do
+      if label == "" or label:find("^%-") or label:find("%-$") then return nil end
+    end
+  end
   local number: string = nil
   if port ~= nil then
     local n = tonumber(port:sub(2))

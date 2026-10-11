@@ -30,7 +30,9 @@
 --- `req:get(Headers.NONCE)` and writes it as the `nonce` of its inline
 --- scripts and to [`Htmx.head`]'s `nonce`, and a policy's `{nonce}` source
 --- becomes `'nonce-<value>'`. A page that carries a nonce is not for a
---- shared cache: an HTML response without a Cache-Control gets `private`.
+--- shared cache: whatever its type, a response without a Cache-Control gets
+--- `private`, and one whose Cache-Control says `public` or `s-maxage` has
+--- them replaced by `private`.
 
 local Codec = require("cosmic.codec")
 local Rand = require("cosmic.rand")
@@ -182,6 +184,28 @@ local function one_of(value: string, allowed: {string}, what: string): string
   error(("headers: %s is one of %s, not %q"):format(what, table.concat(allowed, ", "), value), 3)
 end
 
+--- `cache`, a Cache-Control value (nil for none), made unfit for a shared
+--- cache: `public` and `s-maxage` dropped and `private` added unless it or
+--- `no-store` is there.
+local function privately(cache: string | nil): string
+  if cache == nil then return "private" end
+  local kept: {string} = {}
+  local safe, dropped = false, false
+  for directive in cache:gmatch("[^,]+") do
+    local trimmed = directive:match("^%s*(.-)%s*$")
+    local name = trimmed:lower():match("^[^=]*")
+    if name == "private" or name == "no-store" then safe = true end
+    if name == "public" or name == "s-maxage" then
+      dropped = true
+    elseif trimmed ~= "" then
+      kept[#kept + 1] = trimmed
+    end
+  end
+  if safe and not dropped then return cache end
+  if not safe then kept[#kept + 1] = "private" end
+  return table.concat(kept, ", ")
+end
+
 --- Builds the middleware: see this module's description. Raises, naming the
 --- field, for an option that cannot work.
 --- @param opts Headers.Options | nil What to send
@@ -236,6 +260,9 @@ function Headers.middleware(opts?: Headers.Options): Types.Middleware
     end
   end
   local draw = opts.nonce == true
+  -- Without a nonce the policy is one string for every request.
+  local fixed_csp: string = nil
+  if policy ~= nil and not uses_nonce(policy) then fixed_csp = Csp.format(policy) end
 
   return function(inner: Types.Handler): Types.Handler
     return function(req: Types.Request): Types.Response
@@ -253,11 +280,12 @@ function Headers.middleware(opts?: Headers.Options): Types.Middleware
         adds[#adds + 1] = { "Strict-Transport-Security", hsts }
       end
       if policy ~= nil and Response.header(res, csp_name) == nil then
-        adds[#adds + 1] = { csp_name, Csp.format(policy, nonce ~= "" and nonce or nil) }
+        adds[#adds + 1] = { csp_name, fixed_csp or Csp.format(policy, nonce ~= "" and nonce or nil) }
       end
-      if draw and Response.header(res, "Cache-Control") == nil and
-          (Response.header(res, "Content-Type") or ""):lower():find("^text/html") then
-        adds[#adds + 1] = { "Cache-Control", "private" }
+      if draw then
+        local cache = Response.header(res, "Cache-Control")
+        local private = privately(cache)
+        if private ~= cache then adds[#adds + 1] = { "Cache-Control", private } end
       end
       if #adds == 0 then return res end
       local out = Response.copy(res)

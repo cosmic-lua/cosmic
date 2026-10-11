@@ -29,6 +29,15 @@ local function make_app(opts?: Headers.Options, more?: {Web.Route}, spec?: Web.A
         ["X-FRAME-OPTIONS"] = "SAMEORIGIN", ["referrer-policy"] = "no-referrer",
         ["Cache-Control"] = "max-age=60" } })
     end),
+    Web.get("/public", function(_req: Web.Request): Web.Response
+      return Web.text("p", { headers = { ["cache-control"] = "Public, max-age=60, s-maxage=600" } })
+    end),
+    Web.get("/store", function(_req: Web.Request): Web.Response
+      return Web.text("s", { headers = { ["Cache-Control"] = "no-store" } })
+    end),
+    Web.get("/private", function(_req: Web.Request): Web.Response
+      return Web.text("s", { headers = { ["Cache-Control"] = "private, max-age=5" } })
+    end),
     Web.get("/boom", function(_req: Web.Request): Web.Response
       error("a fault")
     end),
@@ -69,7 +78,7 @@ local function test_a_field_set_to_nothing_omits_its_header()
 end
 
 local function test_what_the_handler_set_is_kept_in_any_case_of_its_name()
-  local res = Web.test_client(make_app{ csp = Csp.htmx_default(), nonce = true }):get("/own")
+  local res = Web.test_client(make_app{ csp = Csp.htmx_default() }):get("/own")
   assert(res.headers["content-security-policy"] == "default-src 'none'")
   assert(res.headers["x-frame-options"] == "SAMEORIGIN")
   assert(res.headers["referrer-policy"] == "no-referrer")
@@ -149,8 +158,11 @@ local function test_each_request_draws_its_own_nonce_for_the_policy_and_the_page
   assert(decoded:find('nonce="' .. one .. '" defer', 1, true), "and Htmx.head's tag")
   assert(not first.body:find(two, 1, true))
   assert(first.headers["cache-control"] == "private", "a page with a nonce is not for a shared cache")
-  assert(client:get("/").headers["cache-control"] == nil, "only HTML")
-  assert(client:get("/own").headers["cache-control"] == "max-age=60")
+  assert(client:get("/").headers["cache-control"] == "private", "whatever the type")
+  assert(client:get("/own").headers["cache-control"] == "max-age=60, private")
+  assert(client:get("/public").headers["cache-control"] == "max-age=60, private", "public and s-maxage go")
+  assert(client:get("/store").headers["cache-control"] == "no-store", "no-store stands")
+  assert(client:get("/private").headers["cache-control"] == "private, max-age=5", "private stands")
 end
 
 local function test_without_nonce_the_key_is_empty_and_the_policy_may_not_ask_for_one()
