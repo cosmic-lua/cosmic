@@ -11,7 +11,10 @@ local stub = require("build.stub")
 local teal = require("build.teal")
 local type compiler = require("build.compiler")
 
-local built = assert(teal.load())
+-- Stripped: the checks below run the compiler over the whole web
+-- closure, and under a test's line hook a function with line
+-- information costs most of what it runs ([`teal.load`]).
+local built = assert(teal.load(true))
 
 local function source(...: string): string
   return table.concat({ ... }, "\n") .. "\n"
@@ -187,9 +190,11 @@ local function test_a_project_misusing_the_web_types_is_told_the_same_from_stubs
     return text
   end)
   local from_stubs = said(program, function(name: string): string | nil
+    -- A declaration's stub is the declaration less its comments, as
+    -- its source is all the checker reads of it either way.
     local text, _ = Store.source(name)
-    if text == nil or name:sub(1, 16) == "cosmic.internal." then
-      return text
+    if text == nil then
+      return nil
     end
     return stub.of((assert(ast.parse(built, text, name))))
   end)
@@ -197,4 +202,27 @@ local function test_a_project_misusing_the_web_types_is_told_the_same_from_stubs
   assert(table.concat(from_stubs, "\n") == table.concat(from_sources, "\n"),
     "from sources:\n" .. table.concat(from_sources, "\n") .. "\nfrom stubs:\n" ..
       table.concat(from_stubs, "\n"))
+end
+
+--- A function literal with no return list takes its return types from
+--- its context, which its body is checked against, so it keeps its body:
+--- left out, the stub would be refused for a missing return.
+local function test_a_literal_typed_by_its_context_keeps_its_body()
+  local text = source(
+    "local record M",
+    "  f: function(integer): integer",
+    "  stop: function(string): never",
+    "  g: function(integer): integer",
+    "end",
+    "M.f = function(n) return n end",
+    "M.stop = function(why) error(why) end",
+    "M.g = function(n: integer): integer return n end",
+    "return M")
+  local stubbed = stub_of(text)
+  -- A literal with a return list loses its body as any function does.
+  assert(stubbed:find("M.f = function(n) return n end", 1, true) ~= nil and
+      stubbed:find("M.stop = function(why) error(why) end", 1, true) ~= nil and
+      stubbed:find("M%.g = function%(n: integer%): integer +end") ~= nil, stubbed)
+  local checked = built.check_string(stubbed, environment({}), "m.tl", "tl")
+  assert(#checked.type_errors == 0, checked.type_errors[1] and checked.type_errors[1].msg)
 end

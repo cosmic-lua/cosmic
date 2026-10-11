@@ -26,7 +26,7 @@ local record compilation
     bytecode: string
     --- The record-field uses the checker's types resolved.
     references: {receivers.Reference}
-    --- A contract refusal kept for this unjudged run alone.
+    --- A refusal, its contracts' or its stub's, kept for this unjudged run alone.
     refused: boolean
   end
   --- A module's key and the graph digest less its own file and compiler.
@@ -590,12 +590,17 @@ function compilation.generate(m: Module, built: compiler, env: compiler.Env,
     return nil, m.file .. ": the compiler refused it\n" .. complaint
   end
   -- A standard-library module is what a project's checker reads its
-  -- stub for, in the tool this tree builds ([`build.writer`]).
+  -- stub for, in the tool this tree builds ([`build.writer`]). An
+  -- unjudged run keeps a module whose stub its own, older build.stub
+  -- refuses, as it keeps one its contracts refuse (below), for the tool
+  -- it builds to judge.
+  local refused = false
   if own_tree and m.kind == "module" and m.path:sub(1, 7) == "cosmic." then
     local held, hold_trouble = held_to_stub(m, built, env, result)
-    if not held then
+    if not held and judged then
       return nil, hold_trouble
     end
+    refused = not held
   end
   -- The checker has just seen this module whole; a module compiled
   -- after it that requires it is checked against that, rather than
@@ -605,14 +610,13 @@ function compilation.generate(m: Module, built: compiler, env: compiler.Env,
   if not (checked is ast.Node) then
     return nil, m.file .. ": the compiler answered no syntax tree"
   end
-  local refused = false
   if own_tree and contracts.applies(m.kind, m.generated) then
     local problems = contracts.check(m.file, checked, typed, contracts.quiet_records(env),
       contracts.binding_tables(env), nil, result.type)
     if #problems > 0 and judged then
       return nil, table.concat(problems, "\n")
     end
-    refused = #problems > 0
+    refused = refused or #problems > 0
   end
   local references = receivers.references(typed, env, checked)
   if m.kind == "test" then

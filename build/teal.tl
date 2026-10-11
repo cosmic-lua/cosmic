@@ -253,10 +253,12 @@ local function served(text: string): Served
   }
 end
 
---- What the checker reads for the standard-library module `name`: its
---- stub ([`build.stub`]) from the binary's own database, where that
---- carries one, else what [`Store.source`] answers, a declaration's
---- source or the module's; nil for a name the binary holds neither of.
+--- What the checker reads for the standard-library module `name`: what
+--- [`Store.source`] answers, a declaration's source or the module's, but
+--- for a module with no declaration whose stub ([`build.stub`]) the
+--- binary's own database carries; nil for a name the binary holds
+--- neither of. A declaration wins, as it does in [`serve`]: a stub is
+--- held to its module's source, never to a declaration beside it.
 --- It says which it is, so a compile keyed on one is never taken for one
 --- keyed on the other ([`build.compilation`]'s `dependency_keys`). A stub
 --- keeps every position of its source, so either is served under the
@@ -268,7 +270,8 @@ function teal.standard_text(name: string): teal.Standard | nil
   end
   local databases = Store.databases()
   local rows, _ = Sqlite.text_rows(databases[#databases],
-    "SELECT inflate(source) FROM stubs WHERE path = ?1", { { text = name } })
+    "SELECT inflate(source) FROM stubs WHERE path = ?1 " ..
+      "AND path NOT IN (SELECT path FROM decls)", { { text = name } })
   if rows ~= nil and #rows > 0 then
     return { text = rows[1][1], stubbed = true }
   end
@@ -306,11 +309,11 @@ end
 --- module would have on disk. A `cosmic.*` name the stage lacks is
 --- answered by the binary's own rows ([`teal.standard_text`]), which is
 --- how a project outside this tree types its `require` of the standard
---- library; cosmic's own tree stages every one, so it checks its sources. Nothing is
---- read from a path and nothing falls through to the compiler's own
---- search of the filesystem: a name neither holds is not found, however
---- a file of that name sits on disk, so a module reaches a build only by
---- being staged.
+--- library; cosmic's own tree stages every one, so it checks its
+--- sources. Nothing is read from a path and nothing falls through to the
+--- compiler's own search of the filesystem: a name neither holds is not
+--- found, however a file of that name sits on disk, so a module reaches
+--- a build only by being staged.
 local function serve(built: compiler, db: Sqlite.Handle, root: string)
   built.path = ""
   built.search_module = function(name: string, _search_all: boolean): string | nil, any

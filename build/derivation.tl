@@ -246,7 +246,7 @@ end
 function derivation.parse_new(db: Sqlite.Handle, built: compiler, tally: derivation.Parses,
                               made: {Source}): boolean, string
   local fresh, trouble = Sqlite.text_rows(db,
-    "SELECT source_hash, min(file), source, max(origin <> 'tree'), max(kind = 'module') FROM inputs " ..
+    "SELECT source_hash, min(file), source, max(origin <> 'tree') FROM inputs " ..
       "WHERE kind <> 'vendor' " ..
       "AND source_hash NOT IN (SELECT source_hash FROM parsed) " ..
       "GROUP BY source_hash ORDER BY source_hash")
@@ -374,12 +374,10 @@ function derivation.parse_new(db: Sqlite.Handle, built: compiler, tally: derivat
         return false, file .. ": " .. why
       end
     end
-    if row[5] == "1" then
-      ok, why = Sqlite.run(db, "INSERT INTO stubs (source_hash, text) VALUES (?1, ?2)",
-        { text(source_hash), text(stub.of(parsed)) })
-      if not ok then
-        return false, file .. ": " .. why
-      end
+    ok, why = Sqlite.run(db, "INSERT INTO stubs (source_hash, text) VALUES (?1, ?2)",
+      { text(source_hash), text(stub.of(parsed)) })
+    if not ok then
+      return false, file .. ": " .. why
     end
   end
   return true, ""

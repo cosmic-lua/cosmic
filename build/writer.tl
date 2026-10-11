@@ -213,6 +213,12 @@ local insert_stubs =
   "JOIN main.stubs s ON s.source_hash = i.source_hash " ..
   "WHERE p.path GLOB 'cosmic.*' ORDER BY p.path"
 
+--- Each planned `cosmic.*` module `insert_stubs` found no stub of.
+local unstubbed_modules =
+  "SELECT p.path FROM plan p JOIN inputs i ON i.path = p.path AND i.kind = 'module' " ..
+  "WHERE p.path GLOB 'cosmic.*' AND p.path NOT IN (SELECT path FROM out.stubs) " ..
+  "ORDER BY p.path"
+
 --- The catalog entries ([`build.analyzer.CatalogEntry`]) found while parsing
 --- each planned module: every literal `return nil, ...` under a
 --- top-level function. The guidance a match prints is that function's
@@ -455,6 +461,15 @@ local function project(handle: work.Handle,
     local stubbed, stub_trouble = db:exec(insert_stubs)
     if not stubbed then
       return false, stub_trouble
+    end
+    -- A module the binary carried no stub of would be typed from its
+    -- source, slower and with nothing to say so.
+    local unstubbed, unstubbed_trouble = Sqlite.text_rows(db, unstubbed_modules)
+    if unstubbed == nil then
+      return false, unstubbed_trouble
+    end
+    if #unstubbed > 0 then
+      return false, unstubbed[1][1] .. ": the projection holds no stub of it (build/stub.tl)"
     end
   end
   local carried_main, main_trouble = Sqlite.run(db,

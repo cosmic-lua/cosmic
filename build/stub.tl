@@ -11,11 +11,14 @@
 ---
 --- Leaving a body out cannot change the module's type: tl takes a
 --- function's types from its signature, or from the context of a function
---- literal (patch/tl/37), never from its body. A body still shapes one
---- check: a function declared `: never` must not reach its end
---- (patch/tl/43), so its stub body is `error()`. The checker still warns
---- of the parameters and locals only a body read, but a required module's
---- own warnings never reach the module that requires it.
+--- literal (patch/tl/37), never from its body. A body is still checked
+--- against those types in two ways. A function declared `: never` must
+--- not reach its end (patch/tl/43), so its stub body is `error()`. A
+--- function literal written with no return list must return what its
+--- context expects of it, and nothing in its signature says what that is,
+--- so its body is kept. The checker still warns of the parameters and
+--- locals only a body read, but a required module's own warnings never
+--- reach the module that requires it.
 ---
 --- [`stub.difference`] compares what the checker made of a module from
 --- its source and from its stub, which cosmic's own build holds every
@@ -54,14 +57,17 @@ end
 --- The bodies `root` holds, in source order. A body is its statements,
 --- from its first token up to the function's `end` (whose position tl's
 --- parser stamps on the function's node). An empty body has nothing to
---- leave out, and a `: never` one too short on its own line to hold
---- [`never_body`] is kept whole. A body inside another is listed too,
---- and [`stub.of`] leaves it out with the one around it.
+--- leave out; a `: never` one too short on its own line to hold
+--- [`never_body`] is kept whole, and so is a function literal's that has
+--- no return list (see the module's doc). A body inside another is
+--- listed too, and [`stub.of`] leaves it out with the one around it.
 local function bodies(root: ast.Node): {Span}
   local found: {Span} = {}
   ast.walk(root, function(n: ast.Node)
     local body = n.body
-    if function_kinds[n.kind] and body ~= nil and #body > 0 and n.yend ~= nil and n.xend ~= nil then
+    local typed_by_context = n.kind == "function" and n.rets_omitted == true
+    if function_kinds[n.kind] and not typed_by_context and body ~= nil and #body > 0 and
+        n.yend ~= nil and n.xend ~= nil then
       -- tl's `end_at` stamps the last column of `end`.
       local to_y, to_x = n.yend, n.xend - 2
       if not n.never or body.y < to_y or to_x - body.x > #never_body then
@@ -83,8 +89,8 @@ end
 ---   tokens are in source order
 function stub.of(parsed: ast.Parsed): string
   -- TODO: a cold build of a project requiring cosmic.web still spends
-  -- about 0.25 s checking its 59 stubs, where the goal is well under
-  -- 0.3 s: leave out what no exported type depends on as well --
+  -- about 0.25 s checking its 59 stubs, near the 0.3 s it was meant to
+  -- come in well under: leave out what no exported type depends on as well --
   -- top-level statements that declare no type, and requires only the
   -- bodies read -- or write a declaration (`.d.tl`) from a module whose
   -- record declares its whole surface, keeping the stub for the rest.
@@ -155,30 +161,34 @@ local type_variables <const>: {string:boolean} = { typevar = true, typearg = tru
 --- when they are the same type. The two are walked together: a table
 --- reached on both sides at once (a type another module declares, which
 --- both checks share) is the same; a table met again must meet its
---- counterpart again, so a cycle compares as a cycle; every other field
+--- counterpart again, and only it, so a cycle compares as a cycle; every other field
 --- but the [`incidental`] ones must match, and every one of a [`named`]
 --- field.
 function stub.difference(from_source: any, from_stub: any): string | nil
   local paired: {any:any} = {}
+  local paired_back: {any:any} = {}
   local renamed: {string:string} = {}
+  local renamed_back: {string:string} = {}
   local function differ(a: any, b: any, path: string, key: string, names: boolean): string | nil
     if rawequal(a, b) then
       return nil
     end
     if type_variables[key] and a is string and b is string then
       local a_name, b_name = a:match("^(.-)@%d+$"), b:match("^(.-)@%d+$")
-      if a_name ~= nil and a_name == b_name and (renamed[a] == nil or renamed[a] == b) then
-        renamed[a] = b
+      local fresh = renamed[a] == nil and renamed_back[b] == nil
+      if a_name ~= nil and a_name == b_name and (fresh or (renamed[a] == b and renamed_back[b] == a)) then
+        renamed[a], renamed_back[b] = b, a
         return nil
       end
     end
     if not (a is {any:any}) or not (b is {any:any}) then
       return path .. ": " .. tostring(a) .. " in the source, " .. tostring(b) .. " in the stub"
     end
-    if paired[a] ~= nil then
-      return not rawequal(paired[a], b) and path .. ": a different type in the stub" or nil
+    if paired[a] ~= nil or paired_back[b] ~= nil then
+      local same = rawequal(paired[a], b) and rawequal(paired_back[b], a)
+      return not same and path .. ": a different type in the stub" or nil
     end
-    paired[a] = b
+    paired[a], paired_back[b] = b, a
     for field, value in pairs(a) do
       if names or not incidental[tostring(field)] then
         local found = differ(value, b[field], path .. "." .. tostring(field), tostring(field),
