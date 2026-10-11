@@ -1,0 +1,31 @@
+file: tl.tl
+note: the type a record or interface field gets when it is declared `name?: T`: T united with nil, written as `T | nil` is, so narrowing, `is` and every comparison treat it as any other nil-admitting field. A union T already is gets nil as one more member rather than a second union around it, and one that has nil is left alone. A generic function type is refused: a union of a generic is no type the checker reads, and the declaration has no other place to put nil
+--- find
+local function store_field_in_record(ps: ParseState, i: integer, field_name: string, newt: Type, def: RecordLikeType, comments?: {Comment}, meta?: MetaMode): boolean
+--- replace
+local function optional_field_type(ps: ParseState, i: integer, t: Type): Type
+   if t is GenericType then
+      fail(ps, i, "an optional field cannot have a generic type")
+      return t
+   end
+   local members: {Type} = {}
+   if t is UnionType then
+      for _, m in ipairs(t.types) do
+         table.insert(members, m)
+      end
+   else
+      members[1] = t
+   end
+   for _, m in ipairs(members) do
+      if m is NilType then
+         return t
+      end
+   end
+   table.insert(members, new_type(ps, i, "nil") as NilType)
+   local u = new_type(ps, i, "union") as UnionType
+   u.types = members
+   return u
+end
+
+local function store_field_in_record(ps: ParseState, i: integer, field_name: string, newt: Type, def: RecordLikeType, comments?: {Comment}, meta?: MetaMode): boolean
+--- end

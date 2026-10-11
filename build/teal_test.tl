@@ -1564,3 +1564,90 @@ local function test_a_call_site_type_name_is_told_there_are_none()
   assert(says(compared, "unknown variable: missing"), table.concat(compared, "\n"))
   assert(not says(compared, "no type arguments"), table.concat(compared, "\n"))
 end
+
+--- `name?: T` declares a field that a table literal may omit and whose
+--- type admits nil, as `name: T | nil` does (patch/tl's 49a to 49c): a
+--- read is `T | nil`, a guard narrows it, and nil may be assigned to it.
+--- Its record is open, so the literal omitting a plain field compiles
+--- too; what tells the two apart is the type a read has.
+local function test_an_optional_field_admits_nil()
+  local declared = "local record R\n  name?: string\nend\nlocal r: R = {}\n"
+  assert_accepted(declared .. "r.name = nil\nr.name = 'x'\nprint(r)\n")
+  assert_refused(declared .. "print(r.name:upper())\n", "cannot index key 'upper' in type string | nil")
+  assert_refused(declared .. "r.name = 1\n", "in assignment: got integer")
+  assert_accepted(declared .. "if r.name then\n  print(r.name:upper())\nend\n")
+  assert_accepted(declared .. "local n: string = r.name or 'none'\nprint(n)\n")
+  assert_accepted("local record P\n  name: string\nend\nlocal p: P = {}\nprint(p.name:upper())\n")
+end
+
+--- The optional field written with its nil spelled out is the same
+--- field: its generated Lua is the plain one, and a union that already
+--- holds nil gains no second member.
+local function test_an_optional_field_is_the_union_with_nil()
+  local built = assert(teal.load(true))
+  local function lua(field: string): string
+    return (assert(built.gen("local record R\n  " .. field .. "\nend\nlocal r: R = {}\nprint(r)\n",
+      nil, nil, "tl")))
+  end
+  assert(lua("name?: string") == lua("name: string | nil"))
+  local function read_as(field: string): string
+    return refusals("local record R\n  " .. field .. "\nend\nlocal r: R = {}\nprint(r.name.x)\n")[1] or ""
+  end
+  assert(read_as("name?: string | number"):find("in type string | number | nil", 1, true) ~= nil)
+  assert(read_as("name?: string | number | nil"):find("in type string | number | nil", 1, true) ~= nil)
+  assert(read_as("name?: string | nil"):find("in type string | nil", 1, true) ~= nil)
+end
+
+--- An interface field may be optional, and a record that implements
+--- the interface inherits the field, optional.
+local function test_an_optional_interface_field()
+  local source = "local interface Named\n  name?: string\nend\n" ..
+    "local record Dog\n  is Named\n  age: integer\nend\n" ..
+    "local d: Dog = { age = 3 }\nlocal n: Named = d\n"
+  assert_accepted(source .. "if d.name then\n  print(d.name:upper())\nend\nprint(n)\n")
+  assert_refused(source .. "print(d.name:upper(), n)\n", "cannot index key 'upper' in type string | nil")
+  assert_accepted("local interface Named\n  name?: string\nend\nlocal n: Named = {}\nprint(n)\n")
+end
+
+--- A field of a nested or generic record may be optional, as may one
+--- of a record type, whose own fields are read after a guard.
+local function test_an_optional_field_in_nested_and_generic_records()
+  local nested = "local record Outer\n  record Inner\n    depth?: integer\n  end\n" ..
+    "  inner?: Inner\nend\nlocal o: Outer = {}\n"
+  assert_accepted(nested .. "o.inner = {}\nlocal i = o.inner\nif i then\n  local d: integer = i.depth or 0\n  print(d)\nend\n")
+  assert_refused(nested .. "local d = o.inner.depth\nprint(d)\n", "cannot index")
+  local generic = "local record Box<T>\n  value?: T\nend\nlocal b: Box<string> = {}\n"
+  assert_accepted(generic .. "b.value = 's'\nif b.value then\n  print(b.value:upper())\nend\n")
+  assert_refused(generic .. "print(b.value:upper())\n", "cannot index key 'upper' in type string | nil")
+  assert_refused(generic .. "b.value = 1\n", "in assignment: got integer")
+end
+
+--- A key written as a string may be optional too, and so may a function
+--- field, which is called after a guard as any function that may be nil.
+local function test_an_optional_field_with_a_string_key_or_a_function_type()
+  assert_accepted("local record R\n  [\"a b\"]?: integer\nend\nlocal r: R = {}\nprint(r[\"a b\"])\n")
+  local callback = "local record R\n  done?: function(code: integer)\nend\nlocal r: R = {}\n"
+  assert_accepted(callback .. "if r.done then\n  r.done(1)\nend\n")
+  assert_refused(callback .. "r.done(1)\n", "not a function: function(integer) | nil")
+end
+
+--- `<total>` asks for every field, the optional ones too: `name?: T` is
+--- `name: T | nil` and a total literal states a nil-admitting field,
+--- `name = nil` where it has no value.
+local function test_a_total_literal_states_its_optional_fields()
+  local declared = "local record R\n  id: integer\n  name?: string\nend\n"
+  assert_refused(declared .. "local r <total>: R = { id = 1 }\nprint(r)\n", "missing: name")
+  assert_accepted(declared .. "local r <total>: R = { id = 1, name = nil }\nprint(r)\n")
+  assert_accepted(declared .. "local r <total>: R = { id = 1, name = 'x' }\nprint(r)\n")
+end
+
+--- What `?` cannot mark: a metamethod, a generic function type, and a
+--- name with no `:` after it.
+local function test_what_an_optional_field_refuses()
+  assert_refused("local record R\n  metamethod __index?: function(R, string): any\nend\n",
+    "a metamethod cannot be optional")
+  assert_refused("local record R\n  pick?: function<T>(T): T\nend\n",
+    "an optional field cannot have a generic type")
+  assert_refused("local record R\n  name? string\nend\n", "expected ':'")
+  assert_accepted("local function f(a?: string) print(a) end\nprint(f)\n")
+end

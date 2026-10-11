@@ -620,3 +620,16 @@ local function test_a_double_angle_closing_two_type_argument_lists_is_kept()
     writes(source, source)
   end
 end
+
+--- A field declared `name?: T` keeps its `?`: a record body is written
+--- as it was, and the tree it parses to (the field's type united with
+--- nil) is the one the fix compares.
+local function test_an_optional_field_keeps_its_question_mark()
+  for _, source in ipairs({
+      "local record R\n  name?: string\n  [\"a b\"]?: {string}\n  done?: function(code: integer)\nend\n",
+      "local interface I\n  name?: string | number\nend\n",
+      "local function f()\n  local record R<T>\n    value?: T\n  end\n  return {} as R<string>\nend\n",
+  }) do
+    writes(source, source)
+  end
+end
