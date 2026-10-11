@@ -70,8 +70,8 @@ local relaunch: Proc.Relaunch
 
 --- Ends the process with a status. This is the explicit replacement for
 --- os.exit; it does not run finalizers and does not return.
-function Proc.exit(status: integer)
-  sys.exit(status) -- exits: a process boundary has no caller to return to
+function Proc.exit(status: integer): never
+  sys.exit(status)
 end
 
 --- The process's own identifier: `getpid`, or the shell's `$$`.
