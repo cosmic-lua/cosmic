@@ -5,8 +5,11 @@
 --- paths, and a snapshot of `o/build.db` restored after `o/cosmic.db`
 --- moved on both leave a row that no longer describes the file.
 
+local Compress = require("cosmic.compress")
 local Fs = require("cosmic.fs")
+local Hash = require("cosmic.hash")
 local Sqlite = require("cosmic.sqlite")
+local Store = require("cosmic.store")
 local importer = require("build.importer")
 local schema = require("build.schema")
 local teal = require("build.teal")
@@ -565,4 +568,98 @@ local function test_a_failed_projection_can_be_retried(tmp: string)
   assert(writer.write_result(handle, out, retried))
   assert(work.close(handle))
   assert(projected(out) ~= "", "the retry did not publish a signed projection")
+end
+
+--- Writes the static files of the project at `root`: text worth gzipping,
+--- an image, and Teal and a template that are assets, not modules.
+local function write_static(root: string, css: string)
+  assert(Fs.mkdirs(root .. "/static/css"))
+  assert(Fs.mkdirs(root .. "/static/.hidden"))
+  assert(Fs.write(root .. "/static/css/app.css", css))
+  assert(Fs.write(root .. "/static/logo.png", "\137PNG\0\1\2"))
+  assert(Fs.write(root .. "/static/notes.tl", "this is no Teal, and no module {{"))
+  assert(Fs.write(root .. "/static/page.tmpl", "{{ this is no template"))
+  assert(Fs.write(root .. "/static/.hidden/secret", "x"))
+end
+
+--- Compiles the project at `root` and writes its projection to `out`.
+local function write_projection(root: string, out: string)
+  local handle = assert(work.open(root))
+  assert(work.stage(handle, false))
+  local result = assert(importer.compile(handle, built, "writer-test"))
+  assert(writer.write_result(handle, out, result))
+  assert(work.close(handle))
+end
+
+--- The files under `static/` are the projection's `payload`, with the
+--- hash, type and gzip a program serves them by; a `.tl` or `.tmpl`
+--- under it is an asset and no module, and a hidden file is left out.
+local function test_static_files_ship_as_payload_not_as_modules(tmp: string)
+  local css = ("a { color: red }\n"):rep(200)
+  write_project(tmp .. "/p", "world")
+  write_static(tmp .. "/p", css)
+  write_projection(tmp .. "/p", tmp .. "/p.db")
+  local db = assert(Sqlite.open(tmp .. "/p.db"))
+  local rows = assert(Sqlite.text_rows(db,
+    "SELECT path, sha256, type, gzip IS NOT NULL, length(data) FROM payload ORDER BY path"))
+  assert(#rows == 4, #rows .. " payload rows")
+  assert(rows[1][1] == "css/app.css" and rows[1][2] == Hash.hex_sha256(css))
+  assert(rows[1][3] == "text/css; charset=utf-8" and rows[1][4] == "1" and rows[1][5] == tostring(#css))
+  assert(rows[2][1] == "logo.png" and rows[2][3] == "image/png" and rows[2][4] == "0")
+  assert(rows[3][1] == "notes.tl" and rows[3][3] == "application/octet-stream")
+  assert(rows[4][1] == "page.tmpl")
+  local packed = assert(Sqlite.text_rows(db, "SELECT gzip FROM payload WHERE path = 'css/app.css'"))
+  assert(Compress.inflate("gzip", packed[1][1]) == css)
+  local bytes = assert(Sqlite.text_rows(db, "SELECT data FROM payload WHERE path = 'logo.png'"))
+  assert(bytes[1][1] == "\137PNG\0\1\2", "binary bytes, a NUL among them, are kept")
+  local modules = assert(Sqlite.text_rows(db,
+    "SELECT count(*) FROM modules WHERE path LIKE 'static%' OR path LIKE '%notes%' OR path LIKE '%page%'"))
+  assert(modules[1][1] == "0")
+  assert(db:close())
+end
+
+--- Equal trees project equal bytes, and an edit to an asset moves the
+--- projection although no module changed.
+local function test_an_edit_to_an_asset_moves_the_projection(tmp: string)
+  for _, name in ipairs({ "one", "two" }) do
+    write_project(tmp .. "/" .. name, "world")
+    write_static(tmp .. "/" .. name, "body {}")
+    write_projection(tmp .. "/" .. name, tmp .. "/" .. name .. ".db")
+  end
+  assert(Fs.read(tmp .. "/one.db") == Fs.read(tmp .. "/two.db"), "equal trees, unequal projections")
+  local before = projected(tmp .. "/one.db")
+  assert(Fs.write(tmp .. "/one/static/css/app.css", "body { margin: 0 }"))
+  write_projection(tmp .. "/one", tmp .. "/one.db")
+  assert(projected(tmp .. "/one.db") ~= before)
+  local db = assert(Sqlite.open(tmp .. "/one.db"))
+  local rows = assert(Sqlite.text_rows(db, "SELECT data FROM payload WHERE path = 'css/app.css'"))
+  assert(rows[1][1] == "body { margin: 0 }")
+  assert(db:close())
+end
+
+--- The `type` and `gzip` of a payload row come from cosmic.mime, so an
+--- edit to it moves the signature although no file did.
+local function test_an_edit_to_cosmic_mime_moves_the_signature(tmp: string)
+  local handle, result = build_and_write(tmp .. "/a", "world", tmp .. "/out.db")
+  local before = assert(writer.signature(handle, result, "binary"))
+  local real = Store.bytecode
+  Store.bytecode = function(name: string): string | nil, string
+    if name == "cosmic.mime" then return "an edited cosmic.mime" end
+    return real(name)
+  end
+  local after, trouble = writer.signature(handle, result, "binary")
+  Store.bytecode = real
+  assert(work.close(handle))
+  assert(after ~= nil, trouble)
+  assert(after ~= before, "cosmic.mime must be part of the signature")
+end
+
+--- A tree with no `static/` has an empty payload.
+local function test_a_tree_without_static_has_no_payload(tmp: string)
+  write_project(tmp .. "/p", "world")
+  write_projection(tmp .. "/p", tmp .. "/p.db")
+  local db = assert(Sqlite.open(tmp .. "/p.db"))
+  local rows = assert(Sqlite.text_rows(db, "SELECT count(*) FROM payload"))
+  assert(rows[1][1] == "0")
+  assert(db:close())
 end

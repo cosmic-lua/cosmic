@@ -5,8 +5,9 @@
 --- the build already holds, then written by `VACUUM INTO`, so a second
 --- build of the same tree is byte-identical. The rows are this run's plan
 --- joined to the inputs and compiles it names, the declarations a checker
---- needs to build a tree against this one, and the time zones the
---- working database holds (cosmic's own tree's only).
+--- needs to build a tree against this one, the time zones the
+--- working database holds (cosmic's own tree's only) and a project's static
+--- assets.
 ---
 --- The store of a test module's import closure a sandboxed worker is
 --- given in the projection's place is derived from the projection by
@@ -15,6 +16,8 @@
 
 local build_paths = require("build.paths")
 local Fs = require("cosmic.fs")
+local Hash = require("cosmic.hash")
+local Mime = require("cosmic.mime")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local identity = require("build.identity")
@@ -33,6 +36,7 @@ local record writer
 end
 
 local text = bind.text
+local blob = bind.blob
 
 --- The signature recorded inside the projection at `path`, or `""` when
 --- there is none to trust: no file there, a file that is not a database,
@@ -248,8 +252,18 @@ local function signature_sql(): string
     "coalesce((SELECT group_concat(key || ' ' || value, char(10) ORDER BY key) " ..
     "FROM meta WHERE key IN " .. metadata .. "), '') || char(10) || " ..
     "coalesce((SELECT group_concat(name || ' ' || lower(hex(sha256(data))), " ..
-    "char(10) ORDER BY name) FROM zoneinfo), '') || char(10) || ?1 || " ..
+    "char(10) ORDER BY name) FROM zoneinfo), '') || char(10) || " ..
+    "coalesce((SELECT group_concat(path || ' ' || sha256, char(10) ORDER BY path) " ..
+    "FROM files WHERE path GLOB 'static/*'), '') || char(10) || ?1 || " ..
     "char(10) || ?2 || char(10) || ?3 || char(10) || ?4)))"
+end
+
+--- The digest of the [`cosmic.mime`] this writer runs, which the `type` and
+--- `gzip` of a `payload` row come from: the signature holds it, so an edit
+--- to that module writes the rows again.
+local function mime_digest(): string
+  local bytecode, _ = Store.bytecode("cosmic.mime")
+  return Hash.hex_sha256(bytecode or "")
 end
 
 --- The signature of the projection of `result`, whose links are
@@ -257,7 +271,8 @@ end
 local function signed(handle: work.Handle, result: importer.Result, pending: link_index.Pending,
                       binary: string): string | nil, string
   local rows, trouble = Sqlite.text_rows(handle.db, signature_sql(),
-    { text(result.main or ""), text("portable-v1"), text(binary), text(pending.digest) })
+    { text(result.main or ""), text("portable-v1"), text(binary .. "\n" .. mime_digest()),
+      text(pending.digest) })
   if rows == nil then
     return nil, trouble
   end
@@ -307,6 +322,34 @@ function writer.signature(handle: work.Handle, result: importer.Result,
   return signed(handle, result, pending, binary)
 end
 
+--- Writes the files under `static/` as the `payload` rows a program reads
+--- them from: the path below `static/`, the bytes, their SHA-256 as staged,
+--- the type [`Mime.of`] gives, and the gzip [`Mime.gzip`] finds worth
+--- keeping. Both are functions of the path and bytes alone, so the
+--- projection stays a function of the tree.
+-- TODO: keep the gzip of a file in the working database by its hash and
+-- [`mime_digest`], so an edit elsewhere in the tree does not compress every
+-- asset again; the cache needs a table in [`build/schema.tl`].
+local function fill_payload(db: Sqlite.Handle): boolean, string
+  local files, trouble = Sqlite.text_rows(db,
+    "SELECT substr(path, 8), data, sha256 FROM files WHERE path GLOB 'static/*' ORDER BY path")
+  if files == nil then
+    return false, trouble
+  end
+  for _, row in ipairs(files) do
+    local path, data, sha256 = row[1], row[2], row[3]
+    local packed = Mime.gzip(path, data)
+    local ok, failure = Sqlite.run(db,
+      "INSERT INTO out.payload (path, data, sha256, type, gzip) VALUES (?1, ?2, ?3, ?4, ?5)",
+      { text(path), blob(data), text(sha256), text(Mime.of(path)),
+        packed ~= nil and blob(packed) or {} })
+    if not ok then
+      return false, "static/" .. path .. ": " .. failure
+    end
+  end
+  return true, ""
+end
+
 --- Fills the attached `out` schema within the working transaction, signed
 --- `signature` by the writer whose identity is `by`, and naming the
 --- compiler whose identity keyed its modules (`result.tool`) as
@@ -342,6 +385,10 @@ local function project(handle: work.Handle,
     if not ok then
       return false, failure
     end
+  end
+  local stored, store_trouble = fill_payload(db)
+  if not stored then
+    return false, store_trouble
   end
   local metadata = "('boot_hash', 'image_hash', 'compiler', 'runtime_basis', 'writer')"
   local carried, meta_trouble = db:exec(

@@ -295,8 +295,9 @@ function Response.stream(body: Stream.Reader, content_type: string, opts?: Types
 end
 
 -- TODO: Web.file (ETag, Last-Modified, 304 and Range by Server.none_match and
--- Server.range, the type from cosmic.web.mime) once the static-files part of
--- the plan lands cosmic.web.mime.
+-- Server.range, the type from cosmic.mime) for a handler that serves one
+-- file; cosmic.web.static has the conditional and range logic, to be shared
+-- once a second caller needs it.
 
 --- An RFC 9457 `application/problem+json` reply:
 --- `{type:"about:blank", title:<reason>, status, detail, ...extra}`. A
