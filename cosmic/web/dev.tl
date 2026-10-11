@@ -619,6 +619,12 @@ function Dev.supervise(opts?: Dev.SuperviseOptions): boolean, string
     local h = handle
     handle = nil
     local _, _ = h:stop()
+    -- TODO: give the program `grace_ns` when a SIGINT or SIGTERM stops the
+    -- supervisor too: the guard's signal cuts this wait short, and
+    -- cosmic.child ends the program after its own 250 ms. The fix is a
+    -- wait here that the guard does not end (a loop over `h:try_wait`
+    -- until `grace_ns` passes), once a second signal during it is decided
+    -- on: end the program at once, or wait on.
     local _, _ = h:wait(grace_ns)
     local _, _ = h:close()
   end

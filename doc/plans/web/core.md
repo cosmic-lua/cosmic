@@ -165,7 +165,7 @@ Starlette's `request.state` is an attribute bag. Teal has no attribute bag,
 and string keys collide between middleware. So per-request state is typed
 keys; the session, the CSRF token, the CSP nonce, htmx's parsed request and
 the decoded input are each an exported key ([`Session.KEY`],
-`Headers.NONCE`, `Htmx.KEY`, `Input.QUERY` and the like in their modules),
+[`Headers.NONCE`], `Htmx.KEY`, `Input.QUERY` and the like in their modules),
 never a field of `req.state`:
 
 ```teal
@@ -775,8 +775,8 @@ stream.tl:655, and drops `Content-Length`).
 Shipped in core: [`Web.access_log`], `Web.timing`, `Web.request_id`
 (sets `X-Request-ID` and a key), `Web.trusted_hosts` (also an App field),
 `Web.limit_body(n)`. Others by their modules: sessions ([`cosmic.web.session`]),
-CSRF (`cosmic.web.csrf`), CORS (`cosmic.web.cors`), security headers
-(`cosmic.web.headers`) and htmx ([`cosmic.web.htmx`]), all in input.md and
+CSRF ([`cosmic.web.csrf`]), CORS ([`cosmic.web.cors`]), security headers
+([`cosmic.web.headers`]) and htmx ([`cosmic.web.htmx`]), all in input.md and
 templates.md. A gzip middleware is named by assets.md (it must skip
 `text/event-stream` and already-encoded responses) but no part designs it:
 open question 13. Because a middleware is just a function, user code mixes
@@ -1161,7 +1161,7 @@ tests; the bulk run in-process (no loopback policy, and cheap to key).
   problem), `app.tl` (App, serve, lifespan), `testing.tl`.
 - The other files add modules beside: `cosmic.web.input`,
   [`cosmic.web.cookies`], [`cosmic.web.session`] (with `.cookie` and `.sqlite`
-  stores), `cosmic.web.csrf`, `cosmic.web.cors`, `cosmic.web.headers`
+  stores), [`cosmic.web.csrf`], [`cosmic.web.cors`], [`cosmic.web.headers`]
   (input.md); [`cosmic.web.htmx`] (templates.md); [`cosmic.web.static`],
   [`cosmic.web.sse`], [`cosmic.web.dev`], and the support modules
   [`cosmic.web.assets`] and `cosmic.web.mime` (assets.md).
@@ -1362,7 +1362,10 @@ close, and a raise in it reaches `on_error` without stopping the drain.
 [`cosmic.url`]: ../../../cosmic/url.tl
 [`cosmic.web.assets`]: ../../../cosmic/web/assets.tl
 [`cosmic.web.cookies`]: ../../../cosmic/web/cookies.tl
+[`cosmic.web.cors`]: ../../../cosmic/web/cors.tl
+[`cosmic.web.csrf`]: ../../../cosmic/web/csrf.tl
 [`cosmic.web.dev`]: ../../../cosmic/web/dev.tl
+[`cosmic.web.headers`]: ../../../cosmic/web/headers.tl
 [`cosmic.web.htmx`]: ../../../cosmic/web/htmx.tl
 [`cosmic.web.session`]: ../../../cosmic/web/session/init.tl
 [`cosmic.web.sse`]: ../../../cosmic/web/sse.tl
@@ -1373,6 +1376,7 @@ close, and a raise in it reaches `on_error` without stopping the drain.
 [`cosmic/web/testing.tl`]: ../../../cosmic/web/testing.tl
 [`errors.trace`]: ../../../cosmic/internal/errors.d.tl
 [`Fuzz.label`]: ../../../build/fuzz/init.tl
+[`Headers.NONCE`]: ../../../cosmic/web/headers.tl
 [`Html.escape`]: ../../../cosmic/html.tl
 [`Html.raw`]: ../../../cosmic/html.tl
 [`Html.SafeHtml`]: ../../../cosmic/html.tl

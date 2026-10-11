@@ -227,6 +227,7 @@ local function test_a_sigterm_to_the_supervisor_stops_it_and_its_program(tmp: st
     end,
   }
   assert(ok and sent and pid ~= 0)
+  -- The program is reaped before supervise returns: a zombie would answer.
   assert(not alive(pid), "the program was ended with the supervisor")
 end
 

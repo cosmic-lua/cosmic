@@ -172,7 +172,7 @@ assert(reply.status == 422 and reply.text:find("qty", 1, true))
 - [`cosmic.web.cookies`], [`cosmic.web.session`] (with its stores
   [`cosmic.web.session.cookie`] and [`cosmic.web.session.sqlite`]),
   [`cosmic.web.secret`] (keys from the environment, weak ones refused),
-  `cosmic.web.csrf`, `cosmic.web.cors`, `cosmic.web.headers` (security
+  [`cosmic.web.csrf`], [`cosmic.web.cors`], [`cosmic.web.headers`] (security
   headers and CSP).
 - `cosmic.web.htmx`: HX-* request headers, HX-* response headers,
   [`Htmx.page`] (fragment or whole page, `Vary: HX-Request`), [`Htmx.head`].
@@ -346,7 +346,10 @@ cooperative process.
 [`cosmic.http.wire`]: ../../cosmic/http/wire.tl
 [`cosmic.web.assets`]: ../../cosmic/web/assets.tl
 [`cosmic.web.cookies`]: ../../cosmic/web/cookies.tl
+[`cosmic.web.cors`]: ../../cosmic/web/cors.tl
+[`cosmic.web.csrf`]: ../../cosmic/web/csrf.tl
 [`cosmic.web.dev`]: ../../cosmic/web/dev.tl
+[`cosmic.web.headers`]: ../../cosmic/web/headers.tl
 [`cosmic.web.htmx`]: ../../cosmic/web/htmx.tl
 [`cosmic.web.secret`]: ../../cosmic/web/secret.tl
 [`cosmic.web.session.cookie`]: ../../cosmic/web/session/cookie.tl
