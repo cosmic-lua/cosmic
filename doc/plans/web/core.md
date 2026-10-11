@@ -133,7 +133,7 @@ urlencoded form, JSON and multipart decoding are `cosmic.web.input`'s
 `Input.multipart(req)`; input.md sections 1 and 2), which keeps the
 request type free of a dependency on the decoder. They share the decoder
 [`Url.decode_query`] (input.md section 1, 13.5 here) and cache their results
-under exported keys (`Input.QUERY`, `Input.FORM`, `Input.JSON`, 2.3), so a
+under exported keys (`Input.QUERY`, `Input.FORM`, [`Input.JSON`], 2.3), so a
 middleware and the handler share one decode. Rules that bind the core:
 
 - A malformed percent-escape in a query or urlencoded body is
@@ -257,7 +257,7 @@ Behaviours and edge cases:
 - `problem(status, detail, extra)`: RFC 9457 `application/problem+json`
   `{type:"about:blank", title:<reason>, status, detail, ...extra}`. Used by
   the validation and error layers, public for API handlers. For invalid
-  input `extra.errors` is filled from `Input.Invalid` (6.4).
+  input `extra.errors` is filled from [`Input.Invalid`] (6.4).
 
 Header helpers, because the type admits lists (section 13.1) and names
 are case-preserving. [`Web.add_header`] is the one way every part appends a
@@ -579,18 +579,27 @@ function Web.route_typed<P,Q,B>(methods: string | {string}, pattern: string,
 -- sugar: Web.get_typed, Web.post_typed, ...
 ```
 
-The three slots are positional with `Web.NONE`/`Web.no_body` fillers: the
-handler always has `(req, p, q, b)`. (`Web.input` builds this bundle; it is
+The three slots are positional with [`Web.NONE`]/[`Web.no_body`] fillers: the
+handler always has `(req, p, q, b)`. ([`Web.input`] builds this bundle; it is
 unrelated to the module `cosmic.web.input`, which it calls.) Alternatives considered: one merged
 record (collisions between path, query and body names and no way to say
 where a bad value came from); optional slots with overloads (Teal cannot
-infer a generic that is never mentioned). Inference needs a spike: Teal
-infers `P` from a `Shape.Typed<P>` argument (that is how `record_of`
-works, cosmic/shape.tl:111-119, 580); the spike in step 1 of the build
-order must confirm it also infers across `Input<P,Q,B>` into the function
-parameter list, else fall back to explicit type arguments in the
-constructor (`Web.route_typed<ItemPath, ItemQuery, ItemBody>(...)`), which
-is uglier but certain.
+infer a generic that is never mentioned).
+
+**Spike outcome (built).** Teal infers `P`, `Q` and `B` from the
+`Shape.Typed<_>` arguments of [`Web.input`], through `Input<P,Q,B>`, into
+`route_typed`'s type parameters, and it *checks* an annotated handler
+parameter against them (`p: NewItem` for an `ItemPath` slot is "Item is not
+a NewItem"; a handler that takes fewer parameters is accepted, as in Lua).
+It does **not** propagate them into an unannotated lambda parameter: that
+is `any`, and a read of its fields is a compile error. So the handler
+annotates its parameters (`p: ItemPath`), which is sound and no more than
+the examples below already wrote; there is no explicit-type-argument form
+to fall back to, since Teal's call syntax has none. An absent slot's
+parameter is nil, typed [`Web.None`]. The reading and binding functions
+answer `Parsed<T>` (`value` or `invalid`), not `T | nil, Invalid`, since the
+build's contracts allow an exported function two results only as a value
+and a string reason.
 
 ```teal
 local record ItemPath   id: integer end
@@ -613,8 +622,8 @@ Web.post_typed("/items", Web.input(Web.NONE, Web.NONE, Web.json_body(NEW)),
   end)
 ```
 
-(The parameter types of the handler are inferred from `input`; the
-annotations above are for reading. `record_of` requires its string-literal
+(The handler's parameters are annotated, as the spike found they must be;
+Teal checks each against `input`. `record_of` requires its string-literal
 form and the build to rewrite it, cosmic/shape.tl:554-574, so a route
 module is a normal built module.) A route may add `on_invalid` in its
 options (6.4).
@@ -634,7 +643,7 @@ a coercion pass of their own:
   which is [`Shape.into`] over the decoded value (input.md section 5).
 - The binder collects every field's error and ends with [`Shape.into`] on the
   coerced tree as the final check, so the typed record the handler gets is
-  exactly what Shape produces. A failure is an `Input.Invalid` (fields in
+  exactly what Shape produces. A failure is an [`Input.Invalid`] (fields in
   6.4), with all errors for the source in `errors`.
 - Multipart bodies are `Input.multipart_into` (input.md section 4, step 7
   of ../web.md's order); a route names it with a
@@ -646,7 +655,7 @@ a coercion pass of their own:
 Registration checks: every `:param`/`*param` name in the pattern is a field
 of the path spec (string, integer, boolean or one_of kind only) and the
 other way round; a spec a flat string source cannot carry is refused by
-`Input.check_spec` (input.md section 3); a body spec only on methods that
+[`Input.check_spec`] (input.md section 3); a body spec only on methods that
 take one (POST, PUT, PATCH, DELETE; a GET with a body spec raises).
 
 ### 6.4 Failure responses and `on_invalid`
@@ -667,11 +676,11 @@ question 1 is about the last row of this list):
 
 A route that wants the re-render passes `on_invalid` (`RouteOptions` and
 `Route`, 5.1): `function(Web.Request, Input.Invalid): Web.Response`. Core
-calls it in place of the default answer, for any `Input.Invalid` the route's
+calls it in place of the default answer, for any [`Input.Invalid`] the route's
 specs produced, with the request, so the hook can branch on
 `Htmx.request(req).active` or on `Accept`. The handler is then not called.
 
-`Input.Invalid` is defined in input.md section 2: `status`, `message`,
+[`Input.Invalid`] is defined in input.md section 2: `status`, `message`,
 `errors: {Input.FieldError}` and the submitted values for a re-render. Its
 `FieldError` has the fields `source` ("path", "query", "form" or "body"),
 `field` (the dotted name, `"address.city"`, `""` for the whole body),
@@ -682,7 +691,7 @@ sources), `message` and `code`. Without `on_invalid` the answer depends on
 `{"text/html","application/json"}` otherwise, ties broken by that order.
 
 JSON (`application/problem+json`, built by [`Web.problem`] with `errors`
-filled from `Input.Invalid.errors`):
+filled from [`Input.Invalid.errors`]):
 
 ```json
 {"type":"about:blank","title":"Unprocessable Content","status":422,
@@ -1263,7 +1272,7 @@ values by name), `+` as space, `%XX` decoded, a malformed escape or more
 than `max_pairs` refused (`lenient` is an option no cosmic.web caller sets),
 with [`Url.encode_query`] and the accessors. `cosmic.web.input` wraps it for
 both the query and the urlencoded body. If this lands slowly,
-`cosmic/web/input.tl` carries a private copy with a TODO "once cosmic.url
+[`cosmic/web/input.tl`] carries a private copy with a TODO "once cosmic.url
 has decode_query".
 
 ### 13.6 Smaller server.tl observations
@@ -1350,6 +1359,7 @@ close, and a raise in it reaches `on_error` without stopping the drain.
 [`cosmic.shape`]: ../../../cosmic/shape.tl
 [`cosmic.url`]: ../../../cosmic/url.tl
 [`cosmic.web`]: ../../../cosmic/web/init.tl
+[`cosmic/web/input.tl`]: ../../../cosmic/web/input.tl
 [`cosmic/web/request.tl`]: ../../../cosmic/web/request.tl
 [`cosmic/web/testing.tl`]: ../../../cosmic/web/testing.tl
 [`errors.trace`]: ../../../cosmic/internal/errors.d.tl
@@ -1360,6 +1370,10 @@ close, and a raise in it reaches `on_error` without stopping the drain.
 [`Html.trust`]: ../../../cosmic/html.tl
 [`Html.url_part`]: ../../../cosmic/html.tl
 [`Http.get`]: ../../../cosmic/http/init.tl
+[`Input.check_spec`]: ../../../cosmic/web/input.tl
+[`Input.Invalid.errors`]: ../../../cosmic/web/types.tl
+[`Input.Invalid`]: ../../../cosmic/web/input.tl
+[`Input.JSON`]: ../../../cosmic/web/input.tl
 [`Json.array`]: ../../../cosmic/json.tl
 [`Json.decode`]: ../../../cosmic/json.tl
 [`Json.encode`]: ../../../cosmic/json.tl
@@ -1399,9 +1413,12 @@ close, and a raise in it reaches `on_error` without stopping the drain.
 [`Web.add_header`]: ../../../cosmic/web/init.tl
 [`Web.get`]: ../../../cosmic/web/init.tl
 [`Web.html`]: ../../../cosmic/web/init.tl
+[`Web.input`]: ../../../cosmic/web/init.tl
 [`Web.key`]: ../../../cosmic/web/init.tl
 [`Web.mount_handler`]: ../../../cosmic/web/init.tl
 [`Web.mount`]: ../../../cosmic/web/init.tl
+[`Web.no_body`]: ../../../cosmic/web/init.tl
+[`Web.NONE`]: ../../../cosmic/web/init.tl
 [`Web.problem`]: ../../../cosmic/web/init.tl
 [`Web.redirect`]: ../../../cosmic/web/init.tl
 [`Web.Request`]: ../../../cosmic/web/init.tl
