@@ -1254,8 +1254,12 @@ local function end_child(self: Handle): Result | nil, string
   if status == nil and trouble ~= "" then return nil, trouble end
   local timed_out, killed = status == nil, false
   if timed_out then
-    local sent, why = sys.kill(target(self), sys.SIGTERM)
-    if not sent then
+    local sent, why, errno = sys.kill(target(self), sys.SIGTERM)
+    -- ESRCH for a child not yet reaped is one already exiting: Darwin
+    -- answers so from the start of a process's exit until it is a zombie,
+    -- which waitpid cannot reap before then, so the wait below reaps it.
+    -- A child reaped past this module fails that wait instead (ECHILD).
+    if not sent and errno ~= sys.ESRCH then
       -- The child may have exited between the last look and this signal.
       local gone, _ = exited(self)
       if gone == nil then return nil, why end
