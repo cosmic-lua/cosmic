@@ -52,6 +52,7 @@ local Signal = require("cosmic.signal")
 local Sse = require("cosmic.web.sse")
 local StaticFiles = require("cosmic.web.static")
 local Types = require("cosmic.web.types")
+local sys = require("cosmic.sys")
 local App = require("cosmic.web.app")
 local Request = require("cosmic.web.request")
 
@@ -117,6 +118,10 @@ end
 local DEFAULT_INTERVAL_NS <const> = Clock.ms(250)
 local SUPERVISE_INTERVAL_NS <const> = Clock.ms(300)
 local DEFAULT_GRACE_NS <const> = Clock.seconds(3)
+-- How long a program that outlasted its grace has to be gone once SIGKILL
+-- is sent: more than cosmic.child's own second, for a host slow to tear a
+-- process down (macOS under load).
+local KILLED_NS <const> = Clock.seconds(10)
 local RECONNECT_MS <const> = 300
 local LISTED <const> = 20
 
@@ -625,13 +630,19 @@ function Dev.supervise(opts?: Dev.SuperviseOptions): boolean, string
     local h = handle
     handle = nil
     local _, _ = h:stop()
-    -- TODO: give the program `grace_ns` when a SIGINT or SIGTERM stops the
-    -- supervisor too: the guard's signal cuts this wait short, and
-    -- cosmic.child ends the program after its own 250 ms. The fix is a
-    -- wait here that the guard does not end (a loop over `h:try_wait`
-    -- until `grace_ns` passes), once a second signal during it is decided
-    -- on: end the program at once, or wait on.
-    local _, _ = h:wait(grace_ns)
+    -- Not `h:wait(grace_ns)`: with the guard holding the signal that is
+    -- stopping this supervisor, that wait ends at once and cosmic.child
+    -- gives the program only its own 250 ms before SIGKILL, and a host
+    -- slow to tear the program down (macOS under load) outlasts the
+    -- second cosmic.child then waits to reap it, leaving it behind.
+    -- `wait_any` is not ended by the guard, and returns the program reaped.
+    local done, trouble = Child.wait_any({ h }, grace_ns)
+    if done == nil and trouble == Poll.TIMEOUT then
+      local _, _ = h:stop(sys.SIGKILL)
+      local _, _ = Child.wait_any({ h }, KILLED_NS)
+    end
+    -- TODO: decide on a second SIGINT or SIGTERM during the grace: end the
+    -- program at once, or wait on as it does today (the guard keeps it).
     local _, _ = h:close()
   end
 
