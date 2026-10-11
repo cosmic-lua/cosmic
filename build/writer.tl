@@ -202,6 +202,23 @@ local insert_examples =
   "WHERE x.module IS NOT NULL " ..
   "ORDER BY x.module, x.file, e.line"
 
+--- The stub ([`build.stub`]) of each planned `cosmic.*` module, in
+--- cosmic's own tree, where the planned modules are its standard library;
+--- a project's `cosmic.*` module, were it to have one, is no binary's.
+--- [`build.compilation`]'s `generate` has held each to its source's type.
+local insert_stubs =
+  "INSERT INTO out.stubs (path, source) " ..
+  "SELECT p.path, deflate(s.text) FROM plan p " ..
+  "JOIN inputs i ON i.path = p.path AND i.kind = 'module' " ..
+  "JOIN main.stubs s ON s.source_hash = i.source_hash " ..
+  "WHERE p.path GLOB 'cosmic.*' ORDER BY p.path"
+
+--- Each planned `cosmic.*` module `insert_stubs` found no stub of.
+local unstubbed_modules =
+  "SELECT p.path FROM plan p JOIN inputs i ON i.path = p.path AND i.kind = 'module' " ..
+  "WHERE p.path GLOB 'cosmic.*' AND p.path NOT IN (SELECT path FROM out.stubs) " ..
+  "ORDER BY p.path"
+
 --- The catalog entries ([`build.analyzer.CatalogEntry`]) found while parsing
 --- each planned module: every literal `return nil, ...` under a
 --- top-level function. The guidance a match prints is that function's
@@ -423,8 +440,11 @@ local function project(handle: work.Handle,
   -- materials ([`build.bom`]), read from the pins and records beside the
   -- code, and the CA roots it trusts ([`build.roots`]). A change to
   -- either comes with a pin's, a tool file, so `boot_hash`, which the
-  -- signature covers, moves when one does. A project's tables stay
-  -- empty.
+  -- signature covers, moves when one does. It also carries its standard
+  -- library's stubs (`insert_stubs`): a stub is a function of its
+  -- module's source, which the module's key holds, and of [`build.stub`],
+  -- which the compiler's identity in `meta` holds. A project's tables
+  -- stay empty.
   local own, own_trouble = tree.is_own(handle.root)
   if own == nil then
     return false, own_trouble
@@ -437,6 +457,19 @@ local function project(handle: work.Handle,
     local trusted, trust_trouble = roots.fill(db, handle.root, "out.")
     if not trusted then
       return false, trust_trouble
+    end
+    local stubbed, stub_trouble = db:exec(insert_stubs)
+    if not stubbed then
+      return false, stub_trouble
+    end
+    -- A module the binary carried no stub of would be typed from its
+    -- source, slower and with nothing to say so.
+    local unstubbed, unstubbed_trouble = Sqlite.text_rows(db, unstubbed_modules)
+    if unstubbed == nil then
+      return false, unstubbed_trouble
+    end
+    if #unstubbed > 0 then
+      return false, unstubbed[1][1] .. ": the projection holds no stub of it (build/stub.tl)"
     end
   end
   local carried_main, main_trouble = Sqlite.run(db,
@@ -627,6 +660,7 @@ local carry: {string} = {
   dropped_modules .. "INSERT INTO main.bound SELECT * FROM whole.bound " ..
     "WHERE path NOT IN dropped ORDER BY path, name",
   "INSERT INTO main.decls SELECT * FROM whole.decls ORDER BY path",
+  "INSERT INTO main.stubs SELECT * FROM whole.stubs ORDER BY path",
   "INSERT INTO main.payload SELECT * FROM whole.payload ORDER BY path",
   "INSERT INTO main.zoneinfo (name, data) SELECT name, data FROM whole.zoneinfo " ..
     "ORDER BY name",
