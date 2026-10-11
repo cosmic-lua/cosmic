@@ -460,6 +460,56 @@ local function test_the_carried_docs_are_the_public_standard_library_s(tmp: stri
   assert(indexed == "cosmic.fs build.work", "the docs index: " .. indexed)
 end
 
+--- An internal type is carried when a public declaration names it through
+--- the name its own module binds: as an alias's whole target, or as one of
+--- the bases a record lists. A name that only ends in the bound one, a
+--- binding to another internal module, and a declaration outside the
+--- public standard library reach nothing, however many internal rows there
+--- are to ask about.
+local function test_the_carried_internal_types_are_the_ones_a_public_signature_names(tmp: string)
+  local whole = tmp .. "/whole.db"
+  local db = assert(Sqlite.open(whole, { writable = true }))
+  for _, statement in ipairs(schema.settings("")) do assert(db:exec(statement)) end
+  for _, statement in ipairs(schema.create("")) do assert(db:exec(statement)) end
+  local function internal(module: string, type_name: string): string
+    return "('" .. module .. "', '" .. type_name .. "', 'raw." .. type_name ..
+      "', 1, 'record', '', 'A type.', 'f', 1)"
+  end
+  for _, statement in ipairs({
+      "INSERT INTO docs (module, symbol, source_symbol, exported, kind, signature, " ..
+        "text, file, line) VALUES " ..
+        internal("cosmic.internal.net", "Alias") .. ", " ..
+        internal("cosmic.internal.net", "First") .. ", " ..
+        internal("cosmic.internal.net", "Second") .. ", " ..
+        internal("cosmic.internal.net", "Suffixed") .. ", " ..
+        internal("cosmic.internal.other", "Elsewhere") .. ", " ..
+        internal("cosmic.internal.net", "Hidden") .. ", " ..
+        "('cosmic.net', 'Net.Alias', 'Net.Alias', 1, 'field', 'type Alias = Native.Alias', " ..
+        "'An alias.', 'f', 1), " ..
+        "('cosmic.net', 'Net.Options', 'Net.Options', 1, 'record', " ..
+        "'record Options is Native.First, Native.Second', 'Options.', 'f', 1), " ..
+        "('cosmic.net', 'Net.Suffixed', 'Net.Suffixed', 1, 'field', " ..
+        "'type Suffixed = NotNative.Suffixed', 'Not it.', 'f', 1), " ..
+        "('cosmic.net', 'Net.Elsewhere', 'Net.Elsewhere', 1, 'field', " ..
+        "'type Elsewhere = Native.Elsewhere', 'Not it.', 'f', 1), " ..
+        "('build.net', 'net.Hidden', 'net.Hidden', 1, 'field', " ..
+        "'type Hidden = Native.Hidden', 'Not public.', 'f', 1)",
+      "INSERT INTO bound (path, name, requires) VALUES " ..
+        "('cosmic.net', 'Native', 'cosmic.internal.net'), " ..
+        "('build.net', 'Native', 'cosmic.internal.net')",
+  }) do
+    assert(db:exec(statement))
+  end
+  assert(db:close())
+  assert(writer.carried(whole, tmp .. "/carried.db"))
+  local out = assert(Sqlite.open(tmp .. "/carried.db"))
+  local found = assert(Sqlite.text_rows(out,
+    "SELECT coalesce(group_concat(symbol, ' '), '') FROM (SELECT symbol FROM docs " ..
+      "WHERE module LIKE 'cosmic.internal.%' ORDER BY id)"))
+  assert(out:close())
+  assert(found[1][1] == "Alias First Second", "the internal types carried: " .. found[1][1])
+end
+
 --- A user guide is a generated test module, which the tool does not
 --- carry, but its prose is what `cosmic docs quickstart` answers with:
 --- its own doc row is carried, not the helpers its module declares, and
