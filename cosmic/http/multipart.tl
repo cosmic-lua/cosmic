@@ -325,7 +325,11 @@ end
 --- why when it holds a control byte, is not UTF-8 or is too long.
 local function clean_filename(raw: string): string | nil, string
   if has_control(raw) then return nil, "multipart: a filename holds a control byte" end
-  local base = raw:match("[^/\\]*$")
+  -- Cut at the last separator by a scan from the end: `[^/\\]*$` retries at
+  -- every byte of a long name.
+  local cut = #raw
+  while cut > 0 and not raw:find("^[/\\]", cut) do cut = cut - 1 end
+  local base = raw:sub(cut + 1)
   if base == "" and raw ~= "" then return nil, "multipart: a filename names a directory" end
   if #base > MAX_FILENAME then return nil, "multipart: a filename is longer than 255 bytes" end
   if not utf8.len(base) then return nil, "multipart: a filename is not UTF-8" end
