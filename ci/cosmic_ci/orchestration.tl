@@ -374,8 +374,8 @@ local record Context
   root: string
   driver: string
   --- The platform phase running (`platform`'s PHASE), which a suite's
-  --- row names.
-  phase: string
+  --- row names; nil outside a platform phase.
+  phase?: string
 end
 
 --- The environment variable `name`, or nil when it is unset or empty.
@@ -758,7 +758,7 @@ end
 local record Placement
   kind: string
   from: string
-  only: {string}
+  only?: {string}
 end
 
 --- Places each of `placements` in the `fixtures` directory of the

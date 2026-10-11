@@ -428,7 +428,7 @@ local function test_a_failed_drain_preserves_the_status_it_observed(tmp: string)
   Child.start = function(_argv: {string}, _opts?: Child.Options): Child.Handle | nil, string
     local fake: any = {
       try_wait = function(): Child.TryWait
-        return ended and { finished = true, result = { ok = false, code = 17 } } or { finished = false }
+        return ended and { finished = true, result = { ok = false, code = 17, timed_out = false, captured = {}, truncated = false } } or { finished = false }
       end,
       drain = function(_self: any, options: Child.DrainOptions): Child.DrainResult
         assert(assert(options.stdout):write("saved-once\n"))
