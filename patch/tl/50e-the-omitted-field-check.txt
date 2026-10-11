@@ -1,0 +1,60 @@
+file: tl.tl
+note: The check of 50c, as functions: `refuse_omitted_fields` for a literal against its record, `check_literal_omissions` for a literal and the literals nested in it against a resolved record (50f)
+--- find
+   function TypeChecker:arraytype_from_tuple(w: Where, tupletype: TupleTableType): ArrayType, {Error}
+--- replace
+   local function refuse_omitted_fields(self: TypeChecker, node: Node, decltype: RecordLikeType, given: function(string): boolean)
+      node.omissions_checked = true
+      if self.env.lenient_literals then
+         return
+      end
+      local absent: {string} = {}
+      for _, fname in ipairs(decltype.field_order) do
+         local ftype = decltype.fields[fname]
+         if not given(fname)
+            and not (ftype is TypeDeclType)
+            and not (ftype is FunctionType and ftype.is_record_function)
+            and fname:sub(1, 2) ~= "__"
+            and not admits_nil(self, node, ftype) then
+            local sft = self:to_structural(ftype)
+            if sft is GenericType then
+               sft = sft.t
+            end
+            if not (sft is FunctionType or sft is PolyType) then
+               table.insert(absent, fname)
+            end
+         end
+      end
+      if #absent > 0 then
+         self.errs:add_in_context(node, node, "table literal omits field(s) of " ..
+            (decltype is RecordType and "record " or "interface ") ..
+            tostring(decltype.declname or "(anonymous)") .. " that do not admit nil: " ..
+            table.concat(absent, ", ") .. " (give them, or mark a field that may be absent `name?: T`)")
+      end
+   end
+
+   local function check_literal_omissions(self: TypeChecker, node: Node, decltype: RecordLikeType)
+      local keys: {string:boolean} = {}
+      for _, item in ipairs(node) do
+         if item.key and item.key.conststr then
+            keys[item.key.conststr] = true
+         end
+      end
+      refuse_omitted_fields(self, node, decltype, function(key: string): boolean
+         return keys[key] == true
+      end)
+      for _, item in ipairs(node) do
+         local value = item.value
+         local key = item.key and item.key.conststr
+         if key and value and value.kind == "literal_table" and not value.omissions_checked then
+            local field = decltype.fields[key]
+            local rf = field and self:to_structural(field)
+            if rf is RecordLikeType then
+               check_literal_omissions(self, value, rf)
+            end
+         end
+      end
+   end
+
+   function TypeChecker:arraytype_from_tuple(w: Where, tupletype: TupleTableType): ArrayType, {Error}
+--- end

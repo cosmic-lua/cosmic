@@ -17,39 +17,23 @@ defines the target; once something ships, it leaves this file.
   give any target type unchecked, so one that contains a never-function (a
   function type, or a record or container with such a field) forges the
   guarantee of `: never`.
-- refuse a table literal that omits a record field. records are open: `local r:
-  R = {}` type-checks for an `R` with `name: string`, and `r.name` is nil.
-  `name?: T` (patch/tl 49a to 49e4) declares a field a literal may omit, typed
-  `T | nil`, and the records declared under cosmic/ are marked. a measurement that refused every
-  omission, function fields included, flagged 4,590 literals, 24,475 omitted
-  fields and 993 distinct record.field pairs, about three quarters of the sites
-  in tests, and the tree no longer built; the pairs are the work, and the sites
-  follow from them. what is left:
-  - mark the fields that are optional `name?: T` and fill the literals that
-    omit a required one, an area of the tree at a time, each change building
-    on its own with no rule in force. a marked field's reads that do not check
-    for nil are refused, so each change guards them or finds a real nil.
-  - the checker refuses a nil-admitting value, a marked field or any `T |
-    nil`, as an index, in `ipairs` and `pairs`, as an operand of `..`, `#`,
-    arithmetic, a bit operator or an ordered comparison (patch/tl 51b) and as
-    an argument of `table.insert` and `table.concat` (51c); 267 operand sites
-    and 16 of those arguments were measured and fixed, none a nil the code
-    could reach. TODO: refuse it as an argument for any other
-    parameter that does not admit nil (the TODO in patch/tl 51c): 791 sites in
-    178 files, 328 of them in tests, pass a `T | nil`, and 707 in 101 files
-    pass a literal nil, 649 of them in tests that check an argument's
-    refusal that way, so a literal nil may stay accepted.
-  - make the check an error for the whole tree at once, with function fields
-    exempt (they cover methods supplied by `__index`, metamethods, and type
-    declarations). TODO: that exemption must include generic function fields ([`Request.get`]
-    and `set` of cosmic.web), and a metatable's `__index = { ... }` literal,
-    which #2982 checks against its record, would be read as a literal
-    omitting every data field: the marking hoists those tables into locals
-    (`cosmic/web`, [`cosmic/zip.tl`]) until the rule skips a literal whose
-    fields are all functions. a warning first is no option: every warning cosmic sees is
-    a refused compile ([`build/compilation.tl`]'s `generate`,
-    [`build/standalone.tl`] and [`build/example_checks.tl`] each reject on
-    one), and the compile cache keeps no warnings to show again on a hit.
+- refuse the uses of a nil-admitting record field that raise at run time.
+  a table literal must give every field that does not admit nil (patch/tl 50),
+  and `name?: T` (49a to 49e4) declares one it may omit, typed `T | nil`.
+  the checker refuses a nil-admitting value, a marked field or any `T | nil`,
+  as an index, in `ipairs` and `pairs`, as an operand of `..`, `#`, arithmetic,
+  a bit operator or an ordered comparison (patch/tl 51b) and as an argument of
+  `table.insert` and `table.concat` (51c); 267 operand sites and 16 of those
+  arguments were measured and fixed, none a nil the code could reach.
+  TODO: refuse it as an argument for any other parameter that does not admit
+  nil (the TODO in patch/tl 51c): 791 sites in 178 files, 328 of them in
+  tests, pass a `T | nil`, and 707 in 101 files pass a literal nil, 649 of
+  them in tests that check an argument's refusal that way, so a literal nil
+  may stay accepted.
+  a warning first is no option: every warning cosmic sees is
+  a refused compile ([`build/compilation.tl`]'s `generate`,
+  [`build/standalone.tl`] and [`build/example_checks.tl`] each reject on
+  one), and the compile cache keeps no warnings to show again on a hit.
 - declare cosmic.stream's interface methods with a named receiver
   (`read: function(self: Reader, ...)`) and drop each implementing record's
   redeclaration of them: the documented signatures then read as
@@ -490,7 +474,6 @@ four-producer provenance join.
 [`cosmic/shape_example.tl`]: ../cosmic/shape_example.tl
 [`cosmic/stream.tl`]: ../cosmic/stream.tl
 [`cosmic/template/markup.tl`]: ../cosmic/template/markup.tl
-[`cosmic/zip.tl`]: ../cosmic/zip.tl
 [`Errors.guidance`]: ../cosmic/errors.tl
 [`eval/summarize.tl`]: ../eval/summarize.tl
 [`Html.url_part`]: ../cosmic/html.tl
@@ -498,7 +481,6 @@ four-producer provenance join.
 [`Json.decode`]: ../cosmic/json.tl
 [`Net.serve`]: ../cosmic/net.tl
 [`receivers.record_named`]: ../build/receivers.tl
-[`Request.get`]: ../cosmic/web/types.tl
 [`Sandbox.Limits`]: ../cosmic/sandbox/init.tl
 [`Sandbox.Policy`]: ../cosmic/sandbox/init.tl
 [`Server.none_match`]: ../cosmic/http/server.tl

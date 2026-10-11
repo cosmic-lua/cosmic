@@ -1266,6 +1266,10 @@ local record Recording
   --- out of every record of the run (see [`write_coverage`]).
   unowned: Coverage.Hits
   tally: test.Tally
+  --- How many jobs `--bail` left unstarted after the first failure
+  --- ([`run_jobs`]). Such a test made no verdict, pass or fail, and is
+  --- in no figure of the tally.
+  not_run: integer
   --- The verdicts every checkout shares, or nil, and what the run owes
   --- them when it ends.
   shared?: shared_verdicts.Cache
@@ -1954,7 +1958,7 @@ local launch_only: {string:boolean} = { COSMIC_REBOOTED = true, OLDPWD = true, S
 ---   pause one startup of a fixture runtime for a handshake and belong to
 ---   this process's own launch, not to every worker it starts;
 --- - what `launch_only` names; and
---- - COSMIC_TEST_NO_SHARED;
+--- - COSMIC_TEST_NO_SHARED and COSMIC_TEST_BAIL;
 ---
 --- and with the shared verdict cache off (`COSMIC_VERDICT_CACHE=0`) and
 --- the shared compiles too (`COSMIC_BUILD_CACHE=0`).
@@ -1977,6 +1981,7 @@ function test.worker_environment(environment: {string:string}): {string:string}
   -- Nor does it take this run's choice not to stand on them: a test
   -- that runs `cosmic test` says for itself what that run does.
   out.COSMIC_TEST_NO_SHARED = nil
+  out.COSMIC_TEST_BAIL = nil
   out.COSMIC_TEST_NOEXEC = nil
   out.COSMIC_TEST_PARENT = nil
   -- Nor a rebuild lock handed to this run (build.rebuild_lock): what a
@@ -2905,8 +2910,13 @@ end
 --- still running; the signal comes back as the return, for the caller
 --- to be ended by it when the guard closes. Without a guard, a signal
 --- acts as it would, and the return is 0.
+---
+--- With `bail`, a failure (any entry in `rec.failures`, one recorded
+--- before the run included) stops the starting of jobs. Those already running finish with their
+--- own verdicts, and the jobs never started are counted in
+--- `rec.not_run` and recorded as nothing.
 local function run_jobs(rec: Recording, jobs: {Job}, limits: test.Limits,
-                        guard: Signal.Guard | nil): integer
+                        guard: Signal.Guard | nil, bail: boolean): integer
   if #jobs == 0 then return 0 end
   local start, start_trouble = worker.program()
   if start == nil then
@@ -2916,8 +2926,12 @@ local function run_jobs(rec: Recording, jobs: {Job}, limits: test.Limits,
   local running: {Job} = {}
   local next_job = 1
   local cancelled = 0
+  -- A failure recorded before any job starts (an unmet requirement, say)
+  -- stops a bailing run as one a job makes does: baseline 0.
+  local failures_before = 0
   while next_job <= #jobs or #running > 0 do
-    while #running < limits.jobs and next_job <= #jobs do
+    while #running < limits.jobs and next_job <= #jobs and
+        not (bail and #rec.failures > failures_before) do
       local job = jobs[next_job]
       next_job = next_job + 1
       if launch(rec, job, start, limits) then
@@ -3002,6 +3016,7 @@ local function run_jobs(rec: Recording, jobs: {Job}, limits: test.Limits,
     end
     running = still
   end
+  if cancelled == 0 and next_job <= #jobs then rec.not_run = #jobs - next_job + 1 end
   for _, job in ipairs(running) do
     local closed, trouble = assert(job.handle):close()
     if not closed and job.scratch ~= nil then
@@ -3136,6 +3151,8 @@ local record Run
   forced?: boolean
   consult?: boolean
   census?: boolean
+  --- Whether the run starts no job after the first failure (`--bail`).
+  bail?: boolean
 
   -- The checkout ([`hold_checkout`]).
   started?: integer
@@ -3269,6 +3286,7 @@ local function read_command(ctx: Run): integer | nil
   ctx.consult = not (parsed.set["--no-shared"] == true or
     Env.get("COSMIC_TEST_NO_SHARED") == "1")
   ctx.census = parsed.set["--census"] == true
+  ctx.bail = parsed.set["--bail"] == true or Env.get("COSMIC_TEST_BAIL") == "1"
   return nil
 end
 
@@ -3705,7 +3723,7 @@ local function make_recording(ctx: Run)
     run_at_ns = ctx.run_at_ns, run = handle.run,
     failures = failures, errors = errors, outputs = {}, reruns = {},
     failed = {}, skips = {}, unchecked = {}, deliberate = {}, held = ctx.held, nas = {}, unmet = {}, answered = {},
-    hits = hits, by_test = by_test, unowned = unowned, tally = tally,
+    hits = hits, by_test = by_test, unowned = unowned, tally = tally, not_run = 0,
     owed = { kept = {}, used = {}, failed = {}, stores = {} }, shared_keys = {},
     consult_shared = ctx.consult,
     origin = checkout_id(records, ctx.root, ctx.run_at_ns),
@@ -4210,13 +4228,13 @@ local function execute(ctx: Run): integer | nil
     local _removing <close>: Removal = setmetatable({ rec = rec }, removal_mt)
     local opened, _ = Signal.guard()
     if opened == nil then
-      run_jobs(rec, jobs, ctx.limits, nil)
+      run_jobs(rec, jobs, ctx.limits, nil, ctx.bail)
     else
       -- A signal the guard caught ends this process when it closes,
       -- once the run is aborted; under a guard of its caller's (test's
       -- `run` called in-process), it is left to that one.
       local guard <close> = opened
-      if run_jobs(rec, jobs, ctx.limits, guard) ~= 0 then
+      if run_jobs(rec, jobs, ctx.limits, guard, ctx.bail) ~= 0 then
         cancel_records(ctx)
         -- A test that failed before the signal keeps its directory,
         -- named as a finished run's report names it: the failures on
@@ -4265,7 +4283,11 @@ local function settle(ctx: Run)
   local function_lines: {string} = {}
   ctx.function_lines = function_lines
   local functions = Coverage.native_functions()
-  if ctx.own_tree and ctx.whole and #functions > 0 then
+  if ctx.own_tree and rec.not_run > 0 then
+    -- The tests not started are the ones that would have entered some.
+    function_lines[1] = string.format("test: C functions not checked: %s not run " ..
+        "after the first failure", plural.count(rec.not_run, "test"))
+  elseif ctx.own_tree and ctx.whole and #functions > 0 then
     -- A host whose name cannot be had is held to every function.
     local names, uname_trouble = sys.uname()
     if names == nil then errors[#errors + 1] = "uname: " .. uname_trouble end
@@ -4384,7 +4406,7 @@ local function report(ctx: Run): integer
     for _, function_line in ipairs(assert(ctx.function_lines)) do log:say(function_line) end
   end
   log:verdict("test", false, test_report.failed(#failures, total + #assert(ctx.result).refused,
-    #errors, clock.took(started) .. assert(ctx.sandbox_summary) .. assert(ctx.share_summary)))
+    #errors, clock.took(started) .. assert(ctx.sandbox_summary) .. assert(ctx.share_summary), rec.not_run))
   return 1
 end
 

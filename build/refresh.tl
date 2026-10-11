@@ -307,7 +307,7 @@ local tzdata: refresh.Dataset = {
       return nil, path .. ": not a tzdata sdist: no tzdata-<version>/src/tzdata/zoneinfo/"
     end
     local rules = refresh.tzdata_rules
-    local files, keep_trouble = Vendor.kept({ url = "", sha256 = "", file = "",
+    local files, keep_trouble = Vendor.kept({ url = "", sha256 = "", sha3_256 = "", file = "",
       strip = rules.strip:format(version), keep = rules.keep, drop = rules.drop }, entries)
     if files == nil then
       return nil, path .. ": " .. keep_trouble

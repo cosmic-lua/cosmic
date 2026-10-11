@@ -382,8 +382,11 @@ end
 --- handle: a require of build.work would carry the rest of it into the
 --- compiler's identity (`compiler_identity` in build.identity), of which
 --- this module is a root.
+---
+--- With `lenient`, a table literal may omit a record's field that does not
+--- admit nil (`Env.lenient_literals`); otherwise it is refused.
 function teal.environment_for(built: compiler, db: Sqlite.Handle,
-                              root: string): compiler.Env | nil, string
+                              root: string, lenient?: boolean): compiler.Env | nil, string
   serve(built, db, root)
   local env, trouble = built.new_env({
     defaults = {
@@ -396,6 +399,7 @@ function teal.environment_for(built: compiler, db: Sqlite.Handle,
     return nil, trouble
   end
   teal.strip(env)
+  env.lenient_literals = lenient
   return env
 end
 
