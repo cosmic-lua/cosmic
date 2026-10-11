@@ -22,31 +22,31 @@ local record Result
   --- not there.
   record Files
     --- The transcript's text.
-    transcript: string
-    started_at: string
-    finished_at: string
+    transcript?: string
+    started_at?: string
+    finished_at?: string
     --- The solver's exit status, as text.
-    exit_code: string
+    exit_code?: string
     --- eval/summarize's report.
-    summary: string
+    summary?: string
   end
 
   --- What the grader said: its exit status, nil when it did not run.
   record Grade
-    exit_code: integer
+    exit_code?: integer
     --- The log that holds its lines, as a path under the arena.
-    log: string
+    log?: string
   end
 
   --- What the caller knows that the arena does not.
   record Meta
-    model: string
-    max_turns: integer
-    timeout: integer
+    model?: string
+    max_turns?: integer
+    timeout?: integer
     --- The commit of the binary under test.
-    commit: string
+    commit?: string
     --- The commit of this harness.
-    harness_commit: string
+    harness_commit?: string
   end
 end
 

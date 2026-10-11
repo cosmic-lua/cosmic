@@ -77,19 +77,19 @@ local record Csrf
     --- "https://app.example.com" (a CORS partner: see [`Cors.trusted`]), or
     --- "null". An entry that is no origin raises. Such a request still needs
     --- its token.
-    trusted_origins: {string}
+    trusted_origins?: {string}
     --- Run the Origin layer (true).
-    origin_check: boolean
+    origin_check?: boolean
     --- Run the token layer (true). False states that the Origin layer is
     --- the whole defence, as for a site with no session.
-    token: boolean
+    token?: boolean
     --- Treat `Sec-Fetch-Site: same-site` as cross-site (false); an `Origin`
     --- of another origin is refused either way.
-    strict_same_site: boolean
+    strict_same_site?: boolean
     --- Requests this answers true for are not checked (nil).
     exempt: function(Types.Request): boolean
     --- Skip the token layer for a request with `Authorization: Bearer` (true).
-    bearer_exempt: boolean
+    bearer_exempt?: boolean
     --- Answers a refused request, given why ("origin", "cross-site",
     --- "referer" or "token"); the default is a 403 through the app's error
     --- page.

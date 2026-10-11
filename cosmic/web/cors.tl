@@ -40,25 +40,25 @@ local record Cors
     --- The origins a page may read from: "https://app.example.com" (scheme,
     --- host and an optional port, no path), "null", or `{"*"}` alone for
     --- any. An entry that is none of these raises.
-    allow_origins: {string}
+    allow_origins?: {string}
     --- A predicate in addition to the list, given an origin in lowercase
     --- ("https://a.example.com"); never called for "null". With credentials
     --- it is the app's job not to say yes to a stranger.
     allow_origin: function(origin: string): boolean
     --- The methods a preflight may ask for; {"GET", "HEAD", "POST"} by
     --- default. Each is an uppercase method name: "*" raises.
-    allow_methods: {string}
+    allow_methods?: {string}
     --- The request headers a preflight may ask for besides the safelisted
     --- (Accept, Accept-Language, Content-Language, Content-Type); {"*"}
     --- allows any header name, and the answer repeats the ones asked for.
-    allow_headers: {string}
+    allow_headers?: {string}
     --- Response headers a script may read (Access-Control-Expose-Headers).
-    expose_headers: {string}
+    expose_headers?: {string}
     --- Let a page send and read cookies and Authorization (false).
-    allow_credentials: boolean
+    allow_credentials?: boolean
     --- Seconds a browser may keep a preflight's answer (600). Browsers cap
     --- it: Chrome 7200, Firefox 86400.
-    max_age: integer
+    max_age?: integer
   end
 end
 

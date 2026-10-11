@@ -26,9 +26,9 @@ local record Round
     tasks: {string}
     model: string
     --- The cosmic binary under test; nil for this checkout's.
-    tool: string
+    tool?: string
     --- Where the round's arenas and index go; nil for the default.
-    out: string
+    out?: string
     run: integer
     jobs: integer
     max_turns: integer
@@ -101,7 +101,11 @@ end
 --- `--jobs` 3, `--max-turns` 150 and `--timeout` 600 (eval/solve's own
 --- defaults, stated so result.json records them) unless given.
 function Round.parse(argv: {integer: string}): Round.Options | nil, string
-  local options: Round.Options = { run = 1, jobs = 3, max_turns = 150, timeout = 600 }
+  local tasks: {string} = nil
+  local model: string = nil
+  local tool: string = nil
+  local out: string = nil
+  local run, jobs, max_turns, timeout = 1, 3, 150, 600
   local i = 1
   while argv[i] ~= nil do
     local word = argv[i]
@@ -109,31 +113,31 @@ function Round.parse(argv: {integer: string}): Round.Options | nil, string
       local value = argv[i + 1]
       if value == nil then return nil, word .. " needs a value" end
       if word == "--model" then
-        options.model = value
+        model = value
       elseif word == "--tool" then
-        options.tool = value
+        tool = value
       elseif word == "--out" then
-        options.out = value
+        out = value
       elseif word == "--run" or word == "--jobs" or word == "--max-turns" or word == "--timeout" then
         local n = positive(value)
         if n == nil then return nil, word .. " takes a positive integer: " .. value end
         if word == "--run" then
-          options.run = n
+          run = n
         elseif word == "--jobs" then
-          options.jobs = n
+          jobs = n
         elseif word == "--max-turns" then
-          options.max_turns = n
+          max_turns = n
         else
-          options.timeout = n
+          timeout = n
         end
       else
         return nil, "unknown option " .. word
       end
       i = i + 2
-    elseif options.tasks ~= nil then
+    elseif tasks ~= nil then
       return nil, "one list of tasks only: " .. word
     else
-      options.tasks = {}
+      tasks = {}
       local seen: {string: boolean} = {}
       local names: {string} = word == "all" and Round.all_tasks or {}
       if word ~= "all" then
@@ -145,15 +149,16 @@ function Round.parse(argv: {integer: string}): Round.Options | nil, string
         if not known then return nil, "no task " .. name end
         if not seen[name] then
           seen[name] = true
-          options.tasks[#options.tasks + 1] = name
+          tasks[#tasks + 1] = name
         end
       end
       i = i + 1
     end
   end
-  if options.tasks == nil or #options.tasks == 0 then return nil, "tasks are required" end
-  if options.model == nil or options.model == "" then return nil, "--model is required" end
-  return options, ""
+  if tasks == nil or #tasks == 0 then return nil, "tasks are required" end
+  if model == nil or model == "" then return nil, "--model is required" end
+  return { tasks = tasks, model = model, tool = tool, out = out, run = run, jobs = jobs,
+    max_turns = max_turns, timeout = timeout }, ""
 end
 
 --- The default `--out`: /tmp/cosmic-evals/<model>-<commit>, the model's

@@ -1490,12 +1490,12 @@ local function tag(data: string): string
   return "\"" .. Hash.hex_sha256(data) .. "\""
 end
 
-local function mirror_files(site: Site)
+local function mirror_files(): {string: string}
   local bytes: {string} = {}
   for i = 0, 255 do bytes[#bytes + 1] = string.char(i) end
   local lines: {string} = {}
   for i = 1, 250 do lines[#lines + 1] = string.format("line %04d of the big file\n", i) end
-  site.files = {
+  return {
     ["a.txt"] = "alpha\n",
     ["big.txt"] = table.concat(lines),
     ["sub/b.bin"] = table.concat(bytes),
@@ -1794,15 +1794,14 @@ local function mirror_archives(g: Grade, site: Site)
 end
 
 local function mirror(g: Grade)
-  local site: Site = { closes = true }
-  mirror_files(site)
-  for path, data in pairs(site.files) do write(g, "site/" .. path, data) end
+  local files = mirror_files()
+  for path, data in pairs(files) do write(g, "site/" .. path, data) end
   write(g, "secret.txt", "TOP SECRET\n")
   local server, port = serves(g, { "serve", "site", "0" })
   if server == nil then
     return
   end
-  site.port = port
+  local site: Site = { port = port, files = files, closes = true }
   mirror_requests(g, site)
   mirror_listings(g, site)
   mirror_pulls(g, site)

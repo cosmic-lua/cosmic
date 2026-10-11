@@ -61,24 +61,24 @@ local record Dev
   record Options
     --- Whether development mode is on; nil reads `COSMIC_WEB_DEV` (on for
     --- `1`, and for nothing else).
-    enabled: boolean
+    enabled?: boolean
     --- The directory the page's stylesheets come from and whose changes
     --- the browser follows ("static" by default).
-    static: string
+    static?: string
     --- How often the open event streams look at `static` (250 ms by
     --- default).
-    interval_ns: integer
+    interval_ns?: integer
     --- What tells a page its process is not the one it met: nil reads
     --- `COSMIC_WEB_BOOT`, which the supervisor counts up, else a token
     --- made when the app is.
-    boot: string
+    boot?: string
   end
 
   --- What [`Dev.supervise`] takes; every field is optional.
   record SuperviseOptions
     --- The program to run, as an argument list: this program on `app.tl`
     --- (`cosmic app.tl`) by default.
-    command: {string}
+    command?: {string}
     --- Starts the program given its whole environment, in place of
     --- [`Child.start`] on `command` with that environment; for a program that
     --- needs more than an argument list. Nil and why where it cannot start.
@@ -86,26 +86,26 @@ local record Dev
     --- Directories whose files are watched (the working directory by
     --- default). A change to one's size or time, or an added or removed
     --- file, restarts the program.
-    watch: {string}
+    watch?: {string}
     --- Files left out, by glob (`*` and `?`): one without a "/" is matched
     --- against a file's or directory's name, one with it against its path
     --- from the watched directory, and one that begins with "/" against
     --- that path from its start. By default the hidden files, databases
     --- and their journals, editors' backups, `node_modules` and the root's
     --- `static` directory (see `static`). Giving `ignore` replaces that list.
-    ignore: {string}
+    ignore?: {string}
     --- The directory (from the watched root) whose changes the browser
     --- follows without a restart and the default `ignore` leaves out:
     --- "static" by default; the `static` of [`Dev.app`]'s options.
-    static: string
+    static?: string
     --- How often the files are looked at (300 ms by default). A change
     --- restarts the program once a look finds nothing further moved.
-    interval_ns: integer
+    interval_ns?: integer
     --- How long a program has to stop after SIGTERM before SIGKILL (3
     --- seconds by default). It holds when the supervisor itself is
     --- signalled too; a second SIGINT or SIGTERM during it does not cut it
     --- short.
-    grace_ns: integer
+    grace_ns?: integer
     --- Where the supervisor's lines go (standard error by default).
     log: function(text: string)
     --- Called after each start with the boot's number, from 1, and the
@@ -442,7 +442,7 @@ local function injected(res: Types.Response, nonce: string | nil): Types.Respons
   local page = body:sub(1, at - 1) .. tag(nonce) .. body:sub(at)
   local headers: {string: string | {string}} = {}
   for name, value in pairs(res.headers or {}) do headers[name] = value end
-  local copy: Types.Response = {}
+  local copy: Types.Response = { status = res.status }
   for key, value in pairs(res as {any:any}) do (copy as {any:any})[key] = value end
   copy.headers = headers
   copy.body = page

@@ -48,8 +48,8 @@ local record Outcome
   signal: integer
   said: string
   --- Why the start was refused, when it was.
-  refused: string
-  errno: integer
+  refused?: string
+  errno?: integer
 end
 
 --- Starts `program` with `script` under `grants`, in `tmp`'s directory:
