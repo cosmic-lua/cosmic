@@ -84,10 +84,10 @@ local rebuild_timeout_ns <const> = Clock.seconds(150)
 -- builds the tree from the seeded compiles, runs four tests, and writes
 -- their coverage, which in a build directory as fresh as the case's finds
 -- the executable lines of every module of the tree, cached for none:
--- 18 s of one core for some 800 modules in October 2026, against 4 s for
--- the rest, so it grows with the tree. Process.finish's default 30 s
--- held it until the tree reached that size (merge-queue run 38110857516
--- ended the child with SIGTERM, which says nothing on its streams).
+-- some 18 s of one core for 800 modules, against 4 s for the rest, and
+-- it grows with the tree, so Process.finish's default 30 s is too short.
+-- A wait that runs out ends the child with SIGTERM, which says nothing
+-- on its streams; the assert after it reports the status and stderr.
 -- TODO: share a module's executable lines across checkouts as its
 -- compiles are (build/shared_compiles.tl), keyed by its source, so a
 -- fresh build directory's first `cosmic test` does not compute them for
