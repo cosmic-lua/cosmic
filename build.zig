@@ -1430,7 +1430,10 @@ fn vendorLibraries(
     // table and index costs in pages and bytes, which `cosmic db`
     // reports. `fts5` is on: it backs the shipped catalog, which an
     // uncaught error and `cosmic docs` search, and costs ~222 KB per raw
-    // core (three raw cores per portable artifact).
+    // core (three raw cores per portable artifact). The math functions
+    // (`sqrt`, `ln`, `pow`, ...) and the percentile aggregates
+    // (`median`, `percentile`, ...) are on, which the bare amalgamation
+    // leaves out: about 12 KB per raw core on Linux, 17 KB on macOS.
     const sqlite_flags: []const []const u8 = &.{
         "-std=c11",
         debug_dir,
@@ -1450,6 +1453,8 @@ fn vendorLibraries(
         "-DSQLITE_ENABLE_COLUMN_METADATA=1",
         "-DSQLITE_ENABLE_DBSTAT_VTAB=1",
         "-DSQLITE_ENABLE_FTS5=1",
+        "-DSQLITE_ENABLE_MATH_FUNCTIONS=1",
+        "-DSQLITE_ENABLE_PERCENTILE=1",
     };
     vendorPart(b, &libraries, configuration, target, "sqlite", &.{sqlite}).addCSourceFiles(.{
         .root = sqlite,

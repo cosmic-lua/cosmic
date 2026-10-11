@@ -23,6 +23,10 @@
 --- SQLite's JSON functions read JSON5 always, and in cosmic's copy `#`
 --- line comments too, as `cosmic.json` does given `hash_comments`: a
 --- text in YAML's flow style reads the same through either.
+---
+--- SQLite's math functions (`sqrt`, `pow`, `ln`, `floor`, ...) and its
+--- percentile aggregates (`median`, `percentile`, `percentile_cont`,
+--- `percentile_disc`) are built in.
 
 -- The raw module behind this one lives under the reserved
 -- `cosmic.internal.` namespace, which never satisfies an ordinary
