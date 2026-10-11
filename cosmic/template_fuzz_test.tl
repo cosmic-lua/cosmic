@@ -538,17 +538,17 @@ end
 --- made value wrapped in marker bytes so a check can tell what came from
 --- which: \1 \2 around escaped text, \3 \4 around an attribute value,
 --- and \5 ahead of what `href` answered.
-local STAND_IN <const>: {string: function} = {
+local STAND_IN <const>: {string: function(any): any} = {
   escape = function(s: any): {string: string} return { s = "\1" .. esc(s) .. "\2" } end,
   escape_attr = function(s: any): {string: string} return { s = "\3" .. esc_attr(s) .. "\4" } end,
   href = function(s: any): {string: string}
     local text = s is string and s or ""
     return { s = "\5" .. (text:lower():find("^%s*javascript:") and "about:invalid" or text) }
   end,
-  trust = function(s: string): {string: string} return { s = s } end,
-  raw = function(v: {string: string}): string return v.s end,
-  raw_attr = function(v: {string: string}): string return v.s end,
-  raw_url = function(v: {string: string}): string return v.s end,
+  trust = function(s: any): {string: string} return { s = s is string and s or "" } end,
+  raw = function(v: any): string return v is {string: string} and v.s or "" end,
+  raw_attr = function(v: any): string return v is {string: string} and v.s or "" end,
+  raw_url = function(v: any): string return v is {string: string} and v.s or "" end,
 }
 
 --- The generated source with Teal's types struck out, in the shapes the
