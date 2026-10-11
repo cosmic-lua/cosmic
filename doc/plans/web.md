@@ -283,7 +283,7 @@ needs have merged.
 6. **htmx and assets:** vendored htmx and its SSE extension with their
    PINs, the `static/` convention and `StaticFiles`, `cosmic.web.htmx`
    and `Htmx.head`.
-7. **Streaming and the rest:** [`cosmic.channel`], `cosmic.web.sse`,
+7. **Streaming and the rest:** [`cosmic.channel`], [`cosmic.web.sse`],
    `cosmic.http.multipart` (decision 8), and
    `cosmic.web.dev`.
 8. **A guide,** doc/guides/web.md, which is a test of its own: one app
@@ -348,6 +348,7 @@ cooperative process.
 [`cosmic.web.session.cookie`]: ../../cosmic/web/session/cookie.tl
 [`cosmic.web.session.sqlite`]: ../../cosmic/web/session/sqlite.tl
 [`cosmic.web.session`]: ../../cosmic/web/session/init.tl
+[`cosmic.web.sse`]: ../../cosmic/web/sse.tl
 [`cosmic.web`]: ../../cosmic/web/init.tl
 [`Hash.equal`]: ../../cosmic/hash.tl
 [`Html.url_part`]: ../../cosmic/html.tl

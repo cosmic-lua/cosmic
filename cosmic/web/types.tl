@@ -32,6 +32,14 @@ local record Types
   --- returns.
   type Shutdown = function()
 
+  --- Something that ends when the server stops: what an app's `hubs`
+  --- holds ([`Sse.Hub`] is one). `close` is safe to call twice and never
+  --- waits.
+  interface Closable
+    --- Ends what it holds.
+    close: function(Closable)
+  end
+
   --- A typed key into a request's or an app's state: see [`Web.key`]. A key
   --- is its table, so two keys of one name are two keys, and a module
   --- exports the key it owns.
@@ -157,6 +165,9 @@ local record Types
     trailing: boolean
     --- The typed values of [`Web.key`], by key.
     slots: {any:any}
+    --- The stream bodies made for this request ([`Sse.EventStream`]):
+    --- the app closes those the final reply does not carry.
+    bodies: {Stream.Reader}
     --- The body once read, nil until then.
     body_text: string
     --- Why reading the body failed, nil until it did.
@@ -391,6 +402,14 @@ local record Types
     error_view: function(Request, integer, string): Response
     --- Where the app's lines go; [`Web.stderr_sink`] by default.
     sink: Sink
+    --- Closed when the server begins to stop, in order, after the
+    --- functions of `app:on_stop`: a hub's streams end at once, not at
+    --- the grace.
+    hubs: {Closable}
+    --- The most event streams open at once ([`Sse.EventStream`] answers
+    --- 503 past it); half of the server's connection limit by default, so
+    --- ordinary requests keep the other half.
+    max_streams: integer
   end
 
   --- A built app: [`Web.app`] derives the router and the handler.
@@ -421,6 +440,14 @@ local record Types
     stopped: boolean
     --- The functions [`on_stop`] registered.
     stoppers: {function()}
+    --- The open event streams: how to end each, by a key of its own. For
+    --- [`Sse.EventStream`] alone.
+    streams: {any: function()}
+    --- How many event streams are open, which `streams` holds.
+    stream_count: integer
+    --- The most [`stream_count`] may reach: the app's `max_streams`, else
+    --- half the connections [`Web.serve`] is given.
+    stream_limit: integer
   end
 
   --- What [`Web.serve`] takes.
