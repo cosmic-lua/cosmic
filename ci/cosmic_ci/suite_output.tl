@@ -23,25 +23,25 @@ local State = require("cosmic_ci.state")
 local record SuiteOutput
   record Figures
     --- "pass" or "fail", from the summary line; nil without one.
-    verdict: string
-    tests: integer
-    modules: integer
-    ran: integer
-    stood: integer
-    every: integer
-    shared: integer
-    failed: integer
-    errors: integer
-    elapsed_ms: integer
+    verdict?: string
+    tests?: integer
+    modules?: integer
+    ran?: integer
+    stood?: integer
+    every?: integer
+    shared?: integer
+    failed?: integer
+    errors?: integer
+    elapsed_ms?: integer
     --- What the summary line says after its time: "sandboxed", or why not.
-    sandbox: string
+    sandbox?: string
     --- Each key part by the name the line gives it ("host features",
     --- "runtime", ...), its digest's prefix as said ("" for none).
-    parts: {string:string}
+    parts?: {string:string}
     --- What the verdict cache held when the run began: its census
     --- line's list as said ("" for "no rows"), which `held` reads;
     --- nil where the run said none.
-    held: string
+    held?: string
   end
   --- One set of key parts a verdict cache's rows name (`parts`, {} for
   --- rows that name none), and how many rows it keys.

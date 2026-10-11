@@ -98,7 +98,8 @@ local function test_a_run_qualifies_by_what_its_restored_cache_held()
       suites[#suites + 1] = { worker = "linux-x86_64", suite = suite,
         parts = { runtime = "rrrr", harness = harness }, held = held }
     end
-    return { id = id, conclusion = "success", jobs = {}, suites = suites, missing = {} }
+    return { id = id, event = "push", branch = "main", sha = "a", attempt = "1", conclusion = "success",
+      jobs = {}, suites = suites, missing = {}, qualifies = false, why = "" }
   end
   local runs = {
     run("50", "h2", "10 rows under runtime rrrr, harness h2; 2 rows under no parts named"),

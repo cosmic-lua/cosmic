@@ -14,20 +14,20 @@ local record State
     phase: string
     suite: string
     status: string
-    exit_code: integer
-    tests: integer
-    modules: integer
-    ran: integer
-    stood: integer
-    every: integer
-    shared: integer
-    failed: integer
-    elapsed_ms: integer
-    sandbox: string
-    parts: {string:string}
+    exit_code?: integer
+    tests?: integer
+    modules?: integer
+    ran?: integer
+    stood?: integer
+    every?: integer
+    shared?: integer
+    failed?: integer
+    elapsed_ms?: integer
+    sandbox?: string
+    parts?: {string:string}
     --- What its verdict cache held as it began, as its census line
     --- said it ([`SuiteOutput.held`] reads it); nil where it said none.
-    held: string
+    held?: string
   end
   key_parts: {{string}}
   suite_columns: {string}

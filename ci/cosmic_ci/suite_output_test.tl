@@ -54,7 +54,7 @@ local function test_a_count_of_one_is_read_in_the_singular()
     "test: shared verdicts: none of 1 test looked up stood, though x holds 1 row, " ..
       "0 of them of those tests: no other run reached them (host features 0123456789abcdef, " ..
       "host aaaaaaaaaaaa)\n")
-  assert(unmatched.parts and unmatched.parts.host == "aaaaaaaaaaaa")
+  assert(assert(unmatched.parts).host == "aaaaaaaaaaaa")
 end
 
 --- A failing run says its failures, then a summary with no ran or stood
@@ -66,7 +66,7 @@ local function test_a_failing_run()
   assert(figures.verdict == "fail" and figures.failed == 2 and figures.tests == 1994)
   assert(figures.errors == 1 and figures.elapsed_ms == 4100 and figures.sandbox == "sandboxed")
   assert(figures.ran == nil and figures.stood == nil)
-  assert(figures.parts and figures.parts.harness == "dddddddddddd")
+  assert(assert(figures.parts).harness == "dddddddddddd")
   assert(SuiteOutput.status(figures, 1) == "fail")
   local bare = SuiteOutput.parse("test: FAIL (1 of 3 failed, 0 infrastructure errors, 9 ms)\n")
   assert(bare.verdict == "fail" and bare.sandbox == "")
@@ -122,15 +122,16 @@ local function test_the_census_line_says_what_the_cache_held(tmp: string)
   assert(handle:exec("INSERT INTO suite_runs (worker, run, attempt, phase, suite, status, " ..
       "runtime) VALUES ('w', '1', '1', 'build', 'local', 'pass', 'r')"))
   local rows = State.suite_rows(handle)
-  assert(#rows == 1 and rows[1].held == nil and rows[1].parts.runtime == "r" and
-      rows[1].parts.store == nil)
+  assert(#rows == 1)
+  local parts = assert(rows[1].parts)
+  assert(rows[1].held == nil and parts.runtime == "r" and parts.store == nil)
   assert(handle:close())
   -- Written to again, it gains the columns it lacks.
   State.suite(old, { worker = "w", run = "2", attempt = "1", phase = "build",
     suite = "local", status = "pass", parts = { store = "s" } })
   handle = assert(Sqlite.open(old))
   rows = State.suite_rows(handle)
-  assert(#rows == 2 and rows[2].parts.store == "s")
+  assert(#rows == 2 and assert(rows[2].parts).store == "s")
   assert(handle:close())
 end
 
@@ -154,7 +155,7 @@ local function test_a_timed_out_suite_keeps_only_its_key_parts()
   assert(status == "timeout")
   assert(figures.verdict == nil and figures.tests == nil and figures.ran == nil)
   assert(figures.stood == nil and figures.elapsed_ms == nil)
-  assert(figures.parts and figures.parts.runtime == "bbbbbbbbbbbb")
+  assert(assert(figures.parts).runtime == "bbbbbbbbbbbb")
   local bare, bare_status = SuiteOutput.read("", 124)
   assert(bare_status == "timeout" and bare.parts == nil)
 end
@@ -200,9 +201,9 @@ local function test_rows_round_trip_into_the_summary_table(tmp: string)
   assert(db:close())
   assert(#rows == 2)
   assert(rows[1].ran == 1 and rows[1].stood == 199 and rows[1].elapsed_ms == 2385)
-  assert(rows[1].parts.runtime == "bbbbbbbbbbbb" and rows[1].parts.system == "" and
-      rows[1].parts.store == "eeeeeeeeeeee")
-  assert(rows[2].tests == nil and rows[2].exit_code == 124 and rows[2].parts.runtime == nil)
+  local first, second = assert(rows[1].parts), assert(rows[2].parts)
+  assert(first.runtime == "bbbbbbbbbbbb" and first.system == "" and first.store == "eeeeeeeeeeee")
+  assert(rows[2].tests == nil and rows[2].exit_code == 124 and second.runtime == nil)
   local text = SuiteOutput.markdown(rows)
   assert(text:find("| linux-x86_64 | build | local | pass | 0 | 200 | 1 | 199 | 99.5 | 0 | " ..
       "2385 | bbbbbbbbbbbb | dddddddddddd | cccccccccccc | eeeeeeeeeeee | aaaaaaaaaaaa |  | " ..
