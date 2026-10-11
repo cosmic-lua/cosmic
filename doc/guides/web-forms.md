@@ -293,7 +293,7 @@ for _, jobs in ipairs({ "1", "" }) do
   local said = assert(Child.run(argv,
     { env = env, fds = relaunch.fds, cwd = tmp, stdout = "capture", stderr = "capture",
       timeout_ns = Clock.seconds(120) }))
-  print("=== JOBS=" .. jobs .. " status " .. tostring(said.status))
+  print("=== JOBS=" .. jobs .. " status " .. tostring(said.code) .. " timed_out " .. tostring(said.timed_out))
   print(said.stderr or "")
   print(said.stdout or "")
 end
