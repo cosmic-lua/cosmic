@@ -361,12 +361,14 @@ input to the build, never to the runtime. one database holds:
   inflates it. `inflate(X)`, which every [`cosmic.sqlite`] handle knows,
   reads it back in a query.
 - **stubs**: the tool's alone, one per standard-library module: its
-  source with every function body left out and every other token
-  where it was ([`build.stub`]), raw-deflated. a project's checker
-  reads a module's stub in place of its source, which types it the
-  same in a fraction of the time, since the bodies are most of what a
-  check costs; cosmic's own build refuses a stub whose type differs
-  from its source's.
+  source with every function body left out and every other token it
+  keeps where it was ([`build.stub`]), raw-deflated. a module that
+  returns a record it declares keeps only the statements that record's
+  type names, so code and requires only bodies read are left out too.
+  a project's checker reads a module's stub in place of its source,
+  which types it the same in a fraction of the time and loads fewer
+  modules; cosmic's own build refuses a stub whose type differs from
+  its source's.
 - **docs**: one row per symbol a module declares at its top level --
   the module itself, each function, each record, enum or alias and
   every field and value under it, and each documented value -- with

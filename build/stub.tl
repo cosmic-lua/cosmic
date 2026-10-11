@@ -1,11 +1,10 @@
 --- The stub of a standard-library module: what a project's checker reads
 --- in place of its source to type a `require` of it.
 ---
---- A stub is the module's source with every function body left out and
---- nothing else changed: each token outside a body stays at the line and
---- column it had, so a position the checker reports in the module means
---- the same in either, and its requires, types, records and top-level
---- statements are the source's own. Comments and the space between
+--- A stub is the module's source with every function body left out:
+--- each token it keeps stays at the line and column it had, so a position
+--- the checker reports in the module means the same in either, and its
+--- requires, types, records and top-level statements are the source's own. Comments and the space between
 --- tokens are dropped, since the checker reads neither; lexing them is a
 --- good part of what a module costs it.
 ---
@@ -19,6 +18,13 @@
 --- so its body is kept. The checker still warns of the parameters and
 --- locals only a body read, but a required module's own warnings never
 --- reach the module that requires it.
+---
+--- A module that returns a record or another type it declares at its top
+--- level keeps, besides, only the statements that type needs: what its
+--- declaration and the signatures of its functions name, and so on, with
+--- the requires they reach. The rest is code only bodies read, whose
+--- requires would make a project's checker load modules no type it sees
+--- names (see `unneeded`). Any other module keeps every statement.
 ---
 --- [`stub.difference`] compares what the checker made of a module from
 --- its source and from its stub, which cosmic's own build holds every
@@ -84,17 +90,155 @@ local function bodies(root: ast.Node): {Span}
   return found
 end
 
+--- Statement kinds that change nothing a `return` of a record could
+--- carry, beside what the names they declare do: a declaration, an
+--- assignment (which adds no field to a record: tl refuses a key its
+--- type lacks), a call, a block or a loop. A statement of any other kind
+--- is kept wherever it is.
+local droppable <const>: {string:boolean} = {
+  local_declaration = true, local_function = true, local_type = true, record_function = true,
+  assignment = true, op = true, ["if"] = true, fornum = true, forin = true, ["while"] = true,
+  ["repeat"] = true, ["do"] = true, ["goto"] = true, label = true,
+}
+
+--- The names the top-level statement `s` declares, and, for a
+--- `function M.f`, the name it adds a field to (its owner's first part).
+local function names_of(s: ast.Node): {string}, string | nil
+  local declared: {string} = {}
+  if s.kind == "local_declaration" then
+    for _, var in ipairs(s.vars or {}) do
+      declared[#declared + 1] = var.tk
+    end
+  elseif s.kind == "local_function" and s.name ~= nil then
+    declared[1] = s.name.tk
+  elseif s.kind == "local_type" and s.var ~= nil then
+    declared[1] = s.var.tk
+  elseif s.kind == "record_function" then
+    local owner = s.fn_owner
+    while owner ~= nil and owner.e1 ~= nil do
+      owner = owner.e1
+    end
+    return declared, owner ~= nil and owner.tk or nil
+  end
+  return declared, nil
+end
+
+--- The top-level statements of `parsed` a declaration of the module needs
+--- none of, as spans to leave out, where the module returns a name its own
+--- `local record`, `interface`, `enum` or `local type` declares; none for
+--- any other module, whose stub keeps every statement. Such a module's
+--- type is that declaration's, with what each `function M.f` on it adds,
+--- so the stub keeps the `return`, then what a kept statement names, to a
+--- fixed point: the declaration of each name one of its tokens spells
+--- (outside a body, which `body_spans` leaves out), and each `function
+--- M.f` whose `M` is kept. A name is taken for a reference wherever it is
+--- spelt, as a field's name too, which keeps a statement at worst. What is
+--- left out is code only bodies read and requires only they reach, so a
+--- project's checker loads fewer modules too.
+local function unneeded(parsed: ast.Parsed, body_spans: {Span}): {Span}
+  local statements: {ast.Node} = parsed.node
+  local tokens = parsed.tokens
+  local last = statements[#statements]
+  local exps = last ~= nil and last.kind == "return" and last.exps or nil
+  local value = exps ~= nil and #exps == 1 and exps[1] or nil
+  local returned = value ~= nil and value.kind == "variable" and value.tk or nil
+  if returned == nil then
+    return {}
+  end
+  local at: {string:integer} = {}
+  for k, token in ipairs(tokens) do
+    at[token.y .. ":" .. token.x] = k
+  end
+  -- Each statement's first token. tl's parser places a declaration of a
+  -- value (`local x = ...`, `local type X = ...`) at its name.
+  local starts: {integer} = {}
+  local declares: {{string}} = {}
+  local owners: {string | nil} = {}
+  local typed = false
+  for i, s in ipairs(statements) do
+    local first = ast.span_start(s)
+    local k = at[first.y .. ":" .. first.x]
+    if k == nil or (i > 1 and k <= starts[i - 1]) then
+      return {}
+    end
+    local before_k = k > 1 and tokens[k - 1].tk or ""
+    if before_k == "local" or before_k == "global" then
+      k = k - 1
+    elseif before_k == "type" and k > 2 and (tokens[k - 2].tk == "local" or tokens[k - 2].tk == "global") then
+      k = k - 2
+    end
+    starts[i] = k
+    declares[i], owners[i] = names_of(s)
+    if s.kind == "local_type" and declares[i][1] == returned then
+      typed = true
+    end
+  end
+  if not typed then
+    return {}
+  end
+  -- The names each statement's tokens outside a body spell.
+  local spelt: {{string:boolean}} = {}
+  local statement, next_span = 0, 1
+  for k, token in ipairs(tokens) do
+    while starts[statement + 1] ~= nil and k >= starts[statement + 1] do
+      statement = statement + 1
+    end
+    while body_spans[next_span] ~= nil and
+        not before(token.y, token.x, body_spans[next_span].to_y, body_spans[next_span].to_x) do
+      next_span = next_span + 1
+    end
+    local span = body_spans[next_span]
+    local outside = span == nil or before(token.y, token.x, span.y, span.x)
+    if statement > 0 and outside and token.kind == "identifier" then
+      spelt[statement] = spelt[statement] or {}
+      spelt[statement][token.tk] = true
+    end
+  end
+  local kept: {integer:boolean} = { [#statements] = true }
+  local wanted: {string:boolean} = {}
+  local grew = true
+  while grew do
+    grew = false
+    for i in pairs(kept) do
+      for name in pairs(spelt[i] or {}) do
+        wanted[name] = true
+      end
+    end
+    for i, s in ipairs(statements) do
+      if not kept[i] then
+        local keep = not droppable[s.kind] or (owners[i] ~= nil and wanted[owners[i]])
+        for _, name in ipairs(declares[i]) do
+          keep = keep or wanted[name] == true
+        end
+        if keep then
+          kept[i], grew = true, true
+        end
+      end
+    end
+  end
+  local out: {Span} = {}
+  for i = 1, #statements - 1 do
+    if not kept[i] then
+      local from, to = tokens[starts[i]], tokens[starts[i + 1]]
+      out[#out + 1] = { y = from.y, x = from.x, to_y = to.y, to_x = to.x }
+    end
+  end
+  return out
+end
+
 --- The stub of the module `parsed` holds (see the module's own doc).
 --- @param parsed a parse of the module's source ([`ast.parse`]), whose
 ---   tokens are in source order
 function stub.of(parsed: ast.Parsed): string
-  -- TODO: a cold build of a project requiring cosmic.web still spends
-  -- about 0.25 s checking its 59 stubs, near the 0.3 s it was meant to
-  -- come in well under: leave out what no exported type depends on as well --
-  -- top-level statements that declare no type, and requires only the
-  -- bodies read -- or write a declaration (`.d.tl`) from a module whose
-  -- record declares its whole surface, keeping the stub for the rest.
   local spans = bodies(parsed.node)
+  for _, span in ipairs(unneeded(parsed, spans)) do
+    spans[#spans + 1] = span
+  end
+  -- A statement left out starts before the bodies inside it, so each
+  -- span comes before those it holds.
+  table.sort(spans, function(a: Span, b: Span): boolean
+    return before(a.y, a.x, b.y, b.x)
+  end)
   local out: {string} = {}
   local y, x = 1, 1
   local function put(at_y: integer, at_x: integer, text: string)

@@ -54,6 +54,8 @@ local function environment(modules: {string:string}): compiler.Env
   return env
 end
 
+--- A module that returns anything but a name its own top-level type
+--- declaration declares (here a parenthesized one) keeps every statement.
 local function test_a_stub_leaves_out_bodies_and_comments_and_keeps_positions()
   local stubbed = lines(stub_of(source(
     "--- The module.",
@@ -69,7 +71,7 @@ local function test_a_stub_leaves_out_bodies_and_comments_and_keeps_positions()
     "end",
     "M.g = function(s: string): string return s .. 'x' end",
     "function M.empty() end",
-    "return M")))
+    "return (M)")))
   local want = {
     "",
     'local Json = require("cosmic.json")',
@@ -84,7 +86,7 @@ local function test_a_stub_leaves_out_bodies_and_comments_and_keeps_positions()
     "end",
     "M.g = function(s: string): string",
     "function M.empty() end",
-    "return M",
+    "return (M)",
   }
   assert(#stubbed == #want, table.concat(stubbed, "\n"))
   for i, line in ipairs(want) do
@@ -96,6 +98,51 @@ local function test_a_stub_leaves_out_bodies_and_comments_and_keeps_positions()
     else
       assert(stubbed[i] == line, "line " .. i .. ": " .. stubbed[i])
     end
+  end
+end
+
+--- A module that returns a record it declares keeps what the record's
+--- type names, and leaves out what only bodies read: a require, a local,
+--- a helper, an assignment.
+local function test_a_module_returning_its_record_keeps_only_what_its_type_names()
+  local stubbed = lines(stub_of(source(
+    'local Json = require("cosmic.json")',
+    'local Shape = require("cosmic.shape")',
+    'local type Ledger = require("ledger")',
+    "local record Helper",
+    "  n: integer",
+    "end",
+    "local record M",
+    "  spec: Shape.Spec",
+    "end",
+    "local LIMIT <const> = 3",
+    "local function helper(l: Ledger): integer return LIMIT end",
+    "function M.f(h: Helper): integer",
+    "  return Json.encode(h) and helper() or 0",
+    "end",
+    "M.g = 1",
+    "return M")))
+  local want = {
+    "",
+    'local Shape = require("cosmic.shape")',
+    "",
+    "local record Helper",
+    "  n: integer",
+    "end",
+    "local record M",
+    "  spec: Shape.Spec",
+    "end",
+    "",
+    "",
+    "function M.f(h: Helper): integer",
+    "",
+    "end",
+    "",
+    "return M",
+  }
+  assert(#stubbed == #want, table.concat(stubbed, "\n"))
+  for i, line in ipairs(want) do
+    assert(stubbed[i] == line, "line " .. i .. ": " .. stubbed[i])
   end
 end
 
@@ -217,7 +264,8 @@ local function test_a_literal_typed_by_its_context_keeps_its_body()
     "M.f = function(n) return n end",
     "M.stop = function(why) error(why) end",
     "M.g = function(n: integer): integer return n end",
-    "return M")
+    -- Not a name, so its assignments are kept (see the first test).
+    "return (M)")
   local stubbed = stub_of(text)
   -- A literal with a return list loses its body as any function does.
   assert(stubbed:find("M.f = function(n) return n end", 1, true) ~= nil and
