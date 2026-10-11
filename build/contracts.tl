@@ -247,6 +247,9 @@ local casts: {string: string} = {
   ["cosmic/sqlite.tl:checked"] =
     "a caller's parameter table is checked for keys its " ..
     "declaration does not name, which only a map view of it lists",
+  ["cosmic/web/request.tl:get"] =
+    "a request's slots hold values of every key's type in one table; " ..
+    "`set` stores a T under its Key<T>, so the one read back is that T",
 }
 
 --- The string fields rule 9 lets be compared with literals, each
