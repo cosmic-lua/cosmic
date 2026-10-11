@@ -275,7 +275,9 @@ local function remember(client: Testing.Client, line: string, path: string)
   local gone = false
   if parsed.max_age ~= nil then
     gone = parsed.max_age <= 0
-    expires = now + parsed.max_age * 1000000000
+    -- A huge Max-Age lasts as long as the clock can say.
+    local room = (math.maxinteger - now) // 1000000000
+    expires = now + math.min(parsed.max_age, room) * 1000000000
   elseif parsed.expires_ns ~= nil then
     gone = parsed.expires_ns <= now
     expires = parsed.expires_ns

@@ -44,19 +44,28 @@ local record SessionCookie
 end
 
 local VERSION <const> = 1
+--- The payload nests the values one level down.
+local DEPTH <const> = Session.MAX_DEPTH + 1
 
 --- The store: see this module's description. Raises for no key, a key
 --- [`Secret.check`] refuses, or more than five.
 --- @param opts SessionCookie.Options The keys
 --- @return Session.Store The store
 function SessionCookie.store(opts: SessionCookie.Options): Session.Store
-  local keys = opts.keys
-  if type(keys) ~= "table" or #keys < 1 or #keys > 5 then
+  local supplied = opts.keys
+  if type(supplied) ~= "table" or #supplied < 1 or #supplied > 5 then
     error("session: the cookie store needs one to five keys", 2)
   end
-  for i, key in ipairs(keys) do
+  -- A copy, so changing the caller's list later changes no key in use.
+  local keys: {string} = {}
+  for i = 1, #supplied do
+    local key = supplied[i]
+    if type(key) ~= "string" then
+      error(("session: key %d is a %s, not a string"):format(i, type(key)), 2)
+    end
     local ok, why = Secret.check(key)
     if not ok then error(("session: key %d: %s"):format(i, why), 2) end
+    keys[i] = key
   end
   local max_bytes = opts.max_bytes or 3800
   local context = opts.context or "cosmic.web.session"
@@ -81,7 +90,7 @@ function SessionCookie.store(opts: SessionCookie.Options): Session.Store
     if verified == nil then return nil, "" end
     local bytes, _ = Codec.unbase64url(payload)
     if bytes == nil then return nil, "" end
-    local body, _ = Json.decode(bytes, { max_depth = 8 })
+    local body, _ = Json.decode(bytes, { max_depth = DEPTH })
     if not body is {string:any} then return nil, "" end
     local created, expires, values = body.c, body.e, body.d
     if body.v ~= VERSION or not created is integer or not expires is integer or
@@ -95,7 +104,8 @@ function SessionCookie.store(opts: SessionCookie.Options): Session.Store
   store.save = function(_: Session.Store, _previous: string, data: Session.Data,
                         _changes: Session.Changes, _now: integer, cookie: string): string | nil, string
     local values: {string:any} = data.values
-    local text, why = Json.encode({ v = VERSION, c = data.created, e = data.expires, d = values })
+    local text, why = Json.encode({ v = VERSION, c = data.created, e = data.expires, d = values },
+      { max_depth = DEPTH })
     if text == nil then return nil, "cannot encode the session: " .. why end
     local payload = Codec.base64url(text)
     local token = payload .. "." .. Codec.base64url(mac(keys[1], cookie, payload))

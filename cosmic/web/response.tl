@@ -95,6 +95,10 @@ end
 --- string value becomes a list. `Vary` is merged instead of repeated: a
 --- token already listed (in any case) is not added again, and `*` absorbs
 --- every other. This is how a `Set-Cookie` line or a `Vary` token is added.
+--- It changes `res` in place, headers and all: a response shared between
+--- requests (a module-level `Web.text("not found")`) gets the line for every
+--- later request too, so a middleware that adds to a response it did not
+--- make copies it first, as [`cosmic.web.session`]'s does.
 --- @param res Types.Response The response
 --- @param name string The header's name
 --- @param value string The line to add

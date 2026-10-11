@@ -486,3 +486,149 @@ local function test_the_session_survives_in_a_secret_key_from_the_environment_sh
   client:post("/set/user/ada")
   assert(client:get("/get/user"):text() == "ada")
 end
+
+--- A value nested `levels` arrays deep.
+local function nest(levels: integer): any
+  local value: any = 1
+  for _ = 1, levels do value = { value } end
+  return value
+end
+
+local function test_a_response_shared_between_requests_is_not_given_a_cookie()
+  for _, make in ipairs({ cookie_store, function(): Session.Store return (sqlite_store()) end }) do
+    local shared = Web.text("not found", { status = 404 })
+    Web.add_header(shared, "Set-Cookie", "a=1")
+    Web.add_header(shared, "Set-Cookie", "b=2")
+    local app = Web.app{
+      middleware = { Session.middleware(options(make())) },
+      routes = { Web.post("/shared/:v", function(req: Web.Request): Web.Response
+        Session.of(req):set("v", req.params.v)
+        return shared
+      end) },
+    }
+    local first = Web.test_client(app):post("/shared/one")
+    local second = Web.test_client(app):post("/shared/two")
+    for _, res in ipairs({ first, second }) do
+      local own = 0
+      for _, line in ipairs(set_cookies(res)) do
+        if line:find("^session=") then own = own + 1 end
+      end
+      assert(own == 1 and #set_cookies(res) == 3, "its own one session cookie beside the shared two")
+    end
+    assert(set_cookies(first)[3] ~= set_cookies(second)[3])
+    local lines = shared.headers["Set-Cookie"]
+    assert(lines is {string} and #lines == 2, "the shared response is unchanged")
+    assert(Web.header(shared, "Vary") == nil and Web.header(shared, "Cache-Control") == nil)
+  end
+end
+
+local function test_a_value_at_the_depth_limit_survives_and_one_past_it_raises_at_the_set()
+  for _, make in ipairs({ cookie_store, function(): Session.Store return (sqlite_store()) end }) do
+    local reasons: {string} = {}
+    local app = Web.app{
+      middleware = { Session.middleware(options(make())) },
+      routes = {
+        Web.post("/deep", function(req: Web.Request): Web.Response
+          local s = Session.of(req)
+          s:set("ok", nest(Session.MAX_DEPTH - 1))
+          local ran, why = pcall(function() s:set("too", nest(Session.MAX_DEPTH)) end)
+          reasons[#reasons + 1] = ran and "no error" or tostring(why)
+          return Web.text("ok")
+        end),
+        Web.get("/has/:key", function(req: Web.Request): Web.Response
+          return Web.text(tostring(Session.of(req):get(req.params.key) ~= nil))
+        end),
+        Web.get("/new", function(req: Web.Request): Web.Response
+          return Web.text(tostring(Session.of(req):is_new()))
+        end),
+      },
+    }
+    local client = Web.test_client(app)
+    assert(client:post("/deep").status == 200)
+    assert(reasons[1]:find("cannot keep too", 1, true), reasons[1])
+    assert(client:get("/new"):text() == "false", "the next request still has the session")
+    assert(client:get("/has/ok"):text() == "true" and client:get("/has/too"):text() == "false")
+  end
+end
+
+local function test_a_flash_that_is_not_utf8_raises_at_the_call()
+  local reasons: {string} = {}
+  local app = Web.app{
+    middleware = { Session.middleware(options(cookie_store())) },
+    routes = { Web.post("/f", function(req: Web.Request): Web.Response
+      local ran, why = pcall(function() Session.of(req):flash("info", "bad \xff text") end)
+      reasons[#reasons + 1] = ran and "no error" or tostring(why)
+      return Web.text("ok")
+    end) },
+  }
+  local res = Web.test_client(app):post("/f")
+  assert(res.status == 200 and #set_cookies(res) == 0, "nothing was kept")
+  assert(reasons[1]:find("session: cannot flash", 1, true), reasons[1])
+end
+
+local function test_setting_nil_removes_the_key_in_both_stores()
+  for _, make in ipairs({ cookie_store, function(): Session.Store return (sqlite_store()) end }) do
+    local app = Web.app{
+      middleware = { Session.middleware(options(make())) },
+      routes = {
+        Web.post("/set/:key/:value", function(req: Web.Request): Web.Response
+          Session.of(req):set(req.params.key, req.params.value)
+          return Web.text("ok")
+        end),
+        Web.post("/unset/:key", function(req: Web.Request): Web.Response
+          Session.of(req):set(req.params.key, nil)
+          return Web.text("ok")
+        end),
+        Web.get("/get/:key", function(req: Web.Request): Web.Response
+          return Web.text(Session.of(req):get_string(req.params.key) or "-")
+        end),
+      },
+    }
+    local client = Web.test_client(app)
+    client:post("/set/a/1")
+    client:post("/set/b/2")
+    client:post("/unset/a")
+    assert(client:get("/get/a"):text() == "-" and client:get("/get/b"):text() == "2")
+  end
+end
+
+local function test_same_site_none_follows_the_scheme_of_the_request()
+  local app = make_app(options(cookie_store(), { same_site = "None" }), { trusted_proxy = true })
+  local client = Web.test_client(app)
+  client.scheme = "https"
+  local parsed = assert(Cookies.parse_set_cookie(set_cookies(client:post("/set/a/1"))[1]))
+  assert(parsed.secure and parsed.same_site == "None")
+  local plain = Web.test_client(app)
+  assert(#set_cookies(plain:get("/get/a")) == 0, "reading over http is fine")
+  local ok, why = pcall(function() plain:post("/set/a/1") end)
+  assert(not ok and tostring(why):find("needs a Secure cookie", 1, true), tostring(why))
+  ok = pcall(Session.middleware, options(cookie_store(), { same_site = "None", secure = false }))
+  assert(not ok, "an explicit secure = false can never work")
+end
+
+local function test_invalidate_revokes_even_when_the_response_is_a_500()
+  local store, db = sqlite_store()
+  local app = Web.app{
+    middleware = { Session.middleware(options(store)) },
+    routes = {
+      Web.post("/set/:key/:value", function(req: Web.Request): Web.Response
+        Session.of(req):set(req.params.key, req.params.value)
+        return Web.text("ok")
+      end),
+      Web.post("/logout-fails", function(req: Web.Request): Web.Response
+        local s = Session.of(req)
+        s:invalidate()
+        s:set("after", "x")
+        return Web.text("broken", { status = 500 })
+      end),
+    },
+  }
+  local client = Web.test_client(app)
+  client:post("/set/user/ada")
+  local before = client.jar.session
+  local res = client:post("/logout-fails")
+  assert(res.status == 500)
+  assert(assert(Sqlite.rows(db, "SELECT count(*) FROM web_sessions"))[1][1].integer == 0, "the row is gone")
+  assert(store:load(before, clock.now, "session") == nil)
+  assert(#set_cookies(res) == 1 and client.jar.session == nil, "and the cookie is expired")
+end

@@ -125,3 +125,28 @@ local function test_destroy_does_nothing_because_a_cookie_cannot_be_revoked()
   assert(store:destroy(token))
   assert(store:load(token, 1500, "session") ~= nil, "the copy of the cookie is still good")
 end
+
+local function nest(levels: integer): any
+  local value: any = 1
+  for _ = 1, levels do value = { value } end
+  return value
+end
+
+local function test_save_refuses_what_load_cannot_read()
+  local store = SessionCookie.store{ keys = { NEW } }
+  local at = sign(store, { deep = nest(Session.MAX_DEPTH - 1) })
+  assert(store:load(at, 1500, "session") ~= nil, "a value at the limit loads back")
+  local token, why = store:save("", data({ deep = nest(Session.MAX_DEPTH) }), unchanged(), 1500, "session")
+  assert(token == nil and why:find("cannot encode", 1, true), why)
+end
+
+local function test_the_keys_are_copied_and_checked_as_strings_when_the_store_is_made()
+  local keys = { NEW }
+  local store = SessionCookie.store{ keys = keys }
+  local token = sign(store, { user = "ada" })
+  keys[1] = OLD
+  assert(store:load(token, 1500, "session") ~= nil, "changing the list afterwards changes no key")
+  assert(sign(store, { user = "ada" }) == token)
+  local ok, why = pcall(SessionCookie.store, { keys = { NEW, 42 as any as string } })
+  assert(not ok and tostring(why):find("key 2 is a number", 1, true), tostring(why))
+end

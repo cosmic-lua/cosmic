@@ -149,9 +149,10 @@ local record Session
     get_integer: function(Handle, key: string): integer | nil
     --- The value at `key` when it is a boolean.
     get_boolean: function(Handle, key: string): boolean | nil
-    --- Keeps `value` at `key`. Raises when the value is not JSON, when the
-    --- key is empty or the reserved "_flash", and after the response has
-    --- been built.
+    --- Keeps `value` at `key`; a nil value removes the key, as `delete` does.
+    --- Raises when the value is not JSON or nests past [`Session.MAX_DEPTH`],
+    --- when the key is empty or the reserved "_flash", and after the response
+    --- has been built.
     set: function(Handle, key: string, value: any)
     --- Removes `key`.
     delete: function(Handle, key: string)
@@ -163,12 +164,14 @@ local record Session
     --- call it at login and on any change of privilege. A signed cookie
     --- cannot revoke the old one.
     regenerate: function(Handle)
-    --- Revokes the session and expires the cookie (logout). The handle is
-    --- then an empty anonymous session that may be written again, which
-    --- starts a new one.
+    --- Revokes the session and expires the cookie (logout), even when the
+    --- response turns out to be a 500: a logout that errors afterwards still
+    --- logs out. The handle is then an empty anonymous session that may be
+    --- written again, which starts a new one (saved only if the response is
+    --- not a 500).
     invalidate: function(Handle)
     --- Adds a message for the next page: at most 10 are kept (the oldest
-    --- go) of at most 500 bytes.
+    --- go) of at most 500 bytes. Raises for a kind or text that is not UTF-8.
     flash: function(Handle, kind: string, text: string)
     --- The pending messages, removed: each is shown once.
     take_flashes: function(Handle): {Flash}
@@ -184,9 +187,14 @@ local record Session
 
   --- The key the middleware keeps the request's [`Session.Handle`] under.
   KEY: Types.Key<Handle>
+  --- How many arrays and objects a session may nest, counting the object
+  --- that holds the values (16): `set` refuses a deeper value and a store
+  --- refuses to save, or to load, one.
+  MAX_DEPTH: integer
 end
 
 Session.KEY = Request.key("session")
+Session.MAX_DEPTH = 16
 
 local DAY <const> = 86400
 local MAX_FLASHES <const> = 10
@@ -275,6 +283,16 @@ local function remove_key(list: {string}, key: string)
   end
 end
 
+local function delete_value(st: State, key: string)
+  writable(st)
+  if st.data.values[key] == nil then return end
+  st.data.values[key] = nil
+  st.changes.set[key] = nil
+  remove_key(st.changes.removed, key)
+  st.changes.removed[#st.changes.removed + 1] = key
+  mark(st)
+end
+
 local function set_value(st: State, key: string, value: any)
   writable(st)
   if type(key) ~= "string" or key == "" then
@@ -283,23 +301,18 @@ local function set_value(st: State, key: string, value: any)
   if key == FLASH then
     error("session: " .. FLASH .. " is reserved; use flash()", 0)
   end
-  local _, why = Json.encode(value)
+  if value == nil then
+    delete_value(st, key)
+    return
+  end
+  -- The value sits inside the object of values, one level down.
+  local _, why = Json.encode(value, { max_depth = Session.MAX_DEPTH - 1 })
   if why ~= nil and why ~= "" then
     error("session: cannot keep " .. key .. ": " .. why, 0)
   end
   st.data.values[key] = value
   st.changes.set[key] = value
   remove_key(st.changes.removed, key)
-  mark(st)
-end
-
-local function delete_value(st: State, key: string)
-  writable(st)
-  if st.data.values[key] == nil then return end
-  st.data.values[key] = nil
-  st.changes.set[key] = nil
-  remove_key(st.changes.removed, key)
-  st.changes.removed[#st.changes.removed + 1] = key
   mark(st)
 end
 
@@ -386,6 +399,10 @@ local function make_handle(st: State): Session.Handle
       if type(kind) ~= "string" or kind == "" or type(text) ~= "string" then
         error("session: a flash is a kind and a text, both strings", 0)
       end
+      local _, why = Json.encode({ kind = kind, text = text })
+      if why ~= nil and why ~= "" then
+        error("session: cannot flash that: " .. why, 0)
+      end
       local list: {{string:any}} = {}
       for _, each in ipairs(flashes_of(st)) do list[#list + 1] = each end
       list[#list + 1] = { kind = kind, text = cut(text, MAX_FLASH_BYTES) }
@@ -448,6 +465,35 @@ local function attributes(opts: Session.Options, secure: boolean): Cookies.Attri
   return { path = opts.path, domain = opts.domain, same_site = opts.same_site, secure = secure }
 end
 
+--- Adds the line that expires the session cookie to `res`.
+local function expire(res: Types.Response, cookie: string, opts: Session.Options, secure: boolean)
+  local attrs = attributes(opts, secure)
+  -- A cookie that never was set over http cannot be Secure-less SameSite=None.
+  if not secure and attrs.same_site == "None" then attrs.same_site = "Lax" end
+  local line, why = Cookies.expire(cookie, attrs)
+  if line == nil then error("session: " .. why, 0) end
+  Response.add_header(res, "Set-Cookie", line)
+end
+
+--- A copy of `res` with headers of its own, which the middleware may add
+--- to: a handler may return a response it shares (a module-level
+--- `Web.text("not found")`), and a `Set-Cookie` added to that one would go
+--- to every later user.
+local function own(res: Types.Response): Types.Response
+  local headers: {string: string | {string}} = {}
+  for name, value in pairs(res.headers or {}) do
+    if value is string then
+      headers[name] = value
+    else
+      local lines: {string} = {}
+      for i, line in ipairs(value) do lines[i] = line end
+      headers[name] = lines
+    end
+  end
+  -- Every field of a reply: the server refuses one it does not know.
+  return { status = res.status, headers = headers, body = res.body, length = res.length, close = res.close }
+end
+
 --- Builds the middleware that gives each request a lazy session: see this
 --- module's description. Raises for an option that cannot work, naming it,
 --- before the app serves.
@@ -469,7 +515,9 @@ function Session.middleware(opts: Session.Options): Types.Middleware
       cookie = "session"
     end
   end
-  local _, why = Cookies.format(cookie, "x", attributes(opts, opts.secure == true))
+  -- SameSite=None needs Secure, which an unset `secure` decides per request.
+  local probe = opts.secure == true or (opts.secure == nil and opts.same_site == "None")
+  local _, why = Cookies.format(cookie, "x", attributes(opts, probe))
   if why ~= "" then error("session: " .. why, 0) end
   local clock = opts.now or function(): integer return Clock.now_ns() // 1000000000 end
   return function(inner: Types.Handler): Types.Handler
@@ -479,35 +527,49 @@ function Session.middleware(opts: Session.Options): Types.Middleware
         bad_cookie = false, changes = nothing(), dirty = false, invalidated = false, doomed = {} }
       st.data = blank(st)
       req:set(Session.KEY, make_handle(st))
-      local res = inner(req)
+      local handled = inner(req)
       st.frozen = true
-      if not st.accessed then return res end
+      if not st.accessed then return handled end
+      local res = own(handled)
       Response.add_header(res, "Vary", "Cookie")
       if Response.header(res, "Cache-Control") == nil then
         Response.set_header(res, "Cache-Control", "private")
       end
-      if res.status >= 500 then return res end
       local secure = opts.secure
-      if secure == nil then secure = req.scheme == "https" end
-      local attrs = attributes(opts, secure)
+      if secure == nil then
+        -- TODO: once the app can tell its middleware where it listens
+        -- (Web.app's listeners), warn once at startup when `secure` is unset
+        -- and a listener is not on the loopback, as doc/plans/web/input.md
+        -- asks: behind a TLS proxy without trusted_proxy the cookie goes out
+        -- without Secure.
+        secure = req.scheme == "https"
+      end
+      -- Revoking is not undone by a 500: a logout that errors still logs out.
       for _, token in ipairs(st.doomed) do
         local ok, destroy_why = opts.store:destroy(token)
         if not ok then error("session: " .. destroy_why, 0) end
+      end
+      if res.status >= 500 then
+        if st.invalidated then expire(res, cookie, opts, secure) end
+        return res
       end
       if not st.dirty and opts.rolling and st.valid and st.data.expires - st.now < max_age // 2 then
         st.data.expires = st.now + max_age
         st.dirty = true
       end
       if st.dirty then
+        if opts.same_site == "None" and not secure then
+          error("session: same_site = \"None\" needs a Secure cookie, and this request came over http; " ..
+              "serve over https, set Web.app's trusted_proxy for X-Forwarded-Proto, or pass secure = true", 0)
+        end
         local token, save_why = opts.store:save(st.token, st.data, st.changes, st.now, cookie)
         if token == nil then error("session: " .. save_why, 0) end
+        local attrs = attributes(opts, secure)
         attrs.max_age = math.max(st.data.expires - st.now, 1)
         local ok, format_why = Cookies.set(res, cookie, token, attrs)
         if not ok then error("session: " .. format_why, 0) end
       elseif st.invalidated or st.bad_cookie then
-        local line, expire_why = Cookies.expire(cookie, attrs)
-        if line == nil then error("session: " .. expire_why, 0) end
-        Response.add_header(res, "Set-Cookie", line)
+        expire(res, cookie, opts, secure)
       end
       return res
     end

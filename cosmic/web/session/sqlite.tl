@@ -23,7 +23,10 @@
 --- file, the sessions in a file of their own. A save is one transaction
 --- that never yields, so it is atomic against the other requests of this
 --- process and two requests that change different keys both land.
---- Moving sessions off the thread waits on a blocking-call offload.
+---
+--- TODO: once cosmic.poll or cosmic.web offers a blocking-call offload (a
+--- worker thread or a task pool), run the session queries there instead of
+--- on the serving thread.
 
 local Clock = require("cosmic.clock")
 local Codec = require("cosmic.codec")
@@ -120,6 +123,30 @@ function SessionSqlite.destroy_subject(store: Session.Store, subject: string): i
   return b.db:changes(), ""
 end
 
+--- Runs `work` in a transaction that begins IMMEDIATE and commits when it
+--- answers true, as [`Sqlite.transact`] does, which begins deferred and has no
+--- option for this. When `work` answers false or raises, it rolls back.
+--- TODO: once Sqlite.transact takes a begin mode, use it.
+local function immediate(db: Sqlite.Handle, work: function(): boolean, string): boolean, string
+  local began, begin_why = Sqlite.run(db, "BEGIN IMMEDIATE")
+  if not began then return false, begin_why end
+  local ran, ok, why = pcall(work)
+  if not ran then
+    local _, _ = Sqlite.run(db, "ROLLBACK")
+    error(ok, 0)
+  end
+  if not ok then
+    local _, _ = Sqlite.run(db, "ROLLBACK")
+    return false, why
+  end
+  local committed, commit_why = Sqlite.run(db, "COMMIT")
+  if not committed then
+    local _, _ = Sqlite.run(db, "ROLLBACK")
+    return false, commit_why
+  end
+  return true, ""
+end
+
 --- A new id.
 local function new_id(): string | nil, string
   local bytes, why = Rand.entropy(ID_BYTES)
@@ -139,7 +166,7 @@ end
 
 --- The values a row's JSON holds; nil for text that is not an object.
 local function values_of(text: string): {string:any} | nil
-  local value, _ = Json.decode(text, { max_depth = 16 })
+  local value, _ = Json.decode(text, { max_depth = Session.MAX_DEPTH })
   if value is {string:any} then return value end
   return nil
 end
@@ -171,7 +198,12 @@ local function save_session(self: Session.Store, previous: string, data: Session
   local failure: string = nil
   -- No yield between the first read and the commit: another request of
   -- this process cannot interleave, and another process meets SQLite's lock.
-  local ok, why = Sqlite.transact(store.db, function(): boolean, string
+  -- The transaction begins IMMEDIATE, taking the write lock before the read:
+  -- a deferred one that read, then found another process had written,
+  -- would fail its write at once with SQLITE_BUSY_SNAPSHOT, which the busy
+  -- timeout does not wait out; waiting for the lock first is the busy
+  -- timeout's case.
+  local ok, why = immediate(store.db, function(): boolean, string
     local row, find_why = find(store, previous, now)
     if row == nil and find_why ~= "" then return false, find_why end
     -- A session revoked while this request ran is not revived with what
@@ -184,7 +216,7 @@ local function save_session(self: Session.Store, previous: string, data: Session
       if not changes.regenerated then created = row[2].integer end
       if subject == nil and row[4].kind == "text" then subject = row[4].text end
     end
-    local text, encode_why = Json.encode(apply(base, changes))
+    local text, encode_why = Json.encode(apply(base, changes), { max_depth = Session.MAX_DEPTH })
     if text == nil then return false, "cannot encode the session: " .. encode_why end
     local subject_value: Sqlite.Value = subject ~= nil and { text = subject } or {}
     if row ~= nil and not changes.regenerated then

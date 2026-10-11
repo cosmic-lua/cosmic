@@ -186,3 +186,21 @@ local function test_a_store_function_refuses_a_store_not_made_here()
   local ok, why = pcall(SessionSqlite.sweep, { revocable = true } as Session.Store, 100)
   assert(not ok and tostring(why):find("not a store made by SessionSqlite.store", 1, true))
 end
+
+local function nest(levels: integer): any
+  local value: any = 1
+  for _ = 1, levels do value = { value } end
+  return value
+end
+
+local function test_save_refuses_what_load_cannot_read_and_leaves_no_transaction_open()
+  local store = open()
+  local id = create(store, { base = 1 })
+  local data = assert(store:load(id, 500, "session"))
+  local deep = nest(Session.MAX_DEPTH)
+  local token, why = store:save(id, data, changed({ deep = deep }), 500, "session")
+  assert(token == nil and why:find("cannot encode", 1, true), why)
+  local fine = nest(Session.MAX_DEPTH - 1)
+  assert(store:save(id, data, changed({ deep = fine }), 501, "session") == id, "the failed save rolled back")
+  assert(assert(store:load(id, 502, "session")).values.deep ~= nil)
+end

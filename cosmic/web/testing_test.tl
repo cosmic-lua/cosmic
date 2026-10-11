@@ -337,3 +337,20 @@ local function test_a_delete_at_another_path_leaves_the_cookie_as_a_browser_does
   client:get("/drop-x")
   assert(client.jar.a == nil)
 end
+
+local function test_a_huge_max_age_does_not_overflow_into_a_lapsed_cookie()
+  local app = Web.app{ routes = {
+    Web.get("/set", function(_req: Web.Request): Web.Response
+      local res = Web.text("set")
+      Web.add_header(res, "Set-Cookie", "a=1; Max-Age=9223372036854775807")
+      return res
+    end),
+    Web.get("/see", function(req: Web.Request): Web.Response
+      return Web.text(req:header("cookie") or "none")
+    end),
+  } }
+  local client = Web.test_client(app)
+  client:get("/set")
+  assert(client:get("/see"):text() == "a=1")
+  assert(client.attrs.a.expires_ns > 0)
+end
