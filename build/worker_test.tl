@@ -6,18 +6,22 @@
 --- so declares the profile that lets it.
 
 local Child = require("cosmic.child")
+local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Proc = require("cosmic.proc")
 local Sqlite = require("cosmic.sqlite")
+local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
+local cache_formats = require("build.cache_formats")
 local importer = require("build.importer")
+local shared_compiles = require("build.shared_compiles")
 local teal = require("build.teal")
 local this_program = require("build.this_program")
 local work = require("build.work")
 local workers = require("build.workers")
 
-Test.policy{ profiles = { "cosmic" } }
+Test.policy{ profiles = { "cosmic", "proc" } }
 
 local built, load_trouble = teal.load()
 if built == nil then
@@ -115,12 +119,12 @@ end
 --- `pool`, or alone for nil, keeping what the contracts refuse when
 --- `unjudged`.
 local function build_with(case: string, files: {string:string}, pool?: importer.Workers,
-                          own?: boolean, unjudged?: boolean): Built
+                          own?: boolean, unjudged?: boolean, shared?: importer.Shared): Built
   local root = fixture(case, files)
   local handle = assert(work.open(root))
   assert(work.stage(handle, own or false))
   local result, trouble = importer.compile(handle, built, "worker-test", unjudged or false,
-    nil, pool)
+    shared, pool)
   local rows = written(handle.db)
   assert(work.close(handle))
   assert(Fs.remove_tree(root))
@@ -212,13 +216,42 @@ local function test_a_pool_is_ready_only_for_source_worth_its_workers()
   assert(not workers.pool(spec, 1).ready(1000000), "one worker is none")
 end
 
---- How many workers a pool takes in a process of this program that has
---- `value` as COSMIC_BUILD_JOBS, or has none for nil, and what it said.
-local function jobs_with(value: string | nil): string, string
+--- A chunk for a worker that writes its process number to a file of
+--- `dir` as it starts, then serves.
+local function recording_worker(dir: string): string
+  return 'local Proc = require("cosmic.proc") ' ..
+    string.format('require("cosmic.fs").write(%q .. "/" .. Proc.pid(), "") ', dir) ..
+    'Proc.exit(require("build.worker").serve())'
+end
+
+--- A chunk for a process that starts a pool of recording workers as a
+--- tool does, and then does `ending`.
+local function starting_pool(dir: string, ending: string): string
+  return 'local workers = require("build.workers") ' ..
+    "local spec = workers.tool_spec() " ..
+    "spec.open_bytes = 0 " ..
+    string.format("spec.argv[#spec.argv] = %q ", recording_worker(dir)) ..
+    "local pool = workers.pool(spec) " ..
+    'print(pool.ready(1)) ' .. ending
+end
+
+--- A chunk's statement that waits, at most a few seconds, until
+--- `expected` workers have written their files to `dir`, and a moment
+--- more for any that should not have.
+local function waiting_for(dir: string, expected: integer): string
+  if expected == 0 then return "" end
+  return 'local Clock = require("cosmic.clock") local Fs = require("cosmic.fs") ' ..
+    "local until_ns = Clock.monotonic_ns() + Clock.seconds(8) " ..
+    string.format("while #Fs.list(%q) < %d and ", dir, expected) ..
+    "Clock.monotonic_ns() < until_ns do Clock.sleep_ns(Clock.ms(20)) end " ..
+    "Clock.sleep_ns(Clock.ms(500))"
+end
+
+--- Runs `chunk` in a process of this program, with `value` as
+--- COSMIC_BUILD_JOBS (none for nil): what it printed and wrote to stderr.
+local function run_chunk(chunk: string, value?: string): string, string
   local env = this_program.environment()
   env.COSMIC_BUILD_JOBS = value
-  local chunk = 'local workers = require("build.workers") ' ..
-    "print(workers.pool(workers.tool_spec()).size())"
   local started = this_program.program({ "-e", chunk }, {
     env = env, stdout = "capture", stderr = "capture",
   })
@@ -227,17 +260,93 @@ local function jobs_with(value: string | nil): string, string
   return (result.stdout or ""):gsub("%s+$", ""), result.stderr or ""
 end
 
+local function names_in(dir: string): {string}
+  local names = (assert(Fs.list(dir)))
+  table.sort(names)
+  return names
+end
+
+--- Waits until `holds` is true, at most ten seconds.
+local function eventually(what: string, holds: function(): boolean)
+  local deadline = Clock.monotonic_ns() + Clock.seconds(10)
+  while not holds() do
+    assert(Clock.monotonic_ns() < deadline, "no " .. what)
+    Clock.sleep_ns(Clock.ms(20))
+  end
+end
+
+--- How many workers a pool of a process that has `value` as
+--- COSMIC_BUILD_JOBS starts, and what that process said.
+local function workers_started(expected: integer, value?: string): integer, string
+  local dir = assert(Fs.mkdtemp("cosmic-pids-"))
+  local _, said = run_chunk(starting_pool(dir, waiting_for(dir, expected) .. " pool.close()"), value)
+  local count = #names_in(dir)
+  assert(Fs.remove_tree(dir))
+  return count, said
+end
+
 local function test_the_variable_sets_how_many_workers_a_build_runs()
   local fewer = math.max(Proc.cpu_count() - 1, 1)
-  local three, three_said = jobs_with("3")
-  assert(three == "3" and three_said == "", three .. " " .. three_said)
-  assert(jobs_with("1") == "1")
-  assert(jobs_with(nil) == tostring(fewer))
+  local expected = fewer >= 2 and fewer or 0
+  local three, three_said = workers_started(3, "3")
+  assert(three == 3 and three_said == "", three .. " " .. three_said)
+  assert(workers_started(0, "1") == 0)
+  assert(workers_started(expected) == expected)
   for _, wrong in ipairs({ "0", "-2", "many", "2.5" }) do
-    local answer, said = jobs_with(wrong)
-    assert(answer == tostring(fewer), wrong .. ": " .. answer)
+    local count, said = workers_started(expected, wrong)
+    assert(count == expected, wrong .. ": " .. count)
     assert(said:find("COSMIC_BUILD_JOBS=" .. wrong, 1, true), wrong .. ": " .. said)
   end
+end
+
+--- Whether the process `pid` is running, a zombie being none.
+local function running(pid: string): boolean
+  local stat = Fs.read("/proc/" .. pid .. "/stat")
+  if stat == nil then return false end
+  return stat:match("%) (%a)") ~= "Z"
+end
+
+local function test_a_pool_its_build_never_closed_leaves_no_worker_and_is_swept()
+  local dir = assert(Fs.mkdtemp("cosmic-abandoned-"))
+  local parent = (this_program.environment().TMPDIR or "/tmp") .. "/cosmic-workers-" .. sys.getuid()
+  -- The build ends as a killed one does: with its pool open.
+  local printed = run_chunk(starting_pool(dir, waiting_for(dir, 2) ..
+      ' require("cosmic.proc").exit(0)'), "2")
+  assert(printed == "true", printed)
+  assert(#names_in(dir) == 2, "workers started: " .. #names_in(dir))
+  for _, pid in ipairs(names_in(dir)) do
+    eventually("worker " .. pid .. " ended", function(): boolean return not running(pid) end)
+  end
+  local left = names_in(parent)
+  local abandoned: {string} = {}
+  for _, name in ipairs(left) do
+    if name:match("^%.scratch%.") then abandoned[#abandoned + 1] = name end
+  end
+  assert(#abandoned == 1, "scratch directories left: " .. #abandoned)
+  -- The next build's pool sweeps what a dead one left.
+  assert(run_chunk(starting_pool(dir, "pool.close()"), "2") == "true")
+  for _, name in ipairs(names_in(parent)) do
+    assert(name ~= abandoned[1], abandoned[1] .. " was not swept")
+  end
+  assert(Fs.remove_tree(dir))
+end
+
+local function test_a_second_parse_on_one_pool_is_served_by_workers_too()
+  local root = fixture("twice", project())
+  local handle = assert(work.open(root))
+  assert(work.stage(handle, false))
+  local pool = pool_of()
+  local first = assert(importer.derive(handle, false, built, nil, pool))
+  assert(first.parsed > 0 and first.worked == first.parsed, "first: " .. first.worked)
+  assert(Fs.write(root .. "/extra1.tl", "local function one(): integer\n  return 1\nend\nreturn one\n"))
+  assert(Fs.write(root .. "/extra2.tl", "local function two(): integer\n  return 2\nend\nreturn two\n"))
+  assert(work.stage(handle, false))
+  local second = assert(importer.derive(handle, false, built, nil, pool))
+  assert(second.parsed == 2 and second.worked == 2,
+    "second: parsed " .. second.parsed .. ", by workers " .. second.worked)
+  pool.close()
+  assert(work.close(handle))
+  assert(Fs.remove_tree(root))
 end
 
 --- A tree of cosmic's own, as [`build.importer`]'s tests make one: four
@@ -289,4 +398,77 @@ local function test_a_compile_an_unjudged_build_keeps_is_kept_by_the_workers_too
   local result = pooled.result as importer.Result
   assert(result.worked == result.compiled and result.worked > 0,
     "workers compiled " .. result.worked .. " of " .. result.compiled)
+end
+
+--- The compiles and parses every checkout shares, in the file `path`,
+--- as a build is given them.
+local function shared_at(path: string): importer.Shared
+  return assert(shared_compiles.for_build({ COSMIC_BUILD_CACHE = path }))
+end
+
+--- What a shared cache file holds: each compile and parse by key, with
+--- its digest, and how many were used after `since`.
+local function cache_of(path: string, since: integer): {string}, integer
+  local db = (assert(Sqlite.open(path)))
+  local lines: {string} = {}
+  local used = 0
+  for _, kind in ipairs({ cache_formats.compiled, cache_formats.parsed }) do
+    local held = (assert(Sqlite.rows(db, "SELECT * FROM " .. kind)))
+    for _, row in ipairs(held) do
+      local cells: {string} = {}
+      for _, cell in ipairs(row) do
+        cells[#cells + 1] = tostring(cell.text or cell.integer or "")
+      end
+      lines[#lines + 1] = kind .. " " .. cells[1] .. " " .. cells[#cells - 2]
+    end
+    local touched = (assert(Sqlite.rows(db, "SELECT 1 FROM " .. kind .. " WHERE used_ns > ?1",
+      { { integer = since } })))
+    used = used + #touched
+  end
+  assert(db:close())
+  table.sort(lines)
+  return lines, used
+end
+
+local function test_a_pool_beside_the_shared_compiles_counts_and_marks_as_a_build_alone_does()
+  local seed = assert(Fs.mkdtemp("cosmic-shared-")) .. "/seed.db"
+  assert(build_with("seeded", project(), nil, nil, nil, shared_at(seed)).result)
+  local seeded = assert(Fs.read(seed))
+  local since = 0
+  do
+    local db = assert(Sqlite.open(seed))
+    for _, kind in ipairs({ cache_formats.compiled, cache_formats.parsed }) do
+      local row = (assert(Sqlite.rows(db, "SELECT max(used_ns) FROM " .. kind)))
+      since = math.max(since, row[1][1].integer or 0)
+    end
+    assert(db:close())
+  end
+  -- The same project with two more modules, which only a compile can have.
+  local files = project()
+  for _, name in ipairs({ "extra1", "extra2" }) do
+    files[name .. ".tl"] = 'local lib = require("lib")\nlocal function ' .. name ..
+      '(): integer\n  return lib.new(1).value\nend\nreturn ' .. name .. "\n"
+    files[name .. "_test.tl"] = 'local ' .. name .. ' = require("' .. name .. '")\n\n' ..
+      "local function test_" .. name .. "()\n  assert(" .. name .. "() == 1)\nend\n"
+  end
+  local dir = assert(Fs.mkdtemp("cosmic-shared-copies-"))
+  assert(Fs.write(dir .. "/alone.db", seeded))
+  assert(Fs.write(dir .. "/pooled.db", seeded))
+  local alone = build_with("shared-alone", files, nil, nil, nil, shared_at(dir .. "/alone.db"))
+  local pooled = build_with("shared-pooled", files, pool_of(), nil, nil,
+    shared_at(dir .. "/pooled.db"))
+  assert(alone.result ~= nil and pooled.result ~= nil, pooled.trouble)
+  same_rows(alone, pooled)
+  local one, other = alone.result as importer.Result, pooled.result as importer.Result
+  assert(one.shared > 0 and one.compiled == 4, "alone: " .. one.shared .. ", " .. one.compiled)
+  assert(other.shared == one.shared and other.cached == one.cached and
+      other.compiled == one.compiled and other.parses.shared == one.parses.shared,
+    "pooled: shared " .. other.shared .. ", cached " .. other.cached .. ", compiled " ..
+      other.compiled)
+  assert(other.worked > 0, "workers compiled nothing")
+  local alone_rows, alone_used = cache_of(dir .. "/alone.db", since)
+  local pooled_rows, pooled_used = cache_of(dir .. "/pooled.db", since)
+  assert(table.concat(alone_rows, "\n") == table.concat(pooled_rows, "\n"), "caches differ")
+  assert(alone_used == pooled_used, "used " .. alone_used .. " against " .. pooled_used)
+  assert(Fs.remove_tree(dir))
 end

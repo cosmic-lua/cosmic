@@ -6,7 +6,12 @@
 --- serves one phase after another, on a line of its standard input,
 --- answering a line on its standard output ([`build.worker`] is the
 --- other half, and owns what a phase's job and results hold). A phase's
---- files live in the pool's scratch directory, which `close` removes.
+--- files live in the pool's scratch directory, which `close` removes and
+--- the next build's pool sweeps if this one's process died first
+--- ([`Fs.scratch`]). A worker stays in its starter's process group, so a
+--- signal that ends the build from a terminal ends it too, and one the
+--- build dies without finishes the job it has and ends at the end of its
+--- input.
 ---
 --- A pool that cannot start, or loses a worker, says so once on stderr
 --- and leaves the work to the build's own process, which does what it
@@ -20,6 +25,7 @@ local Fs = require("cosmic.fs")
 local Log = require("cosmic.log")
 local Proc = require("cosmic.proc")
 local Stream = require("cosmic.stream")
+local sys = require("cosmic.sys")
 local worker = require("build.worker")
 local type compiler = require("build.compiler")
 local type derivation = require("build.derivation")
@@ -29,9 +35,11 @@ local type Sqlite = require("cosmic.sqlite")
 local log = Log.new("cosmic")
 
 --- How long a worker may run before the build gives it up as stuck,
---- from its start, which is far past what a cold build of the tree
---- takes serially: it then finishes without it.
-local lifetime_ns <const> = Clock.seconds(1800)
+--- from its start, and finishes without it, still holding the rebuild
+--- lock: five times what a cold build of the tree takes serially on a
+--- slow processor, since a worker's whole life is both phases of one
+--- build.
+local lifetime_ns <const> = Clock.seconds(600)
 
 --- One started worker: its process, the lines it answers, and whether it
 --- has taken every job so far.
@@ -119,7 +127,8 @@ function workers.tool_spec(): workers.Spec
   return { argv = argv, open_bytes = 512 * 1024, phase_bytes = 128 * 1024, startup_ns = 0 }
 end
 
---- The lines of a worker's reply after `wait`, to say why it ended.
+--- What `handle`'s worker wrote to its standard error, after it ended, on
+--- one line and led by ": ", or "" where it wrote nothing.
 local function stderr_of(handle: Child.Handle): string
   local result, _ = handle:wait(1000000000)
   local said = ""
@@ -133,7 +142,8 @@ end
 --- processors, by default. The caller closes it.
 function workers.pool(spec: workers.Spec, jobs?: integer): importer.Workers
   local most = jobs or jobs_of_build()
-  local scratch: string | nil = nil
+  local scratch: Fs.Scratch | nil = nil
+  local jobs_made = 0
   local started = false
   local started_at = 0
   local broken = false
@@ -173,7 +183,13 @@ function workers.pool(spec: workers.Spec, jobs?: integer): importer.Workers
   end
 
   local function start(): boolean
-    local made, why = Fs.mkdtemp("cosmic-workers-")
+    local parent = Env.get_or("TMPDIR", "/tmp") .. "/cosmic-workers-" .. sys.getuid()
+    local parent_made, parent_trouble = Fs.mkdirs(parent)
+    if not parent_made then
+      give_up(parent_trouble)
+      return false
+    end
+    local made, why = Fs.scratch(parent)
     if made == nil then
       give_up(why)
       return false
@@ -190,7 +206,7 @@ function workers.pool(spec: workers.Spec, jobs?: integer): importer.Workers
     for _ = 1, most do
       local handle, trouble = child.start(spec.argv, {
         env = env, fds = fds, stdin = "stream", stdout = "stream", stderr = "capture",
-        timeout_ns = lifetime_ns,
+        timeout_ns = lifetime_ns, process_group = false,
       })
       if handle == nil then
         give_up("cannot start a worker: " .. trouble)
@@ -223,7 +239,8 @@ function workers.pool(spec: workers.Spec, jobs?: integer): importer.Workers
     end,
     path = function(name: string): string | nil, string
       if scratch == nil then return nil, "no workers are running" end
-      return scratch .. "/" .. name, ""
+      jobs_made = jobs_made + 1
+      return scratch.path .. "/" .. name .. "-" .. jobs_made, ""
     end,
     run = function(phase: string, job: string, count: integer): {string}
       local answers: {string} = {}
@@ -270,9 +287,6 @@ function workers.pool(spec: workers.Spec, jobs?: integer): importer.Workers
   }
 
   return {
-    size = function(): integer
-      return most
-    end,
     ready = ready,
     parse = function(db: Sqlite.Handle, built: compiler, fresh: {derivation.Fresh},
                      tally: derivation.Parses, made: {derivation.Source}): boolean, string
@@ -286,7 +300,7 @@ function workers.pool(spec: workers.Spec, jobs?: integer): importer.Workers
     close = function()
       finish_workers()
       if scratch ~= nil then
-        local _, _ = Fs.remove_tree(scratch)
+        local _gone <close> = scratch
         scratch = nil
       end
       started = false

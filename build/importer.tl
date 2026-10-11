@@ -141,8 +141,6 @@ local record importer
   --- What they make is what this process would, and what they leave
   --- undone this process does.
   record Workers
-    --- How many processes the pool runs at most, once started.
-    size: function(): integer
     --- Whether processes serve `bytes` of source, starting them first
     --- where that many are worth it.
     ready: function(bytes: integer): boolean
