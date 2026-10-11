@@ -549,6 +549,14 @@ local record Types
     --- 503 past it); half of the server's connection limit by default, so
     --- ordinary requests keep the other half.
     max_streams?: integer
+    --- Set by [`Dev.app`] for an app in development mode: [`Web.serve`]
+    --- refuses (false and why) a listener beyond the loopback and a
+    --- `trusted_proxy`, since such an app shows a fault's stack and reloads
+    --- pages, and logs one line saying so. The guard is in [`Web.serve`]:
+    --- an app served through [`Server.serve`] directly skips it. Only
+    --- [`Dev.app`] reads `COSMIC_WEB_DEV`; a [`Web.app`] ignores it. False
+    --- by default.
+    dev?: boolean
   end
 
   --- A built app: [`Web.app`] derives the router and the handler.

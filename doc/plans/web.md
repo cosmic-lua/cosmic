@@ -285,7 +285,7 @@ needs have merged.
    and [`Htmx.head`].
 7. **Streaming and the rest:** [`cosmic.channel`], [`cosmic.web.sse`],
    [`cosmic.http.multipart`] (decision 8), and
-   `cosmic.web.dev`.
+   [`cosmic.web.dev`].
 8. **A guide,** doc/guides/web.md, which is a test of its own: one app
    built from an empty directory, its page, its form and its API.
 
@@ -301,7 +301,7 @@ overruled; the parts list smaller ones of their own.
    requires [`cosmic.web`]. Recommendation: every executable in v1, since
    the store has no per-program pruning of tables yet.
 7. **The dev loop as a library or a verb.** Recommendation: a library
-   (`cosmic.web.dev`) in v1; a `cosmic web dev` verb needs its own entry,
+   ([`cosmic.web.dev`]) in v1; a `cosmic web dev` verb needs its own entry,
    guide and tests for little more.
 8. **A gzip middleware.** input.md and assets.md assume one that leaves
    event streams and precompressed assets alone; core.md (open question 13)
@@ -346,6 +346,7 @@ cooperative process.
 [`cosmic.http.wire`]: ../../cosmic/http/wire.tl
 [`cosmic.web.assets`]: ../../cosmic/web/assets.tl
 [`cosmic.web.cookies`]: ../../cosmic/web/cookies.tl
+[`cosmic.web.dev`]: ../../cosmic/web/dev.tl
 [`cosmic.web.htmx`]: ../../cosmic/web/htmx.tl
 [`cosmic.web.secret`]: ../../cosmic/web/secret.tl
 [`cosmic.web.session.cookie`]: ../../cosmic/web/session/cookie.tl

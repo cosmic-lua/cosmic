@@ -24,7 +24,7 @@ local SPEC_FIELDS <const>: {string:boolean} = {
   routes = true, middleware = true, lifespan = true, debug = true, trailing_slash = true,
   trusted_hosts = true, trusted_proxy = true, error_pages = true, error_view = true, sink = true,
   builtin = true,
-  hubs = true, max_streams = true,
+  hubs = true, max_streams = true, dev = true,
 }
 
 local SERVE_FIELDS <const>: {string:boolean} = {
@@ -49,9 +49,11 @@ local function checked(spec: any, known: {string:boolean}, what: string)
   end
 end
 
---- Whether `address` is on the loopback.
+--- Whether `address` is on the loopback: a unix socket, `::1` or a dotted
+--- 127/8 address (not a name that merely starts with "127.").
 local function loopback(address: Net.Address): boolean
-  return address.kind == "unix" or assert(address.host):find("^127%.") ~= nil or address.host == "::1"
+  return address.kind == "unix" or address.host == "::1" or
+    assert(address.host):find("^127%.%d+%.%d+%.%d+$") ~= nil
 end
 
 --- What `fn` raised, or nil when it returned.
@@ -96,7 +98,7 @@ function App.new(spec: Types.AppSpec): Types.App
     trusted_proxy = spec.trusted_proxy == true, error_pages = spec.error_pages,
     error_view = spec.error_view, sink = sink,
     builtin = spec.builtin ~= false,
-    hubs = hubs, max_streams = spec.max_streams,
+    hubs = hubs, max_streams = spec.max_streams, dev = spec.dev == true,
   }
   if kept.max_streams ~= nil and (math.type(kept.max_streams) ~= "integer" or kept.max_streams < 0) then
     error("web: max_streams must be a non-negative integer", 2)
@@ -194,6 +196,17 @@ end
 function App.serve(app: Types.App, opts: Types.ServeOptions): boolean, string
   checked(opts, SERVE_FIELDS, "serve")
   local sink = assert(app.spec.sink)
+  if app.spec.dev then
+    if app.spec.trusted_proxy then
+      return false, "web: an app in development mode (Dev.app) cannot also have a trusted_proxy"
+    end
+    sink:line("development mode: stacks are shown and pages reload; serving on the loopback only")
+    for _, address in ipairs(opts.listeners or {}) do
+      if not loopback(address) then
+        return false, "web: an app in development mode (Dev.app) serves only on the loopback"
+      end
+    end
+  end
   if app.spec.debug then
     for _, address in ipairs(opts.listeners or {}) do
       if not loopback(address) then

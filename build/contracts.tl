@@ -247,6 +247,10 @@ local casts: {string: string} = {
   ["cosmic/sqlite.tl:checked"] =
     "a caller's parameter table is checked for keys its " ..
     "declaration does not name, which only a map view of it lists",
+  ["cosmic/web/dev.tl:injected"] =
+    "a reply is copied by every key it holds, so a field the record " ..
+    "gains later is kept; a record with fields of different types " ..
+    "lists only through a map view, and back through a cast",
   ["cosmic/web/request.tl:get"] =
     "a request's slots hold values of every key's type in one table; " ..
     "`set` stores a T under its Key<T>, so the one read back is that T",

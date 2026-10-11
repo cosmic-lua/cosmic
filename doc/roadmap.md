@@ -353,6 +353,25 @@ promises lean on come first:
   can be reviewed from a release note the command prints; today it is a PIN
   edit and `bin/vendor htmx htmx-ext-sse`.
 
+- [`cosmic.web`] past its first release, each once an app needs it:
+  - WebSockets over a `Reply.take` seam in [`cosmic.http.server`] that hands
+    the connection to a callback after the head is written, with `cosmic.web.ws` (the
+    handshake, an Origin allowlist, RFC 6455 frames, a fuzz test) on top. The seam
+    also gives event streams prompt disconnect detection: a stream finds
+    a client that left only by a write, a heartbeat later.
+  - `epoll` and `kqueue` under `Poll`, for the thousands of idle
+    streams a poll(2) loop rescans on every wake.
+  - An event hub across processes (a SQLite table or a Unix socket), and
+    a pool of worker processes for an app whose SQLite work outgrows one
+    cooperative process.
+  - File watching by `inotify` and `kqueue` in the development loop
+    ([`cosmic.web.dev`]) in place of the stat pass every 300 ms, once
+    [`cosmic.fs`] has a watch binding.
+  - Brotli for the precompressed assets, and a request-level
+    `Last-Modified` for a file a handler serves itself.
+  - File-based routing that generates the route table, and OpenAPI
+    documents made from typed routes.
+
 ## documentation and examples
 
 New documentation extends the one build-time index and runtime query path
@@ -448,7 +467,9 @@ four-producer provenance join.
 [`ci/cosmic_ci/queue_stage_test.tl`]: ../ci/cosmic_ci/queue_stage_test.tl
 [`core/coverage.c`]: ../core/coverage.c
 [`core/json.c`]: ../core/json.c
+[`cosmic.fs`]: ../cosmic/fs.tl
 [`cosmic.html`]: ../cosmic/html.tl
+[`cosmic.http.server`]: ../cosmic/http/server.tl
 [`cosmic.http`]: ../cosmic/http/init.tl
 [`cosmic.internal.relay_config`]: ../cosmic/internal/relay_config.tl
 [`cosmic.internal.relay_server`]: ../cosmic/internal/relay_server.tl
@@ -460,6 +481,8 @@ four-producer provenance join.
 [`cosmic.template`]: ../cosmic/template/init.tl
 [`cosmic.test`]: ../cosmic/test.tl
 [`cosmic.url`]: ../cosmic/url.tl
+[`cosmic.web.dev`]: ../cosmic/web/dev.tl
+[`cosmic.web`]: ../cosmic/web/init.tl
 [`cosmic/errors.tl`]: ../cosmic/errors.tl
 [`cosmic/json_fuzz_test.tl`]: ../cosmic/json_fuzz_test.tl
 [`cosmic/shape_example.tl`]: ../cosmic/shape_example.tl
