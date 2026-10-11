@@ -7,6 +7,7 @@ local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local sys = require("cosmic.sys")
 local Sqlite = require("cosmic.sqlite")
+local Test = require("cosmic.test")
 local identity = require("build.identity")
 local work = require("build.work")
 local build_paths = require("build.paths")
@@ -609,6 +610,14 @@ end
 --- Names that differ only in case would be two files here and one on a
 --- case-insensitive disk.
 local function test_stage_refuses_assets_that_differ_only_in_case(tmp: string)
+  -- A file system that folds case (macOS's, by default) holds the two
+  -- names as one file, so there is no pair to refuse.
+  assert(Fs.mkdirs(tmp .. "/probe"))
+  assert(Fs.write(tmp .. "/probe/A", "a"))
+  assert(Fs.write(tmp .. "/probe/a", "b"))
+  if #assert(Fs.list(tmp .. "/probe")) < 2 then
+    Test.skip("this file system folds case, so two names that differ only in case are one file")
+  end
   local staged, trouble = stage_files(tmp, { ["static/App.css"] = "a", ["static/app.css"] = "b" })
   assert(staged == nil and trouble:find("only in case", 1, true), tostring(trouble))
   assert(trouble:find("static/App.css", 1, true) and trouble:find("static/app.css", 1, true))
