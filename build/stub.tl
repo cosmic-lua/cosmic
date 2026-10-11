@@ -3,10 +3,11 @@
 ---
 --- A stub is the module's source with every function body left out:
 --- each token it keeps stays at the line and column it had, so a position
---- the checker reports in the module means the same in either, and its
---- requires, types, records and top-level statements are the source's own. Comments and the space between
---- tokens are dropped, since the checker reads neither; lexing them is a
---- good part of what a module costs it.
+--- the checker reports in the module means the same in either, and what it
+--- keeps of the source's requires, types, records and top-level statements
+--- is as the source wrote it. Comments and the space between tokens are
+--- dropped, since the checker reads neither; lexing them is a good part of
+--- what a module costs it.
 ---
 --- Leaving a body out cannot change the module's type: tl takes a
 --- function's types from its signature, or from the context of a function
@@ -90,11 +91,18 @@ local function bodies(root: ast.Node): {Span}
   return found
 end
 
---- Statement kinds that change nothing a `return` of a record could
---- carry, beside what the names they declare do: a declaration, an
---- assignment (which adds no field to a record: tl refuses a key its
---- type lacks), a call, a block or a loop. A statement of any other kind
---- is kept wherever it is.
+--- Statement kinds [`unneeded`] may leave out: a declaration, an
+--- assignment, a call, a block or a loop. None changes the type of a
+--- record declared as such, beside what the names it declares do: an
+--- assignment adds no field to one (tl refuses a key its type lacks).
+--- Two things would, and neither reaches a stub. An assignment to a name
+--- declared as a value after the record (`local M = {}` then `M.x = 1`)
+--- infers that value's type, but `unneeded` prunes only a module whose
+--- returned name was last declared a type. A require of a module that
+--- declares a global brings a type in by no name the stub spells, but
+--- cosmic's own build refuses a standard-library module that declares one
+--- ([`build.compilation`]). A statement of any other kind is kept wherever
+--- it is.
 local droppable <const>: {string:boolean} = {
   local_declaration = true, local_function = true, local_type = true, record_function = true,
   assignment = true, op = true, ["if"] = true, fornum = true, forin = true, ["while"] = true,
@@ -125,7 +133,7 @@ end
 
 --- The top-level statements of `parsed` a declaration of the module needs
 --- none of, as spans to leave out, where the module returns a name its own
---- `local record`, `interface`, `enum` or `local type` declares; none for
+--- `local record`, `interface`, `enum` or `local type` declares last; none for
 --- any other module, whose stub keeps every statement. Such a module's
 --- type is that declaration's, with what each `function M.f` on it adds,
 --- so the stub keeps the `return`, then what a kept statement names, to a
@@ -164,13 +172,17 @@ local function unneeded(parsed: ast.Parsed, body_spans: {Span}): {Span}
     local before_k = k > 1 and tokens[k - 1].tk or ""
     if before_k == "local" or before_k == "global" then
       k = k - 1
-    elseif before_k == "type" and k > 2 and (tokens[k - 2].tk == "local" or tokens[k - 2].tk == "global") then
+    elseif before_k == "type" and k > 2 and
+        (tokens[k - 2].tk == "local" or tokens[k - 2].tk == "global") then
       k = k - 2
     end
     starts[i] = k
     declares[i], owners[i] = names_of(s)
-    if s.kind == "local_type" and declares[i][1] == returned then
-      typed = true
+    -- The returned name's last top-level declaration decides what it is.
+    for _, name in ipairs(declares[i]) do
+      if name == returned then
+        typed = s.kind == "local_type"
+      end
     end
   end
   if not typed then
@@ -276,6 +288,17 @@ function stub.of(parsed: ast.Parsed): string
     end
   end
   return table.concat(out) .. "\n"
+end
+
+--- The first top-level statement of `parsed` that declares a global, or
+--- nil: a standard-library module may declare none (see `droppable`).
+function stub.global_declaration(parsed: ast.Parsed): ast.Node | nil
+  for _, s in ipairs(parsed.node) do
+    if s.kind:sub(1, 7) == "global_" then
+      return s
+    end
+  end
+  return nil
 end
 
 --- Fields of a checked type that say where it was read, which a stub

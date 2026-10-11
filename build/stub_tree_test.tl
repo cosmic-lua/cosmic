@@ -33,13 +33,13 @@ local thing <const> = table.concat({
 --- A tree [`build.tree`] takes for cosmic's own, at a new directory, with
 --- one standard-library module, staged and parsed: its working handle
 --- and the compiler identity a build of it keys on.
-local function own_tree(tmp: string): work.Handle, string
+local function own_tree(tmp: string, source?: string): work.Handle, string
   local root = tmp .. "/tree"
   for _, dir in ipairs({ "core", "build", "cosmic" }) do
     assert(Fs.mkdirs(root .. "/" .. dir))
   end
   assert(Fs.write(root .. "/build/importer.tl", "local record importer\nend\nreturn importer\n"))
-  assert(Fs.write(root .. "/cosmic/thing.tl", thing))
+  assert(Fs.write(root .. "/cosmic/thing.tl", source or thing))
   local handle = assert(work.open(root))
   assert(work.stage(handle, true))
   assert(importer.derive(handle, true, built))
@@ -110,4 +110,16 @@ local function test_a_projection_missing_a_stub_is_refused(tmp: string)
   assert(not written and trouble:find("cosmic.thing: the projection holds no stub", 1, true) ~= nil,
     trouble)
   local _, _ = work.close(handle)
+end
+
+--- A global a standard-library module declares would reach a project
+--- through a require that a stub of a module requiring it may leave out,
+--- which the check of that stub, run where the global is declared already,
+--- could not see.
+local function test_a_standard_module_declaring_a_global_fails_the_build(tmp: string)
+  local handle, tool = own_tree(tmp, "global record G\n  n: integer\nend\n" .. thing)
+  local result, trouble = importer.compile(handle, built, tool)
+  assert(result == nil and trouble:find("cosmic/thing.tl:1: a standard-library module may declare no global",
+    1, true) ~= nil, trouble)
+  assert(work.close(handle))
 end

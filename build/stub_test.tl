@@ -146,6 +146,18 @@ local function test_a_module_returning_its_record_keeps_only_what_its_type_names
   end
 end
 
+--- A returned name declared again as a value after its record is that
+--- value, whose type an assignment may infer, so its module keeps every
+--- statement.
+local function test_a_record_name_declared_again_as_a_value_keeps_every_statement()
+  local stubbed = stub_of(source(
+    "local record M end",
+    "local M = {}",
+    "M.x = 1",
+    "return M"))
+  assert(stubbed:find("M.x = 1", 1, true) ~= nil, stubbed)
+end
+
 local function test_a_never_function_s_stub_body_raises()
   local stubbed = stub_of(source(
     "local record M end",
