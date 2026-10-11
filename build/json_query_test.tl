@@ -194,9 +194,14 @@ local function counted(value: any, counter: {integer}): any
   if not (value is {any:any}) then return value end
   local copy: {any:any} = {}
   for key, member in pairs(value) do copy[key] = counted(member, counter) end
-  local walk_copy: function(): any, any, any = function(): any, any, any
+  local walk_copy = function(): function(): (any, any)
     counter[1] = counter[1] + 1
-    return next, copy, nil
+    local at: any = nil
+    return function(): any, any
+      local key, member = next(copy, at)
+      at = key
+      return key, member
+    end
   end
   return setmetatable({}, { __index = copy, __pairs = walk_copy })
 end

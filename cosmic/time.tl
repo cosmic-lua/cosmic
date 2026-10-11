@@ -565,7 +565,7 @@ local function make_zone(name: string, rules: Rules): Time.Zone
     end,
   }
   -- Teal's metatable record has no `__metatable`; Lua reads it all the same.
-  rawset(hidden, "__metatable", false)
+  rawset(hidden as {string:any}, "__metatable", false)
   setmetatable(zone, hidden)
   rules_of[zone] = rules
   return zone

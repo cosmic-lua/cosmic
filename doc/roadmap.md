@@ -40,14 +40,20 @@ defines the target; once something ships, it leaves this file.
   redeclaration of them: the documented signatures then read as
   `records_interfaces_methods` teaches, and the design note above
   `FromStringReader` in [`cosmic/stream.tl`] shrinks. every interface of the
-  module and every record that implements one changes together.
+  module and every record that implements one changes together. it also
+  lets the receiver exemption go from `patch/tl`'s 48e: the first
+  parameter of a function-typed record field, when it is a record or an
+  interface, is the one place a record parameter is compared in either
+  direction, because those redeclarations narrow it. it closes the hole
+  that comes with it: a callback field `function(Event)` also takes a
+  `function(k: KeyEvent)`.
 - close the holes in Teal's own typing that forge any type, `: never`
   functions among them ([doc/design.md](design.md)'s teal section states the
-  bar): `rawset` writes a value of any type into a record's field; a function
-  `__index` given to `setmetatable` is declared to return `any`, so what it
-  serves is not checked against the record (a table `__index` is, patch/tl's
-  47a, and `test_a_function_index_serves_any` in [`build/teal_test.tl`] pins
-  the rest). a call through `any` carries no flag either.
+  bar): a function `__index` given to `setmetatable` is declared to return
+  `any`, so what it serves is not checked against the record (a table
+  `__index` is, patch/tl's 47a, and `test_a_function_index_serves_any` in
+  [`build/teal_test.tl`] pins the rest). a call through `any` carries no flag
+  either.
 - add earned lint rules and their fixes to [`build/fix/rule.tl`]'s rule list.
   the rewrite stage is in place and the list is still empty.
 - add a floor for line coverage, C included: `cosmic test --min PCT
