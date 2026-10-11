@@ -435,11 +435,35 @@ end
 
 --- Creates every table the schema names, in order.
 local function create(db: Sqlite.Handle): boolean, string
+  -- A fresh file's tables go in in one transaction: each statement of its
+  -- own commits, and syncs, alone, which was a third of a new project's
+  -- first build (about 40 ms, against 4). A file with tables keeps one
+  -- transaction a statement, each a no-op: one held across them would
+  -- wait unannounced for another run's ([`begin_waiting`] says so). A run
+  -- that meets another making the same fresh file waits at `BEGIN
+  -- IMMEDIATE`, then finds every table there.
+  local tables, count_trouble = Sqlite.text_rows(db, "SELECT count(*) FROM sqlite_master")
+  if tables == nil then
+    return false, count_trouble
+  end
+  local fresh = tables[1][1] == "0"
+  if fresh then
+    local begun, begin_trouble = db:exec("BEGIN IMMEDIATE")
+    if not begun then
+      return false, begin_trouble
+    end
+  end
   for _, statement in ipairs(work.schema) do
     local ok, trouble = db:exec(statement)
     if not ok then
+      if fresh then
+        local _, _ = db:exec("ROLLBACK")
+      end
       return false, trouble
     end
+  end
+  if fresh then
+    return db:exec("COMMIT")
   end
   return true, ""
 end
