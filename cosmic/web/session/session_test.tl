@@ -632,3 +632,31 @@ local function test_invalidate_revokes_even_when_the_response_is_a_500()
   assert(store:load(before, clock.now, "session") == nil)
   assert(#set_cookies(res) == 1 and client.jar.session == nil, "and the cookie is expired")
 end
+
+local function test_regenerate_drops_the_csrf_secret_and_keeps_the_rest()
+  local store = sqlite_store()
+  local app = Web.app{
+    middleware = { Session.middleware(options(store)) },
+    routes = {
+      Web.post("/seed", function(req: Web.Request): Web.Response
+        local s = Session.of(req)
+        s:set(Session.CSRF_KEY, "secret")
+        s:set("user", "ada")
+        return Web.text("ok")
+      end),
+      Web.post("/regenerate", function(req: Web.Request): Web.Response
+        Session.of(req):regenerate()
+        return Web.text("ok")
+      end),
+      Web.get("/peek", function(req: Web.Request): Web.Response
+        local s = Session.of(req)
+        return Web.text((s:get_string(Session.CSRF_KEY) or "-") .. "/" .. (s:get_string("user") or "-"))
+      end),
+    },
+  }
+  local client = Web.test_client(app)
+  client:post("/seed")
+  assert(client:get("/peek").body == "secret/ada")
+  client:post("/regenerate")
+  assert(client:get("/peek").body == "-/ada")
+end

@@ -217,3 +217,19 @@ local function test_stream_is_nosniff_like_the_other_constructors()
   assert(Response.header(res, "x-content-type-options") == "nosniff")
   assert(Response.header(res, "content-type") == "text/plain")
 end
+
+local function test_copy_has_headers_of_its_own_and_every_field_of_a_reply()
+  local lines: {string} = { "a=1" }
+  local original: Types.Response = { status = 201, headers = { ["Set-Cookie"] = lines, Vary = "Accept" },
+    body = "x", length = 1, close = true }
+  local copy = Response.copy(original)
+  assert(copy.status == 201 and copy.body == "x" and copy.length == 1 and copy.close == true)
+  Response.add_header(copy, "Set-Cookie", "b=2")
+  Response.add_header(copy, "Vary", "Origin")
+  Response.set_header(copy, "X-New", "1")
+  assert(#lines == 1 and original.headers["Vary"] == "Accept" and original.headers["X-New"] == nil,
+    "the original is as it was")
+  assert(#(copy.headers["Set-Cookie"] as {string}) == 2 and copy.headers["Vary"] == "Accept, Origin")
+  local bare = Response.copy({ status = 204 })
+  assert(bare.status == 204 and next(bare.headers) == nil)
+end

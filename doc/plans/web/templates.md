@@ -1135,7 +1135,7 @@ same change.
 - Security (input.md sections 8 and 10): CSRF token delivery via
   `hx-headers` (this file supplies `SafeJson`), the CSP `script-src` /
   `style-src` choices that follow from `allowEval` and indicator styles, and
-  `Headers.NONCE`.
+  [`Headers.NONCE`].
 
 ## 10. Order of work
 
@@ -1224,6 +1224,7 @@ is):
 [`cosmic/web/htmx.tl`]: ../../../cosmic/web/htmx.tl
 [`Def.targets`]: ../../../cosmic/template/types.tl
 [`Dialect.Table`]: ../../../cosmic/template/dialect/init.tl
+[`Headers.NONCE`]: ../../../cosmic/web/headers.tl
 [`HeadOptions.config`]: ../../../cosmic/web/htmx.tl
 [`Html.concat`]: ../../../cosmic/html.tl
 [`html.escape`]: ../../../cosmic/internal/html.d.tl

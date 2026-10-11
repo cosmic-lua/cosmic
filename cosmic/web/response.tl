@@ -91,6 +91,28 @@ local function tokens(value: string): {string}
   return out
 end
 
+--- A copy of `res` with headers of its own, which a middleware may add to
+--- without touching the original: a handler may return a response it shares
+--- (a module-level `Web.text("not found")`), and a `Set-Cookie` or a CSP
+--- added to that one would go to every later request. The body is shared (a
+--- Reader is not copied), and the copy holds every field of a reply, as the
+--- server refuses one it does not know.
+--- @param res Types.Response The response
+--- @return Types.Response The copy
+function Response.copy(res: Types.Response): Types.Response
+  local headers: {string: string | {string}} = {}
+  for name, value in pairs(res.headers or {}) do
+    if value is string then
+      headers[name] = value
+    else
+      local lines: {string} = {}
+      for i, line in ipairs(value) do lines[i] = line end
+      headers[name] = lines
+    end
+  end
+  return { status = res.status, headers = headers, body = res.body, length = res.length, close = res.close }
+end
+
 --- Appends `value` to header `name`, which keeps the lines it has: a
 --- string value becomes a list. `Vary` is merged instead of repeated: a
 --- token already listed (in any case) is not added again, and `*` absorbs
@@ -98,7 +120,8 @@ end
 --- It changes `res` in place, headers and all: a response shared between
 --- requests (a module-level `Web.text("not found")`) gets the line for every
 --- later request too, so a middleware that adds to a response it did not
---- make copies it first, as [`cosmic.web.session`]'s does.
+--- make copies it first with [`Response.copy`], as [`cosmic.web.session`]'s
+--- does.
 --- @param res Types.Response The response
 --- @param name string The header's name
 --- @param value string The line to add
