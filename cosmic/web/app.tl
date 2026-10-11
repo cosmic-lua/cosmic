@@ -198,6 +198,10 @@ function App.serve(app: Types.App, opts: Types.ServeOptions): boolean, string
   checked(opts, SERVE_FIELDS, "serve")
   local sink = app.spec.sink
   if app.spec.dev then
+    if app.spec.trusted_proxy then
+      return false, "web: an app in development mode (Dev.app) cannot also have a trusted_proxy"
+    end
+    sink:line("development mode: stacks are shown and pages reload; serving on the loopback only")
     for _, address in ipairs(opts.listeners or {}) do
       if not loopback(address) then
         return false, "web: an app in development mode (Dev.app) serves only on the loopback"

@@ -92,6 +92,8 @@ local function test_a_program_that_exits_is_not_started_again_until_a_change(tmp
   assert(Fs.write(tmp .. "/src/a.tl", "broken"))
   local boots = 0
   local rounds = 0
+  local quiet_rounds = 0
+  local fixed = false
   local lines: {string} = {}
   local give_up = deadline()
   local ok = Dev.supervise{
@@ -101,14 +103,18 @@ local function test_a_program_that_exits_is_not_started_again_until_a_change(tmp
     stop = function(): boolean
       give_up()
       rounds = rounds + 1
-      if rounds == 30 then
+      if not fixed and table.concat(lines, "\n"):find("exited with status 3", 1, true) then
+        quiet_rounds = quiet_rounds + 1
         assert(boots == 1, "no restart loop")
-        assert(Fs.write(tmp .. "/src/a.tl", "fixed!"))
+        if quiet_rounds == 30 then
+          fixed = true
+          assert(Fs.write(tmp .. "/src/a.tl", "fixed!"))
+        end
       end
       return boots == 2
     end,
   }
-  assert(ok and rounds > 30)
+  assert(ok and fixed and quiet_rounds >= 30, "the program was left alone for 30 looks after it exited")
   local told = table.concat(lines, "\n")
   assert(told:find("exited with status 3; waiting for a change", 1, true))
 end
@@ -133,13 +139,95 @@ local function test_the_ignored_files_and_the_static_directory_do_not_restart(tm
         assert(Fs.write(root .. "/data.db", "rows"))
         assert(Fs.write(root .. "/data.db-wal", "rows"))
         assert(Fs.write(root .. "/app.tl~", "backup"))
+        assert(Fs.mkdirs(root .. "/node_modules/dep"))
+        assert(Fs.write(root .. "/node_modules/dep/index.js", "x"))
       end
-      if rounds == 12 then assert(Fs.write(root .. "/page.html", "<p>")) end
+      if rounds == 12 then
+        assert(boots == 1, "nothing ignored restarted the program")
+        assert(Fs.write(root .. "/page.html", "<p>"))
+      end
       return boots == 2
     end,
   }
   assert(ok)
   assert(rounds > 12, "only the page restarted the program")
+end
+
+local function test_a_burst_of_changes_restarts_once(tmp: string)
+  assert(Fs.mkdirs(tmp .. "/src") and Fs.mkdirs(tmp .. "/marks"))
+  assert(Fs.write(tmp .. "/src/a.tl", "one"))
+  local boots = 0
+  local rounds = 0
+  local lines: {string} = {}
+  local give_up = deadline()
+  local ok = Dev.supervise{
+    start = program(marking(tmp)), watch = { tmp .. "/src" }, interval_ns = Clock.ms(20),
+    log = function(text: string) lines[#lines + 1] = text end,
+    on_boot = function(boot: integer, _pid: integer) boots = boot end,
+    stop = function(): boolean
+      give_up()
+      rounds = rounds + 1
+      -- Three edits on three successive looks, then quiet.
+      if rounds >= 2 and rounds <= 4 then
+        assert(Fs.write(tmp .. "/src/a.tl", ("edit %d"):format(rounds)))
+        assert(Fs.set_mtime(tmp .. "/src/a.tl", 1000000 + rounds))
+      end
+      assert(boots == 1 or rounds > 4, "no restart while changes still arrive")
+      return boots == 2 and rounds > 8
+    end,
+  }
+  assert(ok and boots == 2)
+  local restarts = select(2, table.concat(lines, "\n"):gsub("restarting", ""))
+  assert(restarts == 1, "one restart for the burst, not " .. tostring(restarts))
+end
+
+local function test_a_static_directory_named_by_the_option_is_ignored(tmp: string)
+  local root = tmp .. "/w"
+  assert(Fs.mkdirs(root .. "/public") and Fs.mkdirs(root .. "/static") and Fs.mkdirs(tmp .. "/marks"))
+  assert(Fs.write(root .. "/app.tl", "x"))
+  local boots = 0
+  local rounds = 0
+  local give_up = deadline()
+  local ok = Dev.supervise{
+    start = program(marking(tmp)), watch = { root }, static = "public", interval_ns = Clock.ms(5),
+    log = function(_text: string) end,
+    on_boot = function(boot: integer, _pid: integer) boots = boot end,
+    stop = function(): boolean
+      give_up()
+      rounds = rounds + 1
+      if rounds == 3 then assert(Fs.write(root .. "/public/app.css", "a{}")) end
+      if rounds == 12 then
+        assert(boots == 1, "the configured static directory is ignored")
+        assert(Fs.write(root .. "/static/app.css", "a{}"))
+      end
+      return boots == 2
+    end,
+  }
+  assert(ok and rounds > 12)
+end
+
+local sent = false
+
+local function test_a_sigterm_to_the_supervisor_stops_it_and_its_program(tmp: string)
+  assert(Fs.mkdirs(tmp .. "/src") and Fs.mkdirs(tmp .. "/marks"))
+  assert(Fs.write(tmp .. "/src/a.tl", "one"))
+  local pid: integer = 0
+  local give_up = deadline()
+  local ok = Dev.supervise{
+    start = program(marking(tmp)), watch = { tmp .. "/src" }, interval_ns = Clock.ms(10),
+    log = function(_text: string) end,
+    on_boot = function(_boot: integer, started: integer) pid = started end,
+    stop = function(): boolean
+      give_up()
+      if pid ~= 0 and Fs.exists(tmp .. "/marks/1") == true and not sent then
+        sent = true
+        assert(sys.kill(sys.getpid(), sys.SIGTERM))
+      end
+      return false
+    end,
+  }
+  assert(ok and sent and pid ~= 0)
+  assert(not alive(pid), "the program was ended with the supervisor")
 end
 
 local function test_options_of_the_wrong_kind_raise()

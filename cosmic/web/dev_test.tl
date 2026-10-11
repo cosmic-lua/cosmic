@@ -47,6 +47,24 @@ local function routes(): {Web.Route}
   }
 end
 
+--- `opts` naming a host the development app trusts, as a browser's would.
+local function local_opts(opts?: Web.TestOptions, host?: string): Web.TestOptions
+  local made: Web.TestOptions = {}
+  for key, value in pairs((opts or {}) as {string:any}) do (made as {string:any})[key] = value end
+  local headers: {string:string} = { host = host or "localhost:8080" }
+  for name, value in pairs((opts and opts.headers) or {}) do headers[name:lower()] = value end
+  made.headers = headers
+  return made
+end
+
+local function get(client: Web.TestClient, path: string, opts?: Web.TestOptions): Web.TestResponse
+  return client:get(path, local_opts(opts))
+end
+
+local function send(client: Web.TestClient, method: string, path: string): Web.TestResponse
+  return client:request(method, path, local_opts())
+end
+
 local function quiet(): Web.Sink
   return { line = function(_self: Web.Sink, _text: string) end }
 end
@@ -55,10 +73,10 @@ local function test_without_development_mode_the_app_is_the_plain_one()
   local app = Dev.app({ routes = routes(), sink = quiet() }, { enabled = false })
   assert(not app.spec.dev and not app.spec.debug)
   Web.with_client(app, function(client: Web.TestClient)
-    assert(client:get("/").body == "<html><body><p>hi</p></body></html>")
-    assert(client:get("/_web/dev.js").status == 404)
-    assert(client:get("/_web/dev/events").status == 404)
-    local boom = client:get("/boom")
+    assert(get(client, "/").body == "<html><body><p>hi</p></body></html>")
+    assert(get(client, "/_web/dev.js").status == 404)
+    assert(get(client, "/_web/dev/events").status == 404)
+    local boom = get(client, "/boom")
     assert(boom.status == 500 and not boom.body:find("kaboom", 1, true))
   end)
 end
@@ -67,28 +85,28 @@ local function test_a_page_gets_the_script_before_its_last_body_end()
   local app = Dev.app({ routes = routes(), sink = quiet() }, { enabled = true })
   assert(app.spec.dev and app.spec.debug)
   Web.with_client(app, function(client: Web.TestClient)
-    local page = client:get("/")
+    local page = get(client, "/")
     assert(page.body == "<html><body><p>hi</p>" .. TAG .. "</body></html>")
     assert(page.headers["content-length"] == tostring(#page.body))
-    assert(client:get("/upper").body == "<HTML><BODY>x" .. TAG .. "</BODY></HTML>")
-    assert(client:get("/twice").body == "<body>a</body><pre>&lt;/body&gt;</pre>" .. TAG .. "</body>")
+    assert(get(client, "/upper").body == "<HTML><BODY>x" .. TAG .. "</BODY></HTML>")
+    assert(get(client, "/twice").body == "<body>a</body><pre>&lt;/body&gt;</pre>" .. TAG .. "</body>")
   end)
 end
 
 local function test_only_pages_with_an_end_of_body_are_touched()
   local app = Dev.app({ routes = routes(), sink = quiet() }, { enabled = true })
   Web.with_client(app, function(client: Web.TestClient)
-    assert(client:get("/fragment").body == "<p>a fragment</p>")
-    assert(client:get("/json").body == '{"a":"</body>"}')
-    assert(client:get("/missing").status == 404)
+    assert(get(client, "/fragment").body == "<p>a fragment</p>")
+    assert(get(client, "/json").body == '{"a":"</body>"}')
+    assert(get(client, "/missing").status == 404)
   end)
 end
 
 local function test_a_response_a_handler_keeps_is_not_changed()
   local app = Dev.app({ routes = routes(), sink = quiet() }, { enabled = true })
   Web.with_client(app, function(client: Web.TestClient)
-    local first = client:get("/shared").body
-    local second = client:get("/shared").body
+    local first = get(client, "/shared").body
+    local second = get(client, "/shared").body
     assert(first == second and first:find(TAG, 1, true) ~= nil)
     assert(select(2, first:gsub("dev%.js", "")) == 1, "the tag is added once")
     assert(shared.body == "<html><body><p>hi</p></body></html>")
@@ -98,19 +116,19 @@ end
 local function test_the_script_is_served_without_an_inline_script()
   local app = Dev.app({ routes = routes(), sink = quiet() }, { enabled = true })
   Web.with_client(app, function(client: Web.TestClient)
-    local res = client:get("/_web/dev.js")
+    local res = get(client, "/_web/dev.js")
     assert(res.status == 200 and res.headers["content-type"]:find("^text/javascript") ~= nil)
     assert(res.headers["cache-control"] == "no-store")
     assert(res.body:find("/_web/dev/events", 1, true) and res.body:find("EventSource", 1, true))
     assert(not res.body:find("<script", 1, true))
-    assert(client:post("/_web/dev.js").status ~= 200)
+    assert(send(client, "POST", "/_web/dev.js").status ~= 200)
   end)
 end
 
 local function test_a_fault_shows_its_stack_in_development_mode_only()
   local app = Dev.app({ routes = routes(), sink = quiet() }, { enabled = true })
   Web.with_client(app, function(client: Web.TestClient)
-    local boom = client:get("/boom")
+    local boom = get(client, "/boom")
     assert(boom.status == 500 and boom.body:find("kaboom", 1, true))
   end)
 end
@@ -142,7 +160,7 @@ local function test_the_stream_tells_the_boot_then_what_moved_under_static(tmp: 
   local app = Dev.app({ routes = routes(), sink = quiet() },
     { enabled = true, static = static, interval_ns = 5000000, boot = "7" })
   Web.with_client(app, function(client: Web.TestClient)
-    local res = client:get("/_web/dev/events", { stream = true })
+    local res = get(client, "/_web/dev/events", { stream = true })
     assert(res.status == 200 and res.headers["content-type"] == "text/event-stream")
     local head = read_until(res, "event: boot")
     assert(head:find("retry: 300", 1, true))
@@ -165,7 +183,7 @@ local function test_a_stream_ends_when_the_app_stops(tmp: string)
   local app = Dev.app({ routes = routes(), sink = quiet() },
     { enabled = true, static = tmp, interval_ns = 5000000 })
   Web.with_client(app, function(client: Web.TestClient)
-    local res = client:get("/_web/dev/events", { stream = true })
+    local res = get(client, "/_web/dev/events", { stream = true })
     read_until(res, "event: boot")
     assert(app.stream_count == 1)
     app.stopped = true
@@ -178,7 +196,7 @@ end
 
 local function test_a_development_app_serves_the_loopback_only()
   local app = Dev.app({ routes = routes(), sink = quiet() }, { enabled = true })
-  for _, host in ipairs({ "0.0.0.0", "10.0.0.5", "127.evil.example", "::", "127.0.0" }) do
+  for _, host in ipairs({ "0.0.0.0", "10.0.0.5", "127.evil.example", "::", "::2", "127.0.0" }) do
     local ok, why = Web.serve(app, { listeners = { Net.tcp(host, 0) } })
     assert(ok == false and why:find("loopback", 1, true), host .. ": " .. tostring(why))
   end
@@ -200,12 +218,12 @@ local function test_static_is_served_from_disk_and_never_cached_in_development(t
   local app = Web.app{ routes = { Dev.static("/assets", { enabled = true, static = static }) },
     sink = quiet() }
   Web.with_client(app, function(client: Web.TestClient)
-    local first = client:get("/assets/a.css")
+    local first = get(client, "/assets/a.css")
     assert(first.status == 200 and first.body == "one")
     assert(first.headers["cache-control"] == "no-store")
     put(static .. "/a.css", "three", 1000001)
-    assert(client:get("/assets/a.css").body == "three")
-    assert(client:get("/assets/missing.css").status == 404)
+    assert(get(client, "/assets/a.css").body == "three")
+    assert(get(client, "/assets/missing.css").status == 404)
   end)
   assert(app:url_for("static", { path = "a.css" }) ~= nil)
 end
@@ -217,4 +235,71 @@ local function test_an_option_of_the_wrong_kind_raises()
   assert(raised(function() Dev.app({}, unknown as Dev.Options) end):find("no field stat", 1, true))
   assert(raised(function() Dev.app({}, { interval_ns = 0 }) end):find("interval_ns", 1, true))
   assert(raised(function() Dev.static("/s", { static = "" }) end):find("static", 1, true))
+end
+
+local function test_a_page_htmx_swaps_in_gets_no_second_script()
+  local app = Dev.app({ routes = routes(), sink = quiet() }, { enabled = true })
+  Web.with_client(app, function(client: Web.TestClient)
+    local boosted = client:get("/", local_opts({ headers = { ["HX-Request"] = "true", ["HX-Boosted"] = "true" } }))
+    assert(boosted.status == 200 and boosted.body == "<html><body><p>hi</p></body></html>")
+    assert(get(client, "/").body:find(TAG, 1, true) ~= nil, "a plain request still gets it")
+  end)
+end
+
+local function test_the_script_runs_once_per_window()
+  local app = Dev.app({ routes = routes(), sink = quiet() }, { enabled = true })
+  Web.with_client(app, function(client: Web.TestClient)
+    local body = get(client, "/_web/dev.js").body
+    local guard = body:find("if (window.__cosmicDev) return;", 1, true)
+    local open = body:find("new EventSource", 1, true)
+    assert(guard ~= nil and open ~= nil and guard < open, "the guard comes before the stream opens")
+  end)
+end
+
+local function test_a_host_the_app_does_not_trust_is_refused()
+  local app = Dev.app({ routes = routes(), sink = quiet() }, { enabled = true })
+  assert(app.spec.trusted_hosts[1] == "localhost")
+  Web.with_client(app, function(client: Web.TestClient)
+    for _, path in ipairs({ "/", "/_web/dev.js", "/_web/dev/events", "/boom" }) do
+      local res = client:get(path, local_opts(nil, "evil.example"))
+      assert(res.status == 400, path .. ": " .. res.status)
+      assert(not res.body:find("kaboom", 1, true) and not res.body:find("EventSource", 1, true))
+    end
+    for _, host in ipairs({ "localhost:8080", "127.0.0.1:9", "[::1]:3000", "LOCALHOST" }) do
+      assert(client:get("/_web/dev.js", local_opts(nil, host)).status == 200, host)
+      assert(client:get("/", local_opts(nil, host)).body:find(TAG, 1, true), host)
+    end
+  end)
+end
+
+local function test_named_trusted_hosts_replace_the_loopback_default()
+  local app = Dev.app({ routes = routes(), sink = quiet(), trusted_hosts = { "dev.test" } }, { enabled = true })
+  Web.with_client(app, function(client: Web.TestClient)
+    assert(client:get("/_web/dev.js", local_opts(nil, "dev.test")).status == 200)
+    assert(client:get("/_web/dev.js", local_opts(nil, "localhost")).status == 400)
+  end)
+end
+
+local function test_a_development_app_with_a_trusted_proxy_is_refused()
+  local app = Dev.app({ routes = routes(), sink = quiet(), trusted_proxy = true }, { enabled = true })
+  local ok, why = Web.serve(app, { listeners = { Net.tcp("127.0.0.1", 0) } })
+  assert(ok == false and why:find("trusted_proxy", 1, true), tostring(why))
+end
+
+local function test_a_missing_static_directory_is_watched_without_a_spurious_reload(tmp: string)
+  local static = tmp .. "/later"
+  local app = Dev.app({ routes = routes(), sink = quiet() },
+    { enabled = true, static = static, interval_ns = 5000000 })
+  Web.with_client(app, function(client: Web.TestClient)
+    local res = get(client, "/_web/dev/events", { stream = true })
+    assert(res.status == 200)
+    read_until(res, "event: boot")
+    assert(Fs.mkdirs(static))
+    put(static .. "/a.css", "a{}", 1000000)
+    local got = read_until(res, "event: ")
+    assert(got:find("event: css", 1, true) and not got:find("event: reload", 1, true), got)
+    assert(Fs.remove(static .. "/a.css"))
+    assert(read_until(res, "event: css"))
+    assert(res.stream:close())
+  end)
 end

@@ -22,7 +22,11 @@
 --- reached is not the one it first met, and swaps the stylesheets when the
 --- event stream says only `.css` moved. Since such an app shows source
 --- paths and values to whoever asks, [`Web.serve`] refuses it a listener
---- beyond the loopback.
+--- beyond the loopback or a `trusted_proxy`, and unless the app names
+--- `trusted_hosts` it answers only `localhost`, `127.0.0.1` and `[::1]`
+--- (any port), so a page of another site cannot reach it by a name that
+--- resolves to the loopback (DNS rebinding); the script and the stream
+--- honour the same check.
 ---
 --- The supervisor is [`Dev.supervise`], run as a program of its own,
 --- `cosmic dev.tl` with a `dev.tl` of
@@ -31,7 +35,8 @@
 --- replaces the process on a change, SIGTERM first, so the app's graceful
 --- stop runs. Templates compile into modules when the tree is built, so a
 --- restart is what a template edit needs; files under `static/` are served
---- from disk and so never restart anything.
+--- from disk and so never restart anything. Files the supervisor does not
+--- follow into (`node_modules`, build output) are named in `ignore`.
 
 local Assets = require("cosmic.web.assets")
 local Child = require("cosmic.child")
@@ -46,6 +51,7 @@ local Sse = require("cosmic.web.sse")
 local StaticFiles = require("cosmic.web.static")
 local Types = require("cosmic.web.types")
 local App = require("cosmic.web.app")
+local Request = require("cosmic.web.request")
 
 local record Dev
   --- What [`Dev.app`] and [`Dev.static`] take; every field is optional.
@@ -82,9 +88,15 @@ local record Dev
     --- against a file's or directory's name, one with it against its path
     --- from the watched directory, and one that begins with "/" against
     --- that path from its start. By default the hidden files, databases
-    --- and their journals, editors' backups and the root's `static`.
+    --- and their journals, editors' backups, `node_modules` and the root's
+    --- `static` directory (see `static`). Giving `ignore` replaces that list.
     ignore: {string}
-    --- How often the files are looked at (300 ms by default).
+    --- The directory (from the watched root) whose changes the browser
+    --- follows without a restart and the default `ignore` leaves out:
+    --- "static" by default; the `static` of [`Dev.app`]'s options.
+    static: string
+    --- How often the files are looked at (300 ms by default). A change
+    --- restarts the program once a look finds nothing further moved.
     interval_ns: integer
     --- How long a program has to stop after SIGTERM before SIGKILL (3
     --- seconds by default).
@@ -107,24 +119,33 @@ local RECONNECT_MS <const> = 300
 local LISTED <const> = 20
 
 local DEFAULT_IGNORE <const>: {string} = {
-  ".*", "*.db", "*.db-wal", "*.db-shm", "*.db-journal", "*~", "/static",
+  ".*", "*.db", "*.db-wal", "*.db-shm", "*.db-journal", "*~", "node_modules",
 }
+
+local LOCAL_HOSTS <const>: {string} = { "localhost", "127.0.0.1", "[::1]" }
 
 local OPTION_FIELDS <const>: {string:boolean} = {
   enabled = true, static = true, interval_ns = true, boot = true,
 }
 
 local SUPERVISE_FIELDS <const>: {string:boolean} = {
-  command = true, start = true, watch = true, ignore = true, interval_ns = true,
+  command = true, start = true, watch = true, ignore = true, static = true, interval_ns = true,
   grace_ns = true, log = true, on_boot = true, stop = true,
 }
 
 --- The browser's half: a reload when the process changed, a swap of the
---- stylesheets when the stream says css. It uses no inline script, so a
---- strict `script-src 'self'` allows it.
+--- stylesheets when the stream says css. The script itself is not inline
+--- (it is served from `/_web/dev.js`); the tag that loads it is an element
+--- a CSP with a nonce or hash requirement refuses.
+-- TODO: once the CSP middleware lands (cosmic-lua/cosmic PR web-security),
+-- add its nonce to the injected tag in `injected`.
+-- The guard keeps a second copy of the script (htmx runs the scripts of a
+-- swapped page) from opening another stream.
 local SCRIPT <const> = [==[
 (function () {
   "use strict";
+  if (window.__cosmicDev) return;
+  window.__cosmicDev = true;
   var boot = null;
   var source = null;
 
@@ -247,20 +268,30 @@ local function ignorer(globs: {string}): function(rel: string, name: string): bo
   end
 end
 
+-- Files are compared by size and modification time, so an edit that keeps
+-- the size within one tick of a filesystem with coarse times (a second on
+-- some) goes unseen; the next edit shows it.
 -- TODO: watch with inotify (Linux) and kqueue (macOS) once cosmic.fs has a
 -- watch binding, and sleep until an event instead of looking at every file's
 -- size and time each interval; doc/roadmap.md lists the binding.
 --- What each file under `roots` looks like now, by its path: size and
---- modification time to the nanosecond. Nil and why where a root cannot be
---- listed. A file that vanishes between the listing and its stat is left
---- out, as it is a change.
-local function scan(roots: {string}, ignored: function(string, string): boolean): {string:string} | nil, string
+--- modification time to the nanosecond, following links. Nil and why where
+--- a root cannot be listed; a root that is not there is empty when
+--- `absent_ok`. A file that vanishes between the listing and its stat is
+--- left out, as it is a change.
+local function scan(roots: {string}, ignored: function(string, string): boolean,
+                    absent_ok?: boolean): {string:string} | nil, string
   local found: {string:string} = {}
   for _, root in ipairs(roots) do
-    local files, why = Fs.walk(root, function(rel: string, name: string, _kind: Fs.Kind): boolean
-      return ignored(rel, name)
-    end)
-    if files == nil then return nil, why end
+    local files: {string} = {}
+    local present, _ = Fs.exists(root)
+    if not (absent_ok and present == false) then
+      local listed, why = Fs.walk_following(root, function(rel: string, name: string, _kind: Fs.Kind): boolean
+        return ignored(rel, name)
+      end)
+      if listed == nil then return nil, why end
+      files = listed
+    end
     for _, rel in ipairs(files) do
       local path = root == "." and rel or (root .. "/" .. rel)
       local st, _ = Fs.stat(path)
@@ -294,7 +325,9 @@ local record Watch is Sse.EventSource
   roots: {string}
   ignored: function(string, string): boolean
   interval_ns: integer
-  last: {string:string}
+  last: {string:string} | nil
+  trouble: boolean
+  sink: Types.Sink
   queue: {Sse.Event}
   shut: boolean
   notifier: Poll.Notifier
@@ -314,11 +347,21 @@ local function event_for(paths: {string}): Sse.Event
 end
 
 --- Looks at the directory once, queueing an event for what moved.
+--- A directory that is not there is empty, so its creation and removal are
+--- changes; one that cannot be read keeps what was last seen (and is said
+--- once), and a first look that failed only sets the baseline.
 local function look(self: Watch)
-  local now, _ = scan(self.roots, self.ignored)
-  if now == nil then return end
-  local paths = changed(self.last, now)
+  local now, why = scan(self.roots, self.ignored, true)
+  if now == nil then
+    if not self.trouble then self.sink:line("web dev: cannot watch static files: " .. why) end
+    self.trouble = true
+    return
+  end
+  self.trouble = false
+  local before = self.last
   self.last = now
+  if before == nil then return end
+  local paths = changed(before, now)
   if #paths > 0 then self.queue[#self.queue + 1] = event_for(paths) end
 end
 
@@ -345,14 +388,18 @@ function Watch.close(self: Watch)
   self.notifier:notify_all()
 end
 
+-- TODO: each open stream scans `static` on its own, so n tabs cost n scans
+-- per interval; replace them with one shared scanner (or the inotify
+-- binding at the TODO above) that feeds every stream.
 --- The stream a page's script listens to: the process's boot token first,
 --- then what moves under `static`.
 local function events(req: Types.Request, boot: string, static: string, interval_ns: integer): Types.Response
   local roots = { static }
   local ignored = ignorer({ ".*" })
-  local first, _ = scan(roots, ignored)
+  local first, _ = scan(roots, ignored, true)
   local source: Watch = {
-    roots = roots, ignored = ignored, interval_ns = interval_ns, last = first or {},
+    roots = roots, ignored = ignored, interval_ns = interval_ns, last = first,
+    trouble = first == nil, sink = req.app.spec.sink,
     queue = {}, shut = false, notifier = Poll.notifier(), next = Watch.next, close = Watch.close,
   }
   return Sse.EventStream(req, source, {
@@ -382,7 +429,10 @@ local function injected(res: Types.Response): Types.Response
   local page = body:sub(1, at - 1) .. TAG .. body:sub(at)
   local headers: {string: string | {string}} = {}
   for name, value in pairs(res.headers or {}) do headers[name] = value end
-  local copy: Types.Response = { status = res.status, headers = headers, body = page, close = res.close }
+  local copy: Types.Response = {}
+  for key, value in pairs(res as {any:any}) do (copy as {any:any})[key] = value end
+  copy.headers = headers
+  copy.body = page
   if res.length ~= nil then copy.length = #page end
   if Response.header(copy, "Content-Length") ~= nil then
     Response.set_header(copy, "Content-Length", tostring(#page))
@@ -390,11 +440,24 @@ local function injected(res: Types.Response): Types.Response
   return copy
 end
 
+--- Whether the request names a host the app answers to.
+local function host_ok(req: Types.Request): boolean
+  local named = req.host ~= nil and Request.parse_host(req.host) or nil
+  if named == nil then return false end
+  for _, host in ipairs(req.app.spec.trusted_hosts or {}) do
+    if host == named.host then return true end
+  end
+  return false
+end
+
 --- The middleware of development mode: the script, its event stream, and
---- the tag in the pages.
+--- the tag in the pages. The two paths answer only a host the app trusts;
+--- a page already swapped in by htmx (`HX-Request`) gets no second tag.
 local function reload(boot: string, static: string, interval_ns: integer): Types.Middleware
   return function(inner: Types.Handler): Types.Handler
     return function(req: Types.Request): Types.Response
+      local ours = req.method == "GET" and (req.path == "/_web/dev.js" or req.path == "/_web/dev/events")
+      if ours and not host_ok(req) then return inner(req) end
       if req.method == "GET" and req.path == "/_web/dev.js" then
         return { status = 200, body = SCRIPT, headers = {
           ["Content-Type"] = "text/javascript; charset=utf-8",
@@ -404,7 +467,9 @@ local function reload(boot: string, static: string, interval_ns: integer): Types
       if req.method == "GET" and req.path == "/_web/dev/events" then
         return events(req, boot, static, interval_ns)
       end
-      return injected(inner(req))
+      local reply = inner(req)
+      if req.headers["hx-request"] ~= nil then return reply end
+      return injected(reply)
     end
   end
 end
@@ -442,13 +507,14 @@ function Dev.app(spec: Types.AppSpec, opts?: Dev.Options): Types.App
   if not is_enabled(opts) then return App.new(spec) end
   if type(spec) ~= "table" then error("web: app takes a table", 2) end
   local given: Dev.Options = opts or {}
+  local hosts = spec.trusted_hosts or LOCAL_HOSTS
   local stack: {Types.Middleware} = {
     reload(boot_of(opts), given.static or "static", given.interval_ns or DEFAULT_INTERVAL_NS),
   }
   for _, layer in ipairs(spec.middleware or {}) do stack[#stack + 1] = layer end
   return App.new({
     routes = spec.routes, middleware = stack, lifespan = spec.lifespan, debug = true,
-    trailing_slash = spec.trailing_slash, trusted_hosts = spec.trusted_hosts,
+    trailing_slash = spec.trailing_slash, trusted_hosts = hosts,
     trusted_proxy = spec.trusted_proxy, error_pages = spec.error_pages,
     error_view = spec.error_view, sink = spec.sink, builtin = spec.builtin,
     hubs = spec.hubs, max_streams = spec.max_streams, dev = true,
@@ -502,7 +568,13 @@ function Dev.supervise(opts?: Dev.SuperviseOptions): boolean, string
   local interval_ns = given.interval_ns or SUPERVISE_INTERVAL_NS
   local grace_ns = given.grace_ns or DEFAULT_GRACE_NS
   local roots = given.watch or { "." }
-  local ignored = ignorer(given.ignore or DEFAULT_IGNORE)
+  local ignore = given.ignore
+  if ignore == nil then
+    ignore = {}
+    for i, glob in ipairs(DEFAULT_IGNORE) do ignore[i] = glob end
+    ignore[#ignore + 1] = "/" .. (given.static or "static")
+  end
+  local ignored = ignorer(ignore)
   local start = given.start
   if start == nil then
     local command = given.command
@@ -517,6 +589,10 @@ function Dev.supervise(opts?: Dev.SuperviseOptions): boolean, string
   end
   local seen, why = scan(roots, ignored)
   if seen == nil then return false, why end
+  -- TODO: hold SIGHUP as well once cosmic.signal's guard can: a closed
+  -- terminal ends the supervisor at once and leaves the program running.
+  -- TODO: once cosmic.child can start a program with PR_SET_PDEATHSIG, set
+  -- it, so a supervisor ended by SIGKILL does not leave the app orphaned.
   local made, held = Signal.guard()
   if made == nil then return false, "web: dev: " .. held end
   local guard: Signal.Guard = made
@@ -547,6 +623,9 @@ function Dev.supervise(opts?: Dev.SuperviseOptions): boolean, string
     local _, _ = h:close()
   end
 
+  -- A change is acted on once a look finds nothing further moved, so an
+  -- editor's burst of writes (or a build's) restarts the program once.
+  local pending: {string} = nil
   launch()
   while guard:cancelled() == 0 do
     if handle ~= nil then
@@ -566,7 +645,11 @@ function Dev.supervise(opts?: Dev.SuperviseOptions): boolean, string
       local paths = changed(seen, now)
       seen = now
       if #paths > 0 then
-        log(("web dev: %s changed; restarting"):format(paths[1] .. (#paths > 1 and (" and %d more"):format(#paths - 1) or "")))
+        pending = pending or paths
+      elseif pending ~= nil then
+        local moved = pending
+        pending = nil
+        log(("web dev: %s changed; restarting"):format(moved[1] .. (#moved > 1 and (" and %d more"):format(#moved - 1) or "")))
         halt()
         launch()
       end

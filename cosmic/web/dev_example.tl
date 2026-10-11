@@ -27,6 +27,7 @@ end
 --- file of the working directory changes; here it stops at once.
 function Example.supervise()
   local ok = Dev.supervise{
+    -- A stand-in for the default (this program on `app.tl`) that exits at once.
     command = { "true" }, watch = {}, interval_ns = 1000000, log = function(_text: string) end,
     stop = function(): boolean return true end,
   }

@@ -1339,6 +1339,19 @@ are refused unless the listener address is loopback (`127.0.0.0/8`, `::1`
 is refused by the sandbox anyway). The check is made in [`Web.serve`], where
 the listener addresses are known.
 
+What was built (cosmic/web/dev.tl) differs from the three parts above in
+two ways. There is no dev hub and no watcher task: each open
+`/_web/dev/events` stream scans `static/` on its own every interval and
+queues its own `css` or `reload` event, with one shared scanner or an
+inotify binding left as a `TODO:`. And the dev pieces are guarded more
+tightly than "loopback listener": the app trusts only `localhost`,
+`127.0.0.1` and `[::1]` as hosts unless it names `trusted_hosts` (DNS
+rebinding), the script and stream honour that check, a response to an
+`HX-Request` gets no second script tag, and [`Web.serve`] refuses a dev app
+that also has a `trusted_proxy`. The supervisor restarts after a scan that
+finds no further change (a debounce), follows links, and takes the static
+directory to ignore from its `static` option.
+
 Live reload of the htmx page uses htmx's own boost where possible; the
 reload script is deliberately plain.
 
