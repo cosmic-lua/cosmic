@@ -159,9 +159,16 @@ local system: {string} = {}
 for _, path in ipairs(system_paths) do system[#system + 1] = path end
 for _, path in ipairs(runtime_paths) do system[#system + 1] = path end
 
+--- A [`confine.Confinement`] with each list given and each path
+--- absolute, as `absolute` makes it.
+local record Resolved
+  reads: {string}
+  writes: {string}
+end
+
 --- What the running test declared its processes need, or nil: see
 --- [`confine.confine`].
-local confinement: confine.Confinement | nil = nil
+local confinement: Resolved | nil = nil
 
 --- How the declaration in `confinement` is held: nil where a process
 --- the kernel cannot confine starts unconfined, and otherwise what
@@ -171,7 +178,7 @@ local strict: string | nil = nil
 
 --- What the library whose work is running declared its processes need,
 --- or nil: see [`confine.declaring`].
-local library: confine.Confinement | nil = nil
+local library: Resolved | nil = nil
 
 --- The variable that turns every `confine` into [`must_confine`].
 local SANDBOX_MODE <const> = "COSMIC_SANDBOX"
@@ -229,7 +236,7 @@ end
 
 --- `wanted`, each relative path taken from the directory this process
 --- is in.
-local function absolute(wanted: confine.Confinement): confine.Confinement
+local function absolute(wanted: confine.Confinement): Resolved
   local here, _ = asked.getcwd()
   local function from_here(path: string): string
     if path:sub(1, 1) == "/" or here == nil then return path end
@@ -1067,13 +1074,13 @@ local function enter(own?: {string}, sandboxed?: boolean): Leave, {string}
         local there, _ = asked.stat(given)
         if there ~= nil then reads[#reads + 1] = given end
       end
-      for _, given in ipairs(declared.reads or {}) do reads[#reads + 1] = given end
+      for _, given in ipairs(declared.reads) do reads[#reads + 1] = given end
       local writes: {string} = {}
       for _, given in ipairs(owned) do
         local there, _ = asked.stat(given)
         if there ~= nil then writes[#writes + 1] = given end
       end
-      for _, given in ipairs(declared.writes or {}) do
+      for _, given in ipairs(declared.writes) do
         -- One the test owns is there already.
         local mine = false
         for _, directory in ipairs(owned) do

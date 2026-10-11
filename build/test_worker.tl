@@ -854,6 +854,9 @@ function worker.run(argv: {integer:string}): integer
     loaded = false, passed = false, message = "", elapsed_ns = 0, skipped = "",
     asserted = 0, deliberate = "", load_hits = {}, test_hits = {}, modules = {},
   }
+  -- Where the C hits of the processes the test starts are folded: the
+  -- test's coverage once it ran, else the load's, else nowhere.
+  local child_into: Coverage.Hits = nil
   Assertions.install()
   -- Processes the test starts report the core's C they ran here, so it
   -- counts for the test like the C it runs itself.
@@ -922,6 +925,7 @@ function worker.run(argv: {integer:string}): integer
   if load_session ~= nil then
     local hits, _ = Coverage.stop(load_session)
     report.load_hits = hits
+    child_into = hits
   end
   local needs = loaded and test_inputs.canonical(test_inputs.as_declared(handed)) or ""
   if loaded and needs ~= expected_needs then
@@ -954,6 +958,7 @@ function worker.run(argv: {integer:string}): integer
       if test_session ~= nil then
         local hits, _ = Coverage.stop(test_session)
         report.test_hits = hits
+        child_into = hits or child_into
       end
       -- A test that skipped ends by raising `ended_by_skip`: it passed as far
       -- as it ran, and `report.skipped` says it checked less than it exists to.
@@ -969,8 +974,7 @@ function worker.run(argv: {integer:string}): integer
     end
   end
   if children ~= nil then
-    local into = report.test_hits or report.load_hits
-    child_hits(children, into or {})
+    child_hits(children, child_into or {})
   end
   -- What it ran, as `judge` holds it: taken last, so it holds what the
   -- test loaded as well as what this did.
