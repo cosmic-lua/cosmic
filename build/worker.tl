@@ -328,7 +328,8 @@ function worker.compile(pool: worker.Pool, db: Sqlite.Handle, root: string,
     "CREATE TABLE meta (name TEXT PRIMARY KEY, value TEXT NOT NULL) WITHOUT ROWID",
     "CREATE TABLE modules (shard INTEGER NOT NULL, seq INTEGER NOT NULL, path TEXT NOT NULL, " ..
       "file TEXT NOT NULL, kind TEXT NOT NULL, generated INTEGER NOT NULL, " ..
-      "tests TEXT NOT NULL, PRIMARY KEY (shard, seq)) WITHOUT ROWID",
+      "tests TEXT NOT NULL, stubbed INTEGER NOT NULL, stub TEXT NOT NULL, " ..
+      "pruned INTEGER NOT NULL, PRIMARY KEY (shard, seq)) WITHOUT ROWID",
     "BEGIN",
   })
   if jobs == nil then return nil, create_trouble end
@@ -357,10 +358,12 @@ function worker.compile(pool: worker.Pool, db: Sqlite.Handle, root: string,
       local m = by_path[path]
       shard_of[path] = shard
       local ok, why = Sqlite.run(writing,
-        "INSERT INTO modules (shard, seq, path, file, kind, generated, tests) " ..
-          "VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+        "INSERT INTO modules (shard, seq, path, file, kind, generated, tests, stubbed, stub, " ..
+          "pruned) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
         { integer(shard), integer(seq), text(m.path), text(m.file), text(m.kind),
-          integer(m.generated and 1 or 0), text(table.concat(m.tests, "\n")) })
+          integer(m.generated and 1 or 0), text(table.concat(m.tests, "\n")),
+          integer(m.stub ~= nil and 1 or 0), text(m.stub ~= nil and m.stub.text or ""),
+          integer(m.stub ~= nil and m.stub.pruned and 1 or 0) })
       if not ok then return fail(why) end
     end
   end
@@ -422,7 +425,8 @@ local function serve_compile(built: compiler, job: string, index: integer): stri
   local settings: {string:string} = {}
   for _, row in ipairs(meta) do settings[row[1]] = row[2] end
   local rows, rows_trouble = Sqlite.text_rows(jobs,
-    "SELECT m.path, m.file, m.kind, m.generated, m.tests, i.source FROM modules m " ..
+    "SELECT m.path, m.file, m.kind, m.generated, m.tests, i.source, m.stubbed, m.stub, " ..
+      "m.pruned FROM modules m " ..
       "JOIN inputs i ON i.path = m.path AND i.kind = m.kind " ..
       "WHERE m.shard = ?1 ORDER BY m.seq", { integer(index) })
   if rows == nil then return close_with(rows_trouble) end
@@ -450,6 +454,7 @@ local function serve_compile(built: compiler, job: string, index: integer): stri
       path = row[1], file = row[2], kind = row[3], source = row[6], source_hash = "",
       requires = {}, tests = tests, has_top_level_return = false, generated = row[4] == "1",
       key = "", graph_key = "", lua = "",
+      stub = row[7] == "1" and { text = row[8], pruned = row[9] == "1" } or nil,
     }
     local generated, generate_trouble = compilation.generate(m, built, env, typed, own_tree, judged,
       function(_file: string, _source: string, _checked: compiler.Result): string
