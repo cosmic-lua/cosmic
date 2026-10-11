@@ -497,4 +497,3 @@ four-producer provenance join.
 [`Url.parse`]: ../cosmic/url.tl
 [`Url.Parts`]: ../cosmic/url.tl
 [`Url.segments`]: ../cosmic/url.tl
-[`wire.Reply.date`]: ../cosmic/http/wire.tl

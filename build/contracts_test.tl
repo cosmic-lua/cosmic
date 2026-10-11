@@ -135,7 +135,7 @@ local function test_a_last_argument_keeps_its_slot_only_where_a_reason_lands()
   flags("use(get())", dropped)
   flags("print(get())", dropped)
   flags("use(select(1, get()))", dropped)
-  flags("print(string.format('%s', get()))", dropped)
+  flags("use(1, get())", dropped)
   allows("use(assert(get()))")
   allows("complain(get())")
   -- The reason would land in a parameter that is not the last.
