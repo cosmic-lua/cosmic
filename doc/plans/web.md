@@ -169,9 +169,9 @@ assert(reply.status == 422 and reply.text:find("qty", 1, true))
 - `cosmic.web.input`: query, form and JSON decoding, and binding them to
   a spec with every field's error collected ([`Input.Invalid`]).
 - `cosmic.web.mime`: content types by file name.
-- `cosmic.web.cookies`, `cosmic.web.session` (with its stores
-  `cosmic.web.session.cookie` and `cosmic.web.session.sqlite`),
-  `cosmic.web.secret` (keys from the environment, weak ones refused),
+- [`cosmic.web.cookies`], [`cosmic.web.session`] (with its stores
+  [`cosmic.web.session.cookie`] and [`cosmic.web.session.sqlite`]),
+  [`cosmic.web.secret`] (keys from the environment, weak ones refused),
   `cosmic.web.csrf`, `cosmic.web.cors`, `cosmic.web.headers` (security
   headers and CSP).
 - `cosmic.web.htmx`: HX-* request headers, HX-* response headers,
@@ -345,8 +345,13 @@ cooperative process.
 [`cosmic.http.multipart`]: ../../cosmic/http/multipart.tl
 [`cosmic.http.wire`]: ../../cosmic/http/wire.tl
 [`cosmic.web.assets`]: ../../cosmic/web/assets.tl
+[`cosmic.web.cookies`]: ../../cosmic/web/cookies.tl
 [`cosmic.web.dev`]: ../../cosmic/web/dev.tl
 [`cosmic.web.htmx`]: ../../cosmic/web/htmx.tl
+[`cosmic.web.secret`]: ../../cosmic/web/secret.tl
+[`cosmic.web.session.cookie`]: ../../cosmic/web/session/cookie.tl
+[`cosmic.web.session.sqlite`]: ../../cosmic/web/session/sqlite.tl
+[`cosmic.web.session`]: ../../cosmic/web/session/init.tl
 [`cosmic.web.sse`]: ../../cosmic/web/sse.tl
 [`cosmic.web.static`]: ../../cosmic/web/static.tl
 [`cosmic.web`]: ../../cosmic/web/init.tl
