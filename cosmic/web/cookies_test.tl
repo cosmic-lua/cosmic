@@ -118,9 +118,9 @@ local function test_set_appends_lines_and_leaves_the_response_alone_on_refusal()
   local res = Web.text("x")
   assert(Cookies.set(res, "a", "1"))
   assert(Cookies.set(res, "b", "2", { max_age = 5 }))
-  local lines = res.headers["Set-Cookie"]
+  local lines = assert(res.headers)["Set-Cookie"]
   assert(lines is {string} and #lines == 2 and lines[1]:find("^a=1;") and lines[2]:find("^b=2;"))
   local ok, why = Cookies.set(res, "c", "bad value")
   assert(not ok and why:find("value", 1, true))
-  assert(#(res.headers["Set-Cookie"] as {string}) == 2)
+  assert(#(assert(res.headers)["Set-Cookie"] as {string}) == 2)
 end

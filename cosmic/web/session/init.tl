@@ -73,7 +73,7 @@ local record Session
     expires: integer
     --- Set by a store that read the session under a key it is retiring: the
     --- middleware saves it again, signed by the newest.
-    stale: boolean
+    stale?: boolean
   end
 
   --- What a request changed, for a store that merges instead of
@@ -85,12 +85,12 @@ local record Session
     removed: {string}
     --- Whether everything was removed first (what `set` and `removed` hold
     --- came after).
-    cleared: boolean
+    cleared?: boolean
     --- Whether the session is to take a new id, keeping its data.
-    regenerated: boolean
+    regenerated?: boolean
     --- The user the session is bound to, for a store that can find
     --- sessions by it; nil when not bound.
-    subject: string
+    subject?: string
   end
 
   --- Where a session is kept. `cookie` is the name of the session cookie
@@ -120,21 +120,21 @@ local record Session
     store: Store
     --- The cookie's name: "session", or "__Host-session" when `secure` is
     --- true (and "__Secure-session" with a `domain`).
-    cookie_name: string
+    cookie_name?: string
     --- The lifetime in seconds from the session's start (14 days).
-    max_age: integer
+    max_age?: integer
     --- Extend the lifetime on use (false): once less than half of
     --- `max_age` is left, a request that reads the session renews it, so
     --- it writes at most about twice a period.
-    rolling: boolean
+    rolling?: boolean
     --- The cookie's path ("/").
-    path: string
+    path?: string
     --- The cookie's domain (none: host-only).
-    domain: string
+    domain?: string
     --- "Lax" by default.
-    same_site: Cookies.SameSite
+    same_site?: Cookies.SameSite
     --- The cookie's `Secure`; nil follows the request's scheme.
-    secure: boolean
+    secure?: boolean
     --- The time in seconds since the epoch, for a test.
     now: function(): integer
   end
@@ -228,8 +228,8 @@ local record State
 end
 
 --- A fresh anonymous session.
-local function blank(st: State): Session.Data
-  return { values = {}, created = st.now, expires = st.now + st.max_age }
+local function blank(now: integer, max_age: integer): Session.Data
+  return { values = {}, created = now, expires = now + max_age }
 end
 
 --- No changes yet.
@@ -242,7 +242,7 @@ local function ensure(st: State)
   st.accessed = true
   if st.loaded then return end
   st.loaded = true
-  st.data = blank(st)
+  st.data = blank(st.now, st.max_age)
   local token = Cookies.parse(st.req:header("cookie"))[st.cookie]
   if token == nil or token == "" then return end
   local data, why = st.opts.store:load(token, st.now, st.cookie)
@@ -389,7 +389,7 @@ local function make_handle(st: State): Session.Handle
       st.token = ""
       st.valid = false
       st.bad_cookie = false
-      st.data = blank(st)
+      st.data = blank(st.now, st.max_age)
       st.changes = nothing()
       st.dirty = false
       st.invalidated = true
@@ -522,10 +522,10 @@ function Session.middleware(opts: Session.Options): Types.Middleware
   local clock = opts.now or function(): integer return Clock.now_ns() // 1000000000 end
   return function(inner: Types.Handler): Types.Handler
     return function(req: Types.Request): Types.Response
-      local st: State = { req = req, opts = opts, cookie = cookie, max_age = max_age, now = clock(),
-        loaded = false, accessed = false, frozen = false, valid = false, token = "",
+      local now = clock()
+      local st: State = { req = req, opts = opts, cookie = cookie, max_age = max_age, now = now,
+        data = blank(now, max_age), loaded = false, accessed = false, frozen = false, valid = false, token = "",
         bad_cookie = false, changes = nothing(), dirty = false, invalidated = false, doomed = {} }
-      st.data = blank(st)
       req:set(Session.KEY, make_handle(st))
       local handled = inner(req)
       st.frozen = true

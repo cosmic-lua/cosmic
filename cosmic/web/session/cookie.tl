@@ -37,9 +37,9 @@ local record SessionCookie
     keys: {string}
     --- The largest token in bytes (3800), so the cookie line stays under a
     --- browser's 4096.
-    max_bytes: integer
+    max_bytes?: integer
     --- Mixed into the MAC with the cookie's name ("cosmic.web.session").
-    context: string
+    context?: string
   end
 end
 
