@@ -31,7 +31,10 @@ default and is dropped from what to change.
    moved main), push, and open the PR.
 5. Enable auto-merge. Watch both the branch's run and the merge queue's.
    On a failure, find the cause and fix it; never skip or disable a test
-   to get green. Once merged, clean up the worktree and branch.
+   to get green. A queue-only build failure in code the change did not
+   touch: never queue the same head again; see [`doc/contributing.md`]
+   ("merge").
+   Once merged, clean up the worktree and branch.
 6. When the change adds what a `TODO:` waiting on the pin needs, open
    the pin bump once the prerelease exists; otherwise say the pin was
    left alone.
