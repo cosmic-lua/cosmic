@@ -721,6 +721,19 @@ that does run runs in a worker process of its own:
   analyzer's parses only where the `requires` rows that analyzer found
   name it again over this tree ([`build/importer.tl`]'s
   `shared_analyzer`).
+- *parallel*: a build with much to parse or compile, a cold boot or an
+  edit that reaches most of the tree, does it in worker processes: one
+  fewer than the processors, `COSMIC_BUILD_JOBS` naming another count
+  and `1` none ([`build/workers.tl`]). sources are dealt to them by
+  size. modules are dealt by what they import ([`build/shards.tl`]),
+  since the checker's types cannot leave a process and a worker checks
+  every import of what it compiles. the build process alone writes the
+  rows, in the order a build without workers writes them, and compiles
+  itself what no worker did, a refusal included, so its error is the one
+  a build alone gives and the database and the tool come out byte for
+  byte the same ([`build/worker.tl`]). a boot loads the build's code from
+  source in each worker, which takes seconds, so it starts them only for
+  a few megabytes of new source.
 - *fast*: compile and check run in one process, one transaction,
   against declarations already in the database. each test runs in a worker
   -- the same core relaunched directly, never through the launcher --
@@ -1194,11 +1207,14 @@ in [roadmap.md](roadmap.md).
 [`build/patch.tl`]: ../build/patch.tl
 [`build/rebuild_lock.tl`]: ../build/rebuild_lock.tl
 [`build/refresh.tl`]: ../build/refresh.tl
+[`build/shards.tl`]: ../build/shards.tl
 [`build/shared_compiles.tl`]: ../build/shared_compiles.tl
 [`build/teal_test.tl`]: ../build/teal_test.tl
 [`build/test.tl`]: ../build/test.tl
 [`build/test_worker.tl`]: ../build/test_worker.tl
 [`build/vendor.tl`]: ../build/vendor.tl
+[`build/worker.tl`]: ../build/worker.tl
+[`build/workers.tl`]: ../build/workers.tl
 [`build/zig.tl`]: ../build/zig.tl
 [`build/zig_fetch.tl`]: ../build/zig_fetch.tl
 [`ci/cosmic-driver.pin`]: ../ci/cosmic-driver.pin

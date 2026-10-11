@@ -19,9 +19,20 @@ local record derivation
   record Parses
     parsed: integer
     shared: integer
+    --- How many of `parsed` a worker parsed ([`build.worker`]).
+    worked: integer
   end
   record Source
     source_hash: string
+    mapped: boolean
+  end
+  --- A source to parse: what [`derivation.fresh`] finds of it. `file` is
+  --- the least file with that content, and `mapped` is whether any file
+  --- with it was derived rather than staged.
+  record Fresh
+    source_hash: string
+    file: string
+    source: string
     mapped: boolean
   end
   record Parse
@@ -235,26 +246,38 @@ local function insert_test_inputs(db: Sqlite.Handle, source_hash: string,
   return true, ""
 end
 
---- One parse of every source no parse has seen, each counted in
---- `tally` and listed in `made`: what it requires, in order, the tests
---- it defines, and whether it returns its own value.
---- Structural, over the real AST, never a regex over text: a
---- `require("cosmic.foo")` inside a string literal or a comment is not
---- an import. Type-only requires and conditional reassignments are real
---- dependencies the build order must see.
-function derivation.parse_new(db: Sqlite.Handle, built: compiler, tally: derivation.Parses,
-                              made: {Source}): boolean, string
-  local fresh, trouble = Sqlite.text_rows(db,
+--- Every source no parse has seen, in hash order: the one parse each
+--- needs ([`derivation.parse_fresh`]).
+function derivation.fresh(db: Sqlite.Handle): {derivation.Fresh} | nil, string
+  local rows, trouble = Sqlite.text_rows(db,
     "SELECT source_hash, min(file), source, max(origin <> 'tree') FROM inputs " ..
       "WHERE kind <> 'vendor' " ..
       "AND source_hash NOT IN (SELECT source_hash FROM parsed) " ..
       "GROUP BY source_hash ORDER BY source_hash")
-  if fresh == nil then
-    return false, trouble
+  if rows == nil then
+    return nil, trouble
   end
-  for _, row in ipairs(fresh) do
-    local source_hash, file, source = row[1], row[2], row[3]
-    local mapped = row[4] == "1" and origin_lines(source) or nil
+  local out: {derivation.Fresh} = {}
+  for _, row in ipairs(rows) do
+    out[#out + 1] = { source_hash = row[1], file = row[2], source = row[3], mapped = row[4] == "1" }
+  end
+  return out, ""
+end
+
+--- One parse of each of `fresh`, in the order given, each counted in
+--- `tally` and listed in `made`: what it requires, in order, the tests
+--- it defines, and whether it returns its own value. The rows go into
+--- `db`, which needs only the tables [`build.analysis_schema`] makes.
+--- Structural, over the real AST, never a regex over text: a
+--- `require("cosmic.foo")` inside a string literal or a comment is not
+--- an import. Type-only requires and conditional reassignments are real
+--- dependencies the build order must see. It stops at the first source
+--- that does not parse, naming its file.
+function derivation.parse_fresh(db: Sqlite.Handle, built: compiler, fresh: {derivation.Fresh},
+                                tally: derivation.Parses, made: {Source}): boolean, string
+  for _, one in ipairs(fresh) do
+    local source_hash, file, source = one.source_hash, one.file, one.source
+    local mapped = one.mapped and origin_lines(source) or nil
     local parsed, parse_trouble = ast.parse(built, source, file)
     if parsed == nil then
       return false, file .. ": " .. parse_trouble
@@ -268,7 +291,7 @@ function derivation.parse_new(db: Sqlite.Handle, built: compiler, tally: derivat
       return false, file .. ": " .. analysis_trouble
     end
     tally.parsed = tally.parsed + 1
-    made[#made + 1] = { source_hash = source_hash, mapped = row[4] == "1" }
+    made[#made + 1] = { source_hash = source_hash, mapped = one.mapped }
     local ok, why = Sqlite.run(db,
       "INSERT INTO parsed (source_hash, has_return, export) VALUES (?1, ?2, ?3)",
       { text(source_hash), { integer = found.has_top_level_return and 1 or 0 },
@@ -347,7 +370,7 @@ function derivation.parse_new(db: Sqlite.Handle, built: compiler, tally: derivat
     -- links are its Markdown's, which the stage reads ([`build.work`]'s
     -- `linked`).
     local found_links: {link_text.Found} = {}
-    if row[4] ~= "1" then
+    if not one.mapped then
       found_links = link_text.found(built, parsed.node, source, file)
     end
     for ordinal, entry in ipairs(found_links) do
