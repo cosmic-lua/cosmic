@@ -552,7 +552,7 @@ end
 --- What a job's steps have checked out so far, and what they ran.
 local record Walk
   checkout: boolean
-  sparse: {string}
+  sparse?: {string}
   scripts: {string}
   actions: {string: boolean}
 end

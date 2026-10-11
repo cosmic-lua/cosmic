@@ -20,23 +20,23 @@ local record module
     --- A test or example module's `policy` declaration ([`cosmic.test`]),
     --- or nil for none (see [`build.test_inputs`]).
     inputs: analyzer.Declared | nil
-    has_top_level_return: boolean
+    has_top_level_return?: boolean
     --- True only for a module [`build.doctest`] produced from a
     --- `doc/guides/*.md` file rather than read off disk as `.tl`
     --- source: [`build.importer.compile`] widens its warning discount for
     --- exactly this module, and only this one, to cover the one
     --- `print`-shadowing warning that generated shape always carries --
     --- see [`build.compilation.generate`].
-    generated: boolean
-    key: string
+    generated?: boolean
+    key?: string
     --- `key` less the compiler: the digest of the kinds and sources of
     --- the module's import graph alone, which a sandboxed test's key
     --- holds in `key`'s place ([`build.declared_key`]), since what the
     --- compiler made of that graph it holds by the bytes it made.
-    graph_key: string
+    graph_key?: string
     --- The compiled Lua, once [`build.importer.compile`] has it: made
     --- this run or read back from the cache under the same key.
-    lua: string
+    lua?: string
   end
 end
 

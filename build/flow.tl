@@ -39,29 +39,29 @@ local record flow
     kind: string
     --- A scalar's text as it is written: a string as `quote` writes
     --- it, or a bare word.
-    text: string
+    text?: string
     --- An object's or array's members, in order.
-    items: {flow.Item}
+    items?: {flow.Item}
     --- Whether a container stays on one line.
-    inline: boolean
+    inline?: boolean
     --- For a container `from` built or `update` changed, the widest line
     --- it stays on one line within, decided where it is rendered.
-    width: integer
+    width?: integer
     --- A comment on a multi-line container's opening line.
-    comment: string
+    comment?: string
     --- The comments and blank lines after its last member.
-    tail: {string}
+    tail?: {string}
   end
 
   --- A member of an object or array.
   record Item
     --- An object member's key, as the key reads; nil in an array.
-    key: string
+    key?: string
     value: flow.Node
     --- The comment lines before it, "" for a blank line.
     before: {string}
     --- A comment after it on its line.
-    comment: string
+    comment?: string
   end
 
   --- A whole text: the comments around its root value.
@@ -69,7 +69,7 @@ local record flow
     head: {string}
     root: flow.Node
     --- A comment after the root on its closing line.
-    comment: string
+    comment?: string
     foot: {string}
   end
 
@@ -78,7 +78,7 @@ local record flow
     --- Keys an object lists first, in this order; any other follows,
     --- in byte order. A workflow's, a job's and a step's keys in the
     --- order GitHub's documentation writes them, by default.
-    order: {string}
+    order?: {string}
     --- The widest line a container is kept on one line within, its
     --- indentation included (100 by default).
     width: integer
@@ -450,7 +450,8 @@ local function parse_container(r: Reader): flow.Node
   local close = open == "{" and "}" or "]"
   r.depth = r.depth + 1
   if r.depth > MAX_DEPTH then fail(r.line, "containers nested deeper than " .. MAX_DEPTH) end
-  local node: flow.Node = { kind = open == "{" and "object" or "array", items = {}, tail = {} }
+  local items: {flow.Item} = {}
+  local node: flow.Node = { kind = open == "{" and "object" or "array", items = items, tail = {} }
   local open_line = r.line
   r.at = r.at + 1
   local t = trivia(r)
@@ -465,13 +466,13 @@ local function parse_container(r: Reader): flow.Node
       r.depth = r.depth - 1
       return node
     end
-    local item: flow.Item = { before = pending }
+    local key: string | nil = nil
     if node.kind == "object" then
       local key_line = r.line
       if r.text:sub(r.at, r.at) == '"' or r.text:sub(r.at, r.at) == "'" then
-        item.key = read_string(r)
+        key = read_string(r)
       else
-        item.key = read_word(r)
+        key = read_word(r)
       end
       while r.text:sub(r.at, r.at) == " " do r.at = r.at + 1 end
       if r.text:sub(r.at, r.at) ~= ":" then
@@ -482,7 +483,7 @@ local function parse_container(r: Reader): flow.Node
         if entry ~= "" then fail(key_line, "a comment between a key and its value") end
       end
     end
-    item.value = parse_value(r)
+    local value = parse_value(r)
     local after = trivia(r)
     local value_line = r.line - after.breaks
     local comment, rest = trailing(after, value_line)
@@ -502,9 +503,8 @@ local function parse_container(r: Reader): flow.Node
     elseif r.text:sub(r.at, r.at) ~= close then
       fail(r.line, "a member with no , after it")
     end
-    item.comment = comment
+    items[#items + 1] = { key = key, value = value, before = pending, comment = comment }
     pending = rest
-    node.items[#node.items + 1] = item
   end
 end
 
@@ -542,10 +542,15 @@ function flow.parse(text: string): flow.Doc | nil, string
   return doc
 end
 
+--- A container's members. A scalar has none, and is not asked.
+local function members(node: flow.Node): {flow.Item}
+  return (assert(node.items, "flow: a scalar has no members"))
+end
+
 local function inline_text(node: flow.Node): string
   if node.kind == "scalar" then return node.text end
   local parts: {string} = {}
-  for _, item in ipairs(node.items) do
+  for _, item in ipairs(members(node)) do
     local value = inline_text(item.value)
     parts[#parts + 1] = item.key ~= nil and key_text(item.key) .. ": " .. value or value
   end
@@ -561,9 +566,10 @@ end
 local function one_line(node: flow.Node, column: integer, after: integer): boolean
   if node.kind == "scalar" then return true end
   if node.comment ~= nil or #tidy(node.tail, true, true) > 0 then return false end
-  if #node.items == 0 then return true end
+  local items = members(node)
+  if #items == 0 then return true end
   if not node.inline then return false end
-  for _, item in ipairs(node.items) do
+  for _, item in ipairs(items) do
     if item.comment ~= nil or #tidy(item.before, true, true) > 0 or not one_line(item.value, 0, 0) then
       return false
     end
@@ -589,13 +595,14 @@ local function write(out: {string}, node: flow.Node, pad: string, after: integer
   if node.kind == "object" then open, close = "{", "}" end
   out[#out] = out[#out] .. open .. (node.comment ~= nil and " " .. node.comment or "")
   local inner = pad .. "  "
-  for index, item in ipairs(node.items) do
+  local items = members(node)
+  for index, item in ipairs(items) do
     comment_lines(out, tidy(item.before, index == 1, false), inner)
     out[#out + 1] = inner .. (item.key ~= nil and key_text(item.key) .. ": " or "")
     write(out, item.value, inner, 1)
     out[#out] = out[#out] .. "," .. (item.comment ~= nil and " " .. item.comment or "")
   end
-  comment_lines(out, tidy(node.tail, #node.items == 0, true), inner)
+  comment_lines(out, tidy(node.tail, #items == 0, true), inner)
   out[#out + 1] = pad .. close
 end
 
@@ -715,20 +722,20 @@ local function build(value: any, opts: flow.Options, depth: integer): flow.Node
   if depth >= MAX_DEPTH then
     error("flow.from: containers nested deeper than " .. MAX_DEPTH .. ", or a table that holds itself", 0)
   end
-  local node: flow.Node = { items = {}, tail = {}, width = opts.width or 100 }
+  local items: {flow.Item} = {}
+  local node: flow.Node = { kind = "object", items = items, tail = {}, width = opts.width or 100 }
   if is_array(value) and value is {any} then
     node.kind = "array"
     for _, each in ipairs(value) do
-      node.items[#node.items + 1] = { value = build(each, opts, depth + 1), before = {} }
+      items[#items + 1] = { value = build(each, opts, depth + 1), before = {} }
     end
   elseif value is {string: any} then
-    node.kind = "object"
     for _, key in ipairs(ordered(value, opts)) do
-      node.items[#node.items + 1] = { key = key, value = build(value[key], opts, depth + 1), before = {} }
+      items[#items + 1] = { key = key, value = build(value[key], opts, depth + 1), before = {} }
     end
   end
   local scalars = true
-  for _, item in ipairs(node.items) do
+  for _, item in ipairs(items) do
     if item.value.kind ~= "scalar" then scalars = false end
   end
   node.inline = scalars
@@ -783,19 +790,22 @@ end
 -- does, once a program sets a member inside a one-line container.
 function flow.set(node: flow.Node, key: string | integer, new: flow.Node)
   if node.kind == "object" and key is string then
-    for _, item in ipairs(node.items) do
+    local items = members(node)
+    for _, item in ipairs(items) do
       if item.key == key then
         item.value = new
         return
       end
     end
-    node.items[#node.items + 1] = { key = key, value = new, before = {} }
+    items[#items + 1] = { key = key, value = new, before = {} }
     if node.inline then node.width = node.width or 100 end
-  elseif node.kind == "array" and key is integer and key >= 1 and key <= #node.items + 1 then
-    if node.items[key] ~= nil then
-      node.items[key].value = new
+  elseif node.kind == "array" and key is integer and key >= 1 and key <= #members(node) + 1 then
+    local items = members(node)
+    local member = items[key]
+    if member ~= nil then
+      member.value = new
     else
-      node.items[key] = { value = new, before = {} }
+      items[key] = { value = new, before = {} }
     end
     if node.inline then node.width = node.width or 100 end
   else
@@ -922,7 +932,7 @@ local function update(node: flow.Node, value: any, o: flow.Options, depth: integ
   local was = inline_text(node)
   local kept: {flow.Item} = {}
   if array and value is {any} then
-    local pairing = paired(node.items, value)
+    local pairing = paired(members(node), value)
     for index, each in ipairs(value) do
       local item = pairing[index]
       if item ~= nil then
@@ -934,7 +944,7 @@ local function update(node: flow.Node, value: any, o: flow.Options, depth: integ
     end
   elseif value is {string: any} then
     local seen: {string: boolean} = {}
-    for _, item in ipairs(node.items) do
+    for _, item in ipairs(members(node)) do
       if value[item.key] ~= nil then
         item.value = update(item.value, value[item.key], o, depth + 1)
         kept[#kept + 1] = item

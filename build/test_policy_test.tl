@@ -24,7 +24,7 @@ local function plan_of(reads: {string}, writes: {string}, at: {string:string},
   local running: {string:boolean} = {}
   for _, path in ipairs(runs) do running[path] = true end
   return { sandbox = { unveil = { reads = reads, writes = writes, at = at }, offline = true },
-    env = {}, over = 0, trouble = "", runs = running }
+    env = {}, over = 0, trouble = "", runs = running, own_scratch = false, why_shared = "" }
 end
 
 --- The grant of `policy` at `path`, or nil.

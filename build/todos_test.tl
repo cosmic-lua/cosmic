@@ -154,7 +154,7 @@ end
 
 local function test_render_marks_unblamed_and_boundary_rows()
   local row: todos.Todo = {
-    file = "a.tl", line = 3, last = 3, text = "do it", commit = "",
+    id = 1, file = "a.tl", line = 3, last = 3, text = "do it", commit = "",
     author_time = 0, summary = "", boundary = false,
   }
   assert(todos.render(row) == "a.tl:3: ---------- ------- do it", todos.render(row))

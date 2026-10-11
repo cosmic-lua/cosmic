@@ -1006,47 +1006,47 @@ local record Fix
   started: integer
 
   -- The command line ([`read_command`]).
-  checking: boolean
-  paths: {string}
-  changes_only: boolean
-  root: string
+  checking?: boolean
+  paths?: {string}
+  changes_only?: boolean
+  root?: string
 
   -- The files chosen ([`choose_files`]).
-  picked: fix.Chosen
-  every: fix.Chosen
+  picked?: fix.Chosen
+  every?: fix.Chosen
 
   -- The compiler ([`load_compiler`]).
-  built: compiler
+  built?: compiler
 
   -- What the run has found so far ([`start_tally`] onward).
-  files: {string}
-  counted: integer
-  changed: {string}
+  files?: {string}
+  counted?: integer
+  changed?: {string}
   --- The changed files whose only change was a link written.
-  link_only: {string:boolean}
-  failures: {string}
+  link_only?: {string:boolean}
+  failures?: {string}
 
   -- The C ([`lay_out_c`]).
-  c_files: {string}
+  c_files?: {string}
 
   -- The Teal ([`lay_out_teal`]).
-  facts: {string: links.Facts}
-  ready: {string: {near.Candidate}}
+  facts?: {string: links.Facts}
+  ready?: {string: {near.Candidate}}
   plurals: {string: tree_checks.Plurals} | nil
 
   -- The asserts ([`wrap_asserts`]).
-  listed: {string:boolean}
-  refused: string
-  spilled: boolean
+  listed?: {string:boolean}
+  refused?: string
+  spilled?: boolean
 
   -- The build's refusal ([`find_unbuilt`]).
   unbuilt: string | nil
 
   -- The tree checks ([`run_tree_checks`]).
-  findings: {string}
+  findings?: {string}
 
   -- The links ([`check_links`]).
-  linked_out: fix.Linked
+  linked_out?: fix.Linked
   links_unbuilt: string | nil
 end
 
@@ -1075,7 +1075,7 @@ end
 --- @return integer | nil The exit code when the choice fails, else nil
 local function choose_files(ctx: Fix): integer | nil
   local root = ctx.root
-  local paths = ctx.paths
+  local paths = assert(ctx.paths)
   -- A run of `--changed` starts from the whole tree, which it narrows.
   local covered: {string} = paths
   if ctx.changes_only then covered = {} end
@@ -1101,7 +1101,9 @@ local function choose_files(ctx: Fix): integer | nil
   ctx.picked = picked
   -- What the checks spanning files cover: a run of `--changed` lays out
   -- only some of it.
-  ctx.every = picked.every or picked
+  local every = picked.every
+  if every == nil then every = picked end
+  ctx.every = every
   return nil
 end
 
@@ -1120,17 +1122,18 @@ end
 --- Starts what the run reports: the files it covers and the failures
 --- the choice already holds.
 local function start_tally(ctx: Fix)
-  local picked = ctx.picked
+  local picked = assert(ctx.picked)
   ctx.files = picked.files
   -- A named path the verb would not take counts among the files the run
   -- covers, so the verdict says how many of everything asked for was
   -- refused rather than only how many of what survived the naming.
   ctx.counted = #ctx.files + #picked.c_files + #picked.flow_files + #picked.checked +
     #picked.templates + #picked.refused
+  local failures: {string} = {}
   ctx.changed = {}
-  ctx.failures = {}
+  ctx.failures = failures
   for _, why in ipairs(picked.refused) do
-    ctx.failures[#ctx.failures + 1] = why
+    failures[#failures + 1] = why
   end
 end
 
@@ -1138,26 +1141,29 @@ end
 --- template compiler refuses fails the run with its own reason
 --- (`file:line:col: ...`).
 local function check_templates(ctx: Fix)
-  for _, file in ipairs(ctx.picked.templates) do
+  local picked = assert(ctx.picked)
+  local failures = assert(ctx.failures)
+  for _, file in ipairs(picked.templates) do
     local source, read_trouble = Fs.read(file)
     if source == nil then
-      ctx.failures[#ctx.failures + 1] = read_trouble
+      failures[#failures + 1] = read_trouble
     else
       local made, why = template.compile(source, file)
-      if made == nil then ctx.failures[#ctx.failures + 1] = why end
+      if made == nil then failures[#failures + 1] = why end
     end
   end
 end
 
 --- Lays out and checks the C files, then lays out the YAML.
 local function lay_out_c(ctx: Fix)
+  local picked = assert(ctx.picked)
   local root = ctx.root
-  local changed = ctx.changed
-  local failures = ctx.failures
+  local changed = assert(ctx.changed)
+  local failures = assert(ctx.failures)
   -- The C is compiled from the root, so a path named from elsewhere is
   -- taken relative to it.
   local c_files: {string} = {}
-  for _, file in ipairs(ctx.picked.c_files) do
+  for _, file in ipairs(picked.c_files) do
     -- A path that cannot be resolved, or lies outside the root, is
     -- refused below either way; the failure line says why.
     local absolute, _ = Fs.absolute(file)
@@ -1207,15 +1213,18 @@ local function lay_out_c(ctx: Fix)
       end
     end
   end
-  fix.lay_out(ctx.picked.flow_files, ctx.checking, changed, failures)
+  fix.lay_out(picked.flow_files, ctx.checking, changed, failures)
 end
 
 --- Lays out each Teal file, keeping what its parse gives the later
 --- phases.
 local function lay_out_teal(ctx: Fix)
+  local picked = assert(ctx.picked)
+  local files = assert(ctx.files)
+  local built = assert(ctx.built)
   local checking = ctx.checking
-  local changed = ctx.changed
-  local failures = ctx.failures
+  local changed = assert(ctx.changed)
+  local failures = assert(ctx.failures)
   -- What the links read of each Teal file, from the parse its fix made,
   -- while the file on disk is what was parsed.
   local facts: {string: links.Facts} = {}
@@ -1224,13 +1233,13 @@ local function lay_out_teal(ctx: Fix)
   local ready: {string: {near.Candidate}} = {}
   -- What the tree checks' plurals read of each file, when they will run.
   local plurals: {string: tree_checks.Plurals} | nil = nil
-  if ctx.picked.whole then plurals = {} end
-  for _, file in ipairs(ctx.files) do
+  if picked.whole then plurals = {} end
+  for _, file in ipairs(files) do
     local source, read_trouble = Fs.read(file)
     if source == nil then
       failures[#failures + 1] = read_trouble
     else
-      local result, trouble = fix.source(ctx.built, source, file)
+      local result, trouble = fix.source(built, source, file)
       if result == nil then
         failures[#failures + 1] = file .. ": " .. trouble
       elseif result.changed then
@@ -1256,15 +1265,16 @@ end
 --- What only the checker can see: built from what is on disk, so a
 --- check reports the files once and a fix repeats until it settles.
 local function wrap_asserts(ctx: Fix)
+  local every = assert(ctx.every)
   local root = ctx.root
   local checking = ctx.checking
-  local built = ctx.built
-  local changed = ctx.changed
-  local failures = ctx.failures
-  local facts = ctx.facts
-  local ready = ctx.ready
+  local built = assert(ctx.built)
+  local changed = assert(ctx.changed)
+  local failures = assert(ctx.failures)
+  local facts = assert(ctx.facts)
+  local ready = assert(ctx.ready)
   local chosen_files: {string:string} = {}
-  for _, file in ipairs(ctx.every.files) do
+  for _, file in ipairs(every.files) do
     local absolute, _ = Fs.absolute(file)
     if absolute ~= nil then chosen_files[absolute] = file end
   end
@@ -1334,8 +1344,9 @@ end
 --- error of its own; over the whole tree, the tree checks' projection
 --- refuses it.
 local function find_unbuilt(ctx: Fix)
+  local picked = assert(ctx.picked)
   local unbuilt: string | nil = nil
-  if not ctx.picked.whole and ctx.refused ~= "" and not (ctx.checking and ctx.spilled) then
+  if not picked.whole and ctx.refused ~= "" and not (ctx.checking and ctx.spilled) then
     unbuilt = ctx.refused
   end
   ctx.unbuilt = unbuilt
@@ -1382,11 +1393,12 @@ end
 --- answer ([`build.tree_checks`]), asked of its projection built afresh:
 --- a finding is the tree's, not a file's, so it is counted apart.
 local function run_tree_checks(ctx: Fix)
+  local picked = assert(ctx.picked)
   local root = ctx.root
-  local built = ctx.built
+  local built = assert(ctx.built)
   local findings: {string} = {}
   ctx.findings = findings
-  if ctx.picked.whole then
+  if picked.whole then
     local db, projection_trouble = tree_checks.projection(root, built)
     if db == nil then
       findings[#findings + 1] = "tree checks: " .. projection_trouble
@@ -1444,15 +1456,18 @@ end
 --- directory, which a run started below the tree's root has already
 --- moved to that root ([`build.tree_root`]).
 local function check_links(ctx: Fix)
+  local c_files = assert(ctx.c_files)
+  local ready = assert(ctx.ready)
+  local built = assert(ctx.built)
   local root = ctx.root
-  local picked = ctx.picked
-  local every = ctx.every
-  local files = ctx.files
-  local changed = ctx.changed
-  local listed = ctx.listed
+  local picked = assert(ctx.picked)
+  local every = assert(ctx.every)
+  local files = assert(ctx.files)
+  local changed = assert(ctx.changed)
+  local listed = assert(ctx.listed)
   local own, _ = tree.is_own(root)
   local linked: {string} = {}
-  local groups: {{string}} = { files, ctx.c_files, picked.checked }
+  local groups: {{string}} = { files, c_files, picked.checked }
   -- TODO: in a run of `--changed`, check the links of only the files
   -- changed and those naming a symbol of a module that changed (what
   -- the projection's `links` rows would say, where they hold each file's
@@ -1475,7 +1490,7 @@ local function check_links(ctx: Fix)
     local source = fix.link_context(root, picked.whole, own == true,
       function(verb: string): boolean, string return rebuild.here(verb, true) end,
       function(): docs.Sources return docs.databases() end)
-    linked_out = fix.links(source.context, ctx.built, linked, ctx.checking and "check" or "write",
+    linked_out = fix.links(source.context, built, linked, ctx.checking and "check" or "write",
       ctx.facts, laid_out)
     source.close()
     -- A refusal the build above met already fails the run.
@@ -1484,14 +1499,15 @@ local function check_links(ctx: Fix)
     end
   end
   -- Held no longer than the links need them.
+  local link_only: {string:boolean} = {}
   ctx.facts = {}
-  ctx.link_only = {}
+  ctx.link_only = link_only
   for _, file in ipairs(linked_out.rewritten) do
     -- What the notes kept of its parse is of the text before.
-    ctx.ready[file] = nil
+    ready[file] = nil
     if not listed[file] then
       -- Linking was the file's only change.
-      ctx.link_only[file] = true
+      link_only[file] = true
       listed[file] = true
       changed[#changed + 1] = file
     end
@@ -1506,15 +1522,19 @@ end
 --- it stands earns no note against itself. The notes compare with every
 --- database the binary sees ([`Store.databases()`]).
 local function say_notes(ctx: Fix)
+  local files = assert(ctx.files)
+  local ready = assert(ctx.ready)
+  local linked_out = assert(ctx.linked_out)
+  local built = assert(ctx.built)
   local root = ctx.root
-  local picked = ctx.picked
-  local findings = ctx.findings
-  for _, line in ipairs(ctx.linked_out.notes) do
+  local picked = assert(ctx.picked)
+  local findings = assert(ctx.findings)
+  for _, line in ipairs(linked_out.notes) do
     log:say("fix: note  " .. line)
   end
 
-  for _, line in ipairs(fix.notes(ctx.built, root, picked.noted or ctx.files, Store.databases(),
-      ctx.ready)) do
+  for _, line in ipairs(fix.notes(built, root, picked.noted or files, Store.databases(),
+      ready)) do
     local named = line:match("^([^:]*):") or ""
     local absolute, _ = Fs.absolute(named)
     local relative: string | nil = nil
@@ -1559,8 +1579,9 @@ end
 --- The count of files a verdict says: "1 Teal file", "3 Teal + 2 Markdown
 --- files", or the bare count where refused paths leave no kind to name.
 local function files_said(ctx: Fix): string
-  local kinds = kind_list(ctx.picked)
-  if kinds == "" or #ctx.picked.refused > 0 then
+  local picked = assert(ctx.picked)
+  local kinds = kind_list(picked)
+  if kinds == "" or #picked.refused > 0 then
     return plural.count(ctx.counted, "file")
   end
   return kinds .. (ctx.counted == 1 and " file" or " files")
@@ -1569,16 +1590,18 @@ end
 --- Says each failure, finding and change, then the verdict.
 --- @return integer The exit code: 0 when nothing is left to fix
 local function report(ctx: Fix): integer
+  local link_only = assert(ctx.link_only)
+  local linked_out = assert(ctx.linked_out)
   local checking = ctx.checking
-  local failures = ctx.failures
-  local findings = ctx.findings
-  local changed = ctx.changed
+  local failures = assert(ctx.failures)
+  local findings = assert(ctx.findings)
+  local changed = assert(ctx.changed)
   local counted = ctx.counted
   local unbuilt = ctx.unbuilt
   local links_unbuilt = ctx.links_unbuilt
-  local broken = ctx.linked_out.broken
-  local would = ctx.linked_out.would
-  local redefined = ctx.linked_out.redefined
+  local broken = linked_out.broken
+  local would = linked_out.would
+  local redefined = linked_out.redefined
   -- A file's own failure names it as it was given (`./a.tl` for `fix
   -- .`), the build's as the tree's: compared without the `./`.
   local function plain(line: string): string
@@ -1609,7 +1632,7 @@ local function report(ctx: Fix): integer
   if links_unbuilt ~= nil then
     log:say("fix: FAIL  " .. links_unbuilt)
   end
-  local linked = ctx.link_only
+  local linked = link_only
   for _, file in ipairs(changed) do
     log:say("fix: " .. (checking and "would fix  " or "fixed  ") .. file ..
         (linked[file] and " (links)" or ""))

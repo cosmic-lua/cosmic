@@ -103,5 +103,5 @@ local function test_noexec_does_not_probe_an_ordinary_or_unsandboxed_worker()
   inputs.noexec = true
   test_sandbox_probe.resolve_noexec(inputs, false, known)
   assert(not inputs.noexec_ready and next(known) == nil)
-  assert(inputs.noexec_trouble:find("requires a Linux filesystem sandbox", 1, true))
+  assert(assert(inputs.noexec_trouble):find("requires a Linux filesystem sandbox", 1, true))
 end

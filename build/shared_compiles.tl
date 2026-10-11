@@ -95,9 +95,9 @@ local record shared_compiles
     --- Keys the build took a compile from, which stay the longer for it.
     used: {string}
     --- Parses made here, none when nil.
-    parses: {Parsed}
+    parses?: {Parsed}
     --- Parses the build took, which stay the longer for it; none when nil.
-    parses_used: {ParseKey}
+    parses_used?: {ParseKey}
   end
 end
 

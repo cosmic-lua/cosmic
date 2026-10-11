@@ -66,7 +66,7 @@ local function test_inputs_by_hash(db: Sqlite.Handle): {string:analyzer.Declared
     local one = declared[hash]
     if one == nil then
       one = { line = 0, reads = {}, host = {}, env = {}, network = {},
-        tool = false, lua = false, nests = false, store = false,
+        tool = false, lua = false, nests = false, noexec = false, store = false,
         system = false, caches = {}, requires = {} }
       declared[hash] = one
     end

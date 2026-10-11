@@ -47,11 +47,11 @@ local record host_names
   --- as far as it says what the worker is given.
   record Inputs
     --- Whether the profile "system" is joined.
-    system: boolean
+    system?: boolean
     --- The absolute paths granted as host files.
-    host: {string}
+    host?: {string}
     --- The variables passed through, by name.
-    env: {string}
+    env?: {string}
   end
 
   --- A name taken apart.

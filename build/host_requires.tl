@@ -143,21 +143,21 @@ local record host_requires
     --- the program's `runtime_context` ("portable-v1", as its launcher key
     --- does): this module cannot read the store, which the harness would
     --- carry with it. Nil is a native start.
-    portable: boolean
+    portable?: boolean
     --- Whether this core is the checked build, which the runner reads from
     --- `configuration` ("sanitized"); nil is no.
-    checked: boolean
+    checked?: boolean
     --- Whether the platform is Linux, which is the platform's own answer
     --- ([`confine.sandbox_platform`]) where nil. A test of the runner
     --- sets it false to make every Linux requirement not applicable on a
     --- host that has them.
-    linux: boolean
+    linux?: boolean
     --- The paths a worker with the profile "system" is given, which a
     --- `program:` must be under; [`confine.system_paths`] by default.
-    system: {string}
+    system?: {string}
     --- The search list `program:` looks in; PATH by default
     --- ([`Proc.find`]).
-    path: string
+    path?: string
     --- Reads a file for the settings `userns` and `nest` read, which a
     --- test stands in for.
     read: function(path: string): host_requires.Read

@@ -795,27 +795,27 @@ local record Job
   --- Whether its worker was never started, since a requirement of its
   --- module is absent: it has no key, which is no reason to say it runs
   --- every time.
-  unrun: boolean
+  unrun?: boolean
   name: string
   id: string
   --- The directory the runner made for the test, holding `real` and
   --- `tmp`, a link to it; removed once the test passes.
-  scratch: string
-  tmp: string
+  scratch?: string
+  tmp?: string
   --- Whether the test's directory is one its worker makes in a tmpfs of its
   --- own ([`test_sandbox.Plan`]'s `own_scratch`), so the runner has none.
-  own_scratch: boolean
+  own_scratch?: boolean
   --- How its worker is sandboxed, when it is ([`build.test_sandbox`]).
-  plan: test_sandbox.Plan
+  plan?: test_sandbox.Plan
   --- Sandboxed, the key its verdict is reached under, over its
   --- declared inputs as they were before it started
   --- ([`build.declared_key`]); nil for one that reaches a network beyond
   --- loopback, or an unsandboxed run's.
-  declared: string
-  passed: boolean
-  handle: Child.Handle
-  started_ns: integer
-  deadline_ns: integer
+  declared?: string
+  passed?: boolean
+  handle?: Child.Handle
+  started_ns?: integer
+  deadline_ns?: integer
 end
 
 --- The digest of the zones and CA roots the running binary's own
@@ -1268,7 +1268,7 @@ local record Recording
   tally: test.Tally
   --- The verdicts every checkout shares, or nil, and what the run owes
   --- them when it ends.
-  shared: shared_verdicts.Cache
+  shared?: shared_verdicts.Cache
   owed: shared_verdicts.Owed
   --- Each key a verdict of this run stands under, its
   --- shared key, for `owed.used`.
@@ -1278,7 +1278,7 @@ local record Recording
   --- Each selected module's effective inputs, by path, and the program
   --- running the tests, which `tool` declares.
   effective: {string:test_inputs.Effective}
-  tool: {string}
+  tool?: {string}
   --- Whether each worker runs sandboxed ([`build.test_sandbox`]): the
   --- switch does not turn it off and the kernel can. `effective` then
   --- holds every selected module's inputs, and `views` the environment
@@ -1293,15 +1293,15 @@ local record Recording
   --- identity ([`build.identity`]'s `Identities`) as the running tool's `meta`
   --- names it, `compiler` and then `compiled_by`, which a key holds
   --- only where its closure reads it ([`declared_key.reads_compiler`]).
-  digests: declared_key.Digests
-  compiler: string
+  digests?: declared_key.Digests
+  compiler?: string
   --- The host's identity every key holds
   --- ([`declared_key.host_identity`]), what it has installed, which only
   --- the key of a module given the system's paths holds
   --- ([`declared_key.system_identity`]), and why each module whose tests
   --- have no key has none, but for the network, by module path.
-  host: string
-  system: string
+  host?: string
+  system?: string
   --- The harness's epoch (build/harness_epoch.tl), which every key
   --- holds in place of the harness's code, and the timeout each worker
   --- runs under ([`Limits.timeout_ns`]), which every key holds too: a
@@ -1311,7 +1311,7 @@ local record Recording
   --- The program a test that runs this program runs
   --- ([`declared_key.program_identity`]), worked out once a key needs
   --- it ([`program_of`]).
-  program: string
+  program?: string
   --- The digest of the code that writes a closure store ([`Harness`]),
   --- and the set of the modules of the tree the binary carries, which
   --- a worker's loads are held to ([`worker.judge`]).
@@ -1321,7 +1321,7 @@ local record Recording
   --- portable cosmic), what runs its core
   --- ([`declared_key.launcher_identity`]), which every key holds; nil
   --- where a host program does.
-  launcher: string
+  launcher?: string
   unkeyed: {string:string}
   --- Whether each module's workers can be kept from running this
   --- program ([`can_forbid`]), by module path.
@@ -1375,18 +1375,18 @@ local record Recording
   sealed_written: integer
   sealed_bytes: integer
   sealed_ns: integer
-  projection: string
+  projection?: string
   --- The path of the projection's `uses` keyed by source module, made
   --- by the first store this run writes ([`extraction_for`]); nil
   --- until then.
   extraction: string | nil
-  basis: closure_store.Basis
+  basis?: closure_store.Basis
   built: {string:string}
   --- The address of the store of no module, which holds what every
   --- closure store holds alike -- the schema, as the code that writes
   --- it lays it out, and the `meta` rows each keeps -- and which the
   --- census names by its bytes ([`base_store_digest`]).
-  base_store: string
+  base_store?: string
   --- The digest of the bytes of each store this run keyed a test by, by
   --- address ([`address_digest`]), and whether it may take one from the
   --- shared verdicts: not under `--no-shared`, which stands on nothing
@@ -1394,11 +1394,11 @@ local record Recording
   --- salted with: the runtime's identity, less the run's other parts.
   store_digests: {string:string}
   consult_shared: boolean
-  store_runtime: string
+  store_runtime?: string
   --- The identity of the core the run's workers run ([`declared_key.runtime_identity`]),
   --- which the key of a worker on a sealed database holds in place of the
   --- launcher ([`seals`]).
-  core: string
+  core?: string
   --- The digest of the program's modules the tree lacks ([`extras_digest`]).
   extras: string | nil
   --- What the shared verdicts keep of each address this run looked up
@@ -1491,6 +1491,30 @@ local function drop_shared(rec: Recording, trouble: string)
       "; running without them")
 end
 
+--- The program running the tests, which `tool` declares, found the first
+--- time a key or a hold needs it.
+local function tool_of(rec: Recording): {string}
+  local tool = rec.tool
+  if tool == nil then
+    tool = confine.itself()
+    rec.tool = tool
+  end
+  return tool
+end
+
+--- The digests of the tree's files the run keys by, which
+--- [`gather_key_inputs`] takes before any test is keyed.
+local function digests_of(rec: Recording): declared_key.Digests
+  return (assert(rec.digests, "test: no key is made before the inputs of the keys are gathered"))
+end
+
+--- Counts the time since `started` as spent keying ([`declared_key.Digests`]'s
+--- `spent_ns`).
+local function charge_keying(rec: Recording, started: integer)
+  local digests = digests_of(rec)
+  digests.spent_ns = digests.spent_ns + (Clock.monotonic_ns() - started)
+end
+
 --- Whether a sandboxed worker of `m`'s tests can be kept from running
 --- this program where its module does not declare `tool`
 --- ([`confine.forbid_running`]): not where it may write a directory
@@ -1503,9 +1527,8 @@ end
 local function can_forbid(rec: Recording, m: importer.Module): boolean
   local found = rec.forbiddable[m.path]
   if found ~= nil then return found end
-  rec.tool = rec.tool or confine.itself()
   found = test_sandbox.forbiddable(test_sandbox.cache_writes(rec.effective[m.path],
-    worker_view()), rec.tool)
+    worker_view()), tool_of(rec))
   rec.forbiddable[m.path] = found
   return found
 end
@@ -1616,11 +1639,12 @@ local store_digest: function(rec: Recording, m: importer.Module): string | nil, 
 --- Digesting the program reads every row its database carries, some
 --- 0.2 s, which a run none of whose tests runs it need not spend.
 local function program_of(rec: Recording): string
-  if rec.program == nil then
-    rec.tool = rec.tool or confine.itself()
-    rec.program = declared_key.program_identity(rec.digests, rec.tool)
+  local program = rec.program
+  if program == nil then
+    program = declared_key.program_identity(digests_of(rec), tool_of(rec))
+    rec.program = program
   end
-  return rec.program
+  return program
 end
 
 --- A sandboxed test's key, over its declared inputs as they are now
@@ -1649,7 +1673,7 @@ local function declared_of(rec: Recording, m: importer.Module, id: string): stri
     rec.unkeyed[m.path] = store_trouble
     return nil
   end
-  local key, why = declared_key.compute(rec.digests, {
+  local key, why = declared_key.compute(digests_of(rec), {
     id = id, group = m.path, module_key = m.graph_key, runtime = rec.runtime,
     compiler = reads_compiler(rec, m) and rec.compiler or "",
     host = rec.host,
@@ -2052,17 +2076,13 @@ local function address_stores(rec: Recording, modules: {importer.Module},
                               declarations: {string:string}): boolean, string
   local basis, trouble = closure_store.basis(rec.projection)
   if basis == nil then return false, trouble end
-  rec.basis, rec.stores, rec.built, rec.store_digests = basis, {}, {}, {}
-  rec.sealed = {}
-  rec.sealed_written, rec.sealed_bytes, rec.sealed_ns = 0, 0, 0
-  rec.store_kept, rec.store_names, rec.store_bases, rec.store_mismatched = {}, {}, {}, {}
+  rec.basis = basis
   -- The code that writes a store, and the core that runs it -- SQLite
   -- and its bindings -- whose bytes it follows from too: so one address
   -- names one store's bytes wherever it is written, which a digest kept
   -- by address relies on ([`address_digest`]).
   local salt = hex_sha256(rec.store_salt .. "\0" .. rec.store_runtime)
   rec.base_store = closure_store.address(basis, {}, salt)
-  rec.written, rec.written_bytes, rec.writing_ns = 0, 0, 0
   for _, m in ipairs(modules) do
     local declared = m.inputs
     if (m.kind == "test" or m.kind == "example") and
@@ -2551,7 +2571,7 @@ local function address_digest(rec: Recording, address: string, names: {string},
     if digest == nil and rec.consult_shared then digest = shared_digest(rec, address) end
   end
   if digest == nil then
-    rec.digests.spent_ns = rec.digests.spent_ns + (Clock.monotonic_ns() - started)
+    charge_keying(rec, started)
     local made, trouble = store_at(rec, address, names, base)
     if made == nil then return nil, trouble end
     started = Clock.monotonic_ns()
@@ -2570,8 +2590,9 @@ local function address_digest(rec: Recording, address: string, names: {string},
     end
   end
   rec.store_digests[address] = digest
-  rec.owed.stores[address] = digest
-  rec.digests.spent_ns = rec.digests.spent_ns + (Clock.monotonic_ns() - started)
+  local owed_stores = assert(rec.owed.stores)
+  owed_stores[address] = digest
+  charge_keying(rec, started)
   return digest, ""
 end
 
@@ -2619,7 +2640,7 @@ local function verify_sample(rec: Recording)
     end
   end
   local _, _ = Fs.remove(path)
-  rec.digests.spent_ns = rec.digests.spent_ns + (Clock.monotonic_ns() - started)
+  charge_keying(rec, started)
 end
 
 --- The digest of the bytes of the closure store a worker of `m`'s tests
@@ -2906,30 +2927,32 @@ local function run_jobs(rec: Recording, jobs: {Job}, limits: test.Limits,
       cancelled = guard:cancelled()
       if cancelled ~= 0 then break end
     end
-    local earliest = running[1].deadline_ns
+    local earliest = assert(running[1].deadline_ns)
     local handles: {Child.Handle} = {}
     for i, job in ipairs(running) do
-      handles[i] = job.handle
-      if job.deadline_ns < earliest then earliest = job.deadline_ns end
+      handles[i] = assert(job.handle)
+      local deadline = assert(job.deadline_ns)
+      if deadline < earliest then earliest = deadline end
     end
     local left_ns = earliest - Clock.monotonic_ns()
     local done, trouble = Child.wait_any(handles, math.max(0, math.min(Clock.ms(100), left_ns)))
     local still: {Job} = {}
     for _, job in ipairs(running) do
+      local handle = assert(job.handle)
       if job.handle == done then
         -- Settled already, so this answers at once; the trouble
         -- `wait_any` gave beside the handle is the one reported.
-        local result, _ = job.handle:wait()
+        local result, _ = handle:wait()
         finish(rec, job, result, trouble, limits)
       elseif done == nil and trouble ~= Poll.TIMEOUT then
         -- Supervision itself failed; end this worker and say why.
-        local _, _ = job.handle:close()
+        local _, _ = handle:close()
         finish(rec, job, nil, trouble, limits)
-      elseif Clock.monotonic_ns() >= job.deadline_ns then
+      elseif Clock.monotonic_ns() >= assert(job.deadline_ns) then
         -- Past its deadline: `wait(0)` ends it, and says why when the
         -- guard's signal came first. `close` makes sure it is gone.
-        local result, stop_trouble = job.handle:wait(0)
-        if result == nil then local _, _ = job.handle:close() end
+        local result, stop_trouble = handle:wait(0)
+        if result == nil then local _, _ = handle:close() end
         if result == nil and guard ~= nil and guard:cancelled() ~= 0 then
           -- The signal ended it before its timeout could: it is one of
           -- the workers the cancelled run ended, reported on by none.
@@ -2970,7 +2993,7 @@ local function run_jobs(rec: Recording, jobs: {Job}, limits: test.Limits,
       -- orphan would still escape.
       if not rec.sandbox then
         local groups: {integer} = {}
-        for _, job in ipairs(still) do groups[#groups + 1] = job.handle.pid end
+        for _, job in ipairs(still) do groups[#groups + 1] = assert(job.handle).pid end
         Child.end_strays(groups)
       end
       sweep(rec, running)
@@ -2978,7 +3001,7 @@ local function run_jobs(rec: Recording, jobs: {Job}, limits: test.Limits,
     running = still
   end
   for _, job in ipairs(running) do
-    local closed, trouble = job.handle:close()
+    local closed, trouble = assert(job.handle):close()
     if not closed and job.scratch ~= nil then
       -- A member of its group may still be writing into it.
       rec.errors[#rec.errors + 1] = job.id .. ": its directory is kept: " ..
@@ -3103,85 +3126,85 @@ local record Run
   argv: {integer:string}
 
   -- The command line ([`read_command`]).
-  root: string
-  limits: test.Limits
-  shard: test.Shard
-  sandbox_mode: string
-  selectors: {string}
-  forced: boolean
-  consult: boolean
-  census: boolean
+  root?: string
+  limits?: test.Limits
+  shard?: test.Shard
+  sandbox_mode?: string
+  selectors?: {string}
+  forced?: boolean
+  consult?: boolean
+  census?: boolean
 
   -- The checkout ([`hold_checkout`]).
-  started: integer
-  own_tree: boolean
-  handle: work.Handle
-  staged: work.Staged
-  built: compiler
+  started?: integer
+  own_tree?: boolean
+  handle?: work.Handle
+  staged?: work.Staged
+  built?: compiler
 
   -- The binary's identities ([`read_identities`]).
-  tool: string
-  compiled_by: string
-  identity: string
-  runtime: string
-  harness: Harness
-  database: string
+  tool?: string
+  compiled_by?: string
+  identity?: string
+  runtime?: string
+  harness?: Harness
+  database?: string
 
   -- The sandbox ([`choose_sandbox`]).
   --- What asking whether a worker can be sandboxed came to, or nil where
   --- the run was told not to ask ([`require_of_host`] asks then, if a
   --- module needs it).
-  sandbox_answer: test_sandbox_probe.Answer
+  sandbox_answer?: test_sandbox_probe.Answer
   --- The requirements this run's leg promises (COSMIC_TEST_PROMISES), and
   --- the leg's name (COSMIC_TEST_LEG, "" where none is given), which a held
   --- run fails a module for lacking ([`require_of_host`]).
-  promises: {string}
-  leg: string
+  promises?: {string}
+  leg?: string
   --- Whether the run is held to the sandbox (COSMIC_TEST_SANDBOX=1,
   --- COSMIC_SANDBOX=must or COSMIC_CI_REQUIRE_SANDBOX=1): it fails what a
   --- leg promises and a test that made no call to `assert`.
-  held: boolean
-  sandboxed: boolean
-  sandbox_summary: string
-  shares: boolean
-  keying: string
+  held?: boolean
+  sandboxed?: boolean
+  sandbox_summary?: string
+  shares?: boolean
+  keying?: string
 
   -- The built tree ([`build_tree`]).
-  result: importer.Result
+  result?: importer.Result
 
   -- The tests chosen ([`select_tests`]).
-  selected_modules: {importer.Module}
-  selected_tests: {string:{string}}
-  whole: boolean
-  share_summary: string
+  selected_modules?: {importer.Module}
+  selected_tests?: {string:{string}}
+  whole?: boolean
+  share_summary?: string
 
   -- The records the run reads and writes ([`open_records`]).
-  records_path: string
-  records: Sqlite.Handle
-  previous: {string:boolean}
-  verdicts: {string:test.Verdict}
-  epoch: string
-  credited: test.Credited
+  records_path?: string
+  records?: Sqlite.Handle
+  previous?: {string:boolean}
+  verdicts?: {string:test.Verdict}
+  epoch?: string
+  credited?: test.Credited
 
   -- What the run tallies and reports ([`make_recording`]).
-  tally: test.Tally
-  failures: {string}
-  errors: {string}
-  hits: Coverage.Hits
-  by_test: {string:string}
-  native_lines: Coverage.Hits
-  rec: Recording
+  tally?: test.Tally
+  failures?: {string}
+  errors?: {string}
+  hits?: Coverage.Hits
+  by_test?: {string:string}
+  native_lines?: Coverage.Hits
+  rec?: Recording
 
   -- The tests that run ([`look_up_verdicts`]).
-  jobs: {Job}
+  jobs?: {Job}
 
   -- What the run says last ([`settle`]).
-  total: integer
+  total?: integer
   --- The C functions' prerequisites this host lacks, probed before any
   --- worker starts. Unknown answers and missing promises retain coverage.
-  c_unavailable: {string: string}
-  function_lines: {string}
-  cov_line: string
+  c_unavailable?: {string: string}
+  function_lines?: {string}
+  cov_line?: string
 end
 
 --- The command line read: where the run is, what it is told to do and
@@ -3318,7 +3341,7 @@ end
 --- compiler, runtime, data tables and harness. The exit code to stop
 --- with, or nil to go on.
 local function read_identities(ctx: Run): integer | nil
-  local handle = ctx.handle
+  local handle = assert(ctx.handle)
   -- Both identities are read before the project's database is attached
   -- ahead of the binary's: they name this binary, and a project's own
   -- projection carries the ones of whichever binary wrote it.
@@ -3373,7 +3396,7 @@ end
 --- Whether the workers are sandboxed, which the runtime the keys hold
 --- says. The exit code to stop with, or nil to go on.
 local function choose_sandbox(ctx: Run): integer | nil
-  local handle = ctx.handle
+  local handle = assert(ctx.handle)
   local sandbox_mode = ctx.sandbox_mode
   -- Only a held run reads the promises, which only it fails for: a
   -- project that sets COSMIC_TEST_PROMISES for another reason is no concern of a run
@@ -3437,7 +3460,7 @@ local function choose_sandbox(ctx: Run): integer | nil
       -- isolation and the promises ([`test_policy.common`]), and the code
       -- that makes a worker's policy, so an edit to a grant runs the
       -- tests again without a bump of the epoch.
-      local made = ctx.harness.modules
+      local made = assert(ctx.harness).modules
       ctx.runtime = ctx.runtime .. " sandboxed" .. (must and " must" or "") .. " policy " ..
         hashing.hex_sha256(test_policy.common() .. "\0" ..
             (made["build.test_policy"] or "") .. "\0" .. (made["build.test_sandbox"] or ""))
@@ -3484,7 +3507,7 @@ end
 --- The tree compiled into the working database and its build said.
 --- The exit code to stop with, or nil to go on.
 local function build_tree(ctx: Run): integer | nil
-  local handle, staged, started = ctx.handle, ctx.staged, ctx.started
+  local handle, staged, started = assert(ctx.handle), assert(ctx.staged), ctx.started
   local result, compile_trouble = importer.compile(handle, ctx.built, ctx.tool, false,
     shared_compiles.for_build())
   if result == nil then
@@ -3514,7 +3537,7 @@ end
 --- The tests the selectors and the shard choose, each selector held to
 --- matching one. The exit code to stop with, or nil to go on.
 local function select_tests(ctx: Run): integer | nil
-  local result, selectors, shard = ctx.result, ctx.selectors, ctx.shard
+  local result, selectors, shard = assert(ctx.result), assert(ctx.selectors), ctx.shard
   -- Each selector must match a test module on its own: one mistyped
   -- among good ones would otherwise narrow the run without a word, and
   -- one naming a test must find it there.
@@ -3607,7 +3630,7 @@ end
 --- The verdict transaction begun and what earlier runs left in the
 --- records read. The exit code to stop with, or nil to go on.
 local function open_records(ctx: Run): integer | nil
-  local handle = ctx.handle
+  local handle = assert(ctx.handle)
   -- Every verdict and every coverage row of this run lands together.
   local begun, begin_trouble = work.begin(handle)
   if not begun then
@@ -3650,10 +3673,11 @@ end
 --- coverage it reports, and the verdicts shared with other checkouts
 --- opened where they are used.
 local function make_recording(ctx: Run)
-  local handle, records = ctx.handle, ctx.records
+  local handle, records = assert(ctx.handle), assert(ctx.records)
+  local limits, harness = assert(ctx.limits), assert(ctx.harness)
   ctx.tally = { ran = 0, cached = 0, shared = 0, every = 0,
     skipped = 0, unchecked = 0, na = 0 }
-  local tally = ctx.tally
+  local tally = assert(ctx.tally)
   local failures: {string} = {}
   local errors: {string} = {}
   ctx.failures, ctx.errors = failures, errors
@@ -3685,9 +3709,14 @@ local function make_recording(ctx: Run)
     origin = checkout_id(records, ctx.root, ctx.run_at_ns),
     sandbox = ctx.sandboxed, views = {}, caches = {}, unkeyed = {},
     forbiddable = {},
-    epoch = ctx.epoch, timeout_ns = ctx.limits.timeout_ns,
-    store_salt = ctx.harness.store_salt, carried = ctx.harness.carried,
+    epoch = ctx.epoch, timeout_ns = limits.timeout_ns,
+    store_salt = harness.store_salt, carried = harness.carried,
     closure_sets = {}, plans = {}, spelled = {}, folded = {}, type_only = {},
+    closures = {}, tree_names = {}, effective = {},
+    stores = {}, built = {}, store_digests = {}, store_kept = {}, store_names = {},
+    store_bases = {}, store_mismatched = {}, sealed = {},
+    sealed_written = 0, sealed_bytes = 0, sealed_ns = 0,
+    written = 0, written_bytes = 0, writing_ns = 0,
     rerun_prefix = (sandbox_mode == "on" and (test_sandbox.switch .. "=1 ") or
       sandbox_mode == "off" and (test_sandbox.switch .. "=0 ") or ""),
   }
@@ -3721,8 +3750,9 @@ end
 --- of the closures, and the host, system and launcher identities, then
 --- frozen. The exit code to stop with, or nil to go on.
 local function gather_key_inputs(ctx: Run): integer | nil
-  local handle, records, rec, result = ctx.handle, ctx.records, ctx.rec, ctx.result
-  local records_path, selected_modules = ctx.records_path, ctx.selected_modules
+  local handle, records = assert(ctx.handle), assert(ctx.records)
+  local rec, result = assert(ctx.rec), assert(ctx.result)
+  local records_path, selected_modules = ctx.records_path, assert(ctx.selected_modules)
   local identity = ctx.identity
   local by_path: {string:importer.Module} = {}
   for _, m in ipairs(result.modules) do by_path[m.path] = m end
@@ -3736,7 +3766,6 @@ local function gather_key_inputs(ctx: Run): integer | nil
   end
   local declarations: {string:string} = {}
   for _, row in ipairs(declaration_rows) do declarations[row[1]] = row[2] end
-  rec.closures, rec.tree_names = {}, {}
   for path in pairs(by_path) do rec.tree_names[#rec.tree_names + 1] = path end
   table.sort(rec.tree_names)
   -- A module the binary carries that is no module of the tree -- in a
@@ -3757,7 +3786,6 @@ local function gather_key_inputs(ctx: Run): integer | nil
   for _, m in ipairs(selected_modules) do
     rec.closures[m.path] = test_inputs.modules(m, by_path, declarations, type_only)
   end
-  rec.effective = {}
   local noexec_probes: {string:string} = {}
   for _, m in ipairs(selected_modules) do
     local effective = test_inputs.effective(m, by_path, declarations, type_only)
@@ -3820,7 +3848,7 @@ local function gather_key_inputs(ctx: Run): integer | nil
     if effective ~= nil and effective.system then holds_system = true end
   end
   rec.system = declared_key.system_identity(rec.digests, nil, holds_system)
-  rec.tool = rec.tool or confine.itself()
+  tool_of(rec)
   -- The runtime identity holds the core an artifact selects, not the
   -- launcher and manifest that selected it, which a test that does
   -- not run the program is keyed by nowhere else.
@@ -3862,10 +3890,10 @@ end
 --- promise fails nothing.
 --- The exit code to stop with, or nil to go on.
 local function require_of_host(ctx: Run): integer | nil
-  local rec = ctx.rec
+  local rec = assert(ctx.rec)
   local host: host_requires.Host = nil
   local held = ctx.held
-  for _, m in ipairs(ctx.selected_modules) do
+  for _, m in ipairs(assert(ctx.selected_modules)) do
     local names = requirements_of(m)
     if #names > 0 then
       if host == nil then
@@ -3884,8 +3912,8 @@ local function require_of_host(ctx: Run): integer | nil
           checked = checked,
           linux = linux,
           sandbox = function(): host_requires.Sandbox
-            if ctx.sandbox_answer == nil then ctx.sandbox_answer = sandbox_here() end
-            local answer = ctx.sandbox_answer
+            local answer = ctx.sandbox_answer or sandbox_here()
+            ctx.sandbox_answer = answer
             return { ok = answer.ok, why = answer.why, broken = answer.broken }
           end,
         })
@@ -3981,9 +4009,10 @@ end
 --- become the run's jobs. What the keys are made of and how many were
 --- looked up is said.
 local function look_up_verdicts(ctx: Run)
-  local rec, selected_modules, selected_tests = ctx.rec, ctx.selected_modules, ctx.selected_tests
-  local verdicts, forced, consult, keying = ctx.verdicts, ctx.forced, ctx.consult, ctx.keying
-  local previous, credited, sandboxed = ctx.previous, ctx.credited, ctx.sandboxed
+  local rec, selected_modules = assert(ctx.rec), assert(ctx.selected_modules)
+  local selected_tests = assert(ctx.selected_tests)
+  local verdicts, forced, consult, keying = assert(ctx.verdicts), ctx.forced, ctx.consult, ctx.keying
+  local previous, credited, sandboxed = assert(ctx.previous), assert(ctx.credited), ctx.sandboxed
   local jobs: {Job} = {}
   ctx.jobs = jobs
   -- The tests looked up in the shared cache, and whether any was found:
@@ -4036,7 +4065,7 @@ local function look_up_verdicts(ctx: Run)
     parts = {
       -- As ci/cosmic_ci/host_id.tl names CI's verdict cache.
       { "host features", declared_key.host_features() },
-      { "host", rec.host:sub(1, 12) },
+      { "host", assert(rec.host):sub(1, 12) },
       { "system", (rec.system or ""):sub(1, 12) },
       { "runtime", hex_sha256(rec.runtime or ""):sub(1, 12) },
       { "compiler", (rec.compiler or ""):sub(1, 12) },
@@ -4111,8 +4140,8 @@ local function look_up_verdicts(ctx: Run)
         "database of their closure: this program is no portable artifact")
   end
   log:say(string.format(keying .. "%s keyed by their declared inputs in %.1f ms (%s read)",
-    plural.count(tests, "test"), rec.digests.spent_ns / 1e6,
-    plural.count(rec.digests.read, "file")))
+    plural.count(tests, "test"), digests_of(rec).spent_ns / 1e6,
+    plural.count(digests_of(rec).read, "file")))
   local unkeyed: {string} = {}
   for path in pairs(rec.unkeyed) do unkeyed[#unkeyed + 1] = path end
   table.sort(unkeyed)
@@ -4137,7 +4166,7 @@ local removal_mt: metatable<Removal> = {
 --- failures disprove old passes. Keep only those tombstones after rolling
 --- back the run, and remove only their keys from the shared cache.
 local function cancel_records(ctx: Run)
-  local rec, handle = ctx.rec, ctx.handle
+  local rec, handle = assert(ctx.rec), assert(ctx.handle)
   local ok, trouble = work.rollback(handle)
   if ok and #rec.owed.failed > 0 then
     ok, trouble = work.begin(handle)
@@ -4168,7 +4197,7 @@ end
 --- The jobs run. The exit code to stop with, or nil to go on: 130 once
 --- a signal has cancelled the run.
 local function execute(ctx: Run): integer | nil
-  local rec, jobs = ctx.rec, ctx.jobs
+  local rec, jobs = assert(ctx.rec), assert(ctx.jobs)
   if #jobs > 0 then
     -- Nil only where the guard cannot be had (no descriptor left for
     -- its pipe): the run then goes unguarded, a signal acting as it
@@ -4190,7 +4219,7 @@ local function execute(ctx: Run): integer | nil
         -- named as a finished run's report names it: the failures on
         -- stdout, as there, and the errors and the cancellation on stderr.
         say_failures(rec, ctx.failures)
-        for _, line in ipairs(ctx.errors) do log:complain("test: ERROR  " .. line) end
+        for _, line in ipairs(assert(ctx.errors)) do log:complain("test: ERROR  " .. line) end
         log:complain("test: cancelled; every running test was ended")
         return 130
       end
@@ -4203,9 +4232,10 @@ end
 --- digests kept, the working database closed and the shared cache
 --- settled. Everything it meets goes in `errors`, never an exit.
 local function settle(ctx: Run)
-  local rec, records, tally = ctx.rec, ctx.records, ctx.tally
-  local failures, errors, hits, handle = ctx.failures, ctx.errors, ctx.hits, ctx.handle
-  local result = ctx.result
+  local rec, records, tally = assert(ctx.rec), assert(ctx.records), assert(ctx.tally)
+  local failures, errors = assert(ctx.failures), assert(ctx.errors)
+  local hits, handle = assert(ctx.hits), assert(ctx.handle)
+  local result = assert(ctx.result)
   if rec.written > 0 then
     log:say(string.format("%s%s written (%s) in %.1f ms", ctx.keying,
       plural.count(rec.written, "closure store"), plural.count(rec.written_bytes, "byte"),
@@ -4258,7 +4288,7 @@ local function settle(ctx: Run)
     -- merge queue makes on every leg, holds the core to all of them.
     function_lines[1] = string.format("test: C functions not checked: shard %d of %d " ..
         "runs part of the suite, and only a whole run enters every one",
-      ctx.shard.index, ctx.shard.count)
+      assert(ctx.shard).index, assert(ctx.shard).count)
   end
 
   local cov_hit, cov_total, cov_trouble =
@@ -4322,7 +4352,8 @@ end
 --- The run's verdict said, with the skips, failures and errors that
 --- bear on it, and its exit code: 0 when every test passed.
 local function report(ctx: Run): integer
-  local rec, tally, failures, errors = ctx.rec, ctx.tally, ctx.failures, ctx.errors
+  local rec, tally = assert(ctx.rec), assert(ctx.tally)
+  local failures, errors = assert(ctx.failures), assert(ctx.errors)
   local total, started = ctx.total, ctx.started
   if #failures == 0 and #errors == 0 then
     if total == 0 then
@@ -4332,7 +4363,7 @@ local function report(ctx: Run): integer
     end
     say_skips(rec)
     log:say(ctx.cov_line)
-    for _, function_line in ipairs(ctx.function_lines) do log:say(function_line) end
+    for _, function_line in ipairs(assert(ctx.function_lines)) do log:say(function_line) end
     log:verdict("test", true, test_report.passed({ total = total,
       modules = #ctx.selected_modules,
       ran = tally.ran, cached = tally.cached, skipped = tally.skipped, unchecked = tally.unchecked, na = tally.na,
@@ -4347,9 +4378,9 @@ local function report(ctx: Run): integer
   end
   if #errors == 0 then
     log:say(ctx.cov_line)
-    for _, function_line in ipairs(ctx.function_lines) do log:say(function_line) end
+    for _, function_line in ipairs(assert(ctx.function_lines)) do log:say(function_line) end
   end
-  log:verdict("test", false, test_report.failed(#failures, total + #ctx.result.refused,
+  log:verdict("test", false, test_report.failed(#failures, total + #assert(ctx.result).refused,
     #errors, clock.took(started) .. ctx.sandbox_summary .. ctx.share_summary))
   return 1
 end

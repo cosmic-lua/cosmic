@@ -105,7 +105,7 @@ local record analyzer
     caches: {string}
     --- The files of the project root's parent directory a policy
     --- grants (`/parent/<file>`), relative to it.
-    parent: {string}
+    parent?: {string}
     --- The host requirements a policy declares ([`Test.policy`]'s
     --- `requires`), as written.
     requires: {string}
@@ -1403,21 +1403,21 @@ end
 --- What a `policy` declaration ([`cosmic.test`]'s `Policy`) holds, as the
 --- build reads it from the source.
 local record PolicyData
-  profiles: {string}
-  isolate: {string}
-  promises: {string}
-  connect: {string}
-  loopback: {string}
-  env: {string}
-  grants: {{string:string}}
-  set_env: {string:string}
-  set_env_digests: {string:string}
-  limits: {string:integer}
-  tmp: boolean
-  user: integer
-  group: integer
-  database: string
-  requires: {string}
+  profiles?: {string}
+  isolate?: {string}
+  promises?: {string}
+  connect?: {string}
+  loopback?: {string}
+  env?: {string}
+  grants?: {{string:string}}
+  set_env?: {string:string}
+  set_env_digests?: {string:string}
+  limits?: {string:integer}
+  tmp?: boolean
+  user?: integer
+  group?: integer
+  database?: string
+  requires?: {string}
 end
 
 --- What each field of a `policy` declaration takes: a list of string
@@ -1552,7 +1552,8 @@ local function policy_data(node: ast.Node): PolicyData | nil, string
         out.group = number
       end
     elseif takes == "limits" then
-      out.limits = {}
+      local limits: {string:integer} = {}
+      out.limits = limits
       if given.kind ~= "literal_table" then why = "limits takes a table, written out" end
       for _, entry in ipairs(given.kind == "literal_table" and given or {}) do
         local name = entry_name(entry)
@@ -1562,11 +1563,12 @@ local function policy_data(node: ast.Node): PolicyData | nil, string
             name == "cpu_seconds" or name == "processes") then
           why = "limits takes open_files, file_bytes, cpu_seconds and processes, each an integer"
         else
-          out.limits[name] = number
+          limits[name] = number
         end
       end
     else
-      out.grants = {}
+      local grants: {{string:string}} = {}
+      out.grants = grants
       if given.kind ~= "literal_table" then why = "grants takes a list of grants" end
       for i, entry in ipairs(given.kind == "literal_table" and given or {}) do
         local at = "grants[" .. i .. "]"
@@ -1585,7 +1587,7 @@ local function policy_data(node: ast.Node): PolicyData | nil, string
             why = at .. " has no field " .. name .. "; it has from, letters, path"
           end
         end
-        out.grants[#out.grants + 1] = grant
+        grants[#grants + 1] = grant
       end
     end
     if why ~= "" then return nil, why end
@@ -1611,12 +1613,12 @@ end
 --- The declaration the policy `data` stands for ([`Test.needs_of`] of
 --- cosmic.test, whose refusals these are): nil and why where it is none.
 local function policy_declared(data: PolicyData, line: integer): analyzer.Declared | nil, string
+  local parents: {string} = {}
   local out: analyzer.Declared = {
     line = line, reads = {}, host = {}, env = {}, network = {},
     tool = false, lua = false, nests = false, noexec = false, store = false,
-    system = false, caches = {}, requires = {},
+    system = false, caches = {}, requires = {}, parent = parents,
   }
-  local parents: {string} = {}
   local not_yet = " is not yet taken: a worker is held to, and a key made of, what a " ..
     "policy's paths, profiles and variables say, and nothing holds a test to this"
   local bin, cosmic, proc = false, false, false
@@ -1730,7 +1732,6 @@ local function policy_declared(data: PolicyData, line: integer): analyzer.Declar
       "the profile \"cosmic\"; add the profile, or drop the grant"
   end
   if proc then out.host[#out.host + 1] = "/proc" end
-  out.parent = parents
   out.tool, out.lua = cosmic and bin, cosmic and not bin
   if out.lua then
     local beside = out.store and "o/cosmic.db" or out.system and "system" or
@@ -1832,7 +1833,7 @@ local record Chunk
   tests: {string}
   has_return: boolean
   export: string
-  returned: ast.Node
+  returned?: ast.Node
 end
 
 local function chunk_of(parsed: ast.Parsed): Chunk

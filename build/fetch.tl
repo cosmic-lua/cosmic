@@ -99,7 +99,7 @@ local record verb
     err: function(line: string)
     --- [`Http.Options.script`], for a test: canned replies in place of a
     --- connection.
-    script: {string}
+    script?: {string}
     --- What `-o` asks between chunks, for a test: true ends the download
     --- as an interrupt does. The verb's own is its [`Signal.guard`]'s.
     cancelled: function(): boolean

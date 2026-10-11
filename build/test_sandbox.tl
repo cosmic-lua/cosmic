@@ -369,8 +369,9 @@ local function why_shared_scratch(effective: test_inputs.Effective, reads: {stri
   if effective.noexec then
     return "it declares `noexec`, whose private scratch is a bind of a host directory"
   end
-  if #(effective.caches or {}) > 0 then
-    return "it declares the host cache " .. effective.caches[1] .. ", a directory it writes"
+  local cache = (effective.caches or {})[1]
+  if cache ~= nil then
+    return "it declares the host cache " .. cache .. ", a directory it writes"
   end
   for _, path in ipairs(reads) do
     local there, _ = sys.stat(path)
