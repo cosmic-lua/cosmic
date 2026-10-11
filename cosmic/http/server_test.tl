@@ -108,6 +108,15 @@ local function ended(p: Peer): boolean
   return piece == nil and why == ""
 end
 
+--- Whether the connection has ended with nothing more sent to read,
+--- by an end of stream or a reset: a server closing with part of a body
+--- unread may do either.
+local function vanished(p: Peer): boolean
+  if p.buf ~= "" then return false end
+  local piece, _ = p.conn:read()
+  return piece == nil
+end
+
 local function send(p: Peer, data: string)
   assert(p.conn:write(data))
 end
@@ -646,4 +655,306 @@ local function test_a_body_failing_under_the_reply_closes_the_connection()
     while more(p) do end
   end)
   assert(#paths == 1 and paths[1] == "/up", table.concat(paths, " "))
+end
+
+--- A request carries the connection's far end: the loopback address and
+--- the client's own port, which is not the server's.
+local function test_a_request_carries_its_peer_address()
+  local seen: Net.Address = nil
+  local server_port = 0
+  local troubles = serving(function(req: Server.Request): Server.Reply
+    seen = req.peer
+    return { status = 200, body = "ok" }
+  end, function(address: Net.Address)
+    server_port = address.port
+    local p <close> = peer(address)
+    send(p, get("/"))
+    assert(reply(p).status == 200)
+  end)
+  assert(#troubles == 0, troubles[1])
+  assert(seen ~= nil and seen.kind == "tcp" and seen.host == "127.0.0.1", "no peer")
+  assert(seen.port > 0 and seen.port ~= server_port)
+end
+
+--- A caller's on_stop runs once, as the server stops, with the server;
+--- the connection idle then is already closed by the server's own, and
+--- what it raises reaches on_error without keeping the server from
+--- stopping.
+local function test_a_callers_on_stop_runs_once_and_its_raise_is_reported()
+  local calls = 0
+  local given: Net.Server = nil
+  local idle_ended = false
+  local idle_peer: Peer = nil
+  local troubles = serving(echo, function(address: Net.Address)
+    idle_peer = peer(address)
+    send(idle_peer, get("/"))
+    assert(reply(idle_peer).status == 200)
+    Poll.spawn(function() idle_ended = ended(idle_peer) end)
+  end, { on_stop = function(server: Net.Server)
+    calls = calls + 1
+    given = server
+    error("stopping badly")
+  end })
+  local _, _ = idle_peer.conn:close()
+  assert(calls == 1, tostring(calls))
+  assert(given ~= nil and type(given.stop) == "function")
+  assert(idle_ended, "the idle connection was left open")
+  assert(#troubles == 1 and troubles[1]:find("stopping badly", 1, true) ~= nil, tostring(troubles[1]))
+end
+
+--- A spec's on_stop that is no function raises, naming the field.
+local function test_a_non_function_on_stop_is_refused()
+  local ok, err = pcall(Server.serve, {
+    listeners = { Net.tcp("127.0.0.1", 0) }, handle = echo, on_stop = "no",
+  } as Server.ServeSpec)
+  assert(not ok and tostring(err):find("spec.on_stop", 1, true) ~= nil, tostring(err))
+end
+
+--- A handler's 4xx (a 404, a 400, a 401 to a request with a body) keeps the
+--- connection for the next request; so does a 5xx it chose, and a
+--- `close` it asked for still closes.
+local function test_a_handlers_error_reply_keeps_the_connection()
+  local troubles = serving(function(req: Server.Request): Server.Reply
+    if req.path == "/missing" then return { status = 404, body = "no" } end
+    if req.path == "/bad" then return { status = 400 } end
+    if req.path == "/busy" then return { status = 503, body = "later" } end
+    if req.path == "/gone" then return { status = 410, close = true } end
+    return { status = 200, body = req.path }
+  end, function(address: Net.Address)
+    local p <close> = peer(address)
+    send(p, get("/missing") .. get("/bad") .. get("/busy") .. get("/after"))
+    for _, want in ipairs({ 404, 400, 503, 200 }) do
+      local got = reply(p)
+      assert(got.status == want, tostring(got.status))
+      assert(got.headers["connection"] == nil, tostring(want))
+    end
+    send(p, get("/missing"))
+    assert(reply(p).status == 404)
+    send(p, get("/gone"))
+    local gone = reply(p)
+    assert(gone.status == 410 and gone.headers["connection"] == "close")
+    assert(ended(p))
+  end)
+  assert(#troubles == 0, troubles[1])
+end
+
+--- An error reply to a request whose body the handler never read still
+--- frames: the body, whole or chunked, is dropped, and the request
+--- pipelined behind it is answered.
+local function test_an_unread_body_with_a_4xx_reply_still_frames()
+  local troubles = serving(function(req: Server.Request): Server.Reply
+    if req.path:find("^/refuse") then return { status = 401, body = "who" } end
+    return { status = 200, body = req.path }
+  end, function(address: Net.Address)
+    local p <close> = peer(address)
+    send(p, "POST /refuse HTTP/1.1\r\nHost: test\r\nContent-Length: 11\r\n\r\nGET /evil H" ..
+        "POST /refuse2 HTTP/1.1\r\nHost: test\r\nTransfer-Encoding: chunked\r\n\r\n" ..
+        "b\r\nGET /evil H\r\n0\r\n\r\n" .. get("/after"))
+    local first, second, third = reply(p), reply(p), reply(p)
+    assert(first.status == 401 and first.headers["connection"] == nil)
+    assert(second.status == 401 and second.headers["connection"] == nil)
+    assert(third.status == 200 and third.body == "/after", third.body)
+  end)
+  assert(#troubles == 0, troubles[1])
+end
+
+--- A 4xx to a body that cannot be dropped (past body_bytes) closes the
+--- connection, as before: what follows on it is no request.
+local function test_a_4xx_to_an_undroppable_body_closes()
+  serving(function(_req: Server.Request): Server.Reply
+    return { status = 400 }
+  end, function(address: Net.Address)
+    local p <close> = peer(address)
+    send(p, "POST / HTTP/1.1\r\nHost: test\r\nTransfer-Encoding: chunked\r\n\r\n" ..
+        "20\r\n" .. ("x"):rep(32) .. "\r\n0\r\n\r\n" .. get("/never"))
+    local got = reply(p)
+    assert(got.status == 400, tostring(got.status))
+    assert(ended(p))
+  end, { limits = { body_bytes = 8 } })
+end
+
+--- A body sent a byte at a time fails past body_ns, however steadily it
+--- comes and however short each wait: the handler's read fails and the
+--- server answers 408 in place of its reply and closes.
+local function test_a_body_slower_than_body_ns_is_answered_408()
+  local read_failed = false
+  serving(function(req: Server.Request): Server.Reply
+    local _, why = Stream.read_all(req.body)
+    read_failed = why ~= nil
+    return { status = 200, body = "never" }
+  end, function(address: Net.Address)
+    local p <close> = peer(address)
+    send(p, "PUT / HTTP/1.1\r\nHost: test\r\nContent-Length: 40\r\n\r\n")
+    local started = Clock.monotonic_ns()
+    -- Each byte is followed by a short wait for the reply, and the client
+    -- stops sending once it comes: bytes sent after the server's linger
+    -- ends meet a closed socket, whose reset discards the unread 408 on
+    -- BSD, so how late the 408 is read must not set whether it arrives.
+    p.conn:set_timeout(Clock.ms(30))
+    for _ = 1, 40 do
+      if not p.conn:write("x") then break end
+      local piece, why = p.conn:read()
+      if piece ~= nil then
+        p.buf = p.buf .. piece
+        break
+      end
+      assert(why == Poll.TIMEOUT, "reading: " .. why)
+      if Clock.monotonic_ns() - started > Clock.seconds(3) then break end
+    end
+    p.conn:set_timeout(Clock.seconds(5))
+    local got = reply(p)
+    assert(got.status == 408 and got.headers["connection"] == "close", tostring(got.status))
+    assert(Clock.monotonic_ns() - started < Clock.seconds(3))
+    assert(ended(p))
+  end, { body_ns = Clock.ms(200), timeout_ns = Clock.seconds(2) })
+  assert(read_failed, "the handler's read did not fail")
+end
+
+--- A body the handler leaves unread, trickled past body_ns, is dropped
+--- no further: the reply already sent stands and the connection closes
+--- (no second reply follows); a body in time on the same server is
+--- served, and a request with no body has no deadline to meet.
+local function test_body_ns_bounds_the_drop_and_spares_what_is_in_time()
+  serving(function(req: Server.Request): Server.Reply
+    if req.path == "/read" then
+      return { status = 200, body = assert(Stream.read_all(req.body)) }
+    end
+    return { status = 200, body = "ok" }
+  end, function(address: Net.Address)
+    local fast <close> = peer(address)
+    send(fast, "PUT /read HTTP/1.1\r\nHost: test\r\nContent-Length: 3\r\n\r\nabc")
+    assert(reply(fast).body == "abc")
+    local _, _ = Poll.delay(Clock.ms(300))
+    send(fast, get("/nobody"))
+    assert(reply(fast).body == "ok")
+    local slow <close> = peer(address)
+    send(slow, "PUT /skip HTTP/1.1\r\nHost: test\r\nContent-Length: 40\r\n\r\n")
+    assert(reply(slow).body == "ok")
+    local started = Clock.monotonic_ns()
+    while Clock.monotonic_ns() - started < Clock.seconds(3) do
+      if not slow.conn:write("x") then break end
+      local _, _ = Poll.delay(Clock.ms(30))
+    end
+    assert(vanished(slow), "something followed the reply")
+  end, { body_ns = Clock.ms(200), timeout_ns = Clock.seconds(2) })
+end
+
+--- A body_ns that is no duration raises, naming the field.
+local function test_a_degenerate_body_ns_is_refused()
+  local ok, err = pcall(Server.serve, {
+    listeners = { Net.tcp("127.0.0.1", 0) }, handle = echo, body_ns = -1,
+  } as Server.ServeSpec)
+  assert(not ok and tostring(err):find("body_ns", 1, true) ~= nil, tostring(err))
+end
+
+--- A handler that works past body_ns before it reads a body the client
+--- sent in good time gets the body: the time runs from its first read.
+local function test_a_slow_handler_reading_a_prompt_body_gets_it()
+  local read: string = nil
+  local troubles = serving(function(req: Server.Request): Server.Reply
+    assert(Poll.delay(Clock.ms(500)))
+    read = assert(Stream.read_all(req.body))
+    return { status = 200, body = read }
+  end, function(address: Net.Address)
+    local p <close> = peer(address)
+    send(p, "PUT / HTTP/1.1\r\nHost: test\r\nContent-Length: 3\r\n\r\n")
+    local _, _ = Poll.delay(Clock.ms(50))
+    send(p, "abc")
+    local got = reply(p)
+    assert(got.status == 200 and got.body == "abc", tostring(got.status))
+  end, { body_ns = Clock.ms(200), timeout_ns = Clock.seconds(2) })
+  assert(#troubles == 0, troubles[1])
+  assert(read == "abc")
+end
+
+--- A handler that works past body_ns and ignores the body, sent in good
+--- time, is answered as any other: the connection stays open, and the
+--- body is dropped in a window of its own before the next request.
+local function test_a_slow_handler_ignoring_a_prompt_body_keeps_the_connection()
+  local troubles = serving(function(req: Server.Request): Server.Reply
+    if req.path == "/slow" then assert(Poll.delay(Clock.ms(500))) end
+    return { status = 200, body = req.path }
+  end, function(address: Net.Address)
+    local p <close> = peer(address)
+    send(p, "PUT /slow HTTP/1.1\r\nHost: test\r\nContent-Length: 3\r\n\r\n")
+    local _, _ = Poll.delay(Clock.ms(50))
+    send(p, "abc")
+    local first = reply(p)
+    assert(first.status == 200 and first.body == "/slow", tostring(first.status))
+    assert(first.headers["connection"] == nil, "the reply closed the connection")
+    send(p, get("/next"))
+    local second = reply(p)
+    assert(second.status == 200 and second.body == "/next", tostring(second.status))
+  end, { body_ns = Clock.ms(200), timeout_ns = Clock.seconds(2) })
+  assert(#troubles == 0, troubles[1])
+end
+
+--- A client waiting on `Expect: 100-continue` whose request is refused
+--- with a string reply is answered and closed, not left to wait for a
+--- body it never sends.
+local function test_a_refused_100_continue_closes_without_waiting()
+  local started = Clock.monotonic_ns()
+  local troubles = serving(function(_req: Server.Request): Server.Reply
+    return { status = 401, body = "who" }
+  end, function(address: Net.Address)
+    local p <close> = peer(address)
+    send(p, "POST / HTTP/1.1\r\nHost: test\r\nContent-Length: 10\r\nExpect: 100-continue\r\n\r\n")
+    local got = reply(p)
+    assert(got.status == 401 and got.headers["connection"] == "close", tostring(got.status))
+    assert(ended(p))
+  end)
+  assert(#troubles == 0, troubles[1])
+  assert(Clock.monotonic_ns() - started < Clock.seconds(3))
+end
+
+--- A 404 to a HEAD request that carries a body sends no body and drops
+--- the request's, so the next request on the connection is answered.
+local function test_a_head_with_a_body_and_a_404_keeps_the_connection()
+  local troubles = serving(function(req: Server.Request): Server.Reply
+    if req.method == "HEAD" then return { status = 404, body = "no" } end
+    return { status = 200, body = "after" }
+  end, function(address: Net.Address)
+    local p <close> = peer(address)
+    send(p, "HEAD /missing HTTP/1.1\r\nHost: test\r\nContent-Length: 3\r\n\r\nabc" .. get("/after"))
+    local head = reply(p, "HEAD")
+    assert(head.status == 404 and head.body == "" and head.headers["connection"] == nil)
+    local next_reply = reply(p)
+    assert(next_reply.status == 200 and next_reply.body == "after", tostring(next_reply.status))
+  end)
+  assert(#troubles == 0, troubles[1])
+end
+
+--- The caller's on_stop runs after the server has marked itself stopping
+--- and closed its idle connections: the connection idle is ended by
+--- then, and a reply still in flight, finished once on_stop lets it go,
+--- carries `Connection: close`.
+local function test_on_stop_runs_after_the_server_has_stopped_taking_work()
+  local idle_peer: Peer = nil
+  local busy_peer: Peer = nil
+  local idle_ended_at_stop = false
+  local release = false
+  local in_flight: Got = nil
+  local troubles = serving(function(req: Server.Request): Server.Reply
+    if req.path == "/slow" then
+      while not release do assert(Poll.delay(Clock.ms(5))) end
+    end
+    return { status = 200, body = "ok" }
+  end, function(address: Net.Address)
+    idle_peer = peer(address)
+    send(idle_peer, get("/"))
+    assert(reply(idle_peer).status == 200)
+    busy_peer = peer(address)
+    send(busy_peer, get("/slow"))
+    assert(Poll.delay(Clock.ms(20)))
+    Poll.spawn(function() in_flight = reply(busy_peer) end)
+  end, { on_stop = function(_server: Net.Server)
+    idle_ended_at_stop = vanished(idle_peer)
+    release = true
+  end })
+  local _, _ = idle_peer.conn:close()
+  local _, _ = busy_peer.conn:close()
+  assert(#troubles == 0, troubles[1])
+  assert(idle_ended_at_stop, "the idle connection was open when on_stop ran")
+  assert(in_flight ~= nil and in_flight.status == 200 and in_flight.headers["connection"] == "close",
+    "the reply in flight did not close")
 end
