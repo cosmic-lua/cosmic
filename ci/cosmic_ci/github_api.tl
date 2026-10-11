@@ -48,11 +48,11 @@ local record GithubApi
     --- The origin release assets are uploaded to, as `upload` compares it:
     --- uploads.github.com for api.github.com, uploads.<x> for api.<x>
     --- (a data-residency host), and the API's own for an Enterprise
-    --- Server's.
-    upload_origin: string
+    --- Server's. Nil on a client made by hand that never uploads.
+    upload_origin?: string
     --- What precedes `/repos/` in an upload's path: "" on the hosts
     --- above, "/api/uploads" on an Enterprise Server.
-    upload_path: string
+    upload_path?: string
     --- The monotonic clock, in nanoseconds, that a paginated call's
     --- deadline is measured on; [`Clock.monotonic_ns`] where nil. A test
     --- sets it to step time by hand.
@@ -63,8 +63,8 @@ local record GithubApi
   --- of `send` or `fetch`, in order, and `sent` collects what each
   --- `send` wrote to its connection.
   record Live
-    script: {{string}}
-    sent: {string}
+    script?: {{string}}
+    sent?: {string}
   end
 end
 
@@ -155,7 +155,8 @@ function GithubApi.live(env: {string:string}, test?: GithubApi.Live): GithubApi.
   local calls = 0
   local function script(): {string} | nil
     calls = calls + 1
-    return test and test.script and test.script[calls] or nil
+    local scripted = test and test.script
+    return scripted and scripted[calls] or nil
   end
 
   local function send(request: GithubApi.Request): GithubApi.Reply | nil, string
@@ -336,12 +337,16 @@ end
 --- where nil. A name the release holds already fails, as GitHub's 422.
 function GithubApi.upload(client: GithubApi.Client, upload_url: string, name: string,
                           bytes: string, content_type?: string): boolean, string
+  local upload_origin, upload_path = client.upload_origin, client.upload_path
+  if upload_origin == nil or upload_path == nil then
+    return false, "upload: the client has no upload origin"
+  end
   local url = (upload_url:gsub("{[^}]*}$", ""))
   local parts, why = Url.parse(url)
   if parts == nil then return false, "upload URL: " .. why end
   local path = parts.path
-  if origin_of(url) ~= client.upload_origin or parts.userinfo ~= nil or parts.query ~= nil or
-      parts.fragment ~= nil or not is_assets_path(path, client.upload_path) then
+  if origin_of(url) ~= upload_origin or parts.userinfo ~= nil or parts.query ~= nil or
+      parts.fragment ~= nil or not is_assets_path(path, upload_path) then
     return false, "refusing to upload to " .. url .. ": not a release's assets on the upload origin"
   end
   if name == "" then return false, "upload: no asset name" end
