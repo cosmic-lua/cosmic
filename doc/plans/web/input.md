@@ -20,7 +20,7 @@ What this file uses of core.md, stated once:
   cosmic/http/server.tl:30-66), and `req:get(KEY)` / `req:set(KEY, v)` for
   per-request state. Every piece of state in this file is an exported
   `Web.Key<T>`, never a `req.state.x` field: `Input.QUERY`, `Input.FORM`,
-  [`Input.JSON`] and `Input.CLEANUP` (section 2), `Session.KEY` (section 7),
+  [`Input.JSON`] and `Input.CLEANUP` (section 2), [`Session.KEY`] (section 7),
   `Headers.NONCE` (section 10). `req.state` is core's untyped escape
   hatch and nothing here uses it.
 - [`Web.Response`] is [`Server.Reply`] with `headers: {string: string |
@@ -42,16 +42,16 @@ Layout of what this file adds (new files next to [`cosmic/web/init.tl`]):
 
 - `cosmic.web.input` ([`cosmic/web/input.tl`]): query / form / JSON reading
   and shape binding.
-- `cosmic.web.cookies` (`cosmic/web/cookies.tl`): Cookie parsing and
+- [`cosmic.web.cookies`] ([`cosmic/web/cookies.tl`]): Cookie parsing and
   Set-Cookie building.
-- `cosmic.web.session` (`cosmic/web/session/init.tl`): the interface and
+- [`cosmic.web.session`] ([`cosmic/web/session/init.tl`]): the interface and
   the middleware, with the two stores beside it as
-  `cosmic.web.session.cookie` and `cosmic.web.session.sqlite`
-  (`cosmic/web/session/cookie.tl`, `sqlite.tl`); the sections below write
+  [`cosmic.web.session.cookie`] and [`cosmic.web.session.sqlite`]
+  ([`cosmic/web/session/cookie.tl`], `sqlite.tl`); the sections below write
   `SessionCookie` and `SessionSqlite` for those two modules.
 - `cosmic.web.csrf`, `cosmic.web.cors`, `cosmic.web.headers`
   (`cosmic/web/headers.tl`: security headers and CSP), and
-  `cosmic/web/secret.tl` (key loading, used by the session stores).
+  [`cosmic/web/secret.tl`] (key loading, used by the session stores).
 - [`cosmic/http/multipart.tl`] ([`cosmic.http.multipart`]): a standalone
   RFC 7578 parser, usable without cosmic.web (it sits beside
   [`cosmic.http.server`]).
@@ -876,7 +876,7 @@ idiom, and raises only for a degenerate call):
   browsers is the failure this prevents.
 - Defaults: `path="/"`, `http_only=true`, `same_site="Lax"`. `secure`
   defaults from the middleware that sets it (section 7), not here: in
-  `Cookies.format` called directly `secure` is false unless given, because the
+  [`Cookies.format`] called directly `secure` is false unless given, because the
   function cannot know the scheme.
 - Max-Age is written, Expires only on request: Max-Age is supported
   everywhere that matters (IE is gone), avoids clock skew, and RFC 6265bis
@@ -885,8 +885,8 @@ idiom, and raises only for a degenerate call):
   dev): Chrome and Firefox accept `Secure` on `http://localhost`, Safari does
   not; the dev-mode default is `secure=false` (section 7).
 
-`Cookies.set` appends with core's [`Web.add_header`], never replaces
-(`Cookies.set` twice yields two `Set-Cookie` lines; deleting a cookie and setting
+[`Cookies.set`] appends with core's [`Web.add_header`], never replaces
+([`Cookies.set`] twice yields two `Set-Cookie` lines; deleting a cookie and setting
 another is one response).
 
 ## 7. Sessions
@@ -1000,14 +1000,14 @@ function Session.middleware(opts: Session.Options): Web.Middleware
 
 For each request:
 
-1. Put a *lazy* handle under the exported key `Session.KEY`
+1. Put a *lazy* handle under the exported key [`Session.KEY`]
    (`Web.Key<Session.Handle>`, `req:set(Session.KEY, handle)`). Nothing is read and the
    cookie is not even parsed until the first `Session.of(req):get(...)` (or
    other access). A handler that never touches the session costs nothing
    and sends no `Set-Cookie` and no `Vary`. For the cookie store the
    "read" is just an HMAC; for SQLite it is a query, and laziness is what
    keeps assets, health checks and API calls off the database.
-2. First access: parse the `Cookie` header (`Cookies.parse`), find
+2. First access: parse the `Cookie` header ([`Cookies.parse`]), find
    `cookie_name`, call `store:load(token, now)`. A `nil, ""` is an anonymous
    session; `nil, why` raises `error("session: " .. why)`, a 500 (core's
    exception layer logs it, core.md section 8.2). A tampered or expired cookie is not an
@@ -1134,7 +1134,7 @@ Token format, fixed:
 - Key rotation: `keys = { new, old }`. Tokens verify under either; any
   token that verified under a non-first key is re-issued under keys[1] on the
   request's next write (the store reports `rekey = true` to the middleware,
-  which treats it as modified). Retire `old` after `max_age`. `Secret.keys_from_env`
+  which treats it as modified). Retire `old` after `max_age`. [`Secret.keys_from_env`]
   (section 11) reads a list so rotation needs no code change.
 - Size: `save` encodes, and if the token exceeds `max_bytes` returns
   `nil, "session: cookie would be 4132 bytes (limit 3800); keep ids, not
@@ -1227,7 +1227,7 @@ CREATE INDEX IF NOT EXISTS web_sessions_subject ON web_sessions (subject)
   opportunistic sweep inside `save`/`load` at most every `sweep_interval`
   (one `DELETE ... WHERE id_hash IN (SELECT id_hash ... WHERE expires <= ?1
   LIMIT 500)`, so a big backlog never stalls the loop), and by
-  `SessionSqlite.sweep` for apps that run it from a lifespan timer
+  [`SessionSqlite.sweep`] for apps that run it from a lifespan timer
   ([`Poll.delay`] loop).
 
 The blocking-SQLite caveat, concretely:
@@ -1262,8 +1262,8 @@ The blocking-SQLite caveat, concretely:
   everywhere", bookkeeping per session. Costs one blocking query on first
   touch per request.
 
-Both are `Session.Store`; swapping is one argument. The default
-`Session.middleware` has no default store: it requires `store` so the
+Both are [`Session.Store`]; swapping is one argument. The default
+[`Session.middleware`] has no default store: it requires `store` so the
 choice (and the key) is visible at the app's top.
 
 ### Cookie attributes in the middleware (the Secure question)
@@ -1282,11 +1282,34 @@ sibling-subdomain cookie tossing. In dev (loopback, http) the name is
 
 ### Logging
 
-The session id (SQLite) is a bearer credential. `Handle:id()` is documented
+The session id (SQLite) is a bearer credential. [`Handle:id()`] is documented
 as "for correlation after hashing"; logs get `Hash.hex_sha256(id):sub(1, 12)`
 (`Session.log_id(req)`). Cookies, `Authorization` and `X-CSRF-Token` are
 never written by the logging middleware (a fixed
 redaction list `cookie`, `set-cookie`, `authorization`, `x-csrf-token`).
+
+### As built
+
+Where the code departs from the text above:
+
+- [`Store.load`] and [`Store.save`] take the session cookie's name as a last
+  argument, so the signed-cookie store can bind a token to it; [`Data.stale`]
+  carries the "verified under an older key" report; `Changes` also holds
+  `regenerated` and `subject`; `Handle` has `bind_subject`.
+- [`SessionSqlite.sweep`] and `destroy_subject` take the [`Session.Store`] that
+  `store()` returns (its database is kept beside it, not in the interface);
+  there is no `touch_interval` (rolling expiry already bounds writes), and
+  `configure = false` leaves the connection's pragmas alone.
+- A response of 500 or more saves nothing: the exception layer sits inside
+  the middleware, so a raise reaches it as a 500 response, not a raise. A 4xx
+  keeps the handler's changes. A failing save raises for the server to answer
+  500, a failing load is a 500 from the handler that read the session.
+- `Session.log_id`, `Cookies.escape_value` and `Secret.ephemeral` are not built
+  (nothing in cosmic.web uses them); [`Secret.parse_keys`] is, so the list syntax
+  is testable without setting the environment.
+- The test client's jar keys a cookie by name, honours `Path`, `Max-Age`,
+  `Expires` and `Secure` (sent only when `client.scheme = "https"`), and
+  ignores `Domain` and `SameSite`.
 
 ## 8. CSRF
 
@@ -1657,14 +1680,14 @@ end
 - Source: `Env.get(name)` (env.tl:10). The conventional name is
   `COSMIC_SESSION_KEYS`; the app chooses. A missing variable is
   `nil, "secret: COSMIC_SESSION_KEYS is not set; generate one with \
-  bin/cosmic web secret"` and `Session.middleware` refuses to start (a raise
+  bin/cosmic web secret"` and [`Session.middleware`] refuses to start (a raise
   at construction, before the server listens). No fixed default key in code,
   ever: a published default is how every Flask/Rails app with
   `SECRET_KEY = "dev"` gets its sessions forged.
 - Weak keys: length at least 32 bytes, at least 10 distinct byte values
   (rejects `"aaaaaaaa..."`, `"changeme" x 8`, `"0123456789" x 4`'s mild cases;
   it is a floor, not an entropy proof). No deny-list of famous strings (it
-  gives false confidence). A key from `Secret.generate()` (hex of 32 random
+  gives false confidence). A key from [`Secret.generate()`] (hex of 32 random
   bytes: 64 characters, 256 bits of entropy) passes. The message states the length found and how to make one.
 - Keys are bytes of the text, not decoded: nothing to get wrong in encoding,
   no hex-vs-base64 ambiguity; the cost is that a hex key of 64 characters
@@ -1758,7 +1781,7 @@ declaration, everything else declares nothing.
   double-submit mode, AEAD-encrypted cookie sessions, reporting endpoints,
   moving SQLite off the thread.
 - `bin/cosmic web secret` (a tiny subcommand or example): prints
-  `Secret.generate()`.
+  [`Secret.generate()`].
 
 ## Where this departs from Starlette
 
@@ -1815,7 +1838,7 @@ declaration, everything else declares nothing.
    browser console.
 10. [`Hash.equal`] in pure Teal vs a C binding. Decided: a C binding in
     core/hash.c, as only C keeps the compiler from adding an early exit.
-11. Should `Session.middleware` fall back to an ephemeral key in dev without
+11. Should [`Session.middleware`] fall back to an ephemeral key in dev without
     configuration? Recommendation: only through an explicit
     `Secret.ephemeral()` in the app's own code, never implicitly.
 12. Multipart in v1 (section 4). Decided: in v1, last, once the body
@@ -1823,6 +1846,9 @@ declaration, everything else declares nothing.
 
 [`Codec.base64url`]: ../../../cosmic/codec.tl
 [`Codec.unbase64url`]: ../../../cosmic/codec.tl
+[`Cookies.format`]: ../../../cosmic/web/cookies.tl
+[`Cookies.parse`]: ../../../cosmic/web/cookies.tl
+[`Cookies.set`]: ../../../cosmic/web/cookies.tl
 [`cosmic.codec`]: ../../../cosmic/codec.tl
 [`cosmic.hash`]: ../../../cosmic/hash.tl
 [`cosmic.http.multipart`]: ../../../cosmic/http/multipart.tl
@@ -1830,14 +1856,24 @@ declaration, everything else declares nothing.
 [`cosmic.log`]: ../../../cosmic/log.tl
 [`cosmic.shape`]: ../../../cosmic/shape.tl
 [`cosmic.url`]: ../../../cosmic/url.tl
+[`cosmic.web.cookies`]: ../../../cosmic/web/cookies.tl
+[`cosmic.web.session.cookie`]: ../../../cosmic/web/session/cookie.tl
+[`cosmic.web.session.sqlite`]: ../../../cosmic/web/session/sqlite.tl
+[`cosmic.web.session`]: ../../../cosmic/web/session/init.tl
 [`cosmic.web.testing`]: ../../../cosmic/web/testing.tl
 [`cosmic/http/multipart.tl`]: ../../../cosmic/http/multipart.tl
+[`cosmic/web/cookies.tl`]: ../../../cosmic/web/cookies.tl
 [`cosmic/web/init.tl`]: ../../../cosmic/web/init.tl
 [`cosmic/web/input.tl`]: ../../../cosmic/web/input.tl
+[`cosmic/web/secret.tl`]: ../../../cosmic/web/secret.tl
+[`cosmic/web/session/cookie.tl`]: ../../../cosmic/web/session/cookie.tl
+[`cosmic/web/session/init.tl`]: ../../../cosmic/web/session/init.tl
+[`Data.stale`]: ../../../cosmic/web/session/init.tl
 [`FieldError.field`]: ../../../cosmic/web/types.tl
 [`FieldError.source`]: ../../../cosmic/web/types.tl
 [`Fs.rename`]: ../../../cosmic/fs.tl
 [`Fuzz.label`]: ../../../build/fuzz/init.tl
+[`Handle:id()`]: ../../../cosmic/web/session/init.tl
 [`Hash.digest`]: ../../../cosmic/hash.tl
 [`Hash.equal`]: ../../../cosmic/hash.tl
 [`Htmx.head`]: ../../../cosmic/web/htmx.tl
@@ -1859,9 +1895,16 @@ declaration, everything else declares nothing.
 [`Rand.entropy`]: ../../../cosmic/rand.tl
 [`Rand.new`]: ../../../cosmic/rand.tl
 [`Request.scheme`]: ../../../cosmic/web/types.tl
+[`Secret.generate()`]: ../../../cosmic/web/secret.tl
+[`Secret.keys_from_env`]: ../../../cosmic/web/secret.tl
+[`Secret.parse_keys`]: ../../../cosmic/web/secret.tl
 [`Server.range`]: ../../../cosmic/http/server.tl
 [`Server.Reply`]: ../../../cosmic/http/server.tl
 [`ServeSpec.body_ns`]: ../../../cosmic/http/server.tl
+[`Session.KEY`]: ../../../cosmic/web/session/init.tl
+[`Session.middleware`]: ../../../cosmic/web/session/init.tl
+[`Session.Store`]: ../../../cosmic/web/session/init.tl
+[`SessionSqlite.sweep`]: ../../../cosmic/web/session/sqlite.tl
 [`Shape.any`]: ../../../cosmic/shape.tl
 [`Shape.into`]: ../../../cosmic/shape.tl
 [`Shape.map`]: ../../../cosmic/shape.tl
@@ -1872,6 +1915,8 @@ declaration, everything else declares nothing.
 [`Sqlite.memory()`]: ../../../cosmic/sqlite.tl
 [`Sqlite.transact`]: ../../../cosmic/sqlite.tl
 [`Sqlite.Value`]: ../../../cosmic/sqlite.tl
+[`Store.load`]: ../../../cosmic/web/session/init.tl
+[`Store.save`]: ../../../cosmic/web/session/init.tl
 [`Stream.create`]: ../../../cosmic/stream.tl
 [`Stream.limit`]: ../../../cosmic/stream.tl
 [`Stream.read_up_to`]: ../../../cosmic/stream.tl
