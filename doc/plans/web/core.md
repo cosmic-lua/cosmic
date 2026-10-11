@@ -645,7 +645,7 @@ a coercion pass of their own:
   coerced tree as the final check, so the typed record the handler gets is
   exactly what Shape produces. A failure is an [`Input.Invalid`] (fields in
   6.4), with all errors for the source in `errors`.
-- Multipart bodies are `Input.multipart_into` (input.md section 4, step 7
+- Multipart bodies are [`Input.multipart_into`] (input.md section 4, step 7
   of ../web.md's order); a route names it with a
   `Web.multipart_body(t)` body slot once that lands.
 - Unknown query/form keys are ignored (the spec is the allow-list), as
@@ -1376,6 +1376,7 @@ close, and a raise in it reaches `on_error` without stopping the drain.
 [`Input.Invalid.errors`]: ../../../cosmic/web/types.tl
 [`Input.Invalid`]: ../../../cosmic/web/input.tl
 [`Input.JSON`]: ../../../cosmic/web/input.tl
+[`Input.multipart_into`]: ../../../cosmic/web/input.tl
 [`Json.array`]: ../../../cosmic/json.tl
 [`Json.decode`]: ../../../cosmic/json.tl
 [`Json.encode`]: ../../../cosmic/json.tl

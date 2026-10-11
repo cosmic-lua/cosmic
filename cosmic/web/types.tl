@@ -342,8 +342,11 @@ local record Types
   --- What the readers and binders of cosmic.web.input take; every
   --- field is optional.
   record InputOptions
-    --- The largest body read, in bytes (64 KiB). The server's own limit
-    --- comes first where it is lower.
+    --- The largest body read, in bytes (64 KiB; 16 MiB for
+    --- [`Input.multipart`]). The server's own `limits.body_bytes` (1 MiB)
+    --- comes first where it is lower: a larger upload needs [`Web.serve`]
+    --- given a higher `limits.body_bytes`, for every route
+    --- (see [`Input.multipart`]).
     max_bytes: integer
     --- Field names left out of [`Invalid.submitted`]: passwords, tokens.
     secret: {string}
@@ -353,11 +356,25 @@ local record Types
     --- "error" refuses a scalar field sent twice (`code = "repeated"`);
     --- by default the last value wins.
     repeated: string
+    --- For a multipart body (the rest of these too): the largest file part,
+    --- in bytes (8 MiB). A file part over it is a 413.
+    max_file_bytes: integer
+    --- The largest text part, in bytes as sent (1 MiB).
+    max_field_bytes: integer
+    --- Most file parts (10).
+    max_files: integer
+    --- Most parts of either kind (100).
+    max_parts: integer
+    --- The directory file parts are spooled to, under random names. It must
+    --- exist. Without one, a private directory made under the system's temp
+    --- directory is removed with its files when the request ends.
+    dir: string
   end
 
-  --- A route's body slot: see [`Web.json_body`] and [`Web.form_body`].
+  --- A route's body slot: see [`Web.json_body`], [`Web.form_body`] and
+  --- [`Web.multipart_body`].
   record Body<B>
-    --- "json", "form" or "none".
+    --- "json", "form", "multipart" or "none".
     kind: string
     --- The body's spec.
     typed: Shape.Typed<B>
@@ -380,7 +397,7 @@ local record Types
     path: Shape.Spec
     --- The query spec; nil for none.
     query: Shape.Spec
-    --- "json", "form" or "none".
+    --- "json", "form", "multipart" or "none".
     body_kind: string
     --- The body spec; nil for none.
     body: Shape.Spec

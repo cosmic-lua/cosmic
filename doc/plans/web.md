@@ -183,7 +183,7 @@ assert(reply.status == 422 and reply.text:find("qty", 1, true))
 - `cosmic.web.dev`: a supervisor that restarts the app on an edit and
   reloads the browser, on the loopback only.
 - Beside it, not under it: [`cosmic.channel`] (a queue between tasks),
-  [`Poll.notifier`] in [`cosmic.poll`], `cosmic.http.multipart`, and the
+  [`Poll.notifier`] in [`cosmic.poll`], [`cosmic.http.multipart`], and the
   htmx dialect in `cosmic/template/dialect/`.
 
 ## settled across the parts
@@ -284,7 +284,7 @@ needs have merged.
    PINs, the `static/` convention and `StaticFiles`, `cosmic.web.htmx`
    and `Htmx.head`.
 7. **Streaming and the rest:** [`cosmic.channel`], [`cosmic.web.sse`],
-   `cosmic.http.multipart` (decision 8), and
+   [`cosmic.http.multipart`] (decision 8), and
    `cosmic.web.dev`.
 8. **A guide,** doc/guides/web.md, which is a test of its own: one app
    built from an empty directory, its page, its form and its API.
@@ -342,6 +342,7 @@ cooperative process.
 [`Conn:peer()`]: ../../cosmic/internal/connection.tl
 [`Conn:peer`]: ../../cosmic/internal/connection.tl
 [`cosmic.channel`]: ../../cosmic/channel.tl
+[`cosmic.http.multipart`]: ../../cosmic/http/multipart.tl
 [`cosmic.http.wire`]: ../../cosmic/http/wire.tl
 [`cosmic.web.sse`]: ../../cosmic/web/sse.tl
 [`cosmic.web`]: ../../cosmic/web/init.tl

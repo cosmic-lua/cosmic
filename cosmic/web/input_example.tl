@@ -1,6 +1,7 @@
 --- Worked examples for cosmic.web.input and the typed routes of
 --- [`cosmic.web`], shown by `cosmic docs` and run by `cosmic test`.
 
+local Fs = require("cosmic.fs")
 local Input = require("cosmic.web.input")
 local Shape = require("cosmic.shape")
 local Url = require("cosmic.url")
@@ -145,6 +146,34 @@ function Example.plain_route()
   assert(client:post("/json", { json = { a = 1 } }):text() == "application/json")
   assert(client:get("/page?a=1&b=2"):text() == "2")
   assert(client:get("/page?a=%zz").status == 400)
+end
+
+local record Profile
+  display_name: string
+end
+local PROFILE <const> = Shape.record_of("Profile")
+
+--- A multipart route binds its text parts like a form's; each file part is
+--- spooled under a random name, with the client's filename kept for display
+--- alone, and removed when the handler returns unless it moves the file.
+function Example.upload()
+  local kept: string = nil
+  local app = Web.app{ routes = {
+    Web.post_typed("/profile", Web.input(Web.NONE, Web.NONE, Web.multipart_body(PROFILE)),
+      function(req: Web.Request, _p: Web.None, _q: Web.None, form: Profile): Web.Response
+        local avatar = assert(Input.multipart(req).value).files["avatar"][1]
+        assert(avatar.path:find(avatar.filename, 1, true) == nil, "the client's name is no part of the path")
+        kept = assert(Fs.read(avatar.path))
+        return Web.text(form.display_name .. ":" .. avatar.filename .. ":" .. avatar.size)
+      end, { input_options = { max_file_bytes = 1024 } }),
+  } }
+  local boundary = "xyz"
+  local body = '--xyz\r\nContent-Disposition: form-data; name="display_name"\r\n\r\nAda\r\n' ..
+    '--xyz\r\nContent-Disposition: form-data; name="avatar"; filename="../../a.png"\r\n' ..
+    'Content-Type: image/png\r\n\r\nPNG\r\n--xyz--\r\n'
+  local reply = Web.test_client(app):post("/profile", { body = body,
+    content_type = "multipart/form-data; boundary=" .. boundary })
+  assert(reply:text() == "Ada:a.png:3" and kept == "PNG", reply:text())
 end
 
 --- Each method has a typed constructor; a slot a route does not read is
