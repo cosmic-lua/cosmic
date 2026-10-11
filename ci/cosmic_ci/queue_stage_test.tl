@@ -32,13 +32,17 @@ local record Fake
 end
 
 local function fake(archive?: function(parent: string, name: string, to: string): boolean, string): Fake
-  local f: Fake = { printed = {}, warned = {} }
-  f.host = {
-    print = function(text: string) f.printed[#f.printed + 1] = text end,
-    warn = function(line: string) f.warned[#f.warned + 1] = line end,
-    archive = archive or QueueStage.archive_tree,
+  local printed: {string} = {}
+  local warned: {string} = {}
+  return {
+    host = {
+      print = function(text: string) printed[#printed + 1] = text end,
+      warn = function(line: string) warned[#warned + 1] = line end,
+      archive = archive or QueueStage.archive_tree,
+    },
+    printed = printed,
+    warned = warned,
   }
-  return f
 end
 
 --- What `stage` keeps under $RUNNER_TEMP/seed, run with `env` and, where

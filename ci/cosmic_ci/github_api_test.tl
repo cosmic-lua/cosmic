@@ -269,6 +269,20 @@ local function test_a_download_asks_for_the_bytes_where_told_to(tmp: string)
   assert(Fs.read(tmp .. "/a") == "asset bytes")
 end
 
+--- A client made by hand without an upload origin refuses an upload
+--- before it sends anything.
+local function test_a_client_without_an_upload_origin_uploads_nothing()
+  local sent = 0
+  local client: GithubApi.Client = { base = "http://api.test", fetch = nil as GithubApi.Fetch,
+    send = function(_request: GithubApi.Request): GithubApi.Reply | nil, string
+      sent = sent + 1
+      return { status = 201, headers = {}, body = "" }, ""
+    end }
+  local ok, why = GithubApi.upload(client, "http://api.test/repos/o/r/releases/1/assets{?name}", "x", "b")
+  assert(not ok and why:find("no upload origin", 1, true), why)
+  assert(sent == 0)
+end
+
 local function test_the_upload_origin_follows_the_api()
   local function uploads(url: string): string, string
     local client = assert(GithubApi.live({ GH_TOKEN = token, GITHUB_API_URL = url }))
@@ -421,7 +435,7 @@ local function stepped(pages: integer, cost_ns: integer): GithubApi.Client, {int
     return { status = 200, headers = head, body = "[]" }, ""
   end
   return { send = send, fetch = nil as GithubApi.Fetch, base = "http://api.test",
-    upload_origin = "", upload_path = "", now_ns = function(): integer return clock end }, timeouts
+    now_ns = function(): integer return clock end }, timeouts
 end
 
 local function test_pages_share_one_deadline_so_each_gets_the_time_left()

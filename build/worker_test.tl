@@ -539,9 +539,9 @@ local function counted(pool: importer.Workers): importer.Workers, {integer}
     ready = pool.ready,
     parse = pool.parse,
     compile = function(db: Sqlite.Handle, root: string, order: {importer.Module},
-                       wanted: {string:boolean}, own: boolean, judged: boolean,
-                       lenient: boolean): importer.Ahead | nil, string
-      local ahead, trouble = pool.compile(db, root, order, wanted, own, judged, lenient)
+                       wanted: {string:boolean}, own: boolean,
+                       judged: boolean): importer.Ahead | nil, string
+      local ahead, trouble = pool.compile(db, root, order, wanted, own, judged)
       if ahead ~= nil then taken[1] = taken[1] + 1 end
       return ahead, trouble
     end,
@@ -572,21 +572,6 @@ local function test_a_build_that_declares_a_global_compiles_alone_as_it_would_ha
     assert(taken[1] == 0, case .. ": the pool compiled a build that declares a global")
   end
   assert(build_with("global-clash", clash).result == nil, "a clashing global compiled")
-end
-
-local function test_workers_compile_with_lenient_literals_where_the_build_does()
-  local files = project()
-  files["cosmic-driver.pin"] = "a release\n"
-  files["omit.tl"] = "local record Pair\n  a: integer\n  b: integer\nend\n" ..
-    "local function omit(): Pair\n  return { a = 1 }\nend\nreturn omit\n"
-  local alone = build_with("lenient-alone", files)
-  assert(alone.result ~= nil, alone.trouble)
-  local pooled = build_with("lenient-pooled", files, pool_of())
-  assert(pooled.result ~= nil, pooled.trouble)
-  same_rows(alone, pooled)
-  local result = pooled.result as importer.Result
-  assert(result.worked > 0 and result.worked == result.compiled,
-    "workers compiled " .. result.worked .. " of " .. result.compiled)
 end
 
 local function test_a_pool_refuses_a_scratch_parent_that_is_a_link()

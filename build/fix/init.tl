@@ -1434,6 +1434,9 @@ local function run_tree_checks(ctx: Fix)
         for _, line in ipairs(example_checks.run(db, root, shown)) do
           findings[#findings + 1] = "examples as shown: " .. line
         end
+        for _, line in ipairs(tree_checks.ci_testdata(root, shown)) do
+          findings[#findings + 1] = "ci testdata: " .. line
+        end
       end
       for _, line in ipairs(promise_findings(root)) do
         findings[#findings + 1] = line

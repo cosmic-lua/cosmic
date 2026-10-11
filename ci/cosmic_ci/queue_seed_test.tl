@@ -73,9 +73,9 @@ end
 --- its jobs answers `jobs["<id>"]` (none where there is none).
 local record Spec
   runs: {string}
-  artifacts: {string: string}
-  jobs: {string: string}
-  fail_once: {string}
+  artifacts?: {string: string}
+  jobs?: {string: string}
+  fail_once?: {string}
 end
 
 local function serve(spec: Spec): GithubFake.Fake
@@ -91,10 +91,15 @@ local function serve(spec: Spec): GithubFake.Fake
         return nil
       end
       kept[id] = (kept[id] or 0) + 1
-      return spec.artifacts[id .. "-" .. kept[id]] or spec.artifacts[id] or artifacts({}, {})
+      local held = spec.artifacts
+      local answer = held and (held[id .. "-" .. kept[id]] or held[id])
+      return answer or artifacts({}, {})
     end
     id = path:match("/runs/(%d+)/jobs")
-    if id ~= nil then return spec.jobs and spec.jobs[id] or jobs() end
+    if id ~= nil then
+      local by_run = spec.jobs
+      return by_run and by_run[id] or jobs()
+    end
     runs_asked = runs_asked + 1
     local text = spec.runs[math.min(runs_asked, #spec.runs)]
     if text == "FAIL" then return nil end

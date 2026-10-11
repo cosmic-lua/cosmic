@@ -7,8 +7,9 @@
 --- kept to a few files used by those alone, every
 --- declaration's requires declared, every requirement a test module
 --- declares promised by a CI leg, every verb's spec listed and
---- readable, no public doc citing the build or carrying a TODO, and no
---- literal plural after a number. Each asks the tree's projection,
+--- readable, no public doc citing the build or carrying a TODO, no
+--- literal plural after a number, and every file under ci/testdata
+--- type-checking standalone. Each asks the tree's projection,
 --- `cosmic.db`, which holds every module's docs, uses, imports,
 --- examples and source.
 ---
@@ -40,6 +41,7 @@ local link_text = require("build.link_text")
 local host_names = require("build.host_names")
 local importer = require("build.importer")
 local shared_compiles = require("build.shared_compiles")
+local standalone = require("build.standalone")
 local symbols = require("build.symbols")
 local work = require("build.work")
 local writer = require("build.writer")
@@ -47,12 +49,6 @@ local type compiler = require("build.compiler")
 local String = require("cosmic.string")
 
 local type Node = ast.Node
-
--- TODO: type-check ci/testdata/**/*.tl. `cosmic fix --check` in ci/ only
--- parses them, and CI compiles each when a leg runs it, standalone, so a
--- refusal there is met late. It waits on a check that compiles each in
--- [`build.standalone`]'s environment and fails on a type error (a test-shaped
--- file there is refused for being unused, so it would skip that warning).
 
 local record tree_checks
   --- What [`plurals`] finds in one text of a file, read off a parse made
@@ -1861,6 +1857,60 @@ function tree_checks.ci_sources(root: string): {{string}}
     end
   end
   table.sort(out, function(a: {string}, b: {string}): boolean return a[1] < b[1] end)
+  return out
+end
+
+--- The Teal under `ci/testdata` that fails to type-check in
+--- [`build.standalone`]'s environment, one line per complaint. No leg runs
+--- these with `--standalone`: they are copied into fixture directories and
+--- run there, `cmd/*/main.tl` as modules of a project the candidate builds,
+--- `retained_probe.tl` and `work_db_integrity.tl` as files, and
+--- `runtime_test.tl` by `cosmic test`. Each requires `cosmic.*` modules
+--- alone and is held to a build's own strictness, which standalone's
+--- environment models, so a refusal that would otherwise be met only when
+--- a leg runs it is met here; `cosmic fix --check` in `ci/` only parses
+--- them. `built` must be a compiler of its own ([`teal.load`]), as
+--- [`standalone.environment`] points its search at this binary's sources.
+--- A test module's unused functions are no complaint (a test runner
+--- calls them); any other file's unused locals are.
+function tree_checks.ci_testdata(root: string, built: compiler): {string}
+  local out: {string} = {}
+  local listed, _ = Fs.walk(root .. "/ci/testdata")
+  local names: {string} = {}
+  for _, name in ipairs(listed or {}) do
+    if name:match("%.tl$") then names[#names + 1] = name end
+  end
+  table.sort(names)
+  for _, name in ipairs(names) do
+    local file = "ci/testdata/" .. name
+    local source, read_trouble = Fs.read(root .. "/" .. file)
+    if source == nil then
+      out[#out + 1] = read_trouble
+    else
+      local env, env_trouble = standalone.environment(built)
+      if env == nil then
+        out[#out + 1] = file .. ": " .. env_trouble
+      else
+        local code, result = built.gen(source, env, nil, "tl")
+        local testy = name:match("_test%.tl$") ~= nil
+        local found = 0
+        local errors = result and result.syntax_errors or {}
+        local typed = result and result.type_errors or {}
+        local warned = result and result.warnings or {}
+        for _, group in ipairs({ errors, typed, warned }) do
+          for _, e in ipairs(group) do
+            if group ~= warned or not testy or not e.msg:match("^unused ") then
+              found = found + 1
+              out[#out + 1] = file .. ":" .. e.y .. ":" .. e.x .. ": " .. e.msg
+            end
+          end
+        end
+        if code == nil and found == 0 then
+          out[#out + 1] = file .. ": the compiler refused it"
+        end
+      end
+    end
+  end
   return out
 end
 

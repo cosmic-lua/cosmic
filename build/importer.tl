@@ -153,7 +153,7 @@ local record importer
     --- where it could not, and nil and "" where one process does as well.
     compile: function(db: Sqlite.Handle, root: string, order: {Module},
                       wanted: {string:boolean}, own_tree: boolean,
-                      judged: boolean, lenient: boolean): importer.Ahead | nil, string
+                      judged: boolean): importer.Ahead | nil, string
     --- Ends the processes.
     close: function()
   end
@@ -1128,18 +1128,7 @@ local function compile_derived(handle: work.Handle, built: compiler, tool: strin
   if order == nil then
     return nil, why
   end
-  -- TODO: drop this once ci/cosmic-driver.pin names a release whose
-  -- Teal reads `name?:`: the pinned driver compiles ci/ (the one project
-  -- that holds the pin at its root), so ci/'s records cannot be marked
-  -- and its literals may omit a field.
-  local lenient, lenient_trouble = Fs.exists(handle.root .. "/cosmic-driver.pin")
-  if lenient == nil then
-    return nil, lenient_trouble
-  end
-  -- A lenient compile is not a strict one: the salt keeps the working
-  -- database and the shared cache from serving one for the other.
-  local keys, keys_trouble = compilation.dependency_keys(handle.db, modules,
-    lenient and tool .. "\nlenient-literals" or tool)
+  local keys, keys_trouble = compilation.dependency_keys(handle.db, modules, tool)
   if keys == nil then
     return nil, keys_trouble
   end
@@ -1239,7 +1228,7 @@ local function compile_derived(handle: work.Handle, built: compiler, tool: strin
       scanned = true
       if bytes > 0 and pool.ready(bytes) then
         local made_ahead, ahead_trouble = pool.compile(db, handle.root, order, wanted,
-          own_tree, judged, lenient)
+          own_tree, judged)
         if made_ahead == nil and ahead_trouble ~= "" then
           local _, _ = log:complain("build: workers: " .. ahead_trouble ..
               "; compiling in this process")
@@ -1299,7 +1288,7 @@ local function compile_derived(handle: work.Handle, built: compiler, tool: strin
             result.worked = result.worked + 1
           else
             if env == nil then
-              local made_env, env_trouble = teal.environment_for(built, handle.db, handle.root, lenient)
+              local made_env, env_trouble = teal.environment_for(built, handle.db, handle.root)
               if made_env == nil then
                 failure = env_trouble
                 break

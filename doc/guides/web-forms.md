@@ -274,7 +274,7 @@ end
 
 `cosmic test` builds the project and runs both test files. The next block
 does it through [`cosmic.child`], as the guide for the command line does,
-and prints the verdict line.
+and prints the verdict line, or everything the run said when it did not pass.
 
 ```teal
 local Child = require("cosmic.child")
@@ -291,7 +291,10 @@ argv[#argv + 1] = "test"
 local said = assert(Child.run(argv,
   { env = env, fds = relaunch.fds, cwd = tmp, stdout = "capture", stderr = "capture",
     timeout_ns = Clock.seconds(120) }))
-print(((said.stderr or "") .. (said.stdout or "")):match("test: [A-Z]+"))
+local out = (said.stderr or "") .. (said.stdout or "")
+local verdict = out:match("test: [A-Z]+")
+-- The whole run where it did not pass, so a failure says which test and why.
+print(verdict == "test: PASS" and verdict or out)
 ```
 
 ```output

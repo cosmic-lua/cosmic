@@ -5,9 +5,6 @@ note: The check of 50c, as functions: `refuse_omitted_fields` for a literal agai
 --- replace
    local function refuse_omitted_fields(self: TypeChecker, node: Node, decltype: RecordLikeType, given: function(string): boolean)
       node.omissions_checked = true
-      if self.env.lenient_literals then
-         return
-      end
       local absent: {string} = {}
       for _, fname in ipairs(decltype.field_order) do
          local ftype = decltype.fields[fname]

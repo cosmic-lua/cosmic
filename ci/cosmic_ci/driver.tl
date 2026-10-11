@@ -99,7 +99,7 @@ local record Command
   about: string
   usage: string
   handler: function({string}): integer
-  spec: {string:boolean | Flags.Option}
+  spec?: {string:boolean | Flags.Option}
   options: function(Flags.Parsed): integer
 end
 

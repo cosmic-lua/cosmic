@@ -340,8 +340,8 @@ function workers.pool(spec: workers.Spec, jobs?: integer): importer.Workers
     end,
     compile = function(db: Sqlite.Handle, root: string, order: {importer.Module},
                        wanted: {string:boolean}, own_tree: boolean,
-                       judged: boolean, lenient: boolean): importer.Ahead | nil, string
-      return worker.compile(pool, db, root, order, wanted, own_tree, judged, lenient)
+                       judged: boolean): importer.Ahead | nil, string
+      return worker.compile(pool, db, root, order, wanted, own_tree, judged)
     end,
     close = function()
       finish_workers()
