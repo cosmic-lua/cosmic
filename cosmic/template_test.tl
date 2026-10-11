@@ -180,8 +180,8 @@ local REFUSALS <const>: {{string}} = {
   { "<a href=\"{{.url}}{{if .a}}x{{end}}/evil.example\">", "2", "35", "protocol-relative" },
   { "<a href=\"{{.url}}{{if .a}}{{end}}\\evil.example\">", "2", "34", "protocol-relative" },
   { "<a href=\"{{range .l}}{{.url}}{{end}}/evil\">", "2", "22", "fixes where the URL goes" },
-  { "<a href=\"{{.url}}{{.p}}/evil.example\">", "2", "24", "protocol-relative" },
-  { "<a href=\"{{.url}}{{.p}}:x\">", "2", "24", "complete a scheme" },
+  { "<a href=\"{{.url}}{{.p}}/evil.example\">", "2", "18", "follows a whole-URL slot" },
+  { "<a href=\"{{.url}}{{.p}}:x\">", "2", "18", "follows a whole-URL slot" },
   { "<a href=\"{{.x}}&colon;alert(1)\">", "2", "16", "complete a scheme" },
   { "<a href=\"{{.x}}&#58;alert(1)\">", "2", "16", "complete a scheme" },
   { "<meta charset=\"{{.x}}\">", "2", "16", "charset" },
@@ -236,13 +236,12 @@ local REFUSALS <const>: {{string}} = {
   { "<a href=\"{{if .a}}/x/{{else}}y{{end}}{{.z}}\">", "2", "38", "fixes where the URL goes" },
   { "<a href=\"{{if .a}}https://{{else}}/x/{{end}}{{.z}}\">", "2", "45", "fixes where the URL goes" },
   { "<a href=\"/{{if .a}}{{end}}/{{.x}}\">", "2", "28", "fixes where the URL goes" },
-  { "<a href=\"/v1.{{.x}}\">", "2", "14", "'..' segment" },
   { "<a href=\"/a/.{{.x}}\">", "2", "14", "'..' segment" },
   { "<a href=\"/a/%{{.x}}\">", "2", "14", "'..' segment" },
   { "<a href=\"/a/%2{{.x}}\">", "2", "15", "'..' segment" },
-  { "<a href=\"/a/{{.x}}/..{{if .a}}{{end}}.{{.y}}\">", "2", "39", "'..' segment" },
+  { "<a href=\"/a/{{.x}}/.{{if .a}}{{end}}.{{.y}}\">", "2", "38", "'..' segment" },
   { "<a href=\"/a/..\t{{.x}}\">", "2", "16", "'..' segment" },
-  { "<a href=\"{{.u}}.{{.x}}\">", "2", "17", "'..' segment" },
+  { "<a href=\"{{.u}}.{{.x}}\">", "2", "17", "follows a whole-URL slot" },
   { "<a hx-on:click=\"{{.x}}\">", "2", "17", "would be script" },
   { "<a hx-on::after-request=\"{{.x}}\">", "2", "26", "would be script" },
   { "<a hx-on-click=\"{{.x}}\">", "2", "17", "would be script" },
@@ -328,14 +327,21 @@ local PARTS <const>: {string} = {
   "<a href=\"mailto:a@b.example?subject={{.x}}\">",
   "<a href=\"/a/{{.x}}{{.y}}\">",
   "<a href=\"/a/{{.x}}/b/{{.y}}?c={{.z}}#{{.w}}\">",
-  "<a href=\"{{.u}}{{.x}}\">",
-  "<a href=\"{{.u}}x{{.y}}\">",
   "<a href=\"{{.u}}?q={{.x}}\">",
   "<a href=\"/x/{{range .l}}{{.}}{{end}}\">",
   "<a href=\"/x/{{range .l}}{{.}}/{{end}}\">",
   "<a href=\"{{if .a}}/x/{{else}}/y/{{end}}{{.z}}\">",
   "<a href=\"{{if .a}}https://h/{{else}}/y?{{end}}{{.z}}\">",
-  "<a href=\"{{if .a}}{{.u}}{{else}}/y/{{end}}{{.z}}\">",
+  "<a href=\"{{.u}}?a&amp;b={{.x}}\">",
+  "<a href=\"{{.u}}x#{{.x}}\">",
+  "<a href=\"/s?a=1&amp;b={{.x}}\">",
+  "<a href=\"/s#a&sol;{{.x}}\">",
+  "<a href=\"/a/.b{{.x}}\">",
+  "<a href=\"/a/b.{{.x}}\">",
+  "<a href=\"/a/...{{.x}}\">",
+  "<a href=\"/a/...%2e{{.x}}\">",
+  "<a href=\"/a/%2e%2e%2e{{.x}}\">",
+  "<a href=\"/a/..\n/{{.x}}\">",
   "<a href=\"/a%20{{.x}}\">",
   "<a href=\"/a.b/{{.x}}\">",
   "<a href=\"/a/b.{{if .a}}c{{end}}/{{.x}}\">",
@@ -355,6 +361,77 @@ local function test_a_slot_after_text_that_fixes_the_url_is_one_part_of_it()
   assert(out:find("local function _part(v: string | number | html.SafeUrlPart): string", 1, true), out)
   assert(out:find("do local v: string | number | html.SafeUrlPart = d.x ", 1, true), out)
   assert(not out:find("_url(v", 1, true), out)
+end
+
+--- Templates whose part slot could, with the browser's own decoding of the
+--- text before it, be a host or a dot segment, with the reason refused.
+local DECODED <const>: {{string}} = {
+  { "<a href=\"/{{.a}}&sol;{{.b}}\">", "'&' in the path" },
+  { "<a href=\"/{{.a}}&#47;{{.b}}\">", "'&' in the path" },
+  { "<a href=\"/{{.a}}&bsol;{{.b}}\">", "'&' in the path" },
+  { "<a href=\"/{{.a}}&#x5c;{{.b}}\">", "'&' in the path" },
+  { "<a href=\"/{{.a}}&Tab;/{{.b}}\">", "'&' in the path" },
+  { "<a href=\"/{{.a}}&NewLine;/{{.b}}\">", "'&' in the path" },
+  { "<a href=\"/&sol;{{.b}}\">", "'&' in the path" },
+  { "<a href=\"/&#9;/{{.b}}\">", "'&' in the path" },
+  { "<a href=\"http:&sol;/{{.b}}\">", "'&' in the path" },
+  { "<a href=\"http:&#47;&#47;{{.b}}\">", "'&' in the path" },
+  { "<a href=\"/a/&#46;&#46;{{.b}}\">", "'&' in the path" },
+  { "<a href=\"/a&amp;b/{{.b}}\">", "'&' in the path" },
+  { "<a href=\"{{if .a}}/&sol;{{else}}/x/{{end}}{{.b}}\">", "'&' in the path" },
+  { "<a href=\"{{if .a}}/x/{{else}}/&sol;{{end}}{{.b}}\">", "'&' in the path" },
+  { "<a href=\"/{{range .l}}&sol;{{end}}{{.b}}\">", "'&' in the path" },
+  { "<a href=\"/x/{{range .l}}&#47;{{.i}}{{end}}\">", "'&' in the path" },
+  { "<a href=\"/a/.%2e{{.b}}\">", "'..' segment" },
+  { "<a href=\"/a/%2e%2e{{.b}}\">", "'..' segment" },
+  { "<a href=\"/a/%2E%2E{{.b}}\">", "'..' segment" },
+  { "<a href=\"/a/%2e.{{.b}}\">", "'..' segment" },
+  { "<a href=\"/a/.%2E{{.b}}\">", "'..' segment" },
+  { "<a href=\"/a/%2e{{.b}}\">", "'..' segment" },
+  { "<a href=\"/a/.%{{.b}}\">", "'..' segment" },
+  { "<a href=\"/a/%2e%2{{.b}}\">", "'..' segment" },
+  { "<a href=\"/a/.{{.x}}{{.b}}\">", "'..' segment" },
+  { "<a href=\"/a/.{{if .a}}{{.x}}{{end}}{{.b}}\">", "'..' segment" },
+  { "<a href=\"/a/{{if .a}}.{{else}}%{{end}}{{.b}}\">", "'..' segment" },
+  { "<a href=\"/a/{{if .a}}.{{else}}%{{end}}2e{{.b}}\">", "'..' segment" },
+  { "<a href=\"/a/{{if .a}}.{{else}}x{{end}}.{{.b}}\">", "'..' segment" },
+  { "<a href=\"/a/{{range .l}}.{{end}}{{.b}}\">", "'..' segment" },
+  { "<a href=\"/a/\\.{{.b}}\">", "'..' segment" },
+  { "<a href=\"?.{{.b}}\">", "'..' segment" },
+  { "<a href=\"{{.u}}{{.b}}\">", "follows a whole-URL slot" },
+  { "<a href=\"{{.u}}a{{.b}}\">", "follows a whole-URL slot" },
+  { "<a href=\"{{.u}}.{{.b}}\">", "follows a whole-URL slot" },
+  { "<a href=\"{{.u}}{{if .a}}?{{end}}{{.b}}\">", "follows a whole-URL slot" },
+  { "<a href=\"{{.u}}{{if .a}}?q={{.b}}{{end}}\">", "" },
+}
+
+local function test_a_part_after_decoded_text_or_a_whole_url_slot_is_refused()
+  for _, case in ipairs(DECODED) do
+    local src, why = case[1], case[2]
+    local out, err = Template.compile(HEAD .. src, "t.tmpl")
+    if why == "" then
+      assert(out ~= nil, src .. ": " .. tostring(err))
+    else
+      assert(out == nil, "compiled: " .. src)
+      assert(err:find(why, 1, true), src .. ": " .. err)
+    end
+  end
+end
+
+local function test_an_ampersand_in_a_query_or_fragment_keeps_the_part_slot()
+  compiled(HEAD .. "<a href=\"/s?a=1&amp;b={{.x}}&amp;c={{.y}}\">")
+  compiled(HEAD .. "<a href=\"/s#x&amp;{{.x}}\">")
+  compiled(HEAD .. "<a href=\"?a&sol;{{.x}}\">")
+  compiled(HEAD .. "<a href=\"{{.u}}?a&amp;{{.x}}\">")
+end
+
+local function test_a_slot_in_an_htmx_json_or_trigger_attribute_is_refused()
+  for _, attr in ipairs({ "hx-headers", "hx-request", "hx-trigger", "data-hx-headers", "DATA-HX-REQUEST", "Hx-Trigger" }) do
+    local why = refused(HEAD .. "<a " .. attr .. "=\"{{.x}}\">")
+    assert(why:find("{{use htmx}}", 1, true), attr .. ": " .. why)
+    why = refused(HEAD .. "<a " .. attr .. "='x {{.x}}'>")
+    assert(why:find("{{use htmx}}", 1, true), attr .. ": " .. why)
+  end
 end
 
 local function test_a_slot_that_begins_a_url_is_judged_by_where_its_branch_left_off()

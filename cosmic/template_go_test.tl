@@ -619,30 +619,11 @@ local function split_at(body: string, cut: integer): string | nil
   return body:sub(1, cut) .. "{{if .f}}{{end}}" .. body:sub(cut + 1)
 end
 
--- A block that emits nothing, put between any two bytes of a template's
--- text, must not change what the browser reads, so it must not change the
--- kind of any slot: a template that compiles with it compiles without it,
--- with the same kinds.
-local function test_an_empty_action_at_any_byte_boundary_leaves_the_slots_as_they_were()
+--- Compiles each of `cases` with the empty block put at every byte boundary
+--- and answers what differs from the case compiled whole, and how many
+--- splits it compiled.
+local function split_wrong(cases: {string}): {string}, integer
   local wrong: {string} = {}
-  local cases: {string} = {}
-  for _, case in ipairs(ACCEPTED) do
-    cases[#cases + 1] = case[2] .. case[3]
-  end
-  for _, case in ipairs(REFUSED) do
-    cases[#cases + 1] = case[2]
-  end
-  for _, body in ipairs({
-      "<textarea></textarea><script>{{.x}}</script></textarea>",
-      "<title></title><style>a</style><script>{{.x}}</script>",
-      "<script><!--\n/*<script>*/\n//</script>\n{{.x}}\n</script>",
-      "<script><!--<script></script>-->{{.x}}</script>{{.y}}",
-      "<script><!--<script></script>--></script>{{.y}}",
-      "<script>a</script >{{.y}}<textarea>b</TextArea\n>{{.z}}",
-      "<style>x</style>{{.x}}<textarea></textareax></textarea>{{.y}}",
-  }) do
-    cases[#cases + 1] = body
-  end
   local checked = 0
   for _, body in ipairs(cases) do
     local plain = Template.compile(HEAD .. body, "t.tmpl")
@@ -659,7 +640,45 @@ local function test_an_empty_action_at_any_byte_boundary_leaves_the_slots_as_the
       end
     end
   end
-  assert(checked > 1000, "too few splits checked: " .. checked)
+  return wrong, checked
+end
+
+-- A block that emits nothing, put between any two bytes of a template's
+-- text, must not change what the browser reads, so it must not change the
+-- kind of any slot: a template that compiles with it compiles without it,
+-- with the same kinds. Three tests, so that each stays well inside the
+-- time one test may take.
+local function test_an_empty_action_at_any_byte_boundary_leaves_accepted_slots_as_they_were()
+  local cases: {string} = {}
+  for _, case in ipairs(ACCEPTED) do
+    cases[#cases + 1] = case[2] .. case[3]
+  end
+  local wrong, checked = split_wrong(cases)
+  assert(checked > 500, "too few splits checked: " .. checked)
+  assert(#wrong == 0, table.concat(wrong, "\n"))
+end
+
+local function test_an_empty_action_at_any_byte_boundary_leaves_refused_slots_as_they_were()
+  local cases: {string} = {}
+  for _, case in ipairs(REFUSED) do
+    cases[#cases + 1] = case[2]
+  end
+  local wrong, checked = split_wrong(cases)
+  assert(checked > 500, "too few splits checked: " .. checked)
+  assert(#wrong == 0, table.concat(wrong, "\n"))
+end
+
+local function test_an_empty_action_at_any_byte_boundary_leaves_raw_text_slots_as_they_were()
+  local wrong, checked = split_wrong({
+    "<textarea></textarea><script>{{.x}}</script></textarea>",
+    "<title></title><style>a</style><script>{{.x}}</script>",
+    "<script><!--\n/*<script>*/\n//</script>\n{{.x}}\n</script>",
+    "<script><!--<script></script>-->{{.x}}</script>{{.y}}",
+    "<script><!--<script></script>--></script>{{.y}}",
+    "<script>a</script >{{.y}}<textarea>b</TextArea\n>{{.z}}",
+    "<style>x</style>{{.x}}<textarea></textareax></textarea>{{.y}}",
+  })
+  assert(checked > 100, "too few splits checked: " .. checked)
   assert(#wrong == 0, table.concat(wrong, "\n"))
 end
 

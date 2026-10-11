@@ -81,13 +81,17 @@
 --- begin with `/`, `.`, `?` or `#`, or with `http:`, `https:` or `mailto:`
 --- and a path (a slot in a host is refused), or be a relative path that
 --- reaches a `/`, `?` or `#` first (`href="java{{.x}}"` is refused); it
---- must not end in `.` or `%` (a value could make `..`, which a browser
---- climbs by: write `/v1/{{.minor}}`, not `/v1.{{.minor}}`). Another type is
+--- must not end in a dot segment or the start of a `%2e` (`.`, `%2e`, `%`
+--- or `%2` alone in its segment: a value could make `..`, which a browser
+--- climbs by: `/.{{.x}}` is refused, `/v1.{{.x}}` is not); it must not
+--- hold an `&` before the first `?` or `#` (a browser reads `&sol;` as `/`
+--- before it parses the URL: write `/` literally); and after a whole-URL
+--- slot it needs a `?` or `#` in the text first. Another type is
 --- a type error naming the template's line. Where there is no escaping to
 --- be had the template is refused, with its line and column: after `<`, in
 --- a tag or attribute name, in an unquoted value, in a comment, in an
---- `on...` or `style` attribute, in `hx-on*`, `hx-vars` or `hx-vals` (htmx
---- runs them as script), in `<script>` or `<style>`, and a few like them
+--- `on...` or `style` attribute, in `hx-on*`, `hx-vars`, `hx-vals`, `hx-headers`, `hx-request` or
+--- `hx-trigger` (htmx runs them as script, or reads JSON it may run), in `<script>` or `<style>`, and a few like them
 --- (cosmic/template/markup.tl lists them). An `html` template must also end in plain text, since its
 --- `SafeHtml` can go into another's text slot. `{{mode text}}` returns a
 --- `string` and escapes nothing, for anything that is not HTML; a slot
@@ -102,7 +106,8 @@
 --- does the text around it.
 ---
 --- Other attributes that frameworks read as code (`x-on:`, `@click`,
---- `ng-*`, and `hx-*` but for `hx-on*`, `hx-vars` and `hx-vals`, with or
+--- `ng-*`, and `hx-*` but for `hx-on*`, `hx-vars`, `hx-vals`, `hx-headers`,
+--- `hx-request` and `hx-trigger`, with or
 --- without a `data-` prefix) are not recognised; a slot in any attribute
 --- whose name begins with `on` is refused (a literal `onclick="..."`
 --- compiles).

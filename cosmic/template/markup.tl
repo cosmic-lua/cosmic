@@ -20,8 +20,9 @@
 ---   `content` of a `<meta>` that has `http-equiv` (anywhere in the
 ---   tag), and every attribute of the SVG animation elements (`set`,
 ---   `animate`, `animateMotion`, `animateTransform`: they can animate
----   `href` to `javascript:`), and `hx-on*`, `hx-vars` and `hx-vals` (with
----   or without a `data-` prefix), which htmx runs as script. Other
+---   `href` to `javascript:`), and `hx-on*`, `hx-vars`, `hx-vals`, `hx-headers`,
+---   `hx-request` and `hx-trigger` (with or without a `data-` prefix),
+---   which htmx runs as script or reads as JSON it may run. Other
 ---   attributes that frameworks read as code (`hx-*`, `x-on:`, `v-on:`,
 ---   `@click`, `ng-*`) are not recognised: they are plain attributes
 ---   here, and a slot in one is the author's to keep out;
@@ -112,19 +113,25 @@
 --- - `http:`, `https:` or `mailto:`, and for the first two a host and then
 ---   a `/`, `?` or `#`;
 --- - a relative path that has reached a `/`, `?` or `#`;
---- - or a whole-URL slot, which `href` has judged.
+--- - or a whole-URL slot, which `href` has judged, and then a `?` or `#`
+---   before a part (a bare origin as the slot's value would make the part
+---   its host).
 ---
 --- Text that has not reached one of those leaves the slot refused: `java`,
 --- a space and a word, an `&` before the first `/`, `?` or `#` (which could
 --- spell a `:`), `javascript:`, `data:`, `https://`, `https://host`. A value
 --- may begin in several ways across the arms of a block, and the slot must
---- be right after each. A part is also refused directly after a literal `.`,
---- or a `%` and up to one hex digit: with an empty value, or the rest of an
---- escape, the text and the part could be a `..` or `%2e` segment, which a
---- browser climbs by ([`html.url_part`] escapes a whole `.` or `..` itself,
---- but cannot see the template's text). A part may be empty, so the text
+--- be right after each. A part is also refused when the
+--- segment so far (text since the last `/`, `\`, `?` or `#`, across earlier
+--- slots) is only dots and `%2e` escapes, or ends in a `%` and up to one hex
+--- digit: with an empty value, or the rest of an escape, the text and the
+--- part could be a `..` or `%2e` segment, which a browser climbs by
+--- ([`html.url_part`] escapes a whole `.` or `..` itself, but cannot see
+--- the template's text). A part may be empty, so the text
 --- after a whole-URL slot and a part is judged as if it followed the slot
---- alone.
+--- alone. Any `&` in the text before the first `?` or `#` refuses a part
+--- slot after it: the browser decodes character references (`&sol;`, `&#47;`,
+--- `&#46;`, `&Tab;`) before it parses the URL, and the tracker does not.
 
 local types = require("cosmic.template.types")
 
@@ -216,11 +223,26 @@ local record Markup
     --- or fragment, which is where a part slot may stand (see `judge`). `lead`
     --- is then empty and unused.
     pinned: boolean
-    --- The last two bytes of the literal text of a URL attribute's value
-    --- since its last slot, tab, line feed and carriage return aside: a part
-    --- slot after a `.`, or a `%` and up to one hex digit, could make a dot
-    --- segment (`/.` and a part `.`, `/%` and a part `2e`).
-    tail: string
+    --- The URL path segment being read in a URL attribute's value, one
+    --- text per way it may have gone, joined by NUL, kept only while it is a
+    --- start of a dot segment: up to two dots, each `.` or `%2e` (read as
+    --- `.`), then at most a `%` or `%2`, with text since the last `/`, `\`,
+    --- `?` or `#`, across slots (a part may be empty), tab, line feed and
+    --- carriage return aside. "!" is a segment that cannot be one, "" an
+    --- empty one. A part slot after a dot segment's start could make a `..`
+    --- or a `%2e` escape with its value (`/.` and a part `.`, `/%` and `2e`).
+    seg: string
+    --- Whether the value's literal text has reached a `?` or `#`, where
+    --- the query or fragment begins.
+    query: boolean
+    --- Set when the literal text before that held an `&`, which a browser
+    --- reads as a character reference (`&sol;` is a `/`, `&#46;` a `.`)
+    --- before it parses the URL, in a place the tracker reads as the path.
+    amp: boolean
+    --- Set after a whole-URL slot until literal text reaches a `?` or `#`:
+    --- the slot's value may be a bare origin (`https://host`) or `http:`, so
+    --- a part right after it could be the host or the path's first byte.
+    wait: boolean
     --- Whether the tag has an `http-equiv` attribute.
     equiv: boolean
     --- Where a slot in the `content` of a `<meta>` stood (the line, then
@@ -367,7 +389,7 @@ local ANIMATION <const>: {string: boolean} = {
 local function start(): Place
   return { phase = "text", tag = "", attr = "", closing = false, fresh = false, stack = "", murky = false,
     select = false, frameset = false, fontattr = false, slash = false, after_url = false, colon = false, bare = false, rooted = false,
-    lead = "", pinned = false, tail = "", equiv = false,
+    lead = "", pinned = false, seg = "", query = false, amp = false, wait = false, equiv = false,
     meta_line = 0, meta_col = 0, late = "", late_line = 0, late_col = 0, raw_tail = "",
     escaped = false, double = false, split = false, off = nil, alts = "" }
 end
@@ -375,17 +397,17 @@ end
 local function copy(p: Place): Place
   return { phase = p.phase, tag = p.tag, attr = p.attr, closing = p.closing, fresh = p.fresh, stack = p.stack,
     murky = p.murky, select = p.select, frameset = p.frameset, fontattr = p.fontattr, slash = p.slash, after_url = p.after_url, colon = p.colon, bare = p.bare,
-    rooted = p.rooted, lead = p.lead, pinned = p.pinned, tail = p.tail, equiv = p.equiv,
+    rooted = p.rooted, lead = p.lead, pinned = p.pinned, seg = p.seg, query = p.query, amp = p.amp, wait = p.wait, equiv = p.equiv,
     meta_line = p.meta_line, meta_col = p.meta_col, late = p.late, late_line = p.late_line,
     late_col = p.late_col, raw_tail = p.raw_tail,
     escaped = p.escaped, double = p.double, split = p.split, off = p.off and copy(p.off), alts = p.alts }
 end
 
 local function key(p: Place): string
-  return string.format("%s %q %q %s %s %q %s %s %s %s %s %s %s %s %s %s %d %d %q %d %d %q %s %s %s %q %q %s %q %q", p.phase, p.tag,
+  return string.format("%s %q %q %s %s %q %s %s %s %s %s %s %s %s %s %s %d %d %q %d %d %q %s %s %s %q %q %s %q %q %s %s %s", p.phase, p.tag,
     p.attr, p.closing, p.fresh, p.stack, p.murky, p.select, p.frameset, p.fontattr, p.slash, p.after_url, p.colon, p.bare,
     p.rooted, p.equiv, p.meta_line, p.meta_col, p.late, p.late_line, p.late_col, p.raw_tail, p.escaped, p.double, p.split, p.alts,
-    p.off and key(p.off) or "-", p.pinned, p.lead, p.tail)
+    p.off and key(p.off) or "-", p.pinned, p.lead, p.seg, p.query, p.amp, p.wait)
 end
 
 --- The phases in which the tag and whether it is an end tag mean something;
@@ -552,6 +574,43 @@ local function ways(lead: string): {string}
   return out
 end
 
+--- The segment state `seg` holds after the text `text`, one way: what
+--- remains of `seg .. text` after its last `/`, `\`, `?` or `#` when that is
+--- the start of a dot segment (see [`Place.seg`]), else "!".
+local function segment(seg: string, text: string): string
+  local raw = seg .. text
+  local cut = 0
+  for at = #raw, 1, -1 do
+    if raw:find("^[/\\?#]", at) then
+      cut = at
+      break
+    end
+  end
+  local rest = raw:sub(cut + 1)
+  local dots = 0
+  while true do
+    if rest:find("^%.") then
+      rest = rest:sub(2)
+    elseif rest:find("^%%2[eE]") then
+      rest = rest:sub(4)
+    else
+      break
+    end
+    dots = dots + 1
+  end
+  if rest == "" then
+    return dots <= 2 and ("."):rep(dots) or "!"
+  elseif (rest == "%" or rest == "%2") and dots <= 1 then
+    return ("."):rep(dots) .. rest
+  end
+  return "!"
+end
+
+--- The ways `seg` holds, as `ways` reads `lead`.
+local function segments(seg: string): {string}
+  return ways(seg)
+end
+
 --- Adds the literal text `text` of a URL attribute's value to what `p`
 --- knows of how the value began and ended.
 local function track(p: Place, text: string)
@@ -560,7 +619,19 @@ local function track(p: Place, text: string)
   if text == "" then
     return
   end
-  p.tail = (p.tail .. text):sub(-2)
+  local out: {string} = {}
+  for _, seg in ipairs(segments(p.seg)) do
+    out[#out + 1] = segment(seg, text)
+  end
+  p.seg = table.concat(out, "\0")
+  local mark = text:find("[?#]")
+  if not p.query then
+    p.amp = p.amp or text:sub(1, (mark or #text + 1) - 1):find("&", 1, true) ~= nil
+  end
+  if mark then
+    p.query = true
+    p.wait = false
+  end
   if p.pinned then
     return
   end
@@ -575,10 +646,15 @@ local function track(p: Place, text: string)
   p.lead = table.concat(kept, "\0")
 end
 
---- Whether the text before a part slot could, with the slot's value,
---- make a dot segment (`/.` and `.`, `/%2` and `e`).
-local function dotty(tail: string): boolean
-  return tail:find("%.$") ~= nil or tail:find("%%%x?$") ~= nil
+--- Whether the text before a part slot could, with the slot's value, make
+--- a dot segment (`/.` and `.`, `/%2` and `e`, `/.%2e` and nothing).
+local function dotty(seg: string): boolean
+  for _, one in ipairs(segments(seg)) do
+    if one ~= "" and one ~= "!" then
+      return true
+    end
+  end
+  return false
 end
 
 --- Whether a part slot may stand at `p`, in a value whose text may have
@@ -599,9 +675,22 @@ end
 --- may stand only if it may after either, and the text may have begun in
 --- any way either holds.
 local function merge(a: Place, b: Place)
-  if dotty(b.tail) and not dotty(a.tail) then
-    a.tail = b.tail
+  local set: {string: boolean} = {}
+  local segs: {string} = {}
+  for _, one in ipairs(segments(a.seg)) do
+    set[one] = true
   end
+  for _, one in ipairs(segments(b.seg)) do
+    set[one] = true
+  end
+  for one in pairs(set) do
+    segs[#segs + 1] = one
+  end
+  table.sort(segs)
+  a.seg = table.concat(segs, "\0")
+  a.query = a.query and b.query
+  a.amp = a.amp or b.amp
+  a.wait = a.wait or b.wait
   if b.pinned then
     return
   elseif a.pinned then
@@ -1011,7 +1100,10 @@ local function scan(p: Place, text: string)
         p.fresh = true
         p.lead = ""
         p.pinned = false
-        p.tail = ""
+        p.seg = ""
+        p.query = false
+        p.amp = false
+        p.wait = false
         i = i + 1
       elseif b == 62 then
         i = end_tag(p, text, i + 1, false)
@@ -1054,7 +1146,10 @@ local function scan(p: Place, text: string)
       p.fresh = false
       p.lead = ""
       p.pinned = false
-      p.tail = ""
+      p.seg = ""
+      p.query = false
+      p.amp = false
+      p.wait = false
       p.after_url = false
       p.bare = false
       i = close + 1
@@ -1316,12 +1411,19 @@ local function slot(p: Place): types.Slot | nil, string
     local plain = attr:gsub("^data%-", "")
     if plain:sub(1, 5) == "hx-on" or plain == "hx-vars" then
       return nil, "a slot in the '" .. attr .. "' attribute would be script: htmx runs it as JavaScript"
-    elseif plain == "hx-vals" then
+    elseif plain == "hx-vals" or plain == "hx-headers" or plain == "hx-request" then
       -- TODO: once the htmx dialect and `{{use htmx}}` land (doc/plans/web/templates.md
-      -- section 2), 'hx-vals' takes a JSON slot there and this refusal stays
-      -- only for a template that does not opt in.
+      -- section 2), 'hx-vals' takes a JSON slot there, and so do 'hx-headers'
+      -- and 'hx-request' (SafeJson); this refusal stays only for a template
+      -- that does not opt in.
       return nil, "a slot in the '" .. attr .. "' attribute is JSON that htmx may also run as JavaScript (with a 'js:' " ..
         "prefix); a JSON slot for it is coming with {{use htmx}}, and until then it is refused"
+    elseif plain == "hx-trigger" then
+      -- TODO: once the htmx dialect lands and templates.md section 2 names a
+      -- SafeTrigger, 'hx-trigger' takes one there; no other value is safe, as a
+      -- trigger's filter is a JavaScript expression.
+      return nil, "a slot in the '" .. attr .. "' attribute would be a trigger, whose '[filter]' htmx runs as JavaScript; " ..
+        "a typed trigger slot is coming with {{use htmx}}, and until then it is refused"
     end
     local code = CODE_ATTRS[attr]
     if code ~= nil then
@@ -1349,9 +1451,17 @@ local function slot(p: Place): types.Slot | nil, string
         return nil, "a slot in the '" .. attr .. "' attribute that does not begin the value is a piece of a URL, " ..
           "and must follow text that fixes where the URL goes: begin the value with '/', '.', '?' or '#', or " ..
           "with http:, https: or mailto: and a path (not a host)"
-      elseif dotty(p.tail) then
-        return nil, "a slot directly after '.' or '%' in the '" .. attr .. "' attribute could make a '..' segment " ..
-          "or a '%2e' escape with its value: end the text before it with '/', '=' or another byte"
+      elseif p.amp then
+        return nil, "a slot in the '" .. attr .. "' attribute after an '&' in the path (before any '?' or '#'): a " ..
+          "browser reads '&sol;' as '/' and '&#46;' as '.' before it parses the URL, so write '/', '.' and the like " ..
+          "literally"
+      elseif p.wait then
+        return nil, "a slot in the '" .. attr .. "' attribute that follows a whole-URL slot must come after a '?' or " ..
+          "'#' in the text: the slot's value may be a bare origin (https://host), so the part could extend the host"
+      elseif dotty(p.seg) then
+        return nil, "a slot directly after a '.' or '%2e' segment (or the start of one) in the '" .. attr ..
+          "' attribute could make a '..' segment or a '%2e' escape with its value: end the text before it with " ..
+          "'/', '=' or another byte"
       end
       return "urlpart", ""
     end
@@ -1376,7 +1486,12 @@ local function wrote(p: Place, ctx: types.Slot, line: integer, col: integer)
     p.bare = ctx == "url"
   end
   if ctx == "url" or ctx == "urlpart" then
-    p.tail = ""
+    if ctx == "url" then
+      p.seg = ""
+      p.query = false
+      p.amp = false
+      p.wait = true
+    end
     p.pinned = p.pinned or ctx == "url"
   end
   if p.tag == "meta" and p.attr == "content" and ctx == "attr" then
