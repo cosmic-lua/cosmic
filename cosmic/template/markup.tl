@@ -606,11 +606,6 @@ local function segment(seg: string, text: string): string
   return "!"
 end
 
---- The ways `seg` holds, as `ways` reads `lead`.
-local function segments(seg: string): {string}
-  return ways(seg)
-end
-
 --- Adds the literal text `text` of a URL attribute's value to what `p`
 --- knows of how the value began and ended.
 local function track(p: Place, text: string)
@@ -620,7 +615,7 @@ local function track(p: Place, text: string)
     return
   end
   local out: {string} = {}
-  for _, seg in ipairs(segments(p.seg)) do
+  for _, seg in ipairs(ways(p.seg)) do
     out[#out + 1] = segment(seg, text)
   end
   p.seg = table.concat(out, "\0")
@@ -649,7 +644,7 @@ end
 --- Whether the text before a part slot could, with the slot's value, make
 --- a dot segment (`/.` and `.`, `/%2` and `e`, `/.%2e` and nothing).
 local function dotty(seg: string): boolean
-  for _, one in ipairs(segments(seg)) do
+  for _, one in ipairs(ways(seg)) do
     if one ~= "" and one ~= "!" then
       return true
     end
@@ -677,10 +672,10 @@ end
 local function merge(a: Place, b: Place)
   local set: {string: boolean} = {}
   local segs: {string} = {}
-  for _, one in ipairs(segments(a.seg)) do
+  for _, one in ipairs(ways(a.seg)) do
     set[one] = true
   end
-  for _, one in ipairs(segments(b.seg)) do
+  for _, one in ipairs(ways(b.seg)) do
     set[one] = true
   end
   for one in pairs(set) do
