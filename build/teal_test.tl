@@ -2026,6 +2026,30 @@ local function test_a_literal_argument_of_a_type_variable_is_checked()
   assert_accepted(outer .. "table.insert(list, { inner = { x = 1 } })\n")
 end
 
+--- A literal nested in an array, map or tuple literal passed for a
+--- parameter that holds a type variable is held to the record the call
+--- binds it to too (patch/tl's 52a), to any depth.
+local function test_a_literal_nested_in_an_argument_literal_is_checked()
+  local declared = "local record R\n  name: string\n  tag?: string\nend\nlocal list: {R} = {}\n" ..
+    "local function push_all<T>(l: {T}, vs: {T}) for _, v in ipairs(vs) do table.insert(l, v) end end\n"
+  assert_refused(declared .. "push_all(list, { {} })\n", "of record R that do not admit nil: name")
+  assert_refused(declared .. "push_all(list, { { name = 'a' }, {} })\n", "of record R that do not admit nil: name")
+  assert_accepted(declared .. "push_all(list, { { name = 'a' }, { name = 'b', tag = 'c' } })\npush_all(list, {})\n")
+  assert_refused(declared .. "local function by_key<T>(l: {T}, vs: {string:T}) print(l, vs) end\n" ..
+      "by_key(list, { a = {} })\n", "of record R that do not admit nil: name")
+  assert_accepted(declared .. "local function by_key<T>(l: {T}, vs: {string:T}) print(l, vs) end\n" ..
+      "by_key(list, { a = { name = 'a' } })\n")
+  assert_refused(declared .. "local function nested<T>(l: {T}, vs: {{T}}) print(l, vs) end\n" ..
+      "nested(list, { { {} } })\n", "of record R that do not admit nil: name")
+  assert_accepted(declared .. "local function nested<T>(l: {T}, vs: {{T}}) print(l, vs) end\n" ..
+      "nested(list, { { { name = 'a' } } })\n")
+  assert_refused(declared .. "local function pair<T>(l: {T}, vs: {T, integer}) print(l, vs) end\n" ..
+      "pair(list, { {}, 1 })\n", "of record R that do not admit nil: name")
+  -- The elements of the literal are the only record that binds the
+  -- variable: no one declared it, so none is held to it.
+  assert_accepted("for _, c in ipairs({ { ok = true }, { ok = false, why = 'x' } }) do print(c) end\n")
+end
+
 --- Only the `__index` type of a metatable (47a) takes a part of its
 --- record: a union with another function is held to all of it.
 local function test_a_union_with_a_function_is_held_to_its_record()
