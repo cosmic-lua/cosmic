@@ -374,7 +374,8 @@ function derivation.parse_new(db: Sqlite.Handle, built: compiler, tally: derivat
         return false, file .. ": " .. why
       end
     end
-    -- A test returns nothing, and no checker reads it in place of anything.
+    -- A source that returns nothing (a test, as a rule) is no module a
+    -- checker reads in place of anything.
     if found.has_top_level_return then
       local stubbed = stub.made(parsed)
       ok, why = Sqlite.run(db, "INSERT INTO stubs (source_hash, text, pruned) VALUES (?1, ?2, ?3)",

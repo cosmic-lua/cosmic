@@ -146,14 +146,16 @@ end
 --- assignment, a call, a block or a loop. None changes the type of a
 --- record declared as such, beside what the names it declares do: an
 --- assignment adds no field to one (tl refuses a key its type lacks).
---- Two things would, and neither reaches a stub. An assignment to a name
---- declared as a value after the record (`local M = {}` then `M.x = 1`)
---- infers that value's type, but `unneeded` prunes only a module whose
---- returned name's last declaration spells its type. A require of a module that
---- declares a global brings a type in by no name the stub spells, but
---- cosmic's own build refuses a standard-library module that declares one
---- ([`build.compilation`]). A statement of any other kind is kept wherever
---- it is.
+--- Three things would. An assignment to a name declared as a value with
+--- no type written (`local M = {}` then `M.x = 1`) infers that value's
+--- type, but `unneeded` prunes only a module whose returned name's last
+--- declaration spells its type. An `if`, an `assert` or an assignment may
+--- narrow the union a local is written to be (`local m: A | B`), which
+--- [`stub.difference`] tells, so cosmic's own build refuses that stub. A
+--- require of a module that declares a global brings a type in by no name
+--- the stub spells, but cosmic's own build refuses a standard-library
+--- module that declares one ([`build.compilation`]). A statement of any
+--- other kind is kept wherever it is.
 local droppable <const>: {string:boolean} = {
   local_declaration = true, local_function = true, local_type = true, record_function = true,
   assignment = true, op = true, ["if"] = true, fornum = true, forin = true, ["while"] = true,
@@ -186,8 +188,8 @@ end
 --- type no later statement can change: a type declaration (`local record
 --- M`), a local function, whose type is its signature, or a local whose
 --- type is written (`local m: M = {...}`). tl never infers any of these
---- from what follows, though a later `if` may narrow a local's union,
---- which [`stub.difference`] then tells.
+--- from what follows, though a later statement may narrow a local's union
+--- (see `droppable`).
 local function spells_its_type(s: ast.Node): boolean
   if s.kind == "local_type" or s.kind == "local_function" then
     return true

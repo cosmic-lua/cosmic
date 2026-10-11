@@ -296,8 +296,31 @@ local function test_a_stub_is_declaration_only_where_the_module_returns_its_type
   assert(prunes(source("local function main(): integer return 0 end", "return main")))
   assert(prunes(source("local record R end", "local m: R = {}", "return m")))
   assert(not prunes(source("local m = {}", "return m")), "a local of an inferred type")
+  assert(not prunes(source("local record R end", "local m, n: R, R = {}, {}", "return m")),
+    "a local declared beside another")
   assert(not prunes(source("local record M end", "return (M)")), "a parenthesized name")
   assert(not prunes(source("local record M end", "local M = {}", "return M")),
     "a name declared last as a value")
   assert(not prunes(source("return {}")), "a table")
+end
+
+--- A module returning a local of a written type keeps the declaration and
+--- what it names, and types the same as its source.
+local function test_a_stub_of_a_module_returning_a_typed_local_types_it_the_same()
+  local text = source(
+    'local Json = require("cosmic.json")',
+    "local record M",
+    "  f: function(integer): integer",
+    "end",
+    "local function f(n: integer): integer return Json.encode(n) and n or 0 end",
+    "local m: M = { f = f }",
+    "return m")
+  local stubbed = stub_of(text)
+  assert(stubbed:find("cosmic.json", 1, true) == nil and
+      stubbed:find("local m: M = { f = f }", 1, true) ~= nil, stubbed)
+  local from_source = built.check_string(text, environment({ ["cosmic.json"] =
+      assert(Store.source("cosmic.json")) }), "m.tl", "tl")
+  local from_stub = built.check_string(stubbed, environment({}), "m.tl", "tl")
+  assert(#from_stub.type_errors == 0, from_stub.type_errors[1] and from_stub.type_errors[1].msg)
+  assert(stub.difference(from_source.type, from_stub.type) == nil)
 end

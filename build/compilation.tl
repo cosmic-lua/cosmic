@@ -300,7 +300,9 @@ end
 function compilation.collect(db: Sqlite.Handle): {Module} | nil, string
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT i.path, i.file, i.kind, i.origin, i.source, i.source_hash, " ..
-      "p.has_return, s.source_hash IS NOT NULL, coalesce(s.text, ''), coalesce(s.pruned, 0) " ..
+      "p.has_return, s.source_hash IS NOT NULL, " ..
+      -- Only cosmic's own build reads a stub, of a standard-library module.
+      "CASE WHEN i.path GLOB 'cosmic.*' THEN s.text ELSE '' END, coalesce(s.pruned, 0) " ..
       "FROM inputs i JOIN parsed p ON p.source_hash = i.source_hash " ..
       "LEFT JOIN stubs s ON s.source_hash = i.source_hash " ..
       "WHERE i.kind NOT IN ('decl', 'vendor') ORDER BY i.path")
@@ -516,8 +518,9 @@ end
 
 --- Whether the stub ([`build.stub`]) of the module `m`, which `result`
 --- is the checker's reading of and `checked` its syntax tree, types it the
---- same, and if not why: a global it declares, a stub that is missing or
---- not declaration-only, a type error in the stub, or where its type and
+--- same, and if not why: a global it declares, a stub that is not
+--- declaration-only (or none, for a module that returns nothing), a type
+--- error in the stub, or where its type and
 --- `result.type` part ([`stub.difference`]). The stub is the one the
 --- projection carries ([`build.writer`]). It is checked in `env`, where
 --- `m`'s source was, so each module it requires is the one the source's
@@ -534,15 +537,11 @@ local function held_to_stub(m: Module, built: compiler, env: compiler.Env,
       "no global: a stub of a module requiring it may leave the require out (build/stub.tl)"
   end
   local made = m.stub
-  if made == nil then
-    return false, m.file .. ": the stub a project's checker reads in its place is missing " ..
-      "(build/stub.tl)"
-  end
-  if not made.pruned then
-    return false, m.file .. ": a standard-library module returns a name whose last " ..
-      "top-level declaration spells its type (`local record M ... end`, a local function, " ..
-      "or `local m: M = ...`), so that a project's checker reads only its declarations " ..
-      "(build/stub.tl)"
+  if made == nil or not made.pruned then
+    return false, m.file .. ": its stub keeps every statement, so a project's checker " ..
+      "would read and load all of it: a standard-library module must end by returning a " ..
+      "name whose last top-level declaration spells its type (`local record M ... end`, " ..
+      "a local function, or `local m: M = ...`) (build/stub.tl)"
   end
   local stubbed = built.check_string(made.text, env, m.file .. " (stub)", "tl")
   local refusal = (stubbed.syntax_errors or {})[1] or (stubbed.type_errors or {})[1]

@@ -132,7 +132,7 @@ end
 local function test_a_standard_module_with_no_declaration_only_stub_fails_the_build(tmp: string)
   local handle, tool = own_tree(tmp, "local thing = { n = 1 }\nreturn thing\n")
   local result, trouble = importer.compile(handle, built, tool)
-  assert(result == nil and trouble:find("cosmic/thing.tl: a standard-library module returns a name", 1, true) ~= nil,
+  assert(result == nil and trouble:find("cosmic/thing.tl: its stub keeps every statement", 1, true) ~= nil,
     trouble)
   assert(work.close(handle))
 end
