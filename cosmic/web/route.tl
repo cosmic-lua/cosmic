@@ -71,6 +71,9 @@ function Route.mount(prefix: string, routes: {Types.Route}, opts?: Types.MountOp
     middleware = opts and opts.middleware or {}, reverse = opts and opts.reverse }
 end
 
+-- TODO: a Web.mount_app(prefix, app) once App exposes a handler that takes a
+-- Request and respects `mount_path` (App.handle takes the server's request and
+-- reads the whole path), so another app can be mounted under a prefix.
 --- Everything under `prefix` goes to `handler`, which reads the rest of the
 --- path from `req.segments`, after those of `req.mount_path`. `opts.reverse`
 --- answers `url_for` of the mount's name.

@@ -189,3 +189,33 @@ local function test_abort_raises_a_tagged_table_the_exception_layer_reads()
   assert(Response.aborted({ web_abort = true }) == nil)
   assert(raised(function() Response.abort(200) end):find("400 to 599", 1, true))
 end
+
+local function test_a_constructor_refuses_a_status_the_server_cannot_send()
+  for _, status in ipairs({ 199, 100, 1000, 0, -1 }) do
+    assert(raised(function() Response.text("x", { status = status }) end):find("200 to 999", 1, true), tostring(status))
+  end
+  local fractional: Types.ResponseOptions = {}
+  rawset(fractional, "status", 200.5)
+  assert(raised(function() Response.json(1, fractional) end):find("200 to 999", 1, true))
+  assert(raised(function() Response.empty(150) end):find("200 to 999", 1, true))
+  assert(raised(function() Response.problem(99) end):find("200 to 999", 1, true))
+  local half: Types.ResponseOptions = {}
+  rawset(half, "status", 303.5)
+  assert(raised(function() Response.redirect("/x", half) end):find("301", 1, true))
+  assert(Response.text("x", { status = 999 }).status == 999 and Response.empty(200).status == 200)
+end
+
+local function test_a_json_failure_names_json_once()
+  local cycle: {string:any} = {}
+  cycle.self = cycle
+  local message = raised(function() Response.json(cycle) end)
+  assert(message:find("web: json: ", 1, true) and not message:find("json: json:", 1, true), message)
+  local problem = raised(function() Response.problem(500, "x", { bad = cycle }) end)
+  assert(problem:find("web: problem: ", 1, true) and not problem:find("json: json:", 1, true), problem)
+end
+
+local function test_stream_is_nosniff_like_the_other_constructors()
+  local res = Response.stream(Stream.from_string("abc"), "text/plain")
+  assert(Response.header(res, "x-content-type-options") == "nosniff")
+  assert(Response.header(res, "content-type") == "text/plain")
+end

@@ -37,13 +37,6 @@ local function checked(spec: any, known: {string:boolean}, what: string)
   end
 end
 
---- The host `value`, a Host header, names: lowercase, without its port.
-local function host_of(value: string): string
-  local lower = value:lower()
-  if lower:sub(1, 1) == "[" then return lower:match("^%b[]") or lower end
-  return lower:match("^([^:]*)") or lower
-end
-
 --- Whether `address` is on the loopback.
 local function loopback(address: Net.Address): boolean
   return address.kind == "unix" or address.host:find("^127%.") ~= nil or address.host == "::1"
@@ -95,8 +88,12 @@ function App.new(spec: Types.AppSpec): Types.App
     trusted = {}
     kept.trusted_hosts = {}
     for i, host in ipairs(spec.trusted_hosts) do
-      trusted[host:lower()] = true
-      kept.trusted_hosts[i] = host:lower()
+      local parsed = type(host) == "string" and Request.parse_host(host) or nil
+      if parsed == nil or parsed.port ~= nil then
+        error(("web: trusted_hosts: %q is not a host name without a port"):format(tostring(host)), 2)
+      end
+      trusted[parsed.host] = true
+      kept.trusted_hosts[i] = parsed.host
     end
   end
   local app: Types.App = { spec = kept, state = {}, stopped = false, stoppers = {} }
@@ -133,9 +130,12 @@ function App.new(spec: Types.AppSpec): Types.App
       end
     end
     local req = Request.new(app, raw, parts)
-    if trusted ~= nil and not (req.host ~= nil and trusted[host_of(req.host)]) then
-      outcome = { kind = "bad_host", detail = "the host is not one this app answers to",
-        handler = router.miss, mount_path = "" }
+    if trusted ~= nil then
+      local named = req.host ~= nil and Request.parse_host(req.host) or nil
+      if named == nil or not trusted[named.host] then
+        outcome = { kind = "bad_host", detail = "the host is not one this app answers to",
+          handler = router.miss, mount_path = "" }
+      end
     end
     req.outcome = outcome
     return stack(req)

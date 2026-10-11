@@ -159,6 +159,8 @@ local record Types
     slots: {any:any}
     --- The body once read, nil until then.
     body_text: string
+    --- Why reading the body failed, nil until it did.
+    body_failure: string
 
     --- The first value of header `name`, matched in any case; nil when
     --- the request has none.
@@ -186,9 +188,11 @@ local record Types
     get: function<T>(self: Request, key: Key<T>): T | nil
     --- Stores `value` under `key` for the rest of the request.
     set: function<T>(self: Request, key: Key<T>, value: T)
-    --- "scheme://host" for building an absolute URL, only where the app
-    --- has `trusted_hosts` (the Host header is the client's: a link made
-    --- from it is open to host-header injection). Nil and why otherwise.
+    --- "scheme://host[:port]" for building an absolute URL, only where the
+    --- app has `trusted_hosts` (the Host header is the client's: a link made
+    --- from it is open to host-header injection). It is made from the host
+    --- and port the header was validated to hold, lowercase. Nil and why
+    --- otherwise.
     base_url: function(self: Request): string | nil, string
   end
 
@@ -370,8 +374,10 @@ local record Types
     debug: boolean
     --- "redirect" (default) or "strict": see [`Web.RouterOptions`].
     trailing_slash: TrailingSlash
-    --- Hosts the app answers to, lowercase and without a port; a request
-    --- for another host is a 400.
+    --- Hosts the app answers to, each a name (or an IPv6 literal in
+    --- brackets) without a port: an entry with a port, or that is no host,
+    --- raises when the app is made. A request for another host, at any
+    --- port, or whose Host header is not `host[:port]` whole, is a 400.
     trusted_hosts: {string}
     --- Take the scheme, host and client from `X-Forwarded-Proto`,
     --- `X-Forwarded-Host` and `X-Forwarded-For` (false by default). Only
@@ -395,8 +401,10 @@ local record Types
     state: {any:any}
     --- The compiled routes.
     router: Router
-    --- Answers one request of the server: [`Web.serve`] and the test
-    --- clients call it.
+    --- Answers one request of the server: the server's entry point alone
+    --- ([`Web.serve`] and the test clients call it), taking the whole
+    --- [`Server.Request`] and the full path; middleware and handlers are
+    --- not called with it.
     handle: function(raw: Server.Request): Response
     --- [`Router.reverse`] on the app's routes.
     url_for: function(self: App, name: string, params?: {string: string | integer},

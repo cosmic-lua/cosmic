@@ -144,10 +144,26 @@ function Response.add_header(res: Types.Response, name: string, value: string)
   end
 end
 
+--- `why`, [`Json.encode`]'s, without the "json: " it starts with.
+local function unprefixed(why: string): string
+  return (why:gsub("^json: ", ""))
+end
+
+--- Raises, for the constructor's caller, where `status` is no status the
+--- server can send: [`Server.Reply`] takes an integer from 200 to 999.
+local function check_status(status: any, level: integer)
+  if not (status is integer and status >= 200 and status <= 999) then
+    error("web: a response's status must be an integer from 200 to 999, not " .. tostring(status), level)
+  end
+end
+
 --- Applies `opts` to `res`.
 local function finish(res: Types.Response, opts: Types.ResponseOptions | nil): Types.Response
   if opts == nil then return res end
-  if opts.status ~= nil then res.status = opts.status end
+  if opts.status ~= nil then
+    check_status(opts.status, 4)
+    res.status = opts.status
+  end
   if opts.close ~= nil then res.close = opts.close end
   if opts.length ~= nil then res.length = opts.length end
   if opts.headers ~= nil then
@@ -176,7 +192,7 @@ end
 --- @return Types.Response The response
 function Response.json(value: any, opts?: Types.ResponseOptions): Types.Response
   local text, why = Json.encode(value)
-  if text == nil then error("web: json: " .. why, 2) end
+  if text == nil then error("web: json: " .. unprefixed(why), 2) end
   return finish({ status = 200, headers = { ["Content-Type"] = "application/json",
     ["X-Content-Type-Options"] = "nosniff" }, body = text }, opts)
 end
@@ -216,10 +232,12 @@ end
 --- A redirect to `location`, 303 See Other by default, which a browser
 --- follows with a GET after a POST; `opts.status` may be 301, 302, 303,
 --- 307 or 308. The location must be a local path ([`Web.local_path`]) or an
---- absolute http or https URL, or this raises: that is the guard against
---- an open redirect, so `Web.redirect(req:query():get("next"))` fails for
---- `next=//evil.com` and a program takes user input through
---- [`Web.safe_next`].
+--- absolute http or https URL, or this raises. An absolute URL passes, to
+--- any host: a program redirects to one it chose, and takes a target a
+--- client sent through [`Web.safe_next`], which accepts a local path alone
+--- and is the guard against an open redirect (`next=//evil.com`,
+--- `next=https://evil.com`); this raising is only a check of the
+--- program's own targets.
 --- @param location string Where to
 --- @param opts ResponseOptions | nil Status 303 unless it says
 --- @return Types.Response The response
@@ -255,18 +273,21 @@ end
 --- @param opts ResponseOptions | nil More
 --- @return Types.Response The response
 function Response.empty(status?: integer, opts?: Types.ResponseOptions): Types.Response
+  if status ~= nil then check_status(status, 3) end
   return finish({ status = status or 204, headers = {} }, opts)
 end
 
 --- A reply whose body is a Reader the server reads as it writes: chunked
 --- unless `opts.length` says its size, and closed by the server when sent
---- or abandoned.
+--- or abandoned. `X-Content-Type-Options: nosniff` is set, as for the
+--- other constructors.
 --- @param body Stream.Reader The body
 --- @param content_type string Its Content-Type
 --- @param opts ResponseOptions | nil Status 200 unless it says
 --- @return Types.Response The response
 function Response.stream(body: Stream.Reader, content_type: string, opts?: Types.ResponseOptions): Types.Response
-  return finish({ status = 200, headers = { ["Content-Type"] = content_type }, body = body }, opts)
+  return finish({ status = 200, headers = { ["Content-Type"] = content_type,
+    ["X-Content-Type-Options"] = "nosniff" }, body = body }, opts)
 end
 
 -- TODO: Web.file (ETag, Last-Modified, 304 and Range by Server.none_match and
@@ -282,6 +303,7 @@ end
 --- @param extra {string:any} | nil More members
 --- @return Types.Response The response
 function Response.problem(status: integer, detail?: string, extra?: {string:any}): Types.Response
+  check_status(status, 3)
   local reason = Server.reason(status)
   local body: {string:any} = { type = "about:blank", title = reason ~= "" and reason or "Error" }
   if extra ~= nil then
@@ -290,7 +312,7 @@ function Response.problem(status: integer, detail?: string, extra?: {string:any}
   body.status = status
   body.detail = detail
   local text, why = Json.encode(body)
-  if text == nil then error("web: problem: " .. why, 2) end
+  if text == nil then error("web: problem: " .. unprefixed(why), 2) end
   return { status = status, headers = { ["Content-Type"] = "application/problem+json",
     ["X-Content-Type-Options"] = "nosniff" }, body = text }
 end

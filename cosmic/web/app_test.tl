@@ -1,4 +1,6 @@
 local Json = require("cosmic.json")
+local Server = require("cosmic.http.server")
+local Stream = require("cosmic.stream")
 local Web = require("cosmic.web")
 
 --- A sink that keeps its lines.
@@ -378,4 +380,83 @@ local function test_on_stop_takes_a_function_and_stopping_starts_false()
   assert(app:stopping() == false)
   local none: function() = nil
   assert(raised(function() app:on_stop(none) end):find("takes a function", 1, true))
+end
+
+--- A middleware that aborts every request with 403 before its handler.
+local function aborting(trace: {string}): Web.Middleware
+  return function(_inner: Web.Handler): Web.Handler
+    return function(_req: Web.Request): Web.Response
+      trace[#trace + 1] = "abort"
+      return Web.abort(403, "no entry")
+    end
+  end
+end
+
+local function test_abort_from_app_middleware_is_answered_and_seen_by_the_middleware_outside()
+  local trace: {string} = {}
+  local sink, lines = recording()
+  local app = Web.app{
+    routes = { Web.get("/", hello) },
+    middleware = { Web.access_log(), tracing(trace, "A"), aborting(trace) },
+    sink = sink,
+  }
+  local res = Web.test_client(app):get("/", { headers = { accept = "application/json" } })
+  assert(res.status == 403, "answered, not raised")
+  local body = assert(res:json()) as {string:any}
+  assert(body.detail == "no entry" and body.status == 403)
+  assert(table.concat(trace, " ") == "A abort /A", table.concat(trace, " "))
+  assert(#lines == 1 and lines[1]:find("^GET / 403 "), table.concat(lines, "|"))
+  assert(Web.test_client(app):get("/").status == 403, "an error page, negotiated like any")
+end
+
+local function test_abort_from_mount_and_route_middleware_is_answered()
+  local trace: {string} = {}
+  local app = Web.app{
+    routes = {
+      Web.mount("/m", { Web.get("/x", hello) }, { middleware = { aborting(trace) } }),
+      Web.get("/r", hello, { middleware = { tracing(trace, "R"), aborting(trace) } }),
+      Web.mount("/ok", { Web.get("/x", hello, { middleware = { aborting(trace) } }) }),
+    },
+    middleware = { tracing(trace, "A") },
+  }
+  local client = Web.test_client(app)
+  assert(client:get("/m/x").status == 403)
+  assert(client:get("/m/missing").status == 403, "a miss inside the mount passes its middleware too")
+  assert(client:get("/r").status == 403)
+  assert(client:get("/ok/x").status == 403)
+  assert(table.concat(trace, " ") == "A abort /A A abort /A A R abort /R /A A abort /A", table.concat(trace, " "))
+end
+
+local function test_a_fault_in_app_middleware_still_reaches_the_server_not_the_middleware_outside()
+  local seen: {integer} = {}
+  local function faulting(_inner: Web.Handler): Web.Handler
+    return function(_req: Web.Request): Web.Response
+      error("middleware bug")
+    end
+  end
+  local function watching(inner: Web.Handler): Web.Handler
+    return function(req: Web.Request): Web.Response
+      local res = inner(req)
+      seen[#seen + 1] = res.status
+      return res
+    end
+  end
+  local app = Web.app{ routes = { Web.get("/", hello) }, middleware = { watching, faulting } }
+  local message = raised(function() Web.test_client(app):get("/") end)
+  assert(message:find("middleware bug", 1, true), message)
+  assert(#seen == 0)
+  local trail = select(2, message:gsub("stack traceback:", ""))
+  assert(trail == 1, "traced once, by the first layer that saw it")
+end
+
+local function test_access_log_escapes_control_bytes_of_the_query()
+  local sink, lines = recording()
+  local app = Web.app{ routes = { Web.get("/", hello) }, middleware = { Web.access_log{ log_query = true } },
+    sink = sink }
+  local raw: Server.Request = { method = "GET", target = "/?a=1\r\nFAKE 200", path = "/",
+    query = "a=1\r\nFAKE 200 line\127", version = "HTTP/1.1", headers = { host = "x" },
+    body = Stream.from_string(""), length = 0 }
+  assert(app.handle(raw).status == 200)
+  assert(#lines == 1 and not lines[1]:find("[\r\n\127]"), lines[1])
+  assert(lines[1]:find("?a=1%0D%0AFAKE 200 line%7F", 1, true), lines[1])
 end

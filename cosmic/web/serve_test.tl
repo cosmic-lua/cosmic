@@ -4,6 +4,7 @@
 local Clock = require("cosmic.clock")
 local Net = require("cosmic.net")
 local Poll = require("cosmic.poll")
+local Server = require("cosmic.http.server")
 local Stream = require("cosmic.stream")
 local Test = require("cosmic.test")
 local Web = require("cosmic.web")
@@ -203,4 +204,85 @@ local function test_serve_refuses_an_option_it_does_not_have()
   local options: Web.ServeOptions = { listeners = { Net.tcp("127.0.0.1", 0) } }
   rawset(options, "port", 80)
   assert(raised(function() Web.serve(app, options) end):find("serve has no field port", 1, true))
+end
+
+local function test_serve_gives_the_server_a_grace_of_ten_seconds_unless_told_otherwise()
+  local graces: {integer} = {}
+  local real = Server.serve
+  Server.serve = function(spec: Server.ServeSpec): boolean, string
+    graces[#graces + 1] = spec.grace_ns
+    return true, ""
+  end
+  local ran, err = pcall(function()
+    local app = Web.app{ routes = {} }
+    assert(Web.serve(app, { listeners = { Net.tcp("127.0.0.1", 0) } }))
+    assert(Web.serve(app, { listeners = { Net.tcp("127.0.0.1", 0) }, grace_ns = Clock.ms(250) }))
+  end)
+  Server.serve = real
+  assert(ran, tostring(err))
+  assert(graces[1] == Clock.seconds(10), "the default grace: " .. tostring(graces[1]))
+  assert(graces[2] == Clock.ms(250), "an explicit grace is forwarded")
+end
+
+local function test_a_handler_that_ignores_stopping_is_cut_off_at_the_grace()
+  local app = Web.app{ routes = { Web.get("/forever", function(_req: Web.Request): Web.Response
+    return Web.stream({
+      read = function(_self: Stream.Reader, _max?: integer): string | nil, string
+        assert(Poll.delay(Clock.ms(5)))
+        return "x", ""
+      end,
+      close = function(_self: Stream.Reader): boolean, string return true, "" end,
+    }, "text/plain")
+  end) } }
+  local started = Clock.monotonic_ns()
+  local ok, why = Web.serve(app, {
+    listeners = { Net.tcp("127.0.0.1", 0) },
+    grace_ns = Clock.ms(200),
+    on_ready = function(addresses: {Net.Address}, server: Net.Server)
+      local conn <close> = assert(Net.connect(addresses[1], { timeout_ns = Clock.seconds(5) }))
+      assert(conn:write("GET /forever HTTP/1.1\r\nHost: x\r\n\r\n"))
+      assert(conn:read())
+      server:stop()
+    end,
+  })
+  assert(ok, why)
+  assert(Clock.monotonic_ns() - started < Clock.seconds(5), "the grace ended the stream, not its own end")
+end
+
+--- A client of `fn`'s server whose connection leads to a server of its own
+--- making: `script` is what that server sends once the client has written.
+local function scripted(client: Web.LoopbackClient, script: string)
+  local listener <close> = assert(Net.listen(Net.tcp("127.0.0.1", 0)))
+  local conn = assert(Net.connect(listener.address, { timeout_ns = Clock.seconds(5) }))
+  local peer <close> = assert(listener:accept())
+  client.conn = conn
+  client.buf = ""
+  if script ~= "" then assert(peer:write(script)) end
+end
+
+local function test_the_loopback_client_refuses_a_chunk_size_that_is_garbage()
+  local app = Web.app{ routes = {} }
+  Web.with_server(app, function(client: Web.LoopbackClient)
+    scripted(client, "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\nzz\r\nabc\r\n0\r\n\r\n")
+    local res, why = client:get("/")
+    assert(res == nil and why:find("not a chunk size: zz", 1, true), tostring(why))
+    scripted(client, "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n3x\r\nabc\r\n0\r\n\r\n")
+    local second, second_why = client:get("/")
+    assert(second == nil and second_why:find("not a chunk size: 3x", 1, true), tostring(second_why))
+    scripted(client, "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n3;ext=1\r\nabc\r\n0\r\n\r\n")
+    local fine = assert(client:get("/"))
+    assert(fine:text() == "abc")
+  end)
+end
+
+local function test_the_loopback_client_fails_when_the_server_goes_silent()
+  local app = Web.app{ routes = {} }
+  Web.with_server(app, function(client: Web.LoopbackClient)
+    scripted(client, "")
+    client.conn:set_timeout(Clock.ms(100))
+    local started = Clock.monotonic_ns()
+    local res, why = client:get("/")
+    assert(res == nil and why ~= "", "a silent server is a failure, not a wait")
+    assert(Clock.monotonic_ns() - started < Clock.seconds(3))
+  end)
 end

@@ -48,7 +48,11 @@ local record Router
 end
 
 --- The prefix under which cosmic.web serves its own assets: no route of
---- an app may be at or under it.
+--- an app may be at or under it, by its full path (a mount's prefix and the
+--- pattern): `/x/_web/a` inside a mount at `/x` is the app's. A catch-all
+--- at the root (`/*p`, `/:x`, a mount of "/") is allowed.
+-- TODO: once cosmic.web serves its own assets under /_web/, the router tries
+-- that prefix before the app's routes, so a root catch-all cannot shadow them.
 local RESERVED <const> = "_web"
 
 --- A parameter's name.
@@ -217,8 +221,10 @@ local function joined(prefix: {string}, segments: {Types.Segment}): {Types.Segme
   return out
 end
 
---- Whether the first segment of `segments` is the reserved one.
-local function reserved(segments: {Types.Segment}): boolean
+--- Whether the path of `segments` below the mounts' `prefix` starts with
+--- the reserved segment.
+local function reserved(prefix: {string}, segments: {Types.Segment}): boolean
+  if prefix[1] ~= nil then return prefix[1] == RESERVED end
   return segments[1] ~= nil and segments[1].kind == "literal" and segments[1].text == RESERVED
 end
 
@@ -236,7 +242,7 @@ local function add_leaf(route: Types.Route, ctx: Router.Context, root: Types.Nod
   local what = ("%q"):format(pattern)
   if type(route.handler) ~= "function" then refuse(what, "it has no handler") end
   if #route.methods == 0 then refuse(what, "it names no method") end
-  if reserved(segments) then
+  if reserved(ctx.prefix, segments) then
     -- TODO: once cosmic.web serves its own assets under /_web/, Web.app
     -- registers them through an option that lifts this for its own routes.
     refuse(what, "/_web/ is reserved for cosmic.web's own assets")
@@ -284,7 +290,7 @@ local function add_mount(route: Types.Route, ctx: Router.Context, root: Types.No
   end
   local segments = parsed.segments
   local what = ("mount %q"):format(route.pattern)
-  if reserved(segments) then
+  if reserved(ctx.prefix, segments) then
     refuse(what, "/_web/ is reserved for cosmic.web's own assets")
   end
   local node = descend(root, segments, what)
@@ -350,29 +356,57 @@ local record Hit
   at: integer
 end
 
-local function walk(node: Types.Node, segments: {string}, i: integer, values: {string}): Hit | nil
+--- What a walk carries: the method looked up, and the most specific node
+--- the path reached that answers some other method.
+local record Walk
+  method: string
+  other: Hit
+end
+
+--- Whether `methods` answers `method` (HEAD by a GET).
+local function answers(methods: Types.Methods, method: string): boolean
+  return methods.by_method[method] ~= nil or (method == "HEAD" and methods.by_method["GET"] ~= nil)
+end
+
+--- The hit at `methods` for `walk`, or nil where it lacks the method; the
+--- first such node is kept as the walk's `other`, for a 405 to name.
+local function settle(walk_: Walk, methods: Types.Methods, values: {string}, rest_from: integer): Hit | nil
+  if answers(methods, walk_.method) then
+    return { methods = methods, values = values, rest_from = rest_from }
+  end
+  if walk_.other == nil then
+    walk_.other = { methods = methods, values = {}, rest_from = rest_from }
+  end
+  return nil
+end
+
+local function walk(node: Types.Node, segments: {string}, i: integer, values: {string},
+                    state: Walk): Hit | nil
   if node.mount ~= nil then
     return { mount = node.mount, at = i, values = values, rest_from = 0 }
   end
   if i > #segments then
-    if node.exact ~= nil then return { methods = node.exact, values = values, rest_from = 0 } end
-    if node.wild ~= nil then return { methods = node.wild, values = values, rest_from = i } end
+    if node.exact ~= nil then
+      local hit = settle(state, node.exact, values, 0)
+      if hit ~= nil then return hit end
+    end
+    if node.wild ~= nil then return settle(state, node.wild, values, i) end
     return nil
   end
   local segment = segments[i]
   local child = node.literal[segment]
   if child ~= nil then
-    local hit = walk(child, segments, i + 1, values)
+    local hit = walk(child, segments, i + 1, values, state)
     if hit ~= nil then return hit end
   end
   if node.param ~= nil then
     values[#values + 1] = segment
-    local hit = walk(node.param, segments, i + 1, values)
+    local hit = walk(node.param, segments, i + 1, values, state)
     if hit ~= nil then return hit end
     values[#values] = nil
   end
   if node.wild ~= nil then
-    return { methods = node.wild, values = values, rest_from = i }
+    return settle(state, node.wild, values, i)
   end
   return nil
 end
@@ -395,7 +429,12 @@ local function verbs_of(methods: Types.Methods): {string:boolean}
   return verbs
 end
 
---- Looks `segments`, from the `from`th, up in `router` for `method`.
+--- Looks `segments`, from the `from`th, up in `router` for `method`. The
+--- most specific route that answers the method wins: where the most
+--- specific node answers others alone (`POST /files` beside `GET
+--- /files/*r`) the lookup goes on to the next node that has the method, and
+--- answers 405 (or the automatic OPTIONS) only where none does, with the
+--- `Allow` of the most specific node the path reached.
 --- @param router Types.Router The router, or a mount's
 --- @param method string The request's method
 --- @param segments {string} The canonical path's segments
@@ -403,7 +442,8 @@ end
 --- @return Types.Outcome What to do
 function Router.lookup(router: Types.Router, method: string, segments: {string}, trailing: boolean,
                        from?: integer): Types.Outcome
-  local hit = walk(router.root, segments, from or 1, {})
+  local state: Walk = { method = method }
+  local hit = walk(router.root, segments, from or 1, {}, state) or state.other
   if hit == nil then
     return { kind = "not_found", handler = router.miss, mount_path = router.mount_path }
   end
@@ -540,8 +580,8 @@ local router_mt: metatable<Types.Router> = { __index = { match = match, reverse 
 --- Compiles `routes` into a router. Raises, naming the pattern, for a route
 --- or mount that cannot be registered: a pattern that is not valid, two
 --- routes answering the same paths for one method, a name used twice, a
---- route under a mount's prefix, or one at or under the reserved
---- `/_web/`.
+--- route under a mount's prefix, or one whose full path (a mount's prefix
+--- and its pattern) starts with the reserved `/_web/`.
 --- @param routes {Types.Route} The routes
 --- @param terminal Types.Handler Answers a request no route takes
 --- @param policy TrailingSlash | nil "redirect" (default) or "strict"

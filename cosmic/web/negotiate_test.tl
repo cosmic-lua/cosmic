@@ -35,7 +35,22 @@ local function test_a_malformed_range_or_weight_is_skipped()
   assert(Negotiate.best("text/html;q=abc, application/json", HTML_OR_JSON) == "application/json")
   assert(Negotiate.best("text/html;q=1.5, application/json", HTML_OR_JSON) == "application/json")
   assert(Negotiate.best("*/html, application/json", HTML_OR_JSON) == "application/json")
-  assert(Negotiate.best(",,,", HTML_OR_JSON) == nil)
+end
+
+local function test_a_weight_needs_its_dot_before_fraction_digits()
+  assert(Negotiate.best("text/html;q=01, application/json;q=0.5", HTML_OR_JSON) == "application/json")
+  assert(Negotiate.best("text/html;q=05, application/json;q=0.1", HTML_OR_JSON) == "application/json")
+  assert(Negotiate.best("text/html;q=0.5, application/json;q=1.", HTML_OR_JSON) == "application/json")
+  assert(Negotiate.best("text/html;q=1.0000, application/json;q=0.1", HTML_OR_JSON) == "application/json")
+  assert(Negotiate.best("text/html;q=1, application/json;q=0.999", HTML_OR_JSON) == "text/html")
+end
+
+local function test_an_accept_header_with_no_valid_range_is_read_as_absent()
+  assert(Negotiate.best(",,,", HTML_OR_JSON) == "text/html")
+  assert(Negotiate.best("garbage", HTML_OR_JSON) == "text/html")
+  assert(Negotiate.best("text/html;q=abc", HTML_OR_JSON) == "text/html")
+  assert(Negotiate.best("text/html;q=0", HTML_OR_JSON) == nil, "a valid range that refuses all is not garbage")
+  assert(Negotiate.best("image/png", HTML_OR_JSON) == nil, "a valid range that matches none is not garbage")
 end
 
 local function test_case_and_spaces_do_not_matter()

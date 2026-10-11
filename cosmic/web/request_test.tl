@@ -160,3 +160,95 @@ local function test_base_url_needs_trusted_hosts()
   Web.test_client(trusting):get("/items/1")
   assert(trusted_seen[1]:base_url() == "http://testserver")
 end
+
+local function test_a_host_header_is_valid_whole_or_it_is_a_400()
+  local app, seen = recording({ trusted_hosts = { "good.com" } })
+  local client = Web.test_client(app)
+  local bad: {string} = {
+    "good.com:@evil.com", "good.com:x/y", "good.com:80\\@evil.com", "good.com@evil.com", "good.com:",
+    "good.com:80:80", "good.com:65536", "good.com:123456", "good.com/x", "good.com evil.com",
+    "good.com#x", "good.com?x", "[::1]@evil.com", "[good.com]", "[::1", "[::g]", "", "good.com\\evil.com",
+  }
+  for _, host in ipairs(bad) do
+    local res = client:get("/items/1", { headers = { host = host } })
+    assert(res.status == 400, ("%q answered %d"):format(host, res.status))
+  end
+  assert(#seen == 0, "no handler saw a request with a bad host")
+  assert(client:get("/items/1", { headers = { host = "GOOD.com:65535" } }).status == 200)
+  assert(seen[1]:base_url() == "http://good.com:65535")
+  assert(client:get("/items/1", { headers = { host = "good.com" } }).status == 200)
+  assert(seen[2]:base_url() == "http://good.com")
+  assert(client:get("/items/1", { headers = { host = "good.com:080" } }).status == 200)
+  assert(seen[3]:base_url() == "http://good.com:80", "a port is written as a number")
+end
+
+local function test_base_url_is_made_from_the_validated_host_and_port_alone()
+  local app, seen = recording({ trusted_hosts = { "[::1]", "10.0.0.1" }, trusted_proxy = true })
+  local client = Web.test_client(app)
+  assert(client:get("/items/1", { headers = { host = "[::1]:8080" } }).status == 200)
+  assert(seen[1]:base_url() == "http://[::1]:8080")
+  assert(client:get("/items/1", { headers = { host = "10.0.0.1" } }).status == 200)
+  assert(seen[2]:base_url() == "http://10.0.0.1")
+  local forwarded = { ["x-forwarded-proto"] = "https", ["x-forwarded-host"] = "10.0.0.1:443" }
+  assert(client:get("/items/1", { headers = forwarded }).status == 200)
+  assert(seen[3]:base_url() == "https://10.0.0.1:443")
+  for _, host in ipairs({ "10.0.0.1:@evil.com", "[::1]@evil.com", "10.0.0.1:x/y", "10.0.0.1:80\\@evil.com" }) do
+    local attack = { ["x-forwarded-host"] = host }
+    assert(client:get("/items/1", { headers = attack }).status == 400, host .. " by X-Forwarded-Host")
+  end
+  assert(#seen == 3)
+end
+
+local function test_a_trusted_host_with_a_port_or_no_host_raises_when_the_app_is_made()
+  for _, entry in ipairs({ "good.com:8080", "good.com:", "good.com@evil.com", "", "a b", "[::1]:80" }) do
+    local ok, err = pcall(Web.app, { routes = {}, trusted_hosts = { entry } })
+    assert(not ok and tostring(err):find("trusted_hosts", 1, true) and
+        tostring(err):find("without a port", 1, true), entry .. ": " .. tostring(err))
+  end
+  local app, seen = recording({ trusted_hosts = { "Good.COM" } })
+  local client = Web.test_client(app)
+  assert(client:get("/items/1", { headers = { host = "good.com:9999" } }).status == 200, "any port matches")
+  assert(seen[1]:base_url() == "http://good.com:9999")
+end
+
+local function test_a_failed_body_read_is_remembered()
+  local reads = 0
+  local seen: Web.Request = nil
+  local app = Web.app{ routes = { Web.post("/", function(r: Web.Request): Web.Response
+    seen = r
+    return Web.text("ok")
+  end) } }
+  local body: Stream.Reader = {
+    read = function(_self: Stream.Reader, _max?: integer): string | nil, string
+      reads = reads + 1
+      return nil, "the client went away"
+    end,
+    close = function(_self: Stream.Reader): boolean, string return true, "" end,
+  }
+  local raw: Server.Request = { method = "POST", target = "/", path = "/", query = "", version = "HTTP/1.1",
+    headers = { host = "x" }, body = body, length = 5 }
+  assert(app.handle(raw).status == 200)
+  local first, first_why = seen:bytes()
+  assert(first == nil and first_why == "the client went away")
+  local reads_after_first = reads
+  local second, second_why = seen:bytes()
+  assert(second == nil and second_why == first_why, "the same failure again")
+  local third, third_why = seen:text()
+  assert(third == nil and third_why == first_why)
+  assert(reads == reads_after_first, "the spent reader is not read again")
+end
+
+local function test_a_forwarded_client_is_an_address_or_the_peer()
+  local app, seen = recording({ trusted_proxy = true })
+  local client = Web.test_client(app)
+  local cases: {{string}} = {
+    { "203.0.113.9", "203.0.113.9" }, { "2001:db8::1", "2001:db8::1" }, { "::1", "::1" },
+    { "999.1.1.1", "127.0.0.1" }, { "1.2.3.4.5", "127.0.0.1" }, { "1.2.3", "127.0.0.1" },
+    { "abc", "127.0.0.1" }, { "1.2.3.4:80", "127.0.0.1" }, { "dead:beef", "127.0.0.1" },
+    { ":::", "127.0.0.1" }, { "...", "127.0.0.1" }, { "1:2:3:4:5:6:7:8:9", "127.0.0.1" },
+  }
+  for i, case in ipairs(cases) do
+    client:get("/items/1", { headers = { ["x-forwarded-for"] = case[1] } })
+    assert(seen[i].client.host == case[2], ("%q gave %s"):format(case[1], seen[i].client.host))
+  end
+end

@@ -209,14 +209,15 @@ end
 --- Starts the app's lifespan, once.
 local function start(client: Testing.Client)
   if client.started then return end
-  client.started = true
   local lifespan = client.app.spec.lifespan
-  if lifespan == nil then return end
-  local cleanup, why = lifespan(client.app)
-  if cleanup == nil and why ~= nil and why ~= "" then
-    error("web: test client: the lifespan failed: " .. why, 0)
+  if lifespan ~= nil then
+    local cleanup, why = lifespan(client.app)
+    if cleanup == nil and why ~= nil and why ~= "" then
+      error("web: test client: the lifespan failed: " .. why, 0)
+    end
+    client.shutdown = cleanup
   end
-  client.shutdown = cleanup
+  client.started = true
 end
 
 --- Updates the jar with a `Set-Cookie` line: the name and value, and a
@@ -393,7 +394,9 @@ function Testing.with_client(app: Types.App, fn: function(client: Testing.Client
   Poll.run(function() fn(client) end)
 end
 
-local TIMEOUT_NS <const> = Clock.seconds(5)
+--- How long a connect, a read or a write of the loopback client waits: a
+--- server that goes silent fails the test in this long, not never.
+local IO_TIMEOUT_NS <const> = Clock.seconds(5)
 
 --- Reads more of the connection into the buffer.
 local function fill(lb: Testing.Loopback): boolean, string
@@ -453,7 +456,9 @@ local function read_reply(lb: Testing.Loopback, method: string): Response | nil,
       while true do
         local size_line, size_why = next_line(lb)
         if size_line == nil then return nil, size_why end
-        local size = tonumber(size_line:match("^%x+"), 16)
+        local digits = size_line:match("^(%x+)$") or size_line:match("^(%x+);")
+        if digits == nil then return nil, "not a chunk size: " .. size_line end
+        local size = tonumber(digits, 16)
         if size == nil then return nil, "not a chunk size: " .. size_line end
         if size == 0 then
           repeat
@@ -533,12 +538,13 @@ function Testing.with_server(app: Types.App, fn: function(client: Testing.Loopba
   local ok, why = App.serve(app, {
     listeners = { Net.tcp("127.0.0.1", 0) },
     on_ready = function(addresses: {Net.Address}, server: Net.Server)
-      local conn, connect_why = Net.connect(addresses[1], { timeout_ns = TIMEOUT_NS })
+      local conn, connect_why = Net.connect(addresses[1], { timeout_ns = IO_TIMEOUT_NS })
       if conn == nil then
         failure = "web: with_server: connecting: " .. connect_why
         server:stop()
         return
       end
+      conn:set_timeout(IO_TIMEOUT_NS)
       local client: Testing.Loopback = setmetatable({ conn = conn, buf = "",
         host = "127.0.0.1:" .. addresses[1].port }, loopback_mt)
       local ran, raised = pcall(function() fn(client) end)

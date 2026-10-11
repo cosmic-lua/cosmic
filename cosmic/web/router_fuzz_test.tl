@@ -170,3 +170,78 @@ local function test_the_app_answers_any_path_with_a_sane_status(tmp: string)
     end,
   })
 end
+
+--- `path` with some of its unreserved bytes written as escapes, in either
+--- case of hex, as `salt` chooses; the escapes it already holds are kept
+--- whole, so a valid path stays valid and an invalid one invalid.
+local function reescaped(path: string, salt: integer): string
+  local out: {string} = {}
+  local at = 1
+  while at <= #path do
+    local byte = path:sub(at, at)
+    if byte == "%" and path:sub(at + 1, at + 2):find("^%x%x$") then
+      out[#out + 1] = path:sub(at, at + 2)
+      at = at + 3
+    else
+      if byte:find("^[%w%-._~]$") and (at + salt) % 2 == 0 then
+        out[#out + 1] = ((at + salt) % 4 == 0 and "%%%02X" or "%%%02x"):format(byte:byte())
+      else
+        out[#out + 1] = byte
+      end
+      at = at + 1
+    end
+  end
+  return table.concat(out)
+end
+
+local function test_a_path_and_its_reescaped_spelling_reach_the_same_outcome(tmp: string)
+  local seen: {string} = {}
+  local function recording(inner: Web.Handler): Web.Handler
+    return function(req: Web.Request): Web.Response
+      local params: {string} = {}
+      for name, value in pairs(req.params) do params[#params + 1] = name .. "=" .. value end
+      table.sort(params)
+      seen[#seen + 1] = ("%s|%s|%s"):format(req.path, req.route and req.route.pattern or "-",
+        table.concat(params, "&"))
+      return inner(req)
+    end
+  end
+  local app = Web.app{
+    routes = {
+      Web.get("/", ok), Web.get("/items", ok), Web.get("/items/new", ok), Web.get("/items/:id", ok),
+      Web.get("/docs/", ok), Web.get("/static/*path", ok),
+      Web.mount("/api", { Web.get("/items/:id", ok), Web.mount("/v1", { Web.get("/ping", ok) }) }),
+      Web.mount_handler("/legacy", ok),
+    },
+    middleware = { recording },
+    sink = { line = function(_self: Web.Sink, _text: string) end },
+  }
+  local function answer(path: string): string
+    for i = #seen, 1, -1 do seen[i] = nil end
+    local raw: Server.Request = { method = "GET", target = path, path = path, query = "", version = "HTTP/1.1",
+      headers = { host = "x" }, body = Stream.from_string(""), length = 0 }
+    local res = app.handle(raw)
+    return ("%d|%s|%s"):format(res.status, Web.header(res, "Location") or "-", table.concat(seen, ";"))
+  end
+  Fuzz.run({
+    name = "web reescaped path",
+    dir = tmp,
+    gen = function(src: Fuzz.Source): string
+      return Fuzz.pack({ gen_path(src), tostring(src:int(0, 3)) })
+    end,
+    requires = { "same", "encoded" },
+    shares = { same = 0.3, encoded = 0.3 },
+    check = function(input: string): boolean, string
+      local fields = Fuzz.unpack(input)
+      local path = fields[1]
+      local variant = reescaped(path, math.tointeger(tonumber(fields[2])) or 0)
+      local plain, other = answer(path), answer(variant)
+      if variant ~= path then Fuzz.label("encoded") end
+      if plain ~= other then
+        return false, ("%q answered %s, but %q answered %s"):format(path, plain, variant, other)
+      end
+      Fuzz.label("same")
+      return true, ""
+    end,
+  })
+end

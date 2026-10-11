@@ -353,3 +353,50 @@ local function test_url_escape_html_url_part_and_reverse_agree()
     end
   end
 end
+
+local function test_a_method_the_most_specific_node_lacks_falls_back_to_the_next_node_that_has_it()
+  local router = Web.router({
+    Web.post("/files", ok, { name = "upload" }),
+    Web.get("/files/*r", ok, { name = "download" }),
+    Web.put("/files/:id", ok, { name = "put" }),
+  })
+  local get = router:match("GET", "/files")
+  assert(get.kind == "match" and get.route.name == "download" and get.params.r == "", "the wildcard answers")
+  assert(router:match("HEAD", "/files").kind == "match")
+  assert(router:match("POST", "/files").route.name == "upload")
+  local other = router:match("DELETE", "/files")
+  assert(other.kind == "not_allowed" and other.allow == "OPTIONS, POST",
+    "405 names the most specific node's methods: " .. other.allow)
+  local one = router:match("GET", "/files/7")
+  assert(one.kind == "match" and one.route.name == "download" and one.params.r == "7",
+    "the param node lacks GET: the wildcard above it answers")
+  assert(router:match("PUT", "/files/7").route.name == "put")
+  local nobody = router:match("PATCH", "/files/7")
+  assert(nobody.kind == "not_allowed" and nobody.allow == "OPTIONS, PUT", nobody.allow)
+  assert(router:match("OPTIONS", "/files").kind == "options")
+end
+
+local function test_a_405_needs_no_node_to_answer_the_method()
+  local router = Web.router({ Web.post("/p", ok), Web.get("/p/*r", ok) })
+  local outcome = router:match("DELETE", "/p")
+  assert(outcome.kind == "not_allowed" and outcome.allow == "OPTIONS, POST", outcome.allow)
+  assert(router:match("GET", "/p").kind == "match")
+end
+
+local function test_the_reserved_prefix_is_judged_by_the_full_path()
+  for _, pattern in ipairs({ "/_web", "/_web/a" }) do
+    local message = raised(function() Web.router({ Web.get(pattern, ok) }) end)
+    assert(message:find("reserved", 1, true), message)
+  end
+  assert(raised(function() Web.router({ Web.mount("/_web", { Web.get("/x", ok) }) }) end):find("reserved", 1, true))
+  assert(raised(function() Web.router({ Web.mount_handler("/_web", ok) }) end):find("reserved", 1, true))
+  -- A name that is only reserved at the root: inside a mount it is the app's.
+  local router = Web.router({ Web.mount("/x", { Web.get("/_web/a", ok, { name = "a" }) }) })
+  assert(route_of(router, "/x/_web/a") == "/x/_web/a")
+  local deeper = Web.router({ Web.mount("/x", { Web.mount("/_web", { Web.get("/b", ok) }) }) })
+  assert(route_of(deeper, "/x/_web/b") == "/x/_web/b")
+  -- A catch-all at the root is allowed; the built-in assets will be tried first.
+  assert(route_of(Web.router({ Web.get("/*p", ok) }), "/_web/x") == "/*p")
+  assert(route_of(Web.router({ Web.get("/:p", ok) }), "/_web") == "/:p")
+  assert(route_of(Web.router({ Web.mount_handler("/", ok) }), "/_web/x") == "/*")
+end

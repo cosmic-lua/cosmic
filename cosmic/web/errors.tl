@@ -101,6 +101,8 @@ end
 --- other raise as its message and stack.
 local function traced(err: any): any
   if Response.aborted(err) ~= nil then return err end
+  -- A layer below has traced it: the first stack is the one that matters.
+  if err is string and err:find("\nstack traceback:", 1, true) then return err end
   return errors.trace(tostring(err), 2)
 end
 
@@ -118,6 +120,18 @@ local function fault(req: Types.Request, trace: string): Types.Response
   local ok, res = pcall(respond, req, 500)
   if ok then return res end
   return Response.text("Internal Server Error\n", { status = 500 })
+end
+
+--- The answer for `abort`, which `req` raised: the error page of its
+--- status. A 5xx goes to the sink too.
+local function answer_abort(req: Types.Request, abort: Response.Abort): Types.Response
+  if abort.status >= 500 then
+    req.app.spec.sink:line(("%s %s: aborted %d: %s"):format(req.method, req.path, abort.status,
+      abort.detail or ""))
+  end
+  local answered, answer = pcall(respond, req, abort.status, abort.detail, abort.extra)
+  if answered then return answer end
+  return fault(req, tostring(answer))
 end
 
 --- `inner` with the exception layer around it: an abort is answered with
@@ -143,13 +157,25 @@ function Errors.wrap(inner: Types.Handler): Types.Handler
     end
     local abort = Response.aborted(raised)
     if abort == nil then return fault(req, tostring(raised)) end
-    if abort.status >= 500 then
-      req.app.spec.sink:line(("%s %s: aborted %d: %s"):format(req.method, req.path, abort.status,
-        abort.detail or ""))
-    end
-    local answered, answer = pcall(respond, req, abort.status, abort.detail, abort.extra)
-    if answered then return answer end
-    return fault(req, tostring(answer))
+    return answer_abort(req, abort)
+  end
+end
+
+--- `inner` with an abort answered where it is raised, for a layer of
+--- middleware: [`Web.abort`] from a middleware becomes the error page of its
+--- status, as a response the middleware outside it sees, so an access log
+--- or a header it adds covers it. Any other raise passes on with its
+--- stack, for the exception layer or the server to answer 500, as before.
+--- @param inner Types.Handler One middleware's handler
+--- @return Types.Handler The guarded handler
+function Errors.guard(inner: Types.Handler): Types.Handler
+  return function(req: Types.Request): Types.Response
+    local res: Types.Response
+    local ok, raised = xpcall(function() res = inner(req) end, traced)
+    if ok then return res end
+    local abort = Response.aborted(raised)
+    if abort == nil then error(raised, 0) end
+    return answer_abort(req, abort)
   end
 end
 

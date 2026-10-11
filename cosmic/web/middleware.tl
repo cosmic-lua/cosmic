@@ -2,6 +2,7 @@
 --- app writes its lines to, and the access log.
 
 local Clock = require("cosmic.clock")
+local Errors = require("cosmic.web.errors")
 local Log = require("cosmic.log")
 local Types = require("cosmic.web.types")
 
@@ -22,14 +23,17 @@ local record Middleware
 end
 
 --- `handler` with `stack` folded around it: the first of `stack` is
---- outermost, as it sees the request first and the response last.
+--- outermost, as it sees the request first and the response last. A
+--- [`Web.abort`] raised by a middleware or by what is below it is answered
+--- at that layer, so the middleware outside it sees the error page as a
+--- response (any other raise passes through).
 --- @param stack {Types.Middleware} The middleware, outermost first
 --- @param handler Types.Handler The handler they wrap
 --- @return Types.Handler The wrapped handler
 function Middleware.compose(stack: {Types.Middleware}, handler: Types.Handler): Types.Handler
   local composed = handler
   for i = #stack, 1, -1 do
-    composed = stack[i](composed)
+    composed = Errors.guard(stack[i](composed))
   end
   return composed
 end
@@ -82,7 +86,12 @@ function Middleware.access_log(opts?: Middleware.AccessLogOptions): Types.Middle
         line = opts.format(req, res, elapsed)
       else
         local path = req.path
-        if opts.log_query and req.query_string ~= "" then path = path .. "?" .. req.query_string end
+        if opts.log_query and req.query_string ~= "" then
+          -- A client chooses the query: no control byte may split the line.
+          path = path .. "?" .. req.query_string:gsub("[%z\1-\31\127]", function(byte: string): string
+            return ("%%%02X"):format(byte:byte())
+          end)
+        end
         line = ("%s %s %d %dms %s client=%s"):format(req.method, path, res.status,
           elapsed // 1000000, size_of(res), req.client and req.client.host or "-")
       end

@@ -18,6 +18,14 @@ local record Request
     --- Whether it ends in "/" after a segment.
     trailing: boolean
   end
+
+  --- A Host header read: see [`Request.parse_host`].
+  record HostPort
+    --- The lowercase host: a name, or an IPv6 literal in brackets.
+    host: string
+    --- The port, or nil where the header names none.
+    port: integer
+  end
 end
 
 local type Req = Types.Request
@@ -35,14 +43,63 @@ end
 --- The key under which a request keeps its decoded query.
 local QUERY: Types.Key<Url.Query> = Request.key("query")
 
+--- Whether `text` is an IPv4 address in dotted decimal.
+local function ipv4(text: string): boolean
+  local a, b, c, d = text:match("^(%d+)%.(%d+)%.(%d+)%.(%d+)$")
+  if a == nil then return false end
+  for _, octet in ipairs({ a, b, c, d }) do
+    if #octet > 3 or (math.tointeger(tonumber(octet)) or 256) > 255 then return false end
+  end
+  return true
+end
+
+--- Whether `text` is an IPv4 or IPv6 address literal, without brackets.
+local function ip_literal(text: string): boolean
+  if text:find(":", 1, true) then
+    local parts, _ = Url.parse("http://[" .. text .. "]/")
+    return parts ~= nil
+  end
+  return ipv4(text)
+end
+
+--- Reads `value`, a Host header, whole: a name of letters, digits, "." and
+--- "-", or an IPv6 literal in brackets, then optionally ":" and a port of
+--- one to five digits, 65535 at most. Nothing else is a host, so what
+--- follows a host cannot smuggle in userinfo or a path (`good.com:@evil.com`).
+--- @param value string The header's value
+--- @return Request.HostPort | nil The host and port, nil where `value` is neither
+function Request.parse_host(value: string): Request.HostPort | nil
+  local lower = value:lower()
+  local host, tail: string, string
+  if lower:sub(1, 1) == "[" then
+    local inner, rest = lower:match("^%[([%x:.]+)%](.*)$")
+    if inner == nil or not inner:find(":", 1, true) or not ip_literal(inner) then return nil end
+    host, tail = "[" .. inner .. "]", rest
+  else
+    host, tail = lower:match("^([%w.%-]+)(.*)$")
+    if host == nil then return nil end
+  end
+  if tail == "" then return { host = host } end
+  local digits = tail:match("^:(%d+)$")
+  if digits == nil or #digits > 5 then return nil end
+  local port = math.tointeger(tonumber(digits))
+  if port == nil or port > 65535 then return nil end
+  return { host = host, port = port }
+end
+
 local function header(self: Req, name: string): string | nil
   return self.headers[name:lower()]
 end
 
 local function bytes(self: Req): string | nil, string
   if self.body_text ~= nil then return self.body_text, "" end
+  if self.body_failure ~= nil then return nil, self.body_failure end
   local data, why = Stream.read_all(self.raw.body)
-  if data == nil then return nil, why end
+  if data == nil then
+    -- The reader is spent: a second call answers the same failure.
+    self.body_failure = why
+    return nil, why
+  end
   self.body_text = data
   self.raw.body = Stream.from_string(data)
   return data, ""
@@ -87,7 +144,9 @@ local function base_url(self: Req): string | nil, string
     return nil, "web: base_url needs trusted_hosts, since the Host header is the client's"
   end
   if self.host == nil then return nil, "web: the request names no host" end
-  return self.scheme .. "://" .. self.host, ""
+  local parsed = Request.parse_host(self.host)
+  if parsed == nil then return nil, "web: the request's host is not a host name" end
+  return self.scheme .. "://" .. parsed.host .. (parsed.port ~= nil and ":" .. parsed.port or ""), ""
 end
 
 local methods = {
@@ -126,7 +185,7 @@ function Request.new(app: Types.App, raw: Server.Request, parts: Request.Parts):
     if proto ~= nil and proto:lower() == "https" then scheme = "https" end
     host = last_entry(headers["x-forwarded-host"]) or host
     local from = last_entry(headers["x-forwarded-for"])
-    if from ~= nil and from:find("^[%x:.]+$") then client = { host = from } end
+    if from ~= nil and ip_literal(from) then client = { host = from } end
   end
   local request: Types.Request = {
     raw = raw, method = raw.method, path = parts.path, segments = parts.segments,

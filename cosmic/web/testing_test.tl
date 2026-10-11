@@ -228,3 +228,19 @@ local function test_a_failed_lifespan_fails_the_first_request()
   end }
   assert(raised(function() Web.test_client(app):get("/") end):find("the lifespan failed: no database", 1, true))
 end
+
+local function test_a_lifespan_that_failed_is_run_again_by_the_next_request()
+  local starts = 0
+  local app = Web.app{ routes = { Web.get("/", function(_req: Web.Request): Web.Response
+    return Web.text("up")
+  end) }, lifespan = function(_app: Web.App): Web.Shutdown | nil, string
+    starts = starts + 1
+    if starts == 1 then return nil, "not yet" end
+    return function() end, ""
+  end }
+  local client = Web.test_client(app)
+  assert(raised(function() client:get("/") end):find("the lifespan failed: not yet", 1, true))
+  assert(client:get("/"):text() == "up", "the second request starts it, since the first did not")
+  assert(starts == 2)
+  assert(client:get("/").status == 200 and starts == 2, "started once it has succeeded")
+end

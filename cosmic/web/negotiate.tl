@@ -18,8 +18,8 @@ local TOKEN <const> = "[%w!#$%%&'*+.^_`|~-]+"
 --- The weight `text` (a `q` parameter's value) spells in thousandths, or
 --- nil where it is no number from 0 to 1 with three decimals at most.
 local function weight_of(text: string): integer | nil
-  local whole, fraction = text:match("^([01])%.?(%d*)$")
-  if whole == nil or #fraction > 3 then return nil end
+  local whole, dot, fraction = text:match("^([01])(%.?)(%d*)$")
+  if whole == nil or #fraction > 3 or (dot == "" and fraction ~= "") then return nil end
   local thousandths = math.tointeger(tonumber(whole)) * 1000 +
     (fraction == "" and 0 or math.tointeger(tonumber(fraction .. ("0"):rep(3 - #fraction))))
   if thousandths > 1000 then return nil end
@@ -74,14 +74,16 @@ local function weight_for(ranges: {Negotiate.Range}, offer: string): integer
 end
 
 --- The offer `header` likes best: the highest weight above 0, ties to the
---- earlier offer; the first offer for a request that sent no Accept (or an
---- empty one), nil when it accepts none.
+--- earlier offer; the first offer for a request that sent no Accept, an
+--- empty one, or one no part of which is a media range with a valid weight
+--- (read as absent, as most servers do); nil when it accepts none.
 --- @param header string | nil The Accept header's value
 --- @param offers {string} The media types that can be made, best first
 --- @return string | nil The offer chosen
 function Negotiate.best(header: string | nil, offers: {string}): string | nil
   if header == nil or header:find("^%s*$") then return offers[1] end
   local ranges = ranges_of(header)
+  if #ranges == 0 then return offers[1] end
   local chosen: string = nil
   local top = 0
   for _, offer in ipairs(offers) do
