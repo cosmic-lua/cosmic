@@ -48,6 +48,18 @@ local record Store
     extra?: Store.Extra
   end
 
+  --- A file the binary carries for [`cosmic.web`] to serve, from [`Store.web_asset`].
+  record WebAsset
+    --- The file's bytes.
+    data: string
+    --- Their SHA-256, in lower case hexadecimal.
+    sha256: string
+    --- Their SHA-384 in base64: the value after `sha384-` in an `integrity` attribute.
+    sha384: string
+    --- The version of the library the file belongs to.
+    version: string
+  end
+
   --- A module [`Store.seal`] is handed rather than finds: what a row of
   --- the store holds of one, its compiled chunk and its source.
   record Extra
@@ -118,6 +130,26 @@ end
 --- or the query failed; [`zone_names`] tells the two apart.
 function Store.zoneinfo(name: string): string | nil, string
   return store.zoneinfo(name)
+end
+
+--- One file of the browser-side libraries the binary carries for
+--- [`cosmic.web`] to serve (`htmx.min.js`, `htmx-ext-sse.min.js`), with its
+--- hashes and version, from the binary's own database. Nil and why when it
+--- carries no such file or the query failed.
+function Store.web_asset(name: string): Store.WebAsset | nil, string
+  local databases = store.databases()
+  local rows, trouble = Sqlite.rows(databases[#databases],
+    "SELECT data, sha256, sha384, version FROM web_assets WHERE name = ?1",
+    { { text = name } })
+  if rows == nil then
+    return nil, trouble
+  end
+  local row = rows[1]
+  if row == nil then
+    return nil, "the binary carries no web asset " .. name
+  end
+  return { data = row[1].blob or row[1].text, sha256 = row[2].text, sha384 = row[3].text,
+    version = row[4].text }
 end
 
 --- Every time zone name the binary's own database carries, as a set,
@@ -338,6 +370,8 @@ local seal_schema: {string} = {
     PRIMARY KEY (path, requires)) WITHOUT ROWID]],
   "CREATE TABLE decls (path TEXT PRIMARY KEY, source BLOB NOT NULL) WITHOUT ROWID",
   "CREATE TABLE zoneinfo (name TEXT PRIMARY KEY, data BLOB NOT NULL)",
+  [[CREATE TABLE web_assets (name TEXT PRIMARY KEY NOT NULL, data BLOB NOT NULL,
+    sha256 TEXT NOT NULL, sha384 TEXT NOT NULL, version TEXT NOT NULL) WITHOUT ROWID]],
   "CREATE TABLE ca_roots (sha256 BLOB NOT NULL, label TEXT NOT NULL, der BLOB NOT NULL)",
 }
 
@@ -368,7 +402,7 @@ local function write_database(names: {string}, file: string, main: string | nil,
       end
     end
     return Sqlite.transact(db, function(): boolean, string
-      local zones, roots = false, false
+      local zones, roots, web = false, false, false
       for _, name in ipairs(names) do
         local source, locate_trouble = locate(name)
         if source == nil then
@@ -422,6 +456,7 @@ local function write_database(names: {string}, file: string, main: string | nil,
         end
         zones = zones or name == "cosmic.time"
         roots = roots or name == "cosmic.http"
+        web = web or name == "cosmic.web.htmx"
       end
       if script ~= nil then
         -- Last, so the rows' order is the same whatever the script is.
@@ -445,13 +480,29 @@ local function write_database(names: {string}, file: string, main: string | nil,
         end
       end
       -- The zones cosmic.time falls back on where the host has none, and
-      -- the roots core/http.c trusts: carried only for a program that
-      -- holds the module that reads them.
+      -- the roots core/http.c trusts and the files cosmic.web serves: carried
+      -- only for a program that holds the module that reads them.
       if zones then
         local copied, why = copy_rows(binary_db, db, "zoneinfo", { "name", "data" },
           "SELECT name, data FROM zoneinfo ORDER BY name")
         if not copied then
           return false, why
+        end
+      end
+      if web then
+        -- A binary from before the table has none to carry.
+        local has_web, has_trouble = Sqlite.text_rows(binary_db,
+          "SELECT 1 FROM sqlite_master WHERE name = 'web_assets'")
+        if has_web == nil then
+          return false, has_trouble
+        end
+        if #has_web > 0 then
+          local copied, why = copy_rows(binary_db, db, "web_assets",
+            { "name", "data", "sha256", "sha384", "version" },
+            "SELECT name, data, sha256, sha384, version FROM web_assets ORDER BY name")
+          if not copied then
+            return false, why
+          end
         end
       end
       if roots then

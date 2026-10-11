@@ -195,6 +195,22 @@ local function test_seal_carries_zones_and_roots_only_for_their_modules(tmp: str
   local trusting = tmp .. "/trusting.db"
   assert(Store.seal({ "cosmic.http" }, trusting))
   assert(count_of(trusting, "ca_roots") > 0 and count_of(trusting, "zoneinfo") == 0)
+  assert(count_of(zoned, "web_assets") == 0 and count_of(trusting, "web_assets") == 0)
+end
+
+--- The files cosmic.web serves go only with the module that reads them,
+--- with the hashes the binary computed.
+local function test_seal_carries_the_web_assets_only_for_cosmic_web_htmx(tmp: string)
+  local path = tmp .. "/web.db"
+  assert(Store.seal({ "cosmic.web.htmx" }, path))
+  assert(count_of(path, "web_assets") == 2 and count_of(path, "zoneinfo") == 0)
+  local db = assert(Sqlite.open(path))
+  local rows = assert(Sqlite.text_rows(db,
+    "SELECT name, sha256, sha384, version FROM web_assets ORDER BY name"))
+  assert(db:close())
+  assert(rows[2][1] == "htmx.min.js")
+  local own = assert(Store.web_asset("htmx.min.js"))
+  assert(rows[2][2] == own.sha256 and rows[2][3] == own.sha384 and rows[2][4] == own.version)
 end
 
 local function test_seal_refuses_what_it_cannot_carry(tmp: string)
@@ -321,7 +337,7 @@ local function test_seal_schema_is_the_builds(tmp: string)
   end
   local sealed = assert(Sqlite.open(path))
   for _, name in ipairs({ "meta", "modules", "imports", "decl_imports", "decls", "zoneinfo",
-      "ca_roots" }) do
+      "ca_roots", "web_assets" }) do
     local query = "SELECT name, type, \"notnull\", pk FROM pragma_table_info('" .. name .. "')"
     local want = assert(Sqlite.text_rows(reference, query))
     local got = assert(Sqlite.text_rows(sealed, query))

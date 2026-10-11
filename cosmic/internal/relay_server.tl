@@ -483,11 +483,11 @@ end
 --- (a reason that holds none of the value).
 local function basic_password(authorization: string | nil): string | nil, string
   if authorization == nil then return nil, "no Proxy-Authorization" end
-  local scheme, rest = authorization:match("^(%S+)%s+(.-)%s*$")
+  local scheme, rest = authorization:match("^(%S+)%s+(.*)$")
   if scheme == nil or lower(scheme) ~= "basic" then
     return nil, "Proxy-Authorization is not Basic"
   end
-  local decoded, _ = Codec.unbase64(rest)
+  local decoded, _ = Codec.unbase64(String.trim(rest))
   if decoded == nil then return nil, "Proxy-Authorization is not base64" end
   local password = decoded:match("^[^:]*:(.*)$")
   if password == nil then return nil, "Proxy-Authorization is not user:password" end

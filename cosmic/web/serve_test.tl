@@ -304,3 +304,19 @@ local function test_an_upload_above_the_servers_body_limit_is_the_servers_413()
     assert(not reached, "max_bytes above limits.body_bytes changes nothing")
   end)
 end
+
+local function test_header_blanks_in_a_reply_cost_time_linear_in_their_run()
+  local app = Web.app{ routes = { Web.get("/pad", function(_req: Web.Request): Web.Response
+    local res = Web.text("ok")
+    for i = 1, 40 do Web.add_header(res, "X-Pad-" .. i, "a" .. (" "):rep(6000) .. "y") end
+    Web.add_header(res, "X-Plain", "v")
+    return res
+  end) } }
+  Web.with_server(app, function(client: Web.LoopbackClient)
+    local start = Clock.monotonic_ns()
+    local res = assert(client:get("/pad"))
+    local took = Clock.monotonic_ns() - start
+    assert(res.status == 200 and res.headers["x-pad-40"] == "a" .. (" "):rep(6000) .. "y" and res.headers["x-plain"] == "v")
+    assert(took < Clock.seconds(1), "took " .. took // 1000000 .. " ms")
+  end)
+end

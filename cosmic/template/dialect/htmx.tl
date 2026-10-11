@@ -1,6 +1,6 @@
 --- The `htmx` dialect (`{{use htmx}}`): what a slot in an attribute of htmx,
 --- or of its SSE, WebSocket and response-targets extensions, may be. The
---- table was read against htmx 2.0.11 (dist/htmx.js), htmx-ext-sse 2.2.2,
+--- table was read against htmx 2.0.11 (dist/htmx.js), htmx-ext-sse 2.2.4,
 --- htmx-ext-ws 2.0.2 and htmx-ext-response-targets 2.0.2; every
 --- `hx-*` attribute that source reads is either here or in `plain`, which
 --- `template_dialect_test` pins. Private to [`cosmic.template`].
@@ -107,6 +107,8 @@ local def: types.Def = {
     "hx-confirm", "hx-prompt",
     -- Behavior, not execution: an encoding; attribute names; `false`; flags.
     "hx-encoding", "hx-disinherit", "hx-inherit", "hx-history", "hx-history-elt", "hx-preserve", "hx-validate",
+    -- A marker htmx sets on an element it has revealed; a page does not write it.
+    "hx-revealed",
     -- SSE event names, and a WebSocket send flag.
     "sse-swap", "sse-close", "ws-send",
   },

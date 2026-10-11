@@ -24,7 +24,7 @@ work and the questions still open. The detail is in four parts:
   headers and CSP, secrets.
 - [templates](web/templates.md): attribute dialects in
   [`cosmic.template`], the htmx dialect, URL-component escaping,
-  `SafeJson`, selector escaping, and `cosmic.web.htmx`'s request and
+  `SafeJson`, selector escaping, and [`cosmic.web.htmx`]'s request and
   response helpers.
 - [assets](web/assets.md): the `static/` convention and `StaticFiles`,
   vendored htmx and its SSE extension with SRI, server-sent events and the
@@ -148,7 +148,7 @@ path segment; `#item-{{.id}}` is a selector, escaped as a CSS identifier;
 `{{.title}}` is text. A slot in `hx-on:click` or `hx-vars` is refused at
 compile time whether or not the template uses the dialect.
 
-The layout writes `{{.head}}`, which the handler above fills with `Htmx.head()`:
+The layout writes `{{.head}}`, which the handler above fills with [`Htmx.head()`]:
 the `<meta name="htmx-config">` and the `<script>` tags, with SRI, for the
 htmx built into the binary and served under `/_web/`.
 
@@ -175,7 +175,7 @@ assert(reply.status == 422 and reply.text:find("qty", 1, true))
   `cosmic.web.csrf`, `cosmic.web.cors`, `cosmic.web.headers` (security
   headers and CSP).
 - `cosmic.web.htmx`: HX-* request headers, HX-* response headers,
-  `Htmx.page` (fragment or whole page, `Vary: HX-Request`), `Htmx.head`.
+  [`Htmx.page`] (fragment or whole page, `Vary: HX-Request`), [`Htmx.head`].
 - [`cosmic.web.static`] and [`cosmic.web.assets`]: `StaticFiles` over
   embedded or on-disk assets, fingerprinted URLs.
 - `cosmic.web.sse`: `Event`, `EventStream`, `Hub`.
@@ -207,7 +207,7 @@ The parts were written in parallel; these are where they met.
   with [`Url.escape`]; a test pins the three together. A Mount answers
   reverse lookups, so `url_for("static", { path = "app.css" })` gives the
   fingerprinted URL. `/_web/` is reserved for cosmic.web's own assets.
-- **One htmx config,** written by `Htmx.head`: `allowEval` and
+- **One htmx config,** written by [`Htmx.head`]: `allowEval` and
   `allowScriptTags` off (so a CSP without `unsafe-eval` holds),
   `includeIndicatorStyles` off (no inline style), `selfRequestsOnly` on,
   and `responseHandling` swapping 2xx and 422 but not 204.
@@ -281,8 +281,8 @@ needs have merged.
 5. **Input, state and security:** the binder and typed routes,
    cookies, sessions (signed, then SQLite), CSRF, CORS, security headers.
 6. **htmx and assets:** vendored htmx and its SSE extension with their
-   PINs, the `static/` convention and `StaticFiles`, `cosmic.web.htmx`
-   and `Htmx.head`.
+   PINs, the `static/` convention and `StaticFiles`, [`cosmic.web.htmx`]
+   and [`Htmx.head`].
 7. **Streaming and the rest:** [`cosmic.channel`], [`cosmic.web.sse`],
    [`cosmic.http.multipart`] (decision 8), and
    `cosmic.web.dev`.
@@ -345,11 +345,15 @@ cooperative process.
 [`cosmic.http.multipart`]: ../../cosmic/http/multipart.tl
 [`cosmic.http.wire`]: ../../cosmic/http/wire.tl
 [`cosmic.web.assets`]: ../../cosmic/web/assets.tl
+[`cosmic.web.htmx`]: ../../cosmic/web/htmx.tl
 [`cosmic.web.sse`]: ../../cosmic/web/sse.tl
 [`cosmic.web.static`]: ../../cosmic/web/static.tl
 [`cosmic.web`]: ../../cosmic/web/init.tl
 [`Hash.equal`]: ../../cosmic/hash.tl
 [`Html.url_part`]: ../../cosmic/html.tl
+[`Htmx.head()`]: ../../cosmic/web/htmx.tl
+[`Htmx.head`]: ../../cosmic/web/htmx.tl
+[`Htmx.page`]: ../../cosmic/web/htmx.tl
 [`Input.Invalid`]: ../../cosmic/web/input.tl
 [`Poll.notifier`]: ../../cosmic/poll.tl
 [`Request.peer`]: ../../cosmic/http/server.tl

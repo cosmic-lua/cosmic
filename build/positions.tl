@@ -49,7 +49,12 @@ end
 --- networking stack, and [`cosmic.web`] is built on it; and
 --- [`cosmic.http.multipart`], a parser that `cosmic.web.input` reads
 --- uploads with and a program may use without the web package.
-local OPEN_MEMBERS <const>: {string:boolean} = { ["cosmic.http.server"] = true, ["cosmic.http.multipart"] = true }
+--- [`cosmic.web.htmx`] is the app's htmx support, which a program requires
+--- by its own name beside [`cosmic.web`].
+local OPEN_MEMBERS <const>: {string:boolean} = {
+  ["cosmic.http.server"] = true, ["cosmic.http.multipart"] = true,
+  ["cosmic.web.htmx"] = true,
+}
 
 --- Whether a file may import `build.*`: one inside `build/` itself, the
 --- binary it implements (`cmd/`), a test, or test support (`test/`).

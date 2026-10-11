@@ -535,6 +535,12 @@ local record Types
     error_view: function(Request, integer, string): Response
     --- Where the app's lines go; [`Web.stderr_sink`] by default.
     sink?: Sink
+    --- Serve htmx and its SSE extension under `/_web/` (true by default),
+    --- ahead of the routes: a catch-all route cannot shadow them, and no
+    --- route may be at or under `/_web/`. A path there that is none of
+    --- these files is a 404. With false the app answers `/_web/` paths as
+    --- any other, and a page that loads [`Htmx.head`] serves the files itself.
+    builtin?: boolean
     --- Closed when the server begins to stop, in order, after the
     --- functions of `app:on_stop`: a hub's streams end at once, not at
     --- the grace. None by default.

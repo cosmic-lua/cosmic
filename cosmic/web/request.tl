@@ -7,6 +7,7 @@ local Types = require("cosmic.web.types")
 local Negotiate = require("cosmic.web.negotiate")
 local Server = require("cosmic.http.server")
 local Url = require("cosmic.url")
+local String = require("cosmic.string")
 
 local record Request
   --- A path as the app resolved it: what [`Request.new`] is built from.
@@ -161,7 +162,9 @@ local request_mt: metatable<Req> = { __index = methods }
 --- client's to write. Nil for none.
 local function last_entry(value: string | nil): string | nil
   if value == nil then return nil end
-  local entry = value:match("([^,]*)$"):match("^%s*(.-)%s*$")
+  -- Found from the end: `([^,]*)$` retries at every byte of a long entry.
+  local comma = value:reverse():find(",", 1, true)
+  local entry = String.trim(comma == nil and value or value:sub(#value - comma + 2))
   if entry == "" then return nil end
   return entry
 end

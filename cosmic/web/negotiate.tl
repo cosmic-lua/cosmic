@@ -1,6 +1,8 @@
 --- Content negotiation: which of the media types a handler can make a
 --- request's Accept header likes best (RFC 9110 12.5.1).
 
+local String = require("cosmic.string")
+
 local record Negotiate
   --- One media range of an Accept header with its weight.
   record Range
@@ -31,8 +33,9 @@ end
 local function ranges_of(header: string): {Negotiate.Range}
   local out: {Negotiate.Range} = {}
   for piece in header:gmatch("[^,]+") do
-    local media, params = piece:match("^%s*([^;%s]+)%s*(.-)%s*$")
+    local media, rest = piece:match("^%s*([^;%s]+)(.*)$")
     if media ~= nil then
+      local params = String.trim(rest)
       local kind, subtype = media:lower():match("^(" .. TOKEN .. ")/(" .. TOKEN .. ")$")
       if kind ~= nil and not (kind == "*" and subtype ~= "*") then
         local weight: integer | nil = 1000

@@ -556,3 +556,20 @@ local function test_a_task_killed_in_the_handler_after_the_read_leaves_no_files(
   end)
   assert(#assert(Fs.list(tmp)) == 0, "the app closes a request's bodies when its task is killed")
 end
+
+local function test_a_long_filename_is_cut_to_its_last_component_in_linear_time(tmp: string)
+  local name = ("a"):rep(3000) .. "/" .. ("b"):rep(3000) .. "/c.txt"
+  local parts: {string} = {}
+  for i = 1, 100 do parts[i] = file("f", name, "data") end
+  local start = Clock.monotonic_ns()
+  local names: {string} = {}
+  post(body_of(table.concat(parts)), function(req: Web.Request): Web.Response
+    local read = Input.multipart(req, { dir = tmp, max_parts = 200, max_files = 200 })
+    assert(read.value ~= nil, read.invalid ~= nil and read.invalid.message or "no value")
+    for _, up in ipairs(read.value.files["f"]) do names[#names + 1] = up.filename end
+    return Web.empty()
+  end)
+  local took = Clock.monotonic_ns() - start
+  assert(#names == 100 and names[1] == "c.txt" and names[100] == "c.txt", #names)
+  assert(took < Clock.seconds(1), "took " .. took // 1000000 .. " ms")
+end

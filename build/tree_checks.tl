@@ -208,6 +208,8 @@ allowed["build.reboot.rebuild_failed"] = "tested directly: the test runs it on a
   "tree whose bin/zig is a stand-in, which no stale tool can reach"
 allowed["build.reboot.own_tool"] = "tested directly: the test hands it the path " ..
   "a tool was started as, which the running one cannot change"
+allowed["build.reboot.web_assets"] = "tested directly: the test hands it a database " ..
+  "from before the table, which no running binary is"
 allowed["build.writer.signature"] = "tested directly: the test signs a database " ..
   "as an older binary would"
 

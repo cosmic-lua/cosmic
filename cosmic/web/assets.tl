@@ -259,11 +259,6 @@ local function payload_query(sql: string, values: {Sqlite.Value}): {{string}} | 
   return nil
 end
 
--- TODO: a source over the `web_assets` table, for the vendored htmx and its
--- SSE extension served under `/_web/`, once the vendored-htmx part of
--- doc/plans/web/assets.md (section 4) lands that table: `embedded` queries
--- `payload` and would take the table's name, and [`StaticFiles.handler`] then
--- serves both.
 --- A source of the files under the project's `static/`, carried in the
 --- executable's database (its `payload` table). A file is read once and
 --- kept for the life of the process, so its memory is the total of

@@ -1,3 +1,4 @@
+local Clock = require("cosmic.clock")
 local Assets = require("cosmic.web.assets")
 local Compress = require("cosmic.compress")
 local Fs = require("cosmic.fs")
@@ -369,4 +370,15 @@ local function test_an_edit_in_the_directory_changes_the_tag_and_the_fingerprint
   assert(client:get(second_url).body == "two")
   assert(client:get(first_url).status == 404, "the old fingerprint is stale, not the new bytes")
   assert(client:get("/static/a.css").headers["etag"] ~= first.headers["etag"])
+end
+
+local function test_blanks_in_accept_encoding_cost_time_linear_in_their_run()
+  local client = Web.test_client(app_of())
+  local start = Clock.monotonic_ns()
+  local res = client:get("/static/css/app.css", { headers = { ["Accept-Encoding"] = "gzip;q=0.5" .. (" "):rep(60000) .. "y" } })
+  local took = Clock.monotonic_ns() - start
+  assert(res.status == 200)
+  assert(took < Clock.seconds(1), "took " .. took // 1000000 .. " ms")
+  local spaced = client:get("/static/css/app.css", { headers = { ["Accept-Encoding"] = "br , gzip ; q=0.5 " } })
+  assert(spaced.headers["content-encoding"] == "gzip")
 end

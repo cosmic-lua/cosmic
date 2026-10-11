@@ -1,0 +1,9 @@
+version 2.2.4
+url https://registry.npmjs.org/htmx-ext-sse/-/htmx-ext-sse-2.2.4.tgz
+sha256 90b46f5ab915ba2f64e6348448c8dba509277a47e15c125ffb65754eb4f6b5dc
+strip package/
+keep LICENSE
+keep dist/sse.min.js
+kind data
+license 0BSD
+notice LICENSE

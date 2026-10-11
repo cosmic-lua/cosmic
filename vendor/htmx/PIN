@@ -1,0 +1,9 @@
+version 2.0.11
+url https://registry.npmjs.org/htmx.org/-/htmx.org-2.0.11.tgz
+sha256 165a2655073e9e6e55e307a7c74e8ebcdb76afb7701f9c16cfd106a13add408e
+strip package/
+keep LICENSE
+keep dist/htmx.min.js
+kind data
+license 0BSD
+notice LICENSE

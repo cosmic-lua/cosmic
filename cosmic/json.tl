@@ -161,7 +161,7 @@ local record Json
     --- How many arrays and objects may nest, as `decode` takes it.
     max_depth?: integer
     --- Read JSON5, as `decode` does.
-    json5: boolean
+    json5?: boolean
     --- Read `#` line comments, as `decode` does.
     hash_comments?: boolean
     --- Read a lone surrogate escape as U+FFFD, as `decode` does.

@@ -136,6 +136,12 @@ local function test_the_carried_database_holds_what_a_program_needs(tmp: string)
   local zones = rows_of(path, "SELECT count(*), sum(name = 'America/New_York') FROM zoneinfo")
   assert(zones[1][1] == carried[1][1] and tonumber(zones[1][1]) > 500 and zones[1][2] == "1",
     "every zone the binary carries is in")
+  local assets = assert(Sqlite.text_rows(databases[#databases],
+    "SELECT group_concat(name || ' ' || version || ' ' || sha256, ',' ORDER BY name) FROM web_assets"))
+  local web = rows_of(path,
+    "SELECT group_concat(name || ' ' || version || ' ' || sha256, ',' ORDER BY name) FROM web_assets")
+  assert(web[1][1] ~= nil and web[1][1] == assets[1][1] and web[1][1]:find("htmx.min.js", 1, true),
+    "every web asset the binary carries is in")
   local materials = rows_of(path,
     "SELECT (SELECT count(*) FROM components WHERE name = 'lua'), " ..
       "(SELECT count(*) FROM notices WHERE component = 'lua' AND text LIKE '%Lua.org%')")

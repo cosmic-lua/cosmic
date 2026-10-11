@@ -828,7 +828,14 @@ local function binary_tables(): string | nil, string
     local databases = Store.databases()
     local binary = databases[#databases]
     if binary ~= nil then
-      rows, trouble = Sqlite.text_rows(binary, schema.tables_digest(""))
+      local has_web, web_trouble = Sqlite.text_rows(binary,
+        "SELECT 1 FROM sqlite_master WHERE name = 'web_assets'")
+      if has_web == nil then
+        trouble = web_trouble
+      else
+        -- A binary from before the table has no assets to key on.
+        rows, trouble = Sqlite.text_rows(binary, schema.tables_digest("", #has_web > 0))
+      end
     end
   end)
   if rows == nil then return nil, trouble end
@@ -2176,6 +2183,8 @@ local sealed_schema <const>: {string} = {
     "PRIMARY KEY (path, requires)) WITHOUT ROWID",
   "CREATE TABLE decls (path TEXT PRIMARY KEY, source BLOB NOT NULL) WITHOUT ROWID",
   "CREATE TABLE zoneinfo (name TEXT PRIMARY KEY, data BLOB NOT NULL)",
+  "CREATE TABLE web_assets (name TEXT PRIMARY KEY NOT NULL, data BLOB NOT NULL, " ..
+    "sha256 TEXT NOT NULL, sha384 TEXT NOT NULL, version TEXT NOT NULL) WITHOUT ROWID",
   "CREATE TABLE ca_roots (sha256 BLOB NOT NULL, label TEXT NOT NULL, der BLOB NOT NULL)",
 }
 
@@ -2191,7 +2200,7 @@ local sealed_schema <const>: {string} = {
 --- compile resolves, come from where its own row does: the closure's,
 --- which its store's digest holds, else the program's, which the key holds
 --- as it holds the module ([`extras_digest`], or `epoch` for what every
---- worker loads). The time zones and CA roots go only where the set holds the
+--- worker loads). The time zones, CA roots and web assets go only where the set holds the
 --- module that reads them, as [`Store.seal`] does: they are most of a small
 --- database's bytes.
 -- TODO: carry only the standard library a closure requires, in a project's
@@ -2222,6 +2231,9 @@ local sealed_fill <const>: {string} = {
     "ORDER BY path, requires",
   "INSERT INTO main.zoneinfo SELECT name, data FROM program.zoneinfo WHERE EXISTS " ..
     "(SELECT 1 FROM main.modules WHERE path = 'cosmic.time') ORDER BY name",
+  "INSERT INTO main.web_assets SELECT name, data, sha256, sha384, version FROM " ..
+    "program.web_assets WHERE EXISTS (SELECT 1 FROM main.modules WHERE path = " ..
+    "'cosmic.web.htmx') ORDER BY name",
   "INSERT INTO main.ca_roots SELECT sha256, label, der FROM program.ca_roots WHERE EXISTS " ..
     "(SELECT 1 FROM main.modules WHERE path = 'cosmic.http') ORDER BY sha256",
 }
@@ -2372,9 +2384,15 @@ local function write_sealed(sealing: Sealing, store: string, whole: string, out:
           "INSERT OR IGNORE INTO temp.extra (path) VALUES (?1)", { { text = name } })
         if not inserted then return false, insert_trouble end
       end
+      -- A program from before `web_assets` has no such table to carry.
+      local has_web, web_trouble = Sqlite.text_rows(db,
+        "SELECT 1 FROM program.sqlite_master WHERE name = 'web_assets'")
+      if has_web == nil then return false, web_trouble end
       for _, statement in ipairs(sealed_fill) do
-        local done, done_trouble = db:exec(statement)
-        if not done then return false, done_trouble end
+        if #has_web > 0 or not statement:find("program.web_assets", 1, true) then
+          local done, done_trouble = db:exec(statement)
+          if not done then return false, done_trouble end
+        end
       end
       for _, pair in ipairs(meta) do
         local inserted, insert_trouble = Sqlite.run(db,

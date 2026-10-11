@@ -1,3 +1,4 @@
+local Clock = require("cosmic.clock")
 local Net = require("cosmic.net")
 local Server = require("cosmic.http.server")
 local Stream = require("cosmic.stream")
@@ -252,4 +253,17 @@ local function test_a_forwarded_client_is_an_address_or_the_peer()
     client:get("/items/1", { headers = { ["x-forwarded-for"] = case[1] } })
     assert(assert(seen[i].client).host == case[2], ("%q gave %s"):format(case[1], assert(seen[i].client).host))
   end
+end
+
+local function test_blanks_in_a_forwarding_header_cost_time_linear_in_their_run()
+  local trusting, seen = recording({ trusted_proxy = true })
+  local client = Web.test_client(trusting)
+  local start = Clock.monotonic_ns()
+  client:get("/items/1", { headers = { ["x-forwarded-for"] = "6.6.6.6, 203.0.113.9" .. (" "):rep(60000) .. "y" } })
+  client:get("/items/1", { headers = { ["x-forwarded-for"] = ("a"):rep(60000) .. "," .. ("b"):rep(60000) } })
+  local took = Clock.monotonic_ns() - start
+  assert(assert(seen[1].client).host == "127.0.0.1", "an entry with junk in it is no address")
+  assert(took < Clock.seconds(1), "took " .. took // 1000000 .. " ms")
+  client:get("/items/1", { headers = { ["x-forwarded-for"] = "6.6.6.6,  203.0.113.9  " } })
+  assert(assert(seen[3].client).host == "203.0.113.9")
 end

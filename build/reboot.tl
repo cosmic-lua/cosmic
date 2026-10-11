@@ -214,6 +214,26 @@ function reboot.compiler_moved(tool: string | nil, wanted: string | nil): boolea
   return tool ~= nil and wanted ~= nil and tool ~= wanted
 end
 
+--- The web assets a rebuilt tool carries: those of `db`, the running
+--- binary's database, else, for a binary from before the table that has
+--- none, those of the vendored trees under `root` (a project's tree has
+--- no vendor/, and then the tool carries none).
+--- @param db Sqlite.Handle The running binary's database
+--- @param root string The tree's root
+--- @return {work.WebAsset} | nil The files
+--- @return string Why not
+function reboot.web_assets(db: Sqlite.Handle, root: string): {work.WebAsset} | nil, string
+  local web, trouble = work.web_assets_of(db)
+  if web == nil then
+    return nil, trouble
+  end
+  if #web == 0 then
+    local vendored, _ = work.read_web_assets(root .. "/vendor")
+    if vendored ~= nil then web = vendored end
+  end
+  return web, ""
+end
+
 --- Rebuilds the tool from the tree and replaces this process with it,
 --- running `argv` again. Returns only when it cannot, saying why, and
 --- whether the failure was a compile that failed while the tree's
@@ -251,7 +271,8 @@ local function into(handle: work.Handle, built: compiler,
   if not kept then
     return closing(handle, keep_trouble), false
   end
-  -- And the zones it carries, which only a boot reads from the tree.
+  -- And the zones and web assets it carries, which only a boot reads from
+  -- the tree.
   local databases = Store.databases()
   local zones, zones_trouble = work.zoneinfo_of(databases[#databases])
   if zones == nil then
@@ -260,6 +281,14 @@ local function into(handle: work.Handle, built: compiler,
   local zoned, zoned_trouble = work.put_zoneinfo(handle, zones)
   if not zoned then
     return closing(handle, zoned_trouble), false
+  end
+  local web, web_trouble = reboot.web_assets(databases[#databases], handle.root)
+  if web == nil then
+    return closing(handle, "the web assets in this binary: " .. web_trouble), false
+  end
+  local web_put, web_put_trouble = work.put_web_assets(handle, web)
+  if not web_put then
+    return closing(handle, web_put_trouble), false
   end
 
   -- Compiled by this tool's compiler and keyed by its identity, which is
