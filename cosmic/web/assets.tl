@@ -293,6 +293,12 @@ function Assets.embedded(): Assets.Source
   return source
 end
 
+-- TODO: a test of a project that has a `cmd/` main reads that `main` in
+-- its sealed database, so this takes the test for a built program and
+-- serves the embedded files, of which the sealed database holds none: every
+-- `static/` path is a miss in such a test. Seal the project's payload with
+-- the closure store, or leave `main` out of a test's meta; until then a
+-- test gives its app [`Assets.memory`] or [`Assets.directory`].
 --- Whether this program is a built executable, which carries its own
 --- database with its main module recorded: the `cosmic` tool and a script
 --- it runs record none.

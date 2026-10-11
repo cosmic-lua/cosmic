@@ -37,7 +37,7 @@ end
 --- runtime is built is left to the tree (`internal_guides`). Every
 --- guide is in one list or the other: [`build.tree_checks`] refuses a
 --- guide in neither, so a new one is never left out by mistake.
-symbols.guides = { "command-line", "project", "quickstart" }
+symbols.guides = { "command-line", "project", "quickstart", "web" }
 
 --- The guides a binary does not carry, each with its reason.
 symbols.internal_guides = {

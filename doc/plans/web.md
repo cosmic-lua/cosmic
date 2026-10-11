@@ -288,6 +288,10 @@ needs have merged.
    [`cosmic.web.dev`].
 8. **A guide,** doc/guides/web.md, which is a test of its own: one app
    built from an empty directory, its page, its form and its API.
+   As built: [the guide](../guides/web.md) builds the page, form and live
+   list as one project and the API, forms, uploads and sessions as small
+   projects of their own, since each project that requires [`cosmic.web`]
+   costs a cold type-check of it and a test function has 10 seconds.
 
 ## open questions
 
