@@ -513,8 +513,8 @@ end
 
 --- Whether the stub ([`build.stub`]) of the module `m`, which `result`
 --- is the checker's reading of, types it the same, and if not why: a
---- type error in the stub, or where its type and `result.type` part
---- ([`stub.difference`]). The stub is checked in `env`, where `m`'s
+--- global it declares, a type error in the stub, or where its type and
+--- `result.type` part ([`stub.difference`]). The stub is checked in `env`, where `m`'s
 --- source was, so each module it requires is the one the source's check
 --- read, under a file name of its own; its warnings are of the bodies it
 --- leaves out, and no reader of the module sees them.
@@ -523,6 +523,14 @@ local function held_to_stub(m: Module, built: compiler, env: compiler.Env,
   local parsed, parse_trouble = ast.parse(built, m.source, m.file)
   if parsed == nil then
     return false, parse_trouble
+  end
+  -- A global would reach a project through a require a stub of a module
+  -- that requires this one may leave out, unseen by the check below,
+  -- which runs where the global is already declared.
+  local declared = stub.global_declaration(parsed)
+  if declared ~= nil then
+    return false, m.file .. ":" .. declared.y .. ": a standard-library module may declare " ..
+      "no global: a stub of a module requiring it may leave the require out (build/stub.tl)"
   end
   local stubbed = built.check_string(stub.of(parsed), env, m.file .. " (stub)", "tl")
   local refusal = (stubbed.syntax_errors or {})[1] or (stubbed.type_errors or {})[1]
