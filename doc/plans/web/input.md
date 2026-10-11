@@ -13,7 +13,7 @@ assets, SSE and the dev loop are assets.md.
 
 What this file uses of core.md, stated once:
 
-- `Web.Request` exposes `method`, `path`, `segments`, `query_string` (the
+- [`Web.Request`] exposes `method`, `path`, `segments`, `query_string` (the
   raw escaped text), `headers` (lowercased names), `params`, `scheme`, the
   server's request as `raw` (so the body is `req.raw.body`, a
   [`Stream.Reader`], and its length `req.raw.length`; today's fields are at
@@ -23,22 +23,22 @@ What this file uses of core.md, stated once:
   `Input.JSON` and `Input.CLEANUP` (section 2), `Session.KEY` (section 7),
   `Headers.NONCE` (section 10). `req.state` is core's untyped escape
   hatch and nothing here uses it.
-- `Web.Response` is [`Server.Reply`] with `headers: {string: string |
+- [`Web.Response`] is [`Server.Reply`] with `headers: {string: string |
   {string}}` (core.md 13.1; server.tl:91 is `{string:string}` today and is
   checked at server.tl:343, so the multi-valued change must reach
   [`wire.check`]/[`wire.send`]). Headers are read, set and appended with core's
-  `Web.header(res, name)`, `Web.set_header` and `Web.add_header` (core.md
+  `Web.header(res, name)`, [`Web.set_header`] and [`Web.add_header`] (core.md
   section 3); `add_header` is how a `Set-Cookie` line or a `Vary` token is
   appended, and it merges `Vary` tokens. A header "set if absent" is
-  `Web.header(res, name) == nil` then `Web.set_header`.
+  `Web.header(res, name) == nil` then [`Web.set_header`].
 - `Request.scheme: "http"|"https"`, derived by the core from
   `X-Forwarded-Proto` only when the app declares a trusted proxy (open
   question 1). The server itself is plain HTTP; TLS is always a proxy's.
-- `Web.problem` and a route's `on_invalid` (core.md section 6.4). This file
+- [`Web.problem`] and a route's `on_invalid` (core.md section 6.4). This file
   produces `Input.Invalid` and core turns it into the response; nothing here
   renders error pages itself.
 
-Layout of what this file adds (new files next to `cosmic/web/init.tl`):
+Layout of what this file adds (new files next to [`cosmic/web/init.tl`]):
 
 - `cosmic.web.input` (`cosmic/web/input.tl`): query / form / JSON reading
   and shape binding.
@@ -253,7 +253,7 @@ an `on_invalid`, and a handler that wants to re-render takes it instead
 `wire.body(input, head, s.limits, go_on)` (server.tl:389) takes one
 `body_bytes` for all requests. cosmic.web needs two things:
 
-1. `Web.serve` sets `limits.body_bytes` to the largest `max_bytes` of any
+1. [`Web.serve`] sets `limits.body_bytes` to the largest `max_bytes` of any
    route in the table (computed when the table is built, so the config is in
    one place), default 1 MiB. This is the fallback when the server has no
    per-route body limit; with `ServeSpec.body_limit` (core.md 13.4) the
@@ -854,7 +854,7 @@ idiom, and raises only for a degenerate call):
   dev): Chrome and Firefox accept `Secure` on `http://localhost`, Safari does
   not; the dev-mode default is `secure=false` (section 7).
 
-`Cookies.set` appends with core's `Web.add_header`, never replaces
+`Cookies.set` appends with core's [`Web.add_header`], never replaces
 (`Cookies.set` twice yields two `Set-Cookie` lines; deleting a cookie and setting
 another is one response).
 
@@ -1652,7 +1652,7 @@ end
 ## 12. How it is tested
 
 All pure Teal, no network, except the end-to-end cases (a few) which use
-core's in-process client (`cosmic.web.testing`, core.md section 10) or a loopback server with
+core's in-process client ([`cosmic.web.testing`], core.md section 10) or a loopback server with
 `Test.policy { loopback = { "127.0.0.1" } }`; those need the `Net` loopback
 declaration, everything else declares nothing.
 
@@ -1748,10 +1748,10 @@ declaration, everything else declares nothing.
 
 ## Open questions, with recommendations
 
-1. `Request.scheme` and trusted proxies. Secure cookies, HSTS and the
+1. [`Request.scheme`] and trusted proxies. Secure cookies, HSTS and the
    CSRF origin comparison all need to know the request was https; the server
    cannot. Decided (../web.md, decision 10): the core adds `Web.app{ trusted_proxy = true }`,
-   which makes `Request.scheme`/`host` come from `X-Forwarded-Proto/Host` and
+   which makes [`Request.scheme`]/`host` come from `X-Forwarded-Proto/Host` and
    is off by default; with it off, `Secure` is explicit config and the startup
    warning in section 7 applies.
 2. Collect-all and failing-path reporting in cosmic.shape. Web's
@@ -1798,6 +1798,8 @@ declaration, everything else declares nothing.
 [`cosmic.log`]: ../../../cosmic/log.tl
 [`cosmic.shape`]: ../../../cosmic/shape.tl
 [`cosmic.url`]: ../../../cosmic/url.tl
+[`cosmic.web.testing`]: ../../../cosmic/web/testing.tl
+[`cosmic/web/init.tl`]: ../../../cosmic/web/init.tl
 [`Fs.rename`]: ../../../cosmic/fs.tl
 [`Fuzz.label`]: ../../../build/fuzz/init.tl
 [`Hash.digest`]: ../../../cosmic/hash.tl
@@ -1809,6 +1811,7 @@ declaration, everything else declares nothing.
 [`Poll.delay`]: ../../../cosmic/poll.tl
 [`Rand.entropy`]: ../../../cosmic/rand.tl
 [`Rand.new`]: ../../../cosmic/rand.tl
+[`Request.scheme`]: ../../../cosmic/web/types.tl
 [`Server.range`]: ../../../cosmic/http/server.tl
 [`Server.Reply`]: ../../../cosmic/http/server.tl
 [`ServeSpec.body_ns`]: ../../../cosmic/http/server.tl
@@ -1830,5 +1833,11 @@ declaration, everything else declares nothing.
 [`Url.Query`]: ../../../cosmic/url.tl
 [`Url.segments`]: ../../../cosmic/url.tl
 [`Url.unescape`]: ../../../cosmic/url.tl
+[`Web.add_header`]: ../../../cosmic/web/init.tl
+[`Web.problem`]: ../../../cosmic/web/init.tl
+[`Web.Request`]: ../../../cosmic/web/init.tl
+[`Web.Response`]: ../../../cosmic/web/init.tl
+[`Web.serve`]: ../../../cosmic/web/init.tl
+[`Web.set_header`]: ../../../cosmic/web/init.tl
 [`wire.check`]: ../../../cosmic/http/wire.tl
 [`wire.send`]: ../../../cosmic/http/wire.tl

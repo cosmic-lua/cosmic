@@ -16,7 +16,7 @@ Decisions in one place:
 - A template opts in with `{{use htmx}}`, an action in the header, after
   `{{type}}` and beside `{{mode}}`. Dialects are a built-in registry inside
   [`cosmic.template`] (data modules under `cosmic/template/dialect/`), not
-  resolved from `cosmic.web` or a project module path, and the `htmx`
+  resolved from [`cosmic.web`] or a project module path, and the `htmx`
   dialect's data lives there too; `cosmic.web.htmx` only reuses it (the
   version string, the tests that tie the table to the vendored file).
   Reason: the build compiles templates with a pure `Template.compile(src,
@@ -28,7 +28,7 @@ Decisions in one place:
   (URL, JSON, selector) are opt-in.
 - One new URL escaper (`url_part`) serves path segments, query names and
   values, and fragments alike; the tracker does not need to know which
-  component a slot is in. It is the escaper `Router:reverse` uses too
+  component a slot is in. It is the escaper [`Router:reverse`] uses too
   (core.md section 5.7). New types: [`Html.SafeUrlPart`] and
   `Html.SafeJson`. Selector slots use a C escaper that returns an existing
   type (`SafeAttr`).
@@ -382,7 +382,7 @@ passes `javascript:` only as a whole.
 `Html.url_part(s)` percent-escapes every byte except the unreserved set
 (`A-Z a-z 0-9 - . _ ~`), exactly as [`Url.escape`] (cosmic/url.tl:86) does
 (the two agree on every byte except the whole values `.` and `..` of 3.3;
-`Router:reverse` uses this same escaper, core.md section 5.7, and a test
+[`Router:reverse`] uses this same escaper, core.md section 5.7, and a test
 pins the three together).
 That is correct as a path segment, a query name or value, and a fragment
 at once, because it encodes `/ ? # & = + : @ % space` and every byte of
@@ -630,7 +630,7 @@ redirect.
 
 ### 6.2 Writing the response: `Htmx.Reply`
 
-A builder record applied to a `Web.Response`, so a handler states effects
+A builder record applied to a [`Web.Response`], so a handler states effects
 in one place and ordering of header writes does not matter:
 
 ```
@@ -819,7 +819,7 @@ crossorigin="anonymous" defer></script>`, then the same for the SSE
 extension when `sse` is set. The paths, versions and SRI values are the
 vendored files' (assets.md sections 4.3 and 4.4, read through
 `Store.web_asset`); nothing in the tag comes from user data, so the
-function's [`Html.trust`] is justified and is the only one in `cosmic.web`
+function's [`Html.trust`] is justified and is the only one in [`cosmic.web`]
 for it. `crossorigin` is harmless on a same-origin script and keeps the tag
 valid if an app later serves the file from a CDN. A layout that writes its
 own tags uses `Htmx.path()` and `Htmx.integrity()`; `Htmx.version` is the
@@ -1056,12 +1056,12 @@ with [`cosmic.http`]; the template and html tests need no policy.
   and `includeIndicatorStyles` false); the script tag's `integrity` equals an
   independent SHA-384 of the vendored file; `sse = true` adds the extension's
   tag; a nonce appears on the tags and as `inlineScriptNonce`.
-- `Router:reverse`, [`Html.url_part`] and [`Url.escape`] agree byte for byte on
+- [`Router:reverse`], [`Html.url_part`] and [`Url.escape`] agree byte for byte on
   every byte value 0-255 and a table of hostile strings (the `.`/`..`
   exception included): the test that pins the one escaper (it needs
-  `cosmic.web` and [`cosmic.html`], so it lives in `cosmic/web`).
+  [`cosmic.web`] and [`cosmic.html`], so it lives in `cosmic/web`).
 - An integration test over loopback (`Test.policy { loopback = ... }`)
-  runs a `cosmic.web` app with a route, sends requests with and without
+  runs a [`cosmic.web`] app with a route, sends requests with and without
   `HX-Request`, `HX-Boosted` and `HX-History-Restore-Request`, and checks
   the body, status, `Vary` and `HX-Redirect` headers on the wire.
 
@@ -1083,8 +1083,8 @@ same change.
   (server.tl:48), `req:get(KEY)`/`req:set(KEY, v)` for the one key it adds
   (`Htmx.KEY`); the htmx headers are single-valued, so the `", "` join does
   not matter here.
-- Response (core.md section 3): `Web.html`, `Web.redirect(url, opts?)` and
-  `Web.add_header` (which merges `Vary` and appends `Set-Cookie`); the
+- Response (core.md section 3): [`Web.html`], `Web.redirect(url, opts?)` and
+  [`Web.add_header`] (which merges `Vary` and appends `Set-Cookie`); the
   widened `Reply.headers` of core.md section 13.1.
 - Router (core.md section 5.7): `Router:reverse(name, params, query?)` and
   `app:url_for`, with per-segment escaping equal to [`Html.url_part`] and Mount
@@ -1155,9 +1155,9 @@ same change.
    encoder; there is no Teal fallback.
 9. Names: `urlpart` vs `url_part`; `url_local` vs `local_url`; whether
    `Html.json` should live on [`cosmic.html`] (needs `cosmic.json`) or on
-   `cosmic.web`. Recommend [`cosmic.html`], because the template's generated
+   [`cosmic.web`]. Recommend [`cosmic.html`], because the template's generated
    code requires only [`cosmic.html`] and the type must be creatable by any
-   handler, with or without `cosmic.web`.
+   handler, with or without [`cosmic.web`].
 
 `TODO:` comments this work leaves in the code (to be written when the code
 is):
@@ -1177,6 +1177,7 @@ is):
 [`cosmic.http`]: ../../../cosmic/http/init.tl
 [`cosmic.internal.html`]: ../../../cosmic/internal/html.d.tl
 [`cosmic.template`]: ../../../cosmic/template/init.tl
+[`cosmic.web`]: ../../../cosmic/web/init.tl
 [`cosmic/html_fuzz_test.tl`]: ../../../cosmic/html_fuzz_test.tl
 [`cosmic/html_test.tl`]: ../../../cosmic/html_test.tl
 [`Html.concat`]: ../../../cosmic/html.tl
@@ -1191,9 +1192,13 @@ is):
 [`Json.encode`]: ../../../cosmic/json.tl
 [`Json.EncodeOptions.ascii`]: ../../../cosmic/json.tl
 [`Json.EncodeOptions`]: ../../../cosmic/json.tl
+[`Router:reverse`]: ../../../cosmic/web/types.tl
 [`Template.compile`]: ../../../cosmic/template/init.tl
 [`Test.policy`]: ../../../cosmic/test.tl
 [`Types.Template`]: ../../../cosmic/template/types.tl
 [`Url.escape`]: ../../../cosmic/url.tl
 [`Url.parse`]: ../../../cosmic/url.tl
+[`Web.add_header`]: ../../../cosmic/web/init.tl
+[`Web.html`]: ../../../cosmic/web/init.tl
+[`Web.Response`]: ../../../cosmic/web/init.tl
 [`wire.reason`]: ../../../cosmic/http/wire.tl
