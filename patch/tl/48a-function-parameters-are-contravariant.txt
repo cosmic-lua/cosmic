@@ -1,0 +1,7 @@
+file: tl.tl
+note: a function type is a subtype of another when each of its parameters accepts what the other's accepts (contravariant), not when either accepts the other's (bivariant): `local f: function(cb: function(): number) = function(cb: function(): integer) end` is refused, because `f` is then called with a function that returns a number where the body expects an integer. 48e exempts the receiver
+--- find
+                     self:arg_check(nil, errs, ai, bi, "bivariant", "argument", i)
+--- replace
+                     self:arg_check(nil, errs, ai, bi, "contravariant", "argument", i)
+--- end

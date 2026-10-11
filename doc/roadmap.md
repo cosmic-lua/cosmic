@@ -29,9 +29,21 @@ defines the target; once something ships, it leaves this file.
     omit a required one, an area of the tree at a time, each change building
     on its own with no rule in force. a marked field's reads that do not check
     for nil are refused, so each change guards them or finds a real nil.
+  - TODO: the checker refuses only an index, `ipairs` and `pairs` of a
+    nil-admitting field, not its use as an operand of `..`, `#`, arithmetic
+    or a comparison, as a `table.concat` or `table.insert` argument, or as an
+    argument for a non-nil parameter; those raise at run time when the field
+    is omitted (the one found in the marking, [`wire.Reply.date`], is fixed).
+    Refuse them where the binary operators and calls are checked in tl.tl
+    before the final change, so the marking's reads are all seen.
   - make the check an error for the whole tree at once, with function fields
     exempt (they cover methods supplied by `__index`, metamethods, and type
-    declarations). a warning first is no option: every warning cosmic sees is
+    declarations). TODO: that exemption must include generic function fields ([`Request.get`]
+    and `set` of cosmic.web), and a metatable's `__index = { ... }` literal,
+    which #2982 checks against its record, would be read as a literal
+    omitting every data field: the marking hoists those tables into locals
+    (`cosmic/web`, [`cosmic/zip.tl`]) until the rule skips a literal whose
+    fields are all functions. a warning first is no option: every warning cosmic sees is
     a refused compile ([`build/compilation.tl`]'s `generate`,
     [`build/standalone.tl`] and [`build/example_checks.tl`] each reject on
     one), and the compile cache keeps no warnings to show again on a hit.
@@ -40,15 +52,20 @@ defines the target; once something ships, it leaves this file.
   redeclaration of them: the documented signatures then read as
   `records_interfaces_methods` teaches, and the design note above
   `FromStringReader` in [`cosmic/stream.tl`] shrinks. every interface of the
-  module and every record that implements one changes together.
+  module and every record that implements one changes together. it also
+  lets the receiver exemption go from `patch/tl`'s 48e: the first
+  parameter of a function-typed record field, when it is a record or an
+  interface, is the one place a record parameter is compared in either
+  direction, because those redeclarations narrow it. it closes the hole
+  that comes with it: a callback field `function(Event)` also takes a
+  `function(k: KeyEvent)`.
 - close the holes in Teal's own typing that forge any type, `: never`
-  functions among them (`test_never_falls_into_the_holes_every_type_has` in
-  [`test/narrowing_test.tl`] pins today's behavior, and [doc/design.md](design.md)'s
-  teal section states the bar): `rawset` writes a value of any type into a
-  record's field; `setmetatable` trusts a `__index` that serves a number for a
-  string field, or a `__call` attached at run time (a record that declares a
-  never `__call` may be given a metatable whose function returns), against no
-  declaration. a call through `any` carries no flag either.
+  functions among them ([doc/design.md](design.md)'s teal section states the
+  bar): a function `__index` given to `setmetatable` is declared to return
+  `any`, so what it serves is not checked against the record (a table
+  `__index` is, patch/tl's 47a, and `test_a_function_index_serves_any` in
+  [`build/teal_test.tl`] pins the rest). a call through `any` carries no flag
+  either.
 - add earned lint rules and their fixes to [`build/fix/rule.tl`]'s rule list.
   the rewrite stage is in place and the list is still empty.
 - add a floor for line coverage, C included: `cosmic test --min PCT
@@ -411,6 +428,7 @@ four-producer provenance join.
 [`build/locator_fuzz_test.tl`]: ../build/locator_fuzz_test.tl
 [`build/shape_specs.tl`]: ../build/shape_specs.tl
 [`build/standalone.tl`]: ../build/standalone.tl
+[`build/teal_test.tl`]: ../build/teal_test.tl
 [`build/workflows_test.tl`]: ../build/workflows_test.tl
 [`Child.end_strays`]: ../cosmic/child.tl
 [`ci/cosmic-driver.pin`]: ../ci/cosmic-driver.pin
@@ -435,12 +453,14 @@ four-producer provenance join.
 [`cosmic/shape_example.tl`]: ../cosmic/shape_example.tl
 [`cosmic/stream.tl`]: ../cosmic/stream.tl
 [`cosmic/template/markup.tl`]: ../cosmic/template/markup.tl
+[`cosmic/zip.tl`]: ../cosmic/zip.tl
 [`Errors.guidance`]: ../cosmic/errors.tl
 [`eval/summarize.tl`]: ../eval/summarize.tl
 [`Html.url_part`]: ../cosmic/html.tl
 [`Json.decode`]: ../cosmic/json.tl
 [`Net.serve`]: ../cosmic/net.tl
 [`receivers.record_named`]: ../build/receivers.tl
+[`Request.get`]: ../cosmic/web/types.tl
 [`Sandbox.Limits`]: ../cosmic/sandbox/init.tl
 [`Sandbox.Policy`]: ../cosmic/sandbox/init.tl
 [`Server.none_match`]: ../cosmic/http/server.tl
@@ -453,8 +473,8 @@ four-producer provenance join.
 [`Shape.strict_record`]: ../cosmic/shape.tl
 [`Test.needs_of`]: ../cosmic/test.tl
 [`Test.policy`]: ../cosmic/test.tl
-[`test/narrowing_test.tl`]: ../test/narrowing_test.tl
 [`Typed.spec`]: ../cosmic/shape.tl
 [`Url.parse`]: ../cosmic/url.tl
 [`Url.Parts`]: ../cosmic/url.tl
 [`Url.segments`]: ../cosmic/url.tl
+[`wire.Reply.date`]: ../cosmic/http/wire.tl
