@@ -62,10 +62,6 @@ local record compiler
     -- When set, the checker hands every node's type to `reporter`'s
     -- collector as it checks; see [`build.receivers`].
     report_types: boolean | nil
-    -- When set, a table literal may omit a record's field that does not
-    -- admit nil (patch/tl's 50c): for a project the pinned driver's
-    -- older Teal also compiles.
-    lenient_literals: boolean | nil
     reporter: any
   end
 

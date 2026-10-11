@@ -2036,22 +2036,6 @@ local function test_a_union_with_a_function_is_held_to_its_record()
   assert_accepted(declared .. "local mt: metatable<R> = { __index = {} }\nprint(mt)\n")
 end
 
---- An environment whose `lenient_literals` is set (patch/tl's 50a) takes
---- the omission, as the project the pinned release also compiles needs.
-local function test_a_lenient_environment_takes_an_omitted_field()
-  local built = assert(teal.load(true))
-  local source = "local record R\n  name: string\nend\nlocal r: R = {}\nprint(r)\n"
-  local function found(lenient: boolean): integer
-    local env = assert(built.new_env({ defaults = { feat_lax = "off", gen_compat = "off", gen_target = "5.4" } }))
-    env.lenient_literals = lenient
-    local ok, code, result = pcall(built.gen, source, env, nil, "tl")
-    assert(ok, tostring(code))
-    return #assert(result).type_errors
-  end
-  assert(found(true) == 0)
-  assert(found(false) == 1)
-end
-
 --- A literal that stands where a function would also do is a table served
 --- for the keys it holds (the `__index` of a metatable, 47a), so it may
 --- give a part of its record; a literal given only where the record is
