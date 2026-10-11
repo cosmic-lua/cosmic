@@ -51,9 +51,9 @@ end
 --- of its own would have left those before it (and paid a sync apiece).
 local function test_a_fresh_schema_is_made_in_one_transaction(tmp: string)
   work.schema[#work.schema + 1] = "CREATE TABLE fails ("
-  local handle, trouble = work.open(tmp)
+  local ran, handle, trouble = pcall(work.open, tmp)
   work.schema[#work.schema] = nil
-  assert(handle == nil and trouble ~= "", "the planted statement fails the open")
+  assert(ran and handle == nil and trouble ~= "", "the planted statement fails the open")
   local db = assert(Sqlite.open(build_dir(tmp) .. "/build.db"))
   assert(count(db, "sqlite_master") == 0, "a failed fresh schema leaves no table")
   assert(db:close())
