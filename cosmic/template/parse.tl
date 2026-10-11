@@ -5,6 +5,8 @@
 ---
 ---     {{type Name from import.path}}     first, after blank text only
 ---     {{mode html}}  {{mode text}}       optional, directly after it
+---     {{use htmx}}                       optional, beside {{mode}} in either
+---                                        order: a dialect of attributes
 ---     {{.}}  {{.a.b}}  {{.a | m.f}}      a value, put into the output
 ---     {{$}}  {{$.a}}  {{$x}}  {{$x.a}}   the same, from `$` or a variable
 ---     {{"{{"}}                           a string's bytes, as literal text
@@ -329,9 +331,10 @@ nodes = function(p: Parser): {types.Node} | nil, string
           return nil, why
         end
         out[#out + 1] = node
-      elseif word == "type" or word == "mode" then
+      elseif word == "type" or word == "mode" or word == "use" then
         return nil, refuse(p, item.line, item.col, word == "type" and
-            "{{type}} must be the first action" or "{{mode}} must directly follow {{type}}")
+            "{{type}} must be the first action" or "{{" .. word .. "}} must directly follow {{type}}" ..
+            (word == "use" and " or {{mode}}" or ""))
       elseif item.tokens[1] ~= nil and item.tokens[1].kind == "string" then
         local literal = item.tokens[1]
         local extra = item.tokens[2]
@@ -392,9 +395,10 @@ end
 --- Parses a template.
 --- @param src string The template source
 --- @param name string The template's name, for messages
+--- @param registry {string: types.Def} The dialects `{{use}}` may name
 --- @return types.Template|nil The template
 --- @return string The reason, as `name:line:col: ...`, on failure
-function Parse.parse(src: string, name: string): types.Template | nil, string
+function Parse.parse(src: string, name: string, registry: {string: types.Def}): types.Template | nil, string
   local lexed, lerr = lex.lex(src, name)
   if lexed == nil then
     return nil, lerr
@@ -416,18 +420,54 @@ function Parse.parse(src: string, name: string): types.Template | nil, string
   local import_path = head.tokens[4].value
   p.pos = p.pos + 1
   local mode: types.Mode = "html"
-  local at = p.pos
-  if blank_text(p.items[at]) then
-    at = at + 1
-  end
-  local decl = p.items[at]
-  if decl ~= nil and decl.action and keyword(decl) == "mode" then
-    local value = decl.tokens[2]
-    if #decl.tokens ~= 2 or value.kind ~= "word" or (value.value ~= "html" and value.value ~= "text") then
-      return nil, refuse(p, decl.line, decl.col, "write {{mode html}} or {{mode text}}")
+  local dialects: {string} = {}
+  local uses: {string: boolean} = {}
+  local first_use: types.Item
+  local seen_mode = false
+  -- `{{mode}}` and `{{use}}` follow `{{type}}` in any order, each with blank
+  -- text before it; the blank text after the last is the body's.
+  while true do
+    local at = p.pos
+    if blank_text(p.items[at]) then
+      at = at + 1
     end
-    mode = value.value == "text" and "text" or "html"
+    local decl = p.items[at]
+    local word = decl ~= nil and decl.action and keyword(decl) or ""
+    if word == "mode" then
+      local value = decl.tokens[2]
+      if #decl.tokens ~= 2 or value.kind ~= "word" or (value.value ~= "html" and value.value ~= "text") then
+        return nil, refuse(p, decl.line, decl.col, "write {{mode html}} or {{mode text}}")
+      elseif seen_mode then
+        return nil, refuse(p, decl.line, decl.col, "{{mode}} is given once")
+      end
+      seen_mode = true
+      mode = value.value == "text" and "text" or "html"
+    elseif word == "use" then
+      local value = decl.tokens[2]
+      if #decl.tokens ~= 2 or value.kind ~= "word" or not value.value:find("^[%a][%w_]*$") then
+        return nil, refuse(p, decl.line, decl.col, "write {{use name}}, as {{use htmx}}")
+      end
+      if registry[value.value] == nil then
+        local names: {string} = {}
+        for dialect in pairs(registry) do
+          names[#names + 1] = dialect
+        end
+        table.sort(names)
+        return nil, refuse(p, value.line, value.col, "unknown dialect '" .. value.value .. "' (known: " ..
+            table.concat(names, ", ") .. ")")
+      elseif uses[value.value] then
+        return nil, refuse(p, decl.line, decl.col, "{{use " .. value.value .. "}} is given once")
+      end
+      uses[value.value] = true
+      dialects[#dialects + 1] = value.value
+      first_use = first_use or decl
+    else
+      break
+    end
     p.pos = at + 1
+  end
+  if mode == "text" and first_use ~= nil then
+    return nil, refuse(p, first_use.line, first_use.col, "a text template has no attributes: {{use}} is for an html template")
   end
   local body, berr = nodes(p)
   if body == nil then
@@ -438,7 +478,7 @@ function Parse.parse(src: string, name: string): types.Template | nil, string
     return nil, refuse(p, stray.line, stray.col, "{{" .. keyword(stray) .. "}} without a block to close")
   end
   return { type_name = type_name, import_path = import_path, line = head.line, mode = mode,
-    body = body, lines = lexed.lines }, ""
+    dialects = dialects, body = body, lines = lexed.lines }, ""
 end
 
 return Parse

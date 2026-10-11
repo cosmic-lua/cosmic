@@ -20,12 +20,14 @@
 ---   `content` of a `<meta>` that has `http-equiv` (anywhere in the
 ---   tag), and every attribute of the SVG animation elements (`set`,
 ---   `animate`, `animateMotion`, `animateTransform`: they can animate
----   `href` to `javascript:`), and `hx-on*`, `hx-vars`, `hx-vals`, `hx-headers`,
----   `hx-request` and `hx-trigger` (with or without a `data-` prefix),
----   which htmx runs as script or reads as JSON it may run. Other
----   attributes that frameworks read as code (`hx-*`, `x-on:`, `v-on:`,
----   `@click`, `ng-*`) are not recognised: they are plain attributes
----   here, and a slot in one is the author's to keep out;
+---   `href` to `javascript:`), and what the template's dialects refuse
+---   ([`cosmic.template.dialect`]): always `hx-on*`, `hx-vars` and
+---   `hx-trigger`, which htmx runs as script, and `hx-vals`, `hx-headers`
+---   and `hx-request` (JSON it may run) unless the template says `{{use
+---   htmx}}`, all with or without a `data-` prefix. Other attributes that
+---   frameworks read as code (`x-on:`, `v-on:`, `@click`, `ng-*`) are not
+---   recognised: they are plain attributes here, and a slot in one is the
+---   author's to keep out;
 --- - `<xmp>`, `<iframe>`, `<noembed>`, `<noframes>`, `<noscript>` and
 ---   `<plaintext>` text, which browsers read as raw text (`noscript`
 ---   when scripting is on);
@@ -46,8 +48,10 @@
 ---
 --- What is left is a slot in text; in `<textarea>` and `<title>`, whose
 --- text ends at their end tag, which takes a string or a number and never
---- markup; in a quoted attribute value; in a quoted URL attribute value
---- after literal text that fixes where the URL goes (a part, below); and
+--- markup; in a quoted attribute value (where an attribute a dialect
+--- classifies has its class's slot: a request URL that must be local, the
+--- whole value as JSON, or an identifier in a selector, see `ident`); in a
+--- quoted URL attribute value after literal text that fixes where the URL goes (a part, below); and
 --- in a quoted URL attribute value that the slot begins, when the literal
 --- text after it, up to the
 --- first `/`, `?` or `#`, has no `:` or `&` (which could complete a scheme:
@@ -100,7 +104,8 @@
 --- A URL attribute is `href`, `src`, `action`, `formaction`, `cite`,
 --- `data`, `poster`, `background`, `manifest`, `longdesc`, `codebase`,
 --- `profile`, `icon`, `lowsrc`, `dynsrc`, `classid`, `archive` and
---- `xlink:href`: each takes one URL. A slot that begins the value is
+--- `xlink:href`, and the ones a dialect says take a URL (`hx-get`, ...):
+--- each takes one URL. A slot that begins the value is
 --- taken as a whole URL (the escaper decides whether it may be a link).
 --- Any other is a part: one path segment, query name or value, or fragment,
 --- which [`html.url_part`] escapes to unreserved bytes and `%XX`, so it holds
@@ -133,6 +138,7 @@
 --- slot after it: the browser decodes character references (`&sol;`, `&#47;`,
 --- `&#46;`, `&Tab;`) before it parses the URL, and the tracker does not.
 
+local dialect = require("cosmic.template.dialect")
 local types = require("cosmic.template.types")
 
 local record Markup
@@ -243,6 +249,17 @@ local record Markup
     --- the slot's value may be a bare origin (`https://host`) or `http:`, so
     --- a part right after it could be the host or the path's first byte.
     wait: boolean
+    --- In a value of an attribute a dialect gives the class `selector`,
+    --- whether the literal text and slots so far end in the middle of an
+    --- identifier after a `#` or `.`, where a selector slot may stand.
+    ident: boolean
+    --- After a `json` slot, which is the whole value: set until the value
+    --- ends.
+    sole: boolean
+    --- Set when non-blank literal text followed such a slot in its value.
+    sole_trail: boolean
+    --- What the dialects of the template say of an attribute.
+    dialect: dialect.Table
     --- Whether the tag has an `http-equiv` attribute.
     equiv: boolean
     --- Where a slot in the `content` of a `<meta>` stood (the line, then
@@ -250,8 +267,8 @@ local record Markup
     meta_line: integer
     --- Its column.
     meta_col: integer
-    --- A refusal found at the end of a tag, for the slot that stood at
-    --- `late_line` and `late_col`.
+    --- A refusal found at the end of a tag or of a JSON slot's value, for
+    --- the slot or byte at `late_line` and `late_col`.
     late: string
     --- The line of that slot.
     late_line: integer
@@ -291,8 +308,9 @@ local record Markup
     alts: string
   end
 
-  --- A new place: the start of the template, in text.
-  start: function(): Place
+  --- A new place: the start of the template, in text, whose attributes are
+  --- read by the rules of `attributes`.
+  start: function(attributes: dialect.Table): Place
 
   --- A copy of a place.
   copy: function(p: Place): Place
@@ -311,7 +329,8 @@ local record Markup
   --- may be, `late` says so, at the byte where it does.
   feed: function(p: Place, text: string, line: integer, col: integer)
 
-  --- What a slot at a place is, or why there is none.
+  --- What a slot at a place is, or why there is none. In an attribute a
+  --- dialect classifies it is what the class says.
   slot: function(p: Place): types.Slot | nil, string
 
   --- Marks that a slot of kind `ctx` was written at a place, at a line and
@@ -386,8 +405,8 @@ local ANIMATION <const>: {string: boolean} = {
   set = true, animate = true, animatemotion = true, animatetransform = true,
 }
 
-local function start(): Place
-  return { phase = "text", tag = "", attr = "", closing = false, fresh = false, stack = "", murky = false,
+local function start(attributes: dialect.Table): Place
+  return { dialect = attributes, ident = false, sole = false, sole_trail = false, phase = "text", tag = "", attr = "", closing = false, fresh = false, stack = "", murky = false,
     select = false, frameset = false, fontattr = false, slash = false, after_url = false, colon = false, bare = false, rooted = false,
     lead = "", pinned = false, seg = "", query = false, amp = false, wait = false, equiv = false,
     meta_line = 0, meta_col = 0, late = "", late_line = 0, late_col = 0, raw_tail = "",
@@ -395,7 +414,7 @@ local function start(): Place
 end
 
 local function copy(p: Place): Place
-  return { phase = p.phase, tag = p.tag, attr = p.attr, closing = p.closing, fresh = p.fresh, stack = p.stack,
+  return { dialect = p.dialect, ident = p.ident, sole = p.sole, sole_trail = p.sole_trail, phase = p.phase, tag = p.tag, attr = p.attr, closing = p.closing, fresh = p.fresh, stack = p.stack,
     murky = p.murky, select = p.select, frameset = p.frameset, fontattr = p.fontattr, slash = p.slash, after_url = p.after_url, colon = p.colon, bare = p.bare,
     rooted = p.rooted, lead = p.lead, pinned = p.pinned, seg = p.seg, query = p.query, amp = p.amp, wait = p.wait, equiv = p.equiv,
     meta_line = p.meta_line, meta_col = p.meta_col, late = p.late, late_line = p.late_line,
@@ -404,10 +423,11 @@ local function copy(p: Place): Place
 end
 
 local function key(p: Place): string
-  return string.format("%s %q %q %s %s %q %s %s %s %s %s %s %s %s %s %s %d %d %q %d %d %q %s %s %s %q %q %s %q %q %s %s %s", p.phase, p.tag,
+  return string.format("%s %q %q %s %s %q %s %s %s %s %s %s %s %s %s %s %d %d %q %d %d %q %s %s %s %q %q %s %q %q %s %s %s %s %s %s", p.phase, p.tag,
     p.attr, p.closing, p.fresh, p.stack, p.murky, p.select, p.frameset, p.fontattr, p.slash, p.after_url, p.colon, p.bare,
     p.rooted, p.equiv, p.meta_line, p.meta_col, p.late, p.late_line, p.late_col, p.raw_tail, p.escaped, p.double, p.split, p.alts,
-    p.off and key(p.off) or "-", p.pinned, p.lead, p.seg, p.query, p.amp, p.wait)
+    p.off and key(p.off) or "-", p.pinned, p.lead, p.seg, p.query, p.amp, p.wait,
+    p.ident, p.sole, p.sole_trail)
 end
 
 --- The phases in which the tag and whether it is an end tag mean something;
@@ -715,6 +735,9 @@ local function join(a: Place, b: Place)
     join(a.off, b.off)
   end
   a.fresh = a.fresh and b.fresh
+  a.ident = a.ident and b.ident
+  a.sole = a.sole or b.sole
+  a.sole_trail = a.sole_trail or b.sole_trail
   a.after_url = a.after_url or b.after_url
   a.bare = a.bare or b.bare
   merge(a, b)
@@ -947,7 +970,7 @@ local function end_tag(p: Place, text: string, from: integer, unquoted: boolean)
   end
   p.phase = (p.closing or phase == nil) and "text" or phase
   if p.phase == "raw" and p.tag == "noscript" then
-    p.off = start()
+    p.off = start(p.dialect)
     p.off.select = p.select
     p.off.frameset = p.frameset
   end
@@ -1093,6 +1116,9 @@ local function scan(p: Place, text: string)
       elseif b == 34 or b == 39 then
         p.phase = b == 34 and "value_dq" or "value_sq"
         p.fresh = true
+        p.ident = false
+        p.sole = false
+        p.sole_trail = false
         p.lead = ""
         p.pinned = false
         p.seg = ""
@@ -1114,6 +1140,12 @@ local function scan(p: Place, text: string)
           p.fresh = false
         end
       end
+      if p.sole then
+        local seen = text:find("[^ \t\r\n\f]", i)
+        if seen ~= nil and seen <= last then
+          p.sole_trail = true
+        end
+      end
       if p.bare then
         local first = text:match("^[\t\n\r]*()", i)
         if first <= last then
@@ -1131,14 +1163,45 @@ local function scan(p: Place, text: string)
           p.after_url = false
         end
       end
-      if URL_ATTRS[p.attr] then
+      local rule = p.dialect:classify(p.attr)
+      local class = rule ~= nil and rule.class or ""
+      if URL_ATTRS[p.attr] or class == "url" or class == "url_local" then
         track(p, text:sub(i, last))
+      elseif class == "selector" then
+        -- The value is in an identifier if its last byte that is not an
+        -- identifier byte is a `#` or `.`, or if it has none and the value was.
+        -- TODO: the scan does not read `\` escapes. A slot after one is
+        -- refused when the literal text before it ends in the escape or in
+        -- the space that ends a hex escape (`#a\{{x}}`, `#a\2c {{x}}`,
+        -- `#a\2c b{{x}}`), though each stands in an identifier; one whose
+        -- escaped byte is `.` or `#` (`#a\.{{x}}`, `#a\#{{x}}`) is accepted,
+        -- as the scan takes that byte for the start of an identifier, which
+        -- the slot is in either way. Waiting on a CSS-aware scan, if anyone
+        -- writes selectors with escapes.
+        local stop = text:sub(i, last):match(".*()[^%w_%-\128-\255]")
+        if stop ~= nil then
+          local mark = text:byte(i + stop - 1)
+          p.ident = mark == 35 or mark == 46
+        end
       end
       if close == nil then
         return
       end
+      if p.sole_trail then
+        -- The value ends here, and the next opening quote resets the flag
+        -- before the node's end could see it, so the refusal is recorded
+        -- now, and `feed` places it (`late_line` of -1 until then).
+        if p.late == "" then
+          p.late = "text after a JSON slot in the '" .. p.attr .. "' attribute: a JSON slot is the whole value"
+          p.late_line = -1
+          p.late_col = close
+        end
+        p.sole_trail = false
+      end
       p.phase = "before_attr"
       p.fresh = false
+      p.ident = false
+      p.sole = false
       p.lead = ""
       p.pinned = false
       p.seg = ""
@@ -1330,6 +1393,9 @@ local function settle(p: Place, text: string, line: integer, col: integer): inte
     for _, q in ipairs(places) do
       extended = extended or continues(q.phase, c:byte())
       scan(q, c)
+      if q.late_line == -1 then
+        q.late_line, q.late_col = locate(text, i, line, col)
+      end
       q.slash = q.phase == "before_attr" and c == "/"
       one = one and alike(p, q)
       together = together and apart(p, q)
@@ -1367,6 +1433,9 @@ feed = function(p: Place, text: string, line: integer, col: integer)
   p.split = p.split or continues(p.phase, text:byte(1))
   local from = p.alts ~= "" and settle(p, text, line, col) or 1
   scan(p, from == 1 and text or text:sub(from))
+  if p.late_line == -1 then
+    p.late_line, p.late_col = locate(text, from + p.late_col - 1, line, col)
+  end
   p.slash = p.phase == "before_attr" and text:byte(#text) == 47
 end
 
@@ -1403,22 +1472,9 @@ local function slot(p: Place): types.Slot | nil, string
     if attr:sub(1, 2) == "on" then
       return nil, "a slot in the event handler attribute '" .. attr .. "' would be script"
     end
-    local plain = attr:gsub("^data%-", "")
-    if plain:sub(1, 5) == "hx-on" or plain == "hx-vars" then
-      return nil, "a slot in the '" .. attr .. "' attribute would be script: htmx runs it as JavaScript"
-    elseif plain == "hx-vals" or plain == "hx-headers" or plain == "hx-request" then
-      -- TODO: once the htmx dialect and `{{use htmx}}` land (doc/plans/web/templates.md
-      -- section 2), 'hx-vals' takes a JSON slot there, and so do 'hx-headers'
-      -- and 'hx-request' (SafeJson); this refusal stays only for a template
-      -- that does not opt in.
-      return nil, "a slot in the '" .. attr .. "' attribute is JSON that htmx may also run as JavaScript (with a 'js:' " ..
-        "prefix); a JSON slot for it is coming with {{use htmx}}, and until then it is refused"
-    elseif plain == "hx-trigger" then
-      -- TODO: once the htmx dialect lands and templates.md section 2 names a
-      -- SafeTrigger, 'hx-trigger' takes one there; no other value is safe, as a
-      -- trigger's filter is a JavaScript expression.
-      return nil, "a slot in the '" .. attr .. "' attribute would be a trigger, whose '[filter]' htmx runs as JavaScript; " ..
-        "a typed trigger slot is coming with {{use htmx}}, and until then it is refused"
+    local rule = p.dialect:classify(attr)
+    if rule ~= nil and rule.class == "refused" then
+      return nil, "a slot in the '" .. attr .. "' attribute " .. rule.why
     end
     local code = CODE_ATTRS[attr]
     if code ~= nil then
@@ -1436,12 +1492,13 @@ local function slot(p: Place): types.Slot | nil, string
     if attr == "content" and p.tag == "meta" and p.equiv then
       return nil, "a slot in the content of a <meta> that has http-equiv could be a redirect"
     end
-    if URL_ATTRS[attr] then
+    local class = rule ~= nil and rule.class or ""
+    if URL_ATTRS[attr] or class == "url" or class == "url_local" then
       if ACTIVE_TAGS[p.tag] then
         return nil, "a slot in the '" .. attr .. "' of <" .. p.tag .. "> would make the page load or run it"
       end
       if p.fresh then
-        return "url", ""
+        return class == "url_local" and "url_local" or "url", ""
       elseif not fixed(p) then
         return nil, "a slot in the '" .. attr .. "' attribute that does not begin the value is a piece of a URL, " ..
           "and must follow text that fixes where the URL goes: begin the value with '/', '.', '?' or '#', or " ..
@@ -1459,6 +1516,18 @@ local function slot(p: Place): types.Slot | nil, string
           "'/', '=' or another byte"
       end
       return "urlpart", ""
+    elseif class == "json" then
+      if not p.fresh then
+        return nil, "a slot in the '" .. attr .. "' attribute must be the whole value: a JSON text made by Html.json, " ..
+          "as " .. attr .. "='{{.vals}}'"
+      end
+      return "json", ""
+    elseif class == "selector" then
+      if not p.ident then
+        return nil, "a slot in the '" .. attr .. "' attribute is part of a CSS selector, and may stand only inside an " ..
+          "identifier after '#' or '.', as " .. attr .. "=\"#row-{{.id}}\": write the rest of the selector as literal text"
+      end
+      return "selector", ""
     end
     return "attr", ""
   elseif phase == "value_unq" or phase == "before_value" then
@@ -1474,20 +1543,23 @@ end
 local function wrote(p: Place, ctx: types.Slot, line: integer, col: integer)
   p.fresh = false
   p.raw_tail = ""
+  p.ident = ctx == "selector"
+  p.sole = ctx == "json"
+  local whole = ctx == "url" or ctx == "url_local"
   if ctx ~= "urlpart" then
     -- A part may be empty, so after a whole-URL slot it leaves the text
     -- after the two to be judged as if it followed the first alone.
-    p.after_url = ctx == "url"
-    p.bare = ctx == "url"
+    p.after_url = whole
+    p.bare = whole
   end
-  if ctx == "url" or ctx == "urlpart" then
-    if ctx == "url" then
+  if whole or ctx == "urlpart" then
+    if whole then
       p.seg = ""
       p.query = false
       p.amp = false
       p.wait = true
     end
-    p.pinned = p.pinned or ctx == "url"
+    p.pinned = p.pinned or whole
   end
   if p.tag == "meta" and p.attr == "content" and ctx == "attr" then
     p.meta_line = line

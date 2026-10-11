@@ -17,9 +17,12 @@ local record Types
   --- `plain` is any slot of a `text` template: it is spliced as it is.
   --- `text`, `rtext` (the text of `<title>` and `<textarea>`, which
   --- takes no markup), `ftext` (text inside `<svg>`, `<math>` or
-  --- `<select>`, which takes no markup either), `attr`, `url` (a whole URL)
-  --- and `urlpart` (a piece of one, after literal text) are the
-  --- places a slot can stand in an `html` template (see `markup`).
+  --- `<select>`, which takes no markup either), `attr`, `url` (a whole URL),
+  --- `url_local` (a whole URL that must be a same-origin reference, in an
+  --- attribute a dialect says so of), `urlpart` (a piece of one, after
+  --- literal text), `json` (the whole value, a `SafeJson`) and `selector`
+  --- (an identifier after `#` or `.` in a CSS selector) are the places a
+  --- slot can stand in an `html` template (see `markup`).
   enum Slot
     "plain"
     "text"
@@ -27,7 +30,58 @@ local record Types
     "ftext"
     "attr"
     "url"
+    "url_local"
     "urlpart"
+    "json"
+    "selector"
+  end
+
+  --- What a slot is in an attribute that a dialect classifies. `url` and
+  --- `url_local` take a URL (a whole one, or a part after literal text),
+  --- `json` the whole value as JSON, `selector` an identifier piece of a CSS
+  --- selector, and `refused` nothing: a slot there is an error.
+  enum Class
+    "url"
+    "url_local"
+    "json"
+    "selector"
+    "refused"
+  end
+
+  --- How a dialect treats a slot in one attribute (or family of them).
+  record Rule
+    --- What a slot there is.
+    class: Class
+    --- For `refused`, the end of the refusal after "a slot in the 'x'
+    --- attribute ": what a slot there would be. Else "".
+    why: string
+  end
+
+  --- A rule for every attribute whose name begins with `prefix`.
+  record Prefix
+    --- The start of the attribute names, lower case.
+    prefix: string
+    --- What a slot in them is.
+    rule: Rule
+  end
+
+  --- The attribute vocabulary of one dialect, as data: see
+  --- [`cosmic.template.dialect`].
+  record Def
+    --- The name `{{use name}}` gives it.
+    name: string
+    --- The version of the framework whose source the table was read from.
+    targets: string
+    --- The rule of each attribute that has one, by lower case name.
+    exact: {string: Rule}
+    --- The rules of families of attributes; the longest prefix wins.
+    prefixes: {Prefix}
+    --- The attribute name families the framework also reads with a `data-`
+    --- prefix (`hx-`).
+    families: {string}
+    --- The attributes of the framework the dialect has looked at and found
+    --- to need no rule: a slot in one is escaped as any attribute's is.
+    plain: {string}
   end
 
   --- What a node of the tree is. `if`, `with` and `range` hold their
@@ -187,6 +241,8 @@ local record Types
     line: integer
     --- What the template makes.
     mode: Mode
+    --- The dialects it uses (`{{use name}}`), in order.
+    dialects: {string}
     --- The nodes after the declaration.
     body: {Node}
     --- The template's line count.
