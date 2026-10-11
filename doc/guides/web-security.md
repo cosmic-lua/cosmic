@@ -180,11 +180,11 @@ local record Guestbook
     --- Signing keys for the session cookie, newest first.
     keys: {string}
     --- Send HSTS on https requests; only once the site is https for good.
-    hsts: boolean
+    hsts?: boolean
     --- The hosts the app answers to; nil for any.
-    trusted_hosts: {string}
+    trusted_hosts?: {string}
     --- Whether a proxy that ends TLS is in front of the app.
-    trusted_proxy: boolean
+    trusted_proxy?: boolean
   end
 end
 

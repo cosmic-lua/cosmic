@@ -1,0 +1,10 @@
+file: tl.tl
+note: `Env.lenient_literals`, set by the caller after `new_env`, lets a table literal omit a field that does not admit nil (50c). It is for a project the pinned driver's older Teal also compiles, whose records cannot be marked `name?:`; every other environment refuses the omission
+--- find
+   record Env
+      globals: {string:Variable}
+--- replace
+   record Env
+      lenient_literals: boolean
+      globals: {string:Variable}
+--- end

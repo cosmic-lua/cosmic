@@ -1,0 +1,22 @@
+file: tl.tl
+note: Records are open, so `local r: R = {}` type-checked for an `R` with `name: string` and `r.name` was nil. A table literal checked against a record or an interface must give every field whose type does not admit nil (01-nil-union.txt's admits_nil: `name?: T` and `name: T | nil` may be omitted), and is refused otherwise, naming the type and the fields. Not required, because a literal does not supply them: a field of function type (a callback, a generic function, an overload; a method is supplied by `__index`), a method declared in the record body, a nested type declaration, and a metamethod key. 50b and `Env.lenient_literals` (50a) exempt a literal. `<total>` is unchanged: it asks for every field, the optional ones too
+--- find
+            if decltype is RecordType then
+               local rt = self:to_structural(t)
+               if rt is RecordType then
+                  node.is_total, node.missing = total_record_check(decltype, seen_keys)
+--- replace
+            if decltype is RecordLikeType then
+               node.omissions_checked = true
+               if not serves_in_place_of_function then
+                  refuse_omitted_fields(self, node, decltype, function(key: string): boolean
+                     return seen_keys[key] ~= nil
+                  end)
+               end
+            end
+
+            if decltype is RecordType then
+               local rt = self:to_structural(t)
+               if rt is RecordType then
+                  node.is_total, node.missing = total_record_check(decltype, seen_keys)
+--- end
