@@ -307,6 +307,7 @@ local record SocketConn is Net.Conn
   read: function(SocketConn, max_bytes?: integer): string | nil, string
   write: function(SocketConn, data: string): boolean, string
   shutdown: function(SocketConn, how: string): boolean, string
+  peer: function(SocketConn): Net.Address | nil, string
   close: function(SocketConn): boolean, string
   abort: function(SocketConn): boolean, string
 end
@@ -377,6 +378,13 @@ function SocketConn:write(data: string): boolean, string
     end
   end
   return true, ""
+end
+
+function SocketConn:peer(): Net.Address | nil, string
+  if not self.open then return nil, "net: the connection is closed" end
+  local address, why = raw.peer(self.fd)
+  if address == nil then return nil, why end
+  return address, ""
 end
 
 function SocketConn:shutdown(how: string): boolean, string
