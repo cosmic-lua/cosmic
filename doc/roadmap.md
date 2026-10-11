@@ -48,12 +48,11 @@ defines the target; once something ships, it leaves this file.
   that comes with it: a callback field `function(Event)` also takes a
   `function(k: KeyEvent)`.
 - close the holes in Teal's own typing that forge any type, `: never`
-  functions among them (`test_never_falls_into_the_holes_every_type_has` in
-  [`test/narrowing_test.tl`] pins today's behavior, and [doc/design.md](design.md)'s
-  teal section states the bar): `setmetatable` trusts a `__index` that serves
-  a number for a string field, or a `__call` attached at run time (a record
-  that declares a never `__call` may be given a metatable whose function
-  returns), against no declaration. a call through `any` carries no flag
+  functions among them ([doc/design.md](design.md)'s teal section states the
+  bar): a function `__index` given to `setmetatable` is declared to return
+  `any`, so what it serves is not checked against the record (a table
+  `__index` is, patch/tl's 47a, and `test_a_function_index_serves_any` in
+  [`build/teal_test.tl`] pins the rest). a call through `any` carries no flag
   either.
 - add earned lint rules and their fixes to [`build/fix/rule.tl`]'s rule list.
   the rewrite stage is in place and the list is still empty.
@@ -417,6 +416,7 @@ four-producer provenance join.
 [`build/locator_fuzz_test.tl`]: ../build/locator_fuzz_test.tl
 [`build/shape_specs.tl`]: ../build/shape_specs.tl
 [`build/standalone.tl`]: ../build/standalone.tl
+[`build/teal_test.tl`]: ../build/teal_test.tl
 [`build/workflows_test.tl`]: ../build/workflows_test.tl
 [`Child.end_strays`]: ../cosmic/child.tl
 [`ci/cosmic-driver.pin`]: ../ci/cosmic-driver.pin
@@ -459,7 +459,6 @@ four-producer provenance join.
 [`Shape.strict_record`]: ../cosmic/shape.tl
 [`Test.needs_of`]: ../cosmic/test.tl
 [`Test.policy`]: ../cosmic/test.tl
-[`test/narrowing_test.tl`]: ../test/narrowing_test.tl
 [`Typed.spec`]: ../cosmic/shape.tl
 [`Url.parse`]: ../cosmic/url.tl
 [`Url.Parts`]: ../cosmic/url.tl

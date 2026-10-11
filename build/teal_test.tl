@@ -1774,6 +1774,106 @@ local function test_a_call_site_type_name_is_told_there_are_none()
   assert(not says(compared, "no type arguments"), table.concat(compared, "\n"))
 end
 
+local meta_record = "local record R\n  name: string\n  metamethod __call: function(R, string): string\nend\n" ..
+  "local record Other\n  x: number\nend\n"
+
+--- A table given as `__index` is checked against the record's fields
+--- (patch/tl's 47a): one that serves a number for a string field is
+--- refused where it is written in the call, and in a variable typed
+--- `metatable<R>`, which is how a variable reaches setmetatable; a record
+--- of another type is no base for it.
+local function test_a_forged_index_is_refused()
+  assert_refused(meta_record .. "local r: R = setmetatable({}, { __index = { name = 1 } })\nprint(r)\n",
+    "name: got integer, expected string")
+  assert_refused(meta_record .. "local mt: metatable<R> = { __index = { name = 1 } }\n" ..
+      "local r: R = setmetatable({}, mt)\nprint(r)\n", "name: got integer, expected string")
+  assert_refused(meta_record .. "local r: R = setmetatable({}, { __index = Other })\nprint(r)\n",
+    "__index: got Other")
+end
+
+--- A metatable variable that is no `metatable<T>` is refused (47d), whatever
+--- it holds: its `__index` forge and its wrong `__call` both passed
+--- because T was a variable when the record was compared.
+local function test_an_untyped_metatable_variable_is_refused()
+  assert_refused(meta_record .. "local mt = { __index = { name = 1 } }\n" ..
+      "local r: R = setmetatable({}, mt)\nprint(r)\n", "must be typed metatable<")
+  assert_refused(meta_record ..
+      "local mt = { __call = function(_r: R, n: integer): integer return n end }\n" ..
+      "local r: R = setmetatable({}, mt)\nprint(r)\n", "must be typed metatable<")
+end
+
+--- A wrong `__call` in a variable typed `metatable<R>` is held to the
+--- record's declared one.
+local function test_a_wrong_call_through_a_typed_variable_is_refused()
+  assert_refused(meta_record ..
+      "local mt: metatable<R> = { __call = function(_r: R, n: integer): integer return n end }\n" ..
+      "local r: R = setmetatable({}, mt)\nprint(r)\n", "__call")
+end
+
+--- The class pattern, a function `__index`, a matching table and a weak
+--- table still compile. `__index` as a `{string:any}` proxy or as another
+--- record used as a base does not: write the proxy as a function
+--- `function(t: R, k: any): any`, and copy a base's fields into the record.
+local function test_the_sound_metatables_still_compile()
+  assert_accepted(meta_record .. "local mt: metatable<R> = { __index = R }\n" ..
+      "local r: R = setmetatable({}, mt)\nprint(r)\n" ..
+      "local f: metatable<R> = { __index = function(_r: R, _k: any): any return nil end }\n" ..
+      "local g: R = setmetatable({}, f)\nprint(g)\n" ..
+      "local lit: R = setmetatable({}, { __index = { name = 'x' } })\nprint(lit)\n" ..
+      "local weak: {string:R} = setmetatable({}, { __mode = 'v' })\nprint(weak)\n" ..
+      "local call: metatable<R> = { __call = function(_r: R, s: string): string return s end }\n" ..
+      "local c: R = setmetatable({}, call)\nprint(c)\n")
+  assert_refused(meta_record .. "local proxy: {string:any} = {}\n" ..
+      "local mt: metatable<R> = { __index = proxy }\nprint(mt)\n", "__index")
+end
+
+--- A never `__call` is held to a metatable's function that can return, in
+--- a variable typed `metatable<C>` and in one that is not (47d).
+local function test_a_never_call_is_not_given_a_function_that_returns()
+  local never_rec = "local record C\n  metamethod __call: function(self: C): never\nend\n"
+  assert_refused(never_rec .. "local mt = { __call = function(_s: any) end }\n" ..
+      "local c: C = setmetatable({}, mt)\nprint(c)\n", "must be typed metatable<")
+  assert_refused(never_rec .. "local mt: metatable<C> = { __call = function(_s: any) end }\n" ..
+      "local c: C = setmetatable({}, mt)\nprint(c)\n", "missing never")
+end
+
+--- The `__index` of a generic record is built from the record as written,
+--- type arguments included (47a): `v = 1` for `G<string>` is refused in a
+--- typed variable, in the call, and under a type variable.
+--- A generic record's metamethods are not held to a metatable yet (the TODO
+--- is in patch/tl's 47a, where `meta_fields` is read), which the last case pins.
+local function test_a_generic_records_index_is_checked_with_its_arguments()
+  local g = "local record G<T>\n  v: T\nend\n"
+  assert_refused(g .. "local mt: metatable<G<string>> = { __index = { v = 1 } }\nprint(mt)\n",
+    "v: got integer, expected string")
+  assert_refused(g .. "local g: G<string> = setmetatable({}, { __index = { v = 1 } })\nprint(g)\n",
+    "v: got integer, expected string")
+  assert_refused(g .. "local function mk<T>(): G<T>\n  return setmetatable({}, { __index = { v = 1 } })\nend\nprint(mk)\n",
+    "v: got")
+  assert_accepted(g .. "local mt: metatable<G<string>> = { __index = { v = 'x' } }\nprint(mt)\n")
+  assert_accepted("local record M<T>\n  metamethod __call: function(M<T>, string): string\nend\n" ..
+      "local mt: metatable<M<string>> = { __call = function(_m: M<string>, n: integer): integer return n end }\n" ..
+      "print(mt)\n")
+end
+
+--- What a function `__index` serves is declared `any` and not checked;
+--- recorded so closing it moves this case to a refusal.
+local function test_a_function_index_serves_any()
+  assert_accepted(meta_record .. "local mt: metatable<R> = { __index = function(_r: R, _k: any): any return 1 end }\n" ..
+      "local r: R = setmetatable({}, mt)\nprint(r.name)\n")
+end
+
+--- The classic class idiom with an untyped table is refused (47d), as is a
+--- base record as `__index` (47a). Write `local Class: metatable<R> = {}`
+--- with `Class.__index = R`, and copy the base's fields into the record.
+local function test_the_untyped_class_idiom_and_a_base_index_are_refused()
+  assert_refused(meta_record .. "local Class = {}\nClass.__index = Class\n" ..
+      "function Class.new(x: integer): integer\n  return x\nend\n" ..
+      "local r: R = setmetatable({}, Class)\nprint(r)\n", "must be typed metatable<R>")
+  assert_refused("local interface Base\n  name: string\nend\nlocal record Dog\n  is Base\n  bark: string\nend\n" ..
+      "local mt: metatable<Dog> = { __index = Base }\nprint(mt)\n", "__index")
+end
+
 --- `rawset` takes a map and writes the key's value type (patch/tl's
 --- 46a): a record's declared field cannot be written through it with a
 --- value of another type, whether the record's fields share a type (it
