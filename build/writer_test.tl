@@ -462,7 +462,8 @@ end
 
 --- An internal type is carried when a public declaration names it through
 --- the name its own module binds: as an alias's whole target, or as one of
---- the bases a record lists. A name that only ends in the bound one, a
+--- the bases a record or interface lists, and so is each of its members.
+--- A name that only ends in the bound one, a
 --- binding to another internal module, and a declaration outside the
 --- public standard library reach nothing, however many internal rows there
 --- are to ask about.
@@ -484,6 +485,11 @@ local function test_the_carried_internal_types_are_the_ones_a_public_signature_n
         internal("cosmic.internal.net", "Suffixed") .. ", " ..
         internal("cosmic.internal.other", "Elsewhere") .. ", " ..
         internal("cosmic.internal.net", "Hidden") .. ", " ..
+        internal("cosmic.internal.net", "Base") .. ", " ..
+        "('cosmic.internal.net', 'Alias.size', 'raw.Alias.size', 1, 'field', '', " ..
+        "'A member.', 'f', 1), " ..
+        "('cosmic.internal.net', 'Hidden.size', 'raw.Hidden.size', 1, 'field', '', " ..
+        "'Not reached.', 'f', 1), " ..
         "('cosmic.net', 'Net.Alias', 'Net.Alias', 1, 'field', 'type Alias = Native.Alias', " ..
         "'An alias.', 'f', 1), " ..
         "('cosmic.net', 'Net.Options', 'Net.Options', 1, 'record', " ..
@@ -493,7 +499,9 @@ local function test_the_carried_internal_types_are_the_ones_a_public_signature_n
         "('cosmic.net', 'Net.Elsewhere', 'Net.Elsewhere', 1, 'field', " ..
         "'type Elsewhere = Native.Elsewhere', 'Not it.', 'f', 1), " ..
         "('build.net', 'net.Hidden', 'net.Hidden', 1, 'field', " ..
-        "'type Hidden = Native.Hidden', 'Not public.', 'f', 1)",
+        "'type Hidden = Native.Hidden', 'Not public.', 'f', 1), " ..
+        "('cosmic.net', 'Net.Shape', 'Net.Shape', 1, 'interface', " ..
+        "'interface Shape is Native.Base', 'A shape.', 'f', 1)",
       "INSERT INTO bound (path, name, requires) VALUES " ..
         "('cosmic.net', 'Native', 'cosmic.internal.net'), " ..
         "('build.net', 'Native', 'cosmic.internal.net')",
@@ -507,7 +515,7 @@ local function test_the_carried_internal_types_are_the_ones_a_public_signature_n
     "SELECT coalesce(group_concat(symbol, ' '), '') FROM (SELECT symbol FROM docs " ..
       "WHERE module LIKE 'cosmic.internal.%' ORDER BY id)"))
   assert(out:close())
-  assert(found[1][1] == "Alias First Second", "the internal types carried: " .. found[1][1])
+  assert(found[1][1] == "Alias First Second Base Alias.size", "the internal types carried: " .. found[1][1])
 end
 
 --- A user guide is a generated test module, which the tool does not

@@ -619,14 +619,14 @@ local nested_type <const> =
   "THEN substr(d.source_symbol, instr(d.source_symbol, '.') + 1) " ..
   "ELSE substr(d.symbol, 1, instr(d.symbol, '.') - 1) END)"
 
---- The public declarations that name an internal type through a module
---- binding: each row is a public signature `signature` that is an alias
---- (`type Handle = raw_sqlite.Handle`) or a base (`record Options is
---- raw_http.Options`), with the module `requires` and the `name` its
---- module binds it to ([`build.analyzer.Bound`]). It follows `dropped` as
---- one more common table expression and is computed once:
---- [`carried_internal_types`] asks of it for every doc row of an internal
---- module, and a join inside that condition is scanned again for each.
+--- The public declarations that can name an internal type through a
+--- module binding: the `signature` of each public alias (`type Handle =
+--- raw_sqlite.Handle`) or declaration with bases (`record Options is
+--- raw_http.Options`), beside each module `requires` its module binds,
+--- and the `name` it binds it to ([`build.analyzer.Bound`]). It follows
+--- `dropped` as one more common table expression, materialized so that
+--- it is computed once, not for each internal doc row
+--- [`carried_internal_types`] asks about.
 local carried_alias_signatures <const> =
   ", alias_signatures AS MATERIALIZED (" ..
   "SELECT b.requires, b.name, p.signature FROM whole.docs p " ..
