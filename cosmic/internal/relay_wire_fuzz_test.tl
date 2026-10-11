@@ -499,7 +499,8 @@ local function test_a_username_and_password_built_from_an_answer_reads_back_the_
       if first.status ~= "done" then
         return true, ""
       end
-      local rebuilt = "\1" .. string.char(#first.username) .. first.username .. string.char(#first.password) .. first.password
+      local username, password = assert(first.username), assert(first.password)
+      local rebuilt = "\1" .. string.char(#username) .. username .. string.char(#password) .. password
       local second = Wire.socks_auth_reader():feed(rebuilt)
       if second.status ~= "done" or second.username ~= first.username or second.password ~= first.password or
           second.consumed ~= #rebuilt then

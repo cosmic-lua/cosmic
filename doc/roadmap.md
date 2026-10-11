@@ -20,13 +20,9 @@ defines the target; once something ships, it leaves this file.
 - refuse the uses of a nil-admitting record field that raise at run time.
   a table literal must give every field that does not admit nil (patch/tl 50),
   and `name?: T` (49a to 49e4) declares one it may omit, typed `T | nil`.
-  TODO: the checker refuses only an index, `ipairs` and `pairs` of a
-  nil-admitting field, not its use as an operand of `..`, `#`, arithmetic
-  or a comparison, as a `table.concat` or `table.insert` argument, or as an
-  argument for a non-nil parameter; those raise at run time when the field
-  is omitted (the marking found no such read that a constructor reaches:
-  [`wire.Reply.date`], which `send` concatenates, stays required).
-  Refuse them where the binary operators and calls are checked in tl.tl.
+  TODO: refuse a nil-admitting value as an argument for any parameter that
+  does not admit nil, not only of `table.insert` and `table.concat` (the TODO
+  in patch/tl 51f).
   a warning first is no option: every warning cosmic sees is
   a refused compile ([`build/compilation.tl`]'s `generate`,
   [`build/standalone.tl`] and [`build/example_checks.tl`] each reject on
@@ -494,4 +490,3 @@ four-producer provenance join.
 [`Url.parse`]: ../cosmic/url.tl
 [`Url.Parts`]: ../cosmic/url.tl
 [`Url.segments`]: ../cosmic/url.tl
-[`wire.Reply.date`]: ../cosmic/http/wire.tl

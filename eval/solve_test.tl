@@ -86,8 +86,8 @@ local function test_the_sandbox_unveils_the_arena_and_the_hosts_runtime_alone()
   for _, path in ipairs({ "/lib64", "relative", "/home", "/root", "/sys", "/tmp", "/r", "/r/project" }) do
     assert(not given[path], path)
   end
-  assert(table.concat(unveil.writes, " ") == "/r/project /r/tmp /r/config /r/home",
-    table.concat(unveil.writes, " "))
+  local writes = table.concat(assert(unveil.writes), " ")
+  assert(writes == "/r/project /r/tmp /r/config /r/home", writes)
 end
 
 local function test_the_status_is_what_timeout_would_record()

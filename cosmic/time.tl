@@ -1552,10 +1552,11 @@ function Time.format_rfc3339(ns: integer, zone?: Time.Zone, opts?: Time.FormatOp
     shift = whole_minutes(kind_at(rules, s).offset)
     tail = offset_text(shift)
     if zone_name then
-      if not rules.named then
-        error(("time: zone %q has no IANA name for zone_name to write"):format(rules.name), 2)
+      local name = rules.name
+      if not rules.named or name == nil then
+        error(("time: zone %q has no IANA name for zone_name to write"):format(tostring(name)), 2)
       end
-      tail = tail .. "[" .. rules.name .. "]"
+      tail = tail .. "[" .. name .. "]"
     end
   elseif zone_name then
     error("time: zone_name writes the name of a zone, and there is none", 2)

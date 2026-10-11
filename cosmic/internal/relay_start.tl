@@ -299,8 +299,10 @@ function relay.name_servers(opts?: relay.NameServerOptions): relay.NameServers |
   if math.type(resolve) ~= "integer" or resolve <= 0 then
     error("relay: name_servers' resolve must be a positive integer of nanoseconds", 2)
   end
-  local listed = opts.servers
-  if listed == nil then
+  local listed: {Config.Endpoint}
+  if opts.servers ~= nil then
+    listed = opts.servers
+  else
     local read, why = Resolv.nameservers(opts.resolv_conf)
     if read == nil then return nil, why end
     listed = read

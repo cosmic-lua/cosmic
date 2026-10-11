@@ -70,8 +70,9 @@ local function step(root: string, name: string, files: {string}, outputs: {strin
   local records: {string} = {}
   for i, file in ipairs(files) do
     local prefix, path = file:match("^(%d+) (.*)$")
+    assert(prefix ~= nil and path ~= nil, file)
     records[#records + 1] = string.pack("<i8i8i8", 1, i, 1) ..
-      Codec.unhex(string.rep(name:sub(-1), 32)) ..
+      assert(Codec.unhex(string.rep(name:sub(-1), 32))) ..
       string.char(math.tointeger(prefix) << 2) .. path .. "\0"
   end
   local text = table.concat(records) .. "\0"

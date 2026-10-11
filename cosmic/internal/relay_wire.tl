@@ -1260,10 +1260,11 @@ function relay_wire.hello_reader(): relay_wire.HelloReader
         return finish(malformed(("a ClientHello of %s (at most %d)"):format(String.counted(total, "byte"), MAX_HELLO)))
       end
     end
-    if gathered < 4 + total then
+    local size = assert(total)
+    if gathered < 4 + size then
       return nil
     end
-    if gathered > 4 + total then
+    if gathered > 4 + size then
       return finish(malformed("bytes after the ClientHello in its last record"))
     end
     local server, why = hello_name(table.concat(parts):sub(5))

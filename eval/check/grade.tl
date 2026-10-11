@@ -1573,7 +1573,7 @@ local function mirror_requests(g: Grade, site: Site)
     has(g, zipped, "GET /big.txt accepting gzip", "Content-Length", tostring(#zipped.body))
     local plain, trouble = Compress.inflate("gzip", zipped.body)
     check(g, plain == big, "GET /big.txt accepting gzip inflates to the file",
-      plain == nil and trouble or #plain .. " bytes")
+      plain ~= nil and #plain .. " bytes" or trouble)
   end
   local identity = asks(g, site, "GET", "/big.txt", {}, { 200 })
   has(g, identity, "GET /big.txt", "Content-Encoding", nil)
@@ -1699,7 +1699,7 @@ local function mirror_lie(g: Grade)
           "\r\nConnection: close\r\n\r\n" .. body)
     end,
     on_ready = function(addresses: {Net.Address}, server: Net.Server)
-      args = { "pull", "http://127.0.0.1:" .. addresses[1].port .. "/", "lied" }
+      args = { "pull", "http://127.0.0.1:" .. assert(addresses[1].port) .. "/", "lied" }
       result = run(g, args)
       server:stop()
     end,
@@ -2030,7 +2030,7 @@ local function relay_refused(g: Grade)
     fail(g, "could not find a free port: " .. trouble)
     return
   end
-  local dead = listener.address.port
+  local dead = assert(listener.address.port)
   local _, _ = listener:close()
   local server, port = serves(g, { "0", "127.0.0.1:" .. dead }, "check-relay-refused.out")
   if server == nil then return end
@@ -2074,7 +2074,7 @@ local function relay(g: Grade)
       echo(target, conn)
     end,
     on_ready = function(addresses: {Net.Address}, server: Net.Server)
-      local target_port = addresses[1].port
+      local target_port = assert(addresses[1].port)
       local main, port = serves(g, { "0", "127.0.0.1:" .. target_port }, "check-relay.out")
       if main ~= nil then
         relay_echo(g, port)

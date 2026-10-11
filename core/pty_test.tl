@@ -57,8 +57,8 @@ local function test_openpty_returns_owned_descriptors_or_a_runtime_refusal()
   else
     assert(pty.master ~= pty.slave)
     assert(sys.isatty(pty.master) and sys.isatty(pty.slave))
-    assert(sys.fd_flags(pty.master) & sys.FD_CLOEXEC ~= 0)
-    assert(sys.fd_flags(pty.slave) & sys.FD_CLOEXEC ~= 0)
+    assert(assert(sys.fd_flags(pty.master)) & sys.FD_CLOEXEC ~= 0)
+    assert(assert(sys.fd_flags(pty.slave)) & sys.FD_CLOEXEC ~= 0)
     assert(sys.close(pty.slave))
     assert(sys.close(pty.master))
   end

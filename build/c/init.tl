@@ -540,7 +540,7 @@ function c.check(root: string, files: {string}, cwd?: string, limit?: integer):
       variants[#variants + 1] = name
       if result.findings == nil then
         out.findings = nil
-        out.trouble = (v == 1 and "" or name .. ": ") .. result.trouble
+        out.trouble = (v == 1 and "" or name .. ": ") .. assert(result.trouble)
         break
       end
       if v == 1 then

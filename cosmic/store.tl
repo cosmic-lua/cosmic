@@ -636,10 +636,11 @@ function Store.seal(names: {string}, path?: string,
   if image ~= nil then
     table.insert(identity, 1, { "image_hash", image })
   end
-  local scratch, scratch_trouble = Fs.mkdtemp("seal-")
-  if scratch == nil then
+  local made_scratch, scratch_trouble = Fs.mkdtemp("seal-")
+  if made_scratch == nil then
     return nil, scratch_trouble
   end
+  local scratch: string = made_scratch
   local function build(): string | nil, string
     local written, write_trouble = write_database(sorted, scratch .. "/building.db",
       main, identity, script)

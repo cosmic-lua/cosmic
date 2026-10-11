@@ -88,7 +88,7 @@ function Errors.terminal(req: Types.Request): Types.Response
   elseif kind == "options" then
     return Response.empty(204, { headers = { Allow = outcome.allow } })
   elseif kind == "redirect" then
-    local location = outcome.location
+    local location = assert(outcome.location)
     if req.query_string ~= "" then location = location .. "?" .. req.query_string end
     return Response.redirect(location, { status = 308 })
   elseif kind == "bad_path" or kind == "bad_host" then

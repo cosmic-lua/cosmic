@@ -500,12 +500,13 @@ local function extract_streamed(file: string, source: Stream.Reader, dest: strin
     local _, _ = inner:close()
     return fail(bare.refused, trouble_of(file, file, parents_why))
   end
-  local stage, stage_why = sys.mkdtemp(parent .. "/.cosmic-extract-XXXXXX")
-  if stage == nil then
+  local made_stage, stage_why = sys.mkdtemp(parent .. "/.cosmic-extract-XXXXXX")
+  if made_stage == nil then
     local _, _ = inner:close()
     undo_made()
     return fail(bare.refused, trouble_of(file, file, parent .. ": " .. stage_why))
   end
+  local stage: string = made_stage
   local tree = stage .. "/tree"
   local function give_up(outcome: Outcome): Outcome
     local _, _ = Fs.remove_tree(stage)

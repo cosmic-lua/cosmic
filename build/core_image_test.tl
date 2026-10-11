@@ -20,7 +20,7 @@ local function test_a_core_carrying_dwarf_is_keyed_by_its_image()
   local other = fixture.elf("code", "DW_AT_comp_dir /__w/a/much/longer/path/two")
   assert(one ~= other)
   assert(core_image.digest(one) ~= nil, "a core carrying DWARF has no image")
-  assert(#core_image.digest(one) == 32)
+  assert(#assert(core_image.digest(one)) == 32)
   assert(digest(one) == digest(other), "its DWARF moved the core")
   assert(digest(one) ~= Hash.sha256(one))
   assert(digest(fixture.elf("edoc", "DW_AT_comp_dir /home/runner/work/one")) ~=

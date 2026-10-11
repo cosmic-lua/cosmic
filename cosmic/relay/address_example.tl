@@ -17,7 +17,7 @@ function Example.permitted()
   assert(not ok)
   print(why) -- 169.254.169.254 is a metadata address: grant it literally with --connect 169.254.169.254:80
   assert(relay_address.check("169.254.169.254", 80, { "169.254.169.254:80" }, own))
-  assert(#relay_address.parse("::ffff:1.2.3.4") == 16) -- bytes, 4 for IPv4 and 16 for IPv6
+  assert(#assert(relay_address.parse("::ffff:1.2.3.4")) == 16) -- bytes, 4 for IPv4 and 16 for IPv6
   assert(relay_address.parse("1.2.3") == nil)
 end
 

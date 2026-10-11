@@ -1031,8 +1031,9 @@ local services: {Kind:Service} = {
       local offset, input = assert(h._input_at), assert(h._input)
       local written, _, errno = sys.write(h._input_fd, input:sub(offset + 1, offset + CHUNK))
       if written ~= nil then
-        h._input_at = offset + written
-        if h._input_at >= #input then end_input(h) end
+        local at = offset + written
+        h._input_at = at
+        if at >= #input then end_input(h) end
       elseif errno ~= sys.EAGAIN and errno ~= sys.EINTR then
         -- EPIPE included: a child that stopped reading has said so.
         end_input(h)
@@ -2627,7 +2628,7 @@ local function reached_by(merged: Rules.Policy, base: string, file: boolean,
       local got, _ = sys.stat(real)
       st = got
     end
-    if st ~= nil then
+    if real ~= nil and st ~= nil then
       local reach = Rules.reach(grant.letters, st, user.uid, user.gid)
       local what = "grant " .. string.format("%q", grant.path) .. " (" .. real .. ")"
       if reach.by == "" then
@@ -3516,8 +3517,9 @@ local function seal_relay(): RelayProgram | nil, string
     return nil, "this program does not carry " .. RELAY_MAIN .. ", the relay's program (" ..
       (tostring(names):gsub("^.-:%d+: ", "")) .. "): a policy with connect needs a program that has it"
   end
-  local dir, dir_trouble = Fs.mkdtemp("cosmic-relay-")
-  if dir == nil then return nil, dir_trouble end
+  local made, dir_trouble = Fs.mkdtemp("cosmic-relay-")
+  if made == nil then return nil, dir_trouble end
+  local dir: string = made
   local function fail(why: string): nil, string
     local _, _ = Fs.remove_tree(dir)
     return nil, why
@@ -3634,7 +3636,8 @@ end
 --- `how` ended it and `read_trouble` is why its output failed.
 local function relay_ended(relay: Handle, read_trouble: string, log: RelayLog | integer): string
   local ended, _ = end_or_kill(relay)
-  local how = ended ~= nil and ended.signal ~= nil and "signal " .. ended.signal or
+  local signal = ended ~= nil and ended.signal or nil
+  local how = signal ~= nil and "signal " .. signal or
     "status " .. tostring(ended ~= nil and ended.code or "unknown")
   return "the relay ended (" .. how .. ") before it served" ..
     (read_trouble ~= "" and ": " .. read_trouble or "") ..
@@ -3930,8 +3933,9 @@ local function start(argv: {string}, opts: Options, pty?: Pty, serves_relay?: in
   if held ~= nil and held.seatbelt then h._seatbelt = held.sandbox.seatbelt end
   if #wiring.streams > 0 then h._streams = wiring.streams end
   if wiring.input_fd ~= nil then
-    h._input_fd, h._input, h._input_at = wiring.input_fd, opts.input, 0
-    if #opts.input == 0 then end_input(h) end
+    local input = assert(opts.input)
+    h._input_fd, h._input, h._input_at = wiring.input_fd, input, 0
+    if #input == 0 then end_input(h) end
   end
   if wiring.feed_fd ~= nil then
     h._feed_fd = wiring.feed_fd

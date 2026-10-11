@@ -55,11 +55,11 @@ local function test_merge_unions_lists_sorted_without_repeats()
       isolate = { "proc" }, loopback = { "127.0.0.2" } },
     { promises = { "fork", "fattr" }, env = { "A", "C" }, connect = { "a:1" },
       isolate = { "file", "proc" }, loopback = { "127.0.0.1" } })
-  assert(table.concat(out.promises, ",") == "fattr,fork,jit")
-  assert(table.concat(out.env, ",") == "A,B,C")
-  assert(table.concat(out.connect, ",") == "a:1,b:1")
-  assert(table.concat(out.isolate, ",") == "file,proc")
-  assert(table.concat(out.loopback, ",") == "127.0.0.1,127.0.0.2")
+  assert(table.concat(assert(out.promises), ",") == "fattr,fork,jit")
+  assert(table.concat(assert(out.env), ",") == "A,B,C")
+  assert(table.concat(assert(out.connect), ",") == "a:1,b:1")
+  assert(table.concat(assert(out.isolate), ",") == "file,proc")
+  assert(table.concat(assert(out.loopback), ",") == "127.0.0.1,127.0.0.2")
 end
 
 local function test_merge_answers_every_field_even_for_nothing()

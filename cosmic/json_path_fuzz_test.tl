@@ -300,7 +300,8 @@ local function reference_select(seg: Json.Segment, node: Json.Match, out: {Json.
     local last = kid.steps[#kid.steps]
     local hit = seg.kind == "wildcard" or (seg.kind == "name" and last == seg.name)
     if seg.kind == "index" and last is integer then
-      local want = seg.index >= 0 and seg.index + 1 or top + 1 + seg.index
+      local index = assert(seg.index)
+      local want = index >= 0 and index + 1 or top + 1 + index
       hit = last == want
     end
     if hit then out[#out + 1] = kid end

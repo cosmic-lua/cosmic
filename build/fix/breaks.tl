@@ -349,7 +349,7 @@ local function written(p: Pass): string
   local after: {Break:compiler.Token} = {}
   for _, b in ipairs(p.moves) do
     edits[#edits + 1] = b
-    after[b] = p.c.scan.tokens[typescan.index_at(p.c.scan, b.y, b.x) - 1]
+    after[b] = p.c.scan.tokens[assert(typescan.index_at(p.c.scan, b.y, b.x)) - 1]
   end
   for _, b in pairs(p.breaks) do
     local t = sharing(p, b.y, b.x, b.drop)

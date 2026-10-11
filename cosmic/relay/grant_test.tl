@@ -36,9 +36,9 @@ local function test_kinds()
   local any = assert(Grant.parse("*:*"))
   assert(any.kind == "any" and any.port == 0)
   local v6 = assert(Grant.parse("[::1]:*"))
-  assert(v6.kind == "ipv6" and #v6.bytes == 16 and v6.port == 0)
+  assert(v6.kind == "ipv6" and #assert(v6.bytes) == 16 and v6.port == 0)
   local v4 = assert(Grant.parse("10.0.0.1:1"))
-  assert(v4.kind == "ipv4" and #v4.bytes == 4)
+  assert(v4.kind == "ipv4" and #assert(v4.bytes) == 4)
 end
 
 local function test_refuses_what_the_relay_cannot_use()

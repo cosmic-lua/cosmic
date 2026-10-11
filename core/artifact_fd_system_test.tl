@@ -59,7 +59,7 @@ local function test_a_host_program_cannot_reach_the_artifact_through_the_worker_
   }) do
     local result = shell(script, pid, own)
     assert(result.code ~= 0 and result.stdout == "",
-      script .. " reached the artifact: " .. result.code .. " " .. #result.stdout .. " bytes")
+      script .. " reached the artifact: " .. tostring(result.code) .. " " .. #tostring(result.stdout) .. " bytes")
   end
   -- The worker itself still reads its own.
   assert(sys.readlink("/proc/self/fd/0") ~= nil)

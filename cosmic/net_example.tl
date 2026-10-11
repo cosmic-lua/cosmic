@@ -50,7 +50,7 @@ end
 --- listener's `address` names for a client to connect to.
 function Example.tcp()
   local server <close> = assert(Net.listen(Net.tcp("127.0.0.1", 0), { timeout_ns = Clock.seconds(5) }))
-  print(server.address.port > 0)
+  print(assert(server.address.port) > 0)
   local client <close> = assert(Net.connect(server.address, { timeout_ns = Clock.seconds(5) }))
   local conn <close> = assert(server:accept())
   assert(client:write("hello"))

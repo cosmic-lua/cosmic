@@ -81,7 +81,7 @@ local function test_a_username_and_password_are_written_for_the_relay_to_read()
     tostring(seen.reason))
   local widest = assert(Wire.socks_client_auth(("u"):rep(255), ("p"):rep(255)))
   local read = Wire.socks_auth_reader():feed(widest)
-  assert(read.status == "done" and #read.username == 255 and #read.password == 255, "255 bytes each fit")
+  assert(read.status == "done" and #assert(read.username) == 255 and #assert(read.password) == 255, "255 bytes each fit")
   for _, case in ipairs({ { "", "pw", "username is empty" }, { "u", "", "password is empty" },
       { ("u"):rep(256), "pw", "username is longer than 255" }, { "u", ("p"):rep(256), "password is longer than 255" } }) do
     local refused, why = Wire.socks_client_auth(case[1], case[2])

@@ -95,7 +95,8 @@ local function drain(caller: Caller)
     local ready, _ = Poll.readable(caller.master, Clock.ms(200))
     if not ready then return end
     local data, _ = sys.read(caller.master, 4096)
-    if data == nil or data == "" then return end
+    if data == nil then return end
+    if data == "" then return end
     caller.shown = caller.shown .. data
   end
 end

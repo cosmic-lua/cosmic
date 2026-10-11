@@ -728,7 +728,7 @@ local function test_the_upstream_proxy_is_reached_through_the_table(tmp: string)
       end
     end)
     local env = this_program.environment()
-    env.https_proxy = "http://127.0.0.2:" .. listener.address.port
+    env.https_proxy = "http://127.0.0.2:" .. assert(listener.address.port)
     local started = this_program.program({ "--standalone", script, database, tostring(granted),
       tostring(ungranted), "null" }, { env = env, stdout = "capture", stderr = "capture",
         timeout_ns = Clock.seconds(60) })

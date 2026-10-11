@@ -48,6 +48,12 @@ local String = require("cosmic.string")
 
 local type Node = ast.Node
 
+-- TODO: type-check ci/testdata/**/*.tl. `cosmic fix --check` in ci/ only
+-- parses them, and CI compiles each when a leg runs it, standalone, so a
+-- refusal there is met late. It waits on a check that compiles each in
+-- [`build.standalone`]'s environment and fails on a type error (a test-shaped
+-- file there is refused for being unused, so it would skip that warning).
+
 local record tree_checks
   --- What [`plurals`] finds in one text of a file, read off a parse made
   --- before the checks ran ([`plurals_in`]).
