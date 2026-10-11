@@ -31,10 +31,10 @@ local record test_report
     cached: integer
     skipped: integer
     --- Of those that ran, how many passed having made no call to `assert`.
-    unchecked: integer
+    unchecked?: integer
     --- Of the tests chosen, how many are not applicable on this platform,
     --- none of which ran or stood.
-    na: integer
+    na?: integer
     every: integer
     shared: integer
   end

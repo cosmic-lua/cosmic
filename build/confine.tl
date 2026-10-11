@@ -41,8 +41,8 @@ local record confine
   --- system's own files (see `confine`) and its own directory:
   --- the paths they read, and the ones they change too.
   record Confinement
-    reads: {string}
-    writes: {string}
+    reads?: {string}
+    writes?: {string}
   end
 
   --- What a call `call` made came to: whether it returned, and its
@@ -1067,13 +1067,13 @@ local function enter(own?: {string}, sandboxed?: boolean): Leave, {string}
         local there, _ = asked.stat(given)
         if there ~= nil then reads[#reads + 1] = given end
       end
-      for _, given in ipairs(declared.reads) do reads[#reads + 1] = given end
+      for _, given in ipairs(declared.reads or {}) do reads[#reads + 1] = given end
       local writes: {string} = {}
       for _, given in ipairs(owned) do
         local there, _ = asked.stat(given)
         if there ~= nil then writes[#writes + 1] = given end
       end
-      for _, given in ipairs(declared.writes) do
+      for _, given in ipairs(declared.writes or {}) do
         -- One the test owns is there already.
         local mine = false
         for _, directory in ipairs(owned) do

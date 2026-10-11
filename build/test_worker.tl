@@ -56,16 +56,16 @@ local record worker
     modules: {string}
     --- Why its test is skipped ([`Test.skip`]): each reason it was given,
     --- once, joined by "; "; "" or nil where it called none.
-    skipped: string
+    skipped?: string
     --- How many calls to `assert` the test made while it ran, through
     --- every helper and fixture it called: 0 for one that did not run.
     --- A test that passes with none made no call to `assert`
     --- ([`Judgement.unchecked`]).
-    asserted: integer
+    asserted?: integer
     --- What [`Test.passed_unchecked`] said, "" where it was not called: the
     --- test passed having deliberately not checked, which is no
     --- [`Judgement.unchecked`].
-    deliberate: string
+    deliberate?: string
   end
 
   --- How a sandboxed worker is held by a Landlock ruleset
@@ -93,13 +93,13 @@ local record worker
     --- its name; and what the build read of the module's `policy`
     --- ([`test_inputs.canonical`]).
     root: string
-    cwd: string
+    cwd?: string
     module_path: string
     name: string
     scratch: string
     --- Whether the worker makes the directory `scratch` names itself, in
     --- a tmpfs of its own (`--own-scratch`), where the runner made none.
-    own_scratch: boolean
+    own_scratch?: boolean
     needs: string
     --- How its Landlock ruleset holds it (`hold_flag`).
     hold: worker.Hold
@@ -107,7 +107,7 @@ local record worker
     --- one, or, unsandboxed, the store of its module's closure, or the
     --- projection for a module that declares `store`. The runner names
     --- it, so the worker resolves no build directory itself.
-    store: string
+    store?: string
     --- The names of the module's import closure and of every module of
     --- the tree (see `run`).
     closure: {string}
@@ -115,12 +115,12 @@ local record worker
     --- The policy the worker is started under ([`build.test_policy`]),
     --- whose `set_env` is its whole environment but for what `env` and
     --- `start` add; nil where it runs unsandboxed.
-    policy: Sandbox.Policy
+    policy?: Sandbox.Policy
     --- The paths the policy lets the worker run, which a worker held to
     --- running nothing but what its test may (`hold` "forbid") is told,
     --- since a worker the policy holds cannot list / to find them
     --- (`--runs`).
-    runs: {string}
+    runs?: {string}
     --- The name the worker is to have its program by, in place of the
     --- artifact path `start` names (build.test_sandbox's
     --- [`Plan.program`]), or nil to keep that.
@@ -138,20 +138,20 @@ local record worker
   record Judging
     --- The worker's end, or nil where it could not be started or
     --- supervised.
-    result: Child.Result
+    result?: Child.Result
     --- Why there is no result; with one, what the worker left running
     --- past its end, or "" for nothing.
     trouble: string
     --- Whether `trouble` is why its worker was never started -- its
     --- module declares what cannot be given it -- said as it is.
-    refused: boolean
+    refused?: boolean
     timeout_ns: integer
     sandboxed: boolean
     --- Where the loaded set is held (`unkeyed`): the modules of the
     --- tree the tool carries and the test's import closure, each a set
     --- of names; nil for no such hold.
-    carried: {string:boolean}
-    closure: {string:boolean}
+    carried?: {string:boolean}
+    closure?: {string:boolean}
   end
 
   --- A finished worker's verdict: its report, nil where there is none,
@@ -159,17 +159,17 @@ local record worker
   --- that passed, why it is skipped instead ([`Report.skipped`]), "" for
   --- a pass.
   record Judgement
-    report: Report
+    report?: Report
     passed: boolean
     message: string
-    skipped: string
+    skipped?: string
     --- Whether it passed, and was not skipped, without one call to `assert`
     --- ([`Report.asserted`]): it ran and made no call to `assert`, which a held run
     --- fails and no run keeps a verdict of.
-    unchecked: boolean
+    unchecked?: boolean
     --- Of one that passed, what it said it deliberately did not check
     --- for ([`Report.deliberate`]), "" for none.
-    deliberate: string
+    deliberate?: string
   end
 
   --- The descriptor the report is written to.
@@ -852,7 +852,7 @@ function worker.run(argv: {integer:string}): integer
   end
   local report: worker.Report = {
     loaded = false, passed = false, message = "", elapsed_ns = 0, skipped = "",
-    asserted = 0, deliberate = "",
+    asserted = 0, deliberate = "", load_hits = {}, test_hits = {}, modules = {},
   }
   Assertions.install()
   -- Processes the test starts report the core's C they ran here, so it

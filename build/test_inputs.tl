@@ -56,31 +56,31 @@ local record test_inputs
     tool: boolean
     --- Whether it starts this program only to run Lua in it
     --- ([`cosmic.test`]'s `lua`): its closure holds `lua_loads` too.
-    lua: boolean
+    lua?: boolean
     --- Whether its worker is left unheld by Landlock, so a process it
     --- starts may have a root of its own ([`cosmic.test`]'s `nests`).
-    nests: boolean
-    noexec: boolean
+    nests?: boolean
+    noexec?: boolean
     --- Whether this run proved private noexec scratch usable by this
     --- worker's identity, and why not when requested but unavailable.
-    noexec_ready: boolean
-    noexec_trouble: string
+    noexec_ready?: boolean
+    noexec_trouble?: string
     store: boolean
     --- Whether its worker is given the system's own paths
     --- ([`confine.worker_unveil`]), and its key the host's packages
     --- and system ([`declared_key.system_identity`]).
-    system: boolean
+    system?: boolean
     --- The host caches declared, by name ([`build.caches`]), and where
     --- they are on this host, once the runner resolves them: empty until
     --- then.
-    caches: {string}
-    cache_paths: {string}
+    caches?: {string}
+    cache_paths?: {string}
     --- The files of the project root's parent directory declared
     --- ([`cosmic.test`]'s `parent`), by their relative paths.
-    parent: {string}
+    parent?: {string}
     --- Once `resolve` has run: why a `host` path cannot be given, ""
     --- when every one can.
-    unresolved: string
+    unresolved?: string
   end
 
   lua_loads: {string}
@@ -268,11 +268,13 @@ end
 function test_inputs.effective(m: Module, by_path: {string:Module},
                                declarations: {string:string},
                                type_only?: {string:{string:boolean}}): test_inputs.Effective
+  local parent: {string} = {}
+  local caches: {string} = {}
   local out: test_inputs.Effective = {
     files = {}, reads = {}, host = {}, env = {}, network = {},
     tool = false, lua = false, nests = false, noexec = false, noexec_ready = false,
     noexec_trouble = "", store = false,
-    system = false, caches = {}, parent = {},
+    system = false, caches = caches, parent = parent,
     cache_paths = {}, unresolved = "",
   }
   local files, fuzzes = closure(m, by_path, declarations, type_only)
@@ -292,10 +294,10 @@ function test_inputs.effective(m: Module, by_path: {string:Module},
     out.nests = declared.nests == true
     out.noexec = declared.noexec == true
     out.system = declared.system == true
-    for _, relative in ipairs(declared.parent or {}) do out.parent[#out.parent + 1] = relative end
+    for _, relative in ipairs(declared.parent or {}) do parent[#parent + 1] = relative end
     -- A cache is declared with the variables that locate it.
     for _, name in ipairs(declared.caches or {}) do
-      out.caches[#out.caches + 1] = name
+      caches[#caches + 1] = name
       for _, variable in ipairs(cache_names.variables(name)) do out.env[variable] = true end
     end
   end
