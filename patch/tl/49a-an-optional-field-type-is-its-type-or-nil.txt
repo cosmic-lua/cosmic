@@ -1,11 +1,11 @@
 file: tl.tl
-note: the type a record or interface field gets when it is declared `name?: T`: T united with nil, written as `T | nil` is, so narrowing, `is` and every comparison treat it as any other nil-admitting field. A union T already is gets nil as one more member rather than a second union around it, and one that has nil is left alone. A generic function type is refused: a union of a generic is no type the checker reads, and the declaration has no other place to put nil
+note: the type a record or interface field gets when it is declared `name?: T`: T united with nil, written as `T | nil` is, so narrowing, `is` and every comparison treat it as any other nil-admitting field. A union T already is gets nil as one more member rather than a second union around it, and one that has nil is left alone. A generic function type is refused (its message says a plain field can be omitted anyway): a union of a generic is no type the checker reads, and the declaration has no other place to put nil
 --- find
 local function store_field_in_record(ps: ParseState, i: integer, field_name: string, newt: Type, def: RecordLikeType, comments?: {Comment}, meta?: MetaMode): boolean
 --- replace
 local function optional_field_type(ps: ParseState, i: integer, t: Type): Type
    if t is GenericType then
-      fail(ps, i, "an optional field cannot have a generic type")
+      fail(ps, i, "an optional field cannot have a generic type (a plain field `f: function<T>(T): T` can be left out of a literal anyway)")
       return t
    end
    local members: {Type} = {}

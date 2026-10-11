@@ -1651,3 +1651,17 @@ local function test_what_an_optional_field_refuses()
   assert_refused("local record R\n  name? string\nend\n", "expected ':'")
   assert_accepted("local function f(a?: string) print(a) end\nprint(f)\n")
 end
+
+--- A field named by a word that starts a declaration (`type`, `record`,
+--- `enum`, `interface`, `userdata`, `metamethod`) may be optional, as it
+--- may be plain (patch/tl's 49d and 49e).
+local function test_an_optional_field_may_be_named_for_a_declaration_word()
+  for _, word in ipairs({ "type", "record", "enum", "interface", "userdata", "metamethod" }) do
+    assert_accepted("local record R\n  " .. word .. "?: integer\n  other: string\nend\n" ..
+      "local r: R = {}\nif r." .. word .. " then\n  print(r." .. word .. " + 1)\nend\n")
+    assert_refused("local record R\n  " .. word .. "?: integer\nend\nlocal r: R = {}\n" ..
+      "print(r." .. word .. ".x)\n", "in type integer | nil")
+    assert_accepted("local interface I\n  " .. word .. "?: string\nend\nlocal i: I = {}\nprint(i)\n")
+  end
+  assert_accepted("local record R\n  userdata\n  type?: string\n  record Inner\n    x?: integer\n  end\nend\nprint(R)\n")
+end
