@@ -201,9 +201,8 @@ end
 
 local function test_serve_refuses_an_option_it_does_not_have()
   local app = Web.app{ routes = {} }
-  local options: Web.ServeOptions = { listeners = { Net.tcp("127.0.0.1", 0) } }
-  rawset(options, "port", 80)
-  assert(raised(function() Web.serve(app, options) end):find("serve has no field port", 1, true))
+  local options: any = { listeners = { Net.tcp("127.0.0.1", 0) }, port = 80 }
+  assert(raised(function() Web.serve(app, options as Web.ServeOptions) end):find("serve has no field port", 1, true))
 end
 
 local function test_serve_gives_the_server_a_grace_of_ten_seconds_unless_told_otherwise()

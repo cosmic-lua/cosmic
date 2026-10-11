@@ -194,14 +194,12 @@ local function test_a_constructor_refuses_a_status_the_server_cannot_send()
   for _, status in ipairs({ 199, 100, 1000, 0, -1 }) do
     assert(raised(function() Response.text("x", { status = status }) end):find("200 to 999", 1, true), tostring(status))
   end
-  local fractional: Types.ResponseOptions = {}
-  rawset(fractional, "status", 200.5)
-  assert(raised(function() Response.json(1, fractional) end):find("200 to 999", 1, true))
+  local fractional: any = { status = 200.5 }
+  assert(raised(function() Response.json(1, fractional as Types.ResponseOptions) end):find("200 to 999", 1, true))
   assert(raised(function() Response.empty(150) end):find("200 to 999", 1, true))
   assert(raised(function() Response.problem(99) end):find("200 to 999", 1, true))
-  local half: Types.ResponseOptions = {}
-  rawset(half, "status", 303.5)
-  assert(raised(function() Response.redirect("/x", half) end):find("301", 1, true))
+  local half: any = { status = 303.5 }
+  assert(raised(function() Response.redirect("/x", half as Types.ResponseOptions) end):find("301", 1, true))
   assert(Response.text("x", { status = 999 }).status == 999 and Response.empty(200).status == 200)
 end
 

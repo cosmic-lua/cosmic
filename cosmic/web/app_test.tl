@@ -355,9 +355,8 @@ local function test_access_log_options_choose_the_sink_format_and_what_to_skip()
 end
 
 local function test_an_app_refuses_a_spec_with_a_field_it_does_not_have()
-  local spec: Web.AppSpec = { routes = {} }
-  rawset(spec, "middlewares", {})
-  assert(raised(function() Web.app(spec) end):find("app has no field middlewares", 1, true))
+  local spec: any = { routes = {}, middlewares = {} }
+  assert(raised(function() Web.app(spec as Web.AppSpec) end):find("app has no field middlewares", 1, true))
 end
 
 local function test_a_missing_handler_or_bad_registration_raises_when_the_app_is_built()
