@@ -1,9 +1,10 @@
 file: tl.tl
-note: `rawset` takes only `<K, V>({K:V}, K, V)`. The `({any:any}, any, any)` and `(any, any, any)` overloads beside it accepted any table, so `rawset(r, "name", 1)` wrote a number into a record's `name: string` field, and a map of the wrong value type took any value. A record, or `_G`, written by name goes through a cast to the map it is, at the call that means it. `rawget` keeps its overloads: its special function types a call from the key (`type_check_index`) and never reads them, so dropping them would change only what `rawget` is as a value, and refusing nothing a call does today
+note: `rawset` takes only `<K, V>({K:V}, K, V)`. The `({any:any}, any, any)` and `(any, any, any)` overloads beside it accepted any table, so `rawset(r, "name", 1)` wrote a number into a record's `name: string` field, and a map of the wrong value type took any value. A record, or `_G`, written by name goes through a cast to the map it is, at the call that means it. `rawget` keeps its overloads: its special function types a call from the key (`type_check_index`) and never reads them, so dropping them would change only what `rawget` is as a value
 --- find
       rawset: function<K, V>({K:V}, K, V): {K:V}
       rawset: function({any:any}, any, any): {any:any}
       rawset: function(any, any, any): any
 --- replace
+      -- TODO: a record whose fields all share a type reads as that map, so `rawset(r, "undeclared", v)` still writes a key it does not declare; refuse it once a record no longer reads as a map (closed records).
       rawset: function<K, V>({K:V}, K, V): {K:V}
 --- end
