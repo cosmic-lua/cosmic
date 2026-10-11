@@ -38,6 +38,7 @@ local record data
     a: html.SafeAttr
     u: html.SafeUrl
     p: html.SafeUrlPart
+    j: html.SafeJson
     items: {Item}
     user: User
     flag: boolean
@@ -268,6 +269,92 @@ local function test_a_part_slot_given_what_its_place_refuses_is_a_type_error_on_
     assert(at ~= nil, "no error on line " .. line .. ": " .. trouble)
     assert(trouble:find(want, at, true), "line " .. line .. " is not " .. want .. ": " .. trouble)
   end
+end
+
+local USE <const> = "{{type Page from data}}{{use htmx}}\n"
+
+local function test_a_json_slot_takes_only_a_safejson_and_a_selector_slot_a_string_or_a_number(tmp: string)
+  local ok, why = project(tmp, "htmx-accepts", USE ..
+      "<a hx-vals='{{.j}}' hx-target=\"#a-{{.title}}-{{.n}}\" hx-get=\"{{.u}}\" hx-post=\"{{.url}}\">x</a>\n")
+  assert(ok ~= nil, why)
+  -- One build: each wrong slot is its own error, on its own line.
+  local trouble = refused(tmp, "htmx-wrong", USE .. "ok\n<a hx-vals='{{.title}}'>\n<a hx-headers=\"{{.items}}\">\n" ..
+      "<a hx-request='{{.url}}'>\n<a hx-vals='{{.a}}'>\n<a hx-target=\"#{{.u}}\">\n<a hx-target=\"#{{.items}}\">\n" ..
+      "<a hx-target=\"#{{.a}}\">\n<a hx-get=\"{{.n}}\">\n<a hx-get=\"{{.p}}\">\n<a hx-get=\"/x/{{.u}}\">\n")
+  for line, want in pairs({ [3] = "SafeJson", [4] = "SafeJson", [5] = "SafeJson", [6] = "SafeJson",
+      [7] = "SafeUrl", [8] = "{Item}", [9] = "SafeAttr", [10] = "integer", [11] = "SafeUrlPart", [12] = "SafeUrl" }) do
+    local at = trouble:find("page.tmpl:" .. line .. ":", 1, true)
+    assert(at ~= nil, "no error on line " .. line .. ": " .. trouble)
+    assert(trouble:find(want, at, true), "line " .. line .. " is not " .. want .. ": " .. trouble)
+  end
+  -- Not a type error: the same templates without the dialect read as plain attributes.
+  assert(project(tmp, "htmx-plain", HEAD .. "<a title='{{.title}}'>\n"))
+end
+
+local function test_a_json_slot_renders_attribute_safe_json_for_either_quote(tmp: string)
+  local json = assert(Html.json({ id = 7, kind = "<b>\"q\" & 'a'</b>", ["js:x"] = { "javascript:" } }))
+  local page: {string: any} = { j = json }
+  local text = Html.raw_json(json)
+  for _, quote in ipairs({ '"', "'" }) do
+    local out = render(tmp, "json-" .. (quote == '"' and "dq" or "sq"), USE ..
+        "<a hx-vals=" .. quote .. "{{.j}}" .. quote .. " hx-headers=" .. quote .. "{{.j}}" .. quote .. ">", page)
+    local value = out:match("hx%-vals=" .. quote .. "([^" .. quote .. "]*)" .. quote)
+    assert(value ~= nil and not value:find("[<>]") and not value:find(quote, 1, true), out)
+    local read = value:gsub("&(%a+);", { quot = '"', amp = "&", lt = "<", gt = ">" }):gsub("&#39;", "'")
+    assert(read == text, out)
+    assert(out:find("hx%-headers=" .. quote .. value:gsub("%p", "%%%0") .. quote), out)
+  end
+end
+
+--- The value of the attribute `name` in `out`, as a browser reads it.
+local function attribute(out: string, name: string): string
+  local value = out:match(name:gsub("%p", "%%%0") .. "=[\"']([^\"']*)[\"']")
+  assert(value ~= nil, "no " .. name .. " in " .. out)
+  local named: {string: string} = { quot = '"', amp = "&", lt = "<", gt = ">" }
+  return (value:gsub("&#(%d+);", function(n: string): string
+    return string.char(tonumber(n) as integer)
+  end):gsub("&(%a+);", named))
+end
+
+local function test_a_request_url_slot_is_checked_as_a_same_origin_reference(tmp: string)
+  local template = USE .. "<a hx-get=\"{{.url}}\" href=\"{{.url}}\" hx-push-url=\"{{.u}}\">"
+  local cases: {{string}} = {
+    { "/items/7?x=1", "/items/7?x=1" },
+    { "items", "items" },
+    { "true", "true" },
+    { "//evil.example/x", "about:invalid" },
+    { "\\\\evil.example", "about:invalid" },
+    { "https://evil.example/x", "about:invalid" },
+    { "javascript:alert(1)", "about:invalid" },
+    { "java\tscript:alert(1)", "about:invalid" },
+    { " /x", "about:invalid" },
+    { "mailto:a@b.example", "about:invalid" },
+  }
+  for index, case in ipairs(cases) do
+    local out = render(tmp, "local-" .. index, template, { url = case[1], u = Html.trust_url("https://example.com/a") })
+    assert(attribute(out, "hx-get") == case[2], case[1] .. ": " .. out)
+    -- A SafeUrl is the author's: it passes as it is.
+    assert(attribute(out, "hx-push-url") == "https://example.com/a", out)
+  end
+  -- An href beside it still lets a web URL through: only hx-get is local.
+  local out = render(tmp, "local-href", template, { url = "https://ok.example/", u = Html.trust_url("/p") })
+  assert(attribute(out, "hx-get") == "about:invalid" and attribute(out, "href") == "https://ok.example/", out)
+end
+
+local function test_a_url_part_in_an_htmx_attribute_is_escaped_as_in_an_href(tmp: string)
+  local out = render(tmp, "htmx-part", USE .. "<a hx-delete=\"/i/{{.title}}/{{.n}}?q={{.cls}}\">",
+    { title = "a/b ?#", n = 7, cls = "x&y=z" })
+  assert(attribute(out, "hx-delete") == "/i/a%2Fb%20%3F%23/7?q=x%26y%3Dz", out)
+end
+
+local function test_a_selector_slot_is_escaped_as_css_identifier_text(tmp: string)
+  local out = render(tmp, "selector", USE ..
+      "<a hx-target=\"#row-{{.title}}\" hx-select='.c-{{.cls}} p' hx-sync=\"#f-{{.n}}:abort\">",
+    { title = "x, body", n = 12, cls = "a'b\"c>d" })
+  assert(attribute(out, "hx-target") == "#row-x\\2c \\20 body", out)
+  assert(attribute(out, "hx-select") == ".c-a\\27 b\\22 c\\3e d p", out)
+  -- A number is over-escaped at the start of its text, which selects the same.
+  assert(attribute(out, "hx-sync") == "#f-\\31 2:abort", out)
 end
 
 local function test_nested_blocks_build_without_a_warning_or_a_repeated_name(tmp: string)

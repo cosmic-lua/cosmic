@@ -7,6 +7,8 @@
 --- (build/fuzz/init.tl).
 
 local Fuzz = require("build.fuzz")
+local Html = require("cosmic.html")
+local Json = require("cosmic.json")
 local Template = require("cosmic.template")
 
 local HEADS <const> = { "{{type T from m.t}}", "{{type T from m.t}}{{mode text}}", "{{type T from m.t}}\n{{mode html}}\n" }
@@ -1446,6 +1448,217 @@ local function test_a_block_in_a_tag_adds_only_the_attributes_it_writes(tmp: str
       end
       if arm:find("%a") then
         Fuzz.label("added")
+      end
+      return true, ""
+    end,
+  })
+end
+
+--- Attributes of the htmx dialect whose slots are selectors, spelled as
+--- the page may spell them.
+local SELECTOR_ATTRS <const>: {string} = {
+  "hx-target", "HX-TARGET", "data-hx-target", "Data-Hx-Select", "hx-select", "hx-select-oob", "hx-include",
+  "hx-indicator", "hx-disabled-elt", "hx-sync", "hx-swap-oob", "hx-target-422", "hx-target-error",
+}
+
+--- What may stand before a selector slot, and after it. The text before
+--- ends in a `#` or `.` or in an identifier after one, and neither holds
+--- the quote of the attribute.
+local SELECTOR_LEADS <const>: {string} = { "#", ".", "#row-", ".tab-", "closest #card-", "body, #", "#a b > .c-", "p:not(#" }
+local SELECTOR_TRAILS <const>: {string} = { "", " p", ", #x", ":abort", ")", " > .y", "\\", "-more" }
+
+--- Values a selector may be given.
+local HOSTILE <const>: {string} = {
+  "x, body", "a b", "a>b", "a.b", "a#b", "a[b]", "a(b)", "a:b", "a\"b", "a'b", "a<b>c&d", "\\", "\\2c ", "1", "-", "--",
+  "", " ", "\n", "\0", "\t", "a,#evil", "é", "\255\254", "a;b", "a*b", "a+b", "a~b", "a|b", "a/*b", "x\\", "%", "@", "{}",
+}
+
+local function gen_selector(src: Fuzz.Source): string
+  local payload = src:int(0, 2) == 0 and Fuzz.bytes(src, 6) or Fuzz.pick(src, HOSTILE)
+  return Fuzz.pack({ payload, Fuzz.pick(src, SELECTOR_ATTRS), Fuzz.pick(src, SELECTOR_LEADS),
+    Fuzz.pick(src, SELECTOR_TRAILS), Fuzz.pick(src, { '"', "'" }) })
+end
+
+--- `text` with its CSS escapes undone: a backslash, up to six hex digits
+--- and one white space after them, or a backslash and the byte after it.
+local function css_unescape(text: string): string
+  local out = text:gsub("\\(%x%x?%x?%x?%x?%x?)[ \t\n\f\r]?", function(hex: string): string
+    local code = tonumber(hex, 16) as integer
+    return code == 0 and "\239\191\189" or utf8.char(code)
+  end)
+  return out
+end
+
+--- Whether `text` is a run of what CSS reads as part of one identifier:
+--- name bytes, and escapes each ended by the one space the escaper writes.
+local function in_identifier(text: string): boolean
+  local rest = text
+  while rest ~= "" do
+    local plain = rest:match("^[%w_%-\128-\255]+")
+    local escape = rest:match("^\\%x%x?%x?%x?%x?%x? ")
+    local step = plain or escape
+    if step == nil then
+      return false
+    end
+    rest = rest:sub(#step + 1)
+  end
+  return true
+end
+
+local function test_a_selector_slot_never_leaves_the_identifier_it_stands_in(tmp: string)
+  Fuzz.run({
+    name = "selector slot",
+    dir = tmp,
+    gen = gen_selector,
+    requires = { "escaped", "plain", "high" },
+    shares = { escaped = 0.2 },
+    check = function(input: string): boolean, string
+      local fields = Fuzz.unpack(input)
+      local payload, attr, lead, trail, quote = fields[1] or "", fields[2] or "", fields[3] or "", fields[4] or "",
+        fields[5] or '"'
+      local body = "<a " .. attr .. "=" .. quote .. lead .. "{{.a}}" .. trail .. quote .. ">"
+      local source, why = Template.compile("{{type T from m.t}}{{use htmx}}" .. body, "t.tmpl")
+      if source == nil then
+        return false, "refused " .. body .. ": " .. why
+      end
+      local env: {string: any} = { require = function(name: string): any
+        return name == "cosmic.html" and Html or {}
+      end, table = table, tostring = tostring, type = type }
+      local chunk, trouble = load(lua_of(source), "=module", "t", env)
+      if chunk == nil then
+        return false, "the module does not load: " .. tostring(trouble)
+      end
+      local loaded = chunk() as {string: function({string: string}): any}
+      local made = Html.raw(loaded.render({ a = payload }) as Html.SafeHtml)
+      -- The attribute is a quoted value that holds no quote: the escaper
+      -- writes every byte that could end it as a reference.
+      local value = made:match("^<a [^=]+=" .. quote .. "([^" .. quote .. "]*)" .. quote .. ">$")
+      if value == nil then
+        return false, "the attribute is not one quoted value: " .. made
+      end
+      local css = value:gsub("&#(%d+);", function(n: string): string
+        return string.char(tonumber(n) as integer)
+      end)
+      local at, stop = #lead + 1, #css - #trail
+      if css:sub(1, #lead) ~= lead or css:sub(stop + 1) ~= trail then
+        return false, "the text around the slot changed: " .. made
+      end
+      local middle = css:sub(at, stop)
+      if not in_identifier(middle) then
+        return false, "the slot is more than identifier text: " .. string.format("%q", middle)
+      end
+      local want = payload == "" and "" or payload:gsub("%z", "\239\191\189")
+      if css_unescape(middle) ~= want then
+        return false, "the slot does not read back as its value: " .. string.format("%q", middle)
+      end
+      if middle:find("\\", 1, true) then Fuzz.label("escaped") else Fuzz.label("plain") end
+      if middle:find("[\128-\255]") then Fuzz.label("high") end
+      return true, ""
+    end,
+  })
+end
+
+local function gen_json(src: Fuzz.Source): string
+  local payload = src:int(0, 2) == 0 and Fuzz.bytes(src, 6) or Fuzz.pick(src, HOSTILE)
+  return Fuzz.pack({ payload, Fuzz.pick(src, { "hx-vals", "hx-headers", "hx-request", "data-hx-vals", "HX-HEADERS" }),
+    Fuzz.pick(src, { '"', "'" }), Fuzz.pick(src, { "k", "js:alert(1)", "javascript:x", "}", "\"" }) })
+end
+
+local function test_a_json_slot_is_the_attribute_value_it_was_given(tmp: string)
+  Fuzz.run({
+    name = "json slot",
+    dir = tmp,
+    gen = gen_json,
+    requires = { "encoded", "quoted" },
+    shares = { quoted = 0.2 },
+    check = function(input: string): boolean, string
+      local fields = Fuzz.unpack(input)
+      local payload, attr, quote, key = fields[1] or "", fields[2] or "", fields[3] or '"', fields[4] or ""
+      local json = Html.json({ [key] = payload, list = { payload, key }, ["js:" .. payload] = key })
+      if json == nil then
+        -- Bytes that are not UTF-8 are not JSON text.
+        return true, ""
+      end
+      Fuzz.label("encoded")
+      local body = "<a " .. attr .. "=" .. quote .. "{{.j}}" .. quote .. ">"
+      local source, why = Template.compile("{{type T from m.t}}{{use htmx}}" .. body, "t.tmpl")
+      if source == nil then
+        return false, "refused " .. body .. ": " .. why
+      end
+      local env: {string: any} = { require = function(name: string): any
+        return name == "cosmic.html" and Html or {}
+      end, table = table, tostring = tostring, type = type }
+      local chunk, trouble = load(lua_of(source), "=module", "t", env)
+      if chunk == nil then
+        return false, "the module does not load: " .. tostring(trouble)
+      end
+      local loaded = chunk() as {string: function({string: any}): any}
+      local made = Html.raw(loaded.render({ j = json }) as Html.SafeHtml)
+      local value = made:match("^<a [^=]+=" .. quote .. "([^" .. quote .. "]*)" .. quote .. ">$")
+      if value == nil then
+        return false, "the attribute is not one quoted value: " .. made
+      end
+      if value:find("[<>]") then
+        return false, "markup in the attribute: " .. value
+      end
+      -- What a browser reads of the value is the JSON text itself.
+      local read = value:gsub("&(%a+);", { quot = '"', amp = "&", lt = "<", gt = ">", apos = "'" }):gsub("&#(%d+);", function(n: string): string
+        return string.char(tonumber(n) as integer)
+      end)
+      if read ~= Html.raw_json(json) then
+        return false, "the attribute reads as " .. string.format("%q", read)
+      end
+      if read:find("^%s*j") or not Json.check(read) then
+        return false, "the value could be read as code: " .. read
+      end
+      if value:find("&quot;", 1, true) or value:find("&#39;", 1, true) then Fuzz.label("quoted") end
+      return true, ""
+    end,
+  })
+end
+
+--- Names of attributes a slot in is script, as the page may spell them.
+local SCRIPT_ATTRS <const>: {string} = {
+  "hx-on", "hx-on:click", "hx-on::after-request", "hx-on--after-request", "hx-on-click", "hx-onx", "hx-vars",
+  "hx-trigger", "onclick", "onx", "hx-ws",
+}
+
+--- `name` with each letter in either case and, for an attribute of htmx
+--- (which reads `data-hx-x` as `hx-x`), a `data-` ahead of it or not.
+local function spelled(src: Fuzz.Source, name: string): string
+  local out = name:gsub("%a", function(c: string): string
+    return src:int(0, 1) == 0 and c:lower() or c:upper()
+  end)
+  return name:find("^hx%-") and src:int(0, 1) == 0 and "data-" .. out or out
+end
+
+local function gen_script_attr(src: Fuzz.Source): string
+  local name = Fuzz.pick(src, SCRIPT_ATTRS)
+  return Fuzz.pack({ spelled(src, name), name, Fuzz.pick(src, { "", "{{use htmx}}" }), Fuzz.pick(src, { '"', "'" }),
+    Fuzz.pick(src, { "{{.a}}", "x{{.a}}", "{{.a}}x", "/{{.a}}", "{{if .b}}{{.a}}{{end}}" }) })
+end
+
+local function test_a_slot_in_an_attribute_that_is_script_is_refused_whatever_its_spelling(tmp: string)
+  Fuzz.run({
+    name = "script attribute",
+    dir = tmp,
+    gen = gen_script_attr,
+    requires = { "data", "use" },
+    shares = { data = 0.2, use = 0.2 },
+    check = function(input: string): boolean, string
+      local fields = Fuzz.unpack(input)
+      local spelling, name, use, quote, value = fields[1] or "", fields[2] or "", fields[3] or "", fields[4] or "",
+        fields[5] or ""
+      if spelling:find("^data%-") then Fuzz.label("data") end
+      if use ~= "" then Fuzz.label("use") end
+      local body = "<a " .. spelling .. "=" .. quote .. value .. quote .. ">"
+      -- `hx-ws` is read by an extension: refused only where a template opts in.
+      local out = Template.compile("{{type T from m.t}}" .. use .. body, "t.tmpl")
+      if name == "hx-ws" and use == "" then
+        return true, ""
+      end
+      if out ~= nil then
+        return false, "compiled a slot in a script attribute: " .. body
       end
       return true, ""
     end,

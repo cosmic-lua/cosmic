@@ -13,6 +13,7 @@
 ---     {{type Page from site.page}}      the record the template is given,
 ---                                       exported as `Page` by `site.page`
 ---     {{mode text}}                     optional, next: `html` is the default
+---     {{use htmx}}                      optional, beside `mode`: read the attributes of htmx
 ---     <h1>{{.title}}</h1>               a value: fields from dot, `.` for dot
 ---     {{$.title}}  {{$}}                fields from `$`, the record itself
 ---     {{.when | site.fmt.date}}         then each stage `| module.path.func`
@@ -90,8 +91,10 @@
 --- a type error naming the template's line. Where there is no escaping to
 --- be had the template is refused, with its line and column: after `<`, in
 --- a tag or attribute name, in an unquoted value, in a comment, in an
---- `on...` or `style` attribute, in `hx-on*`, `hx-vars`, `hx-vals`, `hx-headers`, `hx-request` or
---- `hx-trigger` (htmx runs them as script, or reads JSON it may run), in `<script>` or `<style>`, and a few like them
+--- `on...` or `style` attribute, in `hx-on*`, `hx-vars` or `hx-trigger` (htmx runs them as script)
+--- or the legacy `hx-ws` (a socket URL after `connect:`),
+--- in `hx-vals`, `hx-headers` or `hx-request` unless the template says
+--- `{{use htmx}}` (they are JSON that htmx may run), in `<script>` or `<style>`, and a few like them
 --- (cosmic/template/markup.tl lists them). An `html` template must also end in plain text, since its
 --- `SafeHtml` can go into another's text slot. `{{mode text}}` returns a
 --- `string` and escapes nothing, for anything that is not HTML; a slot
@@ -105,12 +108,39 @@
 --- slot: `html` mode escapes nothing in it and reads it as markup, as it
 --- does the text around it.
 ---
+--- `{{use htmx}}`, in the header after `{{type}}` and in either order with
+--- `{{mode}}`, reads the attributes of htmx, with or without a `data-`
+--- prefix and in any case (the dialect's table is [`dialect/htmx.tl`], written
+--- against htmx 2.0.11). `hx-get`, `hx-post`, `hx-put`, `hx-patch`,
+--- `hx-delete`, `hx-push-url`, `hx-replace-url`, `sse-connect` and
+--- `ws-connect` are URLs, a slot as in `href` (a whole one, or a part after
+--- literal text); but a string given whole must be a same-origin reference
+--- ([`html.local_href`]: no scheme, no `//host`, else `about:invalid`) and
+--- only a `SafeUrl` can name another origin, since htmx swaps what the URL
+--- answers into the page. `hx-vals`, `hx-headers` and `hx-request` take a
+--- [`html.SafeJson`] as the whole value (`hx-vals='{{.vals}}'`), entity
+--- escaped for either quote, with nothing before or after the slot: JSON
+--- text cannot begin with the `js:` that makes htmx run it. A selector
+--- attribute (`hx-target`, `hx-select`, `hx-select-oob`, `hx-include`,
+--- `hx-indicator`, `hx-disabled-elt`, `hx-sync`, `hx-swap`, `hx-swap-oob`
+--- and `hx-target-*` of the response-targets extension) takes a slot only
+--- inside an identifier after `#` or `.` (`hx-target="#row-{{.id}}"`), a
+--- string or a number escaped by [`html.escape_css_attr`] as CSS identifier
+--- text; a slot anywhere else in a selector (`[data-id='{{.id}}']`) is
+--- refused. `hx-swap`, `hx-ext`, `hx-disable`, `hx-boost` and `hx-params`
+--- take no slot: their values change what htmx does for a whole subtree, so
+--- they are the author's text. Other `hx-*` attributes (`hx-confirm`,
+--- `hx-prompt`, ...) are plain attributes. `hx-trigger` stays refused: its
+--- `[filter]` is script. A dialect is a name in the
+--- header, never inferred from the attributes in the text. [`Template.compile`]
+--- takes a registry of other dialects as its `options`.
+---
 --- Other attributes that frameworks read as code (`x-on:`, `@click`,
---- `ng-*`, and `hx-*` but for `hx-on*`, `hx-vars`, `hx-vals`, `hx-headers`,
---- `hx-request` and `hx-trigger`, with or
---- without a `data-` prefix) are not recognised; a slot in any attribute
---- whose name begins with `on` is refused (a literal `onclick="..."`
---- compiles).
+--- `ng-*`) are not recognised; a slot in any attribute whose name begins
+--- with `on` is refused (a literal `onclick="..."` compiles), and so is a
+--- slot in `hx-on*`, `hx-vars`, `hx-trigger` and `hx-ws`, with or without `{{use
+--- htmx}}` and a `data-` prefix, and in `hx-vals`, `hx-headers` and
+--- `hx-request` without `{{use htmx}}`.
 ---
 --- `{{range}}` and `{{with}}` take one `{{else}}` but no `{{else if}}`:
 --- nest an `{{if}}`. A range's `{{else}}` runs when the list has no first
@@ -128,9 +158,21 @@
 
 local codegen = require("cosmic.template.codegen")
 local context = require("cosmic.template.context")
+local dialect = require("cosmic.template.dialect")
 local parse = require("cosmic.template.parse")
+local types = require("cosmic.template.types")
 
 local record Template
+  --- The attribute vocabulary of a dialect, as data: see
+  --- [`cosmic/template/dialect/htmx.tl`] for one.
+  type Dialect = types.Def
+
+  --- What `compile` may be given beyond the template.
+  record Options
+    --- The dialects `{{use name}}` may name, in place of the built-in ones
+    --- (`htmx`): each is the data [`dialect/htmx.tl`] holds.
+    dialects: {string: Template.Dialect}
+  end
 end
 
 --- Compiles a template to the source of a Teal module that exports
@@ -138,16 +180,22 @@ end
 --- module (for its types alone, unless a stage reads it), and each stage's.
 --- @param src string The template source
 --- @param name string The template's name (its file), which heads each reason
+--- @param options? Template.Options Dialects other than the built-in ones
 --- @return string|nil The module source, with line N the template's line N
 --- @return string The reason, as `name:line:col: ...`, when the template is refused
-function Template.compile(src: string, name: string): string | nil, string
-  local template, why = parse.parse(src, name)
+function Template.compile(src: string, name: string, options?: Template.Options): string | nil, string
+  local registry = options ~= nil and options.dialects or dialect.registry
+  local template, why = parse.parse(src, name, registry)
   if template == nil then
     return nil, why
   end
+  local attributes, conflict = dialect.resolve(template.dialects, registry)
+  if attributes == nil then
+    return nil, name .. ":" .. template.line .. ":1: " .. conflict
+  end
   local _, newlines = src:gsub("\n", "")
   local end_col = #src - (src:match(".*()\n") or 0) + 1
-  local placed, reason = context.annotate(template, name, newlines + 1, end_col)
+  local placed, reason = context.annotate(template, name, newlines + 1, end_col, attributes)
   if not placed then
     return nil, reason
   end
