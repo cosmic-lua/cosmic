@@ -1861,8 +1861,8 @@ declaration, everything else declares nothing.
 [`cosmic.web.session.sqlite`]: ../../../cosmic/web/session/sqlite.tl
 [`cosmic.web.session`]: ../../../cosmic/web/session/init.tl
 [`cosmic.web.testing`]: ../../../cosmic/web/testing.tl
-[`cosmic/web/cookies.tl`]: ../../../cosmic/web/cookies.tl
 [`cosmic/http/multipart.tl`]: ../../../cosmic/http/multipart.tl
+[`cosmic/web/cookies.tl`]: ../../../cosmic/web/cookies.tl
 [`cosmic/web/init.tl`]: ../../../cosmic/web/init.tl
 [`cosmic/web/input.tl`]: ../../../cosmic/web/input.tl
 [`cosmic/web/secret.tl`]: ../../../cosmic/web/secret.tl
