@@ -24,16 +24,12 @@ defines the target; once something ships, it leaves this file.
   `FromStringReader` in [`cosmic/stream.tl`] shrinks. every interface of the
   module and every record that implements one changes together.
 - close the holes in Teal's own typing that forge any type, `: never`
-  functions among them (`test_never_falls_into_the_holes_every_type_has` and
-  `test_coroutine_wrap_forges_a_never_function_as_it_forges_any_type` in
-  [`test/narrowing_test.tl`] pin today's behavior, and [doc/design.md](design.md)'s
-  teal section states the bar): `coroutine.wrap` is declared
-  `function<F>(F): F` though its wrapper returns whatever the coroutine
-  yields, so `coroutine.wrap(nv)` is typed never though it returns after a
-  `coroutine.yield`; `rawset` writes a value of any type into a record's
-  field; `setmetatable` trusts a `__index` that serves a number for a string
-  field, or a `__call` attached at run time (a record that declares a never
-  `__call` may be given a metatable whose function returns), against no
+  functions among them (`test_never_falls_into_the_holes_every_type_has` in
+  [`test/narrowing_test.tl`] pins today's behavior, and [doc/design.md](design.md)'s
+  teal section states the bar): `rawset` writes a value of any type into a
+  record's field; `setmetatable` trusts a `__index` that serves a number for a
+  string field, or a `__call` attached at run time (a record that declares a
+  never `__call` may be given a metatable whose function returns), against no
   declaration. a call through `any` carries no flag either.
 - add earned lint rules and their fixes to [`build/fix/rule.tl`]'s rule list.
   the rewrite stage is in place and the list is still empty.

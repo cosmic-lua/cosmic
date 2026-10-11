@@ -1,0 +1,10 @@
+file: tl.tl
+note: `coroutine.wrap` is a special function, as `error` is (24a): the result type it needs, the parameters of the function passed with `any...` results, depends on the argument and no declaration says it. The name is added here, its registration is 45c and its handler 45d
+--- find
+local enum SpecialFunctionName
+   "assert"
+--- replace
+local enum SpecialFunctionName
+   "assert"
+   "coroutine.wrap"
+--- end

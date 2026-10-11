@@ -1313,19 +1313,62 @@ local function test_a_fixed_type_parameter_is_told_to_bind_in_a_local()
   assert(teal.replacement("argument 2: got R, expected S", "", 1, 1) == nil)
 end
 
---- `coroutine.wrap` is declared `F -> F`, which is wrong for any type
---- (its wrapper returns whatever the coroutine yields), so a wrapped
---- never-function is typed never, as a wrapped function returning a string
---- is typed to return one whatever it yields. Never is exactly as sound as
---- Teal's other types: the plan lists this among the holes every type has,
---- and this pins that the compiler accepts it today.
-local function test_coroutine_wrap_forges_a_never_function_as_it_forges_any_type()
+--- `coroutine.wrap` gives a function that answers what the coroutine yields
+--- or finally returns (patch/tl's 45), so a wrapped function's results are
+--- `any...`: a wrapped function returning a string is not typed to return
+--- one, and a wrapped never-function is not typed never. The wrapper keeps
+--- the parameters of the function passed.
+local function test_coroutine_wrap_answers_any_and_not_what_the_function_returns()
+  local yields = "local g = coroutine.wrap(function(): string coroutine.yield(1) return 'x' end)\n"
+  assert_refused(yields .. "local s: string = g()\nprint(s)\n", "got <any type>")
+  assert_accepted(yields .. "local s = g() as string\nprint(s)\n")
   local wrapped = "local function nv(): never\n  coroutine.yield(1)\n  error('x')\nend\n"
-  assert_accepted(wrapped .. "local c: function(): never = coroutine.wrap(nv)\nprint(c)\n")
-  local never_signature = "function(function(): never): function(): never"
-  assert_accepted(wrapped .. "local w: " .. never_signature .. " = coroutine.wrap\nprint(w)\n")
-  assert_accepted("local w = coroutine.wrap(function(a: integer): integer return a end)\n" ..
-      "local n: integer = w(1)\nprint(n)\n")
+  assert_refused(wrapped .. "local c: function(): never = coroutine.wrap(nv)\nprint(c)\n", "function")
+  assert_refused(wrapped .. "local w: function(function(): never): function(): never = coroutine.wrap\nprint(w)\n",
+    "function")
+end
+
+local function test_a_wrapped_function_refuses_wrong_arguments()
+  local head = "local g = coroutine.wrap(function(a: string, b?: integer) coroutine.yield(a) end)\n"
+  assert_refused(head .. "g(1)\n", "argument 1")
+  assert_refused(head .. "g('a', 'b')\n", "argument 2")
+  assert_refused(head .. "g()\n", "wrong number of arguments")
+  assert_refused(head .. "g('a', 1, 2)\n", "wrong number of arguments")
+end
+
+--- The handler of `coroutine.wrap` (patch/tl's 45d) meets no argument, a
+--- `nil`, an `any`, a union, an overloaded function and a vararg of unknown
+--- arity without raising: each is refused, or accepted as the call check
+--- of the declaration decides.
+local function test_wrap_meets_degenerate_arguments()
+  assert_refused("local g = coroutine.wrap()\nprint(g)\n", "wrong number of arguments")
+  assert_accepted("local g = coroutine.wrap(nil)\nprint(g)\n")
+  assert_refused("local function f(x: any) local g = coroutine.wrap(x)\nprint(g()) end\nf(1)\n",
+    "argument 1: got <any type>, expected Function")
+  assert_refused("local type A = function(): string\nlocal type B = function(a: integer)\n" ..
+      "local function f(x: A | B)\n" ..
+      "local g = coroutine.wrap(x)\nprint(g) end\nf(print)\n",
+    "cannot discriminate a union")
+  assert_accepted("local g = coroutine.wrap(string.format)\nprint(g('%d', 1))\n")
+  assert_refused("local function f(...: any) local g = coroutine.wrap(...)\nprint(g) end\nf(print)\n",
+    "argument 1: got <any type>, expected Function")
+end
+
+--- A generic function wrapped stays generic in its parameters, so the
+--- arity of a call of the wrapper is still checked.
+local function test_a_wrapped_generic_function_keeps_its_arity()
+  local head = "local c = coroutine.wrap(function<T>(x: T): T coroutine.yield(x) return x end)\n"
+  assert_accepted(head .. "c(1)\nc('a')\n")
+  assert_refused(head .. "c(1, 2)\n", "wrong number of arguments")
+  assert_refused(head .. "c()\n", "wrong number of arguments")
+end
+
+local function test_an_ordinary_wrap_call_type_checks()
+  assert_accepted("local g = coroutine.wrap(function(a: string, b?: integer) coroutine.yield(a) end)\n" ..
+      "g('a')\ng('a', 1)\nlocal v = g('a')\nprint(v)\n")
+  assert_accepted("local h = coroutine.wrap(function() end)\nh()\nlocal ok = pcall(h)\nprint(ok)\n")
+  assert_accepted("for v in coroutine.wrap(function() coroutine.yield(1) end) do print(v) end\n")
+  assert_accepted("local co = coroutine.wrap(coroutine.yield)\nprint(co)\n")
 end
 
 --- A generic that writes a value into a container of never-functions
