@@ -67,7 +67,8 @@ local function test_uncompress_is_total_and_round_trips(tmp: string)
       Fuzz.label(got == "null" and "refused" or "decoded")
       return true, ""
     end,
-    shares = { ["round-tripped"] = 0.1, refused = 0.2 },
+    requires = { "round-tripped", "decoded", "refused" },
+    shares = { ["round-tripped"] = 0.1, decoded = 0.02, refused = 0.2 },
   })
 end
 
@@ -99,14 +100,19 @@ local function test_regexp_is_total(tmp: string)
       end
       return true, ""
     end,
+    requires = { "matched", "did not match", "refused a pattern" },
     shares = { matched = 0.05, ["did not match"] = 0.1, ["refused a pattern"] = 0.02 },
   })
 end
 
 local NUMBERS <const> = { "0", "-0", "1.5", "-2", "1e10", "1E-400", "123456789012345678901234567890",
-  "0.000000000000000000001", "+7", ".5", "5.", "1e", "--1", "1..2", "0x1F", " 3 ", "", "9e999999999" }
+  "0.000000000000000000001", "+7", ".5", "5.", "1e", "--1", "1..2", "0x1F", " 3 ", "", "9e999" }
 
-local function test_decimal_is_total(tmp: string)
+--- What `decimal` makes of a text, which it reads leniently, never as
+--- NULL: a decimal reads back as itself and compares equal to itself,
+--- and adding or multiplying two answers a value or fails its statement.
+--- A NULL is `""` here, and a statement's failure is nil.
+local function test_decimal_is_total_and_canonical(tmp: string)
   Fuzz.run({
     name = "sqlite decimal total",
     dir = tmp,
@@ -117,15 +123,47 @@ local function test_decimal_is_total(tmp: string)
     check = function(input: string): boolean, string
       local fields = Fuzz.unpack(input)
       local values: {Sqlite.Value} = { { text = fields[1] }, { text = fields[2] } }
-      for _, sql in ipairs({ "SELECT decimal(?1)", "SELECT decimal_add(?1, ?2)",
-          "SELECT decimal_mul(?1, ?2)", "SELECT decimal_cmp(?1, ?2)" }) do
-        local got = value(sql, values)
-        Fuzz.label(got == nil and "refused" or "answered")
+      local one: {Sqlite.Value} = { values[1] }
+      local read = value("SELECT decimal(?1)", one)
+      if read == nil then
+        Fuzz.label("failed its statement")
+      elseif read == "" then
+        Fuzz.label("not a number")
+      else
+        Fuzz.label("read")
+        local rows, trouble = Sqlite.text_rows(handle,
+          "SELECT decimal(decimal(?1)), decimal_cmp(?1, ?1)", one)
+        if rows == nil then
+          return false, "decimal read " .. fields[1] .. " once only: " .. trouble
+        end
+        if rows[1][1] ~= read or rows[1][2] ~= "0" then
+          return false, "decimal(" .. fields[1] .. ") = " .. tostring(read) .. " does not read back as itself"
+        end
+      end
+      for _, sql in ipairs({ "SELECT decimal_add(?1, ?2)", "SELECT decimal_mul(?1, ?2)" }) do
+        if value(sql, values) == nil then Fuzz.label("arithmetic failed its statement") end
       end
       return true, ""
     end,
-    shares = { answered = 0.5 },
+    requires = { "read" },
+    shares = { read = 0.5 },
   })
+end
+
+--- A UUID's text, in each form uuid_blob reads: plain, braced, with or
+--- without its dashes.
+local function uuid_text(src: Fuzz.Source): string
+  local hex = "0123456789abcdefABCDEF"
+  local digits: {string} = {}
+  for i = 1, 32 do
+    local at = src:int(1, #hex)
+    digits[i] = hex:sub(at, at)
+  end
+  local plain = table.concat(digits)
+  local text = src:int(0, 1) == 0 and plain or (plain:sub(1, 8) .. "-" .. plain:sub(9, 12) .. "-" ..
+    plain:sub(13, 16) .. "-" .. plain:sub(17, 20) .. "-" .. plain:sub(21))
+  if src:int(0, 2) == 0 then text = "{" .. text .. "}" end
+  return text
 end
 
 local function test_text_decoders_are_total_and_round_trip(tmp: string)
@@ -139,24 +177,36 @@ local function test_text_decoders_are_total_and_round_trip(tmp: string)
         local at = src:int(1, #alphabet)
         chars[#chars + 1] = alphabet:sub(at, at)
       end
-      return Fuzz.pack({ Fuzz.bytes(src, 64), table.concat(chars) })
+      local uuid = uuid_text(src)
+      if src:int(0, 1) == 0 then uuid = Fuzz.mutate(src, uuid, 2) end
+      return Fuzz.pack({ Fuzz.bytes(src, 64), table.concat(chars), uuid })
     end,
     check = function(input: string): boolean, string
       local fields = Fuzz.unpack(input)
-      local blob, text = fields[1], fields[2]
+      local blob, text, uuid = fields[1], fields[2], fields[3]
       for _, name in ipairs({ "base64", "base85" }) do
         local back, trouble = value("SELECT hex(" .. name .. "(" .. name .. "(?1))) = hex(?1)",
           { { blob = blob } })
         if back ~= "1" then
           return false, name .. " did not round-trip: " .. (back or trouble)
         end
-        local got = value("SELECT typeof(" .. name .. "(?1))", { { text = text } })
-        Fuzz.label(name .. (got == "blob" and " decoded" or " refused"))
+        if value("SELECT typeof(" .. name .. "(?1))", { { text = text } }) == nil then
+          return false, name .. " failed its statement on text"
+        end
       end
-      local got = value("SELECT typeof(uuid_blob(?1))", { { text = text } })
-      Fuzz.label(got == "blob" and "uuid decoded" or "uuid refused")
+      local rows, trouble = Sqlite.text_rows(handle, "SELECT uuid_blob(?1) IS NULL, " ..
+          "hex(uuid_blob(uuid_str(?1))) = hex(uuid_blob(?1))", { { text = uuid } })
+      if rows == nil then return false, "uuid_blob failed its statement: " .. trouble end
+      if rows[1][1] == "1" then
+        Fuzz.label("uuid refused")
+      elseif rows[1][2] == "1" then
+        Fuzz.label("uuid decoded")
+      else
+        return false, "uuid_str did not round-trip " .. uuid
+      end
       return true, ""
     end,
-    shares = { ["base64 decoded"] = 0.2, ["uuid refused"] = 0.5 },
+    requires = { "uuid decoded", "uuid refused" },
+    shares = { ["uuid decoded"] = 0.3, ["uuid refused"] = 0.1 },
   })
 end

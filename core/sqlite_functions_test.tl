@@ -89,3 +89,37 @@ local function test_compress_round_trips_through_uncompress()
       "SELECT CAST(uncompress(compress(x)) AS TEXT) = x, length(compress(x)) < length(x) FROM t")
   assert(got[1] == "1" and got[2] == "1", got[1] .. " " .. got[2])
 end
+
+--- compress.c's length prefix: seven bits a byte, most significant
+--- first, the last byte's top bit set.
+local function length_prefix(n: integer): string
+  local bytes: {integer} = {}
+  repeat
+    table.insert(bytes, 1, n & 0x7f)
+    n = n >> 7
+  until n == 0
+  bytes[#bytes] = bytes[#bytes] | 0x80
+  return string.char(table.unpack(bytes))
+end
+
+local function test_uncompress_bounds_a_claimed_length_by_deflates_ratio()
+  local handle = assert(Sqlite.memory())
+  -- Zeros compress about as far as deflate goes, near 1029:1.
+  local size = 10000000
+  local packed = assert(Sqlite.rows(handle, "SELECT compress(zeroblob(?1))",
+    { { integer = size } }))[1][1].blob
+  assert(packed ~= nil)
+  local prefix = #length_prefix(size)
+  local stream = packed:sub(prefix + 1)
+  local function read(claim: integer): string
+    local rows = assert(Sqlite.text_rows(handle,
+      "SELECT ifnull(length(uncompress(?1)), 'NULL')",
+      { { blob = length_prefix(claim) .. stream } }))
+    return rows[1][1]
+  end
+  assert(read(size) == tostring(size), "a stream at deflate's ratio must read back")
+  assert(read(#stream * 1032) == tostring(size), "a claim at the bound must be read")
+  assert(read(#stream * 1032 + 1) == "NULL", "a claim past the bound must be NULL")
+  assert(read((1 << 35) - 1) == "NULL", "the largest claim must be NULL, not a failure")
+  handle:close()
+end
