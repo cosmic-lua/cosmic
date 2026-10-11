@@ -1602,12 +1602,16 @@ fn vendorLibraries(
     // [`mbedtls_config`]). The crypto files below are the ones that hold
     // code under that configuration; every other one compiles to nothing.
     const mbedtls_flags = [_][]const u8{ "-std=c11", debug_dir } ++ mbedtls_config;
-    // <arm_neon.h> costs each aarch64 file a third of a second to parse
-    // (the aarch64 library took 25 s of CPU to x86_64's 7), and only the
-    // files compiled with `mbedtls_flags` below use it. The rest leave
-    // it out (patch/mbedtls), and make the same objects: a file that
-    // came to use NEON would not compile, and one that came to call
-    // mbedtls_xor() would be refused by name.
+    // <arm_neon.h> is slow to parse, and on aarch64 nearly every file
+    // reads it. Only the files compiled with `mbedtls_flags` below use
+    // it; the rest leave it out (patch/mbedtls) and make the same
+    // objects. A call to mbedtls_xor() in one of them is a compile error,
+    // but NEON code behind MBEDTLS_HAVE_NEON_INTRINSICS would compile to
+    // its scalar path unnoticed.
+    // TODO: hold the list below to what the objects say, with a check
+    // that compiles each file without the header for both aarch64
+    // targets and refuses one whose object differs, run where the
+    // cores are built.
     const mbedtls_flags_no_neon = mbedtls_flags ++ [_][]const u8{"-DCOSMIC_NO_NEON_HEADER"};
     const mbedtls_part = vendorPart(b, &libraries, configuration, target, "mbedtls", &(cryptoIncludes(b, crypto, &crypto_include_dirs) ++ [_]std.Build.LazyPath{
         mbedtls.path(b, "include"),
@@ -1617,6 +1621,7 @@ fn vendorLibraries(
     mbedtls_part.addCSourceFiles(.{
         .root = crypto,
         .files = &.{
+            "core/psa_crypto.c",
             "core/psa_crypto_client.c",
             "core/psa_crypto_driver_wrappers_no_static.c",
             "core/psa_crypto_slot_management.c",
@@ -1671,12 +1676,13 @@ fn vendorLibraries(
         .flags = &mbedtls_flags_no_neon,
     });
     // The files that read <arm_neon.h>: the NEON and Armv8 crypto
-    // intrinsics (aesce.c, chacha20_neon.c, sha256.c, sha512.c) and the
-    // callers of mbedtls_xor(), whose NEON path is the fast one.
+    // intrinsics (aesce.c and chacha20_neon.c, and the Armv8 SHA paths
+    // of sha256.c and sha512.c, which this configuration leaves off but
+    // a change to it could turn on), aes.c, which calls aesce.c's, and
+    // the callers of mbedtls_xor(), whose NEON path is the fast one.
     mbedtls_part.addCSourceFiles(.{
         .root = crypto,
         .files = &.{
-            "core/psa_crypto.c",
             "drivers/builtin/src/aes.c",
             "drivers/builtin/src/aesce.c",
             "drivers/builtin/src/chacha20.c",

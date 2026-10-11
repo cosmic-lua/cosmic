@@ -1,17 +1,13 @@
 file: tf-psa-crypto/core/tf_psa_crypto_common.h
 note: this header is the first one nearly every file of the crypto
   library and the TLS layer includes, and on an Armv8 target it pulls
-  in <arm_neon.h>: clang's generated header of some thousand inline
-  functions, which costs about a third of a second to parse in each
-  of the sixty translation units -- most of the C build's difference
-  between aarch64 (which compiles it) and x86_64 (which does not).
-  Only the files that call NEON intrinsics, or that call mbedtls_xor()
-  (whose NEON path is the one intrinsics use outside them), need it.
-  A file compiled with -DCOSMIC_NO_NEON_HEADER (build.zig names them)
-  leaves it out, and with it MBEDTLS_HAVE_NEON_INTRINSICS, so
-  nothing in it is declared with a NEON type; the object it makes is
-  the same one the full header makes, which build.zig's list of those
-  files is chosen by. Without the macro this is upstream's header.
+  in <arm_neon.h>, clang's header of NEON intrinsics, which is slow to
+  parse. Only the files that use NEON intrinsics, or call
+  mbedtls_xor() (whose fast path uses them), need it. A file compiled
+  with -DCOSMIC_NO_NEON_HEADER leaves it out, and with it
+  MBEDTLS_HAVE_NEON_INTRINSICS; build.zig passes the macro only to
+  files whose object is the same either way. Without the macro this is
+  upstream's header.
 --- find
 #if defined(__ARM_NEON)
 #include <arm_neon.h>
