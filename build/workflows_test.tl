@@ -2706,9 +2706,11 @@ local function test_a_leg_that_skips_the_portable_suite_still_attests_what_it_ra
   local ci = decoded_workflows()[DIR .. "/ci.yml"] as {string: any}
   local platform = (ci.jobs as {string: {string: any}}).platform
   local seen: {string: boolean} = {}
-  for _, step in ipairs(platform.steps as {{string: any}}) do
+  local at: {string: integer} = {}
+  for i, step in ipairs(platform.steps as {{string: any}}) do
     local run = step.run as string or ""
     local phase = run:match("^cosmic%-driver cosmic_ci/driver%.tl platform ([%w-]+)")
+    if phase ~= nil then at[phase] = i end
     local with = step.with as {string: string}
     local upload = with ~= nil and with.name == "portable-product-${{ matrix.name }}"
     if phase == "portable" or phase == "fixtures" or phase == "attest" or upload then
@@ -2725,6 +2727,11 @@ local function test_a_leg_that_skips_the_portable_suite_still_attests_what_it_ra
   end
   assert(seen.portable and seen.fixtures and seen.attest and seen.upload,
     "a full run's leg misses a step of the product's")
+  -- A regression's failure in the queue surfaces sooner. Attest reads
+  -- the digest the portable step records, so it follows.
+  assert(at.fixtures < at.portable, "the regressions run after the portable suite")
+  assert(at.portable < at["portable-boundary"] and at["portable-boundary"] < at.attest,
+    "the portable suite, its boundary and the attestation are out of order")
 end
 
 --- The vendor part of the zig build cache's key hashes the vendored

@@ -27,7 +27,7 @@ pin's own.
 
 ## running the platform job locally
 
-`ci/run-local` runs the platform job's phases (`build` through `fixtures`) on
+`ci/run-local` runs the platform job's phases (`build` through `portable-boundary`) on
 this machine, for its own target, with this checkout's own tool (the one
 `bin/cosmic` runs) as the driver instead of the pinned release. It
 snapshots the working tree, tracked and untracked files alike, into a

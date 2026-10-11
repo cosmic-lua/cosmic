@@ -213,7 +213,7 @@
         # (phase_portable). The merge queue runs it on alpine-x86_64
         # alone: linux-x86_64 builds the same portable bytes, which the
         # join's provenance check holds identical, and the suite (some
-        # 190 s) was that leg's, the queue's longest, critical path.
+        # 190 s on that leg) was its, the queue's longest, critical path.
         # linux-x86_64 still runs its regressions on those bytes and
         # attests them, as the legs that skip the suite do. A push to
         # main that reuses the queue's run runs no legs, so glibc's run
@@ -843,6 +843,18 @@
           },
         },
 
+        # Before the portable suite, which the queue's alpine leg runs
+        # (some 286 s there, run 38146952746), so a regression's failure, the self-rebuild
+        # fixture's among them, surfaces that much sooner. Neither reads
+        # what the other writes: the fixtures stand on fixtures.db,
+        # beside verdicts.db, which the verdict cache restores and saves
+        # with it, and unpack the source assemble archived.
+        {
+          name: "run runtime, launcher, rebuild, and identity regressions",
+          if: "env.COSMIC_CI_SCOPE == 'full'",
+          run: "cosmic-driver cosmic_ci/driver.tl platform fixtures",
+        },
+
         {
           name: "run the product suite from fresh tracked source",
           id: "portable-suite",
@@ -854,14 +866,6 @@
           name: "verify the delayed portable database boundary",
           if: "always() && steps.portable-suite.outcome != 'skipped'",
           run: "cosmic-driver cosmic_ci/driver.tl platform portable-boundary \"${{ steps.portable-suite.outcome }}\"",
-        },
-
-        # The sandboxed fixtures stand on fixtures.db, beside verdicts.db,
-        # which the verdict cache restores and saves with it.
-        {
-          name: "run runtime, launcher, rebuild, and identity regressions",
-          if: "env.COSMIC_CI_SCOPE == 'full'",
-          run: "cosmic-driver cosmic_ci/driver.tl platform fixtures",
         },
 
         {
