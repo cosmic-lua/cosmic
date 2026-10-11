@@ -1496,8 +1496,8 @@ local function test_a_main_push_reuses_the_queue_run()
     "the join reads another checked suite than the one that ran: " .. tostring(check_env.CHECKED))
   assert(check.run == "echo \"queue run: ${QUEUE_RUN:-(none)}; legs: $RESULT; checked suite: $CHECKED\"; " ..
       "[ \"$RESULT\" = success ] && [ \"$CHECKED\" = success ] || { [ \"$EVENT\" != merge_group ] || " ..
-      "echo \"a queue run cancels itself when a leg fails, so a result may read cancelled: " ..
-      "the error annotation on the run names the leg that failed\"; exit 1; }",
+      "echo \"a failed leg cancels a queue run, so the other legs may read cancelled; " ..
+      "an error annotation names the failed leg\"; exit 1; }",
     "the join passes on more or less than the legs and the checked suite: " .. tostring(check.run))
   for name, value in pairs(check_env) do
     assert(name == "RESULT" or name == "CHECKED" or name == "QUEUE_RUN" or name == "EVENT", "the join reads " .. name .. ": " .. value)
@@ -1961,10 +1961,10 @@ local function test_a_job_moves_its_tree_once_and_puts_it_back_once()
   assert(placed >= 3, "only " .. placed .. " jobs move their tree")
 end
 
---- A failed job of the merge queue's run has the run cancelled at once,
+--- A failed job of the merge queue's run has the run cancelled,
 --- so the gate reports without waiting on the legs still running. A job
---- of its own does it, the only one of the run with `actions: write` but
---- the cache's: it starts with the legs, needs nothing, is needed by
+--- of its own does it, the only job of the run that holds `actions: write`
+--- besides the cache's `prune` and `invalidate`: it starts with the legs, needs nothing, is needed by
 --- nothing (the gate, which a ruleset requires, never waits on it), and
 --- is on the queue's run alone. The legs keep `actions: read`.
 local function test_a_failed_queue_job_has_the_run_cancelled_by_a_job_of_its_own()
@@ -1976,11 +1976,16 @@ local function test_a_failed_queue_job_has_the_run_cancelled_by_a_job_of_its_own
   assert(cancel.needs == nil, "cancel waits on a job, so it cannot start with the legs")
   local permissions = cancel.permissions as {string: string}
   local count = 0
-  for key, value in pairs(permissions) do
-    count = count + 1
-    assert(key == "actions" and value == "write", "cancel holds " .. key .. ": " .. value)
-  end
-  assert(count == 1, "cancel holds more than `actions: write`")
+  for _ in pairs(permissions) do count = count + 1 end
+  assert(count == 2 and permissions.actions == "write" and permissions.contents == "read",
+    "cancel holds more than `contents: read` and `actions: write`")
+  local checkout = (cancel.steps as {{string: any}})[1]
+  local with = checkout.with as {string: any}
+  assert(checkout.uses == CHECKOUT,
+    "cancel's first step is no checkout")
+  assert(with["persist-credentials"] == false and with["fetch-depth"] == 1 and
+      with["sparse-checkout"] == "/.github/scripts/cancel-on-failure.sh\n",
+    "cancel checks out more than its script, or keeps the token")
   assert(cancel.name == "cancel the run on a failed leg", "cancel's name: " .. tostring(cancel.name))
   assert((cancel["timeout-minutes"] as integer) > (jobs.platform["timeout-minutes"] as integer),
     "cancel stops before the legs may")

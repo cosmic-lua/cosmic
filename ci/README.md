@@ -333,10 +333,11 @@ would share its group and cancel it, which the queue reads as a failure.
 ### the queue's run cancels itself
 
 On the queue's run the job `cancel` watches the run's other jobs
-(`.github/scripts/cancel-on-failure.sh`, every 20 s) and cancels the
+(`.github/scripts/cancel-on-failure.sh`, every 30 s) and cancels the
 run once one has failed, naming it in an error annotation. The gate
-(`ci`) has `always()`, so it still runs, and fails at once, where it
-would otherwise wait for every leg still running. The queue then drops
+(`ci`) has `always()`, so it still runs, and fails a minute or two
+later (its runner starts), where it would otherwise wait for every leg
+still running. The queue then drops
 the entry and restarts the entries behind it, which wait on a run that
 cannot merge.
 
