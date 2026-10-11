@@ -1372,8 +1372,9 @@ end
 --- February 30, hour 24), or that the moment is outside what an integer
 --- holds. A field that is no integer (a float such as 2026.0 included,
 --- or one `c` lacks) raises. Nothing is normalized: day 32 is refused,
---- not carried into the next month. A local time a zone skipped or passed twice is resolved as
---- `opts.disambiguation` says, and refused by default, naming the
+--- not carried into the next month. A local time a zone skipped or
+--- passed twice is resolved as `opts.disambiguation` says, and refused
+--- by default, naming the
 --- change; passed twice, the moment whose offset is `c.offset` is taken
 --- whatever the disambiguation, so `from_civil(civil(ns, zone), zone)`
 --- is always `ns`. Raises for a `disambiguation` that is none of
