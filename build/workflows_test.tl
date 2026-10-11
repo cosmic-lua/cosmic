@@ -1767,6 +1767,7 @@ local function test_the_checked_suite_runs_in_a_job_of_its_own_on_linux_x86_64s_
   -- and the format's after the boot.
   local light <const>: {string: boolean} = { ["bootstrap the pinned CI driver"] = true,
     ["build release Cosmic"] = true, ["summarize worker operations"] = true,
+    ["compile the bootstrap's scripts on the pinned driver"] = true,
     ["describe the leg's container"] = true, ["remove the leg's container"] = true,
     ["preserve CI driver database"] = true,
     ["preserve checked suite failure diagnostics"] = true,
