@@ -1684,8 +1684,9 @@
 
     # Cancels the queue's run once a leg or the checked job has failed
     # (cancel-on-failure.sh), so `ci` reports a minute or two later (its
-    # runner starts) and the queue restarts the entries behind sooner; a branch's, main's and the scheduled run
-    # let every leg finish. A job of its own, not a step of each leg: only
+    # runner starts) and the queue restarts the entries behind sooner; a
+    # branch's, main's and the scheduled run let every leg finish. A job
+    # of its own, not a step of each leg: only
     # it holds `actions: write`, where the legs run test code, and the
     # failed leg has finished, so it keeps its `failure`. It starts with
     # the legs, waits on none and is waited on by none (the gate does not
