@@ -21,6 +21,25 @@ defines the target; once something ships, it leaves this file.
   raises (and [`Proc.exit`]) narrows below a guard as `error` does:
   [doc/plans/teal-never.md](plans/teal-never.md) has the design and the
   patch series.
+- refuse a table literal that omits a record field. records are open: `local r:
+  R = {}` type-checks for an `R` with `name: string`, and `r.name` is nil.
+  `name?: T` (patch/tl 49a to 49c) declares a field a literal may omit, typed
+  `T | nil`, and nothing is marked yet. the stages after it:
+  - warn on a literal checked against a record or interface type that omits a
+    field neither optional nor admitting nil, naming the record, the fields and
+    the fix, with function fields exempt (they cover methods supplied by
+    `__index`, metamethods, and type declarations). every warning cosmic sees
+    is a refused compile ([`build/compilation.tl`]'s `generate`,
+    [`build/standalone.tl`] and [`build/example_checks.tl`] each reject on
+    one), and the compile cache keeps no warnings to show again on a hit, so
+    this waits on a channel for a finding that fails nothing and is reported
+    where it is found.
+  - mark the optional fields `name?: T`. a measurement that refused every
+    omission, function fields included, flagged 4,590 literals, 24,475 omitted
+    fields and 993 distinct record.field pairs, about three quarters of the
+    sites in tests, and the tree no longer built. the pairs are the work; the
+    sites follow from them.
+  - make the check an error, one directory at a time.
 - declare cosmic.stream's interface methods with a named receiver
   (`read: function(self: Reader, ...)`) and drop each implementing record's
   redeclaration of them: the documented signatures then read as
@@ -385,14 +404,17 @@ four-producer provenance join.
 [`build/archive_test.tl`]: ../build/archive_test.tl
 [`build/c/tree.tl`]: ../build/c/tree.tl
 [`build/c_functions.tl`]: ../build/c_functions.tl
+[`build/compilation.tl`]: ../build/compilation.tl
 [`build/contracts.tl`]: ../build/contracts.tl
 [`build/dataset.tl`]: ../build/dataset.tl
+[`build/example_checks.tl`]: ../build/example_checks.tl
 [`build/fix/rule.tl`]: ../build/fix/rule.tl
 [`build/flow.tl`]: ../build/flow.tl
 [`build/hash_test.tl`]: ../build/hash_test.tl
 [`build/json.tl`]: ../build/json.tl
 [`build/locator_fuzz_test.tl`]: ../build/locator_fuzz_test.tl
 [`build/shape_specs.tl`]: ../build/shape_specs.tl
+[`build/standalone.tl`]: ../build/standalone.tl
 [`build/workflows_test.tl`]: ../build/workflows_test.tl
 [`Child.end_strays`]: ../cosmic/child.tl
 [`ci/cosmic-driver.pin`]: ../ci/cosmic-driver.pin
