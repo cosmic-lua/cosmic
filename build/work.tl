@@ -433,17 +433,6 @@ local function integer_of(rows: {{string}}): integer
   return math.tointeger(tonumber(rows[1][1]) or 0) or 0
 end
 
---- Creates every table the schema names, in order.
-local function create(db: Sqlite.Handle): boolean, string
-  for _, statement in ipairs(work.schema) do
-    local ok, trouble = db:exec(statement)
-    if not ok then
-      return false, trouble
-    end
-  end
-  return true, ""
-end
-
 --- How long a run waits for another run of the same tree to end its
 --- transaction on `build.db`. That run holds it from staging through
 --- its compile: a cold compile, a boot, or a stale tool's whole rebuild
@@ -479,6 +468,41 @@ local function begin_waiting(db: Sqlite.Handle, path: string): boolean, string
   return true, ""
 end
 
+--- Creates every table the schema names, in order, in the working
+--- database `db` at `path`. A fresh file's go in in one transaction,
+--- which commits, and syncs, once rather than once a statement: about
+--- 6 ms where a transaction a statement takes 40 or more. That one is
+--- begun as the run's is ([`begin_waiting`]), so a run that meets another
+--- holding the file says so while it waits. A file that has tables keeps
+--- a transaction a statement, each a no-op, and waits, if it must, at the
+--- run's own [`begin_waiting`].
+local function create(db: Sqlite.Handle, path: string): boolean, string
+  local tables, count_trouble = Sqlite.text_rows(db, "SELECT count(*) FROM sqlite_master")
+  if tables == nil then
+    return false, count_trouble
+  end
+  local fresh = tables[1][1] == "0"
+  if fresh then
+    local begun, begin_trouble = begin_waiting(db, path)
+    if not begun then
+      return false, begin_trouble
+    end
+  end
+  for _, statement in ipairs(work.schema) do
+    local ok, trouble = db:exec(statement)
+    if not ok then
+      if fresh then
+        local _, _ = db:exec("ROLLBACK")
+      end
+      return false, trouble
+    end
+  end
+  if fresh then
+    return db:exec("COMMIT")
+  end
+  return true, ""
+end
+
 --- Opens `build.db` in `dir`, or where nil in `root`'s build directory,
 --- which [`build.paths`] names and makes. It creates the database and
 --- its tables when new, and counts this run. A file whose schema is not
@@ -509,7 +533,7 @@ function work.open(root: string, dir?: string): work.Handle | nil, string
     local _, _ = db:close()
     return nil, path .. ": " .. encode_trouble
   end
-  local created, create_trouble = create(db)
+  local created, create_trouble = create(db, path)
   if not created then
     local _, _ = db:close()
     return nil, path .. ": " .. create_trouble
