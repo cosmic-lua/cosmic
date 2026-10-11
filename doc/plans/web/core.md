@@ -1162,9 +1162,9 @@ tests; the bulk run in-process (no loopback policy, and cheap to key).
 - The other files add modules beside: `cosmic.web.input`,
   `cosmic.web.cookies`, `cosmic.web.session` (with `.cookie` and `.sqlite`
   stores), `cosmic.web.csrf`, `cosmic.web.cors`, `cosmic.web.headers`
-  (input.md); `cosmic.web.htmx` (templates.md); `cosmic.web.static`,
+  (input.md); `cosmic.web.htmx` (templates.md); [`cosmic.web.static`],
   [`cosmic.web.sse`], `cosmic.web.dev`, and the support modules
-  `cosmic.web.assets` and `cosmic.web.mime` (assets.md).
+  [`cosmic.web.assets`] and `cosmic.web.mime` (assets.md).
 
 Order of work (each a PR, tests included):
 
@@ -1334,7 +1334,7 @@ close, and a raise in it reaches `on_error` without stopping the drain.
    stays open is a collect-all mode for JSON bodies, which needs a change in
    cosmic.shape (input.md open question 2); until then a JSON body gives one
    entry in `errors`.
-10. The mime table lives in cosmic.web.mime (`Mime.of`, assets.md section
+10. The mime table lives in cosmic.web.mime ([`Mime.of`], assets.md section
     1.4), which `Web.file` calls; `file` takes `content_type` explicitly to
     override it.
 11. 4xx closing the connection (13.6). Recommendation: change, with a test,
@@ -1359,7 +1359,9 @@ close, and a raise in it reaches `on_error` without stopping the drain.
 [`cosmic.log`]: ../../../cosmic/log.tl
 [`cosmic.shape`]: ../../../cosmic/shape.tl
 [`cosmic.url`]: ../../../cosmic/url.tl
+[`cosmic.web.assets`]: ../../../cosmic/web/assets.tl
 [`cosmic.web.sse`]: ../../../cosmic/web/sse.tl
+[`cosmic.web.static`]: ../../../cosmic/web/static.tl
 [`cosmic.web`]: ../../../cosmic/web/init.tl
 [`cosmic/web/input.tl`]: ../../../cosmic/web/input.tl
 [`cosmic/web/request.tl`]: ../../../cosmic/web/request.tl
@@ -1381,6 +1383,7 @@ close, and a raise in it reaches `on_error` without stopping the drain.
 [`Json.decode`]: ../../../cosmic/json.tl
 [`Json.encode`]: ../../../cosmic/json.tl
 [`Json.null`]: ../../../cosmic/json.tl
+[`Mime.of`]: ../../../cosmic/mime.tl
 [`Net.Conn`]: ../../../cosmic/net.tl
 [`Net.connect`]: ../../../cosmic/net.tl
 [`Poll.delay`]: ../../../cosmic/poll.tl

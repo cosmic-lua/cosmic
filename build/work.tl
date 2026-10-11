@@ -51,6 +51,10 @@ local record work
   record Staged
     files: integer
     read: integer
+    --- One line for each file under `static/` newly staged whose name
+    --- says it was meant as a module (`.tl`, `.tmpl`): it is carried as an
+    --- asset. Also complained of as it is found.
+    notes: {string}
   end
 
   --- The statements that create the database, in order. `IF NOT
@@ -754,7 +758,8 @@ end
 --- record, whose find blocks are too ([`build.todo_scan.scan_record`]).
 local function holds_own_todos(file: string): boolean
   local first = identity.first_of(file)
-  return first ~= "vendor" and (first ~= "patch" or is_record(file))
+  return first ~= "vendor" and (first ~= "patch" or is_record(file)) and
+    not identity.is_static(file)
 end
 
 --- Records the TODOs in one file's bytes under their hash, unless a
@@ -799,6 +804,32 @@ local function forget(db: Sqlite.Handle, table_name: string,
     end
   end
   return true, ""
+end
+
+--- Why the static asset `file` of `root` (whose real path is `real_root`)
+--- cannot be carried, or nil: what [`identity.static_refusal`] refuses by
+--- name and size, a spelling that differs from another staged one only in
+--- case (`seen`, by lowercase spelling: a tree must build the same on a
+--- case-insensitive disk), and a link that leads out of the project, which
+--- would make the executable depend on files outside the checkout.
+local function static_refusal(root: string, real_root: string, file: string, size: integer,
+                              seen: {string:string}): string | nil
+  local refusal = identity.static_refusal(file, size)
+  if refusal ~= nil then return refusal end
+  local lowered = file:lower()
+  local earlier = seen[lowered]
+  if earlier ~= nil and earlier ~= file then
+    return ("%s: differs from %s only in case; rename one, so the tree builds the same on a " ..
+      "case-insensitive disk"):format(file, earlier)
+  end
+  seen[lowered] = file
+  local real, trouble = Fs.absolute(root .. "/" .. file)
+  if real == nil then return trouble end
+  if real:sub(1, #real_root + 1) ~= real_root .. "/" then
+    return ("%s: a link to %s, outside the project; the executable would depend on a file " ..
+      "the checkout does not hold"):format(file, real)
+  end
+  return nil
 end
 
 --- Reads the links of the files of `linked` not yet read (see its
@@ -929,7 +960,11 @@ function work.stage(handle: work.Handle, own_tree: boolean): work.Staged | nil, 
     put[name] = statement
   end
   local now = Clock.now_ns()
-  local staged: work.Staged = { files = 0, read = 0 }
+  local staged: work.Staged = { files = 0, read = 0, notes = {} }
+  -- The real path of `root`, once a static asset asks for it, and the
+  -- static paths seen by their lowercase spelling.
+  local real_root: string = nil
+  local static_seen: {string:string} = {}
   -- The text of each file of `linked` read here, by path.
   local texts: {string:string} = {}
 
@@ -946,6 +981,21 @@ function work.stage(handle: work.Handle, own_tree: boolean): work.Staged | nil, 
     end
     if scan and st.size > scanned_limit then
       scan = false
+    end
+    if input and identity.is_static(file) then
+      if real_root == nil then
+        local resolved, resolve_trouble = Fs.absolute(root)
+        if resolved == nil then
+          finish(put)
+          return nil, resolve_trouble
+        end
+        real_root = resolved
+      end
+      local refusal = static_refusal(root, real_root, file, st.size, static_seen)
+      if refusal ~= nil then
+        finish(put)
+        return nil, refusal
+      end
     end
     if input or tool or scan or link_kind ~= nil then
       local mtime_ns = Clock.seconds(st.mtime) + st.mtime_ns
@@ -965,6 +1015,12 @@ function work.stage(handle: work.Handle, own_tree: boolean): work.Staged | nil, 
           return nil, read_trouble
         end
         staged.read = staged.read + 1
+        if write_files and identity.is_static(file) and
+            (file:match("%.tl$") ~= nil or file:match("%.tmpl$") ~= nil) then
+          local note = file .. ": under static/, so it is carried as an asset and is no module"
+          staged.notes[#staged.notes + 1] = note
+          log:complain(note)
+        end
         local sha256 = Hash.hex_sha256(data)
         if (input or tool or scan) and holds_own_todos(file) then
           local ok, why = put_todos(put["todo"], data, sha256)

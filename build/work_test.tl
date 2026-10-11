@@ -7,6 +7,7 @@ local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local sys = require("cosmic.sys")
 local Sqlite = require("cosmic.sqlite")
+local Test = require("cosmic.test")
 local identity = require("build.identity")
 local work = require("build.work")
 local build_paths = require("build.paths")
@@ -538,4 +539,114 @@ local function test_tool_discovery_tracks_symlink_retarget_with_equal_bytes(tmp:
   assert(assert(identity.record_fingerprint(handle.db)).boot == before)
   assert(work.tool_moved(handle) == false)
   assert(work.close(handle))
+end
+
+--- Stages a project of just `files` (path to bytes) and answers the
+--- stage's result and trouble.
+local function stage_files(root: string, files: {string:string}): work.Staged | nil, string
+  for path, data in pairs(files) do
+    local slash = path:match("^(.*)/[^/]*$")
+    if slash ~= nil then assert(Fs.mkdirs(root .. "/" .. slash)) end
+    assert(Fs.write(root .. "/" .. path, data))
+  end
+  local handle = assert(work.open(root))
+  local staged, trouble = work.stage(handle, false)
+  assert(work.close(handle))
+  return staged, trouble
+end
+
+--- A file under `static/` is an input whatever it is called: Teal, a
+--- template and bytes with a NUL are rows of `files` (the build later
+--- makes assets of them, not modules), a hidden one is left out, and a
+--- TODO in one is not the project's.
+local function test_stage_takes_every_file_under_static(tmp: string)
+  assert(stage_files(tmp, {
+    ["static/css/app.css"] = "a{}", ["static/notes.tl"] = "TODO: not ours\nx", ["static/p.tmpl"] = "{{",
+    ["static/bin.dat"] = "\0\1\2", ["static/.hidden/x"] = "x", ["main.tl"] = "return 1\n",
+  }))
+  local db = assert(Sqlite.open(build_dir(tmp) .. "/build.db"))
+  local rows = assert(Sqlite.text_rows(db,
+    "SELECT path FROM files WHERE path GLOB 'static/*' ORDER BY path"))
+  local paths: {string} = {}
+  for i, row in ipairs(rows) do paths[i] = row[1] end
+  assert(table.concat(paths, " ") == "static/bin.dat static/css/app.css static/notes.tl static/p.tmpl",
+    table.concat(paths, " "))
+  assert(count(db, "todos") == 0, "a TODO inside an asset is no TODO of the project's")
+  assert(db:close())
+end
+
+--- A `.tl` or `.tmpl` under `static/` is no module: staging says so, one
+--- line naming the file, when it reads the file; other assets earn none.
+local function test_stage_notes_a_module_shaped_asset(tmp: string)
+  local staged = assert(stage_files(tmp, { ["static/notes.tl"] = "x", ["static/p.tmpl"] = "{{",
+    ["static/a.css"] = "a{}", ["main.tl"] = "return 1\n" }))
+  table.sort(staged.notes)
+  assert(#staged.notes == 2, table.concat(staged.notes, "\n"))
+  assert(staged.notes[1]:find("^static/notes%.tl: ") and staged.notes[2]:find("^static/p%.tmpl: "))
+end
+
+--- Each rule the build refuses an asset by, named by the file.
+local function test_stage_refuses_an_asset_it_cannot_carry(tmp: string)
+  local cases: {{string}} = {
+    { "static/a%b.css", "x", "rename it" },
+    { "static/a?b.css", "x", "rename it" },
+    { "static/a#b.css", "x", "rename it" },
+    { "static/a\\b.css", "x", "rename it" },
+    { "static/a\1b.css", "x", "control byte" },
+    { "static/" .. ("n"):rep(100) .. "/" .. ("n"):rep(100) .. "/" .. ("n"):rep(56), "x",
+      "past the 255-byte limit" },
+    { "static/big.bin", ("x"):rep(16 * 1024 * 1024 + 1), "past the 16 MiB limit" },
+  }
+  for i, case in ipairs(cases) do
+    local staged, trouble = stage_files(tmp .. "/" .. i, { [case[1]] = case[2] })
+    assert(staged == nil, case[1])
+    assert(trouble:find(case[1], 1, true) and trouble:find(case[3], 1, true), trouble)
+  end
+  local fine = stage_files(tmp .. "/fine", { ["static/" .. ("n"):rep(100) .. "/" .. ("n"):rep(100) .. "/" .. ("n"):rep(53)] = "x",
+    ["static/16.bin"] = ("x"):rep(16 * 1024 * 1024) })
+  assert(fine ~= nil, "255 bytes and 16 MiB are within the limits")
+end
+
+--- Names that differ only in case would be two files here and one on a
+--- case-insensitive disk.
+local function test_stage_refuses_assets_that_differ_only_in_case(tmp: string)
+  -- A file system that folds case (macOS's, by default) holds the two
+  -- names as one file, so there is no pair to refuse.
+  assert(Fs.mkdirs(tmp .. "/probe"))
+  assert(Fs.write(tmp .. "/probe/A", "a"))
+  assert(Fs.write(tmp .. "/probe/a", "b"))
+  if #assert(Fs.list(tmp .. "/probe")) < 2 then
+    Test.skip("this file system folds case, so two names that differ only in case are one file")
+  end
+  local staged, trouble = stage_files(tmp, { ["static/App.css"] = "a", ["static/app.css"] = "b" })
+  assert(staged == nil and trouble:find("only in case", 1, true), tostring(trouble))
+  assert(trouble:find("static/App.css", 1, true) and trouble:find("static/app.css", 1, true))
+end
+
+--- A link inside the project is followed; one that leaves it would make
+--- the executable depend on a file the checkout lacks.
+local function test_stage_refuses_an_asset_linked_from_outside_the_project(tmp: string)
+  assert(Fs.mkdirs(tmp .. "/outside"))
+  assert(Fs.write(tmp .. "/outside/secret.txt", "SECRET"))
+  assert(Fs.mkdirs(tmp .. "/p/static"))
+  assert(Fs.mkdirs(tmp .. "/p/shared"))
+  assert(Fs.write(tmp .. "/p/shared/ok.txt", "fine"))
+  assert(Fs.symlink("../shared/ok.txt", tmp .. "/p/static/inside.txt"))
+  assert(stage_files(tmp .. "/p", { ["main.tl"] = "return 1\n" }), "a link within the project stages")
+  assert(Fs.symlink("../../outside/secret.txt", tmp .. "/p/static/leak.txt"))
+  local staged, trouble = stage_files(tmp .. "/p", { ["main.tl"] = "return 1\n" })
+  assert(staged == nil and trouble:find("static/leak.txt: a link to ", 1, true), tostring(trouble))
+  assert(trouble:find("outside the project", 1, true))
+  assert(Fs.remove(tmp .. "/p/static/leak.txt"))
+  assert(Fs.symlink("../../outside", tmp .. "/p/static/dir"))
+  local through, through_trouble = stage_files(tmp .. "/p", { ["main.tl"] = "return 1\n" })
+  assert(through == nil and through_trouble:find("static/dir/secret.txt", 1, true), tostring(through_trouble))
+end
+
+local function test_identity_knows_a_static_asset_by_its_directory(_tmp: string)
+  assert(identity.is_static("static/a.tl") and identity.is_static("static/x/y.css"))
+  assert(not identity.is_static("static") and not identity.is_static("a/static/x.css"))
+  assert(not identity.is_static("statics/x.css") and not identity.is_static("static.tl"))
+  assert(identity.is_input("static/a.css", false) and identity.is_input("static/a.png", true))
+  assert(not identity.is_tool("static/a.tl", true), "an asset is not part of the tool")
 end

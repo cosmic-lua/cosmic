@@ -39,7 +39,9 @@ local never: {string: boolean} = { ["o"] = true, ["vendor"] = true, ["patch"] = 
 --- `.claude/skills/`, which are Markdown, and everything under a
 --- directory that is a checkout of its own (it holds a `.git`), such as
 --- a worktree nested in this one, whose files are its own tree's. Each
---- directory is asked after once.
+--- directory is asked after once. A project's `static/` is carried
+--- verbatim ([`cosmic.layout`]'s `static`), so what is written in it is no
+--- source of the tree's.
 function link_files.skipper(dir: string): function(string): boolean
   local checkouts: {string: boolean} = {}
   local function checkout(path: string): boolean
@@ -55,7 +57,7 @@ function link_files.skipper(dir: string): function(string): boolean
     local parts: {string} = {}
     for part in entry:gmatch("[^/]+") do parts[#parts + 1] = part end
     for index, part in ipairs(parts) do
-      if never[part] or (index == 1 and part == "bin") then
+      if never[part] or (index == 1 and (part == "bin" or part == "static")) then
         return true
       end
       if part:sub(1, 1) == "." and not (index == 1 and part == ".claude") then

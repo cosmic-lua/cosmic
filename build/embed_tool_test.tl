@@ -434,3 +434,51 @@ end
   assert(String.starts_with(printed, "true\t") and (printed:find("host program", 1, true) or
     printed:find("database needs a prepared core", 1, true)), printed)
 end
+
+local static_main = [[
+local Assets = require("cosmic.web.assets")
+local Sqlite = require("cosmic.sqlite")
+local Store = require("cosmic.store")
+
+return function(): integer
+  for _, handle in ipairs(Store.databases()) do
+    local rows, _ = Sqlite.text_rows(handle,
+      "SELECT path, type, length(data), gzip IS NOT NULL FROM payload ORDER BY path")
+    if rows ~= nil and #rows > 0 then
+      for _, row in ipairs(rows) do print("payload", table.concat(row, "\t")) end
+      break
+    end
+  end
+  local source = Assets.default()
+  local css = assert(source:get("css/app.css"))
+  local logo = assert(source:get("logo.png"))
+  print(source:dynamic(), #source:paths(), css.size, css.type, css.gzip ~= nil, logo.size, logo.gzip)
+  return 0
+end
+]]
+
+--- The files under `static/` go into the program's database whole, with
+--- the type, hash and gzip they are served by, and a built program serves
+--- them from there, not from a directory beside it: run from a directory
+--- with a decoy `static/`, it answers the embedded bytes. One build
+--- serves both checks, as it is the slow part.
+local function test_a_program_serves_the_static_files_it_carries(tmp: string)
+  assert(Fs.mkdirs(tmp .. "/cmd/site"))
+  assert(Fs.write(tmp .. "/cmd/site/main.tl", static_main))
+  assert(Fs.mkdirs(tmp .. "/static/css"))
+  local css = ("a { color: red }\n"):rep(200)
+  assert(Fs.write(tmp .. "/static/css/app.css", css))
+  assert(Fs.write(tmp .. "/static/logo.png", "\137PNG\0\1"))
+  local names, trouble = embed.tree(tmp, true)
+  assert(names ~= nil and names[1] == "site", trouble)
+  local elsewhere = tmp .. "/elsewhere"
+  assert(Fs.mkdirs(elsewhere .. "/static/css"))
+  assert(Fs.write(elsewhere .. "/static/css/app.css", "DECOY"))
+  local r = assert(Child.run({ build_dir(tmp) .. "/bin/site" }, {
+    cwd = elsewhere, stdout = "capture", stderr = "capture", timeout_ns = Time.seconds(30) }))
+  assert(r.ok, "exit " .. tostring(r.code) .. ": " .. tostring(r.stderr))
+  local out = assert(r.stdout)
+  assert(out:find("payload\tcss/app.css\ttext/css; charset=utf-8\t" .. #css .. "\t1\n" ..
+      "payload\tlogo.png\timage/png\t6\t0\n", 1, true), out)
+  assert(out:find("false\t2\t" .. #css .. "\ttext/css; charset=utf-8\ttrue\t6\tnil\n", 1, true), out)
+end
