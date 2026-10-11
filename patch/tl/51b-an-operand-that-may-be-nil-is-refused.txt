@@ -1,11 +1,9 @@
 file: tl.tl
-note: refuses an operand of `..`, `#`, unary `-` and `~`, arithmetic, a bit operator or an ordered comparison (`<`, `<=`, `>`, `>=`) whose type is a union carrying nil, with the operator's own message, because the operator raises when it is nil. `==`, `~=`, `and`, `or`, `not`, `any`, unknown and type variables take any value and are left alone. Narrowing is the checker's own: a closure after an early return and a loop that assigns the value do not narrow, so the operator refuses them
+note: refuses an operand of `..`, `#`, unary `-` and `~`, arithmetic, a bit operator or an ordered comparison (`<`, `<=`, `>`, `>=`) whose type is a union carrying nil, with the operator's own message, because the operator raises when it is nil. `==`, `~=`, `and`, `or`, `not`, `any`, unknown and type variables take any value and are left alone (an `and` whose left operand may be nil is typed so by 52c, and is refused as the operand it is). Narrowing is the checker's own: a closure after an early return and a loop that assigns the value do not narrow, so the operator refuses them
 --- find
             if node.op.arity == 1 and unop_types[node.op.op] then
                if ra is UnionType then
 --- replace
-            -- TODO: `(x and x) .. "a"` passes, since Teal types `a and b` as `b`
-            -- alone: once `and` yields its left operand's nil, refuse it here.
             do
                local op = node.op.op
                if op ~= "or" and ((node.op.arity == 1 and unop_types[op]) or (node.op.arity == 2 and binop_types[op])) then

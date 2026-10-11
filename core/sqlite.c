@@ -283,6 +283,27 @@ static const struct function functions[] = {
   {"inflate", 1, inflate_function},
 };
 
+/* The entry points of SQLite's own extensions, from vendor/sqlite-ext/
+ * and compiled into the core (build.zig). Each takes a connection, a
+ * slot for an error message, and a loader's table, which a compiled-in
+ * extension ignores. */
+typedef int (*extension_init)(sqlite3 *, char **,
+                              const sqlite3_api_routines *);
+int sqlite3_basexx_init (sqlite3 *, char **, const sqlite3_api_routines *);
+int sqlite3_compress_init (sqlite3 *, char **, const sqlite3_api_routines *);
+int sqlite3_decimal_init (sqlite3 *, char **, const sqlite3_api_routines *);
+int sqlite3_regexp_init (sqlite3 *, char **, const sqlite3_api_routines *);
+int sqlite3_series_init (sqlite3 *, char **, const sqlite3_api_routines *);
+int sqlite3_sha_init (sqlite3 *, char **, const sqlite3_api_routines *);
+int sqlite3_shathree_init (sqlite3 *, char **, const sqlite3_api_routines *);
+int sqlite3_uuid_init (sqlite3 *, char **, const sqlite3_api_routines *);
+
+static const extension_init extensions[] = {
+  sqlite3_basexx_init, sqlite3_compress_init, sqlite3_decimal_init,
+  sqlite3_regexp_init, sqlite3_series_init, sqlite3_sha_init,
+  sqlite3_shathree_init, sqlite3_uuid_init,
+};
+
 int cosmic_sqlite_functions (sqlite3 *db) {
   int rc = SQLITE_OK;
   for (size_t i = 0; rc == SQLITE_OK && i < sizeof functions / sizeof *functions;
@@ -291,6 +312,12 @@ int cosmic_sqlite_functions (sqlite3 *db) {
         db, functions[i].name, functions[i].arity,
         SQLITE_UTF8 | SQLITE_DETERMINISTIC | SQLITE_DIRECTONLY, NULL,
         functions[i].call, NULL, NULL);
+  }
+  for (size_t i = 0;
+       rc == SQLITE_OK && i < sizeof extensions / sizeof *extensions; i++) {
+    char *trouble = NULL;
+    rc = extensions[i](db, &trouble, NULL);
+    sqlite3_free(trouble);
   }
   return rc;
 }
