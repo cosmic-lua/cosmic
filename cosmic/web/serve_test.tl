@@ -279,7 +279,7 @@ local function test_the_loopback_client_fails_when_the_server_goes_silent()
   local app = Web.app{ routes = {} }
   Web.with_server(app, function(client: Web.LoopbackClient)
     scripted(client, "")
-    client.conn:set_timeout(Clock.ms(100))
+    client:set_timeout(Clock.ms(100))
     local started = Clock.monotonic_ns()
     local res, why = client:get("/")
     assert(res == nil and why ~= "", "a silent server is a failure, not a wait")
@@ -302,6 +302,20 @@ local function test_an_upload_above_the_servers_body_limit_is_the_servers_413()
     local reply = assert(client:raw(head))
     assert(reply.status == 413, reply.status)
     assert(not reached, "max_bytes above limits.body_bytes changes nothing")
+  end)
+end
+
+-- The server refuses on the Content-Length and stops reading after its
+-- linger, so a client still writing a body far past the socket buffers
+-- meets a reset. The client must still return the 413 the server sent.
+local function test_a_client_refused_mid_body_still_gets_the_413()
+  local app = Web.app{ routes = { Web.post("/up", function(_req: Web.Request): Web.Response
+    return Web.text("never")
+  end) } }
+  Web.with_server(app, function(client: Web.LoopbackClient)
+    local refused, why = client:post("/up", { body = ("x"):rep(32 * 1024 * 1024), content_type = "text/plain" })
+    assert(refused ~= nil, why)
+    assert(refused.status == 413, tostring(refused.status))
   end)
 end
 
