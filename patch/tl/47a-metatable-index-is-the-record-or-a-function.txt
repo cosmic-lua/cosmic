@@ -15,5 +15,6 @@ note: `metatable<T>`'s `__index` was `any`, so `setmetatable({}, { __index = { n
                }),
             })
          end
+         -- TODO: hold a generic record's metamethods to a metatable too: meta_fields is read only of a record that is not generic, as T is not yet applied to a generic one's.
          if not (rec is RecordLikeType and rec.meta_fields and ret is RecordLikeType) then
 --- end

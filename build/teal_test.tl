@@ -1631,9 +1631,8 @@ end
 --- The `__index` of a generic record is built from the record as written,
 --- type arguments included (47a): `v = 1` for `G<string>` is refused in a
 --- typed variable, in the call, and under a type variable.
---- TODO: a generic record's metamethods are not held to a metatable yet, as
---- `check_metatable_contract` (patch/tl's 47a) reads `meta_fields` only of a
---- record that is not generic; apply the type arguments to them there.
+--- A generic record's metamethods are not held to a metatable yet (the TODO
+--- is in patch/tl's 47a, where `meta_fields` is read), which the last case pins.
 local function test_a_generic_records_index_is_checked_with_its_arguments()
   local g = "local record G<T>\n  v: T\nend\n"
   assert_refused(g .. "local mt: metatable<G<string>> = { __index = { v = 1 } }\nprint(mt)\n",
@@ -1643,6 +1642,9 @@ local function test_a_generic_records_index_is_checked_with_its_arguments()
   assert_refused(g .. "local function mk<T>(): G<T>\n  return setmetatable({}, { __index = { v = 1 } })\nend\nprint(mk)\n",
     "v: got")
   assert_accepted(g .. "local mt: metatable<G<string>> = { __index = { v = 'x' } }\nprint(mt)\n")
+  assert_accepted("local record M<T>\n  metamethod __call: function(M<T>, string): string\nend\n" ..
+      "local mt: metatable<M<string>> = { __call = function(_m: M<string>, n: integer): integer return n end }\n" ..
+      "print(mt)\n")
 end
 
 --- What a function `__index` serves is declared `any` and not checked;
