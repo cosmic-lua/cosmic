@@ -828,6 +828,22 @@ local function test_ci_sources_are_the_non_test_modules_of_cosmic_ci(dir: string
   assert(#tree_checks.ci_sources(dir .. "/nowhere") == 0)
 end
 
+--- A file under `ci/testdata` that does not type-check is named with its
+--- line; a test-shaped one is not refused for functions nothing calls.
+local function test_ci_testdata_type_errors_are_named(dir: string)
+  local base = dir .. "/tree/ci/testdata/sub"
+  assert(Fs.mkdirs(base))
+  assert(Fs.write(base .. "/good_test.tl", "local function test_x()\n  assert(true)\nend\n"))
+  assert(Fs.write(base .. "/bad.tl", "local x: integer = \"s\"\nreturn x\n"))
+  assert(Fs.write(base .. "/foreign.tl", "local m = require(\"cosmic_ci.nowhere\")\nreturn m\n"))
+  local found = tree_checks.ci_testdata(dir .. "/tree", (assert(teal.load())))
+  local all = table.concat(found, "\n")
+  assert(found[1] ~= nil and found[1]:find("^ci/testdata/sub/bad%.tl:1:") ~= nil, all)
+  assert(all:find("ci/testdata/sub/foreign.tl", 1, true) ~= nil, all)
+  assert(all:find("good_test", 1, true) == nil, all)
+  assert(#tree_checks.ci_testdata(dir .. "/nowhere", (assert(teal.load()))) == 0)
+end
+
 --- A guide under doc/guides that is neither a user guide nor named
 --- internal would silently not ship: the check names it.
 local function test_a_guide_in_neither_list_is_refused()
