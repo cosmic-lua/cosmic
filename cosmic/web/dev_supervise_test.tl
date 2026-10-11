@@ -227,6 +227,12 @@ local function test_a_sigterm_to_the_supervisor_stops_it_and_its_program(tmp: st
     end,
   }
   assert(ok and sent and pid ~= 0)
+  -- The kill is sent before supervise returns, but the kernel may not have
+  -- taken the process down yet (macOS answers kill(pid, 0) for a moment).
+  local until_ns = Clock.monotonic_ns() + Clock.seconds(2)
+  while alive(pid) and Clock.monotonic_ns() < until_ns do
+    assert(Clock.sleep_ns(Clock.ms(5)))
+  end
   assert(not alive(pid), "the program was ended with the supervisor")
 end
 
