@@ -189,7 +189,6 @@ of its own:
   never though it returns after a `coroutine.yield`, and
   `coroutine.wrap(f)` of a function returning a string is typed to return
   one whatever it yields.
-- `rawset(r, "name", 1)` writes a number into a record's string field.
 - `setmetatable`: a `__index` that serves a number for a string field, and
   a `__call` attached at run time and checked against nothing (a record
   that declares a never `__call` may be given a metatable whose function

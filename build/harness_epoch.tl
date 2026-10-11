@@ -82,7 +82,7 @@ harness_epoch.acknowledged = {
 
   ["build.artifact"] = "4405196f6511a21a7493aa3d1ee196c6318d3ceec2e0202800494c46b9502745",
 
-  ["build.assertions"] = "9a37be1602aa1540dd0248a267964b00c667843089d44bfb3f1828f324a739ce",
+  ["build.assertions"] = "a4385b7259b97e88c39510bf5147094c13225a5f79d36e8bf47945d65b4d3dcc",
 
   ["build.bind"] = "9fee5bf681f9fcb8a2e2e88ba7982b1d3546b5c438ddd598e5de1c27e12c80ec",
 
