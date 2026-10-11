@@ -1,0 +1,29 @@
+file: tl.tl
+note: `a and b` yields a itself when a is falsy, so when a's type carries nil the result may be nil whatever b is. Teal typed it as b alone, so `(x and x) .. "a"` passed for an `x` that may be nil; with the nil in the type, 51b refuses the operand. The nil is added to b's type as one more member, which `or` drops again (20, 26), so `a and b or c` keeps b's type united with c's. A variable on the left that a guard or an earlier `and` narrowed (35) is not nil here, and carries none
+--- find
+            if node.op.op == "and" then
+               node.known = facts_and(node, node.e1.known, node.e2.known)
+               return discard_tuple(node, ub, gb)
+            end
+--- replace
+            if node.op.op == "and" then
+               node.known = facts_and(node, node.e1.known, node.e2.known)
+               local t = discard_tuple(node, ub, gb)
+               -- TODO: a false `a` ends the expression as false too, and
+               -- only a nil is added: once a union with boolean can be
+               -- narrowed to its true member, add the false as well.
+               if without_nil(self, node, ua, false) and not admits_nil(self, node, t) then
+                  local members: {Type} = {}
+                  if t is UnionType then
+                     for _, m in ipairs(t.types) do
+                        table.insert(members, m)
+                     end
+                  else
+                     members[1] = t
+                  end
+                  table.insert(members, a_type(node, "nil", {}))
+                  t = a_union(node, members)
+               end
+               return t
+            end
+--- end

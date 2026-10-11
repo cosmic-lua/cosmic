@@ -2157,6 +2157,27 @@ local function test_a_narrowed_operand_is_accepted()
   assert_accepted(head .. "local plain: string = 'p'\nprint(plain .. 'x', #plain)\n")
 end
 
+--- `a and b` yields a when a is falsy, so a nil a makes the result nil
+--- (patch/tl's 52c): the result is refused as an operand where a is a
+--- nil-admitting union, and keeps its type under a guard, an `or`, or a
+--- left operand without nil.
+local function test_a_conjunction_with_a_nil_left_operand_may_be_nil()
+  local head = "local function find(): string | nil return nil end\n" ..
+    "local x = find()\nlocal y = find()\nlocal z: string = 'z'\nlocal plain: string = 'p'\n"
+  assert_accepted(head .. "print(x and x .. 'a')\nprint(x and #x)\n")
+  assert_accepted(head .. "if x then\n  print((x and x) .. 'a')\nend\n")
+  assert_accepted(head .. "print((plain and z) .. 'a')\n")
+  assert_refused(head .. "print((x and x) .. 'a')\n", "cannot use operator '..' for types string (inferred at")
+  assert_refused(head .. "print((x and y) .. 'a')\n", "cannot use operator '..'")
+  assert_refused(head .. "print('a' .. (x and z))\n", "cannot use operator '..'")
+  assert_refused(head .. "print(#(x and z))\n", "cannot use operator '#'")
+  assert_refused(head .. "print((x and x and y) .. 'a')\n", "cannot use operator '..'")
+  assert_accepted(head .. "local v: string = x and y or z\nprint(v .. 'a')\n")
+  assert_accepted(head .. "print((x and y or z) .. 'a', #(x and y or 'none'))\n")
+  assert_accepted(head .. "local w = x and y\nif w then\n  print(w .. 'a')\nend\n")
+  assert_accepted(head .. "local flag: boolean = (x and y) == z\nprint(flag)\n")
+end
+
 --- A field fact is read against its base without the nil the field's
 --- read proved away (patch/tl's 51a): `m ~= nil and m.f ~= nil` narrows
 --- `m.f` for a base that is itself a union with nil.
