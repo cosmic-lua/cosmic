@@ -1,10 +1,17 @@
 file: tl.tl
-note: the first parameter of a function-typed record field, the receiver, may be narrower than the field's type declares, as it may be wider: an implementation is declared `read: function(FromStringReader, ...)` for an interface's `read: function(Reader, ...)` and is only ever called with the record that holds it (`r:read()`, `r.read(r)`), so the narrower receiver is the one it is given. Every other parameter, and the first of a function that is not a field's, is contravariant (48a)
+note: the first parameter of a function-typed record field is the receiver, and may be narrower than the field declares, when the type it is expected to be is a record or an interface (the record that holds the field, or an interface it implements) and the actual one is a record or interface too: an implementation is declared `read: function(FromStringReader, ...)` for an interface's `read: function(Reader, ...)` and is called with the record that holds it (`r:read()`), so the narrower receiver is the one it is given. A first parameter that is any other type (a number, a string, a union; `any` is 48l's), every other parameter, and the first of a function that is not a field's stay contravariant (48a), so `Opts.cb: function(number)` is not implemented by `function(n: integer)`. The convention is trusted, not checked: a call that names another receiver (`r.read(other, 1)`) type-checks, as it does without this record
 --- find
                      self:arg_check(nil, errs, ai, bi, "contravariant", "argument", i)
 --- replace
                      -- TODO: once cosmic.stream's interfaces declare their methods with a named receiver and
                      -- the records that implement them stop redeclaring them (doc/roadmap.md), compare the
                      -- receiver contravariantly too and drop `receiver_field`.
-                     self:arg_check(nil, errs, ai, bi, (receiver and i == 1) and "bivariant" or "contravariant", "argument", i)
+                     local variance: VarianceMode = "contravariant"
+                     if receiver and i == 1 then
+                        local actual, expected = self:to_structural(ai), self:to_structural(bi)
+                        if actual is RecordLikeType and expected is RecordLikeType then
+                           variance = "bivariant"
+                        end
+                     end
+                     self:arg_check(nil, errs, ai, bi, variance, "argument", i)
 --- end

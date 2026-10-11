@@ -545,10 +545,26 @@ local STAND_IN <const>: {string: function(any): any} = {
     local text = s is string and s or ""
     return { s = "\5" .. (text:lower():find("^%s*javascript:") and "about:invalid" or text) }
   end,
-  trust = function(s: any): {string: string} return { s = s is string and s or "" } end,
-  raw = function(v: any): string return v is {string: string} and v.s or "" end,
-  raw_attr = function(v: any): string return v is {string: string} and v.s or "" end,
-  raw_url = function(v: any): string return v is {string: string} and v.s or "" end,
+  trust = function(s: any): {string: string}
+    if not s is string then error("trust: a string is expected, got " .. type(s), 2) end
+    return { s = s }
+  end,
+  raw = function(v: any): string
+    if not v is {string: string} then error("raw: a made value is expected, got " .. type(v), 2) end
+    return v.s
+  end,
+  raw_attr = function(v: any): string
+    if not v is {string: string} then
+      error("raw_attr: a made value is expected, got " .. type(v), 2)
+    end
+    return v.s
+  end,
+  raw_url = function(v: any): string
+    if not v is {string: string} then
+      error("raw_url: a made value is expected, got " .. type(v), 2)
+    end
+    return v.s
+  end,
 }
 
 --- The generated source with Teal's types struck out, in the shapes the

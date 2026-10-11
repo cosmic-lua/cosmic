@@ -1171,7 +1171,7 @@ end
 --- Only the first parameter of a field's function is exempt, and only
 --- where the function is compared as a field: its other parameters, its
 --- returns, and a function of a variable are held to the rule (48a, 48b).
-local function test_only_the_receiver_of_a_field_function_is_exempt()
+local function test_only_a_record_receiver_of_a_field_function_is_exempt()
   assert_accepted("local interface Reader\n  read: function(Reader, integer): string\nend\n" ..
       "local record Mine is Reader\n  read: function(Mine, number): string\nend\nprint(Mine)\n")
   assert_refused("local interface Reader\n  read: function(Reader, number): string\nend\n" ..
@@ -1185,6 +1185,14 @@ local function test_only_the_receiver_of_a_field_function_is_exempt()
   assert_refused(receiver_types .. "local record Box\n  run: function(Box, function(Mine))\nend\n" ..
       "local b: Box = { run = function(self: Box, f: function(Reader)) print(self, f) end }\nprint(b)\n",
     "argument 2")
+  -- a first parameter that is no record or interface is no receiver
+  assert_refused("local record Opts\n  cb: function(number): number\nend\n" ..
+      "local o: Opts = { cb = function(n: integer): number return n end }\nprint(o)\n", "argument 1")
+  assert_refused("local record Opts\n  cb: function(number): number\nend\nlocal o: Opts\n" ..
+      "o.cb = function(n: integer): number return n end\nprint(o)\n", "argument 1")
+  assert_refused("local interface Named\n  f: function(string): string\nend\n" ..
+      "local record Impl is Named\n  f: function(integer): string\nend\nprint(Impl)\n",
+    "field 'f' does not match definition in interface Named")
 end
 
 --- The fields of a record are compared as fields wherever a record is
@@ -1207,6 +1215,21 @@ local function test_a_narrower_receiver_is_taken_wherever_fields_are_compared()
   assert_refused(receiver_types .. "local m: Mine\nlocal set: function(Reader) = function(_: Reader) end\n" ..
       "local f: function(Reader, integer): string = m.read\n" ..
       "f = function(self: Mine, n: integer): string print(self, n) return '' end\nprint(f, set)\n",
+    "argument 1")
+end
+
+--- A parameter expected as `any` is satisfied by a function of any
+--- parameter type (patch/tl's 48l), as `any` is the unchecked type: the
+--- standard library's callbacks take it, so `coroutine.create` of a
+--- function with typed parameters and a `__call` metamethod with them are
+--- accepted. A parameter expected as a `number` is still not.
+local function test_an_any_parameter_takes_any_parameter()
+  assert_accepted("local co = coroutine.create(function(a: string, b: integer) print(a, b) end)\n" ..
+      "print(coroutine.resume(co, 'x', 1))\n")
+  assert_accepted("local o = setmetatable({}, { __call = function(_: {any:any}, a: string) print(a) end })\nprint(o)\n")
+  assert_accepted("local f: function(any...): any... = function(a: string, b: integer): string print(b) return a end\n" ..
+      "print(f)\n")
+  assert_refused("local f: function(number, any) = function(n: integer, s: string) print(n, s) end\nprint(f)\n",
     "argument 1")
 end
 

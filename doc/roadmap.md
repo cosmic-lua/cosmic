@@ -24,9 +24,9 @@ defines the target; once something ships, it leaves this file.
   `FromStringReader` in [`cosmic/stream.tl`] shrinks. every interface of the
   module and every record that implements one changes together. it also
   lets the receiver exemption go from `patch/tl`'s 48e: the first
-  parameter of a function-typed record field is the one place Teal still
-  compares a function's parameter in either direction, because those
-  redeclarations narrow it.
+  parameter of a function-typed record field, when it is a record or an
+  interface, is the one place Teal still compares a function's parameter
+  in either direction, because those redeclarations narrow it.
 - close the holes in Teal's own typing that forge any type, `: never`
   functions among them (`test_never_falls_into_the_holes_every_type_has` and
   `test_coroutine_wrap_forges_a_never_function_as_it_forges_any_type` in
