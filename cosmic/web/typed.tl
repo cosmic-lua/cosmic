@@ -62,9 +62,14 @@ end
 --- multipart (a urlencoded body is a 415). The files are the handler's to
 --- take from [`Input.multipart`]; they are removed when it returns. Raise
 --- `input_options.max_bytes` (16 MiB by default here) and the file caps for
---- a route that takes large uploads.
+--- a route that takes large uploads, and give [`Web.serve`] a higher
+--- `limits.body_bytes` (1 MiB): the server refuses a larger body with 413
+--- before the route runs, whatever `max_bytes` is.
 --- @param t Shape.Typed<B> The body's record and spec, of the text fields
 --- @return Types.Body<B> The slot
+-- TODO: let a route raise the server's body limit for its own uploads, once
+-- `ServeSpec.body_limit` exists (the TODO at `Server.Limits.body_bytes` in
+-- cosmic/http/server.tl).
 -- TODO: bind a file part into the record, as `Input.upload` in input.md
 -- section 4 has it, once cosmic.shape can carry a marker kind a
 -- `record_of` field may name; until then a handler reads the files from

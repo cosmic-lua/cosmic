@@ -1,6 +1,7 @@
 --- cosmic.http.multipart: browser-shaped bodies, the delimiter split across
 --- reads, and each way a hostile body is refused.
 
+local Clock = require("cosmic.clock")
 local Multipart = require("cosmic.http.multipart")
 local Stream = require("cosmic.stream")
 
@@ -191,7 +192,6 @@ local function test_a_filename_is_metadata_reduced_to_a_basename()
   assert(name_of('filename="..\\..\\windows\\system32\\x.dll"') == "x.dll")
   assert(name_of('filename="C:\\fakepath\\a.txt"') == "a.txt")
   assert(name_of('filename="/abs/path/a.txt"') == "a.txt")
-  assert(name_of('filename="dir/"') == "")
   assert(name_of('filename=""') == "")
   assert(name_of('filename=".htaccess"') == ".htaccess")
   assert(name_of('filename="..%22"') == '..' .. '"')
@@ -200,6 +200,7 @@ local function test_a_filename_is_metadata_reduced_to_a_basename()
   assert(name_of("filename*=UTF-8''%E2%82%AC%20rates.txt") == "€ rates.txt")
   assert(name_of("filename*=iso-8859-1'en'%E9.txt") == "é.txt")
   assert(name_of("filename*=UTF-8''..%2F..%2Fx.txt") == "x.txt")
+  assert(name_of("filename*=UTF-8''100%25.txt") == "100%.txt", "a decoded percent is a percent")
   assert(name_of("filename=\"plain.txt\"; filename*=UTF-8''other.txt") == "plain.txt")
   assert(name_of('filename="' .. string.rep("a", 255) .. '"') == string.rep("a", 255))
   assert(name_of("filename*=UTF-8''" .. string.rep("a", 255)) == string.rep("a", 255))
@@ -219,6 +220,9 @@ local function test_a_filename_is_metadata_reduced_to_a_basename()
   bad("filename*=UTF-8''a%0Ab", "control")
   bad("filename*=UTF-8''%ff", "UTF%-8")
   bad("filename*=UTF-8''a%2", "escape")
+  bad('filename="dir/"', "directory")
+  bad('filename="C:\\dir\\"', "directory")
+  bad("filename*=UTF-8''dir%2F", "directory")
   bad("filename*=UTF-8''a%zz", "escape")
   bad("filename*=utf-16''a", "charset other")
   bad("filename*=a.txt", "charset'language'value")
@@ -301,4 +305,27 @@ local function test_a_large_part_streams_in_bounded_pieces()
   end
   assert(total == size, total)
   assert(largest <= 16384, largest)
+end
+
+local function test_trailing_whitespace_is_trimmed_in_time_linear_in_the_run()
+  local spaces = string.rep(" ", 8000)
+  local one = part('form-data; name="a"; x=a' .. spaces .. "y", "v", "X-Pad: v" .. spaces .. "y\r\n")
+  local start = Clock.monotonic_ns()
+  for _ = 1, 100 do
+    local got, why = parse(one .. close_it(), 100000, { max_header_bytes = 20000 })
+    assert(got ~= nil and #got == 1, why)
+  end
+  local took = Clock.monotonic_ns() - start
+  assert(took < Clock.seconds(2), "trailing blanks cost " .. took // 1000000 .. " ms")
+  local padded = assert(parse(part('form-data; name="a"; x=b   ', "v", "X-Pad: v \t \r\n") .. close_it()))
+  assert(padded[1].name == "a")
+end
+
+local function test_a_closed_parser_hands_out_no_more_of_a_part()
+  local reader = assert(Multipart.reader(Stream.from_string(part('form-data; name="a"', "value") .. close_it()),
+    { boundary = B }))
+  local first = assert(reader:next_part())
+  assert(reader:close())
+  local data, why = first.body:read()
+  assert(data == nil and why:find("closed"), why)
 end

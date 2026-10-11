@@ -343,8 +343,10 @@ local record Types
   --- field is optional.
   record InputOptions
     --- The largest body read, in bytes (64 KiB; 16 MiB for
-    --- [`Input.multipart`]). The server's own limit comes first where it
-    --- is lower.
+    --- [`Input.multipart`]). The server's own `limits.body_bytes` (1 MiB)
+    --- comes first where it is lower: a larger upload needs [`Web.serve`]
+    --- given a higher `limits.body_bytes`, for every route
+    --- (see [`Input.multipart`]).
     max_bytes: integer
     --- Field names left out of [`Invalid.submitted`]: passwords, tokens.
     secret: {string}

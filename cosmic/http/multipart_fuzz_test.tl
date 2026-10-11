@@ -14,7 +14,7 @@ local Stream = require("cosmic.stream")
 local BOUNDARIES <const>: {string} = { "x", "----WebKitFormBoundaryAbC123xYz", "a b c", "--", "'()+_,-./:=?",
   string.rep("B", 70), "boundary", "0", "-" }
 local NAMES <const>: {string} = { "a", "field", "é", "a b", 'x"y', "tags", "", "q;r=s", "csrf_token" }
-local FILENAMES <const>: {string} = { "a.txt", "../../etc/passwd", "C:\\x\\y.png", "", "é.png", "dir/", "..", "a;b",
+local FILENAMES <const>: {string} = { "a.txt", "../../etc/passwd", "C:\\x\\y.png", "", "é.png", "dir/sub.txt", "..", "a;b",
   'x"y', "a\\..\\b", ".htaccess", "no_ext" }
 local TYPES <const>: {string} = { "text/plain; charset=utf-8", "image/png", "application/octet-stream", "text/html" }
 local PIECES <const>: {string} = { "", "abc", "\r\n", "\r\n--", "--", "-", "\r", "\n", "\0", "\255", "line1\r\nline2",

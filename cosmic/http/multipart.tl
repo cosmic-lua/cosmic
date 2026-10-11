@@ -25,12 +25,18 @@
 --- - a part with no `Content-Disposition: form-data` carrying a `name`, a
 ---   `name` or `filename` given twice, a name or filename that holds a
 ---   control byte or is not UTF-8, a filename over 255 bytes once reduced
----   to its last path component, and a `Content-Transfer-Encoding` other
+---   to its last path component or one that reduces to nothing (`dir/`), and a `Content-Transfer-Encoding` other
 ---   than `binary`, `7bit` or `8bit` (RFC 7578 4.7 retired the rest);
 --- - more than `max_parts` parts.
 ---
 --- Text before the first delimiter is discarded (at most `max_header_bytes`
 --- of it) and text after the closing delimiter is never read.
+---
+--- The parser is stricter than RFC 2046 where leniency would let two
+--- parsers disagree about one body: a delimiter is followed at once by
+--- `--` or CRLF (no transport padding of spaces or tabs), and a line end is
+--- CRLF everywhere (a bare LF is part of a body, and in a header block
+--- an error).
 ---
 --- A part's `filename` is what the client claimed: it is cut to the text
 --- after the last `/` or `\`, so `../../etc/passwd` is `passwd`, and is
@@ -244,6 +250,18 @@ local function unescape(text: string): string
   return (text:gsub("%%22", '"'):gsub("%%0[Dd]", "\r"):gsub("%%0[Aa]", "\n"))
 end
 
+--- `text` without the spaces and tabs at its end, in a scan from the end: a
+--- pattern's `(.-)[ \t]*$` costs the square of a run of spaces.
+local function trim_end(text: string): string
+  local last = #text
+  while last > 0 do
+    local byte = text:byte(last)
+    if byte ~= 32 and byte ~= 9 then break end
+    last = last - 1
+  end
+  return text:sub(1, last)
+end
+
 --- The bytes of the RFC 8187 value `text`, `charset'language'escaped`,
 --- as UTF-8; nil and why for another charset or a bad escape.
 local function ext_value(text: string): string | nil, string
@@ -257,7 +275,7 @@ local function ext_value(text: string): string | nil, string
     end
     return string.char(tonumber(hex, 16))
   end)
-  if bad or raw:find("%%") then return nil, "multipart: filename* has a bad escape" end
+  if bad then return nil, "multipart: filename* has a bad escape" end
   local lower = charset:lower()
   if lower == "utf-8" then return raw, "" end
   if lower == "iso-8859-1" then
@@ -291,7 +309,7 @@ local function disposition_params(value: string): {string:string} | nil, string
       pos = blanks + 1
     else
       local token = value:match("^[^;]*", after)
-      text = token:match("^(.-)[ \t]*$")
+      text = trim_end(token)
       pos = after + #token
     end
     local key = name:lower()
@@ -308,6 +326,7 @@ end
 local function clean_filename(raw: string): string | nil, string
   if has_control(raw) then return nil, "multipart: a filename holds a control byte" end
   local base = raw:match("[^/\\]*$")
+  if base == "" and raw ~= "" then return nil, "multipart: a filename names a directory" end
   if #base > MAX_FILENAME then return nil, "multipart: a filename is longer than 255 bytes" end
   if not utf8.len(base) then return nil, "multipart: a filename is not UTF-8" end
   return base, ""
@@ -332,8 +351,9 @@ local function parse_headers(p: Parser, block: string): Multipart.Part | nil, st
     if line:find("[\0-\8\11-\31\127]") then
       return nil, "multipart: a part header holds a control byte"
     end
-    local name, value = line:match("^(" .. TOKEN .. "):[ \t]*(.-)[ \t]*$")
+    local name, value = line:match("^(" .. TOKEN .. "):[ \t]*(.*)$")
     if name == nil then return nil, "multipart: a part header is malformed" end
+    value = trim_end(value)
     local key = name:lower()
     if headers[key] ~= nil then
       return nil, "multipart: a part names the header " .. key .. " twice"
@@ -437,6 +457,7 @@ function BodyReader:read(max_bytes?: integer): string | nil, string
     return nil, "multipart: the part was passed by next_part"
   end
   if p.state == "failed" then return nil, p.failure end
+  if p.state == "done" then return nil, "multipart: the parser was closed" end
   local chunk, why = take(p, max_bytes or CHUNK)
   if chunk == nil then return fail(p, why) end
   if chunk == "" then

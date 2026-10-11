@@ -2,6 +2,7 @@
 --- fields do, file parts are spooled under random names and removed when
 --- the request ends, and each limit and each malformed body has its status.
 
+local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Input = require("cosmic.web.input")
 local Poll = require("cosmic.poll")
@@ -419,4 +420,133 @@ local function test_a_request_with_no_body_is_not_multipart()
     return Web.empty()
   end, "multipart/form-data; boundary=" .. B)
   assert(form.status == 204, "an empty body is an empty form")
+end
+
+--- How many private upload directories the temp directory holds.
+local function upload_dirs(): integer
+  local probe = (assert(Fs.mkdtemp("probe-")))
+  local base = probe:match("^(.*)/[^/]+$")
+  assert(Fs.remove_tree(probe))
+  local count = 0
+  local names = assert(Fs.list(base))
+  for _, name in ipairs(names) do
+    if name:find("^cosmic%-upload%-") then count = count + 1 end
+  end
+  return count
+end
+
+local function test_a_blank_file_input_makes_no_directory()
+  local before = upload_dirs()
+  post(body_of(field("a", "1"), file("none", "", "")), function(req: Web.Request): Web.Response
+    local m = assert(Input.multipart(req).value)
+    assert(m.files["none"] == nil and m.fields.by_name["a"][1] == "1")
+    return Web.empty()
+  end)
+  assert(upload_dirs() == before, "a blank file input leaked its directory")
+  post(body_of(file("none", "", ""), file("f", "x.txt", "data")), function(req: Web.Request): Web.Response
+    assert(Input.multipart(req).value.files["f"][1].size == 4)
+    return Web.empty()
+  end)
+  assert(upload_dirs() == before, "the directory goes with the files")
+end
+
+local function test_a_limit_failure_is_not_kept_for_a_reader_with_a_higher_limit(tmp: string)
+  local text = body_of(field("email", "e"), file("f", "a", ("x"):rep(70000)))
+  local seen: Input.Multipart = nil
+  post(text, function(req: Web.Request): Web.Response
+    assert(Input.form(req, { dir = tmp }).invalid.status == 413)
+    seen = assert(Input.multipart(req, { dir = tmp }).value)
+    return Web.empty()
+  end)
+  assert(seen ~= nil and seen.files["f"][1].size == 70000, "the upload's own limit took the body")
+  local again: Types.Invalid = nil
+  post(text, function(req: Web.Request): Web.Response
+    local first = Input.form(req, { dir = tmp })
+    assert(first.invalid.status == 413)
+    again = Input.multipart(req, { dir = tmp }).invalid
+    return Web.empty()
+  end, nil, true)
+  assert(again ~= nil and again.status == 413 and again.message:find("max_bytes = 65536", 1, true),
+    "a body spent past a lower limit says whose limit it was")
+  assert(#assert(Fs.list(tmp)) == 0)
+end
+
+local function test_trailing_blanks_in_parameters_cost_time_linear_in_their_run()
+  local spaces = (" "):rep(8000)
+  local parts: {string} = {}
+  for i = 1, 100 do
+    parts[i] = "--" .. B .. '\r\nContent-Disposition: form-data; name="n' .. i .. '"; x=a' .. spaces .. "y\r\n\r\nv\r\n"
+  end
+  local start = Clock.monotonic_ns()
+  local count = 0
+  post(body_of(table.concat(parts)), function(req: Web.Request): Web.Response
+    count = #assert(Input.multipart(req).value).fields.pairs
+    return Web.empty()
+  end)
+  local took = Clock.monotonic_ns() - start
+  assert(count == 100)
+  assert(took < Clock.seconds(2), "took " .. took // 1000000 .. " ms")
+  start = Clock.monotonic_ns()
+  local type_header = "application/x-www-form-urlencoded; x=a" .. (" "):rep(60000) .. "y"
+  post("a=1", function(req: Web.Request): Web.Response
+    assert(Input.form(req).invalid == nil)
+    return Web.empty()
+  end, type_header)
+  assert(Clock.monotonic_ns() - start < Clock.seconds(2), "a Content-Type's blanks are scanned once")
+end
+
+--- A POST whose body arrives as `first`, then waits; the reply never comes
+--- because the task running it is killed there.
+local function killed_while_waiting(fn: function(req: Web.Request), first: string)
+  local app = Web.app{ routes = { Web.post("/x", function(req: Web.Request): Web.Response
+    fn(req)
+    local _, _ = Poll.delay(Clock.seconds(30))
+    return Web.empty()
+  end) } }
+  local at = 0
+  local body: Stream.Reader = {
+    read = function(_self: Stream.Reader, _max?: integer): string | nil, string
+      at = at + 1
+      if at == 1 then return first, "" end
+      local _, _ = Poll.delay(Clock.seconds(30))
+      return nil, "gone"
+    end,
+    close = function(_self: Stream.Reader): boolean, string return true, "" end,
+  }
+  local raw: Server.Request = { method = "POST", target = "/x", path = "/x", query = "", version = "HTTP/1.1",
+    headers = { host = "x", ["content-type"] = FORM_TYPE }, body = body }
+  Poll.run(function()
+    local task = Poll.spawn(function() app.handle(raw) end)
+    assert(Poll.delay(0))
+    task:kill()
+  end)
+end
+
+local function test_a_task_killed_mid_upload_or_in_the_handler_leaves_no_files(tmp: string)
+  killed_while_waiting(function(req: Web.Request)
+    local _ = Input.multipart(req, { dir = tmp })
+  end, "--" .. B .. '\r\nContent-Disposition: form-data; name="f"; filename="a"\r\n\r\n' .. ("x"):rep(100))
+  assert(#assert(Fs.list(tmp)) == 0, "files of a read cut off by a kill")
+  killed_while_waiting(function(req: Web.Request)
+    assert(Input.multipart(req, { dir = tmp }).invalid ~= nil)
+  end, "--" .. B .. '\r\nContent-Disposition: form-data; name="f"; filename="a"\r\n\r\n' .. ("x"):rep(100))
+  assert(#assert(Fs.list(tmp)) == 0)
+end
+
+local function test_a_task_killed_in_the_handler_after_the_read_leaves_no_files(tmp: string)
+  local text = body_of(file("f", "a", "data"))
+  local app = Web.app{ routes = { Web.post("/x", function(req: Web.Request): Web.Response
+    local m = assert(Input.multipart(req, { dir = tmp }).value)
+    assert(#assert(Fs.list(tmp)) == 1 and m.files["f"] ~= nil)
+    local _, _ = Poll.delay(Clock.seconds(30))
+    return Web.empty()
+  end) } }
+  local raw: Server.Request = { method = "POST", target = "/x", path = "/x", query = "", version = "HTTP/1.1",
+    headers = { host = "x", ["content-type"] = FORM_TYPE }, body = Stream.from_string(text), length = #text }
+  Poll.run(function()
+    local task = Poll.spawn(function() app.handle(raw) end)
+    assert(Poll.delay(0))
+    task:kill()
+  end)
+  assert(#assert(Fs.list(tmp)) == 0, "the app closes a request's bodies when its task is killed")
 end

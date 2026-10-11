@@ -2,6 +2,7 @@
 --- worker's own loopback.
 
 local Clock = require("cosmic.clock")
+local Input = require("cosmic.web.input")
 local Net = require("cosmic.net")
 local Poll = require("cosmic.poll")
 local Server = require("cosmic.http.server")
@@ -283,5 +284,21 @@ local function test_the_loopback_client_fails_when_the_server_goes_silent()
     local res, why = client:get("/")
     assert(res == nil and why ~= "", "a silent server is a failure, not a wait")
     assert(Clock.monotonic_ns() - started < Clock.seconds(3))
+  end)
+end
+
+local function test_an_upload_above_the_servers_body_limit_is_the_servers_413()
+  local reached = false
+  local app = Web.app{ routes = { Web.post("/up", function(req: Web.Request): Web.Response
+    reached = true
+    return Web.text(tostring(Input.multipart(req, { max_bytes = 16 * 1024 * 1024 }).invalid))
+  end) } }
+  local boundary = "xx"
+  local body = "--xx\r\nContent-Disposition: form-data; name=\"f\"; filename=\"a\"\r\n\r\n" ..
+    ("y"):rep(1100 * 1024) .. "\r\n--xx--\r\n"
+  Web.with_server(app, function(client: Web.LoopbackClient)
+    local reply = assert(client:post("/up", { body = body, content_type = "multipart/form-data; boundary=" .. boundary }))
+    assert(reply.status == 413, reply.status)
+    assert(not reached, "max_bytes above limits.body_bytes changes nothing")
   end)
 end

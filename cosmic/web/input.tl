@@ -202,6 +202,16 @@ local function without(q: Url.Query, secret: {string} | nil): Url.Query
   return out
 end
 
+--- `text` without the whitespace at either end, found by scanning from the
+--- ends: a pattern's `^%s*(.-)%s*$` costs the square of a run of spaces.
+local function trim(text: string): string
+  local first = text:find("[^%s]")
+  if first == nil then return "" end
+  local last = #text
+  while text:sub(last, last):find("^%s") do last = last - 1 end
+  return text:sub(first, last)
+end
+
 --- Parses the Content-Type header of `req`.
 --- @param req Types.Request The request
 --- @return Input.MediaType The media type and its parameters; `essence` is "" when none was sent
@@ -238,11 +248,11 @@ function Input.media_type(req: Types.Request): Input.MediaType
     else
       local token = rest:match("^[^;]*", pos)
       pos = pos + #token
-      text = token:match("^%s*(.-)%s*$")
+      text = trim(token)
     end
     params[name:lower()] = text
   end
-  return { essence = (head:match("^%s*(.-)%s*$"):lower()), params = params }
+  return { essence = (trim(head):lower()), params = params }
 end
 
 --- Whether the request has a body: a chunked one always does.
@@ -351,7 +361,10 @@ end
 --- The status and code a failed read of a multipart body has: the
 --- parser's own reasons are the client's malformed body, any other is the
 --- body source's (see [`read_failed`]).
-local function multipart_failed(why: string): Types.Invalid
+local function multipart_failed(why: string, limit: integer): Types.Invalid
+  if why == OVER_LIMIT then
+    return stop(413, "body", "", "too_large", ("the body is over the limit, max_bytes = %d"):format(limit))
+  end
   if why:find("^multipart: ") then return stop(400, "body", "", "malformed", why) end
   return read_failed(why)
 end
@@ -376,6 +389,11 @@ local function counted(source: Stream.Reader, limit: integer): Stream.Reader, fu
     close = function(_self: Stream.Reader): boolean, string return true, "" end,
   }
   return reader, function(): integer return total end
+end
+
+--- The value of a `<close>` variable: only its `__close` matters.
+local record Unwinding
+  metamethod __close: function(Unwinding)
 end
 
 --- The multipart body of `req`, at most `limit` bytes, read once and kept.
@@ -408,8 +426,10 @@ local function read_multipart(req: Types.Request, limit: integer, opts: Types.In
   end
   local length = req.raw.length
   if length ~= nil and length > limit then
-    return remember({ invalid = stop(413, "body", "", "too_large",
-      ("the body is over the limit, max_bytes = %d"):format(limit)) })
+    -- Not kept: nothing is read yet, and a reader with a higher limit may
+    -- still take the body.
+    return { invalid = stop(413, "body", "", "too_large",
+      ("the body is over the limit, max_bytes = %d"):format(limit)) }
   end
   if req.body_failure ~= nil then return { invalid = read_failed(req.body_failure) } end
 
@@ -437,6 +457,19 @@ local function read_multipart(req: Types.Request, limit: integer, opts: Types.In
       made = nil
     end
   end
+  -- A task killed while it waits for the body (a client that went away)
+  -- runs no code after the wait, only its pending closes: they remove what
+  -- is spooled so far.
+  local settled = false
+  local spooling: Stream.FileWriter = nil
+  local unwinding_mt: metatable<Unwinding> = { __close = function()
+    if settled then return end
+    if spooling ~= nil then
+      local _, _ = spooling:abort()
+    end
+    m:discard()
+  end }
+  local _unwinding <close>: Unwinding = setmetatable({}, unwinding_mt)
   -- The body is spent from here, whatever the outcome: a later reader of
   -- the bytes is told so, not given an empty body.
   local source, total = counted(req.raw.body, limit)
@@ -456,7 +489,7 @@ local function read_multipart(req: Types.Request, limit: integer, opts: Types.In
   while true do
     local part, why = reader:next_part()
     if part == nil then
-      if why ~= "" then return stop_with(multipart_failed(why)) end
+      if why ~= "" then return stop_with(multipart_failed(why, limit)) end
       break
     end
     parts = parts + 1
@@ -467,49 +500,53 @@ local function read_multipart(req: Types.Request, limit: integer, opts: Types.In
       if #kept >= max_files then
         return stop_with(stop(413, "body", "", "too_many", ("the body has more than %s"):format(String.counted(max_files, "file"))))
       end
-      if dir == nil then
-        local made_dir, trouble = Fs.mkdtemp("cosmic-upload-")
-        if made_dir == nil then return storage_failed(trouble) end
-        made = made_dir
-        dir = made_dir
-      end
-      local path = dir .. "/" .. Codec.hex((assert(Rand.entropy(16))))
-      local writer, trouble = Stream.create(path, 384)
-      if writer == nil then return storage_failed(trouble) end
-      local size = 0
-      local verdict, detail = "ok", ""
-      while true do
-        local chunk, rwhy = part.body:read(CHUNK)
-        if chunk == nil then
-          if rwhy ~= "" then verdict, detail = "source", rwhy end
-          break
+      -- The first bytes decide whether this is a file: a browser's blank
+      -- file input is a part with no filename and no bytes, which keeps
+      -- nothing and makes no directory.
+      local first, fwhy = part.body:read(CHUNK)
+      if first == nil and fwhy ~= "" then return stop_with(multipart_failed(fwhy, limit)) end
+      if first ~= nil or part.filename ~= "" then
+        if dir == nil then
+          local made_dir, trouble = Fs.mkdtemp("cosmic-upload-")
+          if made_dir == nil then return storage_failed(trouble) end
+          made = made_dir
+          dir = made_dir
         end
-        size = size + #chunk
-        if size > max_file then
-          verdict = "over"
-          break
+        local path = dir .. "/" .. Codec.hex((assert(Rand.entropy(16))))
+        local writer, trouble = Stream.create(path, 384)
+        if writer == nil then return storage_failed(trouble) end
+        spooling = writer
+        local size = 0
+        local verdict, detail = "ok", ""
+        local chunk: string | nil = first
+        local rwhy = ""
+        while chunk ~= nil do
+          size = size + #chunk
+          if size > max_file then
+            verdict = "over"
+            break
+          end
+          local wrote, wwhy = writer:write(chunk)
+          if not wrote then
+            verdict, detail = "disk", wwhy
+            break
+          end
+          chunk, rwhy = part.body:read(CHUNK)
         end
-        local wrote, wwhy = writer:write(chunk)
-        if not wrote then
-          verdict, detail = "disk", wwhy
-          break
+        if verdict == "ok" and rwhy ~= "" then verdict, detail = "source", rwhy end
+        if verdict == "ok" then
+          local closed, cwhy = writer:close()
+          if not closed then verdict, detail = "disk", cwhy end
+        else
+          local _, _ = writer:abort()
         end
-      end
-      if verdict == "ok" then
-        local closed, cwhy = writer:close()
-        if not closed then verdict, detail = "disk", cwhy end
-      else
-        local _, _ = writer:abort()
-      end
-      if verdict == "disk" then return storage_failed(detail) end
-      if verdict == "source" then return stop_with(multipart_failed(detail)) end
-      if verdict == "over" then
-        return stop_with(stop(413, "body", "", "too_large",
-          ("the file %s is over the limit, max_file_bytes = %d"):format(shown(part.name), max_file)))
-      end
-      if size == 0 and part.filename == "" then
-        local _, _ = Fs.remove(path)
-      else
+        spooling = nil
+        if verdict == "disk" then return storage_failed(detail) end
+        if verdict == "source" then return stop_with(multipart_failed(detail, limit)) end
+        if verdict == "over" then
+          return stop_with(stop(413, "body", "", "too_large",
+            ("the file %s is over the limit, max_file_bytes = %d"):format(shown(part.name), max_file)))
+        end
         local upload: Input.Upload = { field = part.name, filename = part.filename,
           content_type = part.content_type, size = size, path = path }
         kept[#kept + 1] = upload
@@ -526,7 +563,7 @@ local function read_multipart(req: Types.Request, limit: integer, opts: Types.In
       while true do
         local chunk, rwhy = part.body:read(CHUNK)
         if chunk == nil then
-          if rwhy ~= "" then return stop_with(multipart_failed(rwhy)) end
+          if rwhy ~= "" then return stop_with(multipart_failed(rwhy, limit)) end
           break
         end
         size = size + #chunk
@@ -556,8 +593,9 @@ local function read_multipart(req: Types.Request, limit: integer, opts: Types.In
     end
   end
   local _, _ = reader:close()
+  settled = true
   m.size = total()
-  if #kept > 0 then
+  if #kept > 0 or made ~= nil then
     -- The app closes a request's bodies when the handler has returned: the
     -- files go with them.
     -- TODO: once the app can run a hook after the reply is written, remove
@@ -636,9 +674,24 @@ end
 --- 408 for a body that came too slowly. A text part in ISO-8859-1 is
 --- converted; another charset is 415. The body is spent by the read:
 --- `req:bytes()` afterward fails, unless it was read first.
+---
+--- The server's own `limits.body_bytes` (1 MiB) comes first: it answers 413
+--- to a body above it before any handler runs, so `max_bytes` above it
+--- changes nothing until [`Web.serve`] is given a higher `limits.body_bytes`,
+--- which it applies to every route.
+---
+--- A body read past a limit is spent: a reader with a higher limit after a
+--- lower one that passed it (an [`Input.form`] before this, on a body with no
+--- Content-Length) is refused 413 naming the earlier limit. A body whose
+--- Content-Length is over a limit is refused without being read, so a later
+--- reader with a higher limit still takes it.
 --- @param req Types.Request The request
 --- @param opts Types.InputOptions | nil The limits and `dir`
 --- @return Types.Parsed<Input.Multipart> The parts, or why not
+-- TODO: let a route raise the server's limit for its own uploads, once
+-- `ServeSpec.body_limit` exists (the TODO at `Server.Limits.body_bytes` in
+-- cosmic/http/server.tl); until then a large upload raises `limits.body_bytes`
+-- for the whole server.
 function Input.multipart(req: Types.Request, opts?: Types.InputOptions): Types.Parsed<Input.Multipart>
   return read_multipart(req, opts and opts.max_bytes or DEFAULT_MULTIPART_MAX, opts)
 end
@@ -673,7 +726,11 @@ local ints <const> = "^[+-]?%d+$"
 
 --- `text` without leading and trailing spaces and tabs.
 local function trimmed(text: string): string
-  return (text:match("^[ \t]*(.-)[ \t]*$"))
+  local first = text:find("[^ \t]")
+  if first == nil then return "" end
+  local last = #text
+  while text:byte(last) == 32 or text:byte(last) == 9 do last = last - 1 end
+  return text:sub(first, last)
 end
 
 --- The integer `text` spells, or nil.
