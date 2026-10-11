@@ -5,6 +5,7 @@
 
 local Net = require("cosmic.net")
 local Server = require("cosmic.http.server")
+local Shape = require("cosmic.shape")
 local Stream = require("cosmic.stream")
 local Url = require("cosmic.url")
 
@@ -28,9 +29,22 @@ local record Types
   --- server.
   type Middleware = function(Handler): Handler
 
+  --- What a handler of a typed route answers when its input fails: see
+  --- [`Web.route_typed`]. It is given the request and every error the
+  --- route's specs found.
+  type InvalidHandler = function(Request, Invalid): Response
+
   --- Cleans up after the server has stopped: what an app's `lifespan`
   --- returns.
   type Shutdown = function()
+
+  --- Something that ends when the server stops: what an app's `hubs`
+  --- holds ([`Sse.Hub`] is one). `close` is safe to call twice and never
+  --- waits.
+  interface Closable
+    --- Ends what it holds.
+    close: function(Closable)
+  end
 
   --- A typed key into a request's or an app's state: see [`Web.key`]. A key
   --- is its table, so two keys of one name are two keys, and a module
@@ -157,6 +171,9 @@ local record Types
     trailing: boolean
     --- The typed values of [`Web.key`], by key.
     slots: {any:any}
+    --- The stream bodies made for this request ([`Sse.EventStream`]):
+    --- the app closes those the final reply does not carry.
+    bodies: {Stream.Reader}
     --- The body once read, nil until then.
     body_text: string
     --- Why reading the body failed, nil until it did.
@@ -221,20 +238,27 @@ local record Types
     fallback: Handler
     --- A mount's reverse resolver: see [`Web.MountOptions.reverse`].
     reverse: function(prefix: string, params: {string:string}): string | nil, string
+    --- What a typed route binds, erased of its types; nil for a plain
+    --- route and for a mount.
+    input: RouteInput
   end
 
   --- What [`Web.route`] and the method constructors take beside the handler.
-  -- TODO: once cosmic.web.input lands (typed routes), add `input` and
-  -- `on_invalid` here and to Route, and bind them in the handler the
-  -- constructor makes (doc/plans/web/core.md section 6).
   -- TODO: once Server.ServeSpec has `body_limit(method, path)`, add
-  -- `body_limit` here and give Web.serve the router's lookup of it.
+  -- `body_limit` here and give Web.serve the router's lookup of it, from
+  -- `Route.input.max_bytes`.
   record RouteOptions
     --- The name [`App.url_for`] finds the route by, unique in its router.
     name: string
     --- The route's own middleware, outermost first; inside the mount's and
     --- the app's.
     middleware: {Middleware}
+    --- For a typed route ([`Web.route_typed`]): answers input that fails
+    --- the route's specs in place of the default problem or error page.
+    on_invalid: InvalidHandler
+    --- For a typed route: the body limit, the names left out of a
+    --- re-render and the rest of [`Input.Options`].
+    input_options: InputOptions
   end
 
   --- What [`Web.mount`] and [`Web.mount_handler`] take.
@@ -259,6 +283,109 @@ local record Types
     --- spelling only by a trailing "/" is answered 308 to the spelling;
     --- "strict": it is a 404.
     trailing_slash: TrailingSlash
+  end
+
+  --- The type of an absent slot of [`Web.input`]: a path, query or body
+  --- the route does not read. A handler is given nil for it.
+  record None
+  end
+
+  --- One refused field of an input, as [`Input.Invalid`] lists it and as a
+  --- problem body's `errors` repeats it.
+  record FieldError
+    --- Where the value came from: "path", "query", "form" or "body". (Not
+    --- `in`, OpenAPI's word: it is a Lua keyword.)
+    source: string
+    --- The field: "email", "address.city", "tags.0", or "" for the whole
+    --- body.
+    field: string
+    --- For a JSON body only: the JSON Pointer of the failing value
+    --- ("/address/city", "" for the whole body); nil for the other sources.
+    pointer: string
+    --- Plain text for a person ("must be a whole number"); it holds no
+    --- more of the submitted value than a JSON type error names.
+    message: string
+    --- A stable code for a program: "required", "integer", "number",
+    --- "boolean", "one_of", "type", "unknown", "repeated" and "invalid" (a
+    --- handler's own, [`Input.fail`]) for a value that fails its spec, and
+    --- "json", "utf8", "too_large", "content_type" and "malformed" for
+    --- input that cannot be read.
+    code: string
+  end
+
+  --- Input that was refused: data, not a response. [`Web.route_typed`]
+  --- turns it into a problem body or an error page, or gives it to the
+  --- route's `on_invalid`.
+  record Invalid
+    --- 400 for input that cannot be decoded, 408 for a body that came too
+    --- slowly, 413 over the limit, 415 for a wrong Content-Type and 422 for
+    --- a value that decodes but fails its spec.
+    status: integer
+    --- One line: the first error, and how many more there are.
+    message: string
+    --- Every error of the source that failed, in the spec's field order.
+    errors: {FieldError}
+    --- The values submitted, for re-rendering a form; the names in
+    --- [`Input.Options.secret`] are left out. Nil for a JSON body.
+    submitted: Url.Query
+  end
+
+  --- What a reader or binder of cosmic.web.input answers: the value, or
+  --- why there is none: `invalid` is set exactly when `value` is nil.
+  record Parsed<T>
+    --- What was read or bound; nil when `invalid` is set.
+    value: T
+    --- Why not; nil when the input was read.
+    invalid: Invalid
+  end
+
+  --- What the readers and binders of cosmic.web.input take; every
+  --- field is optional.
+  record InputOptions
+    --- The largest body read, in bytes (64 KiB). The server's own limit
+    --- comes first where it is lower.
+    max_bytes: integer
+    --- Field names left out of [`Invalid.submitted`]: passwords, tokens.
+    secret: {string}
+    --- The `source` of the errors a binder writes: "form" by default, or
+    --- "query" or "path". [`Input.bind_strings`] reads it.
+    source: string
+    --- "error" refuses a scalar field sent twice (`code = "repeated"`);
+    --- by default the last value wins.
+    repeated: string
+  end
+
+  --- A route's body slot: see [`Web.json_body`] and [`Web.form_body`].
+  record Body<B>
+    --- "json", "form" or "none".
+    kind: string
+    --- The body's spec.
+    typed: Shape.Typed<B>
+  end
+
+  --- A route's three slots, which [`Web.route_typed`] binds before the
+  --- handler runs: see [`Web.input`].
+  record Input<P,Q,B>
+    --- The path parameters' spec.
+    path: Shape.Typed<P>
+    --- The query's spec.
+    query: Shape.Typed<Q>
+    --- The body's.
+    body: Body<B>
+  end
+
+  --- What a typed route binds, without the types.
+  record RouteInput
+    --- The path spec; nil for none.
+    path: Shape.Spec
+    --- The query spec; nil for none.
+    query: Shape.Spec
+    --- "json", "form" or "none".
+    body_kind: string
+    --- The body spec; nil for none.
+    body: Shape.Spec
+    --- The body limit the route enforces.
+    max_bytes: integer
   end
 
   --- One segment of a pattern: a literal, `:name`, or `*name`.
@@ -391,6 +518,14 @@ local record Types
     error_view: function(Request, integer, string): Response
     --- Where the app's lines go; [`Web.stderr_sink`] by default.
     sink: Sink
+    --- Closed when the server begins to stop, in order, after the
+    --- functions of `app:on_stop`: a hub's streams end at once, not at
+    --- the grace.
+    hubs: {Closable}
+    --- The most event streams open at once ([`Sse.EventStream`] answers
+    --- 503 past it); half of the server's connection limit by default, so
+    --- ordinary requests keep the other half.
+    max_streams: integer
   end
 
   --- A built app: [`Web.app`] derives the router and the handler.
@@ -421,6 +556,14 @@ local record Types
     stopped: boolean
     --- The functions [`on_stop`] registered.
     stoppers: {function()}
+    --- The open event streams: how to end each, by a key of its own. For
+    --- [`Sse.EventStream`] alone.
+    streams: {any: function()}
+    --- How many event streams are open, which `streams` holds.
+    stream_count: integer
+    --- The most [`stream_count`] may reach: the app's `max_streams`, else
+    --- half the connections [`Web.serve`] is given.
+    stream_limit: integer
   end
 
   --- What [`Web.serve`] takes.
