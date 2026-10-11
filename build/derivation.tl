@@ -374,10 +374,14 @@ function derivation.parse_new(db: Sqlite.Handle, built: compiler, tally: derivat
         return false, file .. ": " .. why
       end
     end
-    ok, why = Sqlite.run(db, "INSERT INTO stubs (source_hash, text) VALUES (?1, ?2)",
-      { text(source_hash), text(stub.of(parsed)) })
-    if not ok then
-      return false, file .. ": " .. why
+    -- A test returns nothing, and no checker reads it in place of anything.
+    if found.has_top_level_return then
+      local stubbed = stub.made(parsed)
+      ok, why = Sqlite.run(db, "INSERT INTO stubs (source_hash, text, pruned) VALUES (?1, ?2, ?3)",
+        { text(source_hash), text(stubbed.text), { integer = stubbed.pruned and 1 or 0 } })
+      if not ok then
+        return false, file .. ": " .. why
+      end
     end
   end
   return true, ""

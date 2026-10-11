@@ -75,7 +75,7 @@ end
 
 --- The shape of the schema. A file of another shape holds nothing the
 --- tree cannot produce again, so it is thrown away.
-local version <const> = "28"
+local version <const> = "29"
 
 --- `files` is the staged tree, one row per file the build consumes,
 --- holding the bytes exactly as they were on disk. A file gone from
@@ -142,8 +142,9 @@ local version <const> = "28"
 --- known, as a projection is written ([`build.link_index`]).
 --- `stubs` is the stub of a source ([`build.stub`]): the text a
 --- project's checker reads in place of a module's, which cosmic's own
---- projection carries for its standard library. Every source has one, as
---- every source has its other rows, though only those modules' are read.
+--- projection carries for its standard library, and whether it is
+--- declaration-only. Every source with a top-level `return` has one,
+--- though only those modules' are read: a test has none.
 ---
 --- `executable` is [`build.coverage.lines.executable`]'s answer for one
 --- source, keyed by content hash the same way as `parsed`: which lines

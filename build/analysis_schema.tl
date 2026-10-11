@@ -123,7 +123,8 @@ analysis_schema.statements = {
                                       alias TEXT NOT NULL,
                                       PRIMARY KEY (source_hash, ordinal)) WITHOUT ROWID]],
   [[CREATE TABLE IF NOT EXISTS stubs (source_hash TEXT PRIMARY KEY,
-                                      text TEXT NOT NULL) WITHOUT ROWID]],
+                                      text TEXT NOT NULL,
+                                      pruned INTEGER NOT NULL) WITHOUT ROWID]],
 }
 
 return analysis_schema

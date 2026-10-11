@@ -20,12 +20,15 @@
 --- locals only a body read, but a required module's own warnings never
 --- reach the module that requires it.
 ---
---- A module that returns a record or another type it declares at its top
---- level keeps, besides, only the statements that type needs: what its
+--- A module that returns a name whose last top-level declaration spells its
+--- type -- a record or another type it declares, a local function, a local
+--- of a written type -- keeps, besides, only the statements that type needs: what its
 --- declaration and the signatures of its functions name, and so on, with
 --- the requires they reach. The rest is code only bodies read, whose
 --- requires would make a project's checker load modules no type it sees
---- names (see `unneeded`). Any other module keeps every statement.
+--- names (see `unneeded`). Any other module keeps every statement, which
+--- cosmic's own build refuses of a standard-library module
+--- ([`stub.Made`]'s `pruned`).
 ---
 --- [`stub.difference`] compares what the checker made of a module from
 --- its source and from its stub, which cosmic's own build holds every
@@ -35,6 +38,17 @@
 local ast = require("build.ast")
 
 local record stub
+  --- A stub ([`stub.made`]).
+  record Made
+    text: string
+    --- Whether it is declaration-only: whether the module returns a name
+    --- whose last top-level declaration spells its type, so the stub leaves
+    --- out every statement that type needs none of. Cosmic's own build
+    --- refuses a standard-library module whose stub is not
+    --- ([`build.compilation`]): a project's checker would read every
+    --- statement it holds, and load every module it requires.
+    pruned: boolean
+  end
 end
 
 --- The node kinds that have a function body.
@@ -61,34 +75,71 @@ local function before(ay: integer, ax: integer, by: integer, bx: integer): boole
   return ay < by or (ay == by and ax < bx)
 end
 
---- The bodies `root` holds, in source order. A body is its statements,
---- from its first token up to the function's `end` (whose position tl's
---- parser stamps on the function's node). An empty body has nothing to
---- leave out; a `: never` one too short on its own line to hold
---- [`never_body`] is kept whole, and so is a function literal's that has
---- no return list (see the module's doc). A body inside another is
---- listed too, and [`stub.of`] leaves it out with the one around it.
-local function bodies(root: ast.Node): {Span}
+--- More columns than a line of a source has, so `y * line_width + x` names
+--- a position by one integer.
+local line_width <const> = 1 << 24
+
+--- What one walk of each top-level statement finds: the bodies it holds,
+--- in source order, and where each statement's leftmost node sits.
+---
+--- A body is its statements, from its first token up to the function's
+--- `end` (whose position tl's parser stamps on the function's node). An
+--- empty body has nothing to leave out; a `: never` one too short on its
+--- own line to hold [`never_body`] is kept whole, and so is a function
+--- literal's that has no return list (see the module's doc). What a
+--- body left out holds is not walked.
+local record Scan
+  bodies: {Span}
+  --- Each statement's leftmost node, `{y, x}`, which is its first token
+  --- but for a declaration of a value, which tl's parser places at its
+  --- name (`local x = ...`, `local type X = ...`).
+  firsts: {{integer}}
+end
+
+--- The fields [`scan`] does not follow: the "if" an "if_block" belongs to,
+--- which points back up the tree, and, of a function whose body is left
+--- out, the body, which is most of a module and holds nothing a stub keeps.
+local not_followed <const>: {string:boolean} = { if_parent = true }
+local not_into_body <const>: {string:boolean} = { if_parent = true, body = true }
+
+local function scan(statements: {ast.Node}): Scan
   local found: {Span} = {}
-  ast.walk(root, function(n: ast.Node)
-    local body = n.body
-    local typed_by_context = n.kind == "function" and n.rets_omitted == true
-    if function_kinds[n.kind] and not typed_by_context and body ~= nil and #body > 0 and
-        n.yend ~= nil and n.xend ~= nil then
-      -- tl's `end_at` stamps the last column of `end`.
-      local to_y, to_x = n.yend, n.xend - 2
-      if not n.never or body.y < to_y or to_x - body.x > #never_body then
-        found[#found + 1] = {
-          y = body.y, x = body.x, to_y = to_y, to_x = to_x,
-          instead = n.never and never_body or nil,
-        }
+  local firsts: {{integer}} = {}
+  for i, statement in ipairs(statements) do
+    local first_y, first_x = statement.y, statement.x
+    local visit: function(ast.Node)
+    visit = function(n: ast.Node)
+      if before(n.y, n.x, first_y, first_x) then
+        first_y, first_x = n.y, n.x
       end
+      local body = n.body
+      local typed_by_context = n.kind == "function" and n.rets_omitted == true
+      local left_out = false
+      if function_kinds[n.kind] and not typed_by_context and body ~= nil and #body > 0 and
+          n.yend ~= nil and n.xend ~= nil then
+        -- tl's `end_at` stamps the last column of `end`.
+        local to_y, to_x = n.yend, n.xend - 2
+        if not n.never or body.y < to_y or to_x - body.x > #never_body then
+          found[#found + 1] = {
+            y = body.y, x = body.x, to_y = to_y, to_x = to_x,
+            instead = n.never and never_body or nil,
+          }
+          left_out = true
+        end
+      end
+      local skipped: {string:boolean} = not_followed
+      if left_out then
+        skipped = not_into_body
+      end
+      ast.each_child_node(n, skipped, visit)
     end
-  end)
+    visit(statement)
+    firsts[i] = { first_y, first_x }
+  end
   table.sort(found, function(a: Span, b: Span): boolean
     return before(a.y, a.x, b.y, b.x)
   end)
-  return found
+  return { bodies = found, firsts = firsts }
 end
 
 --- Statement kinds [`unneeded`] may leave out: a declaration, an
@@ -98,7 +149,7 @@ end
 --- Two things would, and neither reaches a stub. An assignment to a name
 --- declared as a value after the record (`local M = {}` then `M.x = 1`)
 --- infers that value's type, but `unneeded` prunes only a module whose
---- returned name was last declared a type. A require of a module that
+--- returned name's last declaration spells its type. A require of a module that
 --- declares a global brings a type in by no name the stub spells, but
 --- cosmic's own build refuses a standard-library module that declares one
 --- ([`build.compilation`]). A statement of any other kind is kept wherever
@@ -131,43 +182,69 @@ local function names_of(s: ast.Node): {string}, string | nil
   return declared, nil
 end
 
+--- Whether the top-level statement `s` gives the one name it declares a
+--- type no later statement can change: a type declaration (`local record
+--- M`), a local function, whose type is its signature, or a local whose
+--- type is written (`local m: M = {...}`). tl never infers any of these
+--- from what follows, though a later `if` may narrow a local's union,
+--- which [`stub.difference`] then tells.
+local function spells_its_type(s: ast.Node): boolean
+  if s.kind == "local_type" or s.kind == "local_function" then
+    return true
+  end
+  local written = s.decltuple ~= nil and s.decltuple.tuple or nil
+  return s.kind == "local_declaration" and s.vars ~= nil and #s.vars == 1 and
+    written ~= nil and #written == 1
+end
+
 --- The top-level statements of `parsed` a declaration of the module needs
---- none of, as spans to leave out, where the module returns a name its own
---- `local record`, `interface`, `enum` or `local type` declares last; none for
---- any other module, whose stub keeps every statement. Such a module's
+--- none of, as spans to leave out, where the module returns a name whose
+--- last top-level declaration spells its type ([`spells_its_type`]); nil
+--- for any other module, whose stub keeps every statement. Such a module's
 --- type is that declaration's, with what each `function M.f` on it adds,
 --- so the stub keeps the `return`, then what a kept statement names, to a
 --- fixed point: the declaration of each name one of its tokens spells
---- (outside a body, which `body_spans` leaves out), and each `function
+--- (outside a body `scanned` found), and each `function
 --- M.f` whose `M` is kept. A name is taken for a reference wherever it is
 --- spelt, as a field's name too, which keeps a statement at worst. What is
 --- left out is code only bodies read and requires only they reach, so a
 --- project's checker loads fewer modules too.
-local function unneeded(parsed: ast.Parsed, body_spans: {Span}): {Span}
+local function unneeded(parsed: ast.Parsed, scanned: Scan): {Span} | nil
   local statements: {ast.Node} = parsed.node
   local tokens = parsed.tokens
+  local body_spans = scanned.bodies
   local last = statements[#statements]
   local exps = last ~= nil and last.kind == "return" and last.exps or nil
   local value = exps ~= nil and #exps == 1 and exps[1] or nil
   local returned = value ~= nil and value.kind == "variable" and value.tk or nil
   if returned == nil then
-    return {}
+    return nil
   end
-  local at: {string:integer} = {}
-  for k, token in ipairs(tokens) do
-    at[token.y .. ":" .. token.x] = k
-  end
-  -- Each statement's first token. tl's parser places a declaration of a
-  -- value (`local x = ...`, `local type X = ...`) at its name.
-  local starts: {integer} = {}
   local declares: {{string}} = {}
   local owners: {string | nil} = {}
   local typed = false
   for i, s in ipairs(statements) do
-    local first = ast.span_start(s)
-    local k = at[first.y .. ":" .. first.x]
+    declares[i], owners[i] = names_of(s)
+    -- The returned name's last top-level declaration decides what it is.
+    for _, name in ipairs(declares[i]) do
+      if name == returned then
+        typed = spells_its_type(s)
+      end
+    end
+  end
+  if not typed then
+    return nil
+  end
+  -- Each statement's first token, by its leftmost node's position.
+  local at: {integer:integer} = {}
+  for k, token in ipairs(tokens) do
+    at[token.y * line_width + token.x] = k
+  end
+  local starts: {integer} = {}
+  for i, first in ipairs(scanned.firsts) do
+    local k = at[first[1] * line_width + first[2]]
     if k == nil or (i > 1 and k <= starts[i - 1]) then
-      return {}
+      return nil
     end
     local before_k = k > 1 and tokens[k - 1].tk or ""
     if before_k == "local" or before_k == "global" then
@@ -177,16 +254,6 @@ local function unneeded(parsed: ast.Parsed, body_spans: {Span}): {Span}
       k = k - 2
     end
     starts[i] = k
-    declares[i], owners[i] = names_of(s)
-    -- The returned name's last top-level declaration decides what it is.
-    for _, name in ipairs(declares[i]) do
-      if name == returned then
-        typed = s.kind == "local_type"
-      end
-    end
-  end
-  if not typed then
-    return {}
   end
   -- The names each statement's tokens outside a body spell.
   local spelt: {{string:boolean}} = {}
@@ -241,9 +308,14 @@ end
 --- The stub of the module `parsed` holds (see the module's own doc).
 --- @param parsed a parse of the module's source ([`ast.parse`]), whose
 ---   tokens are in source order
-function stub.of(parsed: ast.Parsed): string
-  local spans = bodies(parsed.node)
-  for _, span in ipairs(unneeded(parsed, spans)) do
+function stub.made(parsed: ast.Parsed): stub.Made
+  local scanned = scan(parsed.node)
+  local spans: {Span} = {}
+  for _, span in ipairs(scanned.bodies) do
+    spans[#spans + 1] = span
+  end
+  local dropped = unneeded(parsed, scanned)
+  for _, span in ipairs(dropped or {}) do
     spans[#spans + 1] = span
   end
   -- A statement left out starts before the bodies inside it, so each
@@ -287,13 +359,13 @@ function stub.of(parsed: ast.Parsed): string
       span.instead = nil
     end
   end
-  return table.concat(out) .. "\n"
+  return { text = table.concat(out) .. "\n", pruned = dropped ~= nil }
 end
 
---- The first top-level statement of `parsed` that declares a global, or
+--- The first statement of the chunk `root` that declares a global, or
 --- nil: a standard-library module may declare none (see `droppable`).
-function stub.global_declaration(parsed: ast.Parsed): ast.Node | nil
-  for _, s in ipairs(parsed.node) do
+function stub.global_declaration(root: ast.Node): ast.Node | nil
+  for _, s in ipairs(root) do
     if s.kind:sub(1, 7) == "global_" then
       return s
     end
