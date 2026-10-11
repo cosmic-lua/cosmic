@@ -241,7 +241,7 @@ Behaviours and edge cases:
   read cooperatively and closed by the server when sent or abandoned
   (server.tl:93-94, 363-373): a client disconnect surfaces as a failed
   write, `close` on the reader, and an `on_error` report. SSE
-  (`Sse.EventStream`, assets.md section 5) is `stream` with
+  ([`Sse.EventStream`], assets.md section 5) is `stream` with
   `text/event-stream`, `Cache-Control: no-cache, no-transform` and a
   Reader over the channel; it adds no server feature.
 - `file`: opens `path`, [`Stream.open`], sets `Content-Length` from stat,
@@ -997,9 +997,9 @@ streaming side of it and refers back here:
 3. [`Web.serve`] passes an `on_stop` that (in this order) sets the flag behind
    `app:stopping()`, runs every function registered with `app:on_stop(fn)`
    in registration order, and then calls the caller's [`ServeOptions.on_stop`].
-4. Every `Sse.Hub` and every `Sse.EventStream` registered with the App
+4. Every [`Sse.Hub`] and every [`Sse.EventStream`] registered with the App
    registers its close with `app:on_stop` (a Hub through `hub:attach(app)`
-   or `AppSpec.hubs`, an EventStream when it is made from a request, which
+   or [`AppSpec.hubs`], an EventStream when it is made from a request, which
    reaches the app through `req.app`). Their streams end with a clean last
    chunk, the browsers reconnect to the next process within the `retry:`
    delay, and the server then finds nothing in flight, so the stop returns
@@ -1154,7 +1154,7 @@ tests; the bulk run in-process (no loopback policy, and cheap to key).
   `cosmic.web.cookies`, `cosmic.web.session` (with `.cookie` and `.sqlite`
   stores), `cosmic.web.csrf`, `cosmic.web.cors`, `cosmic.web.headers`
   (input.md); `cosmic.web.htmx` (templates.md); `cosmic.web.static`,
-  `cosmic.web.sse`, `cosmic.web.dev`, and the support modules
+  [`cosmic.web.sse`], `cosmic.web.dev`, and the support modules
   `cosmic.web.assets` and `cosmic.web.mime` (assets.md).
 
 Order of work (each a PR, tests included):
@@ -1344,11 +1344,13 @@ close, and a raise in it reaches `on_error` without stopping the drain.
     has no per-connection cancel today.
 
 [`App.handle`]: ../../../cosmic/web/types.tl
+[`AppSpec.hubs`]: ../../../cosmic/web/types.tl
 [`build.fuzz`]: ../../../build/fuzz/init.tl
 [`cosmic.http.wire`]: ../../../cosmic/http/wire.tl
 [`cosmic.log`]: ../../../cosmic/log.tl
 [`cosmic.shape`]: ../../../cosmic/shape.tl
 [`cosmic.url`]: ../../../cosmic/url.tl
+[`cosmic.web.sse`]: ../../../cosmic/web/sse.tl
 [`cosmic.web`]: ../../../cosmic/web/init.tl
 [`cosmic/web/request.tl`]: ../../../cosmic/web/request.tl
 [`cosmic/web/testing.tl`]: ../../../cosmic/web/testing.tl
@@ -1383,6 +1385,8 @@ close, and a raise in it reaches `on_error` without stopping the drain.
 [`Server.stop`]: ../../../cosmic/net.tl
 [`ServeSpec.on_stop`]: ../../../cosmic/net.tl
 [`Shape.into`]: ../../../cosmic/shape.tl
+[`Sse.EventStream`]: ../../../cosmic/web/sse.tl
+[`Sse.Hub`]: ../../../cosmic/web/sse.tl
 [`Stream.from_string`]: ../../../cosmic/stream.tl
 [`Stream.limit`]: ../../../cosmic/stream.tl
 [`Stream.open`]: ../../../cosmic/stream.tl

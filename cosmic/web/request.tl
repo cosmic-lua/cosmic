@@ -191,7 +191,7 @@ function Request.new(app: Types.App, raw: Server.Request, parts: Request.Parts):
     raw = raw, method = raw.method, path = parts.path, segments = parts.segments,
     query_string = raw.query, headers = headers, params = {}, mount_path = "", app = app,
     state = {}, client = client, scheme = scheme, host = host, trailing = parts.trailing,
-    slots = {},
+    slots = {}, bodies = {},
   }
   return setmetatable(request, request_mt)
 end
