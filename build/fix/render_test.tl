@@ -178,6 +178,19 @@ local function test_function_return_types_end_before_a_parameter()
     "local function g(...: any): any return a as function(): integer, ... end\n")
 end
 
+--- `: never` is a return list with no types, and is written back: a
+--- declaration, a literal, a method and a macroexp lose nothing.
+local function test_a_never_return_list_is_written_back()
+  writes("local function f(m: string): never error(m) end\n",
+    "local function f(m: string): never error(m) end\n")
+  writes("local f = function(m: string): never error(m) end\n",
+    "local f = function(m: string): never error(m) end\n")
+  writes("function R:die(m: string): never error(m) end\n",
+    "function R:die(m: string): never error(m) end\n")
+  writes("local macroexp die(m: string): never return error(m) end\n",
+    "local macroexp die(m: string): never return error(m) end\n")
+end
+
 --- Blocks: the closing keyword goes where the source put it, so a
 --- one-line `if` stays on one line and a spread-out one stays spread.
 local function test_blocks_keep_the_shape_the_source_gave_them()

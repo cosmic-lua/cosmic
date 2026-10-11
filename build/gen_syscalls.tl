@@ -522,6 +522,9 @@ local function signature(call: Call): string
   local text = "function(" .. table.concat(parameters, ", ") .. ")"
   if #results > 0 then
     text = text .. ": " .. table.concat(results, ", ")
+  else
+    -- a call with no @return never returns (read rejects any other zero)
+    text = text .. ": never"
   end
   return text
 end
