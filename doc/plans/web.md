@@ -67,7 +67,7 @@ Taken after the parts were written:
    apart, as FastAPI keeps them.
 4. **Multipart is in v1,** last, once the server's body deadline has
    landed.
-5. **A slot in `hx-on*` or `hx-vars` is refused in every template,** with
+5. **A slot in `hx-on*`, `hx-vars` or `hx-trigger` is refused in every template,** with
    or without `{{use htmx}}`: it is script, and attribute escaping does not
    make it safe.
 10. **`Web.app{ trusted_proxy = true }`,** off by default, takes the
@@ -313,8 +313,8 @@ overruled; the parts list smaller ones of their own.
 
 Before any code depends on them, three htmx behaviours the parts state
 from memory are to be checked against the pinned file: that `HX-Trigger`
-is processed on a response htmx does not swap, that `hx-vars` is still
-evaluated, and the names `responseHandling` takes.
+is processed on a response htmx does not swap, and the names
+`responseHandling` takes. (`hx-vars` is still evaluated in 2.0.11: checked.)
 
 ## roadmap entries this adds
 

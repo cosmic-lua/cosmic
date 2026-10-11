@@ -16,6 +16,7 @@
 --- `{{if .a}}<b class="{{else}}<i class="{{end}}` is refused at the `{{if}}`
 --- rather than guessed at.
 
+local dialect = require("cosmic.template.dialect")
 local markup = require("cosmic.template.markup")
 local types = require("cosmic.template.types")
 
@@ -166,6 +167,9 @@ walk = function(w: Walk, body: {types.Node}, from: markup.Place, marks: Marks): 
       elseif at.rooted then
         return nil, refuse(name, node.line, node.col,
           "text after a URL slot begins with '/' or '\\': the value and that text could make a protocol-relative URL (//host)")
+      elseif at.sole_trail then
+        return nil, refuse(name, node.line, node.col,
+          "text after a JSON slot in the '" .. at.attr .. "' attribute: a JSON slot is the whole value")
       elseif at.late ~= "" then
         return nil, refuse(name, at.late_line, at.late_col, at.late)
       end
@@ -197,13 +201,15 @@ end
 --- @param name string The template's name, for messages
 --- @param end_line integer The line the template's source ends on
 --- @param end_col integer The column just after its last byte
+--- @param attributes dialect.Table What the template's dialects say of its attributes
 --- @return boolean True when every slot has a place
 --- @return string The reason, as `name:line:col: ...`, on a refusal
-function Context.annotate(template: types.Template, name: string, end_line: integer, end_col: integer): boolean, string
+function Context.annotate(template: types.Template, name: string, end_line: integer, end_col: integer,
+                          attributes: dialect.Table): boolean, string
   if template.mode == "text" then
     return true, ""
   end
-  local after, why = walk({ name = name, seen = {} }, template.body, markup.start(), {})
+  local after, why = walk({ name = name, seen = {} }, template.body, markup.start(attributes), {})
   if after == nil then
     return false, why
   end

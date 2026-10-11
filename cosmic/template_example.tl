@@ -47,6 +47,29 @@ function Example.url_parts()
   assert(on == nil and script:find("would be script", 1, true), script)
 end
 
+--- `{{use htmx}}`, in the header beside `{{mode}}`, reads the attributes of
+--- htmx: a request URL is a same-origin reference or a part after text, a
+--- selector slot stands inside an identifier after `#` or `.`, and
+--- `hx-vals`, `hx-headers` and `hx-request` take a `SafeJson` as the whole
+--- value. A slot in `hx-trigger` (a filter is script) is refused, as `hx-on`
+--- is without `{{use}}`.
+function Example.htmx()
+  local source = assert(Template.compile([[
+{{type Row from site.row}}
+{{use htmx}}
+<tr id="row-{{.id}}"><td><button hx-delete="/items/{{.id}}" hx-target="#row-{{.id}}"
+  hx-vals='{{.vals}}' hx-get="{{.back}}">Delete</button></td></tr>
+]], "row.tmpl"))
+  assert(source:find("render(d: row.Row): html.SafeHtml", 1, true))
+  assert(source:find("local v: html.SafeJson = d.vals", 1, true))
+  assert(source:find("_sel(v)", 1, true) and source:find("_part(v)", 1, true) and source:find("_lurl(v)", 1, true))
+  local plain, why = Template.compile('{{type Row from site.row}}\n<b hx-vals=\'{{.vals}}\'>x</b>\n', "row.tmpl")
+  assert(plain == nil and why:find("{{use htmx}}", 1, true), why)
+  local trigger, trigger_why = Template.compile(
+    '{{type Row from site.row}}{{use htmx}}\n<b hx-trigger="click[{{.f}}]">x</b>\n', "row.tmpl")
+  assert(trigger == nil and trigger_why:find("'[filter]'", 1, true), trigger_why)
+end
+
 --- A slot where no escaping is right is refused, with its line and column.
 function Example.refusal()
   local source, why = Template.compile("{{type Page from site.page}}\n<a href={{.url}}>x</a>\n", "link.tmpl")
