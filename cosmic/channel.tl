@@ -47,12 +47,22 @@ local record Channel
   end
 
   --- A queue of `T`, answered by [`Channel.new`]. Items leave in the
-  --- order they were queued. Every wait here is a [`Poll.Notifier`]
-  --- wait: it raises outside a task, and answers false or nil and
-  --- [`Poll.TIMEOUT`] or [`Poll.CANCELLED`] as every wait does.
+  --- order they were queued. A call that has to wait does so in a
+  --- [`Poll.Notifier`] wait: it raises outside a task, and answers false
+  --- or nil and [`Poll.TIMEOUT`] or [`Poll.CANCELLED`] as every wait
+  --- does.
+  ---
+  --- Waiters are noticed longest first, but a notice is no reservation:
+  --- a task that does not wait ([`try_send`], or a [`send`] or
+  --- [`receive`] that finds room or an item) may take what the noticed
+  --- waiter was woken for, and that waiter then waits again, behind the
+  --- others. So blocked senders' items can reach the queue out of the
+  --- order they began to wait; only one task's own items keep their
+  --- order.
   interface Queue<T>
-    --- Queues `item` (never nil, which raises) and wakes the receiver
-    --- that has waited longest. True once it is queued or, under a
+    --- Queues `item` (never nil, which raises) and notices the receiver
+    --- that has waited longest (which a caller that does not wait may
+    --- still outrun). True once it is queued or, under a
     --- "drop_oldest" or "drop_newest" policy, once the drop has settled
     --- the overflow. Under "block" a full queue makes it wait for room,
     --- at most `timeout_ns` nanoseconds (no limit when nil): false and
@@ -90,10 +100,6 @@ local record Channel
   --- room.
   FULL: string
 
-  --- A new empty queue for the tasks of the running [`Poll.run`]; `T`
-  --- comes from the declaration it is bound to
-  --- (`local q: Channel.Queue<string> = Channel.new()`). It raises
-  --- outside a run, and for options it does not take.
   new: function<T>(opts?: Options): Queue<T>
 end
 
@@ -195,11 +201,7 @@ function State.send<T>(self: State<T>, item: T, timeout_ns?: integer): boolean, 
       if left <= 0 then return false, Poll.TIMEOUT end
     end
     local woke, reason = self.not_full:wait(left)
-    if not woke then
-      -- A notice for room this task will not use goes to the next sender.
-      if self.count < self.capacity then self.not_full:notify_one() end
-      return false, reason
-    end
+    if not woke then return false, reason end
   end
 end
 
@@ -214,11 +216,7 @@ function State.receive<T>(self: State<T>, timeout_ns?: integer): T | nil, string
       if left <= 0 then return nil, Poll.TIMEOUT end
     end
     local woke, reason = self.not_empty:wait(left)
-    if not woke then
-      -- A notice for an item this task will not take goes to the next receiver.
-      if self.count > 0 then self.not_empty:notify_one() end
-      return nil, reason
-    end
+    if not woke then return nil, reason end
   end
   local item = pop(self)
   self.not_full:notify_one()
@@ -232,7 +230,7 @@ function State.dropped<T>(self: State<T>): integer return self.drops end
 --- A new empty queue for the tasks of the running [`Poll.run`]; `T`
 --- comes from the declaration it is bound to
 --- (`local q: Channel.Queue<string> = Channel.new()`). It raises outside a
---- run, and for options it does not take.
+--- run (in [`Poll.notifier`]'s words), and for options it does not take.
 function Channel.new<T>(opts?: Channel.Options): Channel.Queue<T>
   local capacity = DEFAULT_CAPACITY
   local overflow: Channel.Overflow = "block"

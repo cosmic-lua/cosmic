@@ -859,9 +859,12 @@ end
   and wakes every waiter on both sides.
 
 Two `Notifier`s inside (not-empty, not-full), a notice per item queued or
-slot freed, so a producer or consumer killed after being noticed passes it
-on (Poll.notifier's kill re-delivery), and one that gives up (timeout,
-cancel) with room or an item still there notifies the next. No `select`
+slot freed. A producer or consumer killed after being noticed passes the
+notice on by Poll.notifier's own kill re-delivery; one that gives up
+(timeout, cancel) was never noticed, so nothing is left to pass. A notice
+is no reservation: a woken waiter that loses the item or the room to a
+caller that does not wait waits again behind the others, for what is left
+of its timeout. No `select`
 in v1 (a hub does not need it); `Poll.notifier` is the building block when
 it does. A [`Stream.Reader`] over a queue is left to cosmic.web.sse (5.4+),
 which frames events; the channel carries no framing. Generic records are
