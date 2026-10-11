@@ -792,9 +792,9 @@ local function test_what_does_not_end_a_block_keeps_its_guard_open(tmp: string)
 end
 
 --- Holes Teal has for every type, which a never-function falls into as a
---- `string` does (doc/plans/teal-never.md lists them, and doc/roadmap.md
---- the soundness item): `coroutine.wrap` is declared `F -> F` although its
---- wrapper returns whatever the coroutine yields, and a metatable's
+--- `string` does (doc/roadmap.md lists them as a soundness item):
+--- `coroutine.wrap` is declared `F -> F` although its wrapper returns
+--- whatever the coroutine yields, and a metatable's
 --- `__call` is attached at run time and checked against nothing. Never is
 --- exactly as sound as Teal's other types, so both are accepted. When they
 --- are closed this test fails, and the case moves to a refusal.

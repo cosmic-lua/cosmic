@@ -1349,6 +1349,41 @@ local function test_error_is_a_never_function()
   assert(#syntax_errors("local g: function(string): never = error\n") == 0)
 end
 
+--- `local x = fail()` is refused as any call that answers nothing is,
+--- which says nothing of why a never-function has no value: the hint
+--- says it never returns. A function that merely returns nothing gets none.
+local function test_a_never_call_has_no_value_to_assign()
+  local msg = "assignment in declaration did not produce an initial value for variable 'x'"
+  local function hint(source: string): string | nil
+    local found = refusals(source)
+    assert(found[1] ~= nil and found[1]:find(msg, 1, true) ~= nil, source .. (found[1] or "accepted"))
+    local line, column = found[1]:match("^(%d+):(%d+) ")
+    return teal.replacement(msg, source, math.tointeger(line) or 0, math.tointeger(column) or 0)
+  end
+  local never_said = "`fail` never returns, so it has no value to assign"
+  local declared = hint("local function fail(m: string): never\n  error(m)\nend\nlocal x = fail('a')\nprint(x)\n")
+  assert(declared ~= nil and declared:find(never_said, 1, true) ~= nil, tostring(declared))
+  local method = hint("local record G\n  fail: function(self: G, m: string): never\nend\n" ..
+      "local g: G = {}\nlocal x = g:fail('a')\nprint(x)\n")
+  assert(method ~= nil and method:find("`g:fail` never returns", 1, true) ~= nil, tostring(method))
+  local standard = hint("local x = error('a')\nprint(x)\n")
+  assert(standard ~= nil and standard:find("`error` never returns", 1, true) ~= nil, tostring(standard))
+  assert(hint("local function nothing(m: string)\nend\nlocal x = nothing('a')\nprint(x)\n") == nil)
+  assert(hint("local function fail(m: string): never\n  error(m)\nend\n" ..
+      "local function other(m: string)\nend\nlocal x = other('a')\nprint(x)\n") == nil)
+  -- a longer name that ends in the callee's is another function
+  assert(hint("local function xfail(m: string): never\n  error(m)\nend\n" ..
+      "local function fail(m: string)\nend\nlocal x = fail('a')\nprint(x)\n") == nil)
+  -- a field is not the bare name it shares its last segment with
+  assert(hint("local function fail(m: string): never\n  error(m)\nend\n" ..
+      "local o = { fail = function(m: string) end }\nlocal x = o.fail('a')\nprint(x)\n") == nil)
+  local dotted = hint("local o = {}\nfunction o.fail(m: string): never\n  error(m)\nend\n" ..
+      "local x = o.fail('a')\nprint(x)\n")
+  assert(dotted ~= nil and dotted:find("`o.fail` never returns", 1, true) ~= nil, tostring(dotted))
+  -- a local that hides the standard error
+  assert(hint("local function error(m: string)\nend\nlocal x = error('a')\nprint(x)\n") == nil)
+end
+
 --- A record's method refused against an interface method with an unnamed
 --- receiver is told to name the receiver `self`.
 local function test_an_unnamed_interface_receiver_is_told_to_name_self()

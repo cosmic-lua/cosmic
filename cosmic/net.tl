@@ -922,7 +922,7 @@ local REMOVED_FIELDS <const>: {string: string} = {
 }
 
 --- Raises for the spec's `field`, at the caller of [`Net.serve`].
-local function spec_error(field: string, must: string)
+local function spec_error(field: string, must: string): never
   error("net: spec." .. field .. " must be " .. must, 4)
 end
 
@@ -940,11 +940,9 @@ local function checked_spec(spec: any)
   if not listeners is {any} or #listeners == 0 then
     spec_error("listeners", "a list of one address or more")
   end
-  if listeners is {any} then
-    for i, address in ipairs(listeners) do
-      local trouble = address_trouble(address)
-      if trouble ~= "" then spec_error("listeners[" .. i .. "]", trouble) end
-    end
+  for i, address in ipairs(listeners) do
+    local trouble = address_trouble(address)
+    if trouble ~= "" then spec_error("listeners[" .. i .. "]", trouble) end
   end
   if type(spec.serve) ~= "function" then spec_error("serve", "a function of a connection") end
   local limits = spec.limits
