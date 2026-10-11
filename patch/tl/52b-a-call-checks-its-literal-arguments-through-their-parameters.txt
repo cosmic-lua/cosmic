@@ -1,0 +1,23 @@
+file: tl.tl
+note: the call site of 52a: each literal argument is held to the record its parameter's type variables are bound to, where 50f checked only a parameter that is a type variable itself
+--- find
+            local literal = wheres and (wheres[i + delta] as Node)
+            if literal and literal.kind == "literal_table" and not literal.omissions_checked then
+               local param = yt[i] or (ys.is_va and yt[n_ys])
+               if param is TypeVarType then
+                  local bound = self:find_var_type(param.typevar)
+                  local record = bound and self:to_structural(bound)
+                  if record is RecordLikeType then
+                     check_literal_omissions(self, literal, record)
+                  end
+               end
+            end
+--- replace
+            local literal = wheres and (wheres[i + delta] as Node)
+            if literal then
+               local param = yt[i] or (ys.is_va and yt[n_ys])
+               if param then
+                  check_argument_omissions(self, literal, param, false)
+               end
+            end
+--- end

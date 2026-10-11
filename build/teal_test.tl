@@ -2026,6 +2026,50 @@ local function test_a_literal_argument_of_a_type_variable_is_checked()
   assert_accepted(outer .. "table.insert(list, { inner = { x = 1 } })\n")
 end
 
+--- A literal nested in an array, map or tuple literal passed for a
+--- parameter that holds a type variable is held to the record the call
+--- binds it to too (patch/tl's 52a), to any depth.
+local function test_a_literal_nested_in_an_argument_literal_is_checked()
+  local declared = "local record R\n  name: string\n  tag?: string\nend\nlocal list: {R} = {}\n" ..
+    "local function push_all<T>(l: {T}, vs: {T}) for _, v in ipairs(vs) do table.insert(l, v) end end\n"
+  assert_refused(declared .. "push_all(list, { {} })\n", "of record R that do not admit nil: name")
+  assert_refused(declared .. "push_all(list, { { name = 'a' }, {} })\n", "of record R that do not admit nil: name")
+  assert_accepted(declared .. "push_all(list, { { name = 'a' }, { name = 'b', tag = 'c' } })\npush_all(list, {})\n")
+  assert_refused(declared .. "local function by_key<T>(l: {T}, vs: {string:T}) print(l, vs) end\n" ..
+      "by_key(list, { a = {} })\n", "of record R that do not admit nil: name")
+  assert_accepted(declared .. "local function by_key<T>(l: {T}, vs: {string:T}) print(l, vs) end\n" ..
+      "by_key(list, { a = { name = 'a' } })\n")
+  assert_refused(declared .. "local function nested<T>(l: {T}, vs: {{T}}) print(l, vs) end\n" ..
+      "nested(list, { { {} } })\n", "of record R that do not admit nil: name")
+  assert_accepted(declared .. "local function nested<T>(l: {T}, vs: {{T}}) print(l, vs) end\n" ..
+      "nested(list, { { { name = 'a' } } })\n")
+  assert_refused(declared .. "local function pair<T>(l: {T}, vs: {T, integer}) print(l, vs) end\n" ..
+      "pair(list, { {}, 1 })\n", "of record R that do not admit nil: name")
+  -- The one member of a union parameter that holds a table or a type
+  -- variable is the one the literal is held to.
+  assert_refused(declared .. "local function pu<T>(l: {T}, vs: {T} | nil) print(l, vs) end\npu(list, { {} })\n",
+    "of record R that do not admit nil: name")
+  assert_refused(declared .. "local function pt<T>(l: {T}, v: T | string) print(l, v) end\npt(list, {})\n",
+    "of record R that do not admit nil: name")
+  assert_accepted(declared .. "local function pu<T>(l: {T}, vs: {T} | nil) print(l, vs) end\n" ..
+      "pu(list, { { name = 'a' } })\n")
+  -- A method call counts its receiver out of the arguments.
+  assert_refused(declared .. "local record Bag\n  add: function<T>(self: Bag, l: {T}, vs: {T})\nend\n" ..
+      "local b: Bag = {}\nb:add(list, { {} })\n", "of record R that do not admit nil: name")
+  assert_accepted(declared .. "local record Bag\n  add: function<T>(self: Bag, l: {T}, vs: {T})\nend\n" ..
+      "local b: Bag = {}\nb:add(list, { { name = 'a' } })\n")
+  -- An alias of the array type, written with the record or with the
+  -- variable, is refused too (by the literal's own check or the call's).
+  assert_refused(declared .. "local type Alias<T> = {T}\n" ..
+      "local function pa<T>(l: {T}, vs: Alias<T>) print(l, vs) end\npa(list, { {} })\n", "got {}, expected R")
+  assert_refused(declared .. "local type Alias<T> = {T}\n" ..
+      "local function pa(l: {R}, vs: Alias<R>) print(l, vs) end\npa(list, { {} })\n",
+    "of record R that do not admit nil: name")
+  -- The elements of the literal are the only record that binds the
+  -- variable: no one declared it, so none is held to it.
+  assert_accepted("for _, c in ipairs({ { ok = true }, { ok = false, why = 'x' } }) do print(c) end\n")
+end
+
 --- Only the `__index` type of a metatable (47a) takes a part of its
 --- record: a union with another function is held to all of it.
 local function test_a_union_with_a_function_is_held_to_its_record()
@@ -2131,6 +2175,36 @@ local function test_a_narrowed_operand_is_accepted()
   assert_accepted(head .. "print(s == nil, s ~= 'a', not s, s and #s, s or 'none')\n")
   assert_accepted(head .. "print(a .. 'x', a + 1, a < 2, -a)\n")
   assert_accepted(head .. "local plain: string = 'p'\nprint(plain .. 'x', #plain)\n")
+end
+
+--- `a and b` yields a when a is falsy, so a nil a makes the result nil
+--- (patch/tl's 52c): the result is refused as an operand where a is a
+--- nil-admitting union, and keeps its type under a guard, an `or`, or a
+--- left operand without nil.
+local function test_a_conjunction_with_a_nil_left_operand_may_be_nil()
+  local head = "local function find(): string | nil return nil end\n" ..
+    "local x = find()\nlocal y = find()\nlocal z: string = 'z'\nlocal plain: string = 'p'\n"
+  assert_accepted(head .. "print(x and x .. 'a')\nprint(x and #x)\n")
+  assert_accepted(head .. "if x then\n  print((x and x) .. 'a')\nend\n")
+  assert_accepted(head .. "print((plain and z) .. 'a')\n")
+  assert_refused(head .. "print((x and x) .. 'a')\n", "cannot use operator '..' for types string (inferred at")
+  assert_refused(head .. "print((x and y) .. 'a')\n", "cannot use operator '..'")
+  assert_refused(head .. "print('a' .. (x and z))\n", "cannot use operator '..'")
+  assert_refused(head .. "print(#(x and z))\n", "cannot use operator '#'")
+  assert_refused(head .. "print((x and x and y) .. 'a')\n", "cannot use operator '..'")
+  assert_accepted(head .. "local v: string = x and y or z\nprint(v .. 'a')\n")
+  assert_accepted(head .. "print((x and y or z) .. 'a', #(x and y or 'none'))\n")
+  assert_accepted(head .. "local w = x and y\nif w then\n  print(w .. 'a')\nend\n")
+  assert_accepted(head .. "local flag: boolean = (x and y) == z\nprint(flag)\n")
+end
+
+--- An `and` whose right operand is already an error is not given a nil
+--- too: one mistake is one error (patch/tl's 52c).
+local function test_a_conjunction_with_an_invalid_right_operand_reports_once()
+  local found = refusals("local record T\n  f?: string\nend\nlocal function takes(s: string) print(s) end\n" ..
+      "local t: T = {}\ntakes(t.f and t.f:upper())\n")
+  assert(#found == 1, table.concat(found, "; "))
+  assert(found[1]:find("upper", 1, true) ~= nil, found[1])
 end
 
 --- A field fact is read against its base without the nil the field's
