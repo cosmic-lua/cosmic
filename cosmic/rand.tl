@@ -36,10 +36,10 @@ local record Rand
 end
 
 local record State
-  s0: integer
-  s1: integer
-  s2: integer
-  s3: integer
+  s0?: integer
+  s1?: integer
+  s2?: integer
+  s3?: integer
 end
 
 local function rotl(x: integer, k: integer): integer

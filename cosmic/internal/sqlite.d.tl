@@ -15,7 +15,7 @@ local record sqlite
     code: integer
     extended_code: integer
     reason: string
-    cancelled: boolean
+    cancelled?: boolean
   end
   record OpenResult is Outcome
     handle: Handle
@@ -33,13 +33,13 @@ local record sqlite
   end
   record Value
     --- Bound as a 64-bit SQLite integer.
-    integer: integer
+    integer?: integer
     --- Bound as a floating-point number.
-    number: number
+    number?: number
     --- Bound as UTF-8 text, including embedded NUL.
-    text: string
+    text?: string
     --- Bound as bytes, distinct from text.
-    blob: string
+    blob?: string
   end
   --- One prepared statement. It keeps its handle alive while it is
   --- open. Every call on a finalized statement raises.
