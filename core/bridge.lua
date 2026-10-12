@@ -177,9 +177,22 @@ end
 -- it was compiled to. The compiler compiles itself to the same Lua
 -- (build/compiler_test.tl), so which compiler compiled it does not show
 -- in what it is.
+--
+-- The Lua standard library's declarations, `stdlib.d.tl` beside `file`,
+-- ride in that Lua: it starts with `local stdlib = "<their text>"` on its
+-- first line, the local the checker's `stdlib` is. The text is quoted on
+-- that one line, a newline written `\n` where `%q` writes a backslash and
+-- a newline, so no line of the compiled checker moves.
+-- build/compiler_test.tl builds the same first line and holds the
+-- checker to compiling its own source to it.
 local function bootstrap(stage0, file)
   local source, err = read_all(file)
   if not source then error(file .. ': ' .. tostring(err), 0) end
+  local declarations_file = file:match('^(.*)/[^/]*$') .. '/stdlib.d.tl'
+  local declarations, declarations_err = read_all(declarations_file)
+  if not declarations then
+    error(declarations_file .. ': ' .. tostring(declarations_err), 0)
+  end
   local env = assert(stage0.new_env({ defaults = {
     feat_lax = 'off', gen_compat = 'off', gen_target = '5.4',
   } }))
@@ -193,6 +206,8 @@ local function bootstrap(stage0, file)
   if not code or trouble ~= '' then
     error(file .. ': the checker refused it\n' .. trouble, 0)
   end
+  code = 'local stdlib = ' ..
+    string.format('%q', declarations):gsub('\\\n', '\\n') .. ' ' .. code
   local chunk, load_err = load(code, '@vendor.tl', 't', environment)
   if not chunk then error(file .. ': ' .. load_err, 0) end
   return chunk(), code
