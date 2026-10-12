@@ -108,24 +108,26 @@ error without another patch.
 
 ## decisions
 
-- **the checker is the tree's own source, split by concern.** it moves out
-  of `vendor/tl/` into a root of its own, outside the module closure it
-  compiles, and is edited directly from then on. it is split by concern
-  (parser, subtype relation, flow, declarations, emitter) as the steps
-  below create the seams. the patches are not proposed upstream and are not
+- **the checker is the tree's own source, split by concern as each
+  concern lands.** it moves out of `vendor/tl/` into `checker/`, outside
+  the module closure it compiles, and is edited directly from then on. a
+  step that gives a concern its rule gives it a module of its own
+  (`checker/flow.tl`, `checker/narrowing.tl`), so no step exists only to
+  split. the patches are not proposed upstream and are not
   rebased onto a newer release, so the patch format buys nothing and costs
   every foundational change.
-- **the seed stays upstream's `tl.lua`.** `vendor/tl/` keeps `tl.lua`
-  alone, unedited: it compiles the checker at boot, and
-  [`build/compiler_test.tl`] holds the checker to compiling its own source
-  to exactly itself. so the checker's own source is valid upstream 0.24.8:
-  it obeys the restrictions, which upstream accepts, and uses none of the
-  extensions. seeding from the release [`ci/cosmic-driver.pin`] names
+- **the seed is upstream's `tl.lua` until the stage-2 seed (step 11).**
+  `vendor/tl/` keeps `tl.lua` alone, unedited: it compiles the checker at
+  boot, and [`build/compiler_test.tl`] holds the checker to compiling its
+  own source to exactly itself. so the checker's own source is valid
+  upstream 0.24.8: it obeys the restrictions, which upstream accepts, and
+  uses none of the extensions. that already costs it: it cannot write
+  `name?: T` or `: never`, and a cast stands where `never` would. seeding from the release [`ci/cosmic-driver.pin`] names
   would not let the checker use an extension in the change that adds it
   (the pin lags the tree), and would make a binary the root of trust for
   the language, with no way back from a release whose checker is broken.
   when the checker wants an extension, one deliberate change moves its
-  seed to a release that accepts it.
+  seed to a compiler that accepts it (step 11).
 - **declarations are the trust boundary.** a `.d.tl` signature, and a
   narrowing declaration (rule 8), is the only typing the checker takes
   without proof. the standard library's Lua declarations move out of the
@@ -147,6 +149,13 @@ error without another patch.
   before then it flags legal code. the check mode is part of every compile
   cache key, a test proves no built executable carries a check, and a
   report names the caller's line, not the callee's.
+- **a checker step is reviewed twice and measured against main.** each
+  step has two review rounds. each also runs a differential against main
+  over the common idioms of the tree, which measures over-refusal as well
+  as soundness: a rule that refuses what main accepted and the tree writes
+  is a bug in the rule or a missing rewrite. random programs and
+  differential runs find what review does not (see "what the first steps
+  taught").
 - **what the claim excludes.** types do not track integer overflow,
   division by zero, or code a finalizer (`__gc`) runs. each is a run-time
   fault, not a type that lied.
@@ -296,6 +305,13 @@ is in "the steps".
     literal passed where a function type is expected takes its parameter
     types from it, as patch 37 does now, so a `table.sort` comparator needs
     none.
+17. **a value dispatches only through the metamethods its type declares
+    (R).** the flow analysis (rule 4) treats an operator, index or
+    comparison as call-like only on a type whose record declares the
+    metamethod. a metatable attached at run time would add dispatch no type
+    shows. so `setmetatable` attaches a metamethod only to a record type
+    that declares it, with the declared signature, and refuses a metatable
+    that carries any other. [roadmap.md](../roadmap.md) holds the item.
 
 `any` stays as it is: it is legal only where untrusted data enters, and the
 checker already refuses to assign it, call it or index it.
@@ -317,9 +333,10 @@ lands.
 - **array index (rule 2).** 10,719 index reads: 6,310 on arrays, 4,613 of
   them in tests. about 27% are already nil-checked where they stand. the
   loop and guard patterns cover about 13% of the rest. the largest
-  remainder outside tests is a fixed-width row read by a constant index
-  (`row[1]` from a [`Sqlite.rows`] result, about 520 reads), which a tuple
-  type for rows makes exact.
+  remainder outside tests was a fixed-width row read by a constant index
+  (`row[1]` from a [`Sqlite.rows`] result, about 520 reads). rows are read
+  through typed accessors, so these reads are gone. about 4,613 test reads
+  by index remain (see "open questions").
 - **variance (rule 7).** about 1,420 places compared a container
   covariantly. 1,344 are `table.concat` of a `{string}` against its
   `{string | number}` declaration; three option signatures (`fds`,
@@ -329,7 +346,15 @@ lands.
 - **narrowing after a call (rule 4).** of about 1,080 guards on a field
   path, at most 76 call a function in the guarded body and read the path
   again (heuristic).
-- **nil (rules 1 and 5).** heuristic floors: about 80 `return nil` in
+- **the checker's own source.** it is the hard case: 320 type errors under
+  its own rules, pinned as a count by
+  [`build/compiler_test.tl`]. it has about 94 free locals, short of Lua's
+  limit of 200.
+- **nil (rules 1 and 5).** the migration of every directory outside
+  `checker/` cost less than planned. `--check-types` finds what a call or
+  return passes, but not a local or a field omitted from a table literal;
+  those stay honest only once the static nil rule (step 12) lands.
+  heuristic floors: about 80 `return nil` in
   functions declared to return non-nil, about 460 `local x: T` with no
   value, and 39 `table.remove` and 36 `select` calls. the uncounted class
   is nil passed as an argument or written to a field. the tree already
@@ -344,46 +369,74 @@ that refuses more first runs in report mode, then migrates the tree, then
 turns the refusal on for every module in one change. each PR states the
 change in boot time and in the checker's self-compile time.
 
-1. **move the checker, unchanged.** the patched `tl.tl` moves to its own
-   root as one file, compiled at boot as one chunk, and the Lua it emits is
+1. **move the checker, unchanged (done, #3032).** the patched `tl.tl`
+   moves to its own root, compiled at boot, and the Lua it emits is
    byte-identical to what `vendor/tl/` plus `patch/tl/` gave. the change
    carries the compiler's identity and cache keys
    ([`build/identity.tl`], the CI cache names), the boot bridge, the bill
    of materials, [`build/compiler_test.tl`], `vendor/tl/`'s keep list and
    [design.md](../design.md)'s teal section, and a test that an edit to the
-   checker changes the key of every cached compile. deleting `patch/tl/`
-   is its own commit. a later PR turns the patches' notes into comments
-   where they still say something the code does not, and settles which of
-   the tree's checks hold the checker's source.
-2. **structured errors and declarations.** the checker answers a code and
-   its places with each error; the hints in [`build/teal.tl`] read those,
-   not message text. the Lua standard library's declarations move into
-   `.d.tl` files.
-3. **run-time checks in test runs, reporting.** they size what the later
-   steps refuse.
-4. **the flow analysis (rule 4), as the first module split out.** in three
-   PRs: reachability, with what is accepted unchanged; places and guards,
-   unchanged again; then dropping facts at writes and call-like
-   expressions, which refuses more and migrates the tree. the measured
-   count decides whether a call to a function that cannot reach the place
-   keeps its narrowing.
-5. **definite assignment (rule 5).**
-6. **split the rest by concern.** the subtype relation, the declarations,
-   the parser and the emitter become modules of their own.
-7. **variance, views and receivers (rules 7 and 13).** `table.concat` and
+   checker changes the key of every cached compile. the self-compile test
+   checks the checker's own source, and its type-error count is pinned.
+   deleting `patch/tl/` is its own commit. a later PR turns the patches'
+   notes into comments where they still say something the code does not,
+   and settles which of the tree's checks hold the checker's source.
+2. **structured errors and declarations (done, #3033 and #3039).** the
+   checker answers a code and its places with each error; the hints in
+   [`build/teal.tl`] read those, not message text. the Lua standard
+   library's declarations move into `.d.tl` files.
+3. **run-time checks in test runs, reporting (done, #3040).** they size
+   what the later steps refuse.
+4. **the flow analysis (rule 4), as modules of the checker.** in three PRs:
+   - 4a, reachability, with what is accepted unchanged (done, #3041).
+   - 4b, places and guards, unchanged again, in `checker/narrowing.tl`
+     (done, #3044). the same PR fixes crashes that random narrowing
+     programs found.
+   - 4c, dropping facts at writes, calls, declared-metamethod operators,
+     loops and backward-goto labels (done, #3050). it refuses more and
+     migrates the tree. the measured count decided that a call to a
+     function that cannot reach the place keeps its narrowing.
+5. **definite assignment (rule 5).** in progress.
+6. **checker fuzzing, permanent.** a test in the tree runs random programs
+   through the checker and fails on any crash. a differential against a
+   pinned corpus fails when what the checker accepts changes without a
+   deliberate update of the corpus. in progress as its own PR.
+7. **pin bump for the row accessors.** [`Sqlite.rows`] results are read
+   through typed accessors (#3051, in the merge queue). once it merges,
+   [`ci/cosmic-driver.pin`] moves to a release that carries them and `ci/`
+   drops its `ci/cosmic_ci/text_rows.tl` shim. the pin lags the tree, so
+   `ci/` cannot use a new API before this.
+8. **variance, views and receivers (rules 7 and 13).** `table.concat` and
    the three option signatures take views first.
-8. **never as the bottom type (rule 6),** once nil leaves the bottom of the
-   lattice in the type representation, before the tree migrates.
-9. **nil (rules 1, 2, 3 and 14).** report mode first; the declarations
-   audit; a tuple type for [`Sqlite.rows`] results; then migration PRs one
-   directory at a time, tests with their modules, the checker's own source
-   last; then one change that turns the rules on. several PRs.
-10. **narrowing declarations, tagged unions and classes (rules 8, 9 and
+9. **`setmetatable` and declared metamethods (rule 17),** after variance,
+   since a metatable is typed as a record. its report mode counts the
+   `setmetatable` calls that attach an undeclared metamethod.
+10. **never as the bottom type (rule 6),** once nil leaves the bottom of
+    the lattice in the type representation, before the tree migrates.
+11. **the stage-2 seed, before the checker migrates for nil.** the
+    checker's own source moves to a seed compiler that accepts the
+    extensions (`?:`, `never`, the strict rules), so the checker is held to
+    the rules it enforces. a sketch, not a design:
+    - the seed is a compiled checker built from the tree and committed as
+      a vendored artifact, in place of upstream's `tl.lua`. the checker
+      compiles its own source with it, and the result must equal itself
+      (the fixed point of [`build/compiler_test.tl`]).
+    - a change to the checker that the seed cannot compile first moves the
+      seed in a change of its own.
+12. **nil (rules 1, 2, 3 and 14).** report mode first; the declarations
+    audit; then migration PRs one directory at a time, tests with their
+    modules, the checker's own source last, after step 11; then one change
+    that turns the rules on. every directory outside `checker/` is already
+    honest about nil as far as `--check-types` can see (#3028 to #3031,
+    #3043, #3045, #3046). several PRs remain.
+13. **narrowing declarations, tagged unions and classes (rules 8, 9 and
     10),** each with its count in report mode first.
-11. **records and maps, `or` and `and`, casts and parameters (rules 11,
+14. **records and maps, `or` and `and`, casts and parameters (rules 11,
     12, 15 and 16).** most of the tree's casts exist to get past nil,
-    narrowing and variance, so after step 9 most are deleted rather than
+    narrowing and variance, so after step 12 most are deleted rather than
     justified.
+
+every checker step follows the review practice in "decisions".
 
 ## open questions
 
@@ -393,13 +446,30 @@ change in boot time and in the checker's self-compile time.
   `cosmic docs` as plainly as a return type does.
 - **variadic generics.** whether `pcall`, `xpcall` and the coroutine
   functions earn them, or stay special.
-- **rows.** whether [`Sqlite.rows`] answers a tuple type its statement
-  declares, or an accessor.
 - **tests.** whether test files get a helper for an index they have
-  already asserted the length of, since 4,613 array reads are in tests and
-  a nil there already fails the test.
+  already asserted the length of, since about 4,613 array reads are in
+  tests and a nil there already fails the test.
 - **dense arrays.** what rule 3 costs the tree, measured in report mode
-  before step 9.
+  before step 12.
+- **the stage-2 seed.** how it is produced and kept reproducible, so a
+  broken seed has a way back; whether it is committed or built from an
+  earlier release; and how the fixed-point test changes when the seed is
+  no longer upstream's.
+
+## what the first steps taught
+
+- **the checker was buggier than expected.** about 10% of random narrowing
+  programs crashed the checker on main. `local x: integer | nil, y = 1, 2`
+  crashed it, an else-branch assignment was missed in loops (`ipairs` over
+  a nil hole), and the self-compile test had checked nothing. only
+  throwaway differential runs and random-program generators found these,
+  hence step 6.
+- **a restriction can over-refuse.** the syntactic loop rule refused common
+  code that main accepted, and became a typed analysis. every review found
+  at least one blocking issue, often visible only by testing against main.
+- **run-time metatables are a hole,** hence rule 17.
+- **the pinned CI driver lags the tree,** so `ci/` cannot use a new API
+  until the pin moves (step 7).
 
 [`build/compiler_test.tl`]: ../../build/compiler_test.tl
 [`build/identity.tl`]: ../../build/identity.tl
