@@ -9,7 +9,6 @@ local HostId = require("cosmic_ci.host_id")
 local Images = require("cosmic_ci.images")
 local Predicate = require("cosmic_ci.fs_predicate")
 local Sqlite = require("cosmic.sqlite")
-local TextRows = require("cosmic_ci.text_rows")
 local Orchestration = require("cosmic_ci.orchestration")
 local PlaceTree = require("cosmic_ci.place_tree")
 local Prerelease = require("cosmic_ci.prerelease")
@@ -57,7 +56,7 @@ local function summarize(_argv: {string}): integer
       "Operation database unavailable: no operation ran (the self-check failed first).\n"
   else
     local db = open_database(db_path)
-    local rows = assert(TextRows.query(db, [[
+    local rows = assert(Sqlite.text_rows(db, [[
       SELECT s.worker, s.run, s.attempt, s.phase,
              COALESCE(c.status, 'incomplete'),
              COALESCE(CAST(c.elapsed_ns / 1000000 AS TEXT), ''),
@@ -75,7 +74,7 @@ local function summarize(_argv: {string}): integer
     lines[#lines + 1] = "|---|---|---|---|---:|---:|---:|---:|---|\n"
     for _, row in ipairs(rows) do
       local cells: {string} = {}
-      for i = 1, 9 do cells[i] = clean(row[i]) end
+      for i = 1, 9 do cells[i] = clean(row:text(i)) end
       lines[#lines + 1] = "| " .. table.concat(cells, " | ") .. " |\n"
     end
     -- Each suite's row (orchestration's `record_suite`), for a reader
