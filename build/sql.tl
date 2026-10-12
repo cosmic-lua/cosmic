@@ -41,7 +41,6 @@ local Cli = require("cosmic.cli")
 local Clock = require("cosmic.clock")
 local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
-local Csv = require("cosmic.csv")
 local Json = require("cosmic.json")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
@@ -363,26 +362,54 @@ local csv_writer: Writer = {
   end,
 }
 
+--- Names made unique as JSON keys, which tell case apart: a name an
+--- earlier one already is gets `_2` after it, then `_3` and on.
+local function unique(names: {string}): {string}
+  local taken: {string:boolean} = {}
+  local out: {string} = {}
+  for index, name in ipairs(names) do
+    local candidate, number = name, 1
+    while taken[candidate] do
+      number = number + 1
+      candidate = name .. "_" .. number
+    end
+    taken[candidate] = true
+    out[index] = candidate
+  end
+  return out
+end
+
 --- `--to ndjson`: a JSON object per row, its members the columns in
---- order, named as [`Csv.column_names`] makes names unique; an integer or
---- a real a number, text a string, NULL null. A result of one column named
---- `_json`, as `--from` gives each row, is written as its text, which is
---- that row's JSON already. Nil and why for a blob, a NaN or an infinity,
---- text that is not UTF-8, and a `_json` that is not one line.
+--- order, names made unique; an integer or a real a number, text a
+--- string, NULL null. A result of one column named `_json`, as `--from`
+--- gives each row, writes that column's text, a JSON object, as it is.
+--- Nil and why for a blob, an infinity, text or a column name that is not
+--- UTF-8, and a `_json` that is not a JSON object's text on one line.
 local function ndjson_writer(): Writer
   local keys: {string} = {}
+  local unnamable = ""
   local whole = false
   return {
     header = function(names: {string}): string | nil
-      keys = Csv.column_names(names)
       whole = #names == 1 and names[1] == "_json"
+      for index, name in ipairs(unique(names)) do
+        local encoded, _ = Json.encode(name)
+        if encoded == nil then
+          unnamable = "column " .. index .. "'s name is not UTF-8, which a JSON key must be"
+        end
+        keys[index] = encoded or ""
+      end
       return nil
     end,
     row = function(statement: Sqlite.Statement, width: integer): string | nil, string
-      if whole and statement:kind(0) == "text" then
-        local text = statement:bytes(0)
-        if text:find("[\r\n]") ~= nil then
-          return nil, "_json holds a line break, so it is not one line of JSON"
+      if unnamable ~= "" then
+        return nil, unnamable
+      end
+      if whole then
+        local text = statement:kind(0) == "text" and statement:bytes(0) or nil
+        local object, _ = Json.decode_object(text or "")
+        if text == nil or text:find("[\r\n]") ~= nil or object == nil then
+          return nil, "_json is not a JSON object's text on one line"
         end
         return text, ""
       end
@@ -397,14 +424,14 @@ local function ndjson_writer(): Writer
         elseif kind == "text" then
           value = statement:bytes(index)
         elseif kind == "blob" then
-          return nil, keys[index + 1] .. " is a blob, which JSON has no value for; select hex(" ..
-            keys[index + 1] .. ") or base64(" .. keys[index + 1] .. ")"
+          return nil, "column " .. (index + 1) .. " is a blob, which JSON has no value for; " ..
+            "select its hex() or base64()"
         end
         local encoded, trouble = Json.encode(value)
         if encoded == nil then
-          return nil, keys[index + 1] .. ": " .. trouble
+          return nil, "column " .. (index + 1) .. ": " .. trouble
         end
-        members[index + 1] = assert(Json.encode(keys[index + 1])) .. ":" .. encoded
+        members[index + 1] = keys[index + 1] .. ":" .. encoded
       end
       return "{" .. table.concat(members, ",") .. "}", ""
     end,
@@ -855,7 +882,14 @@ function sql.run(argv: {integer:string}, root?: string, output?: sql.Output,
   local function complain(line: string)
     to.err("cosmic: sql: " .. line)
   end
+  -- `--to` makes stdout data from the first complaint on, even about a
+  -- command line that will not parse.
   local aside = false
+  for _, word in pairs(argv) do
+    if word == "--to" or word:sub(1, 5) == "--to=" then
+      aside = true
+    end
+  end
   local function verdict(passed: boolean, detail: string)
     local give = aside and to.verdict_aside or to.verdict
     give(passed, detail .. ", " .. clock.took(started))
@@ -871,7 +905,15 @@ function sql.run(argv: {integer:string}, root?: string, output?: sql.Output,
   local writer: Writer | nil = nil
   local format = parsed.values["--to"]
   if format ~= nil then
-    aside = true
+    local times = 0
+    for _, option in ipairs(parsed.given) do
+      if option == "--to" then times = times + 1 end
+    end
+    if times > 1 then
+      complain("give --to once; " .. usage)
+      verdict(false, "usage: see `cosmic help sql`")
+      return 2
+    end
     local make = writers[format]
     if make == nil then
       complain("--to writes csv or ndjson, not " .. format .. "; " .. usage)
@@ -914,8 +956,6 @@ function sql.run(argv: {integer:string}, root?: string, output?: sql.Output,
     verdict(false, source.name)
     return 1
   end
-  -- A row `--to` cannot write is no refusal of SQLite's, which the
-  -- store's hint is about.
   local unwritable = false
   local written: Writer | nil = nil
   if writer ~= nil then

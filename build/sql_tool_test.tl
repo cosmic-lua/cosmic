@@ -68,7 +68,8 @@ local function test_a_csv_from_a_file_and_standard_input_through_the_binary(tmp:
 end
 
 --- `--to` in a pipe through the binary: stdout holds the data alone, the
---- verdict line is on stderr, and an NDJSON row comes back as it went in.
+--- verdict line is on stderr, and an NDJSON row whose keys are in byte
+--- order comes back as it went in, as `_json` holds it.
 local function test_to_writes_data_alone_on_stdout_through_the_binary(tmp: string)
   local row = '{"a":3,"b":"y\\"\\\\n","c":{"d":[1,2]}}'
   local ran = cosmic(tmp, { "sql", "--from", "-", "--as", "ndjson", "--to", "ndjson",
@@ -79,4 +80,15 @@ local function test_to_writes_data_alone_on_stdout_through_the_binary(tmp: strin
   ran = cosmic(tmp, { "sql", "--from", "-", "--as", "ndjson", "--to", "csv", "SELECT a, b FROM stdin" },
     '{"a":1,"b":"x, y"}\n')
   assert(ran.code == 0 and ran.out == 'a,b\n1,"x, y"\n', ran.out .. ran.err)
+end
+
+--- With `--to` on the line, a command line that will not parse is
+--- complained about with the verdict on stderr: stdout stays empty.
+local function test_to_keeps_stdout_empty_for_a_usage_error(tmp: string)
+  for _, words in ipairs({ { "sql", "--to", "csv", "--bogus", "SELECT 1" }, { "sql", "SELECT 1", "--to" },
+      { "sql", "--to", "csv", "--to", "ndjson", "SELECT 1" } }) do
+    local ran = cosmic(tmp, words)
+    assert(ran.code == 2 and ran.out == "", table.concat(words, " ") .. ": " .. ran.out)
+    assert(ran.err:find("sql: FAIL (usage", 1, true) ~= nil, ran.err)
+  end
 end

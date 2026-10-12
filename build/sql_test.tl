@@ -691,8 +691,12 @@ end
 local function test_to_refuses_what_it_cannot_write()
   local dir = delimited()
   for _, case in ipairs({
-      { "SELECT x'00ff' AS b", "row 1: b is a blob" },
-      { "SELECT CAST(x'ff' AS TEXT) AS t", "row 1: t: json: cannot encode a string that is not UTF-8" },
+      { "SELECT x'00ff' AS b", "row 1: column 1 is a blob" },
+      { "SELECT CAST(x'ff' AS TEXT) AS t", "row 1: column 1: json: cannot encode a string that is not UTF-8" },
+      { "SELECT 1 AS \"\xff\"", "row 1: column 1's name is not UTF-8" },
+      { "SELECT 'not json' AS _json", "row 1: _json is not a JSON object's text on one line" },
+      { "SELECT 5 AS _json", "row 1: _json is not a JSON object's text on one line" },
+      { "SELECT '{\"a\":' || char(10) || '1}' AS _json", "row 1: _json is not a JSON object's text on one line" },
   }) do
     local code, written = run(dir, { "--from", "-", "--as", "csv", "--to", "ndjson", case[1] }, "a\n1\n")
     assert(code == 1 and written.err[1]:find(case[2], 1, true) ~= nil, tostring(written.err[1]))
@@ -705,4 +709,12 @@ local function test_to_refuses_what_it_cannot_write()
   local root = project()
   code, written = run(root, { "--db", build_dir(root) .. "/cosmic.db", "--to", "csv", "SELECT 1 AS one" })
   assert(code == 0 and table.concat(written.out, "\n") == "one\n1", table.concat(written.err, "|"))
+end
+
+--- JSON keys tell case apart, so only a name repeated exactly is renamed.
+local function test_to_ndjson_renames_only_an_exact_repeat()
+  local dir = delimited()
+  local code, written = run(dir, { "--from", "-", "--as", "csv", "--to", "ndjson",
+    "SELECT a, a AS A, a, a AS a_2 FROM stdin" }, "a\n1\n")
+  assert(code == 0 and written.out[1] == '{"a":1,"A":1,"a_2":1,"a_2_2":1}', tostring(written.out[1]))
 end

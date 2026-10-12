@@ -185,7 +185,7 @@ local record Cli
   --- bytes and builds are not per source, so a narrowed report leaves
   --- them out. The tree is found as `test` finds it
   db: string
-  --- `cosmic sql [--db <path> | --build | --store] <statement>`: runs
+  --- `cosmic sql [--db <path> | --build | --store] [--to csv|ndjson] <statement>`: runs
   --- one SQL statement read-only -- SQLite itself refuses a write --
   --- against the projection in the build directory, or the binary's own
   --- database when there is none, or the one database an option names.
@@ -225,13 +225,20 @@ local record Cli
   --- none); each row after is one line of
   --- tab-separated cells: NULL as \N, a blob as X'<hex>',
   --- and in text a backslash, tab, newline or return as \\, \t, \n or
-  --- \r and any other control byte as \xHH. The verdict line comes
-  --- after the rows, as every verb's last line. `--to csv` writes the
-  --- rows as RFC 4180 CSV instead, a header of the column names first,
-  --- NULL an empty field and '' a quoted empty one; `--to ndjson` a JSON
-  --- object per row, its members the columns in order, a blob refused,
-  --- and a result of one column named `_json` as its text. Either is
-  --- data alone on stdout, for a pipe: the verdict line goes to stderr.
+  --- \r and any other control byte as \xHH, and the verdict line
+  --- comes after the rows. `--to` writes the rows as data alone on
+  --- stdout, for a pipe, and the verdict line, its usage refusals'
+  --- included, on stderr. `--to csv` quotes as RFC 4180 does, each record
+  --- ended by LF: a header of the column names first, NULL an empty
+  --- field and '' a quoted empty one (so a one-column NULL is a blank
+  --- line, which a CSV reader may drop), a blob's bytes as they are.
+  --- `--to ndjson` writes a JSON object per row, its members the columns
+  --- in order, a repeated name given `_2`; a result of one column named
+  --- `_json`, as `--from` gives each row, is written as that object's
+  --- text, which holds the row's members with its keys in byte order.
+  --- A blob, an infinity, text or a name that is not UTF-8, or a `_json`
+  --- that is not one, fails the statement, naming the row. `--to` takes
+  --- a statement, not the description no statement gives.
   --- Exits 0 when the
   --- statement ran, rows or none; 1 when the
   --- database or the statement failed, a write among them; 2 for a
