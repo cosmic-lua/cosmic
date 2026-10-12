@@ -519,10 +519,11 @@ local function declarations_of(source: string): Declarations
           end
         end
       elseif n.kind == "local_declaration" and n.vars ~= nil and n.exps ~= nil then
+        local exps = n.exps
         local written = n.decltuple ~= nil and n.decltuple.tuple or nil
         if written == nil or #written == 0 then
           for i, name in ipairs(n.vars) do
-            bind(name.tk, (required_module(bound_value(n.exps[i]))))
+            bind(name.tk, (required_module(bound_value(exps[i]))))
           end
         end
       end
@@ -671,15 +672,16 @@ local function scoped_walk(root: ast.Node, visitor: Visitor)
       visit_all(n.exp)
       scopes[#scopes] = nil
     elseif n.args ~= nil and n.body ~= nil then
+      local arguments = n.args
       if kind == "local_function" and n.name ~= nil then
-        declare(n.name.tk, { args = n.args })
+        declare(n.name.tk, { args = arguments })
       end
       scopes[#scopes + 1] = {}
       if n.is_method == true then
         local owner = n.fn_owner
         declare("self", { type_name = owner ~= nil and owner.e1 == nil and owner.tk or nil })
       end
-      for _, argument in ipairs(n.args) do
+      for _, argument in ipairs(arguments) do
         if not argument.is_self then
           declare(argument.tk, { type_name = nominal_name(argument.argtype) })
         end
@@ -1105,6 +1107,55 @@ local function nil_answer(who: string, value: string): string
     value .. " = assert(<the call>)`"
 end
 
+--- What a use is told when the narrowing of its place was dropped (see
+--- [`teal.replacement`]): what dropped it, and the copy to a local that
+--- keeps the check and the use together, past the call or write that
+--- would change the place.
+local function dropped_hint(e: compiler.Error): string | nil
+  local place, kind, by = e.dropped_place, e.dropped_kind, e.dropped_by
+  if place == nil or kind == nil or by == nil then
+    return nil
+  end
+  local where = tostring(e.dropped_y) .. ":" .. tostring(e.dropped_x)
+  local field = place:match("%.([%a_][%w_]*)$")
+  local copy = field ~= nil and "local " .. field .. " = " .. place or "local " .. place .. " = " .. place
+  local name = field or place
+  local cause: string
+  local before = "the call"
+  if kind == "call" then
+    cause = "the call `" .. by .. "` at " .. where .. " may change it"
+  elseif kind == "write" then
+    cause = "the write `" .. by .. "` at " .. where .. " may be to the same table"
+    before = "the write"
+  elseif kind == "operator" then
+    cause = "the operator `" .. by .. "` at " .. where .. " may run a metamethod that changes it"
+    before = "the operator"
+  elseif kind == "label" then
+    cause = "the label `" .. by .. "` at " .. where .. " may be reached by a `goto` from code that changes it"
+    before = "the label"
+  elseif kind == "loop" then
+    -- What the loop's own pass ran is told by how it is written.
+    local what = "the operator"
+    if by:sub(1, 2) == "::" then
+      what = "the label"
+    elseif by:sub(-5) == "(...)" then
+      what = "the call"
+    elseif by:sub(-6) == " = ..." then
+      what = by:sub(1, -7):find("[%.%[]") and "the write" or "the assignment"
+    end
+    cause = what .. " `" .. by .. "` at " .. where .. " in this loop may change it before the loop comes round again"
+    before = "the loop"
+  else
+    return "'" .. place .. "' was checked, then assigned at " .. where .. ": the checker narrows nothing after " ..
+      "an assignment, so keep the value in a local (`local " .. name .. " = <the value>`, " ..
+      place .. " = " .. name .. ") and use that"
+  end
+  local first = place:find(".", 1, true) == nil and
+    "copy it into a local of its own after the check (`" .. copy .. "`, which no function assigns)" or
+    "copy it to a local before " .. before .. " (`" .. copy .. "`), check and use that"
+  return "'" .. place .. "' was checked, but " .. cause .. ": " .. first
+end
+
 --- The kind of type `source` declares as `name` at its top level
 --- (`local record Month`, `local type Month = ...`), nil when none does,
 --- as [`declarations_of`] reads it.
@@ -1193,9 +1244,10 @@ local function narrowing_hint(e: compiler.Error, source: string): string | nil
     end
     return nil
   end
-  if code == "not_closable" and e.variable ~= nil then
+  local closed = e.variable
+  if code == "not_closable" and closed ~= nil then
     if one_or_nil(e.members) then
-      return "the call may answer nil: `local " .. e.variable .. " <close> = assert(<the call>)` " ..
+      return "the call may answer nil: `local " .. closed .. " <close> = assert(<the call>)` " ..
         "closes what it answers, and raises its error in place of the nil"
     end
     return closable_hint(e.subject or "", source)
@@ -1872,6 +1924,10 @@ end
 --- `unknown type Kv.Kv` whose `Kv` `source` binds to a `require` that
 --- `Kv` itself is the module's record type, unless `refused` holds `Kv`.
 ---
+--- A use refused because the narrowing it relied on was dropped (the code
+--- `narrowing_dropped`) is told what dropped it and the copy to a local that
+--- keeps the check with the use ([`dropped_hint`]).
+---
 --- `local x = fail()` where `fail` is declared `: never` is told that
 --- `fail` never returns, so it has no value to assign
 --- ([`never_value_hint`]), whichever module declares it.
@@ -1898,6 +1954,9 @@ function teal.replacement(e: compiler.Error, source: string, file?: string,
   if code == "require_not_type" then
     local bound = type_require_at(source, y, x)
     return bound ~= nil and type_require_hint(e, file or "", source, bound) or nil
+  end
+  if code == "narrowing_dropped" then
+    return dropped_hint(e)
   end
   if code == "mismatch" and e.got_members ~= nil and #e.got_members == 1 and
       e.got_members[1] == "number" and
@@ -1971,10 +2030,11 @@ function teal.replacement(e: compiler.Error, source: string, file?: string,
   end
   local owner: string | nil = nil
   local option: string | nil = nil
+  local expected_names = e.expected_names
   if wanted_value(e) and e.context == "argument" and e.got == "boolean" and
-      e.expected_names ~= nil and #e.expected_names == 2 and
-      table.concat(e.expected_names, ".") == e.expected then
-    owner, option = e.expected_names[1], e.expected_names[2]
+      expected_names ~= nil and #expected_names == 2 and
+      table.concat(expected_names, ".") == e.expected then
+    owner, option = expected_names[1], expected_names[2]
   end
   if owner ~= nil and option ~= nil then
     local module = module_bound(source, owner)
@@ -1990,11 +2050,11 @@ function teal.replacement(e: compiler.Error, source: string, file?: string,
   local key: string | nil = nil
   local alias: string | nil = nil
   local typename: string | nil = nil
-  if code == "invalid_key" and e.variable ~= nil and e.resolved_kind ~= "interface" and
-      e.key ~= nil and e.key:match("^[%a_][%w_]*$") ~= nil and e.subject ~= nil then
-    local subject = e.subject
+  local wrote, read_through, subject = e.key, e.variable, e.subject
+  if code == "invalid_key" and read_through ~= nil and e.resolved_kind ~= "interface" and
+      wrote ~= nil and wrote:match("^[%a_][%w_]*$") ~= nil and subject ~= nil then
     if subject:match("^[%a_][%w_]*$") ~= nil then
-      key, alias, typename = e.key, e.variable, subject
+      key, alias, typename = wrote, read_through, subject
       if alias == "package" and typename == "package" then
         -- tl's `package` has no field the runtime removed ([`strip`]), and
         -- the catalog says what to write for each.
@@ -2007,7 +2067,7 @@ function teal.replacement(e: compiler.Error, source: string, file?: string,
       -- A module whose record is a local of its own (cosmic.cli's) is
       -- named by its description, `record Module`, not by the alias; the
       -- alias is then what the `require` was bound to.
-      key, alias = e.key, e.variable
+      key, alias = wrote, read_through
       typename = alias
     end
   end

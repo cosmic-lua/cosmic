@@ -407,9 +407,10 @@ local function not_in_process(merged: Sandbox.Policy): string
     return "limits.processes counts the processes of a user namespace of its own, which only " ..
       "a child has"
   end
-  if merged.user ~= nil and (merged.user ~= sys.getuid() or
+  local user = merged.user
+  if user ~= nil and (user ~= sys.getuid() or
       (merged.group ~= nil and merged.group ~= sys.getgid())) then
-    return "user " .. merged.user .. " is who a child runs as; a running process stays the " ..
+    return "user " .. user .. " is who a child runs as; a running process stays the " ..
       "user it is (" .. sys.getuid() .. ")"
   end
   return ""

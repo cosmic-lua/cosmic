@@ -522,10 +522,13 @@ end
 --- Raises at `level` for a task whose `<close>` handler is running, as
 --- the run closes its tasks or one is killed: nothing may wait there.
 local function waiting_task(what: string, level: integer): State | nil
-  if loop == nil then return nil end
-  local task = loop.tasks[coroutine.running()]
+  local active = loop
+  if active == nil then return nil end
+  local task = active.tasks[coroutine.running()]
   if task == nil then return nil end
-  if loop.closing then error("poll: " .. what .. " while Poll.run closes its tasks", level + 1) end
+  if active.closing then
+    error("poll: " .. what .. " while Poll.run closes its tasks", level + 1)
+  end
   if task.killed then error("poll: " .. what .. " while its task is killed", level + 1) end
   if not coroutine.isyieldable() then return nil end
   return task

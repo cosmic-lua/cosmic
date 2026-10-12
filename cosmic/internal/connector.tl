@@ -97,13 +97,14 @@ end_connector = function(connector: Process, collecting: boolean)
   -- touch the run's state.
   if not collecting then Poll.closing(connector.fd) end
   local _, _ = sys.close(connector.fd)
-  if connector.pid == nil then return end
-  local seen, gone = process_raw.waitpid(connector.pid, true)
+  local pid = connector.pid
+  if pid == nil then return end
+  local seen, gone = process_raw.waitpid(pid, true)
   if seen == nil or gone ~= nil and gone ~= "" or seen.pid ~= 0 then return end
   -- Nothing the connector is doing is worth waiting for: it may be in a
   -- connect that would end only at its own timeout.
-  local _, _ = sys.kill(connector.pid, sys.SIGKILL)
-  local _, _ = process_raw.waitpid(connector.pid, false)
+  local _, _ = sys.kill(pid, sys.SIGKILL)
+  local _, _ = process_raw.waitpid(pid, false)
 end
 
 --- Ends the connector and reaps it, waking a task waiting on its stream.

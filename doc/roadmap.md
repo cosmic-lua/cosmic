@@ -36,24 +36,39 @@ defines the target; once something ships, it leaves this file.
   `__index` is checked, and `test_a_function_index_serves_any` in
   [`build/teal_test.tl`] pins the rest). a call through `any` carries no flag
   either.
-- drop narrowed facts at writes and at call-like expressions
-  ([`checker/narrowing.tl`] holds places and guards; it drops a place only
-  when it is assigned). a write to a field `.f` through any base drops every
-  narrowed path ending in `.f`, because another reference may name the same
-  table. a call, and an operator, index or comparison on a record, interface,
-  userdata or `any` (which can run a metamethod), drops every narrowed field
-  path and every local that a function literal in scope assigns. a local no
-  closure assigns stays narrowed across a call. this refuses what is accepted
-  now (`if r.n then clear() print(r.n + 1) end`), so it first runs in report
-  mode, counts the guards whose body calls and reads the path again, and
-  migrates the tree before it turns on.
-- make every guard read every place alike, once facts are dropped at writes
-  and calls (the item above): a field path of any depth (`a.b.c`) and an
-  index (`t[k]`, `k` a literal or a local never reassigned) are places;
-  `type(x.f) == "..."` and the left operand of `and` narrow a field as they
-  do a local; `x is A | B | C` guards all its members, not the last pair; an
-  assignment drops the place assigned and its extensions only (`r.f = v`
-  keeps `r.foo`); a loop that assigns a place drops it at the loop head.
+- make every guard read every place alike: a field path of any depth
+  (`a.b.c`) and an index (`t[k]`, `k` a literal or a local never
+  reassigned) are places, and a write to any index drops every index
+  place; `type(x.f) == "..."` and the left operand of `and` narrow a field
+  as they do a local; `x is A | B | C` guards all its members, not the last
+  pair; an assignment drops the place assigned and its extensions only
+  (`r.f = v` keeps `r.foo`).
+- let `setmetatable` attach metamethods only to a record type that
+  declares them, so that "a value dispatches only through metamethods its
+  type declares" ([doc/design.md](design.md)'s narrowing paragraph) holds of
+  run-time metatables too: today `setmetatable({}, {__index = f})` gives a
+  plain map an `__index` the checker never sees, and the narrowing checks
+  let `f` change a field the program had checked.
+  `may_dispatch` and `runs_no_code` in [`checker/tl.tl`] carry a TODO that
+  names this item, and `test_a_metatable_attached_at_run_time_is_not_seen_yet`
+  in [`build/checker_narrowing_test.tl`] pins four programs it will refuse.
+  `__gc` finalizers stay outside the claim.
+- make a metamethod's run a call wherever it can happen, which the checker
+  tells today by the operator or index it dispatches from: reading a
+  declared field of a record that declares `__index` or `__newindex` runs
+  it when the field is absent; a to-be-closed variable's `__close` runs at
+  its block's end.
+- begin a function literal's body with none of the facts of the places
+  outside it: it runs later, when they may no longer hold, and it works on
+  copies of them now. a local narrowed outside it is widened only if the
+  body assigns it. this refuses what is accepted now (a callback reading a
+  field its creator checked), so it first runs in report mode and counts
+  the bodies that read a fact of the places outside them.
+- list the standard library functions that run no code of the program's
+  with the declarations that say so (today [`checker/tl.tl`] marks them by
+  name where it loads [`checker/stdlib.d.tl`]), and let a declaration of the
+  program's own say it too, so a call of one given arguments that cannot
+  dispatch keeps the narrowing as `tostring` and `table.concat` do.
 - add earned lint rules and their fixes to [`build/fix/rule.tl`]'s rule list.
   the rewrite stage is in place and the list is still empty.
 - add a floor for line coverage, C included: `cosmic test --min PCT
@@ -435,6 +450,7 @@ four-producer provenance join.
 [`build/archive_test.tl`]: ../build/archive_test.tl
 [`build/c/tree.tl`]: ../build/c/tree.tl
 [`build/c_functions.tl`]: ../build/c_functions.tl
+[`build/checker_narrowing_test.tl`]: ../build/checker_narrowing_test.tl
 [`build/contracts.tl`]: ../build/contracts.tl
 [`build/dataset.tl`]: ../build/dataset.tl
 [`build/fix/rule.tl`]: ../build/fix/rule.tl
@@ -445,7 +461,8 @@ four-producer provenance join.
 [`build/shape_specs.tl`]: ../build/shape_specs.tl
 [`build/teal_test.tl`]: ../build/teal_test.tl
 [`build/workflows_test.tl`]: ../build/workflows_test.tl
-[`checker/narrowing.tl`]: ../checker/narrowing.tl
+[`checker/stdlib.d.tl`]: ../checker/stdlib.d.tl
+[`checker/tl.tl`]: ../checker/tl.tl
 [`Child.end_strays`]: ../cosmic/child.tl
 [`ci/cosmic-driver.pin`]: ../ci/cosmic-driver.pin
 [`ci/cosmic_ci/prerelease.tl`]: ../ci/cosmic_ci/prerelease.tl

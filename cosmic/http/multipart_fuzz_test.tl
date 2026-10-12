@@ -183,9 +183,10 @@ local function test_a_well_formed_body_round_trips_under_any_chunking(tmp: strin
       if got.failure ~= "" then return false, "a well-formed body was refused: " .. got.failure end
       if #got.parts > 0 then Fuzz.label("parts") end
       for _, p in ipairs(got.parts) do
-        if p.filename ~= nil then
+        local filename = p.filename
+        if filename ~= nil then
           Fuzz.label("file_part")
-          if p.filename:find("[/\\]") or p.filename:find("%c") then
+          if filename:find("[/\\]") or filename:find("%c") then
             return false, "a filename holds a path or control"
           end
         end

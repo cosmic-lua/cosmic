@@ -57,9 +57,10 @@ end
 
 local database_mt: metatable<Database> = {
   __close = function(self: Database)
-    if self.db ~= nil then
-      if self.transaction then local _, _ = self.db:exec("ROLLBACK") end
-      local _, _ = self.db:close()
+    local db = self.db
+    if db ~= nil then
+      if self.transaction then local _, _ = db:exec("ROLLBACK") end
+      local _, _ = db:close()
     end
   end,
 }

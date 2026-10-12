@@ -26,6 +26,8 @@ local record Flow
   ends: function(Node): boolean
   ends_body: function(Node): boolean
   ends_all: function({Node}): boolean
+  leaves: function(Node): boolean
+  leaves_body: function(Node): boolean
 end
 
 local built: compiler
@@ -218,6 +220,64 @@ end
 local function test_a_goto_out_of_an_endless_loop_still_ends_it()
   assert(ends("while true do goto out end\n::out::", "while"))
   assert(ends("do goto out end\n::out::", "do"))
+end
+
+--- Whether `statement`, the last statement of a function's body, leaves
+--- for good: control reaches nothing after the block that holds it, which a
+--- `break` or a `goto` does not promise.
+local function leaves(statement: string): boolean
+  local ast = check(prelude .. "local function g()\n" .. statement .. "\nend")
+  local body = ast[#ast].body
+  return flow.leaves(body[#body])
+end
+
+local function test_return_and_a_call_that_never_returns_leave_and_break_and_goto_do_not()
+  for _, statement in ipairs({ "return", "return 1", "die()", "error(\"x\")", "do return end",
+      "do x = true; die() end", "if x then return else die() end", "if x then if y then return else return end else return end" }) do
+    assert(leaves(statement), "does not leave: " .. statement)
+  end
+  for _, statement in ipairs({ "x = true", "f()", "if x then return end",
+      "if x then return else x = true end", "while true do end", "repeat return until x", "do x = true end",
+      "while x do if y then return else break end end" }) do
+    assert(not leaves(statement), "leaves: " .. statement)
+  end
+  -- Neither a `break` nor a `goto` leaves for good, though each ends its block.
+  for _, statement in ipairs({ "while x do break end", "goto out\n::out::" }) do
+    local kind = statement:find("break", 1, true) and "break" or "goto"
+    local ast = check(prelude .. "local function g()\n" .. statement .. "\nend")
+    local jump = assert(find(ast[#ast].body, kind))
+    assert(flow.ends(jump) and not flow.leaves(jump), kind)
+  end
+  -- A branch is one that leaves by its last statement.
+  assert(flow.leaves(assert(find(check(prelude .. "local function g()\nif x then x = true; return end\nend"), "if_block"))))
+  assert(not flow.leaves(assert(find(check(prelude .. "local function g()\nwhile x do if y then break end end\nend"), "if_block"))))
+end
+
+local function test_leaves_body_reads_the_last_statement()
+  local ast = check(prelude .. "local function g()\nx = true\nreturn\nend\n" ..
+      "local function h()\ndo return end\nx = true\nend\nlocal function e()\nend")
+  local g, h, e = ast[#ast - 2], ast[#ast - 1], ast[#ast]
+  assert(flow.leaves_body(g.body) and not flow.leaves_body(h.body) and not flow.leaves_body(e.body))
+end
+
+--- Whether the body of the first `if` branch of a function whose body is
+--- `statement`, inside a loop, leaves.
+local function branch_leaves(statement: string): boolean
+  local ast = check(prelude .. "local function g()\nwhile x do\n" .. statement .. "\nend\nend")
+  local branch = assert(find(ast, "if_block"))
+  return flow.leaves_body(branch.body)
+end
+
+local function test_a_body_that_may_break_or_goto_out_does_not_leave()
+  assert(branch_leaves("if x then f(); return end"))
+  -- It ends in `return`, but a path through it goes out first.
+  assert(not branch_leaves("if x then f(); if y then break end; return end"))
+  assert(not branch_leaves("if x then if y then goto out end; return end\n::out::"))
+  assert(not branch_leaves("if x then do if y then break end end; return end"))
+  -- A `break` of a loop inside the body stays inside it.
+  assert(branch_leaves("if x then while y do break end; return end"))
+  assert(branch_leaves("if x then for _ = 1, 2 do if y then break end end; return end"))
+  assert(branch_leaves("if x then repeat break until y; return end"))
 end
 
 local function test_ends_body_reads_the_last_statement()

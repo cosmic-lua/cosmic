@@ -627,7 +627,8 @@ end
 --- start of daylight saving time wins a tie with an end, so a zone whose
 --- rules end it the moment they start it again keeps it all year.
 local function posix_kind(p: Posix, s: integer): Kind
-  if p.dst == nil then return p.std end
+  local dst = p.dst
+  if dst == nil then return p.std end
   local start, stop = assert(p.start), assert(p.finish)
   local year = civil_from_days((s + p.std.offset) // DAY).year
   local best, starts = math.mininteger, false
@@ -635,7 +636,7 @@ local function posix_kind(p: Posix, s: integer): Kind
     local changes = p.years[y]
     if changes == nil then
       changes = { rule_day(start, y) * DAY + start.time - p.std.offset,
-        rule_day(stop, y) * DAY + stop.time - p.dst.offset }
+        rule_day(stop, y) * DAY + stop.time - dst.offset }
       p.years[y] = changes
     end
     if changes[2] <= s and changes[2] > best then

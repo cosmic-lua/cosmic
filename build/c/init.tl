@@ -539,7 +539,8 @@ function c.check(root: string, files: {string}, cwd?: string, limit?: integer):
       local result = results[job]
       local name = c.variants[v].name
       variants[#variants + 1] = name
-      if result.findings == nil then
+      local reported = result.findings
+      if reported == nil then
         out.findings = nil
         out.trouble = (v == 1 and "" or name .. ": ") .. assert(result.trouble)
         break
@@ -548,7 +549,7 @@ function c.check(root: string, files: {string}, cwd?: string, limit?: integer):
         out.findings = findings
         first_unit[i] = units[job]
       end
-      for _, f in ipairs(result.findings) do
+      for _, f in ipairs(reported) do
         local key = f.file .. ":" .. f.line .. ":" .. f.rule .. ":" .. f.within
         local same = at[key]
         if same == nil then

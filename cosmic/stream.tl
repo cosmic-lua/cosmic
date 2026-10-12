@@ -495,7 +495,8 @@ function FdReader:read(max_bytes?: integer): string | nil, string
   if self.ended then return nil, "" end
   local fd, opts = self.fd, self.opts
   local deadline: integer | nil = nil
-  if opts.timeout_ns ~= nil then deadline = Clock.monotonic_ns() + opts.timeout_ns end
+  local timeout = opts.timeout_ns
+  if timeout ~= nil then deadline = Clock.monotonic_ns() + timeout end
   while true do
     local data, trouble, errno = sys.read(fd, max_bytes or chunk_size)
     if data ~= nil then
@@ -1133,7 +1134,8 @@ function ToFdWriter:write(data: string): boolean, string
   if self.failed then return false, self.failed end
   local fd, options = self.fd, self.options
   local deadline: integer | nil = nil
-  if options.timeout_ns ~= nil then deadline = Clock.monotonic_ns() + options.timeout_ns end
+  local timeout = options.timeout_ns
+  if timeout ~= nil then deadline = Clock.monotonic_ns() + timeout end
   local at = 0
   while at < #data do
     -- Handed in pieces, so a body of any size is not copied whole

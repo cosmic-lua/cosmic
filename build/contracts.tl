@@ -1061,9 +1061,10 @@ local function check_inspections(file: string, index: Index, callees: {integer: 
         else
           if b.reason then return true end
           local alias = b.alias
-          if alias == nil or alias.tk == nil then return false end
+          local alias_name = alias ~= nil and alias.tk or nil
+          if alias == nil or alias_name == nil then return false end
           local from = position(alias.y, alias.x)
-          return from < b.at and holds_reason(alias.tk, from)
+          return from < b.at and holds_reason(alias_name, from)
         end
       end
     end
