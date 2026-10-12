@@ -324,7 +324,7 @@ COSMIC_SYSCALL(connector_probe, 2);
  * ---@param stdin? integer the child's fd 0 source, or nil to inherit fd 0
  * ---@param stdout? integer the child's fd 1 source, or nil to inherit fd 1
  * ---@param stderr? integer the child's fd 2 source, or nil to inherit fd 2
- * ---@param process_group boolean put the child in a new process group
+ * ---@param process_group? boolean put the child in a new process group, or not when nil
  * ---@param fds? {integer:integer} more descriptors the child gets, each child descriptor from 3 to 255 by the descriptor it copies; every other one above 2 is closed. The artifact descriptor a portable start retains raises here, as in every descriptor argument, but as `relaunch` hands it on: at the child descriptor the child's environment names its artifact's, from a process that may still run its own core
  * ---@param sandbox? Sandbox what the child, and every process it starts, is held to from its exec on
  * ---@param credentials? Credentials clear supplementary groups and effective, permitted, inheritable and ambient capabilities, set all IDs, and set no_new_privs before cwd and exec. Excludes sandbox unveil, offline, user and group. Inherited cwd and descriptors remain grants. The capability bounding set is unchanged. ENOSYS off Linux. Child setup failure prevents exec; parent dumpability restoration failure can follow exec and ends the owned child before returning failure

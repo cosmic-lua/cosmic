@@ -3815,13 +3815,19 @@ parse_argument_type_list = function(ps: ParseState, i: integer): integer, Type, 
    local t, list = new_tuple(ps, i)
    local n = #ars
    local min_arity = 0
+   local opts = false
    for l, ar in ipairs(ars) do
       list[l] = ar.type
       if ar.is_va and l < n then
          fail(ps, ar.i, "'...' can only be last argument")
       end
       if not ar.opt then
+         if opts then
+            fail(ps, ar.i, "non-optional arguments cannot follow optional arguments")
+         end
          min_arity = min_arity + 1
+      elseif not ar.is_va then
+         opts = true
       end
    end
    if n > 0 and ars[n].is_va then
@@ -11163,30 +11169,22 @@ do
                      if not self:arg_check(iw, errs, x, y, v, mode, pos) then
                         return nil, errs
                      end
-                     -- TODO: refuse the argument of every call whose parameter does not
-                     -- take nil, not only of these two functions: it waits on the
-                     -- call sites that pass a `T | nil`, and on those (mostly tests
-                     -- checking an argument's refusal) that pass a literal nil.
-                     -- The callee is matched by name, so a local named `table` is
-                     -- checked too and an alias (`local ins = table.insert`) is not:
-                     -- it waits on the checker naming the function a call resolves to.
-                     if mode == "argument" and v == "contravariant" and i <= call_min_arity then
-                        local call = w as Node
-                        local callee: Node
-                        if call.kind == "op" then
-                           callee = call.e1
+                     -- TODO: Teal does not narrow on an assignment at a join, so a
+                     -- value made non-nil by one (`if x == nil then x = d end`,
+                     -- `if not x then x = d end`, a `while` or `repeat` that assigns
+                     -- until it is not nil) is still `T | nil` here and refused, with
+                     -- `x = x or d` as the fix. It waits on the facts of a branch and of
+                     -- a loop taking the type an assignment gives its variable.
+                     if mode == "argument" and v == "contravariant" and (i <= call_min_arity or (xs.is_va and i >= n_xs)) then
+                        local taken = x
+                        if taken is TypeVarType then
+                           taken = self:find_var_type(taken.typevar)
                         end
-                        if callee and callee.kind == "op" and callee.op.op == "." and
-                           callee.e1.kind == "variable" and callee.e1.tk == "table" and
-                           (callee.e2.tk == "insert" or callee.e2.tk == "concat") then
-                           local taken = x
-                           if taken is TypeVarType then
-                              taken = self:find_var_type(taken.typevar)
-                           end
-                           if taken and without_nil(self, iw, y, false) ~= nil and not admits_nil(self, iw, taken) then
-                              self.errs:add_prefixing(iw, { Err("got %s, expected %s", y, taken) }, "argument " .. pos .. ": ", errs)
-                              return nil, errs
-                           end
+                        if taken and not admits_nil(self, iw, taken) and
+                           not (taken is NominalType and taken.names[1] == "metatable") and
+                           (without_nil(self, iw, y, false) ~= nil or y.typename == "nil") then
+                           self.errs:add_prefixing(iw, { Err("got %s, expected %s", y, taken) }, "argument " .. pos .. ": ", errs)
+                           return nil, errs
                         end
                      end
                   end
@@ -12378,7 +12376,7 @@ do
          if t1 is UnionType then
             local out = {}
             for _, t in ipairs(t1.types) do
-               if self:is_a(t, t2) then
+               if self:is_a(t, t2) and (not t is NilType or admits_nil(self, w, t2)) then
                   table.insert(out, t)
                end
             end
@@ -13074,6 +13072,10 @@ do
       ["require"] = function(self: TypeChecker, node: Node, _a: Type, b: TupleType, _argdelta?: integer): InvalidOrTupleType
          if #b.tuple ~= 1 then
             return self.errs:invalid_at(node, "require expects one literal argument")
+         end
+         local named = b.tuple[1]
+         if named and (named.typename == "nil" or without_nil(self, node, named, false) ~= nil) then
+            return self.errs:invalid_at(node.e2[1], "require: argument 1: got %s, expected string", named)
          end
          if node.e2[1].kind ~= "string" then
             return a_tuple(node, { a_type(node, "any", {}) })

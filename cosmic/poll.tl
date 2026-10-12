@@ -488,7 +488,7 @@ local function park(task: State, w: Wait, timeout_ns: integer | nil): boolean, s
   else
     if w.fd ~= nil then
       w.watches = {}
-      enter(w, w.fd, w.events, 0)
+      enter(w, w.fd, assert(w.events), 0)
     elseif w.fds ~= nil then
       w.watches = {}
       local masks = assert(w.masks)

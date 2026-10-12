@@ -404,7 +404,7 @@ end
 --- @param config Config What the relay is told
 --- @return string The line, with no newline
 function relay_config.encode(config: relay_config.Config): string
-  local function endpoints(list: {relay_config.Endpoint}): any
+  local function endpoints(list: {relay_config.Endpoint} | nil): any
     if list == nil then return nil end
     local out: {any} = {}
     for i, entry in ipairs(list) do out[i] = { host = entry.host, port = entry.port } end

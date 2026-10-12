@@ -17,16 +17,6 @@ defines the target; once something ships, it leaves this file.
   give any target type unchecked, so one that contains a never-function (a
   function type, or a record or container with such a field) forges the
   guarantee of `: never`.
-- refuse the uses of a nil-admitting record field that raise at run time.
-  a table literal must give every field that does not admit nil, and `name?: T`
-  declares one it may omit, typed `T | nil`.
-  TODO: refuse a nil-admitting value as an argument for any parameter that
-  does not admit nil, not only of `table.insert` and `table.concat` (the TODO
-  in the checker, [`checker/tl.tl`]).
-  a warning first is no option: every warning cosmic sees is
-  a refused compile ([`build/compilation.tl`]'s `generate`,
-  [`build/standalone.tl`] and [`build/example_checks.tl`] each reject on
-  one), and the compile cache keeps no warnings to show again on a hit.
 - declare cosmic.stream's interface methods with a named receiver
   (`read: function(self: Reader, ...)`) and drop each implementing record's
   redeclaration of them: the documented signatures then read as
@@ -427,20 +417,16 @@ four-producer provenance join.
 [`build/archive_test.tl`]: ../build/archive_test.tl
 [`build/c/tree.tl`]: ../build/c/tree.tl
 [`build/c_functions.tl`]: ../build/c_functions.tl
-[`build/compilation.tl`]: ../build/compilation.tl
 [`build/contracts.tl`]: ../build/contracts.tl
 [`build/dataset.tl`]: ../build/dataset.tl
-[`build/example_checks.tl`]: ../build/example_checks.tl
 [`build/fix/rule.tl`]: ../build/fix/rule.tl
 [`build/flow.tl`]: ../build/flow.tl
 [`build/hash_test.tl`]: ../build/hash_test.tl
 [`build/json.tl`]: ../build/json.tl
 [`build/locator_fuzz_test.tl`]: ../build/locator_fuzz_test.tl
 [`build/shape_specs.tl`]: ../build/shape_specs.tl
-[`build/standalone.tl`]: ../build/standalone.tl
 [`build/teal_test.tl`]: ../build/teal_test.tl
 [`build/workflows_test.tl`]: ../build/workflows_test.tl
-[`checker/tl.tl`]: ../checker/tl.tl
 [`Child.end_strays`]: ../cosmic/child.tl
 [`ci/cosmic-driver.pin`]: ../ci/cosmic-driver.pin
 [`ci/cosmic_ci/prerelease.tl`]: ../ci/cosmic_ci/prerelease.tl

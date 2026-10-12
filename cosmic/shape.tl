@@ -437,9 +437,10 @@ local function walk_map(t: {any: any}, spec: Spec, path: string): any, string
     return nil, refusal(path, "map", least_refused(t, is_name))
   end
   local out: {string: any} = {}
+  local of = assert(spec.of)
   for _, k in ipairs(members.keys) do
     if k is string then
-      local got, failed = walk(rawget(t, k), spec.of, field_path(path, k))
+      local got, failed = walk(rawget(t, k), of, field_path(path, k))
       if failed ~= "" then return nil, failed end
       out[k] = got
     end

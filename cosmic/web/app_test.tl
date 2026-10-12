@@ -377,8 +377,8 @@ end
 local function test_on_stop_takes_a_function_and_stopping_starts_false()
   local app = Web.app{ routes = {} }
   assert(app:stopping() == false)
-  local none: function() = nil
-  assert(raised(function() app:on_stop(none) end):find("takes a function", 1, true))
+  local function none(): function() return nil end
+  assert(raised(function() app:on_stop(none()) end):find("takes a function", 1, true))
 end
 
 --- A middleware that aborts every request with 403 before its handler.

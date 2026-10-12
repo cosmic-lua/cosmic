@@ -1310,10 +1310,10 @@ local DISAMBIGUATIONS <const>: {string:boolean} = {
   reject = true, earlier = true, later = true, compatible = true,
 }
 
---- `how`, "reject" when nil; raises, blaming the caller of the
+--- `given`, "reject" when nil; raises, blaming the caller of the
 --- function that asks, for one that is none of [`Disambiguation`]'s.
-local function disambiguation_of(how: Time.Disambiguation): Time.Disambiguation
-  how = how or "reject"
+local function disambiguation_of(given: Time.Disambiguation | nil): Time.Disambiguation
+  local how: Time.Disambiguation = given or "reject"
   if not DISAMBIGUATIONS[how] then
     error("time: disambiguation is \"reject\", \"earlier\", \"later\" or \"compatible\", not " ..
         tostring(how), 3)

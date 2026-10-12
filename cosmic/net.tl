@@ -672,14 +672,14 @@ local function listening(address: Net.Address, opts: Net.ListenOptions,
   local socket, trouble, errno = raw.listen(address, backlog)
   if socket == nil then return nil, named(address) .. ": " .. said(trouble, errno, address) end
   if address.kind ~= "tcp" then
-    return new_listener(socket, Net.unix(address.path), opts.timeout_ns), ""
+    return new_listener(socket, Net.unix(assert(address.path)), opts.timeout_ns), ""
   end
   local bound, why = raw.bound(socket:fd())
   if bound == nil then
     local _, _ = socket:close()
     return nil, named(address) .. ": " .. why
   end
-  return new_listener(socket, Net.tcp(bound.host, bound.port), opts.timeout_ns), ""
+  return new_listener(socket, Net.tcp(assert(bound.host), assert(bound.port)), opts.timeout_ns), ""
 end
 
 --- Listens at `address`. A unix one makes its socket file, and fails
@@ -729,7 +729,7 @@ function Net.listener_from(fd: integer, opts?: Net.ListenOptions): Net.Listener 
     local _, _ = socket:close()
     return nil, "net: descriptor " .. fd .. ": " .. trouble
   end
-  return new_listener(socket, Net.tcp(bound.host, bound.port),
+  return new_listener(socket, Net.tcp(assert(bound.host), assert(bound.port)),
     opts ~= nil and opts.timeout_ns or nil).listener, ""
 end
 
@@ -793,7 +793,7 @@ function Net.connect(address: Net.Address, opts?: Net.ConnectOptions): Net.Conn 
   local timeout_ns = opts ~= nil and opts.timeout_ns or nil
   local attempt = connection(address, timeout_ns)
   if attempt.socket == nil then
-    return nil, named(address) .. ": " .. said(attempt.trouble, attempt.errno, address)
+    return nil, named(address) .. ": " .. said(assert(attempt.trouble), assert(attempt.errno), address)
   end
   return new_conn(attempt.socket, timeout_ns), ""
 end

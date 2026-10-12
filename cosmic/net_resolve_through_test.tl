@@ -179,7 +179,7 @@ local function served(tmp: string, name: string, wait_ms: integer | string, befo
   local out: Served = { lines = {}, queries = {}, datagrams = 0, connections = 0 }
   Poll.run(function()
     local listener = assert(Net.listen(Net.tcp("127.0.0.1", 0)))
-    local port = listener.address.port
+    local port = assert(listener.address.port)
     -- The same port for UDP, where a lookup that sent a datagram would.
     local udp = assert(Udp.bind("127.0.0.1", port))
     local serving = Poll.spawn(function()
@@ -315,7 +315,7 @@ local function test_an_unreachable_name_server_fails_the_lookup()
   require_native_connector()
   -- A port that was free a moment ago.
   local free = assert(Net.listen(Net.tcp("127.0.0.1", 0)))
-  local port = free.address.port
+  local port = assert(free.address.port)
   assert(free:close())
   local dns <close> = assert(Net.connector({ { host = "127.0.0.1", port = port } }))
   local found, why = Net.resolve("down.example.test", { timeout_ns = Clock.seconds(20), connector = dns,
@@ -405,7 +405,7 @@ local function test_a_name_server_reset_as_it_is_made_leaves_the_stream_in_step(
     Test.skip("a lookup through a connector is Linux only, as the connector is")
   end
   local free = assert(Net.listen(Net.tcp("127.0.0.1", 0)))
-  local port = free.address.port
+  local port = assert(free.address.port)
   assert(free:close())
   local hosts = tmp .. "/hosts"
   assert(Fs.write(hosts, ""))

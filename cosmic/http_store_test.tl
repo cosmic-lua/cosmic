@@ -63,7 +63,7 @@ local function test_check_certificate_reads_what_the_binary_trusts()
   local roots = assert(Sqlite.rows(databases[#databases], "SELECT der, label FROM ca_roots"))
   assert(#roots > 0)
   for _, row in ipairs(roots) do
-    local ok, why = Http.check_certificate(row[1].blob)
+    local ok, why = Http.check_certificate(assert(row[1].blob))
     assert(ok and why == "", assert(row[2].text) .. ": " .. tostring(why))
   end
   for _, der in ipairs({ "", "\x30\x03abc", "not der" }) do

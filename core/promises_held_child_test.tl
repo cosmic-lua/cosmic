@@ -80,7 +80,7 @@ local function in_sandbox(tmp: string, probe: string, sandbox: raw_process.Sandb
     sys.close(output)
     Test.skip("this host gives no such sandbox: " .. tostring(trouble))
   end
-  local status = assert(process.waitpid(pid, false))
+  local status = assert(process.waitpid(assert(pid), false))
   sys.close(output)
   return { code = status.code, signal = status.signal, said = (Fs.read(path)) or "" }
 end

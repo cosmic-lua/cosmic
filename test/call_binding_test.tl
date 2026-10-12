@@ -13,10 +13,7 @@ local importer = require("build.importer")
 local teal = require("build.teal")
 local work = require("build.work")
 
-local built, load_trouble = teal.load()
-if built == nil then
-  error("could not load the compiler: " .. tostring(load_trouble))
-end
+local built = assert(teal.load())
 
 --- Compiles `source` as the one module of a fresh fixture project:
 --- true, or false and what the compile refused.
@@ -209,13 +206,11 @@ print(by_call)
   assert(not ok, "known limit: only a variable argument binds first, but the compile passed: " .. tostring(trouble))
 end
 
--- TODO: refuse `id({ name = "a" }, u)` with u: Thing | nil in a function
--- returning Named, accepted with or without the retry that binds from the
--- arguments first: the result of a call whose T the arguments bind to a
--- Thing | nil is taken for a Named, so the nil leaks through. The fix is
--- for the check of the result against the return type to see T's union,
--- not the literal's record.
-local function test_a_nilable_argument_leaks_through_a_shared_type_variable(tmp: string)
+-- `id({ name = "a" }, u)` with u: Thing | nil is refused in a function
+-- returning Named: the argument may be nil, though the
+-- result of the call is taken for a Named, so a nil that reached a type
+-- variable some other way would leak through.
+local function test_a_nilable_argument_is_refused_for_a_shared_type_variable(tmp: string)
   local ok, trouble = compiles(tmp, "hole-nil", prelude .. [[
 local function id<T>(a: T, b: T): T
   print(a)
@@ -227,7 +222,8 @@ local function named(): Named
 end
 print(named, thing_mt)
 ]])
-  assert(ok, "known hole: the nil of u is not seen, but: " .. tostring(trouble))
+  assert(not ok and tostring(trouble):find("argument 2: got Thing | nil", 1, true) ~= nil,
+    "the nil of u is refused: " .. tostring(trouble))
 end
 
 -- TODO: refuse `wrap({ { name = "a" } }, ts)` with ts: {Thing} in a function
