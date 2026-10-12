@@ -149,8 +149,9 @@ local record Cli
   --- `cosmic build [options] [path...]`: builds the tree in the working
   --- directory, then writes one executable in its build directory's
   --- bin/ for each cmd/<name>/main.tl it holds -- or only those under
-  --- the paths -- bin/<name>, whose path it prints -- see cmd. The
-  --- build directory is $XDG_CACHE_HOME/cosmic/trees/<key> (the
+  --- the paths -- bin/<name>, whose path it prints on a line of its own
+  --- on stdout -- see cmd. The build directory is
+  --- $XDG_CACHE_HOME/cosmic/trees/<key> (the
   --- home directory's .cache/cosmic/trees/<key>), <key> the SHA-256 of
   --- the project root's canonical path, so the file is
   --- <that>/bin/<name>; COSMIC_BUILD_HOME=/absolute/path puts the

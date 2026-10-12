@@ -475,8 +475,9 @@ end
 
 --- `cosmic build [--host] [path...]`: the tree in the working directory,
 --- and its executables in its build directory's `bin/` -- only those whose `main.tl` is
---- under one of the paths, when there are any. Ends in a verdict line
---- that names what was written, or says why nothing was.
+--- under one of the paths, when there are any. Prints each executable it
+--- wrote on stdout, a path per line, for a caller to run; then a verdict
+--- line that names them again, or says why nothing was written.
 local function run(argv: {integer:string}): integer
   local started = Clock.monotonic_ns()
   local parsed, parse_trouble = Flags.parse(argv, 2, assert(Cli.verbs.build.spec))
@@ -498,6 +499,7 @@ local function run(argv: {integer:string}): integer
   local outputs: {string} = {}
   local bin = build_paths.resolve(root).bin
   for _, name in ipairs(names) do
+    log:say(bin .. "/" .. name)
     outputs[#outputs + 1] = bin .. "/" .. name .. (host and " (host)" or "")
   end
   local wrote = #outputs > 0 and table.concat(outputs, ", ") or
