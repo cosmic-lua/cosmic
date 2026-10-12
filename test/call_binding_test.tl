@@ -212,8 +212,9 @@ end
 -- TODO: refuse `id({ name = "a" }, u)` with u: Thing | nil in a function
 -- returning Named, accepted with or without the retry that binds from the
 -- arguments first: the result of a call whose T the arguments bind to a
--- Thing | nil is taken for a Named, so the nil leaks through. The fix is for the check of the result against the
--- return type to see T's union, not the literal's record.
+-- Thing | nil is taken for a Named, so the nil leaks through. The fix is
+-- for the check of the result against the return type to see T's union,
+-- not the literal's record.
 local function test_a_nilable_argument_leaks_through_a_shared_type_variable(tmp: string)
   local ok, trouble = compiles(tmp, "hole-nil", prelude .. [[
 local function id<T>(a: T, b: T): T
