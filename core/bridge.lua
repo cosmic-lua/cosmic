@@ -42,9 +42,9 @@ end
 -- themselves, whole or not at all:
 --
 --   * `compiler`: the Lua that the vendored `stage0` makes of the tree's
---     checker, [`checker/tl.tl`], keyed by the digests of `tl.lua` (which is
---     `stage0`), the checker's source, [`checker/stdlib.d.tl`] and this
---     file.
+--     checker, [`checker/tl.tl`] and each other `checker/*.tl` beside it,
+--     keyed by the digests of `tl.lua` (which is `stage0`), the checker's
+--     sources, [`checker/stdlib.d.tl`] and this file.
 --   * `modules`: the Lua of every module loaded up to [`build.boot`],
 --     keyed by the compiler's key and the digest of every `.tl` and `.h`
 --     under the root (`manifest`).
@@ -406,8 +406,10 @@ local function unpack_records(payload)
 end
 
 -- The key of the compiler's row and the base of the modules' rows: the
--- digests of `tl.lua`, of `source` (the checker's `tl.tl`), of
--- `declarations` (its `stdlib.d.tl`) and of this file, which sets the compiler's defaults and decides what is kept.
+-- digests of `tl.lua`, of `source` (the checker's `tl.tl`), of each of
+-- `parts` (the checker's other files, in name order), of `declarations`
+-- (its `stdlib.d.tl`) and of this file, which sets the compiler's defaults
+-- and decides what is kept.
 -- Nil when one cannot be read, when the cache is off, or when `TL_PATH`
 -- is set, which changes where the compiler looks for modules.
 --
@@ -415,15 +417,19 @@ end
 -- loaded, not a second read of each: an edit between the two keys rows
 -- to a file that is not the one running. Waits on core/boot.c handing
 -- the bridge the bytes it loaded (`slurp` already reads them whole).
-local function make_compiler_key(tl_dir, source, declarations, variables)
+local function make_compiler_key(tl_dir, source, parts, declarations, variables)
   if is_set(variables, 'TL_PATH') or not location(variables) then
     return nil
   end
   local vendored = file_digest(tl_dir .. '/tl.lua')
   local bridge = file_digest(root .. '/core/bridge.lua')
   if not vendored or not bridge then return nil end
+  local sources = {}
+  for index, part in ipairs(parts) do
+    sources[index] = sha256(part.name .. '\0' .. part.source)
+  end
   return hex(sha256(format .. '\ncompiler\n' .. vendored .. sha256(source) ..
-    sha256(declarations) .. bridge))
+    table.concat(sources) .. sha256(declarations) .. bridge))
 end
 
 -- Set by `bootstrap` for [`searcher_for`], which keys its modules by it.
@@ -717,25 +723,85 @@ local function searcher_for(tl, variables)
   end
 end
 
+-- The checker's files other than its entry, `file`: every `.tl` beside it
+-- that is not a declaration file, in name order, as
+-- `{ name, file, source }`, the `name` a `require` in the entry spells
+-- (`checker.flow` for [`checker/flow.tl`]) and `file` its path under the root.
+-- Answers nil and why when the directory cannot be read.
+local function checker_parts(file)
+  local directory, entry = file:match('^(.*)/([^/]*)$')
+  directory = directory or '.'
+  entry = entry or file
+  local base = directory:match('([^/]*)$')
+  local names, err = sys.readdir(directory)
+  if not names then return nil, directory .. ': ' .. tostring(err) end
+  local list = {}
+  for name in pairs(names) do list[#list + 1] = name end
+  table.sort(list)
+  local parts = {}
+  for _, name in ipairs(list) do
+    if name ~= entry and name:sub(-3) == '.tl' and name:sub(-5) ~= '.d.tl' then
+      local path = directory .. '/' .. name
+      local source, read_err = read_all(path)
+      if not source then return nil, path .. ': ' .. tostring(read_err) end
+      parts[#parts + 1] = { name = base .. '.' .. name:sub(1, -4),
+        file = base .. '/' .. name, path = path, source = source }
+    end
+  end
+  return parts
+end
+
+-- A `require` for the compiled checker, ahead of its own code: it
+-- answers a module of the checker (`sources`, by name) by loading its Lua
+-- once, in `env`, the environment the checker is loaded in, and any other
+-- name by the `require` it shadows. The checker runs before any module
+-- system exists and from the store, where the host's `require` knows none
+-- of its files.
+local require_prelude = '(function(sources, env) local loaded = {} ' ..
+  'return function(name) local module = loaded[name] if module == nil then ' ..
+  'local source = sources[name] if source == nil then ' ..
+  'return require(name) end ' ..
+  'module = assert(load(source, "@" .. name, "t", env))() loaded[name] = module ' ..
+  'end return module end end)'
+
+-- The Lua the tool carries as its compiler: the entry's `code` behind a
+-- first line that holds the Lua standard library's declarations as the
+-- local `stdlib` and the Lua of each of `parts` (the checker's other
+-- files) under the local `require`, each quoted on that one line, a
+-- newline written `\n` where `%q` writes a backslash and a newline, so no
+-- line of the entry moves. build/compiler_test.tl builds the same line.
+local function carried(declarations, code, parts)
+  local function quoted(text)
+    return (string.format('%q', text):gsub('\\\n', '\\n'))
+  end
+  local sources = {}
+  for index, part in ipairs(parts) do
+    sources[index] = '[' .. quoted(part.name) .. '] = ' .. quoted(part.code)
+  end
+  return 'local stdlib, require = ' .. quoted(declarations) .. ', ' ..
+    require_prelude .. '({' .. table.concat(sources, ', ') .. '}, _ENV) ' .. code
+end
+
 -- The compiler the tree is built with and the tool carries: the tree's
--- own checker, the Teal file at `file` (checker/tl.tl), compiled by
--- `stage0`, the vendored `tl.lua` exactly as upstream generated it, and
--- loaded in the compiler's environment. Answers the compiler and the Lua
--- it was compiled to. The compiler compiles itself to the same Lua
--- (build/compiler_test.tl), so which compiler compiled it does not show
--- in what it is.
+-- own checker, the Teal file at `file` (checker/tl.tl) and the Teal files
+-- beside it, compiled by `stage0`, the vendored `tl.lua` exactly as
+-- upstream generated it, and loaded in the compiler's environment.
+-- Answers the compiler and the Lua it was compiled to. The compiler
+-- compiles itself to the same Lua (build/compiler_test.tl), so which
+-- compiler compiled it does not show in what it is.
+--
+-- The entry requires the other files by name (`require("checker.flow")`),
+-- which `stage0` finds as text, never on disk, and each compiles to a chunk
+-- of its own with the locals of its own. They ride in the Lua the entry
+-- is carried in (`carried`), where the entry's `require` finds them.
 --
 -- The Lua standard library's declarations, `stdlib.d.tl` beside `file`,
--- ride in that Lua: it starts with `local stdlib = "<their text>"` on its
--- first line, the local the checker's `stdlib` is. The text is quoted on
--- that one line, a newline written `\n` where `%q` writes a backslash and
--- a newline, so no line of the compiled checker moves.
--- build/compiler_test.tl builds the same first line and holds the
--- checker to compiling its own source to it.
+-- ride in that Lua as well: it starts with `local stdlib = "<their text>"`
+-- on its first line, the local the checker's `stdlib` is.
 --
 -- `tl_dir` is where `tl.lua` is, which core/boot.c loaded as `stage0`.
 -- What `stage0` makes of the checker is kept in the cache
--- (`compiler_key`); the declarations' line is put in front of it either way.
+-- (`compiler_key`); the first line is put in front of it either way.
 local function bootstrap(stage0, file, tl_dir, variables)
   local source, err = read_all(file)
   if not source then error(file .. ': ' .. tostring(err), 0) end
@@ -745,34 +811,59 @@ local function bootstrap(stage0, file, tl_dir, variables)
   if not declarations then
     error(declarations_file .. ': ' .. tostring(declarations_err), 0)
   end
-  compiler_key = make_compiler_key(tl_dir, source, declarations, variables)
+  local parts, parts_err = checker_parts(file)
+  if not parts then error(parts_err, 0) end
+  compiler_key = make_compiler_key(tl_dir, source, parts, declarations, variables)
   local code
   if compiler_key then
     local cached = cache_file(variables, false)
     local row = cached and look(cached, 'compiler', compiler_key)
     local records = row and unpack_records(row.payload)
     code = records and records.tl and records.tl.code
+    for _, part in ipairs(parts) do
+      part.code = records and records[part.name] and records[part.name].code
+      if not part.code then code = nil end
+    end
   end
   if not code then
-    local env = assert(stage0.new_env({ defaults = {
-      feat_lax = 'off', gen_compat = 'off', gen_target = '5.4',
-    } }))
-    local result
-    code, result = stage0.gen(source, env, nil, 'tl')
-    local trouble = complain(file, result and {
-      syntax_errors = result.syntax_errors, type_errors = result.type_errors,
-    })
-    if not code or trouble ~= '' then
-      error(file .. ': the checker refused it\n' .. trouble, 0)
+    local function compile(path, text)
+      local env = assert(stage0.new_env({ defaults = {
+        feat_lax = 'off', gen_compat = 'off', gen_target = '5.4',
+      } }))
+      local made, result = stage0.gen(text, env, nil, 'tl')
+      local trouble = complain(path, result and {
+        syntax_errors = result.syntax_errors, type_errors = result.type_errors,
+      })
+      if not made or trouble ~= '' then
+        error(path .. ': the checker refused it\n' .. trouble, 0)
+      end
+      return made
     end
+    -- The entry's `require` of a part is answered with the part's text.
+    local by_name = {}
+    for _, part in ipairs(parts) do by_name[part.name] = part end
+    local disk_search = stage0.search_module
+    stage0.search_module = function(name, search_all)
+      local part = by_name[name]
+      if part then return part.path, text_handle(part.source) end
+      return disk_search(name, search_all)
+    end
+    local compiled, failure = pcall(function()
+      code = compile(file, source)
+      for _, part in ipairs(parts) do part.code = compile(part.path, part.source) end
+    end)
+    stage0.search_module = disk_search
+    if not compiled then error(failure, 0) end
     local made = compiler_key and cache_file(variables, true)
     if made then
-      keep(made, 'compiler', compiler_key, '',
-        pack_records({ { name = 'tl', file = 'checker/tl.tl', code = code } }))
+      local records = { { name = 'tl', file = 'checker/tl.tl', code = code } }
+      for _, part in ipairs(parts) do
+        records[#records + 1] = { name = part.name, file = part.file, code = part.code }
+      end
+      keep(made, 'compiler', compiler_key, '', pack_records(records))
     end
   end
-  code = 'local stdlib = ' ..
-    string.format('%q', declarations):gsub('\\\n', '\\n') .. ' ' .. code
+  code = carried(declarations, code, parts)
   local chunk, load_err = load(code, '@vendor.tl', 't', environment)
   if not chunk then error(file .. ': ' .. load_err, 0) end
   return chunk(), code

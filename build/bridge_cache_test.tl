@@ -268,6 +268,28 @@ local function test_any_input_that_changes_is_a_miss(tmp: string)
   assert(boot(f).modules == 0, "a file no compile reads moved the key")
 end
 
+--- The checker's other files are compiled with its entry: each is a record
+--- of the compiler's row, and an edit to one, or a file added beside the
+--- entry, is a miss of that row. A declaration file beside the entry is
+--- not one of them. (The stand-in compiler counts a source that holds
+--- `search_module` as a compile of the compiler.)
+local function test_a_checker_file_beside_the_entry_is_part_of_the_compilers_row(tmp: string)
+  local f = fixture(tmp, "part")
+  local part = f.tree .. "/checker/part.tl"
+  put(part, "-- search_module\nreturn 1\n")
+  local first = boot(f)
+  assert(first.status == 21 and first.compiler == 2,
+    "the first boot made " .. first.compiler .. " compiles of the compiler")
+  local again = boot(f)
+  assert(again.status == 21 and again.compiler == 0, "the compiler's row was not used")
+  put(part, "-- search_module\nreturn 2\n")
+  assert(boot(f).compiler == 2, "an edit to a checker file was taken from a stale row")
+  put(f.tree .. "/checker/other.tl", "-- search_module\nreturn 3\n")
+  assert(boot(f).compiler == 3, "a checker file added was taken from a stale row")
+  put(f.tree .. "/checker/other.d.tl", "-- declarations\n")
+  assert(boot(f).compiler == 0, "a declaration file beside the entry was compiled")
+end
+
 --- A file edited after the key is made but before the bridge reads it is
 --- not kept under that key: the row would hold code of the edited file
 --- for the tree before it, and undoing the edit would take it as a hit.
