@@ -1,0 +1,8 @@
+file: tl.tl
+note: `setmetatable(t, nil)` removes a metatable, so its second parameter, `metatable<T>`, takes a nil in 53b's check. It stays declared `metatable<T>` and is not made a union with nil or given a second declaration, since either changes how a metatable table written in the call is checked against T (47a) and loses the message that names the field of it that is wrong. The skip is by the parameter's type, so a user function's `metatable<T>` parameter takes a nil, and a value that may be nil, too
+--- find
+                        if taken and not admits_nil(self, iw, taken) and
+--- replace
+                        if taken and not admits_nil(self, iw, taken) and
+                           not (taken is NominalType and taken.names[1] == "metatable") and
+--- end

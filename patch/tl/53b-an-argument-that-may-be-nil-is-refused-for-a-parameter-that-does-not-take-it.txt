@@ -1,0 +1,28 @@
+file: tl.tl
+note: refuses, for every call, an argument that is a union carrying nil, or a nil, where the parameter does not take nil, since the callee raises or misbehaves when it is nil. The check is the call's own, by the parameter's type, whatever the callee is called: a local named `table` and an alias (`local ins = table.insert`) are checked like any function. It covers the parameters the call cannot omit (`call_min_arity`, exact since 53a) and every element of a varargs parameter (`...: T`). A parameter that is optional (`name?: T`), `any`, a union with nil, or a type variable not yet bound takes nil, and so does a type variable bound by the arguments before it to a type that takes it. It is an error and no warning because every warning cosmic sees is a refused compile (build/compilation.tl's `generate`, build/standalone.tl and build/example_checks.tl each reject on one) and the compile cache keeps no warnings to show again on a hit. A call whose special handler does not check its arguments (`require`) is not seen here; 53e checks that one
+--- find
+                     if not self:arg_check(iw, errs, x, y, v, mode, pos) then
+                        return nil, errs
+                     end
+--- replace
+                     if not self:arg_check(iw, errs, x, y, v, mode, pos) then
+                        return nil, errs
+                     end
+                     -- TODO: Teal does not narrow on an assignment at a join, so a
+                     -- value made non-nil by one (`if x == nil then x = d end`,
+                     -- `if not x then x = d end`, a `while` or `repeat` that assigns
+                     -- until it is not nil) is still `T | nil` here and refused, with
+                     -- `x = x or d` as the fix. It waits on the facts of a branch and of
+                     -- a loop taking the type an assignment gives its variable.
+                     if mode == "argument" and v == "contravariant" and (i <= call_min_arity or (xs.is_va and i >= n_xs)) then
+                        local taken = x
+                        if taken is TypeVarType then
+                           taken = self:find_var_type(taken.typevar)
+                        end
+                        if taken and not admits_nil(self, iw, taken) and
+                           (without_nil(self, iw, y, false) ~= nil or y.typename == "nil") then
+                           self.errs:add_prefixing(iw, { Err("got %s, expected %s", y, taken) }, "argument " .. pos .. ": ", errs)
+                           return nil, errs
+                        end
+                     end
+--- end
