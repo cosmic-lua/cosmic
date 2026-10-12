@@ -736,7 +736,7 @@ end
 --- process whose environment dropped [`confine.held_variable`], which
 --- would have named it.
 function test_sandbox.refusal(trouble: string): string
-  local why: string = nil
+  local why: string | nil = nil
   if trouble:find("No space left on device", 1, true) then
     why = "this host allows no user namespaces (user.max_user_namespaces is 0)"
   elseif trouble:find("Operation not permitted", 1, true) or

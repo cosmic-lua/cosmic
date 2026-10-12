@@ -184,7 +184,7 @@ end
 --- database that declares any, in its order.
 local function members_under(index: symbol_index.Index, target: symbol_index.Row): {symbol_index.Row}
   local rows = index.under[target.module .. "\n" .. target.source_symbol] or {}
-  local first: integer = nil
+  local first: integer | nil = nil
   for _, row in ipairs(rows) do
     if first == nil or row.database < first then first = row.database end
   end

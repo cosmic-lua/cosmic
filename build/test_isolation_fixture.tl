@@ -112,7 +112,7 @@ function fixture.hung_runs(tmp: string, probe: string | nil, sandbox_workers: bo
   -- nest in this test's own sandbox, which a host may refuse: the
   -- kernel lets root nest one only two deep (core/syscalls.c's
   -- `map_ids`). CI's unprivileged runners nest them.
-  local unsandboxed: string = nil
+  local unsandboxed: string | nil = nil
   for _, mode in ipairs({ sandbox_workers and "" or "0" }) do
     local marker = "cosmic-hang-" .. tostring(Clock.monotonic_ns())
     local here = tmp .. "/mode" .. mode
