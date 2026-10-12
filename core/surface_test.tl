@@ -205,8 +205,10 @@ local function test_where_names_a_frame_by_source_and_line()
   assert(number(inner) == number(here) + 3, inner .. " against " .. here)
   local up, same = asks(2), errors.where()
   assert(up ~= nil and same ~= nil and number(up) == number(same), tostring(up) .. " " .. tostring(same))
+  -- Level 2 from a function `pcall` runs is the `pcall`, which runs C: the
+  -- first Lua frame above it is this one, at the line of the call.
   local viewed: string | nil
-  local ok = pcall(function() viewed = errors.where(2) end)
-  assert(ok and viewed ~= nil and viewed:match(":(%d+)$") ~= nil, tostring(viewed))
+  local ok, line = pcall(function() viewed = errors.where(2) end), number(errors.where() as string)
+  assert(ok and viewed ~= nil and number(viewed) == line, tostring(viewed) .. " against " .. line)
   assert(errors.where(1000) == nil)
 end

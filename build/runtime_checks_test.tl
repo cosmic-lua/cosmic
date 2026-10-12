@@ -388,6 +388,7 @@ local function test_a_malformed_spec_is_no_failure_of_the_test()
     local first, second = hook(2, spec, "a", "b")
     assert(first == "a" and second == "b", spec)
   end
-  assert(select("#", hook(2, "f;broken", 1, 2)) == 1)
+  -- A field's spec that does not parse passes its first value alone.
+  assert(select("#", hook(2, "fx;broken", 1, 2)) == 1)
   assert(met() == before, "a malformed spec was reported")
 end
