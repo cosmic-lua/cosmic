@@ -13,6 +13,7 @@ local clock = require("build.clock")
 local artifact = require("build.artifact")
 local build_paths = require("build.paths")
 local plural = require("build.plural")
+local Hash = require("cosmic.hash")
 local String = require("cosmic.string")
 
 local log = Log.new("cosmic")
@@ -22,6 +23,8 @@ local log = Log.new("cosmic")
 -- requires is compiled from source by the bridge's searcher
 -- (core/bridge.lua) before it runs, and the assembly, started again once
 -- every core is linked, would wait for that compile of code it never calls.
+-- So a build module that does not compile fails inside `stage`, as a
+-- "build.boot failed" from the bridge, rather than when this file loads.
 -- TODO: once core/bridge.lua takes its compile of the vendored `tl.tl` from
 -- the compiles every checkout shares (its own TODO in `bootstrap`), the
 -- assembly's start, about 6 s of the compiler's bootstrap on every run of
@@ -34,6 +37,71 @@ local record Staged
   parses_shared: integer
   compiled: integer
   modules_shared: integer
+  --- Milliseconds the stage took, from its own start.
+  elapsed_ms: integer
+end
+
+--- Where a stage vouches for the carried database it wrote, beside it.
+local function stamp_path(output: build_paths.Layout): string
+  return output.carried .. ".stamp"
+end
+
+--- The stamp's fields, in the order it keeps them.
+local stamp_fields <const>: {string} = { "carried", "records", "files", "parsed",
+  "parses_shared", "compiled", "modules_shared", "elapsed_ms" }
+
+--- Vouches for the carried database a stage wrote: its digest, the digest
+--- of the target records the stage ran for, and the figures the boot's
+--- verdict line reports. `--assemble` accepts only the database a stamp
+--- names, so a stale or foreign `carried.db` is refused instead of
+--- shipped, and reports the whole boot's figures.
+local function stamp_text(staged: Staged, carried: string, records: string): string
+  local values: {string:string} = {
+    carried = Hash.hex_sha256(carried),
+    records = Hash.hex_sha256(records),
+    files = tostring(staged.files),
+    parsed = tostring(staged.parsed),
+    parses_shared = tostring(staged.parses_shared),
+    compiled = tostring(staged.compiled),
+    modules_shared = tostring(staged.modules_shared),
+    elapsed_ms = tostring(staged.elapsed_ms),
+  }
+  local lines: {string} = {}
+  for _, field in ipairs(stamp_fields) do
+    lines[#lines + 1] = field .. "=" .. values[field]
+  end
+  return table.concat(lines, "\n") .. "\n"
+end
+
+--- What a stamp vouches for: the stage's figures and the digest of the
+--- carried database it wrote.
+local record Stamp
+  staged: Staged
+  carried: string
+end
+
+--- The stamp `text` is, if it is one for `records`; else nil and why.
+local function read_stamp(text: string, records: string): Stamp | nil, string
+  local values: {string:string} = {}
+  for field, value in text:gmatch("([%a_]+)=(%x+)\n") do
+    values[field] = value
+  end
+  for _, field in ipairs(stamp_fields) do
+    if values[field] == nil then
+      return nil, "the stage's stamp lacks " .. field
+    end
+  end
+  if values.records ~= Hash.hex_sha256(records) then
+    return nil, "the stage's stamp is for other target records"
+  end
+  return { carried = values.carried, staged = {
+    files = math.tointeger(values.files) or 0,
+    parsed = math.tointeger(values.parsed) or 0,
+    parses_shared = math.tointeger(values.parses_shared) or 0,
+    compiled = math.tointeger(values.compiled) or 0,
+    modules_shared = math.tointeger(values.modules_shared) or 0,
+    elapsed_ms = math.tointeger(values.elapsed_ms) or 0,
+  } }, ""
 end
 
 --- Stages the tree into the build directory's working database, parses
@@ -151,6 +219,7 @@ local function stage(root: string, tl_dir: string, compiler_source: string,
     parses_shared = result.parses.shared,
     compiled = result.compiled,
     modules_shared = result.shared,
+    elapsed_ms = clock.elapsed_ms(started),
   }
 end
 
@@ -165,13 +234,20 @@ end
 --- Writes the tool: the artifact prefix over every raw core in `images`,
 --- then the carried database `stage` wrote. The tool is written last and
 --- whole, so a failure anywhere before leaves the previous one in place.
---- Returns the database's length, or nil having said why.
+--- `expected`, when given, is the digest the database must have. Returns
+--- the database's length, or nil having said why.
 local function assemble(manifest_records: string, images: {string:string},
                         selected_configuration: integer,
-                        output: build_paths.Layout): integer | nil
+                        output: build_paths.Layout,
+                        expected?: string): integer | nil
   local database, read_trouble = Fs.read(output.carried)
   if database == nil then
     log:verdict("boot", false, read_trouble)
+    return nil
+  end
+  if expected ~= nil and Hash.hex_sha256(database) ~= expected then
+    log:verdict("boot", false, output.carried ..
+        " is not the database the last stage stamped")
     return nil
   end
   local prefix, prefix_trouble = artifact.prefix(manifest_records, images,
@@ -206,7 +282,12 @@ end
 --- database `--stage` left and writes the tool. `bin/zig build boot` runs
 --- the first as soon as the host core is linked and the second once every
 --- core is, so the cores that only the assembly reads do not hold the
---- Teal work back. Neither takes a checked core.
+--- Teal work back. `--stage` ends by writing a stamp beside `carried.db`
+--- (the database's digest, the records it ran for, its figures and time),
+--- and removes the last one first; `--assemble` refuses a `carried.db` or
+--- records the stamp does not name, so the step graph is not all that
+--- pairs the two, and its `boot: PASS` line reports the whole boot.
+--- Neither takes a checked core.
 --- Slots 7 through 9 optionally set the checked raw core, four-entry record
 --- file and checked output directory
 --- @param compiler_source the Lua the compiler running this was compiled
@@ -338,26 +419,55 @@ local function boot(root: string, argv: {integer:string},
   end
 
   if mode == "stage" then
+    -- No stamp survives into a stage that has not finished: an
+    -- interrupted one leaves the assembly nothing to trust.
+    local _, _ = Fs.remove(stamp_path(output))
     local made = stage(root, argv[3], compiler_source, working, output, started)
     if made == nil then return 1 end
+    local database, read_trouble = Fs.read(output.carried)
+    if database == nil then
+      log:verdict("boot", false, read_trouble)
+      return 1
+    end
+    local stamped, stamp_trouble =
+      Fs.write(stamp_path(output), stamp_text(made, database, records))
+    if not stamped then
+      log:verdict("boot", false, stamp_trouble)
+      return 1
+    end
     log:verdict("stage", true, describe(made) .. ", " .. clock.took(started))
     return 0
   end
-  local staged: Staged | nil = nil
+  local staged: Staged
+  local expected: string | nil = nil
   if mode == "boot" then
-    staged = stage(root, argv[3], compiler_source, working, output, started)
-    if staged == nil then return 1 end
+    local made = stage(root, argv[3], compiler_source, working, output, started)
+    if made == nil then return 1 end
+    staged = made
+  else
+    local text, text_trouble = Fs.read(stamp_path(output))
+    if text == nil then
+      log:verdict("boot", false, text_trouble)
+      return 1
+    end
+    local read, read_trouble = read_stamp(text, records)
+    if read == nil then
+      log:verdict("boot", false, read_trouble)
+      return 1
+    end
+    staged, expected = read.staged, read.carried
   end
   local database_length = assemble(manifest_records, images,
-    selected_configuration, output)
+    selected_configuration, output, expected)
   if database_length == nil then return 1 end
 
-  local summary = plural.count(#targets, "target")
-  if staged ~= nil then
-    summary = summary .. ", " .. describe(staged)
-  end
-  log:verdict("boot", true, summary .. ", " ..
-      plural.count(database_length, "database byte") .. ", " .. clock.took(started))
+  -- A whole boot's time: the stage's (which `--assemble` reads from its
+  -- stamp, and which may have run while other cores linked) and this run's.
+  local total_ms = clock.elapsed_ms(started)
+  if mode == "assemble" then total_ms = total_ms + staged.elapsed_ms end
+  log:verdict("boot", true, plural.count(#targets, "target") .. ", " ..
+      describe(staged) .. ", " ..
+      plural.count(database_length, "database byte") .. ", " .. total_ms .. " ms")
   return 0
 end
 

@@ -6,6 +6,7 @@
 --- previous tool where it was.
 
 local Fs = require("cosmic.fs")
+local Hash = require("cosmic.hash")
 local artifact = require("build.artifact")
 local boot = require("build.boot")
 local build_paths = require("build.paths")
@@ -23,6 +24,17 @@ local cores <const>: {string:string} = {
 }
 
 local carried <const> = "SQLite format 3\0carried database bytes"
+
+--- What a stage's stamp says of `database` ([`build.boot`]), staged for
+--- `for_records`: seven files, an elapsed time of 1234 ms.
+local function stamp_of(database: string, for_records: string): string
+  return table.concat({
+    "carried=" .. Hash.hex_sha256(database),
+    "records=" .. Hash.hex_sha256(for_records),
+    "files=7", "parsed=5", "parses_shared=3", "compiled=2", "modules_shared=1",
+    "elapsed_ms=1234", "",
+  }, "\n")
+end
 
 --- A build directory under `tmp` holding every raw core but those in
 --- `without`, the carried database unless `no_database`, and a tool a
@@ -44,6 +56,7 @@ local function directory(tmp: string, without?: {string}, no_database?: boolean)
   assert(Fs.write(layout.tool, "previous tool", 0x1ed))
   if not no_database then
     assert(Fs.write(layout.carried, carried))
+    assert(Fs.write(layout.carried .. ".stamp", stamp_of(carried, records)))
   end
   assert(Fs.write(tmp .. "/targets.tsv", records))
   return layout.directory, tmp .. "/targets.tsv"
@@ -57,6 +70,20 @@ local function run(mode: string, records_path: string, build_directory: string,
     argv[#argv + 1] = argument
   end
   return boot("/nonexistent-tree", argv, "")
+end
+
+--- `run`'s status and the verdict lines a boot writes to [`Fs.stdout`].
+local function run_capturing(mode: string, records_path: string,
+                             build_directory: string, extra?: {string}): integer, string
+  local path = build_directory .. ".stdout"
+  local fd = assert(Fs.open_write(path))
+  local real = Fs.stdout
+  Fs.stdout = fd
+  local ok, code = pcall(run, mode, records_path, build_directory, extra)
+  Fs.stdout = real
+  assert(Fs.close(fd))
+  assert(ok, tostring(code))
+  return code as integer, (assert(Fs.read(path)))
 end
 
 local function tool_of(build_directory: string): string
@@ -102,21 +129,61 @@ local function test_a_half_boot_takes_no_checked_core(tmp: string)
   assert(tool_of(build_directory) == "previous tool")
 end
 
---- A stage reads no core: with none built it still gets past the target
---- records to making the build directory's `bin`, its first work. It
---- then goes on to load the tree's build code, which a test has no way to
---- run, so how it ends is not what is checked. An assembly with no core
---- fails before making anything.
+--- A stage reads no core: with none built it gets as far as staging the
+--- tree, which does not exist here, and fails there, saying nothing of a
+--- core. It leaves no stamp.
 local function test_stage_does_not_need_the_cores(tmp: string)
   local layout = build_paths.under(tmp .. "/build")
   assert(Fs.mkdirs(layout.directory))
   assert(Fs.write(tmp .. "/targets.tsv", records))
-  local _, _ = pcall(run, "--stage", tmp .. "/targets.tsv", layout.directory)
-  assert(Fs.stat(layout.bin) ~= nil, "the stage stopped before its own work")
-  assert(Fs.stat(layout.tool) == nil)
+  local loaded = package.loaded["build.compiler"]
+  package.loaded["build.compiler"] = {}
+  local code, out = run_capturing("--stage", tmp .. "/targets.tsv", layout.directory)
+  package.loaded["build.compiler"] = loaded
+  assert(code == 1, out)
+  assert(out:find("boot: FAIL", 1, true), out)
+  assert(not out:find("cosmic-core", 1, true), out)
+  assert(Fs.stat(layout.carried .. ".stamp") == nil)
 
   local other = build_paths.under(tmp .. "/other")
   assert(Fs.mkdirs(other.directory))
   assert(run("--assemble", tmp .. "/targets.tsv", other.directory) == 1)
   assert(Fs.stat(other.bin) == nil, "the assembly went on without a core")
+end
+
+--- The assembly ships only the database its stage stamped, and says the
+--- whole boot's figures: the stage's counts and time with its own.
+local function test_assemble_reports_the_whole_boot(tmp: string)
+  local build_directory, records_path = directory(tmp)
+  local code, out = run_capturing("--assemble", records_path, build_directory)
+  assert(code == 0, out)
+  assert(out:find("boot: PASS (3 targets, 7 files staged, 5 sources parsed, " ..
+      "3 taken from another checkout, 2 modules compiled, 1 taken from another checkout, ",
+    1, true), out)
+  local total = assert(tonumber(out:match(", (%d+) ms%)")), out)
+  assert(total >= 1234, out)
+end
+
+local function test_assemble_refuses_a_database_its_stamp_does_not_name(tmp: string)
+  local build_directory, records_path = directory(tmp)
+  local layout = build_paths.under(build_directory)
+  assert(Fs.write(layout.carried, "SQLite format 3\0another stage's database"))
+  assert(run("--assemble", records_path, build_directory) == 1)
+  assert(tool_of(build_directory) == "previous tool")
+end
+
+local function test_assemble_refuses_a_stamp_for_other_records(tmp: string)
+  local build_directory, records_path = directory(tmp)
+  local layout = build_paths.under(build_directory)
+  assert(Fs.write(layout.carried .. ".stamp",
+    stamp_of(carried, records .. "4\t1\trelease\tz\tLinux\tz\n")))
+  assert(run("--assemble", records_path, build_directory) == 1)
+  assert(tool_of(build_directory) == "previous tool")
+end
+
+local function test_assemble_refuses_without_a_stamp(tmp: string)
+  local build_directory, records_path = directory(tmp)
+  assert(Fs.remove(build_paths.under(build_directory).carried .. ".stamp"))
+  assert(run("--assemble", records_path, build_directory) == 1)
+  assert(tool_of(build_directory) == "previous tool")
 end
