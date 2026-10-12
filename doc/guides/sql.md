@@ -275,10 +275,13 @@ within another.
   csv(filename='rows.csv')`, or `data='...'` for the text itself. Its
   columns are `c0`, `c1`, ... and its first record is row 1, unless
   `header=yes` names the columns from its first line, or `schema=` names
-  them. Every cell is TEXT. [`cosmic.csv`]'s `load` copies a CSV
-  into a table through it, naming and typing the columns.
+  them, and `delimiter='X'` reads the one byte X between fields, a TSV's
+  tab written as a tab between the quotes. Every cell is TEXT.
+  [`cosmic.csv`]'s `load` copies a CSV into a table through it, naming
+  and typing the columns, and `cosmic sql --from` a csv or tsv file.
 
-  It reads as [`cosmic.csv`] reads, with a comma between fields: a quoted
+  It reads as [`cosmic.csv`] reads, with a comma or the delimiter between
+  fields: a quoted
   field holds commas, quotes as `""` and line breaks; a record ends at LF
   or CRLF, and a lone CR is data; a UTF-8 byte order mark at the start is
   dropped. A blank line is a row of NULLs, an empty field `''`, and a

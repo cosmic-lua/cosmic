@@ -1,0 +1,21 @@
+file: ext/misc/csv.c
+note: The reader holds the byte between fields, which a delimiter= parameter gives (34-csv-takes-a-delimiter.txt): 0, as a reader is made, is a comma. The reader matches it where it matched a comma, and answers a field it ends as ending at a comma, so the rest of this file, which reads `cTerm==','` as "the record goes on", is unchanged. cosmic.csv's `load` reads a TSV file through it. Upstream reads only commas as of 3.54.0.
+--- find
+  int bQuoted;           /* True if the most recent field was quoted */
+  size_t iIn;            /* Next unread character in the input buffer */
+  size_t nIn;            /* Number of characters in the input buffer */
+  char *zIn;             /* The input buffer */
+  char zErr[CSV_MXERR];  /* Error message */
+};
+--- replace
+  int bQuoted;           /* True if the most recent field was quoted */
+  char cSep;             /* The byte between fields, or 0 for a comma */
+  size_t iIn;            /* Next unread character in the input buffer */
+  size_t nIn;            /* Number of characters in the input buffer */
+  char *zIn;             /* The input buffer */
+  char zErr[CSV_MXERR];  /* Error message */
+};
+
+/* The byte between fields that reader p reads */
+#define CSV_SEP(p) ((p)->cSep ? (p)->cSep : ',')
+--- end

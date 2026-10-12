@@ -474,7 +474,8 @@ local function test_each_row_is_at_the_line_its_record_was_written_on(tmp: strin
   })
 end
 
---- Text for [`Csv.load`], read as text or from a file: some padded so
+--- Text for [`Csv.load`], read as text or from a file, with one of the
+--- delimiters: some padded so
 --- what follows lands where SQLite's CSV table refills its 1024-byte
 --- buffer from a file.
 local function gen_load(src: Fuzz.Source): string
@@ -483,7 +484,7 @@ local function gen_load(src: Fuzz.Source): string
   if src:int(0, 3) == 0 then
     text = "a\n" .. string.rep("b", src:int(1018, 1030)) .. "\n" .. text
   end
-  return Fuzz.pack({ src:int(0, 1) == 0 and "text" or "path", text })
+  return Fuzz.pack({ src:int(0, 1) == 0 and "text" or "path", text, fields[1] })
 end
 
 --- What [`Csv.load`] copies with `raw` is what [`Csv.table`] reads, row for
@@ -502,15 +503,18 @@ local function test_load_reads_what_table_reads(tmp: string)
     check = function(input: string): boolean, string
       local fields = Fuzz.unpack(input)
       local how, text = fields[1], fields[2]
-      local source: Csv.Source = { raw = true }
+      -- An input kept before inputs held a delimiter reads with a comma.
+      local delimiter = fields[3] or ","
+      local source: Csv.Source = { raw = true, delimiter = delimiter }
       if how == "text" then
         source.text = text
       else
         assert(Fs.write(path, text))
         source.path = path
       end
-      local made, refused = Csv.table(text)
-      local copied, why = Csv.load(db, "loaded", source)
+      local made, refused = Csv.table(text, { delimiter = delimiter })
+      local loaded, why = Csv.load(db, "loaded", source)
+      local copied = loaded and loaded.count
       local cells: {{string}} = {}
       if copied ~= nil then
         cells = assert(Sqlite.text_rows(db, "SELECT * FROM loaded ORDER BY rowid"))
@@ -548,8 +552,9 @@ local function test_load_reads_what_table_reads(tmp: string)
         end
       end
       if how == "path" then Fuzz.label("from a file") end
+      if delimiter ~= "," then Fuzz.label("another delimiter") end
       return true, ""
     end,
-    requires = { "read", "refused", "a NUL", "from a file" },
+    requires = { "read", "refused", "a NUL", "from a file", "another delimiter" },
   })
 end

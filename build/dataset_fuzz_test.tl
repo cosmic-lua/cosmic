@@ -216,3 +216,129 @@ local function test_each_key_reads_back_by_its_column(tmp: string)
     end,
   })
 end
+
+--- Cells for a CSV or TSV: numbers plain and not, the empty cell, quotes,
+--- delimiters, line breaks, a NUL and bytes that are no UTF-8.
+local CELLS <const> = { "1", "-0", "007", "2.5", "-0.0", "1e999", "1e-400", "12345678901234567890", "",
+  "x", 'a"b', "a,b", "a\tb", "a\nb", "a\r\nb", " ", "\xff", "\xc3\xa9", "\0", "rowid", "_json", "A", "a" }
+
+--- One field as CSV writes it: quoted when it holds the delimiter, a
+--- quote or a line break.
+local function written(field: string, delimiter: string): string
+  if field:find(delimiter, 1, true) or field:find('[\r\n"]') then
+    return '"' .. field:gsub('"', '""') .. '"'
+  end
+  return field
+end
+
+--- A csv or tsv of a few rows of those cells, its header among them too;
+--- now and then mutated, so a fault is read as well as a table.
+local function gen_delimited(src: Fuzz.Source): string
+  local format = src:int(0, 1) == 0 and "csv" or "tsv"
+  local delimiter = format == "csv" and "," or "\t"
+  local width = src:int(1, 4)
+  local lines: {string} = {}
+  local rows = src:int(0, 4)
+  for row = 0, rows do
+    local fields: {string} = {}
+    for column = 1, width do
+      local cell = row == 0 and src:int(0, 2) == 0 and "h" .. column or Fuzz.pick(src, CELLS)
+      fields[column] = written(cell, delimiter)
+    end
+    lines[#lines + 1] = table.concat(fields, delimiter)
+  end
+  local text = table.concat(lines, "\n") .. (src:int(0, 1) == 0 and "\n" or "")
+  if src:int(0, 3) == 0 then
+    text = Fuzz.mutate(src, text, 3)
+  end
+  return Fuzz.pack({ format, text, src:int(0, 1) == 0 and "path" or "text", src:int(0, 1) == 0 and "raw" or "" })
+end
+
+--- Each row of `t` on `db`: its cells as `quote` writes them, then its
+--- `_json` object's members, each key, JSON type and value.
+local function cells_of(db: Sqlite.Handle, columns: {string}): string
+  local quoted: {string} = {}
+  for index, column in ipairs(columns) do
+    quoted[index] = 'quote("' .. column:gsub('"', '""') .. '")'
+  end
+  -- A text with no records makes a table of `_json` alone.
+  if #quoted == 0 then
+    quoted[1] = "''"
+  end
+  local rows = assert(Sqlite.text_rows(db, "SELECT " .. table.concat(quoted, " || '|' || ") ..
+      ", (SELECT group_concat(key || ':' || type || ':' || quote(atom), ',') FROM json_each(t._json)) FROM t ORDER BY rowid"))
+  local out: {string} = {}
+  for index, row in ipairs(rows) do
+    out[index] = table.concat(row, " ; ")
+  end
+  return table.concat(out, "\n")
+end
+
+--- A csv or tsv that `load_text` copies through SQLite's CSV table is the
+--- table `read` and `load` make of it, cell for cell, with the same
+--- columns, renamings and `_json` members; and what one refuses the other
+--- refuses with the same words.
+local function test_load_text_makes_the_table_read_and_load_make(tmp: string)
+  local Fs = require("cosmic.fs")
+  local path = tmp .. "/rows"
+  Fuzz.run({
+    name = "dataset load_text agrees with read and load",
+    dir = tmp,
+    gen = gen_delimited,
+    check = function(input: string): boolean, string
+      local fields = Fuzz.unpack(input)
+      local format, text, how, raw = fields[1], fields[2], fields[3], fields[4] == "raw"
+      local fast_db = assert(Sqlite.memory())
+      local slow_db = assert(Sqlite.memory())
+      local file: string | nil = nil
+      if how == "path" then
+        assert(Fs.write(path, text))
+        file = path
+      end
+      local fast, fast_why = dataset.load_text(fast_db, "t", format, text, { raw = raw }, file)
+      local slow: dataset.Table | nil
+      local slow_why: string
+      local rows, read_why = dataset.read(format, text, { raw = raw })
+      if rows == nil then
+        slow, slow_why = nil, read_why
+      else
+        slow, slow_why = dataset.load(slow_db, "t", rows)
+      end
+      local function closed(ok: boolean, why: string): boolean, string
+        assert(fast_db:close())
+        assert(slow_db:close())
+        return ok, why
+      end
+      if fast == nil or slow == nil then
+        Fuzz.label("refused")
+        if (fast == nil) ~= (slow == nil) or fast_why ~= slow_why then
+          return closed(false, string.format("%q: load_text answered %s, read and load %s", text,
+            fast and "a table" or fast_why, slow and "a table" or slow_why))
+        end
+        return closed(true, "")
+      end
+      Fuzz.label("read")
+      if table.concat(fast.columns, "\0") ~= table.concat(slow.columns, "\0") or fast.count ~= slow.count then
+        return closed(false, string.format("%q: columns %s (%d rows), read and load %s (%d)", text,
+          table.concat(fast.columns, ","), fast.count, table.concat(slow.columns, ","), slow.count))
+      end
+      for column, key in pairs(slow.renamed) do
+        if fast.renamed[column] ~= key then
+          return closed(false, string.format("%q: %s is the key %q, not %q", text, column, key,
+            tostring(fast.renamed[column])))
+        end
+      end
+      local data_columns = table.move(fast.columns, 1, #fast.columns - 1, 1, {})
+      local got, want = cells_of(fast_db, data_columns), cells_of(slow_db, data_columns)
+      if got ~= want then
+        return closed(false, string.format("%q: load_text's rows\n%s\nread and load's\n%s", text, got, want))
+      end
+      local generated = assert(Sqlite.text_rows(fast_db,
+        "SELECT count(*) FROM pragma_table_xinfo('t') WHERE name = '_json' AND hidden <> 0"))
+      if generated[1][1] == "1" then Fuzz.label("copied in C") end
+      if format == "tsv" then Fuzz.label("tsv") end
+      return closed(true, "")
+    end,
+    requires = { "read", "refused", "copied in C", "tsv" },
+  })
+end

@@ -90,6 +90,24 @@ local record Csv
     text?: string
     --- Keep every cell as the text it is, the empty one `''`.
     raw?: boolean
+    --- The one byte between fields, as [`Csv.Options`] says (default `,`);
+    --- it may not be NUL either.
+    delimiter?: string
+    --- Names a column may not have, beside `rowid`, `oid` and `_rowid_`,
+    --- compared with case folded: a header field that is one gets `_2`
+    --- after it, as [`Csv.column_names`] renames.
+    reserved?: {string}
+  end
+
+  --- What [`Csv.load`] made.
+  record Loaded
+    --- The rows copied.
+    count: integer
+    --- The header's names as [`Csv.table`] gives them, a row's keys.
+    keys: {string}
+    --- The table's columns, in order: each key, renamed when it is
+    --- reserved.
+    columns: {string}
   end
 
   --- What `table` read: the column names in the header's order, and a
@@ -397,26 +415,31 @@ end
 local loads = 0
 
 --- Copies CSV, from a file or text, into a new table `name` in the main
---- schema of `handle`,
---- through SQLite's CSV table, which reads it in C: a million rows in
---- seconds, where [`Csv.table`] and an insert per row take a minute. It
---- reads what `table` reads, with a comma between fields, as `table`
---- reads it: its header names the columns, as [`Csv.column_names`] makes
---- them (`rowid`, `oid` and `_rowid_` renamed too), each with no declared
---- type, and blank lines are read by the header's width. A cell is typed
---- as `cosmic sql --from` types one: NULL when empty, an INTEGER or REAL
---- when plainly a number (`-`, digits with no leading zero, an optional
+--- schema of `handle`, through SQLite's CSV table, which reads it in C: a
+--- million rows in seconds, where [`Csv.table`] and an insert per row take
+--- a minute. It reads what `table` reads, with `source.delimiter` between
+--- fields, as `table` reads it: its header names the columns as `table`
+--- names them, then `rowid`, `oid`, `_rowid_` and `source.reserved` are
+--- renamed as [`Csv.column_names`] renames, each with no declared type,
+--- and blank lines are read by the header's width. A cell is typed as
+--- `cosmic sql --from` types one: NULL when empty, an INTEGER or REAL when
+--- plainly a number (`-`, digits with no leading zero, an optional
 --- fraction and exponent), and TEXT otherwise; with `source.raw` every
---- cell is the text `table` reads. Answers the rows copied, or nil and
---- why: for what `table` refuses, a table `name` the main schema already
+--- cell is the text `table` reads. Answers what it made, or nil and why:
+--- for what `table` refuses, a table `name` the main schema already
 --- holds, a file SQLite cannot open or read, a NUL byte, CSV with no
 --- header, or a header wider than SQLite's 2000 columns. Nothing is left
---- behind on a failure. Raises unless exactly one of `path` and `text`
---- is given. A `path` is read more than once, so it names a regular file
---- that stays as it is while it loads, not a pipe.
-function Csv.load(handle: Sqlite.Handle, name: string, source: Csv.Source): integer | nil, string
+--- behind on a failure. Raises unless exactly one of `path` and `text` is
+--- given, and for a delimiter `table` would raise for, or NUL. A `path` is
+--- read more than once, so it names a regular file that stays as it is
+--- while it loads, not a pipe.
+function Csv.load(handle: Sqlite.Handle, name: string, source: Csv.Source): Csv.Loaded | nil, string
   if (source.path == nil) == (source.text == nil) then
     error("csv: load reads a path or a text, one of them", 2)
+  end
+  local delimiter = delimiter_of({ delimiter = source.delimiter })
+  if delimiter == "\0" then
+    error("csv: load's delimiter cannot be NUL, which SQL text cannot hold", 2)
   end
   local parameter: string
   local text, path = source.text, source.path
@@ -442,6 +465,11 @@ function Csv.load(handle: Sqlite.Handle, name: string, source: Csv.Source): inte
     local _, _ = handle:exec("ROLLBACK TO cosmic_csv_load; RELEASE cosmic_csv_load")
     return refuse(why)
   end
+  if delimiter ~= "," then
+    -- SQLite's CSV table reads a quoted one-byte value; a single quote
+    -- goes in double quotes.
+    parameter = parameter .. ", delimiter=" .. (delimiter == "'" and '"\'"' or "'" .. delimiter .. "'")
+  end
   ok, trouble = handle:exec("CREATE VIRTUAL TABLE " .. scratch .. " USING csv(" .. parameter .. ")")
   if not ok then
     return undone(trouble)
@@ -458,7 +486,12 @@ function Csv.load(handle: Sqlite.Handle, name: string, source: Csv.Source): inte
     return undone("the CSV holds no header")
   end
   local header = table.move(first[1], 2, #first[1], 1, {})
-  local names = Csv.column_names(header, { "rowid", "oid", "_rowid_" })
+  local keys = Csv.column_names(header)
+  local reserved = { "rowid", "oid", "_rowid_" }
+  for _, each in ipairs(source.reserved or {}) do
+    reserved[#reserved + 1] = each
+  end
+  local names = Csv.column_names(keys, reserved)
   local declared, cells: {string}, {string} = {}, {}
   for index, column in ipairs(names) do
     declared[index] = identifier(column)
@@ -502,7 +535,7 @@ function Csv.load(handle: Sqlite.Handle, name: string, source: Csv.Source): inte
   if not ok then
     return undone(trouble)
   end
-  return copied, ""
+  return { count = copied, keys = keys, columns = names }, ""
 end
 
 return Csv

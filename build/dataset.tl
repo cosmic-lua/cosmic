@@ -61,12 +61,19 @@
 --- A file whose header has no rows still has its columns (all of them
 --- empty).
 ---
+--- [`dataset.load_text`], which `cosmic sql --from` loads with, makes the
+--- same table from a csv or tsv by copying it through [`Csv.load`], in C,
+--- with `_json` generated from the columns as it is read: a million rows
+--- in seconds rather than half a minute.
+---
 --- The formats are a table kept here, one entry each -- a name, the
 --- file extensions it goes by, and a reader from text to rows -- so a
 --- format is added as one entry and `cosmic sql --from` takes it by name
 --- and by extension with no other change.
 
 local Csv = require("cosmic.csv")
+local Fs = require("cosmic.fs")
+local sys = require("cosmic.sys")
 local Json = require("cosmic.json")
 local Sqlite = require("cosmic.sqlite")
 local plural = require("build.plural")
@@ -199,11 +206,6 @@ local function cell_of(text: string): any
 end
 
 --- A reader of the delimited text `Csv` reads with `delimiter`.
--- TODO: copy a csv file through Csv.load, which reads it in C, about 15
--- times faster on a million rows, once `load` can write the `_json`
--- column each row here has (json_object over its typed columns): until
--- then `--from` reads it here a row at a time. A tsv waits also on
--- SQLite's CSV table taking a delimiter.
 local function delimited(name: string, delimiter: string): function(text: string, opts: dataset.ReadOptions): dataset.Rows | nil, string
   return function(text: string, opts: dataset.ReadOptions): dataset.Rows | nil, string
     if opts.at ~= nil then
@@ -460,6 +462,104 @@ function dataset.load(handle: Sqlite.Handle, name: string, rows: dataset.Rows): 
   end
   columns[width + 1] = "_json"
   return { name = name, count = #rows, columns = columns, renamed = renamed }, ""
+end
+
+--- The byte between a delimited format's fields.
+local DELIMITERS <const>: {string:string} = { csv = ",", tsv = "\t" }
+
+--- `text`, a csv or tsv, copied into the table `name` through
+--- [`Csv.load`], which reads it in C, from `path` when it is a regular file
+--- of `text`'s size, which SQLite then reads at C's pace, and else from
+--- `text`, which it reads as SQL text first. Its `_json` column is
+--- generated from the typed columns as it is read, so the load writes no
+--- JSON. Nil and why for anything `load` refuses.
+local function copied(handle: Sqlite.Handle, name: string, format: string, text: string,
+                      raw: boolean, path: string | nil): dataset.Table | nil, string
+  local made: dataset.Table
+  local table_name = "main." .. quoted(name)
+  local ok, trouble = Sqlite.transact(handle, function(): boolean, string
+    local source: Csv.Source = { raw = raw, delimiter = DELIMITERS[format], reserved = { "_json" } }
+    -- A path that cannot be inspected is read from `text`, as a pipe is.
+    local st: sys.Stat | nil = nil
+    if path ~= nil then
+      local _: string
+      st, _ = Fs.stat(path)
+    end
+    if path ~= nil and st ~= nil and st.kind == "file" and st.size == #text then
+      source.path = path
+    else
+      source.text = text
+    end
+    local loaded, why = Csv.load(handle, name, source)
+    if loaded == nil then
+      return false, why
+    end
+    if #loaded.columns + 1 > max_columns then
+      return false, "too many columns"
+    end
+    -- A row's JSON object has its keys in byte order, as Json.encode
+    -- writes one.
+    local order: {integer} = {}
+    for index in ipairs(loaded.keys) do
+      order[index] = index
+    end
+    table.sort(order, function(a: integer, b: integer): boolean
+      return loaded.keys[a] < loaded.keys[b]
+    end)
+    local pairs_of: {string} = {}
+    for _, index in ipairs(order) do
+      pairs_of[#pairs_of + 1] = "'" .. loaded.keys[index]:gsub("'", "''") .. "', " .. quoted(loaded.columns[index])
+    end
+    local altered, alter_trouble = handle:exec("ALTER TABLE " .. table_name .. " ADD COLUMN " ..
+        quoted("_json") .. " AS (json_object(" .. table.concat(pairs_of, ", ") .. ")) VIRTUAL")
+    if not altered then
+      return false, alter_trouble
+    end
+    local renamed: {string:string} = {}
+    local columns: {string} = {}
+    for index, column in ipairs(loaded.columns) do
+      columns[index] = column
+      if column ~= loaded.keys[index] then
+        renamed[column] = loaded.keys[index]
+      end
+    end
+    columns[#columns + 1] = "_json"
+    made = { name = name, count = loaded.count, columns = columns, renamed = renamed }
+    return true, ""
+  end)
+  if not ok then
+    return nil, trouble
+  end
+  return made, ""
+end
+
+--- The table `name` on `handle` made from `text` in the format `format`,
+--- as [`dataset.read`] and [`dataset.load`] make it, with `opts`. A csv or
+--- tsv is copied through [`Csv.load`], which reads it in C, about 15 times
+--- faster on a million rows than reading it here a row at a time; when
+--- that refuses it, it is read here, so the table, or the reason there is
+--- none, is the one `read` and `load` give: a fault's line and column, and
+--- a NUL byte, which SQLite's CSV table cannot read, kept as text; and
+--- text that is not UTF-8 refused, which `_json` cannot hold.
+--- `path`, when `text` was read from one, lets SQLite read the file itself.
+function dataset.load_text(handle: Sqlite.Handle, name: string, format: string, text: string,
+                           opts?: dataset.ReadOptions, path?: string): dataset.Table | nil, string
+  local options = opts or {}
+  -- Text that is not UTF-8 is read here, where `_json` refuses it naming
+  -- the cell, as SQLite's json_object would write it into invalid JSON.
+  if DELIMITERS[format] ~= nil and options.at == nil and name ~= "" and not name:find("\0", 1, true) and
+      utf8.len(text) ~= nil then
+    -- Why it refused is read again below, where the reader names the place.
+    local made, _ = copied(handle, name, format, text, options.raw == true, path)
+    if made ~= nil then
+      return made, ""
+    end
+  end
+  local rows, trouble = dataset.read(format, text, options)
+  if rows == nil then
+    return nil, trouble
+  end
+  return dataset.load(handle, name, rows)
 end
 
 return dataset
