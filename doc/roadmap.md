@@ -36,6 +36,24 @@ defines the target; once something ships, it leaves this file.
   `__index` is checked, and `test_a_function_index_serves_any` in
   [`build/teal_test.tl`] pins the rest). a call through `any` carries no flag
   either.
+- drop narrowed facts at writes and at call-like expressions
+  ([`checker/narrowing.tl`] holds places and guards; it drops a place only
+  when it is assigned). a write to a field `.f` through any base drops every
+  narrowed path ending in `.f`, because another reference may name the same
+  table. a call, and an operator, index or comparison on a record, interface,
+  userdata or `any` (which can run a metamethod), drops every narrowed field
+  path and every local that a function literal in scope assigns. a local no
+  closure assigns stays narrowed across a call. this refuses what is accepted
+  now (`if r.n then clear() print(r.n + 1) end`), so it first runs in report
+  mode, counts the guards whose body calls and reads the path again, and
+  migrates the tree before it turns on.
+- make every guard read every place alike, once facts are dropped at writes
+  and calls (the item above): a field path of any depth (`a.b.c`) and an
+  index (`t[k]`, `k` a literal or a local never reassigned) are places;
+  `type(x.f) == "..."` and the left operand of `and` narrow a field as they
+  do a local; `x is A | B | C` guards all its members, not the last pair; an
+  assignment drops the place assigned and its extensions only (`r.f = v`
+  keeps `r.foo`); a loop that assigns a place drops it at the loop head.
 - add earned lint rules and their fixes to [`build/fix/rule.tl`]'s rule list.
   the rewrite stage is in place and the list is still empty.
 - add a floor for line coverage, C included: `cosmic test --min PCT
@@ -427,6 +445,7 @@ four-producer provenance join.
 [`build/shape_specs.tl`]: ../build/shape_specs.tl
 [`build/teal_test.tl`]: ../build/teal_test.tl
 [`build/workflows_test.tl`]: ../build/workflows_test.tl
+[`checker/narrowing.tl`]: ../checker/narrowing.tl
 [`Child.end_strays`]: ../cosmic/child.tl
 [`ci/cosmic-driver.pin`]: ../ci/cosmic-driver.pin
 [`ci/cosmic_ci/prerelease.tl`]: ../ci/cosmic_ci/prerelease.tl

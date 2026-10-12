@@ -929,9 +929,16 @@ reachability: which statements end their block (`return`, `break`, `goto`,
 an `if` with an `else` all of whose branches end, `while true` with no
 `break`, a call of a `: never` function), which a function declared `:
 never` or returning a value and a narrowing after an `if` that ends read.
-the checker asks it, never decides it. later parts of the checker move
-into modules the same way, each a file in `checker/` with a main chunk and
-a count of locals of its own. the files sit outside the module closure they compile: the scanner
+the checker asks it, never decides it. [`checker/narrowing.tl`] decides what
+a test tells of a place. a place is a local or a field of one. a guard is a
+test of a place (a truthiness read, a comparison with nil or a literal,
+`is`, `type(x) == "..."`, an `assert`), or a `not`, `and` or `or` of
+guards. evaluating a guard gives the facts it holds, one per place. the
+checker builds a guard on each expression and applies one where a branch
+begins. it drops what it knew of a place when the program assigns it.
+later parts of the checker move into modules the same way, each a file in
+`checker/` with a main chunk and a count of locals of its own. the files sit
+outside the module closure they compile: the scanner
 reads `checker/` as part of the tool, never as a module or a test
 ([`build/identity.tl`]), and `cosmic fix` does not lay it out. the vendored
 tree keeps upstream's `tl.lua` alone, unedited, as the seed: the boot
@@ -1224,6 +1231,7 @@ core/process.h      the same for the raw cosmic.internal.process table
 core/bridge.lua     the boot environment for tl, and its compile of checker/*.tl, by hand
 checker/tl.tl       the Teal checker and compiler, the entry, compiled at boot by vendor/tl/tl.lua
 checker/flow.tl     the checker's reachability: which statements end their block
+checker/narrowing.tl the checker's places and guards: what a test tells of a place
 cosmic/             the standard library; entry files are public, siblings not
 cmd/cosmic/         the binary's main
 build/              the importer, checker driver, embed (Teal; private to build/ cmd/ test/ tests)
@@ -1343,6 +1351,7 @@ in [roadmap.md](roadmap.md).
 [`build/zig.tl`]: ../build/zig.tl
 [`build/zig_fetch.tl`]: ../build/zig_fetch.tl
 [`checker/flow.tl`]: ../checker/flow.tl
+[`checker/narrowing.tl`]: ../checker/narrowing.tl
 [`checker/stdlib.d.tl`]: ../checker/stdlib.d.tl
 [`checker/tl.tl`]: ../checker/tl.tl
 [`ci/cosmic-driver.pin`]: ../ci/cosmic-driver.pin

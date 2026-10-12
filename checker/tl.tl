@@ -78,6 +78,7 @@ global stdlib: string
 -- is answered from it, never from the module system, which does not
 -- exist when the checker runs first.
 local flow = require("checker.flow")
+local narrowing = require("checker.narrowing")
 
 -- The compiled checker's main chunk holds Lua's 200 local variables; about
 -- 100 are taken, with the boot's `stdlib` and `require` locals among them.
@@ -88,11 +89,8 @@ local flow = require("checker.flow")
 -- each with a main chunk of its own. It waits on seams between those
 -- concerns, which the checker's source does not yet have.
 
-local interface Where
-   f: string
-   y: integer
-   x: integer
-end
+-- Where a node or type is, which a guard carries to report at.
+local type Where = narrowing.Where
 
 local record Errors
    filename: string
@@ -1862,79 +1860,6 @@ local enum NodeKind
    "error_node"
 end
 
-local enum FactType
-   "is"     -- type-based type judgement (its negation implies the subtracted type)
-   "=="     -- value-based type judgement (its negation does not imply a subtracted type negated)
-   "not"    -- negation: type-based judgements subtract, value-based judgements prove nothing
-   "and"    -- conjunction: type-based judgements intersect, any value-based judgement downgrades all
-   "or"     -- disjunction: type-based judgements unite, any value-based judgement downgrades all
-   "truthy" -- expression that is either truthy or a runtime error
-end
-
-local interface Fact
-   where self.fact
-
-   fact: FactType
-   w: Where
-   no_infer: boolean
-end
-
-local record TruthyFact
-   is Fact
-   where self.fact == "truthy"
-
-   metamethod __call: function(Fact, Fact): TruthyFact
-end
-
-local record NotFact
-   is Fact
-   where self.fact == "not"
-
-   f1: Fact
-
-   metamethod __call: function(Fact, Fact): NotFact
-end
-
-local record AndFact
-   is Fact
-   where self.fact == "and"
-
-   f1: Fact
-   f2: Fact
-
-   metamethod __call: function(Fact, Fact): AndFact
-end
-
-local record OrFact
-   is Fact
-   where self.fact == "or"
-
-   f1: Fact
-   f2: Fact
-
-   metamethod __call: function(Fact, Fact): OrFact
-end
-
-local record EqFact
-   is Fact
-   where self.fact == "=="
-
-   var: string
-   typ: Type
-
-   metamethod __call: function(Fact, Fact): EqFact
-end
-
-local record IsFact
-   is Fact
-   where self.fact == "is"
-
-   var: string
-   typ: Type
-
-   metamethod __call: function(Fact, Fact): IsFact
-end
-
 local enum KeyParsed
    "short"
    "long"
@@ -1977,7 +1902,7 @@ local record Node
    yend: integer
    xend: integer
 
-   known: Fact
+   guard: narrowing.Guard
 
    -- bidirectional inference
    expected: Type
@@ -7868,6 +7793,11 @@ local function node_at(w: Where, n: Node): Node
    return n
 end
 
+-- The place an expression names, for a guard or an assignment to read.
+local function place_of(n: Node): narrowing.Place
+   return narrowing.place_of(n as narrowing.Node)
+end
+
 local function convert_node_to_compat_call(node: Node, mod_name: string, fn_name: string, e1: Node, e2?: Node)
    node.op.op = "@funcall"
    node.op.arity = 2
@@ -8078,6 +8008,9 @@ do
       resolve_self: function(TypeChecker, Type, resolve_interface?: boolean): Type, {Error}
 
       get_rets: function(TupleType): TupleType
+
+      -- What evaluating a guard asks of this checker, made on first use.
+      narrowing_host: narrowing.Host
    end
 
    local enum VarUse
@@ -8867,6 +8800,16 @@ do
       end
    end
 
+   -- What is known of a place (checker/narrowing.tl) lives on the scope
+   -- stack under the place's key: a variable narrowed from the one below
+   -- (`add_var` with "narrow"), listed in its scope's `narrows`. Assigning
+   -- a local widens it back to its declared type: `widen_back_var` at the
+   -- assignment; `widen_all_unions` for every narrowed name at the start
+   -- of a function, at a label and at a function value assigned, and for
+   -- the names a loop assigns, at the loop; `widen_all` for the names the
+   -- branches of an `if`, or a scope, widened, when it ends. Assigning a
+   -- field drops what is known of it before the value is checked
+   -- (`narrowing.drop`).
    function TypeChecker:widen_in_scope(n: integer, var: string): boolean
       local scope = self.st[n]
       local v = scope.vars[var]
@@ -11082,7 +11025,7 @@ do
 
    local function apply_macroexp(orignode: Node)
       local expanded = orignode.expanded
-      local saveknown = orignode.known
+      local saveguard = orignode.guard
       orignode.expanded = nil
 
       for k, _ in pairs(orignode as {any:any}) do
@@ -11091,7 +11034,7 @@ do
       for k, v in pairs(expanded as {any:any}) do
          (orignode as {any:any})[k] = v
       end
-      orignode.known = saveknown
+      orignode.guard = saveguard
    end
 
    do
@@ -11603,7 +11546,7 @@ do
       if node.expanded then
          apply_macroexp(node)
       end
-      node.known = IsFact { var = var.tk, typ = t, w = node }
+      node.guard = narrowing.type_is(node, narrowing.local_place(var.tk), t as narrowing.Type)
       return node, has
    end
 
@@ -11621,11 +11564,11 @@ do
          local has: integer
          at.e2.e1, has = make_is_node(self, var, v, u.types[i])
          has_any = has_any or has
-         node.known = OrFact { f1 = at.e1.known, f2 = at.e2.known, w = node }
+         node.guard = narrowing.any_of(node, at.e1.guard, at.e2.guard)
          at = at.e2
       end
       at.e2 = make_is_node(self, var, v, u.types[n])
-      node.known = OrFact { f1 = at.e1.known, f2 = at.e2.known, w = node }
+      node.guard = narrowing.any_of(node, at.e1.guard, at.e2.guard)
       return not not has_any
    end
 
@@ -11731,6 +11674,11 @@ do
       end
    end
 
+   -- TODO: this looks for an assignment to a local of that name alone, so a
+   -- loop that assigns a field (`q.a = nil`) keeps what was known of `q.a`
+   -- before it, in the loop's body. It waits on the roadmap item that makes
+   -- every guard read every place alike: a loop that assigns a place drops
+   -- it at the loop head.
    local function assigned_anywhere(name: string, root: Node): boolean
       local visit_node: Visitor<nil, NodeKind, Node, boolean> = {
          cbs = {
@@ -12006,69 +11954,39 @@ do
       end
    end
 
-   -- A fact key for record-field narrowing. A bare variable's key is
-   -- its own name; `x.field`'s key is "varname.fieldname" -- a string
-   -- no real identifier can ever collide with, since a Lua name never
-   -- contains a dot -- so a field guard shares the SAME scope.vars
-   -- table a plain variable's narrow already lives in, and gets that
-   -- table's shadowing, widening, and end-of-scope cleanup for free.
-   -- Only a bare-variable base is tracked; `a.b.c` does not chain.
-   local function fact_key(n: Node): string
-      if n.kind == "variable" then
-         return n.tk
-      end
-      if n.kind == "op" and n.op.op == "." and n.e1.kind == "variable" then
-         return n.e1.tk .. "." .. n.e2.tk
-      end
-      return nil
-   end
-
-   -- The current type behind a fact key, even the first time a field
-   -- key is narrowed: a plain variable's is whatever the checker
-   -- already tracks for it (find_var_type finds it directly); a field
-   -- key with no narrow recorded yet falls back to the field's type as
-   -- declared on the base variable's CURRENT type. This must be a
-   -- SILENT query -- by the time a fact composed with another (an
-   -- `or`, say) is finally applied, the scope that temporarily
-   -- narrowed the base variable while the fact was built has already
-   -- closed, so its current type can be one the field access that
-   -- created the fact never actually ran against (`any`, typically).
-   -- match_record_key, unlike type_check_index, never adds an error
-   -- itself -- it hands nil plus a message back to its caller to
+   -- The type a place has now, even the first time a field is narrowed:
+   -- a local's is whatever the checker already tracks for it
+   -- (find_var_type finds it directly); a field with no narrow recorded
+   -- yet falls back to the field's type as declared on the base local's
+   -- CURRENT type. This must be a SILENT query -- by the time a guard
+   -- composed with another (an `or`, say) is finally applied, the scope
+   -- that temporarily narrowed the base local while the guard was built
+   -- has already closed, so its current type can be one the field access
+   -- that created the guard never actually ran against (`any`,
+   -- typically). match_record_key, unlike type_check_index, never adds an
+   -- error itself -- it hands nil plus a message back to its caller to
    -- report -- so a base that turns out not to carry this field after
    -- all just answers nil here, the same as an unknown variable would.
-   function TypeChecker:fact_base_type(f: IsFact | EqFact): Type
-      local typ = self:find_var_type(f.var, "check_only")
+   function TypeChecker:place_type(place: narrowing.Place, w: Where): Type
+      local typ = self:find_var_type(place.key, "check_only")
       if typ then
          return typ
       end
-      local dot = string.find(f.var, ".", 1, true)
-      if not dot then
+      if #place.fields == 0 then
          return nil
       end
-      local base = self:find_var_type(string.sub(f.var, 1, dot - 1), "check_only")
+      local base = self:find_var_type(place.base, "check_only")
       if not base then
          return nil
       end
-      base = without_nil(self, f.w, base, false) or base
-      local fname = string.sub(f.var, dot + 1)
-      return (self:match_record_key(base, f.w as Node, fname))
-   end
-
-   -- A write to `x` or to `x.field` drops any narrow recorded for that
-   -- field -- do not narrow across an intervening write, the same
-   -- rule a bare variable's own fact already follows. `prefix` is
-   -- "x." to drop every field of x, or the exact field key itself to
-   -- drop only that one.
-   function TypeChecker:drop_field_narrows(prefix: string)
-      for i = #self.st, 1, -1 do
-         local scope = self.st[i]
-         for name in pairs(scope.vars) do
-            if name:sub(1, #prefix) == prefix then
-               scope.vars[name] = nil
-            end
+      for _, field in ipairs(place.fields) do
+         base = without_nil(self, w, base, false) or base
+         base = (self:match_record_key(base, w as Node, field))
+         if not base then
+            return nil
          end
       end
+      return base
    end
 
    function TypeChecker:type_check_index(anode: Node, bnode: Node, a: Type, b: Type): Type
@@ -12326,113 +12244,9 @@ do
       end
    end
 
-   -- Inference engine for 'is' operator
-   local facts_and: function(w: Where, f1: Fact, f2: Fact): Fact
-   local facts_or: function(w: Where, f1: Fact, f2: Fact): Fact
-   local facts_not: function(w: Where, f1: Fact): Fact
-   local FACT_TRUTHY: Fact
+   -- The checker's side of evaluating a guard (checker/narrowing.tl): what
+   -- only it knows of types.
    do
-      local IsFact_mt: metatable<IsFact> = {
-         __tostring = function(f: IsFact): string
-            return ("(%s is %s)"):format(f.var, show_type(f.typ))
-         end
-      }
-
-      setmetatable(IsFact, {
-         __call = function(_: IsFact, fact: Fact): IsFact
-            fact.fact = "is"
-            assert(fact.w)
-            return setmetatable(fact as IsFact, IsFact_mt)
-         end,
-      })
-
-      local EqFact_mt: metatable<EqFact> = {
-         __tostring = function(f: EqFact): string
-            return ("(%s == %s)"):format(f.var, show_type(f.typ))
-         end
-      }
-
-      setmetatable(EqFact, {
-         __call = function(_: EqFact, fact: Fact): EqFact
-            fact.fact = "=="
-            assert(fact.w)
-            return setmetatable(fact as EqFact, EqFact_mt)
-         end,
-      })
-
-      local TruthyFact_mt: metatable<TruthyFact> = {
-         __tostring = function(_f: TruthyFact): string
-            return "*"
-         end
-      }
-
-      setmetatable(TruthyFact, {
-         __call = function(_: TruthyFact, fact: Fact): TruthyFact
-            fact.fact = "truthy"
-            return setmetatable(fact as TruthyFact, TruthyFact_mt)
-         end,
-      })
-
-      local NotFact_mt: metatable<NotFact> = {
-         __tostring = function(f: NotFact): string
-            return ("(not %s)"):format(tostring(f.f1))
-         end
-      }
-
-      setmetatable(NotFact, {
-         __call = function(_: NotFact, fact: Fact): NotFact
-            fact.fact = "not"
-            return setmetatable(fact as NotFact, NotFact_mt)
-         end,
-      })
-
-      local AndFact_mt: metatable<AndFact> = {
-         __tostring = function(f: AndFact): string
-            return ("(%s and %s)"):format(tostring(f.f1), tostring(f.f2))
-         end
-      }
-
-      setmetatable(AndFact, {
-         __call = function(_: AndFact, fact: Fact): AndFact
-            fact.fact = "and"
-            return setmetatable(fact as AndFact, AndFact_mt)
-         end,
-      })
-
-      local OrFact_mt: metatable<OrFact> = {
-         __tostring = function(f: OrFact): string
-            return ("(%s or %s)"):format(tostring(f.f1), tostring(f.f2))
-         end
-      }
-
-      setmetatable(OrFact, {
-         __call = function(_: OrFact, fact: Fact): OrFact
-            fact.fact = "or"
-            return setmetatable(fact as OrFact, OrFact_mt)
-         end,
-      })
-
-      FACT_TRUTHY = TruthyFact {}
-
-      facts_and = function(w: Where, f1: Fact, f2: Fact): Fact
-         if not f1 and not f2 then
-            return
-         end
-         return AndFact { f1 = f1, f2 = f2, w = w }
-      end
-
-      facts_or = function(w: Where, f1: Fact, f2: Fact): Fact
-         return OrFact({ f1 = f1 or FACT_TRUTHY, f2 = f2 or FACT_TRUTHY, w = w })
-      end
-
-      facts_not = function(w: Where, f1: Fact): Fact
-         if f1 then
-            return NotFact { f1 = f1, w = w }
-         else
-            return nil
-         end
-      end
-
       -- t1 ∪ t2
       local function unite_types(w: Where, t1: Type, t2: Type): Type, string
          return unite(w, {t2, t1})
@@ -12505,204 +12319,62 @@ do
          return unite(w, types)
       end
 
-      local eval_not: function(TypeChecker, f: Fact): {string:IsFact|EqFact}
-      local not_facts: function(TypeChecker, fs: {string:IsFact|EqFact}): {string:IsFact|EqFact}
-      local or_facts: function(TypeChecker, fs1: {string:IsFact|EqFact}, fs2: {string:IsFact|EqFact}): {string:IsFact|EqFact}
-      local and_facts: function(TypeChecker, fs1: {string:IsFact|EqFact}, fs2: {string:IsFact|EqFact}): {string:IsFact|EqFact}
-      local eval_fact: function(TypeChecker, f: Fact): {string:IsFact|EqFact}
-
-      local function invalid_from(f: IsFact): IsFact
-         return IsFact { fact = "is", var = f.var, typ = a_type(f.w, "invalid", {}), w = f.w }
+      local function narrowing_host(self: TypeChecker): narrowing.Host
+         local host = self.narrowing_host
+         if host then
+            return host
+         end
+         host = {
+            type_of = function(place: narrowing.Place, w: narrowing.Where): narrowing.Type
+               return self:place_type(place, w) as narrowing.Type
+            end,
+            is_a = function(t1: narrowing.Type, t2: narrowing.Type): boolean
+               return (self:is_a(t1 as Type, t2 as Type))
+            end,
+            unite = function(w: narrowing.Where, t1: narrowing.Type, t2: narrowing.Type): narrowing.Type
+               return unite_types(w, t1 as Type, t2 as Type) as narrowing.Type
+            end,
+            intersect = function(w: narrowing.Where, t1: narrowing.Type, t2: narrowing.Type): narrowing.Type
+               return intersect_types(self, w, t1 as Type, t2 as Type) as narrowing.Type
+            end,
+            subtract = function(w: narrowing.Where, t1: narrowing.Type, t2: narrowing.Type): narrowing.Type
+               return subtract_types(self, w, t1 as Type, t2 as Type) as narrowing.Type
+            end,
+            invalid = function(w: narrowing.Where): narrowing.Type
+               return an_invalid(w) as narrowing.Type
+            end,
+            show = function(t: narrowing.Type): string
+               return show_type(t as Type)
+            end,
+            warn_never = function(w: narrowing.Where, who: string, have: narrowing.Type, wanted: narrowing.Type)
+               self.errs:add_warning("branch", w, who .. " (of type %s) can never be a %s", show_type(have as Type), show_type(wanted as Type))
+            end,
+            refuse_never = function(w: narrowing.Where, who: string, have: narrowing.Type, wanted: narrowing.Type)
+               self.errs:add(w, who .. " (of type %s) can never be a %s", have as Type, wanted as Type)
+            end,
+         }
+         self.narrowing_host = host
+         return host
       end
 
-      not_facts = function(self: TypeChecker, fs: {string:IsFact|EqFact}): {string:IsFact|EqFact}
-         local ret: {string:IsFact|EqFact} = {}
-         for var, f in pairs(fs) do
-            -- A field key's current type is not always one find_var_type
-            -- already knows -- see fact_base_type.
-            local typ = self:fact_base_type(f)
-
-            if not typ then
-               -- A field key that cannot be resolved here has moved
-               -- past the scope its fact was built in (see
-               -- fact_base_type) -- drop it silently instead of
-               -- reporting an unresolvable variable, which a genuine
-               -- bare-variable miss still does.
-               if not string.find(var, ".", 1, true) then
-                  ret[var] = EqFact { var = var, typ = an_invalid(f.w), w = f.w, no_infer = f.no_infer }
-               end
-            elseif f is EqFact then
-               -- nothing is known from negation of equality; widen back
-               ret[var] = EqFact { var = var, typ = typ, w = f.w, no_infer = true }
-            elseif typ is TypeVarType then
-               assert(f.fact == "is")
-               -- nothing is known from negation on typeargs; widen back
-               ret[var] = EqFact { var = var, typ = typ, w = f.w, no_infer = true }
-            elseif not self:is_a(f.typ, typ) then
-               assert(f.fact == "is")
-               self.errs:add_warning("branch", f.w, f.var .. " (of type %s) can never be a %s", show_type(typ), show_type(f.typ))
-               ret[var] = EqFact { var = var, typ = an_invalid(f.w), w = f.w, no_infer = f.no_infer }
-            else
-               assert(f.fact == "is")
-               ret[var] = IsFact { var = var, typ = subtract_types(self, f.w, typ, f.typ), w = f.w, no_infer = f.no_infer }
-            end
-         end
-         return ret
-      end
-
-      eval_not = function(self: TypeChecker, f: Fact): {string:IsFact|EqFact}
-         if not f then
-            return {}
-         elseif f is IsFact then
-            return not_facts(self, {[f.var] = f})
-         elseif f is NotFact then
-            return eval_fact(self, f.f1)
-         elseif f is AndFact and f.f2 and f.f2.fact == "truthy" then
-            return eval_not(self, f.f1)
-         elseif f is OrFact and f.f2 and f.f2.fact == "truthy" then
-            return eval_not(self, f.f1)
-         elseif f is AndFact then
-            return or_facts(self, eval_not(self, f.f1), eval_not(self, f.f2))
-         elseif f is OrFact then
-            return and_facts(self, eval_not(self, f.f1), eval_not(self, f.f2))
-         else
-            return not_facts(self, eval_fact(self, f))
-         end
-      end
-
-      or_facts = function(_self: TypeChecker, fs1: {string:IsFact|EqFact}, fs2: {string:IsFact|EqFact}): {string:IsFact|EqFact}
-         local ret: {string:IsFact|EqFact} = {}
-
-         for var, f in pairs(fs2) do
-            if fs1[var] then
-               local united = unite_types(f.w, f.typ, fs1[var].typ)
-               if fs1[var].fact == "is" and f.fact == "is" then
-                  ret[var] = IsFact { var = var, typ = united, w = f.w }
-               else
-                  ret[var] = EqFact { var = var, typ = united, w = f.w }
-               end
-            end
-         end
-
-         return ret
-      end
-
-      and_facts = function(self: TypeChecker, fs1: {string:IsFact|EqFact}, fs2: {string:IsFact|EqFact}): {string:IsFact|EqFact}
-         local ret: {string:IsFact|EqFact} = {}
-         local has: {FactType:boolean} = {}
-
-         for var, f in pairs(fs1) do
-            local rt: Type
-            local ctor: IsFact | EqFact = EqFact
-            if fs2[var] then
-               if fs2[var].fact == "is" and f.fact == "is" then
-                  ctor = IsFact
-               end
-               rt = intersect_types(self, f.w, f.typ, fs2[var].typ)
-            else
-               rt = f.typ
-            end
-            local ff = ctor { var = var, typ = rt, w = f.w, no_infer = f.no_infer }
-            ret[var] = ff
-            has[ff.fact] = true
-         end
-
-         for var, f in pairs(fs2) do
-            if not fs1[var] then
-               ret[var] = EqFact { var = var, typ = f.typ, w = f.w, no_infer = f.no_infer }
-               has["=="] = true
-            end
-         end
-
-         if has["is"] and has["=="] then
-            for _, f in pairs(ret) do
-               f.fact = "=="
-            end
-         end
-
-         return ret
-      end
-
-      eval_fact = function(self: TypeChecker, f: Fact): {string:IsFact|EqFact}
-         if not f then
-            return {}
-         elseif f is IsFact then
-            -- A field key's current type is not always one find_var_type
-            -- already knows -- see fact_base_type.
-            local typ = self:fact_base_type(f)
-            if not typ then
-               -- An unresolvable field key drops silently rather than
-               -- reporting an unresolvable variable -- see not_facts.
-               if string.find(f.var, ".", 1, true) then
-                  return {}
-               end
-               return { [f.var] = invalid_from(f) }
-            end
-            if not typ is TypeVarType then
-               if self:is_a(typ, f.typ) then
-                  -- drop this warning because of implicit nil in all unions
-                  -- self.errs:add_warning("branch", f.w, f.var .. " (of type %s) is always a %s", show_type(typ), show_type(f.typ))
-                  return { [f.var] = f }
-               elseif not self:is_a(f.typ, typ) then
-                  self.errs:add(f.w, f.var .. " (of type %s) can never be a %s", typ, f.typ)
-                  return { [f.var] = invalid_from(f) }
-               end
-            end
-            return { [f.var] = f }
-         elseif f is EqFact then
-            return { [f.var] = f }
-         elseif f is NotFact then
-            return eval_not(self, f.f1)
-         elseif f is TruthyFact then
-            return {}
-         elseif f is AndFact and f.f2 and f.f2.fact == "truthy" then
-            return eval_fact(self, f.f1)
-         elseif f is OrFact and f.f2 and f.f2.fact == "truthy" then
-            return eval_not(self, f.f1)
-         elseif f is AndFact then
-            return and_facts(self, eval_fact(self, f.f1), eval_fact(self, f.f2))
-         elseif f is OrFact then
-            return or_facts(self, eval_fact(self, f.f1), eval_fact(self, f.f2))
-         end
-      end
-
-      function TypeChecker:apply_facts(w: Where, known: Fact)
-         if not known then
+      -- Narrows the places `guard` is about, in the scope that is open.
+      function TypeChecker:apply_guard(w: Where, guard: narrowing.Guard)
+         if not guard then
             return
          end
 
-         local facts = eval_fact(self, known)
+         local facts = narrowing.evaluate(narrowing_host(self), guard)
 
          for v, f in pairs(facts) do
-            if f.typ.typename == "invalid" then
+            local typ = f.typ as Type
+            if typ.typename == "invalid" then
                self.errs:add(w, "cannot resolve a type for " .. v .. " here")
             end
-            local t = f.no_infer and f.typ or self:infer_at(w, f.typ)
+            local t = f.no_infer and typ or self:infer_at(w, typ)
             if f.no_infer then
                t.inferred_at = nil
             end
             self:add_var(nil, v, t, "const", "narrow")
-         end
-      end
-
-      if TL_DEBUG_FACTS then
-         local eval_indent = -1
-         local real_eval_fact = eval_fact
-         eval_fact = function(self: TypeChecker, known: Fact): {string: IsFact|EqFact}
-            eval_indent = eval_indent + 1
-            io.stderr:write(("   "):rep(eval_indent))
-            io.stderr:write("eval fact: ", tostring(known), "\n")
-            local facts = real_eval_fact(self, known)
-            if facts then
-               for _, k in ipairs(sorted_keys(facts)) do
-                  local f = facts[k]
-                  io.stderr:write(("   "):rep(eval_indent), "=> ", tostring(f), "\n")
-               end
-            else
-               io.stderr:write(("   "):rep(eval_indent), "=> .\n")
-            end
-            eval_indent = eval_indent - 1
-            return facts
          end
       end
    end
@@ -13233,17 +12905,17 @@ do
       end,
 
       ["assert"] = function(self: TypeChecker, node: Node, a: Type, b: TupleType, argdelta?: integer): InvalidOrTupleType
-         node.known = FACT_TRUTHY
+         node.guard = narrowing.truthy
          local r = self:type_check_function_call(node, a, b, argdelta)
          local arg1 = node.e2[1]
-         local arg1_key = arg1 and fact_key(arg1)
-         if arg1_key and not arg1.known and b.tuple[1] then
+         local arg1_place = arg1 and place_of(arg1)
+         if arg1_place and not arg1.guard and b.tuple[1] then
             local typ = without_nil(self, arg1, b.tuple[1], true)
             if typ then
-               arg1.known = IsFact { var = arg1_key, typ = typ, w = arg1 }
+               arg1.guard = narrowing.type_is(arg1, arg1_place, typ as narrowing.Type)
             end
          end
-         self:apply_facts(node, node.e2[1].known)
+         self:apply_guard(node, node.e2[1].guard)
          if r and r is TupleType and r.tuple[1] then
             local returned = a_tuple(node, { r.tuple[1] })
             for i = 2, #b.tuple do
@@ -13861,14 +13533,7 @@ do
    end
 
    function TypeChecker:infer_negation_of_if_blocks(w: Where, ifnode: Node, n: integer)
-      local f = facts_not(w, ifnode.if_blocks[1].exp.known)
-      for e = 2, n do
-         local b = ifnode.if_blocks[e]
-         if b.exp then
-            f = facts_and(w, f, facts_not(w, b.exp.known))
-         end
-      end
-      self:apply_facts(w, f)
+      self:apply_guard(w, narrowing.none_of(w, ifnode.if_blocks as {narrowing.Node}, n))
    end
 
    function TypeChecker:determine_declaration_type(var: Node, node: Node, infertypes: TupleType, i: integer): boolean, Type, boolean
@@ -14294,14 +13959,9 @@ do
             -- as it is, `local h = x.f` below that still reads `T | nil`,
             -- so cosmic's own code binds `x.f or {}` to a local first.
             for _, varnode in ipairs(node.vars) do
-               local varname = varnode.tk
-               if varname then
-                  self:drop_field_narrows(varname .. ".")
-               else
-                  local field_key = fact_key(varnode)
-                  if field_key then
-                     self:drop_field_narrows(field_key)
-                  end
+               local assigned = narrowing.target_of(varnode as narrowing.Node)
+               if assigned then
+                  narrowing.drop(self.st as {narrowing.Scope}, assigned)
                end
             end
          end,
@@ -14403,7 +14063,7 @@ do
          end,
          before_statements = function(self: TypeChecker, node: Node)
             if node.exp then
-               self:apply_facts(node.exp, node.exp.known)
+               self:apply_guard(node.exp, node.exp.guard)
             end
          end,
          after = function(self: TypeChecker, node: Node, _children: {Type}): Type
@@ -14422,7 +14082,7 @@ do
          end,
          before_statements = function(self: TypeChecker, node: Node)
             self:begin_scope(node)
-            self:apply_facts(node.exp, node.exp.known)
+            self:apply_guard(node.exp, node.exp.guard)
          end,
          after = end_scope_and_none_type,
       },
@@ -14745,7 +14405,7 @@ do
             end
          end,
          after = function(self: TypeChecker, node: Node, children: {LiteralTableItemType}): Type
-            node.known = FACT_TRUTHY
+            node.guard = narrowing.truthy
 
             if not node.expected then
                return infer_table_literal(self, node, children)
@@ -15298,7 +14958,7 @@ do
             node.e1.expected = node.expected
          end,
          after = function(_self: TypeChecker, node: Node, children: {Type}): Type
-            node.known = node.e1 and node.e1.known
+            node.guard = node.e1 and node.e1.guard
             return resolve_tuple(children[1])
          end,
       },
@@ -15323,14 +14983,14 @@ do
             local e1type = children[1]
 
             if node.op.op == "and" then
-               local e1_type = node.e1.kind == "variable" and not node.e1.known and resolve_tuple(e1type)
+               local e1_type = node.e1.kind == "variable" and not node.e1.guard and resolve_tuple(e1type)
                local e1_typ = e1_type and without_nil(self, node.e1, e1_type, true)
                if e1_typ then
-                  node.e1.known = IsFact { var = node.e1.tk, typ = e1_typ, w = node.e1 }
+                  node.e1.guard = narrowing.type_is(node.e1, narrowing.local_place(node.e1.tk), e1_typ as narrowing.Type)
                end
-               self:apply_facts(node, node.e1.known)
+               self:apply_guard(node, node.e1.guard)
             elseif node.op.op == "or" then
-               self:apply_facts(node, facts_not(node, node.e1.known))
+               self:apply_guard(node, narrowing.negate(node, node.e1.guard))
 
                -- special-case `v is T and v or _` when T is a truthy type
                if node.e1.kind == "op" and node.e1.op.op == "and"
@@ -15340,7 +15000,7 @@ do
                   and node.e1.e1.e2.casttype.typename ~= "boolean"
                   and node.e1.e1.e2.casttype.typename ~= "nil"
                then
-                  self:apply_facts(node, facts_not(node, IsFact { var = node.e1.e1.e1.tk, typ = node.e1.e1.e2.casttype, w = node }))
+                  self:apply_guard(node, narrowing.negate(node, narrowing.type_is(node, narrowing.local_place(node.e1.e1.e1.tk), node.e1.e1.e2.casttype as narrowing.Type)))
                end
 
             elseif node.op.op == "@funcall" then
@@ -15544,16 +15204,16 @@ do
                -- to write); give `and`'s left
                -- operand `boolean_context` in the `op` visitor, as `not`'s
                -- operand has, and test the narrow it then carries.
-               local field_key = fact_key(node)
-               if field_key then
-                  local narrowed = self:find_var_type(field_key, "check_only")
+               local field_place = place_of(node)
+               if field_place then
+                  local narrowed = self:find_var_type(field_place.key, "check_only")
                   if narrowed then
                      t = narrowed
                   end
                   if node.expected and node.expected.typename == "boolean_context" then
                      local typ = without_nil(self, node, t, true)
                      if typ then
-                        node.known = IsFact { var = field_key, typ = typ, w = node }
+                        node.guard = narrowing.type_is(node, field_place, typ as narrowing.Type)
                      end
                   end
                end
@@ -15590,7 +15250,7 @@ do
                      has_meta = convert_is_of_union_to_or_of_is(self, node, ra, rb)
                   else
                      local _, meta = self:check_metamethod(node, "__is", ra, resolve_typedecl(rb), ua, ub)
-                     node.known = IsFact { var = node.e1.tk, typ = ub, w = node }
+                     node.guard = narrowing.type_is(node, narrowing.local_place(node.e1.tk), ub as narrowing.Type)
                      has_meta = not not meta
                   end
                   if has_meta then
@@ -15626,12 +15286,12 @@ do
             end
 
             if node.op.op == "not" then
-               node.known = facts_not(node, node.e1.known)
+               node.guard = narrowing.negate(node, node.e1.guard)
                return a_type(node, "boolean", {})
             end
 
             if node.op.op == "and" then
-               node.known = facts_and(node, node.e1.known, node.e2.known)
+               node.guard = narrowing.both(node, node.e1.guard, node.e2.guard)
                local t = discard_tuple(node, ub, gb)
                -- TODO: a left operand that may be false (a boolean, or a union
                -- with boolean) ends the `and` as false, which is not modelled:
@@ -15672,21 +15332,21 @@ do
                end
 
                if ub is NilType then
-                  node.known = nil
+                  node.guard = nil
                   t = ua
 
                elseif is_lua_table_type(ra) and rb is EmptyTableType then
-                  node.known = nil
+                  node.guard = nil
                   t = ua
 
                elseif ((ra is EnumType and rb is StringType and self:is_a(rb, ra))
                   or (ra is StringType and rb is EnumType and self:is_a(ra, rb))) then
-                  node.known = nil
+                  node.guard = nil
                   t = (ra is EnumType and ra or rb)
 
                elseif expected and expected is UnionType then
                   -- must be checked after string/enum above
-                  node.known = facts_or(node, node.e1.known, node.e2.known)
+                  node.guard = narrowing.either(node, node.e1.guard, node.e2.guard)
                   -- TODO: two different table types still refuse "cannot
                   -- discriminate a union between multiple table types"
                   -- when the context is a declared `T | nil` (an optional
@@ -15718,7 +15378,7 @@ do
                   -- each other.
                   local a_ge_b = self:is_a(ub, ua)
                   local b_ge_a = self:is_a(ua, ub)
-                  node.known = facts_or(node, node.e1.known, node.e2.known)
+                  node.guard = narrowing.either(node, node.e1.guard, node.e2.guard)
                   -- TODO: compare the unresolved types (ua, ub) here, as a_ge_b and
                   -- b_ge_a do, not the resolved ra and rb. The change is untried
                   -- against a table literal and a nominal type, which it must
@@ -15776,34 +15436,34 @@ do
                elseif self:is_a(ub, ua) or ua is TypeVarType then
                   -- Comparing a variable against nil is an exact type
                   -- test: __eq never fires with a nil operand. So it
-                  -- carries an IsFact, whose negation narrows, rather
-                  -- than an EqFact, whose negation says nothing. The
-                  -- same test on `x.field` narrows the field, keyed
+                  -- carries a type test, whose negation narrows, rather
+                  -- than a value test, whose negation says nothing. The
+                  -- same test on `x.field` narrows the field, placed
                   -- the same way a truthy read on it is -- but only
                   -- when the field's own declared type admits nil (see
                   -- this record's note).
-                  local e1_key = fact_key(node.e1)
-                  if e1_key and not (node.e1.kind == "variable")
+                  local e1_place = place_of(node.e1)
+                  if e1_place and not (node.e1.kind == "variable")
                      and not admits_nil(self, node, ua) then
-                     e1_key = nil
+                     e1_place = nil
                   end
-                  if e1_key and rb is NilType then
-                     local f = IsFact { var = e1_key, typ = rb, w = node }
-                     node.known = node.op.op == "==" and f as Fact or NotFact { f1 = f, w = node }
-                  elseif node.op.op == "==" and e1_key then
-                     node.known = EqFact { var = e1_key, typ = ub, w = node }
+                  if e1_place and rb is NilType then
+                     local f = narrowing.type_is(node, e1_place, rb as narrowing.Type)
+                     node.guard = node.op.op == "==" and f or narrowing.negate(node, f)
+                  elseif node.op.op == "==" and e1_place then
+                     node.guard = narrowing.value_is(node, e1_place, ub as narrowing.Type)
                   end
                elseif self:is_a(ua, ub) or ub is TypeVarType then
-                  local e2_key = fact_key(node.e2)
-                  if e2_key and not (node.e2.kind == "variable")
+                  local e2_place = place_of(node.e2)
+                  if e2_place and not (node.e2.kind == "variable")
                      and not admits_nil(self, node, ub) then
-                     e2_key = nil
+                     e2_place = nil
                   end
-                  if e2_key and ra is NilType then
-                     local f = IsFact { var = e2_key, typ = ra, w = node }
-                     node.known = node.op.op == "==" and f as Fact or NotFact { f1 = f, w = node }
-                  elseif node.op.op == "==" and e2_key then
-                     node.known = EqFact { var = e2_key, typ = ua, w = node }
+                  if e2_place and ra is NilType then
+                     local f = narrowing.type_is(node, e2_place, ra as narrowing.Type)
+                     node.guard = node.op.op == "==" and f or narrowing.negate(node, f)
+                  elseif node.op.op == "==" and e2_place then
+                     node.guard = narrowing.value_is(node, e2_place, ua as narrowing.Type)
                   end
                elseif self.feat_lax and (is_unknown(ua) or is_unknown(ub)) then
                   return an_unknown(node)
@@ -15822,8 +15482,8 @@ do
                   local t = self:find_var_type(arg.tk, "check_only")
                   local typ = t and type_test_type(self, node, t, name.conststr)
                   if typ then
-                     local f = IsFact { var = arg.tk, typ = typ, w = node }
-                     node.known = node.op.op == "==" and f as Fact or NotFact { f1 = f, w = node }
+                     local f = narrowing.type_is(node, narrowing.local_place(arg.tk), typ as narrowing.Type)
+                     node.guard = node.op.op == "==" and f or narrowing.negate(node, f)
                   end
                end
 
@@ -15896,7 +15556,7 @@ do
                end
 
                if not (t is BooleanType or is_unknown(t)) then
-                  node.known = FACT_TRUTHY
+                  node.guard = narrowing.truthy
                end
 
                return t
@@ -15904,7 +15564,7 @@ do
 
             if node.op.arity == 2 and binop_types[node.op.op] then
                if node.op.op == "or" then
-                  node.known = facts_or(node, node.e1.known, node.e2.known)
+                  node.guard = narrowing.either(node, node.e1.guard, node.e2.guard)
                end
 
                if ra is UnionType then
@@ -15947,7 +15607,7 @@ do
                end
 
                if types_op == numeric_binop or node.op.op == ".." then
-                  node.known = FACT_TRUTHY
+                  node.guard = narrowing.truthy
                end
 
                if node.op.op == "//" and self.gen_target == "5.1" then
@@ -16022,7 +15682,7 @@ do
             if node.expected and node.expected.typename == "boolean_context" then
                local typ = without_nil(self, node, t, true)
                if typ then
-                  node.known = IsFact({ var = node.tk, typ = typ, w = node })
+                  node.guard = narrowing.type_is(node, narrowing.local_place(node.tk), typ as narrowing.Type)
                end
             end
 
@@ -16122,7 +15782,7 @@ do
    }
 
    local function after_literal(_self: TypeChecker, node: Node): Type
-      node.known = FACT_TRUTHY
+      node.guard = narrowing.truthy
       return a_type(node, node.kind as TypeName, {})
    end
 
@@ -16145,7 +15805,7 @@ do
    visit_node.cbs["boolean"] = {
       after = function(self: TypeChecker, node: Node, _children: {Type}): Type
          local t = after_literal(self, node)
-         node.known = (node.tk == "true") and FACT_TRUTHY or nil
+         node.guard = (node.tk == "true") and narrowing.truthy or nil
          return t
       end,
    }
