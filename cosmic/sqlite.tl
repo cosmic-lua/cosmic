@@ -121,7 +121,8 @@ local record Sqlite
   --- another shape raises where it is bound. A list in `integers`,
   --- `numbers`, `texts` or `blobs` is bound as an array that only
   --- `carray(?N)` reads, as a table of its elements: `x IN carray(?1)`
-  --- tests membership in it. Anywhere else it reads as NULL.
+  --- tests membership in it. Used as a value, compared, stored or
+  --- returned, it is NULL.
   type Value = raw_sqlite.Value
 
   --- The SQLite storage class of a result cell: the field of a [`Cell`]

@@ -626,8 +626,22 @@ local function test_carray_reads_back_a_bound_list(tmp: string)
       else
         list = { blobs = strings }
       end
-      local rows, trouble = Sqlite.rows(handle, "SELECT value FROM carray(?1)", { list })
-      if rows == nil then return false, "carray failed its statement: " .. trouble end
+      -- The plain and the captured helpers bind through different paths
+      -- (cosmic/sqlite.tl's bind, core/sqlite.c's bind_values_result).
+      local rows: {{Sqlite.Cell}}
+      if #input % 2 == 0 then
+        local trouble: string
+        rows, trouble = Sqlite.rows(handle, "SELECT value FROM carray(?1)", { list })
+        if rows == nil then return false, "carray failed its statement: " .. trouble end
+        Fuzz.label("bound in Lua")
+      else
+        local result = Sqlite.rows_result(handle, "SELECT value FROM carray(?1)", { list })
+        if result.rows == nil then
+          return false, "carray failed its statement: " .. result.reason
+        end
+        rows = result.rows
+        Fuzz.label("bound in C")
+      end
       if #rows ~= #fields - 1 then
         return false, "carray read " .. #rows .. " of " .. (#fields - 1) .. " " .. kind
       end
@@ -652,6 +666,6 @@ local function test_carray_reads_back_a_bound_list(tmp: string)
       if #rows == 0 then Fuzz.label("empty") end
       return true, ""
     end,
-    requires = { "integers", "numbers", "texts", "blobs", "empty" },
+    requires = { "integers", "numbers", "texts", "blobs", "empty", "bound in Lua", "bound in C" },
   })
 end

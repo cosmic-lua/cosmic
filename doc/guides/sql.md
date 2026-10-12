@@ -272,11 +272,12 @@ within another.
 - `carray(?N)`: a table of the elements of the list bound at parameter
   N, in its `value` column, in order: a [`cosmic.sqlite`] Value of
   `integers`, `numbers`, `texts` or `blobs`, as `{ integers = { 1, 2 } }`.
-  `x IN carray(?1)` tests membership in the list. Any other value at N
-  gives no rows, and a list read anywhere but carray reads as NULL. The
-  forms that take a count and a C type, which
-  [SQLite describes](https://sqlite.org/carray.html), read only an array
-  C binds, and give no rows from SQL.
+  A NaN in `numbers` reads as NULL. `x IN carray(?1)` tests membership in
+  the list. Any other value at N gives no rows, and a list used as a
+  value, compared, stored or returned, is NULL. The forms that take a
+  count and a C type, which [SQLite describes](https://sqlite.org/carray.html),
+  read only an array C binds: from SQL they give no rows, or fail for a
+  type they do not name.
 
 ## introspection
 
