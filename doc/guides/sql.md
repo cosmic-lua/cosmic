@@ -20,8 +20,8 @@ not run what its author chose:
   off on every handle: the percentile aggregates, FTS5's `bm25`,
   `highlight`, `snippet`, `fts5()` and `fts5_get_locale`, `MATCH` against
   an FTS5 table, `rtreecheck`, `rtreenode` and `rtreedepth`, and the
-  `pragma_*` and `fts5vocab` tables. A trigger may
-  still write to an FTS5 table. `PRAGMA trusted_schema = 1` on a
+  `pragma_*` and `fts5vocab` tables. A trigger may still write to an FTS5
+  table or an R*Tree, and a view may still read an R*Tree. `PRAGMA trusted_schema = 1` on a
   [`cosmic.sqlite`] handle allows these again, for a file the caller
   trusts; a [`cosmic.store`] handle, which answers queries alone, refuses it.
 
@@ -251,10 +251,17 @@ within another.
   min0, max0, ...)`, with an integer id and a minimum and maximum for
   each dimension. Coordinates are kept as 32-bit reals, rounded outward,
   so a box is never smaller than the one given.
-- `rtree_i32`: the same, with 32-bit integer coordinates.
-- `rtreecheck(T)`: `ok`, or what is wrong with the R*Tree T's structure.
+- `rtree_i32`: the same, with 32-bit integer coordinates: a real is
+  truncated toward zero, so a box may shrink, and a value past the
+  32-bit range is held to it.
+- `rtreecheck(T)`: `ok`, or what is wrong with the R*Tree T's structure;
+  `rtreecheck(S, T)` checks T in schema S. A T that is not an R*Tree
+  fails the query. A check that reaches more nodes than the tree holds,
+  as a damaged tree may lead it to, stops and says so.
 - `rtreenode(D, B)`: an R*Tree node of D dimensions, from its blob in the
-  `_node` table, as text.
+  `_node` table, as text, its coordinates read as 32-bit reals even for
+  `rtree_i32`; NULL for D outside 1 to 5 or a blob too short to be a
+  node.
 - `rtreedepth(B)`: the depth of an R*Tree, from its root node's blob.
 
 ## introspection

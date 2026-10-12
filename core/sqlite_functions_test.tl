@@ -317,3 +317,22 @@ local function test_rtree_finds_the_boxes_a_box_overlaps()
   assert(rows[1][1] == "ok" and rows[1][2] == "ok", rows[1][1] .. " " .. rows[1][2])
   handle:close()
 end
+
+local function test_rtree_checks_a_lying_depth_in_bounded_time()
+  local handle = assert(Sqlite.memory())
+  assert(handle:exec("CREATE VIRTUAL TABLE b USING rtree_i32(id, x0, x1, y0, y1)"))
+  for i = 1, 60 do
+    assert(Sqlite.run(handle, "INSERT INTO b VALUES (?1, ?1, ?1 + 1, ?1, ?1 + 1)", { { integer = i } }))
+  end
+  -- A root whose depth header claims 40 levels sends the walk from leaf
+  -- rowids back to node 1, doubling the work at each level.
+  assert(Sqlite.run(handle, "UPDATE b_node SET data = ?1 || substr(data, length(?1) + 1) " ..
+      "WHERE nodeno = 1", { { blob = string.pack(">I2", 40) } }))
+  for _, sql in ipairs({ "SELECT rtreecheck('b')", "PRAGMA integrity_check" }) do
+    local rows = assert(Sqlite.text_rows(handle, sql))
+    local report = table.concat(rows[1], " ")
+    assert(report:find("Nodes are reached more often than the 3 the table holds", 1, true) ~= nil,
+      sql .. ": " .. report:sub(1, 200))
+  end
+  handle:close()
+end

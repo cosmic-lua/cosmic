@@ -1464,7 +1464,10 @@ fn vendorLibraries(
     // PRAGMA that changes a connection setting, so patch/sqlite/ keeps them
     // from the views and triggers a database file holds. The R*Tree is on:
     // an index of boxes and ranges, for which rows a box or a span
-    // overlaps, in about 44 KB per raw core (35 KB on macOS).
+    // overlaps, in about 44 KB per raw core (35 KB on macOS). SQLite's own
+    // fuzzcheck builds with it; OSS-Fuzz's SQLite target does not, so
+    // core/sqlite_functions_fuzz_test.tl damages trees here, and
+    // patch/sqlite/ bounds the check of a damaged one.
     const sqlite_flags = [_][]const u8{
         "-std=c11",
         debug_dir,

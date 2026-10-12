@@ -419,59 +419,109 @@ local function test_uint_orders_consistently(tmp: string)
   })
 end
 
---- An R*Tree whose nodes a database file has damaged: the `_node` table's
---- blobs are what a file holds, and any bytes may be there. Querying the
---- tree, checking it, and writing to it each answer or fail their
---- statement, and never take the process down.
-local function test_rtree_survives_damaged_nodes(tmp: string)
+--- The ways a file can damage an R*Tree, each on a tree of one to three
+--- levels: a depth header that lies, a child pointer sent anywhere, bytes
+--- overwritten inside a node, a node cut short or run long, and a
+--- `_parent` or `_rowid` row moved or dropped.
+local DAMAGES <const> = { "depth", "child", "bytes", "length", "parent", "rowid" }
+
+--- A file holding an R*Tree damaged in one of those ways, written to
+--- disk and opened again, so a damaged root reaches the table's connect
+--- as well as its queries: querying, checking and writing the tree each
+--- answer or fail their statement, in bounded time, and never take the
+--- process down.
+local function test_rtree_survives_damaged_trees(tmp: string)
+  local Clock = require("cosmic.clock")
+  local Fs = require("cosmic.fs")
+  local path = tmp .. "/rtree.db"
   Fuzz.run({
-    name = "sqlite rtree damaged nodes",
+    name = "sqlite rtree damaged trees",
     dir = tmp,
     gen = function(src: Fuzz.Source): string
-      local boxes: {string} = {}
-      while Fuzz.more(src, #boxes, 60) do
-        local x, y = src:int(-1000, 1000), src:int(-1000, 1000)
-        boxes[#boxes + 1] = string.pack("<i4i4i4i4", x, x + src:int(0, 50), y, y + src:int(0, 50))
-      end
-      return Fuzz.pack({ table.concat(boxes), tostring(src:int(1, 8)), Fuzz.bytes(src, 64),
-        tostring(src:int(0, 3)) })
+      return Fuzz.pack({ tostring(Fuzz.pick(src, { 1, 40, 600, 3000 })), Fuzz.pick(src, DAMAGES),
+        tostring(src:int(0, 1 << 30)), Fuzz.bytes(src, 24) })
     end,
     check = function(input: string): boolean, string
       local fields = Fuzz.unpack(input)
-      local db = assert(Sqlite.memory())
-      assert(db:exec("CREATE VIRTUAL TABLE b USING rtree_i32(id, x0, x1, y0, y1)"))
-      local packed = fields[1]
-      for i = 1, #packed // 16 do
-        local x0, x1, y0, y1 = string.unpack("<i4i4i4i4", packed, (i - 1) * 16 + 1)
-        assert(Sqlite.run(db, "INSERT INTO b VALUES (?1, ?2, ?3, ?4, ?5)", { { integer = i },
-          { integer = x0 }, { integer = x1 }, { integer = y0 }, { integer = y1 } }))
+      local rows_n, damage = assert(math.tointeger(fields[1])), fields[2]
+      local pick, bytes = assert(math.tointeger(fields[3])), fields[4]
+      Fs.remove(path)
+      local db = assert(Sqlite.open(path, { writable = true, create = true }))
+      assert(db:exec("CREATE VIRTUAL TABLE b USING rtree_i32(id, x0, x1, y0, y1); BEGIN"))
+      for i = 1, rows_n do
+        local x, y = (i * 7919) % 2000 - 1000, (i * 104729) % 2000 - 1000
+        assert(Sqlite.run(db, "INSERT INTO b VALUES (?1, ?2, ?2 + 9, ?3, ?3 + 9)",
+          { { integer = i }, { integer = x }, { integer = y } }))
       end
-      -- Overwrite part of one node's blob, as a damaged file would hold it.
-      local nodes = assert(Sqlite.text_rows(db, "SELECT count(*) FROM b_node"))
-      local which = (math.tointeger(fields[2]) - 1) % math.tointeger(nodes[1][1]) + 1
-      local how = math.tointeger(fields[4])
-      local sql = how == 0 and "UPDATE b_node SET data = ?1 WHERE nodeno = ?2" or
-        how == 1 and "UPDATE b_node SET data = ?1 || substr(data, length(?1) + 1) WHERE nodeno = ?2" or
-        how == 2 and "UPDATE b_node SET data = substr(data, 1, length(data) - length(?1)) || ?1 WHERE nodeno = ?2" or
-        "UPDATE b_node SET data = substr(data, 1, 4) || ?1 || substr(data, length(?1) + 5) WHERE nodeno = ?2"
-      assert(Sqlite.run(db, sql, { { blob = fields[3] }, { integer = which } }))
-      local broke = false
-      for _, q in ipairs({ "SELECT count(*) FROM b WHERE x1 >= 0 AND x0 <= 10 AND y1 >= 0 AND y0 <= 10",
-          "SELECT count(*) FROM b", "SELECT rtreecheck('b')",
-          "SELECT count(*) FROM b_node WHERE rtreenode(2, data) IS NOT NULL",
+      assert(db:exec("COMMIT"))
+      local nodes = assert(Sqlite.rows(db, "SELECT nodeno, data FROM b_node ORDER BY nodeno"))
+      local root = assert(nodes[1][2].blob)
+      if string.unpack(">I2", root) > 0 then Fuzz.label("a tree of more than one level") end
+      local at = nodes[pick % #nodes + 1]
+      local nodeno, blob = assert(at[1].integer), assert(at[2].blob)
+      local n = #blob
+      local sql: string
+      local values: {Sqlite.Value}
+      if damage == "depth" then
+        sql, values = "UPDATE b_node SET data = ?1 WHERE nodeno = 1",
+          { { blob = string.pack(">I2", pick % 64) .. root:sub(3) } }
+      elseif damage == "child" then
+        -- A cell's first 8 bytes are its child's node number.
+        local cells = math.max(string.unpack(">I2", blob, 3), 1)
+        local cell = 5 + (pick % cells) * 24
+        -- The root, the node itself, a node that does not exist, or none.
+        local targets = { 1, nodeno, #nodes + 5, -1, 0 }
+        local child = string.pack(">i8", targets[pick % #targets + 1])
+        sql, values = "UPDATE b_node SET data = ?1 WHERE nodeno = ?2",
+          { { blob = blob:sub(1, cell - 1) .. child .. blob:sub(cell + 8) }, { integer = nodeno } }
+      elseif damage == "bytes" then
+        local start = pick % n + 1
+        sql, values = "UPDATE b_node SET data = ?1 WHERE nodeno = ?2",
+          { { blob = (blob:sub(1, start - 1) .. bytes .. blob:sub(start + #bytes)):sub(1, n) },
+            { integer = nodeno } }
+      elseif damage == "length" then
+        local cut = pick % (2 * n)
+        sql, values = "UPDATE b_node SET data = ?1 WHERE nodeno = ?2",
+          { { blob = cut < n and blob:sub(1, cut) or blob .. string.rep("\0", cut - n) },
+            { integer = nodeno } }
+      elseif damage == "parent" then
+        sql, values = pick % 2 == 0 and "DELETE FROM b_parent WHERE nodeno = ?2" or
+          "UPDATE b_parent SET parentnode = ?1 WHERE nodeno = ?2",
+          { { integer = pick % 7 - 2 }, { integer = nodeno } }
+      else
+        sql, values = pick % 2 == 0 and "DELETE FROM b_rowid WHERE rowid = ?2" or
+          "UPDATE b_rowid SET nodeno = ?1 WHERE rowid = ?2",
+          { { integer = pick % 7 - 2 }, { integer = pick % rows_n + 1 } }
+      end
+      assert(Sqlite.run(db, sql, values))
+      db:close()
+      local start = Clock.monotonic_ns()
+      local reopened = assert(Sqlite.open(path, { writable = true }))
+      local refused, reported = false, false
+      for _, q in ipairs({ "SELECT count(*) FROM b WHERE x1 >= 0 AND x0 <= 50 AND y1 >= 0 AND y0 <= 50",
+          "SELECT count(*) FROM b", "SELECT rtreecheck('b')", "PRAGMA quick_check",
           "INSERT INTO b VALUES (100000, 1, 2, 1, 2)", "DELETE FROM b WHERE id = 1",
           "UPDATE b SET x1 = x1 + 1 WHERE id = 2" }) do
-        local rows, trouble = Sqlite.text_rows(db, q)
+        local rows, trouble = Sqlite.text_rows(reopened, q)
         if rows == nil then
-          broke = true
+          refused = true
           if trouble == "" then return false, q .. " failed without saying why" end
+        elseif q == "SELECT rtreecheck('b')" and rows[1][1] ~= "ok" then
+          reported = true
         end
       end
-      db:close()
-      Fuzz.label(broke and "refused the damage" or "read past the damage")
+      reopened:close()
+      local spent = (Clock.monotonic_ns() - start) // 1000000
+      if spent > 5000 then
+        return false, damage .. " damage took " .. spent .. " ms to read and check"
+      end
+      if reported then Fuzz.label("rtreecheck reported the damage") end
+      if refused then Fuzz.label("a statement refused the damage") end
+      Fuzz.label("damaged " .. damage)
       return true, ""
     end,
-    requires = { "refused the damage" },
-    shares = { ["refused the damage"] = 0.1 },
+    requires = { "a tree of more than one level", "rtreecheck reported the damage",
+      "damaged depth", "damaged child" },
+    shares = { ["a tree of more than one level"] = 0.3, ["rtreecheck reported the damage"] = 0.3 },
   })
 end
