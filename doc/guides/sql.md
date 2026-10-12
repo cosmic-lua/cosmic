@@ -9,16 +9,20 @@ functions is short and links to SQLite's page for the rest. An entry for
 what cosmic adds says what a caller needs.
 
 A caller's own SQL may use every name here. A view or trigger that a
-database file holds may use only what SQLite marks innocuous, since
-cosmic turns SQLite's [`trusted_schema`](https://sqlite.org/pragma.html#pragma_trusted_schema)
-off on every handle: a file is not trusted to run the rest when it is
-read. Among the names here, that leaves out the percentile aggregates,
-FTS5's `bm25`, `highlight`, `snippet`, `match`, `fts5` and
-`fts5_get_locale`, the `pragma_*`, `bytecode`, `tables_used` and `dbstat`
-tables, cosmic's own functions, and `base64`, `base85`, `sha1_query`,
-`sha3_query` and `sqlite_log`. `PRAGMA trusted_schema = 1` on a
-[`cosmic.sqlite`] handle allows them again, for a file the caller trusts; a
-[`cosmic.store`] handle, which answers queries alone, refuses it.
+database file holds may not use some of them, so that reading a file does
+not run what its author chose:
+
+- `bytecode`, `tables_used`, `dbstat`, cosmic's own functions, `base64`,
+  `base85`, `sha1_query`, `sha3_query` and `sqlite_log` are direct-only:
+  only the caller's own SQL uses them.
+- The rest that SQLite does not mark innocuous, since cosmic turns
+  SQLite's [`trusted_schema`](https://sqlite.org/pragma.html#pragma_trusted_schema)
+  off on every handle: the percentile aggregates, FTS5's `bm25`,
+  `highlight`, `snippet`, `fts5()` and `fts5_get_locale`, `MATCH` against
+  an FTS5 table, and the `pragma_*` and `fts5vocab` tables. A trigger may
+  still write to an FTS5 table. `PRAGMA trusted_schema = 1` on a
+  [`cosmic.sqlite`] handle allows these again, for a file the caller
+  trusts; a [`cosmic.store`] handle, which answers queries alone, refuses it.
 
 ```teal
 local Sqlite = require("cosmic.sqlite")
