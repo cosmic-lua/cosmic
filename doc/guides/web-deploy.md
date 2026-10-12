@@ -80,7 +80,7 @@ local record Config
     --- Whether a proxy that ends TLS is in front.
     behind_proxy: boolean
     --- The hosts the app answers to; nil for any.
-    hosts: {string}
+    hosts?: {string}
     --- Whether the site is https for good.
     https: boolean
   end
@@ -96,7 +96,7 @@ function Config.read(env: {string:string}): Config.Settings | nil, string
   if host == nil or port == nil or port > 65535 then
     return nil, "HELLO_LISTEN: want host:port, such as 127.0.0.1:8080"
   end
-  local hosts: {string} = nil
+  local hosts: {string} | nil = nil
   if env["HELLO_HOSTS"] ~= nil then hosts = String.split(env["HELLO_HOSTS"], ",") end
   return {
     keys = keys, host = host, port = port, hosts = hosts,
@@ -267,7 +267,7 @@ local function test_the_settings_are_read_from_the_environment()
   local set = assert(Config.read({ HELLO_KEYS = key, HELLO_LISTEN = "0.0.0.0:9000",
     HELLO_BEHIND_PROXY = "1", HELLO_HOSTS = "a.example,b.example", HELLO_HTTPS = "1" }))
   assert(set.host == "0.0.0.0" and set.port == 9000 and set.behind_proxy and set.https)
-  assert(#set.hosts == 2 and set.hosts[2] == "b.example")
+  assert(set.hosts ~= nil and #set.hosts == 2 and set.hosts[2] == "b.example")
   assert(Config.read({}) == nil, "no key, no program")
   assert(Config.read({ HELLO_KEYS = key, HELLO_LISTEN = "nowhere" }) == nil)
 end
