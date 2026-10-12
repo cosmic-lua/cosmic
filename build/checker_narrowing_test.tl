@@ -874,6 +874,12 @@ local function test_a_call_drops_every_narrowed_field()
   accepted("if q.a then\n  print(q.a + 1)\nend")
 end
 
+local tostring_head <const> = "local record T\n  metamethod __tostring: function(T): string\nend\n" ..
+  "local record H\n  n: number | nil\nend\nlocal t: T = setmetatable({} as T, {})\nlocal h: H = {}\n"
+
+local pairs_head <const> = "local record T\n  x: number\n  metamethod __pairs: function<K, V>(T): function(): (K, V)\nend\n" ..
+  "local record H\n  n: number | nil\nend\nlocal t: T = setmetatable({} as T, {})\nlocal h: H = {}\n"
+
 local function test_a_call_that_runs_no_code_of_the_programs_drops_nothing()
   -- `assert` and `type`, a function that never returns, and the standard
   -- library's functions given what they cannot hand to a metamethod.
@@ -884,12 +890,79 @@ local function test_a_call_that_runs_no_code_of_the_programs_drops_nothing()
   accepted("if q.a then\n  local s = tostring(x) .. string.rep(\"x\", 2) .. (\"y\"):upper()\n  print(q.a + #s)\nend")
   accepted("if q.a then\n  local t: {string} = {}\n  table.insert(t, \"x\")\n  print(q.a + #table.concat(t, \",\"))\nend")
   accepted("if q.a then\n  local total = 0\n  for _, v in ipairs({ 1, 2 }) do total = total + v end\n  print(q.a + total)\nend")
-  -- A record handed to one may be examined by a metamethod, a function may be called.
-  refused("if q.a then\n  print(q)\n  print(q.a + 1)\nend", "3: " .. plus:sub(1, 28))
-  refused("if q.a then\n  tostring(q)\n  print(q.a + 1)\nend", "3: " .. plus:sub(1, 28))
+  -- A record handed to one is examined by a metamethod only if its type declares one.
+  accepted("if q.a then\n  print(q)\n  print(q.a + 1)\nend")
+  accepted("if q.a then\n  tostring(q)\n  print(q.a + 1)\nend")
+  refused_source(tostring_head .. "if h.n then\n  print(t)\n  print(h.n + 1)\nend", "11: " .. plus:sub(1, 28))
+  refused_source(tostring_head .. "if h.n then\n  local s = tostring(t)\n  print(h.n + #s)\nend", "11: " .. plus:sub(1, 28))
+  -- A function may be called.
   refused("if q.a then\n  table.sort({ 3, 1 }, function(l: number, r: number): boolean return l < r end)\n  print(q.a + 1)\nend",
     "3: " .. plus:sub(1, 28))
+  -- Nor one among a union's members.
+  refused("local type Cmp = function(number, number): boolean\nlocal function g(cmp: Cmp | nil)\n" ..
+      "  if q.a then\n    print(cmp)\n    print(q.a + 1)\n  end\nend\nprint(g)", "5: " .. plus:sub(1, 28))
   refused("if q.a then\n  pcall(touch, q)\n  print(q.a + 1)\nend", "3: " .. plus:sub(1, 28))
+end
+
+--- The limit of "a value dispatches only through metamethods its type
+--- declares" (doc/design.md): a metatable attached at run time runs code
+--- the checker does not see. Each program is accepted today and wrong at
+--- run time, pinned as it is so that the change that lifts the limit
+--- (doc/roadmap.md, `setmetatable` attaches only what a record declares)
+--- flips its case.
+local function test_a_metatable_attached_at_run_time_is_not_seen_yet()
+  local drop <const> = "function(): integer p.a = nil return 0 end"
+  accepted("local m: {string:integer} = setmetatable({}, {__index = " .. drop .. "})\n" ..
+      "if q.a then\n  local v = m.foo\n  print(q.a + 1, v)\nend")
+  accepted("local m: {string:integer} = setmetatable({}, {__newindex = function() p.a = nil end})\n" ..
+      "if q.a then\n  m.foo = 1\n  print(q.a + 1)\nend")
+  accepted("local arr: {integer} = setmetatable({}, {__len = " .. drop .. "})\n" ..
+      "if q.a then\n  local n = #arr\n  print(q.a + n)\nend")
+  accepted("local r: R = setmetatable({}, {__eq = function(): boolean p.a = nil return true end})\n" ..
+      "if q.a then\n  local same = r == p\n  print(q.a + (same and 1 or 0))\nend")
+end
+
+--- Code the checker sees: an operand of type `any` may carry any
+--- metamethod, and a write at a key that is not a literal may be to any
+--- field.
+local function test_any_and_a_computed_key_may_run_or_write_anything()
+  refused("local a = x as any\nif q.a then\n  local same = a == p\n  print(q.a + (same and 1 or 0))\nend", "4: " .. plus:sub(1, 28))
+  refused("local m = (q as {string:any})\nlocal k = \"a\"\nif q.a then\n  m[k] = nil\n  print(q.a + 1)\nend", "5: " .. plus:sub(1, 28))
+  refused("local k: string = tostring(x)\nif q.a then\n  (p as {string:any})[k] = nil\n  print(q.a + 1)\nend", "4: " .. plus:sub(1, 28))
+  -- A number key is an index of an array.
+  accepted("local arr: {integer} = {}\nlocal i = 1\nif q.a then\n  arr[i] = 2\n  print(q.a + 1)\nend")
+end
+
+--- `local x: T, y = 1, 2` reads `y` as a second type: it is refused for
+--- having more types than variables, not raised on.
+local function test_more_types_than_variables_is_refused_not_raised()
+  refused_source("local x: integer | nil, y = 1, 2\nprint(x, y)\n",
+    "1: number of types exceeds number of variables", "2: unknown variable: y")
+end
+
+--- Only a declared `__eq` runs on a comparison of two records.
+local function test_a_comparison_of_records_runs_code_only_if_one_declares_eq()
+  local head = "local record Node\n  v: integer | nil\nend\nlocal a: Node = {}\nlocal b: Node = {}\n" ..
+    "local kids: {Node} = {}\nlocal target: Node = {}\n"
+  accepted_source(head .. "if a.v then\n  if a == b then print(1) end\n  print(a.v + 1)\nend\n")
+  accepted_source(head .. "if a.v then\n  for _, k in ipairs(kids) do\n    if k == target then print(1) end\n  end\n" ..
+      "  print(a.v + 1)\nend\n")
+  local eq = "local record Node\n  v: integer | nil\n  metamethod __eq: function(Node, Node): boolean\nend\n" ..
+    "local a: Node = {}\nlocal b: Node = {}\n"
+  refused_source(eq .. "if a.v then\n  if a == b then print(1) end\n  print(a.v + 1)\nend\n",
+    "9: cannot use operator '+'")
+  -- An operand of a type that declares none beside one that does.
+  refused_source(eq .. "local c: Node | nil = b\nif a.v then\n  if c == b then print(1) end\n  print(a.v + 1)\nend\n",
+    "10: cannot use operator '+'")
+end
+
+local function test_an_expanded_condition_that_calls_drops()
+  local head = "local interface Animal\n  kind: string\nend\n" ..
+    "local record H\n  n: number | nil\nend\nlocal h: H = {}\n" ..
+    "local function is_cat(a: Animal): boolean\n  h.n = nil\n  return a.kind == \"cat\"\nend\n" ..
+    "local record Cat is Animal where is_cat(self)\nend\nlocal a: Animal = { kind = \"dog\" }\n"
+  refused_source(head .. "if h.n then\n  if a is Cat then print(1) end\n  print(h.n + 1)\nend\n",
+    "17: cannot use operator '+'")
 end
 
 local function test_a_call_drops_a_local_a_function_literal_assigns_and_no_other()
@@ -941,14 +1014,63 @@ local function test_an_expanded_condition_runs_no_code_for_the_conditions_after_
     "17: cannot use operator '+'")
 end
 
-local function test_a_loop_drops_what_its_body_can_change_where_it_begins()
+--- A loop is checked once with the facts from before it, and a read of one
+--- the loop itself drops later in the body is refused at the read, for the
+--- pass that comes round again.
+local looped <const> = ": 'q.a' was narrowed before this loop"
+
+local function test_a_read_of_a_fact_the_loop_drops_later_is_refused_at_the_read()
+  refused("if q.a then\n  while y do\n    print(q.a + 1)\n    touch(q)\n  end\nend", "3" .. looped)
+  refused("if q.a then\n  for _ = 1, 2 do\n    print(q.a + 1)\n    touch(q)\n  end\nend", "3" .. looped)
+  refused("if q.a then\n  for _ = 1, 2 do\n    local n = q.a + 1\n    p.a = nil\n    print(n)\n  end\nend", "3" .. looped)
+  refused("if q.a then\n  while y do\n    print(q.a + 1)\n    q.a = nil\n  end\nend", "3" .. looped)
+  refused("if q.a then\n  repeat\n    print(q.a + 1)\n    touch(q)\n  until y\nend", "3" .. looped)
+  refused("if q.a then\n  for _, v in ipairs({ 1 }) do\n    print(q.a + v)\n    touch(q)\n  end\nend", "3" .. looped)
+  -- A drop in a loop inside the loop is one of the outer loop's.
+  refused("if q.a then\n  while y do\n    print(q.a + 1)\n    for _ = 1, 2 do touch(q) end\n  end\nend", "3" .. looped)
+  -- Each read before the drop is refused, those after it are refused for the drop itself.
+  refused("if q.a then\n  while y do\n    print(q.a + 1)\n    print(q.a + 2)\n    touch(q)\n    print(q.a + 3)\n  end\nend",
+    "3" .. looped, "4" .. looped, "6: " .. plus:sub(1, 28))
+  -- The condition of a loop is its body: what it drops is dropped for the body.
   refused("if q.a then\n  while maybe() do\n    print(q.a + 1)\n  end\nend", "3: " .. plus:sub(1, 28))
-  refused("if q.a then\n  for _ = 1, 2 do\n    print(q.a + 1)\n    touch(q)\n  end\nend", "3: " .. plus:sub(1, 28))
-  refused("if q.a then\n  for _ = 1, 2 do\n    local n = q.a + 1\n    p.a = nil\n    print(n)\n  end\nend", "3: " .. plus:sub(1, 28))
-  refused("if q.a then\n  while y do\n    print(q.a + 1)\n    q.a = nil\n  end\nend", "3: " .. plus:sub(1, 28))
+  refused("if q.a then\n  repeat\n    touch(q)\n    print(q.a + 1)\n  until y\nend", "4: " .. plus:sub(1, 28))
+  refused("if q.a then\n  repeat\n    x = nil\n  until q.a + 1 > 2 or touch(q)\nend", "4" .. looped)
+end
+
+local function test_a_loop_that_drops_nothing_before_a_read_keeps_the_fact()
   accepted("if q.a then\n  for _ = 1, 2 do\n    local n = q.a + 1\n    x = n\n  end\nend")
   -- A function literal in the body runs at no pass of it.
   accepted("if q.a then\n  for _ = 1, 2 do\n    local n = q.a + 1\n    local g = function() touch(q) end\n    x = n\n  end\nend")
+  -- A drop in a branch that leaves is not one of the next pass.
+  accepted("if q.a then\n  for _ = 1, 2 do\n    print(q.a + 1)\n    if y then\n      touch(q)\n      return\n    end\n  end\nend")
+  accepted("if q.a then\n  while y do\n    print(q.a + 1)\n    if x then\n      touch(q)\n      die()\n    end\n  end\nend")
+  -- A fact the loop narrows itself is its own.
+  accepted("for _ = 1, 2 do\n  if q.a then\n    print(q.a + 1)\n    touch(q)\n  end\nend")
+  -- A different field, or a write to another name.
+  accepted("if q.a then\n  for _ = 1, 2 do\n    print(q.a + 1)\n    p.b = \"x\"\n  end\nend")
+end
+
+local function test_after_a_loop_what_it_dropped_stays_dropped()
+  refused("if q.a then\n  for _ = 1, 2 do\n    touch(q)\n  end\n  print(q.a + 1)\nend", "5: " .. plus:sub(1, 28))
+  refused("if q.a then\n  while y do\n    p.a = nil\n  end\n  print(q.a + 1)\nend", "5: " .. plus:sub(1, 28))
+  accepted("if q.a then\n  for _ = 1, 2 do\n    x = 1\n  end\n  print(q.a + 1)\nend")
+end
+
+local function test_a_local_assigned_in_a_loop_in_a_branch_is_widened_at_its_head()
+  -- The assignment is in the `else` of a branch, which has no condition.
+  accepted("local real: number | nil = nil\nfor _ = 1, 2 do\n  if y then\n    print(1)\n  else\n    if real ~= nil then print(real + 1) end\n    real = x\n  end\nend")
+end
+
+local function test_pairs_ipairs_gmatch_and_next_run_none_of_the_programs_code()
+  accepted("if q.a then\n  for _, v in ipairs({ 1 }) do print(q.a + v) end\n  print(q.a + 1)\nend")
+  accepted("local t: {string:number} = {}\nif q.a then\n  for _, v in pairs(t) do print(q.a + v) end\n  print(q.a + 1)\nend")
+  accepted("if q.a then\n  for w in (\"a b\"):gmatch(\"%a+\") do print(q.a + #w) end\n  print(q.a + 1)\nend")
+  accepted("local t: {string:number} = {}\nif q.a then\n  for _ in next, t do print(q.a + 1) end\n  print(q.a + 1)\nend")
+  -- An iterator function is code, run before every pass.
+  refused("if q.a then\n  for v in maybe do\n    print(q.a + (v or 0))\n  end\nend", "3: " .. plus:sub(1, 28))
+  refused("if q.a then\n  for v in maybe do\n    print(v)\n  end\n  print(q.a + 1)\nend", "5: " .. plus:sub(1, 28))
+  -- `pairs` of a record with a `__pairs` it declares runs it.
+  refused_source(pairs_head .. "if h.n then\n  for _ in pairs(t) do print(1) end\n  print(h.n + 1)\nend", "12: " .. plus:sub(1, 28))
 end
 
 local function test_a_branch_that_leaves_drops_nothing_for_the_code_after_it()
@@ -977,14 +1099,18 @@ local function test_a_metamethod_runs_code_an_operator_on_a_number_does_not()
   local head = "local record V\n  x: number\n  metamethod __add: function(V, V): V\n" ..
     "  metamethod __index: function(V, string): number\nend\n" ..
     "local record H\n  n: number | nil\nend\n" ..
-    "local v: V = setmetatable({ x = 1 } as V, {})\nlocal w: V = v\nlocal h: H = {}\n"
+    "local record E\n  x: number\n  metamethod __eq: function(E, E): boolean\nend\n" ..
+    "local v: V = setmetatable({ x = 1 } as V, {})\nlocal w: V = v\nlocal h: H = {}\n" ..
+    "local e: E = setmetatable({ x = 1 } as E, {})\nlocal f: E = e\n"
   local plus_at = "cannot use operator '+'"
   -- An operator the record declares, an index its `__index` serves, and a
   -- comparison of two values that may carry `__eq`.
-  refused_source(head .. "if h.n then\n  local z = v + w\n  print(h.n + z.x)\nend", "14: " .. plus_at)
-  refused_source(head .. "if h.n then\n  local z = v.other\n  print(h.n + z)\nend", "14: " .. plus_at)
-  refused_source(head .. "if h.n then\n  local same = v == w\n  print(h.n + (same and 1 or 0))\nend", "14: " .. plus_at)
-  -- A field the record declares, a number, a string and an array are not.
+  refused_source(head .. "if h.n then\n  local z = v + w\n  print(h.n + z.x)\nend", "20: " .. plus_at)
+  refused_source(head .. "if h.n then\n  local z = v.other\n  print(h.n + z)\nend", "20: " .. plus_at)
+  refused_source(head .. "if h.n then\n  local same = e == f\n  print(h.n + (same and 1 or 0))\nend", "20: " .. plus_at)
+  -- A field the record declares, a number, a string and an array are not,
+  -- nor is a comparison of records that declare no `__eq`.
+  accepted_source(head .. "if h.n then\n  local same = v == w\n  print(h.n + (same and 1 or 0))\nend")
   accepted_source(head .. "if h.n then\n  local z = v.x\n  print(h.n + z)\nend")
   accepted_source(head .. "if h.n then\n  local z = 2 * 3 + #\"abc\"\n  local a: {number} = { 1 }\n" ..
       "  local same = a == a and \"s\" == \"t\" and z .. \"\" == \"6\"\n  print(h.n + z + #a + (same and 1 or 0))\nend")

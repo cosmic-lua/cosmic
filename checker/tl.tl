@@ -1940,6 +1940,7 @@ local record Node
    clock_start: integer
    -- On an `if` block: where the journal of drops was when its body began.
    journal_mark: integer
+   tick_mark: integer
    -- The typename of an index's key, for the write `t[k] = v`.
    key_kind: string
    -- On a call: whether it ran no code of the program's, so dropped nothing.
@@ -8201,6 +8202,10 @@ do
       last_drop_node: Where
       last_drop_kind: string
       last_drop_text: string
+      -- The loops being checked, innermost last, and a count of the reads
+      -- they hold and the drops met, which orders them.
+      loops: {narrowing.Loop}
+      loop_tick: integer
 
       -- Declared where the record is, defined by the narrowing code below.
       binder_is_stable: function(TypeChecker, Node, string, Attribute): boolean
@@ -8208,11 +8213,17 @@ do
       drop_all: function(TypeChecker, Where, string, ? string)
       last_dropper: function(TypeChecker): narrowing.Drop
       drop_through: function(TypeChecker, Node)
-      may_dispatch: function(TypeChecker, Type): boolean
+      may_dispatch: function(TypeChecker, Type, ? string): boolean
+      may_be_table: function(TypeChecker, Type): boolean
       note_dropped: function(TypeChecker, Node, string)
       guard_before: function(TypeChecker, Node, Node): narrowing.Guard
       droppable: function(TypeChecker, narrowing.Place): boolean
-      drop_for_loop: function(TypeChecker, {Node})
+      loop_begin: function(TypeChecker)
+      loop_end: function(TypeChecker)
+      record_read: function(TypeChecker, Node, string, ? Type)
+      loop_dropped: function(TypeChecker, integer, string, narrowing.Drop)
+      loops_forget_since: function(TypeChecker, integer)
+      pure_iterator: function(TypeChecker, Node): boolean
       prune: function(TypeChecker, narrowing.Guard): narrowing.Guard
       runs_no_code: function(TypeChecker, Node, Type, TupleType): boolean
       written_name: function(TypeChecker, Node): string
@@ -12102,7 +12113,7 @@ do
    end
 
    -- Whether `root` assigns a local of that name. A field a loop writes is
-   -- dropped where it begins by `drop_for_loop`, not here.
+   -- told when the loop ends (`loop_end`), not here.
    local function assigned_anywhere(name: string, root: Node): boolean
       local visit_node: Visitor<nil, NodeKind, Node, boolean> = {
          cbs = {
@@ -12119,7 +12130,8 @@ do
          },
          after = function(_: nil, _node: Node, children: {boolean}, ret: boolean): boolean
             ret = ret or false
-            for _, c in ipairs(children) do
+            -- an `else` has no condition, which leaves a hole in `children`
+            for _, c in pairs(children as {integer:boolean}) do
                local ca = c as any
                if ca is boolean then
                   ret = ret or c
@@ -12867,25 +12879,60 @@ do
          return why
       end
 
-      -- Whether an operator on a value of type `t` may dispatch to a
-      -- metamethod: `t` is a record, an interface, a userdata, `any`, a
-      -- type variable, or a union with one. A string, a number, a plain
-      -- array or map, a function or nil never does.
-      function TypeChecker:may_dispatch(t: Type): boolean
+      -- Whether an operation on a value of type `t` may dispatch to a
+      -- metamethod, `metamethod` if one is named: `t` is a record, an
+      -- interface or a userdata that declares it (any, if none is named),
+      -- or `any`, a type variable, or a union with one of these. A value
+      -- dispatches only through metamethods its type declares, so a string,
+      -- a number, a plain array or map, a function, nil and a record that
+      -- declares none never do.
+      --
+      -- TODO: a metatable attached at run time dispatches whatever its
+      -- type declares, so a plain map built by `setmetatable({}, {__index =
+      -- f})`, or a record given a metamethod it does not declare, runs code
+      -- here unseen. It waits on doc/roadmap.md's item that lets
+      -- `setmetatable` attach metamethods only to a record type that
+      -- declares them. A `__gc` finalizer, which runs when the collector
+      -- chooses, is outside the claim (doc/design.md) and no item closes it.
+      function TypeChecker:may_dispatch(t: Type, metamethod?: string): boolean
          local rt = self:to_structural(t)
          if rt is UnionType then
             for _, member in ipairs(rt.types) do
-               if self:may_dispatch(member) then
+               if self:may_dispatch(member, metamethod) then
                   return true
                end
             end
             return false
          end
-         return rt is RecordLikeType
-            or rt.typename == "any"
+         if rt is RecordLikeType then
+            local declared = rt.meta_fields
+            if not declared then
+               return false
+            end
+            if metamethod then
+               return declared[metamethod] ~= nil
+            end
+            return next(declared) ~= nil
+         end
+         return rt.typename == "any"
             or rt.typename == "typevar"
             or rt.typename == "typearg"
             or rt.typename == "unknown"
+      end
+
+      -- Whether a value of type `t` may be a table (or userdata), the only
+      -- operands `==` consults `__eq` for.
+      function TypeChecker:may_be_table(t: Type): boolean
+         local rt = self:to_structural(t)
+         if rt is UnionType then
+            for _, member in ipairs(rt.types) do
+               if self:may_be_table(member) then
+                  return true
+               end
+            end
+            return false
+         end
+         return rt is RecordLikeType or is_lua_table_type(rt) or self:may_dispatch(rt)
       end
 
       -- Records on the node `n`, a read of the place `key`, what dropped
@@ -12931,104 +12978,117 @@ do
          end)
       end
 
-      -- What a loop runs again before its next pass reaches the places it
-      -- read: the first call in `parts` outside the function literals it
-      -- holds (but a call of the standard `assert` or `type`), and each
-      -- target of an assignment through a field or an index. Found before
-      -- the body is checked, so by its syntax alone.
-      -- TODO: an operator or index that dispatches to a metamethod is call-like
-      -- (`drop_all`), but only the type of its operand says so, and the
-      -- body's types are not known where the loop begins: such an operator
-      -- in a loop body drops what it relied on only from where it stands on.
-      -- It waits on checking a loop body twice, the second time with what the
-      -- first dropped.
-      function TypeChecker:loop_effects(parts: {Node}): Node, {Node}
-         local call: Node
-         local call_is_usual: boolean
-         local writes: {Node} = {}
-         local depth = 0
-         local stdlib_calls: {string:boolean} = {
-            print = true, tostring = true, tonumber = true, select = true, ipairs = true, pairs = true,
-            string = true, math = true, utf8 = true, table = true, os = true,
-         }
-         local no_types: Visitor<nil, TypeName, Type, boolean> = {
-            cbs = {},
-            allow_missing_cbs = false,
-            after = function(): boolean
-               return false
-            end,
-         }
-         local function enter(_: nil, _node: Node)
-            depth = depth + 1
-         end
-         local function leave(_: nil, _node: Node, _children: {boolean}): boolean
-            depth = depth - 1
-            return false
-         end
-         local visit_node: Visitor<nil, NodeKind, Node, boolean> = {
-            allow_missing_cbs = false,
-            cbs = {
-               ["function"] = { before = enter, after = leave },
-               ["local_function"] = { before = enter, after = leave },
-               ["global_function"] = { before = enter, after = leave },
-               ["record_function"] = { before = enter, after = leave },
-               ["macroexp"] = { before = enter, after = leave },
-               ["local_macroexp"] = { before = enter, after = leave },
-               ["op"] = {
-                  after = function(_: nil, node: Node, _children: {boolean}): boolean
-                     if depth == 0 and node.op.op == "@funcall" then
-                        local callee = node.e1
-                        local pure = false
-                        if callee.kind == "variable" and (callee.tk == "assert" or callee.tk == "type") then
-                           local _, scope = self:find_var(callee.tk, "check_only")
-                           pure = scope == 1
-                        end
-                        if not pure then
-                           -- A refusal names the first call that is not one
-                           -- the standard library usually makes.
-                           local name = self:written_name(callee)
-                           local usual = name ~= nil and (stdlib_calls[name] or stdlib_calls[name:match("^[^.:]+") or ""])
-                           if not call or (call_is_usual and not usual) then
-                              call, call_is_usual = node, usual
-                           end
-                        end
-                     end
-                     return false
-                  end,
-               },
-               ["assignment"] = {
-                  after = function(_: nil, node: Node, _children: {boolean}): boolean
-                     if depth == 0 then
-                        for _, target in ipairs(node.vars) do
-                           if target.kind == "op" then
-                              table.insert(writes, target)
-                           end
-                        end
-                     end
-                     return false
-                  end,
-               },
-            },
-            after = function(_: nil, _node: Node, _children: {boolean}, _ret: boolean): boolean
-               return false
-            end,
-         }
-         for _, part in ipairs(parts) do
-            recurse_node(nil, part, visit_node, no_types)
-         end
-         return call, writes
+      -- A loop begins: its body is checked once with the facts of the scopes
+      -- outside it, and what it reads of them is held until `loop_end`.
+      function TypeChecker:loop_begin()
+         table.insert(self.loops, { depth = #self.st, reads = {}, dropped = {} })
       end
 
-      -- Drops, where a loop begins, what the loop's later passes would: the
-      -- places read in the first pass are read again after its body ran.
-      function TypeChecker:drop_for_loop(parts: {Node})
-         local call, writes = self:loop_effects(parts)
-         if call then
-            self:drop_all(call, "loop", self:call_text(call))
+      -- A read of `key` where a fact narrowed outside a loop stood: it is
+      -- held for each loop it is outside of, if the fact told more than the
+      -- declared type did (`declared`, where the place has no declaration to
+      -- look for).
+      function TypeChecker:record_read(node: Node, key: string, declared?: Type)
+         local st = self.st
+         for i = #st, 1, -1 do
+            local var = st[i].vars[key]
+            if var then
+               if var.is_specialized == "narrow" or var.is_specialized == "narrowed_declaration" then
+                  local was = declared or var.specialized_from
+                  if not was then
+                     local real = get_real_var_from_lower_scope(st, i, key)
+                     was = real and real.t
+                  end
+                  if was and not self:same_type(var.t, was) then
+                     self.loop_tick = self.loop_tick + 1
+                     for _, loop in ipairs(self.loops) do
+                        if i <= loop.depth then
+                           table.insert(loop.reads, { node = node as narrowing.Node, key = key, clock = self.loop_tick })
+                        end
+                     end
+                  end
+               end
+               return
+            end
          end
-         for _, target in ipairs(writes) do
-            self:drop_through(target)
+      end
+
+      -- A fact held in the scope `index` was dropped: a loop outside which
+      -- it was held will read it dropped in its next pass.
+      function TypeChecker:loop_dropped(index: integer, key: string, why: narrowing.Drop)
+         self.loop_tick = self.loop_tick + 1
+         for _, loop in ipairs(self.loops) do
+            if index <= loop.depth then
+               local events = loop.dropped[key]
+               if not events then
+                  events = {}
+                  loop.dropped[key] = events
+               end
+               table.insert(events, { clock = self.loop_tick, why = why })
+            end
          end
+      end
+
+      -- What the loops saw before `tick` need not be told: control left them.
+      function TypeChecker:loops_forget_since(tick: integer)
+         for _, loop in ipairs(self.loops) do
+            for i = #loop.reads, 1, -1 do
+               if loop.reads[i].clock > tick then
+                  table.remove(loop.reads, i)
+               end
+            end
+            for _, events in pairs(loop.dropped) do
+               for i = #events, 1, -1 do
+                  if events[i].clock > tick then
+                     table.remove(events, i)
+                  end
+               end
+            end
+         end
+      end
+
+      -- A loop ends, its body (and condition) checked: each read of a fact
+      -- from outside it that came before a drop of that fact is of what the
+      -- previous pass left, and is refused.
+      function TypeChecker:loop_end()
+         local loop = table.remove(self.loops)
+         for _, read in ipairs(loop.reads) do
+            local events = loop.dropped[read.key]
+            for _, event in ipairs(events or {}) do
+               if event.clock > read.clock then
+                  local why = event.why
+                  local details = Errors.make({
+                     code = "narrowing_dropped", dropped_place = read.key, dropped_kind = "loop",
+                     dropped_by = why.text, dropped_y = why.y, dropped_x = why.x,
+                  })
+                  self.errs:add_coded(read.node as Node, details,
+                     ("'%s' was narrowed before this loop, but the loop's previous pass ran %s at %d:%d, " ..
+                      "which may have changed it"):format(read.key, why.text:gsub("%%", "%%%%"), why.y, why.x))
+                  break
+               end
+            end
+         end
+      end
+
+      -- Whether the iterator of a `for ... in` runs none of the program's
+      -- code: `pairs`, `ipairs` or `gmatch` of what runs none, or `next`.
+      function TypeChecker:pure_iterator(node: Node): boolean
+         local exps = node.exps
+         local first = exps[1]
+         if #exps == 1 and first.kind == "op" and first.op.op == "@funcall" then
+            if not first.runs_no_code then
+               return false
+            end
+            local callee = first.e1
+            local name = callee.kind == "variable" and callee.tk
+               or (callee.kind == "op" and (callee.op.op == "." or callee.op.op == ":") and callee.e2 and callee.e2.tk)
+            return name == "pairs" or name == "ipairs" or name == "gmatch"
+         end
+         if first.kind == "variable" and first.tk == "next" then
+            local _, scope = self:find_var("next", "check_only")
+            return scope == 1
+         end
+         return false
       end
 
       -- Whether the call `node` of `callee`, given `args`, runs no code of
@@ -13036,6 +13096,10 @@ do
       -- that examines no argument it could be a metamethod's business to
       -- examine. An argument that may dispatch (a record, `any`, a type
       -- variable) or is a function the callee could call decides against.
+      --
+      -- TODO: a table given to one may carry a metatable attached at run
+      -- time that `may_dispatch` does not see (see its TODO). It waits on
+      -- the same roadmap item.
       function TypeChecker:runs_no_code(node: Node, callee: Type, args: TupleType): boolean
          if callee is FunctionType and not callee.pure_std then
             return false
@@ -13064,10 +13128,22 @@ do
          for _, t in ipairs(args.tuple) do
             table.insert(given, t)
          end
+         -- A function the callee could call, alone or among a union's members.
+         local function callable(rt: Type): boolean
+            if rt is UnionType then
+               for _, member in ipairs(rt.types) do
+                  if callable(self:to_structural(member)) then
+                     return true
+                  end
+               end
+               return false
+            end
+            return rt is FunctionType
+         end
          for i, t in ipairs(given) do
             if examines == "all" or (examines == "first" and i == 1) then
                local rt = self:to_structural(resolve_tuple(t))
-               if rt is FunctionType or self:may_dispatch(rt) then
+               if callable(rt) or self:may_dispatch(rt) then
                   return false
                end
             end
@@ -14107,7 +14183,10 @@ do
                   end
                end
                node.exps[i].expected = typ
-               node.exps[i].expected_context = { kind = node.kind, name = node.vars[i].tk }
+               -- More types than variables (`local x: T, y = 1, 2` reads
+               -- `y` as a second type) leaves a type with no variable.
+               local var = node.vars[i]
+               node.exps[i].expected_context = { kind = node.kind, name = var and var.tk }
             end
          end
       end
@@ -14864,6 +14943,7 @@ do
                self:apply_guard(node.exp, node.exp.guard)
             end
             node.journal_mark = narrowing.mark(self.st as {narrowing.Scope})
+            node.tick_mark = self.loop_tick
          end,
          after = function(self: TypeChecker, node: Node, _children: {Type}): Type
             node.if_parent.if_widens = self:collect_if_widens(node.if_parent.if_widens)
@@ -14873,6 +14953,7 @@ do
             -- code in it alone.
             if node.journal_mark and flow.leaves_body(node.body as flow.Node) then
                narrowing.undo(self.st as {narrowing.Scope}, node.journal_mark)
+               self:loops_forget_since(node.tick_mark)
             end
 
             self:end_scope(node)
@@ -14884,14 +14965,17 @@ do
          before = function(self: TypeChecker, node: Node)
             -- widen all narrowed variables because we don't calculate a fixpoint yet
             self:widen_all_unions(node)
-            self:drop_for_loop({ node.exp, node.body })
+            self:loop_begin()
             node.exp.expected = a_type(node, "boolean_context", {})
          end,
          before_statements = function(self: TypeChecker, node: Node)
             self:begin_scope(node)
             self:apply_guard(node.exp, node.exp.guard)
          end,
-         after = end_scope_and_none_type,
+         after = function(self: TypeChecker, node: Node, children: {Type}): Type
+            self:loop_end()
+            return end_scope_and_none_type(self, node, children)
+         end,
       },
       ["label"] = {
          before = function(self: TypeChecker, node: Node)
@@ -14953,17 +15037,21 @@ do
          before = function(self: TypeChecker, node: Node)
             -- widen all narrowed variables because we don't calculate a fixpoint yet
             self:widen_all_unions(node)
-            self:drop_for_loop({ node.body, node.exp })
+            self:loop_begin()
             node.exp.expected = a_type(node, "boolean_context", {})
          end,
          -- only end scope after checking `until`, `statements` in repeat body has is_repeat == true
-         after = end_scope_and_none_type,
+         after = function(self: TypeChecker, node: Node, children: {Type}): Type
+            self:loop_end()
+            return end_scope_and_none_type(self, node, children)
+         end,
       },
       ["forin"] = {
          before = function(self: TypeChecker, node: Node)
             self:begin_scope(node)
          end,
          before_statements = function(self: TypeChecker, node: Node, children: {Type})
+            self:loop_begin()
             local exptuple = children[2]
             assert(exptuple is TupleType)
             local exptypes = exptuple.tuple
@@ -14978,12 +15066,9 @@ do
             -- The iterator runs before every pass, and the body runs again.
             -- `pairs`, `ipairs` and `gmatch` of what runs no code are the
             -- iterators that run none of the program's.
-            local iterating = #node.exps == 1 and node.exps[1].runs_no_code
-            local callee = iterating and self:written_name(node.exps[1].e1)
-            if not (callee == "pairs" or callee == "ipairs" or (callee and callee:match("[.:]gmatch$"))) then
+            if not self:pure_iterator(node) then
                self:drop_all(node, "call", "the iterator of this loop")
             end
-            self:drop_for_loop({ node.body })
 
             local args = a_tuple(node.exps, {
                node.exps[2] and exptypes[2],
@@ -15038,12 +15123,15 @@ do
                end
             end
          end,
-         after = end_scope_and_none_type,
+         after = function(self: TypeChecker, node: Node, children: {Type}): Type
+            self:loop_end()
+            return end_scope_and_none_type(self, node, children)
+         end,
       },
       ["fornum"] = {
          before_statements = function(self: TypeChecker, node: Node, children: {Type})
             self:widen_all_unions(node)
-            self:drop_for_loop({ node.body })
+            self:loop_begin()
             self:begin_scope(node)
             for bound = 2, 4 do
                if children[bound] then
@@ -15064,7 +15152,10 @@ do
             local var = self:add_var(node.var, node.var.tk, a_type(node.var, typename, {}))
             var.is_loop_control = true
          end,
-         after = end_scope_and_none_type,
+         after = function(self: TypeChecker, node: Node, children: {Type}): Type
+            self:loop_end()
+            return end_scope_and_none_type(self, node, children)
+         end,
       },
       ["return"] = {
          before = function(self: TypeChecker, node: Node)
@@ -16058,6 +16149,9 @@ do
                if field_place then
                   local narrowed = self:find_var_type(field_place.key, "check_only")
                   if narrowed then
+                     if #self.loops > 0 and not node.is_lvalue then
+                        self:record_read(node, field_place.key, t)
+                     end
                      t = narrowed
                   elseif not node.is_lvalue then
                      self:note_dropped(node, field_place.key)
@@ -16290,7 +16384,8 @@ do
                   self:check_metamethod(node, binop_to_metamethod[node.op.op], ra, rb, ua, ub)
                end
                -- Two values that may carry `__eq`: the comparison may run it.
-               if self:may_dispatch(ra) and self:may_dispatch(rb) then
+               if self:may_be_table(ra) and self:may_be_table(rb)
+                  and (self:may_dispatch(ra, "__eq") or self:may_dispatch(rb, "__eq")) then
                   self:drop_all(node, "operator", node.op.op)
                end
 
@@ -16549,6 +16644,9 @@ do
 
             if not node.is_lvalue then
                self:note_dropped(node, node.tk)
+               if #self.loops > 0 then
+                  self:record_read(node, node.tk)
+               end
             end
 
             -- A plain variable read for its truthiness carries a
@@ -17198,7 +17296,13 @@ do
          eqtype_relations = TypeChecker.eqtype_relations,
          type_priorities = TypeChecker.type_priorities,
          drop_clock = 0,
+         loops = {},
+         loop_tick = 0,
       }
+
+      (self.st[1] as narrowing.Scope).on_drop = function(index: integer, key: string, why: narrowing.Drop)
+         self:loop_dropped(index, key, why)
+      end
 
       self.cache_std_metatable_type = env.globals["metatable"] and (env.globals["metatable"].t as TypeDeclType).def
 

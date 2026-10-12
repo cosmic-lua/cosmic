@@ -43,14 +43,21 @@ defines the target; once something ships, it leaves this file.
   as they do a local; `x is A | B | C` guards all its members, not the last
   pair; an assignment drops the place assigned and its extensions only
   (`r.f = v` keeps `r.foo`).
+- let `setmetatable` attach metamethods only to a record type that
+  declares them, so that "a value dispatches only through metamethods its
+  type declares" ([doc/design.md](design.md)'s narrowing paragraph) holds of
+  run-time metatables too: today `setmetatable({}, {__index = f})` gives a
+  plain map an `__index` the checker never sees, and the narrowing checks
+  let `f` change a field the program had checked.
+  `may_dispatch` and `runs_no_code` in [`checker/tl.tl`] carry a TODO that
+  names this item, and `test_a_metatable_attached_at_run_time_is_not_seen_yet`
+  in [`build/checker_narrowing_test.tl`] pins four programs it will refuse.
+  `__gc` finalizers stay outside the claim.
 - make a metamethod's run a call wherever it can happen, which the checker
   tells today by the operator or index it dispatches from: reading a
   declared field of a record that declares `__index` or `__newindex` runs
   it when the field is absent; a to-be-closed variable's `__close` runs at
-  its block's end; an operator in a loop body, which only the body's types
-  reveal, drops what it relied on from where it stands and not from where
-  the loop begins, until a loop body is checked again with what its first
-  pass dropped.
+  its block's end.
 - begin a function literal's body with none of the facts of the places
   outside it: it runs later, when they may no longer hold, and it works on
   copies of them now. a local narrowed outside it is widened only if the
@@ -443,6 +450,7 @@ four-producer provenance join.
 [`build/archive_test.tl`]: ../build/archive_test.tl
 [`build/c/tree.tl`]: ../build/c/tree.tl
 [`build/c_functions.tl`]: ../build/c_functions.tl
+[`build/checker_narrowing_test.tl`]: ../build/checker_narrowing_test.tl
 [`build/contracts.tl`]: ../build/contracts.tl
 [`build/dataset.tl`]: ../build/dataset.tl
 [`build/fix/rule.tl`]: ../build/fix/rule.tl

@@ -150,6 +150,31 @@ local record narrowing
       -- look.
       journal: {Removed}
       told: {string:boolean}
+      -- On the outermost scope: told the index of the scope and the key of
+      -- each fact a drop removes or widens, as it does.
+      on_drop: function(integer, string, Drop)
+   end
+
+   -- A loop being checked: the depth of the scopes outside it, what its
+   -- body read of the facts held there, and what its body dropped of them.
+   record Loop
+      depth: integer
+      reads: {Read}
+      dropped: {string:{Dropped}}
+   end
+
+   -- A read of a fact held outside a loop, at `node`, when `clock` drops
+   -- had been met.
+   record Read
+      node: Node
+      key: string
+      clock: integer
+   end
+
+   -- A drop of a fact held outside a loop, the `clock`th met.
+   record Dropped
+      clock: integer
+      why: Drop
    end
 
    -- A fact a drop removed from `scope`: `var` held under `key`, which
@@ -283,7 +308,8 @@ end
 
 -- Removes the fact held under `key` from `scope`, and says in `dropped`
 -- what removed it.
-local function remove(scopes: {narrowing.Scope}, scope: narrowing.Scope, key: string, why: narrowing.Drop)
+local function remove(scopes: {narrowing.Scope}, i: integer, key: string, why: narrowing.Drop)
+   local scope = scopes[i]
    local journal = scopes[1].journal
    if not journal then
       journal = {}
@@ -301,6 +327,10 @@ local function remove(scopes: {narrowing.Scope}, scope: narrowing.Scope, key: st
    scope.dropped = scope.dropped or {}
    scope.dropped[key] = why
    tell(scopes, key)
+   local on_drop = scopes[1].on_drop
+   if on_drop then
+      on_drop(i, key, why)
+   end
 end
 
 --- Drops from every scope what is known under a key `forgets`, and the
@@ -311,7 +341,7 @@ function narrowing.drop(scopes: {narrowing.Scope}, assigned: narrowing.Place, wh
       local scope = scopes[i]
       for name in pairs(scope.vars) do
          if narrowing.forgets(assigned, name) then
-            remove(scopes, scope, name, why)
+            remove(scopes, i, name, why)
          end
       end
    end
@@ -342,7 +372,7 @@ function narrowing.drop_written(scopes: {narrowing.Scope}, field: string, why: n
       local keys = path_keys(scope, suffix)
       if keys then
          for _, key in ipairs(keys) do
-            remove(scopes, scope, key, why)
+            remove(scopes, i, key, why)
          end
       end
    end
@@ -356,7 +386,7 @@ function narrowing.drop_paths(scopes: {narrowing.Scope}, why: narrowing.Drop)
       local keys = path_keys(scope, "")
       if keys then
          for _, key in ipairs(keys) do
-            remove(scopes, scope, key, why)
+            remove(scopes, i, key, why)
          end
       end
    end
@@ -413,6 +443,10 @@ function narrowing.note(scopes: {narrowing.Scope}, name: string, why: narrowing.
          scope.dropped = scope.dropped or {}
          scope.dropped[name] = why
          tell(scopes, name)
+         local on_drop = scopes[1].on_drop
+         if on_drop then
+            on_drop(i, name, why)
+         end
       end
    end
 end

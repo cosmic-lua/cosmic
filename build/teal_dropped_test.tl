@@ -87,7 +87,9 @@ local function test_a_narrowing_dropped_by_other_code_is_told_what_ran_it()
     "'h.n' was checked, but the operator `+` at 10:15 may run a metamethod that changes it: " ..
       "copy it to a local before the operator (`local n = h.n`), check and use that")
   -- A loop whose later passes run what its first reads.
-  answers(head .. "if r.n then\n  for _ = 1, 2 do\n    print(r.n + 1)\n    clear()\n  end\nend\n", plus,
+  answers(head .. "if r.n then\n  for _ = 1, 2 do\n    print(r.n + 1)\n    clear()\n  end\nend\n",
+    "'r.n' was narrowed before this loop, but the loop's previous pass ran clear(...) at 11:5, " ..
+      "which may have changed it",
     "'r.n' was checked, but the call `clear(...)` at 11:5 in this loop may change it before the loop " ..
       "comes round again: copy it to a local before the loop (`local n = r.n`), check and use that")
   -- A local a function literal assigns is copied into one nothing assigns.
@@ -128,8 +130,13 @@ local function test_a_refusal_of_a_dropped_narrowing_carries_the_place_and_what_
       "if o.inner then\n  clear()\n  print(o.inner.v)\nend\n", "narrowing_dropped")
   assert(indexed.dropped_place == "o.inner" and listed(indexed.members, "Inner", "nil"), indexed.msg)
   local looped = diagnostic("local function more(): boolean return false end\n" .. head ..
+      "if r.n then\n  while true do\n    print(r.n + 1)\n    if more() then break end\n  end\nend\n", "narrowing_dropped")
+  assert(looped.dropped_kind == "loop" and looped.dropped_by == "more(...)" and looped.dropped_place == "r.n",
+    tostring(looped.dropped_by))
+  -- The condition of a loop is run before the body, in every pass.
+  local conditioned = diagnostic("local function more(): boolean return false end\n" .. head ..
       "if r.n then\n  while more() do\n    print(r.n + 1)\n  end\nend\n", "narrowing_dropped")
-  assert(looped.dropped_kind == "loop" and looped.dropped_by == "more(...)", tostring(looped.dropped_by))
+  assert(conditioned.dropped_kind == "call" and conditioned.dropped_by == "more(...)", tostring(conditioned.dropped_kind))
   -- An operand that was never narrowed is refused for what it is.
   local plain = diagnostic(head .. "print(r.n + 1)\n", "operator_binary")
   assert(plain.dropped_place == nil and plain.dropped_kind == nil)
