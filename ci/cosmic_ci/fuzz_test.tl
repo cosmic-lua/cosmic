@@ -110,6 +110,12 @@ local function test_failure_bounds_what_it_lists()
       not text:find("report 61", 1, true), "report lines were not bounded")
 end
 
+local function test_failure_lists_the_failing_summary()
+  local text = Fuzz.failure(pieces("test: FAIL  a_test test_b: no\n" ..
+      "test: 1 of 2 tests failed, 0 infrastructure errors, 9 ms\nreport\n", 7), "1")
+  assert(text:find("test: 1 of 2 tests failed, 0 infrastructure errors, 9 ms\n", 1, true), text)
+end
+
 local function test_failure_stops_reading_once_it_has_its_lines()
   local read_after = false
   local served = 0

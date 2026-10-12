@@ -145,7 +145,7 @@ end
   local result = invoke(root, output, { "suite/left_test.tl" }, env)
   local text = assert(Fs.read(output))
   assert(not result.ok, text)
-  assert(text:find("1 of 2 failed", 1, true), text)
+  assert(text:find("1 of 2 tests failed", 1, true), text)
   assert(text:find("its directory is kept: " .. assert(Fs.absolute(temp)) .. "/cosmic-test-",
     1, true), text)
   local left: {string} = {}

@@ -44,6 +44,6 @@ end
     assert(output:find("FAIL  shutdown_test test_passes_before_shutdown", 1, true), output)
     assert(output:find("exited with status 7 after it reported", 1, true), output)
     assert(output:find("shutdown diagnostic", 1, true), output)
-    assert(not output:find("test: PASS", 1, true), output)
+    assert(not output:find("test: %d+ tests? passed in "), output)
   end
 end
