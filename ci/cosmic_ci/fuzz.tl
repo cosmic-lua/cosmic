@@ -118,7 +118,8 @@ function Fuzz.failure(next_chunk: function(): string, seed: string): string
   local failing: {string} = {}
   local reports: {string} = {}
   each_line(next_chunk, function(line: string): boolean
-    if line:sub(1, 10) == "test: FAIL" and #failing < failing_lines then
+    if (line:sub(1, 10) == "test: FAIL" or line:match("^test: %d+ of %d+ tests? failed, ") ~= nil) and
+        #failing < failing_lines then
       failing[#failing + 1] = line
     end
     if line:sub(1, 6) ~= "build:" and line:sub(1, 6) ~= "test: " and

@@ -425,9 +425,6 @@ local function bare_word(text: string): string
   return text
 end
 
---- Whether a shell command runs `cosmic test`: a word naming `cosmic`
---- followed by `test`, as `timeout 30 bin/cosmic test`, `(cd p && cosmic
---- test)`, `out=$(cosmic test)` and `sh -c '...'` have it.
 --- Whether `text` holds `cosmic test`'s passing summary, as the tool
 --- says it (`test: 9 tests passed in 2 modules; ...`) or as one built from
 --- an older commit does (`test: PASS (...)`): at the start of a line, or
@@ -439,6 +436,9 @@ local function says_passed(text: string, anywhere: boolean): boolean
     within:find(lead .. "test: %d+ tests? passed in ") ~= nil
 end
 
+--- Whether a shell command runs `cosmic test`: a word naming `cosmic`
+--- followed by `test`, as `timeout 30 bin/cosmic test`, `(cd p && cosmic
+--- test)`, `out=$(cosmic test)` and `sh -c '...'` have it.
 local function runs_cosmic_test(command: string, nested: boolean): boolean
   for _, words in ipairs(lex(command)) do
     local texts: {string} = {}

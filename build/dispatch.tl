@@ -92,7 +92,7 @@ end
 
 --- What follows the list of bare verbs in the paragraph that names them,
 --- before the sentence each bare verb's spec gives for its exit codes.
-local help_verdict = "ends in a verdict line -- `fix: PASS (...)` or `fix: FAIL (...)`, and for `test` its summary, `test: 9 tests passed in 2 modules; ...` or `test: 2 of 9 tests failed, ...` -- and an exit code: 0 when it passed; 1 when it failed; 2 when its command line was refused -- an option, an argument or a verb it does not know; 3 when the tool is older than the tree and did not rebuild itself (`COSMIC_AUTO_BOOT=0`, or a boot that failed). The verdict line is stdout's last line, except where a verb's option makes stdout data for a pipe, as `sql --to` does: there it is stderr's. A file run, `--standalone` and `-e` are not verbs of that kind: each prints only what its program prints and exits with what it returns. `--version` is not one either: it prints its one line."
+local help_verdict = "ends in a verdict line -- `fix: PASS (...)` or `fix: FAIL (...)`, and for a `test` that ran its tests their summary, `test: 9 tests passed in 2 modules; ...` or `test: 2 of 9 tests failed, ...` -- and an exit code: 0 when it passed; 1 when it failed; 2 when its command line was refused -- an option, an argument or a verb it does not know; 3 when the tool is older than the tree and did not rebuild itself (`COSMIC_AUTO_BOOT=0`, or a boot that failed). The verdict line is stdout's last line, except where a verb's option makes stdout data for a pipe, as `sql --to` does: there it is stderr's. A file run, `--standalone` and `-e` are not verbs of that kind: each prints only what its program prints and exits with what it returns. `--version` is not one either: it prints its one line."
 
 --- `a`, `b` and `c`: the words in backticks, the last after "and".
 local function listed(names: {string}): string
@@ -169,9 +169,9 @@ local function spec_notes(verb: string, spec: verb_spec.Spec | nil): string
   if spec.exits ~= nil then
     paragraphs[#paragraphs + 1] = wrapped(spec.exits, help_width)
   elseif verb == "test" then
-    paragraphs[#paragraphs + 1] = wrapped("Ends in a verdict line, its summary, `test: 9 tests " ..
-        "passed in 2 modules; ...` or `test: 2 of 9 tests failed, ...`, and an exit code: see " ..
-        "`cosmic help exit`.", help_width)
+    paragraphs[#paragraphs + 1] = wrapped("Ends in a verdict line -- once its tests ran, their " ..
+        "summary, `test: 9 tests passed in 2 modules; ...` or `test: 2 of 9 tests failed, ...`, " ..
+        "else `test: FAIL (...)` -- and an exit code: see `cosmic help exit`.", help_width)
   else
     paragraphs[#paragraphs + 1] = wrapped("Ends in a verdict line, `" .. verb .. ": PASS (...)` or `" ..
         verb .. ": FAIL (...)`, and an exit code: see `cosmic help exit`.", help_width)
