@@ -34,7 +34,7 @@ end
 --- `a` and `target` the far end of `b`, and answers what pipe answered.
 local function piped(options: relay.Options,
                      body: function(client: Net.Conn, target: Net.Conn)): relay.Stats
-  local stats: relay.Stats = nil
+  local stats: relay.Stats | nil = nil
   Poll.run(function()
     local client, a = pair()
     local target, b = pair()
@@ -46,7 +46,7 @@ local function piped(options: relay.Options,
     local _, _ = client:close()
     local _, _ = target:close()
   end)
-  return stats
+  return assert(stats, "pipe answered no stats")
 end
 
 local function test_pipe_copies_both_ways_through_half_closes()
