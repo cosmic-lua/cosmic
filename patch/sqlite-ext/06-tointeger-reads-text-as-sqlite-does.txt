@@ -1,5 +1,5 @@
 file: ext/misc/totype.c
-note: tointeger() of a text takes SQLite's own reading of it (05-totype-reads-text-as-sqlite-does.txt): an integer as it is, and a real only when it is a whole number an integer holds, as the real case does. '3.0' and '1e3' read as 3 and 1000, losing nothing, where the copied parser took integer literals alone; '12\0x' is NULL.
+note: tointeger() of a text takes SQLite's own reading of it (05-totype-reads-text-as-sqlite-does.txt): an integer as it is, and a real only when it is a whole number an integer holds, as the real case does. '3.0' and '1e3' read as 3 and 1000, losing nothing, where the copied parser takes integer literals alone and answers NULL; '12\0x' is NULL.
 --- find
     case SQLITE_TEXT: {
       const unsigned char *zStr = sqlite3_value_text(argv[0]);

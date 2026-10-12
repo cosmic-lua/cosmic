@@ -216,7 +216,8 @@ end
 --- A real's eight bytes, as ieee754.c reads a blob: whatever real they
 --- hold goes back to the same bytes, through `ieee754_to_blob`, through its
 --- integer and through `ieee754(M, E)`; and `ieee754(M, E)` and
---- `ieee754_inc` answer for any integers.
+--- `ieee754_inc` answer a real or NULL for any integers, `ieee754(M, E)`
+--- NULL only for the least M.
 local function test_ieee754_is_total_and_round_trips(tmp: string)
   Fuzz.run({
     name = "sqlite ieee754 total",
@@ -226,7 +227,8 @@ local function test_ieee754_is_total_and_round_trips(tmp: string)
       for i = 1, 8 do eight[i] = string.char(src:int(0, 255)) end
       local edges = { 0, 1, -1, 52, 53, 1023, 1024, 1074, 1075, 2000, -1074, -1075, -2000, 10001 }
       local e = src:int(0, 1) == 0 and Fuzz.pick(src, edges) or src:int(-3000, 3000)
-      local m = src:int(0, 2) == 0 and src:int(-8, 8) or src:int(math.mininteger, math.maxinteger)
+      local m = src:int(0, 2) == 0 and src:int(-8, 8) or src:int(0, 7) == 0 and math.mininteger or
+        src:int(math.mininteger, math.maxinteger)
       return Fuzz.pack({ table.concat(eight), tostring(m), tostring(e) })
     end,
     check = function(input: string): boolean, string
@@ -241,7 +243,13 @@ local function test_ieee754_is_total_and_round_trips(tmp: string)
           { integer = math.tointeger(fields[3]) } })
       if rows == nil then return false, "ieee754 failed its statement: " .. trouble end
       local row = rows[1]
-      if row[5] ~= "real" then return false, "ieee754(M, E) answered " .. row[5] end
+      local least = math.tointeger(fields[2]) == math.mininteger
+      if row[5] ~= (least and "null" or "real") then
+        return false, "ieee754(M, E) answered " .. row[5]
+      end
+      if row[6] ~= "real" and row[6] ~= "null" then
+        return false, "ieee754_inc answered " .. row[6]
+      end
       if row[1] == "real" then
         Fuzz.label("a real")
         for i, what in ipairs({ "ieee754_to_blob", "ieee754(M, E)", "ieee754_to_int" }) do
@@ -260,7 +268,9 @@ end
 --- Number-shaped text, from the pieces totype's reading turns on: runs of
 --- digits past an integer's 19, exponents around a real's limits, signs,
 --- points, spaces and NUL. A text drawn whole as a plain decimal is
---- `well`: it must convert.
+--- `well`: it must convert. One drawn as a 64-bit integer, edges among
+--- them, is `integer`: `tointeger` must answer it, and `toreal` must
+--- answer it exactly or not at all.
 local function gen_number(src: Fuzz.Source): string
   local digits = "0123456789"
   local function run(max: integer): string
@@ -271,7 +281,14 @@ local function gen_number(src: Fuzz.Source): string
     end
     return #out == 0 and "0" or table.concat(out)
   end
-  if src:int(0, 2) == 0 then
+  local shape = src:int(0, 5)
+  if shape == 0 then
+    local edges = { 0, 1, -1, 1 << 53, (1 << 53) + 1, -((1 << 53) + 1), math.maxinteger,
+      math.maxinteger - 1, math.mininteger, math.mininteger + 1 }
+    local n = src:int(0, 1) == 0 and Fuzz.pick(src, edges) or src:int(math.mininteger, math.maxinteger)
+    return Fuzz.pack({ "integer", tostring(n) })
+  end
+  if shape <= 2 then
     local text = (src:int(0, 1) == 0 and "-" or "") .. run(15) .. "." .. run(15) ..
       "e" .. tostring(src:int(-290, 290))
     return Fuzz.pack({ "well", text })
@@ -294,10 +311,11 @@ local function test_totype_reads_text_as_cast_does(tmp: string)
     gen = gen_number,
     check = function(input: string): boolean, string
       local fields = Fuzz.unpack(input)
-      local well, text = fields[1] == "well", fields[2]
+      local shape, text = fields[1], fields[2]
       local rows, trouble = Sqlite.text_rows(handle,
         "SELECT typeof(toreal(?1)), toreal(?1) = CAST(?1 AS REAL), toreal(?1) - toreal(?1) = 0.0, " ..
-          "typeof(tointeger(?1)), tointeger(?1) = CAST(?1 AS NUMERIC), typeof(tointeger(?2)), typeof(toreal(?2))",
+          "typeof(tointeger(?1)), tointeger(?1) = CAST(?1 AS NUMERIC), tointeger(?1), " ..
+          "typeof(tointeger(?2)), typeof(toreal(?2))",
         { { text = text }, { blob = text } })
       if rows == nil then return false, "totype failed its statement: " .. trouble end
       local row = rows[1]
@@ -305,7 +323,7 @@ local function test_totype_reads_text_as_cast_does(tmp: string)
         Fuzz.label("read as a real")
         if row[2] ~= "1" then return false, "toreal(" .. text .. ") is not CAST's" end
         if row[3] ~= "1" then return false, "toreal(" .. text .. ") is not finite" end
-      elseif well then
+      elseif shape == "well" then
         return false, "toreal refused the decimal " .. text
       end
       if row[4] == "integer" then
@@ -313,6 +331,21 @@ local function test_totype_reads_text_as_cast_does(tmp: string)
         if row[5] ~= "1" then
           return false, "tointeger(" .. text .. ") is not the number it reads"
         end
+      end
+      if shape == "integer" then
+        local n = math.tointeger(text)
+        if row[6] ~= text then return false, "tointeger(" .. text .. ") answered " .. row[6] end
+        local exact = math.tointeger((n as number) + 0.0) == n
+        if (row[1] == "real") ~= exact then
+          return false, "toreal(" .. text .. ") is " .. row[1] .. " though a real holds it " ..
+            (exact and "exactly" or "inexactly")
+        end
+      end
+      if row[7] ~= (#text == 8 and "integer" or "null") then
+        return false, "tointeger of a " .. #text .. "-byte blob answered " .. row[7]
+      end
+      if #text ~= 8 and row[8] ~= "null" then
+        return false, "toreal of a " .. #text .. "-byte blob answered " .. row[8]
       end
       return true, ""
     end,

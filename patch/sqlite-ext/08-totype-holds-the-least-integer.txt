@@ -1,0 +1,9 @@
+file: ext/misc/totype.c
+note: totypeDoubleToInt answers 0 below -9223372036854774784.0, the negative real nearest zero past which a conversion would overflow, but -2^63 itself is a real that converts exactly: tointeger(-9223372036854775808.0) and toreal(-9223372036854775808) answer NULL, though nothing is lost. The bounds are now the two edges of the integer range, -2^63 kept and 2^63 refused; every real between converts without overflow. Upstream has the same bounds as of 3.54.0.
+--- find
+  if( r<-9223372036854774784.0 ) return 0;
+  if( r>+9223372036854774784.0 ) return 0;
+--- replace
+  if( r<-9223372036854775808.0 ) return 0;
+  if( r>=+9223372036854775808.0 ) return 0;
+--- end

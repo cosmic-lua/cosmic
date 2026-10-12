@@ -1,6 +1,6 @@
 fence: ===
 file: ext/misc/totype.c
-note: toreal() of a text takes SQLite's own reading of it (05-totype-reads-text-as-sqlite-does.txt), correctly rounded. A text that reads as an integer converts as an integer does, only when the real holds it exactly, so '9007199254740993' is NULL as 9007199254740993 is. A real that overflowed to an infinity, or a text with a nonzero digit before its exponent that underflowed to zero, kept none of its digits, so either is NULL: '1e400' and '1e-400' were Inf and 0.0.
+note: toreal() of a text takes SQLite's own reading of it (05-totype-reads-text-as-sqlite-does.txt), correctly rounded. A text that reads as an integer converts as an integer does, only when the real holds it exactly, so '9007199254740993' is NULL as 9007199254740993 is. A real that overflowed to an infinity, or a text with a nonzero digit before its exponent that underflowed to zero, kept none of its digits, so either is NULL, where upstream answers '1e400' and '1e-400' as Inf and 0.0. Text that reads as a real, past what an integer holds or with a point or an exponent, is rounded to the nearest real, as CAST rounds it.
 === find
     case SQLITE_TEXT: {
       const unsigned char *zStr = sqlite3_value_text(argv[0]);

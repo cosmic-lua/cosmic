@@ -188,3 +188,23 @@ local function test_uint_compares_signs_and_points_as_bytes()
   local got = row("SELECT 'a1.05' = 'a1.5' COLLATE uint, '-5' = '5' COLLATE uint")
   assert(got[1] == "1" and got[2] == "0", got[1] .. " " .. got[2])
 end
+
+local function test_totype_holds_the_least_integer()
+  local got = row("SELECT tointeger(-9223372036854775808.0), tointeger('-9.223372036854775808e18'), " ..
+      "toreal(-9223372036854775808) = -9223372036854775808.0, " ..
+      "toreal('-9223372036854775808') = -9223372036854775808.0, tointeger(9223372036854775808.0) IS NULL")
+  local want = { "-9223372036854775808", "-9223372036854775808", "1", "1", "1" }
+  for i, value in ipairs(want) do
+    assert(got[i] == value, "column " .. i .. ": " .. tostring(got[i]))
+  end
+end
+
+local function test_ieee754_writes_and_reads_its_edges()
+  local got = row("SELECT ieee754(2.0), ieee754(0.0), ieee754(3, 1023), ieee754(5, 1022), " ..
+      "ieee754(-9223372036854775808, 0) IS NULL, ieee754('3', 1.9), " ..
+      "ieee754_from_blob(x'7ff8000000000000') IS NULL")
+  local want = { "ieee754(2,0)", "ieee754(0,-1075)", "Inf", "Inf", "1", "6.0", "1" }
+  for i, value in ipairs(want) do
+    assert(got[i] == value, "column " .. i .. ": " .. tostring(got[i]))
+  end
+end
