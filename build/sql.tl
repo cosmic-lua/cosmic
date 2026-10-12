@@ -661,11 +661,8 @@ local function run_from(parsed: Flags.Parsed, to: sql.Output,
       -- A file's failure already names the file; standard input's does not.
       return fail(input.path == nil and input.label .. ": " .. read_trouble or read_trouble)
     end
-    local rows, format_trouble = dataset.read(input.format, text, { at = input.at, raw = input.raw })
-    if rows == nil then
-      return fail(input.label .. ": " .. format_trouble)
-    end
-    local loaded, load_trouble = dataset.load(db, input.table, rows)
+    local loaded, load_trouble = dataset.load_text(db, input.table, input.format, text,
+      { at = input.at, raw = input.raw }, input.path)
     if loaded == nil then
       return fail(input.label .. ": " .. load_trouble)
     end

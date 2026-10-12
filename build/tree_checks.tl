@@ -64,6 +64,12 @@ end
 --- uses them, by `<module>.<member>`, and why each is kept.
 local allowed: {string: string} = {}
 
+allowed["build.dataset.read"] = "the reader load_text composes and falls back on, tested directly " ..
+  "over each format's text, and with load the reference load_text's fuzz property is held to"
+
+allowed["build.dataset.load"] = "the loader load_text composes and falls back on, tested directly " ..
+  "over rows a test builds, whose keys no file need hold"
+
 allowed["cosmic.net.nameservers"] = "the public way to list the system's DNS servers for " ..
   "callers outside this tree; tested directly over a resolv.conf"
 

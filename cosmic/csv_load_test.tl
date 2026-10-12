@@ -18,9 +18,9 @@ end
 
 local function test_load_types_cells_as_cosmic_sql_does()
   local db = assert(Sqlite.memory())
-  local copied = assert(Csv.load(db, "t",
+  local loaded = assert(Csv.load(db, "t",
     { text = "id,n,x\n1,007,\n-0,1e999,2.5\n12345678901234567890,-3,\"a, \"\"b\"\"\"\n" }))
-  assert(copied == 3, tostring(copied))
+  assert(loaded.count == 3, tostring(loaded.count))
   local got = quoted(db, "SELECT quote(id), quote(n), quote(x) FROM t ORDER BY rowid")
   assert(got == "1|'007'|NULL;0|'1e999'|2.5;1.2345678901234567e+19|-3|'a, \"b\"'", got)
   assert(quoted(db, "SELECT count(*) FROM t WHERE id > 0") == "2")
@@ -29,7 +29,7 @@ end
 
 local function test_load_keeps_text_as_written_when_raw()
   local db = assert(Sqlite.memory())
-  assert(Csv.load(db, "t", { text = "a,b\n1,\n", raw = true }) == 1)
+  assert(assert(Csv.load(db, "t", { text = "a,b\n1,\n", raw = true })).count == 1)
   local got = quoted(db, "SELECT quote(a), quote(b) FROM t")
   assert(got == "'1'|''", got)
   assert(db:close())
@@ -37,7 +37,7 @@ end
 
 local function test_load_names_columns_as_csv_table_does()
   local db = assert(Sqlite.memory())
-  assert(Csv.load(db, "t", { text = "\xEF\xBB\xBFa,A,,rowid\n1,2,3,4\n" }) == 1)
+  assert(assert(Csv.load(db, "t", { text = "\xEF\xBB\xBFa,A,,rowid\n1,2,3,4\n" })).count == 1)
   local got = quoted(db, "SELECT group_concat(name, ',') FROM pragma_table_info('t')")
   assert(got == "a,A_2,_,rowid_2", got)
   assert(db:close())
@@ -47,7 +47,7 @@ local function test_load_reads_a_file(tmp: string)
   local path = tmp .. "/rows.csv"
   assert(Fs.write(path, "id,city\n1,\"Lagos, Nigeria\"\n2,Paris\n"))
   local db = assert(Sqlite.memory())
-  assert(Csv.load(db, "rows", { path = path }) == 2)
+  assert(assert(Csv.load(db, "rows", { path = path })).count == 2)
   assert(quoted(db, "SELECT city FROM rows WHERE id = 1") == "Lagos, Nigeria")
   assert(db:close())
 end
@@ -100,7 +100,7 @@ end
 local function test_load_writes_the_main_schema()
   local db = assert(Sqlite.memory())
   assert(db:exec("CREATE TEMP TABLE t (x, y)"))
-  assert(Csv.load(db, "t", { text = "a,b\n1,2\n" }) == 1)
+  assert(assert(Csv.load(db, "t", { text = "a,b\n1,2\n" })).count == 1)
   assert(quoted(db, "SELECT count(*) FROM temp.t") == "0")
   assert(quoted(db, "SELECT a, b FROM main.t") == "1|2")
   assert(db:close())
@@ -119,8 +119,43 @@ end
 --- --from` reads them; one too large stays text.
 local function test_load_types_underflow_and_negative_zero_as_sql_from_does()
   local db = assert(Sqlite.memory())
-  assert(Csv.load(db, "t", { text = "a,b,c\n1e-400,-0.0,1e400\n" }) == 1)
+  assert(assert(Csv.load(db, "t", { text = "a,b,c\n1e-400,-0.0,1e400\n" })).count == 1)
   local got = quoted(db, "SELECT typeof(a), a, hex(ieee754_to_blob(b)), typeof(c) FROM t")
   assert(got == "real|0.0|0000000000000000|text", got)
+  assert(db:close())
+end
+
+--- Another delimiter reads as `table` reads it, and a reserved name is
+--- renamed while the keys stay the header's.
+local function test_load_takes_a_delimiter_and_reserved_names()
+  local db = assert(Sqlite.memory())
+  local loaded = assert(Csv.load(db, "t", { text = "a\t_json\tc,d\n1\t\"x\ty\"\t2,3\n", delimiter = "\t",
+    reserved = { "_json" } }))
+  assert(loaded.count == 1)
+  assert(table.concat(loaded.keys, " ") == "a _json c,d", table.concat(loaded.keys, " "))
+  assert(table.concat(loaded.columns, " ") == "a _json_2 c,d", table.concat(loaded.columns, " "))
+  assert(quoted(db, "SELECT a, _json_2, \"c,d\" FROM t") == "1|x\ty|2,3")
+  assert(assert(Csv.load(db, "q", { text = "a'b\n1'2\n", delimiter = "'" })).count == 1)
+  assert(quoted(db, "SELECT a + b FROM q") == "3")
+  local ok, why = pcall(Csv.load, db, "z", { text = "a\n", delimiter = "\0" })
+  assert(not ok and tostring(why):find("NUL", 1, true) ~= nil, tostring(why))
+  assert(db:close())
+end
+
+--- A delimiter of 0x80 or above, which C may hold as a negative char, is
+--- read as `table` reads it; a byte of the byte order mark is refused.
+local function test_load_reads_a_high_byte_delimiter()
+  local db = assert(Sqlite.memory())
+  for index, delimiter in ipairs({ "\xa7", "\xff", "\x80" }) do
+    local text = "x" .. delimiter .. "y\n1" .. delimiter .. '"2' .. delimiter .. '3"\n'
+    local made = assert(Csv.table(text, { delimiter = delimiter }))
+    local loaded = assert(Csv.load(db, "t" .. index, { text = text, delimiter = delimiter, raw = true }))
+    assert(table.concat(loaded.columns, ",") == table.concat(made.columns, ","), table.concat(loaded.columns, ","))
+    assert(quoted(db, "SELECT x, y FROM t" .. index) == "1|2" .. delimiter .. "3")
+  end
+  for _, delimiter in ipairs({ "\xEF", "\xBB", "\xBF" }) do
+    local ok, why = pcall(Csv.load, db, "z", { text = "a\n", delimiter = delimiter })
+    assert(not ok and tostring(why):find("byte order mark", 1, true) ~= nil, tostring(why))
+  end
   assert(db:close())
 end
