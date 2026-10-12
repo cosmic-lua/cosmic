@@ -85,10 +85,10 @@ must never open the work database, `help`, which calls `stale_exit`
 itself, and `bom` and `refresh`, which are `fresh` and so were checked
 before they ran.
 
-without the line, the rule is stated directly. dispatch asks after an
-exit 2 unless the verb is `fresh` or its spec says `checks_stale = false`.
-`help`, `sql` and the bare verbs say it. `bare`'s other meanings go with
-the line. `exits`, which is the help sentence for a verb whose output is
+the rule is stated directly first (step 3a): dispatch asks after an
+exit 2 unless the verb is bare or `fresh`, or its spec says
+`recheck_on_refusal = false`, as `help`, `todos` and `sql` do. `bare`'s
+other meanings go with the line. `exits`, which is the help sentence for a verb whose output is
 data, becomes every verb's. `passthrough` stays for the programs: run,
 `--standalone`, `-e` and `--version`. the `TODO:` above that check in
 dispatch stays. it is about the stale tool's complaint, not the line.
@@ -157,17 +157,21 @@ PR that changes what it reads.
    - the seven guide doctests and project.md's helper, which match
      `test: PASS`;
    - the tests on the summary.
-3. **remove the line from the verbs.**
-   - drop every `:verdict` call in `build/` and dispatch's fallback;
-   - rename [`build/verdict.tl`] and drop `given` and `on_stderr`;
-   - add `checks_stale` and reduce `bare`;
-   - move each verdict's detail to the stderr summary, and make `boot`'s
-     failures complaints;
-   - rewrite `cosmic help exit`, the per-verb help note, [`cosmic.cli`]'s
-     help prose, design.md, command-line.md, quickstart.md and the guides'
-     remaining output blocks;
-   - replace the ends-in-a-verdict test;
-   - move eval's `docs: FAIL` count to `docs`' summary.
+3. **remove the line from the verbs**, in two PRs.
+   - 3a: add `recheck_on_refusal`, so the stale check after a refusal no
+     longer reads `given`.
+   - 3b:
+     - drop every `:verdict` call in `build/` and dispatch's fallback;
+     - rename [`build/verdict.tl`] and drop `given`, `on_stderr` and
+       `summary`;
+     - reduce `bare`;
+     - move each verdict's detail to the stderr summary, and make `boot`'s
+       failures complaints;
+     - rewrite `cosmic help exit`, the per-verb help note, [`cosmic.cli`]'s
+       help prose, design.md, command-line.md, quickstart.md and the guides'
+       remaining output blocks;
+     - replace the ends-in-a-verdict test;
+     - move eval's `docs: FAIL` count to `docs`' summary.
 4. **remove [`Logger.verdict`]** from [`cosmic.log`]:
    - its example, its tests, and [`build/verify_codesign.tl`]'s call;
    - `verdict` in [`build/contracts.tl`]'s quieted methods;
