@@ -227,8 +227,7 @@ local record Cli
   --- tab-separated cells: NULL as \N, a blob as X'<hex>',
   --- and in text a backslash, tab, newline or return as \\, \t, \n or
   --- \r and any other control byte as \xHH; the summary goes to
-  --- stderr. `--to` writes the rows as data alone on stdout, for a
-  --- pipe. `--to csv` quotes as RFC 4180 does, each record
+  --- stderr. `--to` writes the rows in another format. `--to csv` quotes as RFC 4180 does, each record
   --- ended by LF: a header of the column names first, NULL an empty
   --- field and '' a quoted empty one (so a one-column NULL is a blank
   --- line, which a CSV reader may drop), a blob's bytes as they are.
@@ -772,8 +771,7 @@ local module: Module = {
             "no number is read, an empty cell is '' not NULL" },
         ["--at"] = { value = "path", about = "read the --from before it from the array at this " ..
             "JSONPath ($.data.rows), not the document" },
-        ["--to"] = { value = "format", about = "write the rows as csv or ndjson, data alone on " ..
-            "stdout, for a pipe" },
+        ["--to"] = { value = "format", about = "write the rows as csv or ndjson" },
       },
     },
     cache = {

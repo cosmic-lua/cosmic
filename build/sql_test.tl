@@ -227,7 +227,7 @@ local function test_a_failed_write_stops_the_statement()
   assert(#lines == 3, #lines)
   assert(#complaints == 1 and complaints[1]:find("Broken pipe", 1, true) ~= nil,
     table.concat(complaints, "|"))
-  assert(summarized ~= "", "no summary")
+  assert(summarized == "", "a failure was summarized: " .. summarized)
   assert(Fs.remove_tree(root))
 end
 
@@ -241,7 +241,7 @@ local function test_rows_are_written_before_the_statement_finishes()
   assert(code == 1)
   assert(#written.out == 3 and written.out[1] == "x\ty" and written.out[2] == "1\t0" and
       written.out[3] == "2\t0", table.concat(written.out, "|"))
-  assert(#written.err == 1 and written.summary:find("^sql: ") ~= nil)
+  assert(#written.err == 1 and written.summary == "")
   assert(Fs.remove_tree(root))
 end
 
@@ -259,7 +259,7 @@ local function test_a_missing_database_and_bad_sql_fail()
   assert(written.err[1] == "cosmic: sql: " .. working .. ": no such database: " .. working ..
       "; the build directory is the working directory's, never a project's above it",
     written.err[1])
-  assert(String.starts_with(written.summary, "sql: " .. working .. ", "), written.summary)
+  assert(written.summary == "", written.summary)
   assert(Fs.exists(missing) == false, "opening made the file")
   local lines, why = query(build_dir(root) .. "/cosmic.db", "SELEC 1")
   assert(lines == nil and why:find("syntax error", 1, true) ~= nil, why)
@@ -447,7 +447,7 @@ local function test_a_missing_name_is_answered_with_the_names_there_are()
   assert(code == 1 and #written.out == 0)
   assert(written.err[1] == "cosmic: sql: " .. dir .. "/accounts.json: no such column: balanse; " ..
       "columns: active, balance, id, note, tags, type, _json", written.err[1])
-  assert(written.summary:find("^sql: ") ~= nil, written.summary)
+  assert(written.summary == "", written.summary)
   code, written = run(dir, { "--from", dir .. "/accounts.json", "SELECT * FROM account" })
   assert(code == 1 and written.err[1]:find("no such table: account; tables: accounts$") ~= nil, written.err[1])
   code, written = run(dir, { "--from", dir .. "/accounts.json", "--from", dir .. "/owners.jsonl",
@@ -476,7 +476,7 @@ local function test_from_refuses_every_write_and_leaves_the_file_alone()
   }) do
     local code, written = run(dir, { "--from", dir .. "/accounts.json", statement })
     assert(code == 1, statement .. " ran")
-    assert(#written.out == 0 and written.summary:find("^sql: ") ~= nil, statement)
+    assert(#written.out == 0 and written.summary == "", statement)
   end
   assert(assert(Fs.read(dir .. "/accounts.json")) == before)
   assert(Fs.exists(dir .. "/copy.db") == false, "VACUUM INTO made a file")
@@ -499,7 +499,7 @@ local function test_from_refuses_an_unknown_extension_invalid_json_and_a_missing
   assert(code == 1 and written.err[1]:find("notes.txt: json: invalid JSON", 1, true), written.err[1])
   code, written = run(dir, { "--from", dir .. "/bad.json", "SELECT 1" })
   assert(code == 1 and written.err[1]:find("bad.json: json: invalid JSON at line 1", 1, true), written.err[1])
-  assert(#written.out == 0 and written.summary:find("^sql: ") ~= nil, written.summary)
+  assert(#written.out == 0 and written.summary == "", written.summary)
   code, written = run(dir, { "--from", dir .. "/none.json", "SELECT 1" })
   assert(code == 1 and written.err[1]:find("none.json", 1, true), written.err[1])
   assert(Fs.remove_tree(dir))
@@ -679,8 +679,8 @@ local function test_to_ndjson_writes_a_row_an_object_in_column_order()
   assert(written.summary:find("^sql: ") ~= nil, written.summary)
 end
 
---- What `--to` cannot write fails the statement, naming the row, with
---- its summary on stderr; a format it does not know, or no statement, is a
+--- What `--to` cannot write fails the statement, naming the row, and
+--- gets no summary; a format it does not know, or no statement, is a
 --- usage error; and `--to` is no database of its own.
 local function test_to_refuses_what_it_cannot_write()
   local dir = delimited()
@@ -694,7 +694,7 @@ local function test_to_refuses_what_it_cannot_write()
   }) do
     local code, written = run(dir, { "--from", "-", "--as", "csv", "--to", "ndjson", case[1] }, "a\n1\n")
     assert(code == 1 and written.err[1]:find(case[2], 1, true) ~= nil, tostring(written.err[1]))
-    assert(written.summary:find("^sql: ") ~= nil, written.summary)
+    assert(written.summary == "", written.summary)
   end
   local code, written = run(dir, { "--from", "-", "--as", "csv", "--to", "xml", "SELECT 1" }, "a\n1\n")
   assert(code == 2 and written.err[1]:find("--to writes csv or ndjson, not xml", 1, true) ~= nil, written.err[1])

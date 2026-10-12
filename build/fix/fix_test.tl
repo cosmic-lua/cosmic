@@ -151,7 +151,7 @@ end
 --- A named path the verb will not take is a refusal among the files the
 --- run covers, not an end to the run: it comes back in `refused` with
 --- the others still listed, so the verb can report it and still end in
---- its verdict line.
+--- its summary.
 ---
 --- What a path is decided before what it is named. A path with nothing
 --- at it is missing, whatever its suffix: answering `nope` with a

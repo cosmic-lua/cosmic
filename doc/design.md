@@ -1261,13 +1261,12 @@ and names its database by option, since a statement already says
 which rows it reads; `refresh`, which takes the datasets to fetch;
 `bom`, which takes nothing; and `help`, which takes a verb. a verb's
 exit code is its verdict and its stdout is its result alone; its stderr
-says what went wrong, and a run that got past its command line ends
-there in a summary of how it went (`test`'s summary is its result, last
-on stdout). a file run, `--standalone` and `-e` are programs,
+says what went wrong, and a run that passed ends there in a summary of
+how it went (`test`'s summary is its result, last on stdout). a file run, `--standalone` and `-e` are programs,
 not verbs, and print only what they print and exit with what they
 return. `cosmic help` prints an index with a line per verb, `cosmic help <verb>`
 that verb's full text and options, and `cosmic help exit` the exit
-codes and summary every verb shares. no other
+codes every verb shares and the summary every verb but a bare one ends in. no other
 stock-interpreter flags, no argv[0] personality.
 [the command-line guide](guides/command-line.md) runs each of these.
 

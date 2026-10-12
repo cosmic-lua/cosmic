@@ -1,5 +1,5 @@
 --- `cosmic sql --from` run as this program: real standard input and the
---- files of the working directory, the verdict line last on stdout, and
+--- files of the working directory, the rows alone on stdout, and
 --- what `cosmic help` says of it. These start this program, so they need
 --- `tool`; the verb's own cases are in `sql_test.tl`.
 
@@ -40,15 +40,15 @@ local function test_a_pipe_is_a_table_and_a_file_beside_it_joins(tmp: string)
   assert(ran.err:find("^sql: 2 rows from owners.json, standard input, %d+ ms\n$"), ran.err)
 end
 
---- A refused line is complained about and gets no summary; a bad file is
---- complained about, then summarized: stdout stays empty for both.
+--- A refused line and a bad file are complained about, and get no
+--- summary: stdout stays empty for both.
 local function test_a_refused_line_and_a_bad_file_say_why_on_stderr(tmp: string)
   local unknown = cosmic(tmp, { "sql", "--from", "data.xml", "SELECT 1" })
   assert(unknown.code == 2 and unknown.out == "", unknown.out)
   assert(unknown.err:find("^cosmic: sql: ") and not unknown.err:find("\nsql: "), unknown.err)
   local invalid = cosmic(tmp, { "sql", "--from", "-", "--as", "json", "SELECT 1" }, "{")
   assert(invalid.code == 1 and invalid.out == "", invalid.out)
-  assert(invalid.err:find("\nsql: standard input, %d+ ms\n$"), invalid.err)
+  assert(invalid.err:find("^cosmic: sql: ") and not invalid.err:find("\nsql: "), invalid.err)
   assert(invalid.err:find("standard input: json: invalid JSON", 1, true), invalid.err)
 end
 

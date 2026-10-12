@@ -13,7 +13,7 @@
 --- nonce. `--seed` is refused with `uuid` and `token`, which have no use
 --- for it.
 ---
---- Like `cosmic json` it ends in no verdict line: its standard output is
+--- Like `cosmic json` it prints no summary: its standard output is
 --- data for a pipe. Exit 0 is ok, 2 a command line, a file or a request
 --- it refuses (a failed write to standard output included), 1 the
 --- operating system's entropy source failing. Complaints go to standard

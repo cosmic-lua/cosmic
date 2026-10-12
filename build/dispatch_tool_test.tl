@@ -11,11 +11,11 @@ local this_program = require("build.this_program")
 Test.policy{ profiles = { "cosmic" } }
 
 --- The `build.*` modules `-e` may have loaded as its chunk runs: dispatch,
---- the exit status its answer is read as, the verdict logger that reads
+--- the exit status its answer is read as, the logger it complains
 --- through, and the slot dispatch leaves `cosmic help`'s texts in.
 local allowed <const> = 4
 
---- The `cosmic.*` modules `-e` may have loaded: the verdict logger's and
+--- The `cosmic.*` modules `-e` may have loaded: the logger's and
 --- what it reads through. A verb's own ([`cosmic.cli`], [`cosmic.flags`],
 --- [`cosmic.store`]) is not among them.
 local library: {string: boolean} = {
@@ -26,7 +26,7 @@ local library: {string: boolean} = {
 }
 
 --- `-e` loads no verb, no help and none of the build, and of the standard
---- library only what the verdict logger reads: a module required at
+--- library only what the logger reads: a module required at
 --- dispatch's top level for a verb's sake is loaded by every child a test
 --- starts, and fails this.
 local function test_e_loads_none_of_the_verbs(tmp: string)

@@ -1,5 +1,5 @@
 --- `cosmic hash` run as this program: real standard input, the absence of
---- a verdict line, its exit statuses, and a file streamed from disk.
+--- a summary, its exit statuses, and a file streamed from disk.
 --- These start this program, so they need `tool`; the digests
 --- themselves are in `hash_test.tl`.
 
@@ -31,7 +31,7 @@ end
 
 local ABC <const> = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
 
-local function test_it_reads_standard_input_and_prints_no_verdict(tmp: string)
+local function test_it_reads_standard_input_and_prints_no_summary(tmp: string)
   local ran = cosmic(tmp, { "hash" }, "abc")
   assert(ran.code == 0, ran.err)
   assert(ran.out == ABC .. "  -\n" and ran.err == "", ran.out .. ran.err)

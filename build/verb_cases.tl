@@ -1,6 +1,6 @@
 --- The tables every verb [`cosmic.cli`] names is held to by
 --- build/verbs_test.tl and build/verbs_tool_test.tl: the verbs held to no
---- such cases, one argument too many for each, and a command
+--- pass, fail and refusal cases, one argument too many for each, and a command
 --- line that passes and one that fails. Test support, kept in one place
 --- so the test that classifies every verb and the tests that run each
 --- one read the same tables.

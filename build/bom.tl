@@ -496,61 +496,59 @@ end
 --- [`build.writer`].
 local function run(argv: {integer:string}): integer
   local started = Clock.monotonic_ns()
-  local function finish(code: integer, detail: string): integer
-    -- A refused command line's complaint says why; it gets no summary.
-    if code ~= 2 then
-      local _, _ = logger.summary("bom", detail .. ", " .. clock.took(started))
-    end
-    return code
+  -- A failure's complaint says why; only a run that passed is summarized.
+  local function passed(detail: string): integer
+    local _, _ = logger.summary("bom", detail .. ", " .. clock.took(started))
+    return 0
   end
   local usage = "cosmic bom [--licenses | --json <path>]"
   local parsed, parse_trouble = Flags.parse(argv, 2, assert(Cli.verbs.bom.spec))
   if parsed == nil then
     log:complain("bom: " .. parse_trouble .. "; " .. usage)
-    return finish(2, "usage: see `cosmic help bom`")
+    return 2
   end
   if #parsed.words > 0 or #parsed.given > 1 then
     log:complain("bom: takes one option at most, and no words: " .. usage)
-    return finish(2, "usage: see `cosmic help bom`")
+    return 2
   end
   local databases = Store.databases()
   local binary = databases[#databases]
   if binary == nil then
     log:complain("bom: the running artifact has no database")
-    return finish(1, "no database")
+    return 1
   end
   local rows, trouble = bom.rows(binary)
   if rows == nil then
     log:complain("bom: " .. trouble)
-    return finish(1, "the binary's own database")
+    return 1
   end
   if parsed.set["--licenses"] then
     local notices, notice_trouble = bom.notices(binary)
     if notices == nil then
       log:complain("bom: " .. notice_trouble)
-      return finish(1, "the binary's own database")
+      return 1
     end
     log:say(notices)
-    return finish(0, plural.count(#rows, "component"))
+    return passed(plural.count(#rows, "component"))
   end
   local path = parsed.values["--json"]
   if path ~= nil then
     local document, encode_trouble = bom.cyclonedx(rows, "cosmic", Store.meta("boot_hash") or "")
     if document == nil then
       log:complain("bom: " .. encode_trouble)
-      return finish(1, "encoding")
+      return 1
     end
     local written, write_trouble = Fs.write(path, document .. "\n")
     if not written then
       log:complain("bom: " .. path .. ": " .. write_trouble)
-      return finish(1, path)
+      return 1
     end
-    return finish(0, plural.count(#rows, "component") .. " written to " .. path)
+    return passed(plural.count(#rows, "component") .. " written to " .. path)
   end
   for _, line in ipairs(bom.lines(rows)) do
     log:say(line)
   end
-  return finish(0, plural.count(#rows, "component"))
+  return passed(plural.count(#rows, "component"))
 end
 
 --- The `bom` verb as [`build/verb_list.tl`] lists it. The rows are the

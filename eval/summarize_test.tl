@@ -46,7 +46,7 @@ end
 local function test_a_docs_miss_summary_counts()
   local text = lines({
     call("1", "Bash", { command = "cosmic docs Fs.nope" }),
-    answer("1", "docs: nothing named or documented as Fs.nope, 0 named, 0 found, 9 ms", true),
+    answer("1", "docs: nothing named or documented as 'Fs.nope', 9 ms", true),
   })
   local report = Summarize.report(text, arena, repo)
   assert(report:find("docs_misses=1 ", 1, true), report)

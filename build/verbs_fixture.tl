@@ -81,7 +81,7 @@ end
 
 --- Asserts `cosmic <args>` in `dir` exits `code` and says how it went:
 --- a refused command line (2) is complained about on stderr, with nothing
---- on stdout; a run that passed ends in its summary, last on stderr
+--- on stdout and no summary; a run that passed ends in its summary, last on stderr
 --- (`verb: ...`) or, for `test`, last on stdout; one that failed says why
 --- on stderr, or, for `test`, in its summary. No line is the verdict line
 --- the verbs no longer print, `verb: PASS` or `verb: FAIL`.
@@ -98,6 +98,9 @@ function verbs_fixture.expect(dir: string, verb: string, args: {string}, code: i
   end
   if code == 2 then
     assert(out == "" and err ~= "", "expected a complaint and no output from " .. shown)
+    for line in err:gmatch("[^\n]+") do
+      assert(not String.starts_with(line, verb .. ": "), "a summary of a refusal in " .. shown)
+    end
   elseif verb == "test" then
     local summary = last_line(out)
     local pattern = code == 0 and "^test: %d+ tests? passed in " or "^test: %d+ of %d+ tests? failed, "

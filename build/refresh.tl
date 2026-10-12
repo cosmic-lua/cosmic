@@ -538,16 +538,14 @@ local usage <const> = "cosmic refresh -o <path> [--binary <path>] [--<dataset> <
 --- `cosmic refresh`'s command line: see [`cosmic.cli.Cli.refresh`].
 local function run(argv: {integer:string}): integer
   local started = Time.monotonic_ns()
-  local function finish(code: integer, detail: string): integer
-    -- A refused command line's complaint says why; it gets no summary.
-    if code ~= 2 then
-      local _, _ = logger.summary("refresh", detail .. ", " .. clock.took(started))
-    end
-    return code
+  -- A failure's complaint says why; only a run that passed is summarized.
+  local function passed(detail: string): integer
+    local _, _ = logger.summary("refresh", detail .. ", " .. clock.took(started))
+    return 0
   end
   local function refuse(why: string): integer
     log:complain("refresh: " .. why .. "; " .. usage)
-    return finish(2, "usage: see `cosmic help refresh`")
+    return 2
   end
   local parsed, parse_trouble = Flags.parse(argv, 2, assert(Cli.verbs.refresh.spec))
   if parsed == nil then
@@ -575,7 +573,7 @@ local function run(argv: {integer:string}): integer
       local path, trouble = Fs.absolute(given)
       if path == nil then
         log:complain("refresh: " .. trouble)
-        return finish(1, "nothing written")
+        return 1
       end
       sources[dataset.name] = path
       wanted[dataset.name] = true
@@ -598,23 +596,23 @@ local function run(argv: {integer:string}): integer
     local running, trouble = Proc.executable()
     if running == nil then
       log:complain("refresh: " .. trouble)
-      return finish(1, "no binary")
+      return 1
     end
     binary = running
   end
   if same_file(binary, out) then
     log:complain("refresh: " .. out .. " is the binary it refreshes, which is never written")
-    return finish(1, "nothing written")
+    return 1
   end
   local lines, trouble = refresh.binary(binary, out, chosen, sources)
   if lines == nil then
     log:complain("refresh: " .. trouble)
-    return finish(1, "nothing written")
+    return 1
   end
   for _, line in ipairs(lines) do
     log:say(line)
   end
-  return finish(0, "wrote " .. out)
+  return passed("wrote " .. out)
 end
 
 --- The `refresh` verb as [`build/verb_list.tl`] lists it. What it copies is

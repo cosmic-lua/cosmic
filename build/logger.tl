@@ -1,7 +1,7 @@
 --- The logger cosmic's own verbs write through, whose complaints carry
 --- "cosmic", and the summary a verb ends a run with. A verb's stdout is
---- its result; stderr says what went wrong, and how a run that got past
---- its command line went.
+--- its result; stderr says what went wrong, and how a run that passed
+--- went.
 
 local Fs = require("cosmic.fs")
 local Log = require("cosmic.log")

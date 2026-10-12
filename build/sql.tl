@@ -75,8 +75,8 @@ local record sql
   record Output
     out: function(line: string): boolean, string
     err: function(line: string)
-    --- How a run past its command line went: the rows it wrote, or the
-    --- source that failed.
+    --- How a run that passed went: the rows it wrote and where from. A
+    --- failure's complaint says why, and it gets no summary.
     summary: function(detail: string)
   end
 
@@ -795,14 +795,12 @@ local function run_from(parsed: Flags.Parsed, to: sql.Output,
   local opened, memory_trouble = Sqlite.memory()
   if opened == nil then
     complain(memory_trouble)
-    summarize(source)
     return 1
   end
   local db: Sqlite.Handle = opened
   local function fail(why: string): integer
     local _, _ = db:close()
     complain(why)
-    summarize(source)
     return 1
   end
   local tables: {dataset.Table} = {}
@@ -919,7 +917,6 @@ function sql.run(argv: {integer:string}, root?: string, output?: sql.Output,
     local here, trouble = Fs.absolute(".")
     if here == nil then
       complain(trouble)
-      summarize("no working directory")
       return 1
     end
     root = here
@@ -932,7 +929,6 @@ function sql.run(argv: {integer:string}, root?: string, output?: sql.Output,
   local opened, open_trouble = sql.open(source)
   if opened == nil then
     complain(source.name .. ": " .. open_trouble)
-    summarize(source.name)
     return 1
   end
   local unwritable = false
@@ -961,7 +957,6 @@ function sql.run(argv: {integer:string}, root?: string, output?: sql.Output,
       trouble = trouble .. store_hint
     end
     complain(source.name .. ": " .. trouble)
-    summarize(source.name)
     return 1
   end
   summarize(rows .. (rows == 1 and " row" or " rows") .. " from " .. source.name)
