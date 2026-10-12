@@ -20,7 +20,7 @@ not run what its author chose:
   off on every handle: the percentile aggregates, FTS5's `bm25`,
   `highlight`, `snippet`, `fts5()` and `fts5_get_locale`, `MATCH` against
   an FTS5 table, `rtreecheck`, `rtreenode` and `rtreedepth`, and the
-  `pragma_*` and `fts5vocab` tables. A trigger may still write to an FTS5
+  `pragma_*`, `fts5vocab` and `carray` tables. A trigger may still write to an FTS5
   table or an R*Tree, and a view may still read an R*Tree.
   `PRAGMA trusted_schema = 1` on a [`cosmic.sqlite`] handle allows these
   again, for a file the caller trusts; a [`cosmic.store`] handle, which
@@ -266,6 +266,17 @@ within another.
   node.
 - `rtreedepth(B)`: the depth of an R*Tree, from its root node's blob; a
   B that is not a blob of at least 2 bytes fails the query.
+
+## bound lists
+
+- `carray(?N)`: a table of the elements of the list bound at parameter
+  N, in its `value` column, in order: a [`cosmic.sqlite`] Value of
+  `integers`, `numbers`, `texts` or `blobs`, as `{ integers = { 1, 2 } }`.
+  `x IN carray(?1)` tests membership in the list. Any other value at N
+  gives no rows, and a list read anywhere but carray reads as NULL. The
+  forms that take a count and a C type, which
+  [SQLite describes](https://sqlite.org/carray.html), read only an array
+  C binds, and give no rows from SQL.
 
 ## introspection
 

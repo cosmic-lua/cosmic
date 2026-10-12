@@ -118,7 +118,10 @@ local record Sqlite
   --- One bound parameter. Its field says what SQLite is told it is, so
   --- a blob never arrives as text by accident. At most one field is
   --- allowed; an empty table explicitly binds SQL NULL. A value of
-  --- another shape raises where it is bound.
+  --- another shape raises where it is bound. A list in `integers`,
+  --- `numbers`, `texts` or `blobs` is bound as an array that only
+  --- `carray(?N)` reads, as a table of its elements: `x IN carray(?1)`
+  --- tests membership in it. Anywhere else it reads as NULL.
   type Value = raw_sqlite.Value
 
   --- The SQLite storage class of a result cell: the field of a [`Cell`]
@@ -244,12 +247,39 @@ function Sqlite.memory(): Sqlite.Handle | nil, string
   return sqlite.open(":memory:", true)
 end
 
+--- Raises, blaming as [`checked`] does, unless `list` holds elements 1 to
+--- its length, each of the type `field` names: an integer for integers,
+--- a number for numbers, a string for texts and blobs, and no NUL in a
+--- text, which carray reads to its first NUL.
+local function check_array<T>(key: integer, field: string, list: {T})
+  if type(list) ~= "table" then
+    error("sqlite: parameter " .. key .. "'s " .. field .. " is no list", 5)
+  end
+  for i = 1, rawlen(list) do
+    local element = rawget(list, i)
+    local fits: boolean
+    if field == "integers" then
+      fits = math.type(element) == "integer"
+    elseif field == "numbers" then
+      fits = type(element) == "number"
+    else
+      fits = type(element) == "string"
+    end
+    if not fits then
+      error("sqlite: element " .. i .. " of parameter " .. key .. "'s " .. field .. " is not of its type", 5)
+    end
+    if field == "texts" and element is string and element:find("\0", 1, true) ~= nil then
+      error("sqlite: element " .. i .. " of parameter " .. key .. "'s texts holds a NUL; bind it in blobs", 5)
+    end
+  end
+end
+
 --- Raises, blaming the caller of the public function that calls the
 --- function that calls this, unless `values` is a list of Values: each a
---- table with at most one field, named integer, number, text, or blob
---- ({} for NULL), under keys that are positions from 1. It runs before a
---- statement is prepared, so a raise leaves none to finalize. Answers the
---- highest key, 0 for none.
+--- table with at most one field, named integer, number, text, blob, or an
+--- array's integers, numbers, texts or blobs ({} for NULL), under keys
+--- that are positions from 1. It runs before a statement is prepared, so
+--- a raise leaves none to finalize. Answers the highest key, 0 for none.
 local function checked(values: {Sqlite.Value}): integer
   local highest = 0
   for key, value in pairs(values as {any: any}) do
@@ -261,10 +291,18 @@ local function checked(values: {Sqlite.Value}): integer
     end
     local fields = 0
     for field in pairs(value as {any: any}) do
-      if field ~= "integer" and field ~= "number" and field ~= "text" and field ~= "blob" then
+      if field ~= "integer" and field ~= "number" and field ~= "text" and field ~= "blob" and
+          field ~= "integers" and field ~= "numbers" and field ~= "texts" and field ~= "blobs" then
         error("sqlite: parameter " .. key .. " has an unknown Value field: " .. tostring(field), 4)
       end
       fields = fields + 1
+    end
+    if key is integer then
+      local held = values[key]
+      if held.integers ~= nil then check_array(key, "integers", held.integers) end
+      if held.numbers ~= nil then check_array(key, "numbers", held.numbers) end
+      if held.texts ~= nil then check_array(key, "texts", held.texts) end
+      if held.blobs ~= nil then check_array(key, "blobs", held.blobs) end
     end
     if fields > 1 then
       error("sqlite: parameter " .. key .. " has more than one Value field", 4)
@@ -301,6 +339,14 @@ local function bind(
       ok, trouble = statement:bind_text(index, value.text)
     elseif value.blob ~= nil then
       ok, trouble = statement:bind_blob(index, value.blob)
+    elseif value.integers ~= nil then
+      ok, trouble = statement:bind_integers(index, value.integers)
+    elseif value.numbers ~= nil then
+      ok, trouble = statement:bind_numbers(index, value.numbers)
+    elseif value.texts ~= nil then
+      ok, trouble = statement:bind_texts(index, value.texts)
+    elseif value.blobs ~= nil then
+      ok, trouble = statement:bind_blobs(index, value.blobs)
     else
       ok, trouble = statement:bind_null(index)
     end
