@@ -362,6 +362,7 @@ local function run(file: string, argv: {integer:string}): integer
   local tree = require("build.tree")
   local build_paths = require("build.paths")
   local work = require("build.work")
+  local workers = require("build.workers")
   local writer = require("build.writer")
   local root, trouble = root_of(file)
   if root == nil then
@@ -411,7 +412,7 @@ local function run(file: string, argv: {integer:string}): integer
   local database = build_paths.under(handle.dir).projection
 
   local result, compile_trouble = importer.compile(handle, built, tool, false,
-    shared_compiles.for_build())
+    shared_compiles.for_build(), workers.pool(workers.tool_spec()))
   if result == nil then
     local _, _ = work.record(handle, clock.elapsed_ms(started), staged, 0, 0, "FAIL")
     local _, _ = work.close(handle)

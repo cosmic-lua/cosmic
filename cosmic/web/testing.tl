@@ -79,6 +79,15 @@ local record Testing
     buf: string
     --- The `Host` the requests name.
     host: string
+    --- How long a read or a write of the connection waits, as [`set_timeout`]
+    --- last set it (nil: no limit).
+    timeout_ns?: integer
+
+    --- Sets how long a read or a write of the connection waits (nil: no
+    --- limit). A request sending a large body sets the connection's own
+    --- timeout back to this after each look for the reply, so one set on
+    --- `conn` directly does not last past it.
+    set_timeout: function(self: Loopback, wait_ns: integer | nil)
 
     --- One request over the connection; nil and why when the server's reply
     --- cannot be read.
@@ -572,10 +581,63 @@ local function read_reply(lb: Testing.Loopback, method: string): Response | nil,
   return response_of(status, lines, body), ""
 end
 
+--- Whether `buf`, the reply read so far, holds the start of a final reply:
+--- something past every whole interim (1xx) reply it opens with.
+local function final_begun(buf: string): boolean
+  local at = 1
+  while buf:find("^HTTP/%d%.%d 1%d%d ", at) ~= nil do
+    local _, stop = buf:find("\r\n\r\n", at, true)
+    if stop == nil then return false end
+    at = stop + 1
+  end
+  return at <= #buf
+end
+
+--- How much of a request goes out between looks for the server's reply.
+local SEND_SLICE <const> = 64 * 1024
+
+--- Writes `bytes`, stopping where the server has answered already, and
+--- says why a write failed ("" where none did). A server refusing a body
+--- (413) answers at once, reads a bounded amount more and closes, and a
+--- close with bytes unread resets the connection, which on BSD discards
+--- the reply from the client's buffer. So the reply is looked for between
+--- slices: a refusal sent while the server still drains is read before
+--- its reset. An interim reply (`100 Continue`) is kept and the body goes
+--- on.
+-- TODO: a refusal the server sends only after more than it drains
+-- (cosmic/http/server.tl's `linger`), or one whose reset meets the first
+-- slice's write, can still be lost on BSD; reading the reply before the
+-- first write, or half-closing instead of resetting, would close that.
+local function send_until_answered(lb: Testing.Loopback, bytes: string): string
+  local from = 1
+  while from <= #bytes do
+    local sent, why = lb.conn:write(bytes:sub(from, from + SEND_SLICE - 1))
+    if not sent then return why end
+    from = from + SEND_SLICE
+    if from <= #bytes then
+      -- A wait of none still yields the run, so the server's task reads.
+      lb.conn:set_timeout(0)
+      local piece, read_why = lb.conn:read()
+      lb.conn:set_timeout(lb.timeout_ns)
+      if piece ~= nil then
+        lb.buf = lb.buf .. piece
+        if final_begun(lb.buf) then return "" end
+      elseif read_why ~= Poll.TIMEOUT then
+        return ""
+      end
+    end
+  end
+  return ""
+end
+
 local function loopback_raw(self: Testing.Loopback, bytes: string, method?: string): Response | nil, string
-  local sent, why = self.conn:write(bytes)
-  if not sent then return nil, why end
-  return read_reply(self, method or "GET")
+  local write_why = send_until_answered(self, bytes)
+  -- A write that timed out met a server that stopped reading: waiting as
+  -- long again for a reply would only double the failure's time.
+  if write_why == Poll.TIMEOUT then return nil, write_why end
+  local reply, why = read_reply(self, method or "GET")
+  if reply == nil then return nil, write_why ~= "" and write_why or why end
+  return reply, ""
 end
 
 local function loopback_request(self: Testing.Loopback, method: string, path: string,
@@ -595,8 +657,13 @@ local function loopback_verb(method: string): function(Testing.Loopback, string,
   end
 end
 
+local function loopback_set_timeout(self: Testing.Loopback, wait_ns: integer | nil)
+  self.conn:set_timeout(wait_ns)
+  self.timeout_ns = wait_ns
+end
+
 local loopback_methods = {
-  request = loopback_request, raw = loopback_raw, get = loopback_verb("GET"),
+  set_timeout = loopback_set_timeout, request = loopback_request, raw = loopback_raw, get = loopback_verb("GET"),
   post = loopback_verb("POST"), head = loopback_verb("HEAD"),
 }
 local loopback_mt: metatable<Testing.Loopback> = { __index = loopback_methods }
@@ -623,7 +690,7 @@ function Testing.with_server(app: Types.App, fn: function(client: Testing.Loopba
         return
       end
       conn:set_timeout(IO_TIMEOUT_NS)
-      local client: Testing.Loopback = setmetatable({ conn = conn, buf = "",
+      local client: Testing.Loopback = setmetatable({ conn = conn, buf = "", timeout_ns = IO_TIMEOUT_NS,
         host = "127.0.0.1:" .. assert(addresses[1].port) }, loopback_mt)
       local ran, raised = pcall(function() fn(client) end)
       if not ran then failure = tostring(raised) end
