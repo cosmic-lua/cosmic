@@ -303,7 +303,8 @@ function Result.main(argv: {integer: string}): integer
     complain(trouble)
     return 2
   end
-  local directory = absolute
+  -- A copy the checker knows is not nil: a closure below reads it.
+  local directory: string = absolute
   local script, strouble = Fs.absolute(argv[0])
   if script == nil then
     complain(strouble)

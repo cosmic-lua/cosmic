@@ -178,7 +178,6 @@ end
   local stopped_at = Clock.monotonic_ns()
   assert(child:stop(sys.SIGTERM))
   local result = assert(child:wait(Clock.seconds(30)))
-  assert(result ~= nil, "the server never became ready")
   assert(result.code == 0, tostring(result.code) .. " " .. tostring(result.stderr))
   assert(Clock.monotonic_ns() - stopped_at < Clock.seconds(10), "the idle connection held the stop")
   local after, why = conn:read()
