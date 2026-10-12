@@ -101,10 +101,10 @@ bool cosmic_signal_caught (void);
 int64_t cosmic_now_ms (void);
 
 /* The deadline, on [`cosmic_now_ms`]'s clock, of a wait of `timeout`
- * milliseconds begun now, or -1 for a `timeout` of -1 (no limit). It is
- * rounded up to a whole millisecond, so that a clock read by
- * [`cosmic_now_ms`] (which rounds down) reaches it only once `timeout`
- * has passed. */
+ * milliseconds begun now, or -1 for a `timeout` of -1 (no limit). A
+ * `timeout` above 0 ends up to a millisecond late, never early, as a clock
+ * read by [`cosmic_now_ms`] (which rounds down) reaches it only once
+ * `timeout` has passed; 0 is now, already come. */
 int64_t cosmic_deadline_ms (int64_t timeout);
 
 /* How long a wait for `deadline` (on [`cosmic_now_ms`]'s clock, -1 for
