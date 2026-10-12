@@ -418,3 +418,60 @@ local function test_uint_orders_consistently(tmp: string)
     shares = { ordered = 0.5 },
   })
 end
+
+--- An R*Tree whose nodes a database file has damaged: the `_node` table's
+--- blobs are what a file holds, and any bytes may be there. Querying the
+--- tree, checking it, and writing to it each answer or fail their
+--- statement, and never take the process down.
+local function test_rtree_survives_damaged_nodes(tmp: string)
+  Fuzz.run({
+    name = "sqlite rtree damaged nodes",
+    dir = tmp,
+    gen = function(src: Fuzz.Source): string
+      local boxes: {string} = {}
+      while Fuzz.more(src, #boxes, 60) do
+        local x, y = src:int(-1000, 1000), src:int(-1000, 1000)
+        boxes[#boxes + 1] = string.pack("<i4i4i4i4", x, x + src:int(0, 50), y, y + src:int(0, 50))
+      end
+      return Fuzz.pack({ table.concat(boxes), tostring(src:int(1, 8)), Fuzz.bytes(src, 64),
+        tostring(src:int(0, 3)) })
+    end,
+    check = function(input: string): boolean, string
+      local fields = Fuzz.unpack(input)
+      local db = assert(Sqlite.memory())
+      assert(db:exec("CREATE VIRTUAL TABLE b USING rtree_i32(id, x0, x1, y0, y1)"))
+      local packed = fields[1]
+      for i = 1, #packed // 16 do
+        local x0, x1, y0, y1 = string.unpack("<i4i4i4i4", packed, (i - 1) * 16 + 1)
+        assert(Sqlite.run(db, "INSERT INTO b VALUES (?1, ?2, ?3, ?4, ?5)", { { integer = i },
+          { integer = x0 }, { integer = x1 }, { integer = y0 }, { integer = y1 } }))
+      end
+      -- Overwrite part of one node's blob, as a damaged file would hold it.
+      local nodes = assert(Sqlite.text_rows(db, "SELECT count(*) FROM b_node"))
+      local which = (math.tointeger(fields[2]) - 1) % math.tointeger(nodes[1][1]) + 1
+      local how = math.tointeger(fields[4])
+      local sql = how == 0 and "UPDATE b_node SET data = ?1 WHERE nodeno = ?2" or
+        how == 1 and "UPDATE b_node SET data = ?1 || substr(data, length(?1) + 1) WHERE nodeno = ?2" or
+        how == 2 and "UPDATE b_node SET data = substr(data, 1, length(data) - length(?1)) || ?1 WHERE nodeno = ?2" or
+        "UPDATE b_node SET data = substr(data, 1, 4) || ?1 || substr(data, length(?1) + 5) WHERE nodeno = ?2"
+      assert(Sqlite.run(db, sql, { { blob = fields[3] }, { integer = which } }))
+      local broke = false
+      for _, q in ipairs({ "SELECT count(*) FROM b WHERE x1 >= 0 AND x0 <= 10 AND y1 >= 0 AND y0 <= 10",
+          "SELECT count(*) FROM b", "SELECT rtreecheck('b')",
+          "SELECT count(*) FROM b_node WHERE rtreenode(2, data) IS NOT NULL",
+          "INSERT INTO b VALUES (100000, 1, 2, 1, 2)", "DELETE FROM b WHERE id = 1",
+          "UPDATE b SET x1 = x1 + 1 WHERE id = 2" }) do
+        local rows, trouble = Sqlite.text_rows(db, q)
+        if rows == nil then
+          broke = true
+          if trouble == "" then return false, q .. " failed without saying why" end
+        end
+      end
+      db:close()
+      Fuzz.label(broke and "refused the damage" or "read past the damage")
+      return true, ""
+    end,
+    requires = { "refused the damage" },
+    shares = { ["refused the damage"] = 0.1 },
+  })
+end

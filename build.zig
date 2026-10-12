@@ -1462,7 +1462,9 @@ fn vendorLibraries(
     // to, and which tables and indexes it opens, learned without running
     // it, in about 4 KB. They compile what they are given, which applies a
     // PRAGMA that changes a connection setting, so patch/sqlite/ keeps them
-    // from the views and triggers a database file holds.
+    // from the views and triggers a database file holds. The R*Tree is on:
+    // an index of boxes and ranges, for which rows a box or a span
+    // overlaps, in about 44 KB per raw core (35 KB on macOS).
     const sqlite_flags = [_][]const u8{
         "-std=c11",
         debug_dir,
@@ -1485,6 +1487,7 @@ fn vendorLibraries(
         "-DSQLITE_ENABLE_MATH_FUNCTIONS=1",
         "-DSQLITE_ENABLE_PERCENTILE=1",
         "-DSQLITE_ENABLE_BYTECODE_VTAB=1",
+        "-DSQLITE_ENABLE_RTREE=1",
     };
     vendorPart(b, &libraries, configuration, target, "sqlite", &.{sqlite}).addCSourceFiles(.{
         .root = sqlite,

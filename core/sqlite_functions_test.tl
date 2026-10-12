@@ -295,3 +295,25 @@ local function test_a_database_s_own_schema_is_not_trusted()
   assert(rows[1][1] == "2", rows[1][1])
   handle:close()
 end
+
+local function test_rtree_finds_the_boxes_a_box_overlaps()
+  local handle = assert(Sqlite.memory())
+  assert(handle:exec([[CREATE VIRTUAL TABLE boxes USING rtree(id, x0, x1, y0, y1);
+    INSERT INTO boxes VALUES (1, 0, 10, 0, 10), (2, 5, 15, 5, 15), (3, 20, 30, 20, 30);
+    CREATE VIRTUAL TABLE spans USING rtree_i32(id, start, stop);
+    INSERT INTO spans VALUES (1, 100, 200), (2, 150, 300);]]))
+  local rows = assert(Sqlite.text_rows(handle, "SELECT group_concat(id) FROM " ..
+      "(SELECT id FROM boxes WHERE x1 >= 8 AND x0 <= 12 AND y1 >= 8 AND y0 <= 12 ORDER BY id)"))
+  assert(rows[1][1] == "1,2", rows[1][1])
+  rows = assert(Sqlite.text_rows(handle, "SELECT group_concat(id) FROM " ..
+      "(SELECT id FROM spans WHERE start <= 250 AND stop >= 250 ORDER BY id)"))
+  assert(rows[1][1] == "2", rows[1][1])
+  -- A coordinate a 32-bit real cannot hold is rounded outward.
+  assert(handle:exec("INSERT INTO boxes VALUES (4, 0.1, 0.1, 0.1, 0.1)"))
+  rows = assert(Sqlite.text_rows(handle,
+    "SELECT x0 <= 0.1, x1 >= 0.1, x0 < x1 FROM boxes WHERE id = 4"))
+  assert(table.concat(rows[1], " ") == "1 1 1", table.concat(rows[1], " "))
+  rows = assert(Sqlite.text_rows(handle, "SELECT rtreecheck('boxes'), rtreecheck('spans')"))
+  assert(rows[1][1] == "ok" and rows[1][2] == "ok", rows[1][1] .. " " .. rows[1][2])
+  handle:close()
+end

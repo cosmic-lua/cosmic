@@ -19,7 +19,8 @@ not run what its author chose:
   SQLite's [`trusted_schema`](https://sqlite.org/pragma.html#pragma_trusted_schema)
   off on every handle: the percentile aggregates, FTS5's `bm25`,
   `highlight`, `snippet`, `fts5()` and `fts5_get_locale`, `MATCH` against
-  an FTS5 table, and the `pragma_*` and `fts5vocab` tables. A trigger may
+  an FTS5 table, `rtreecheck`, `rtreenode` and `rtreedepth`, and the
+  `pragma_*` and `fts5vocab` tables. A trigger may
   still write to an FTS5 table. `PRAGMA trusted_schema = 1` on a
   [`cosmic.sqlite`] handle allows these again, for a file the caller
   trusts; a [`cosmic.store`] handle, which answers queries alone, refuses it.
@@ -239,6 +240,22 @@ SQLite's [FTS5](https://sqlite.org/fts5.html).
 - `fts5_locale(LOCALE, TEXT)`: TEXT tagged with LOCALE for a locale-aware tokenizer.
 - `fts5_get_locale(T, COLUMN)`: the locale a column's value was tagged with.
 - `fts5_insttoken(TEXT)`: a query term matched against token instances only.
+
+## R*Tree
+
+SQLite's [R*Tree](https://sqlite.org/rtree.html): an index of boxes, from
+one dimension (a range) to five, that answers which boxes overlap or lie
+within another.
+
+- `rtree`: the virtual table, `CREATE VIRTUAL TABLE t USING rtree(id,
+  min0, max0, ...)`, with an integer id and a minimum and maximum for
+  each dimension. Coordinates are kept as 32-bit reals, rounded outward,
+  so a box is never smaller than the one given.
+- `rtree_i32`: the same, with 32-bit integer coordinates.
+- `rtreecheck(T)`: `ok`, or what is wrong with the R*Tree T's structure.
+- `rtreenode(D, B)`: an R*Tree node of D dimensions, from its blob in the
+  `_node` table, as text.
+- `rtreedepth(B)`: the depth of an R*Tree, from its root node's blob.
 
 ## introspection
 
