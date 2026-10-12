@@ -8,6 +8,9 @@
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local artifact = require("build.artifact")
+-- [`build.boot`] loads the compiler's module at the top; a test has no
+-- bridge to have put it there, and a stage never gets as far as using it.
+package.loaded["build.compiler"] = {}
 local boot = require("build.boot")
 local build_paths = require("build.paths")
 
@@ -136,10 +139,7 @@ local function test_stage_does_not_need_the_cores(tmp: string)
   local layout = build_paths.under(tmp .. "/build")
   assert(Fs.mkdirs(layout.directory))
   assert(Fs.write(tmp .. "/targets.tsv", records))
-  local loaded = package.loaded["build.compiler"]
-  package.loaded["build.compiler"] = {}
   local code, out = run_capturing("--stage", tmp .. "/targets.tsv", layout.directory)
-  package.loaded["build.compiler"] = loaded
   assert(code == 1, out)
   assert(out:find("boot: FAIL", 1, true), out)
   assert(not out:find("cosmic-core", 1, true), out)
