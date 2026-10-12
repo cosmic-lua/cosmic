@@ -432,7 +432,7 @@ local function discount_test_warnings(result: compiler.Result,
   end
   local kept: {compiler.Error} = {}
   for _, w in ipairs(result.warnings) do
-    local unused = w.msg:match("^unused function ([%w_]+):")
+    local unused = w.code == "unused" and w.declares == "function" and w.variable or nil
     if unused == nil or not names[unused] then
       kept[#kept + 1] = w
     end
@@ -453,7 +453,8 @@ end
 local function discount_doctest_shadow_warnings(result: compiler.Result): compiler.Result
   local kept: {compiler.Error} = {}
   for _, w in ipairs(result.warnings) do
-    if w.msg ~= "variable shadows previous declaration of 'print'" then
+    if not (w.code == "shadows" and w.declares == "variable" and w.variable == "print" and
+        not w.declared_before) then
       kept[#kept + 1] = w
     end
   end

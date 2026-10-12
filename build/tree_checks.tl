@@ -1899,7 +1899,7 @@ function tree_checks.ci_testdata(root: string, built: compiler): {string}
         local warned = result and result.warnings or {}
         for _, group in ipairs({ errors, typed, warned }) do
           for _, e in ipairs(group) do
-            if group ~= warned or not testy or not e.msg:match("^unused ") then
+            if group ~= warned or not testy or e.code ~= "unused" then
               found = found + 1
               out[#out + 1] = file .. ":" .. e.y .. ":" .. e.x .. ": " .. e.msg
             end

@@ -90,6 +90,8 @@ local record Errors
    errors: {Error}
    warnings: {Error}
    unknown_dots: {string:boolean}
+   -- Defined once `show_type` is: the members of a union, each shown alone.
+   members: function(Type): {string}
 end
 
 local record tl
@@ -169,6 +171,68 @@ local record tl
    end
    warning_kinds: {WarningKind:boolean}
 
+   -- What an error is, for a reader that must not parse `msg`. A code
+   -- names the error kind, and the fields of `Error` named below it are
+   -- set for it; `other` is every error no reader acts on.
+   enum ErrorCode
+      -- a value of one type where another is wanted: `got`, `expected`
+      "mismatch"
+      -- a nominal type refused for another: `got`, `expected`
+      "not_a"
+      -- a `local type` require of a module that returns a value: `got`
+      "require_not_type"
+      -- the argument of `require`: `got`
+      "require_argument"
+      -- a key a record lacks: `key`, `variable`, `subject`, `members`, `fields`
+      "invalid_key"
+      -- a key read of a value that is no record: `key`, `variable`, `subject`, `members`
+      "cannot_index_key"
+      -- an index of a value of a type that takes none: `subject`, `members`
+      "cannot_index_object"
+      -- `<close>` on a type with no `__close`: `variable`, `subject`, `members`
+      "not_closable"
+      -- `ipairs` of a value that is no array: `subject`, `members`
+      "not_array"
+      -- `pairs` of a value that is no table: `subject`, `members`
+      "pairs_of_non_table"
+      -- a call that answers no value, assigned: `variable`; `callee` and
+      -- `callee_never` where the call is one to a function that never returns
+      "no_initial_value"
+      -- a unary operator on a type that takes none: `operator`, `members`
+      "operator_unary"
+      -- a binary operator on types that take none: `operator`, `left`, `right`
+      "operator_binary"
+      -- a numeric `for` bound of a type that is no number: `index`, `members`
+      "for_bound"
+      -- a call with the wrong number of arguments: `given`, `expects`, `expects_most`
+      "arity"
+      -- a declaration that hides an earlier one: `variable`, `declares`, and
+      -- `declared_before` where the earlier one is the program's own
+      "shadows"
+      -- a name that is declared nowhere: `variable`
+      "unknown_variable"
+      -- a declaration nothing uses: `variable`, `declares`
+      "unused"
+      -- the parser refusing a construct as a syntax error
+      "syntax_error"
+      -- the parser wanting `local` or `global` before a type declaration: `key`
+      "declaration_scope"
+      -- a type name that is declared nowhere: `names`, and `subject`, the
+      -- type as shown (with its type arguments)
+      "unknown_type"
+      -- a field a table literal names that its record lacks: `key`, `subject`, `fields`
+      "unknown_field"
+      -- a `require` of a module nothing provides: `key`
+      "module_not_found"
+      -- a generic record named without its type arguments: `names`, `type_arguments`
+      "missing_type_arguments"
+      -- the parser wanting one of some tokens: `expected_tokens`
+      "expected_one_of"
+      -- the parser wanting a type list
+      "type_list_expected"
+      "other"
+   end
+
    record Error
       y: integer
       x: integer
@@ -179,6 +243,77 @@ local record tl
 
       -- For a key a record lacks: the record's value fields, unordered.
       fields: {string}
+
+      code: ErrorCode
+
+      -- Where a value was wanted, as the message names it: "argument",
+      -- "return", "self", or "in local declaration", "in assignment" and
+      -- the like. `context_name` is the variable or field the message
+      -- also names there, and `index` the position of an argument.
+      context: string
+      context_name: string
+      index: integer
+      -- Whether words the message puts between its context and the
+      -- error itself (a field that did not match, a type parameter)
+      -- make the context something other than where the value was wanted.
+      nested: boolean
+      -- The type parameter a type was refused for.
+      type_parameter: string
+      -- The method of a record declared against an interface, and the
+      -- record that declares it, when the error is that signature's.
+      signature_of: string
+      declared_in: string
+
+      -- The kind of the record-like type a key was refused: its typename.
+      resolved_kind: string
+
+      -- The types an error is about, as the checker shows them. A
+      -- `*_members` list holds the members of a union (a type that is
+      -- none holds itself), each shown alone; `got_kind`, `subject_kind`
+      -- and `expected_names` say what the type is (its typename; the names
+      -- of a nominal type).
+      got: string
+      got_kind: string
+      got_members: {string}
+      expected: string
+      expected_members: {string}
+      expected_names: {string}
+      subject: string
+      subject_kind: string
+      members: {string}
+      left: string
+      left_members: {string}
+      left_is_generic_function: boolean
+      right: string
+      right_members: {string}
+
+      -- The names the error mentions.
+      key: string
+      variable: string
+      operator: string
+      names: {string}
+      type_arguments: {string}
+      expected_tokens: {string}
+
+      -- What a declaration that is hidden or unused declares: "variable",
+      -- "argument", "function", "type" or "label".
+      declares: string
+
+      -- Whether the declaration a name hides is in the program itself.
+      declared_before: boolean
+
+      -- The callee of a call, as written (`Json.decode`, `obj:get`), and
+      -- whether it never returns.
+      callee: string
+      callee_never: boolean
+
+      -- A call's arguments: how many it was given, how many its callee
+      -- takes when that is one number, and the largest number it names.
+      given: integer
+      expects: integer
+      expects_most: integer
+      -- Whether `msg` has had advice appended.
+      advised: boolean
 
       -- used temporarily for stable-sorting
       i: integer
@@ -773,6 +908,7 @@ do
                filename = filename,
                y = ty,
                x = tx,
+               code = "other",
                msg = "malformed number '" .. tk .. "': a '_' in a number goes between two digits",
             })
          end
@@ -803,6 +939,7 @@ do
             filename = filename,
             y = t.y,
             x = t.x,
+            code = "other",
             msg = msg or "invalid token '" .. t.tk .. "'",
          })
       end
@@ -2138,13 +2275,22 @@ local parse_enum_body: function(ps: ParseState, i: integer, def: EnumType): inte
 local parse_record_body: function(ps: ParseState, i: integer, def: Type): integer, boolean
 local parse_type_body_fns: {BodyTypeName:ParseBody}
 
-local function fail(ps: ParseState, i: integer, msg: string): integer
+local function fail(ps: ParseState, i: integer, msg: string, details?: Error): integer
+   local err: Error = details or ({} as Error)
+   err.code = err.code or (msg and msg:sub(1, 12) == "syntax error" and "syntax_error" or "other")
+   err.filename = ps.filename
    if not ps.tokens[i] then
       local eof = ps.tokens[#ps.tokens]
-      table.insert(ps.errs, { filename = ps.filename, y = eof.y, x = eof.x, msg = msg or "unexpected end of file" })
+      err.y = eof.y
+      err.x = eof.x
+      err.msg = msg or "unexpected end of file"
+      table.insert(ps.errs, err)
       return #ps.tokens
    end
-   table.insert(ps.errs, { filename = ps.filename, y = ps.tokens[i].y, x = ps.tokens[i].x, msg = assert(msg, "syntax error, but no error message provided") })
+   err.y = ps.tokens[i].y
+   err.x = ps.tokens[i].x
+   err.msg = assert(msg, "syntax error, but no error message provided")
+   table.insert(ps.errs, err)
    return math.min(#ps.tokens, i + 1)
 end
 
@@ -2167,7 +2313,7 @@ local function verify_end(ps: ParseState, i: integer, istart: integer, node: Nod
       node.xend = endx + 2
       if node.kind ~= "function" and endy ~= node.y and endx ~= node.x then
          if not ps.end_alignment_hint then
-            ps.end_alignment_hint = { filename = ps.filename, y = node.y, x = node.x, msg = "syntax error hint: construct starting here is not aligned with its 'end' at " .. ps.filename .. ":" .. endy .. ":" .. endx .. ":" }
+            ps.end_alignment_hint = { filename = ps.filename, y = node.y, x = node.x, code = "other", msg = "syntax error hint: construct starting here is not aligned with its 'end' at " .. ps.filename .. ":" .. endy .. ":" .. endx .. ":" }
          end
       end
       return i + 1
@@ -2254,9 +2400,9 @@ local function skip(ps: ParseState, i: integer, skip_fn: SkipFunction): integer,
    return skip_fn(err_ps, i)
 end
 
-local function failskip(ps: ParseState, i: integer, msg: string, skip_fn: SkipFunction, starti?: integer): integer
+local function failskip(ps: ParseState, i: integer, msg: string, skip_fn: SkipFunction, starti?: integer, details?: Error): integer
    local skip_i = skip(ps, starti or i, skip_fn)
-   fail(ps, i, msg)
+   fail(ps, i, msg, details)
    return skip_i
 end
 
@@ -2518,7 +2664,11 @@ local function parse_list<T>(ps: ParseState, i: integer, list: {T}, close: {stri
          else
             table.insert(options, "','")
             msg = "syntax error, expected one of: " .. table.concat(options, ", ")
-            fail(ps, i, msg)
+            local tokens: {string} = {}
+            for _, option in ipairs(options) do
+               table.insert(tokens, (option:sub(2, -2)))
+            end
+            fail(ps, i, msg, { code = "expected_one_of", expected_tokens = tokens } as Error)
          end
          -- heuristic for error recovery to avoid a cascade of errors:
          -- * if we're parsing a bracketed list, assume the missing token is a separator;
@@ -2821,7 +2971,7 @@ parse_type_list = function(ps: ParseState, i: integer, mode: ParseTypeListMode):
    local prev_i = i
    i = parse_trying_list(ps, i, list, parse_type, mode == "rets")
    if i == prev_i and ps.tokens[i].tk ~= ")" then
-      fail(ps, i - 1, "expected a type list")
+      fail(ps, i - 1, "expected a type list", { code = "type_list_expected" } as Error)
    end
 
    if mode == "rets" and ps.tokens[i].tk == "..." then
@@ -4503,7 +4653,8 @@ local parse_statement_fns: {string : function(ParseState, integer):(integer, Nod
 
 local function type_needs_local_or_global(ps: ParseState, i: integer): integer, Node
    local tk = ps.tokens[i].tk
-   return failskip(ps, i, ("%s needs to be declared with 'local %s' or 'global %s'"):format(tk, tk, tk), skip_type_body)
+   return failskip(ps, i, ("%s needs to be declared with 'local %s' or 'global %s'"):format(tk, tk, tk), skip_type_body, nil,
+      { code = "declaration_scope", key = tk } as Error)
 end
 
 local needs_local_or_global: {string : function(ParseState, integer):(integer, Node)} = {
@@ -6484,7 +6635,92 @@ local function Err_at(w: Where, msg: string): Error
    }
 end
 
+-- An error holding the fields of `fields`, a table of those an error of some
+-- code names. The cast is the checker's own source being valid upstream Teal,
+-- which has no optional record field to write the literal as; that every
+-- field set is one `record Error` declares is held by build/teal_test.tl.
+function Errors.make(fields?: {string:any}): Error
+   return (fields or {}) as Error
+end
+
+-- An error of the kind `details` names, with the message and place `Err`
+-- gives: `details` carries the fields its code names, and is the error.
+function Errors.coded(details: Error, msg: string, t1?: Type, t2?: Type, t3?: Type): Error
+   local err = Err(msg, t1, t2, t3)
+   if not err then
+      return nil
+   end
+   details.msg = err.msg
+   details.x = err.x
+   details.y = err.y
+   details.filename = err.filename
+   return details
+end
+
+-- `err`, marked a refusal of a value of type `got` where `expected` is wanted.
+function Errors.mismatch(err: Error, got: Type, expected: Type): Error
+   if not err then
+      return nil
+   end
+   err.code = "mismatch"
+   err.got = show_type(got)
+   err.got_kind = got.typename
+   err.got_members = Errors.members(got)
+   err.expected = show_type(expected)
+   err.expected_members = Errors.members(expected)
+   if expected is NominalType then
+      err.expected_names = expected.names
+   end
+   return err
+end
+
+-- `err`, marked as having words of its own before the mismatch it holds.
+function Errors.nest(err: Error): Error
+   if err then
+      err.nested = true
+   end
+   return err
+end
+
+-- `err`, marked a refusal of a binary operator for operands of types `left` and `right`.
+function Errors.operands(err: Error, left: Type, right: Type): Error
+   err.left = show_type(left)
+   err.left_members = Errors.members(left)
+   if left is GenericType then
+      local generic = left.t
+      err.left_is_generic_function = generic is FunctionType
+   end
+   err.right = show_type(right)
+   err.right_members = Errors.members(right)
+   return err
+end
+
+-- `err`, marked a refusal of the nominal type `got` for `expected`.
+function Errors.not_a(err: Error, got: Type, expected: Type): Error
+   if not err then
+      return nil
+   end
+   err.code = "not_a"
+   err.got = show_type(got)
+   err.expected = show_type(expected)
+   return err
+end
+
+-- What an error says of a type it is about: its `members` and the `subject`
+-- they make, shown less where it was inferred.
+function Errors.about(err: Error, t: Type): Error
+   if not err or not t then
+      return err
+   end
+   err.members = Errors.members(t)
+   -- without where it was inferred, which a message shows and a hint does not
+   err.subject = table.concat(err.members, " | ")
+   err.subject_kind = t.typename
+   return err
+end
+
 local function insert_error(self: Errors, y: integer, x: integer, f: string, err: Error)
+   err.code = err.code or "other"
    err.y = assert(y)
    err.x = assert(x)
    err.filename = assert(f)
@@ -6498,6 +6734,14 @@ end
 
 function Errors:add(w: Where, msg: string, ...:Type)
    local e = Err(msg, ...)
+   if e then
+      insert_error(self, w.y, w.x, w.f, e)
+   end
+end
+
+-- `add` of the error `details` names (see `Errors.coded`).
+function Errors:add_coded(w: Where, details: Error, msg: string, ...:Type)
+   local e = Errors.coded(details, msg, ...)
    if e then
       insert_error(self, w.y, w.x, w.f, e)
    end
@@ -6520,6 +6764,27 @@ function Errors:get_context(ctx: Node|string, name?: string): string
    return (cn and cn .. ": " or "") .. (ec and ec.name and ec.name .. ": " or "") .. (name and name .. ": " or "")
 end
 
+-- What `get_context(ctx, name)` says, structured: an `Error` holding the
+-- fields `add_prefixing` copies onto the errors it prefixes. A `name` that describes
+-- a place in a table (`described`) rather than naming a variable or a field
+-- is words between the context and the error.
+function Errors:wrap_of(ctx: Node|string, name?: string, described?: boolean): Error
+   if not ctx then
+      return Errors.make()
+   end
+   local ec = (ctx is Node)   and ctx.expected_context
+   local label = (ctx is string) and ctx or
+                 (ctx is Node)   and context_name[ec and ec.kind or ctx.kind]
+   local ec_name = ec and ec.name
+   if not label then
+      return Errors.make({ nested = ec_name ~= nil or name ~= nil })
+   end
+   if ec_name and name then
+      return Errors.make({ context = label, nested = true })
+   end
+   return Errors.make({ context = label, context_name = ec_name or name, nested = described or false })
+end
+
 function Errors:add_in_context(w: Where, ctx: Node, msg: string, ...:Type)
    local prefix = self:get_context(ctx)
    msg = prefix .. msg
@@ -6528,6 +6793,11 @@ function Errors:add_in_context(w: Where, ctx: Node, msg: string, ...:Type)
    if e then
       insert_error(self, w.y, w.x, w.f, e)
    end
+end
+
+-- `add_in_context` of the error `details` names (see `Errors.coded`).
+function Errors:add_coded_in_context(w: Where, ctx: Node, details: Error, msg: string)
+   self:add_coded(w, details, self:get_context(ctx) .. msg)
 end
 
 
@@ -6545,15 +6815,25 @@ function Errors:add_warning(tag: WarningKind, w: Where, fmt: string, ...: any)
       msg = fmt:format(...),
       filename = assert(w.f),
       tag = tag,
+      code = "other",
    })
 end
 
-function Errors:invalid_key_at(w: Where, fields: {string}, msg: string, ...:Type): InvalidType
-   local before = #self.errors
-   self:add(w, msg, ...)
-   if fields and #self.errors > before then
-      self.errors[#self.errors].fields = fields
-   end
+-- `add_warning` of the warning `details` names, which is the warning.
+function Errors:add_warning_coded(tag: WarningKind, w: Where, details: Error, fmt: string, ...: any)
+   assert(w.y)
+   details.y = w.y
+   details.x = w.x
+   details.msg = fmt:format(...)
+   details.filename = assert(w.f)
+   details.tag = tag
+   table.insert(self.warnings, details)
+end
+
+-- An error for a key a value lacks, or no index of it takes: `details`
+-- names its code and fields, when a kind of error the readers act on.
+function Errors:invalid_key_at(w: Where, details: Error, msg: string, ...:Type): InvalidType
+   self:add_coded(w, details or Errors.make(), msg, ...)
    return an_invalid(w)
 end
 
@@ -6562,18 +6842,46 @@ function Errors:invalid_at(w: Where, msg: string, ...:Type): InvalidType
    return an_invalid(w)
 end
 
+-- `invalid_at` of the error `details` names (see `Errors.coded`).
+function Errors:invalid_coded(w: Where, details: Error, msg: string, ...:Type): InvalidType
+   self:add_coded(w, details, msg, ...)
+   return an_invalid(w)
+end
+
+-- The one number of arguments `f` takes, when it takes one, and the most
+-- its arity names (see `show_arity`).
+function Errors.arity_counts(f: FunctionType): integer, integer
+   local nfargs = #f.args.tuple
+   if f.min_arity < nfargs then
+      if f.min_arity > 0 then
+         return nil, f.args.is_va and f.min_arity or nfargs
+      end
+      return nil, f.args.is_va and 0 or nfargs
+   end
+   return nfargs, nfargs
+end
+
+-- A call given `given` arguments for a callee that expects `expects`: the
+-- one number of them it takes, when it takes one, and the most it names.
+function Errors:arity(w: Where, given: integer, expects: string, exact?: integer, most?: integer): InvalidType
+   return self:invalid_coded(w, Errors.make({ code = "arity", given = given, expects = exact, expects_most = most }),
+      "wrong number of arguments (given " .. given .. ", expects " .. expects .. ")")
+end
+
 function Errors:add_unknown(node: Node, name: string)
-   self:add_warning("unknown", node, "unknown variable: %s", name)
+   self:add_warning_coded("unknown", node, Errors.make({ code = "unknown_variable", variable = name }),
+      "unknown variable: %s", name)
 end
 
 function Errors:redeclaration_warning(at: Where, var_name: string, var_kind: string, old_var?: Variable)
    if var_name:sub(1, 1) == "_" then return end
 
    local short_error = var_kind .. " shadows previous declaration of '%s'"
+   local details = Errors.make({ code = "shadows", variable = var_name, declares = var_kind, declared_before = old_var and old_var.declared_at and true or nil })
    if old_var and old_var.declared_at then
-      self:add_warning("redeclaration", at, short_error .. " (originally declared at %d:%d)", var_name, old_var.declared_at.y, old_var.declared_at.x)
+      self:add_warning_coded("redeclaration", at, details, short_error .. " (originally declared at %d:%d)", var_name, old_var.declared_at.y, old_var.declared_at.x)
    else
-      self:add_warning("redeclaration", at, short_error, var_name)
+      self:add_warning_coded("redeclaration", at, details, short_error, var_name)
    end
 end
 
@@ -6597,23 +6905,46 @@ function Errors:unused_warning(name: string, var: Variable)
    if var_should_be_ignored_for_warnings(name, var) then
       return
    end
-   self:add_warning(
+   local declares = user_facing_variable_description(var)
+   self:add_warning_coded(
       "unused",
       var.declared_at,
+      Errors.make({ code = "unused", variable = name, declares = declares }),
       "unused %s %s: %s",
-      user_facing_variable_description(var),
+      declares,
       name,
       show_type(var.t)
    )
 end
 
-function Errors:add_prefixing(w: Where, src: {Error}, prefix: string, dst?: {Error})
+function Errors:add_prefixing(w: Where, src: {Error}, prefix: string, dst?: {Error}, wrap?: Error)
    if not src then
       return
    end
 
    for _, err in ipairs(src) do
       err.msg = prefix .. err.msg
+      if wrap and wrap.context then
+         if err.context then
+            err.nested = true
+         else
+            err.context = wrap.context
+            err.context_name = wrap.context_name
+            err.index = wrap.index
+         end
+         if wrap.nested then
+            err.nested = true
+         end
+      elseif prefix ~= "" or (wrap and wrap.nested) then
+         err.nested = true
+      end
+      if wrap and wrap.type_parameter then
+         err.type_parameter = wrap.type_parameter
+      end
+      if wrap and wrap.signature_of then
+         err.signature_of = wrap.signature_of
+         err.declared_in = wrap.declared_in
+      end
       if w and (
          (err.filename ~= w.f)
          or (not err.y)
@@ -6743,7 +7074,8 @@ function Errors:check_var_usage(scope: Scope, is_global?: boolean)
    if scope.labels then
       for name, node in pairs(scope.labels) do
          if not node.used_label then
-            self:add_warning("unused", node, "unused label ::%s::", name)
+            self:add_warning_coded("unused", node, Errors.make({ code = "unused", variable = name, declares = "label" }),
+               "unused label ::%s::", name)
          end
       end
    end
@@ -6773,7 +7105,7 @@ function Errors:fail_unresolved_nominals(scope: Scope, global_scope: Scope)
             for _, typ in ipairs(types) do
                assert(typ.x)
                assert(typ.y)
-               self:add(typ, "unknown type %s", typ)
+               self:add_coded(typ, Errors.make({ code = "unknown_type", names = typ.names, subject = show_type(typ) }), "unknown type %s", typ)
             end
          end
       end
@@ -7248,6 +7580,20 @@ show_type = function(t: Type, short?: boolean, seen?: {Type:string}): string
    end
    seen[t] = ret
    return ret
+end
+
+-- The members of a union, each shown alone and without where it was
+-- inferred; any other type holds itself.
+function Errors.members(t: Type): {string}
+   local out: {string} = {}
+   if t is UnionType then
+      for _, member in ipairs(t.types) do
+         table.insert(out, show_type_base(member, false, {}))
+      end
+   else
+      table.insert(out, show_type_base(t, false, {}))
+   end
+   return out
 end
 
 local function search_for(module_name: string, suffix: string, path: string, tried: {string}): string, FILE, {string}
@@ -8731,7 +9077,8 @@ do
          for fname, ftype in pairs(rec.meta_fields) do
             if ret.fields[fname] then
                if not self:is_a(ftype, ret.fields[fname]) then
-                  self.errs:add(ftype, fname .. " does not follow metatable contract: got %s, expected %s", ftype, ret.fields[fname])
+                  self.errs:add_coded(ftype, Errors.nest(Errors.mismatch(Errors.make(), ftype, ret.fields[fname])),
+                     fname .. " does not follow metatable contract: got %s, expected %s", ftype, ret.fields[fname])
                end
             end
             ret.fields[fname] = ftype
@@ -8743,7 +9090,17 @@ do
             -- HACK: accept function nominal without arguments
             local deft = def.t
             if (not deft is FunctionType) and (not deft is PolyType) then
-               self.errs:add(t, "missing type arguments in %s", def)
+               local declared = def.t
+               local typeargs: {string} = {}
+               for _, typearg in ipairs(def.typeargs) do
+                  table.insert(typeargs, show_type(typearg))
+               end
+               self.errs:add_coded(t, Errors.make({
+                  code = "missing_type_arguments",
+                  subject_kind = declared.typename,
+                  names = declared is RecordLikeType and declared.declname and { declared.declname } or nil,
+                  type_arguments = typeargs,
+               }), "missing type arguments in %s", def)
                return nil
             end
          elseif #t.typevals ~= #def.typeargs then
@@ -8770,7 +9127,7 @@ do
 
          local found = t.found or self:find_type(t.names)
          if not found then
-            return self.errs:invalid_at(t, "unknown type %s", t)
+            return self.errs:invalid_coded(t, Errors.make({ code = "unknown_type", names = t.names, subject = show_type(t) }), "unknown type %s", t)
          end
 
          if found is TypeDeclType and found.is_alias then
@@ -8919,7 +9276,7 @@ do
       end
 
       if not ok then
-         self.errs:add_prefixing(w, errs, mode .. (n and " " .. n or "") .. ": ", all_errs)
+         self.errs:add_prefixing(w, errs, mode .. (n and " " .. n or "") .. ": ", all_errs, Errors.make({ context = mode, index = n }))
          return false
       end
       return true
@@ -8950,7 +9307,7 @@ do
                t2name = t2name .. " (defined in " .. t2.found.f .. ":" .. t2.found.y .. ")"
             end
          end
-         return false, { Err(t1name .. " is not a " .. t2name) }
+         return false, { Errors.not_a(Err(t1name .. " is not a " .. t2name), t1, t2) }
       end
 
       local function nominal_found_type(self: TypeChecker, nom: NominalType): Type
@@ -8979,10 +9336,10 @@ do
             end
 
             if not t1f then
-               self.errs:add(t1, "unknown type %s", t1)
+               self.errs:add_coded(t1, Errors.make({ code = "unknown_type", names = t1.names, subject = show_type(t1) }), "unknown type %s", t1)
             end
             if not t2f then
-               self.errs:add(t2, "unknown type %s", t2)
+               self.errs:add_coded(t2, Errors.make({ code = "unknown_type", names = t2.names, subject = show_type(t2) }), "unknown type %s", t2)
             end
             return false, {} -- errors were already produced
          end
@@ -8999,7 +9356,8 @@ do
             local errs = {}
             for i = 1, #t1.typevals do
                local _, typeval_errs = self:same_type(t1.typevals[i], t2.typevals[i])
-               self.errs:add_prefixing(nil, typeval_errs, "type parameter <" .. show_type(t2.typevals[i]) .. ">: ", errs)
+               self.errs:add_prefixing(nil, typeval_errs, "type parameter <" .. show_type(t2.typevals[i]) .. ">: ", errs,
+                  Errors.make({ type_parameter = show_type(t2.typevals[i]) }))
             end
             return any_errors(errs)
          end
@@ -9297,6 +9655,7 @@ do
       if #errs > 0 then
          for _, err in ipairs(errs) do
             err.msg = show_type(a) .. " is not a " .. show_type(b) .. ": " .. err.msg
+            err.nested = true
          end
          return false, errs
       end
@@ -9346,9 +9705,11 @@ do
       -- combine errs_k and errs_v, prefixing errors
       for i = 1, errs_k and #errs_k or 0 do
          errs_k[i].msg = "in map key: " .. errs_k[i].msg
+         errs_k[i].nested = true
       end
       for i = 1, errs_v and #errs_v or 0 do
          errs_v[i].msg = "in map value: " .. errs_v[i].msg
+         errs_v[i].nested = true
       end
       if errs_k and errs_v then
          for i = 1, #errs_v do
@@ -9513,7 +9874,7 @@ do
          ["tupletable"] = function(self: TypeChecker, a: TupleTableType, b: TupleTableType): boolean, {Error}
             for i = 1, math.min(#a.types, #b.types) do
                if not self:same_type(a.types[i], b.types[i]) then
-                  return false, { Err("in tuple entry " .. tostring(i) .. ": got %s, expected %s", a.types[i], b.types[i]) }
+                  return false, { Errors.nest(Errors.mismatch(Err("in tuple entry " .. tostring(i) .. ": got %s, expected %s", a.types[i], b.types[i]), a.types[i], b.types[i])) }
                end
             end
             if #a.types ~= #b.types then
@@ -9755,7 +10116,7 @@ do
       ["string"] = {
          ["enum"] = function(_self: TypeChecker, a: StringType, b: EnumType): boolean, {Error}
             if not a.literal then
-               return false, { Err("%s is not a %s", a, b) }
+               return false, { Errors.not_a(Err("%s is not a %s", a, b), a, b) }
             end
 
             if b.enumset[a.literal] then
@@ -9786,9 +10147,9 @@ do
          ["tupletable"] = function(self: TypeChecker, a: TupleTableType, b: TupleTableType): boolean, {Error}
             for i = 1, math.min(#a.types, #b.types) do
                if not self:is_a(a.types[i], b.types[i]) then
-                  return false, { Err("in tuple entry "
+                  return false, { Errors.nest(Errors.mismatch(Err("in tuple entry "
                      .. tostring(i) .. ": got %s, expected %s",
-                     a.types[i], b.types[i]) }
+                     a.types[i], b.types[i]), a.types[i], b.types[i])) }
                end
             end
             if #a.types > #b.types then
@@ -10103,7 +10464,7 @@ do
          if show_t1 == show_t2 then
             return false, { Err_at(t1, "types are incompatible") }
          else
-            return false, { Err_at(t1, "got " .. show_t1 .. ", expected " .. show_t2) }
+            return false, { Errors.mismatch(Err_at(t1, "got " .. show_t1 .. ", expected " .. show_t2), t1, t2) }
          end
       end
       return ok, err
@@ -10368,7 +10729,7 @@ do
       end
    end
 
-   function TypeChecker:assert_is_a(w: Where, t1: Type, t2: Type, ctx?: string | Node, name?: string): boolean
+   function TypeChecker:assert_is_a(w: Where, t1: Type, t2: Type, ctx?: string | Node, name?: string, described?: boolean): boolean
       t1 = resolve_tuple(t1)
       t2 = resolve_tuple(t2)
       if self.feat_lax and (is_unknown(t1) or t2 is UnknownType) then
@@ -10381,7 +10742,7 @@ do
 
       local ok, match_errs = self:is_a(t1, t2)
       if not ok then
-         self.errs:add_prefixing(w, match_errs, self.errs:get_context(ctx, name))
+         self.errs:add_prefixing(w, match_errs, self.errs:get_context(ctx, name), nil, self.errs:wrap_of(ctx, name, described))
       end
       return ok
    end
@@ -10746,7 +11107,8 @@ do
                         if taken and not admits_nil(self, iw, taken) and
                            not (taken is NominalType and taken.names[1] == "metatable") and
                            (without_nil(self, iw, y, false) ~= nil or y.typename == "nil") then
-                           self.errs:add_prefixing(iw, { Err("got %s, expected %s", y, taken) }, "argument " .. pos .. ": ", errs)
+                           self.errs:add_prefixing(iw, { Errors.mismatch(Err("got %s, expected %s", y, taken), y, taken) }, "argument " .. pos .. ": ", errs,
+                              Errors.make({ context = "argument", index = pos }))
                            return nil, errs
                         end
                      end
@@ -10861,7 +11223,10 @@ do
             local min_arity = self.feat_arity and f.min_arity or 0
 
             if given < min_arity or (given > wanted and not (or_args or f.args).is_va) then
-               return nil, { Err_at(w, "wrong number of arguments (given " .. given .. ", expects " .. show_arity(f) .. ")") }
+               local exact, most = Errors.arity_counts(f)
+               local err = Err_at(w, "wrong number of arguments (given " .. given .. ", expects " .. show_arity(f) .. ")")
+               err.code, err.given, err.expects, err.expects_most = "arity", given, exact, most
+               return nil, { err }
             end
 
             return check_args_rets(self, w, wargs, f, args, expected_rets, argdelta, or_args, or_rets)
@@ -10887,7 +11252,12 @@ do
       do
          local function fail_poly_call_arity(self: TypeChecker, w: Where, p: PolyType, given: integer): {Error}
             local expects: {string} = {}
+            local exact: integer
+            local most = 0
             for _, f in self:iterate_poly(p) do
+               local only, at_most = Errors.arity_counts(f)
+               exact = only
+               most = math.max(most, at_most)
                table.insert(expects, show_arity(f))
             end
             table.sort(expects)
@@ -10896,7 +11266,12 @@ do
                   table.remove(expects, i)
                end
             end
-            return { Err_at(w, "wrong number of arguments (given " .. given .. ", expects " .. table.concat(expects, " or ") .. ")") }
+            local err = Err_at(w, "wrong number of arguments (given " .. given .. ", expects " .. table.concat(expects, " or ") .. ")")
+            err.code, err.given, err.expects_most = "arity", given, most
+            if #expects == 1 then
+               err.expects = exact
+            end
+            return { err }
          end
 
          check_poly_call = function(self: TypeChecker, w: Where, wargs: {Where}, p: PolyType, args: TupleType, expected_rets: TupleType, cm: CallMode, argdelta: integer, or_args: TupleType, or_rets: TupleType): FunctionType, TupleType, {Error}
@@ -11137,7 +11512,9 @@ do
       return names
    end
 
-   function TypeChecker:match_record_key(t: Type, rec: Node, key: string): Type, string, {string}
+   -- The type of the field `key` of `t`, or, where it has none, the message
+   -- saying so and the error's code and fields.
+   function TypeChecker:match_record_key(t: Type, rec: Node, key: string): Type, string, Error
       t = self:to_structural(t)
 
       if t is SelfType then
@@ -11201,12 +11578,15 @@ do
 
          if rec.kind == "variable" then
             if t is InterfaceType then
-               return nil, "invalid key '" .. keyg .. "' in '" .. rec.tk .. "' of interface type %s", value_fields(t)
+               return nil, "invalid key '" .. keyg .. "' in '" .. rec.tk .. "' of interface type %s",
+                  Errors.make({ code = "invalid_key", key = key, variable = rec.tk, resolved_kind = t.typename, fields = value_fields(t) })
             else
-               return nil, "invalid key '" .. keyg .. "' in record '" .. rec.tk .. "' of type %s", value_fields(t)
+               return nil, "invalid key '" .. keyg .. "' in record '" .. rec.tk .. "' of type %s",
+                  Errors.make({ code = "invalid_key", key = key, variable = rec.tk, resolved_kind = t.typename, fields = value_fields(t) })
             end
          else
-            return nil, "invalid key '" .. keyg .. "' in type %s", value_fields(t)
+            return nil, "invalid key '" .. keyg .. "' in type %s",
+               Errors.make({ code = "invalid_key", key = key, resolved_kind = t.typename, fields = value_fields(t) })
          end
       elseif t is EmptyTableType or is_unknown(t) then
          if self.feat_lax then
@@ -11216,9 +11596,11 @@ do
       end
 
       if rec.kind == "variable" then
-         return nil, "cannot index key '" .. keyg .. "' in variable '" .. rec.tk .. "' of type %s"
+         return nil, "cannot index key '" .. keyg .. "' in variable '" .. rec.tk .. "' of type %s",
+            Errors.make({ code = "cannot_index_key", key = key, variable = rec.tk })
       else
-         return nil, "cannot index key '" .. keyg .. "' in type %s"
+         return nil, "cannot index key '" .. keyg .. "' in type %s",
+            Errors.make({ code = "cannot_index_key", key = key })
       end
    end
 
@@ -11582,7 +11964,7 @@ do
       local errm: string
       local erra: Type
       local errb: Type
-      local errfields: {string}
+      local errdetails: Error
 
       if ra is TupleTableType and rb is IntegerType then
          if bnode.constnum then
@@ -11615,6 +11997,7 @@ do
          end
 
          errm, erra, errb = "inconsistent index type: got %s, expected %s" .. inferred_msg(ra.keys, "type of keys "), b, ra.keys
+         errdetails = Errors.nest(Errors.mismatch(Errors.make(), b, ra.keys))
       elseif ra is UnresolvedEmptyTableValueType then
          local et = a_type(ra, "emptytable", { keys = b } as EmptyTableType)
          infer_emptytable_from_unresolved_value(self, a, ra, et)
@@ -11627,8 +12010,9 @@ do
          end
 
          errm, erra, errb = "wrong index type: got %s, expected %s", b, ra.keys
+         errdetails = Errors.nest(Errors.mismatch(Errors.make(), b, ra.keys))
       elseif rb is StringType and rb.literal then
-         local t, e, fields = self:match_record_key(a, anode, rb.literal)
+         local t, e, details = self:match_record_key(a, anode, rb.literal)
          if t then
 
             if t is FunctionType and t.is_method then
@@ -11646,7 +12030,7 @@ do
             return t
          end
 
-         errm, erra, errfields = e, a, fields
+         errm, erra, errdetails = e, a, Errors.about(details, a)
       elseif ra is RecordLikeType then
          if rb is EnumType then
             local field_names: {string} = sorted_keys(rb.enumset)
@@ -11664,9 +12048,11 @@ do
             errm, erra = "cannot index object of type %s with a string, consider using an enum", a
          else
             errm, erra, errb = "cannot index object of type %s with %s", a, b
+            errdetails = Errors.about(Errors.make({ code = "cannot_index_object" }), a)
          end
       else
          errm, erra, errb = "cannot index object of type %s with %s", a, b
+         errdetails = Errors.about(Errors.make({ code = "cannot_index_object" }), a)
       end
 
       local meta_t = self:check_metamethod(anode, "__index", ra, b, a, b)
@@ -11674,7 +12060,7 @@ do
          return meta_t
       end
 
-      return self.errs:invalid_key_at(bnode, errfields, errm, erra, errb)
+      return self.errs:invalid_key_at(bnode, errdetails, errm, erra, errb)
    end
 
    function TypeChecker:expand_type(w: Where, old: Type, new: Type): Type
@@ -12219,7 +12605,7 @@ do
       local base_nargs = isx and 2 or 1
       local bool = a_type(node, "boolean", {})
       if #node.e2 < base_nargs then
-         self.errs:add(node, "wrong number of arguments (given " .. #node.e2 .. ", expects at least " .. base_nargs .. ")")
+         self.errs:arity(node, #node.e2, "at least " .. base_nargs, nil, base_nargs)
          return a_tuple(node, { bool })
       end
 
@@ -12594,7 +12980,7 @@ do
                   local ct = t is RecordType and "{string:any}" or "{any:any}"
                   self.errs:add_warning("hint", node.e2, "hint: if you want to iterate over fields of a record, cast it to " .. ct)
                else
-                  self.errs:add(node.e2, "cannot apply pairs on values of type: %s", t)
+                  self.errs:add_coded(node.e2, Errors.about(Errors.make({ code = "pairs_of_non_table" }), t), "cannot apply pairs on values of type: %s", t)
                end
             end
          end
@@ -12616,7 +13002,7 @@ do
             end
          elseif not t is ArrayLikeType then
             if not (self.feat_lax and (is_unknown(t) or t is EmptyTableType)) then
-               return self.errs:invalid_at(node.e2, "attempting ipairs on something that's not an array: %s", orig_t)
+               return self.errs:invalid_coded(node.e2, Errors.about(Errors.make({ code = "not_array" }), orig_t), "attempting ipairs on something that's not an array: %s", orig_t)
             end
          end
 
@@ -12638,7 +13024,7 @@ do
          end
          local named = b.tuple[1]
          if named and (named.typename == "nil" or without_nil(self, node, named, false) ~= nil) then
-            return self.errs:invalid_at(node.e2[1], "require: argument 1: got %s, expected string", named)
+            return self.errs:invalid_coded(node.e2[1], Errors.make({ code = "require_argument", got = show_type(named), got_members = Errors.members(named) }), "require: argument 1: got %s, expected string", named)
          end
          if node.e2[1].kind ~= "string" then
             return a_tuple(node, { a_type(node, "any", {}) })
@@ -12653,7 +13039,7 @@ do
 
          if t is InvalidType then
             if not module_filename then
-               return self.errs:invalid_at(node, "module not found: '" .. module_name .. "'")
+               return self.errs:invalid_coded(node, Errors.make({ code = "module_not_found", key = module_name }), "module not found: '" .. module_name .. "'")
             end
 
             if self.feat_lax then
@@ -12749,7 +13135,7 @@ do
       end,
       ["string.pack"] = function(self: TypeChecker, node: Node, a: Type, b: TupleType, argdelta?: integer): InvalidOrTupleType
          if #b.tuple < 1 then
-            return self.errs:invalid_at(node, "wrong number of arguments (given " .. #b.tuple .. ", expects at least 1)")
+            return self.errs:arity(node, #b.tuple, "at least 1", nil, 1)
          end
 
          local packstr = b.tuple[1]
@@ -12770,7 +13156,7 @@ do
             table.insert(items, 1, a_type(node, "string", {}))
 
             if #items ~= #b.tuple then
-               return self.errs:invalid_at(node, "wrong number of arguments (given " .. #b.tuple .. ", expects " .. #items .. ")")
+               return self.errs:arity(node, #b.tuple, tostring(#items), #items, #items)
             end
 
             return (self:type_check_function_call(node, a, b, argdelta, a_tuple(node, items), nil))
@@ -12781,7 +13167,7 @@ do
 
       ["string.unpack"] = function(self: TypeChecker, node: Node, a: Type, b: TupleType, argdelta?: integer): InvalidOrTupleType
          if #b.tuple < 2 or #b.tuple > 3 then
-            return self.errs:invalid_at(node, "wrong number of arguments (given " .. #b.tuple .. ", expects 2 or 3)")
+            return self.errs:arity(node, #b.tuple, "2 or 3", nil, 3)
          end
 
          local packstr = b.tuple[1]
@@ -12812,7 +13198,7 @@ do
 
       ["string.format"] = function(self: TypeChecker, node: Node, a: Type, b: TupleType, argdelta?: integer): InvalidOrTupleType
          if #b.tuple < 1 then
-            return self.errs:invalid_at(node, "wrong number of arguments (given " .. #b.tuple .. ", expects at least 1)")
+            return self.errs:arity(node, #b.tuple, "at least 1", nil, 1)
          end
 
          local fstr = b.tuple[1]
@@ -12833,7 +13219,7 @@ do
             table.insert(items, 1, a_type(node, "string", {}))
 
             if #items ~= #b.tuple then
-               return self.errs:invalid_at(node, "wrong number of arguments (given " .. #b.tuple .. ", expects " .. #items .. ")")
+               return self.errs:arity(node, #b.tuple, tostring(#items), #items, #items)
             end
 
             -- check the arguments now
@@ -12845,7 +13231,7 @@ do
 
       ["string.match"] = function(self: TypeChecker, node: Node, a: Type, b: TupleType, argdelta?: integer): InvalidOrTupleType
          if #b.tuple < 2 or #b.tuple > 3 then
-            return self.errs:invalid_at(node, "wrong number of arguments (given " .. #b.tuple .. ", expects 2 or 3)")
+            return self.errs:arity(node, #b.tuple, "2 or 3", nil, 3)
          end
 
          local rets: TupleType
@@ -12872,7 +13258,7 @@ do
 
       ["string.find"] = function(self: TypeChecker, node: Node, a: Type, b: TupleType, argdelta?: integer): InvalidOrTupleType
          if #b.tuple < 2 or #b.tuple > 4 then
-            return self.errs:invalid_at(node, "wrong number of arguments (given " .. #b.tuple .. ", expects at least 2 and at most 4)")
+            return self.errs:arity(node, #b.tuple, "at least 2 and at most 4", nil, 4)
          end
 
          local plainarg = node.e2[4 + (argdelta or 0)]
@@ -12908,7 +13294,7 @@ do
 
       ["string.gmatch"] = function(self: TypeChecker, node: Node, a: Type, b: TupleType, argdelta?: integer): InvalidOrTupleType
          if #b.tuple < 2 or #b.tuple > 3 then
-            return self.errs:invalid_at(node, "wrong number of arguments (given " .. #b.tuple .. ", expects 2 or 3)")
+            return self.errs:arity(node, #b.tuple, "2 or 3", nil, 3)
          end
 
          local rets: TupleType
@@ -12945,7 +13331,7 @@ do
          -- gsub: function(string, string, <matcher>, ? integer): string, integer
 
          if #b.tuple < 3 or #b.tuple > 4 then
-            return self.errs:invalid_at(node, "wrong number of arguments (given " .. #b.tuple .. ", expects 3 or 4)")
+            return self.errs:arity(node, #b.tuple, "3 or 4", nil, 4)
          end
          local pat = b.tuple[2]
          local orig_t = b.tuple[3]
@@ -13072,17 +13458,14 @@ do
       end
       for i = before + 1, #self.errs.errors do
          local err = self.errs.errors[i]
-         local given, expects = err.msg:match("^wrong number of arguments %(given (%d+), expects (.-)%)")
-         if given then
+         if err.code == "arity" then
             -- Only too many arguments, for a callee that takes some, is
             -- cured by passing one value; a handler that re-enters this
             -- check has already said so.
-            local most = 0
-            for n in expects:gmatch("%d+") do
-               most = math.max(most, math.tointeger(n) or 0)
-            end
-            if (math.tointeger(given) or 0) > most and most >= 1 and not err.msg:find(" -- the last argument", 1, true) then
+            local most = err.expects_most
+            if err.given > most and most >= 1 and not err.advised then
                err.msg = err.msg .. said
+               err.advised = true
             end
             return
          end
@@ -13137,7 +13520,16 @@ do
          return an_unknown(node)
       else
          if node.exps then
-            return self.errs:invalid_at(node.vars[i], "assignment in declaration did not produce an initial value for variable '" .. name .. "'")
+            -- The call that gave the variable no value, when it is one to a
+            -- function that never returns.
+            local exp = node.exps[math.min(i, #node.exps)]
+            local never_call = exp and node_is_funcall(exp) and exp.block_returns and exp.e1
+            return self.errs:invalid_coded(node.vars[i], Errors.make({
+               code = "no_initial_value",
+               variable = name,
+               callee = never_call and callee_text(exp.e1) or nil,
+               callee_never = never_call and callee_text(exp.e1) ~= nil or nil,
+            }), "assignment in declaration did not produce an initial value for variable '" .. name .. "'")
          else
             return self.errs:invalid_at(node.vars[i], "variable '" .. name .. "' has no type or initial value")
          end
@@ -13484,7 +13876,7 @@ do
                )
             )
             if not ty is TypeDeclType then
-               return self.errs:invalid_at(n.e1, "'require' did not return a type, got %s", ty)
+               return self.errs:invalid_coded(n.e1, Errors.make({ code = "require_not_type", got = show_type(ty), got_kind = ty.typename }), "'require' did not return a type, got %s", ty)
             end
             if ty.is_alias then
                return self:resolve_typealias(ty)
@@ -13714,7 +14106,7 @@ do
 
                if var.attribute == "close" then
                   if not type_is_closable(t) then
-                     self.errs:add(var, "to-be-closed variable " .. var.tk .. " has a non-closable type %s", t)
+                     self.errs:add_coded(var, Errors.about(Errors.make({ code = "not_closable", variable = var.tk }), t), "to-be-closed variable " .. var.tk .. " has a non-closable type %s", t)
                   elseif node.exps and node.exps[i] and expr_is_definitely_not_closable(node.exps[i]) then
                      self.errs:add(var, "to-be-closed variable " .. var.tk .. " assigned a non-closable value")
                   end
@@ -14050,7 +14442,7 @@ do
                if children[bound] then
                   local bound_t = resolve_tuple(children[bound])
                   if without_nil(self, node, bound_t, false) ~= nil then
-                     self.errs:add(node, "cannot use %s as the 'for' " .. (bound == 2 and "start" or bound == 3 and "limit" or "step"), bound_t)
+                     self.errs:add_coded(node, Errors.about(Errors.make({ code = "for_bound", index = bound }), bound_t), "cannot use %s as the 'for' " .. (bound == 2 and "start" or bound == 3 and "limit" or "step"), bound_t)
                   end
                end
             end
@@ -14287,7 +14679,12 @@ do
                if decltype is RecordLikeType and ck then
                   local df = decltype.fields[ck]
                   if not df then
-                     self.errs:add_in_context(node[i], node, "unknown field " .. ck)
+                     self.errs:add_coded_in_context(node[i], node, Errors.make({
+                        code = "unknown_field",
+                        key = ck,
+                        subject = decltype.declname,
+                        fields = value_fields(decltype),
+                     }), "unknown field " .. ck)
                   else
                      if df is TypeDeclType then
                         self.errs:add_in_context(node[i], node, "cannot reassign a type")
@@ -14304,7 +14701,7 @@ do
                   elseif not dt then
                      self.errs:add_in_context(node[i], node, "unexpected index " .. n .. " in tuple %s", decltype)
                   else
-                     self:assert_is_a(node[i], cvtype, dt, node, "in tuple: at index " .. tostring(n))
+                     self:assert_is_a(node[i], cvtype, dt, node, "in tuple: at index " .. tostring(n), true)
                   end
                elseif decltype is ArrayLikeType and cktype is NumericType then
                   local cv = child.vtype
@@ -14313,24 +14710,24 @@ do
                      local spill_before: integer
                      for ti, tt in ipairs(cv.tuple) do
                         if ti == 2 then spill_before = #self.errs.errors end
-                        self:assert_is_a(node[i], tt, decltype.elements, node, "expected an array: at index " .. tostring(i + ti - 1))
+                        self:assert_is_a(node[i], tt, decltype.elements, node, "expected an array: at index " .. tostring(i + ti - 1), true)
                      end
                      if spill_before then
                         self:assert_spill_hint(node[i].value, spill_before)
                      end
                   else
-                     self:assert_is_a(node[i], cvtype, decltype.elements, node, "expected an array: at index " .. tostring(n))
+                     self:assert_is_a(node[i], cvtype, decltype.elements, node, "expected an array: at index " .. tostring(n), true)
                   end
                elseif node[i].key_parsed == "implicit" then
                   if decltype is MapType then
-                     self:assert_is_a(node[i].key, a_type(node[i].key, "integer", {}), decltype.keys, node, "in map key")
-                     self:assert_is_a(node[i].value, cvtype, decltype.values, node, "in map value")
+                     self:assert_is_a(node[i].key, a_type(node[i].key, "integer", {}), decltype.keys, node, "in map key", true)
+                     self:assert_is_a(node[i].value, cvtype, decltype.values, node, "in map value", true)
                   end
                   force_array = self:expand_type(node[i], force_array, child.vtype)
                elseif decltype is MapType then
                   force_array = nil
-                  self:assert_is_a(node[i].key, cktype, decltype.keys, node, "in map key")
-                  self:assert_is_a(node[i].value, cvtype, decltype.values, node, "in map value")
+                  self:assert_is_a(node[i].key, cktype, decltype.keys, node, "in map key", true)
+                  self:assert_is_a(node[i].value, cvtype, decltype.values, node, "in map value", true)
                else
                   self.errs:add_in_context(node[i], node, "unexpected key of type %s in table of type %s", cktype, decltype)
                end
@@ -14598,7 +14995,8 @@ do
 
                   local shortname = selftype and show_type(selftype) or owner_name
                   local msg = "type signature of '" .. node.name.tk .. "' does not match its declaration in " .. shortname .. ": "
-                  self.errs:add_prefixing(node, err, msg)
+                  self.errs:add_prefixing(node, err, msg, nil,
+                     Errors.make({ signature_of = node.name.tk, declared_in = shortname }))
                   return
                end
             else
@@ -15068,9 +15466,9 @@ do
                   return an_unknown(node)
                end
 
-               local t, e, fields = self:match_record_key(ra, node.e1, node.e2.conststr or node.e2.tk)
+               local t, e, details = self:match_record_key(ra, node.e1, node.e2.conststr or node.e2.tk)
                if not t then
-                  return self.errs:invalid_key_at(node.e2, fields, e, ua)
+                  return self.errs:invalid_key_at(node.e2, Errors.about(details, ua), e, ua)
                end
 
                return t
@@ -15286,10 +15684,10 @@ do
                if op ~= "or" and ((node.op.arity == 1 and unop_types[op]) or (node.op.arity == 2 and binop_types[op])) then
                   if node.op.arity == 1 then
                      if without_nil(self, node, ua, false) ~= nil then
-                        return self.errs:invalid_at(node, "cannot use operator '" .. op:gsub("%%", "%%%%") .. "' on type %s", ua)
+                        return self.errs:invalid_coded(node, Errors.about(Errors.make({ code = "operator_unary", operator = op }), ua), "cannot use operator '" .. op:gsub("%%", "%%%%") .. "' on type %s", ua)
                      end
                   elseif without_nil(self, node, ua, false) ~= nil or without_nil(self, node, ub, false) ~= nil then
-                     return self.errs:invalid_at(node, "cannot use operator '" .. op:gsub("%%", "%%%%") .. "' for types %s and %s", ua, ub)
+                     return self.errs:invalid_coded(node, Errors.operands(Errors.make({ code = "operator_binary", operator = op }), ua, ub), "cannot use operator '" .. op:gsub("%%", "%%%%") .. "' for types %s and %s", ua, ub)
                   end
                end
             end
@@ -15343,7 +15741,7 @@ do
                end
 
                if not t then
-                  return self.errs:invalid_at(node, "cannot use operator '" .. node.op.op:gsub("%%", "%%%%") .. "' on type %s", ua)
+                  return self.errs:invalid_coded(node, Errors.about(Errors.make({ code = "operator_unary", operator = node.op.op }), ua), "cannot use operator '" .. node.op.op:gsub("%%", "%%%%") .. "' on type %s", ua)
                end
 
                if not (t is BooleanType or is_unknown(t)) then
@@ -15426,7 +15824,7 @@ do
                         self.errs:add_warning("hint", node, "if a union type was intended, consider declaring it explicitly")
                      end
                   end
-                  return self.errs:invalid_at(node, "cannot use operator '" .. node.op.op:gsub("%%", "%%%%") .. "' for types %s and %s", ua, ub)
+                  return self.errs:invalid_coded(node, Errors.operands(Errors.make({ code = "operator_binary", operator = node.op.op }), ua, ub), "cannot use operator '" .. node.op.op:gsub("%%", "%%%%") .. "' for types %s and %s", ua, ub)
                end
 
                return t
@@ -15458,7 +15856,7 @@ do
                   return an_unknown(node)
                end
 
-               return self.errs:invalid_at(node, "unknown variable: " .. node.tk)
+               return self.errs:invalid_coded(node, Errors.make({ code = "unknown_variable", variable = node.tk }), "unknown variable: " .. node.tk)
             end
 
             if t is TypeDeclType then
@@ -15493,7 +15891,7 @@ do
                return an_unknown(node)
             end
 
-            return self.errs:invalid_at(node, "unknown variable: " .. node.tk)
+            return self.errs:invalid_coded(node, Errors.make({ code = "unknown_variable", variable = node.tk }), "unknown variable: " .. node.tk)
          end,
       },
       ["argument"] = {

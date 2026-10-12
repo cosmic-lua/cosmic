@@ -959,6 +959,14 @@ indexes the tree's modules and their declarations, and this file is
 neither. [`build/stdlib_declarations_test.tl`] pins how the checker
 prints representative names.
 
+an error the checker reports carries a `code` and the places and values it
+is about (an argument's position, the types shown, the key and the record's
+fields, the counts of a call), declared as `Error` in
+[`build/compiler.d.tl`]. the hints [`build/teal.tl`] adds to a refusal read
+those, never its message, which only a person reads; an error no hint reads
+has the code `other`. a rule that refuses more lands with its code and its
+hint together.
+
 the planned cast restriction would allow `x as T` only from `any`, from a
 userdata record declared in a `.d.tl`, or from the enclosing
 generic's type variable. `any` is legal only where untrusted data
@@ -1267,6 +1275,7 @@ in [roadmap.md](roadmap.md).
 [`build.writer`]: ../build/writer.tl
 [`build/bom.tl`]: ../build/bom.tl
 [`build/closure_store.tl`]: ../build/closure_store.tl
+[`build/compiler.d.tl`]: ../build/compiler.d.tl
 [`build/compiler_test.tl`]: ../build/compiler_test.tl
 [`build/declared_key.tl`]: ../build/declared_key.tl
 [`build/dispatched_features_test.tl`]: ../build/dispatched_features_test.tl
@@ -1281,6 +1290,7 @@ in [roadmap.md](roadmap.md).
 [`build/shards.tl`]: ../build/shards.tl
 [`build/shared_compiles.tl`]: ../build/shared_compiles.tl
 [`build/stdlib_declarations_test.tl`]: ../build/stdlib_declarations_test.tl
+[`build/teal.tl`]: ../build/teal.tl
 [`build/teal_test.tl`]: ../build/teal_test.tl
 [`build/test.tl`]: ../build/test.tl
 [`build/test_worker.tl`]: ../build/test_worker.tl

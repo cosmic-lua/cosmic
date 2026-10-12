@@ -5,6 +5,16 @@
 local Removed = require("cosmic.removed")
 local Sqlite = require("cosmic.sqlite")
 local teal = require("build.teal")
+local type compiler = require("build.compiler")
+
+--- The checker's refusal of `key` through the variable `variable`, a record
+--- of the type shown `subject`, at `y`:`x`.
+local function refused_key(key: string, variable: string, subject: string, y: integer,
+                           x: integer, fields?: {string}): compiler.Error
+  return { code = "invalid_key", key = key, variable = variable, subject = subject,
+    subject_kind = "nominal", resolved_kind = "record", fields = fields, msg = "",
+    filename = "", y = y, x = x }
+end
 
 --- build.teal spells the globals it strips (`withheld`) rather than
 --- reading them from the catalog, so that the compiler's identity holds
@@ -39,16 +49,17 @@ end
 --- A test whose closure holds the catalog is told what it says: the
 --- field's replacement for a removed global, and a removed member's.
 local function test_a_refusal_quotes_the_catalog()
-  assert(teal.replacement("unknown variable: os", "return os.getenv('HOME')\n", 1, 8) ==
+  assert(teal.replacement({ code = "unknown_variable", variable = "os", msg = "", filename = "", y = 1, x = 8 },
+    "return os.getenv('HOME')\n") ==
       Removed.message("os", "getenv"))
   local source = 'local Hash = require("cosmic.hash")\nreturn Hash.hex\n'
-  assert(teal.replacement("invalid key 'hex' in record 'Hash' of type Hash", source, 2, 13) ==
+  assert(teal.replacement(refused_key("hex", "Hash", "Hash", 2, 13), source) ==
       "Hash.hex was removed: " .. Removed.members["cosmic.hash.hex"])
   -- A removed member's answer comes before the record's fields.
-  assert(teal.replacement("invalid key 'hex' in record 'Hash' of type Hash", source, 2, 13,
-    { "hmac", "sha256" }) == "Hash.hex was removed: " .. Removed.members["cosmic.hash.hex"])
+  assert(teal.replacement(refused_key("hex", "Hash", "Hash", 2, 13, { "hmac", "sha256" }), source) ==
+      "Hash.hex was removed: " .. Removed.members["cosmic.hash.hex"])
   local cache = 'local Fs = require("cosmic.fs")\nreturn Fs.cache_path("zig")\n'
-  assert(teal.replacement("invalid key 'cache_path' in record 'Fs' of type Fs", cache, 2, 11) ==
+  assert(teal.replacement(refused_key("cache_path", "Fs", "Fs", 2, 11), cache) ==
       "Fs.cache_path was removed: " .. Removed.members["cosmic.fs.cache_path"])
 end
 
@@ -64,12 +75,12 @@ local function test_a_refusal_quotes_the_catalog_however_the_require_is_written(
       'local Hash = require("cosmic.hash") or {}\nreturn Hash.hex\n',
       'local Hash = (require("cosmic.hash"))\nreturn Hash.hex\n',
   }) do
-    assert(teal.replacement("invalid key 'hex' in record 'Hash' of type Hash", source, 2, 13) ==
+    assert(teal.replacement(refused_key("hex", "Hash", "Hash", 2, 13), source) ==
         "Hash.hex was removed: " .. Removed.members["cosmic.hash.hex"], source)
   end
   -- A field of the module is another value, which the module binds to no name.
-  assert(teal.replacement("invalid key 'hex' in record 'Hash' of type Hash",
-    'local Hash = require("cosmic.hash").sha256\nreturn Hash.hex\n', 2, 13) == nil)
+  assert(teal.replacement(refused_key("hex", "Hash", "Hash", 2, 13),
+    'local Hash = require("cosmic.hash").sha256\nreturn Hash.hex\n') == nil)
 end
 
 --- `package.path` and its three siblings type-check in tl's own
@@ -83,16 +94,16 @@ local function test_the_checker_refuses_the_removed_package_fields()
     -- A checked environment keeps the errors it found.
     local fresh = assert(teal.environment_for(built, db, "/nonexistent"))
     local result = built.check_string(source, fresh, "removed_package", "tl")
-    local found: string | nil = nil
+    local found: compiler.Error | nil = nil
     for _, e in ipairs(result.type_errors) do
-      if e.msg:find("invalid key '" .. field .. "' in record 'package'", 1, true) then
-        found = e.msg
+      if e.code == "invalid_key" and e.key == field and e.variable == "package" then
+        found = e
       end
     end
     local seen: {string} = {}
     for _, e in ipairs(result.type_errors) do seen[#seen + 1] = e.msg end
     assert(found ~= nil, field .. " was not refused: " .. table.concat(seen, "; "))
-    assert(teal.replacement(found, source, 1, 11) == Removed.message("package", field), found)
+    assert(teal.replacement(found, source) == Removed.message("package", field), found.msg)
   end
   local kept_env = assert(teal.environment_for(built, db, "/nonexistent"))
   local kept = built.check_string(

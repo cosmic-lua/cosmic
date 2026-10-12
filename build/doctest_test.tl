@@ -211,3 +211,27 @@ local function test_a_skip_block_compiles_and_defines_nothing()
   assert(m.source:find("skipped: intended", 1, true) ~= nil,
     "expected the skip's own reason in the generated source:\n" .. m.source)
 end
+
+--- The shadow of `print` that every example with an output block makes is
+--- the generated module's own and is dropped; an example that declares a
+--- `print` of its own shadows that one, which is its author's to rename.
+local function test_an_example_that_redeclares_print_is_refused()
+  local redeclared = doc({
+    "# Fixture",
+    "",
+    "```teal",
+    "local print = function(_: string) end",
+    'print("hello")',
+    "```",
+    "",
+    "```output",
+    "hello",
+    "```",
+  })
+  local root, write_trouble = write_fixture("redeclared-print", redeclared)
+  assert(root ~= nil, "could not write fixture: " .. tostring(write_trouble))
+  local result, trouble = compile_fixture(root)
+  assert(result == nil, "an example that redeclares print was accepted")
+  assert(trouble:find("shadows previous declaration of 'print' (originally declared at", 1, true) ~= nil,
+    trouble)
+end
