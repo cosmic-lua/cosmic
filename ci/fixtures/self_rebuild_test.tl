@@ -357,7 +357,7 @@ local function run_rebuild_case(fixture_dir: string,
 
     Fixture.assert_executable(program)
     assert(Fixture.read(child.out):match(
-      "test: PASS %([^;]+; [1-9][0-9]* ran, 0 stood"),
+      "test: %d+ tests? passed in [^;]+; [1-9][0-9]* ran, 0 stood"),
       action .. ": self-rebuild output did not match the expected pattern")
     local err = Fixture.read(child.err)
     took_compiles(action, seed, since, err)

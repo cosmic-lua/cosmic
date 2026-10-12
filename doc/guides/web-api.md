@@ -263,11 +263,11 @@ argv[#argv + 1] = "test"
 local said = assert(Child.run(argv,
   { env = env, fds = relaunch.fds, cwd = tmp, stdout = "capture", stderr = "capture",
     timeout_ns = Clock.seconds(120) }))
-print(((said.stderr or "") .. (said.stdout or "")):match("test: [A-Z]+"))
+print(((said.stderr or "") .. (said.stdout or "")):match("test: %d+ tests? passed"))
 ```
 
 ```output
-test: PASS
+test: 3 tests passed
 ```
 
 [`Cors.middleware`]: ../../cosmic/web/cors.tl

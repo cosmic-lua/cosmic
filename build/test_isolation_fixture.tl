@@ -136,7 +136,7 @@ function fixture.hung_runs(tmp: string, probe: string | nil, sandbox_workers: bo
         "before it reported", 1, true), text)
     assert(text:find("  | said something", 1, true), text)
     assert(not text:find("quiet", 1, true), text)
-    assert(text:find("2 of 3 failed", 1, true), text)
+    assert(text:find("2 of 3 tests failed", 1, true), text)
     local sandboxed = text:find("; sandboxed", 1, true) ~= nil
     if mode == "0" then
       assert(not sandboxed, text)

@@ -165,7 +165,7 @@ end
 
 local function expect_tally(capture: Fixture.Capture, ran: integer,
                             stood: integer)
-  Fixture.contains(capture.out, "test: PASS (1 test, 1 module; " ..
+  Fixture.contains(capture.out, "test: 1 test passed in 1 module; " ..
       tostring(ran) .. " ran, " .. tostring(stood) .. " stood")
 end
 

@@ -71,13 +71,20 @@ function verbs_fixture.run(dir: string, args: {string}): invoke.Result
 end
 
 --- "PASS" or "FAIL" when `line` is a verdict line of `verb`'s -- `verb:
---- PASS` or `verb: FAIL`, alone or before a detail in parentheses.
+--- PASS` or `verb: FAIL`, alone or before a detail in parentheses, or
+--- `test`'s summary, `test: 9 tests passed ...` or `test: 2 of 9 tests
+--- failed ...`.
 local function verdict_of(line: string, verb: string): string | nil
   local head = verb .. ": "
   if not String.starts_with(line, head) then
     return nil
   end
   local rest = line:sub(#head + 1)
+  if verb == "test" and rest:match("^%d+ tests? passed in ") then
+    return "PASS"
+  elseif verb == "test" and rest:match("^%d+ of %d+ tests? failed, ") then
+    return "FAIL"
+  end
   for _, word in ipairs({ "PASS", "FAIL" }) do
     if rest == word or rest:sub(1, 6) == word .. " (" then
       return word

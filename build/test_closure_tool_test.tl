@@ -64,7 +64,7 @@ local function test_a_project_test_requiring_outside_its_closure_fails(tmp: stri
   assert(not ok, text)
   assert(text:find("test: FAIL  suite.dynamic_test test_dynamic: suite.dynamic_test:3: " ..
       "module 'suite.helper' is outside the import closure of suite.dynamic_test", 1, true), text)
-  assert(text:find("(1 of 3 failed", 1, true), text)
+  assert(text:find("1 of 3 tests failed", 1, true), text)
 end
 
 --- In a project of its own, a test that reads its helper through the
@@ -118,5 +118,5 @@ local function test_a_project_test_reading_the_store_outside_its_closure_needs_s
     assert(text:find("no module 'suite.helper' in the store", 1, true), text)
   end
   assert(not text:find("suite.whole_test", 1, true), text)
-  assert(text:find("(4 of 6 failed", 1, true), text)
+  assert(text:find("4 of 6 tests failed", 1, true), text)
 end

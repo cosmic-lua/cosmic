@@ -92,7 +92,7 @@ local function test_a_second_run_waits_for_the_first_then_passes(tmp: string)
   assert(result.ok, text)
   assert(text:find("test: another cosmic run (pid " .. tostring(sys.getpid()) ..
       ") in this checkout is running its tests; waiting for it", 1, true), text)
-  assert(text:find("test: PASS", 1, true), text)
+  assert(text:find("test: %d+ tests? passed in "), text)
 end
 
 --- A run lets its checkout's lock go however it ends: once it has

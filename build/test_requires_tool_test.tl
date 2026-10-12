@@ -68,7 +68,7 @@ local function test_a_present_requirement_runs_and_its_answer_keys_the_verdict(t
   assert(Fs.write(file, "one\n"))
   local out, code = run(root)
   assert(code == 0, out)
-  assert(out:find("2 tests, 1 module; 2 ran, 0 stood, ", 1, true), out)
+  assert(out:find("2 tests passed in 1 module; 2 ran, 0 stood, ", 1, true), out)
   assert(not out:find("skipped", 1, true) and not out:find("n/a", 1, true), out)
   out, code = run(root)
   assert(code == 0, out)
@@ -90,7 +90,7 @@ local function test_an_absent_path_skips_the_module_and_keeps_no_verdict(tmp: st
     assert(code == 0, out)
     assert(out:find("test: SKIP  prog_test test_passes: requires path:" .. outside(tmp) .. "/absent: ", 1, true), out)
     assert(out:find("test: SKIP  prog_test test_passes_too: requires path:", 1, true), out)
-    assert(out:find("2 tests, 1 module; 2 ran, 0 stood, 2 skipped ", 1, true), out)
+    assert(out:find("2 tests passed in 1 module; 2 ran, 0 stood, 2 skipped ", 1, true), out)
     assert(not out:find("must not load", 1, true), out)
   end
 end
@@ -120,7 +120,7 @@ local function test_c() assert(true) end
     -- The module that applies runs once and then stands (a held run is keyed
     -- apart, and runs); the other has no verdict to stand on.
     if i <= 2 then
-      assert(out:find("3 tests, 2 modules; " .. (i == 1 and "1 ran, 0 stood" or "0 ran, 1 stood") .. ", ",
+      assert(out:find("3 tests passed in 2 modules; " .. (i == 1 and "1 ran, 0 stood" or "0 ran, 1 stood") .. ", ",
         1, true), out)
     end
     assert(out:find(", 2 n/a (this platform has none of what they check), ", 1, true), out)
@@ -145,7 +145,7 @@ local function test_a_probe_that_raises_fails_its_modules_alone(tmp: string)
   assert(code ~= 0, out)
   assert(out:find("FAIL  closed_test test_passes: ", 1, true) and
       out:find("the probe of what it requires of the host failed: host_requires: ", 1, true), out)
-  assert(out:find("2 of 3 failed", 1, true), out)
+  assert(out:find("2 of 3 tests failed", 1, true), out)
   assert(not out:find("FAIL  plain_test", 1, true), out)
 end
 
@@ -158,7 +158,7 @@ local function test_an_unknown_requirement_fails_the_build_and_a_linux_one_does_
   local out, code = run(root)
   assert(code ~= 0, out)
   assert(out:find("unknown requirement \"sandbxo\"", 1, true), out)
-  assert(not out:find("test: PASS", 1, true), out)
+  assert(not out:find("test: %d+ tests? passed in "), out)
   assert(Fs.write(root .. "/typo_test.tl", 'local Test = require("cosmic.test")\n' ..
       'Test.policy { requires = { "nest", "proc" } }\nlocal function test_a() assert(true) end\n'))
   out, code = run(root, { COSMIC_TEST_PLATFORM = "other" })
