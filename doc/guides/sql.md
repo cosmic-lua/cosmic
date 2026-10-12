@@ -289,7 +289,8 @@ within another.
   dropped. A quote inside an unquoted field, anything but a comma or a
   line end after a closing quote, a quote never closed, a NUL byte in a
   file's record, and a file that cannot be read fail the query, naming
-  the line or record where the reader knows it.
+  the line or record where the reader knows it; with `header=yes`, lines
+  count from the one after the header.
 
 ## bound lists
 
