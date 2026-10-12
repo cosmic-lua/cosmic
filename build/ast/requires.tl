@@ -27,8 +27,8 @@ local type Parsed = ast_node.Parsed
 --- literal, a variable, a concatenation). Compiled on first use and
 --- memoized in the locals below.
 local ALL_PATTERN_SRC = "require($M)"
-local all_pattern_cache: Node = nil
-local all_pattern_err: string = nil
+local all_pattern_cache: Node | nil = nil
+local all_pattern_err: string | nil = nil
 local all_pattern_compiled = false
 
 --- Compile `ALL_PATTERN_SRC` on first use and memoize the result,

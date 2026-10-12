@@ -980,7 +980,7 @@ local function test_generated_lua_keeps_teal_line_numbers()
   assert(work.stage(handle, false))
   local result, compile_trouble = importer.compile(handle, built, "importer-test")
   assert(result ~= nil, tostring(compile_trouble))
-  local lua: string = nil
+  local lua: string | nil = nil
   for _, m in ipairs(result.modules) do
     if m.path == "lines" then
       lua = m.lua

@@ -85,8 +85,8 @@ end
 --- What `git blame --line-porcelain` said, by final line number.
 function todos.parse_blame(porcelain: string): {integer:todos.Blame}
   local out: {integer:todos.Blame} = {}
-  local current: todos.Blame = nil
-  local final: integer = nil
+  local current: todos.Blame | nil = nil
+  local final: integer | nil = nil
   for line in porcelain:gmatch("([^\n]*)\n?") do
     local commit, at = line:match("^(%x+) %d+ (%d+)")
     if commit ~= nil and #commit >= 40 then
@@ -444,7 +444,7 @@ local function carry_forward(db: Sqlite.Handle, root: string, head: string,
   for _, row in ipairs(heads) do
     local old = row[1]
     local ancestor = git(root, { "merge-base", "--is-ancestor", old, head }, run_git)
-    local changed: string = nil
+    local changed: string | nil = nil
     if ancestor ~= nil then
       changed = git(root, { "diff", "--name-only", "--no-renames", "--relative",
         old, head, "--" }, run_git)
@@ -708,7 +708,7 @@ local function run(argv: {integer:string}): integer
     return 1
   end
   local all, blamed = listing.todos, listing.blamed
-  local ranks: {integer:integer} = nil
+  local ranks: {integer:integer} | nil = nil
   if query ~= "" then
     local found, search_trouble = todos.search(handle.db, query)
     if found == nil then

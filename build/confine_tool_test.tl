@@ -47,7 +47,7 @@ end
 --- the kernel confined it, true where it could not and it ran
 --- unconfined.
 local function sees(probe: string, own: string, hidden: string): boolean
-  local code: integer = nil
+  local code: integer | nil = nil
   local ran = confine.call(function()
     confine.confine({ reads = { probe } })
     local r = assert(Child.run({ probe, "exists " .. hidden .. " 3" }))
@@ -86,7 +86,7 @@ local function test_a_confined_process_has_what_it_was_given(tmp: string)
   for _, dir in ipairs({ given, own, hidden }) do assert(Fs.mkdirs(dir)) end
   assert(Fs.write(given .. "/f", "in"))
   assert(Fs.write(hidden .. "/f", "secret"))
-  local code: integer = nil
+  local code: integer | nil = nil
   local ran = confine.call(function()
     confine.confine({ reads = { given, probe } })
     local r = assert(Child.run({ probe,
@@ -109,7 +109,7 @@ local function test_a_process_a_library_declares_in_a_sandbox_is_held_by_it(tmp:
   local probe = probe_in(tmp)
   local own, hidden = tmp .. "/own", tmp .. "/hidden"
   for _, dir in ipairs({ own, hidden }) do assert(Fs.mkdirs(dir)) end
-  local code: integer = nil
+  local code: integer | nil = nil
   local ran = confine.call(function()
     local inner = confine.call(function()
       confine.declaring({ reads = { probe }, writes = {} }, function()
@@ -228,7 +228,7 @@ local function test_an_unconfinable_process_starts_unconfined(tmp: string)
   assert(Fs.mkdirs(own))
   local many: {string} = {}
   for i = 1, 300 do many[i] = tmp .. "/many" .. tostring(i) end
-  local ran: confine.Ran = nil
+  local ran: confine.Ran | nil = nil
   local sandboxed = refusing_sandboxes(function()
     ran = confine.call(function()
       confine.confine({ reads = { probe } })
@@ -239,7 +239,8 @@ local function test_an_unconfinable_process_starts_unconfined(tmp: string)
       confine.confine(nil)
     end, nil, { own })
   end)
-  assert(ran.ok, tostring(ran.produced))
+  local finished = assert(ran)
+  assert(finished.ok, tostring(finished.produced))
   assert(sandboxed == 1, "only the first was tried confined: " .. tostring(sandboxed))
   assert(assert(Fs.read(own .. "/where")) == assert(Fs.absolute(own)) .. "\n")
 end
@@ -252,8 +253,8 @@ local function test_a_must_confined_program_exec_cannot_run_fails_as_its_own(tmp
   local own = tmp .. "/own"
   assert(Fs.mkdirs(own))
   for _, sandboxes in ipairs({ "refused", "real" }) do
-    local trouble: string = nil
-    local ran: confine.Ran = nil
+    local trouble: string | nil = nil
+    local ran: confine.Ran | nil = nil
     local function attempt()
       ran = confine.call(function()
         confine.must_confine({})
@@ -264,7 +265,9 @@ local function test_a_must_confined_program_exec_cannot_run_fails_as_its_own(tmp
       end, nil, { own })
     end
     if sandboxes == "refused" then refusing_sandboxes(attempt) else attempt() end
-    assert(ran.ok, sandboxes .. ": " .. tostring(ran.produced))
-    assert(not trouble:find("could not start confined", 1, true), trouble)
+    local finished = assert(ran)
+    local reason = assert(trouble)
+    assert(finished.ok, sandboxes .. ": " .. tostring(finished.produced))
+    assert(not reason:find("could not start confined", 1, true), reason)
   end
 end

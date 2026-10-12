@@ -109,7 +109,7 @@ end
 --- calls `Example.x`, the copy has no such table. Nil for any other.
 local function helper_trouble(file: string, name: string): string | nil
   local helper = ""
-  local sibling: string = nil
+  local sibling: string | nil = nil
   for line in file:gmatch("[^\n]+") do
     local declared = declared_names(line)
     if #declared > 0 then

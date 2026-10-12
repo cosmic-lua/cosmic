@@ -150,7 +150,7 @@ function test_policy.worker(plan: test_sandbox.Plan, effective: test_inputs.Effe
     grants[#grants + 1] = { path = inside, from = at[path] ~= nil and path or nil,
       letters = letters_of(path, inside, plan.runs) }
   end
-  local scratch: string = nil
+  local scratch: string | nil = nil
   for _, path in ipairs(unveil.writes or {}) do
     local inside = at[path] or path
     grants[#grants + 1] = { path = inside, from = at[path] ~= nil and path or nil, letters = "rwxc" }

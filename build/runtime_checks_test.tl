@@ -342,7 +342,7 @@ local function test_a_late_violation_still_names_its_caller()
   local fixture = checked()
   for _ = 1, 25 do fixture.call_greet(nil) end
   local late = during(function() fixture.call_greet_again(nil) end)
-  local parameter: worker.Violation = nil
+  local parameter: worker.Violation | nil = nil
   for _, each in ipairs(late) do
     if each.kind == "parameter" then parameter = each end
   end

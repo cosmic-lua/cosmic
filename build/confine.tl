@@ -635,7 +635,7 @@ function confine.resolution(path: string): string
     return n
   end
   local finish = #path
-  local real: string = nil
+  local real: string | nil = nil
   while true do
     local found, _ = realpath(path:sub(1, finish))
     if found ~= nil then
@@ -649,6 +649,8 @@ function confine.resolution(path: string): string
     finish = unslashed(name)
     if finish == 0 then finish = 1 end
   end
+  -- The loop ends only on a path some prefix of which resolved.
+  assert(real ~= nil)
   local names: {string} = {}
   for name in path:sub(finish + 1):gmatch("[^/]+") do names[#names + 1] = name end
   if #names == 0 then return real end
@@ -1006,6 +1008,9 @@ local function enter(own?: {string}, sandboxed?: boolean): Leave, {string}
                            fds?: {integer:integer}, sandbox?: raw_process.Sandbox,
                            credentials?: raw_process.Credentials, terminal?: boolean | string):
       integer | nil, string, integer
+    -- Declared as the real spawn is. A process that started is answered by
+    -- its pid alone, as the real one answers it: a reason and an errno
+    -- come only with a failure (a later slot left out is the failure idiom).
     if ended then
       -- A reference to a stand-in that no longer stands in starts a
       -- process no confinement holds: under [`must_confine`], none.
@@ -1040,6 +1045,7 @@ local function enter(own?: {string}, sandboxed?: boolean): Leave, {string}
         return nil, refuse(must, path, "its own sandbox's unveil and offline", trouble, errno),
           errno
       end
+      if pid ~= nil then return pid end
       return pid, trouble, errno
     end
     -- A sandbox of its own that does not both unveil and take the
@@ -1152,6 +1158,7 @@ local function enter(own?: {string}, sandboxed?: boolean): Leave, {string}
           stderr, process_group, fds, { unveil = { reads = reads, writes = writes },
             offline = true }, credentials, terminal)
         if pid ~= nil or not unconfinable[errno] then
+          if pid ~= nil then return pid end
           return pid, trouble, errno
         end
         if declared_strict ~= nil then
@@ -1185,6 +1192,7 @@ local function enter(own?: {string}, sandboxed?: boolean): Leave, {string}
         end
       end
     end
+    if pid ~= nil then return pid end
     return pid, trouble, errno
   end
   entered[#entered + 1] = entry

@@ -380,7 +380,7 @@ function test_inputs.resolve(effective: test_inputs.Effective, roots: {string})
     local path, trouble = test_inputs.resolved(declared, roots)
     -- A file, or /proc: a directory no key holds by what it holds (R3).
     -- One not there is none, as a file of another platform's is not.
-    local st: sys.Stat = nil
+    local st: sys.Stat | nil = nil
     if path ~= nil then
       local found, _ = sys.stat(path)
       st = found

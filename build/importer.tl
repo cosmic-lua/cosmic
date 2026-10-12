@@ -1111,7 +1111,7 @@ end
 --- below own the shared cache; every failure here returns through them.
 local function compile_derived(handle: work.Handle, built: compiler, tool: string,
                                own_tree: boolean, parses: importer.Parses,
-                               unjudged: boolean, shared: importer.Shared,
+                               unjudged: boolean | nil, shared: importer.Shared | nil,
                                pool: importer.Workers | nil,
                                checks: boolean): importer.Result | nil, string
   local modules, trouble = compilation.collect(handle.db)
@@ -1167,9 +1167,9 @@ local function compile_derived(handle: work.Handle, built: compiler, tool: strin
   -- The working database cannot stand in: its `docs` rows are keyed by
   -- source hash, with no module to name. A projection that is missing
   -- or unreadable is left out, since the hint is best effort.
-  local hint_databases: {Sqlite.Handle} = nil
-  local hint_public: {boolean} = nil
-  local hint_projection: Sqlite.Handle = nil
+  local hint_databases: {Sqlite.Handle} | nil = nil
+  local hint_public: {boolean} | nil = nil
+  local hint_projection: Sqlite.Handle | nil = nil
   local hints: Hints = function(): {Sqlite.Handle}, {boolean}
     if hint_databases == nil then
       local databases: {Sqlite.Handle} = {}
@@ -1389,12 +1389,16 @@ local function compile_derived(handle: work.Handle, built: compiler, tool: strin
   return result
 end
 
+--- The compiler a self-build runs, chosen once the tree's identities are
+--- recorded.
+local type Choose = function(identities.Identities): string | nil, string
+
 --- A self-build chooses the compiler that actually runs only after the
 --- analyzer has stabilized and the complete tree identities are recorded.
 local function prepare_compile(handle: work.Handle, built: compiler, tool: string,
-                               unjudged: boolean, shared: importer.Shared,
+                               unjudged: boolean | nil, shared: importer.Shared | nil,
                                pool: importer.Workers | nil,
-                               choose: function(identities.Identities): string | nil, string,
+                               choose: Choose | nil,
                                checks: boolean): importer.Result | nil, string
   local own_tree, own_trouble = tree.is_own(handle.root)
   if own_tree == nil then return nil, own_trouble end
@@ -1413,7 +1417,7 @@ end
 --- The cache belongs to the whole derive/identity/compile operation,
 --- including successful rows offered before a later phase fails.
 local function consuming_compile(handle: work.Handle, built: compiler, tool: string,
-                                 unjudged: boolean, shared: importer.Shared,
+                                 unjudged: boolean | nil, shared: importer.Shared | nil,
                                  pool: importer.Workers | nil,
                                  choose?: function(identities.Identities): string | nil, string,
                                  checks?: boolean): importer.Result | nil, string

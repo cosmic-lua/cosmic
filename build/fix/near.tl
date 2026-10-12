@@ -253,7 +253,7 @@ function near.notes(module: string, candidates: {near.Candidate},
       if comparable[index] then
         local same = other.module == module and
           (other.source_symbol == mine.source_symbol or other.symbol == name)
-        local why: string = nil
+        local why: string | nil = nil
         if same then
           why = nil
         elseif commands and other.module ~= module and stands_in(other, name) then

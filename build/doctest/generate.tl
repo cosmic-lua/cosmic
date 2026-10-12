@@ -325,7 +325,7 @@ function generate.from_blocks(blocks: {Block}, file: string, prose?: string): st
   if items == nil then
     return nil, trouble
   end
-  local declared: Block = nil
+  local declared: Block | nil = nil
   for _, b in ipairs(blocks) do
     if b.lang == "policy" and declared ~= nil then
       return nil, "line " .. b.line .. ": a doc declares its policy once; line " ..

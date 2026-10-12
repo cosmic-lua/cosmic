@@ -1015,7 +1015,7 @@ function worker.run(argv: {integer:string}): integer
   -- The closure's names start after `--store` and its path.
   local first = 9
   local sandboxed = argv[first] == "--sandboxed"
-  local runs: {string} = nil
+  local runs: {string} | nil = nil
   local own_scratch = false
   if sandboxed then
     first = first + 1
@@ -1102,7 +1102,7 @@ function worker.run(argv: {integer:string}): integer
   }
   -- Where the C hits of the processes the test starts are folded: the
   -- test's coverage once it ran, else the load's, else nowhere.
-  local child_into: Coverage.Hits = nil
+  local child_into: Coverage.Hits | nil = nil
   Assertions.install()
   if env_get("COSMIC_TEST_TYPES") == "1" then worker.install_checks() end
   -- Processes the test starts report the core's C they ran here, so it
@@ -1133,7 +1133,7 @@ function worker.run(argv: {integer:string}): integer
   -- What the module's `policy` call stands for as it loads, through the
   -- hook [`cosmic.test`] leaves for a runner; once it has loaded, a call
   -- is refused.
-  local handed: Test.Needs = nil
+  local handed: Test.Needs | nil = nil
   -- Each reason the test gives [`Test.skip`], once, in order.
   local reasons: {string} = {}
   -- What [`Test.skip`] raises to end its test. Only this table counts as
