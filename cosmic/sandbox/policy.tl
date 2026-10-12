@@ -427,14 +427,13 @@ local function digest_of(value: string): string
   return Codec.hex(Hash.sha256(value))
 end
 
---- The limit `name` once `incoming` joins `held`, either nil for none:
---- the one value given. Two different values answer why.
-local function join_limit(name: string, held: integer | nil, incoming: integer | nil): integer, string
-  if incoming == nil then return held, "" end
-  if held ~= nil and held ~= incoming then
-    return held, "limits." .. name .. " is given two values, " .. held .. " and " .. incoming
+--- Why `held` and `incoming`, two values for the limit `name` (either nil
+--- for none), disagree, or "" when they do not.
+local function limit_conflict(name: string, held: integer | nil, incoming: integer | nil): string
+  if held ~= nil and incoming ~= nil and held ~= incoming then
+    return "limits." .. name .. " is given two values, " .. held .. " and " .. incoming
   end
-  return incoming, ""
+  return ""
 end
 
 local record Joined
@@ -652,17 +651,14 @@ function rules.merge(...: rules.Policy): rules.Policy | nil, string
     end
     user, group = p.user or user, p.group or group
     local own = p.limits or {}
-    local why: string
-    limits.open_files, why = join_limit("open_files", limits.open_files, own.open_files)
-    if why == "" then
-      limits.file_bytes, why = join_limit("file_bytes", limits.file_bytes, own.file_bytes)
-    end
-    if why == "" then
-      limits.cpu_seconds, why = join_limit("cpu_seconds", limits.cpu_seconds, own.cpu_seconds)
-    end
-    if why == "" then
-      limits.processes, why = join_limit("processes", limits.processes, own.processes)
-    end
+    local why = limit_conflict("open_files", limits.open_files, own.open_files)
+    if why == "" then why = limit_conflict("file_bytes", limits.file_bytes, own.file_bytes) end
+    if why == "" then why = limit_conflict("cpu_seconds", limits.cpu_seconds, own.cpu_seconds) end
+    if why == "" then why = limit_conflict("processes", limits.processes, own.processes) end
+    limits.open_files = own.open_files or limits.open_files
+    limits.file_bytes = own.file_bytes or limits.file_bytes
+    limits.cpu_seconds = own.cpu_seconds or limits.cpu_seconds
+    limits.processes = own.processes or limits.processes
     if why ~= "" then return refuse(why) end
   end
   local grants: {rules.Grant} = {}
