@@ -109,7 +109,7 @@ local function test_a_refused_spawn_fails_the_test_whatever_it_made_of_it(tmp: s
 --- for spawn wraps `refusing`'s; the one running the test hears them
 --- too.
 local function test_passed_over(tmp: string)
-  local inner: {string:any} = nil
+  local inner: {string:any} | nil = nil
   refusing(function()
     inner = confine.call(function()
       confine.must_confine({ reads = { "bin/probe" } })
