@@ -219,7 +219,7 @@ local function reads_back(input: string): boolean, string
   for offset, dst, abbreviation in types_text:gmatch("(%S+) (%S+) (%S+)\n") do
     types[#types + 1] = { offset = math.tointeger(offset), dst = dst == "true", abbreviation = abbreviation }
   end
-  local function holds(ns: integer, t: Type): string
+  local function holds(ns: integer, t: Type): string | nil
     local c = Time.civil(ns, zone)
     if c.offset ~= t.offset or c.dst ~= t.dst or c.abbreviation ~= t.abbreviation then
       return ("at %d: %d %s %s, want %d %s %s"):format(ns, c.offset, tostring(c.dst),

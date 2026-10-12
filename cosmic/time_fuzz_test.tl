@@ -34,7 +34,7 @@ end
 
 --- `ns` as RFC 3339 text `minutes` east of UTC, or nil when the local
 --- clock reading is outside what an integer holds.
-local function at_offset(ns: integer, minutes: integer, opts: Time.FormatOptions): string
+local function at_offset(ns: integer, minutes: integer, opts: Time.FormatOptions | nil): string | nil
   local shift = minutes * 60 * NS
   if (shift > 0 and ns > math.maxinteger - shift) or (shift < 0 and ns < math.mininteger - shift) then
     return nil
@@ -46,8 +46,8 @@ end
 
 local function round_trips(input: string): boolean, string
   local ns, minutes, digits = string.unpack("<i8i4i1", input)
-  local opts: Time.FormatOptions = digits >= 0 and { digits = digits } or nil
-  local want = ns
+  local opts: Time.FormatOptions | nil = digits >= 0 and { digits = digits } or nil
+  local want: integer | nil = ns
   if digits >= 0 then
     local unit = 1
     for _ = digits + 1, 9 do unit = unit * 10 end
@@ -134,14 +134,14 @@ local DAYS <const> = { "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "
 
 --- `ns` cut toward the past to a multiple of `unit`, or nil when that
 --- is before the range.
-local function cut(ns: integer, unit: integer): integer
+local function cut(ns: integer, unit: integer): integer | nil
   if ns < math.mininteger + ns % unit then return nil end
   return ns - ns % unit
 end
 
 --- Whether `text` parses as `want` (nil for a refusal), and why not.
 local function parses_as(parse: function(string): (integer | nil, string), text: string,
-                         want: integer, ns: integer): boolean, string
+                         want: integer | nil, ns: integer): boolean, string
   local back, why = parse(text)
   if back ~= want then
     return false, ("%d wrote %q, which parsed as %s, not %s: %s"):format(ns, text,
