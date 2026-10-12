@@ -810,15 +810,20 @@ function Server.range(header: string | nil, size: integer): Server.Range
   return { kind = "span", first = size - math.min(n, size), last = size - 1 }
 end
 
+local record EntityTag
+  last: integer
+  opaque: string
+end
+
 --- Where the entity tag that starts at `at` in `text` ends, and its
 --- opaque tag, quotes and all, which a weak comparison compares; nil
 --- where none starts there.
-local function entity_tag(text: string, at: integer): integer, string
+local function entity_tag(text: string, at: integer): EntityTag | nil
   local from = at
   if text:sub(at, at + 1) == "W/" then from = at + 2 end
   local _, last = text:find('^"[!\x23-\x7e\x80-\xff]*"', from)
-  if last == nil then return nil, nil end
-  return last, text:sub(from, last)
+  if last == nil then return nil end
+  return { last = last, opaque = text:sub(from, last) }
 end
 
 --- Whether the If-None-Match `header` (nil where none was sent) names
@@ -838,8 +843,8 @@ end
 --- one it has. A list element that is no entity tag names nothing, and
 --- the rest are still read. An `etag` that is no entity tag raises.
 function Server.none_match(header: string | nil, etag: string): boolean
-  local own_last, own = entity_tag(etag, 1)
-  if own_last ~= #etag then
+  local own = entity_tag(etag, 1)
+  if own == nil or own.last ~= #etag then
     error(("http: Server.none_match's etag %q is no entity tag, as \"v1\" or W/\"v1\""):format(etag), 2)
   end
   if header == nil then return false end
@@ -851,11 +856,11 @@ function Server.none_match(header: string | nil, etag: string): boolean
     if b == 44 or ows(b) then
       at = at + 1
     else
-      local last, opaque = entity_tag(value, at)
-      local after = last ~= nil and last + 1 or at
+      local found = entity_tag(value, at)
+      local after = found ~= nil and found.last + 1 or at
       while ows(value:byte(after)) do after = after + 1 end
-      if last ~= nil and (after > #value or value:byte(after) == 44) then
-        if opaque == own then return true end
+      if found ~= nil and (after > #value or value:byte(after) == 44) then
+        if found.opaque == own.opaque then return true end
       else
         -- What is no entity tag runs to the next comma.
         after = value:find(",", after, true) or #value + 1
