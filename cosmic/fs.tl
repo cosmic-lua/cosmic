@@ -548,8 +548,8 @@ local record Pending
 end
 
 --- Both walks: [`Fs.walk`], and with `follow`, [`Fs.walk_following`].
-local function walk(root: string, skip: function(string, string, Fs.Kind): boolean,
-                    follow: boolean): {string} | nil, string
+local function walk(root: string, follow: boolean,
+                    skip?: function(string, string, Fs.Kind): boolean): {string} | nil, string
   local found: {string} = {}
   local pending: {Pending} = { { relative = "", above = nil } }
   while #pending > 0 do
@@ -611,7 +611,7 @@ end
 --- listing says what each entry is, so nothing here is stat'd.
 function Fs.walk(root: string,
                  skip?: function(string, string, Fs.Kind): boolean): {string} | nil, string
-  return walk(root, skip, false)
+  return walk(root, false, skip)
 end
 
 --- Every file under a root as [`Fs.walk`] lists them -- relative to
@@ -630,7 +630,7 @@ end
 --- one. Each directory, and each link, is stat'd.
 function Fs.walk_following(root: string,
                            skip?: function(string, string, Fs.Kind): boolean): {string} | nil, string
-  return walk(root, skip, true)
+  return walk(root, true, skip)
 end
 
 local record Descriptor
