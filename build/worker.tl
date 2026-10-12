@@ -178,7 +178,7 @@ function worker.parse(pool: worker.Pool, db: Sqlite.Handle, built: compiler,
         "; parsing in this process")
     return derivation.parse_fresh(db, built, fresh, tally, made)
   end
-  local job: string, widths: {string:integer} = made_job, made_widths
+  local job, widths: string, {string:integer} = made_job, made_widths
 
   local _ = pool.run("parse", job, count)
   local read: {integer:Sqlite.Handle} = {}
