@@ -228,6 +228,14 @@ SQLite's [FTS5](https://sqlite.org/fts5.html).
 
 - `dbstat`: a virtual table of every table's and index's pages and bytes,
   [as SQLite describes it](https://sqlite.org/dbstat.html).
+- `bytecode(SQL)`: a table of the program SQLite compiles one statement
+  into, without running it, one row per instruction: `addr`, `opcode`,
+  `p1` to `p5` and `subprog`, as [SQLite describes them](https://sqlite.org/bytecodevtab.html).
+  `comment` is NULL and `nexec` and `ncycle` are 0 in cosmic's SQLite.
+  SQL that is not one statement fails the query.
+- `tables_used(SQL)`: a table of every table and index one statement reads
+  or writes, without running it: `type` (`table` or `index`), `schema`,
+  `name`, `wr` (1 where it writes) and `subprog`.
 - `pragma_*`: each [PRAGMA](https://sqlite.org/pragma.html) that answers
   rows is a table-valued function of its own name, such as
   `pragma_table_info('t')`.

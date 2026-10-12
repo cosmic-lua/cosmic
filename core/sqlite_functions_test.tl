@@ -217,3 +217,21 @@ local function test_ieee754_and_toreal_read_other_values_as_sqlite_does()
     assert(got[i] == value, "column " .. i .. ": " .. tostring(got[i]))
   end
 end
+
+local function test_tables_used_and_bytecode_read_a_statement_without_running_it()
+  local handle = assert(Sqlite.memory())
+  assert(handle:exec("CREATE TABLE t (a); CREATE TABLE u (b); CREATE INDEX ub ON u (b)"))
+  local rows = assert(Sqlite.text_rows(handle,
+    "SELECT type, name, wr FROM tables_used('INSERT INTO t SELECT b FROM u WHERE b > 1') " ..
+      "ORDER BY name"))
+  local got: {string} = {}
+  for _, r in ipairs(rows) do got[#got + 1] = table.concat(r, " ") end
+  -- The index covers the query, so SQLite reads it in place of u.
+  assert(table.concat(got, ", ") == "table t 1, index ub 0", table.concat(got, ", "))
+  rows = assert(Sqlite.text_rows(handle,
+    "SELECT opcode FROM bytecode('DELETE FROM t') WHERE addr = 0"))
+  assert(rows[1][1] == "Init", rows[1][1])
+  rows = assert(Sqlite.text_rows(handle, "SELECT count(*) FROM t"))
+  assert(rows[1][1] == "0", "compiling a statement must not run it")
+  handle:close()
+end

@@ -1434,7 +1434,10 @@ fn vendorLibraries(
     // core (three raw cores per portable artifact). The math functions
     // (`sqrt`, `ln`, `pow`, ...) and the percentile aggregates
     // (`median`, `percentile`, ...) are on, which the bare amalgamation
-    // leaves out: about 12 KB per raw core on Linux, 17 KB on macOS.
+    // leaves out: about 12 KB per raw core on Linux, 17 KB on macOS. The
+    // `bytecode` and `tables_used` tables are on: what a statement compiles
+    // to, and which tables and indexes it reads and writes, learned without
+    // running it.
     const sqlite_flags = [_][]const u8{
         "-std=c11",
         debug_dir,
@@ -1456,6 +1459,7 @@ fn vendorLibraries(
         "-DSQLITE_ENABLE_FTS5=1",
         "-DSQLITE_ENABLE_MATH_FUNCTIONS=1",
         "-DSQLITE_ENABLE_PERCENTILE=1",
+        "-DSQLITE_ENABLE_BYTECODE_VTAB=1",
     };
     vendorPart(b, &libraries, configuration, target, "sqlite", &.{sqlite}).addCSourceFiles(.{
         .root = sqlite,
