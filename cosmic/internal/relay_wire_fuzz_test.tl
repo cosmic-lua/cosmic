@@ -408,9 +408,10 @@ local function test_a_request_built_from_an_answer_reads_back_the_same(tmp: stri
       end
       Fuzz.label(assert(first.kind))
       local headers: {string} = {}
-      if first.authorization ~= nil then
+      local authorization = first.authorization
+      if authorization ~= nil then
         Fuzz.label("authorization")
-        headers[1] = "Proxy-Authorization: " .. first.authorization
+        headers[1] = "Proxy-Authorization: " .. authorization
       end
       local rebuilt = Fixture.connect(authority_of(assert(first.host), assert(first.kind), assert(first.port)), headers)
       local second = Wire.connect_reader():feed(rebuilt)

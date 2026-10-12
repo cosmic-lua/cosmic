@@ -467,10 +467,11 @@ local function catalog_of(built: compiler, parsed: ast.Parsed): {analyzer.Catalo
   end
   local out: {analyzer.CatalogEntry} = {}
   for _, stmt in ipairs(parsed.node) do
+    local body = stmt.body
     if (stmt.kind == "local_function" or stmt.kind == "record_function") and
-        stmt.body ~= nil then
+        body ~= nil then
       local symbol = symbol_of(stmt)
-      for _, entry in ipairs(catalog_in_body(stmt.body, patterns, symbol)) do
+      for _, entry in ipairs(catalog_in_body(body, patterns, symbol)) do
         out[#out + 1] = entry
       end
     end
@@ -706,6 +707,7 @@ local function docs_of(lines: {string}, parsed: ast.Parsed): {analyzer.DocEntry}
       end
     elseif stmt.kind == "local_declaration" and stmt.vars ~= nil and
         stmt.vars[1] ~= nil then
+      local first = stmt.vars[1]
       local text = doc_before(lines, stmt.comments, stmt.y)
       -- The run above the file's first `local` is the module's (see
       -- [`module_doc`]), never that value's.
@@ -713,7 +715,7 @@ local function docs_of(lines: {string}, parsed: ast.Parsed): {analyzer.DocEntry}
         text = ""
       end
       if #text > 0 then
-        local symbol = stmt.vars[1].tk or ""
+        local symbol = first.tk or ""
         out[#out + 1] = { symbol = symbol, source_symbol = symbol,
           exported = false, kind = "value",
           signature = line_at(lines, stmt.y), text = text, line = stmt.y }
@@ -863,13 +865,14 @@ local function canonicalize_docs(entries: {analyzer.DocEntry}, parsed: ast.Parse
       local public_source = export .. "." .. fn_name.tk
       members[public_source] = public_source
     elseif stmt.kind == "assignment" and stmt.vars ~= nil then
+      local targets = stmt.vars
       local rhs_values: {string} = {}
-      for index in ipairs(stmt.vars) do
+      for index in ipairs(targets) do
         local rhs = stmt.exps ~= nil and stmt.exps[index] or nil
         rhs_values[index] = rhs ~= nil and rhs.kind == "variable" and
           rhs.tk ~= nil and (values[rhs.tk] or "") or ""
       end
-      for index, lhs in ipairs(stmt.vars) do
+      for index, lhs in ipairs(targets) do
         local member = lhs.e2
         if lhs.kind == "op" and lhs.op ~= nil and lhs.op.op == "." and
             lhs.e1 ~= nil and lhs.e1.kind == "variable" and

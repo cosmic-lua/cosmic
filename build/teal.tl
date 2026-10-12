@@ -519,10 +519,11 @@ local function declarations_of(source: string): Declarations
           end
         end
       elseif n.kind == "local_declaration" and n.vars ~= nil and n.exps ~= nil then
+        local exps = n.exps
         local written = n.decltuple ~= nil and n.decltuple.tuple or nil
         if written == nil or #written == 0 then
           for i, name in ipairs(n.vars) do
-            bind(name.tk, (required_module(bound_value(n.exps[i]))))
+            bind(name.tk, (required_module(bound_value(exps[i]))))
           end
         end
       end
@@ -671,15 +672,16 @@ local function scoped_walk(root: ast.Node, visitor: Visitor)
       visit_all(n.exp)
       scopes[#scopes] = nil
     elseif n.args ~= nil and n.body ~= nil then
+      local arguments = n.args
       if kind == "local_function" and n.name ~= nil then
-        declare(n.name.tk, { args = n.args })
+        declare(n.name.tk, { args = arguments })
       end
       scopes[#scopes + 1] = {}
       if n.is_method == true then
         local owner = n.fn_owner
         declare("self", { type_name = owner ~= nil and owner.e1 == nil and owner.tk or nil })
       end
-      for _, argument in ipairs(n.args) do
+      for _, argument in ipairs(arguments) do
         if not argument.is_self then
           declare(argument.tk, { type_name = nominal_name(argument.argtype) })
         end
@@ -1193,9 +1195,10 @@ local function narrowing_hint(e: compiler.Error, source: string): string | nil
     end
     return nil
   end
-  if code == "not_closable" and e.variable ~= nil then
+  local closed = e.variable
+  if code == "not_closable" and closed ~= nil then
     if one_or_nil(e.members) then
-      return "the call may answer nil: `local " .. e.variable .. " <close> = assert(<the call>)` " ..
+      return "the call may answer nil: `local " .. closed .. " <close> = assert(<the call>)` " ..
         "closes what it answers, and raises its error in place of the nil"
     end
     return closable_hint(e.subject or "", source)
@@ -1971,10 +1974,11 @@ function teal.replacement(e: compiler.Error, source: string, file?: string,
   end
   local owner: string | nil = nil
   local option: string | nil = nil
+  local expected_names = e.expected_names
   if wanted_value(e) and e.context == "argument" and e.got == "boolean" and
-      e.expected_names ~= nil and #e.expected_names == 2 and
-      table.concat(e.expected_names, ".") == e.expected then
-    owner, option = e.expected_names[1], e.expected_names[2]
+      expected_names ~= nil and #expected_names == 2 and
+      table.concat(expected_names, ".") == e.expected then
+    owner, option = expected_names[1], expected_names[2]
   end
   if owner ~= nil and option ~= nil then
     local module = module_bound(source, owner)
@@ -1990,11 +1994,11 @@ function teal.replacement(e: compiler.Error, source: string, file?: string,
   local key: string | nil = nil
   local alias: string | nil = nil
   local typename: string | nil = nil
-  if code == "invalid_key" and e.variable ~= nil and e.resolved_kind ~= "interface" and
-      e.key ~= nil and e.key:match("^[%a_][%w_]*$") ~= nil and e.subject ~= nil then
-    local subject = e.subject
+  local wrote, read_through, subject = e.key, e.variable, e.subject
+  if code == "invalid_key" and read_through ~= nil and e.resolved_kind ~= "interface" and
+      wrote ~= nil and wrote:match("^[%a_][%w_]*$") ~= nil and subject ~= nil then
     if subject:match("^[%a_][%w_]*$") ~= nil then
-      key, alias, typename = e.key, e.variable, subject
+      key, alias, typename = wrote, read_through, subject
       if alias == "package" and typename == "package" then
         -- tl's `package` has no field the runtime removed ([`strip`]), and
         -- the catalog says what to write for each.
@@ -2007,7 +2011,7 @@ function teal.replacement(e: compiler.Error, source: string, file?: string,
       -- A module whose record is a local of its own (cosmic.cli's) is
       -- named by its description, `record Module`, not by the alias; the
       -- alias is then what the `require` was bound to.
-      key, alias = e.key, e.variable
+      key, alias = wrote, read_through
       typename = alias
     end
   end

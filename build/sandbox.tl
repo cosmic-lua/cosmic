@@ -619,13 +619,14 @@ local function execute(argv: {integer:string}, io: verb.Io | nil, held: {string}
     local path, why = absolute(request.database, request.cwd)
     sealing = { path = path, why = why, refused = true }
   elseif request.modules ~= nil then
+    local modules = request.modules
     -- The first is the main, which the core runs; the rest are what it
     -- requires, as the program's whole set.
-    if preloaded(request.modules[1]) then
-      sealing = { why = request.modules[1] .. " is the core's own, which has no main to run",
+    if preloaded(modules[1]) then
+      sealing = { why = modules[1] .. " is the core's own, which has no main to run",
         refused = true }
     else
-      sealing = sealed(stored(request.modules), { main = request.modules[1] }, held)
+      sealing = sealed(stored(modules), { main = modules[1] }, held)
     end
   elseif request.closure then
     sealing = seal_script(request.argv[2], request.cwd, held)

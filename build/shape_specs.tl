@@ -466,26 +466,27 @@ function shape_specs.resolve(built: compiler, env: compiler.Env, file: string,
   for _, hit in ipairs(calls) do
     local name = hit.caps["_N"]
     local where = ("%s:%d: %s.record_of"):format(file, hit.node.y, shape)
-    if name == nil or name.kind ~= "string" or name.conststr == nil then
+    local literal = name ~= nil and name.conststr or nil
+    if name == nil or name.kind ~= "string" or literal == nil then
       return nil, where .. ": the name must be a string literal, which the build reads"
     end
     local close = name_end(source, starts, name)
     if close == nil then
       return nil, where .. ": the name must be a plain quoted string with no escape in it"
     end
-    local target, unresolved = resolve(name.conststr, checked, name.y, name.x, aliases, env)
+    local target, unresolved = resolve(literal, checked, name.y, name.x, aliases, env)
     if target == nil then
-      return nil, ("%s(%q): %s"):format(where, name.conststr, unresolved)
+      return nil, ("%s(%q): %s"):format(where, literal, unresolved)
     end
     local at, why = unwrapped(target.type)
     if at == nil or at.typename ~= "record" then
-      return nil, ("%s(%q): %s"):format(where, name.conststr,
+      return nil, ("%s(%q): %s"):format(where, literal,
         at == nil and why or ("it is " .. (at.typename == "enum" and "an enum, which " ..
           shape .. ".one_of checks" or "a " .. at.typename .. ", not a record")))
     end
-    local spec, refusal = spec_of(at, name.conststr, shape, {})
+    local spec, refusal = spec_of(at, literal, shape, {})
     if spec == nil then
-      return nil, ("%s(%q): %s"):format(where, name.conststr, refusal)
+      return nil, ("%s(%q): %s"):format(where, literal, refusal)
     end
     splices[#splices + 1] = { at = close, text = (", %s, function(): %s return nil end"):format(spec, target.spelled) }
   end

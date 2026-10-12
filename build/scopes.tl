@@ -171,8 +171,9 @@ function scopes.walk(parsed: ast.Parsed,
       return
     end
     local receiver, field = n.e1, n.e2
+    local read = field ~= nil and field.tk or nil
     if member ~= nil and n.kind == "op" and n.op ~= nil and n.op.op == "." and receiver ~= nil and
-        field ~= nil and field.tk ~= nil then
+        read ~= nil then
       -- `alias.member`, or a member read straight off the module a
       -- literal `require` names: `require("build.test").run`.
       local module: string | nil = nil
@@ -183,7 +184,7 @@ function scopes.walk(parsed: ast.Parsed,
         module = required_name(receiver)
       end
       if module ~= nil then
-        member(module, field.tk, receiver.y)
+        member(module, read, receiver.y)
       end
     end
     ast.each_child_node(n, back_up, walk_expression)
@@ -216,12 +217,13 @@ function scopes.walk(parsed: ast.Parsed,
         if stmt.exps ~= nil then
           walk_expression(stmt.exps)
         end
-        if stmt.vars ~= nil then
+        local vars = stmt.vars
+        if vars ~= nil then
           -- A `require` a local or a parameter shadows is no import. A
           -- `local type`'s is read by the compiler whatever is in scope.
           local module = bound(stack, "require") and "" or alias_of(stmt)
           local declared = stmt.decltuple ~= nil and stmt.decltuple.tuple or nil
-          for index, var in ipairs(stmt.vars) do
+          for index, var in ipairs(vars) do
             local made = declare(var.tk, module, math.maxinteger, head_of(stmt),
               declared ~= nil and declared[index] ~= nil)
             if made ~= nil then pending[#pending + 1] = made end

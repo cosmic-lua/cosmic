@@ -574,7 +574,8 @@ local function one_line(node: flow.Node, column: integer, after: integer): boole
       return false
     end
   end
-  return node.width == nil or column + #inline_text(node) + after <= node.width
+  local width = node.width
+  return width == nil or column + #inline_text(node) + after <= width
 end
 
 local function comment_lines(out: {string}, entries: {string}, pad: string)

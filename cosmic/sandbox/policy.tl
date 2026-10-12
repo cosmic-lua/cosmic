@@ -346,8 +346,9 @@ local function invalid(p: rules.Policy, exact: boolean): string
   if p.group ~= nil and p.user == nil then
     return at("/group", "a group is given with a user")
   end
-  if p.database ~= nil then
-    local path = p.database.path
+  local given = p.database
+  if given ~= nil then
+    local path = given.path
     if path == "" or path:find("\0", 1, true) then
       return at("/database/path", "a path is not empty and holds no NUL")
     end
@@ -360,7 +361,7 @@ local function invalid(p: rules.Policy, exact: boolean): string
         return at("/database/path", "\"..\" is not allowed; name the file itself")
       end
     end
-    local digest = p.database.sha256
+    local digest = given.sha256
     if digest ~= nil and not (digest:find("^%x+$") and #digest == 64 and digest:lower() == digest) then
       return at("/database/sha256", "a digest is 64 lowercase hex digits")
     end
@@ -602,9 +603,10 @@ function rules.merge(...: rules.Policy): rules.Policy | nil, string
   local user, group: integer, integer
   local database: rules.Database | nil = nil
   for _, p in ipairs(flat) do
-    if p.database ~= nil then
-      local at = clean_path(p.database.path)
-      local digest = p.database.sha256
+    local named = p.database
+    if named ~= nil then
+      local at = clean_path(named.path)
+      local digest = named.sha256
       if database ~= nil and database.path ~= at then
         return refuse("database is given two values, " .. database.path .. " and " .. at)
       end

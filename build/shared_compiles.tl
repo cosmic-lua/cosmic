@@ -549,9 +549,10 @@ function shared_compiles.for_build(environment?: {string:string}): importer.Shar
   local owed: shared_compiles.Owed = { kept = {}, used = {}, parses = {}, parses_used = {} }
   return {
     look = function(m: importer.Module, own_tree: boolean): importer.Shared.Compile | nil
-      if cache == nil then return nil end
+      local held = cache
+      if held == nil then return nil end
       local key = shared_compiles.key(assert(m.key), own_tree, m.generated)
-      local found, look_trouble = shared_compiles.look(cache, key)
+      local found, look_trouble = shared_compiles.look(held, key)
       if found == nil then
         if look_trouble ~= "" then drop(look_trouble) end
         return nil
@@ -607,13 +608,14 @@ function shared_compiles.for_build(environment?: {string:string}): importer.Shar
       })
     end,
     finish = function()
-      if cache == nil then return end
-      local settled, settle_trouble = shared_compiles.settle(cache, owed, Clock.now_ns())
+      local held = cache
+      if held == nil then return end
+      local settled, settle_trouble = shared_compiles.settle(held, owed, Clock.now_ns())
       if not settled then
         drop(settle_trouble)
         return
       end
-      shared_compiles.close(cache)
+      shared_compiles.close(held)
       cache = nil
     end,
   }

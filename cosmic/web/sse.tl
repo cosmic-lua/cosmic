@@ -405,7 +405,8 @@ function Body.read(self: Body, max_bytes?: integer): string | nil, string
       end
       self.pending = text
     elseif why == Poll.TIMEOUT then
-      if self.deadline == nil or Clock.monotonic_ns() < self.deadline then
+      local deadline = self.deadline
+      if deadline == nil or Clock.monotonic_ns() < deadline then
         self.pending = HEARTBEAT
       end
     elseif why == "" then
@@ -519,7 +520,8 @@ local function event_stream(req: Types.Request, source: Sse.EventSource,
     on_close = given.on_close, pending = "", started = false, held = false, done = false, waiting = false,
     prologue = prologue, read = Body.read, close = Body.close,
   }
-  if given.max_age_ns ~= nil then body.deadline = Clock.monotonic_ns() + given.max_age_ns end
+  local max_age_ns = given.max_age_ns
+  if max_age_ns ~= nil then body.deadline = Clock.monotonic_ns() + max_age_ns end
   local guard: Guard = {}
   local guard_mt: metatable<Guard> = { __close = function()
     if body.waiting then

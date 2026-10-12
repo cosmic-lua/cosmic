@@ -516,14 +516,17 @@ local function exchange(s: Serving, conn: Net.Conn, input: wire.Input, head: wir
     if body.state == "open" then linger(conn) end
     return false
   end
-  local close = reply.close == true or head.close or s.stopping
+  -- A handler's closure assigns `reply`, so a call may undo the check
+  -- above: the rest reads this copy.
+  local given_reply: Server.Reply = reply
+  local close = given_reply.close == true or head.close or s.stopping
   -- A client still waiting for `100 Continue` sends its body only once
   -- told to, or not at all. A Reader reply may read the request's body
   -- as it goes, so the client is told now; after another, what follows
   -- on the connection is unknown, and it closes.
   if head.continue and not continued and body.state == "open" then
-    local given = reply.body
-    local sends_body = head.method ~= "HEAD" and reply.status ~= 204 and reply.status ~= 304
+    local given = given_reply.body
+    local sends_body = head.method ~= "HEAD" and given_reply.status ~= 204 and given_reply.status ~= 304
     if given ~= nil and not given is string and sends_body and not close then
       go_on()
     else
@@ -535,7 +538,8 @@ local function exchange(s: Serving, conn: Net.Conn, input: wire.Input, head: wir
   local sent: wire.Sent | nil = nil
   local sending, raised_sending: boolean, any = xpcall(function()
     sent = wire.send(conn, {
-      status = reply.status, headers = reply.headers, body = reply.body, length = reply.length,
+      status = given_reply.status, headers = given_reply.headers, body = given_reply.body,
+      length = given_reply.length,
       close = close, method = head.method, version = head.version,
       date = Time.format_http(Clock.now_ns()),
     })
@@ -547,13 +551,14 @@ local function exchange(s: Serving, conn: Net.Conn, input: wire.Input, head: wir
     return false
   end
   -- The send answered once it did not raise.
-  if sent == nil then return false end
+  local result = sent
+  if result == nil then return false end
   local failed = body.state ~= "open" and body.state ~= "done"
-  if sent.body_failure ~= "" and not failed then
-    report(s, "http: " .. where .. ": the reply's body: " .. sent.body_failure)
+  if result.body_failure ~= "" and not failed then
+    report(s, "http: " .. where .. ": the reply's body: " .. result.body_failure)
   end
-  if sent.close then
-    if sent.write_failure == "" and body.state == "open" then linger(conn) end
+  if result.close then
+    if result.write_failure == "" and body.state == "open" then linger(conn) end
     return false
   end
   -- A reply Reader that read the request's body may have ended cleanly
