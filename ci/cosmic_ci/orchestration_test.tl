@@ -132,6 +132,15 @@ local function test_provenance_failures_are_durable(tmp: string)
   assert(not Fixture.call("corrupt-attestation", append(base, { "provenance" }), project,
     tmp .. "/logs", context(candidate, corrupt_runner_temp)).result.ok)
 
+  -- No product to compare is told so, rather than counted in a message
+  -- built before the check.
+  local empty_runner_temp = tmp .. "/empty-runner-temp"
+  assert(Fs.mkdirs(empty_runner_temp .. "/cosmic-ci/products"))
+  local empty = Fixture.call("empty-provenance", append(base, { "provenance" }), project,
+    tmp .. "/logs", context(candidate, empty_runner_temp))
+  assert(not empty.result.ok)
+  assert(assert(Fs.read(empty.err)):find("no product to compare", 1, true) ~= nil)
+
   local missing_runner_temp = seeded_runner_temp("missing")
   assert(Fs.remove(
     missing_runner_temp .. "/cosmic-ci/products/portable-product-b/executed-cosmic.sha256"))
