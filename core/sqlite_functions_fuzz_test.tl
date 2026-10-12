@@ -422,11 +422,14 @@ end
 --- The ways a file can damage an R*Tree, each on a tree of one to three
 --- levels: a depth header that lies, a child pointer sent anywhere, bytes
 --- overwritten inside a node, a node cut short or run long, a
---- `_parent` or `_rowid` row moved or dropped, and a wide root whose every
+--- `_parent` or `_rowid` row moved or dropped, a wide root whose every
 --- cell points back at itself over a `_node` table padded with rows the
---- tree never reaches, which costs a check that may read a node more than
---- once the root's cells times the table's rows.
-local DAMAGES <const> = { "depth", "child", "bytes", "length", "parent", "rowid", "wide" }
+--- tree never reaches, or at its own row of a node number 2^32 from the
+--- next, and a node numbered 0 or -1 whose cells point at itself below a
+--- root whose depth header lies. A check that may read a node more than
+--- once, hashes node numbers by their low bits, or lets numbers below 1
+--- past its set, takes minutes or more on one of them.
+local DAMAGES <const> = { "depth", "child", "bytes", "length", "parent", "rowid", "wide", "below" }
 
 --- A file holding an R*Tree damaged in one of those ways, written to
 --- disk and opened again, so a damaged root reaches the table's connect
@@ -493,15 +496,33 @@ local function test_rtree_survives_damaged_trees(tmp: string)
           { { integer = pick % 7 - 2 }, { integer = nodeno } }
       elseif damage == "wide" then
         local cells, padding = 4096 + pick % 61440, 1000 + (pick >> 16) % 19000
-        local cell = string.pack(">i8", 1) .. string.rep("\0", 16)
+        local apart = #bytes > 0 and bytes:byte(1) % 2 == 1
+        local parts: {string} = {}
         assert(db:exec("BEGIN"))
-        for i = 1, padding do
-          assert(Sqlite.run(db, "INSERT INTO b_node VALUES (?1, x'00000000')",
-            { { integer = #nodes + 100 + i } }))
+        if apart then
+          for i = 1, cells do
+            local child = 2 + i * (1 << 32)
+            assert(Sqlite.run(db, "INSERT INTO b_node VALUES (?1, x'00000000')", { { integer = child } }))
+            parts[i] = string.pack(">i8", child) .. string.rep("\0", 16)
+          end
+        else
+          for i = 1, padding do
+            assert(Sqlite.run(db, "INSERT INTO b_node VALUES (?1, x'00000000')",
+              { { integer = #nodes + 100 + i } }))
+          end
+          parts[1] = string.rep(string.pack(">i8", 1) .. string.rep("\0", 16), cells)
         end
         assert(db:exec("COMMIT"))
         sql, values = "UPDATE b_node SET data = ?1 WHERE nodeno = 1",
-          { { blob = string.pack(">I2>I2", 1 + pick % 3, cells) .. string.rep(cell, cells) } }
+          { { blob = string.pack(">I2>I2", apart and 1 or 1 + pick % 3, cells) .. table.concat(parts) } }
+      elseif damage == "below" then
+        local below = -(pick % 2)
+        local cell = string.pack(">i8", below) .. string.rep("\0", 16)
+        assert(Sqlite.run(db, "INSERT INTO b_node VALUES (?1, ?2)",
+          { { integer = below }, { blob = string.pack(">I2>I2", 0, 2) .. cell .. cell } }))
+        local cells = math.max(string.unpack(">I2", root, 3), 2)
+        sql, values = "UPDATE b_node SET data = ?1 WHERE nodeno = 1",
+          { { blob = string.pack(">I2>I2", 40, cells) .. cell .. cell .. root:sub(4 + 2 * 24 + 1) } }
       else
         sql, values = pick % 2 == 0 and "DELETE FROM b_rowid WHERE rowid = ?2" or
           "UPDATE b_rowid SET nodeno = ?1 WHERE rowid = ?2",
@@ -535,7 +556,7 @@ local function test_rtree_survives_damaged_trees(tmp: string)
       return true, ""
     end,
     requires = { "a tree of more than one level", "rtreecheck reported the damage",
-      "damaged depth", "damaged child", "damaged wide" },
+      "damaged depth", "damaged child", "damaged wide", "damaged below" },
     shares = { ["a tree of more than one level"] = 0.3, ["rtreecheck reported the damage"] = 0.3 },
   })
 end

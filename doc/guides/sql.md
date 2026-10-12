@@ -21,9 +21,10 @@ not run what its author chose:
   `highlight`, `snippet`, `fts5()` and `fts5_get_locale`, `MATCH` against
   an FTS5 table, `rtreecheck`, `rtreenode` and `rtreedepth`, and the
   `pragma_*` and `fts5vocab` tables. A trigger may still write to an FTS5
-  table or an R*Tree, and a view may still read an R*Tree. `PRAGMA trusted_schema = 1` on a
-  [`cosmic.sqlite`] handle allows these again, for a file the caller
-  trusts; a [`cosmic.store`] handle, which answers queries alone, refuses it.
+  table or an R*Tree, and a view may still read an R*Tree.
+  `PRAGMA trusted_schema = 1` on a [`cosmic.sqlite`] handle allows these
+  again, for a file the caller trusts; a [`cosmic.store`] handle, which
+  answers queries alone, refuses it.
 
 ```teal
 local Sqlite = require("cosmic.sqlite")
@@ -257,12 +258,14 @@ within another.
 - `rtreecheck(T)`: `ok`, or what is wrong with the R*Tree T's structure;
   `rtreecheck(S, T)` checks T in schema S. A T that is not an R*Tree
   fails the query. The check reads each node once: a damaged tree that
-  leads it back to a node it has read is reported, not walked again.
+  leads it back to a node it has read, or to a node number below 1, is
+  reported, not walked.
 - `rtreenode(D, B)`: an R*Tree node of D dimensions, from its blob in the
   `_node` table, as text, its coordinates read as 32-bit reals even for
   `rtree_i32`; NULL for D outside 1 to 5 or a blob too short to be a
   node.
-- `rtreedepth(B)`: the depth of an R*Tree, from its root node's blob.
+- `rtreedepth(B)`: the depth of an R*Tree, from its root node's blob; a
+  B that is not a blob of at least 2 bytes fails the query.
 
 ## introspection
 

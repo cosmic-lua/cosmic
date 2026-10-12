@@ -1,25 +1,60 @@
 file: sqlite3.c
-note: The set of nodes the check's walk has read (05-rtree-check-reads-each-node-once.txt), open-addressed by a multiplicative hash of the node number. Only a node read from %_node is added, so it holds no more nodes than %_node has rows, half its slots at most, and a probe always reaches an empty slot.
+note: The set of nodes the check's walk has read (05-rtree-check-reads-each-node-once.txt), open-addressed by the high bits of a multiplicative hash of the node number, as the low bits of the product depend only on the number's low bits and numbers that share them would share a slot. A slot of 0 is empty, and no number below 1 enters the set. The set doubles before an add would fill more than half its slots, so a probe always reaches an empty slot; a set that cannot grow fails the check as out of memory.
 --- find
 static void rtreeCheckNode(
   RtreeCheck *pCheck,
 --- replace
 /*
-** Whether node iNode is in pCheck's set of nodes the walk has read, and,
-** if bAdd, put it there. A node number below 1 names no node and is
-** never in the set.
+** The slot of aSeen, which has 1<<nBit slots, that holds iNode, or the
+** empty slot where iNode would go.
 */
-static int rtreeCheckSeen(RtreeCheck *pCheck, i64 iNode, int bAdd){
-  sqlite3_uint64 mask, h;
-  if( iNode<1 || pCheck->aSeen==0 ) return 0;
-  mask = (sqlite3_uint64)pCheck->nSeenSlot - 1;
-  h = ((sqlite3_uint64)iNode * 0x9E3779B97F4A7C15ULL) & mask;
-  while( pCheck->aSeen[h] ){
-    if( pCheck->aSeen[h]==iNode ) return 1;
+static i64 *rtreeCheckSlot(i64 *aSeen, int nBit, i64 iNode){
+  sqlite3_uint64 mask = ((sqlite3_uint64)1<<nBit) - 1;
+  sqlite3_uint64 h = ((sqlite3_uint64)iNode * 0x9E3779B97F4A7C15ULL) >> (64-nBit);
+  while( aSeen[h] && aSeen[h]!=iNode ){
     h = (h+1) & mask;
   }
-  if( bAdd ) pCheck->aSeen[h] = iNode;
-  return 0;
+  return &aSeen[h];
+}
+
+/*
+** Whether node iNode, 1 or above, is in pCheck's set of nodes the walk
+** has read.
+*/
+static int rtreeCheckSeen(RtreeCheck *pCheck, i64 iNode){
+  assert( iNode>=1 );
+  if( pCheck->aSeen==0 ) return 0;
+  return *rtreeCheckSlot(pCheck->aSeen, pCheck->nSeenBit, iNode)!=0;
+}
+
+/*
+** Put node iNode, 1 or above and not yet in the set, in pCheck's set of
+** nodes the walk has read, doubling the set first if the add would fill
+** more than half its slots.
+*/
+static void rtreeCheckAddSeen(RtreeCheck *pCheck, i64 iNode){
+  assert( iNode>=1 );
+  if( pCheck->aSeen==0 || 2*(pCheck->nSeen+1)>((i64)1<<pCheck->nSeenBit) ){
+    int nBit = pCheck->aSeen ? pCheck->nSeenBit+1 : 4;
+    i64 nOld = pCheck->aSeen ? ((i64)1<<pCheck->nSeenBit) : 0;
+    i64 *aNew = sqlite3_malloc64(sizeof(i64)*((i64)1<<nBit));
+    i64 i;
+    if( aNew==0 ){
+      pCheck->rc = SQLITE_NOMEM;
+      return;
+    }
+    memset(aNew, 0, sizeof(i64)*((i64)1<<nBit));
+    for(i=0; i<nOld; i++){
+      if( pCheck->aSeen[i] ){
+        *rtreeCheckSlot(aNew, nBit, pCheck->aSeen[i]) = pCheck->aSeen[i];
+      }
+    }
+    sqlite3_free(pCheck->aSeen);
+    pCheck->aSeen = aNew;
+    pCheck->nSeenBit = nBit;
+  }
+  *rtreeCheckSlot(pCheck->aSeen, pCheck->nSeenBit, iNode) = iNode;
+  pCheck->nSeen++;
 }
 
 static void rtreeCheckNode(

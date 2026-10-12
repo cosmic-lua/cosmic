@@ -315,6 +315,11 @@ local function test_rtree_finds_the_boxes_a_box_overlaps()
   assert(table.concat(rows[1], " ") == "1 1 1", table.concat(rows[1], " "))
   rows = assert(Sqlite.text_rows(handle, "SELECT rtreecheck('boxes'), rtreecheck('spans')"))
   assert(rows[1][1] == "ok" and rows[1][2] == "ok", rows[1][1] .. " " .. rows[1][2])
+  rows = assert(Sqlite.text_rows(handle, "SELECT rtreedepth(data) FROM boxes_node WHERE nodeno = 1"))
+  assert(rows[1][1] == "0", rows[1][1])
+  for _, b in ipairs({ "x'01'", "'text'" }) do
+    assert(Sqlite.text_rows(handle, "SELECT rtreedepth(" .. b .. ")") == nil, b)
+  end
   handle:close()
 end
 
