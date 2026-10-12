@@ -45,7 +45,7 @@ local function shell(promises: {string}, script: string): integer
   local pid, trouble = process.spawn(SHELL, { SHELL, "-c", script }, {}, nil, nil, nil, nil,
     false, nil, { promises = promises })
   if pid == nil then Test.skip("the kernel gives no seccomp filter: " .. tostring(trouble)) end
-  return assert(process.waitpid(pid, false)).code
+  return assert(process.waitpid(assert(pid), false)).code
 end
 
 local function test_a_dynamic_program_starts_under_the_basics()
