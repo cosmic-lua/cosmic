@@ -198,11 +198,14 @@ local function notice_text(directory: string, notice: bom.Notice): string | nil,
 end
 
 --- The files of the tree that descend whole from a vendored tree, by its
---- name: the binary carries the compile of the checker ([`checker/tl.tl`])
---- and of the standard library's declarations ([`checker/stdlib.d.tl`]),
+--- name: the binary carries the compile of the checker ([`checker/tl.tl`]
+--- and [`checker/flow.tl`]) and of the standard library's declarations
+--- ([`checker/stdlib.d.tl`]),
 --- which descend from tl, not tl's own source. They are listed with the
 --- tree's patches, as modified rather than patched.
-local descendants: {string:{string}} = { tl = { "checker/tl.tl", "checker/stdlib.d.tl" } }
+local descendants: {string:{string}} = {
+  tl = { "checker/tl.tl", "checker/flow.tl", "checker/stdlib.d.tl" },
+}
 
 --- The tree's `descendants`, then the files under `patch/<name>/`, each
 --- with its sha256, one per line.
