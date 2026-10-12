@@ -199,6 +199,11 @@ local function cell_of(text: string): any
 end
 
 --- A reader of the delimited text `Csv` reads with `delimiter`.
+-- TODO: copy a csv file through Csv.load, which reads it in C, about 15
+-- times faster on a million rows, once `load` can write the `_json`
+-- column each row here has (json_object over its typed columns): until
+-- then `--from` reads it here a row at a time. A tsv waits also on
+-- SQLite's CSV table taking a delimiter.
 local function delimited(name: string, delimiter: string): function(text: string, opts: dataset.ReadOptions): dataset.Rows | nil, string
   return function(text: string, opts: dataset.ReadOptions): dataset.Rows | nil, string
     if opts.at ~= nil then

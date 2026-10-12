@@ -12,9 +12,10 @@ A caller's own SQL may use every name here. A view or trigger that a
 database file holds may not use some of them, so that reading a file does
 not run what its author chose:
 
-- `bytecode`, `tables_used`, `dbstat`, cosmic's own functions, `base64`,
-  `base85`, `sha1_query`, `sha3_query` and `sqlite_log` are direct-only:
-  only the caller's own SQL uses them.
+- `bytecode`, `tables_used`, `dbstat`, `csv`, cosmic's own functions,
+  `base64`, `base85`, `sha1_query`, `sha3_query` and `sqlite_log` are
+  direct-only: only the caller's own SQL uses them. A `csv` table may
+  only be made in the `temp` schema, which no database file holds.
 - The rest that SQLite does not mark innocuous, since cosmic turns
   SQLite's [`trusted_schema`](https://sqlite.org/pragma.html#pragma_trusted_schema)
   off on every handle: the percentile aggregates, FTS5's `bm25`,
@@ -267,6 +268,30 @@ within another.
 - `rtreedepth(B)`: the depth of an R*Tree, from its root node's blob; a
   B that is not a blob of at least 2 bytes fails the query.
 
+## CSV
+
+- `csv`: SQLite's [CSV virtual table](https://sqlite.org/csv.html), made
+  only in the `temp` schema: `CREATE VIRTUAL TABLE temp.t USING
+  csv(filename='rows.csv')`, or `data='...'` for the text itself. Its
+  columns are `c0`, `c1`, ... and its first record is row 1, unless
+  `header=yes` names the columns from its first line, or `schema=` names
+  them. Every cell is TEXT. [`cosmic.csv`]'s `load` copies a CSV
+  into a table through it, naming and typing the columns.
+
+  It reads as [`cosmic.csv`] reads, with a comma between fields: a quoted
+  field holds commas, quotes as `""` and line breaks; a record ends at LF
+  or CRLF, and a lone CR is data; a UTF-8 byte order mark at the start is
+  dropped. A blank line is a row of NULLs, an empty field `''`, and a
+  field a record lacks NULL. The width is `columns=N`, or else the field
+  count of the first record, which without `header=yes` or `schema=` is
+  the first that is not a blank line; then a wider record fails the
+  query, and with `columns=` or `schema=` its fields past the width are
+  dropped. A quote inside an unquoted field, anything but a comma or a
+  line end after a closing quote, a quote never closed, a NUL byte in a
+  file's record, and a file that cannot be read fail the query, naming
+  the line or record where the reader knows it; with `header=yes`, lines
+  count from the one after the header.
+
 ## bound lists
 
 - `carray(?N)`: a table of the elements of the list bound at parameter
@@ -420,6 +445,7 @@ and `decimal` and `uint` from [SQLite's extensions](#sqlites-extensions).
   Everything else compares as bytes, signs and decimal points too: `'-5'`
   differs from `'5'`, and `'a1.05' = 'a1.5' COLLATE uint`.
 
+[`cosmic.csv`]: ../../cosmic/csv.tl
 [`cosmic.hash`]: ../../cosmic/hash.tl
 [`cosmic.json`]: ../../cosmic/json.tl
 [`cosmic.sqlite`]: ../../cosmic/sqlite.tl

@@ -1,0 +1,28 @@
+file: ext/misc/csv.c
+note: When the file cannot be opened as a query starts (it was moved or deleted since the table was made), xOpen fails after handing SQLite the cursor, and SQLite frees no cursor whose xOpen failed: 328 bytes leak per query. This frees it and hands SQLite none. Upstream leaks it as of 3.54.0.
+--- find
+  memset(pCur, 0, nByte);
+  pCur->azVal = (char**)&pCur[1];
+  pCur->aLen = (i64*)&pCur->azVal[pTab->nCol];
+  *ppCursor = &pCur->base;
+  if( csv_reader_open(&pCur->rdr, pTab->zFilename, pTab->zData) ){
+    csv_xfer_error(pTab, &pCur->rdr);
+    return SQLITE_ERROR;
+  }
+  return SQLITE_OK;
+}
+
+--- replace
+  memset(pCur, 0, nByte);
+  pCur->azVal = (char**)&pCur[1];
+  pCur->aLen = (i64*)&pCur->azVal[pTab->nCol];
+  if( csv_reader_open(&pCur->rdr, pTab->zFilename, pTab->zData) ){
+    csv_xfer_error(pTab, &pCur->rdr);
+    sqlite3_free(pCur);
+    return SQLITE_ERROR;
+  }
+  *ppCursor = &pCur->base;
+  return SQLITE_OK;
+}
+
+--- end

@@ -1,0 +1,10 @@
+file: ext/misc/csv.c
+note: The table notes when its width comes from its first record, neither columns= nor schema= given (20-csv-keeps-whether-its-width-is-the-first-records.txt).
+--- find
+  memset(pNew, 0, sizeof(*pNew));
+  if( CSV_SCHEMA==0 ){
+--- replace
+  memset(pNew, 0, sizeof(*pNew));
+  pNew->bFirstWidth = nCol<0 && CSV_SCHEMA==0;
+  if( CSV_SCHEMA==0 ){
+--- end

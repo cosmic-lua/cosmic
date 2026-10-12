@@ -1,0 +1,31 @@
+file: ext/misc/csv.c
+note: The reader records a stray quote, an unterminated quoted field, a failed allocation and (10-csv-reads-0xff-and-reports-a-read-error.txt) a read error, but nothing reports them during a scan: the statement succeeds with rows split, shifted, merged or cut short, and `"a"bc,d` loses `b` and `d`. This fails the statement with the reader's message. Clearing a short row's unread columns stops at the first that holds nothing, since the filled ones are a prefix: upstream clears every column on every short row, which a wide first line and many blank lines make quadratic. Upstream reads so as of 3.54.0.
+--- find
+      i++;
+    }
+  }while( pCur->rdr.cTerm==',' );
+  if( z==0 && i==0 ){
+    pCur->iRowid = -1;
+  }else{
+    pCur->iRowid++;
+    while( i<pTab->nCol ){
+      sqlite3_free(pCur->azVal[i]);
+      pCur->azVal[i] = 0;
+      pCur->aLen[i] = 0;
+--- replace
+      i++;
+    }
+  }while( pCur->rdr.cTerm==',' );
+  if( pCur->rdr.zErr[0] ){
+    csv_xfer_error(pTab, &pCur->rdr);
+    return SQLITE_ERROR;
+  }
+  if( z==0 && i==0 ){
+    pCur->iRowid = -1;
+  }else{
+    pCur->iRowid++;
+    while( i<pTab->nCol && pCur->azVal[i]!=0 ){
+      sqlite3_free(pCur->azVal[i]);
+      pCur->azVal[i] = 0;
+      pCur->aLen[i] = 0;
+--- end
