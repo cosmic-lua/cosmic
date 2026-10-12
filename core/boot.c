@@ -49,8 +49,9 @@ static int run_bridge (lua_State *L, const char *root) {
 
 /* Loads the vendored compiler (`tl_dir`/tl.lua) under the environment the
  * bridge built, then has it compile the tree's own checker, `root`/
- * checker/tl.tl (the bridge's `bootstrap`): leaves that checker, and the
- * Lua it was compiled to, on the stack. */
+ * checker/tl.tl (the bridge's `bootstrap`, which is told where tl.lua is
+ * too, to key what it keeps): leaves that checker, and the Lua it was
+ * compiled to, on the stack. */
 static int run_compiler (lua_State *L, const char *root, const char *tl_dir,
                          int bridge) {
   char path[4096];
@@ -75,7 +76,8 @@ static int run_compiler (lua_State *L, const char *root, const char *tl_dir,
   lua_getfield(L, bridge, "bootstrap");
   lua_insert(L, -2);
   lua_pushstring(L, source);
-  if (lua_pcall(L, 2, 2, 0) != LUA_OK) {
+  lua_pushstring(L, tl_dir);
+  if (lua_pcall(L, 3, 2, 0) != LUA_OK) {
     return report(L, "the compiler would not compile itself");
   }
   return 0;
