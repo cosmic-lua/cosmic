@@ -210,8 +210,8 @@ local function test_an_archive_extracts_and_a_walk_lists_as_declared(tmp: string
     assert(#written == 2)
     assert(#assert(Archive.extract(tmp .. "/a.tar", tmp .. "/again", { strip_prefix = "top" })) == 2)
     -- A whole number held as a float counts as the integer does.
-    local float = assert(load("return ...")) as function(number): integer
-    assert(#assert(Archive.extract(tmp .. "/a.tar", tmp .. "/float", { strip_components = float(1.0) })) == 2)
+    local whole = (assert(load("return 1.0")))() as integer
+    assert(#assert(Archive.extract(tmp .. "/a.tar", tmp .. "/float", { strip_components = whole })) == 2)
     assert(#assert(Fs.walk(tmp .. "/out")) >= 2)
     assert(#assert(Fs.walk_following(tmp .. "/out")) >= 2)
     assert(#assert(Fs.walk(tmp .. "/out", function(_: string, name: string): boolean

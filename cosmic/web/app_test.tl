@@ -177,7 +177,7 @@ end
 
 local function test_a_raise_is_a_500_that_tells_the_client_nothing()
   local sink, lines = recording()
-  local seen_status: integer = nil
+  local seen_status: integer | nil = nil
   local app = Web.app{
     routes = { Web.get("/boom", function(_req: Web.Request): Web.Response
       error("secret detail <b>")
@@ -374,10 +374,12 @@ local function test_url_for_resolves_names_on_the_app()
   assert(none == nil and why:find("no route named", 1, true), why)
 end
 
+local absent: {string:any} = {}
+
 local function test_on_stop_takes_a_function_and_stopping_starts_false()
   local app = Web.app{ routes = {} }
   assert(app:stopping() == false)
-  assert(raised(function() app:on_stop(nil as function()) end):find("takes a function", 1, true))
+  assert(raised(function() app:on_stop(absent.fn as function()) end):find("takes a function", 1, true))
 end
 
 --- A middleware that aborts every request with 403 before its handler.
