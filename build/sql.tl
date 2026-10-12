@@ -991,9 +991,8 @@ end
 
 --- The `sql` verb as [`build/verb_list.tl`] lists it. Never stale-checked,
 --- unlike `db`: a staleness check stages the tree, and this verb reads
---- the build directory's databases and nothing of the tree. It gives its own verdict on every exit, a
---- usage error included, so the check main runs after a verdictless exit
---- 2 never runs for it (build/verbs_store_test.tl's
+--- the build directory's databases and nothing of the tree, so not after
+--- a refused command line either (`checks_stale`; build/verbs_store_test.tl's
 --- test_sql_never_stages_the_tree).
 sql.spec = {
   name = "sql",
@@ -1001,6 +1000,7 @@ sql.spec = {
   tests = { "build.sql_test", "build.sql_tool_test", "build.sql_store_test" },
   run = function(argv: {integer:string}): integer return sql.run(argv) end,
   bare = false,
+  checks_stale = false,
   takes = "one statement",
 }
 
