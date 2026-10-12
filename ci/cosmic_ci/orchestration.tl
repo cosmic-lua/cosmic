@@ -1332,8 +1332,7 @@ end
 
 --- The test files under cosmic/, build/, core/ and eval/ that watch the
 --- declared types of the standard library and of the modules beside those
---- tests
---- (`*declared_types_test.tl`, which a later directory's change adds files
+--- tests (`*declared_types_test.tl`, which a later directory's change adds files
 --- to without touching CI), by their path in the checkout.
 function Orchestration.declared_types_files(root: string): {string}
   local files: {string} = {}

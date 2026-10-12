@@ -59,7 +59,7 @@ local record Multipart
     --- The `filename` of its Content-Disposition reduced to its last path
     --- component; nil for a part with none (a text field), "" for an empty
     --- one (a browser's file input left blank).
-    filename: string
+    filename?: string
     --- Its Content-Type as sent; "text/plain" when it sent none.
     content_type: string
     --- The part's bytes, read as they arrive. It ends at the part's end

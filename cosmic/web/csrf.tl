@@ -87,7 +87,7 @@ local record Csrf
     --- of another origin is refused either way.
     strict_same_site?: boolean
     --- Requests this answers true for are not checked (nil).
-    exempt: function(Types.Request): boolean
+    exempt?: function(Types.Request): boolean
     --- Skip the token layer for a request with `Authorization: Bearer` (true).
     bearer_exempt?: boolean
     --- Answers a refused request, given why ("origin", "cross-site",

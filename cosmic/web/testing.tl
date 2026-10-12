@@ -25,7 +25,7 @@ local record Testing
     secure: boolean
     --- When it lapses in ns since the epoch (`Max-Age` first, else
     --- `Expires`); nil for a session cookie, kept as long as the client.
-    expires_ns: integer
+    expires_ns?: integer
   end
 
   --- An app driven in-process: see [`Testing.test_client`].

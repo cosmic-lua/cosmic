@@ -352,5 +352,5 @@ local function test_a_huge_max_age_does_not_overflow_into_a_lapsed_cookie()
   local client = Web.test_client(app)
   client:get("/set")
   assert(client:get("/see"):text() == "a=1")
-  assert(client.attrs.a.expires_ns > 0)
+  assert(assert(client.attrs.a.expires_ns) > 0)
 end

@@ -9,6 +9,7 @@
 local Archive = require("cosmic.archive")
 local Fs = require("cosmic.fs")
 local Json = require("cosmic.json")
+local Multipart = require("cosmic.http.multipart")
 local Sandbox = require("cosmic.sandbox")
 local Server = require("cosmic.http.server")
 local Shape = require("cosmic.shape")
@@ -231,5 +232,34 @@ local function test_a_zip_entry_without_extra_bytes_reads_as_declared()
       local body = assert(entry:open())
       assert((assert(Stream.read_all(body))) == "hello there")
     end
+  end)
+end
+
+--- A field that is optional in its declaration, left out: a text part with no filename and a cookie with no
+--- expiry are each as declared.
+local function test_a_field_left_out_is_as_declared()
+  honest("optional fields", function()
+    local body = "--b\r\nContent-Disposition: form-data; name=\"t\"\r\n\r\nv\r\n--b\r\n" ..
+      "Content-Disposition: form-data; name=\"f\"; filename=\"x.txt\"\r\n\r\nw\r\n--b--\r\n"
+    local reader = assert(Multipart.reader(Stream.from_string(body), { boundary = "b" }))
+    local names: {string} = {}
+    while true do
+      local part, why = reader:next_part()
+      if part == nil then
+        assert(why == "", why)
+        break
+      end
+      assert(Stream.read_all(part.body))
+      names[#names + 1] = part.name .. "=" .. tostring(part.filename)
+    end
+    assert(table.concat(names, ",") == "t=nil,f=x.txt", table.concat(names, ","))
+    local app = Web.app{ routes = { Web.get("/", function(_req: Web.Request): Web.Response
+      local res = Web.text("ok")
+      Web.add_header(res, "Set-Cookie", "a=1")
+      return res
+    end) } }
+    local client <close> = Web.test_client(app)
+    assert(client:get("/").status == 200)
+    assert(client.attrs.a.expires_ns == nil)
   end)
 end
