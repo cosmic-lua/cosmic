@@ -8,8 +8,8 @@
 ---
 --- A function that names `x` is not a read where it is made but where it is
 --- called, and what may call it is any code of the program's that runs while
---- it exists: each call the program makes (`use`, `cond`, `count`; one that
---- never returns, `stop`, is not one), the `return` that lets it out and the
+--- it exists: each call the program makes (`use`, `cond`, `count`, and `stop`, which
+--- never returns and so lets them out), the `return` that lets it out and the
 --- end of the function. The run is that: every call, and the end, calls every
 --- function made so far, and one that finds `x` still nil is a read too.
 --- `FUZZ_SEED` picks the inputs (build/fuzz/init.tl).
@@ -208,7 +208,11 @@ local function reads_unassigned(code: string): boolean
     if not choose() then return 0 end
     return choose() and 2 or 1
   end
-  env.stop = function() error(stopped, 0) end
+  -- The path ends, but a function made may be out, and called later.
+  env.stop = function()
+    escape()
+    error(stopped, 0)
+  end
   local chunk = assert(load("local function f()\n  local x\n" .. code .. "\nend\nreturn f", "oracle", "t",
     env as table))
   local run = chunk() as function()

@@ -211,7 +211,7 @@ local function test_a_function_that_names_a_local_is_a_read_once_code_may_run_it
   assert(made.y == 6 and made.ran_kind == "call" and made.ran_y == 7, tostring(made.ran_kind) .. tostring(made.ran_y))
   assert(hint(made, "local x: integer\nlocal g = function() use(x) end\nuse(g)") ==
       read_msg .. " (the function made here names it, and the call at 7:" .. tostring(made.ran_x) ..
-      " may run it first)" .. rewrite)
+      " may run it first: assign it before that call)" .. rewrite)
   -- An assignment in a function is not one for the code around it.
   refuses("local x: integer\nlocal function set() x = 1 end\nset()\nuse(x)", "x")
   refuses("local x: integer\nuse(function() x = 1 end)\nuse(x)", "x")
@@ -241,9 +241,11 @@ local function test_a_function_declared_ahead_is_assigned_before_any_code_may_ca
   accepts("local f: function()\nlocal function g() f() end\nlocal n = 1 + 2\nassert(g)\nlocal kind = type(g)\nf = g")
   -- Assigned on every path before the first call.
   accepts("local f: function()\nlocal function g() f() end\nlocal flag = true\nif flag then f = g else f = g end")
-  -- A path that ends first has nothing to call it.
-  accepts("local f: function()\nlocal function g() f() end\nlocal flag = true\nif flag then stop() end\nf = g")
-  accepts("local f: function()\nlocal function g() f() end\nlocal flag = true\nif flag then error(\"no\") end\nf = g")
+  -- A path that ends first before the function is made has nothing to call it.
+  accepts("local f: function()\nlocal flag = true\nif flag then stop() end\nlocal function g() f() end\nf = g")
+  accepts("local f: function()\nlocal flag = true\nif flag then error(\"no\") end\nlocal function g() f() end\nf = g")
+  -- A function in a literal inside another that names the local is named by it.
+  accepts("local x: integer\nlocal outer = function(): function(): integer return function(): integer return x end end\nx = 1\nuse(outer)")
   -- A loop that runs no code leaves it pending, and the assignment after it ends that.
   accepts("local f: function()\nlocal flag = true\nwhile flag do\n  local function g() f() end\nend\nf = idle")
   -- A function made after the assignment names an assigned variable.
@@ -259,6 +261,23 @@ local function test_a_function_that_names_the_local_is_refused_where_code_may_ru
   refuses("local f: function()\nlocal function g() f() end\nlocal flag = true\nif flag then use(1) end\nf = g", "f")
   -- A name hidden for a stretch does not stop the code in it.
   refuses("local f: function()\nlocal function g() f() end\ndo local f = 1 use(f) end\nf = idle", "f")
+  -- A call that never returns ends the path, not the function's escape.
+  local boom = refuses("local x: integer\nlocal reg: {string: function(): integer} = {}\n" ..
+      "reg.cb = function(): integer return x end\nerror(\"boom\")", "x")
+  assert(boom.ran_kind == "never" and boom.ran_y == 8, tostring(boom.ran_kind) .. tostring(boom.ran_y))
+  assert(hint(boom, "local x: integer\nlocal reg: {string: function(): integer} = {}\n" ..
+      "reg.cb = function(): integer return x end\nerror(\"boom\")") ==
+      "'x' may be read before it is assigned (the function made here names it, and the call at 8:" ..
+      tostring(boom.ran_x) .. " never returns, and the function may be out by then): give it a value where it is " ..
+      "declared (`local x: T = ...`), assign it on every path, or declare it `local x: T | nil`, which is nil " ..
+      "until assigned and is checked where it is used")
+  refuses("local x: integer\nlocal reg: {string: function(): integer} = {}\n" ..
+      "reg.cb = function(): integer return x end\nlocal c = true\nif c then error(\"boom\") end\nx = 1", "x")
+  refuses("local f: function()\nlocal function g() f() end\nlocal flag = true\nif flag then stop() end\nf = g", "f")
+  -- Nested in a function that names it, a function names it too.
+  local nested = refuses("local x: integer\nlocal outer = function(): function(): integer " ..
+      "return function(): integer return x end end\nlocal inner = outer()\nx = 1\nuse(inner())", "x")
+  assert(nested.closure == true and nested.ran_kind == "call", tostring(nested.ran_kind))
   -- The function gets out by a `return`, or the scope ends with it unassigned.
   local returned = refuses("local f: function()\nlocal function g() f() end\nlocal flag = true\n" ..
       "if flag then return end\nf = g", "f")

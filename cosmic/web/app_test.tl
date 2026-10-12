@@ -252,6 +252,15 @@ local function test_debug_is_off_unless_asked_and_a_bad_response_is_a_fault_only
   assert(res.status == 500 and res.body:find("cannot be sent", 1, true), res.body)
 end
 
+local function test_in_debug_a_handler_that_returns_nothing_is_told_as_the_server_tells_it()
+  local function nothing(_req: Web.Request): Web.Response
+    return nil as Web.Response
+  end
+  local debugging = Web.app{ routes = { Web.get("/nothing", nothing) }, debug = true, sink = recording() }
+  local res = Web.test_client(debugging):get("/nothing")
+  assert(res.status == 500 and res.body:find("the handler answered nil, not a Server.Reply", 1, true), res.body)
+end
+
 local function test_abort_answers_its_status_and_detail_in_the_negotiated_form()
   local app = Web.app{ routes = {
     Web.get("/gone", function(_req: Web.Request): Web.Response

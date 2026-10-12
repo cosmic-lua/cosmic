@@ -176,7 +176,7 @@ local record compiler
     -- For a local read before it is assigned: whether the read is a
     -- function literal that names it, what may call that function before
     -- the assignment (`ran_kind`: `call`, `operator`, `iterator`,
-    -- `return`, `goto` or `scope`, at `ran_y`, `ran_x` unless it is the end
+    -- `return`, `goto`, `never` or `scope`, at `ran_y`, `ran_x` unless it is the end
     -- of the scope), and the statement a path went by that skipped the
     -- assignment (`branch`, `if` or `loop`), and where.
     closure: boolean | nil

@@ -24,6 +24,15 @@
 -- `runs_code` (a call, an operator that dispatches: what it drops narrowing
 -- for, `TypeChecker:drop_all`) may call before then.
 --
+-- What counts as running code is what the checker marks `runs_code` for
+-- the narrowing it drops, so the rule is blind to what that misses: a
+-- `<close>` local whose type declares `__close`, and reading a declared
+-- field of a record that declares `__index`, which run code unseen (the
+-- TODO in checker/narrowing.tl names them); a metatable attached at run
+-- time (the `setmetatable` TODOs in checker/tl.tl and the roadmap item
+-- they wait on); and a global, which this rule does not follow (see the
+-- TODOs below).
+--
 -- The answers are computed from the tree and its marks on every ask,
 -- never kept on a node, so a statement's answer cannot disagree with its
 -- parts'.
@@ -36,6 +45,13 @@
 -- for `break` alone). Both let the checker narrow after code control can
 -- reach through the label. It waits on this module resolving labels,
 -- which needs the checker's scopes of labels moved into it.
+--
+-- TODO: a global declared with a type and no value (`global gx: integer`)
+-- is read as a value though nothing assigned it, and a local given a call
+-- that returns no values (`local v: integer = f()`) is nil though its type
+-- admits none: this module follows locals declared with no value and no
+-- more. They wait on the roadmap's item that excludes nil from every type
+-- but one that names it, which refuses both where they are declared.
 --
 -- TODO: a function that only assigns a local it names (`local got: T;
 -- spawn(function() got = v end)`) is pending as one that reads it is, and
@@ -481,6 +497,12 @@ local function eval(scan: Scan, e: flow.Node, st: State): State
       if e.runs_code then
          ran(scan, after, e, op == "@funcall" and "call" or "operator")
       end
+      -- A call that never returns ends the path, but a function made and
+      -- not yet assigned over may already have got out (stored, or given
+      -- to a caller up the stack that catches the error).
+      if e.never_call then
+         ran(scan, after, e, "never")
+      end
       return after
    elseif kind == "paren" then
       return eval(scan, e.e1, st)
@@ -717,15 +739,15 @@ end
 --- it and that something may call before the assignment: the creation of
 --- the function reads nothing, but a call, an operator that dispatches or a
 --- loop's iterator the checker marked `runs_code` may call it, and so may
---- the code that gets it by a `return`, a `goto` back round a label and the
---- end of the variable's scope; an assignment inside a function literal
+--- the code that gets it by a `return`, a call that never returns, a `goto`
+--- back round a label and the end of the variable's scope; an assignment inside a function literal
 --- assigns nothing for the code around it. The first answer is the
 --- variable's node, or the function that names it. The second is a
 --- statement a path went by that skipped the assignment another made (an
 --- `if`, an `else`-less `if`'s branch, a loop), nil where none did. For a
 --- function the third answer is what may run it (nil at the end of the
 --- scope) and the fourth how: `call`, `operator`, `iterator`, `return`,
---- `goto` or `scope`.
+--- `goto`, `never` or `scope`.
 function flow.unassigned_read(body: flow.Node, first: integer, name: string, tail: flow.Node): flow.Node, flow.Node, flow.Node, string
    local scan: Scan = {
       name = name, found = no_node, skipped = no_node, ran = no_node, how = "", hidden = false,

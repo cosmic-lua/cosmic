@@ -288,6 +288,13 @@ end
 -- The place a drop found dropped is none: the drop itself may have removed
 -- many. This file holds it in a local because the checker refuses a literal
 -- nil where a value is declared.
+-- A local this file declares `local x: T = nil` (this one, `absent`,
+-- `nowhere`, `evaluate`'s and the rest below) is one whose value the code
+-- after it assigns, as in checker/tl.tl.
+-- TODO: give each of them its honest type (`T | nil`, narrowed where it is
+-- read) or a value, once nil is excluded from every type but one that names
+-- it: the checker then refuses `local x: T = nil`, and the checker's own
+-- source is the last of the tree to migrate (the roadmap's nil item).
 local no_place: string = nil
 
 --- What dropped a fact: a `kind` of drop (see [`narrowing.Drop`]), the

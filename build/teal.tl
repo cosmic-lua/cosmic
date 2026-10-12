@@ -1183,11 +1183,13 @@ local function unassigned_hint(e: compiler.Error): string | nil
     local at = tostring(e.ran_y) .. ":" .. tostring(e.ran_x)
     local made = "the function made here names it, and "
     if ran == "call" then
-      path = " (" .. made .. "the call at " .. at .. " may run it first)"
+      path = " (" .. made .. "the call at " .. at .. " may run it first: assign it before that call)"
     elseif ran == "operator" then
-      path = " (" .. made .. "the operator at " .. at .. " may run it first)"
+      path = " (" .. made .. "the operator at " .. at .. " may run it first: assign it before that operator)"
     elseif ran == "iterator" then
       path = " (" .. made .. "the iterator of the loop at " .. at .. " may run it first)"
+    elseif ran == "never" then
+      path = " (" .. made .. "the call at " .. at .. " never returns, and the function may be out by then)"
     elseif ran == "return" then
       path = " (" .. made .. "the return at " .. at .. " lets it out first)"
     elseif ran == "goto" then
