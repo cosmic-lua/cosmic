@@ -56,6 +56,74 @@ local function test_lazy_capsules_are_independent()
   assert(second.path == "second")
 end
 
+--- The field names of `record Error` and the members of `enum ErrorCode`
+--- in the source text `text`, whose declarations sit `indent` deep.
+local function error_declarations(text: string, indent: string): {string:boolean}, {string:boolean}
+  local fields: {string:boolean} = {}
+  local codes: {string:boolean} = {}
+  local inside: string | nil = nil
+  for line in (text .. "\n"):gmatch("(.-)\n") do
+    if line == indent .. "record Error" then
+      inside = "record"
+    elseif line == indent .. "enum ErrorCode" then
+      inside = "enum"
+    elseif line == indent .. "end" then
+      inside = nil
+    elseif inside == "record" then
+      local name = line:match("^%s+([%a_]+)%??:")
+      if name ~= nil then
+        fields[name] = true
+      end
+    elseif inside == "enum" then
+      local member = line:match('^%s+"([%a_]+)"$')
+      if member ~= nil then
+        codes[member] = true
+      end
+    end
+  end
+  return fields, codes
+end
+
+--- Whether `a` and `b` hold the same names; the first that one holds
+--- and the other lacks, otherwise.
+local function same_names(a: {string:boolean}, b: {string:boolean}): boolean, string | nil
+  for name in pairs(a) do
+    if not b[name] then
+      return false, name
+    end
+  end
+  for name in pairs(b) do
+    if not a[name] then
+      return false, name
+    end
+  end
+  return true
+end
+
+--- Holds every error and warning in `result` to the fields `record Error`
+--- declares, so a field misspelt at any site the checker sets it is caught
+--- by whichever test reaches the site.
+local function vet(result: compiler.Result | nil)
+  if result == nil then
+    return
+  end
+  local declared = error_declarations(assert(Fs.read("build/compiler.d.tl")), "  ")
+  for _, group in ipairs({ result.syntax_errors, result.type_errors, result.warnings }) do
+    for _, e in ipairs(group) do
+      for key in pairs(e as {string:any}) do
+        assert(declared[key], "the checker set `" .. tostring(key) .. "`, which record Error lacks: " .. e.msg)
+      end
+    end
+  end
+end
+
+--- What the checker reports for `source`, each error held to [`vet`].
+local function generate(built: compiler, source: string): string | nil, compiler.Result
+  local code, result = built.gen(source, nil, nil, "tl")
+  vet(result)
+  return code, result
+end
+
 local integer_msg = "in assignment: got number, expected integer"
 
 --- The members of a type shown as the checker shows it, less where it
@@ -155,7 +223,7 @@ end
 --- reports none, or the hint is nil.
 local function hint_for(source: string): string | nil, string
   local built = assert(teal.load(true))
-  local _, result = built.gen(source, nil, nil, "tl")
+  local _, result = generate(built, source)
   for _, e in ipairs(result ~= nil and result.type_errors or {}) do
     if e.msg == integer_msg then
       return teal.replacement(e, source), e.y .. ":" .. e.x
@@ -263,7 +331,7 @@ end
 --- where it raises instead.
 local function type_errors(source: string): {compiler.Error}
   local built = assert(teal.load(true))
-  local ok, code, result = pcall(built.gen, source, nil, nil, "tl")
+  local ok, code, result = pcall(generate, built, source)
   assert(ok, tostring(code))
   return assert(result).type_errors
 end
@@ -285,7 +353,7 @@ end
 --- What the parser refuses in `source`, each as "line:column message".
 local function syntax_errors(source: string): {string}
   local built = assert(teal.load(true))
-  local _, result = built.gen(source, nil, nil, "tl")
+  local _, result = generate(built, source)
   local out: {string} = {}
   for _, e in ipairs(assert(result).syntax_errors) do
     out[#out + 1] = e.y .. ":" .. e.x .. " " .. e.msg
@@ -320,7 +388,7 @@ local function test_a_call_after_a_string_spanning_lines()
   for _, source in ipairs({ "f [[a\nb]](1)\n", "f 'a\\z\n  b'(1)\n", "f [==[\n]==]{}(1)\n" }) do
     local found = syntax_errors(source)
     assert(#found == 0, source .. table.concat(found, "; "))
-    local code = assert(built.gen(source, nil, nil, "tl"))
+    local code = assert(generate(built, source))
     assert(code:find(";", 1, true) == nil, code)
   end
   local tokens, errs = built.lex("f [[a\nbc]]\n(g)(1)\n", "t.tl")
@@ -559,7 +627,7 @@ end
 --- `msg`: "no such diagnostic" when it reports none.
 local function replacement_for(source: string, msg: string): string | nil
   local built = assert(teal.load(true))
-  local _, result = built.gen(source, nil, nil, "tl")
+  local _, result = generate(built, source)
   local found = result ~= nil
   for _, group in ipairs(found and { result.type_errors, result.warnings } or {}) do
     for _, e in ipairs(group) do
@@ -1064,7 +1132,7 @@ end
 --- What [`teal.replacement`] says of the first syntax error in `source`.
 local function syntax_hint(source: string): string | nil
   local built = assert(teal.load(true))
-  local _, result = built.gen(source, nil, nil, "tl")
+  local _, result = generate(built, source)
   local e = assert(assert(result).syntax_errors[1], source)
   assert(e.code == "expected_one_of", e.msg)
   return teal.replacement(e, source)
@@ -1100,7 +1168,7 @@ end
 --- "line:column message".
 local function refusals(source: string): {string}
   local built = assert(teal.load(true))
-  local ok, code, result = pcall(built.gen, source, nil, nil, "tl")
+  local ok, code, result = pcall(generate, built, source)
   assert(ok, tostring(code))
   local out: {string} = {}
   for _, e in ipairs(assert(result).syntax_errors) do
@@ -1682,7 +1750,7 @@ end
 --- appended as the importer prints it, in the order they are reported.
 local function checker_says(source: string): {string}
   local built = assert(teal.load(true))
-  local _, result = built.gen(source, nil, nil, "tl")
+  local _, result = generate(built, source)
   local out: {string} = {}
   for _, group in ipairs({ assert(result).syntax_errors, result.type_errors }) do
     for _, e in ipairs(group) do
@@ -2540,50 +2608,6 @@ local function test_a_numeric_for_bound_that_may_be_nil_is_refused()
       "or, where a call answers it, take it with `local value = assert(<the call>)`")
 end
 
---- The field names of `record Error` and the members of `enum ErrorCode`
---- in the source text `text`, whose declarations sit `indent` deep.
-local function error_declarations(text: string, indent: string): {string:boolean}, {string:boolean}
-  local fields: {string:boolean} = {}
-  local codes: {string:boolean} = {}
-  local inside: string | nil = nil
-  for line in (text .. "\n"):gmatch("(.-)\n") do
-    if line == indent .. "record Error" then
-      inside = "record"
-    elseif line == indent .. "enum ErrorCode" then
-      inside = "enum"
-    elseif line == indent .. "end" then
-      inside = nil
-    elseif inside == "record" then
-      local name = line:match("^%s+([%a_]+)%??:")
-      if name ~= nil then
-        fields[name] = true
-      end
-    elseif inside == "enum" then
-      local member = line:match('^%s+"([%a_]+)"$')
-      if member ~= nil then
-        codes[member] = true
-      end
-    end
-  end
-  return fields, codes
-end
-
---- Whether `a` and `b` hold the same names; the first that one holds
---- and the other lacks, otherwise.
-local function same_names(a: {string:boolean}, b: {string:boolean}): boolean, string | nil
-  for name in pairs(a) do
-    if not b[name] then
-      return false, name
-    end
-  end
-  for name in pairs(b) do
-    if not a[name] then
-      return false, name
-    end
-  end
-  return true
-end
-
 --- Every diagnostic of kind `code` the parser or the checker reports for
 --- `source`, an error or a warning, compiled for Lua 5.4 where `five_four`;
 --- the test fails when there is none. Each holds only fields `record Error`
@@ -2596,6 +2620,7 @@ local function diagnostics(source: string, code: compiler.ErrorCode, five_four?:
   } })) or nil
   local ok, _, result = pcall(built.gen, source, env, nil, "tl")
   assert(ok and result ~= nil, source)
+  vet(result)
   local declared = error_declarations(assert(Fs.read("build/compiler.d.tl")), "  ")
   local found: {compiler.Error} = {}
   local seen: {string} = {}
@@ -2891,4 +2916,64 @@ local function test_a_never_call_is_told_wherever_it_stands()
   local held = diagnostic("local h = error\nlocal i = h('x')\nprint(i)\n", "no_initial_value")
   assert(held.callee == "h" and held.callee_never, held.msg)
   assert(teal.replacement(held, "") ~= nil)
+end
+
+--- Each site that refuses an operand or a name sets the fields its code
+--- names, and only declared ones ([`vet`] holds every error a test sees to
+--- that): an operator no type takes, a function declared on an owner that is
+--- declared nowhere, and a type compared with one declared nowhere.
+local function test_each_site_that_refuses_an_operand_or_a_name_sets_declared_fields()
+  local unary = diagnostic("local s = \"a\"\nprint(-s)\n", "operator_unary")
+  assert(unary.operator == "-" and listed(unary.members, "string"), unary.msg)
+  local owner = diagnostic("function Nope.f() end\n", "unknown_variable")
+  assert(owner.variable == "Nope", owner.msg)
+  local result = diagnostic("local record R\nend\nlocal function f(a: R): Nope2 return a end\nprint(f)\n",
+    "unknown_type")
+  assert(listed(result.names, "Nope2") and result.subject == "Nope2", result.msg)
+  local parameter = diagnostic("local record R\nend\nlocal function f(a: Nope1): R return a end\nprint(f)\n",
+    "unknown_type")
+  assert(listed(parameter.names, "Nope1") and parameter.subject == "Nope1", parameter.msg)
+end
+
+--- A narrowed value's type is named without where it was inferred, as the
+--- checker's own message names it with.
+local function test_a_missing_key_of_a_narrowed_value_names_the_type_alone()
+  local source = "local function f(a: integer | string)\n  if a is string then\n    print(a.lenn)\n  end\nend\nprint(f)\n"
+  local found = diagnostic(source, "invalid_key")
+  assert(found.msg:find("(inferred at", 1, true) ~= nil, found.msg)
+  assert(found.subject == "string", tostring(found.subject))
+  local hint = teal.replacement(found, source)
+  assert(hint ~= nil and hint:find("^did you mean 'len'%? string's fields: "), tostring(hint))
+end
+
+--- An index key that may be nil, where the value indexed may be too, is
+--- told to check for nil; the checker's refusal names the key's type with a
+--- union, which the hint does not depend on.
+local function test_an_index_that_may_be_nil_is_told_the_check()
+  local source = "local function f(t: {integer} | nil, i: integer | nil): integer\n  return t[i]\nend\nprint(f)\n"
+  local found = diagnostic(source, "cannot_index_object")
+  assert(found.msg:find("with integer | nil", 1, true) ~= nil, found.msg)
+  assert(listed(found.members, "{integer}", "nil"), found.msg)
+  assert(teal.replacement(found, source) == "the value may be nil: check it first (`if value == nil then " ..
+      "return nil, err end`), or, where a call answers it, take it with `local value = assert(<the call>)`")
+end
+
+--- The compiler's own record of an error documents nothing: the docs
+--- pointer an unresolved name earns looks a symbol up by its last name, and
+--- a field called `i` or `key` is none a program meant.
+local function test_the_compilers_error_record_has_no_docs_for_a_pointer_to_find()
+  local inside = false
+  local text = assert(Fs.read("build/compiler.d.tl"))
+  local seen = 0
+  for line in (text .. "\n"):gmatch("(.-)\n") do
+    if line == "  record Error" or line == "  enum ErrorCode" then
+      inside = true
+    elseif line == "  end" then
+      inside = false
+    elseif inside then
+      seen = seen + 1
+      assert(line:match("^%s*%-%-%-") == nil, "a doc comment on " .. line)
+    end
+  end
+  assert(seen > 50, "found no declarations to hold")
 end

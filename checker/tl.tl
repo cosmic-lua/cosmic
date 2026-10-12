@@ -296,7 +296,7 @@ local record tl
       expected_tokens: {string}
 
       -- What a declaration that is hidden or unused declares: "variable",
-      -- "argument", "function" or "type".
+      -- "argument", "function", "type" or "label".
       declares: string
 
       -- Whether the declaration a name hides is in the program itself.
@@ -6706,14 +6706,16 @@ function Errors.not_a(err: Error, got: Type, expected: Type): Error
    return err
 end
 
--- What an error says of a type it is about, shown for `subject`.
+-- What an error says of a type it is about: its `members` and the `subject`
+-- they make, shown less where it was inferred.
 function Errors.about(err: Error, t: Type): Error
    if not err or not t then
       return err
    end
-   err.subject = show_type(t)
-   err.subject_kind = t.typename
    err.members = Errors.members(t)
+   -- without where it was inferred, which a message shows and a hint does not
+   err.subject = table.concat(err.members, " | ")
+   err.subject_kind = t.typename
    return err
 end
 
@@ -7072,7 +7074,8 @@ function Errors:check_var_usage(scope: Scope, is_global?: boolean)
    if scope.labels then
       for name, node in pairs(scope.labels) do
          if not node.used_label then
-            self:add_warning("unused", node, "unused label ::%s::", name)
+            self:add_warning_coded("unused", node, Errors.make({ code = "unused", variable = name, declares = "label" }),
+               "unused label ::%s::", name)
          end
       end
    end
