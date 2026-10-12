@@ -915,7 +915,7 @@ local function complain(file: string, source: string, result: compiler.Result,
     for _, e in ipairs(group or {}) do
       local where = e.filename ~= "" and e.filename or file
       local instead = where == file and
-        teal.replacement(e.msg, source, e.y, e.x, e.fields, file, refused) or nil
+        teal.replacement(e, source, file, refused) or nil
       local said = with_hint(e.msg, hints, instead ~= nil)
       if instead ~= nil then
         said = e.msg .. " -- " .. instead .. said:sub(#e.msg + 1)

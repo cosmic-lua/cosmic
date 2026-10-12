@@ -9,6 +9,7 @@
 local docs = require("build.docs")
 local fixture = require("build.docs_fixture")
 local teal = require("build.teal")
+local type compiler = require("build.compiler")
 
 local function source(...: string): string
   return table.concat({ ... }, "\n") .. "\n"
@@ -166,21 +167,35 @@ end
 --- spelled twice cannot drift.
 local function test_the_page_says_what_the_compiler_hint_says(dir: string)
   local view = assert(docs.view({ fixture.database(dir, tree()) }))
+  local record Case
+    member: string
+    refusal: compiler.Error
+    required: string
+  end
+  local function key_case(owner: string, key: string, required: string): Case
+    return { member = owner .. "." .. key, required = required, refusal = {
+      code = "invalid_key", key = key, variable = owner, subject = owner,
+      subject_kind = "nominal", resolved_kind = "record", msg = "", filename = "", y = 2, x = 8 } }
+  end
+  local function type_case(owner: string, name: string, required: string): Case
+    return { member = owner .. "." .. name, required = required, refusal = {
+      code = "unknown_type", names = { owner, name }, msg = "", filename = "", y = 2, x = 8 } }
+  end
   for _, case in ipairs({
-      { "Net.pair", "invalid key 'pair' in record 'Net' of type Net", "cosmic.net" },
-      { "Http.upload", "invalid key 'upload' in record 'Http' of type Http", "cosmic.http" },
-      { "Http.serve", "invalid key 'serve' in record 'Http' of type Http", "cosmic.http" },
-      { "Sandbox.decode", "invalid key 'decode' in record 'Sandbox' of type Sandbox", "cosmic.sandbox" },
-      { "Net.Pair", "unknown type Net.Pair", "cosmic.net" },
-      { "Http.Request", "unknown type Http.Request", "cosmic.http" },
+      key_case("Net", "pair", "cosmic.net"),
+      key_case("Http", "upload", "cosmic.http"),
+      key_case("Http", "serve", "cosmic.http"),
+      key_case("Sandbox", "decode", "cosmic.sandbox"),
+      type_case("Net", "Pair", "cosmic.net"),
+      type_case("Http", "Request", "cosmic.http"),
   }) do
-    local owner = case[1]:match("^(%a+)%.")
-    local bound = "local " .. owner .. " = require(\"" .. case[3] .. "\")\nreturn " ..
-      case[1] .. "\n"
-    local hint = teal.replacement(case[2], bound, 2, 8)
-    local found = assert(docs.lookup(view, case[1]))
+    local owner = case.member:match("^(%a+)%.")
+    local bound = "local " .. owner .. " = require(\"" .. case.required .. "\")\nreturn " ..
+      case.member .. "\n"
+    local hint = teal.replacement(case.refusal, bound)
+    local found = assert(docs.lookup(view, case.member))
     assert(hint ~= nil and found[1].text == hint,
-      case[1] .. ": " .. tostring(hint) .. " ~= " .. tostring(found[1].text))
+      case.member .. ": " .. tostring(hint) .. " ~= " .. tostring(found[1].text))
   end
 end
 
