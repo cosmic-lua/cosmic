@@ -596,7 +596,7 @@ is `any`, and a read of its fields is a compile error. So the handler
 annotates its parameters (`p: ItemPath`), which is sound and no more than
 the examples below already wrote; there is no explicit-type-argument form
 to fall back to, since Teal's call syntax has none. An absent slot's
-parameter is nil, typed [`Web.None`]. The reading and binding functions
+parameter is an empty [`Web.None`]. The reading and binding functions
 answer `Parsed<T>` (`value` or `invalid`), not `T | nil, Invalid`, since the
 build's contracts allow an exported function two results only as a value
 and a string reason.

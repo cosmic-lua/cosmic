@@ -19,7 +19,7 @@ A route made with [`Web.post_typed`] and its siblings names
 after the request: the spec `SIGNUP` below is `Shape.record_of("Signup")`,
 so the handler reads `form.email` as a `string` that is certainly there. A
 slot a route does not read is [`Web.NONE`] (or [`Web.no_body`]) and its
-parameter is nil.
+parameter is an empty [`Web.None`].
 
 A form is text, so the binder reads by the spec: `integer` from digits, a
 `boolean` from its presence, a list from a name sent twice, an empty

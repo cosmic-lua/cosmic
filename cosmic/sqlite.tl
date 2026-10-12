@@ -173,7 +173,8 @@ local record Sqlite
     --- An iterator for a `for` loop over the rows still to come. It
     --- ends at the last one or at a failure, which `failure` then says.
     ---
-    -- TODO: declare the iterator `function(): Row | nil`, as it answers,
+    -- TODO: this iterator answers nil to end a loop, which its type
+    -- `function(): Row` does not admit; declare `function(): Row | nil`
     -- once the checker reads the nil that ends a `for` loop's iterator
     -- as the end, not as a possible value of the loop variable.
     each: function(Query): function(): Row
@@ -483,9 +484,10 @@ function StatementQuery:read(): Sqlite.Row | nil, string
 end
 
 function StatementQuery:each(): function(): Sqlite.Row
-  -- TODO: declare `function(): Sqlite.Row | nil`, as [`Query`]'s `each`
-  -- says, once the checker reads the nil that ends a `for` loop's
-  -- iterator as the end.
+  -- TODO: the iterator answers nil after the last row, which `function():
+  -- Sqlite.Row` does not admit; declare it `| nil` (here and in
+  -- [`Query`]'s `each`) once the checker reads the nil that ends a `for`
+  -- loop's iterator as the end.
   return function(): Sqlite.Row
     local row, _ = self:read()
     return row
