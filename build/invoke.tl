@@ -116,11 +116,12 @@ function invoke.run(args: {string}, opts: invoke.Options): invoke.Result
   local saved_out = hold(saved_out_fd, saved_out_trouble, "standard output")
   local saved_err_fd, saved_err_trouble = sys.dup(2)
   local saved_err = hold(saved_err_fd, saved_err_trouble, "standard error")
-  local here, here_trouble = sys.getcwd()
-  if here == nil then
+  local working, here_trouble = sys.getcwd()
+  if working == nil then
     release()
     error("invoke: the working directory: " .. here_trouble, 2)
   end
+  local here: string = working
 
   local getenv, environ = sys.getenv, sys.environ
   local exit, execve, attach = sys.exit, sys.execve, Store.attach

@@ -319,7 +319,7 @@ end
 -- bootstrap pin's release, so a fix there must suit both.
 --- @param kind the module's kind as the importer staged it
 --- @param generated whether a generator wrote it
-function contracts.applies(kind: string, generated: boolean): boolean
+function contracts.applies(kind: string, generated?: boolean): boolean
   return (kind == "module" or kind == "main") and not generated
 end
 
@@ -1289,7 +1289,9 @@ end
 --- nested in it, as `module.name`; nil when it calls none.
 local function sys_call_in(fn: Node, index: Index, callees: {integer: Type},
                            records: {integer: Type}, bindings: {integer: string}): string | nil
-  if fn.body == nil then return nil end
+  local found_body = fn.body
+  if found_body == nil then return nil end
+  local body: Node = found_body
   local found: string | nil = nil
   local seen: {Node: boolean} = {}
   local function go(n: Node)
@@ -1308,7 +1310,7 @@ local function sys_call_in(fn: Node, index: Index, callees: {integer: Type},
       if not is_function(child) then go(child) end
     end
   end
-  go(fn.body)
+  go(body)
   return found
 end
 
@@ -1402,8 +1404,9 @@ end
 --- Rule 8: a type the returned record declares, at any depth, whose
 --- name repeats the module's.
 local function check_stutter(file: string, root: Node, problems: {string})
-  local name, def = returned(root)
-  if name == nil or def == nil then return end
+  local returned_name, returned_def = returned(root)
+  if returned_name == nil or returned_def == nil then return end
+  local name, def: string, ast.TypeNode = returned_name, returned_def
   local function visit(path: string, def_at: ast.TypeNode)
     local order, fields = def_at.field_order, def_at.fields
     if order == nil or fields == nil then return end

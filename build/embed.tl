@@ -478,7 +478,7 @@ end
 --- that names what was written, or says why nothing was.
 local function run(argv: {integer:string}): integer
   local started = Clock.monotonic_ns()
-  local parsed, parse_trouble = Flags.parse(argv, 2, Cli.verbs.build.spec)
+  local parsed, parse_trouble = Flags.parse(argv, 2, assert(Cli.verbs.build.spec))
   if parsed == nil then
     log:complain("build: " .. parse_trouble)
     return 2

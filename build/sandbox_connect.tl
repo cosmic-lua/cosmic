@@ -294,11 +294,12 @@ local function run_in(args: {string}, io: sandbox_connect.Io): integer
     complain("the port is a number from 1 to 65535, not " .. bare.escape(text))
     return bare.refused
   end
-  local request, request_why = RelayWire.socks_client_request(host, port)
-  if request == nil then
+  local made_request, request_why = RelayWire.socks_client_request(host, port)
+  if made_request == nil then
     complain(bare.escape(host) .. ": " .. request_why)
     return bare.refused
   end
+  local request: string = made_request
   local proxy, proxy_why = proxy_of(io)
   if proxy == nil then
     complain(proxy_why)
@@ -306,7 +307,7 @@ local function run_in(args: {string}, io: sandbox_connect.Io): integer
   end
   local login: string | nil
   if proxy.password ~= nil then
-    local message, login_why = RelayWire.socks_client_auth(proxy.user, proxy.password)
+    local message, login_why = RelayWire.socks_client_auth(assert(proxy.user), proxy.password)
     if message == nil then
       complain("the userinfo of ALL_PROXY: " .. login_why)
       return bare.refused

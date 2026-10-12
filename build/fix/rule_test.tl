@@ -15,10 +15,7 @@ local teal = require("build.teal")
 
 local type Rule = rule.Rule
 
-local built, load_trouble = teal.load()
-if built == nil then
-  error("could not load the compiler: " .. tostring(load_trouble))
-end
+local built = assert(teal.load())
 
 --- Run `body` with `probe` as the one registered rule, and put the list
 --- back the way it was found afterwards, however `body` ends. The list

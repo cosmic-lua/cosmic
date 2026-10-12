@@ -27,7 +27,7 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
     complain(why .. "; " .. usage)
     return 2
   end
-  local parsed, why = Flags.parse(argv, 2, Cli.verbs.cache.spec)
+  local parsed, why = Flags.parse(argv, 2, assert(Cli.verbs.cache.spec))
   if parsed == nil then return refuse(why) end
   if parsed.words[1] ~= "trim" then return refuse("give the trim operation") end
   local family = parsed.words[2]

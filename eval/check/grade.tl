@@ -760,7 +760,7 @@ end
 --- Runs [`./notes`] with nothing in its environment but `env`, and
 --- checks that it exits 0 printing exactly `want` on stdout and stderr
 --- together, or anything when `want` is nil.
-local function notes_expect(g: Grade, want: string, args: {string}, env?: {string: string})
+local function notes_expect(g: Grade, want: string | nil, args: {string}, env?: {string: string})
   local shown_args: {string} = { "env -i" }
   local names: {string} = {}
   for name in pairs(env or {}) do
@@ -783,7 +783,7 @@ local function notes_expect(g: Grade, want: string, args: {string}, env?: {strin
   if code == 0 and want == nil then
     ok(what .. " -> exit 0")
   elseif code == 0 and got == want then
-    ok(what .. " -> " .. first_line(want))
+    ok(what .. " -> " .. first_line(assert(want)))
   else
     fail(g, what .. ": exit " .. code .. ", got '" .. got .. "', wanted '" .. (want or "exit 0") .. "'")
   end
@@ -1473,7 +1473,7 @@ local function asks(g: Grade, site: Site, method: string, target: string,
   return nil
 end
 
-local function has(g: Grade, answer: Answer, what: string, name: string, want: string)
+local function has(g: Grade, answer: Answer, what: string, name: string, want: string | nil)
   if answer == nil then return end
   local got = answer.headers[name:lower()]
   check(g, got == want, what .. " " .. name .. ": " .. shown(got),

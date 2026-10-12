@@ -14,10 +14,7 @@ local teal = require("build.teal")
 local work = require("build.work")
 local parses_fixture = require("build.parses_fixture")
 
-local built, load_trouble = teal.load()
-if built == nil then
-  error("could not load the compiler: " .. tostring(load_trouble))
-end
+local built = assert(teal.load())
 
 --- Every row `sql` answers of the database at `path`, a line each, and
 --- every row of every parse table of a working database.

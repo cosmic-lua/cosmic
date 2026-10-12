@@ -645,7 +645,7 @@ local function test_an_unreadable_file_says_nothing_of_sharing(tmp: string)
   end
   local outcomes = c.check(root, { "a.c", "b.c" }, tmp)
   assert(outcomes[2].findings == nil, "b.c was read")
-  none(only(outcomes[1].findings, "single-file"))
+  none(only(assert(outcomes[1].findings), "single-file"))
 end
 
 --- A compiler reads nothing it was not given: a header named by a path

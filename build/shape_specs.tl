@@ -201,12 +201,16 @@ spec_of = function(t: Ty, path: string, shape: string,
     if inner == nil then return nil, trouble end
     return shape .. ".list(" .. inner .. ")", ""
   elseif kind == "map" then
-    local key, key_why = unwrapped(at.keys)
+    local keys, values = at.keys, at.values
+    if keys == nil or values == nil then
+      return nil, path .. ": a map the checker gave no key or value type"
+    end
+    local key, key_why = unwrapped(keys)
     if key == nil or key.typename ~= "string" then
       return nil, path .. ": a map keyed by anything but a string has no shape" ..
         (key_why ~= "" and " (" .. key_why .. ")" or "")
     end
-    local inner, trouble = spec_of(at.values, path .. "{}", shape, holding)
+    local inner, trouble = spec_of(values, path .. "{}", shape, holding)
     if inner == nil then return nil, trouble end
     return shape .. ".map(" .. inner .. ")", ""
   elseif kind == "enum" then

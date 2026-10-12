@@ -205,7 +205,7 @@ end
 
 --- Check the exact effect of a command outside its timed region. Reads and
 --- compilation belong only to the deliberate leaf mutation workload.
-function Perf.check_transition(before: {string}, after: {string}, builds: boolean, change: boolean)
+function Perf.check_transition(before: {string}, after: {string}, builds?: boolean, change?: boolean)
   assert(#before == 6 and #after == 6, "missing build history counters")
   local delta = builds and 1 or 0
   assert(tonumber(after[5]) == tonumber(before[5]) + delta and

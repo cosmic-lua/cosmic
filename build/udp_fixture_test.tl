@@ -52,6 +52,6 @@ local function test_only_numeric_hosts_bind_and_a_port_is_not_shared()
     assert(bound == nil, "bound " .. string.format("%q", host))
   end
   local server <close> = bind()
-  local other, why = Udp.bind("127.0.0.1", server.address.port)
+  local other, why = Udp.bind("127.0.0.1", assert(server.address.port))
   assert(other == nil and why == "Address in use", why)
 end
