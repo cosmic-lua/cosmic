@@ -730,7 +730,13 @@ that does run runs in a worker process of its own:
   its analyzer by the very parse it has yet to make, takes an
   analyzer's parses only where the `requires` rows that analyzer found
   name it again over this tree ([`build/importer.tl`]'s
-  `shared_analyzer`).
+  `shared_analyzer`). the boot bridge's own compiles share the file too,
+  in a table of their own ([`core/bridge.lua`]): the compiler's, and every
+  module it loads up to [`build.boot`], keyed by the digest of every `.tl`
+  and `.h` under the root and of the compiler and the bridge, since no
+  import graph exists yet to key them by. a boot of a tree none of whose
+  `.tl` or `.h` has changed, and each worker it starts, compile nothing
+  in the bridge; an edit to any one of them compiles it all again.
 - *parallel*: a build with much to parse or compile, a cold boot or an
   edit that reaches most of the tree, does it in worker processes: one
   fewer than the processors, `COSMIC_BUILD_JOBS` naming another count
@@ -1255,6 +1261,7 @@ in [roadmap.md](roadmap.md).
 [`bin/vendor`]: ../bin/vendor
 [`bin/zig.pin`]: ../bin/zig.pin
 [`bin/zig`]: ../bin/zig
+[`build.boot`]: ../build/boot.tl
 [`build.compilation`]: ../build/compilation.tl
 [`build.derivation`]: ../build/derivation.tl
 [`build.identity.compiler_identity`]: ../build/identity.tl

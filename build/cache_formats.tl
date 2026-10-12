@@ -16,6 +16,12 @@ local record cache_formats
   compile_versions: {{string, integer}}
   --- Statements the compile cache initializes with.
   compiles: {string}
+  --- Current table of the boot bridge's compiles (core/bridge.lua), which
+  --- only the bridge writes, in plain Lua before any Teal has loaded.
+  bridge: string
+  --- Statements the bridge makes its table with; core/bridge.lua holds
+  --- the same ones.
+  bridge_statements: {string}
   --- Statements the verdict cache initializes with.
   verdicts: {string}
   --- The supported observation-keyed verdict table, retained by current writers.
@@ -24,10 +30,12 @@ end
 
 local compiled <const> = "compiled_v2"
 local parsed <const> = "parsed_v1"
+local bridge <const> = "bridge_v1"
 local declared <const> = "declared_v1"
 local stores <const> = "stores_v1"
 cache_formats.compiled, cache_formats.parsed = compiled, parsed
 cache_formats.declared, cache_formats.stores = declared, stores
+cache_formats.bridge = bridge
 cache_formats.compile_versions = { { "compiled_v", 2 }, { "parsed_v", 1 } }
 
 cache_formats.compiles = {
@@ -53,6 +61,19 @@ cache_formats.compiles = {
                                                 PRIMARY KEY (analyzer, source_hash, mapped))]],
   "CREATE INDEX IF NOT EXISTS " .. parsed .. "_by_use ON " .. parsed .. " (used_ns)",
   "CREATE INDEX IF NOT EXISTS " .. parsed .. "_by_source ON " .. parsed .. " (source_hash)",
+}
+
+-- Not in `compiles`: [`build.shared_compiles`] makes and drops only its
+-- own tables, and the bridge makes this one when it first keeps a row.
+cache_formats.bridge_statements = {
+  "CREATE TABLE IF NOT EXISTS " .. bridge .. [[ (key TEXT PRIMARY KEY,
+                                                kind TEXT NOT NULL,
+                                                declared TEXT NOT NULL,
+                                                payload BLOB NOT NULL,
+                                                digest TEXT NOT NULL,
+                                                size INTEGER NOT NULL,
+                                                used_ns INTEGER NOT NULL)]],
+  "CREATE INDEX IF NOT EXISTS " .. bridge .. "_by_use ON " .. bridge .. " (used_ns)",
 }
 
 cache_formats.verdicts = {
