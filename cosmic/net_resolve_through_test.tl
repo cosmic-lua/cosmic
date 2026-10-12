@@ -316,6 +316,7 @@ end
 --- millisecond, it still asks for its connect while most of that time is
 --- left, and does not refuse it as past its deadline.
 local function test_a_lookup_begun_late_in_a_millisecond_still_asks_for_its_connect()
+  require_native_connector()
   local judged = 0
   for _ = 1, 200 do
     while Clock.monotonic_ns() % 1000000 < 900000 do end
