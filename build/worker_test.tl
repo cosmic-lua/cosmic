@@ -13,6 +13,7 @@ local Proc = require("cosmic.proc")
 local Sqlite = require("cosmic.sqlite")
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
+local analysis_schema = require("build.analysis_schema")
 local cache_formats = require("build.cache_formats")
 local importer = require("build.importer")
 local shared_compiles = require("build.shared_compiles")
@@ -93,6 +94,10 @@ local function written(db: Sqlite.Handle): {string:string}
     test_inputs = "SELECT * FROM test_inputs",
     links = "SELECT * FROM links",
   }
+  -- Every table a parse fills, whatever the schema comes to hold.
+  for _, name in ipairs(analysis_schema.tables) do
+    statements[name] = "SELECT * FROM " .. name
+  end
   local out: {string:string} = {}
   for table_name, statement in pairs(statements) do
     local rows = assert(Sqlite.rows(db, statement))
@@ -531,8 +536,8 @@ local function test_a_signal_to_the_builds_group_ends_its_workers()
   assert(Fs.remove_tree(dir))
 end
 
---- `pool` as a build is given it, and how many times it handed back
---- compiled modules for the build to take.
+--- `pool` as a build is given it, and how many times the build asked it
+--- to compile.
 local function counted(pool: importer.Workers): importer.Workers, {integer}
   local taken = { 0 }
   return {
@@ -541,37 +546,30 @@ local function counted(pool: importer.Workers): importer.Workers, {integer}
     compile = function(db: Sqlite.Handle, root: string, order: {importer.Module},
                        wanted: {string:boolean}, own: boolean,
                        judged: boolean): importer.Ahead | nil, string
-      local ahead, trouble = pool.compile(db, root, order, wanted, own, judged)
-      if ahead ~= nil then taken[1] = taken[1] + 1 end
-      return ahead, trouble
+      taken[1] = taken[1] + 1
+      return pool.compile(db, root, order, wanted, own, judged)
     end,
     close = pool.close,
   }, taken
 end
 
-local function test_a_build_that_declares_a_global_compiles_alone_as_it_would_have()
-  -- A global stays in the checker's environment for the modules checked
-  -- after it in a process, so shards of modules would answer otherwise:
-  -- the second declaration, unlike the first, is refused alone.
-  local clash = project()
-  clash["ga.tl"] = 'global G: string = "x"\nreturn {}\n'
-  clash["gb.tl"] = "global G: integer = 1\nreturn {}\n"
-  -- And a module that names a global without requiring its declarer is
-  -- accepted alone, for whatever came before it.
-  local named = project()
-  named["ga.tl"] = "global G: integer = 1\nreturn {}\n"
-  named["zc.tl"] = "local x: integer = G\nreturn x\n"
-  for case, files in pairs({ clash = clash, named = named }) do
-    local alone = build_with("global-alone-" .. case, files)
-    local pool, taken = counted(pool_of())
-    local pooled = build_with("global-pooled-" .. case, files, pool)
-    assert((alone.result == nil) == (pooled.result == nil),
-      case .. ": alone " .. alone.trouble .. " against pooled " .. pooled.trouble)
-    assert(pooled.trouble == alone.trouble, case .. ": " .. pooled.trouble)
-    if alone.result ~= nil then same_rows(alone, pooled) end
-    assert(taken[1] == 0, case .. ": the pool compiled a build that declares a global")
-  end
-  assert(build_with("global-clash", clash).result == nil, "a clashing global compiled")
+local function test_a_build_that_declares_a_global_is_refused_before_the_pool_is_asked()
+  -- Globals stay in a checker's environment for the modules checked after
+  -- them, which shards of modules would not share: the build refuses them
+  -- ([`build.compilation`]'s `refuse_globals`) before it compiles any.
+  local files = project()
+  files["ga.tl"] = 'global G: string = "x"\nreturn {}\n'
+  files["gb.tl"] = "global G: integer = 1\nreturn {}\n"
+  local alone = build_with("global-alone", files)
+  local pool, asked = counted(pool_of())
+  local pooled = build_with("global-pooled", files, pool)
+  assert(alone.result == nil and pooled.result == nil, "a build with a global compiled")
+  assert(alone.trouble:find("global", 1, true), alone.trouble)
+  assert(pooled.trouble == alone.trouble, pooled.trouble)
+  -- The parse was pooled all the same, and its `globals` rows are the ones a parse here writes.
+  same_rows(alone, pooled)
+  assert(alone.rows.globals:find(" 2$"), "the parse found no globals: " .. alone.rows.globals)
+  assert(asked[1] == 0, "the pool was asked to compile a build that declares a global")
 end
 
 local function test_a_pool_refuses_a_scratch_parent_that_is_a_link()

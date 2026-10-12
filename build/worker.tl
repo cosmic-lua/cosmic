@@ -306,8 +306,7 @@ end
 --- @param own_tree whether the tree is cosmic's own ([`compilation.generate`])
 --- @param judged whether a module the contracts refuse is refused
 --- @return what they made, or nil and why the job could not be made: ""
----   where one process does as well, or where a source declares a `global`,
----   and the build compiles it all itself
+---   where one process does as well, and the build compiles it all itself
 function worker.compile(pool: worker.Pool, db: Sqlite.Handle, root: string,
                         order: {Module}, wanted: {string:boolean}, own_tree: boolean,
                         judged: boolean): importer.Ahead | nil, string
@@ -321,17 +320,6 @@ function worker.compile(pool: worker.Pool, db: Sqlite.Handle, root: string,
     "SELECT path, kind, source FROM inputs WHERE kind <> 'vendor'")
   if sources == nil then return nil, sources_trouble end
   local inputs: {{string}} = sources
-  -- A `global` a module declares stays in the checker's environment for
-  -- every module checked after it, in the same process: one is refused for
-  -- declaring it again unlike another, and one that names it is accepted
-  -- without requiring its declarer. Workers each check some of the modules,
-  -- so they would answer differently. No source of the tree declares one
-  -- (its standard library's are the vendored compiler's), so a build that
-  -- finds a line leading with the word, in code or in a string, compiles
-  -- alone.
-  for _, row in ipairs(inputs) do
-    if row[3]:find("^%s*global%s") or row[3]:find("[\n;]%s*global%s") then return nil, "" end
-  end
   local plan = shards.best(items, wanted, pool.size())
   local count = #plan
   if count < 2 then return nil, "" end
