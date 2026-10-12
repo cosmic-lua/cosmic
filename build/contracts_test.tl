@@ -46,7 +46,7 @@ local function problems_in(source: string, exemptions?: contracts.Exemptions): {
     "local function pair(): boolean, integer return true, 1 end",
     "local function use(...: any) end",
     "local function complain(_v: integer | nil, _why: string) end",
-    "local function lead(_a: string, _b: string, _c?: integer) end",
+    "local function lead(_a: string | nil, _b: string, _c?: integer) end",
     "local function maybe(_v: integer | nil, _why?: string) end",
     "local function sget(): string | nil, string return nil, 'none' end",
     "local record Log",

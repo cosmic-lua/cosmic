@@ -1213,10 +1213,11 @@ local function compile_derived(handle: work.Handle, built: compiler, tool: strin
       local wanted: {string:boolean} = {}
       local bytes = 0
       for _, m in ipairs(order) do
-        m.key = keys[m.path].key
+        local key = keys[m.path].key
+        m.key = key
         m.graph_key = keys[m.path].graph
         if compilation.refusal(m) == nil then
-          local stands, stands_trouble = cached(cache, m.key)
+          local stands, stands_trouble = cached(cache, key)
           if stands_trouble ~= "" then
             finish_cache(cache)
             return false, stands_trouble
@@ -1245,14 +1246,15 @@ local function compile_derived(handle: work.Handle, built: compiler, tool: strin
     end
 
     for ordinal, m in ipairs(order) do
-      m.key = keys[m.path].key
+      local key = keys[m.path].key
+      m.key = key
       m.graph_key = keys[m.path].graph
 
       local refusal = compilation.refusal(m)
       if refusal ~= nil then
         result.refused[#result.refused + 1] = refusal
       else
-        local lua, look_trouble = cached_lua(cache, m.key)
+        local lua, look_trouble = cached_lua(cache, key)
         if lua == nil and look_trouble ~= "" then
           finish_cache(cache)
           return false, look_trouble
@@ -1276,7 +1278,7 @@ local function compile_derived(handle: work.Handle, built: compiler, tool: strin
           bytecode = elsewhere.bytecode
           result.cached = result.cached + 1
           result.shared = result.shared + 1
-          local kept_refs, refs_trouble = compilation.keep_references(db, m.key, elsewhere.references)
+          local kept_refs, refs_trouble = compilation.keep_references(db, key, elsewhere.references)
           if not kept_refs then
             finish_cache(cache)
             return false, m.file .. ": " .. refs_trouble
@@ -1304,7 +1306,7 @@ local function compile_derived(handle: work.Handle, built: compiler, tool: strin
               typed = receivers.install(made_env)
             end
             local made_generated, generate_trouble =
-              compilation.generate(m, built, env, assert(typed), own_tree, judged,
+              compilation.generate(m, built, assert(env), assert(typed), own_tree, judged,
                 function(file: string, source: string, checked: compiler.Result): string
                   return complain(file, source, checked, hints)
                 end)
@@ -1318,7 +1320,7 @@ local function compile_derived(handle: work.Handle, built: compiler, tool: strin
           bytecode = generated.bytecode
           refused = generated.refused
           result.compiled = result.compiled + 1
-          local kept_refs, refs_trouble = compilation.keep_references(db, m.key,
+          local kept_refs, refs_trouble = compilation.keep_references(db, key,
             generated.references)
           if not kept_refs then
             finish_cache(cache)
@@ -1332,7 +1334,7 @@ local function compile_derived(handle: work.Handle, built: compiler, tool: strin
           end
         end
         m.lua = lua
-        local kept, keep_trouble = remember(cache, m.path, m.key, ordinal, lua,
+        local kept, keep_trouble = remember(cache, m.path, key, ordinal, lua,
           bytecode, refused)
         if not kept then
           finish_cache(cache)

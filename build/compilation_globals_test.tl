@@ -10,10 +10,7 @@ local work = require("build.work")
 
 Test.policy{ grants = { { path = "core", letters = "r" } } }
 
-local built, load_trouble = teal.load()
-if built == nil then
-  error("could not load the compiler: " .. tostring(load_trouble))
-end
+local built = assert(teal.load())
 
 local REFUSED <const> = ": a global is not allowed in a cosmic build: it reaches other modules by no " ..
   "`require`, which is all a build's cache and its order see -- put the value in a module and " ..

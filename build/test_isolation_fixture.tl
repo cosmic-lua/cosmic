@@ -106,7 +106,7 @@ end
 --- Checks deadline isolation in the selected worker mode. With `probe`, the hung
 --- worker also leaves an orphan in its own group: its caller requires the
 --- kernel's children list, which lets the runner find and end that orphan.
-function fixture.hung_runs(tmp: string, probe: string, sandbox_workers: boolean)
+function fixture.hung_runs(tmp: string, probe: string | nil, sandbox_workers: boolean)
   -- Why the sandboxed case ran unsandboxed, which skips the test once
   -- that case has checked what the unsandboxed one does. The workers
   -- nest in this test's own sandbox, which a host may refuse: the

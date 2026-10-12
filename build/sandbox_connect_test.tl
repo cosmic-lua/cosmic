@@ -105,7 +105,7 @@ local function against(args: {string}, body: function(relay: Net.Conn, send: fun
   local held = streams()
   Poll.run(function()
     local listener = assert(Net.listen(Net.tcp("127.0.0.1", 0)))
-    local variables = { [variable or "ALL_PROXY"] = proxy_at(listener.address.port, userinfo), COSMIC_CONNECT_TRACE = "1" }
+    local variables = { [variable or "ALL_PROXY"] = proxy_at(assert(listener.address.port), userinfo), COSMIC_CONNECT_TRACE = "1" }
     if variable == "all_proxy" then variables.all_proxy = variables.all_proxy .. "/" end
     local client = Poll.spawn(function()
       ran.code = connect.run(args, io_of(held, variables, function(line: string)

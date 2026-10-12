@@ -23,10 +23,7 @@ local workers = require("build.workers")
 
 Test.policy{ profiles = { "cosmic", "proc" } }
 
-local built, load_trouble = teal.load()
-if built == nil then
-  error("could not load the compiler: " .. tostring(load_trouble))
-end
+local built = assert(teal.load())
 
 --- A library, six modules that each use a record of it, and a test of
 --- each: the tests do not import one another, so that sharing them

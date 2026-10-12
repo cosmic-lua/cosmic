@@ -243,11 +243,12 @@ local function run(argv: {integer:string}): integer
     log:complain("db: " .. parse_trouble)
     return 2
   end
-  local root, root_trouble = Fs.absolute(".")
-  if root == nil then
+  local absolute, root_trouble = Fs.absolute(".")
+  if absolute == nil then
     log:complain(root_trouble)
     return 1
   end
+  local root: string = absolute
   local code = reboot.stale_exit(argv)
   if code ~= nil then
     return code

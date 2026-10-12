@@ -143,7 +143,7 @@ end
 --- reduces to `""`, which [`catalog_of`] treats as nothing to catalog --
 --- there is no text a person's error could ever contain to match it
 --- against.
-local function static_text(node: ast.Node): string
+local function static_text(node: ast.Node | nil): string
   if node == nil then
     return ""
   end
@@ -202,7 +202,7 @@ end
 --- trailing the code before it ([`trails_code`]) is not part of the run
 --- it starts. One line per comment line, leaders stripped, so a
 --- paragraph break survives.
-local function doc_before(lines: {string}, all: {compiler.Comment}, line: integer): string
+local function doc_before(lines: {string}, all: {compiler.Comment} | nil, line: integer): string
   if all == nil or #all == 0 then
     return ""
   end
@@ -571,7 +571,7 @@ local record_docs: function(lines: {string}, tokens: {compiler.Token}, symbol: s
 --- their signature keeps the keyword, as the source spells it.
 local function fields_docs(lines: {string}, tokens: {compiler.Token}, symbol: string,
                            order: {string}, fields: {string: ast.TypeNode},
-                           field_comments: {string: {{compiler.Comment}}},
+                           field_comments: {string: {{compiler.Comment}}} | nil,
                            metamethod: boolean, out: {analyzer.DocEntry})
   for _, name in ipairs(order) do
     local field = fields[name]
@@ -1380,7 +1380,7 @@ end
 
 --- Whether `node` names [`Test.policy`] through one of `names`, the locals
 --- a chunk binds `require("cosmic.test")` to.
-local function names_policy(node: ast.Node, names: {string:boolean}): boolean
+local function names_policy(node: ast.Node | nil, names: {string:boolean}): boolean
   local index = node ~= nil and node.kind == "op" and node.op or nil
   local base: ast.Node = node ~= nil and node.e1 or nil
   local member: ast.Node = node ~= nil and node.e2 or nil
