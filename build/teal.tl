@@ -209,16 +209,18 @@ end
 --- @return compiler usable wherever [`teal.load`]'s result is: the same
 ---   untyped table cast to the declared surface, deferred to first use
 function teal.lazy(): compiler
-  local loaded: {any:any}
+  local loaded: {any:any} | nil
   local function real(): {any:any}
-    if loaded == nil then
+    local ready = loaded
+    if ready == nil then
       local built, trouble = teal.load()
       if built == nil then
         error(trouble, 0)
       end
-      loaded = built as {any:any}
+      ready = built as {any:any}
+      loaded = ready
     end
-    return loaded
+    return ready
   end
   local capsule: any = {}
   setmetatable(capsule, {
@@ -603,7 +605,9 @@ local function scoped_walk(root: ast.Node, visitor: Visitor)
       scopes[#scopes][name] = binding
     end
   end
-  local visit: function(ast.Node)
+  local visit: function(ast.Node) = function(_1: ast.Node)
+    error("visit is called before it is defined")
+  end
   local function visit_all(n: ast.Node | nil)
     if n ~= nil then
       visit(n)
@@ -1154,6 +1158,45 @@ local function dropped_hint(e: compiler.Error): string | nil
     "copy it into a local of its own after the check (`" .. copy .. "`, which no function assigns)" or
     "copy it to a local before " .. before .. " (`" .. copy .. "`), check and use that"
   return "'" .. place .. "' was checked, but " .. cause .. ": " .. first
+end
+
+--- What to do about a local read before every path to the read assigns it
+--- (the code `not_assigned`, [`compiler.Error`]): give it a value where it
+--- is declared, assign it on every path, or declare it `T | nil`, which is
+--- nil until assigned. The statement a path went by that skipped the
+--- assignment, and a function that names the local, are told where they are.
+local function unassigned_hint(e: compiler.Error): string | nil
+  local name = e.variable
+  if name == nil then
+    return nil
+  end
+  local where = tostring(e.skipped_y) .. ":" .. tostring(e.skipped_x)
+  local skipped = e.skipped_kind
+  local path = ""
+  if skipped == "if" then
+    path = " (the `if` at " .. where .. " has no `else` that assigns it)"
+  elseif skipped == "branch" then
+    path = " (the branch at " .. where .. " does not assign it)"
+  elseif skipped == "loop" then
+    path = " (the loop at " .. where .. " may run no pass)"
+  elseif e.closure then
+    path = " (creating a function reads every variable it names, and an assignment inside one " ..
+      "does not count outside it)"
+  end
+  return "'" .. name .. "' may be read before it is assigned" .. path ..
+    ": give it a value where it is declared (`local " .. name .. ": T = ...`), assign it on every path, " ..
+    "or declare it `local " .. name .. ": T | nil`, which is nil until assigned and is checked where it is used"
+end
+
+--- What to declare for a local with neither a type nor a value (the code
+--- `no_type`): its type, with `| nil` where it starts with no value.
+local function untyped_local_hint(e: compiler.Error): string | nil
+  local name = e.variable
+  if name == nil then
+    return nil
+  end
+  return "'" .. name .. "' has neither a type nor a value: declare `local " .. name ..
+    ": T | nil` for one that starts with no value, or give it a value where it is declared"
 end
 
 --- The kind of type `source` declares as `name` at its top level
@@ -1928,6 +1971,12 @@ end
 --- `narrowing_dropped`) is told what dropped it and the copy to a local that
 --- keeps the check with the use ([`dropped_hint`]).
 ---
+--- A local read where a path from its declaration has not assigned it (the
+--- code `not_assigned`) is told to give it a value, assign it on every path
+--- or declare it `T | nil` ([`unassigned_hint`]), and a local declared with
+--- neither a type nor a value (`no_type`) to declare `T | nil`
+--- ([`untyped_local_hint`]).
+---
 --- `local x = fail()` where `fail` is declared `: never` is told that
 --- `fail` never returns, so it has no value to assign
 --- ([`never_value_hint`]), whichever module declares it.
@@ -1957,6 +2006,12 @@ function teal.replacement(e: compiler.Error, source: string, file?: string,
   end
   if code == "narrowing_dropped" then
     return dropped_hint(e)
+  end
+  if code == "not_assigned" then
+    return unassigned_hint(e)
+  end
+  if code == "no_type" then
+    return untyped_local_hint(e)
   end
   if code == "mismatch" and e.got_members ~= nil and #e.got_members == 1 and
       e.got_members[1] == "number" and

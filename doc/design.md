@@ -1002,6 +1002,49 @@ was. its hint copies the value to a local before the call or write
 (`local n = r.n`, then `if n then clear() print(n + 1) end`), which stays
 narrowed across the call because no function can assign it.
 
+a local is assigned before it is read. `local x: T` with no value is nil until
+something assigns it, and a read that comes first gets nil where the type
+promised a `T`, so it is legal only where every path from the declaration
+assigns `x` before its first read ([`checker/flow.tl`]'s `unassigned_read`,
+asked of each declaration once the block that holds it is checked). a read
+is any use of `x` as a value (an operand, an argument, an index, the target of
+`x.f = v` or `x[i] = v`) and the creation of a function literal that names
+`x`, which reads it where it is made. a path that ends first (`return`, a
+`break` or `goto` that leaves, a call of a function typed `: never`) never
+reaches the read. an `if` assigns if every branch does and it has an `else`;
+a `while`, `for` and generic `for` body may run no time, so what it assigns
+does not count after the loop except on the paths that `break` out of it,
+while a `repeat` body and a `while true` body run at least once; a `goto`
+takes the state it leaves with to its label, and a backward one adds nothing
+a label did not already have. an assignment inside a function literal does not
+count for the code around it, and a local of the same name declared inside a
+block hides the variable from the rest of that block. `local x: T | nil` with
+no value is always legal and is nil, so is any type that admits nil (`any`, an
+alias of a union with nil); a type variable is not taken to, since it may stand
+for a type that does not. a local with neither a type nor a value
+(`local x`) is refused too, with the code `no_type`.
+
+a refusal of the first kind has the code `not_assigned`, with the variable, and
+where a path skipped the assignment: the `if` with no `else`, the branch that
+does not assign, or the loop, with its place; or that the read is a function
+that names it. its hint says to give the local a value where it is declared,
+assign it on every path, or declare it `T | nil` and check it where it is
+used. the rule is held against the semantics it is about: a drawn program of
+branches, loops, `break`, `return`, `goto` and calls that never return is run
+down every way its choices can fall, and the checker refuses it exactly when
+some way reads the variable before it is assigned
+([`build/checker_assigned_fuzz_test.tl`]).
+
+the rule costs the idiom of a function declared ahead for two to call each
+other. a function literal that names the local reads it, so the tree writes
+`local g: function(integer) = function(_: integer) error("g is called before it
+is defined") end`, a stand-in that raises if it is ever called first, and a
+function that only calls itself is a `local function`. the checker's own source
+is valid upstream Teal and relies on nil being in every type, so a local it
+reads before the code that assigns it is declared `local x: T = nil`, which has
+a value; the checker's TODO there waits on nil leaving every type but one that
+names it.
+
 later parts of the checker move into modules the same way, each a file in
 `checker/` with a main chunk and a count of locals of its own. the files sit
 outside the module closure they compile: the scanner
@@ -1391,6 +1434,7 @@ in [roadmap.md](roadmap.md).
 [`build.work`]: ../build/work.tl
 [`build.writer`]: ../build/writer.tl
 [`build/bom.tl`]: ../build/bom.tl
+[`build/checker_assigned_fuzz_test.tl`]: ../build/checker_assigned_fuzz_test.tl
 [`build/closure_store.tl`]: ../build/closure_store.tl
 [`build/compiler.d.tl`]: ../build/compiler.d.tl
 [`build/compiler_test.tl`]: ../build/compiler_test.tl

@@ -64,6 +64,21 @@ defines the target; once something ships, it leaves this file.
   body assigns it. this refuses what is accepted now (a callback reading a
   field its creator checked), so it first runs in report mode and counts
   the bodies that read a fact of the places outside them.
+- let a function literal name a local that is not assigned yet when nothing
+  can call it before the assignment: a function declared ahead for two to
+  call each other (`local g: function(); local function h() g() end;
+  g = ...`). [doc/design.md](design.md)'s teal section states the rule that
+  a literal reads every variable it names, which refuses this, so the tree
+  holds about forty such functions as a stand-in that raises if it is called
+  first (`local g: function() = function() error("g is called before it is
+  defined") end`), and [`checker/flow.tl`] carries a TODO for the analysis
+  that tells which statements may run a function. it accepts what is refused
+  now, so no program that checks stops checking.
+- exclude nil from every type but one that names it. the checker's own
+  source is valid upstream Teal, which indexes no `T | nil` even after a
+  guard, so it declares a local it reads before the code that assigns it
+  `local x: T = nil` (the TODO at the top of [`checker/tl.tl`] names them);
+  those and every other place nil passes for a `T` are refused then.
 - list the standard library functions that run no code of the program's
   with the declarations that say so (today [`checker/tl.tl`] marks them by
   name where it loads [`checker/stdlib.d.tl`]), and let a declaration of the
@@ -461,6 +476,7 @@ four-producer provenance join.
 [`build/shape_specs.tl`]: ../build/shape_specs.tl
 [`build/teal_test.tl`]: ../build/teal_test.tl
 [`build/workflows_test.tl`]: ../build/workflows_test.tl
+[`checker/flow.tl`]: ../checker/flow.tl
 [`checker/stdlib.d.tl`]: ../checker/stdlib.d.tl
 [`checker/tl.tl`]: ../checker/tl.tl
 [`Child.end_strays`]: ../cosmic/child.tl
