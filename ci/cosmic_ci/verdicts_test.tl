@@ -1,6 +1,5 @@
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
-local TextRows = require("cosmic_ci.text_rows")
 local Verdicts = require("cosmic_ci.verdicts")
 
 local s <const> = 1000000000
@@ -12,7 +11,7 @@ local s <const> = 1000000000
 --- and a table of another shape beside them.
 local function cache(path: string, used: {integer})
   local db = assert(Sqlite.open(path, { writable = true }))
-  assert(TextRows.query(db, "PRAGMA journal_mode = WAL"))
+  assert(Sqlite.text_rows(db, "PRAGMA journal_mode = WAL"))
   assert(db:exec("CREATE TABLE declared_v1 (key TEXT PRIMARY KEY, test TEXT NOT NULL, " ..
       "hits BLOB NOT NULL, elapsed_ns INTEGER NOT NULL, used_ns INTEGER NOT NULL, " ..
       "origin TEXT NOT NULL); CREATE INDEX declared_v1_by_use ON declared_v1 (used_ns); " ..
@@ -30,9 +29,9 @@ end
 local function keys(path: string): {string}
   local db = assert(Sqlite.open(path))
   local out: {string} = {}
-  for _, row in ipairs((assert(TextRows.query(db,
+  for _, row in ipairs((assert(Sqlite.text_rows(db,
       "SELECT key FROM declared_v1 UNION ALL SELECT key FROM verdicts_v3 ORDER BY 1")))) do
-    out[#out + 1] = row[1]
+    out[#out + 1] = row:text(1)
   end
   assert(db:close())
   return out
@@ -116,9 +115,9 @@ end
 local function rows(path: string): string
   local db = assert(Sqlite.open(path))
   local out: {string} = {}
-  for _, row in ipairs((assert(TextRows.query(db,
+  for _, row in ipairs((assert(Sqlite.text_rows(db,
       "SELECT key, test, used_ns / 1000000000 FROM declared_v1 ORDER BY key")))) do
-    out[#out + 1] = table.concat(row, " ")
+    out[#out + 1] = table.concat(row:texts(), " ")
   end
   assert(db:close())
   return table.concat(out, "\n")
@@ -167,7 +166,7 @@ local function test_a_merge_makes_what_is_missing_and_leaves_another_shape(tmp: 
   assert(rows(ours .. "/checked.db") == "k1 t.tl test_1 0", rows(ours .. "/checked.db"))
   assert(not Fs.exists(ours .. "/verdicts.db"), "the merge made a cache the run ahead had none of")
   local db = assert(Sqlite.open(ours .. "/checked.db"))
-  local indexes = assert(TextRows.query(db, "SELECT name FROM sqlite_schema WHERE type = 'index' AND " ..
+  local indexes = assert(Sqlite.text_rows(db, "SELECT name FROM sqlite_schema WHERE type = 'index' AND " ..
       "name = 'declared_v1_by_use'"))
   assert(#indexes == 1, "the index was not made")
   assert(db:close())
@@ -224,9 +223,9 @@ end
 local function addresses(path: string): string
   local db = assert(Sqlite.open(path))
   local out: {string} = {}
-  for _, row in ipairs((assert(TextRows.query(db,
+  for _, row in ipairs((assert(Sqlite.text_rows(db,
       "SELECT address, used_ns / 1000000000 FROM stores_v1 ORDER BY address")))) do
-    out[#out + 1] = table.concat(row, " ")
+    out[#out + 1] = table.concat(row:texts(), " ")
   end
   assert(db:close())
   return table.concat(out, "\n")
@@ -258,7 +257,7 @@ local function test_store_digests_are_trimmed_and_merged_as_verdicts_are(tmp: st
   assert(code == 0 and err:find("warning: the run ahead kept another digest of a closure " ..
       "store for 1 address of stores_v1", 1, true) ~= nil, out .. err)
   db = assert(Sqlite.open(ours .. "/verdicts.db"))
-  local digest = assert(TextRows.query(db, "SELECT digest FROM stores_v1 WHERE address = 'a2'"))
+  local digest = assert(Sqlite.text_rows(db, "SELECT digest FROM stores_v1 WHERE address = 'a2'"))
   assert(db:close())
-  assert(digest[1][1] == "d", digest[1][1])
+  assert(digest[1]:text(1) == "d", digest[1]:text(1))
 end

@@ -298,7 +298,7 @@ skips one whose code and inputs have not changed since it last passed.
 `cosmic cmd/tally/main.tl words words.txt` runs the program from source. `cosmic
 build` writes `tally` in the project's build directory, outside the project
 (`~/.cache/cosmic/trees/<key>/bin/tally`; `COSMIC_BUILD_HOME` moves it), and
-names it on its last line; `cosmic build cmd/tally` writes only that one. `cosmic docs` lists your own modules with the standard library's, and
+prints its path on a line of its own; `cosmic build cmd/tally` writes only that one. `cosmic docs` lists your own modules with the standard library's, and
 `cosmic docs Tally.words` shows a function with the examples that call it.
 
 That `tally` is the whole program: copy that one file to a Linux (x86-64
@@ -357,7 +357,7 @@ print(missing.code, ((missing.stderr or ""):gsub("\n$", "")))
 print(((cosmic("cmd/tally/main.tl", "--help").stdout or ""):gsub("\n$", "")))
 local wrote = cosmic("build", "--host")
 verdict(wrote, "build")
-local program = assert((wrote.stdout or ""):match("build: PASS %((/[^ ,]+)"))
+local program = assert(("\n" .. (wrote.stdout or "")):match("\n(/[^\n]+)"))
 local built = assert(Child.run({ program, "words", "words.txt" },
   { cwd = tmp, stdout = "capture", timeout_ns = Clock.seconds(60) }))
 print(((built.stdout or ""):gsub("\n$", "")))

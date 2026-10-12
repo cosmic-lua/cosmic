@@ -6099,6 +6099,18 @@ int64_t cosmic_now_ms (void) {
   return (int64_t)ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
 }
 
+int64_t cosmic_deadline_ms (int64_t timeout) {
+  if (timeout < 0) return -1;
+  int64_t now = cosmic_now_ms();
+  /* A timeout of 0 is a deadline already come. Any other is put one
+   * millisecond on: now is counted down, so up to a millisecond of the
+   * current one has gone, and a deadline of `now + timeout` would pass
+   * before `timeout` had. */
+  int64_t extra = timeout > 0;
+  if (timeout > INT64_MAX - now - extra) return INT64_MAX;
+  return now + extra + timeout;
+}
+
 int cosmic_wait_slice (int64_t deadline) {
   if (deadline < 0) return COSMIC_WAIT_SLICE_MS;
   int64_t remaining = deadline - cosmic_now_ms();

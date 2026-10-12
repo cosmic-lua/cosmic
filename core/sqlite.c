@@ -50,8 +50,7 @@ static int wait_busy (void *context, int previous) {
   (void)previous;
   struct handle *h = context;
   if (h->deadline_ms < 0) {
-    int64_t now = cosmic_now_ms();
-    h->deadline_ms = h->busy_ms > INT64_MAX - now ? INT64_MAX : now + h->busy_ms;
+    h->deadline_ms = cosmic_deadline_ms(h->busy_ms);
   }
   int status = cosmic_paused(h->deadline_ms, &h->pause_ms);
   if (status == EINTR) h->cancelled = true;
