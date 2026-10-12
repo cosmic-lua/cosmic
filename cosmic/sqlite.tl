@@ -172,6 +172,10 @@ local record Sqlite
     read: function(Query): Row | nil, string
     --- An iterator for a `for` loop over the rows still to come. It
     --- ends at the last one or at a failure, which `failure` then says.
+    ---
+    -- TODO: declare the iterator `function(): Row | nil`, as it answers,
+    -- once the checker reads the nil that ends a `for` loop's iterator
+    -- as the end, not as a possible value of the loop variable.
     each: function(Query): function(): Row
     --- Why the rows ended early, or "" when they have not: after an
     --- `each` loop that ran out, "" means every row was read. A `break`,
@@ -309,8 +313,8 @@ end
 --- `sql` prepared on `handle` with `values` bound, or nil and why; a
 --- statement that does not bind is finalized.
 local function prepared(handle: Sqlite.Handle, sql: string,
-                        values: {Sqlite.Value}): Sqlite.Statement | nil, string
-  values = values or {}
+                        given?: {Sqlite.Value}): Sqlite.Statement | nil, string
+  local values = given or {}
   local highest = checked(values)
   local statement, trouble = handle:prepare(sql)
   if statement == nil then
@@ -479,6 +483,9 @@ function StatementQuery:read(): Sqlite.Row | nil, string
 end
 
 function StatementQuery:each(): function(): Sqlite.Row
+  -- TODO: declare `function(): Sqlite.Row | nil`, as [`Query`]'s `each`
+  -- says, once the checker reads the nil that ends a `for` loop's
+  -- iterator as the end.
   return function(): Sqlite.Row
     local row, _ = self:read()
     return row
@@ -548,7 +555,7 @@ end
 --- A typed helper owns preparation and binding failures alike. A bad
 --- parameter shape raises, but must not leave a statement holding its handle.
 local function prepared_result(handle: Sqlite.Handle, sql: string,
-                               values: {Sqlite.Value}): Sqlite.PrepareResult
+                               values?: {Sqlite.Value}): Sqlite.PrepareResult
   local opened = handle:prepare_result(sql)
   if opened.statement == nil then return opened end
   local statement = opened.statement

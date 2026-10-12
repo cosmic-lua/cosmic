@@ -150,6 +150,10 @@ local record Stream
     read: function(Lines): string | nil, string
     --- An iterator for a `for` loop over the lines still to come. It
     --- ends at the last one or at a failure, which `failure` then says.
+    ---
+    -- TODO: declare the iterator `function(): string | nil`, as it answers,
+    -- once the checker reads the nil that ends a `for` loop's iterator
+    -- as the end, not as a possible value of the loop variable.
     each: function(Lines): function(): string
     --- Why the lines ended early, or "" when they have not: after an
     --- `each` loop, "" means every line was read.
@@ -978,6 +982,9 @@ end
 
 function LineReader:each(): function(): string
   if self.rested then error(rested, 2) end
+  -- TODO: declare `function(): string | nil`, as [`Lines`]'s `each` says,
+  -- once the checker reads the nil that ends a `for` loop's iterator as
+  -- the end.
   return function(): string
     local line, _ = self:read()
     return line
