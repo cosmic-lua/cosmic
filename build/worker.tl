@@ -201,11 +201,11 @@ function worker.parse(pool: worker.Pool, db: Sqlite.Handle, built: compiler,
         "SELECT name FROM requires WHERE source_hash = ?1 ORDER BY ordinal",
         { text(one.source_hash) })
       if rows ~= nil and names ~= nil and #rows == 1 then
-        local packed = rows[1][1].blob
+        local packed = rows[1]:kind(1) == "blob" and rows[1]:blob(1) or nil
         local unpacked = packed ~= nil and derivation.unpacked_parse(packed, widths) or nil
         if unpacked ~= nil then
           local requires: {string} = {}
-          for _, row in ipairs(names) do requires[#requires + 1] = row[1] end
+          for _, row in ipairs(names) do requires[#requires + 1] = row:text(1) end
           local put, _ = derivation.put_parse(db, one.source_hash, requires, unpacked)
           taken = put
         end
@@ -241,7 +241,7 @@ local function serve_parse(built: compiler, job: string, index: integer): string
   if rows == nil then return rows_trouble end
   local fresh: {Fresh} = {}
   for _, row in ipairs(rows) do
-    fresh[#fresh + 1] = { source_hash = row[1], file = row[2], source = row[3], mapped = row[4] == "1" }
+    fresh[#fresh + 1] = { source_hash = row:text(1), file = row:text(2), source = row:text(3), mapped = row:text(4) == "1" }
   end
   local scratch, scratch_trouble = Sqlite.open(":memory:", { writable = true })
   if scratch == nil then return scratch_trouble end
@@ -321,7 +321,7 @@ function worker.compile(pool: worker.Pool, db: Sqlite.Handle, root: string,
   local sources, sources_trouble = Sqlite.text_rows(db,
     "SELECT path, kind, source FROM inputs WHERE kind <> 'vendor'")
   if sources == nil then return nil, sources_trouble end
-  local inputs: {{string}} = sources
+  local inputs: Sqlite.Rows = sources
   -- A `global` a module declares stays in the checker's environment for
   -- every module checked after it, in the same process: one is refused for
   -- declaring it again unlike another, and one that names it is accepted
@@ -331,7 +331,9 @@ function worker.compile(pool: worker.Pool, db: Sqlite.Handle, root: string,
   -- finds a line leading with the word, in code or in a string, compiles
   -- alone.
   for _, row in ipairs(inputs) do
-    if row[3]:find("^%s*global%s") or row[3]:find("[\n;]%s*global%s") then return nil, "" end
+    if row:text(3):find("^%s*global%s") or row:text(3):find("[\n;]%s*global%s") then
+      return nil, ""
+    end
   end
   local plan = shards.best(items, wanted, pool.size())
   local count = #plan
@@ -357,7 +359,7 @@ function worker.compile(pool: worker.Pool, db: Sqlite.Handle, root: string,
   end
   for _, row in ipairs(inputs) do
     local ok, why = Sqlite.run(writing, "INSERT OR IGNORE INTO inputs (path, kind, source) VALUES (?1, ?2, ?3)",
-      { text(row[1]), text(row[2]), text(row[3]) })
+      { text(row:text(1)), text(row:text(2)), text(row:text(3)) })
     if not ok then return fail(why) end
   end
   for name, value in pairs({ root = root, own_tree = own_tree and "1" or "0",
@@ -399,15 +401,19 @@ function worker.compile(pool: worker.Pool, db: Sqlite.Handle, root: string,
       local refs, _ = Sqlite.rows(results,
         "SELECT module, member, line FROM refs WHERE path = ?1 ORDER BY ordinal", { text(path) })
       if refs == nil then return nil end
-      local lua, bytecode = rows[1][2].blob, rows[1][3].blob
+      local lua = rows[1]:kind(2) == "blob" and rows[1]:blob(2) or nil
+      local bytecode = rows[1]:kind(3) == "blob" and rows[1]:blob(3) or nil
       if lua == nil or bytecode == nil then return nil end
       local references: {receivers.Reference} = {}
       for _, row in ipairs(refs) do
-        references[#references + 1] = { module = row[1].text or "", member = row[2].text or "",
-          line = row[3].integer or 0 }
+        references[#references + 1] = {
+          module = row:kind(1) == "text" and row:text(1) or "",
+          member = row:kind(2) == "text" and row:text(2) or "",
+          line = row:kind(3) == "integer" and row:integer(3) or 0,
+        }
       end
       return { lua = lua, bytecode = bytecode, references = references,
-        refused = rows[1][1].integer == 1 }
+        refused = rows[1]:kind(1) == "integer" and rows[1]:integer(1) == 1 }
     end,
     close = function()
       for shard = 1, count do
@@ -437,14 +443,14 @@ local function serve_compile(built: compiler, job: string, index: integer): stri
   local meta, meta_trouble = Sqlite.text_rows(jobs, "SELECT name, value FROM meta")
   if meta == nil then return close_with(meta_trouble) end
   local settings: {string:string} = {}
-  for _, row in ipairs(meta) do settings[row[1]] = row[2] end
+  for _, row in ipairs(meta) do settings[row:text(1)] = row:text(2) end
   local rows, rows_trouble = Sqlite.text_rows(jobs,
     "SELECT m.path, m.file, m.kind, m.generated, m.tests, i.source, m.stubbed, m.stub, " ..
       "m.pruned FROM modules m " ..
       "JOIN inputs i ON i.path = m.path AND i.kind = m.kind " ..
       "WHERE m.shard = ?1 ORDER BY m.seq", { integer(index) })
   if rows == nil then return close_with(rows_trouble) end
-  local modules: {{string}} = rows
+  local modules: Sqlite.Rows = rows
   local made_env, env_trouble = teal.environment_for(built, jobs, settings.root)
   if made_env == nil then return close_with(env_trouble) end
   local env: compiler.Env = made_env
@@ -464,12 +470,12 @@ local function serve_compile(built: compiler, job: string, index: integer): stri
   end
   for _, row in ipairs(modules) do
     local tests: {string} = {}
-    for name in row[5]:gmatch("[^\n]+") do tests[#tests + 1] = name end
+    for name in row:text(5):gmatch("[^\n]+") do tests[#tests + 1] = name end
     local m: Module = {
-      path = row[1], file = row[2], kind = row[3], source = row[6], source_hash = "",
-      requires = {}, tests = tests, has_top_level_return = false, generated = row[4] == "1",
+      path = row:text(1), file = row:text(2), kind = row:text(3), source = row:text(6), source_hash = "",
+      requires = {}, tests = tests, has_top_level_return = false, generated = row:text(4) == "1",
       key = "", graph_key = "", lua = "",
-      stub = row[7] == "1" and { text = row[8], pruned = row[9] == "1" } or nil,
+      stub = row:text(7) == "1" and { text = row:text(8), pruned = row:text(9) == "1" } or nil,
     }
     local generated, generate_trouble = compilation.generate(m, built, env, typed, own_tree, judged,
       function(_file: string, _source: string, _checked: compiler.Result): string

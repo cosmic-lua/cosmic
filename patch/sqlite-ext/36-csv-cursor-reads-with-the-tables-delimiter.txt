@@ -1,0 +1,8 @@
+file: ext/misc/csv.c
+note: The table takes the delimiter from its connect's reader, and each cursor's reader from the table (35-csv-table-keeps-its-delimiter.txt).
+--- find
+  pNew->bFirstWidth = nCol<0 && CSV_SCHEMA==0;
+--- replace
+  pNew->bFirstWidth = nCol<0 && CSV_SCHEMA==0;
+  pNew->cSep = sRdr.cSep;
+--- end

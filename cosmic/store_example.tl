@@ -34,7 +34,7 @@ function Example.seal()
   assert(Store.seal(Store.closure({ "cosmic.json" }), dir .. "/again.db") == digest)
   local db = assert(Sqlite.open(path))
   local rows = assert(Sqlite.text_rows(db, "SELECT count(*) FROM modules"))
-  print(digest:sub(1, 12), rows[1][1])
+  print(digest:sub(1, 12), rows[1]:text(1))
   assert(db:close())
   assert(Fs.remove_tree(dir))
 end

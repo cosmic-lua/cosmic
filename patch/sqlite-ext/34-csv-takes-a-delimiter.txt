@@ -1,0 +1,27 @@
+file: ext/misc/csv.c
+note: A delimiter=X parameter, X one byte, bare or in quotes ('\t' written as a quoted tab), sets the byte between fields (30-csv-reader-holds-a-delimiter.txt); a comma by default. A quote, CR or LF, a byte of the UTF-8 byte order mark (EF, BB, BF), which the reader takes as one at the start of the text before it looks for a delimiter, or anything but one byte, is refused. Upstream reads only commas as of 3.54.0.
+--- find
+    }else
+    if( csv_boolean_parameter("header",6,z,&b) ){
+--- replace
+    }else
+    if( (zValue = csv_parameter("delimiter",9,z))!=0 ){
+      size_t nValue = strlen(zValue);
+      char cSep = 0;
+      if( nValue==1 ){
+        cSep = zValue[0];
+      }else if( nValue==3 && (zValue[0]=='\'' || zValue[0]=='"')
+             && zValue[2]==zValue[0] ){
+        cSep = zValue[1];
+      }
+      if( cSep==0 || cSep=='"' || cSep=='\r' || cSep=='\n'
+       || (unsigned char)cSep==0xef || (unsigned char)cSep==0xbb
+       || (unsigned char)cSep==0xbf ){
+        csv_errmsg(&sRdr, "delimiter= must be one byte, not a quote, a line break "
+                          "or a byte of the UTF-8 byte order mark");
+        goto csvtab_connect_error;
+      }
+      sRdr.cSep = cSep;
+    }else
+    if( csv_boolean_parameter("header",6,z,&b) ){
+--- end

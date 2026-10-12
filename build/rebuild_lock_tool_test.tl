@@ -203,7 +203,7 @@ local function test_a_waiting_projection_keeps_its_compiled_snapshot(tmp: string
         local db = assert(Sqlite.open(alternate))
         local rows = assert(Sqlite.text_rows(db,
           "SELECT inflate(source) FROM modules WHERE path = 'main'"))
-        assert(rows[1][1] == 'print("replacement")\n')
+        assert(rows[1]:text(1) == 'print("replacement")\n')
         assert(db:close())
       else
         assert(Fs.write(root .. "/main.tl", 'local broken: string = 42\nprint(broken)\n'))
@@ -221,10 +221,10 @@ local function test_a_waiting_projection_keeps_its_compiled_snapshot(tmp: string
       local db = assert(Sqlite.open(build_dir(root) .. "/cosmic.db"))
       local rows = assert(Sqlite.text_rows(db,
         "SELECT inflate(source) FROM modules WHERE path = 'main'"))
-      assert(rows[1][1] == original, "published another run's source")
+      assert(rows[1]:text(1) == original, "published another run's source")
       local signed = assert(Sqlite.text_rows(db,
         "SELECT value FROM meta WHERE key = 'projected'"))
-      assert(signed[1][1] == first_signature, "published another run's signature")
+      assert(signed[1]:text(1) == first_signature, "published another run's signature")
       assert(db:close())
     end)
     rebuild_lock.release()

@@ -140,9 +140,9 @@ local function test_an_internal_module_is_absent_from_the_public_docs(dir: strin
   local all = assert(Sqlite.text_rows(db, "SELECT DISTINCT module FROM docs ORDER BY module"))
   local public = assert(Sqlite.text_rows(db, "SELECT DISTINCT module FROM docs WHERE " ..
       symbols.public_only("module", true) .. " ORDER BY module"))
-  assert(#all == 2 and all[1][1] == "cosmic.fs" and all[2][1] == "cosmic.internal.shared",
+  assert(#all == 2 and all[1]:text(1) == "cosmic.fs" and all[2]:text(1) == "cosmic.internal.shared",
     #all .. " modules")
-  assert(#public == 1 and public[1][1] == "cosmic.fs")
+  assert(#public == 1 and public[1]:text(1) == "cosmic.fs")
   assert(symbols.is_public_module("cosmic.fs"))
   assert(not symbols.is_public_module("cosmic.internal.shared"))
 end

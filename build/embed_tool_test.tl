@@ -63,7 +63,7 @@ local function write_project(root: string)
   assert(Fs.write(root .. "/greet.tl", greet_source))
 end
 
-local function rows_of(path: string, sql: string): {{string}}
+local function rows_of(path: string, sql: string): Sqlite.Rows
   local db = assert(Sqlite.open(path))
   local rows = assert(Sqlite.text_rows(db, sql))
   db:close()
@@ -96,7 +96,7 @@ local function test_the_carried_database_holds_what_a_program_needs(tmp: string)
 
   local meta: {string:string} = {}
   for _, row in ipairs(rows_of(path, "SELECT key, value FROM meta")) do
-    meta[row[1]] = row[2]
+    meta[row:text(1)] = row:text(2)
   end
   assert(meta["main"] == "cmd.hello.main", "main names the module to run")
   assert(meta["host"] == nil, "a portable database carries no host")
@@ -106,7 +106,7 @@ local function test_the_carried_database_holds_what_a_program_needs(tmp: string)
 
   local modules: {string:string} = {}
   for _, row in ipairs(rows_of(path, "SELECT path, kind FROM modules")) do
-    modules[row[1]] = row[2]
+    modules[row:text(1)] = row:text(2)
   end
   assert(modules["cmd.hello.main"] == "main", "the project's main is in")
   assert(modules["greet"] == "module", "the project's own module is in")
@@ -120,35 +120,35 @@ local function test_the_carried_database_holds_what_a_program_needs(tmp: string)
   assert(#decls == 1, "the syscall declaration is in")
   local images = rows_of(path,
     "SELECT count(*) FROM sqlite_schema WHERE name = 'images'")
-  assert(images[1][1] == "0", "portable databases have no images table")
+  assert(images[1]:text(1) == "0", "portable databases have no images table")
   local guidance = rows_of(path,
     "SELECT count(*) FROM catalog_fts WHERE catalog_fts MATCH 'coverage'")
-  assert(tonumber(guidance[1][1]) > 0, "the error catalog is in, and indexed")
+  assert(tonumber(guidance[1]:text(1)) > 0, "the error catalog is in, and indexed")
   local text = rows_of(path,
     "SELECT coalesce(length(text), 0) FROM catalog WHERE symbol = 'Coverage.start'")
-  assert(#text == 1 and tonumber(text[1][1]) > 0,
+  assert(#text == 1 and tonumber(text[1]:text(1)) > 0,
     "a row carries its guidance, though the docs it comes from are not")
   local about_build = rows_of(path,
     "SELECT count(*) FROM catalog WHERE module LIKE 'build.%'")
-  assert(about_build[1][1] == "0", "guidance about the build is not")
+  assert(about_build[1]:text(1) == "0", "guidance about the build is not")
   local databases = Store.databases()
   local carried = assert(Sqlite.text_rows(databases[#databases], "SELECT count(*) FROM zoneinfo"))
   local zones = rows_of(path, "SELECT count(*), sum(name = 'America/New_York') FROM zoneinfo")
-  assert(zones[1][1] == carried[1][1] and tonumber(zones[1][1]) > 500 and zones[1][2] == "1",
+  assert(zones[1]:text(1) == carried[1]:text(1) and tonumber(zones[1]:text(1)) > 500 and zones[1]:text(2) == "1",
     "every zone the binary carries is in")
   local assets = assert(Sqlite.text_rows(databases[#databases],
     "SELECT group_concat(name || ' ' || version || ' ' || sha256, ',' ORDER BY name) FROM web_assets"))
   local web = rows_of(path,
     "SELECT group_concat(name || ' ' || version || ' ' || sha256, ',' ORDER BY name) FROM web_assets")
-  assert(web[1][1] ~= nil and web[1][1] == assets[1][1] and web[1][1]:find("htmx.min.js", 1, true),
+  assert(web[1]:text(1) ~= nil and web[1]:text(1) == assets[1]:text(1) and web[1]:text(1):find("htmx.min.js", 1, true),
     "every web asset the binary carries is in")
   local materials = rows_of(path,
     "SELECT (SELECT count(*) FROM components WHERE name = 'lua'), " ..
       "(SELECT count(*) FROM notices WHERE component = 'lua' AND text LIKE '%Lua.org%')")
-  assert(materials[1][1] == "1" and materials[1][2] == "1",
+  assert(materials[1]:text(1) == "1" and materials[1]:text(2) == "1",
     "the program carries the bill of materials its cores ship under")
   local trusted = rows_of(path, "SELECT count(*) FROM ca_roots")
-  assert(tonumber(trusted[1][1]) > 100, "the program carries the CA roots its requests trust")
+  assert(tonumber(trusted[1]:text(1)) > 100, "the program carries the CA roots its requests trust")
 end
 
 --- A project's tests and examples stay with the project: the program
@@ -184,21 +184,21 @@ local function test_the_carried_database_leaves_tests_and_examples_out(tmp: stri
   assert(embed.tree(tmp))
   local projected = rows_of(build_dir(tmp) .. "/cosmic.db",
     "SELECT count(*) FROM modules WHERE path IN ('greet_test', 'greet_example')")
-  assert(projected[1][1] == "2", "the project's own projection keeps both")
+  assert(projected[1]:text(1) == "2", "the project's own projection keeps both")
   local database = assert(embed.database(build_dir(tmp) .. "/cosmic.db", "cmd.hello.main"))
   local path = tmp .. "/carried.db"
   assert(Fs.write(path, database))
 
   local modules = rows_of(path,
     "SELECT path FROM modules WHERE path IN ('greet', 'greet_test', 'greet_example')")
-  assert(#modules == 1 and modules[1][1] == "greet",
+  assert(#modules == 1 and modules[1]:text(1) == "greet",
     "the module is in and its test and example are not")
   local imports = rows_of(path,
     "SELECT count(*) FROM imports WHERE path IN ('greet_test', 'greet_example')")
-  assert(imports[1][1] == "0", "no import edge from a test or example")
+  assert(imports[1]:text(1) == "0", "no import edge from a test or example")
   local catalog = rows_of(path,
     "SELECT count(*) FROM catalog WHERE module IN ('greet_test', 'greet_example')")
-  assert(catalog[1][1] == "0", "no catalog row about a test or example")
+  assert(catalog[1]:text(1) == "0", "no catalog row about a test or example")
 end
 
 --- A test or example file is only a kind by its name: one the program
@@ -241,7 +241,7 @@ local function test_a_test_or_example_the_program_requires_is_carried(tmp: strin
   local imports = rows_of(path,
     "SELECT count(*) FROM imports WHERE path = 'shared_example' " ..
       "AND requires = 'fixture_test'")
-  assert(imports[1][1] == "1", "the edge between them is carried")
+  assert(imports[1]:text(1) == "1", "the edge between them is carried")
 end
 
 local identity_source = [[
@@ -451,7 +451,7 @@ return function(): integer
     local rows, _ = Sqlite.text_rows(handle,
       "SELECT path, type, length(data), gzip IS NOT NULL FROM payload ORDER BY path")
     if rows ~= nil and #rows > 0 then
-      for _, row in ipairs(rows) do print("payload", table.concat(row, "\t")) end
+      for _, row in ipairs(rows) do print("payload", table.concat(row:texts(), "\t")) end
       break
     end
   end

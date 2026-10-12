@@ -1,0 +1,8 @@
+file: ext/misc/csv.c
+note: The table keeps the delimiter its connect read with (34-csv-takes-a-delimiter.txt) for each cursor's reader (36-csv-cursor-reads-with-the-tables-delimiter.txt).
+--- find
+  int bFirstWidth;                /* nCol is the first record's width */
+--- replace
+  int bFirstWidth;                /* nCol is the first record's width */
+  char cSep;                      /* The byte between fields, or 0 for a comma */
+--- end

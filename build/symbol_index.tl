@@ -113,8 +113,8 @@ function symbol_index.add_bound(index: symbol_index.Index, db: Sqlite.Handle,
     return false, trouble
   end
   for _, row in ipairs(rows) do
-    local key = row[1] .. "\n" .. row[2]
-    if index.bound[key] == nil then index.bound[key] = row[3] end
+    local key = row:text(1) .. "\n" .. row:text(2)
+    if index.bound[key] == nil then index.bound[key] = row:text(3) end
   end
   return true, ""
 end
