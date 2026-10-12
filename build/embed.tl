@@ -33,6 +33,7 @@ local schema = require("build.schema")
 local teal = require("build.teal")
 local tree = require("build.tree")
 local work = require("build.work")
+local workers = require("build.workers")
 local writer = require("build.writer")
 
 local log = require("build.verdict").log
@@ -391,7 +392,7 @@ function embed.tree(root: string, host?: boolean, under?: {string}): {string} | 
   local project = build_paths.resolve(root).projection
   local result, compile_trouble =
     importer.compile(handle, built, Store.meta("compiler") or "", false,
-      shared_compiles.for_build())
+      shared_compiles.for_build(), workers.pool(workers.tool_spec()))
   if result == nil then
     local _, _ = work.record(handle, clock.elapsed_ms(started), staged, 0, 0, "FAIL")
     local _, _ = work.close(handle)
