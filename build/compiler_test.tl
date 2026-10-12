@@ -29,26 +29,16 @@ local function test_the_compiler_compiles_itself_to_itself()
   assert(code ~= nil and #result.syntax_errors == 0,
     "the compiler could not parse its own source")
   -- It still reports type errors in its own source, which upstream's
-  -- `tl.lua` accepts: a table literal omitting a field that does not admit
-  -- nil, a type passed where the checker's subtype relation wants a
-  -- narrower one ("is not a", "got ..., expected ...") and a tuple longer
-  -- than the one it is bound to. A type error of any other kind
-  -- (an unknown name, a call that does not fit) is new.
+  -- `tl.lua` accepts (tables omitting a field that does not admit nil,
+  -- types passed where a narrower one is wanted). The count is pinned: a
+  -- change to the checker's source that fixes or adds one moves it.
   --
   -- TODO: assert `#result.type_errors == 0` instead, once the checker's own
   -- source is migrated to the rules the checker holds the tree to.
-  local known = {
-    "table literal omits field(s) of ", " is not a ", ", expected ",
-    " is too big for tuple ",
-  }
-  for _, e in ipairs(result.type_errors) do
-    local found = false
-    for _, kind in ipairs(known) do
-      if e.msg:find(kind, 1, true) ~= nil then found = true end
-    end
-    assert(found, "the checker's source has a new kind of type error, at line " ..
-        tostring(e.y) .. ": " .. e.msg)
-  end
+  local known <const> = 287
+  assert(#result.type_errors == known, "the checker's source has " ..
+      tostring(#result.type_errors) .. " type errors, not " .. tostring(known) ..
+      ": update `known` if a change to the source fixed or added one")
   assert(code == carried, "the compiler compiled its own source to other Lua " ..
       "than it is: " .. tostring(#code) .. " bytes against " .. tostring(#carried))
 end
