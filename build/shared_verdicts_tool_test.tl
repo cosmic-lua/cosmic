@@ -301,7 +301,7 @@ local function test_reads_a_database()
   local db = assert(Sqlite.open("suite/data.db"))
   local rows = assert(Sqlite.text_rows(db, "SELECT v FROM t"))
   assert(db:close())
-  assert(rows[1][1] == "one", rows[1][1])
+  assert(rows[1]:text(1) == "one", rows[1]:text(1))
 end
 ]]))
   end
@@ -560,7 +560,7 @@ local function test_a_row_whose_key_this_checkout_does_not_reach_does_not_stand(
   local tables = assert(Sqlite.text_rows(db,
     "SELECT name FROM sqlite_schema WHERE type = 'table' AND name LIKE 'declared%'"))
   assert(#tables == 1, "one table")
-  assert(db:exec("UPDATE " .. tables[1][1] .. " SET key = 'another runtime ' || key"))
+  assert(db:exec("UPDATE " .. tables[1]:text(1) .. " SET key = 'another runtime ' || key"))
   assert(db:close())
   checkout(tmp .. "/second", "one\n")
   local second = run(tmp .. "/second", tmp .. "/second.out", env, { "suite/reads_test.tl" })
@@ -620,7 +620,7 @@ local function test_a_cache_of_another_shape_is_done_without(tmp: string)
   local named = assert(Sqlite.text_rows(probe.db,
     "SELECT name FROM sqlite_schema WHERE type = 'table' AND name LIKE 'declared%'"))
   shared_verdicts.close(probe)
-  assert(db:exec("CREATE TABLE " .. named[1][1] .. " (x TEXT)"))
+  assert(db:exec("CREATE TABLE " .. named[1]:text(1) .. " (x TEXT)"))
   local before = assert(Fs.stat(other))
   env.COSMIC_VERDICT_CACHE = other
   checkout(tmp .. "/third", "one\n")
@@ -632,7 +632,7 @@ local function test_a_cache_of_another_shape_is_done_without(tmp: string)
   assert(db:exec("CREATE TABLE healthy (value TEXT)"))
   assert(db:exec("INSERT INTO healthy VALUES ('still usable')"))
   local reader = assert(Sqlite.open(other))
-  assert(assert(Sqlite.text_rows(reader, "SELECT value FROM healthy"))[1][1] == "still usable")
+  assert(assert(Sqlite.text_rows(reader, "SELECT value FROM healthy"))[1]:text(1) == "still usable")
   assert(reader:close())
   assert(db:close())
 end

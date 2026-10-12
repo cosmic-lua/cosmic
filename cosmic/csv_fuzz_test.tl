@@ -511,13 +511,13 @@ local function test_load_reads_what_table_reads(tmp: string)
       end
       local made, refused = Csv.table(text)
       local copied, why = Csv.load(db, "loaded", source)
-      local cells: {{string}} = {}
+      local cells: Sqlite.Rows = {}
       if copied ~= nil then
         cells = assert(Sqlite.text_rows(db, "SELECT * FROM loaded ORDER BY rowid"))
       end
       local _, _ = db:exec("DROP TABLE IF EXISTS loaded")
       local temps = assert(Sqlite.text_rows(db, "SELECT count(*) FROM sqlite_temp_schema"))
-      if temps[1][1] ~= "0" then return false, "load left its CSV table behind" end
+      if temps[1]:text(1) ~= "0" then return false, "load left its CSV table behind" end
       if text:find("\0", 1, true) ~= nil then
         Fuzz.label("a NUL")
         if copied ~= nil then
@@ -541,9 +541,9 @@ local function test_load_reads_what_table_reads(tmp: string)
       end
       for number, row in ipairs(made.rows) do
         for index, column in ipairs(made.columns) do
-          if cells[number][index] ~= row[column] then
+          if cells[number]:text(index) ~= row[column] then
             return false, string.format("load read row %d column %d of %q as %q, table as %q",
-              number, index, text, tostring(cells[number][index]), row[column])
+              number, index, text, tostring(cells[number]:text(index)), row[column])
           end
         end
       end

@@ -30,7 +30,7 @@ local function snapshot(path: string, query: string): string
   local rows = assert(Sqlite.text_rows(db, query))
   assert(db:close())
   local out: {string} = {}
-  for _, row in ipairs(rows) do out[#out + 1] = table.concat(row, "|") end
+  for _, row in ipairs(rows) do out[#out + 1] = table.concat(row:texts(), "|") end
   return table.concat(out, "\n")
 end
 

@@ -82,7 +82,7 @@ local function invoke(root: string, tmp: string, words: {string}, extra?: {strin
 end
 
 --- The rows of `type_violations` the project's last checked run kept.
-local function violations(root: string): {{string}}
+local function violations(root: string): Sqlite.Rows
   local db = assert(Sqlite.open(assert(build_paths.directory(root)) .. "/build.db"))
   local rows = assert(Sqlite.text_rows(db,
     "SELECT kind, site, target, declared, actual, count FROM type_violations ORDER BY site"))
@@ -118,9 +118,9 @@ local function test_a_checked_run_reports_a_nil_parameter_and_changes_no_verdict
 
   local rows = violations(root)
   assert(#rows == 1, #rows .. " rows")
-  assert(rows[1][1] == "parameter" and rows[1][2] == "greet_test.tl:" .. nothing_line() and
-      rows[1][3] == "parameter name of hello (greet.tl:4)" and rows[1][4] == "string" and
-      rows[1][5] == "nil" and rows[1][6] == "1", table.concat(rows[1], " | "))
+  assert(rows[1]:text(1) == "parameter" and rows[1]:text(2) == "greet_test.tl:" .. nothing_line() and
+      rows[1]:text(3) == "parameter name of hello (greet.tl:4)" and rows[1]:text(4) == "string" and
+      rows[1]:text(5) == "nil" and rows[1]:text(6) == "1", table.concat(rows[1]:texts(), " | "))
 
   -- The same variable asks for the same.
   local variable, variable_text = invoke(root, tmp, { "test" }, { COSMIC_TEST_CHECK_TYPES = "1" })

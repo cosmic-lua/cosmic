@@ -389,7 +389,7 @@ end
 --- file and line order: a row with no blame for `head` has `commit` ""
 --- and `blamed` false.
 local function rows_of(db: Sqlite.Handle, head: string): {Row} | nil, string
-  local rows, trouble = Sqlite.rows(db,
+  return Sqlite.map(db,
     "SELECT f.path, t.line, t.last, t.text, t.sha256, b.commit_id, " ..
       "b.author_time, b.summary, b.boundary, t.id FROM " ..
       "(SELECT path, sha256 FROM files UNION SELECT path, sha256 FROM tool " ..
@@ -397,30 +397,24 @@ local function rows_of(db: Sqlite.Handle, head: string): {Row} | nil, string
       "JOIN todos t ON t.sha256 = f.sha256 " ..
       "LEFT JOIN blames b ON b.path = f.path AND b.line = t.line " ..
       "AND b.sha256 = t.sha256 AND b.head = ?1 " ..
-      "ORDER BY f.path, t.line", { { text = head } })
-  if rows == nil then
-    return nil, trouble
-  end
-  local out: {Row} = {}
-  for _, row in ipairs(rows) do
-    local blamed = row[6].kind ~= "null"
-    out[#out + 1] = {
-      todo = {
-        id = row[10].integer,
-        file = row[1].text,
-        line = row[2].integer,
-        last = row[3].integer,
-        text = row[4].text,
-        commit = blamed and row[6].text or "",
-        author_time = blamed and row[7].integer or 0,
-        summary = blamed and row[8].text or "",
-        boundary = blamed and row[9].integer ~= 0,
-      },
-      sha256 = row[5].text,
-      blamed = blamed,
-    }
-  end
-  return out
+      "ORDER BY f.path, t.line", { { text = head } }, function(row: Sqlite.Row): Row
+        local blamed = not row:is_null(6)
+        return {
+          todo = {
+            id = row:integer(10),
+            file = row:text(1),
+            line = row:integer(2),
+            last = row:integer(3),
+            text = row:text(4),
+            commit = blamed and row:text(6) or "",
+            author_time = blamed and row:integer(7) or 0,
+            summary = blamed and row:text(8) or "",
+            boundary = blamed and row:integer(9) ~= 0,
+          },
+          sha256 = row:text(5),
+          blamed = blamed,
+        }
+      end)
 end
 
 --- Moves the blame recorded at an earlier `HEAD` on to `head`, for
@@ -442,7 +436,7 @@ local function carry_forward(db: Sqlite.Handle, root: string, head: string,
     return false, trouble
   end
   for _, row in ipairs(heads) do
-    local old = row[1]
+    local old = row:text(1)
     local ancestor = git(root, { "merge-base", "--is-ancestor", old, head }, run_git)
     local changed: string | nil = nil
     if ancestor ~= nil then
@@ -465,10 +459,10 @@ local function carry_forward(db: Sqlite.Handle, root: string, head: string,
         return false, rows_trouble
       end
       for _, each in ipairs(kept) do
-        if touched ~= nil and not touched[each[1]] then
+        if touched ~= nil and not touched[each:text(1)] then
           local ok, move_trouble = Sqlite.run(db,
             "UPDATE blames SET head = ?1 WHERE head = ?2 AND path = ?3",
-            { { text = head }, { text = old }, { text = each[1] } })
+            { { text = head }, { text = old }, { text = each:text(1) } })
           if not ok then
             return false, move_trouble
           end
@@ -609,7 +603,7 @@ end
 function todos.search(db: Sqlite.Handle, query: string): {integer:integer} | nil, string
   local sql = "SELECT rowid FROM todos_fts WHERE todos_fts MATCH ?1 ORDER BY rank"
   local first, _ = Sqlite.text_rows(db, sql, { { text = query } })
-  local rows: {{string}} = {}
+  local rows: Sqlite.Rows = {}
   if first ~= nil then
     rows = first
   else
@@ -625,7 +619,7 @@ function todos.search(db: Sqlite.Handle, query: string): {integer:integer} | nil
   end
   local out: {integer:integer} = {}
   for index, row in ipairs(rows) do
-    local id = math.tointeger(tonumber(row[1]))
+    local id = math.tointeger(tonumber(row:text(1)))
     if id ~= nil then out[id] = index end
   end
   return out

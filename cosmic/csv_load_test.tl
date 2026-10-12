@@ -11,7 +11,7 @@ local function quoted(handle: Sqlite.Handle, sql: string): string
   local rows = assert(Sqlite.text_rows(handle, sql))
   local out: {string} = {}
   for index, row in ipairs(rows) do
-    out[index] = table.concat(row, "|")
+    out[index] = table.concat(row:texts(), "|")
   end
   return table.concat(out, ";")
 end

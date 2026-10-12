@@ -275,7 +275,7 @@ function importer.tree_code(handle: work.Handle): importer.Code | nil, string
       return nil, rows_trouble
     end
     local names: {string} = {}
-    for _, row in ipairs(rows) do names[#names + 1] = row[1] end
+    for _, row in ipairs(rows) do names[#names + 1] = row:text(1) end
     return names, ""
   end
   -- What [`Store.source`] answers: a declaration's source ahead of a
@@ -290,7 +290,7 @@ function importer.tree_code(handle: work.Handle): importer.Code | nil, string
     if #rows == 0 then
       return nil, "no module '" .. name .. "' in the tree"
     end
-    return rows[1][1], ""
+    return rows[1]:text(1), ""
   end
   return { compiler = identity, requires = requires, source = source }, ""
 end
@@ -354,7 +354,7 @@ local function recorded_analyzer(db: Sqlite.Handle): string | nil, string
   if last == nil then
     return nil, trouble
   end
-  return #last > 0 and last[1][1] or "", ""
+  return #last > 0 and last[1]:text(1) or "", ""
 end
 
 --- Forgets every derived row: every parse, and every derivation but
@@ -422,7 +422,7 @@ local function forget_stale_receivers(db: Sqlite.Handle): boolean, string
   if last == nil then
     return false, last_trouble
   end
-  if #last > 0 and last[1][1] == identity then
+  if #last > 0 and last[1]:text(1) == identity then
     return true, ""
   end
   for _, statement in ipairs({ "DELETE FROM compiled", "DELETE FROM typed_refs" }) do
@@ -525,7 +525,7 @@ local function shared_analyzer(handle: work.Handle, shared: importer.Shared,
   if found == nil then return nil, trouble end
   if #found == 0 then return "", "" end
   local root_hashes: {string} = {}
-  for _, row in ipairs(found) do root_hashes[#root_hashes + 1] = row[1] end
+  for _, row in ipairs(found) do root_hashes[#root_hashes + 1] = row:text(1) end
   local hashes: {string} = {}
   local fresh: {string:boolean} = {}
   for _, source in ipairs(sources) do
@@ -536,7 +536,7 @@ local function shared_analyzer(handle: work.Handle, shared: importer.Shared,
     "SELECT path, source_hash FROM inputs WHERE kind <> 'decl'")
   if planned == nil then return nil, planned_trouble end
   local hash_of: {string:string} = {}
-  for _, row in ipairs(planned) do hash_of[row[1]] = row[2] end
+  for _, row in ipairs(planned) do hash_of[row:text(1)] = row:text(2) end
   -- A module the roots reach through `guessed`, and through the rows
   -- the tables hold of what is parsed already, of which `guessed` has
   -- no parse: "" for none.
@@ -556,7 +556,7 @@ local function shared_analyzer(handle: work.Handle, shared: importer.Shared,
             "SELECT name FROM requires WHERE source_hash = ?1 ORDER BY ordinal", { text(hash) })
           if rows == nil then return nil, rows_trouble end
           names = {}
-          for _, row in ipairs(rows) do names[#names + 1] = row[1] end
+          for _, row in ipairs(rows) do names[#names + 1] = row:text(1) end
         end
         for _, next_name in ipairs(names) do stack[#stack + 1] = next_name end
       end
@@ -729,7 +729,7 @@ function importer.derive(handle: work.Handle, self_tree: boolean,
       return nil, trouble
     end
     if #claimed > 0 then
-      return nil, claimed[1][1] .. ": the 'cosmic' directory is reserved to " ..
+      return nil, claimed[1]:text(1) .. ": the 'cosmic' directory is reserved to " ..
         "cosmic's own tree"
     end
   end
@@ -1093,7 +1093,7 @@ local function plan_compiler(handle: work.Handle, cache: Cache,
     return false, "the working database holds " .. plural.count(#rows, "compiler") ..
       "; there is only ever one (derivation.put_compiler)"
   end
-  local source = rows[1][1]
+  local source = rows[1]:text(1)
   local key = compilation.vendor_key(source, tool)
   local lua, look_trouble = cached_lua(cache, key)
   if lua ~= nil then

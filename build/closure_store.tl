@@ -139,7 +139,7 @@ local function grouped(db: Sqlite.Handle, of: string, columns: {string}, from: s
       "FROM " .. from .. " GROUP BY " .. of)
   if rows == nil then return nil, trouble end
   local out: {string:string} = {}
-  for _, row in ipairs(rows) do out[row[1]] = row[2] end
+  for _, row in ipairs(rows) do out[row:text(1)] = row:text(2) end
   return out, ""
 end
 
@@ -202,23 +202,23 @@ function closure_store.basis(whole: string): closure_store.Basis | nil, string
       "SELECT path FROM modules WHERE kind NOT IN ('test', 'example') ORDER BY path")
     if names == nil then return nil, names_trouble end
     local basis: closure_store.Basis = {
-      modules = {}, shared = Hash.hex_sha256("closure-store-7\n" .. shared[1][1]),
+      modules = {}, shared = Hash.hex_sha256("closure-store-7\n" .. shared[1]:text(1)),
       kinds = {}, pairable = {}, decls = {}, decl_requires = {},
     }
     for _, row in ipairs(rows) do
-      local line: {string} = { row[2] }
+      local line: {string} = { row:text(2) }
       for i, digests in ipairs(carried) do
-        line[#line + 1] = digests[by_file[i] and row[3] or row[1]] or ""
+        line[#line + 1] = digests[by_file[i] and row:text(3) or row:text(1)] or ""
       end
-      basis.modules[row[1]] = table.concat(line, "\t")
-      basis.kinds[row[1]] = row[2]:match("^[^\t]*\t([^\t]*)")
+      basis.modules[row:text(1)] = table.concat(line, "\t")
+      basis.kinds[row:text(1)] = row:text(2):match("^[^\t]*\t([^\t]*)")
     end
-    for i, row in ipairs(names) do basis.pairable[i] = row[1] end
+    for i, row in ipairs(names) do basis.pairable[i] = row:text(1) end
     for _, row in ipairs(decl_rows) do
-      basis.decls[row[1]] = "decl " .. row[1] .. " " .. row[2] .. " " .. (declared[row[1]] or "") ..
-        " " .. (linked[row[1]] or "") .. " " .. (bound[row[1]] or "") .. " " ..
-        (edges[row[1]] or "")
-      basis.decl_requires[row[1]] = closure_store.required_by(row[3])
+      basis.decls[row:text(1)] = "decl " .. row:text(1) .. " " .. row:text(2) .. " " .. (declared[row:text(1)] or "") ..
+        " " .. (linked[row:text(1)] or "") .. " " .. (bound[row:text(1)] or "") .. " " ..
+        (edges[row:text(1)] or "")
+      basis.decl_requires[row:text(1)] = closure_store.required_by(row:text(3))
     end
     return basis, ""
   end

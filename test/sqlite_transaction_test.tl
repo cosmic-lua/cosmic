@@ -18,7 +18,7 @@ local function test_exception_rolls_back_and_preserves_error()
     return db:exec("INSERT INTO items VALUES ('keep')")
   end))
   rows = assert(Sqlite.text_rows(db, "SELECT value FROM items"))
-  assert(#rows == 1 and rows[1][1] == "keep")
+  assert(#rows == 1 and rows[1]:text(1) == "keep")
   db:close()
 end
 

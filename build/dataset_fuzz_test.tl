@@ -106,8 +106,8 @@ local function test_a_loaded_row_reads_back_through_json(tmp: string)
       if texts == nil then return false, trouble end
       for index, row in ipairs(rows) do
         local expected = assert(Json.encode(row))
-        if texts[index][1] ~= expected then
-          return false, "row " .. index .. " read back as " .. texts[index][1] .. ", not " .. expected
+        if texts[index]:text(1) ~= expected then
+          return false, "row " .. index .. " read back as " .. texts[index]:text(1) .. ", not " .. expected
         end
       end
       return true, ""
@@ -165,8 +165,16 @@ local function test_a_reader_is_total_on_any_text(tmp: string)
   })
 end
 
+--- A cell a query reads: its kind and the field of that name.
+local record Expected
+  kind: Sqlite.Kind
+  integer?: integer
+  number?: number
+  text?: string
+end
+
 --- What [`dataset.load`] stores for `value`, as the cell a query reads.
-local function expected_cell(value: any): Sqlite.Cell
+local function expected_cell(value: any): Expected
   if value == nil or value == Json.null then return { kind = "null" } end
   if value is boolean then return { kind = "integer", integer = value and 1 or 0 } end
   if value is integer then return { kind = "integer", integer = value } end
@@ -203,11 +211,13 @@ local function test_each_key_reads_back_by_its_column(tmp: string)
           if got == nil then return false, column .. ": " .. trouble end
           for index, row in ipairs(rows) do
             local want = expected_cell(row[key])
-            local cell = got[index][1]
+            local read = got[index]
+            local kind = read:kind(1)
             Fuzz.label("read")
-            if cell.kind ~= want.kind or cell.integer ~= want.integer or cell.number ~= want.number or
-                cell.text ~= want.text then
-              return false, "key " .. Json.quote(key) .. " row " .. index .. " read as " .. cell.kind
+            if kind ~= want.kind or (kind == "integer" and read:integer(1) ~= want.integer) or
+                (kind == "number" and read:number(1) ~= want.number) or
+                (kind == "text" and read:text(1) ~= want.text) then
+              return false, "key " .. Json.quote(key) .. " row " .. index .. " read as " .. kind
             end
           end
         end

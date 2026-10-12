@@ -34,7 +34,7 @@ local db = assert(Sqlite.memory())
 local rows = assert(Sqlite.text_rows(db, [[
   SELECT sqrt(16), median(value), decimal_add('0.1', '0.2'), 'v1.2' REGEXP '^v[0-9.]+$'
   FROM generate_series(1, 4)]]))
-print(table.concat(rows[1], " "))
+print(table.concat(rows[1]:texts(), " "))
 ```
 
 ```output
@@ -356,7 +356,7 @@ local rows = assert(Sqlite.text_rows(db, [[
   SELECT group_concat(value, ','), sha1('abc'), uuid_str(uuid_blob('{A0EEBC99-9C0B-4EF8-BB6D-6BB9BD380A11}')),
     decimal_mul('1.10', '3')
   FROM generate_series(0, 20, 10)]]))
-print(table.concat(rows[1], " "))
+print(table.concat(rows[1]:texts(), " "))
 ```
 
 ```output
