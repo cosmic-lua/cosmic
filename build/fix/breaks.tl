@@ -161,7 +161,7 @@ end
 
 --- The bodies of block construct `n` and the places its closing
 --- keywords sit, or nil when `n` opens no block this pass lays out.
-local function shape(n: Node): {Node}, {ast.Position}
+local function shape(n: Node): {Node} | nil, {ast.Position} | nil
   local kind = n.kind
   local bodies: {Node} = {}
   local closers: {ast.Position} = {}
@@ -239,7 +239,7 @@ local function construct(p: Pass, n: Node): Opening | nil
     return nil
   end
   local bodies, closers = shape(n)
-  if bodies == nil then
+  if bodies == nil or closers == nil then
     return nil
   end
   local firsts: {ast.Position} = {}

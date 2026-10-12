@@ -128,7 +128,7 @@ local function shapes(): {string:Shape}
   return out
 end
 
-local function matches(name: string, sql: string, found: {string}, expected: Shape): boolean
+local function matches(name: string, sql: string, found: {string}, expected: Shape | nil): boolean
   if expected == nil then return false end
   -- The declared format predates parts; its writer adds that final column.
   local old_declared = name == formats.declared and #found == #expected.columns - 1

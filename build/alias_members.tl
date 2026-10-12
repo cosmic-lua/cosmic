@@ -87,6 +87,8 @@ local function bound_type<T is alias_members.Declared>(source: alias_members.Sou
   end
   local other, other_trouble = source.bound(module, stem)
   if other == nil then
+    -- Nil beside no reason: the module binds the name to none.
+    if other_trouble == nil then return nil end
     return nil, other_trouble
   end
   return source.exported(other, rest)
@@ -169,6 +171,8 @@ function alias_members.resolved<T is alias_members.Declared>(source: alias_membe
         found, found_trouble = bound_type(source, from.module, reference)
       end
       if found == nil then
+        -- Nil beside no reason: the reference names none.
+        if found_trouble == nil then return nil end
         return nil, found_trouble
       end
       if concrete(found) then

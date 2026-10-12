@@ -45,20 +45,26 @@ local markers: {string:boolean} = {
 --- A line as a comment: its indentation, its marker, and its text with
 --- the space after the marker dropped. nil for a line that is not a
 --- comment on its own.
-local function comment_of(line: string): string, string, string
+local record Comment
+  indent: string
+  marker: string
+  text: string
+end
+
+local function comment_of(line: string): Comment | nil
   -- TODO: a TODO after code on its line (`x = 1 -- TODO: ...`) is not
   -- found, since a line alone cannot tell a comment from a string. Take a
   -- Teal file's comments from the tree tl's parser attaches them to
   -- (build/ast/node.tl), and a C file's from clang's, and scan only those.
   local indent, marker, rest = line:match("^([ \t]*)([-#/*;]+)(.*)$")
   if indent == nil or not markers[marker] then
-    return nil, nil, nil
+    return nil
   end
   if rest ~= "" and not rest:match("^[ \t]") then
-    return nil, nil, nil
+    return nil
   end
   rest = rest:gsub("^[ \t]+", ""):gsub("[ \t]*%*/[ \t]*$", ""):gsub("[ \t]+$", "")
-  return indent, marker, rest
+  return { indent = indent, marker = marker, text = rest }
 end
 
 --- The marker the lines that carry on a comment opened with `marker`
@@ -89,32 +95,34 @@ function todo_scan.scan(source: string): {todo_scan.Found}
   local found: {todo_scan.Found} = {}
   local index = 1
   while index <= #lines do
-    local indent, marker, rest = comment_of(lines[index])
-    local text = rest ~= nil and rest:match("^TODO:[ \t]*(.*)$") or nil
-    if text == nil then
+    local comment = comment_of(lines[index])
+    local text = comment ~= nil and comment.text:match("^TODO:[ \t]*(.*)$") or nil
+    if comment == nil or text == nil then
       index = index + 1
     else
+      local indent, marker = comment.indent, comment.marker
       local first = index
       local parts: {string} = { text }
       local following = continued(marker)
       index = index + 1
       while index <= #lines do
-        local next_indent, next_marker, next_rest = comment_of(lines[index])
+        local further = comment_of(lines[index])
+        if further == nil then break end
         -- TODO: a line ending in `.` followed by one starting with a
         -- capital ends the TODO below, which cuts a TODO of several
         -- sentences short (build/tree_checks.tl's and build/test.tl's
         -- lose their second halves today); apply that break only to a
         -- script's leading `#` header, or take comments from the parser
         -- as the TODO in [`comment_of`] proposes, and drop it here.
-        local aligned = next_indent == indent or
-          (following ~= marker and next_indent == indent .. " ")
+        local aligned = further.indent == indent or
+          (following ~= marker and further.indent == indent .. " ")
         if not aligned or
-            (next_marker ~= marker and next_marker ~= following) or
-            next_rest == "" or next_rest:match("^TODO:") or
-            (parts[#parts]:match("%.$") and next_rest:match("^%u")) then
+            (further.marker ~= marker and further.marker ~= following) or
+            further.text == "" or further.text:match("^TODO:") or
+            (parts[#parts]:match("%.$") and further.text:match("^%u")) then
           break
         end
-        parts[#parts + 1] = next_rest
+        parts[#parts + 1] = further.text
         index = index + 1
       end
       found[#found + 1] = {

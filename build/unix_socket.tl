@@ -95,7 +95,7 @@ end
 --- among its grants, a host cache or a private `noexec` scratch.
 --- @param dir a directory the process may make a socket file in
 --- @return the reason, or nil
-function unix_socket.refusal(dir: string): string
+function unix_socket.refusal(dir: string): string | nil
   local tried = listens(dir)
   if not tried.refused then return nil end
   local reasons: {string} = {}

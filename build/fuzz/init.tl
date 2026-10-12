@@ -194,8 +194,7 @@ end
 --- The labels the input being drawn and checked has reached, while
 --- `run` is counting them; nil otherwise, so shrinking and replay count
 --- nothing.
-local reached: {string: boolean} = nil
-
+local reached: {string: boolean} | nil = nil
 --- Records that the input under check reached `name`: an outcome worth
 --- counting ("opened", "refused at the header", "read a body"). `run`
 --- prints how many inputs reached each label and fails a property that
@@ -263,7 +262,7 @@ end
 --- Checks every `.input` file in the property's corpus, in name order,
 --- raising a report on the first that fails; each is written to `kept`
 --- first, as a drawn input is. Returns how many were checked.
-local function check_corpus(p: Fuzz.Property, budget: integer, kept: string): integer
+local function check_corpus(p: Fuzz.Property, budget: integer, kept: string | nil): integer
   local dir = corpus_of(p)
   local there, trouble = Fs.exists(dir)
   if there == false then return 0 end
@@ -318,13 +317,13 @@ end
 --- property's slug and the seed of the source that drew it, as a report
 --- prints them. Nil when neither is set; raises when one is set to
 --- anything else, so a typo is never a silent full run.
-local function named_case(p: Fuzz.Property): string, integer
+local function named_case(p: Fuzz.Property): string | nil, integer | nil
   local text = p.case or Env.get_or("FUZZ_CASE", "")
   if text == "" then return nil, nil end
   local raw = text
   local name = text:match("^(.-):%-?%d+$")
   local digits = text:match(":(%-?%d+)$")
-  local n: integer = digits ~= nil and math.tointeger(tonumber(digits)) or nil
+  local n: integer | nil = digits ~= nil and math.tointeger(tonumber(digits)) or nil
   if name == nil or not name:match("^[%w%-]+$") or n == nil then
     error(("fuzz: FUZZ_CASE=%q is not <property>:<case seed>, as a report prints it"):format(raw), 0)
   end
@@ -353,7 +352,7 @@ local function run(p: Fuzz.Property): integer
   end
   if case_name ~= nil then iters, whole = 1, false end
   local budget = p.budget or DEFAULT_BUDGET
-  local kept: string
+  local kept: string | nil
   if p.dir ~= nil then
     kept = p.dir .. "/" .. slug(p.name) .. ".input"
     print(("fuzz %s: seed=%d iters=%d; the input under test is kept at %s"):
