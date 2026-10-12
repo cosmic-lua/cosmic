@@ -350,7 +350,7 @@ local function body_text(req: Types.Request, kind: string, opts: Types.InputOpti
   if not utf8.len(data) then
     return nil, stop(400, "body", "", "utf8", "the body is not valid UTF-8")
   end
-  return data, nil
+  return data
 end
 
 --- Bytes read from the body, and from a part, at a time.

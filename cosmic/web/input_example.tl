@@ -177,7 +177,7 @@ function Example.upload()
 end
 
 --- Each method has a typed constructor; a slot a route does not read is
---- [`Web.NONE`], or [`Web.no_body`], and its parameter is nil.
+--- [`Web.NONE`], or [`Web.no_body`], and its parameter is an empty [`Web.None`].
 function Example.methods()
   local function show(_req: Web.Request, _p: Web.None, q: Query, _b: Web.None): Web.Response
     return Web.text(tostring(q.page))
