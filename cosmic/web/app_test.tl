@@ -73,6 +73,25 @@ local function test_a_miss_passes_through_the_middleware_around_where_it_happene
   assert(table.concat(trace, " ") == "A M /M /A", "nor does a 405 inside it")
 end
 
+--- A middleware that answers nothing is out of contract: the app raises
+--- (the server answers that 500, as it did for the nil it was given before),
+--- and says which layer failed to answer.
+local function test_a_stack_that_answers_nothing_raises_and_is_not_a_nil_response()
+  local app = Web.app{
+    routes = { Web.get("/", hello) },
+    middleware = { function(_inner: Web.Handler): Web.Handler
+      return function(_req: Web.Request): Web.Response
+        local nothing: any = nil
+        return nothing as Web.Response
+      end
+    end },
+  }
+  local client = Web.test_client(app)
+  local ok, why = pcall(function() local _ = client:get("/") end)
+  assert(not ok and tostring(why):find("the handler stack answered no Response", 1, true) ~= nil,
+    tostring(why))
+end
+
 local function test_middleware_may_answer_alone_and_change_the_request()
   local MARK: Web.Key<string> = Web.key("mark")
   local app = Web.app{

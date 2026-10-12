@@ -191,7 +191,11 @@ function App.new(spec: Types.AppSpec): Types.App
     local _closing <close>: Closing = setmetatable({}, closing_mt)
     local ok, raised = pcall(function() answered.reply = stack(req) end)
     if not ok then error(raised, 0) end
-    return (assert(answered.reply, "web: the handler answered no response"))
+    local reply = answered.reply
+    -- Out of contract (a middleware that returns nothing): the server
+    -- answers 500 for the raise, as it did for the nil it was given.
+    if reply == nil then error("web: the handler stack answered no Response", 0) end
+    return reply
   end
   return setmetatable(app, app_mt)
 end
