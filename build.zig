@@ -1881,10 +1881,24 @@ fn core(
         // information; [`debug_dir`] and the map's `-g0` keep it naming no
         // path of the build, so it too is the same bytes at any path.
         // A first link keeps its debug information for the block map to
-        // read; it is never installed.
-        .strip = !configuration.sanitize and native_coverage != .first_link,
+        // read (see `empty_map` below) but is stripped here: zig builds
+        // the libc and compiler-rt of a link stripped or not as this
+        // module is (zig 0.17 Compilation.compilerRtStrip), so the two
+        // links share one build of them.
+        .strip = !configuration.sanitize,
         .sanitize_c = if (configuration.sanitize) .full else .off,
     });
+    // The module the first link's empty block table is compiled in. For a
+    // release core it is an unstripped module of its own, which is what
+    // keeps the link's debug information (zig 0.17 Compilation/Config.zig
+    // `any_non_stripped`), and it holds nothing else: the table is data
+    // and adds no block. A zig module without a source is not passed to
+    // the compiler, hence the table.
+    var empty_map = mod;
+    if (native_coverage == .first_link and !configuration.sanitize) {
+        empty_map = b.createModule(.{ .target = target, .strip = false });
+        mod.addImport("debug_info", empty_map);
+    }
     for (libraryIncludes(b, sources)) |dir| mod.addIncludePath(dir);
     // mbedtls's headers name the library's configuration header, which is
     // not beside them. Only it: an edit to any other header of core/ is no
@@ -1939,7 +1953,7 @@ fn core(
     // same order: the table is data and adds none.
     switch (native_coverage) {
         .off => {},
-        .first_link => sources.own.add(mod, &.{"core/coverage_map_empty.c"}, &.{ "-std=c11", debug_dir }),
+        .first_link => sources.own.add(empty_map, &.{"core/coverage_map_empty.c"}, &.{ "-std=c11", debug_dir }),
         // No debug information for the generated map: it is data, and its
         // file's name is its zig-cache output directory, new on every
         // relink, which would move the checked core's bytes with it.
