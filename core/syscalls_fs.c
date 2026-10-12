@@ -1076,7 +1076,7 @@ COSMIC_SYSCALL(flock, 3) {
   /* Asked without waiting, and again after each sleep, so the wait
    * can end at a deadline or a caught signal, which a blocking
    * flock could not. */
-  int64_t deadline = timeout < 0 ? -1 : cosmic_now_ms() + timeout;
+  int64_t deadline = cosmic_deadline_ms(timeout);
   int64_t pause = 1;
   for (;;) {
     if (flock(fd, operation | LOCK_NB) == 0) return cosmic_ok(L);
