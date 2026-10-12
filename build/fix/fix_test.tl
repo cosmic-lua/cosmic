@@ -219,6 +219,32 @@ local function test_c_is_taken_only_in_cosmics_own_tree(tmp: string)
   assert(#named.c_files == 1 and #named.refused == 0, "a header named is checked")
 end
 
+--- The checker is not laid out, however it is named: found in a walk, a
+--- directory named or the file itself, spelled with a `..` or not. Another
+--- tree's `checker/` is its own source.
+local function test_the_checker_is_held_out_when_named_as_a_file(tmp: string)
+  local own = tmp .. "/held"
+  assert(Fs.mkdirs(own .. "/core"))
+  assert(Fs.mkdirs(own .. "/build"))
+  assert(Fs.mkdirs(own .. "/checker"))
+  assert(Fs.mkdirs(own .. "/vendor/lua"))
+  assert(Fs.write(own .. "/build/importer.tl", "return {}\n"))
+  assert(Fs.write(own .. "/checker/tl.tl", "return {}\n"))
+  for _, named in ipairs({ {}, { own }, { own .. "/checker" }, { own .. "/checker/tl.tl" },
+      { own .. "/build/../checker/tl.tl" } }) do
+    for _, file in ipairs(assert(fix.chosen(own, named)).files) do
+      assert(not file:find("/checker/", 1, true), "laid out " .. file)
+    end
+  end
+  local mixed = assert(fix.chosen(own, { own .. "/checker/tl.tl", own .. "/build/importer.tl" }))
+  assert(#mixed.files == 1 and #mixed.refused == 0, "the checker named beside another file")
+  local other = tmp .. "/elsewhere"
+  assert(Fs.mkdirs(other .. "/checker"))
+  assert(Fs.write(other .. "/checker/tl.tl", "return {}\n"))
+  assert(#assert(fix.chosen(other, { other .. "/checker/tl.tl" })).files == 1,
+    "another tree's checker/ is its own source")
+end
+
 --- The tree-wide checks run only over every Teal source of cosmic's own
 --- tree, however it is named: not over a part of it, nor over a tree
 --- of another's.

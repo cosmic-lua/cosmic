@@ -66,8 +66,9 @@ local function established(dir: string): boolean
 end
 
 --- Whether `root`'s last build staged a source at `path` or under it,
---- `path` relative to `root`; nil and why when its `build.db` cannot
---- be read, which is not an answer either way.
+--- `path` relative to `root`, or a file of the tool's own there (`tool`,
+--- which holds [`checker/tl.tl`]); nil and why when its `build.db` cannot be
+--- read, which is not an answer either way.
 -- TODO: climb from a directory the last build staged no Teal under --
 -- prose alone (`doc/`, whose Markdown the walk skips), or one made
 -- since -- which is now a root of its own: `cosmic fix` there fails
@@ -79,7 +80,8 @@ local function staged(root: string, path: string): boolean | nil, string
   local file = build_paths.resolve(root).working
   local db, open_trouble = Sqlite.open(file)
   if db == nil then return nil, open_trouble end
-  local rows, trouble = Sqlite.rows(db, "SELECT 1 FROM files WHERE path = ?1 OR " ..
+  local rows, trouble = Sqlite.rows(db, "SELECT 1 FROM (SELECT path FROM files UNION ALL " ..
+      "SELECT path FROM tool) WHERE path = ?1 OR " ..
       "substr(path, 1, length(?2)) = ?2 LIMIT 1", { { text = path }, { text = path .. "/" } })
   local _, _ = db:close()
   if rows == nil then return nil, file .. ": " .. trouble end

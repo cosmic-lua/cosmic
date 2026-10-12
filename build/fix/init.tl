@@ -266,8 +266,8 @@ local function checked_sources(root: string): {string} | nil, string
   return out
 end
 
---- Whether `file`, a path found under a named directory, is in `root`'s
---- `held_out_of_own_tree`.
+--- Whether `file`, a path named or found under a named directory, is in
+--- `root`'s `held_out_of_own_tree`, however it is spelled.
 local function held_out(root: string, file: string): boolean
   local absolute, _ = Fs.absolute(file)
   local held, _ = Fs.absolute(root .. "/" .. held_out_of_own_tree)
@@ -560,6 +560,8 @@ function fix.chosen(root: string, paths: {string}): fix.Chosen | nil, string
           flow_out[#flow_out + 1] = base .. "/" .. file
         end
       end
+    elseif own and String.ends_with(path, ".tl") and held_out(root, path) then
+      -- Named as a file, the checker is passed over as it is in a walk.
     elseif String.ends_with(path, ".c") or String.ends_with(path, ".h") then
       if own then
         c_out[#c_out + 1] = path
