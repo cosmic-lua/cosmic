@@ -26,12 +26,29 @@ local function test_the_compiler_compiles_itself_to_itself()
     feat_lax = "off", gen_compat = "off", gen_target = "5.4",
   } }))
   local code, result = built.gen(source, env, nil, "tl")
-  -- TODO: also assert `#result.type_errors == 0`, once the checker's own
-  -- source is migrated to the rules the checker holds the tree to: it
-  -- reports type errors in its own source today (a table literal omitting a
-  -- field that does not admit nil), though upstream's `tl.lua` accepts it.
   assert(code ~= nil and #result.syntax_errors == 0,
     "the compiler could not parse its own source")
+  -- It still reports type errors in its own source, which upstream's
+  -- `tl.lua` accepts: a table literal omitting a field that does not admit
+  -- nil, a type passed where the checker's subtype relation wants a
+  -- narrower one ("is not a", "got ..., expected ...") and a tuple longer
+  -- than the one it is bound to. A type error of any other kind
+  -- (an unknown name, a call that does not fit) is new.
+  --
+  -- TODO: assert `#result.type_errors == 0` instead, once the checker's own
+  -- source is migrated to the rules the checker holds the tree to.
+  local known = {
+    "table literal omits field(s) of ", " is not a ", ", expected ",
+    " is too big for tuple ",
+  }
+  for _, e in ipairs(result.type_errors) do
+    local found = false
+    for _, kind in ipairs(known) do
+      if e.msg:find(kind, 1, true) ~= nil then found = true end
+    end
+    assert(found, "the checker's source has a new kind of type error, at line " ..
+        tostring(e.y) .. ": " .. e.msg)
+  end
   assert(code == carried, "the compiler compiled its own source to other Lua " ..
       "than it is: " .. tostring(#code) .. " bytes against " .. tostring(#carried))
 end

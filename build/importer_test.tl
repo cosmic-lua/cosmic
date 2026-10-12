@@ -442,6 +442,19 @@ local function image_hash_of(root: string): string
   return fingerprint.image
 end
 
+--- The checker is compiled into the compiler only by a boot, so an edit to
+--- it moves the image hash, which a rebuild without a boot cannot serve.
+local function test_image_hash_covers_the_checker()
+  local root = assert(Fs.mkdtemp("cosmic-importer-test-image-checker-"))
+  for _, dir in ipairs({ "build", "core", "cosmic", "cmd/cosmic", "checker", "bin" }) do
+    assert(Fs.mkdirs(root .. "/" .. dir))
+  end
+  assert(Fs.write(root .. "/checker/tl.tl", "original"))
+  local image = image_hash_of(root)
+  assert(Fs.write(root .. "/checker/tl.tl", "changed"))
+  assert(image_hash_of(root) ~= image, "an edit to the checker did not move the image hash")
+end
+
 --- A Teal test beside the core's C is not a core input, nor one of the
 --- tool's: no binary carries it, so an edit to one rebuilds neither.
 local function test_image_hash_leaves_out_teal_under_core()
