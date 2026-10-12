@@ -32,7 +32,6 @@ local CacheTrim = require("cosmic_ci.cache_trim")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
-local TextRows = require("cosmic_ci.text_rows")
 local Plural = require("cosmic_ci.plural")
 
 local record Verdicts
@@ -102,24 +101,24 @@ end
 --- The columns of `schema`'s table `name`, in order, and which of them
 --- the primary key holds; nil and why where they could not be read.
 local function columns(db: Sqlite.Handle, schema: string, name: string): {string} | nil, boolean, string
-  local rows, trouble = TextRows.query(db,
+  local rows, trouble = Sqlite.text_rows(db,
     "SELECT name, pk FROM pragma_table_info(?1, ?2) ORDER BY cid",
     { { text = name }, { text = schema } })
   if rows == nil then return nil, false, trouble end
   local out: {string} = {}
   local keyed = false
   for _, row in ipairs(rows) do
-    out[#out + 1] = row[1]
-    keyed = keyed or row[2] ~= "0"
+    out[#out + 1] = row:text(1)
+    keyed = keyed or row:text(2) ~= "0"
   end
   return out, keyed, ""
 end
 
 --- A count the query answers, or nil and why.
 local function counted(db: Sqlite.Handle, sql: string): integer | nil, string
-  local rows, trouble = TextRows.query(db, sql)
+  local rows, trouble = Sqlite.text_rows(db, sql)
   if rows == nil then return nil, trouble end
-  return math.tointeger(tonumber(rows[1][1])) or 0, ""
+  return math.tointeger(tonumber(rows[1]:text(1))) or 0, ""
 end
 
 --- Adds to the cache at `into` (made where it is not there) the rows of
@@ -158,11 +157,11 @@ local function merge_file(from: string, into: string): string, string
     for _, pattern in ipairs(patterns) do
       globs[#globs + 1] = "name GLOB '" .. pattern .. "'"
     end
-    local names, trouble = TextRows.query(db, "SELECT name, sql FROM ahead.sqlite_schema " ..
+    local names, trouble = Sqlite.text_rows(db, "SELECT name, sql FROM ahead.sqlite_schema " ..
         "WHERE type = 'table' AND (" .. table.concat(globs, " OR ") .. ") ORDER BY name")
     if names == nil then return false, trouble end
     for _, row in ipairs(names) do
-      local name, sql = row[1], row[2]
+      local name, sql = row:text(1), row:text(2)
       local q = quote(name)
       local theirs, keyed, their_trouble = columns(db, "ahead", name)
       if theirs == nil then return false, their_trouble end
@@ -178,12 +177,12 @@ local function merge_file(from: string, into: string): string, string
         if #ours == 0 then
           local made, made_trouble = db:exec(sql)
           if not made then return false, made_trouble end
-          local indexes, index_trouble = TextRows.query(db, "SELECT sql FROM ahead.sqlite_schema " ..
+          local indexes, index_trouble = Sqlite.text_rows(db, "SELECT sql FROM ahead.sqlite_schema " ..
               "WHERE type = 'index' AND tbl_name = ?1 AND sql IS NOT NULL ORDER BY name", { { text = name } })
           if indexes == nil then return false, index_trouble end
           for _, index in ipairs(indexes) do
-            if index[1]:sub(1, 13) == "CREATE INDEX " then
-              local indexed, indexed_trouble = db:exec(index[1])
+            if index:text(1):sub(1, 13) == "CREATE INDEX " then
+              local indexed, indexed_trouble = db:exec(index:text(1))
               if not indexed then return false, indexed_trouble end
             end
           end

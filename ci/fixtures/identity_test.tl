@@ -46,11 +46,11 @@ local start, finish, supervised = Process.start, Process.finish, Process.supervi
 local fifo, await_ready, release = Process.fifo, Process.await_ready, Process.release
 local chmod, host_uname = Process.chmod, Process.host_uname
 
--- Checks that the build line in `out` names the two programs it wrote, in
+-- Checks that `out` names the two programs the build wrote, a line each, in
 -- the build directory of `project`.
 local function built_both(out: string, project: string)
   local bin = Fixture.built(project) .. "/bin"
-  Fixture.contains(out, "build: PASS (" .. bin .. "/hello, " .. bin .. "/second, ")
+  Fixture.contains(out, bin .. "/hello\n" .. bin .. "/second\n")
 end
 
 -- Compares the first `length` bytes of two files, each of which must hold at
@@ -165,7 +165,7 @@ end
 
 local function expect_tally(capture: Fixture.Capture, ran: integer,
                             stood: integer)
-  Fixture.contains(capture.out, "test: PASS (1 test, 1 module; " ..
+  Fixture.contains(capture.out, "test: 1 test passed in 1 module; " ..
       tostring(ran) .. " ran, " .. tostring(stood) .. " stood")
 end
 

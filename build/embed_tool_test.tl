@@ -9,11 +9,13 @@
 --- hold. What writes no executable is in `embed_test.tl`.
 
 local Child = require("cosmic.child")
+local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local artifact = require("build.artifact")
 local embed = require("build.embed")
+local invoke = require("build.invoke")
 local Test = require("cosmic.test")
 local String = require("cosmic.string")
 local Time = require("cosmic.time")
@@ -85,6 +87,23 @@ local function test_a_project_becomes_an_executable(tmp: string)
     "the portable file has its script entry")
   assert(String.starts_with(bytes, prefix),
     "the portable file reuses the exact retained prefix")
+end
+
+--- `cosmic build` prints each program it wrote, its bare path on a line of
+--- its own, for a caller to run.
+local function test_build_prints_the_path_of_each_program(tmp: string)
+  write_project(tmp)
+  assert(Fs.mkdirs(tmp .. "/cmd/bye"))
+  assert(Fs.write(tmp .. "/cmd/bye/main.tl", "return function(): integer return 0 end\n"))
+  local built = invoke.run({ "build", "--host" }, { cwd = tmp,
+    env = { COSMIC_BUILD_CACHE = "0", COSMIC_BUILD_HOME = Env.get("COSMIC_BUILD_HOME") } })
+  assert(built.code == 0, built.stdout .. built.stderr)
+  local bin = build_dir(tmp) .. "/bin"
+  local lines: {string} = {}
+  for line in built.stdout:gmatch("[^\n]+") do
+    lines[#lines + 1] = line
+  end
+  assert(lines[1] == bin .. "/bye" and lines[2] == bin .. "/hello", built.stdout)
 end
 
 local function test_the_carried_database_holds_what_a_program_needs(tmp: string)

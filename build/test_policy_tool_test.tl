@@ -155,7 +155,7 @@ local function test_a_run_under_a_policy_passes_what_is_declared_and_fails_what_
   if unsandboxed(text) then return end
   assert(not ok, text)
   assert(names_policy_path(text), text)
-  assert(text:find("1 of 2 failed", 1, true), text)
+  assert(text:find("1 of 2 tests failed", 1, true), text)
   assert(text:find("FAIL  suite.held_test test_an_undeclared_read_fails", 1, true), text)
   assert(text:find("suite/secret.txt: No such file or directory", 1, true) and
       text:find("rerun: cosmic test suite/held_test.tl:", 1, true), text)
@@ -244,7 +244,7 @@ end
   if unsandboxed(text) then return end
   assert(not ok, text)
   assert(names_policy_path(text), text)
-  assert(text:find("1 of 2 failed", 1, true), text)
+  assert(text:find("1 of 2 tests failed", 1, true), text)
   assert(text:find("failed on purpose", 1, true), text)
   assert(text:find("its directory was a tmpfs of its worker's own, gone with it", 1, true), text)
   assert(not text:find("its directory is kept:", 1, true), text)
@@ -325,7 +325,7 @@ end
   local env = environment()
   local text, ok = run(root, tmp .. "/exec", env, { "--all" })
   if unsandboxed(text) then return end
-  assert(not ok and text:find("1 of 2 failed", 1, true), text)
+  assert(not ok and text:find("1 of 2 tests failed", 1, true), text)
   assert(text:find("FAIL  suite.plain_exec_test test_runs_the_core", 1, true), text)
   assert(text:find("Permission denied", 1, true), text)
   assert(not text:find("FAIL  suite.tool_exec_test", 1, true), text)

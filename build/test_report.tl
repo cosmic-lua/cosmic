@@ -149,11 +149,13 @@ function test_report.coverage(hit: integer, total: integer): string
     percentage, hit, total, plural.noun(total, "line"))
 end
 
---- A figure the summary adds goes after `stood`: CI's driver reads the
---- figures before it by their places (ci/cosmic_ci/suite_output.tl).
+--- A passing run's summary, after `test: `: an outcome a reader sees
+--- at a glance, then the figures. A figure the summary adds goes after
+--- `stood`: CI's driver reads the figures before it by their places
+--- (ci/cosmic_ci/suite_output.tl).
 function test_report.passed(counts: test_report.Passed, elapsed: string): string
   local unchecked, na = counts.unchecked or 0, counts.na or 0
-  return plural.count(counts.total, "test") .. ", " ..
+  return plural.count(counts.total, "test") .. " passed in " ..
     plural.count(counts.modules, "module") .. "; " ..
     counts.ran .. " ran, " .. counts.cached .. " stood, " ..
     (counts.skipped > 0 and (counts.skipped .. " skipped (this host could not check " ..
@@ -165,14 +167,15 @@ function test_report.passed(counts: test_report.Passed, elapsed: string): string
     elapsed
 end
 
---- The runner has already decided failure before asking for its summary.
+--- A failing run's summary, after `test: `. The runner has already
+--- decided failure before asking for it.
 ---
 --- `not_run` counts the tests a bailing run (`cosmic test --bail`) never
 --- started: they are in neither figure above, and are said last, after
 --- what a reader of the figures by their places expects.
 function test_report.failed(failures: integer, total: integer, errors: integer,
                             elapsed: string, not_run?: integer): string
-  return failures .. " of " .. total .. " failed, " ..
+  return failures .. " of " .. plural.count(total, "test") .. " failed, " ..
     plural.count(errors, "infrastructure error") .. ", " .. elapsed ..
     ((not_run or 0) > 0 and ("; " .. not_run .. " not run after the first failure") or "")
 end

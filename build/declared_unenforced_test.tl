@@ -30,9 +30,9 @@ Test.policy{
 
 --- The summary of an unenforced run that shares through the file
 --- COSMIC_VERDICT_CACHE names, and of one that names none.
-local UNENFORCED <const> = "; unsandboxed (COSMIC_TEST_SANDBOX=0), keyed by declared inputs)"
+local UNENFORCED <const> = "; unsandboxed (COSMIC_TEST_SANDBOX=0), keyed by declared inputs\n"
 local UNSHARED <const> =
-  "; unsandboxed (COSMIC_TEST_SANDBOX=0), keyed by declared inputs, sharing no verdicts)"
+  "; unsandboxed (COSMIC_TEST_SANDBOX=0), keyed by declared inputs, sharing no verdicts\n"
 
 local checkout, environment, says = fixture.checkout, fixture.environment, fixture.says
 
@@ -100,7 +100,7 @@ end
   assert(Fs.rename(tmp .. "/first", tmp .. "/elsewhere/first"))
   local code, text = run(tmp .. "/elsewhere/first", tmp .. "/elsewhere.out", env)
   assert(code ~= 0, text)
-  assert(text:find("1 of 3 failed", 1, true) and text:find("the tree moved", 1, true), text)
+  assert(text:find("1 of 3 tests failed", 1, true) and text:find("the tree moved", 1, true), text)
 end
 
 --- A file beneath a declared directory that changes runs the test that

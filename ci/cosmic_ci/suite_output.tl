@@ -1,8 +1,8 @@
 -- What a suite's `cosmic test` said of itself, read from its output: the
 -- summary line build/test.tl ends a run with,
 --
---     test: PASS (1994 tests, 193 modules; 0 ran, 1994 stood, 2385 ms; sandboxed)
---     test: FAIL (2 of 1994 failed, 0 infrastructure errors, 2385 ms; sandboxed)
+--     test: 1994 tests passed in 193 modules; 0 ran, 1994 stood, 2385 ms; sandboxed
+--     test: 2 of 1994 tests failed, 0 infrastructure errors, 2385 ms; sandboxed
 --
 -- and the key parts a keyed run says under `--census`
 -- (build/shared_verdicts.tl's `key_parts`, or the `unmatched` line that
@@ -71,8 +71,8 @@ end
 
 local function pass_figures(detail: string, into: SuiteOutput.Figures)
   into.verdict = "pass"
-  into.tests = number(detail:match("^(%d+) tests?,"))
-  into.modules = number(detail:match("^%d+ tests?, (%d+) modules?;"))
+  into.tests = number(detail:match("^(%d+) tests? passed in "))
+  into.modules = number(detail:match("^%d+ tests? passed in (%d+) modules?;"))
   into.ran = number(detail:match("; (%d+) ran, "))
   into.stood = number(detail:match(" (%d+) stood, "))
   into.every = number(detail:match(", (%d+) run every time ")) or 0
@@ -84,7 +84,7 @@ end
 
 local function fail_figures(detail: string, into: SuiteOutput.Figures): boolean
   local failed, total, errors, ms, rest =
-    detail:match("^(%d+) of (%d+) failed, (%d+) infrastructure errors?, (%d+) ms(.*)$")
+    detail:match("^(%d+) of (%d+) tests? failed, (%d+) infrastructure errors?, (%d+) ms(.*)$")
   if not failed then return false end
   into.verdict = "fail"
   into.failed, into.tests = number(failed), number(total)
@@ -119,8 +119,9 @@ function SuiteOutput.parse(text: string): SuiteOutput.Figures
   local figures: SuiteOutput.Figures = {}
   for raw in text:gmatch("[^\n]+") do
     local line = raw:gsub("\r$", "")
-    local passed = line:match("^test: PASS %((.*)%)$")
-    local failed = line:match("^test: FAIL %((.*)%)$")
+    -- A line cut before its elapsed time is no summary.
+    local passed = line:match("^test: (%d+ tests? passed in .*, %d+ ms.*)$")
+    local failed = line:match("^test: (%d+ of %d+ tests? failed, .*)$")
     local listed = line:match("^test: key parts: (.*)$") or
       line:match("^test: shared verdicts: none of %d+ tests? looked up stood, .* %(([^()]*)%)$")
     local census = line:match("^test: census: (.*)$")

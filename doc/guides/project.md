@@ -298,7 +298,7 @@ skips one whose code and inputs have not changed since it last passed.
 `cosmic cmd/tally/main.tl words words.txt` runs the program from source. `cosmic
 build` writes `tally` in the project's build directory, outside the project
 (`~/.cache/cosmic/trees/<key>/bin/tally`; `COSMIC_BUILD_HOME` moves it), and
-names it on its last line; `cosmic build cmd/tally` writes only that one. `cosmic docs` lists your own modules with the standard library's, and
+prints its path on a line of its own; `cosmic build cmd/tally` writes only that one. `cosmic docs` lists your own modules with the standard library's, and
 `cosmic docs Tally.words` shows a function with the examples that call it.
 
 That `tally` is the whole program: copy that one file to a Linux (x86-64
@@ -345,7 +345,8 @@ local function cosmic(...: string): Child.Result
   return cosmic_in(tmp, ...)
 end
 local function verdict(said: Child.Result, verb: string)
-  print(((said.stderr or "") .. (said.stdout or "")):match(verb .. ": [A-Z]+"))
+  local out = (said.stderr or "") .. (said.stdout or "")
+  print(out:match(verb .. ": %d+ tests? passed") or out:match(verb .. ": [A-Z]+"))
 end
 
 verdict(cosmic("fix"), "fix")
@@ -357,7 +358,7 @@ print(missing.code, ((missing.stderr or ""):gsub("\n$", "")))
 print(((cosmic("cmd/tally/main.tl", "--help").stdout or ""):gsub("\n$", "")))
 local wrote = cosmic("build", "--host")
 verdict(wrote, "build")
-local program = assert((wrote.stdout or ""):match("build: PASS %((/[^ ,]+)"))
+local program = assert(("\n" .. (wrote.stdout or "")):match("\n(/[^\n]+)"))
 local built = assert(Child.run({ program, "words", "words.txt" },
   { cwd = tmp, stdout = "capture", timeout_ns = Clock.seconds(60) }))
 print(((built.stdout or ""):gsub("\n$", "")))
@@ -367,7 +368,7 @@ print((cosmic("docs", "tally").stdout or ""):match("^[^\n]*"))
 
 ```output
 fix: PASS
-test: PASS
+test: 3 tests passed
 5
 the	2
 cat	1
@@ -381,7 +382,7 @@ commands:
 Run `tally <command> --help` for a command's options.
 build: PASS
 5
-test: PASS
+test: 3 tests passed
 tally (tally.tl)
 ```
 

@@ -2,7 +2,7 @@
 --- minutes, cost, then the friction the journal may not admit to --
 --- failed tool calls, `cosmic docs` lookups that found no exact match,
 --- the tool call at which `cosmic test` first passed (a Bash call that
---- ran `cosmic test`, its result holding a line `test: PASS`), and how
+--- ran `cosmic test`, its result holding its passing summary), and how
 --- many times the journal was written (one write at the end is a
 --- retelling, not a log). Last, the paths a tool call named outside the
 --- arena, in tiers: `BREACH` for this checkout, `.claude`, a skills
@@ -425,6 +425,17 @@ local function bare_word(text: string): string
   return text
 end
 
+--- Whether `text` holds `cosmic test`'s passing summary, as the tool
+--- says it (`test: 9 tests passed in 2 modules; ...`) or as one built from
+--- an older commit does (`test: PASS (...)`): at the start of a line, or
+--- anywhere with `anywhere`.
+local function says_passed(text: string, anywhere: boolean): boolean
+  local lead = anywhere and "" or "\n"
+  local within = lead .. text
+  return within:find(lead .. "test: PASS", 1, true) ~= nil or
+    within:find(lead .. "test: %d+ tests? passed in ") ~= nil
+end
+
 --- Whether a shell command runs `cosmic test`: a word naming `cosmic`
 --- followed by `test`, as `timeout 30 bin/cosmic test`, `(cd p && cosmic
 --- test)`, `out=$(cosmic test)` and `sh -c '...'` have it.
@@ -673,11 +684,11 @@ function Summarize.report(transcript: string, arena: string, repo: string): stri
     end
     docs_misses = docs_misses + count(text, "No exact symbol match") + count(text, "docs: FAIL")
     if first_green == nil and call.name == "Bash" and answer ~= nil and
-        not answer.error and ("\n" .. text):find("\ntest: PASS", 1, true) then
+        not answer.error and says_passed(text, false) then
       -- A command that holds the line itself (an echo, a heredoc, a
       -- script) may have printed it.
       local command = as_text(call.input["command"])
-      if runs_cosmic_test(command, false) and not command:find("test: PASS", 1, true) then
+      if runs_cosmic_test(command, false) and not says_passed(command, true) then
         first_green = index
       end
     end

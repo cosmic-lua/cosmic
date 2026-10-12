@@ -9,7 +9,6 @@ local Proc = require("cosmic.proc")
 local Shape = require("cosmic.shape")
 local Fixture = require("cosmic_ci.fixture")
 local Sqlite = require("cosmic.sqlite")
-local TextRows = require("cosmic_ci.text_rows")
 local sys = require("cosmic.sys")
 local State = require("cosmic_ci.state")
 local Test = require("cosmic.test")
@@ -471,10 +470,10 @@ local function test_the_self_rebuild_seed_copies_the_legs_compiles(tmp: string)
   end
   local function seeded_from(path: string): string
     local db = assert(Sqlite.open(path))
-    local rows = assert(TextRows.query(db, "SELECT key FROM compiles"))
+    local rows = assert(Sqlite.text_rows(db, "SELECT key FROM compiles"))
     assert(db:close())
     assert(#rows == 1, path .. ": " .. tostring(#rows) .. " rows")
-    return rows[1][1]
+    return rows[1]:text(1)
   end
 
   local named = tmp .. "/named/cache.db"
@@ -834,7 +833,7 @@ local function test_only_a_leg_that_runs_the_checked_suite_runs_the_checked_cosm
       "[ \"$2 $3\" = '--all core/socket_sigpipe_checked_test.tl' ] || exit 9; fi\n" ..
       "printf '%s\\n' " ..
       "'test: key parts: host features 01, host 02, system , runtime 04, compiler 05, harness 06' " ..
-      "'test: PASS (7 tests, 2 modules; 3 ran, 4 stood, 55 ms; sandboxed)'; exit 0; fi\n" ..
+      "'test: 7 tests passed in 2 modules; 3 ran, 4 stood, 55 ms; sandboxed'; exit 0; fi\n" ..
       entry(checked) .. "exit 0\n"
     Fixture.write(fake .. "/o/sanitized/bin/cosmic",
       script .. string.rep("#", 16384 - #script) .. core, 493)
@@ -953,7 +952,7 @@ local function test_the_native_suite_writes_its_row_and_a_lost_row_fails_nothing
         "cat > o/bin/cosmic <<'EOF'\n#!/bin/sh\n" ..
         "if [ \"$1 $2\" = \"test --census\" ]; then printf '%s\\n' " ..
         "'test: key parts: host features 01, host 02, system 03, runtime 04, compiler 05, harness 06' " ..
-        "'test: PASS (9 tests, 2 modules; 5 ran, 4 stood, 77 ms; sandboxed)'; fi\nexit 0\nEOF\n" ..
+        "'test: 9 tests passed in 2 modules; 5 ran, 4 stood, 77 ms; sandboxed'; fi\nexit 0\nEOF\n" ..
         "chmod 755 o/bin/cosmic\n", 493)
     local database = runner_temp .. "/cosmic-ci/operations.db"
     if case.broken then
@@ -968,8 +967,8 @@ local function test_the_native_suite_writes_its_row_and_a_lost_row_fails_nothing
     assert(outcome.result.ok, case.name .. ": the build phase failed: " .. err)
     local db = assert(Sqlite.open(database))
     if case.broken then
-      local count = assert(TextRows.query(db, "SELECT COUNT(*) FROM suite_runs"))
-      assert(count[1][1] == "0", case.name .. ": " .. count[1][1] .. " rows")
+      local count = assert(Sqlite.text_rows(db, "SELECT COUNT(*) FROM suite_runs"))
+      assert(count[1]:text(1) == "0", case.name .. ": " .. count[1]:text(1) .. " rows")
       assert(err:find("local suite: row not recorded", 1, true), err)
     else
       local rows = State.suite_rows(db)
@@ -981,9 +980,9 @@ local function test_the_native_suite_writes_its_row_and_a_lost_row_fails_nothing
       local parts = assert(row.parts)
       assert(parts.runtime == "04" and parts.harness == "06")
     end
-    local phases = assert(TextRows.query(db, "SELECT phase, status FROM operation_events " ..
+    local phases = assert(Sqlite.text_rows(db, "SELECT phase, status FROM operation_events " ..
         "WHERE event = 'complete' AND phase IN ('local suite', 'platform: build') ORDER BY id"))
-    assert(#phases == 2 and phases[1][2] == "success" and phases[2][2] == "success",
+    assert(#phases == 2 and phases[1]:text(2) == "success" and phases[2]:text(2) == "success",
       case.name .. ": the phases did not succeed")
     assert(db:close())
   end
@@ -1478,15 +1477,15 @@ local function test_the_darwin_suite_runs_on_the_macos_legs_gating_runs_alone(tm
     -- line.
     local failing = case.ok and "" or
       "if [ \"$*\" = '" .. darwin .. "' ]; then printf '%s\\n' " ..
-      "'test: FAIL (1 of 2 failed, 0 infrastructure errors, 5 ms; unsandboxed)'; exit 1; fi\n"
+      "'test: 1 of 2 tests failed, 0 infrastructure errors, 5 ms; unsandboxed'; exit 1; fi\n"
     Fixture.write(fake .. "/bin/zig", "#!/bin/sh\nmkdir -p o/bin\nprintf db > o/build.db\n" ..
         "cat > o/bin/cosmic <<'EOF'\n#!/bin/sh\n" ..
         "if [ \"$1\" = test ]; then printf '%s\\n' \"$*\" >> \"$0.ran\"; fi\n" .. failing ..
         "case \"$*\" in 'test --census'*) printf '%s\\n' " ..
-        "'test: PASS (" .. (2 + case.stood) .. " tests, 2 modules; 2 ran, " .. case.stood ..
-        " stood, 5 ms; unsandboxed)'; exit 0;; esac\n" ..
+        "'test: " .. (2 + case.stood) .. " tests passed in 2 modules; 2 ran, " .. case.stood ..
+        " stood, 5 ms; unsandboxed'; exit 0;; esac\n" ..
         "if [ \"$1\" = test ]; then printf '%s\\n' " ..
-        "'test: PASS (2 tests, 2 modules; 2 ran, 0 stood, 5 ms; unsandboxed)'; fi\nexit 0\nEOF\n" ..
+        "'test: 2 tests passed in 2 modules; 2 ran, 0 stood, 5 ms; unsandboxed'; fi\nexit 0\nEOF\n" ..
         "chmod 755 o/bin/cosmic\n", 493)
     local env = context(fake, runner_temp, { TARGET = case.target,
       TMPDIR = tmp, COSMIC_CI_EVENT = case.event, COSMIC_CI_HARNESS_MOVED = "0",
@@ -1522,7 +1521,7 @@ end
 local function test_a_native_suite_ran_every_test_where_none_stood()
   local Orchestration = require("cosmic_ci.orchestration")
   local function line(ran: integer, stood: integer): string
-    return string.format("test: PASS (%d tests, 3 modules; %d ran, %d stood, 5 ms; unsandboxed)\n",
+    return string.format("test: %d tests passed in 3 modules; %d ran, %d stood, 5 ms; unsandboxed\n",
       ran + stood, ran, stood)
   end
   assert(Orchestration.native_ran_every(line(4, 0), 0))
@@ -1531,9 +1530,9 @@ local function test_a_native_suite_ran_every_test_where_none_stood()
   assert(not Orchestration.native_ran_every(line(4, 0), 124))
   assert(not Orchestration.native_ran_every("", 0))
   assert(not Orchestration.native_ran_every(
-    "test: PASS (4 tests, 3 modules; 4 ran, 0 stood, 5 ms; unsandboxed; shard 1 of 2)\n", 0))
+    "test: 4 tests passed in 3 modules; 4 ran, 0 stood, 5 ms; unsandboxed; shard 1 of 2\n", 0))
   assert(not Orchestration.native_ran_every(
-    "test: FAIL (1 of 4 failed, 0 infrastructure errors, 5 ms; unsandboxed)\n", 1))
+    "test: 1 of 4 tests failed, 0 infrastructure errors, 5 ms; unsandboxed\n", 1))
 end
 
 --- The noexec launcher uses the same keyed product contract as the

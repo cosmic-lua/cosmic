@@ -231,7 +231,7 @@ end
   local refused = run(tmp .. "/beyond", tmp .. "/beyond.out", env, nil, true)
   assert(refused:find('suite/beyond_test.tl:6: test.policy: loopback "example.com": loopback ' ..
       "takes loopback addresses 127.a.b.c only", 1, true) and
-      not refused:find("test: PASS", 1, true), refused)
+      not refused:find("test: %d+ tests? passed in "), refused)
   suite(tmp .. "/root", "loopback", '"127.0.0.1", "127.0.0.2"', false)
   local first = run(tmp .. "/root", tmp .. "/first.out", env)
   if unsandboxed(first) then return end
@@ -370,7 +370,7 @@ local function test_a_sandboxed_test_runs_the_tool_only_declared(tmp: string)
   env.XDG_CACHE_HOME = tmp .. "/cache"
   local first = run(root, tmp .. "/first.out", env, nil, true)
   if unsandboxed(first) then return end
-  assert(first:find("test: PASS", 1, true) and first:find("3 ran, 0 stood", 1, true), first)
+  assert(first:find("test: %d+ tests? passed in ") and first:find("3 ran, 0 stood", 1, true), first)
   local again = run(root, tmp .. "/again.out", env)
   assert(again:find("0 ran, 3 stood", 1, true), again)
   -- The tool rebuilt: what declares it runs again.
@@ -443,7 +443,7 @@ local function tool_project(tmp: string): function(string), function(string): st
   end
   local first = ran("", true)
   if unsandboxed(first) then return nil, nil end
-  assert(first:find("test: PASS", 1, true) and first:find("2 ran, 0 stood", 1, true), first)
+  assert(first:find("test: %d+ tests? passed in ") and first:find("2 ran, 0 stood", 1, true), first)
   return rebuild, function(wanted: string): string return ran(wanted) end
 end
 
@@ -737,7 +737,7 @@ end
   -- test fails -- `unsandboxed` then ends this one.
   local first = run(root, tmp .. "/first.out", env, nil, true)
   if unsandboxed(first) then return end
-  assert(first:find("test: PASS", 1, true) and first:find("1 ran, 0 stood", 1, true), first)
+  assert(first:find("test: %d+ tests? passed in ") and first:find("1 ran, 0 stood", 1, true), first)
   local projection = assert(Fs.read(build_dir(root) .. "/cosmic.db"))
   local stores = closure_stores()
   assert(#stores == 1, table.concat(stores, " "))
@@ -826,7 +826,7 @@ end
   local env = environment(tmp .. "/cache/verdicts.db")
   env.COSMIC_TEST_SANDBOX = "0"
   local text = run(root, tmp .. "/first.out", env)
-  assert(text:find("test: PASS", 1, true) and text:find("1 ran, 0 stood", 1, true), text)
+  assert(text:find("test: %d+ tests? passed in ") and text:find("1 ran, 0 stood", 1, true), text)
 end
 
 --- A digest kept of a store's address that its bytes, here or written
@@ -851,14 +851,14 @@ local function test_a_store_whose_bytes_differ_from_its_kept_digest_fails_the_ru
   local here = run(root, tmp .. "/here.out", env, nil, true)
   assert(here:find("must follow from its address alone", 1, true) and
       here:find("the shared verdicts at", 1, true) and here:find("The next run keeps", 1, true) and
-      here:find("test: FAIL", 1, true), here)
+      here:find("test: %d+ of %d+ tests? failed"), here)
   -- Where they are not: the checkout takes the digests kept, and its
   -- tests, given stores that are not those bytes, are keyed again.
   forge()
   checkout(tmp .. "/second")
   local second = run(tmp .. "/second", tmp .. "/second.out", env, { "--all" }, true)
   assert(second:find("must follow from its address alone", 1, true) and
-      second:find("test: FAIL", 1, true), second)
+      second:find("test: %d+ of %d+ tests? failed"), second)
   local kept_aside = false
   for _, entry in ipairs(Fs.list(build_dir(tmp .. "/second") .. "/stores") or {}) do
     if entry:match("%.mismatch%.db$") then kept_aside = true end
@@ -893,5 +893,5 @@ local function test_a_run_that_writes_no_store_checks_one(tmp: string)
   assert(db:close())
   local checked = run(root, tmp .. "/checked.out", env, nil, true)
   assert(checked:find("must follow from its address alone", 1, true) and
-      checked:find("%.db has %x+") ~= nil and checked:find("test: FAIL", 1, true), checked)
+      checked:find("%.db has %x+") ~= nil and checked:find("test: %d+ of %d+ tests? failed"), checked)
 end

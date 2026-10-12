@@ -311,6 +311,29 @@ local function test_a_lookup_out_of_time_still_takes_the_connectors_reply(tmp: s
   assert(first >= 100 and first < 480, "the first lookup ended after " .. first .. " ms, not at its deadline")
 end
 
+--- A lookup's deadline is never earlier than the time it was given, wherever
+--- in a millisecond it began: begun with 1 ms in the last tenth of a
+--- millisecond, it still asks for its connect while most of that time is
+--- left, and does not refuse it as past its deadline.
+local function test_a_lookup_begun_late_in_a_millisecond_still_asks_for_its_connect()
+  require_native_connector()
+  local judged = 0
+  for _ = 1, 200 do
+    while Clock.monotonic_ns() % 1000000 < 900000 do end
+    local began = Clock.monotonic_ns()
+    local lookup = assert(socket.lookup("deadline.example.test", 1, nil, nil, { { host = "127.0.0.1", port = 9, index = 1 } }))
+    local _, _, _, _, wants = lookup:step(nil, nil)
+    local took = Clock.monotonic_ns() - began
+    lookup:close()
+    -- A start delayed past the millisecond has no claim on one want.
+    if took < Clock.ms(1) then
+      judged = judged + 1
+      assert(#wants == 1, #wants .. " connects were asked for, in " .. took .. " ns of 1 ms")
+    end
+  end
+  assert(judged > 0, "no lookup began and asked within its millisecond")
+end
+
 local function test_an_unreachable_name_server_fails_the_lookup()
   require_native_connector()
   -- A port that was free a moment ago.

@@ -1,3 +1,4 @@
+local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
 local sys = require("cosmic.sys")
@@ -392,6 +393,28 @@ local function test_scratch_holds_its_owner_lock_while_open(tmp: string)
   local locked = sys.flock(other, "exclusive", 0)
   assert(not locked, "another opener of the owner file must not get its lock")
   local _, _ = sys.close(other)
+end
+
+--- A lock wait of 0 asks once and does not wait: a lock held answers at
+--- once, where a wait rounded up to the next millisecond would take one.
+--- Only the quickest of many is held to it, so a stall cannot fail it.
+local function test_a_flock_of_zero_milliseconds_does_not_wait(tmp: string)
+  local path = tmp .. "/held"
+  assert(Fs.write(path, ""))
+  local holder = assert(sys.open(path, sys.O_RDWR))
+  local other = assert(sys.open(path, sys.O_RDWR))
+  assert(sys.flock(holder, "exclusive", 0))
+  local quickest = Clock.ms(1)
+  for _ = 1, 200 do
+    local began = Clock.monotonic_ns()
+    local locked = sys.flock(other, "exclusive", 0)
+    local took = Clock.monotonic_ns() - began
+    assert(not locked, "the lock is held")
+    if took < quickest then quickest = took end
+  end
+  local _, _ = sys.close(other)
+  local _, _ = sys.close(holder)
+  assert(quickest < Clock.ms(1) // 2, "the quickest of 200 tries took " .. quickest .. " ns")
 end
 
 local function test_a_second_close_of_a_scratch_leaves_a_reused_descriptor(tmp: string)

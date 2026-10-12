@@ -1,7 +1,6 @@
 local BuildPaths = require("cosmic_ci.build_paths")
 local Clock = require("cosmic.clock")
 local Sqlite = require("cosmic.sqlite")
-local TextRows = require("cosmic_ci.text_rows")
 local Fs = require("cosmic.fs")
 local sys = require("cosmic.sys")
 local Fixture = require("cosmic_ci.fixture")
@@ -114,14 +113,14 @@ local function compiles_in(path: string, since_ns: integer): integer, integer
   local db = assert(Sqlite.open(path))
   local total, used = 0, 0
   local ok, failure = pcall(function(): boolean
-    local tables = assert(TextRows.query(db,
+    local tables = assert(Sqlite.text_rows(db,
       "SELECT name FROM sqlite_schema WHERE type = 'table' AND name GLOB 'compiled_v*'"))
     for _, row in ipairs(tables) do
-      local counts = assert(TextRows.query(db, "SELECT count(*), " ..
-          "count(*) FILTER (WHERE used_ns >= ?1) FROM \"" .. row[1] .. "\"",
+      local counts = assert(Sqlite.text_rows(db, "SELECT count(*), " ..
+          "count(*) FILTER (WHERE used_ns >= ?1) FROM \"" .. row:text(1) .. "\"",
         { { integer = since_ns } }))
-      total = total + math.tointeger(tonumber(counts[1][1]))
-      used = used + math.tointeger(tonumber(counts[1][2]))
+      total = total + math.tointeger(tonumber(counts[1]:text(1)))
+      used = used + math.tointeger(tonumber(counts[1]:text(2)))
     end
     return true
   end)
@@ -358,7 +357,7 @@ local function run_rebuild_case(fixture_dir: string,
 
     Fixture.assert_executable(program)
     assert(Fixture.read(child.out):match(
-      "test: PASS %([^;]+; [1-9][0-9]* ran, 0 stood"),
+      "test: %d+ tests? passed in [^;]+; [1-9][0-9]* ran, 0 stood"),
       action .. ": self-rebuild output did not match the expected pattern")
     local err = Fixture.read(child.err)
     took_compiles(action, seed, since, err)

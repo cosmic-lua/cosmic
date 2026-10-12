@@ -1,12 +1,11 @@
 local Compiles = require("cosmic_ci.compiles")
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
-local TextRows = require("cosmic_ci.text_rows")
 
 --- The current supported compile format, independent of candidate imports.
 local function cache(path: string, used: {integer})
   local db = assert(Sqlite.open(path, { writable = true }))
-  assert(TextRows.query(db, "PRAGMA journal_mode = WAL"))
+  assert(Sqlite.text_rows(db, "PRAGMA journal_mode = WAL"))
   assert(db:exec("CREATE TABLE compiled_v2 (key TEXT PRIMARY KEY, lua BLOB NOT NULL, " ..
       "bytecode BLOB NOT NULL, refs BLOB NOT NULL, digest TEXT NOT NULL, size INTEGER NOT NULL, " ..
       "used_ns INTEGER NOT NULL)"))
@@ -20,8 +19,8 @@ end
 local function keys(path: string): string
   local db = assert(Sqlite.open(path))
   local out: {string} = {}
-  for _, row in ipairs((assert(TextRows.query(db, "SELECT key FROM compiled_v2 ORDER BY key")))) do
-    out[#out + 1] = row[1]
+  for _, row in ipairs((assert(Sqlite.text_rows(db, "SELECT key FROM compiled_v2 ORDER BY key")))) do
+    out[#out + 1] = row:text(1)
   end
   assert(db:close())
   return table.concat(out, ",")
@@ -77,7 +76,7 @@ local function test_unknown_format_is_retained_and_fresh_comparison_is_incomplet
   assert(code == 0 and err ~= "")
   assert(Fs.stat(tmp .. "/output") == nil)
   db = assert(Sqlite.open(path))
-  assert(assert(TextRows.query(db, "SELECT key FROM compiled_v99"))[1][1] == "future")
+  assert(assert(Sqlite.text_rows(db, "SELECT key FROM compiled_v99"))[1]:text(1) == "future")
   assert(db:close())
 end
 
