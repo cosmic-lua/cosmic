@@ -40,8 +40,9 @@ local analyzer_tree: {string:string} = {
     "local record ast\n  n: integer\nend\nast.n = raw.n\nreturn ast\n",
   ["build/thing.tl"] = "local record thing\n  n: integer\nend\nthing.n = 2\nreturn thing\n",
   ["build/raw.d.tl"] = "local record raw\n  n: integer\nend\nreturn raw\n",
+  -- Declares a global, whose row a taken parse must carry as it does the rest.
   ["build/other.tl"] = "--- Other.\nlocal record other\n  n: integer\nend\nother.n = 3\n" ..
-    "return other\n",
+    "global count: integer = 1\nreturn other\n",
 }
 
 --- What a boot of the tree at `root` derives, sharing through the cache
@@ -98,6 +99,7 @@ local function test_a_boot_takes_only_the_parses_its_own_analyzer_made(tmp: stri
   local taken, taken_named, taken_rows = boot(tmp .. "/second", path)
   assert(taken.parsed == 0 and taken.shared == count, taken.parsed .. " " .. taken.shared)
   assert(taken_named == named and taken_rows == rows, taken_rows .. "\n--\n" .. rows)
+  assert(rows:find("globals 1\n", 1, true) ~= nil, rows)
   -- An analyzer module edited that no root is: the roots' parses are
   -- the cache's, but the rows they name the analyzer by reach the edit,
   -- so the name is another, and nothing is taken.

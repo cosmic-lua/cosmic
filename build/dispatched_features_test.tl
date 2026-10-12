@@ -34,6 +34,7 @@ Test.policy{
     { path = "vendor/mbedtls/", letters = "r" },
     { path = "vendor/miniz/", letters = "r" },
     { path = "vendor/sqlite/", letters = "r" },
+    { path = "vendor/sqlite-ext/", letters = "r" },
     { path = "vendor/xz/", letters = "r" },
     { path = "vendor/yyjson/", letters = "r" },
   },
@@ -41,7 +42,7 @@ Test.policy{
 
 --- The vendored libraries build.zig compiles C from, each walked whole.
 local LIBRARIES <const> = { "bzip2", "cares", "curl", "lua", "mbedtls", "miniz", "sqlite",
-  "xz", "yyjson" }
+  "sqlite-ext", "xz", "yyjson" }
 
 --- The vendored trees build.zig patches that hold no C: the Teal
 --- compiler, which the core loads as Lua.
@@ -251,7 +252,7 @@ local function test_every_library_build_zig_compiles_is_walked()
   local walked: {string:boolean} = {}
   for _, library in ipairs(LIBRARIES) do walked[library] = true end
   local count = 0
-  for library in source:gmatch('patched%(b, trees, "([%w_]+)"%)') do
+  for library in source:gmatch('patched%(b, trees, "([%w_%-]+)"%)') do
     count = count + 1
     assert(walked[library] or NOT_C[library], "build.zig compiles vendor/" .. library ..
         ", which this test does not walk: add it to LIBRARIES and to Test.policy")
