@@ -66,3 +66,17 @@ local function test_a_csv_from_a_file_and_standard_input_through_the_binary(tmp:
   assert(ran.code == 0, ran.err)
   assert(ran.out:find("^region\ttypeof%(amount%)\tb\nn\ttext\tone\nsql: PASS %(1 row from sales.csv, standard input, "), ran.out)
 end
+
+--- `--to` in a pipe through the binary: stdout holds the data alone, the
+--- verdict line is on stderr, and an NDJSON row comes back as it went in.
+local function test_to_writes_data_alone_on_stdout_through_the_binary(tmp: string)
+  local row = '{"a":3,"b":"y\\"\\\\n","c":{"d":[1,2]}}'
+  local ran = cosmic(tmp, { "sql", "--from", "-", "--as", "ndjson", "--to", "ndjson",
+    "SELECT _json FROM stdin WHERE a > 1" }, '{"a":1}\n' .. row .. "\n")
+  assert(ran.code == 0, ran.err)
+  assert(ran.out == row .. "\n", ran.out)
+  assert(ran.err:find("^sql: PASS %(1 row from standard input, ") ~= nil, ran.err)
+  ran = cosmic(tmp, { "sql", "--from", "-", "--as", "ndjson", "--to", "csv", "SELECT a, b FROM stdin" },
+    '{"a":1,"b":"x, y"}\n')
+  assert(ran.code == 0 and ran.out == 'a,b\n1,"x, y"\n', ran.out .. ran.err)
+end

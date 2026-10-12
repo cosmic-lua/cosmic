@@ -37,10 +37,12 @@ local record Written
   err: {string}
   --- The verdict line, as stdout would end in it.
   verdict: string
+  --- The verdict given aside, on stderr, as `--to` gives it.
+  aside: string
 end
 
 local function run(root: string, words: {string}, input?: string): integer, Written
-  local written: Written = { out = {}, err = {}, verdict = "" }
+  local written: Written = { out = {}, err = {}, verdict = "", aside = "" }
   local code = sql.run(argv_of(words), root, {
     out = function(line: string): boolean, string
       written.out[#written.out + 1] = line
@@ -48,8 +50,12 @@ local function run(root: string, words: {string}, input?: string): integer, Writ
     end,
     err = function(line: string) written.err[#written.err + 1] = line end,
     verdict = function(passed: boolean, detail: string)
-      assert(written.verdict == "", "a second verdict: " .. written.verdict)
+      assert(written.verdict == "" and written.aside == "", "a second verdict")
       written.verdict = "sql: " .. (passed and "PASS" or "FAIL") .. " (" .. detail .. ")"
+    end,
+    verdict_aside = function(passed: boolean, detail: string)
+      assert(written.verdict == "" and written.aside == "", "a second verdict")
+      written.aside = "sql: " .. (passed and "PASS" or "FAIL") .. " (" .. detail .. ")"
     end,
   }, function(): string | nil, string
     if input == nil then return nil, "no standard input given" end
@@ -645,4 +651,58 @@ local function test_a_csv_keeps_its_header_order_and_a_one_column_blank_line()
   code, written = run(dir, { "--from", dir .. "/one.csv", "SELECT count(*), count(a) FROM one" })
   assert(code == 0 and written.out[2] == "3\t2", table.concat(written.err, "|") .. table.concat(written.out, "|"))
   assert(Fs.remove_tree(dir))
+end
+
+--- `--to csv` writes RFC 4180 alone to stdout, a header first, NULL an
+--- empty field and '' a quoted empty one, and gives its verdict aside.
+local function test_to_csv_writes_data_alone_and_the_verdict_aside()
+  local dir = delimited()
+  local code, written = run(dir, { "--from", "-", "--as", "csv", "--to", "csv",
+    "SELECT name, n, NULL AS z, '' AS e, 2.5 AS r FROM stdin WHERE n > 10" },
+    'id,name,n\n1,a,5\n2,"b, ""c""",20\n3,,30\n')
+  assert(code == 0, table.concat(written.err, "|"))
+  assert(table.concat(written.out, "\n") == 'name,n,z,e,r\n"b, ""c""",20,,"",2.5\n,30,,"",2.5',
+    table.concat(written.out, "\n"))
+  assert(written.verdict == "" and written.aside:find("^sql: PASS %(2 rows from standard input") ~= nil,
+    written.aside)
+end
+
+--- `--to ndjson` writes an object per row, its members the columns in
+--- order and named apart, and a result of `_json` alone as its text.
+local function test_to_ndjson_writes_a_row_an_object_in_column_order()
+  local dir = delimited()
+  local input = '{"a":1,"b":"x\\"q"}\n{"a":3,"b":"y","c":{"d":[1,2]}}\n'
+  local code, written = run(dir, { "--from", "-", "--as", "ndjson", "--to", "ndjson",
+    "SELECT b, a, a * 1.5 AS f, a, NULL AS z FROM stdin ORDER BY a" }, input)
+  assert(code == 0, table.concat(written.err, "|"))
+  assert(table.concat(written.out, "\n") ==
+      '{"b":"x\\"q","a":1,"f":1.5,"a_2":1,"z":null}\n{"b":"y","a":3,"f":4.5,"a_2":3,"z":null}',
+    table.concat(written.out, "\n"))
+  code, written = run(dir, { "--from", "-", "--as", "ndjson", "--to", "ndjson",
+    "SELECT _json FROM stdin WHERE a > 1" }, input)
+  assert(code == 0 and table.concat(written.out, "\n") == '{"a":3,"b":"y","c":{"d":[1,2]}}',
+    table.concat(written.out, "\n"))
+  assert(written.aside:find("^sql: PASS") ~= nil, written.aside)
+end
+
+--- What `--to` cannot write fails the statement, naming the row, with
+--- the verdict aside; a format it does not know, or no statement, is a
+--- usage error; and `--to` is no database of its own.
+local function test_to_refuses_what_it_cannot_write()
+  local dir = delimited()
+  for _, case in ipairs({
+      { "SELECT x'00ff' AS b", "row 1: b is a blob" },
+      { "SELECT CAST(x'ff' AS TEXT) AS t", "row 1: t: json: cannot encode a string that is not UTF-8" },
+  }) do
+    local code, written = run(dir, { "--from", "-", "--as", "csv", "--to", "ndjson", case[1] }, "a\n1\n")
+    assert(code == 1 and written.err[1]:find(case[2], 1, true) ~= nil, tostring(written.err[1]))
+    assert(written.aside:find("^sql: FAIL") ~= nil, written.aside)
+  end
+  local code, written = run(dir, { "--from", "-", "--as", "csv", "--to", "xml", "SELECT 1" }, "a\n1\n")
+  assert(code == 2 and written.err[1]:find("--to writes csv or ndjson, not xml", 1, true) ~= nil, written.err[1])
+  code, written = run(dir, { "--from", "-", "--as", "csv", "--to", "csv" }, "a\n1\n")
+  assert(code == 2 and written.err[1]:find("--to writes a statement's rows", 1, true) ~= nil, written.err[1])
+  local root = project()
+  code, written = run(root, { "--db", build_dir(root) .. "/cosmic.db", "--to", "csv", "SELECT 1 AS one" })
+  assert(code == 0 and table.concat(written.out, "\n") == "one\n1", table.concat(written.err, "|"))
 end

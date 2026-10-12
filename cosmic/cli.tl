@@ -226,7 +226,13 @@ local record Cli
   --- tab-separated cells: NULL as \N, a blob as X'<hex>',
   --- and in text a backslash, tab, newline or return as \\, \t, \n or
   --- \r and any other control byte as \xHH. The verdict line comes
-  --- after the rows, as every verb's last line. Exits 0 when the
+  --- after the rows, as every verb's last line. `--to csv` writes the
+  --- rows as RFC 4180 CSV instead, a header of the column names first,
+  --- NULL an empty field and '' a quoted empty one; `--to ndjson` a JSON
+  --- object per row, its members the columns in order, a blob refused,
+  --- and a result of one column named `_json` as its text. Either is
+  --- data alone on stdout, for a pipe: the verdict line goes to stderr.
+  --- Exits 0 when the
   --- statement ran, rows or none; 1 when the
   --- database or the statement failed, a write among them; 2 for a
   --- command line it cannot read. Nothing is built or staged.
@@ -759,6 +765,8 @@ local module: Module = {
             "no number is read, an empty cell is '' not NULL" },
         ["--at"] = { value = "path", about = "read the --from before it from the array at this " ..
             "JSONPath ($.data.rows), not the document" },
+        ["--to"] = { value = "format", about = "write the rows as csv or ndjson, data alone on " ..
+            "stdout, for a pipe; the verdict line goes to stderr" },
       },
     },
     cache = {
