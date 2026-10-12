@@ -776,6 +776,7 @@ todos.spec = {
   tests = { "build.todos_test", "build.todos_git_test" },
   run = function(argv: {integer:string}): integer return run(argv) end,
   bare = false,
+  recheck_on_refusal = false,
   takes = "the files or directories to act on",
 }
 

@@ -22,6 +22,13 @@ local record verb_spec
     --- runs, for a verb that does not check as it goes ([`build.reboot`]'s
     --- `stale_exit`): one whose rows, or whose own code, are the tree's.
     fresh: boolean | nil
+    --- False when, after the verb refuses its command line (exit 2),
+    --- [`build/dispatch.tl`] does not ask whether a tool older than the
+    --- tree refused an option the tree added, as it asks of other verbs:
+    --- for one that asks before it reads its line (`help`, `todos`), or
+    --- that must never stage the tree to ask (`sql`). A bare verb, and a
+    --- `fresh` one, which was asked about before it ran, never are.
+    recheck_on_refusal: boolean | nil
     --- What the verb takes after its name, as `cosmic help <verb>` phrases it
     --- ("a path and a file").
     takes: string
