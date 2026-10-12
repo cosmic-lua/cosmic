@@ -42,10 +42,10 @@ local function documented(): {string:boolean}
   return names
 end
 
---- The JSON table-valued functions SQLite registers when first used
---- (sqlite3JsonVtabRegister in its source), like the PRAGMA tables:
---- each is used before the modules are listed.
-local LAZY_TABLES <const> = { "json_each", "json_tree", "jsonb_each", "jsonb_tree" }
+--- The table-valued functions SQLite registers when first used
+--- (sqlite3JsonVtabRegister and sqlite3CarrayRegister in its source),
+--- like the PRAGMA tables: each is used before the modules are listed.
+local LAZY_TABLES <const> = { "json_each", "json_tree", "jsonb_each", "jsonb_tree", "carray" }
 
 --- The names a fresh handle answers.
 local function answered(): {string:boolean}
