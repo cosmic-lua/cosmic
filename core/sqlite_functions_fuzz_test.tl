@@ -210,3 +210,78 @@ local function test_text_decoders_are_total_and_round_trip(tmp: string)
     shares = { ["uuid decoded"] = 0.3, ["uuid refused"] = 0.1 },
   })
 end
+
+--- A real's eight bytes, as ieee754.c and totype.c read a blob.
+local function test_ieee754_and_totype_are_total_and_round_trip(tmp: string)
+  Fuzz.run({
+    name = "sqlite ieee754 totype total",
+    dir = tmp,
+    gen = function(src: Fuzz.Source): string
+      local eight: {string} = {}
+      for i = 1, 8 do eight[i] = string.char(src:int(0, 255)) end
+      return Fuzz.pack({ table.concat(eight), Fuzz.bytes(src, 24) })
+    end,
+    check = function(input: string): boolean, string
+      local fields = Fuzz.unpack(input)
+      local bits, other = fields[1], fields[2]
+      local rows, trouble = Sqlite.text_rows(handle,
+        "SELECT typeof(ieee754_from_blob(?1)), " ..
+          "hex(ieee754_to_blob(ieee754_from_blob(?1))) = hex(?1), " ..
+          "ieee754(ieee754_mantissa(?1), ieee754_exponent(?1)) = ieee754_from_blob(?1)",
+        { { blob = bits } })
+      if rows == nil then return false, "ieee754 failed its statement: " .. trouble end
+      if rows[1][1] == "real" then
+        Fuzz.label("a real")
+        if rows[1][2] ~= "1" then return false, "ieee754_to_blob did not give the bytes back" end
+        if rows[1][3] ~= "1" then return false, "mantissa and exponent did not rebuild the real" end
+      else
+        Fuzz.label("not a real")
+      end
+      for _, given in ipairs({ { blob = other } as Sqlite.Value, { text = other } as Sqlite.Value }) do
+        if Sqlite.text_rows(handle, "SELECT tointeger(?1), toreal(?1), ieee754(?1)", { given }) == nil then
+          return false, "totype failed its statement"
+        end
+      end
+      return true, ""
+    end,
+    requires = { "a real" },
+    shares = { ["a real"] = 0.5 },
+  })
+end
+
+local function test_uint_orders_consistently(tmp: string)
+  Fuzz.run({
+    name = "sqlite uint collation order",
+    dir = tmp,
+    gen = function(src: Fuzz.Source): string
+      local alphabet = "0000123456789abcXYZ-+. "
+      local function word(): string
+        local chars: {string} = {}
+        while Fuzz.more(src, #chars, 24) do
+          local at = src:int(1, #alphabet)
+          chars[#chars + 1] = alphabet:sub(at, at)
+        end
+        return table.concat(chars)
+      end
+      local first = word()
+      -- Leading zeros on each run of digits leave a word equal to itself.
+      if src:int(0, 2) == 0 then return Fuzz.pack({ first, (first:gsub("(%d+)", "0%1")) }) end
+      return Fuzz.pack({ first, word() })
+    end,
+    check = function(input: string): boolean, string
+      local fields = Fuzz.unpack(input)
+      local rows, trouble = Sqlite.text_rows(handle,
+        "SELECT ?1 < ?2 COLLATE uint, ?2 < ?1 COLLATE uint, ?1 = ?2 COLLATE uint, " ..
+          "?2 = ?1 COLLATE uint", { { text = fields[1] }, { text = fields[2] } })
+      if rows == nil then return false, "uint failed its statement: " .. trouble end
+      local less, more, equal, back = rows[1][1], rows[1][2], rows[1][3], rows[1][4]
+      if equal ~= back then return false, "uint equality is not symmetric" end
+      local held = (less == "1" and 1 or 0) + (more == "1" and 1 or 0) + (equal == "1" and 1 or 0)
+      if held ~= 1 then return false, "exactly one of <, > and = must hold, not " .. held end
+      Fuzz.label(equal == "1" and "equal" or "ordered")
+      return true, ""
+    end,
+    requires = { "ordered", "equal" },
+    shares = { ordered = 0.4, equal = 0.1 },
+  })
+end

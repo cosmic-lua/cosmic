@@ -278,6 +278,19 @@ print(table.concat(rows[1], " "))
 - `decimal_cmp(X, Y)`: -1, 0 or 1 as X is below, equal to or above Y.
 - `decimal_sum(X)`: an aggregate: the exact sum.
 - `decimal_pow2(N)`: 2 to the power N, exactly, in exponential notation; NULL unless N is an integer.
+- `ieee754(X)`: a real as the text `ieee754(M,E)`, where X is exactly M × 2^E.
+  `ieee754(M, E)` is that real again.
+- `ieee754_mantissa(X)`: the M of `ieee754(X)`.
+- `ieee754_exponent(X)`: the E of `ieee754(X)`.
+- `ieee754_to_blob(X)`: a real's 8 bytes, big-endian.
+- `ieee754_from_blob(B)`: the real 8 big-endian bytes hold.
+- `ieee754_to_int(X)`: a real's 8 bytes, as a signed 64-bit integer.
+- `ieee754_from_int(N)`: the real whose bytes are N's.
+- `ieee754_inc(X, N)`: the real N representable steps from X.
+- `tointeger(X)`: X as an integer if no value is lost, else NULL. An 8-byte
+  blob is read as a little-endian integer.
+- `toreal(X)`: X as a real if at least 15 digits survive, else NULL. An
+  8-byte blob is read as a big-endian real.
 - `uuid()`: a random version 4 UUID, as text.
 - `uuid_str(X)`: a UUID in its canonical text, from a 16-byte blob or text, or NULL.
 - `uuid_blob(X)`: a UUID as a 16-byte blob, from text or a blob, or NULL.
@@ -297,12 +310,14 @@ print(table.concat(rows[1], " "))
 ## collations
 
 SQLite's [built-in collations](https://sqlite.org/datatype3.html#collation),
-and `decimal` from [SQLite's extensions](#sqlites-extensions).
+and `decimal` and `uint` from [SQLite's extensions](#sqlites-extensions).
 
 - `BINARY`: compares bytes; the default.
 - `NOCASE`: ignores the case of ASCII letters.
 - `RTRIM`: ignores trailing spaces.
 - `decimal`: orders text by its decimal value, so `'1.0' = '1' COLLATE decimal`.
+- `uint`: orders text with its runs of digits compared as numbers, so
+  `file2` sorts before `file10` and `'x00123y' = 'x123y' COLLATE uint`.
 
 [`cosmic.hash`]: ../../cosmic/hash.tl
 [`cosmic.json`]: ../../cosmic/json.tl

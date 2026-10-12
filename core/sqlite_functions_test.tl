@@ -123,3 +123,31 @@ local function test_uncompress_bounds_a_claimed_length_by_deflates_ratio()
   assert(read((1 << 35) - 1) == "NULL", "the largest claim must be NULL, not a failure")
   handle:close()
 end
+
+local function test_ieee754_takes_a_double_apart_and_back()
+  local got = row("SELECT ieee754(45.25), ieee754_mantissa(45.25), ieee754_exponent(45.25), " ..
+      "ieee754(181, -2), hex(ieee754_to_blob(1.0)), ieee754_from_blob(x'3ff0000000000000'), " ..
+      "ieee754_to_int(1.0), ieee754_from_int(4607182418800017408), ieee754_inc(1.0, 1) > 1.0")
+  local want = { "ieee754(181,-2)", "181", "-2", "45.25", "3FF0000000000000", "1.0",
+    "4607182418800017408", "1.0", "1" }
+  for i, value in ipairs(want) do
+    assert(got[i] == value, "column " .. i .. ": " .. tostring(got[i]))
+  end
+end
+
+local function test_tointeger_and_toreal_convert_only_without_loss()
+  local got = row("SELECT tointeger('42'), tointeger(3.0), tointeger(3.5) IS NULL, " ..
+      "tointeger('x') IS NULL, toreal('2.5'), toreal(7), toreal('x') IS NULL")
+  local want = { "42", "3", "1", "1", "2.5", "7.0", "1" }
+  for i, value in ipairs(want) do
+    assert(got[i] == value, "column " .. i .. ": " .. tostring(got[i]))
+  end
+end
+
+local function test_uint_orders_embedded_numbers_by_value()
+  local got = row("SELECT group_concat(x, ' ') FROM (SELECT x FROM " ..
+      "(SELECT 'file10' AS x UNION ALL SELECT 'file2' UNION ALL SELECT 'file1') " ..
+      "ORDER BY x COLLATE uint)")
+  assert(got[1] == "file1 file2 file10", got[1])
+  assert(row("SELECT 'x00123y' = 'x123y' COLLATE uint")[1] == "1")
+end
