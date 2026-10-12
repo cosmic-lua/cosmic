@@ -791,9 +791,11 @@ end
 
 --- Ends the running test as skipped: this host cannot check what it
 --- exists to check -- a kernel that refuses the sandbox it is about,
---- say -- for `reason`, which the run prints beside its name. It raises
---- a value the runner takes for a skip rather than a failure, so
---- nothing after the call runs, as in
+--- say -- for `reason`, which the run prints beside its name. Under a
+--- runner it raises a value the runner takes for a skip rather than a
+--- failure, so nothing after the call runs; the checker does not know
+--- that, so a `return` follows it where later code needs a value the
+--- skip guards, as in
 ---
 ---     if ruleset == nil then
 ---       Test.skip("no Landlock: " .. trouble)
