@@ -697,7 +697,7 @@ end
 
 --- Why step `i` of a path is none, or nil when it is one: a name that
 --- is UTF-8, or an integer.
-local function bad_step(i: integer, step: any): string
+local function bad_step(i: integer, step: any): string | nil
   if step is string then
     if utf8.len(step) == nil then return ("step %d is a name that is not UTF-8"):format(i) end
     return nil
@@ -712,7 +712,7 @@ local function bad_step(i: integer, step: any): string
 end
 
 --- `v` as a table, or nil when it is none.
-local function table_of(v: any): {any: any}
+local function table_of(v: any): {any: any} | nil
   if v is {any: any} then return v end
   return nil
 end
@@ -939,7 +939,7 @@ local STRING_ESCAPES <const>: {string: string} = {
 local MAX_INDEX <const> = (1 << 53) - 1
 
 --- Whether byte `b` may start a member name written without quotes.
-local function name_first(b: integer): boolean
+local function name_first(b: integer | nil): boolean
   return b ~= nil and ((b >= 65 and b <= 90) or (b >= 97 and b <= 122) or b == 95 or b >= 128)
 end
 
@@ -1621,7 +1621,7 @@ end
 --- The kind of token byte `c` starts where `f` is (nil at the top), or
 --- nil when no token starts so. Under `json5`, `n` starting `nan` is a
 --- number, which the byte after it, at `self.at + 1`, tells.
-local function kind_of(self: TokenReader, c: integer, f: Frame): Json.TokenKind
+local function kind_of(self: TokenReader, c: integer, f: Frame | nil): Json.TokenKind | nil
   if c == 123 then return "object" end
   if c == 91 then return "array" end
   if c == 125 then return "end_object" end
@@ -1644,7 +1644,7 @@ end
 --- Why a token of `token`'s kind, or one no byte starts (nil), cannot
 --- come where `f` is; nil when it can. `json5` lets a close follow a
 --- `,`.
-local function misplaced(token: Json.TokenKind, f: Frame, json5: boolean): string
+local function misplaced(token: Json.TokenKind | nil, f: Frame | nil, json5: boolean): string | nil
   if f == nil then
     if token == nil then return "a byte no JSON token starts with" end
     if token == "end_object" or token == "end_array" then return "a close with nothing open" end
@@ -1798,7 +1798,7 @@ local function key_value(self: TokenReader, text: string, column: integer): any 
 end
 
 --- `v` as a token's value: a string, a number or a boolean, or nil.
-local function leaf(v: any): string | number | boolean
+local function leaf(v: any): string | number | boolean | nil
   if v is string then return v end
   if v is number then return v end
   if v is boolean then return v end
