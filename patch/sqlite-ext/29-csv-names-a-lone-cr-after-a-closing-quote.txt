@@ -1,0 +1,7 @@
+file: ext/misc/csv.c
+note: The check 28-csv-refuses-a-lone-cr-after-a-closing-quote.txt lets through to here: a closing quote and a CR that no LF follows is refused as a closing quote followed by anything else is.
+--- find
+        if( pc=='"' && c!='\r' ){
+--- replace
+        if( (pc=='"' && c!='\r') || (pc=='\r' && ppc=='"') ){
+--- end
