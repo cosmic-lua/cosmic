@@ -38,7 +38,7 @@ end
 --- guide is in one list or the other: [`build.tree_checks`] refuses a
 --- guide in neither, so a new one is never left out by mistake.
 symbols.guides = {
-  "command-line", "project", "quickstart", "web", "web-api", "web-deploy", "web-forms",
+  "command-line", "project", "quickstart", "sql", "web", "web-api", "web-deploy", "web-forms",
   "web-live", "web-security", "web-sessions",
 }
 
