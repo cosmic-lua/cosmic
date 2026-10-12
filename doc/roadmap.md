@@ -10,7 +10,7 @@ defines the target; once something ships, it leaves this file.
 
 - implement the cast policy in design.md. a cast is legal only from `any`, from
   a userdata record declared in `.d.tl`, or from the enclosing generic's type
-  variable. none of `patch/tl` enforces it yet, and the tree's own Teal holds
+  variable. the checker does not enforce it yet, and the tree's own Teal holds
   about seventy `as` casts to migrate or justify first. old's
   `3p/tl/tl_patch/cast.tl` and `docs/design/cast-legality.md` are useful
   implementation and migration evidence. the policy covers `is` too: `as` and `is`
@@ -23,7 +23,7 @@ defines the target; once something ships, it leaves this file.
   `records_interfaces_methods` teaches, and the design note above
   `FromStringReader` in [`cosmic/stream.tl`] shrinks. every interface of the
   module and every record that implements one changes together. it also
-  lets the receiver exemption go from `patch/tl`'s 48e: the first
+  lets the receiver exemption go from the checker: the first
   parameter of a function-typed record field, when it is a record or an
   interface, is the one place a record parameter is compared in either
   direction, because those redeclarations narrow it. it closes the hole
@@ -33,7 +33,7 @@ defines the target; once something ships, it leaves this file.
   functions among them ([doc/design.md](design.md)'s teal section states the
   bar): a function `__index` given to `setmetatable` is declared to return
   `any`, so what it serves is not checked against the record (a table
-  `__index` is, patch/tl's 47a, and `test_a_function_index_serves_any` in
+  `__index` is checked, and `test_a_function_index_serves_any` in
   [`build/teal_test.tl`] pins the rest). a call through `any` carries no flag
   either.
 - add earned lint rules and their fixes to [`build/fix/rule.tl`]'s rule list.

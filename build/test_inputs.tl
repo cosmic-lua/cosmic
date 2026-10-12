@@ -192,8 +192,8 @@ local corpora <const> = "testdata/fuzz/"
 --- ([`build.test_worker`]), so the miss fails the test rather than
 --- leaving its key short.
 ---
---- The compiler -- `vendor.tl`, derived from vendor/tl/ and its
---- patches -- is no file of it, though build.teal loads it as bytecode
+--- The compiler -- `vendor.tl`, derived from checker/tl.tl -- is no file
+--- of it, though build.teal loads it as bytecode
 --- (`Store.bytecode("vendor.tl")`) rather than by `require`, so no
 --- parse follows it: a key over the closure holds it apart, by its
 --- bytecode, in the bytes of the closure store that carries it beside

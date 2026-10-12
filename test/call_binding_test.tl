@@ -1,8 +1,8 @@
---- Proves patch/tl's 40: a call whose expected result type refuses what
+--- Proves that a call whose expected result type refuses what
 --- its arguments bind to a type variable is checked again with the
 --- arguments first. `setmetatable(t, mt)` is `function<T>(T, metatable<T>):
 --- T`, so a `return` in a function returning `R | nil` or an interface `R`
---- implements used to fix T to that return type and refuse the metatable
+--- implements would otherwise fix T to that return type and refuse the metatable
 --- of `R`. A call the arguments still refuse stays refused.
 ---
 --- Each fixture is a single file in its own fresh subdirectory, since
@@ -127,7 +127,7 @@ end
 
 -- A table literal argument is typed from its parameter's type, so a call's
 -- type variables are bound from the variable arguments before the expected
--- result binds them when it would refuse one (patch/tl/42).
+-- result binds them when it would refuse one.
 local function test_a_table_literal_for_an_interface_return_takes_the_metatable_s_record(tmp: string)
   local ok, trouble = compiles(tmp, "literal-interface", prelude .. [[
 local function named(): Named
@@ -177,11 +177,11 @@ print(open)
 end
 
 -- TODO: accept `setmetatable({ name = "a" }, R.mt)` and a metatable that is a
--- call (`g()`) in a function returning an interface Thing implements: patch
--- 42 binds only from arguments that are plain variables, because a literal
--- is typed before the arguments after it are. The fix is to visit the
--- non-literal arguments first, as the binds_context path of patches 37g and
--- 37h does, and bind from their types.
+-- call (`g()`) in a function returning an interface Thing implements: the
+-- retry with the arguments first binds only from arguments that are plain
+-- variables, because a literal is typed before the arguments after it are.
+-- The fix is to visit the non-literal arguments first, as the binds_context
+-- path does, and bind from their types.
 local function test_a_metatable_that_is_no_variable_still_takes_the_interface_first(tmp: string)
   local ok, trouble = compiles(tmp, "literal-index-mt", prelude .. [[
 local R = { mt = thing_mt }
@@ -207,7 +207,7 @@ print(by_call)
 end
 
 -- `id({ name = "a" }, u)` with u: Thing | nil is refused in a function
--- returning Named: the argument may be nil (patch/tl's 53b), though the
+-- returning Named: the argument may be nil, though the
 -- result of the call is taken for a Named, so a nil that reached a type
 -- variable some other way would leak through.
 local function test_a_nilable_argument_is_refused_for_a_shared_type_variable(tmp: string)

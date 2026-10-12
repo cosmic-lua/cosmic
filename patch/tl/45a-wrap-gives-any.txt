@@ -1,7 +1,0 @@
-file: tl.tl
-note: `coroutine.wrap` was declared `function<F>(F): F`, but the function it returns gives what the coroutine yields or finally returns, not the wrapped function's returns, so `local s: string = coroutine.wrap(function(): string coroutine.yield(1) return "x" end)()` typed a number as a string, and a wrapped `: never` function (43) was typed never though it returns after a yield. The declaration now answers a function of `any...` giving `any...`; 45d gives the result the wrapped function's parameters back
---- find
-      wrap: function<F>(F): F
---- replace
-      wrap: function(Function): function(any...): any...
---- end

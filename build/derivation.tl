@@ -49,9 +49,9 @@ local type Source = derivation.Source
 local text = bind.text
 local analysis_tables = analysis_schema.tables
 
---- Puts the compiler in (the Lua that the vendored `tl.tl`, patched, was
+--- Puts the compiler in (the Lua that the checker, [`checker/tl.tl`], was
 --- compiled to: core/bridge.lua's `bootstrap`) as the one input with no
---- file behind it, for every later build to carry. It replaces any
+--- staged file behind it, for every later build to carry. It replaces any
 --- compiler row already there, under whatever file it named: there is
 --- only ever one.
 function derivation.put_compiler(db: Sqlite.Handle, source: string): boolean, string
@@ -61,7 +61,7 @@ function derivation.put_compiler(db: Sqlite.Handle, source: string): boolean, st
   end
   return Sqlite.run(db,
     "INSERT OR REPLACE INTO derived (file, path, kind, origin, from_hash, " ..
-      "source, source_hash) VALUES ('o/vendor/tl/tl.tl', 'vendor.tl', " ..
+      "source, source_hash) VALUES ('checker/tl.tl', 'vendor.tl', " ..
       "'vendor', 'vendor', lower(hex(sha256(?1))), ?1, lower(hex(sha256(?1))))",
     { text(source) })
 end

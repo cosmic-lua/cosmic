@@ -1,8 +1,0 @@
-file: tl.tl
-note: `coroutine.wrap` is registered under the name 45b adds, as assert and pcall are, so a call of it reaches the handler of 45d. The field of the `coroutine` record is the type registered, since `wrap` is no global
---- find
-      set_special_function(stdlib_globals["assert"].t, "assert")
---- replace
-      set_special_function(stdlib_globals["assert"].t, "assert")
-      set_special_function(((stdlib_globals["coroutine"].t as TypeDeclType).def as RecordType).fields["wrap"], "coroutine.wrap")
---- end

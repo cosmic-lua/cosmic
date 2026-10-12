@@ -1,4 +1,4 @@
--- The part of the vendored Teal compiler this tree uses. Nothing else
+-- The part of the Teal compiler this tree uses. Nothing else
 -- in the tree reaches into it. [`build.teal`] is what loads it.
 
 local record compiler
@@ -8,7 +8,7 @@ local record compiler
     x: integer
     msg: string
     -- For a key a record lacks (`invalid key ...`): the record's value
-    -- fields, unordered (patch/tl/33a).
+    -- fields, unordered.
     fields: {string} | nil
   end
 

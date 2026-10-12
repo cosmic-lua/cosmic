@@ -59,8 +59,8 @@ end)
 end
 
 -- A function literal's untyped parameter is the type its callee
--- declares (patch/tl/37d), so a `skip` is held to the enum without
--- naming [`Fs.Kind`].
+-- declares, so a `skip` is held to the enum without naming
+-- [`Fs.Kind`].
 local function test_an_untyped_skip_is_told_a_kind(tmp: string)
   local ok, trouble = compiles(tmp, "walk-untyped", [[
 local Fs = require("cosmic.fs")

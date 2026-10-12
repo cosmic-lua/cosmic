@@ -170,29 +170,28 @@ local function searcher_for(tl)
   end
 end
 
--- The compiler the tree is built with and the tool carries: the
--- vendored `tl.tl`, its patch records applied, compiled by `stage0`,
--- the vendored `tl.lua` exactly as upstream generated it, and loaded in
--- the compiler's environment. Answers the compiler and the Lua it was
--- compiled to. The compiler compiles itself to the same Lua
+-- The compiler the tree is built with and the tool carries: the tree's
+-- own checker, the Teal file at `file` (checker/tl.tl), compiled by
+-- `stage0`, the vendored `tl.lua` exactly as upstream generated it, and
+-- loaded in the compiler's environment. Answers the compiler and the Lua
+-- it was compiled to. The compiler compiles itself to the same Lua
 -- (build/compiler_test.tl), so which compiler compiled it does not show
 -- in what it is.
-local function bootstrap(stage0, tl_dir)
-  local file = tl_dir .. '/tl.tl'
+local function bootstrap(stage0, file)
   local source, err = read_all(file)
   if not source then error(file .. ': ' .. tostring(err), 0) end
   local env = assert(stage0.new_env({ defaults = {
     feat_lax = 'off', gen_compat = 'off', gen_target = '5.4',
   } }))
   -- TODO: take this compile from the compiles every checkout shares
-  -- (build/shared_compiles.tl), keyed by the patched tl.tl's source and
+  -- (build/shared_compiles.tl), keyed by the checker's source and
   -- stage0's, as [`searcher_for`]'s TODO says of the modules it compiles.
   local code, result = stage0.gen(source, env, nil, 'tl')
   local trouble = complain(file, result and {
     syntax_errors = result.syntax_errors, type_errors = result.type_errors,
   })
   if not code or trouble ~= '' then
-    error(file .. ': the vendored compiler refused it\n' .. trouble, 0)
+    error(file .. ': the checker refused it\n' .. trouble, 0)
   end
   local chunk, load_err = load(code, '@vendor.tl', 't', environment)
   if not chunk then error(file .. ': ' .. load_err, 0) end

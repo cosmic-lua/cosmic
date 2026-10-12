@@ -1,7 +1,0 @@
-file: tl.tl
-note: a function type is a subtype of another when each of its returns is a subtype of the other's (covariant), not when either is a subtype of the other (bivariant): a function returning a number is no longer taken for one returning an integer, whose caller would use the number as an integer
---- find
-                  self:arg_check(nil, errs, ar[i], br[i], "bivariant", "return", i)
---- replace
-                  self:arg_check(nil, errs, ar[i], br[i], "covariant", "return", i)
---- end

@@ -18,8 +18,8 @@ Test.policy{ grants = { { path = "core/bridge.lua", letters = "r" } } }
 
 --- A compiler with the three members the bridge reaches for; `gen`
 --- hands back its source, so each stand-in below is plain Lua -- the
---- compiler's own `tl.tl` included, which the bridge compiles with it
---- and loads as the compiler the tree is built with.
+--- tree's checker, [`checker/tl.tl`], included, which the bridge compiles with
+--- it and loads as the compiler the tree is built with.
 local compiler <const> = [[
 return {
   search_module = function() return nil end,
@@ -55,6 +55,7 @@ local function run_boot(tmp: string, mode: string, bridge?: boolean): Child.Resu
   assert(Fs.mkdirs(tmp .. "/tree/core"))
   assert(Fs.mkdirs(tmp .. "/tree/build"))
   assert(Fs.mkdirs(tmp .. "/tl"))
+  assert(Fs.mkdirs(tmp .. "/tree/checker"))
   assert(Fs.write(tmp .. "/tree/core/syscalls.h", "/* stand-in */\n"))
   if bridge ~= false then
     assert(Fs.write(tmp .. "/tree/core/bridge.lua", (assert(Fs.read("core/bridge.lua")))))
@@ -62,7 +63,7 @@ local function run_boot(tmp: string, mode: string, bridge?: boolean): Child.Resu
   assert(Fs.write(tmp .. "/tree/build/gen_syscalls.tl", gen_syscalls))
   assert(Fs.write(tmp .. "/tree/build/boot.tl", boot))
   assert(Fs.write(tmp .. "/tl/tl.lua", compiler))
-  assert(Fs.write(tmp .. "/tl/tl.tl", compiler))
+  assert(Fs.write(tmp .. "/tree/checker/tl.tl", compiler))
   return (assert(Child.run({ path, "--boot", tmp .. "/tree", tmp .. "/tl", mode },
     { stdout = "capture", stderr = "capture",
       timeout_ns = Clock.seconds(30) })))

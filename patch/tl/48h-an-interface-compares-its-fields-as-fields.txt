@@ -1,7 +1,0 @@
-file: tl.tl
-note: a record's field is compared with the interface's as a field (48f), so a function-typed field may take a narrower receiver (48e)
---- find
-               if not self:is_a(fields[fname], ftype) then
---- replace
-               if not self:is_a_field(fields[fname], ftype) then
---- end

@@ -505,7 +505,7 @@ local function bytecode_of(code: string, name: string,
     -- method name; a `goto` into a local's scope; and `function f()`
     -- over a `<const>` local or a for loop's control variable. The
     -- generator would write a key named `global` as `["global"]`, and
-    -- the checker refuse the rest, as patch/tl/34 does an assignment.
+    -- the checker refuse the rest, as it does an assignment.
     return nil, at_source_line(tostring(load_trouble), file)
   end
   local bytecode = string.dump(chunk, false)

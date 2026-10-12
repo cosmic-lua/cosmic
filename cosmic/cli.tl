@@ -503,7 +503,8 @@ local record Cli
   --- `cosmic bom [--licenses | --json <path>]`: the bill of materials
   --- this binary ships under -- every third-party component its cores
   --- and database carry, one line each: name, version, license, and
-  --- how many patches cosmic applies to it -- or, for data (the CA
+  --- how many patches cosmic applies to it, or the files of the tree that
+  --- stand in for it (`modified:`) -- or, for data (the CA
   --- roots, the time zones), that `cosmic refresh` updates it. `--licenses` prints the
   --- notices those licenses ask a copy to travel with; `--json` writes
   --- the list as a CycloneDX document instead. An executable `cosmic

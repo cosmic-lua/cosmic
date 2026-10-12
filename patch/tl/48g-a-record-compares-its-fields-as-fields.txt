@@ -1,7 +1,0 @@
-file: tl.tl
-note: the fields of a record are compared as fields (48f), so a function-typed field of the record may take a narrower receiver (48e), as the tree's implementations of `Stream.Reader` and `Stream.Writer` do
---- find
-            local ok, fielderrs = self:is_a(ak, bk)
---- replace
-            local ok, fielderrs = self:is_a_field(ak, bk)
---- end

@@ -809,8 +809,8 @@ end
 --- intentionally unused (`tl.lua`'s `var_name:sub(1, 1) == "_"` check),
 --- but the warning for any other name does not say so, and every
 --- warning is a refused compile on cosmic's paths (see `generate`).
---- Added here, where every message is rendered, rather than by patching
---- the vendored checker's text.
+--- Added here, where every message is rendered, rather than in
+--- the checker's own text.
 local function with_unused_hint(msg: string): string
   if msg:match("^unused variable ") or msg:match("^unused argument ") then
     return msg .. " -- name it _ or _<name> to mark it intentionally unused"
@@ -1071,7 +1071,7 @@ local function remember(cache: Cache, path: string, key: string, ordinal: intege
   return once(plan)
 end
 
---- The vendored compiler, planned and cached like any module: its Lua
+--- The compiler, planned and cached like any module: its Lua
 --- is its source, so only the bytecode is made, and only once per
 --- compiler identity. Nothing to do when the working database holds no compiler,
 --- as a project's does not. Never taken from the compiles every checkout

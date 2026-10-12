@@ -183,6 +183,16 @@ local not_source: {string:boolean} = {
   ["core"] = true,
 }
 
+--- The directory of cosmic's own tree whose Teal is never laid out, apart
+--- from the ones `not_source` holds out of every tree: another project's
+--- `checker/` is its own source.
+---
+--- TODO: lay out the checker ([`checker/tl.tl`]) like the rest of the tree,
+--- and drop this exemption, once a change settles which of the tree's checks
+--- hold the checker's source: the file is upstream Teal 0.24.8's with
+--- patches applied in place, and its first layout is a change of its own.
+local held_out_of_own_tree <const> = "checker"
+
 local function skip(entry: string): boolean
   local first = entry:match("^([^/]+)") or entry
   if not_source[first] then
@@ -195,10 +205,13 @@ end
 --- files count, since the renderer must write them back unchanged like
 --- any other source.
 --- @param root string
+--- @param own whether `root` is cosmic's own tree, which holds out `held_out_of_own_tree`
 --- @return {string}|nil
 --- @return string Error message on failure
-local function sources(root: string): {string} | nil, string
-  local files, trouble = Fs.walk(root, skip)
+local function sources(root: string, own: boolean): {string} | nil, string
+  local files, trouble = Fs.walk(root, function(entry: string): boolean
+    return skip(entry) or (own and entry == held_out_of_own_tree)
+  end)
   if files == nil then
     return nil, trouble
   end
@@ -253,10 +266,18 @@ local function checked_sources(root: string): {string} | nil, string
   return out
 end
 
+--- Whether `file`, a path named or found under a named directory, is in
+--- `root`'s `held_out_of_own_tree`, however it is spelled.
+local function held_out(root: string, file: string): boolean
+  local absolute, _ = Fs.absolute(file)
+  local held, _ = Fs.absolute(root .. "/" .. held_out_of_own_tree)
+  return absolute ~= nil and held ~= nil and String.starts_with(absolute, held .. "/")
+end
+
 --- Whether `files`, however each was named, hold every Teal source
 --- under `root`.
 local function covers(root: string, files: {string}): boolean
-  local all, _ = sources(root)
+  local all, _ = sources(root, true)
   if all == nil then return false end
   local named: {string: boolean} = {}
   for _, file in ipairs(files) do
@@ -449,7 +470,7 @@ function fix.chosen(root: string, paths: {string}): fix.Chosen | nil, string
     return nil, own_trouble
   end
   if #paths == 0 then
-    local all, trouble = sources(root)
+    local all, trouble = sources(root, own)
     if all == nil then
       return nil, trouble
     end
@@ -498,12 +519,15 @@ function fix.chosen(root: string, paths: {string}): fix.Chosen | nil, string
         (real == static_root or real:sub(1, #static_root + 1) == static_root .. "/") then
       refused[#refused + 1] = path .. ": under static/, which is carried verbatim, not laid out"
     elseif what.kind == "dir" then
-      local under, trouble = sources(path)
+      local under, trouble = sources(path, false)
       if under == nil then
         return nil, trouble
       end
       for _, file in ipairs(under) do
-        out[#out + 1] = path .. "/" .. file
+        local named = path .. "/" .. file
+        if not (own and held_out(root, named)) then
+          out[#out + 1] = named
+        end
       end
       local checked, checked_trouble = checked_sources(path)
       if checked == nil then
@@ -536,6 +560,8 @@ function fix.chosen(root: string, paths: {string}): fix.Chosen | nil, string
           flow_out[#flow_out + 1] = base .. "/" .. file
         end
       end
+    elseif own and String.ends_with(path, ".tl") and held_out(root, path) then
+      -- Named as a file, the checker is passed over as it is in a walk.
     elseif String.ends_with(path, ".c") or String.ends_with(path, ".h") then
       if own then
         c_out[#c_out + 1] = path
@@ -583,6 +609,7 @@ local file_checks: {string} = { "build.fix.rule", "build.fix.render", "build.fix
 local file_check_dirs: {string: string} = {
   ["vendor"] = "the program and its Teal compiler are built from vendor/",
   ["patch"] = "the program and its Teal compiler are built from patch/'s records",
+  ["checker"] = "the program's Teal compiler is built from checker/",
   ["bin"] = "bin/ pins zig, whose clang reads each C file",
   ["core"] = "the program runs on core/, whose headers each C file reads",
   ["cmd"] = "the program starts in cmd/",

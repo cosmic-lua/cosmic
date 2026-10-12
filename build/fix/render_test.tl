@@ -603,7 +603,7 @@ local function test_a_semicolon_keeps_its_own_line()
   writes("f()\n; g()\n", "f()\n; g()\n")
 end
 
---- A number's digit separators (patch/tl/38a) are written back as the
+--- A number's digit separators are written back as the
 --- source has them: only the Lua the compiler emits drops them.
 local function test_a_number_keeps_its_digit_separators()
   writes("local n = 1_000_000 + 0xFF_FF + 3.141_592 + 6.02e2_3\n",
