@@ -73,6 +73,9 @@ local record Gen
   id: integer
   fuel: integer
   depth: integer
+  --- A program of this kind never uses a place its guards do not name, nor
+  --- clears one it tests, so most are accepted and exercise the constructs.
+  calm: boolean
 end
 
 --- A guard drawn: its text, and the places it says are not nil when it
@@ -188,24 +191,35 @@ end
 
 --- An expression of type `integer`: some use a place that must have been
 --- narrowed.
+--- A place as an operand of `integer` arithmetic: bare when a guard names it,
+--- otherwise mostly given a default, so that the draws are not all refused.
+local function operand(g: Gen, v: Vis): string
+  local p = place(g, v)
+  for _, f in ipairs(v.focus) do
+    if f == p then return p end
+  end
+  if g.calm or g.src:int(0, 3) > 0 then return "(" .. p .. " or 0)" end
+  return p
+end
+
 local function int_expr(g: Gen, v: Vis): string
   local k = g.src:int(0, 12)
   if k == 0 then return tostring(g.src:int(0, 3)) end
   if k == 1 then return "count" end
-  if k == 2 or k == 3 then return place(g, v) .. " + 1" end
+  if k == 2 or k == 3 then return operand(g, v) .. " + 1" end
   if k == 4 then return "(" .. place(g, v) .. " or 0)" end
-  if k == 5 or k == 6 then return place(g, v) end
-  if k == 7 then return place(g, v) .. " * 2" end
+  if k == 5 or k == 6 then return operand(g, v) end
+  if k == 7 then return operand(g, v) .. " * 2" end
   if k == 8 then
     local p = place(g, v)
     return "(" .. p .. " and " .. p .. " + 1 or 0)"
   end
   if k == 9 and #v.funs > 0 then return Fuzz.pick(g.src, v.funs) .. "(" .. place(g, v) .. ")" end
-  if k == 10 and #v.recs > 0 then
+  if k == 10 and #v.recs > 0 and (#v.rfocus > 0 or (not g.calm and g.src:int(0, 2) == 0)) then
     local pool = #v.rfocus > 0 and g.src:int(0, 2) > 0 and v.rfocus or v.recs
     return Fuzz.pick(g.src, pool) .. ".n"
   end
-  if k == 11 then return "-" .. place(g, v) end
+  if k == 11 then return "-" .. operand(g, v) end
   return "r.n"
 end
 
@@ -249,7 +263,7 @@ local function atom(g: Gen, v: Vis): Cond
   end
   if k == 11 then
     local p = place(g, v)
-    return { text = p .. " > 0", yes = NONE, no = NONE, ryes = NONE, rno = NONE, guarded = false }
+    return { text = "(" .. p .. " or 0) > 0", yes = NONE, no = NONE, ryes = NONE, rno = NONE, guarded = false }
   end
   if #v.recs > 0 then
     local o = Fuzz.pick(g.src, v.recs)
@@ -326,11 +340,15 @@ local function loop_body(g: Gen, v: Vis, depth: integer, label: string | nil, fa
   local inner = nest(v)
   inner.in_loop = true
   inner.cont = label
+  -- A test made before the loop may be undone by the body, where the loop
+  -- comes round: only the loop's own test is carried in.
+  inner.focus = {}
+  inner.rfocus = {}
   if facts then learn(inner, facts.yes, facts.ryes) end
   g.depth = g.depth + 1
   if g.src:int(0, 1) == 0 then
     local c = cond(g, inner, 1)
-    add(g, "if " .. c.text .. " then " .. (label ~= nil and "goto " .. label or "break") .. " end")
+    add(g, "if " .. c.text .. " then " .. (label ~= nil and g.src:int(0, 1) == 0 and "goto " .. label or "break") .. " end")
   end
   local n = 0
   while g.fuel > 0 and Fuzz.more(g.src, n, 4) do
@@ -393,9 +411,9 @@ local function declare(g: Gen, v: Vis)
   if k == 0 then
     add(g, "local " .. name .. ": integer | nil")
   elseif k == 1 then
-    -- Two names, one type annotation each.
+    -- Two names under one type annotation.
     local other = fresh(g, "x")
-    add(g, "local " .. name .. ": integer | nil, " .. other .. ": integer | nil = " .. opt_expr(g, v) .. ", " .. opt_expr(g, v))
+    add(g, "local " .. name .. ", " .. other .. ": integer | nil = " .. opt_expr(g, v) .. ", " .. opt_expr(g, v))
     v.ints[#v.ints + 1] = other
   elseif k == 2 then
     -- A type for the first name only: refused, and once raised.
@@ -555,7 +573,23 @@ local function guarded_use(g: Gen, v: Vis, depth: integer)
       dropper(g, inner, p)
     end
   end
-  local uses = g.src:int(1, 2)
+  local wrote = false
+  -- TODO: read a field in such a function too, once a function literal's body
+  -- begins with none of the facts of the places outside it (the roadmap item,
+  -- and the TODO at `narrowing.enter_function` in checker/narrowing.tl): the
+  -- body is checked under the test, runs after the write, and the checker
+  -- accepts `r.a + 1` there.
+  if close and not p:find(".", 1, true) and g.src:int(0, 3) == 0 then
+    -- A function that reads the place under the test, called after a write.
+    local reader = fresh(g, "g")
+    add(g, "local function " .. reader .. "(): integer return " .. p .. " + 1 end")
+    add(g, p .. " = " .. Fuzz.pick(g.src, { "nil", "maybe()" }))
+    add(g, "sink = sink + " .. reader .. "()")
+    -- The write undid the test for what follows.
+    inner.focus = {}
+    wrote = true
+  end
+  local uses = wrote and 0 or g.src:int(1, 2)
   for _ = 1, uses do
     add(g, "sink = sink + " .. Fuzz.pick(g.src, { p .. " + 1", p, "(" .. p .. " or 0)", p .. " * 2" }))
   end
@@ -583,7 +617,9 @@ local function assert_stmt(g: Gen, v: Vis)
 end
 
 local function loop(g: Gen, v: Vis, depth: integer)
-  local k = g.src:int(0, 4)
+  local k = g.src:int(0, 6)
+  if k == 5 then k = 1 end
+  if k == 6 then k = 2 end
   local i = fresh(g, "i")
   local label: string | nil = nil
   if g.src:int(0, 2) > 0 then label = fresh(g, "next") end
@@ -637,7 +673,9 @@ end
 
 stmt = function(g: Gen, v: Vis, depth: integer)
   local k = g.src:int(0, 39)
-  if k >= 28 then return guarded_use(g, v, depth) end
+  if k >= 28 and not g.calm then return guarded_use(g, v, depth) end
+  if k >= 28 and k <= 30 then k = 7 + k % 3 end
+  if k >= 31 then k = 15 + k % 5 end
   if k <= 2 then return declare(g, v) end
   if k <= 5 then return assign(g, v) end
   if k == 6 then return add(g, "sink = sink + " .. int_expr(g, v)) end
@@ -669,7 +707,7 @@ end
 
 --- A well-formed program: the header, statements, and `return sink`.
 local function gen_program(src: Fuzz.Source): string
-  local g: Gen = { src = src, lines = {}, id = 0, fuel = 45, depth = 0 }
+  local g: Gen = { src = src, lines = {}, id = 0, fuel = 45, depth = 0, calm = src:int(0, 1) == 0 }
   local text = header(src:int(0, 2))
   local v: Vis = { ints = {}, recs = {}, procs = {}, funs = {}, focus = {}, rfocus = {},
     in_loop = false, cont = nil, ret = "return sink" }
@@ -701,8 +739,10 @@ end
 -- Properties
 --------------------------------------------------------------------------------
 
---- The most inputs a deep run draws: a test has 30 seconds, and a check
---- costs milliseconds.
+--- The most inputs a deep run draws, whatever `FUZZ_ITERS` asks. A test has
+--- 30 seconds. At `FUZZ_ITERS=10000` this module took 11 to 23 seconds with
+--- this cap (500), and 22 to 30 with 1000, on four shared cores, about 4 of
+--- them startup; a larger cap risks the deadline.
 local MAX_ITERS <const> = 500
 
 local function count_lines(text: string): integer
@@ -746,7 +786,7 @@ local function never_raises(source: string): boolean, string
   return true, ""
 end
 
---- Constructs a drawn program is said to hold.
+--- Constructs a program that ran is said to have exercised.
 local CONSTRUCTS <const>: {{string}} = {
   { "while", "while " },
   { "repeat", "repeat" },
@@ -755,7 +795,7 @@ local CONSTRUCTS <const>: {{string}} = {
   { "goto", "goto next" },
   { "break", "break" },
   { "assert", "assert%(" },
-  { "function literal", "local function p%d" },
+  { "function literal", "local function [pfg]%d" },
   { "early exit", "then return sink end" },
   { "elseif", "elseif " },
 }
@@ -763,9 +803,6 @@ local CONSTRUCTS <const>: {{string}} = {
 local NIL_FAULT <const> = "attempt to"
 
 local function runs_safely(source: string): boolean, string
-  for _, c in ipairs(CONSTRUCTS) do
-    if source:find(c[2]) then Fuzz.label("has " .. c[1]) end
-  end
   local ok, code, result = pcall(check, source)
   if not ok then
     return false, "the checker raised: " .. tostring(code) .. "\n--- program ---\n" .. source
@@ -786,6 +823,9 @@ local function runs_safely(source: string): boolean, string
   local ran, err = pcall(chunk)
   if ran then
     Fuzz.label("ran")
+    for _, c in ipairs(CONSTRUCTS) do
+      if source:find(c[2]) then Fuzz.label("ran with " .. c[1]) end
+    end
     return true, ""
   end
   local message = tostring(err)
@@ -806,7 +846,7 @@ local function test_the_checker_never_raises_and_places_its_errors(tmp: string)
     check = never_raises,
     max_iters = MAX_ITERS,
     requires = { "accepted", "refused", "syntax error" },
-    shares = { accepted = 0.05, refused = 0.2 },
+    shares = { accepted = 0.05, refused = 0.1 },
   })
 end
 
@@ -817,9 +857,9 @@ local function test_an_accepted_program_does_not_fail_on_a_nil(tmp: string)
     gen = gen_program,
     check = runs_safely,
     max_iters = MAX_ITERS,
-    requires = { "accepted", "ran", "refused", "has while", "has repeat",
-      "has numeric for", "has generic for", "has goto", "has break", "has assert", "has function literal",
-      "has early exit", "has elseif" },
+    requires = { "accepted", "ran", "refused", "ran with while", "ran with repeat", "ran with numeric for",
+      "ran with generic for", "ran with goto", "ran with break", "ran with assert",
+      "ran with function literal", "ran with early exit", "ran with elseif" },
     shares = { accepted = 0.2 },
   })
 end
@@ -945,8 +985,14 @@ local CORPUS <const>: {Case} = {
     source = HEAD .. "local function reset() x = nil end\nif x then\n  reset()\n  print(x + 1)\nend\n" },
   { name = "a later write in a loop widens it at the top", expect = "refused: operator_binary",
     source = HEAD .. "if x then\n  while maybe() do\n    print(x + 1)\n    x = nil\n  end\nend\n" },
+  -- TODO: accept this once `type(x) == "..."` guards a field: it waits on the
+  -- roadmap item that makes every guard read every place alike
+  -- (checker/narrowing.tl).
   { name = "a field under type() is not narrowed yet", expect = "refused: operator_binary",
     source = HEAD .. "if type(r.a) == \"number\" then print(r.a + 1) end\n" },
+  -- TODO: accept this once the left operand of `and` guards a field: it waits
+  -- on the roadmap item that makes every guard read every place alike
+  -- (checker/narrowing.tl).
   { name = "a field on the left of and is not narrowed yet", expect = "refused: operator_binary",
     source = HEAD .. "print(r.a and r.a + 1)\n" },
   { name = "a string is no integer", expect = "refused: mismatch",
@@ -968,6 +1014,15 @@ local CORPUS <const>: {Case} = {
   -- as nothing where `b` gives no guard (checker/narrowing.tl `evaluate`
   -- reads it as `not a`); `cond` above holds the details. Each is accepted
   -- and fails at run time when `x` is nil.
+  -- TODO: refuse this once a function literal's body begins with none of the
+  -- facts of the places outside it (the roadmap item, and the TODO at
+  -- `narrowing.enter_function` in checker/narrowing.tl): `g` reads `r.a` under
+  -- the test, runs after `r.a = nil`, and fails at run time. The same body
+  -- over a local is refused.
+  { name = "a function declared under a field test reads it after a write", expect = "accepted",
+    source = HEAD .. "if r.a then\n  local function g(): integer return r.a + 1 end\n  r.a = nil\n  print(g())\nend\n" },
+  { name = "a function declared under a local test reads it after a write", expect = "refused: operator_binary",
+    source = HEAD .. "if x then\n  local function g(): integer return x + 1 end\n  x = nil\n  print(g())\nend\n" },
   { name = "assert of an or narrows its left side by mistake", expect = "accepted",
     source = HEAD .. "assert(x == nil or y)\nprint(x + 1)\n" },
   { name = "an or with a call on its right narrows its left side by mistake", expect = "accepted",
@@ -978,7 +1033,7 @@ local CORPUS <const>: {Case} = {
     source = "local x: integer =\n" },
   { name = "an end missing", expect = "syntax: syntax_error",
     source = "if x then\n" },
-  { name = "more types than names", expect = "refused: other,unknown_variable",
+  { name = "a type for the first of two names", expect = "refused: other,unknown_variable",
     source = "local x: integer | nil, y = 1, 2\nprint(x, y)\n" },
   { name = "a narrowed field written, then a function reassigned", expect = "accepted",
     source = HEAD .. "assert(r.a)\nr.a = 1\nlocal g = function() end\ng = function() print(g) end\n" },
@@ -1000,5 +1055,5 @@ local function test_the_checker_keeps_its_verdict_on_each_program_of_the_corpus(
     if case.expect == "accepted" then accepted = accepted + 1 else refused = refused + 1 end
   end
   assert(accepted > 10 and refused > 10, "the corpus holds too few of one verdict")
-  assert(#changed == 0, "the checker's verdict changed; edit the corpus if on purpose:\n" .. table.concat(changed, "\n"))
+  assert(#changed == 0, "the checker's verdict changed; edit CORPUS in build/checker_fuzz_test.tl if on purpose:\n" .. table.concat(changed, "\n"))
 end
