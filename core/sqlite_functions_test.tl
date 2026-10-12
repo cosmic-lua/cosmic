@@ -295,3 +295,50 @@ local function test_a_database_s_own_schema_is_not_trusted()
   assert(rows[1][1] == "2", rows[1][1])
   handle:close()
 end
+
+local function test_rtree_finds_the_boxes_a_box_overlaps()
+  local handle = assert(Sqlite.memory())
+  assert(handle:exec([[CREATE VIRTUAL TABLE boxes USING rtree(id, x0, x1, y0, y1);
+    INSERT INTO boxes VALUES (1, 0, 10, 0, 10), (2, 5, 15, 5, 15), (3, 20, 30, 20, 30);
+    CREATE VIRTUAL TABLE spans USING rtree_i32(id, start, stop);
+    INSERT INTO spans VALUES (1, 100, 200), (2, 150, 300);]]))
+  local rows = assert(Sqlite.text_rows(handle, "SELECT group_concat(id) FROM " ..
+      "(SELECT id FROM boxes WHERE x1 >= 8 AND x0 <= 12 AND y1 >= 8 AND y0 <= 12 ORDER BY id)"))
+  assert(rows[1][1] == "1,2", rows[1][1])
+  rows = assert(Sqlite.text_rows(handle, "SELECT group_concat(id) FROM " ..
+      "(SELECT id FROM spans WHERE start <= 250 AND stop >= 250 ORDER BY id)"))
+  assert(rows[1][1] == "2", rows[1][1])
+  -- A coordinate a 32-bit real cannot hold is rounded outward.
+  assert(handle:exec("INSERT INTO boxes VALUES (4, 0.1, 0.1, 0.1, 0.1)"))
+  rows = assert(Sqlite.text_rows(handle,
+    "SELECT x0 <= 0.1, x1 >= 0.1, x0 < x1 FROM boxes WHERE id = 4"))
+  assert(table.concat(rows[1], " ") == "1 1 1", table.concat(rows[1], " "))
+  rows = assert(Sqlite.text_rows(handle, "SELECT rtreecheck('boxes'), rtreecheck('spans')"))
+  assert(rows[1][1] == "ok" and rows[1][2] == "ok", rows[1][1] .. " " .. rows[1][2])
+  rows = assert(Sqlite.text_rows(handle, "SELECT rtreedepth(data) FROM boxes_node WHERE nodeno = 1"))
+  assert(rows[1][1] == "0", rows[1][1])
+  for _, b in ipairs({ "x'01'", "'text'" }) do
+    assert(Sqlite.text_rows(handle, "SELECT rtreedepth(" .. b .. ")") == nil, b)
+  end
+  handle:close()
+end
+
+local function test_rtree_checks_a_lying_depth_in_bounded_time()
+  local handle = assert(Sqlite.memory())
+  assert(handle:exec("CREATE VIRTUAL TABLE b USING rtree_i32(id, x0, x1, y0, y1)"))
+  for i = 1, 60 do
+    assert(Sqlite.run(handle, "INSERT INTO b VALUES (?1, ?1, ?1 + 1, ?1, ?1 + 1)", { { integer = i } }))
+  end
+  -- A root whose depth header claims 40 levels sends the walk from leaf
+  -- rowids back to node 1, doubling the work at each level unless the
+  -- check reads each node once.
+  assert(Sqlite.run(handle, "UPDATE b_node SET data = ?1 || substr(data, length(?1) + 1) " ..
+      "WHERE nodeno = 1", { { blob = string.pack(">I2", 40) } }))
+  for _, sql in ipairs({ "SELECT rtreecheck('b')", "PRAGMA integrity_check" }) do
+    local rows = assert(Sqlite.text_rows(handle, sql))
+    local report = table.concat(rows[1], " ")
+    assert(report:find("Node 1 is reached a second time", 1, true) ~= nil,
+      sql .. ": " .. report:sub(1, 400))
+  end
+  handle:close()
+end
