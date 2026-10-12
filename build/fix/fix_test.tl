@@ -26,10 +26,7 @@ local render_mod = require("build.fix.render")
 local Sqlite = require("cosmic.sqlite")
 local teal = require("build.teal")
 
-local built, load_trouble = teal.load()
-if built == nil then
-  error("could not load the compiler: " .. tostring(load_trouble))
-end
+local built = assert(teal.load())
 
 --- A fixture broad enough to reach most of the grammar at once, in one
 --- string, so the properties below are checked over something with
@@ -297,13 +294,15 @@ local function test_changed_lays_out_only_the_paths_named(tmp: string)
   assert(narrowed.whole and narrowed.every == every, "a run of --changed is not whole")
   assert(names(narrowed.files) == "ci/a.tl cosmic/thing.tl", names(narrowed.files))
   assert(#narrowed.c_files == 0 and #narrowed.flow_files == 0, "it lays out C or YAML that did not change")
-  assert(names(narrowed.noted) == "ci/a.tl cosmic/other.tl cosmic/string.tl cosmic/thing.tl",
-    "it notes " .. names(narrowed.noted))
+  local noted = assert(narrowed.noted)
+  assert(names(noted) == "ci/a.tl cosmic/other.tl cosmic/string.tl cosmic/thing.tl",
+    "it notes " .. names(noted))
 
   narrowed = fix.narrowed(own, every, { "ci/a.tl", "lib/b.c" }, { db })
+  noted = assert(narrowed.noted)
   assert(narrowed.widened == nil and names(narrowed.files) == "ci/a.tl" and
-      names(narrowed.noted) == "ci/a.tl cosmic/other.tl cosmic/string.tl cosmic/thing.tl",
-    "outside the standard library, it notes " .. names(narrowed.noted))
+      names(noted) == "ci/a.tl cosmic/other.tl cosmic/string.tl cosmic/thing.tl",
+    "outside the standard library, it notes " .. names(noted))
   assert(names(narrowed.c_files) == "core/a.c lib/b.c", "one C file changed holds " ..
       names(narrowed.c_files) .. " to the rules")
 

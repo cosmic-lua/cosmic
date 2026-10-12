@@ -8,10 +8,7 @@ local rewrite_mod = require("build.ast.rewrite")
 
 local type Node = node_mod.Node
 
-local built, load_trouble = teal.load()
-if built == nil then
-  error("could not load the compiler: " .. tostring(load_trouble))
-end
+local built = assert(teal.load())
 
 -- Same helper as build/ast/match_test.tl's, kept local to this file.
 local function pattern_ok(pattern_src: string): Node

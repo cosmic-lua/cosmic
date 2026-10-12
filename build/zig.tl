@@ -948,13 +948,17 @@ local function take(lock: Lock, path: string, wait_ns: integer): string | nil, s
   local kind, kind_trouble = sys.flock_kind(lock.fd)
   if kind == nil then return nil, path .. ": " .. kind_trouble end
   if kind == "apart" then
-    if lock.db == nil then
-      local db, db_trouble = Sqlite.open(path, { writable = true })
-      if db == nil then return nil, path .. ": " .. db_trouble end
-      lock.db = db
+    local db: Sqlite.Handle
+    if lock.db ~= nil then
+      db = lock.db
+    else
+      local opened, db_trouble = Sqlite.open(path, { writable = true })
+      if opened == nil then return nil, path .. ": " .. db_trouble end
+      lock.db = opened
+      db = opened
     end
     local left = math.max(0, wait_ns - (Clock.monotonic_ns() - started))
-    return begin(lock.db, path, left)
+    return begin(db, path, left)
   end
   return "held", ""
 end
@@ -1019,11 +1023,12 @@ end
 --- The whole entry point, over `argv` as the entry-point contract
 --- hands it: `argv[0]` is this script's own path.
 function Zig.main(argv: {integer:string}): integer
-  local root, root_trouble = Zig.repo_root(argv[0])
-  if root == nil then
+  local found_root, root_trouble = Zig.repo_root(argv[0])
+  if found_root == nil then
     log:complain(root_trouble)
     return 2
   end
+  local root: string = found_root
   local found, ztrouble = locate(root)
   if found == nil then
     log:complain(ztrouble)

@@ -79,7 +79,7 @@ end
 
 --- The promises of a worker: `base_promises`, and `nest` where its module
 --- declares `nests`, whose tests build roots of their own.
-local function worker_promises(nests: boolean): {Sandbox.Promise}
+local function worker_promises(nests?: boolean): {Sandbox.Promise}
   local out: {Sandbox.Promise} = {}
   for _, promise in ipairs(base_promises) do out[#out + 1] = promise end
   if nests then out[#out + 1] = "nest" end

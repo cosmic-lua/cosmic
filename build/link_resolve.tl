@@ -242,11 +242,10 @@ local function located(resolver: link_resolve.Resolver, from: string, target: st
       -- another. Refused before it is looked at, as `o/` is.
       reason = "it is under .git, git's own metadata"
     elseif kind_at(resolver, path) ~= nil then
-      if resolver.real_root == nil then
-        resolver.real_root = resolver.context.real(root) or root
-      end
+      local real_root = resolver.real_root or resolver.context.real(root) or root
+      resolver.real_root = real_root
       local real = resolver.context.real(path)
-      if real == nil or not within(real, resolver.real_root) then
+      if real == nil or not within(real, real_root) then
         reason = "a symbolic link leads it out of the project"
       else
         return path, ""

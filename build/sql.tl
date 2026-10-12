@@ -160,8 +160,8 @@ end
 --- following symbolic links: SQLite would wait forever on a FIFO), or
 --- will not open.
 function sql.open(source: sql.Source, between?: function()): sql.Opened | nil, string
-  local path = source.path
-  if path == nil then
+  local named = source.path
+  if named == nil then
     local all = Store.databases()
     local db = all[#all]
     if db == nil then
@@ -169,6 +169,7 @@ function sql.open(source: sql.Source, between?: function()): sql.Opened | nil, s
     end
     return { db = db, owned = false }
   end
+  local path: string = named
   local present, trouble = Fs.exists(path)
   if present == nil then
     return nil, trouble
@@ -450,7 +451,8 @@ local function read_inputs(parsed: Flags.Parsed): {sql.Input} | nil, string
         stdin_seen = true
         input.path, input.label = nil, "standard input"
       end
-      input.table = table_name or (input.path and stem_of(input.path) or "stdin")
+      local from = input.path
+      input.table = table_name or (from and stem_of(from) or "stdin")
       local clash = seen[input.table:lower()]
       if clash ~= nil then
         return nil, "two tables are named " .. input.table .. " (" ..

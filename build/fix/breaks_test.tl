@@ -5,10 +5,7 @@
 local fix = require("build.fix")
 local teal = require("build.teal")
 
-local built, load_trouble = teal.load()
-if built == nil then
-  error("could not load the compiler: " .. tostring(load_trouble))
-end
+local built = assert(teal.load())
 
 --- Assert `source` is written back out as `want`.
 local function writes(source: string, want: string)
