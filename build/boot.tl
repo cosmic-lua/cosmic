@@ -9,6 +9,15 @@
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Log = require("cosmic.log")
+local compiler = require("build.compiler")
+local derivation = require("build.derivation")
+local identity = require("build.identity")
+local importer = require("build.importer")
+local shared_compiles = require("build.shared_compiles")
+local work = require("build.work")
+local worker = require("build.worker")
+local workers = require("build.workers")
+local writer = require("build.writer")
 local clock = require("build.clock")
 local artifact = require("build.artifact")
 local build_paths = require("build.paths")
@@ -17,18 +26,6 @@ local Hash = require("cosmic.hash")
 local String = require("cosmic.string")
 
 local log = Log.new("cosmic")
-
--- Only what the assembly needs is required above: the rest of the build
--- code loads where `stage` and the worker use it, since each module a boot
--- requires is compiled from source by the bridge's searcher
--- (core/bridge.lua) before it runs, and the assembly, started again once
--- every core is linked, would wait for that compile of code it never calls.
--- So a build module that does not compile fails inside `stage`, as a
--- "build.boot failed" from the bridge, rather than when this file loads.
--- TODO: once core/bridge.lua takes its compile of the vendored `tl.tl` from
--- the compiles every checkout shares (its own TODO in `bootstrap`), the
--- assembly's start, about 6 s of the compiler's bootstrap on every run of
--- the core, falls to a read of the cache.
 
 --- What `stage` leaves for the assembly and the verdict line.
 local record Staged
@@ -116,14 +113,6 @@ local function stage(root: string, tl_dir: string, compiler_source: string,
     log:verdict("boot", false, mkdir_trouble)
     return nil
   end
-  local derivation = require("build.derivation")
-  local identity = require("build.identity")
-  local importer = require("build.importer")
-  local shared_compiles = require("build.shared_compiles")
-  local work = require("build.work")
-  local workers = require("build.workers")
-  local writer = require("build.writer")
-  local compiler = require("build.compiler")
   local handle, open_trouble = work.open(root, working.directory)
   if handle == nil then
     log:verdict("boot", false, open_trouble)
@@ -296,7 +285,7 @@ end
 local function boot(root: string, argv: {integer:string},
                     compiler_source: string): integer
   if argv[4] == "--worker" then
-    return require("build.worker").serve(require("build.compiler"))
+    return worker.serve(compiler)
   end
   local started = Clock.monotonic_ns()
   local first = 4
