@@ -132,7 +132,7 @@ end
 
 local function test_on_invalid_re_renders_in_place_of_the_handler()
   local called = false
-  local seen: Web.Invalid
+  local seen: Web.Invalid | nil
   local app = Web.app{ routes = {
     Web.post_typed("/settings", Web.input(Web.NONE, Web.NONE, Web.form_body(SETTINGS)),
       function(_req: Web.Request, _p: Web.None, _q: Web.None, _b: Settings): Web.Response
@@ -149,13 +149,13 @@ local function test_on_invalid_re_renders_in_place_of_the_handler()
   } }
   local reply = Web.test_client(app):post("/settings", { form = { name = "Ada", notify = "perhaps", secret = "s3" } })
   assert(reply.status == 422 and reply:text() == "POST:notify:Ada", reply:text())
-  assert(not called and assert(seen.submitted).by_name.secret == nil, "the secret is not sent back")
+  assert(not called and assert(assert(seen).submitted).by_name.secret == nil, "the secret is not sent back")
   local ok = Web.test_client(app):post("/settings", { form = { name = "Ada" } })
   assert(ok.status == 204 and called, "an absent checkbox is false")
 end
 
 local function test_a_checkbox_form_binds_and_unknown_names_bind_nothing()
-  local got: Settings
+  local got: Settings | nil
   local app = Web.app{ routes = {
     Web.post_typed("/settings", Web.input(Web.NONE, Web.NONE, Web.form_body(SETTINGS)),
       function(_req: Web.Request, _p: Web.None, _q: Web.None, b: Settings): Web.Response
@@ -165,8 +165,9 @@ local function test_a_checkbox_form_binds_and_unknown_names_bind_nothing()
   } }
   local client = Web.test_client(app)
   assert(client:post("/settings", { form = { name = "Ada", notify = { "0", "1" }, is_admin = "1" } }).status == 204)
-  assert(got.name == "Ada" and got.notify == true and got.secret == nil)
-  assert((got as {string:any})["is_admin"] == nil)
+  local bound = assert(got, "the handler never ran")
+  assert(bound.name == "Ada" and bound.notify == true and bound.secret == nil)
+  assert((bound as {string:any})["is_admin"] == nil)
 end
 
 local function test_the_wrong_content_type_is_415_and_a_big_body_413_and_bad_json_400()

@@ -229,7 +229,9 @@ local function reserved(prefix: {string}, segments: {Types.Segment}): boolean
   return segments[1] ~= nil and segments[1].kind == "literal" and segments[1].text == RESERVED
 end
 
-local compile: function(routes: {Types.Route}, ctx: Router.Context, root: Types.Node)
+local compile: function(routes: {Types.Route}, ctx: Router.Context, root: Types.Node) = function(_routes: {Types.Route}, _ctx: Router.Context, _root: Types.Node)
+  error("compile is called before it is defined")
+end
 
 --- Adds a leaf route to the trie.
 local function add_leaf(route: Types.Route, ctx: Router.Context, root: Types.Node)

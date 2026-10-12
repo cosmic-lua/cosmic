@@ -298,7 +298,7 @@ local HEX64 <const> = "95301174f75ffeb84a42bb8a48da9110e55de69d2379ca686f538663f
 --- none (alpine-x86_64's, which adds to every leg).
 local function in_container(leg: string): boolean
   local platform = (workflow().jobs as {string: {string: any}}).platform
-  local image: string
+  local image: string | nil
   for _, entry in ipairs(((platform.strategy as {string: any}).matrix as {string: any}).include as {{string: any}}) do
     if entry.name == leg then return (entry.image as string) ~= "" end
     if entry.name == nil then image = entry.image as string end
@@ -395,7 +395,7 @@ local function test_seed_reads_every_key_each_leg_stages(tmp: string)
     for key, template in pairs(step_of(steps, nil, "queue-stage").env as {string: string}) do
       env[key] = expand(template, name, steps)
     end
-    local marker: string
+    local marker: string | nil
     if not leg.checked then
       marker = expand((step_of(steps, "driver-check-restore").with as {string: string}).key, name, steps)
       -- A container leg's marker names its container (in the host's

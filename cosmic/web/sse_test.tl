@@ -149,7 +149,7 @@ local function test_event_helpers_name_the_event_and_escape_nothing_themselves()
 end
 
 local function test_a_stream_sends_retry_events_and_heartbeats_then_ends_with_its_source()
-  local queue: Channel.Queue<Sse.Event>
+  local queue: Channel.Queue<Sse.Event> | nil
   local closed: {string} = {}
   local app = Web.app{ routes = { Web.get("/s", function(req: Web.Request): Web.Response
     queue = Channel.new()
@@ -167,10 +167,11 @@ local function test_a_stream_sends_retry_events_and_heartbeats_then_ends_with_it
     assert(feed.headers["x-accel-buffering"] == "no" and feed.headers["x-extra"] == "1")
     assert(feed.headers["transfer-encoding"] == "chunked" and feed.headers["content-length"] == nil)
     assert(chunk(feed) == "retry: 250\n\nid: 0\ndata: first\n\n")
-    assert(queue:send({ event = "tick", data = "1\n2" }))
+    local source = assert(queue, "the stream was opened")
+    assert(source:send({ event = "tick", data = "1\n2" }))
     assert(chunk(feed) == "event: tick\ndata: 1\ndata: 2\n\n")
     assert(chunk(feed) == ": ping\n\n", "a heartbeat comes when no event does")
-    queue:close()
+    source:close()
     assert(chunk(feed) == nil, "the stream ends cleanly with its source")
     assert(until_true(function(): boolean return #closed == 1 end))
     assert(closed[1] == "end")
@@ -200,7 +201,7 @@ local function test_a_source_that_fails_ends_the_stream_and_says_why()
 end
 
 local function test_max_age_ends_a_stream_cleanly()
-  local queue: Channel.Queue<Sse.Event>
+  local queue: Channel.Queue<Sse.Event> | nil
   local app = Web.app{ routes = { Web.get("/s", function(req: Web.Request): Web.Response
     queue = Channel.new()
     return Sse.EventStream(req, Sse.from_queue(queue), { heartbeat_ns = 0, retry_ms = 0, max_age_ns = Clock.ms(80) })
@@ -209,7 +210,7 @@ local function test_max_age_ends_a_stream_cleanly()
     local feed = open(client.host, "/s")
     assert(chunk(feed) == ":\n\n")
     assert(chunk(feed) == nil)
-    assert(queue:closed(), "the source is closed with the stream")
+    assert(assert(queue, "the stream was opened"):closed(), "the source is closed with the stream")
   end)
 end
 
@@ -481,7 +482,7 @@ end
 
 local function test_stopping_the_server_ends_every_stream_long_before_the_grace()
   local hub = Sse.new_hub({})
-  local queue: Channel.Queue<Sse.Event>
+  local queue: Channel.Queue<Sse.Event> | nil
   local ended: {string} = {}
   local app = hub_app(hub, { heartbeat_ns = Clock.seconds(30), retry_ms = 100 }, { hubs = { hub } })
   local routes = assert(app.spec.routes)
@@ -501,7 +502,7 @@ local function test_stopping_the_server_ends_every_stream_long_before_the_grace(
     end
     assert(hub:subscribers() == 0)
     assert(until_true(function(): boolean return #ended == 1 end))
-    assert(ended[1] == "end" and queue:closed())
+    assert(ended[1] == "end" and assert(queue, "the stream was opened"):closed())
   end)
   assert(Clock.monotonic_ns() - started < Clock.seconds(3), "the grace of 8 s was not waited out")
 end
@@ -532,7 +533,7 @@ local function test_a_stream_that_ignores_its_close_is_killed_at_the_grace_and_r
 end
 
 local function test_a_stream_asked_for_while_the_app_is_stopping_is_refused()
-  local queue: Channel.Queue<Sse.Event>
+  local queue: Channel.Queue<Sse.Event> | nil
   local app = Web.app{ routes = { Web.get("/s", function(req: Web.Request): Web.Response
     queue = Channel.new()
     return Sse.EventStream(req, Sse.from_queue(queue))
@@ -541,7 +542,7 @@ local function test_a_stream_asked_for_while_the_app_is_stopping_is_refused()
     app.stopped = true
     local res = client:get("/s")
     assert(res.status == 503 and res.headers["retry-after"] == "5")
-    assert(queue:closed(), "the source it was given is closed")
+    assert(assert(queue, "the stream was opened"):closed(), "the source it was given is closed")
     assert(app.stream_count == 0)
   end)
 end

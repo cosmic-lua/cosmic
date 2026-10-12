@@ -1246,7 +1246,7 @@ local function test_poll_watches_past_a_thousand_descriptors()
   assert(sys.write(ends.writer, "x") == 1)
   local fds: {integer} = {}
   local events: {integer} = {}
-  local trouble: string
+  local trouble: string | nil
   while #fds < wanted do
     local copy: integer
     copy, trouble = sys.dup(ends.reader)

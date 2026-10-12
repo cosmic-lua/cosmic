@@ -377,13 +377,13 @@ local function test_a_reply_another_task_reads_wakes_its_owner()
     local pair = stream_pair()
     local connector = assert(Connector.adopted(pair[1], { { host = "127.0.0.1", port = 9 },
       { host = "127.0.0.2", port = 9 } }, false, Clock.seconds(5)))
-    local first_tag: integer
+    local first_tag: integer | nil
     local serving = stand_in(pair[2], function(tag: integer, request: string)
       if string.unpack(">I4", request, 5) == 1 then first_tag = tag end
     end)
     local started = Clock.monotonic_ns()
-    local first: string
-    local took: integer
+    local first: string | nil
+    local took: integer | nil
     local asking = Poll.spawn(function()
       local conn, why = dial(connector, "127.0.0.1", 9, Clock.seconds(3))
       assert(conn == nil)
@@ -397,7 +397,8 @@ local function test_a_reply_another_task_reads_wakes_its_owner()
     assert(conn == nil and why == Poll.TIMEOUT, tostring(why))
     assert(asking:join(Clock.seconds(5)))
     assert(first ~= nil and first:find("refused", 1, true) ~= nil, tostring(first))
-    assert(took < Clock.seconds(1), "the first request was answered after " .. took // Clock.ms(1) .. " ms")
+    local waited = assert(took, "the first request was answered")
+    assert(waited < Clock.seconds(1), "the first request was answered after " .. waited // Clock.ms(1) .. " ms")
     serving:cancel()
     assert(connector:close())
     assert(sys.close(pair[2]))
@@ -419,7 +420,7 @@ local function test_a_lost_stream_sends_nothing_to_its_closed_descriptor()
         assert(sys.write(pair[2], string.pack(">I4I4", 999, 0)) == 8)
       end
     end)
-    local taken: {integer}
+    local taken: {integer} | nil
     local tasks: {Poll.Task} = {}
     for i = 1, FLIGHT do
       tasks[i] = Poll.spawn(function()
@@ -430,7 +431,7 @@ local function test_a_lost_stream_sends_nothing_to_its_closed_descriptor()
         if taken == nil then taken = stream_pair() end
       end)
     end
-    local past: string
+    local past: string | nil
     local waiting = Poll.spawn(function()
       local conn, why = dial(connector, "127.0.0.1", 9, Clock.seconds(3))
       assert(conn == nil)
@@ -440,14 +441,14 @@ local function test_a_lost_stream_sends_nothing_to_its_closed_descriptor()
     assert(waiting:join(Clock.seconds(5)))
     assert(past == "net: the connector replied to a request it was not asked (tag 999)", tostring(past))
     assert(count == FLIGHT, count .. " requests were sent")
-    assert(taken ~= nil)
-    assert(sys.set_nonblocking(taken[2], true))
-    local leaked, _, errno = sys.read(taken[2], 4096)
+    local lost = assert(taken)
+    assert(sys.set_nonblocking(lost[2], true))
+    local leaked, _, errno = sys.read(lost[2], 4096)
     assert(leaked == nil and errno == sys.EAGAIN, "bytes went to the descriptor that took the closed number: " ..
         tostring(leaked and #leaked))
     serving:cancel()
     assert(connector:close())
-    assert(sys.close(pair[2]) and sys.close(taken[1]) and sys.close(taken[2]))
+    assert(sys.close(pair[2]) and sys.close(lost[1]) and sys.close(lost[2]))
   end)
 end
 
@@ -468,7 +469,7 @@ local function test_a_task_cancelled_waiting_for_room_asks_nothing()
         local _, _ = dial(connector, "127.0.0.1", 9, Clock.seconds(3))
       end)
     end
-    local cancelled: string
+    local cancelled: string | nil
     local waiting = Poll.spawn(function()
       local conn, why = dial(connector, "127.0.0.1", 9, Clock.seconds(3))
       assert(conn == nil)

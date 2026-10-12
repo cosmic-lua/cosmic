@@ -122,7 +122,7 @@ local function lookup(tmp: string, name: string, timeout_ms: integer,
     { stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(60) })
   local child <close> = assert(Child.start(started.argv, started.options))
   local seen: {string} = {}
-  local result: Child.Result
+  local result: Child.Result | nil
   while result == nil do
     local state = assert(child:try_wait())
     if state.finished then
@@ -143,9 +143,10 @@ local function lookup(tmp: string, name: string, timeout_ms: integer,
       end
     end
   end
-  assert(result.code == 0, tostring(result.code) .. " " .. tostring(result.stderr))
+  local finished = assert(result)
+  assert(finished.code == 0, tostring(finished.code) .. " " .. tostring(finished.stderr))
   local lines: {string} = {}
-  for line in ((result.stdout or "") .. "\n"):gmatch("([^\n]*)\n") do lines[#lines + 1] = line end
+  for line in ((finished.stdout or "") .. "\n"):gmatch("([^\n]*)\n") do lines[#lines + 1] = line end
   table.sort(seen)
   return lines, seen
 end

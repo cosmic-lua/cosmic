@@ -66,7 +66,7 @@ end
 local ARTIFACT_FD <const> = 254
 local CORE_FD <const> = 255
 
-local relaunch: Proc.Relaunch
+local relaunch: Proc.Relaunch | nil
 
 --- Ends the process with a status. This is the explicit replacement for
 --- os.exit; it does not run finalizers and does not return.

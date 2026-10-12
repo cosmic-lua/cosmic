@@ -818,7 +818,9 @@ end
 
 --- The digest of what a test of `spec` is given, but for its name, or
 --- "refused " and why there is none.
-local inputs_of: function(declared_key.Digests, declared_key.Spec): string
+local inputs_of: function(declared_key.Digests, declared_key.Spec): string = function(_1: declared_key.Digests, _2: declared_key.Spec): string
+  error("inputs_of is called before it is defined")
+end
 
 --- The key of the test `spec` describes, over what `digests` finds now,
 --- or nil and why there is none: a declared directory holds a link out
@@ -1183,7 +1185,7 @@ function declared_key.host_identity(digests: declared_key.Digests,
     -- an order of its own. A list that cannot be read keys apart from
     -- every one that can.
     local groups: {integer} = from.groups
-    local trouble: string
+    local trouble: string | nil
     if groups == nil then groups, trouble = sys.getgroups() end
     lines[#lines + 1] = "gid " .. tostring(from.gid or sys.getgid())
     if groups == nil then

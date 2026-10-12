@@ -72,7 +72,9 @@ local record Process
   metamethod __close: function(Process)
 end
 
-local end_connector: function(Process, boolean)
+local end_connector: function(Process, boolean) = function(_1: Process, _2: boolean)
+  error("end_connector is called before it is defined")
+end
 
 local process_mt: metatable<Process> = {
   __index = Process,
@@ -537,8 +539,12 @@ local served_mt: metatable<Served> = {
 
 -- How [`cosmic.net`] makes a connection of a socket and judges an address,
 -- which it hands over as it loads.
-local make_conn: function(socket: raw_socket.Socket, timeout_ns: integer | nil): Connection.Conn
-local address_trouble: function(address: any): string
+local make_conn: function(socket: raw_socket.Socket, timeout_ns: integer | nil): Connection.Conn = function(_socket: raw_socket.Socket, _timeout_ns: integer | nil): Connection.Conn
+  error("make_conn is called before cosmic.net registers it")
+end
+local address_trouble: function(address: any): string = function(_address: any): string
+  error("address_trouble is called before cosmic.net registers it")
+end
 
 -- Every connector this module made, held weakly: what a lookup through a
 -- connector finds its [`Served`] by.

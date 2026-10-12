@@ -107,8 +107,7 @@ local function scan(statements: {ast.Node}): Scan
   local firsts: {{integer}} = {}
   for i, statement in ipairs(statements) do
     local first_y, first_x = statement.y, statement.x
-    local visit: function(ast.Node)
-    visit = function(n: ast.Node)
+    local function visit(n: ast.Node)
       if before(n.y, n.x, first_y, first_x) then
         first_y, first_x = n.y, n.x
       end

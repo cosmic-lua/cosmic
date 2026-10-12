@@ -202,8 +202,7 @@ local function test_failed_retired_file_removal_withholds_save_digest(tmp: strin
     if name == retired then return false, "injected unlink failure" end
     return original(name)
   end
-  local result: maintenance.Result
-  local ok = pcall(function() result = trim(path, "compiles", 5) end)
+  local ok, result = pcall(function(): maintenance.Result return trim(path, "compiles", 5) end)
   Fs.remove = original
   assert(ok and not result.complete and result.report.digest == nil)
   assert(result.report.files[1].reason == "injected unlink failure")
@@ -221,8 +220,7 @@ local function test_retired_file_disappearance_before_inspection_is_harmless(tmp
     if dir == tmp then assert(Fs.remove(retired)) end
     return names, why
   end
-  local result: maintenance.Result
-  local ok = pcall(function() result = trim(path, "compiles", 5) end)
+  local ok, result = pcall(function(): maintenance.Result return trim(path, "compiles", 5) end)
   Fs.list = original
   assert(ok and result.complete and result.report.files[1].state == "missing")
   assert(#result.report.files[1].removed_set_aside == 0)
@@ -241,8 +239,7 @@ local function test_failed_retired_file_inspection_withholds_save_digest(tmp: st
     if name == retired then return nil, "injected lstat failure", sys.EACCES end
     return original(name)
   end
-  local result: maintenance.Result
-  local ok = pcall(function() result = trim(path, "compiles", 5) end)
+  local ok, result = pcall(function(): maintenance.Result return trim(path, "compiles", 5) end)
   sys.lstat = original
   assert(ok and not result.complete and result.report.digest == nil)
   assert(result.report.files[1].reason == "injected lstat failure")
@@ -297,8 +294,7 @@ local function test_failed_delete_rolls_back_earlier_tables(tmp: string)
     if sql:find('DELETE FROM "parsed_v1"', 1, true) then return false, "injected delete failure" end
     return original(handle, sql, values)
   end
-  local result: maintenance.Result
-  local ok = pcall(function() result = trim(path, "compiles", 5) end)
+  local ok, result = pcall(function(): maintenance.Result return trim(path, "compiles", 5) end)
   Sqlite.run = original
   assert(ok)
   assert(not result.complete and result.report.digest == nil)
@@ -348,8 +344,7 @@ local function test_disappearance_before_open_does_not_recreate_database(tmp: st
     if name == path then assert(Fs.remove(path)) end
     return original(name, options)
   end
-  local result: maintenance.Result
-  local ok = pcall(function() result = trim(path, "compiles", 5) end)
+  local ok, result = pcall(function(): maintenance.Result return trim(path, "compiles", 5) end)
   Sqlite.open = original
   assert(ok and not result.complete and result.report.digest == nil)
   assert(Fs.stat(path) == nil)
@@ -367,8 +362,7 @@ local function test_busy_checkpoint_row_suppresses_save_digest(tmp: string)
     end
     return original(handle, sql, values)
   end
-  local result: maintenance.Result
-  local ok = pcall(function() result = trim(path, "verdicts") end)
+  local ok, result = pcall(function(): maintenance.Result return trim(path, "verdicts") end)
   Sqlite.rows = original
   assert(ok and not result.complete and result.report.digest == nil)
   assert(result.report.files[1].reason:find("checkpoint", 1, true))
@@ -401,8 +395,7 @@ local function test_vacuum_failure_reports_already_committed_row_counts(tmp: str
     end
     return ok, why
   end
-  local result: maintenance.Result
-  local ok = pcall(function() result = trim(path, "compiles", 5) end)
+  local ok, result = pcall(function(): maintenance.Result return trim(path, "compiles", 5) end)
   Sqlite.run = original
   assert(ok and not result.complete and result.report.digest == nil)
   assert(result.report.files[1].kept == 1 and result.report.files[1].removed == 1)

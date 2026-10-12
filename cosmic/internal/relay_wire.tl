@@ -430,10 +430,10 @@ function relay_wire.connect_reader(): relay_wire.ConnectReader
   local after_cr = false
   local first = true
   local count = 0
-  local authorization: string
-  local host: string
-  local kind: relay_wire.Kind
-  local port: integer
+  local authorization: string | nil
+  local host: string | nil
+  local kind: relay_wire.Kind | nil
+  local port: integer | nil
 
   local function finish(answer: relay_wire.Connect): relay_wire.Connect
     final = answer

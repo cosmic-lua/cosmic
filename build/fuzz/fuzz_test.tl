@@ -328,7 +328,7 @@ local function test_a_case_checks_the_one_input_it_names(tmp: string)
   end
   local err = report({ name = "one case", iters = 200, gen = any_bytes, check = no_nul })
   local case = assert(err:match("reproduce: FUZZ_CASE=(%S+)"), err)
-  local first: string
+  local first: string | nil
   for i = 1, #seen do
     if seen[i]:find("\0", 1, true) then
       first = seen[i]

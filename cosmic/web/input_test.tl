@@ -327,7 +327,7 @@ end
 
 local function test_media_type_parses_parameters()
   local function of(content_type: string | nil): Input.MediaType
-    local got: Input.MediaType
+    local got: Input.MediaType | nil
     local headers: {string:string} = {}
     local opts: Web.TestOptions = { headers = headers }
     if content_type ~= nil then headers["content-type"] = content_type end
@@ -558,7 +558,7 @@ end
 local ITEM <const> = Shape.record_of("Item")
 
 local function json_error(text: string): Types.FieldError
-  local got: Types.FieldError
+  local got: Types.FieldError | nil
   with_request("POST", { body = text, content_type = "application/json" }, function(req: Web.Request)
     local read = Input.json_into(req, ITEM)
     assert(read.invalid ~= nil and read.invalid.status == 422, text)

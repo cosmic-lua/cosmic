@@ -430,7 +430,9 @@ end
 --- The environment every worker this process starts has
 --- ([`test.worker_environment`]), which is what a test's read of a
 --- variable answers and so what its key holds: defined beside it.
-local worker_view: function(): {string:string}
+local worker_view: function(): {string:string} = function(): {string:string}
+  error("worker_view is called before it is defined")
+end
 
 --- One test's hits as `coverage_by_test` holds them: a line per module,
 --- in path order, the path, a tab, then the lines it hit, ascending and
@@ -1671,7 +1673,9 @@ end
 
 --- The digest of the store `m`'s workers are given, which its key holds
 --- (defined with the stores, below).
-local store_digest: function(rec: Recording, m: importer.Module): string | nil, string
+local store_digest: function(rec: Recording, m: importer.Module): string | nil, string = function(_rec: Recording, _m: importer.Module): string | nil, string
+  error("store_digest is called before it is defined")
+end
 
 --- The program a test that runs this program runs
 --- ([`Recording.program`]), worked out the first time a key holds it.

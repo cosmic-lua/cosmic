@@ -323,8 +323,8 @@ function TermRelay.run(argv: {string}, opts: Child.Options, terminal?: Terminal)
   local master_open = true
   local signals = 0
   local seen_rows, seen_columns = window(shown)
-  local result: Child.Result
-  local failure: string
+  local result: Child.Result | nil
+  local failure: string | nil
   -- Where only stdin is a terminal, a write that fails (a terminal open
   -- for reading alone) loses an echo, and ends nothing.
   local echo_only = shown == input and not sys.isatty(output) and not sys.isatty(errors)

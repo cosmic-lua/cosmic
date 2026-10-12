@@ -49,7 +49,9 @@ local function difference(a: markup.Place, b: markup.Place): string
   return raw ~= "" and " (" .. raw .. ")" or " (a tag, attribute or comment is left open in one way and not another)"
 end
 
-local walk: function(w: Walk, body: {types.Node}, from: markup.Place, marks: Marks): markup.Place | nil, string
+local walk: function(w: Walk, body: {types.Node}, from: markup.Place, marks: Marks): markup.Place | nil, string = function(_w: Walk, _body: {types.Node}, _from: markup.Place, _marks: Marks): markup.Place | nil, string
+  error("walk is called before it is defined")
+end
 
 --- The place after the `range` `node`, which begins at `from`.
 local function range_after(w: Walk, node: types.Node, from: markup.Place, marks: Marks): markup.Place | nil, string

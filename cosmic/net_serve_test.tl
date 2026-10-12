@@ -184,8 +184,7 @@ local function stop_drains_then_kills_after_grace_ns_at(path: string | nil)
   local stuck_why = ""
   local answer = ""
   local stopped_at, returned_at = 0, 0
-  local stuck: Client
-  local bound: Net.Address
+  local stuck: Client | nil
   assert(Net.serve{
     listeners = { listener_at(path) },
     grace_ns = Clock.ms(200),
@@ -201,23 +200,22 @@ local function stop_drains_then_kills_after_grace_ns_at(path: string | nil)
       assert(conn:write(line .. "\n"))
     end,
     on_ready = function(addresses: {Net.Address}, server: Net.Server)
-      bound = addresses[1]
       local slow <close> = client(addresses[1])
       stuck = client(addresses[1])
       assert(slow.conn:write("slow\n"))
       while started < 2 do assert(Poll.delay(Clock.ms(1))) end
       stopped_at = Clock.monotonic_ns()
       server:stop()
-      assert(released(bound), "the listener was left")
+      assert(released(addresses[1]), "the listener was left")
       local refused, why = Net.connect(addresses[1])
       assert(refused == nil and why:find(path ~= nil and "No such file" or "Connection refused", 1, true) ~= nil, why)
       answer = assert(slow.lines:read())
     end,
   })
   returned_at = Clock.monotonic_ns()
-  local ended, why = stuck.lines:read()
+  local ended, why = assert(stuck, "the server was ready").lines:read()
   assert(ended == nil and why == "", why)
-  local _, _ = stuck.conn:close()
+  local _, _ = assert(stuck, "the server was ready").conn:close()
   assert(answer == "slow", answer)
   assert(stuck_why == "", stuck_why)
   assert(returned_at - stopped_at >= Clock.ms(200), tostring(returned_at - stopped_at))
@@ -341,7 +339,7 @@ local function test_a_killed_protocols_close_error_is_reported()
   local errors: {string} = {}
   local started = false
   local raiser_mt: metatable<Closer> = { __close = function() error("broken close", 0) end }
-  local held: Client
+  local held: Client | nil
   assert(Net.serve{
     listeners = { Net.tcp("127.0.0.1", 0) },
     grace_ns = 0,
@@ -357,9 +355,9 @@ local function test_a_killed_protocols_close_error_is_reported()
       server:stop()
     end,
   })
-  local ended, why = held.lines:read()
+  local ended, why = assert(held, "the server was ready").lines:read()
   assert(ended == nil and why == "", why)
-  local _, _ = held.conn:close()
+  local _, _ = assert(held, "the server was ready").conn:close()
   assert(#errors == 1 and errors[1] == "broken close", table.concat(errors, "\n"))
 end
 
@@ -372,7 +370,7 @@ local function test_a_killed_protocols_close_cannot_wait()
   local wrote = ""
   local started = false
   local stopped_at, returned_at = 0, 0
-  local held: Client
+  local held: Client | nil
   assert(Net.serve{
     listeners = { Net.tcp("127.0.0.1", 0) },
     grace_ns = Clock.ms(50),
@@ -395,7 +393,7 @@ local function test_a_killed_protocols_close_cannot_wait()
     end,
   })
   returned_at = Clock.monotonic_ns()
-  local _, _ = held.conn:close()
+  local _, _ = assert(held, "the server was ready").conn:close()
   assert(wrote == "net: the connection is closed", wrote)
   assert(#errors == 1 and errors[1]:find("while its task is killed", 1, true),
     table.concat(errors, "\n"))
@@ -438,12 +436,14 @@ end
 --- still finish its own answer.
 local function a_protocol_stops_its_server_at(path: string | nil)
   local answer = ""
-  local serving: Net.Server
-  local bound: Net.Address
+  local serving: Net.Server | nil
+  local bound: Net.Address | nil
   assert(Net.serve{
     listeners = { listener_at(path) },
     serve = function(conn: Net.Conn)
-      if assert(Stream.lines(conn):read()) == "stop" then serving:stop() end
+      if assert(Stream.lines(conn):read()) == "stop" then
+        assert(serving, "the server was ready"):stop()
+      end
       assert(conn:write("bye\n"))
     end,
     on_ready = function(addresses: {Net.Address}, server: Net.Server)
@@ -455,7 +455,7 @@ local function a_protocol_stops_its_server_at(path: string | nil)
     end,
   })
   assert(answer == "bye", answer)
-  assert(released(bound), "the listener was left")
+  assert(released((assert(bound, "the server was ready"))), "the listener was left")
 end
 
 local function test_a_protocol_stops_its_server()
@@ -472,7 +472,7 @@ end
 --- protocol never run; stopping it again does nothing.
 local function a_server_stopped_twice_before_accepting_returns_at(path: string | nil)
   local served = false
-  local bound: Net.Address
+  local bound: Net.Address | nil
   assert(Net.serve{
     listeners = { listener_at(path) },
     serve = function(_conn: Net.Conn) served = true end,
@@ -483,7 +483,7 @@ local function a_server_stopped_twice_before_accepting_returns_at(path: string |
     end,
   })
   assert(not served)
-  assert(released(bound), "the listener was left")
+  assert(released((assert(bound, "the server was ready"))), "the listener was left")
 end
 
 local function test_a_server_stopped_twice_before_accepting_returns()
@@ -557,7 +557,7 @@ end
 local function a_second_signal_ends_the_grace_at(path: string | nil)
   local started = false
   local stuck_why = ""
-  local stuck: Client
+  local stuck: Client | nil
   -- Closed only where an assertion fails first: released below otherwise.
   local outer <close> = assert(Signal.guard())
   assert(Net.serve{
@@ -575,7 +575,7 @@ local function a_second_signal_ends_the_grace_at(path: string | nil)
       assert(sys.kill(sys.getpid(), sys.SIGTERM))
     end,
   })
-  local _, _ = stuck.conn:close()
+  local _, _ = assert(stuck, "the server was ready").conn:close()
   assert(stuck_why == "", stuck_why)
   assert(outer:release() == sys.SIGTERM)
 end
@@ -640,13 +640,13 @@ local function on_stop_runs_once_at_stop_at(path: string | nil)
   local calls = 0
   local finished = false
   local seen: {string} = {}
-  local serving: Net.Server
-  local bound: Net.Address
+  local serving: Net.Server | nil
+  local bound: Net.Address | nil
   assert(Net.serve{
     listeners = { listener_at(path) },
     serve = function(conn: Net.Conn)
       local line = assert(Stream.lines(conn):read())
-      serving:stop()
+      assert(serving, "the server was ready"):stop()
       assert(Poll.delay(Clock.ms(50)))
       assert(conn:write(line .. "\n"))
       finished = true
@@ -655,7 +655,7 @@ local function on_stop_runs_once_at_stop_at(path: string | nil)
       calls = calls + 1
       seen[#seen + 1] = tostring(server == serving)
       seen[#seen + 1] = tostring(Poll.in_task())
-      seen[#seen + 1] = tostring(released(bound))
+      seen[#seen + 1] = tostring(released((assert(bound, "the server was ready"))))
       seen[#seen + 1] = tostring(finished)
     end,
     on_ready = function(addresses: {Net.Address}, server: Net.Server)
@@ -717,7 +717,7 @@ end
 local function stopped_with_an_idle_client(closing: boolean, grace_ns: integer): integer, string
   local idle: {Net.Conn: boolean} = {}
   local stopped_at = 0
-  local idle_client: Client
+  local idle_client: Client | nil
   local spec: Net.ServeSpec = {
     listeners = { Net.tcp("127.0.0.1", 0) },
     grace_ns = grace_ns,
@@ -732,9 +732,10 @@ local function stopped_with_an_idle_client(closing: boolean, grace_ns: integer):
       end
     end,
     on_ready = function(addresses: {Net.Address}, server: Net.Server)
-      idle_client = client(addresses[1])
-      assert(idle_client.conn:write("hello\n"))
-      assert(idle_client.lines:read() == "hello")
+      local made = client(addresses[1])
+      idle_client = made
+      assert(made.conn:write("hello\n"))
+      assert(made.lines:read() == "hello")
       stopped_at = Clock.monotonic_ns()
       server:stop()
     end,
@@ -746,8 +747,8 @@ local function stopped_with_an_idle_client(closing: boolean, grace_ns: integer):
   end
   assert(Net.serve(spec))
   local took = Clock.monotonic_ns() - stopped_at
-  local ended, why = idle_client.lines:read()
-  local _, _ = idle_client.conn:close()
+  local ended, why = assert(idle_client, "the server was ready").lines:read()
+  local _, _ = assert(idle_client, "the server was ready").conn:close()
   return took, tostring(ended) .. "," .. why
 end
 
@@ -768,7 +769,7 @@ end
 --- server stops all the same.
 local function a_raising_on_stop_reaches_on_error_and_the_server_stops_at(path: string | nil)
   local troubles: {string} = {}
-  local bound: Net.Address
+  local bound: Net.Address | nil
   local ok, why = Net.serve{
     listeners = { listener_at(path) },
     serve = echo,
@@ -783,7 +784,7 @@ local function a_raising_on_stop_reaches_on_error_and_the_server_stops_at(path: 
   assert(#troubles == 1, tostring(#troubles))
   assert(troubles[1]:find("net_serve_test:%d+: on_stop failed") ~= nil, troubles[1])
   assert(troubles[1]:find("stack traceback", 1, true) ~= nil, troubles[1])
-  assert(released(bound), "the listener was left")
+  assert(released((assert(bound, "the server was ready"))), "the listener was left")
 end
 
 local function test_a_raising_on_stop_reaches_on_error_and_the_server_stops()
@@ -834,12 +835,14 @@ end
 local function test_on_stop_runs_when_stopped_from_a_coroutine()
   local calls = 0
   local stopped = ""
-  local serving: Net.Server
+  local serving: Net.Server | nil
   assert(Net.serve{
     listeners = { Net.tcp("127.0.0.1", 0) },
     serve = function(conn: Net.Conn)
       local _ = assert(Stream.lines(conn):read())
-      local ok, why: boolean, any = pcall(coroutine.wrap(function() serving:stop() end))
+      local ok, why: boolean, any = pcall(coroutine.wrap(function()
+        assert(serving, "the server was ready"):stop()
+      end))
       stopped = tostring(ok) .. "," .. tostring(why)
     end,
     on_stop = function(_server: Net.Server) calls = calls + 1 end,

@@ -136,7 +136,7 @@ local function run(name: string, request: resolv.Request): {raw_socket.Resolved}
   if lookup == nil then return nil, said(why, errno) end
   local _closing <close> = lookup
   local in_task = Poll.in_task()
-  local ready_fds, ready_events: {integer}, {integer}
+  local ready_fds, ready_events: {integer} | nil, {integer} | nil
   while true do
     local done, fds, events, timer_ms, wants = lookup:step(ready_fds, ready_events)
     ready_fds, ready_events = nil, nil

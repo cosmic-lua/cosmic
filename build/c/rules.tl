@@ -779,8 +779,6 @@ local function tested(cond: Node, state: State): Absent
   return {}
 end
 
-local statement: function(Context, Node, State): boolean
-
 local function merge(into: State, from: {State})
   local held: {string: Held} = {}
   local strings: {string: Pointer} = {}
@@ -801,7 +799,7 @@ local function merge(into: State, from: {State})
   into.strings = strings
 end
 
-statement = function(ctx: Context, node: Node, state: State): boolean
+local function statement(ctx: Context, node: Node, state: State): boolean
   local kind = node.kind
   if kind == "CompoundStmt" then
     for _, child in ipairs(node.children) do
@@ -915,7 +913,7 @@ local function functions(decls: {Node}): {Function}
   for _, decl in ipairs(decls) do
     if decl.kind == "FunctionDecl" then
       local params: {Node} = {}
-      local body: Node
+      local body: Node | nil
       for _, child in ipairs(decl.children) do
         if child.kind == "ParmVarDecl" then params[#params + 1] = child end
         if child.kind == "CompoundStmt" then body = child end
@@ -1357,8 +1355,7 @@ function rules.unit(decls: {Node}, file: string,
       u.defines[fn.name] = fn.prototype
     end
   end
-  local refer: function(Node)
-  refer = function(n: Node)
+  local function refer(n: Node)
     for _, child in ipairs(n.children) do refer(child) end
     local r = tree.referent(n)
     if r ~= nil and r.kind == "Function" then u.refers[r.name] = true end

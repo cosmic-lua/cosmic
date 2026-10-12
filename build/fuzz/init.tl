@@ -54,7 +54,8 @@ local Test = require("cosmic.test")
 --- Loaded any other way there is none, and a check that never ends is
 --- ended by the test runner's deadline instead.
 local extra: any = select(2, ...)
-local arm: function(count?: integer)
+local type Arm = function(count?: integer)
+local arm: Arm | nil
 if type(extra) == "table" then
   arm = (extra as Budget).budget
 end
@@ -266,7 +267,7 @@ local function check_corpus(p: Fuzz.Property, budget: integer, kept: string | ni
   local dir = corpus_of(p)
   local there, trouble = Fs.exists(dir)
   if there == false then return 0 end
-  local names: {string}
+  local names: {string} | nil
   if there then names, trouble = Fs.list(dir) end
   if names == nil then
     error(("fuzz %s: corpus %s: %s"):format(p.name, dir, trouble), 0)

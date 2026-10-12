@@ -406,7 +406,9 @@ local function trailing(t: Trivia, line: integer): string | nil, {string}
   return nil, t.entries
 end
 
-local parse_value: function(r: Reader): flow.Node
+local parse_value: function(r: Reader): flow.Node = function(_r: Reader): flow.Node
+  error("parse_value is called before it is defined")
+end
 
 --- The string token at the reader's place, as the text it reads as.
 local function read_string(r: Reader): string
@@ -522,7 +524,7 @@ end
 --- not hold the text to the subset: `format` does.
 function flow.parse(text: string): flow.Doc | nil, string
   local r: Reader = { text = text, at = 1, line = 1, depth = 0 }
-  local doc: flow.Doc
+  local doc: flow.Doc | nil
   local ok, raised = pcall(function(): string
     local head = trivia(r)
     if r.at > #text then fail(r.line, "no value") end

@@ -69,8 +69,6 @@ end
 --- the after sides it has been held against.
 local type Pairs = {any:{any:boolean}}
 
-local compare: function(any, any, string, Pairs): boolean, string
-
 local function has_metadata(t: {any:any}): boolean
   -- Parser nodes, types, operators, and comments carry positions. Field
   -- maps carry type objects, even under names such as kind or typename.
@@ -118,8 +116,8 @@ local function keys_of(a: {any:any}, b: {any:any}): {any}
   return out
 end
 
-compare = function(a: any, b: any, path: string,
-                   seen: Pairs): boolean, string
+local function compare(a: any, b: any, path: string,
+                       seen: Pairs): boolean, string
   if is_table(a) ~= is_table(b) then
     return false, path .. ": one side is a node and the other is not"
   end

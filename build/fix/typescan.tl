@@ -169,7 +169,9 @@ local simple: {string:boolean} = {
 }
 
 local type_end: function(Scan, integer): integer
-local rets_end: function(Scan, integer, ? boolean): integer
+local rets_end: function(Scan, integer, ? boolean): integer = function(_1: Scan, _2: integer, _3?: boolean): integer
+  error("rets_end is called before it is defined")
+end
 
 --- The end of one type with no `|` alternatives after it.
 local function single_end(s: Scan, i: integer): integer

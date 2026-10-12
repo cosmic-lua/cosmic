@@ -453,7 +453,7 @@ local function test_a_hung_connect_holds_up_no_other()
     local connector = assert(Net.connector({
       { host = "127.0.0.1", port = port }, { host = "127.0.0.1", port = echo },
     }, { timeout_ns = Clock.seconds(30) }))
-    local hung: string
+    local hung: string | nil
     local started = Clock.monotonic_ns()
     local hanging = Poll.spawn(function()
       local _, why = dial(connector, "127.0.0.1", port, Clock.ms(800))
@@ -620,7 +620,7 @@ local function test_closing_a_connector_wakes_a_request_in_flight()
     local port, held = hung_port()
     local connector = assert(Net.connector({ { host = "127.0.0.1", port = port } },
       { timeout_ns = Clock.seconds(30) }))
-    local answer: string
+    local answer: string | nil
     local started = Clock.monotonic_ns()
     local waiting = Poll.spawn(function()
       local _, why = dial(connector, "127.0.0.1", port, Clock.seconds(20))
@@ -629,7 +629,7 @@ local function test_closing_a_connector_wakes_a_request_in_flight()
     assert(Poll.delay(Clock.ms(100)))
     assert(connector:close())
     assert(waiting:join(Clock.seconds(5)), "the request was left parked")
-    assert(answer:find("closed", 1, true) ~= nil, tostring(answer))
+    assert(tostring(answer):find("closed", 1, true) ~= nil, tostring(answer))
     assert(Clock.monotonic_ns() - started < Clock.seconds(3))
     for _, each in ipairs(held) do assert(each:close()) end
   end)

@@ -544,7 +544,7 @@ end
 
 --- `help` is dispatch's own spec (below): it prints the specs of every other
 --- verb, so it is declared here and set once `help` exists.
-local help_spec: verb_spec.Spec
+local help_spec: verb_spec.Spec | nil
 
 --- `cosmic help [verb | exit]`: the index, or one verb's full text, or the
 --- exit codes, and a verdict line.
@@ -767,6 +767,7 @@ function dispatch.main(argv: {integer:string}): integer
   if chosen ~= nil and verb ~= "help" and Flags.asks_help(own, 2, options) then
     -- `cosmic <verb> --help` is `cosmic help <verb>`.
     local asked = verb
+    local own_spec = assert(help_spec, "help's spec is set before a verb is dispatched")
     verb = "help"
     chosen = {
       name = "help",
@@ -774,9 +775,9 @@ function dispatch.main(argv: {integer:string}): integer
         return help(line, asked)
       end,
       bare = false,
-      takes = help_spec.takes,
-      guide = help_spec.guide,
-      tests = help_spec.tests,
+      takes = own_spec.takes,
+      guide = own_spec.guide,
+      tests = own_spec.tests,
     }
   end
   if chosen ~= nil and verb ~= "help" then

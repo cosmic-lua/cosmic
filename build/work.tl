@@ -904,7 +904,9 @@ end
 
 --- Reads the links of the files of `linked` not yet read (see its
 --- definition, which needs [`identity.hash_over`]).
-local find_links: function(handle: work.Handle, texts: {string:string}): boolean, string
+local find_links: function(handle: work.Handle, texts: {string:string}): boolean, string = function(_handle: work.Handle, _texts: {string:string}): boolean, string
+  error("find_links is called before it is defined")
+end
 
 --- Reads the tree into `files` and, in cosmic's own tree, fingerprints
 --- what the tool is made of into `tool`, everything else the walk

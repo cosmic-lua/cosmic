@@ -180,7 +180,7 @@ local function test_a_failed_pump_does_not_close_a_reused_descriptor()
   local h <close> = output(1)
   local reader = assert(h.stdout_stream)
   local fd = assert(h._streams)[1].fd
-  local replacement: integer
+  local replacement: integer | nil
   local ok, why: boolean, any = pcall(function()
     patched(function()
       local poll = sys.poll
@@ -193,7 +193,7 @@ local function test_a_failed_pump_does_not_close_a_reused_descriptor()
       end
       assert(h:try_wait())
     end)
-    assert(sys.fstat(replacement), "the stale pump closed the replacement descriptor")
+    assert(sys.fstat(assert(replacement)), "the stale pump closed the replacement descriptor")
     local chunk, trouble = reader:read()
     assert(chunk == nil and trouble == "child: the reader is closed", trouble)
   end)

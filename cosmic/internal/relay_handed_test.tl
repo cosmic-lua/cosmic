@@ -106,7 +106,7 @@ local function test_a_public_connect_that_hangs_holds_up_no_other()
     local wait = Clock.seconds(1)
     local public = assert(Net.connector({}, { timeout_ns = wait, public = { deny = { "10.0.0.0/8" } } }))
     local connect = Relay.handed({ connector = public })
-    local hung: string
+    local hung: string | nil
     local hanging = Poll.spawn(function()
       local _, why = connect("127.0.0.1", stuck, wait)
       hung = why
@@ -382,7 +382,7 @@ local function test_the_upstream_is_resolved_once_and_an_ungranted_name_never(tm
     local started = this_program.program({ "--standalone", script, tostring(port) },
       { stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(60) })
     local child <close> = assert(Child.start(started.argv, started.options))
-    local result: Child.Result
+    local result: Child.Result | nil
     while result == nil do
       local state = assert(child:try_wait())
       if state.finished then
@@ -391,8 +391,11 @@ local function test_the_upstream_is_resolved_once_and_an_ungranted_name_never(tm
         assert(Poll.delay(Clock.ms(10)))
       end
     end
-    assert(result.code == 0, tostring(result.code) .. " " .. tostring(result.stderr))
-    for line in ((result.stdout or "") .. "\n"):gmatch("([^\n]*)\n") do lines[#lines + 1] = line end
+    local finished = assert(result)
+    assert(finished.code == 0, tostring(finished.code) .. " " .. tostring(finished.stderr))
+    for line in ((finished.stdout or "") .. "\n"):gmatch("([^\n]*)\n") do
+      lines[#lines + 1] = line
+    end
     serving:cancel()
     watching:cancel()
     assert(listener:close())

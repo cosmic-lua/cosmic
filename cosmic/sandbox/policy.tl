@@ -600,7 +600,7 @@ function rules.merge(...: rules.Policy): rules.Policy | nil, string
   local loopback: {string} = {}
   local env: {string} = {}
   local tmp = false
-  local user, group: integer, integer
+  local user, group: integer | nil, integer | nil
   local database: rules.Database | nil = nil
   for _, p in ipairs(flat) do
     local named = p.database

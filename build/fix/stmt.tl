@@ -25,7 +25,9 @@ local type compiler = require("build.compiler")
 local type Node = ast.Node
 local type Ctx = ctx_mod.Ctx
 
-local statement: function(Ctx, Node)
+local statement: function(Ctx, Node) = function(_1: Ctx, _2: Node)
+  error("statement is called before it is defined")
+end
 
 --- Where a statement's first character really is. `local a = 1` and
 --- `local type T = U` are stamped at `a` and at `T`, `local macroexp

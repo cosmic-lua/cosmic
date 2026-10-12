@@ -108,7 +108,7 @@ local function on_pty(binary: string, streams: {integer}, policy?: Sandbox.Polic
     said = said .. data
     return true
   end
-  local result: Child.Result
+  local result: Child.Result | nil
   while result == nil do
     local done, _ = Child.wait_any({ started.child }, Clock.ms(1))
     if done ~= nil then

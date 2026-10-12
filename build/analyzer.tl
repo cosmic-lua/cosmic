@@ -563,7 +563,9 @@ end
 
 -- Declared ahead: [`fields_docs`] and `record_docs` call each other.
 local record_docs: function(lines: {string}, tokens: {compiler.Token}, symbol: string,
-                           def: ast.TypeNode, out: {analyzer.DocEntry})
+                           def: ast.TypeNode, out: {analyzer.DocEntry}) = function(_lines: {string}, _tokens: {compiler.Token}, _symbol: string, _def: ast.TypeNode, _out: {analyzer.DocEntry})
+                             error("record_docs is called before it is defined")
+                           end
 
 --- Adds the entries for one group of a record's or interface's fields
 --- under `symbol`, in the order given, with a nested record or enum
@@ -982,16 +984,13 @@ local function uses_of(root: ast.Node, used: {string: boolean})
   local function bind(name: string | nil)
     if name ~= nil then stack[#stack][name] = true end
   end
-  local walk: function(ast.Node)
-  local function walk_all(list: ast.Node | nil)
-    if list ~= nil then walk(list) end
-  end
-  walk = function(n: ast.Node)
+  local function walk(n: ast.Node | nil)
+    if n == nil then return end
     local kind = n.kind
     if kind == "variable" then
       if n.tk ~= nil and not bound(n.tk) then used[n.tk] = true end
     elseif kind == "local_declaration" then
-      walk_all(n.exps)
+      walk(n.exps)
       for _, var in ipairs(n.vars or {}) do bind(var.tk) end
     elseif kind == "local_type" then
       bind(n.var ~= nil and n.var.tk or nil)
@@ -1000,23 +999,23 @@ local function uses_of(root: ast.Node, used: {string: boolean})
       if kind == "local_function" and n.name ~= nil then bind(n.name.tk) end
       stack[#stack + 1] = {}
       for _, parameter in ipairs(n.args or {}) do bind(parameter.tk) end
-      walk_all(n.body)
+      walk(n.body)
       stack[#stack] = nil
     elseif kind == "fornum" or kind == "forin" then
-      walk_all(n.from)
-      walk_all(n.to)
-      walk_all(n.step)
-      walk_all(n.exps)
+      walk(n.from)
+      walk(n.to)
+      walk(n.step)
+      walk(n.exps)
       stack[#stack + 1] = {}
       bind(n.var ~= nil and n.var.tk or nil)
       for _, var in ipairs(n.vars or {}) do bind(var.tk) end
-      walk_all(n.body)
+      walk(n.body)
       stack[#stack] = nil
     elseif kind == "repeat" then
       -- Lua keeps the body's locals in scope through `until`.
       stack[#stack + 1] = {}
       for _, stmt in ipairs(n.body or {}) do walk(stmt) end
-      walk_all(n.exp)
+      walk(n.exp)
       stack[#stack] = nil
     elseif kind == "statements" then
       stack[#stack + 1] = {}

@@ -407,9 +407,10 @@ local function test_one_consumer_sees_each_producers_items_in_order()
 end
 
 local function test_a_queue_of_another_run_is_refused_when_it_waits()
-  local stale: Channel.Queue<integer>
+  local stale: Channel.Queue<integer> | nil
   Poll.run(function() stale = Channel.new() end)
+  local other = assert(stale)
   Poll.run(function()
-    raises(function() stale:receive() end, "another run")
+    raises(function() other:receive() end, "another run")
   end)
 end

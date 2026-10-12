@@ -44,7 +44,7 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
     return refuse("compiles takes one path; verdicts takes one or more")
   end
   local whole = parsed.set["--whole"] == true
-  local since: integer
+  local since: integer | nil
   local raw_since = parsed.values["--since-ns"]
   if raw_since ~= nil then
     if not raw_since:match("^%d+$") then return refuse("since-ns must be a nonnegative integer") end

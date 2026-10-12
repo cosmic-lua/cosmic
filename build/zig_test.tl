@@ -424,7 +424,7 @@ local function test_boot_lock_classifies_the_begin_result_not_its_reason(tmp: st
   local methods = (assert(getmetatable(sample)) as {string:any}).__index as {string:any}
   local real_busy, real_exec, real_close = methods.busy_timeout, methods.exec_result, methods.close
   local calls, closes = 0, 0
-  local outcome: Sqlite.ExecResult
+  local outcome: Sqlite.ExecResult | nil
   methods.busy_timeout = function(_self: any, ns: integer) assert(ns >= 0) end
   methods.exec_result = function(_self: any, sql: string): Sqlite.ExecResult
     assert(sql == "BEGIN IMMEDIATE")

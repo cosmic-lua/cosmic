@@ -532,7 +532,9 @@ local function address_trouble(address: any): string
 end
 
 --- [`Net.resolve`] through `opts.connector`, defined with the connector.
-local resolved_through: function(name: string, opts: Net.ResolveOptions): {Net.Resolved} | nil, string
+local resolved_through: function(name: string, opts: Net.ResolveOptions): {Net.Resolved} | nil, string = function(_name: string, _opts: Net.ResolveOptions): {Net.Resolved} | nil, string
+  error("resolved_through is called before it is defined")
+end
 
 --- Resolves `name` with c-ares and answers every address it has, IPv4
 --- and IPv6, as the system's configuration (resolv.conf and hosts; on
@@ -581,7 +583,7 @@ function Net.resolve(name: string, opts?: Net.ResolveOptions): {Net.Resolved} | 
   if hosts_file ~= nil and not (hosts_file is string) then
     error("net: hosts_file must be a string", 2)
   end
-  local servers: string
+  local servers: string | nil
   if opts.servers ~= nil then
     local listed = opts.servers
     if type(listed) ~= "table" or #listed == 0 then
@@ -897,7 +899,7 @@ end
 --- connector's deny list".
 function Net.connector(endpoints: {Net.Endpoint}, opts?: Net.ConnectorOptions): Net.Connector | nil, string
   local timeout_ms = Leaf.checked_timeout_ms(opts ~= nil and opts.timeout_ns or nil, 2)
-  local public: Leaf.Public
+  local public: Leaf.Public | nil
   if opts ~= nil and opts.public ~= nil then public = checked_public(opts.public) end
   if public == nil and (type(endpoints) ~= "table" or #endpoints == 0) then
     error("net: a connector needs endpoints, opts.public, or both", 2)
@@ -1047,13 +1049,15 @@ local function traced(err: any): string
   return errors.trace(tostring(err), 2)
 end
 
-local resume_accepting: function(s: Serving)
+local resume_accepting: function(s: Serving) = function(_s: Serving)
+  error("resume_accepting is called before it is defined")
+end
 
 --- Serves `conn` in a task of its own, counted open until the protocol
 --- is done with it.
 local function serve_conn(s: Serving, conn: Net.Conn)
   s.open = s.open + 1
-  local task: Poll.Task
+  local task: Poll.Task | nil
   task = Poll.spawn(function()
     local held <close> = conn
     local ok, trouble: boolean, any = xpcall(s.spec.serve, traced, held)

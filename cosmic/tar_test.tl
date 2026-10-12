@@ -401,7 +401,7 @@ local function test_typeflag_7_is_a_file_and_sparse_or_unknown_ones_are_other()
     header("after", "0", 4) .. padded("tail") .. END
   local r = Tar.reader(Stream.from_string(raw))
   local kinds: {string} = {}
-  local last: Tar.Entry
+  local last: Tar.Entry | nil
   while true do
     local entry, trouble = r:next()
     assert(trouble == "", trouble)
@@ -412,7 +412,7 @@ local function test_typeflag_7_is_a_file_and_sparse_or_unknown_ones_are_other()
   end
   assert(table.concat(kinds, ",") ==
       "contig=file,gnu-sparse=other,pax-sparse=other,fifo=other,after=file", table.concat(kinds, ","))
-  assert(last.typeflag == "0")
+  assert(last ~= nil and last.typeflag == "0")
 end
 
 local function test_mtimes_outside_the_octal_field_round_trip_through_pax()

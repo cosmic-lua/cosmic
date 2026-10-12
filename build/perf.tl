@@ -459,11 +459,12 @@ local function measure(f: Fixture, w: Workload, phase: string, pair: integer,
     assert(db:close())
   end
   local before = latest_build(f)
-  local result: Child.Result
+  local result: Child.Result | nil
   local start = Clock.monotonic_ns()
   for _ = 1, w.batch do result = command(argv, f) end
   local elapsed = Clock.monotonic_ns() - start
-  local stdout, stderr = result.stdout or "", result.stderr or ""
+  local last = assert(result, "a workload runs its command at least once")
+  local stdout, stderr = last.stdout or "", last.stderr or ""
   local observation: Observation = { phase = phase, workload = w.name, pair = pair, label = label,
     elapsed_ns = elapsed, batch = w.batch, argv = argv, cwd = f.root,
     stdout = stdout, stderr = stderr, before = before, after = latest_build(f) }

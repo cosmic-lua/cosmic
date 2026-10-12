@@ -1287,23 +1287,33 @@ end
 --- What a dotted query names through a type alias or an inherited
 --- record: [`Child.Options.fds`], [`Sqlite.Handle.exec`]. Defined with the
 --- other member helpers, below [`first_sentence`].
-local through_alias: function(view: docs.View, query: string): {docs.Entry} | nil, string
+local through_alias: function(view: docs.View, query: string): {docs.Entry} | nil, string = function(_view: docs.View, _query: string): {docs.Entry} | nil, string
+  error("through_alias is called before it is defined")
+end
 local aliased_members: function(view: docs.View, owners: {docs.Entry},
-                                name: string): {docs.Entry} | nil, string
+                                name: string): {docs.Entry} | nil, string = function(_view: docs.View, _owners: {docs.Entry}, _name: string): {docs.Entry} | nil, string
+                                  error("aliased_members is called before it is defined")
+                                end
 --- What a dotted query names through a type alias, else as a module's
 --- member written in full ([`cosmic.fs.read`], [`cosmic.cli.order`]),
 --- as a link names one. Defined after [`member_of`].
-local in_full: function(view: docs.View, query: string): {docs.Entry} | nil, string
+local in_full: function(view: docs.View, query: string): {docs.Entry} | nil, string = function(_view: docs.View, _query: string): {docs.Entry} | nil, string
+  error("in_full is called before it is defined")
+end
 --- What `Q.name` names when `Q` is the last name of a module, either
 --- case ([`Cli.order`], `fs.read`): that module's member `name`, as a
 --- caller that requires it under that name reads it. Defined after
 --- [`member_of`].
-local by_last_name: function(view: docs.View, query: string): {docs.Entry} | nil, string
+local by_last_name: function(view: docs.View, query: string): {docs.Entry} | nil, string = function(_view: docs.View, _query: string): {docs.Entry} | nil, string
+  error("by_last_name is called before it is defined")
+end
 --- What a name [`cosmic.removed`] lists as gone answers: one entry of kind
 --- `removed` saying what to write instead, or none, for a name it does
 --- not list and for a member the module still has. Defined after
 --- [`member_of`].
-local removed_by: function(view: docs.View, query: string): {docs.Entry} | nil, string
+local removed_by: function(view: docs.View, query: string): {docs.Entry} | nil, string = function(_view: docs.View, _query: string): {docs.Entry} | nil, string
+  error("removed_by is called before it is defined")
+end
 
 --- What `query` names, across `databases`, by the first rule that
 --- answers:
@@ -2214,7 +2224,7 @@ function docs.render(view: docs.View, entry: docs.Entry): {string} | nil, string
   -- member's own page: the most used of those with an example, else
   -- the most used. None where the module lists no call, whose first
   -- declaration may be its own record, which answers as the module.
-  local pointed: string
+  local pointed: string | nil
   if entry.symbol == "" then
     local declared, declared_trouble = across(view,
       function(db: Sqlite.Handle, public: boolean): {docs.Entry} | nil, string
@@ -2246,7 +2256,7 @@ function docs.render(view: docs.View, entry: docs.Entry): {string} | nil, string
     for _, item in ipairs(declared) do
       listed_symbols[item.symbol] = true
     end
-    local best: docs.Entry
+    local best: docs.Entry | nil
     for _, item in ipairs(declared) do
       if is_call(item) and (best == nil or points_better(item, best)) then best = item end
       index[#index + 1] = "  " .. listed(item)

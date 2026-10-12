@@ -1817,14 +1817,14 @@ function tree_checks.plurals(db: Sqlite.Handle, built: compiler, extra?: {{strin
   local found: {string: boolean} = {}
   for _, row in ipairs(sources) do
     local known = read ~= nil and read[row[1]] or nil
-    local sites, parse_trouble: {{string}}, string
+    local sites, parse_trouble: {{string}}, string | nil
     if known ~= nil and known.source == row[2] then
       sites = known.sites
     else
       sites, parse_trouble = plural_sites(built, row[2], row[1])
     end
     if sites == nil then
-      out[#out + 1] = row[1] .. ": cannot read it to check its plurals: " .. parse_trouble
+      out[#out + 1] = row[1] .. ": cannot read it to check its plurals: " .. (parse_trouble or "")
     else
       for _, site in ipairs(sites) do
         local key = row[1] .. ":" .. site[2]

@@ -377,7 +377,7 @@ local function test_feeding_in_pieces_agrees_with_feeding_the_whole(tmp: string)
         end
         -- And a byte at a time.
         local feed = format.fresh()
-        local last: Answer
+        local last: Answer | nil
         for at = 1, #input do
           last = feed(input:sub(at, at))
         end
