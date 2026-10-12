@@ -339,3 +339,33 @@ local function test_json_rows_have_null_for_a_missing_key_and_byte_order_columns
   assert(#nulls == 1 and nulls[1][1].integer == 2)
   assert(dataset.format_of("accounts.jsonl") == "ndjson")
 end
+
+--- A csv is copied in C up to the 499 fields json_object takes for
+--- `_json`, and read here past them, into the same table.
+local function test_load_text_copies_a_csv_up_to_499_fields()
+  for _, width in ipairs({ 499, 500 }) do
+    local header, row = {}, {}
+    for column = 1, width do
+      header[column] = "c" .. column
+      row[column] = tostring(column)
+    end
+    local db = assert(Sqlite.memory())
+    local made = assert(dataset.load_text(db, "t", "csv", table.concat(header, ",") .. "\n" ..
+        table.concat(row, ",") .. "\n"))
+    assert((made.copied == true) == (width == 499), width .. " fields: copied " .. tostring(made.copied))
+    assert(#made.columns == width + 1 and made.count == 1)
+    assert(grid(db, "SELECT json_extract(_json, '$.c" .. width .. "') FROM t")[1] == "i" .. width)
+    assert(db:close())
+  end
+end
+
+--- `_json` is text, as a stored row's is, whichever way it was loaded:
+--- a JSON function nests it as a string.
+local function test_a_copied_csv_json_column_is_text()
+  local db = assert(Sqlite.memory())
+  local made = assert(dataset.load_text(db, "t", "csv", "a,b\n1,x\n"))
+  assert(made.copied)
+  assert(grid(db, "SELECT json_object('row', _json) FROM t")[1] == '{"row":"{\\"a\\":1,\\"b\\":\\"x\\"}"}',
+    grid(db, "SELECT json_object('row', _json) FROM t")[1])
+  assert(db:close())
+end

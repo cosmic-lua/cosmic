@@ -255,7 +255,8 @@ local function gen_delimited(src: Fuzz.Source): string
 end
 
 --- Each row of `t` on `db`: its cells as `quote` writes them, then its
---- `_json` object's members, each key, JSON type and value.
+--- `_json` object's members, each key, JSON type and value, and what a
+--- JSON function takes `_json` for: text, not an object.
 local function cells_of(db: Sqlite.Handle, columns: {string}): string
   local quoted: {string} = {}
   for index, column in ipairs(columns) do
@@ -266,7 +267,8 @@ local function cells_of(db: Sqlite.Handle, columns: {string}): string
     quoted[1] = "''"
   end
   local rows = assert(Sqlite.text_rows(db, "SELECT " .. table.concat(quoted, " || '|' || ") ..
-      ", (SELECT group_concat(key || ':' || type || ':' || quote(atom), ',') FROM json_each(t._json)) FROM t ORDER BY rowid"))
+      ", (SELECT group_concat(key || ':' || type || ':' || quote(atom), ',') FROM json_each(t._json))" ..
+      ", json_type(json_object('row', t._json), '$.row') FROM t ORDER BY rowid"))
   local out: {string} = {}
   for index, row in ipairs(rows) do
     out[index] = table.concat(row, " ; ")
@@ -322,10 +324,10 @@ local function test_load_text_makes_the_table_read_and_load_make(tmp: string)
         return closed(false, string.format("%q: columns %s (%d rows), read and load %s (%d)", text,
           table.concat(fast.columns, ","), fast.count, table.concat(slow.columns, ","), slow.count))
       end
-      for column, key in pairs(slow.renamed) do
-        if fast.renamed[column] ~= key then
-          return closed(false, string.format("%q: %s is the key %q, not %q", text, column, key,
-            tostring(fast.renamed[column])))
+      for _, column in ipairs(slow.columns) do
+        if fast.renamed[column] ~= slow.renamed[column] then
+          return closed(false, string.format("%q: %s is the key %q, not %q", text, column,
+            tostring(slow.renamed[column]), tostring(fast.renamed[column])))
         end
       end
       local data_columns = table.move(fast.columns, 1, #fast.columns - 1, 1, {})
@@ -333,12 +335,12 @@ local function test_load_text_makes_the_table_read_and_load_make(tmp: string)
       if got ~= want then
         return closed(false, string.format("%q: load_text's rows\n%s\nread and load's\n%s", text, got, want))
       end
-      local generated = assert(Sqlite.text_rows(fast_db,
-        "SELECT count(*) FROM pragma_table_xinfo('t') WHERE name = '_json' AND hidden <> 0"))
-      if generated[1][1] == "1" then Fuzz.label("copied in C") end
-      if format == "tsv" then Fuzz.label("tsv") end
+      if fast.copied then
+        Fuzz.label("copied in C")
+        if format == "tsv" then Fuzz.label("tsv copied in C") end
+      end
       return closed(true, "")
     end,
-    requires = { "read", "refused", "copied in C", "tsv" },
+    requires = { "read", "refused", "copied in C", "tsv copied in C" },
   })
 end

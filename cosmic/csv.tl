@@ -97,6 +97,15 @@ local record Csv
     --- compared with case folded: a header field that is one gets `_2`
     --- after it, as [`Csv.column_names`] renames.
     reserved?: {string}
+    --- A column of this name, after the rest, holds each row as a JSON
+    --- object of its cells, keyed by [`Loaded.keys`] in byte order, as
+    --- text; the name is reserved as `reserved`'s are. It is generated
+    --- from the row as it is read, by SQLite's json_object, which writes a
+    --- real as SQLite does (`1.0e+300`): the copy writes no JSON, and a
+    --- query that reads it makes it again. A header of more than 499
+    --- fields, past what json_object takes, is refused before a row is
+    --- copied.
+    json?: string
   end
 
   --- What [`Csv.load`] made.
@@ -105,8 +114,8 @@ local record Csv
     count: integer
     --- The header's names as [`Csv.table`] gives them, a row's keys.
     keys: {string}
-    --- The table's columns, in order: each key, renamed when it is
-    --- reserved.
+    --- The table's columns of cells, in order: each key, renamed when it
+    --- is reserved. A `json` column follows them.
     columns: {string}
   end
 
@@ -491,6 +500,13 @@ function Csv.load(handle: Sqlite.Handle, name: string, source: Csv.Source): Csv.
   for _, each in ipairs(source.reserved or {}) do
     reserved[#reserved + 1] = each
   end
+  local json = source.json
+  if json ~= nil then
+    reserved[#reserved + 1] = json
+    if #keys > 499 then
+      return undone("a JSON column takes at most 499 fields, and the header has " .. #keys)
+    end
+  end
   local names = Csv.column_names(keys, reserved)
   local declared, cells: {string}, {string} = {}, {}
   for index, column in ipairs(names) do
@@ -531,6 +547,26 @@ function Csv.load(handle: Sqlite.Handle, name: string, source: Csv.Source): Csv.
     return undone(trouble)
   end
   local copied = handle:changes()
+  if json ~= nil then
+    local order: {integer} = {}
+    for index in ipairs(keys) do
+      order[index] = index
+    end
+    table.sort(order, function(a: integer, b: integer): boolean
+      return keys[a] < keys[b]
+    end)
+    local members: {string} = {}
+    for _, index in ipairs(order) do
+      members[#members + 1] = literal(keys[index]) .. ", " .. identifier(names[index])
+    end
+    -- Appending '' leaves plain text: json_object's own result is marked
+    -- JSON, which another JSON function would nest as an object.
+    ok, trouble = handle:exec("ALTER TABLE main." .. identifier(name) .. " ADD COLUMN " .. identifier(json) ..
+        " AS (json_object(" .. table.concat(members, ", ") .. ") || '') VIRTUAL")
+    if not ok then
+      return undone(trouble)
+    end
+  end
   ok, trouble = handle:exec("DROP TABLE " .. scratch .. "; RELEASE cosmic_csv_load")
   if not ok then
     return undone(trouble)

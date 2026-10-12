@@ -62,9 +62,12 @@
 --- empty).
 ---
 --- [`dataset.load_text`], which `cosmic sql --from` loads with, makes the
---- same table from a csv or tsv by copying it through [`Csv.load`], in C,
---- with `_json` generated from the columns as it is read: a million rows
---- in seconds rather than half a minute.
+--- same table from a csv or tsv by copying it through [`Csv.load`], in C:
+--- a million rows in seconds rather than half a minute. Its `_json` holds
+--- the same members, as text, generated from the columns as it is read by
+--- SQLite's json_object, which writes a real as SQLite does (`1.0e+300`
+--- where Json.encode writes `1e300`); as a generated column it is in
+--- `pragma_table_xinfo`, not `pragma_table_info`.
 ---
 --- The formats are a table kept here, one entry each -- a name, the
 --- file extensions it goes by, and a reader from text to rows -- so a
@@ -121,6 +124,8 @@ local record dataset
     --- A column that is not its key as written, to that key: see the
     --- module comment. Absent for a column named as its key.
     renamed: {string:string}
+    --- Whether [`dataset.load_text`] copied it through [`Csv.load`].
+    copied?: boolean
   end
 
   --- One format: what `read` looks up by name.
@@ -470,78 +475,50 @@ local DELIMITERS <const>: {string:string} = { csv = ",", tsv = "\t" }
 --- `text`, a csv or tsv, copied into the table `name` through
 --- [`Csv.load`], which reads it in C, from `path` when it is a regular file
 --- of `text`'s size, which SQLite then reads at C's pace, and else from
---- `text`, which it reads as SQL text first. Its `_json` column is
---- generated from the typed columns as it is read, so the load writes no
---- JSON. Nil and why for anything `load` refuses.
+--- `text`, which it reads as SQL text first; `_json` is generated from
+--- the columns as it is read. Nil and why for anything `load` refuses.
 local function copied(handle: Sqlite.Handle, name: string, format: string, text: string,
                       raw: boolean, path: string | nil): dataset.Table | nil, string
-  local made: dataset.Table
-  local table_name = "main." .. quoted(name)
-  local ok, trouble = Sqlite.transact(handle, function(): boolean, string
-    local source: Csv.Source = { raw = raw, delimiter = DELIMITERS[format], reserved = { "_json" } }
-    -- A path that cannot be inspected is read from `text`, as a pipe is.
-    local st: sys.Stat | nil = nil
-    if path ~= nil then
-      local _: string
-      st, _ = Fs.stat(path)
-    end
-    if path ~= nil and st ~= nil and st.kind == "file" and st.size == #text then
-      source.path = path
-    else
-      source.text = text
-    end
-    local loaded, why = Csv.load(handle, name, source)
-    if loaded == nil then
-      return false, why
-    end
-    if #loaded.columns + 1 > max_columns then
-      return false, "too many columns"
-    end
-    -- A row's JSON object has its keys in byte order, as Json.encode
-    -- writes one.
-    local order: {integer} = {}
-    for index in ipairs(loaded.keys) do
-      order[index] = index
-    end
-    table.sort(order, function(a: integer, b: integer): boolean
-      return loaded.keys[a] < loaded.keys[b]
-    end)
-    local pairs_of: {string} = {}
-    for _, index in ipairs(order) do
-      pairs_of[#pairs_of + 1] = "'" .. loaded.keys[index]:gsub("'", "''") .. "', " .. quoted(loaded.columns[index])
-    end
-    local altered, alter_trouble = handle:exec("ALTER TABLE " .. table_name .. " ADD COLUMN " ..
-        quoted("_json") .. " AS (json_object(" .. table.concat(pairs_of, ", ") .. ")) VIRTUAL")
-    if not altered then
-      return false, alter_trouble
-    end
-    local renamed: {string:string} = {}
-    local columns: {string} = {}
-    for index, column in ipairs(loaded.columns) do
-      columns[index] = column
-      if column ~= loaded.keys[index] then
-        renamed[column] = loaded.keys[index]
-      end
-    end
-    columns[#columns + 1] = "_json"
-    made = { name = name, count = loaded.count, columns = columns, renamed = renamed }
-    return true, ""
-  end)
-  if not ok then
-    return nil, trouble
+  local source: Csv.Source = { raw = raw, delimiter = DELIMITERS[format], json = "_json" }
+  -- A path that cannot be inspected is read from `text`, as a pipe is.
+  local st: sys.Stat | nil = nil
+  if path ~= nil then
+    local _: string
+    st, _ = Fs.stat(path)
   end
-  return made, ""
+  if path ~= nil and st ~= nil and st.kind == "file" and st.size == #text then
+    source.path = path
+  else
+    source.text = text
+  end
+  local loaded, why = Csv.load(handle, name, source)
+  if loaded == nil then
+    return nil, why
+  end
+  local renamed: {string:string} = {}
+  local columns: {string} = {}
+  for index, column in ipairs(loaded.columns) do
+    columns[index] = column
+    if column ~= loaded.keys[index] then
+      renamed[column] = loaded.keys[index]
+    end
+  end
+  columns[#columns + 1] = "_json"
+  return { name = name, count = loaded.count, columns = columns, renamed = renamed, copied = true }, ""
 end
 
 --- The table `name` on `handle` made from `text` in the format `format`,
 --- as [`dataset.read`] and [`dataset.load`] make it, with `opts`. A csv or
 --- tsv is copied through [`Csv.load`], which reads it in C, about 15 times
---- faster on a million rows than reading it here a row at a time; when
---- that refuses it, it is read here, so the table, or the reason there is
---- none, is the one `read` and `load` give: a fault's line and column, and
---- a NUL byte, which SQLite's CSV table cannot read, kept as text; and
---- text that is not UTF-8 refused, which `_json` cannot hold.
---- `path`, when `text` was read from one, lets SQLite read the file itself.
+--- faster on a million rows than reading it here a row at a time: its
+--- columns, cells and `_json` members are `load`'s, and only a real in
+--- `_json`'s text is written otherwise, as SQLite writes one (the module
+--- comment). When the copy refuses it, as for more than 499 fields, it is
+--- read here, so the table, or the reason there is none, is the one `read`
+--- and `load` give: a fault's line and column, a NUL byte, which SQLite's
+--- CSV table cannot read, kept as text, and text that is not UTF-8
+--- refused, which `_json` cannot hold. `path` is the file `text` was read
+--- from, unchanged since, which SQLite then reads itself.
 function dataset.load_text(handle: Sqlite.Handle, name: string, format: string, text: string,
                            opts?: dataset.ReadOptions, path?: string): dataset.Table | nil, string
   local options = opts or {}

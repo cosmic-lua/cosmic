@@ -11,7 +11,7 @@
 local Csv = require("cosmic.csv")
 local Fuzz = require("build.fuzz")
 
-local DELIMITERS <const> = { ",", "\t", ";", "|" }
+local DELIMITERS <const> = { ",", "\t", ";", "|", "\xa7" }
 
 local BOM <const> = "\xEF\xBB\xBF"
 
