@@ -571,7 +571,7 @@ local function describe(db: Sqlite.Handle, tables: {dataset.Table}): {string} | 
       end
       local types: {string} = {}
       for _, row in ipairs(rows) do
-        types[#types + 1] = row[1]
+        types[#types + 1] = row:text(1)
       end
       local name = plain(column)
       local line = "  " .. name .. string.rep(" ", width - #name) .. "  " .. (#types > 0 and table.concat(types, "|") or "-")
@@ -586,7 +586,7 @@ local function describe(db: Sqlite.Handle, tables: {dataset.Table}): {string} | 
       return nil, trouble
     end
     if sample[1] ~= nil then
-      local text = plain(sample[1][1])
+      local text = plain(sample[1]:text(1))
       if #text > 200 then
         text = text:sub(1, 200) .. "..."
       end
@@ -661,11 +661,8 @@ local function run_from(parsed: Flags.Parsed, to: sql.Output,
       -- A file's failure already names the file; standard input's does not.
       return fail(input.path == nil and input.label .. ": " .. read_trouble or read_trouble)
     end
-    local rows, format_trouble = dataset.read(input.format, text, { at = input.at, raw = input.raw })
-    if rows == nil then
-      return fail(input.label .. ": " .. format_trouble)
-    end
-    local loaded, load_trouble = dataset.load(db, input.table, rows)
+    local loaded, load_trouble = dataset.load_text(db, input.table, input.format, text,
+      { at = input.at, raw = input.raw }, input.path)
     if loaded == nil then
       return fail(input.label .. ": " .. load_trouble)
     end

@@ -88,7 +88,7 @@ local function derive_doc_guides(db: Sqlite.Handle): boolean, string
     return false, trouble
   end
   for _, row in ipairs(guides) do
-    local file, doc_source, from_hash = row[1], row[2], row[3]
+    local file, doc_source, from_hash = row:text(1), row:text(2), row:text(3)
     local source, extract_trouble = doctest.extract(doc_source, file)
     if source == nil then
       return false, file .. ": " .. extract_trouble
@@ -130,7 +130,7 @@ local function derive_templates(db: Sqlite.Handle): boolean, string
     return false, trouble
   end
   for _, row in ipairs(templates) do
-    local file, template_source, from_hash = row[1], row[2], row[3]
+    local file, template_source, from_hash = row:text(1), row:text(2), row:text(3)
     local source, compile_trouble = Template.compile(template_source, file)
     if source == nil then
       return false, compile_trouble
@@ -159,7 +159,7 @@ local function derive_syscalls(db: Sqlite.Handle): boolean, string
       return false, trouble
     end
     if #headers > 0 then
-      local header, from_hash = headers[1][1], headers[1][2]
+      local header, from_hash = headers[1]:text(1), headers[1]:text(2)
       local source, generate_trouble = gen_syscalls.declaration(header, target.target)
       if source == nil then
         return false, file .. ": " .. generate_trouble
@@ -185,8 +185,8 @@ local function duplicate_import_paths(db: Sqlite.Handle): boolean, string
     return false, trouble
   end
   if #doubled > 0 then
-    return false, doubled[1][2] .. " both compile to import path '" ..
-      doubled[1][1] .. "'; rename one"
+    return false, doubled[1]:text(2) .. " both compile to import path '" ..
+      doubled[1]:text(1) .. "'; rename one"
   end
   return true, ""
 end
@@ -261,7 +261,7 @@ function derivation.fresh(db: Sqlite.Handle): {derivation.Fresh} | nil, string
   end
   local out: {derivation.Fresh} = {}
   for _, row in ipairs(rows) do
-    out[#out + 1] = { source_hash = row[1], file = row[2], source = row[3], mapped = row[4] == "1" }
+    out[#out + 1] = { source_hash = row:text(1), file = row:text(2), source = row:text(3), mapped = row:text(4) == "1" }
   end
   return out, ""
 end
@@ -445,7 +445,7 @@ function derivation.table_widths(db: Sqlite.Handle): {string:integer} | nil, str
     local rows, trouble = Sqlite.text_rows(db,
       "SELECT count(*) FROM pragma_table_info(?1)", { text(name) })
     if rows == nil then return nil, trouble end
-    widths[name] = (math.tointeger(tonumber(rows[1][1])) or 1) - 1
+    widths[name] = (math.tointeger(tonumber(rows[1]:text(1))) or 1) - 1
   end
   return widths, ""
 end
@@ -473,9 +473,9 @@ function derivation.packed_parses(db: Sqlite.Handle,
     "SELECT source_hash, name FROM requires " .. chosen .. " ORDER BY source_hash, ordinal", list)
   if names == nil then return nil, trouble end
   for _, row in ipairs(names) do
-    local of = requires[row[1]] or {}
-    requires[row[1]] = of
-    of[#of + 1] = row[2]
+    local of = requires[row:text(1)] or {}
+    requires[row:text(1)] = of
+    of[#of + 1] = row:text(2)
   end
   for _, name in ipairs(packed_tables) do
     local rows, rows_trouble = Sqlite.rows(db,
@@ -484,18 +484,18 @@ function derivation.packed_parses(db: Sqlite.Handle,
     local by_hash: {string:{string}} = {}
     local counts: {string:integer} = {}
     for _, row in ipairs(rows) do
-      local hash = row[1].text or ""
+      local hash = row:kind(1) == "text" and row:text(1) or ""
       local out = by_hash[hash] or {}
       by_hash[hash] = out
       counts[hash] = (counts[hash] or 0) + 1
-      for index = 2, #row do
-        local cell = row[index]
-        if cell.kind == "integer" then
-          out[#out + 1] = "i" .. tostring(cell.integer) .. ";"
-        elseif cell.kind == "text" then
-          local value = cell.text or ""
+      for index = 2, row:count() do
+        local kind = row:kind(index)
+        if kind == "integer" then
+          out[#out + 1] = "i" .. tostring(row:integer(index)) .. ";"
+        elseif kind == "text" then
+          local value = row:text(index)
           out[#out + 1] = "t" .. #value .. ":" .. value
-        elseif cell.kind == "null" then
+        elseif kind == "null" then
           out[#out + 1] = "n"
         else
           unpackable[hash] = true
@@ -514,7 +514,7 @@ function derivation.packed_parses(db: Sqlite.Handle,
   if present == nil then return nil, present_trouble end
   local out: {string:derivation.Parse} = {}
   for _, row in ipairs(present) do
-    local hash = row[1]
+    local hash = row:text(1)
     if not unpackable[hash] then
       out[hash] = { requires = requires[hash] or {}, rows = table.concat(pieces[hash]) }
     end
@@ -614,7 +614,7 @@ function derivation.unparsed(db: Sqlite.Handle): {Source} | nil, string
   if rows == nil then return nil, trouble end
   local out: {Source} = {}
   for _, row in ipairs(rows) do
-    out[#out + 1] = { source_hash = row[1], mapped = row[2] == "1" }
+    out[#out + 1] = { source_hash = row:text(1), mapped = row:text(2) == "1" }
   end
   return out, ""
 end

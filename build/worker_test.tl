@@ -96,8 +96,15 @@ local function written(db: Sqlite.Handle): {string:string}
     local lines: {string} = {}
     for _, row in ipairs(rows) do
       local cells: {string} = {}
-      for _, cell in ipairs(row) do
-        cells[#cells + 1] = cell.kind .. ":" .. tostring(cell.text or cell.blob or cell.integer or "")
+      for index = 1, row:count() do
+        local kind = row:kind(index)
+        local value = ""
+        if kind == "text" or kind == "blob" then
+          value = row:bytes(index)
+        elseif kind == "integer" then
+          value = tostring(row:integer(index))
+        end
+        cells[#cells + 1] = kind .. ":" .. value
       end
       lines[#lines + 1] = table.concat(cells, "\t")
     end
@@ -437,8 +444,10 @@ local function cache_of(path: string, since: integer): {string}, integer
     local held = (assert(Sqlite.rows(db, "SELECT * FROM " .. kind)))
     for _, row in ipairs(held) do
       local cells: {string} = {}
-      for _, cell in ipairs(row) do
-        cells[#cells + 1] = tostring(cell.text or cell.integer or "")
+      for index = 1, row:count() do
+        local cell_kind = row:kind(index)
+        cells[#cells + 1] = cell_kind == "text" and row:text(index) or
+          cell_kind == "integer" and tostring(row:integer(index)) or ""
       end
       lines[#lines + 1] = kind .. " " .. cells[1] .. " " .. cells[#cells - 2]
     end
@@ -460,7 +469,7 @@ local function test_a_pool_beside_the_shared_compiles_counts_and_marks_as_a_buil
     local db = assert(Sqlite.open(seed))
     for _, kind in ipairs({ cache_formats.compiled, cache_formats.parsed }) do
       local row = (assert(Sqlite.rows(db, "SELECT max(used_ns) FROM " .. kind)))
-      since = math.max(since, row[1][1].integer or 0)
+      since = math.max(since, row[1]:kind(1) == "integer" and row[1]:integer(1) or 0)
     end
     assert(db:close())
   end

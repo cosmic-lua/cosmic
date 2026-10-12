@@ -297,7 +297,7 @@ function identity.hash_over(db: Sqlite.Handle, where: string): string | nil, str
   if rows == nil then
     return nil, trouble
   end
-  return rows[1][1]
+  return rows[1]:text(1)
 end
 
 --- The tool's fingerprints, over `tool` (which holds no test: see
@@ -362,7 +362,7 @@ function identity.recorded_boot_hash(db: Sqlite.Handle): string | nil, string
   if #rows == 0 then
     return nil, ""
   end
-  return rows[1][1]
+  return rows[1]:text(1)
 end
 
 --- The Teal compiler's and Lua's pins and sources, as one text: the
@@ -386,7 +386,7 @@ local function requires_in(db: Sqlite.Handle): function(string): {string} | nil,
         "ORDER BY r.name", { text(name) })
     if rows == nil then return nil, rows_trouble end
     local required: {string} = {}
-    for _, row in ipairs(rows) do required[#required + 1] = row[1] end
+    for _, row in ipairs(rows) do required[#required + 1] = row:text(1) end
     return required, ""
   end
 end
@@ -407,7 +407,7 @@ local function hash_of(db: Sqlite.Handle, names: {string}, extra: string): strin
   if rows == nil then
     return nil, trouble
   end
-  return rows[1][1]
+  return rows[1]:text(1)
 end
 
 --- Where the compiler's identity starts ([`identity.compiler_modules`]):
@@ -615,7 +615,7 @@ function identity.record_identities(db: Sqlite.Handle): identity.Identities | ni
   end
   local identities: identity.Identities = {
     compiler = compiler,
-    runtime_basis = bases[1][1],
+    runtime_basis = bases[1]:text(1),
     writer = writer,
   }
   for _, pair in ipairs({ { "compiler", identities.compiler },

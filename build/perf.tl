@@ -306,8 +306,8 @@ local function latest_build(fixture: Fixture): {string}
   local rows = assert(Sqlite.text_rows(db,
     "SELECT compiled, cached, read, verdict, run, (SELECT COUNT(*) FROM builds) FROM builds ORDER BY run DESC LIMIT 1"))
   assert(db:close())
-  assert(#rows == 1 and rows[1][4] == "PASS", "missing successful build counters")
-  return rows[1]
+  assert(#rows == 1 and rows[1]:text(4) == "PASS", "missing successful build counters")
+  return rows[1]:texts()
 end
 
 local function fixture(binary: string, root: string): Fixture

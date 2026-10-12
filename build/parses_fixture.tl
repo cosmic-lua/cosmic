@@ -16,7 +16,7 @@ function parses_fixture.dump(path: string, sql: string): string
   local rows = assert(Sqlite.text_rows(db, sql))
   assert(db:close())
   local lines: {string} = {}
-  for _, row in ipairs(rows) do lines[#lines + 1] = table.concat(row, "\t") end
+  for _, row in ipairs(rows) do lines[#lines + 1] = table.concat(row:texts(), "\t") end
   return table.concat(lines, "\n")
 end
 
@@ -26,7 +26,7 @@ function parses_fixture.rows(db: Sqlite.Handle): string
   for _, name in ipairs(analysis_schema.tables) do
     local rows = assert(Sqlite.text_rows(db, "SELECT * FROM " .. name .. " ORDER BY 1, 2"))
     out[#out + 1] = name .. " " .. #rows
-    for _, row in ipairs(rows) do out[#out + 1] = table.concat(row, "\t") end
+    for _, row in ipairs(rows) do out[#out + 1] = table.concat(row:texts(), "\t") end
   end
   return table.concat(out, "\n")
 end

@@ -12,7 +12,7 @@ local built = assert(teal.load())
 
 local function count(db: Sqlite.Handle, table_name: string): integer
   local rows = assert(Sqlite.text_rows(db, "SELECT count(*) FROM " .. table_name))
-  return math.tointeger(tonumber(rows[1][1])) as integer
+  return math.tointeger(tonumber(rows[1]:text(1))) as integer
 end
 
 --- Same keys in both executable-line sets, ignoring the `true` payload

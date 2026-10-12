@@ -230,7 +230,7 @@ local function test_staging_indexes_what_it_reads_and_forgets_what_goes()
   listed = assert(todos.list(handle.db, root)).todos
   assert(#listed == 1 and listed[1].file == "src/b.tl" and listed[1].line == 2)
   local rows = assert(Sqlite.text_rows(handle.db, "SELECT count(*) FROM todos"))
-  assert(rows[1][1] == "1", rows[1][1])
+  assert(rows[1]:text(1) == "1", rows[1]:text(1))
   assert(work.close(handle))
   assert(Fs.remove_tree(root))
 end
@@ -251,14 +251,14 @@ local function test_a_file_the_build_does_not_consume_is_scanned_all_the_same()
   -- Scanned, not staged: nothing the build compiles or runs sees it.
   local rows = assert(Sqlite.text_rows(handle.db,
     "SELECT count(*) FROM files WHERE path = 'scripts/release.sh'"))
-  assert(rows[1][1] == "0", rows[1][1])
+  assert(rows[1]:text(1) == "0", rows[1]:text(1))
 
   assert(Fs.remove(root .. "/scripts/release.sh"))
   assert(work.stage(handle, false))
   listed = assert(todos.list(handle.db, root)).todos
   assert(#listed == 0, "found " .. #listed)
   rows = assert(Sqlite.text_rows(handle.db, "SELECT count(*) FROM scanned"))
-  assert(rows[1][1] == "0", rows[1][1])
+  assert(rows[1]:text(1) == "0", rows[1]:text(1))
   assert(work.close(handle))
   assert(Fs.remove_tree(root))
 end
@@ -289,7 +289,7 @@ local function test_own_tree_scans_github_for_todos()
       ".github/check.tl:1: not an input|.github/workflows/ci.yml:1: pin the runner", table.concat(seen, "|"))
   local rows = assert(Sqlite.text_rows(handle.db,
     "SELECT count(*) FROM files WHERE path LIKE '.github/%'"))
-  assert(rows[1][1] == "0", rows[1][1])
+  assert(rows[1]:text(1) == "0", rows[1]:text(1))
   assert(work.close(handle))
 
   -- Staged again as another project's tree, it is hidden, and what the
@@ -299,7 +299,7 @@ local function test_own_tree_scans_github_for_todos()
   listed = assert(todos.list(other.db, root)).todos
   assert(#listed == 0, "found " .. #listed)
   rows = assert(Sqlite.text_rows(other.db, "SELECT count(*) FROM scanned"))
-  assert(rows[1][1] == "0", rows[1][1])
+  assert(rows[1]:text(1) == "0", rows[1]:text(1))
   assert(work.close(other))
   assert(Fs.remove_tree(root))
 end

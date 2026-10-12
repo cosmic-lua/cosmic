@@ -200,7 +200,7 @@ function Grader.evidence(path: string): Grader.Evidence | nil, string
   end
   local tests, examples = 0, 0
   for _, row in ipairs(rows) do
-    local kind, origin, n = row[1], row[2], math.tointeger(tonumber(row[3])) or 0
+    local kind, origin, n = row:text(1), row:text(2), math.tointeger(tonumber(row:text(3))) or 0
     if kind == "test" and origin ~= "doctest" then
       tests = tests + n
     end

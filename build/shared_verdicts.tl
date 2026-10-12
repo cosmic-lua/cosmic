@@ -267,8 +267,8 @@ function shared_verdicts.declared(cache: shared_verdicts.Cache,
     { text(key) })
   if rows == nil then return nil, trouble end
   if rows[1] == nil then return nil, "" end
-  return { hits = unpacked(rows[1][1]),
-    elapsed_ns = math.tointeger(tonumber(rows[1][2]) or 0) or 0 }, ""
+  return { hits = unpacked(rows[1]:text(1)),
+    elapsed_ns = math.tointeger(tonumber(rows[1]:text(2)) or 0) or 0 }, ""
 end
 
 --- The digest of the bytes of the closure store at `address`, as a run
@@ -279,7 +279,7 @@ function shared_verdicts.store_digest(cache: shared_verdicts.Cache,
     "SELECT digest FROM " .. stores .. " WHERE address = ?1", { text(address) })
   if rows == nil then return nil, trouble end
   if rows[1] == nil then return nil, "" end
-  return rows[1][1], ""
+  return rows[1]:text(1), ""
 end
 
 --- How many rows the cache holds, and how many are of a test in
@@ -294,9 +294,9 @@ function shared_verdicts.census(cache: shared_verdicts.Cache,
   if rows == nil then return nil, trouble end
   local out: shared_verdicts.Census = { rows = 0, of_tests = 0 }
   for _, row in ipairs(rows) do
-    local count = math.tointeger(tonumber(row[2]) or 0) or 0
+    local count = math.tointeger(tonumber(row:text(2)) or 0) or 0
     out.rows = out.rows + count
-    if tests[row[1]] then out.of_tests = out.of_tests + count end
+    if tests[row:text(1)] then out.of_tests = out.of_tests + count end
   end
   return out, ""
 end
@@ -328,7 +328,7 @@ function shared_verdicts.held(cache: shared_verdicts.Cache): {shared_verdicts.He
   if rows == nil then return nil, trouble end
   local out: {shared_verdicts.Held} = {}
   for _, row in ipairs(rows) do
-    out[#out + 1] = { parts = row[1] or "", rows = math.tointeger(tonumber(row[2]) or 0) or 0 }
+    out[#out + 1] = { parts = row:text(1) or "", rows = math.tointeger(tonumber(row:text(2)) or 0) or 0 }
   end
   return out, ""
 end

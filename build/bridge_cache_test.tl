@@ -171,7 +171,7 @@ local function rows(f: Fixture, where?: string): integer
   local db = assert(Sqlite.open(f.cache))
   local found = assert(Sqlite.text_rows(db, "SELECT count(*) FROM bridge_v1 " .. (where or "")))
   assert(db:close())
-  return math.tointeger(tonumber(found[1][1])) as integer
+  return math.tointeger(tonumber(found[1]:text(1))) as integer
 end
 
 local function sql(f: Fixture, statement: string)
@@ -451,7 +451,7 @@ local function test_the_bridge_makes_the_table_the_formats_name(tmp: string)
     local found = assert(Sqlite.text_rows(db,
       "SELECT sql FROM sqlite_schema WHERE name LIKE 'bridge_v%' ORDER BY name"))
     local out: {string} = {}
-    for _, row in ipairs(found) do out[#out + 1] = row[1]:gsub("%s+", "") end
+    for _, row in ipairs(found) do out[#out + 1] = row:text(1):gsub("%s+", "") end
     return table.concat(out, ";")
   end
   local made = assert(Sqlite.open(f.cache))
