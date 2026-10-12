@@ -37,29 +37,34 @@ programs') are not verbs' and stay.
   drops the line. in [design.md](../design.md), principle 8's "gates end
   in a verdict line" becomes "a gate's verdict is its exit code", and the
   paragraph on verbs drops "ends in a verdict line".
-- **stdout is the verb's result; stderr says what went wrong.** what a
-  verdict said and nothing else says becomes a complaint:
+- **stdout is the verb's result; stderr says how the run went.** a verb
+  that gave a verdict ends a run it got past its command line with a
+  summary line on stderr: `<verb>: ` and what the verdict's detail said,
+  its counts and its elapsed time, without PASS or FAIL
+  (`fix: 3 Teal files, 0 fixed, 12 ms`). so what only a verdict said
+  keeps a place there:
   - `db`, `uses`, `todos` and `docs` finding nothing (exit 1 as now). for
     `docs`, that is the "nothing named or documented as …" text, which a
     one-word query says only in its verdict.
   - `fix`'s hints: "`cosmic fix` rewrites them in place", "`cosmic fix`
     links them", and the Markdown rewrite. its `fix: FAIL  …` and
     `fix: would fix  …` lines stay on stdout as its result.
-  - `boot`'s failures, about 30 of which say why only in a verdict, and
-    the two that write `boot: FAIL` with `say`.
-- **a figure a reader needs moves into the verb's result.** one that only
-  described the run goes:
-  - `build` prints each executable it wrote on stdout, one path per line,
-    with ` (host)` after a host build. this is the one fact consumers parse
+
+  a refused command line gets no summary: its complaint says why. a
+  summary that only repeats a complaint (`sql`'s, `bom`'s and `help`'s
+  failures) is dropped.
+- **a figure a consumer parses moves into the verb's result on stdout:**
+  - `build` prints each executable it wrote, one path per line, with
+    ` (host)` after a host build. this is the one fact consumers parse
     from its verdict.
-  - `test` keeps its summary, since its counts are a test run's result,
-    worded as an outcome: `test: 6151 tests passed in 596 modules; 395 ran,
-    5699 stood, …` or `test: 2 of 6151 tests failed, 0 infrastructure
-    errors, …`. the sandbox and shard notes stay.
-  - `boot` and `stage` keep their summary without PASS: `boot: 3 targets,
-    …`.
-  - row, place, TODO and verb counts, `fix`'s file counts, and every
-    verb's elapsed time go. `time cosmic …` measures a run.
+  - `test` keeps its summary on stdout, since its counts are a test run's
+    result, worded as an outcome: `test: 6151 tests passed in 596 modules;
+    395 ran, 5699 stood, …` or `test: 2 of 6151 tests failed, 0
+    infrastructure errors, …`. the sandbox and shard notes stay.
+- **`boot` and `stage`** write their summary on stderr like a verb, without
+  PASS: `boot: 3 targets, …`. `boot`'s failures, about 30 of which say why
+  only in a verdict, and the two that write `boot: FAIL` with `say`,
+  become complaints.
 - **the shared logger stays.** [`build/verdict.tl`] is also the `"cosmic"`
   logger that 18 modules write through. it is renamed `build/logger.tl`
   and keeps only that.
@@ -112,7 +117,7 @@ PR that changes what it reads.
   and [`eval/summarize.tl`]'s "first green" read `test: PASS`, and
   summarize counts `docs: FAIL` among docs misses. they move to
   `build`'s stdout, to the exit code, to the summary's "tests passed"
-  where a transcript holds no exit code, and to `docs`' complaint.
+  where a transcript holds no exit code, and to `docs`' summary.
 - **perf:** [`build/perf.tl`] matches `; N ran, M stood`, which stays.
 - **the guides:**
   - seven doctests match `test: [A-Z]+`: web-forms.md and the web, web-api,
@@ -132,9 +137,9 @@ PR that changes what it reads.
   - [`build/boot_test.tl`]
 
   [`build/verbs_tool_test.tl`]'s `test_every_started_verb_ends_in_a_verdict`
-  becomes "every started verb says why it failed": a nonzero exit has a
-  complaint on stderr, and a refused command line exits 2 with stdout
-  empty.
+  becomes "every started verb says how it went": a run past its command
+  line ends in a summary on stderr, and a refused command line exits 2
+  with a complaint and stdout empty.
 
 ## the PRs
 
@@ -152,13 +157,13 @@ PR that changes what it reads.
    - drop every `:verdict` call in `build/` and dispatch's fallback;
    - rename [`build/verdict.tl`] and drop `given` and `on_stderr`;
    - add `checks_stale` and reduce `bare`;
-   - make complaints of what only a verdict said: `db`, `uses`, `todos`,
-     `docs`, `fix`'s hints and `boot`'s failures;
+   - move each verdict's detail to the stderr summary, and make `boot`'s
+     failures complaints;
    - rewrite `cosmic help exit`, the per-verb help note, [`cosmic.cli`]'s
      help prose, design.md, command-line.md, quickstart.md and the guides'
      remaining output blocks;
    - replace the ends-in-a-verdict test;
-   - move eval's `docs: FAIL` count to the complaint.
+   - move eval's `docs: FAIL` count to `docs`' summary.
 4. **remove [`Logger.verdict`]** from [`cosmic.log`]:
    - its example, its tests, and [`build/verify_codesign.tl`]'s call;
    - `verdict` in [`build/contracts.tl`]'s quieted methods;
@@ -168,12 +173,11 @@ PR that changes what it reads.
 
 - **a word to read at a glance.** someone reading the output, a person or
   an agent, sees `PASS` or `FAIL` without asking for the exit status. the
-  test summary keeps that ("passed", "failed"). the other verbs' output
-  says only what they found or did.
-- **elapsed time on every verb.** only `test` and `boot` say how long
-  they took.
-- **one shape across verbs.** no single pattern finds a verb's outcome
-  in its output. the readers above are the only ones that use one.
+  test summary keeps that ("passed", "failed"). the other verbs'
+  summaries say what they found or did.
+- **one shape across verbs.** the summaries keep `<verb>: `, but no single
+  pattern finds a verb's outcome in its output. the readers above are the
+  only ones that use one.
 
 [`build/boot_test.tl`]: ../../build/boot_test.tl
 [`build/contracts.tl`]: ../../build/contracts.tl
