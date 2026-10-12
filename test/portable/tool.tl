@@ -130,7 +130,7 @@ local function prepare_databases(argv: {string}): integer
   local db = assert(Sqlite.open(argv[1]))
   local rows = assert(Sqlite.text_rows(db, "SELECT key FROM meta"))
   local keys: {string:boolean} = {}
-  for _, row in ipairs(rows) do keys[row[1]] = true end
+  for _, row in ipairs(rows) do keys[row:text(1)] = true end
   local images = assert(Sqlite.text_rows(db,
     "SELECT count(*) FROM sqlite_schema WHERE name = 'images'"))
   assert(db:close())
@@ -138,7 +138,7 @@ local function prepare_databases(argv: {string}): integer
     assert(not keys[forbidden],
       "portable runtime build: per-host metadata survived: " .. forbidden)
   end
-  assert(keys["runtime_basis"] and images[1][1] == "0",
+  assert(keys["runtime_basis"] and images[1]:text(1) == "0",
     "portable runtime build: projection lacks basis or has an images table")
   return 0
 end

@@ -273,7 +273,7 @@ function teal.standard_text(name: string): teal.Standard | nil
     "SELECT inflate(source) FROM stubs WHERE path = ?1 " ..
       "AND path NOT IN (SELECT path FROM decls)", { { text = name } })
   if rows ~= nil and #rows > 0 then
-    return { text = rows[1][1], stubbed = true }
+    return { text = rows[1]:text(1), stubbed = true }
   end
   local source, _ = Store.source(name)
   if source == nil then
@@ -322,7 +322,7 @@ local function serve(built: compiler, db: Sqlite.Handle, root: string)
         "ORDER BY kind = 'decl' DESC LIMIT 1", { { text = name } })
     local stem = name:gsub("%.", "/")
     if rows ~= nil and #rows > 0 then
-      local kind, source = rows[1][1], rows[1][2]
+      local kind, source = rows[1]:text(1), rows[1]:text(2)
       return root .. "/" .. stem .. (kind == "decl" and ".d.tl" or ".tl"),
         served(source)
     end

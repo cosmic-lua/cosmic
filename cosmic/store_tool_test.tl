@@ -32,7 +32,7 @@ return function(argv: {string}): integer
   local ordinary: string | nil = nil
   for _, row in ipairs((assert(Sqlite.text_rows(binary,
       "SELECT path FROM modules WHERE kind = 'module' ORDER BY path")))) do
-    local name = row[1]
+    local name = row:text(1)
     local _, extra = search(name)
     if extra is table then
       table.insert(wrappers, name)

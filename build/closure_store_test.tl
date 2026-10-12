@@ -138,7 +138,7 @@ local function test_a_closure_store_moves_only_with_its_closure(tmp: string)
   local held_rows = assert(Sqlite.text_rows(held_db,
     "SELECT group_concat(path, ' ') FROM (SELECT path FROM decls ORDER BY path)"))
   assert(held_db:close())
-  assert(held_rows[1][1] == "base extra", held_rows[1][1])
+  assert(held_rows[1]:text(1) == "base extra", held_rows[1]:text(1))
   closure = names
   assert(store("world", tmp .. "/unheld.db") == first,
     "a declaration's edit moved the address of a closure that does not hold it")
@@ -157,11 +157,11 @@ local function test_a_closure_store_moves_only_with_its_closure(tmp: string)
       "(SELECT count(*) FROM meta WHERE key = 'closure'), (SELECT count(*) FROM decls)"))
   assert(db:close())
   local row = rows[1]
-  assert(row[1] == "greet greet_test", row[1])
-  assert(row[2] == "0", "a doc of a module outside the closure is in its store")
-  assert(row[3] == "0", "a meta row that moves with the whole tree is in the store")
-  assert(row[4] == "0", "the store names its address, which a key would then hold")
-  assert(row[5] == "0", "a declaration outside the closure is in its store")
+  assert(row:text(1) == "greet greet_test", row:text(1))
+  assert(row:text(2) == "0", "a doc of a module outside the closure is in its store")
+  assert(row:text(3) == "0", "a meta row that moves with the whole tree is in the store")
+  assert(row:text(4) == "0", "the store names its address, which a key would then hold")
+  assert(row:text(5) == "0", "a declaration outside the closure is in its store")
 end
 
 --- The store of an import closure holds what the compiler made of it,
@@ -402,7 +402,7 @@ local function test_a_declaration_moves_only_the_stores_that_hold_it(tmp: string
     local rows = assert(Sqlite.text_rows(handle.db,
       "SELECT path, file FROM inputs WHERE kind = 'decl'"))
     for _, row in ipairs(rows) do
-      declarations[row[1]] = row[2]
+      declarations[row:text(1)] = row:text(2)
     end
     assert(work.close(handle))
     local basis = assert(closure_store.basis(tmp .. "/whole.db"))
@@ -481,7 +481,7 @@ local function test_a_closure_store_is_the_same_bytes_each_time_it_is_written(tm
       "MATCH 'world'), (SELECT count(*) FROM examples_fts WHERE examples_fts MATCH 'greets'), " ..
       "(SELECT count(*) FROM uses)"))
   assert(db:close())
-  assert(table.concat(counts[1], " ") == "1 1 1 2", table.concat(counts[1], " "))
+  assert(table.concat(counts[1]:texts(), " ") == "1 1 1 2", table.concat(counts[1]:texts(), " "))
 end
 
 --- The key of a test given a closure store holds the store by its bytes,

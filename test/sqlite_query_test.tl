@@ -17,9 +17,9 @@ local function test_a_query_reads_what_rows_reads()
   local q = assert(Sqlite.query(db, "SELECT n, label FROM t WHERE n >= ?1 ORDER BY n",
     { { integer = 2 } }))
   local first = assert(q:read())
-  assert(first[1].integer == 2 and first[2].text == "n2")
+  assert(first:integer(1) == 2 and first:text(2) == "n2")
   local second = assert(q:read())
-  assert(second[1].integer == 3 and second[2].text == "n3")
+  assert(second:integer(1) == 3 and second:text(2) == "n3")
   for _ = 1, 2 do
     local row, trouble = q:read()
     assert(row == nil and trouble == "")
@@ -32,7 +32,7 @@ local function test_each_reads_every_row()
   local db = numbers(100)
   local q = assert(Sqlite.query(db, "SELECT n FROM t ORDER BY n"))
   local total = 0
-  for row in q:each() do total = total + assert(row[1].integer) end
+  for row in q:each() do total = total + row:integer(1) end
   assert(total == 5050 and q:failure() == "")
   assert(db:close())
 end
@@ -101,7 +101,7 @@ local function test_a_query_reads_the_columns_the_statement_has_now()
     local row, trouble = q:read()
     assert(row ~= nil, change .. ": " .. trouble)
     local want = change:find("DROP", 1, true) and 1 or 3
-    assert(#row == want, change .. ": " .. tostring(#row) .. " columns")
+    assert(row:count() == want, change .. ": " .. tostring(row:count()) .. " columns")
     q:close()
     assert(db:close())
   end

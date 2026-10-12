@@ -84,7 +84,7 @@ end
 local function count(db: Sqlite.Handle, sql: string, values?: {Sqlite.Value}): integer | nil, string
   local rows, why = Sqlite.rows(db, sql, values)
   if rows == nil then return nil, why end
-  return rows[1][1].integer, ""
+  return rows[1]:integer(1), ""
 end
 
 --- A column's shape, including hidden/generated columns that table_info omits.
@@ -94,7 +94,7 @@ local function columns(db: Sqlite.Handle, name: string): {string} | nil, string
       "FROM pragma_table_xinfo(?1) ORDER BY cid", { { text = name } })
   if rows == nil then return nil, why end
   local shape: {string} = {}
-  for _, row in ipairs(rows) do shape[#shape + 1] = table.concat(row, "\0") end
+  for _, row in ipairs(rows) do shape[#shape + 1] = table.concat(row:texts(), "\0") end
   return shape, ""
 end
 
@@ -122,7 +122,7 @@ local function shapes(): {string:Shape}
   for _, name in ipairs({ formats.compiled, formats.parsed, formats.bridge, formats.declared,
       formats.stores, "verdicts_v4" }) do
     local sql = assert(Sqlite.text_rows(memory,
-      "SELECT sql FROM sqlite_schema WHERE name = ?1", { { text = name } }))[1][1]
+      "SELECT sql FROM sqlite_schema WHERE name = ?1", { { text = name } }))[1]:text(1)
     out[name] = { columns = (assert(columns(memory, name))), sql = normalized(sql) }
   end
   return out
@@ -167,20 +167,20 @@ local function inspect(db: Sqlite.Handle, family: maintenance.Family,
   if schema == nil then return nil, why end
   local unsafe = false
   for _, row in ipairs(schema) do
-    if row[2] == "trigger" or row[3]:upper():match("^CREATE%s+VIRTUAL%s+TABLE") then
+    if row:text(2) == "trigger" or row:text(3):upper():match("^CREATE%s+VIRTUAL%s+TABLE") then
       unsafe = true
     end
-    if row[2] == "table" then
+    if row:text(2) == "table" then
       local foreign, foreign_why = count(db, "SELECT count(*) FROM pragma_foreign_key_list(?1)",
-        { { text = row[1] } })
+        { { text = row:text(1) } })
       if foreign == nil then return nil, foreign_why end
       if foreign ~= 0 then unsafe = true end
     end
   end
   local out: {Table} = {}
   for _, row in ipairs(schema) do
-    local name = row[1]
-    if row[2] == "table" and belongs(name, family) then
+    local name = row:text(1)
+    if row:text(2) == "table" and belongs(name, family) then
       local actual, actual_why = columns(db, name)
       if actual == nil then return nil, actual_why end
       local stamped = false
@@ -188,7 +188,7 @@ local function inspect(db: Sqlite.Handle, family: maintenance.Family,
         if column:sub(1, 8) == "used_ns\0" then stamped = true end
       end
       out[#out + 1] = { name = name, stamped = stamped,
-        supported = not unsafe and matches(name, row[3], actual, expected[name]) }
+        supported = not unsafe and matches(name, row:text(3), actual, expected[name]) }
     end
   end
   return out, ""
@@ -242,7 +242,7 @@ local function checkpoint(db: Sqlite.Handle): boolean, string
   local rows, why = Sqlite.rows(db, "PRAGMA wal_checkpoint(TRUNCATE)")
   if rows == nil then return false, why end
   local row = rows[1]
-  if row == nil or row[1].integer ~= 0 or row[2].integer ~= row[3].integer then
+  if row == nil or row:integer(1) ~= 0 or row:integer(2) ~= row:integer(3) then
     return false, "WAL checkpoint is busy or incomplete; no save-ready digest"
   end
   return true, ""
@@ -345,7 +345,7 @@ local function feed_rows(hasher: Hash.Hasher, path: string, guard: Signal.Guard)
   if names == nil then return false, names_why end
   for _, row in ipairs(names) do
     if guard:cancelled() ~= 0 then return false, "cache maintenance interrupted" end
-    local name = row[1]
+    local name = row:text(1)
     local fields, fields_why = Sqlite.text_rows(db,
       "SELECT name FROM pragma_table_info(?1) WHERE name <> 'used_ns' ORDER BY cid",
       { { text = name } })
@@ -353,8 +353,8 @@ local function feed_rows(hasher: Hash.Hasher, path: string, guard: Signal.Guard)
     local selected: {string} = {}
     local order: {string} = {}
     for i, field in ipairs(fields) do
-      selected[i], order[i] = quoted(field[1]), tostring(i)
-      hasher:update("column\0" .. #field[1] .. ":" .. field[1])
+      selected[i], order[i] = quoted(field:text(1)), tostring(i)
+      hasher:update("column\0" .. #field:text(1) .. ":" .. field:text(1))
     end
     hasher:update("table\0" .. #name .. ":" .. name .. "\0" .. #fields .. "\0")
     if #selected > 0 then
@@ -364,11 +364,19 @@ local function feed_rows(hasher: Hash.Hasher, path: string, guard: Signal.Guard)
       local q <close> = query
       for cells in q:each() do
         if guard:cancelled() ~= 0 then return false, "cache maintenance interrupted" end
-        for _, cell in ipairs(cells) do
-          local value = cell.text or cell.blob or
-            (cell.integer ~= nil and tostring(cell.integer)) or
-            (cell.number ~= nil and string.format("%.17g", cell.number)) or ""
-          hasher:update(cell.kind .. "\0" .. #value .. ":" .. value)
+        for index = 1, cells:count() do
+          local kind = cells:kind(index)
+          local value = ""
+          if kind == "text" then
+            value = cells:text(index)
+          elseif kind == "blob" then
+            value = cells:blob(index)
+          elseif kind == "integer" then
+            value = tostring(cells:integer(index))
+          elseif kind == "number" then
+            value = string.format("%.17g", cells:number(index))
+          end
+          hasher:update(kind .. "\0" .. #value .. ":" .. value)
         end
         hasher:update("\n")
       end
@@ -414,16 +422,16 @@ local function new_keys(db: Sqlite.Handle, restored: Sqlite.Handle | nil,
   local fresh = 0
   for row in live:each() do
     if guard:cancelled() ~= 0 then return nil, "cache maintenance interrupted" end
-    local key = row[1].text
-    if key == nil then return nil, "compile key is not text" end
+    if row:kind(1) ~= "text" then return nil, "compile key is not text" end
+    local key = row:text(1)
     while previous ~= nil do
-      local old_key = previous[1].text
-      if old_key == nil then return nil, "restored compile key is not text" end
+      if previous:kind(1) ~= "text" then return nil, "restored compile key is not text" end
+      local old_key = previous:text(1)
       if old_key >= key then break end
       previous, previous_why = old:read()
       if previous == nil and previous_why ~= "" then return nil, previous_why end
     end
-    if previous == nil or previous[1].text ~= key then fresh = fresh + 1 end
+    if previous == nil or previous:text(1) ~= key then fresh = fresh + 1 end
   end
   if live:failure() ~= "" then return nil, live:failure() end
   return fresh, ""
@@ -458,8 +466,8 @@ local function fresh_keys(path: string, restored: string, expected: {string:Shap
   if names == nil then return nil, names_why end
   local total = 0
   for _, row in ipairs(names) do
-    if row[1]:match("^compiled_v%d+$") then
-      local n, count_why = new_keys(opened, old.db, row[1], guard)
+    if row:text(1):match("^compiled_v%d+$") then
+      local n, count_why = new_keys(opened, old.db, row:text(1), guard)
       if n == nil then return nil, count_why end
       total = total + n
     end

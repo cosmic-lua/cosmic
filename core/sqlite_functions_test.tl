@@ -14,7 +14,7 @@ local function row(sql: string): {string}
   handle:close()
   assert(rows ~= nil, trouble)
   assert(#rows == 1, sql .. ": expected one row, got " .. #rows)
-  return rows[1]
+  return rows[1]:texts()
 end
 
 local function test_math_functions_are_built_in()
@@ -107,7 +107,7 @@ local function test_uncompress_bounds_a_claimed_length_by_deflates_ratio()
   -- Zeros compress about as far as deflate goes, near 1029:1.
   local size = 10000000
   local packed = assert(Sqlite.rows(handle, "SELECT compress(zeroblob(?1))",
-    { { integer = size } }))[1][1].blob
+    { { integer = size } }))[1]:blob(1)
   assert(packed ~= nil)
   local prefix = #length_prefix(size)
   local stream = packed:sub(prefix + 1)
@@ -115,7 +115,7 @@ local function test_uncompress_bounds_a_claimed_length_by_deflates_ratio()
     local rows = assert(Sqlite.text_rows(handle,
       "SELECT ifnull(length(uncompress(?1)), 'NULL')",
       { { blob = length_prefix(claim) .. stream } }))
-    return rows[1][1]
+    return rows[1]:text(1)
   end
   assert(read(size) == tostring(size), "a stream at deflate's ratio must read back")
   assert(read(#stream * 1032) == tostring(size), "a claim at the bound must be read")
@@ -225,15 +225,15 @@ local function test_tables_used_and_bytecode_read_a_statement_without_running_it
     "SELECT type, name, wr FROM tables_used('INSERT INTO t SELECT b FROM u WHERE b > 1') " ..
       "ORDER BY name"))
   local got: {string} = {}
-  for _, r in ipairs(rows) do got[#got + 1] = table.concat(r, " ") end
+  for _, r in ipairs(rows) do got[#got + 1] = table.concat(r:texts(), " ") end
   -- The index covers the query, so SQLite reads it in place of u.
   assert(table.concat(got, ", ") == "table t 1, index ub 0", table.concat(got, ", "))
   assert(handle:exec("INSERT INTO t VALUES (1)"))
   rows = assert(Sqlite.text_rows(handle,
     "SELECT opcode FROM bytecode('DELETE FROM t') WHERE addr = 0"))
-  assert(rows[1][1] == "Init", rows[1][1])
+  assert(rows[1]:text(1) == "Init", rows[1]:text(1))
   rows = assert(Sqlite.text_rows(handle, "SELECT count(*) FROM t"))
-  assert(rows[1][1] == "1", "compiling a statement must not run it")
+  assert(rows[1]:text(1) == "1", "compiling a statement must not run it")
   handle:close()
 end
 
@@ -250,14 +250,14 @@ local function test_bytecode_and_tables_used_refuse_a_view_and_a_trigger()
     assert(trouble:find("unsafe use of virtual table", 1, true) ~= nil, trouble)
   end
   local rows = assert(Sqlite.text_rows(handle, "PRAGMA query_only"))
-  assert(rows[1][1] == "0", "a view or trigger set query_only")
+  assert(rows[1]:text(1) == "0", "a view or trigger set query_only")
   handle:close()
 end
 
 local function test_a_database_s_own_schema_is_not_trusted()
   local handle = assert(Sqlite.memory())
   local rows = assert(Sqlite.text_rows(handle, "PRAGMA trusted_schema"))
-  assert(rows[1][1] == "0", "trusted_schema must be off")
+  assert(rows[1]:text(1) == "0", "trusted_schema must be off")
   assert(handle:exec([[CREATE TABLE todos (id INTEGER PRIMARY KEY, text TEXT);
     CREATE VIRTUAL TABLE todos_fts USING fts5(text, content=todos, content_rowid=id);
     CREATE TRIGGER todos_inserted AFTER INSERT ON todos BEGIN
@@ -275,15 +275,15 @@ local function test_a_database_s_own_schema_is_not_trusted()
   assert(handle:exec("INSERT INTO todos (text) VALUES ('fix the thing')"))
   rows = assert(Sqlite.text_rows(handle,
     "SELECT rowid FROM todos_fts WHERE todos_fts MATCH 'thing'"))
-  assert(rows[1][1] == "1", "the insert trigger must have indexed the row")
+  assert(rows[1]:text(1) == "1", "the insert trigger must have indexed the row")
   assert(handle:exec("UPDATE todos SET text = 'mend the other'"))
   rows = assert(Sqlite.text_rows(handle, "SELECT " ..
       "(SELECT count(*) FROM todos_fts WHERE todos_fts MATCH 'thing'), " ..
       "(SELECT count(*) FROM todos_fts WHERE todos_fts MATCH 'other')"))
-  assert(rows[1][1] == "0" and rows[1][2] == "1", "the update trigger must have reindexed the row")
+  assert(rows[1]:text(1) == "0" and rows[1]:text(2) == "1", "the update trigger must have reindexed the row")
   assert(handle:exec("DELETE FROM todos; INSERT INTO todos (text) VALUES ('fix the thing')"))
   rows = assert(Sqlite.text_rows(handle, "SELECT * FROM plain"))
-  assert(rows[1][1] == "FIX", rows[1][1])
+  assert(rows[1]:text(1) == "FIX", rows[1]:text(1))
   -- A pragma_* table and a function SQLite does not mark innocuous are
   -- refused from a view.
   local _, why = Sqlite.text_rows(handle, "SELECT * FROM pragmas")
@@ -292,7 +292,7 @@ local function test_a_database_s_own_schema_is_not_trusted()
   assert(why:find("unsafe use of median()", 1, true) ~= nil, why)
   -- The caller's own SQL may use both.
   rows = assert(Sqlite.text_rows(handle, "SELECT count(*) FROM pragma_table_info('todos')"))
-  assert(rows[1][1] == "2", rows[1][1])
+  assert(rows[1]:text(1) == "2", rows[1]:text(1))
   handle:close()
 end
 
@@ -304,19 +304,19 @@ local function test_rtree_finds_the_boxes_a_box_overlaps()
     INSERT INTO spans VALUES (1, 100, 200), (2, 150, 300);]]))
   local rows = assert(Sqlite.text_rows(handle, "SELECT group_concat(id) FROM " ..
       "(SELECT id FROM boxes WHERE x1 >= 8 AND x0 <= 12 AND y1 >= 8 AND y0 <= 12 ORDER BY id)"))
-  assert(rows[1][1] == "1,2", rows[1][1])
+  assert(rows[1]:text(1) == "1,2", rows[1]:text(1))
   rows = assert(Sqlite.text_rows(handle, "SELECT group_concat(id) FROM " ..
       "(SELECT id FROM spans WHERE start <= 250 AND stop >= 250 ORDER BY id)"))
-  assert(rows[1][1] == "2", rows[1][1])
+  assert(rows[1]:text(1) == "2", rows[1]:text(1))
   -- A coordinate a 32-bit real cannot hold is rounded outward.
   assert(handle:exec("INSERT INTO boxes VALUES (4, 0.1, 0.1, 0.1, 0.1)"))
   rows = assert(Sqlite.text_rows(handle,
     "SELECT x0 <= 0.1, x1 >= 0.1, x0 < x1 FROM boxes WHERE id = 4"))
-  assert(table.concat(rows[1], " ") == "1 1 1", table.concat(rows[1], " "))
+  assert(table.concat(rows[1]:texts(), " ") == "1 1 1", table.concat(rows[1]:texts(), " "))
   rows = assert(Sqlite.text_rows(handle, "SELECT rtreecheck('boxes'), rtreecheck('spans')"))
-  assert(rows[1][1] == "ok" and rows[1][2] == "ok", rows[1][1] .. " " .. rows[1][2])
+  assert(rows[1]:text(1) == "ok" and rows[1]:text(2) == "ok", rows[1]:text(1) .. " " .. rows[1]:text(2))
   rows = assert(Sqlite.text_rows(handle, "SELECT rtreedepth(data) FROM boxes_node WHERE nodeno = 1"))
-  assert(rows[1][1] == "0", rows[1][1])
+  assert(rows[1]:text(1) == "0", rows[1]:text(1))
   for _, b in ipairs({ "x'01'", "'text'" }) do
     assert(Sqlite.text_rows(handle, "SELECT rtreedepth(" .. b .. ")") == nil, b)
   end
@@ -336,7 +336,7 @@ local function test_rtree_checks_a_lying_depth_in_bounded_time()
       "WHERE nodeno = 1", { { blob = string.pack(">I2", 40) } }))
   for _, sql in ipairs({ "SELECT rtreecheck('b')", "PRAGMA integrity_check" }) do
     local rows = assert(Sqlite.text_rows(handle, sql))
-    local report = table.concat(rows[1], " ")
+    local report = table.concat(rows[1]:texts(), " ")
     assert(report:find("Node 1 is reached a second time", 1, true) ~= nil,
       sql .. ": " .. report:sub(1, 400))
   end

@@ -34,7 +34,7 @@ local function test_the_binary_s_database_inflates_its_source()
   local binary = databases[#databases]
   local rows = assert(Sqlite.text_rows(binary,
     "SELECT CAST(inflate(source) AS TEXT) FROM modules WHERE path = 'cosmic.store'"))
-  assert(#rows == 1 and rows[1][1] == assert(Store.source("cosmic.store")),
+  assert(#rows == 1 and rows[1]:text(1) == assert(Store.source("cosmic.store")),
     "the query and Store.source read the same text")
 end
 

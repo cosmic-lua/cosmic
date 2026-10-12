@@ -667,8 +667,8 @@ local function file_check_sources(databases: {Sqlite.Handle}): {string: boolean}
   for _, db in ipairs(databases) do
     local rows, _ = Sqlite.text_rows(db, query)
     for _, row in ipairs(rows or {}) do
-      found[row[1]] = true
-      out[row[2]] = true
+      found[row:text(1)] = true
+      out[row:text(2)] = true
     end
   end
   for _, module in ipairs(file_checks) do

@@ -23,7 +23,7 @@ local function create(store: Session.Store, values: {string:any}, expires?: inte
 end
 
 local function count(db: Sqlite.Handle): integer
-  return assert(Sqlite.rows(db, "SELECT count(*) FROM web_sessions"))[1][1].integer
+  return assert(Sqlite.rows(db, "SELECT count(*) FROM web_sessions"))[1]:integer(1)
 end
 
 local function test_a_new_session_gets_a_256_bit_id_and_the_table_holds_only_its_hash()
@@ -31,11 +31,11 @@ local function test_a_new_session_gets_a_256_bit_id_and_the_table_holds_only_its
   local id = create(store, { user = "ada" })
   assert(#id == 43 and Codec.unbase64url(id) ~= nil and #assert(Codec.unbase64url(id)) == 32)
   local rows = assert(Sqlite.rows(db, "SELECT id_hash, data FROM web_sessions"))
-  assert(#rows == 1 and rows[1][1].blob == Hash.sha256(id))
-  assert(assert(rows[1][2].text):find("ada", 1, true))
+  assert(#rows == 1 and rows[1]:blob(1) == Hash.sha256(id))
+  assert(rows[1]:text(2):find("ada", 1, true))
   local seen = assert(Sqlite.rows(db, "SELECT count(*) FROM web_sessions WHERE id_hash = ?1 OR data = ?2",
     { { blob = id }, { text = id } }))
-  assert(seen[1][1].integer == 0, "the id itself is nowhere in the table")
+  assert(seen[1]:integer(1) == 0, "the id itself is nowhere in the table")
   assert(create(store, { user = "ada" }) ~= id, "ids differ")
   assert(store.revocable)
 end
@@ -179,7 +179,7 @@ local function test_a_table_name_that_is_not_an_identifier_is_refused_and_a_name
   local store = assert(SessionSqlite.store(db, { table = "my_sessions" }))
   local id = assert(store:save("", fresh({}), changed({ a = 1 }), 100, "session"))
   local rows = assert(Sqlite.rows(db, "SELECT count(*) FROM my_sessions"))
-  assert(rows[1][1].integer == 1 and store:load(id, 200, "session") ~= nil)
+  assert(rows[1]:integer(1) == 1 and store:load(id, 200, "session") ~= nil)
 end
 
 local function test_a_store_function_refuses_a_store_not_made_here()

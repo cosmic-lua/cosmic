@@ -52,7 +52,7 @@ local function test_reset_clears_the_runs_and_keeps_the_rest(dir: string)
   local db = assert(Sqlite.open(path))
   local rows = assert(Sqlite.text_rows(db, "select count(*) from inputs", {}))
   db:close()
-  assert(rows[1][1] == "1")
+  assert(rows[1]:text(1) == "1")
 end
 
 local function test_a_missing_database_resets_but_is_no_evidence(dir: string)

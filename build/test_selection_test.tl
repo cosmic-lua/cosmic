@@ -88,7 +88,7 @@ local function test_cli_selects_one_path_and_runs_it_fresh(tmp: string)
   local rows = assert(Sqlite.text_rows(db,
     "SELECT COUNT(*) FROM coverage WHERE path = 'suite.helper'"))
   assert(db:close())
-  assert(rows[1][1] ~= "0", "selected run omitted dependency coverage")
+  assert(rows[1]:text(1) ~= "0", "selected run omitted dependency coverage")
 end
 
 local function test_a_standing_verdict_still_credits_its_coverage(tmp: string)
@@ -108,10 +108,10 @@ local function test_a_standing_verdict_still_credits_its_coverage(tmp: string)
     "SELECT test, hits FROM coverage_by_test"))
   assert(db:close())
   assert(#by_run == 2, "expected a coverage snapshot per run")
-  assert(by_run[1][1] ~= "0" and by_run[2][1] == by_run[1][1],
-    "the standing run credited " .. by_run[2][1] .. " lines, not " .. by_run[1][1])
+  assert(by_run[1]:text(1) ~= "0" and by_run[2]:text(1) == by_run[1]:text(1),
+    "the standing run credited " .. by_run[2]:text(1) .. " lines, not " .. by_run[1]:text(1))
   assert(#credits == 1, "expected one coverage_by_test row for the one test")
-  assert(credits[1][2]:find("suite.helper\t", 1, true), credits[1][2])
+  assert(credits[1]:text(2):find("suite.helper\t", 1, true), credits[1]:text(2))
 end
 
 local function test_cli_runs_only_the_one_test_a_selector_names(tmp: string)
@@ -141,7 +141,7 @@ end
   local db = assert(Sqlite.open(build_dir(root) .. "/build.db"))
   local credits = assert(Sqlite.text_rows(db, "SELECT test FROM coverage_by_test"))
   assert(db:close())
-  assert(#credits == 1 and credits[1][1] == "suite.selected_test test_selected",
+  assert(#credits == 1 and credits[1]:text(1) == "suite.selected_test test_selected",
     "expected only the named test credited")
 end
 
@@ -260,7 +260,7 @@ end
       "AND test = 'test_sleeps_a_known_duration'"))
   assert(db:close())
   assert(#rows == 1, "expected exactly one recorded run")
-  local elapsed = math.tointeger(tonumber(rows[1][1]))
+  local elapsed = math.tointeger(tonumber(rows[1]:text(1)))
   assert(elapsed ~= nil)
   assert(elapsed >= Clock.ms(50),
     "elapsed_ns " .. tostring(elapsed) .. " is shorter than the sleep")
@@ -298,8 +298,8 @@ local function test_another_project_counts_none_of_the_cores_c(tmp: string)
   local credits = assert(Sqlite.text_rows(db,
     "SELECT COUNT(*) FROM coverage_by_test WHERE hits LIKE '%core/%'"))
   assert(db:close())
-  assert(lines[1][1] == "0", lines[1][1] .. " coverage rows name the core's C")
-  assert(credits[1][1] == "0", credits[1][1] .. " tests are credited the core's C")
+  assert(lines[1]:text(1) == "0", lines[1]:text(1) .. " coverage rows name the core's C")
+  assert(credits[1]:text(1) == "0", credits[1]:text(1) .. " tests are credited the core's C")
 end
 
 --- A test whose directory cannot be made fails as that test's own
@@ -364,7 +364,7 @@ end
     local rows = assert(Sqlite.text_rows(db, "SELECT path, test FROM runs"))
     assert(db:close())
     for _, row in ipairs(rows) do
-      local id = row[1] .. " " .. row[2]
+      local id = row:text(1) .. " " .. row:text(2)
       seen[id] = (seen[id] or 0) + 1
     end
   end

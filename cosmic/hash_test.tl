@@ -297,7 +297,7 @@ local function test_hmac_takes_a_key_of_any_length()
     assert(Codec.hex(Hash.hmac(algorithm, case[2], case[3])) == case[4], label)
     local rows = assert(Sqlite.text_rows(db, "SELECT lower(hex(hmac(?1, ?2, ?3)))",
       { { text = case[1] }, { blob = case[2] }, { text = case[3] } }))
-    assert(rows[1][1] == case[4], "SQL, " .. label)
+    assert(rows[1]:text(1) == case[4], "SQL, " .. label)
   end
   db:close()
 end
@@ -314,18 +314,18 @@ local function test_sql_knows_the_same_digests()
   for _, v in ipairs(vectors) do
     local rows = assert(Sqlite.text_rows(db,
       "SELECT lower(hex(digest(?1, ?2)))", { { text = v[1] }, { text = v[2] } }))
-    assert(rows[1][1] == v[3], v[1])
+    assert(rows[1]:text(1) == v[3], v[1])
   end
   for _, v in ipairs(macs) do
     local rows = assert(Sqlite.text_rows(db,
       "SELECT lower(hex(hmac(?1, 'key', ?2)))", { { text = v[1] }, { text = fox } }))
-    assert(rows[1][1] == v[2], v[1])
+    assert(rows[1]:text(1) == v[2], v[1])
   end
   local same = assert(Sqlite.text_rows(db, "SELECT sha256('abc') = digest('sha256', 'abc')"))
-  assert(same[1][1] == "1")
+  assert(same[1]:text(1) == "1")
   local nulls = assert(Sqlite.text_rows(db,
     "SELECT digest(NULL, 'abc') IS NULL, hmac('sha256', NULL, 'abc') IS NULL"))
-  assert(nulls[1][1] == "1" and nulls[1][2] == "1")
+  assert(nulls[1]:text(1) == "1" and nulls[1]:text(2) == "1")
   local rows, trouble = Sqlite.text_rows(db, "SELECT digest('sha0', 'abc')")
   assert(rows == nil)
   assert(trouble:find("no such digest algorithm", 1, true) ~= nil, trouble)

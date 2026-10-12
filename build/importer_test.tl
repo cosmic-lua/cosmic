@@ -200,7 +200,7 @@ local function test_self_compile_consumes_cache_after_identity_selection()
           "identity selected before derivation completed")
         local rows = assert(Sqlite.text_rows(handle.db,
           "SELECT value FROM meta WHERE key = 'compiler'"))
-        assert(rows[1][1] == recorded.compiler, "selection ran before recording identities")
+        assert(rows[1]:text(1) == recorded.compiler, "selection ran before recording identities")
         if phase == "select" then return nil, "selection refused" end
         return "chosen-compiler", ""
       end, false, shared)
@@ -661,8 +661,8 @@ local function test_boot_hash_leaves_out_tests()
     "SELECT (SELECT count(*) FROM tool WHERE path GLOB '*_test.tl'), " ..
       "(SELECT count(*) FROM files WHERE path = 'cosmic/added_test.tl')"))
   work.close(handle)
-  assert(rows[1][1] == "0", "the tool's rows hold a test")
-  assert(rows[1][2] == "1", "a test was not staged as an input")
+  assert(rows[1]:text(1) == "0", "the tool's rows hold a test")
+  assert(rows[1]:text(2) == "1", "a test was not staged as an input")
 end
 
 --- A tree that is not cosmic's own can `require` the standard library
@@ -747,7 +747,7 @@ local function test_uses_of_a_record_field_follow_the_value_s_type()
       "ORDER BY line, module, symbol"))
   local got: {string} = {}
   for _, row in ipairs(rows) do
-    got[#got + 1] = row[3] .. " " .. row[1] .. " " .. row[2]
+    got[#got + 1] = row:text(3) .. " " .. row:text(1) .. " " .. row:text(2)
   end
   local want = "6 shapes box, 7 shapes Box.area, 8 shapes Box.area, " ..
     "10 counter Tally.bump"
@@ -811,7 +811,7 @@ local function test_uses_of_an_inherited_field_name_its_interface()
       "ORDER BY line, module, symbol"))
   local got: {string} = {}
   for _, row in ipairs(rows) do
-    got[#got + 1] = row[3] .. " " .. row[1] .. " " .. row[2]
+    got[#got + 1] = row:text(3) .. " " .. row:text(1) .. " " .. row:text(2)
   end
   local want = "5 io Writer.write, 6 io Closer.close, 7 io Collector.result"
   assert(table.concat(got, ", ") == want, table.concat(got, ", "))
@@ -1040,7 +1040,7 @@ local function test_a_changed_analyzer_forgets_what_it_derived()
     local rows = assert(Sqlite.text_rows(handle.db,
       "SELECT count(*) FROM docs WHERE symbol = 'Planted'"))
     work.close(handle)
-    return math.tointeger(tonumber(rows[1][1])) or -1
+    return math.tointeger(tonumber(rows[1]:text(1))) or -1
   end
   assert(derived_with("tool-one", false) == 0)
   -- The same analyzer: a planted row survives, as any derived row does.
@@ -1341,12 +1341,12 @@ local function test_generated_syscall_docs_carry_header_lines()
   local examples = assert(Sqlite.text_rows(out,
     "SELECT name FROM examples WHERE module = 'cosmic.sys'"))
   assert(out:close())
-  assert(#examples == 1 and examples[1][1] == "read", tostring(#examples))
+  assert(#examples == 1 and examples[1]:text(1) == "read", tostring(#examples))
   assert(#rows == 2, tostring(#rows))
-  assert(rows[1][1] == "O_RDONLY" and rows[1][2] == "core/syscalls.h" and
-      rows[1][3] == "12", table.concat(rows[1], " "))
-  assert(rows[2][1] == "read" and rows[2][3] == "8", table.concat(rows[2], " "))
-  assert(rows[2][4]:find("Reads bytes.", 1, true) == 1, rows[2][4])
+  assert(rows[1]:text(1) == "O_RDONLY" and rows[1]:text(2) == "core/syscalls.h" and
+      rows[1]:text(3) == "12", table.concat(rows[1]:texts(), " "))
+  assert(rows[2]:text(1) == "read" and rows[2]:text(3) == "8", table.concat(rows[2]:texts(), " "))
+  assert(rows[2]:text(4):find("Reads bytes.", 1, true) == 1, rows[2]:text(4))
 end
 
 --- The file of the tree's module `name`, as the build finds it: nil
@@ -1894,7 +1894,7 @@ end
 
 local function count_of(db: Sqlite.Handle, sql: string): integer
   local rows = assert(Sqlite.text_rows(db, sql))
-  return math.tointeger(tonumber(rows[1][1])) or -1
+  return math.tointeger(tonumber(rows[1]:text(1))) or -1
 end
 
 --- The record-field uses of a compile `compiled` has dropped go at
@@ -1929,7 +1929,7 @@ local function test_the_reference_sweep_reads_compiled_once()
   work.close(handle)
   local details: {string} = {}
   for _, row in ipairs(plan) do
-    details[#details + 1] = row[4]
+    details[#details + 1] = row:text(4)
   end
   local said = table.concat(details, "; ")
   assert(not said:find("IN-OPERATOR", 1, true), said)
@@ -2027,7 +2027,7 @@ local function test_putting_the_compiler_replaces_an_older_row(tmp: string)
   assert(derivation.put_compiler(handle.db, "return { new = true }"))
   local rows = assert(Sqlite.text_rows(handle.db,
     "SELECT file, source FROM derived WHERE origin = 'vendor'"))
-  assert(#rows == 1 and rows[1][2] == "return { new = true }",
+  assert(#rows == 1 and rows[1]:text(2) == "return { new = true }",
     "the compiler is one row: " .. tostring(#rows))
   assert(work.close(handle))
 end

@@ -363,10 +363,10 @@ local function recorded(db: Sqlite.Handle, name: string): {string} | nil, string
     return nil, "the binary records no " .. name .. " component"
   end
   -- A release as upstream publishes it would lose what cosmic changed.
-  if rows[1][4] ~= "" then
+  if rows[1]:text(4) ~= "" then
     return nil, "the binary's " .. name .. " carries cosmic's patches, which a refresh cannot apply"
   end
-  return rows[1], ""
+  return rows[1]:texts(), ""
 end
 
 --- Replaces `dataset`'s rows in `db` with the release at `source` and
@@ -500,7 +500,7 @@ function refresh.binary(binary: string, out: string, chosen: {refresh.Dataset},
       return done(cookie_trouble)
     end
     local kept, keep_trouble = db:exec("PRAGMA schema_version = " ..
-        (math.tointeger(tonumber(cookie[1][1])) - 1))
+        (math.tointeger(tonumber(cookie[1]:text(1))) - 1))
     if not kept then
       return done(keep_trouble)
     end

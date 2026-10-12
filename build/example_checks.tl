@@ -150,11 +150,11 @@ local function examples(db: Sqlite.Handle, built: compiler,
   end
   local out: {string} = {}
   for _, row in ipairs(rows) do
-    local where = row[1] .. ":" .. row[2] .. ": example " .. row[3]
-    local file, _ = Fs.read(root .. "/" .. row[1])
+    local where = row:text(1) .. ":" .. row:text(2) .. ": example " .. row:text(3)
+    local file, _ = Fs.read(root .. "/" .. row:text(1))
     file = file or ""
     local told: {string: boolean} = {}
-    for _, line in ipairs(problems(built, env, where, chunk(row[3], row[4]))) do
+    for _, line in ipairs(problems(built, env, where, chunk(row:text(3), row:text(4)))) do
       local name = unknown_name(line)
       local said = name ~= nil and helper_trouble(file, name) or nil
       if said == nil then

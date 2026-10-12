@@ -571,7 +571,7 @@ local function describe(db: Sqlite.Handle, tables: {dataset.Table}): {string} | 
       end
       local types: {string} = {}
       for _, row in ipairs(rows) do
-        types[#types + 1] = row[1]
+        types[#types + 1] = row:text(1)
       end
       local name = plain(column)
       local line = "  " .. name .. string.rep(" ", width - #name) .. "  " .. (#types > 0 and table.concat(types, "|") or "-")
@@ -586,7 +586,7 @@ local function describe(db: Sqlite.Handle, tables: {dataset.Table}): {string} | 
       return nil, trouble
     end
     if sample[1] ~= nil then
-      local text = plain(sample[1][1])
+      local text = plain(sample[1]:text(1))
       if #text > 200 then
         text = text:sub(1, 200) .. "..."
       end

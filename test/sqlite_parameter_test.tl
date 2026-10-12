@@ -6,14 +6,14 @@ local function test_rows_preserve_sqlite_values()
     "SELECT NULL, '', CAST('' AS BLOB), 9007199254740993, 1.25, " ..
       "CAST(x'610062' AS TEXT), x'610062'"))
   local row = rows[1]
-  assert(#row == 7)
-  assert(row[1].kind == "null")
-  assert(row[2].kind == "text" and row[2].text == "")
-  assert(row[3].kind == "blob" and row[3].blob == "")
-  assert(row[4].kind == "integer" and row[4].integer == 9007199254740993)
-  assert(row[5].kind == "number" and row[5].number == 1.25)
-  assert(row[6].kind == "text" and row[6].text == "a\0b")
-  assert(row[7].kind == "blob" and row[7].blob == "a\0b")
+  assert(row:count() == 7)
+  assert(row:kind(1) == "null")
+  assert(row:kind(2) == "text" and row:text(2) == "")
+  assert(row:kind(3) == "blob" and row:blob(3) == "")
+  assert(row:kind(4) == "integer" and row:integer(4) == 9007199254740993)
+  assert(row:kind(5) == "number" and row:number(5) == 1.25)
+  assert(row:kind(6) == "text" and row:text(6) == "a\0b")
+  assert(row:kind(7) == "blob" and row:blob(7) == "a\0b")
   assert(db:close())
 end
 
@@ -36,7 +36,7 @@ local function test_mismatched_parameters_do_not_execute()
     assert(rows == nil and failure == case[2], tostring(failure))
   end
   local rows = assert(Sqlite.text_rows(db, "SELECT count(*) FROM items"))
-  assert(rows[1][1] == "0")
+  assert(rows[1]:text(1) == "0")
   assert(db:close())
 end
 
@@ -69,7 +69,7 @@ local function test_malformed_values_raise_and_do_not_execute()
     end
   end
   local rows = assert(Sqlite.text_rows(db, "SELECT count(*) FROM items"))
-  assert(rows[1][1] == "0")
+  assert(rows[1]:text(1) == "0")
   assert(db:close())
 end
 
@@ -78,11 +78,11 @@ local function test_complete_parameters_and_explicit_null()
   assert(db:exec("CREATE TABLE items (a, b)"))
   assert(Sqlite.run(db, "INSERT INTO items VALUES (?, ?)", { { integer = 7 }, {} }))
   local rows = assert(Sqlite.text_rows(db, "SELECT a, b IS NULL FROM items"))
-  assert(rows[1][1] == "7" and rows[1][2] == "1")
+  assert(rows[1]:text(1) == "7" and rows[1]:text(2) == "1")
   rows = assert(Sqlite.text_rows(db, "SELECT :value, :value, ?3", { { text = "twice" }, {}, { blob = "bytes" } }))
-  assert(rows[1][1] == "twice" and rows[1][2] == "twice" and rows[1][3] == "bytes")
+  assert(rows[1]:text(1) == "twice" and rows[1]:text(2) == "twice" and rows[1]:text(3) == "bytes")
   rows = assert(Sqlite.text_rows(db, "SELECT :value, :value", { { number = 1.5 } }))
-  assert(rows[1][1] == "1.5" and rows[1][2] == "1.5")
+  assert(rows[1]:text(1) == "1.5" and rows[1]:text(2) == "1.5")
   assert(Sqlite.text_rows(db, "SELECT ?3", { { integer = 3 } }) == nil)
   assert(Sqlite.text_rows(db, "SELECT 1", { {} }) == nil)
   assert(db:close())

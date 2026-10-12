@@ -196,8 +196,8 @@ function reboot.carries_tree_code(handle: work.Handle): boolean
     return false
   end
   for _, row in ipairs(rows) do
-    local source, _ = Store.source(row[1])
-    if source == nil or Hash.hex_sha256(source) ~= row[2] then
+    local source, _ = Store.source(row:text(1))
+    if source == nil or Hash.hex_sha256(source) ~= row:text(2) then
       return false
     end
   end
@@ -428,7 +428,7 @@ local function replaced(root: string, out: string): boolean
   end
   local carried: {string:string} = {}
   for _, row in ipairs(rows) do
-    carried[row[1]] = row[2]
+    carried[row:text(1)] = row:text(2)
   end
   -- The running tool's own, not a database a verb attached before
   -- [`stale_exit`] ran (the projection, whose meta Store.meta finds first).

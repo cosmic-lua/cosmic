@@ -23,7 +23,7 @@ local function value(sql: string, values: {Sqlite.Value}): string | nil, string
   local rows, trouble = Sqlite.text_rows(handle, sql, values)
   if rows == nil then return nil, trouble end
   assert(#rows == 1, sql .. ": " .. #rows .. " rows")
-  return rows[1][1], ""
+  return rows[1]:text(1), ""
 end
 
 --- A varint length as compress.c writes one: seven bits a byte, most
@@ -138,7 +138,7 @@ local function test_decimal_is_total_and_canonical(tmp: string)
         if rows == nil then
           return false, "decimal read " .. fields[1] .. " once only: " .. trouble
         end
-        if rows[1][1] ~= read or rows[1][2] ~= "0" then
+        if rows[1]:text(1) ~= read or rows[1]:text(2) ~= "0" then
           return false, "decimal(" .. fields[1] .. ") = " .. tostring(read) .. " does not read back as itself"
         end
       end
@@ -199,9 +199,9 @@ local function test_text_decoders_are_total_and_round_trip(tmp: string)
       local rows, trouble = Sqlite.text_rows(handle, "SELECT uuid_blob(?1) IS NULL, " ..
           "hex(uuid_blob(uuid_str(?1))) = hex(uuid_blob(?1))", { { text = uuid } })
       if rows == nil then return false, "uuid_blob failed its statement: " .. trouble end
-      if rows[1][1] == "1" then
+      if rows[1]:text(1) == "1" then
         Fuzz.label("uuid refused")
-      elseif rows[1][2] == "1" then
+      elseif rows[1]:text(2) == "1" then
         Fuzz.label("uuid decoded")
       else
         return false, "uuid_str did not round-trip " .. uuid
@@ -243,16 +243,16 @@ local function test_ieee754_is_total_and_round_trips(tmp: string)
       if rows == nil then return false, "ieee754 failed its statement: " .. trouble end
       local row = rows[1]
       local least = math.tointeger(fields[2]) == math.mininteger
-      if row[5] ~= (least and "null" or "real") then
-        return false, "ieee754(M, E) answered " .. row[5]
+      if row:text(5) ~= (least and "null" or "real") then
+        return false, "ieee754(M, E) answered " .. row:text(5)
       end
-      if row[6] ~= "real" and row[6] ~= "null" then
-        return false, "ieee754_inc answered " .. row[6]
+      if row:text(6) ~= "real" and row:text(6) ~= "null" then
+        return false, "ieee754_inc answered " .. row:text(6)
       end
-      if row[1] == "real" then
+      if row:text(1) == "real" then
         Fuzz.label("a real")
         for i, what in ipairs({ "ieee754_to_blob", "ieee754(M, E)", "ieee754_to_int" }) do
-          if row[i + 1] ~= "1" then return false, what .. " did not give the bytes back" end
+          if row:text(i + 1) ~= "1" then return false, what .. " did not give the bytes back" end
         end
       else
         Fuzz.label("a NaN")
@@ -338,10 +338,10 @@ local function test_totype_reads_text_exactly(tmp: string)
         { { text = text }, { blob = text } })
       if rows == nil then return false, "totype failed its statement: " .. trouble end
       local row = rows[1]
-      if row[1] == "real" then
+      if row:text(1) == "real" then
         Fuzz.label("read as a real")
-        if row[2] ~= "1" then return false, "toreal(" .. text .. ") is not CAST's" end
-        if row[3] ~= "1" then return false, "toreal(" .. text .. ") is not finite" end
+        if row:text(2) ~= "1" then return false, "toreal(" .. text .. ") is not CAST's" end
+        if row:text(3) ~= "1" then return false, "toreal(" .. text .. ") is not finite" end
       elseif shape == "well" then
         return false, "toreal refused the decimal " .. text
       end
@@ -350,25 +350,25 @@ local function test_totype_reads_text_exactly(tmp: string)
       local literal = literal_of(text)
       if literal ~= nil then
         Fuzz.label("read as an integer")
-        if row[5] ~= literal then
-          return false, "tointeger(" .. text .. ") answered " .. row[5]
+        if row:text(5) ~= literal then
+          return false, "tointeger(" .. text .. ") answered " .. row:text(5)
         end
-      elseif row[4] ~= "null" then
-        return false, "tointeger(" .. text .. ") is no integer literal it holds, but answered " .. row[5]
+      elseif row:text(4) ~= "null" then
+        return false, "tointeger(" .. text .. ") is no integer literal it holds, but answered " .. row:text(5)
       end
       if shape == "integer" and literal ~= nil then
         local n = assert(math.tointeger(literal))
         local exact = math.tointeger((n as number) + 0.0) == n
-        if (row[1] == "real") ~= exact then
-          return false, "toreal(" .. text .. ") is " .. row[1] .. " though a real holds it " ..
+        if (row:text(1) == "real") ~= exact then
+          return false, "toreal(" .. text .. ") is " .. row:text(1) .. " though a real holds it " ..
             (exact and "exactly" or "inexactly")
         end
       end
-      if row[6] ~= (#text == 8 and "integer" or "null") then
-        return false, "tointeger of a " .. #text .. "-byte blob answered " .. row[6]
+      if row:text(6) ~= (#text == 8 and "integer" or "null") then
+        return false, "tointeger of a " .. #text .. "-byte blob answered " .. row:text(6)
       end
-      if #text ~= 8 and row[7] ~= "null" then
-        return false, "toreal of a " .. #text .. "-byte blob answered " .. row[7]
+      if #text ~= 8 and row:text(7) ~= "null" then
+        return false, "toreal of a " .. #text .. "-byte blob answered " .. row:text(7)
       end
       return true, ""
     end,
@@ -402,7 +402,7 @@ local function test_uint_orders_consistently(tmp: string)
         local rows = assert(Sqlite.text_rows(handle,
           "SELECT ?1 < ?2 COLLATE uint, ?1 = ?2 COLLATE uint, ?2 < ?1 COLLATE uint",
           { { text = x }, { text = y } }))
-        local less, equal, more = rows[1][1] == "1", rows[1][2] == "1", rows[1][3] == "1"
+        local less, equal, more = rows[1]:text(1) == "1", rows[1]:text(2) == "1", rows[1]:text(3) == "1"
         local held = (less and 1 or 0) + (equal and 1 or 0) + (more and 1 or 0)
         assert(held == 1, "exactly one of <, = and > holds, not " .. held)
         return less and -1 or equal and 0 or 1
@@ -462,10 +462,10 @@ local function test_rtree_survives_damaged_trees(tmp: string)
       end
       assert(db:exec("COMMIT"))
       local nodes = assert(Sqlite.rows(db, "SELECT nodeno, data FROM b_node ORDER BY nodeno"))
-      local root = assert(nodes[1][2].blob)
+      local root = nodes[1]:blob(2)
       if string.unpack(">I2", root) > 0 then Fuzz.label("a tree of more than one level") end
       local at = nodes[pick % #nodes + 1]
-      local nodeno, blob = assert(at[1].integer), assert(at[2].blob)
+      local nodeno, blob = at:integer(1), at:blob(2)
       local n = #blob
       local sql: string
       local values: {Sqlite.Value}
@@ -550,7 +550,7 @@ local function test_rtree_survives_damaged_trees(tmp: string)
         if rows == nil then
           refused = true
           if trouble == "" then return false, q .. " failed without saying why" end
-        elseif q == "SELECT rtreecheck('b')" and rows[1][1] ~= "ok" then
+        elseif q == "SELECT rtreecheck('b')" and rows[1]:text(1) ~= "ok" then
           reported = true
         end
       end

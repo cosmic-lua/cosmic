@@ -282,7 +282,7 @@ local function test_the_file_holds_its_entries_as_the_guard_prints_them()
   local rows = assert(Sqlite.rows(db, "SELECT source FROM modules WHERE path = ?1",
     { { text = "build.harness_epoch" } }))
   db:close()
-  local text = assert(Compress.inflate("raw", assert(rows[1][1].blob)))
+  local text = assert(Compress.inflate("raw", rows[1]:blob(1)))
   local names: {string} = {}
   for name in pairs(harness_epoch.acknowledged) do names[#names + 1] = name end
   assert(#names > 0)
@@ -320,7 +320,7 @@ local function test_the_harness_holds_what_it_runs_requires()
   local by_value = assert(test.value_imports(db))
   local tree: {string:boolean} = {}
   for _, row in ipairs((assert(Sqlite.text_rows(db, "SELECT path FROM modules")))) do
-    tree[row[1]] = true
+    tree[row:text(1)] = true
   end
   local missing: {string} = {}
   for _, name in ipairs(found.runs) do

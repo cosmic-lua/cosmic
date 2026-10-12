@@ -58,12 +58,12 @@ local function answered(): {string:boolean}
       "SELECT name FROM pragma_module_list" }) do
     local rows = assert(Sqlite.text_rows(handle, sql))
     for _, row in ipairs(rows) do
-      local name = row[1]:lower()
+      local name = row:text(1):lower()
       names[name:find("^pragma_") and PRAGMAS or name] = true
     end
   end
   local rows = assert(Sqlite.text_rows(handle, "SELECT name FROM pragma_collation_list"))
-  for _, row in ipairs(rows) do names[collation(row[1]:lower())] = true end
+  for _, row in ipairs(rows) do names[collation(row:text(1):lower())] = true end
   handle:close()
   return names
 end
