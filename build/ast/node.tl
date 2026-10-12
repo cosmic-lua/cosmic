@@ -180,7 +180,7 @@ local record Node is {Node}
   never: boolean | nil
   --- The same nodes, written with no return list at all (no `:`): a
   --- "function" literal so written takes its return types from its
-  --- context (patch/tl/37).
+  --- context.
   rets_omitted: boolean | nil
   --- Comments tl's parser attached to a statement directly. The
   --- renderer reads comments off the token stream instead, uniformly,

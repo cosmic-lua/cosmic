@@ -8,7 +8,7 @@ local record compiler
     x: integer
     msg: string
     -- For a key a record lacks (`invalid key ...`): the record's value
-    -- fields, unordered (patch/tl/33a).
+    -- fields, unordered.
     fields: {string} | nil
   end
 

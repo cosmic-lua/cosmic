@@ -1966,14 +1966,14 @@ local function test_the_module_shape_does_not_reach_compilation()
 end
 
 --- The compiler is one row, whatever file an older build named it by:
---- putting one replaces a row left under `o/vendor/tl/tl.lua`, so no
---- working database holds two.
+--- putting one replaces a row left under another file, so no working
+--- database holds two.
 local function test_putting_the_compiler_replaces_an_older_row(tmp: string)
   assert(Fs.mkdirs(tmp .. "/root"))
   local handle = assert(work.open(tmp .. "/root"))
   assert(Sqlite.run(handle.db,
     "INSERT INTO derived (file, path, kind, origin, from_hash, source, " ..
-      "source_hash) VALUES ('o/vendor/tl/tl.lua', 'vendor.tl', 'vendor', " ..
+      "source_hash) VALUES ('o/older.lua', 'vendor.tl', 'vendor', " ..
       "'vendor', 'old', 'return {}', 'old')", {}))
   assert(derivation.put_compiler(handle.db, "return { new = true }"))
   local rows = assert(Sqlite.text_rows(handle.db,

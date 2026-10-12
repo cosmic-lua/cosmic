@@ -18,7 +18,7 @@ Test.policy{ grants = { { path = "core/bridge.lua", letters = "r" } } }
 
 --- A compiler with the three members the bridge reaches for; `gen`
 --- hands back its source, so each stand-in below is plain Lua -- the
---- tree's checker, `checker/tl.tl`, included, which the bridge compiles with
+--- tree's checker, [`checker/tl.tl`], included, which the bridge compiles with
 --- it and loads as the compiler the tree is built with.
 local compiler <const> = [[
 return {

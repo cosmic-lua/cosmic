@@ -2,7 +2,7 @@
 --- `assert(...)` whose extra values land where they should not.
 ---
 --- Lua's `assert` returns every value it was given, and the checker
---- says so ([`patch/tl/15-assert-returns-every-value.txt`]). So at the end
+--- says so (in [`checker/tl.tl`]). So at the end
 --- of an argument list, a table constructor or a return,
 --- `f(assert(g()))` passes `g`'s error slot on to `f` as a second
 --- argument. The checker refuses that when `f` has no room for the
@@ -29,7 +29,7 @@ local type compiler = require("build.compiler")
 
 local record spill
   --- What the checker reports at an `assert(` whose extra values it
-  --- refused. The compiler patch spells the same words.
+  --- refused. The checker ([`checker/tl.tl`]) spells the same words.
   message: string
 
   --- The positions the checker names, by file: each an `assert` call's

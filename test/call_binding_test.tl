@@ -1,8 +1,8 @@
---- Proves patch/tl's 40: a call whose expected result type refuses what
+--- Proves that a call whose expected result type refuses what
 --- its arguments bind to a type variable is checked again with the
 --- arguments first. `setmetatable(t, mt)` is `function<T>(T, metatable<T>):
 --- T`, so a `return` in a function returning `R | nil` or an interface `R`
---- implements used to fix T to that return type and refuse the metatable
+--- implements would otherwise fix T to that return type and refuse the metatable
 --- of `R`. A call the arguments still refuse stays refused.
 ---
 --- Each fixture is a single file in its own fresh subdirectory, since
@@ -130,7 +130,7 @@ end
 
 -- A table literal argument is typed from its parameter's type, so a call's
 -- type variables are bound from the variable arguments before the expected
--- result binds them when it would refuse one (patch/tl/42).
+-- result binds them when it would refuse one.
 local function test_a_table_literal_for_an_interface_return_takes_the_metatable_s_record(tmp: string)
   local ok, trouble = compiles(tmp, "literal-interface", prelude .. [[
 local function named(): Named

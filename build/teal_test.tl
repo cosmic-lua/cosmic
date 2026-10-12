@@ -83,7 +83,7 @@ local function test_an_integer_inferred_accumulator_names_the_fix()
   assert(hint_for("local x = 0\nx = 1.5\nprint(x)\n") == said("x", 1, "0"))
 end
 
---- A literal with digit separators (patch/tl/38a) is quoted as written.
+--- A literal with digit separators is quoted as written.
 local function test_an_integer_hint_quotes_a_separated_literal()
   assert(hint_for("local x = 1_000\nx = x / 2\nprint(x)\n") == said("x", 1, "1_000"))
 end
@@ -167,10 +167,9 @@ local function type_errors(source: string): {compiler.Error}
   return assert(result).type_errors
 end
 
---- The checker's record for `_G` has the place it is read at (patch/tl's
---- 27-g-has-a-place.txt). Without one, an error about it -- reported,
---- or only tried, as narrowing a variable a loop assigns tries one --
---- failed an assertion instead.
+--- The checker's record for `_G` has the place it is read at. Without one, an
+--- error about it -- reported, or only tried, as narrowing a variable a loop
+--- assigns tries one -- failed an assertion instead.
 local function test_g_is_checked_where_it_is_read()
   local errors = type_errors("local n: integer = _G\nprint(n)\n")
   assert(#errors == 1, tostring(#errors))
@@ -193,8 +192,7 @@ local function syntax_errors(source: string): {string}
   return out
 end
 
---- A `return` closed by a `;` may end any block, as it may end the file
---- (patch/tl's 28-return-semicolon-before-end.txt), and a statement
+--- A `return` closed by a `;` may end any block, as it may end the file, and a statement
 --- after one is still refused.
 local function test_a_return_closed_by_a_semicolon_ends_its_block()
   for _, source in ipairs({
@@ -215,7 +213,7 @@ end
 --- A `(` on the line a string spanning lines ends on calls what the
 --- string is an argument of, and one on a later line starts a new
 --- statement, the `;` tl inserts there right after the string's last
---- byte (patch/tl's 29-call-after-a-token-spanning-lines.txt).
+--- byte.
 local function test_a_call_after_a_string_spanning_lines()
   local built = assert(teal.load(true))
   for _, source in ipairs({ "f [[a\nb]](1)\n", "f 'a\\z\n  b'(1)\n", "f [==[\n]==]{}(1)\n" }) do
@@ -236,8 +234,7 @@ local function test_a_call_after_a_string_spanning_lines()
 end
 
 --- A function type's return types end before a `,` and a parameter
---- spelled `name?:`, `?T` or `...`, as before one spelled `name:`
---- (patch/tl's 30-return-types-end-before-a-parameter.txt); none of
+--- spelled `name?:`, `?T` or `...`, as before one spelled `name:`; none of
 --- those can start a type. A bare name after the `,` is still a second
 --- return type.
 local function test_return_types_end_before_the_next_parameter()
@@ -261,8 +258,7 @@ end
 
 --- `record`, `interface` and `enum` name variables as well as start
 --- types: one after `=` is read as the type syntax 0.7.1 dropped only
---- where a type body declaring something follows it (patch/tl's
---- 31a-old-type-syntax-needs-a-body.txt and 31b), so a loop's
+--- where a type body declaring something follows it, so a loop's
 --- `record` can be assigned, and the old declaration still says what
 --- to write instead.
 local function test_a_keyword_named_variable_is_no_old_type_declaration()
@@ -356,7 +352,7 @@ end
 local keyword_head = "local record, recd, enum, enmd, n, a = 1, 1, 1, 1, 2, 1\n" ..
   "local function where(_x: any) end\nlocal function b() end\n"
 
--- TODO: count the tokens a look reads, once patch/tl's look_ahead
+-- TODO: count the tokens a look reads, once the checker's look_ahead
 -- reports them, and bound that count rather than compile times, which
 -- a slow or loaded host still moves.
 local function costs_what_it_reads(source: string)
@@ -529,8 +525,7 @@ local function test_a_standard_global_shadowed_is_named_where_declared()
 end
 
 --- tl checked no value named for a simple type for shadowing, and so
---- never warned of one named `string`, the string library
---- (patch/tl/32-a-value-named-string-shadows.txt). `any` and `thread`
+--- never warned of one named `string`, the string library. `any` and `thread`
 --- are interfaces, which no value hides, and a localized `string` hides
 --- nothing.
 local function test_a_value_named_string_shadows_the_library()
@@ -698,12 +693,11 @@ local function test_a_missing_field_lists_a_bounded_few()
     { "parse" }) == "did you mean 'parse'? Cli's fields: parse")
 end
 
---- An assignment to a for loop's control variable -- a numeric for's,
---- or the first of a generic for's -- is refused at its own line
---- (patch/tl's 34), as Lua 5.5, which makes it read-only, would refuse
---- only the generated chunk. A generic for's other variables, a local
---- declared over the variable, and a parameter of its name are
---- assignable.
+--- An assignment to a for loop's control variable -- a numeric for's, or the
+--- first of a generic for's -- is refused at its own line, as Lua 5.5, which
+--- makes it read-only, would refuse only the generated chunk. A generic for's
+--- other variables, a local declared over the variable, and a parameter of
+--- its name are assignable.
 local function test_a_loop_control_variable_is_read_only()
   local refused = "cannot assign to for-loop variable 'item': it is read-only; copy it to a local first"
   for _, source in ipairs({
@@ -1023,10 +1017,10 @@ local function assert_refused(source: string, text: string)
     source .. "refused as: " .. (found[1] or "accepted"))
 end
 
---- `: never` is a return list that says a function does not return
---- (patch/tl's 43b3): it parses on a declaration, a method, a function
---- type and a function-typed parameter that another follows, and the
---- Lua it generates is the Lua of the same function without it.
+--- `: never` is a return list that says a function does not return: it parses
+--- on a declaration, a method, a function type and a function-typed parameter
+--- that another follows, and the Lua it generates is the Lua of the same
+--- function without it.
 local function test_never_is_a_return_list()
   assert_accepted("local record Guard\n  die: function(self: Guard, why: string): never\nend\n" ..
       "function Guard:die(why: string): never\n  error(why)\nend\n" ..
@@ -1093,10 +1087,10 @@ end
 
 local never_fail = "local function fail(m: string): never\n  error(m)\nend\n"
 
---- A function that never returns stands for a function of any returns
---- (patch/tl's 43e2), `pcall`'s parameter among them; one that may return
---- does not stand for one that never does, which would make `f("x")` end
---- a block that `print` returns from.
+--- A function that never returns stands for a function of any returns,
+--- `pcall`'s parameter among them; one that may return does not stand for one
+--- that never does, which would make `f("x")` end a block that `print`
+--- returns from.
 local function test_a_never_function_is_a_subtype_of_any_function()
   assert_accepted(never_fail .. "local g: function(string) = fail\n" ..
       "local h: function(string): integer = fail\nprint(pcall(fail, 'x'))\nprint(g, h)\n")
@@ -1129,7 +1123,7 @@ local function test_a_poly_function_is_never_only_when_every_overload_is()
 end
 
 --- A function type takes the parameters of the one it stands for
---- contravariantly (patch/tl's 48a): it must accept all that one is
+--- contravariantly: it must accept all that one is
 --- given, so one that takes a narrower type is refused, where a wider
 --- one is fine. `cb` is called by `f`'s caller with a function returning
 --- a number, which the body would use as an integer.
@@ -1144,7 +1138,7 @@ local function test_a_function_parameter_is_contravariant()
       "print(f)\n")
 end
 
---- A function type gives its returns covariantly (patch/tl's 48b): a
+--- A function type gives its returns covariantly: a
 --- narrower return is accepted, and a wider one refused, since its
 --- caller would use the number as the integer it was promised.
 local function test_a_function_return_is_covariant()
@@ -1158,7 +1152,7 @@ local receiver_types = "local interface Reader\n  read: function(Reader, integer
   "local record Mine is Reader\n  extra: integer\nend\n"
 
 --- The first parameter of a function-typed field is the receiver, and
---- may be narrower than the field declares (patch/tl's 48e): the record
+--- may be narrower than the field declares: the record
 --- that holds the function is what it is called with. A record that
 --- redeclares the field with its own type as the receiver is an
 --- implementation of the interface that declares it.
@@ -1196,7 +1190,7 @@ local function test_only_a_record_receiver_of_a_field_function_is_exempt()
 end
 
 --- The fields of a record are compared as fields wherever a record is
---- compared with another type (patch/tl's 48g, 48h, 48i, 48k): a table
+--- compared with another type: a table
 --- whose function takes a narrower receiver is taken for the interface,
 --- as a literal of it and as an assignment to its field.
 local function test_a_narrower_receiver_is_taken_wherever_fields_are_compared()
@@ -1233,7 +1227,7 @@ local function test_a_callback_field_with_a_record_parameter_is_the_known_limit(
 end
 
 --- A parameter expected as `any` is satisfied by a function of any
---- parameter type (patch/tl's 48l), as `any` is the unchecked type: the
+--- parameter type, as `any` is the unchecked type: the
 --- standard library's callbacks take it, so `coroutine.create` of a
 --- function with typed parameters and a `__call` metamethod with them are
 --- accepted. A parameter expected as a `number` is still not.
@@ -1247,7 +1241,7 @@ local function test_an_any_parameter_takes_any_parameter()
     "argument 1")
 end
 
---- `string.gsub`'s replacement function takes strings (patch/tl's 48j),
+--- `string.gsub`'s replacement function takes strings,
 --- as `string.gmatch` returns its captures, so a function over strings
 --- stands for it when the pattern is not a literal that is read capture by
 --- capture; a literal pattern with a position capture gives an integer.
@@ -1377,7 +1371,7 @@ local function test_a_never_macroexp_is_a_never_call()
   assert_refused("local macroexp die(m: string): never return (error(m)) end\n", "its expression is no call")
 end
 
---- The standard `error` never returns (patch/tl's 44a): it stands for a
+--- The standard `error` never returns: it stands for a
 --- never-function, and a variable holding it keeps that.
 local function test_error_is_a_never_function()
   assert_accepted("local e: function(string): never = error\nlocal f = error\nprint(e, f)\n")
@@ -1445,7 +1439,7 @@ local function test_a_fixed_type_parameter_is_told_to_bind_in_a_local()
 end
 
 --- `coroutine.wrap` gives a function that answers what the coroutine yields
---- or finally returns (patch/tl's 45), so a wrapped function's results are
+--- or finally returns, so a wrapped function's results are
 --- `any...`: a wrapped function returning a string is not typed to return
 --- one, and a wrapped never-function is not typed never. The wrapper keeps
 --- the parameters of the function passed.
@@ -1467,7 +1461,7 @@ local function test_a_wrapped_function_refuses_wrong_arguments()
   assert_refused(head .. "g('a', 1, 2)\n", "wrong number of arguments")
 end
 
---- The handler of `coroutine.wrap` (patch/tl's 45d) meets no argument, a
+--- The handler of `coroutine.wrap` meets no argument, a
 --- `nil`, an `any`, a union, an overloaded function and a vararg of unknown
 --- arity without raising: each is refused, or accepted as the call check
 --- of the declaration decides.
@@ -1560,7 +1554,7 @@ local function test_never_or_nil_is_told_to_name_the_function_type()
 end
 
 --- A poly value stands for a function type when some overload is a subtype
---- of it (patch/tl's 43e6): `string -> nothing` overloads do not stand for a
+--- of it: `string -> nothing` overloads do not stand for a
 --- function that returns a string, which the row used to accept by asking
 --- for the reverse.
 local function test_a_poly_function_stands_for_what_an_overload_stands_for()
@@ -1777,11 +1771,10 @@ end
 local meta_record = "local record R\n  name?: string\n  metamethod __call: function(R, string): string\nend\n" ..
   "local record Other\n  x: number\nend\n"
 
---- A table given as `__index` is checked against the record's fields
---- (patch/tl's 47a): one that serves a number for a string field is
---- refused where it is written in the call, and in a variable typed
---- `metatable<R>`, which is how a variable reaches setmetatable; a record
---- of another type is no base for it.
+--- A table given as `__index` is checked against the record's fields: one
+--- that serves a number for a string field is refused where it is written in
+--- the call, and in a variable typed `metatable<R>`, which is how a variable
+--- reaches setmetatable; a record of another type is no base for it.
 local function test_a_forged_index_is_refused()
   assert_refused(meta_record .. "local r: R = setmetatable({}, { __index = { name = 1 } })\nprint(r)\n",
     "name: got integer, expected string")
@@ -1838,10 +1831,10 @@ local function test_a_never_call_is_not_given_a_function_that_returns()
 end
 
 --- The `__index` of a generic record is built from the record as written,
---- type arguments included (47a): `v = 1` for `G<string>` is refused in a
+--- type arguments included: `v = 1` for `G<string>` is refused in a
 --- typed variable, in the call, and under a type variable.
 --- A generic record's metamethods are not held to a metatable yet (the TODO
---- is in patch/tl's 47a, where `meta_fields` is read), which the last case pins.
+--- is in the checker, where `meta_fields` is read), which the last case pins.
 local function test_a_generic_records_index_is_checked_with_its_arguments()
   local g = "local record G<T>\n  v?: T\nend\n"
   assert_refused(g .. "local mt: metatable<G<string>> = { __index = { v = 1 } }\nprint(mt)\n",
@@ -1874,10 +1867,9 @@ local function test_the_untyped_class_idiom_and_a_base_index_are_refused()
       "local mt: metatable<Dog> = { __index = Base }\nprint(mt)\n", "__index")
 end
 
---- `rawset` takes a map and writes the key's value type (patch/tl's
---- 46a): a record's declared field cannot be written through it with a
---- value of another type, whether the record's fields share a type (it
---- reads as a map of it) or not.
+--- `rawset` takes a map and writes the key's value type: a record's declared
+--- field cannot be written through it with a value of another type, whether
+--- the record's fields share a type (it reads as a map of it) or not.
 local function test_rawset_refuses_a_record()
   local head = "local record R\n  name: string\n  n: integer\nend\nlocal r: R = { name = 'a', n = 1 }\n"
   assert_refused(head .. "rawset(r, 'name', 1)\n", "argument 1")
@@ -1904,7 +1896,7 @@ local function test_rawset_takes_a_cast_table()
 end
 
 --- `name?: T` declares a field that a table literal may omit and whose
---- type admits nil, as `name: T | nil` does (patch/tl's 49a to 49c): a
+--- type admits nil, as `name: T | nil` does: a
 --- read is `T | nil`, a guard narrows it, and nil may be assigned to it.
 --- Its record is open, so the literal omitting a plain field compiles
 --- too; what tells the two apart is the type a read has.
@@ -1980,7 +1972,7 @@ local function test_a_total_literal_states_its_optional_fields()
 end
 
 --- A table literal gives every field of its record that does not admit
---- nil (patch/tl's 50), and the refusal names the record and the fields
+--- nil, and the refusal names the record and the fields
 --- left out, in declaration order.
 local function test_a_literal_omitting_a_required_field_is_refused()
   local declared = "local record Person\n  name: string\n  age: integer\n  nick?: string\nend\n"
@@ -2010,7 +2002,7 @@ local function test_a_literal_may_omit_what_admits_nil_or_is_a_function()
 end
 
 --- A literal passed for a type variable is held to the record the call
---- binds it to (patch/tl's 50f): `table.insert`'s value, a generic
+--- binds it to: `table.insert`'s value, a generic
 --- function's, and a literal nested in one.
 local function test_a_literal_argument_of_a_type_variable_is_checked()
   local declared = "local record R\n  name: string\n  tag?: string\nend\nlocal list: {R} = {}\n"
@@ -2028,7 +2020,7 @@ end
 
 --- A literal nested in an array, map or tuple literal passed for a
 --- parameter that holds a type variable is held to the record the call
---- binds it to too (patch/tl's 52a), to any depth.
+--- binds it to too, to any depth.
 local function test_a_literal_nested_in_an_argument_literal_is_checked()
   local declared = "local record R\n  name: string\n  tag?: string\nend\nlocal list: {R} = {}\n" ..
     "local function push_all<T>(l: {T}, vs: {T}) for _, v in ipairs(vs) do table.insert(l, v) end end\n"
@@ -2126,7 +2118,7 @@ end
 
 --- A field named by a word that starts a declaration (`type`, `record`,
 --- `enum`, `interface`, `userdata`, `metamethod`) may be optional, as it
---- may be plain (patch/tl's 49d and 49e).
+--- may be plain.
 local function test_an_optional_field_may_be_named_for_a_declaration_word()
   for _, word in ipairs({ "type", "record", "enum", "interface", "userdata", "metamethod" }) do
     assert_accepted("local record R\n  " .. word .. "?: integer\n  other?: string\nend\n" ..
@@ -2138,9 +2130,9 @@ local function test_an_optional_field_may_be_named_for_a_declaration_word()
   assert_accepted("local record R\n  userdata\n  type?: string\n  record Inner\n    x?: integer\n  end\nend\nprint(R)\n")
 end
 
---- A value that may be nil, whatever holds it, is no operand of `..`,
---- `#`, arithmetic, a bit operator or an ordered comparison (patch/tl's
---- 50b): the operator raises at run time when it is nil.
+--- A value that may be nil, whatever holds it, is no operand of `..`, `#`,
+--- arithmetic, a bit operator or an ordered comparison: the operator raises
+--- at run time when it is nil.
 local function test_an_operand_that_may_be_nil_is_refused()
   local head = "local record R\n  name?: string\n  n?: integer\n  items?: {string}\nend\n" ..
     "local r: R = {}\nlocal function find(): string | nil return nil end\n" ..
@@ -2177,10 +2169,9 @@ local function test_a_narrowed_operand_is_accepted()
   assert_accepted(head .. "local plain: string = 'p'\nprint(plain .. 'x', #plain)\n")
 end
 
---- `a and b` yields a when a is falsy, so a nil a makes the result nil
---- (patch/tl's 52c): the result is refused as an operand where a is a
---- nil-admitting union, and keeps its type under a guard, an `or`, or a
---- left operand without nil.
+--- `a and b` yields a when a is falsy, so a nil a makes the result nil: the
+--- result is refused as an operand where a is a nil-admitting union, and
+--- keeps its type under a guard, an `or`, or a left operand without nil.
 local function test_a_conjunction_with_a_nil_left_operand_may_be_nil()
   local head = "local function find(): string | nil return nil end\n" ..
     "local x = find()\nlocal y = find()\nlocal z: string = 'z'\nlocal plain: string = 'p'\n"
@@ -2199,7 +2190,7 @@ local function test_a_conjunction_with_a_nil_left_operand_may_be_nil()
 end
 
 --- An `and` whose right operand is already an error is not given a nil
---- too: one mistake is one error (patch/tl's 52c).
+--- too: one mistake is one error.
 local function test_a_conjunction_with_an_invalid_right_operand_reports_once()
   local found = refusals("local record T\n  f?: string\nend\nlocal function takes(s: string) print(s) end\n" ..
       "local t: T = {}\ntakes(t.f and t.f:upper())\n")
@@ -2208,7 +2199,7 @@ local function test_a_conjunction_with_an_invalid_right_operand_reports_once()
 end
 
 --- A field fact is read against its base without the nil the field's
---- read proved away (patch/tl's 51a): `m ~= nil and m.f ~= nil` narrows
+--- read proved away: `m ~= nil and m.f ~= nil` narrows
 --- `m.f` for a base that is itself a union with nil.
 local function test_a_field_guard_after_its_nil_base_check_narrows()
   local head = "local record Node\n  tk?: string\n  e2?: Node\nend\n" ..
@@ -2222,8 +2213,7 @@ local function test_a_field_guard_after_its_nil_base_check_narrows()
 end
 
 --- A value that may be nil is no argument of `table.insert` or
---- `table.concat` where the list it joins or extends takes none
---- (patch/tl's 51f).
+--- `table.concat` where the list it joins or extends takes none.
 local function test_a_table_argument_that_may_be_nil_is_refused()
   local head = "local record R\n  name?: string\n  items?: {string}\nend\nlocal r: R = {}\n" ..
     "local function find(): string | nil return nil end\nlocal s = find()\n" ..
@@ -2262,7 +2252,7 @@ local function test_a_nil_operand_or_argument_is_told_the_check()
 end
 
 --- The optional parameters of `table.concat` take nil: the separator and
---- the bounds (patch/tl's 51f, which leaves optional parameters alone).
+--- the bounds.
 local function test_an_optional_table_parameter_takes_nil()
   local head = "local list: {string} = {}\nlocal function sep(): string | nil return nil end\n" ..
     "local function at(): integer | nil return nil end\n"
@@ -2271,8 +2261,7 @@ local function test_an_optional_table_parameter_takes_nil()
   assert_refused(head .. "table.insert(list, sep())\n", "argument")
 end
 
---- A numeric `for` takes no start, limit or step that may be nil
---- (patch/tl's 51c).
+--- A numeric `for` takes no start, limit or step that may be nil.
 local function test_a_numeric_for_bound_that_may_be_nil_is_refused()
   local head = "local function count(): number | nil return nil end\nlocal n = count()\n"
   assert_refused(head .. "for i = 1, n do print(i) end\n", "cannot use number | nil as the 'for' limit")
