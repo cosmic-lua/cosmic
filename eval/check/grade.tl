@@ -137,9 +137,8 @@ function Grader.built(output: string, name: string): boolean
     if line:sub(1, 1) == "/" and names(line) then
       return true
     end
-    -- TODO: drop the verdict's list once ci/cosmic-driver.pin names a
-    -- release whose `cosmic build` prints each executable on a line of
-    -- its own; the grader runs on that release.
+    -- An arena may hold a tool built from an older commit, which names
+    -- what it wrote only in its verdict.
     local wrote = line:match("^build: PASS %((.*)%)$")
     if wrote ~= nil then
       for each in wrote:gmatch("[^,]+") do
