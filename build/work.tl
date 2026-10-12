@@ -145,6 +145,11 @@ local version <const> = "29"
 --- projection carries for its standard library, and whether it is
 --- declaration-only. Every source with a top-level `return` has one,
 --- though only those modules' are read: a test has none.
+--- `globals` is where each `global` declaration of a source starts
+--- ([`build.globals`]), a row each by line and column: the rows a build
+--- refuses from ([`build.compilation`]'s `refuse_globals`) without
+--- reading a source again. A guide's example is at the line of the
+--- module extracted from the guide.
 ---
 --- `executable` is [`build.coverage.lines.executable`]'s answer for one
 --- source, keyed by content hash the same way as `parsed`: which lines

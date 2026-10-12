@@ -974,6 +974,26 @@ names the modules that cast from `any`; the expected list is the
 shape module, the codec decoders, the C declaration layer, and the
 build step that loads the compiler chunk.
 
+a build refuses a Teal `global` declaration in every source it holds:
+modules, tests, examples, guide examples and `.d.tl` files. the forms are
+`global x`, `global function`, `global record`, `global interface`,
+`global enum`, `global type`, and a `function f()` with no local `f` in
+scope, which writes a global. so `function print() end`, which
+redefines a standard-library global, is refused too. the refusal names
+the declaration's line and column and is made before any module is
+compiled, so it does not depend on the order modules are checked in.
+a module's compile key holds its kind, its source, the keys of the
+modules it requires, and the compiler's identity. a global reaches other
+modules by none of those, so a cached compile could stand after the
+module that declares it changed, the verdict of a serial build would
+depend on that order, and parallel workers could not reproduce it.
+everything a module sees comes through a `require`, which the key
+covers. tl's own prelude and standard-library declarations
+([`vendor/tl/tl.tl`]) are read by the checker's environment, not built as
+a source, and are unaffected. a Lua runtime trick the checker cannot
+see, `setmetatable(_G, ...)` or `local _ENV = ...`, is not refused, and
+neither is a file run by `cosmic --standalone`, which no build checks.
+
 ### the runtime
 
 one Lua state, one thread, coroutines over `poll`. every blocking
@@ -1258,3 +1278,4 @@ in [roadmap.md](roadmap.md).
 [`Store.web_asset`]: ../cosmic/store.tl
 [`Test.policy`]: ../cosmic/test.tl
 [`test/narrowing_test.tl`]: ../test/narrowing_test.tl
+[`vendor/tl/tl.tl`]: ../vendor/tl/tl.tl

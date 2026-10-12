@@ -32,6 +32,12 @@ A file's name says what it is.
 `cosmic docs cosmic.layout` and `cosmic docs cosmic.entrypoint` say
 the same in full.
 
+A module shares a value by returning it for another to `require`. A
+build refuses `global` (`global x`, `global function`, `global record`)
+and a `function f()` with no local `f` in scope, at the line and column
+of the declaration: put the value in a module and require it. It refuses
+them in a `.d.tl` file too.
+
 ## a library module
 
 The first line comment of a module, and the comment above each
