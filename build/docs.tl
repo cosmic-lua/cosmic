@@ -2678,6 +2678,7 @@ end
 --- The `docs` verb as [`build/verb_list.tl`] lists it.
 docs.spec = {
   name = "docs",
+  summarizes_failure = true,
   guide = "looking up a symbol and where it is used",
   tests = { "build.docs_test" },
   run = function(argv: {integer:string}): integer return run(argv) end,
@@ -2688,6 +2689,7 @@ docs.spec = {
 --- The `uses` verb as [`build/verb_list.tl`] lists it.
 docs.uses_spec = {
   name = "uses",
+  summarizes_failure = true,
   guide = "looking up a symbol and where it is used",
   tests = { "build.docs_test" },
   run = run_uses,

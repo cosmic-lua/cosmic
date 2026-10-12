@@ -1752,6 +1752,7 @@ end
 --- The `fix` verb as [`build/verb_list.tl`] lists it.
 fix.spec = {
   name = "fix",
+  summarizes_failure = true,
   guide = "none: a tree-maintenance verb, described by `cosmic help fix`; the quickstart does not cover checking a tree",
   tests = { "build.fix.fix_test" },
   run = function(argv: {integer:string}): integer return run(argv) end,

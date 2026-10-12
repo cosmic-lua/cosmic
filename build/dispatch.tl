@@ -92,7 +92,10 @@ end
 
 --- What follows the list of bare verbs in the paragraph that names them,
 --- before the sentence each bare verb's spec gives for its exit codes.
-local help_exit = "exits 0 when it passed; 1 when it failed; 2 when its command line was refused -- an option, an argument or a verb it does not know; 3 when the tool is older than the tree and did not rebuild itself (`COSMIC_AUTO_BOOT=0`, or a boot that failed). Its stdout is its result alone. Its stderr says what went wrong, and a run that passed ends there in a summary of how it went, `fix: 3 Teal files, 0 fixed, 12 ms`. `test`'s summary is its result instead, last on stdout once its tests ran, whether they passed or not: `test: 9 tests passed in 2 modules; ...` or `test: 2 of 9 tests failed, ...`. A file run, `--standalone` and `-e` are not verbs of that kind: each prints only what its program prints and exits with what it returns. `--version` is not one either: it prints its one line."
+local help_exit = "exits 0 when it passed; 1 when it failed; 2 when its command line was refused -- an option, an argument or a verb it does not know; 3 when the tool is older than the tree and did not rebuild itself (`COSMIC_AUTO_BOOT=0`, or a boot that failed). Its stdout is its result alone. Its stderr says what went wrong, and a run that passed ends there in a summary of how it went, `fix: 3 Teal files, 0 fixed, 12 ms`. `test`'s summary is its result instead, last on stdout once its tests ran, whether they passed or not: `test: 9 tests passed in 2 modules; ...` or `test: 2 of 9 tests failed, ...`."
+
+--- What `cosmic help exit` says of what is not a verb.
+local help_programs = "A file run, `--standalone` and `-e` are not verbs of that kind: each prints only what its program prints and exits with what it returns. `--version` is not one either: it prints its one line."
 
 --- `a`, `b` and `c`: the words in backticks, the last after "and".
 local function listed(names: {string}): string
@@ -172,6 +175,9 @@ local function spec_notes(verb: string, spec: verb_spec.Spec | nil): string
     paragraphs[#paragraphs + 1] = wrapped("Once its tests ran, ends its stdout in their summary, " ..
         "`test: 9 tests passed in 2 modules; ...` or `test: 2 of 9 tests failed, ...`, and exits " ..
         "as `cosmic help exit` says.", help_width)
+  elseif spec.summarizes_failure then
+    paragraphs[#paragraphs + 1] = wrapped("Ends a run with a summary on stderr, `" .. verb ..
+        ": ...`, whether it passed or failed, and exits as `cosmic help exit` says.", help_width)
   else
     paragraphs[#paragraphs + 1] = wrapped("Ends a run that passed with a summary on stderr, `" ..
         verb .. ": ...`, and exits as `cosmic help exit` says.", help_width)
@@ -184,15 +190,21 @@ end
 --- @param specs every verb's spec, in help's order
 local function exit_help(specs: {verb_spec.Spec}): string
   local bare: {string} = {}
+  local failing: {string} = {}
   local sentences: {string} = {}
   for _, spec in ipairs(specs) do
     if spec.bare then
       bare[#bare + 1] = spec.name
       sentences[#sentences + 1] = spec.exits or ""
     end
+    if spec.summarizes_failure then
+      failing[#failing + 1] = spec.name
+    end
   end
   return wrapped("Every verb but " .. listed(bare) .. " " .. help_exit .. " " ..
-      table.concat(sentences, " "), help_width) .. "\n"
+      listed(failing) .. " end a failed run in one too: what it found nothing of, or what is left " ..
+      "to fix. " ..
+      help_programs .. " " .. table.concat(sentences, " "), help_width) .. "\n"
 end
 
 --- The text of `cosmic help <verb>`: the verb's docs, its options, then
@@ -638,10 +650,9 @@ help_spec = {
 }
 
 --- The spec of the verb a command line's first word names, loading the
---- module of that verb alone, or nil for a word that names none. Every
---- verb but the bare ones ([`Spec.bare`]) ends a run with a summary on
---- stderr; a bare verb's output is data, and it prints none. build/json.tl
---- says why.
+--- module of that verb alone, or nil for a word that names none. A bare
+--- verb ([`Spec.bare`]) prints no summary, its output being data:
+--- build/json.tl says why.
 local function spec_of(word: string): verb_spec.Spec | nil
   local verb_list = require("build.verb_list")
   if word == "help" then
@@ -663,6 +674,7 @@ local function spec_of(word: string): verb_spec.Spec | nil
       bare = found.bare,
       fresh = found.fresh,
       recheck_on_refusal = found.recheck_on_refusal,
+      summarizes_failure = found.summarizes_failure,
       takes = found.takes,
       guide = found.guide,
       tests = found.tests,

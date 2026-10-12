@@ -773,6 +773,7 @@ end
 --- The `todos` verb as [`build/verb_list.tl`] lists it.
 todos.spec = {
   name = "todos",
+  summarizes_failure = true,
   guide = "none: lists the tree's TODO comments for its maintainers, described by `cosmic help todos`",
   tests = { "build.todos_test", "build.todos_git_test" },
   run = function(argv: {integer:string}): integer return run(argv) end,

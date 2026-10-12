@@ -227,8 +227,8 @@ local record Cli
   --- tab-separated cells: NULL as \N, a blob as X'<hex>',
   --- and in text a backslash, tab, newline or return as \\, \t, \n or
   --- \r and any other control byte as \xHH; the summary goes to
-  --- stderr. `--to` writes the rows in another format. `--to csv` quotes as RFC 4180 does, each record
-  --- ended by LF: a header of the column names first, NULL an empty
+  --- stderr. `--to` writes the rows in another format. `--to csv`
+  --- quotes as RFC 4180 does, each record ended by LF: a header of the column names first, NULL an empty
   --- field and '' a quoted empty one (so a one-column NULL is a blank
   --- line, which a CSV reader may drop), a blob's bytes as they are.
   --- `--to ndjson` writes a JSON object per row, its members the columns

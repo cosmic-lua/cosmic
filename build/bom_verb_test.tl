@@ -45,3 +45,10 @@ local function test_the_verb_prints_the_binary_s_own_rows(tmp: string)
   assert(notices.stdout:find("Lua.org, PUC-Rio", 1, true), "lua's notice is printed")
   assert(notices.stdout:find("== sqlite", 1, true), "a component with no notice is named")
 end
+
+--- A failure is complained about, and gets no summary that repeats it.
+local function test_a_failure_says_why_and_no_summary(tmp: string)
+  local failed = invoke.run({ "bom", "--json", tmp .. "/nowhere/bom.json" }, { cwd = tmp })
+  assert(failed.code == 1 and failed.stdout == "", failed.stdout)
+  assert(failed.stderr:find("^cosmic: bom: ") and not failed.stderr:find("\nbom: "), failed.stderr)
+end

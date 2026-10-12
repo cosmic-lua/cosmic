@@ -9,6 +9,7 @@ local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local invoke = require("build.invoke")
 local this_program = require("build.this_program")
+local verb_list = require("build.verb_list")
 local String = require("cosmic.string")
 local Clock = require("cosmic.clock")
 
@@ -81,10 +82,11 @@ end
 
 --- Asserts `cosmic <args>` in `dir` exits `code` and says how it went:
 --- a refused command line (2) is complained about on stderr, with nothing
---- on stdout and no summary; a run that passed ends in its summary, last on stderr
---- (`verb: ...`) or, for `test`, last on stdout; one that failed says why
---- on stderr, or, for `test`, in its summary. No line is the verdict line
---- the verbs no longer print, `verb: PASS` or `verb: FAIL`.
+--- on stdout and no summary; a run that passed ends in its summary, last
+--- on stderr (`verb: ...`) or, for `test`, last on stdout; one that failed
+--- says why on stderr, with a summary only where its spec's
+--- `summarizes_failure` says, or, for `test`, in its summary. No line is
+--- a verdict line, `verb: PASS` or `verb: FAIL`.
 function verbs_fixture.expect(dir: string, verb: string, args: {string}, code: integer): invoke.Result
   local result = verbs_fixture.run(dir, args)
   local out, err = result.stdout or "", result.stderr or ""
@@ -110,6 +112,12 @@ function verbs_fixture.expect(dir: string, verb: string, args: {string}, code: i
       "expected the summary last on stderr: " .. shown)
   else
     assert(err ~= "", "expected stderr to say why from " .. shown)
+    local spec = verb_list.find(verb)
+    if spec == nil or not spec.summarizes_failure then
+      for line in err:gmatch("[^\n]+") do
+        assert(not String.starts_with(line, verb .. ": "), "a summary of a failure in " .. shown)
+      end
+    end
   end
   return result
 end

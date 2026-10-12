@@ -28,6 +28,11 @@ local record verb_spec
     --- that must never stage the tree to ask (`sql`). A bare verb, and a
     --- `fresh` one, which was asked about before it ran, never are.
     recheck_on_refusal: boolean | nil
+    --- True when a failure, too, ends in a summary on stderr: what the run
+    --- found nothing of (`db`, `docs`, `uses`, `todos`) or what is left to
+    --- fix (`fix`). Another verb summarizes only a run that passed; a
+    --- failure's complaint says why.
+    summarizes_failure: boolean | nil
     --- What the verb takes after its name, as `cosmic help <verb>` phrases it
     --- ("a path and a file").
     takes: string
