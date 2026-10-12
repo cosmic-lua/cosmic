@@ -65,6 +65,10 @@ local record compiler
     "expected_one_of"
     -- the parser wanting a type list
     "type_list_expected"
+    -- a use refused because the narrowing of a place was dropped before
+    -- it: `dropped_place`, `dropped_kind`, `dropped_by`, `dropped_y`,
+    -- `dropped_x`, and the fields of the refusal it was
+    "narrowing_dropped"
     "other"
   end
 
@@ -151,6 +155,15 @@ local record compiler
     expects_most: integer | nil
     -- Whether `msg` has had advice appended.
     advised: boolean | nil
+
+    -- For a refusal of a place whose narrowing was dropped: the place
+    -- (`r.n`), what dropped it (`assignment`, `write`, `call`,
+    -- `operator` or `loop`), that expression as written, and where it is.
+    dropped_place: string | nil
+    dropped_kind: string | nil
+    dropped_by: string | nil
+    dropped_y: integer | nil
+    dropped_x: integer | nil
   end
 
   -- TODO: declare `ast`, `type`, [`Env.modules`], the reporter's

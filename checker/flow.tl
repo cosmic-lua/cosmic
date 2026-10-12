@@ -48,6 +48,8 @@ local record flow
    ends: function(Node): boolean
    ends_body: function(Node): boolean
    ends_all: function({Node}): boolean
+   leaves: function(Node): boolean
+   leaves_body: function(Node): boolean
    mark_never_call: function(Node)
 end
 
@@ -104,6 +106,34 @@ function flow.ends(node: flow.Node): boolean
       return node.exp.kind == "boolean" and node.exp.tk == endless and not breaks_out(node.body)
    end
    return not not node.never_call
+end
+
+--- Whether control never goes past `node` to the code after the block that
+--- holds it, nor to code after a loop: it ends in a `return` or a call that
+--- never returns, not in a `break` or a `goto`, which leave for code the
+--- block's effects reach. Loops are taken to be left only by a `break`.
+function flow.leaves(node: flow.Node): boolean
+   local kind = node.kind
+   if kind == "return" then
+      return true
+   elseif kind == "do" or kind == "if_block" then
+      return flow.leaves_body(node.body)
+   elseif kind == "if" then
+      for _, b in ipairs(node.if_blocks) do
+         if not flow.leaves(b) then
+            return false
+         end
+      end
+      return not node.if_blocks[#node.if_blocks].exp
+   elseif kind == "break" or kind == "goto" or kind == "while" or kind == "repeat" then
+      return false
+   end
+   return not not node.never_call
+end
+
+--- Whether the last statement of `body` leaves (see [`flow.leaves`]).
+function flow.leaves_body(body: flow.Node): boolean
+   return #body > 0 and flow.leaves(body[#body])
 end
 
 --- Records that `node`, a call, never returns: its function is typed

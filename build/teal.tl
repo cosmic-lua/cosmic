@@ -1107,6 +1107,46 @@ local function nil_answer(who: string, value: string): string
     value .. " = assert(<the call>)`"
 end
 
+--- What a use is told when the narrowing of its place was dropped (see
+--- [`teal.replacement`]): what dropped it, and the copy to a local that
+--- keeps the check and the use together, past the call or write that
+--- would change the place.
+local function dropped_hint(e: compiler.Error): string | nil
+  local place, kind, by = e.dropped_place, e.dropped_kind, e.dropped_by
+  if place == nil or kind == nil or by == nil then
+    return nil
+  end
+  local where = tostring(e.dropped_y) .. ":" .. tostring(e.dropped_x)
+  local field = place:match("%.([%a_][%w_]*)$")
+  local copy = field ~= nil and "local " .. field .. " = " .. place or "local " .. place .. " = " .. place
+  local name = field or place
+  local cause: string
+  local before = "the call"
+  if kind == "call" then
+    cause = "the call `" .. by .. "` at " .. where .. " may change it"
+  elseif kind == "write" then
+    cause = "the write `" .. by .. "` at " .. where .. " may be to the same table"
+    before = "the write"
+  elseif kind == "operator" then
+    cause = "the operator `" .. by .. "` at " .. where .. " may run a metamethod that changes it"
+    before = "the operator"
+  elseif kind == "label" then
+    cause = "the label `" .. by .. "` at " .. where .. " may be reached by a `goto` from code that changes it"
+    before = "the label"
+  elseif kind == "loop" then
+    cause = "the call `" .. by .. "` at " .. where .. " in this loop may change it before the loop comes round again"
+    before = "the loop"
+  else
+    return "'" .. place .. "' was checked, then assigned at " .. where .. ": the checker narrows nothing after " ..
+      "an assignment, so keep the value in a local (`local " .. name .. " = <the value>`, " ..
+      place .. " = " .. name .. ") and use that"
+  end
+  local first = place:find(".", 1, true) == nil and
+    "copy it into a local of its own after the check (`" .. copy .. "`, which no function assigns)" or
+    "copy it to a local before " .. before .. " (`" .. copy .. "`), check and use that"
+  return "'" .. place .. "' was checked, but " .. cause .. ": " .. first
+end
+
 --- The kind of type `source` declares as `name` at its top level
 --- (`local record Month`, `local type Month = ...`), nil when none does,
 --- as [`declarations_of`] reads it.
@@ -1875,6 +1915,10 @@ end
 --- `unknown type Kv.Kv` whose `Kv` `source` binds to a `require` that
 --- `Kv` itself is the module's record type, unless `refused` holds `Kv`.
 ---
+--- A use refused because the narrowing it relied on was dropped (the code
+--- `narrowing_dropped`) is told what dropped it and the copy to a local that
+--- keeps the check with the use ([`dropped_hint`]).
+---
 --- `local x = fail()` where `fail` is declared `: never` is told that
 --- `fail` never returns, so it has no value to assign
 --- ([`never_value_hint`]), whichever module declares it.
@@ -1901,6 +1945,9 @@ function teal.replacement(e: compiler.Error, source: string, file?: string,
   if code == "require_not_type" then
     local bound = type_require_at(source, y, x)
     return bound ~= nil and type_require_hint(e, file or "", source, bound) or nil
+  end
+  if code == "narrowing_dropped" then
+    return dropped_hint(e)
   end
   if code == "mismatch" and e.got_members ~= nil and #e.got_members == 1 and
       e.got_members[1] == "number" and

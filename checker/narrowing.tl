@@ -4,13 +4,25 @@
 -- `type(x) == "..."`, an assert-like call) or a combination of tests
 -- (`not`, `and`, `or`). A guard evaluates to the facts it gives, one per
 -- place; the checker holds those on its scopes, keyed by the place's
--- key, and drops what is known of a place when the program assigns it.
+-- key, and drops what is known of a place where its value can change.
 --
--- The checker (checker/tl.tl) builds a guard on each expression it types
--- and applies one wherever a branch begins or an expression is cut short:
--- the body of an `if` or a `while`, the right operand of `and` and `or`,
--- what follows an `assert`, and what follows an `if` all of whose
--- branches end ([`flow.ends_all`]) by the negation of its conditions.
+-- The checker (checker/tl.tl) builds a guard on each expression and applies
+-- one wherever a branch begins or an expression is cut short: the body of
+-- an `if` or a `while`, the right operand of `and` and `or`, what follows
+-- an `assert`, and what follows an `if` all of whose branches end
+-- ([`flow.ends_all`]) by the negation of its conditions.
+--
+-- A fact is dropped by an assignment to its place or a prefix of it
+-- ([`narrowing.drop`]), by a write to a field of its name through any
+-- reference ([`narrowing.drop_written`]), and by code that runs, which may
+-- write any field of any table ([`narrowing.drop_paths`]; the checker
+-- widens the narrowed locals that a function literal assigns). Each drop
+-- says what dropped the place, so the refusal of a use that relied on the
+-- fact can say so ([`narrowing.dropped_by`]). A guard built before code
+-- ran is cut of the facts that code may have changed ([`narrowing.forget`]),
+-- the drops of a block that never reaches the code after it are put back
+-- ([`narrowing.undo`]), and a function literal's body works on copies of
+-- the facts outside it ([`narrowing.enter_function`]).
 --
 -- Evaluating a guard asks the checker what it alone knows: a place's
 -- current type, whether one type is another, how to unite, intersect or
@@ -23,9 +35,10 @@
 -- TODO: the places are a local and `x.f` of a local: `place_of` answers
 -- nothing for `a.b.c`, and no index (`t[k]`) is a place. `Place.fields`
 -- already carries a path and `Host.type_of` walks it. It waits on
--- doc/roadmap.md's item that makes every guard read every place alike,
--- which needs the item before it, dropping facts at writes and calls,
--- for a longer path to be sound.
+-- doc/roadmap.md's item that makes every guard read every place alike;
+-- a write to an index then drops every index place, and the checker drops
+-- every field path for the write through a key that may be a field name
+-- (`TypeChecker:drop_through`).
 --
 -- TODO: `forgets` drops by string prefix, so `r.f = v` also drops a fact
 -- about `r.foo`. It waits on the roadmap item that makes every guard read
@@ -34,9 +47,14 @@
 --
 -- TODO: `type(x) == "..."` and the left operand of `and` guard a local
 -- and no field, though `x.f` is a place. It waits on the roadmap item that
--- makes every guard read every place alike, after facts are dropped at
--- writes and calls: a field guarded in more forms is sound only with that
--- drop.
+-- makes every guard read every place alike.
+--
+-- TODO: a to-be-closed variable's `__close` runs where its block ends, and
+-- reading a declared field of a record that declares `__index` or
+-- `__newindex` runs it when the field is absent, and neither drops what is
+-- known. They wait on doc/roadmap.md's item that makes a metamethod's run
+-- a call wherever it can happen, with the record rules for `__index` and
+-- `__newindex`.
 
 local record narrowing
    -- Where a guard was built: the position the checker reports at.
@@ -102,12 +120,60 @@ local record narrowing
       refuse_never: function(Where, who: string, have: Type, wanted: Type)
    end
 
+   -- What dropped a fact: an assignment to the place (`assignment`), a
+   -- write to a field of that name through another reference (`write`), a
+   -- call (`call`), an operator, index or comparison that runs a
+   -- metamethod (`operator`), or a loop whose body does one of these
+   -- (`loop`). `text` is the expression as a message shows it, `y` and
+   -- `x` where it is.
+   record Drop
+      kind: string
+      text: string
+      y: integer
+      x: integer
+      -- The place a read found dropped; nil on the drop itself, which
+      -- may have removed many.
+      place: string
+   end
+
    -- The scopes' part a place is dropped from: a scope holds its
    -- variables, and the facts narrowed on them, by key, and lists the
-   -- keys it narrowed.
+   -- keys it narrowed. A key a drop removed is listed in `dropped` with
+   -- what removed it, until the place is narrowed again or the scope ends.
    record Scope
-      vars: {string:any}
+      vars: {string:Var}
       narrows: {string:boolean}
+      dropped: {string:Drop}
+      hidden: {Hidden}
+      -- On the outermost scope: what the drops removed, in order, and the
+      -- keys any scope has told a drop of, so a read of any other need not
+      -- look.
+      journal: {Removed}
+      told: {string:boolean}
+   end
+
+   -- A fact a drop removed from `scope`: `var` held under `key`, which
+   -- `narrows` listed, and the drop that `dropped` already told of it.
+   record Removed
+      scope: Scope
+      key: string
+      var: Var
+      narrowed: boolean
+      told: Drop
+   end
+
+   -- A field fact an enclosing scope holds while a function literal's body
+   -- is checked: `scope` held `var` under `key`.
+   record Hidden
+      scope: Scope
+      key: string
+      var: Var
+   end
+
+   -- The part of a variable this file reads: whether the scope's entry
+   -- for it is a narrowed (or widened) view of a variable declared below.
+   record Var
+      is_specialized: string
    end
 
    -- The syntax-tree fields places and conditions are read from.
@@ -130,7 +196,22 @@ local record narrowing
    place_of: function(Node): Place
    target_of: function(Node): Place
    forgets: function(Place, string): boolean
-   drop: function({Scope}, Place)
+   drop: function({Scope}, Place, Drop)
+   drop_written: function({Scope}, string, Drop)
+   drop_paths: function({Scope}, Drop)
+   narrowed: function({Scope}): boolean, {string}
+   has_paths: function({Scope}): boolean
+   note: function({Scope}, string, Drop)
+   dropped_by: function({Scope}, string): Drop
+   cut: function({Scope}, string, Drop)
+   places: function(Guard): {Place}
+   renarrowed: function({Scope}, string)
+   forget: function(Guard, function(Place): boolean): Guard
+   because: function(string, string, integer, integer): Drop
+   mark: function({Scope}): integer
+   undo: function({Scope}, integer)
+   enter_function: function({Scope})
+   leave_function: function({Scope}, {Hidden})
    type_is: function(Where, Place, Type): Guard
    value_is: function(Where, Place, Type): Guard
    negate: function(Where, Guard): Guard
@@ -179,19 +260,310 @@ function narrowing.forgets(assigned: narrowing.Place, key: string): boolean
    return key:sub(1, #prefix) == prefix
 end
 
+-- The place a drop found dropped is none: the drop itself may have removed
+-- many. This file holds it in a local because the checker refuses a literal
+-- nil where a value is declared.
+local no_place: string
+
+--- What dropped a fact: a `kind` of drop (see [`narrowing.Drop`]), the
+--- expression as a message shows it, and where it begins.
+function narrowing.because(kind: string, text: string, y: integer, x: integer): narrowing.Drop
+   return { kind = kind, text = text, y = y, x = x, place = no_place }
+end
+
+-- Says that a drop of `key` is told in some scope.
+local function tell(scopes: {narrowing.Scope}, key: string)
+   local told = scopes[1].told
+   if not told then
+      told = {}
+      scopes[1].told = told
+   end
+   told[key] = true
+end
+
+-- Removes the fact held under `key` from `scope`, and says in `dropped`
+-- what removed it.
+local function remove(scopes: {narrowing.Scope}, scope: narrowing.Scope, key: string, why: narrowing.Drop)
+   local journal = scopes[1].journal
+   if not journal then
+      journal = {}
+      scopes[1].journal = journal
+   end
+   table.insert(journal, {
+      scope = scope, key = key, var = scope.vars[key],
+      narrowed = scope.narrows ~= nil and scope.narrows[key] == true,
+      told = scope.dropped and scope.dropped[key],
+   })
+   scope.vars[key] = nil
+   if scope.narrows then
+      scope.narrows[key] = nil
+   end
+   scope.dropped = scope.dropped or {}
+   scope.dropped[key] = why
+   tell(scopes, key)
+end
+
 --- Drops from every scope what is known under a key `forgets`, and the
 --- key from the names the scope narrowed, which a later widening of every
---- narrowed name would otherwise look for.
-function narrowing.drop(scopes: {narrowing.Scope}, assigned: narrowing.Place)
+--- narrowed name would otherwise look for. `why` is what assigned.
+function narrowing.drop(scopes: {narrowing.Scope}, assigned: narrowing.Place, why: narrowing.Drop)
    for i = #scopes, 1, -1 do
       local scope = scopes[i]
       for name in pairs(scope.vars) do
          if narrowing.forgets(assigned, name) then
-            scope.vars[name] = nil
-            if scope.narrows then
-               scope.narrows[name] = nil
+            remove(scopes, scope, name, why)
+         end
+      end
+   end
+end
+
+-- The keys of `scope` that name a field path (`r.n`: no Lua name
+-- contains a dot) and end in `suffix`, any when it is empty; nil for none.
+local function path_keys(scope: narrowing.Scope, suffix: string): {string}
+   local keys: {string}
+   if scope.narrows then
+      for key in pairs(scope.narrows) do
+         if key:find(".", 1, true) and (suffix == "" or key:sub(-#suffix) == suffix) then
+            keys = keys or {}
+            keys[#keys + 1] = key
+         end
+      end
+   end
+   return keys
+end
+
+--- Drops every narrowed place whose path ends in `.field`: a write to a
+--- field of that name through any reference may be a write to the field
+--- of the table another path names. `why` is the write.
+function narrowing.drop_written(scopes: {narrowing.Scope}, field: string, why: narrowing.Drop)
+   local suffix = "." .. field
+   for i = #scopes, 1, -1 do
+      local scope = scopes[i]
+      local keys = path_keys(scope, suffix)
+      if keys then
+         for _, key in ipairs(keys) do
+            remove(scopes, scope, key, why)
+         end
+      end
+   end
+end
+
+--- Drops every narrowed field path: what runs may write any field of any
+--- table it reaches. `why` is what runs.
+function narrowing.drop_paths(scopes: {narrowing.Scope}, why: narrowing.Drop)
+   for i = #scopes, 1, -1 do
+      local scope = scopes[i]
+      local keys = path_keys(scope, "")
+      if keys then
+         for _, key in ipairs(keys) do
+            remove(scopes, scope, key, why)
+         end
+      end
+   end
+end
+
+--- Whether any field path is narrowed, and the names of the narrowed locals
+--- (nil for none), each once, for the checker to see what a call has to drop.
+function narrowing.narrowed(scopes: {narrowing.Scope}): boolean, {string}
+   local paths = false
+   local seen: {string:boolean}
+   local names: {string}
+   for i = #scopes, 1, -1 do
+      local narrows = scopes[i].narrows
+      if narrows then
+         for name in pairs(narrows) do
+            if name:find(".", 1, true) then
+               paths = true
+            elseif not (seen and seen[name]) then
+               seen = seen or {}
+               names = names or {}
+               seen[name] = true
+               names[#names + 1] = name
             end
          end
+      end
+   end
+   if names then
+      table.sort(names)
+   end
+   return paths, names
+end
+
+--- Whether any field path is narrowed.
+function narrowing.has_paths(scopes: {narrowing.Scope}): boolean
+   for i = #scopes, 1, -1 do
+      local narrows = scopes[i].narrows
+      if narrows then
+         for name in pairs(narrows) do
+            if name:find(".", 1, true) then
+               return true
+            end
+         end
+      end
+   end
+   return false
+end
+
+--- Says in each scope that narrowed the local `name` that `why` dropped
+--- it, which the caller widens.
+function narrowing.note(scopes: {narrowing.Scope}, name: string, why: narrowing.Drop)
+   for i = #scopes, 1, -1 do
+      local scope = scopes[i]
+      if scope.narrows and scope.narrows[name] then
+         scope.dropped = scope.dropped or {}
+         scope.dropped[name] = why
+         tell(scopes, name)
+      end
+   end
+end
+
+--- What dropped the fact a read of `key` would have had, nil when the
+--- place is narrowed now or was never dropped. A scope that widens the
+--- place (a drop of a local) ends the search for a narrowing below it,
+--- not for what dropped it.
+function narrowing.dropped_by(scopes: {narrowing.Scope}, key: string): narrowing.Drop
+   local told = scopes[1].told
+   if not told or not told[key] then
+      return nil
+   end
+   local widened = false
+   for i = #scopes, 1, -1 do
+      local scope = scopes[i]
+      local var = scope.vars[key]
+      if var and var.is_specialized == "widen" then
+         widened = true
+      elseif var and var.is_specialized and var.is_specialized ~= "localizing" and not widened then
+         return nil
+      end
+      if scope.dropped and scope.dropped[key] then
+         return scope.dropped[key]
+      end
+   end
+   return nil
+end
+
+--- Says in the innermost scope that `why` dropped the fact of `key` that a
+--- guard would have given there, which no scope holds: the guard was cut
+--- before it was applied.
+function narrowing.cut(scopes: {narrowing.Scope}, key: string, why: narrowing.Drop)
+   local scope = scopes[#scopes]
+   scope.dropped = scope.dropped or {}
+   scope.dropped[key] = why
+   tell(scopes, key)
+end
+
+--- The places a guard is about, each once, in the order they are met.
+function narrowing.places(g: narrowing.Guard): {narrowing.Place}
+   local found: {narrowing.Place} = {}
+   local seen: {string:boolean} = {}
+   local function walk(f: narrowing.Guard)
+      if f == nil then
+         return
+      end
+      if f.place and not seen[f.place.key] then
+         seen[f.place.key] = true
+         table.insert(found, f.place)
+      end
+      walk(f.f1)
+      walk(f.f2)
+   end
+   walk(g)
+   return found
+end
+
+-- A copy of `var`, which the body of a function may change without
+-- changing the one it copies.
+local function copy(var: narrowing.Var): narrowing.Var
+   local made: {string:any} = {}
+   for k, v in pairs(var as {string:any}) do
+      made[k] = v
+   end
+   return made as narrowing.Var
+end
+
+--- Called with a function literal's scope the innermost: moves the field
+--- facts of the scopes outside it into that scope, as copies, so that what
+--- the body drops is dropped from the copies only. Creating the function
+--- runs none of its body, so the facts outside it stand after it, and
+--- `leave_function` puts them back.
+---
+-- TODO: the body still sees the facts of the scopes it is in, though it
+-- runs later, when they may no longer hold. It waits on the roadmap item
+-- that makes the body begin with none, which refuses what is accepted now
+-- (a callback reading a field its creator checked) and so needs its own
+-- measurement.
+function narrowing.enter_function(scopes: {narrowing.Scope})
+   local inner = scopes[#scopes]
+   local hidden: {narrowing.Hidden} = {}
+   for i = #scopes - 1, 1, -1 do
+      local scope = scopes[i]
+      for _, key in ipairs(path_keys(scope, "") or {}) do
+         local var = scope.vars[key]
+         if var then
+            if not inner.vars[key] then
+               inner.vars[key] = copy(var)
+               inner.narrows = inner.narrows or {}
+               inner.narrows[key] = true
+            end
+            table.insert(hidden, { scope = scope, key = key, var = var })
+            scope.vars[key] = nil
+            scope.narrows[key] = nil
+         end
+      end
+   end
+   inner.hidden = hidden
+end
+
+--- Puts back the facts `enter_function` moved, once the function's scope
+--- has ended.
+function narrowing.leave_function(_scopes: {narrowing.Scope}, hidden: {narrowing.Hidden})
+   for _, h in ipairs(hidden) do
+      h.scope.vars[h.key] = h.var
+      h.scope.narrows = h.scope.narrows or {}
+      h.scope.narrows[h.key] = true
+   end
+end
+
+--- Where the journal of drops is now, for `undo`.
+function narrowing.mark(scopes: {narrowing.Scope}): integer
+   local journal = scopes[1].journal
+   return journal and #journal or 0
+end
+
+--- Puts back what the drops since `mark` removed, newest first, except
+--- a fact that has been narrowed again since. The drops of a block that
+--- never reaches the code after it do not matter to that code.
+function narrowing.undo(scopes: {narrowing.Scope}, mark: integer)
+   local journal = scopes[1].journal
+   if not journal then
+      return
+   end
+   for i = #journal, mark + 1, -1 do
+      local gone = table.remove(journal)
+      local scope = gone.scope
+      if gone.var and scope.vars[gone.key] == nil then
+         scope.vars[gone.key] = gone.var
+         if gone.narrowed then
+            scope.narrows = scope.narrows or {}
+            scope.narrows[gone.key] = true
+         end
+      end
+      if scope.dropped then
+         scope.dropped[gone.key] = gone.told
+      end
+   end
+end
+
+--- Forgets that anything dropped `key`: the place is narrowed again.
+function narrowing.renarrowed(scopes: {narrowing.Scope}, key: string)
+   local told = scopes[1].told
+   if not told or not told[key] then
+      return
+   end
+   for i = #scopes, 1, -1 do
+      local scope = scopes[i]
+      if scope.dropped then
+         scope.dropped[key] = nil
       end
    end
 end
@@ -287,6 +659,31 @@ function narrowing.none_of(w: narrowing.Where, blocks: {narrowing.Node}, n: inte
       end
    end
    return f
+end
+
+--- `g` without the facts about places `droppable` says something can
+--- change: what a test established before code ran that may have changed
+--- the place it tested. Nil when nothing is left.
+function narrowing.forget(g: narrowing.Guard, droppable: function(narrowing.Place): boolean): narrowing.Guard
+   if g == nil then
+      return nil
+   elseif g.fact == "is" or g.fact == "==" then
+      if droppable(g.place) then
+         return nil
+      end
+      return g
+   elseif g.fact == "truthy" then
+      return g
+   elseif g.fact == "not" then
+      return narrowing.negate(g.w, narrowing.forget(g.f1, droppable))
+   end
+   local f1 = narrowing.forget(g.f1, droppable)
+   local f2 = narrowing.forget(g.f2, droppable)
+   if g.fact == "and" then
+      return narrowing.both(g.w, f1, f2)
+   end
+   -- An operand that gives nothing counts as truthy.
+   return join("or", g.w, f1 or (g.f1 and TRUTHY), f2 or (g.f2 and TRUTHY))
 end
 
 local function describe(host: narrowing.Host, g: narrowing.Guard): string
