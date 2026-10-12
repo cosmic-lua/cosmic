@@ -1330,16 +1330,18 @@ local function phase_darwin_suite(p: PlatformContext): integer
   return status
 end
 
---- The test files under cosmic/ that watch the declared types of the
---- standard library (`*declared_types_test.tl`, which a later directory's
---- change adds files to without touching CI), by their path in the
---- checkout.
+--- The test files under cosmic/, core/ and eval/ that watch the declared
+--- types of the standard library and of the modules beside those tests
+--- (`*declared_types_test.tl`, which a later directory's change adds files
+--- to without touching CI), by their path in the checkout.
 function Orchestration.declared_types_files(root: string): {string}
-  local found = Fs.walk(root .. "/cosmic") or {}
   local files: {string} = {}
-  for _, relative in ipairs(found) do
-    if relative:find("declared_types_test%.tl$") ~= nil then
-      files[#files + 1] = "cosmic/" .. relative
+  for _, directory in ipairs({ "cosmic", "core", "eval" }) do
+    local found = Fs.walk(root .. "/" .. directory) or {}
+    for _, relative in ipairs(found) do
+      if relative:find("declared_types_test%.tl$") ~= nil then
+        files[#files + 1] = directory .. "/" .. relative
+      end
     end
   end
   table.sort(files)
@@ -1356,7 +1358,7 @@ local function phase_declared_types(p: PlatformContext): integer
   local c = p.operation
   local files = Orchestration.declared_types_files(c.root)
   if #files == 0 then
-    Fs.put(Fs.stderr, "declared types: no cosmic/*declared_types_test.tl file\n")
+    Fs.put(Fs.stderr, "declared types: no cosmic/, core/ or eval/ *declared_types_test.tl file\n")
     return 1
   end
   local argv: {string} = { BuildPaths.directory(p.root) .. "/bin/cosmic", "test", "--check-types" }
@@ -1696,7 +1698,7 @@ function Orchestration.seed_compiles(env: {string:string},
     local path, kind = pair[1], pair[2]
     -- A link to the directory is followed, as shared_compiles' `private`
     -- follows it; one to the file is not.
-    local st, stat_trouble: sys.Stat, string = nil, ""
+    local st, stat_trouble: sys.Stat | nil, string = nil, ""
     if kind == "file" then
       st, stat_trouble = sys.lstat(path)
     else
