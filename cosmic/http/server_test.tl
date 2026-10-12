@@ -464,7 +464,7 @@ end
 local function test_stopping_closes_idle_connections_at_once()
   local started = Clock.monotonic_ns()
   local idle_ended = false
-  local in_flight: Got = nil
+  local in_flight: Got | nil = nil
   local release = false
   assert(Server.serve{
     listeners = { Net.tcp("127.0.0.1", 0) },
@@ -492,6 +492,7 @@ local function test_stopping_closes_idle_connections_at_once()
     end,
   })
   assert(idle_ended)
+  assert(in_flight ~= nil, "the reply in flight never came")
   assert(in_flight.status == 200 and in_flight.headers["connection"] == "close")
   assert(Clock.monotonic_ns() - started < Clock.seconds(10))
 end
@@ -661,7 +662,7 @@ end
 --- A request carries the connection's far end: the loopback address and
 --- the client's own port, which is not the server's.
 local function test_a_request_carries_its_peer_address()
-  local seen: Net.Address = nil
+  local seen: Net.Address | nil = nil
   local server_port = 0
   local troubles = serving(function(req: Server.Request): Server.Reply
     seen = req.peer
@@ -683,9 +684,9 @@ end
 --- stopping.
 local function test_a_callers_on_stop_runs_once_and_its_raise_is_reported()
   local calls = 0
-  local given: Net.Server = nil
+  local given: Net.Server | nil = nil
   local idle_ended = false
-  local idle_peer: Peer = nil
+  local idle_peer: Peer | nil = nil
   local troubles = serving(echo, function(address: Net.Address)
     idle_peer = peer(address)
     send(idle_peer, get("/"))
@@ -696,7 +697,7 @@ local function test_a_callers_on_stop_runs_once_and_its_raise_is_reported()
     given = server
     error("stopping badly")
   end })
-  local _, _ = idle_peer.conn:close()
+  local _, _ = assert(idle_peer).conn:close()
   assert(calls == 1, tostring(calls))
   assert(given ~= nil and type(given.stop) == "function")
   assert(idle_ended, "the idle connection was left open")
@@ -851,7 +852,7 @@ end
 --- A handler that works past body_ns before it reads a body the client
 --- sent in good time gets the body: the time runs from its first read.
 local function test_a_slow_handler_reading_a_prompt_body_gets_it()
-  local read: string = nil
+  local read: string | nil = nil
   local troubles = serving(function(req: Server.Request): Server.Reply
     assert(Poll.delay(Clock.ms(500)))
     read = assert(Stream.read_all(req.body))
@@ -930,11 +931,11 @@ end
 --- then, and a reply still in flight, finished once on_stop lets it go,
 --- carries `Connection: close`.
 local function test_on_stop_runs_after_the_server_has_stopped_taking_work()
-  local idle_peer: Peer = nil
-  local busy_peer: Peer = nil
+  local idle_peer: Peer | nil = nil
+  local busy_peer: Peer | nil = nil
   local idle_ended_at_stop = false
   local release = false
-  local in_flight: Got = nil
+  local in_flight: Got | nil = nil
   local troubles = serving(function(req: Server.Request): Server.Reply
     if req.path == "/slow" then
       while not release do assert(Poll.delay(Clock.ms(5))) end
@@ -949,11 +950,11 @@ local function test_on_stop_runs_after_the_server_has_stopped_taking_work()
     assert(Poll.delay(Clock.ms(20)))
     Poll.spawn(function() in_flight = reply(busy_peer) end)
   end, { on_stop = function(_server: Net.Server)
-    idle_ended_at_stop = vanished(idle_peer)
+    idle_ended_at_stop = vanished(assert(idle_peer))
     release = true
   end })
-  local _, _ = idle_peer.conn:close()
-  local _, _ = busy_peer.conn:close()
+  local _, _ = assert(idle_peer).conn:close()
+  local _, _ = assert(busy_peer).conn:close()
   assert(#troubles == 0, troubles[1])
   assert(idle_ended_at_stop, "the idle connection was open when on_stop ran")
   assert(in_flight ~= nil and in_flight.status == 200 and in_flight.headers["connection"] == "close",

@@ -126,9 +126,8 @@ end
 
 local function test_stopping_ends_a_stream_and_runs_the_stop_functions_in_order()
   local events: {string} = {}
-  local app: Web.App = nil
-  app = Web.app{
-    routes = { Web.get("/events", function(_req: Web.Request): Web.Response
+  local app = Web.app{
+    routes = { Web.get("/events", function(req: Web.Request): Web.Response
       local sent = false
       return Web.stream({
         read = function(_self: Stream.Reader, _max?: integer): string | nil, string
@@ -136,7 +135,7 @@ local function test_stopping_ends_a_stream_and_runs_the_stop_functions_in_order(
             sent = true
             return "data: hello\n\n", ""
           end
-          while not app:stopping() do assert(Poll.delay(Clock.ms(5))) end
+          while not req.app:stopping() do assert(Poll.delay(Clock.ms(5))) end
           events[#events + 1] = "stream saw stopping"
           return nil, ""
         end,
