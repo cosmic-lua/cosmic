@@ -1884,11 +1884,34 @@ fn core(
         // The release cores are stripped. The checked core keeps its debug
         // information; [`debug_dir`] and the map's `-g0` keep it naming no
         // path of the build, so it too is the same bytes at any path.
-        // A first link keeps its debug information for the block map to
-        // read; it is never installed.
-        .strip = !configuration.sanitize and native_coverage != .first_link,
+        // A first link is stripped here too, though it keeps its debug
+        // information (see `empty_map` below): zig 0.17 builds a link's
+        // libc and compiler-rt stripped exactly when its root module is
+        // (Compilation.compilerRtStrip), so both links of a core share
+        // one build of them rather than building each twice.
+        .strip = !configuration.sanitize,
         .sanitize_c = if (configuration.sanitize) .full else .off,
     });
+    // The module the first link's empty block table is compiled in. For a
+    // release core it is an unstripped module of its own, and that alone
+    // keeps the link's debug information: zig 0.17 turns its global debug
+    // format to DWARF when any module is unstripped (Compilation/Config.zig
+    // `any_non_stripped`), which gives the core's own C its `-g` and keeps
+    // the DWARF through the link. It needs a source to be linked at all,
+    // and the table is that source; being data, it adds no block. Were
+    // zig to change this, the table's symbols would be missing from the
+    // link, or `coverage-map write` would fail for want of DWARF.
+    // TODO: drop this module once zig keys the libc and compiler-rt it
+    // builds for a link by something other than the root module's strip,
+    // or keeps debug information under a setting of its own: each would
+    // let the first link be unstripped at the root again. Until then a
+    // zig that again built libc once per strip would only slow a cold
+    // build, which nothing here notices.
+    var empty_map = mod;
+    if (native_coverage == .first_link and !configuration.sanitize) {
+        empty_map = b.createModule(.{ .target = target, .strip = false });
+        mod.addImport("debug_info", empty_map);
+    }
     for (libraryIncludes(b, sources)) |dir| mod.addIncludePath(dir);
     // mbedtls's headers name the library's configuration header, which is
     // not beside them. Only it: an edit to any other header of core/ is no
@@ -1943,7 +1966,7 @@ fn core(
     // same order: the table is data and adds none.
     switch (native_coverage) {
         .off => {},
-        .first_link => sources.own.add(mod, &.{"core/coverage_map_empty.c"}, &.{ "-std=c11", debug_dir }),
+        .first_link => sources.own.add(empty_map, &.{"core/coverage_map_empty.c"}, &.{ "-std=c11", debug_dir }),
         // No debug information for the generated map: it is data, and its
         // file's name is its zig-cache output directory, new on every
         // relink, which would move the checked core's bytes with it.
