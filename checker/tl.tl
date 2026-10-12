@@ -12101,11 +12101,8 @@ do
       end
    end
 
-   -- TODO: this looks for an assignment to a local of that name alone, so a
-   -- loop that assigns a field (`q.a = nil`) keeps what was known of `q.a`
-   -- before it, in the loop's body. It waits on the roadmap item that makes
-   -- every guard read every place alike: a loop that assigns a place drops
-   -- it at the loop head.
+   -- Whether `root` assigns a local of that name. A field a loop writes is
+   -- dropped where it begins by `drop_for_loop`, not here.
    local function assigned_anywhere(name: string, root: Node): boolean
       local visit_node: Visitor<nil, NodeKind, Node, boolean> = {
          cbs = {
