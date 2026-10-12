@@ -51,8 +51,8 @@ programs') are not verbs' and stay.
     `fix: would fix  …` lines stay on stdout as its result.
 
   a refused command line gets no summary: its complaint says why. a
-  summary that only repeats a complaint (`sql`'s, `bom`'s and `help`'s
-  failures) is dropped.
+  summary that only repeats a complaint (`sql`'s, `bom`'s, `refresh`'s
+  and `help`'s failures) is dropped.
 - **a figure a consumer parses moves into the verb's result on stdout:**
   - `build` prints each executable it wrote, the bare path on a line, so
     a pipe can use it. this is the one fact consumers parse from its
@@ -87,10 +87,9 @@ before they ran.
 
 the rule is stated directly first (step 3a): dispatch asks after an
 exit 2 unless the verb is bare or `fresh`, or its spec says
-`recheck_on_refusal = false`, as `help`, `todos` and `sql` do. `bare`'s
-other meanings go with the line. `exits`, which is the help sentence for a verb whose output is
-data, becomes every verb's. `passthrough` stays for the programs: run,
-`--standalone`, `-e` and `--version`. the `TODO:` above that check in
+`recheck_on_refusal = false`, as `help`, `todos` and `sql` do. `bare`
+keeps one meaning: a verb whose output is data prints no summary. its
+`exits` sentence and its `passthrough` reason stay. the `TODO:` above that check in
 dispatch stays. it is about the stale tool's complaint, not the line.
 
 ## what reads the line now
@@ -164,7 +163,6 @@ PR that changes what it reads.
      - drop every `:verdict` call in `build/` and dispatch's fallback;
      - rename [`build/verdict.tl`] and drop `given`, `on_stderr` and
        `summary`;
-     - reduce `bare`;
      - move each verdict's detail to the stderr summary, and make `boot`'s
        failures complaints;
      - rewrite `cosmic help exit`, the per-verb help note, [`cosmic.cli`]'s
@@ -198,7 +196,7 @@ PR that changes what it reads.
 [`build/verb_spec.tl`]: ../../build/verb_spec.tl
 [`build/verbs_fixture.tl`]: ../../build/verbs_fixture.tl
 [`build/verbs_tool_test.tl`]: ../../build/verbs_tool_test.tl
-[`build/verdict.tl`]: ../../build/verdict.tl
+`build/verdict.tl`: ../../build/verdict.tl
 [`build/verify_codesign.tl`]: ../../build/verify_codesign.tl
 [`ci/cosmic_ci/fuzz_test.tl`]: ../../ci/cosmic_ci/fuzz_test.tl
 [`ci/cosmic_ci/orchestration.tl`]: ../../ci/cosmic_ci/orchestration.tl
@@ -216,3 +214,5 @@ PR that changes what it reads.
 [`Grader.built`]: ../../eval/check/grade.tl
 [`Logger.verdict`]: ../../cosmic/log.tl
 [`test_report.passed`]: ../../build/test_report.tl
+
+[`build/verdict.tl`]: ../../build/verdict.tl
