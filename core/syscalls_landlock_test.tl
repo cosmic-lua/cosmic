@@ -73,6 +73,7 @@ local function test_a_landlock_ruleset_holds_a_child_to_what_it_names(tmp: strin
     -- seccomp profile): what only the call can tell.
     assert(errno == sys.ENOSYS or errno == sys.EOPNOTSUPP or errno == sys.EPERM, trouble)
     Test.skip("the kernel gives no Landlock ruleset: " .. tostring(trouble))
+    return
   end
   local output = create(tmp .. "/said")
   local pid = assert(process.spawn(probe, { probe,
@@ -129,6 +130,7 @@ local function connects_through_a_ruleset(tmp: string, listen: function(string):
   if ruleset == nil then
     assert(listener:close())
     Test.skip("the kernel gives no Landlock ruleset: " .. tostring(trouble))
+    return
   end
   local output = create(tmp .. "/said")
   local pid = assert(process.spawn(probe, { probe, script(listener, socket) },

@@ -94,6 +94,7 @@ local function relays(tmp: string, probe: string, sandbox: raw_process.Sandbox, 
     sys.close(pair[2])
     assert(unsandboxable(why), "the start was refused: " .. why)
     Test.skip("this host gives no such sandbox: " .. why)
+    return
   end
   -- The start waited for the child's exec, so both descriptors are sent.
   local received = assert(socket.recvfds(pair[2], 2))
@@ -137,6 +138,7 @@ local function test_the_relay_ports_default_to_http_connect_and_socks(tmp: strin
   if pid == nil then
     assert(unsandboxable(why), "the start was refused: " .. why)
     Test.skip("this host gives no such sandbox: " .. why)
+    return
   end
   local received = assert(socket.recvfds(pair[2], 2))
   local first = assert(socket.bound(received[1]:fd()))
@@ -202,6 +204,7 @@ local function test_an_offline_childs_loopback_is_its_own(tmp: string)
     assert(alone:close())
     assert(unsandboxable(why), "the start was refused: " .. why)
     Test.skip("this host gives no such sandbox: " .. why)
+    return
   end
   local refused = finished(tmp, private)
   assert(refused:find("refused", 1, true), "its loopback is its own: " .. refused)

@@ -121,7 +121,7 @@ end
 local function test_every_request_is_answered_once_with_its_own_tag(tmp: string)
   require_native_connector()
   local listener <close> = assert(socket.listen({ kind = "tcp", host = "127.0.0.1", port = 0 }, 64))
-  local port = assert(socket.bound(listener:fd())).port
+  local port = assert(assert(socket.bound(listener:fd())).port)
   local pair = assert(process.connector_pair())
   local child, why = process.connector_start({ { host = "127.0.0.1", port = port } }, pair[2], 2000,
     { deny = DENY })

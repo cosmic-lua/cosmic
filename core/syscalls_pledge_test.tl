@@ -71,7 +71,7 @@ local function test_a_pledge_holds_a_child_and_what_it_starts(tmp: string)
       assert(errno == sys.ENOSYS, trouble)
       Test.skip("the kernel gives no pledge: " .. tostring(trouble))
     end
-    assert(assert(process.waitpid(pid, false)).code == 0)
+    assert(assert(process.waitpid(assert(pid), false)).code == 0)
     local said = assert(sys.pread(output, 4096, 0))
     sys.close(output)
     return (said:gsub("%s+", " "))
@@ -99,7 +99,7 @@ local function test_a_pledge_without_unix_refuses_a_unix_connect(tmp: string)
       sys.close(output)
       Test.skip("the kernel gives no pledge: " .. tostring(trouble))
     end
-    assert(assert(process.waitpid(pid, false)).code == 0)
+    assert(assert(process.waitpid(assert(pid), false)).code == 0)
     local said = assert(sys.pread(output, 4096, 0))
     sys.close(output)
     return said
