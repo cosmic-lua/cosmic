@@ -141,6 +141,10 @@ local function test_built_reads_the_build_line()
   assert(not Grader.built("build: PASS (/c/cosmic/trees/k/bin/notesy, 12 ms)\n", "notes"))
   assert(not Grader.built("build: PASS (no executable: no cmd/<name>/main.tl)\n", "notes"))
   assert(not Grader.built("build: FAIL\n", "notes"))
+  assert(Grader.built("/c/cosmic/trees/k/bin/hello\n/c/cosmic/trees/k/bin/notes\n" ..
+      "build: PASS (x)\n", "notes"))
+  assert(not Grader.built("/c/cosmic/trees/k/bin/notesy\n", "notes"))
+  assert(not Grader.built("test: FAIL  /bin/notes\n", "notes"))
 end
 
 local function test_an_arena_without_a_project_fails_every_task(dir: string)

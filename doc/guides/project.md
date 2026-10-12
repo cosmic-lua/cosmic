@@ -357,7 +357,7 @@ print(missing.code, ((missing.stderr or ""):gsub("\n$", "")))
 print(((cosmic("cmd/tally/main.tl", "--help").stdout or ""):gsub("\n$", "")))
 local wrote = cosmic("build", "--host")
 verdict(wrote, "build")
-local program = assert((wrote.stdout or ""):match("build: PASS %((/[^ ,]+)"))
+local program = assert(("\n" .. (wrote.stdout or "")):match("\n(/[^\n]+)"))
 local built = assert(Child.run({ program, "words", "words.txt" },
   { cwd = tmp, stdout = "capture", timeout_ns = Clock.seconds(60) }))
 print(((built.stdout or ""):gsub("\n$", "")))

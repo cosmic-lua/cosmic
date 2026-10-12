@@ -126,16 +126,24 @@ function Grader.failed_in_cosmic(err: string): boolean
 end
 
 --- Whether `cosmic build`'s output names bin/<name> among the
---- executables it wrote: `build: PASS (/home/u/.cache/cosmic/trees/<key>/bin/notes,
---- 433 ms)`, or as a tool that built into the project's o/ named it,
---- `build: PASS (o/bin/notes, 433 ms)`.
+--- executables it wrote: a line of its own
+--- (`/home/u/.cache/cosmic/trees/<key>/bin/notes`), or, from a tool that
+--- names them only in its verdict, `build: PASS (o/bin/notes, 433 ms)`.
 function Grader.built(output: string, name: string): boolean
+  local function names(path: string): boolean
+    return path == "o/bin/" .. name or String.ends_with(path, "/bin/" .. name)
+  end
   for line in output:gmatch("[^\n]+") do
+    if line:sub(1, 1) == "/" and names(line) then
+      return true
+    end
+    -- TODO: drop the verdict's list once ci/cosmic-driver.pin names a
+    -- release whose `cosmic build` prints each executable on a line of
+    -- its own; the grader runs on that release.
     local wrote = line:match("^build: PASS %((.*)%)$")
     if wrote ~= nil then
       for each in wrote:gmatch("[^,]+") do
-        local path = String.trim(each)
-        if path == "o/bin/" .. name or String.ends_with(path, "/bin/" .. name) then
+        if names(String.trim(each)) then
           return true
         end
       end
