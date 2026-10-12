@@ -170,6 +170,8 @@ local parsing: {string: string} = {
 local casts: {string: string} = {
   ["build/assertions.tl:assertions.install"] =
     "_G is a record and rawset takes a map; the write is of a name the record does not declare",
+  ["build/test_worker.tl:worker.install_checks"] =
+    "_G is a record and rawset takes a map; the write is of a name the record does not declare",
   ["build/standalone.tl:standalone.run"] =
     "_G is a record and rawset takes a map; the write is of a name the record does not declare",
   ["build/dispatch.tl:run"] =

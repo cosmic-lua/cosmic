@@ -382,14 +382,19 @@ end
 --- handle: a require of build.work would carry the rest of it into the
 --- compiler's identity (`compiler_identity` in build.identity), of which
 --- this module is a root.
+---
+--- With `checks`, the Lua its compiles write checks a value against the
+--- kind of its declared type at each declared parameter, return value and
+--- record field write ([`importer.compile`]'s `checks`).
 function teal.environment_for(built: compiler, db: Sqlite.Handle,
-                              root: string): compiler.Env | nil, string
+                              root: string, checks?: boolean): compiler.Env | nil, string
   serve(built, db, root)
   local env, trouble = built.new_env({
     defaults = {
       feat_lax = "off",
       gen_compat = "off",
       gen_target = "5.4",
+      runtime_checks = checks == true,
     },
   })
   if env == nil then

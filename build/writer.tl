@@ -277,6 +277,13 @@ local function signature_sql(): string
     "char(10) || ?2 || char(10) || ?3 || char(10) || ?4)))"
 end
 
+-- TODO: digest the source of cosmic.mime in place of its bytecode, so that a
+-- process whose modules carry run-time checks (`cosmic test --check-types`)
+-- signs a projection as the tool does:
+-- build/rebuild_lock_tool_test.tl's test_a_waiting_projection_keeps_its_compiled_snapshot
+-- fails in a checked run for it. It waits on the change to every signature,
+-- which writes every projection again once.
+
 --- The digest of the [`cosmic.mime`] this writer runs, which the `type` and
 --- `gzip` of a `payload` row come from: the signature holds it, so an edit
 --- to that module writes the rows again.

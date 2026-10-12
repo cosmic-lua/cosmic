@@ -569,6 +569,10 @@ local record tl
       gen_compat: GenCompat
       gen_target: GenTarget
       run_internal_compiler_checks: boolean
+      -- Annotates the syntax tree with the run-time checks a typed
+      -- boundary asks for, which `generate` then writes (see
+      -- `TypeChecker:runtime_kinds`).
+      runtime_checks: boolean
    end
 
    record Env
@@ -2363,6 +2367,16 @@ local record Node
    opt: boolean
 
    debug_type: Type
+
+   -- run-time checks, set only when the environment asks for them
+   -- (CheckOptions.runtime_checks): on an argument, "name=kinds"; on a
+   -- return, the kinds of each value, joined by ";"; on the expression
+   -- list of an assignment, the check of each value written to a record
+   -- field; on the root, the file the checks name.
+   rt_check: string
+   rt_rets: string
+   rt_set: {integer:string}
+   rt_file: string
 end
 
 local show_type: function(Type, ? boolean, ? {Type:string}): string
@@ -5839,6 +5853,37 @@ function tl.generate(ast: tl.Node, gen_target: GenTarget, opts?: GenerateOptions
       return n.is_longstring
    end
 
+   -- The run-time checks (CheckOptions.runtime_checks). Each is a call
+   -- of the global `__cosmic_tc`, or of `select` where the program has
+   -- none: `select(2, spec, ...)` answers the values after the spec, so
+   -- a check the program cannot make leaves them as they were. `spec` is
+   -- a string of fields joined by ";": the check's kind ("p" parameters,
+   -- "r" return values, "f" a record field written), the file and line,
+   -- and for each value its name and kinds. The line is that of the
+   -- Lua written, which keeps the Teal's.
+   local function runtime_spec(kind: string, node: Node, ...: string): string
+      local fields: {string} = { kind, ((ast as Node).rt_file or "?") .. ":" .. node.y, ... }
+      return string.format("%q", table.concat(fields, ";"))
+   end
+
+   local function parameter_check(node: Node, name: string): string
+      local checks: {string} = {}
+      local names: {string} = {}
+      if node.args then
+         for _, arg in ipairs(node.args) do
+            if arg.rt_check then
+               table.insert(checks, arg.rt_check)
+               table.insert(names, arg.tk)
+            end
+         end
+      end
+      if #checks == 0 then
+         return ""
+      end
+      return " (__cosmic_tc or select)(2, " .. runtime_spec("p", node, name, table.unpack(checks))
+         .. ", " .. table.concat(names, ", ") .. ");"
+   end
+
    visit_node.cbs = {
       ["statements"] = {
          after = function(_: nil, node: Node, children: {Output}): Output
@@ -6038,7 +6083,14 @@ function tl.generate(ast: tl.Node, gen_target: GenTarget, opts?: GenerateOptions
             local out: Output = { y = node.y, h = 0 }
             table.insert(out, "return")
             if #children[1] > 0 then
+               if node.rt_rets then
+                  table.insert(out, " (__cosmic_tc or select)(2, "
+                     .. runtime_spec("r", node, node.rt_rets) .. ",")
+               end
                add_child(out, children[1], " ")
+               if node.rt_rets then
+                  table.insert(out, ")")
+               end
             end
             return out
          end,
@@ -6058,6 +6110,14 @@ function tl.generate(ast: tl.Node, gen_target: GenTarget, opts?: GenerateOptions
                if i > 1 then
                   table.insert(out, ",")
                   space = " "
+               end
+               if node.rt_set and node.rt_set[i] then
+                  local checked: Output = { y = child.y, h = 0 }
+                  table.insert(checked, "(__cosmic_tc or select)(2, "
+                     .. runtime_spec("f", node[i], node.rt_set[i]) .. ", ")
+                  add_child(checked, child)
+                  table.insert(checked, ")")
+                  child = checked
                end
                add_child(out, child, space, child.y ~= node.y and indent)
             end
@@ -6122,6 +6182,10 @@ function tl.generate(ast: tl.Node, gen_target: GenTarget, opts?: GenerateOptions
             table.insert(out, "(")
             add_child(out, children[2])
             table.insert(out, ")")
+            local check = parameter_check(node, node.name.tk)
+            if check ~= "" then
+               table.insert(out, check)
+            end
             add_child(out, children[4], " ")
             decrement_indent(node, node.body)
             add_child(out, { y = node.yend, h = 0, [1] = "end" }, " ", indent)
@@ -6137,6 +6201,10 @@ function tl.generate(ast: tl.Node, gen_target: GenTarget, opts?: GenerateOptions
             table.insert(out, "(")
             add_child(out, children[2])
             table.insert(out, ")")
+            local check = parameter_check(node, node.name.tk)
+            if check ~= "" then
+               table.insert(out, check)
+            end
             add_child(out, children[4], " ")
             decrement_indent(node, node.body)
             add_child(out, { y = node.yend, h = 0, [1] = "end" }, " ", indent)
@@ -6164,6 +6232,10 @@ function tl.generate(ast: tl.Node, gen_target: GenTarget, opts?: GenerateOptions
             end
             add_child(out, children[3])
             table.insert(out, ")")
+            local check = parameter_check(node, node.name.tk)
+            if check ~= "" then
+               table.insert(out, check)
+            end
             add_child(out, children[5], " ")
             decrement_indent(node, node.body)
             add_child(out, { y = node.yend, h = 0, [1] = "end" }, " ", indent)
@@ -6177,6 +6249,10 @@ function tl.generate(ast: tl.Node, gen_target: GenTarget, opts?: GenerateOptions
             table.insert(out, "function(")
             add_child(out, children[1])
             table.insert(out, ")")
+            local check = parameter_check(node, "function")
+            if check ~= "" then
+               table.insert(out, check)
+            end
             add_child(out, children[3], " ")
             decrement_indent(node, node.body)
             add_child(out, { y = node.yend, h = 0, [1] = "end" }, " ", indent)
@@ -7744,6 +7820,7 @@ local function require_module(w: Where, module_name: string, opts: CheckOptions,
          gen_compat = opts.gen_compat or save_defaults.gen_compat,
          gen_target = opts.gen_target or save_defaults.gen_target,
          run_internal_compiler_checks = opts.run_internal_compiler_checks or save_defaults.run_internal_compiler_checks,
+         runtime_checks = opts.runtime_checks or save_defaults.runtime_checks,
       }
       env.defaults = defaults
 
@@ -8056,6 +8133,7 @@ do
       gen_target: GenTarget
       feat_arity: boolean
       feat_lax: boolean
+      runtime_checks: boolean
 
       -- Reported at an `assert(...)` whose extra values a check refused;
       -- set beside assert_spill_hint.
@@ -9457,6 +9535,66 @@ do
          t = self:resolve_nominal(t)
       end
       return t
+   end
+
+   -- The Lua kinds a value of the type `t` can have, joined by "|" in a
+   -- fixed order ("nil" among them where `t` admits nil or `optional` is
+   -- set), which a run-time check compares a value's with: `type`, and
+   -- `math.type` for an integer. Nil where a value cannot be checked by
+   -- its kind alone: `any`, a type variable, a type not resolved. A
+   -- record is a table, as it is erased, and an interface a table or a
+   -- userdata, since a record that is one may implement it. A kind is
+   -- only ever added for a type that admits it, so a value a type
+   -- declares passes.
+   function TypeChecker:runtime_kinds(t: Type, optional?: boolean): string
+      local kinds: {string:boolean} = {}
+      local function add(u: Type, depth: integer): boolean
+         if depth > 6 or u is TupleType or u is TypeVarType or u is TypeArgType then
+            return false
+         end
+         u = self:to_structural(u)
+         local name = u.typename
+         if name == "union" then
+            for _, member in ipairs((u as UnionType).types) do
+               if not add(member, depth + 1) then
+                  return false
+               end
+            end
+         elseif name == "nil" or name == "boolean" or name == "number" or name == "integer"
+            or name == "string" or name == "function" or name == "thread" or name == "userdata" then
+            kinds[name] = true
+         elseif name == "enum" then
+            kinds["string"] = true
+         elseif name == "array" or name == "map" or name == "tupletable" or name == "emptytable" then
+            kinds["table"] = true
+         elseif name == "record" then
+            kinds[(u as RecordLikeType).is_userdata and "userdata" or "table"] = true
+         elseif name == "interface" then
+            kinds["table"] = true
+            kinds["userdata"] = true
+         else
+            return false
+         end
+         return true
+      end
+      if not add(t, 1) then
+         return nil
+      end
+      if optional then
+         kinds["nil"] = true
+      end
+      if kinds["number"] then
+         kinds["integer"] = nil
+      end
+      local out: {string} = {}
+      for _, kind in ipairs({
+         "nil", "boolean", "number", "integer", "string", "table", "function", "userdata", "thread",
+      }) do
+         if kinds[kind] then
+            table.insert(out, kind)
+         end
+      end
+      return table.concat(out, "|")
    end
 
    local function unite(w: Where, types: {Type}, flatten_constants?: boolean): Type
@@ -14266,6 +14404,29 @@ do
                      self.collector.store_type(varnode.y, varnode.x, valtype)
                   end
                end
+
+               if self.runtime_checks and i <= #node.exps
+                  and (i < #node.exps or #node.exps >= #vartypes)
+                  and varnode.op and varnode.op.op == "." and varnode.receiver then
+                  local receiver = varnode.receiver
+                  local rt = not receiver is TupleType and self:to_structural(receiver)
+                  if rt is TypeDeclType then
+                     rt = rt.def
+                  end
+                  local key = varnode.e2.tk
+                  -- TODO: check a write to a field the record inherits from an
+                  -- interface, or that a generic record declares: both are left
+                  -- out here, which looks only at the fields a plain record lists
+                  -- itself. Resolve the field with `match_record_key` once it can
+                  -- be asked without reporting an error to the program being checked.
+                  if rt is RecordType and rt.fields[key] then
+                     local kinds = self:runtime_kinds(rt.fields[key])
+                     if kinds then
+                        node.exps.rt_set = node.exps.rt_set or {}
+                        node.exps.rt_set[i] = (rt.declname or "?") .. "." .. key .. ";" .. kinds
+                     end
+                  end
+               end
             end
 
             return NONE
@@ -14549,6 +14710,24 @@ do
             local vatype: Type
             if n_expected > 0 then
                vatype = expected.is_va and expected.tuple[n_expected]
+            end
+
+            -- A `return f(x)` is a tail call, which a check around it would
+            -- end: the frame it would add moves the level an `error` in the
+            -- callee blames. The callee's own returns are checked.
+            if self.runtime_checks and not expected.inferred_at
+               and not (#node.exps == 1 and node_is_funcall(node.exps[1])) then
+               local checks: {string} = {}
+               local checked = false
+               for i, expected_i in ipairs(expected_t) do
+                  local kinds: string
+                  if not (expected.is_va and i == n_expected) then
+                     kinds = self:runtime_kinds(resolve_tuple(expected_i))
+                  end
+                  checked = checked or kinds ~= nil
+                  table.insert(checks, kinds or "-")
+               end
+               node.rt_rets = checked and table.concat(checks, ";") or nil
             end
 
             local spill_before = #self.errs.errors
@@ -15947,6 +16126,14 @@ do
                       or  a_type(node, "any", {})
                end
             end
+            if self.runtime_checks and node.tk ~= "..." and node.tk ~= "self" then
+               local declared = children[1] or node.context_type
+               local kinds: string
+               if declared then
+                  kinds = self:runtime_kinds(declared, node.opt)
+               end
+               node.rt_check = kinds and (node.tk .. "=" .. kinds) or nil
+            end
             if node.tk == "..." then
                t = a_vararg(node, { t })
             end
@@ -16549,6 +16736,7 @@ do
       self.feat_arity = set_feat(opts.feat_arity or env.defaults.feat_arity, true)
       self.gen_compat = opts.gen_compat or env.defaults.gen_compat or DEFAULT_GEN_COMPAT
       self.gen_target = opts.gen_target or env.defaults.gen_target or DEFAULT_GEN_TARGET
+      self.runtime_checks = opts.runtime_checks or env.defaults.runtime_checks
 
       if self.feat_lax then
          self.feat_arity = false
@@ -16609,6 +16797,9 @@ do
       end
 
       assert(ast.kind == "statements")
+      if self.runtime_checks then
+         ast.rt_file = filename
+      end
       recurse_node(self, ast, visit_node, visit_type)
 
       local global_scope = self.st[1]
@@ -16918,6 +17109,7 @@ tl.type_check = function(ast: Node, tc_opts?: tl.TypeCheckOptions): Result, stri
       gen_compat = tc_opts.gen_compat,
       gen_target = tc_opts.gen_target,
       run_internal_compiler_checks = tc_opts.run_internal_compiler_checks,
+      runtime_checks = tc_opts.env and tc_opts.env.defaults.runtime_checks or false,
    }
    return tl.check(ast, tc_opts.filename, opts, tc_opts.env)
 end

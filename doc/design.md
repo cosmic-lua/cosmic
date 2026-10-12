@@ -954,6 +954,25 @@ casts and the holes every type has (`coroutine.wrap`, `rawset`,
 `setmetatable`) are on the roadmap, and [`test/narrowing_test.tl`] and
 [`build/teal_test.tl`] pin today's behavior of each.
 
+a checked test run (`cosmic test --check-types`) finds where the types
+lie. it compiles the tree with a run-time check at each declared boundary:
+an annotated parameter at the function's entry, a declared return value at
+its `return`, and a write to a record field (`r.f = v`). the check compares
+the value's Lua kind (`type`, and `math.type` for an integer) with the
+kinds the declared type admits: nil only where the type admits it, a record
+or a map as a table, an enum as a string; `any` and a type variable are not
+checked. a violation is recorded with the line that sent the value (the
+caller for a parameter, the statement for a return and a write), the
+declared kinds and the value's, and the run reports them and fails
+nothing, since the checker still admits nil everywhere and the checks flag
+what it allows. the run changes the Lua, so its compiler has an identity of
+its own ([`build.importer`]'s `checked_tool`) in every compile key, the
+working database's rows and the compiles every checkout shares alike, and
+its projection is written aside (`cosmic.checked.db`): the tree's projection,
+the tool and every executable `cosmic build` writes never carry a check.
+[`build.test_worker`], which holds the hook the checks call, is compiled
+without them.
+
 a function type stands for another when its parameters accept what the
 other's do (contravariant) and its returns are subtypes of the other's
 (covariant); Teal's own rule took either direction for each, so
@@ -1229,6 +1248,7 @@ in [roadmap.md](roadmap.md).
 [`build.positions`]: ../build/positions.tl
 [`build.reboot.own_tool`]: ../build/reboot.tl
 [`build.stub`]: ../build/stub.tl
+[`build.test_worker`]: ../build/test_worker.tl
 [`build.work`]: ../build/work.tl
 [`build.writer`]: ../build/writer.tl
 [`build/bom.tl`]: ../build/bom.tl

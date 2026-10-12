@@ -598,9 +598,16 @@ function compilation.generate(m: Module, built: compiler, env: compiler.Env,
   -- data module, under the template's name.
   typed.checking = m.file
   local result: compiler.Result
+  -- The module that holds the hook the checks call is compiled without
+  -- them: a check of the hook's own parameters would call the hook.
+  local checks = env.defaults.runtime_checks
+  if m.path == "build.test_worker" then
+    env.defaults.runtime_checks = false
+  end
   local checked_ok, raised = pcall(function()
     result = built.check_string(source, env, m.file, "tl")
   end)
+  env.defaults.runtime_checks = checks
   -- Put back before a raise goes on, so the run's state names no file
   -- the checker has left.
   typed.checking = ""

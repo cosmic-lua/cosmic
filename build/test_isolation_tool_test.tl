@@ -301,6 +301,7 @@ end
     COSMIC_PORTABLE_CACHE = "c", PATH = "p", COSMIC_REBOOTED = "1", OLDPWD = "/elsewhere",
     _ = "/usr/bin/timeout", SHLVL = "2", COSMIC_BUILD_CACHE = "/shared/cache.db",
     COSMIC_VERDICT_CACHE = "/shared/verdicts.db", COSMIC_TEST_NO_SHARED = "1", COSMIC_TEST_BAIL = "1",
+    COSMIC_TEST_CHECK_TYPES = "1", COSMIC_TEST_TYPES = "1",
     COSMIC_REBUILD_LOCK_HANDED = "/tree/o/rebuild.lock" })
   assert(kept.COSMIC_PORTABLE_STARTUP_TEST_GO == nil)
   -- Nor a rebuild lock handed to the run: what a test starts holds none
@@ -309,6 +310,8 @@ end
   -- Nor whether this run stands on shared verdicts: a `cosmic test` a
   -- test starts says that for itself.
   assert(kept.COSMIC_TEST_NO_SHARED == nil and kept.COSMIC_TEST_BAIL == nil)
+  -- Nor whether it was a checked one, and its workers told to report.
+  assert(kept.COSMIC_TEST_CHECK_TYPES == nil and kept.COSMIC_TEST_TYPES == nil)
   -- Neither cache every checkout shares is a worker's, unless its test
   -- names one for what it starts.
   assert(kept.COSMIC_BUILD_CACHE == "0" and kept.COSMIC_VERDICT_CACHE == "0")

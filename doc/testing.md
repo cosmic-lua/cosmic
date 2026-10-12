@@ -268,6 +268,29 @@ and keeps no verdict of it. A held run fails it.
 [`Test.passed_unchecked`] is for the fuzz runner alone. `bin/cosmic fix
 --check .` fails any other use.
 
+## run-time type checks
+
+`cosmic test --check-types` (`COSMIC_TEST_CHECK_TYPES=1`) shows where a
+value breaks the type declared for it. It compiles the tree with a check
+at each annotated parameter, declared return value and write to a record
+field, and runs every test, whatever verdict stands, since only a worker
+reports.
+
+A violation is a value whose Lua kind the declared type does not admit:
+nil or a missing return value for a type that admits no nil, a float for
+an integer, a string for a record. `any` and a type variable are not
+checked. The checks report and fail nothing: before nil is excluded from
+the types, they flag code the checker allows.
+
+The run ends with the count, the distinct violations and the commonest
+ten, each with the line that sent the value: the caller for a parameter,
+the `return` or the write for the others. `cosmic sql --build 'SELECT *
+FROM type_violations'` lists all of them, from the latest checked run.
+
+A module compiled with checks is another compile of the same source: it
+has its own keys, and the tool and the executables `cosmic build` writes
+carry none.
+
 ## fuzz tests
 
 A parser that reads untrusted bytes gets a `*_fuzz_test.tl` beside it,
