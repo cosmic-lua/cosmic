@@ -688,10 +688,11 @@ local function test_a_callers_on_stop_runs_once_and_its_raise_is_reported()
   local idle_ended = false
   local idle_peer: Peer | nil = nil
   local troubles = serving(echo, function(address: Net.Address)
-    idle_peer = peer(address)
-    send(idle_peer, get("/"))
-    assert(reply(idle_peer).status == 200)
-    Poll.spawn(function() idle_ended = ended(idle_peer) end)
+    local idle = peer(address)
+    idle_peer = idle
+    send(idle, get("/"))
+    assert(reply(idle).status == 200)
+    Poll.spawn(function() idle_ended = ended(idle) end)
   end, { on_stop = function(server: Net.Server)
     calls = calls + 1
     given = server
@@ -942,13 +943,15 @@ local function test_on_stop_runs_after_the_server_has_stopped_taking_work()
     end
     return { status = 200, body = "ok" }
   end, function(address: Net.Address)
-    idle_peer = peer(address)
-    send(idle_peer, get("/"))
-    assert(reply(idle_peer).status == 200)
-    busy_peer = peer(address)
-    send(busy_peer, get("/slow"))
+    local idle = peer(address)
+    idle_peer = idle
+    send(idle, get("/"))
+    assert(reply(idle).status == 200)
+    local busy = peer(address)
+    busy_peer = busy
+    send(busy, get("/slow"))
     assert(Poll.delay(Clock.ms(20)))
-    Poll.spawn(function() in_flight = reply(busy_peer) end)
+    Poll.spawn(function() in_flight = reply(busy) end)
   end, { on_stop = function(_server: Net.Server)
     idle_ended_at_stop = vanished(assert(idle_peer))
     release = true

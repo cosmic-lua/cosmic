@@ -245,12 +245,12 @@ local function test_return_and_a_call_that_never_returns_leave_and_break_and_got
   for _, statement in ipairs({ "while x do break end", "goto out\n::out::" }) do
     local kind = statement:find("break", 1, true) and "break" or "goto"
     local ast = check(prelude .. "local function g()\n" .. statement .. "\nend")
-    local jump = find(ast[#ast].body, kind)
+    local jump = assert(find(ast[#ast].body, kind))
     assert(flow.ends(jump) and not flow.leaves(jump), kind)
   end
   -- A branch is one that leaves by its last statement.
-  assert(flow.leaves(find(check(prelude .. "local function g()\nif x then x = true; return end\nend"), "if_block")))
-  assert(not flow.leaves(find(check(prelude .. "local function g()\nwhile x do if y then break end end\nend"), "if_block")))
+  assert(flow.leaves(assert(find(check(prelude .. "local function g()\nif x then x = true; return end\nend"), "if_block"))))
+  assert(not flow.leaves(assert(find(check(prelude .. "local function g()\nwhile x do if y then break end end\nend"), "if_block"))))
 end
 
 local function test_leaves_body_reads_the_last_statement()
