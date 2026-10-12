@@ -30,6 +30,37 @@ return {
     made = made + 1
     local kind = source:find("search_module", 1, true) and "compiler" or "module"
     io.open(dir .. "/" .. kind .. "-" .. made, "w"):close()
+    local action, path = os.getenv("DEP_ACTION"), os.getenv("DEP_PATH")
+    if kind == "module" and made == 1 and action then
+      -- A read of another file as tl's search reads a dependency.
+      local function read()
+        local file = io.open(path, "r")
+        if file == nil then return nil end
+        local text = file:read("*a")
+        file:close()
+        return text
+      end
+      local function write(text)
+        local file = io.open(path, "w")
+        file:write(text)
+        file:close()
+      end
+      if action == "read" then
+        read()
+      elseif action == "edit" then
+        write("return { n = 9 }\n")
+        read()
+      elseif action == "twice" then
+        local text = read()
+        write("-- other\n")
+        read()
+        write(text)
+        read()
+      elseif action == "vanish" then
+        require("cosmic.sys").unlink(path)
+        read()
+      end
+    end
     local edit = os.getenv("EDIT_A")
     if kind == "module" and made == 1 and edit then
       local file = io.open(edit, "w")
@@ -94,6 +125,7 @@ local function fixture(tmp: string, name: string): Fixture
   put(f.tree .. "/build/a.tl", "return { n = 1 }\n")
   put(f.tree .. "/build/b/init.tl", "return { n = 20 }\n")
   put(f.tree .. "/build/note.md", "not a source\n")
+  put(f.tree .. "/build/dep.tl", "return { n = 7 }\n")
   put(f.tl .. "/tl.lua", compiler)
   put(f.tl .. "/tl.tl", compiler)
   assert(Fs.mkdirs(Fs.dirname(f.cache)))
@@ -248,6 +280,50 @@ local function test_a_file_edited_while_the_bridge_runs_is_not_kept(tmp: string)
   assert(restored.status == 21 and restored.modules == loaded,
     "the restored tree took the edited code from the cache")
   assert(boot(f).modules == 0, "the restored tree's own row was not kept")
+end
+
+--- What a compile reads is held to the key as the searcher's own reads
+--- are, whichever way tl reads it. Each case has the stand-in compiler
+--- read a file as it compiles the first module; only a read of a file
+--- as the manifest has it leaves the row kept.
+local function test_every_read_of_a_compile_is_held_to_the_key(tmp: string)
+  local function dep(f: Fixture): string return f.tree .. "/build/dep.tl" end
+
+  -- The control: a dependency read as the manifest has it is kept.
+  local f = fixture(tmp, "read-control")
+  boot(f, { DEP_ACTION = "read", DEP_PATH = dep(f) })
+  assert(rows(f, "WHERE kind = 'modules'") == 1, "an unchanged dependency read kept no row")
+  assert(boot(f).modules == 0)
+
+  -- A dependency edited before it is read.
+  f = fixture(tmp, "read-edit")
+  boot(f, { DEP_ACTION = "edit", DEP_PATH = dep(f) })
+  assert(rows(f, "WHERE kind = 'modules'") == 0, "a row was kept for an edited dependency")
+
+  -- The same file read as different bytes, ending as the manifest has it.
+  f = fixture(tmp, "read-twice")
+  boot(f, { DEP_ACTION = "twice", DEP_PATH = dep(f) })
+  assert(rows(f, "WHERE kind = 'modules'") == 0, "a row was kept for a file read two ways")
+
+  -- A file under the root that the manifest does not list.
+  f = fixture(tmp, "read-unlisted")
+  boot(f, { DEP_ACTION = "read", DEP_PATH = f.tree .. "/build/note.md" })
+  assert(rows(f, "WHERE kind = 'modules'") == 0, "a row was kept after a read the key does not name")
+
+  -- A file outside the root whose tail is a listed path's, with the same bytes.
+  f = fixture(tmp, "read-outside")
+  put(tmp .. "/read-outside/twin/build/a.tl", "return { n = 1 }\n")
+  assert(#(f.tree .. "/") == #(tmp .. "/read-outside/twin/"))
+  boot(f, { DEP_ACTION = "read", DEP_PATH = tmp .. "/read-outside/twin/build/a.tl" })
+  assert(rows(f, "WHERE kind = 'modules'") == 0, "a row was kept after a read outside the root")
+
+  -- A listed file that was gone when it was looked for: restoring it
+  -- must not take the row.
+  f = fixture(tmp, "read-vanish")
+  boot(f, { DEP_ACTION = "vanish", DEP_PATH = dep(f) })
+  assert(rows(f, "WHERE kind = 'modules'") == 0, "a row was kept though a listed file was missing")
+  put(dep(f), "return { n = 7 }\n")
+  assert(boot(f).modules == loaded, "the restored tree took a row")
 end
 
 --- A module the bridge compiled with other declarations than it is

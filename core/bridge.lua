@@ -409,6 +409,11 @@ end
 -- file, which sets the compiler's defaults and decides what is kept.
 -- Nil when one cannot be read, when the cache is off, or when `TL_PATH`
 -- is set, which changes where the compiler looks for modules.
+--
+-- TODO: digest the text of `tl.lua` and of this file that core/boot.c
+-- loaded, not a second read of each: an edit between the two keys rows
+-- to a file that is not the one running. Waits on core/boot.c handing
+-- the bridge the bytes it loaded (`slurp` already reads them whole).
 local function make_compiler_key(tl_dir, source, variables)
   if is_set(variables, 'TL_PATH') or not location(variables) then
     return nil
@@ -427,10 +432,19 @@ local compiler_key = nil
 local reads = {}
 local torn_reads = false
 
+-- The paths a compile tried to read and could not. A file the manifest
+-- lists that was missing then was there when the key was made, and
+-- would have been read, or taken first, had it been there now.
+local failed_reads = {}
+
 local function note_read(path, text)
   local digest = sha256(text)
   if reads[path] ~= nil and reads[path] ~= digest then torn_reads = true end
   reads[path] = digest
+end
+
+local function note_failed(path)
+  failed_reads[#failed_reads + 1] = path
 end
 
 local function text_handle(text)
@@ -491,7 +505,10 @@ local shim_io = {
     -- Read whole, which is all the handle offers, so what the compiler
     -- sees is what [`note_read`] digested.
     local text, err = read_all(path)
-    if not text then return nil, err end
+    if not text then
+      note_failed(path)
+      return nil, err
+    end
     note_read(path, text)
     return text_handle(text)
   end,
@@ -619,6 +636,11 @@ local function searcher_for(tl, variables)
         return false
       end
     end
+    for _, path in ipairs(failed_reads) do
+      if path:sub(1, #prefix) == prefix and tree_files[path:sub(#prefix + 1)] ~= nil then
+        return false
+      end
+    end
     return true
   end
 
@@ -658,10 +680,12 @@ local function searcher_for(tl, variables)
       local relative = name:gsub('%.', '/') .. '.tl'
       file = stem .. '.tl'
       local source = read_all(file)
+      if not source then note_failed(file) end
       if not source then
         local dir_file = stem .. '/init.tl'
         source = read_all(dir_file)
         if not source then
+          note_failed(dir_file)
           return "\n\tno file '" .. file .. "'" ..
             "\n\tno file '" .. dir_file .. "'"
         end
