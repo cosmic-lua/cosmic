@@ -9,7 +9,6 @@ local Proc = require("cosmic.proc")
 local Shape = require("cosmic.shape")
 local Fixture = require("cosmic_ci.fixture")
 local Sqlite = require("cosmic.sqlite")
-local TextRows = require("cosmic_ci.text_rows")
 local sys = require("cosmic.sys")
 local State = require("cosmic_ci.state")
 local Test = require("cosmic.test")
@@ -471,10 +470,10 @@ local function test_the_self_rebuild_seed_copies_the_legs_compiles(tmp: string)
   end
   local function seeded_from(path: string): string
     local db = assert(Sqlite.open(path))
-    local rows = assert(TextRows.query(db, "SELECT key FROM compiles"))
+    local rows = assert(Sqlite.text_rows(db, "SELECT key FROM compiles"))
     assert(db:close())
     assert(#rows == 1, path .. ": " .. tostring(#rows) .. " rows")
-    return rows[1][1]
+    return rows[1]:text(1)
   end
 
   local named = tmp .. "/named/cache.db"
@@ -968,8 +967,8 @@ local function test_the_native_suite_writes_its_row_and_a_lost_row_fails_nothing
     assert(outcome.result.ok, case.name .. ": the build phase failed: " .. err)
     local db = assert(Sqlite.open(database))
     if case.broken then
-      local count = assert(TextRows.query(db, "SELECT COUNT(*) FROM suite_runs"))
-      assert(count[1][1] == "0", case.name .. ": " .. count[1][1] .. " rows")
+      local count = assert(Sqlite.text_rows(db, "SELECT COUNT(*) FROM suite_runs"))
+      assert(count[1]:text(1) == "0", case.name .. ": " .. count[1]:text(1) .. " rows")
       assert(err:find("local suite: row not recorded", 1, true), err)
     else
       local rows = State.suite_rows(db)
@@ -981,9 +980,9 @@ local function test_the_native_suite_writes_its_row_and_a_lost_row_fails_nothing
       local parts = assert(row.parts)
       assert(parts.runtime == "04" and parts.harness == "06")
     end
-    local phases = assert(TextRows.query(db, "SELECT phase, status FROM operation_events " ..
+    local phases = assert(Sqlite.text_rows(db, "SELECT phase, status FROM operation_events " ..
         "WHERE event = 'complete' AND phase IN ('local suite', 'platform: build') ORDER BY id"))
-    assert(#phases == 2 and phases[1][2] == "success" and phases[2][2] == "success",
+    assert(#phases == 2 and phases[1]:text(2) == "success" and phases[2]:text(2) == "success",
       case.name .. ": the phases did not succeed")
     assert(db:close())
   end

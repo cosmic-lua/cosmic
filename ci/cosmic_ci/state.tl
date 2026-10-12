@@ -1,7 +1,6 @@
 local Fs = require("cosmic.fs")
 local Predicate = require("cosmic_ci.fs_predicate")
 local Sqlite = require("cosmic.sqlite")
-local TextRows = require("cosmic_ci.text_rows")
 
 local record State
   schema: string
@@ -88,9 +87,9 @@ end
 --- column was lacks it.
 local function suite_columns_of(db: Sqlite.Handle): {string:boolean}
   local out: {string:boolean} = {}
-  for _, row in ipairs((assert(TextRows.query(db,
+  for _, row in ipairs((assert(Sqlite.text_rows(db,
       "SELECT name FROM pragma_table_info('suite_runs')")))) do
-    out[row[1]] = true
+    out[row:text(1)] = true
   end
   return out
 end
@@ -158,7 +157,7 @@ local integer_columns: {string:boolean} = { exit_code = true, tests = true,
 --- The rows of `suite_runs` in `db`, in the order written; none where
 --- `db`, an operations database written before the table was, lacks it.
 function State.suite_rows(db: Sqlite.Handle): {State.SuiteRun}
-  local present = assert(TextRows.query(db,
+  local present = assert(Sqlite.text_rows(db,
     "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'suite_runs'"))
   if #present == 0 then return {} end
   local selected: {string} = {}
@@ -172,26 +171,26 @@ function State.suite_rows(db: Sqlite.Handle): {State.SuiteRun}
       (part[2] .. " IS NULL, COALESCE(" .. part[2] .. ", '')") or "1, ''"
   end
   selected[#selected + 1] = columns.held and "held IS NULL, COALESCE(held, '')" or "1, ''"
-  local rows = assert(TextRows.query(db, "SELECT " .. table.concat(selected, ", ") ..
+  local rows = assert(Sqlite.text_rows(db, "SELECT " .. table.concat(selected, ", ") ..
       " FROM suite_runs ORDER BY id"))
   local out: {State.SuiteRun} = {}
   for _, cells in ipairs(rows) do
     local row: {string:any} = {}
     local column = 1
     for _, name in ipairs(State.suite_columns) do
-      if cells[column] ~= "1" then
-        local value = cells[column + 1]
+      if cells:text(column) ~= "1" then
+        local value = cells:text(column + 1)
         row[name] = integer_columns[name] and math.tointeger(tonumber(value)) or value
       end
       column = column + 2
     end
     local parts: {string:string} = {}
     for _, part in ipairs(State.key_parts) do
-      if cells[column] ~= "1" then parts[part[1]] = cells[column + 1] end
+      if cells:text(column) ~= "1" then parts[part[1]] = cells:text(column + 1) end
       column = column + 2
     end
     row.parts = parts
-    if cells[column] ~= "1" then row.held = cells[column + 1] end
+    if cells:text(column) ~= "1" then row.held = cells:text(column + 1) end
     out[#out + 1] = row as State.SuiteRun
   end
   return out
