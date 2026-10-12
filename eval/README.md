@@ -214,8 +214,8 @@ as well as what the manual launch let through.
 `eval/summarize <transcript.jsonl>` is specifically a Claude stream-json
 reader. Beyond turns, tool calls, minutes and cost it counts failed tool
 calls, `cosmic docs` lookups with no exact match, the call at which
-`cosmic test` first passed (a Bash call that ran it, its result holding a
-line `test: PASS`) and the journal's writes, then lists the paths a tool
+`cosmic test` first passed (a Bash call that ran it, its result holding
+its passing summary, `test: N tests passed in ...`) and the journal's writes, then lists the paths a tool
 call named outside the arena, as `BREACH` (this checkout, `.claude`, a
 skills directory, CLAUDE.md, AGENTS.md, a home directory, another arena),
 a `sandbox-tmp` count (the rest of /tmp, private to the solver) and

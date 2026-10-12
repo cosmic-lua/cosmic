@@ -251,6 +251,11 @@ local function test_only_a_cosmic_test_run_is_green()
   assert(green("cosmic test; echo 'test: PASS'", "test: PASS") == "null")
   assert(green("cosmic test || echo test: PASS", "test: PASS") == "null")
   assert(green("cosmic test; printf 'test: PASS\\n'", "test: PASS") == "null")
+  -- The summary as the tool says it; the PASS line above is an older tool's.
+  local passed <const> = "build: ok\ntest: 3 tests passed in 1 module; 3 ran, 0 stood, 9 ms"
+  assert(green("cosmic test", passed) == "1")
+  assert(green("cosmic test", "test: 1 of 3 tests failed, 0 infrastructure errors, 9 ms") == "null")
+  assert(green("cosmic test; echo 'test: 3 tests passed in 1 module'", passed) == "null")
   local failed = Summarize.report(call("1", "Bash", { command = "cosmic test" }) .. "\n" ..
       answer("1", pass, true) .. "\n", arena, repo)
   assert(failed:find("first_green_test_call=null", 1, true), failed)

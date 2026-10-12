@@ -91,12 +91,12 @@ end
   -- Declared, a host file is keyed by its contents, and a variable by
   -- its value.
   assert(Fs.write(tmp .. "/outside/f", "changed\n"))
-  said("host", {}, "1 of 2 failed", true)
+  said("host", {}, "1 of 2 tests failed", true)
   assert(Fs.write(tmp .. "/outside/f", "out\n"))
   said("restored", {}, "0 ran, 2 stood")
   env.FLAVOUR = "sour"
-  said("sour", {}, "1 of 2 failed", true)
-  said("failed", {}, "1 of 2 failed", true)
+  said("sour", {}, "1 of 2 tests failed", true)
+  said("failed", {}, "1 of 2 tests failed", true)
   env.FLAVOUR = "sweet"
   said("sweet", {}, "0 ran, 2 stood")
 end

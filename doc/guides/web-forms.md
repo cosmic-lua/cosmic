@@ -292,13 +292,13 @@ local said = assert(Child.run(argv,
   { env = env, fds = relaunch.fds, cwd = tmp, stdout = "capture", stderr = "capture",
     timeout_ns = Clock.seconds(120) }))
 local out = (said.stderr or "") .. (said.stdout or "")
-local verdict = out:match("test: [A-Z]+")
+local passed = out:match("test: %d+ tests? passed")
 -- The whole run where it did not pass, so a failure says which test and why.
-print(verdict == "test: PASS" and verdict or out)
+print(passed or out)
 ```
 
 ```output
-test: PASS
+test: 9 tests passed
 ```
 
 [`cosmic.child`]: ../../cosmic/child.tl

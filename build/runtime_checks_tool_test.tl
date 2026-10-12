@@ -106,11 +106,11 @@ end
 local function test_a_checked_run_reports_a_nil_parameter_and_changes_no_verdict(tmp: string)
   local root = project(tmp)
   local plain, plain_text = invoke(root, tmp, { "test", "--all" })
-  assert(plain.ok and plain_text:find("PASS (2 tests", 1, true), plain_text)
+  assert(plain.ok and plain_text:find("test: 2 tests passed in ", 1, true), plain_text)
   assert(not plain_text:find("run-time types", 1, true), "an unchecked run reported types")
 
   local checked, text = invoke(root, tmp, { "test", "--check-types" })
-  assert(checked.ok and text:find("PASS (2 tests", 1, true), text)
+  assert(checked.ok and text:find("test: 2 tests passed in ", 1, true), text)
   assert(text:find("run-time types: 1 violation, 1 distinct, at 1 place", 1, true), text)
   assert(text:find("greet_test.tl:" .. nothing_line() .. ": parameter name of hello " ..
       "(greet.tl:4) declared string got nil (1 time)", 1, true), text)

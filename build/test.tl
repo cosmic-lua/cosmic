@@ -150,7 +150,8 @@ local host_caches = require("build.caches")
 local worker = require("build.test_worker")
 local type compiler = require("build.compiler")
 
-local log = require("build.verdict").log
+local verdict_log = require("build.verdict")
+local log = verdict_log.log
 local bind = require("build.bind")
 local verb_spec = require("build.verb_spec")
 
@@ -4569,7 +4570,7 @@ local function report(ctx: Run): integer
     say_violations(rec)
     log:say(assert(ctx.cov_line))
     for _, function_line in ipairs(assert(ctx.function_lines)) do log:say(function_line) end
-    log:verdict("test", true, test_report.passed({ total = total,
+    local _, _ = verdict_log.summary("test", test_report.passed({ total = total,
       modules = #assert(ctx.selected_modules),
       ran = tally.ran, cached = tally.cached, skipped = tally.skipped, unchecked = tally.unchecked, na = tally.na,
       every = tally.every, shared = tally.shared },
@@ -4586,7 +4587,7 @@ local function report(ctx: Run): integer
     log:say(assert(ctx.cov_line))
     for _, function_line in ipairs(assert(ctx.function_lines)) do log:say(function_line) end
   end
-  log:verdict("test", false, test_report.failed(#failures, total + #assert(ctx.result).refused,
+  local _, _ = verdict_log.summary("test", test_report.failed(#failures, total + #assert(ctx.result).refused,
     #errors, clock.took(started) .. assert(ctx.sandbox_summary) .. assert(ctx.share_summary), rec.not_run))
   return 1
 end

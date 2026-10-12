@@ -12,6 +12,7 @@ local record verdict
   --- Whether `log` has printed a verdict line in this process.
   given: boolean
   on_stderr: function(verb: string, passed: boolean, detail?: string): boolean, string
+  summary: function(verb: string, summary: string): boolean, string
 end
 
 local plain = Log.new("cosmic")
@@ -42,6 +43,14 @@ function verdict.on_stderr(verb: string, passed: boolean, detail?: string): bool
     verdict = plain.verdict,
   }
   return to_stderr:verdict(verb, passed, detail)
+end
+
+--- `verb: <summary>` on stdout as the verb's verdict line, for a verb
+--- whose summary says whether it passed, as `cosmic test`'s "9 tests
+--- passed" and "2 of 9 tests failed" do: it counts as given.
+function verdict.summary(verb: string, summary: string): boolean, string
+  verdict.given = true
+  return plain:say(verb .. ": " .. summary)
 end
 
 return verdict

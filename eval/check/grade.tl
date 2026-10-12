@@ -386,7 +386,9 @@ function Grader.api_failures(output: string): {string}
   if refused > 5 then
     failures[#failures + 1] = "does not compile: " .. (refused - 5) .. " more lines"
   end
-  if #failures == 0 and not last:match("^test: PASS") then
+  -- A tool built from an older commit says `test: PASS (...)`.
+  if #failures == 0 and not last:match("^test: %d+ tests? passed in ") and
+      not last:match("^test: PASS") then
     failures[#failures + 1] = "cosmic test failed: " .. last
   end
   return failures

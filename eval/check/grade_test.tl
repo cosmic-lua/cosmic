@@ -279,7 +279,7 @@ local function test_api_failures_names_each_failing_test_and_refused_line()
     "  its directory is kept: /tmp/x/real",
     "test: FAIL  kv_api_test test_keys: kv_api_test:20: boom",
     "second line",
-    "test: FAIL (2 of 3 failed, 0 infrastructure errors, 336 ms; sandboxed)",
+    "test: 2 of 3 tests failed, 0 infrastructure errors, 336 ms; sandboxed",
   }, "\n"))
   assert(#failures == 2, table.concat(failures, "; "))
   assert(failures[1] == "test_lru: kv_api_test:10: evicted b", failures[1])
@@ -299,6 +299,8 @@ local function test_api_failures_names_each_failing_test_and_refused_line()
   assert(failures[6] == "does not compile: 2 more lines", failures[6])
   failures = Grader.api_failures("cosmic: killed\n")
   assert(#failures == 1 and failures[1] == "cosmic test failed: cosmic: killed", failures[1])
+  assert(#Grader.api_failures("test: 3 tests passed in 1 module; 3 ran\n") == 0)
+  -- As a tool built from an older commit says it.
   assert(#Grader.api_failures("test: PASS (3 tests, 1 module; 3 ran)\n") == 0)
 end
 
@@ -336,7 +338,7 @@ end
 local function test_a_hidden_test_runs_on_a_copy_and_reports_each_failure(dir: string)
   local status, said = graded_api(dir, {
     "test: FAIL  kv_api_test test_lru: kv_api_test:3: evicted the wrong key",
-    "test: FAIL (1 of 1 failed)" }, 1)
+    "test: 1 of 1 test failed" }, 1)
   assert(status == 1, said)
   assert(said:find("check: FAIL hidden api: test_lru: kv_api_test:3: evicted the wrong key\n",
     1, true), said)
@@ -381,7 +383,7 @@ local function test_both_cosmic_test_steps_get_the_unsandboxed_environment(dir: 
 end
 
 local function test_a_hidden_test_that_passes_is_one_check_that_passes(dir: string)
-  local _, said = graded_api(dir, { "test: PASS (3 tests, 1 module, 3 ran)" }, 0)
+  local _, said = graded_api(dir, { "test: 3 tests passed in 1 module, 3 ran" }, 0)
   assert(said:find("check: ok   hidden api: kv_api_test.tl passes\n", 1, true), said)
   assert(not said:find("FAIL hidden api", 1, true), said)
 end

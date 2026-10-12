@@ -70,7 +70,7 @@ local function test_a_bailing_run_starts_no_test_after_the_first_failure(tmp: st
   local root = project(tmp, { "a_fails", "b_passes", "c_passes" })
   local plain = invoke(root, tmp .. "/plain.out", {})
   local plain_text = assert(Fs.read(tmp .. "/plain.out"))
-  assert(not plain.ok and plain_text:find("1 of 3 failed", 1, true), plain_text)
+  assert(not plain.ok and plain_text:find("1 of 3 tests failed", 1, true), plain_text)
   assert(marked(tmp, "a_fails") and marked(tmp, "b_passes") and marked(tmp, "c_passes"),
     "a run without --bail left a test unstarted")
 
@@ -94,7 +94,7 @@ local function test_a_bailing_run_starts_no_test_after_the_first_failure(tmp: st
 
   local again = invoke(fresh, other .. "/again.out", {})
   local again_text = assert(Fs.read(other .. "/again.out"))
-  assert(not again.ok and again_text:find("1 of 3 failed", 1, true), again_text)
+  assert(not again.ok and again_text:find("1 of 3 tests failed", 1, true), again_text)
   assert(marked(other, "b_passes") and marked(other, "c_passes"))
 end
 

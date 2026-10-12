@@ -314,7 +314,7 @@ end
   assert(same:find("0 ran, 1 stood", 1, true), same)
   database_checkout(tmp .. "/changed", "two")
   local changed = run(tmp .. "/changed", tmp .. "/changed.out", env, nil, true)
-  assert(changed:find("FAIL (1 of 1 failed", 1, true), changed)
+  assert(changed:find("1 of 1 test failed", 1, true), changed)
 end
 
 --- A checkout at `root` whose tests read what `suite/link` is and
@@ -371,7 +371,7 @@ local function test_a_link_a_test_reads_is_keyed_by_what_it_is(tmp: string)
   assert(same:find("0 ran, 2 stood", 1, true), same)
   link_checkout(tmp .. "/retargeted", "b")
   local retargeted = run(tmp .. "/retargeted", tmp .. "/retargeted.out", env, nil, true)
-  assert(retargeted:find("FAIL (1 of 2 failed", 1, true), retargeted)
+  assert(retargeted:find("1 of 2 tests failed", 1, true), retargeted)
 end
 
 --- A checkout whose link is a file instead runs both tests that read
@@ -381,7 +381,7 @@ local function test_a_link_made_a_file_runs_what_read_it_again(tmp: string)
   if env == nil then return end
   link_checkout(tmp .. "/file", nil)
   local file = run(tmp .. "/file", tmp .. "/file.out", env, nil, true)
-  assert(file:find("FAIL (2 of 2 failed", 1, true), file)
+  assert(file:find("2 of 2 tests failed", 1, true), file)
 end
 
 --- A database a test attaches through the store ([`cosmic.store`]'s
@@ -445,7 +445,7 @@ end
   assert(same:find("1 ran, 1 stood", 1, true), same)
   attached_checkout(tmp .. "/changed", "two")
   local changed = run(tmp .. "/changed", tmp .. "/changed.out", env, nil, true)
-  assert(changed:find("FAIL (1 of 2 failed", 1, true), changed)
+  assert(changed:find("1 of 2 tests failed", 1, true), changed)
 end
 
 --- SQLite names a file with its links resolved: a database a test
@@ -709,7 +709,7 @@ local function test_a_failure_here_is_not_answered_from_elsewhere(tmp: string)
   assert(Fs.set_mtime(tmp .. "/outside/f", unready))
   local failed = run(tmp .. "/second", tmp .. "/failed.out", env,
     { "suite/outside_test.tl" }, true)
-  assert(failed:find("1 of 1 failed", 1, true), failed)
+  assert(failed:find("1 of 1 test failed", 1, true), failed)
   if not shares(failed) then return end
   -- The first passes, and shares it.
   assert(Fs.set_mtime(tmp .. "/outside/f", ready))
@@ -719,7 +719,7 @@ local function test_a_failure_here_is_not_answered_from_elsewhere(tmp: string)
   -- under the same key.
   assert(Fs.set_mtime(tmp .. "/outside/f", unready))
   local again = run(tmp .. "/second", tmp .. "/again.out", env, {}, true)
-  assert(again:find("1 of 5 failed", 1, true), again)
+  assert(again:find("1 of 5 tests failed", 1, true), again)
   -- ...and the row it would have stood on is gone: a third checkout
   -- runs the test too.
   assert(Fs.set_mtime(tmp .. "/outside/f", ready))
@@ -774,14 +774,14 @@ local function test_a_failure_that_read_less_is_not_answered_from_elsewhere(tmp:
   tmp = resolved
   assert(Fs.set_mtime(tmp .. "/outside/f", unready))
   local failed = run(tmp .. "/second", tmp .. "/failed.out", env, {}, true)
-  assert(failed:find("1 of 1 failed", 1, true), failed)
+  assert(failed:find("1 of 1 test failed", 1, true), failed)
   if not shares(failed) then return end
   assert(Fs.set_mtime(tmp .. "/outside/f", ready))
   local passed = run(tmp .. "/first", tmp .. "/passed.out", env, {})
   assert(passed:find("1 ran", 1, true), passed)
   assert(Fs.set_mtime(tmp .. "/outside/f", unready))
   local again = run(tmp .. "/second", tmp .. "/again.out", env, {}, true)
-  assert(again:find("1 of 1 failed", 1, true), again)
+  assert(again:find("1 of 1 test failed", 1, true), again)
 end
 
 --- Without the cache too, a test that failed here runs until it passes
@@ -791,9 +791,9 @@ local function test_a_failure_here_runs_again_without_the_cache(tmp: string)
   tmp = resolved
   assert(Fs.set_mtime(tmp .. "/outside/f", unready))
   local failed = run(tmp .. "/second", tmp .. "/failed.out", env, {}, true)
-  assert(failed:find("1 of 1 failed", 1, true), failed)
+  assert(failed:find("1 of 1 test failed", 1, true), failed)
   if not shares(failed) then return end
   env.COSMIC_VERDICT_CACHE = "0"
   local alone = run(tmp .. "/second", tmp .. "/alone.out", env, {}, true)
-  assert(alone:find("1 of 1 failed", 1, true), alone)
+  assert(alone:find("1 of 1 test failed", 1, true), alone)
 end

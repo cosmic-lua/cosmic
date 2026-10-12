@@ -124,7 +124,7 @@ checked and portable suites, and each fixture's `cosmic test` -- writes
 one row to the operations database's `suite_runs` table once it ends
 ([`cosmic_ci/suite_output.tl`] reads it from the suite's stdout): how it
 ended (`timeout` where the driver ended it, which keeps only the key
-parts; `fail` for any other nonzero exit, a PASS line notwithstanding;
+parts; `fail` for any other nonzero exit, a passing summary notwithstanding;
 else `pass`, or `unreported` where it printed no summary), its exit
 status, its tests, `ran`, `stood`, `shared` and
 elapsed ms from `cosmic test`'s summary line, the key parts

@@ -345,7 +345,8 @@ local function cosmic(...: string): Child.Result
   return cosmic_in(tmp, ...)
 end
 local function verdict(said: Child.Result, verb: string)
-  print(((said.stderr or "") .. (said.stdout or "")):match(verb .. ": [A-Z]+"))
+  local out = (said.stderr or "") .. (said.stdout or "")
+  print(out:match(verb .. ": %d+ tests? passed") or out:match(verb .. ": [A-Z]+"))
 end
 
 verdict(cosmic("fix"), "fix")
@@ -367,7 +368,7 @@ print((cosmic("docs", "tally").stdout or ""):match("^[^\n]*"))
 
 ```output
 fix: PASS
-test: PASS
+test: 3 tests passed
 5
 the	2
 cat	1
@@ -381,7 +382,7 @@ commands:
 Run `tally <command> --help` for a command's options.
 build: PASS
 5
-test: PASS
+test: 3 tests passed
 tally (tally.tl)
 ```
 

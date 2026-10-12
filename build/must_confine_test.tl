@@ -206,7 +206,7 @@ local function test_a_worker_held_by_landlock_is_refused_a_root_of_its_own(tmp: 
   env.COSMIC_TEST_SANDBOX = "0"
   env[confine.held_variable] = "suite.outer_test"
   local text, ok = run(root, tmp .. "/held", env, { "--all" })
-  assert(not ok and text:find("(2 of 3 failed", 1, true), text)
+  assert(not ok and text:find("2 of 3 tests failed", 1, true), text)
   local refused = fixture.refusal("suite.outer_test")
   assert(failure_of(text, "held_test", "test_confined") == refused, text)
   assert(failure_of(text, "held_test", "test_own_sandbox") == refused, text)

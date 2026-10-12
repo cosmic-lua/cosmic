@@ -130,7 +130,7 @@ end
     local result = invoke(root, output, "./suite/selected_test.tl:test_selected")
     local text = assert(Fs.read(output))
     assert(result.ok, text)
-    assert(text:find("1 test, 1 module; " .. expected, 1, true), text)
+    assert(text:find("1 test passed in 1 module; " .. expected, 1, true), text)
     assert(not text:find("executed", 1, true), text)
   end
   local output = tmp .. "/module.out"
@@ -172,12 +172,12 @@ return Example
   local result = invoke(root, output, "suite/answer_example.tl:answer")
   local text = assert(Fs.read(output))
   assert(result.ok, text)
-  assert(text:find("1 test, 1 module; 1 ran", 1, true), text)
+  assert(text:find("1 test passed in 1 module; 1 ran", 1, true), text)
   output = tmp .. "/prefixed.out"
   result = invoke(root, output, "suite/answer_example.tl:Example.answer")
   text = assert(Fs.read(output))
   assert(result.ok, text)
-  assert(text:find("1 test, 1 module; 0 ran, 1 stood", 1, true), text)
+  assert(text:find("1 test passed in 1 module; 0 ran, 1 stood", 1, true), text)
 end
 
 --- A failing test's report names the selector that reruns it, quoted
@@ -224,7 +224,7 @@ end
     assert(not result.ok, again)
     assert(again:find("unrelated test executed", 1, true), again)
     assert(not again:find("sibling test executed", 1, true), again)
-    assert(again:find("1 of 1 failed", 1, true), again)
+    assert(again:find("1 of 1 test failed", 1, true), again)
   end
 end
 
@@ -353,10 +353,10 @@ end
     local output = at .. "/run.out"
     local result = invoke_words(root, output, { "--shard", tostring(index) .. "/2" })
     local text = assert(Fs.read(output))
-    assert(text:find("; shard " .. tostring(index) .. " of 2)", 1, true), text)
+    assert(text:find("; shard " .. tostring(index) .. " of 2\n", 1, true), text)
     if text:find("the failing test ran", 1, true) then
       failed = failed + 1
-      assert(not result.ok and text:find("test: FAIL (1 of ", 1, true), text)
+      assert(not result.ok and text:find("test: 1 of ", 1, true), text)
     else
       assert(result.ok, text)
     end
