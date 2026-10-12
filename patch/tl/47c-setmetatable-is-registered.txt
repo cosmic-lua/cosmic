@@ -1,8 +1,0 @@
-file: tl.tl
-note: the standard library's `setmetatable` carries its handler (47b names it, 47d holds it)
---- find
-      set_special_function(stdlib_globals["require"].t, "require")
---- replace
-      set_special_function(stdlib_globals["require"].t, "require")
-      set_special_function(stdlib_globals["setmetatable"].t, "setmetatable")
---- end

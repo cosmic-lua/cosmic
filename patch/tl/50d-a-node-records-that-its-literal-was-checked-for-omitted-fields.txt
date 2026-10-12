@@ -1,8 +1,0 @@
-file: tl.tl
-note: `Node.omissions_checked` marks a table literal that 50c checked against its record where it was written, so the check made once a call's type variables are resolved (50f) does not report it twice
---- find
-   is_total: boolean
---- replace
-   is_total: boolean
-   omissions_checked: boolean
---- end

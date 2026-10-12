@@ -1,8 +1,0 @@
-file: tl.tl
-note: `setmetatable` can be given a handler: the `special_function_handler` names that a function can have are a closed list, and this adds its name (47c registers it, 47d holds the handler)
---- find
-   "require"
---- replace
-   "require"
-   "setmetatable"
---- end
