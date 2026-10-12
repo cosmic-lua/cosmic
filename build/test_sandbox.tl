@@ -409,7 +409,8 @@ end
 --- `store`, else the whole projection. A caller keys the store as it gives it
 --- ([`build.declared_key`]): the whole projection by its contents only
 --- where the module declares `store`, so it gives one that does not the
---- store of its closure, keyed by its bytes.
+--- store of its closure, keyed by its bytes. `projection` names the whole
+--- projection where it is not at the build directory's cosmic.db.
 ---
 --- The plan holds the paths of a worker started under a [`cosmic.sandbox`]
 --- policy ([`build.test_policy`]) but for what a policy gives of itself --
@@ -417,7 +418,8 @@ end
 --- the user it runs as, which a policy chooses. Its `sandbox` holds the
 --- paths alone (`unveil`), and `runs` says which reads are run.
 function test_sandbox.plan(root: string, scratch: string, effective: test_inputs.Effective,
-                           environment: {string:string}, closure_store?: string): test_sandbox.Plan
+                           environment: {string:string}, closure_store?: string,
+                           projection?: string): test_sandbox.Plan
   -- The program is given at its own name only where the worker does
   -- not have it as the tree's own, in its build directory. A worker
   -- whose module does not declare `tool` has no name to read it by, so
@@ -427,7 +429,9 @@ function test_sandbox.plan(root: string, scratch: string, effective: test_inputs
   local executable = confine.executable()
   local layout = build_layout(root)
   local output = layout.directory
-  local store = layout.projection
+  -- The projection the run was made of, which is the build directory's
+  -- cosmic.db but for a run that writes its own beside it (`projection`).
+  local store = projection or layout.projection
   local base = confine.worker_unveil(nil, scratch, false, effective.tool and not own_program, store)
   local reads: {string} = {}
   local at: {string:string} = {}

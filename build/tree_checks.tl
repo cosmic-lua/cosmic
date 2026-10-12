@@ -91,6 +91,11 @@ allowed["cosmic.sandbox.seatbelt.grants"] = "called through cosmic.sandbox's `Se
   "call by the module's own name alone"
 allowed["cosmic.sandbox.seatbelt.credentials_unmet"] = "called through cosmic.sandbox's `Seatbelt`, " ..
   "as `grants` is"
+for _, name in ipairs({ "install_checks", "violations", "dropped_violations", "most_kept" }) do
+  allowed["build.test_worker." .. name] = "the seam that lets a test run the hook a checked run's Lua calls " ..
+    "in its own process, over Lua it compiled with the checks, and read what the hook met; " ..
+    "`run` calls them for a worker"
+end
 allowed["cosmic.sandbox.policy.system_profile"] = "the seam that lets a test draw the " ..
   "other host's \"system\" profile; rules.profile calls it with this host's"
 allowed["build.teal.withheld"] = "the names `strip` takes from the checker, spelled in this " ..

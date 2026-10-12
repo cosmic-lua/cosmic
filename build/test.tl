@@ -83,6 +83,15 @@
 --- verdict it reached is another checkout's to trust only where it was
 --- asked to (CI's macOS leg).
 ---
+--- With `--check-types` (or `COSMIC_TEST_CHECK_TYPES=1`) the run compiles
+--- the tree with a check of each declared parameter, return value and record
+--- field write ([`importer.compile`]'s `checks`), runs every test (a verdict
+--- that stands has no worker to report), and ends with what the workers
+--- reported: the values whose kind their declared type does not admit.
+--- It changes no verdict: every test passes or fails as it does without. The
+--- tree's projection is left as it was, and the run's own is written beside
+--- it, so no tool or executable is made of checked modules.
+---
 --- A test whose key holds a passing verdict, of this checkout or, by
 --- that key alone, of another ([`build.shared_verdicts`]), stands; any
 --- other runs, and its verdict is kept only when its inputs still digest
@@ -1266,6 +1275,19 @@ local record Recording
   --- out of every record of the run (see [`write_coverage`]).
   unowned: Coverage.Hits
   tally: test.Tally
+  --- Whether the run is checked (`--check-types`), and what its workers
+  --- reported of the values that crossed a typed boundary as a kind the
+  --- declared type does not admit ([`take_violations`]): each distinct one by
+  --- its key, in the order first met, the test that first met it, how many
+  --- the workers kept no record of.
+  checks: boolean
+  --- The file of each module of the tree, by its name, which a traceback
+  --- names a frame by.
+  files: {string:string}
+  violations: {string:worker.Violation}
+  violation_order: {string}
+  violation_tests: {string:string}
+  violations_dropped: integer
   --- How many jobs `--bail` left unstarted after the first failure
   --- ([`run_jobs`]). Such a test made no verdict, pass or fail, and is
   --- in no figure of the tally.
@@ -1829,6 +1851,28 @@ function test.take_hits(hits: Coverage.Hits, unowned: Coverage.Hits,
   return table.concat(out)
 end
 
+--- Folds the violations a finished worker reported into the run's, by
+--- what they are and where, adding the counts of the ones met before.
+local function take_violations(rec: Recording, id: string, reported: worker.Report)
+  for _, met in ipairs(reported.violations or {}) do
+    -- A frame a traceback names by its module's name, as the file it was
+    -- read from, as a statement the compiler placed is.
+    local named, line = met.at:match("^([%w_%.]+):(%d+)$")
+    if named ~= nil and rec.files[named] ~= nil then met.at = rec.files[named] .. ":" .. line end
+    local key = table.concat({ met.kind, met.at, met.target, met.declared, met.actual }, "\t")
+    local known = rec.violations[key]
+    if known ~= nil then
+      known.count = known.count + met.count
+    else
+      rec.violations[key] = { kind = met.kind, at = met.at, target = met.target,
+        declared = met.declared, actual = met.actual, count = met.count }
+      rec.violation_order[#rec.violation_order + 1] = key
+      rec.violation_tests[key] = id
+    end
+  end
+  rec.violations_dropped = rec.violations_dropped + (reported.dropped or 0)
+end
+
 --- Records one finished job: the verdict its worker reported, or a
 --- failure that says why there is no report to go by
 --- ([`build.test_worker`]'s `judge`). A key holds what a worker
@@ -1891,6 +1935,7 @@ local function finish(rec: Recording, job: Job, result: Child.Result | nil,
   local elapsed = wall_ns
   if reported ~= nil then
     elapsed = reported.elapsed_ns
+    if rec.checks then take_violations(rec, id, reported) end
     rec.by_test[id] = test.take_hits(rec.hits, rec.unowned, rec.folded, rec.spelled,
       reported.load_hits, reported.test_hits)
   end
@@ -1972,6 +2017,8 @@ local launch_only: {string:boolean} = { COSMIC_REBOOTED = true, OLDPWD = true, S
 ---   this process's own launch, not to every worker it starts;
 --- - what `launch_only` names; and
 --- - COSMIC_TEST_NO_SHARED and COSMIC_TEST_BAIL;
+--- - COSMIC_TEST_CHECK_TYPES and COSMIC_TEST_TYPES, which ask for a checked
+---   run and tell its workers to report one;
 ---
 --- and with the shared verdict cache off (`COSMIC_VERDICT_CACHE=0`) and
 --- the shared compiles too (`COSMIC_BUILD_CACHE=0`).
@@ -1995,6 +2042,11 @@ function test.worker_environment(environment: {string:string}): {string:string}
   -- that runs `cosmic test` says for itself what that run does.
   out.COSMIC_TEST_NO_SHARED = nil
   out.COSMIC_TEST_BAIL = nil
+  -- Nor whether this run compiles its tree with run-time checks, and its
+  -- workers report them: a `cosmic test` a test starts compiles its tree
+  -- as that run is told.
+  out.COSMIC_TEST_CHECK_TYPES = nil
+  out.COSMIC_TEST_TYPES = nil
   out.COSMIC_TEST_NOEXEC = nil
   out.COSMIC_TEST_PARENT = nil
   -- Nor a rebuild lock handed to this run (build.rebuild_lock): what a
@@ -2769,7 +2821,8 @@ local function launch(rec: Recording, job: Job, start: Proc.Relaunch,
     if kept ~= nil then
       plan = test_sandbox.rebind(kept.plan, kept.scratch, scratch, effective)
     else
-      plan = test_sandbox.plan(rec.root, scratch, effective, worker_view(), store)
+      plan = test_sandbox.plan(rec.root, scratch, effective, worker_view(), store,
+        rec.projection)
       if plan.trouble == "" then rec.plans[job.m.path] = { plan = plan, scratch = scratch } end
     end
     if plan.over > 0 then
@@ -2836,7 +2889,7 @@ local function launch(rec: Recording, job: Job, start: Proc.Relaunch,
       finish(rec, job, nil, store_trouble, limits)
       return false
     end
-    attached = store or build_paths.resolve(rec.root).projection
+    attached = store or rec.projection
     -- Unsandboxed too it starts the core on the sealed database of its
     -- closure, so what it and its starts read of the program is what its
     -- key holds; only a sandbox keeps it from the program's own file.
@@ -2917,7 +2970,7 @@ local function launch(rec: Recording, job: Job, start: Proc.Relaunch,
     start = started, env = env, root = root, cwd = cwd, module_path = job.m.path,
     name = job.name, scratch = inside, own_scratch = job.own_scratch, needs = test_inputs.canonical(declared), hold = hold,
     store = attached, closure = rec.closures[job.m.path], tree = rec.tree_names,
-    policy = policy, runs = runs,
+    policy = policy, runs = runs, checks = rec.checks,
     program = job.plan ~= nil and job.plan.program or nil,
   })
   local handle, trouble = Child.start(command.argv, command.options)
@@ -3175,6 +3228,9 @@ local record Run
   forced?: boolean
   consult?: boolean
   census?: boolean
+  --- Whether the run compiles the tree with run-time checks and reports
+  --- what they find (`--check-types`).
+  checks?: boolean
   --- Whether the run starts no job after the first failure (`--bail`).
   bail?: boolean
 
@@ -3310,6 +3366,15 @@ local function read_command(ctx: Run): integer | nil
   ctx.consult = not (parsed.set["--no-shared"] == true or
     Env.get("COSMIC_TEST_NO_SHARED") == "1")
   ctx.census = parsed.set["--census"] == true
+  -- TODO: keep a checked run's three tests that compare the bytecode of a
+  -- module with the binary's (build/harness_epoch_test.tl,
+  -- cosmic/store_seal_test.tl, build/rebuild_lock_tool_test.tl) from
+  -- failing, whose modules carry checks the binary's do not: it waits on
+  -- each reading the binary's copy of the module, or its source, in
+  -- place of the bytecode it was given.
+  ctx.checks = parsed.set["--check-types"] == true or Env.get("COSMIC_TEST_CHECK_TYPES") == "1"
+  -- A verdict that stands runs no worker, and a worker is what reports.
+  if ctx.checks then ctx.forced = true end
   ctx.bail = parsed.set["--bail"] == true or Env.get("COSMIC_TEST_BAIL") == "1"
   return nil
 end
@@ -3433,7 +3498,9 @@ local function read_identities(ctx: Run): integer | nil
     return 1
   end
   ctx.harness = harness
-  ctx.database = handle.dir .. "/cosmic.db"
+  -- A checked run's modules carry checks, which no tool may be made of
+  -- nor the tree's own projection hold: it writes its projection aside.
+  ctx.database = handle.dir .. (ctx.checks and "/cosmic.checked.db" or "/cosmic.db")
   return nil
 end
 
@@ -3553,7 +3620,7 @@ end
 local function build_tree(ctx: Run): integer | nil
   local handle, staged, started = assert(ctx.handle), assert(ctx.staged), assert(ctx.started)
   local result, compile_trouble = importer.compile(handle, assert(ctx.built), assert(ctx.tool), false,
-    shared_compiles.for_build())
+    shared_compiles.for_build(), nil, ctx.checks)
   if result == nil then
     local _, _ = work.record(handle, clock.elapsed_ms(started), staged, 0, 0, "FAIL")
     local _, _ = work.close(handle)
@@ -3745,6 +3812,8 @@ local function make_recording(ctx: Run)
   local rec: Recording = {
     records = records, root = assert(ctx.root), runtime = ctx.runtime,
     run_at_ns = ctx.run_at_ns, run = handle.run,
+    checks = ctx.checks == true, files = {}, violations = {}, violation_order = {}, violation_tests = {},
+    violations_dropped = 0,
     failures = failures, errors = errors, outputs = {}, reruns = {},
     failed = {}, skips = {}, unchecked = {}, deliberate = {}, held = ctx.held, nas = {}, unmet = {}, answered = {},
     hits = hits, by_test = by_test, unowned = unowned, tally = tally, not_run = 0,
@@ -3765,6 +3834,9 @@ local function make_recording(ctx: Run)
       sandbox_mode == "off" and (test_sandbox.switch .. "=0 ") or ""),
   }
   ctx.rec = rec
+  if ctx.checks then
+    for _, m in ipairs(assert(ctx.result).modules) do rec.files[m.path] = m.file end
+  end
   -- An edit to the code that writes a closure store a test stands in
   -- for, in a tree not cosmic's own, so it can see one that writes the
   -- same bytes move no key without a binary of its own
@@ -3882,7 +3954,11 @@ local function gather_key_inputs(ctx: Run): integer | nil
     return 1
   end
   sweep_stores(rec)
-  rec.compiler = assert(ctx.tool) .. " " .. assert(ctx.compiled_by)
+  -- The compiler a checked run's modules were compiled by
+  -- ([`importer.compile`]'s `checks`).
+  local compiled_with = assert(ctx.tool)
+  if ctx.checks then compiled_with = importer.checked_tool(compiled_with) end
+  rec.compiler = compiled_with .. " " .. assert(ctx.compiled_by)
   rec.host = declared_key.host_identity(digests_of(rec))
   -- What the system's paths hold is walked only for a run that holds
   -- a module given them, whose key alone holds it: half a second of
@@ -4275,6 +4351,68 @@ local function execute(ctx: Run): integer | nil
   return nil
 end
 
+--- Keeps what a checked run's workers reported in the working database's
+--- `type_violations`, one row to a distinct violation, replacing the last
+--- checked run's: the table holds the latest report, which
+--- `cosmic sql --build` reads.
+local function keep_violations(records: Sqlite.Handle, rec: Recording,
+                               run_at_ns: integer): boolean, string
+  local cleared, clear_trouble = records:exec("DELETE FROM type_violations")
+  if not cleared then return false, clear_trouble end
+  for _, key in ipairs(rec.violation_order) do
+    local met = rec.violations[key]
+    local saved, save_trouble = Sqlite.run(records,
+      "INSERT INTO type_violations (ran_at_ns, kind, site, target, declared, actual, " ..
+        "count, test) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+      { { integer = run_at_ns }, text(met.kind), text(met.at), text(met.target),
+        text(met.declared), text(met.actual), { integer = met.count },
+        text(rec.violation_tests[key]) })
+    if not saved then return false, save_trouble end
+  end
+  return true, ""
+end
+
+--- The most violations a checked run lists beneath its summary.
+local SAMPLE_VIOLATIONS <const> = 10
+
+--- A checked run's report of the values that crossed a typed boundary as a
+--- kind its declared type does not admit: how many, at how many distinct
+--- places and boundaries, and the commonest. It changes no verdict: the
+--- checks report, and nil exclusion has not landed, so before then they
+--- flag code the types still allow.
+local function say_violations(rec: Recording)
+  if not rec.checks then return end
+  local total, places = 0, 0
+  local seen: {string:boolean} = {}
+  for _, key in ipairs(rec.violation_order) do
+    local met = rec.violations[key]
+    total = total + met.count
+    if not seen[met.at] then
+      seen[met.at] = true
+      places = places + 1
+    end
+  end
+  local distinct = #rec.violation_order
+  log:say(string.format("test: run-time types: %s, %d distinct, at %s (reporting only; every " ..
+      "verdict is as the tests gave it)%s; all of them: cosmic sql --build 'SELECT * FROM " ..
+      "type_violations'",
+    plural.count(total, "violation"), distinct, plural.count(places, "place"),
+    rec.violations_dropped > 0 and string.format("; %s more went unrecorded",
+      plural.count(rec.violations_dropped, "kind")) or ""))
+  local order: {string} = {}
+  for i, key in ipairs(rec.violation_order) do order[i] = key end
+  table.sort(order, function(a: string, b: string): boolean
+    local ca, cb = rec.violations[a].count, rec.violations[b].count
+    if ca ~= cb then return ca > cb end
+    return a < b
+  end)
+  for i = 1, math.min(SAMPLE_VIOLATIONS, #order) do
+    local met = rec.violations[order[i]]
+    log:say(string.format("test:   %s: %s declared %s got %s (%s)", met.at, met.target,
+      met.declared, met.actual, plural.count(met.count, "time")))
+  end
+end
+
 --- What the finished tests leave: their coverage and the history and
 --- digests kept, the working database closed and the shared cache
 --- settled. Everything it meets goes in `errors`, never an exit.
@@ -4348,6 +4486,10 @@ local function settle(ctx: Run)
   if cov_trouble ~= "" then
     errors[#errors + 1] = "coverage: " .. cov_trouble
   end
+  if rec.checks then
+    local kept, keep_trouble = keep_violations(records, rec, ctx.run_at_ns)
+    if not kept then errors[#errors + 1] = "type violations: " .. keep_trouble end
+  end
   local pruned, prune_trouble = prune_history(records, handle.run)
   if not pruned then
     errors[#errors + 1] = "prune: " .. prune_trouble
@@ -4413,6 +4555,7 @@ local function report(ctx: Run): integer
           "record a *_example.tl file returns")
     end
     say_skips(rec)
+    say_violations(rec)
     log:say(assert(ctx.cov_line))
     for _, function_line in ipairs(assert(ctx.function_lines)) do log:say(function_line) end
     log:verdict("test", true, test_report.passed({ total = total,
@@ -4423,6 +4566,7 @@ local function report(ctx: Run): integer
     return 0
   end
   say_skips(rec)
+  say_violations(rec)
   say_failures(rec, failures)
   for _, line in ipairs(errors) do
     log:say("test: ERROR  " .. assert(ctx.records_path) .. ": " .. line)

@@ -1112,7 +1112,8 @@ end
 local function compile_derived(handle: work.Handle, built: compiler, tool: string,
                                own_tree: boolean, parses: importer.Parses,
                                unjudged: boolean, shared: importer.Shared,
-                               pool: importer.Workers | nil): importer.Result | nil, string
+                               pool: importer.Workers | nil,
+                               checks: boolean): importer.Result | nil, string
   local modules, trouble = compilation.collect(handle.db)
   if modules == nil then
     return nil, trouble
@@ -1299,7 +1300,7 @@ local function compile_derived(handle: work.Handle, built: compiler, tool: strin
             result.worked = result.worked + 1
           else
             if env == nil then
-              local made_env, env_trouble = teal.environment_for(built, handle.db, handle.root)
+              local made_env, env_trouble = teal.environment_for(built, handle.db, handle.root, checks)
               if made_env == nil then
                 failure = env_trouble
                 break
@@ -1393,7 +1394,8 @@ end
 local function prepare_compile(handle: work.Handle, built: compiler, tool: string,
                                unjudged: boolean, shared: importer.Shared,
                                pool: importer.Workers | nil,
-                               choose: function(identities.Identities): string | nil, string): importer.Result | nil, string
+                               choose: function(identities.Identities): string | nil, string,
+                               checks: boolean): importer.Result | nil, string
   local own_tree, own_trouble = tree.is_own(handle.root)
   if own_tree == nil then return nil, own_trouble end
   local parses, derive_trouble = importer.derive(handle, own_tree, built, shared, pool)
@@ -1405,7 +1407,7 @@ local function prepare_compile(handle: work.Handle, built: compiler, tool: strin
     if selected == nil then return nil, select_trouble end
     tool = selected
   end
-  return compile_derived(handle, built, tool, own_tree, parses, unjudged, shared, pool)
+  return compile_derived(handle, built, tool, own_tree, parses, unjudged, shared, pool, checks)
 end
 
 --- The cache belongs to the whole derive/identity/compile operation,
@@ -1413,12 +1415,24 @@ end
 local function consuming_compile(handle: work.Handle, built: compiler, tool: string,
                                  unjudged: boolean, shared: importer.Shared,
                                  pool: importer.Workers | nil,
-                                 choose?: function(identities.Identities): string | nil, string): importer.Result | nil, string
-  local result, trouble = prepare_compile(handle, built, tool, unjudged, shared, pool, choose)
+                                 choose?: function(identities.Identities): string | nil, string,
+                                 checks?: boolean): importer.Result | nil, string
+  local result, trouble = prepare_compile(handle, built, tool, unjudged, shared, pool, choose,
+    checks == true)
   if shared ~= nil then shared.finish() end
   if pool ~= nil then pool.close() end
   if result == nil then return nil, trouble end
   return result, ""
+end
+
+--- The identity of the compiler `tool` names when it writes the run-time
+--- checks of a typed boundary into what it compiles ([`importer.compile`]'s
+--- `checks`). Every key carries it in `tool`'s place, so a module compiled
+--- with checks and one without share no row of the working database and no
+--- entry of the compiles every checkout shares, and the verdict of a test
+--- keyed by it is kept apart from a test run without.
+function importer.checked_tool(tool: string): string
+  return Hash.hex_sha256(tool .. "\0run-time-checks")
 end
 
 --- Compiles every module, in import order, into Lua and bytecode --
@@ -1456,11 +1470,28 @@ end
 ---   and each module is compiled to the same Lua and bytecode in
 ---   whichever process compiles it, so the rows written do not depend on
 ---   the pool. Closed before this returns, whatever it returns.
+--- @param checks whether the compiled Lua checks a value against its declared
+---   kind at each declared parameter, return value and record field write,
+---   and reports a mismatch to the hook `__cosmic_tc` ([`build.test_worker`]
+---   installs one). It keys every compile by [`importer.checked_tool`], so no
+---   cache shares an entry between the two. A pool is refused: the environment
+---   that writes the checks is this process's.
 function importer.compile(handle: work.Handle, built: compiler,
                           tool: string, unjudged?: boolean,
                           shared?: importer.Shared,
-                          pool?: importer.Workers): importer.Result | nil, string
-  return consuming_compile(handle, built, tool, unjudged, shared, pool)
+                          pool?: importer.Workers,
+                          checks?: boolean): importer.Result | nil, string
+  if checks == true then
+    -- The pool's processes compile in environments of their own, which write
+    -- no checks: given one, the compile would be keyed as checked and not be.
+    if pool ~= nil then
+      pool.close()
+      if shared ~= nil then shared.finish() end
+      return nil, "a compile with run-time checks is made in this process: it takes no pool"
+    end
+    tool = importer.checked_tool(tool)
+  end
+  return consuming_compile(handle, built, tool, unjudged, shared, pool, nil, checks)
 end
 
 --- Compiles a self-build after deriving its sources and recording its

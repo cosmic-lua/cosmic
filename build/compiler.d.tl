@@ -173,6 +173,10 @@ local record compiler
     feat_lax: string
     gen_compat: string
     gen_target: string
+    -- Whether the Lua generated checks a value against the kind of its
+    -- declared type at a declared parameter, return value and record
+    -- field write.
+    runtime_checks?: boolean
   end
 
   record Options
