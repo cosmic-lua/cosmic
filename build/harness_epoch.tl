@@ -92,7 +92,7 @@ harness_epoch.acknowledged = {
 
   ["build.caches"] = "cf7287d6ba2af1cc8e299e9ced24863c444f58a12281181663e115058ac7b6aa",
 
-  ["build.confine"] = "8f9cbb6c993dee5d38c09ebea8fcf6765d6567802745a5d8d46933f2db0be8f5",
+  ["build.confine"] = "0bd545e460620886588c4f98d0ecc4c71d61215e555456d28f35f147e22ddf98",
 
   ["build.core_image"] = "dfc18e0e6316237ab9fb11a957df68d6217e42cffc6f2f3a767018c5313700ac",
 

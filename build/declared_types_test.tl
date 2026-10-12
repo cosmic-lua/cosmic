@@ -1,7 +1,7 @@
 --- The declarations of the tool's own modules tell the truth about nil: a
 --- function declared to answer a value answers nil only where its type
 --- says so, and a parameter a caller may leave out is optional. Each test drives the
---- paths a declaration once lied on and asks a checked run
+--- paths where a value may be nil and asks a checked run
 --- (`cosmic test --check-types`) whether a value crossed a typed boundary
 --- under build/ as a kind its type does not admit; in any other run the
 --- tests skip. The C rules, the importer and the spawn stand-in are in

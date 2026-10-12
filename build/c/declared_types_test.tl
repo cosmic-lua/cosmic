@@ -1,8 +1,8 @@
 --- The declarations of the C checker tell the truth about nil: a rule
 --- that finds nothing in an expression answers nil, a syntax tree names no
 --- address or position for a node the dump gives none, and a local a call
---- hands back is a record or none. Each test drives the paths a
---- declaration once lied on and asks a checked run
+--- hands back is a record or none. Each test drives the paths where
+--- a value may be nil and asks a checked run
 --- (`cosmic test --check-types`) whether a value crossed a typed boundary
 --- under build/ as a kind its type does not admit; in any other run the
 --- tests skip.

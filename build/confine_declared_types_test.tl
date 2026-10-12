@@ -49,47 +49,63 @@ local function bytes(conn: Net.Conn, count: integer): string
   return data
 end
 
---- A client that asks a relay for a host and is answered, the relay's
---- readers having no reason to give.
-local function test_the_relay_clients_readers_are_as_declared()
-  honest("build.sandbox_connect", function()
-    local code = -1
-    local waiting, ended = "", false
-    Poll.run(function()
-      local listener = assert(Net.listen(Net.tcp("127.0.0.1", 0)))
-      local variables: {string:string} = { ALL_PROXY = "socks5h://127.0.0.1:" .. assert(listener.address.port) }
-      local client = Poll.spawn(function()
-        code = connect.run({ "host.example", "80" }, {
-          getenv = function(name: string): string | nil return variables[name] end,
-          err = function(_line: string) end,
-          read = function(): string | nil, string
-            while waiting == "" and not ended do
-              local ok, why = Poll.delay(Clock.ms(1))
-              if not ok then return nil, why end
-            end
-            local data = waiting
-            waiting = ""
-            return data, ""
-          end,
-          write = function(_data: string): boolean, string return true, "" end,
-          finish = function(): boolean, string return true, "" end,
-        })
-      end)
-      local relay = assert(listener:accept(Clock.seconds(4)))
-      relay:set_timeout(Clock.seconds(4))
+--- Runs a client that asks a relay for a host and is answered, the relay's
+--- readers having no reason to give: with a login in the proxy's userinfo
+--- the relay's token reader answers too.
+local function tunnels(userinfo?: string)
+  local code = -1
+  local waiting, ended = "", false
+  Poll.run(function()
+    local listener = assert(Net.listen(Net.tcp("127.0.0.1", 0)))
+    local variables: {string:string} = { ALL_PROXY = "socks5h://" ..
+        (userinfo ~= nil and (userinfo .. "@") or "") .. "127.0.0.1:" .. assert(listener.address.port) }
+    local client = Poll.spawn(function()
+      code = connect.run({ "host.example", "80" }, {
+        getenv = function(name: string): string | nil return variables[name] end,
+        err = function(_line: string) end,
+        read = function(): string | nil, string
+          while waiting == "" and not ended do
+            local ok, why = Poll.delay(Clock.ms(1))
+            if not ok then return nil, why end
+          end
+          local data = waiting
+          waiting = ""
+          return data, ""
+        end,
+        write = function(_data: string): boolean, string return true, "" end,
+        finish = function(): boolean, string return true, "" end,
+      })
+    end)
+    local relay = assert(listener:accept(Clock.seconds(4)))
+    relay:set_timeout(Clock.seconds(4))
+    if userinfo == nil then
       assert(bytes(relay, 3) == "\5\1\0")
       assert(relay:write(RelayWire.socks_method_reply(0)))
-      local head = bytes(relay, 4)
-      assert(head:byte(4) == 3)
-      local length = bytes(relay, 1)
-      bytes(relay, length:byte(1) + 2)
-      assert(relay:write(RelayWire.socks_reply("succeeded")))
-      ended = true
-      assert(relay:shutdown("write"))
-      assert(client:join(Clock.seconds(4)), "the client did not end")
-      local _, _ = relay:close()
-      local _, _ = listener:close()
-    end)
-    assert(code == 0, tostring(code))
+    else
+      assert(bytes(relay, 3) == "\5\1\2")
+      assert(relay:write(RelayWire.socks_method_reply(2)))
+      assert(bytes(relay, 1) == "\1")
+      bytes(relay, bytes(relay, 1):byte(1))
+      bytes(relay, bytes(relay, 1):byte(1))
+      assert(relay:write("\1\0"))
+    end
+    local head = bytes(relay, 4)
+    assert(head:byte(4) == 3)
+    local length = bytes(relay, 1)
+    bytes(relay, length:byte(1) + 2)
+    assert(relay:write(RelayWire.socks_reply("succeeded")))
+    ended = true
+    assert(relay:shutdown("write"))
+    assert(client:join(Clock.seconds(4)), "the client did not end")
+    local _, _ = relay:close()
+    local _, _ = listener:close()
+  end)
+  assert(code == 0, tostring(code))
+end
+
+local function test_the_relay_clients_readers_are_as_declared()
+  honest("build.sandbox_connect", function()
+    tunnels()
+    tunnels("user:token")
   end)
 end

@@ -145,18 +145,19 @@ local function is_position(word: string): boolean
     word:match("^[^']+:%d+:%d+$") ~= nil
 end
 
---- Splits `rest`, what follows a node's kind, into its address, range and
---- the text after them, reading every position against `at` on the way.
---- Returns the address, the begin position, and where the remaining
---- text starts in `rest`; a node the dump gives none of either names nil.
+--- What a node's line gives before its text; nil for what the dump leaves out.
 local record Header
   id: string | nil
   file: string | nil
   line: integer | nil
   col: integer | nil
+  --- Where the remaining text starts in the line.
   text_at: integer
 end
 
+--- Splits `rest`, what follows a node's kind, into its address, begin
+--- position and the offset of the text after them, reading every position
+--- against `at` on the way.
 local function header(at: Cursor, rest: string): Header
   local id = rest:match("^ (0x%x+)")
   local pos = 1

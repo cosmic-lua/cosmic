@@ -42,14 +42,16 @@ local markers: {string:boolean} = {
   [";;"] = true,
 }
 
---- A line as a comment: its indentation, its marker, and its text with
---- the space after the marker dropped. nil for a line that is not a
---- comment on its own.
+--- A line read as a comment.
 local record Comment
   indent: string
   marker: string
+  --- The text with the space after the marker dropped.
   text: string
 end
+
+--- The comment a line is, with its indentation and marker; nil for a line
+--- that is not a comment on its own.
 
 local function comment_of(line: string): Comment | nil
   -- TODO: a TODO after code on its line (`x = 1 -- TODO: ...`) is not

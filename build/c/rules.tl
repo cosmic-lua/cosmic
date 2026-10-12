@@ -487,7 +487,7 @@ end
 --- tree names it.
 local record Local
   id: string
-  name: string | nil
+  name: string
 end
 
 --- The local a call's value is given to: the variable it initializes,
@@ -502,7 +502,7 @@ local function receiver(state: State, call: Node): Local | nil
   end
   if at == nil then return nil end
   if at.kind == "VarDecl" and state.locals[at.id] then
-    return { id = at.id, name = name_of(at) }
+    return { id = at.id, name = assert(name_of(at), "a variable declaration names its variable") }
   end
   if at.kind == "BinaryOperator" and tree.operator(at) == "=" and at.children[2] == child then
     local target = tree.bare(at.children[1])
@@ -526,7 +526,8 @@ local function given(call: Node, slot: integer, state: State): Local | nil
     bare = tree.bare(bare.children[1])
   end
   local r = tree.referent(bare)
-  return { id = id, name = r ~= nil and r.name or nil }
+  -- A reference that `referenced` read has a referent.
+  return { id = id, name = assert(r, "a referenced local has a referent").name }
 end
 
 --- The value of an integer constant expression, or nil: `-1`, `-(1)-1`.
@@ -620,7 +621,7 @@ local function track_strings(state: State, call: Node, name: string)
   local received = receiver(state, call)
   if received == nil then return end
   local id = received.id
-  local var = received.name or "a string"
+  local var = received.name
   if pushed then
     state.strings[id] = { name = var, line = line, above = 0, gone = 0 }
     return
@@ -680,7 +681,7 @@ local function expression(ctx: Context, node: Node, state: State)
         end
         if held ~= nil then
           local at = tree.placed(n)
-          state.held[held.id] = { name = held.name or "a resource", from = name,
+          state.held[held.id] = { name = held.name, from = name,
             line = at ~= nil and at.line or 0 }
         end
       end
@@ -717,13 +718,14 @@ local function expression(ctx: Context, node: Node, state: State)
   end)
 end
 
---- The local a condition says is absent on its true side, and the one it
---- says is absent on its false side; a side it says nothing of is nil.
+--- What a condition says is absent: the local on its true side and the
+--- one on its false side; a side it says nothing of is nil.
 local record Absent
   yes: string | nil
   no: string | nil
 end
 
+--- The locals a condition says are absent on each side.
 local function tested(cond: Node, state: State): Absent
   local bare = tree.bare(cond)
   if bare == nil then return {} end

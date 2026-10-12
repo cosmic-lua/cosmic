@@ -1008,6 +1008,9 @@ local function enter(own?: {string}, sandboxed?: boolean): Leave, {string}
                            fds?: {integer:integer}, sandbox?: raw_process.Sandbox,
                            credentials?: raw_process.Credentials, terminal?: boolean | string):
       integer | nil, string, integer
+    -- Declared as the real spawn is. A process that started is answered by
+    -- its pid alone, as the real one answers it: a reason and an errno
+    -- come only with a failure (a later slot left out is the failure idiom).
     if ended then
       -- A reference to a stand-in that no longer stands in starts a
       -- process no confinement holds: under [`must_confine`], none.
@@ -1042,7 +1045,6 @@ local function enter(own?: {string}, sandboxed?: boolean): Leave, {string}
         return nil, refuse(must, path, "its own sandbox's unveil and offline", trouble, errno),
           errno
       end
-      -- A process that started is its pid alone, as the real spawn answers it.
       if pid ~= nil then return pid end
       return pid, trouble, errno
     end
@@ -1156,7 +1158,6 @@ local function enter(own?: {string}, sandboxed?: boolean): Leave, {string}
           stderr, process_group, fds, { unveil = { reads = reads, writes = writes },
             offline = true }, credentials, terminal)
         if pid ~= nil or not unconfinable[errno] then
-          -- A process that started is its pid alone, as the real spawn answers it.
           if pid ~= nil then return pid end
           return pid, trouble, errno
         end
@@ -1191,7 +1192,6 @@ local function enter(own?: {string}, sandboxed?: boolean): Leave, {string}
         end
       end
     end
-    -- A process that started is its pid alone, as the real spawn answers it.
     if pid ~= nil then return pid end
     return pid, trouble, errno
   end

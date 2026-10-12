@@ -2,7 +2,7 @@
 --- function declared to answer a value may answer nil only where its type
 --- says so, a record field absent where the field is optional, and a
 --- parameter a caller may leave out is optional. Each test drives the
---- paths a declaration once lied on and asks a checked run
+--- paths where a value may be nil and asks a checked run
 --- (`cosmic test --check-types`) whether a value crossed a typed boundary
 --- as a kind its type does not admit; in any other run the tests skip.
 
