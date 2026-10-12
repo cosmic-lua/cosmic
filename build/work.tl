@@ -446,11 +446,11 @@ local text = bind.text
 local integer = bind.integer
 
 --- One column of one row, read as the integer it was written as.
-local function integer_of(rows: {{string}}): integer
+local function integer_of(rows: Sqlite.Rows): integer
   if #rows == 0 then
     return 0
   end
-  return math.tointeger(tonumber(rows[1][1]) or 0) or 0
+  return math.tointeger(tonumber(rows[1]:text(1)) or 0) or 0
 end
 
 --- How long a run waits for another run of the same tree to end its
@@ -501,7 +501,7 @@ local function create(db: Sqlite.Handle, path: string): boolean, string
   if tables == nil then
     return false, count_trouble
   end
-  local fresh = tables[1][1] == "0"
+  local fresh = tables[1]:text(1) == "0"
   if fresh then
     local begun, begin_trouble = begin_waiting(db, path)
     if not begun then
@@ -565,7 +565,7 @@ function work.open(root: string, dir?: string): work.Handle | nil, string
     local _, _ = db:close()
     return nil, path .. ": " .. version_trouble
   end
-  if #versions > 0 and versions[1][1] ~= version then
+  if #versions > 0 and versions[1]:text(1) ~= version then
     local _, _ = db:close()
     local removed, remove_trouble = Fs.remove(path)
     if not removed then
@@ -592,7 +592,7 @@ function work.open(root: string, dir?: string): work.Handle | nil, string
     end
     local has_ctime = false
     for _, column in ipairs(columns) do
-      if column[2] == "ctime_ns" then has_ctime = true end
+      if column:text(2) == "ctime_ns" then has_ctime = true end
     end
     if not has_ctime then
       local added, why = db:exec("ALTER TABLE " .. table_name .. " ADD COLUMN ctime_ns INTEGER")
@@ -1229,7 +1229,7 @@ local function links_finder(db: Sqlite.Handle): string | nil, string
     return nil, last_trouble
   end
   local recorded: {string:string} = {}
-  for _, row in ipairs(last) do recorded[row[1]] = row[2] end
+  for _, row in ipairs(last) do recorded[row:text(1)] = row:text(2) end
   if recorded["links_boot"] == boot_hash and recorded["links_by"] ~= nil then
     return recorded["links_by"]
   end
@@ -1280,7 +1280,7 @@ find_links = function(handle: work.Handle, texts: {string:string}): boolean, str
   if last == nil then
     return false, last_trouble
   end
-  if #last == 0 or last[1][1] ~= finder then
+  if #last == 0 or last[1]:text(1) ~= finder then
     for _, statement in ipairs({ "DELETE FROM linked_found", "DELETE FROM linked_texts" }) do
       local ok, trouble = db:exec(statement)
       if not ok then
@@ -1300,7 +1300,7 @@ find_links = function(handle: work.Handle, texts: {string:string}): boolean, str
     return false, unread_trouble
   end
   for _, row in ipairs(unread) do
-    local path, kind, sha256 = row[1], row[2], row[3]
+    local path, kind, sha256 = row:text(1), row:text(2), row:text(3)
     local data = texts[path]
     if data == nil then
       local read, read_trouble = Fs.read(handle.root .. "/" .. path)
@@ -1380,7 +1380,7 @@ function work.zoneinfo_of(db: Sqlite.Handle): {string:string} | nil, string
     return nil, trouble
   end
   local zones: {string:string} = {}
-  if tables[1][1] == "0" then
+  if tables[1]:text(1) == "0" then
     return zones, ""
   end
   local rows, rows_trouble = Sqlite.rows(db, "SELECT name, data FROM zoneinfo")
@@ -1388,7 +1388,7 @@ function work.zoneinfo_of(db: Sqlite.Handle): {string:string} | nil, string
     return nil, rows_trouble
   end
   for _, row in ipairs(rows) do
-    zones[row[1].text] = row[2].blob or row[2].text
+    zones[row:text(1)] = row:bytes(2)
   end
   return zones, ""
 end
@@ -1466,7 +1466,7 @@ function work.web_assets_of(db: Sqlite.Handle): {work.WebAsset} | nil, string
     return nil, trouble
   end
   local assets: {work.WebAsset} = {}
-  if tables[1][1] == "0" then
+  if tables[1]:text(1) == "0" then
     return assets, ""
   end
   local rows, rows_trouble = Sqlite.rows(db,
@@ -1475,8 +1475,8 @@ function work.web_assets_of(db: Sqlite.Handle): {work.WebAsset} | nil, string
     return nil, rows_trouble
   end
   for _, row in ipairs(rows) do
-    assets[#assets + 1] = { name = row[1].text, data = row[2].blob or row[2].text,
-      sha256 = row[3].text, sha384 = row[4].text, version = row[5].text }
+    assets[#assets + 1] = { name = row:text(1), data = row:bytes(2),
+      sha256 = row:text(3), sha384 = row:text(4), version = row:text(5) }
   end
   return assets, ""
 end

@@ -358,8 +358,8 @@ function bom.rows(db: Sqlite.Handle): {bom.Row} | nil, string
   end
   local out: {bom.Row} = {}
   for _, row in ipairs(rows) do
-    out[#out + 1] = { name = row[1], kind = row[2], version = row[3],
-      license = row[4], url = row[5], sha256 = row[6], sha3_256 = row[7], patches = row[8] }
+    out[#out + 1] = { name = row:text(1), kind = row:text(2), version = row:text(3),
+      license = row:text(4), url = row:text(5), sha256 = row:text(6), sha3_256 = row:text(7), patches = row:text(8) }
   end
   return out
 end
@@ -410,11 +410,11 @@ function bom.notices(db: Sqlite.Handle): string | nil, string
   end
   local parts: {string} = {}
   for _, row in ipairs(rows) do
-    local head = "== " .. row[1] .. " " .. row[2] .. " (" .. row[3] .. ")"
-    if row[5] == "1" then
-      parts[#parts + 1] = head .. "\n\nno notice; its source: " .. row[4] .. "\n"
+    local head = "== " .. row:text(1) .. " " .. row:text(2) .. " (" .. row:text(3) .. ")"
+    if row:text(5) == "1" then
+      parts[#parts + 1] = head .. "\n\nno notice; its source: " .. row:text(4) .. "\n"
     else
-      parts[#parts + 1] = head .. ": " .. row[6] .. "\n\n" .. row[7]
+      parts[#parts + 1] = head .. ": " .. row:text(6) .. "\n\n" .. row:text(7)
     end
   end
   return table.concat(parts, "\n")

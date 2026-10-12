@@ -454,12 +454,12 @@ local function carried_digest(database: string): string | nil, string
         "SELECT type, name, coalesce(sql, '') FROM sqlite_schema ORDER BY type, name")
       if schema == nil then trouble = schema_trouble end
       for _, row in ipairs(schema or {}) do
-        lines[#lines + 1] = row[1] .. " " .. row[2] .. " " .. row[3]
-        if row[1] == "table" and row[2]:sub(1, 7) ~= "sqlite_" and
-            row[3]:upper():sub(1, 20) ~= "CREATE VIRTUAL TABLE" then
-          local quoted = row[2]:gsub('"', '""')
+        lines[#lines + 1] = row:text(1) .. " " .. row:text(2) .. " " .. row:text(3)
+        if row:text(1) == "table" and row:text(2):sub(1, 7) ~= "sqlite_" and
+            row:text(3):upper():sub(1, 20) ~= "CREATE VIRTUAL TABLE" then
+          local quoted = row:text(2):gsub('"', '""')
           local columns, columns_trouble = Sqlite.text_rows(db,
-            "SELECT name FROM pragma_table_info(?1) ORDER BY cid", { { text = row[2] } })
+            "SELECT name FROM pragma_table_info(?1) ORDER BY cid", { { text = row:text(2) } })
           if columns == nil then
             trouble = columns_trouble
             break
@@ -469,13 +469,13 @@ local function carried_digest(database: string): string | nil, string
           local parts: {string} = {}
           -- And a rowid table's rowids, which a read in no other order
           -- (ca_roots', zoneinfo's) turns on.
-          if not row[3]:upper():find("WITHOUT%s+ROWID") then parts[1] = "quote(rowid)" end
+          if not row:text(3):upper():find("WITHOUT%s+ROWID") then parts[1] = "quote(rowid)" end
           for _, column in ipairs(columns) do
-            local named = '"' .. column[1]:gsub('"', '""') .. '"'
+            local named = '"' .. column:text(1):gsub('"', '""') .. '"'
             parts[#parts + 1] = "typeof(" .. named .. ") || ':' || quote(CASE WHEN typeof(" ..
               named .. ") = 'text' THEN CAST(" .. named .. " AS BLOB) ELSE " .. named .. " END)"
           end
-          local where = row[2] == "meta" and (" WHERE key NOT IN " .. tree_wide_meta) or ""
+          local where = row:text(2) == "meta" and (" WHERE key NOT IN " .. tree_wide_meta) or ""
           local digest, digest_trouble = Sqlite.text_rows(db,
             "SELECT lower(hex(sha256(coalesce(group_concat(r, char(10) ORDER BY r), '')))) " ..
               "FROM (SELECT " .. table.concat(parts, " || ',' || ") .. ' AS r FROM "' ..
@@ -484,7 +484,7 @@ local function carried_digest(database: string): string | nil, string
             trouble = digest_trouble
             break
           end
-          lines[#lines + 1] = "rows " .. row[2] .. " " .. digest[1][1]
+          lines[#lines + 1] = "rows " .. row:text(2) .. " " .. digest[1]:text(1)
         end
       end
       local _, _ = db:close()

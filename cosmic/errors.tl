@@ -163,11 +163,11 @@ function Errors.guidance_in(handle: Sqlite.Handle, message: string): string | ni
     return nil
   end
   local row = rows[1]
-  local text, candidate, symbol, file = row[1], row[2], row[3], row[4]
+  local text, candidate, symbol, file = row:text(1), row:text(2), row:text(3), row:text(4)
   if text == "" or shared_words(message, candidate) < 2 then
     return nil
   end
-  local line = math.tointeger(tonumber(row[5])) or 0
+  local line = math.tointeger(tonumber(row:text(5))) or 0
   local head: string
   if line > 0 then
     head = symbol .. " (" .. file .. ":" .. tostring(line) .. ")"

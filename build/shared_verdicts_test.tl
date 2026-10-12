@@ -95,8 +95,8 @@ local function test_a_verdict_is_kept_by_its_key_alone(tmp: string)
   cache = assert(shared_verdicts.open(path))
   local tables = assert(Sqlite.text_rows(cache.db,
     "SELECT name FROM sqlite_schema WHERE type = 'table' ORDER BY name"))
-  assert(#tables == 3 and tables[1][1] == "declared_v1" and tables[2][1] == "stores_v1" and
-      tables[3][1] == "verdicts_v4", "an earlier format's table was dropped: " .. tostring(#tables))
+  assert(#tables == 3 and tables[1]:text(1) == "declared_v1" and tables[2]:text(1) == "stores_v1" and
+      tables[3]:text(1) == "verdicts_v4", "an earlier format's table was dropped: " .. tostring(#tables))
   assert(shared_verdicts.declared(cache, "declared") == nil)
   assert(shared_verdicts.settle(cache, "first", { kept = { {
     key = "declared", test = "suite/t_test.tl test_t", hits = "suite/t_test.tl\t1,2,5\n",

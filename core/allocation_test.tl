@@ -526,7 +526,7 @@ local function test_deflate_and_inflate_leave_nothing_whenever_an_allocation_fai
   local ended = under_every_failure(function()
     local rows = assert(Sqlite.rows(db, "SELECT inflate(deflate(?1))",
       { { text = text } }))
-    assert(rows[1][1].blob == text)
+    assert(rows[1]:blob(1) == text)
   end)
   assert(ended > 0, "a query allocates")
   assert_c_heap(bytes, blocks, "deflate and inflate under refusal")

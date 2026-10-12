@@ -257,11 +257,11 @@ local function prepare(db: Sqlite.Handle): boolean, string
   for _, row in ipairs(rows) do
     for _, format in ipairs(formats) do
       local prefix, number = format[1], format[2]
-      local found = math.tointeger(tonumber(row[1]:match("^" .. prefix .. "(%d+)$")))
+      local found = math.tointeger(tonumber(row:text(1):match("^" .. prefix .. "(%d+)$")))
       if found == number then
         current = current + 1
       elseif found ~= nil and found < number then
-        stale[#stale + 1] = row[1]
+        stale[#stale + 1] = row:text(1)
       end
     end
   end
@@ -312,6 +312,22 @@ function shared_compiles.close(cache: shared_compiles.Cache)
   local _, _ = cache.db:close()
 end
 
+--- The bytes of column `index` of `row` when it holds text or a blob,
+--- else nil: a damaged row can hold any type, and is a miss, not a
+--- failure.
+local function bytes_at(row: Sqlite.Row, index: integer): string | nil
+  local kind = row:kind(index)
+  if kind == "blob" or kind == "text" then return row:bytes(index) end
+  return nil
+end
+
+--- The text of column `index` of `row`, or nil when it holds another
+--- type.
+local function text_at(row: Sqlite.Row, index: integer): string | nil
+  if row:kind(index) == "text" then return row:text(index) end
+  return nil
+end
+
 --- The compile kept under the shared `key`, or nil, and why when the
 --- cache could not answer. A row that does not decode to what its digest
 --- says -- damaged, or written by something else -- is a miss, and is
@@ -325,8 +341,7 @@ function shared_compiles.look(cache: shared_compiles.Cache,
   if row == nil then return nil, "" end
   local parts: {string} = {}
   for index = 1, 3 do
-    local cell = row[index]
-    local packed_part = cell.blob or cell.text
+    local packed_part = bytes_at(row, index)
     local part: string | nil = nil
     if packed_part ~= nil then
       local inflated, _ = Compress.inflate("raw", packed_part)
@@ -336,7 +351,7 @@ function shared_compiles.look(cache: shared_compiles.Cache,
     parts[index] = part
   end
   local references = #parts == 3 and unpacked(parts[3]) or nil
-  local stored = row[4].text
+  local stored = text_at(row, 4)
   if references == nil or stored ~= digest_of(parts[1], parts[2], parts[3]) then
     -- Only the row read, by its digest: a good one a build writes under
     -- the key meanwhile stays. Best effort: a busy file leaves it for the
@@ -365,7 +380,7 @@ function shared_compiles.analyzers(cache: shared_compiles.Cache,
     { text(json_list(hashes)), { integer = #hashes } })
   if rows == nil then return nil, trouble end
   local out: {string} = {}
-  for _, row in ipairs(rows) do out[#out + 1] = row[1] end
+  for _, row in ipairs(rows) do out[#out + 1] = row:text(1) end
   return out, ""
 end
 
@@ -383,8 +398,8 @@ function shared_compiles.requires(cache: shared_compiles.Cache, analyzer: string
   if rows == nil then return nil, trouble end
   local out: {string:{string}} = {}
   for _, row in ipairs(rows) do
-    local names = unpacked_requires(row[2])
-    if names ~= nil then out[row[1]] = names end
+    local names = unpacked_requires(row:text(2))
+    if names ~= nil then out[row:text(1)] = names end
   end
   return out, ""
 end
@@ -402,15 +417,15 @@ function shared_compiles.look_parse(cache: shared_compiles.Cache,
   if rows == nil then return nil, trouble end
   local row = rows[1]
   if row == nil then return nil, "" end
-  local requires = row[1].text or row[1].blob
-  local packed_rows = row[2].blob or row[2].text
+  local requires = bytes_at(row, 1)
+  local packed_rows = bytes_at(row, 2)
   local inflated: string | nil = nil
   if packed_rows ~= nil then
     local out, _ = Compress.inflate("raw", packed_rows)
     inflated = out
   end
   local names = requires ~= nil and unpacked_requires(requires) or nil
-  local stored = row[3].text
+  local stored = text_at(row, 3)
   if names == nil or inflated == nil or requires == nil or
       stored ~= parse_digest(key, requires, inflated) then
     where[4] = stored ~= nil and text(stored) or {}
@@ -438,8 +453,8 @@ local function evict(db: Sqlite.Handle, now_ns: integer, bound_bytes: integer): 
   if over == nil then return false, trouble end
   local ids: {string:{string}} = { c = {}, p = {} }
   for _, row in ipairs(over) do
-    local list = ids[row[1]]
-    list[#list + 1] = row[2]
+    local list = ids[row:text(1)]
+    list[#list + 1] = row:text(2)
   end
   for tab, name in pairs({ c = compiled, p = parsed }) do
     if #ids[tab] > 0 then

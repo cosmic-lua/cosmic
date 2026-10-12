@@ -195,7 +195,7 @@ while true do
 end
 sys.close(source) sys.close(target)
 local db = assert(Sqlite.open(copy, { writable = true }))
-say("mode", assert(Sqlite.text_rows(db, "PRAGMA journal_mode=WAL"))[1][1])
+say("mode", assert(Sqlite.text_rows(db, "PRAGMA journal_mode=WAL"))[1]:text(1))
 assert(db:close())
 assert(Store.attach(copy))
 say("restrict", Sandbox.restrict({}))

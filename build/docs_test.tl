@@ -1239,7 +1239,7 @@ local function paired(dir: string, files: {string: string}): {string: string}
   local db = built(dir, files)
   local out: {string: string} = {}
   for _, row in ipairs((assert(Sqlite.text_rows(db, "SELECT file, module FROM examples")))) do
-    out[row[1]] = row[2]
+    out[row:text(1)] = row:text(2)
   end
   return out
 end
@@ -1682,7 +1682,7 @@ local function test_a_public_source_answers_only_for_the_standard_library(dir: s
   -- its name matches.
   local own = assert(Sqlite.text_rows(db, "SELECT d.kind FROM docs d WHERE " ..
       symbols.named_where("d"), { { text = "cosmic.fs" } }))
-  assert(#own == 1 and own[1][1] == "module", tostring(#own))
+  assert(#own == 1 and own[1]:text(1) == "module", tostring(#own))
   local public = assert(docs.view({ db }, { true }))
   local found = assert(docs.lookup(public, "read"))
   assert(#found == 1 and found[1].module == "cosmic.fs", tostring(#found))
@@ -2415,7 +2415,7 @@ local function test_a_lookup_answers_alike_with_the_indexes_or_without(dir: stri
   local plan = assert(Sqlite.text_rows(db, "EXPLAIN QUERY PLAN SELECT d.symbol FROM docs d WHERE " ..
       symbols.named_where("d"), { { text = "grow" } }))
   local steps: {string} = {}
-  for _, row in ipairs(plan) do steps[#steps + 1] = row[#row] end
+  for _, row in ipairs(plan) do steps[#steps + 1] = row:text(row:count()) end
   assert(table.concat(steps, "\n"):find("docs_by_last_name", 1, true) ~= nil,
     table.concat(steps, "\n"))
   local queries = { "read", "Fs.read", "grow", "Box.grow", "Box:grow", "cosmic.fs", "fs", "box",
@@ -2438,7 +2438,7 @@ local function test_a_lookup_answers_alike_with_the_indexes_or_without(dir: stri
   local names = assert(Sqlite.text_rows(db,
     "SELECT name FROM sqlite_schema WHERE type = 'index' AND tbl_name = 'docs' AND sql IS NOT NULL"))
   local present: {string: boolean} = {}
-  for _, row in ipairs(names) do present[row[1]] = true end
+  for _, row in ipairs(names) do present[row:text(1)] = true end
   assert(present["docs_by_last_name"] and present[schema.local_index], table.concat(
     (function(): {string}
       local all: {string} = {}
@@ -2453,7 +2453,7 @@ local function test_a_lookup_answers_alike_with_the_indexes_or_without(dir: stri
     if name:match("^cosmic%-%d+%.db$") then path = dir .. "/" .. name end
   end
   local writable = assert(Sqlite.open(assert(path), { writable = true }))
-  for _, row in ipairs(names) do assert(writable:exec("DROP INDEX " .. row[1])) end
+  for _, row in ipairs(names) do assert(writable:exec("DROP INDEX " .. row:text(1))) end
   assert(writable:close())
   local plain_public, plain_private = every(true), every(false)
   for index, line in ipairs(indexed_public) do

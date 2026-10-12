@@ -1304,7 +1304,8 @@ and names its database by option, since a statement already says
 which rows it reads; `refresh`, which takes the datasets to fetch;
 `bom`, which takes nothing; and `help`, which takes a verb. every verb ends
 in a verdict line
-and an exit code; a file run, `--standalone` and `-e` are programs,
+and an exit code, on stdout, or on stderr where an option makes stdout
+data for a pipe (`sql --to`); a file run, `--standalone` and `-e` are programs,
 not verbs, and print only what they print and exit with what they
 return. `cosmic help` prints an index with a line per verb, `cosmic help <verb>`
 that verb's full text and options, and `cosmic help exit` the verdict

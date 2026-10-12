@@ -26,8 +26,8 @@ local function test_bound_values_keep_kinds_and_invalid_lists_release_the_statem
   })
   assert(result.code == Sqlite.OK and result.extended_code == Sqlite.OK and result.reason == "")
   local row = assert(result.rows)[1]
-  assert(row[1].integer == 42 and row[2].number == 1.5 and row[3].text == "a\0b")
-  assert(row[4].blob == "a\0b" and row[5].kind == "null")
+  assert(row:integer(1) == 42 and row:number(2) == 1.5 and row:text(3) == "a\0b")
+  assert(row:blob(4) == "a\0b" and row:kind(5) == "null")
   local invalid: {any} = {
     false, 42, {}, { {}, {} }, { [0] = {} }, { { text = "a", blob = "b" } },
     { { ["text\0junk"] = "bad" } }, { { integer = 1.5 } }, { { text = false } },
@@ -37,7 +37,7 @@ local function test_bound_values_keep_kinds_and_invalid_lists_release_the_statem
     assert(not ok, "invalid bound values were accepted")
   end
   local texts = Sqlite.text_rows_result(db, "SELECT ?1", { { integer = 42 } })
-  assert(texts.code == Sqlite.OK and assert(texts.rows)[1][1] == "42")
+  assert(texts.code == Sqlite.OK and assert(texts.rows)[1]:text(1) == "42")
   assert(db:close(), "invalid parameters retained a prepared statement")
 end
 
@@ -102,7 +102,7 @@ local function test_busy_and_locked_are_distinct_and_no_operation_is_retried(tmp
   assert(busy.code == Sqlite.BUSY and not busy.cancelled)
   assert(first:exec("ROLLBACK"))
   local rows = Sqlite.rows_result(first, "SELECT count(*) FROM t")
-  assert(assert(rows.rows)[1][1].integer == 1)
+  assert(assert(rows.rows)[1]:integer(1) == 1)
   local reader = assert(first:prepare("SELECT * FROM t"))
   assert(reader:step_result() == "row")
   local locked = Sqlite.run_result(first, "DROP TABLE t")

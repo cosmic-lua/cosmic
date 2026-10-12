@@ -64,7 +64,7 @@ local function test_inputs_by_hash(db: Sqlite.Handle): {string:analyzer.Declared
   end
   local declared: {string:analyzer.Declared} = {}
   for _, row in ipairs(rows) do
-    local hash, field, value = row[1], row[2], row[3]
+    local hash, field, value = row:text(1), row:text(2), row:text(3)
     local one = declared[hash]
     if one == nil then
       one = { line = 0, reads = {}, host = {}, env = {}, network = {},
@@ -118,12 +118,12 @@ local function names_by_hash(db: Sqlite.Handle,
   end
   local out: {string:{string}} = {}
   for _, row in ipairs(rows) do
-    local list = out[row[1]]
+    local list = out[row:text(1)]
     if list == nil then
       list = {}
-      out[row[1]] = list
+      out[row:text(1)] = list
     end
-    list[#list + 1] = row[2]
+    list[#list + 1] = row:text(2)
   end
   return out
 end
@@ -152,8 +152,8 @@ local function embedded_edges(name: string): {string} | nil, string
   end
   local out: {string} = {}
   for _, row in ipairs(rows) do
-    if row[1] ~= "" then
-      out[#out + 1] = row[1]
+    if row:text(1) ~= "" then
+      out[#out + 1] = row:text(1)
     end
   end
   return out, ""
@@ -179,10 +179,10 @@ function compilation.dependency_keys(db: Sqlite.Handle, modules: {Module},
     return nil, rows_trouble
   end
   for _, row in ipairs(rows) do
-    if dependencies[row[1]] == nil then
-      dependencies[row[1]] = {
-        kind = row[2], source_hash = row[3],
-        requires = requires[row[3]] or {},
+    if dependencies[row:text(1)] == nil then
+      dependencies[row:text(1)] = {
+        kind = row:text(2), source_hash = row:text(3),
+        requires = requires[row:text(3)] or {},
       }
     end
   end
@@ -326,8 +326,8 @@ function compilation.collect(db: Sqlite.Handle): {Module} | nil, string
   end
   local out: {Module} = {}
   for _, row in ipairs(rows) do
-    local path, file, kind, origin = row[1], row[2], row[3], row[4]
-    local source, source_hash, has_return = row[5], row[6], row[7]
+    local path, file, kind, origin = row:text(1), row:text(2), row:text(3), row:text(4)
+    local source, source_hash, has_return = row:text(5), row:text(6), row:text(7)
     local inputs = declared[source_hash]
     if inputs ~= nil and kind ~= "test" and kind ~= "example" then
       -- A declaration holds for the tests of its own module, and a
@@ -353,7 +353,7 @@ function compilation.collect(db: Sqlite.Handle): {Module} | nil, string
       key = "",
       graph_key = "",
       lua = "",
-      stub = row[8] == "1" and { text = row[9], pruned = row[10] == "1" } or nil,
+      stub = row:text(8) == "1" and { text = row:text(9), pruned = row:text(10) == "1" } or nil,
     }
   end
   return out, ""
@@ -571,7 +571,7 @@ function compilation.refuse_globals(db: Sqlite.Handle): string | nil, string
   end
   local lines: {string} = {}
   for _, row in ipairs(rows) do
-    lines[#lines + 1] = row[1] .. ":" .. row[2] .. ":" .. row[3] ..
+    lines[#lines + 1] = row:text(1) .. ":" .. row:text(2) .. ":" .. row:text(3) ..
       ": a global is not allowed in a cosmic build: it reaches other modules by no " ..
       "`require`, which is all a build's cache and its order see -- put the value " ..
       "in a module and `require` it"
@@ -750,7 +750,7 @@ function compilation.receivers_identity(db: Sqlite.Handle): string | nil, string
         return nil, trouble
       end
       if #rows > 0 then
-        source = rows[1][1]
+        source = rows[1]:text(1)
       end
     else
       local carried, _ = Store.source(name)

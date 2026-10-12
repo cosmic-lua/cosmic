@@ -1,0 +1,19 @@
+file: ext/misc/csv.c
+note: A quoted field ends at the reader's delimiter after its closing quote (30-csv-reader-holds-a-delimiter.txt), which is answered as a comma.
+--- find
+        if( (c==',' && pc=='"')
+         || (c=='\n' && pc=='"')
+         || (c=='\n' && pc=='\r' && ppc=='"')
+         || (c==EOF && pc=='"')
+        ){
+          do{ p->n--; }while( p->z[p->n]!='"' );
+          p->cTerm = (char)c;
+--- replace
+        if( (c==CSV_SEP(p) && pc=='"')
+         || (c=='\n' && pc=='"')
+         || (c=='\n' && pc=='\r' && ppc=='"')
+         || (c==EOF && pc=='"')
+        ){
+          do{ p->n--; }while( p->z[p->n]!='"' );
+          p->cTerm = c==CSV_SEP(p) ? ',' : (char)c;
+--- end
