@@ -1,10 +1,8 @@
 # SQL functions
 
-Every SQLite handle cosmic opens, through [`cosmic.sqlite`] or the store,
+Every SQLite handle cosmic opens, through [`cosmic.sqlite`] or [`cosmic.store`],
 answers the SQL functions, table-valued functions, virtual tables and
-collations listed here, with no extension to load. The list is the
-whole of them: cosmic's build fails when a handle answers a name this
-page does not list, or this page lists a name a handle does not answer.
+collations listed here, with no extension to load, and no others.
 
 Each entry starts with the name in backticks. An entry for SQLite's own
 functions is short and links to SQLite's page for the rest. An entry for
@@ -62,7 +60,7 @@ SQLite's [core functions](https://sqlite.org/lang_corefunc.html).
 - `sign(X)`: -1, 0 or 1 by X's sign, or NULL for a non-number.
 - `sqlite_compileoption_get(N)`: the Nth compile-time option this SQLite was built with.
 - `sqlite_compileoption_used(NAME)`: whether this SQLite was built with an option.
-- `sqlite_log(CODE, MSG)`: writes MSG to SQLite's error log.
+- `sqlite_log(CODE, MSG)`: sends MSG to SQLite's error log. cosmic sets no logger, so it has no effect.
 - `sqlite_source_id()`: the check-in this SQLite was built from.
 - `sqlite_version()`: this SQLite's version.
 - `substr(X, Y, Z)`: Z characters of X from position Y.
@@ -174,8 +172,8 @@ Each is also a window function.
 
 SQLite's [JSON functions](https://sqlite.org/json1.html). They read JSON5,
 and in cosmic's SQLite `#` line comments too, as [`cosmic.json`] does
-given `hash_comments`. Each `json_` function that writes JSON has a
-`jsonb_` twin that writes SQLite's binary JSON instead.
+given `hash_comments`. A `jsonb_` function below does what its `json_`
+namesake does, writing SQLite's binary JSON instead of text.
 
 - `json(X)`: X as minified JSON text.
 - `json_array(X, ...)`: a JSON array of its arguments.
@@ -209,13 +207,14 @@ given `hash_comments`. Each `json_` function that writes JSON has a
 - `jsonb_set(J, PATH, X, ...)`: as `json_set`, in binary JSON.
 - `json_each(J, PATH)`: a table of the members of the array or object at PATH.
 - `json_tree(J, PATH)`: a table of every value under PATH, recursively.
+- `jsonb_each(J, PATH)`: as `json_each`, its values in binary JSON.
+- `jsonb_tree(J, PATH)`: as `json_tree`, its values in binary JSON.
 
 ## full-text search
 
 SQLite's [FTS5](https://sqlite.org/fts5.html).
 
-- `fts5`: the virtual table, `CREATE VIRTUAL TABLE t USING fts5(columns)`;
-  and `fts5(?)`, which hands a C extension FTS5's API.
+- `fts5`: the virtual table, `CREATE VIRTUAL TABLE t USING fts5(columns)`.
 - `fts5vocab`: a virtual table of an FTS5 table's terms and counts.
 - `bm25(T)`: a row's relevance to the query, lower is better.
 - `highlight(T, COLUMN, OPEN, CLOSE)`: the column's text with each match wrapped.
@@ -278,21 +277,20 @@ print(table.concat(rows[1], " "))
 - `decimal_mul(X, Y)`: the exact product.
 - `decimal_cmp(X, Y)`: -1, 0 or 1 as X is below, equal to or above Y.
 - `decimal_sum(X)`: an aggregate: the exact sum.
-- `decimal_pow2(N)`: 2 to the power N, exactly.
-- `decimal`: a collation ordering text by its decimal value, so `'1.0' = '1' COLLATE decimal`.
+- `decimal_pow2(N)`: 2 to the power N, exactly, in exponential notation; NULL unless N is an integer.
 - `uuid()`: a random version 4 UUID, as text.
 - `uuid_str(X)`: a UUID in its canonical text, from a 16-byte blob or text, or NULL.
 - `uuid_blob(X)`: a UUID as a 16-byte blob, from text or a blob, or NULL.
 - `sha1(X)`: the SHA-1 of a text or blob, as lower-case hexadecimal.
 - `sha1b(X)`: the same, as a 20-byte blob.
-- `sha1_query(SQL)`: the SHA-1 of what every statement in SQL yields.
+- `sha1_query(SQL)`: the SHA-1 of every statement in SQL: its text and the rows it yields.
 - `sha3(X, SIZE)`: the SHA-3 of a text or blob, as a blob, SIZE 224, 256 (the default), 384 or 512 bits.
 - `sha3_agg(X, SIZE)`: an aggregate: the SHA-3 of the values in order.
-- `sha3_query(SQL, SIZE)`: the SHA-3 of what every statement in SQL yields.
+- `sha3_query(SQL, SIZE)`: the SHA-3 of every statement in SQL: its text and the rows it yields.
 - `base64(X)`: a blob as base64 text, in lines; or such text as a blob.
 - `base85(X)`: a blob as SQLite's base85 text, in lines; or such text as a blob.
 - `is_base85(X)`: whether the text is base85 that `base85` reads.
-- `compress(X)`: X's length as a varint, then X's zlib stream.
+- `compress(X)`: X's length, in a prefix of `compress`'s own, then X's zlib stream.
 - `uncompress(X)`: what `compress` wrote, decoded; NULL for a blob it
   cannot read, or whose length claims more than its stream holds.
 
@@ -304,7 +302,9 @@ and `decimal` from [SQLite's extensions](#sqlites-extensions).
 - `BINARY`: compares bytes; the default.
 - `NOCASE`: ignores the case of ASCII letters.
 - `RTRIM`: ignores trailing spaces.
+- `decimal`: orders text by its decimal value, so `'1.0' = '1' COLLATE decimal`.
 
 [`cosmic.hash`]: ../../cosmic/hash.tl
 [`cosmic.json`]: ../../cosmic/json.tl
 [`cosmic.sqlite`]: ../../cosmic/sqlite.tl
+[`cosmic.store`]: ../../cosmic/store.tl

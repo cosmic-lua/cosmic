@@ -18,33 +18,52 @@ local GUIDE <const> = "doc/guides/sql.md"
 --- name, registered when first used: the guide names them as one entry.
 local PRAGMAS <const> = "pragma_*"
 
+--- A collation's name stands apart from a function's: `decimal` is
+--- both, and each needs its own entry.
+local function collation(name: string): string return "collation " .. name end
+
 --- The names the guide documents: each list item that opens with a name
---- in backticks, the name ending at `(` or the closing backtick. Case is
---- folded, as SQLite folds it.
+--- in backticks, the name ending at `(` or the closing backtick, and
+--- those under its collations heading as collations. Case is folded, as
+--- SQLite folds it.
 local function documented(): {string:boolean}
-  local text = assert(Fs.read(GUIDE))
+  local text = "\n" .. assert(Fs.read(GUIDE))
   local names: {string:boolean} = {}
-  for name in text:gmatch("\n%- `([^`(]+)") do names[name:lower()] = true end
+  local from, to = 0, #text + 1
+  for heading_at, heading in text:gmatch("()\n## ([^\n]*)") do
+    if from > 0 and to > #text then to = heading_at as integer end
+    if heading == "collations" then from = heading_at as integer end
+  end
+  assert(from > 0, GUIDE .. " has no collations heading")
+  for where, name in text:gmatch("\n%- `()([^`(]+)") do
+    local in_collations = (where as integer) > from and (where as integer) < to
+    names[in_collations and collation(name:lower()) or name:lower()] = true
+  end
   return names
 end
 
---- The names a fresh handle answers. `json_each` and `json_tree`, like
---- the PRAGMA tables, are registered when first used, so each is used
---- before the modules are listed.
+--- The JSON table-valued functions SQLite registers when first used
+--- (sqlite3JsonVtabRegister in its source), like the PRAGMA tables:
+--- each is used before the modules are listed.
+local LAZY_TABLES <const> = { "json_each", "json_tree", "jsonb_each", "jsonb_tree" }
+
+--- The names a fresh handle answers.
 local function answered(): {string:boolean}
   local handle = assert(Sqlite.memory())
-  for _, sql in ipairs({ "SELECT * FROM json_each('[]')", "SELECT * FROM json_tree('[]')" }) do
-    assert(Sqlite.text_rows(handle, sql))
+  for _, name in ipairs(LAZY_TABLES) do
+    assert(Sqlite.text_rows(handle, "SELECT * FROM " .. name .. "('[]')"))
   end
   local names: {string:boolean} = {}
   for _, sql in ipairs({ "SELECT name FROM pragma_function_list",
-      "SELECT name FROM pragma_module_list", "SELECT name FROM pragma_collation_list" }) do
+      "SELECT name FROM pragma_module_list" }) do
     local rows = assert(Sqlite.text_rows(handle, sql))
     for _, row in ipairs(rows) do
       local name = row[1]:lower()
       names[name:find("^pragma_") and PRAGMAS or name] = true
     end
   end
+  local rows = assert(Sqlite.text_rows(handle, "SELECT name FROM pragma_collation_list"))
+  for _, row in ipairs(rows) do names[collation(row[1]:lower())] = true end
   handle:close()
   return names
 end
@@ -71,8 +90,10 @@ end
 
 local function test_the_guide_is_read_as_its_entries()
   local names = documented()
-  for _, name in ipairs({ "abs", "->>", "json_each", "binary", "decimal", PRAGMAS }) do
+  for _, name in ipairs({ "abs", "->>", "jsonb_each", "decimal", collation("binary"),
+      collation("decimal"), PRAGMAS }) do
     assert(names[name], "the guide's entries do not include " .. name)
   end
+  assert(not names["binary"], "a collation is read as a collation")
   assert(not names["sqlite"], "prose in backticks outside an entry is not one")
 end
