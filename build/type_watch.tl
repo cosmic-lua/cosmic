@@ -11,7 +11,7 @@ local record TypeWatch
 end
 
 --- Whether this run compiled the run-time checks in.
-function TypeWatch.checked(): boolean
+local function checked(): boolean
   -- The hook a checked run defines as a global; read by a chunk, since the
   -- global is no field of the checker's `_G`.
   local read = assert(load("return __cosmic_tc", "=type_watch", "t"))
@@ -23,7 +23,7 @@ end
 --- of a failure pair's later slot, each as `kind target: declared, got
 --- actual (at place)`; skips the test in a run that carries no checks.
 function TypeWatch.during(fn: function(), under?: string): {string}
-  if not TypeWatch.checked() then
+  if not checked() then
     Test.skip("run with --check-types: only a checked run carries the type checks")
   end
   local prefix = under or "cosmic/"
