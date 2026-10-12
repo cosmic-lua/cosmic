@@ -177,14 +177,6 @@ end
 -- it was compiled to. The compiler compiles itself to the same Lua
 -- (build/compiler_test.tl), so which compiler compiled it does not show
 -- in what it is.
---
--- The Lua standard library's declarations, `stdlib.d.tl` beside `file`,
--- ride in that Lua: it starts with `local stdlib = "<their text>"` on its
--- first line, the local the checker's `stdlib` is. The text is quoted on
--- that one line, a newline written `\n` where `%q` writes a backslash and
--- a newline, so no line of the compiled checker moves.
--- build/compiler_test.tl builds the same first line and holds the
--- checker to compiling its own source to it.
 local function bootstrap(stage0, file)
   local source, err = read_all(file)
   if not source then error(file .. ': ' .. tostring(err), 0) end
