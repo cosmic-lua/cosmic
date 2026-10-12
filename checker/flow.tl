@@ -500,6 +500,12 @@ local function eval(scan: Scan, e: flow.Node, st: State): State
       -- A call that never returns ends the path, but a function made and
       -- not yet assigned over may already have got out (stored, or given
       -- to a caller up the stack that catches the error).
+      -- TODO: `assert(cond)` and an operator that raises (`1 // d`, an
+      -- index of a nil field) end a path in the same way, after a function
+      -- that names the local has escaped, and are not seen as doing so
+      -- (`reg.cb = function() return x.x end; assert(flag == false);
+      -- x = {...}`, then a `pcall` of the body and `reg.cb()`). It waits on
+      -- doc/roadmap.md's item that checks such a function where it escapes.
       if e.never_call then
          ran(scan, after, e, "never")
       end

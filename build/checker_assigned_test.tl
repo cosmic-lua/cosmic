@@ -328,6 +328,16 @@ local function test_a_function_that_names_the_local_is_refused_where_code_may_ru
   refuses("local f: function()\nfor _ = 1, 2 do\n  use(0)\n  local function g() f() end\nend\nf = idle", "f")
 end
 
+--- A known limit: a raise from `assert` or an operator lets out a function
+--- that has escaped, and is not seen to. The program is accepted, and
+--- crashes when the stored function is called after the body is caught. The
+--- TODO in checker/flow.tl and doc/roadmap.md's item that checks a function
+--- where it escapes flip this to a refusal.
+local function test_a_raise_from_assert_lets_out_a_function_the_rule_does_not_see()
+  accepts("local flag = true\nlocal reg: {string: function(): integer} = {}\nlocal x: {string: integer}\n" ..
+      "reg.cb = function(): integer return x.x end\nassert(flag == false, \"nope\")\nx = { x = 1 }")
+end
+
 --- An operator the types say dispatches runs code.
 local function test_an_operator_that_dispatches_may_run_the_function()
   local source = head .. "local record V\n  metamethod __add: function(V, V): V\nend\n" ..

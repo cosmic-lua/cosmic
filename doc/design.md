@@ -1052,7 +1052,12 @@ gaps. a `<close>` local whose type declares `__close` and the read of a
 declared field of a record that declares `__index` run code that neither sees
 (the TODO in [`checker/narrowing.tl`] names them), nor does a metatable
 attached at run time (the `setmetatable` TODOs in [`checker/tl.tl`] and the
-roadmap item they wait on). a global is not followed at all, and neither is a
+roadmap item they wait on). a raise from `assert` (`assert(false)`,
+`assert(<expr>)`) or from an operator (division by zero, indexing nil) can let out
+a function that has already escaped, as a call of a function typed `: never`
+does, but is not seen as doing so, so those are outside the rule for now (a
+TODO in [`checker/flow.tl`], and the roadmap item that checks a function where
+it escapes). a global is not followed at all, and neither is a
 local given a call that returns no values (`local v: integer = f()`), which is
 nil though its type admits none; both are TODOs in [`checker/flow.tl`] that wait
 on the roadmap's item that excludes nil from every type but one that names it.
