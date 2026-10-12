@@ -11676,9 +11676,9 @@ do
 
    -- TODO: this looks for an assignment to a local of that name alone, so a
    -- loop that assigns a field (`q.a = nil`) keeps what was known of `q.a`
-   -- before it, in the loop's body. Rule 4 of the strict-teal plan drops
-   -- what was known of a place assigned in the loop too; it waits on the
-   -- change that drops facts at writes and at call-like expressions.
+   -- before it, in the loop's body. It waits on the roadmap item that makes
+   -- every guard read every place alike: a loop that assigns a place drops
+   -- it at the loop head.
    local function assigned_anywhere(name: string, root: Node): boolean
       local visit_node: Visitor<nil, NodeKind, Node, boolean> = {
          cbs = {

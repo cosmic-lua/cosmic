@@ -5,9 +5,9 @@
 --- entry's Lua behind a first line that holds the Lua standard library's
 --- declarations, [`checker/stdlib.d.tl`], as its local `stdlib` and the Lua
 --- of each other file for its local `require`. That compiler, compiling the
---- same files, must give back exactly the Lua it is, so the compiler the tree is built
---- with is a function of its Teal sources and those declarations alone,
---- not of the one that first compiled it.
+--- same files, must give back exactly the Lua it is, so the compiler the
+--- tree is built with is a function of its Teal sources and those
+--- declarations alone, not of the one that first compiled it.
 local Fs = require("cosmic.fs")
 local Store = require("cosmic.store")
 local Test = require("cosmic.test")

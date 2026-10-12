@@ -20,25 +20,23 @@
 -- This file holds only upstream Teal 0.24.8: the boot compiles it with
 -- the vendored `tl.lua` (core/bridge.lua), as it does checker/tl.tl.
 --
--- TODO: the places are a local and `x.f` of a local, as the checker
--- narrows today: `place_of` answers nothing for `a.b.c`, and no index
--- (`t[k]`) is a place. Rule 4 of the strict-teal plan makes any field
--- path a place, and rule 2 an index place; `Place.fields` already
--- carries a path and `Host.type_of` walks it. It waits on the change
--- that drops facts at writes and call-like expressions, which a longer
--- path needs before it is sound.
+-- TODO: the places are a local and `x.f` of a local: `place_of` answers
+-- nothing for `a.b.c`, and no index (`t[k]`) is a place. `Place.fields`
+-- already carries a path and `Host.type_of` walks it. It waits on
+-- doc/roadmap.md's item that makes every guard read every place alike,
+-- which needs the item before it, dropping facts at writes and calls,
+-- for a longer path to be sound.
 --
--- TODO: `forgets` drops by string prefix, so `r.f = v` also drops a
--- fact about `r.foo`. Rule 4 drops the place assigned, its extensions,
--- and a field of that name through any base, and nothing else; the
--- prefix test becomes a comparison of paths once the checker holds
--- places, not keys, on its scopes.
+-- TODO: `forgets` drops by string prefix, so `r.f = v` also drops a fact
+-- about `r.foo`. It waits on the roadmap item that makes every guard read
+-- every place alike, which drops a place and its extensions only; the
+-- prefix test then becomes a comparison of paths held on the scopes.
 --
 -- TODO: `type(x) == "..."` and the left operand of `and` guard a local
--- and no field, though `x.f` is a place. Rule 4 gives every form the
--- same places. It waits on the change that drops facts at writes and at
--- call-like expressions: a field guarded in more forms is sound only
--- with that drop.
+-- and no field, though `x.f` is a place. It waits on the roadmap item that
+-- makes every guard read every place alike, after facts are dropped at
+-- writes and calls: a field guarded in more forms is sound only with that
+-- drop.
 
 local record narrowing
    -- Where a guard was built: the position the checker reports at.
@@ -105,9 +103,11 @@ local record narrowing
    end
 
    -- The scopes' part a place is dropped from: a scope holds its
-   -- variables, and the facts narrowed on them, by key.
+   -- variables, and the facts narrowed on them, by key, and lists the
+   -- keys it narrowed.
    record Scope
       vars: {string:any}
+      narrows: {string:boolean}
    end
 
    -- The syntax-tree fields places and conditions are read from.
@@ -179,21 +179,18 @@ function narrowing.forgets(assigned: narrowing.Place, key: string): boolean
    return key:sub(1, #prefix) == prefix
 end
 
--- TODO: a fact the checker holds as a narrowed variable is also listed in
--- its scope's `narrows`, which this leaves alone: after `assert(q.a)`
--- and `q.a = 1`, the next place the checker widens every narrowed name
--- (a function value assigned, a loop, a label) raises "no q.a in
--- scope". Dropping the fact from `narrows` too is the fix; it turns a
--- crash into an accepted program, which the change that drops facts at
--- writes makes.
-
---- Drops from every scope what is known under a key `forgets`.
+--- Drops from every scope what is known under a key `forgets`, and the
+--- key from the names the scope narrowed, which a later widening of every
+--- narrowed name would otherwise look for.
 function narrowing.drop(scopes: {narrowing.Scope}, assigned: narrowing.Place)
    for i = #scopes, 1, -1 do
       local scope = scopes[i]
       for name in pairs(scope.vars) do
          if narrowing.forgets(assigned, name) then
             scope.vars[name] = nil
+            if scope.narrows then
+               scope.narrows[name] = nil
+            end
          end
       end
    end
@@ -268,8 +265,8 @@ end
 -- TODO: the checker joins the tests of `x is A | B | C` pairwise and
 -- keeps the last pair's, so the true branch narrows to `B | C`, losing
 -- `A`, and the false branch still holds `A`. A join of all the members
--- accepts programs the checker refuses today, so it waits on the change
--- that makes rule 4's refusals.
+-- accepts programs the checker refuses today. It waits on the roadmap
+-- item that makes every guard read every place alike.
 
 --- `f1 or f2` as the tests of a union's members are joined: an operand
 --- that gives nothing stays absent.
@@ -383,10 +380,13 @@ local function or_facts(host: narrowing.Host, fs1: {string:narrowing.Guard},
    return ret
 end
 
+-- A place both sides say something of keeps the kind they share, and one
+-- only a side says something of is value-based. So a map of two places or
+-- more is all value-based: type-based facts about two places are never
+-- mixed with value-based ones, and nothing needs to downgrade them.
 local function and_facts(host: narrowing.Host, fs1: {string:narrowing.Guard},
                          fs2: {string:narrowing.Guard}): {string:narrowing.Guard}
    local ret: {string:narrowing.Guard} = {}
-   local has: {narrowing.Kind:boolean} = {}
 
    for var, f in pairs(fs1) do
       local rt: narrowing.Type
@@ -401,19 +401,11 @@ local function and_facts(host: narrowing.Host, fs1: {string:narrowing.Guard},
       end
       local ff = test(kind, f.w, f.place, rt, f.no_infer)
       ret[var] = ff
-      has[ff.fact] = true
    end
 
    for var, f in pairs(fs2) do
       if not fs1[var] then
          ret[var] = test("==", f.w, f.place, f.typ, f.no_infer)
-         has["=="] = true
-      end
-   end
-
-   if has["is"] and has["=="] then
-      for _, f in pairs(ret) do
-         f.fact = "=="
       end
    end
 

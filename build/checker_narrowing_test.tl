@@ -45,6 +45,7 @@ end
 
 local record Scope
   vars: {string:any}
+  narrows?: {string:boolean}
 end
 
 local record Host
@@ -258,6 +259,15 @@ end
 local function test_an_assignment_targets_a_name_by_its_text_else_a_place()
   setup()
   assert(assert(narrowing.target_of(variable("x"))).key == "x")
+  -- Its text names the local even where the node is no variable read.
+  local named: Node = { kind = "error_node", tk = "x" }
+  assert(assert(narrowing.target_of(named)).key == "x")
+  assert(narrowing.place_of(named) == nil)
+  -- And it wins over the path of a node that has both.
+  local both: Node = op(".", variable("r"), { kind = "identifier", tk = "a" })
+  both.tk = "t"
+  assert(assert(narrowing.target_of(both)).key == "t")
+  assert(assert(narrowing.place_of(both)).key == "r.a")
   assert(assert(narrowing.target_of(op(".", variable("r"), { kind = "identifier", tk = "a" }))).key == "r.a")
   assert(narrowing.target_of(op("@index", variable("t"), variable("i"))) == nil)
 end
@@ -287,10 +297,16 @@ end
 
 local function test_drop_removes_the_names_from_every_scope()
   setup()
-  local outer: Scope = { vars = { ["x.f"] = true, ["x.g"] = true, x = true, ["y.f"] = true } }
-  local inner: Scope = { vars = { ["x.f"] = true, z = true } }
+  local outer: Scope = {
+    vars = { ["x.f"] = true, ["x.g"] = true, x = true, ["y.f"] = true },
+    narrows = { ["x.f"] = true, ["x.g"] = true, x = true },
+  }
+  local inner: Scope = { vars = { ["x.f"] = true, z = true }, narrows = { ["x.f"] = true } }
   narrowing.drop({ outer, inner }, narrowing.field_place("x", "f"))
   assert(outer.vars["x.f"] == nil and inner.vars["x.f"] == nil)
+  assert(outer.narrows ~= nil and inner.narrows ~= nil)
+  assert(outer.narrows["x.f"] == nil and inner.narrows["x.f"] == nil)
+  assert(outer.narrows["x.g"] and outer.narrows["x"])
   assert(outer.vars["x.g"] and outer.vars["x"] and outer.vars["y.f"] and inner.vars["z"])
   narrowing.drop({ outer, inner }, narrowing.local_place("x"))
   assert(outer.vars["x.g"] == nil and outer.vars["x"] and outer.vars["y.f"])
@@ -379,6 +395,40 @@ local function test_a_conjunction_with_a_truthy_side_is_told_by_the_other()
   expect({ "x is nil" }, (facts(narrowing.negate(here, guard), types)))
   -- A disjunction with a truthy side is told by its negation alone.
   expect({ "x is nil" }, (facts(narrowing.either(here, narrowing.type_is(here, x, number), narrowing.truthy), types)))
+end
+
+local function test_a_negation_of_a_negation_is_the_guard_itself()
+  setup()
+  local x = narrowing.local_place("x")
+  local types = { x = union(number, nothing) }
+  local guard = narrowing.type_is(here, x, number)
+  local once = narrowing.negate(here, guard)
+  local twice = narrowing.negate(here, once)
+  expect({ "x is number" }, (facts(guard, types)))
+  expect({ "x is nil" }, (facts(once, types)))
+  expect({ "x is number" }, (facts(twice, types)))
+  expect({ "x is nil" }, (facts(narrowing.negate(here, twice), types)))
+end
+
+local function test_an_or_of_a_type_fact_and_a_value_fact_is_a_value_fact()
+  setup()
+  local x = narrowing.local_place("x")
+  local types = { x = union(number, string_t, nothing) }
+  local mixed = narrowing.either(here, narrowing.type_is(here, x, number), narrowing.value_is(here, x, nothing))
+  expect({ "x == nil|number" }, (facts(mixed, types)))
+  local values = narrowing.either(here, narrowing.value_is(here, x, number), narrowing.value_is(here, x, nothing))
+  expect({ "x == nil|number" }, (facts(values, types)))
+end
+
+local function test_a_joined_union_test_with_an_absent_side_gives_nothing()
+  setup()
+  local x = narrowing.local_place("x")
+  local types = { x = union(number, nothing) }
+  local test = narrowing.type_is(here, x, number)
+  -- `either` counts the absent side as truthy; [`any_of`] leaves it absent.
+  expect({ "x is nil" }, (facts(narrowing.either(here, test, nil), types)))
+  expect({}, (facts(narrowing.any_of(here, test, nil), types)))
+  expect({}, (facts(narrowing.any_of(here, nil, test), types)))
 end
 
 local function test_the_negation_of_a_conjunction_is_the_disjunction_of_negations()
@@ -619,7 +669,9 @@ local function test_a_union_test_of_three_members_loses_the_first()
     "3: cannot use operator '..' for typ")
 end
 
-local function test_the_known_limit_of_dropping_a_field_that_stays_listed_as_narrowed()
-  refused("assert(q.a)\nq.a = 1\nlocal g = function() end\ng = function() print(g) end",
-    "raised: no q.a in scope")
+local function test_dropping_a_narrowed_field_leaves_the_program_checkable()
+  -- The fact was once listed as narrowed after it was dropped, and the next
+  -- widening of every narrowed name raised "no q.a in scope".
+  refused("assert(q.a)\nq.a = 1\nlocal g = function() end\ng = function() print(g) end")
+  refused("assert(q.a)\nq.a = 1\nprint(q.a + 1)", "3: " .. plus:sub(1, 28))
 end
