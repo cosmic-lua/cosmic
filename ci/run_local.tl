@@ -316,7 +316,7 @@ local function execute(argv: {integer:string}): integer
     at = at + 1
   end
   if #phases == 0 then
-    phases = { "build", "local-boundary", "darwin-suite", "sandbox", "assemble",
+    phases = { "build", "local-boundary", "declared-types", "darwin-suite", "sandbox", "assemble",
       "fixtures", "portable", "portable-boundary" }
   end
   local function git_run(words: {string}, values?: {string:string}, input?: string): string
