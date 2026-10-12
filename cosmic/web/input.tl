@@ -395,13 +395,13 @@ local function counted(source: Stream.Reader, limit: integer): Stream.Reader, fu
   return reader, function(): integer return total end
 end
 
---- The value of a `<close>` variable: only its `__close` matters.
 --- The file an upload is being written to, where the closer of a killed
 --- task can reach it.
 local record Spool
   writer?: Stream.FileWriter
 end
 
+--- The value of a `<close>` variable: only its `__close` matters.
 local record Unwinding
   metamethod __close: function(Unwinding)
 end

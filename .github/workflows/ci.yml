@@ -758,10 +758,11 @@
 
         # The tests that watch the standard library's declared types
         # skip in every run but a checked one (`--check-types`): this is
-        # the one that asks them (cosmic_ci's phase_declared_types).
+        # the one that asks them (cosmic_ci's phase_declared_types). A
+        # light run's second share skips it: the first runs it whole.
         {
           name: "run the declared-types tests on a checked run",
-          if: "matrix.name == 'linux-x86_64'",
+          if: "matrix.name == 'linux-x86_64' && matrix.shard != '2/2'",
           run: "cosmic-driver cosmic_ci/driver.tl platform declared-types",
         },
 
