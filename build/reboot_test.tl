@@ -6,7 +6,7 @@ local paths = require("build.paths")
 local reboot = require("build.reboot")
 local rebuild_lock = require("build.rebuild_lock")
 local stand_in = require("build.stand_in")
-local verdict = require("build.verdict")
+local logger = require("build.logger")
 local work = require("build.work")
 
 --- A core change boots unless COSMIC_AUTO_BOOT is "0".
@@ -110,7 +110,7 @@ end
 local function test_rebuild_failed_says_the_compile_failure_of_a_failed_boot(tmp: string)
   local root = tree_with_zig(tmp, 1)
   local said: {string} = {}
-  local log = verdict.log
+  local log = logger.log
   local complain = log.complain
   log.complain = function(_: Log.Logger, line: string): boolean, string
     table.insert(said, line)

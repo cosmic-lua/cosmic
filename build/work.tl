@@ -29,7 +29,7 @@ local todo_scan = require("build.todo_scan")
 local gen_syscalls = require("build.gen_syscalls")
 local bind = require("build.bind")
 local link_files = require("build.link_files")
-local log = require("build.verdict").log
+local log = require("build.logger").log
 
 local record work
   --- One file of `web_assets`: its name in the table, its bytes, their

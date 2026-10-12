@@ -14,7 +14,8 @@ local narrow = require("build.narrow")
 local plural = require("build.plural")
 local reboot = require("build.reboot")
 
-local log = require("build.verdict").log
+local logger = require("build.logger")
+local log = logger.log
 local verb_spec = require("build.verb_spec")
 
 local record databases
@@ -229,8 +230,8 @@ end
 --- `cosmic db [path...]`: describes `cosmic.db`, `carried.db` (what
 --- the tool built from cosmic's own tree carries) and `build.db` under
 --- the working directory, each one there is, and how many closure stores
---- the build directory's `stores` holds and their bytes. It prints a verdict line and
---- returns the exit code. Paths narrow it to the rows about the sources
+--- the build directory's `stores` holds and their bytes. It ends in its
+--- summary on stderr and returns the exit code. Paths narrow it to the rows about the sources
 --- under them: each table's count of those rows, and the slowest of
 --- those tests. The coverage rows counted are every kept run's, not only
 --- the latest.
@@ -335,22 +336,22 @@ local function run(argv: {integer:string}): integer
     end
   end
   if seen == 0 then
-    log:verdict("db", false, "no database under " .. layout.directory .. "; build first, " ..
+    local _, _ = logger.summary("db", "no database under " .. layout.directory .. "; build first, " ..
         clock.took(started))
     return 1
   end
   if #paths > 0 then
     local under = table.concat(paths, ", ")
     if rows == 0 then
-      log:verdict("db", false, "no row is about " .. under .. ", " ..
+      local _, _ = logger.summary("db", "no row is about " .. under .. ", " ..
           clock.took(started))
       return 1
     end
-    log:verdict("db", true, plural.count(rows, "row") .. " about " .. under .. " in " ..
+    local _, _ = logger.summary("db", plural.count(rows, "row") .. " about " .. under .. " in " ..
         plural.count(seen, "database") .. ", " .. clock.took(started))
     return 0
   end
-  log:verdict("db", true, plural.count(tables, "table") .. " in " .. plural.count(seen, "database") .. ", " ..
+  local _, _ = logger.summary("db", plural.count(tables, "table") .. " in " .. plural.count(seen, "database") .. ", " ..
       clock.took(started))
   return 0
 end

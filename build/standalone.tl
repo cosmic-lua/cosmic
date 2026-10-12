@@ -42,7 +42,7 @@ local Hash = require("cosmic.hash")
 local Store = require("cosmic.store")
 local exit_status = require("build.exit_status")
 local teal = require("build.teal")
-local log = require("build.verdict").log
+local log = require("build.logger").log
 local type compiler = require("build.compiler")
 
 local record standalone

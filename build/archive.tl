@@ -6,9 +6,9 @@
 --- and writes the format a file's name asks for) behind a command
 --- line.
 ---
---- Like `cosmic json` it ends in no verdict line: its standard output
---- is data (a listing, the paths written) for a pipe or a `$(...)`.
---- Its exit status is the verdict: 0 done, 1 a member or an input path
+--- Like `cosmic json` it prints no summary: its standard output is data
+--- (a listing, the paths written) for a pipe or a `$(...)`, and its exit
+--- status says how it went: 0 done, 1 a member or an input path
 --- that is not there, or files that `extract` would overwrite without
 --- `--force`, 2 a command line, or an archive or input it cannot read
 --- or will not unpack. Complaints go to standard error. Its spec's

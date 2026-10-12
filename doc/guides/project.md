@@ -344,30 +344,30 @@ end
 local function cosmic(...: string): Child.Result
   return cosmic_in(tmp, ...)
 end
-local function verdict(said: Child.Result, verb: string)
-  local out = (said.stderr or "") .. (said.stdout or "")
-  print(out:match(verb .. ": %d+ tests? passed") or out:match(verb .. ": [A-Z]+"))
+-- The test summary where there is one, else how the verb exited.
+local function outcome(said: Child.Result, verb: string)
+  print((said.stdout or ""):match(verb .. ": %d+ tests? passed") or verb .. " exited " .. tostring(said.code))
 end
 
-verdict(cosmic("fix"), "fix")
-verdict(cosmic("test"), "test")
+outcome(cosmic("fix"), "fix")
+outcome(cosmic("test"), "test")
 print(((cosmic("cmd/tally/main.tl", "words", "words.txt").stdout or ""):gsub("\n$", "")))
 print(((cosmic("cmd/tally/main.tl", "top", "words.txt", "--limit", "2").stdout or ""):gsub("\n$", "")))
 local missing = cosmic("cmd/tally/main.tl", "words", "--nope")
 print(missing.code, ((missing.stderr or ""):gsub("\n$", "")))
 print(((cosmic("cmd/tally/main.tl", "--help").stdout or ""):gsub("\n$", "")))
 local wrote = cosmic("build", "--host")
-verdict(wrote, "build")
+outcome(wrote, "build")
 local program = assert(("\n" .. (wrote.stdout or "")):match("\n(/[^\n]+)"))
 local built = assert(Child.run({ program, "words", "words.txt" },
   { cwd = tmp, stdout = "capture", timeout_ns = Clock.seconds(60) }))
 print(((built.stdout or ""):gsub("\n$", "")))
-verdict(cosmic_in(tmp .. "/cmd/tally", "test"), "test")
+outcome(cosmic_in(tmp .. "/cmd/tally", "test"), "test")
 print((cosmic("docs", "tally").stdout or ""):match("^[^\n]*"))
 ```
 
 ```output
-fix: PASS
+fix exited 0
 test: 3 tests passed
 5
 the	2
@@ -380,7 +380,7 @@ commands:
   words  Counts the words of a file, or of standard input.
 
 Run `tally <command> --help` for a command's options.
-build: PASS
+build exited 0
 5
 test: 3 tests passed
 tally (tally.tl)

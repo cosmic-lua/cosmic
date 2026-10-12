@@ -150,8 +150,7 @@ local host_caches = require("build.caches")
 local worker = require("build.test_worker")
 local type compiler = require("build.compiler")
 
-local verdict_log = require("build.verdict")
-local log = verdict_log.log
+local log = require("build.logger").log
 local bind = require("build.bind")
 local verb_spec = require("build.verb_spec")
 
@@ -654,7 +653,7 @@ end
 --- `native_lines` are the core's own C lines ([`Coverage.native_lines`]),
 --- or none when the tree is not the one that C belongs to. Returns the
 --- overall hit and executable-line counts, over every module written
---- for this run, for the run's own verdict line, and a trouble message.
+--- for this run, for the run's own summary, and a trouble message.
 local function write_coverage(handle: Sqlite.Handle, built: compiler,
                               modules: {importer.Module},
                               native_lines: Coverage.Hits,
@@ -4554,8 +4553,8 @@ local function settle(ctx: Run)
   ctx.cov_line = test_report.coverage(cov_hit, cov_total)
 end
 
---- The run's verdict said, with the skips, failures and errors that
---- bear on it, and its exit code: 0 when every test passed.
+--- The run's summary said, last on stdout, with the skips, failures and
+--- errors that bear on it, and its exit code: 0 when every test passed.
 local function report(ctx: Run): integer
   local rec, tally = assert(ctx.rec), assert(ctx.tally)
   local failures, errors = assert(ctx.failures), assert(ctx.errors)
@@ -4570,7 +4569,7 @@ local function report(ctx: Run): integer
     say_violations(rec)
     log:say(assert(ctx.cov_line))
     for _, function_line in ipairs(assert(ctx.function_lines)) do log:say(function_line) end
-    local _, _ = verdict_log.summary("test", test_report.passed({ total = total,
+    local _, _ = log:say("test: " .. test_report.passed({ total = total,
       modules = #assert(ctx.selected_modules),
       ran = tally.ran, cached = tally.cached, skipped = tally.skipped, unchecked = tally.unchecked, na = tally.na,
       every = tally.every, shared = tally.shared },
@@ -4587,14 +4586,14 @@ local function report(ctx: Run): integer
     log:say(assert(ctx.cov_line))
     for _, function_line in ipairs(assert(ctx.function_lines)) do log:say(function_line) end
   end
-  local _, _ = verdict_log.summary("test", test_report.failed(#failures, total + #assert(ctx.result).refused,
+  local _, _ = log:say("test: " .. test_report.failed(#failures, total + #assert(ctx.result).refused,
     #errors, clock.took(started) .. assert(ctx.sandbox_summary) .. assert(ctx.share_summary), rec.not_run))
   return 1
 end
 
 --- Builds the tree in the working directory and runs every test it
---- discovered that its selectors choose ([`test.selects`]), printing a
---- verdict line and returning the exit code: 0
+--- discovered that its selectors choose ([`test.selects`]), printing its
+--- summary and returning the exit code: 0
 --- when every test passed. Each phase above does one part, in order,
 --- and the first to answer an exit code ends the run.
 --- @param argv the command line, which a stale tool re-enters after

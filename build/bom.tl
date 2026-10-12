@@ -47,7 +47,8 @@ local Store = require("cosmic.store")
 local String = require("cosmic.string")
 local bind = require("build.bind")
 local clock = require("build.clock")
-local log = require("build.verdict").log
+local logger = require("build.logger")
+local log = logger.log
 local verb_spec = require("build.verb_spec")
 local plural = require("build.plural")
 
@@ -496,7 +497,10 @@ end
 local function run(argv: {integer:string}): integer
   local started = Clock.monotonic_ns()
   local function finish(code: integer, detail: string): integer
-    log:verdict("bom", code == 0, detail .. ", " .. clock.took(started))
+    -- A refused command line's complaint says why; it gets no summary.
+    if code ~= 2 then
+      local _, _ = logger.summary("bom", detail .. ", " .. clock.took(started))
+    end
     return code
   end
   local usage = "cosmic bom [--licenses | --json <path>]"

@@ -28,7 +28,8 @@ local symbol_index = require("build.symbol_index")
 local symbols = require("build.symbols")
 local tree = require("build.tree")
 
-local log = require("build.verdict").log
+local logger = require("build.logger")
+local log = logger.log
 local bind = require("build.bind")
 local verb_spec = require("build.verb_spec")
 
@@ -115,13 +116,13 @@ local record docs
     closest: boolean
   end
 
-  --- What `cosmic docs` prints for its words, short of the verdict
-  --- line: see [`docs.answer`].
+  --- What `cosmic docs` prints for its words, short of its summary:
+  --- see [`docs.answer`].
   record Answer
     lines: {string}
-    --- Whether every word found something: the verdict's pass.
+    --- Whether every word found something: the run's pass.
     found: boolean
-    --- What the verdict counts ("2 named", "7 found"), led, when a
+    --- What the summary counts ("2 named", "7 found"), led, when a
     --- word found nothing, by the words that found nothing.
     said: string
   end
@@ -2487,7 +2488,7 @@ function docs.asked(words: {string}): {string} | nil
   return words
 end
 
---- What `cosmic docs <words...>` prints, short of the verdict line:
+--- What `cosmic docs <words...>` prints, short of its summary:
 --- - no words: every module ([`docs.index`]);
 --- - `cosmic` (or `cosmic.`) alone: the standard library's modules and
 ---   guides, which no search for the word could list in a page;
@@ -2569,7 +2570,7 @@ function docs.answer(view: docs.View, words: {string}): docs.Answer | nil, strin
 end
 
 --- `cosmic docs <words...>`: prints what [`docs.answer`] says of the
---- words and ends in a verdict line; fails when a word finds nothing.
+--- words, then its summary on stderr; fails when a word finds nothing.
 local function run(argv: {integer:string}): integer
   local parsed, parse_trouble = Flags.parse(argv, 2, {})
   if parsed == nil then
@@ -2600,17 +2601,17 @@ local function run(argv: {integer:string}): integer
     log:say(line)
   end
   if not answer.found then
-    log:verdict("docs", false, answer.said .. ", " .. clock.took(started))
+    local _, _ = logger.summary("docs", answer.said .. ", " .. clock.took(started))
     return 1
   end
-  log:verdict("docs", true, answer.said .. ", " ..
+  local _, _ = logger.summary("docs", answer.said .. ", " ..
       plural.count(#view.databases, "database") .. ", " .. clock.took(started))
   return 0
 end
 
 --- `cosmic uses <symbol> [path...]`: every place that refers to the
 --- symbol, one `file:line` per line -- only those in a file under one
---- of the paths, when there are any -- and a verdict line. A link is
+--- of the paths, when there are any -- then its summary on stderr. A link is
 --- marked `link`; the symbol may be a file instead, which only links
 --- name ([`doc/writing.md`], `doc/writing.md#every-example-runs`).
 local function run_uses(argv: {integer:string}): integer
@@ -2666,11 +2667,11 @@ local function run_uses(argv: {integer:string}): integer
   end
   if shown == 0 then
     local where = #paths > 0 and " under " .. table.concat(paths, ", ") or ""
-    log:verdict("uses", false, "nothing" .. where .. " refers to '" .. query .. "', " ..
+    local _, _ = logger.summary("uses", "nothing" .. where .. " refers to '" .. query .. "', " ..
         clock.took(started))
     return 1
   end
-  log:verdict("uses", true, plural.count(shown, "place") .. ", " .. clock.took(started))
+  local _, _ = logger.summary("uses", plural.count(shown, "place") .. ", " .. clock.took(started))
   return 0
 end
 

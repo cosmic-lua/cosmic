@@ -24,8 +24,7 @@
 ---
 --- What stays shared: a module the verb requires stays loaded after it,
 --- and a global `-e` sets stays set, as in any process that runs two
---- chunks; [`build.verdict`]'s record of a verdict line is set back for
---- each run. The environment given is what a verb reads through
+--- chunks. The environment given is what a verb reads through
 --- [`cosmic.env`]; C that reads its own (the core's startup, coverage)
 --- sees this process's. Nothing times the run out but the test's own
 --- limit.
@@ -35,7 +34,7 @@ local Store = require("cosmic.store")
 local dispatch = require("build.dispatch")
 local exit_status = require("build.exit_status")
 local sys = require("cosmic.sys")
-local verdict = require("build.verdict")
+local logger = require("build.logger")
 
 local record invoke
   --- How to run.
@@ -125,7 +124,6 @@ function invoke.run(args: {string}, opts: invoke.Options): invoke.Result
 
   local getenv, environ = sys.getenv, sys.environ
   local exit, execve, attach = sys.exit, sys.execve, Store.attach
-  local given = verdict.given
   local refused: string | nil = nil
   local function refuse(what: string): never
     refused = refused or ("invoke: the command line called " .. what ..
@@ -156,7 +154,6 @@ function invoke.run(args: {string}, opts: invoke.Options): invoke.Result
     Store.attach = function(_: string): boolean, string
       refuse("Store.attach")
     end
-    verdict.given = false
     Store.alone(function()
       local called, answer = pcall(function(): any return dispatch.main(argv) end)
       if not called then
@@ -165,12 +162,12 @@ function invoke.run(args: {string}, opts: invoke.Options): invoke.Result
         -- guidance (core/main.c's `failed`) -- once a binding hands them
         -- to Lua.
         local message = (answer is string or answer is number) and tostring(answer) or "failed"
-        verdict.log:complain(message)
+        logger.log:complain(message)
         return
       end
       local status = exit_status.status(answer)
       if status == nil then
-        verdict.log:complain("the main function returned no exit status from 0 to 255: " ..
+        logger.log:complain("the main function returned no exit status from 0 to 255: " ..
             "cmd.cosmic.main")
         code = 2
       else
@@ -182,7 +179,6 @@ function invoke.run(args: {string}, opts: invoke.Options): invoke.Result
 
   sys.getenv, sys.environ = getenv, environ
   sys.exit, sys.execve, Store.attach = exit, execve, attach
-  verdict.given = given
   local out_back, out_back_trouble = sys.dup2(saved_out, 1)
   local err_back, err_back_trouble = sys.dup2(saved_err, 2)
   local back, back_trouble = sys.chdir(here)

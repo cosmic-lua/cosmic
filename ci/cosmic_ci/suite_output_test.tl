@@ -8,7 +8,7 @@ local key_parts <const> = "test: key parts: host features 0123456789abcdef, host
 
 --- A sandboxed run's lines as build/test.tl says them, --census asked.
 local function test_a_passing_sandboxed_run()
-  local figures = SuiteOutput.parse("boot: PASS (3 targets, 2344 ms)\n" ..
+  local figures = SuiteOutput.parse("boot: 3 targets, 2344 ms\n" ..
       "test: sandbox: each worker is held to its inputs, the tree at /tree\n" ..
       key_parts .. "\n" ..
       "test: 1994 tests keyed by their declared inputs in 12.5 ms (40 files read)\n" ..

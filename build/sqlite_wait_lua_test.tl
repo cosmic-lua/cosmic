@@ -11,7 +11,7 @@ local type Log = require("cosmic.log")
 local build_paths = require("build.paths")
 local rebuild_lock = require("build.rebuild_lock")
 local this_program = require("build.this_program")
-local verdict = require("build.verdict")
+local logger = require("build.logger")
 local work = require("build.work")
 
 Test.policy{ profiles = { "cosmic" } }
@@ -99,7 +99,7 @@ local function test_work_open_does_not_retry_a_cancelled_first_or_second_begin(t
   -- The first is caught before the open, which its first BEGIN then
   -- finds; the second is sent once the notice is given, so neither
   -- meets the other phase however slow the host.
-  local log = verdict.log
+  local log = logger.log
   local complain = log.complain
   for _, retried in ipairs({ false, true }) do
     local notices = 0

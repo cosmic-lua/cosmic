@@ -276,7 +276,7 @@ local function program_modules(): Sqlite.Handle
   for _, module in ipairs({ "build.fix.rule", "build.fix.render", "build.fix.breaks",
       "build.fix.equiv", "build.ast",
       "build.teal", "build.flow", "build.c", "build.fix.near",
-      "build.analyzer", "build.verdict", "build.tree", "cosmic.flags",
+      "build.analyzer", "build.logger", "build.tree", "cosmic.flags",
       "cosmic.cli", "cosmic.template",
       "cosmic.string" }) do
     assert(Sqlite.run(db, "INSERT INTO modules VALUES (?1, ?2)",

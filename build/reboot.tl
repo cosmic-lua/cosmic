@@ -40,7 +40,7 @@ local tree = require("build.tree")
 local work = require("build.work")
 local workers = require("build.workers")
 local writer = require("build.writer")
-local log = require("build.verdict").log
+local log = require("build.logger").log
 local type compiler = require("build.compiler")
 
 local record reboot

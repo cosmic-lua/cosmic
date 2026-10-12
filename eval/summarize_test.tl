@@ -41,6 +41,17 @@ local function test_the_first_lines_count_the_run()
   }))
 end
 
+--- A docs miss as the tool summarizes it counts, as an older tool's
+--- `docs: FAIL` does.
+local function test_a_docs_miss_summary_counts()
+  local text = lines({
+    call("1", "Bash", { command = "cosmic docs Fs.nope" }),
+    answer("1", "docs: nothing named or documented as Fs.nope, 0 named, 0 found, 9 ms", true),
+  })
+  local report = Summarize.report(text, arena, repo)
+  assert(report:find("docs_misses=1 ", 1, true), report)
+end
+
 local function test_a_run_without_a_result_says_it_may_have_timed_out()
   local text = lines({ call("1", "Bash", { command = "true" }), "not json", "3", "" })
   assert(Summarize.report(text, arena, repo) == lines({
