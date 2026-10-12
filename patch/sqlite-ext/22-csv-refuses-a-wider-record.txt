@@ -1,0 +1,15 @@
+file: ext/misc/csv.c
+note: A record with more fields than the table's columns loses the rest with no word: `a,b` then `1,2,3` reads as 1, 2. When the width is the first record's (20-csv-keeps-whether-its-width-is-the-first-records.txt), a wider record is a file whose columns are not what they seem, and this refuses it, naming its record, counted from 1 as the table's rowid counts it, through 16-csv-reports-what-the-reader-refuses.txt. A table whose columns= or schema= sets its width still takes what fits, as upstream does. Upstream drops the rest as of 3.54.0.
+--- find
+      i++;
+    }
+  }while( pCur->rdr.cTerm==',' );
+--- replace
+      i++;
+    }else if( pTab->bFirstWidth ){
+      csv_errmsg(&pCur->rdr, "record %lld has more fields than the first's %d",
+                 pCur->iRowid+1, pTab->nCol);
+      break;
+    }
+  }while( pCur->rdr.cTerm==',' );
+--- end

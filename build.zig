@@ -1507,15 +1507,17 @@ fn vendorLibraries(
     // SQLite (SQLITE_CORE), so it calls SQLite directly rather than
     // through a loader's table, under SQLite's own configuration.
     // basexx.c holds base64.c and base85.c, which it includes, and
-    // compress.c calls miniz (patch/sqlite-ext/). They cost about 56 KB
-    // per raw core.
+    // compress.c calls miniz (patch/sqlite-ext/). csv.c reads CSV text or
+    // a file as a table, which cosmic.csv's `load` copies into a real one;
+    // patch/sqlite-ext/ holds it to the temp schema, so no database file
+    // names a file for it to read. They cost about 63 KB per raw core.
     const sqlite_ext_misc = sqlite_ext.path(b, "ext/misc");
     vendorPart(b, &libraries, configuration, target, "sqlite-ext", &.{ sqlite, sqlite_ext.path(b, "src"), miniz }).addCSourceFiles(.{
         .root = sqlite_ext_misc,
         .files = &.{
-            "basexx.c", "compress.c", "decimal.c", "ieee754.c", "regexp.c",
-            "series.c", "sha1.c",     "shathree.c", "totype.c", "uint.c",
-            "uuid.c",
+            "basexx.c", "compress.c", "csv.c",    "decimal.c", "ieee754.c",
+            "regexp.c", "series.c",   "sha1.c",   "shathree.c", "totype.c",
+            "uint.c",   "uuid.c",
         },
         .flags = &(sqlite_flags ++ [_][]const u8{
             "-DSQLITE_CORE=1",

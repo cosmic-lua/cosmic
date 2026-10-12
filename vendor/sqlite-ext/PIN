@@ -7,6 +7,7 @@ keep ext/misc/base64.c
 keep ext/misc/base85.c
 keep ext/misc/basexx.c
 keep ext/misc/compress.c
+keep ext/misc/csv.c
 keep ext/misc/decimal.c
 keep ext/misc/ieee754.c
 keep ext/misc/regexp.c
