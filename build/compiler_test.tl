@@ -1,13 +1,13 @@
 --- The compiler compiles itself to itself. A boot compiles the tree's own
---- checker, [`checker/tl.tl`] and the files beside it ([`checker/flow.tl`]),
---- with the vendored `tl.lua`, and the tool carries what that compiled to
---- (core/bridge.lua's `bootstrap`): the entry's Lua behind a first line
---- that holds the Lua standard library's declarations,
---- [`checker/stdlib.d.tl`], as its local `stdlib` and the Lua of each other
---- file for its local `require`. That compiler, compiling the same files,
---- must give back exactly the Lua it is, so the compiler the tree is built
---- with is a function of its Teal sources and those declarations alone,
---- not of the one that first compiled it.
+--- checker, [`checker/tl.tl`] and the files beside it ([`checker/flow.tl`],
+--- [`checker/narrowing.tl`]), with the vendored `tl.lua`, and the tool
+--- carries what that compiled to (core/bridge.lua's `bootstrap`): the
+--- entry's Lua behind a first line that holds the Lua standard library's
+--- declarations, [`checker/stdlib.d.tl`], as its local `stdlib` and the Lua
+--- of each other file for its local `require`. That compiler, compiling the
+--- same files, must give back exactly the Lua it is, so the compiler the
+--- tree is built with is a function of its Teal sources and those
+--- declarations alone, not of the one that first compiled it.
 local Fs = require("cosmic.fs")
 local Store = require("cosmic.store")
 local Test = require("cosmic.test")
@@ -22,6 +22,7 @@ Test.policy{ grants = { { path = "checker/", letters = "r" } } }
 --- [`test_every_checker_file_is_compiled`] until it is named here.
 local parts: {{string}} = {
   { "checker.flow", "checker/flow.tl" },
+  { "checker.narrowing", "checker/narrowing.tl" },
 }
 
 --- `code`, a compiled checker, as the bridge starts it: `declarations`
@@ -100,7 +101,7 @@ local function test_the_compiler_compiles_itself_to_itself()
   --
   -- TODO: assert `#result.type_errors == 0` instead, once the checker's own
   -- source is migrated to the rules the checker holds the tree to.
-  local known <const> = 321
+  local known <const> = 320
   assert(#result.type_errors == known, "the checker's source has " ..
       tostring(#result.type_errors) .. " type errors, not " .. tostring(known) ..
       ": update `known` if a change to the source fixed or added one")
