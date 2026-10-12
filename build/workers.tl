@@ -109,18 +109,32 @@ local function again(args: {string}): {string}, {string:string}, {integer:intege
   return argv, env, fds
 end
 
--- TODO: once core/bridge.lua takes its compiles from the compiles every
--- checkout shares (the TODOs there), a worker of a boot starts in about
--- two seconds, not nine: lower `startup_ns` and `open_bytes` to match.
+--- The variable that moves the compiles every checkout shares, or turns
+--- them off with `0` ([`build.shared_compiles`]).
+local cache_variable <const> = "COSMIC_BUILD_CACHE"
 
 --- How a boot starts a worker: the core it runs on, asked to boot the
 --- tree at `root` with the compiler in `tl_dir` and then serve as a
 --- worker ([`build.boot`]). The worker loads the build's code from that
---- source, which takes seconds a worker of a tool does not.
+--- source. The bridge ran before this and kept its compiles in the
+--- shared cache (core/bridge.lua), so the worker takes them from it and
+--- serves a job in a third of a second alone, a second with every
+--- processor busy starting one. With the cache off it compiles them
+--- again, which takes about nine seconds.
+-- TODO: tell a worker's starter whether the bridge could keep and read
+-- its compiles: a cache that is unusable though not off (one others can
+-- write, or one that cannot be opened) leaves every worker compiling for
+-- nine seconds while the build waits on the short start below. Waits on
+-- a way for core/bridge.lua to hand build.boot what it did: core/boot.c
+-- passes build.boot only the root, the command line and the compiler's Lua.
 function workers.boot_spec(root: string, tl_dir: string): workers.Spec
   local argv, _, _ = again({ "--boot", root, tl_dir, "--worker" })
-  return { argv = argv, open_bytes = 3 * 1024 * 1024, phase_bytes = 128 * 1024,
-    startup_ns = Clock.seconds(9) }
+  if Env.get(cache_variable) == "0" then
+    return { argv = argv, open_bytes = 3 * 1024 * 1024, phase_bytes = 128 * 1024,
+      startup_ns = Clock.seconds(9) }
+  end
+  return { argv = argv, open_bytes = 512 * 1024, phase_bytes = 128 * 1024,
+    startup_ns = Clock.seconds(1) }
 end
 
 --- How a tool starts a worker: itself, running [`build.worker`]'s

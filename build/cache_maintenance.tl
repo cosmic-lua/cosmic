@@ -110,12 +110,12 @@ end
 
 local function shapes(): {string:Shape}
   local scratch <close> = owned((assert(Sqlite.memory())))
-  for _, schema in ipairs({ formats.compiles, formats.verdicts }) do
+  for _, schema in ipairs({ formats.compiles, formats.bridge_statements, formats.verdicts }) do
     for _, sql in ipairs(schema) do assert(scratch.db:exec(sql)) end
   end
   assert(scratch.db:exec(formats.legacy_verdicts))
   local out: {string:Shape} = {}
-  for _, name in ipairs({ formats.compiled, formats.parsed, formats.declared,
+  for _, name in ipairs({ formats.compiled, formats.parsed, formats.bridge, formats.declared,
       formats.stores, "verdicts_v4" }) do
     local sql = assert(Sqlite.text_rows(scratch.db,
       "SELECT sql FROM sqlite_schema WHERE name = ?1", { { text = name } }))[1][1]
@@ -141,7 +141,8 @@ end
 
 local function belongs(name: string, family: maintenance.Family): boolean
   if family == "compiles" then
-    return name:match("^compiled_v%d+$") ~= nil or name:match("^parsed_v%d+$") ~= nil
+    return name:match("^compiled_v%d+$") ~= nil or name:match("^parsed_v%d+$") ~= nil or
+      name:match("^bridge_v%d+$") ~= nil
   end
   return name:match("^declared_v%d+$") ~= nil or name:match("^stores_v%d+$") ~= nil or
     name:match("^verdicts_v%d+$") ~= nil
