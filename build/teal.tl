@@ -1260,7 +1260,13 @@ local function narrowing_hint(msg: string, source: string): string | nil
   -- that does not take nil (patch/tl 53b): the type expected is the
   -- value's own, less the nil.
   if given ~= nil and wanted ~= nil and one_or_nil(given) and type_members(given)[1] == wanted then
-    return nil_answer("the argument", "value")
+    return nil_answer("the argument", "value") ..
+      ", or give it a default: `value = value or <default>`"
+  end
+  -- A literal nil for a parameter that takes none (patch/tl 53b).
+  if msg:match("^argument %d+: got nil, expected .+$") ~= nil then
+    return "the parameter takes no nil: pass a value, or, where the callee handles nil, " ..
+      "declare the parameter `name?: T` or `T | nil`"
   end
   -- A numeric `for` bound that may be nil (patch/tl 51c).
   local bound = msg:match("^cannot use (.+) as the 'for' %a+$")

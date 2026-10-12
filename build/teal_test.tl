@@ -2223,7 +2223,7 @@ end
 
 --- A value that may be nil is no argument of `table.insert` or
 --- `table.concat` where the list it joins or extends takes none
---- (patch/tl's 51f, now the rule of every call, 53b).
+--- (patch/tl's 53b, which replaced 51f's).
 local function test_a_table_argument_that_may_be_nil_is_refused()
   local head = "local record R\n  name?: string\n  items?: {string}\nend\nlocal r: R = {}\n" ..
     "local function find(): string | nil return nil end\nlocal s = find()\n" ..
@@ -2244,6 +2244,9 @@ local function test_a_table_argument_that_may_be_nil_is_refused()
   assert_accepted(head .. "local anything: {any} = {}\ntable.insert(anything, s)\n")
 end
 
+local nil_head = "local function find(): string | nil return nil end\nlocal s = find()\n" ..
+  "local list: {string} = {}\n"
+
 --- A refusal of a value that may be nil tells the check that drops it.
 local function test_a_nil_operand_or_argument_is_told_the_check()
   local head = "local function find(): string | nil return nil end\nlocal s = find()\n" ..
@@ -2258,7 +2261,50 @@ local function test_a_nil_operand_or_argument_is_told_the_check()
       "or, where a call answers it, take it with `local value = assert(<the call>)`")
   answers(head .. "table.insert(list, s)\n", "argument 2: got string | nil, expected string",
     "the argument may be nil: check it first (`if value == nil then return nil, err end`), " ..
-      "or, where a call answers it, take it with `local value = assert(<the call>)`")
+      "or, where a call answers it, take it with `local value = assert(<the call>)`, " ..
+      "or give it a default: `value = value or <default>`")
+  answers(head .. "table.insert(list, nil)\n", "argument 2: got nil, expected string",
+    "the parameter takes no nil: pass a value, or, where the callee handles nil, " ..
+      "declare the parameter `name?: T` or `T | nil`")
+end
+
+--- `require` is checked by its own handler, which refuses a name that is
+--- nil or may be (patch/tl's 53e); a name it cannot read stays `any`.
+local function test_require_takes_a_string_that_is_not_nil()
+  local head = nil_head
+  assert_refused(head .. "local m = require(s)\nprint(m)\n", "argument 1: got string | nil, expected string")
+  assert_refused("local m = require(nil)\nprint(m)\n", "argument 1: got nil, expected string")
+  assert_accepted(head .. "if s then\n  print(require(s))\nend\n")
+  assert_accepted("local name = 'x' .. tostring(1)\nprint(pcall(require, name))\n")
+end
+
+--- A value narrowed to nil is a nil that is passed, wherever it came from
+--- (patch/tl's 53b).
+local function test_a_value_narrowed_to_nil_is_refused_as_an_argument()
+  local greet = nil_head .. "local function greet(name: string): string return name end\n"
+  assert_refused(greet .. "if s == nil then\n  print(greet(s))\nend\n", "argument 1: got nil")
+  assert_refused(greet .. "if not s then\n  print(greet(s))\nend\n", "argument 1: got nil")
+  assert_refused(greet .. "local x = s == nil and s\nprint(greet(x))\n", "argument 1: got")
+end
+
+--- A value made non-nil by an assignment at a join is refused, as the checker
+--- does not narrow there; `x = x or default` is the fix (patch/tl's 53b, whose
+--- TODO names the narrowing).
+local function test_a_value_made_non_nil_at_a_join_is_a_known_limit()
+  local greet = nil_head .. "local function greet(name: string): string return name end\n"
+  local refused = "argument 1: got string | nil, expected string"
+  assert_refused(greet .. "local x = s\nif x == nil then\n  x = 'd'\nend\nprint(greet(x))\n", refused)
+  assert_refused(greet .. "local x = s\nif not x then\n  x = 'd'\nend\nprint(greet(x))\n", refused)
+  assert_refused(greet .. "local m = s\nwhile m == nil do\n  m = find()\nend\nprint(greet(m))\n", refused)
+  assert_refused(greet .. "local m = s\nrepeat\n  m = find()\nuntil m ~= nil\nprint(greet(m))\n", refused)
+  assert_accepted(greet .. "local x = s\nx = x or 'd'\nprint(greet(x))\n")
+end
+
+--- `setmetatable` takes a nil metatable, which removes one (patch/tl's 53d).
+local function test_setmetatable_takes_a_nil_metatable()
+  assert_accepted("local record R\n  n?: integer\nend\nlocal r: R = {}\nsetmetatable(r, nil)\nprint(r)\n")
+  assert_accepted("local record R\n  n?: integer\nend\nlocal r: R = {}\n" ..
+      "local mt: metatable<R> | nil = nil\nsetmetatable(r, mt)\nprint(r)\n")
 end
 
 --- The optional parameters of `table.concat` take nil: the separator and
@@ -2270,9 +2316,6 @@ local function test_an_optional_table_parameter_takes_nil()
   assert_accepted(head .. "print(table.concat(list, ',', at(), at()))\n")
   assert_refused(head .. "table.insert(list, sep())\n", "argument")
 end
-
-local nil_head = "local function find(): string | nil return nil end\nlocal s = find()\n" ..
-  "local list: {string} = {}\n"
 
 --- A value that may be nil is no argument for a parameter that does not
 --- take nil, whatever the callee is: an ordinary function, a method, a
@@ -2369,7 +2412,7 @@ local function test_a_literal_nil_is_refused_for_a_parameter_that_does_not_take_
   assert_refused(greet .. "print(greet(nil))\n", "argument 1: got nil, expected string")
   assert_refused(greet .. "local ok, err = pcall(greet, nil)\nprint(ok, err)\n", "got nil, expected string")
   assert_refused("local list: {string} = {}\ntable.insert(list, nil)\n", "argument 2: got nil, expected string")
-  assert_accepted(greet .. "local none: any = nil\nprint(pcall(greet, none))\n")
+  assert_accepted(greet .. "local function absent(): string return nil end\nprint(pcall(greet, absent()))\n")
   assert_accepted("local function opt(name?: string) print(name) end\nopt(nil)\n")
   assert_accepted("local function open(name: string | nil) print(name) end\nopen(nil)\n")
   assert_accepted("local function open(a: string, name: any) print(a, name) end\nopen('a', nil)\n")
