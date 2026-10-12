@@ -147,9 +147,13 @@ PR that changes what it reads.
    still giving its verdict. eval's grader, CI's product setup and
    identity fixture, command-line.md and project.md read the new lines.
 2. **reword the test summary.** [`test_report.passed`] and `failed` write
-   the outcome sentence. the following move with it:
+   the outcome sentence, which stands as `test`'s verdict line until
+   step 3 ([`build/verdict.tl`]'s `summary` marks it given, and
+   [`build/verbs_fixture.tl`] reads it as one). the harness epoch moves,
+   since many tests judge a run by its summary. the following move with
+   it:
    - CI's `SuiteOutput` and the two fixtures that read the summary;
-   - eval's readers;
+   - eval's readers, which keep the old line for an arena's older tool;
    - the seven guide doctests and project.md's helper, which match
      `test: PASS`;
    - the tests on the summary.
