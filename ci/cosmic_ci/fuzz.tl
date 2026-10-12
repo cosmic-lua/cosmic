@@ -151,8 +151,9 @@ end
 --- file backwards from its end only as far as those lines begin, and
 --- then only each one's first `cut` bytes.
 function Fuzz.tail(path: string): {string} | nil
-  local fd = Fs.open_read(path)
-  if fd == nil then return nil end
+  local opened = Fs.open_read(path)
+  if opened == nil then return nil end
+  local fd: integer = opened
   local called, answer = pcall(function(): {string}
     local size = assert(Fs.stat(path)).size
     if size == 0 then return {} end
@@ -230,7 +231,7 @@ local function streamed(guard: Signal.Guard, argv: {string}, cwd: string,
         local state, why = handle:try_wait()
         if state == nil then return why end
         if state.finished and status == nil then
-          status = Child.shell_status(state.result)
+          status = Child.shell_status(assert(state.result))
           deadline = Clock.monotonic_ns() + final_output_ns
         end
         if eof then
@@ -257,7 +258,7 @@ local function streamed(guard: Signal.Guard, argv: {string}, cwd: string,
     if status == nil then
       local observed, state = pcall(function(): Child.TryWait | nil return (handle:try_wait()) end)
       if observed and state ~= nil and state.finished then
-        status = Child.shell_status(state.result)
+        status = Child.shell_status(assert(state.result))
       end
     end
     return ran and why or tostring(why)
