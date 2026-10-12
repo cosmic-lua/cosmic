@@ -12,10 +12,7 @@ local work = require("build.work")
 -- fixtures name.
 local type _sys = require("cosmic.sys")
 
-local built, load_trouble = teal.load()
-if built == nil then
-  error("could not load the compiler: " .. tostring(load_trouble))
-end
+local built = assert(teal.load())
 
 --- Compiles `source` as the one module of a fresh fixture project:
 --- true, or false and what the compile refused.
