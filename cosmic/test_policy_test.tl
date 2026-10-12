@@ -12,7 +12,10 @@ local test_inputs = require("build.test_inputs")
 -- The source of cosmic.sandbox.policy, whose `Policy` fields [`Test.Policy`] repeats.
 Test.policy{ grants = { { path = "cosmic/sandbox/policy.tl", letters = "r" } } }
 
-local built = assert(teal.load())
+local built, load_trouble = teal.load()
+if built == nil then
+  error("could not load the compiler: " .. tostring(load_trouble))
+end
 
 --- A module that declares `call` on `Test`, as the build reads it.
 local function declared(call: string): analyzer.Declared | nil, string
