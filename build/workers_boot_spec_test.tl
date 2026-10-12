@@ -25,6 +25,18 @@ local function spec_with(env: {string:string}): string
 end
 
 local function test_workers_start_quickly_only_where_the_compiles_are_cached()
-  assert(spec_with({}) == "1000000000\t524288", "with the cache on")
-  assert(spec_with({ COSMIC_BUILD_CACHE = "0" }) == "9000000000\t3145728", "with the cache off")
+  local home = { HOME = "/home/someone" }
+  assert(spec_with(home) == "1000000000\t524288", "with the cache on")
+  assert(spec_with({ XDG_CACHE_HOME = "/cache" }) == "1000000000\t524288", "with XDG_CACHE_HOME")
+  local off: {{string, {string:string}}} = {
+    { "COSMIC_BUILD_CACHE=0", { HOME = "/home/someone", COSMIC_BUILD_CACHE = "0" } },
+    { "a relative name", { HOME = "/home/someone", COSMIC_BUILD_CACHE = "cache.db" } },
+    { "TL_PATH", { HOME = "/home/someone", TL_PATH = "" } },
+    { "no absolute HOME", { HOME = "home" } },
+  }
+  for _, case in ipairs(off) do
+    assert(spec_with(case[2]) == "9000000000\t3145728", "with " .. case[1])
+  end
+  local absolute = { HOME = "/home/someone", COSMIC_BUILD_CACHE = "/shared/cache.db" }
+  assert(spec_with(absolute) == "1000000000\t524288", "with an absolute name")
 end

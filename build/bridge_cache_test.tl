@@ -30,6 +30,12 @@ return {
     made = made + 1
     local kind = source:find("search_module", 1, true) and "compiler" or "module"
     io.open(dir .. "/" .. kind .. "-" .. made, "w"):close()
+    local edit = os.getenv("EDIT_A")
+    if kind == "module" and made == 1 and edit then
+      local file = io.open(edit, "w")
+      file:write("return { n = 2 }\n")
+      file:close()
+    end
     return source, {}
   end,
 }
@@ -226,6 +232,24 @@ local function test_any_input_that_changes_is_a_miss(tmp: string)
   assert(boot(f).modules == 0, "a file no compile reads moved the key")
 end
 
+--- A file edited after the key is made but before the bridge reads it is
+--- not kept under that key: the row would hold code of the edited file
+--- for the tree before it, and undoing the edit would take it as a hit.
+--- (The stand-in compiler edits `build/a.tl` as it compiles the first
+--- module, which is after the bridge took the manifest.)
+local function test_a_file_edited_while_the_bridge_runs_is_not_kept(tmp: string)
+  local f = fixture(tmp, "race")
+  local a = f.tree .. "/build/a.tl"
+  local edited = boot(f, { EDIT_A = a })
+  assert(edited.status == 22, "the stand-in compiler did not edit the module: " .. edited.status)
+  assert(rows(f, "WHERE kind = 'modules'") == 0, "a row was kept for a tree that changed under it")
+  put(a, "return { n = 1 }\n")
+  local restored = boot(f)
+  assert(restored.status == 21 and restored.modules == loaded,
+    "the restored tree took the edited code from the cache")
+  assert(boot(f).modules == 0, "the restored tree's own row was not kept")
+end
+
 --- A module the bridge compiled with other declarations than it is
 --- given now is not taken from the row, though no file differs; the
 --- modules loaded before any declaration exist (the generator's own) are.
@@ -249,12 +273,13 @@ local function test_the_cache_can_be_turned_off(tmp: string)
     { "0", { COSMIC_BUILD_CACHE = "0" } },
     { "a relative name", { COSMIC_BUILD_CACHE = "cache.db" } },
     { "TL_PATH", { TL_PATH = "/nowhere/?.lua" } },
+    { "an empty TL_PATH", { TL_PATH = "" } },
   }
   for index, case in ipairs(cases) do
     local f = fixture(tmp, "off-" .. index)
     assert(boot(f, case[2]).modules == loaded)
     assert(boot(f, case[2]).modules == loaded, case[1] .. " did not turn the cache off")
-    if index < 3 then assert(Fs.stat(f.cache) == nil, case[1] .. " made the file") end
+    if index ~= 3 then assert(Fs.stat(f.cache) == nil, case[1] .. " made the file") end
   end
   local f = fixture(tmp, "off-read")
   boot(f)

@@ -56,9 +56,19 @@ end
 -- `.tl`. A file added, removed, moved or edited moves the key, so a row
 -- never stands for a tree it was not made from. A tree the manifest
 -- cannot vouch for (a link to a directory, a directory it cannot list,
--- `TL_PATH` set) is compiled and keeps nothing. A row also holds the
--- digest of the declarations it was made with, which `declare` has to
--- reproduce before a module is taken from it.
+-- `TL_PATH` set, even empty) is compiled and keeps nothing.
+--
+-- The manifest is taken when the first module loads and the modules are
+-- read over the seconds after, so a file edited in between would make a
+-- row hold code the key does not name. Every file a compile reads is
+-- therefore digested as it is read, and the row is kept only if each
+-- digest is the manifest's for that path. A file the compile reads that
+-- the manifest omits (a `<stem>.lua`, which tl's search opens when
+-- nothing else is there, and which a compile of a checked `.tl` never
+-- ends up using) keeps the row from being written at all.
+--
+-- A row also holds the digest of the declarations it was made with,
+-- which `declare` has to reproduce before a module is taken from it.
 --
 -- TODO: keep each module's compile apart, keyed by that module's source
 -- and its own closure's, so an edit to one `.tl` compiles only the
@@ -86,11 +96,6 @@ local format = 'bridge-v1'
 -- How many rows of each kind the file keeps, the most lately used first:
 -- a few whole states of the tree.
 local kept_rows = 16
-
--- A row is stamped as used again only once it is this old, in
--- nanoseconds (an hour), so a run that hits writes nothing in the
--- common case.
-local restamp_ns = 3600 * 1000000000
 
 -- How long a statement waits on another run's lock, in nanoseconds, and
 -- how long the switch to write-ahead mode is retried.
@@ -128,10 +133,12 @@ local function file_digest(path)
 end
 
 -- The raw sha256 over the path and contents of every `.tl` and `.h`
--- file under `dir`, in name order, or nil where the walk cannot vouch
--- for the tree. `.git` holds none and is not entered.
+-- file under `dir`, in name order, and the digest of each by its path
+-- under `dir`; or nil where the walk cannot vouch for the tree. `.git`
+-- holds none and is not entered.
 local function manifest(dir)
   local hasher = hash.hasher('sha256')
+  local digests = {}
   local function visit(path, relative)
     local entries = sys.readdir(path)
     if not entries then return false end
@@ -155,13 +162,21 @@ local function manifest(dir)
       elseif kind == 'file' and (name:sub(-3) == '.tl' or name:sub(-2) == '.h') then
         local digest = file_digest(full)
         if not digest then return false end
+        digests[relative .. name] = digest
         hasher:update(relative .. name .. '\0' .. digest)
       end
     end
     return true
   end
   if not visit(dir, '') then return nil end
-  return (hasher:digest())
+  return (hasher:digest()), digests
+end
+
+-- Whether `name` is set at all, empty or not: `tl.lua` takes `TL_PATH`
+-- from `os.getenv` and an empty one is a path.
+local function is_set(variables, name)
+  if variables then return variables[name] ~= nil end
+  return sys.getenv(name) ~= nil
 end
 
 local function variable(variables, name)
@@ -306,13 +321,13 @@ local function look(path, kind, key)
   if not db then return nil end
   db:busy_timeout(wait_ns)
   local found
-  local statement = db:prepare('SELECT declared, inflate(payload), digest, used_ns ' ..
+  local statement = db:prepare('SELECT declared, inflate(payload), digest ' ..
     'FROM bridge_v1 WHERE key = ?1 AND kind = ?2')
   if statement then
     if statement:bind_text(1, key) and statement:bind_text(2, kind) and
         statement:step() == 'row' then
       found = { declared = statement:bytes(0), payload = statement:bytes(1),
-        digest = statement:bytes(2), used = statement:integer(3) }
+        digest = statement:bytes(2) }
     end
     statement:finalize()
   end
@@ -320,11 +335,12 @@ local function look(path, kind, key)
   if found then
     if found.digest == row_digest(key, found.declared, found.payload) then
       row = found
-      local stamp = clock(sys.CLOCK_REALTIME)
-      if stamp - found.used > restamp_ns then
-        db:busy_timeout(0)
-        run(db, 'UPDATE bridge_v1 SET used_ns = ?1 WHERE key = ?2', stamp, key)
-      end
+      -- Stamped on every hit, so the rows kept are those lately used
+      -- and not only those lately made; a run that cannot take the
+      -- lock at once goes without.
+      db:busy_timeout(0)
+      run(db, 'UPDATE bridge_v1 SET used_ns = ?1 WHERE key = ?2',
+        clock(sys.CLOCK_REALTIME), key)
     else
       run(db, 'DELETE FROM bridge_v1 WHERE key = ?1 AND digest = ?2', key, found.digest)
     end
@@ -394,7 +410,7 @@ end
 -- Nil when one cannot be read, when the cache is off, or when `TL_PATH`
 -- is set, which changes where the compiler looks for modules.
 local function make_compiler_key(tl_dir, source, variables)
-  if variable(variables, 'TL_PATH') ~= '' or not location(variables) then
+  if is_set(variables, 'TL_PATH') or not location(variables) then
     return nil
   end
   local vendored = file_digest(tl_dir .. '/tl.lua')
@@ -405,6 +421,24 @@ end
 
 -- Set by `bootstrap` for [`searcher_for`], which keys its modules by it.
 local compiler_key = nil
+
+-- The digest of each file under the root that a compile has read, by
+-- its path as read, and whether any was read twice as different bytes.
+local reads = {}
+local torn_reads = false
+
+local function note_read(path, text)
+  local digest = sha256(text)
+  if reads[path] ~= nil and reads[path] ~= digest then torn_reads = true end
+  reads[path] = digest
+end
+
+local function text_handle(text)
+  local h = { is_boot_handle = true }
+  function h:read() return text end
+  function h:close() return true end
+  return h
+end
 
 local function make_handle(fd)
   local h = { is_boot_handle = true }
@@ -449,13 +483,17 @@ local shim_io = {
     return nil
   end,
   open = function(path, mode)
-    local flags = sys.O_RDONLY
     if mode and mode:find('w') then
-      flags = sys.O_WRONLY | sys.O_CREAT | sys.O_TRUNC
+      local fd, err = sys.open(path, sys.O_WRONLY | sys.O_CREAT | sys.O_TRUNC)
+      if not fd then return nil, err end
+      return make_handle(fd)
     end
-    local fd, err = sys.open(path, flags)
-    if not fd then return nil, err end
-    return make_handle(fd)
+    -- Read whole, which is all the handle offers, so what the compiler
+    -- sees is what [`note_read`] digested.
+    local text, err = read_all(path)
+    if not text then return nil, err end
+    note_read(path, text)
+    return text_handle(text)
   end,
 }
 
@@ -489,9 +527,11 @@ end
 -- every module that requires one is checked against.
 local declared = {}
 local declared_count = 0
+local declared_version = 0
 
 local function declare(name, text)
   if declared[name] == nil then declared_count = declared_count + 1 end
+  declared_version = declared_version + 1
   declared[name] = text
 end
 
@@ -506,13 +546,6 @@ local function declared_digest()
     hasher:update(#name .. ':' .. name .. #text .. ':' .. text)
   end
   return hex((hasher:digest()))
-end
-
-local function text_handle(text)
-  local h = { is_boot_handle = true }
-  function h:read() return text end
-  function h:close() return true end
-  return h
 end
 
 -- `variables`, when given, is the variables `COSMIC_BUILD_CACHE`,
@@ -546,13 +579,15 @@ local function searcher_for(tl, variables)
   local from_declared = ''
   local rewrite = false    -- the row hit disagreed with `declare`
   local sealed = false
+  local tree_files = nil   -- the manifest's digest of each file, by path
   local made = {}          -- every module answered, in order
 
   local function look_up()
     looked = true
     if not compiler_key then return end
-    local tree = manifest(root)
+    local tree, files = manifest(root)
     if not tree then return end
+    tree_files = files
     key = hex(sha256(format .. '\nmodules\n' .. compiler_key .. tree))
     local file = cache_file(variables, false)
     local row = file and look(file, 'modules', key)
@@ -565,20 +600,34 @@ local function searcher_for(tl, variables)
   -- Whether the declarations `declare` has been given are those the row
   -- was made with. None given yet is a yes: a module loaded before the
   -- first ([`build.gen_syscalls`]) imports none.
-  local checked_count, checked = 0, true
+  local checked_version, checked = 0, true
   local function declared_agree()
-    if declared_count ~= checked_count then
-      checked_count = declared_count
+    if declared_version ~= checked_version then
+      checked_version = declared_version
       checked = declared_digest() == from_declared
     end
     return checked
   end
 
-  -- Writes the row once [`build.boot`] has loaded, unless it was hit.
+  -- Whether every file the compiles read was, byte for byte, the file
+  -- the key names.
+  local function read_what_the_key_names()
+    if torn_reads then return false end
+    local prefix = root .. '/'
+    for path, digest in pairs(reads) do
+      if path:sub(1, #prefix) ~= prefix or tree_files[path:sub(#prefix + 1)] ~= digest then
+        return false
+      end
+    end
+    return true
+  end
+
+  -- Writes the row once [`build.boot`] has loaded, unless it was hit or
+  -- some file changed after the key was made.
   local function seal()
     if sealed then return end
     sealed = true
-    if key and (not from or rewrite) then
+    if key and (not from or rewrite) and read_what_the_key_names() then
       local file = cache_file(variables, true)
       if file then
         keep(file, 'modules', key, declared_digest(), pack_records(made))
@@ -619,6 +668,7 @@ local function searcher_for(tl, variables)
         file = dir_file
         relative = name:gsub('%.', '/') .. '/init.tl'
       end
+      note_read(file, source)
       local code, result = tl.gen(source, env, nil, 'tl')
       local trouble = complain(file, result)
       if not code or trouble ~= '' then
