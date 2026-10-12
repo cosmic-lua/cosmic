@@ -24,19 +24,12 @@
 --- line comments too, as `cosmic.json` does given `hash_comments`: a
 --- text in YAML's flow style reads the same through either.
 ---
---- SQLite's math functions (`sqrt`, `pow`, `ln`, `floor`, ...) and its
---- percentile aggregates (`median`, `percentile`, `percentile_cont`,
---- `percentile_disc`) are built in.
---- So are these of SQLite's own extensions, on every handle this module
---- opens: `generate_series`; the `REGEXP` operator and `regexpi`; exact
---- arithmetic on decimal text (`decimal`, `decimal_add`, `decimal_sum`,
---- ...); `uuid`, `uuid_str` and `uuid_blob`; `sha1`, `sha1b`, `sha3` and
---- `sha3_agg`, and `sha1_query` and `sha3_query`, which hash what a
---- query yields; `base64` and `base85`, each of which encodes a blob as
---- text in lines and decodes such text back to a blob, and `is_base85`;
---- and `compress` and `uncompress`, whose blob is the uncompressed
---- length as a varint and then a zlib stream, and which answers NULL
---- for a blob it cannot read.
+--- Every handle answers the SQL functions, virtual tables and
+--- collations [the SQL guide](doc/guides/sql.md) lists, and only those:
+--- SQLite's own, its math and percentile functions, cosmic's, and the
+--- extensions from SQLite's `ext/misc/` the core is built with
+--- (`generate_series`, `REGEXP`, `decimal`, `uuid`, `sha3`, `base64`,
+--- `compress`, ...).
 
 -- The raw module behind this one lives under the reserved
 -- `cosmic.internal.` namespace, which never satisfies an ordinary

@@ -545,7 +545,7 @@ local function run(argv: {integer:string}): integer
     log:complain("refresh: " .. why .. "; " .. usage)
     return finish(2, "usage: see `cosmic help refresh`")
   end
-  local parsed, parse_trouble = Flags.parse(argv, 2, Cli.verbs.refresh.spec)
+  local parsed, parse_trouble = Flags.parse(argv, 2, assert(Cli.verbs.refresh.spec))
   if parsed == nil then
     return refuse(parse_trouble)
   end

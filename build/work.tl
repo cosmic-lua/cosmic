@@ -1084,11 +1084,12 @@ function work.stage(handle: work.Handle, own_tree: boolean): work.Staged | nil, 
             return nil, file .. ": " .. why
           end
         end
+        local stat, content: sys.Stat, string = st, data
         local function write(wanted: boolean, statement: Sqlite.Statement): boolean, string
           if not wanted then
             return true, ""
           end
-          return put_row(statement, file, st, mtime_ns, settled, data, sha256)
+          return put_row(statement, file, stat, mtime_ns, settled, content, sha256)
         end
         local ok, why = write(write_files, put["files"])
         if ok then
@@ -1097,7 +1098,7 @@ function work.stage(handle: work.Handle, own_tree: boolean): work.Staged | nil, 
         if ok then
           ok, why = write(write_scanned, put["scanned"])
         end
-        if ok and write_linked then
+        if ok and write_linked and link_kind ~= nil then
           texts[file] = data
           ok, why = put["linked"]:bind_text(8, link_kind)
           if ok then

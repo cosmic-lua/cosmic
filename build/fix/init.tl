@@ -1078,7 +1078,7 @@ end
 --- Reads the command line and the working directory into `ctx`.
 --- @return integer | nil The exit code when either is refused, else nil
 local function read_command(ctx: Fix): integer | nil
-  local parsed, parse_trouble = Flags.parse(ctx.argv, 2, Cli.verbs.fix.spec)
+  local parsed, parse_trouble = Flags.parse(ctx.argv, 2, assert(Cli.verbs.fix.spec))
   if parsed == nil then
     log:complain("fix: " .. parse_trouble)
     return 2
@@ -1099,7 +1099,7 @@ end
 --- Chooses the files the run covers, narrowing them for `--changed`.
 --- @return integer | nil The exit code when the choice fails, else nil
 local function choose_files(ctx: Fix): integer | nil
-  local root = ctx.root
+  local root = assert(ctx.root)
   local paths = assert(ctx.paths)
   -- A run of `--changed` starts from the whole tree, which it narrows.
   local covered: {string} = paths
@@ -1239,7 +1239,7 @@ local function lay_out_c(ctx: Fix)
       end
     end
   end
-  fix.lay_out(picked.flow_files, ctx.checking, changed, failures)
+  fix.lay_out(picked.flow_files, ctx.checking == true, changed, failures)
 end
 
 --- Lays out each Teal file, keeping what its parse gives the later
@@ -1488,7 +1488,7 @@ local function check_links(ctx: Fix)
   local c_files = assert(ctx.c_files)
   local ready = assert(ctx.ready)
   local built = assert(ctx.built)
-  local root = ctx.root
+  local root = assert(ctx.root)
   local picked = assert(ctx.picked)
   local every = assert(ctx.every)
   local files = assert(ctx.files)
@@ -1555,7 +1555,7 @@ local function say_notes(ctx: Fix)
   local ready = assert(ctx.ready)
   local linked_out = assert(ctx.linked_out)
   local built = assert(ctx.built)
-  local root = ctx.root
+  local root = assert(ctx.root)
   local picked = assert(ctx.picked)
   local findings = assert(ctx.findings)
   for _, line in ipairs(linked_out.notes) do
@@ -1611,7 +1611,7 @@ local function files_said(ctx: Fix): string
   local picked = assert(ctx.picked)
   local kinds = kind_list(picked)
   if kinds == "" or #picked.refused > 0 then
-    return plural.count(ctx.counted, "file")
+    return plural.count(assert(ctx.counted), "file")
   end
   return kinds .. (ctx.counted == 1 and " file" or " files")
 end
@@ -1625,7 +1625,7 @@ local function report(ctx: Fix): integer
   local failures = assert(ctx.failures)
   local findings = assert(ctx.findings)
   local changed = assert(ctx.changed)
-  local counted = ctx.counted
+  local counted = assert(ctx.counted)
   local unbuilt = ctx.unbuilt
   local links_unbuilt = ctx.links_unbuilt
   local broken = linked_out.broken

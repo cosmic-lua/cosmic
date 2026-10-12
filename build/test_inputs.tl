@@ -85,7 +85,7 @@ local record test_inputs
 
   lua_loads: {string}
   standalone_loads: {string}
-  compiler_sought: function(closure: {string}, lua: boolean): {string}
+  compiler_sought: function(closure: {string}, lua?: boolean): {string}
 end
 
 --- The variables every test may read undeclared, which a sandboxed
@@ -150,7 +150,7 @@ test_inputs.standalone_loads = {
 --- process reach that read holds a reader the search finds anyway, and
 --- an edit to the compiler, which moves its identity, runs a test that
 --- only runs Lua in a child no more than one that runs none.
-function test_inputs.compiler_sought(closure: {string}, lua: boolean): {string}
+function test_inputs.compiler_sought(closure: {string}, lua?: boolean): {string}
   if not lua then return closure end
   local added: {string:boolean} = {}
   for _, list in ipairs({ test_inputs.lua_loads, test_inputs.standalone_loads }) do
@@ -385,7 +385,7 @@ function test_inputs.resolve(effective: test_inputs.Effective, roots: {string})
       local found, _ = sys.stat(path)
       st = found
     end
-    if st ~= nil and st.kind == "dir" and not beneath(path, "/proc") then
+    if path ~= nil and st ~= nil and st.kind == "dir" and not beneath(path, "/proc") then
       path, trouble = nil, string.format("Test.policy grant of the host path %q: %s is a " ..
           "directory; a grant of the host names files, or /proc: grant the files the tests read",
         declared, path)

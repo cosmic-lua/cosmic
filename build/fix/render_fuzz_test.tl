@@ -15,10 +15,7 @@ local equiv = require("build.fix.equiv")
 local fix = require("build.fix")
 local teal = require("build.teal")
 
-local built, load_trouble = teal.load()
-if built == nil then
-  error("could not load the compiler: " .. tostring(load_trouble))
-end
+local built = assert(teal.load())
 
 --- One program being drawn: its source, the count of comments marked so
 --- far, and what the enclosing function and loop allow.

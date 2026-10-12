@@ -5,10 +5,7 @@ local node_mod = require("build.ast.node")
 
 local type Node = node_mod.Node
 
-local built, load_trouble = teal.load()
-if built == nil then
-  error("could not load the compiler: " .. tostring(load_trouble))
-end
+local built = assert(teal.load())
 
 --- Parse `source`, asserting the parse itself succeeded.
 --- @param source string Source text

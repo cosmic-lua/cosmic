@@ -29,10 +29,7 @@ local shared_compiles = require("build.shared_compiles")
 --- are build/importer_store_test.tl's.
 Test.policy{ grants = { { path = "core", letters = "r" } } }
 
-local built, load_trouble = teal.load()
-if built == nil then
-  error("could not load the compiler: " .. tostring(load_trouble))
-end
+local built = assert(teal.load())
 
 --- Writes every entry of `files` (filename -> source) into a fresh
 --- project directory of its own, named after `case`.
@@ -1749,7 +1746,7 @@ local function test_an_unjudged_refused_compile_is_not_shared()
   local shared: {string:boolean} = {}
   for _, m in ipairs(result.modules) do
     local found, look_trouble = shared_compiles.look(cache,
-      shared_compiles.key(m.key, true, m.generated))
+      shared_compiles.key(assert(m.key), true, m.generated))
     assert(look_trouble == "", look_trouble)
     shared[m.path] = found ~= nil
   end

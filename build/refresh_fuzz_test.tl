@@ -110,13 +110,13 @@ local function test_a_mozilla_date_is_read_or_absent(tmp: string)
 end
 
 local function test_pypis_description_is_read_or_refused(tmp: string)
-  local sample = Json.encode({
+  local sample = assert(Json.encode({
     info = { version = "2099.1" },
     urls = {
       { packagetype = "sdist", url = "https://example.com/tzdata-2099.1.tar.gz",
         digests = { sha256 = ("a"):rep(64) } },
     },
-  })
+  }))
   Fuzz.run({
     name = "tzdata index",
     dir = tmp,

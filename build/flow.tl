@@ -384,7 +384,7 @@ end
 
 --- `entries` with runs of blank lines made one, and none at the start
 --- or the end where asked.
-local function tidy(entries: {string}, trim_start: boolean, trim_end: boolean): {string}
+local function tidy(entries: {string} | nil, trim_start: boolean, trim_end: boolean): {string}
   local out: {string} = {}
   for _, entry in ipairs(entries or {}) do
     if entry ~= "" or (#out > 0 and out[#out] ~= "") or (#out == 0 and not trim_start) then

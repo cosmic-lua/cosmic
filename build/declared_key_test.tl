@@ -592,7 +592,7 @@ end
 local function test_the_groups_key_a_host_with_no_status(tmp: string)
   assert(Fs.write(tmp .. "/status", "Name:\tx\nUid:\t1\t1\t1\t1\nGid:\t1\t1\t1\t1\n" ..
       "Groups:\t1 20 \n"))
-  local function host(status: string, gid: integer, groups: {integer}): string
+  local function host(status: string, gid?: integer, groups?: {integer}): string
     return declared_key.host_identity(declared_key.digests(tmp), {
       system = { "", "", "" }, cpu_features = { "aes" }, machine = "arm64",
       own_proc = false, host_id = "h", uid = 501, status = tmp .. "/" .. status,

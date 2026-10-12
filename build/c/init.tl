@@ -306,7 +306,7 @@ local function declared_in(root: string): {string: rules.Declared}
 end
 
 --- What checking `file` came to, and what it defines and refers to.
-local function outcome(root: string, file: string, result: Child.Result, trouble: string,
+local function outcome(root: string, file: string, result: Child.Result | nil, trouble: string,
                        declared: {string: rules.Declared}, limit: integer):
     c.Outcome, rules.Unit
   if result == nil then
@@ -424,13 +424,14 @@ function c.check(root: string, files: {string}, cwd?: string, limit?: integer):
   local next_job = 1
   local env = environment()
   local install, runs_from = toolchain(root, env)
-  local deps, deps_trouble = Fs.mkdtemp("cosmic-c-deps-")
-  if deps == nil then
+  local made_deps, deps_trouble = Fs.mkdtemp("cosmic-c-deps-")
+  if made_deps == nil then
     for i, file in ipairs(files) do
       outcomes[i] = { file = file, trouble = "no directory for its compiler's caches: " .. deps_trouble }
     end
     return outcomes
   end
+  local deps: string = made_deps
   -- zig's caches are the check's own: `-E` keeps nothing a later
   -- compile finds there, and a cache shared with every build is no path
   -- to give a confined compiler.

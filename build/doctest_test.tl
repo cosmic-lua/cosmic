@@ -14,10 +14,7 @@ local work = require("build.work")
 
 local type Module = importer.Module
 
-local built, load_trouble = teal.load()
-if built == nil then
-  error("could not load the compiler: " .. tostring(load_trouble))
-end
+local built = assert(teal.load())
 
 local function doc(parts: {string}): string
   return table.concat(parts, "\n") .. "\n"
@@ -122,7 +119,7 @@ end
 --- exactly the shape [`build.test`] itself loads) and returns the table
 --- `require` would hand the runner.
 local function load_module(m: Module): {string:any}
-  local chunk, load_err = load(m.lua, "@" .. m.path, "t")
+  local chunk, load_err = load(assert(m.lua), "@" .. m.path, "t")
   assert(chunk ~= nil, "load failed: " .. tostring(load_err))
   return chunk() as {string:any}
 end
@@ -195,7 +192,7 @@ local function test_a_no_output_example_compiles_but_is_never_run()
   -- `with_test_tail` appends a `return` only when `m.tests` is
   -- non-empty, so a module with none returns nothing at all: nothing
   -- outside this file could ever reach `example_1` to call it.
-  local chunk, load_err = load(m.lua, "@" .. m.path, "t")
+  local chunk, load_err = load(assert(m.lua), "@" .. m.path, "t")
   assert(chunk ~= nil, "load failed: " .. tostring(load_err))
   local produced: any = chunk()
   assert(produced == nil,

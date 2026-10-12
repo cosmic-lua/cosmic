@@ -25,10 +25,7 @@ local function build_dir(root: string): string
   return (assert(build_paths.prepare(root)))
 end
 
-local built, load_trouble = teal.load()
-if built == nil then
-  error("could not load the compiler: " .. tostring(load_trouble))
-end
+local built = assert(teal.load())
 
 --- A boot carries no database and runs the tree's own code, so it names
 --- the analyzer by the tree ([`importer.tree_code`]). It must name it as

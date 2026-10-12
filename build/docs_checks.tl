@@ -158,10 +158,11 @@ function docs_checks.rendered(db: Sqlite.Handle, exempt?: docs_checks.Exempt): {
   local excused = exempt and exempt.undocumented or undocumented
   local kept = exempt and exempt.surfaces or surfaces
   local out: {string} = {}
-  local view, view_trouble = docs.view({ db }, { true })
-  if view == nil then
+  local read_view, view_trouble = docs.view({ db }, { true })
+  if read_view == nil then
     return { "reading the view: " .. view_trouble }
   end
+  local view: docs.View = read_view
   local index, index_trouble = docs.index(view)
   if index == nil then
     return { "reading the index: " .. index_trouble }
@@ -399,10 +400,11 @@ function docs_checks.references(db: Sqlite.Handle, help?: {string: string},
   local danglers: {string: boolean} = {}
   local known: {string: boolean} = { exit = true }
   for _, verb in ipairs(verbs or Cli.order) do known[verb] = true end
-  local view, view_trouble = docs.view({ db }, { true })
-  if view == nil then
+  local read_view, view_trouble = docs.view({ db }, { true })
+  if read_view == nil then
     return { "reading the view: " .. view_trouble }
   end
+  local view: docs.View = read_view
   local index, index_trouble = docs.index(view)
   if index == nil then
     return { "reading the index: " .. index_trouble }

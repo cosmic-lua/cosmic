@@ -123,7 +123,7 @@ local record Status
   code: integer
 end
 local record Process
-  spawn: function(string, {string}, {string:string}, string, integer, integer, integer, boolean,
+  spawn: function(string, {string}, {string:string}, string, integer | nil, integer | nil, integer | nil, boolean,
     {integer:integer}, any): integer, string, integer
   waitpid: function(integer, boolean): Status
 end

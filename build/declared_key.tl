@@ -1059,7 +1059,7 @@ local function system_of(from: declared_key.HostSources): {string}
   local sysname = from.sysname
   if sysname == nil then
     local names, _ = sys.uname()
-    sysname = names ~= nil and names.sysname or ""
+    return declared_key.system_sources(names ~= nil and names.sysname or "")
   end
   return declared_key.system_sources(sysname)
 end
