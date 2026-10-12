@@ -172,13 +172,15 @@ local function test_children_hands_back_what_a_skipped_field_leads_to()
     if n.kind == "if_block" then block = n end
   end)
   assert(block ~= nil, "no if_block")
+  local found = block
+  local parent = found.if_parent
   local passed: {node_mod.Node} = {}
-  local kept = walk_mod.children(block, { if_parent = true }, passed)
-  assert(#passed == 1 and passed[1] == block.if_parent, "if_parent was not passed by")
+  local kept = walk_mod.children(found, { if_parent = true }, passed)
+  assert(#passed == 1 and passed[1] == parent, "if_parent was not passed by")
   for _, child in ipairs(kept) do
-    assert(child ~= block.if_parent, "a skipped field's node is among the children")
+    assert(child ~= parent, "a skipped field's node is among the children")
   end
-  local all = walk_mod.children(block)
+  local all = walk_mod.children(found)
   assert(#all == #kept + #passed, #all .. " children, " .. #kept .. " kept, " .. #passed .. " passed")
 end
 

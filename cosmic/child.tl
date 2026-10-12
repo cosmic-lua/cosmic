@@ -843,7 +843,8 @@ end
 --- Whether the child's own deadline has passed while it is unsettled:
 --- a wait that finds it so ends the child.
 local function overdue(self: Handle): boolean
-  return self._deadline ~= nil and self._status == nil and now() >= self._deadline
+  local deadline = self._deadline
+  return deadline ~= nil and self._status == nil and now() >= deadline
 end
 
 --- In an adopting process, reaps every child that has exited: an owned
@@ -1317,7 +1318,8 @@ local function end_child(self: Handle): Result | nil, string
   end_input(self)
   close_fd(self._feed_fd)
   self._feed_fd = nil
-  if self._streams then
+  local streams = self._streams
+  if streams then
     -- Anything still buffered in a pipe is there for the taking now;
     -- a writer that escaped the group can keep it open, so stop at the
     -- first round that finds nothing rather than wait for end of file.
@@ -1327,7 +1329,7 @@ local function end_child(self: Handle): Result | nil, string
       local moved, _ = pump(watching({ self }), 0)
       if not moved then break end
     end
-    for _, stream in ipairs(self._streams) do
+    for _, stream in ipairs(streams) do
       if not stream.streamed then
         end_stream(stream)
         r.captured[stream.child_fd] = text_of(self, stream)
@@ -2130,12 +2132,13 @@ local function wire(opts: Options, wiring: Wiring, pty?: Pty): {integer:integer}
       slots[2] = err
     end
   end
-  if opts.fds ~= nil then
+  local fds = opts.fds
+  if fds ~= nil then
     local numbers: {integer} = {}
-    for number in pairs(opts.fds) do numbers[#numbers + 1] = number end
+    for number in pairs(fds) do numbers[#numbers + 1] = number end
     table.sort(numbers)
     for _, number in ipairs(numbers) do
-      local value = opts.fds[number]
+      local value = fds[number]
       if value is integer then
         slots[number] = value
       else
@@ -2566,18 +2569,19 @@ local function mapped_user(merged: Rules.Policy): MappedUser | nil, string
     return nil, "this process's user and group maps cannot be read, so the user a program " ..
       "of a policy runs as (never root) cannot be chosen: /proc/self/uid_map"
   end
-  if merged.user ~= nil then
-    local group = merged.group or merged.user
-    if not Rules.maps_id(uid_map, merged.user) or not Rules.maps_id(gid_map, group) then
-      return nil, "user " .. merged.user .. " and group " .. group .. ": this " ..
+  local user = merged.user
+  if user ~= nil then
+    local group = merged.group or user
+    if not Rules.maps_id(uid_map, user) or not Rules.maps_id(gid_map, group) then
+      return nil, "user " .. user .. " and group " .. group .. ": this " ..
         "process's user namespace does not map both, so its program cannot run as them"
     end
-    if Rules.in_pool(uid_map, gid_map, merged.user) or Rules.in_pool(uid_map, gid_map, group) then
-      return nil, "user " .. merged.user .. " and group " .. group .. ": one is of the pool a " ..
+    if Rules.in_pool(uid_map, gid_map, user) or Rules.in_pool(uid_map, gid_map, group) then
+      return nil, "user " .. user .. " and group " .. group .. ": one is of the pool a " ..
         "root caller's sandboxes are each given a user from, which a concurrent one may be " ..
         "given: name one outside it"
     end
-    return { uid = merged.user, gid = group }, ""
+    return { uid = user, gid = group }, ""
   end
   sandboxes_started = sandboxes_started + 1
   local id, why = Rules.user_id(uid_map, gid_map, sys.getpid() * PID_SPREAD + sandboxes_started)
@@ -3932,7 +3936,8 @@ local function start(argv: {string}, opts: Options, pty?: Pty, serves_relay?: in
     return refuse("start: " .. trouble)
   end
   local deadline: integer
-  if opts.timeout_ns ~= nil then deadline = now() + opts.timeout_ns end
+  local timeout = opts.timeout_ns
+  if timeout ~= nil then deadline = now() + timeout end
   local h = make_handle(pid, grouped, opts.capture_limit or DEFAULT_CAPTURE_LIMIT, deadline)
   if held ~= nil and held.tmp ~= "" then h._tmp = held.tmp end
   if held ~= nil and held.seatbelt then h._seatbelt = held.sandbox.seatbelt end

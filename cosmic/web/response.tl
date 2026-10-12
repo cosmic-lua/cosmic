@@ -63,10 +63,11 @@ end
 --- @param name string The header's name
 --- @return string | nil The first line of its value
 function Response.header(res: Types.Response, name: string): string | nil
-  if res.headers == nil then return nil end
-  local key = key_of(res.headers, name)
+  local headers = res.headers
+  if headers == nil then return nil end
+  local key = key_of(headers, name)
   if key == nil then return nil end
-  local value = res.headers[key]
+  local value = headers[key]
   if value is string then return value end
   return value[1]
 end

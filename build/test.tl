@@ -2112,11 +2112,12 @@ end
 --- too.
 local function sweep(rec: Recording, jobs: {Job}, ended?: boolean)
   for _, job in ipairs(jobs) do
-    if (ended or job.passed) and job.scratch ~= nil then
-      local gone, trouble = Fs.remove_tree(job.scratch)
+    local scratch = job.scratch
+    if (ended or job.passed) and scratch ~= nil then
+      local gone, trouble = Fs.remove_tree(scratch)
       if not gone then
         rec.errors[#rec.errors + 1] = job.id .. ": could not remove its directory " ..
-          job.scratch .. ": " .. trouble
+          scratch .. ": " .. trouble
       end
       job.scratch = nil
     end
@@ -4230,12 +4231,13 @@ local function look_up_verdicts(ctx: Run)
   -- parts the cache's rows name, as this run found them, so a report
   -- tells whether its own were among what CI restored
   -- (ci/cosmic_ci/report.tl's `qualify`).
-  if census_asked or (rec.shared ~= nil and looked_count > 0 and
+  local shared = rec.shared
+  if census_asked or (shared ~= nil and looked_count > 0 and
       looked_count == keyed_count and ran_here == 0 and found_count == 0) then
     local line: string | nil = nil
-    if rec.shared ~= nil and found_count == 0 then
-      local census, _ = shared_verdicts.census(rec.shared, looked)
-      line = census ~= nil and shared_verdicts.unmatched(rec.shared.path, looked_count,
+    if shared ~= nil and found_count == 0 then
+      local census, _ = shared_verdicts.census(shared, looked)
+      line = census ~= nil and shared_verdicts.unmatched(shared.path, looked_count,
         census, parts) or nil
     end
     if line == nil and census_asked then line = shared_verdicts.key_parts(parts) end
@@ -4312,13 +4314,14 @@ local function cancel_records(ctx: Run)
     local _, _ = work.abort(handle)
   end
   if not ok then rec.errors[#rec.errors + 1] = "cancelled verdicts: " .. trouble end
-  if rec.shared ~= nil then
+  local shared = rec.shared
+  if shared ~= nil then
     local invalidations: shared_verdicts.Owed = { kept = {}, used = {}, failed = rec.owed.failed }
-    local settled, settle_trouble = shared_verdicts.settle(rec.shared, rec.origin,
+    local settled, settle_trouble = shared_verdicts.settle(shared, rec.origin,
       invalidations, Clock.now_ns())
-    shared_verdicts.close(rec.shared)
+    shared_verdicts.close(shared)
     if not settled then
-      rec.errors[#rec.errors + 1] = "cancelled shared verdicts: " .. rec.shared.path .. ": " .. settle_trouble
+      rec.errors[#rec.errors + 1] = "cancelled shared verdicts: " .. shared.path .. ": " .. settle_trouble
     end
   end
 end
@@ -4503,10 +4506,11 @@ local function settle(ctx: Run)
   -- What a sandboxed run hashed, for the next to look up by `lstat`:
   -- a run of the whole tree keeps only what it looked at, and one of
   -- some of it adds to what the rest looked at before.
-  if rec.digests ~= nil and rec.digests.read > 0 then
+  local digests = rec.digests
+  if digests ~= nil and digests.read > 0 then
     local kept, keep_trouble = true, ""
     if ctx.whole then kept, keep_trouble = handle.db:exec("DELETE FROM digests") end
-    for _, row in ipairs(kept and declared_key.kept(rec.digests) or {}) do
+    for _, row in ipairs(kept and declared_key.kept(digests) or {}) do
       if kept then
         kept, keep_trouble = Sqlite.run(records,
           "INSERT OR REPLACE INTO digests (path, signature, sha256) VALUES (?1, ?2, ?3)",
@@ -4528,12 +4532,13 @@ local function settle(ctx: Run)
   -- What this run reached is the shared cache's too, whether or not
   -- this checkout's own records took it: a passing verdict is one
   -- whatever went wrong with keeping it here.
-  if rec.shared ~= nil then
-    local settled, settle_trouble = shared_verdicts.settle(rec.shared, rec.origin, rec.owed,
+  local shared = rec.shared
+  if shared ~= nil then
+    local settled, settle_trouble = shared_verdicts.settle(shared, rec.origin, rec.owed,
       Clock.now_ns())
-    shared_verdicts.close(rec.shared)
+    shared_verdicts.close(shared)
     if not settled then
-      log:complain("test: shared verdicts: " .. rec.shared.path .. ": " .. settle_trouble)
+      log:complain("test: shared verdicts: " .. shared.path .. ": " .. settle_trouble)
     end
   end
 

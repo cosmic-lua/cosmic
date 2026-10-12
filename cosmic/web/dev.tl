@@ -656,11 +656,12 @@ function Dev.supervise(opts?: Dev.SuperviseOptions): boolean, string
   local pending: {string} | nil = nil
   launch()
   while guard:cancelled() == 0 do
-    if handle ~= nil then
-      local done, _ = Child.wait_any({ handle }, interval_ns)
+    local running = handle
+    if running ~= nil then
+      local done, _ = Child.wait_any({ running }, interval_ns)
       if done ~= nil then
-        local result, _ = handle:wait()
-        local _, _ = handle:close()
+        local result, _ = running:wait()
+        local _, _ = running:close()
         handle = nil
         log("web dev: the program " .. (result ~= nil and ended(result) or "is gone") ..
             "; waiting for a change")

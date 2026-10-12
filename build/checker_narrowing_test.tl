@@ -43,9 +43,20 @@ local record Node
   guard?: Guard
 end
 
+local record Drop
+  kind: string
+  text: string
+  y: integer
+  x: integer
+  place?: string
+end
+
 local record Scope
   vars: {string:any}
   narrows?: {string:boolean}
+  dropped?: {string:Drop}
+  hidden?: {any}
+  journal?: {any}
 end
 
 local record Host
@@ -67,7 +78,21 @@ local record Narrowing
   place_of: function(Node): Place | nil
   target_of: function(Node): Place | nil
   forgets: function(Place, string): boolean
-  drop: function({Scope}, Place)
+  drop: function({Scope}, Place, Drop)
+  drop_written: function({Scope}, string, Drop)
+  drop_paths: function({Scope}, Drop)
+  narrowed: function({Scope}): boolean, {string} | nil
+  has_paths: function({Scope}): boolean
+  note: function({Scope}, string, Drop)
+  dropped_by: function({Scope}, string): Drop | nil
+  cut: function({Scope}, string, Drop)
+  places: function(Guard | nil): {Place}
+  renarrowed: function({Scope}, string)
+  forget: function(Guard | nil, function(Place): boolean): Guard | nil
+  mark: function({Scope}): integer
+  undo: function({Scope}, integer)
+  enter_function: function({Scope})
+  leave_function: function({Scope}, {any})
   type_is: function(any, Place, Type): Guard
   value_is: function(any, Place, Type): Guard
   negate: function(any, Guard | nil): Guard | nil
@@ -295,6 +320,10 @@ local function test_an_assignment_to_a_field_also_drops_a_longer_name()
   assert(narrowing.forgets(narrowing.field_place("x", "f"), "x.foo"))
 end
 
+--- What drops, as the checker names it.
+local call <const>: Drop = { kind = "call", text = "clear(...)", y = 3, x = 5 }
+local write <const>: Drop = { kind = "write", text = "c.n = ...", y = 4, x = 1 }
+
 local function test_drop_removes_the_names_from_every_scope()
   setup()
   local outer: Scope = {
@@ -302,14 +331,151 @@ local function test_drop_removes_the_names_from_every_scope()
     narrows = { ["x.f"] = true, ["x.g"] = true, x = true },
   }
   local inner: Scope = { vars = { ["x.f"] = true, z = true }, narrows = { ["x.f"] = true } }
-  narrowing.drop({ outer, inner }, narrowing.field_place("x", "f"))
+  narrowing.drop({ outer, inner }, narrowing.field_place("x", "f"), write)
   assert(outer.vars["x.f"] == nil and inner.vars["x.f"] == nil)
   assert(outer.narrows ~= nil and inner.narrows ~= nil)
   assert(outer.narrows["x.f"] == nil and inner.narrows["x.f"] == nil)
   assert(outer.narrows["x.g"] and outer.narrows["x"])
   assert(outer.vars["x.g"] and outer.vars["x"] and outer.vars["y.f"] and inner.vars["z"])
-  narrowing.drop({ outer, inner }, narrowing.local_place("x"))
+  narrowing.drop({ outer, inner }, narrowing.local_place("x"), write)
   assert(outer.vars["x.g"] == nil and outer.vars["x"] and outer.vars["y.f"])
+end
+
+--- A scope with the field facts `keys` narrowed, each held as a narrowed view.
+local function holding(...: string): Scope
+  local scope: Scope = { vars = {}, narrows = {} }
+  for _, key in ipairs({ ... }) do
+    scope.vars[key] = { is_specialized = "narrow" }
+    assert(scope.narrows)[key] = true
+  end
+  return scope
+end
+
+local function test_a_write_drops_every_path_ending_in_the_field_it_names()
+  setup()
+  local outer = holding("r.n", "q.n", "r.m", "r.nn", "x")
+  local inner = holding("c.n", "r.n")
+  narrowing.drop_written({ outer, inner }, "n", write)
+  assert(outer.vars["r.n"] == nil and outer.vars["q.n"] == nil and inner.vars["c.n"] == nil and
+      inner.vars["r.n"] == nil)
+  assert(outer.vars["r.m"] and outer.vars["r.nn"] and outer.vars["x"])
+  assert(outer.narrows ~= nil and outer.narrows["r.n"] == nil and outer.narrows["r.m"])
+  local told = assert(outer.dropped)
+  assert(told["r.n"] == write and told["q.n"] == write)
+end
+
+local function test_a_call_drops_every_field_path_and_no_local()
+  setup()
+  local outer = holding("r.n", "r.m", "x")
+  local inner = holding("q.a")
+  narrowing.drop_paths({ outer, inner }, call)
+  assert(outer.vars["r.n"] == nil and outer.vars["r.m"] == nil and inner.vars["q.a"] == nil)
+  assert(outer.vars["x"] and assert(outer.narrows)["x"])
+  local told = assert(outer.dropped)
+  assert(told["r.m"] == call and told["x"] == nil)
+end
+
+local function test_what_a_call_has_to_drop_is_the_paths_and_the_locals_narrowed()
+  setup()
+  local outer = holding("x", "r.n", "y")
+  local inner = holding("x", "q.a", "z")
+  local paths, names = narrowing.narrowed({ outer, inner })
+  assert(paths and table.concat(assert(names), ",") == "x,y,z")
+  assert(narrowing.has_paths({ outer, inner }) and not narrowing.has_paths({ holding("x") }))
+  local none, nobody = narrowing.narrowed({ holding("r.n") })
+  assert(none and nobody == nil)
+  local empty, no_names = narrowing.narrowed({ { vars = {} } })
+  assert(not empty and no_names == nil)
+end
+
+--- A place is told as dropped until it is narrowed again, and a local that
+--- a drop widened (its entry in a scope above is a `widen` view) is too.
+local function test_a_place_stays_dropped_until_it_is_narrowed_again()
+  setup()
+  local outer = holding("r.n")
+  local scopes = { outer }
+  assert(narrowing.dropped_by(scopes, "r.n") == nil)
+  narrowing.drop_paths(scopes, call)
+  assert(narrowing.dropped_by(scopes, "r.n") == call)
+  assert(narrowing.dropped_by(scopes, "r.m") == nil)
+  narrowing.renarrowed(scopes, "r.n")
+  assert(narrowing.dropped_by(scopes, "r.n") == nil)
+  -- A local narrowed in the outer scope, dropped (so the scope above holds
+  -- a widened view), is dropped; narrowed there again, it is not.
+  local below = holding("x")
+  local above: Scope = { vars = { x = { is_specialized = "widen" } } }
+  narrowing.note({ below }, "x", call)
+  assert(narrowing.dropped_by({ below, above }, "x") == call)
+  narrowing.renarrowed({ below, above }, "x")
+  assert(narrowing.dropped_by({ below, above }, "x") == nil)
+  -- A fact a guard would have given, cut before it was applied, is told
+  -- in the innermost scope.
+  narrowing.cut({ below, above }, "r.n", write)
+  assert(narrowing.dropped_by({ below, above }, "r.n") == write)
+  assert(narrowing.dropped_by({ below }, "r.n") == nil)
+end
+
+local function test_a_guard_forgets_the_facts_about_what_may_change()
+  setup()
+  local path = narrowing.field_place("r", "n")
+  local name = narrowing.local_place("x")
+  local both = assert(narrowing.both(here, narrowing.type_is(here, path, number),
+    narrowing.type_is(here, name, number)))
+  local types = { ["r.n"] = union(number, nothing), x = union(number, nothing) }
+  expect({ "r.n == number", "x == number" }, (facts(both, types)))
+  local function droppable(place: Place): boolean return #place.fields > 0 end
+  local kept = narrowing.forget(both, droppable)
+  expect({ "x == number" }, (facts(kept, types)))
+  assert(#narrowing.places(both) == 2 and narrowing.places(both)[1].key == "r.n")
+  -- A negation and a disjunction lose the place the same way: what they
+  -- leave is what the other side says of another place.
+  local negated = narrowing.negate(here, narrowing.type_is(here, path, number))
+  assert(narrowing.forget(negated, droppable) == nil)
+  assert(narrowing.forget(nil, droppable) == nil)
+  local either = narrowing.either(here, narrowing.type_is(here, path, number), narrowing.type_is(here, name, number))
+  expect({}, (facts(narrowing.forget(either, droppable), types)))
+end
+
+local function test_the_drops_of_a_block_that_leaves_are_put_back()
+  setup()
+  local outer = holding("r.n", "r.m")
+  local scopes = { outer }
+  local marked = narrowing.mark(scopes)
+  narrowing.drop_written(scopes, "n", write)
+  narrowing.drop_paths(scopes, call)
+  assert(outer.vars["r.n"] == nil and outer.vars["r.m"] == nil)
+  narrowing.undo(scopes, marked)
+  assert(outer.vars["r.n"] and outer.vars["r.m"] and assert(outer.narrows)["r.n"])
+  local told = assert(outer.dropped)
+  assert(told["r.n"] == nil)
+  assert(narrowing.mark(scopes) == marked)
+  -- What was narrowed again since is left as it is.
+  local before = narrowing.mark(scopes)
+  narrowing.drop_paths(scopes, call)
+  local again = { is_specialized = "narrow" }
+  outer.vars["r.n"] = again
+  narrowing.undo(scopes, before)
+  assert(outer.vars["r.n"] == again and outer.vars["r.m"] ~= nil)
+  -- And the drops before the mark stay.
+  narrowing.drop_paths(scopes, call)
+  narrowing.undo(scopes, narrowing.mark(scopes))
+  assert(outer.vars["r.m"] == nil)
+end
+
+local function test_a_function_works_on_copies_of_the_facts_outside_it()
+  setup()
+  local outer = holding("r.n")
+  local inner: Scope = { vars = {} }
+  local scopes = { outer, inner }
+  narrowing.enter_function(scopes)
+  assert(outer.vars["r.n"] == nil and inner.vars["r.n"] ~= nil)
+  assert(inner.vars["r.n"] ~= outer.vars["r.n"])
+  -- What the body drops, it drops from its copies.
+  narrowing.drop_paths(scopes, call)
+  assert(inner.vars["r.n"] == nil)
+  assert(inner.hidden ~= nil and #inner.hidden == 1)
+  narrowing.leave_function({ outer }, inner.hidden)
+  assert(outer.vars["r.n"] ~= nil and assert(outer.narrows)["r.n"])
 end
 
 local function test_a_type_test_gives_its_type_and_its_negation_the_rest()
@@ -545,18 +711,17 @@ end
 --- `body`, the statements of a function over the places above, checked by
 --- the carried compiler: the line (relative to `body`) and the message of
 --- each type error, or the raise, as the compiler said.
-local function errors_of(body: string): {string}
+local function errors_in(source: string, skipped: integer): {string}
   setup()
   local env = assert(built.new_env({ defaults = {
     feat_lax = "off", gen_compat = "off", gen_target = "5.4",
   } }))
-  local source = prelude .. body .. after
   local ok, raised = pcall(function(): {string}
     local result = built.check_string(source, env, "probe.tl", "tl")
-    assert(#result.syntax_errors == 0, "does not parse: " .. body)
+    assert(#result.syntax_errors == 0, "does not parse: " .. source)
     local found: {string} = {}
     for _, e in ipairs(result.type_errors) do
-      found[#found + 1] = tostring(e.y - lines_in(prelude)) .. ": " .. e.msg
+      found[#found + 1] = tostring(e.y - skipped) .. ": " .. e.msg
     end
     return found
   end)
@@ -564,6 +729,10 @@ local function errors_of(body: string): {string}
     return { "raised: " .. tostring(raised):gsub("^[^:]*:%d+: ", "") }
   end
   return raised as {string}
+end
+
+local function errors_of(body: string): {string}
+  return errors_in(prelude .. body .. after, lines_in(prelude))
 end
 
 local plus <const> = "cannot use operator '+' for "
@@ -599,8 +768,6 @@ local function test_a_field_is_dropped_by_an_assignment_to_it_or_to_its_base()
   refused("if q.a then\n  q = p\n  print(q.a + 1)\nend", "3: " .. plus:sub(1, 28))
   accepted("if q.a then\n  q.b = \"x\"\n  print(q.a + 1)\nend")
   accepted("if q.a then\n  p = q\n  print(q.a + 1)\nend")
-  accepted("if q.a then\n  p.a = nil\n  print(q.a + 1)\nend")
-  accepted("if q.a then\n  touch(q)\n  print(q.a + 1)\nend")
 end
 
 local function test_a_local_assigned_is_widened_back()
@@ -660,10 +827,6 @@ local function test_an_assignment_to_a_field_drops_a_field_whose_name_it_begins(
   refused("if q.ab then\n  q.a = 1\n  print(q.ab + 1)\nend", "3: " .. plus:sub(1, 28))
 end
 
-local function test_a_loop_keeps_a_field_it_assigns_at_its_head()
-  accepted("if q.a then\n  while maybe() do\n    print(q.a + 1)\n    q.a = nil\n  end\nend")
-end
-
 local function test_a_union_test_of_three_members_loses_the_first()
   refused("local u: string | number | boolean | nil = maybe()\nif u is string | number | nil then\n  print(u .. \"\")\nend",
     "3: cannot use operator '..' for typ")
@@ -674,4 +837,316 @@ local function test_dropping_a_narrowed_field_leaves_the_program_checkable()
   -- widening of every narrowed name raised "no q.a in scope".
   refused("assert(q.a)\nq.a = 1\nlocal g = function() end\ng = function() print(g) end")
   refused("assert(q.a)\nq.a = 1\nprint(q.a + 1)", "3: " .. plus:sub(1, 28))
+end
+
+--- A narrowed field is dropped where the value can change.
+
+--- Whole programs, for the cases the places above do not serve.
+local function accepted_source(source: string)
+  local found = errors_in(source, 0)
+  assert(#found == 0, "refused, " .. table.concat(found, "; ") .. ", in " .. source)
+end
+
+local function refused_source(source: string, ...: string)
+  local wanted: {string} = { ... }
+  local found = errors_in(source, 0)
+  assert(#found == #wanted, "wanted " .. #wanted .. " errors in " .. source .. " but got [" ..
+      table.concat(found, "; ") .. "]")
+  for i, want in ipairs(wanted) do
+    assert(found[i]:sub(1, #want) == want, "wanted [" .. want .. "] but got [" .. found[i] .. "] in " .. source)
+  end
+end
+
+local function test_a_write_through_another_reference_drops_the_field()
+  refused("if q.a then\n  p.a = nil\n  print(q.a + 1)\nend", "3: " .. plus:sub(1, 28))
+  refused("if q.a then\n  p[\"a\"] = nil\n  print(q.a + 1)\nend", "3: " .. plus:sub(1, 28))
+  -- The reference may be a longer path.
+  refused("local i: Inner = {}\nif i.n then\n  if p.c then\n    p.c.n = 1\n    print(i.n + 1)\n  end\nend", "5: " .. plus:sub(1, 28))
+  -- Another field of that table, or a field of another name, is not it.
+  accepted("if q.a then\n  p.b = \"x\"\n  print(q.a + 1)\nend")
+  accepted("if q.a then\n  p.ab = 1\n  print(q.a + 1)\nend")
+end
+
+local function test_a_call_drops_every_narrowed_field()
+  refused("if q.a then\n  touch(q)\n  print(q.a + 1)\nend", "3: " .. plus:sub(1, 28))
+  refused("if q.a then\n  touch(p)\n  print(q.a + 1)\nend", "3: " .. plus:sub(1, 28))
+  refused("if q.b then\n  touch(p)\n  print(#q.b)\nend", "3: cannot use operator '#'")
+  accepted("if q.a then\n  print(q.a + 1)\nend")
+end
+
+local tostring_head <const> = "local record T\n  metamethod __tostring: function(T): string\nend\n" ..
+  "local record H\n  n: number | nil\nend\nlocal t: T = setmetatable({} as T, {})\nlocal h: H = {}\n"
+
+local pairs_head <const> = "local record T\n  x: number\n  metamethod __pairs: function<K, V>(T): function(): (K, V)\nend\n" ..
+  "local record H\n  n: number | nil\nend\nlocal t: T = setmetatable({} as T, {})\nlocal h: H = {}\n"
+
+local function test_a_call_that_runs_no_code_of_the_programs_drops_nothing()
+  -- `assert` and `type`, a function that never returns, and the standard
+  -- library's functions given what they cannot hand to a metamethod.
+  accepted("if q.a then\n  assert(x)\n  print(q.a + 1)\nend")
+  accepted("if q.a then\n  if type(x) == \"number\" then print(1) end\n  print(q.a + 1)\nend")
+  accepted("if q.a then\n  if y then die() end\n  print(q.a + 1)\nend")
+  accepted("if q.a then\n  local n = x or die()\n  print(q.a + 1, n)\nend")
+  accepted("if q.a then\n  local s = tostring(x) .. string.rep(\"x\", 2) .. (\"y\"):upper()\n  print(q.a + #s)\nend")
+  accepted("if q.a then\n  local t: {string} = {}\n  table.insert(t, \"x\")\n  print(q.a + #table.concat(t, \",\"))\nend")
+  accepted("if q.a then\n  local total = 0\n  for _, v in ipairs({ 1, 2 }) do total = total + v end\n  print(q.a + total)\nend")
+  -- A record handed to one is examined by a metamethod only if its type declares one.
+  accepted("if q.a then\n  print(q)\n  print(q.a + 1)\nend")
+  accepted("if q.a then\n  tostring(q)\n  print(q.a + 1)\nend")
+  refused_source(tostring_head .. "if h.n then\n  print(t)\n  print(h.n + 1)\nend", "11: " .. plus:sub(1, 28))
+  refused_source(tostring_head .. "if h.n then\n  local s = tostring(t)\n  print(h.n + #s)\nend", "11: " .. plus:sub(1, 28))
+  -- A function may be called.
+  refused("if q.a then\n  table.sort({ 3, 1 }, function(l: number, r: number): boolean return l < r end)\n  print(q.a + 1)\nend",
+    "3: " .. plus:sub(1, 28))
+  -- Nor one among a union's members.
+  refused("local type Cmp = function(number, number): boolean\nlocal function g(cmp: Cmp | nil)\n" ..
+      "  if q.a then\n    print(cmp)\n    print(q.a + 1)\n  end\nend\nprint(g)", "5: " .. plus:sub(1, 28))
+  refused("if q.a then\n  pcall(touch, q)\n  print(q.a + 1)\nend", "3: " .. plus:sub(1, 28))
+end
+
+--- The limit of "a value dispatches only through metamethods its type
+--- declares" (doc/design.md): a metatable attached at run time runs code
+--- the checker does not see. Each program is accepted today and wrong at
+--- run time, pinned as it is so that the change that lifts the limit
+--- (doc/roadmap.md, `setmetatable` attaches only what a record declares)
+--- flips its case.
+local function test_a_metatable_attached_at_run_time_is_not_seen_yet()
+  local drop <const> = "function(): integer p.a = nil return 0 end"
+  accepted("local m: {string:integer} = setmetatable({}, {__index = " .. drop .. "})\n" ..
+      "if q.a then\n  local v = m.foo\n  print(q.a + 1, v)\nend")
+  accepted("local m: {string:integer} = setmetatable({}, {__newindex = function() p.a = nil end})\n" ..
+      "if q.a then\n  m.foo = 1\n  print(q.a + 1)\nend")
+  accepted("local arr: {integer} = setmetatable({}, {__len = " .. drop .. "})\n" ..
+      "if q.a then\n  local n = #arr\n  print(q.a + n)\nend")
+  accepted("local r: R = setmetatable({}, {__eq = function(): boolean p.a = nil return true end})\n" ..
+      "if q.a then\n  local same = r == p\n  print(q.a + (same and 1 or 0))\nend")
+end
+
+--- Code the checker sees: an operand of type `any` may carry any
+--- metamethod, and a write at a key that is not a literal may be to any
+--- field.
+local function test_any_and_a_computed_key_may_run_or_write_anything()
+  refused("local a = x as any\nif q.a then\n  local same = a == p\n  print(q.a + (same and 1 or 0))\nend", "4: " .. plus:sub(1, 28))
+  refused("local m = (q as {string:any})\nlocal k = \"a\"\nif q.a then\n  m[k] = nil\n  print(q.a + 1)\nend", "5: " .. plus:sub(1, 28))
+  refused("local k: string = tostring(x)\nif q.a then\n  (p as {string:any})[k] = nil\n  print(q.a + 1)\nend", "4: " .. plus:sub(1, 28))
+  -- A number key is an index of an array.
+  accepted("local arr: {integer} = {}\nlocal i = 1\nif q.a then\n  arr[i] = 2\n  print(q.a + 1)\nend")
+end
+
+--- `local x: T, y = 1, 2` reads `y` as a second type: it is refused for
+--- having more types than variables, not raised on.
+local function test_more_types_than_variables_is_refused_not_raised()
+  refused_source("local x: integer | nil, y = 1, 2\nprint(x, y)\n",
+    "1: number of types exceeds number of variables", "2: unknown variable: y")
+end
+
+--- Only a declared `__eq` runs on a comparison of two records.
+local function test_a_comparison_of_records_runs_code_only_if_one_declares_eq()
+  local head = "local record Node\n  v: integer | nil\nend\nlocal a: Node = {}\nlocal b: Node = {}\n" ..
+    "local kids: {Node} = {}\nlocal target: Node = {}\n"
+  accepted_source(head .. "if a.v then\n  if a == b then print(1) end\n  print(a.v + 1)\nend\n")
+  accepted_source(head .. "if a.v then\n  for _, k in ipairs(kids) do\n    if k == target then print(1) end\n  end\n" ..
+      "  print(a.v + 1)\nend\n")
+  local eq = "local record Node\n  v: integer | nil\n  metamethod __eq: function(Node, Node): boolean\nend\n" ..
+    "local a: Node = {}\nlocal b: Node = {}\n"
+  refused_source(eq .. "if a.v then\n  if a == b then print(1) end\n  print(a.v + 1)\nend\n",
+    "9: cannot use operator '+'")
+  -- An operand of a type that declares none beside one that does.
+  refused_source(eq .. "local c: Node | nil = b\nif a.v then\n  if c == b then print(1) end\n  print(a.v + 1)\nend\n",
+    "10: cannot use operator '+'")
+end
+
+local function test_an_expanded_condition_that_calls_drops()
+  local head = "local interface Animal\n  kind: string\nend\n" ..
+    "local record H\n  n: number | nil\nend\nlocal h: H = {}\n" ..
+    "local function is_cat(a: Animal): boolean\n  h.n = nil\n  return a.kind == \"cat\"\nend\n" ..
+    "local record Cat is Animal where is_cat(self)\nend\nlocal a: Animal = { kind = \"dog\" }\n"
+  refused_source(head .. "if h.n then\n  if a is Cat then print(1) end\n  print(h.n + 1)\nend\n",
+    "17: cannot use operator '+'")
+end
+
+local function test_a_call_drops_a_local_a_function_literal_assigns_and_no_other()
+  local z = "local z: number | nil = maybe()\n"
+  refused(z .. "local function reset() z = nil end\nif z then\n  touch(q)\n  print(z + 1, reset)\nend", "5: " .. plus:sub(1, 28))
+  -- Not a local no literal assigns, nor one only the function itself assigns.
+  accepted(z .. "if z then\n  touch(q)\n  print(z + 1)\nend")
+  accepted(z .. "if z then\n  touch(q)\n  print(z + 1)\n  z = nil\nend")
+  -- A literal assigns its own local of the name, not this one.
+  accepted(z .. "local function own()\n  local z: number | nil = nil\n  z = 1\n  print(z)\nend\n" ..
+      "if z then\n  touch(q)\n  print(z + 1, own)\nend")
+  -- A literal made after the call is one that may run before it comes round again.
+  refused(z .. "local later: function()\nif z then\n  touch(q)\n  print(z + 1)\nend\nlater = function() z = nil end\nprint(later)",
+    "5: " .. plus:sub(1, 28))
+  -- A parameter is one local too.
+  refused("local function g(n: number | nil)\n  local function reset() n = nil end\n  if n then\n    touch(q)\n    print(n + 1, reset)\n  end\nend\nprint(g)",
+    "5: " .. plus:sub(1, 28))
+end
+
+local function test_a_read_before_a_call_in_the_same_expression_keeps_its_fact()
+  accepted("if q.a then\n  print(q.a + 1, maybe())\nend")
+  accepted("if q.a then\n  print(q.a + (maybe() or 0))\nend")
+  refused("if q.a then\n  print(maybe(), q.a + 1)\nend", "2: " .. plus:sub(1, 28))
+  refused("if q.a then\n  print((maybe() or 0) + q.a)\nend", "2: " .. plus:sub(1, 28))
+  -- The arguments of a call are read before it runs, however it is written.
+  accepted("if q.a then\n  touch(q)\nend\nif q.a then\n  local n = q.a + 1\n  touch(q)\n  print(n)\nend")
+end
+
+local function test_the_test_of_an_operand_holds_past_the_calls_of_a_later_one_only_if_they_cannot_change_it()
+  local z = "local z: number | nil = maybe()\nlocal function reset() z = nil end\nprint(reset)\n"
+  refused(z .. "if z and maybe() then print(z + 1) end", "4: " .. plus:sub(1, 28))
+  accepted(z .. "if z and #\"abc\" > 1 then print(z + 1) end")
+  accepted("if y and maybe() then print(y + 1) end")
+  refused("if q.a == nil then\n  return\nelseif maybe() then\n  return\nend\nprint(q.a + 1)", "6: " .. plus:sub(1, 28))
+  accepted("if q.a == nil then\n  return\nelseif x then\n  return\nend\nprint(q.a + 1)")
+  refused("assert(q.a, tostring(maybe()))\nprint(q.a + 1)", "2: " .. plus:sub(1, 28))
+  accepted("assert(q.a, \"no a: \" .. tostring(q.b))\nprint(q.a + 1)")
+end
+
+--- A condition the checker expands (an `is` of a record with a `where`
+--- clause is a macro expression) still counts as a test that ran no code.
+local function test_an_expanded_condition_runs_no_code_for_the_conditions_after_it()
+  local head = "local interface Animal\n  kind: string\nend\n" ..
+    "local record Cat is Animal where self.kind == \"cat\"\nend\n" ..
+    "local record H\n  n: number | nil\nend\nlocal h: H = {}\nlocal a: Animal = { kind = \"dog\" }\n"
+  accepted_source(head .. "if h.n == nil then\n  return\nelseif a is Cat then\n  return\nend\nprint(h.n + 1)\n")
+  refused_source(head .. "local function maybe(): boolean return false end\n" ..
+      "if h.n == nil then\n  return\nelseif a is Cat or maybe() then\n  return\nend\nprint(h.n + 1)\n",
+    "17: cannot use operator '+'")
+end
+
+--- A loop is checked once with the facts from before it, and a read of one
+--- the loop itself drops later in the body is refused at the read, for the
+--- pass that comes round again.
+local looped <const> = ": 'q.a' was narrowed before this loop"
+
+local function test_a_read_of_a_fact_the_loop_drops_later_is_refused_at_the_read()
+  refused("if q.a then\n  while y do\n    print(q.a + 1)\n    touch(q)\n  end\nend", "3" .. looped)
+  refused("if q.a then\n  for _ = 1, 2 do\n    print(q.a + 1)\n    touch(q)\n  end\nend", "3" .. looped)
+  refused("if q.a then\n  for _ = 1, 2 do\n    local n = q.a + 1\n    p.a = nil\n    print(n)\n  end\nend", "3" .. looped)
+  refused("if q.a then\n  while y do\n    print(q.a + 1)\n    q.a = nil\n  end\nend", "3" .. looped)
+  refused("if q.a then\n  repeat\n    print(q.a + 1)\n    touch(q)\n  until y\nend", "3" .. looped)
+  refused("if q.a then\n  for _, v in ipairs({ 1 }) do\n    print(q.a + v)\n    touch(q)\n  end\nend", "3" .. looped)
+  -- A drop in a loop inside the loop is one of the outer loop's.
+  refused("if q.a then\n  while y do\n    print(q.a + 1)\n    for _ = 1, 2 do touch(q) end\n  end\nend", "3" .. looped)
+  -- Each read before the drop is refused, those after it are refused for the drop itself.
+  refused("if q.a then\n  while y do\n    print(q.a + 1)\n    print(q.a + 2)\n    touch(q)\n    print(q.a + 3)\n  end\nend",
+    "3" .. looped, "4" .. looped, "6: " .. plus:sub(1, 28))
+  -- The condition of a loop is its body: what it drops is dropped for the body.
+  refused("if q.a then\n  while maybe() do\n    print(q.a + 1)\n  end\nend", "3: " .. plus:sub(1, 28))
+  refused("if q.a then\n  repeat\n    touch(q)\n    print(q.a + 1)\n  until y\nend", "4: " .. plus:sub(1, 28))
+  refused("if q.a then\n  repeat\n    x = nil\n  until q.a + 1 > 2 or touch(q)\nend", "4" .. looped)
+end
+
+local function test_a_branch_that_may_break_or_go_out_does_not_leave()
+  -- It ends in `return`, but a path through it breaks out first.
+  refused("if q.a then\n  for _ = 1, 3 do\n    print(q.a + 1)\n    while y do\n      if x then\n        touch(q)\n" ..
+      "        if y then break end\n        return\n      end\n    end\n  end\nend", "3" .. looped)
+  refused("if q.a then\n  for i = 1, 3 do\n    if i == 2 then\n      touch(q)\n      if y then break end\n" ..
+      "      return\n    end\n  end\n  print(q.a + 1)\nend", "9: " .. plus:sub(1, 28))
+  refused("if q.a then\n  repeat\n    if y then\n      touch(q)\n      if y then break end\n      return\n" ..
+      "    end\n  until true\n  print(q.a + 1)\nend", "9: " .. plus:sub(1, 28))
+  refused("if q.a then\n  if y then\n    touch(q)\n    if x then goto out end\n    return\n  end\n  ::out::\n" ..
+      "  print(q.a + 1)\nend", "8: " .. plus:sub(1, 28))
+  -- A `break` of a loop inside the branch stays inside it.
+  accepted("if q.a then\n  for i = 1, 3 do\n    if i == 2 then\n      touch(q)\n      for _ = 1, 2 do\n" ..
+      "        if y then break end\n      end\n      return\n    end\n  end\n  print(q.a + 1)\nend")
+  accepted("if q.a then\n  if y then\n    touch(q)\n    return\n  end\n  print(q.a + 1)\nend")
+end
+
+local function test_a_read_in_a_branch_that_leaves_is_not_one_of_the_next_pass()
+  accepted("if q.a then\n  for _ = 1, 2 do\n    if y then\n      print(q.a + 1)\n      return\n    end\n    touch(q)\n  end\nend")
+  refused("if q.a then\n  for _ = 1, 2 do\n    if y then\n      print(q.a + 1)\n    end\n    touch(q)\n  end\nend", "4" .. looped)
+end
+
+local function test_every_loop_around_a_read_refuses_it()
+  refused("if q.a then\n  for _ = 1, 3 do\n    for _ = 1, 2 do print(q.a + 1) end\n    touch(q)\n  end\nend", "3" .. looped)
+  refused("local k = 0\nif q.a then\n  while q.a + k < 10 do\n    k = k + 1\n    touch(q)\n  end\nend", "3" .. looped)
+end
+
+local function test_a_loop_that_drops_nothing_before_a_read_keeps_the_fact()
+  accepted("if q.a then\n  for _ = 1, 2 do\n    local n = q.a + 1\n    x = n\n  end\nend")
+  -- A function literal in the body runs at no pass of it.
+  accepted("if q.a then\n  for _ = 1, 2 do\n    local n = q.a + 1\n    local g = function() touch(q) end\n    x = n\n  end\nend")
+  -- A drop in a branch that leaves is not one of the next pass.
+  accepted("if q.a then\n  for _ = 1, 2 do\n    print(q.a + 1)\n    if y then\n      touch(q)\n      return\n    end\n  end\nend")
+  accepted("if q.a then\n  while y do\n    print(q.a + 1)\n    if x then\n      touch(q)\n      die()\n    end\n  end\nend")
+  -- A fact the loop narrows itself is its own.
+  accepted("for _ = 1, 2 do\n  if q.a then\n    print(q.a + 1)\n    touch(q)\n  end\nend")
+  -- A different field, or a write to another name.
+  accepted("if q.a then\n  for _ = 1, 2 do\n    print(q.a + 1)\n    p.b = \"x\"\n  end\nend")
+end
+
+local function test_after_a_loop_what_it_dropped_stays_dropped()
+  refused("if q.a then\n  for _ = 1, 2 do\n    touch(q)\n  end\n  print(q.a + 1)\nend", "5: " .. plus:sub(1, 28))
+  refused("if q.a then\n  while y do\n    p.a = nil\n  end\n  print(q.a + 1)\nend", "5: " .. plus:sub(1, 28))
+  accepted("if q.a then\n  for _ = 1, 2 do\n    x = 1\n  end\n  print(q.a + 1)\nend")
+end
+
+local function test_a_local_assigned_in_a_loop_in_a_branch_is_widened_at_its_head()
+  -- The assignment is in the `else` of a branch, which has no condition.
+  accepted("local real: number | nil = nil\nfor _ = 1, 2 do\n  if y then\n    print(1)\n  else\n    if real ~= nil then print(real + 1) end\n    real = x\n  end\nend")
+end
+
+local function test_pairs_ipairs_gmatch_and_next_run_none_of_the_programs_code()
+  accepted("if q.a then\n  for _, v in ipairs({ 1 }) do print(q.a + v) end\n  print(q.a + 1)\nend")
+  accepted("local t: {string:number} = {}\nif q.a then\n  for _, v in pairs(t) do print(q.a + v) end\n  print(q.a + 1)\nend")
+  accepted("if q.a then\n  for w in (\"a b\"):gmatch(\"%a+\") do print(q.a + #w) end\n  print(q.a + 1)\nend")
+  accepted("local t: {string:number} = {}\nif q.a then\n  for _ in next, t do print(q.a + 1) end\n  print(q.a + 1)\nend")
+  -- An iterator function is code, run before every pass.
+  refused("if q.a then\n  for v in maybe do\n    print(q.a + (v or 0))\n  end\nend", "3: " .. plus:sub(1, 28))
+  refused("if q.a then\n  for v in maybe do\n    print(v)\n  end\n  print(q.a + 1)\nend", "5: " .. plus:sub(1, 28))
+  -- `pairs` of a record with a `__pairs` it declares runs it.
+  refused_source(pairs_head .. "if h.n then\n  for _ in pairs(t) do print(1) end\n  print(h.n + 1)\nend", "12: " .. plus:sub(1, 28))
+end
+
+local function test_a_branch_that_leaves_drops_nothing_for_the_code_after_it()
+  accepted("if q.a then\n  if y then\n    touch(q)\n    return\n  end\n  print(q.a + 1)\nend")
+  accepted("if q.a then\n  if y then\n    touch(q)\n    die()\n  end\n  print(q.a + 1)\nend")
+  -- A branch that goes on, or leaves a loop for the code after it, does.
+  refused("if q.a then\n  if y then\n    touch(q)\n  end\n  print(q.a + 1)\nend", "5: " .. plus:sub(1, 28))
+  refused("if q.a then\n  while y do\n    if x then\n      touch(q)\n      break\n    end\n  end\n  print(q.a + 1)\nend",
+    "8: " .. plus:sub(1, 28))
+  -- And the condition of the branch ran either way.
+  refused("if q.a then\n  if maybe() then\n    return\n  end\n  print(q.a + 1)\nend", "5: " .. plus:sub(1, 28))
+end
+
+local function test_a_label_drops_the_fields_a_goto_below_it_may_have_changed()
+  refused("if q.a then\n  ::top::\n  print(q.a + 1)\n  if y then goto top end\nend", "3: " .. plus:sub(1, 28))
+  accepted("if x then\n  ::top::\n  print(1)\nend")
+  -- A label no goto comes back to is not a place code can arrive from.
+  accepted("if q.a then\n  ::top::\n  print(q.a + 1)\nend")
+  accepted("if q.a then\n  if y then goto skip end\n  print(q.a + 1)\n  ::skip::\n  print(q.a + 2)\nend")
+  -- A trailing `::continue::` drops nothing the loop read before it.
+  accepted("if q.a then\n  for _ = 1, 2 do\n    print(q.a + 1)\n    if y then goto continue end\n    ::continue::\n  end\nend")
+  -- And a goto that does come back to it is one of the loop.
+  refused("if q.a then\n  for _ = 1, 2 do\n    print(q.a + 1)\n    ::again::\n    if y then goto again end\n  end\nend",
+    "3" .. looped)
+end
+
+local function test_a_function_literal_drops_only_in_its_own_body()
+  accepted("if q.a then\n  local g = function() touch(q) end\n  print(q.a + 1, g)\nend")
+  refused("if q.a then\n  local g = function()\n    touch(q)\n    print(q.a + 1)\n  end\n  g()\nend", "4: " .. plus:sub(1, 28))
+  accepted("if q.a then\n  local function g() p.a = nil end\n  print(q.a + 1, g)\nend")
+end
+
+local function test_a_metamethod_runs_code_an_operator_on_a_number_does_not()
+  local head = "local record V\n  x: number\n  metamethod __add: function(V, V): V\n" ..
+    "  metamethod __index: function(V, string): number\nend\n" ..
+    "local record H\n  n: number | nil\nend\n" ..
+    "local record E\n  x: number\n  metamethod __eq: function(E, E): boolean\nend\n" ..
+    "local v: V = setmetatable({ x = 1 } as V, {})\nlocal w: V = v\nlocal h: H = {}\n" ..
+    "local e: E = setmetatable({ x = 1 } as E, {})\nlocal f: E = e\n"
+  local plus_at = "cannot use operator '+'"
+  -- An operator the record declares, an index its `__index` serves, and a
+  -- comparison of two values that may carry `__eq`.
+  refused_source(head .. "if h.n then\n  local z = v + w\n  print(h.n + z.x)\nend", "20: " .. plus_at)
+  refused_source(head .. "if h.n then\n  local z = v.other\n  print(h.n + z)\nend", "20: " .. plus_at)
+  refused_source(head .. "if h.n then\n  local same = e == f\n  print(h.n + (same and 1 or 0))\nend", "20: " .. plus_at)
+  -- A field the record declares, a number, a string and an array are not,
+  -- nor is a comparison of records that declare no `__eq`.
+  accepted_source(head .. "if h.n then\n  local same = v == w\n  print(h.n + (same and 1 or 0))\nend")
+  accepted_source(head .. "if h.n then\n  local z = v.x\n  print(h.n + z)\nend")
+  accepted_source(head .. "if h.n then\n  local z = 2 * 3 + #\"abc\"\n  local a: {number} = { 1 }\n" ..
+      "  local same = a == a and \"s\" == \"t\" and z .. \"\" == \"6\"\n  print(h.n + z + #a + (same and 1 or 0))\nend")
+  accepted_source(head .. "if h.n then\n  local nothing = v == nil\n  print(h.n + (nothing and 1 or 0))\nend")
 end

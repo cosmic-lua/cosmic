@@ -117,11 +117,12 @@ function App.new(spec: Types.AppSpec): Types.App
     end
   end
   local trusted: {string:boolean} | nil = nil
-  if spec.trusted_hosts ~= nil then
+  local trusted_hosts = spec.trusted_hosts
+  if trusted_hosts ~= nil then
     trusted = {}
     local hosts: {string} = {}
     kept.trusted_hosts = hosts
-    for i, host in ipairs(spec.trusted_hosts) do
+    for i, host in ipairs(trusted_hosts) do
       local parsed = type(host) == "string" and Request.parse_host(host) or nil
       if parsed == nil or parsed.port ~= nil then
         error(("web: trusted_hosts: %q is not a host name without a port"):format(tostring(host)), 2)
