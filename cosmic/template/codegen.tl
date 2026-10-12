@@ -290,7 +290,7 @@ local function block(g: Gen, node: types.Node, dot: Dot)
       index = new_dot(g)
     end
     -- The list is read where the range stands, before its variables are.
-    local source = value(g, arm.pipeline, dot)
+    local source = value(g, assert(arm.pipeline), dot)
     if arm.index ~= "" then
       g.vars[arm.index] = index
     end
@@ -324,7 +324,7 @@ local function block(g: Gen, node: types.Node, dot: Dot)
   elseif node.kind == "with" then
     local arm = node.branches[1]
     local inner = new_dot(g)
-    put(g, "do local " .. inner.name .. " = " .. value(g, arm.pipeline, dot) .. " if " .. inner.name ..
+    put(g, "do local " .. inner.name .. " = " .. value(g, assert(arm.pipeline), dot) .. " if " .. inner.name ..
         " then")
     emit(g, arm.body, inner)
     local other = node.branches[2]
@@ -341,7 +341,7 @@ local function block(g: Gen, node: types.Node, dot: Dot)
       if arm.pipeline == nil then
         put(g, "else")
       else
-        put(g, (at == 1 and "if " or "elseif ") .. value(g, arm.pipeline, dot) .. " then")
+        put(g, (at == 1 and "if " or "elseif ") .. value(g, assert(arm.pipeline), dot) .. " then")
       end
       emit(g, arm.body, dot)
     end
@@ -363,7 +363,7 @@ emit = function(g: Gen, body: {types.Node}, dot: Dot)
       end
     elseif node.kind == "interp" then
       to_line(g, node.line)
-      put(g, slot_statement(g, node.ctx, value(g, node.pipeline, dot)))
+      put(g, slot_statement(g, node.ctx, value(g, assert(node.pipeline), dot)))
     else
       block(g, node, dot)
     end

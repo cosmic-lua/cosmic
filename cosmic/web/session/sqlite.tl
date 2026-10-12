@@ -175,7 +175,7 @@ local function load_session(self: Session.Store, token: string, now: integer, _c
   local store = backing(self)
   local row, why = find(store, token, now)
   if row == nil then return nil, why end
-  local values = values_of(row[1].text)
+  local values = values_of(assert(row[1].text))
   if values == nil then return nil, "" end
   return { values = values, created = row[2].integer, expires = row[3].integer }, ""
 end
@@ -212,7 +212,7 @@ local function save_session(self: Session.Store, previous: string, data: Session
     local created = data.created
     local subject = changes.subject
     if row ~= nil then
-      base = values_of(row[1].text) or {}
+      base = values_of(assert(row[1].text)) or {}
       if not changes.regenerated then created = row[2].integer end
       if subject == nil and row[4].kind == "text" then subject = row[4].text end
     end

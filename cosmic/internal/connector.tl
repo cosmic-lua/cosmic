@@ -222,7 +222,8 @@ end
 
 --- Answers `pending`, the request of `tag`, with `socket` or why not; one
 --- given up on has its socket closed.
-local function answer(channel: Channel, tag: integer, pending: Pending, socket: raw_socket.Socket, why: string)
+local function answer(channel: Channel, tag: integer, pending: Pending, socket: raw_socket.Socket | nil,
+                      why: string)
   channel.pending[tag] = nil
   channel.count = channel.count - 1
   if pending.kind == "table" then
@@ -285,9 +286,13 @@ local function take_socket(channel: Channel, tag: integer): boolean
     lose(channel, "net: the connector passed a descriptor that is no connected stream socket (" .. peer_why .. ")")
     return false
   end
-  if peer.port ~= pending.port or not same_host(peer.host, pending.host) then
+  local peer_host, peer_port = peer.host, peer.port
+  if peer_host == nil or peer_port == nil or peer_port ~= pending.port or
+      not same_host(peer_host, pending.host) then
     local _, _ = socket:close()
-    lose(channel, "net: the connector passed a socket connected to " .. named(peer.host, peer.port) .. ", not " .. wanted)
+    local connected = peer_host ~= nil and peer_port ~= nil and named(peer_host, peer_port) or
+      "an address that is no host and port"
+    lose(channel, "net: the connector passed a socket connected to " .. connected .. ", not " .. wanted)
     return false
   end
   answer(channel, tag, pending, socket, "")
@@ -309,7 +314,7 @@ local function read_replies(channel: Channel)
       return
     end
     if channel.passing ~= nil then
-      if not take_socket(channel, channel.passing_tag) then return end
+      if not take_socket(channel, assert(channel.passing_tag)) then return end
     else
       local want = channel.greeted and 8 - #channel.header or 4 - #channel.hello
       local data, why, errno = sys.read(channel.process.fd, want)
@@ -557,7 +562,7 @@ local record Leaf
     public?: raw_process.ConnectorPublic): Connection.Connector | nil, string
   adopted: function(fd: integer, held?: {raw_process.ConnectorEndpoint}, public?: boolean, timeout_ns?: integer):
     Connection.Connector | nil, string
-  served: function(connector: Connection.Connector): Served | nil
+  served: function(connector: Connection.Connector | nil): Served | nil
   connects: function(fd: integer, servers: {raw_socket.ThroughServer}, reply_ns: integer):
     function(index: integer, port: integer, deadline: integer | nil): Resolv.Connection | nil, string
   waited: function(fd: integer, writable: boolean, timeout_ns: integer | nil): boolean, string
@@ -726,7 +731,8 @@ end
 
 --- The [`Served`] behind `connector`, or nil for one this module did not
 --- make.
-function Leaf.served(connector: Connection.Connector): Served | nil
+function Leaf.served(connector: Connection.Connector | nil): Served | nil
+  if connector == nil then return nil end
   return made[connector]
 end
 
@@ -759,6 +765,7 @@ function Served:connect(address: Connection.Address, opts?: Connection.ConnectOp
   local index = self:find(target, port)
   if index ~= nil then
     host = self.endpoints[index].host
+    body = request_body(index, port, wait_ns)
     if self.accepts_public then kind = "table" end
   else
     if not self.accepts_public then
@@ -772,7 +779,6 @@ function Served:connect(address: Connection.Address, opts?: Connection.ConnectOp
     if #self.endpoints > 0 then kind = "public" end
     refusal = "net: " .. target .. " is refused by the connector's deny list"
   end
-  body = body or request_body(index, port, wait_ns)
   local channel, why = channel_of_served(self)
   if channel == nil then return nil, why end
   local socket, asked = ask(channel, body, host, port, deadline, refusal, kind)

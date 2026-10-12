@@ -348,7 +348,7 @@ end
 local function test_a_form_body_is_decoded_once_and_kept()
   with_request("POST", { form = { a = "1", b = { "x y", "z" } } }, function(req: Web.Request)
     local first = Input.form(req)
-    assert(first.invalid == nil and Url.query_last(first.value, "b") == "z")
+    assert(first.invalid == nil and Url.query_last(assert(first.value), "b") == "z")
     local second = Input.form(req)
     assert(rawequal(second.value, first.value), "the decode is the cached one")
     assert(req:get(Input.FORM) == first.value)

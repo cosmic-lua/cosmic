@@ -106,14 +106,14 @@ end
 local function test_the_table_holds_the_literals_and_the_upstream()
   local plan = assert(SandboxRelay.plan({ "127.0.0.1:3128", "[2001:db8::1]:443" },
     { HTTPS_PROXY = "http://127.0.0.1:3128" }))
-  local addresses = assert(SandboxRelay.upstream_addresses(plan.upstream, nil, "no name servers"))
+  local addresses = assert(SandboxRelay.upstream_addresses(assert(plan.upstream), nil, "no name servers"))
   assert(table.concat(addresses, ",") == "127.0.0.1", table.concat(addresses, ","))
   local rows: {string} = {}
   local table_rows = assert(SandboxRelay.table(plan, addresses))
   for _, entry in ipairs(table_rows) do rows[#rows + 1] = entry.host .. " " .. entry.port end
   assert(table.concat(rows, ",") == "127.0.0.1 3128,2001:db8:0:0:0:0:0:1 443", table.concat(rows, ","))
   local named = assert(SandboxRelay.plan({}, { https_proxy = "http://proxy.test:3128" }))
-  local none, why = SandboxRelay.upstream_addresses(named.upstream, nil, "no name servers here")
+  local none, why = SandboxRelay.upstream_addresses(assert(named.upstream), nil, "no name servers here")
   assert(none == nil and why == "https_proxy's host proxy.test cannot be resolved: no name servers here", why)
 end
 

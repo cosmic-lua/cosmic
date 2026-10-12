@@ -196,7 +196,7 @@ local function serving(body: function(granted: integer, ungranted: integer))
     local first = assert(Net.listen(Net.tcp("127.0.0.2", 0)))
     local second = assert(Net.listen(Net.tcp("127.0.0.2", 0)))
     local tasks = { echoing(first), echoing(second) }
-    body(first.address.port, second.address.port)
+    body(assert(first.address.port), assert(second.address.port))
     for _, task in ipairs(tasks) do task:cancel() end
     assert(first:close())
     assert(second:close())

@@ -93,7 +93,7 @@ local function test_adopted_connector_wraps_an_inherited_control_stream_without_
   local before = descriptor_count()
   Poll.run(function()
     local listener, task = echo_server()
-    local port = listener.address.port
+    local port = assert(listener.address.port)
     local pair = stream_pair()
     local child = assert(process.connector_start({ { host = "127.0.0.1", port = port } }, pair[2], 1000,
       { deny = {} }))
@@ -101,7 +101,7 @@ local function test_adopted_connector_wraps_an_inherited_control_stream_without_
     local connector = assert(Connector.adopted(pair[1], { { host = "127.0.0.1", port = port } }, true))
     echo_through(assert(dial(connector, "127.0.0.1", port, Clock.seconds(5))), "table")
     local free = assert(Net.listen(Net.tcp("127.0.0.1", 0)))
-    local other = free.address.port
+    local other = assert(free.address.port)
     assert(free:close())
     local gone, why = dial(connector, "127.0.0.1", other, Clock.seconds(5))
     assert(gone == nil and why:find("refused", 1, true) ~= nil, tostring(why))
@@ -120,7 +120,7 @@ local function test_adopted_connector_asks_a_public_process_for_an_address_its_t
   require_native_connector()
   Poll.run(function()
     local listener, task = echo_server()
-    local port = listener.address.port
+    local port = assert(listener.address.port)
     local pair = stream_pair()
     local child = assert(process.connector_start({}, pair[2], 1000, { deny = {} }))
     assert(sys.close(pair[2]))
@@ -146,7 +146,7 @@ local function test_adopted_connector_is_not_started_again_when_its_process_ends
   require_native_connector()
   Poll.run(function()
     local listener, task = echo_server()
-    local port = listener.address.port
+    local port = assert(listener.address.port)
     local pair = stream_pair()
     local child = assert(process.connector_start({}, pair[2], 1000, { deny = {} }))
     assert(sys.close(pair[2]))
@@ -168,7 +168,7 @@ end
 --- is made has none by the time the connector's reply is read.
 local function reset_socket(): raw_socket.Socket
   local free = assert(Net.listen(Net.tcp("127.0.0.1", 0)))
-  local port = free.address.port
+  local port = assert(free.address.port)
   assert(free:close())
   local made = assert(socket.start({ kind = "tcp", host = "127.0.0.1", port = port }))
   assert(Poll.writable(made:fd(), Clock.seconds(5)))
