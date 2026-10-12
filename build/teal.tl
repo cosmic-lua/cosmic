@@ -778,7 +778,7 @@ local function present(names: {string}): {string:boolean}
 end
 
 --- The functions and libraries tl's standard library declares as
---- globals (its prelude in vendor/tl/tl.tl), which a local of the same
+--- globals (its prelude in [`checker/tl.tl`]), which a local of the same
 --- name hides. `arg`, the program's arguments, is no library's.
 local standard_globals <const> = present({
   "assert", "collectgarbage", "coroutine", "debug", "dofile", "error",

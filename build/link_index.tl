@@ -157,15 +157,14 @@ local text = bind.text
 --- Every link the parse recorded in a planned module or a declaration
 --- -- preferring a paired declaration, as the documented interface does
 --- ([`build.writer`]'s `insert_docs`), each under the module its docs name -- in file and
---- line order. A source named under o/ -- the compiler a boot puts in,
---- which [`build.derivation`] names `o/vendor/tl/tl.tl` wherever the
---- build directory is -- is the tree's by no link.
+--- line order. The compiler a boot puts in, which [`build.derivation`] names
+--- [`checker/tl.tl`], is the tree's by no link: it is that file's Lua.
 --- Then every link the stage read of a file that is no module (`linked`).
 local raw_links =
   "SELECT m.path, i.file, l.line, l.column, l.form, " ..
   "CASE l.doc WHEN 1 THEN 'doc' ELSE 'comment' END, l.text, l.target, l.own, l.alias " ..
   "FROM (SELECT path FROM plan UNION SELECT path FROM inputs WHERE kind = 'decl') m " ..
-  "JOIN inputs i ON i.path = m.path AND i.file NOT GLOB 'o/*' " ..
+  "JOIN inputs i ON i.path = m.path AND i.origin <> 'vendor' " ..
   "AND (i.kind = 'decl' OR NOT EXISTS (SELECT 1 FROM inputs d " ..
   "WHERE d.path = i.path AND d.kind = 'decl')) " ..
   "JOIN links l ON l.source_hash = i.source_hash " ..

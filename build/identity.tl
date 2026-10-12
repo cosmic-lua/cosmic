@@ -24,15 +24,16 @@ local record identity
   --- `compiler` is what turns source into bytecode: the build's own
   --- modules a compile or a parse runs to decide what it stores
   --- ([`identity.compiler_identity`]), among them [`build.teal`], which names
-  --- the globals the checker is stripped of, and the Teal compiler's and
-  --- Lua's pins and patches.
+  --- the globals the checker is stripped of, the checker's own source
+  --- ([`checker/tl.tl`]) and the pins and patches the compiler and Lua are
+  --- built from.
   --- The rest of the standard library the importer runs on is plumbing,
   --- not transformation (a bug there breaks the build loudly rather than
   --- changing bytecode quietly), and is left out, as is the rest of the
   --- build. That keeps an edit to either from recompiling everything.
   ---
-  --- `runtime_basis` is the host-independent hash of the Teal and Lua pins
-  --- and patches. Portable startup combines it with the validated target,
+  --- `runtime_basis` is the host-independent hash of the same pins, patches
+  --- and checker source. Portable startup combines it with the validated target,
   --- configuration and exact raw-core digest.
   ---
   --- `writer` is what turns compiled rows into a projection: build.writer,
@@ -79,6 +80,15 @@ local tool_trees: {string:boolean} = {
   ["cosmic"] = true,
   ["cmd"] = true,
   ["patch"] = true,
+  ["checker"] = true,
+}
+
+--- The trees of cosmic's own that hold Teal no module is: the checker
+--- ([`checker/tl.tl`]) is compiled at boot by the vendored `tl.lua` into the
+--- compiler the tree is built with, and is no module of the tree it
+--- compiles, nor a test. Another project's `checker/` is its own.
+local checker_trees: {string:boolean} = {
+  ["checker"] = true,
 }
 local tool_files: {string:boolean} = {
   ["build.zig"] = true,
@@ -220,7 +230,7 @@ end
 --- is made of.
 function identity.is_input(file: string, own_tree: boolean): boolean
   local first = identity.first_of(file)
-  if not_input[first] or (own_tree and foreign_trees[first]) then
+  if not_input[first] or (own_tree and (foreign_trees[first] or checker_trees[first])) then
     return false
   end
   if identity.is_static(file) then
@@ -293,10 +303,12 @@ end
 --- [`is_tool`]): `boot` over every row, and `image` over what the C core
 --- is built from. That is `core/` but the Teal beside its C (no core is
 --- built from it), the zig build and wrapper, every vendored tree's pin
---- and patches (the Teal compiler's included), and [`build/patch.tl`],
---- which applies them: only `bin/zig build boot` applies a patch record
---- to a pin, so a change under [`vendor/tl/PIN`], `patch/tl/*` or to the
---- applier needs it too, as with every other vendored tree.
+--- and patches, and [`build/patch.tl`], which applies them: only
+--- `bin/zig build boot` applies a patch record to a pin, so a change under
+--- `patch/*` or to the applier needs it too. The checker ([`checker/tl.tl`])
+--- is in it as well, though no core is built from it: only a boot compiles
+--- it into the compiler the tool carries, so a tool built from an older
+--- checker is stale.
 --- [`build/launcher.tl`] also belongs to the retained portable prefix: a
 --- database-only rebuild reuses its existing shell bytes. So does
 --- [`build/artifact.tl`], which lays the artifact out: a rebuild lays it
@@ -317,7 +329,8 @@ function identity.record_fingerprint(db: Sqlite.Handle): identity.Fingerprint | 
       "'bin/zig', 'bin/zig.pin', 'build/artifact.tl', 'build/launcher.tl', " ..
       "'build/patch.tl') OR " ..
       "path GLOB 'vendor/*/PIN' OR " ..
-      "path GLOB 'patch/*'")
+      "path GLOB 'patch/*' OR " ..
+      "path GLOB 'checker/*'")
   if image == nil then
     return nil, image_trouble
   end
@@ -351,12 +364,14 @@ function identity.recorded_boot_hash(db: Sqlite.Handle): string | nil, string
   return rows[1][1]
 end
 
---- The Teal compiler's and Lua's pins and patches, as one text: part
---- of the compiler's identity, and the whole of `runtime_basis`.
+--- The Teal compiler's and Lua's pins and sources, as one text: the
+--- pins of the vendored `tl.lua` that compiles the checker and of Lua, the
+--- checker's source ([`checker/tl.tl`]) and Lua's patches. Part of the
+--- compiler's identity, and the whole of `runtime_basis`.
 local pins <const> =
   "coalesce((SELECT group_concat(path || ' ' || sha256, char(10) " ..
   "ORDER BY path) FROM tool WHERE path IN ('vendor/tl/PIN', 'vendor/lua/PIN') " ..
-  "OR path GLOB 'patch/tl/*' OR path GLOB 'patch/lua/*'), '')"
+  "OR path GLOB 'checker/*' OR path GLOB 'patch/lua/*'), '')"
 
 --- What a module of the tree in the working database requires, as
 --- `requires` holds of its source: the walk [`identity.compiler_modules`] and
@@ -446,8 +461,8 @@ end
 
 --- The compiler's identity ([`Identities.compiler`]) over what the
 --- working database holds now, recorded nowhere: the source hash of each
---- of [`identity.compiler_modules`] the tree holds, and the Teal compiler's and
---- Lua's pins and patches. A boot names its analyzer by it before it
+--- of [`identity.compiler_modules`] the tree holds, the checker's source and
+--- the compiler's and Lua's pins and patches. A boot names its analyzer by it before it
 --- parses ([`build.importer.tree_code`]).
 ---
 --- What a module requires is what `requires` holds of its source, which
@@ -460,7 +475,9 @@ end
 --- own key (a module's Lua, bytecode, record-field uses and refusal, and
 --- a source's rows in the analysis tables), and nothing else:
 ---
---- - the pinned compiler and Lua;
+--- - the pinned compiler and Lua, and the checker's source
+---   ([`checker/tl.tl`]), which decides what every compile accepts and
+---   emits;
 --- - [`build.compilation`] and [`build.derivation`];
 --- - the checker's environment ([`build.teal`]), and the names it is
 ---   stripped of, which build.teal spells itself (its `withheld`) rather

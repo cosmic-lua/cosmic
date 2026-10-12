@@ -1201,11 +1201,12 @@ local function cache_names(): {string: any}
 end
 
 --- What `names` hashes as the compiler a branch's compiles were made
---- by: the build's own modules and the Teal compiler's
---- and Lua's pins and patches, as the compiler's identity holds them
---- (build.identity's `compiler_identity`), and the rest of build/ beside.
+--- by: the build's own modules, the checker's source and the Teal
+--- compiler's and Lua's pins and patches, as the compiler's identity holds
+--- them (build.identity's `compiler_identity`), and the rest of build/
+--- beside.
 local COMPILER_HASH <const> = "${{ hashFiles('build/**/*.tl', '!build/**/*_test.tl', " ..
-  "'vendor/tl/PIN', 'vendor/lua/PIN', 'patch/tl/**', 'patch/lua/**') }}"
+  "'vendor/tl/PIN', 'vendor/lua/PIN', 'checker/**', 'patch/lua/**') }}"
 
 --- A branch's push saves its compiles for its own later pushes, where
 --- its builds compiled more than a few dozen modules the entry it
