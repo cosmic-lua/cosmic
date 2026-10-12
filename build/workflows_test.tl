@@ -1158,8 +1158,8 @@ end
 --- The save among `steps` of `path` under a key that names no commit,
 --- and the one that names it under the commit, from `<path>-commit`, if
 --- any.
-local function save_of(steps: {{string: any}}, path: string): {string: any}, {string: any}
-  local plain, commit: {string: any}, {string: any}
+local function save_of(steps: {{string: any}}, path: string): {string: any} | nil, {string: any} | nil
+  local plain, commit: {string: any} | nil, {string: any} | nil
   for key, step in pairs(saves_of(steps)) do
     local from = (step.with as {string: string}).path
     if from == path .. "-commit" and
@@ -1479,7 +1479,7 @@ local function test_a_main_push_reuses_the_queue_run()
   assert(unpack["if"] == "steps." .. (download.id as string) .. ".outcome == 'success'" and unpack.run ==
       "tar -xf \"$RUNNER_TEMP/zig-build.tar\" -C \"$RUNNER_TEMP\" && rm \"$RUNNER_TEMP/zig-build.tar\"",
     "the zig outputs are laid out elsewhere, or on other runs, than downloaded: " .. tostring(unpack.run))
-  assert(zig == save_of(steps, "${{ runner.temp }}/zig-build") and
+  assert(save_of(steps, "${{ runner.temp }}/zig-build") == zig and
       zig["if"] == "steps." .. (unpack.id as string) .. ".outcome == 'success'",
     "the zig outputs are saved other than right after they are laid out: " .. tostring(zig["if"]))
 
@@ -1526,7 +1526,7 @@ local function test_the_queue_keeps_what_main_would_save()
     "the seed is kept elsewhere than on the host from ci/")
   local env = stage.env as {string: string}
   for cache, path in pairs({ VERDICTS = "${{ runner.temp }}/verdicts", COMPILES = "${{ runner.temp }}/build-cache" }) do
-    local save = save_of(steps, path)
+    local save = assert(save_of(steps, path))
     local key = (save.with as {string: string}).key
     assert(env[cache .. "_PREFIX"] .. env[cache .. "_DIGEST"] == key,
       cache .. " is seeded under another key than main saves it under: " .. key)
@@ -1537,7 +1537,7 @@ local function test_the_queue_keeps_what_main_would_save()
   -- The zig outputs under the key main's save names, the restore's own,
   -- except where that restore took an entry of this core and vendor
   -- part: the first prefix it asks for.
-  local zig = save_of(steps, "${{ runner.temp }}/zig-build")
+  local zig = assert(save_of(steps, "${{ runner.temp }}/zig-build"))
   local zkey = (zig.with as {string: string}).key
   local restore = zkey:match("^%${{ steps%.([%w-]+)%.outputs%.cache%-primary%-key }}$")
   assert(restore ~= nil and env.ZIG_BUILD_KEY == zkey and
@@ -1552,11 +1552,12 @@ local function test_the_queue_keeps_what_main_would_save()
   assert(env.ZIG_BUILD_EXACT == first and first:find("-${{ steps.names.outputs.core }}-", 1, true) ~= nil,
     "the zig outputs are held to another entry than one of this core: " .. tostring(env.ZIG_BUILD_EXACT))
   -- And the verdicts under the commit, which is the queue's merge.
-  local _, twin = save_of(steps, "${{ runner.temp }}/verdicts")
+  local _, saved_twin = save_of(steps, "${{ runner.temp }}/verdicts")
+  local twin = assert(saved_twin)
   assert(env.SHA == "${{ github.sha }}" and
       under_the_commit(env.VERDICTS_PREFIX) == (twin.with as {string: string}).key,
     "the verdicts are seeded under another commit's key than main saves them under")
-  local marker = save_of(steps, "${{ runner.temp }}/driver-checked")
+  local marker = assert(save_of(steps, "${{ runner.temp }}/driver-checked"))
   local _, checked = step_running(steps, "cosmic-driver test cosmic_ci")
   local writes = steps[checked].run as string
   assert(writes:find("echo \"" .. (marker.with as {string: string}).key .. "\" > \"$RUNNER_TEMP/driver-checked/key\"",
@@ -1599,7 +1600,8 @@ local function test_the_queue_keeps_what_main_would_save()
   assert(cstage["if"] == QUEUE and cstage.shell == "sh" and cstage["working-directory"] == nil,
     "the checked job keeps its seed on other runs, or elsewhere: " .. tostring(cstage["if"]))
   local cenv = cstage.env as {string: string}
-  local vsave, vtwin = save_of(csteps, "${{ runner.temp }}/verdicts")
+  local saved_vsave, saved_vtwin = save_of(csteps, "${{ runner.temp }}/verdicts")
+  local vsave, vtwin = assert(saved_vsave), assert(saved_vtwin)
   assert(cenv.VERDICTS_PREFIX .. cenv.VERDICTS_DIGEST == (vsave.with as {string: string}).key,
     "the checked job's verdicts are seeded under another key than main saves them under")
   assert(cenv.SHA == "${{ github.sha }}" and
@@ -1880,7 +1882,7 @@ local function test_a_light_format_check_lays_out_only_what_the_branch_changed()
   local _, moved = step_running(steps, "driver.tl place-tree")
   assert(found < listed and listed < moved,
     "the checked job names what changed before it finds the base, or with its tree moved")
-  local checkout: {string: any} = nil
+  local checkout: {string: any} | nil = nil
   for _, step in ipairs(steps) do
     if step.uses == CHECKOUT then checkout = step end
   end

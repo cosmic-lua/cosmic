@@ -567,7 +567,9 @@ local function test_every_field_of_the_host_sources_moves_the_host(tmp: string)
   end
   local changes: {string:Change<declared_key.HostSources>} = {
     packages = set("packages", { tmp .. "/packages2" }),
-    system = { change = function(s: declared_key.HostSources) s.system[1] = tmp .. "/os2" end },
+    system = { change = function(s: declared_key.HostSources)
+      assert(s.system)[1] = tmp .. "/os2"
+    end },
     -- Read only where `system` names none, to choose where to look.
     sysname = { from = function(s: declared_key.HostSources) s.system = nil end,
       change = function(s: declared_key.HostSources) s.sysname = "Darwin" end },

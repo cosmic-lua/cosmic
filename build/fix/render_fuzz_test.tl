@@ -553,7 +553,7 @@ end
 --- What [`build.fix.source`] makes of `input`: nil, and true, when the
 --- input does not parse or is refused by name; nil, false and why when
 --- it is refused for any other reason, which is a renderer's failure.
-local function fixed(input: string): string, boolean, string
+local function fixed(input: string): string | nil, boolean, string
   local parsed, _ = ast.parse(built, input, "fuzz.tl")
   if parsed == nil then
     Fuzz.label("unparsed")
