@@ -1467,7 +1467,10 @@ fn vendorLibraries(
     // overlaps, in about 44 KB per raw core (35 KB on macOS). SQLite's own
     // fuzzcheck builds with it; OSS-Fuzz's SQLite target does not, so
     // core/sqlite_functions_fuzz_test.tl damages trees here, and
-    // patch/sqlite/ bounds the check of a damaged one.
+    // patch/sqlite/ bounds the check of a damaged one. `carray` is on: a
+    // table of the elements of a list a caller binds (core/sqlite.c), as
+    // in `x IN carray(?1)`. It reads only an array bound from C, which SQL
+    // cannot forge, and core/sqlite.c binds a copy.
     const sqlite_flags = [_][]const u8{
         "-std=c11",
         debug_dir,
@@ -1491,6 +1494,7 @@ fn vendorLibraries(
         "-DSQLITE_ENABLE_PERCENTILE=1",
         "-DSQLITE_ENABLE_BYTECODE_VTAB=1",
         "-DSQLITE_ENABLE_RTREE=1",
+        "-DSQLITE_ENABLE_CARRAY=1",
     };
     vendorPart(b, &libraries, configuration, target, "sqlite", &.{sqlite}).addCSourceFiles(.{
         .root = sqlite,

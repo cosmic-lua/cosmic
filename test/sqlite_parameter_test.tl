@@ -51,6 +51,9 @@ local function test_malformed_values_raise_and_do_not_execute()
     { { { typo = "one" }, {} }, "parameter 1 has an unknown Value field: typo" },
     { { {}, {}, typo = {} }, "values holds the key typo" },
     { { {}, {}, [0] = {} }, "values holds the key 0" },
+    { { { integers = { 1, 2.5 } }, {} }, "element 2 of parameter 1's integers is not of its type" },
+    { { { texts = { "a\0b" } }, {} }, "element 1 of parameter 1's texts holds a NUL" },
+    { { { blobs = "bytes" }, {} }, "parameter 1's blobs is no list" },
   }
   for _, case in ipairs(malformed) do
     local values = case[1] as {Sqlite.Value}
@@ -85,5 +88,45 @@ local function test_complete_parameters_and_explicit_null()
   assert(rows[1][1] == "1.5" and rows[1][2] == "1.5")
   assert(Sqlite.text_rows(db, "SELECT ?3", { { integer = 3 } }) == nil)
   assert(Sqlite.text_rows(db, "SELECT 1", { {} }) == nil)
+  assert(db:close())
+end
+
+--- A list binds as an array that carray() reads as a table of its
+--- elements, and that reads as NULL anywhere else.
+local function test_lists_bind_as_arrays_for_carray()
+  local db = assert(Sqlite.memory())
+  local cases: {{Sqlite.Value, string}} = {
+    { { integers = { 1, -2, 9007199254740993 } }, "1 -2 9007199254740993" },
+    { { numbers = { 1.5, 2 } }, "1.5 2.0" },
+    { { texts = { "a", "ü", "" } }, "a ü " },
+    { { blobs = { "a\0b", "" } }, "a\0b " },
+    { { integers = {} }, "" },
+  }
+  for _, case in ipairs(cases) do
+    local rows = assert(Sqlite.text_rows(db, "SELECT value FROM carray(?1)", { case[1] }))
+    local got: {string} = {}
+    for _, row in ipairs(rows) do got[#got + 1] = row[1] end
+    assert(table.concat(got, " ") == case[2], table.concat(got, " "))
+  end
+  local rows = assert(Sqlite.text_rows(db, "SELECT 2 IN carray(?1), 5 IN carray(?1), quote(?1)",
+    { { integers = { 1, 2, 3 } } }))
+  assert(table.concat(rows[1], " ") == "1 0 NULL", table.concat(rows[1], " "))
+  local result = Sqlite.text_rows_result(db, "SELECT value FROM carray(?1)", { { texts = { "x", "y" } } })
+  assert(result.code == Sqlite.OK and result.rows ~= nil and #result.rows == 2, result.reason)
+  local ok, why: boolean, any = pcall(Sqlite.text_rows_result, db, "SELECT value FROM carray(?1)",
+    { { texts = { "x\0" } } })
+  assert(not ok and tostring(why):find("holds a NUL", 1, true) ~= nil, tostring(why))
+  assert(db:close())
+end
+
+--- carray() reads no array but one a Value binds: a pointer that SQL
+--- names, with a count and a type, reads as no rows.
+local function test_carray_reads_no_array_sql_names()
+  local db = assert(Sqlite.memory())
+  local values: {Sqlite.Value} = { { integer = 4096 }, { integers = { 1 } } }
+  for _, value in ipairs(values) do
+    local rows = assert(Sqlite.text_rows(db, "SELECT count(*) FROM carray(?1, 3, 'int64')", { value }))
+    assert(rows[1][1] == "0", rows[1][1])
+  end
   assert(db:close())
 end
