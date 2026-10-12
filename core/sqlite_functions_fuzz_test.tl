@@ -421,9 +421,12 @@ end
 
 --- The ways a file can damage an R*Tree, each on a tree of one to three
 --- levels: a depth header that lies, a child pointer sent anywhere, bytes
---- overwritten inside a node, a node cut short or run long, and a
---- `_parent` or `_rowid` row moved or dropped.
-local DAMAGES <const> = { "depth", "child", "bytes", "length", "parent", "rowid" }
+--- overwritten inside a node, a node cut short or run long, a
+--- `_parent` or `_rowid` row moved or dropped, and a wide root whose every
+--- cell points back at itself over a `_node` table padded with rows the
+--- tree never reaches, which costs a check that may read a node more than
+--- once the root's cells times the table's rows.
+local DAMAGES <const> = { "depth", "child", "bytes", "length", "parent", "rowid", "wide" }
 
 --- A file holding an R*Tree damaged in one of those ways, written to
 --- disk and opened again, so a damaged root reaches the table's connect
@@ -488,6 +491,17 @@ local function test_rtree_survives_damaged_trees(tmp: string)
         sql, values = pick % 2 == 0 and "DELETE FROM b_parent WHERE nodeno = ?2" or
           "UPDATE b_parent SET parentnode = ?1 WHERE nodeno = ?2",
           { { integer = pick % 7 - 2 }, { integer = nodeno } }
+      elseif damage == "wide" then
+        local cells, padding = 4096 + pick % 61440, 1000 + (pick >> 16) % 19000
+        local cell = string.pack(">i8", 1) .. string.rep("\0", 16)
+        assert(db:exec("BEGIN"))
+        for i = 1, padding do
+          assert(Sqlite.run(db, "INSERT INTO b_node VALUES (?1, x'00000000')",
+            { { integer = #nodes + 100 + i } }))
+        end
+        assert(db:exec("COMMIT"))
+        sql, values = "UPDATE b_node SET data = ?1 WHERE nodeno = 1",
+          { { blob = string.pack(">I2>I2", 1 + pick % 3, cells) .. string.rep(cell, cells) } }
       else
         sql, values = pick % 2 == 0 and "DELETE FROM b_rowid WHERE rowid = ?2" or
           "UPDATE b_rowid SET nodeno = ?1 WHERE rowid = ?2",
@@ -521,7 +535,7 @@ local function test_rtree_survives_damaged_trees(tmp: string)
       return true, ""
     end,
     requires = { "a tree of more than one level", "rtreecheck reported the damage",
-      "damaged depth", "damaged child" },
+      "damaged depth", "damaged child", "damaged wide" },
     shares = { ["a tree of more than one level"] = 0.3, ["rtreecheck reported the damage"] = 0.3 },
   })
 end

@@ -256,8 +256,8 @@ within another.
   32-bit range is held to it.
 - `rtreecheck(T)`: `ok`, or what is wrong with the R*Tree T's structure;
   `rtreecheck(S, T)` checks T in schema S. A T that is not an R*Tree
-  fails the query. A check that reaches more nodes than the tree holds,
-  as a damaged tree may lead it to, stops and says so.
+  fails the query. The check reads each node once: a damaged tree that
+  leads it back to a node it has read is reported, not walked again.
 - `rtreenode(D, B)`: an R*Tree node of D dimensions, from its blob in the
   `_node` table, as text, its coordinates read as 32-bit reals even for
   `rtree_i32`; NULL for D outside 1 to 5 or a blob too short to be a

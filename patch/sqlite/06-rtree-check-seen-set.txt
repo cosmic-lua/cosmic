@@ -1,0 +1,27 @@
+file: sqlite3.c
+note: The set of nodes the check's walk has read (05-rtree-check-reads-each-node-once.txt), open-addressed by a multiplicative hash of the node number. Only a node read from %_node is added, so it holds no more nodes than %_node has rows, half its slots at most, and a probe always reaches an empty slot.
+--- find
+static void rtreeCheckNode(
+  RtreeCheck *pCheck,
+--- replace
+/*
+** Whether node iNode is in pCheck's set of nodes the walk has read, and,
+** if bAdd, put it there. A node number below 1 names no node and is
+** never in the set.
+*/
+static int rtreeCheckSeen(RtreeCheck *pCheck, i64 iNode, int bAdd){
+  sqlite3_uint64 mask, h;
+  if( iNode<1 || pCheck->aSeen==0 ) return 0;
+  mask = (sqlite3_uint64)pCheck->nSeenSlot - 1;
+  h = ((sqlite3_uint64)iNode * 0x9E3779B97F4A7C15ULL) & mask;
+  while( pCheck->aSeen[h] ){
+    if( pCheck->aSeen[h]==iNode ) return 1;
+    h = (h+1) & mask;
+  }
+  if( bAdd ) pCheck->aSeen[h] = iNode;
+  return 0;
+}
+
+static void rtreeCheckNode(
+  RtreeCheck *pCheck,
+--- end

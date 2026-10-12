@@ -1,0 +1,14 @@
+file: sqlite3.c
+note: The walk refuses to read a node it has read before, reporting it, and adds each node it reads to the set (05-rtree-check-reads-each-node-once.txt).
+--- find
+  aNode = rtreeCheckGetNode(pCheck, iNode, &nNode);
+  if( aNode ){
+--- replace
+  if( rtreeCheckSeen(pCheck, iNode, 0) ){
+    rtreeCheckAppendMsg(pCheck, "Node %lld is reached a second time", iNode);
+    return;
+  }
+  aNode = rtreeCheckGetNode(pCheck, iNode, &nNode);
+  if( aNode ){
+    rtreeCheckSeen(pCheck, iNode, 1);
+--- end

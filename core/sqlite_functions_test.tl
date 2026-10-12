@@ -325,14 +325,15 @@ local function test_rtree_checks_a_lying_depth_in_bounded_time()
     assert(Sqlite.run(handle, "INSERT INTO b VALUES (?1, ?1, ?1 + 1, ?1, ?1 + 1)", { { integer = i } }))
   end
   -- A root whose depth header claims 40 levels sends the walk from leaf
-  -- rowids back to node 1, doubling the work at each level.
+  -- rowids back to node 1, doubling the work at each level unless the
+  -- check reads each node once.
   assert(Sqlite.run(handle, "UPDATE b_node SET data = ?1 || substr(data, length(?1) + 1) " ..
       "WHERE nodeno = 1", { { blob = string.pack(">I2", 40) } }))
   for _, sql in ipairs({ "SELECT rtreecheck('b')", "PRAGMA integrity_check" }) do
     local rows = assert(Sqlite.text_rows(handle, sql))
     local report = table.concat(rows[1], " ")
-    assert(report:find("Nodes are reached more often than the 3 the table holds", 1, true) ~= nil,
-      sql .. ": " .. report:sub(1, 200))
+    assert(report:find("Node 1 is reached a second time", 1, true) ~= nil,
+      sql .. ": " .. report:sub(1, 400))
   end
   handle:close()
 end

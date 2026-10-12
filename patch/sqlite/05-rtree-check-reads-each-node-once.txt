@@ -1,0 +1,10 @@
+file: sqlite3.c
+note: rtreecheck() and an R*Tree's part of PRAGMA integrity_check walk the tree from its root, following each cell of a node above the leaves to a child, as deep as the root's depth header says, and read each node they reach. The nodes are a file's bytes: a depth header that lies, or cells that point back at nodes already read, make the walk read and scan the same nodes again and again. A root that claims 65535 cells each pointing at itself, beside padding rows in %_node, takes minutes for a file of a megabyte, and a lying depth doubles the work at each of up to 40 levels; cosmic's SQLite has no progress callback to stop either. This record and the four after it keep the set of nodes the walk has read, sized from the rows of %_node, and refuse a second read of any node, reporting it: each node is scanned once, and its cells are no more than its bytes allow, so the check's work is bounded by the size of %_node. A tree whose every node is reached once, as a whole tree's is, reads the same and reports the same. Upstream walks without such a set as of 3.54.0.
+--- find
+  int nErr;                       /* Number of lines in zReport */
+--- replace
+  int nErr;                       /* Number of lines in zReport */
+  i64 nNode;                      /* Rows in the %_node table */
+  i64 *aSeen;                     /* Nodes the walk has read, hashed */
+  i64 nSeenSlot;                  /* Slots in aSeen, a power of two */
+--- end
