@@ -282,25 +282,28 @@ print(table.concat(rows[1], " "))
   M × 2^E: M is made odd while E stays below zero, and zero is
   `ieee754(0,-1075)`. -0.0 and the infinities get pairs of their own that
   `ieee754(M, E)` reads back; the pair for a NaN means nothing. An 8-byte
-  blob is read as a big-endian real, here and in the next two; any other X
-  is read as a real, with NULL and text that is no number as 0.0.
+  blob is read as a big-endian real, here and in `ieee754_mantissa` and
+  `ieee754_exponent`; any other X is read as SQLite reads a value as a
+  real: NULL as 0.0, text as the number it begins with, if any, else 0.0.
 - `ieee754(M, E)`: the real M × 2^E, truncated toward zero to the 53 bits
   a real holds: -0.0 for a negative M that underflows, ±Inf past the
   largest real. M and E are read as integers: a real is truncated, and
   held to the 64-bit range. M of -2^63 or less gives NULL.
 - `ieee754_mantissa(X)`: the M of `ieee754(X)`.
 - `ieee754_exponent(X)`: the E of `ieee754(X)`.
-- `ieee754_to_blob(X)`: a number's 8 bytes as a real, big-endian.
+- `ieee754_to_blob(X)`: a number's 8 bytes as a real, big-endian; NULL for
+  anything that is not a number.
 - `ieee754_from_blob(B)`: the real 8 big-endian bytes hold; NULL for any
   other length, or for bytes that hold a NaN.
 - `ieee754_to_int(X)`: a real's 8 bytes as one signed 64-bit integer; NULL
   unless X is a real.
 - `ieee754_from_int(N)`: the real whose 8 bytes are the integer N's; NULL
   unless N is an integer, or for an N whose bytes hold a NaN.
-- `ieee754_inc(X, N)`: the real whose 8 bytes, as an integer, are X's plus
-  N, wrapping past the 64-bit range: for a small N, N representable steps
-  away from zero, or toward it for a negative N; a step past the largest
-  real or past zero gives Inf or NULL. X is read as `ieee754(X)` reads it.
+- `ieee754_inc(X, N)`: the real whose 8 bytes, as a 64-bit integer, are
+  X's plus N, wrapping around the 64-bit range: for a small N, N
+  representable steps away from zero, or toward it for a negative N.
+  Bytes that hold a NaN give NULL. X is read as SQLite reads a value as a
+  real, a blob as text.
 - `tointeger(X)`: X as an integer when no value is lost, else NULL. A real
   converts when it is a whole number an integer holds; text when it is an
   integer literal, a sign and digits alone, that an integer holds; an
@@ -308,9 +311,9 @@ print(table.concat(rows[1], " "))
 - `toreal(X)`: X as a real, or NULL. An integer converts when a real holds
   it exactly. Text converts when SQLite reads all of it as a number, as
   `CAST` does, with no space before or after, rounded as `CAST` rounds it;
-  it is NULL when it is an integer literal that a real does not hold
-  exactly, overflows to an infinity, or is a nonzero number that
-  underflows to zero. An 8-byte blob is read as a big-endian
+  it is NULL when it is an integer literal in the 64-bit range that a real
+  does not hold exactly, overflows to an infinity, or is a nonzero number
+  that underflows to zero. An 8-byte blob is read as a big-endian
   real.
 - `uuid()`: a random version 4 UUID, as text.
 - `uuid_str(X)`: a UUID in its canonical text, from a 16-byte blob or text, or NULL.

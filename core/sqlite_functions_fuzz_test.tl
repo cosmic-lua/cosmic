@@ -3,8 +3,8 @@
 --- hand it: `uncompress` reads a length and a zlib stream, `REGEXP`
 --- compiles a pattern, `decimal` parses a number, `base64`, `base85`
 --- and `uuid_blob` decode text, `ieee754` takes bytes and
---- integers apart and back, `tointeger` and `toreal` read text as `CAST`
---- does, and `uint` orders text. Each is total: it answers a
+--- integers apart and back, `tointeger` reads an integer literal and
+--- `toreal` text as `CAST` does, and `uint` orders text. Each is total: it answers a
 --- value or NULL, or fails its statement with a message, and never
 --- takes the process down. What an encoder writes, its decoder reads
 --- back. `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (build/fuzz/init.tl).
@@ -215,8 +215,8 @@ end
 
 --- A real's eight bytes, as ieee754.c reads a blob: whatever real they
 --- hold goes back to the same bytes, through `ieee754_to_blob`, through its
---- integer and through `ieee754(M, E)`; and `ieee754(M, E)` answers a
---- real for any integers but the least M.
+--- integer and through `ieee754(M, E)`; `ieee754(M, E)` answers a real for
+--- any integers but the least M, and `ieee754_inc` a real or NULL.
 local function test_ieee754_is_total_and_round_trips(tmp: string)
   Fuzz.run({
     name = "sqlite ieee754 total",
@@ -237,7 +237,7 @@ local function test_ieee754_is_total_and_round_trips(tmp: string)
           "hex(ieee754_to_blob(ieee754_from_blob(?1))) = hex(?1), " ..
           "hex(ieee754_to_blob(ieee754(ieee754_mantissa(?1), ieee754_exponent(?1)))) = hex(?1), " ..
           "hex(ieee754_to_blob(ieee754_from_int(ieee754_to_int(ieee754_from_blob(?1))))) = hex(?1), " ..
-          "typeof(ieee754(?2, ?3))",
+          "typeof(ieee754(?2, ?3)), typeof(ieee754_inc(ieee754_from_blob(?1), ?2))",
         { { blob = fields[1] }, { integer = math.tointeger(fields[2]) },
           { integer = math.tointeger(fields[3]) } })
       if rows == nil then return false, "ieee754 failed its statement: " .. trouble end
@@ -245,6 +245,9 @@ local function test_ieee754_is_total_and_round_trips(tmp: string)
       local least = math.tointeger(fields[2]) == math.mininteger
       if row[5] ~= (least and "null" or "real") then
         return false, "ieee754(M, E) answered " .. row[5]
+      end
+      if row[6] ~= "real" and row[6] ~= "null" then
+        return false, "ieee754_inc answered " .. row[6]
       end
       if row[1] == "real" then
         Fuzz.label("a real")
@@ -259,6 +262,20 @@ local function test_ieee754_is_total_and_round_trips(tmp: string)
     requires = { "a real" },
     shares = { ["a real"] = 0.5 },
   })
+end
+
+--- The integer an integer literal names, a sign and digits, as the
+--- decimal Lua writes it; nil for any other text and for a literal past
+--- the 64-bit range. Read digit by digit: Lua's own reading of a literal
+--- past the range falls back to a rounded real.
+local function literal_of(text: string): string | nil
+  local sign, digits = text:match("^([+-]?)(%d+)$")
+  if digits == nil then return nil end
+  digits = (digits:gsub("^0+", ""))
+  if digits == "" then return "0" end
+  local limit = sign == "-" and "9223372036854775808" or "9223372036854775807"
+  if #digits > 19 or (#digits == 19 and digits > limit) then return nil end
+  return (sign == "-" and "-" or "") .. digits
 end
 
 --- Number-shaped text, from the pieces totype's reading turns on: runs of
@@ -281,6 +298,10 @@ local function gen_number(src: Fuzz.Source): string
   if shape == 0 then
     local edges = { 0, 1, -1, 1 << 53, (1 << 53) + 1, -((1 << 53) + 1), math.maxinteger,
       math.maxinteger - 1, math.mininteger, math.mininteger + 1 }
+    -- Literals just past the 64-bit range, and signs and zeros in front.
+    local past = { "-9223372036854775809", "9223372036854775808", "-9223372036854776832",
+      "18446744073709551617", "-0", "+007", "-00" }
+    if src:int(0, 3) == 0 then return Fuzz.pack({ "integer", Fuzz.pick(src, past) }) end
     local n = src:int(0, 1) == 0 and Fuzz.pick(src, edges) or src:int(math.mininteger, math.maxinteger)
     return Fuzz.pack({ "integer", tostring(n) })
   end
@@ -302,9 +323,9 @@ end
 --- `CAST` does when it answers, and a well-formed decimal converts;
 --- `tointeger` answers an integer literal an integer holds as itself, and
 --- NULL for anything else.
-local function test_totype_reads_text_as_cast_does(tmp: string)
+local function test_totype_reads_text_exactly(tmp: string)
   Fuzz.run({
-    name = "sqlite totype as cast",
+    name = "sqlite totype text",
     dir = tmp,
     gen = gen_number,
     check = function(input: string): boolean, string
@@ -326,18 +347,17 @@ local function test_totype_reads_text_as_cast_does(tmp: string)
       end
       -- An integer literal an integer holds converts to itself; anything
       -- else is NULL.
-      local literal = text:match("^[+-]?%d+$") and math.tointeger((text:gsub("^%+", "")))
+      local literal = literal_of(text)
       if literal ~= nil then
         Fuzz.label("read as an integer")
-        if row[5] ~= tostring(literal) then
+        if row[5] ~= literal then
           return false, "tointeger(" .. text .. ") answered " .. row[5]
         end
       elseif row[4] ~= "null" then
-        return false, "tointeger(" .. text .. ") is no integer literal, but answered " .. row[5]
+        return false, "tointeger(" .. text .. ") is no integer literal it holds, but answered " .. row[5]
       end
-      if shape == "integer" then
-        local n = math.tointeger(text)
-        if row[5] ~= text then return false, "tointeger(" .. text .. ") answered " .. row[5] end
+      if shape == "integer" and literal ~= nil then
+        local n = assert(math.tointeger(literal))
         local exact = math.tointeger((n as number) + 0.0) == n
         if (row[1] == "real") ~= exact then
           return false, "toreal(" .. text .. ") is " .. row[1] .. " though a real holds it " ..

@@ -208,3 +208,12 @@ local function test_ieee754_writes_and_reads_its_edges()
     assert(got[i] == value, "column " .. i .. ": " .. tostring(got[i]))
   end
 end
+
+local function test_ieee754_and_toreal_read_other_values_as_sqlite_does()
+  local got = row("SELECT ieee754('12abc'), ieee754(NULL), ieee754_inc(x'3ff0000000000000', 0), " ..
+      "toreal('18446744073709551617'), ieee754_to_blob('1.5') IS NULL")
+  local want = { "ieee754(12,0)", "ieee754(0,-1075)", "0.0", "1.8446744073709552e+19", "1" }
+  for i, value in ipairs(want) do
+    assert(got[i] == value, "column " .. i .. ": " .. tostring(got[i]))
+  end
+end
