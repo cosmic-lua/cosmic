@@ -252,7 +252,7 @@ local narrow: {string: boolean} = {
   ["unsigned char"] = true,
 }
 
-local function name_of(decl: Node): string
+local function name_of(decl: Node): string | nil
   return decl.text:match("([%w_]+) '")
 end
 
@@ -276,7 +276,7 @@ end
 
 --- What `node` refers to once conversions and an `&` are seen through:
 --- a variable's address, or nil.
-local function referenced(node: Node): string
+local function referenced(node: Node): string | nil
   local bare = tree.bare(node)
   if bare == nil then return nil end
   if bare.kind == "UnaryOperator" and bare.text:match("'&'") and #bare.children == 1 then
@@ -392,7 +392,7 @@ local function is_buffer(node: Node): boolean
 end
 
 --- The buffer a call is handed, by address, or nil.
-local function buffer_of(call: Node): string
+local function buffer_of(call: Node): string | nil
   for _, argument in ipairs(arguments(call)) do
     local bare = tree.bare(argument)
     local inner = bare
@@ -483,9 +483,16 @@ local function copy(state: State): State
     status = state.status, strings = strings }
 end
 
+--- A local variable of the function read: its id, and its name where the
+--- tree names it.
+local record Local
+  id: string
+  name: string
+end
+
 --- The local a call's value is given to: the variable it initializes,
---- or the one it is assigned to.
-local function receiver(state: State, call: Node): string, string
+--- or the one it is assigned to; nil where it is given to none.
+local function receiver(state: State, call: Node): Local | nil
   local child = call
   local at = call.parent
   while at ~= nil and (at.kind == "ImplicitCastExpr" or at.kind == "CStyleCastExpr" or
@@ -493,35 +500,38 @@ local function receiver(state: State, call: Node): string, string
     child = at
     at = at.parent
   end
-  if at == nil then return nil, nil end
+  if at == nil then return nil end
   if at.kind == "VarDecl" and state.locals[at.id] then
-    return at.id, name_of(at)
+    return { id = at.id, name = assert(name_of(at), "a variable declaration names its variable") }
   end
   if at.kind == "BinaryOperator" and tree.operator(at) == "=" and at.children[2] == child then
     local target = tree.bare(at.children[1])
     local r = tree.referent(target)
-    if r ~= nil and r.kind == "Var" and state.locals[r.id] then return r.id, r.name end
+    if r ~= nil and r.kind == "Var" and state.locals[r.id] then
+      return { id = r.id, name = r.name }
+    end
   end
-  return nil, nil
+  return nil
 end
 
 --- The local a call hands a resource back through, as its `slot`th
---- argument (`&statement`), and the local's name.
-local function given(call: Node, slot: integer, state: State): string, string
+--- argument (`&statement`), or nil where it hands it through none.
+local function given(call: Node, slot: integer, state: State): Local | nil
   local argument = call.children[slot + 1]
-  if argument == nil then return nil, nil end
+  if argument == nil then return nil end
   local id = referenced(argument)
-  if id == nil or not state.locals[id] then return nil, nil end
+  if id == nil or not state.locals[id] then return nil end
   local bare = tree.bare(argument)
   if bare.kind == "UnaryOperator" and #bare.children == 1 then
     bare = tree.bare(bare.children[1])
   end
   local r = tree.referent(bare)
-  return id, r ~= nil and r.name or nil
+  -- A reference that `referenced` read has a referent.
+  return { id = id, name = assert(r, "a referenced local has a referent").name }
 end
 
 --- The value of an integer constant expression, or nil: `-1`, `-(1)-1`.
-local function constant(node: Node): integer
+local function constant(node: Node): integer | nil
   local bare = tree.bare(node)
   if bare == nil then return nil end
   if bare.kind == "IntegerLiteral" then
@@ -608,8 +618,10 @@ local function track_strings(state: State, call: Node, name: string)
     end
   end
   if pushed == nil then return end
-  local id, var = receiver(state, call)
-  if id == nil then return end
+  local received = receiver(state, call)
+  if received == nil then return end
+  local id = received.id
+  local var = received.name
   if pushed then
     state.strings[id] = { name = var, line = line, above = 0, gone = 0 }
     return
@@ -654,22 +666,22 @@ local function expression(ctx: Context, node: Node, state: State)
           end
         end
       end
-      local slot: integer = nil
+      local slot: integer | nil = nil
       if name ~= nil then slot = acquires[name] end
       if slot ~= nil then
-        local id, var: string, string
+        local held: Local | nil
         if slot == 0 then
-          id, var = receiver(state, n)
+          held = receiver(state, n)
         else
-          id, var = given(n, slot, state)
+          held = given(n, slot, state)
           local status = receiver(state, n)
-          if id ~= nil and status ~= nil and absent_on_failure[name] then
-            state.status[status] = id
+          if held ~= nil and status ~= nil and absent_on_failure[name] then
+            state.status[status.id] = held.id
           end
         end
-        if id ~= nil then
+        if held ~= nil then
           local at = tree.placed(n)
-          state.held[id] = { name = var or "a resource", from = name,
+          state.held[held.id] = { name = held.name, from = name,
             line = at ~= nil and at.line or 0 }
         end
       end
@@ -706,17 +718,23 @@ local function expression(ctx: Context, node: Node, state: State)
   end)
 end
 
---- The local a condition says is absent on its true side, and the one
---- it says is absent on its false side.
-local function tested(cond: Node, state: State): string, string
+--- What a condition says is absent: the local on its true side and the
+--- one on its false side; a side it says nothing of is nil.
+local record Absent
+  yes: string | nil
+  no: string | nil
+end
+
+--- The locals a condition says are absent on each side.
+local function tested(cond: Node, state: State): Absent
   local bare = tree.bare(cond)
-  if bare == nil then return nil, nil end
+  if bare == nil then return {} end
   if bare.kind == "UnaryOperator" and bare.text:match("'!'") then
-    return referenced(bare.children[1]), nil
+    return { yes = referenced(bare.children[1]) }
   end
   if bare.kind ~= "BinaryOperator" or #bare.children ~= 2 then
-    if bare.kind == "DeclRefExpr" then return nil, referenced(bare) end
-    return nil, nil
+    if bare.kind == "DeclRefExpr" then return { no = referenced(bare) } end
+    return {}
   end
   local op = bare.text:match("'([^']*)'$")
   local left, right = bare.children[1], bare.children[2]
@@ -724,19 +742,20 @@ local function tested(cond: Node, state: State): string, string
   if op == "!=" or op == "==" then
     for _, side in ipairs({ left, right }) do
       local b = tree.bare(side)
-      local absent: string = nil
+      local absent: string | nil = nil
       if b.kind == "CallExpr" then
         local name = tree.callee(b)
         if name ~= nil and absent_on_failure[name] then
-          absent = given(b, acquires[name], state)
+          local handed = given(b, acquires[name], state)
+          absent = handed ~= nil and handed.id or nil
         end
       else
         local id = referenced(b)
         if id ~= nil then absent = state.status[id] end
       end
       if absent ~= nil then
-        if op == "!=" then return absent, nil end
-        return nil, absent
+        if op == "!=" then return { yes = absent } end
+        return { no = absent }
       end
     end
   end
@@ -747,16 +766,16 @@ local function tested(cond: Node, state: State): string, string
     if b.kind == "CStyleCastExpr" and #b.children == 1 then b = tree.bare(b.children[1]) end
     return b ~= nil and b.kind == "IntegerLiteral" and b.text:match(" 0$") ~= nil
   end
-  local id: string = nil
+  local id: string | nil = nil
   if nothing(right) then
     id = referenced(left)
   elseif nothing(left) then
     id = referenced(right)
   end
-  if id == nil then return nil, nil end
-  if op == "==" or op == "<" then return id, nil end
-  if op == "!=" or op == ">=" then return nil, id end
-  return nil, nil
+  if id == nil then return {} end
+  if op == "==" or op == "<" then return { yes = id } end
+  if op == "!=" or op == ">=" then return { no = id } end
+  return {}
 end
 
 local statement: function(Context, Node, State): boolean
@@ -794,12 +813,12 @@ statement = function(ctx: Context, node: Node, state: State): boolean
     local yes = node.children[2]
     local no: Node = n >= 3 and node.children[3] or nil
     expression(ctx, cond, state)
-    local absent_yes, absent_no = tested(cond, state)
+    local absent = tested(cond, state)
     local a = copy(state)
-    if absent_yes ~= nil then a.held[absent_yes] = nil end
+    if absent.yes ~= nil then a.held[absent.yes] = nil end
     local ended_a = statement(ctx, yes, a)
     local b = copy(state)
-    if absent_no ~= nil then b.held[absent_no] = nil end
+    if absent.no ~= nil then b.held[absent.no] = nil end
     local ended_b = no ~= nil and statement(ctx, no, b)
     local open: {State} = {}
     if not ended_a then open[#open + 1] = a end
@@ -1067,14 +1086,14 @@ local function returned_constant(ctx: Context, fn: Function)
   if fn.static or fn.name == "main" or state_first(fn) then return end
   local returns = fn.returns
   if #returns == 0 then return end
-  local same: integer = nil
+  local same: integer | nil = nil
   local all_same = true
   for _, r in ipairs(returns) do
     local v = #r.children == 1 and constant(r.children[1]) or nil
     if v == nil or (same ~= nil and v ~= same) then all_same = false end
     same = same or v
   end
-  if all_same then
+  if all_same and same ~= nil then
     report(ctx, fn.decl, "constant-return", fn.name .. " returns " .. same ..
         " on every path, which tells its caller nothing: return void")
   elseif fn.prototype ~= nil and fn.type:match("^int %(") and ctx.truthful[fn.name] then
@@ -1092,7 +1111,7 @@ local function returns_true_alone(r: Node): boolean
   if constant(value) ~= 1 then return false end
   local block = r.parent
   if block == nil or block.kind ~= "CompoundStmt" then return false end
-  local before: Node = nil
+  local before: Node | nil = nil
   for i, child in ipairs(block.children) do
     if child == r then
       before = block.children[i - 1]
@@ -1148,7 +1167,7 @@ local function failure_shapes(fns: {Function}): {string: string}
     changed = false
     for _, fn in ipairs(fns) do
       if shapes[fn.name] == nil and not fn.name:match("^cosmic_sys_") then
-        local shape: string = nil
+        local shape: string | nil = nil
         local mixed = false
         for _, r in ipairs(fn.returns) do
           local value = #r.children == 1 and tree.bare(r.children[1]) or nil
@@ -1233,7 +1252,7 @@ local function checked_positions(fn: Function, bound: {integer: integer},
                                  seen: {string: boolean})
   local index: {string: integer} = {}
   for i, param in ipairs(fn.params) do index[param.id] = i end
-  local function value(node: Node): integer
+  local function value(node: Node): integer | nil
     local c = constant(node)
     if c ~= nil then return c end
     local id = referenced(node)
@@ -1278,7 +1297,7 @@ local function descriptor_arguments(ctx: Context, fn: Function, byname: {string:
     return name == "fd" or name == "dirfd" or name == "sock" or name:match("_fd$") ~= nil or
       name:match("^fd_") ~= nil
   end
-  local function bare_taker(node: Node): string
+  local function bare_taker(node: Node | nil): string | nil
     local bare = node ~= nil and tree.bare(node) or nil
     local taker = bare ~= nil and bare.kind == "CallExpr" and tree.callee(bare) or nil
     if taker ~= nil and integer_takers[taker] then return taker end

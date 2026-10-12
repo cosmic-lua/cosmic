@@ -417,29 +417,37 @@ local function test_boot_lock_classifies_the_begin_result_not_its_reason(tmp: st
     { code = Sqlite.BUSY, extended_code = Sqlite.BUSY, reason = "interrupted", cancelled = true },
   }
   local statuses, attempts, closures: {integer}, {integer}, {integer} = {}, {}, {}
-  for i, outcome in ipairs(outcomes) do
-    local calls, closes = 0, 0
-    Sqlite.open = function(_path: string, _opts?: Sqlite.OpenOptions): Sqlite.Handle | nil, string
-      local fake = {
-        busy_timeout = function(_self: any, ns: integer) assert(ns >= 0) end,
-        exec_result = function(_self: any, sql: string): Sqlite.ExecResult
-          assert(sql == "BEGIN IMMEDIATE")
-          calls = calls + 1
-          if calls == 1 then return outcome end
-          return { code = Sqlite.OK, extended_code = Sqlite.OK, reason = "" }
-        end,
-        close = function(_self: any): boolean, string
-          closes = closes + 1
-          return true, ""
-        end,
-      }
-      return fake as Sqlite.Handle, ""
-    end
+  -- A handle is a userdata whose methods live in its metatable's `__index`,
+  -- the one table every handle shares: the lock gets a real handle, and the
+  -- three methods it calls answer what the outcome says for this test alone.
+  local sample = assert(Sqlite.memory())
+  local methods = (assert(getmetatable(sample)) as {string:any}).__index as {string:any}
+  local real_busy, real_exec, real_close = methods.busy_timeout, methods.exec_result, methods.close
+  local calls, closes = 0, 0
+  local outcome: Sqlite.ExecResult
+  methods.busy_timeout = function(_self: any, ns: integer) assert(ns >= 0) end
+  methods.exec_result = function(_self: any, sql: string): Sqlite.ExecResult
+    assert(sql == "BEGIN IMMEDIATE")
+    calls = calls + 1
+    if calls == 1 then return outcome end
+    return { code = Sqlite.OK, extended_code = Sqlite.OK, reason = "" }
+  end
+  methods.close = function(self: any): boolean, string
+    closes = closes + 1
+    return (real_close as function(any): boolean, string)(self)
+  end
+  Sqlite.open = function(_path: string, _opts?: Sqlite.OpenOptions): Sqlite.Handle | nil, string
+    return Sqlite.memory()
+  end
+  for i, each in ipairs(outcomes) do
+    outcome, calls, closes = each, 0, 0
     statuses[i] = Zig.with_lock(build_dir(tmp .. "/" .. i), {}, function(_env: {string:string}): integer
       return 7
     end)
     attempts[i], closures[i] = calls, closes
   end
+  methods.busy_timeout, methods.exec_result, methods.close = real_busy, real_exec, real_close
+  assert(sample:close())
   Sqlite.open, sys.flock_kind = real_open, real_kind
   assert(statuses[1] == 7 and attempts[1] == 2)
   assert(statuses[2] == 1 and attempts[2] == 1)
@@ -460,7 +468,8 @@ local function test_snapshot_names_a_same_size_rewrite_with_preserved_mtime(tmp:
       st.ctime = 100
       st.ctime_ns = tick
     end
-    return st, trouble, errno
+    if st ~= nil then return st end
+    return nil, trouble, errno
   end
   local ok, trouble = pcall(function()
     local was = assert(Fs.stat(path))

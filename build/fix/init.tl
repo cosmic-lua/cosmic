@@ -508,7 +508,7 @@ function fix.chosen(root: string, paths: {string}): fix.Chosen | nil, string
   local static_root, _ = Fs.absolute(root .. "/static")
   for _, path in ipairs(paths) do
     local what, missing = Fs.stat(path)
-    local real: string = nil
+    local real: string | nil = nil
     if what ~= nil then
       local resolved, _ = Fs.absolute(path)
       real = resolved

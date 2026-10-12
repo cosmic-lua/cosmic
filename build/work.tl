@@ -949,7 +949,7 @@ function work.stage(handle: work.Handle, own_tree: boolean): work.Staged | nil, 
   local function for_links(entry: string): boolean
     return not link_skip(entry) and not (own_tree and identity.is_foreign_tree(identity.first_of(entry)))
   end
-  local ancestors: {string:boolean} = nil
+  local ancestors: {string:boolean} | nil = nil
   local above = ""
   local function skip(entry: string, name: string, kind: string): boolean
     local parent = entry:match("^(.*)/[^/]*$")
@@ -972,8 +972,9 @@ function work.stage(handle: work.Handle, own_tree: boolean): work.Staged | nil, 
     if kind ~= "link" then
       return false
     end
+    local known: {string:boolean} = ancestors or {}
     if ancestors == nil then
-      ancestors = {}
+      ancestors = known
       local path = root
       local last = ""
       while true do
@@ -986,7 +987,7 @@ function work.stage(handle: work.Handle, own_tree: boolean): work.Staged | nil, 
           break
         end
         if last ~= "" then
-          ancestors[key] = true
+          known[key] = true
         end
         last = key
         path = path .. "/.."
@@ -994,7 +995,7 @@ function work.stage(handle: work.Handle, own_tree: boolean): work.Staged | nil, 
     end
     -- One that leads nowhere is not walked, so it is let be.
     local st, _ = Fs.stat(root .. "/" .. entry)
-    if st ~= nil and ancestors[tostring(st.dev) .. ":" .. tostring(st.ino)] then
+    if st ~= nil and known[tostring(st.dev) .. ":" .. tostring(st.ino)] then
       if above == "" then
         local target, _ = Fs.absolute(root .. "/" .. entry)
         above = root .. "/" .. entry .. ": a link to " .. (target or "a directory") ..
@@ -1033,7 +1034,7 @@ function work.stage(handle: work.Handle, own_tree: boolean): work.Staged | nil, 
   local staged: work.Staged = { files = 0, read = 0, notes = {} }
   -- The real path of `root`, once a static asset asks for it, and the
   -- static paths seen by their lowercase spelling.
-  local real_root: string = nil
+  local real_root: string | nil = nil
   local static_seen: {string:string} = {}
   -- The text of each file of `linked` read here, by path.
   local texts: {string:string} = {}
@@ -1053,15 +1054,19 @@ function work.stage(handle: work.Handle, own_tree: boolean): work.Staged | nil, 
       scan = false
     end
     if input and identity.is_static(file) then
-      if real_root == nil then
+      local static_root: string
+      if real_root ~= nil then
+        static_root = real_root
+      else
         local resolved, resolve_trouble = Fs.absolute(root)
         if resolved == nil then
           finish(put)
           return nil, resolve_trouble
         end
+        static_root = resolved
         real_root = resolved
       end
-      local refusal = static_refusal(root, real_root, file, st.size, static_seen)
+      local refusal = static_refusal(root, static_root, file, st.size, static_seen)
       if refusal ~= nil then
         finish(put)
         return nil, refusal

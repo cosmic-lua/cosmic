@@ -296,7 +296,7 @@ local record declared_key
     --- The system the host says it is, then its kernel's release and
     --- version: [`system_identity`] reads the first, [`host_identity`] the
     --- other two. Where it is nil, `system_sources(sysname)`.
-    system: {string}
+    system?: {string}
     --- The kernel `uname` names, which chooses where `system` looks
     --- when it is nil ([`system_sources`]).
     sysname?: string
@@ -439,7 +439,7 @@ local function carried_digest(database: string): string | nil, string
   local scratch, scratch_trouble = Fs.mkdtemp("cosmic-program-")
   if scratch == nil then return nil, scratch_trouble end
   local path = scratch .. "/carried.db"
-  local answer: string = nil
+  local answer: string | nil = nil
   local trouble = ""
   local written, write_trouble = Fs.write(path, database)
   if not written then
@@ -608,10 +608,16 @@ function declared_key.runtime_identity(digests: declared_key.Digests, raw: strin
                                        host_image: string, basis: string): string
   local name = "runtime-image\0" .. host_image
   digests.used[name] = true
-  local said, image: string, string = nil, nil
+  local said, image = "", ""
+  local was_known = false
   local was = digests.hashed[name]
-  if was ~= nil then said, image = was:match("^([^\0]*)\0(%x+)$") end
-  if said == nil then
+  if was ~= nil then
+    local was_said, was_image = was:match("^([^\0]*)\0(%x+)$")
+    if was_said ~= nil and was_image ~= nil then
+      said, image, was_known = was_said, was_image, true
+    end
+  end
+  if not was_known then
     local core, _ = artifact.trusted_core()
     if core == nil or hex(core.digest) ~= host_image then return raw end
     local digest = core_image.digest(core.bytes)
@@ -745,7 +751,7 @@ local function tree(digests: declared_key.Digests, path: string, programs?: bool
     local kind, answer = entry(digests, path, true, programs)
     if kind ~= "dir" then return answer end
     local lines: {string} = {}
-    local refused: string = nil
+    local refused: string | nil = nil
     local function walk(directory: string, prefix: string, depth: integer)
       local listed, trouble = sys.readdir(directory)
       if listed == nil then
@@ -1401,7 +1407,7 @@ function declared_key.host_features(sources?: declared_key.HostSources): string
   end
   for i = 2, 3 do
     -- None ("", macOS's version) is read as nothing, as in [`host_identity`].
-    local text: string = nil
+    local text: string | nil = nil
     if (system[i] or "") ~= "" then
       local read, _ = Fs.read(system[i])
       text = read

@@ -99,10 +99,10 @@ function invoke.run(args: {string}, opts: invoke.Options): invoke.Result
     for _, fd in ipairs(held) do local _, _ = sys.close(fd) end
     local _, _ = Fs.remove_tree(dir)
   end
-  local function hold(fd: integer | nil, trouble: string, what: string): integer
+  local function hold(fd: integer | nil, trouble: string | nil, what: string): integer
     if fd == nil then
       release()
-      error("invoke: " .. what .. ": " .. trouble, 3)
+      error("invoke: " .. what .. ": " .. (trouble or "no reason given"), 3)
     end
     held[#held + 1] = fd
     return fd

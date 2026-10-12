@@ -91,7 +91,7 @@ end
 --- many bytes it took and why it refused
 --- @return the bytes read beyond what the reader took, or nil
 --- @return why it refused or the connection failed, when nil
-local function answered(conn: Net.Conn, relay: string, feed: function(string): string, integer, string): string | nil, string
+local function answered(conn: Net.Conn, relay: string, feed: function(string): string, integer, string | nil): string | nil, string
   while true do
     local data, why = conn:read(CHUNK)
     if data == nil then
@@ -102,7 +102,7 @@ local function answered(conn: Net.Conn, relay: string, feed: function(string): s
       return nil, "reading from the relay: " .. why
     end
     local status, consumed, reason = feed(data)
-    if status == "refused" then return nil, reason end
+    if status == "refused" then return nil, reason or "the relay refused its answer" end
     if status == "done" then return data:sub(consumed + 1), "" end
   end
 end
@@ -334,7 +334,7 @@ local function run_in(args: {string}, io: sandbox_connect.Io): integer
   if not sent then return fail("writing to the relay: " .. sent_why) end
   trace("greeting sent")
   local method = RelayWire.socks_method_reader(login ~= nil)
-  local after_method, method_why = answered(conn, relay, function(chunk: string): string, integer, string
+  local after_method, method_why = answered(conn, relay, function(chunk: string): string, integer, string | nil
     local seen = method:feed(chunk)
     return seen.status, seen.consumed, seen.reason
   end)
@@ -347,7 +347,7 @@ local function run_in(args: {string}, io: sandbox_connect.Io): integer
     trace("token sent")
     local verdict = RelayWire.socks_auth_status_reader()
     local accepted = false
-    local after_auth, auth_why = answered(conn, relay, function(chunk: string): string, integer, string
+    local after_auth, auth_why = answered(conn, relay, function(chunk: string): string, integer, string | nil
       local seen = verdict:feed(chunk)
       accepted = seen.accepted
       return seen.status, seen.consumed, seen.reason
@@ -362,7 +362,7 @@ local function run_in(args: {string}, io: sandbox_connect.Io): integer
   trace("request sent")
   local reader = RelayWire.socks_answer_reader()
   local code = 0
-  local rest, answer_why = answered(conn, relay, function(chunk: string): string, integer, string
+  local rest, answer_why = answered(conn, relay, function(chunk: string): string, integer, string | nil
     local seen = reader:feed(chunk)
     code = seen.code
     return seen.status, seen.consumed, seen.reason

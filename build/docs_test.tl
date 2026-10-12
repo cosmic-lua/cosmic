@@ -2448,7 +2448,7 @@ local function test_a_lookup_answers_alike_with_the_indexes_or_without(dir: stri
   -- The fixture's handle is read-only; a writable one on its file drops
   -- them, which the read-only handle reads on its next query.
   local files = assert(Fs.list(dir))
-  local path: string = nil
+  local path: string | nil = nil
   for _, name in ipairs(files) do
     if name:match("^cosmic%-%d+%.db$") then path = dir .. "/" .. name end
   end
