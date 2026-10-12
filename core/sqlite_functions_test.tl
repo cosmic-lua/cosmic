@@ -151,3 +151,40 @@ local function test_uint_orders_embedded_numbers_by_value()
   assert(got[1] == "file1 file2 file10", got[1])
   assert(row("SELECT 'x00123y' = 'x123y' COLLATE uint")[1] == "1")
 end
+
+local function test_toreal_reads_text_as_cast_does_and_refuses_a_loss()
+  local got = row("SELECT toreal('1.7976931348623157e308') = CAST('1.7976931348623157e308' AS REAL), " ..
+      "toreal('2.2250738585072011e-308') = CAST('2.2250738585072011e-308' AS REAL), " ..
+      "toreal('1e400') IS NULL, toreal('1e-400') IS NULL, toreal('0e-400'), " ..
+      "toreal('9007199254740993') IS NULL, toreal(9007199254740993) IS NULL, " ..
+      "toreal(' 2') IS NULL, toreal(x'3ff0000000000000')")
+  local want = { "1", "1", "1", "1", "0.0", "1", "1", "1", "1.0" }
+  for i, value in ipairs(want) do
+    assert(got[i] == value, "column " .. i .. ": " .. tostring(got[i]))
+  end
+end
+
+local function test_tointeger_reads_text_as_cast_does_and_refuses_a_loss()
+  local got = row("SELECT tointeger('3.0'), tointeger('1e3'), " ..
+      "tointeger(CAST(x'31320078' AS TEXT)) IS NULL, tointeger('9223372036854775808') IS NULL, " ..
+      "tointeger('-9223372036854775808'), tointeger('3 ') IS NULL, tointeger(x'0100000000000000')")
+  local want = { "3", "1000", "1", "1", "-9223372036854775808", "1", "1" }
+  for i, value in ipairs(want) do
+    assert(got[i] == value, "column " .. i .. ": " .. tostring(got[i]))
+  end
+end
+
+local function test_ieee754_answers_zero_and_overflow_at_any_exponent()
+  local got = row("SELECT ieee754(0, 1000), ieee754(0, -1074), ieee754(1, 2000), " ..
+      "ieee754(3, 2000), ieee754(-3, 2000), ieee754(9007199254740995, 0), " ..
+      "ieee754_inc(-1.0, 1) < -1.0, ieee754_inc(0.0, -1) IS NULL")
+  local want = { "0.0", "0.0", "Inf", "Inf", "-Inf", "9007199254740994.0", "1", "1" }
+  for i, value in ipairs(want) do
+    assert(got[i] == value, "column " .. i .. ": " .. tostring(got[i]))
+  end
+end
+
+local function test_uint_compares_signs_and_points_as_bytes()
+  local got = row("SELECT 'a1.05' = 'a1.5' COLLATE uint, '-5' = '5' COLLATE uint")
+  assert(got[1] == "1" and got[2] == "0", got[1] .. " " .. got[2])
+end

@@ -1,0 +1,12 @@
+file: ext/misc/ieee754.c
+note: ieee754(M, E) clamps an exponent past the largest to all ones but keeps M's fraction bits, so an overflow is Inf only when those bits happen to be zero and otherwise a NaN pattern, which SQLite answers as NULL (`ieee754(1, 2000)` is Inf, `ieee754(3, 2000)` NULL). An exponent of all ones is no finite real either. Either overflow is now ±Inf, M's sign kept. Upstream has the same clamp as of 3.54.0.
+--- find
+    }else if( e>0x7ff ){
+      e = 0x7ff;
+    }
+--- replace
+    }else if( e>=0x7ff ){
+      e = 0x7ff;
+      m = 0;
+    }
+--- end

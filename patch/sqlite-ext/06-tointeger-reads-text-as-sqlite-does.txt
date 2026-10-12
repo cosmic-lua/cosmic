@@ -1,0 +1,34 @@
+file: ext/misc/totype.c
+note: tointeger() of a text takes SQLite's own reading of it (05-totype-reads-text-as-sqlite-does.txt): an integer as it is, and a real only when it is a whole number an integer holds, as the real case does. '3.0' and '1e3' read as 3 and 1000, losing nothing, where the copied parser took integer literals alone; '12\0x' is NULL.
+--- find
+    case SQLITE_TEXT: {
+      const unsigned char *zStr = sqlite3_value_text(argv[0]);
+      if( zStr ){
+        int nStr = sqlite3_value_bytes(argv[0]);
+        if( nStr && !totypeIsspace(zStr[0]) ){
+          sqlite3_int64 iVal;
+          if( !totypeAtoi64((const char*)zStr, &iVal, nStr) ){
+            sqlite3_result_int64(context, iVal);
+          }
+        }
+      }
+      break;
+    }
+--- replace
+    case SQLITE_TEXT: {
+      sqlite3_value *pNum = totypeNumber(context, argv[0]);
+      if( pNum ){
+        if( sqlite3_value_type(pNum)==SQLITE_INTEGER ){
+          sqlite3_result_int64(context, sqlite3_value_int64(pNum));
+        }else{
+          double rVal = sqlite3_value_double(pNum);
+          sqlite3_int64 iVal = totypeDoubleToInt(rVal);
+          if( rVal==(double)iVal ){
+            sqlite3_result_int64(context, iVal);
+          }
+        }
+        sqlite3_value_free(pNum);
+      }
+      break;
+    }
+--- end

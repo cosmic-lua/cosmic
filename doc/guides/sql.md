@@ -278,19 +278,34 @@ print(table.concat(rows[1], " "))
 - `decimal_cmp(X, Y)`: -1, 0 or 1 as X is below, equal to or above Y.
 - `decimal_sum(X)`: an aggregate: the exact sum.
 - `decimal_pow2(N)`: 2 to the power N, exactly, in exponential notation; NULL unless N is an integer.
-- `ieee754(X)`: a real as the text `ieee754(M,E)`, where X is exactly M × 2^E.
-  `ieee754(M, E)` is that real again.
+- `ieee754(X)`: a real as the text `ieee754(M,E)`, M odd or zero, where X
+  is exactly M × 2^E. -0.0 and the infinities get pairs of their own that
+  `ieee754(M, E)` reads back. An 8-byte blob is read as a big-endian real,
+  here and in the next two.
+- `ieee754(M, E)`: the integers M and E as the real M × 2^E, truncated
+  toward zero to the 53 bits a real holds, or ±Inf past the largest real.
 - `ieee754_mantissa(X)`: the M of `ieee754(X)`.
 - `ieee754_exponent(X)`: the E of `ieee754(X)`.
-- `ieee754_to_blob(X)`: a real's 8 bytes, big-endian.
-- `ieee754_from_blob(B)`: the real 8 big-endian bytes hold.
-- `ieee754_to_int(X)`: a real's 8 bytes, as a signed 64-bit integer.
-- `ieee754_from_int(N)`: the real whose bytes are N's.
-- `ieee754_inc(X, N)`: the real N representable steps from X.
-- `tointeger(X)`: X as an integer if no value is lost, else NULL. An 8-byte
-  blob is read as a little-endian integer.
-- `toreal(X)`: X as a real if at least 15 digits survive, else NULL. An
-  8-byte blob is read as a big-endian real.
+- `ieee754_to_blob(X)`: a number's 8 bytes as a real, big-endian.
+- `ieee754_from_blob(B)`: the real 8 big-endian bytes hold; NULL for any
+  other length.
+- `ieee754_to_int(X)`: a real's 8 bytes as one signed 64-bit integer; NULL
+  unless X is a real.
+- `ieee754_from_int(N)`: the real whose 8 bytes are the integer N's; NULL
+  unless N is an integer.
+- `ieee754_inc(X, N)`: the real whose 8 bytes, as an integer, are X's plus
+  N: N representable steps away from zero, or toward it for a negative N.
+  A step past zero, or past the largest real, gives Inf or NULL.
+- `tointeger(X)`: X as an integer when no value is lost, else NULL. A real
+  converts when it is a whole number; text when SQLite reads all of it as
+  such a number, as `CAST` does, with no space before or after; an 8-byte
+  blob as a little-endian integer.
+- `toreal(X)`: X as a real when no digit is lost, else NULL. An integer
+  converts when a real holds it exactly; text when SQLite reads all of it
+  as a number, as `CAST` does, with no space before or after, unless it
+  reads as an integer a real cannot hold, or it overflows to an infinity,
+  or a nonzero number underflows to zero; an 8-byte blob as a big-endian
+  real.
 - `uuid()`: a random version 4 UUID, as text.
 - `uuid_str(X)`: a UUID in its canonical text, from a 16-byte blob or text, or NULL.
 - `uuid_blob(X)`: a UUID as a 16-byte blob, from text or a blob, or NULL.
@@ -318,6 +333,8 @@ and `decimal` and `uint` from [SQLite's extensions](#sqlites-extensions).
 - `decimal`: orders text by its decimal value, so `'1.0' = '1' COLLATE decimal`.
 - `uint`: orders text with its runs of digits compared as numbers, so
   `file2` sorts before `file10` and `'x00123y' = 'x123y' COLLATE uint`.
+  Everything else compares as bytes, signs and decimal points too: `'-5'`
+  differs from `'5'`, and `'a1.05' = 'a1.5' COLLATE uint`.
 
 [`cosmic.hash`]: ../../cosmic/hash.tl
 [`cosmic.json`]: ../../cosmic/json.tl
