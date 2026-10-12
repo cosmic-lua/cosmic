@@ -171,7 +171,7 @@ local function test_a_wait_the_caller_gives_replaces_the_poll(tmp: string)
   local body = string.rep("0123456789abcdef", 1 << 15)
   local seen: {string} = {}
   local calls, asked = 0, 0
-  local fail: string = nil
+  local fail: string | nil = nil
   local w = Stream.to_fd(writer, { nonblocking = true, wait = function(fd: integer,
                                                                        events: integer, left: integer | nil): boolean, string
     calls = calls + 1

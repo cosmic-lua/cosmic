@@ -377,7 +377,7 @@ end
 --- failed, "" where the source ended before the request's first byte.
 function wire.read_head(input: wire.Input, limits: wire.Limits): wire.Read
   local start = input.taken
-  local stop: wire.Read = nil
+  local stop: wire.Read | nil = nil
   --- The next line of the head, without its CR; nil, `stop` set, where
   --- there is none.
   local function next_line(): string | nil
@@ -893,7 +893,7 @@ function wire.send(w: Stream.Writer, reply: wire.Reply): wire.Sent
   local length, chunked, close = framing(reply)
   local head = head_text(reply, length, chunked, close)
   local body = reply.body
-  local reader: Stream.Reader = nil
+  local reader: Stream.Reader | nil = nil
   if body ~= nil and not body is string then reader = body end
   local write_why, body_why = "", ""
   if reply.method == "HEAD" or bodiless(reply.status) then

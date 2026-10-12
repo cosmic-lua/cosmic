@@ -166,12 +166,15 @@ local function test_an_error_ends_the_run_and_closes_the_rest()
 end
 
 --- A raise names its module, however the call was wrong.
+--- What a test hands where a function is wanted and none is given.
+local absent: {string:any} = {}
+
 local function test_a_raise_names_the_module()
   local raising: {function()} = {
     function() Poll.delay(0) end,
     function() Poll.spawn(function() end) end,
     function() Poll.run(nil as function()) end,
-    function() Poll.shielded(nil as function()) end,
+    function() Poll.shielded(absent.fn as function()) end,
     function() Poll.checked_ns(-1, "poll", "span", 1) end,
     function() local _, _ = Poll.ready({ 0 }, { sys.POLLIN }) end,
   }
@@ -978,8 +981,7 @@ local function test_a_shielded_task_is_killed_and_closed()
     victim:kill()
     local ok, why = victim:join()
     assert(not ok and why == Poll.CANCELLED, why)
-    local function none(): function() return nil end
-    raises(function() Poll.shielded(none()) end, "Poll.shielded takes a function")
+    raises(function() Poll.shielded(absent.fn as function()) end, "Poll.shielded takes a function")
   end)
   assert(closed == 1, closed .. " closed")
   local ok, err: boolean, any = pcall(Poll.run, function()

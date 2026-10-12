@@ -26,6 +26,12 @@ local NO_BODY <const>: Types.Body<Types.None> = { kind = "none", typed = NONE }
 Typed.NONE = NONE
 Typed.no_body = NO_BODY
 
+--- What a handler is given for a slot the route does not read: the empty
+--- [`Web.None`] its spec builds from no fields.
+local function absent<T>(spec: Shape.Typed<T>): T
+  return (assert(spec:into({})))
+end
+
 --- The methods whose request may carry a body.
 local BODY_METHODS <const>: {string:boolean} = { POST = true, PUT = true, PATCH = true, DELETE = true }
 
@@ -149,9 +155,8 @@ end
 
 --- A route answering `methods` at `pattern` whose input is bound to the
 --- specs of `input` before `fn` runs, in order: the path, the query, the
---- body. `fn` is given the request and the three records, each nil
---- where the slot is absent (typed [`Web.None`], which has no field to
---- read):
+--- body. `fn` is given the request and the three records, each an empty
+--- [`Web.None`], which has no field to read, where the slot is absent:
 ---
 ---     Web.post_typed("/items", Web.input(Web.NONE, Web.NONE, Web.json_body(NEW)),
 ---       function(req: Web.Request, _: Web.None, _: Web.None, b: NewItem): Web.Response
@@ -204,7 +209,7 @@ function Typed.route_typed<P,Q,B>(methods: string | {string}, pattern: string, i
     return answer(req, inv, json_first)
   end
   local handler: Types.Handler = function(req: Types.Request): Types.Response
-    -- An absent slot is nil: its record has no field to read.
+    -- An absent slot is an empty [`Web.None`]: its record has no field to read.
     local p: P
     local q: Q
     local b: B
@@ -212,11 +217,15 @@ function Typed.route_typed<P,Q,B>(methods: string | {string}, pattern: string, i
       local read: Types.Parsed<P> = Input.path_into(req, input.path, options)
       if read.invalid ~= nil then return refuse(req, read.invalid) end
       p = read.value
+    else
+      p = absent(input.path)
     end
     if has_query then
       local read: Types.Parsed<Q> = Input.query_into(req, input.query, options)
       if read.invalid ~= nil then return refuse(req, read.invalid) end
       q = read.value
+    else
+      q = absent(input.query)
     end
     if kind == "form" then
       local read: Types.Parsed<B> = Input.form_into(req, input.body.typed, options)
@@ -230,6 +239,8 @@ function Typed.route_typed<P,Q,B>(methods: string | {string}, pattern: string, i
       local read: Types.Parsed<B> = Input.json_into(req, input.body.typed, options)
       if read.invalid ~= nil then return refuse(req, read.invalid) end
       b = read.value
+    else
+      b = absent(input.body.typed)
     end
     return fn(req, p, q, b)
   end

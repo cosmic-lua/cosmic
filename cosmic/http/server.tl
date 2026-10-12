@@ -416,7 +416,7 @@ end
 --- Closes the Reader body of `reply`, what a handler answered, where it
 --- has one the server will not send: checked as it runs, since the
 --- handler's answer is a [`Reply`] only by its declaration.
-local function drop_body(reply: Server.Reply)
+local function drop_body(reply: Server.Reply | nil)
   if type(reply) ~= "table" then return end
   local body = reply.body
   if body == nil then return end
@@ -479,7 +479,7 @@ local function exchange(s: Serving, conn: Net.Conn, input: wire.Input, head: wir
     method = head.method, target = head.target, path = head.path, query = head.query,
     version = head.version, headers = head.headers, body = body, length = head.length, peer = peer,
   }
-  local reply: Server.Reply = nil
+  local reply: Server.Reply | nil
   local ok, raised: boolean, any = xpcall(function() reply = s.spec.handle(request) end, traced)
   -- A body that failed is answered for, whatever the handler made of
   -- it: its raise, or its reply, followed from the failed read.
@@ -502,8 +502,14 @@ local function exchange(s: Serving, conn: Net.Conn, input: wire.Input, head: wir
     if body.state == "open" then linger(conn) end
     return false
   end
-  local trouble = Server.check(reply, head.method)
-  if trouble ~= "" then
+  -- A handler is a Reply only by its declaration: it may answer nothing.
+  local trouble: string
+  if reply == nil then
+    trouble = reply_trouble(reply)
+  else
+    trouble = Server.check(reply, head.method)
+  end
+  if trouble ~= "" or reply == nil then
     drop_body(reply)
     report(s, "http: " .. where .. ": " .. trouble)
     answer(s, conn, head, 500, "")
@@ -526,7 +532,7 @@ local function exchange(s: Serving, conn: Net.Conn, input: wire.Input, head: wir
   end
   replied = true
   conn:set_timeout(s.timeout_ns)
-  local sent: wire.Sent = nil
+  local sent: wire.Sent | nil = nil
   local sending, raised_sending: boolean, any = xpcall(function()
     sent = wire.send(conn, {
       status = reply.status, headers = reply.headers, body = reply.body, length = reply.length,
@@ -540,6 +546,8 @@ local function exchange(s: Serving, conn: Net.Conn, input: wire.Input, head: wir
     report(s, "http: " .. where .. ": the reply's body: " .. tostring(raised_sending))
     return false
   end
+  -- The send answered once it did not raise.
+  if sent == nil then return false end
   local failed = body.state ~= "open" and body.state ~= "done"
   if sent.body_failure ~= "" and not failed then
     report(s, "http: " .. where .. ": the reply's body: " .. sent.body_failure)
@@ -779,7 +787,7 @@ function Server.range(header: string | nil, size: integer): Server.Range
   if equals == nil or value:sub(1, equals - 1):lower() ~= "bytes" or ows(value:byte(equals + 1)) then
     return unranged
   end
-  local spec: string = nil
+  local spec: string | nil = nil
   local from = equals + 1
   while true do
     local comma = value:find(",", from, true)
@@ -810,15 +818,20 @@ function Server.range(header: string | nil, size: integer): Server.Range
   return { kind = "span", first = size - math.min(n, size), last = size - 1 }
 end
 
+local record EntityTag
+  last: integer
+  opaque: string
+end
+
 --- Where the entity tag that starts at `at` in `text` ends, and its
 --- opaque tag, quotes and all, which a weak comparison compares; nil
 --- where none starts there.
-local function entity_tag(text: string, at: integer): integer, string
+local function entity_tag(text: string, at: integer): EntityTag | nil
   local from = at
   if text:sub(at, at + 1) == "W/" then from = at + 2 end
   local _, last = text:find('^"[!\x23-\x7e\x80-\xff]*"', from)
-  if last == nil then return nil, nil end
-  return last, text:sub(from, last)
+  if last == nil then return nil end
+  return { last = last, opaque = text:sub(from, last) }
 end
 
 --- Whether the If-None-Match `header` (nil where none was sent) names
@@ -838,8 +851,8 @@ end
 --- one it has. A list element that is no entity tag names nothing, and
 --- the rest are still read. An `etag` that is no entity tag raises.
 function Server.none_match(header: string | nil, etag: string): boolean
-  local own_last, own = entity_tag(etag, 1)
-  if own_last ~= #etag then
+  local own = entity_tag(etag, 1)
+  if own == nil or own.last ~= #etag then
     error(("http: Server.none_match's etag %q is no entity tag, as \"v1\" or W/\"v1\""):format(etag), 2)
   end
   if header == nil then return false end
@@ -851,11 +864,11 @@ function Server.none_match(header: string | nil, etag: string): boolean
     if b == 44 or ows(b) then
       at = at + 1
     else
-      local last, opaque = entity_tag(value, at)
-      local after = last ~= nil and last + 1 or at
+      local found = entity_tag(value, at)
+      local after = found ~= nil and found.last + 1 or at
       while ows(value:byte(after)) do after = after + 1 end
-      if last ~= nil and (after > #value or value:byte(after) == 44) then
-        if opaque == own then return true end
+      if found ~= nil and (after > #value or value:byte(after) == 44) then
+        if found.opaque == own.opaque then return true end
       else
         -- What is no entity tag runs to the next comma.
         after = value:find(",", after, true) or #value + 1

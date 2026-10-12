@@ -583,7 +583,8 @@ end
 -- over the bare pipe leaves the pipe's own buffer to hold them.
 --- One captured or streamed output of one child.
 local record Pipe
-  fd: integer
+  --- The read end, nil once the stream has ended and it is closed.
+  fd?: integer
   child_fd: integer
   chunks: {string}
   size: integer
@@ -815,7 +816,7 @@ end
 --- open is not ended by a guard another task of the run opens after:
 --- a wait reads the guards open as it waits, and a guard opened
 --- meanwhile guards the waits that come after it.
-local function slice(deadline: integer | nil, handles: {Handle}): integer
+local function slice(deadline: integer | nil, handles: {Handle}): integer | nil
   local most = POLL_NS
   if exits_seen(handles) then most = adopting and REAP_NS or -1 end
   if deadline == nil then return most end
@@ -1013,7 +1014,10 @@ local services: {Kind:Service} = {
       if stream.streamed and owner._limit - stream.size < want then
         want = owner._limit - stream.size
       end
-      local data, trouble, errno = sys.read(stream.fd, want)
+      -- `live` held the entry to an open descriptor.
+      local fd = stream.fd
+      if fd == nil then return end
+      local data, trouble, errno = sys.read(fd, want)
       if data == nil then
         if errno ~= sys.EAGAIN and errno ~= sys.EINTR then fail_stream(stream, trouble) end
       elseif data == "" then
@@ -3758,7 +3762,7 @@ local function start(argv: {string}, opts: Options, pty?: Pty, serves_relay?: in
   -- TODO: offer the rest of spawn's `sandbox` -- a ruleset from
   -- raw.landlock_ruleset, a pledge -- once a caller wants a child held
   -- to one: build/sandbox_probe.tl, which reaches the raw table for them.
-  local sandbox: raw_process.Sandbox = nil
+  local sandbox: raw_process.Sandbox | nil = nil
   if opts.sandbox ~= nil then
     local given = opts.sandbox.unveil
     sandbox = { offline = opts.sandbox.offline == true,

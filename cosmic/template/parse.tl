@@ -367,7 +367,7 @@ nodes = function(p: Parser): {types.Node} | nil, string
 end
 
 --- Whether `item` is literal text with nothing visible in it.
-local function blank_text(item: types.Item): boolean
+local function blank_text(item: types.Item | nil): boolean
   return item ~= nil and not item.action and not item.text:find("[^ \t\r\n]")
 end
 

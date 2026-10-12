@@ -17,6 +17,12 @@ local record Closing
   metamethod __close: function(Closing)
 end
 
+--- What a request's handler answered, where the closer of its bodies can
+--- read it: a closure assigns a variable the checker narrows to nil.
+local record Answered
+  reply?: Types.Response
+end
+
 local record App
 end
 
@@ -110,7 +116,7 @@ function App.new(spec: Types.AppSpec): Types.App
       error("web: hubs holds only what has a close method", 2)
     end
   end
-  local trusted: {string:boolean} = nil
+  local trusted: {string:boolean} | nil = nil
   if spec.trusted_hosts ~= nil then
     trusted = {}
     local hosts: {string} = {}
@@ -146,7 +152,7 @@ function App.new(spec: Types.AppSpec): Types.App
   local stack = Middleware.compose(middleware, Errors.wrap(dispatch))
   app.handle = function(raw: Server.Request): Types.Response
     local parts: Request.Parts = { path = "/", segments = {}, trailing = false }
-    local outcome: Types.Outcome = nil
+    local outcome: Types.Outcome | nil = nil
     if raw.path == "*" then
       outcome = Router.star(router, raw.method)
     else
@@ -169,21 +175,26 @@ function App.new(spec: Types.AppSpec): Types.App
       end
     end
     req.outcome = outcome
-    local reply: Types.Response = nil
+    local answered: Answered = {}
     -- A `<close>` variable, not code after the call: a task killed where
     -- its handler waits (a client that went away mid-upload) runs the
     -- pending closes of its coroutine and nothing after them. The bodies
     -- a reply streams are the server's to close.
     local closing_mt: metatable<Closing> = { __close = function()
       for _, body in ipairs(req.bodies) do
+        local reply = answered.reply
         if reply == nil or reply.body ~= body then
           local _, _ = body:close()
         end
       end
     end }
     local _closing <close>: Closing = setmetatable({}, closing_mt)
-    local ok, raised = pcall(function() reply = stack(req) end)
+    local ok, raised = pcall(function() answered.reply = stack(req) end)
     if not ok then error(raised, 0) end
+    local reply = answered.reply
+    -- Out of contract (a middleware that returns nothing): the server
+    -- answers 500 for the raise, as it did for the nil it was given.
+    if reply == nil then error("web: the handler stack answered no Response", 0) end
     return reply
   end
   return setmetatable(app, app_mt)
@@ -220,7 +231,7 @@ function App.serve(app: Types.App, opts: Types.ServeOptions): boolean, string
   end
   app.stopped = false
   app.stream_limit = app.spec.max_streams or ((opts.limits or {}).connections or 256) // 2
-  local shutdown: Types.Shutdown = nil
+  local shutdown: Types.Shutdown | nil = nil
   if app.spec.lifespan ~= nil then
     local cleanup, why = app.spec.lifespan(app)
     if cleanup == nil and why ~= nil and why ~= "" then return false, why end

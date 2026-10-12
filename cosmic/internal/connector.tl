@@ -802,7 +802,7 @@ end
 function Served:ended(): boolean
   if not self.open then return true end
   local channel = self.channel
-  return self.inherited and (channel == nil or channel.lost ~= nil or not channel.process.open)
+  return self.inherited == true and (channel == nil or channel.lost ~= nil or not channel.process.open)
 end
 
 function Served:close(): boolean, string

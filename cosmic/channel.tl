@@ -195,7 +195,7 @@ function State.send<T>(self: State<T>, item: T, timeout_ns?: integer): boolean, 
     local result = offer(self, item)
     if result == "queued" then return true, "" end
     if result == "closed" then return false, Channel.CLOSED end
-    local left: integer = nil
+    local left: integer | nil = nil
     if deadline ~= nil then
       left = deadline - Clock.monotonic_ns()
       if left <= 0 then return false, Poll.TIMEOUT end
@@ -210,7 +210,7 @@ function State.receive<T>(self: State<T>, timeout_ns?: integer): T | nil, string
   local deadline = timeout_ns ~= nil and Clock.monotonic_ns() + timeout_ns or nil
   while self.count == 0 do
     if self.is_closed then return nil, Channel.CLOSED end
-    local left: integer = nil
+    local left: integer | nil = nil
     if deadline ~= nil then
       left = deadline - Clock.monotonic_ns()
       if left <= 0 then return nil, Poll.TIMEOUT end

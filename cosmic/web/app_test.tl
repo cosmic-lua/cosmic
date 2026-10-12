@@ -73,6 +73,25 @@ local function test_a_miss_passes_through_the_middleware_around_where_it_happene
   assert(table.concat(trace, " ") == "A M /M /A", "nor does a 405 inside it")
 end
 
+--- A middleware that answers nothing is out of contract: the app raises
+--- (the server answers that 500, as it did for the nil it was given before),
+--- and says which layer failed to answer.
+local function test_a_stack_that_answers_nothing_raises_and_is_not_a_nil_response()
+  local app = Web.app{
+    routes = { Web.get("/", hello) },
+    middleware = { function(_inner: Web.Handler): Web.Handler
+      return function(_req: Web.Request): Web.Response
+        local nothing: any = nil
+        return nothing as Web.Response
+      end
+    end },
+  }
+  local client = Web.test_client(app)
+  local ok, why = pcall(function() local _ = client:get("/") end)
+  assert(not ok and tostring(why):find("the handler stack answered no Response", 1, true) ~= nil,
+    tostring(why))
+end
+
 local function test_middleware_may_answer_alone_and_change_the_request()
   local MARK: Web.Key<string> = Web.key("mark")
   local app = Web.app{
@@ -177,7 +196,7 @@ end
 
 local function test_a_raise_is_a_500_that_tells_the_client_nothing()
   local sink, lines = recording()
-  local seen_status: integer = nil
+  local seen_status: integer | nil = nil
   local app = Web.app{
     routes = { Web.get("/boom", function(_req: Web.Request): Web.Response
       error("secret detail <b>")
@@ -374,11 +393,12 @@ local function test_url_for_resolves_names_on_the_app()
   assert(none == nil and why:find("no route named", 1, true), why)
 end
 
+local absent: {string:any} = {}
+
 local function test_on_stop_takes_a_function_and_stopping_starts_false()
   local app = Web.app{ routes = {} }
   assert(app:stopping() == false)
-  local function none(): function() return nil end
-  assert(raised(function() app:on_stop(none()) end):find("takes a function", 1, true))
+  assert(raised(function() app:on_stop(absent.fn as function()) end):find("takes a function", 1, true))
 end
 
 --- A middleware that aborts every request with 403 before its handler.

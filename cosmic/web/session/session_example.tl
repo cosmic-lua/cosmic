@@ -59,7 +59,7 @@ end
 --- [`Session.KEY`]; it is nil where the middleware is not installed, and
 --- [`Session.of`] raises there.
 function Example.key()
-  local installed: boolean = nil
+  local installed: boolean | nil = nil
   local app = Web.app{
     routes = { Web.get("/", function(_req: Web.Request): Web.Response return Web.text("ok") end) },
     middleware = {

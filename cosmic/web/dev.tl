@@ -378,7 +378,7 @@ local function look(self: Watch)
 end
 
 function Watch.next(self: Watch, timeout_ns?: integer): Sse.Event | nil, string
-  local deadline: integer = nil
+  local deadline: integer | nil = nil
   if timeout_ns ~= nil then deadline = Clock.monotonic_ns() + timeout_ns end
   while true do
     if self.queue[1] ~= nil then return table.remove(self.queue, 1), "" end
@@ -431,7 +431,7 @@ local function injected(res: Types.Response, nonce: string | nil): Types.Respons
   if kind == nil or not kind:lower():find("^text/html") then return res end
   if Response.header(res, "Content-Encoding") ~= nil then return res end
   local lowered = body:lower()
-  local at: integer = nil
+  local at: integer | nil = nil
   local from = 1
   while true do
     local found = lowered:find("</body>", from, true)
@@ -614,7 +614,7 @@ function Dev.supervise(opts?: Dev.SuperviseOptions): boolean, string
   local made, held = Signal.guard()
   if made == nil then return false, "web: dev: " .. held end
   local guard: Signal.Guard = made
-  local handle: Child.Handle = nil
+  local handle: Child.Handle | nil = nil
   local boot = 0
 
   local function launch()
@@ -653,7 +653,7 @@ function Dev.supervise(opts?: Dev.SuperviseOptions): boolean, string
 
   -- A change is acted on once a look finds nothing further moved, so an
   -- editor's burst of writes (or a build's) restarts the program once.
-  local pending: {string} = nil
+  local pending: {string} | nil = nil
   launch()
   while guard:cancelled() == 0 do
     if handle ~= nil then
@@ -673,7 +673,7 @@ function Dev.supervise(opts?: Dev.SuperviseOptions): boolean, string
       local paths = changed(seen, now)
       seen = now
       if #paths > 0 then
-        pending = pending or paths
+        if pending == nil then pending = paths end
       elseif pending ~= nil then
         local moved = pending
         pending = nil

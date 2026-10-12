@@ -166,7 +166,7 @@ local function test_each_request_draws_its_own_nonce_for_the_policy_and_the_page
 end
 
 local function test_without_nonce_the_key_is_empty_and_the_policy_may_not_ask_for_one()
-  local seen: string = nil
+  local seen: string | nil = nil
   local app = make_app({ csp = Csp.htmx_default() }, { Web.get("/n", function(req: Web.Request): Web.Response
     seen = req:get(Headers.NONCE)
     return Web.html(Html.trust("<p>x</p>"))

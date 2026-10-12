@@ -46,8 +46,8 @@ local record Testing
     scheme: string
     --- Whether the app's lifespan has run.
     started: boolean
-    --- The cleanup the lifespan returned.
-    shutdown: Types.Shutdown
+    --- The cleanup the lifespan returned, nil once run or when it returned none.
+    shutdown?: Types.Shutdown
 
     --- One request, answered by the app's handler. `path` may hold a query.
     --- A reply the server would refuse raises, with the server's reason.
@@ -280,7 +280,7 @@ local function remember(client: Testing.Client, line: string, path: string)
   local name = parsed.name
   local cookie_path = parsed.path or default_path(path)
   local now = Clock.now_ns()
-  local expires: integer = nil
+  local expires: integer | nil = nil
   local gone = false
   if parsed.max_age ~= nil then
     gone = parsed.max_age <= 0
@@ -352,7 +352,7 @@ local function send(client: Testing.Client, method: string, path: string, opts: 
     version = "HTTP/1.1", headers = prepared.headers, body = Stream.from_string(prepared.body),
     length = #prepared.body, peer = Net.tcp("127.0.0.1", 50000),
   }
-  local result: Response = nil
+  local result: Response | nil = nil
   in_loop(function()
     local reply = client.app.handle(raw)
     local trouble = Server.check(reply, method)
@@ -367,9 +367,9 @@ local function send(client: Testing.Client, method: string, path: string, opts: 
     end
     local lines = lines_of(reply)
     local body = ""
-    local stream: Stream.Reader = nil
+    local stream: Stream.Reader | nil = nil
     local given = reply.body
-    local length: integer = nil
+    local length: integer | nil = nil
     if given is string then
       body = given
       length = #given
@@ -400,6 +400,7 @@ local function send(client: Testing.Client, method: string, path: string, opts: 
     result = response_of(reply.status, lines, body)
     result.stream = stream
   end)
+  if result == nil then error("web: test client: the loop ended before the app answered", 0) end
   for _, line in ipairs(result.lines["set-cookie"] or {}) do
     remember(client, line, prepared.path)
   end
@@ -679,7 +680,7 @@ local loopback_mt: metatable<Testing.Loopback> = { __index = loopback_methods }
 --- @param app Types.App The app
 --- @param fn function(client: Testing.Loopback) The test
 function Testing.with_server(app: Types.App, fn: function(client: Testing.Loopback))
-  local failure: string = nil
+  local failure: string | nil = nil
   local ok, why = App.serve(app, {
     listeners = { Net.tcp("127.0.0.1", 0) },
     on_ready = function(addresses: {Net.Address}, server: Net.Server)

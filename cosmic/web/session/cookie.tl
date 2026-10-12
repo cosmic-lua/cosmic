@@ -82,7 +82,7 @@ function SessionCookie.store(opts: SessionCookie.Options): Session.Store
     if payload == nil then return nil, "" end
     local given, _ = Codec.unbase64url(sent)
     if given == nil then return nil, "" end
-    local verified: integer = nil
+    local verified: integer | nil = nil
     for i, key in ipairs(keys) do
       -- Every key is tried, so the time taken does not say which matched.
       if Hash.equal(mac(key, cookie, payload), given) and verified == nil then verified = i end

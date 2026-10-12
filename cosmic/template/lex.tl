@@ -186,7 +186,7 @@ function Lex.lex(src: string, name: string): types.Lexed | nil, string
   while cur.pos <= n do
     local open = src:find("{{", cur.pos, true)
     local stop = open or n + 1
-    local last: types.Item = nil
+    local last: types.Item | nil = nil
     if stop > cur.pos then
       local text = src:sub(cur.pos, stop - 1)
       local skip = trim_next and leading(text) or 0

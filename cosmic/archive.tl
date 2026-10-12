@@ -371,9 +371,7 @@ local function apply_strip(path: string, prefix: string | nil, count: integer | 
       rest = rest:gsub("^/+", "")
     end
   end
-  -- A float that is a whole number (2.0) counts as one; [`extract_from`]
-  -- has already refused any other.
-  for _ = 1, math.tointeger(count) or 0 do
+  for _ = 1, count or 0 do
     local slash = rest:find("/", 1, true)
     if slash == nil then return nil end
     rest = rest:sub(slash + 1)
@@ -454,12 +452,14 @@ local function extract_from(from: string | Archive.Reader, dest: string,
   end
   local entry_limit = byte_limit("max_entry_bytes", opts.max_entry_bytes, DEFAULT_MAX_ENTRY_BYTES)
   local total_limit = byte_limit("max_bytes", opts.max_bytes, DEFAULT_MAX_BYTES)
-  local count = opts.strip_components
-  if count ~= nil and math.tointeger(count) == nil then
+  local strip = opts.strip_components
+  if strip ~= nil and math.tointeger(strip) == nil then
     error("archive: strip_components is not a whole number of components", 2)
-  elseif count ~= nil and count < 0 then
+  elseif strip ~= nil and strip < 0 then
     error("archive: strip_components is negative", 2)
   end
+  -- A float that is a whole number (2.0) counts as one.
+  local count = strip ~= nil and math.tointeger(strip) or nil
   local links_mode = opts.links or "skip"
   local entries_left = opts.max_entries
   local reader: Archive.Reader

@@ -286,7 +286,7 @@ local record Types
   end
 
   --- The type of an absent slot of [`Web.input`]: a path, query or body
-  --- the route does not read. A handler is given nil for it.
+  --- the route does not read. A handler is given an empty one for it.
   record None
   end
 

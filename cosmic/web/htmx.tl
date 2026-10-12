@@ -413,7 +413,7 @@ function Htmx.redirect_to(req: Types.Request, url: string | Html.SafeUrl): Types
   if seen.active and not seen.boosted then
     return Htmx.apply(Response.empty(200), { redirect = Html.trust_url(target) })
   end
-  local made: Types.Response = nil
+  local made: Types.Response | nil = nil
   local ok = pcall(function() made = Response.redirect(target) end)
   if not ok then return nil, "htmx: redirect is not a path or an http(s) URL" end
   return made

@@ -88,8 +88,8 @@ local function test_format_event_makes_one_event_with_the_fields_given_and_no_ot
       local seen: {string: integer} = {}
       local data: {string} = {}
       local comment: {string} = {}
-      local id: string = nil
-      local event: string = nil
+      local id: string | nil = nil
+      local event: string | nil = nil
       for line in out:sub(1, -3):gmatch("[^\n]*") do
         local name, value = line:match("^(%a+): (.*)$")
         if line:sub(1, 2) == ": " then
