@@ -1,5 +1,5 @@
 file: ext/misc/totype.c
-note: tointeger() of a text takes SQLite's own reading of it (05-totype-reads-text-as-sqlite-does.txt): an integer as it is, and a real only when it is a whole number an integer holds, as the real case does. '3.0' and '1e3' read as 3 and 1000, losing nothing, where the copied parser takes integer literals alone and answers NULL; '12\0x' is NULL.
+note: tointeger() of a text takes an integer literal alone, a sign and digits, as upstream does, but reads it with SQLite's own reading (05-totype-reads-text-as-sqlite-does.txt) in place of the copied parser, which stops at a NUL and reads '12\0x' as 12. A literal past the 64-bit range reads as a real, and is NULL. Text with a point or an exponent is NULL even when it names a whole number: SQLite reads it through a real, which keeps about 19 digits, so '1.00000000000000001' would read as 1.
 --- find
     case SQLITE_TEXT: {
       const unsigned char *zStr = sqlite3_value_text(argv[0]);
@@ -16,16 +16,17 @@ note: tointeger() of a text takes SQLite's own reading of it (05-totype-reads-te
     }
 --- replace
     case SQLITE_TEXT: {
-      sqlite3_value *pNum = totypeNumber(context, argv[0]);
+      const unsigned char *zStr = sqlite3_value_text(argv[0]);
+      int nStr = sqlite3_value_bytes(argv[0]);
+      int i = zStr && (zStr[0]=='-' || zStr[0]=='+');
+      sqlite3_value *pNum;
+      if( zStr==0 || nStr<=i ) break;
+      while( i<nStr && totypeIsdigit(zStr[i]) ) i++;
+      if( i<nStr ) break;
+      pNum = totypeNumber(context, argv[0]);
       if( pNum ){
         if( sqlite3_value_type(pNum)==SQLITE_INTEGER ){
           sqlite3_result_int64(context, sqlite3_value_int64(pNum));
-        }else{
-          double rVal = sqlite3_value_double(pNum);
-          sqlite3_int64 iVal = totypeDoubleToInt(rVal);
-          if( rVal==(double)iVal ){
-            sqlite3_result_int64(context, iVal);
-          }
         }
         sqlite3_value_free(pNum);
       }

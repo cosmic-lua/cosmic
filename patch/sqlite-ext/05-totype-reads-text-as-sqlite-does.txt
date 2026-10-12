@@ -1,5 +1,5 @@
 file: ext/misc/totype.c
-note: tointeger() and toreal() parse text with totype.c's own copies of SQLite's parsers, which drift from SQLite's: toreal('1.7976931348623157e308') is Inf, reals across the range come out a unit in the last place off ('-1.0e-290'), and tointeger reads '12\0x' as 12, stopping at the NUL. This helper reads a text the way CAST and column affinity do, correctly rounded, and only when the whole text is a number; the next two records use it in place of the copies.
+note: tointeger() and toreal() parse text with totype.c's own copies of SQLite's parsers, which drift from SQLite's: toreal('1.7976931348623157e308') is Inf, reals across the range come out a unit in the last place off ('-1.0e-290'), and tointeger reads '12\0x' as 12, stopping at the NUL. This helper reads a text the way CAST and column affinity do, and only when the whole text is a number; the next two records use it in place of the copies.
 --- find
 /*
 ** tointeger(X):  If X is any value (integer, double, blob, or string) that

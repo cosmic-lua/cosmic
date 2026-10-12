@@ -164,11 +164,11 @@ local function test_toreal_reads_text_as_cast_does_and_refuses_a_loss()
   end
 end
 
-local function test_tointeger_reads_text_as_cast_does_and_refuses_a_loss()
-  local got = row("SELECT tointeger('3.0'), tointeger('1e3'), " ..
+local function test_tointeger_takes_an_integer_literal_alone()
+  local got = row("SELECT tointeger('3.0') IS NULL, tointeger('1.00000000000000001') IS NULL, " ..
       "tointeger(CAST(x'31320078' AS TEXT)) IS NULL, tointeger('9223372036854775808') IS NULL, " ..
       "tointeger('-9223372036854775808'), tointeger('3 ') IS NULL, tointeger(x'0100000000000000')")
-  local want = { "3", "1000", "1", "1", "-9223372036854775808", "1", "1" }
+  local want = { "1", "1", "1", "1", "-9223372036854775808", "1", "1" }
   for i, value in ipairs(want) do
     assert(got[i] == value, "column " .. i .. ": " .. tostring(got[i]))
   end
@@ -190,7 +190,7 @@ local function test_uint_compares_signs_and_points_as_bytes()
 end
 
 local function test_totype_holds_the_least_integer()
-  local got = row("SELECT tointeger(-9223372036854775808.0), tointeger('-9.223372036854775808e18'), " ..
+  local got = row("SELECT tointeger(-9223372036854775808.0), tointeger('-9223372036854775808'), " ..
       "toreal(-9223372036854775808) = -9223372036854775808.0, " ..
       "toreal('-9223372036854775808') = -9223372036854775808.0, tointeger(9223372036854775808.0) IS NULL")
   local want = { "-9223372036854775808", "-9223372036854775808", "1", "1", "1" }

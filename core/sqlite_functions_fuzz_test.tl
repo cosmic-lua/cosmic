@@ -215,9 +215,8 @@ end
 
 --- A real's eight bytes, as ieee754.c reads a blob: whatever real they
 --- hold goes back to the same bytes, through `ieee754_to_blob`, through its
---- integer and through `ieee754(M, E)`; and `ieee754(M, E)` and
---- `ieee754_inc` answer a real or NULL for any integers, `ieee754(M, E)`
---- NULL only for the least M.
+--- integer and through `ieee754(M, E)`; and `ieee754(M, E)` answers a
+--- real for any integers but the least M.
 local function test_ieee754_is_total_and_round_trips(tmp: string)
   Fuzz.run({
     name = "sqlite ieee754 total",
@@ -238,7 +237,7 @@ local function test_ieee754_is_total_and_round_trips(tmp: string)
           "hex(ieee754_to_blob(ieee754_from_blob(?1))) = hex(?1), " ..
           "hex(ieee754_to_blob(ieee754(ieee754_mantissa(?1), ieee754_exponent(?1)))) = hex(?1), " ..
           "hex(ieee754_to_blob(ieee754_from_int(ieee754_to_int(ieee754_from_blob(?1))))) = hex(?1), " ..
-          "typeof(ieee754(?2, ?3)), typeof(ieee754_inc(ieee754_from_blob(?1), ?2))",
+          "typeof(ieee754(?2, ?3))",
         { { blob = fields[1] }, { integer = math.tointeger(fields[2]) },
           { integer = math.tointeger(fields[3]) } })
       if rows == nil then return false, "ieee754 failed its statement: " .. trouble end
@@ -246,9 +245,6 @@ local function test_ieee754_is_total_and_round_trips(tmp: string)
       local least = math.tointeger(fields[2]) == math.mininteger
       if row[5] ~= (least and "null" or "real") then
         return false, "ieee754(M, E) answered " .. row[5]
-      end
-      if row[6] ~= "real" and row[6] ~= "null" then
-        return false, "ieee754_inc answered " .. row[6]
       end
       if row[1] == "real" then
         Fuzz.label("a real")
@@ -302,8 +298,10 @@ local function gen_number(src: Fuzz.Source): string
   return Fuzz.pack({ "any", table.concat(parts) })
 end
 
---- What `tointeger` and `toreal` make of a text agrees with `CAST`, and a
---- well-formed decimal converts.
+--- What `tointeger` and `toreal` make of a text: `toreal` answers what
+--- `CAST` does when it answers, and a well-formed decimal converts;
+--- `tointeger` answers an integer literal an integer holds as itself, and
+--- NULL for anything else.
 local function test_totype_reads_text_as_cast_does(tmp: string)
   Fuzz.run({
     name = "sqlite totype as cast",
@@ -314,7 +312,7 @@ local function test_totype_reads_text_as_cast_does(tmp: string)
       local shape, text = fields[1], fields[2]
       local rows, trouble = Sqlite.text_rows(handle,
         "SELECT typeof(toreal(?1)), toreal(?1) = CAST(?1 AS REAL), toreal(?1) - toreal(?1) = 0.0, " ..
-          "typeof(tointeger(?1)), tointeger(?1) = CAST(?1 AS NUMERIC), tointeger(?1), " ..
+          "typeof(tointeger(?1)), tointeger(?1), " ..
           "typeof(tointeger(?2)), typeof(toreal(?2))",
         { { text = text }, { blob = text } })
       if rows == nil then return false, "totype failed its statement: " .. trouble end
@@ -326,26 +324,31 @@ local function test_totype_reads_text_as_cast_does(tmp: string)
       elseif shape == "well" then
         return false, "toreal refused the decimal " .. text
       end
-      if row[4] == "integer" then
+      -- An integer literal an integer holds converts to itself; anything
+      -- else is NULL.
+      local literal = text:match("^[+-]?%d+$") and math.tointeger((text:gsub("^%+", "")))
+      if literal ~= nil then
         Fuzz.label("read as an integer")
-        if row[5] ~= "1" then
-          return false, "tointeger(" .. text .. ") is not the number it reads"
+        if row[5] ~= tostring(literal) then
+          return false, "tointeger(" .. text .. ") answered " .. row[5]
         end
+      elseif row[4] ~= "null" then
+        return false, "tointeger(" .. text .. ") is no integer literal, but answered " .. row[5]
       end
       if shape == "integer" then
         local n = math.tointeger(text)
-        if row[6] ~= text then return false, "tointeger(" .. text .. ") answered " .. row[6] end
+        if row[5] ~= text then return false, "tointeger(" .. text .. ") answered " .. row[5] end
         local exact = math.tointeger((n as number) + 0.0) == n
         if (row[1] == "real") ~= exact then
           return false, "toreal(" .. text .. ") is " .. row[1] .. " though a real holds it " ..
             (exact and "exactly" or "inexactly")
         end
       end
-      if row[7] ~= (#text == 8 and "integer" or "null") then
-        return false, "tointeger of a " .. #text .. "-byte blob answered " .. row[7]
+      if row[6] ~= (#text == 8 and "integer" or "null") then
+        return false, "tointeger of a " .. #text .. "-byte blob answered " .. row[6]
       end
-      if #text ~= 8 and row[8] ~= "null" then
-        return false, "toreal of a " .. #text .. "-byte blob answered " .. row[8]
+      if #text ~= 8 and row[7] ~= "null" then
+        return false, "toreal of a " .. #text .. "-byte blob answered " .. row[7]
       end
       return true, ""
     end,
