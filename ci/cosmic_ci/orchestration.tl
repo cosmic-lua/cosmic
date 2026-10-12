@@ -1220,10 +1220,11 @@ local function boot(p: PlatformContext): integer
     Fs.put(Fs.stderr, "build: no zig-cache at " .. cache ..
         "; compiling from nothing\n")
   end
-  if not seed and from and is_dir(from) then
+  if seed == nil and from ~= nil and is_dir(from) then
+    local source: string = from
     mkdir(BuildPaths.directory(root))
     local copied = step(c, "restore zig-cache", function(): boolean, string
-      return Fs.copy_tree(from, BuildPaths.directory(root) .. "/zig-cache")
+      return Fs.copy_tree(source, BuildPaths.directory(root) .. "/zig-cache")
     end)
     if copied ~= 0 then return copied end
   end
@@ -1948,7 +1949,8 @@ local function provenance_impl(c: Context, products: string): integer
       count = count + 1
     end
   end
-  assert(expected and count == expected, "expected " .. Plural.count(expected, "product") .. ", found " .. count)
+  assert(expected ~= nil, "no product to compare")
+  assert(count == expected, "expected " .. Plural.count(expected, "product") .. ", found " .. count)
   return step(c, "provenance comparison", function(): boolean, string
     return true
   end)

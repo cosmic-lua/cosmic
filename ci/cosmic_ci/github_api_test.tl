@@ -167,10 +167,9 @@ local function test_a_download_reports_the_apis_refusal_and_the_fetchs_failure(t
   assert(not ok and why == "GET repos/o/r/artifacts/1/zip: HTTP 404: Not Found", why)
   ok, why = GithubApi.download(client, "repos/o/r/artifacts/2/zip", tmp .. "/z")
   assert(not ok and why == "GET repos/o/r/artifacts/2/zip: HTTP 410: Artifact has expired", why)
-  local failing = GithubApi.live({ GH_TOKEN = token, GITHUB_API_URL = "http://api.test" },
+  local failing = assert(GithubApi.live({ GH_TOKEN = token, GITHUB_API_URL = "http://api.test" },
     { script = { { reply("302 Found", "Location: https://blob.test/signed?sig=abc\r\n") },
-      { reply("403 Forbidden", "", "expired") } } })
-  assert(failing ~= nil)
+      { reply("403 Forbidden", "", "expired") } } }))
   local real = Http.download_result
   Http.download_result = function(): Http.DownloadResult
     return { kind = "http_status", reason = "", status = 403 }
