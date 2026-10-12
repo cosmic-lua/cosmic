@@ -8189,6 +8189,7 @@ do
       -- binds (see `find_closure_assigned`).
       root_ast: Node
       closure_binders: {Node:boolean}
+      label_back: {Node:boolean}
       closure_assigned: {Node:boolean}
       closure_loose: {string:boolean}
       -- Set when an index was served by an `__index` metamethod that runs
@@ -8219,6 +8220,8 @@ do
       guard_before: function(TypeChecker, Node, Node): narrowing.Guard
       droppable: function(TypeChecker, narrowing.Place): boolean
       loop_begin: function(TypeChecker)
+      label_is_looped: function(TypeChecker, Node): boolean
+      scan_labels: function(TypeChecker, Node, {string:Node})
       loop_end: function(TypeChecker)
       record_read: function(TypeChecker, Node, string, ? Type)
       loop_dropped: function(TypeChecker, integer, string, narrowing.Drop)
@@ -12978,6 +12981,46 @@ do
          end)
       end
 
+      -- Records in `label_back`, for each label of the block `block` and of
+      -- the blocks inside it, whether a `goto` below it names it. `visible`
+      -- holds the labels of the blocks around, by name.
+      function TypeChecker:scan_labels(block: Node, visible: {string:Node})
+         local mine: {string:Node} = {}
+         for name, label in pairs(visible) do
+            mine[name] = label
+         end
+         for _, stmt in ipairs(block) do
+            if stmt.kind == "label" then
+               mine[stmt.label] = stmt
+               if self.label_back[stmt] == nil then
+                  self.label_back[stmt] = false
+               end
+            elseif stmt.kind == "goto" then
+               local label = mine[stmt.label]
+               if label then
+                  self.label_back[label] = true
+               end
+            elseif stmt.if_blocks then
+               for _, b in ipairs(stmt.if_blocks) do
+                  self:scan_labels(b.body, mine)
+               end
+            elseif stmt.body then
+               self:scan_labels(stmt.body, mine)
+            end
+         end
+      end
+
+      -- Whether control may come back to `label` from below it. A label the
+      -- scan did not reach (one in a function literal inside an expression)
+      -- is taken to be.
+      function TypeChecker:label_is_looped(label: Node): boolean
+         if not self.label_back then
+            self.label_back = {}
+            self:scan_labels(self.root_ast, {})
+         end
+         return self.label_back[label] ~= false
+      end
+
       -- A loop begins: its body is checked once with the facts of the scopes
       -- outside it, and what it reads of them is held until `loop_end`.
       function TypeChecker:loop_begin()
@@ -14981,10 +15024,14 @@ do
          before = function(self: TypeChecker, node: Node)
             -- widen all narrowed variables because we don't calculate a fixpoint yet
             self:widen_all_unions()
-            -- A `goto` reaches the label from code that may have changed
-            -- any field.
-            narrowing.drop_paths(self.st as {narrowing.Scope},
-               narrowing.because("label", "::" .. node.label .. "::", node.y, node.x))
+            -- A `goto` below the label reaches it from code that may have
+            -- changed any field. One above it does not: what that path
+            -- dropped stays dropped (a branch that ends in `goto` undoes
+            -- nothing).
+            if self:label_is_looped(node) then
+               narrowing.drop_paths(self.st as {narrowing.Scope},
+                  narrowing.because("label", "::" .. node.label .. "::", node.y, node.x))
+            end
             local label_id = node.label
             do
                local scope = self.st[#self.st]

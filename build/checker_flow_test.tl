@@ -260,6 +260,26 @@ local function test_leaves_body_reads_the_last_statement()
   assert(flow.leaves_body(g.body) and not flow.leaves_body(h.body) and not flow.leaves_body(e.body))
 end
 
+--- Whether the body of the first `if` branch of a function whose body is
+--- `statement`, inside a loop, leaves.
+local function branch_leaves(statement: string): boolean
+  local ast = check(prelude .. "local function g()\nwhile x do\n" .. statement .. "\nend\nend")
+  local branch = assert(find(ast, "if_block"))
+  return flow.leaves_body(branch.body)
+end
+
+local function test_a_body_that_may_break_or_goto_out_does_not_leave()
+  assert(branch_leaves("if x then f(); return end"))
+  -- It ends in `return`, but a path through it goes out first.
+  assert(not branch_leaves("if x then f(); if y then break end; return end"))
+  assert(not branch_leaves("if x then if y then goto out end; return end\n::out::"))
+  assert(not branch_leaves("if x then do if y then break end end; return end"))
+  -- A `break` of a loop inside the body stays inside it.
+  assert(branch_leaves("if x then while y do break end; return end"))
+  assert(branch_leaves("if x then for _ = 1, 2 do if y then break end end; return end"))
+  assert(branch_leaves("if x then repeat break until y; return end"))
+end
+
 local function test_ends_body_reads_the_last_statement()
   local ast = check(prelude .. "local function g()\nx = true\nreturn\nend\n" ..
       "local function h()\ndo return end\nx = true\nend\nlocal function e()\nend")

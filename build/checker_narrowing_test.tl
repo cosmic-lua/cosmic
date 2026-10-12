@@ -1037,6 +1037,32 @@ local function test_a_read_of_a_fact_the_loop_drops_later_is_refused_at_the_read
   refused("if q.a then\n  repeat\n    x = nil\n  until q.a + 1 > 2 or touch(q)\nend", "4" .. looped)
 end
 
+local function test_a_branch_that_may_break_or_go_out_does_not_leave()
+  -- It ends in `return`, but a path through it breaks out first.
+  refused("if q.a then\n  for _ = 1, 3 do\n    print(q.a + 1)\n    while y do\n      if x then\n        touch(q)\n" ..
+      "        if y then break end\n        return\n      end\n    end\n  end\nend", "3" .. looped)
+  refused("if q.a then\n  for i = 1, 3 do\n    if i == 2 then\n      touch(q)\n      if y then break end\n" ..
+      "      return\n    end\n  end\n  print(q.a + 1)\nend", "9: " .. plus:sub(1, 28))
+  refused("if q.a then\n  repeat\n    if y then\n      touch(q)\n      if y then break end\n      return\n" ..
+      "    end\n  until true\n  print(q.a + 1)\nend", "9: " .. plus:sub(1, 28))
+  refused("if q.a then\n  if y then\n    touch(q)\n    if x then goto out end\n    return\n  end\n  ::out::\n" ..
+      "  print(q.a + 1)\nend", "8: " .. plus:sub(1, 28))
+  -- A `break` of a loop inside the branch stays inside it.
+  accepted("if q.a then\n  for i = 1, 3 do\n    if i == 2 then\n      touch(q)\n      for _ = 1, 2 do\n" ..
+      "        if y then break end\n      end\n      return\n    end\n  end\n  print(q.a + 1)\nend")
+  accepted("if q.a then\n  if y then\n    touch(q)\n    return\n  end\n  print(q.a + 1)\nend")
+end
+
+local function test_a_read_in_a_branch_that_leaves_is_not_one_of_the_next_pass()
+  accepted("if q.a then\n  for _ = 1, 2 do\n    if y then\n      print(q.a + 1)\n      return\n    end\n    touch(q)\n  end\nend")
+  refused("if q.a then\n  for _ = 1, 2 do\n    if y then\n      print(q.a + 1)\n    end\n    touch(q)\n  end\nend", "4" .. looped)
+end
+
+local function test_every_loop_around_a_read_refuses_it()
+  refused("if q.a then\n  for _ = 1, 3 do\n    for _ = 1, 2 do print(q.a + 1) end\n    touch(q)\n  end\nend", "3" .. looped)
+  refused("local k = 0\nif q.a then\n  while q.a + k < 10 do\n    k = k + 1\n    touch(q)\n  end\nend", "3" .. looped)
+end
+
 local function test_a_loop_that_drops_nothing_before_a_read_keeps_the_fact()
   accepted("if q.a then\n  for _ = 1, 2 do\n    local n = q.a + 1\n    x = n\n  end\nend")
   -- A function literal in the body runs at no pass of it.
@@ -1084,9 +1110,17 @@ local function test_a_branch_that_leaves_drops_nothing_for_the_code_after_it()
   refused("if q.a then\n  if maybe() then\n    return\n  end\n  print(q.a + 1)\nend", "5: " .. plus:sub(1, 28))
 end
 
-local function test_a_label_drops_the_fields_a_goto_to_it_may_have_changed()
-  refused("if q.a then\n  ::top::\n  print(q.a + 1)\nend", "3: " .. plus:sub(1, 28))
+local function test_a_label_drops_the_fields_a_goto_below_it_may_have_changed()
+  refused("if q.a then\n  ::top::\n  print(q.a + 1)\n  if y then goto top end\nend", "3: " .. plus:sub(1, 28))
   accepted("if x then\n  ::top::\n  print(1)\nend")
+  -- A label no goto comes back to is not a place code can arrive from.
+  accepted("if q.a then\n  ::top::\n  print(q.a + 1)\nend")
+  accepted("if q.a then\n  if y then goto skip end\n  print(q.a + 1)\n  ::skip::\n  print(q.a + 2)\nend")
+  -- A trailing `::continue::` drops nothing the loop read before it.
+  accepted("if q.a then\n  for _ = 1, 2 do\n    print(q.a + 1)\n    if y then goto continue end\n    ::continue::\n  end\nend")
+  -- And a goto that does come back to it is one of the loop.
+  refused("if q.a then\n  for _ = 1, 2 do\n    print(q.a + 1)\n    ::again::\n    if y then goto again end\n  end\nend",
+    "3" .. looped)
 end
 
 local function test_a_function_literal_drops_only_in_its_own_body()

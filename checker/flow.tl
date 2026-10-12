@@ -131,9 +131,38 @@ function flow.leaves(node: flow.Node): boolean
    return not not node.never_call
 end
 
---- Whether the last statement of `body` leaves (see [`flow.leaves`]).
+-- Whether a statement of `body`, at any depth, may go out of it to the code
+-- around it: a `break` that is not of a loop inside `body` (`inside`), or any
+-- `goto`, whose label may be anywhere.
+local function exits(body: flow.Node, inside: boolean): boolean
+   for _, stmt in ipairs(body) do
+      local kind = stmt.kind
+      if kind == "goto" or (kind == "break" and not inside) then
+         return true
+      elseif kind == "do" then
+         if exits(stmt.body, inside) then
+            return true
+         end
+      elseif kind == "if" then
+         for _, b in ipairs(stmt.if_blocks) do
+            if exits(b.body, inside) then
+               return true
+            end
+         end
+      elseif kind == "while" or kind == "repeat" or kind == "forin" or kind == "fornum" then
+         if stmt.body and exits(stmt.body, true) then
+            return true
+         end
+      end
+   end
+   return false
+end
+
+--- Whether control never goes past `body` to the code around it: its last
+--- statement leaves (see [`flow.leaves`]) and no path through it goes out
+--- by a `break` of a loop around it or by a `goto` before reaching it.
 function flow.leaves_body(body: flow.Node): boolean
-   return #body > 0 and flow.leaves(body[#body])
+   return #body > 0 and flow.leaves(body[#body]) and not exits(body, false)
 end
 
 --- Records that `node`, a call, never returns: its function is typed

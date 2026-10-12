@@ -1134,7 +1134,16 @@ local function dropped_hint(e: compiler.Error): string | nil
     cause = "the label `" .. by .. "` at " .. where .. " may be reached by a `goto` from code that changes it"
     before = "the label"
   elseif kind == "loop" then
-    cause = "the call `" .. by .. "` at " .. where .. " in this loop may change it before the loop comes round again"
+    -- What the loop's own pass ran is told by how it is written.
+    local what = "the operator"
+    if by:sub(1, 2) == "::" then
+      what = "the label"
+    elseif by:sub(-5) == "(...)" then
+      what = "the call"
+    elseif by:sub(-6) == " = ..." then
+      what = by:sub(1, -7):find("[%.%[]") and "the write" or "the assignment"
+    end
+    cause = what .. " `" .. by .. "` at " .. where .. " in this loop may change it before the loop comes round again"
     before = "the loop"
   else
     return "'" .. place .. "' was checked, then assigned at " .. where .. ": the checker narrows nothing after " ..

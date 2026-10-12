@@ -982,8 +982,15 @@ refused, because the next pass reads what this one dropped. the condition of
 a `while` or `repeat` is part of the body, so what it drops is dropped for
 the body after it. after the loop what it dropped stays dropped, as in
 straight-line code, and a drop in a branch that leaves the loop is not one of
-the next pass. a label drops every field path, as a `goto` reaches it from
-code that may have changed one. a branch that ends in `return` or a call
+the next pass. a branch leaves only if its last statement does and no path
+through it goes out first by a `break` of a loop around it or a `goto`. a
+label drops every field path when a `goto` below it names it, as that `goto`
+reaches it from code that may have changed one; a label only gotos above it
+name drops nothing, as what those paths dropped stays dropped. a function
+literal made in a loop, or after a check, still sees the facts of the places
+outside it though it runs later (`local f = function() return r.n + 1 end`,
+then a call that clears `r.n`, then `f()`); the roadmap's item that begins a
+function literal's body with none of them closes that. a branch that ends in `return` or a call
 that never returns drops nothing for the code after its `if`, and a
 function literal's body works on copies of the facts outside it, so what it
 drops leaves them standing.
