@@ -13644,7 +13644,7 @@ do
             -- The call that gave the variable no value, when it is one to a
             -- function that never returns.
             local exp = node.exps[math.min(i, #node.exps)]
-            local never_call = exp and node_is_funcall(exp) and exp.block_returns and exp.e1
+            local never_call = exp and node_is_funcall(exp) and flow.ends(exp as flow.Node) and exp.e1
             return self.errs:invalid_coded(node.vars[i], Errors.make({
                code = "no_initial_value",
                variable = name,
