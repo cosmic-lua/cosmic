@@ -1330,6 +1330,51 @@ local function phase_darwin_suite(p: PlatformContext): integer
   return status
 end
 
+--- The test files under cosmic/ that watch the declared types of the
+--- standard library (`*declared_types_test.tl`, which a later directory's
+--- change adds files to without touching CI), by their path in the
+--- checkout.
+function Orchestration.declared_types_files(root: string): {string}
+  local found = Fs.walk(root .. "/cosmic") or {}
+  local files: {string} = {}
+  for _, relative in ipairs(found) do
+    if relative:find("declared_types_test%.tl$") ~= nil then
+      files[#files + 1] = "cosmic/" .. relative
+    end
+  end
+  table.sort(files)
+  return files
+end
+
+--- The declared-types tests on a checked run (`cosmic test
+--- --check-types`), on the linux-x86_64 leg alone: they skip in any
+--- other run, so nothing else would notice a declaration that lies about
+--- nil again. After `local-boundary`, as a checked run writes a working
+--- database of its own beside the tree's.
+local function phase_declared_types(p: PlatformContext): integer
+  if p.target ~= "x86_64-linux-musl" then return 0 end
+  local c = p.operation
+  local files = Orchestration.declared_types_files(c.root)
+  if #files == 0 then
+    Fs.put(Fs.stderr, "declared types: no cosmic/*declared_types_test.tl file\n")
+    return 1
+  end
+  local argv: {string} = { BuildPaths.directory(p.root) .. "/bin/cosmic", "test", "--check-types" }
+  for _, file in ipairs(files) do argv[#argv + 1] = file end
+  mkdir(p.local_diagnostics)
+  local out = p.local_diagnostics .. "/declared-types-test.out"
+  local _, values = Orchestration.suite_run()
+  values.COSMIC_TEST_TIMEOUT = suite_test_timeout_s
+  local status = logged(c, "declared types", argv, out,
+    p.local_diagnostics .. "/declared-types-test.err", suite_timeout_ns, c.root, values)
+  -- A test that skipped asked nothing of the checks: the run was not checked.
+  if status == 0 and read(out):find("test: SKIP", 1, true) ~= nil then
+    Fs.put(Fs.stderr, "declared types: a test skipped, so the run carried no checks\n")
+    return 1
+  end
+  return status
+end
+
 --- The native suite, on the tree `boot` built: the `build` phase
 --- without its boot, which ci.yml's legs run apart so that what comes
 --- between (the verdicts of the merge queue's run ahead) waits on
@@ -1893,6 +1938,8 @@ local function platform_impl(phase: string, p: PlatformContext): integer
     return phase_local_suite(p)
   elseif phase == "local-boundary" then
     return phase_local_boundary(p)
+  elseif phase == "declared-types" then
+    return phase_declared_types(p)
   elseif phase == "darwin-suite" then
     return phase_darwin_suite(p)
   elseif phase == "format" then

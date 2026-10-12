@@ -42,9 +42,10 @@ function TypeWatch.during(fn: function(), under?: string): {string}
   local found: {string} = {}
   for _, each in ipairs(worker.violations()) do
     -- A success that answers its value alone, where the declaration adds
-    -- the reason a failure gives, answers nothing in that slot: the
-    -- failure idiom of doc/design.md, not a lie.
-    if each.actual ~= "absent" and declared_under(each) and each.count > (before[key(each)] or 0) then
+    -- the reason a failure gives, answers nothing in a later slot: the
+    -- failure idiom of doc/design.md, not a lie. A first slot left out
+    -- (a bare `return`) is one.
+    if not (each.actual == "absent" and each.target ~= "return value 1") and declared_under(each) and each.count > (before[key(each)] or 0) then
       found[#found + 1] = ("%s %s: declared %s, got %s (at %s)"):format(each.kind, each.target,
         each.declared, each.actual, each.at)
     end
