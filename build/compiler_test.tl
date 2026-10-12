@@ -1,19 +1,33 @@
 --- The compiler compiles itself to itself. A boot compiles the tree's own
 --- checker, [`checker/tl.tl`], with the vendored `tl.lua`, and the tool
---- carries what that compiled to (core/bridge.lua's `bootstrap`); that
---- compiler, compiling the same source, must give back exactly the Lua
---- it is, so the compiler the tree is built with is a function of its
---- Teal source alone, not of the one that first compiled it.
+--- carries what that compiled to (core/bridge.lua's `bootstrap`), started
+--- with the Lua standard library's declarations, [`checker/stdlib.d.tl`],
+--- as its local `stdlib`; that compiler, compiling the
+--- same source, must give back exactly the Lua it is, so the compiler the
+--- tree is built with is a function of its Teal source and those
+--- declarations alone, not of the one that first compiled it.
 local Fs = require("cosmic.fs")
 local Store = require("cosmic.store")
 local Test = require("cosmic.test")
 local teal = require("build.teal")
 
 --- The compiler's own source, as the boot compiled it.
-Test.policy{ grants = { { path = "checker/tl.tl", letters = "r" } } }
+Test.policy{ grants = {
+  { path = "checker/tl.tl", letters = "r" },
+  { path = "checker/stdlib.d.tl", letters = "r" },
+} }
+
+--- `code`, a compiled checker, as the bridge starts it: with the local
+--- `stdlib` holding `declarations`, quoted on one line so no line of
+--- `code` moves.
+local function wrapped(code: string, declarations: string): string
+  local quoted = string.format("%q", declarations):gsub("\\\n", "\\n")
+  return "local stdlib = " .. quoted .. " " .. code
+end
 
 local function test_the_compiler_compiles_itself_to_itself()
   local source = assert(Fs.read("checker/tl.tl"))
+  local declarations = assert(Fs.read("checker/stdlib.d.tl"))
   local carried = assert(Store.source("vendor.tl"))
   -- The compiler without its line information, which compiles to the
   -- same Lua. Every test runs under the coverage line hook, which finds
@@ -39,6 +53,7 @@ local function test_the_compiler_compiles_itself_to_itself()
   assert(#result.type_errors == known, "the checker's source has " ..
       tostring(#result.type_errors) .. " type errors, not " .. tostring(known) ..
       ": update `known` if a change to the source fixed or added one")
+  code = wrapped(code, declarations)
   assert(code == carried, "the compiler compiled its own source to other Lua " ..
       "than it is: " .. tostring(#code) .. " bytes against " .. tostring(#carried))
 end
