@@ -5,8 +5,8 @@ local Csv = require("cosmic.csv")
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 
---- `sql`'s rows on `handle`, each row's cells as `quote` writes them
---- joined by `|`, the rows by `;`.
+--- `sql`'s rows on `handle` as text: each row's cells joined by `|`, the
+--- rows by `;`.
 local function quoted(handle: Sqlite.Handle, sql: string): string
   local rows = assert(Sqlite.text_rows(handle, sql))
   local out: {string} = {}
@@ -93,5 +93,34 @@ local function test_a_csv_table_refuses_a_malformed_record()
 ')]]))
   local rows, why = Sqlite.text_rows(db, "SELECT * FROM temp.x")
   assert(rows == nil and why:find("line 2: unescaped \" character", 1, true) ~= nil, why)
+  assert(db:close())
+end
+
+--- A temp table of the same name does not catch the rows.
+local function test_load_writes_the_main_schema()
+  local db = assert(Sqlite.memory())
+  assert(db:exec("CREATE TEMP TABLE t (x, y)"))
+  assert(Csv.load(db, "t", { text = "a,b\n1,2\n" }) == 1)
+  assert(quoted(db, "SELECT count(*) FROM temp.t") == "0")
+  assert(quoted(db, "SELECT a, b FROM main.t") == "1|2")
+  assert(db:close())
+end
+
+--- A fault inside a record is reported as itself, not as what the reader
+--- would make of the rest of the record.
+local function test_a_quote_fault_mid_record_is_named()
+  local db = assert(Sqlite.memory())
+  local copied, why = Csv.load(db, "t", { text = 'a,b,c\n1,"x"y,2\n' })
+  assert(copied == nil and why:find("unescaped \" character", 1, true) ~= nil, why)
+  assert(db:close())
+end
+
+--- A number too small for a real is 0.0, and -0.0 is 0.0, as `cosmic sql
+--- --from` reads them; one too large stays text.
+local function test_load_types_underflow_and_negative_zero_as_sql_from_does()
+  local db = assert(Sqlite.memory())
+  assert(Csv.load(db, "t", { text = "a,b,c\n1e-400,-0.0,1e400\n" }) == 1)
+  local got = quoted(db, "SELECT typeof(a), a, hex(ieee754_to_blob(b)), typeof(c) FROM t")
+  assert(got == "real|0.0|0000000000000000|text", got)
   assert(db:close())
 end

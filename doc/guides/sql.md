@@ -274,20 +274,22 @@ within another.
   only in the `temp` schema: `CREATE VIRTUAL TABLE temp.t USING
   csv(filename='rows.csv')`, or `data='...'` for the text itself. Its
   columns are `c0`, `c1`, ... and its first record is row 1, unless
-  `header=yes` names the columns from it; `columns=N` or `schema=` sets
-  the width. Every cell is TEXT. [`cosmic.csv`]'s `load` copies a CSV
+  `header=yes` names the columns from its first line, or `schema=` names
+  them. Every cell is TEXT. [`cosmic.csv`]'s `load` copies a CSV
   into a table through it, naming and typing the columns.
 
   It reads as [`cosmic.csv`] reads, with a comma between fields: a quoted
   field holds commas, quotes as `""` and line breaks; a record ends at LF
   or CRLF, and a lone CR is data; a UTF-8 byte order mark at the start is
   dropped. A blank line is a row of NULLs, an empty field `''`, and a
-  field a record lacks NULL. Unless `columns=` or `schema=` sets the width,
-  it is the first record's that is not a blank line, and a wider record
-  fails the query. A quote inside an unquoted field, anything but a comma
-  or a line end after a closing quote, a quote never closed, a NUL byte in
-  a file, and a file that cannot be read fail the query, naming the line
-  or record.
+  field a record lacks NULL. The width is `columns=N`, or else the field
+  count of the first record, which without `header=yes` or `schema=` is
+  the first that is not a blank line; then a wider record fails the
+  query, and with `columns=` or `schema=` its fields past the width are
+  dropped. A quote inside an unquoted field, anything but a comma or a
+  line end after a closing quote, a quote never closed, a NUL byte in a
+  file's record, and a file that cannot be read fail the query, naming
+  the line or record where the reader knows it.
 
 ## bound lists
 

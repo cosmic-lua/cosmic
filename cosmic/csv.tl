@@ -380,19 +380,24 @@ end
 
 --- An SQL expression for `column`'s cell, typed as `cosmic sql --from`
 --- types a CSV's cells (build/dataset.tl): NULL when empty, an INTEGER or
---- REAL when it is plainly a number, and its text otherwise.
+--- REAL when it is plainly a number, and its text otherwise. `toreal`
+--- answers NULL for a number that underflows, which `--from` reads as
+--- 0.0, or overflows, which it keeps as text; adding 0.0 makes -0.0 the
+--- 0.0 it reads.
 local function typed(column: string): string
   return (([[CASE WHEN @ = '' THEN NULL
 WHEN @ GLOB '*[^0-9.eE+-]*' THEN @
 WHEN @ REGEXP '^-?(0|[1-9][0-9]*)$' THEN coalesce(tointeger(@), toreal(@), @)
-WHEN @ REGEXP '^-?(0|[1-9][0-9]*)(\.[0-9]+)?([eE][-+]?[0-9]+)?$' THEN coalesce(toreal(@), @)
+WHEN @ REGEXP '^-?(0|[1-9][0-9]*)(\.[0-9]+)?([eE][-+]?[0-9]+)?$'
+  THEN coalesce(toreal(@) + 0.0, CASE WHEN CAST(@ AS REAL) = 0.0 THEN 0.0 END, @)
 ELSE @ END]]):gsub("@", function(): string return column end))
 end
 
 --- A name no other load on the handle holds, for its CSV table in temp.
 local loads = 0
 
---- Copies CSV, from a file or text, into a new table `name` on `handle`,
+--- Copies CSV, from a file or text, into a new table `name` in the main
+--- schema of `handle`,
 --- through SQLite's CSV table, which reads it in C: a million rows in
 --- seconds, where [`Csv.table`] and an insert per row take a minute. It
 --- reads what `table` reads, with a comma between fields, as `table`
@@ -403,10 +408,12 @@ local loads = 0
 --- when plainly a number (`-`, digits with no leading zero, an optional
 --- fraction and exponent), and TEXT otherwise; with `source.raw` every
 --- cell is the text `table` reads. Answers the rows copied, or nil and
---- why: for what `table` refuses, a table `name` already holds, a file
---- SQLite cannot open or read, a NUL byte, or CSV with no header. Nothing
---- is left behind on a failure. Raises unless exactly one of `path` and
---- `text` is given.
+--- why: for what `table` refuses, a table `name` the main schema already
+--- holds, a file SQLite cannot open or read, a NUL byte, CSV with no
+--- header, or a header wider than SQLite's 2000 columns. Nothing is left
+--- behind on a failure. Raises unless exactly one of `path` and `text`
+--- is given. A `path` is read more than once, so it names a regular file
+--- that stays as it is while it loads, not a pipe.
 function Csv.load(handle: Sqlite.Handle, name: string, source: Csv.Source): integer | nil, string
   if (source.path == nil) == (source.text == nil) then
     error("csv: load reads a path or a text, one of them", 2)
@@ -451,9 +458,6 @@ function Csv.load(handle: Sqlite.Handle, name: string, source: Csv.Source): inte
     return undone("the CSV holds no header")
   end
   local header = table.move(first[1], 2, #first[1], 1, {})
-  if header[1]:sub(1, #BOM) == BOM then
-    header[1] = header[1]:sub(#BOM + 1)
-  end
   local names = Csv.column_names(header, { "rowid", "oid", "_rowid_" })
   local declared, cells: {string}, {string} = {}, {}
   for index, column in ipairs(names) do
@@ -484,11 +488,11 @@ function Csv.load(handle: Sqlite.Handle, name: string, source: Csv.Source): inte
       return undone("record " .. short[1][1] .. " has fewer fields than the header's " .. #names)
     end
   end
-  ok, trouble = handle:exec("CREATE TABLE " .. identifier(name) .. " (" .. table.concat(declared, ", ") .. ")")
+  ok, trouble = handle:exec("CREATE TABLE main." .. identifier(name) .. " (" .. table.concat(declared, ", ") .. ")")
   if not ok then
     return undone(trouble)
   end
-  ok, trouble = handle:exec("INSERT INTO " .. identifier(name) .. " SELECT " .. table.concat(cells, ", ") ..
+  ok, trouble = handle:exec("INSERT INTO main." .. identifier(name) .. " SELECT " .. table.concat(cells, ", ") ..
       " FROM " .. scratch .. " WHERE " .. kept)
   if not ok then
     return undone(trouble)
