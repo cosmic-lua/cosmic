@@ -85,7 +85,20 @@ local function test_a_column_that_is_no_integer_position_raises()
   local row = typed()
   local loose: any = 1.5
   local read = row.text as function(Sqlite.Row, any): string -- cast: a position the signature refuses
-  assert(raises(function(): any return read(row, loose) end):find("an integer position from 1", 1, true))
+  local seen = raises(function(): any
+    local held = read(row, loose)
+    return held
+  end)
+  assert(seen:find("an integer position from 1", 1, true), seen)
+  assert(seen:find("sqlite_row_test", 1, true), seen)
+end
+
+local function test_number_keeps_the_sign_of_a_negative_zero()
+  local db = assert(Sqlite.memory())
+  local row = assert(Sqlite.rows(db, "SELECT -0.0, 9007199254740993"))[1]
+  assert(row:number(1) == 0 and 1 / row:number(1) < 0)
+  assert(row:number(2) == 9007199254740992.0)
+  assert(db:close())
 end
 
 --- The failure names the line that read the row, not the module.

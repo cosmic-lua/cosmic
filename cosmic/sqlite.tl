@@ -152,7 +152,10 @@ local record Sqlite
   --- column of any other type raises, as does a position the row has no
   --- column at, so a query that does not answer what the reader assumed
   --- fails where it is read, not later. A row is no list: it has no
-  --- numeric keys, and `#row` is not its length (use `count`).
+  --- numeric keys, and `#row` is not its length (use `count`). Code the
+  --- checker does not see (a cast, an `any`, a Lua chunk) that indexes a row
+  --- reads the row's internal slots, kinds mixed with values, and nothing
+  --- refuses it: read a row only through its accessors.
   ---
   ---     local db = assert(Sqlite.memory())
   ---     local rows = assert(Sqlite.rows(db, "SELECT 7, 'seven', NULL, x'ff'"))
@@ -173,8 +176,9 @@ local record Sqlite
     is_null: function(Row, integer): boolean
     --- The column of an INTEGER cell. A number, text or NULL cell raises.
     integer: function(Row, integer): integer
-    --- The column of an INTEGER or REAL cell, an integer as the float
-    --- of the same value. Text, a blob or NULL raises.
+    --- The column of an INTEGER or REAL cell, an integer as the nearest
+    --- float (one beyond 2^53 rounds). A REAL cell is answered as stored,
+    --- `-0.0` included. Text, a blob or NULL raises.
     number: function(Row, integer): number
     --- The column of a TEXT cell, or of any column of a row from
     --- [`text_rows`]. An integer, number, blob or NULL cell of a typed
@@ -391,8 +395,9 @@ end
 -- A row is one table with a metatable, so reading a result allocates
 -- the row and nothing per cell. It holds each cell as two slots, the
 -- cell's kind then its value (`false` for NULL, which a table cannot
--- hold as nil), for a text row as for a typed one: a text row's kinds
--- are all "text". Only the accessors below look inside.
+-- hold as nil). A text row, whose cells are all text, holds only each
+-- value, one slot a column, and has accessors of its own. Only the
+-- accessors below look inside.
 local record Stored is {any}, Sqlite.Row
   count: function(Stored): integer
   kind: function(Stored, integer): Sqlite.Kind
@@ -473,7 +478,8 @@ end
 
 function Stored.number(self: Stored, index: integer): number
   local kind, held = cell_at(self, index, "number")
-  if held is number then return held + 0.0 end
+  if held is integer then return held + 0.0 end
+  if held is number then return held end
   error(mismatch("number", index, kind, "a number or an integer"), 2)
 end
 
@@ -519,6 +525,87 @@ function Stored.value(self: Stored, index: integer): Sqlite.Value
   return {}
 end
 
+--- A row of [`text_rows`]: one slot a column, each its bytes.
+local record TextStored is {any}, Sqlite.Row
+  count: function(TextStored): integer
+  kind: function(TextStored, integer): Sqlite.Kind
+  is_null: function(TextStored, integer): boolean
+  integer: function(TextStored, integer): integer
+  number: function(TextStored, integer): number
+  text: function(TextStored, integer): string
+  blob: function(TextStored, integer): string
+  bytes: function(TextStored, integer): string
+  texts: function(TextStored): {string}
+  value: function(TextStored, integer): Sqlite.Value
+end
+
+local text_stored_mt: metatable<TextStored> = { __index = TextStored }
+
+--- The bytes of column `index` of `row`, which `name` reads. Raises,
+--- blaming the caller of the accessor that called this, unless `index`
+--- is an integer position the row has a column at.
+local function text_at(row: TextStored, index: integer, name: string): string
+  local held = row[index]
+  if held is string and math.type(index) == "integer" then return held end
+  if math.type(index) ~= "integer" then
+    error("sqlite: row:" .. name .. "(" .. tostring(index) ..
+        "): a column is an integer position from 1", 3)
+  end
+  local count = #row
+  error("sqlite: row:" .. name .. "(" .. index .. "): the row has " .. count ..
+      (count == 1 and " column" or " columns"), 3)
+end
+
+function TextStored.count(self: TextStored): integer
+  return #self
+end
+
+function TextStored.kind(self: TextStored, index: integer): Sqlite.Kind
+  local _ = text_at(self, index, "kind")
+  return "text"
+end
+
+function TextStored.is_null(self: TextStored, index: integer): boolean
+  local _ = text_at(self, index, "is_null")
+  return false
+end
+
+function TextStored.integer(self: TextStored, index: integer): integer
+  local _ = text_at(self, index, "integer")
+  error(mismatch("integer", index, "text", "an integer"), 2)
+end
+
+function TextStored.number(self: TextStored, index: integer): number
+  local _ = text_at(self, index, "number")
+  error(mismatch("number", index, "text", "a number or an integer"), 2)
+end
+
+function TextStored.text(self: TextStored, index: integer): string
+  return text_at(self, index, "text")
+end
+
+function TextStored.blob(self: TextStored, index: integer): string
+  local _ = text_at(self, index, "blob")
+  error(mismatch("blob", index, "text", "a blob"), 2)
+end
+
+function TextStored.bytes(self: TextStored, index: integer): string
+  return text_at(self, index, "bytes")
+end
+
+function TextStored.texts(self: TextStored): {string}
+  local out: {string} = {}
+  for index = 1, #self do
+    local held = self[index]
+    if held is string then out[index] = held end
+  end
+  return out
+end
+
+function TextStored.value(self: TextStored, index: integer): Sqlite.Value
+  return { text = text_at(self, index, "value") }
+end
+
 --- The row `statement` was just stepped to, as typed cells in column
 --- order. Its columns are asked after each step: a schema change
 --- re-prepares the statement, and its columns with it.
@@ -543,9 +630,9 @@ end
 --- The row `statement` was just stepped to, as the bytes of each column
 --- in order, each a "text" cell. Asked after each step, as [`cells_of`] is.
 local function texts_of(statement: Sqlite.Statement): Sqlite.Row
-  local row: Stored = setmetatable({}, stored_mt)
+  local row: TextStored = setmetatable({}, text_stored_mt)
   for index = 0, statement:columns() - 1 do
-    row[2 * index + 1], row[2 * index + 2] = "text", statement:bytes(index)
+    row[index + 1] = statement:bytes(index)
   end
   return row
 end
