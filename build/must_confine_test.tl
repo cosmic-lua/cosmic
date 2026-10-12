@@ -119,7 +119,7 @@ local function test_passed_over(tmp: string)
     end, nil, { tmp })
   end)
   assert(Fs.stat(tmp .. "/ran") == nil, "nothing runs in its place")
-  assert(not inner.ok, "the inner stand-in's call fails")
+  assert(not assert(inner).ok, "the inner stand-in's call fails")
 end
 
 local function test_raised_too(tmp: string)
