@@ -5505,7 +5505,9 @@ local function recurse_node<S, T>(s: S, root: tl.Node,
          xs[5] = recurse(ast.body)
       end,
       ["local_macroexp"] = function(ast: Node, xs: {T})
-         -- TODO: generic macroexp
+         -- TODO: walk the type arguments of `ast.macrodef` (`recurse_typeargs`,
+         -- as the `macroexp` walker does) so that a generic `local macroexp` is
+         -- visited whole: nothing visits them today.
          xs[1] = recurse(ast.name)
          xs[2] = recurse(ast.macrodef.args)
          xs[3] = recurse_type(s, ast.macrodef.rets, visit_type)
@@ -10586,7 +10588,7 @@ do
    -- Walks a and b in step, as a comparison of them would reach their
    -- parts, and answers the first two function types it meets in the same
    -- place that disagree on whether the function never returns, or nil.
-   -- The pair at the root is the comparison's own to judge (43e2): `root`
+   -- The pair at the root is the comparison's own to judge: `root`
    -- holds while the walk has gone through nothing but names and unions.
    local function never_mismatch(a: Type, b: Type, root: boolean, seen: {Type:{Type:boolean}}): Type, Type
       a, b = walk_target(a), walk_target(b)
@@ -10751,7 +10753,7 @@ do
 
    -- compare_types, once the outermost comparison has found that the two
    -- types agree on which of their nested functions never return. A
-   -- comparison made inside another (by a relation of 43e2's kind) is not
+   -- comparison made inside another is not
    -- the outermost, and walks nothing: the walk covered it.
    local function compare_agreeing(self: TypeChecker, relations: TypeRelations, t1: Type, t2: Type): boolean, {Error}
       local depth = self.compare_depth or 0
@@ -12856,7 +12858,9 @@ do
       local pos = 1
       local results: {Type} = {}
       while pos <= #pat do
-         -- TODO: remove once bootstrap
+         -- TODO: drop the cast once the seed compiler (vendor/tl/tl.lua) types
+         -- the `()` position capture of `string.match` as integer, as this
+         -- checker's own `string.match` typing does.
          local endc = pat:match("%%[-+#0-9. ]*()", pos) as integer
          if not endc then return results end
          local c = pat:sub(endc, endc)
@@ -12890,7 +12894,8 @@ do
    end
 
    local function pack_string_skipnum(pos: integer, pat: string): integer
-      -- TODO: remove cast once bootstrap is updated
+      -- TODO: drop the cast once the seed compiler (vendor/tl/tl.lua) types
+      -- the `()` position capture of `string.match` as integer.
       return pat:match("[0-9]*()", pos) as integer
    end
 
@@ -14438,7 +14443,9 @@ do
             end
 
             if exp1type is FunctionType then
-               -- TODO: check that exp1's arguments match with (optional self, explicit iterator, state)
+               -- TODO: refuse an iterator whose parameters cannot take what a
+               -- generic for passes (optional self, explicit iterator, state):
+               -- they are not checked against exp1type.args here.
                local last: Type
                local rets = exp1type.rets
                for i, v in ipairs(node.vars) do
@@ -15519,7 +15526,7 @@ do
                -- with boolean) ends the `and` as false, which is not modelled:
                -- `(flag and "x") .. "a"` passes. Waits on a false literal type
                -- the checker can unite and narrow (`a or b` and the truthiness
-               -- facts of 02 would drop it as they drop nil), so `boolean` is
+               -- facts would drop it as they drop nil), so `boolean` is
                -- no longer taken for a truthy-or-falsy unknown.
                if t is InvalidType then
                   return t
@@ -15601,8 +15608,9 @@ do
                   local a_ge_b = self:is_a(ub, ua)
                   local b_ge_a = self:is_a(ua, ub)
                   node.known = facts_or(node, node.e1.known, node.e2.known)
-                  -- TODO: change this to use unresolved types, but make sure that it works with
-                  -- table literal and nominal type
+                  -- TODO: compare the unresolved types (ua, ub) here, as a_ge_b and
+                  -- b_ge_a do, once same_type gives the right answer for a table
+                  -- literal and a nominal type; ra and rb are resolved today.
                   local is_same = self:same_type(ra, rb)
 
                   -- we can have some types that can be converted into either
@@ -16793,8 +16801,9 @@ local function tl_package_loader(module_name: string): any, any
 
       env.modules[module_name] = result.type
 
-      -- TODO: should this be a hard error? this seems analogous to
-      -- finding a lua file with a syntax error in it
+      -- TODO: decide whether a generator failure here is a hard error, as the
+      -- assert makes it, or a loader error, as for a Lua file with a syntax
+      -- error in it; nothing records which is wanted.
       local code = assert(tl.generate(program, opts.defaults.gen_target, fast_generate_opts))
       local chunk, err = load(code, "@" .. found_filename, "t")
       if chunk then

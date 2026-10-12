@@ -212,34 +212,34 @@ local casts: {string: string} = {
   ["build/ast/match_cast.tl:type_view"] =
     "a parsed type's fields, which no Node field names, by reflection",
   ["build/ast/node.tl:parse"] =
-    "vendored tl hands its checked AST and type objects as any " ..
+    "tl hands its checked AST and type objects as any " ..
     "(build/compiler.d.tl)",
   ["build/ast/walk.tl:map_of"] =
     "a node's fields read by reflection: which it has depends on its kind",
   ["build/contracts.tl:exported_functions"] =
-    "vendored tl hands a module's checked type as any (build/compiler.d.tl)",
+    "tl hands a module's checked type as any (build/compiler.d.tl)",
   ["build/contracts.tl:check_function"] =
     "build.ast declares tl's type objects as TypeNode and " ..
     "build.receivers as Type: two declarations of one thing",
   ["build/receivers.tl:receivers.record_named"] =
-    "vendored tl hands its checked AST and type objects as any " ..
+    "tl hands its checked AST and type objects as any " ..
     "(build/compiler.d.tl)",
   ["build/receivers.tl:receivers.references"] =
-    "vendored tl hands its checked AST and type objects as any " ..
+    "tl hands its checked AST and type objects as any " ..
     "(build/compiler.d.tl)",
   ["build/receivers.tl:reporter_for"] =
-    "vendored tl hands its checked AST and type objects as any " ..
+    "tl hands its checked AST and type objects as any " ..
     "(build/compiler.d.tl)",
   ["build/shape_specs.tl:view_of_node"] =
-    "vendored tl hands its type objects as TypeNode and any (build/compiler.d.tl)",
+    "tl hands its type objects as TypeNode and any (build/compiler.d.tl)",
   ["build/shape_specs.tl:view_of_type"] =
-    "vendored tl hands its type objects as Type and any (build/compiler.d.tl)",
+    "tl hands its type objects as Type and any (build/compiler.d.tl)",
   ["build/teal.tl:teal.lazy.real"] =
     "the loaded compiler, indexed by whatever key the capsule is asked for",
   ["build/teal.tl:teal.lazy"] =
     "a capsule standing for the compiler until it loads",
   ["build/teal.tl:teal.load"] =
-    "the one boundary where the vendored compiler's untyped chunk " ..
+    "the one boundary where the compiler's untyped chunk " ..
     "becomes its declared surface (build/compiler.d.tl)",
   ["cosmic/shape.tl:Shape.into"] =
     "the one cast from any, to the caller's annotation, of a value " ..

@@ -180,11 +180,11 @@ print(open)
 end
 
 -- TODO: accept `setmetatable({ name = "a" }, R.mt)` and a metatable that is a
--- call (`g()`) in a function returning an interface Thing implements: patch
--- 42 binds only from arguments that are plain variables, because a literal
--- is typed before the arguments after it are. The fix is to visit the
--- non-literal arguments first, as the binds_context path of patches 37g and
--- 37h does, and bind from their types.
+-- call (`g()`) in a function returning an interface Thing implements: the
+-- retry with the arguments first binds only from arguments that are plain
+-- variables, because a literal is typed before the arguments after it are.
+-- The fix is to visit the non-literal arguments first, as the binds_context
+-- path does, and bind from their types.
 local function test_a_metatable_that_is_no_variable_still_takes_the_interface_first(tmp: string)
   local ok, trouble = compiles(tmp, "literal-index-mt", prelude .. [[
 local R = { mt = thing_mt }
@@ -210,9 +210,9 @@ print(by_call)
 end
 
 -- TODO: refuse `id({ name = "a" }, u)` with u: Thing | nil in a function
--- returning Named, and accepted before patch 42 too: the result of a call
--- whose T the arguments bind to a Thing | nil is taken for a Named, so the
--- nil leaks through. The fix is for the check of the result against the
+-- returning Named, accepted with or without the retry that binds from the
+-- arguments first: the result of a call whose T the arguments bind to a
+-- Thing | nil is taken for a Named, so the nil leaks through. The fix is for the check of the result against the
 -- return type to see T's union, not the literal's record.
 local function test_a_nilable_argument_leaks_through_a_shared_type_variable(tmp: string)
   local ok, trouble = compiles(tmp, "hole-nil", prelude .. [[

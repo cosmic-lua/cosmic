@@ -1,4 +1,4 @@
--- The part of the vendored Teal compiler this tree uses. Nothing else
+-- The part of the Teal compiler this tree uses. Nothing else
 -- in the tree reaches into it. [`build.teal`] is what loads it.
 
 local record compiler

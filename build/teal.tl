@@ -1,4 +1,4 @@
---- The vendored Teal compiler, loaded to run.
+--- The Teal compiler, loaded to run.
 ---
 --- The compiler reaches outside the pure Lua libraries in a few places:
 --- `io.open` and the handle it returns, `io.stderr`, `os.getenv`,
