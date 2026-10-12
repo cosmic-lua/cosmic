@@ -1,0 +1,38 @@
+fence: ===
+file: ext/misc/totype.c
+note: toreal() of a text takes SQLite's own reading of it (05-totype-reads-text-as-sqlite-does.txt), rounded as CAST rounds it. An integer literal converts as an integer does, only when the real holds it exactly, so '9007199254740993' is NULL as 9007199254740993 is. A real that overflowed to an infinity, or a text with a nonzero digit before its exponent that underflowed to zero, kept none of its digits, so either is NULL, where upstream answers '1e400' and '1e-400' as Inf and 0.0. Text with a point or an exponent, or past what an integer holds, is rounded as CAST rounds it, keeping about 19 significant digits.
+=== find
+    case SQLITE_TEXT: {
+      const unsigned char *zStr = sqlite3_value_text(argv[0]);
+      if( zStr ){
+        int nStr = sqlite3_value_bytes(argv[0]);
+        if( nStr && !totypeIsspace(zStr[0]) && !totypeIsspace(zStr[nStr-1]) ){
+          double rVal;
+          if( totypeAtoF((const char*)zStr, &rVal, nStr) ){
+            sqlite3_result_double(context, rVal);
+            return;
+          }
+        }
+      }
+      break;
+    }
+=== replace
+    case SQLITE_TEXT: {
+      sqlite3_value *pNum = totypeNumber(context, argv[0]);
+      if( pNum ){
+        double rVal = sqlite3_value_double(pNum);
+        int ok = rVal-rVal==0.0;
+        if( sqlite3_value_type(pNum)==SQLITE_INTEGER ){
+          ok = sqlite3_value_int64(pNum)==totypeDoubleToInt(rVal);
+        }else if( ok && rVal==0.0 ){
+          const unsigned char *z = sqlite3_value_text(argv[0]);
+          for(; *z && *z!='e' && *z!='E'; z++){
+            if( *z>='1' && *z<='9' ) ok = 0;
+          }
+        }
+        if( ok ) sqlite3_result_double(context, rVal);
+        sqlite3_value_free(pNum);
+      }
+      break;
+    }
+=== end

@@ -292,16 +292,20 @@ typedef int (*extension_init)(sqlite3 *, char **,
 int sqlite3_basexx_init (sqlite3 *, char **, const sqlite3_api_routines *);
 int sqlite3_compress_init (sqlite3 *, char **, const sqlite3_api_routines *);
 int sqlite3_decimal_init (sqlite3 *, char **, const sqlite3_api_routines *);
+int sqlite3_ieee_init (sqlite3 *, char **, const sqlite3_api_routines *);
 int sqlite3_regexp_init (sqlite3 *, char **, const sqlite3_api_routines *);
 int sqlite3_series_init (sqlite3 *, char **, const sqlite3_api_routines *);
 int sqlite3_sha_init (sqlite3 *, char **, const sqlite3_api_routines *);
 int sqlite3_shathree_init (sqlite3 *, char **, const sqlite3_api_routines *);
+int sqlite3_totype_init (sqlite3 *, char **, const sqlite3_api_routines *);
+int sqlite3_uint_init (sqlite3 *, char **, const sqlite3_api_routines *);
 int sqlite3_uuid_init (sqlite3 *, char **, const sqlite3_api_routines *);
 
 static const extension_init extensions[] = {
   sqlite3_basexx_init, sqlite3_compress_init, sqlite3_decimal_init,
-  sqlite3_regexp_init, sqlite3_series_init, sqlite3_sha_init,
-  sqlite3_shathree_init, sqlite3_uuid_init,
+  sqlite3_ieee_init, sqlite3_regexp_init, sqlite3_series_init,
+  sqlite3_sha_init, sqlite3_shathree_init, sqlite3_totype_init,
+  sqlite3_uint_init, sqlite3_uuid_init,
 };
 
 int cosmic_sqlite_functions (sqlite3 *db) {

@@ -123,3 +123,97 @@ local function test_uncompress_bounds_a_claimed_length_by_deflates_ratio()
   assert(read((1 << 35) - 1) == "NULL", "the largest claim must be NULL, not a failure")
   handle:close()
 end
+
+local function test_ieee754_takes_a_double_apart_and_back()
+  local got = row("SELECT ieee754(45.25), ieee754_mantissa(45.25), ieee754_exponent(45.25), " ..
+      "ieee754(181, -2), hex(ieee754_to_blob(1.0)), ieee754_from_blob(x'3ff0000000000000'), " ..
+      "ieee754_to_int(1.0), ieee754_from_int(4607182418800017408), ieee754_inc(1.0, 1) > 1.0")
+  local want = { "ieee754(181,-2)", "181", "-2", "45.25", "3FF0000000000000", "1.0",
+    "4607182418800017408", "1.0", "1" }
+  for i, value in ipairs(want) do
+    assert(got[i] == value, "column " .. i .. ": " .. tostring(got[i]))
+  end
+end
+
+local function test_tointeger_and_toreal_convert_only_without_loss()
+  local got = row("SELECT tointeger('42'), tointeger(3.0), tointeger(3.5) IS NULL, " ..
+      "tointeger('x') IS NULL, toreal('2.5'), toreal(7), toreal('x') IS NULL")
+  local want = { "42", "3", "1", "1", "2.5", "7.0", "1" }
+  for i, value in ipairs(want) do
+    assert(got[i] == value, "column " .. i .. ": " .. tostring(got[i]))
+  end
+end
+
+local function test_uint_orders_embedded_numbers_by_value()
+  local got = row("SELECT group_concat(x, ' ') FROM (SELECT x FROM " ..
+      "(SELECT 'file10' AS x UNION ALL SELECT 'file2' UNION ALL SELECT 'file1') " ..
+      "ORDER BY x COLLATE uint)")
+  assert(got[1] == "file1 file2 file10", got[1])
+  assert(row("SELECT 'x00123y' = 'x123y' COLLATE uint")[1] == "1")
+end
+
+local function test_toreal_reads_text_as_cast_does_and_refuses_a_loss()
+  local got = row("SELECT toreal('1.7976931348623157e308') = CAST('1.7976931348623157e308' AS REAL), " ..
+      "toreal('2.2250738585072011e-308') = CAST('2.2250738585072011e-308' AS REAL), " ..
+      "toreal('1e400') IS NULL, toreal('1e-400') IS NULL, toreal('0e-400'), " ..
+      "toreal('9007199254740993') IS NULL, toreal(9007199254740993) IS NULL, " ..
+      "toreal(' 2') IS NULL, toreal(x'3ff0000000000000')")
+  local want = { "1", "1", "1", "1", "0.0", "1", "1", "1", "1.0" }
+  for i, value in ipairs(want) do
+    assert(got[i] == value, "column " .. i .. ": " .. tostring(got[i]))
+  end
+end
+
+local function test_tointeger_takes_an_integer_literal_alone()
+  local got = row("SELECT tointeger('3.0') IS NULL, tointeger('1.00000000000000001') IS NULL, " ..
+      "tointeger(CAST(x'31320078' AS TEXT)) IS NULL, tointeger('9223372036854775808') IS NULL, " ..
+      "tointeger('-9223372036854775808'), tointeger('3 ') IS NULL, tointeger(x'0100000000000000')")
+  local want = { "1", "1", "1", "1", "-9223372036854775808", "1", "1" }
+  for i, value in ipairs(want) do
+    assert(got[i] == value, "column " .. i .. ": " .. tostring(got[i]))
+  end
+end
+
+local function test_ieee754_answers_zero_and_overflow_at_any_exponent()
+  local got = row("SELECT ieee754(0, 1000), ieee754(0, -1074), ieee754(1, 2000), " ..
+      "ieee754(3, 2000), ieee754(-3, 2000), ieee754(9007199254740995, 0), " ..
+      "ieee754_inc(-1.0, 1) < -1.0, ieee754_inc(0.0, -1) IS NULL")
+  local want = { "0.0", "0.0", "Inf", "Inf", "-Inf", "9007199254740994.0", "1", "1" }
+  for i, value in ipairs(want) do
+    assert(got[i] == value, "column " .. i .. ": " .. tostring(got[i]))
+  end
+end
+
+local function test_uint_compares_signs_and_points_as_bytes()
+  local got = row("SELECT 'a1.05' = 'a1.5' COLLATE uint, '-5' = '5' COLLATE uint")
+  assert(got[1] == "1" and got[2] == "0", got[1] .. " " .. got[2])
+end
+
+local function test_totype_holds_the_least_integer()
+  local got = row("SELECT tointeger(-9223372036854775808.0), tointeger('-9223372036854775808'), " ..
+      "toreal(-9223372036854775808) = -9223372036854775808.0, " ..
+      "toreal('-9223372036854775808') = -9223372036854775808.0, tointeger(9223372036854775808.0) IS NULL")
+  local want = { "-9223372036854775808", "-9223372036854775808", "1", "1", "1" }
+  for i, value in ipairs(want) do
+    assert(got[i] == value, "column " .. i .. ": " .. tostring(got[i]))
+  end
+end
+
+local function test_ieee754_writes_and_reads_its_edges()
+  local got = row("SELECT ieee754(2.0), ieee754(0.0), ieee754(3, 1023), ieee754(5, 1022), " ..
+      "ieee754(-9223372036854775808, 0) IS NULL, ieee754('3', 1.9), " ..
+      "ieee754_from_blob(x'7ff8000000000000') IS NULL")
+  local want = { "ieee754(2,0)", "ieee754(0,-1075)", "Inf", "Inf", "1", "6.0", "1" }
+  for i, value in ipairs(want) do
+    assert(got[i] == value, "column " .. i .. ": " .. tostring(got[i]))
+  end
+end
+
+local function test_ieee754_and_toreal_read_other_values_as_sqlite_does()
+  local got = row("SELECT ieee754('12abc'), ieee754(NULL), ieee754_inc(x'3ff0000000000000', 0), " ..
+      "toreal('18446744073709551617'), ieee754_to_blob('1.5') IS NULL")
+  local want = { "ieee754(12,0)", "ieee754(0,-1075)", "0.0", "1.8446744073709552e+19", "1" }
+  for i, value in ipairs(want) do
+    assert(got[i] == value, "column " .. i .. ": " .. tostring(got[i]))
+  end
+end
