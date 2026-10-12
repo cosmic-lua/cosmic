@@ -25,8 +25,9 @@ local record identity
   --- modules a compile or a parse runs to decide what it stores
   --- ([`identity.compiler_identity`]), among them [`build.teal`], which names
   --- the globals the checker is stripped of, the checker's own source
-  --- ([`checker/tl.tl`]) and the pins and patches the compiler and Lua are
-  --- built from.
+  --- ([`checker/tl.tl`]) with the Lua standard library's declarations it is
+  --- compiled with ([`checker/stdlib.d.tl`]), and the pins and patches the
+  --- compiler and Lua are built from.
   --- The rest of the standard library the importer runs on is plumbing,
   --- not transformation (a bug there breaks the build loudly rather than
   --- changing bytecode quietly), and is left out, as is the rest of the
@@ -366,8 +367,9 @@ end
 
 --- The Teal compiler's and Lua's pins and sources, as one text: the
 --- pins of the vendored `tl.lua` that compiles the checker and of Lua, the
---- checker's source ([`checker/tl.tl`]) and Lua's patches. Part of the
---- compiler's identity, and the whole of `runtime_basis`.
+--- checker's source ([`checker/tl.tl`]) and the Lua standard library's
+--- declarations it is compiled with ([`checker/stdlib.d.tl`]), and Lua's
+--- patches. Part of the compiler's identity, and the whole of `runtime_basis`.
 local pins <const> =
   "coalesce((SELECT group_concat(path || ' ' || sha256, char(10) " ..
   "ORDER BY path) FROM tool WHERE path IN ('vendor/tl/PIN', 'vendor/lua/PIN') " ..

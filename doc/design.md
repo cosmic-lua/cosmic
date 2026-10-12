@@ -440,8 +440,9 @@ input to the build, never to the runtime. one database holds:
   Teal-only rebuild carries the running binary's rows over, and `cosmic
   build` copies them into every executable it writes;
   [`Store.web_asset`] reads one.
-- **the compiler**: the Lua [`checker/tl.tl`] compiles to,
-  one row, loaded with its own environment.
+- **the compiler**: the Lua [`checker/tl.tl`] compiles to, started with
+  the text of [`checker/stdlib.d.tl`], one row, loaded with its own
+  environment.
 - **decls**: every declaration the tree holds, generated or written,
   so a checker building another tree against this binary can type
   what it requires.
@@ -884,7 +885,7 @@ keys a C object by its source's path, compiles a vendored file once
 for all of them -- and hands zig their manifest;
 a record whose anchor no longer matches fails the build by name.
 
-vendored: Lua 5.5, the SQLite amalgamation and nine of its ext/misc
+vendored: Lua 5.5, the SQLite amalgamation and twelve of its ext/misc
 extensions, mbedtls, miniz, bzip2,
 xz's liblzma decoder, c-ares, curl, yyjson, Mozilla's CA bundle, the
 IANA time zone database's compiled `zoneinfo`, and tl;
@@ -925,6 +926,32 @@ itself, which [`build/compiler_test.tl`] holds it to: the compiler is a
 function of its Teal source, not of what first compiled it. the source is
 in the compiler's identity, so in every compile's key, and in the tool's
 boot hash, so an edit to it boots the tool.
+
+the Lua standard library's declarations are not in that source. they are
+[`checker/stdlib.d.tl`], the typing the checker takes without proof, so
+auditing or changing one is an edit of that file and touches no checker
+logic. the file sits beside the checker, not under a module's path, for
+three reasons. the checker reads it before any module system exists: a
+`.d.tl` of a module is found by `require`, and the declarations are
+the checker's own environment, which makes `string`, `table` and the
+rest globals. it is outside the closure the checker compiles, as the
+checker is. and the compiler's identity, the tool's boot hash and the CI
+cache key hash everything under `checker/`, so an edit to a
+declaration recompiles every module and boots the tool. the boot carries
+the file: the bridge ([`core/bridge.lua`]) starts the compiled checker
+with `local stdlib = "<the file's text>"` on its first line, so the
+compiler the tool carries holds the declarations it was compiled with, and
+compiling the checker's source again with the same file gives exactly that
+Lua ([`build/compiler_test.tl`]). the checker still names the few
+functions it handles in code (`assert`, `type`, `setmetatable`, `pcall`,
+`require`, `ipairs`, `pairs`, `coroutine.wrap`, and `string.format`,
+`gsub`, `match`, `find` and the like) after reading the file, in
+`tl.new_env`. the prelude (`any`, `thread`, `userdata`, `metatable`)
+stays in the checker: its names are the language's, and the checker's
+logic reads them. `cosmic docs` does not show these declarations: it
+indexes the tree's modules and their declarations, and this file is
+neither. [`build/stdlib_declarations_test.tl`] pins how the checker
+prints representative names.
 
 an error the checker reports carries a `code` and the places and values it
 is about (an argument's position, the types shown, the key and the record's
@@ -1013,9 +1040,9 @@ modules by none of those, so a cached compile could stand after the
 module that declares it changed, the verdict of a serial build would
 depend on that order, and parallel workers could not reproduce it.
 everything a module sees comes through a `require`, which the key
-covers. tl's own prelude and standard-library declarations
-([`checker/tl.tl`]) are read by the checker's environment, not built as
-a source, and are unaffected. a Lua runtime trick the checker cannot
+covers. tl's own prelude ([`checker/tl.tl`]) and the Lua
+standard-library declarations ([`checker/stdlib.d.tl`]) are read by the
+checker's environment, not built as a source, and are unaffected. a Lua runtime trick the checker cannot
 see, `setmetatable(_G, ...)` or `local _ENV = ...`, is not refused, and
 neither is a file run by `cosmic --standalone`, which no build checks.
 
@@ -1255,6 +1282,7 @@ in [roadmap.md](roadmap.md).
 [`build/refresh.tl`]: ../build/refresh.tl
 [`build/shards.tl`]: ../build/shards.tl
 [`build/shared_compiles.tl`]: ../build/shared_compiles.tl
+[`build/stdlib_declarations_test.tl`]: ../build/stdlib_declarations_test.tl
 [`build/teal.tl`]: ../build/teal.tl
 [`build/teal_test.tl`]: ../build/teal_test.tl
 [`build/test.tl`]: ../build/test.tl
@@ -1264,6 +1292,7 @@ in [roadmap.md](roadmap.md).
 [`build/workers.tl`]: ../build/workers.tl
 [`build/zig.tl`]: ../build/zig.tl
 [`build/zig_fetch.tl`]: ../build/zig_fetch.tl
+[`checker/stdlib.d.tl`]: ../checker/stdlib.d.tl
 [`checker/tl.tl`]: ../checker/tl.tl
 [`ci/cosmic-driver.pin`]: ../ci/cosmic-driver.pin
 [`ci/cosmic_ci/host_id.tl`]: ../ci/cosmic_ci/host_id.tl
