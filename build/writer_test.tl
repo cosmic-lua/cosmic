@@ -17,10 +17,7 @@ local work = require("build.work")
 local writer = require("build.writer")
 local fixture = require("build.docs_fixture")
 
-local built, load_trouble = teal.load()
-if built == nil then
-  error("could not load the compiler: " .. tostring(load_trouble))
-end
+local built = assert(teal.load())
 
 --- Writes a minimal one-module project at `root`, greeting `whom`, so
 --- two projects built from a different `whom` compile to different

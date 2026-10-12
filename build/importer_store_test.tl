@@ -34,10 +34,7 @@ local function build_dir(root: string): string
   return (assert(build_paths.prepare(root)))
 end
 
-local built, load_trouble = teal.load()
-if built == nil then
-  error("could not load the compiler: " .. tostring(load_trouble))
-end
+local built = assert(teal.load())
 
 --- Writes every entry of `files` (filename -> source) into a fresh
 --- project directory of its own, named after `case`.

@@ -815,7 +815,7 @@ end
 --- open is not ended by a guard another task of the run opens after:
 --- a wait reads the guards open as it waits, and a guard opened
 --- meanwhile guards the waits that come after it.
-local function slice(deadline: integer, handles: {Handle}): integer
+local function slice(deadline: integer | nil, handles: {Handle}): integer
   local most = POLL_NS
   if exits_seen(handles) then most = adopting and REAP_NS or -1 end
   if deadline == nil then return most end
@@ -831,7 +831,7 @@ end
 
 --- The earlier of `deadline` (nil for none) and the child's own, which
 --- counts only while it is unsettled.
-local function sooner(deadline: integer, self: Handle): integer
+local function sooner(deadline: integer | nil, self: Handle): integer | nil
   local own = self._deadline
   if own == nil or self._status ~= nil or (deadline ~= nil and deadline <= own) then
     return deadline
@@ -901,7 +901,7 @@ local function exited(self: Handle, block?: boolean): raw_process.ChildStatus | 
   return claim(self, status), ""
 end
 
-local function close_fd(fd: integer)
+local function close_fd(fd: integer | nil)
   if fd ~= nil then
     Poll.closing(fd)
     local _, _ = sys.close(fd)
@@ -1029,7 +1029,7 @@ local services: {Kind:Service} = {
     ready = function(e: Entry)
       local h = assert(e.owner)
       local offset, input = assert(h._input_at), assert(h._input)
-      local written, _, errno = sys.write(h._input_fd, input:sub(offset + 1, offset + CHUNK))
+      local written, _, errno = sys.write(assert(h._input_fd), input:sub(offset + 1, offset + CHUNK))
       if written ~= nil then
         local at = offset + written
         h._input_at = at
@@ -1547,8 +1547,7 @@ function FeedWriter:abort(): boolean, string
   return self:close()
 end
 
-local function feed_writer(self: Handle): Stream.Writer
-  local fd = self._feed_fd
+local function feed_writer(self: Handle, fd: integer): Stream.Writer
   local w: FeedWriter = setmetatable({ child = self, fd = fd, closed = false }, feed_writer_mt)
   -- A closure, for [`Stream.FdOptions.wait`] is called with no Writer.
   local function room(_fd: integer, _events: integer, _left: integer | nil): boolean, string
@@ -1891,7 +1890,7 @@ end
 
 --- Raises at level 4, the caller of [`Child.start`] or [`Child.run`]: it and
 --- [`without_nul`] run under `validate`, which runs under either one.
-local function descriptor(value: integer | string, name: string, words: {string:boolean}):
+local function descriptor(value: integer | string | nil, name: string, words: {string:boolean}):
     integer | string
   if value == nil then return "inherit" end
   if value is string and words[value] then return value end
@@ -2608,8 +2607,9 @@ end
 local function reached_by(merged: Rules.Policy, base: string, file: boolean,
                           user: MappedUser): {boolean} | nil, string
   if merged.tmp and not file then
-    local tmpdir = sys.getenv("TMPDIR")
-    if tmpdir == nil or tmpdir == "" then tmpdir = "/tmp" end
+    local given = sys.getenv("TMPDIR")
+    local tmpdir = "/tmp"
+    if given ~= nil and #given > 0 then tmpdir = given end
     local real, _ = sys.realpath(tmpdir)
     local above = real ~= nil and unsearchable_above(real .. "/.", user) or ""
     if above ~= "" then
@@ -2678,7 +2678,7 @@ end
 local SHARED_CORES <const> = "/run/cosmic-sandbox-cores"
 
 --- Whether `st` is a directory of root's that no one else may write.
-local function roots_alone(st: sys.Stat): boolean
+local function roots_alone(st: sys.Stat | nil): boolean
   return st ~= nil and st.kind == "dir" and st.uid == 0 and st.mode & 0x12 == 0
 end
 
@@ -2758,7 +2758,7 @@ local shared_fds: {string:integer} = {}
 --- no descriptor to hand on; a core already run against a database
 --- relaunches so too, on its own. Nil and "" where this program has no
 --- core to start past its own start (a host program), or nil and why.
-local function relaunch_of(user: MappedUser, database?: string): Proc.Relaunch | nil, string
+local function relaunch_of(user: MappedUser | nil, database?: string): Proc.Relaunch | nil, string
   local launched, _ = Proc.relaunch()
   if launched == nil then return nil, "" end
   local portable = launched.env.COSMIC_PORTABLE_CORE_FD ~= nil
@@ -2823,7 +2823,7 @@ end
 --- This program's own file's real path ([`Proc.executable`]) where `name`,
 --- a policy's program as the caller names it, from `cwd` (this process's
 --- own where nil), is it; nil for any other program.
-local function this_program(name: string, cwd: string): string | nil
+local function this_program(name: string, cwd: string | nil): string | nil
   local executable, _ = Proc.executable()
   if executable == nil then return nil end
   local own, _ = sys.realpath(executable)
@@ -2843,7 +2843,7 @@ end
 
 --- Whether `name`, a policy's program, is this program's own file, which
 --- `grants` let it read and run.
-local function runs_this_program(name: string, cwd: string, grants: {Rules.Grant}): boolean
+local function runs_this_program(name: string, cwd: string | nil, grants: {Rules.Grant}): boolean
   local own = this_program(name, cwd)
   return own ~= nil and ungranted({ own }, grants, cwd) == ""
 end
@@ -2856,7 +2856,7 @@ end
 --- hard link, a copy or a bind-mounted view of it elsewhere in a granted
 --- directory still reads the program, so it does not hold against a
 --- policy author who means to reach it.
-local function reaching(file: string, grants: {Rules.Grant}, base: string): string
+local function reaching(file: string, grants: {Rules.Grant}, base: string | nil): string
   for _, grant in ipairs(grants) do
     local at = grant.from or grant.path
     if base ~= nil and at:sub(1, 1) ~= "/" then at = base .. "/" .. at end
@@ -2873,8 +2873,8 @@ end
 --- `user` is [`relaunch_of`]'s, `base` the directory grants are relative
 --- to, and `reach` the grants that must not reach this program's own file:
 --- the host's own (Landlock's profiles are not Seatbelt's).
-local function core_of(argv: {string}, opts: Options, merged: Rules.Policy, user: MappedUser,
-                       base: string, reach: {Rules.Grant}): Proc.Relaunch | nil, string
+local function core_of(argv: {string}, opts: Options, merged: Rules.Policy, user: MappedUser | nil,
+                       base: string | nil, reach: {Rules.Grant}): Proc.Relaunch | nil, string
   local named_database = merged.database
   local database: string = named_database and named_database.path
   local program: string
@@ -2977,8 +2977,8 @@ end
 --- environment, the limits, what isolates it and, for `tmp`, the
 --- directory. Nil and why when it cannot. It acquires nothing: `tmp`'s
 --- directory is [`make_tmp`]'s.
-local function held_to(argv: {string}, opts: Options): Held | nil, string
-  local merged, why = Rules.merge(opts.policy)
+local function held_to(argv: {string}, opts: Options, policy: Rules.Policy): Held | nil, string
+  local merged, why = Rules.merge(policy)
   if merged == nil then return nil, why end
   local trouble = unmet(merged)
   if trouble ~= "" then return nil, "sandbox: " .. trouble end
@@ -3150,7 +3150,7 @@ local function held_to(argv: {string}, opts: Options): Held | nil, string
   end
   for name, value in pairs(merged.set_env or {}) do env[name] = value end
   if relayed then
-    for name, value in pairs(RelayConfig.proxy_env(merged.loopback, nil, nil, merged.connect)) do
+    for name, value in pairs(RelayConfig.proxy_env(assert(merged.loopback), nil, nil, merged.connect)) do
       env[name] = value
     end
   end
@@ -3221,7 +3221,7 @@ local function held_to(argv: {string}, opts: Options): Held | nil, string
     -- reopens the database by its path after the hash, so a file swapped
     -- in that instant runs. Hand it the checked descriptor once core/main.c
     -- opens SQLite on the descriptor it checked (the TODO in open_database).
-    local holds, held_why = database_holds(merged.database, relaunch.argv[3])
+    local holds, held_why = database_holds(assert(merged.database), relaunch.argv[3])
     if not holds then return nil, "sandbox: " .. held_why end
   end
   return { path = path, env = env, tmp = "", wants_tmp = merged.tmp and not file,
@@ -3258,8 +3258,9 @@ end
 --- ([`relay_held`]); `serves_relay`, the port the relay accepts at, makes it
 --- the relay's own.
 --- It acquires nothing.
-local function held_by_seatbelt(argv: {string}, opts: Options, pty?: Pty, serves_relay?: integer): Held | nil, string
-  local merged, why = Rules.merge(opts.policy)
+local function held_by_seatbelt(argv: {string}, opts: Options, policy: Rules.Policy, pty?: Pty,
+                                serves_relay?: integer): Held | nil, string
+  local merged, why = Rules.merge(policy)
   if merged == nil then return nil, why end
   local credentials = seatbelt_credentials(merged)
   if credentials ~= "" then return nil, "sandbox: " .. credentials end
@@ -3288,7 +3289,7 @@ local function held_by_seatbelt(argv: {string}, opts: Options, pty?: Pty, serves
   -- and unpack a core into a cache the profile does not grant. The profile
   -- grants that core `rx` and, where it runs on a database, the database
   -- `r` alone: the core opens it read-only and immutable.
-  local relaunch, core_trouble = core_of(argv, opts, merged, nil, opts.cwd, Seatbelt.grants(opts.policy))
+  local relaunch, core_trouble = core_of(argv, opts, merged, nil, opts.cwd, Seatbelt.grants(policy))
   if relaunch == nil and core_trouble ~= "" then return nil, core_trouble end
   local core: string
   local sealed: string
@@ -3309,14 +3310,14 @@ local function held_by_seatbelt(argv: {string}, opts: Options, pty?: Pty, serves
   -- directory: getcwd: cannot access parent directories" and goes on, as
   -- Linux's Landlock start never does. Until then a start whose output is
   -- compared (test/terminal) gives the program the root as its `cwd`.
-  local options, resolve_trouble = Seatbelt.resolve(opts.policy, opts.cwd, own, core, sealed, terminal)
+  local options, resolve_trouble = Seatbelt.resolve(policy, opts.cwd, own, core, sealed, terminal)
   if options == nil then return nil, "sandbox: " .. resolve_trouble end
   options.serves_relay = serves_relay
   -- The relay's port is known once it serves, after this: a port of the
   -- right form lets this compile refuse what the profile cannot hold, with
   -- nothing started, and [`relay_held`] compiles it again with the real one.
   if relayed then options.relay_port = 65535 end
-  local profile, compile_trouble = Seatbelt.compile(opts.policy, options)
+  local profile, compile_trouble = Seatbelt.compile(policy, options)
   if profile == nil then return nil, "sandbox: " .. compile_trouble end
   local path = core or argv[1]
   if core == nil and not path:find("/", 1, true) then
@@ -3356,7 +3357,7 @@ local function held_by_seatbelt(argv: {string}, opts: Options, pty?: Pty, serves
     for i = 2, #argv do run_argv[#run_argv + 1] = argv[i] end
   end
   if relaunch ~= nil and merged.database ~= nil then
-    local holds, held_why = database_holds(merged.database, relaunch.argv[3])
+    local holds, held_why = database_holds(assert(merged.database), relaunch.argv[3])
     if not holds then return nil, "sandbox: " .. held_why end
   end
   local sandbox: raw_process.Sandbox = {
@@ -3366,7 +3367,7 @@ local function held_by_seatbelt(argv: {string}, opts: Options, pty?: Pty, serves
   return { path = path, env = env, tmp = "", wants_tmp = merged.tmp, tmp_parameter = profile.tmp,
     sandbox = sandbox, nests = false, seatbelt = true, argv = run_argv,
     fds = relaunch ~= nil and relaunch.fds or nil, relay = relayed and merged.connect or nil,
-    seatbelt_policy = opts.policy, seatbelt_options = options }, ""
+    seatbelt_policy = policy, seatbelt_options = options }, ""
 end
 
 --- Points the program of `held`, held by Seatbelt, at its relay, which
@@ -3376,7 +3377,7 @@ end
 local function relay_held(held: Held, port: integer, token: string): string
   local options = assert(held.seatbelt_options)
   options.relay_port = port
-  local profile, trouble = Seatbelt.compile(held.seatbelt_policy, options)
+  local profile, trouble = Seatbelt.compile(assert(held.seatbelt_policy), options)
   if profile == nil then return trouble end
   assert(held.sandbox.seatbelt).profile = profile.text
   for name, value in pairs(RelayConfig.proxy_env({}, port, token, held.relay)) do
@@ -3684,19 +3685,19 @@ local function start(argv: {string}, opts: Options, pty?: Pty, serves_relay?: in
     end
   end
   local held: Held
-  if opts.policy ~= nil then
+  local policy = opts.policy
+  if policy ~= nil then
     local made: Held | nil
     local why: string
     if holds_by_seatbelt() then
-      made, why = held_by_seatbelt(argv, opts, pty, serves_relay)
+      made, why = held_by_seatbelt(argv, opts, policy, pty, serves_relay)
     else
-      made, why = held_to(argv, opts)
+      made, why = held_to(argv, opts, policy)
     end
     if made == nil then return refuse("start: " .. why) end
     held = made
   end
-  local grouped = opts.process_group
-  if grouped == nil then grouped = true end
+  local grouped = opts.process_group ~= false
   if grouped and adopting == nil then
     local subreaper, _ = raw.subreaper()
     adopting = subreaper
@@ -3809,7 +3810,7 @@ local function start(argv: {string}, opts: Options, pty?: Pty, serves_relay?: in
         if not served then launched = nil end
       end
       if launched ~= nil then
-        launch_trouble = relay_held(held, prep.port, prep.token)
+        launch_trouble = relay_held(held, assert(prep.port), assert(prep.token))
         if launch_trouble ~= "" then
           kill_relay(launched.handle)
           launched = nil
@@ -3939,7 +3940,7 @@ local function start(argv: {string}, opts: Options, pty?: Pty, serves_relay?: in
   end
   if wiring.feed_fd ~= nil then
     h._feed_fd = wiring.feed_fd
-    h.stdin_stream = feed_writer(h)
+    h.stdin_stream = feed_writer(h, wiring.feed_fd)
   end
   for index, stream in ipairs(wiring.streams) do
     if stream.streamed then
@@ -4105,7 +4106,7 @@ function Child.start_on_pty(argv: {string}, opts: Options, pty: PtyOptions): Pty
   -- return, the master unless the caller is to have it.
   local holding <close>: PtyHolder = setmetatable({ master = made.master, slave = made.slave,
     keep = false, keep_slave = false }, pty_holder_mt)
-  if pty.rows ~= nil then
+  if pty.rows ~= nil and pty.columns ~= nil then
     local sized, size_why = sys.setwinsize(made.master, pty.rows, pty.columns)
     -- TODO: test this branch once the checked core has a fault point that
     -- makes TIOCSWINSZ fail on a fresh master, or a platform refuses it.

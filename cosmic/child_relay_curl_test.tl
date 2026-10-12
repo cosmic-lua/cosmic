@@ -56,7 +56,7 @@ local function serving(body: function(port: integer))
         end)
       end
     end)
-    body(listener.address.port)
+    body(assert(listener.address.port))
     task:cancel()
     assert(listener:close())
   end)

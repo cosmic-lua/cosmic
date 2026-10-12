@@ -16,10 +16,7 @@ local work = require("build.work")
 local writer = require("build.writer")
 local Clock = require("cosmic.clock")
 
-local built, load_trouble = teal.load()
-if built == nil then
-  error("could not load the compiler: " .. tostring(load_trouble))
-end
+local built = assert(teal.load())
 
 --- Writes a minimal one-module project at `root`, greeting `whom`: the
 --- one build/writer_test.tl projects, restated here since a test module

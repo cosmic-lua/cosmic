@@ -243,7 +243,7 @@ local function execute(argv: {integer:string}): integer
         successful(privileged({ assert(chown), "-h", "-R", "-P",
           tostring(credentials.user) .. ":" .. tostring(credentials.group), path }), "chown")
       else
-        assert(sys.chown(path, credentials.user, credentials.group))
+        assert(sys.chown(path, assert(credentials.user), assert(credentials.group)))
       end
     end
   end

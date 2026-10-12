@@ -171,13 +171,14 @@ function worker.parse(pool: worker.Pool, db: Sqlite.Handle, built: compiler,
   if #fresh == 0 then return true, "" end
   local count = math.min(pool.size(), #fresh)
   local shard_of = dealt(fresh, count)
-  local job, job_trouble = parse_job(pool, fresh, shard_of)
-  local widths, widths_trouble = derivation.table_widths(db)
-  if job == nil or widths == nil then
+  local made_job, job_trouble = parse_job(pool, fresh, shard_of)
+  local made_widths, widths_trouble = derivation.table_widths(db)
+  if made_job == nil or made_widths == nil then
     local _, _ = log:complain("build: workers: " .. (job_trouble ~= "" and job_trouble or widths_trouble) ..
         "; parsing in this process")
     return derivation.parse_fresh(db, built, fresh, tally, made)
   end
+  local job, widths: string, {string:integer} = made_job, made_widths
 
   local _ = pool.run("parse", job, count)
   local read: {integer:Sqlite.Handle} = {}
@@ -335,8 +336,9 @@ function worker.compile(pool: worker.Pool, db: Sqlite.Handle, root: string,
   local plan = shards.best(items, wanted, pool.size())
   local count = #plan
   if count < 2 then return nil, "" end
-  local job, job_trouble = pool.path("compile")
-  if job == nil then return nil, job_trouble end
+  local made_job, job_trouble = pool.path("compile")
+  if made_job == nil then return nil, job_trouble end
+  local job: string = made_job
   local jobs, create_trouble = created(job, {
     "CREATE TABLE inputs (path TEXT NOT NULL, kind TEXT NOT NULL, source TEXT NOT NULL, " ..
       "PRIMARY KEY (path, kind)) WITHOUT ROWID",
@@ -443,8 +445,9 @@ local function serve_compile(built: compiler, job: string, index: integer): stri
       "WHERE m.shard = ?1 ORDER BY m.seq", { integer(index) })
   if rows == nil then return close_with(rows_trouble) end
   local modules: {{string}} = rows
-  local env, env_trouble = teal.environment_for(built, jobs, settings.root)
-  if env == nil then return close_with(env_trouble) end
+  local made_env, env_trouble = teal.environment_for(built, jobs, settings.root)
+  if made_env == nil then return close_with(env_trouble) end
+  local env: compiler.Env = made_env
   local typed = receivers.install(env)
   local own_tree, judged = settings.own_tree == "1", settings.judged == "1"
   local out, out_trouble = created(results_of(job, index), {

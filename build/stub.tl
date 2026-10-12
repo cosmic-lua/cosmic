@@ -11,9 +11,9 @@
 ---
 --- Leaving a body out cannot change the module's type: tl takes a
 --- function's types from its signature, or from the context of a function
---- literal (patch/tl/37), never from its body. A body is still checked
+--- literal, never from its body. A body is still checked
 --- against those types in two ways. A function declared `: never` must
---- not reach its end (patch/tl/43), so its stub body is `error()`. A
+--- not reach its end, so its stub body is `error()`. A
 --- function literal written with no return list must return what its
 --- context expects of it, and nothing in its signature says what that is,
 --- so its body is kept. The checker still warns of the parameters and

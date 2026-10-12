@@ -862,7 +862,7 @@ local CHARS <const> = { "a", "Z", "0", " ", '"', "\\", "/", "\n", "\t", "\r", "\
 -- a middle element only by reshaping everything after it; a byte before
 -- each element whose low values stop, as [`Fuzz.more`] draws, would let
 -- shrinking drop any (measure "encoded" and "refused" again).
-local function recipe_value(r: Recipe, depth: integer, parent: {any: any}): any
+local function recipe_value(r: Recipe, depth: integer, parent?: {any: any}): any
   local op = next_byte(r) % 13
   if depth > 6 and op >= 7 then op = op % 7 end
   if op == 0 then return nil end
@@ -915,7 +915,7 @@ end
 local function encode_holds(input: string): boolean, string
   local r: Recipe = { bytes = input, at = 0 }
   local opts = recipe_options(r)
-  local value = recipe_value(r, 0, nil)
+  local value = recipe_value(r, 0)
   local ok, text, err = pcall(Json.encode, value, opts)
   if not ok then return false, "raised: " .. tostring(text) end
   Fuzz.label(text ~= nil and "encoded" or "refused")

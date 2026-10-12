@@ -110,7 +110,7 @@ function ZigRestat.restat(caches: {ZigPrune.Cache}, roots: {integer:string}): Zi
               end
             end
             local taken, unchanged = false, false
-            if stat is sys.Stat and stat.size == record.size then
+            if file ~= nil and stat is sys.Stat and stat.size == record.size then
               local mtime = stat.mtime * 1000000000 + stat.mtime_ns
               if mtime == record.mtime and stat.ino == record.inode then
                 unchanged = true

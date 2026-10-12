@@ -107,12 +107,12 @@ local record verb
   --- The schemes a redirect of `url` may lead to, for
   --- `Http.Options.redirect_protocols`: https only when `url` is https
   --- and `allow_downgrade` is not given, nil (both) otherwise.
-  redirect_protocols: function(url: string, allow_downgrade: boolean): {string}
+  redirect_protocols: function(url: string, allow_downgrade: boolean): {string} | nil
   --- What to print for `why`, an `Http` failure, when the fetch was
   --- limited to https redirects: a plain sentence where curl's is
   --- `Protocol "http" is disabled (in redirect)`; `why` as given
   --- otherwise, or when `protocols` is nil.
-  refusal: function(why: string, protocols: {string}): string
+  refusal: function(why: string, protocols: {string} | nil): string
 end
 
 local spec = Cli.verbs.fetch.spec or {}
@@ -133,12 +133,12 @@ local algorithms: {Algorithm} = {
   { name = "sha512", digits = 128, keys = { "sha512", "sha512sum" } },
 }
 
-function verb.redirect_protocols(url: string, allow_downgrade: boolean): {string}
+function verb.redirect_protocols(url: string, allow_downgrade: boolean): {string} | nil
   if allow_downgrade or url:match("^(%a+)://"):lower() ~= "https" then return nil end
   return { "https" }
 end
 
-function verb.refusal(why: string, protocols: {string}): string
+function verb.refusal(why: string, protocols: {string} | nil): string
   if protocols ~= nil and why:find('Protocol "http" is disabled (in redirect)', 1, true) then
     return "refused a redirect from https to http (--allow-downgrade follows it)"
   end

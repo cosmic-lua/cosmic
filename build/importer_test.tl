@@ -29,10 +29,7 @@ local shared_compiles = require("build.shared_compiles")
 --- are build/importer_store_test.tl's.
 Test.policy{ grants = { { path = "core", letters = "r" } } }
 
-local built, load_trouble = teal.load()
-if built == nil then
-  error("could not load the compiler: " .. tostring(load_trouble))
-end
+local built = assert(teal.load())
 
 --- Writes every entry of `files` (filename -> source) into a fresh
 --- project directory of its own, named after `case`.
@@ -445,6 +442,19 @@ local function image_hash_of(root: string): string
   return fingerprint.image
 end
 
+--- The checker is compiled into the compiler only by a boot, so an edit to
+--- it moves the image hash, which a rebuild without a boot cannot serve.
+local function test_image_hash_covers_the_checker()
+  local root = assert(Fs.mkdtemp("cosmic-importer-test-image-checker-"))
+  for _, dir in ipairs({ "build", "core", "cosmic", "cmd/cosmic", "checker", "bin" }) do
+    assert(Fs.mkdirs(root .. "/" .. dir))
+  end
+  assert(Fs.write(root .. "/checker/tl.tl", "original"))
+  local image = image_hash_of(root)
+  assert(Fs.write(root .. "/checker/tl.tl", "changed"))
+  assert(image_hash_of(root) ~= image, "an edit to the checker did not move the image hash")
+end
+
 --- A Teal test beside the core's C is not a core input, nor one of the
 --- tool's: no binary carries it, so an edit to one rebuilds neither.
 local function test_image_hash_leaves_out_teal_under_core()
@@ -491,13 +501,13 @@ end
 --- every edit, and must not compile every module again for it.
 local function test_compiler_identity_follows_the_compiler_not_the_stdlib()
   local root = assert(Fs.mkdtemp("cosmic-importer-test-identity-"))
-  for _, dir in ipairs({ "build", "core", "cosmic", "cmd/cosmic", "patch/tl",
+  for _, dir in ipairs({ "build", "core", "cosmic", "cmd/cosmic", "checker",
       "patch/lua", "vendor/tl", "vendor/lua", "bin" }) do
     assert(Fs.mkdirs(root .. "/" .. dir))
   end
   assert(Fs.write(root .. "/vendor/tl/PIN", "version 1"))
   assert(Fs.write(root .. "/vendor/lua/PIN", "version 1"))
-  assert(Fs.write(root .. "/patch/tl/01.txt", "a record"))
+  assert(Fs.write(root .. "/checker/tl.tl", "a checker"))
   assert(Fs.write(root .. "/cosmic/fs.tl", "local record Fs\nend\nreturn Fs\n"))
   assert(Fs.write(root .. "/cosmic/removed.tl",
     "local record Removed\nend\nreturn Removed\n"))
@@ -533,11 +543,50 @@ local function test_compiler_identity_follows_the_compiler_not_the_stdlib()
   local after_withheld = identities()
   assert(after_withheld[1] ~= original[1],
     "an edit to the names the checker strips did not move the compiler identity")
-  assert(Fs.write(root .. "/patch/tl/01.txt", "another record"))
-  local after_patch = identities()
-  assert(after_patch[1] ~= after_withheld[1],
-    "a compiler patch did not move the compiler identity")
-  assert(after_patch[2] ~= original[2], "a compiler patch did not move the runtime basis")
+  assert(Fs.write(root .. "/checker/tl.tl", "another checker"))
+  local after_checker = identities()
+  assert(after_checker[1] ~= after_withheld[1],
+    "an edit to the checker did not move the compiler identity")
+  assert(after_checker[2] ~= original[2], "an edit to the checker did not move the runtime basis")
+end
+
+--- The Lua standard library's declarations, [`checker/stdlib.d.tl`], are
+--- compiled into the checker at boot, so an edit to one moves what every
+--- compile is a function of (the compiler's identity, so each compile's
+--- key, and the runtime basis) and the hashes that make a boot (the
+--- tool's and the core's image): an edit that moved none would leave
+--- every module compiled against the declaration it was edited from.
+local function test_compiler_identity_follows_the_standard_library_declarations()
+  local root = assert(Fs.mkdtemp("cosmic-importer-test-identity-declarations-"))
+  for _, dir in ipairs({ "build", "core", "cosmic", "cmd/cosmic", "checker",
+      "patch/lua", "vendor/tl", "vendor/lua", "bin" }) do
+    assert(Fs.mkdirs(root .. "/" .. dir))
+  end
+  assert(Fs.write(root .. "/vendor/tl/PIN", "version 1"))
+  assert(Fs.write(root .. "/vendor/lua/PIN", "version 1"))
+  assert(Fs.write(root .. "/checker/tl.tl", "a checker"))
+  assert(Fs.write(root .. "/checker/stdlib.d.tl", "do\n   global function f(): string\n   end\nend\n"))
+  assert(Fs.write(root .. "/build/teal.tl", "local record teal\nend\nreturn teal\n"))
+  assert(Fs.write(root .. "/build/importer.tl",
+    "local teal = require(\"build.teal\")\nlocal record importer\nend\n" ..
+      "importer.teal = teal\nreturn importer\n"))
+  local function hashes(): {string}
+    local handle = assert(work.open(root))
+    assert(work.stage(handle, true))
+    assert(importer.derive(handle, true, built))
+    local found = assert(identity.record_identities(handle.db))
+    local fingerprint = assert(identity.record_fingerprint(handle.db))
+    work.close(handle)
+    return { found.compiler, found.runtime_basis, fingerprint.image, fingerprint.boot }
+  end
+  local original = hashes()
+  assert(hashes()[1] == original[1], "a second open of the same tree moved the identity")
+  assert(Fs.write(root .. "/checker/stdlib.d.tl", "do\n   global function f(): integer\n   end\nend\n"))
+  local after = hashes()
+  assert(after[1] ~= original[1], "an edit to a standard library declaration did not move the compiler identity")
+  assert(after[2] ~= original[2], "an edit to a standard library declaration did not move the runtime basis")
+  assert(after[3] ~= original[3], "an edit to a standard library declaration did not move the image hash")
+  assert(after[4] ~= original[4], "an edit to a standard library declaration did not move the boot hash")
 end
 
 --- An edit to anything the tool is built from moves its boot hash: its
@@ -546,12 +595,12 @@ end
 --- never edited in place, so its contents are not walked.
 local function test_boot_hash_tracks_embedded_inputs()
   local root = assert(Fs.mkdtemp("cosmic-importer-test-boot-hash-"))
-  for _, dir in ipairs({ "build", "core", "cosmic", "cmd/cosmic", "patch/tl", "vendor/tl", "bin" }) do
+  for _, dir in ipairs({ "build", "core", "cosmic", "cmd/cosmic", "checker", "vendor/tl", "bin" }) do
     assert(Fs.mkdirs(root .. "/" .. dir))
   end
   local paths = {
     "build/main.tl", "core/main.c", "cosmic/example.tl",
-    "cosmic/example_example.tl", "patch/tl/example.patch", "vendor/tl/PIN",
+    "cosmic/example_example.tl", "checker/tl.tl", "vendor/tl/PIN",
     "cmd/cosmic/main.tl", "build.zig", "build.zig.zon", "bin/zig", "bin/zig.pin",
   }
   for _, path in ipairs(paths) do
@@ -778,7 +827,7 @@ end
 --- not in it: the importer is outside the semantic closure.
 local function test_compiler_identity_is_the_same_on_a_fresh_database()
   local root = assert(Fs.mkdtemp("cosmic-importer-test-fresh-identity-"))
-  for _, dir in ipairs({ "build", "core", "cosmic", "cmd/cosmic", "patch/tl",
+  for _, dir in ipairs({ "build", "core", "cosmic", "cmd/cosmic", "checker",
       "patch/lua", "vendor/tl", "vendor/lua", "bin" }) do
     assert(Fs.mkdirs(root .. "/" .. dir))
   end
@@ -825,7 +874,7 @@ end
 --- tool whose writer stands writes what the tree's own would.
 local function test_writer_identity_follows_the_writer_closure()
   local root = assert(Fs.mkdtemp("cosmic-importer-test-writer-identity-"))
-  for _, dir in ipairs({ "build", "core", "cosmic", "cmd/cosmic", "patch/tl",
+  for _, dir in ipairs({ "build", "core", "cosmic", "cmd/cosmic", "checker",
       "patch/lua", "vendor/tl", "vendor/lua", "bin" }) do
     assert(Fs.mkdirs(root .. "/" .. dir))
   end
@@ -958,7 +1007,7 @@ end
 --- was derived.
 local function test_a_changed_analyzer_forgets_what_it_derived()
   local root = assert(Fs.mkdtemp("cosmic-importer-test-analyzer-"))
-  for _, dir in ipairs({ "build", "core", "cosmic", "cmd/cosmic", "patch/tl",
+  for _, dir in ipairs({ "build", "core", "cosmic", "cmd/cosmic", "checker",
       "patch/lua", "vendor/tl", "vendor/lua", "bin" }) do
     assert(Fs.mkdirs(root .. "/" .. dir))
   end
@@ -1005,7 +1054,7 @@ local function test_a_changed_analyzer_forgets_what_it_derived()
 end
 
 --- tl's checker silently accepts a `_`-prefixed name as intentionally
---- unused ([`vendor/tl/tl.tl`]'s own `var_name:sub(1, 1) == "_"` check),
+--- unused ([`checker/tl.tl`]'s own `var_name:sub(1, 1) == "_"` check),
 --- but its warning for every other name does not mention that escape,
 --- and cosmic refuses the whole compile over any warning (see
 --- `complain`). `with_unused_hint` names the escape in the message.
@@ -1153,7 +1202,7 @@ end
 --- inputs from what was staged must yield no module from there either.
 local function test_own_tree_staging_skips_the_ci_driver_tree()
   local root = assert(Fs.mkdtemp("cosmic-importer-test-skip-ci-"))
-  for _, dir in ipairs({ "build", "core", "cosmic", "cmd/cosmic", "patch/tl",
+  for _, dir in ipairs({ "build", "core", "cosmic", "cmd/cosmic", "checker",
       "patch/lua", "vendor/tl", "vendor/lua", "bin",
       "ci/cosmic_ci", "ci/o" }) do
     assert(Fs.mkdirs(root .. "/" .. dir))
@@ -1332,7 +1381,7 @@ local function identity_fixture(case: string): string
   local files: {string:string} = {
     ["vendor/tl/PIN"] = "version 1",
     ["vendor/lua/PIN"] = "version 1",
-    ["patch/tl/01.txt"] = "a record",
+    ["checker/tl.tl"] = "a checker",
     ["patch/lua/01.txt"] = "a record",
     ["cosmic/fs.tl"] = module_requiring({}),
     ["cosmic/removed.tl"] = module_requiring({}),
@@ -1421,7 +1470,7 @@ local function test_compiler_identity_follows_what_shapes_a_compile()
       "build/contracts.tl", "build/receivers.tl", "build/tree.tl",
       "build/analysis_schema.tl", "build/analyzer.tl",
       "build/cache_names.tl", "build/ast.tl",
-      "vendor/tl/PIN", "patch/tl/01.txt", "vendor/lua/PIN",
+      "vendor/tl/PIN", "checker/tl.tl", "vendor/lua/PIN",
       "patch/lua/01.txt" }) do
     local before = identities_of(root)
     edit(root, path)
@@ -1431,6 +1480,28 @@ local function test_compiler_identity_follows_what_shapes_a_compile()
     assert(after[2] ~= before[2], "an edit to " .. path .. " did not move the analyzer identity")
     seen[after[1]] = path
   end
+end
+
+--- The checker's source decides what every module is accepted as and
+--- compiled to, and every module's compile key holds the compiler's
+--- identity ([`build.importer`]'s `Result`), so a tree whose
+--- [`checker/tl.tl`] differs must name another identity, and so another key
+--- for every module and parse, or a cache made by the old checker would
+--- serve the new tree. The identity is a function of the checker's bytes:
+--- the same bytes name it again, and a tree with no checker names a third.
+local function test_an_edit_to_the_checker_source_moves_every_compile_key()
+  local root = identity_fixture("identity-checker")
+  local original = identities_of(root)
+  local checker = root .. "/checker/tl.tl"
+  assert(Fs.read(checker) == "a checker")
+  assert(Fs.write(checker, "a checker, edited"))
+  local edited = identities_of(root)
+  assert(edited[1] ~= original[1], "an edit to the checker did not move the compiler identity")
+  assert(edited[2] ~= original[2], "an edit to the checker did not move the analyzer identity")
+  assert(Fs.write(checker, "a checker"))
+  assert(identities_of(root)[1] == original[1], "the same checker source named another identity")
+  assert(Fs.remove(checker))
+  assert(identities_of(root)[1] ~= original[1], "a tree with no checker named the identity of one with it")
 end
 
 --- The compiler's identity holds what a compile or a parse runs to
@@ -1727,7 +1798,7 @@ local function test_an_unjudged_refused_compile_is_not_shared()
   local shared: {string:boolean} = {}
   for _, m in ipairs(result.modules) do
     local found, look_trouble = shared_compiles.look(cache,
-      shared_compiles.key(m.key, true, m.generated))
+      shared_compiles.key(assert(m.key), true, m.generated))
     assert(look_trouble == "", look_trouble)
     shared[m.path] = found ~= nil
   end
@@ -1944,14 +2015,14 @@ local function test_the_module_shape_does_not_reach_compilation()
 end
 
 --- The compiler is one row, whatever file an older build named it by:
---- putting one replaces a row left under `o/vendor/tl/tl.lua`, so no
---- working database holds two.
+--- putting one replaces a row left under another file, so no working
+--- database holds two.
 local function test_putting_the_compiler_replaces_an_older_row(tmp: string)
   assert(Fs.mkdirs(tmp .. "/root"))
   local handle = assert(work.open(tmp .. "/root"))
   assert(Sqlite.run(handle.db,
     "INSERT INTO derived (file, path, kind, origin, from_hash, source, " ..
-      "source_hash) VALUES ('o/vendor/tl/tl.lua', 'vendor.tl', 'vendor', " ..
+      "source_hash) VALUES ('o/older.lua', 'vendor.tl', 'vendor', " ..
       "'vendor', 'old', 'return {}', 'old')", {}))
   assert(derivation.put_compiler(handle.db, "return { new = true }"))
   local rows = assert(Sqlite.text_rows(handle.db,

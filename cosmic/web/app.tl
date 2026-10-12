@@ -92,8 +92,10 @@ function App.new(spec: Types.AppSpec): Types.App
   checked(spec, SPEC_FIELDS, "app")
   local sink: Types.Sink = spec.sink or Middleware.stderr_sink()
   local hubs: {Types.Closable} = spec.hubs or {}
+  local routes: {Types.Route} = spec.routes or {}
+  local middleware: {Types.Middleware} = spec.middleware or {}
   local kept: Types.AppSpec = {
-    routes = spec.routes or {}, middleware = spec.middleware or {}, lifespan = spec.lifespan,
+    routes = routes, middleware = middleware, lifespan = spec.lifespan,
     debug = spec.debug == true, trailing_slash = spec.trailing_slash,
     trusted_proxy = spec.trusted_proxy == true, error_pages = spec.error_pages,
     error_view = spec.error_view, sink = sink,
@@ -122,7 +124,7 @@ function App.new(spec: Types.AppSpec): Types.App
       hosts[i] = parsed.host
     end
   end
-  local router = Router.build(kept.routes, Errors.terminal, kept.trailing_slash, kept.builtin)
+  local router = Router.build(routes, Errors.terminal, kept.trailing_slash, kept.builtin)
   local app: Types.App = { spec = kept, state = {}, router = router, stopped = false, stoppers = {},
     streams = {}, stream_count = 0, stream_limit = kept.max_streams or DEFAULT_STREAM_LIMIT }
   local function dispatch(req: Types.Request): Types.Response
@@ -141,7 +143,7 @@ function App.new(spec: Types.AppSpec): Types.App
     req.mount_path = outcome.mount_path
     return outcome.handler(req)
   end
-  local stack = Middleware.compose(kept.middleware, Errors.wrap(dispatch))
+  local stack = Middleware.compose(middleware, Errors.wrap(dispatch))
   app.handle = function(raw: Server.Request): Types.Response
     local parts: Request.Parts = { path = "/", segments = {}, trailing = false }
     local outcome: Types.Outcome = nil

@@ -134,11 +134,10 @@ end
 local function secret_for(req: Types.Request): string
   local session = Session.of(req)
   local secret = secret_of(session)
-  if secret == nil then
-    secret = (assert(Rand.entropy(32)))
-    session:set(Session.CSRF_KEY, Codec.base64url(secret))
-  end
-  return secret
+  if secret ~= nil then return secret end
+  local drawn = assert(Rand.entropy(32))
+  session:set(Session.CSRF_KEY, Codec.base64url(drawn))
+  return drawn
 end
 
 --- A masked token for this request's session, drawing the session's secret

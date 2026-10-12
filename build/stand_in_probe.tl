@@ -376,7 +376,7 @@ local verbs: {string:function(string, string): integer} = {
   ["loopback-tcp"] = function(host: string): integer
     local server, trouble = Net.listen(Net.tcp(host, 0), { timeout_ns = Time.seconds(5) })
     if server == nil then return put_all(1, trouble .. "\n") end
-    local conn, connect_trouble = Net.connect(Net.tcp(host, server.address.port),
+    local conn, connect_trouble = Net.connect(Net.tcp(host, assert(server.address.port)),
       { timeout_ns = Time.seconds(5) })
     if conn == nil then
       local _, _ = server:close()

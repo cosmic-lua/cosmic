@@ -350,7 +350,7 @@ function Htmx.apply(res: Types.Response, reply: Htmx.Reply): Types.Response | ni
       put("HX-Location", url)
     end
   end
-  local function url_field(label: string, header: string, value: string | Html.SafeUrl | boolean): string | nil
+  local function url_field(label: string, header: string, value: string | Html.SafeUrl | boolean | nil): string | nil
     if value == nil then return nil end
     if value is boolean then
       put(header, value and "true" or "false")
@@ -382,7 +382,7 @@ function Htmx.apply(res: Types.Response, reply: Htmx.Reply): Types.Response | ni
     end
     put("HX-Reswap", swap)
   end
-  local function events_field(label: string, header: string, events: {Htmx.Event}): string | nil
+  local function events_field(label: string, header: string, events: {Htmx.Event} | nil): string | nil
     if events == nil then return nil end
     local text, why = events_of(label, events)
     if text == nil then return why end

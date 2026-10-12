@@ -1,5 +1,5 @@
 --- Structural Teal parsing, walking, matching, and rewriting over the
---- vendored compiler's AST. Functions that parse source take the loaded
+--- compiler's AST. Functions that parse source take the loaded
 --- compiler capsule explicitly.
 local type compiler = require("build.compiler")
 local ast_node = require("build.ast.node")

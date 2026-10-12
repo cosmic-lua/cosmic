@@ -24,7 +24,7 @@ local function test_a_todo_carries_on_through_its_paragraph()
   local found = todo_scan.scan(text({
     "local x = 1",
     "  -- TODO: drop the cast once the pin names a cosmic",
-    "  -- carrying patch/tl/24.",
+    "  -- carrying the fix.",
     "  --",
     "  -- Not part of it.",
     "  return x",
@@ -32,7 +32,7 @@ local function test_a_todo_carries_on_through_its_paragraph()
   assert(#found == 1, "found " .. #found)
   assert(found[1].line == 2 and found[1].last == 3)
   assert(found[1].text ==
-      "drop the cast once the pin names a cosmic carrying patch/tl/24.",
+      "drop the cast once the pin names a cosmic carrying the fix.",
     found[1].text)
 end
 
@@ -394,15 +394,15 @@ end
 --- file under `patch/` that is no record, and the vendored tree, are not.
 local function test_own_tree_lists_a_patch_record_s_own_todos()
   local root = assert(Fs.mkdtemp("cosmic-todos-test-"))
-  assert(Fs.mkdirs(root .. "/patch/tl"))
-  assert(Fs.mkdirs(root .. "/vendor/tl"))
-  assert(Fs.write(root .. "/patch/tl/01-x.txt", record_text))
+  assert(Fs.mkdirs(root .. "/patch/curl"))
+  assert(Fs.mkdirs(root .. "/vendor/curl"))
+  assert(Fs.write(root .. "/patch/curl/01-x.txt", record_text))
   -- The same bytes elsewhere, staged first, are scanned as the record is:
   -- a file's TODOs are kept by its bytes alone.
   assert(Fs.mkdirs(root .. "/aaa"))
   assert(Fs.write(root .. "/aaa/copy.txt", record_text))
-  assert(Fs.write(root .. "/patch/tl/notes.md", text({ "# TODO: not a record" })))
-  assert(Fs.write(root .. "/vendor/tl/PIN", text({ "# TODO: upstream's pin" })))
+  assert(Fs.write(root .. "/patch/curl/notes.md", text({ "# TODO: not a record" })))
+  assert(Fs.write(root .. "/vendor/curl/PIN", text({ "# TODO: upstream's pin" })))
   local handle = assert(work.open(root))
   assert(work.stage(handle, true))
   local listed = assert(todos.list(handle.db, root)).todos
@@ -417,14 +417,14 @@ local function test_own_tree_lists_a_patch_record_s_own_todos()
   table.sort(seen)
   assert(table.concat(seen, "|") == "aaa/copy.txt:2: drop this once upstream takes it|" ..
       "aaa/copy.txt:9: ours, once ci/cosmic-driver.pin names a release carrying it|" ..
-      "patch/tl/01-x.txt:2: drop this once upstream takes it|" ..
-      "patch/tl/01-x.txt:9: ours, once ci/cosmic-driver.pin names a release carrying it",
+      "patch/curl/01-x.txt:2: drop this once upstream takes it|" ..
+      "patch/curl/01-x.txt:9: ours, once ci/cosmic-driver.pin names a release carrying it",
     table.concat(seen, "|"))
   local hits: {string} = {}
   for id in pairs((assert(todos.search(handle.db, "\"cosmic-driver.pin\"")))) do
     hits[#hits + 1] = id_of[id]
   end
-  assert(#hits == 1 and hits[1] == "patch/tl/01-x.txt:9", table.concat(hits, " "))
+  assert(#hits == 1 and hits[1] == "patch/curl/01-x.txt:9", table.concat(hits, " "))
   assert(work.close(handle))
   assert(Fs.remove_tree(root))
 end

@@ -475,7 +475,7 @@ function test_sandbox.plan(root: string, scratch: string, effective: test_inputs
       -- host's would replace.
     elseif path == store then
       give(given_store, build_paths.under(test_sandbox.output).projection)
-    elseif path == executable and program ~= nil and not own_program then
+    elseif executable ~= nil and path == executable and program ~= nil and not own_program then
       give(path, program)
     else
       give(path)

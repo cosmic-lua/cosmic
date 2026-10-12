@@ -282,7 +282,7 @@ local function test_the_file_holds_its_entries_as_the_guard_prints_them()
   local rows = assert(Sqlite.rows(db, "SELECT source FROM modules WHERE path = ?1",
     { { text = "build.harness_epoch" } }))
   db:close()
-  local text = assert(Compress.inflate("raw", rows[1][1].blob))
+  local text = assert(Compress.inflate("raw", assert(rows[1][1].blob)))
   local names: {string} = {}
   for name in pairs(harness_epoch.acknowledged) do names[#names + 1] = name end
   assert(#names > 0)

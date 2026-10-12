@@ -1201,11 +1201,12 @@ local function cache_names(): {string: any}
 end
 
 --- What `names` hashes as the compiler a branch's compiles were made
---- by: the build's own modules and the Teal compiler's
---- and Lua's pins and patches, as the compiler's identity holds them
---- (build.identity's `compiler_identity`), and the rest of build/ beside.
+--- by: the build's own modules, the checker's source and the Teal
+--- compiler's and Lua's pins and patches, as the compiler's identity holds
+--- them (build.identity's `compiler_identity`), and the rest of build/
+--- beside.
 local COMPILER_HASH <const> = "${{ hashFiles('build/**/*.tl', '!build/**/*_test.tl', " ..
-  "'vendor/tl/PIN', 'vendor/lua/PIN', 'patch/tl/**', 'patch/lua/**') }}"
+  "'vendor/tl/PIN', 'vendor/lua/PIN', 'checker/**', 'patch/lua/**') }}"
 
 --- A branch's push saves its compiles for its own later pushes, where
 --- its builds compiled more than a few dozen modules the entry it
@@ -2746,7 +2747,7 @@ local function test_the_vendor_part_hashes_the_trees_and_records_but_not_the_app
   local named = ((action.runs as {string: any}).steps as {{string: any}})[1]
   local vendor = (named.env as {string: string}).VENDOR
   assert(vendor == "${{ hashFiles('bin/zig.pin', 'build.zig', 'build.zig.zon', 'build/zig.tl', " ..
-      "'vendor/**', '!vendor/tl/**', '!vendor/tzdata/**', '!vendor/cacert/**', '!vendor/htmx/**', '!vendor/htmx-ext-sse/**', '!vendor/wpt-url/**', '!vendor/html5lib-tokenizer/**', '!vendor/wpt-html-parsing/**', 'patch/**', '!patch/tl/**', " ..
+      "'vendor/**', '!vendor/tl/**', '!vendor/tzdata/**', '!vendor/cacert/**', '!vendor/htmx/**', '!vendor/htmx-ext-sse/**', '!vendor/wpt-url/**', '!vendor/html5lib-tokenizer/**', '!vendor/wpt-html-parsing/**', 'patch/**', " ..
       "'core/ares_config.h', 'core/curl_config.h', 'core/mbedtls_cosmic_config.h', 'core/xz_config/**', " ..
       "'core/darwin-compat/**') }}", "the vendor cache hashes different inputs: " .. vendor)
   for _, wanted in ipairs({ "'vendor/**'", "'patch/**'", "'build.zig'", "'build/zig.tl'" }) do

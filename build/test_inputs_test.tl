@@ -207,7 +207,7 @@ end
 --- none, an empty list and none; the literal's order and its duplicates
 --- are kept; and a value is quoted, so no two declarations share a text.
 local function test_canonical_text_names_one_declaration()
-  local function of(needs: declared_inputs.Needs): string
+  local function of(needs: declared_inputs.Needs | nil): string
     return test_inputs.canonical(test_inputs.as_declared(needs))
   end
   assert(test_inputs.canonical(nil) == "" and of(nil) == "")

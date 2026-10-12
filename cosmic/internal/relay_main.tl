@@ -230,7 +230,7 @@ local function serve(config: Config.Config): integer
     -- looked up, and the starter gives no why.
     local resolve: Net.ResolveOptions
     if dns ~= nil then
-      resolve = { connector = dns, servers = endpoints_of(config.name_servers) }
+      resolve = { connector = dns, servers = endpoints_of(assert(config.name_servers)) }
     end
     local running, start_why = started({
       http = http, socks = socks, mixed = mixed, token = config.token, grants = config.grants, connector = connect,

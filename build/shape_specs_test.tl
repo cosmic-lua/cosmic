@@ -21,10 +21,7 @@ Test.policy{ grants = { { path = "core", letters = "r" } } }
 -- types the whole of cosmic.json's closure, takes about 9.6 s on the
 -- checked core, and a test that compiles two or three would run up
 -- against the runner's 30 s.
-local built, load_trouble = teal.load(true)
-if built == nil then
-  error("could not load the compiler: " .. tostring(load_trouble))
-end
+local built = assert(teal.load(true))
 
 -- TODO: a one-file fixture's importer.compile takes about 1.9 s on the
 -- release core and five times that on the checked one, so a test of a

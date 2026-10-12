@@ -1,9 +1,0 @@
-file: tl.tl
-note: a table literal of a record type compares each field's value with the field's type as a field (48f), so `{ read = function(self: FromStringReader, ...) end }` for a `Stream.Reader` takes the narrower receiver (48e)
---- find
-                        self:assert_is_a(node[i], cvtype, df, "in record field", ck)
---- replace
-                        self:mark_receiver(cvtype, df)
-                        self:assert_is_a(node[i], cvtype, df, "in record field", ck)
-                        self.receiver_field = nil
---- end

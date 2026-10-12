@@ -291,7 +291,7 @@ end
 --- Slots 7 through 9 optionally set the checked raw core, four-entry record
 --- file and checked output directory
 --- @param compiler_source the Lua the compiler running this was compiled
---- to from the vendored `tl.tl` (core/bridge.lua's `bootstrap`): the
+--- to from the checker, [`checker/tl.tl`] (core/bridge.lua's `bootstrap`): the
 --- compiler the tool carries
 local function boot(root: string, argv: {integer:string},
                     compiler_source: string): integer

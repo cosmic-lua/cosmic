@@ -2,10 +2,7 @@ local gen_syscalls = require("build.gen_syscalls")
 local analyzer = require("build.analyzer")
 local teal = require("build.teal")
 
-local built, load_trouble = teal.load()
-if built == nil then
-  error("could not load the compiler: " .. tostring(load_trouble))
-end
+local built = assert(teal.load())
 
 local function lines(parts: {string}): string
   return table.concat(parts, "\n") .. "\n"

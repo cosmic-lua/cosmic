@@ -656,7 +656,7 @@ local function read_socks(run: Running, conn: Net.Conn, authenticated: function(
     if greeted.method == 255 then
       local _ = send(conn, Wire.socks_method_reply(255), run.timeouts.head)
     end
-    return early(greeted.reason, "failure", false)
+    return early(assert(greeted.reason), "failure", false)
   end
   -- Whatever the greeting reader chose, a relay with a token serves nothing
   -- but a client that has sent it.
@@ -664,7 +664,7 @@ local function read_socks(run: Running, conn: Net.Conn, authenticated: function(
     local _ = send(conn, Wire.socks_method_reply(255), run.timeouts.head)
     return early("not authenticated: the relay takes only username/password authentication", "failure", false)
   end
-  if not send(conn, Wire.socks_method_reply(greeted.method), run.timeouts.head) then
+  if not send(conn, Wire.socks_method_reply(assert(greeted.method)), run.timeouts.head) then
     return early("the program closed before its request was whole", "failure", false)
   end
   local rest = all:sub(greeted.consumed + 1)
@@ -696,7 +696,7 @@ local function read_socks(run: Running, conn: Net.Conn, authenticated: function(
       local _ = send(conn, Wire.socks_auth_reply(false), run.timeouts.head)
       return early("not authenticated: " .. assert(given.reason), "failure", false)
     end
-    if not is_token(run, given.password) then
+    if not is_token(run, assert(given.password)) then
       local _ = send(conn, Wire.socks_auth_reply(false), run.timeouts.head)
       return early("not authenticated: the password is not the sandbox's token", "failure", false)
     end
@@ -724,7 +724,9 @@ local function read_socks(run: Running, conn: Net.Conn, authenticated: function(
     end
     held = held .. data
     local answer = request:feed(data)
-    if answer.status == "refused" then return early(answer.reason, answer.reply, true) end
+    if answer.status == "refused" then
+      return early(assert(answer.reason), assert(answer.reply), true)
+    end
     if answer.status == "done" then
       return { status = "done", reason = "", reply = "succeeded", host = answer.host, kind = answer.kind,
         port = answer.port, leftover = held:sub(answer.consumed + 1), answer = true }
@@ -1107,7 +1109,8 @@ local function serve_connection(run: Running, protocol: string, client: Net.Conn
   if protocol == "connect" then
     local head, rest = read_connect(run, client, sniffed, reading_until)
     if head.status == "refused" then
-      reject(refusal(head.reason, head.http_status == 0 and 400 or head.http_status, "failure"), head.http_status ~= 0)
+      local status = assert(head.http_status)
+      reject(refusal(assert(head.reason), status == 0 and 400 or status, "failure"), status ~= 0)
       return
     end
     if run.token_digest ~= nil then

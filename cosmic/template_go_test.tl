@@ -695,7 +695,7 @@ local function render(body: string, page: {string: any}): string
   env.require = function(name: string): any
     return name == "cosmic.html" and Html or {}
   end
-  local chunk = assert(load(code, "=template", "t", env))
+  local chunk = assert(load(assert(code), "=template", "t", env))
   local loaded = chunk()
   assert(loaded is {string: function}, "no render")
   local made = loaded.render(page)

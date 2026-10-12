@@ -66,7 +66,7 @@ local function letters(policy: Sandbox.Policy, path: string): string
   return ""
 end
 
-local function same(got: {string}, want: {string})
+local function same(got: {string} | nil, want: {string})
   assert(table.concat(got or {}, "|") == table.concat(want, "|"),
     table.concat(got or {}, "|") .. " is not " .. table.concat(want, "|"))
 end
@@ -102,7 +102,7 @@ local function test_each_option_sets_its_field()
   assert(ran.opts.cwd == nil, "this process's own directory")
 
   ran = run({ "--cwd", "work", "--read", ".", "prog" })
-  assert(ran.code == 0 and ran.opts.cwd == "work" and letters(ran.opts.policy, ".") == "r", ran.err)
+  assert(ran.code == 0 and ran.opts.cwd == "work" and letters(assert(ran.opts.policy), ".") == "r", ran.err)
 end
 
 local function test_cwd_is_given_once()
@@ -149,7 +149,7 @@ local function test_words_after_the_program_are_the_programs()
   same(ran.argv, { "--read", "x" })
   ran = run({ "--read", "a", "--", "prog", "--", "b" })
   same(ran.argv, { "prog", "--", "b" })
-  assert(letters(ran.opts.policy, "a") == "r")
+  assert(letters(assert(ran.opts.policy), "a") == "r")
   ran = run({ "prog", "" })
   same(ran.argv, { "prog", "" })
 end

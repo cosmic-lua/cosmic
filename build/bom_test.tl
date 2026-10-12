@@ -70,6 +70,27 @@ local function test_a_notice_range_must_hold_a_line()
   assert(kind:find("none of library, data and test", 1, true), kind)
 end
 
+--- The binary carries the checker, not tl's own source, so the checker is
+--- listed with tl as the code that is not upstream's as published.
+local function test_the_checker_is_listed_with_tl(tmp: string)
+  assert(Fs.mkdirs(tmp .. "/vendor/tl"))
+  assert(Fs.mkdirs(tmp .. "/checker"))
+  assert(Fs.write(tmp .. "/vendor/tl/PIN", "version 0.24.8\nurl https://tl.example/t\nlicense MIT\n"))
+  assert(Fs.write(tmp .. "/checker/tl.tl", "a checker"))
+  local db = database()
+  assert(bom.fill(db, tmp, "main."))
+  local rows = assert(bom.rows(db))
+  assert(#rows == 1 and rows[1].patches == "checker/tl.tl " .. Hash.hex_sha256("a checker"),
+    "the checker is not listed: " .. tostring(rows[1] and rows[1].patches))
+  local line = bom.lines(rows)[1]
+  assert(line:find("(modified: checker/tl.tl)", 1, true) and not line:find("patch", 1, true),
+    "the checker is a modified descendant, not a patch: " .. line)
+  local document = assert(bom.cyclonedx(rows, "cosmic", "1"))
+  assert(document:find("modified by cosmic", 1, true) and not document:find("patched by cosmic", 1, true),
+    document)
+  assert(db:close())
+end
+
 local function test_fill_reads_every_record_and_its_notices(tmp: string)
   assert(Fs.mkdirs(tmp .. "/vendor/zlib"))
   assert(Fs.mkdirs(tmp .. "/vendor/unpinned"))
