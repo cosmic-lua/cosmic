@@ -947,8 +947,10 @@ the entry requires a module by its dotted name (`require("checker.flow")`),
 which the boot answers to the seed from the file's text. the tool carries
 one compiler, one row: the entry's Lua behind a first line that holds the
 standard library's declarations as the local `stdlib` and the Lua of each
-other file, which a `require` in the entry loads on first use as a chunk of
-its own, under the local `require` that shadows the host's. the checker's
+other file, which a `require` in the entry, or in another such file, loads on
+first use as a chunk of its own named by its path, under the local `require`
+that shadows the host's. only `<identifier>.tl` files beside the entry are
+parts. the checker's
 module system is nothing more than that.
 
 the Lua standard library's declarations are not in that source. they are

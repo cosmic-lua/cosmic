@@ -290,6 +290,22 @@ local function test_a_checker_file_beside_the_entry_is_part_of_the_compilers_row
   assert(boot(f).compiler == 0, "a declaration file beside the entry was compiled")
 end
 
+--- A checker file can require another, and only a plain `name.tl` beside
+--- the entry is one: an editor's leftover is not compiled. The entry here
+--- requires a part that requires a second at load, so a boot whose parts
+--- cannot reach each other dies before it runs the tree (exit 1, not 21);
+--- the bad file would fail the compile if it were taken.
+local function test_a_checker_file_requires_another(tmp: string)
+  local f = fixture(tmp, "chain")
+  put(f.tree .. "/checker/tl.tl", "local a = require(\"checker.a\")\nassert(a.n == 2)\n" .. compiler)
+  put(f.tree .. "/checker/a.tl", "-- search_module\nreturn { n = require(\"checker.b\").n + 1 }\n")
+  put(f.tree .. "/checker/b.tl", "-- search_module\nreturn { n = 1 }\n")
+  put(f.tree .. "/checker/.#a.tl", "this is not Lua (")
+  put(f.tree .. "/checker/a~.tl", "this is not Lua (")
+  put(f.tree .. "/checker/a.bak.tl", "this is not Lua (")
+  assert(boot(f).status == 21, "the parts could not reach each other")
+end
+
 --- A file edited after the key is made but before the bridge reads it is
 --- not kept under that key: the row would hold code of the edited file
 --- for the tree before it, and undoing the edit would take it as a hit.

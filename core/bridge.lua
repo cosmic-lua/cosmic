@@ -723,8 +723,8 @@ local function searcher_for(tl, variables)
   end
 end
 
--- The checker's files other than its entry, `file`: every `.tl` beside it
--- that is not a declaration file, in name order, as
+-- The checker's files other than its entry, `file`: every `<identifier>.tl`
+-- beside it (not a declaration file, nor an editor's leftover), in name order, as
 -- `{ name, file, source }`, the `name` a `require` in the entry spells
 -- (`checker.flow` for [`checker/flow.tl`]) and `file` its path under the root.
 -- Answers nil and why when the directory cannot be read.
@@ -740,7 +740,7 @@ local function checker_parts(file)
   table.sort(list)
   local parts = {}
   for _, name in ipairs(list) do
-    if name ~= entry and name:sub(-3) == '.tl' and name:sub(-5) ~= '.d.tl' then
+    if name ~= entry and name:match('^[%a_][%w_]*%.tl$') then
       local path = directory .. '/' .. name
       local source, read_err = read_all(path)
       if not source then return nil, path .. ': ' .. tostring(read_err) end
@@ -752,17 +752,18 @@ local function checker_parts(file)
 end
 
 -- A `require` for the compiled checker, ahead of its own code: it
--- answers a module of the checker (`sources`, by name) by loading its Lua
--- once, in `env`, the environment the checker is loaded in, and any other
+-- answers a module of the checker (`parts`, by name) by loading its Lua
+-- once, named by its file, in `env`, the environment the checker is loaded
+-- in, with this same `require` so a part can require another, and any other
 -- name by the `require` it shadows. The checker runs before any module
 -- system exists and from the store, where the host's `require` knows none
 -- of its files.
-local require_prelude = '(function(sources, env) local loaded = {} ' ..
-  'return function(name) local module = loaded[name] if module == nil then ' ..
-  'local source = sources[name] if source == nil then ' ..
-  'return require(name) end ' ..
-  'module = assert(load(source, "@" .. name, "t", env))() loaded[name] = module ' ..
-  'end return module end end)'
+local require_prelude = '(function(parts, env) local loaded, part_env = {}, nil ' ..
+  'local function req(name) local module = loaded[name] if module == nil then ' ..
+  'local part = parts[name] if part == nil then return require(name) end ' ..
+  'module = assert(load(part[2], "@" .. part[1], "t", part_env))() loaded[name] = module ' ..
+  'end return module end ' ..
+  'part_env = setmetatable({ require = req }, { __index = env }) return req end)'
 
 -- The Lua the tool carries as its compiler: the entry's `code` behind a
 -- first line that holds the Lua standard library's declarations as the
@@ -776,7 +777,8 @@ local function carried(declarations, code, parts)
   end
   local sources = {}
   for index, part in ipairs(parts) do
-    sources[index] = '[' .. quoted(part.name) .. '] = ' .. quoted(part.code)
+    sources[index] = '[' .. quoted(part.name) .. '] = {' .. quoted(part.file) ..
+      ', ' .. quoted(part.code) .. '}'
   end
   return 'local stdlib, require = ' .. quoted(declarations) .. ', ' ..
     require_prelude .. '({' .. table.concat(sources, ', ') .. '}, _ENV) ' .. code
