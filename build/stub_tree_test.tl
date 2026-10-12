@@ -117,11 +117,11 @@ end
 --- A global a standard-library module declares would reach a project
 --- through a require that a stub of a module requiring it may leave out,
 --- which the check of that stub, run where the global is declared already,
---- could not see.
+--- could not see, so the build refuses it as it does in any module.
 local function test_a_standard_module_declaring_a_global_fails_the_build(tmp: string)
   local handle, tool = own_tree(tmp, "global record G\n  n: integer\nend\n" .. thing)
   local result, trouble = importer.compile(handle, built, tool)
-  assert(result == nil and trouble:find("cosmic/thing.tl:1: a standard-library module may declare no global",
+  assert(result == nil and trouble:find("cosmic/thing.tl:1:1: a global is not allowed in a cosmic build",
     1, true) ~= nil, trouble)
   assert(work.close(handle))
 end
