@@ -1436,8 +1436,9 @@ fn vendorLibraries(
     // (`median`, `percentile`, ...) are on, which the bare amalgamation
     // leaves out: about 12 KB per raw core on Linux, 17 KB on macOS. The
     // `bytecode` and `tables_used` tables are on: what a statement compiles
-    // to, and which tables and indexes it reads and writes, learned without
-    // running it.
+    // to, and which tables and indexes it opens, learned without running
+    // it, in about 4 KB. They compile what they are given, which applies a
+    // setting PRAGMA, so patch/sqlite/ keeps them from views and triggers.
     const sqlite_flags = [_][]const u8{
         "-std=c11",
         debug_dir,

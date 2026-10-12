@@ -228,10 +228,28 @@ local function test_tables_used_and_bytecode_read_a_statement_without_running_it
   for _, r in ipairs(rows) do got[#got + 1] = table.concat(r, " ") end
   -- The index covers the query, so SQLite reads it in place of u.
   assert(table.concat(got, ", ") == "table t 1, index ub 0", table.concat(got, ", "))
+  assert(handle:exec("INSERT INTO t VALUES (1)"))
   rows = assert(Sqlite.text_rows(handle,
     "SELECT opcode FROM bytecode('DELETE FROM t') WHERE addr = 0"))
   assert(rows[1][1] == "Init", rows[1][1])
   rows = assert(Sqlite.text_rows(handle, "SELECT count(*) FROM t"))
-  assert(rows[1][1] == "0", "compiling a statement must not run it")
+  assert(rows[1][1] == "1", "compiling a statement must not run it")
+  handle:close()
+end
+
+local function test_bytecode_and_tables_used_refuse_a_view_and_a_trigger()
+  local handle = assert(Sqlite.memory())
+  assert(handle:exec("CREATE TABLE t (a); " ..
+      "CREATE VIEW v AS SELECT count(*) FROM bytecode('PRAGMA query_only = 1'); " ..
+      "CREATE VIEW w AS SELECT count(*) FROM tables_used('SELECT * FROM t'); " ..
+      "CREATE TRIGGER tr AFTER INSERT ON t BEGIN " ..
+      "SELECT count(*) FROM bytecode('PRAGMA query_only = 1'); END"))
+  for _, sql in ipairs({ "SELECT * FROM v", "SELECT * FROM w", "INSERT INTO t VALUES (1)" }) do
+    local ok, trouble = handle:exec(sql)
+    assert(not ok, sql .. " must be refused")
+    assert(trouble:find("unsafe use of virtual table", 1, true) ~= nil, trouble)
+  end
+  local rows = assert(Sqlite.text_rows(handle, "PRAGMA query_only"))
+  assert(rows[1][1] == "0", "a view or trigger set query_only")
   handle:close()
 end
