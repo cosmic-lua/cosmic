@@ -231,7 +231,7 @@ local function test_a_closed_incremental_hmac_is_finished()
 end
 
 local function test_an_incremental_hmac_revived_by_a_finalizer_is_finished()
-  local saved: Hash.Hasher
+  local saved: Hash.Hasher | nil
   local holder: Holder = setmetatable({} as Holder, {
     __gc = function(self: Holder) saved = self.h end,
   } as metatable<Holder>)
@@ -239,9 +239,9 @@ local function test_an_incremental_hmac_revived_by_a_finalizer_is_finished()
   holder = nil
   collectgarbage()
   collectgarbage()
-  assert(saved ~= nil, "the finalizer ran")
-  assert(not pcall(saved.update, saved, "abc"))
-  assert(not pcall(saved.digest, saved))
+  local kept = assert(saved, "the finalizer ran")
+  assert(not pcall(kept.update, kept, "abc"))
+  assert(not pcall(kept.digest, kept))
 end
 
 --- Two incremental HMACs under different keys, fed alternately, do not
@@ -382,7 +382,7 @@ local function test_hasher_and_digest_carry_an_empty_error()
 end
 
 local function test_a_hasher_revived_by_a_finalizer_is_finished()
-  local saved: Hash.Hasher
+  local saved: Hash.Hasher | nil
   local holder: Holder = setmetatable({} as Holder, {
     __gc = function(self: Holder) saved = self.h end,
   } as metatable<Holder>)
@@ -390,13 +390,13 @@ local function test_a_hasher_revived_by_a_finalizer_is_finished()
   holder = nil
   collectgarbage()
   collectgarbage()
-  assert(saved ~= nil, "the finalizer ran")
+  local kept = assert(saved, "the finalizer ran")
   local ok, why = pcall(function(): any
-    saved:update("abc")
+    kept:update("abc")
     return nil
   end)
   assert(not ok and tostring(why):find("finished", 1, true), tostring(why))
-  assert(not pcall(saved.digest, saved))
+  assert(not pcall(kept.digest, kept))
 end
 
 local function test_a_closed_hasher_is_finished()

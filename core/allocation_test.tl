@@ -172,7 +172,7 @@ local function test_open_temporary_closes_its_descriptor_whenever_an_allocation_
   local before = next_descriptor(tmp)
   -- Taken on the line that makes the call, so no hook runs between the
   -- binding's return and the test holding what it returned.
-  local received: sys.TemporaryFile
+  local received: sys.TemporaryFile | nil
   local opened = 0
   local ended = under_every_failure(function()
     received = sys.open_temporary(path, 420)
@@ -208,14 +208,15 @@ local function test_pipe_leaves_no_end_open_whenever_an_allocation_fails(tmp: st
   local before = next_descriptor(tmp)
   -- Taken on the line that makes the call, and released in `settle`, so
   -- a refused coverage hook cannot fall between the two.
-  local received: raw_process.Pipe
+  local received: raw_process.Pipe | nil
   local made = 0
   local ended = under_every_failure(function()
     received = process.pipe()
   end, function()
-    if received ~= nil then
-      sys.close(received.reader)
-      sys.close(received.writer)
+    local pipe = received
+    if pipe ~= nil then
+      sys.close(pipe.reader)
+      sys.close(pipe.writer)
       received = nil
       made = made + 1
     end
@@ -908,13 +909,14 @@ end
 --- successful acquisition too, and both must leave no descriptor behind.
 local function test_openpty_closes_both_descriptors_whenever_an_allocation_fails(tmp: string)
   local before = next_descriptor(tmp)
-  local received: sys.Pty
+  local received: sys.Pty | nil
   local ended = under_every_failure(function()
     received = sys.openpty()
   end, function()
-    if received ~= nil then
-      sys.close(received.master)
-      sys.close(received.slave)
+    local pty = received
+    if pty ~= nil then
+      sys.close(pty.master)
+      sys.close(pty.slave)
       received = nil
     end
   end)

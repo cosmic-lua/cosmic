@@ -143,8 +143,8 @@ local function test_a_last_argument_keeps_its_slot_only_where_a_reason_lands()
   -- The reason would land in an optional parameter.
   flags("maybe(get())", dropped)
   -- A binding's errno, in a third result, lands in a third parameter.
-  allows("local triple: function(): integer | nil, string, integer\n" ..
-      "local function take(_v: integer | nil, _why: string, _errno: integer) end\ntake(triple())")
+  allows("local function probe(triple: function(): integer | nil, string, integer)\n" ..
+      "local function take(_v: integer | nil, _why: string, _errno: integer) end\ntake(triple())\nend\nuse(probe)")
   allows("log:note(get())")
   allows("log.note(log, get())")
 end
@@ -364,7 +364,7 @@ end
 local function test_a_reason_assigned_in_an_inner_block_is_followed_past_it()
   local read = "a failure's reason is read for what it says"
   flags("local v, err = get()\nif v == nil then\n  v, err = get()\nend\nuse(v, err:find('x'))", read)
-  flags("local v: integer\nlocal err = ''\nif name() == 'a' then\n  v, err = get()\nend\n" ..
+  flags("local v: integer | nil\nlocal err = ''\nif name() == 'a' then\n  v, err = get()\nend\n" ..
       "use(v, err:match('x'))", read)
   flags("local v, err = get()\nif v == nil then\n  err = name()\nend\nuse(v, err:find('x'))", read)
   allows("local err = name()\ndo\n  local v, err2 = get()\n  do\n    local err: string\n" ..

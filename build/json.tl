@@ -290,7 +290,7 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
     local lines: {string} = {}
     for _, item in ipairs(found) do
       local line: string | nil
-      local why: string
+      local why: string | nil
       local leaf = item.value
       if as_text and leaf is string then
         line = leaf
@@ -300,7 +300,7 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
         line, why = json_query.flat_line(item.steps, leaf)
       end
       if line == nil then
-        complain(plain(why))
+        complain(plain(why or ""))
         return bare.failed
       end
       lines[#lines + 1] = line

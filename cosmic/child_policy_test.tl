@@ -139,7 +139,7 @@ local function test_the_environment_is_the_policys_alone(tmp: string)
   local probe = assert(stand_in.build(searchable.open(tmp) .. "/stand-in"))
   local passed = sys.getenv("TMPDIR")
   assert(passed ~= nil, "the test has no TMPDIR to pass through")
-  local hidden: string
+  local hidden: string | nil
   for name in pairs(sys.environ()) do
     if name ~= "TMPDIR" and hidden == nil then hidden = name end
   end

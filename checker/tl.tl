@@ -80,6 +80,18 @@ global stdlib: string
 local flow = require("checker.flow")
 local narrowing = require("checker.narrowing")
 
+-- A local this file declares `local x: T = nil` is one whose value the code
+-- after it assigns: a variable a closure reads before the assignment (a
+-- function declared ahead of the one that calls it), or one set on some
+-- paths and read where it is nil on the others. Its `= nil` states the
+-- reliance on nil being in every type, which the checker holds the tree
+-- to no more (a local with no value is refused there unless it is
+-- `T | nil`, see [`flow.unassigned_read`]).
+-- TODO: give each of them its honest type (`T | nil`, narrowed where it is
+-- read) or a value, once nil is excluded from every type but one that names
+-- it: the checker then refuses `local x: T = nil`, and the checker's own
+-- source is the last of the tree to migrate (the roadmap's nil item).
+
 -- The compiled checker's main chunk holds Lua's 200 local variables; about
 -- 100 are taken, with the boot's `stdlib` and `require` locals among them.
 -- A top-level `local` (a `local function` included, a type declaration
@@ -245,6 +257,13 @@ local record tl
       -- it: `dropped_place`, `dropped_kind`, `dropped_by`, `dropped_y`,
       -- `dropped_x`, and the fields of the refusal it was
       "narrowing_dropped"
+      -- a local read where a path from its declaration has not assigned it:
+      -- `variable`, `closure` where the read is a function literal that
+      -- names it, and `skipped_kind`, `skipped_y`, `skipped_x` for the
+      -- statement a path went by that skipped the assignment
+      "not_assigned"
+      -- a local declared with neither a type nor a value: `variable`
+      "no_type"
       "other"
    end
 
@@ -338,6 +357,20 @@ local record tl
       dropped_by: string
       dropped_y: integer
       dropped_x: integer
+
+      -- For a local read before it is assigned: whether the read is a
+      -- function literal that names it, what may call that function before
+      -- the assignment (`ran_kind`: `call`, `operator`, `iterator`, `return`,
+      -- `goto`, `never` or `scope`, at `ran_y`, `ran_x` unless it is the end of the
+      -- scope), and the statement a path went by that skipped the
+      -- assignment (`branch`, `if` or `loop`), and where.
+      closure: boolean
+      ran_kind: string
+      ran_y: integer
+      ran_x: integer
+      skipped_kind: string
+      skipped_y: integer
+      skipped_x: integer
 
       -- used temporarily for stable-sorting
       i: integer
@@ -601,7 +634,7 @@ if TL_DEBUG then
       TL_DEBUG_MAXLINE = math.tointeger(-max)
    elseif max > 1 then
       local count = 0
-      local skip: string
+      local skip: string = nil
       debug.sethook(function(event: debug.HookEvent)
          if event == "call" or event == "tail call" or event == "return" then
             local info <const> = debug.getinfo(2)
@@ -877,12 +910,12 @@ do
       local errs: {Error} = {}
       local nt = 0
 
-      local tx: integer
-      local ty: integer
-      local ti: integer
+      local tx: integer = nil
+      local ty: integer = nil
+      local ti: integer = nil
       local in_token = false
 
-      local comments: {Comment}
+      local comments: {Comment} = nil
 
       local function begin_token()
          tx = x
@@ -1945,6 +1978,13 @@ local record Node
    key_kind: string
    -- On a call: whether it ran no code of the program's, so dropped nothing.
    runs_no_code: boolean
+   -- On a call-like expression, a `for ... in` loop (its iterator) or a
+   -- call: whether it may run code of the program's, so that a function
+   -- made before it may be called by it (see `TypeChecker:drop_all`).
+   runs_code: boolean
+   -- On a local declaration: the variables it declares with no value, of a
+   -- type that does not admit nil.
+   unvalued: {Node}
 
    -- bidirectional inference
    expected: Type
@@ -2248,21 +2288,21 @@ local enum BodyTypeName
    "enum"
 end
 
-local parse_type_list: function(ParseState, integer, ParseTypeListMode): integer, TupleType
-local parse_typeargs_if_any: function(ps: ParseState, i: integer): integer, {TypeArgType}
-local parse_expression: function(ParseState, integer): integer, Node, integer
-local parse_expression_and_tk: function(ps: ParseState, i: integer, tk: string): integer, Node
-local parse_statements: function(ParseState, integer, ? boolean): integer, Node
-local parse_argument_list: function(ParseState, integer): integer, Node, integer
-local parse_argument_type_list: function(ParseState, integer): integer, TupleType, boolean, integer
-local parse_type: function(ParseState, integer): integer, FirstClassType, integer
-local parse_type_declaration: function(ps: ParseState, i: integer, node_name: NodeKind): integer, Node
-local parse_interface_name: function(ps: ParseState, i: integer): integer, Type, integer
+local parse_type_list: function(ParseState, integer, ParseTypeListMode): integer, TupleType = nil
+local parse_typeargs_if_any: function(ps: ParseState, i: integer): integer, {TypeArgType} = nil
+local parse_expression: function(ParseState, integer): integer, Node, integer = nil
+local parse_expression_and_tk: function(ps: ParseState, i: integer, tk: string): integer, Node = nil
+local parse_statements: function(ParseState, integer, ? boolean): integer, Node = nil
+local parse_argument_list: function(ParseState, integer): integer, Node, integer = nil
+local parse_argument_type_list: function(ParseState, integer): integer, TupleType, boolean, integer = nil
+local parse_type: function(ParseState, integer): integer, FirstClassType, integer = nil
+local parse_type_declaration: function(ps: ParseState, i: integer, node_name: NodeKind): integer, Node = nil
+local parse_interface_name: function(ps: ParseState, i: integer): integer, Type, integer = nil
 
 local type ParseBody = function(ps: ParseState, i: integer, def: Type): integer, boolean
 local parse_enum_body: function(ps: ParseState, i: integer, def: EnumType): integer, boolean
 local parse_record_body: function(ps: ParseState, i: integer, def: Type): integer, boolean
-local parse_type_body_fns: {BodyTypeName:ParseBody}
+local parse_type_body_fns: {BodyTypeName:ParseBody} = nil
 
 local function fail(ps: ParseState, i: integer, msg: string, details?: Error): integer
    local err: Error = details or ({} as Error)
@@ -2753,7 +2793,7 @@ end
 local function parse_typearg(ps: ParseState, i: integer): integer, TypeArgType, integer
    local name = ps.tokens[i].tk
    refuse_type_named_never(ps, i, name)
-   local constraint: Type
+   local constraint: Type = nil
    local t = new_type(ps, i, "typearg") as TypeArgType
    i = verify_kind(ps, i, "identifier")
    if ps.tokens[i].tk == "is" then
@@ -3116,7 +3156,7 @@ do
       ["string"] = true,
    }
 
-   local E: function(ParseState, integer, Node, integer): integer, Node
+   local E: function(ParseState, integer, Node, integer): integer, Node = nil
 
    local function after_valid_prefixexp(ps: ParseState, prevnode: Node, i: integer): boolean
       return ps.tokens[i - 1].kind == ")" -- '(' exp ')'
@@ -4678,7 +4718,7 @@ end
 
 parse_statements = function(ps: ParseState, i: integer, toplevel?: boolean): integer, Node
    local node = new_node(ps, i, "statements")
-   local item: Node
+   local item: Node = nil
    while true do
       while ps.tokens[i].kind == ";" do
          i = i + 1
@@ -4736,7 +4776,7 @@ function tl.parse_program(tokens: {Token}, errs: {Error}, filename?: string, par
       parse_lang = parse_lang,
    }
    local i = 1
-   local hashbang: string
+   local hashbang: string = nil
    if ps.tokens[i].kind == "hashbang" then
       hashbang = ps.tokens[i].tk
       i = i + 1
@@ -4865,7 +4905,7 @@ local function tl_debug_indent_pop(mark: string, single: string, y: integer, x: 
    end
 end
 
-local recurse_type: function<S, T>(s: S, ast: Type, visit: Visitor<S, TypeName, Type, T>): T
+local recurse_type: function<S, T>(s: S, ast: Type, visit: Visitor<S, TypeName, Type, T>): T = nil
 
 local function aggregate_type_walker<S, T>(s: S, ast: AggregateType, visit: Visitor<S, TypeName, Type, T>): {T}
    local xs: {T} = {}
@@ -5009,13 +5049,13 @@ recurse_type = function<S, T>(s: S, ast: Type, visit: Visitor<S, TypeName, Type,
       end
    end
 
-   local xs: {T}
+   local xs: {T} = nil
    local walker = type_walkers[ast.typename]
    if not walker is boolean then
       xs = walker(s, ast, visit)
    end
 
-   local ret: T
+   local ret: T = nil
    local cbkind_after = cbkind and cbkind.after
    if cbkind_after then
       ret = cbkind_after(s, ast, xs)
@@ -5080,7 +5120,7 @@ local function recurse_node<S, T>(s: S, root: tl.Node,
       return
    end
 
-   local recurse: function(tl.Node): T
+   local recurse: function(tl.Node): T = nil
 
    local function walk_children(ast: Node, xs: {T})
       for i, child in ipairs(ast) do
@@ -5272,7 +5312,7 @@ local function recurse_node<S, T>(s: S, root: tl.Node,
    recurse = function(ast: Node): T
       local xs: {T} = {}
       local kind = assert(ast.kind)
-      local kprint: string
+      local kprint: string = nil
 
       local cbs = visit_node.cbs
       local cbkind = cbs and cbs[kind]
@@ -5299,7 +5339,7 @@ local function recurse_node<S, T>(s: S, root: tl.Node,
          assert(no_recurse_node[kind])
       end
 
-      local ret: T
+      local ret: T = nil
       local cbkind_after = cbkind and cbkind.after
       if cbkind_after then
          ret = cbkind_after(s, ast, xs)
@@ -5389,7 +5429,7 @@ local primitive: {TypeName:string} = {
 }
 
 function tl.generate(ast: tl.Node, gen_target: GenTarget, opts?: GenerateOptions): string, string
-   local err: string
+   local err: string = nil
    local indent = 0
 
    opts = opts or default_generate_opts
@@ -5596,7 +5636,7 @@ function tl.generate(ast: tl.Node, gen_target: GenTarget, opts?: GenerateOptions
             else
                out = { y = node.y, h = 0 }
             end
-            local space: string
+            local space: string = nil
             for i, child in ipairs(children) do
                add_child(out, child, space, indent)
                if node[i].semicolon then
@@ -5807,7 +5847,7 @@ function tl.generate(ast: tl.Node, gen_target: GenTarget, opts?: GenerateOptions
       ["variable_list"] = {
          after = function(_: nil, node: Node, children: {Output}): Output
             local out: Output = { y = node.y, h = 0 }
-            local space: string
+            local space: string = nil
             for i, child in ipairs(children) do
                if i > 1 then
                   table.insert(out, ",")
@@ -6344,11 +6384,11 @@ function TypeReporter:get_typenum(t: Type): integer
       return self:get_typenum(rt.def)
    end
 
-   local typeargs: {{string, integer}}
+   local typeargs: {{string, integer}} = nil
    if rt is GenericType then
       typeargs = mark_array {}
       for _, typearg in ipairs(rt.typeargs) do
-         local tn: integer
+         local tn: integer = nil
          if typearg.constraint then
             tn = self:get_typenum(typearg.constraint)
          end
@@ -6659,7 +6699,7 @@ end
 
 local function Err(msg: string, t1?: Type, t2?: Type, t3?: Type): Error
    if t1 then
-      local s1, s2, s3: string, string, string
+      local s1, s2, s3: string, string, string = nil, nil, nil
       if t1 is InvalidType then
          return nil
       end
@@ -7155,7 +7195,7 @@ local function check_var_usage(scope: Scope, is_global?: boolean): {UsageWarning
    if not next(vars) then
       return
    end
-   local usage_warnings: {UsageWarning}
+   local usage_warnings: {UsageWarning} = nil
    for name, var in pairs(vars) do
       local t <const> = var.t
       if not var_should_be_ignored_for_warnings(name, var) then
@@ -8308,7 +8348,7 @@ do
    local type ResolveFunction = function<T is Type>(t: T, all_same: boolean): T, boolean
    local type TypeFunction = function<S>(S, Type, ResolveFunction): Type, boolean
    local type TypeFunctionMap<S> = {TypeName: TypeFunction<S>}
-   local map_type: function<S>(s: S, ty: Type, fns: TypeFunctionMap<S>): Type, {Error}
+   local map_type: function<S>(s: S, ty: Type, fns: TypeFunctionMap<S>): Type, {Error} = nil
 
    local fresh_typevar_fns: TypeFunctionMap<{TypeArgType}> = {
       ["typevar"] = function(typeargs: {TypeArgType}, t: TypeVarType, resolve: ResolveFunction): Type, boolean
@@ -8634,9 +8674,9 @@ do
    end
 
    map_type = function<S>(self: S, ty: Type, fns: TypeFunctionMap<S>): Type, {Error}
-      local errs: {Error}
+      local errs: {Error} = nil
       local seen: {Type:Type} = {}
-      local resolve: ResolveFunction
+      local resolve: ResolveFunction = nil
 
       resolve = function<T is Type>(t: T, all_same: boolean): T, boolean
          local same = true
@@ -8841,7 +8881,7 @@ do
    end
 
    function TypeChecker:check_if_redeclaration(new_name: string, node: Node, t: Type)
-      local old: Variable
+      local old: Variable = nil
       if simple_types[new_name as TypeName] then
          if t.typename ~= "typedecl" then
             old = self:find_var(new_name, "check_only")
@@ -9166,9 +9206,9 @@ do
          end
       end
 
-      local walk_expression: function(Node)
-      local walk_statement: function(Node)
-      local walk_block: function(Node)
+      local walk_expression: function(Node) = nil
+      local walk_statement: function(Node) = nil
+      local walk_block: function(Node) = nil
 
       -- The body of a function, or the expression of a macro expression,
       -- with its arguments bound.
@@ -9346,7 +9386,7 @@ do
       local st = self.st
       local scope = st[#st]
 
-      local widen_types: {string:Type}
+      local widen_types: {string:Type} = nil
       if scope.widens then
          widen_types = {}
          for name, _ in pairs(scope.widens) do
@@ -9690,7 +9730,7 @@ do
    end
 
    function TypeChecker:arg_check(w: Where, all_errs: {Error}, a: Type, b: Type, v: VarianceMode, mode: ArgCheckMode, n?: integer): boolean
-      local ok, err, errs: boolean, string, {Error}
+      local ok, err, errs: boolean, string, {Error} = nil, nil, nil
 
       if v == "covariant" then
          ok, errs = self:is_a(a, b)
@@ -10224,7 +10264,7 @@ do
 
    -- Whether two types, one nested in a comparison, disagree on whether a
    -- function in the same place never returns (43e5 sets it).
-   local nested_never_mismatch: function(a: Type, b: Type): boolean
+   local nested_never_mismatch: function(a: Type, b: Type): boolean = nil
 
    function TypeChecker:compare_or_infer_typevar(typevar: string, a: Type, b: Type, cmp: CompareTypes): boolean, {Error}
       -- assert((a == nil and b ~= nil) or (a ~= nil and b == nil))
@@ -10947,7 +10987,7 @@ do
          fn = (p1 < p2 and (s1 and s1["*"]) or (relations["*"][t2.typename]))
       end
 
-      local ok, err: boolean, {Error}
+      local ok, err: boolean, {Error} = nil, nil
       if fn then
          if fn == compare_true then
             return true
@@ -11504,7 +11544,7 @@ do
             -- two such members it is not known which, and none is checked.
             -- TODO: a union of two table members (`{T} | {string:T}`) is
             -- left unchecked: choose the member the literal's keys fit.
-            local holder: Type
+            local holder: Type = nil
             local count = 0
             for _, member in ipairs(param.types) do
                if member is TypeVarType or member is ArrayType or member is MapType or member is TupleTableType then
@@ -11754,7 +11794,7 @@ do
       do
          local function fail_poly_call_arity(self: TypeChecker, w: Where, p: PolyType, given: integer): {Error}
             local expects: {string} = {}
-            local exact: integer
+            local exact: integer = nil
             local most = 0
             for _, f in self:iterate_poly(p) do
                local only, at_most = Errors.arity_counts(f)
@@ -11780,8 +11820,8 @@ do
             local given = #args.tuple
 
             local tried: {integer:boolean} = {}
-            local first_rets: TupleType
-            local first_errs: {Error}
+            local first_rets: TupleType = nil
+            local first_errs: {Error} = nil
 
             for pass = 1, 3 do
                for i, f in self:iterate_poly(p) do
@@ -11854,8 +11894,8 @@ do
 
          self:begin_scope_transaction(node)
 
-         local g: GenericType
-         local typeargs: {TypeArgType}
+         local g: GenericType = nil
+         local typeargs: {TypeArgType} = nil
          if func is GenericType then
             g = func
             func, typeargs = self:apply_generic(node, func)
@@ -11872,8 +11912,8 @@ do
 
          local cm = should_warn_dot(node, e1, is_method)
 
-         local errs: {Error}
-         local f, ret: FunctionType, InvalidOrTupleType
+         local errs: {Error} = nil
+         local f, ret: FunctionType, InvalidOrTupleType = nil, nil
 
          if func is PolyType then
             f, ret, errs = check_poly_call(self, node, e2, func, args, expected_rets, cm, argdelta, or_args, or_rets)
@@ -11940,7 +11980,7 @@ do
       end
 
       local meta_on_operator = 1
-      local metamethod: Type
+      local metamethod: Type = nil
       if method_name ~= "__is" then
          metamethod = ameta and ameta[method_name or ""]
       end
@@ -12233,7 +12273,7 @@ do
       end
       local t = self:to_structural(resolved)
       if t is UnionType then
-         local found: FunctionType
+         local found: FunctionType = nil
          for _, m in ipairs(t.types) do
             local rm = self:to_structural(m)
             if rm is FunctionType then
@@ -12377,7 +12417,7 @@ do
    end
 
    function TypeChecker:match_all_record_field_names(node: Node, a: RecordLikeType, field_names: {string}, errmsg: string): Type
-      local t: Type
+      local t: Type = nil
       for _, k in ipairs(field_names) do
          local f = a.fields[k]
          if not t then
@@ -12443,10 +12483,10 @@ do
          return a
       end
 
-      local errm: string
-      local erra: Type
-      local errb: Type
-      local errdetails: Error
+      local errm: string = nil
+      local erra: Type = nil
+      local errb: Type = nil
+      local errdetails: Error = nil
 
       if ra is TupleTableType and rb is IntegerType then
          if bnode.constnum then
@@ -12554,8 +12594,8 @@ do
       end
 
       if new is RecordLikeType and (old is MapType or old is RecordLikeType) then
-         local keys: Type
-         local values: Type
+         local keys: Type = nil
+         local values: Type = nil
          if old is MapType then
             keys = old.keys
             if not keys is StringType then
@@ -12626,7 +12666,7 @@ do
    end
 
    local function typedecl_to_nominal(w: Where, name: string, t: TypeDeclType, resolved?: Type): Type
-      local typevals: {TypeVarType}
+      local typevals: {TypeVarType} = nil
       local def = t.def
       if def is GenericType then
          typevals = {}
@@ -12851,6 +12891,10 @@ do
       -- refusal of a use that relied on what was dropped.
       function TypeChecker:drop_all(w: Where, kind: string, text?: string)
          self.drop_clock = self.drop_clock + 1
+         -- Marked for `flow.unassigned_read`, which asks of the same
+         -- expressions whether a function made before them may be called.
+         local at = w as Node
+         at.runs_code = true
          self.last_drop, self.last_drop_node, self.last_drop_kind, self.last_drop_text = nil, w, kind, text
          local scopes = self.st as {narrowing.Scope}
          local paths, names = narrowing.narrowed(scopes)
@@ -12967,7 +13011,7 @@ do
       -- remembering in the scope that would have held it what did.
       function TypeChecker:prune(guard: narrowing.Guard): narrowing.Guard
          local scopes = self.st as {narrowing.Scope}
-         local why: narrowing.Drop
+         local why: narrowing.Drop = nil
          for _, place in ipairs(narrowing.places(guard)) do
             if self:droppable(place) then
                why = why or self:last_dropper()
@@ -13513,8 +13557,8 @@ do
       local skip_next = false
       while pos <= #pat do
          local c = pat:sub(pos, pos)
-         local to_add: Type
-         local goto_next: boolean
+         local to_add: Type = nil
+         local goto_next: boolean = nil
          if c:match"[<> =x]" then
             -- nothing to do with argument
             if skip_next then
@@ -13723,7 +13767,7 @@ do
          if r is InvalidType or not f then
             return r
          end
-         local generic: GenericType
+         local generic: GenericType = nil
          if f is GenericType then
             generic = f
             f = f.t
@@ -13844,7 +13888,7 @@ do
 
          local packstr = b.tuple[1]
 
-         local rets: TupleType
+         local rets: TupleType = nil
 
          if packstr is StringType and packstr.literal then
             local st = packstr.literal
@@ -13906,7 +13950,7 @@ do
             return self.errs:arity(node, #b.tuple, "2 or 3", nil, 3)
          end
 
-         local rets: TupleType
+         local rets: TupleType = nil
          local pat = b.tuple[2]
 
          if pat is StringType and pat.literal then
@@ -13936,7 +13980,7 @@ do
          local plainarg = node.e2[4 + (argdelta or 0)]
          local pat = b.tuple[2]
 
-         local rets: TupleType
+         local rets: TupleType = nil
 
          if pat is StringType and pat.literal
             and ((not plainarg) or (plainarg.kind == "boolean" and plainarg.tk == "false")) then
@@ -13969,7 +14013,7 @@ do
             return self.errs:arity(node, #b.tuple, "2 or 3", nil, 3)
          end
 
-         local rets: TupleType
+         local rets: TupleType = nil
          local pat = b.tuple[2]
 
          if pat is StringType and pat.literal then
@@ -14011,7 +14055,7 @@ do
 
          local has_fourth = b.tuple[4]
 
-         local args: TupleType
+         local args: TupleType = nil
 
          if pat is StringType and pat.literal then
             local st = pat.literal
@@ -14033,7 +14077,7 @@ do
             -- {(items[1]):string}
             -- function(table.unpack(items)): ((string|integer|number)...)
 
-            local replarg_type: Type
+            local replarg_type: Type = nil
 
             local expected_pat_return = a_union(node, {
                a_type(node, "string", {}),
@@ -14203,7 +14247,10 @@ do
                callee_never = never_call and callee_text(exp.e1) ~= nil or nil,
             }), "assignment in declaration did not produce an initial value for variable '" .. name .. "'")
          else
-            return self.errs:invalid_at(node.vars[i], "variable '" .. name .. "' has no type or initial value")
+            return self.errs:invalid_coded(node.vars[i], Errors.make({
+               code = "no_type",
+               variable = name,
+            }), "variable '" .. name .. "' has no type or initial value")
          end
       end
    end
@@ -14261,20 +14308,20 @@ do
       local seen_keys: {CheckableKey:Where} = {}
 
       -- array, tupletable
-      local types: {Type}
+      local types: {Type} = nil
       -- record
-      local fields: {string:Type}
-      local field_order: {string}
+      local fields: {string:Type} = nil
+      local field_order: {string} = nil
       -- array, record
-      local elements: Type
+      local elements: Type = nil
       -- map
-      local keys, values: Type, Type
+      local keys, values: Type, Type = nil, nil
 
       for i, child in ipairs(children) do
          local ck = child.kname
          local cktype = child.ktype
          local key: CheckableKey = ck
-         local n: number
+         local n: number = nil
          if not key then
             n = node[i].key.constnum
             key = n
@@ -14343,7 +14390,7 @@ do
          end
       end
 
-      local t: Type
+      local t: Type = nil
 
       if is_array and is_map then
          self.errs:add(node, "cannot determine type of table literal")
@@ -14373,7 +14420,7 @@ do
       elseif is_array then
          local pure_array = true
          if not is_not_tuple then
-            local last_t: Type
+            local last_t: Type = nil
             for _, current_t in pairs(types as {integer:Type}) do
                if last_t then
                   if not self:same_type(last_t, current_t) then
@@ -14522,6 +14569,66 @@ do
       return ok, t, infertype ~= nil
    end
 
+   -- Whether a local of type `t` declared with no value is nil where it is
+   -- first read, so that read must not come before an assignment: its type
+   -- does not admit nil. A type variable might be any type, so it is not
+   -- taken to admit nil here.
+   local function needs_value(self: TypeChecker, w: Where, t: Type): boolean
+      local rt = t
+      if rt is NominalType then
+         rt = self:resolve_nominal(rt)
+      end
+      if rt is InvalidType then
+         return false
+      end
+      return rt is TypeVarType or not admits_nil(self, w, t)
+   end
+
+   local function kind_of_skip(by: flow.Node): string
+      local kind = by.kind
+      if kind == "if_block" then
+         return "branch"
+      end
+      return kind == "if" and "if" or "loop"
+   end
+
+   -- Refuses a read of a local declared with no value in `body`, a block,
+   -- along a path that has not assigned it. `tail` is the `until` of a
+   -- `repeat` body, in the scope of the body's locals.
+   function TypeChecker:check_assigned(body: Node, tail?: Node)
+      for i, stmt in ipairs(body) do
+         local vars = stmt.kind == "local_declaration" and stmt.unvalued
+         if vars then
+            for _, var in ipairs(vars) do
+               local found, skipped, ran, how = flow.unassigned_read(body as flow.Node, i + 1, var.tk, tail as flow.Node)
+               if found then
+                  local read = found as Node
+                  local closure = read.kind ~= "variable"
+                  local details = Errors.make({
+                     code = "not_assigned",
+                     variable = var.tk,
+                     closure = closure or nil,
+                     ran_kind = closure and how or nil,
+                  })
+                  if ran then
+                     details.ran_y = (ran as Node).y
+                     details.ran_x = (ran as Node).x
+                  end
+                  if skipped then
+                     local by = skipped as Node
+                     details.skipped_kind = kind_of_skip(skipped)
+                     details.skipped_y = by.y
+                     details.skipped_x = by.x
+                  end
+                  self.errs:add_coded(read, details,
+                     ("'%s' may be read before it is assigned%s"):format(var.tk,
+                        closure and ": the function made here names it" or ""))
+               end
+            end
+         end
+      end
+   end
+
    local function aliasing_variable(self: TypeChecker, def: Type): Variable
       if def is NominalType then
          return (self:find_var(def.names[1], "use_type"))
@@ -14607,7 +14714,7 @@ do
 
    local function total_record_check(t: RecordLikeType, seen_keys: {CheckableKey:Where}): boolean, {string}
       local is_total = true
-      local missing: {string}
+      local missing: {string} = nil
       for _, key in ipairs(t.field_order) do
          local ftype = t.fields[key]
          if not (ftype is TypeDeclType or (ftype is FunctionType and ftype.is_record_function)) then
@@ -14619,7 +14726,7 @@ do
 
    local function total_map_check(keys: Type, seen_keys: {CheckableKey:Where}): boolean, {string}
       local is_total = true
-      local missing: {string}
+      local missing: {string} = nil
       if keys is EnumType then
          for _, key in ipairs(sorted_keys(keys.enumset)) do
             is_total, missing = total_check_key(key, seen_keys, is_total, missing)
@@ -14714,6 +14821,7 @@ do
             end
 
             if not node.is_repeat then
+               self:check_assigned(node)
                self:end_scope(node)
             end
 
@@ -14777,6 +14885,9 @@ do
 
             local encountered_close = false
             local infertypes = get_assignment_values(node, valtuple, #node.vars)
+            local given = node.exps and #node.exps or 0
+            -- A last value that is a call or `...` may give the rest.
+            local spread = given > 0 and (node.exps[given].kind == "..." or node_is_funcall(node.exps[given]))
             for i, var in ipairs(node.vars) do
                if var.attribute == "close" then
                   if self.gen_target == "5.4" then
@@ -14801,6 +14912,10 @@ do
                end
 
                assert(var)
+               if i > given and not spread and needs_value(self, var, t) then
+                  node.unvalued = node.unvalued or {}
+                  table.insert(node.unvalued, var)
+               end
                local declared = self:add_var(var, var.tk, t, var.attribute, is_localizing_a_variable(node, i) and "localizing")
                declared.is_loop_control = false
                if var.elide_type then
@@ -15017,6 +15132,7 @@ do
          end,
          after = function(self: TypeChecker, node: Node, children: {Type}): Type
             self:loop_end()
+            self:check_assigned(node.body, node.exp)
             return end_scope_and_none_type(self, node, children)
          end,
       },
@@ -15059,7 +15175,7 @@ do
       ["goto"] = {
          after = function(self: TypeChecker, node: Node, _children: {Type}): Type
             local label_id = node.label
-            local found_label: Node
+            local found_label: Node = nil
             for i = #self.st, 1, -1 do
                local scope = self.st[i]
                if scope.labels and scope.labels[label_id] then
@@ -15138,7 +15254,7 @@ do
                -- for passes (optional self, explicit iterator, state) is
                -- accepted, as exp1type.args is not checked against them. The
                -- fix is that check here.
-               local last: Type
+               local last: Type = nil
                local rets = exp1type.rets
                for i, v in ipairs(node.vars) do
                   local r = rets.tuple[i]
@@ -15245,7 +15361,7 @@ do
             end
 
             local n_expected = #expected_t
-            local vatype: Type
+            local vatype: Type = nil
             if n_expected > 0 then
                vatype = expected.is_va and expected.tuple[n_expected]
             end
@@ -15263,7 +15379,7 @@ do
                local checks: {string} = {}
                local checked = false
                for i, expected_i in ipairs(expected_t) do
-                  local kinds: string
+                  local kinds: string = nil
                   -- TODO: check the values of a declared vararg return
                   -- (`...: T`) too, each as T. It waits on the check taking a
                   -- kind for all the values from a position on, which a spec
@@ -15373,7 +15489,7 @@ do
 
             local decltype = self:to_structural(node.expected)
 
-            local constraint: Type
+            local constraint: Type = nil
             if decltype is TypeVarType and decltype.constraint then
                constraint = resolve_typedecl(decltype.constraint)
                decltype = self:to_structural(constraint)
@@ -15385,8 +15501,8 @@ do
 
             local serves_in_place_of_function = false
             if decltype is UnionType then
-               local single_table_type: Type
-               local single_table_rt: Type
+               local single_table_type: Type = nil
+               local single_table_rt: Type = nil
 
                if #decltype.types == 2 then
                   for _, t in ipairs(decltype.types) do
@@ -15478,7 +15594,7 @@ do
                   local cv = child.vtype
                   if cv is TupleType and i == #children and node[i].key_parsed == "implicit" then
                      -- need to expand last item in an array (e.g { 1, 2, 3, f() })
-                     local spill_before: integer
+                     local spill_before: integer = nil
                      for ti, tt in ipairs(cv.tuple) do
                         if ti == 2 then spill_before = #self.errs.errors end
                         self:assert_is_a(node[i], tt, decltype.elements, node, "expected an array: at index " .. tostring(i + ti - 1), true)
@@ -16059,9 +16175,9 @@ do
                   local argdelta = (node.e1.op and node.e1.op.op == ":") and -1 or 0
                   for k, arg in ipairs(node.e2) do
                      if arg.kind == "function" then
-                        local agreed: Type
+                        local agreed: Type = nil
                         for _, f in ipairs(e1type.types) do
-                           local p: Type
+                           local p: Type = nil
                            if f is FunctionType then
                               local fargs = f.args.tuple
                               p = fargs[k - argdelta]
@@ -16096,11 +16212,11 @@ do
 
             -- unary a and b: not TupleType
             local ua = resolve_tuple(ga)
-            local ub: Type
+            local ub: Type = nil
 
             -- resolved a and b: not NominalType
             local ra: Type = self:to_structural(ua)
-            local rb: Type
+            local rb: Type = nil
 
             if ra.typename == "circular_require" or (ra is TypeDeclType and ra.def and ra.def.typename == "circular_require") then
                return self.errs:invalid_at(node, "cannot dereference a type from a circular require")
@@ -16322,7 +16438,7 @@ do
             end
 
             if node.op.op == "or" then
-               local t: Type
+               local t: Type = nil
 
                local expected = node.expected and self:to_structural(resolve_tuple(node.expected))
 
@@ -16523,7 +16639,7 @@ do
                local t = tn and a_type(node, tn, {})
 
                -- we need to check if we have a macroexp that overrides any interfaces first
-               local meta_on_operator: integer
+               local meta_on_operator: integer = nil
                if not t then
                   local mt_name = unop_to_metamethod[node.op.op]
                   if mt_name then
@@ -16591,7 +16707,7 @@ do
                local tn = types_op[ra.typename] and types_op[ra.typename][rb.typename]
                local t = tn and a_type(node, tn, {})
 
-               local meta_on_operator: integer
+               local meta_on_operator: integer = nil
                if not t then
                   local mt_name = binop_to_metamethod[node.op.op]
                   local flipped = false
@@ -16746,7 +16862,7 @@ do
             -- that a vararg return does (see the `return` check).
             if self.runtime_checks and node.tk ~= "..." and node.tk ~= "self" then
                local declared = children[1] or node.context_type
-               local kinds: string
+               local kinds: string = nil
                if declared then
                   kinds = self:runtime_kinds(declared, node.opt)
                end
@@ -17023,7 +17139,7 @@ do
       ["__unm"] = true,
    }
 
-   local visit_type: Visitor<TypeChecker, TypeName, Type, Type>
+   local visit_type: Visitor<TypeChecker, TypeName, Type, Type> = nil
    visit_type = {
       cbs = {
          ["generic"] = {
@@ -17071,8 +17187,8 @@ do
                   typ.elements = children[i]
                   i = i + 1
                end
-               local fmacros: {FunctionType}
-               local g: Variable
+               local fmacros: {FunctionType} = nil
+               local g: Variable = nil
                for name, _ in fields_of(typ) do
                   local ftype = children[i]
                   if ftype is FunctionType then

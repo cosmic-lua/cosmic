@@ -288,7 +288,14 @@ end
 -- The place a drop found dropped is none: the drop itself may have removed
 -- many. This file holds it in a local because the checker refuses a literal
 -- nil where a value is declared.
-local no_place: string
+-- A local this file declares `local x: T = nil` (this one, `absent`,
+-- `nowhere`, `evaluate`'s and the rest below) is one whose value the code
+-- after it assigns, as in checker/tl.tl.
+-- TODO: give each of them its honest type (`T | nil`, narrowed where it is
+-- read) or a value, once nil is excluded from every type but one that names
+-- it: the checker then refuses `local x: T = nil`, and the checker's own
+-- source is the last of the tree to migrate (the roadmap's nil item).
+local no_place: string = nil
 
 --- What dropped a fact: a `kind` of drop (see [`narrowing.Drop`]), the
 --- expression as a message shows it, and where it begins.
@@ -350,7 +357,7 @@ end
 -- The keys of `scope` that name a field path (`r.n`: no Lua name
 -- contains a dot) and end in `suffix`, any when it is empty; nil for none.
 local function path_keys(scope: narrowing.Scope, suffix: string): {string}
-   local keys: {string}
+   local keys: {string} = nil
    if scope.narrows then
       for key in pairs(scope.narrows) do
          if key:find(".", 1, true) and (suffix == "" or key:sub(-#suffix) == suffix) then
@@ -396,8 +403,8 @@ end
 --- (nil for none), each once, for the checker to see what a call has to drop.
 function narrowing.narrowed(scopes: {narrowing.Scope}): boolean, {string}
    local paths = false
-   local seen: {string:boolean}
-   local names: {string}
+   local seen: {string:boolean} = nil
+   local names: {string} = nil
    for i = #scopes, 1, -1 do
       local narrows = scopes[i].narrows
       if narrows then
@@ -607,24 +614,24 @@ end
 local function test(kind: narrowing.Kind, w: narrowing.Where, place: narrowing.Place,
                     typ: narrowing.Type, no_infer: boolean): narrowing.Guard
    assert(w)
-   local f1: narrowing.Guard
-   local f2: narrowing.Guard
+   local f1: narrowing.Guard = nil
+   local f2: narrowing.Guard = nil
    return { fact = kind, w = w, no_infer = no_infer, f1 = f1, f2 = f2, place = place, typ = typ }
 end
 
 -- A guard of kind `not`, `and`, `or` or `truthy`, combining `f1` and `f2`.
 local function join(kind: narrowing.Kind, w: narrowing.Where, f1: narrowing.Guard,
                     f2: narrowing.Guard): narrowing.Guard
-   local place: narrowing.Place
-   local typ: narrowing.Type
-   local no_infer: boolean
+   local place: narrowing.Place = nil
+   local typ: narrowing.Type = nil
+   local no_infer: boolean = nil
    return { fact = kind, w = w, no_infer = no_infer, f1 = f1, f2 = f2, place = place, typ = typ }
 end
 
 -- What a guard leaves out, nil. This file holds it in locals because the
 -- checker refuses a literal nil where a value is declared.
-local absent: narrowing.Guard
-local nowhere: narrowing.Where
+local absent: narrowing.Guard = nil
+local nowhere: narrowing.Where = nil
 
 local TRUTHY: narrowing.Guard = join("truthy", nowhere, absent, absent)
 
@@ -750,8 +757,8 @@ local function sorted_keys(m: {string:narrowing.Guard}): {string}
    return keys
 end
 
-local evaluate: function(narrowing.Host, narrowing.Guard): {string:narrowing.Guard}
-local evaluate_not: function(narrowing.Host, narrowing.Guard): {string:narrowing.Guard}
+local evaluate: function(narrowing.Host, narrowing.Guard): {string:narrowing.Guard} = nil
+local evaluate_not: function(narrowing.Host, narrowing.Guard): {string:narrowing.Guard} = nil
 
 local function invalid_from(host: narrowing.Host, f: narrowing.Guard): narrowing.Guard
    return test("is", f.w, f.place, host.invalid(f.w), false)

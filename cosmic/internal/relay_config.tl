@@ -258,7 +258,7 @@ function relay_config.parse_addresses(fib_trie: string, if_inet6: string): {stri
       found[#found + 1] = address
     end
   end
-  local last: string
+  local last: string | nil
   for line in fib_trie:gmatch("[^\n]+") do
     local address = line:match("^%s*|%-%- (%d+%.%d+%.%d+%.%d+)%s*$")
     if address ~= nil then

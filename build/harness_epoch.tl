@@ -96,7 +96,7 @@ harness_epoch.acknowledged = {
 
   ["build.core_image"] = "dfc18e0e6316237ab9fb11a957df68d6217e42cffc6f2f3a767018c5313700ac",
 
-  ["build.declared_key"] = "8851553c2dac578cb15aeb0e6dbbc1ed518906ebf5a78249951241f548756aae",
+  ["build.declared_key"] = "de42149e61289544aeb78cc234ad9af15242dbd194f7bd4f5168ddf1374aafee",
 
   ["build.digest"] = "dccca5b63f2992d4d23213450142bdd05eee403ebaf3a4e0acf7437da72558f0",
 
@@ -124,15 +124,15 @@ harness_epoch.acknowledged = {
 
   ["build.test_sandbox"] = "93b2ea055ba9bc3e19df81df64707459c8c9b5119273dd2f965a2fc48384f714",
 
-  ["build.test_worker"] = "fe4a27a90c297fc3031d6e2bd991d3f8b470beee27685cc570298822c734d72c",
+  ["build.test_worker"] = "85fc1c4727f07785f33b465bf592dc5d59c82b963fb557d64a72a18d1ee8afc7",
 
-  ["build.this_program"] = "2a4156f49f5f2a7e997efc3d3ac8cdbeca9eb265aec7a8e591057a06b17d9d4d",
+  ["build.this_program"] = "2abacf4586a64e2b333c431a98d16d111f0dcf67af15f34f7781d3481b35b048",
 
   ["build.zig_caches"] = "9f82e40f15829ffc5ca68c6b6da7a7a2dc7576e3ad5e8e041f559948abcf9f70",
 
   ["cmd.cosmic.main"] = "d00f469acf42d89c76c2e9ebabd40e73e20d00cb3a5ad6d9189716265fcdf9bf",
 
-  ["cosmic.child"] = "74690e2ae88b6b1b101ae8917551234f1cfe895d870be7768c8afd9de9abccae",
+  ["cosmic.child"] = "43301876b7992490f2463f09bb1ca985cbfa9f650ccd836c1e82eca084ec38ac",
 
   ["cosmic.codec"] = "2ae129ad495661877283eabf153c5056250d8bd791235397fcaa45b4c8ca5f87",
 
@@ -144,13 +144,13 @@ harness_epoch.acknowledged = {
 
   ["cosmic.hash"] = "6bde9d7c791ae0ea7e8911760e146d07cadcff06223377ce6b4375128e144d0f",
 
-  ["cosmic.proc"] = "1ff76631895d02ba131ae0a3475827dd3670fbc155bb95f85f149a0514222ee6",
+  ["cosmic.proc"] = "f3c8832b1d040798a4b4c92e67d02183a06af90efff7a82bc58da9b76ff95bc9",
 
   ["cosmic.project"] = "ac898dd16fd051e08c47be1dea7b86c8ea4159517e6fde765162a9f7d6678364",
 
   ["cosmic.sandbox"] = "47a08ecef66f739ee1e3536c90398f6ba1703630108447d6ec9f40afb31944df",
 
-  ["cosmic.sandbox.policy"] = "88d7df34b32c99bd219b9e85ae0622bf3b02459ce48fcbf7d6e15e3ec3bc4d5d",
+  ["cosmic.sandbox.policy"] = "325834a09f889e5d7ea7ea3f6bdf578be960fe7ef852e4896be43472b5b20308",
 
   ["cosmic.sqlite"] = "1a547144be43ebd753c31ac3a1fa9447390265b22523c7f5c67fe768c3766442",
 

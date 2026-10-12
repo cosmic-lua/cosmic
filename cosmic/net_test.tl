@@ -649,7 +649,7 @@ local function test_in_a_run_a_connect_to_a_full_backlog_fails_at_once(tmp: stri
   if unix_socket.skipped(tmp) then return end
   local path = tmp .. "/s.sock"
   local _full <close> = full(path)
-  local conn: Net.Conn
+  local conn: Net.Conn | nil
   local why = ""
   local began = Clock.monotonic_ns()
   Poll.run(function()

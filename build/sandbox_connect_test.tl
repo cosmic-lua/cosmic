@@ -164,7 +164,7 @@ local function asked(relay: Net.Conn): string
 end
 
 local function test_a_name_is_asked_for_as_a_name_and_the_bytes_go_both_ways()
-  local request: string
+  local request: string | nil
   local seen_end = false
   local ran = against({ "api.github.com", "443" }, function(relay: Net.Conn, send: function(string), finish: function())
     request = asked(relay)
@@ -181,14 +181,14 @@ local function test_a_name_is_asked_for_as_a_name_and_the_bytes_go_both_ways()
     assert(relay:shutdown("write"))
   end)
   assert(ran.code == 0, ran.code .. table.concat(ran.complaints, "\n"))
-  assert(request == "\5\1\0\3\14api.github.com\1\187", "the host is a name: " .. request)
+  assert(request == "\5\1\0\3\14api.github.com\1\187", "the host is a name: " .. tostring(request))
   assert(seen_end, "a half-close was seen")
   assert(ran.out == "banner pong", "the output is the tunnel's: " .. ran.out)
   assert(#ran.complaints == 0, table.concat(ran.complaints))
 end
 
 local function test_an_address_is_asked_for_as_an_address()
-  local request: string
+  local request: string | nil
   local ran = against({ "127.0.0.2", "22" }, function(relay: Net.Conn, _: function(string), finish: function())
     request = asked(relay)
     assert(relay:write(RelayWire.socks_reply("succeeded")))
@@ -197,7 +197,7 @@ local function test_an_address_is_asked_for_as_an_address()
   end)
   assert(ran.code == 0, table.concat(ran.complaints))
   assert(request == "\5\1\0\1\127\0\0\2\0\22", "an address of type 1")
-  local ipv6: string
+  local ipv6: string | nil
   assert(against({ "::1", "22" }, function(relay: Net.Conn, _: function(string), finish: function())
     ipv6 = asked(relay)
     assert(relay:write(RelayWire.socks_reply("succeeded")))
@@ -312,16 +312,17 @@ end
 
 local function test_nothing_listening_is_a_failure_naming_the_relay(_: string)
   -- A port that was just listened at and is shut: nothing is there.
-  local port: integer
+  local port: integer | nil
   Poll.run(function()
     local listener = assert(Net.listen(Net.tcp("127.0.0.1", 0)))
     port = listener.address.port
     assert(listener:close())
   end)
+  local closed = assert(port, "the listener was made")
   local complaints: {string} = {}
   local code = connect.run({ "host", "22" }, {
     getenv = function(name: string): string | nil
-      if name == "ALL_PROXY" then return proxy_at(port) end
+      if name == "ALL_PROXY" then return proxy_at(closed) end
       return nil
     end,
     err = function(line: string) complaints[#complaints + 1] = line end,
@@ -329,7 +330,7 @@ local function test_nothing_listening_is_a_failure_naming_the_relay(_: string)
     write = function(): boolean, string return true, "" end,
     finish = function(): boolean, string return true, "" end,
   })
-  assert(code == 1 and complaints[1]:find("the relay at " .. proxy_at(port), 1, true), tostring(complaints[1]))
+  assert(code == 1 and complaints[1]:find("the relay at " .. proxy_at(closed), 1, true), tostring(complaints[1]))
 end
 
 local function test_a_relay_that_never_answers_is_a_failure_after_the_timeout_naming_the_relay()
@@ -363,7 +364,7 @@ local function asked_with_login(relay: Net.Conn, verdict: string): string, strin
 end
 
 local function test_a_userinfo_is_sent_as_the_username_and_password_percent_decoded()
-  local user, password, request: string, string, string | nil
+  local user, password, request: string | nil, string | nil, string | nil
   local ran = against({ "api.github.com", "443" }, function(relay: Net.Conn, _: function(string), finish: function())
     user, password, request = asked_with_login(relay, "\1\0")
     assert(relay:write(RelayWire.socks_reply("succeeded") .. "banner"))
@@ -375,7 +376,7 @@ local function test_a_userinfo_is_sent_as_the_username_and_password_percent_deco
   assert(request == "\5\1\0\3\14api.github.com\1\187", "the request follows the login")
   assert(ran.out == "banner" and #ran.complaints == 0, ran.out .. table.concat(ran.complaints))
   -- An empty user name is sent as a name the relay takes.
-  local named: string
+  local named: string | nil
   local anonymous = against({ "h", "1" }, function(relay: Net.Conn)
     named = asked_with_login(relay, "\1\0")
     assert(relay:write(RelayWire.socks_reply("refused")))
@@ -385,7 +386,7 @@ end
 
 local function test_a_relay_that_refuses_the_token_exits_1_naming_it_and_never_the_password()
   local secret <const> = "SECRET-token-1234"
-  local seen: string
+  local seen: string | nil
   local ran = against({ "host.example", "22" }, function(relay: Net.Conn)
     local _, got = asked_with_login(relay, "\1\1")
     seen = got

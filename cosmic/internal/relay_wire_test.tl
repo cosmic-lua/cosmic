@@ -800,7 +800,7 @@ end
 
 --- `input` fed to `feed` a byte at a time, and the last answer.
 local function dribbled<T>(feed: function(string): T, input: string): T
-  local answer: T
+  local answer: T | nil
   for at = 1, #input do
     answer = feed(input:sub(at, at))
   end
@@ -873,14 +873,15 @@ local function test_a_head_fed_a_byte_at_a_time_costs_its_length()
   end
   local input = head(16384)
   assert(#input == 16384)
-  local answer: Wire.Connect
+  local answer: Wire.Connect | nil
   local work = string_work(function()
     local reader = Wire.connect_reader()
     answer = dribbled(function(chunk: string): Wire.Connect
       return reader:feed(chunk)
     end, input)
   end)
-  assert(answer.status == "done" and answer.consumed == 16384, tostring(answer.reason))
+  local done = assert(answer, "the reader answered")
+  assert(done.status == "done" and done.consumed == 16384, tostring(done.reason))
   assert(work > 0 and work < DRIBBLE_FACTOR * #input, ("16384 single-byte feeds did %d bytes of string work"):format(work))
   -- A line of the most bytes costs the same.
   local line = "CONNECT example.com:80 HTTP/1.1\r\nX: " .. ("v"):rep(8192 - 3) .. "\r\n\r\n"
@@ -890,7 +891,7 @@ local function test_a_head_fed_a_byte_at_a_time_costs_its_length()
       return reader:feed(chunk)
     end, line)
   end)
-  assert(answer.status == "done" and line_work < DRIBBLE_FACTOR * #line, line_work)
+  assert(assert(answer, "the reader answered").status == "done" and line_work < DRIBBLE_FACTOR * #line, line_work)
 end
 
 local function test_string_work_counts_a_reader_that_reads_its_buffer_again()
@@ -918,14 +919,15 @@ local function test_a_hello_fed_a_byte_at_a_time_costs_its_length()
     sizes[i] = 1
   end
   for _, input in ipairs({ Fixture.records(hello, { 16000 }), Fixture.records(hello, sizes), Fixture.records(hello, { 300, 400 }) }) do
-    local answer: Wire.Hello
+    local answer: Wire.Hello | nil
     local work = string_work(function()
       local reader = Wire.hello_reader()
       answer = dribbled(function(chunk: string): Wire.Hello
         return reader:feed(chunk)
       end, input)
     end)
-    assert(answer.status == "name" and answer.name == "dribble.example" and answer.consumed == #input, answer.status)
+    local done = assert(answer, "the reader answered")
+    assert(done.status == "name" and done.name == "dribble.example" and done.consumed == #input, done.status)
     assert(work > 0 and work < DRIBBLE_FACTOR * #input, ("%d single-byte feeds did %d bytes of string work"):format(#input, work))
   end
 end
@@ -941,12 +943,13 @@ local function test_blanks_around_a_header_value_cost_its_length()
   for _, blank in ipairs({ " ", "\t", " \t" }) do
     local value = "a" .. blank:rep(1500) .. "b" .. blank:rep(1500)
     local input = Fixture.connect("example.com:80", { "Proxy-Authorization: " .. blank:rep(100) .. value })
-    local answer: Wire.Connect
+    local answer: Wire.Connect | nil
     local took = seconds(function()
       answer = connect_head(input)
     end)
-    assert(answer.status == "done", answer.status)
-    assert(answer.authorization == "a" .. blank:rep(1500) .. "b", "the blanks inside stay")
+    local done = assert(answer, "the reader answered")
+    assert(done.status == "done", done.status)
+    assert(done.authorization == "a" .. blank:rep(1500) .. "b", "the blanks inside stay")
     assert(took < 0.1, ("%.3f s"):format(took))
   end
   assert(connect_head(Fixture.connect("a.example:1", { "Proxy-Authorization:" .. (" \t"):rep(4000) })).authorization == "")

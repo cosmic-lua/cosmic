@@ -92,7 +92,7 @@ function this_program.program(args: {string}, opts?: Child.Options): this_progra
     error("this_program.program: env beside a policy: the policy's env and set_env are the " ..
         "child's whole environment", 2)
   end
-  local relaunch: Proc.Relaunch
+  local relaunch: Proc.Relaunch | nil
   if given.policy == nil then
     local found, _ = Proc.relaunch()
     relaunch = found

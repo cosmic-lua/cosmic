@@ -429,7 +429,7 @@ function embed.tree(root: string, host?: boolean, under?: {string}): {string} | 
     return {}
   end
 
-  local prefix, core: string, raw_store.Core
+  local prefix, core: string | nil, raw_store.Core | nil
   local source_trouble: string
   if host then
     core, source_trouble = artifact.trusted_core()
@@ -458,8 +458,10 @@ function embed.tree(root: string, host?: boolean, under?: {string}): {string} | 
     local program, program_trouble: string, string
     if core ~= nil then
       program, program_trouble = artifact.host_program(core, database)
-    else
+    elseif prefix ~= nil then
       program, program_trouble = artifact.program(prefix, database)
+    else
+      return nil, source_trouble
     end
     if program == nil then
       return nil, out .. ": " .. program_trouble

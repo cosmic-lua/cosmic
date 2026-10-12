@@ -297,7 +297,7 @@ local function gen_laid_out(src: Fuzz.Source): string
   while Fuzz.more(src, edits, 3) do
     edits = edits + 1
     local r = recs[src:int(1, #recs)]
-    local at: integer
+    local at: integer | nil
     if n > 0 and src:int(0, 2) == 0 then
       -- An entry's local header offset, which only reading its body
       -- follows: few of the fields drawn at random are one.

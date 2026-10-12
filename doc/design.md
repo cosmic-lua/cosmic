@@ -1002,6 +1002,86 @@ was. its hint copies the value to a local before the call or write
 (`local n = r.n`, then `if n then clear() print(n + 1) end`), which stays
 narrowed across the call because no function can assign it.
 
+a local is assigned before it is read. `local x: T` with no value is nil until
+something assigns it, and a read that comes first gets nil where the type
+promised a `T`, so it is legal only where every path from the declaration
+assigns `x` before its first read ([`checker/flow.tl`]'s `unassigned_read`,
+asked of each declaration once the block that holds it is checked). a read
+is any use of `x` as a value (an operand, an argument, an index, the target of
+`x.f = v` or `x[i] = v`). a path that ends first (`return`, a
+`break` or `goto` that leaves, a call of a function typed `: never`) never
+reaches a read of the variable, but a function that names it may have got out
+on it (below). an `if` assigns if every branch does and it has an `else`;
+a `while`, `for` and generic `for` body may run no time, so what it assigns
+does not count after the loop except on the paths that `break` out of it,
+while a `repeat` body and a `while true` body run at least once; a `goto`
+takes the state it leaves with to its label. an assignment inside a function
+literal does not count for the code around it, and a local of the same name
+declared inside a block hides the variable from the rest of that block.
+`local x: T | nil` with no value is always legal and is nil, so is any type
+that admits nil (`any`, an alias of a union with nil); a type variable is not
+taken to, since it may stand for a type that does not. a local with neither a
+type nor a value (`local x`) is refused too, with the code `no_type`.
+
+a function literal (or a `local function`) that names `x` does not read it
+where it is made, only when it is called. so it is pending from its creation
+until `x` is assigned on every path, and it becomes a read if code of the
+program's may run in between: a call, an operator, index or `==` that dispatches
+to a declared metamethod, a `tostring` or `print` of a value with a declared
+`__tostring`, a `for ... in` loop whose iterator is not `pairs`, `ipairs` or
+`gmatch` of what runs none: what the checker counts as running code for
+the narrowing it drops (`TypeChecker:drop_all`, which marks the expression
+`runs_code` for `unassigned_read`), and a call of `assert` or `type` or of the
+standard library that examines no value that may dispatch is none. it also
+becomes one where the function may get out unassigned: at a `return`, at a call
+of a function typed `: never` (the path ends, but the function may be stored or
+caught by a caller above, as `error` is), at a `goto` back round a label the
+walk has passed (the code between runs again), and where the variable's scope
+ends. a loop
+body that ends with it pending goes round once more in the walk, so the code at
+its start counts. so `local f: function(); local function g() f() end; f =
+function() g() end` and `local f: function(); f = function() f() end` pass,
+and `local f: function(); local function g() f() end; g(); f = ...`, a function
+that is returned or whose scope ends with `f` unassigned, and an assignment a
+path skips are refused. a call that is not marked runs code even if it does
+not call the function; the refusal is the checker's guess that it may, as the
+dropped narrowing is.
+
+what counts as running code is what narrowing counts, so the rule shares its
+gaps. a `<close>` local whose type declares `__close` and the read of a
+declared field of a record that declares `__index` run code that neither sees
+(the TODO in [`checker/narrowing.tl`] names them), nor does a metatable
+attached at run time (the `setmetatable` TODOs in [`checker/tl.tl`] and the
+roadmap item they wait on). a raise from `assert` (`assert(false)`,
+`assert(<expr>)`) or from an operator (division by zero, indexing nil) can let out
+a function that has already escaped, as a call of a function typed `: never`
+does, but is not seen as doing so, so those are outside the rule for now (a
+TODO in [`checker/flow.tl`], and the roadmap item that checks a function where
+it escapes). a global is not followed at all, and neither is a
+local given a call that returns no values (`local v: integer = f()`), which is
+nil though its type admits none; both are TODOs in [`checker/flow.tl`] that wait
+on the roadmap's item that excludes nil from every type but one that names it.
+
+a refusal of the first kind has the code `not_assigned`, with the variable, and
+where a path skipped the assignment: the `if` with no `else`, the branch that
+does not assign, or the loop, with its place; for a function that names it, that
+the read is a function and what may call it first (`ran_kind`: `call`,
+`operator`, `iterator`, `return`, `goto`, `never` or `scope`, with its place). its hint
+says to give the local a value where it is declared, assign it on every path
+(before the call that may run a function that names it), or declare it
+`T | nil` and check it where it is used. the rule is held against
+the semantics it is about: a drawn program of branches, loops, `break`,
+`return`, `goto`, calls that never return and functions that name the variable
+is run down every way its choices can fall, with every call able to call every
+function made so far, and the checker refuses it exactly when some way reads
+the variable before it is assigned
+([`build/checker_assigned_fuzz_test.tl`]).
+
+the checker's own source is valid upstream Teal and relies on nil being in
+every type, so a local it reads before the code that assigns it is declared
+`local x: T = nil`, which has a value; the checker's TODO there waits on nil
+leaving every type but one that names it.
+
 later parts of the checker move into modules the same way, each a file in
 `checker/` with a main chunk and a count of locals of its own. the files sit
 outside the module closure they compile: the scanner
@@ -1392,6 +1472,7 @@ in [roadmap.md](roadmap.md).
 [`build.work`]: ../build/work.tl
 [`build.writer`]: ../build/writer.tl
 [`build/bom.tl`]: ../build/bom.tl
+[`build/checker_assigned_fuzz_test.tl`]: ../build/checker_assigned_fuzz_test.tl
 [`build/closure_store.tl`]: ../build/closure_store.tl
 [`build/compiler.d.tl`]: ../build/compiler.d.tl
 [`build/compiler_test.tl`]: ../build/compiler_test.tl

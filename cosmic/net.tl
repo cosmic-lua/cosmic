@@ -581,7 +581,7 @@ function Net.resolve(name: string, opts?: Net.ResolveOptions): {Net.Resolved} | 
   if hosts_file ~= nil and not (hosts_file is string) then
     error("net: hosts_file must be a string", 2)
   end
-  local servers: string
+  local servers: string | nil
   if opts.servers ~= nil then
     local listed = opts.servers
     if type(listed) ~= "table" or #listed == 0 then
@@ -897,7 +897,7 @@ end
 --- connector's deny list".
 function Net.connector(endpoints: {Net.Endpoint}, opts?: Net.ConnectorOptions): Net.Connector | nil, string
   local timeout_ms = Leaf.checked_timeout_ms(opts ~= nil and opts.timeout_ns or nil, 2)
-  local public: Leaf.Public
+  local public: Leaf.Public | nil
   if opts ~= nil and opts.public ~= nil then public = checked_public(opts.public) end
   if public == nil and (type(endpoints) ~= "table" or #endpoints == 0) then
     error("net: a connector needs endpoints, opts.public, or both", 2)
@@ -1053,7 +1053,7 @@ local resume_accepting: function(s: Serving)
 --- is done with it.
 local function serve_conn(s: Serving, conn: Net.Conn)
   s.open = s.open + 1
-  local task: Poll.Task
+  local task: Poll.Task | nil
   task = Poll.spawn(function()
     local held <close> = conn
     local ok, trouble: boolean, any = xpcall(s.spec.serve, traced, held)

@@ -417,14 +417,14 @@ local function test_tzif_with_long_abbreviations_is_read_in_linear_time()
     read(few, near)
     read(many, near)
     local few_ns, many_ns = math.maxinteger, math.maxinteger
-    local ratio: number
+    local ratio: number | nil
     for _ = 1, 30 do
       few_ns = math.min(few_ns, read(few, near))
       many_ns = math.min(many_ns, read(many, near))
       ratio = many_ns / math.max(few_ns, 1000000)
       if ratio < 24 then break end
     end
-    assert(ratio < 24, ("80000 types took %d ms, 10000 %d ms: %.1fx"):format(
+    assert(ratio ~= nil and ratio < 24, ("80000 types took %d ms, 10000 %d ms: %.1fx"):format(
       many_ns // 1000000, few_ns // 1000000, ratio))
   end
 end

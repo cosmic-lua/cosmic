@@ -774,7 +774,7 @@ local function address_of(run: Running, name: string, kind: Wire.Kind, port: int
         "host_unreachable") }
     end
     local found: {Net.Resolved} | nil
-    local why: string
+    local why: string | nil
     local lookup = Poll.spawn(function()
       found, why = Net.resolve(name, opts)
     end)
@@ -845,7 +845,7 @@ end
 local function connect_any(run: Running, addresses: {string}, port: integer, deadline: integer,
                            label: string, name: string): Connected
   local failures: {string} = {}
-  local last: Refusal
+  local last: Refusal | nil
   for i, address in ipairs(addresses) do
     local left = i == 1 and run.timeouts.connect or deadline - Clock.monotonic_ns()
     if left <= 0 then
@@ -858,9 +858,10 @@ local function connect_any(run: Running, addresses: {string}, port: integer, dea
     failures[#failures + 1] = ("%s: %s"):format(target(address, port), trouble)
     last = connect_failure(label .. target(address, port), trouble)
   end
-  if #addresses == 1 then return { refused = last } end
+  local refused = assert(last, "connect_any is given an address to try")
+  if #addresses == 1 then return { refused = refused } end
   return { refused = refusal(("could not connect to %s%s: none of its addresses answered (%s)"):format(label,
-    target(name, port), table.concat(failures, "; ")), last.http, last.socks) }
+    target(name, port), table.concat(failures, "; ")), refused.http, refused.socks) }
 end
 
 --- The part of a CONNECT through an upstream the relay reads: its status

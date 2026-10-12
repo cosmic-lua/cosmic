@@ -76,8 +76,8 @@ end
 local function test_waitpid_never_loses_a_status_to_a_failed_allocation()
   -- A chunk that exits 7: a real status to reap.
   local pid = spawn_again("return 7")
-  local received: raw_process.ChildStatus
-  local reaped: raw_process.ChildStatus
+  local received: raw_process.ChildStatus | nil
+  local reaped: raw_process.ChildStatus | nil
   under_every_failure(function()
     if reaped == nil then received = process.waitpid(pid, false) end
   end, function()
@@ -103,7 +103,7 @@ local function test_an_exit_watch_leaves_no_descriptor_whenever_an_allocation_fa
     return fd
   end
   local before = next_descriptor()
-  local received: integer
+  local received: integer | nil
   local opened = 0
   under_every_failure(function()
     received = process.exit_watch(pid)

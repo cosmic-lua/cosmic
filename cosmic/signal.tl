@@ -98,7 +98,7 @@ end
 Guard.wait = function(self: Guard, timeout_ns?: integer): integer, string
   if not Poll.in_task() then error("signal: g:wait waits in a task of Poll.run", 2) end
   Poll.checked_ns(timeout_ns, "signal", "timeout_ns", 2)
-  local deadline: integer
+  local deadline: integer | nil
   if timeout_ns ~= nil then deadline = Clock.monotonic_ns() + timeout_ns end
   while true do
     -- Asked before each wait and after each wake, never from the
@@ -106,7 +106,7 @@ Guard.wait = function(self: Guard, timeout_ns?: integer): integer, string
     local signal = self:take()
     if signal ~= 0 then return signal, "" end
     if self._closed then return 0, "signal: the guard is closed" end
-    local left: integer
+    local left: integer | nil
     if deadline ~= nil then left = math.max(deadline - Clock.monotonic_ns(), 0) end
     local woken, why = Poll.readable(raw.child_signal_fd(), left)
     if not woken then return 0, why end

@@ -154,7 +154,7 @@ end
 local function start(tmp: string, opts: Options): Rig
   local hosts = tmp .. "/hosts"
   assert(Fs.write(hosts, HOSTS))
-  local http, socks, mixed: Net.Listener, Net.Listener, Net.Listener
+  local http, socks, mixed: Net.Listener | nil, Net.Listener | nil, Net.Listener | nil
   local at_http, at_socks: Net.Address, Net.Address
   local listeners: {Net.Listener}
   if opts.mixed then
@@ -1142,7 +1142,7 @@ local record Proxy
 end
 
 local function proxy(status: string): Proxy
-  local state: Proxy
+  local state: Proxy | nil
   local server = origin(function(conn: Net.Conn, seen: Origin)
     local text = ""
     while not text:find("\r\n\r\n", 1, true) do
@@ -1152,7 +1152,7 @@ local function proxy(status: string): Proxy
       end
       text = text .. data
     end
-    state.head = text
+    assert(state, "the proxy is made before it is dialled").head = text
     if status ~= "200" then
       local _, _ = conn:write("HTTP/1.1 " .. status .. "\r\nContent-Length: 0\r\n\r\n")
       return

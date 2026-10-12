@@ -308,7 +308,6 @@ function receivers.references(state: receivers.State, env: compiler.Env,
   local targets: {ast.Node: boolean} = {}
   local seen: {string: boolean} = {}
   local visited: {ast.Node: boolean} = {}
-  local visit: function(n: ast.Node)
 
   local function consider(n: ast.Node)
     if n.kind == "assignment" and n.vars ~= nil then
@@ -357,7 +356,7 @@ function receivers.references(state: receivers.State, env: compiler.Env,
   -- marked its targets before they are reached. `back_up` names the
   -- fields not followed: `if_parent` and `fn_owner` point back up the
   -- tree, and `expected` and `known` hold types, not syntax.
-  visit = function(n: ast.Node)
+  local function visit(n: ast.Node)
     if visited[n] then
       return
     end

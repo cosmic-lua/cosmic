@@ -1483,7 +1483,7 @@ local function pass_comment(self: TokenReader, parts?: {string}): boolean, strin
     else
       -- One pass finds the line end: a U+2028 or U+2029 is searched for
       -- only from where a byte E2 is, so no scan reaches past the end.
-      local i: integer
+      local i: integer | nil
       local from = at
       while true do
         local k = buf:find(self.json5 and "[\r\n\226]" or "[\r\n]", from)
@@ -1931,7 +1931,7 @@ function TokenReader:next(): Json.Token | nil, string
     -- truncated one is then refused where it starts, as `decode` does,
     -- and at the text's end where the text ends.
     local ended = token == "string" or self.buf:byte(self.at) == nil
-    local closer: string
+    local closer: string | nil
     if f ~= nil then closer = f.object and "}" or "]" end
     value, err = scalar(self, ended and text or text .. " ", column, closer)
     if err ~= "" then return nil, err end

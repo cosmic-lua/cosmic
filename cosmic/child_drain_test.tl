@@ -61,7 +61,7 @@ local function test_wait_then_drain_prefers_known_eof_to_exact_limit()
   assert(assert(h:wait()).ok)
   local out = Stream.collect()
   local got = h:drain(options(out, 4))
-  assert(got.kind == "eof" and got.bytes == 4 and got.reason == "")
+  assert(got ~= nil and got.kind == "eof" and got.bytes == 4 and got.reason == "")
   assert(out:result() == "abcd")
 end
 
@@ -71,7 +71,7 @@ local function test_zero_timeout_copies_one_round_without_waiting()
   assert(assert(h:wait()).ok)
   local out = Stream.collect()
   local got = h:drain(options(out, 262144, 0))
-  assert(got.kind == "timeout" and got.bytes > 0 and got.bytes <= 65536)
+  assert(got ~= nil and got.kind == "timeout" and got.bytes > 0 and got.bytes <= 65536)
   assert(finish(h, options(out)) + got.bytes == 131072)
   assert(out:result() == string.rep("x", 131072))
 end
@@ -80,7 +80,7 @@ local function test_deadline_keeps_the_child_running()
   local h <close> = start('assert(require("cosmic.fs").take(0, 1))',
     { stdin = "stream", stdout = "stream" })
   local got = h:drain(options(Stream.collect(), nil, Clock.ms(10)))
-  assert(got.kind == "timeout" and got.bytes == 0)
+  assert(got ~= nil and got.kind == "timeout" and got.bytes == 0)
   assert(not assert(h:try_wait()).finished)
   assert(assert(h.stdin_stream):close())
   assert(h:drain(options(Stream.collect())).kind == "eof")
@@ -106,11 +106,11 @@ assert(guard:release() ~= 0)]])
   assert(data == nil and old ~= "")
   local out = Stream.collect()
   local got = h:drain(options(out))
-  assert(got.kind == "interrupted" and got.bytes == 0)
+  assert(got ~= nil and got.kind == "interrupted" and got.bytes == 0)
   assert(guard:take() == sys.SIGTERM)
   assert(sys.kill(sys.getpid(), sys.SIGTERM))
   got = h:drain(options(out))
-  assert(got.kind == "interrupted" and got.bytes == 0)
+  assert(got ~= nil and got.kind == "interrupted" and got.bytes == 0)
   assert(guard:take() == sys.SIGTERM)
   assert(h:stop(sys.SIGTERM))
   assert(finish(h, options(out)) == 4 and out:result() == "last")
@@ -139,7 +139,7 @@ local function test_explicit_reader_and_handle_close_refuse_drain()
     local h <close> = start('return 0')
     if reader_close then assert(assert(h.stdout_stream):close()) else assert(h:close()) end
     local got = h:drain(options(Stream.collect()))
-    assert(got.kind == "failed" and got.reason:find("closed", 1, true))
+    assert(got ~= nil and got.kind == "failed" and got.reason:find("closed", 1, true))
   end
 end
 
@@ -154,7 +154,7 @@ local function test_sink_failure_is_not_replayed_and_borrowed_sink_stays_open()
     return false, "sink: full"
   end
   local got = h:drain(options(sink))
-  assert(got.kind == "failed" and got.reason == "sink: full" and got.bytes == 6)
+  assert(got ~= nil and got.kind == "failed" and got.reason == "sink: full" and got.bytes == 6)
   assert(h:drain(options(sink)).reason == "sink: full" and writes == 1)
   sink.write = original
   assert(sink:write("still open"))
@@ -178,12 +178,12 @@ local function test_cooperative_cancel_releases_drain_ownership()
   local h <close> = start('assert(require("cosmic.fs").take(0, 1))',
     { stdin = "stream", stdout = "stream" })
   Poll.run(function()
-    local got: Child.DrainResult
+    local got: Child.DrainResult | nil
     local task = Poll.spawn(function() got = h:drain(options(Stream.collect())) end)
     assert(Poll.delay(0))
     task:cancel()
     assert(task:join())
-    assert(got.kind == "failed" and got.reason == Poll.CANCELLED)
+    assert(got ~= nil and got.kind == "failed" and got.reason == Poll.CANCELLED)
     assert(h:drain(options(Stream.collect(), nil, 0)).kind == "timeout")
   end)
 end
@@ -193,12 +193,12 @@ local function test_a_new_signal_wakes_a_parked_drain_without_taking_it()
     { stdin = "stream", stdout = "stream" })
   local guard = assert(Signal.guard())
   Poll.run(function()
-    local got: Child.DrainResult
+    local got: Child.DrainResult | nil
     local task = Poll.spawn(function() got = h:drain(options(Stream.collect())) end)
     assert(Poll.delay(0))
     assert(sys.kill(sys.getpid(), sys.SIGTERM))
     assert(task:join())
-    assert(got.kind == "interrupted" and got.bytes == 0)
+    assert(got ~= nil and got.kind == "interrupted" and got.bytes == 0)
     assert(guard:take() == sys.SIGTERM)
   end)
   assert(guard:release() == sys.SIGTERM)
@@ -209,13 +209,13 @@ local function test_closing_the_captured_guard_under_another_ends_the_wait()
     { stdin = "stream", stdout = "stream" })
   local outer = assert(Signal.guard())
   Poll.run(function()
-    local got: Child.DrainResult
+    local got: Child.DrainResult | nil
     local task = Poll.spawn(function() got = h:drain(options(Stream.collect())) end)
     assert(Poll.delay(0))
     local inner = assert(Signal.guard())
     assert(outer:release() == 0)
     assert(task:join())
-    assert(got.kind == "failed" and got.reason == "child: the guard is closed")
+    assert(got ~= nil and got.kind == "failed" and got.reason == "child: the guard is closed")
     assert(inner:release() == 0)
   end)
   assert(h:drain(options(Stream.collect(), nil, 0)).kind == "timeout")
@@ -225,12 +225,12 @@ local function test_an_explicit_handle_close_wakes_drain_before_cleanup_finishes
   local h <close> = start('assert(require("cosmic.fs").take(0, 1))',
     { stdin = "stream", stdout = "stream" })
   Poll.run(function()
-    local got: Child.DrainResult
+    local got: Child.DrainResult | nil
     local task = Poll.spawn(function() got = h:drain(options(Stream.collect())) end)
     assert(Poll.delay(0))
     assert(h:close())
     assert(task:join())
-    assert(got.kind == "failed" and got.reason == "child: the handle is closed")
+    assert(got ~= nil and got.kind == "failed" and got.reason == "child: the handle is closed")
   end)
 end
 
@@ -321,7 +321,7 @@ local Fs = require("cosmic.fs")
 assert(Fs.close(1)) assert(Fs.take(0, 1))]],
     { stdin = "stream", stdout = "stream" })
   local got = h:drain(options(Stream.collect()))
-  assert(got.kind == "eof")
+  assert(got ~= nil and got.kind == "eof")
   assert(not assert(h:try_wait()).finished)
 end
 
@@ -351,7 +351,7 @@ end
 local function test_silent_escaped_writer_obeys_deadline_without_ending_child()
   local h <close> = escaped('require("cosmic.clock").sleep_ns(require("cosmic.clock").seconds(10))')
   local got = h:drain(options(Stream.collect(), nil, Clock.ms(20)))
-  assert(got.kind == "timeout" and got.bytes == 0)
+  assert(got ~= nil and got.kind == "timeout" and got.bytes == 0)
   Child.end_strays()
   assert(assert(h:wait()).ok)
 end
@@ -375,7 +375,7 @@ local Fs = require("cosmic.fs")
 assert(Fs.take(0, 1)) assert(Fs.put(1, "finished"))]],
     { stdin = "stream", stdout = "stream" })
   Poll.run(function()
-    local got: Child.DrainResult
+    local got: Child.DrainResult | nil
     local sink = Stream.collect()
     local task = Poll.spawn(function()
       Poll.shielded(function() got = h:drain(options(sink)) end)
@@ -384,7 +384,7 @@ assert(Fs.take(0, 1)) assert(Fs.put(1, "finished"))]],
     task:cancel()
     assert(assert(h.stdin_stream):close())
     assert(task:join())
-    assert(got.kind == "eof" and sink:result() == "finished")
+    assert(got ~= nil and got.kind == "eof" and sink:result() == "finished")
   end)
 end
 
@@ -428,7 +428,7 @@ local function test_reader_abandonment_of_escaped_writer_is_not_drain_eof()
   local data, why = reader:read()
   assert(data == nil and why == "")
   local got = h:drain(options(Stream.collect()))
-  assert(got.kind == "failed" and got.reason == "child: the reader is closed")
+  assert(got ~= nil and got.kind == "failed" and got.reason == "child: the reader is closed")
   data, why = reader:read()
   assert(data == nil and why == "", "ordinary Reader retains its legacy EOF")
   Child.end_strays()
@@ -444,7 +444,7 @@ local function test_sink_cannot_change_the_calls_validated_bounds()
     return write(self, bytes)
   end
   local got = h:drain(opts)
-  assert(got.kind == "limit" and got.bytes == 3 and sink:result() == "abc")
+  assert(got ~= nil and got.kind == "limit" and got.bytes == 3 and sink:result() == "abc")
   sink.write = write
   assert(finish(h, options(sink)) == 6 and sink:result() == "abcdefghi")
 end

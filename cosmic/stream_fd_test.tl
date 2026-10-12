@@ -75,7 +75,7 @@ local function test_a_read_with_a_timeout_in_a_task_lets_the_others_run(tmp: str
   local reader, writer = fifo(tmp, "task")
   local r = Stream.from_fd(reader, { nonblocking = true, timeout_ns = Clock.ms(120) })
   local ticks, elapsed = 0, 0
-  local chunk, why: string | nil, string
+  local chunk, why: string | nil, string | nil
   Poll.run(function()
     local done = false
     local ticker = Poll.spawn(function()
