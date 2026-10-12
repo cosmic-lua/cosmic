@@ -253,3 +253,45 @@ local function test_bytecode_and_tables_used_refuse_a_view_and_a_trigger()
   assert(rows[1][1] == "0", "a view or trigger set query_only")
   handle:close()
 end
+
+local function test_a_database_s_own_schema_is_not_trusted()
+  local handle = assert(Sqlite.memory())
+  local rows = assert(Sqlite.text_rows(handle, "PRAGMA trusted_schema"))
+  assert(rows[1][1] == "0", "trusted_schema must be off")
+  assert(handle:exec([[CREATE TABLE todos (id INTEGER PRIMARY KEY, text TEXT);
+    CREATE VIRTUAL TABLE todos_fts USING fts5(text, content=todos, content_rowid=id);
+    CREATE TRIGGER todos_inserted AFTER INSERT ON todos BEGIN
+      INSERT INTO todos_fts (rowid, text) VALUES (new.id, new.text); END;
+    CREATE TRIGGER todos_updated AFTER UPDATE ON todos BEGIN
+      INSERT INTO todos_fts (todos_fts, rowid, text) VALUES ('delete', old.id, old.text);
+      INSERT INTO todos_fts (rowid, text) VALUES (new.id, new.text); END;
+    CREATE TRIGGER todos_deleted AFTER DELETE ON todos BEGIN
+      INSERT INTO todos_fts (todos_fts, rowid, text) VALUES ('delete', old.id, old.text); END;
+    CREATE VIEW plain AS SELECT upper(substr(text, 1, 3)) AS head FROM todos;
+    CREATE VIEW pragmas AS SELECT count(*) FROM pragma_table_info('todos');
+    CREATE VIEW middle AS SELECT median(id) FROM todos;]]))
+  -- A trigger still writes to an FTS5 table, as build/work.tl's do, and a
+  -- view still uses the built-in functions.
+  assert(handle:exec("INSERT INTO todos (text) VALUES ('fix the thing')"))
+  rows = assert(Sqlite.text_rows(handle,
+    "SELECT rowid FROM todos_fts WHERE todos_fts MATCH 'thing'"))
+  assert(rows[1][1] == "1", "the insert trigger must have indexed the row")
+  assert(handle:exec("UPDATE todos SET text = 'mend the other'"))
+  rows = assert(Sqlite.text_rows(handle, "SELECT " ..
+      "(SELECT count(*) FROM todos_fts WHERE todos_fts MATCH 'thing'), " ..
+      "(SELECT count(*) FROM todos_fts WHERE todos_fts MATCH 'other')"))
+  assert(rows[1][1] == "0" and rows[1][2] == "1", "the update trigger must have reindexed the row")
+  assert(handle:exec("DELETE FROM todos; INSERT INTO todos (text) VALUES ('fix the thing')"))
+  rows = assert(Sqlite.text_rows(handle, "SELECT * FROM plain"))
+  assert(rows[1][1] == "FIX", rows[1][1])
+  -- A pragma_* table and a function SQLite does not mark innocuous are
+  -- refused from a view.
+  local _, why = Sqlite.text_rows(handle, "SELECT * FROM pragmas")
+  assert(why:find("unsafe use of virtual table", 1, true) ~= nil, why)
+  _, why = Sqlite.text_rows(handle, "SELECT * FROM middle")
+  assert(why:find("unsafe use of median()", 1, true) ~= nil, why)
+  -- The caller's own SQL may use both.
+  rows = assert(Sqlite.text_rows(handle, "SELECT count(*) FROM pragma_table_info('todos')"))
+  assert(rows[1][1] == "2", rows[1][1])
+  handle:close()
+end

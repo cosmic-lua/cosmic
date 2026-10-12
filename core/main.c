@@ -156,6 +156,10 @@ static bool open_database (const char *path, struct cosmic_artifact *artifact,
   }
   char main_name[256], recorded[2 * COSMIC_PORTABLE_SHA256_LENGTH + 2];
   const char *trouble = NULL;
+  /* The file's schema is still trusted here, as SQLite trusts one by
+   * default, until cosmic_store_install turns trusted_schema off: it is
+   * the program the caller chose to run, opened immutable and read-only,
+   * so a view it holds can do nothing its own code could not. */
   int named = meta_row(db, "main", main_name, sizeof main_name, &trouble);
   if (named < 0) {
     snprintf(message, sizeof message, "not a cosmic database: %s", trouble);
