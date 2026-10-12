@@ -36,6 +36,14 @@
 -- for `break` alone). Both let the checker narrow after code control can
 -- reach through the label. It waits on this module resolving labels,
 -- which needs the checker's scopes of labels moved into it.
+--
+-- TODO: a function that only assigns a local it names (`local got: T;
+-- spawn(function() got = v end)`) is pending as one that reads it is, and
+-- a `goto` back round a label counts as running code even where none may
+-- between the label and the `goto`. Both refuse what could not read the
+-- local early. They wait on `mention` telling a read of a name from a
+-- write to it, and on this module telling whether code may run between
+-- two statements.
 
 -- The statement fields reachability reads. The checker's own `Node`
 -- (checker/tl.tl) has all of them, and its callers cast to this type,
