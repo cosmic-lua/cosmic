@@ -19,6 +19,8 @@ local importer = require("build.importer")
 local plural = require("build.plural")
 local shared_compiles = require("build.shared_compiles")
 local work = require("build.work")
+local worker = require("build.worker")
+local workers = require("build.workers")
 local writer = require("build.writer")
 local String = require("cosmic.string")
 
@@ -27,6 +29,8 @@ local log = Log.new("cosmic")
 --- @param root the tree to build
 --- @param argv the command line: slot 4 is the host target, slot 5 is the
 --- generated release target record file, and slot 6 the working directory.
+--- A slot 4 of `--worker` instead makes this process serve a boot's phases
+--- for another ([`build.workers`]) and build nothing.
 --- Slots 7 through 9 optionally set the checked raw core, four-entry record
 --- file and checked output directory
 --- @param compiler_source the Lua the compiler running this was compiled
@@ -34,6 +38,9 @@ local log = Log.new("cosmic")
 --- compiler the tool carries
 local function boot(root: string, argv: {integer:string},
                     compiler_source: string): integer
+  if argv[4] == "--worker" then
+    return worker.serve(compiler)
+  end
   local started = Clock.monotonic_ns()
   local host = argv[4]
   if host == nil or host == "" then
@@ -195,7 +202,8 @@ local function boot(root: string, argv: {integer:string},
   local result, compile_trouble = importer.compile_tree(handle, compiler,
     function(recorded: identity.Identities): string, string
       return recorded.compiler, ""
-    end, false, shared_compiles.for_build())
+    end, false, shared_compiles.for_build(),
+    workers.pool(workers.boot_spec(root, argv[3])))
   if result == nil then
     local _, _ = work.record(handle, clock.elapsed_ms(started), staged, 0, 0, "FAIL")
     local _, _ = work.close(handle)

@@ -517,25 +517,16 @@ local function bytecode_of(code: string, name: string,
 end
 
 --- Whether the stub ([`build.stub`]) of the module `m`, which `result`
---- is the checker's reading of and `checked` its syntax tree, types it the
---- same, and if not why: a global it declares, a stub that is not
---- declaration-only (or none, for a module that returns nothing), a type
---- error in the stub, or where its type and
+--- is the checker's reading of, types it the same, and if not why: a stub
+--- that is not declaration-only (or none, for a module that returns
+--- nothing), a type error in the stub, or where its type and
 --- `result.type` part ([`stub.difference`]). The stub is the one the
 --- projection carries ([`build.writer`]). It is checked in `env`, where
 --- `m`'s source was, so each module it requires is the one the source's
 --- check read, under a file name of its own; its warnings are of the bodies
 --- it leaves out, and no reader of the module sees them.
 local function held_to_stub(m: Module, built: compiler, env: compiler.Env,
-                            result: compiler.Result, checked: ast.Node): boolean, string
-  -- A global would reach a project through a require a stub of a module
-  -- that requires this one may leave out, unseen by the check below,
-  -- which runs where the global is already declared.
-  local declared = stub.global_declaration(checked)
-  if declared ~= nil then
-    return false, m.file .. ":" .. declared.y .. ": a standard-library module may declare " ..
-      "no global: a stub of a module requiring it may leave the require out (build/stub.tl)"
-  end
+                            result: compiler.Result): boolean, string
   local made = m.stub
   if made == nil or not made.pruned then
     return false, m.file .. ": its stub keeps every statement, so a project's checker " ..
@@ -556,6 +547,37 @@ local function held_to_stub(m: Module, built: compiler, env: compiler.Env,
       "(build/stub.tl) types it differently from its source: " .. trouble
   end
   return true, ""
+end
+
+--- Why the build may not go on: the globals declared by any source the
+--- tree holds but tl's own, one line each at the declaration, in file
+--- order, or nil when there are none. A module's compile key holds its
+--- kind, its source, the keys of what it requires and the compiler, and a
+--- global reaches other modules by none of those: a cached compile could
+--- stand after the global's type changed, and what a build accepts would
+--- depend on the order modules are checked in. The declarations are the
+--- rows a parse kept ([`build.globals`]) for every source, a `.d.tl`
+--- and a compile that stands in a cache included, so the refusal is made
+--- before any module is compiled, and does not depend on that order.
+function compilation.refuse_globals(db: Sqlite.Handle): string | nil, string
+  local rows, trouble = Sqlite.text_rows(db,
+    "SELECT i.file, g.line, g.column FROM inputs i JOIN globals g " ..
+      "ON g.source_hash = i.source_hash WHERE i.kind <> 'vendor' " ..
+      "ORDER BY i.file, g.line, g.column")
+  if rows == nil then
+    return nil, trouble
+  end
+  if #rows == 0 then
+    return nil, ""
+  end
+  local lines: {string} = {}
+  for _, row in ipairs(rows) do
+    lines[#lines + 1] = row[1] .. ":" .. row[2] .. ":" .. row[3] ..
+      ": a global is not allowed in a cosmic build: it reaches other modules by no " ..
+      "`require`, which is all a build's cache and its order see -- put the value " ..
+      "in a module and `require` it"
+  end
+  return table.concat(lines, "\n"), ""
 end
 
 --- Compiles one module: the checker over its source (with each
@@ -619,7 +641,7 @@ function compilation.generate(m: Module, built: compiler, env: compiler.Env,
   end
   local refused = false
   if own_tree and m.kind == "module" and m.path:sub(1, 7) == "cosmic." then
-    local held, hold_trouble = held_to_stub(m, built, env, result, checked)
+    local held, hold_trouble = held_to_stub(m, built, env, result)
     if not held and judged then
       return nil, hold_trouble
     end

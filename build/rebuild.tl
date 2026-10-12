@@ -15,6 +15,7 @@ local shared_compiles = require("build.shared_compiles")
 local teal = require("build.teal")
 local tree = require("build.tree")
 local work = require("build.work")
+local workers = require("build.workers")
 local writer = require("build.writer")
 local log = require("build.verdict").log
 
@@ -75,7 +76,8 @@ local function project(root: string, verb: string, start: boolean): boolean, str
     return false, stage_trouble
   end
   local result, compile_trouble = importer.compile(handle, teal.lazy(),
-    Store.meta("compiler") or "", false, shared_compiles.for_build())
+    Store.meta("compiler") or "", false, shared_compiles.for_build(),
+    workers.pool(workers.tool_spec()))
   if result == nil then
     local _, _ = work.record(handle, clock.elapsed_ms(started), staged, 0, 0, "FAIL")
     local _, _ = work.close(handle)

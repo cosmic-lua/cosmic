@@ -33,9 +33,11 @@ conflict with the parent's squash.
    worktree's commits.
 4. `bin/zig build boot` there. zig's caches and the Teal compile cache
    (`COSMIC_BUILD_CACHE` names another file, `0` none) are shared by
-   every checkout, so a fresh worktree compiles little. only the tree's
-   own tool rebuilds or boots: another cosmic (a release) run in a stale
-   tree refuses and exits 3.
+   every checkout, so a fresh worktree compiles little, and what it
+   does compile it compiles in worker processes, one fewer than the
+   processors (`COSMIC_BUILD_JOBS` names another count, `1` none). only
+   the tree's own tool rebuilds or boots: another cosmic (a release) run
+   in a stale tree refuses and exits 3.
 
 ## check before pushing
 

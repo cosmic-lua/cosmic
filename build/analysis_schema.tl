@@ -30,7 +30,7 @@ end
 
 analysis_schema.tables = {
   "parsed", "requires", "tests", "catalog", "docs", "refs", "bound", "examples", "test_inputs", "links",
-  "stubs",
+  "stubs", "globals",
 }
 
 analysis_schema.statements = {
@@ -125,6 +125,11 @@ analysis_schema.statements = {
   [[CREATE TABLE IF NOT EXISTS stubs (source_hash TEXT PRIMARY KEY,
                                       text TEXT NOT NULL,
                                       pruned INTEGER NOT NULL) WITHOUT ROWID]],
+  [[CREATE TABLE IF NOT EXISTS globals (source_hash TEXT NOT NULL,
+                                        ordinal INTEGER NOT NULL,
+                                        line INTEGER NOT NULL,
+                                        column INTEGER NOT NULL,
+                                        PRIMARY KEY (source_hash, ordinal)) WITHOUT ROWID]],
 }
 
 return analysis_schema
