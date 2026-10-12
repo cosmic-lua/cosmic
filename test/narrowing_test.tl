@@ -753,7 +753,6 @@ local function test_a_never_function_narrows_below_its_guard(tmp: string)
     ["generic"] = { "local function fail<T>(m: T): never error(m) end\n", 'fail("no")' },
     ["instantiated"] = { "local function id<T>(f: T): T return f end\n" ..
         "local function raise(m: string): never error(m) end\nlocal fail = id(raise)\n", 'fail("no")' },
-    ["global-function"] = { "global function fail(m: string): never error(m) end\n", 'fail("no")' },
     ["recursion"] = { "local function fail(m: string): never fail(m) end\n", 'fail("no")' },
     ["poly-all-never"] = { "local record P\n   f: function(string): never\n   f: function(integer): never\nend\n" ..
         "local p: P\n", 'p.f("no")' },

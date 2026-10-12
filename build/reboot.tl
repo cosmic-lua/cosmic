@@ -38,6 +38,7 @@ local shared_compiles = require("build.shared_compiles")
 local teal = require("build.teal")
 local tree = require("build.tree")
 local work = require("build.work")
+local workers = require("build.workers")
 local writer = require("build.writer")
 local log = require("build.verdict").log
 local type compiler = require("build.compiler")
@@ -323,7 +324,7 @@ local function into(handle: work.Handle, built: compiler,
         if tree_code then tool = recorded.compiler end
       end
       return tool, ""
-    end, true, shared_compiles.for_build())
+    end, true, shared_compiles.for_build(), workers.pool(workers.tool_spec()))
   if result == nil then
     -- The compiler of a tool settling is the tree's: it cannot have moved.
     if settle then

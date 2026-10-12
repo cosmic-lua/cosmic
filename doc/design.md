@@ -730,6 +730,19 @@ that does run runs in a worker process of its own:
   analyzer's parses only where the `requires` rows that analyzer found
   name it again over this tree ([`build/importer.tl`]'s
   `shared_analyzer`).
+- *parallel*: a build with much to parse or compile, a cold boot or an
+  edit that reaches most of the tree, does it in worker processes: one
+  fewer than the processors, `COSMIC_BUILD_JOBS` naming another count
+  and `1` none ([`build/workers.tl`]). sources are dealt to them by
+  size. modules are dealt by what they import ([`build/shards.tl`]),
+  since the checker's types cannot leave a process and a worker checks
+  every import of what it compiles. the build process alone writes the
+  rows, in the order a build without workers writes them, and compiles
+  itself what no worker did, a refusal included, so its error is the one
+  a build alone gives and the database and the tool come out byte for
+  byte the same ([`build/worker.tl`]). a boot loads the build's code from
+  source in each worker, which takes seconds, so it starts them only for
+  a few megabytes of new source.
 - *fast*: compile and check run in one process, one transaction,
   against declarations already in the database. each test runs in a worker
   -- the same core relaunched directly, never through the launcher --
@@ -974,6 +987,26 @@ names the modules that cast from `any`; the expected list is the
 shape module, the codec decoders, the C declaration layer, and the
 build step that loads the compiler chunk.
 
+a build refuses a Teal `global` declaration in every source it holds:
+modules, tests, examples, guide examples and `.d.tl` files. the forms are
+`global x`, `global function`, `global record`, `global interface`,
+`global enum`, `global type`, and a `function f()` with no local `f` in
+scope, which writes a global. so `function print() end`, which
+redefines a standard-library global, is refused too. the refusal names
+the declaration's line and column and is made before any module is
+compiled, so it does not depend on the order modules are checked in.
+a module's compile key holds its kind, its source, the keys of the
+modules it requires, and the compiler's identity. a global reaches other
+modules by none of those, so a cached compile could stand after the
+module that declares it changed, the verdict of a serial build would
+depend on that order, and parallel workers could not reproduce it.
+everything a module sees comes through a `require`, which the key
+covers. tl's own prelude and standard-library declarations
+([`vendor/tl/tl.tl`]) are read by the checker's environment, not built as
+a source, and are unaffected. a Lua runtime trick the checker cannot
+see, `setmetatable(_G, ...)` or `local _ENV = ...`, is not refused, and
+neither is a file run by `cosmic --standalone`, which no build checks.
+
 ### the runtime
 
 one Lua state, one thread, coroutines over `poll`. every blocking
@@ -1205,11 +1238,14 @@ in [roadmap.md](roadmap.md).
 [`build/patch.tl`]: ../build/patch.tl
 [`build/rebuild_lock.tl`]: ../build/rebuild_lock.tl
 [`build/refresh.tl`]: ../build/refresh.tl
+[`build/shards.tl`]: ../build/shards.tl
 [`build/shared_compiles.tl`]: ../build/shared_compiles.tl
 [`build/teal_test.tl`]: ../build/teal_test.tl
 [`build/test.tl`]: ../build/test.tl
 [`build/test_worker.tl`]: ../build/test_worker.tl
 [`build/vendor.tl`]: ../build/vendor.tl
+[`build/worker.tl`]: ../build/worker.tl
+[`build/workers.tl`]: ../build/workers.tl
 [`build/zig.tl`]: ../build/zig.tl
 [`build/zig_fetch.tl`]: ../build/zig_fetch.tl
 [`ci/cosmic-driver.pin`]: ../ci/cosmic-driver.pin
@@ -1258,3 +1294,4 @@ in [roadmap.md](roadmap.md).
 [`Store.web_asset`]: ../cosmic/store.tl
 [`Test.policy`]: ../cosmic/test.tl
 [`test/narrowing_test.tl`]: ../test/narrowing_test.tl
+[`vendor/tl/tl.tl`]: ../vendor/tl/tl.tl
