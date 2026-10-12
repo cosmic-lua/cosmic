@@ -636,6 +636,7 @@ help_spec = {
     return help(argv, nil)
   end,
   bare = false,
+  recheck_on_refusal = false,
   takes = "a verb, or `exit`",
 }
 
@@ -663,6 +664,8 @@ local function spec_of(word: string): verb_spec.Spec | nil
         return inner(argv)
       end,
       bare = found.bare,
+      fresh = found.fresh,
+      recheck_on_refusal = found.recheck_on_refusal,
       takes = found.takes,
       guide = found.guide,
       tests = found.tests,
@@ -779,6 +782,7 @@ function dispatch.main(argv: {integer:string}): integer
         return help(line, asked)
       end,
       bare = false,
+      recheck_on_refusal = false,
       takes = own_spec.takes,
       guide = own_spec.guide,
       tests = own_spec.tests,
@@ -813,7 +817,7 @@ function dispatch.main(argv: {integer:string}): integer
     -- it left without one -- its command line refused, a setup failure,
     -- a stale tool -- still ends in one here.
     local code = chosen.run(argv)
-    if code == 2 and not verdict.given and not chosen.bare then
+    if code == 2 and not chosen.bare and not chosen.fresh and chosen.recheck_on_refusal ~= false then
       -- A verb may read its command line before it checks the tool is
       -- as new as the tree, and an option the tree added is one a stale
       -- tool refuses: it rebuilds and runs the line again here instead.
