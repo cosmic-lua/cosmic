@@ -416,7 +416,7 @@ end
 --- Closes the Reader body of `reply`, what a handler answered, where it
 --- has one the server will not send: checked as it runs, since the
 --- handler's answer is a [`Reply`] only by its declaration.
-local function drop_body(reply: Server.Reply)
+local function drop_body(reply: Server.Reply | nil)
   if type(reply) ~= "table" then return end
   local body = reply.body
   if body == nil then return end
@@ -479,7 +479,7 @@ local function exchange(s: Serving, conn: Net.Conn, input: wire.Input, head: wir
     method = head.method, target = head.target, path = head.path, query = head.query,
     version = head.version, headers = head.headers, body = body, length = head.length, peer = peer,
   }
-  local reply: Server.Reply = nil
+  local reply: Server.Reply | nil
   local ok, raised: boolean, any = xpcall(function() reply = s.spec.handle(request) end, traced)
   -- A body that failed is answered for, whatever the handler made of
   -- it: its raise, or its reply, followed from the failed read.
@@ -502,8 +502,14 @@ local function exchange(s: Serving, conn: Net.Conn, input: wire.Input, head: wir
     if body.state == "open" then linger(conn) end
     return false
   end
-  local trouble = Server.check(reply, head.method)
-  if trouble ~= "" then
+  -- A handler is a Reply only by its declaration: it may answer nothing.
+  local trouble: string
+  if reply == nil then
+    trouble = reply_trouble(reply)
+  else
+    trouble = Server.check(reply, head.method)
+  end
+  if trouble ~= "" or reply == nil then
     drop_body(reply)
     report(s, "http: " .. where .. ": " .. trouble)
     answer(s, conn, head, 500, "")
