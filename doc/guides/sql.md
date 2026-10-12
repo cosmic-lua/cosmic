@@ -275,19 +275,23 @@ within another.
   csv(filename='rows.csv')`, or `data='...'` for the text itself. Its
   columns are `c0`, `c1`, ... and its first record is row 1, unless
   `header=yes` names the columns from its first line, or `schema=` names
-  them. Every cell is TEXT. [`cosmic.csv`]'s `load` copies a CSV
-  into a table through it, naming and typing the columns.
+  them, and `delimiter='X'` reads the one byte X between fields, a TSV's
+  tab written as a tab between the quotes; a quote, CR, LF or anything
+  but one byte is refused. Every cell is TEXT.
+  [`cosmic.csv`]'s `load` copies a CSV into a table through it, naming
+  and typing the columns, and `cosmic sql --from` a csv or tsv file.
 
-  It reads as [`cosmic.csv`] reads, with a comma between fields: a quoted
-  field holds commas, quotes as `""` and line breaks; a record ends at LF
+  It reads as [`cosmic.csv`] reads, with a comma or the delimiter between
+  fields: a quoted field holds the delimiter, quotes as `""` and line
+  breaks; a record ends at LF
   or CRLF, and a lone CR is data; a UTF-8 byte order mark at the start is
   dropped. A blank line is a row of NULLs, an empty field `''`, and a
   field a record lacks NULL. The width is `columns=N`, or else the field
   count of the first record, which without `header=yes` or `schema=` is
   the first that is not a blank line; then a wider record fails the
   query, and with `columns=` or `schema=` its fields past the width are
-  dropped. A quote inside an unquoted field, anything but a comma or a
-  line end after a closing quote, a quote never closed, a NUL byte in a
+  dropped. A quote inside an unquoted field, anything but the delimiter or
+  a line end after a closing quote, a quote never closed, a NUL byte in a
   file's record, and a file that cannot be read fail the query, naming
   the line or record where the reader knows it; with `header=yes`, lines
   count from the one after the header.

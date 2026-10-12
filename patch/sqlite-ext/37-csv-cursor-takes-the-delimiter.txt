@@ -1,0 +1,8 @@
+file: ext/misc/csv.c
+note: A cursor's reader reads with the table's delimiter (36-csv-cursor-reads-with-the-tables-delimiter.txt).
+--- find
+  pCur->aLen = (i64*)&pCur->azVal[pTab->nCol];
+--- replace
+  pCur->aLen = (i64*)&pCur->azVal[pTab->nCol];
+  pCur->rdr.cSep = pTab->cSep;
+--- end
