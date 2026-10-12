@@ -279,8 +279,17 @@ reports.
 A violation is a value whose Lua kind the declared type does not admit:
 nil or a missing return value for a type that admits no nil, a float for
 an integer, a string for a record. `any` and a type variable are not
-checked. The checks report and fail nothing: before nil is excluded from
-the types, they flag code the checker allows.
+checked. The checks report and fail nothing: the checker accepts nil for
+any type, so they list code it allows.
+
+Three tests compare the bytecode of a module with the binary's
+([`build/harness_epoch_test.tl`], [`cosmic/store_seal_test.tl`],
+[`build/rebuild_lock_tool_test.tl`]) and fail in a checked run, whose
+modules carry checks.
+
+Not checked: a `return f(x)`, a tail call, which a check would end; a
+vararg parameter or return; and a write to a field a record inherits or a
+generic record declares.
 
 The run ends with the count, the distinct violations and the commonest
 ten, each with the line that sent the value: the caller for a parameter,
@@ -401,10 +410,13 @@ Other rules:
 [`build.test_sandbox`]: ../build/test_sandbox.tl
 [`build.this_program`]: ../build/this_program.tl
 [`build.tree_checks`]: ../build/tree_checks.tl
+[`build/harness_epoch_test.tl`]: ../build/harness_epoch_test.tl
+[`build/rebuild_lock_tool_test.tl`]: ../build/rebuild_lock_tool_test.tl
 [`ci.cosmic_ci.capabilities`]: ../ci/cosmic_ci/capabilities.tl
 [`ci/README.md`]: ../ci/README.md
 [`cosmic.layout`]: ../cosmic/layout.tl
 [`cosmic.sandbox`]: ../cosmic/sandbox/init.tl
+[`cosmic/store_seal_test.tl`]: ../cosmic/store_seal_test.tl
 [`doc/performance.md`]: performance.md
 [`Fuzz.label`]: ../build/fuzz/init.tl
 [`Fuzz.more`]: ../build/fuzz/init.tl

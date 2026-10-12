@@ -5425,7 +5425,13 @@ function tl.generate(ast: tl.Node, gen_target: GenTarget, opts?: GenerateOptions
    -- and for each value its name and kinds. The line is that of the
    -- Lua written, which keeps the Teal's.
    local function runtime_spec(kind: string, node: Node, ...: string): string
-      local fields: {string} = { kind, ((ast as Node).rt_file or "?") .. ":" .. node.y, ... }
+      -- The file's name is written so that none of the characters that
+      -- split a spec, or a report line, is in it: each is "%" and its
+      -- hex.
+      local file = ((ast as Node).rt_file or "?"):gsub("[%%;\t\r\n]", function(c: string): string
+         return string.format("%%%02X", string.byte(c))
+      end)
+      local fields: {string} = { kind, file .. ":" .. node.y, ... }
       return string.format("%q", table.concat(fields, ";"))
    end
 
@@ -5433,8 +5439,15 @@ function tl.generate(ast: tl.Node, gen_target: GenTarget, opts?: GenerateOptions
       local checks: {string} = {}
       local names: {string} = {}
       if node.args then
-         for _, arg in ipairs(node.args) do
-            if arg.rt_check then
+         -- A name a function binds twice (`_: string, _: integer`) holds the
+         -- last value of that name: the earlier is out of reach, so only the
+         -- last is checked, against its own type.
+         local last: {string:integer} = {}
+         for i, arg in ipairs(node.args) do
+            last[arg.tk] = i
+         end
+         for i, arg in ipairs(node.args) do
+            if arg.rt_check and last[arg.tk] == i then
                table.insert(checks, arg.rt_check)
                table.insert(names, arg.tk)
             end
@@ -14278,12 +14291,21 @@ do
             -- A `return f(x)` is a tail call, which a check around it would
             -- end: the frame it would add moves the level an `error` in the
             -- callee blames. The callee's own returns are checked.
+            -- TODO: check the values a `return f(x)` returns where f checks none
+            -- of them itself (a Lua or C function with no declared returns). It
+            -- waits on a way to see them without a frame of the check's own
+            -- between f and the caller, which Lua gives only to a caller that
+            -- does not tail call.
             if self.runtime_checks and not expected.inferred_at
                and not (#node.exps == 1 and node_is_funcall(node.exps[1])) then
                local checks: {string} = {}
                local checked = false
                for i, expected_i in ipairs(expected_t) do
                   local kinds: string
+                  -- TODO: check the values of a declared vararg return
+                  -- (`...: T`) too, each as T. It waits on the check taking a
+                  -- kind for all the values from a position on, which a spec
+                  -- of one kind a position cannot say.
                   if not (expected.is_va and i == n_expected) then
                      kinds = self:runtime_kinds(resolve_tuple(expected_i))
                   end
@@ -15689,6 +15711,9 @@ do
                       or  a_type(node, "any", {})
                end
             end
+            -- TODO: check the values of a vararg parameter (`...: T`) too, each as
+            -- T; it waits on the same kind for all the values from a position on
+            -- that a vararg return does (see the `return` check).
             if self.runtime_checks and node.tk ~= "..." and node.tk ~= "self" then
                local declared = children[1] or node.context_type
                local kinds: string

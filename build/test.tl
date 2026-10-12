@@ -1279,8 +1279,7 @@ local record Recording
   --- reported of the values that crossed a typed boundary as a kind the
   --- declared type does not admit ([`take_violations`]): each distinct one by
   --- its key, in the order first met, the test that first met it, how many
-  --- the workers kept no record of, and how many of the run's reports
-  --- named any.
+  --- the workers kept no record of.
   checks: boolean
   --- The file of each module of the tree, by its name, which a traceback
   --- names a frame by.
@@ -2822,7 +2821,8 @@ local function launch(rec: Recording, job: Job, start: Proc.Relaunch,
     if kept ~= nil then
       plan = test_sandbox.rebind(kept.plan, kept.scratch, scratch, effective)
     else
-      plan = test_sandbox.plan(rec.root, scratch, effective, worker_view(), store)
+      plan = test_sandbox.plan(rec.root, scratch, effective, worker_view(), store,
+        rec.projection)
       if plan.trouble == "" then rec.plans[job.m.path] = { plan = plan, scratch = scratch } end
     end
     if plan.over > 0 then
@@ -2889,7 +2889,7 @@ local function launch(rec: Recording, job: Job, start: Proc.Relaunch,
       finish(rec, job, nil, store_trouble, limits)
       return false
     end
-    attached = store or build_paths.resolve(rec.root).projection
+    attached = store or rec.projection
     -- Unsandboxed too it starts the core on the sealed database of its
     -- closure, so what it and its starts read of the program is what its
     -- key holds; only a sandbox keeps it from the program's own file.
@@ -3366,6 +3366,12 @@ local function read_command(ctx: Run): integer | nil
   ctx.consult = not (parsed.set["--no-shared"] == true or
     Env.get("COSMIC_TEST_NO_SHARED") == "1")
   ctx.census = parsed.set["--census"] == true
+  -- TODO: keep a checked run's three tests that compare the bytecode of a
+  -- module with the binary's (build/harness_epoch_test.tl,
+  -- cosmic/store_seal_test.tl, build/rebuild_lock_tool_test.tl) from
+  -- failing, whose modules carry checks the binary's do not: it waits on
+  -- each reading the binary's copy of the module, or its source, in
+  -- place of the bytecode it was given.
   ctx.checks = parsed.set["--check-types"] == true or Env.get("COSMIC_TEST_CHECK_TYPES") == "1"
   -- A verdict that stands runs no worker, and a worker is what reports.
   if ctx.checks then ctx.forced = true end

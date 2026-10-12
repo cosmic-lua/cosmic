@@ -23,6 +23,11 @@ local source = table.concat({
   "function Mod.call_greet(v: any)",
   "  greet(v as string, 1)",
   "end",
+  "function Mod.call_greet_again(v: any)",
+  "  greet(v as string, 1)",
+  "end",
+  "function Mod.dup(_: string, _: integer)",
+  "end",
   "function Mod.call_times(v: any)",
   "  greet(\"x\", v as integer)",
   "end",
@@ -86,12 +91,12 @@ end
 --- `source` compiled with the checks, or without, as Lua text, as the
 --- build compiles a module: checked as the file "snippet", which the
 --- checks name.
-local function compiled(checks: boolean): string
+local function compiled(checks: boolean, file?: string): string
   local built = assert(teal.load(true))
   local env = assert(built.new_env({ defaults = {
     feat_lax = "off", gen_compat = "off", gen_target = "5.4", runtime_checks = checks,
   } }))
-  local result = built.check_string(source, env, "snippet", "tl")
+  local result = built.check_string(source, env, file or "snippet", "tl")
   local problems: {string} = {}
   for _, list in ipairs({ result.syntax_errors, result.type_errors }) do
     for _, each in ipairs(list) do
@@ -110,6 +115,8 @@ end
 
 local record Fixture
   call_greet: function(any)
+  call_greet_again: function(any)
+  dup: function(string, integer)
   call_times: function(any)
   call_note: function(any)
   call_box: function(any): any
@@ -129,8 +136,8 @@ end
 
 --- The fixture loaded with the checks and the hook installed, as the
 --- chunk "snippet" so that a frame names `snippet:<line>`.
-local function checked(): Fixture
-  local code = compiled(true)
+local function checked(file?: string): Fixture
+  local code = compiled(true, file)
   worker.install_checks()
   local chunk = assert(load(code, "=snippet", "t"))
   return (chunk() as Fixture)
@@ -315,4 +322,58 @@ local function test_the_hook_does_not_call_a_library_a_test_replaced()
   end)
   library.match, library.gmatch, joined.concat = saved[1], saved[2], saved[3]
   assert(ok, trouble)
+end
+
+--- A name a function binds twice holds the last value of it, which is
+--- checked against its own type: the first `_: string` is not checked
+--- against the integer given the second, and a violation of the second is
+--- still found.
+local function test_a_name_bound_twice_is_checked_by_its_last_binding()
+  local fixture = checked()
+  assert(#during(function() fixture.dup("a", 2) end) == 0, "the first `_` met the second's value")
+  local found = during(function() (fixture.dup as function(string, any))("a", 1.5) end)
+  assert(#found == 1 and found[1].declared == "integer" and found[1].actual == "float",
+    #found .. " violations")
+end
+
+--- A parameter violation names its caller however often the boundary is
+--- violated: the 26th from a place never seen still says where it was.
+local function test_a_late_violation_still_names_its_caller()
+  local fixture = checked()
+  for _ = 1, 25 do fixture.call_greet(nil) end
+  local late = during(function() fixture.call_greet_again(nil) end)
+  local parameter: worker.Violation = nil
+  for _, each in ipairs(late) do
+    if each.kind == "parameter" then parameter = each end
+  end
+  assert(parameter ~= nil and parameter.at ~= "?", "no caller named")
+  assert(parameter.at == "snippet:" .. tostring(line_of("function Mod.call_greet_again") + 1), parameter.at)
+end
+
+--- The worker keeps `most_kept` distinct violations; the rest are counted.
+local function test_the_distinct_violations_kept_are_bounded()
+  local fixture = checked()
+  local kept = #worker.violations()
+  local dropped = worker.dropped_violations()
+  local limit = worker.most_kept
+  worker.most_kept = kept + 1
+  fixture.call_greet(nil)
+  worker.most_kept = limit
+  assert(#worker.violations() == kept + 1, "kept past the bound")
+  assert(worker.dropped_violations() - dropped == 1,
+    "dropped " .. (worker.dropped_violations() - dropped))
+  local counted = met()
+  worker.most_kept = kept + 1
+  fixture.call_greet(nil)
+  worker.most_kept = limit
+  assert(met() - counted == 1, "a violation already kept stopped counting at the bound")
+end
+
+--- A file name with the characters that split a spec or a report line in
+--- it is written so that none does, and the checks still name it.
+local function test_a_file_name_that_would_split_a_spec_is_written_safely()
+  local fixture = checked("a;b\nc\td.tl")
+  local found = during(function() fixture.lookup({}, "none") end)
+  assert(#found == 1 and found[1].at == "a%3Bb%0Ac%09d.tl:" .. tostring(line_of("return m[key]")), found[1].at)
+  assert(not compiled(true, "a;b\nc.tl"):find("a;b", 1, true))
 end

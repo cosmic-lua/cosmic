@@ -1208,7 +1208,7 @@ local function compile_derived(handle: work.Handle, built: compiler, tool: strin
       return false, prepare_trouble
     end
 
-    if pool ~= nil and not checks then
+    if pool ~= nil then
       -- Which modules must be compiled, before any is: the pool compiles
       -- them together, and the loop below takes each result in order.
       local wanted: {string:boolean} = {}
@@ -1472,14 +1472,21 @@ end
 ---   kind at each declared parameter, return value and record field write,
 ---   and reports a mismatch to the hook `__cosmic_tc` ([`build.test_worker`]
 ---   installs one). It keys every compile by [`importer.checked_tool`], so no
----   cache shares an entry between the two. The pool parses but does not
----   compile then: the environment that writes the checks is this process's.
+---   cache shares an entry between the two. A pool is refused: the environment
+---   that writes the checks is this process's.
 function importer.compile(handle: work.Handle, built: compiler,
                           tool: string, unjudged?: boolean,
                           shared?: importer.Shared,
                           pool?: importer.Workers,
                           checks?: boolean): importer.Result | nil, string
   if checks == true then
+    -- The pool's processes compile in environments of their own, which write
+    -- no checks: given one, the compile would be keyed as checked and not be.
+    if pool ~= nil then
+      pool.close()
+      if shared ~= nil then shared.finish() end
+      return nil, "a compile with run-time checks is made in this process: it takes no pool"
+    end
     tool = importer.checked_tool(tool)
   end
   return consuming_compile(handle, built, tool, unjudged, shared, pool, nil, checks)

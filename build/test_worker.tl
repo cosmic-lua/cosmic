@@ -198,6 +198,10 @@ local record worker
   --- The descriptor the report is written to.
   report_fd: integer
 
+  --- The most distinct violations a worker keeps a record of: any more are
+  --- counted ([`worker.dropped_violations`]) and nothing else.
+  most_kept: integer
+
   install_checks: function()
   violations: function(): {Violation}
   dropped_violations: function(): integer
@@ -304,13 +308,10 @@ local checks: {string:Check} = {}
 local found: {string:worker.Violation} = {}
 local found_order: {string} = {}
 local dropped = 0
--- The most distinct violations one worker keeps, and the most of one
--- boundary it asks the stack of for the place that sent the value: a
--- traceback costs more than the rest of the check, and a hot boundary
--- violated on every call would be one per call.
-local MOST_KEPT <const> = 2000
-local MOST_TRACED <const> = 20
-local traced: {string:integer} = {}
+-- The place that sent a value is asked of the stack for every violation of
+-- a parameter, so the report names it however often a boundary is violated;
+-- what is bounded is how many distinct violations one worker keeps
+-- ([`worker.most_kept`]).
 
 local function parse_check(text: string): Check
   local fields: {string} = {}
@@ -378,10 +379,7 @@ local function note(check: Check, index: integer, value: any, absent: boolean)
   local target: string
   if check.kind == "p" then
     target = "parameter " .. check.labels[index] .. " of " .. check.name .. " (" .. check.at .. ")"
-    local key = check.at .. "\t" .. check.labels[index]
-    local seen = traced[key] or 0
-    traced[key] = seen + 1
-    at = seen < MOST_TRACED and caller_site() or "?"
+    at = caller_site()
   elseif check.kind == "r" then
     target = check.labels[index]
   else
@@ -392,7 +390,7 @@ local function note(check: Check, index: integer, value: any, absent: boolean)
   local known = found[key]
   if known ~= nil then
     known.count = known.count + 1
-  elseif #found_order >= MOST_KEPT then
+  elseif #found_order >= worker.most_kept then
     dropped = dropped + 1
   else
     found[key] = { kind = check.kind == "p" and "parameter" or check.kind == "r" and "return" or "field",
@@ -423,6 +421,8 @@ end
 --- Defines the global `__cosmic_tc` the Lua of a checked run calls, which
 --- records what [`worker.violations`] answers. Install it before a test's
 --- module loads: the boundaries its load crosses are checked too.
+worker.most_kept = 2000
+
 function worker.install_checks()
   rawset(_G as {string:any}, "__cosmic_tc", hook)
 end

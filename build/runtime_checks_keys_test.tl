@@ -112,3 +112,37 @@ local function test_the_working_database_keeps_the_two_apart(tmp: string)
   assert(not checks_in(lib(again)) and lib(again).key == lib(plain).key)
   work.close(handle)
 end
+
+--- The module that holds the hook the checks call is compiled without
+--- them: with, its own typed functions would call the hook, which would
+--- call itself, and every test of a checked run would fail.
+local function test_the_module_holding_the_hook_is_compiled_without_checks(tmp: string)
+  local root = tmp .. "/project"
+  project(root)
+  assert(Fs.mkdirs(root .. "/build"))
+  assert(Fs.write(root .. "/build/test_worker.tl", library))
+  local handle = assert(work.open(root))
+  assert(work.stage(handle, false))
+  local result, trouble = importer.compile(handle, built, "keys-test", false, nil, nil, true)
+  work.close(handle)
+  assert(result ~= nil, trouble)
+  local seen: {string:boolean} = {}
+  for _, m in ipairs(result.modules) do seen[m.path] = checks_in(m) end
+  assert(seen.lib == true, "a module was not checked")
+  assert(seen["build.test_worker"] == false, "the hook's module carries checks")
+end
+
+--- A pool compiles in environments that write no checks, so a checked
+--- compile is refused one rather than keyed as checked and not be.
+local function test_a_checked_compile_takes_no_pool(tmp: string)
+  local root = tmp .. "/project"
+  project(root)
+  local handle = assert(work.open(root))
+  assert(work.stage(handle, false))
+  local closed = 0
+  local pool = { close = function() closed = closed + 1 end } as importer.Workers
+  local result, trouble = importer.compile(handle, built, "keys-test", false, nil, pool, true)
+  work.close(handle)
+  assert(result == nil and trouble:find("takes no pool", 1, true), tostring(trouble))
+  assert(closed == 1, "the pool was not closed")
+end
