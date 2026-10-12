@@ -797,6 +797,7 @@ end
 ---
 ---     if ruleset == nil then
 ---       Test.skip("no Landlock: " .. trouble)
+---       return
 ---     end
 ---     use(ruleset)
 ---

@@ -227,13 +227,13 @@ local function test_a_request_the_client_writes_is_read_back_by_the_relay(tmp: s
         if seen.kind == "ipv4" then
           if seen.host ~= host then return false, ("%q was read as %s"):format(host, seen.host) end
         elseif seen.kind == "ipv6" then
-          if Fixture.ipv6_bytes(seen.host) ~= request:sub(5, 20) then
+          if Fixture.ipv6_bytes(assert(seen.host)) ~= request:sub(5, 20) then
             return false, ("%q was read as %s, other bytes"):format(host, seen.host)
           end
         elseif seen.host ~= (host:lower():gsub("%.$", "")) then
           return false, ("%q was read as %s"):format(host, seen.host)
         end
-        Fuzz.label(seen.kind)
+        Fuzz.label(assert(seen.kind))
         Fuzz.label("read")
       elseif request:byte(4) ~= 3 then
         return false, ("an address of type %d was refused: %s"):format(request:byte(4), tostring(seen.reason))

@@ -144,7 +144,7 @@ local function test_reading_a_range_is_total_and_within_the_representation(tmp: 
           return false, "the suffix's span differs"
         end
       elseif a ~= nil and (b ~= nil or last == "") then
-        local want_last = last == "" and size - 1 or math.min(b, size - 1)
+        local want_last = last == "" and size - 1 or math.min(assert(b), size - 1)
         if last == "" then
           Fuzz.label("open")
         elseif assert(b) > size - 1 then

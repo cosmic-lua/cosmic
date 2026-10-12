@@ -581,8 +581,10 @@ function Dev.supervise(opts?: Dev.SuperviseOptions): boolean, string
   local interval_ns = given.interval_ns or SUPERVISE_INTERVAL_NS
   local grace_ns = given.grace_ns or DEFAULT_GRACE_NS
   local roots = given.watch or { "." }
-  local ignore = given.ignore
-  if ignore == nil then
+  local ignore: {string}
+  if given.ignore ~= nil then
+    ignore = given.ignore
+  else
     ignore = {}
     for i, glob in ipairs(DEFAULT_IGNORE) do ignore[i] = glob end
     ignore[#ignore + 1] = "/" .. (given.static or "static")
@@ -590,8 +592,10 @@ function Dev.supervise(opts?: Dev.SuperviseOptions): boolean, string
   local ignored = ignorer(ignore)
   local start = given.start
   if start == nil then
-    local command = given.command
-    if command == nil then
+    local command: {string}
+    if given.command ~= nil then
+      command = given.command
+    else
       local program, why = Proc.executable()
       if program == nil then return false, "web: dev: no program to run: " .. why end
       command = { program, "app.tl" }
@@ -600,8 +604,9 @@ function Dev.supervise(opts?: Dev.SuperviseOptions): boolean, string
       return Child.start(command, { env = env })
     end
   end
-  local seen, why = scan(roots, ignored)
-  if seen == nil then return false, why end
+  local first, why = scan(roots, ignored)
+  if first == nil then return false, why end
+  local seen: {string:string} = first
   -- TODO: hold SIGHUP as well once cosmic.signal's guard can: a closed
   -- terminal ends the supervisor at once and leaves the program running.
   -- TODO: once cosmic.child can start a program with PR_SET_PDEATHSIG, set

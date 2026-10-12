@@ -54,10 +54,11 @@ local walk: function(w: Walk, body: {types.Node}, from: markup.Place, marks: Mar
 --- The place after the `range` `node`, which begins at `from`.
 local function range_after(w: Walk, node: types.Node, from: markup.Place, marks: Marks): markup.Place | nil, string
   local body = node.branches[1].body
-  local loop, why = walk(w, body, from, marks)
-  if loop == nil then
+  local walked, why = walk(w, body, from, marks)
+  if walked == nil then
     return nil, why
   end
+  local loop: markup.Place = walked
   local function differs(place: markup.Place): string
     return refuse(w.name, node.line, node.col, "the body of this {{range}} ends where it did not begin" ..
         difference(place, from))

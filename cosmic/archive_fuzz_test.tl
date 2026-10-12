@@ -217,8 +217,11 @@ local function test_extraction_stays_inside_its_destination(tmp: string)
       for _, link in ipairs(links) do
         local target = Fs.readlink(link)
         if target == nil then return false, "cannot read the link " .. link end
-        local resolved = Fs.absolute(link)
-        if resolved == nil then
+        local absolute = Fs.absolute(link)
+        local resolved: string
+        if absolute ~= nil then
+          resolved = absolute
+        else
           local from = link:match("^(.*)/[^/]*$") or real_dest
           if target:sub(1, 1) == "/" then
             resolved = lexical(target)
@@ -559,8 +562,9 @@ local function test_extraction_stays_under_its_byte_limits(tmp: string)
       assert(Fs.mkdirs(case))
       local fields = Fuzz.unpack(input)
       if #fields < 5 then return true, "" end
-      local archive, sizes = build_capped(fields)
-      if archive == nil then return true, "" end
+      local built, sizes = build_capped(fields)
+      if built == nil then return true, "" end
+      local archive: string = built
       local file = case .. "/archive"
       assert(Fs.write(file, archive))
       local per_file, total = limit_of(fields[2]), limit_of(fields[3])
