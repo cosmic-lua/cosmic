@@ -935,7 +935,51 @@ test of a place (a truthiness read, a comparison with nil or a literal,
 `is`, `type(x) == "..."`, an `assert`), or a `not`, `and` or `or` of
 guards. evaluating a guard gives the facts it holds, one per place. the
 checker builds a guard on each expression and applies one where a branch
-begins. it drops what it knew of a place when the program assigns it.
+begins.
+
+a fact is dropped where the value it is about can change, and a use that
+relied on a dropped fact is refused. an assignment to a place, or to a
+prefix of it, drops it. a write to a field `.f` through any reference drops
+every narrowed path ending in `.f`, because another reference may name the
+same table; a write through a key that may name a field drops every field
+path. a call drops every narrowed field path, and every narrowed local that
+a function literal in its scope assigns: a local no literal assigns stays
+narrowed across a call. an operator or index that dispatches to a metamethod
+is a call (an operator or an index served by a metamethod the record
+declares, which runs code unless it is a macro expression, a `where` clause
+among them, that calls nothing; and `==` of two values that may carry
+`__eq`: a record, an interface, a userdata, `any` or a type variable), and an
+operator on a string, a number or a plain array or map is not. a call of `assert` or
+`type`, of a function declared `: never`, and of a standard library function
+that runs no code of the program's (`tostring`, `print`, `ipairs`, the
+`string`, `math` and `utf8` functions, `table.concat`, `table.insert` and a
+few more) given arguments that cannot dispatch (a record, an interface,
+`any` or a function can) drops nothing.
+
+the order is the order Lua runs things in: operands and arguments left to
+right, a call after its arguments. so a narrowed read before a call in the
+same expression keeps its fact and one after it loses it (`print(r.n + 1,
+clear())` is accepted, `print(clear(), r.n + 1)` is refused). what one
+operand of `and` or `or`, or the first argument of `assert`, tested holds
+past a later operand only if that ran nothing that drops it, and what an
+`if` chain's earlier condition tested holds past its later conditions on
+the same terms. a loop whose body, found by its syntax, calls anything or
+writes a field through a reference drops what that drops where the loop
+begins, because its next pass reads what the last one dropped; a `for` over
+an iterator other than `pairs`, `ipairs` and `gmatch` of what runs no code
+does too, and a label drops every field path, as a `goto` reaches it from
+code that may have changed one. a branch that ends in `return` or a call
+that never returns drops nothing for the code after its `if`, and a
+function literal's body works on copies of the facts outside it, so what it
+drops leaves them standing.
+
+a refusal of this kind has the code `narrowing_dropped`, with the place, what
+dropped it (`call`, `write`, `operator`, `loop` or `assignment`), that
+expression as written and where it is, beside the fields of the refusal it
+was. its hint copies the value to a local before the call or write
+(`local n = r.n`, then `if n then clear() print(n + 1) end`), which stays
+narrowed across the call because no function can assign it.
+
 later parts of the checker move into modules the same way, each a file in
 `checker/` with a main chunk and a count of locals of its own. the files sit
 outside the module closure they compile: the scanner
