@@ -82,6 +82,12 @@ local function test_the_checker_is_listed_with_tl(tmp: string)
   local rows = assert(bom.rows(db))
   assert(#rows == 1 and rows[1].patches == "checker/tl.tl " .. Hash.hex_sha256("a checker"),
     "the checker is not listed: " .. tostring(rows[1] and rows[1].patches))
+  local line = bom.lines(rows)[1]
+  assert(line:find("(modified: checker/tl.tl)", 1, true) and not line:find("patch", 1, true),
+    "the checker is a modified descendant, not a patch: " .. line)
+  local document = assert(bom.cyclonedx(rows, "cosmic", "1"))
+  assert(document:find("modified by cosmic", 1, true) and not document:find("patched by cosmic", 1, true),
+    document)
   assert(db:close())
 end
 
