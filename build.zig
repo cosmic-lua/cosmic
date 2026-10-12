@@ -905,22 +905,24 @@ pub fn build(b: *std.Build) void {
         portable_hook_cores.dependOn(&hooked_out.step);
 
         if (std.mem.eql(u8, t.name, hostName(b))) {
-            const bridge = b.addRunArtifact(exe);
-            bridge.addArg("--boot");
-            bridge.addDirectoryArg2(b.path("."), .{});
-            bridge.addDirectoryArg2(b.path("vendor/tl"), .{});
-            bridge.addArg(t.name);
-            bridge.addFileArg2(target_records, .{});
-            bridge.addDirectoryArg2(
-                .{ .relative = .{ .base = .install_prefix, .sub_path = "" } },
-                .{ .make_absolute = true },
-            );
-            // The bridge reads every raw core and writes the database
-            // beside them, so it runs after both.
-            bridge.step.dependOn(cores);
+            // The boot's Teal half reads no core but this one, which is
+            // what runs it: staging, parsing and compiling wait on the
+            // vendored trees only. The other cores matter to the assembly
+            // alone, so they are not waited for here, and the work runs
+            // while they link. Both steps write the build directory, and
+            // [`bin/zig`] holds its rebuild lock around the whole of
+            // `zig build`, so they cannot race; the second depends on the
+            // first and so runs after it.
+            const bridge = bootBridge(b, exe, target_records, t.name, "--stage");
             bridge.step.dependOn(vendored);
-            bridge.has_side_effects = true;
-            boot.dependOn(&bridge.step);
+            // The assembly reads every raw core and the carried database
+            // beside them, and writes the tool last: a boot interrupted
+            // or failing before then leaves the previous tool, and the
+            // next boot stages again.
+            const assembly = bootBridge(b, exe, target_records, t.name, "--assemble");
+            assembly.step.dependOn(&bridge.step);
+            assembly.step.dependOn(cores);
+            boot.dependOn(&assembly.step);
         }
     }
 
@@ -986,6 +988,9 @@ pub fn build(b: *std.Build) void {
         checked_records,
         "sanitized/targets.tsv",
     );
+    // TODO: split this boot into a stage and an assembly as the release
+    // one is, once a cold `bin/zig build sanitized` shows the checked core
+    // linked well before the cores it waits for: nothing measures that yet.
     const checked_boot = b.addRunArtifact(checked);
     checked_boot.addArg("--boot");
     checked_boot.addDirectoryArg2(b.path("."), .{});
@@ -1012,6 +1017,24 @@ pub fn build(b: *std.Build) void {
     portable_hook_cores.dependOn(cores);
 
     b.getInstallStep().dependOn(cores);
+}
+
+/// A run of the host core's `--boot` bridge in `mode`, `--stage` or
+/// `--assemble` ([`build/boot.tl`]), over the release targets alone.
+fn bootBridge(b: *std.Build, exe: *std.Build.Step.Compile, target_records: std.Build.LazyPath, host: []const u8, mode: []const u8) *std.Build.Step.Run {
+    const run = b.addRunArtifact(exe);
+    run.addArg("--boot");
+    run.addDirectoryArg2(b.path("."), .{});
+    run.addDirectoryArg2(b.path("vendor/tl"), .{});
+    run.addArg(mode);
+    run.addArg(host);
+    run.addFileArg2(target_records, .{});
+    run.addDirectoryArg2(
+        .{ .relative = .{ .base = .install_prefix, .sub_path = "" } },
+        .{ .make_absolute = true },
+    );
+    run.has_side_effects = true;
+    return run;
 }
 
 fn targetRecord(b: *std.Build, target: Target, configuration: Configuration, name: []const u8) []const u8 {
@@ -1434,7 +1457,12 @@ fn vendorLibraries(
     // core (three raw cores per portable artifact). The math functions
     // (`sqrt`, `ln`, `pow`, ...) and the percentile aggregates
     // (`median`, `percentile`, ...) are on, which the bare amalgamation
-    // leaves out: about 12 KB per raw core on Linux, 17 KB on macOS.
+    // leaves out: about 12 KB per raw core on Linux, 17 KB on macOS. The
+    // `bytecode` and `tables_used` tables are on: what a statement compiles
+    // to, and which tables and indexes it opens, learned without running
+    // it, in about 4 KB. They compile what they are given, which applies a
+    // PRAGMA that changes a connection setting, so patch/sqlite/ keeps them
+    // from the views and triggers a database file holds.
     const sqlite_flags = [_][]const u8{
         "-std=c11",
         debug_dir,
@@ -1456,6 +1484,7 @@ fn vendorLibraries(
         "-DSQLITE_ENABLE_FTS5=1",
         "-DSQLITE_ENABLE_MATH_FUNCTIONS=1",
         "-DSQLITE_ENABLE_PERCENTILE=1",
+        "-DSQLITE_ENABLE_BYTECODE_VTAB=1",
     };
     vendorPart(b, &libraries, configuration, target, "sqlite", &.{sqlite}).addCSourceFiles(.{
         .root = sqlite,

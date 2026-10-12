@@ -44,6 +44,22 @@ local function test_compiles_trim_even_when_no_row_was_reached(tmp: string)
   assert(count(path, "compiled_v2") == 0 and count(path, "parsed_v1") == 0)
 end
 
+--- The boot bridge's compiles (core/bridge.lua) share the file, and a trim
+--- takes those no build has used since the cutoff as it takes any other
+--- compile's, without calling their table unknown.
+local function test_bridge_rows_are_trimmed_with_the_compiles(tmp: string)
+  local path = tmp .. "/cache.db"
+  local db = database(path, formats.compiles)
+  for _, statement in ipairs(formats.bridge_statements) do assert(db:exec(statement)) end
+  assert(db:exec("INSERT INTO bridge_v1 VALUES ('old','modules','',x'00','d',1,4)"))
+  assert(db:exec("INSERT INTO bridge_v1 VALUES ('new','modules','',x'00','d',1,6)"))
+  assert(db:close())
+  local result = trim(path, "compiles", 5)
+  assert(result.complete, result.report.files[1].reason)
+  local file = result.report.files[1]
+  assert(file.removed == 1 and #file.unknown_tables == 0 and count(path, "bridge_v1") == 1)
+end
+
 local function test_equal_cutoff_is_kept_and_fresh_counts_only_compiles(tmp: string)
   local path, old = tmp .. "/cache.db", tmp .. "/snapshot.db"
   local db = database(path, formats.compiles)

@@ -8,6 +8,22 @@ Each entry starts with the name in backticks. An entry for SQLite's own
 functions is short and links to SQLite's page for the rest. An entry for
 what cosmic adds says what a caller needs.
 
+A caller's own SQL may use every name here. A view or trigger that a
+database file holds may not use some of them, so that reading a file does
+not run what its author chose:
+
+- `bytecode`, `tables_used`, `dbstat`, cosmic's own functions, `base64`,
+  `base85`, `sha1_query`, `sha3_query` and `sqlite_log` are direct-only:
+  only the caller's own SQL uses them.
+- The rest that SQLite does not mark innocuous, since cosmic turns
+  SQLite's [`trusted_schema`](https://sqlite.org/pragma.html#pragma_trusted_schema)
+  off on every handle: the percentile aggregates, FTS5's `bm25`,
+  `highlight`, `snippet`, `fts5()` and `fts5_get_locale`, `MATCH` against
+  an FTS5 table, and the `pragma_*` and `fts5vocab` tables. A trigger may
+  still write to an FTS5 table. `PRAGMA trusted_schema = 1` on a
+  [`cosmic.sqlite`] handle allows these again, for a file the caller
+  trusts; a [`cosmic.store`] handle, which answers queries alone, refuses it.
+
 ```teal
 local Sqlite = require("cosmic.sqlite")
 
@@ -228,6 +244,26 @@ SQLite's [FTS5](https://sqlite.org/fts5.html).
 
 - `dbstat`: a virtual table of every table's and index's pages and bytes,
   [as SQLite describes it](https://sqlite.org/dbstat.html).
+- `bytecode(SQL)`: a table of the program SQLite compiles the first
+  statement in SQL into, one row per instruction: `addr`, `opcode`, `p1`
+  to `p5` and `subprog`, as [SQLite describes them](https://sqlite.org/bytecodevtab.html).
+  The statement is compiled, not run, but a PRAGMA that changes a setting
+  of the connection, such as `query_only` or `cache_size`, changes it as
+  it compiles; one that acts when run, such as `user_version`, does not.
+  A trigger's program, or a foreign key action's, follows the
+  statement's, named in `subprog`, its `addr` from 0 again. `comment` is
+  NULL and `nexec` and `ncycle` are 0 in cosmic's SQLite. SQL that holds
+  no statement, or does not compile, fails the query, without SQLite's
+  reason. Neither this table nor the next can be used in a view or a
+  trigger stored in a database file; a TEMP one can use both.
+- `tables_used(SQL)`: a table of the tables and indexes the program for
+  the first statement in SQL opens, compiled as `bytecode` compiles it,
+  one row for each open: `type` (`table` or `index`), `schema`, `name`,
+  `wr` (1 where it writes) and `subprog`. An open the program decides as
+  it runs is not listed, so neither is the table or index a `CREATE`
+  makes, nor anything `VACUUM` touches; a virtual table has no row. The
+  schema table is named `sqlite_master`, and a `WITHOUT ROWID` table's key
+  is named as the table.
 - `pragma_*`: each [PRAGMA](https://sqlite.org/pragma.html) that answers
   rows is a table-valued function of its own name, such as
   `pragma_table_info('t')`.
