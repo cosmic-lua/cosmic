@@ -216,7 +216,7 @@ local record Assets
     type: string
     --- The gzip of `data` when the build stored one, else nil. Its
     --- ETag is `etag` with "-gzip" before the closing quote.
-    gzip: string
+    gzip?: string
     --- `sha256-` / `sha384-` SRI value, base64 (section 4.4), computed
     --- on first use and kept.
     integrity: function(Asset, algorithm?: "sha256" | "sha384" | "sha512"): string
@@ -322,25 +322,25 @@ the wrong files. Embedded wins unless dev is asked for.
 local record StaticFiles
   record Options
     --- Where the files come from; nil for `Assets.default()`.
-    source: Assets.Source
+    source?: Assets.Source
     --- Cache-Control for an asset requested by its plain name
     --- (default "public, no-cache": cache, revalidate by ETag every
     --- time).
-    cache_control: string
+    cache_control?: string
     --- Cache-Control for a fingerprinted name (default "public,
     --- max-age=31536000, immutable").
-    immutable_control: string
+    immutable_control?: string
     --- Serve `index.html` for a directory path ("/docs/" -> docs/index.html);
     --- default false. A request for a directory without it is 404.
-    html: boolean
+    html?: boolean
     --- 404 page for a missing file: a `Handler`-shaped fallback
     --- (the router's), default a plain 404 through the app's error
     --- handler.
-    not_found: Handler
+    not_found?: Handler
     --- Headers added to every response (a CORS or security default).
-    headers: {string:string}
+    headers?: {string:string}
     --- Disable the stored gzip variant; default false.
-    gzip: boolean
+    gzip?: boolean
   end
 
   --- A handler for a Mount: the Mount strips its prefix, so the handler
@@ -884,16 +884,16 @@ record Sse.Event
   id: string
   --- The `event:` field (default "message"): htmx's `sse-swap="name"`
   --- listens for it. Must not hold CR or LF (raises).
-  event: string
+  event?: string
   --- The `data:` field; any line ending (LF, CR, CRLF) splits it into
   --- one `data:` line each, so a client rejoins them with LF. For
   --- htmx, an HTML fragment.
   data: string
   --- The `retry:` field in milliseconds, 0 or nil for none.
-  retry: integer
+  retry?: integer
   --- A comment line (`: text`), sent as a heartbeat; when set with no
   --- data, the event is only the comment.
-  comment: string
+  comment?: string
 end
 
 function Sse.format_event(ev: Event): string
@@ -944,9 +944,9 @@ end
 record Sse.EventStreamOptions
   --- A heartbeat comment every this many ns without an event
   --- (default 15 s; 0 disables).
-  heartbeat_ns: integer
+  heartbeat_ns?: integer
   --- The `retry:` sent first, in ms (default 3000; 0 sends none).
-  retry_ms: integer
+  retry_ms?: integer
   --- Events sent before the first of `source` (the hub's replay).
   initial: {Event}
   --- Headers added to the response (strings or lists, as `Reply.headers`).
@@ -1021,17 +1021,17 @@ record Sse.Hub
   record Options
     --- Events kept per topic for `Last-Event-ID` replay (default 256, 0
     --- for none).
-    replay: integer
+    replay?: integer
     --- Each subscriber's queue (default 256).
-    queue: integer
+    queue?: integer
     --- What happens when a subscriber's queue is full: "close" (default:
     --- the subscriber is dropped and the browser reconnects with its
     --- last id and replays), "drop_oldest" (a live view that only wants
     --- the latest), "drop_newest".
-    overflow: Channel.Overflow
+    overflow?: Channel.Overflow
     --- Subscribers per topic and per hub; past it `subscribe` answers
     --- nil and "full" (the route answers 503 with Retry-After).
-    max_per_topic: integer
+    max_per_topic?: integer
     max_total: integer
   end
 

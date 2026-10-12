@@ -246,7 +246,7 @@ end
 --- module the part before names by its module name or source path; any
 --- other selector, `C:\dir` or `a:b/c` among them, is a path or module
 --- whole.
-local function split(selector: string): string, string
+local function split(selector: string): string, string | nil
   local module, name = selector:match("^(.+):Example%.([%a_][%w_]*)$")
   if module == nil then module, name = selector:match("^(.+):([%a_][%w_]*)$") end
   if module == nil then return selector, nil end
@@ -831,7 +831,7 @@ end
 --- database carries ([`schema.tables_digest`]), searched alone so no
 --- attached database stands in for it.
 local function binary_tables(): string | nil, string
-  local rows: {{string}} = nil
+  local rows: {{string}} | nil = nil
   local trouble = "the running binary has no database"
   Store.alone(function()
     local databases = Store.databases()
@@ -1167,7 +1167,7 @@ end
 --- is keyed by what it is: the epoch stands for it
 --- (build/harness_epoch.tl).
 local function binary_harness(): Harness | nil, string
-  local harness: Harness = nil
+  local harness: Harness | nil = nil
   local trouble = "the running binary has no database"
   Store.alone(function()
     local databases = Store.databases()
@@ -2055,7 +2055,7 @@ function test.worker_environment(environment: {string:string}): {string:string}
 end
 
 -- Read once, since this process never changes its own environment.
-local worker_view_memo: {string:string} = nil
+local worker_view_memo: {string:string} | nil = nil
 worker_view = function(): {string:string}
   if worker_view_memo == nil then worker_view_memo = test.worker_environment(Env.all()) end
   return worker_view_memo
@@ -2647,7 +2647,7 @@ local function address_digest(rec: Recording, address: string, names: {string},
   rec.store_bases[address] = base
   local path = stores_directory(rec.root) .. "/" .. (base and base_name(address) or
     (address .. ".db"))
-  local digest: string = nil
+  local digest: string | nil = nil
   local there, _ = sys.stat(path)
   if rec.built[address] == nil and there == nil then
     digest = rec.store_digests[address]
@@ -2789,10 +2789,10 @@ local function launch(rec: Recording, job: Job, start: Proc.Relaunch,
     return false
   end
   -- The store its worker attaches ([`worker.Invocation`]'s `store`).
-  local attached: string = nil
+  local attached: string | nil = nil
   -- The sealed database of its closure its worker runs on ([`sealed_for`]):
   -- nil for none.
-  local sealed: string = nil
+  local sealed: string | nil = nil
   local sealed_trouble = ""
   if rec.sandbox then
     local store, store_trouble = given_store(rec, job.m)
@@ -2928,7 +2928,7 @@ local function launch(rec: Recording, job: Job, start: Proc.Relaunch,
   -- is started from must be run to start it, so a worker whose module does
   -- not declare `tool` still puts up the ruleset that forbids it running
   -- the program again ([`worker.run`]'s `forbid_running`).
-  local policy: Sandbox.Policy = nil
+  local policy: Sandbox.Policy | nil = nil
   local runs: {string} = {}
   if rec.sandbox then
     -- A worker that may run the program has nothing to forbid: the ruleset
@@ -3699,7 +3699,8 @@ local function select_tests(ctx: Run): integer | nil
     end
     for _, selector in ipairs(unfound) do
       local m = module_of[selector]
-      local _, name = split(selector)
+      local _, asked = split(selector)
+      local name = assert(asked)
       local near = test.nearest(name, m.tests)
       log:complain("no test in " .. m.path .. " is named " .. name .. "; it has " ..
           table.concat(near, ", ") .. (#m.tests > #near and ", ..." or ""))
@@ -3852,7 +3853,7 @@ local function make_recording(ctx: Run)
   -- Without them the run goes on, and says so unless it was asked not
   -- to use them. An unsandboxed run reads and writes them only where
   -- COSMIC_VERDICT_CACHE names them (see [`choose_sandbox`]).
-  local cache_path, cache_trouble: string, string = nil, ""
+  local cache_path, cache_trouble: string | nil, string = nil, ""
   if ctx.shares then cache_path, cache_trouble = shared_verdicts.location() end
   if cache_path ~= nil then
     rec.shared, cache_trouble = shared_verdicts.open(cache_path)
@@ -4013,7 +4014,7 @@ end
 --- The exit code to stop with, or nil to go on.
 local function require_of_host(ctx: Run): integer | nil
   local rec = assert(ctx.rec)
-  local host: host_requires.Host = nil
+  local host: host_requires.Host | nil = nil
   local held = ctx.held
   for _, m in ipairs(assert(ctx.selected_modules)) do
     local names = requirements_of(m)
@@ -4023,7 +4024,7 @@ local function require_of_host(ctx: Run): integer | nil
         -- for a platform without Linux's requirements or a portable artifact on
         -- a host that has them: it makes modules not applicable, which keeps
         -- no verdict and fails no run.
-        local linux: boolean = nil
+        local linux: boolean | nil = nil
         local portable = Store.meta("runtime_context") == "portable-v1"
         local checked = testing.configuration == "sanitized"
         if Env.get("COSMIC_TEST_PLATFORM") == "other" then
@@ -4040,8 +4041,9 @@ local function require_of_host(ctx: Run): integer | nil
           end,
         })
       end
-      local found: {host_requires.Answer} = nil
-      local asked, trouble = pcall(function() found = host_requires.answer(host, names) end)
+      local probed = assert(host)
+      local found: {host_requires.Answer} = {}
+      local asked, trouble = pcall(function() found = host_requires.answer(probed, names) end)
       if not asked then
         -- A probe that cannot tell (a file it may not read) is no answer: the
         -- modules that name it fail, saying why, and the run goes on.
@@ -4050,7 +4052,7 @@ local function require_of_host(ctx: Run): integer | nil
             "failed: " .. tostring(trouble) }
       end
       local present: {string:string} = {}
-      local unmet: Unmet = nil
+      local unmet: Unmet | nil
       for _, answer in ipairs(found) do
         if answer.kind == "present" then
           present[answer.name] = answer.key
@@ -4156,7 +4158,7 @@ local function look_up_verdicts(ctx: Run)
       local key = declared_of(rec, m, id)
       if key ~= nil then keyed_count = keyed_count + 1 end
       local own = key ~= nil and verdicts[key] or nil
-      local elsewhere: shared_verdicts.Found = nil
+      local elsewhere: shared_verdicts.Found | nil = nil
       if key ~= nil and not forced and own == nil and consult and rec.shared ~= nil then
         local answer, trouble = shared_verdicts.declared(rec.shared, key)
         if answer == nil and trouble ~= "" then drop_shared(rec, trouble) end
@@ -4172,7 +4174,7 @@ local function look_up_verdicts(ctx: Run)
         rec.shared_keys[key] = key
         stand(rec, credited, m, name, id, own, assert(key))
       else
-        share(rec, m, name, id, assert(key), elsewhere)
+        share(rec, m, name, id, assert(key), assert(elsewhere))
       end
       ::next_test::
     end
@@ -4228,7 +4230,7 @@ local function look_up_verdicts(ctx: Run)
   local shared = rec.shared
   if census_asked or (shared ~= nil and looked_count > 0 and
       looked_count == keyed_count and ran_here == 0 and found_count == 0) then
-    local line: string = nil
+    local line: string | nil = nil
     if shared ~= nil and found_count == 0 then
       local census, _ = shared_verdicts.census(shared, looked)
       line = census ~= nil and shared_verdicts.unmatched(shared.path, looked_count,

@@ -81,7 +81,7 @@ local function fake(fails: {string: boolean}, lay_fails: {string: boolean}): Fak
   local running: {integer: string} = {}
   local count, issued = 0, 0
   local function task_of(argv: {string}): string
-    return (argv[2]:match("/([^/]+)/run%-%d+")) or argv[2]:match("/([^/]+)$")
+    return (argv[2]:match("/([^/]+)/run%-%d+")) or argv[2]:match("/([^/]+)$") or ""
   end
   f.system = {
     mkdirs = function(path: string): boolean

@@ -177,7 +177,7 @@ local record Server
     --- Given what a handler raised, with its stack, or why its reply
     --- could not be sent; nil to write each to stderr. See
     --- [`Net.ServeSpec.on_error`].
-    on_error: function(trouble: string)
+    on_error?: function(trouble: string)
   end
 
   --- What a Range header asks of a representation, as [`Server.range`]
@@ -317,8 +317,9 @@ end
 
 --- Gives `trouble` to the spec's [`Server.ServeSpec.on_error`], or stderr.
 local function report(s: Serving, trouble: string)
-  if s.spec.on_error ~= nil then
-    s.spec.on_error(trouble)
+  local on_error = s.spec.on_error
+  if on_error ~= nil then
+    on_error(trouble)
     return
   end
   local _, _ = Fs.put(Fs.stderr, trouble .. "\n")

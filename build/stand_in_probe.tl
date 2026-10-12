@@ -25,7 +25,7 @@ local signals: {string:integer} = {
 
 --- The guard `trap` opened, the status it ends with, and whether it
 --- ends with it at all (`trap -` goes on).
-local guard: Signal.Guard = nil
+local guard: Signal.Guard | nil = nil
 local trapped = 0
 local ignoring = false
 
@@ -590,7 +590,7 @@ return function(argv: {string}): integer
   if beside == nil and argv[1] ~= nil then
     -- A script file whose `#!` line names it: its body.
     local st, _ = sys.stat(argv[1])
-    local text: string = nil
+    local text: string | nil = nil
     if st ~= nil and st.kind == "file" then
       local read, _ = Fs.read(argv[1])
       text = read

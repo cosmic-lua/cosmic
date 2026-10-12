@@ -167,7 +167,7 @@ end
 --- not dropped, and the two lists together are the step `walk` takes.
 local function test_children_hands_back_what_a_skipped_field_leads_to()
   local parsed = parse_ok("if x then return 1 end", "passed.tl")
-  local block: node_mod.Node = nil
+  local block: node_mod.Node | nil = nil
   walk_mod.walk(parsed.node, function(n: node_mod.Node)
     if n.kind == "if_block" then block = n end
   end)

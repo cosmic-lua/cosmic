@@ -292,7 +292,7 @@ local tzdata: refresh.Dataset = {
       return nil, path .. ": " .. trouble
     end
     -- The sdist's one top directory names its version.
-    local version: string = nil
+    local version: string | nil = nil
     for _, entry in ipairs(entries) do
       local path_in = entry.path
       while path_in:sub(1, 2) == "./" do

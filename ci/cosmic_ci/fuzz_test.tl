@@ -399,7 +399,7 @@ local function test_a_sink_constructor_failure_closes_the_output_descriptor(tmp:
   fake_checkout(root, "0")
   assert(Fs.mkdirs(temp))
   local original_open, original_tee = Fs.open_write, Stream.tee
-  local opened: integer = nil
+  local opened: integer | nil = nil
   Fs.open_write = function(path: string, mode?: integer): integer | nil, string
     local fd, why = original_open(path, mode)
     if path == temp .. "/fuzz.out" then opened = fd end

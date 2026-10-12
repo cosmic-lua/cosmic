@@ -146,7 +146,7 @@ function verb.refusal(why: string, protocols: {string} | nil): string
 end
 
 --- Whether `key` is a fragment key that names one of `algorithms`.
-local function recognized(key: string): boolean
+local function recognized(key: string | nil): boolean
   for _, algorithm in ipairs(algorithms) do
     for _, name in ipairs(algorithm.keys) do
       if key == name then return true end
@@ -250,7 +250,7 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
   -- What the body must hash to, by algorithm, and where each came from.
   local wants: {string:string} = {}
   local from: {string:string} = {}
-  local function want_digest(algorithm: Algorithm, digest: string, source: string, sep: string): string
+  local function want_digest(algorithm: Algorithm, digest: string, source: string, sep: string): string | nil
     local name = algorithm.name
     if #digest ~= algorithm.digits or digest:find("[^%x]") then
       return source .. " wants " .. plural.count(algorithm.digits, "hex digit") .. ", not " .. digest

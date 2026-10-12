@@ -394,7 +394,7 @@ local function test_a_call_after_a_string_spanning_lines()
   local tokens, errs = built.lex("f [[a\nbc]]\n(g)(1)\n", "t.tl")
   built.parse_program(tokens, errs, "t.tl")
   assert(#errs == 0, tostring(errs[1] and errs[1].msg))
-  local inserted: compiler.Token = nil
+  local inserted: compiler.Token | nil = nil
   for _, t in ipairs(tokens) do
     if t.tk == ";" then inserted = t end
   end

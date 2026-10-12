@@ -232,7 +232,7 @@ end
 --- A file is taken as it is, never through a link: SQLite writes its
 --- log beside where a link leads, which the directory checked is not.
 local function private(path: string, kind: sys.Kind): boolean, string
-  local st, trouble: sys.Stat, string = nil, ""
+  local st, trouble: sys.Stat | nil, string = nil, ""
   if kind == "file" then st, trouble = sys.lstat(path) else st, trouble = sys.stat(path) end
   if st == nil then return false, path .. ": " .. trouble end
   if st.kind == "link" then return false, path .. ": a symbolic link" end

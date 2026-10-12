@@ -577,7 +577,7 @@ local function fields_docs(lines: {string}, tokens: {compiler.Token}, symbol: st
   for _, name in ipairs(order) do
     local field = fields[name]
     if field ~= nil then
-      local comments: {compiler.Comment} = nil
+      local comments: {compiler.Comment} | nil = nil
       if field_comments ~= nil then
         local lists = field_comments[name]
         if lists ~= nil then
@@ -904,7 +904,7 @@ local function canonicalize_docs(entries: {analyzer.DocEntry}, parsed: ast.Parse
     local implementations = implementation_name ~= "" and by_source[implementation_name] or nil
     local implementation = implementations ~= nil and implementations[#implementations] or nil
     local candidates = by_source[public_source] or {}
-    local public: analyzer.DocEntry = nil
+    local public: analyzer.DocEntry | nil = nil
     -- A declared record field is the stable surface row. When a callable
     -- implementation is known it lends this row its docs and location; every
     -- overwritten callable declaration remains inspectable but private.
@@ -1395,7 +1395,7 @@ local function names_policy(node: ast.Node | nil, names: {string:boolean}): bool
 end
 
 --- Whether `node` is `require("cosmic.test")`.
-local function requires_test(node: ast.Node): boolean
+local function requires_test(node: ast.Node | nil): boolean
   local call = node ~= nil and node.kind == "op" and node.op or nil
   local callee: ast.Node = node ~= nil and node.e1 or nil
   local args: ast.Node = node ~= nil and node.e2 or nil
@@ -1771,9 +1771,9 @@ local function inputs_of(parsed: ast.Parsed): analyzer.Declared | nil, string
     return (node.f or "") .. ":" .. tostring(node.y) .. ": test.policy: "
   end
   local names: {string:boolean} = {}
-  local found: ast.Node = nil
+  local found: ast.Node | nil = nil
   local callees: {ast.Node:boolean} = {}
-  local jump: ast.Node = nil
+  local jump: ast.Node | nil = nil
   for _, stmt in ipairs(parsed.node) do
     if stmt.kind == "local_declaration" and stmt.vars ~= nil then
       for i, var in ipairs(stmt.vars) do
@@ -1799,7 +1799,7 @@ local function inputs_of(parsed: ast.Parsed): analyzer.Declared | nil, string
       "that declares its policy jumps nowhere at its top level, so the call is always made"
   end
   -- `policy` reached any other way than that one statement.
-  local elsewhere: ast.Node = nil
+  local elsewhere: ast.Node | nil = nil
   ast.walk(parsed.node, function(node: ast.Node)
     if elsewhere == nil and names_policy(node, names) and not callees[node] then
       elsewhere = node

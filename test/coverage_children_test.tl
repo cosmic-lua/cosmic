@@ -131,11 +131,12 @@ return function(argv: {string}): integer
   local reports, reads: string, {string} = argv[1], {}
   for path in argv[2]:gmatch("[^\n]+") do reads[#reads + 1] = path end
   Coverage.children(reports)
-  local process: Process = nil
+  local process: Process | nil = nil
   for _, searcher in ipairs(package.searchers as {Searcher}) do
     local loader, extra = searcher("cosmic.child")
     if type(loader) == "function" and type(extra) == "table" then process = extra as Process end
   end
+  assert(process ~= nil, "no searcher hands cosmic.child's raw module")
   local relaunch = assert(Proc.relaunch())
   local words: {string} = {}
   for _, word in ipairs(relaunch.argv) do words[#words + 1] = word end

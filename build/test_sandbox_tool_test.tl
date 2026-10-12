@@ -341,7 +341,7 @@ local function test_an_unsandboxed_run_reads_the_tree_and_a_platform_with_no_san
       text:find("), keyed by declared inputs, sharing no verdicts)", 1, true), text)
   -- Required, the run fails instead.
   env.COSMIC_TEST_SANDBOX = "1"
-  local required: string = nil
+  local required: string | nil = nil
   required, ok = run(root, tmp .. "/required", env)
   assert(not ok and required:find("COSMIC_TEST_SANDBOX=1, but no worker can be sandboxed here",
     1, true), required)

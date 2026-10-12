@@ -399,7 +399,7 @@ end
 
 --- Splits `t` at the comment on `line`, the line the token before it
 --- ended: that comment, then everything after it.
-local function trailing(t: Trivia, line: integer): string, {string}
+local function trailing(t: Trivia, line: integer): string | nil, {string}
   if #t.entries > 0 and t.entries[1] ~= "" and t.lines[1] == line then
     return t.entries[1], { table.unpack(t.entries, 2) }
   end
@@ -768,7 +768,7 @@ end
 function flow.get(node: flow.Node, ...: string | integer): flow.Node | nil
   local at = node
   for _, step in ipairs({ ... }) do
-    local found: flow.Node = nil
+    local found: flow.Node | nil = nil
     for index, item in ipairs(at.items or {}) do
       if (at.kind == "object" and item.key == step) or (at.kind == "array" and index == step) then
         found = item.value

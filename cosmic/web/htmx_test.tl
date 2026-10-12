@@ -32,20 +32,22 @@ local function header(res: Web.Response, name: string): string | nil
 end
 
 local function test_request_reads_the_hx_headers()
-  local seen: Htmx.Request = nil
+  local seen: Htmx.Request | nil = nil
   through(function(req: Web.Request): Web.Response
     seen = Htmx.request(req)
     return Web.text("")
   end, { ["HX-Request"] = "true", ["HX-Target"] = "list", ["HX-Trigger"] = "btn",
     ["HX-Trigger-Name"] = "save", ["HX-Current-URL"] = "http://x.test/items", ["HX-Prompt"] = "yes" })
-  assert(seen.active and not seen.boosted and not seen.history_restore)
-  assert(seen.target == "list" and seen.trigger == "btn" and seen.trigger_name == "save")
-  assert(seen.current_url == "http://x.test/items" and seen.prompt == "yes")
+  local first = assert(seen, "the handler never ran")
+  assert(first.active and not first.boosted and not first.history_restore)
+  assert(first.target == "list" and first.trigger == "btn" and first.trigger_name == "save")
+  assert(first.current_url == "http://x.test/items" and first.prompt == "yes")
   through(function(req: Web.Request): Web.Response
     seen = Htmx.request(req)
     return Web.text("")
   end)
-  assert(not seen.active and seen.target == nil and seen.prompt == nil)
+  local second = assert(seen, "the handler never ran")
+  assert(not second.active and second.target == nil and second.prompt == nil)
 end
 
 local function test_only_the_literal_true_sets_a_flag()

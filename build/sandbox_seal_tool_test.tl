@@ -94,7 +94,7 @@ local function test_closure_takes_the_cores_modules_and_leaves_type_requires_out
 local sys = require("cosmic.sys")
 local type Archive = require("cosmic.archive")
 local Fs = require("cosmic.fs")
-local _: Archive = nil
+local _: Archive | nil = nil
 print("sys", type(sys.getpid), type(Fs.read), (pcall(require, "cosmic." .. "archive")))
 ]]))
   searchable.share(tmp .. "/sys.tl")

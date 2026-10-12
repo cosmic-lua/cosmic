@@ -57,7 +57,7 @@ end
 
 --- The refusal reading `body` with `opts` gives, failing where it is read.
 local function refusal(body: string, opts?: Types.InputOptions, content_type?: string, chunked?: boolean): Types.Invalid
-  local got: Types.Invalid = nil
+  local got: Types.Invalid | nil = nil
   local reply = post(body, function(req: Web.Request): Web.Response
     local read = Input.multipart(req, opts)
     got = read.invalid
@@ -69,7 +69,7 @@ local function refusal(body: string, opts?: Types.InputOptions, content_type?: s
 end
 
 local function test_text_and_file_parts_are_read_and_the_file_is_spooled(tmp: string)
-  local seen: Input.Multipart = nil
+  local seen: Input.Multipart | nil = nil
   local contents: string
   local listing: {string}
   local stat_mode: integer
@@ -78,22 +78,24 @@ local function test_text_and_file_parts_are_read_and_the_file_is_spooled(tmp: st
     file("avatar", "../../etc/passwd", "PNG\0\r\n--data", "image/png")), function(req: Web.Request): Web.Response
       local read = Input.multipart(req, { dir = tmp })
       assert(read.invalid == nil, message_of(read.invalid))
-      seen = assert(read.value)
-      local up = seen.files["avatar"][1]
+      local value = assert(read.value)
+      seen = value
+      local up = value.files["avatar"][1]
       contents = assert(Fs.read(up.path))
       listing = assert(Fs.list(tmp))
       stat_mode = assert(Fs.stat(up.path)).mode & 0x1ff
       return Web.empty()
     end)
   assert(reply.status == 204)
-  assert(seen.fields.by_name["email"][1] == "a@b.test" and #seen.fields.by_name["tags"] == 2)
-  local up = seen.files["avatar"][1]
+  local read = assert(seen, "the handler never ran")
+  assert(read.fields.by_name["email"][1] == "a@b.test" and #read.fields.by_name["tags"] == 2)
+  local up = read.files["avatar"][1]
   assert(up.filename == "passwd" and up.content_type == "image/png" and up.size == 12 and up.field == "avatar")
   assert(contents == "PNG\0\r\n--data")
   assert(#listing == 1 and listing[1]:find("^%x+$") and #listing[1] == 32, "a random name: " .. tostring(listing[1]))
   assert(up.path == tmp .. "/" .. listing[1], "the client's name is no part of the path")
   assert(stat_mode == 384, "mode 0600")
-  assert(seen.size > 100)
+  assert(read.size > 100)
   assert(#assert(Fs.list(tmp)) == 0, "removed when the request ended")
   assert(Fs.exists(up.path) == false)
 end
@@ -458,14 +460,14 @@ end
 
 local function test_a_limit_failure_is_not_kept_for_a_reader_with_a_higher_limit(tmp: string)
   local text = body_of(field("email", "e"), file("f", "a", ("x"):rep(70000)))
-  local seen: Input.Multipart = nil
+  local seen: Input.Multipart | nil = nil
   post(text, function(req: Web.Request): Web.Response
     assert(assert(Input.form(req, { dir = tmp }).invalid).status == 413)
     seen = assert(Input.multipart(req, { dir = tmp }).value)
     return Web.empty()
   end)
   assert(seen ~= nil and seen.files["f"][1].size == 70000, "the upload's own limit took the body")
-  local again: Types.Invalid = nil
+  local again: Types.Invalid | nil = nil
   post(text, function(req: Web.Request): Web.Response
     local first = Input.form(req, { dir = tmp })
     assert(assert(first.invalid).status == 413)

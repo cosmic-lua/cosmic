@@ -65,7 +65,7 @@ local function check(source: string): Node, {string}
 end
 
 --- The first node of `kind` in `node`, in source order.
-local function find(node: Node, kind: string): Node
+local function find(node: Node, kind: string): Node | nil
   if node.kind == kind then
     return node
   end
@@ -268,9 +268,9 @@ local function test_ends_body_reads_the_last_statement()
 end
 
 local function test_ends_all_asks_every_branch()
-  local open = find(check(prelude .. "local function g()\nif x then return elseif y then return else x = true end\nend"), "if")
+  local open = assert(find(check(prelude .. "local function g()\nif x then return elseif y then return else x = true end\nend"), "if"))
   assert(not flow.ends_all(open.if_blocks))
-  local closed = find(check(prelude .. "local function g()\nif x then return elseif y then return end\nend"), "if")
+  local closed = assert(find(check(prelude .. "local function g()\nif x then return elseif y then return end\nend"), "if"))
   assert(flow.ends_all(closed.if_blocks))
 end
 
