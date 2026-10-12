@@ -320,8 +320,9 @@ local function selection_holds(input: string): boolean, string
   -- A document of `null` alone decodes to nil: test the message.
   local doc, derr = Json.decode(text, { null_value = (not holes) and Json.null or nil })
   if derr ~= "" then return false, "a drawn document does not decode: " .. derr end
-  local q, qerr = Json.query(query)
-  if q == nil then return false, "a drawn query does not read: " .. qerr end
+  local parsed, qerr = Json.query(query)
+  if parsed == nil then return false, "a drawn query does not read: " .. qerr end
+  local q: Json.Query = parsed
   local nodes: {Json.Match} = { { steps = {}, value = doc } }
   for _, seg in ipairs(q.segments) do
     local out: {Json.Match} = {}

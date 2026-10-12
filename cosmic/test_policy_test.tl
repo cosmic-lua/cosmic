@@ -12,10 +12,7 @@ local test_inputs = require("build.test_inputs")
 -- The source of cosmic.sandbox.policy, whose `Policy` fields [`Test.Policy`] repeats.
 Test.policy{ grants = { { path = "cosmic/sandbox/policy.tl", letters = "r" } } }
 
-local built, load_trouble = teal.load()
-if built == nil then
-  error("could not load the compiler: " .. tostring(load_trouble))
-end
+local built = assert(teal.load())
 
 --- A module that declares `call` on `Test`, as the build reads it.
 local function declared(call: string): analyzer.Declared | nil, string
@@ -286,7 +283,7 @@ local function test_a_policy_declares_requirements()
   assert(#read('Test.policy { promises = { "nest" }, grants = { { path = "/proc", letters = "r" } } }').requires == 0)
   local call = 'Test.policy { requires = { "root" }, promises = { "nest" } }'
   local handed = assert(runtime_needs(call))
-  assert(names(handed.requires) == "root")
+  assert(names(assert(handed.requires)) == "root")
   local from_policy = read(call)
   assert(test_inputs.canonical(test_inputs.as_declared(handed)) == test_inputs.canonical(from_policy))
   assert(test_inputs.canonical(from_policy):find('requires "root"', 1, true))

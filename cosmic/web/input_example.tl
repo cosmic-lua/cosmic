@@ -119,7 +119,7 @@ function Example.plain_route()
         return Web.text(read.invalid.message, { status = read.invalid.status })
       end
       assert(rawequal(req:get(Input.FORM), read.value))
-      if Url.query_last(read.value, "email") == "taken@example.org" then
+      if Url.query_last(assert(read.value), "email") == "taken@example.org" then
         local bad = Input.fail(req, "email", "is already registered", { secret = { "password" } })
         return Web.text(Input.errors_by_field(bad).email, { status = bad.status })
       end

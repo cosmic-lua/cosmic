@@ -12,10 +12,7 @@ local work = require("build.work")
 local profile_page = require("test.profile_page")
 local sample = require("test.profile_page_sample")
 
-local built, load_trouble = teal.load()
-if built == nil then
-  error("could not load the compiler: " .. tostring(load_trouble))
-end
+local built = assert(teal.load())
 
 local DATA <const> = [[
 local html = require("cosmic.html")

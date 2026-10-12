@@ -136,7 +136,7 @@ function Board.app(): Web.App
       Web.post("/notes", function(req: Web.Request): Web.Response
         local read = Input.form(req)
         if read.invalid ~= nil then return Web.abort(read.invalid.status, read.invalid.message) end
-        local text = Url.query_last(read.value, "text") or ""
+        local text = Url.query_last(assert(read.value), "text") or ""
         if text == "" then return Web.abort(422, "say something") end
         notes[#notes + 1] = { text = text }
         hub:publish("notes", Sse.Event.html("notes", list()))

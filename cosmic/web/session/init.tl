@@ -496,13 +496,13 @@ function Session.middleware(opts: Session.Options): Types.Middleware
   if math.type(max_age) ~= "integer" or max_age < 1 then
     error("session: max_age is a number of seconds, at least 1", 0)
   end
-  local cookie = opts.cookie_name
-  if cookie == nil then
-    if opts.secure == true then
-      cookie = opts.domain == nil and "__Host-session" or "__Secure-session"
-    else
-      cookie = "session"
-    end
+  local cookie: string
+  if opts.cookie_name ~= nil then
+    cookie = opts.cookie_name
+  elseif opts.secure == true then
+    cookie = opts.domain == nil and "__Host-session" or "__Secure-session"
+  else
+    cookie = "session"
   end
   -- SameSite=None needs Secure, which an unset `secure` decides per request.
   local probe = opts.secure == true or (opts.secure == nil and opts.same_site == "None")
@@ -524,8 +524,10 @@ function Session.middleware(opts: Session.Options): Types.Middleware
       if Response.header(res, "Cache-Control") == nil then
         Response.set_header(res, "Cache-Control", "private")
       end
-      local secure = opts.secure
-      if secure == nil then
+      local secure: boolean
+      if opts.secure ~= nil then
+        secure = opts.secure
+      else
         -- TODO: once the app can tell its middleware where it listens
         -- (Web.app's listeners), warn once at startup when `secure` is unset
         -- and a listener is not on the loopback, as doc/plans/web/input.md

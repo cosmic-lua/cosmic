@@ -260,7 +260,7 @@ local function add_leaf(route: Types.Route, ctx: Router.Context, root: Types.Nod
   local stack: {Types.Middleware} = {}
   for _, mw in ipairs(ctx.chain) do stack[#stack + 1] = mw end
   for _, mw in ipairs(route.middleware or {}) do stack[#stack + 1] = mw end
-  local handler = Middleware.compose(stack, route.handler)
+  local handler = Middleware.compose(stack, assert(route.handler))
   local full_name = route.name ~= "" and ctx.name_prefix .. route.name or ""
   local info: Types.RouteInfo = { name = full_name, pattern = full_pattern, methods = route.methods }
   for _, method in ipairs(route.methods) do
@@ -322,7 +322,7 @@ local function add_mount(route: Types.Route, ctx: Router.Context, root: Types.No
     }
     local sub: Types.Router = { root = new_node(), policy = ctx.policy, names = ctx.names,
       verbs = ctx.verbs, miss = inner.miss, mount_path = full_prefix }
-    compile(route.routes, inner, sub.root)
+    compile(assert(route.routes), inner, sub.root)
     mount.router = sub
   end
   node.mount = mount
@@ -524,7 +524,7 @@ local function reverse(self: Types.Router, name: string, params?: {string: strin
   local path: string
   if entry.mount then
     if entry.resolve == nil then return nil, ('url_for: mount "%s" has no reverse'):format(name) end
-    local url, why = entry.resolve(entry.prefix, strings)
+    local url, why = entry.resolve(assert(entry.prefix), strings)
     if url == nil then return nil, why end
     path = url
   else

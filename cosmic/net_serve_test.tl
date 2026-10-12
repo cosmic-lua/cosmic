@@ -33,7 +33,7 @@ end
 --- (core/socket.c), do not step over. A listener still open takes the probe
 --- connection, which is closed at once.
 local function released(address: Net.Address): boolean
-  if address.kind == "unix" then return Fs.stat(address.path) == nil end
+  if address.kind == "unix" then return Fs.stat(assert(address.path)) == nil end
   local conn, why = Net.connect(address, { timeout_ns = Clock.seconds(1) })
   if conn == nil then return why ~= Poll.TIMEOUT end
   local _, _ = conn:close()

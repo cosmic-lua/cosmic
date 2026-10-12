@@ -660,7 +660,7 @@ local function extract_from(from: string | Archive.Reader, dest: string,
       rel = join(parts, #parts)
       if #parts > 1 then parent = join(parts, #parts - 1) end
     end
-    if rel ~= "" and (opts.filter == nil or opts.filter(stripped)) then
+    if rel ~= "" and stripped ~= nil and (opts.filter == nil or opts.filter(stripped)) then
       local kind = entry.kind
       local wanted = kind == "dir" or kind == "file" or
         (kind == "symlink" and links_mode == "create")
@@ -671,7 +671,7 @@ local function extract_from(from: string | Archive.Reader, dest: string,
       if wanted then
         if entries_left ~= nil then
           if entries_left <= 0 then
-            return bail("archive: more than " .. String.counted(opts.max_entries, "entry", "entries") ..
+            return bail("archive: more than " .. String.counted(assert(opts.max_entries), "entry", "entries") ..
                 " to extract")
           end
           entries_left = entries_left - 1
