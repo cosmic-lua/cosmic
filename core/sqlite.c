@@ -309,7 +309,11 @@ static const extension_init extensions[] = {
 };
 
 int cosmic_sqlite_functions (sqlite3 *db) {
-  int rc = SQLITE_OK;
+  /* A database a caller opens is not trusted: its views and triggers may
+   * call only what SQLite marks innocuous, never a pragma_* table such as
+   * pragma_optimize, which runs ANALYZE. */
+  int rc = sqlite3_db_config(db, SQLITE_DBCONFIG_TRUSTED_SCHEMA, 0,
+                             (int *)NULL);
   for (size_t i = 0; rc == SQLITE_OK && i < sizeof functions / sizeof *functions;
        i++) {
     rc = sqlite3_create_function(
@@ -424,11 +428,6 @@ static int open_database (lua_State *L, bool result) {
   /* Another process may hold the file's lock: two builds of one tree, or a
    * reader meeting a writer's commit. Wait for it rather than failing. */
   if (rc == SQLITE_OK) rc = sqlite3_busy_timeout(h->db, 60000);
-  /* TODO: turn PRAGMA trusted_schema off here, once the FTS5 triggers
-   * build/work.tl writes through are shown to work with it off: with it
-   * on, SQLite's default, a view or trigger in a database a caller opens
-   * can read the pragma_* tables, and pragma_optimize runs ANALYZE in a
-   * writable one. */
   if (rc == SQLITE_OK) rc = cosmic_sqlite_functions(h->db);
   if (result) {
     capture(L, &out, h->db, rc, false);
