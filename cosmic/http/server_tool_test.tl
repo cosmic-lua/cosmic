@@ -47,7 +47,7 @@ return function(argv: {string}): integer
 end
 ]]))
   local items: {string:string} = {}
-  local result: Child.Result = nil
+  local result: Child.Result | nil = nil
   assert(Server.serve{
     listeners = { Net.tcp("127.0.0.1", 0) },
     handle = function(req: Server.Request): Server.Reply
@@ -72,6 +72,7 @@ end
       server:stop()
     end,
   })
+  assert(result ~= nil, "the server never became ready")
   assert(result.code == 0, tostring(result.code) .. " " .. tostring(result.stderr))
   local expected = table.concat({
     "404 no a", "201 stored", "200 first value text/plain", "200 [] 11", "204",
@@ -104,7 +105,7 @@ return function(argv: {string}): integer
 end
 ]]))
   local targets: {string} = {}
-  local result: Child.Result = nil
+  local result: Child.Result | nil = nil
   assert(Server.serve{
     listeners = { Net.tcp("127.0.0.1", 0) },
     handle = function(req: Server.Request): Server.Reply
@@ -122,6 +123,7 @@ end
       server:stop()
     end,
   })
+  assert(result ~= nil, "the server never became ready")
   assert(result.code == 0, tostring(result.code) .. " " .. tostring(result.stderr))
   assert(table.concat(targets, " ") == "/two%20words.txt /caf%C3%A9.txt /two%20words.txt /a=b&c;d?e=f",
     table.concat(targets, " "))

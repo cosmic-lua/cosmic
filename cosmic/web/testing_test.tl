@@ -352,5 +352,18 @@ local function test_a_huge_max_age_does_not_overflow_into_a_lapsed_cookie()
   local client = Web.test_client(app)
   client:get("/set")
   assert(client:get("/see"):text() == "a=1")
-  assert(client.attrs.a.expires_ns > 0)
+  assert(assert(client.attrs.a.expires_ns) > 0)
+end
+
+--- A cookie set with neither Max-Age nor Expires is a session cookie: the
+--- test client records no expiry for it.
+local function test_a_session_cookie_has_no_expiry()
+  local app = Web.app{ routes = { Web.get("/", function(_req: Web.Request): Web.Response
+    local res = Web.text("ok")
+    Web.add_header(res, "Set-Cookie", "a=1")
+    return res
+  end) } }
+  local client = Web.test_client(app)
+  assert(client:get("/").status == 200)
+  assert(client.attrs.a.expires_ns == nil)
 end

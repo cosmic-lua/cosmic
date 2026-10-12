@@ -1368,11 +1368,14 @@ local function test_a_darwin_list_names_a_path_a_line()
 end
 
 --- The declared-types tests ci.yml runs on a checked run are every
---- `*declared_types_test.tl` under cosmic/ and build/, wherever it sits.
+--- `*declared_types_test.tl` under cosmic/, build/, core/ and eval/,
+--- wherever it sits, and none elsewhere.
 local function test_the_declared_types_tests_are_found_by_name(tmp: string)
   local Orchestration = require("cosmic_ci.orchestration")
   assert(Fs.mkdirs(tmp .. "/cosmic/web"))
   assert(Fs.mkdirs(tmp .. "/build/c"))
+  assert(Fs.mkdirs(tmp .. "/core"))
+  assert(Fs.mkdirs(tmp .. "/eval"))
   assert(Fs.mkdirs(tmp .. "/ci"))
   assert(Fs.write(tmp .. "/cosmic/a_declared_types_test.tl", ""))
   assert(Fs.write(tmp .. "/cosmic/web/declared_types_test.tl", ""))
@@ -1380,10 +1383,14 @@ local function test_the_declared_types_tests_are_found_by_name(tmp: string)
   assert(Fs.write(tmp .. "/build/importer_declared_types_test.tl", ""))
   assert(Fs.write(tmp .. "/build/c/declared_types_test.tl", ""))
   assert(Fs.write(tmp .. "/build/c/rules_test.tl", ""))
+  assert(Fs.write(tmp .. "/core/syscalls_declared_types_test.tl", ""))
+  assert(Fs.write(tmp .. "/eval/declared_types_test.tl", ""))
+  assert(Fs.write(tmp .. "/eval/round_test.tl", ""))
   assert(Fs.write(tmp .. "/ci/declared_types_test.tl", ""))
   local files = Orchestration.declared_types_files(tmp)
   assert(table.concat(files, ",") == "build/c/declared_types_test.tl,build/importer_declared_types_test.tl," ..
-      "cosmic/a_declared_types_test.tl,cosmic/web/declared_types_test.tl", table.concat(files, ","))
+      "core/syscalls_declared_types_test.tl,cosmic/a_declared_types_test.tl," ..
+      "cosmic/web/declared_types_test.tl,eval/declared_types_test.tl", table.concat(files, ","))
 end
 
 --- The darwin list runs where the native suite stands on verdicts:

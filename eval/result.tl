@@ -121,8 +121,8 @@ end
 function Result.build(transcript: string | nil, files: Result.Files, grade: Result.Grade,
                       meta?: Result.Meta): {string: any}
   meta = meta or {}
-  local init: {string: any} = nil
-  local result: {string: any} = nil
+  local init: {string: any} | nil = nil
+  local result: {string: any} | nil = nil
   local tool_calls = 0
   if transcript ~= nil then
     for line in transcript:gsub("\r\n?", "\n"):gmatch("[^\n]+") do
@@ -250,7 +250,7 @@ function Result.git_head(repo: string, path?: string): string | nil
 end
 
 function Result.main(argv: {integer: string}): integer
-  local arena: string = nil
+  local arena: string | nil = nil
   local grade: Result.Grade = {}
   local meta: Result.Meta = {}
   local i = 1
@@ -303,7 +303,8 @@ function Result.main(argv: {integer: string}): integer
     complain(trouble)
     return 2
   end
-  arena = absolute
+  -- A copy the checker knows is not nil: a closure below reads it.
+  local directory: string = absolute
   local script, strouble = Fs.absolute(argv[0])
   if script == nil then
     complain(strouble)
@@ -312,7 +313,7 @@ function Result.main(argv: {integer: string}): integer
   local repo = script:match("^(.*)/eval/[^/]+%.tl$")
   if repo ~= nil then meta.harness_commit = Result.git_head(repo) end
   local function read(name: string): string | nil
-    local text, _ = Fs.read(arena .. "/" .. name)
+    local text, _ = Fs.read(directory .. "/" .. name)
     return text
   end
   local files: Result.Files = {
@@ -324,12 +325,12 @@ function Result.main(argv: {integer: string}): integer
     complain(why)
     return 1
   end
-  local wrote, wtrouble = Fs.write(arena .. "/result.json", text)
+  local wrote, wtrouble = Fs.write(directory .. "/result.json", text)
   if not wrote then
     complain(wtrouble)
     return 1
   end
-  local _, _ = Fs.put(Fs.stdout, "result: " .. arena .. "/result.json\n")
+  local _, _ = Fs.put(Fs.stdout, "result: " .. directory .. "/result.json\n")
   return 0
 end
 

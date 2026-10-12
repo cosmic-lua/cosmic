@@ -56,7 +56,7 @@ end
 --- A stream fed by the program's own tasks: a queue of events is the
 --- source, and closing it ends the stream.
 function Example.queue()
-  local queue: Channel.Queue<Sse.Event> = nil
+  local queue: Channel.Queue<Sse.Event> | nil = nil
   local app = Web.app{ routes = { Web.get("/progress", function(req: Web.Request): Web.Response
     queue = Channel.new()
     return Sse.EventStream(req, Sse.from_queue(queue), { retry_ms = 0 })
@@ -64,12 +64,13 @@ function Example.queue()
   Web.with_client(app, function(client: Web.TestClient)
     local res = client:get("/progress", { stream = true })
     local body = assert(res.stream)
-    assert(queue:send(Sse.Event.json("progress", { done = 40 })))
+    local events = assert(queue, "the route never ran")
+    assert(events:send(Sse.Event.json("progress", { done = 40 })))
     assert(body:read() == ":\n\n", "the stream begins with a comment when it has no retry to send")
     local update = assert(body:read())
     print(update)
     assert(update == 'event: progress\ndata: {"done":40}\n\n')
-    queue:close()
+    events:close()
     local ended, why = body:read()
     assert(ended == nil and why == "")
   end)

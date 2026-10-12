@@ -193,7 +193,7 @@ function CacheTrim.run(request: CacheTrim.Request, env: {string:string}): string
     return "", verb .. ": " .. guard_trouble .. (cleanup ~= "" and "\n" .. cleanup or "") .. "\n"
   end
   local guard <close> = opened
-  local value: Report = nil
+  local value: Report | nil = nil
   local trouble = ""
   if #request.paths > 0 then
     local ok, answer, why = pcall(invoke, request)

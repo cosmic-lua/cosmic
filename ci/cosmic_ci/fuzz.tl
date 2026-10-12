@@ -211,7 +211,7 @@ end
 local function streamed(guard: Signal.Guard, argv: {string}, cwd: string,
                         env: {string:string}, out: string, log: integer): integer | nil, string
   local out_fd = assert(Fs.open_write(out))
-  local status: integer = nil
+  local status: integer | nil = nil
   local called, failure = pcall(function(): string
     local sink = Stream.tee(Stream.to_fd(out_fd), Stream.to_fd(log))
     local started, start_trouble = Child.start(argv, { cwd = cwd, env = env,
@@ -223,7 +223,7 @@ local function streamed(guard: Signal.Guard, argv: {string}, cwd: string,
     end
     local handle <close> = started
     local function supervise(): string
-      local deadline: integer = nil
+      local deadline: integer | nil = nil
       local eof = false
       while true do
         local signal = guard:take()

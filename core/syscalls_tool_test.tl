@@ -361,7 +361,7 @@ local function test_an_unveiled_child_runs_as_the_user_given(tmp: string)
   -- Undumpable while it starts the child, where it may map the user:
   -- a caller not root that is undumpable could not open its child's
   -- maps (they are root's then), whether it gives a user or not.
-  local was: integer = nil
+  local was: integer | nil = nil
   if root then
     was = assert(sys.dumpable())
     assert(sys.dumpable(0) == 0)

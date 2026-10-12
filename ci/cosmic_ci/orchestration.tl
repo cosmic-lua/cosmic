@@ -1330,13 +1330,13 @@ local function phase_darwin_suite(p: PlatformContext): integer
   return status
 end
 
---- The test files under cosmic/ and build/ that watch the declared types
---- of the standard library and of the tool's own modules
---- (`*declared_types_test.tl`, which a later directory's change adds files
+--- The test files under cosmic/, build/, core/ and eval/ that watch the
+--- declared types of the standard library and of the modules beside those
+--- tests (`*declared_types_test.tl`, which a later directory's change adds files
 --- to without touching CI), by their path in the checkout.
 function Orchestration.declared_types_files(root: string): {string}
   local files: {string} = {}
-  for _, directory in ipairs({ "cosmic", "build" }) do
+  for _, directory in ipairs({ "cosmic", "build", "core", "eval" }) do
     local found = Fs.walk(root .. "/" .. directory) or {}
     for _, relative in ipairs(found) do
       if relative:find("declared_types_test%.tl$") ~= nil then
@@ -1358,7 +1358,7 @@ local function phase_declared_types(p: PlatformContext): integer
   local c = p.operation
   local files = Orchestration.declared_types_files(c.root)
   if #files == 0 then
-    Fs.put(Fs.stderr, "declared types: no cosmic/ or build/ *declared_types_test.tl file\n")
+    Fs.put(Fs.stderr, "declared types: no cosmic/, build/, core/ or eval/ *declared_types_test.tl file\n")
     return 1
   end
   local argv: {string} = { BuildPaths.directory(p.root) .. "/bin/cosmic", "test", "--check-types" }
@@ -1698,7 +1698,7 @@ function Orchestration.seed_compiles(env: {string:string},
     local path, kind = pair[1], pair[2]
     -- A link to the directory is followed, as shared_compiles' `private`
     -- follows it; one to the file is not.
-    local st, stat_trouble: sys.Stat, string = nil, ""
+    local st, stat_trouble: sys.Stat | nil, string = nil, ""
     if kind == "file" then
       st, stat_trouble = sys.lstat(path)
     else

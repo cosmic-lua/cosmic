@@ -45,7 +45,7 @@ local record Assets
     type: string
     --- The gzip of `data` when the source holds one, else nil. Its entity
     --- tag is `etag` with "-gzip" before the closing quote.
-    gzip: string
+    gzip?: string
     --- The file's modification time in seconds, for Last-Modified: 0 for
     --- an asset that has none (an embedded one: a reproducible build
     --- carries no time).

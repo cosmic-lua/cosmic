@@ -306,14 +306,14 @@ local function test_a_descriptor_that_opens_a_directory_or_a_socket_is_not_held_
 end
 
 --- Starts `sandbox` with the stand-in, with no script of weight: the pid,
---- or nil and why the start failed.
+--- or nil and why the start failed (empty text beside a pid).
 local function start(probe: string, sandbox: raw_process.Sandbox): integer | nil, string
   local null = assert(sys.open("/dev/null", sys.O_RDWR))
   local pid, trouble = process.spawn(probe, { probe, "print started" }, nil, "/", nil, null, null, false,
     nil, sandbox)
   sys.close(null)
   if pid ~= nil then assert(process.waitpid(pid, false)) end
-  return pid, trouble
+  return pid, trouble or ""
 end
 
 local function test_a_unix_socket_below_abi_9_fails_a_start_that_binds_a_directory(tmp: string)

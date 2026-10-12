@@ -236,22 +236,29 @@ local shells <const>: {string: boolean} = { sh = true, bash = true, dash = true 
 --- grep's options that take a number as a separate word.
 local counts <const>: {string: boolean} = { ["-m"] = true, ["-A"] = true, ["-B"] = true, ["-C"] = true }
 
---- What follows `$HOME`, `${HOME}` or `~user` in `word` when it starts
---- with one, and the part that was; else nil.
-local function home_rest(word: string): string, string
+local record Home
+  --- What follows the home directory's name.
+  rest: string
+  --- The name as the shell reads it: `~`, or `~user`.
+  home: string
+end
+
+--- What follows `$HOME`, `${HOME}` or `~user` in `word` and the part that
+--- was, when it starts with one; else nil.
+local function home_rest(word: string): Home | nil
   for _, home in ipairs({ "${HOME}", "$HOME" }) do
     if word == home or String.starts_with(word, home .. "/") then
-      return word:sub(#home + 1), "~"
+      return { rest = word:sub(#home + 1), home = "~" }
     end
   end
   local user = word:match("^(~[%w_%-]*)")
   if user ~= nil then
     local rest = word:sub(#user + 1)
     if rest == "" or rest:sub(1, 1) == "/" then
-      return rest, user
+      return { rest = rest, home = user }
     end
   end
-  return nil, nil
+  return nil
 end
 
 --- A word as a bare one, for a field that holds a path or glob.
@@ -267,7 +274,7 @@ end
 --- `IFS=/`); nor a bare `VAR=$HOME`, which names the variable's value
 --- without opening anything; nor prose, a quoted word with whitespace
 --- that does not start like a path.
-local function candidate(word: Word): string
+local function candidate(word: Word): string | nil
   if not word.literal then
     return nil
   end
@@ -291,7 +298,8 @@ local function candidate(word: Word): string
       text = "." .. text:sub(#pwd + 1)
     end
   end
-  if assigned and home_rest(text) == "" then
+  local home = home_rest(text)
+  if assigned and home ~= nil and home.rest == "" then
     return nil
   end
   if text == "/" and (word.quoted or assigned) then
@@ -362,7 +370,7 @@ local function shell_words(src: string, found: {string}, nested: boolean)
     local skipped: {integer: boolean} = {}
     local scripts: {string} = {}
     local flagged, filed = false, false
-    local bare: integer = nil
+    local bare: integer | nil = nil
     if letters ~= nil then
       local k = first + 1
       while k <= #words do
@@ -461,10 +469,10 @@ end
 --- solver's own is inside its arena, a manual launch's is the user's),
 --- so `~/x` and `$HOME/x` stay as `~/x`.
 local function resolve(word: string, project: string): string
-  local rest, home = home_rest(word)
-  if rest ~= nil then
-    local tail = normalize(rest)
-    return tail == "/" and home or home .. tail
+  local found = home_rest(word)
+  if found ~= nil then
+    local tail = normalize(found.rest)
+    return tail == "/" and found.home or found.home .. tail
   end
   return normalize(word:sub(1, 1) == "/" and word or project .. "/" .. word)
 end
@@ -526,7 +534,7 @@ end
 --- home directory, another arena), "tmp" for the rest of /tmp, which the
 --- sandbox gives the solver a private copy of, "outside" for any other
 --- path; nil for one in the arena or a system location.
-local function tier_of(path: string, arena: string, repo: string): string
+local function tier_of(path: string, arena: string, repo: string): string | nil
   if Fs.within(path, arena) then
     return nil
   end
@@ -603,7 +611,7 @@ end
 function Summarize.report(transcript: string, arena: string, repo: string): string
   local calls: {Call} = {}
   local results: {string: Answer} = {}
-  local result: {string: any} = nil
+  local result: {string: any} | nil = nil
   -- Lines end as Python's universal newlines end them.
   for line in transcript:gsub("\r\n?", "\n"):gmatch("[^\n]+") do
     local event = decode(line)
@@ -652,7 +660,7 @@ function Summarize.report(transcript: string, arena: string, repo: string): stri
   end
 
   local failed, docs_misses, journal_writes = 0, 0, 0
-  local first_green: integer = nil
+  local first_green: integer | nil = nil
   local breach: {string: boolean} = {}
   local sandbox_tmp: {string: boolean} = {}
   local outside: {string: boolean} = {}
