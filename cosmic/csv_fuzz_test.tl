@@ -149,7 +149,8 @@ local SAMPLES <const> = {
   "a,b,\n,,\n", 'a"b\n', '"a"b\n', '"never closed', "a\rb\n", "\n\n\n", '""\n', "a\tb\n1\t2\n",
 }
 
-local TOKENS <const> = { ",", '"', "\n", "\r\n", "\r", "\t", ";", "a", "1", " ", '""', "\0", "\xff", "\xEF\xBB\xBF" }
+local TOKENS <const> = { ",", '"', "\n", "\r\n", "\r", "\t", ";", "|", "\xa7", "a", "1", " ", '""', "\0", "\xff",
+  "\xEF\xBB\xBF" }
 
 local function gen_text(src: Fuzz.Source): string
   local text: string

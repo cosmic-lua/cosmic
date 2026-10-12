@@ -340,10 +340,10 @@ local function test_json_rows_have_null_for_a_missing_key_and_byte_order_columns
   assert(dataset.format_of("accounts.jsonl") == "ndjson")
 end
 
---- A csv is copied in C up to the 499 fields json_object takes for
+--- A csv is copied in C up to the 500 fields json_object takes for
 --- `_json`, and read here past them, into the same table.
-local function test_load_text_copies_a_csv_up_to_499_fields()
-  for _, width in ipairs({ 499, 500 }) do
+local function test_load_text_copies_a_csv_up_to_500_fields()
+  for _, width in ipairs({ 500, 501 }) do
     local header, row = {}, {}
     for column = 1, width do
       header[column] = "c" .. column
@@ -352,7 +352,7 @@ local function test_load_text_copies_a_csv_up_to_499_fields()
     local db = assert(Sqlite.memory())
     local made = assert(dataset.load_text(db, "t", "csv", table.concat(header, ",") .. "\n" ..
         table.concat(row, ",") .. "\n"))
-    assert((made.copied == true) == (width == 499), width .. " fields: copied " .. tostring(made.copied))
+    assert((made.copied == true) == (width == 500), width .. " fields: copied " .. tostring(made.copied))
     assert(#made.columns == width + 1 and made.count == 1)
     assert(grid(db, "SELECT json_extract(_json, '$.c" .. width .. "') FROM t")[1] == "i" .. width)
     assert(db:close())

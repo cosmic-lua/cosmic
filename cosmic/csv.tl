@@ -102,9 +102,9 @@ local record Csv
     --- text; the name is reserved as `reserved`'s are. It is generated
     --- from the row as it is read, by SQLite's json_object, which writes a
     --- real as SQLite does (`1.0e+300`): the copy writes no JSON, and a
-    --- query that reads it makes it again. A header of more than 499
-    --- fields, past what json_object takes, is refused before a row is
-    --- copied.
+    --- query that reads it makes it again. A header of more than 500
+    --- fields, past json_object's 1000 arguments, is refused before a row
+    --- is copied. Text that is not UTF-8 makes JSON that is not valid.
     json?: string
   end
 
@@ -439,7 +439,8 @@ local loads = 0
 --- holds, a file SQLite cannot open or read, a NUL byte, CSV with no
 --- header, or a header wider than SQLite's 2000 columns. Nothing is left
 --- behind on a failure. Raises unless exactly one of `path` and `text` is
---- given, and for a delimiter `table` would raise for, or NUL. A `path` is
+--- given, and for a delimiter `table` would raise for, NUL, or a byte of
+--- the UTF-8 byte order mark. A `path` is
 --- read more than once, so it names a regular file that stays as it is
 --- while it loads, not a pipe.
 function Csv.load(handle: Sqlite.Handle, name: string, source: Csv.Source): Csv.Loaded | nil, string
@@ -449,6 +450,10 @@ function Csv.load(handle: Sqlite.Handle, name: string, source: Csv.Source): Csv.
   local delimiter = delimiter_of({ delimiter = source.delimiter })
   if delimiter == "\0" then
     error("csv: load's delimiter cannot be NUL, which SQL text cannot hold", 2)
+  end
+  if delimiter == "\xEF" or delimiter == "\xBB" or delimiter == "\xBF" then
+    error("csv: load's delimiter cannot be a byte of the UTF-8 byte order mark, " ..
+        "which SQLite's CSV table reads as one", 2)
   end
   local parameter: string
   local text, path = source.text, source.path
@@ -503,8 +508,8 @@ function Csv.load(handle: Sqlite.Handle, name: string, source: Csv.Source): Csv.
   local json = source.json
   if json ~= nil then
     reserved[#reserved + 1] = json
-    if #keys > 499 then
-      return undone("a JSON column takes at most 499 fields, and the header has " .. #keys)
+    if #keys > 500 then
+      return undone("a JSON column takes at most 500 fields, and the header has " .. #keys)
     end
   end
   local names = Csv.column_names(keys, reserved)
