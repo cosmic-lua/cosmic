@@ -1358,8 +1358,7 @@ local function phase_declared_types(p: PlatformContext): integer
   local c = p.operation
   local files = Orchestration.declared_types_files(c.root)
   if #files == 0 then
-    Fs.put(Fs.stderr, "declared types: no cosmic/, build/, core/ or eval/ *declared_types_test.tl file
-")
+    Fs.put(Fs.stderr, "declared types: no cosmic/, build/, core/ or eval/ *declared_types_test.tl file\n")
     return 1
   end
   local argv: {string} = { BuildPaths.directory(p.root) .. "/bin/cosmic", "test", "--check-types" }
