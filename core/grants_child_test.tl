@@ -91,7 +91,7 @@ local function under(tmp: string, program: string, more: {raw_process.Grant}, sc
   local grants: {raw_process.Grant} = { { path = program, access = "rx" } }
   for _, grant in ipairs(more) do grants[#grants + 1] = grant end
   local outcome = start(tmp, program, grants, script)
-  if unsandboxable(outcome) then Test.skip(outcome.refused) end
+  if unsandboxable(outcome) then Test.skip(assert(outcome.refused)) end
   assert(outcome.refused == nil, "the start was refused: " .. tostring(outcome.refused))
   return outcome
 end
@@ -202,7 +202,7 @@ local function test_a_grant_that_does_not_exist_fails_the_start_naming_it(tmp: s
   local missing = tmp .. "/missing"
   local outcome = start(tmp, probe, { { path = probe, access = "rx" }, { path = missing, access = "r" } },
     "print never")
-  if unsandboxable(outcome) then Test.skip(outcome.refused) end
+  if unsandboxable(outcome) then Test.skip(assert(outcome.refused)) end
   assert(outcome.refused ~= nil and outcome.refused:find(missing, 1, true), "names the path: " .. tostring(outcome.refused))
   assert(outcome.errno == sys.ENOENT, "ENOENT: " .. tostring(outcome.errno))
   assert(outcome.said == "")
@@ -285,7 +285,7 @@ end
 local function forking(tmp: string, program: string, script: string): Outcome
   local outcome = start(tmp, program, { { path = program, access = "rx" },
     { path = tmp, access = "rwcx" } }, script, { "fork" })
-  if unsandboxable(outcome) then Test.skip(outcome.refused) end
+  if unsandboxable(outcome) then Test.skip(assert(outcome.refused)) end
   assert(outcome.refused == nil, "the start was refused: " .. tostring(outcome.refused))
   return outcome
 end
@@ -352,7 +352,10 @@ local function test_a_ruleset_descriptor_keeps_the_filter_to_the_starting_pid(tm
   abi_or_skip()
   local probe = assert(stand_in.build(tmp .. "/stand-in"))
   local ruleset, trouble = process.landlock_ruleset({ probe }, { tmp })
-  if ruleset == nil then Test.skip("no ruleset: " .. tostring(trouble)) end
+  if ruleset == nil then
+    Test.skip("no ruleset: " .. tostring(trouble))
+    return
+  end
   local path = tmp .. "/said"
   local output = assert(sys.open(path, sys.O_CREAT | sys.O_RDWR | sys.O_TRUNC, 420))
   local pid, why = process.spawn(probe, { probe, "run " .. probe .. " signal TERM" }, nil, nil, nil,
@@ -369,7 +372,7 @@ end
 local function test_no_grants_grant_nothing_and_the_program_needs_its_own(tmp: string)
   local probe = assert(stand_in.build(tmp .. "/stand-in"))
   local none = start(tmp, probe, {}, "print never")
-  if unsandboxable(none) then Test.skip(none.refused) end
+  if unsandboxable(none) then Test.skip(assert(none.refused)) end
   -- Held to nothing, the child cannot run its own program: the start fails, and says why.
   assert(none.refused ~= nil and none.errno == sys.EACCES, "EACCES: " .. tostring(none.refused))
   assert(none.refused:find("`rx` grant", 1, true), none.refused)
