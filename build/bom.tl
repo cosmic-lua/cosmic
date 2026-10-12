@@ -195,21 +195,35 @@ local function notice_text(directory: string, notice: bom.Notice): string | nil,
   return table.concat(kept, "\n") .. "\n"
 end
 
---- The files under `patch/<name>/`, each with its sha256, one per line.
+--- The files of the tree that stand in a vendored tree's place, by its
+--- name: tl's source is the checker ([`checker/tl.tl`]), which descends from
+--- it, and the binary carries that file's compile. They are listed with
+--- the tree's patches, so a reader knows the code is not upstream's as
+--- published.
+local descendants: {string:{string}} = { tl = { "checker/tl.tl" } }
+
+--- The tree's `descendants`, then the files under `patch/<name>/`, each
+--- with its sha256, one per line.
 local function patches_of(root: string, name: string): string | nil, string
+  local lines: {string} = {}
+  for _, file in ipairs(descendants[name] or {}) do
+    local data, _ = Fs.read(root .. "/" .. file)
+    if data ~= nil then
+      lines[#lines + 1] = file .. " " .. Hash.hex_sha256(data)
+    end
+  end
   local directory = root .. "/patch/" .. name
   local exists, trouble = Fs.exists(directory)
   if exists == nil then
     return nil, trouble
   end
   if not exists then
-    return "", ""
+    return table.concat(lines, "\n"), ""
   end
   local names, list_trouble = Fs.list(directory)
   if names == nil then
     return nil, list_trouble
   end
-  local lines: {string} = {}
   for _, file in ipairs(names) do
     -- Only what [`build/patch.tl`] applies: a patch record is a `.txt`.
     if String.ends_with(file, ".txt") and #file > 4 then
