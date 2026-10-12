@@ -1,0 +1,10 @@
+file: sqlite3.c
+note: bytecode() and tables_used() compile the SQL they are given, and compiling a PRAGMA that changes a connection setting changes it: `bytecode('PRAGMA query_only = 0')` turns query_only off, and `PRAGMA temp_store_directory` changes the whole process. Neither table is marked direct-only upstream, so a view or trigger in a database a caller opens could change the connection's settings just by being read. Marked SQLITE_VTAB_DIRECTONLY, as cosmic's own SQL functions are SQLITE_DIRECTONLY, the tables answer the caller's own SQL, a TEMP view's or trigger's among it, and refuse those a database file holds ("unsafe use of virtual table"). Upstream marks neither as of 3.54.0.
+--- find
+  rc = sqlite3_declare_vtab(db, azSchema[isTabUsed]);
+  if( rc==SQLITE_OK ){
+--- replace
+  rc = sqlite3_declare_vtab(db, azSchema[isTabUsed]);
+  if( rc==SQLITE_OK ){
+    sqlite3_vtab_config(db, SQLITE_VTAB_DIRECTONLY);
+--- end
