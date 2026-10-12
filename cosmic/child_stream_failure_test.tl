@@ -61,7 +61,8 @@ local function test_a_read_failure_follows_queued_stdout_and_stderr()
         end
         local data, trouble, errno = read(which, count)
         if which == fd and data ~= nil then bytes = bytes + #data end
-        return data, trouble, errno
+        if data == nil then return nil, trouble, errno end
+        return data
       end
       assert(assert(h:wait(Clock.seconds(5))).ok)
     end)
