@@ -231,18 +231,23 @@ SQLite's [FTS5](https://sqlite.org/fts5.html).
 - `bytecode(SQL)`: a table of the program SQLite compiles the first
   statement in SQL into, one row per instruction: `addr`, `opcode`, `p1`
   to `p5` and `subprog`, as [SQLite describes them](https://sqlite.org/bytecodevtab.html).
-  The statement is compiled, not run, but compiling a PRAGMA that sets
-  something sets it. A trigger's or a foreign key's program follows the
+  The statement is compiled, not run, but a PRAGMA that changes a setting
+  of the connection, such as `query_only` or `cache_size`, changes it as
+  it compiles; one that acts when run, such as `user_version`, does not.
+  A trigger's program, or a foreign key action's, follows the
   statement's, named in `subprog`, its `addr` from 0 again. `comment` is
   NULL and `nexec` and `ncycle` are 0 in cosmic's SQLite. SQL that holds
   no statement, or does not compile, fails the query, without SQLite's
   reason. Neither this table nor the next can be used in a view or a
-  trigger.
-- `tables_used(SQL)`: a table of the tables and indexes the first
-  statement in SQL opens, compiled as `bytecode` compiles it, one row
-  each time it opens one: `type` (`table` or `index`), `schema`, `name`,
-  `wr` (1 where it writes) and `subprog`. A virtual table, and a common
-  table expression, opens none.
+  trigger stored in a database file; a TEMP one can use both.
+- `tables_used(SQL)`: a table of the tables and indexes the program for
+  the first statement in SQL opens, compiled as `bytecode` compiles it,
+  one row for each open: `type` (`table` or `index`), `schema`, `name`,
+  `wr` (1 where it writes) and `subprog`. An open the program decides as
+  it runs is not listed, so neither is the table or index a `CREATE`
+  makes, nor anything `VACUUM` touches; a virtual table has no row. The
+  schema table is named `sqlite_master`, and a `WITHOUT ROWID` table's key
+  is named as the table.
 - `pragma_*`: each [PRAGMA](https://sqlite.org/pragma.html) that answers
   rows is a table-valued function of its own name, such as
   `pragma_table_info('t')`.

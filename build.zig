@@ -1438,7 +1438,8 @@ fn vendorLibraries(
     // `bytecode` and `tables_used` tables are on: what a statement compiles
     // to, and which tables and indexes it opens, learned without running
     // it, in about 4 KB. They compile what they are given, which applies a
-    // setting PRAGMA, so patch/sqlite/ keeps them from views and triggers.
+    // PRAGMA that changes a connection setting, so patch/sqlite/ keeps them
+    // from the views and triggers a database file holds.
     const sqlite_flags = [_][]const u8{
         "-std=c11",
         debug_dir,
