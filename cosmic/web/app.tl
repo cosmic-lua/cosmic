@@ -220,7 +220,7 @@ function App.serve(app: Types.App, opts: Types.ServeOptions): boolean, string
   end
   app.stopped = false
   app.stream_limit = app.spec.max_streams or ((opts.limits or {}).connections or 256) // 2
-  local shutdown: Types.Shutdown = nil
+  local shutdown: Types.Shutdown | nil = nil
   if app.spec.lifespan ~= nil then
     local cleanup, why = app.spec.lifespan(app)
     if cleanup == nil and why ~= nil and why ~= "" then return false, why end

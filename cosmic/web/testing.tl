@@ -46,8 +46,8 @@ local record Testing
     scheme: string
     --- Whether the app's lifespan has run.
     started: boolean
-    --- The cleanup the lifespan returned.
-    shutdown: Types.Shutdown
+    --- The cleanup the lifespan returned, nil once run or when it returned none.
+    shutdown?: Types.Shutdown
 
     --- One request, answered by the app's handler. `path` may hold a query.
     --- A reply the server would refuse raises, with the server's reason.
