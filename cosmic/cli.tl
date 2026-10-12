@@ -713,6 +713,10 @@ local module: Module = {
         ["--census"] = { about = "say the digests every key of the run holds, and where none " ..
             "stood on the shared cache, how many rows it holds, even in a checkout " ..
             "that ran before" },
+        ["--check-types"] = { about = "compile the tree with a run-time check of each declared " ..
+            "parameter, return value and record field write against its type's kind, run every " ..
+            "test, and report the values that fail one; reporting only, no verdict changes " ..
+            "(COSMIC_TEST_CHECK_TYPES=1)" },
         ["--jobs"] = { value = "n", about = "run n tests at once; one per processor by default" },
         ["--shard"] = { value = "i/n", about = "run only the i-th of n shares of the chosen " ..
             "tests, dealt in turn in sorted order, so n runs, i = 1 to n, run each test once" },

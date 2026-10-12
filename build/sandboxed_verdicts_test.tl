@@ -644,6 +644,48 @@ end
   assert(rows[1][1] == "core.allocation_test", "ran under another compiler: " .. rows[1][1])
 end
 
+--- A checked run (`--check-types`) compiles the tree with run-time checks
+--- under a compiler of its own ([`importer.checked_tool`]), which moves
+--- the key of a test whose closure reads the compiler's identity as
+--- another compiler does: a verdict it earned never stands for the same
+--- test of an unchecked run. A test of the same bytes that reads no
+--- compiler stands across the two.
+local function test_a_checked_runs_verdicts_never_stand_for_an_unchecked_run(tmp: string)
+  local root = tmp .. "/root"
+  assert(Fs.mkdirs(root .. "/suite"))
+  assert(Fs.mkdirs(root .. "/core"))
+  assert(Fs.write(root .. "/suite/lib.tl", "return { value = 1 }\n"))
+  assert(Fs.write(root .. "/suite/plain_test.tl", [[
+local lib = require("suite.lib")
+
+local function test_plain()
+  assert(lib.value == 1)
+end
+]]))
+  assert(Fs.write(root .. "/core/allocation_test.tl", [[
+local lib = require("suite.lib")
+
+local function test_reads()
+  assert(lib.value == 1)
+end
+]]))
+  local env = environment(tmp .. "/cache/verdicts.db")
+  local checked = run(root, tmp .. "/checked.out", env, { "--check-types" })
+  if unsandboxed(checked) then Test.skip("no worker could be sandboxed here") end
+  assert(checked:find("2 ran, 0 stood", 1, true), checked)
+  local function ran_last(): string
+    local db = assert(Sqlite.open(build_dir(root) .. "/build.db"))
+    local rows = assert(Sqlite.text_rows(db,
+      "SELECT group_concat(path, ' ') FROM (SELECT path FROM runs " ..
+        "WHERE run_at_ns = (SELECT max(run_at_ns) FROM runs) ORDER BY path)"))
+    assert(db:close())
+    return rows[1][1]
+  end
+  local plain = run(root, tmp .. "/plain.out", env)
+  assert(plain:find("1 ran, 1 stood", 1, true), plain)
+  assert(ran_last() == "core.allocation_test", "ran: " .. ran_last())
+end
+
 --- A test whose module does not declare `store` is given the store of
 --- its import closure at o/cosmic.db (build/closure_store.tl's `write`), in
 --- the projection's place: it holds none of the tree's modules outside

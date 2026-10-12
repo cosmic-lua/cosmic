@@ -107,7 +107,7 @@ local function generate(file: string, source: string, built?: compiler): string 
       for _, e in ipairs(group or {}) do
         local where = (e.filename == nil or e.filename == "") and file or e.filename
         local instead = where == file and
-          teal.replacement(e.msg, source, e.y, e.x, e.fields, file, refused) or nil
+          teal.replacement(e, source, file, refused) or nil
         lines[#lines + 1] = where .. ":" .. e.y .. ":" .. e.x .. ": " .. e.msg ..
           (instead ~= nil and " -- " .. instead or "")
       end

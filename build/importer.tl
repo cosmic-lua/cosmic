@@ -811,23 +811,26 @@ end
 --- warning is a refused compile on cosmic's paths (see `generate`).
 --- Added here, where every message is rendered, rather than in
 --- the checker's own text.
-local function with_unused_hint(msg: string): string
-  if msg:match("^unused variable ") or msg:match("^unused argument ") then
-    return msg .. " -- name it _ or _<name> to mark it intentionally unused"
+local function with_unused_hint(e: compiler.Error): string
+  if e.code == "unused" and (e.declares == "variable" or e.declares == "argument") then
+    return e.msg .. " -- name it _ or _<name> to mark it intentionally unused"
   end
-  return msg
+  return e.msg
 end
 
---- The bare name tl's checker names in a message reporting that
---- nothing by that name exists: "unknown variable: NAME" (a global
---- reference -- `os.time()`, once [`build.teal`] strips `os` from the
---- checker's own environment for exactly this) or "module not found:
---- 'NAME'" (a `require` of a literal string nothing provides). `nil`
---- for any other message, since only these two name a single missing
---- word worth looking up.
-local function unresolved_name(msg: string): string
-  return msg:match("^unknown variable: (.+)$") or
-    msg:match("^module not found: '(.+)'$")
+--- The bare name the checker names in an error reporting that nothing by
+--- that name exists: an unknown variable (a global reference --
+--- `os.time()`, once [`build.teal`] strips `os` from the checker's own
+--- environment for exactly this) or a module not found (a `require` of a
+--- literal string nothing provides). `nil` for any other error, since only
+--- these two name a single missing word worth looking up.
+local function unresolved_name(e: compiler.Error): string | nil
+  if e.code == "unknown_variable" then
+    return e.variable
+  elseif e.code == "module_not_found" then
+    return e.key
+  end
+  return nil
 end
 
 --- The databases a hint looks a name up in, and whether each is read as
@@ -844,8 +847,8 @@ local type Hints = function(): {Sqlite.Handle}, {boolean}
 --- Only the symbol's name, never its documentation: the error already
 --- says where to read that in full (`cosmic docs <name>`), and a
 --- compile failure is not the place to reprint it.
-local function with_docs_hint(msg: string, hints: Hints): string
-  local name = unresolved_name(msg)
+local function with_docs_hint(msg: string, e: compiler.Error, hints: Hints): string
+  local name = unresolved_name(e)
   if name == nil then
     return msg
   end
@@ -862,18 +865,17 @@ end
 --- not carry enough AST binding information here to claim a particular call.
 --- Only a message [`teal.replacement`] leaves unanswered is pointed here
 --- ([`with_hint`]).
-local function diagnostic_docs(msg: string): string | nil
-  if msg:match("^wrong number of arguments %(") or
-      msg:match("^argument %d+: got .+, expected ") then
+local function diagnostic_docs(e: compiler.Error): string | nil
+  if e.code == "arity" or (e.code == "mismatch" and e.context == "argument" and not e.nested) then
     return importer.diagnostic_queries.arguments
-  elseif msg:match("^invalid key '.-' in record ") then
+  elseif e.code == "invalid_key" and e.variable ~= nil and e.resolved_kind ~= "interface" then
     return importer.diagnostic_queries.record_key
   end
   return nil
 end
 
-local function with_diagnostic_docs(msg: string, hints: Hints): string
-  local query = diagnostic_docs(msg)
+local function with_diagnostic_docs(msg: string, e: compiler.Error, hints: Hints): string
+  local query = diagnostic_docs(e)
   if query == nil then
     return msg
   end
@@ -890,12 +892,12 @@ end
 --- [`teal.replacement`] answers says what to write instead, which a
 --- reader acts on where a pointer at the docs goes unread, so it is
 --- given no such pointer.
-local function with_hint(msg: string, hints: Hints, answered: boolean): string
-  local said = with_docs_hint(with_unused_hint(msg), hints)
+local function with_hint(e: compiler.Error, hints: Hints, answered: boolean): string
+  local said = with_docs_hint(with_unused_hint(e), e, hints)
   if answered then
     return said
   end
-  return with_diagnostic_docs(said, hints)
+  return with_diagnostic_docs(said, e, hints)
 end
 
 --- `file`'s own complaints, one line each. A removed name's replacement
@@ -915,8 +917,8 @@ local function complain(file: string, source: string, result: compiler.Result,
     for _, e in ipairs(group or {}) do
       local where = e.filename ~= "" and e.filename or file
       local instead = where == file and
-        teal.replacement(e.msg, source, e.y, e.x, e.fields, file, refused) or nil
-      local said = with_hint(e.msg, hints, instead ~= nil)
+        teal.replacement(e, source, file, refused) or nil
+      local said = with_hint(e, hints, instead ~= nil)
       if instead ~= nil then
         said = e.msg .. " -- " .. instead .. said:sub(#e.msg + 1)
       end
@@ -1110,7 +1112,8 @@ end
 local function compile_derived(handle: work.Handle, built: compiler, tool: string,
                                own_tree: boolean, parses: importer.Parses,
                                unjudged: boolean, shared: importer.Shared,
-                               pool: importer.Workers | nil): importer.Result | nil, string
+                               pool: importer.Workers | nil,
+                               checks: boolean): importer.Result | nil, string
   local modules, trouble = compilation.collect(handle.db)
   if modules == nil then
     return nil, trouble
@@ -1297,7 +1300,7 @@ local function compile_derived(handle: work.Handle, built: compiler, tool: strin
             result.worked = result.worked + 1
           else
             if env == nil then
-              local made_env, env_trouble = teal.environment_for(built, handle.db, handle.root)
+              local made_env, env_trouble = teal.environment_for(built, handle.db, handle.root, checks)
               if made_env == nil then
                 failure = env_trouble
                 break
@@ -1391,7 +1394,8 @@ end
 local function prepare_compile(handle: work.Handle, built: compiler, tool: string,
                                unjudged: boolean, shared: importer.Shared,
                                pool: importer.Workers | nil,
-                               choose: function(identities.Identities): string | nil, string): importer.Result | nil, string
+                               choose: function(identities.Identities): string | nil, string,
+                               checks: boolean): importer.Result | nil, string
   local own_tree, own_trouble = tree.is_own(handle.root)
   if own_tree == nil then return nil, own_trouble end
   local parses, derive_trouble = importer.derive(handle, own_tree, built, shared, pool)
@@ -1403,7 +1407,7 @@ local function prepare_compile(handle: work.Handle, built: compiler, tool: strin
     if selected == nil then return nil, select_trouble end
     tool = selected
   end
-  return compile_derived(handle, built, tool, own_tree, parses, unjudged, shared, pool)
+  return compile_derived(handle, built, tool, own_tree, parses, unjudged, shared, pool, checks)
 end
 
 --- The cache belongs to the whole derive/identity/compile operation,
@@ -1411,12 +1415,24 @@ end
 local function consuming_compile(handle: work.Handle, built: compiler, tool: string,
                                  unjudged: boolean, shared: importer.Shared,
                                  pool: importer.Workers | nil,
-                                 choose?: function(identities.Identities): string | nil, string): importer.Result | nil, string
-  local result, trouble = prepare_compile(handle, built, tool, unjudged, shared, pool, choose)
+                                 choose?: function(identities.Identities): string | nil, string,
+                                 checks?: boolean): importer.Result | nil, string
+  local result, trouble = prepare_compile(handle, built, tool, unjudged, shared, pool, choose,
+    checks == true)
   if shared ~= nil then shared.finish() end
   if pool ~= nil then pool.close() end
   if result == nil then return nil, trouble end
   return result, ""
+end
+
+--- The identity of the compiler `tool` names when it writes the run-time
+--- checks of a typed boundary into what it compiles ([`importer.compile`]'s
+--- `checks`). Every key carries it in `tool`'s place, so a module compiled
+--- with checks and one without share no row of the working database and no
+--- entry of the compiles every checkout shares, and the verdict of a test
+--- keyed by it is kept apart from a test run without.
+function importer.checked_tool(tool: string): string
+  return Hash.hex_sha256(tool .. "\0run-time-checks")
 end
 
 --- Compiles every module, in import order, into Lua and bytecode --
@@ -1454,11 +1470,28 @@ end
 ---   and each module is compiled to the same Lua and bytecode in
 ---   whichever process compiles it, so the rows written do not depend on
 ---   the pool. Closed before this returns, whatever it returns.
+--- @param checks whether the compiled Lua checks a value against its declared
+---   kind at each declared parameter, return value and record field write,
+---   and reports a mismatch to the hook `__cosmic_tc` ([`build.test_worker`]
+---   installs one). It keys every compile by [`importer.checked_tool`], so no
+---   cache shares an entry between the two. A pool is refused: the environment
+---   that writes the checks is this process's.
 function importer.compile(handle: work.Handle, built: compiler,
                           tool: string, unjudged?: boolean,
                           shared?: importer.Shared,
-                          pool?: importer.Workers): importer.Result | nil, string
-  return consuming_compile(handle, built, tool, unjudged, shared, pool)
+                          pool?: importer.Workers,
+                          checks?: boolean): importer.Result | nil, string
+  if checks == true then
+    -- The pool's processes compile in environments of their own, which write
+    -- no checks: given one, the compile would be keyed as checked and not be.
+    if pool ~= nil then
+      pool.close()
+      if shared ~= nil then shared.finish() end
+      return nil, "a compile with run-time checks is made in this process: it takes no pool"
+    end
+    tool = importer.checked_tool(tool)
+  end
+  return consuming_compile(handle, built, tool, unjudged, shared, pool, nil, checks)
 end
 
 --- Compiles a self-build after deriving its sources and recording its

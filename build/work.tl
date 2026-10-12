@@ -277,6 +277,11 @@ local version <const> = "29"
 --- run, and writing them, then deleting the last run's, cost a full run
 --- most of its time.
 ---
+--- `type_violations` holds what the last `cosmic test --check-types` run
+--- reported ([`build.test`]'s `keep_violations`): a row for each distinct
+--- violation, where it was met and the first test that met it, replacing
+--- the run before's.
+---
 --- The statements of `derived`, `inputs` and the tables a parse fills
 --- are [`build.analysis_schema`]'s, which this places between the
 --- stage's and the records': what a parse's rows are shaped by is kept
@@ -422,6 +427,16 @@ for _, statement in ipairs({
                                                  test TEXT NOT NULL,
                                                  hits TEXT NOT NULL,
                                                  PRIMARY KEY (ran_at_ns, test))]],
+    [[CREATE TABLE IF NOT EXISTS type_violations (ran_at_ns INTEGER NOT NULL,
+                                                kind TEXT NOT NULL,
+                                                site TEXT NOT NULL,
+                                                target TEXT NOT NULL,
+                                                declared TEXT NOT NULL,
+                                                actual TEXT NOT NULL,
+                                                count INTEGER NOT NULL,
+                                                test TEXT NOT NULL,
+                                                PRIMARY KEY (kind, site, target, declared,
+                                                             actual)) WITHOUT ROWID]],
 }) do
   work.schema[#work.schema + 1] = statement
 end

@@ -977,6 +977,14 @@ indexes the tree's modules and their declarations, and this file is
 neither. [`build/stdlib_declarations_test.tl`] pins how the checker
 prints representative names.
 
+an error the checker reports carries a `code` and the places and values it
+is about (an argument's position, the types shown, the key and the record's
+fields, the counts of a call), declared as `Error` in
+[`build/compiler.d.tl`]. the hints [`build/teal.tl`] adds to a refusal read
+those, never its message, which only a person reads; an error no hint reads
+has the code `other`. a rule that refuses more lands with its code and its
+hint together.
+
 the planned cast restriction would allow `x as T` only from `any`, from a
 userdata record declared in a `.d.tl`, or from the enclosing
 generic's type variable. `any` is legal only where untrusted data
@@ -1004,6 +1012,27 @@ declared `: never` neither returns nor reaches its end. the `as` and `is`
 casts and the holes every type has (`coroutine.wrap`, `rawset`,
 `setmetatable`) are on the roadmap, and [`test/narrowing_test.tl`] and
 [`build/teal_test.tl`] pin today's behavior of each.
+
+a checked test run (`cosmic test --check-types`) finds where the types
+lie. it compiles the tree with a run-time check at each declared boundary:
+an annotated parameter at the function's entry, a declared return value at
+its `return`, and a write to a record field (`r.f = v`). the check compares
+the value's Lua kind (`type`, and `math.type` for an integer) with the
+kinds the declared type admits: nil only where the type admits it, a record
+or a map as a table, an enum as a string; `any` and a type variable are not
+checked. a violation is recorded with the line that sent the value (the
+caller for a parameter, the statement for a return and a write), the
+declared kinds and the value's, and the run reports them and fails
+nothing: the checker accepts nil for any type, so the report lists code it
+allows. a `return f(x)` (a tail call, which a check would end), a vararg
+parameter or return, and a write to a field a record inherits or a generic
+record declares are not checked. the run changes the Lua, so its compiler
+has an identity of its own ([`build.importer`]'s `checked_tool`) in every compile key, the
+working database's rows and the compiles every checkout shares alike, and
+its projection is written aside (`cosmic.checked.db`): the tree's projection,
+the tool and every executable `cosmic build` writes never carry a check.
+[`build.test_worker`], which holds the hook the checks call, is compiled
+without them.
 
 a function type stands for another when its parameters accept what the
 other's do (contravariant) and its returns are subtypes of the other's
@@ -1282,10 +1311,12 @@ in [roadmap.md](roadmap.md).
 [`build.positions`]: ../build/positions.tl
 [`build.reboot.own_tool`]: ../build/reboot.tl
 [`build.stub`]: ../build/stub.tl
+[`build.test_worker`]: ../build/test_worker.tl
 [`build.work`]: ../build/work.tl
 [`build.writer`]: ../build/writer.tl
 [`build/bom.tl`]: ../build/bom.tl
 [`build/closure_store.tl`]: ../build/closure_store.tl
+[`build/compiler.d.tl`]: ../build/compiler.d.tl
 [`build/compiler_test.tl`]: ../build/compiler_test.tl
 [`build/declared_key.tl`]: ../build/declared_key.tl
 [`build/dispatched_features_test.tl`]: ../build/dispatched_features_test.tl
@@ -1300,6 +1331,7 @@ in [roadmap.md](roadmap.md).
 [`build/shards.tl`]: ../build/shards.tl
 [`build/shared_compiles.tl`]: ../build/shared_compiles.tl
 [`build/stdlib_declarations_test.tl`]: ../build/stdlib_declarations_test.tl
+[`build/teal.tl`]: ../build/teal.tl
 [`build/teal_test.tl`]: ../build/teal_test.tl
 [`build/test.tl`]: ../build/test.tl
 [`build/test_worker.tl`]: ../build/test_worker.tl

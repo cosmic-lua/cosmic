@@ -98,7 +98,7 @@ local function test_the_compiler_compiles_itself_to_itself()
   --
   -- TODO: assert `#result.type_errors == 0` instead, once the checker's own
   -- source is migrated to the rules the checker holds the tree to.
-  local known <const> = 323
+  local known <const> = 321
   assert(#result.type_errors == known, "the checker's source has " ..
       tostring(#result.type_errors) .. " type errors, not " .. tostring(known) ..
       ": update `known` if a change to the source fixed or added one")

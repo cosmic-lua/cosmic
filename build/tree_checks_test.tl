@@ -867,3 +867,16 @@ local function test_a_guide_in_neither_list_is_refused()
   assert(#found == 1 and found[1]:find("^doc/guides/newcomer%.md is in neither") ~= nil,
     table.concat(found, "\n"))
 end
+
+--- An unused label is as unused as an unused local: a test module under
+--- `ci/testdata` is not refused for one, and any other file is.
+local function test_an_unused_label_in_ci_testdata_follows_the_unused_rule(dir: string)
+  local base = dir .. "/tree/ci/testdata/sub"
+  assert(Fs.mkdirs(base))
+  assert(Fs.write(base .. "/zz_test.tl", "local function test_x()\n  ::lonely::\n  assert(true)\nend\n"))
+  assert(Fs.write(base .. "/label.tl", "do\n  ::lonely::\nend\nreturn 1\n"))
+  local found = tree_checks.ci_testdata(dir .. "/tree", (assert(teal.load())))
+  local all = table.concat(found, "\n")
+  assert(all:find("zz_test", 1, true) == nil, all)
+  assert(all:find("ci/testdata/sub/label.tl:2:", 1, true) ~= nil, all)
+end

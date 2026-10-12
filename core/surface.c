@@ -99,8 +99,30 @@ static int surface_trace_of (lua_State *L) {
   return 1;
 }
 
+/* The place of the Lua frame at or above `level` (argument 1, default 1,
+ * the binding's caller as in `trace`): "source:line" of the first frame from
+ * there that is running a Lua function, or nil where the stack holds none.
+ * A caller that must name where a value came from asks this, which costs a
+ * frame and not the traceback `trace` builds. */
+static int surface_where (lua_State *L) {
+  int level = cosmic_optint(L, 1, 1);
+  lua_Debug ar;
+  while (lua_getstack(L, level, &ar)) {
+    lua_getinfo(L, "Sl", &ar);
+    if (ar.currentline > 0) {
+      lua_pushfstring(L, "%s:%d", ar.short_src, ar.currentline);
+      return 1;
+    }
+    level++;
+  }
+  lua_pushnil(L);
+  return 1;
+}
+
 static int open_errors (lua_State *L) {
-  lua_createtable(L, 0, 2);
+  lua_createtable(L, 0, 3);
+  lua_pushcfunction(L, surface_where);
+  lua_setfield(L, -2, "where");
   lua_pushcfunction(L, surface_trace);
   lua_setfield(L, -2, "trace");
   lua_pushcfunction(L, surface_trace_of);
