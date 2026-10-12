@@ -3762,7 +3762,7 @@ local function start(argv: {string}, opts: Options, pty?: Pty, serves_relay?: in
   -- TODO: offer the rest of spawn's `sandbox` -- a ruleset from
   -- raw.landlock_ruleset, a pledge -- once a caller wants a child held
   -- to one: build/sandbox_probe.tl, which reaches the raw table for them.
-  local sandbox: raw_process.Sandbox = nil
+  local sandbox: raw_process.Sandbox | nil = nil
   if opts.sandbox ~= nil then
     local given = opts.sandbox.unveil
     sandbox = { offline = opts.sandbox.offline == true,

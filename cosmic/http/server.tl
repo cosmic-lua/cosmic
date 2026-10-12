@@ -532,7 +532,7 @@ local function exchange(s: Serving, conn: Net.Conn, input: wire.Input, head: wir
   end
   replied = true
   conn:set_timeout(s.timeout_ns)
-  local sent: wire.Sent = nil
+  local sent: wire.Sent | nil = nil
   local sending, raised_sending: boolean, any = xpcall(function()
     sent = wire.send(conn, {
       status = reply.status, headers = reply.headers, body = reply.body, length = reply.length,
@@ -546,6 +546,8 @@ local function exchange(s: Serving, conn: Net.Conn, input: wire.Input, head: wir
     report(s, "http: " .. where .. ": the reply's body: " .. tostring(raised_sending))
     return false
   end
+  -- The send answered once it did not raise.
+  if sent == nil then return false end
   local failed = body.state ~= "open" and body.state ~= "done"
   if sent.body_failure ~= "" and not failed then
     report(s, "http: " .. where .. ": the reply's body: " .. sent.body_failure)
@@ -785,7 +787,7 @@ function Server.range(header: string | nil, size: integer): Server.Range
   if equals == nil or value:sub(1, equals - 1):lower() ~= "bytes" or ows(value:byte(equals + 1)) then
     return unranged
   end
-  local spec: string = nil
+  local spec: string | nil = nil
   local from = equals + 1
   while true do
     local comma = value:find(",", from, true)

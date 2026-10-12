@@ -932,7 +932,7 @@ local function parse_tzif(data: string): Rules | nil, string
   -- could run the length of the file once per type.
   local window = math.min(chars, 511)
   local nul_after: {integer:integer} = {}
-  local next_nul: integer = nil
+  local next_nul: integer | nil = nil
   for k = window - 1, 0, -1 do
     if data:byte(names_at + k) == 0 then next_nul = k end
     nul_after[k] = next_nul
@@ -1060,13 +1060,23 @@ local refused_count = 0
 local REFUSED_KEPT <const> = 1024
 
 --- Every zone name the binary carries, read at the first lookup.
-local carried_names: {string:boolean} = nil
+local carried_names: {string:boolean} | nil = nil
 
 --- What a zone the carried database lacks says after it: a zone IANA
 --- added since the database was built is one a newer database has, and
 --- this is how this binary, or a program built with it, gets one.
 local NEWER_ZONES <const> = "if the zone is new, `cosmic refresh tzdata --binary <this program> " ..
   "-o <copy>` writes a copy with a newer tz database"
+
+--- Every zone name the binary carries, read at the first call.
+local function carried_set(): {string:boolean} | nil, string
+  if carried_names ~= nil then return carried_names, "" end
+  local Store = require("cosmic.store")
+  local names, trouble = Store.zone_names()
+  if names == nil then return nil, trouble end
+  carried_names = names
+  return names, ""
+end
 
 --- The zone `name` names, as [`Time.zone`] answers for a name that is not
 --- empty.
@@ -1087,12 +1097,9 @@ local function zone_of(name: string): Time.Zone | nil, string
     return why
   end
   local Store = require("cosmic.store")
-  if carried_names == nil then
-    local names, trouble = Store.zone_names()
-    if names == nil then return nil, ("time zone %s: %s"):format(name, trouble) end
-    carried_names = names
-  end
-  if not carried_names[name] then
+  local known, listing = carried_set()
+  if known == nil then return nil, ("time zone %s: %s"):format(name, listing) end
+  if not known[name] then
     return nil, remember(("no time zone %s: this binary's tz database has none; %s"):format(
       name, NEWER_ZONES))
   end
@@ -1248,7 +1255,7 @@ local unset_local: Time.Zone | nil = nil
 --- /etc/localtime and `opts.timezone` for /etc/timezone. With no options,
 --- the answer is read once a process.
 function Time.local_zone(opts?: Time.LocalOptions): Time.Zone | nil, string
-  local tz: string = nil
+  local tz: string | nil = nil
   local localtime, timezone = "/etc/localtime", "/etc/timezone"
   if opts ~= nil then
     tz = opts.tz

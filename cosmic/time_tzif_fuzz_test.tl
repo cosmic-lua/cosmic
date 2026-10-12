@@ -133,7 +133,7 @@ end
 --- cost that grows faster than the length, which the reference would
 --- share, still leaves it short of the largest drawn read. Taken the
 --- first time a read is slow enough to ask.
-local reference_ns: integer = nil
+local reference_ns: integer | nil = nil
 local function reference(): integer
   if reference_ns == nil then
     local count = 4000

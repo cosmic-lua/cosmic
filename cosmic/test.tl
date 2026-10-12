@@ -305,7 +305,7 @@ end
 local declared_parents: {string:boolean} = {}
 
 --- Where the one `policy` call came from, once it has come.
-local called_at: string = nil
+local called_at: string | nil = nil
 
 --- Where `policy` was called from, as the chunk and line a
 --- traceback names -- its frame four up: this, `declare`, the call, its

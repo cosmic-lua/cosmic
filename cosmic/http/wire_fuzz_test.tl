@@ -68,7 +68,7 @@ end
 --- The requests `fields` hold, from the first "r" on.
 local function requests_of(fields: {string}): {Request}
   local out: {Request} = {}
-  local current: Request = nil
+  local current: Request | nil = nil
   for _, f in ipairs(fields) do
     local letter, text = f:sub(1, 1), f:sub(2)
     if letter == "r" then
@@ -378,7 +378,7 @@ local function test_a_reply_is_framed_as_its_status_and_method_say(tmp: string)
         for i = 1, cookies do list[i] = ("c%d=v; Expires=Wed, 21 Oct 2026"):format(i) end
         reply_headers["Set-Cookie"] = list
       end
-      local declared: integer = nil
+      local declared: integer | nil = nil
       if given ~= "" then
         declared = given == "same" and #text or #text + 1
         reply_headers[given_name] = tostring(declared)
@@ -393,7 +393,7 @@ local function test_a_reply_is_framed_as_its_status_and_method_say(tmp: string)
       end
       -- What a given size may not be: other than `length`, given a 1xx
       -- or 204, or not the body's, which is 0 for none but to HEAD.
-      local own: integer = nil
+      local own: integer | nil = nil
       if kind == "string" and text ~= "" then
         own = #text
       elseif (kind == "none" or kind == "string") and method ~= "HEAD" then

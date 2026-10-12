@@ -157,7 +157,7 @@ local PROFILE <const> = Shape.record_of("Profile")
 --- spooled under a random name, with the client's filename kept for display
 --- alone, and removed when the handler returns unless it moves the file.
 function Example.upload()
-  local kept: string = nil
+  local kept: string | nil = nil
   local app = Web.app{ routes = {
     Web.post_typed("/profile", Web.input(Web.NONE, Web.NONE, Web.multipart_body(PROFILE)),
       function(req: Web.Request, _p: Web.None, _q: Web.None, form: Profile): Web.Response

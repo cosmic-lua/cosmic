@@ -223,7 +223,7 @@ local function holds_key_twice(compact: string | nil): boolean | nil
 end
 
 local function decode_holds(input: string): boolean, string
-  local strict_text: string = nil
+  local strict_text: string | nil = nil
   for _, json5 in ipairs({ false, true }) do
     for _, big in ipairs({ false, true }) do
       local where = ("json5=%s big=%s"):format(tostring(json5), tostring(big))

@@ -195,7 +195,7 @@ local function save_session(self: Session.Store, previous: string, data: Session
                             changes: Session.Changes, now: integer, _cookie: string): string | nil, string
   local store = backing(self)
   local token = previous
-  local failure: string = nil
+  local failure: string | nil = nil
   -- No yield between the first read and the commit: another request of
   -- this process cannot interleave, and another process meets SQLite's lock.
   -- The transaction begins IMMEDIATE, taking the write lock before the read:

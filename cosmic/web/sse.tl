@@ -384,7 +384,7 @@ function Body.read(self: Body, max_bytes?: integer): string | nil, string
       end
       if timeout == nil or left < timeout then timeout = left end
     end
-    local ev: Sse.Event = nil
+    local ev: Sse.Event | nil = nil
     local why = ""
     do
       -- The guard covers only a wait in `source:next`: a task killed there
@@ -664,7 +664,7 @@ end
 --- The events of the rings of `names` after the one with id `after`:
 --- nil where no ring holds it.
 local function replayed(self: State, names: {string}, after: string): {Sse.Event} | nil
-  local found: integer = nil
+  local found: integer | nil = nil
   for _, name in ipairs(names) do
     local topic = self.topics[name]
     if topic ~= nil then
@@ -701,7 +701,7 @@ end
 
 --- The id of the newest event the rings of `names` hold.
 local function head_id(self: State, names: {string}): string | nil
-  local best: Entry = nil
+  local best: Entry | nil = nil
   for _, name in ipairs(names) do
     local topic = self.topics[name]
     if topic ~= nil and topic.last >= topic.first then
@@ -725,7 +725,7 @@ function State.subscribe(self: State, topics: {string}, opts?: Sse.SubscribeOpti
       names[#names + 1] = name
     end
   end
-  local after: string = nil
+  local after: string | nil = nil
   if opts ~= nil then
     if type(opts) ~= "table" then error("sse: subscribe takes a table of options", 2) end
     if type(opts.after) == "string" and opts.after ~= "" then after = opts.after end

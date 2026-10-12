@@ -453,7 +453,7 @@ end
 local function test_the_budget_is_half_the_connections_unless_the_app_says()
   local hub = Sse.new_hub({})
   local app = hub_app(hub)
-  local seen: integer = nil
+  local seen: integer | nil = nil
   local ok, why = Web.serve(app, { listeners = { Net.tcp("127.0.0.1", 0) }, limits = { connections = 10 },
     on_ready = function(_addresses: {Net.Address}, server: Net.Server)
       seen = app.stream_limit
@@ -466,7 +466,7 @@ end
 
 --- Serves `app` with a grace of `grace_ns`, and calls `fn` with the address and the server.
 local function serving(app: Web.App, grace_ns: integer, fn: function(host: string, server: Net.Server))
-  local failure: string = nil
+  local failure: string | nil = nil
   local ok, why = Web.serve(app, { listeners = { Net.tcp("127.0.0.1", 0) }, grace_ns = grace_ns,
     on_ready = function(addresses: {Net.Address}, server: Net.Server)
       local ran, trouble = pcall(function()
@@ -610,7 +610,7 @@ end
 local function test_a_quiet_stream_with_heartbeats_outlives_the_servers_timeouts()
   local hub = Sse.new_hub({})
   local app = hub_app(hub, { heartbeat_ns = Clock.ms(25), retry_ms = 100 })
-  local failure: string = nil
+  local failure: string | nil = nil
   local ok, why = Web.serve(app, { listeners = { Net.tcp("127.0.0.1", 0) },
     timeout_ns = Clock.ms(100), idle_ns = Clock.ms(100), grace_ns = Clock.seconds(1),
     on_ready = function(addresses: {Net.Address}, server: Net.Server)

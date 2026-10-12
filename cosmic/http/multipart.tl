@@ -376,7 +376,7 @@ local function parse_headers(p: Parser, block: string, body: Stream.Reader): Mul
   if has_control(name) or not utf8.len(name) then
     return nil, "multipart: a part's name holds a control byte or is not UTF-8"
   end
-  local filename: string = nil
+  local filename: string | nil = nil
   local claimed = params["filename"]
   if claimed ~= nil then
     local clean, trouble = clean_filename(unescape(claimed))

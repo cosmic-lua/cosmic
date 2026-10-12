@@ -1112,7 +1112,7 @@ local function drain(s: Serving)
       while true do
         local task = next(s.conns)
         if task == nil then return end
-        local left: integer = nil
+        local left: integer | nil = nil
         if deadline ~= nil then left = math.max(deadline - Clock.monotonic_ns(), 0) end
         local ended, _ = task:join(left)
         if not ended then return end

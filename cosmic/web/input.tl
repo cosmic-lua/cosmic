@@ -396,6 +396,12 @@ local function counted(source: Stream.Reader, limit: integer): Stream.Reader, fu
 end
 
 --- The value of a `<close>` variable: only its `__close` matters.
+--- The file an upload is being written to, where the closer of a killed
+--- task can reach it.
+local record Spool
+  writer?: Stream.FileWriter
+end
+
 local record Unwinding
   metamethod __close: function(Unwinding)
 end
@@ -446,7 +452,7 @@ local function read_multipart(req: Types.Request, limit: integer, opts: Types.In
   -- `Input.sweep_uploads(dir, older_than_ns)` for a lifespan hook), once an
   -- app keeps uploads in a directory of its own that outlives a request; a
   -- private directory under the temp directory is the system's to clean.
-  local made: string = nil
+  local made: string | nil = nil
   local kept: {Input.Upload} = {}
   local fields: Url.Query = { pairs = {}, by_name = {} }
   local files: {string:{Input.Upload}} = {}
@@ -465,11 +471,12 @@ local function read_multipart(req: Types.Request, limit: integer, opts: Types.In
   -- runs no code after the wait, only its pending closes: they remove what
   -- is spooled so far.
   local settled = false
-  local spooling: Stream.FileWriter = nil
+  local spooling: Spool = {}
   local unwinding_mt: metatable<Unwinding> = { __close = function()
     if settled then return end
-    if spooling ~= nil then
-      local _, _ = spooling:abort()
+    local writer = spooling.writer
+    if writer ~= nil then
+      local _, _ = writer:abort()
     end
     m:discard()
   end }
@@ -523,7 +530,7 @@ local function read_multipart(req: Types.Request, limit: integer, opts: Types.In
         local path = into .. "/" .. Codec.hex((assert(Rand.entropy(16))))
         local writer, trouble = Stream.create(path, 384)
         if writer == nil then return storage_failed(trouble) end
-        spooling = writer
+        spooling.writer = writer
         local size = 0
         local verdict, detail = "ok", ""
         local chunk: string | nil = first
@@ -548,7 +555,7 @@ local function read_multipart(req: Types.Request, limit: integer, opts: Types.In
         else
           local _, _ = writer:abort()
         end
-        spooling = nil
+        spooling.writer = nil
         if verdict == "disk" then return storage_failed(detail) end
         if verdict == "source" then return stop_with(multipart_failed(detail, limit)) end
         if verdict == "over" then

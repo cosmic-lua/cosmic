@@ -766,7 +766,7 @@ end
 local function test_the_raw_handle_close_returns_no_values()
   -- The raw module is handed only to cosmic.http's own loader, as the
   -- store's searcher's second answer; asking the searcher by hand gets it.
-  local raw: {string: function(string, {string: any}): any, string} = nil
+  local raw: {string: function(string, {string: any}): any, string} | nil = nil
   for _, searcher in ipairs(package.searchers as {function(string): any, any}) do
     local loader, extra = searcher("cosmic.http")
     if type(loader) == "function" and type(extra) == "table" and
