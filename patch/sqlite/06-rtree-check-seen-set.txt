@@ -1,60 +1,66 @@
 file: sqlite3.c
-note: The set of nodes the check's walk has read (05-rtree-check-reads-each-node-once.txt), open-addressed by the high bits of a multiplicative hash of the node number, as the low bits of the product depend only on the number's low bits and numbers that share them would share a slot. A slot of 0 is empty, and no number below 1 enters the set. The set doubles before an add would fill more than half its slots, so a probe always reaches an empty slot; a set that cannot grow fails the check as out of memory.
+note: The set of nodes the check's walk has read (05-rtree-check-reads-each-node-once.txt), kept in sorted runs whose sizes are the bits of its count, largest first, as a binary counter keeps its carries: an add appends a run of one and merges the last two runs while they are the same size. A lookup searches each run, O(log^2 n), and an add costs O(log n) amortized, whatever the node numbers; a hash with a fixed multiplier, which the numbers in a file may be chosen to collide under, does not bound it. No number below 1 enters the set. A set that cannot grow fails the check as out of memory.
 --- find
 static void rtreeCheckNode(
   RtreeCheck *pCheck,
 --- replace
 /*
-** The slot of aSeen, which has 1<<nBit slots, that holds iNode, or the
-** empty slot where iNode would go.
-*/
-static i64 *rtreeCheckSlot(i64 *aSeen, int nBit, i64 iNode){
-  sqlite3_uint64 mask = ((sqlite3_uint64)1<<nBit) - 1;
-  sqlite3_uint64 h = ((sqlite3_uint64)iNode * 0x9E3779B97F4A7C15ULL) >> (64-nBit);
-  while( aSeen[h] && aSeen[h]!=iNode ){
-    h = (h+1) & mask;
-  }
-  return &aSeen[h];
-}
-
-/*
-** Whether node iNode, 1 or above, is in pCheck's set of nodes the walk
-** has read.
+** Whether node iNode is in pCheck's set of nodes the walk has read.
 */
 static int rtreeCheckSeen(RtreeCheck *pCheck, i64 iNode){
-  assert( iNode>=1 );
-  if( pCheck->aSeen==0 ) return 0;
-  return *rtreeCheckSlot(pCheck->aSeen, pCheck->nSeenBit, iNode)!=0;
+  i64 iOff = 0;
+  int iBit;
+  for(iBit=62; iBit>=0; iBit--){
+    i64 nRun = (i64)1<<iBit;
+    if( pCheck->nSeen & nRun ){
+      i64 *a = &pCheck->aSeen[iOff];
+      i64 lo = 0, hi = nRun;
+      while( lo<hi ){
+        i64 mid = lo + (hi-lo)/2;
+        if( a[mid]==iNode ) return 1;
+        if( a[mid]<iNode ) lo = mid+1; else hi = mid;
+      }
+      iOff += nRun;
+    }
+  }
+  return 0;
 }
 
 /*
-** Put node iNode, 1 or above and not yet in the set, in pCheck's set of
-** nodes the walk has read, doubling the set first if the add would fill
-** more than half its slots.
+** Put node iNode, not yet in the set, in pCheck's set of nodes the walk
+** has read: append it as a run of one, then merge the last two runs while
+** they are the same size.
 */
 static void rtreeCheckAddSeen(RtreeCheck *pCheck, i64 iNode){
-  assert( iNode>=1 );
-  if( pCheck->aSeen==0 || 2*(pCheck->nSeen+1)>((i64)1<<pCheck->nSeenBit) ){
-    int nBit = pCheck->aSeen ? pCheck->nSeenBit+1 : 4;
-    i64 nOld = pCheck->aSeen ? ((i64)1<<pCheck->nSeenBit) : 0;
-    i64 *aNew = sqlite3_malloc64(sizeof(i64)*((i64)1<<nBit));
-    i64 i;
+  i64 nRun;
+  if( pCheck->nSeen==pCheck->nSeenAlloc ){
+    i64 nAlloc = pCheck->nSeenAlloc ? 2*pCheck->nSeenAlloc : 16;
+    i64 *aNew = sqlite3_realloc64(pCheck->aSeen, sizeof(i64)*nAlloc);
     if( aNew==0 ){
       pCheck->rc = SQLITE_NOMEM;
       return;
     }
-    memset(aNew, 0, sizeof(i64)*((i64)1<<nBit));
-    for(i=0; i<nOld; i++){
-      if( pCheck->aSeen[i] ){
-        *rtreeCheckSlot(aNew, nBit, pCheck->aSeen[i]) = pCheck->aSeen[i];
-      }
-    }
-    sqlite3_free(pCheck->aSeen);
     pCheck->aSeen = aNew;
-    pCheck->nSeenBit = nBit;
+    aNew = sqlite3_realloc64(pCheck->aSeenTmp, sizeof(i64)*nAlloc);
+    if( aNew==0 ){
+      pCheck->rc = SQLITE_NOMEM;
+      return;
+    }
+    pCheck->aSeenTmp = aNew;
+    pCheck->nSeenAlloc = nAlloc;
   }
-  *rtreeCheckSlot(pCheck->aSeen, pCheck->nSeenBit, iNode) = iNode;
-  pCheck->nSeen++;
+  pCheck->aSeen[pCheck->nSeen++] = iNode;
+  for(nRun=1; (pCheck->nSeen & nRun)==0; nRun*=2){
+    i64 *a = &pCheck->aSeen[pCheck->nSeen - 2*nRun];
+    i64 *b = &pCheck->aSeen[pCheck->nSeen - nRun];
+    i64 i = 0, j = 0, k = 0;
+    while( i<nRun && j<nRun ){
+      pCheck->aSeenTmp[k++] = a[i]<b[j] ? a[i++] : b[j++];
+    }
+    while( i<nRun ) pCheck->aSeenTmp[k++] = a[i++];
+    while( j<nRun ) pCheck->aSeenTmp[k++] = b[j++];
+    memcpy(a, pCheck->aSeenTmp, sizeof(i64)*2*nRun);
+  }
 }
 
 static void rtreeCheckNode(

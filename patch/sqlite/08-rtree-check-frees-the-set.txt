@@ -4,5 +4,6 @@ note: The check frees its set of read nodes (05-rtree-check-reads-each-node-once
   sqlite3_finalize(check.pGetNode);
 --- replace
   sqlite3_free(check.aSeen);
+  sqlite3_free(check.aSeenTmp);
   sqlite3_finalize(check.pGetNode);
 --- end

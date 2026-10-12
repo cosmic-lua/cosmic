@@ -425,10 +425,11 @@ end
 --- `_parent` or `_rowid` row moved or dropped, a wide root whose every
 --- cell points back at itself over a `_node` table padded with rows the
 --- tree never reaches, or at its own row of a node number 2^32 from the
---- next, and a node numbered 0 or -1 whose cells point at itself below a
---- root whose depth header lies. A check that may read a node more than
---- once, hashes node numbers by their low bits, or lets numbers below 1
---- past its set, takes minutes or more on one of them.
+--- next or chosen to collide under a fixed multiplicative hash, and a node
+--- numbered 0 or -1 whose cells point at itself below a root whose depth
+--- header lies. A check that may read a node more than once, keeps the
+--- nodes it has read in a hash such numbers collide in, or lets numbers
+--- below 1 past its set, takes minutes or more on one of them.
 local DAMAGES <const> = { "depth", "child", "bytes", "length", "parent", "rowid", "wide", "below" }
 
 --- A file holding an R*Tree damaged in one of those ways, written to
@@ -496,14 +497,22 @@ local function test_rtree_survives_damaged_trees(tmp: string)
           { { integer = pick % 7 - 2 }, { integer = nodeno } }
       elseif damage == "wide" then
         local cells, padding = 4096 + pick % 61440, 1000 + (pick >> 16) % 19000
-        local apart = #bytes > 0 and bytes:byte(1) % 2 == 1
+        -- The root's cells point at itself, or each at its own row: node
+        -- numbers 2^32 apart, or multiples of the inverse of the golden
+        -- ratio multiplier mod 2^64, which that hash sends to one slot.
+        local spread = #bytes > 0 and bytes:byte(1) % 3 or 0
+        local apart = spread > 0
         local parts: {string} = {}
         assert(db:exec("BEGIN"))
         if apart then
-          for i = 1, cells do
-            local child = 2 + i * (1 << 32)
-            assert(Sqlite.run(db, "INSERT INTO b_node VALUES (?1, x'00000000')", { { integer = child } }))
-            parts[i] = string.pack(">i8", child) .. string.rep("\0", 16)
+          local j = 0
+          while #parts < cells do
+            j = j + 1
+            local child = spread == 1 and 2 + j * (1 << 32) or j * 0xF1DE83E19937733D
+            if child >= 2 then
+              assert(Sqlite.run(db, "INSERT INTO b_node VALUES (?1, x'00000000')", { { integer = child } }))
+              parts[#parts + 1] = string.pack(">i8", child) .. string.rep("\0", 16)
+            end
           end
         else
           for i = 1, padding do
