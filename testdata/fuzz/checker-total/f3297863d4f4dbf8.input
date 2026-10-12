@@ -1,0 +1,10 @@
+local record R
+  a: integer | nil
+  n: integer
+end
+local r: R = { n = 0 }
+local function maybe(): integer | nil return nil end
+local x: integer | nil = maybe()
+local y: integer | nil = maybe()
+local function touch(t: R) t.a = nil end
+for i = x, 2 do print(i) end

@@ -1,0 +1,35 @@
+local record R
+  a: integer | nil
+  b: integer | nil
+  n: integer
+end
+local r: R = { a = 1, n = 0 }
+local s: R = { b = 2, n = 0 }
+local count: integer = 0
+local sink: integer = 0
+local nums: {integer} = { 1, 2, 3 }
+local opts: {integer | nil} = { 1, 2, 3 }
+local function maybe(): integer | nil
+  count = count + 1
+  if count % 3 == 0 then return nil end
+  return count
+end
+local function pick(): R | nil
+  count = count + 1
+  if count % 3 == 0 then return nil end
+  if count % 2 == 0 then return r end
+  return s
+end
+local function touch(t: R)
+  t.a = nil
+  t.b = nil
+end
+local function id(v: integer | nil): integer | nil
+  return v
+end
+local x: integer | nil = id(1)
+local function reset() x = nil end
+if x == nil then return sink end
+reset()
+sink = sink + x + 1
+return sink

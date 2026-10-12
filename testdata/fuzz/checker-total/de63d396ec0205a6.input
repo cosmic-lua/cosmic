@@ -1,0 +1,2 @@
+local function f(a: integer) print(a) end
+f(1, 2)

@@ -1,5 +1,5 @@
---- Fuzz properties for the type checker, and a pinned corpus of its
---- verdicts. Programs are drawn over what the narrowing work touches:
+--- Fuzz properties for the type checker. Programs are drawn over what the
+--- narrowing work touches:
 --- locals and record fields typed `integer | nil`, `if`/`elseif`/`else`
 --- on nil tests, `assert`, `and`/`or`, the four loops with `break` and
 --- `goto`, function literals that assign upvalues, calls, field writes
@@ -15,15 +15,21 @@
 ---    calls only those declared before it) and deterministic (nil comes
 ---    from a counter), so the run needs no hook; [`Fuzz.run`]'s budget ends
 ---    one that nonetheless does not stop.
---- 3. The corpus pins the verdict (accepted, or the codes of its errors)
----    of each program in it, so a change in what the checker takes or
----    refuses shows up as a change here, to be made on purpose.
+---
+--- Each property's corpus (`testdata/fuzz/checker-total/` and
+--- `testdata/fuzz/checker-sound/`) is checked before anything is drawn,
+--- even at `FUZZ_ITERS=0`, so it gates a merge. `checker-total` holds the
+--- programs that once raised in the checker and the diagnostics' shapes;
+--- `checker-sound` the programs whose narrowing must stay refused (each
+--- fails at run time on a nil if accepted), and some that must keep
+--- running. What the checker takes or refuses beyond those, and the
+--- limits it has today, are pinned by build/checker_narrowing_test.tl.
 local Fuzz = require("build.fuzz")
 local Test = require("cosmic.test")
 local teal = require("build.teal")
 local type compiler = require("build.compiler")
 
--- The compiler is the tree's own checker, keyed by the core; nothing is read.
+-- The compiler is the tree's own checker, keyed by the core; [`Fuzz.run`] reads the corpus.
 Test.policy{}
 
 local built: compiler | nil
@@ -212,15 +218,16 @@ end
 
 --- Whether a bare use of `p` is kept out of the draw, for the holes the
 --- checker has in what it keeps of a local past a call to a function that
---- assigns it. Each is a program the corpus pins, with a TODO:
+--- assigns it. Each is a program build/checker_narrowing_test.tl pins as a
+--- limit, with a TODO:
 --- 1. the local is the second name of a declaration of two;
 --- 2. the local is written in an inner block (and is narrowed by a test
----    around the write, as the corpus has it);
+---    around the write, as that test has it);
 --- 3. a nil test that leaves the block follows a function declared in the
 ---    same inner block (`v.hole`, see [`learn_here`]).
 --- TODO: draw these once a call drops a local that a function literal in any
---- enclosing block assigns (the same TODO as in the corpus, which has the
---- programs).
+--- enclosing block assigns (the same TODO as in
+--- build/checker_narrowing_test.tl, which has the programs).
 local function held(g: Gen, v: Vis, p: string): boolean
   if has(v.hole, p) then return true end
   return g.closure_assigned[p] == true and (g.multi[p] == true or g.nested_written[p] == true)
@@ -635,7 +642,8 @@ local function guarded_use(g: Gen, v: Vis, depth: integer)
   local p = Fuzz.pick(g.src, pool)
   local form = g.src:int(0, 6)
   -- A function that clears the place, declared before the test: one declared
-  -- inside the branch is dropped at a call for another reason (see the corpus).
+  -- inside the branch is dropped at a call for another reason
+  -- (build/checker_narrowing_test.tl pins that limit).
   local helper: string | nil = nil
   if g.src:int(0, 1) == 0 then
     helper = fresh(g, "p")
@@ -867,12 +875,6 @@ end
 -- Properties
 --------------------------------------------------------------------------------
 
---- The most inputs a deep run draws, whatever `FUZZ_ITERS` asks. A test has
---- 30 seconds. At `FUZZ_ITERS=10000` this module took 11 to 23 seconds with
---- this cap (500), and 22 to 30 with 1000, on four shared cores, about 4 of
---- them startup; a larger cap risks the deadline.
-local MAX_ITERS <const> = 500
-
 local function count_lines(text: string): integer
   local _, n = text:gsub("\n", "\n")
   return n + 1
@@ -888,15 +890,20 @@ local function malformed(e: compiler.Error, lines: integer): string | nil
   return nil
 end
 
+--- `why` and the program it is about: a report spells out only the first
+--- 512 bytes of an input, in hex, and the header of a program alone is
+--- longer.
+local function about(why: string, source: string): string
+  return why .. "\n--- program ---\n" .. source
+end
+
+--- A raise of the checker is [`Fuzz.run`]'s to report (and to attribute to
+--- the budget when the checker stops terminating), so it is not caught here.
 local function never_raises(source: string): boolean, string
-  local ok, code, result = pcall(check, source)
-  if not ok then
-    return false, "the checker raised: " .. tostring(code) .. "\n--- program ---\n" .. source
-  end
-  local r = result as compiler.Result
+  local code, r = check(source)
   if code == nil then
     if #r.syntax_errors == 0 then
-      return false, "no code and no syntax error\n--- program ---\n" .. source
+      return false, about("no code and no syntax error", source)
     end
     Fuzz.label("syntax error")
   elseif #r.type_errors == 0 then
@@ -908,7 +915,7 @@ local function never_raises(source: string): boolean, string
   for _, list in ipairs({ r.syntax_errors, r.type_errors }) do
     for _, e in ipairs(list) do
       local why = malformed(e, lines)
-      if why then return false, why .. "\n--- program ---\n" .. source end
+      if why then return false, about(why, source) end
     end
   end
   return true, ""
@@ -931,11 +938,7 @@ local CONSTRUCTS <const>: {{string}} = {
 local NIL_FAULT <const> = "attempt to"
 
 local function runs_safely(source: string): boolean, string
-  local ok, code, result = pcall(check, source)
-  if not ok then
-    return false, "the checker raised: " .. tostring(code) .. "\n--- program ---\n" .. source
-  end
-  local r = result as compiler.Result
+  local code, r = check(source)
   if code == nil or #r.syntax_errors > 0 or #r.type_errors > 0 then
     Fuzz.label("refused")
     return true, ""
@@ -945,8 +948,7 @@ local function runs_safely(source: string): boolean, string
   local env: {string:any} = { assert = assert, ipairs = ipairs, tostring = tostring, type = type }
   local chunk, why = load(code, "=fuzz", "t", env)
   if chunk == nil then
-    return false, "the checker accepted a program whose Lua does not load: " .. tostring(why) ..
-      "\n--- program ---\n" .. source
+    return false, about("the checker accepted a program whose Lua does not load: " .. tostring(why), source)
   end
   local ran, err = pcall(chunk)
   if ran then
@@ -963,7 +965,7 @@ local function runs_safely(source: string): boolean, string
   end
   local what = message:find(NIL_FAULT, 1, true) and "accepted a program that fails at run time: " or
     "an accepted program raised: "
-  return false, what .. message .. "\n--- program ---\n" .. source
+  return false, about(what .. message, source)
 end
 
 local function test_the_checker_never_raises_and_places_its_errors(tmp: string)
@@ -972,7 +974,6 @@ local function test_the_checker_never_raises_and_places_its_errors(tmp: string)
     dir = tmp,
     gen = gen_any,
     check = never_raises,
-    max_iters = MAX_ITERS,
     requires = { "accepted", "refused", "syntax error" },
     shares = { accepted = 0.05, refused = 0.1 },
   })
@@ -984,229 +985,9 @@ local function test_an_accepted_program_does_not_fail_on_a_nil(tmp: string)
     dir = tmp,
     gen = gen_program,
     check = runs_safely,
-    max_iters = MAX_ITERS,
     requires = { "accepted", "ran", "refused", "ran with while", "ran with repeat", "ran with numeric for",
       "ran with generic for", "ran with goto", "ran with break", "ran with assert",
       "ran with function literal", "ran with early exit", "ran with elseif" },
     shares = { accepted = 0.2 },
   })
-end
-
---------------------------------------------------------------------------------
--- The corpus
---------------------------------------------------------------------------------
-
-local record Case
-  name: string
-  expect: string
-  source: string
-end
-
---- What a program has to say of the checker: `accepted`, `refused: ` and
---- the codes of its type errors in order, or `syntax: ` and those of its
---- syntax errors.
-local function verdict(source: string): string
-  local ok, code, result = pcall(check, source)
-  if not ok then
-    return "raised: " .. tostring(code)
-  end
-  local r = result as compiler.Result
-  local codes: {string} = {}
-  for _, e in ipairs(code == nil and r.syntax_errors or r.type_errors) do
-    codes[#codes + 1] = tostring(e.code)
-  end
-  table.sort(codes)
-  if code == nil then return "syntax: " .. table.concat(codes, ",") end
-  if #codes == 0 then return "accepted" end
-  return "refused: " .. table.concat(codes, ",")
-end
-
---- The places most cases read: a record with an optional field, a local
---- of type `integer | nil`, a function that may write the field and one
---- that answers a number or nil.
-local HEAD <const> = table.concat({
-  "local record R",
-  "  a: integer | nil",
-  "  n: integer",
-  "end",
-  "local r: R = { n = 0 }",
-  "local function maybe(): integer | nil return nil end",
-  "local x: integer | nil = maybe()",
-  "local y: integer | nil = maybe()",
-  "local function touch(t: R) t.a = nil end",
-  "",
-}, "\n")
-
---- Programs chosen for what they cover, each with the verdict it has
---- today. A verdict changes on purpose: the change that makes the checker
---- take or refuse one of these edits its line.
-local CORPUS <const>: {Case} = {
-  -- Accepted: what narrowing is for.
-  { name = "assignment narrows a local", expect = "accepted",
-    source = "local v: integer | nil = 1\nprint(v + 1)\n" },
-  { name = "a truthy test narrows", expect = "accepted",
-    source = HEAD .. "if x then print(x + 1) end\n" },
-  { name = "a nil test narrows both ways", expect = "accepted",
-    source = HEAD .. "if x == nil then print(0) else print(x + 1) end\n" },
-  { name = "a negated test narrows", expect = "accepted",
-    source = HEAD .. "if not x then print(0) else print(x + 1) end\n" },
-  { name = "an early return narrows the rest", expect = "accepted",
-    source = HEAD .. "local function f(): integer\n  if x == nil then return 0 end\n  return x + 1\nend\nprint(f)\n" },
-  { name = "assert narrows", expect = "accepted",
-    source = HEAD .. "assert(x)\nprint(x + 1)\n" },
-  { name = "or gives a default", expect = "accepted",
-    source = HEAD .. "local n: integer = x or 0\nprint(n + 1)\n" },
-  { name = "and narrows its right side", expect = "accepted",
-    source = HEAD .. "print(x and x + 1)\n" },
-  { name = "both of two tests", expect = "accepted",
-    source = HEAD .. "if x and y then print(x + y) end\n" },
-  { name = "an elseif chain", expect = "accepted",
-    source = HEAD .. "if x == nil then print(1) elseif y == nil then print(x + 1) else print(x + y) end\n" },
-  { name = "an early exit of two tests", expect = "accepted",
-    source = HEAD .. "if x == nil then return elseif y == nil then return end\nprint(x + y)\n" },
-  { name = "a field test narrows the field", expect = "accepted",
-    source = HEAD .. "if r.a then print(r.a + 1) end\n" },
-  { name = "assert narrows a field", expect = "accepted",
-    source = HEAD .. "assert(r.a)\nprint(r.a + 1)\n" },
-  { name = "a write of another field keeps it", expect = "accepted",
-    source = HEAD .. "if r.a then\n  r.n = 1\n  print(r.a + 1)\nend\n" },
-  { name = "a call that runs nothing of ours keeps it", expect = "accepted",
-    source = HEAD .. "if r.a then\n  print(1)\n  print(r.a + 1)\nend\n" },
-  { name = "an unrelated function declared before the test keeps it", expect = "accepted",
-    source = HEAD .. "local function own() local z: integer | nil = nil z = 1 print(z) end\nif x then\n  own()\n  print(x + 1)\nend\n" },
-  { name = "a type test narrows a union", expect = "accepted",
-    source = "local function f(u: string | number)\n  if type(u) == \"number\" then print(u + 1) else print(#u) end\nend\nprint(f)\n" },
-  { name = "is narrows a union", expect = "accepted",
-    source = "local function f(u: string | number | nil)\n  if u is number then print(u + 1) end\nend\nprint(f)\n" },
-  { name = "a while test holds in its body", expect = "accepted",
-    source = HEAD .. "local i = 0\nwhile x and i < 3 do\n  i = i + 1\n  print(x + i)\nend\n" },
-  { name = "repeat until with a break", expect = "accepted",
-    source = HEAD .. "local i = 0\nrepeat\n  i = i + 1\n  if i > 1 then break end\nuntil i >= 3\nprint(i)\n" },
-  { name = "numeric for with a guarded use", expect = "accepted",
-    source = HEAD .. "for i = 1, 3 do\n  if x then print(x + i) end\nend\n" },
-  { name = "generic for over an array of optionals", expect = "accepted",
-    source = "local opts: {integer | nil} = { 1, 2 }\nfor _, v in ipairs(opts) do\n  if v then print(v + 1) end\nend\n" },
-  { name = "goto continue", expect = "accepted",
-    source = HEAD .. "for i = 1, 3 do\n  if i == 2 then goto next end\n  print(i)\n  ::next::\nend\n" },
-
-  -- Refused: the checker holds a use to what the program has shown.
-  -- TODO: accept this once a call to a function declared inside the narrowed
-  -- branch drops only what its body can assign: it drops `x` though its
-  -- body assigns nothing of it.
-  { name = "a function declared inside the branch drops it at a call", expect = "refused: operator_binary",
-    source = HEAD .. "if x then\n  local function own() print(1) end\n  own()\n  print(x + 1)\nend\n" },
-  { name = "an unguarded optional is no number", expect = "refused: operator_binary",
-    source = HEAD .. "print(x + 1)\n" },
-  { name = "or of two tests narrows neither", expect = "refused: operator_binary",
-    source = HEAD .. "if x or y then print(x + 1) end\n" },
-  { name = "a nil test without an exit narrows nothing after", expect = "refused: operator_binary",
-    source = HEAD .. "if x == nil then print(1) end\nprint(x + 1)\n" },
-  { name = "an assignment widens the local again", expect = "refused: narrowing_dropped",
-    source = HEAD .. "if x then\n  x = maybe()\n  print(x + 1)\nend\n" },
-  { name = "a call drops a narrowed field", expect = "refused: narrowing_dropped",
-    source = HEAD .. "if r.a then\n  touch(r)\n  print(r.a + 1)\nend\n" },
-  { name = "a write of the field drops it", expect = "refused: narrowing_dropped",
-    source = HEAD .. "if r.a then\n  r.a = nil\n  print(r.a + 1)\nend\n" },
-  { name = "a write through another reference drops it", expect = "refused: narrowing_dropped",
-    source = HEAD .. "local p: R = { n = 1 }\nif r.a then\n  p.a = nil\n  print(r.a + 1)\nend\n" },
-  { name = "a function literal assigning the local drops it at a call", expect = "refused: narrowing_dropped",
-    source = HEAD .. "local function reset() x = nil end\nif x then\n  reset()\n  print(x + 1)\nend\n" },
-  { name = "a later write in a loop widens it at the top", expect = "refused: operator_binary",
-    source = HEAD .. "if x then\n  while maybe() do\n    print(x + 1)\n    x = nil\n  end\nend\n" },
-  -- TODO: accept this once `type(x) == "..."` guards a field: it waits on the
-  -- roadmap item that makes every guard read every place alike
-  -- (checker/narrowing.tl).
-  { name = "a field under type() is not narrowed yet", expect = "refused: operator_binary",
-    source = HEAD .. "if type(r.a) == \"number\" then print(r.a + 1) end\n" },
-  -- TODO: accept this once the left operand of `and` guards a field: it waits
-  -- on the roadmap item that makes every guard read every place alike
-  -- (checker/narrowing.tl).
-  { name = "a field on the left of and is not narrowed yet", expect = "refused: operator_binary",
-    source = HEAD .. "print(r.a and r.a + 1)\n" },
-  -- TODO: refuse the next two once a call drops a local that a function
-  -- literal in any enclosing block assigns: a nil test that leaves the block,
-  -- made after a function declared in the same inner block, keeps the local
-  -- past a call to it, and `x` is nil there. The same lines at the top of the
-  -- file (the third case), or with the function declared in a block around
-  -- the test, are refused.
-  { name = "an early exit after a function declared in the same inner block keeps the local past a call",
-    expect = "accepted",
-    source = "local x: integer | nil = 0\ndo\n  local function reset() x = nil end\n  if x == nil then return end\n  reset()\n  print(x + 1)\nend\n" },
-  { name = "the same in a branch that tests it", expect = "accepted",
-    source = HEAD .. "if x then\n  local function reset() x = nil end\n  if x == nil then return end\n  reset()\n  print(x + 1)\nend\n" },
-  { name = "the same at the top of the file", expect = "refused: narrowing_dropped",
-    source = "local x: integer | nil = 0\nlocal function reset() x = nil end\nif x == nil then return end\nreset()\nprint(x + 1)\n" },
-  -- TODO: refuse these two once a call drops a local that a function literal in
-  -- any enclosing block assigns: the second name of a declaration of two
-  -- names keeps what a test said of it past a call to the function, and so
-  -- does a local assigned a value in a block that a test of it encloses. `x`
-  -- is nil after the call in both; the first name, and a local alone in its
-  -- declaration, are refused.
-  { name = "the second name of a declaration keeps its test past a call", expect = "accepted",
-    source = "local x, y: integer | nil = nil, 0\nlocal function reset() y = nil end\nif y then\n  reset()\n  print(y + 1)\nend\n" },
-  { name = "a local assigned under a test of it keeps the value past a call", expect = "accepted",
-    source = HEAD .. "local function reset() x = nil end\nif x then\n  x = 1\n  reset()\n  print(x + 1)\nend\n" },
-  { name = "the first name of a declaration does not", expect = "refused: narrowing_dropped",
-    source = "local x, y: integer | nil = 0, nil\nlocal function reset() x = nil end\nif x then\n  reset()\n  print(x + 1)\nend\n" },
-  { name = "a string is no integer", expect = "refused: mismatch",
-    source = "local n: integer = \"a\"\nprint(n)\n" },
-  { name = "an unknown variable", expect = "refused: unknown_variable",
-    source = "print(nope)\n" },
-  { name = "too many arguments", expect = "refused: arity",
-    source = "local function f(a: integer) print(a) end\nf(1, 2)\n" },
-  { name = "a key the record lacks", expect = "refused: invalid_key",
-    source = HEAD .. "r.zzz = 1\n" },
-  { name = "an unknown type", expect = "refused: unknown_type",
-    source = "local v: Nope = nil\nprint(v)\n" },
-  { name = "ipairs of a number", expect = "refused: not_array,unknown_variable",
-    source = "local n: integer = 1\nfor _, v in ipairs(n) do print(v) end\n" },
-  { name = "an optional bound", expect = "refused: for_bound",
-    source = HEAD .. "for i = x, 2 do print(i) end\n" },
-
-  -- TODO: refuse this once a function literal's body begins with none of the
-  -- facts of the places outside it (the roadmap item, and the TODO at
-  -- `narrowing.enter_function` in checker/narrowing.tl): `g` reads `r.a` under
-  -- the test, runs after `r.a = nil`, and fails at run time. The same body
-  -- over a local is refused.
-  { name = "a function declared under a field test reads it after a write", expect = "accepted",
-    source = HEAD .. "if r.a then\n  local function g(): integer return r.a + 1 end\n  r.a = nil\n  print(g())\nend\n" },
-  { name = "a function declared under a local test reads it after a write", expect = "refused: operator_binary",
-    source = HEAD .. "if x then\n  local function g(): integer return x + 1 end\n  x = nil\n  print(g())\nend\n" },
-  -- TODO: refuse these two once the checker reads the true branch of `a or b`
-  -- as nothing where `b` gives no guard (checker/narrowing.tl `evaluate`
-  -- reads it as `not a`); `cond` above holds the details. Each is accepted
-  -- and fails at run time when `x` is nil.
-  { name = "assert of an or narrows its left side by mistake", expect = "accepted",
-    source = HEAD .. "assert(x == nil or y)\nprint(x + 1)\n" },
-  { name = "an or with a call on its right narrows its left side by mistake", expect = "accepted",
-    source = HEAD .. "if x == nil or maybe() then print(x + 1) end\n" },
-
-  -- Syntax errors, and programs that once raised in the checker.
-  { name = "an expression missing", expect = "syntax: other",
-    source = "local x: integer =\n" },
-  { name = "an end missing", expect = "syntax: syntax_error",
-    source = "if x then\n" },
-  { name = "a type for the first of two names", expect = "refused: other,unknown_variable",
-    source = "local x: integer | nil, y = 1, 2\nprint(x, y)\n" },
-  { name = "a narrowed field written, then a function reassigned", expect = "accepted",
-    source = HEAD .. "assert(r.a)\nr.a = 1\nlocal g = function() end\ng = function() print(g) end\n" },
-  { name = "a narrowed field written, then read", expect = "refused: narrowing_dropped",
-    source = HEAD .. "assert(r.a)\nr.a = nil\nprint(r.a + 1)\n" },
-}
-
-local function test_the_checker_keeps_its_verdict_on_each_program_of_the_corpus()
-  local seen: {string:boolean} = {}
-  local changed: {string} = {}
-  local accepted, refused = 0, 0
-  for _, case in ipairs(CORPUS) do
-    assert(not seen[case.name], "the corpus names '" .. case.name .. "' twice")
-    seen[case.name] = true
-    local now = verdict(case.source)
-    if now ~= case.expect then
-      changed[#changed + 1] = ("'%s' was %s and is now %s:\n%s"):format(case.name, case.expect, now, case.source)
-    end
-    if case.expect == "accepted" then accepted = accepted + 1 else refused = refused + 1 end
-  end
-  assert(accepted > 10 and refused > 10, "the corpus holds too few of one verdict")
-  assert(#changed == 0, "the checker's verdict changed; edit CORPUS in build/checker_fuzz_test.tl if on purpose:\n" .. table.concat(changed, "\n"))
 end

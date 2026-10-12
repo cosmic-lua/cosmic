@@ -1,0 +1,2 @@
+local n: integer = "a"
+print(n)
