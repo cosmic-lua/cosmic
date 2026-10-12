@@ -1,0 +1,8 @@
+file: ext/misc/csv.c
+note: The reader notes whether the field it read was quoted, so a blank line, which reads as an empty unquoted field and nothing else, is told from a record of one empty quoted field (24-csv-notes-whether-a-field-was-quoted.txt, 25-csv-reads-a-blank-line-as-nulls.txt, 26-csv-counts-the-first-records-width-past-blank-lines.txt).
+--- find
+  int cTerm;             /* Character that terminated the most recent field */
+--- replace
+  int cTerm;             /* Character that terminated the most recent field */
+  int bQuoted;           /* True if the most recent field was quoted */
+--- end

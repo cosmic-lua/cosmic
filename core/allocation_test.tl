@@ -872,6 +872,21 @@ local function test_sqlite_captured_operations_release_every_refused_allocation(
     assert(testing.open_statements() == statements)
     assert_c_heap(bytes, blocks, "captured SQLite preparation/binding")
   end
+  -- A list is copied for carray(); a refusal of the copy, or of the
+  -- room its elements are gathered in, fails the binding alone.
+  local lists: {Sqlite.Value} = { { integers = { 1, 2 } }, { numbers = { 0.5 } },
+    { texts = { "a", "bb" } }, { blobs = { "\0", "" } } }
+  for _, list in ipairs(lists) do
+    local ended = under_every_failure(function()
+      local statement = assert(db:prepare_result("SELECT count(*) FROM carray(?1)").statement)
+      assert(statement:bind_values_result({ list }).code == Sqlite.OK)
+      assert(statement:step_result() == "row")
+      statement:finalize()
+    end)
+    assert(ended > 0)
+    assert(testing.open_statements() == statements)
+    assert_c_heap(bytes, blocks, "captured SQLite list binding")
+  end
   local ended = under_every_failure(function()
     local statement = assert(db:prepare("SELECT CASE WHEN ?1 THEN 1 ELSE json('bad') END"))
     assert(statement:bind_integer(1, 1))

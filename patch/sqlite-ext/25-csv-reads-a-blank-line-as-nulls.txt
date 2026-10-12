@@ -1,0 +1,12 @@
+file: ext/misc/csv.c
+note: A blank line reads as a row whose first column is '' and the rest NULL, the same as a record of one empty field, so neither a reader of a one-column table nor of a wider one can tell an empty cell written `""` from a blank line, and a wide table pads every blank line to its width. This reads a blank line, an unquoted empty field that ends its record, as a row of NULLs, which `""` is not; cosmic.csv's `load` skips such rows as cosmic.csv's `table` skips blank lines. Upstream reads it as '' as of 3.54.0.
+--- find
+    if( i<pTab->nCol ){
+      if( pCur->aLen[i] < pCur->rdr.n+1 ){
+--- replace
+    if( i==0 && pCur->rdr.n==0 && !pCur->rdr.bQuoted && pCur->rdr.cTerm!=',' ){
+      break;
+    }
+    if( i<pTab->nCol ){
+      if( pCur->aLen[i] < pCur->rdr.n+1 ){
+--- end

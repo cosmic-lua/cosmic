@@ -1,0 +1,15 @@
+file: ext/misc/csv.c
+note: A csv table reads the file its filename= names whenever it is queried. Upstream makes it SQLITE_VTAB_DIRECTONLY, so a view or trigger cannot use one, but a database file's own schema may still declare `CREATE VIRTUAL TABLE x USING csv(filename='/home/me/.ssh/id_rsa')`, and a caller's own `SELECT * FROM x` then reads that file with all of the program's rights: the file, not the program, chose what to read. This refuses a csv table in any schema but temp, which only the connection's own statements create and no database file holds, so a csv table names only what its caller wrote. Upstream allows one in any schema as of 3.54.0, and recommends temp.
+--- find
+  assert( sizeof(azPValue)==sizeof(azParam) );
+  memset(&sRdr, 0, sizeof(sRdr));
+  memset(azPValue, 0, sizeof(azPValue));
+--- replace
+  assert( sizeof(azPValue)==sizeof(azParam) );
+  memset(&sRdr, 0, sizeof(sRdr));
+  memset(azPValue, 0, sizeof(azPValue));
+  if( sqlite3_stricmp(argv[1], "temp")!=0 ){
+    csv_errmsg(&sRdr, "a csv table must be in the temp schema");
+    goto csvtab_connect_error;
+  }
+--- end

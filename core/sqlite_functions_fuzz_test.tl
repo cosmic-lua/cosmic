@@ -4,7 +4,8 @@
 --- compiles a pattern, `decimal` parses a number, `base64`, `base85`
 --- and `uuid_blob` decode text, `ieee754` takes bytes and
 --- integers apart and back, `tointeger` reads an integer literal and
---- `toreal` text as `CAST` does, and `uint` orders text. Each is total: it answers a
+--- `toreal` text as `CAST` does, `uint` orders text, and `carray` reads
+--- a bound list back. Each is total: it answers a
 --- value or NULL, or fails its statement with a message, and never
 --- takes the process down. What an encoder writes, its decoder reads
 --- back. `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (build/fuzz/init.tl).
@@ -567,5 +568,104 @@ local function test_rtree_survives_damaged_trees(tmp: string)
     requires = { "a tree of more than one level", "rtreecheck reported the damage",
       "damaged depth", "damaged child", "damaged wide", "damaged below" },
     shares = { ["a tree of more than one level"] = 0.3, ["rtreecheck reported the damage"] = 0.3 },
+  })
+end
+
+--- The kinds of list a Value binds for carray().
+local LISTS <const> = { "integers", "numbers", "texts", "blobs" }
+
+local function gen_list(src: Fuzz.Source): string
+  local kind = Fuzz.pick(src, LISTS)
+  local fields: {string} = { kind }
+  while Fuzz.more(src, #fields - 1, 40) do
+    if kind == "integers" then
+      fields[#fields + 1] = string.pack("<i8", src:int(math.mininteger, math.maxinteger))
+    elseif kind == "numbers" then
+      -- Any 8 bytes but a NaN's, which SQLite reads as NULL.
+      local bits = string.pack("<i8", src:int(math.mininteger, math.maxinteger))
+      local n = string.unpack("<d", bits)
+      fields[#fields + 1] = n ~= n and string.pack("<d", math.huge) or bits
+    elseif kind == "texts" then
+      fields[#fields + 1] = (Fuzz.bytes(src, 12):gsub("%z", "\1"))
+    else
+      fields[#fields + 1] = Fuzz.bytes(src, 12)
+    end
+  end
+  return Fuzz.pack(fields)
+end
+
+--- A list bound for carray() reads back as the same elements in order,
+--- each of its kind's storage class.
+local function test_carray_reads_back_a_bound_list(tmp: string)
+  Fuzz.run({
+    name = "sqlite carray round trip",
+    dir = tmp,
+    gen = gen_list,
+    check = function(input: string): boolean, string
+      local fields = Fuzz.unpack(input)
+      local kind = fields[1]
+      local list: Sqlite.Value
+      local integers: {integer} = {}
+      local numbers: {number} = {}
+      local strings: {string} = {}
+      for i = 2, #fields do
+        if kind == "integers" then
+          integers[#integers + 1] = (string.unpack("<i8", fields[i]))
+        elseif kind == "numbers" then
+          numbers[#numbers + 1] = (string.unpack("<d", fields[i]))
+        else
+          strings[#strings + 1] = fields[i]
+        end
+      end
+      if kind == "integers" then
+        list = { integers = integers }
+      elseif kind == "numbers" then
+        list = { numbers = numbers }
+      elseif kind == "texts" then
+        list = { texts = strings }
+      else
+        list = { blobs = strings }
+      end
+      -- The plain and the captured helpers bind through different paths
+      -- (cosmic/sqlite.tl's bind, core/sqlite.c's bind_values_result).
+      local rows: Sqlite.Rows
+      if #input % 2 == 0 then
+        local trouble: string
+        rows, trouble = Sqlite.rows(handle, "SELECT value FROM carray(?1)", { list })
+        if rows == nil then return false, "carray failed its statement: " .. trouble end
+        Fuzz.label("bound in Lua")
+      else
+        local result = Sqlite.rows_result(handle, "SELECT value FROM carray(?1)", { list })
+        if result.rows == nil then
+          return false, "carray failed its statement: " .. result.reason
+        end
+        rows = result.rows
+        Fuzz.label("bound in C")
+      end
+      if #rows ~= #fields - 1 then
+        return false, "carray read " .. #rows .. " of " .. (#fields - 1) .. " " .. kind
+      end
+      for i, row in ipairs(rows) do
+        local held = row:kind(1)
+        local same: boolean
+        if kind == "integers" then
+          same = held == "integer" and row:integer(1) == integers[i]
+        elseif kind == "numbers" then
+          same = held == "number" and row:number(1) == numbers[i] and
+            (1 / row:number(1)) == (1 / numbers[i])
+        elseif kind == "texts" then
+          same = held == "text" and row:text(1) == strings[i]
+        else
+          same = held == "blob" and row:blob(1) == strings[i]
+        end
+        if not same then
+          return false, "carray read element " .. i .. " of " .. kind .. " back changed"
+        end
+      end
+      Fuzz.label(kind)
+      if #rows == 0 then Fuzz.label("empty") end
+      return true, ""
+    end,
+    requires = { "integers", "numbers", "texts", "blobs", "empty", "bound in Lua", "bound in C" },
   })
 end

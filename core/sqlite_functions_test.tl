@@ -269,7 +269,8 @@ local function test_a_database_s_own_schema_is_not_trusted()
       INSERT INTO todos_fts (todos_fts, rowid, text) VALUES ('delete', old.id, old.text); END;
     CREATE VIEW plain AS SELECT upper(substr(text, 1, 3)) AS head FROM todos;
     CREATE VIEW pragmas AS SELECT count(*) FROM pragma_table_info('todos');
-    CREATE VIEW middle AS SELECT median(id) FROM todos;]]))
+    CREATE VIEW middle AS SELECT median(id) FROM todos;
+    CREATE VIEW listed AS SELECT value FROM carray(1, 1);]]))
   -- A trigger still writes to an FTS5 table, as build/work.tl's do, and a
   -- view still uses the built-in functions.
   assert(handle:exec("INSERT INTO todos (text) VALUES ('fix the thing')"))
@@ -290,6 +291,8 @@ local function test_a_database_s_own_schema_is_not_trusted()
   assert(why:find("unsafe use of virtual table", 1, true) ~= nil, why)
   _, why = Sqlite.text_rows(handle, "SELECT * FROM middle")
   assert(why:find("unsafe use of median()", 1, true) ~= nil, why)
+  _, why = Sqlite.text_rows(handle, "SELECT * FROM listed")
+  assert(why:find('unsafe use of virtual table "carray"', 1, true) ~= nil, why)
   -- The caller's own SQL may use both.
   rows = assert(Sqlite.text_rows(handle, "SELECT count(*) FROM pragma_table_info('todos')"))
   assert(rows[1]:text(1) == "2", rows[1]:text(1))

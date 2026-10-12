@@ -1,0 +1,10 @@
+file: ext/misc/csv.c
+note: The reader sets the flag 23-csv-notes-a-quoted-field.txt adds as it reads each field: a field is quoted when its first byte is a quote.
+--- find
+  if( c=='"' ){
+    int pc, ppc;
+--- replace
+  p->bQuoted = c=='"';
+  if( c=='"' ){
+    int pc, ppc;
+--- end
