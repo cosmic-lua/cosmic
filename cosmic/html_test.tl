@@ -13,10 +13,7 @@ local work = require("build.work")
 -- which holds a test to its import closure.
 local type _html = require("cosmic.html")
 
-local built, load_trouble = teal.load()
-if built == nil then
-  error("could not load the compiler: " .. tostring(load_trouble))
-end
+local built = assert(teal.load())
 
 local type Call = function(...: any): any...
 
