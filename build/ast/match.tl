@@ -200,9 +200,7 @@ local function rest_value(marker: any, elements: {any}): Node
 end
 
 local match_value: function(pv: any, nv: any, caps: {string: Node},
-  seen: {any: boolean}): boolean = function(_pv: any, _nv: any, _caps: {string: Node}, _seen: {any: boolean}): boolean
-    error("match_value is called before it is defined")
-  end
+  seen: {any: boolean}): boolean
 
 --- Match two arrays positionally. A rest-capture marker as the
 --- pattern's last element takes all remaining candidate elements (zero

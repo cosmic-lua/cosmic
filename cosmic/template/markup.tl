@@ -1021,9 +1021,7 @@ local function noscript_clean(off: Place, outer: Place): boolean
     off.select == outer.select and off.frameset == outer.frameset
 end
 
-local feed: function(p: Place, text: string, line: integer, col: integer) = function(_p: Place, _text: string, _line: integer, _col: integer)
-  error("feed is called before it is defined")
-end
+local feed: function(p: Place, text: string, line: integer, col: integer)
 
 --- Moves `p` over `text` one state at a time. A run of text ends where a
 --- slot or the template does, so the places a slot may not stand in

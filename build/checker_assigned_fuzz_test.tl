@@ -4,9 +4,14 @@
 --- way the program's choices (which branch, how often a loop goes round) can
 --- fall is followed, and the program is bad when some way reads `x` before
 --- it is assigned. The checker must refuse the program exactly when it is
---- bad. A function literal that names `x` reads it where it is made, as the
---- rule says, and one that assigns it assigns nothing for the code around
---- it, so the programs hold no such function.
+--- bad.
+---
+--- A function that names `x` is not a read where it is made but where it is
+--- called, and what may call it is any code of the program's that runs while
+--- it exists: each call the program makes (`use`, `cond`, `count`; one that
+--- never returns, `stop`, is not one), the `return` that lets it out and the
+--- end of the function. The run is that: every call, and the end, calls every
+--- function made so far, and one that finds `x` still nil is a read too.
 --- `FUZZ_SEED` picks the inputs (build/fuzz/init.tl).
 local Fuzz = require("build.fuzz")
 local teal = require("build.teal")
@@ -47,10 +52,12 @@ end
 --- The kinds of statement, a kind more often drawn the more times it is
 --- listed: at the top of a block and inside one.
 local BASIC_KINDS <const>: {string} = {
-  "assign", "assign", "assign", "read", "read", "read", "shadow", "closure", "break", "return", "stop",
+  "assign", "assign", "assign", "read", "read", "read", "shadow", "closure arg", "closure keep", "closure fn",
+  "break", "return", "stop",
 }
 local KINDS <const>: {string} = {
-  "assign", "assign", "assign", "read", "read", "read", "shadow", "closure", "break", "return", "stop",
+  "assign", "assign", "assign", "read", "read", "read", "shadow", "closure arg", "closure keep", "closure fn",
+  "break", "return", "stop",
   "if", "if", "if", "if else", "if else", "if else", "while", "while true", "repeat", "for",
   "continue if", "continue", "forward goto",
 }
@@ -69,8 +76,18 @@ function draws.statement(r: Recipe, p: Program, depth: integer, loop_end: string
     emit(p, "use(x)")
   elseif kind == "shadow" then
     emit(p, "do local x = 1 use(x) end")
-  elseif kind == "closure" then
-    emit(p, "use(function(): integer return x end)", "use(x)")
+  elseif kind == "closure arg" then
+    -- Given to a call, which may call it at once.
+    emit(p, "use(function(): integer return x end)", "use(mk(function() return touch(x) end))")
+  elseif kind == "closure keep" or kind == "closure fn" then
+    r.labels = r.labels + 1
+    local name = "g" .. r.labels
+    if kind == "closure keep" then
+      emit(p, "local " .. name .. " = function(): integer return x end",
+        "local " .. name .. " = mk(function() return touch(x) end)")
+    else
+      emit(p, "local function " .. name .. "(): integer return x end", "mk(function() return touch(x) end)")
+    end
   elseif kind == "break" then
     if loop_end ~= "" then
       emit(p, "break")
@@ -146,8 +163,10 @@ local MOST_CHOICES <const> = 11
 local MOST_STEPS <const> = 400
 
 --- Whether some way `code` can go reads `x` before it is assigned. `code`
---- is a function body over `use`, `cond`, `count`, `stop` and an `x` that
---- starts nil; every way the choices can fall is run.
+--- is a function body over `use`, `cond`, `count`, `stop`, `mk`, `touch` and
+--- an `x` that starts nil; every way the choices can fall is run. `mk` keeps
+--- the function it is given, and every call but `stop`, and the end of the
+--- body, calls those kept.
 local function reads_unassigned(code: string): boolean
   local bad = false
   local choices: {boolean} = {}
@@ -155,10 +174,17 @@ local function reads_unassigned(code: string): boolean
   local steps = 0
   local ended = {}
   local stopped = {}
+  local kept: {function()} = {}
   local env: {string: any} = {}
+  local function escape()
+    for _, fn in ipairs(kept) do
+      fn()
+    end
+  end
   local function choose(): boolean
     made = made + 1
     steps = steps + 1
+    escape()
     if made > MOST_CHOICES or steps > MOST_STEPS then error(ended, 0) end
     return choices[made] or false
   end
@@ -166,9 +192,22 @@ local function reads_unassigned(code: string): boolean
     steps = steps + 1
     if steps > MOST_STEPS then error(ended, 0) end
     if v == nil then bad = true end
+    escape()
+  end
+  env.mk = function(fn: function()): function()
+    kept[#kept + 1] = fn
+    return fn
+  end
+  env.touch = function(v: any): any
+    if v == nil then bad = true end
+    return v
   end
   env.cond = choose
-  env.count = function(): integer return choose() and 1 or 0 end
+  -- No pass, one or two: a second pass is the next round of the loop.
+  env.count = function(): integer
+    if not choose() then return 0 end
+    return choose() and 2 or 1
+  end
   env.stop = function() error(stopped, 0) end
   local chunk = assert(load("local function f()\n  local x\n" .. code .. "\nend\nreturn f", "oracle", "t",
     env as table))
@@ -178,7 +217,10 @@ local function reads_unassigned(code: string): boolean
   while #pending > 0 and not bad do
     choices = table.remove(pending) as {boolean}
     made, steps = 0, 0
-    pcall(run)
+    kept = {}
+    if pcall(run) then
+      escape()
+    end
     runs = runs + 1
     assert(runs < 20000, "the oracle ran too long")
     -- Every call past the choices given took the first way: take the other
@@ -237,8 +279,9 @@ local function check(input: string): boolean, string
   Fuzz.label(refused and "refused" or "accepted")
   if source:find("goto ", 1, true) then Fuzz.label("jumps") end
   if source:find("while true", 1, true) then Fuzz.label("endless") end
+  if source:find("return x end", 1, true) then Fuzz.label("closures") end
   if refused ~= bad then
-    return false, (refused and "refused a program no way of reads x before it is assigned\n" or
+    return false, (refused and "refused a program no way of reads x before it is assigned or lets a function that names it read it\n" or
       "accepted a program some way of reads x before it is assigned\n") .. source
   end
   return true, ""
@@ -258,7 +301,7 @@ local function test_the_checker_refuses_exactly_the_programs_that_read_before_th
     gen = draw_bytes,
     check = check,
     iters = 400,
-    requires = { "refused", "accepted", "jumps", "endless" },
-    shares = { refused = 0.1, accepted = 0.1, jumps = 0.05, endless = 0.05 },
+    requires = { "refused", "accepted", "jumps", "endless", "closures" },
+    shares = { refused = 0.1, accepted = 0.1, jumps = 0.05, endless = 0.05, closures = 0.1 },
   })
 end

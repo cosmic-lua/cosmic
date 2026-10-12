@@ -160,15 +160,9 @@ function scopes.walk(parsed: ast.Parsed,
   local function at(node: ast.Node): integer
     return scopes.position(node.y, node.x)
   end
-  local process_block: function(ast.Node) = function(_1: ast.Node)
-    error("process_block is called before it is defined")
-  end
-  local process_function: function(ast.Node) = function(_1: ast.Node)
-    error("process_function is called before it is defined")
-  end
-  local walk_expression: function(ast.Node) = function(_1: ast.Node)
-    error("walk_expression is called before it is defined")
-  end
+  local process_block: function(ast.Node)
+  local process_function: function(ast.Node)
+  local walk_expression: function(ast.Node)
 
   walk_expression = function(n: ast.Node)
     if leaves[n.kind] then return end

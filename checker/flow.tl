@@ -20,7 +20,9 @@
 --
 -- [`flow.unassigned_read`] asks the other question of the same paths: whether
 -- a local declared with no value is read before an assignment reaches it on
--- every path.
+-- every path, or named by a function that code the checker marked
+-- `runs_code` (a call, an operator that dispatches: what it drops narrowing
+-- for, `TypeChecker:drop_all`) may call before then.
 --
 -- The answers are computed from the tree and its marks on every ask,
 -- never kept on a node, so a statement's answer cannot disagree with its
@@ -51,6 +53,7 @@ local record flow
       body: Node
       if_blocks: {Node}
       never_call: boolean
+      runs_code: boolean
       vars: Node
       exps: Node
       args: Node
@@ -76,7 +79,7 @@ local record flow
    leaves: function(Node): boolean
    leaves_body: function(Node): boolean
    mark_never_call: function(Node)
-   unassigned_read: function(Node, integer, string, Node): Node, Node
+   unassigned_read: function(Node, integer, string, Node): Node, Node, Node, string
 end
 
 -- Whether `body`, a loop's body, holds a `break` that leaves that loop.
@@ -350,39 +353,56 @@ end
 
 -- What a path knows of the variable being followed: whether it has been
 -- assigned, and, when it has not, the statement a path went by that
--- skipped the assignment another path made. A path that cannot be taken
+-- skipped the assignment another path made, and the first function
+-- literal the path made that names the variable (which code run before
+-- the assignment may call, so is "pending"). A path that cannot be taken
 -- has no state (nil).
 local record State
    assigned: boolean
    skipped: flow.Node
+   closure: flow.Node
 end
 
-local assigned_state <const>: State = { assigned = true, skipped = no_node }
-local unassigned_state <const>: State = { assigned = false, skipped = no_node }
+local assigned_state <const>: State = { assigned = true, skipped = no_node, closure = no_node }
+local unassigned_state <const>: State = { assigned = false, skipped = no_node, closure = no_node }
 
 -- No state, for a path that cannot be taken.
 local no_state: State = nil
 
--- The state where two paths meet.
+-- The state where two paths meet: unassigned if either is, and with a
+-- pending function if either has one.
 local function meet(a: State, b: State): State
    if not a then
       return b
-   elseif not b or not a.assigned then
+   elseif not b then
+      return a
+   elseif a.assigned then
+      return b
+   elseif b.assigned or a.closure or not b.closure then
       return a
    end
-   return b
+   return { assigned = false, skipped = a.skipped, closure = b.closure }
 end
 
 -- `s` with `by` as the statement it skipped, when it names none yet.
 local function skipped_by(s: State, by: flow.Node): State
    if s and not s.assigned and not s.skipped then
-      return { assigned = false, skipped = by }
+      return { assigned = false, skipped = by, closure = s.closure }
    end
    return s
 end
 
--- The state the paths that leave a loop by `break` (or the branches of an
--- `if`) bring together; nil where none does.
+-- `s` with `fn`, a function literal that names the variable, made on its
+-- path.
+local function with_closure(s: State, fn: flow.Node): State
+   if s.assigned or s.closure then
+      return s
+   end
+   return { assigned = false, skipped = s.skipped, closure = fn }
+end
+
+-- The state each path leaves a loop by `break` (or the branches of an
+-- `if`) brings together; nil where none does.
 local record Exit
    state: State
 end
@@ -391,36 +411,86 @@ local record Scan
    name: string
    found: flow.Node
    skipped: flow.Node
+   -- What may have run the function `found` is, when it is one: the call,
+   -- operator, loop, `return` or `goto` (nil at the end of the variable's
+   -- scope), and which of them it is.
+   ran: flow.Node
+   how: string
    -- Whether a local of the same name hides the variable here: control
    -- still flows, but a read or a write is another variable's.
    hidden: boolean
    loops: {Exit}
    -- The state each `goto` brought to a label it has not reached yet.
    gotos: {string:State}
+   -- The labels the walk has passed, which a `goto` back to is a round.
+   seen: {string:boolean}
 end
 
--- Notes the first read of the variable in `e`, an expression, or in `fn`,
--- a function, at state `st`, when that state has not assigned it.
-local function read(scan: Scan, e: flow.Node, st: State, fn?: boolean)
-   if st.assigned or scan.hidden or scan.found or not e then
-      return
+-- Something that may run code of the program's has run at `at`, in the way
+-- `how` tells: the function this path made that names the variable may be
+-- called before it is assigned.
+local function ran(scan: Scan, st: State, at: flow.Node, how: string)
+   if st.closure and not st.assigned and not scan.found then
+      scan.found, scan.skipped, scan.ran, scan.how = st.closure, st.skipped, at, how
    end
-   local found: flow.Node
-   if fn then
-      found = mention.of(e, scan.name) and e or nil
-   else
-      found = mention.in_expression(e, scan.name)
+end
+
+-- The state after `fn`, a function literal, a named function or a macro
+-- expression, is made: it reads nothing yet, but it is pending if it names
+-- the variable.
+local function made(scan: Scan, fn: flow.Node, st: State): State
+   if scan.found or scan.hidden or st.assigned or not mention.of(fn, scan.name) then
+      return st
    end
-   if found then
-      scan.found = found
-      scan.skipped = st.skipped
+   return with_closure(st, fn)
+end
+
+-- Evaluates `e`, an expression, from `st` and answers the state after it:
+-- a use of the variable is a read, a function literal that names it is
+-- made, and what the checker marked as running code of the program's
+-- (`runs_code`: a call, or an operator that dispatches) may call a function
+-- made before it.
+local function eval(scan: Scan, e: flow.Node, st: State): State
+   if not e or scan.found or st.assigned then
+      return st
    end
+   local kind = e.kind
+   if kind == "variable" then
+      if e.tk == scan.name and not scan.hidden then
+         scan.found, scan.skipped = e, st.skipped
+      end
+   elseif kind == "function" or kind == "macroexp" then
+      return made(scan, e, st)
+   elseif kind == "op" then
+      local op = e.op.op
+      local after = eval(scan, e.e1, st)
+      -- The right side of `is` and `as` is a type.
+      if op ~= "is" and op ~= "as" then
+         -- Whether the right side of `and` or `or` runs or not, a function
+         -- it makes is pending after, and code it runs has run on a path.
+         after = eval(scan, e.e2, after)
+      end
+      if e.runs_code then
+         ran(scan, after, e, op == "@funcall" and "call" or "operator")
+      end
+      return after
+   elseif kind == "paren" then
+      return eval(scan, e.e1, st)
+   elseif kind == "literal_table_item" then
+      return eval(scan, e.value, eval(scan, e.key, st))
+   elseif kind == "literal_table" or kind == "expression_list" or kind == "variable_list" then
+      for _, child in ipairs(e) do
+         st = eval(scan, child, st)
+      end
+   end
+   return st
 end
 
 -- Walks the statements of a block, which call the walk of a block.
 local record walk
    block: function(Scan, flow.Node, integer, State, flow.Node): State
    statement: function(Scan, flow.Node, State): State
+   loop: function(Scan, flow.Node, State): State
 end
 
 -- The state after a loop whose body ran from `st` and ended in `at_end`
@@ -435,29 +505,99 @@ local function after_loop(loop: flow.Node, st: State, at_end: State, breaks: Exi
    return meet(st, broken)
 end
 
+-- A copy of the labels passed.
+local function copied(seen: {string:boolean}): {string:boolean}
+   local copy: {string:boolean} = {}
+   for label, _ in pairs(seen) do
+      copy[label] = true
+   end
+   return copy
+end
+
+-- Walks a loop: `while`, `repeat`, a numeric and a generic `for`. A pass
+-- of the body that ends with a function pending goes round again, the
+-- function made before the first statement of the next pass; it ends the
+-- second time round, as the state only grows.
+function walk.loop(scan: Scan, stmt: flow.Node, st: State): State
+   local kind = stmt.kind
+   local name = scan.name
+   local entry = st
+   if kind == "fornum" then
+      entry = eval(scan, stmt.step, eval(scan, stmt.to, eval(scan, stmt.from, st)))
+   elseif kind == "forin" then
+      entry = eval(scan, stmt.exps, st)
+   end
+   local breaks: Exit = { state = no_state }
+   table.insert(scan.loops, breaks)
+   local saved_hidden = scan.hidden
+   local outer_seen = scan.seen
+   local head: State = no_state
+   local at_end: State = no_state
+   for pass = 1, 2 do
+      local from = entry
+      if pass == 2 then
+         if not at_end or at_end.assigned or not at_end.closure or entry.closure then
+            break
+         end
+         from = meet(entry, at_end)
+      end
+      scan.seen = copied(outer_seen)
+      scan.hidden = saved_hidden
+      local here = from
+      local tail = no_node
+      if kind == "while" then
+         here = eval(scan, stmt.exp, from)
+      elseif kind == "repeat" then
+         tail = stmt.exp
+      elseif kind == "forin" then
+         if stmt.runs_code then
+            ran(scan, from, stmt, "iterator")
+         end
+         if names_in(stmt.vars, name) then
+            scan.hidden = true
+         end
+      elseif stmt.var.tk == name then
+         scan.hidden = true
+      end
+      head = meet(head, here)
+      local finished = walk.block(scan, stmt.body, 1, here, tail)
+      at_end = pass == 1 and finished or meet(at_end, finished)
+   end
+   scan.seen = outer_seen
+   scan.hidden = saved_hidden
+   table.remove(scan.loops)
+   if kind == "while" and stmt.exp.kind == "boolean" and stmt.exp.tk == "true"
+      or kind == "repeat" and stmt.exp.kind == "boolean" and stmt.exp.tk == "false" then
+      return breaks.state
+   elseif kind == "repeat" then
+      return meet(at_end, breaks.state)
+   end
+   return after_loop(stmt, head, at_end, breaks)
+end
+
 function walk.statement(scan: Scan, stmt: flow.Node, st: State): State
    local kind = stmt.kind
    local name = scan.name
    if kind == "local_declaration" or kind == "global_declaration" then
-      read(scan, stmt.exps, st)
+      st = eval(scan, stmt.exps, st)
       if kind == "local_declaration" and names_in(stmt.vars, name) then
          scan.hidden = true
       end
    elseif kind == "assignment" then
-      read(scan, stmt.exps, st)
+      st = eval(scan, stmt.exps, st)
       local assigns = false
       for _, v in ipairs(stmt.vars) do
          if v.kind == "variable" then
             assigns = assigns or v.tk == name
          else
-            read(scan, v, st)
+            st = eval(scan, v, st)
          end
       end
       if assigns and not scan.hidden then
          return assigned_state
       end
    elseif kind == "op" then
-      read(scan, stmt, st)
+      st = eval(scan, stmt, st)
       if stmt.never_call then
          return nil
       end
@@ -465,23 +605,25 @@ function walk.statement(scan: Scan, stmt: flow.Node, st: State): State
       if stmt.name.tk == name then
          scan.hidden = true
       else
-         read(scan, stmt, st, true)
+         st = made(scan, stmt, st)
       end
    elseif kind == "global_function" then
-      read(scan, stmt, st, true)
+      st = made(scan, stmt, st)
       if stmt.name.tk == name and not scan.hidden then
          return assigned_state
       end
    elseif kind == "record_function" then
-      read(scan, stmt.fn_owner, st)
-      read(scan, stmt, st, true)
+      st = made(scan, stmt, eval(scan, stmt.fn_owner, st))
    elseif kind == "local_macroexp" then
-      read(scan, stmt.macrodef, st, true)
+      st = made(scan, stmt.macrodef, st)
       if stmt.name.tk == name then
          scan.hidden = true
       end
    elseif kind == "return" then
-      read(scan, stmt.exps, st)
+      -- A function made and not yet assigned over may leave with the
+      -- return, to be called when the variable is still unassigned.
+      st = eval(scan, stmt.exps, st)
+      ran(scan, st, stmt, "return")
       return nil
    elseif kind == "break" then
       local breaks = scan.loops[#scan.loops]
@@ -490,6 +632,11 @@ function walk.statement(scan: Scan, stmt: flow.Node, st: State): State
       end
       return nil
    elseif kind == "goto" then
+      -- A goto back round to a label passed runs what lies between again,
+      -- with the function pending.
+      if scan.seen[stmt.label] then
+         ran(scan, st, stmt, "goto")
+      end
       scan.gotos[stmt.label] = meet(scan.gotos[stmt.label], st)
       return nil
    elseif kind == "do" then
@@ -498,9 +645,11 @@ function walk.statement(scan: Scan, stmt: flow.Node, st: State): State
       local ends: {Exit} = {}
       local blocks = stmt.if_blocks
       local any_assigned = false
+      -- Each condition runs when those before it were false.
+      local asked = st
       for i, b in ipairs(blocks) do
-         read(scan, b.exp, st)
-         local s = walk.block(scan, b.body, 1, st, no_node)
+         asked = eval(scan, b.exp, asked)
+         local s = walk.block(scan, b.body, 1, asked, no_node)
          if s and s.assigned then
             any_assigned = true
          end
@@ -512,53 +661,19 @@ function walk.statement(scan: Scan, stmt: flow.Node, st: State): State
             out = meet(out, skipped_by(ends[i].state, b))
          end
          if blocks[#blocks].exp then
-            out = meet(out, skipped_by(st, stmt))
+            out = meet(out, skipped_by(asked, stmt))
          end
       else
          for i = 1, #blocks do
             out = meet(out, ends[i].state)
          end
          if blocks[#blocks].exp then
-            out = meet(out, st)
+            out = meet(out, asked)
          end
       end
       return out
-   elseif kind == "while" or kind == "repeat" then
-      local breaks: Exit = { state = no_state }
-      table.insert(scan.loops, breaks)
-      local endless = kind == "while" and "true" or "false"
-      local at_end: State = no_state
-      if kind == "while" then
-         read(scan, stmt.exp, st)
-         at_end = walk.block(scan, stmt.body, 1, st, no_node)
-      else
-         at_end = walk.block(scan, stmt.body, 1, st, stmt.exp)
-      end
-      table.remove(scan.loops)
-      if stmt.exp.kind == "boolean" and stmt.exp.tk == endless then
-         return breaks.state
-      elseif kind == "repeat" then
-         return meet(at_end, breaks.state)
-      end
-      return after_loop(stmt, st, at_end, breaks)
-   elseif kind == "fornum" or kind == "forin" then
-      if kind == "fornum" then
-         read(scan, stmt.from, st)
-         read(scan, stmt.to, st)
-         read(scan, stmt.step, st)
-      else
-         read(scan, stmt.exps, st)
-      end
-      local breaks: Exit = { state = no_state }
-      table.insert(scan.loops, breaks)
-      local saved = scan.hidden
-      if kind == "fornum" and stmt.var.tk == name or kind == "forin" and names_in(stmt.vars, name) then
-         scan.hidden = true
-      end
-      local at_end = walk.block(scan, stmt.body, 1, st, no_node)
-      scan.hidden = saved
-      table.remove(scan.loops)
-      return after_loop(stmt, st, at_end, breaks)
+   elseif kind == "while" or kind == "repeat" or kind == "fornum" or kind == "forin" then
+      return walk.loop(scan, stmt, st)
    end
    return st
 end
@@ -571,6 +686,7 @@ function walk.block(scan: Scan, body: flow.Node, first: integer, st: State, tail
       end
       local stmt = body[i]
       if stmt.kind == "label" then
+         scan.seen[stmt.label] = true
          st = meet(st, scan.gotos[stmt.label])
          scan.gotos[stmt.label] = nil
       elseif st then
@@ -580,33 +696,38 @@ function walk.block(scan: Scan, body: flow.Node, first: integer, st: State, tail
       end
    end
    if st and tail then
-      read(scan, tail, st)
+      st = eval(scan, tail, st)
    end
    scan.hidden = saved
    return st
 end
 
--- TODO: let a function literal name a local not yet assigned when nothing
--- can call it before the assignment: a function declared ahead for two to
--- call each other (`local g: function(); local function h() g() end;
--- g = ...`), which the tree writes 40 times and holds today as a value that
--- raises (`local g: function() = function() error("...") end`). It waits on
--- this module telling which expressions may run a function (a call, an
--- iterator, an operator that dispatches), and the last needs the types
--- only the checker has.
 --- The first place, in the statements of `body` from `first` on (and in
 --- `tail`, the `until` of a `repeat` body), that reads the local `name`
 --- declared just before `first` with no value, along a path that did not
---- assign it. A read is a use of `name` or a function literal that names it,
---- which reads it where it is made; an assignment inside a function
---- literal assigns nothing for the code around it; the first answer is the
---- variable's node, or the function that names it. The second answer is a
+--- assign it. A read is a use of `name`, or a function literal that names
+--- it and that something may call before the assignment: the creation of
+--- the function reads nothing, but a call, an operator that dispatches or a
+--- loop's iterator the checker marked `runs_code` may call it, and so may
+--- the code that gets it by a `return`, a `goto` back round a label and the
+--- end of the variable's scope; an assignment inside a function literal
+--- assigns nothing for the code around it. The first answer is the
+--- variable's node, or the function that names it. The second is a
 --- statement a path went by that skipped the assignment another made (an
---- `if`, an `else`-less `if`'s branch, a loop), nil where none did.
-function flow.unassigned_read(body: flow.Node, first: integer, name: string, tail: flow.Node): flow.Node, flow.Node
-   local scan: Scan = { name = name, found = no_node, skipped = no_node, hidden = false, loops = {}, gotos = {} }
-   walk.block(scan, body, first, unassigned_state, tail)
-   return scan.found, scan.skipped
+--- `if`, an `else`-less `if`'s branch, a loop), nil where none did. For a
+--- function the third answer is what may run it (nil at the end of the
+--- scope) and the fourth how: `call`, `operator`, `iterator`, `return`,
+--- `goto` or `scope`.
+function flow.unassigned_read(body: flow.Node, first: integer, name: string, tail: flow.Node): flow.Node, flow.Node, flow.Node, string
+   local scan: Scan = {
+      name = name, found = no_node, skipped = no_node, ran = no_node, how = "", hidden = false,
+      loops = {}, gotos = {}, seen = {},
+   }
+   local final = walk.block(scan, body, first, unassigned_state, tail)
+   if final then
+      ran(scan, final, no_node, "scope")
+   end
+   return scan.found, scan.skipped, scan.ran, scan.how
 end
 
 return flow

@@ -19,7 +19,7 @@ end
 --- What every program here is written against.
 local head <const> = "local function use(_: any) end\n" ..
   "local function cond(): boolean return true end\n" ..
-  "local function stop(): never error(\"stop\") end\n"
+  "local function stop(): never error(\"stop\") end local function idle() end\n"
 
 --- `body` as the body of a function after [`head`], which uses no local it
 --- does not declare.
@@ -203,13 +203,15 @@ local function test_a_goto_brings_the_state_it_left_with_to_its_label()
   accepts("local x: integer\n::again::\nx = 1\nif cond() then goto again end\nuse(x)")
 end
 
---- A function literal that names the local reads it where it is made.
-local function test_a_function_that_names_a_local_reads_it_where_it_is_made()
+--- A function that names the local is pending until code may run it.
+local function test_a_function_that_names_a_local_is_a_read_once_code_may_run_it()
   local made = refuses("local x: integer\nlocal g = function() use(x) end\nuse(g)", "x")
   assert(made.closure == true and made.msg == read_msg .. ": the function made here names it", made.msg)
+  -- Made on line 6; the call that may run it is the next line's.
+  assert(made.y == 6 and made.ran_kind == "call" and made.ran_y == 7, tostring(made.ran_kind) .. tostring(made.ran_y))
   assert(hint(made, "local x: integer\nlocal g = function() use(x) end\nuse(g)") ==
-      read_msg .. " (creating a function reads every variable it names, and an assignment inside one does " ..
-      "not count outside it)" .. rewrite)
+      read_msg .. " (the function made here names it, and the call at 7:" .. tostring(made.ran_x) ..
+      " may run it first)" .. rewrite)
   -- An assignment in a function is not one for the code around it.
   refuses("local x: integer\nlocal function set() x = 1 end\nset()\nuse(x)", "x")
   refuses("local x: integer\nuse(function() x = 1 end)\nuse(x)", "x")
@@ -224,10 +226,99 @@ local function test_a_function_that_names_a_local_reads_it_where_it_is_made()
   accepts("local x: integer\nlocal function g(x: integer) use(x) end\ng(1)")
   accepts("local x: integer\nlocal g = function() local x = 1 use(x) end\ng()")
   accepts("local x: integer\nlocal g = function() for x = 1, 2 do use(x) end end\ng()")
-  -- A forward declaration the function that calls it names is made first, the
-  -- plan's rule: assign it, or write the function where it is used.
-  refuses("local g: function(integer)\nlocal function h(n: integer) g(n) end\ng = h\nh(1)", "g")
-  accepts("local function h(n: integer) use(n) end\nlocal g: function(integer) = h\nlocal function k(n: integer) g(n) end\nk(1)")
+  -- A read of the variable itself is a read where it stands.
+  refuses("local f: function()\nf()", "f")
+end
+
+--- The functions that call each other, declared ahead, need no stand-in.
+local function test_a_function_declared_ahead_is_assigned_before_any_code_may_call_the_function_that_names_it()
+  accepts("local f: function()\nlocal function g() f() end\nf = function() g() end\nuse(f)")
+  accepts("local f: function()\nf = function() f() end\nuse(f)")
+  accepts("local f: function(integer)\nlocal function g(n: integer) f(n) end\nf = g\ng(1)")
+  accepts("local f: function()\nlocal function a() f() end\nlocal function b() a() end\nf = b")
+  -- A table of them, an operator and a call that runs no code of the program's.
+  accepts("local f: function()\nlocal t = { run = function() f() end }\nf = function() use(t) end")
+  accepts("local f: function()\nlocal function g() f() end\nlocal n = 1 + 2\nassert(g)\nlocal kind = type(g)\nf = g")
+  -- Assigned on every path before the first call.
+  accepts("local f: function()\nlocal function g() f() end\nlocal flag = true\nif flag then f = g else f = g end")
+  -- A path that ends first has nothing to call it.
+  accepts("local f: function()\nlocal function g() f() end\nlocal flag = true\nif flag then stop() end\nf = g")
+  accepts("local f: function()\nlocal function g() f() end\nlocal flag = true\nif flag then error(\"no\") end\nf = g")
+  -- A loop that runs no code leaves it pending, and the assignment after it ends that.
+  accepts("local f: function()\nlocal flag = true\nwhile flag do\n  local function g() f() end\nend\nf = idle")
+  -- A function made after the assignment names an assigned variable.
+  accepts("local f: function()\nf = idle\nlocal function g() f() end\ng()")
+end
+
+--- What keeps a function that names the local refused.
+local function test_a_function_that_names_the_local_is_refused_where_code_may_run_it_first()
+  local called = refuses("local f: function()\nlocal function g() f() end\ng()\nf = g", "f")
+  assert(called.closure == true and called.ran_kind == "call" and called.ran_y == 7, tostring(called.ran_y))
+  refuses("local f: function()\nuse(function() f() end)\nf = idle", "f")
+  refuses("local f: function()\nlocal function g() f() end\nuse(1)\nf = g", "f")
+  refuses("local f: function()\nlocal function g() f() end\nlocal flag = true\nif flag then use(1) end\nf = g", "f")
+  -- A name hidden for a stretch does not stop the code in it.
+  refuses("local f: function()\nlocal function g() f() end\ndo local f = 1 use(f) end\nf = idle", "f")
+  -- The function gets out by a `return`, or the scope ends with it unassigned.
+  local returned = refuses("local f: function()\nlocal function g() f() end\nlocal flag = true\n" ..
+      "if flag then return end\nf = g", "f")
+  assert(returned.ran_kind == "return" and returned.ran_y == 8, tostring(returned.ran_kind))
+  assert(hint(returned, "local f: function()\nlocal function g() f() end\nlocal flag = true\n" ..
+      "if flag then return end\nf = g") ==
+      "'f' may be read before it is assigned (the function made here names it, and the return at 8:" ..
+      tostring(returned.ran_x) .. " lets it out first): give it a value where it is declared (`local f: T = ...`), " ..
+      "assign it on every path, or declare it `local f: T | nil`, which is nil until assigned and is checked " ..
+      "where it is used")
+  local ended = refuses("local f: function()\nlocal function g() f() end", "f")
+  assert(ended.ran_kind == "scope" and ended.ran_y == nil, tostring(ended.ran_kind))
+  assert(hint(ended, "local f: function()\nlocal function g() f() end") ==
+      "'f' may be read before it is assigned (the function made here names it, and the end of the scope " ..
+      "lets it out first)" .. ": give it a value where it is declared (`local f: T = ...`), assign it on every " ..
+      "path, or declare it `local f: T | nil`, which is nil until assigned and is checked where it is used")
+  -- Returned from a function that makes it.
+  local source = head .. "local function make(): function()\n  local f: function()\n" ..
+    "  local function g() f() end\n  return g\nend\nuse(make)\n"
+  local errors = type_errors(source)
+  assert(#errors == 1 and errors[1].ran_kind == "return", shown(errors))
+  -- A path that skips the assignment leaves it pending to the end.
+  local skipped = refuses("local f: function()\nlocal function g() f() end\nlocal flag = true\n" ..
+      "if flag then f = g end", "f")
+  assert(skipped.ran_kind == "scope" and skipped.skipped_kind == "if", tostring(skipped.skipped_kind))
+  -- Stored where a call can get it, then a call.
+  refuses("local f: function()\nlocal box: {function()} = {}\nlocal function g() f() end\nbox[1] = g\n" ..
+      "use(box)\nf = g", "f")
+  -- A condition, a loop's iterator and a jump back round are code that runs again.
+  refuses("local f: function()\nlocal function g() f() end\nif cond() then f = g end", "f")
+  local iterated = refuses("local it: function(): integer | nil = function(): integer | nil return nil end\n" ..
+      "local f: function()\nlocal function g() f() end\nfor v in it do end\nf = g", "f")
+  assert(iterated.ran_kind == "iterator", tostring(iterated.ran_kind))
+  local round = refuses("local f: function()\nlocal flag = true\n::top::\nlocal function g() f() end\n" ..
+      "if flag then goto top end\nf = g", "f")
+  assert(round.ran_kind == "goto", tostring(round.ran_kind))
+  -- A function made in a loop's body leaves with the loop, after any round.
+  refuses("local f: function()\nlocal flag = true\nwhile flag do\n  local function g() f() end\nend\nuse(0)\nf = idle", "f")
+  accepts("local f: function()\nlocal flag = true\nwhile flag do\n  local function g() f() end\nend\nf = idle\nuse(0)")
+  -- A function made in a condition is pending in the branch it picks.
+  refuses("local f: function()\nlocal flag = true\nif flag and (function() f() end) then use(1) end\nf = idle", "f")
+  accepts("local f: function()\nlocal flag = true\nif flag and (function() f() end) then f = idle else f = idle end")
+  -- The next round of a loop runs the code at its start with the function pending.
+  local again = refuses("local f: function()\nlocal flag = true\nwhile flag do\n  use(0)\n" ..
+      "  local function g() f() end\nend\nf = idle", "f")
+  assert(again.ran_kind == "call" and again.ran_y == 8, tostring(again.ran_y))
+  refuses("local f: function()\nlocal flag = true\nrepeat\n  use(0)\n  local function g() f() end\nuntil flag\nf = idle", "f")
+  refuses("local f: function()\nfor _ = 1, 2 do\n  use(0)\n  local function g() f() end\nend\nf = idle", "f")
+end
+
+--- An operator the types say dispatches runs code.
+local function test_an_operator_that_dispatches_may_run_the_function()
+  local source = head .. "local record V\n  metamethod __add: function(V, V): V\nend\n" ..
+    "local function plus(a: V, b: V)\n  local f: function()\n  local function g() f() end\n" ..
+    "  local c = a + b\n  f = g\n  use(c)\nend\nuse(plus)\n"
+  local errors = type_errors(source)
+  assert(#errors == 1 and errors[1].code == "not_assigned" and errors[1].ran_kind == "operator", shown(errors))
+  assert(errors[1].ran_y == 10, tostring(errors[1].ran_y))
+  -- The same sum of numbers runs none.
+  accepts("local f: function()\nlocal function g() f() end\nlocal c = 1 + 2\nf = g\nuse(c)")
 end
 
 --- A local of the same name hides the variable from its scope.

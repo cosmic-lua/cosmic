@@ -544,9 +544,7 @@ local function segment(key: string): string
   return "/" .. key:gsub("~", "~0"):gsub("/", "~1")
 end
 
-local gen_member_value: function(Fuzz.Source, Built, integer, string, integer) = function(_1: Fuzz.Source, _2: Built, _3: integer, _4: string, _5: integer)
-  error("gen_member_value is called before it is defined")
-end
+local gen_member_value: function(Fuzz.Source, Built, integer, string, integer)
 
 --- An object of `size` members at least, and `more` draws up to `most`
 --- unless `exact`, written into `b` at `path`, `depth` containers open

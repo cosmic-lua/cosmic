@@ -605,9 +605,7 @@ local function scoped_walk(root: ast.Node, visitor: Visitor)
       scopes[#scopes][name] = binding
     end
   end
-  local visit: function(ast.Node) = function(_1: ast.Node)
-    error("visit is called before it is defined")
-  end
+  local visit: function(ast.Node)
   local function visit_all(n: ast.Node | nil)
     if n ~= nil then
       visit(n)
@@ -1164,7 +1162,8 @@ end
 --- (the code `not_assigned`, [`compiler.Error`]): give it a value where it
 --- is declared, assign it on every path, or declare it `T | nil`, which is
 --- nil until assigned. The statement a path went by that skipped the
---- assignment, and a function that names the local, are told where they are.
+--- assignment, and what may call a function that names the local before it
+--- is assigned, are told where they are.
 local function unassigned_hint(e: compiler.Error): string | nil
   local name = e.variable
   if name == nil then
@@ -1180,8 +1179,22 @@ local function unassigned_hint(e: compiler.Error): string | nil
   elseif skipped == "loop" then
     path = " (the loop at " .. where .. " may run no pass)"
   elseif e.closure then
-    path = " (creating a function reads every variable it names, and an assignment inside one " ..
-      "does not count outside it)"
+    local ran = e.ran_kind
+    local at = tostring(e.ran_y) .. ":" .. tostring(e.ran_x)
+    local made = "the function made here names it, and "
+    if ran == "call" then
+      path = " (" .. made .. "the call at " .. at .. " may run it first)"
+    elseif ran == "operator" then
+      path = " (" .. made .. "the operator at " .. at .. " may run it first)"
+    elseif ran == "iterator" then
+      path = " (" .. made .. "the iterator of the loop at " .. at .. " may run it first)"
+    elseif ran == "return" then
+      path = " (" .. made .. "the return at " .. at .. " lets it out first)"
+    elseif ran == "goto" then
+      path = " (" .. made .. "the goto at " .. at .. " goes round again with it)"
+    else
+      path = " (" .. made .. "the end of the scope lets it out first)"
+    end
   end
   return "'" .. name .. "' may be read before it is assigned" .. path ..
     ": give it a value where it is declared (`local " .. name .. ": T = ...`), assign it on every path, " ..

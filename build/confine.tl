@@ -568,9 +568,7 @@ function confine.forbid_running(programs: {string}, within?: {string}): boolean,
     end
   end
   local allowed: {string} = {}
-  local walk: function(dir: string) = function(_dir: string)
-    error("walk is called before it is defined")
-  end
+  local walk: function(dir: string)
   local function visit(path: string)
     local real, _ = now.realpath(path)
     if held[path] or (real ~= nil and held[real]) then

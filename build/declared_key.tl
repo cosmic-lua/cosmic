@@ -818,9 +818,7 @@ end
 
 --- The digest of what a test of `spec` is given, but for its name, or
 --- "refused " and why there is none.
-local inputs_of: function(declared_key.Digests, declared_key.Spec): string = function(_1: declared_key.Digests, _2: declared_key.Spec): string
-  error("inputs_of is called before it is defined")
-end
+local inputs_of: function(declared_key.Digests, declared_key.Spec): string
 
 --- The key of the test `spec` describes, over what `digests` finds now,
 --- or nil and why there is none: a declared directory holds a link out

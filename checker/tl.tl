@@ -359,9 +359,15 @@ local record tl
       dropped_x: integer
 
       -- For a local read before it is assigned: whether the read is a
-      -- function literal that names it, and the statement a path went by
-      -- that skipped the assignment (`branch`, `if` or `loop`), and where.
+      -- function literal that names it, what may call that function before
+      -- the assignment (`ran_kind`: `call`, `operator`, `iterator`, `return`,
+      -- `goto` or `scope`, at `ran_y`, `ran_x` unless it is the end of the
+      -- scope), and the statement a path went by that skipped the
+      -- assignment (`branch`, `if` or `loop`), and where.
       closure: boolean
+      ran_kind: string
+      ran_y: integer
+      ran_x: integer
       skipped_kind: string
       skipped_y: integer
       skipped_x: integer
@@ -1972,6 +1978,10 @@ local record Node
    key_kind: string
    -- On a call: whether it ran no code of the program's, so dropped nothing.
    runs_no_code: boolean
+   -- On a call-like expression, a `for ... in` loop (its iterator) or a
+   -- call: whether it may run code of the program's, so that a function
+   -- made before it may be called by it (see `TypeChecker:drop_all`).
+   runs_code: boolean
    -- On a local declaration: the variables it declares with no value, of a
    -- type that does not admit nil.
    unvalued: {Node}
@@ -2084,9 +2094,7 @@ local record Node
    rt_file: string
 end
 
-local show_type: function(Type, ? boolean, ? {Type:string}): string = function(_1: Type, _2?: boolean, _3?: {Type:string}): string
-  error("show_type is called before it is defined")
-end
+local show_type: function(Type, ? boolean, ? {Type:string}): string
 
 local type_mt: metatable<Type> = {
    __tostring = function(t: Type): string
@@ -12883,6 +12891,10 @@ do
       -- refusal of a use that relied on what was dropped.
       function TypeChecker:drop_all(w: Where, kind: string, text?: string)
          self.drop_clock = self.drop_clock + 1
+         -- Marked for `flow.unassigned_read`, which asks of the same
+         -- expressions whether a function made before them may be called.
+         local at = w as Node
+         at.runs_code = true
          self.last_drop, self.last_drop_node, self.last_drop_kind, self.last_drop_text = nil, w, kind, text
          local scopes = self.st as {narrowing.Scope}
          local paths, names = narrowing.narrowed(scopes)
@@ -14588,7 +14600,7 @@ do
          local vars = stmt.kind == "local_declaration" and stmt.unvalued
          if vars then
             for _, var in ipairs(vars) do
-               local found, skipped = flow.unassigned_read(body as flow.Node, i + 1, var.tk, tail as flow.Node)
+               local found, skipped, ran, how = flow.unassigned_read(body as flow.Node, i + 1, var.tk, tail as flow.Node)
                if found then
                   local read = found as Node
                   local closure = read.kind ~= "variable"
@@ -14596,7 +14608,12 @@ do
                      code = "not_assigned",
                      variable = var.tk,
                      closure = closure or nil,
+                     ran_kind = closure and how or nil,
                   })
+                  if ran then
+                     details.ran_y = (ran as Node).y
+                     details.ran_x = (ran as Node).x
+                  end
                   if skipped then
                      local by = skipped as Node
                      details.skipped_kind = kind_of_skip(skipped)

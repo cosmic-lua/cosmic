@@ -378,9 +378,7 @@ end
 --- `v` checked against `spec` at `path`: the copy to answer and "", or
 --- nil and the message for the first value that does not fit. The copy
 --- is nil too for a missing value an optional spec admits.
-local walk: function(v: any, spec: Spec, path: string): any, string = function(_v: any, _spec: Spec, _path: string): any, string
-  error("walk is called before it is defined")
-end
+local walk: function(v: any, spec: Spec, path: string): any, string
 
 local function walk_record(t: {any: any}, spec: Spec, path: string): any, string
   if spec.strict then

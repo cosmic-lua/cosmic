@@ -883,9 +883,7 @@ end
 --- Ends the child of `self` where its relay has died, the child's one way
 --- out: SIGKILL to it and its group, once. Defined below [`exited`], which
 --- every look at a child goes through.
-local relay_lost: function(Handle) = function(_1: Handle)
-  error("relay_lost is called before it is defined")
-end
+local relay_lost: function(Handle)
 
 --- This handle's child's exit status, once it has one. With `block`,
 --- waits for it.
@@ -3683,9 +3681,7 @@ end
 --- [`Child.start_on_pty`] has just made, the standard streams it names are
 --- its slave, which is not refused as a terminal is; stream 0 among them
 --- also makes it the child's controlling terminal.
-local begin_relay: function(RelayPrep, integer | nil): RelayLaunch | nil, string = function(_1: RelayPrep, _2: integer | nil): RelayLaunch | nil, string
-  error("begin_relay is called before it is defined")
-end
+local begin_relay: function(RelayPrep, integer | nil): RelayLaunch | nil, string
 
 local function start(argv: {string}, opts: Options, pty?: Pty, serves_relay?: integer): Handle | nil, string
   -- Refuse an explicit terminal before inspecting any platform policy:

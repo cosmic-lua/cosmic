@@ -24,9 +24,7 @@ local typescan = require("build.fix.typescan")
 local type Node = ast.Node
 local type Ctx = ctx_mod.Ctx
 
-local expression: function(Ctx, Node) = function(_1: Ctx, _2: Node)
-  error("expression is called before it is defined")
-end
+local expression: function(Ctx, Node)
 
 local refuse = ctx_mod.refuse
 

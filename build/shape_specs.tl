@@ -114,9 +114,7 @@ local function sorted(set: {string: any}): {string}
   return names
 end
 
-local spec_of: function(t: Ty, path: string, shape: string, holding: {integer: boolean}): string | nil, string = function(_t: Ty, _path: string, _shape: string, _holding: {integer: boolean}): string | nil, string
-  error("spec_of is called before it is defined")
-end
+local spec_of: function(t: Ty, path: string, shape: string, holding: {integer: boolean}): string | nil, string
 
 --- `T | nil` as `Shape.optional(T)`: the one union a spec has a word for.
 local function optional_of(at: Ty, path: string, shape: string,

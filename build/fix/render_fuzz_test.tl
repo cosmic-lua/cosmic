@@ -166,12 +166,8 @@ local function typ(g: Gen, listed?: boolean): string
   return t
 end
 
-local expr: function(Gen, integer): string = function(_1: Gen, _2: integer): string
-  error("expr is called before it is defined")
-end
-local block: function(Gen, integer): string = function(_1: Gen, _2: integer): string
-  error("block is called before it is defined")
-end
+local expr: function(Gen, integer): string
+local block: function(Gen, integer): string
 
 local function atom(g: Gen): string
   local k = g.src:int(1, 9)

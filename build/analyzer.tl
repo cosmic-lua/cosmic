@@ -563,9 +563,7 @@ end
 
 -- Declared ahead: [`fields_docs`] and `record_docs` call each other.
 local record_docs: function(lines: {string}, tokens: {compiler.Token}, symbol: string,
-                           def: ast.TypeNode, out: {analyzer.DocEntry}) = function(_lines: {string}, _tokens: {compiler.Token}, _symbol: string, _def: ast.TypeNode, _out: {analyzer.DocEntry})
-                             error("record_docs is called before it is defined")
-                           end
+                           def: ast.TypeNode, out: {analyzer.DocEntry})
 
 --- Adds the entries for one group of a record's or interface's fields
 --- under `symbol`, in the order given, with a nested record or enum

@@ -219,9 +219,7 @@ local function put(g: Gen, code: string): integer
 end
 
 --- Writes the node list `body`, whose dot is `dot`.
-local emit: function(g: Gen, body: {types.Node}, dot: Dot) = function(_g: Gen, _body: {types.Node}, _dot: Dot)
-  error("emit is called before it is defined")
-end
+local emit: function(g: Gen, body: {types.Node}, dot: Dot)
 
 --- The type a slot at `ctx` accepts, as source.
 local function accepts(g: Gen, ctx: types.Slot): string

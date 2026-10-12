@@ -72,9 +72,7 @@ local record Process
   metamethod __close: function(Process)
 end
 
-local end_connector: function(Process, boolean) = function(_1: Process, _2: boolean)
-  error("end_connector is called before it is defined")
-end
+local end_connector: function(Process, boolean)
 
 local process_mt: metatable<Process> = {
   __index = Process,

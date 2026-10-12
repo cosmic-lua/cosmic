@@ -119,9 +119,7 @@ local function gen_value(r: Recipe, spec: Shape.Spec, depth: integer, strict: bo
   return STRAYS[byte(r, #STRAYS) + 1]
 end
 
-local same: function(a: any, b: any): boolean = function(_a: any, _b: any): boolean
-  error("same is called before it is defined")
-end
+local same: function(a: any, b: any): boolean
 
 --- Whether `a` and `b` hold the same values, NaN matching NaN.
 same = function(a: any, b: any): boolean

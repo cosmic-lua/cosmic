@@ -856,9 +856,7 @@ local function scalar(w: Walk, field: string, spec: Shape.Spec, text: string | n
   return coerce(w, field, spec, text)
 end
 
-local bind_record: function(w: Walk, prefix: string, spec: Shape.Spec, depth: integer): {string:any} = function(_w: Walk, _prefix: string, _spec: Shape.Spec, _depth: integer): {string:any}
-  error("bind_record is called before it is defined")
-end
+local bind_record: function(w: Walk, prefix: string, spec: Shape.Spec, depth: integer): {string:any}
 
 --- Whether some name starts with `prefix` and a dot.
 local function nested_present(q: Url.Query, prefix: string): boolean

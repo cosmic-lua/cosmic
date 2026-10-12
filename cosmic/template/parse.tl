@@ -226,9 +226,7 @@ local function keyword(item: types.Item): string
   return ""
 end
 
-local nodes: function(p: Parser): {types.Node} | nil, string = function(_p: Parser): {types.Node} | nil, string
-  error("nodes is called before it is defined")
-end
+local nodes: function(p: Parser): {types.Node} | nil, string
 
 --- Parses the block action at the next item (`if`, `range` or `with`)
 --- through its `{{end}}`.

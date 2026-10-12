@@ -199,9 +199,7 @@ end
 --- @return integer The 1-based column
 local function span_start(node: Node, memo?: {Node: {integer}}): integer, integer
   local seen: {Node: boolean} = {}
-  local compute: function(Node): integer, integer = function(_1: Node): integer, integer
-    error("compute is called before it is defined")
-  end
+  local compute: function(Node): integer, integer
   -- The earlier of (`by`, `bx`) and where child field `value` starts.
   -- It is [`each_child`]'s step written out, with no closure made per
   -- node: this runs once for every node a renderer asks about.

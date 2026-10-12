@@ -406,9 +406,7 @@ local function trailing(t: Trivia, line: integer): string | nil, {string}
   return nil, t.entries
 end
 
-local parse_value: function(r: Reader): flow.Node = function(_r: Reader): flow.Node
-  error("parse_value is called before it is defined")
-end
+local parse_value: function(r: Reader): flow.Node
 
 --- The string token at the reader's place, as the text it reads as.
 local function read_string(r: Reader): string

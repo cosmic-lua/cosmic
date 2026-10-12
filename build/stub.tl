@@ -183,6 +183,20 @@ local function names_of(s: ast.Node): {string}, string | nil
   return declared, nil
 end
 
+--- The names the top-level statement `s`, an assignment, writes as plain
+--- names (`feed = function() ... end`); none for any other statement.
+local function written_names(s: ast.Node): {string}
+  local written: {string} = {}
+  if s.kind == "assignment" then
+    for _, var in ipairs(s.vars or {}) do
+      if var.kind == "variable" then
+        written[#written + 1] = var.tk
+      end
+    end
+  end
+  return written
+end
+
 --- Whether the top-level statement `s` gives the one name it declares a
 --- type no later statement can change: a type declaration (`local record
 --- M`), a local function, whose type is its signature, or a local whose
@@ -222,10 +236,12 @@ local function unneeded(parsed: ast.Parsed, scanned: Scan): {Span} | nil
     return nil
   end
   local declares: {{string}} = {}
+  local writes: {{string}} = {}
   local owners: {string | nil} = {}
   local typed = false
   for i, s in ipairs(statements) do
     declares[i], owners[i] = names_of(s)
+    writes[i] = written_names(s)
     -- The returned name's last top-level declaration decides what it is.
     for _, name in ipairs(declares[i]) do
       if name == returned then
@@ -288,6 +304,12 @@ local function unneeded(parsed: ast.Parsed, scanned: Scan): {Span} | nil
       if not kept[i] then
         local keep = not droppable[s.kind] or (owners[i] ~= nil and wanted[owners[i]])
         for _, name in ipairs(declares[i]) do
+          keep = keep or wanted[name] == true
+        end
+        -- The assignment of a name a kept statement spells stays: a local
+        -- declared with no value is read in the stub only if the stub
+        -- assigns it, as the source does.
+        for _, name in ipairs(writes[i]) do
           keep = keep or wanted[name] == true
         end
         if keep then

@@ -71,8 +71,9 @@ local record compiler
     "narrowing_dropped"
     -- a local read where a path from its declaration has not assigned it:
     -- `variable`, `closure` where the read is a function literal that
-    -- names it, and `skipped_kind`, `skipped_y`, `skipped_x` for the
-    -- statement a path went by that skipped the assignment
+    -- names it with `ran_kind`, `ran_y`, `ran_x` for what may call it, and
+    -- `skipped_kind`, `skipped_y`, `skipped_x` for the statement a path
+    -- went by that skipped the assignment
     "not_assigned"
     -- a local declared with neither a type nor a value: `variable`
     "no_type"
@@ -173,9 +174,15 @@ local record compiler
     dropped_x: integer | nil
 
     -- For a local read before it is assigned: whether the read is a
-    -- function literal that names it, and the statement a path went by
-    -- that skipped the assignment (`branch`, `if` or `loop`), and where.
+    -- function literal that names it, what may call that function before
+    -- the assignment (`ran_kind`: `call`, `operator`, `iterator`,
+    -- `return`, `goto` or `scope`, at `ran_y`, `ran_x` unless it is the end
+    -- of the scope), and the statement a path went by that skipped the
+    -- assignment (`branch`, `if` or `loop`), and where.
     closure: boolean | nil
+    ran_kind: string | nil
+    ran_y: integer | nil
+    ran_x: integer | nil
     skipped_kind: string | nil
     skipped_y: integer | nil
     skipped_x: integer | nil

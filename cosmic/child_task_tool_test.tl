@@ -119,12 +119,11 @@ end
 --- some 6 ms over it.
 local function test_a_wait_in_a_task_is_woken_by_its_exit_watch()
   local ends: raw_process.Pipe | nil
-  local watch: function(integer): integer | nil, string, integer = function(_1: integer): integer | nil, string, integer
-    error("watch is called before it is defined")
-  end
+  local type Watch = function(integer): integer | nil, string, integer
+  local watch: Watch | nil
   local module = reloaded(function(copy: {string: any})
     local pipe = copy.pipe as function(): raw_process.Pipe, string, integer -- cast: the raw table's `pipe`
-    watch = copy.exit_watch as function(integer): integer | nil, string, integer -- cast: the raw table's `exit_watch`
+    watch = copy.exit_watch as Watch -- cast: the raw table's `exit_watch`
     local made = assert(pipe())
     ends = made
     copy.exit_watch = function(_pid: integer): integer | nil, string, integer
@@ -132,6 +131,7 @@ local function test_a_wait_in_a_task_is_woken_by_its_exit_watch()
     end
   end)
   local pipe_ends = assert(ends, "the module was reloaded")
+  local exit_watch = assert(watch, "the module was reloaded")
   local waited: Child.Result | nil
   local early = false
   Poll.run(function()
@@ -140,7 +140,7 @@ local function test_a_wait_in_a_task_is_woken_by_its_exit_watch()
     local h <close> = assert(module.start(lua(
       'local Fs = require("cosmic.fs") while assert(Fs.take(0, 4096)) ~= "" do end',
       { stdin = "stream", process_group = false })))
-    local exited = assert(watch(h.pid))
+    local exited = assert(exit_watch(h.pid))
     local waiter = Poll.spawn(function()
       waited = assert(h:wait())
     end)

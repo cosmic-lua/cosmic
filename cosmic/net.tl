@@ -532,9 +532,7 @@ local function address_trouble(address: any): string
 end
 
 --- [`Net.resolve`] through `opts.connector`, defined with the connector.
-local resolved_through: function(name: string, opts: Net.ResolveOptions): {Net.Resolved} | nil, string = function(_name: string, _opts: Net.ResolveOptions): {Net.Resolved} | nil, string
-  error("resolved_through is called before it is defined")
-end
+local resolved_through: function(name: string, opts: Net.ResolveOptions): {Net.Resolved} | nil, string
 
 --- Resolves `name` with c-ares and answers every address it has, IPv4
 --- and IPv6, as the system's configuration (resolv.conf and hosts; on
@@ -1049,9 +1047,7 @@ local function traced(err: any): string
   return errors.trace(tostring(err), 2)
 end
 
-local resume_accepting: function(s: Serving) = function(_s: Serving)
-  error("resume_accepting is called before it is defined")
-end
+local resume_accepting: function(s: Serving)
 
 --- Serves `conn` in a task of its own, counted open until the protocol
 --- is done with it.

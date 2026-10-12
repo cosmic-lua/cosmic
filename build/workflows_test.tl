@@ -2586,9 +2586,7 @@ local function evaluate(text: string, leg: {string: string}, event: string, ref:
   end
   local i = 1
   local function truthy(v: Value): boolean return v ~= "" and v ~= false end
-  local disjunction: function(): Value = function(): Value
-    error("disjunction is called before it is defined")
-  end
+  local disjunction: function(): Value
   local function primary(): Value
     local token = assert(tokens[i], "an expression ends early: " .. inner)
     i = i + 1

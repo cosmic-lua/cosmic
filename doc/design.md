@@ -1008,92 +1008,60 @@ promised a `T`, so it is legal only where every path from the declaration
 assigns `x` before its first read ([`checker/flow.tl`]'s `unassigned_read`,
 asked of each declaration once the block that holds it is checked). a read
 is any use of `x` as a value (an operand, an argument, an index, the target of
-`x.f = v` or `x[i] = v`) and the creation of a function literal that names
-`x`, which reads it where it is made. a path that ends first (`return`, a
+`x.f = v` or `x[i] = v`). a path that ends first (`return`, a
 `break` or `goto` that leaves, a call of a function typed `: never`) never
 reaches the read. an `if` assigns if every branch does and it has an `else`;
 a `while`, `for` and generic `for` body may run no time, so what it assigns
 does not count after the loop except on the paths that `break` out of it,
 while a `repeat` body and a `while true` body run at least once; a `goto`
-takes the state it leaves with to its label, and a backward one adds nothing
-a label did not already have. an assignment inside a function literal does not
-count for the code around it, and a local of the same name declared inside a
-block hides the variable from the rest of that block. `local x: T | nil` with
-no value is always legal and is nil, so is any type that admits nil (`any`, an
-alias of a union with nil); a type variable is not taken to, since it may stand
-for a type that does not. a local with neither a type nor a value
-(`local x`) is refused too, with the code `no_type`.
+takes the state it leaves with to its label. an assignment inside a function
+literal does not count for the code around it, and a local of the same name
+declared inside a block hides the variable from the rest of that block.
+`local x: T | nil` with no value is always legal and is nil, so is any type
+that admits nil (`any`, an alias of a union with nil); a type variable is not
+taken to, since it may stand for a type that does not. a local with neither a
+type nor a value (`local x`) is refused too, with the code `no_type`.
+
+a function literal (or a `local function`) that names `x` does not read it
+where it is made, only when it is called. so it is pending from its creation
+until `x` is assigned on every path, and it becomes a read if code of the
+program's may run in between: a call, an operator, index or `==` that dispatches
+to a declared metamethod, a `tostring` or `print` of a value with a declared
+`__tostring`, a `for ... in` loop whose iterator is not `pairs`, `ipairs` or
+`gmatch` of what runs none: what the checker counts as running code for
+the narrowing it drops (`TypeChecker:drop_all`, which marks the expression
+`runs_code` for `unassigned_read`), and a call of `assert` or `type`, of the
+standard library that examines no value that may dispatch, or of a function
+typed `: never`, is none. it also becomes one where the function may get out
+unassigned: at a `return`, at a `goto` back round a label the walk has passed
+(the code between runs again), and where the variable's scope ends. a loop
+body that ends with it pending goes round once more in the walk, so the code at
+its start counts. so `local f: function(); local function g() f() end; f =
+function() g() end` and `local f: function(); f = function() f() end` pass,
+and `local f: function(); local function g() f() end; g(); f = ...`, a function
+that is returned or whose scope ends with `f` unassigned, and an assignment a
+path skips are refused. a call that is not marked runs code even if it does
+not call the function; the refusal is the checker's guess that it may, as the
+dropped narrowing is.
 
 a refusal of the first kind has the code `not_assigned`, with the variable, and
 where a path skipped the assignment: the `if` with no `else`, the branch that
-does not assign, or the loop, with its place; or that the read is a function
-that names it. its hint says to give the local a value where it is declared,
-assign it on every path, or declare it `T | nil` and check it where it is
-used. the rule is held against the semantics it is about: a drawn program of
-branches, loops, `break`, `return`, `goto` and calls that never return is run
-down every way its choices can fall, and the checker refuses it exactly when
-some way reads the variable before it is assigned
+does not assign, or the loop, with its place; for a function that names it, that
+the read is a function and what may call it first (`ran_kind`: `call`,
+`operator`, `iterator`, `return`, `goto` or `scope`, with its place). its hint
+says to give the local a value where it is declared, assign it on every path, or
+declare it `T | nil` and check it where it is used. the rule is held against
+the semantics it is about: a drawn program of branches, loops, `break`,
+`return`, `goto`, calls that never return and functions that name the variable
+is run down every way its choices can fall, with every call able to call every
+function made so far, and the checker refuses it exactly when some way reads
+the variable before it is assigned
 ([`build/checker_assigned_fuzz_test.tl`]).
 
-the rule costs the idiom of a function declared ahead for two to call each
-other. a function literal that names the local reads it, so the tree writes
-`local g: function(integer) = function(_: integer) error("g is called before it
-is defined") end`, a stand-in that raises if it is ever called first, and a
-function that only calls itself is a `local function`. the checker's own source
-is valid upstream Teal and relies on nil being in every type, so a local it
-reads before the code that assigns it is declared `local x: T = nil`, which has
-a value; the checker's TODO there waits on nil leaving every type but one that
-names it.
-
-later parts of the checker move into modules the same way, each a file in
-`checker/` with a main chunk and a count of locals of its own. the files sit
-outside the module closure they compile: the scanner
-reads `checker/` as part of the tool, never as a module or a test
-([`build/identity.tl`]), and `cosmic fix` does not lay it out. the vendored
-tree keeps upstream's `tl.lua` alone, unedited, as the seed: the boot
-compiles each file in `checker/` with it, so the checker's sources are valid
-upstream Teal, and the compiler that makes compiles its own sources to
-exactly itself, which [`build/compiler_test.tl`] holds it to: the compiler
-is a function of its Teal sources, not of what first compiled it. the
-sources are in the compiler's identity, so in every compile's key, and in
-the tool's boot hash, so an edit to one boots the tool. a file added to
-`checker/` is covered by all of these, and by that test's list of files.
-
-the entry requires a module by its dotted name (`require("checker.flow")`),
-which the boot answers to the seed from the file's text. the tool carries
-one compiler, one row: the entry's Lua behind a first line that holds the
-standard library's declarations as the local `stdlib` and the Lua of each
-other file, which a `require` in the entry, or in another such file, loads on
-first use as a chunk of its own named by its path, under the local `require`
-that shadows the host's. only `<identifier>.tl` files beside the entry are
-parts. the checker's
-module system is nothing more than that.
-
-the Lua standard library's declarations are not in that source. they are
-[`checker/stdlib.d.tl`], the typing the checker takes without proof, so
-auditing or changing one is an edit of that file and touches no checker
-logic. the file sits beside the checker, not under a module's path, for
-three reasons. the checker reads it before any module system exists: a
-`.d.tl` of a module is found by `require`, and the declarations are
-the checker's own environment, which makes `string`, `table` and the
-rest globals. it is outside the closure the checker compiles, as the
-checker is. and the compiler's identity, the tool's boot hash and the CI
-cache key hash everything under `checker/`, so an edit to a
-declaration recompiles every module and boots the tool. the boot carries
-the file: the bridge ([`core/bridge.lua`]) starts the compiled checker
-with `local stdlib = "<the file's text>"` on its first line, so the
-compiler the tool carries holds the declarations it was compiled with, and
-compiling the checker's sources again with the same file gives exactly that
-Lua ([`build/compiler_test.tl`]). the checker still names the few
-functions it handles in code (`assert`, `type`, `setmetatable`, `pcall`,
-`require`, `ipairs`, `pairs`, `coroutine.wrap`, and `string.format`,
-`gsub`, `match`, `find` and the like) after reading the file, in
-`tl.new_env`. the prelude (`any`, `thread`, `userdata`, `metatable`)
-stays in the checker: its names are the language's, and the checker's
-logic reads them. `cosmic docs` does not show these declarations: it
-indexes the tree's modules and their declarations, and this file is
-neither. [`build/stdlib_declarations_test.tl`] pins how the checker
-prints representative names.
+the checker's own source is valid upstream Teal and relies on nil being in
+every type, so a local it reads before the code that assigns it is declared
+`local x: T = nil`, which has a value; the checker's TODO there waits on nil
+leaving every type but one that names it.
 
 an error the checker reports carries a `code` and the places and values it
 is about (an argument's position, the types shown, the key and the record's
@@ -1438,11 +1406,9 @@ in [roadmap.md](roadmap.md).
 [`build/checker_assigned_fuzz_test.tl`]: ../build/checker_assigned_fuzz_test.tl
 [`build/closure_store.tl`]: ../build/closure_store.tl
 [`build/compiler.d.tl`]: ../build/compiler.d.tl
-[`build/compiler_test.tl`]: ../build/compiler_test.tl
 [`build/declared_key.tl`]: ../build/declared_key.tl
 [`build/dispatched_features_test.tl`]: ../build/dispatched_features_test.tl
 [`build/fix/rule.tl`]: ../build/fix/rule.tl
-[`build/identity.tl`]: ../build/identity.tl
 [`build/importer.tl`]: ../build/importer.tl
 [`build/key_parts.tl`]: ../build/key_parts.tl
 [`build/link_index.tl`]: ../build/link_index.tl
@@ -1451,7 +1417,6 @@ in [roadmap.md](roadmap.md).
 [`build/refresh.tl`]: ../build/refresh.tl
 [`build/shards.tl`]: ../build/shards.tl
 [`build/shared_compiles.tl`]: ../build/shared_compiles.tl
-[`build/stdlib_declarations_test.tl`]: ../build/stdlib_declarations_test.tl
 [`build/teal.tl`]: ../build/teal.tl
 [`build/teal_test.tl`]: ../build/teal_test.tl
 [`build/test.tl`]: ../build/test.tl
