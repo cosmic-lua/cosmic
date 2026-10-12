@@ -64,6 +64,7 @@ local function run_boot(tmp: string, mode: string, bridge?: boolean): Child.Resu
   assert(Fs.write(tmp .. "/tree/build/boot.tl", boot))
   assert(Fs.write(tmp .. "/tl/tl.lua", compiler))
   assert(Fs.write(tmp .. "/tree/checker/tl.tl", compiler))
+  assert(Fs.write(tmp .. "/tree/checker/stdlib.d.tl", "do\nend\n"))
   return (assert(Child.run({ path, "--boot", tmp .. "/tree", tmp .. "/tl", mode },
     { stdout = "capture", stderr = "capture",
       timeout_ns = Clock.seconds(30) })))
