@@ -440,9 +440,9 @@ input to the build, never to the runtime. one database holds:
   Teal-only rebuild carries the running binary's rows over, and `cosmic
   build` copies them into every executable it writes;
   [`Store.web_asset`] reads one.
-- **the compiler**: the Lua [`checker/tl.tl`] compiles to, started with
-  the text of [`checker/stdlib.d.tl`], one row, loaded with its own
-  environment.
+- **the compiler**: the Lua [`checker/tl.tl`] and its modules compile to,
+  started with the text of [`checker/stdlib.d.tl`], one row, loaded with
+  its own environment.
 - **decls**: every declaration the tree holds, generated or written,
   so a checker building another tree against this binary can type
   what it requires.
@@ -920,18 +920,36 @@ a CycloneDX document. a pin with no license fails the build.
 
 ### teal
 
-the checker and compiler are the tree's own source, [`checker/tl.tl`]: one
-file that descends from tl 0.24.8 (MIT; the license and notice travel in the
-bill of materials with `tl.lua`) and is edited directly. it sits outside the module closure it compiles: the scanner
+the checker and compiler are the tree's own source, [`checker/tl.tl`] and the
+files beside it: they descend from tl 0.24.8 (MIT; the license and notice
+travel in the bill of materials with `tl.lua`) and are edited directly.
+[`checker/tl.tl`] is the entry and holds most of the checker.
+[`checker/flow.tl`] is the first module split out of it, and it decides
+reachability: which statements end their block (`return`, `break`, `goto`,
+an `if` with an `else` all of whose branches end, `while true` with no
+`break`, a call of a `: never` function), which a function declared `:
+never` or returning a value and a narrowing after an `if` that ends read.
+the checker asks it, never decides it. later parts of the checker move
+into modules the same way, each a file in `checker/` with a main chunk and
+a count of locals of its own. the files sit outside the module closure they compile: the scanner
 reads `checker/` as part of the tool, never as a module or a test
 ([`build/identity.tl`]), and `cosmic fix` does not lay it out. the vendored
 tree keeps upstream's `tl.lua` alone, unedited, as the seed: the boot
-compiles [`checker/tl.tl`] with it, so the checker's source is valid upstream
-Teal, and the compiler that makes compiles its own source to exactly
-itself, which [`build/compiler_test.tl`] holds it to: the compiler is a
-function of its Teal source, not of what first compiled it. the source is
-in the compiler's identity, so in every compile's key, and in the tool's
-boot hash, so an edit to it boots the tool.
+compiles each file in `checker/` with it, so the checker's sources are valid
+upstream Teal, and the compiler that makes compiles its own sources to
+exactly itself, which [`build/compiler_test.tl`] holds it to: the compiler
+is a function of its Teal sources, not of what first compiled it. the
+sources are in the compiler's identity, so in every compile's key, and in
+the tool's boot hash, so an edit to one boots the tool. a file added to
+`checker/` is covered by all of these, and by that test's list of files.
+
+the entry requires a module by its dotted name (`require("checker.flow")`),
+which the boot answers to the seed from the file's text. the tool carries
+one compiler, one row: the entry's Lua behind a first line that holds the
+standard library's declarations as the local `stdlib` and the Lua of each
+other file, which a `require` in the entry loads on first use as a chunk of
+its own, under the local `require` that shadows the host's. the checker's
+module system is nothing more than that.
 
 the Lua standard library's declarations are not in that source. they are
 [`checker/stdlib.d.tl`], the typing the checker takes without proof, so
@@ -947,7 +965,7 @@ declaration recompiles every module and boots the tool. the boot carries
 the file: the bridge ([`core/bridge.lua`]) starts the compiled checker
 with `local stdlib = "<the file's text>"` on its first line, so the
 compiler the tool carries holds the declarations it was compiled with, and
-compiling the checker's source again with the same file gives exactly that
+compiling the checker's sources again with the same file gives exactly that
 Lua ([`build/compiler_test.tl`]). the checker still names the few
 functions it handles in code (`assert`, `type`, `setmetatable`, `pcall`,
 `require`, `ipairs`, `pairs`, `coroutine.wrap`, and `string.format`,
@@ -1172,8 +1190,9 @@ patch/<name>/       exact find/replace records, each with a note
 core/               C: entry, locator, VFS, store, sqlite, surface, boot
 core/syscalls.h     the annotated header cosmic.sys's .d.tl and doc rows derive from
 core/process.h      the same for the raw cosmic.internal.process table
-core/bridge.lua     the boot environment for tl, and its compile of checker/tl.tl, by hand
-checker/tl.tl       the Teal checker and compiler, one file, compiled at boot by vendor/tl/tl.lua
+core/bridge.lua     the boot environment for tl, and its compile of checker/*.tl, by hand
+checker/tl.tl       the Teal checker and compiler, the entry, compiled at boot by vendor/tl/tl.lua
+checker/flow.tl     the checker's reachability: which statements end their block
 cosmic/             the standard library; entry files are public, siblings not
 cmd/cosmic/         the binary's main
 build/              the importer, checker driver, embed (Teal; private to build/ cmd/ test/ tests)
@@ -1289,6 +1308,7 @@ in [roadmap.md](roadmap.md).
 [`build/workers.tl`]: ../build/workers.tl
 [`build/zig.tl`]: ../build/zig.tl
 [`build/zig_fetch.tl`]: ../build/zig_fetch.tl
+[`checker/flow.tl`]: ../checker/flow.tl
 [`checker/stdlib.d.tl`]: ../checker/stdlib.d.tl
 [`checker/tl.tl`]: ../checker/tl.tl
 [`ci/cosmic-driver.pin`]: ../ci/cosmic-driver.pin

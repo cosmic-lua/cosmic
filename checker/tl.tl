@@ -71,13 +71,22 @@ end
 -- `set_special_function` calls.
 global stdlib: string
 
--- The compiled checker's main chunk holds Lua's 200 local variables: a new
--- top-level `local` (a `local function` included, a type declaration not)
--- fails the boot with "too many local variables", and the boot's `stdlib`
--- local above takes one of the 200. There is no headroom.
--- TODO: split the checker into modules by concern (parser, subtype relation,
--- flow, declarations, emitter), each with a main chunk of its own. It waits
--- on that split, which the checker's source does not yet have.
+-- The checker is several files: this one is the entry, and each other
+-- `checker/*.tl` is a module it requires by `checker.<name>` and the boot
+-- compiles as a chunk of its own (core/bridge.lua's `bootstrap`). The
+-- carried compiler holds every file's Lua; a `require` of one of them
+-- is answered from it, never from the module system, which does not
+-- exist when the checker runs first.
+local flow = require("checker.flow")
+
+-- The compiled checker's main chunk holds Lua's 200 local variables; about
+-- 100 are taken, with the boot's `stdlib` and `require` locals among them.
+-- A top-level `local` (a `local function` included, a type declaration
+-- not) past the 200 fails the boot with "too many local variables".
+-- TODO: split the rest of the checker into modules by concern (parser,
+-- subtype relation, declarations, emitter) as checker/flow.tl was,
+-- each with a main chunk of its own. It waits on seams between those
+-- concerns, which the checker's source does not yet have.
 
 local interface Where
    f: string
@@ -1862,7 +1871,6 @@ local record Node
    if_block_n: integer
    if_blocks: {Node}
    if_widens: {string: boolean}
-   block_returns: boolean
    type_of: Node
    rets_omitted: boolean
    context_type: Type
@@ -8633,38 +8641,6 @@ do
       return NONE
    end
 
-   -- Whether `body`, a loop's body, holds a `break` that leaves that loop.
-   local function breaks_out(body: Node): boolean
-      for _, stmt in ipairs(body) do
-         if stmt.kind == "break" then
-            return true
-         elseif stmt.kind == "do" then
-            if breaks_out(stmt.body) then
-               return true
-            end
-         elseif stmt.kind == "if" then
-            for _, b in ipairs(stmt.if_blocks) do
-               if breaks_out(b.body) then
-                  return true
-               end
-            end
-         end
-      end
-      return false
-   end
-
-   -- Ends a `while` or `repeat` loop's scope, marking the loop as
-   -- ending the block holding it when its condition is the literal that
-   -- never ends it (`while true`, `until false`) and no `break` leaves it.
-   local function end_loop(self: TypeChecker, node: Node, _children: {Type}): Type
-      self:end_scope(node)
-      local endless = node.kind == "while" and "true" or "false"
-      if node.exp.kind == "boolean" and node.exp.tk == endless and not breaks_out(node.body) then
-         node.block_returns = true
-      end
-      return NONE
-   end
-
    local function unresolved_typeargs_for(g: GenericType): {Type}
       local ts = {}
       for _, ta in ipairs(g.typeargs) do
@@ -11013,7 +10989,7 @@ do
          end
 
          if f and f.never and node_is_funcall(node) then
-            node.block_returns = true
+            flow.mark_never_call(node as flow.Node)
          end
 
          if g then
@@ -11407,22 +11383,16 @@ do
       })))
    end
 
-   -- Whether control cannot go past the last of `body`'s statements: that
-   -- one ends the block.
-   local function body_ends(body: Node): boolean
-      return #body > 0 and not not body[#body].block_returns
-   end
-
    function TypeChecker:end_function_scope(node: Node)
       self.errs:fail_unresolved_labels(self.st[#self.st])
       self:end_scope(node)
       local def = node.kind == "local_macroexp" and node.macrodef or node
       if def.never then
          if def.kind == "macroexp" then
-            if not def.exp.block_returns then
+            if not flow.ends(def.exp as flow.Node) then
                self.errs:add(node, "this macroexp is declared 'never', but its expression is no call that never returns")
             end
-         elseif not body_ends(node.body) then
+         elseif not flow.ends_body(node.body as flow.Node) then
             self.errs:add(node, "this function is declared 'never', but can reach its end: end it with a call that never returns, such as error(...)")
          end
       end
@@ -13842,20 +13812,7 @@ do
                self:widen_all(node.if_widens, {})
             end
 
-            local all_return = true
-            for _, b in ipairs(node.if_blocks) do
-               if not b.block_returns then
-                  all_return = false
-                  break
-               end
-            end
-            if all_return then
-               -- Only an `else` closes the last way past: without one,
-               -- control reaches the next statement when every
-               -- condition is false.
-               if not node.if_blocks[#node.if_blocks].exp then
-                  node.block_returns = true
-               end
+            if flow.ends_all(node.if_blocks as {flow.Node}) then
                -- TODO: the negation below does not distribute over a
                -- condition that is an `or`: after `if p == nil or p == ""
                -- then return end`, p is still `string | nil`, though
@@ -13888,10 +13845,6 @@ do
 
             self:end_scope(node)
 
-            if #node.body > 0 and node.body[#node.body].block_returns then
-               node.block_returns = true
-            end
-
             return NONE
          end
       },
@@ -13905,7 +13858,7 @@ do
             self:begin_scope(node)
             self:apply_facts(node.exp, node.exp.known)
          end,
-         after = end_loop,
+         after = end_scope_and_none_type,
       },
       ["label"] = {
          before = function(self: TypeChecker, node: Node)
@@ -13947,8 +13900,6 @@ do
                end
             end
 
-            node.block_returns = true
-
             if found_label then
                found_label.used_label = true
             else
@@ -13968,7 +13919,7 @@ do
             node.exp.expected = a_type(node, "boolean_context", {})
          end,
          -- only end scope after checking `until`, `statements` in repeat body has is_repeat == true
-         after = end_loop,
+         after = end_scope_and_none_type,
       },
       ["forin"] = {
          before = function(self: TypeChecker, node: Node)
@@ -14086,7 +14037,6 @@ do
             local got_t = got.tuple
             local n_got = #got_t
 
-            node.block_returns = true
             local expected = self:find_var_type("@return") as TupleType
             if not expected then
                -- if at the toplevel
@@ -14697,10 +14647,10 @@ do
                local required = #rets.tuple - (rets.is_va and 1 or 0)
                local body = node.body
                if node.context_never then
-                  if not body_ends(body) then
+                  if not flow.ends_body(body as flow.Node) then
                      self.errs:add(node, "missing never: this function can reach its end, where a function that never returns is expected of it: end it with a call that never returns, or declare its return types")
                   end
-               elseif required > 0 and not body_ends(body) then
+               elseif required > 0 and not flow.ends_body(body as flow.Node) then
                   self.errs:add(node, "missing return: this function can reach its end, where %s is expected of it: return a value there, or declare its return types", rets)
                end
             end
@@ -15551,16 +15501,12 @@ do
    }
 
    visit_node.cbs["break"] = {
-      after = function(_self: TypeChecker, node: Node, _children: {Type}): Type
-         node.block_returns = true
+      after = function(_self: TypeChecker, _node: Node, _children: {Type}): Type
          return NONE
       end,
    }
    visit_node.cbs["do"] = {
-      after = function(_self: TypeChecker, node: Node, _children: {Type}): Type
-         if #node.body > 0 and node.body[#node.body].block_returns then
-            node.block_returns = true
-         end
+      after = function(_self: TypeChecker, _node: Node, _children: {Type}): Type
          return NONE
       end,
    }
