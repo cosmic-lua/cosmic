@@ -100,6 +100,13 @@ bool cosmic_signal_caught (void);
 /* Milliseconds on the monotonic clock. */
 int64_t cosmic_now_ms (void);
 
+/* The deadline, on [`cosmic_now_ms`]'s clock, of a wait of `timeout`
+ * milliseconds begun now, or -1 for a `timeout` of -1 (no limit). It is
+ * rounded up to a whole millisecond, so that a clock read by
+ * [`cosmic_now_ms`] (which rounds down) reaches it only once `timeout`
+ * has passed. */
+int64_t cosmic_deadline_ms (int64_t timeout);
+
 /* How long a wait for `deadline` (on [`cosmic_now_ms`]'s clock, -1 for
  * no limit) may sleep now: a slice at most, 0 once it has passed. */
 int cosmic_wait_slice (int64_t deadline);

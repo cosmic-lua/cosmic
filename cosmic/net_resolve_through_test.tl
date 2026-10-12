@@ -311,6 +311,60 @@ local function test_a_lookup_out_of_time_still_takes_the_connectors_reply(tmp: s
   assert(first >= 100 and first < 480, "the first lookup ended after " .. first .. " ms, not at its deadline")
 end
 
+--- A lookup never reports its time out before the time it was given has
+--- passed, wherever in the millisecond it began: the core counted its
+--- deadline from the clock cut down to whole milliseconds, so one begun
+--- late in a millisecond ended up to a millisecond early (a 100 ms lookup
+--- ending at 99). Every server here never takes the connection, so each
+--- lookup ends at its deadline, and the starts spread over the
+--- millisecond because each is delayed by a different fraction of one.
+local function test_a_lookup_out_of_time_never_ends_before_its_deadline()
+  require_native_connector()
+  local held: {function()} = {}
+  local servers: {Net.Endpoint} = {}
+  for _ = 1, 2 do
+    servers[#servers + 1] = { host = "127.0.0.1", port = stuck_server(held)[1] }
+  end
+  local dns <close> = assert(Net.connector(servers, { timeout_ns = Clock.ms(500) }))
+  local limit = Clock.ms(10)
+  local shortest = limit
+  for round = 1, 150 do
+    local spin = Clock.monotonic_ns() + round * 6700 % 1000000
+    while Clock.monotonic_ns() < spin do end
+    local began = Clock.monotonic_ns()
+    local found, why = Net.resolve("deadline.example.test", { timeout_ns = limit, connector = dns, servers = servers })
+    local took = Clock.monotonic_ns() - began
+    assert(found == nil and why == Poll.TIMEOUT, tostring(why))
+    if took < shortest then shortest = took end
+  end
+  for _, close in ipairs(held) do close() end
+  assert(shortest >= limit, "a lookup ended after " .. shortest .. " ns, before its deadline of " .. limit .. " ns")
+end
+
+--- A lookup's deadline never falls before the time it was given: the core
+--- counted it from the clock cut down to whole milliseconds, so a lookup
+--- begun late in a millisecond refused a connect, and so ended with its
+--- time out, up to a millisecond early (a 100 ms lookup ending at 99).
+--- Begun with 1 ms in the last tenth of a millisecond, a lookup asks for
+--- its connect well inside the time it has, however it is scheduled.
+local function test_a_lookup_begun_late_in_a_millisecond_still_asks_for_its_connect()
+  local judged = 0
+  for _ = 1, 200 do
+    while Clock.monotonic_ns() % 1000000 < 900000 do end
+    local began = Clock.monotonic_ns()
+    local lookup = assert(socket.lookup("deadline.example.test", 1, nil, nil, { { host = "127.0.0.1", port = 9, index = 1 } }))
+    local _, _, _, _, wants = lookup:step(nil, nil)
+    local took = Clock.monotonic_ns() - began
+    lookup:close()
+    -- A start delayed past the millisecond has no claim on one want.
+    if took < Clock.ms(1) then
+      judged = judged + 1
+      assert(#wants == 1, #wants .. " connects were asked for, in " .. took .. " ns of 1 ms")
+    end
+  end
+  assert(judged > 0, "no lookup began and asked within its millisecond")
+end
+
 local function test_an_unreachable_name_server_fails_the_lookup()
   require_native_connector()
   -- A port that was free a moment ago.

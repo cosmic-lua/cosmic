@@ -6099,6 +6099,18 @@ int64_t cosmic_now_ms (void) {
   return (int64_t)ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
 }
 
+int64_t cosmic_deadline_ms (int64_t timeout) {
+  if (timeout < 0) return -1;
+  struct timespec ts;
+  clock_gettime(CLOCK_MONOTONIC, &ts);
+  int64_t now = (int64_t)ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
+  /* Up to the next whole millisecond: cosmic_now_ms counts down, so a
+   * deadline from it would pass up to a millisecond before `timeout`. */
+  int64_t part = ts.tv_nsec % 1000000 != 0;
+  if (timeout > INT64_MAX - now - part) return INT64_MAX;
+  return now + part + timeout;
+}
+
 int cosmic_wait_slice (int64_t deadline) {
   if (deadline < 0) return COSMIC_WAIT_SLICE_MS;
   int64_t remaining = deadline - cosmic_now_ms();
