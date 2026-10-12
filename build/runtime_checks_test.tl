@@ -377,3 +377,17 @@ local function test_a_file_name_that_would_split_a_spec_is_written_safely()
   assert(#found == 1 and found[1].at == "a%3Bb%0Ac%09d.tl:" .. tostring(line_of("return m[key]")), found[1].at)
   assert(not compiled(true, "a;b\nc.tl"):find("a;b", 1, true))
 end
+
+--- A spec that does not parse checks nothing and fails nothing: the
+--- values pass as they came, and a field's first value alone.
+local function test_a_malformed_spec_is_no_failure_of_the_test()
+  checked()
+  local before = met()
+  local hook = (_G as {string:any}).__cosmic_tc as function(integer, string, any...): any...
+  for _, spec in ipairs({ "p;snippet:1;f;no equals", "x;snippet:1", "" }) do
+    local first, second = hook(2, spec, "a", "b")
+    assert(first == "a" and second == "b", spec)
+  end
+  assert(select("#", hook(2, "f;broken", 1, 2)) == 1)
+  assert(met() == before, "a malformed spec was reported")
+end

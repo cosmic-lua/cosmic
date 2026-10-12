@@ -671,7 +671,7 @@ end
 ]]))
   local env = environment(tmp .. "/cache/verdicts.db")
   local checked = run(root, tmp .. "/checked.out", env, { "--check-types" })
-  if unsandboxed(checked) then return end
+  if unsandboxed(checked) then Test.skip("no worker could be sandboxed here") end
   assert(checked:find("2 ran, 0 stood", 1, true), checked)
   local function ran_last(): string
     local db = assert(Sqlite.open(build_dir(root) .. "/build.db"))

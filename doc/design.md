@@ -994,8 +994,8 @@ declared kinds and the value's, and the run reports them and fails
 nothing: the checker accepts nil for any type, so the report lists code it
 allows. a `return f(x)` (a tail call, which a check would end), a vararg
 parameter or return, and a write to a field a record inherits or a generic
-record declares are not checked. the run changes the Lua, so its compiler has an identity of
-its own ([`build.importer`]'s `checked_tool`) in every compile key, the
+record declares are not checked. the run changes the Lua, so its compiler
+has an identity of its own ([`build.importer`]'s `checked_tool`) in every compile key, the
 working database's rows and the compiles every checkout shares alike, and
 its projection is written aside (`cosmic.checked.db`): the tree's projection,
 the tool and every executable `cosmic build` writes never carry a check.

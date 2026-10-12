@@ -6,7 +6,10 @@
 
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
+local derivation = require("build.derivation")
 local importer = require("build.importer")
+local Sqlite = require("cosmic.sqlite")
+local type Compiler = require("build.compiler")
 local shared_compiles = require("build.shared_compiles")
 local teal = require("build.teal")
 local work = require("build.work")
@@ -140,7 +143,18 @@ local function test_a_checked_compile_takes_no_pool(tmp: string)
   local handle = assert(work.open(root))
   assert(work.stage(handle, false))
   local closed = 0
-  local pool = { close = function() closed = closed + 1 end } as importer.Workers
+  local pool: importer.Workers = {
+    ready = function(_: integer): boolean return false end,
+    parse = function(_: Sqlite.Handle, _: Compiler, _: {derivation.Fresh}, _: derivation.Parses,
+                     _: {derivation.Source}): boolean, string
+      return true, ""
+    end,
+    compile = function(_: Sqlite.Handle, _: string, _: {importer.Module}, _: {string:boolean},
+                       _: boolean, _: boolean): importer.Ahead | nil, string
+      return nil, ""
+    end,
+    close = function() closed = closed + 1 end,
+  }
   local result, trouble = importer.compile(handle, built, "keys-test", false, nil, pool, true)
   work.close(handle)
   assert(result == nil and trouble:find("takes no pool", 1, true), tostring(trouble))

@@ -295,29 +295,36 @@ local record Check
   declared: {string}
   kinds: {{string:boolean}}
   integral: {boolean}
+  -- The violations met at each position, by the value's kind and then the
+  -- place that sent it, so a repeated one is found without building a key.
+  memo: {{string:{string:worker.Violation}}}
 end
 
 -- The library the hook runs on, taken as the module loads: a test that
 -- replaces `string.match` or `table.concat` with a wrapper of its own, as
 -- one counts the string work of what it measures, must not have the hook
 -- call it, for the wrapper's own checked parameters would call the hook.
-local gmatch, match, concat = string.gmatch, string.match, table.concat
+local gmatch, match = string.gmatch, string.match
 local lua_type, math_type, lua_select, lua_pcall = type, math.type, select, pcall
+local lua_byte = string.byte
 
 local checks: {string:Check} = {}
-local found: {string:worker.Violation} = {}
-local found_order: {string} = {}
+local malformed: {string:boolean} = {}
+local found: {worker.Violation} = {}
 local dropped = 0
 -- The place that sent a value is asked of the stack for every violation of
--- a parameter, so the report names it however often a boundary is violated;
--- what is bounded is how many distinct violations one worker keeps
--- ([`worker.most_kept`]).
+-- a parameter, in constant time, so the report names it however often a
+-- boundary is violated; what is bounded is how many distinct violations one
+-- worker keeps ([`worker.most_kept`]).
 
 local function parse_check(text: string): Check
   local fields: {string} = {}
   for field in gmatch(text .. ";", "([^;]*);") do fields[#fields + 1] = field end
   local check: Check = { kind = fields[1], at = fields[2], name = "", n = 0, labels = {},
-    declared = {}, kinds = {}, integral = {} }
+    declared = {}, kinds = {}, integral = {}, memo = {} }
+  if check.kind ~= "p" and check.kind ~= "r" and check.kind ~= "f" then
+    error("a check of no kind")
+  end
   local first = 3
   if check.kind == "p" or check.kind == "f" then
     check.name = fields[3]
@@ -334,6 +341,7 @@ local function parse_check(text: string): Check
       label = check.name
     end
     check.n = index
+    check.memo[index] = {}
     check.labels[index] = label
     if declared ~= "-" then
       local kinds: {string:boolean} = {}
@@ -358,49 +366,64 @@ local function parse_check(text: string): Check
   return check
 end
 
---- The file and line of the frame that called the function that called
---- the hook, "?" where the stack names none (a caller that is not Lua). A
---- caller that tail-called the function is no frame: it names the
---- caller's caller.
-local function caller_site(): string
-  -- This, `note`, the `pcall` that calls it, the hook, the checked function,
-  -- its caller.
-  local trace = raw_errors.trace(nil, 6)
-  local file, line = match(trace, "\n%s*([^\n]-):(%d+): ")
-  if file == nil then return "?" end
-  return file .. ":" .. line
-end
-
 local function note(check: Check, index: integer, value: any, absent: boolean)
   local actual = lua_type(value)
   if actual == "number" then actual = math_type(value) end
   if absent then actual = "absent" end
   local at = check.at
+  if check.kind == "p" then
+    -- The frame that called the checked function: this, the `pcall` that
+    -- calls it, the hook, the checked function, its caller (a caller that
+    -- runs C is passed over, as one that tail-called the function is no
+    -- frame and names its own caller).
+    at = raw_errors.where(5) or "?"
+  end
+  local sites = check.memo[index][actual]
+  if sites == nil then
+    sites = {}
+    check.memo[index][actual] = sites
+  end
+  local known = sites[at]
+  if known ~= nil then
+    known.count = known.count + 1
+    return
+  end
+  if #found >= worker.most_kept then
+    dropped = dropped + 1
+    return
+  end
   local target: string
   if check.kind == "p" then
     target = "parameter " .. check.labels[index] .. " of " .. check.name .. " (" .. check.at .. ")"
-    at = caller_site()
   elseif check.kind == "r" then
     target = check.labels[index]
   else
     target = "field " .. check.name
   end
-  local declared = check.declared[index]
-  local key = concat({ check.kind, at, target, declared, actual }, "\t")
-  local known = found[key]
-  if known ~= nil then
-    known.count = known.count + 1
-  elseif #found_order >= worker.most_kept then
-    dropped = dropped + 1
-  else
-    found[key] = { kind = check.kind == "p" and "parameter" or check.kind == "r" and "return" or "field",
-      at = at, target = target, declared = declared, actual = actual, count = 1 }
-    found_order[#found_order + 1] = key
-  end
+  local met: worker.Violation = { kind = check.kind == "p" and "parameter" or check.kind == "r" and "return" or "field",
+    at = at, target = target, declared = check.declared[index], actual = actual, count = 1 }
+  sites[at] = met
+  found[#found + 1] = met
 end
 
 local function hook(_: integer, text: string, ...: any): any...
-  local check = checks[text] or parse_check(text)
+  local check = checks[text]
+  if check == nil then
+    if not malformed[text] then
+      -- A parse that succeeds leaves its check in `checks`.
+      if lua_pcall(parse_check, text) then
+        check = checks[text]
+      else
+        malformed[text] = true
+      end
+    end
+    -- A spec that does not parse checks nothing and is no failure of the
+    -- test: the values pass as they came.
+    if check == nil then
+      if lua_byte(text, 1) == 102 then return (...) end
+      return ...
+    end
+  end
   local given = lua_select("#", ...)
   for index = 1, check.n do
     local kinds = check.kinds[index]
@@ -418,11 +441,11 @@ local function hook(_: integer, text: string, ...: any): any...
   return ...
 end
 
+worker.most_kept = 2000
+
 --- Defines the global `__cosmic_tc` the Lua of a checked run calls, which
 --- records what [`worker.violations`] answers. Install it before a test's
 --- module loads: the boundaries its load crosses are checked too.
-worker.most_kept = 2000
-
 function worker.install_checks()
   rawset(_G as {string:any}, "__cosmic_tc", hook)
 end
@@ -431,7 +454,7 @@ end
 --- the order met.
 function worker.violations(): {worker.Violation}
   local out: {worker.Violation} = {}
-  for _, key in ipairs(found_order) do out[#out + 1] = found[key] end
+  for i, met in ipairs(found) do out[i] = met end
   return out
 end
 
