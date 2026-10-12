@@ -54,9 +54,9 @@ programs') are not verbs' and stay.
   summary that only repeats a complaint (`sql`'s, `bom`'s and `help`'s
   failures) is dropped.
 - **a figure a consumer parses moves into the verb's result on stdout:**
-  - `build` prints each executable it wrote, one path per line, with
-    ` (host)` after a host build. this is the one fact consumers parse
-    from its verdict.
+  - `build` prints each executable it wrote, the bare path on a line, so
+    a pipe can use it. this is the one fact consumers parse from its
+    verdict. the ` (host)` mark stays in its summary.
   - `test` keeps its summary on stdout, since its counts are a test run's
     result, worded as an outcome: `test: 6151 tests passed in 596 modules;
     395 ran, 5699 stood, …` or `test: 2 of 6151 tests failed, 0
