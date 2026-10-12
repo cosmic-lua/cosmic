@@ -196,7 +196,6 @@ PR that changes what it reads.
 [`build/verb_spec.tl`]: ../../build/verb_spec.tl
 [`build/verbs_fixture.tl`]: ../../build/verbs_fixture.tl
 [`build/verbs_tool_test.tl`]: ../../build/verbs_tool_test.tl
-`build/verdict.tl`: ../../build/verdict.tl
 [`build/verify_codesign.tl`]: ../../build/verify_codesign.tl
 [`ci/cosmic_ci/fuzz_test.tl`]: ../../ci/cosmic_ci/fuzz_test.tl
 [`ci/cosmic_ci/orchestration.tl`]: ../../ci/cosmic_ci/orchestration.tl
