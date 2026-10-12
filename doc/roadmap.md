@@ -17,16 +17,6 @@ defines the target; once something ships, it leaves this file.
   give any target type unchecked, so one that contains a never-function (a
   function type, or a record or container with such a field) forges the
   guarantee of `: never`.
-- refuse the uses of a nil-admitting record field that raise at run time.
-  a table literal must give every field that does not admit nil (patch/tl 50),
-  and `name?: T` (49a to 49e4) declares one it may omit, typed `T | nil`.
-  TODO: refuse a nil-admitting value as an argument for any parameter that
-  does not admit nil, not only of `table.insert` and `table.concat` (the TODO
-  in patch/tl 51f).
-  a warning first is no option: every warning cosmic sees is
-  a refused compile ([`build/compilation.tl`]'s `generate`,
-  [`build/standalone.tl`] and [`build/example_checks.tl`] each reject on
-  one), and the compile cache keeps no warnings to show again on a hit.
 - declare cosmic.stream's interface methods with a named receiver
   (`read: function(self: Reader, ...)`) and drop each implementing record's
   redeclaration of them: the documented signatures then read as
