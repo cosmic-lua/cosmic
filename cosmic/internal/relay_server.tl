@@ -964,14 +964,17 @@ local function tunnel(run: Running, req: Request, client: Net.Conn, far: Net.Con
       return true
     end
     local function take(data: string): boolean
-      if check == nil then return pass(data) end
+      local sniffing = check
+      if sniffing == nil then return pass(data) end
       -- The hello's time starts at the program's first byte: a client that
       -- waits for a server that speaks first is not on the clock.
-      if check.deadline == 0 then check.deadline = Clock.monotonic_ns() + run.timeouts.head end
-      check.held = check.held .. data
-      local seen = check.reader:feed(data)
+      if sniffing.deadline == 0 then
+        sniffing.deadline = Clock.monotonic_ns() + run.timeouts.head
+      end
+      sniffing.held = sniffing.held .. data
+      local seen = sniffing.reader:feed(data)
       if seen.status == "more" then return true end
-      local ok, why = judged(check, seen, target(req.host, req.port))
+      local ok, why = judged(sniffing, seen, target(req.host, req.port))
       if not ok then
         run.log(("#%d %s %s: %s"):format(req.id, req.protocol, target(req.host, req.port), why))
         run.refused = run.refused + 1
@@ -979,7 +982,7 @@ local function tunnel(run: Running, req: Request, client: Net.Conn, far: Net.Con
         end_with("refused by the hello check")
         return false
       end
-      local held = check.held
+      local held = sniffing.held
       check = nil
       return pass(held)
     end

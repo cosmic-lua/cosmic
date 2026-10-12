@@ -41,7 +41,7 @@ local function absent(name: string)
   for _, db in ipairs(Store.databases()) do
     local rows = assert(Sqlite.text_rows(db,
       "SELECT count(*) FROM modules WHERE path = ?1", { { text = name } }))
-    assert(rows[1][1] == "0", name .. ": a database holds its row")
+    assert(rows[1]:text(1) == "0", name .. ": a database holds its row")
   end
   -- The searchers behind the runner's own hold on `require`, which stands
   -- first only while the test runs.

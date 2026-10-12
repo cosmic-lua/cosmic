@@ -21,7 +21,7 @@ local function test_a_module_needs_one_unique_name()
   local rows = assert(Sqlite.text_rows(db,
     "SELECT path, file, kind, hex(source_hash), hex(key), hex(bytecode), tests, " ..
       "hex(source) FROM modules WHERE path = 'a'"))
-  assert(#rows == 1 and table.concat(rows[1], "|") == "a|a.tl|module|01|02|03||04")
+  assert(#rows == 1 and table.concat(rows[1]:texts(), "|") == "a|a.tl|module|01|02|03||04")
   assert(db:close())
 end
 
@@ -38,25 +38,25 @@ local function test_module_names_are_indexed_apart_from_their_payloads()
   end
   local plan = assert(Sqlite.text_rows(db,
     "EXPLAIN QUERY PLAN SELECT path FROM modules WHERE path = 'middle'"))
-  assert(#plan == 1 and plan[1][4]:find("COVERING INDEX", 1, true),
-    "finding a module name reaches the table's payload: " .. table.concat(plan[1], " "))
+  assert(#plan == 1 and plan[1]:text(4):find("COVERING INDEX", 1, true),
+    "finding a module name reaches the table's payload: " .. table.concat(plan[1]:texts(), " "))
   local lookup = "SELECT bytecode, kind FROM main.modules WHERE path = ?1"
   local search = assert(Sqlite.text_rows(db, "EXPLAIN QUERY PLAN " .. lookup,
     { { text = "middle" } }))
-  assert(#search == 1 and search[1][4]:find("SEARCH", 1, true) and
-      search[1][4]:find("USING INDEX", 1, true), table.concat(search[1], " "))
+  assert(#search == 1 and search[1]:text(4):find("SEARCH", 1, true) and
+      search[1]:text(4):find("USING INDEX", 1, true), table.concat(search[1]:texts(), " "))
   local found = assert(Sqlite.rows(db, lookup, { { text = "middle" } }))
-  assert(#found == 1 and found[1][1].blob == payload and found[1][2].text == "module")
+  assert(#found == 1 and found[1]:blob(1) == payload and found[1]:text(2) == "module")
   local rows = assert(Sqlite.text_rows(db,
     "SELECT file, kind, length(bytecode), length(source) FROM modules WHERE path = 'middle'"))
-  assert(#rows == 1 and table.concat(rows[1], "|") == "middle.tl|module|36864|65536")
+  assert(#rows == 1 and table.concat(rows[1]:texts(), "|") == "middle.tl|module|36864|65536")
   local missing = assert(Sqlite.text_rows(db, "SELECT bytecode FROM modules WHERE path = 'none'"))
   assert(#missing == 0)
   assert(db:close())
 end
 
 local function digest_of(db: Sqlite.Handle, sql: string): string
-  return assert(Sqlite.text_rows(db, sql))[1][1]
+  return assert(Sqlite.text_rows(db, sql))[1]:text(1)
 end
 
 --- The data tables' digest holds the web assets, and leaves them out for a

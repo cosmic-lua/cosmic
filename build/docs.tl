@@ -193,15 +193,15 @@ local columns =
   "('\"' || replace(replace(d.source_symbol, '.', ' '), ':', ' ') || '\"') " ..
   "AND " .. EXAMPLE_BOUNDARY_SQL .. ") END"
 
-local function entries_of(rows: {{string}}): {docs.Entry}
+local function entries_of(rows: Sqlite.Rows): {docs.Entry}
   local out: {docs.Entry} = {}
   for _, row in ipairs(rows) do
     out[#out + 1] = {
-      module = row[1], symbol = row[2], source_symbol = row[3],
-      exported = row[4] == "1", kind = row[5], signature = row[6],
-      text = row[7], file = row[8], line = math.tointeger(tonumber(row[9])) or 0,
-      uses = math.tointeger(tonumber(row[10])) or 0, links = 0,
-      examples = math.tointeger(tonumber(row[11])) or 0,
+      module = row:text(1), symbol = row:text(2), source_symbol = row:text(3),
+      exported = row:text(4) == "1", kind = row:text(5), signature = row:text(6),
+      text = row:text(7), file = row:text(8), line = math.tointeger(tonumber(row:text(9))) or 0,
+      uses = math.tointeger(tonumber(row:text(10))) or 0, links = 0,
+      examples = math.tointeger(tonumber(row:text(11))) or 0,
       related = {},
     }
   end
@@ -232,8 +232,8 @@ local function examples_for(db: Sqlite.Handle, public: boolean, module: string,
   end
   local out: {docs.Example} = {}
   for _, row in ipairs(rows) do
-    out[#out + 1] = { name = row[1], text = row[2], file = row[3],
-      line = math.tointeger(tonumber(row[4])) or 0, source = row[5] }
+    out[#out + 1] = { name = row:text(1), text = row:text(2), file = row:text(3),
+      line = math.tointeger(tonumber(row:text(4))) or 0, source = row:text(5) }
   end
   return out
 end
@@ -673,7 +673,7 @@ end
 --- more of the words first and, among equals, the better match by
 --- relevance. Each row's last field is its id.
 local function partly_searched(db: Sqlite.Handle, public: boolean,
-                               words: {string}): {{string}} | nil, string
+                               words: {string}): Sqlite.Rows | nil, string
   local matched: {integer:integer} = {}
   local score: {integer:number} = {}
   for _, word in ipairs(words) do
@@ -685,9 +685,9 @@ local function partly_searched(db: Sqlite.Handle, public: boolean,
       return nil, trouble
     end
     for _, row in ipairs(rows) do
-      local id = math.tointeger(tonumber(row[1])) or 0
+      local id = math.tointeger(tonumber(row:text(1))) or 0
       matched[id] = (matched[id] or 0) + 1
-      score[id] = (score[id] or 0) + (tonumber(row[2]) or 0)
+      score[id] = (score[id] or 0) + (tonumber(row:text(2)) or 0)
     end
   end
   local ids: {integer} = {}
@@ -710,11 +710,11 @@ local function partly_searched(db: Sqlite.Handle, public: boolean,
   if rows == nil then
     return nil, trouble
   end
-  local by_id: {integer:{string}} = {}
+  local by_id: {integer:Sqlite.Row} = {}
   for _, row in ipairs(rows) do
-    by_id[math.tointeger(tonumber(row[#row])) or 0] = row
+    by_id[math.tointeger(tonumber(row:text(row:count()))) or 0] = row
   end
-  local out: {{string}} = {}
+  local out: Sqlite.Rows = {}
   for _, id in ipairs(ids) do
     out[#out + 1] = by_id[id]
   end
@@ -823,13 +823,13 @@ local function searched_examples(db: Sqlite.Handle, public: boolean, fts: string
   end
   local out: {docs.Entry} = {}
   for _, row in ipairs(rows) do
-    out[#out + 1] = { module = row[1], symbol = "Example." .. row[2],
-      source_symbol = "Example." .. row[2], exported = true, kind = "example",
-      signature = "", text = row[3],
-      file = row[4], line = math.tointeger(tonumber(row[5])) or 0,
+    out[#out + 1] = { module = row:text(1), symbol = "Example." .. row:text(2),
+      source_symbol = "Example." .. row:text(2), exported = true, kind = "example",
+      signature = "", text = row:text(3),
+      file = row:text(4), line = math.tointeger(tonumber(row:text(5))) or 0,
       uses = 0, links = 0, examples = 0,
-      related = { { name = row[2], text = row[3], file = row[4],
-        line = math.tointeger(tonumber(row[5])) or 0, source = row[6] } },
+      related = { { name = row:text(2), text = row:text(3), file = row:text(4),
+        line = math.tointeger(tonumber(row:text(5))) or 0, source = row:text(6) } },
     }
   end
   return out
@@ -894,8 +894,8 @@ local function uses_of(db: Sqlite.Handle, public: boolean, query: string): {docs
   end
   local out: {docs.Use} = {}
   for _, row in ipairs(rows) do
-    out[#out + 1] = { module = row[1], symbol = row[2], from_module = row[3],
-      from_file = row[4], line = math.tointeger(tonumber(row[5])) or 0,
+    out[#out + 1] = { module = row:text(1), symbol = row:text(2), from_module = row:text(3),
+      from_file = row:text(4), line = math.tointeger(tonumber(row:text(5))) or 0,
       link = false, path = "", anchor = "" }
   end
   local linked, linked_trouble = has_links(db)
@@ -926,9 +926,9 @@ local function uses_of(db: Sqlite.Handle, public: boolean, query: string): {docs
     return nil, link_trouble
   end
   for _, row in ipairs(link_rows) do
-    out[#out + 1] = { module = row[1], symbol = row[2], from_module = row[3],
-      from_file = row[4], line = math.tointeger(tonumber(row[5])) or 0,
-      link = true, path = row[6], anchor = row[7] }
+    out[#out + 1] = { module = row:text(1), symbol = row:text(2), from_module = row:text(3),
+      from_file = row:text(4), line = math.tointeger(tonumber(row:text(5))) or 0,
+      link = true, path = row:text(6), anchor = row:text(7) }
   end
   return out
 end
@@ -1050,7 +1050,7 @@ local function value_record(db: Sqlite.Handle, module: string): string | nil, st
   if #rows == 0 then
     return nil
   end
-  return alias_members.value_record(rows[1][1])
+  return alias_members.value_record(rows[1]:text(1))
 end
 
 --- The name `entry` is used by, as a use of it is recorded, when that
@@ -1110,12 +1110,12 @@ local function count_uses(view: docs.View, module: string,
         return nil, trouble
       end
       for _, row in ipairs(rows) do
-        local from_module = row[1]
+        local from_module = row:text(1)
         local counted = not view.public[index] or
           (symbols.is_public_module(module) and symbols.is_public_module(from_module))
         if counted and view.owners[from_module] == index then
           local position = module .. "\n" .. symbol .. "\n" .. from_module ..
-            "\n" .. row[2] .. "\n" .. row[3]
+            "\n" .. row:text(2) .. "\n" .. row:text(3)
           if not seen[position] then
             seen[position] = true
             total = total + 1
@@ -1154,11 +1154,11 @@ local function count_links(view: docs.View, module: string,
         return nil, trouble
       end
       for _, row in ipairs(rows) do
-        local from_module = row[1]
+        local from_module = row:text(1)
         local counted = not view.public[index] or
           (symbols.is_public_module(module) and symbols.is_public_module(from_module))
         -- One place per line, as [`docs.uses`] lists them.
-        local position = row[2] .. "\n" .. row[3]
+        local position = row:text(2) .. "\n" .. row:text(3)
         if counted and answers_for(view, index, from_module) and not seen[position] then
           seen[position] = true
           total = total + 1
@@ -1209,8 +1209,8 @@ function docs.view(databases: {Sqlite.Handle}, public?: {boolean}): docs.View | 
       return nil, trouble
     end
     for _, row in ipairs(rows) do
-      if owners[row[1]] == nil then
-        owners[row[1]] = index
+      if owners[row:text(1)] == nil then
+        owners[row:text(1)] = index
       end
     end
   end
@@ -1794,8 +1794,8 @@ local function member_uses(db: Sqlite.Handle, public: boolean, module: string, s
     return nil, trouble
   end
   for _, row in ipairs(rows) do
-    out[#out + 1] = { module = module, symbol = used, from_module = row[1], from_file = row[2],
-      line = math.tointeger(tonumber(row[3])) or 0, link = false, path = "", anchor = "" }
+    out[#out + 1] = { module = module, symbol = used, from_module = row:text(1), from_file = row:text(2),
+      line = math.tointeger(tonumber(row:text(3))) or 0, link = false, path = "", anchor = "" }
   end
   local linked, linked_trouble = has_links(db)
   if linked == nil then
@@ -1813,8 +1813,8 @@ local function member_uses(db: Sqlite.Handle, public: boolean, module: string, s
     return nil, links_trouble
   end
   for _, row in ipairs(links) do
-    out[#out + 1] = { module = module, symbol = symbol, from_module = row[1], from_file = row[2],
-      line = math.tointeger(tonumber(row[3])) or 0, link = true, path = "", anchor = "" }
+    out[#out + 1] = { module = module, symbol = symbol, from_module = row:text(1), from_file = row:text(2),
+      line = math.tointeger(tonumber(row:text(3))) or 0, link = true, path = "", anchor = "" }
   end
   return out, ""
 end

@@ -469,10 +469,10 @@ local function index_of(view: docs.View): symbol_index.Index | nil, string
           "ORDER BY d.module, d.id")
       if rows == nil then return nil, trouble end
       for _, row in ipairs(rows) do
-        symbol_index.add(out, { module = row[1], symbol = row[2], source_symbol = row[3],
-          file = row[4], kind = row[5], signature = row[6], exported = row[7] == "1",
-          shown = row[9] == "1" and view.owners[row[1]] == index, database = index,
-          id = math.tointeger(tonumber(row[8])) or 0 })
+        symbol_index.add(out, { module = row:text(1), symbol = row:text(2), source_symbol = row:text(3),
+          file = row:text(4), kind = row:text(5), signature = row:text(6), exported = row:text(7) == "1",
+          shown = row:text(9) == "1" and view.owners[row:text(1)] == index, database = index,
+          id = math.tointeger(tonumber(row:text(8))) or 0 })
       end
     end
     local bound, bound_trouble = symbol_index.add_bound(out, db, "")

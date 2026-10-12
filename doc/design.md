@@ -935,7 +935,73 @@ test of a place (a truthiness read, a comparison with nil or a literal,
 `is`, `type(x) == "..."`, an `assert`), or a `not`, `and` or `or` of
 guards. evaluating a guard gives the facts it holds, one per place. the
 checker builds a guard on each expression and applies one where a branch
-begins. it drops what it knew of a place when the program assigns it.
+begins.
+
+a fact is dropped where the value it is about can change, and a use that
+relied on a dropped fact is refused. an assignment to a place, or to a
+prefix of it, drops it. a write to a field `.f` through any reference drops
+every narrowed path ending in `.f`, because another reference may name the
+same table; a write through a key that may name a field drops every field
+path. a call drops every narrowed field path, and every narrowed local that
+a function literal in its scope assigns: a local no literal assigns stays
+narrowed across a call. an operator or index that dispatches to a metamethod
+is a call, and a value dispatches only through the metamethods its type
+declares: an operator or an index served by a metamethod a record, an
+interface or a userdata declares runs code, unless it is a macro expression
+(a `where` clause is one) that calls nothing; `==` of two values that may be
+tables runs code only if the type of one declares `__eq`; `any` and a type
+variable may be anything, so they always dispatch; and an operator on a
+string, a number, a plain array or map, a function, nil or a record that
+declares no metamethod does not. a call of `assert` or `type`, of a function
+declared `: never`, and of a standard library function that runs no code of
+the program's (`tostring`, `print`, `ipairs`, the `string`, `math` and
+`utf8` functions, `table.concat`, `table.insert` and a few more) given
+arguments that cannot dispatch (a type that declares a metamethod, `any`, or
+a function, alone or in a union, can) drops nothing.
+
+the principle stops where the checker cannot see: a metatable attached at run
+time, by `setmetatable({}, {__index = f})` on a plain map or a metamethod a
+record does not declare, dispatches whatever the program gave it, and a
+`__gc` finalizer runs at a time no operation names. neither is seen, so a
+narrowing is not held against them; the roadmap's `setmetatable` item
+closes the first, and the second is outside the claim.
+
+the order is the order Lua runs things in: operands and arguments left to
+right, a call after its arguments. so a narrowed read before a call in the
+same expression keeps its fact and one after it loses it (`print(r.n + 1,
+clear())` is accepted, `print(clear(), r.n + 1)` is refused). what one
+operand of `and` or `or`, or the first argument of `assert`, tested holds
+past a later operand only if that ran nothing that drops it, and what an
+`if` chain's earlier condition tested holds past its later conditions on
+the same terms. a loop body is checked once with the facts from before the
+loop standing, and a read of one it narrowed outside itself is remembered.
+when the body then drops that fact (a call, a write, an operator that
+dispatches, an iterator that is not `pairs`, `ipairs` or `gmatch` of what
+runs no code, or `next`), each such read that came before the drop is
+refused, because the next pass reads what this one dropped. the condition of
+a `while` or `repeat` is part of the body, so what it drops is dropped for
+the body after it. after the loop what it dropped stays dropped, as in
+straight-line code, and a drop in a branch that leaves the loop is not one of
+the next pass. a branch leaves only if its last statement does and no path
+through it goes out first by a `break` of a loop around it or a `goto`. a
+label drops every field path when a `goto` below it names it, as that `goto`
+reaches it from code that may have changed one; a label only gotos above it
+name drops nothing, as what those paths dropped stays dropped. a function
+literal made in a loop, or after a check, still sees the facts of the places
+outside it though it runs later (`local f = function() return r.n + 1 end`,
+then a call that clears `r.n`, then `f()`); the roadmap's item that begins a
+function literal's body with none of them closes that. a branch that ends in `return` or a call
+that never returns drops nothing for the code after its `if`, and a
+function literal's body works on copies of the facts outside it, so what it
+drops leaves them standing.
+
+a refusal of this kind has the code `narrowing_dropped`, with the place, what
+dropped it (`call`, `write`, `operator`, `label`, `loop` or `assignment`), that
+expression as written and where it is, beside the fields of the refusal it
+was. its hint copies the value to a local before the call or write
+(`local n = r.n`, then `if n then clear() print(n + 1) end`), which stays
+narrowed across the call because no function can assign it.
+
 later parts of the checker move into modules the same way, each a file in
 `checker/` with a main chunk and a count of locals of its own. the files sit
 outside the module closure they compile: the scanner

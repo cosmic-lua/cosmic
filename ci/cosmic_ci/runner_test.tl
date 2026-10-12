@@ -3,6 +3,7 @@ local Fs = require("cosmic.fs")
 local Predicate = require("cosmic_ci.fs_predicate")
 local Runner = require("cosmic_ci.runner")
 local Sqlite = require("cosmic.sqlite")
+local TextRows = require("cosmic_ci.text_rows")
 
 --- The bound for a child that should finish at once (`exit 0`, a `cat`):
 --- only a hang reaches it, so it leaves a slow or loaded runner room. It
@@ -67,7 +68,7 @@ local function test_operation_records_retained_open_failure_as_error(tmp: string
   assert(outcome.status == "error" and outcome.code == 1 and outcome.trouble,
     "retained open failure did not return an error outcome")
   local db = assert(Sqlite.open(database))
-  local rows = assert(Sqlite.text_rows(db, [[
+  local rows = assert(TextRows.query(db, [[
     SELECT c.status, c.detail
       FROM operation_events s JOIN operation_events c ON c.start_id = s.id
      WHERE s.phase = 'retained-open' AND c.event = 'complete'
@@ -99,7 +100,7 @@ local function test_step_records_work_done_in_process(tmp: string)
   assert(raised.status == "error" and raised.code == 1 and
       raised.trouble == long_error:sub(1, 1000))
   local db = assert(Sqlite.open(database))
-  local rows = assert(Sqlite.text_rows(db, [[
+  local rows = assert(TextRows.query(db, [[
     SELECT s.phase, c.status, coalesce(c.detail, ''), c.exit_code IS NULL
       FROM operation_events s JOIN operation_events c ON c.start_id = s.id
      WHERE c.event = 'complete' ORDER BY s.id
@@ -155,7 +156,7 @@ local function test_phase_keeps_exit_codes_full_errors_and_callback_times(tmp: s
   assert(called, tostring(failure))
   assert(#messages == 1 and messages[1] == detail .. "\n", "phase error logging changed")
   local db = assert(Sqlite.open(context.database))
-  local rows = assert(Sqlite.text_rows(db, [[
+  local rows = assert(TextRows.query(db, [[
     SELECT s.phase, c.status, c.exit_code, coalesce(c.detail, ''),
            s.monotonic_ns, c.monotonic_ns, c.elapsed_ns, c.signal IS NULL, c.timed_out
       FROM operation_events s JOIN operation_events c ON c.start_id = s.id
@@ -185,7 +186,7 @@ local function test_phase_keeps_a_nested_child_timeout_separate(tmp: string)
       cwd = candidate, timeout_ns = Clock.ms(20) }).code
   end) == 124)
   local db = assert(Sqlite.open(context.database))
-  local rows = assert(Sqlite.text_rows(db, [[
+  local rows = assert(TextRows.query(db, [[
     SELECT s.phase, c.status, coalesce(c.exit_code, -1), c.timed_out, s.id, c.id
       FROM operation_events s JOIN operation_events c ON c.start_id = s.id
      WHERE c.event = 'complete' ORDER BY s.id
@@ -222,7 +223,7 @@ end
 
 local function completes(database: string): {{string}}
   local db = assert(Sqlite.open(database))
-  local rows = assert(Sqlite.text_rows(db, [[
+  local rows = assert(TextRows.query(db, [[
     SELECT s.phase, c.status, coalesce(c.exit_code, -1), c.timed_out
       FROM operation_events s JOIN operation_events c ON c.start_id = s.id
      WHERE c.event = 'complete' ORDER BY c.id

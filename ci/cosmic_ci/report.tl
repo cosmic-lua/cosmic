@@ -480,12 +480,13 @@ function Report.render(runs: {Report.Run}, o: Report.Options): string
     if slowest then walls[#walls + 1] = slowest.seconds end
     runner[#runner + 1] = Report.runner_seconds(run)
     for _, job in ipairs(platform_jobs(run)) do
-      if job.seconds then
+      local seconds = job.seconds
+      if seconds then
         if not legs[job.name] then
           legs[job.name] = {}
           leg_names[#leg_names + 1] = job.name
         end
-        table.insert(legs[job.name], job.seconds)
+        table.insert(legs[job.name], seconds)
       end
     end
     for _, row in ipairs(run.suites) do

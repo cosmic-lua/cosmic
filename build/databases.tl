@@ -55,14 +55,14 @@ local function describe(path: string): integer | nil, string
   end
   local is_table: {string:boolean} = {}
   for _, row in ipairs(tables) do
-    is_table[row[1]] = true
+    is_table[row:text(1)] = true
   end
   local st, _ = Fs.stat(path)
   log:say(path .. "  " .. plural.count(st ~= nil and st.size or 0, "byte"))
   log:say("  " .. column("rows", 8) .. column("pages", 8) ..
       column("bytes", 10) .. column("payload", 10) .. "  name")
   for _, row in ipairs(sizes) do
-    local name, pages, bytes, payload = row[1], row[2], row[3], row[4]
+    local name, pages, bytes, payload = row:text(1), row:text(2), row:text(3), row:text(4)
     local rows = ""
     if is_table[name] then
       local counted, count_trouble = Sqlite.text_rows(db,
@@ -71,7 +71,7 @@ local function describe(path: string): integer | nil, string
         local _, _ = db:close()
         return nil, count_trouble
       end
-      rows = counted[1][1]
+      rows = counted[1]:text(1)
     end
     log:say("  " .. column(rows, 8) .. column(pages, 8) .. column(bytes, 10) ..
         column(payload, 10) .. "  " .. name)
@@ -95,9 +95,9 @@ local function builds(path: string): boolean, string
   end
   log:say("builds, latest first")
   for _, row in ipairs(rows) do
-    log:say("  run " .. row[1] .. "  " .. row[2] .. " ms  " .. plural.count(math.tointeger(tonumber(row[3])) or 0, "file") ..
-        " staged (" .. row[4] .. " read)  " .. row[5] .. " compiled, " ..
-        row[6] .. " cached  " .. row[7])
+    log:say("  run " .. row:text(1) .. "  " .. row:text(2) .. " ms  " .. plural.count(math.tointeger(tonumber(row:text(3))) or 0, "file") ..
+        " staged (" .. row:text(4) .. " read)  " .. row:text(5) .. " compiled, " ..
+        row:text(6) .. " cached  " .. row:text(7))
   end
   return true, ""
 end
@@ -119,18 +119,18 @@ local function slowest(path: string, about: function(string): boolean): boolean,
   if rows == nil then
     return false, trouble
   end
-  local kept: {{string}} = {}
+  local kept: Sqlite.Rows = {}
   for _, row in ipairs(rows) do
-    if #kept < slowest_kept and about(row[1]) then kept[#kept + 1] = row end
+    if #kept < slowest_kept and about(row:text(1)) then kept[#kept + 1] = row end
   end
   if #kept == 0 then
     return true, ""
   end
   log:say("slowest tests")
   for _, row in ipairs(kept) do
-    local ns = math.tointeger(tonumber(row[3]) or 0) or 0
-    log:say("  " .. string.format("%.1f", ns / 1e9) .. "s  " .. row[1] ..
-        " " .. row[2])
+    local ns = math.tointeger(tonumber(row:text(3)) or 0) or 0
+    log:say("  " .. string.format("%.1f", ns / 1e9) .. "s  " .. row:text(1) ..
+        " " .. row:text(2))
   end
   return true, ""
 end
@@ -168,7 +168,7 @@ local function module_files(root: string): {string:string} | nil, string
       if rows == nil then
         return nil, path .. ": " .. trouble
       end
-      for _, row in ipairs(rows) do files[row[1]] = row[2] end
+      for _, row in ipairs(rows) do files[row:text(1)] = row:text(2) end
     end
   end
   return files, ""
@@ -192,7 +192,7 @@ local function describe_under(path: string, about: function(string): boolean): i
   log:say("  " .. column("rows", 8) .. "  name")
   local kept = 0
   for _, row in ipairs(tables) do
-    local name = row[1]
+    local name = row:text(1)
     local columns, column_trouble = Sqlite.text_rows(db,
       "SELECT name FROM pragma_table_info(?1)", { { text = name } })
     if columns == nil then
@@ -200,7 +200,7 @@ local function describe_under(path: string, about: function(string): boolean): i
       return nil, column_trouble
     end
     local has: {string:boolean} = {}
-    for _, c in ipairs(columns) do has[c[1]] = true end
+    for _, c in ipairs(columns) do has[c:text(1)] = true end
     local chosen: string | nil = nil
     for _, candidate in ipairs(source_columns) do
       if chosen == nil and has[candidate] then chosen = candidate end
@@ -214,7 +214,7 @@ local function describe_under(path: string, about: function(string): boolean): i
       end
       local count = 0
       for _, value in ipairs(values) do
-        if about(value[1]) then count = count + 1 end
+        if about(value:text(1)) then count = count + 1 end
       end
       if count > 0 then
         log:say("  " .. column(tostring(count), 8) .. "  " .. name)

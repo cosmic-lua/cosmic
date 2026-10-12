@@ -230,7 +230,7 @@ local function test_the_tree_s_records_match_what_they_describe()
   local rows = assert(Sqlite.text_rows(db, "SELECT text FROM notices WHERE component = 'lua'"))
   assert(db:close())
   assert(#lua.notices == 1 and #rows == 1)
-  local notice = rows[1][1]
+  local notice = rows[1]:text(1)
   assert(notice:match("^%* Copyright %(C%) 1994%-%d+ Lua%.org, PUC%-Rio%.\n"), notice)
   assert(notice:match("SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE%.\n$"), notice)
 end

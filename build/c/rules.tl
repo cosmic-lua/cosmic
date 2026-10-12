@@ -689,8 +689,9 @@ local function expression(ctx: Context, node: Node, state: State)
       local r = tree.referent(n)
       local id = r ~= nil and r.id or nil
       local p = id ~= nil and state.strings[id] or nil
-      local assigned = n.parent ~= nil and n.parent.kind == "BinaryOperator" and
-        tree.operator(n.parent) == "=" and n.parent.children[1] == n
+      local parent = n.parent
+      local assigned = parent ~= nil and parent.kind == "BinaryOperator" and
+        tree.operator(parent) == "=" and parent.children[1] == n
       if p ~= nil and p.gone ~= 0 and not assigned and not state.reported["s" .. id] then
         state.reported["s" .. id] = true
         report(ctx, n, "string-after-pop", "reads " .. p.name .. " (from line " .. p.line ..

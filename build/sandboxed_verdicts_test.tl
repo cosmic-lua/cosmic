@@ -641,7 +641,7 @@ end
     "SELECT group_concat(path, ' ') FROM (SELECT path FROM runs " ..
       "WHERE run_at_ns = (SELECT max(run_at_ns) FROM runs) ORDER BY path)"))
   assert(db:close())
-  assert(rows[1][1] == "core.allocation_test", "ran under another compiler: " .. rows[1][1])
+  assert(rows[1]:text(1) == "core.allocation_test", "ran under another compiler: " .. rows[1]:text(1))
 end
 
 --- A checked run (`--check-types`) compiles the tree with run-time checks
@@ -679,7 +679,7 @@ end
       "SELECT group_concat(path, ' ') FROM (SELECT path FROM runs " ..
         "WHERE run_at_ns = (SELECT max(run_at_ns) FROM runs) ORDER BY path)"))
     assert(db:close())
-    return rows[1][1]
+    return rows[1]:text(1)
   end
   local plain = run(root, tmp .. "/plain.out", env)
   assert(plain:find("1 ran, 1 stood", 1, true), plain)

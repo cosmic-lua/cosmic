@@ -13,15 +13,16 @@ local function grid(db: Sqlite.Handle, sql: string): {string}
   local q <close> = assert(Sqlite.query(db, sql))
   for row in q:each() do
     local cells: {string} = {}
-    for index, cell in ipairs(row) do
-      if cell.kind == "null" then
+    for index = 1, row:count() do
+      local kind = row:kind(index)
+      if kind == "null" then
         cells[index] = "NULL"
-      elseif cell.kind == "integer" then
-        cells[index] = "i" .. assert(cell.integer)
-      elseif cell.kind == "number" then
-        cells[index] = "r" .. assert(cell.number)
+      elseif kind == "integer" then
+        cells[index] = "i" .. row:integer(index)
+      elseif kind == "number" then
+        cells[index] = "r" .. row:number(index)
       else
-        cells[index] = cell.text
+        cells[index] = row:text(index)
       end
     end
     out[#out + 1] = table.concat(cells, "|")
@@ -74,7 +75,7 @@ local function test_keys_are_quoted_and_collisions_renamed()
   -- Each key's value is in the column named for it, or the renamed one.
   local function value(column: string): string
     local rows = assert(Sqlite.text_rows(db, 'SELECT "' .. column:gsub('"', '""') .. '" FROM t'))
-    return rows[1][1]
+    return rows[1]:text(1)
   end
   assert(value("a b") == "1" and value('x"y') == "2" and value("select") == "3")
   assert(value("A") == "4" and value("_") == "6")
@@ -286,7 +287,7 @@ local function test_a_csv_table_follows_the_header_and_json_stays_sorted()
   local made = assert(dataset.load(db, "t", rows))
   assert(table.concat(made.columns, ",") == "z,a,m,_json", table.concat(made.columns, ","))
   local star = Sqlite.text_rows(db, "SELECT * FROM t")
-  assert(star ~= nil and star[1][1] == "1" and star[1][2] == "2" and star[1][3] == "3")
+  assert(star ~= nil and star[1]:text(1) == "1" and star[1]:text(2) == "2" and star[1]:text(3) == "3")
   -- Rows with no order of their own are in byte order.
   local db2 = memory()
   assert(table.concat(assert(dataset.load(db2, "t", { { z = 1, a = 2 } })).columns, ",") == "a,z,_json")
@@ -326,8 +327,8 @@ local function test_a_csv_file_answers_a_sum_by_group()
   assert(table.concat(made.columns, ",") == "type,balance,_json")
   local totals = assert(Sqlite.text_rows(db,
     "SELECT type, sum(balance) FROM accounts GROUP BY type ORDER BY type"))
-  assert(totals[1][1] == "checking" and totals[1][2] == "5")
-  assert(totals[2][1] == "savings" and totals[2][2] == "12.5")
+  assert(totals[1]:text(1) == "checking" and totals[1]:text(2) == "5")
+  assert(totals[2]:text(1) == "savings" and totals[2]:text(2) == "12.5")
 end
 
 --- JSON rows carry no column order, so a key one row lacks is NULL there
@@ -336,7 +337,7 @@ local function test_json_rows_have_null_for_a_missing_key_and_byte_order_columns
   local db, made = loaded('[{"id": 1, "type": "a"}, {"id": 2}]', "accounts")
   assert(table.concat(made.columns, ",") == "id,type,_json")
   local nulls = assert(Sqlite.rows(db, "SELECT id FROM accounts WHERE type IS NULL"))
-  assert(#nulls == 1 and nulls[1][1].integer == 2)
+  assert(#nulls == 1 and nulls[1]:integer(1) == 2)
   assert(dataset.format_of("accounts.jsonl") == "ndjson")
 end
 

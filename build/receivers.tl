@@ -325,7 +325,8 @@ function receivers.references(state: receivers.State, env: compiler.Env,
       return
     end
     local e1, e2 = n.e1, n.e2
-    if e1 == nil or e2 == nil or e2.tk == nil or e1.y == nil or e1.x == nil then
+    local name = e2 ~= nil and e2.tk or nil
+    if e1 == nil or e2 == nil or name == nil or e1.y == nil or e1.x == nil then
       return
     end
     local typed = types[position(e1.y, e1.x)]
@@ -339,12 +340,12 @@ function receivers.references(state: receivers.State, env: compiler.Env,
     -- A field the record inherits is a use of the interface that
     -- declares it ([`Writer.write`], not `Collector.write`), when some
     -- module's type declares that interface.
-    local from = declaring(typed, e2.tk, {})
+    local from = declaring(typed, name, {})
     local inherited = from ~= nil and owners[from.typeid] or nil
     if inherited ~= nil then
       owner = inherited
     end
-    local member = owner.path .. "." .. e2.tk
+    local member = owner.path .. "." .. name
     local id = owner.module .. "\n" .. member .. "\n" .. e2.y
     if not seen[id] then
       seen[id] = true

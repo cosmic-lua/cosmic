@@ -32,6 +32,7 @@ local CacheTrim = require("cosmic_ci.cache_trim")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
+local TextRows = require("cosmic_ci.text_rows")
 local Plural = require("cosmic_ci.plural")
 
 local record Verdicts
@@ -101,7 +102,7 @@ end
 --- The columns of `schema`'s table `name`, in order, and which of them
 --- the primary key holds; nil and why where they could not be read.
 local function columns(db: Sqlite.Handle, schema: string, name: string): {string} | nil, boolean, string
-  local rows, trouble = Sqlite.text_rows(db,
+  local rows, trouble = TextRows.query(db,
     "SELECT name, pk FROM pragma_table_info(?1, ?2) ORDER BY cid",
     { { text = name }, { text = schema } })
   if rows == nil then return nil, false, trouble end
@@ -116,7 +117,7 @@ end
 
 --- A count the query answers, or nil and why.
 local function counted(db: Sqlite.Handle, sql: string): integer | nil, string
-  local rows, trouble = Sqlite.text_rows(db, sql)
+  local rows, trouble = TextRows.query(db, sql)
   if rows == nil then return nil, trouble end
   return math.tointeger(tonumber(rows[1][1])) or 0, ""
 end
@@ -157,7 +158,7 @@ local function merge_file(from: string, into: string): string, string
     for _, pattern in ipairs(patterns) do
       globs[#globs + 1] = "name GLOB '" .. pattern .. "'"
     end
-    local names, trouble = Sqlite.text_rows(db, "SELECT name, sql FROM ahead.sqlite_schema " ..
+    local names, trouble = TextRows.query(db, "SELECT name, sql FROM ahead.sqlite_schema " ..
         "WHERE type = 'table' AND (" .. table.concat(globs, " OR ") .. ") ORDER BY name")
     if names == nil then return false, trouble end
     for _, row in ipairs(names) do
@@ -177,7 +178,7 @@ local function merge_file(from: string, into: string): string, string
         if #ours == 0 then
           local made, made_trouble = db:exec(sql)
           if not made then return false, made_trouble end
-          local indexes, index_trouble = Sqlite.text_rows(db, "SELECT sql FROM ahead.sqlite_schema " ..
+          local indexes, index_trouble = TextRows.query(db, "SELECT sql FROM ahead.sqlite_schema " ..
               "WHERE type = 'index' AND tbl_name = ?1 AND sql IS NOT NULL ORDER BY name", { { text = name } })
           if indexes == nil then return false, index_trouble end
           for _, index in ipairs(indexes) do

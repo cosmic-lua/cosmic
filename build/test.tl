@@ -358,7 +358,7 @@ local function previous_runs(handle: Sqlite.Handle): {string:boolean} | nil, str
     return nil, trouble
   end
   local out: {string:boolean} = {}
-  for _, row in ipairs(rows) do out[row[1] .. " " .. row[2]] = true end
+  for _, row in ipairs(rows) do out[row:text(1) .. " " .. row:text(2)] = true end
   return out
 end
 
@@ -371,10 +371,10 @@ local function known_verdicts(handle: Sqlite.Handle): {string:test.Verdict} | ni
   end
   local out: {string:test.Verdict} = {}
   for _, row in ipairs(rows) do
-    out[row[1]] = {
-      passed = row[2] == "1",
-      run_at_ns = math.tointeger(tonumber(row[3]) or 0) or 0,
-      elapsed_ns = math.tointeger(tonumber(row[4]) or 0) or 0,
+    out[row:text(1)] = {
+      passed = row:text(2) == "1",
+      run_at_ns = math.tointeger(tonumber(row:text(3)) or 0) or 0,
+      elapsed_ns = math.tointeger(tonumber(row:text(4)) or 0) or 0,
     }
   end
   return out
@@ -492,7 +492,7 @@ local function credit_hits(handle: Sqlite.Handle, credited: test.Credited,
       return trouble
     end
     for _, row in ipairs(rows) do
-      decode_hits(row[1], hits)
+      decode_hits(row:text(1), hits)
     end
   end
   return ""
@@ -831,7 +831,7 @@ end
 --- database carries ([`schema.tables_digest`]), searched alone so no
 --- attached database stands in for it.
 local function binary_tables(): string | nil, string
-  local rows: {{string}} | nil = nil
+  local rows: Sqlite.Rows | nil = nil
   local trouble = "the running binary has no database"
   Store.alone(function()
     local databases = Store.databases()
@@ -848,7 +848,7 @@ local function binary_tables(): string | nil, string
     end
   end)
   if rows == nil then return nil, trouble end
-  return rows[1][1], ""
+  return rows[1]:text(1), ""
 end
 
 --- What of the running binary a run holds of the code a worker runs,
@@ -1042,9 +1042,9 @@ function test.value_imports(db: Sqlite.Handle): {string:{string}} | nil, string
   if rows == nil then return nil, trouble end
   local out: {string:{string}} = {}
   for _, row in ipairs(rows) do
-    local list = out[row[1]] or {}
-    out[row[1]] = list
-    list[#list + 1] = row[2]
+    local list = out[row:text(1)] or {}
+    out[row:text(1)] = list
+    list[#list + 1] = row:text(2)
   end
   return out, ""
 end
@@ -1062,9 +1062,9 @@ function test.type_only_imports(db: Sqlite.Handle): {string:{string:boolean}} | 
   if rows == nil then return nil, trouble end
   local out: {string:{string:boolean}} = {}
   for _, row in ipairs(rows) do
-    local set = out[row[1]] or {}
-    out[row[1]] = set
-    set[row[2]] = true
+    local set = out[row:text(1)] or {}
+    out[row:text(1)] = set
+    set[row:text(2)] = true
   end
   return out, ""
 end
@@ -1118,15 +1118,15 @@ function test.harness(db: Sqlite.Handle): Harness | nil, string
   local compiled: {string:string} = {}
   local carried: {string:boolean} = {}
   for _, row in ipairs(modules) do
-    sources[row[1]] = row[2]
-    compiled[row[1]] = row[2] .. " " .. row[3]
-    carried[row[1]] = true
+    sources[row:text(1)] = row:text(2)
+    compiled[row:text(1)] = row:text(2) .. " " .. row:text(3)
+    carried[row:text(1)] = true
   end
   local imports: {string:{string}} = {}
   for _, row in ipairs(imported) do
-    local list = imports[row[1]] or {}
-    imports[row[1]] = list
-    list[#list + 1] = row[2]
+    local list = imports[row:text(1)] or {}
+    imports[row:text(1)] = list
+    list[#list + 1] = row:text(2)
   end
   local names: {string} = {}
   local runs: {string} = {}
@@ -1495,7 +1495,7 @@ end
 --- one whose o/ is removed is too.
 local function checkout_id(records: Sqlite.Handle, root: string, now_ns: integer): string
   local rows, _ = Sqlite.text_rows(records, "SELECT value FROM meta WHERE key = 'checkout'")
-  if rows ~= nil and rows[1] ~= nil then return rows[1][1] end
+  if rows ~= nil and rows[1] ~= nil then return rows[1]:text(1) end
   local made = hex_sha256(root .. "\0" .. tostring(now_ns) .. "\0" ..
       tostring(Clock.monotonic_ns()) .. "\0" .. tostring({}))
   local _, _ = Sqlite.run(records, "INSERT OR REPLACE INTO meta (key, value) VALUES ('checkout', ?1)",
@@ -1661,7 +1661,9 @@ local function extras_digest(rec: Recording): string
     for _, name in ipairs(rec.tree_names) do in_tree[name] = true end
     local lines: {string} = {}
     for _, row in ipairs(rows) do
-      if not in_tree[row[1]] then lines[#lines + 1] = table.concat(row, "\0") end
+      if not in_tree[row:text(1)] then
+        lines[#lines + 1] = table.concat(row:texts(), "\0")
+      end
     end
     digest = hex_sha256(table.concat(lines, "\n"))
   end
@@ -2110,11 +2112,12 @@ end
 --- too.
 local function sweep(rec: Recording, jobs: {Job}, ended?: boolean)
   for _, job in ipairs(jobs) do
-    if (ended or job.passed) and job.scratch ~= nil then
-      local gone, trouble = Fs.remove_tree(job.scratch)
+    local scratch = job.scratch
+    if (ended or job.passed) and scratch ~= nil then
+      local gone, trouble = Fs.remove_tree(scratch)
       if not gone then
         rec.errors[#rec.errors + 1] = job.id .. ": could not remove its directory " ..
-          job.scratch .. ": " .. trouble
+          scratch .. ": " .. trouble
       end
       job.scratch = nil
     end
@@ -2488,7 +2491,7 @@ local function write_sealed(sealing: Sealing, store: string, whole: string, out:
         "SELECT name FROM program.sqlite_master WHERE name IN ('web_assets', 'stubs')")
       if held == nil then return false, held_trouble end
       local absent: {string:boolean} = { web_assets = true, stubs = true }
-      for _, row in ipairs(held) do absent[row[1]] = nil end
+      for _, row in ipairs(held) do absent[row:text(1)] = nil end
       for _, statement in ipairs(sealed_fill) do
         local reads = statement:match("program%.([%w_]+)")
         if reads == nil or not absent[reads] then
@@ -3882,7 +3885,7 @@ local function gather_key_inputs(ctx: Run): integer | nil
     return 1
   end
   local declarations: {string:string} = {}
-  for _, row in ipairs(declaration_rows) do declarations[row[1]] = row[2] end
+  for _, row in ipairs(declaration_rows) do declarations[row:text(1)] = row:text(2) end
   for path in pairs(by_path) do rec.tree_names[#rec.tree_names + 1] = path end
   table.sort(rec.tree_names)
   -- A module the binary carries that is no module of the tree -- in a
@@ -3921,7 +3924,9 @@ local function gather_key_inputs(ctx: Run): integer | nil
     log:complain(records_path .. ": " .. remembered_trouble)
     return 1
   end
-  rec.digests = declared_key.digests(assert(ctx.root), remembered)
+  local earlier: {{string}} = {}
+  for _, row in ipairs(remembered) do earlier[#earlier + 1] = row:texts() end
+  rec.digests = declared_key.digests(assert(ctx.root), earlier)
   -- A core that carries debug information, as the checked core does,
   -- is keyed by its image (build.core_image): its DWARF names the
   -- directory musl was first built in, which moves between CI runs,
@@ -4226,12 +4231,13 @@ local function look_up_verdicts(ctx: Run)
   -- parts the cache's rows name, as this run found them, so a report
   -- tells whether its own were among what CI restored
   -- (ci/cosmic_ci/report.tl's `qualify`).
-  if census_asked or (rec.shared ~= nil and looked_count > 0 and
+  local shared = rec.shared
+  if census_asked or (shared ~= nil and looked_count > 0 and
       looked_count == keyed_count and ran_here == 0 and found_count == 0) then
     local line: string | nil = nil
-    if rec.shared ~= nil and found_count == 0 then
-      local census, _ = shared_verdicts.census(rec.shared, looked)
-      line = census ~= nil and shared_verdicts.unmatched(rec.shared.path, looked_count,
+    if shared ~= nil and found_count == 0 then
+      local census, _ = shared_verdicts.census(shared, looked)
+      line = census ~= nil and shared_verdicts.unmatched(shared.path, looked_count,
         census, parts) or nil
     end
     if line == nil and census_asked then line = shared_verdicts.key_parts(parts) end
@@ -4308,13 +4314,14 @@ local function cancel_records(ctx: Run)
     local _, _ = work.abort(handle)
   end
   if not ok then rec.errors[#rec.errors + 1] = "cancelled verdicts: " .. trouble end
-  if rec.shared ~= nil then
+  local shared = rec.shared
+  if shared ~= nil then
     local invalidations: shared_verdicts.Owed = { kept = {}, used = {}, failed = rec.owed.failed }
-    local settled, settle_trouble = shared_verdicts.settle(rec.shared, rec.origin,
+    local settled, settle_trouble = shared_verdicts.settle(shared, rec.origin,
       invalidations, Clock.now_ns())
-    shared_verdicts.close(rec.shared)
+    shared_verdicts.close(shared)
     if not settled then
-      rec.errors[#rec.errors + 1] = "cancelled shared verdicts: " .. rec.shared.path .. ": " .. settle_trouble
+      rec.errors[#rec.errors + 1] = "cancelled shared verdicts: " .. shared.path .. ": " .. settle_trouble
     end
   end
 end
@@ -4499,10 +4506,11 @@ local function settle(ctx: Run)
   -- What a sandboxed run hashed, for the next to look up by `lstat`:
   -- a run of the whole tree keeps only what it looked at, and one of
   -- some of it adds to what the rest looked at before.
-  if rec.digests ~= nil and rec.digests.read > 0 then
+  local digests = rec.digests
+  if digests ~= nil and digests.read > 0 then
     local kept, keep_trouble = true, ""
     if ctx.whole then kept, keep_trouble = handle.db:exec("DELETE FROM digests") end
-    for _, row in ipairs(kept and declared_key.kept(rec.digests) or {}) do
+    for _, row in ipairs(kept and declared_key.kept(digests) or {}) do
       if kept then
         kept, keep_trouble = Sqlite.run(records,
           "INSERT OR REPLACE INTO digests (path, signature, sha256) VALUES (?1, ?2, ?3)",
@@ -4524,12 +4532,13 @@ local function settle(ctx: Run)
   -- What this run reached is the shared cache's too, whether or not
   -- this checkout's own records took it: a passing verdict is one
   -- whatever went wrong with keeping it here.
-  if rec.shared ~= nil then
-    local settled, settle_trouble = shared_verdicts.settle(rec.shared, rec.origin, rec.owed,
+  local shared = rec.shared
+  if shared ~= nil then
+    local settled, settle_trouble = shared_verdicts.settle(shared, rec.origin, rec.owed,
       Clock.now_ns())
-    shared_verdicts.close(rec.shared)
+    shared_verdicts.close(shared)
     if not settled then
-      log:complain("test: shared verdicts: " .. rec.shared.path .. ": " .. settle_trouble)
+      log:complain("test: shared verdicts: " .. shared.path .. ": " .. settle_trouble)
     end
   end
 

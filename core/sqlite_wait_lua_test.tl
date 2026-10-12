@@ -115,7 +115,7 @@ local function test_pragma_replaces_the_custom_handler_and_the_method_reinstalls
   local held <close> = holder(tmp .. "/db")
   local db = assert(Sqlite.open(tmp .. "/db", { writable = true }))
   db:busy_timeout(Clock.seconds(5))
-  assert(assert(Sqlite.text_rows(db, "PRAGMA busy_timeout"))[1][1] == "0")
+  assert(assert(Sqlite.text_rows(db, "PRAGMA busy_timeout"))[1]:text(1) == "0")
   assert(db:exec("PRAGMA busy_timeout = 20"))
   local guard <close> = assert(Signal.guard())
   assert(sys.kill(sys.getpid(), sys.SIGTERM))
@@ -182,8 +182,8 @@ local function test_one_exec_shares_a_budget_across_separate_database_locks(tmp:
     "the second locking event restarted the timeout and acquired a late lock")
   finish(first)
   finish(second)
-  assert(assert(Sqlite.text_rows(db, "SELECT count(*) FROM main.t"))[1][1] == "1")
-  assert(assert(Sqlite.text_rows(db, "SELECT count(*) FROM other.t"))[1][1] == "0")
+  assert(assert(Sqlite.text_rows(db, "SELECT count(*) FROM main.t"))[1]:text(1) == "1")
+  assert(assert(Sqlite.text_rows(db, "SELECT count(*) FROM other.t"))[1]:text(1) == "0")
   assert(db:close())
 end
 

@@ -75,10 +75,10 @@ local function test_the_tool_carries_each_standard_module_s_stub(tmp: string)
   local rows = assert(Sqlite.text_rows(db,
     "SELECT path, CAST(inflate(source) AS TEXT) FROM stubs ORDER BY path"))
   assert(db:close())
-  assert(#rows == 1 and rows[1][1] == "cosmic.thing",
+  assert(#rows == 1 and rows[1]:text(1) == "cosmic.thing",
     "the stubs carried are those of the standard library's modules alone")
-  assert(rows[1][2] == stub.made((assert(ast.parse(built, thing, "cosmic/thing.tl")))).text,
-    rows[1][2])
+  assert(rows[1]:text(2) == stub.made((assert(ast.parse(built, thing, "cosmic/thing.tl")))).text,
+    rows[1]:text(2))
 end
 
 local function test_a_stub_that_types_its_module_otherwise_fails_the_build(tmp: string)

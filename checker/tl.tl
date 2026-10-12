@@ -241,6 +241,10 @@ local record tl
       "expected_one_of"
       -- the parser wanting a type list
       "type_list_expected"
+      -- a use refused because the narrowing of a place was dropped before
+      -- it: `dropped_place`, `dropped_kind`, `dropped_by`, `dropped_y`,
+      -- `dropped_x`, and the fields of the refusal it was
+      "narrowing_dropped"
       "other"
    end
 
@@ -325,6 +329,15 @@ local record tl
       expects_most: integer
       -- Whether `msg` has had advice appended.
       advised: boolean
+
+      -- For a refusal of a place whose narrowing was dropped: the place
+      -- (`r.n`), what dropped it (`assignment`, `write`, `call`,
+      -- `operator` or `loop`), that expression as written, and where it is.
+      dropped_place: string
+      dropped_kind: string
+      dropped_by: string
+      dropped_y: integer
+      dropped_x: integer
 
       -- used temporarily for stable-sorting
       i: integer
@@ -565,6 +578,9 @@ local record Variable
    has_been_read_from: boolean
    has_been_written_to: boolean
    is_loop_control: boolean
+   -- Whether no function literal assigns this local, so that a call
+   -- leaves what is known of it; nil until a call asks.
+   stable: boolean
 end
 
 --------------------------------------------------------------------------------
@@ -1612,6 +1628,11 @@ local record Scope
    pending_global_types: {string:boolean}
    narrows: {string:boolean}
    widens: {string:boolean}
+   -- The narrowed places a drop removed from this scope, with what did.
+   dropped: {string:narrowing.Drop}
+   -- The field facts of the scopes outside a function literal, which its
+   -- body keeps as copies in this scope (`narrowing.enter_function`).
+   hidden: {narrowing.Hidden}
    is_transaction: boolean
 end
 
@@ -1767,6 +1788,11 @@ local record FunctionType
    rets: TupleType
    macroexp: Node
    special_function_handler: SpecialFunctionName -- special handling for format strings etc
+   -- A function of the standard library that runs no code of the program's
+   -- (see `TypeChecker:runs_no_code`) unless an argument it examines may
+   -- dispatch to a metamethod: the arguments it examines are all of them
+   -- ("all"), the first only ("first") or none ("none").
+   pure_std: string
    never: boolean -- declared `: never`: a call does not return, and `rets` is empty
 end
 
@@ -1903,6 +1929,22 @@ local record Node
    xend: integer
 
    guard: narrowing.Guard
+
+   -- What dropped the narrowing a read of this place would have had.
+   dropped: narrowing.Drop
+   -- How many call-like expressions the checker had met when it finished
+   -- this node, and, on an `if` block, when it began.
+   drop_clock: integer
+   -- Set by the node that compares clocks of its parts: stamp this one.
+   want_clock: boolean
+   clock_start: integer
+   -- On an `if` block: where the journal of drops was when its body began.
+   journal_mark: integer
+   tick_mark: integer
+   -- The typename of an index's key, for the write `t[k] = v`.
+   key_kind: string
+   -- On a call: whether it ran no code of the program's, so dropped nothing.
+   runs_no_code: boolean
 
    -- bidirectional inference
    expected: Type
@@ -6741,8 +6783,84 @@ function Errors.about(err: Error, t: Type): Error
    return err
 end
 
+local function has_nil(members: {string}): boolean
+   for _, m in ipairs(members or {}) do
+      if m == "nil" then
+         return true
+      end
+   end
+   return false
+end
+
+-- The drop recorded on the operand `n` reads, through parentheses.
+local function dropped_read(n: Node): narrowing.Drop
+   while n and n.kind == "paren" do
+      n = n.e1
+   end
+   return n and n.dropped
+end
+
+-- What dropped the narrowing of the place that the node `w` reads, when
+-- `err` refuses a value that may be nil there: the operand the refusal
+-- names, or `w` itself.
+local function dropped_for(err: Error, w: Where): narrowing.Drop
+   local n = w as Node
+   if not n.kind then
+      return nil
+   end
+   local code = err.code
+   if code == "operator_binary" then
+      if has_nil(err.left_members) then
+         return dropped_read(n.e1)
+      elseif has_nil(err.right_members) then
+         return dropped_read(n.e2)
+      end
+   elseif code == "operator_unary" then
+      if has_nil(err.members) then
+         return dropped_read(n.e1)
+      end
+   elseif code == "mismatch" or code == "not_a" then
+      if has_nil(err.got_members) then
+         return dropped_read(n)
+      end
+   elseif code == "cannot_index_key" or code == "cannot_index_object" then
+      if has_nil(err.members) then
+         return dropped_read(n)
+      end
+   elseif code == "not_array" or code == "pairs_of_non_table" then
+      -- Refused at the arguments of the call, whose first is the table.
+      if has_nil(err.members) and n.kind == "expression_list" then
+         return dropped_read(n[1])
+      end
+   elseif code == "for_bound" then
+      if has_nil(err.members) then
+         return dropped_read(err.index == 2 and n.from or err.index == 3 and n.to or n.step)
+      end
+   end
+   return nil
+end
+
+-- `err`, marked as the refusal of a place whose narrowing was dropped,
+-- when the node `w` it was made at reads one and the refusal is of the nil
+-- the drop let back in.
+local function blame_drop(err: Error, w: Where)
+   if not w or err.code == "narrowing_dropped" then
+      return
+   end
+   local why = dropped_for(err, w)
+   if why then
+      err.code = "narrowing_dropped"
+      err.dropped_place = why.place
+      err.dropped_kind = why.kind
+      err.dropped_by = why.text
+      err.dropped_y = why.y
+      err.dropped_x = why.x
+   end
+end
+
 local function insert_error(self: Errors, y: integer, x: integer, f: string, err: Error)
    err.code = err.code or "other"
+
    err.y = assert(y)
    err.x = assert(x)
    err.filename = assert(f)
@@ -6757,6 +6875,7 @@ end
 function Errors:add(w: Where, msg: string, ...:Type)
    local e = Err(msg, ...)
    if e then
+      blame_drop(e, w)
       insert_error(self, w.y, w.x, w.f, e)
    end
 end
@@ -6765,6 +6884,7 @@ end
 function Errors:add_coded(w: Where, details: Error, msg: string, ...:Type)
    local e = Errors.coded(details, msg, ...)
    if e then
+      blame_drop(e, w)
       insert_error(self, w.y, w.x, w.f, e)
    end
 end
@@ -6975,6 +7095,10 @@ function Errors:add_prefixing(w: Where, src: {Error}, prefix: string, dst?: {Err
          err.y = w.y
          err.x = w.x
          err.filename = w.f
+      end
+
+      if w then
+         blame_drop(err, w)
       end
 
       if dst then
@@ -7921,6 +8045,52 @@ tl.new_env = function(opts?: EnvOptions): Env, string
       set_special_function(stdlib_globals["error"].t, "error")
       set_special_function(stdlib_globals["type"].t, "type")
 
+      -- Functions that run no code of the program's, however it is called,
+      -- unless an argument they examine may dispatch to a metamethod.
+      --
+      -- TODO: these are marked by name here, and a function of the program's
+      -- own cannot say it too. It waits on doc/roadmap.md's item that has a
+      -- declaration say so, which needs the narrowing declaration's syntax
+      -- (strict-teal's open question) to be settled.
+      local function pure(t: Type, examines: string)
+         if t is PolyType then
+            for _, member in ipairs(t.types) do
+               pure(member, examines)
+            end
+            return
+         end
+         if t is GenericType then
+            t = t.t
+         end
+         if t is FunctionType then
+            t.pure_std = examines
+         end
+      end
+      for _, name in ipairs({ "print", "tonumber", "tostring" }) do
+         pure(stdlib_globals[name].t, "all")
+      end
+      for _, name in ipairs({ "next", "rawequal", "rawget", "rawlen", "select" }) do
+         pure(stdlib_globals[name].t, "none")
+      end
+      for _, name in ipairs({ "ipairs", "pairs" }) do
+         pure(stdlib_globals[name].t, "first")
+      end
+      local function pure_fields(library: string, names: {string}, examines: string)
+         local record_t = (stdlib_globals[library].t as TypeDeclType).def as RecordType
+         for _, name in ipairs(names) do
+            pure(record_t.fields[name], examines)
+         end
+      end
+      local function all_fields(library: string): {string}
+         return ((stdlib_globals[library].t as TypeDeclType).def as RecordType).field_order
+      end
+      pure_fields("string", all_fields("string"), "all")
+      pure_fields("math", all_fields("math"), "all")
+      pure_fields("utf8", all_fields("utf8"), "all")
+      pure_fields("os", { "clock", "date", "difftime", "getenv", "time" }, "all")
+      pure_fields("table", { "concat" }, "all")
+      pure_fields("table", { "insert", "remove", "unpack" }, "first")
+
       -- only global scope and vararg functions accept `...`:
       -- `@is_va` is an internal sentinel value which is
       -- `any` if `...` is accepted in this scope or `nil` if it isn't.
@@ -8011,6 +8181,57 @@ do
 
       -- What evaluating a guard asks of this checker, made on first use.
       narrowing_host: narrowing.Host
+
+      -- The call-like expressions met so far (`drop_all`), counted.
+      drop_clock: integer
+      -- The declarations of the file, whether a function literal assigns
+      -- each, and the names assigned in one that no declaration seen
+      -- binds (see `find_closure_assigned`).
+      root_ast: Node
+      closure_binders: {Node:boolean}
+      label_back: {Node:boolean}
+      closure_assigned: {Node:boolean}
+      closure_loose: {string:boolean}
+      -- Set when an index was served by an `__index` metamethod that runs
+      -- code, and by `check_metamethod` for the metamethod it found last.
+      index_metamethod: boolean
+      metamethod_ran: boolean
+      -- What last dropped a fact, which a guard cut after it names, built
+      -- from the node and the kind and text it was dropped with when asked
+      -- for (`last_dropper`).
+      last_drop: narrowing.Drop
+      last_drop_node: Where
+      last_drop_kind: string
+      last_drop_text: string
+      -- The loops being checked, innermost last, and a count of the reads
+      -- they hold and the drops met, which orders them.
+      loops: {narrowing.Loop}
+      loop_tick: integer
+
+      -- Declared where the record is, defined by the narrowing code below.
+      binder_is_stable: function(TypeChecker, Node, string, Attribute): boolean
+      call_text: function(TypeChecker, Node): string
+      drop_all: function(TypeChecker, Where, string, ? string)
+      last_dropper: function(TypeChecker): narrowing.Drop
+      drop_through: function(TypeChecker, Node)
+      may_dispatch: function(TypeChecker, Type, ? string): boolean
+      may_be_table: function(TypeChecker, Type): boolean
+      note_dropped: function(TypeChecker, Node, string)
+      guard_before: function(TypeChecker, Node, Node): narrowing.Guard
+      droppable: function(TypeChecker, narrowing.Place): boolean
+      loop_begin: function(TypeChecker)
+      label_is_looped: function(TypeChecker, Node): boolean
+      scan_labels: function(TypeChecker, Node, {string:Node})
+      loop_end: function(TypeChecker)
+      record_read: function(TypeChecker, Node, string, ? Type)
+      loop_dropped: function(TypeChecker, integer, string, narrowing.Drop)
+      loops_forget_since: function(TypeChecker, integer)
+      pure_iterator: function(TypeChecker, Node): boolean
+      prune: function(TypeChecker, narrowing.Guard): narrowing.Guard
+      runs_no_code: function(TypeChecker, Node, Type, TupleType): boolean
+      written_name: function(TypeChecker, Node): string
+      find_closure_assigned: function(TypeChecker, Node)
+      macroexp_calls: function(TypeChecker, Node): boolean
    end
 
    local enum VarUse
@@ -8505,6 +8726,7 @@ do
             copy.args, same = resolve(t.args, same) as (TupleType, boolean)
             copy.rets, same = resolve(t.rets, same) as (TupleType, boolean)
             copy.special_function_handler = t.special_function_handler
+            copy.pure_std = t.pure_std
             copy.never = t.never
          elseif t is RecordLikeType then
             assert(copy is RecordType or copy is InterfaceType)
@@ -8862,6 +9084,216 @@ do
       end
 
       return true
+   end
+
+   -- Whether no function literal assigns the local that `node`, a binder
+   -- the file's pre-pass saw, declares as `name`. A `<const>` or `<close>`
+   -- local is assigned by nothing. A binder the pre-pass did not see is
+   -- not stable: a call may change it. The pre-pass runs when this is first
+   -- asked.
+   function TypeChecker:binder_is_stable(node: Node, name: string, attribute?: Attribute): boolean
+      if attribute == "const" or attribute == "close" then
+         return true
+      end
+      if not node then
+         return false
+      end
+      if not self.closure_binders then
+         self:find_closure_assigned(self.root_ast)
+      end
+      return self.closure_binders[node] == true
+         and not self.closure_assigned[node]
+         and not self.closure_loose[name]
+   end
+
+   -- Whether a call leaves what is known of the local `name`: no function
+   -- literal in its scope assigns it. A name with no declaration of the
+   -- file's own (a global) is not stable.
+   function TypeChecker:local_is_stable(name: string): boolean
+      for i = #self.st, 1, -1 do
+         local var = self.st[i].vars[name]
+         if var and ((not var.is_specialized) or var.specialized_from or var.is_specialized == "localizing") then
+            if var.stable == nil then
+               var.stable = self:binder_is_stable(var.declared_at, name, var.attribute)
+            end
+            return var.stable
+         end
+      end
+      return false
+   end
+
+   -- Finds, before the file is checked, the locals that a function literal
+   -- assigns: a call may run it, so a call drops what is known of them. It
+   -- walks the file with the scopes the program has, binding each name
+   -- where the checker will declare it, and resolves an assignment's name
+   -- to the innermost binding in scope. A binding made in a function
+   -- other than the one that assigns it is assigned by a closure.
+   -- `closure_loose` holds the names assigned in a function literal that
+   -- resolve to no binding seen (a global, or a binder the walk does not
+   -- know), which makes every local of the name unstable.
+   --
+   -- The statements are walked by kind, for the scopes they open and the
+   -- names they bind; an expression is walked through every node it holds,
+   -- since only a function literal in it matters and a scope is the same
+   -- all through it.
+   function TypeChecker:find_closure_assigned(root: Node)
+      local binders: {Node:boolean} = {}
+      local assigned: {Node:boolean} = {}
+      local loose: {string:boolean} = {}
+      local depth_of: {Node:integer} = {}
+      local scopes: {{string:Node}} = {}
+      local depth = 0
+
+      local function bind(node: Node, name: string)
+         if name and #scopes > 0 then
+            scopes[#scopes][name] = node
+            binders[node] = true
+            depth_of[node] = depth
+         end
+      end
+      local function resolve(name: string)
+         for i = #scopes, 1, -1 do
+            local binder = scopes[i][name]
+            if binder then
+               if depth_of[binder] < depth then
+                  assigned[binder] = true
+               end
+               return
+            end
+         end
+         if depth > 0 then
+            loose[name] = true
+         end
+      end
+
+      local walk_expression: function(Node)
+      local walk_statement: function(Node)
+      local walk_block: function(Node)
+
+      -- The body of a function, or the expression of a macro expression,
+      -- with its arguments bound.
+      local function walk_function(node: Node)
+         depth = depth + 1
+         table.insert(scopes, {})
+         for _, argument in ipairs(node.args or {}) do
+            bind(argument, argument.tk)
+         end
+         if node.body then
+            walk_block(node.body)
+         end
+         if node.exp then
+            walk_expression(node.exp)
+         end
+         table.remove(scopes)
+         depth = depth - 1
+      end
+
+      walk_expression = function(n: Node)
+         local kind = n.kind
+         if kind == "function" or kind == "macroexp" then
+            walk_function(n)
+            return
+         end
+         for key, child in pairs(n as {any:any}) do
+            if key ~= "if_parent" and key ~= "fn_owner" and type(child) == "table" then
+               local node = child as Node
+               if node.kind then
+                  walk_expression(node)
+               end
+            end
+         end
+      end
+
+      walk_block = function(block: Node)
+         table.insert(scopes, {})
+         for _, statement in ipairs(block) do
+            walk_statement(statement)
+         end
+         table.remove(scopes)
+      end
+
+      walk_statement = function(s: Node)
+         local kind = s.kind
+         if kind == "local_declaration" then
+            if s.exps then
+               walk_expression(s.exps)
+            end
+            for _, v in ipairs(s.vars) do
+               bind(v, v.tk)
+            end
+         elseif kind == "assignment" then
+            if s.exps then
+               walk_expression(s.exps)
+            end
+            for _, v in ipairs(s.vars) do
+               if v.kind == "variable" then
+                  resolve(v.tk)
+               else
+                  walk_expression(v)
+               end
+            end
+         elseif kind == "local_function" then
+            bind(s, s.name.tk)
+            walk_function(s)
+         elseif kind == "global_function" or kind == "record_function" then
+            walk_function(s)
+         elseif kind == "local_macroexp" then
+            bind(s, s.name.tk)
+            walk_function(s.macrodef)
+         elseif kind == "if" then
+            for _, block in ipairs(s.if_blocks) do
+               if block.exp then
+                  walk_expression(block.exp)
+               end
+               walk_block(block.body)
+            end
+         elseif kind == "while" then
+            walk_expression(s.exp)
+            walk_block(s.body)
+         elseif kind == "repeat" then
+            -- The condition sees the body's locals.
+            table.insert(scopes, {})
+            for _, statement in ipairs(s.body) do
+               walk_statement(statement)
+            end
+            walk_expression(s.exp)
+            table.remove(scopes)
+         elseif kind == "fornum" then
+            walk_expression(s.from)
+            walk_expression(s.to)
+            if s.step then
+               walk_expression(s.step)
+            end
+            table.insert(scopes, {})
+            bind(s.var, s.var.tk)
+            walk_block(s.body)
+            table.remove(scopes)
+         elseif kind == "forin" then
+            walk_expression(s.exps)
+            table.insert(scopes, {})
+            for _, v in ipairs(s.vars) do
+               bind(v, v.tk)
+            end
+            walk_block(s.body)
+            table.remove(scopes)
+         elseif kind == "do" then
+            walk_block(s.body)
+         elseif kind == "return" or kind == "global_declaration" then
+            if s.exps then
+               walk_expression(s.exps)
+            end
+         elseif kind == "break" or kind == "goto" or kind == "label" or kind == "local_type"
+            or kind == "global_type" or kind == "pragma" then
+            return
+         else
+            walk_expression(s)
+         end
+      end
+
+      walk_block(root)
+      self.closure_binders = binders
+      self.closure_assigned = assigned
+      self.closure_loose = loose
    end
 
    function TypeChecker:widen_back_var(name: string): boolean
@@ -11518,6 +11950,14 @@ do
       end
 
       if metamethod then
+         -- A macro expression (a `where` clause is one) is written in place
+         -- of the operator, so it runs code only if its expression calls.
+         local runs = not (metamethod is FunctionType and metamethod.macroexp
+            and not self:macroexp_calls(metamethod.macroexp.exp))
+         self.metamethod_ran = runs
+         if method_name == "__index" then
+            self.index_metamethod = runs
+         end
          local e2 = { node.e1 }
          local args = a_tuple(node, { orig_a })
          if b and method_name ~= "__is" then
@@ -11532,6 +11972,7 @@ do
          local ret_call <const> = self:type_check_function_call(node, metamethod, args, mtdelta, nil, nil, node, e2)
          local ret_unary <const> = resolve_tuple(ret_call)
          local ret <const> = self:to_structural(ret_unary)
+         self.metamethod_ran = runs
          return ret, meta_on_operator
       else
          return nil, nil
@@ -11674,11 +12115,8 @@ do
       end
    end
 
-   -- TODO: this looks for an assignment to a local of that name alone, so a
-   -- loop that assigns a field (`q.a = nil`) keeps what was known of `q.a`
-   -- before it, in the loop's body. It waits on the roadmap item that makes
-   -- every guard read every place alike: a loop that assigns a place drops
-   -- it at the loop head.
+   -- Whether `root` assigns a local of that name. A field a loop writes is
+   -- told when the loop ends (`loop_end`), not here.
    local function assigned_anywhere(name: string, root: Node): boolean
       local visit_node: Visitor<nil, NodeKind, Node, boolean> = {
          cbs = {
@@ -11695,7 +12133,8 @@ do
          },
          after = function(_: nil, _node: Node, children: {boolean}, ret: boolean): boolean
             ret = ret or false
-            for _, c in ipairs(children) do
+            -- an `else` has no condition, which leaves a hole in `children`
+            for _, c in pairs(children as {integer:boolean}) do
                local ca = c as any
                if ca is boolean then
                   ret = ret or c
@@ -11866,7 +12305,11 @@ do
 
    function TypeChecker:end_function_scope(node: Node)
       self.errs:fail_unresolved_labels(self.st[#self.st])
+      local hidden = self.st[#self.st].hidden
       self:end_scope(node)
+      if hidden then
+         narrowing.leave_function(self.st as {narrowing.Scope}, hidden)
+      end
       local def = node.kind == "local_macroexp" and node.macrodef or node
       if def.never then
          if def.kind == "macroexp" then
@@ -12375,6 +12818,435 @@ do
                t.inferred_at = nil
             end
             self:add_var(nil, v, t, "const", "narrow")
+            narrowing.renarrowed(self.st as {narrowing.Scope}, v)
+         end
+      end
+
+      -- The name a call's callee or a write's target is written with
+      -- (`clear`, `r.items.add`, `obj:get`), nil for any other expression.
+      function TypeChecker:written_name(n: Node): string
+         if n.kind == "variable" then
+            return n.tk
+         elseif n.kind == "op" and (n.op.op == "." or n.op.op == ":") and n.e2 and n.e2.tk then
+            local base = self:written_name(n.e1)
+            return base and base .. n.op.op .. n.e2.tk
+         end
+         return nil
+      end
+
+      -- Where an expression begins: the callee's name for a call, the base
+      -- for a field.
+      local function start_of(n: Node): Where
+         while n.kind == "op" and n.e1 and n.op.arity == 2 do
+            n = n.e1
+         end
+         return n
+      end
+
+      -- A call-like expression has run, at `w`: a call, an operator that
+      -- dispatches to a metamethod, a loop whose body does either. What
+      -- is known of every field path is dropped (the code may write any
+      -- field of any table), and what is known of every narrowed local that
+      -- a function literal assigns. `kind` and `text` say what ran, for the
+      -- refusal of a use that relied on what was dropped.
+      function TypeChecker:drop_all(w: Where, kind: string, text?: string)
+         self.drop_clock = self.drop_clock + 1
+         self.last_drop, self.last_drop_node, self.last_drop_kind, self.last_drop_text = nil, w, kind, text
+         local scopes = self.st as {narrowing.Scope}
+         local paths, names = narrowing.narrowed(scopes)
+         if not paths and not names then
+            return
+         end
+         local why = self:last_dropper()
+         if paths then
+            narrowing.drop_paths(scopes, why)
+         end
+         for _, name in ipairs(names or {}) do
+            if not self:local_is_stable(name) then
+               narrowing.note(scopes, name, why)
+               self:widen_back_var(name)
+            end
+         end
+      end
+
+      -- What dropped last, built only when something wants to say so: most
+      -- calls drop nothing.
+      function TypeChecker:last_dropper(): narrowing.Drop
+         local why = self.last_drop
+         if not why and self.last_drop_node then
+            local at = start_of(self.last_drop_node as Node)
+            local text = self.last_drop_text or self:call_text(self.last_drop_node as Node)
+            why = narrowing.because(self.last_drop_kind, text, at.y, at.x)
+            self.last_drop = why
+         end
+         return why
+      end
+
+      -- Whether an operation on a value of type `t` may dispatch to a
+      -- metamethod, `metamethod` if one is named: `t` is a record, an
+      -- interface or a userdata that declares it (any, if none is named),
+      -- or `any`, a type variable, or a union with one of these. A value
+      -- dispatches only through metamethods its type declares, so a string,
+      -- a number, a plain array or map, a function, nil and a record that
+      -- declares none never do.
+      --
+      -- TODO: a metatable attached at run time dispatches whatever its
+      -- type declares, so a plain map built by `setmetatable({}, {__index =
+      -- f})`, or a record given a metamethod it does not declare, runs code
+      -- here unseen. It waits on doc/roadmap.md's item that lets
+      -- `setmetatable` attach metamethods only to a record type that
+      -- declares them. A `__gc` finalizer, which runs when the collector
+      -- chooses, is outside the claim (doc/design.md) and no item closes it.
+      function TypeChecker:may_dispatch(t: Type, metamethod?: string): boolean
+         local rt = self:to_structural(t)
+         if rt is UnionType then
+            for _, member in ipairs(rt.types) do
+               if self:may_dispatch(member, metamethod) then
+                  return true
+               end
+            end
+            return false
+         end
+         if rt is RecordLikeType then
+            local declared = rt.meta_fields
+            if not declared then
+               return false
+            end
+            if metamethod then
+               return declared[metamethod] ~= nil
+            end
+            return next(declared) ~= nil
+         end
+         return rt.typename == "any"
+            or rt.typename == "typevar"
+            or rt.typename == "typearg"
+            or rt.typename == "unknown"
+      end
+
+      -- Whether a value of type `t` may be a table (or userdata), the only
+      -- operands `==` consults `__eq` for.
+      function TypeChecker:may_be_table(t: Type): boolean
+         local rt = self:to_structural(t)
+         if rt is UnionType then
+            for _, member in ipairs(rt.types) do
+               if self:may_be_table(member) then
+                  return true
+               end
+            end
+            return false
+         end
+         return rt is RecordLikeType or is_lua_table_type(rt) or self:may_dispatch(rt)
+      end
+
+      -- Records on the node `n`, a read of the place `key`, what dropped
+      -- the narrowing it would have had, for a refusal to tell.
+      function TypeChecker:note_dropped(n: Node, key: string)
+         local why = narrowing.dropped_by(self.st as {narrowing.Scope}, key)
+         if why then
+            n.dropped = { kind = why.kind, text = why.text, y = why.y, x = why.x, place = key }
+         end
+      end
+
+      -- Whether code that runs may change what a guard says of `place`: a
+      -- field path, or a local that a function literal assigns.
+      function TypeChecker:droppable(place: narrowing.Place): boolean
+         return #place.fields > 0 or not self:local_is_stable(place.base)
+      end
+
+      -- The guard of `left`, an operand evaluated before `right`: what it
+      -- established holds past `right` only if `right` ran nothing that
+      -- may change the places it is about.
+      function TypeChecker:guard_before(left: Node, right: Node): narrowing.Guard
+         if left.drop_clock ~= nil and right.drop_clock == left.drop_clock then
+            return left.guard
+         end
+         return self:prune(left.guard)
+      end
+
+      -- `guard` without what code that has run since may have changed,
+      -- remembering in the scope that would have held it what did.
+      function TypeChecker:prune(guard: narrowing.Guard): narrowing.Guard
+         local scopes = self.st as {narrowing.Scope}
+         local why: narrowing.Drop
+         for _, place in ipairs(narrowing.places(guard)) do
+            if self:droppable(place) then
+               why = why or self:last_dropper()
+               if why then
+                  narrowing.cut(scopes, place.key, why)
+               end
+            end
+         end
+         return narrowing.forget(guard, function(place: narrowing.Place): boolean
+            return self:droppable(place)
+         end)
+      end
+
+      -- Records in `label_back`, for each label of the block `block` and of
+      -- the blocks inside it, whether a `goto` below it names it. `visible`
+      -- holds the labels of the blocks around, by name.
+      function TypeChecker:scan_labels(block: Node, visible: {string:Node})
+         local mine: {string:Node} = {}
+         for name, label in pairs(visible) do
+            mine[name] = label
+         end
+         for _, stmt in ipairs(block) do
+            if stmt.kind == "label" then
+               mine[stmt.label] = stmt
+               if self.label_back[stmt] == nil then
+                  self.label_back[stmt] = false
+               end
+            elseif stmt.kind == "goto" then
+               local label = mine[stmt.label]
+               if label then
+                  self.label_back[label] = true
+               end
+            elseif stmt.if_blocks then
+               for _, b in ipairs(stmt.if_blocks) do
+                  self:scan_labels(b.body, mine)
+               end
+            elseif stmt.body then
+               self:scan_labels(stmt.body, mine)
+            end
+         end
+      end
+
+      -- Whether control may come back to `label` from below it. A label the
+      -- scan did not reach (one in a function literal inside an expression)
+      -- is taken to be.
+      function TypeChecker:label_is_looped(label: Node): boolean
+         if not self.label_back then
+            self.label_back = {}
+            self:scan_labels(self.root_ast, {})
+         end
+         return self.label_back[label] ~= false
+      end
+
+      -- A loop begins: its body is checked once with the facts of the scopes
+      -- outside it, and what it reads of them is held until `loop_end`.
+      function TypeChecker:loop_begin()
+         table.insert(self.loops, { depth = #self.st, reads = {}, dropped = {} })
+      end
+
+      -- A read of `key` where a fact narrowed outside a loop stood: it is
+      -- held for each loop it is outside of, if the fact told more than the
+      -- declared type did (`declared`, where the place has no declaration to
+      -- look for).
+      function TypeChecker:record_read(node: Node, key: string, declared?: Type)
+         local st = self.st
+         for i = #st, 1, -1 do
+            local var = st[i].vars[key]
+            if var then
+               if var.is_specialized == "narrow" or var.is_specialized == "narrowed_declaration" then
+                  local was = declared or var.specialized_from
+                  if not was then
+                     local real = get_real_var_from_lower_scope(st, i, key)
+                     was = real and real.t
+                  end
+                  if was and not self:same_type(var.t, was) then
+                     self.loop_tick = self.loop_tick + 1
+                     for _, loop in ipairs(self.loops) do
+                        if i <= loop.depth then
+                           table.insert(loop.reads, { node = node as narrowing.Node, key = key, clock = self.loop_tick })
+                        end
+                     end
+                  end
+               end
+               return
+            end
+         end
+      end
+
+      -- A fact held in the scope `index` was dropped: a loop outside which
+      -- it was held will read it dropped in its next pass.
+      function TypeChecker:loop_dropped(index: integer, key: string, why: narrowing.Drop)
+         self.loop_tick = self.loop_tick + 1
+         for _, loop in ipairs(self.loops) do
+            if index <= loop.depth then
+               local events = loop.dropped[key]
+               if not events then
+                  events = {}
+                  loop.dropped[key] = events
+               end
+               table.insert(events, { clock = self.loop_tick, why = why })
+            end
+         end
+      end
+
+      -- What the loops saw before `tick` need not be told: control left them.
+      function TypeChecker:loops_forget_since(tick: integer)
+         for _, loop in ipairs(self.loops) do
+            for i = #loop.reads, 1, -1 do
+               if loop.reads[i].clock > tick then
+                  table.remove(loop.reads, i)
+               end
+            end
+            for _, events in pairs(loop.dropped) do
+               for i = #events, 1, -1 do
+                  if events[i].clock > tick then
+                     table.remove(events, i)
+                  end
+               end
+            end
+         end
+      end
+
+      -- A loop ends, its body (and condition) checked: each read of a fact
+      -- from outside it that came before a drop of that fact is of what the
+      -- previous pass left, and is refused.
+      function TypeChecker:loop_end()
+         local loop = table.remove(self.loops)
+         for _, read in ipairs(loop.reads) do
+            local events = loop.dropped[read.key]
+            for _, event in ipairs(events or {}) do
+               if event.clock > read.clock then
+                  local why = event.why
+                  local details = Errors.make({
+                     code = "narrowing_dropped", dropped_place = read.key, dropped_kind = "loop",
+                     dropped_by = why.text, dropped_y = why.y, dropped_x = why.x,
+                  })
+                  self.errs:add_coded(read.node as Node, details,
+                     ("'%s' was narrowed before this loop, but the loop's previous pass ran %s at %d:%d, " ..
+                      "which may have changed it"):format(read.key, why.text:gsub("%%", "%%%%"), why.y, why.x))
+                  break
+               end
+            end
+         end
+      end
+
+      -- Whether the iterator of a `for ... in` runs none of the program's
+      -- code: `pairs`, `ipairs` or `gmatch` of what runs none, or `next`.
+      function TypeChecker:pure_iterator(node: Node): boolean
+         local exps = node.exps
+         local first = exps[1]
+         if #exps == 1 and first.kind == "op" and first.op.op == "@funcall" then
+            if not first.runs_no_code then
+               return false
+            end
+            local callee = first.e1
+            local name = callee.kind == "variable" and callee.tk
+               or (callee.kind == "op" and (callee.op.op == "." or callee.op.op == ":") and callee.e2 and callee.e2.tk)
+            return name == "pairs" or name == "ipairs" or name == "gmatch"
+         end
+         if first.kind == "variable" and first.tk == "next" then
+            local _, scope = self:find_var("next", "check_only")
+            return scope == 1
+         end
+         return false
+      end
+
+      -- Whether the call `node` of `callee`, given `args`, runs no code of
+      -- the program's: the callee is a function of the standard library
+      -- that examines no argument it could be a metamethod's business to
+      -- examine. An argument that may dispatch (a record, `any`, a type
+      -- variable) or is a function the callee could call decides against.
+      --
+      -- TODO: a table given to one may carry a metatable attached at run
+      -- time that `may_dispatch` does not see (see its TODO). It waits on
+      -- the same roadmap item.
+      function TypeChecker:runs_no_code(node: Node, callee: Type, args: TupleType): boolean
+         if callee is FunctionType and not callee.pure_std then
+            return false
+         end
+         local members: {Type} = { callee }
+         if callee is PolyType then
+            members = callee.types
+         end
+         local examines = "none"
+         for _, member in ipairs(members) do
+            local f = member
+            if f is GenericType then
+               f = f.t
+            end
+            if not (f is FunctionType) or not f.pure_std then
+               return false
+            end
+            if f.pure_std == "all" or (f.pure_std == "first" and examines == "none") then
+               examines = f.pure_std
+            end
+         end
+         local given: {Type} = {}
+         if node.e1.op and node.e1.op.op == ":" and node.e1.receiver then
+            given[1] = node.e1.receiver
+         end
+         for _, t in ipairs(args.tuple) do
+            table.insert(given, t)
+         end
+         -- A function the callee could call, alone or among a union's members.
+         local function callable(rt: Type): boolean
+            if rt is UnionType then
+               for _, member in ipairs(rt.types) do
+                  if callable(self:to_structural(member)) then
+                     return true
+                  end
+               end
+               return false
+            end
+            return rt is FunctionType
+         end
+         for i, t in ipairs(given) do
+            if examines == "all" or (examines == "first" and i == 1) then
+               local rt = self:to_structural(resolve_tuple(t))
+               if callable(rt) or self:may_dispatch(rt) then
+                  return false
+               end
+            end
+         end
+         return true
+      end
+
+      -- Whether the expression of a macro expression holds a call.
+      function TypeChecker:macroexp_calls(n: Node): boolean
+         if n.kind == "op" and n.op.op == "@funcall" then
+            return true
+         end
+         for key, child in pairs(n as {any:any}) do
+            if key ~= "if_parent" and key ~= "fn_owner" and type(child) == "table" then
+               local node = child as Node
+               if node.kind and self:macroexp_calls(node) then
+                  return true
+               end
+            end
+         end
+         return false
+      end
+
+      -- The call `node`, as a message shows it: `clear(...)`.
+      function TypeChecker:call_text(node: Node): string
+         local name = self:written_name(node.e1)
+         return (name or "a function") .. "(...)"
+      end
+
+      -- A write to `target` has run: a field of that name through any
+      -- reference may be one that a narrowed path names, and a write
+      -- through a key that may name a field may write any.
+      function TypeChecker:drop_through(target: Node)
+         if target.kind ~= "op" then
+            return
+         end
+         local scopes = self.st as {narrowing.Scope}
+         if not narrowing.has_paths(scopes) then
+            return
+         end
+         local name = self:written_name(target)
+         local text = (name or (target.op.op == "." and "(...)." .. target.e2.tk or "(...)[...]")) .. " = ..."
+         local at = start_of(target)
+         local why = narrowing.because("write", text, at.y, at.x)
+         self.last_drop, self.last_drop_node = why, nil
+         if target.op.op == "." and target.e2 and target.e2.tk then
+            narrowing.drop_written(scopes, target.e2.tk, why)
+         elseif target.op.op == "@index" and target.e2 then
+            local key = target.e2
+            if key.kind == "string" and key.conststr then
+               narrowing.drop_written(scopes, key.conststr, why)
+            elseif target.key_kind ~= "integer" and target.key_kind ~= "number" then
+               -- TODO: a write to an index (`t[k] = v`) drops every index
+               -- place, and there are none; a key that is not a number may
+               -- be a field name, so it drops every field path. It waits on
+               -- doc/roadmap.md's item that makes an index a place and on
+               -- the rule that a record is not a map: a `{string:any}` that
+               -- holds a record is written through here.
+               narrowing.drop_paths(scopes, why)
+            end
          end
       end
    end
@@ -12915,7 +13787,14 @@ do
                arg1.guard = narrowing.type_is(arg1, arg1_place, typ as narrowing.Type)
             end
          end
-         self:apply_guard(node, node.e2[1].guard)
+         -- The arguments are evaluated before `assert` tests the first: what
+         -- the later ones run may change the places it is about.
+         local checked = node.e2[1]
+         local guard1 = checked and checked.guard
+         if checked and (checked.drop_clock == nil or node.e2[#node.e2].drop_clock ~= checked.drop_clock) then
+            guard1 = self:guard_before(checked, node.e2[#node.e2])
+         end
+         self:apply_guard(node, guard1)
          if r and r is TupleType and r.tuple[1] then
             local returned = a_tuple(node, { r.tuple[1] })
             for i = 2, #b.tuple do
@@ -13347,7 +14226,10 @@ do
                   end
                end
                node.exps[i].expected = typ
-               node.exps[i].expected_context = { kind = node.kind, name = node.vars[i].tk }
+               -- More types than variables (`local x: T, y = 1, 2` reads
+               -- `y` as a second type) leaves a type with no variable.
+               local var = node.vars[i]
+               node.exps[i].expected_context = { kind = node.kind, name = var and var.tk }
             end
          end
       end
@@ -13532,8 +14414,28 @@ do
       return type_at(node, t)
    end
 
+   -- Applies the guard of control reaching past the first `n` branches of
+   -- `ifnode`: none of their conditions held. A condition's test holds past
+   -- the conditions after it only if they ran nothing that may change the
+   -- places it is about.
    function TypeChecker:infer_negation_of_if_blocks(w: Where, ifnode: Node, n: integer)
-      self:apply_guard(w, narrowing.none_of(w, ifnode.if_blocks as {narrowing.Node}, n))
+      local blocks = ifnode.if_blocks
+      local kept: {narrowing.Node} = {}
+      local later = 0
+      for e = n, 1, -1 do
+         local block = blocks[e]
+         if later > 0 and block.exp then
+            kept[e] = { exp = { guard = self:prune(block.exp.guard) } } as narrowing.Node
+         else
+            kept[e] = block as narrowing.Node
+         end
+         if block.exp then
+            -- A condition that was not stamped is taken to have run code.
+            local ended = block.exp.drop_clock
+            later = later + (ended and ended - block.clock_start or 1)
+         end
+      end
+      self:apply_guard(w, narrowing.none_of(w, kept, n))
    end
 
    function TypeChecker:determine_declaration_type(var: Node, node: Node, infertypes: TupleType, i: integer): boolean, Type, boolean
@@ -13961,7 +14863,16 @@ do
             for _, varnode in ipairs(node.vars) do
                local assigned = narrowing.target_of(varnode as narrowing.Node)
                if assigned then
-                  narrowing.drop(self.st as {narrowing.Scope}, assigned)
+                  local scopes = self.st as {narrowing.Scope}
+                  local at = varnode
+                  while at.kind == "op" and at.e1 and at.op.arity == 2 do
+                     at = at.e1
+                  end
+                  local why = narrowing.because("assignment", assigned.key .. " = ...", at.y, at.x)
+                  if #assigned.fields == 0 then
+                     narrowing.note(scopes, assigned.key, why)
+                  end
+                  narrowing.drop(scopes, assigned, why)
                end
             end
          end,
@@ -13973,6 +14884,11 @@ do
             local valtuple = children[3]
             assert(valtuple is TupleType)
             local valtypes = get_assignment_values(node, valtuple, #vartypes)
+            -- Every value is evaluated before any target is written, so a
+            -- narrowed read in a value has seen what the write drops.
+            for _, target in ipairs(node.vars) do
+               self:drop_through(target)
+            end
             for i, vartype in ipairs(vartypes) do
                local varnode = node.vars[i]
                local varname = varnode.tk
@@ -14053,6 +14969,10 @@ do
       },
       ["if_block"] = {
          before = function(self: TypeChecker, node: Node)
+            node.clock_start = self.drop_clock
+            if node.exp then
+               node.exp.want_clock = true
+            end
             self:begin_scope(node)
             if node.if_block_n > 1 then
                self:infer_negation_of_if_blocks(node, node.if_parent, node.if_block_n - 1)
@@ -14065,9 +14985,19 @@ do
             if node.exp then
                self:apply_guard(node.exp, node.exp.guard)
             end
+            node.journal_mark = narrowing.mark(self.st as {narrowing.Scope})
+            node.tick_mark = self.loop_tick
          end,
          after = function(self: TypeChecker, node: Node, _children: {Type}): Type
             node.if_parent.if_widens = self:collect_if_widens(node.if_parent.if_widens)
+
+            -- Control reaches the code after the `if` only if this branch
+            -- was not taken, so what the branch dropped is dropped for the
+            -- code in it alone.
+            if node.journal_mark and flow.leaves_body(node.body as flow.Node) then
+               narrowing.undo(self.st as {narrowing.Scope}, node.journal_mark)
+               self:loops_forget_since(node.tick_mark)
+            end
 
             self:end_scope(node)
 
@@ -14078,18 +15008,30 @@ do
          before = function(self: TypeChecker, node: Node)
             -- widen all narrowed variables because we don't calculate a fixpoint yet
             self:widen_all_unions(node)
+            self:loop_begin()
             node.exp.expected = a_type(node, "boolean_context", {})
          end,
          before_statements = function(self: TypeChecker, node: Node)
             self:begin_scope(node)
             self:apply_guard(node.exp, node.exp.guard)
          end,
-         after = end_scope_and_none_type,
+         after = function(self: TypeChecker, node: Node, children: {Type}): Type
+            self:loop_end()
+            return end_scope_and_none_type(self, node, children)
+         end,
       },
       ["label"] = {
          before = function(self: TypeChecker, node: Node)
             -- widen all narrowed variables because we don't calculate a fixpoint yet
             self:widen_all_unions()
+            -- A `goto` below the label reaches it from code that may have
+            -- changed any field. One above it does not: what that path
+            -- dropped stays dropped (a branch that ends in `goto` undoes
+            -- nothing).
+            if self:label_is_looped(node) then
+               narrowing.drop_paths(self.st as {narrowing.Scope},
+                  narrowing.because("label", "::" .. node.label .. "::", node.y, node.x))
+            end
             local label_id = node.label
             do
                local scope = self.st[#self.st]
@@ -14142,16 +15084,21 @@ do
          before = function(self: TypeChecker, node: Node)
             -- widen all narrowed variables because we don't calculate a fixpoint yet
             self:widen_all_unions(node)
+            self:loop_begin()
             node.exp.expected = a_type(node, "boolean_context", {})
          end,
          -- only end scope after checking `until`, `statements` in repeat body has is_repeat == true
-         after = end_scope_and_none_type,
+         after = function(self: TypeChecker, node: Node, children: {Type}): Type
+            self:loop_end()
+            return end_scope_and_none_type(self, node, children)
+         end,
       },
       ["forin"] = {
          before = function(self: TypeChecker, node: Node)
             self:begin_scope(node)
          end,
          before_statements = function(self: TypeChecker, node: Node, children: {Type})
+            self:loop_begin()
             local exptuple = children[2]
             assert(exptuple is TupleType)
             local exptypes = exptuple.tuple
@@ -14163,6 +15110,12 @@ do
             end
 
             self:widen_all_unions(node)
+            -- The iterator runs before every pass, and the body runs again.
+            -- `pairs`, `ipairs` and `gmatch` of what runs no code are the
+            -- iterators that run none of the program's.
+            if not self:pure_iterator(node) then
+               self:drop_all(node, "call", "the iterator of this loop")
+            end
 
             local args = a_tuple(node.exps, {
                node.exps[2] and exptypes[2],
@@ -14217,11 +15170,15 @@ do
                end
             end
          end,
-         after = end_scope_and_none_type,
+         after = function(self: TypeChecker, node: Node, children: {Type}): Type
+            self:loop_end()
+            return end_scope_and_none_type(self, node, children)
+         end,
       },
       ["fornum"] = {
          before_statements = function(self: TypeChecker, node: Node, children: {Type})
             self:widen_all_unions(node)
+            self:loop_begin()
             self:begin_scope(node)
             for bound = 2, 4 do
                if children[bound] then
@@ -14242,7 +15199,10 @@ do
             local var = self:add_var(node.var, node.var.tk, a_type(node.var, typename, {}))
             var.is_loop_control = true
          end,
-         after = end_scope_and_none_type,
+         after = function(self: TypeChecker, node: Node, children: {Type}): Type
+            self:loop_end()
+            return end_scope_and_none_type(self, node, children)
+         end,
       },
       ["return"] = {
          before = function(self: TypeChecker, node: Node)
@@ -14603,6 +15563,7 @@ do
                self.collector.reserve_symbol_list_slot(node)
             end
             self:begin_scope(node)
+            narrowing.enter_function(self.st as {narrowing.Scope})
          end,
          before_statements = function(self: TypeChecker, node: Node, children: {Type})
             local args = children[2]
@@ -14663,6 +15624,7 @@ do
          before = function(self: TypeChecker, node: Node)
             self:widen_all_unions()
             self:begin_scope(node)
+            narrowing.enter_function(self.st as {narrowing.Scope})
             if node.implicit_global_function then
                local typ = self:find_var_type(node.name.tk)
                if typ then
@@ -14708,6 +15670,7 @@ do
          before = function(self: TypeChecker, node: Node)
             self:widen_all_unions()
             self:begin_scope(node)
+            narrowing.enter_function(self.st as {narrowing.Scope})
          end,
          before_arguments = function(self: TypeChecker, _node: Node, children: {Type})
             local rtype = self:to_structural(resolve_typedecl(children[1]))
@@ -14851,6 +15814,7 @@ do
          before = function(self: TypeChecker, node: Node)
             self:widen_all_unions(node)
             self:begin_scope(node)
+            narrowing.enter_function(self.st as {narrowing.Scope})
 
             local expected = node.expected
             if expected and expected is FunctionType then
@@ -14965,6 +15929,12 @@ do
       ["op"] = {
          before = function(self: TypeChecker, node: Node)
             self:begin_scope()
+            local operator = node.op.op
+            if operator == "and" or operator == "or" then
+               node.e1.want_clock, node.e2.want_clock = true, true
+            elseif operator == "@funcall" and node.e1.kind == "variable" and node.e1.tk == "assert" and node.e2[1] then
+               node.e2[1].want_clock, node.e2[#node.e2].want_clock = true, true
+            end
             if node.expected then
                if node.op.op == "and" then
                   node.e2.expected = node.expected
@@ -15144,6 +16114,18 @@ do
                end
                assert(gb is TupleType)
                local t = self:type_check_funcall(node, ua, gb)
+               -- `assert` and `type` run no code of the program's, and a call
+               -- of a function that never returns has no code after it to
+               -- see what was dropped. A call of another function runs code,
+               -- and drops what is known after it.
+               local special = resolve_for_special_function(ua)
+               local handler = special and special.special_function_handler
+               if handler == "assert" or handler == "type" or (special and special.never)
+                  or self:runs_no_code(node, ra, gb) then
+                  node.runs_no_code = true
+               else
+                  self:drop_all(node, "call")
+               end
                return t
 
             elseif node.op.op == "as" then
@@ -15188,7 +16170,13 @@ do
                   kind = "string",
                })
                local btype = a_type(node.e2, "string", { literal = node.e2.tk } as StringType)
+               bnode.dropped = node.e1.dropped
+               self.index_metamethod = false
                local t = self:type_check_index(node.e1, bnode, ua, btype)
+               if self.index_metamethod then
+                  self.index_metamethod = false
+                  self:drop_all(node, "operator", "." .. node.e2.tk .. " served by __index")
+               end
 
                -- A prior narrow recorded for this field is read back
                -- here, which is what lets a chain like `o.sub.x` see a
@@ -15208,7 +16196,12 @@ do
                if field_place then
                   local narrowed = self:find_var_type(field_place.key, "check_only")
                   if narrowed then
+                     if #self.loops > 0 and not node.is_lvalue then
+                        self:record_read(node, field_place.key, t)
+                     end
                      t = narrowed
+                  elseif not node.is_lvalue then
+                     self:note_dropped(node, field_place.key)
                   end
                   if node.expected and node.expected.typename == "boolean_context" then
                      local typ = without_nil(self, node, t, true)
@@ -15232,7 +16225,14 @@ do
             end
 
             if node.op.op == "@index" then
-               return self:type_check_index(node.e1, node.e2, ua, ub)
+               node.key_kind = rb and rb.typename
+               self.index_metamethod = false
+               local t = self:type_check_index(node.e1, node.e2, ua, ub)
+               if self.index_metamethod then
+                  self.index_metamethod = false
+                  self:drop_all(node, "operator", "[...] served by __index")
+               end
+               return t
             end
 
             if node.op.op == "is" then
@@ -15252,6 +16252,9 @@ do
                      local _, meta = self:check_metamethod(node, "__is", ra, resolve_typedecl(rb), ua, ub)
                      node.guard = narrowing.type_is(node, narrowing.local_place(node.e1.tk), ub as narrowing.Type)
                      has_meta = not not meta
+                     if meta and self.metamethod_ran then
+                        self:drop_all(node, "operator", "is")
+                     end
                   end
                   if has_meta then
                      add_type = false
@@ -15277,6 +16280,7 @@ do
                   return an_unknown(node)
                end
 
+               node.e2.dropped = node.e1.dropped
                local t, e, details = self:match_record_key(ra, node.e1, node.e2.conststr or node.e2.tk)
                if not t then
                   return self.errs:invalid_key_at(node.e2, Errors.about(details, ua), e, ua)
@@ -15291,7 +16295,7 @@ do
             end
 
             if node.op.op == "and" then
-               node.guard = narrowing.both(node, node.e1.guard, node.e2.guard)
+               node.guard = narrowing.both(node, self:guard_before(node.e1, node.e2), node.e2.guard)
                local t = discard_tuple(node, ub, gb)
                -- TODO: a left operand that may be false (a boolean, or a union
                -- with boolean) ends the `and` as false, which is not modelled:
@@ -15346,7 +16350,7 @@ do
 
                elseif expected and expected is UnionType then
                   -- must be checked after string/enum above
-                  node.guard = narrowing.either(node, node.e1.guard, node.e2.guard)
+                  node.guard = narrowing.either(node, self:guard_before(node.e1, node.e2), node.e2.guard)
                   -- TODO: two different table types still refuse "cannot
                   -- discriminate a union between multiple table types"
                   -- when the context is a declared `T | nil` (an optional
@@ -15378,7 +16382,7 @@ do
                   -- each other.
                   local a_ge_b = self:is_a(ub, ua)
                   local b_ge_a = self:is_a(ua, ub)
-                  node.guard = narrowing.either(node, node.e1.guard, node.e2.guard)
+                  node.guard = narrowing.either(node, self:guard_before(node.e1, node.e2), node.e2.guard)
                   -- TODO: compare the unresolved types (ua, ub) here, as a_ge_b and
                   -- b_ge_a do, not the resolved ra and rb. The change is untried
                   -- against a table literal and a nominal type, which it must
@@ -15425,6 +16429,11 @@ do
             if node.op.op == "==" or node.op.op == "~=" then
                if is_lua_table_type(ra) and is_lua_table_type(rb) then
                   self:check_metamethod(node, binop_to_metamethod[node.op.op], ra, rb, ua, ub)
+               end
+               -- Two values that may carry `__eq`: the comparison may run it.
+               if self:may_be_table(ra) and self:may_be_table(rb)
+                  and (self:may_dispatch(ra, "__eq") or self:may_dispatch(rb, "__eq")) then
+                  self:drop_all(node, "operator", node.op.op)
                end
 
                if ra is EnumType and rb is StringType then
@@ -15519,6 +16528,9 @@ do
                   local mt_name = unop_to_metamethod[node.op.op]
                   if mt_name then
                      t, meta_on_operator = self:check_metamethod(node, mt_name, ra, nil, ua, nil)
+                     if meta_on_operator and self.metamethod_ran then
+                        self:drop_all(node, "operator", node.op.op)
+                     end
                   end
                end
 
@@ -15564,7 +16576,7 @@ do
 
             if node.op.arity == 2 and binop_types[node.op.op] then
                if node.op.op == "or" then
-                  node.guard = narrowing.either(node, node.e1.guard, node.e2.guard)
+                  node.guard = narrowing.either(node, self:guard_before(node.e1, node.e2), node.e2.guard)
                end
 
                if ra is UnionType then
@@ -15593,6 +16605,9 @@ do
                   end
                   if mt_name then
                      t, meta_on_operator = self:check_metamethod(node, mt_name, ra, rb, ua, ub, flipped)
+                     if meta_on_operator and self.metamethod_ran then
+                        self:drop_all(node, "operator", node.op.op)
+                     end
                      if flipped and not meta_on_operator then
                         ra, rb = rb, ra
                         ua, ub = ub, ua
@@ -15672,6 +16687,13 @@ do
 
             if t is TypeDeclType then
                t = typedecl_to_nominal(node, node.tk, t, t)
+            end
+
+            if not node.is_lvalue then
+               self:note_dropped(node, node.tk)
+               if #self.loops > 0 then
+                  self:record_read(node, node.tk)
+               end
             end
 
             -- A plain variable read for its truthiness carries a
@@ -15816,8 +16838,13 @@ do
    visit_node.cbs["expression_list"] = visit_node.cbs["variable_list"]
 
    visit_node.after = function(self: TypeChecker, node: Node, _children: {Type}, t: Type): Type
+      -- Expanding a macro expression replaces the node's fields.
+      local clock = node.want_clock and self.drop_clock
       if node.expanded then
          apply_macroexp(node)
+      end
+      if clock then
+         node.drop_clock = clock
       end
 
       if node.binds_context and node.expected and t then
@@ -16315,7 +17342,14 @@ do
          subtype_relations = TypeChecker.subtype_relations,
          eqtype_relations = TypeChecker.eqtype_relations,
          type_priorities = TypeChecker.type_priorities,
+         drop_clock = 0,
+         loops = {},
+         loop_tick = 0,
       }
+
+      (self.st[1] as narrowing.Scope).on_drop = function(index: integer, key: string, why: narrowing.Drop)
+         self:loop_dropped(index, key, why)
+      end
 
       self.cache_std_metatable_type = env.globals["metatable"] and (env.globals["metatable"].t as TypeDeclType).def
 
@@ -16392,6 +17426,7 @@ do
       if self.runtime_checks then
          ast.rt_file = filename
       end
+      self.root_ast = ast
       recurse_node(self, ast, visit_node, visit_type)
 
       local global_scope = self.st[1]

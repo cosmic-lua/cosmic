@@ -28,7 +28,7 @@ local function count(path: string, name: string): integer
   local db = assert(Sqlite.open(path))
   local rows = assert(Sqlite.rows(db, "SELECT count(*) FROM " .. name))
   assert(db:close())
-  return rows[1][1].integer
+  return rows[1]:integer(1)
 end
 
 local function test_compiles_trim_even_when_no_row_was_reached(tmp: string)
@@ -360,10 +360,9 @@ local function test_busy_checkpoint_row_suppresses_save_digest(tmp: string)
   local db = database(path, formats.verdicts)
   assert(db:close())
   local original = Sqlite.rows
-  Sqlite.rows = function(handle: Sqlite.Handle, sql: string, values?: {Sqlite.Value}): {{Sqlite.Cell}} | nil, string
+  Sqlite.rows = function(handle: Sqlite.Handle, sql: string, values?: {Sqlite.Value}): Sqlite.Rows | nil, string
     if sql == "PRAGMA wal_checkpoint(TRUNCATE)" then
-      return { { { kind = "integer", integer = 1 }, { kind = "integer", integer = 3 },
-        { kind = "integer", integer = 2 } } }, ""
+      return original(handle, "SELECT 1, 3, 2")
     end
     return original(handle, sql, values)
   end

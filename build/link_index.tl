@@ -307,10 +307,10 @@ function link_index.pending(db: Sqlite.Handle, root: string,
   local rows: {link_index.Raw} = {}
   for _, row in ipairs(found) do
     rows[#rows + 1] = {
-      from_module = row[1], from_file = row[2],
-      line = math.tointeger(tonumber(row[3])) or 0, column = math.tointeger(tonumber(row[4])) or 0,
-      form = row[5], source = row[6], text = row[7], target = row[8],
-      own = row[9] == "1", alias = row[10],
+      from_module = row:text(1), from_file = row:text(2),
+      line = math.tointeger(tonumber(row:text(3))) or 0, column = math.tointeger(tonumber(row:text(4))) or 0,
+      form = row:text(5), source = row:text(6), text = row:text(7), target = row:text(8),
+      own = row:text(9) == "1", alias = row:text(10),
     }
   end
   local memo: link_index.Memo = { kinds = {}, reads = {}, reals = {} }
@@ -350,8 +350,8 @@ local function index_of(db: Sqlite.Handle, qualifier: string,
     return nil, modules_trouble
   end
   for _, row in ipairs(modules) do
-    symbol_index.module(out, row[1])
-    held[row[1]] = true
+    symbol_index.module(out, row:text(1))
+    held[row:text(1)] = true
   end
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT module, symbol, source_symbol, file, kind, signature, exported, id FROM " ..
@@ -360,9 +360,9 @@ local function index_of(db: Sqlite.Handle, qualifier: string,
     return nil, trouble
   end
   for _, row in ipairs(rows) do
-    symbol_index.add(out, { module = row[1], symbol = row[2], source_symbol = row[3],
-      file = row[4], kind = row[5], signature = row[6], exported = row[7] == "1",
-      shown = true, database = 1, id = math.tointeger(tonumber(row[8])) or 0 })
+    symbol_index.add(out, { module = row:text(1), symbol = row:text(2), source_symbol = row:text(3),
+      file = row:text(4), kind = row:text(5), signature = row:text(6), exported = row:text(7) == "1",
+      shown = true, database = 1, id = math.tointeger(tonumber(row:text(8))) or 0 })
   end
   local bound, bound_trouble = symbol_index.add_bound(out, db, qualifier)
   if not bound then
@@ -390,9 +390,9 @@ local function add_library(index: symbol_index.Index, held: {string: boolean},
       return false, modules_trouble
     end
     for _, row in ipairs(modules) do
-      if not held[row[1]] and owners[row[1]] == nil then
-        owners[row[1]] = database
-        symbol_index.module(index, row[1])
+      if not held[row:text(1)] and owners[row:text(1)] == nil then
+        owners[row:text(1)] = database
+        symbol_index.module(index, row:text(1))
       end
     end
     local rows, rows_trouble = Sqlite.text_rows(db,
@@ -402,10 +402,10 @@ local function add_library(index: symbol_index.Index, held: {string: boolean},
       return false, rows_trouble
     end
     for _, row in ipairs(rows) do
-      symbol_index.add(index, { module = row[1], symbol = row[2], source_symbol = row[3],
-        file = row[4], kind = row[5], signature = row[6], exported = row[7] == "1",
-        shown = row[9] == "1" and owners[row[1]] == database, database = database,
-        id = math.tointeger(tonumber(row[8])) or 0 })
+      symbol_index.add(index, { module = row:text(1), symbol = row:text(2), source_symbol = row:text(3),
+        file = row:text(4), kind = row:text(5), signature = row:text(6), exported = row:text(7) == "1",
+        shown = row:text(9) == "1" and owners[row:text(1)] == database, database = database,
+        id = math.tointeger(tonumber(row:text(8))) or 0 })
     end
     local bound, bound_trouble = symbol_index.add_bound(index, db, "")
     if not bound then

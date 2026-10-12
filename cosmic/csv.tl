@@ -499,7 +499,7 @@ function Csv.load(handle: Sqlite.Handle, name: string, source: Csv.Source): Csv.
   if #first == 0 then
     return undone("the CSV holds no header")
   end
-  local header = table.move(first[1], 2, #first[1], 1, {})
+  local header = table.move(first[1]:texts(), 2, first[1]:count(), 1, {})
   local keys = Csv.column_names(header)
   local reserved = { "rowid", "oid", "_rowid_" }
   for _, each in ipairs(source.reserved or {}) do
@@ -527,7 +527,7 @@ function Csv.load(handle: Sqlite.Handle, name: string, source: Csv.Source): Csv.
   -- header's fields is refused, as `table` refuses one, so no row is
   -- padded past what the input holds; patch/sqlite-ext/ refuses a longer
   -- one.
-  local kept = "rowid > " .. first[1][1]
+  local kept = "rowid > " .. first[1]:text(1)
   if #names == 1 then
     -- Only the blank lines after the last record are the file's end.
     kept = kept .. " AND rowid <= (SELECT max(rowid) FROM " .. scratch .. " WHERE c0 IS NOT NULL)"
@@ -539,7 +539,7 @@ function Csv.load(handle: Sqlite.Handle, name: string, source: Csv.Source): Csv.
       return undone(failed)
     end
     if #short > 0 then
-      return undone("record " .. short[1][1] .. " has fewer fields than the header's " .. #names)
+      return undone("record " .. short[1]:text(1) .. " has fewer fields than the header's " .. #names)
     end
   end
   ok, trouble = handle:exec("CREATE TABLE main." .. identifier(name) .. " (" .. table.concat(declared, ", ") .. ")")

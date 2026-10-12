@@ -259,7 +259,7 @@ function symbols.named(databases: {Sqlite.Handle}, public: {boolean},
       { { text = query } })
     if rows ~= nil then
       for _, row in ipairs(rows) do
-        local name = row[2] ~= "" and row[2] or row[1]
+        local name = row:text(2) ~= "" and row:text(2) or row:text(1)
         if not seen[name] then
           seen[name] = true
           out[#out + 1] = name
@@ -283,7 +283,7 @@ function symbols.has_example_query(databases: {Sqlite.Handle}, public: {boolean}
     local modules, _ = Sqlite.text_rows(db, "SELECT path FROM modules")
     if modules ~= nil then
       for _, row in ipairs(modules) do
-        if owners[row[1]] == nil then owners[row[1]] = index end
+        if owners[row:text(1)] == nil then owners[row:text(1)] = index end
       end
     end
   end
@@ -308,7 +308,7 @@ function symbols.has_example_query(databases: {Sqlite.Handle}, public: {boolean}
       local rows, _ = Sqlite.text_rows(db, lookup[1], binds)
       if rows ~= nil then
         for _, row in ipairs(rows) do
-          if owners[row[1]] == index then return true end
+          if owners[row:text(1)] == index then return true end
         end
       end
     end

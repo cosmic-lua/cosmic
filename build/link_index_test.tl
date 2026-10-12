@@ -33,7 +33,7 @@ end
 local function rows(db: Sqlite.Handle, sql: string): {string}
   local out: {string} = {}
   for _, row in ipairs((assert(Sqlite.text_rows(db, sql)))) do
-    out[#out + 1] = table.concat(row, " ")
+    out[#out + 1] = table.concat(row:texts(), " ")
   end
   return out
 end

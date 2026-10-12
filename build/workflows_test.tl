@@ -585,14 +585,15 @@ local function walk_steps(where: string, steps: {{string: any}}, holders: {{stri
       end
     end
     local run = step.run
-    if run is string and walk.checkout and walk.sparse ~= nil then
+    local sparse = walk.sparse
+    if run is string and walk.checkout and sparse ~= nil then
       -- A `run` step starts in its working directory, so a sparse
       -- checkout must hold it: be it, or lie under or over a path it
       -- names.
       local here = normal(directory(step, holders))
       if here ~= "" then
         local present = false
-        for _, prefix in ipairs(walk.sparse) do
+        for _, prefix in ipairs(sparse) do
           if here == prefix or String.starts_with(here, prefix .. "/") or
               String.starts_with(prefix, here .. "/") then
             present = true

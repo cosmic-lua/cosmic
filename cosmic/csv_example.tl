@@ -73,7 +73,7 @@ function Example.load()
   local loaded = assert(Csv.load(db, "sales", { text = "city,amount\nParis,120\nLagos,95.5\n" }))
   assert(loaded.count == 2)
   local rows = assert(Sqlite.text_rows(db, "SELECT city FROM sales WHERE amount > 100"))
-  assert(#rows == 1 and rows[1][1] == "Paris")
+  assert(#rows == 1 and rows[1]:text(1) == "Paris")
   assert(db:close())
 end
 

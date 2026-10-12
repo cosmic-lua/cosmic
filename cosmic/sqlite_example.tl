@@ -19,7 +19,7 @@ function Example.open()
   assert(db:close())
   local frozen = assert(Sqlite.open(path, { immutable = true }))
   local rows = assert(Sqlite.rows(frozen, "SELECT body FROM notes"))
-  assert(rows[1][1].kind == "text" and rows[1][1].text == "hi")
+  assert(rows[1]:kind(1) == "text" and rows[1]:text(1) == "hi")
   assert(frozen:close())
   local opened, why = pcall(Sqlite.open, path, { writable = true, immutable = true })
   assert(not opened and tostring(why):find("both writable and immutable", 1, true) ~= nil,
@@ -31,9 +31,48 @@ end
 function Example.typed_row()
   local db = assert(Sqlite.memory())
   local rows = assert(Sqlite.rows(db, "SELECT 42, 'answer', NULL"))
-  assert(rows[1][1].kind == "integer" and rows[1][1].integer == 42)
-  assert(rows[1][2].kind == "text" and rows[1][2].text == "answer")
-  assert(rows[1][3].kind == "null")
+  assert(rows[1]:kind(1) == "integer" and rows[1]:integer(1) == 42)
+  assert(rows[1]:kind(2) == "text" and rows[1]:text(2) == "answer")
+  assert(rows[1]:kind(3) == "null")
+  assert(db:close())
+end
+
+--- A row is read a column at a time, by the type the caller expects. A
+--- column of another type raises, so a query that does not answer what
+--- the reader assumed fails where it is read; ask `is_null` or `kind`
+--- first where a column may hold something else.
+function Example.read_a_row()
+  local db = assert(Sqlite.memory())
+  local rows = assert(Sqlite.rows(db, "SELECT 7, 'seven', NULL, x'ff00'"))
+  local row = rows[1]
+  print(row:count(), row:integer(1), row:text(2), row:is_null(3), #row:blob(4))
+  assert(row:count() == 4 and row:integer(1) == 7 and row:text(2) == "seven")
+  assert(row:is_null(3) and row:kind(4) == "blob")
+  local ok, why = pcall(function(): string return row:text(1) end)
+  print(why) -- the failure names the column and what it holds
+  assert(not ok and tostring(why):find("column 1 is an integer, not text", 1, true) ~= nil)
+  assert(db:close())
+end
+
+--- A record per row: `map` runs a projection over each row and gives the
+--- list of what it answered, or nil and why the query failed.
+function Example.map()
+  local db = assert(Sqlite.memory())
+  assert(db:exec("CREATE TABLE t (name TEXT, n INTEGER); INSERT INTO t VALUES ('a', 1), ('b', 2)"))
+  local record Named
+    name: string
+    n: integer
+  end
+  local found = assert(Sqlite.map(db, "SELECT name, n FROM t WHERE n > ?1 ORDER BY n",
+    { { integer = 0 } }, function(r: Sqlite.Row): Named
+      return { name = r:text(1), n = r:integer(2) }
+    end))
+  print(#found, found[2].name) -- 2  b
+  assert(#found == 2 and found[1].n == 1 and found[2].name == "b")
+  local none, why = Sqlite.map(db, "SELECT * FROM missing", nil, function(r: Sqlite.Row): integer
+    return r:integer(1)
+  end)
+  assert(none == nil and why:find("missing", 1, true) ~= nil, why)
   assert(db:close())
 end
 
@@ -66,7 +105,7 @@ function Example.query()
   do
     local q <close> = assert(Sqlite.query(db,
       "SELECT id FROM events WHERE level = ?1 ORDER BY id", { { text = "warn" } }))
-    for row in q:each() do print(row[1].integer) end
+    for row in q:each() do print(row:integer(1)) end
     assert(q:failure() == "", q:failure())
   end
   assert(db:close())
@@ -89,12 +128,12 @@ function Example.transact()
   end)
   assert(not raised and (err as any) == "boom", tostring(err))
   local count = assert(Sqlite.rows(db, "SELECT count(*) FROM t"))
-  assert(count[1][1].integer == 0)
+  assert(count[1]:integer(1) == 0)
   assert(Sqlite.transact(db, function(): boolean, string
     return Sqlite.run(db, "INSERT INTO t VALUES (3)")
   end))
   count = assert(Sqlite.rows(db, "SELECT count(*) FROM t"))
-  assert(count[1][1].integer == 1)
+  assert(count[1]:integer(1) == 1)
   assert(db:close())
 end
 
@@ -114,9 +153,9 @@ function Example.captured_results()
   local inserted = Sqlite.run_result(db, "INSERT INTO notes VALUES (?1)", { { text = "hello" } })
   assert(inserted.code == Sqlite.OK, inserted.reason)
   local cells = Sqlite.rows_result(db, "SELECT count(*) FROM notes")
-  assert(cells.code == Sqlite.OK and assert(cells.rows)[1][1].integer == 1, cells.reason)
+  assert(cells.code == Sqlite.OK and assert(cells.rows)[1]:integer(1) == 1, cells.reason)
   local texts = Sqlite.text_rows_result(db, "SELECT body FROM notes")
-  assert(texts.code == Sqlite.OK and assert(texts.rows)[1][1] == "hello", texts.reason)
+  assert(texts.code == Sqlite.OK and assert(texts.rows)[1]:text(1) == "hello", texts.reason)
   local invalid = Sqlite.rows_result(db, "SELECT json('invalid')")
   assert(invalid.rows == nil and invalid.code ~= Sqlite.OK)
   assert(invalid.code ~= Sqlite.CORRUPT and invalid.code ~= Sqlite.NOTADB)
