@@ -1,0 +1,47 @@
+file: tl.tl
+note: refuses, for every call, an argument that is a union carrying nil, or a literal `nil`, where the parameter does not take nil, since the callee raises or misbehaves when it is nil. 51f did so for `table.insert` and `table.concat` alone, matching the callee by name, so a local named `table` was checked and an alias (`local ins = table.insert`) was not; the check is now the call's own, by the parameter's type. It covers the parameters the call cannot omit (`call_min_arity`, exact since 53a) and every element of a varargs parameter (`...: T`). A parameter that is optional (`name?: T`), `any`, a union with nil, or a type variable not yet bound takes nil, and so does a type variable bound by the arguments before it to a type that takes it. A nil the checker inferred for a variable (`inferred at` in its message), as in a branch of `a or b`, is not the literal and is left alone
+--- find
+                     -- TODO: refuse the argument of every call whose parameter does not
+                     -- take nil, not only of these two functions: it waits on the
+                     -- call sites that pass a `T | nil`, and on those (mostly tests
+                     -- checking an argument's refusal) that pass a literal nil.
+                     -- The callee is matched by name, so a local named `table` is
+                     -- checked too and an alias (`local ins = table.insert`) is not:
+                     -- it waits on the checker naming the function a call resolves to.
+                     if mode == "argument" and v == "contravariant" and i <= call_min_arity then
+                        local call = w as Node
+                        local callee: Node
+                        if call.kind == "op" then
+                           callee = call.e1
+                        end
+                        if callee and callee.kind == "op" and callee.op.op == "." and
+                           callee.e1.kind == "variable" and callee.e1.tk == "table" and
+                           (callee.e2.tk == "insert" or callee.e2.tk == "concat") then
+                           local taken = x
+                           if taken is TypeVarType then
+                              taken = self:find_var_type(taken.typevar)
+                           end
+                           if taken and without_nil(self, iw, y, false) ~= nil and not admits_nil(self, iw, taken) then
+                              self.errs:add_prefixing(iw, { Err("got %s, expected %s", y, taken) }, "argument " .. pos .. ": ", errs)
+                              return nil, errs
+                           end
+                        end
+                     end
+--- replace
+                     if mode == "argument" and v == "contravariant" and (i <= call_min_arity or (xs.is_va and i >= n_xs)) then
+                        local taken = x
+                        if taken is TypeVarType then
+                           taken = self:find_var_type(taken.typevar)
+                        end
+                        if taken and not admits_nil(self, iw, taken) then
+                           local given_nil = without_nil(self, iw, y, false) ~= nil
+                           if not given_nil and y.typename == "nil" and not y.inferred_at then
+                              given_nil = true
+                           end
+                           if given_nil then
+                              self.errs:add_prefixing(iw, { Err("got %s, expected %s", y, taken) }, "argument " .. pos .. ": ", errs)
+                              return nil, errs
+                           end
+                        end
+                     end
+--- end

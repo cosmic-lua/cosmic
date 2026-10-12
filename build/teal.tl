@@ -1251,14 +1251,14 @@ local function narrowing_hint(msg: string, source: string): string | nil
   if given == nil then
     given, wanted = msg:match("^in [%a ]+: got (.+), expected (.+)$")
   end
-  -- A value that may be nil is refused as an argument of `table.insert`
-  -- and `table.concat` alone (patch/tl 51f), where the type expected is
-  -- the value's own, less the nil; other calls answer only `any`.
   if given ~= nil and wanted ~= nil and untyped(given) then
     local expected = type_members(wanted)
     return untyped_answer("the value", "value", source,
       #expected == 1 and expected[1] or table.concat(expected, " | "))
   end
+  -- A value that may be nil is refused as an argument for any parameter
+  -- that does not take nil (patch/tl 53b): the type expected is the
+  -- value's own, less the nil.
   if given ~= nil and wanted ~= nil and one_or_nil(given) and type_members(given)[1] == wanted then
     return nil_answer("the argument", "value")
   end
@@ -1385,7 +1385,7 @@ local record Catalog
   names: {string:string}
   members: {string:string}
   arguments: {string:string}
-  message: function(name: string, field: string): string
+  message: function(name: string, field?: string): string
 end
 
 --- The module [`replacement`] quotes, named by a constant rather than
@@ -1410,7 +1410,7 @@ local function catalog(): Catalog | nil
   local names, members, arguments, message = loaded.names, loaded.members, loaded.arguments, loaded.message
   local replacements = loaded.replacements
   if names is {string:string} and members is {string:string} and arguments is {string:string} and
-      replacements is {string:string} and message is function(string, string): string then
+      replacements is {string:string} and message is function(name: string, field?: string): string then
     return {
       names = names, members = members, arguments = arguments,
       replacements = replacements, message = message,
@@ -2083,11 +2083,12 @@ function teal.replacement(msg: string, source: string, y: integer, x: integer,
   if name == nil then
     return nil
   end
+  local wanted: string = name
   local removed = catalog()
-  if removed == nil or removed.names[name] == nil then
+  if removed == nil or removed.names[wanted] == nil then
     return nil
   end
-  return removed.message(name, field)
+  return removed.message(wanted, field)
 end
 
 return teal
