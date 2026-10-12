@@ -179,7 +179,7 @@ local function test_the_page_says_what_the_compiler_hint_says(dir: string)
   end
   local function type_case(owner: string, name: string, required: string): Case
     return { member = owner .. "." .. name, required = required, refusal = {
-      code = "unknown_type", names = { owner, name }, msg = "", filename = "", y = 2, x = 8 } }
+      code = "unknown_type", names = { owner, name }, subject = owner .. "." .. name, msg = "", filename = "", y = 2, x = 8 } }
   end
   for _, case in ipairs({
       key_case("Net", "pair", "cosmic.net"),

@@ -206,11 +206,19 @@ local record tl
       "for_bound"
       -- a call with the wrong number of arguments: `given`, `expects`, `expects_most`
       "arity"
-      -- a declaration that hides an earlier one: `variable`
+      -- a declaration that hides an earlier one: `variable`, `declares`, and
+      -- `declared_before` where the earlier one is the program's own
       "shadows"
       -- a name that is declared nowhere: `variable`
       "unknown_variable"
-      -- a type name that is declared nowhere: `names`
+      -- a declaration nothing uses: `variable`, `declares`
+      "unused"
+      -- the parser refusing a construct as a syntax error
+      "syntax_error"
+      -- the parser wanting `local` or `global` before a type declaration: `key`
+      "declaration_scope"
+      -- a type name that is declared nowhere: `names`, and `subject`, the
+      -- type as shown (with its type arguments)
       "unknown_type"
       -- a field a table literal names that its record lacks: `key`, `subject`, `fields`
       "unknown_field"
@@ -286,6 +294,13 @@ local record tl
       names: {string}
       type_arguments: {string}
       expected_tokens: {string}
+
+      -- What a declaration that is hidden or unused declares: "variable",
+      -- "argument", "function" or "type".
+      declares: string
+
+      -- Whether the declaration a name hides is in the program itself.
+      declared_before: boolean
 
       -- The callee of a call, as written (`Json.decode`, `obj:get`), and
       -- whether it never returns.
@@ -893,6 +908,7 @@ do
                filename = filename,
                y = ty,
                x = tx,
+               code = "other",
                msg = "malformed number '" .. tk .. "': a '_' in a number goes between two digits",
             })
          end
@@ -923,6 +939,7 @@ do
             filename = filename,
             y = t.y,
             x = t.x,
+            code = "other",
             msg = msg or "invalid token '" .. t.tk .. "'",
          })
       end
@@ -2260,7 +2277,7 @@ local parse_type_body_fns: {BodyTypeName:ParseBody}
 
 local function fail(ps: ParseState, i: integer, msg: string, details?: Error): integer
    local err: Error = details or ({} as Error)
-   err.code = err.code or "other"
+   err.code = err.code or (msg and msg:sub(1, 12) == "syntax error" and "syntax_error" or "other")
    err.filename = ps.filename
    if not ps.tokens[i] then
       local eof = ps.tokens[#ps.tokens]
@@ -2296,7 +2313,7 @@ local function verify_end(ps: ParseState, i: integer, istart: integer, node: Nod
       node.xend = endx + 2
       if node.kind ~= "function" and endy ~= node.y and endx ~= node.x then
          if not ps.end_alignment_hint then
-            ps.end_alignment_hint = { filename = ps.filename, y = node.y, x = node.x, msg = "syntax error hint: construct starting here is not aligned with its 'end' at " .. ps.filename .. ":" .. endy .. ":" .. endx .. ":" }
+            ps.end_alignment_hint = { filename = ps.filename, y = node.y, x = node.x, code = "other", msg = "syntax error hint: construct starting here is not aligned with its 'end' at " .. ps.filename .. ":" .. endy .. ":" .. endx .. ":" }
          end
       end
       return i + 1
@@ -2383,9 +2400,9 @@ local function skip(ps: ParseState, i: integer, skip_fn: SkipFunction): integer,
    return skip_fn(err_ps, i)
 end
 
-local function failskip(ps: ParseState, i: integer, msg: string, skip_fn: SkipFunction, starti?: integer): integer
+local function failskip(ps: ParseState, i: integer, msg: string, skip_fn: SkipFunction, starti?: integer, details?: Error): integer
    local skip_i = skip(ps, starti or i, skip_fn)
-   fail(ps, i, msg)
+   fail(ps, i, msg, details)
    return skip_i
 end
 
@@ -4636,7 +4653,8 @@ local parse_statement_fns: {string : function(ParseState, integer):(integer, Nod
 
 local function type_needs_local_or_global(ps: ParseState, i: integer): integer, Node
    local tk = ps.tokens[i].tk
-   return failskip(ps, i, ("%s needs to be declared with 'local %s' or 'global %s'"):format(tk, tk, tk), skip_type_body)
+   return failskip(ps, i, ("%s needs to be declared with 'local %s' or 'global %s'"):format(tk, tk, tk), skip_type_body, nil,
+      { code = "declaration_scope", key = tk } as Error)
 end
 
 local needs_local_or_global: {string : function(ParseState, integer):(integer, Node)} = {
@@ -6617,8 +6635,10 @@ local function Err_at(w: Where, msg: string): Error
    }
 end
 
--- An error holding the fields of `fields`: a table of the fields an error of
--- some code names, which are no more than the record declares.
+-- An error holding the fields of `fields`, a table of those an error of some
+-- code names. The cast is the checker's own source being valid upstream Teal,
+-- which has no optional record field to write the literal as; that every
+-- field set is one `record Error` declares is held by build/teal_test.tl.
 function Errors.make(fields?: {string:any}): Error
    return (fields or {}) as Error
 end
@@ -6855,7 +6875,7 @@ function Errors:redeclaration_warning(at: Where, var_name: string, var_kind: str
    if var_name:sub(1, 1) == "_" then return end
 
    local short_error = var_kind .. " shadows previous declaration of '%s'"
-   local details = Errors.make({ code = "shadows", variable = var_name })
+   local details = Errors.make({ code = "shadows", variable = var_name, declares = var_kind, declared_before = old_var and old_var.declared_at and true or nil })
    if old_var and old_var.declared_at then
       self:add_warning_coded("redeclaration", at, details, short_error .. " (originally declared at %d:%d)", var_name, old_var.declared_at.y, old_var.declared_at.x)
    else
@@ -6883,11 +6903,13 @@ function Errors:unused_warning(name: string, var: Variable)
    if var_should_be_ignored_for_warnings(name, var) then
       return
    end
-   self:add_warning(
+   local declares = user_facing_variable_description(var)
+   self:add_warning_coded(
       "unused",
       var.declared_at,
+      Errors.make({ code = "unused", variable = name, declares = declares }),
       "unused %s %s: %s",
-      user_facing_variable_description(var),
+      declares,
       name,
       show_type(var.t)
    )
@@ -7080,7 +7102,7 @@ function Errors:fail_unresolved_nominals(scope: Scope, global_scope: Scope)
             for _, typ in ipairs(types) do
                assert(typ.x)
                assert(typ.y)
-               self:add_coded(typ, Errors.make({ code = "unknown_type", names = typ.names }), "unknown type %s", typ)
+               self:add_coded(typ, Errors.make({ code = "unknown_type", names = typ.names, subject = show_type(typ) }), "unknown type %s", typ)
             end
          end
       end
@@ -9102,7 +9124,7 @@ do
 
          local found = t.found or self:find_type(t.names)
          if not found then
-            return self.errs:invalid_coded(t, Errors.make({ code = "unknown_type", names = t.names }), "unknown type %s", t)
+            return self.errs:invalid_coded(t, Errors.make({ code = "unknown_type", names = t.names, subject = show_type(t) }), "unknown type %s", t)
          end
 
          if found is TypeDeclType and found.is_alias then
@@ -9311,10 +9333,10 @@ do
             end
 
             if not t1f then
-               self.errs:add_coded(t1, Errors.make({ code = "unknown_type", names = t1.names }), "unknown type %s", t1)
+               self.errs:add_coded(t1, Errors.make({ code = "unknown_type", names = t1.names, subject = show_type(t1) }), "unknown type %s", t1)
             end
             if not t2f then
-               self.errs:add_coded(t2, Errors.make({ code = "unknown_type", names = t2.names }), "unknown type %s", t2)
+               self.errs:add_coded(t2, Errors.make({ code = "unknown_type", names = t2.names, subject = show_type(t2) }), "unknown type %s", t2)
             end
             return false, {} -- errors were already produced
          end

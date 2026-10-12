@@ -16,7 +16,7 @@ local record compiler
     "require_argument"
     --- a key a record lacks: `key`, `variable`, `subject`, `members`, `fields`
     "invalid_key"
-    --- a key read of a value that is no record: `key`, `variable`, `subject`
+    --- a key read of a value that is no record: `key`, `variable`, `subject`, `members`
     "cannot_index_key"
     --- an index of a value of a type that takes none: `subject`, `members`
     "cannot_index_object"
@@ -37,11 +37,19 @@ local record compiler
     "for_bound"
     --- a call with the wrong number of arguments: `given`, `expects`, `expects_most`
     "arity"
-    --- a declaration that hides an earlier one: `variable`
+    --- a declaration that hides an earlier one: `variable`, `declares`, and
+    --- `declared_before` where the earlier one is the program's own
     "shadows"
     --- a name that is declared nowhere: `variable`
     "unknown_variable"
-    --- a type name that is declared nowhere: `names`
+    --- a declaration nothing uses: `variable`, `declares`
+    "unused"
+    --- the parser refusing a construct as a syntax error
+    "syntax_error"
+    --- the parser wanting `local` or `global` before a type declaration: `key`
+    "declaration_scope"
+    --- a type name that is declared nowhere: `names`, and `subject`, the
+    --- type as shown (with its type arguments)
     "unknown_type"
     --- a field a table literal names that its record lacks: `key`, `subject`, `fields`
     "unknown_field"
@@ -61,6 +69,11 @@ local record compiler
     y: integer
     x: integer
     msg: string
+    --- The kind of a warning (`unused`, `redeclaration`, `hint`, ...); nil
+    --- for an error.
+    tag: string | nil
+    --- Where the checker keeps an error while it sorts them.
+    i: integer | nil
     --- For a key a record lacks (`invalid key ...`): the record's value
     --- fields, unordered.
     fields: {string} | nil
@@ -114,6 +127,13 @@ local record compiler
     names: {string} | nil
     type_arguments: {string} | nil
     expected_tokens: {string} | nil
+
+    --- What a declaration that is hidden or unused declares: "variable",
+    --- "argument", "function" or "type".
+    declares: string | nil
+
+    --- Whether the declaration a name hides is in the program itself.
+    declared_before: boolean | nil
 
     --- The callee of a call, as written ([`Json.decode`], `obj:get`), and
     --- whether it never returns.

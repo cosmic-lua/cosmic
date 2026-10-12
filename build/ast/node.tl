@@ -267,8 +267,8 @@ end
 --- that declares no dotted name, and for an outer name `source` binds
 --- to a `require`, whose record is another module's to declare in.
 local function dotted_declaration(source: string, e: compiler.Error): string | nil
-  local unscoped = e.msg == "record needs to be declared with 'local record' or 'global record'"
-  if not unscoped and e.msg:match("^syntax error") == nil then
+  local unscoped = e.code == "declaration_scope" and e.key == "record"
+  if not unscoped and e.code ~= "syntax_error" then
     return nil
   end
   local line: string | nil = nil

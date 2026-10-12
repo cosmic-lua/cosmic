@@ -1629,7 +1629,8 @@ end
 --- instead. The hint says so conditionally, since the arguments may simply
 --- disagree. nil for any other error.
 local function type_parameter_hint(e: compiler.Error): string | nil
-  if e.context ~= "argument" or e.index == nil or e.type_parameter == nil then
+  if e.context ~= "argument" or e.index == nil or e.type_parameter == nil or
+      e.type_parameter:match("^[%w_]+$") == nil then
     return nil
   end
   return "if this call's result is expected to have a type (a return type or a declaration), " ..
@@ -1908,7 +1909,11 @@ function teal.replacement(e: compiler.Error, source: string, file?: string,
       e.expected_tokens[1] == ")" and e.expected_tokens[2] == "," then
     return vararg_name_hint(source, y, x)
   end
-  if code == "unknown_type" and e.names ~= nil and #e.names == 1 and e.names[1] == "never" then
+  -- A type name the checker shows as written, with no type arguments or
+  -- place it was inferred at.
+  local names = code == "unknown_type" and e.names ~= nil and e.subject == table.concat(e.names, ".") and
+    e.names or nil
+  if names ~= nil and #names == 1 and names[1] == "never" then
     return "`never` is no type: `: never` is the whole return list of a function that does not " ..
       "return, so `function(): never | nil` is a function returning `never | nil`. " ..
       "To allow nil, name the function type, `local type Fail = function(): never`, " ..
@@ -1933,7 +1938,7 @@ function teal.replacement(e: compiler.Error, source: string, file?: string,
   if code == "arity" and short ~= nil and count ~= nil and short < count then
     return arity_hint(source, y, x, short, count)
   end
-  local shadowed = code == "shadows" and e.variable or nil
+  local shadowed = code == "shadows" and not e.declared_before and e.variable or nil
   if shadowed ~= nil and standard_globals[shadowed] then
     return "this hides the standard library's " .. shadowed .. " for the rest of its scope: rename it"
   end
@@ -1953,7 +1958,6 @@ function teal.replacement(e: compiler.Error, source: string, file?: string,
   if same ~= nil then
     return same
   end
-  local names = code == "unknown_type" and e.names or nil
   local outer, inner = names ~= nil and #names == 2 and names[1] or nil, names ~= nil and names[2] or nil
   if outer ~= nil and outer == inner and module_bound(source, outer) ~= nil and
       not (refused or {})[outer] then

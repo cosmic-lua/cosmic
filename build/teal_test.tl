@@ -7,7 +7,16 @@
 --- filesystem.
 local type compiler = require("build.compiler")
 local Clock = require("cosmic.clock")
+local Fs = require("cosmic.fs")
+local Test = require("cosmic.test")
 local teal = require("build.teal")
+
+--- The declarations of the error record, which the drift test and the
+--- keys every diagnostic test sees are held to.
+Test.policy{ grants = {
+  { path = "checker/tl.tl", letters = "r" },
+  { path = "build/compiler.d.tl", letters = "r" },
+} }
 
 -- These cases assert checker positions and generated code, never the
 -- vendor compiler's own Lua traceback lines, which no tree coverage uses.
@@ -127,7 +136,9 @@ end
 --- The refusal of the type name `Owner.Member`.
 local function unknown_type(...: string): compiler.Error
   local e = blank("unknown_type")
-  e.names = { ... }
+  local names: {string} = { ... }
+  e.names = names
+  e.subject = table.concat(names, ".")
   return e
 end
 
@@ -2529,22 +2540,97 @@ local function test_a_numeric_for_bound_that_may_be_nil_is_refused()
       "or, where a call answers it, take it with `local value = assert(<the call>)`")
 end
 
---- The first diagnostic of kind `code` the parser or the checker reports
---- for `source`, an error or a warning; the test fails when there is none.
-local function diagnostic(source: string, code: compiler.ErrorCode): compiler.Error
+--- The field names of `record Error` and the members of `enum ErrorCode`
+--- in the source text `text`, whose declarations sit `indent` deep.
+local function error_declarations(text: string, indent: string): {string:boolean}, {string:boolean}
+  local fields: {string:boolean} = {}
+  local codes: {string:boolean} = {}
+  local inside: string | nil = nil
+  for line in (text .. "\n"):gmatch("(.-)\n") do
+    if line == indent .. "record Error" then
+      inside = "record"
+    elseif line == indent .. "enum ErrorCode" then
+      inside = "enum"
+    elseif line == indent .. "end" then
+      inside = nil
+    elseif inside == "record" then
+      local name = line:match("^%s+([%a_]+)%??:")
+      if name ~= nil then
+        fields[name] = true
+      end
+    elseif inside == "enum" then
+      local member = line:match('^%s+"([%a_]+)"$')
+      if member ~= nil then
+        codes[member] = true
+      end
+    end
+  end
+  return fields, codes
+end
+
+--- Whether `a` and `b` hold the same names; the first that one holds
+--- and the other lacks, otherwise.
+local function same_names(a: {string:boolean}, b: {string:boolean}): boolean, string | nil
+  for name in pairs(a) do
+    if not b[name] then
+      return false, name
+    end
+  end
+  for name in pairs(b) do
+    if not a[name] then
+      return false, name
+    end
+  end
+  return true
+end
+
+--- Every diagnostic of kind `code` the parser or the checker reports for
+--- `source`, an error or a warning, compiled for Lua 5.4 where `five_four`;
+--- the test fails when there is none. Each holds only fields `record Error`
+--- declares, so a field misspelt where the checker sets it is caught by
+--- the test of its code.
+local function diagnostics(source: string, code: compiler.ErrorCode, five_four?: boolean): {compiler.Error}
   local built = assert(teal.load(true))
-  local ok, _, result = pcall(built.gen, source, nil, nil, "tl")
+  local env = five_four and assert(built.new_env({ defaults = {
+    feat_lax = "off", gen_compat = "off", gen_target = "5.4",
+  } })) or nil
+  local ok, _, result = pcall(built.gen, source, env, nil, "tl")
   assert(ok and result ~= nil, source)
+  local declared = error_declarations(assert(Fs.read("build/compiler.d.tl")), "  ")
+  local found: {compiler.Error} = {}
   local seen: {string} = {}
   for _, group in ipairs({ result.syntax_errors, result.type_errors, result.warnings }) do
     for _, e in ipairs(group) do
       if e.code == code then
-        return e
+        for key in pairs(e as {string:any}) do
+          assert(declared[key], "the checker set `" .. tostring(key) .. "`, which record Error lacks")
+        end
+        found[#found + 1] = e
       end
       seen[#seen + 1] = tostring(e.code) .. " " .. e.msg
     end
   end
-  error("no " .. code .. " among: " .. table.concat(seen, "; ") .. "\n" .. source)
+  assert(#found > 0, "no " .. code .. " among: " .. table.concat(seen, "; ") .. "\n" .. source)
+  return found
+end
+
+--- The first diagnostic of kind `code` (see [`diagnostics`]).
+local function diagnostic(source: string, code: compiler.ErrorCode, five_four?: boolean): compiler.Error
+  return diagnostics(source, code, five_four)[1]
+end
+
+--- The mirror of `record Error` and `enum ErrorCode` in
+--- build/compiler.d.tl holds the checker's fields and codes, no more and
+--- no fewer: a field the checker sets that the mirror lacks would be
+--- unreadable to a hint, and one only the mirror has would never be set.
+local function test_the_declared_error_matches_the_checkers()
+  local checker_fields, checker_codes = error_declarations(assert(Fs.read("checker/tl.tl")), "   ")
+  local mirror_fields, mirror_codes = error_declarations(assert(Fs.read("build/compiler.d.tl")), "  ")
+  assert(next(checker_fields) ~= nil and next(checker_codes) ~= nil, "no declarations found")
+  local fields_agree, field = same_names(checker_fields, mirror_fields)
+  assert(fields_agree, "record Error differs at the field " .. tostring(field))
+  local codes_agree, code = same_names(checker_codes, mirror_codes)
+  assert(codes_agree, "enum ErrorCode differs at " .. tostring(code))
 end
 
 --- Whether `found` holds the strings `want`, in order.
@@ -2714,4 +2800,95 @@ local function test_a_value_that_may_be_nil_carries_its_members()
   local plain = diagnostic("local function nothing(m: string)\nend\nlocal x = nothing('a')\nprint(x)\n",
     "no_initial_value")
   assert(plain.callee == nil and not plain.callee_never, plain.msg)
+end
+
+--- A call refused for its type parameter is told to bind the result in a
+--- local only where the parameter is a name (`T` bound to `A` and `B`): one
+--- bound to a shown type (`Box<string>` for a `Box<integer | string>`) has
+--- no result to bind, and is told nothing.
+local function test_a_type_parameter_hint_is_for_a_parameter_that_is_a_name()
+  local boxes = "local record A\n  n: integer\nend\nlocal record B\n  m: integer\nend\n" ..
+    "local record Box<T>\n  v: T\nend\n" ..
+    "local function wrap<T>(a: Box<T>, b: Box<T>) print(a, b) end\n" ..
+    "local x: Box<A> = {v = {n = 1}}\nlocal y: Box<B> = {v = {m = 1}}\nwrap(x, y)\n"
+  local bound = diagnostic(boxes, "not_a")
+  assert(bound.type_parameter == "T" and bound.context == "argument" and bound.index == 2, bound.msg)
+  local hint = teal.replacement(bound, boxes)
+  assert(hint ~= nil and hint:find("local v: R = setmetatable(t, mt)", 1, true) ~= nil, tostring(hint))
+  local widened = "local record Box<T>\n  v: T\nend\nlocal a: Box<string> = {v = \"a\"}\n" ..
+    "local b: Box<integer | string> = a\nprint(b)\n"
+  local shown = diagnostic(widened, "mismatch")
+  assert(shown.type_parameter == "integer | string" and shown.nested, shown.msg)
+  assert(teal.replacement(shown, widened) == nil)
+end
+
+--- A name that hides another is told it hides the standard library's only
+--- when the earlier one is not the program's own.
+local function test_a_shadowed_name_is_told_it_hides_the_library_only_if_it_does()
+  local own = "local table = {1}\nlocal table = {2}\nprint(table)\n"
+  local both = diagnostics(own, "shadows")
+  assert(#both == 2 and not both[1].declared_before and both[2].declared_before, both[2].msg)
+  assert(teal.replacement(both[1], own) == hides_table)
+  assert(teal.replacement(both[2], own) == nil)
+  local functions = "local function table() end\nlocal function table() end\n"
+  local twice = diagnostics(functions, "shadows")
+  assert(twice[1].declares == "function" and twice[2].declared_before, twice[2].msg)
+  assert(teal.replacement(twice[2], functions) == nil)
+end
+
+--- `Owner.Member` is told its hint only as the checker shows it bare: the
+--- name with type arguments, or with where it was inferred, is another type.
+local function test_an_unknown_type_with_arguments_is_told_nothing()
+  local bound = "local Kv = require(\"kv\")\nlocal k: Kv.Kv = nil\nprint(k)\n"
+  local bare = diagnostic(bound, "unknown_type")
+  assert(listed(bare.names, "Kv", "Kv") and bare.subject == "Kv.Kv", bare.msg)
+  local itself = "Kv is itself the type of the record its module returns: write Kv, not Kv.Kv"
+  assert(teal.replacement(bare, bound) == itself)
+  local arguments = "local Kv = require(\"kv\")\nlocal k: Kv.Kv<integer> = nil\nprint(k)\n"
+  local generic = diagnostic(arguments, "unknown_type")
+  assert(generic.subject == "Kv.Kv<integer>", generic.msg)
+  assert(teal.replacement(generic, arguments) == nil)
+  local inferred = unknown_type("Kv", "Kv")
+  inferred.subject = "Kv.Kv (inferred at :2:10)"
+  assert(teal.replacement(inferred, bound) == nil)
+  local never = unknown_type("never")
+  never.subject = "never<integer>"
+  assert(teal.replacement(never, "local f: function(): never<integer>\n") == nil)
+end
+
+--- `<close>` on a type with no `__close` is refused with the type, and told
+--- what to declare; a function type that returns a union is one type, not
+--- a nil-able one.
+local function test_a_non_closable_value_carries_its_type_end_to_end()
+  local record = "local record S\n  n: integer\nend\nlocal function make(): S return { n = 1 } end\n" ..
+    "local s <close> = make()\nprint(s)\n"
+  local plain = diagnostic(record, "not_closable", true)
+  assert(plain.variable == "s" and plain.subject == "S" and listed(plain.members, "S"), plain.msg)
+  local hint = teal.replacement(plain, record)
+  assert(hint ~= nil and hint:find("^`<close>` calls a `__close` the value's metatable holds"), tostring(hint))
+  local maybe = "local record S\n  n: integer\nend\nlocal function find(): S | nil return nil end\n" ..
+    "local s <close> = find()\nprint(s)\n"
+  local nilable = diagnostic(maybe, "not_closable", true)
+  assert(listed(nilable.members, "S", "nil"), nilable.msg)
+  assert(teal.replacement(nilable, maybe) == "the call may answer nil: `local s <close> = " ..
+      "assert(<the call>)` closes what it answers, and raises its error in place of the nil")
+  local returning = "local function fn(): integer | string return 1 end\n" ..
+    "local g: function(): integer | string = fn\nlocal c <close> = g\nprint(c)\n"
+  local callable = diagnostic(returning, "not_closable", true)
+  assert(listed(callable.members, "function(): integer | string"), table.concat(callable.members or {}, ","))
+  assert(teal.replacement(callable, returning) == nil)
+end
+
+--- A call to a function that never returns, whose value is wanted, is
+--- told so wherever the call stands in the declaration and however the
+--- function is held.
+local function test_a_never_call_is_told_wherever_it_stands()
+  local later = diagnostic("local function die(): never error('x') end\nlocal c, d = 1, die()\nprint(c, d)\n",
+    "no_initial_value")
+  assert(later.variable == "d" and later.callee == "die" and later.callee_never, later.msg)
+  local hint = teal.replacement(later, "")
+  assert(hint ~= nil and hint:find("`die` never returns", 1, true) ~= nil, tostring(hint))
+  local held = diagnostic("local h = error\nlocal i = h('x')\nprint(i)\n", "no_initial_value")
+  assert(held.callee == "h" and held.callee_never, held.msg)
+  assert(teal.replacement(held, "") ~= nil)
 end

@@ -811,23 +811,26 @@ end
 --- warning is a refused compile on cosmic's paths (see `generate`).
 --- Added here, where every message is rendered, rather than in
 --- the checker's own text.
-local function with_unused_hint(msg: string): string
-  if msg:match("^unused variable ") or msg:match("^unused argument ") then
-    return msg .. " -- name it _ or _<name> to mark it intentionally unused"
+local function with_unused_hint(e: compiler.Error): string
+  if e.code == "unused" and (e.declares == "variable" or e.declares == "argument") then
+    return e.msg .. " -- name it _ or _<name> to mark it intentionally unused"
   end
-  return msg
+  return e.msg
 end
 
---- The bare name tl's checker names in a message reporting that
---- nothing by that name exists: "unknown variable: NAME" (a global
---- reference -- `os.time()`, once [`build.teal`] strips `os` from the
---- checker's own environment for exactly this) or "module not found:
---- 'NAME'" (a `require` of a literal string nothing provides). `nil`
---- for any other message, since only these two name a single missing
---- word worth looking up.
-local function unresolved_name(msg: string): string
-  return msg:match("^unknown variable: (.+)$") or
-    msg:match("^module not found: '(.+)'$")
+--- The bare name the checker names in an error reporting that nothing by
+--- that name exists: an unknown variable (a global reference --
+--- `os.time()`, once [`build.teal`] strips `os` from the checker's own
+--- environment for exactly this) or a module not found (a `require` of a
+--- literal string nothing provides). `nil` for any other error, since only
+--- these two name a single missing word worth looking up.
+local function unresolved_name(e: compiler.Error): string | nil
+  if e.code == "unknown_variable" then
+    return e.variable
+  elseif e.code == "module_not_found" then
+    return e.key
+  end
+  return nil
 end
 
 --- The databases a hint looks a name up in, and whether each is read as
@@ -844,8 +847,8 @@ local type Hints = function(): {Sqlite.Handle}, {boolean}
 --- Only the symbol's name, never its documentation: the error already
 --- says where to read that in full (`cosmic docs <name>`), and a
 --- compile failure is not the place to reprint it.
-local function with_docs_hint(msg: string, hints: Hints): string
-  local name = unresolved_name(msg)
+local function with_docs_hint(msg: string, e: compiler.Error, hints: Hints): string
+  local name = unresolved_name(e)
   if name == nil then
     return msg
   end
@@ -862,18 +865,17 @@ end
 --- not carry enough AST binding information here to claim a particular call.
 --- Only a message [`teal.replacement`] leaves unanswered is pointed here
 --- ([`with_hint`]).
-local function diagnostic_docs(msg: string): string | nil
-  if msg:match("^wrong number of arguments %(") or
-      msg:match("^argument %d+: got .+, expected ") then
+local function diagnostic_docs(e: compiler.Error): string | nil
+  if e.code == "arity" or (e.code == "mismatch" and e.context == "argument" and not e.nested) then
     return importer.diagnostic_queries.arguments
-  elseif msg:match("^invalid key '.-' in record ") then
+  elseif e.code == "invalid_key" and e.variable ~= nil and e.resolved_kind ~= "interface" then
     return importer.diagnostic_queries.record_key
   end
   return nil
 end
 
-local function with_diagnostic_docs(msg: string, hints: Hints): string
-  local query = diagnostic_docs(msg)
+local function with_diagnostic_docs(msg: string, e: compiler.Error, hints: Hints): string
+  local query = diagnostic_docs(e)
   if query == nil then
     return msg
   end
@@ -890,12 +892,12 @@ end
 --- [`teal.replacement`] answers says what to write instead, which a
 --- reader acts on where a pointer at the docs goes unread, so it is
 --- given no such pointer.
-local function with_hint(msg: string, hints: Hints, answered: boolean): string
-  local said = with_docs_hint(with_unused_hint(msg), hints)
+local function with_hint(e: compiler.Error, hints: Hints, answered: boolean): string
+  local said = with_docs_hint(with_unused_hint(e), e, hints)
   if answered then
     return said
   end
-  return with_diagnostic_docs(said, hints)
+  return with_diagnostic_docs(said, e, hints)
 end
 
 --- `file`'s own complaints, one line each. A removed name's replacement
@@ -916,7 +918,7 @@ local function complain(file: string, source: string, result: compiler.Result,
       local where = e.filename ~= "" and e.filename or file
       local instead = where == file and
         teal.replacement(e, source, file, refused) or nil
-      local said = with_hint(e.msg, hints, instead ~= nil)
+      local said = with_hint(e, hints, instead ~= nil)
       if instead ~= nil then
         said = e.msg .. " -- " .. instead .. said:sub(#e.msg + 1)
       end
