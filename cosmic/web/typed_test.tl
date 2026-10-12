@@ -41,16 +41,16 @@ local function test_a_typed_get_is_given_its_path_and_query_as_records()
   local app = Web.app{ routes = {
     Web.get_typed("/items/:id", Web.input(PATH, QUERY, Web.no_body),
       function(_req: Web.Request, p: ItemPath, q: Listing, b: Web.None): Web.Response
-        seen[#seen + 1] = ("%d|%s|%s|%s"):format(p.id, tostring(q.page), table.concat(q.tag or {}, ","), tostring(b))
+        seen[#seen + 1] = ("%d|%s|%s|%s"):format(p.id, tostring(q.page), table.concat(q.tag or {}, ","), next(b) == nil and "empty" or "full")
         return Web.json({ id = p.id })
       end, { name = "item" }),
   } }
   local client = Web.test_client(app)
   local reply = client:get("/items/7?page=2&tag=a&tag=b&ignored=1")
   assert(reply.status == 200 and reply:json() ~= nil)
-  assert(seen[1] == "7|2|a,b|nil", seen[1])
+  assert(seen[1] == "7|2|a,b|empty", seen[1])
   assert(client:get("/items/7"):text() == '{"id":7}')
-  assert(seen[2] == "7|nil||nil", "an optional query field is nil, a list empty")
+  assert(seen[2] == "7|nil||empty", "an optional query field is nil, a list empty")
   assert(client:head("/items/7").status == 200, "HEAD is answered by the GET")
   assert(app:url_for("item", { id = 7 }) == "/items/7")
 end

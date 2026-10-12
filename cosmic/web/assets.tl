@@ -159,7 +159,7 @@ function Assets.memory(files: {string:string}, opts?: {string:boolean}): Assets.
   for path, data in pairs(files) do
     local why = path_refusal(path)
     if why ~= nil then error(("web: assets: memory: %q: %s"):format(tostring(path), why), 2) end
-    local gzip: string = nil
+    local gzip: string | nil = nil
     if opts ~= nil and opts.gzip then gzip = Mime.gzip(path, data) end
     held[path] = make(path, data, { gzip = gzip })
     names[#names + 1] = path

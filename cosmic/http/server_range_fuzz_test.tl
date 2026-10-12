@@ -79,21 +79,21 @@ end
 --- The one range-spec of `header` where it is one well-formed bytes
 --- range, by RFC 9110's grammar: its first and last digits ("" for a
 --- form without one); nil otherwise.
-local function well_formed(header: string): string, string
+local function well_formed(header: string): string | nil, string
   local unit, set = trim(header):match("^([^=]*)=(.*)$")
-  if unit == nil or unit:lower() ~= "bytes" or set:match("^[ \t]") then return nil, nil end
+  if unit == nil or unit:lower() ~= "bytes" or set:match("^[ \t]") then return nil, "" end
   local specs: {string} = {}
   for element in (set .. ","):gmatch("([^,]*),") do
     if trim(element) ~= "" then specs[#specs + 1] = trim(element) end
   end
-  if #specs ~= 1 then return nil, nil end
+  if #specs ~= 1 then return nil, "" end
   local first, last = specs[1]:match("^([0-9]+)%-([0-9]*)$")
   if first ~= nil then
-    if last ~= "" and less(last, first) then return nil, nil end
+    if last ~= "" and less(last, first) then return nil, "" end
     return first, last
   end
   local suffix = specs[1]:match("^%-([0-9]+)$")
-  if suffix == nil then return nil, nil end
+  if suffix == nil then return nil, "" end
   return "", suffix
 end
 

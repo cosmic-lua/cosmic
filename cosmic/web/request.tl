@@ -179,7 +179,7 @@ function Request.new(app: Types.App, raw: Server.Request, parts: Request.Parts):
   local headers = raw.headers
   local scheme = "http"
   local host = headers["host"]
-  local client: Types.Client = nil
+  local client: Types.Client | nil = nil
   if raw.peer ~= nil and raw.peer.kind == "tcp" then
     client = { host = raw.peer.host, port = raw.peer.port }
   end

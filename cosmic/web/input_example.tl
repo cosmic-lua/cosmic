@@ -157,7 +157,7 @@ local PROFILE <const> = Shape.record_of("Profile")
 --- spooled under a random name, with the client's filename kept for display
 --- alone, and removed when the handler returns unless it moves the file.
 function Example.upload()
-  local kept: string = nil
+  local kept: string | nil = nil
   local app = Web.app{ routes = {
     Web.post_typed("/profile", Web.input(Web.NONE, Web.NONE, Web.multipart_body(PROFILE)),
       function(req: Web.Request, _p: Web.None, _q: Web.None, form: Profile): Web.Response
@@ -177,7 +177,7 @@ function Example.upload()
 end
 
 --- Each method has a typed constructor; a slot a route does not read is
---- [`Web.NONE`], or [`Web.no_body`], and its parameter is nil.
+--- [`Web.NONE`], or [`Web.no_body`], and its parameter is an empty [`Web.None`].
 function Example.methods()
   local function show(_req: Web.Request, _p: Web.None, q: Query, _b: Web.None): Web.Response
     return Web.text(tostring(q.page))

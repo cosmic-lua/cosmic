@@ -87,7 +87,7 @@ function Negotiate.best(header: string | nil, offers: {string}): string | nil
   if header == nil or header:find("^%s*$") then return offers[1] end
   local ranges = ranges_of(header)
   if #ranges == 0 then return offers[1] end
-  local chosen: string = nil
+  local chosen: string | nil = nil
   local top = 0
   for _, offer in ipairs(offers) do
     local weight = weight_for(ranges, offer)

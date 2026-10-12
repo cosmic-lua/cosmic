@@ -44,7 +44,7 @@ end
 --- each exit every few milliseconds instead.
 local function without_exit_watch(): ChildModule
   return reloaded(function(copy: {string: any})
-    copy.exit_watch = function(_pid: integer): integer, string, integer
+    copy.exit_watch = function(_pid: integer): integer | nil, string, integer
       return nil, "no exit watch here", sys.ENOSYS
     end
   end)
@@ -118,12 +118,12 @@ end
 --- some 6 ms over it.
 local function test_a_wait_in_a_task_is_woken_by_its_exit_watch()
   local ends: raw_process.Pipe
-  local watch: function(integer): integer, string, integer
+  local watch: function(integer): integer | nil, string, integer
   local module = reloaded(function(copy: {string: any})
     local pipe = copy.pipe as function(): raw_process.Pipe, string, integer -- cast: the raw table's `pipe`
-    watch = copy.exit_watch as function(integer): integer, string, integer -- cast: the raw table's `exit_watch`
+    watch = copy.exit_watch as function(integer): integer | nil, string, integer -- cast: the raw table's `exit_watch`
     ends = assert(pipe())
-    copy.exit_watch = function(_pid: integer): integer, string, integer
+    copy.exit_watch = function(_pid: integer): integer | nil, string, integer
       return ends.reader, "", 0
     end
   end)
@@ -164,11 +164,12 @@ end
 local function test_every_child_started_here_has_an_exit_watch()
   local given, refused = 0, ""
   local module = reloaded(function(copy: {string: any})
-    local watch = copy.exit_watch as function(integer): integer, string, integer -- cast: the raw table's `exit_watch`
-    copy.exit_watch = function(pid: integer): integer, string, integer
+    local watch = copy.exit_watch as function(integer): integer | nil, string, integer -- cast: the raw table's `exit_watch`
+    copy.exit_watch = function(pid: integer): integer | nil, string, integer
       local fd, why, errno = watch(pid)
       if fd ~= nil then given = given + 1 else refused = why end
-      return fd, why, errno
+      if fd == nil then return nil, why, errno end
+      return fd
     end
   end)
   Poll.run(function()
@@ -193,8 +194,8 @@ end
 local function test_a_child_that_exited_before_its_watch_was_asked_for_is_waited_for()
   local asked = 0
   local module = reloaded(function(copy: {string: any})
-    local watch = copy.exit_watch as function(integer): integer, string, integer -- cast: the raw table's `exit_watch`
-    copy.exit_watch = function(pid: integer): integer, string, integer
+    local watch = copy.exit_watch as function(integer): integer | nil, string, integer -- cast: the raw table's `exit_watch`
+    copy.exit_watch = function(pid: integer): integer | nil, string, integer
       asked = asked + 1
       local fd, _, _ = watch(pid)
       if fd ~= nil then

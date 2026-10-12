@@ -290,7 +290,8 @@ local function test_saved_source_failure_follows_prefix_and_wins_at_exact_limit(
     if which == fd and seen then return nil, "read: cancelled-looking real error", sys.EBADF end
     local data, why, errno = read(which, count)
     if which == fd and data ~= nil and #data ~= 0 then seen = true end
-    return data, why, errno
+    if data == nil then return nil, why, errno end
+    return data
   end
   local ok, why: boolean, any = pcall(function() assert(assert(h:wait()).ok) end)
   sys.read = read

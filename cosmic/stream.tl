@@ -150,6 +150,11 @@ local record Stream
     read: function(Lines): string | nil, string
     --- An iterator for a `for` loop over the lines still to come. It
     --- ends at the last one or at a failure, which `failure` then says.
+    ---
+    -- TODO: this iterator answers nil to end a loop, which its type
+    -- `function(): string` does not admit; declare `function(): string |
+    -- nil` once the checker reads the nil that ends a `for` loop's
+    -- iterator as the end, not as a possible value of the loop variable.
     each: function(Lines): function(): string
     --- Why the lines ended early, or "" when they have not: after an
     --- `each` loop, "" means every line was read.
@@ -443,7 +448,7 @@ end
 --- through the caller's `wait` or [`Poll.wait`].
 local function wait_for(fd: integer, events: integer, opts: Stream.FdOptions,
                         deadline: integer | nil): boolean, string
-  local left: integer = nil
+  local left: integer | nil = nil
   if deadline ~= nil then left = math.max(deadline - Clock.monotonic_ns(), 0) end
   if opts.wait ~= nil then return opts.wait(fd, events, left) end
   return Poll.wait(fd, events, left)
@@ -489,7 +494,7 @@ function FdReader:read(max_bytes?: integer): string | nil, string
   if self.closed then return nil, closed_reader end
   if self.ended then return nil, "" end
   local fd, opts = self.fd, self.opts
-  local deadline: integer = nil
+  local deadline: integer | nil = nil
   if opts.timeout_ns ~= nil then deadline = Clock.monotonic_ns() + opts.timeout_ns end
   while true do
     local data, trouble, errno = sys.read(fd, max_bytes or chunk_size)
@@ -978,6 +983,10 @@ end
 
 function LineReader:each(): function(): string
   if self.rested then error(rested, 2) end
+  -- TODO: the iterator answers nil after the last line, which `function():
+  -- string` does not admit; declare it `| nil` (here and in [`Lines`]'s
+  -- `each`) once the checker reads the nil that ends a `for` loop's
+  -- iterator as the end.
   return function(): string
     local line, _ = self:read()
     return line
@@ -1123,7 +1132,7 @@ function ToFdWriter:write(data: string): boolean, string
   if self.closed then return false, closed_writer end
   if self.failed then return false, self.failed end
   local fd, options = self.fd, self.options
-  local deadline: integer = nil
+  local deadline: integer | nil = nil
   if options.timeout_ns ~= nil then deadline = Clock.monotonic_ns() + options.timeout_ns end
   local at = 0
   while at < #data do

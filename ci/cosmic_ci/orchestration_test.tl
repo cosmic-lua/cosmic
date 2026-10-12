@@ -1367,6 +1367,19 @@ local function test_a_darwin_list_names_a_path_a_line()
   assert(#parsed == 1 and parsed[1] == "a_test.tl", table.concat(parsed, ","))
 end
 
+--- The declared-types tests ci.yml runs on a checked run are every
+--- `*declared_types_test.tl` under cosmic/, wherever it sits.
+local function test_the_declared_types_tests_are_found_by_name(tmp: string)
+  local Orchestration = require("cosmic_ci.orchestration")
+  assert(Fs.mkdirs(tmp .. "/cosmic/web"))
+  assert(Fs.write(tmp .. "/cosmic/a_declared_types_test.tl", ""))
+  assert(Fs.write(tmp .. "/cosmic/web/declared_types_test.tl", ""))
+  assert(Fs.write(tmp .. "/cosmic/other_test.tl", ""))
+  local files = Orchestration.declared_types_files(tmp)
+  assert(table.concat(files, ",") == "cosmic/a_declared_types_test.tl,cosmic/web/declared_types_test.tl",
+    table.concat(files, ","))
+end
+
 --- The darwin list runs where the native suite stands on verdicts:
 --- `--all` over the listed modules, so none of them stands on one. A
 --- run of every test already (the scheduled run's `--all`) runs them.

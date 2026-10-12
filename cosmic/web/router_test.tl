@@ -210,8 +210,9 @@ local record Refusal
   build: function()
 end
 
+local absent: {string:any} = {}
+
 local function test_registration_refuses_conflicts_and_bad_routes()
-  local none: Web.Handler = nil
   local cases: {Refusal} = {
     { expect = "already answered", build = function()
       Web.router({ Web.get("/a/:x", ok), Web.get("/a/:y", ok) })
@@ -236,7 +237,9 @@ local function test_registration_refuses_conflicts_and_bad_routes()
       Web.router({ Web.route("get", "/a", ok) })
     end },
     { expect = "names no method", build = function() Web.router({ Web.route({}, "/a", ok) }) end },
-    { expect = "no handler", build = function() Web.router({ Web.get("/a", none) }) end },
+    { expect = "no handler", build = function()
+      Web.router({ Web.get("/a", absent.handler as Web.Handler) })
+    end },
     { expect = "no parameter", build = function() Web.router({ Web.mount("/u/:id", {}) }) end },
     { expect = "reserved", build = function() Web.router({ Web.mount("/_web", {}) }) end },
     { expect = "holds no ':'", build = function()

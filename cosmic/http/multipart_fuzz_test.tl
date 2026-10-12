@@ -222,7 +222,7 @@ local function test_parts_come_back_as_they_were_drawn(tmp: string)
       if got.failure ~= "" then return false, "refused: " .. got.failure end
       local last: {Drawn} = {}
       for i = 4, #f - 3, 4 do
-        local filename: string = nil
+        local filename: string | nil = nil
         if f[i + 1]:sub(1, 1) == "F" then filename = f[i + 1]:sub(2) end
         last[#last + 1] = { name = f[i], filename = filename, content_type = f[i + 2], body = f[i + 3] }
       end

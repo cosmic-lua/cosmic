@@ -297,8 +297,8 @@ local record SocketConn is Net.Conn
   fd: integer
   open: boolean
   -- Set by [`set_timeout`], and read by each wait, so a change reaches a
-  -- wait the next read or write starts.
-  limit: integer
+  -- wait the next read or write starts. Nil for no limit.
+  limit?: integer
   -- Each direction's sticky failure, "" until one: once a read or a
   -- write fails for good, every later one of it says so.
   read_failure: string
@@ -439,7 +439,8 @@ local record SocketListener is Net.Listener
   fd: integer
   open: boolean
   -- Set by [`set_timeout`], and given to each connection accepted after.
-  limit: integer
+  -- Nil for no limit.
+  limit?: integer
   set_timeout: function(SocketListener, wait_ns: integer | nil)
   accept: function(SocketListener, wait_ns?: integer): Net.Conn | nil, string
   close: function(SocketListener): boolean, string
@@ -504,7 +505,8 @@ end
 --- unclaimed -- a run torn down while it waits included -- rather than
 --- left to the collector.
 local record Connecting
-  socket: raw_socket.Socket
+  --- Nil once the task has handed the socket on.
+  socket?: raw_socket.Socket
   metamethod __close: function(Connecting)
 end
 
@@ -1110,7 +1112,7 @@ local function drain(s: Serving)
       while true do
         local task = next(s.conns)
         if task == nil then return end
-        local left: integer = nil
+        local left: integer | nil = nil
         if deadline ~= nil then left = math.max(deadline - Clock.monotonic_ns(), 0) end
         local ended, _ = task:join(left)
         if not ended then return end

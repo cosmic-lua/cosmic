@@ -278,7 +278,7 @@ local function gen_hello(src: Fuzz.Source): string
   if kind == 0 then
     return Fuzz.bytes(src, 24)
   end
-  local name: string = nil
+  local name: string | nil = nil
   if src:int(0, 4) ~= 0 then
     name = gen_name(src, src:int(0, 2) ~= 0)
   end

@@ -30,7 +30,7 @@ local REDIRECTS <const>: {integer:boolean} = {
 --- The name under which `headers` holds `name`, in any case, or nil.
 local function key_of(headers: {string: string | {string}}, name: string): string | nil
   local want = name:lower()
-  local found: string = nil
+  local found: string | nil = nil
   for key in pairs(headers) do
     if key:lower() == want and (found == nil or key < found) then found = key end
   end

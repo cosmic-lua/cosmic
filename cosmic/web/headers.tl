@@ -231,7 +231,7 @@ function Headers.middleware(opts?: Headers.Options): Types.Middleware
   end
   add("Permissions-Policy", opts.permissions_policy, "camera=(), microphone=(), geolocation=()")
 
-  local hsts: string = nil
+  local hsts: string | nil = nil
   if opts.hsts ~= nil then
     local h = opts.hsts
     if math.type(h.max_age) ~= "integer" or h.max_age < 0 then
@@ -261,7 +261,7 @@ function Headers.middleware(opts?: Headers.Options): Types.Middleware
   end
   local draw = opts.nonce == true
   -- Without a nonce the policy is one string for every request.
-  local fixed_csp: string = nil
+  local fixed_csp: string | nil = nil
   if policy ~= nil and not uses_nonce(policy) then fixed_csp = Csp.format(policy) end
 
   return function(inner: Types.Handler): Types.Handler

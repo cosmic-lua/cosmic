@@ -284,7 +284,7 @@ Web.with_server = Testing.with_server
 --- @param opts RouterOptions | nil The trailing-slash policy
 --- @return Types.Router The router
 function Web.router(routes: {Types.Route}, opts?: Types.RouterOptions): Types.Router
-  local policy: Types.TrailingSlash = nil
+  local policy: Types.TrailingSlash | nil = nil
   if opts ~= nil then policy = opts.trailing_slash end
   return Router.build(routes, function(_req: Types.Request): Types.Response
     error("web: a router built by Web.router has no app to answer with", 0)

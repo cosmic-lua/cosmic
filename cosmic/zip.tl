@@ -286,7 +286,7 @@ local record SpanReader is Stream.Reader
   pread: Pread
   pos: integer
   left: integer
-  held: string
+  held?: string
   failed?: string
   read: function(SpanReader, max_bytes?: integer): string | nil, string
   close: function(SpanReader): boolean, string
@@ -400,7 +400,7 @@ local function open_entry(pread: Pread, e: Zip.Entry): Stream.Reader | nil, stri
   if #header < 30 or header:sub(1, 4) ~= LFH_SIG then return refuse("bad local file header") end
   local name_len, extra_len = string.unpack("<I2I2", header, 27)
   local skip = 30 + name_len + extra_len
-  local held: string
+  local held: string | nil
   if #header > skip then
     held = header:sub(skip + 1, skip + csize)
     if held == "" then held = nil end
