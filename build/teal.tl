@@ -1260,8 +1260,16 @@ local function narrowing_hint(msg: string, source: string): string | nil
   -- that does not take nil (patch/tl 53b): the type expected is the
   -- value's own, less the nil.
   if given ~= nil and wanted ~= nil and one_or_nil(given) and type_members(given)[1] == wanted then
-    return nil_answer("the argument", "value") ..
-      ", or give it a default: `value = value or <default>`"
+    return "the argument may be nil: check it first (`if value == nil then return nil, err end`); " ..
+      "where a call answers it, take it with `local value = assert(<the call>)`; " ..
+      "or, where a default fits, write `value = value or <default>`"
+  end
+  -- A module name for `require` that is nil or may be (patch/tl 53e).
+  local named = msg:match("^require: argument 1: got (.+), expected string$")
+  if named == "nil" then
+    return "require takes a module name: pass a string"
+  elseif named ~= nil and one_or_nil(named) then
+    return nil_answer("the name", "name")
   end
   -- A literal nil for a parameter that takes none (patch/tl 53b).
   if msg:match("^argument %d+: got nil, expected .+$") ~= nil then
