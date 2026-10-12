@@ -1,4 +1,4 @@
---- The vendored Teal compiler, loaded to run.
+--- The Teal compiler, loaded to run.
 ---
 --- The compiler reaches outside the pure Lua libraries in a few places:
 --- `io.open` and the handle it returns, `io.stderr`, `os.getenv`,
@@ -778,7 +778,7 @@ local function present(names: {string}): {string:boolean}
 end
 
 --- The functions and libraries tl's standard library declares as
---- globals (its prelude in vendor/tl/tl.tl), which a local of the same
+--- globals (its prelude in [`checker/tl.tl`]), which a local of the same
 --- name hides. `arg`, the program's arguments, is no library's.
 local standard_globals <const> = present({
   "assert", "collectgarbage", "coroutine", "debug", "dofile", "error",
@@ -973,8 +973,8 @@ local function arity_hint(source: string, y: integer, x: integer, given: integer
   -- record field's function type (`run: function(a: string, b: string
   -- | nil)`), a module's function -- or declares on a `global record`,
   -- or calls on a receiver of an inferred type (`local r = make()`): it
-  -- waits on a patch/tl record giving this error the callee's
-  -- parameters, as patch/tl/33a gives a missing key's fields.
+  -- waits on the checker giving this error the callee's parameters, as it
+  -- gives a missing key's fields.
   local spelled: {string} | nil = nil
   local starts = ast.line_starts(source)
   for _, arguments in ipairs(callee_arguments(parsed.node, y, x)) do
@@ -1166,8 +1166,8 @@ end
 local function never_value_hint(msg: string, source: string, y: integer): string | nil
   -- TODO: hint a callee declared `: never` in another module
   -- (`local x = Mod.fail()`): it waits on the checker's message for a call
-  -- that returns nothing saying the callee is a never-function (a
-  -- patch/tl record), as the hint reads only `source`.
+  -- that returns nothing saying the callee is a never-function, as the hint
+  -- reads only `source`.
   if not msg:match("^assignment in declaration did not produce an initial value for variable ") then
     return nil
   end
@@ -1251,23 +1251,37 @@ local function narrowing_hint(msg: string, source: string): string | nil
   if given == nil then
     given, wanted = msg:match("^in [%a ]+: got (.+), expected (.+)$")
   end
-  -- A value that may be nil is refused as an argument of `table.insert`
-  -- and `table.concat` alone (patch/tl 51f), where the type expected is
-  -- the value's own, less the nil; other calls answer only `any`.
   if given ~= nil and wanted ~= nil and untyped(given) then
     local expected = type_members(wanted)
     return untyped_answer("the value", "value", source,
       #expected == 1 and expected[1] or table.concat(expected, " | "))
   end
+  -- A value that may be nil is refused as an argument for any parameter
+  -- that does not take nil: the type expected is the
+  -- value's own, less the nil.
   if given ~= nil and wanted ~= nil and one_or_nil(given) and type_members(given)[1] == wanted then
-    return nil_answer("the argument", "value")
+    return "the argument may be nil: check it first (`if value == nil then return nil, err end`); " ..
+      "where a call answers it, take it with `local value = assert(<the call>)`; " ..
+      "or, where a default fits, write `value = value or <default>`"
   end
-  -- A numeric `for` bound that may be nil (patch/tl 51c).
+  -- A module name for `require` that is nil or may be.
+  local named = msg:match("^require: argument 1: got (.+), expected string$")
+  if named == "nil" then
+    return "require takes a module name: pass a string"
+  elseif named ~= nil and one_or_nil(named) then
+    return nil_answer("the name", "name")
+  end
+  -- A literal nil for a parameter that takes none.
+  if msg:match("^argument %d+: got nil, expected .+$") ~= nil then
+    return "the parameter takes no nil: pass a value, or, where the callee handles nil, " ..
+      "declare the parameter `name?: T` or `T | nil`"
+  end
+  -- A numeric `for` bound that may be nil.
   local bound = msg:match("^cannot use (.+) as the 'for' %a+$")
   if bound ~= nil and one_or_nil(bound) then
     return nil_answer("the bound", "value")
   end
-  -- A unary operator's operand that may be nil (patch/tl 51b).
+  -- A unary operator's operand that may be nil.
   local operand = msg:match("^cannot use operator '.-' on type (.+)$")
   if operand ~= nil and one_or_nil(operand) then
     return nil_answer("the operand", "value")
@@ -1372,8 +1386,7 @@ local function nesting_hint(source: string, owner: string, member: string,
   end
   -- TODO: name the members the module's record does declare, as a
   -- missing field is told them: it waits on the checker giving this
-  -- error the required record's types, as patch/tl/33a gives a missing
-  -- key's fields.
+  -- error the required record's types, as it gives a missing key's fields.
   return owner .. " has no type " .. member .. ": check its spelling, or declare `record " ..
     member .. " ... end` inside the record " .. module .. " returns (a `local record " ..
     member .. "` beside that record is its file's alone)"
@@ -1385,7 +1398,7 @@ local record Catalog
   names: {string:string}
   members: {string:string}
   arguments: {string:string}
-  message: function(name: string, field: string): string
+  message: function(name: string, field?: string): string
 end
 
 --- The module [`replacement`] quotes, named by a constant rather than
@@ -1410,7 +1423,7 @@ local function catalog(): Catalog | nil
   local names, members, arguments, message = loaded.names, loaded.members, loaded.arguments, loaded.message
   local replacements = loaded.replacements
   if names is {string:string} and members is {string:string} and arguments is {string:string} and
-      replacements is {string:string} and message is function(string, string): string then
+      replacements is {string:string} and message is function(name: string, field?: string): string then
     return {
       names = names, members = members, arguments = arguments,
       replacements = replacements, message = message,
@@ -1677,8 +1690,8 @@ end
 --- What to try for a call refused on a type parameter (`argument 2: type
 --- parameter <T>: got R, expected R | nil`, `... R is not a I`): where the
 --- call's result is expected to have a type, the checker may have bound the
---- parameter to it before the arguments, and patch/tl/40 could not bind it
---- from them instead. The hint says so conditionally, since the arguments
+--- parameter to it before the arguments, and a second attempt with the
+--- arguments first could not bind it from them instead. The hint says so conditionally, since the arguments
 --- may simply disagree. nil for any other message.
 local function type_parameter_hint(msg: string): string | nil
   if msg:match("^argument %d+: type parameter <[%w_]+>: ") == nil then
@@ -2053,10 +2066,10 @@ function teal.replacement(msg: string, source: string, y: integer, x: integer,
   end
   -- TODO: hint a field a table literal names that its record lacks
   -- (`in local declaration: r: unknown field alpah`) the same way: it
-  -- waits on a patch/tl record giving that error the record's fields too.
+  -- waits on the checker giving that error the record's fields too.
   -- TODO: hint a key a union's records lack (`cannot index key 'type'
-  -- in type A | B`): the checker gives fields only for a single record
-  -- (patch/tl/33d); the fix is fields for each record member. One
+  -- in type A | B`): the checker gives fields only for a single record;
+  -- the fix is fields for each record member. One
   -- record or nil is told to check for nil ([`narrowing_hint`]) even
   -- where the record lacks the key too, which its fields would tell.
   local later = later_method_hint(msg, source, y)
@@ -2083,11 +2096,12 @@ function teal.replacement(msg: string, source: string, y: integer, x: integer,
   if name == nil then
     return nil
   end
+  local wanted: string = name
   local removed = catalog()
-  if removed == nil or removed.names[name] == nil then
+  if removed == nil or removed.names[wanted] == nil then
     return nil
   end
-  return removed.message(name, field)
+  return removed.message(wanted, field)
 end
 
 return teal

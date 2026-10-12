@@ -236,7 +236,7 @@ local function listed(name: string, names: {string}): boolean
 end
 
 --- Why the limit `name`, nil for none, is below `least`, or "".
-local function below(name: string, value: integer, least: integer): string
+local function below(name: string, value: integer | nil, least: integer): string
   if value == nil or value >= least then return "" end
   return "pointer \"/limits/" .. name .. "\": a limit is at least " .. least
 end
@@ -429,7 +429,7 @@ end
 
 --- The limit `name` once `incoming` joins `held`, either nil for none:
 --- the one value given. Two different values answer why.
-local function join_limit(name: string, held: integer, incoming: integer): integer, string
+local function join_limit(name: string, held: integer | nil, incoming: integer | nil): integer, string
   if incoming == nil then return held, "" end
   if held ~= nil and held ~= incoming then
     return held, "limits." .. name .. " is given two values, " .. held .. " and " .. incoming

@@ -1109,7 +1109,7 @@ local function enter(own?: {string}, sandboxed?: boolean): Leave, {string}
         if environment ~= nil then temporary = environment.TMPDIR end
         local replace = temporary ~= nil and temporary == inherited
         for _, given in ipairs(writes) do
-          if replace and Fs.within(temporary, given) then replace = false end
+          if replace and temporary ~= nil and Fs.within(temporary, given) then replace = false end
         end
         if replace and writes[1] ~= nil then
           given_environment = {}

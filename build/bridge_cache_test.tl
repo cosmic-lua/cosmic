@@ -127,7 +127,8 @@ local function fixture(tmp: string, name: string): Fixture
   put(f.tree .. "/build/note.md", "not a source\n")
   put(f.tree .. "/build/dep.tl", "return { n = 7 }\n")
   put(f.tl .. "/tl.lua", compiler)
-  put(f.tl .. "/tl.tl", compiler)
+  put(f.tree .. "/checker/tl.tl", compiler)
+  put(f.tree .. "/checker/stdlib.d.tl", "-- the standard library\n")
   assert(Fs.mkdirs(Fs.dirname(f.cache)))
   assert(Fs.chmod(Fs.dirname(f.cache), 0x1c0))
   return f
@@ -238,7 +239,10 @@ local function test_any_input_that_changes_is_a_miss(tmp: string)
       put(f.tree .. "/core/syscalls.h", "/* edited */\n")
     end },
     { "the compiler's source", true, function(f: Fixture)
-      put(f.tl .. "/tl.tl", compiler .. "-- edited\n")
+      put(f.tree .. "/checker/tl.tl", compiler .. "-- edited\n")
+    end },
+    { "the standard library's declarations", true, function(f: Fixture)
+      put(f.tree .. "/checker/stdlib.d.tl", "-- edited\n")
     end },
     { "the vendored compiler", true, function(f: Fixture)
       put(f.tl .. "/tl.lua", compiler .. "-- edited\n")

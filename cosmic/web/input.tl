@@ -867,8 +867,9 @@ local function bind_list(w: Walk, field: string, spec: Shape.Spec): any
     return Json.array({})
   end
   local out: {any} = {}
+  local of = assert(spec.of)
   for i, text in ipairs(values) do
-    out[i] = scalar(w, field .. "." .. (i - 1), spec.of, text)
+    out[i] = scalar(w, field .. "." .. (i - 1), of, text)
   end
   return Json.array(out)
 end
@@ -1096,7 +1097,7 @@ end
 function Input.query_into<T>(req: Types.Request, typed: Shape.Typed<T>, opts?: Types.InputOptions): Types.Parsed<T>
   local read = Input.query(req)
   if read.invalid ~= nil then return { invalid = read.invalid } end
-  local out: Types.Parsed<T> = Input.bind_strings(read.value, typed.spec, with_source(opts, "query"))
+  local out: Types.Parsed<T> = Input.bind_strings(assert(read.value), typed.spec, with_source(opts, "query"))
   return out
 end
 
@@ -1110,7 +1111,7 @@ end
 function Input.form_into<T>(req: Types.Request, typed: Shape.Typed<T>, opts?: Types.InputOptions): Types.Parsed<T>
   local read = Input.form(req, opts)
   if read.invalid ~= nil then return { invalid = read.invalid } end
-  local out: Types.Parsed<T> = Input.bind_strings(read.value, typed.spec, with_source(opts, "form"))
+  local out: Types.Parsed<T> = Input.bind_strings(assert(read.value), typed.spec, with_source(opts, "form"))
   return out
 end
 

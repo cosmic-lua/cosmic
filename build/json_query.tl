@@ -213,9 +213,12 @@ local function absorb(node: Node, v: any, depth: integer, limit: integer)
       node.cut = true
       return
     end
-    if n > 0 and node.elements == nil then node.elements = new_node() end
-    for i = 1, n do
-      absorb(node.elements, v[i], depth + 1, limit)
+    if n > 0 then
+      local elements = node.elements or new_node()
+      node.elements = elements
+      for i = 1, n do
+        absorb(elements, v[i], depth + 1, limit)
+      end
     end
   else
     node.objects = node.objects + 1

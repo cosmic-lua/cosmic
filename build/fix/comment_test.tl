@@ -12,7 +12,7 @@
 --- ending at the end of the file with no newline after it would not:
 --- tl's lexer records a short comment when it reads the newline that
 --- ends it, so input running out inside one carries it nowhere.
---- [`patch/tl/05-comment-at-end-of-input.txt`] ends it at the end of the
+--- The checker ([`checker/tl.tl`]) ends it at the end of the
 --- input instead, which puts it on both sides of the comparison. The
 --- first tests here hold that.
 ---
@@ -25,7 +25,8 @@
 --- ordinary comment would. And removing the pragma token discards the
 --- comments it had already taken, so a comment in front of such a run
 --- is lost even with a newline after it.
---- [`patch/tl/06-comment-before-a-pragma-run.txt`] covers the second.
+--- The checker keeps the comments in front of such a run, which covers the
+--- second.
 ---
 --- And a comment can move. `--[[ q ]] print(1)` is a comment the code
 --- was written behind, and writing it after the code says something
@@ -39,10 +40,7 @@ local equiv = require("build.fix.equiv")
 local fix = require("build.fix")
 local teal = require("build.teal")
 
-local built, load_trouble = teal.load()
-if built == nil then
-  error("could not load the compiler: " .. tostring(load_trouble))
-end
+local built = assert(teal.load())
 
 --- Run the whole pipeline over `source`, asserting it succeeded.
 local function fixed(source: string): string

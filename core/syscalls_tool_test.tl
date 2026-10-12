@@ -175,7 +175,7 @@ local function test_an_offline_child_s_loopback_is_up(tmp: string)
     sys.close(report)
     refused("network namespace", trouble, errno)
   end
-  local status = assert(process.waitpid(pid, false))
+  local status = assert(process.waitpid(assert(pid), false))
   local said = assert(sys.pread(report, 4096, 0))
   sys.close(report)
   assert(status.code == 0 and said == "up\n127.0.0.1:1: Connection refused\n", said)
@@ -217,7 +217,7 @@ local function test_an_unveiled_child_has_only_what_it_was_given(tmp: string)
     sys.close(report)
     refused("unveiling", trouble, errno)
   end
-  assert(assert(process.waitpid(pid, false)).code == 0)
+  assert(assert(process.waitpid(assert(pid), false)).code == 0)
   local said = assert(sys.pread(report, 4096, 0))
   sys.close(report)
   assert(said == "in\noutside-absent\nin\nread-only\nw\n" ..
@@ -479,7 +479,7 @@ local function test_an_unveiled_path_is_bound_at_the_name_given(tmp: string)
     sys.close(report)
     refused("unveiling", trouble, errno)
   end
-  assert(assert(process.waitpid(pid, false)).code == 0)
+  assert(assert(process.waitpid(assert(pid), false)).code == 0)
   local said = assert(sys.pread(report, 4096, 0))
   sys.close(report)
   assert(said == "in\n/tree\nno-own-name\ntmp-written\ntree-read-only\n", said)
@@ -501,7 +501,7 @@ local function test_an_unveiled_path_is_bound_at_the_name_given(tmp: string)
     if escaped ~= nil then process.waitpid(escaped, false) end
     assert(escaped == nil, "placed through a link at " .. placed)
     if sys.errno_name(escaped_errno) ~= "ELOOP" then
-      refused("unveiling", sys.errno_name(escaped_errno), escaped_errno)
+      refused("unveiling", tostring(sys.errno_name(escaped_errno)), escaped_errno)
     end
   end
   assert(sys.stat(victim .. "/new.txt") == nil, "a file was made through the link")
@@ -747,7 +747,7 @@ local function test_proc_given_to_write_changes_nothing_of_the_host_s(tmp: strin
     sys.close(report)
     refused("unveiling", trouble, errno)
   end
-  assert(assert(process.waitpid(pid, false)).code == 0)
+  assert(assert(process.waitpid(assert(pid), false)).code == 0)
   local said = assert(sys.pread(report, 4096, 0))
   sys.close(report)
   assert(said == "sys-read-only\nname-read-only\n", said)

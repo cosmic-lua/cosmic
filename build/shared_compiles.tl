@@ -163,7 +163,7 @@ end
 --- The file the module is read from is no salt here: the module's own
 --- key holds it already (build.compilation's `dependency_keys`), so a
 --- compile is never taken across a moved file.
-function shared_compiles.key(key: string, own_tree: boolean, generated: boolean,
+function shared_compiles.key(key: string, own_tree: boolean, generated?: boolean,
                              format?: string): string
   return Hash.hex_sha256((format or compiled) .. "\n" .. key .. "\n" ..
       (own_tree and "own" or "project") .. "\n" ..
@@ -550,7 +550,7 @@ function shared_compiles.for_build(environment?: {string:string}): importer.Shar
   return {
     look = function(m: importer.Module, own_tree: boolean): importer.Shared.Compile | nil
       if cache == nil then return nil end
-      local key = shared_compiles.key(m.key, own_tree, m.generated)
+      local key = shared_compiles.key(assert(m.key), own_tree, m.generated)
       local found, look_trouble = shared_compiles.look(cache, key)
       if found == nil then
         if look_trouble ~= "" then drop(look_trouble) end
@@ -562,7 +562,7 @@ function shared_compiles.for_build(environment?: {string:string}): importer.Shar
     keep = function(m: importer.Module, own_tree: boolean, made: importer.Shared.Compile)
       if cache == nil then return end
       owed.kept[#owed.kept + 1] = {
-        key = shared_compiles.key(m.key, own_tree, m.generated),
+        key = shared_compiles.key(assert(m.key), own_tree, m.generated),
         lua = made.lua, bytecode = made.bytecode, references = made.references,
       }
     end,

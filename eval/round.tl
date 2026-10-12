@@ -389,8 +389,10 @@ function Round.main(argv: {integer: string}): integer
   end
   local system = real_system()
   local short = Round.short_commit(root)
-  local tool = options.tool
-  if tool == nil then
+  local tool: string
+  if options.tool ~= nil then
+    tool = options.tool
+  else
     local built = system.run({ root .. "/bin/cosmic-bootstrap", "--standalone",
       root .. "/build/paths.tl", root })
     if built.code ~= 0 then

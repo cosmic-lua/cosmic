@@ -3,10 +3,7 @@ local analyzer = require("build.analyzer")
 local ast = require("build.ast")
 local Test = require("cosmic.test")
 
-local built, load_trouble = teal.load()
-if built == nil then
-  error("could not load the compiler: " .. tostring(load_trouble))
-end
+local built = assert(teal.load())
 
 --- Joins lines the way a real source file would read.
 local function lines(parts: {string}): string

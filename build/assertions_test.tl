@@ -102,6 +102,7 @@ end
 --- upgrade that changes `luaB_assert` fails here rather than drifting.
 local function test_it_answers_as_luas_own_assert_does()
   local value = {}
+  local function hole(): any return nil end
   local cases: {string: Packed} = {
     ["true"] = table.pack(true) as Packed,
     ["values"] = table.pack(1, "two", nil, 4) as Packed,
@@ -113,7 +114,7 @@ local function test_it_answers_as_luas_own_assert_does()
     ["a format in the message"] = table.pack(false, "%d %s") as Packed,
     ["a number message"] = table.pack(false, 42) as Packed,
     ["a table message"] = table.pack(false, value) as Packed,
-    ["a nil message and more"] = table.pack(false, nil, "x") as Packed,
+    ["a nil message and more"] = table.pack(false, hole(), "x") as Packed,
   }
   local lua_assert = Assertions.lua_assert as function(...: any): any...
   -- Taken after install, it would be the counting one, held to itself.

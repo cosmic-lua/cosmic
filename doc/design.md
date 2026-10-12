@@ -117,7 +117,7 @@ kernel                               Linux; macOS
     syscall table                    C, one function per syscall
   cosmic binary
     modules in a sqlite database     the only module source
-    teal compiler + checker          vendored tl, carried patches
+    teal compiler + checker          the tree's own source, seeded by vendored tl.lua
     cosmic.* stdlib in teal          typed wrappers, honest returns
     docs                             rows in the same database
     Mozilla's CA roots               DER rows, once for every core
@@ -292,7 +292,7 @@ the replacement for that very field, at the site that used it.
 [`cosmic.removed`] is the one place the map from a removed name to its
 replacement lives.
 
-the compiler -- the Lua the vendored `tl.tl` compiles to (below) --
+the compiler -- the Lua the tree's checker, [`checker/tl.tl`], compiles to (below) --
 reaches outside the pure libraries in five
 places: `io.open` and the file handle it returns, `os.getenv`,
 `package.path`, `package.searchers`, and `load`. it ships as a row
@@ -440,8 +440,9 @@ input to the build, never to the runtime. one database holds:
   Teal-only rebuild carries the running binary's rows over, and `cosmic
   build` copies them into every executable it writes;
   [`Store.web_asset`] reads one.
-- **the compiler**: the Lua the vendored `tl.tl`, patched, compiles to,
-  one row, loaded with its own environment.
+- **the compiler**: the Lua [`checker/tl.tl`] compiles to, started with
+  the text of [`checker/stdlib.d.tl`], one row, loaded with its own
+  environment.
 - **decls**: every declaration the tree holds, generated or written,
   so a checker building another tree against this binary can type
   what it requires.
@@ -556,7 +557,7 @@ builds and tests a tree other than its own.
 
 inside cosmic's own tree, every run first compares the boot hash with
 the one the running binary carries: a fingerprint of everything the
-tool is made of, `build/`, `core/`, `cosmic/`, `cmd/`, `patch/`, each
+tool is made of, `build/`, `core/`, `cosmic/`, `cmd/`, `patch/`, `checker/`, each
 vendored tree's `PIN`, `build.zig` and the zig wrapper, but the Teal
 tests among them, which no binary carries: an edit to a test rebuilds
 no tool, and only a test may require one. a vendored
@@ -585,7 +586,7 @@ and `zig build` installs them under the build directory's `vendor/` and produces
 for each target. `zig build boot`
 bridges: it runs the fresh host core over `build/` to compile the
 importer with the compiler the vendored `tl.lua` compiles from the
-patched `tl.tl`, writes `cosmic.db`, and writes one
+checker, [`checker/tl.tl`], writes `cosmic.db`, and writes one
 portable [`bin/cosmic`], each in the build directory. the tool carries `carried.db`, that projection
 without the tree's own tests and examples, and with the docs, uses
 and examples of the public standard library alone (and the doc rows
@@ -624,16 +625,16 @@ the tree's tool runs `bin/zig build boot` and re-enters, or, under
 
 semantic identities keep different kinds of reuse separate. the compiler
 identity holds the modules that decide generated code, stored analysis and
-acceptance, plus the Teal compiler's and Lua's pins and patches
-([`build.identity.compiler_identity`]). module keys carry it; importer
+acceptance, plus the checker's source and the Teal compiler's and Lua's
+pins and Lua's patches ([`build.identity.compiler_identity`]). module keys carry it; importer
 coordination, diagnostic presentation and general standard-library plumbing
 stay outside it. the analyzer identity keys stored parses and includes that
 compiler identity plus the analyzer modules' sources
 ([`build.importer.analyzer_identity`]). the writer identity holds the code and
 core image that determine a projection's bytes, including its standard-library
 dependencies. the projection records which compiler and writer produced it so a
-self-rebuild can settle on its own code. the runtime basis holds the Teal and Lua
-pins and patches; startup combines it with the validated target, configuration
+self-rebuild can settle on its own code. the runtime basis holds the same pins, patches
+and checker source; startup combines it with the validated target, configuration
 and exact core digest to identify the running runtime. every test verdict holds
 that runtime identity. a row compiled by another compiler is never mistaken
 for this one's. a sandboxed test's key holds what the
@@ -890,7 +891,7 @@ keys a C object by its source's path, compiles a vendored file once
 for all of them -- and hands zig their manifest;
 a record whose anchor no longer matches fails the build by name.
 
-vendored: Lua 5.5, the SQLite amalgamation and nine of its ext/misc
+vendored: Lua 5.5, the SQLite amalgamation and twelve of its ext/misc
 extensions, mbedtls, miniz, bzip2,
 xz's liblzma decoder, c-ares, curl, yyjson, Mozilla's CA bundle, the
 IANA time zone database's compiled `zoneinfo`, and tl;
@@ -919,20 +920,52 @@ a CycloneDX document. a pin with no license fails the build.
 
 ### teal
 
-tl vendored, its Teal source `tl.tl` beside the `tl.lua` upstream
-generated from it. its changes are carried as patches to `tl.tl` under
-`patch/tl/`, typed and checked like any Teal, and not proposed upstream.
-the boot compiles the patched source with the upstream `tl.lua`, and the
-compiler that makes compiles its own source to exactly itself, which
-[`build/compiler_test.tl`] holds it to: the compiler is a function of its
-Teal source and records, not of what first compiled it.
+the checker and compiler are the tree's own source, [`checker/tl.tl`]: one
+file that descends from tl 0.24.8 (MIT; the license and notice travel in the
+bill of materials with `tl.lua`) and is edited directly. it sits outside the module closure it compiles: the scanner
+reads `checker/` as part of the tool, never as a module or a test
+([`build/identity.tl`]), and `cosmic fix` does not lay it out. the vendored
+tree keeps upstream's `tl.lua` alone, unedited, as the seed: the boot
+compiles [`checker/tl.tl`] with it, so the checker's source is valid upstream
+Teal, and the compiler that makes compiles its own source to exactly
+itself, which [`build/compiler_test.tl`] holds it to: the compiler is a
+function of its Teal source, not of what first compiled it. the source is
+in the compiler's identity, so in every compile's key, and in the tool's
+boot hash, so an edit to it boots the tool.
+
+the Lua standard library's declarations are not in that source. they are
+[`checker/stdlib.d.tl`], the typing the checker takes without proof, so
+auditing or changing one is an edit of that file and touches no checker
+logic. the file sits beside the checker, not under a module's path, for
+three reasons. the checker reads it before any module system exists: a
+`.d.tl` of a module is found by `require`, and the declarations are
+the checker's own environment, which makes `string`, `table` and the
+rest globals. it is outside the closure the checker compiles, as the
+checker is. and the compiler's identity, the tool's boot hash and the CI
+cache key hash everything under `checker/`, so an edit to a
+declaration recompiles every module and boots the tool. the boot carries
+the file: the bridge ([`core/bridge.lua`]) starts the compiled checker
+with `local stdlib = "<the file's text>"` on its first line, so the
+compiler the tool carries holds the declarations it was compiled with, and
+compiling the checker's source again with the same file gives exactly that
+Lua ([`build/compiler_test.tl`]). the checker still names the few
+functions it handles in code (`assert`, `type`, `setmetatable`, `pcall`,
+`require`, `ipairs`, `pairs`, `coroutine.wrap`, and `string.format`,
+`gsub`, `match`, `find` and the like) after reading the file, in
+`tl.new_env`. the prelude (`any`, `thread`, `userdata`, `metatable`)
+stays in the checker: its names are the language's, and the checker's
+logic reads them. `cosmic docs` does not show these declarations: it
+indexes the tree's modules and their declarations, and this file is
+neither. [`build/stdlib_declarations_test.tl`] pins how the checker
+prints representative names.
+
 the planned cast restriction would allow `x as T` only from `any`, from a
 userdata record declared in a `.d.tl`, or from the enclosing
 generic's type variable. `any` is legal only where untrusted data
 enters and a shape validator turns it into a record by construction.
 no justification comments, no ledger in the target policy. this cast
-restriction is not implemented. record-field narrowing has landed as
-carried patches; container covariance was dropped (see the roadmap).
+restriction is not implemented. record-field narrowing has landed in the
+checker; container covariance was dropped (see the roadmap).
 there is no planned `cosmic check` verb: compilation performs checking,
 while `cosmic fix`'s structural rule list ([`build/fix/rule.tl`]) is still
 empty: its one type-driven fix wraps a multi-value `assert(...)` in
@@ -952,8 +985,7 @@ a container, a generic's argument, a callback's parameter), and a function
 declared `: never` neither returns nor reaches its end. the `as` and `is`
 casts and the holes every type has (`coroutine.wrap`, `rawset`,
 `setmetatable`) are on the roadmap, and [`test/narrowing_test.tl`] and
-[`build/teal_test.tl`] pin today's behavior of each. the patches are
-`patch/tl/43*` and `44*`.
+[`build/teal_test.tl`] pin today's behavior of each.
 
 a function type stands for another when its parameters accept what the
 other's do (contravariant) and its returns are subtypes of the other's
@@ -970,8 +1002,7 @@ call that names another receiver (`r.read(other, 1)`) still checks, as it
 always did. nothing tells a receiver from another record parameter of a
 field's function, so a callback field `function(Event)` also takes a
 `function(k: KeyEvent)`, as on main. the roadmap item for named receivers
-retires the second, and that hole with it. the
-patches are `patch/tl/48*`.
+retires the second, and that hole with it.
 
 the spirit is consistent, strong, explicit typing, the same shape the
 languages that hold it converged on: the top type inert until
@@ -1007,9 +1038,9 @@ modules by none of those, so a cached compile could stand after the
 module that declares it changed, the verdict of a serial build would
 depend on that order, and parallel workers could not reproduce it.
 everything a module sees comes through a `require`, which the key
-covers. tl's own prelude and standard-library declarations
-([`vendor/tl/tl.tl`]) are read by the checker's environment, not built as
-a source, and are unaffected. a Lua runtime trick the checker cannot
+covers. tl's own prelude ([`checker/tl.tl`]) and the Lua
+standard-library declarations ([`checker/stdlib.d.tl`]) are read by the
+checker's environment, not built as a source, and are unaffected. a Lua runtime trick the checker cannot
 see, `setmetatable(_G, ...)` or `local _ENV = ...`, is not refused, and
 neither is a file run by `cosmic --standalone`, which no build checks.
 
@@ -1141,7 +1172,8 @@ patch/<name>/       exact find/replace records, each with a note
 core/               C: entry, locator, VFS, store, sqlite, surface, boot
 core/syscalls.h     the annotated header cosmic.sys's .d.tl and doc rows derive from
 core/process.h      the same for the raw cosmic.internal.process table
-core/bridge.lua     the boot environment for tl, and its compile of tl.tl, by hand
+core/bridge.lua     the boot environment for tl, and its compile of checker/tl.tl, by hand
+checker/tl.tl       the Teal checker and compiler, one file, compiled at boot by vendor/tl/tl.lua
 cosmic/             the standard library; entry files are public, siblings not
 cmd/cosmic/         the binary's main
 build/              the importer, checker driver, embed (Teal; private to build/ cmd/ test/ tests)
@@ -1239,6 +1271,7 @@ in [roadmap.md](roadmap.md).
 [`build/declared_key.tl`]: ../build/declared_key.tl
 [`build/dispatched_features_test.tl`]: ../build/dispatched_features_test.tl
 [`build/fix/rule.tl`]: ../build/fix/rule.tl
+[`build/identity.tl`]: ../build/identity.tl
 [`build/importer.tl`]: ../build/importer.tl
 [`build/key_parts.tl`]: ../build/key_parts.tl
 [`build/link_index.tl`]: ../build/link_index.tl
@@ -1247,6 +1280,7 @@ in [roadmap.md](roadmap.md).
 [`build/refresh.tl`]: ../build/refresh.tl
 [`build/shards.tl`]: ../build/shards.tl
 [`build/shared_compiles.tl`]: ../build/shared_compiles.tl
+[`build/stdlib_declarations_test.tl`]: ../build/stdlib_declarations_test.tl
 [`build/teal_test.tl`]: ../build/teal_test.tl
 [`build/test.tl`]: ../build/test.tl
 [`build/test_worker.tl`]: ../build/test_worker.tl
@@ -1255,6 +1289,8 @@ in [roadmap.md](roadmap.md).
 [`build/workers.tl`]: ../build/workers.tl
 [`build/zig.tl`]: ../build/zig.tl
 [`build/zig_fetch.tl`]: ../build/zig_fetch.tl
+[`checker/stdlib.d.tl`]: ../checker/stdlib.d.tl
+[`checker/tl.tl`]: ../checker/tl.tl
 [`ci/cosmic-driver.pin`]: ../ci/cosmic-driver.pin
 [`ci/cosmic_ci/host_id.tl`]: ../ci/cosmic_ci/host_id.tl
 [`ci/cosmic_ci/orchestration.tl`]: ../ci/cosmic_ci/orchestration.tl
@@ -1301,4 +1337,3 @@ in [roadmap.md](roadmap.md).
 [`Store.web_asset`]: ../cosmic/store.tl
 [`Test.policy`]: ../cosmic/test.tl
 [`test/narrowing_test.tl`]: ../test/narrowing_test.tl
-[`vendor/tl/tl.tl`]: ../vendor/tl/tl.tl

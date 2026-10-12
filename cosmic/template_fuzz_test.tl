@@ -875,7 +875,7 @@ local function test_a_value_cannot_get_out_of_where_a_slot_puts_it(tmp: string)
           PART_RUN.calls, PART_RUN.only, PART_RUN.skip = 0, runs[at][1], runs[at][2]
           local ok, made = pcall(render, { a = payload, l = list, w = each })
           if not ok then
-            return false, "render raised: " .. tostring(made) .. "\n" .. lua_of(source)
+            return false, "render raised: " .. tostring(made) .. "\n" .. lua_of(assert(source))
           end
           local good, bad = inspect(made.s)
           if not good then

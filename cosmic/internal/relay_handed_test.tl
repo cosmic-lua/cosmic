@@ -114,7 +114,7 @@ local function test_a_public_connect_that_hangs_holds_up_no_other()
     assert(Poll.delay(Clock.ms(50)))
     for _ = 1, 3 do
       local began = Clock.monotonic_ns()
-      local conn, why = connect("127.0.0.1", listener.address.port, wait)
+      local conn, why = connect("127.0.0.1", assert(listener.address.port), wait)
       assert(conn ~= nil, "the connector connects beside the hanging connect: " .. why)
       assert(conn:close())
       assert(Clock.monotonic_ns() - began < Clock.ms(500), "the connection waited for the hanging one")
@@ -137,7 +137,7 @@ local function test_a_public_connector_that_ended_tells_lost()
   local told: {string} = {}
   Poll.run(function()
     local listener = assert(Net.listen(Net.tcp("127.0.0.1", 0)))
-    local port = listener.address.port
+    local port = assert(listener.address.port)
     local accepting = Poll.spawn(function()
       while true do
         local conn = listener:accept()
@@ -348,7 +348,7 @@ local function test_the_upstream_is_resolved_once_and_an_ungranted_name_never(tm
   local lines: {string} = {}
   Poll.run(function()
     local listener = assert(Net.listen(Net.tcp("127.0.0.1", 0)))
-    local port = listener.address.port
+    local port = assert(listener.address.port)
     local udp = assert(Udp.bind("127.0.0.1", port))
     local serving = Poll.spawn(function()
       while true do

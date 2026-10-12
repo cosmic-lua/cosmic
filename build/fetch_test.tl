@@ -40,7 +40,7 @@ end
 
 --- Runs `fetch` with `words` after the verb, over `script`; `fail_out`
 --- makes every write to standard output fail.
-local function run(words: {string}, script: {string}, fail_out?: string): Ran
+local function run(words: {string}, script?: {string}, fail_out?: string): Ran
   local argv: {integer:string} = { "fetch" }
   for _, word in ipairs(words) do argv[#argv + 1] = word end
   local out: {string} = {}
@@ -167,14 +167,14 @@ end
 --- A port a listener held and closed, which nothing listens at now.
 local function closed_port(): integer
   local listener = assert(Net.listen(Net.tcp("127.0.0.1", 0)))
-  local port = listener.address.port
+  local port = assert(listener.address.port)
   assert(listener:close())
   return port
 end
 
 local function test_a_refused_connection_fails()
   local refused = "http://127.0.0.1:" .. closed_port() .. "/"
-  local ran = run({ refused }, nil)
+  local ran = run({ refused })
   assert(ran.code == 1, tostring(ran.code) .. ran.err)
   assert(ran.out == "" and ran.err:find("cosmic: fetch: " .. refused, 1, true) == 1, ran.err)
 end
@@ -205,7 +205,7 @@ local function test_credentials_never_reach_a_message_or_the_json(tmp: string)
   local json = run({ "--head", "--json", secret }, { reply("200 OK", "") })
   assert(json.code == 0 and not json.out:find("hunter2", 1, true), json.out)
   assert(json.out:find("***@cosmic.test", 1, true), json.out)
-  local refused = run({ "http://user:hunter2@127.0.0.1:" .. closed_port() .. "/" }, nil)
+  local refused = run({ "http://user:hunter2@127.0.0.1:" .. closed_port() .. "/" })
   assert(refused.code == 1 and not refused.err:find("hunter2", 1, true), refused.err)
 end
 
@@ -238,9 +238,9 @@ end
 -- so only the decision (`redirect_protocols`, `refusal`) and
 -- cosmic/http_test.tl's scripted http cases are covered.
 local function test_an_https_start_limits_redirects_to_https_unless_allowed()
-  local limited = fetch.redirect_protocols("https://example.test/a", false)
+  local limited = assert(fetch.redirect_protocols("https://example.test/a", false))
   assert(#limited == 1 and limited[1] == "https")
-  limited = fetch.redirect_protocols("HTTPS://example.test/a", false)
+  limited = assert(fetch.redirect_protocols("HTTPS://example.test/a", false))
   assert(#limited == 1 and limited[1] == "https")
   assert(fetch.redirect_protocols("https://example.test/a", true) == nil)
   assert(fetch.redirect_protocols("http://example.test/a", false) == nil)

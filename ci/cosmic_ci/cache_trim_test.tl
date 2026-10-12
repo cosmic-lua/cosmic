@@ -205,16 +205,17 @@ local function test_save_outputs_append_without_replacing_or_reading(tmp: string
   assert(Fs.write(target, prefix, 0x180))
   assert(Fs.symlink(target, link))
   local before = assert(Fs.stat(target))
+  local restored = tmp .. "/restored.db"
   local request: CacheTrim.Request = { family = "compiles", paths = { path }, since_ns = 1,
-    whole = false, restored = tmp .. "/restored.db" }
-  assert(Fs.write(request.restored, "owned snapshot"))
+    whole = false, restored = restored }
+  assert(Fs.write(restored, "owned snapshot"))
   local value = encoded(path)
   value.fresh = 2
   local payload = assert(Json.encode(value))
   local read, append, calls = Fs.read, Fs.append, 0
   Fs.append = function(name: string, text: string, mode?: integer): boolean, string
     calls = calls + 1
-    assert(Fs.exists(request.restored) == false, "snapshot cleanup followed publication")
+    assert(Fs.exists(restored) == false, "snapshot cleanup followed publication")
     assert(name == link and text == "digest=" .. string.rep("a", 64) .. "\nfresh=2\n")
     return append(name, text, mode)
   end

@@ -14,10 +14,7 @@ local ast = require("build.ast")
 local equiv = require("build.fix.equiv")
 local teal = require("build.teal")
 
-local built, load_trouble = teal.load()
-if built == nil then
-  error("could not load the compiler: " .. tostring(load_trouble))
-end
+local built = assert(teal.load())
 
 --- A hand-built tree, for the two cases below that need a shape a
 --- parse will not hand out on demand.

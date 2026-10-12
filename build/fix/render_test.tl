@@ -29,10 +29,7 @@ local fix = require("build.fix")
 local render = require("build.fix.render")
 local teal = require("build.teal")
 
-local built, load_trouble = teal.load()
-if built == nil then
-  error("could not load the compiler: " .. tostring(load_trouble))
-end
+local built = assert(teal.load())
 
 --- Run the whole pipeline over `source`, asserting it succeeded.
 --- @param source string
@@ -606,7 +603,7 @@ local function test_a_semicolon_keeps_its_own_line()
   writes("f()\n; g()\n", "f()\n; g()\n")
 end
 
---- A number's digit separators (patch/tl/38a) are written back as the
+--- A number's digit separators are written back as the
 --- source has them: only the Lua the compiler emits drops them.
 local function test_a_number_keeps_its_digit_separators()
   writes("local n = 1_000_000 + 0xFF_FF + 3.141_592 + 6.02e2_3\n",

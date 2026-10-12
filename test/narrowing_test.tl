@@ -1,8 +1,8 @@
---- Proves the narrowing that patch/tl adds. A bare variable narrows
---- across a statement-form `assert(x, ...)` (07-assert-narrows.txt).
+--- Proves the narrowing that the checker ([`checker/tl.tl`]) does. A bare
+--- variable narrows across a statement-form `assert(x, ...)`.
 --- `x.field` on a plain-variable base narrows as a bare variable does
 --- -- truthy read, `assert`, `== nil` / `~= nil`, and the early-return
---- shape -- through the fact-key mechanism of 08 through 14. Each such
+--- shape -- through the checker's fact-key mechanism. Each such
 --- positive case has a negative one proving a write drops the narrow,
 --- and one proving a chained base (`a.b.field`, whose base is itself a
 --- field access rather than a bare variable) is never narrowed.
@@ -690,7 +690,7 @@ print(upper(1))
 end
 
 --- `local error = error` has the type of `error`, so it narrows as `error`
---- does (patch/tl's 44a, 44b): the guarantee is checked where the variable
+--- does: the guarantee is checked where the variable
 --- is written, and assigning it a function that may return is refused.
 local function test_a_local_holding_error_narrows(tmp: string)
   local ok, trouble = try_build(tmp, "error-localized", entry_prelude .. [[
@@ -732,7 +732,7 @@ print(size("a"))
 end
 
 --- A call of a function declared `: never` ends its block as `error(...)`
---- does (patch/tl's 43f1), so the guard narrows below it. The helper is
+--- does, so the guard narrows below it. The helper is
 --- declared as a local function, a record field, a method, a `__call`
 --- and a generic; each case declares `fail` and the guard is the same.
 local never_guard = [[

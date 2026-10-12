@@ -414,19 +414,21 @@ local function start(attributes: dialect.Table): Place
 end
 
 local function copy(p: Place): Place
+  local off = p.off
   return { dialect = p.dialect, ident = p.ident, sole = p.sole, sole_trail = p.sole_trail, phase = p.phase, tag = p.tag, attr = p.attr, closing = p.closing, fresh = p.fresh, stack = p.stack,
     murky = p.murky, select = p.select, frameset = p.frameset, fontattr = p.fontattr, slash = p.slash, after_url = p.after_url, colon = p.colon, bare = p.bare,
     rooted = p.rooted, lead = p.lead, pinned = p.pinned, seg = p.seg, query = p.query, amp = p.amp, wait = p.wait, equiv = p.equiv,
     meta_line = p.meta_line, meta_col = p.meta_col, late = p.late, late_line = p.late_line,
     late_col = p.late_col, raw_tail = p.raw_tail,
-    escaped = p.escaped, double = p.double, split = p.split, off = p.off and copy(p.off), alts = p.alts }
+    escaped = p.escaped, double = p.double, split = p.split, off = off and copy(off), alts = p.alts }
 end
 
 local function key(p: Place): string
+  local off = p.off
   return string.format("%s %q %q %s %s %q %s %s %s %s %s %s %s %s %s %s %d %d %q %d %d %q %s %s %s %q %q %s %q %q %s %s %s %s %s %s", p.phase, p.tag,
     p.attr, p.closing, p.fresh, p.stack, p.murky, p.select, p.frameset, p.fontattr, p.slash, p.after_url, p.colon, p.bare,
     p.rooted, p.equiv, p.meta_line, p.meta_col, p.late, p.late_line, p.late_col, p.raw_tail, p.escaped, p.double, p.split, p.alts,
-    p.off and key(p.off) or "-", p.pinned, p.lead, p.seg, p.query, p.amp, p.wait,
+    off and key(off) or "-", p.pinned, p.lead, p.seg, p.query, p.amp, p.wait,
     p.ident, p.sole, p.sole_trail)
 end
 
@@ -508,7 +510,7 @@ local function same(a: Place, b: Place): boolean
   if a.alts == "" and b.alts == "" and alike(a, b) then
     -- In `<noscript>` text, where both have one, the scripting-off
     -- readings may themselves stand apart in a tag, as `join` holds them.
-    return a.off == nil or same(a.off, b.off)
+    return a.off == nil or same(a.off, assert(b.off))
   end
   return apart(a, b)
 end
@@ -732,7 +734,7 @@ end
 
 local function join(a: Place, b: Place)
   if a.off ~= nil then
-    join(a.off, b.off)
+    join(a.off, assert(b.off))
   end
   a.fresh = a.fresh and b.fresh
   a.ident = a.ident and b.ident

@@ -1273,7 +1273,7 @@ local function by_options(view: docs.View, query: string,
     local verb = entry.module == "cosmic.cli" and entry.symbol:match("^Cli%.(%w+)$") or nil
     if verb ~= nil and not held[entry.module .. "\n" .. entry.symbol] then
       local spoken = tokens_of(entry.source_symbol .. "\n" .. entry.signature .. "\n" ..
-          entry.text .. "\n" .. Flags.options(Cli.verbs[verb].spec))
+          entry.text .. "\n" .. Flags.options(Cli.verbs[verb].spec or {}))
       local all = true
       for _, phrase in ipairs(wanted) do
         if not spoken:find(phrase, 1, true) then all = false end

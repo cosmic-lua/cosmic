@@ -421,8 +421,8 @@ local function run_rebuild_case(fixture_dir: string,
   end)
 end
 
--- One of the three ways a stale tool (a pinned tl version, an unapplied
--- patch, or an edited launcher generator) is refused outright, when
+-- One of the three ways a stale tool (a pinned tl version, an edited
+-- checker, or an edited launcher generator) is refused outright, when
 -- COSMIC_AUTO_BOOT=0 says not to boot, without ever reaching `test.run` or
 -- touching the artifact.
 local function run_refusal_case(fixture_dir: string,
@@ -439,10 +439,9 @@ local function run_refusal_case(fixture_dir: string,
   if name == "tl-pin" then
     local pin = tree .. "/vendor/tl/PIN"
     Fixture.write(pin, Fixture.read(pin) .. "\n# refusal fixture\n")
-  elseif name == "tl-patch" then
-    Fixture.mkdir(tree .. "/patch/tl")
-    Fixture.write(tree .. "/patch/tl/refusal-fixture.patch",
-      "refusal fixture\n")
+  elseif name == "tl-checker" then
+    local checker = tree .. "/checker/tl.tl"
+    Fixture.write(checker, Fixture.read(checker) .. "\n-- refusal fixture\n")
   elseif name == "launcher" then
     local launcher = tree .. "/build/launcher.tl"
     Fixture.write(launcher, Fixture.read(launcher) ..
@@ -489,7 +488,7 @@ end
 
 local function test_self_rebuild_refusals(tmp: string)
   local fixture_dir = Fixture.required("COSMIC_FIXTURE_RUNTIME")
-  for _, name in ipairs({ "tl-pin", "tl-patch", "launcher" }) do
+  for _, name in ipairs({ "tl-pin", "tl-checker", "launcher" }) do
     run_refusal_case(fixture_dir, tmp, name)
   end
 end

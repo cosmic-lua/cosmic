@@ -41,9 +41,10 @@ end
 -- first module is compiled. So a row here is keyed by its inputs
 -- themselves, whole or not at all:
 --
---   * `compiler`: the Lua that the vendored `stage0` makes of the patched
---     `tl.tl`, keyed by the digests of `tl.lua` (which is `stage0`),
---     `tl.tl` and this file.
+--   * `compiler`: the Lua that the vendored `stage0` makes of the tree's
+--     checker, [`checker/tl.tl`], keyed by the digests of `tl.lua` (which is
+--     `stage0`), the checker's source, [`checker/stdlib.d.tl`] and this
+--     file.
 --   * `modules`: the Lua of every module loaded up to [`build.boot`],
 --     keyed by the compiler's key and the digest of every `.tl` and `.h`
 --     under the root (`manifest`).
@@ -405,8 +406,8 @@ local function unpack_records(payload)
 end
 
 -- The key of the compiler's row and the base of the modules' rows: the
--- digests of `tl.lua`, of `source` (the patched `tl.tl`) and of this
--- file, which sets the compiler's defaults and decides what is kept.
+-- digests of `tl.lua`, of `source` (the checker's `tl.tl`), of
+-- `declarations` (its `stdlib.d.tl`) and of this file, which sets the compiler's defaults and decides what is kept.
 -- Nil when one cannot be read, when the cache is off, or when `TL_PATH`
 -- is set, which changes where the compiler looks for modules.
 --
@@ -414,14 +415,15 @@ end
 -- loaded, not a second read of each: an edit between the two keys rows
 -- to a file that is not the one running. Waits on core/boot.c handing
 -- the bridge the bytes it loaded (`slurp` already reads them whole).
-local function make_compiler_key(tl_dir, source, variables)
+local function make_compiler_key(tl_dir, source, declarations, variables)
   if is_set(variables, 'TL_PATH') or not location(variables) then
     return nil
   end
   local vendored = file_digest(tl_dir .. '/tl.lua')
   local bridge = file_digest(root .. '/core/bridge.lua')
   if not vendored or not bridge then return nil end
-  return hex(sha256(format .. '\ncompiler\n' .. vendored .. sha256(source) .. bridge))
+  return hex(sha256(format .. '\ncompiler\n' .. vendored .. sha256(source) ..
+    sha256(declarations) .. bridge))
 end
 
 -- Set by `bootstrap` for [`searcher_for`], which keys its modules by it.
@@ -715,18 +717,35 @@ local function searcher_for(tl, variables)
   end
 end
 
--- The compiler the tree is built with and the tool carries: the
--- vendored `tl.tl`, its patch records applied, compiled by `stage0`,
--- the vendored `tl.lua` exactly as upstream generated it, and loaded in
--- the compiler's environment. Answers the compiler and the Lua it was
--- compiled to. The compiler compiles itself to the same Lua
+-- The compiler the tree is built with and the tool carries: the tree's
+-- own checker, the Teal file at `file` (checker/tl.tl), compiled by
+-- `stage0`, the vendored `tl.lua` exactly as upstream generated it, and
+-- loaded in the compiler's environment. Answers the compiler and the Lua
+-- it was compiled to. The compiler compiles itself to the same Lua
 -- (build/compiler_test.tl), so which compiler compiled it does not show
 -- in what it is.
-local function bootstrap(stage0, tl_dir, variables)
-  local file = tl_dir .. '/tl.tl'
+--
+-- The Lua standard library's declarations, `stdlib.d.tl` beside `file`,
+-- ride in that Lua: it starts with `local stdlib = "<their text>"` on its
+-- first line, the local the checker's `stdlib` is. The text is quoted on
+-- that one line, a newline written `\n` where `%q` writes a backslash and
+-- a newline, so no line of the compiled checker moves.
+-- build/compiler_test.tl builds the same first line and holds the
+-- checker to compiling its own source to it.
+--
+-- `tl_dir` is where `tl.lua` is, which core/boot.c loaded as `stage0`.
+-- What `stage0` makes of the checker is kept in the cache
+-- (`compiler_key`); the declarations' line is put in front of it either way.
+local function bootstrap(stage0, file, tl_dir, variables)
   local source, err = read_all(file)
   if not source then error(file .. ': ' .. tostring(err), 0) end
-  compiler_key = make_compiler_key(tl_dir, source, variables)
+  local directory = file:match('^(.*)/[^/]*$') or '.'
+  local declarations_file = directory .. '/stdlib.d.tl'
+  local declarations, declarations_err = read_all(declarations_file)
+  if not declarations then
+    error(declarations_file .. ': ' .. tostring(declarations_err), 0)
+  end
+  compiler_key = make_compiler_key(tl_dir, source, declarations, variables)
   local code
   if compiler_key then
     local cached = cache_file(variables, false)
@@ -744,14 +763,16 @@ local function bootstrap(stage0, tl_dir, variables)
       syntax_errors = result.syntax_errors, type_errors = result.type_errors,
     })
     if not code or trouble ~= '' then
-      error(file .. ': the vendored compiler refused it\n' .. trouble, 0)
+      error(file .. ': the checker refused it\n' .. trouble, 0)
     end
     local made = compiler_key and cache_file(variables, true)
     if made then
       keep(made, 'compiler', compiler_key, '',
-        pack_records({ { name = 'tl', file = 'tl.tl', code = code } }))
+        pack_records({ { name = 'tl', file = 'checker/tl.tl', code = code } }))
     end
   end
+  code = 'local stdlib = ' ..
+    string.format('%q', declarations):gsub('\\\n', '\\n') .. ' ' .. code
   local chunk, load_err = load(code, '@vendor.tl', 't', environment)
   if not chunk then error(file .. ': ' .. load_err, 0) end
   return chunk(), code

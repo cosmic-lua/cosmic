@@ -216,7 +216,10 @@ local function test_the_key_names_this_host_as_its_cpuinfo_does(tmp: string)
   -- under /proc (cpuinfo, kernel/osrelease, kernel/version): a sandbox's
   -- /proc is mounted subset=pid, and a grant of /proc/cpuinfo reaches
   -- none of it, so every sandboxed leg skips here.
-  if text == nil then Test.skip("this worker's /proc has no cpuinfo to read") end
+  if text == nil then
+    Test.skip("this worker's /proc has no cpuinfo to read")
+    return
+  end
   local release, version = tmp .. "/osrelease", tmp .. "/version"
   assert(Fs.write(release, Fs.read("/proc/sys/kernel/osrelease") or ""))
   assert(Fs.write(version, Fs.read("/proc/sys/kernel/version") or ""))

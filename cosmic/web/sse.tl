@@ -432,7 +432,7 @@ local EVENT_STREAM_FIELDS <const>: {string:boolean} = {
 }
 
 --- Why `value` is no integer of at least `least`; nil when it is, or nil.
-local function not_counted(what: string, value: integer, least: integer): string | nil
+local function not_counted(what: string, value: integer | nil, least: integer): string | nil
   if value ~= nil and (math.type(value) ~= "integer" or value < least) then
     return ("sse: %s must be an integer of at least %d"):format(what, least)
   end
@@ -452,7 +452,7 @@ local function not_checked(given: any, known: {string:boolean}, what: string): s
 end
 
 --- Raises unless `value` is nil or an integer of at least `least`.
-local function counted(what: string, value: integer, least: integer)
+local function counted(what: string, value: integer | nil, least: integer)
   local why = not_counted(what, value, least)
   if why ~= nil then error(why, 3) end
 end

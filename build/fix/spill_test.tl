@@ -44,7 +44,7 @@ local function test_the_checker_names_the_spilling_assert()
     'local t: {string} = { "a", assert(tostring(n)) }\n' ..
     'local function count(): integer | nil, string return 1, "" end\n' ..
     'local u: {integer} = { 2, assert(count()) }\nreturn { t, u }\n'
-  local env = built.new_env({})
+  local env = assert(built.new_env({}))
   local _, result = built.gen(src, env, nil, "tl")
   local found: {string} = {}
   for _, e in ipairs(result.type_errors) do

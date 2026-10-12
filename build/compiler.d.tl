@@ -1,4 +1,4 @@
--- The part of the vendored Teal compiler this tree uses. Nothing else
+-- The part of the Teal compiler this tree uses. Nothing else
 -- in the tree reaches into it. [`build.teal`] is what loads it.
 
 local record compiler
@@ -8,7 +8,7 @@ local record compiler
     x: integer
     msg: string
     -- For a key a record lacks (`invalid key ...`): the record's value
-    -- fields, unordered (patch/tl/33a).
+    -- fields, unordered.
     fields: {string} | nil
   end
 
@@ -99,8 +99,8 @@ local record compiler
   new_env: function(Options): Env | nil, string
   -- The Lua source for a Teal source, and what the checker found. The
   -- code is nil when the input did not parse.
-  gen: function(input: string, env: Env, options: any,
-                language: string): string | nil, Result
+  gen: function(input: string, env?: Env, options?: any,
+                language?: string): string | nil, Result
   -- Checks `input` as the module `filename`: every position the checker
   -- records (a type's, an error's) carries that name, which is how it
   -- tells one module's types from another's. [`gen`] checks under the

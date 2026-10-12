@@ -219,7 +219,7 @@ end
 --- Whether token `i` starts a parameter: `name:`, `name?:`, `?T` or
 --- `...`, none of which can start a type. tl ends a function's return
 --- types before a `,` followed by one (its parse_trying_list's
---- lookahead, with patch/tl's 30-return-types-end-before-a-parameter.txt),
+--- lookahead in [`checker/tl.tl`]),
 --- so that `function(f: function(): integer, n?: integer)` is two
 --- parameters.
 local function starts_a_parameter(s: Scan, i: integer): boolean

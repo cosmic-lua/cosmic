@@ -26,10 +26,7 @@ local render_mod = require("build.fix.render")
 local Sqlite = require("cosmic.sqlite")
 local teal = require("build.teal")
 
-local built, load_trouble = teal.load()
-if built == nil then
-  error("could not load the compiler: " .. tostring(load_trouble))
-end
+local built = assert(teal.load())
 
 --- A fixture broad enough to reach most of the grammar at once, in one
 --- string, so the properties below are checked over something with
@@ -222,6 +219,32 @@ local function test_c_is_taken_only_in_cosmics_own_tree(tmp: string)
   assert(#named.c_files == 1 and #named.refused == 0, "a header named is checked")
 end
 
+--- The checker is not laid out, however it is named: found in a walk, a
+--- directory named or the file itself, spelled with a `..` or not. Another
+--- tree's `checker/` is its own source.
+local function test_the_checker_is_held_out_when_named_as_a_file(tmp: string)
+  local own = tmp .. "/held"
+  assert(Fs.mkdirs(own .. "/core"))
+  assert(Fs.mkdirs(own .. "/build"))
+  assert(Fs.mkdirs(own .. "/checker"))
+  assert(Fs.mkdirs(own .. "/vendor/lua"))
+  assert(Fs.write(own .. "/build/importer.tl", "return {}\n"))
+  assert(Fs.write(own .. "/checker/tl.tl", "return {}\n"))
+  for _, named in ipairs({ {}, { own }, { own .. "/checker" }, { own .. "/checker/tl.tl" },
+      { own .. "/build/../checker/tl.tl" } }) do
+    for _, file in ipairs(assert(fix.chosen(own, named)).files) do
+      assert(not file:find("/checker/", 1, true), "laid out " .. file)
+    end
+  end
+  local mixed = assert(fix.chosen(own, { own .. "/checker/tl.tl", own .. "/build/importer.tl" }))
+  assert(#mixed.files == 1 and #mixed.refused == 0, "the checker named beside another file")
+  local other = tmp .. "/elsewhere"
+  assert(Fs.mkdirs(other .. "/checker"))
+  assert(Fs.write(other .. "/checker/tl.tl", "return {}\n"))
+  assert(#assert(fix.chosen(other, { other .. "/checker/tl.tl" })).files == 1,
+    "another tree's checker/ is its own source")
+end
+
 --- The tree-wide checks run only over every Teal source of cosmic's own
 --- tree, however it is named: not over a part of it, nor over a tree
 --- of another's.
@@ -297,13 +320,15 @@ local function test_changed_lays_out_only_the_paths_named(tmp: string)
   assert(narrowed.whole and narrowed.every == every, "a run of --changed is not whole")
   assert(names(narrowed.files) == "ci/a.tl cosmic/thing.tl", names(narrowed.files))
   assert(#narrowed.c_files == 0 and #narrowed.flow_files == 0, "it lays out C or YAML that did not change")
-  assert(names(narrowed.noted) == "ci/a.tl cosmic/other.tl cosmic/string.tl cosmic/thing.tl",
-    "it notes " .. names(narrowed.noted))
+  local noted = assert(narrowed.noted)
+  assert(names(noted) == "ci/a.tl cosmic/other.tl cosmic/string.tl cosmic/thing.tl",
+    "it notes " .. names(noted))
 
   narrowed = fix.narrowed(own, every, { "ci/a.tl", "lib/b.c" }, { db })
+  noted = assert(narrowed.noted)
   assert(narrowed.widened == nil and names(narrowed.files) == "ci/a.tl" and
-      names(narrowed.noted) == "ci/a.tl cosmic/other.tl cosmic/string.tl cosmic/thing.tl",
-    "outside the standard library, it notes " .. names(narrowed.noted))
+      names(noted) == "ci/a.tl cosmic/other.tl cosmic/string.tl cosmic/thing.tl",
+    "outside the standard library, it notes " .. names(noted))
   assert(names(narrowed.c_files) == "core/a.c lib/b.c", "one C file changed holds " ..
       names(narrowed.c_files) .. " to the rules")
 

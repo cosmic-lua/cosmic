@@ -315,7 +315,7 @@ local function value_of(cell: Sqlite.Cell): Sqlite.Value
   if cell.kind == "number" then
     return { number = cell.number }
   end
-  return text(cell.text)
+  return text(assert(cell.text))
 end
 
 --- Copies every row `query` yields from `from`, bound to `values`, into

@@ -34,6 +34,11 @@ local function project(dir: string): string
   assert(Sqlite.run(db, "CREATE TABLE files (path TEXT PRIMARY KEY, size INTEGER, " ..
       "mtime_ns INTEGER, ino INTEGER, dev INTEGER, sha256 TEXT, data BLOB) WITHOUT ROWID"))
   assert(Sqlite.run(db, "INSERT INTO files (path) VALUES ('a/b/x_test.tl')"))
+  -- And one file of the tool's own, which no module is.
+  assert(Sqlite.run(db, "CREATE TABLE tool (path TEXT PRIMARY KEY, size INTEGER, " ..
+      "mtime_ns INTEGER, ctime_ns INTEGER, ino INTEGER, dev INTEGER, sha256 TEXT) WITHOUT ROWID"))
+  assert(Sqlite.run(db, "INSERT INTO tool (path) VALUES ('checker/tl.tl')"))
+  assert(Fs.mkdirs(tmp .. "/proj/checker"))
   assert(db:close())
   return tmp .. "/proj"
 end
@@ -56,6 +61,13 @@ local function test_an_ancestor_with_a_built_database_is_the_tree(tmp: string)
   assert(rooted(root .. "/a/b", nil) == root)
   assert(rooted(root .. "/a", nil) == root)
   assert(rooted(root, nil) == nil)
+end
+
+--- A directory the build walked for the tool's own files and staged no
+--- module under is part of the tree too: `checker/` holds the checker.
+local function test_a_directory_of_the_tools_own_files_is_in_the_tree(tmp: string)
+  local root = project(tmp)
+  assert(rooted(root .. "/checker", nil) == root)
 end
 
 --- `o/build.db` alone is what a failed run leaves anywhere, so it makes

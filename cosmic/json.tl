@@ -1173,8 +1173,9 @@ local function apply(seg: Json.Segment, node: Json.Match, out: {Json.Match}): bo
     return false, "json: the value at " .. at_pointer(pointer_of(node.steps)) .. " is a table with mixed keys"
   end
   if seg.kind == "name" then
-    if shape == "object" and t[seg.name] ~= nil then
-      out[#out + 1] = { steps = extended(node.steps, seg.name), value = t[seg.name] }
+    local name = seg.name
+    if shape == "object" and name ~= nil and t[name] ~= nil then
+      out[#out + 1] = { steps = extended(node.steps, name), value = t[name] }
     end
   elseif seg.kind == "index" then
     if shape == "array" then

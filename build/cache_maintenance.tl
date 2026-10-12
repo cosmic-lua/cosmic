@@ -49,7 +49,8 @@ local record maintenance
 end
 
 local record Database
-  db: Sqlite.Handle
+  --- Nil once closed, and for a database [`owned`] has none yet.
+  db?: Sqlite.Handle
   transaction: boolean
   metamethod __close: function(Database)
 end
@@ -63,12 +64,14 @@ local database_mt: metatable<Database> = {
   end,
 }
 
-local function owned(db: Sqlite.Handle): Database
+local function owned(db?: Sqlite.Handle): Database
   return setmetatable({ db = db, transaction = false }, database_mt)
 end
 
 local function close(database: Database): boolean, string
-  local ok, why = database.db:close()
+  local db = database.db
+  if db == nil then return true, "" end
+  local ok, why = db:close()
   if not ok then return false, why end
   database.db = nil
   return true, ""
@@ -109,17 +112,18 @@ local function normalized(sql: string): string
 end
 
 local function shapes(): {string:Shape}
-  local scratch <close> = owned((assert(Sqlite.memory())))
+  local memory = assert(Sqlite.memory())
+  local _scratch <close> = owned(memory)
   for _, schema in ipairs({ formats.compiles, formats.bridge_statements, formats.verdicts }) do
-    for _, sql in ipairs(schema) do assert(scratch.db:exec(sql)) end
+    for _, sql in ipairs(schema) do assert(memory:exec(sql)) end
   end
-  assert(scratch.db:exec(formats.legacy_verdicts))
+  assert(memory:exec(formats.legacy_verdicts))
   local out: {string:Shape} = {}
   for _, name in ipairs({ formats.compiled, formats.parsed, formats.bridge, formats.declared,
       formats.stores, "verdicts_v4" }) do
-    local sql = assert(Sqlite.text_rows(scratch.db,
+    local sql = assert(Sqlite.text_rows(memory,
       "SELECT sql FROM sqlite_schema WHERE name = ?1", { { text = name } }))[1][1]
-    out[name] = { columns = (assert(columns(scratch.db, name))), sql = normalized(sql) }
+    out[name] = { columns = (assert(columns(memory, name))), sql = normalized(sql) }
   end
   return out
 end
@@ -266,7 +270,7 @@ local function maintain_file(path: string, options: maintenance.Options,
   -- keep every unreadable file and omit its save digest.
   if opened == nil then return failed(file, open_why) end
   local database <close> = owned(opened)
-  local db = database.db
+  local db = opened
   db:busy_timeout(Clock.seconds(10))
   local begun = db:exec_result("BEGIN IMMEDIATE")
   if begun.code ~= Sqlite.OK then return failed(file, begun.reason) end
@@ -331,7 +335,7 @@ local function feed_rows(hasher: Hash.Hasher, path: string, guard: Signal.Guard)
   local opened, open_why = Sqlite.open(path, { writable = true, create = false })
   if opened == nil then return false, open_why end
   local database <close> = owned(opened)
-  local db = database.db
+  local db = opened
   db:busy_timeout(Clock.seconds(10))
   local begun = db:exec_result("BEGIN")
   if begun.code ~= Sqlite.OK then return false, begun.reason end
@@ -392,7 +396,7 @@ local function digest(paths: {string}, guard: Signal.Guard): string | nil, strin
 end
 
 --- Merge two ordered key cursors; memory holds at most one key from each.
-local function new_keys(db: Sqlite.Handle, restored: Sqlite.Handle,
+local function new_keys(db: Sqlite.Handle, restored: Sqlite.Handle | nil,
                         name: string, guard: Signal.Guard): integer | nil, string
   if restored == nil then return count(db, "SELECT count(*) FROM " .. quoted(name)) end
   local there, there_why = count(restored,
@@ -430,7 +434,7 @@ local function fresh_keys(path: string, restored: string, expected: {string:Shap
   local opened, why = Sqlite.open(path, { writable = true, create = false })
   if opened == nil then return nil, why end
   local live <close> = owned(opened)
-  live.db:busy_timeout(Clock.seconds(10))
+  opened:busy_timeout(Clock.seconds(10))
   local old <close> = owned(nil)
   local st, stat_why, errno = sys.stat(restored)
   if st ~= nil then
@@ -440,7 +444,7 @@ local function fresh_keys(path: string, restored: string, expected: {string:Shap
   elseif errno ~= sys.ENOENT then
     return nil, stat_why
   end
-  for _, db in ipairs(old.db ~= nil and { live.db, old.db } or { live.db }) do
+  for _, db in ipairs(old.db ~= nil and { opened, old.db } or { opened }) do
     local tables, table_why = inspect(db, "compiles", expected)
     if tables == nil then return nil, table_why end
     for _, entry in ipairs(tables) do
@@ -449,13 +453,13 @@ local function fresh_keys(path: string, restored: string, expected: {string:Shap
       end
     end
   end
-  local names, names_why = Sqlite.text_rows(live.db,
+  local names, names_why = Sqlite.text_rows(opened,
     "SELECT name FROM sqlite_schema WHERE type = 'table' ORDER BY name")
   if names == nil then return nil, names_why end
   local total = 0
   for _, row in ipairs(names) do
     if row[1]:match("^compiled_v%d+$") then
-      local n, count_why = new_keys(live.db, old.db, row[1], guard)
+      local n, count_why = new_keys(opened, old.db, row[1], guard)
       if n == nil then return nil, count_why end
       total = total + n
     end
@@ -464,7 +468,7 @@ local function fresh_keys(path: string, restored: string, expected: {string:Shap
     local closed, close_why = close(old)
     if not closed then return nil, close_why end
   end
-  local ready, ready_why = checkpoint(live.db)
+  local ready, ready_why = checkpoint(opened)
   if not ready then return nil, ready_why end
   local closed, close_why = close(live)
   if not closed then return nil, close_why end
