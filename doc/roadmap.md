@@ -39,8 +39,7 @@ defines the target; once something ships, it leaves this file.
 - make every guard read every place alike: a field path of any depth
   (`a.b.c`) and an index (`t[k]`, `k` a literal or a local never
   reassigned) are places, and a write to any index drops every index
-  place; `type(x.f) == "..."` and the left operand of `and` narrow a field
-  as they do a local; `x is A | B | C` guards all its members, not the last
+  place; `is` tests a field as it does a local; `x is A | B | C` guards all its members, not the last
   pair; an assignment drops the place assigned and its extensions only
   (`r.f = v` keeps `r.foo`).
 - let `setmetatable` attach metamethods only to a record type that

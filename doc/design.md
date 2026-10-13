@@ -989,11 +989,17 @@ reaches it from code that may have changed one; a label only gotos above it
 name drops nothing, as what those paths dropped stays dropped. a function
 literal runs later, when what a test established may no longer hold
 (`local f = function() return r.n + 1 end`, then a call that clears `r.n`,
-then `f()`), so its body begins with none of the facts of the places outside it
-that may change before it runs: every field path, and each local that is
-assigned once it is declared (by an assignment anywhere, in any function; a
-local that nothing assigns keeps its facts, since it is the same whenever the
-literal runs). a read in the body of a place so hidden is refused with the
+then `f()`), so its body begins without the facts of the places outside it
+that may change before it runs, and keeps the rest. it loses every field path,
+because any code that runs before it may write one, and each local that any
+assignment names after its declaration, in any function (a parameter, a
+`local x = x` copy and a local declared with a value alike), because the
+assignment may run between the test and the call. it keeps the facts of a
+local that nothing assigns once it is declared, since that local holds the same
+value whenever the literal runs: its test, or the value it was declared with,
+still stands in the body. a hidden local reads with the type it was declared
+with (for `local x = x`, the type of the expression it copies), never the
+type of another variable of the name. a read in the body of a place so hidden is refused with the
 code `narrowing_dropped`, kind `function`, and the hint copies the value to a
 local before the function. the body still learns what it tests itself, and
 creating the function runs none of its body, so the facts outside it stand

@@ -8963,9 +8963,11 @@ do
          if var then
             if var.is_specialized then
                -- A name widened in this scope and narrowed again keeps the
-               -- widening, which the end of the scope reads, and records the
-               -- type to widen to: otherwise nothing could drop the fact.
-               if var.is_specialized == "widen" and specialization ~= "widen" then
+               -- widening, which the end of the scope reads, and so does a
+               -- local declared `local x = x` that is narrowed: both record
+               -- the type to widen to, or nothing could drop the fact.
+               if (var.is_specialized == "widen" or var.is_specialized == "localizing")
+                  and specialization ~= "widen" and specialization ~= "localizing" then
                   var.widened_from = var.widened_from or var.t
                   scope.narrows = scope.narrows or {}
                   scope.narrows[name] = true
@@ -9099,10 +9101,10 @@ do
       local v = scope.vars[var]
       assert(v, "no " .. var .. " in scope")
       local specialization = scope.vars[var].is_specialized
-      if specialization == "widen" and v.widened_from then
+      if (specialization == "widen" or specialization == "localizing") and v.widened_from then
          v.t = v.widened_from
          v.widened_from = nil
-         if scope.narrows then
+         if scope.narrows and specialization == "widen" then
             scope.narrows[var] = nil
          end
          return true
@@ -9393,9 +9395,15 @@ do
       for i = #self.st, 1, -1 do
          local scope = self.st[i]
          if scope.vars[name] then
+            -- A local declared `local x = x` is a variable of its own: the
+            -- name below it is another.
+            local own = scope.vars[name].is_specialized == "localizing"
             if self:widen_in_scope(i, name) then
                widened = true
             else
+               break
+            end
+            if own then
                break
             end
          end

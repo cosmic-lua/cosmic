@@ -1083,11 +1083,12 @@ local function test_a_call_drops_a_local_a_function_declared_in_the_same_inner_b
     "6: " .. plus:sub(1, 28))
 end
 
--- TODO: refuse the first of these once a declaration of two names gives each
--- its declared type: `local x, y: number | nil = nil, 0` gives `y` the type
--- `number`, which `y = nil` is assigned to by the rule that nil is assignable
--- to every type (the roadmap's nil item), so `y` is not narrowed and `reset`
--- puts nil in a `number`. The first name, and a local alone, are refused.
+-- TODO: refuse the first of these once nil is assignable to no type but one
+-- that names it (the roadmap's nil item): `local x, y: number | nil = nil, 0`
+-- gives `y` the type `number`, and `local x = x` after a test of `x` gives
+-- the copy that type too, so `y = nil` in `reset` is allowed, `y` is not
+-- narrowed and `reset` puts nil in a `number`. The first name, and a local
+-- alone, are refused.
 
 --- A call drops a local assigned under a test of it when a function literal
 --- assigns it. The second name of a declaration of two is `number` here, not
@@ -1133,6 +1134,32 @@ local function test_a_narrowing_kept_where_the_name_was_widened_is_hidden_and_re
       "  local g = function(): number return x + 1 end\n  print(g, reset)\nend\n", "5: " .. plus:sub(1, 28))
   refused_source(zero .. "do\n  local function reset() x = nil end\n  if x == nil then return end\n" ..
       "  for _ = 1, 2 do\n    print(x + 1)\n    reset()\n  end\nend\n", "6: 'x' was narrowed before this loop")
+end
+
+--- A local declared `local x = x` keeps the type it was declared with, so an
+--- assignment, a call of a function that assigns it, and a function body each
+--- widen or hide it as they do any local. A parameter is a local too, and one
+--- that nothing assigns after its test keeps the test in a function body.
+local function test_a_copy_of_a_local_and_a_parameter_are_widened_and_hidden_like_any_local()
+  local def = "local function f(x: number | nil): number\n  local x = x\n  if x == nil then return 0 end\n"
+  refused_source(def .. "  x = nil\n  return x + 1\nend\nprint(f)\n", "5: cannot use operator '+' for types nil")
+  refused_source(def .. "  local function clear() x = nil end\n  clear()\n  return x + 1\nend\nprint(f)\n", "6: " .. plus:sub(1, 28))
+  refused_source(def .. "  local g = function(): number return x + 1 end\n  x = nil\n  return g()\nend\nprint(f)\n", "4: " .. plus:sub(1, 28))
+  -- Not reassigned: the test holds in the body, and in the copy a hint suggests.
+  accepted_source(def .. "  local g = function(): number return x + 1 end\n  return g()\nend\nprint(f)\n")
+  accepted_source("local function f(x: number | nil): number\n  if x == nil then return 0 end\n  local y = x\n" ..
+      "  local g = function(): number return y + 1 end\n  x = nil\n  return g()\nend\nprint(f)\n")
+  accepted_source("local function f(x: number | nil): number\n  if x == nil then return 0 end\n  local x = x\n" ..
+      "  local g = function(): number return x + 1 end\n  return g()\nend\nprint(f)\n")
+  -- Widening the copy leaves the name below it, another variable, out of it.
+  accepted_source("local function f(x: number | string | nil): number | string\n  if x == nil then return 0 end\n  do\n    local x = x\n" ..
+      "    if type(x) == \"string\" then return 1 end\n    local function set() x = \"s\" end\n    set()\n" ..
+      "    local back: number | string = x\n    return back\n  end\nend\nprint(f)\n")
+  -- A parameter assigned after the function is made.
+  refused_source("local function f(x: number | nil): function(): number\n  if x == nil then error(\"no\") end\n" ..
+      "  local g = function(): number return x + 1 end\n  x = nil\n  return g\nend\nprint(f)\n", "3: " .. plus:sub(1, 28))
+  accepted_source("local function f(x: number | nil): function(): number\n  if x == nil then error(\"no\") end\n" ..
+      "  local g = function(): number return x + 1 end\n  return g\nend\nprint(f)\n")
 end
 
 --- The refusal says the function is what hid the test, with the copy that

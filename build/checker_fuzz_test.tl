@@ -210,12 +210,12 @@ end
 
 --- Whether a bare use of `p` is kept out of the draw, for the hole the
 --- checker has in what it keeps of a local past a call to a function that
---- assigns it: the local is the second name of a declaration of two, which
---- the checker types `integer`, as nil is assignable to it. A program
+--- assigns it: the local is the second name of a declaration of two, or a copy
+--- `local x = x` of a local a test narrowed to non-nil, which the checker types
+--- `integer`, as nil is assignable to it. A program
 --- build/checker_narrowing_test.tl pins as a limit, with a TODO.
---- TODO: draw it once the second name of a declaration is typed
---- `integer | nil` (the TODO in build/checker_narrowing_test.tl, which has
---- the program).
+--- TODO: draw it once nil is assignable to no type but one that names it (the
+--- TODO in build/checker_narrowing_test.tl, which has the program).
 local function held(g: Gen, _v: Vis, p: string): boolean
   return g.closure_assigned[p] == true and g.multi[p] == true
 end
@@ -441,6 +441,16 @@ local function fun(g: Gen, v: Vis, depth: integer)
   -- called: it begins with none of the tests around it that may change.
   g.depth = g.depth + 1
   g.fn = g.fn + 1
+  if g.src:int(0, 2) == 0 then
+    -- A parameter tested, read by a function made after the test, and
+    -- assigned after that: the function runs after the write.
+    local reader = fresh(g, "g")
+    add(g, "if " .. param .. " == nil then return sink end")
+    add(g, "local " .. reader .. " = function(): integer return " .. param .. " + 1 end")
+    note_write(g, param)
+    add(g, param .. " = " .. Fuzz.pick(g.src, { "nil", "maybe()", "1" }))
+    add(g, "sink = sink + " .. reader .. "()")
+  end
   local n = 0
   while g.fuel > 0 and Fuzz.more(g.src, n, 4) do
     n = n + 1
@@ -454,8 +464,16 @@ local function fun(g: Gen, v: Vis, depth: integer)
 end
 
 local function declare(g: Gen, v: Vis)
-  local k = g.src:int(0, 11)
+  local k = g.src:int(0, 12)
   local name = fresh(g, "x")
+  if k == 12 and #v.ints > 0 then
+    -- A copy of a local under its own name: it has the type the original has
+    -- here, which a test of the original may have narrowed.
+    local p = Fuzz.pick(g.src, v.ints)
+    add(g, "local " .. p .. " = " .. p)
+    g.multi[p] = true
+    return
+  end
   if k == 0 then
     add(g, "local " .. name .. ": integer | nil")
   elseif k == 1 then

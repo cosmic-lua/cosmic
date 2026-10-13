@@ -46,6 +46,10 @@
 -- every place alike, which drops a place and its extensions only; the
 -- prefix test then becomes a comparison of paths held on the scopes.
 --
+-- TODO: `x.f is T` is refused ("can only use 'is' on variables"), though
+-- `x.f` is a place that `type(x.f) == "..."` narrows. It waits on the
+-- roadmap item that makes every guard read every place alike.
+--
 -- TODO: a to-be-closed variable's `__close` runs where its block ends, and
 -- reading a declared field of a record that declares `__index` or
 -- `__newindex` runs it when the field is absent, and neither drops what is
@@ -546,14 +550,14 @@ function narrowing.enter_function(scopes: {narrowing.Scope}, why: narrowing.Drop
       table.sort(keys)
       for _, key in ipairs(keys) do
          local var = scope.vars[key]
-         -- A local declared `local x = x` holds its declared type itself, and
-         -- is the declaration: nothing is below it to go back to.
-         if var and var.is_specialized ~= "localizing" then
+         -- A local declared `local x = x` that nothing narrowed holds its
+         -- declared type; a narrowed one remembers it in `widened_from`.
+         if var and (var.is_specialized ~= "localizing" or var.widened_from) then
             local h: narrowing.Hidden = {
                scope = scope, key = key, var = var, restore = false,
                t = no_type, is_specialized = no_name, specialized_from = no_type, widened_from = no_type,
             }
-            if var.specialized_from or var.is_specialized == "widen" then
+            if var.specialized_from or var.widened_from then
                -- The variable is declared in this scope: it holds its
                -- declared type again until the body is done.
                h.restore = true
@@ -562,7 +566,7 @@ function narrowing.enter_function(scopes: {narrowing.Scope}, why: narrowing.Drop
                h.specialized_from = var.specialized_from
                h.widened_from = var.widened_from
                var.t = var.specialized_from or var.widened_from
-               if var.is_specialized ~= "widen" then
+               if var.is_specialized ~= "widen" and var.is_specialized ~= "localizing" then
                   var.is_specialized = nil
                end
                var.specialized_from = nil
