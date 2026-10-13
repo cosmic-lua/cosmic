@@ -234,6 +234,9 @@ local record narrowing
    narrowed: function({Scope}): boolean, {string}
    has_paths: function({Scope}): boolean
    note: function({Scope}, string, Drop)
+   note_at: function({Scope}, integer, string, Drop)
+   holds: function({Scope}, integer, string): boolean
+   drop_based: function({Scope}, integer, string, Drop)
    dropped_by: function({Scope}, string): Drop
    cut: function({Scope}, string, Drop)
    places: function(Guard): {Place}
@@ -455,19 +458,53 @@ function narrowing.has_paths(scopes: {narrowing.Scope}): boolean
    return false
 end
 
+--- Whether scope `i` holds a fact about `name` or a path based at it.
+function narrowing.holds(scopes: {narrowing.Scope}, i: integer, name: string): boolean
+   local narrows = scopes[i].narrows
+   if not narrows then
+      return false
+   end
+   local prefix = name .. "."
+   for key in pairs(narrows) do
+      if key == name or key:sub(1, #prefix) == prefix then
+         return true
+      end
+   end
+   return false
+end
+
+--- Drops from scope `i` every narrowed path based at `base` (`base.f`,
+--- `base.f.g`): `why` wrote `base`, or a table it names.
+function narrowing.drop_based(scopes: {narrowing.Scope}, i: integer, base: string, why: narrowing.Drop)
+   local prefix = base .. "."
+   local keys = path_keys(scopes[i], function(key: string): boolean
+      return key:sub(1, #prefix) == prefix
+   end)
+   for _, key in ipairs(keys or {}) do
+      remove(scopes, i, key, why)
+   end
+end
+
+--- Says in scope `i` that `why` dropped the narrowed `name`, which the
+--- caller widens.
+function narrowing.note_at(scopes: {narrowing.Scope}, i: integer, name: string, why: narrowing.Drop)
+   local scope = scopes[i]
+   scope.dropped = scope.dropped or {}
+   scope.dropped[name] = why
+   tell(scopes, name)
+   local on_drop = scopes[1].on_drop
+   if on_drop then
+      on_drop(i, name, why)
+   end
+end
+
 --- Says in each scope that narrowed the local `name` that `why` dropped
 --- it, which the caller widens.
 function narrowing.note(scopes: {narrowing.Scope}, name: string, why: narrowing.Drop)
    for i = #scopes, 1, -1 do
-      local scope = scopes[i]
-      if scope.narrows and scope.narrows[name] then
-         scope.dropped = scope.dropped or {}
-         scope.dropped[name] = why
-         tell(scopes, name)
-         local on_drop = scopes[1].on_drop
-         if on_drop then
-            on_drop(i, name, why)
-         end
+      local narrows = scopes[i].narrows
+      if narrows and narrows[name] then
+         narrowing.note_at(scopes, i, name, why)
       end
    end
 end

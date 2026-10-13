@@ -926,6 +926,1629 @@ local function test_the_facts_refuse_a_read_of_a_fact_the_loop_drops_where_the_n
   end
 end
 
+-- Writes through `_G`, an alias of it, a field of a global and a key that may be
+-- any global's name, with a local that shadows the global and a branch that
+-- leaves: the review's programs, each given once.
+local global_writes: {{string}} = {
+  { "review-pr2c_p5_g_via_G", [=[
+global G: number | nil
+local function f(): number
+  if G then
+    _G.G = nil
+    return G + 1
+  end
+  return 0
+end
+print(f)
+]=] },
+  { "review-pr2c_p5_g_via_Gidx", [=[
+global G: number | nil
+local function f(): number
+  if G then
+    _G["G"] = nil
+    return G + 1
+  end
+  return 0
+end
+print(f)
+]=] },
+  { "review-pr2c_p5_g_via_env", [=[
+global G: number | nil
+local function f(): number
+  if G then
+    local e = _G as {string:any}
+    e.G = nil
+    return G + 1
+  end
+  return 0
+end
+print(f)
+]=] },
+  { "review-pr2c_p5_gfield", [=[
+local record R
+  a: number | nil
+end
+global GR: R
+local function f(p: R): number
+  if GR.a then
+    p.a = nil
+    return GR.a + 1
+  end
+  return 0
+end
+print(f)
+]=] },
+  { "review-pr2c_p5_nested3", [=[
+local record R
+  a: number | nil
+  r: R | nil
+end
+local function f(q: R, p: R): number
+  if q.r and q.r.r and q.r.r.a then
+    p.r = nil
+    return q.r.r.a + 1
+  end
+  return 0
+end
+print(f)
+]=] },
+  { "review-pr2c_p5_nested3b", [=[
+local record R
+  a: number | nil
+  r: R | nil
+end
+local function f(q: R): number
+  if q.r and q.r.a then
+    local o = q.r
+    o.r = nil
+    return q.r.a + 1
+  end
+  return 0
+end
+print(f)
+]=] },
+  { "review-genv_p_alias_nocast", [=[
+global G: number | nil
+local function f(): number
+  if G then
+    local e = _G
+    e.G = nil
+    return G + 1
+  end
+  return 0
+end
+return f
+]=] },
+  { "review-genv_p_aliaskey", [=[
+global G: number | nil
+local type I = integer
+local function f(k: I): number
+  if G then
+    local e = _G as {I:any}
+    e[k] = nil
+    return G + 1
+  end
+  return 0
+end
+return f
+]=] },
+  { "review-genv_p_anykey", [=[
+global G: number | nil
+local function f(k: any): number
+  if G then
+    local e = _G as {any:any}
+    e[k] = nil
+    return G + 1
+  end
+  return 0
+end
+return f
+]=] },
+  { "review-genv_p_assertg", [=[
+global G: number | nil
+local function f(): number
+  assert(G)
+  _G["G"] = nil
+  return G + 1
+end
+return f
+]=] },
+  { "review-genv_p_base", [=[
+global G: number | nil
+local function f(): number
+  if G then
+    _G.G = nil
+    return G + 1
+  end
+  return 0
+end
+return f
+]=] },
+  { "review-genv_p_castwrite", [=[
+global G: number | nil
+local function f(): number
+  if G then
+    (_G as {string:any}).G = nil
+    return G + 1
+  end
+  return 0
+end
+return f
+]=] },
+  { "review-genv_p_constkey", [=[
+global G: number | nil
+local function f(): number
+  if G then
+    local k <const> = "G"
+    local e = _G as {string:any}
+    e[k] = nil
+    return G + 1
+  end
+  return 0
+end
+return f
+]=] },
+  { "review-genv_p_enumkey", [=[
+global G: number | nil
+local enum E "G" "H" end
+local function f(k: E): number
+  if G then
+    local e = _G as {E:any}
+    e[k] = nil
+    return G + 1
+  end
+  return 0
+end
+return f
+]=] },
+  { "review-genv_p_env", [=[
+global G: number | nil
+local function f(): number
+  if G then
+    _ENV.G = nil
+    return G + 1
+  end
+  return 0
+end
+return f
+]=] },
+  { "review-genv_p_filelocal_shadow_g", [=[
+local G: number | nil = 1
+local function f(): number
+  if G then
+    _G.G = nil
+    return G + 1
+  end
+  return 0
+end
+return f
+]=] },
+  { "review-genv_p_fndecl", [=[
+global G: number | nil
+local record R
+  G: function() | number | nil
+end
+local function f(): number
+  if G then
+    local e = _G as R
+    function e.G() end
+    return G + 1
+  end
+  return 0
+end
+return f
+]=] },
+  { "review-genv_p_fnreturn", [=[
+global G: number | nil
+local function env(): {string:any} return _G as {string:any} end
+local function f(): number
+  if G then
+    local e = env()
+    e.G = nil
+    return G + 1
+  end
+  return 0
+end
+return f
+]=] },
+  { "review-genv_p_forin", [=[
+global G: number | nil
+local function f(): number
+  if G then
+    for k, _ in pairs(_G as {string:any}) do
+      (_G as {string:any})[k] = nil
+    end
+    return G + 1
+  end
+  return 0
+end
+return f
+]=] },
+  { "review-genv_p_loop", [=[
+global G: number | nil
+local function f(): number
+  local s = 0
+  if G then
+    for i = 1, 2 do
+      s = s + G
+      if i == 1 then _G.G = nil end
+    end
+  end
+  return s
+end
+return f
+]=] },
+  { "review-genv_p_multi", [=[
+global G: number | nil
+local function f(): number
+  local x: number
+  if G then
+    _G.G, x = nil, 1
+    return G + x
+  end
+  return 0
+end
+return f
+]=] },
+  { "review-genv_p_multi2", [=[
+global G: number | nil
+local function f(): number
+  local x: number
+  if G then
+    x, _G.G = 1, nil
+    return G + x
+  end
+  return 0
+end
+return f
+]=] },
+  { "review-genv_p_nested_closure", [=[
+global G: number | nil
+local function f(): number
+  if G then
+    local g = function() return G + 1 end
+    _G.G = nil
+    return g()
+  end
+  return 0
+end
+return f
+]=] },
+  { "review-genv_p_newindex_fn", [=[
+global G: number | nil
+local record R
+  metamethod __newindex: function(R, string, any)
+end
+local function f(r: R): number
+  if G then
+    r.x = 1
+    return G + 1
+  end
+  return 0
+end
+return f
+]=] },
+  { "review-genv_p_newindex_fn2", [=[
+global G: number | nil
+local function f(): number
+  local t = setmetatable({} as {string:any}, {__newindex = function(_: {string:any}, _: string, _: any) G = nil end})
+  if G then
+    t.x = 1
+    return G + 1
+  end
+  return 0
+end
+return f
+]=] },
+  { "review-genv_p_newindex_tbl", [=[
+global G: number | nil
+local function f(): number
+  if G then
+    local t = setmetatable({} as {string:any}, {__newindex = _G as {string:any}})
+    t.G = nil
+    return G + 1
+  end
+  return 0
+end
+return f
+]=] },
+  { "review-genv_p_own_local_direct", [=[
+local G: number | nil = 1
+local function clear() G = nil end
+local function f(): number
+  if G then
+    clear()
+    return G + 1
+  end
+  return 0
+end
+return f
+]=] },
+  { "review-genv_p_own_local_fn", [=[
+global G: number | nil
+local function clear() _G.G = nil end
+local function f(): number
+  if G then
+    clear()
+    return G + 1
+  end
+  return 0
+end
+return f
+]=] },
+  { "review-genv_p_paren", [=[
+global G: number | nil
+local function f(): number
+  if G then
+    (_G).G = nil
+    return G + 1
+  end
+  return 0
+end
+return f
+]=] },
+  { "review-genv_p_path_global", [=[
+global record GR
+  a: number | nil
+end
+global G: GR = {}
+local function f(): number
+  if G.a then
+    _G.G = {}
+    return G.a + 1
+  end
+  return 0
+end
+return f
+]=] },
+  { "review-genv_p_path_global_alias", [=[
+global record GR
+  a: number | nil
+end
+global G: GR = {}
+local function f(): number
+  if G.a then
+    local e = _G as {string:any}
+    e.G = {}
+    return G.a + 1
+  end
+  return 0
+end
+return f
+]=] },
+  { "review-genv_p_path_global_direct", [=[
+global record GR
+  a: number | nil
+end
+global G: GR = {}
+local function f(): number
+  if G.a then
+    G = {}
+    return G.a + 1
+  end
+  return 0
+end
+return f
+]=] },
+  { "review-genv_p_shadow_call", [=[
+global G: number | nil
+local function clear() G = nil end
+local function f(): number
+  if G then
+    do
+      local G: number | nil = 1
+      if G then print(G) end
+      clear()
+    end
+    return G + 1
+  end
+  return 0
+end
+return f
+]=] },
+  { "review-genv_p_shadow_nonarrow", [=[
+global G: number | nil
+local function f(): number
+  if G then
+    do
+      local G: number | nil = 1
+      _G.G = nil
+      print(G)
+    end
+    return G + 1
+  end
+  return 0
+end
+return f
+]=] },
+  { "review-genv_p_shadow_write", [=[
+global G: number | nil
+local function f(): number
+  if G then
+    do
+      local G: number | nil = 1
+      if G then print(G) end
+      _G.G = nil
+    end
+    return G + 1
+  end
+  return 0
+end
+return f
+]=] },
+  { "review-genv_p_tablefield", [=[
+global G: number | nil
+local holder: {string:{string:any}} = { e = _G as {string:any} }
+local function f(): number
+  if G then
+    holder.e.G = nil
+    return G + 1
+  end
+  return 0
+end
+return f
+]=] },
+  { "review-genv_p_toplevel", [=[
+global G: number | nil
+if G then
+  _G.G = nil
+  print(G + 1)
+end
+]=] },
+  { "review-genv_p_while_loop", [=[
+global G: number | nil
+local function f(): number
+  local s = 0
+  if G then
+    local i = 0
+    while i < 2 do
+      s = s + G
+      _G.G = nil
+      i = i + 1
+    end
+  end
+  return s
+end
+return f
+]=] },
+  { "review-genv_q_fndecl_local_path", [=[
+local record R
+  G: any
+end
+local function f(r: R, e: R): number
+  if r.G is number then
+    function e.G() end
+    return r.G + 1
+  end
+  return 0
+end
+return f
+]=] },
+  { "review-genv_q_fndecl_map", [=[
+global G: number | nil
+local function f(): number
+  if G then
+    local e = _G as {string:any}
+    function e.G() end
+    return G + 1
+  end
+  return 0
+end
+return f
+]=] },
+  { "review-genv_q_fndecl_rec", [=[
+global G: number | nil
+local record R
+  G: any
+end
+local function f(): number
+  if G then
+    local e = _G as R
+    function e.G() end
+    return G + 1
+  end
+  return 0
+end
+return f
+]=] },
+  { "review-genv_q_path_local_of_global", [=[
+global record GR
+  a: number | nil
+end
+global G: GR = {}
+local function f(k: string): number
+  if G.a then
+    local e = _G as {string:any}
+    e[k] = {}
+    return G.a + 1
+  end
+  return 0
+end
+return f
+]=] },
+  { "review-genv_q_shadow_after", [=[
+global G: number | nil
+local function f(): number
+  if G then
+    local G: number | nil = 1
+    _G.G = nil
+    return 0
+  end
+  return 0
+end
+return f
+]=] },
+  { "review-genv_q_shadow_param", [=[
+global G: number | nil
+local function f(): number
+  if G then
+    local function g(G: number): number
+      _G.G = nil
+      return G
+    end
+    g(1)
+    return G + 1
+  end
+  return 0
+end
+return f
+]=] },
+  { "review-genv_r_fndecl_exact", [=[
+global G: number | nil
+local record R
+  G: function()
+end
+local function f(): number
+  if G then
+    local e = _G as R
+    function e.G() end
+    return G + 1
+  end
+  return 0
+end
+return f
+]=] },
+  { "review-genv_r_fndecl_exact_ctrl", [=[
+global G: number | nil
+local record R
+  G: function()
+end
+local function f(): number
+  if G then
+    local e = _G as R
+    e.G = function() end
+    return G + 1
+  end
+  return 0
+end
+return f
+]=] },
+  { "review-genv_r_fndecl_path", [=[
+local record R
+  G: function() | number
+end
+local record S
+  G: function()
+end
+local function f(r: R, e: S): number
+  local g = r.G
+  if r.G is number then
+    function e.G() end
+    return r.G + 1
+  end
+  return 0
+end
+return f
+]=] },
+  { "review-genv_v2_n10_toplevel_inplace", [=[
+global G: number | nil = 1
+assert(G)
+do
+  local G = 2
+  _G.G = nil
+  print(G)
+end
+print(G + 1)
+]=] },
+  { "review-genv_v2_n11_path_shadow", [=[
+global record GR
+  a: number | nil
+end
+global G: GR = {}
+local function f(): number
+  if G.a then
+    do
+      local G: GR = { a = 1 }
+      _G.G = {}
+      print(G)
+    end
+    return G.a + 1
+  end
+  return 0
+end
+return f
+]=] },
+  { "review-genv_v2_n12_path_shadow_call", [=[
+global record GR
+  a: number | nil
+end
+global G: GR = {}
+local function reset() G = {} end
+local function f(): number
+  if G.a then
+    do
+      local G: GR = { a = 1 }
+      reset()
+      print(G)
+    end
+    return G.a + 1
+  end
+  return 0
+end
+return f
+]=] },
+  { "review-genv_v2_n13_local_valid", [=[
+global G: number | nil
+local function f(): number
+  local G: number | nil = 1
+  if G then
+    _G.G = nil
+    local t: {string:any} = {}
+    t.G = 1
+    return G + 1
+  end
+  return 0
+end
+return f
+]=] },
+  { "review-genv_v2_n14_path_valid", [=[
+local record R
+  a: number | nil
+end
+local function f(G: R): number
+  if G.a then
+    local t: {string:any} = {}
+    t.G = 1
+    return G.a + 1
+  end
+  return 0
+end
+return f
+]=] },
+  { "review-genv_v2_n15_shadow_inner_narrow_outer_local", [=[
+global G: number | nil
+local function f(): number
+  local G: number | nil = 1
+  if G then
+    do
+      _G.G = nil
+    end
+    return G + 1
+  end
+  return 0
+end
+return f
+]=] },
+  { "review-genv_v2_n16_repeat", [=[
+global G: number | nil
+local function f(): number
+  local s = 0.0
+  if G then
+    local i = 0
+    repeat
+      s = s + G
+      local G = 1
+      _G.G = nil
+      i = i + G
+    until i > 2
+  end
+  return s
+end
+return f
+]=] },
+  { "review-genv_v2_n17_while_shadow_cond", [=[
+global G: number | nil
+local function f(): number
+  local s = 0.0
+  if G then
+    local i = 0
+    while i < 2 do
+      s = s + G
+      local G = 1
+      _G.G = nil
+      i = i + G
+    end
+  end
+  return s
+end
+return f
+]=] },
+  { "review-genv_v2_n18_elseif", [=[
+global G: number | nil
+local function f(c: boolean): number
+  if G then
+    if c then
+      local G = 1
+      _G.G = nil
+      print(G)
+    elseif not c then
+      print(1)
+    end
+    return G + 1
+  end
+  return 0
+end
+return f
+]=] },
+  { "review-genv_v2_n19_and_or", [=[
+global G: number | nil
+local function f(): number
+  if G then
+    local G2 = G
+    do
+      local G = 1
+      _G["G"] = nil
+      print(G)
+    end
+    return G + G2
+  end
+  return 0
+end
+return f
+]=] },
+  { "review-genv_v2_n1_nested", [=[
+global G: number | nil
+local function f(): number
+  if G then
+    do
+      local G: number | nil = 1
+      if G then
+        _G.G = nil
+        print(G + 1)
+      end
+    end
+    return G + 1
+  end
+  return 0
+end
+return f
+]=] },
+  { "review-genv_v2_n2_nested_call", [=[
+global G: number | nil
+local function clear() G = nil end
+local function f(): number
+  if G then
+    do
+      local G: number | nil = 1
+      if G then
+        clear()
+        print(G + 1)
+      end
+    end
+    return G + 1
+  end
+  return 0
+end
+return f
+]=] },
+  { "review-genv_v2_n3_after_same_scope", [=[
+global G: number | nil
+local function f(): number
+  if G then
+    do
+      if not G then return 0 end
+      local G: number | nil = 1
+      _G.G = nil
+      print(G)
+    end
+    return G + 1
+  end
+  return 0
+end
+return f
+]=] },
+  { "review-genv_v2_n4_localizing", [=[
+global G: number | nil
+local function f(): number
+  if G then
+    do
+      local G = G
+      _G.G = nil
+      print(G + 1)
+    end
+    return G + 1
+  end
+  return 0
+end
+return f
+]=] },
+  { "review-genv_v2_n4b_localizing_valid", [=[
+global G: number | nil
+local function f(): number
+  if G then
+    local G = G
+    _G.G = nil
+    return G + 1
+  end
+  return 0
+end
+return f
+]=] },
+  { "review-genv_v2_n5_closure_valid", [=[
+global G: number | nil
+local function f(): number
+  if G then
+    local g = function(): number
+      local G = 2
+      _G.G = nil
+      return G
+    end
+    print(g)
+    return G + 1
+  end
+  return 0
+end
+return f
+]=] },
+  { "review-genv_v2_n6_closure_called", [=[
+global G: number | nil
+local function f(): number
+  if G then
+    local g = function(): number
+      local G = 2
+      _G.G = nil
+      return G
+    end
+    g()
+    return G + 1
+  end
+  return 0
+end
+return f
+]=] },
+  { "review-genv_v2_n7_loop", [=[
+global G: number | nil
+local function f(): number
+  local s = 0.0
+  if G then
+    for i = 1, 2 do
+      s = s + G
+      do
+        local G = 1
+        _G.G = nil
+        print(G, i)
+      end
+    end
+  end
+  return s
+end
+return f
+]=] },
+  { "review-genv_v2_n7b_loop_call", [=[
+global G: number | nil
+local function clear() G = nil end
+local function f(): number
+  local s = 0.0
+  if G then
+    for i = 1, 2 do
+      s = s + G
+      do
+        local G = 1
+        clear()
+        print(G, i)
+      end
+    end
+  end
+  return s
+end
+return f
+]=] },
+  { "review-genv_v2_n8_branch_leaves_valid", [=[
+global G: number | nil
+local function f(c: boolean): number
+  if G then
+    if c then
+      do
+        local G = 1
+        _G.G = nil
+        print(G)
+      end
+      return 0
+    end
+    return G + 1
+  end
+  return 0
+end
+return f
+]=] },
+  { "review-genv_v2_n8b_branch_stays", [=[
+global G: number | nil
+local function f(c: boolean): number
+  if G then
+    if c then
+      do
+        local G = 1
+        _G.G = nil
+        print(G)
+      end
+    end
+    return G + 1
+  end
+  return 0
+end
+return f
+]=] },
+  { "review-genv_v2_n9_widen_renarrow", [=[
+global G: number | nil
+local function clear() G = nil end
+local function f(): number
+  if G then
+    do
+      clear()
+      if not G then return 0 end
+      do
+        local G = 1
+        _G.G = nil
+        print(G)
+      end
+      return G + 1
+    end
+  end
+  return 0
+end
+return f
+]=] },
+  { "review-genv_v2_n9b_widen_renarrow_after", [=[
+global G: number | nil
+local function clear() G = nil end
+local function f(): number
+  if G then
+    do
+      clear()
+      if not G then return 0 end
+      do
+        local G = 1
+        _G.G = nil
+        print(G)
+      end
+    end
+    return G + 1
+  end
+  return 0
+end
+return f
+]=] },
+  { "review-genv_v3_b1_leave_call", [=[
+global G: number | nil
+local function clear() G = nil end
+local function f(c: boolean): number
+  if G then
+    if c then
+      clear()
+      return 0
+    end
+    return G + 1
+  end
+  return 0
+end
+return f
+]=] },
+  { "review-genv_v3_b2_leave_write", [=[
+global G: number | nil
+local function f(c: boolean): number
+  if G then
+    if c then
+      _G.G = nil
+      return 0
+    end
+    return G + 1
+  end
+  return 0
+end
+return f
+]=] },
+  { "review-genv_v3_b3_leave_write_shadow_call", [=[
+global G: number | nil
+local function clear() G = nil end
+local function f(c: boolean): number
+  if G then
+    if c then
+      local G = 1
+      clear()
+      print(G)
+      return 0
+    end
+    return G + 1
+  end
+  return 0
+end
+return f
+]=] },
+  { "review-genv_v3_b4_leave_path", [=[
+global record GR
+  a: number | nil
+end
+global G: GR = {}
+local function f(c: boolean): number
+  if G.a then
+    if c then
+      _G.G = {}
+      return 0
+    end
+    return G.a + 1
+  end
+  return 0
+end
+return f
+]=] },
+  { "review-genv_v3_b5_leave_direct", [=[
+global G: number | nil
+local function f(c: boolean): number
+  if G then
+    if c then
+      G = nil
+      return 0
+    end
+    return G + 1
+  end
+  return 0
+end
+return f
+]=] },
+  { "review-genv_v3_c1_closure_noshadow", [=[
+global G: number | nil
+local function f(): number
+  if G then
+    local g = function()
+      _G.G = nil
+    end
+    print(g)
+    return G + 1
+  end
+  return 0
+end
+return f
+]=] },
+  { "review-genv_v3_c2_closure_local_only", [=[
+global G: number | nil
+local function f(): number
+  if G then
+    local g = function(): number
+      local G = 2
+      return G
+    end
+    print(g)
+    return G + 1
+  end
+  return 0
+end
+return f
+]=] },
+  { "review-genv_v3_c3_closure_call_only", [=[
+global G: number | nil
+local function f(): number
+  if G then
+    local g = function()
+      print(1)
+    end
+    print(g)
+    return G + 1
+  end
+  return 0
+end
+return f
+]=] },
+  { "review-genv_v3_c4_closure_shadow_call", [=[
+global G: number | nil
+local function h() end
+local function f(): number
+  if G then
+    local g = function(): number
+      local G = 2
+      h()
+      return G
+    end
+    print(g)
+    return G + 1
+  end
+  return 0
+end
+return f
+]=] },
+  { "review-genv_v4_b3_leave_write_shadow_call", [=[
+global G: number | nil
+local function clear() G = nil end
+local function f(c: boolean): number
+  if G then
+    if c then
+      local G = 1
+      clear()
+      local _p = {G}
+      return 0
+    end
+    return G + 1
+  end
+  return 0
+end
+return f
+]=] },
+  { "review-genv_v4_c1_closure_noshadow", [=[
+global G: number | nil
+local function f(): number
+  if G then
+    local g = function()
+      _G.G = nil
+    end
+    local _p = {g}
+    return G + 1
+  end
+  return 0
+end
+return f
+]=] },
+  { "review-genv_v4_c2_closure_local_only", [=[
+global G: number | nil
+local function f(): number
+  if G then
+    local g = function(): number
+      local G = 2
+      return G
+    end
+    local _p = {g}
+    return G + 1
+  end
+  return 0
+end
+return f
+]=] },
+  { "review-genv_v4_c3_closure_call_only", [=[
+global G: number | nil
+local function f(): number
+  if G then
+    local g = function()
+      local _p = {1}
+    end
+    local _p = {g}
+    return G + 1
+  end
+  return 0
+end
+return f
+]=] },
+  { "review-genv_v4_c4_closure_shadow_call", [=[
+global G: number | nil
+local function h() end
+local function f(): number
+  if G then
+    local g = function(): number
+      local G = 2
+      h()
+      return G
+    end
+    local _p = {g}
+    return G + 1
+  end
+  return 0
+end
+return f
+]=] },
+  { "review-genv_v4_n10_toplevel_inplace", [=[
+global G: number | nil = 1
+assert(G)
+do
+  local G = 2
+  _G.G = nil
+  local _p = {G}
+end
+local _p = {G + 1}
+]=] },
+  { "review-genv_v4_n11_path_shadow", [=[
+global record GR
+  a: number | nil
+end
+global G: GR = {}
+local function f(): number
+  if G.a then
+    do
+      local G: GR = { a = 1 }
+      _G.G = {}
+      local _p = {G}
+    end
+    return G.a + 1
+  end
+  return 0
+end
+return f
+]=] },
+  { "review-genv_v4_n12_path_shadow_call", [=[
+global record GR
+  a: number | nil
+end
+global G: GR = {}
+local function reset() G = {} end
+local function f(): number
+  if G.a then
+    do
+      local G: GR = { a = 1 }
+      reset()
+      local _p = {G}
+    end
+    return G.a + 1
+  end
+  return 0
+end
+return f
+]=] },
+  { "review-genv_v4_n18_elseif", [=[
+global G: number | nil
+local function f(c: boolean): number
+  if G then
+    if c then
+      local G = 1
+      _G.G = nil
+      local _p = {G}
+    elseif not c then
+      local _p = {1}
+    end
+    return G + 1
+  end
+  return 0
+end
+return f
+]=] },
+  { "review-genv_v4_n19_and_or", [=[
+global G: number | nil
+local function f(): number
+  if G then
+    local G2 = G
+    do
+      local G = 1
+      _G["G"] = nil
+      local _p = {G}
+    end
+    return G + G2
+  end
+  return 0
+end
+return f
+]=] },
+  { "review-genv_v4_n1_nested", [=[
+global G: number | nil
+local function f(): number
+  if G then
+    do
+      local G: number | nil = 1
+      if G then
+        _G.G = nil
+        local _p = {G + 1}
+      end
+    end
+    return G + 1
+  end
+  return 0
+end
+return f
+]=] },
+  { "review-genv_v4_n2_nested_call", [=[
+global G: number | nil
+local function clear() G = nil end
+local function f(): number
+  if G then
+    do
+      local G: number | nil = 1
+      if G then
+        clear()
+        local _p = {G + 1}
+      end
+    end
+    return G + 1
+  end
+  return 0
+end
+return f
+]=] },
+  { "review-genv_v4_n3_after_same_scope", [=[
+global G: number | nil
+local function f(): number
+  if G then
+    do
+      if not G then return 0 end
+      local G: number | nil = 1
+      _G.G = nil
+      local _p = {G}
+    end
+    return G + 1
+  end
+  return 0
+end
+return f
+]=] },
+  { "review-genv_v4_n4_localizing", [=[
+global G: number | nil
+local function f(): number
+  if G then
+    do
+      local G = G
+      _G.G = nil
+      local _p = {G + 1}
+    end
+    return G + 1
+  end
+  return 0
+end
+return f
+]=] },
+  { "review-genv_v4_n5_closure_valid", [=[
+global G: number | nil
+local function f(): number
+  if G then
+    local g = function(): number
+      local G = 2
+      _G.G = nil
+      return G
+    end
+    local _p = {g}
+    return G + 1
+  end
+  return 0
+end
+return f
+]=] },
+  { "review-genv_v4_n7_loop", [=[
+global G: number | nil
+local function f(): number
+  local s = 0.0
+  if G then
+    for i = 1, 2 do
+      s = s + G
+      do
+        local G = 1
+        _G.G = nil
+        local _p = {G, i}
+      end
+    end
+  end
+  return s
+end
+return f
+]=] },
+  { "review-genv_v4_n7b_loop_call", [=[
+global G: number | nil
+local function clear() G = nil end
+local function f(): number
+  local s = 0.0
+  if G then
+    for i = 1, 2 do
+      s = s + G
+      do
+        local G = 1
+        clear()
+        local _p = {G, i}
+      end
+    end
+  end
+  return s
+end
+return f
+]=] },
+  { "review-genv_v4_n8_branch_leaves_valid", [=[
+global G: number | nil
+local function f(c: boolean): number
+  if G then
+    if c then
+      do
+        local G = 1
+        _G.G = nil
+        local _p = {G}
+      end
+      return 0
+    end
+    return G + 1
+  end
+  return 0
+end
+return f
+]=] },
+  { "review-genv_v4_n8b_branch_stays", [=[
+global G: number | nil
+local function f(c: boolean): number
+  if G then
+    if c then
+      do
+        local G = 1
+        _G.G = nil
+        local _p = {G}
+      end
+    end
+    return G + 1
+  end
+  return 0
+end
+return f
+]=] },
+  { "review-genv_v4_n9_widen_renarrow", [=[
+global G: number | nil
+local function clear() G = nil end
+local function f(): number
+  if G then
+    do
+      clear()
+      if not G then return 0 end
+      do
+        local G = 1
+        _G.G = nil
+        local _p = {G}
+      end
+      return G + 1
+    end
+  end
+  return 0
+end
+return f
+]=] },
+  { "review-genv_v4_n9b_widen_renarrow_after", [=[
+global G: number | nil
+local function clear() G = nil end
+local function f(): number
+  if G then
+    do
+      clear()
+      if not G then return 0 end
+      do
+        local G = 1
+        _G.G = nil
+        local _p = {G}
+      end
+    end
+    return G + 1
+  end
+  return 0
+end
+return f
+]=] },
+  { "review-genv_v5_d1_globaldecl", [=[
+global G: number | nil = 1
+do
+  local G = 2
+  _G.G = nil
+  local _p = G
+end
+local x = G + 1
+G = 5
+local y: number = G
+return { x, y }
+]=] },
+  { "review-genv_v5_d2_globaldecl_ok", [=[
+global G: number | nil = 1
+do
+  local G = 2
+  _G.G = nil
+  local _p = G
+end
+G = 5
+local y: number = G
+return y
+]=] },
+  { "review-genv_v5_d3_nested_func_decl", [=[
+global G: number | nil
+local function f(): number
+  if G then
+    local function g(): number
+      local G = 2
+      return G
+    end
+    local h = g
+    return G + h()
+  end
+  return 0
+end
+return f
+]=] },
+  { "review-genv_v5_d4_block_global", [=[
+global G: number | nil
+local function f(): number
+  if G then
+    do
+      global G: number | nil
+      _G.G = nil
+    end
+    return G + 1
+  end
+  return 0
+end
+return f
+]=] },
+  { "review-genv_v5_d5_deep", [=[
+global G: number | nil
+local function f(): number
+  if G then
+    do
+      local G: number | nil = 1
+      do
+        if G then
+          do
+            local G = 3
+            if G > 1 then
+              _G.G = nil
+            end
+          end
+        end
+        local _q = G
+      end
+    end
+    return G + 1
+  end
+  return 0
+end
+return f
+]=] },
+  { "review-genv_v5_d6_inner_local_kept", [=[
+global G: number | nil
+local function f(): number
+  if G then
+    do
+      local G: number | nil = 1
+      if G then
+        _G.G = nil
+        return G + 1
+      end
+    end
+  end
+  return 0
+end
+return f
+]=] },
+  { "review-genv_v6_e1", [=[
+global G: number | nil = 1
+_G.G = nil
+local x = G + 1
+return x
+]=] },
+  { "review-genv_v6_e2", [=[
+global G: number | nil = 1
+do
+  _G.G = nil
+end
+local x = G + 1
+return x
+]=] },
+  { "review-genv_v6_e3", [=[
+global G: number | nil = 1
+do
+  local G = 2
+  _G.G = nil
+  local _p = G
+end
+local x = G + 1
+return x
+]=] },
+  { "review-genv_v6_e4", [=[
+local function f(): number
+  local G: number | nil = 1
+  local x = 0
+  if G then
+    do
+      local G = 2
+      x = G
+    end
+    return G + x
+  end
+  return 0
+end
+return f
+]=] },
+}
+
+local function test_global_writes_agree_with_the_facts()
+  local reads = 0
+  for _, case in ipairs(global_writes) do
+    local found, n = mismatches(case[1] .. ".tl", case[2])
+    reads = reads + n
+    assert(#found == 0, table.concat(found, "\n"))
+  end
+  assert(reads > 0, "no read was compared")
+end
+
 --- The files of the fuzz corpora.
 local function corpus(directory: string): {string:string}
   local out: {string:string} = {}
