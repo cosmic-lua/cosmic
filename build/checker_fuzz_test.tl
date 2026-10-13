@@ -68,11 +68,6 @@ local record Vis
   funs: {string}
   focus: {string}
   rfocus: {string}
-  --- Places a bare use must not name: see [`learn_here`] and `fun`.
-  hole: {string}
-  --- Whether a function that may assign the program's locals was declared in
-  --- this block (not in the blocks around it).
-  closure_here: boolean
   in_loop: boolean
   cont: string | nil
   ret: string
@@ -91,10 +86,9 @@ local record Gen
   want_goto: boolean
   --- Depth of the function bodies the draw is inside.
   fn: integer
-  --- Locals a function literal assigns, locals written in a block other than
-  --- the program's top one, and locals named second in a declaration of two.
+  --- Locals a function literal assigns, and locals named second in a
+  --- declaration of two.
   closure_assigned: {string:boolean}
-  nested_written: {string:boolean}
   multi: {string:boolean}
 end
 
@@ -168,7 +162,7 @@ end
 local function nest(v: Vis): Vis
   return {
     ints = dup(v.ints), recs = dup(v.recs), procs = dup(v.procs), funs = dup(v.funs),
-    focus = dup(v.focus), rfocus = dup(v.rfocus), hole = dup(v.hole), closure_here = false,
+    focus = dup(v.focus), rfocus = dup(v.rfocus),
     in_loop = v.in_loop, cont = v.cont, ret = v.ret,
   }
 end
@@ -204,8 +198,6 @@ local function note_write(g: Gen, p: string)
   if p:find(".", 1, true) then return end
   if g.fn > 0 then
     g.closure_assigned[p] = true
-  elseif g.depth > 0 then
-    g.nested_written[p] = true
   end
 end
 
@@ -216,21 +208,16 @@ local function target(g: Gen, v: Vis): string
   return p
 end
 
---- Whether a bare use of `p` is kept out of the draw, for the holes the
+--- Whether a bare use of `p` is kept out of the draw, for the hole the
 --- checker has in what it keeps of a local past a call to a function that
---- assigns it. Each is a program build/checker_narrowing_test.tl pins as a
---- limit, with a TODO:
---- 1. the local is the second name of a declaration of two;
---- 2. the local is written in an inner block (and is narrowed by a test
----    around the write, as that test has it);
---- 3. a nil test that leaves the block follows a function declared in the
----    same inner block (`v.hole`, see [`learn_here`]).
---- TODO: draw these once a call drops a local that a function literal in any
---- enclosing block assigns (the same TODO as in
---- build/checker_narrowing_test.tl, which has the programs).
-local function held(g: Gen, v: Vis, p: string): boolean
-  if has(v.hole, p) then return true end
-  return g.closure_assigned[p] == true and (g.multi[p] == true or g.nested_written[p] == true)
+--- assigns it: the local is the second name of a declaration of two, which
+--- the checker types `integer`, as nil is assignable to it. A program
+--- build/checker_narrowing_test.tl pins as a limit, with a TODO.
+--- TODO: draw it once the second name of a declaration is typed
+--- `integer | nil` (the TODO in build/checker_narrowing_test.tl, which has
+--- the program).
+local function held(g: Gen, _v: Vis, p: string): boolean
+  return g.closure_assigned[p] == true and g.multi[p] == true
 end
 
 local function opt_expr(g: Gen, v: Vis): string
@@ -345,33 +332,22 @@ local function atom(g: Gen, v: Vis): Cond
   return { text = p .. " ~= nil", yes = { p }, no = NONE, ryes = NONE, rno = NONE, guarded = true }
 end
 
--- TODO: draw `or` in an `assert`, and an `or` whose right operand is a call or a
--- comparison, once the checker reads the true branch of `a or b` as nothing
--- where `b` gives no guard: `evaluate` in checker/narrowing.tl reads it as
--- `not a`, so `assert(x == nil or y)` and `if x == nil or maybe()` narrow `x` to
--- non-nil. Making `evaluate` return nothing there breaks the tree's own build
--- (build/shape_specs.tl's `at == nil and why or (...at.typename...)`), which
--- would first be written to need no narrowing from it.
-
---- A test of up to `depth` levels, drawn with `or` unless `plain`.
-local function cond(g: Gen, v: Vis, depth: integer, plain?: boolean): Cond
+--- A test of up to `depth` levels. An `or` tells nothing when it holds, and
+--- when it does not hold, what both sides tell.
+local function cond(g: Gen, v: Vis, depth: integer): Cond
   local k = depth <= 0 and 0 or g.src:int(0, 5)
   if k <= 2 then return atom(g, v) end
-  if k == 3 or (k == 4 and plain) then
-    local a, b = cond(g, v, depth - 1, plain), cond(g, v, depth - 1, plain)
+  if k == 3 then
+    local a, b = cond(g, v, depth - 1), cond(g, v, depth - 1)
     return { text = a.text .. " and " .. b.text, yes = union_of(a.yes, b.yes), no = NONE,
       ryes = union_of(a.ryes, b.ryes), rno = NONE, guarded = a.guarded or b.guarded }
   end
   if k == 4 then
     local a, b = cond(g, v, depth - 1), cond(g, v, depth - 1)
-    if not b.guarded then
-      local p = place(g, v)
-      b = { text = p .. " ~= nil", yes = { p }, no = NONE, ryes = NONE, rno = NONE, guarded = true }
-    end
     return { text = a.text .. " or " .. b.text, yes = NONE, no = union_of(a.no, b.no),
       ryes = NONE, rno = union_of(a.rno, b.rno), guarded = true }
   end
-  local a = cond(g, v, depth - 1, plain)
+  local a = cond(g, v, depth - 1)
   return { text = "not (" .. a.text .. ")", yes = a.no, no = a.yes, ryes = a.rno, rno = a.ryes, guarded = a.guarded }
 end
 
@@ -381,22 +357,6 @@ local function learn(v: Vis, places_: {string}, recs: {string})
   end
   for _, o in ipairs(recs) do
     v.rfocus[#v.rfocus + 1] = o
-  end
-end
-
---- What a guard that ends the block's own statements teaches the rest of it.
---- TODO: draw a bare use of a local after this, once a call drops a local that
---- a function literal in any enclosing block assigns: the checker keeps a nil
---- test's narrowing of a local past a call to a function declared earlier in
---- the same inner block (`do local function p() x = nil end if x == nil then
---- return end p() print(x + 1) end`), though the same lines at the top of the
---- file are refused. `hole` keeps such a local out of a bare use.
-local function learn_here(g: Gen, v: Vis, places_: {string}, recs: {string})
-  learn(v, places_, recs)
-  if g.depth > 0 and v.closure_here then
-    for _, p in ipairs(places_) do
-      if not p:find(".", 1, true) then v.hole[#v.hole + 1] = p end
-    end
   end
 end
 
@@ -465,7 +425,6 @@ local function proc(g: Gen, v: Vis)
   g.depth = g.depth - 1
   add(g, "end")
   v.procs[#v.procs + 1] = name
-  v.closure_here = true
 end
 
 --- A function of an `integer | nil` parameter, whose body is drawn like
@@ -478,18 +437,8 @@ local function fun(g: Gen, v: Vis, depth: integer)
   inner.cont = nil
   inner.ret = "return sink"
   inner.ints[#inner.ints + 1] = param
-  -- The body is checked under the tests around it, though it runs wherever it
-  -- is called: it reads no field they name (see the TODO in [`guarded_use`]).
-  local kept: {string} = {}
-  for _, f in ipairs(inner.focus) do
-    if f:find(".", 1, true) then
-      inner.hole[#inner.hole + 1] = f
-    else
-      kept[#kept + 1] = f
-    end
-  end
-  inner.focus = kept
-  inner.rfocus = {}
+  -- The body is checked where it is made, though it runs wherever it is
+  -- called: it begins with none of the tests around it that may change.
   g.depth = g.depth + 1
   g.fn = g.fn + 1
   local n = 0
@@ -502,7 +451,6 @@ local function fun(g: Gen, v: Vis, depth: integer)
   g.depth = g.depth - 1
   add(g, "end")
   v.funs[#v.funs + 1] = name
-  v.closure_here = true
 end
 
 local function declare(g: Gen, v: Vis)
@@ -578,7 +526,7 @@ local function if_chain(g: Gen, v: Vis, depth: integer, min_arms?: integer)
   add(g, "end")
   -- A branch that ends leaves its negation to what follows.
   if first.no ~= NONE and #first.no > 0 and g.src:int(0, 3) == 0 then
-    learn_here(g, v, first.no, first.rno)
+    learn(v, first.no, first.rno)
   end
 end
 
@@ -595,7 +543,7 @@ local function early_exit(g: Gen, v: Vis)
     leave = v.ret
   end
   add(g, "if not (" .. c.text .. ") then " .. leave .. " end")
-  learn_here(g, v, c.yes, c.ryes)
+  learn(v, c.yes, c.ryes)
 end
 
 --- Something that may or may not clear `p`: a call that runs other code,
@@ -615,7 +563,6 @@ local function dropper(g: Gen, v: Vis, p: string)
     add(g, "local function " .. name .. "() " .. p .. " = " .. Fuzz.pick(g.src, { "nil", "maybe()" }) .. " end")
     if g.src:int(0, 4) > 0 then add(g, name .. "()") end
     v.procs[#v.procs + 1] = name
-    v.closure_here = true
   elseif k == 6 and #v.procs > 0 then
     add(g, Fuzz.pick(g.src, v.procs) .. "()")
   elseif k == 7 then
@@ -650,7 +597,6 @@ local function guarded_use(g: Gen, v: Vis, depth: integer)
     if not p:find(".", 1, true) then g.closure_assigned[p] = true end
     add(g, "local function " .. helper .. "() " .. p .. " = " .. Fuzz.pick(g.src, { "nil", "maybe()", "1" }) .. " end")
     v.procs[#v.procs + 1] = helper
-    v.closure_here = true
   end
   local inner = nest(v)
   inner.focus[#inner.focus + 1] = p
@@ -676,8 +622,7 @@ local function guarded_use(g: Gen, v: Vis, depth: integer)
     g.depth = g.depth + 1
   else
     -- What follows the test is held to it from here on.
-    learn_here(g, v, { p }, NONE)
-    inner.hole = dup(v.hole)
+    learn(v, { p }, NONE)
   end
   local drops = g.src:int(helper ~= nil and 1 or 0, 2)
   for _ = 1, drops do
@@ -688,13 +633,7 @@ local function guarded_use(g: Gen, v: Vis, depth: integer)
     end
   end
   local wrote = false
-  -- TODO: read a field in such a function too, and in the body of any function
-  -- declared under a test of it (`fun` keeps those fields out of a bare use),
-  -- once a function literal's body begins with none of the facts of the places
-  -- outside it (the roadmap item, and the TODO at `narrowing.enter_function`
-  -- in checker/narrowing.tl): the body is checked under the test, runs after
-  -- the write, and the checker accepts `r.a + 1` there.
-  if close and not p:find(".", 1, true) and not held(g, v, p) and g.src:int(0, 3) == 0 then
+  if close and not held(g, v, p) and g.src:int(0, 3) == 0 then
     -- A function that reads the place under the test, called after a write.
     local reader = fresh(g, "g")
     add(g, "local function " .. reader .. "(): integer return " .. p .. " + 1 end")
@@ -734,9 +673,9 @@ local function guarded_use(g: Gen, v: Vis, depth: integer)
 end
 
 local function assert_stmt(g: Gen, v: Vis)
-  local c = cond(g, v, 1, true)
+  local c = cond(g, v, 1)
   add(g, "assert(" .. c.text .. ")")
-  learn_here(g, v, c.yes, c.ryes)
+  learn(v, c.yes, c.ryes)
 end
 
 local function loop(g: Gen, v: Vis, depth: integer, kind?: integer, labelled?: boolean)
@@ -831,10 +770,10 @@ end
 --- A well-formed program: the header, statements, and `return sink`.
 local function gen_program(src: Fuzz.Source): string
   local g: Gen = { src = src, lines = {}, id = 0, fuel = 45, depth = 0, calm = src:int(0, 3) == 0, want_goto = false,
-    fn = 0, closure_assigned = {}, nested_written = {}, multi = {} }
+    fn = 0, closure_assigned = {}, multi = {} }
   local text = header(src:int(0, 2))
   local v: Vis = { ints = {}, recs = {}, procs = {}, funs = {}, focus = {}, rfocus = {},
-    hole = {}, closure_here = false, in_loop = false, cont = nil, ret = "return sink" }
+    in_loop = false, cont = nil, ret = "return sink" }
   -- Two locals to begin with, so that the draws have places to test.
   for _ = 1, 2 do
     local name = fresh(g, "x")
