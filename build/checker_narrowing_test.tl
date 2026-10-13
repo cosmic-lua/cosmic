@@ -371,6 +371,30 @@ local function test_a_write_drops_every_path_ending_in_the_field_it_names()
   assert(told["r.n"] == write and told["q.n"] == write)
 end
 
+local function test_a_write_drops_every_path_with_the_field_after_its_base()
+  setup()
+  -- `b.f = v` may write the `f` that `a.f.g` goes through, the `f` of `a.g.f`,
+  -- or the end of `a.f`: any path with `.f` among its components. A longer
+  -- name, a base named `f` and a path without it stay.
+  local outer = holding("a.f", "a.f.g", "a.f.g.h", "a.g.f", "a.g.f.h", "a.ff.g", "a.gf.h", "f.g", "f", "a.g")
+  local inner = holding("c.f.g", "c.h")
+  module().drop_written({ outer, inner }, "f", write)
+  for _, key in ipairs({ "a.f", "a.f.g", "a.f.g.h", "a.g.f", "a.g.f.h" }) do
+    assert(outer.vars[key] == nil, key)
+    assert(assert(outer.narrows)[key] == nil, key)
+    assert(assert(outer.dropped)[key] == write, key)
+  end
+  assert(inner.vars["c.f.g"] == nil and inner.vars["c.h"])
+  for _, key in ipairs({ "a.ff.g", "a.gf.h", "f.g", "f", "a.g" }) do
+    assert(outer.vars[key], key)
+  end
+  -- A write of `g` drops the paths through `g`, wherever it is in them.
+  local other = holding("a.f.g", "a.g.f", "a.f", "a.gg")
+  module().drop_written({ other }, "g", write)
+  assert(other.vars["a.f.g"] == nil and other.vars["a.g.f"] == nil)
+  assert(other.vars["a.f"] and other.vars["a.gg"])
+end
+
 local function test_a_call_drops_every_field_path_and_no_local()
   setup()
   local outer = holding("r.n", "r.m", "x")
@@ -888,6 +912,27 @@ local function test_a_path_of_two_fields_is_not_a_place_yet()
   -- The left of `and` narrows `q.c` for the index of `q.c.n`, which is no place
   -- to narrow itself.
   refused("if q.c and q.c.n then print(q.c.n + 1) end", "1: " .. plus:sub(1, 28))
+end
+
+--- The checker narrows no path of two fields today, so a write through another
+--- reference cannot leave one standing: the program is refused at the read.
+--- This pins that, until paths are places and [`drop_written`]
+--- (which drops a path with the field anywhere after its base) decides it.
+local function test_a_write_through_another_reference_leaves_no_nested_path_narrowed()
+  local records <const> = "local record G\n  g: integer | nil\nend\nlocal record H\n  f: G\nend\nlocal record A\n  f: G\n  ff: G\n  h: H\nend\n" ..
+    "local a: A = { f = { g = 1 }, ff = { g = 1 }, h = { f = { g = 1 } } }\nlocal b = a\n"
+  local function nested(test: string, stmt: string, read: string): {string}
+    return errors_in(records .. "if " .. test .. " then\n  " .. stmt .. "\n  print(" .. read .. " + 1)\nend\nprint(a, b)\n", 13)
+  end
+  local function plain(found: {string}, what: string)
+    assert(#found == 1 and found[1]:find("cannot use operator '+' for types integer | nil", 1, true),
+      what .. ": " .. table.concat(found, "; "))
+  end
+  plain(nested("a.f.g", "b.f = {}", "a.f.g"), "a.f.g after b.f = {}")
+  plain(nested("a.f.g", "b.f.g = nil", "a.f.g"), "a.f.g after b.f.g = nil")
+  plain(nested("a.ff.g", "b.f = {}", "a.ff.g"), "a.ff.g after b.f = {}")
+  plain(nested("a.h.f.g", "b.f = {}", "a.h.f.g"), "a.h.f.g after b.f = {}")
+  plain(nested("a.f.g", "b[\"f\"] = {}", "a.f.g"), "a.f.g after b[\"f\"] = {}")
 end
 
 local function test_an_assignment_to_a_field_drops_a_field_whose_name_it_begins()
