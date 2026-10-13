@@ -940,8 +940,9 @@ begins.
 a fact is dropped where the value it is about can change, and a use that
 relied on a dropped fact is refused. an assignment to a place, or to a
 prefix of it, drops it. a write to a field `.f` through any reference drops
-every narrowed path ending in `.f`, because another reference may name the
-same table; a write through a key that may name a field drops every field
+every narrowed path with `.f` after its base (`a.f`, and `a.f.g` or `a.g.f`
+once a path of two fields is a place), because another reference may name the
+same table or one on the way to it; a write through a key that may name a field drops every field
 path. a call drops every narrowed field path, and every narrowed global: a
 local stays narrowed across a call, because no function literal assigns a
 local it does not declare (below). an operator or index that dispatches to a metamethod

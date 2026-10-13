@@ -39,7 +39,9 @@
 -- doc/roadmap.md's item that makes every guard read every place alike;
 -- a write to an index then drops every index place, and the checker drops
 -- every field path for the write through a key that may be a field name
--- (`TypeChecker:drop_through`).
+-- (`TypeChecker:drop_through`). [`narrowing.drop_written`] already drops a
+-- path with the written field anywhere after its base (`a.f.g` by `b.f = v`),
+-- so the paths need no change there.
 --
 -- TODO: `forgets` drops by string prefix, so `r.f = v` also drops a fact
 -- about `r.foo`. It waits on the roadmap item that makes every guard read
@@ -369,12 +371,12 @@ function narrowing.drop(scopes: {narrowing.Scope}, assigned: narrowing.Place, wh
 end
 
 -- The keys of `scope` that name a field path (`r.n`: no Lua name
--- contains a dot) and end in `suffix`, any when it is empty; nil for none.
-local function path_keys(scope: narrowing.Scope, suffix: string): {string}
+-- contains a dot) and that `wanted` accepts, any when it is nil; nil for none.
+local function path_keys(scope: narrowing.Scope, wanted?: function(string): boolean): {string}
    local keys: {string} = nil
    if scope.narrows then
       for key in pairs(scope.narrows) do
-         if key:find(".", 1, true) and (suffix == "" or key:sub(-#suffix) == suffix) then
+         if key:find(".", 1, true) and (wanted == nil or wanted(key)) then
             keys = keys or {}
             keys[#keys + 1] = key
          end
@@ -383,14 +385,18 @@ local function path_keys(scope: narrowing.Scope, suffix: string): {string}
    return keys
 end
 
---- Drops every narrowed place whose path ends in `.field`: a write to a
---- field of that name through any reference may be a write to the field
---- of the table another path names. `why` is the write.
+--- Drops every narrowed place with `.field` among the components after its
+--- base (`r.field`, `r.field.g`, `r.g.field`): a write to a field of that
+--- name through any reference may be a write to the field of a table that
+--- another path names, or to one on the way to it. `why` is the write.
 function narrowing.drop_written(scopes: {narrowing.Scope}, field: string, why: narrowing.Drop)
-   local suffix = "." .. field
+   local component = "." .. field .. "."
+   local function names_field(key: string): boolean
+      return (key .. "."):find(component, 1, true) ~= nil
+   end
    for i = #scopes, 1, -1 do
       local scope = scopes[i]
-      local keys = path_keys(scope, suffix)
+      local keys = path_keys(scope, names_field)
       if keys then
          for _, key in ipairs(keys) do
             remove(scopes, i, key, why)
@@ -404,7 +410,7 @@ end
 function narrowing.drop_paths(scopes: {narrowing.Scope}, why: narrowing.Drop)
    for i = #scopes, 1, -1 do
       local scope = scopes[i]
-      local keys = path_keys(scope, "")
+      local keys = path_keys(scope)
       if keys then
          for _, key in ipairs(keys) do
             remove(scopes, i, key, why)
