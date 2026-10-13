@@ -1429,6 +1429,107 @@ local function test_a_function_literal_drops_only_in_its_own_body()
   accepted("if q.a then\n  local function g() p.a = nil end\n  print(q.a + 1, g)\nend")
 end
 
+--- A fact about a field of a name is about the binding it was found on: a
+--- binding of the name declared after it (a local, a loop variable) is a
+--- table the test did not look at, so the fact is not its.
+local function test_a_new_binding_of_a_name_does_not_inherit_its_field_facts()
+  local at <const> = plus:sub(1, 28)
+  refused("if q.a then\n  local q = p\n  print(q.a + 1)\nend", "3: " .. at)
+  refused("if not q.a then return end\nlocal q = p\nprint(q.a + 1)", "3: " .. at)
+  refused("if q.a then\n  do\n    local q = p\n    print(q.a + 1)\n  end\nend", "4: " .. at)
+  refused("if q.a then\n  local rs: {R} = {}\n  for _, q in ipairs(rs) do\n    print(q.a + 1)\n  end\nend", "4: " .. at)
+  -- Each binding in turn.
+  refused("if q.a then\n  local q = p\n  if p.a then\n    local q = p\n    print(q.a + 1)\n  end\nend", "5: " .. at)
+end
+
+local function test_a_new_binding_narrows_its_own_fields()
+  accepted("if q.a then\n  local q = p\n  if q.a then\n    print(q.a + 1)\n  end\nend")
+  accepted("if q.c then\n  local q = p\n  if q.c then\n    print(q.c.n)\n  end\nend")
+  refused("if q.c then\n  local q = p\n  print(q.c.n)\nend", "3: cannot index")
+  accepted("local q = p\nif q.a then\n  print(q.a + 1)\nend")
+end
+
+--- `local q = q` is the same value, so it keeps what is known of `q.a`.
+local function test_a_local_of_the_same_value_keeps_its_field_facts()
+  accepted("if q.a then\n  local q = q\n  print(q.a + 1)\nend")
+end
+
+--- A name declared where no local is (a field of a record type that is
+--- named `q`) drops nothing of the local `q`.
+local function test_a_type_with_a_member_named_like_a_local_drops_no_fact()
+  accepted("if q.a then\n  local record W\n    record q\n      z: number\n    end\n  end\n  print(q.a + 1, W)\nend")
+end
+
+--- A binding of the name drops the facts of its fields for good: the fact
+--- does not stand again when the binding's scope ends, though it could.
+--- The limit is pinned as a limit.
+local function test_a_fact_dropped_by_a_new_binding_does_not_stand_again()
+  local at <const> = plus:sub(1, 28)
+  refused("if q.a then\n  do\n    local q = p\n    print(q)\n  end\n  print(q.a + 1)\nend", "6: " .. at)
+  refused("if q.a then\n  for _, q in ipairs({ p }) do\n    print(q)\n  end\n  print(q.a + 1)\nend", "5: " .. at)
+end
+
+--- A binding in a branch that never reaches the code after it drops
+--- nothing for that code.
+local function test_a_binding_in_a_branch_that_leaves_drops_nothing_for_the_code_after_it()
+  accepted("if q.a then\n  if x then\n    local q = p\n    touch(q)\n    return\n  end\n  print(q.a + 1)\nend")
+  accepted("if q.a then\n  if x then\n    local q = p\n    q.a = nil\n    return\n  end\n  print(q.a + 1)\nend")
+  accepted("if q.a then\n  if x then\n    return\n  else\n    local q = p\n    touch(q)\n    return\n  end\n  print(q.a + 1)\nend")
+  accepted("if q.a then\n  for _ = 1, 2 do\n    if x then\n      local q = p\n      touch(q)\n      break\n    end\n  end\n  print(1)\nend")
+end
+
+--- A limit, not a fix: these are valid programs, and main takes them. A
+--- binding in a loop's body counts as a drop for the loop's next pass,
+--- which reads the fact held outside the loop, because once the binding
+--- has dropped the key, a later write through the new name raises no drop
+--- of its own for the loop to meet.
+---
+--- TODO: the loop could keep the fact when the binding is of a name the
+--- loop's reads do not name; it waits on narrowing facts keyed by binding
+--- (Variable.key) instead of by name.
+local function test_a_binding_in_a_loop_drops_the_fact_for_its_next_pass()
+  refused("if q.a then\n  while y do\n    print(q.a + 1)\n    local q = p\n    print(q)\n  end\nend", "3" .. looped)
+  refused("if q.a then\n  repeat\n    print(q.a + 1)\n    local q = p\n    print(q)\n  until y\nend", "3" .. looped)
+  refused("if q.a then\n  for _ = 1, 2 do\n    print(q.a + 1)\n    local q = p\n    print(q)\n  end\nend", "3" .. looped)
+  refused("if q.a then\n  for _ = 1, 2 do\n    print(q.a + 1)\n    for _, q in ipairs({ p }) do print(q) end\n  end\nend", "3" .. looped)
+  refused("if q.a then\n  for _ = 1, 3 do\n    if y then\n      local q = p\n      print(q)\n      goto continue\n    end\n" ..
+      "    print(q.a + 1)\n    ::continue::\n  end\nend", "8: " .. plus:sub(1, 28))
+  -- Narrowing again inside the loop does not bring the fact back for the
+  -- pass, though the binding comes after it.
+  refused("if q.a then\n  while y do\n    assert(q.a)\n    print(q.a + 1)\n    local q = p\n    print(q)\n  end\nend",
+    "3" .. looped, "4" .. looped)
+  refused("if q.a then\n  while y do\n    if q.a then\n      print(q.a + 1)\n    end\n    local q = p\n    print(q)\n  end\nend",
+    "3" .. looped, "4" .. looped)
+end
+
+--- A guard, as main also refuses it: a write through the new name, which
+--- may be the table that was checked, in a loop.
+local function test_a_write_through_a_new_binding_in_a_loop_stays_refused()
+  refused_source("local sink: integer = 0\nlocal x1 = { value = 0 as integer | nil }\nlocal alias = x1\nlocal n = 0\n" ..
+      "if x1.value == nil then return sink end\nwhile n < 2 do\n  n = n + 1\n  sink = sink + x1.value + 1\n" ..
+      "  local x1 = alias\n  x1.value = nil\nend\nreturn sink",
+    "8: 'x1.value' was narrowed before this loop")
+end
+
+--- A limit: a binding in one branch drops the fact for the other branch
+--- too, as it would for the code after it.
+---
+--- TODO: the fact could stand in the branches the binding is not in; it
+--- waits on narrowing facts keyed by binding (Variable.key) instead of by
+--- name.
+local function test_a_binding_in_one_branch_drops_the_fact_for_the_else_branch()
+  refused("if q.a then\n  if x then\n    local q = p\n    print(q)\n  else\n    print(q.a + 1)\n  end\nend", "6: " .. plus:sub(1, 28))
+end
+
+local function test_a_local_that_hides_a_global_drops_its_field_facts()
+  local head <const> = "global record GR\n  a: integer | nil\nend\nlocal function g(other: GR): integer\n"
+  refused_source(head .. "  if GR.a then\n    local GR = other\n    return GR.a + 1\n  end\n  return 0\nend\nreturn g",
+    "7: " .. plus:sub(1, 28))
+  -- It does not stand again after the block, as for a local.
+  refused_source(head .. "  if GR.a then\n    do\n      local GR = other\n      print(GR)\n    end\n    return GR.a + 1\n  end\n  return 0\nend\nreturn g",
+    "10: " .. plus:sub(1, 28))
+end
+
 local function test_a_metamethod_runs_code_an_operator_on_a_number_does_not()
   local head = "local record V\n  x: number\n  metamethod __add: function(V, V): V\n" ..
     "  metamethod __index: function(V, string): number\nend\n" ..
