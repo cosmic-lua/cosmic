@@ -65,7 +65,35 @@ of them.
   one such typing a declaration gained, and it lets `error` be declared
   rather than special.
 
-the patch format adds one more. a patch finds and replaces text in one
+the patch format adds one more.
+
+## why the narrowing holes keep coming
+
+the fuzz test (step 6) keeps finding holes in narrowing, each closed by a
+local fix, and the cause sits in upstream's design, not in any one fix.
+
+- **narrowing overwrites a declared type and undoes it.** upstream
+  narrows by replacing a variable's type in place (`specialize_var`) and
+  restoring it with scope markers (`narrow`, `widen` and `localizing`
+  entries, `widened_from`). every construct must remember to undo, and
+  four of the last five holes were an undo that a construct forgot.
+- **a fact persists until something removes it.** the list of removers (an
+  assignment, a call, a loop, a label) is a blacklist, and a blacklist is
+  never complete: the next construct is a remover nobody listed.
+- **there is no control-flow graph.** the checker is a single in-order
+  walk over the syntax tree, and each construct merges the facts of its
+  branches by hand.
+- **Lua gives no effect information.** a table has aliases, a closure
+  assigns the locals it captures, and a metatable adds dispatch at run
+  time, with nothing in a type that says which call does any of it.
+- **nil is a member of every type,** so a fact "not nil" is the only
+  thing standing between a read and a nil, and one lost fact is a run-time
+  fault.
+- **upstream had no soundness oracle.** nothing generated programs and
+  ran them against what the checker accepted until the fuzz test did.
+
+step 7a replaces the first three with a design that is sound by
+construction. a patch finds and replaces text in one
 15,000-line file, so a change of one idea lands as dozens of local hunks,
 and a change to a foundation, such as nil's place in the subtype table,
 touches more places than a patch stack can carry. the hints in
@@ -156,6 +184,20 @@ error without another patch.
   is a bug in the rule or a missing rewrite. random programs and
   differential runs find what review does not (see "what the first steps
   taught").
+- **optimize for the strong design; it is easy to rewrite the existing
+  code.** migration cost is not a reason to choose a weaker rule. a rule is
+  chosen for soundness and simplicity, and the tree is migrated to it.
+- **the runtime changes only where normal runs pay nothing.** the
+  guarantees are type-level restrictions, plus Lua VM changes only where
+  they cost a normal run nothing. a locked metatable reuses `__metatable`,
+  so it is free. the strict-record and frozen-table checks run only in
+  debug and test runs, as `--check-types` does. there is no always-on write
+  check.
+- **the syntax gains restrictions, no new syntax.** there is no `readonly`
+  keyword, no `pure` annotation and no new metatable construct. purity, if
+  it is ever needed, is inferred and defaults to impure, and the standard
+  library's purity lives in `checker/stdlib.d.tl`. `<const>` is Lua syntax
+  and stays.
 - **what the claim excludes.** types do not track integer overflow,
   division by zero, or code a finalizer (`__gc`) runs. each is a run-time
   fault, not a type that lied.
@@ -220,7 +262,7 @@ is in "the steps".
      path.
 
    this replaces upstream's facts and the per-form narrowing and
-   block-ending patches.
+   block-ending patches. step 7a gives it the form described there.
 5. **a local is assigned before it is read (R).** `local x: T` with no
    value is legal only where every path assigns `x` before its first read.
    a loop body may run zero times. an assignment inside a function literal
@@ -299,7 +341,9 @@ is in "the steps".
     wanted, answers `T | nil`.
 15. **casts are confined (R).** as [design.md](../design.md)'s teal section
     states: `x as T` only from `any`, from a userdata record declared in a
-    `.d.tl`, or from the enclosing generic's type variable.
+    `.d.tl`, or from the enclosing generic's type variable. the rule waits
+    only on the stage-2 seed (step 11): 230 of the 290 non-test casts not
+    from `any` are in the checker's own source.
 16. **a parameter is annotated (R).** a parameter of a function declaration,
     or of a function literal with no expected function type, has a type. a
     literal passed where a function type is expected takes its parameter
@@ -311,7 +355,8 @@ is in "the steps".
     metamethod. a metatable attached at run time would add dispatch no type
     shows. so `setmetatable` attaches a metamethod only to a record type
     that declares it, with the declared signature, and refuses a metatable
-    that carries any other. [roadmap.md](../roadmap.md) holds the item.
+    that carries any other. the one allowance besides those metamethods is
+    `__index` set to the record's own method table. [roadmap.md](../roadmap.md) holds the item.
 
 `any` stays as it is: it is legal only where untrusted data enters, and the
 checker already refuses to assign it, call it or index it.
@@ -346,6 +391,27 @@ lands.
 - **narrowing after a call (rule 4).** of about 1,080 guards on a field
   path, at most 76 call a function in the guarded body and read the path
   again (heuristic).
+- **narrowing by construction (step 7a),** measured on `origin/main` at
+  e95cd66f4.
+  - narrowed reads: 12,513. field reads: 752 (609 outside tests) on 557
+    places; 79% of them are on fields never written after creation.
+  - mutable-local narrowed reads: 1,545. turning narrowing off for them
+    gives 1,070 error lines in 203 files.
+  - closure-assigned narrowed reads: 153, on 105 places.
+  - R2 sites (a function literal that assigns an outer local): 1,182
+    (436 outside tests, 746 in tests) over 838 captured locals. no
+    forward-declared function is assigned by a closure. the patterns: 190
+    out-params declared without a value, 135 declared `= nil`, 324
+    accumulators, 119 flags, 410 other.
+  - `goto`: 5, all of the shape R3 allows.
+  - `setmetatable`: 163 calls. 67 attach to a record that declares
+    metamethods, 70 to a record that declares none (64 of them the
+    class-method `__index = R` pattern), and 25 are untyped.
+  - casts: 1,624, of which 958 are not from `any`: 290 outside tests (230
+    in the checker) and 668 in tests.
+  - drop sites with field facts: 1,008. about 30% of their callees in the
+    tree are pure one level deep.
+  - `rawset` 11, `rawget` 29, `debug.*` 3 (all in the checker).
 - **the checker's own source.** it is the hard case: 320 type errors under
   its own rules, pinned as a count by
   [`build/compiler_test.tl`]. it has about 94 free locals, short of Lua's
@@ -396,16 +462,46 @@ change in boot time and in the checker's self-compile time.
      loops and backward-goto labels (done, #3050). it refuses more and
      migrates the tree. the measured count decided that a call to a
      function that cannot reach the place keeps its narrowing.
-5. **definite assignment (rule 5).** in progress.
-6. **checker fuzzing, permanent.** a test in the tree runs random programs
-   through the checker and fails on any crash. a differential against a
-   pinned corpus fails when what the checker accepts changes without a
-   deliberate update of the corpus. in progress as its own PR.
-7. **pin bump for the row accessors.** [`Sqlite.rows`] results are read
-   through typed accessors (#3051, in the merge queue). once it merges,
+5. **definite assignment (rule 5) (done, #3061).**
+6. **checker fuzzing, permanent (done, #3060, then #3062).** a test in the
+   tree runs random programs through the checker and fails on any crash. a
+   differential against a pinned corpus fails when what the checker accepts
+   changes without a deliberate update of the corpus. the test runs on
+   [`build.fuzz`], with its corpus in `testdata/fuzz/`.
+7. **pin bump for the row accessors (done, #3056).** [`Sqlite.rows`]
+   results are read through typed accessors (#3051, merged).
    [`ci/cosmic-driver.pin`] moves to a release that carries them and `ci/`
    drops its `ci/cosmic_ci/text_rows.tl` shim. the pin lags the tree, so
-   `ci/` cannot use a new API before this.
+   `ci/` cannot use a new API before a bump.
+7a. **narrowing by construction (rule 4).** it lands before variance, so
+   the flow analysis every later rule reads is the sound one. in progress:
+   the holes the fuzzer found in 4c (the `or` reading, closures in inner
+   blocks, function bodies keeping outer facts, `local x = x` copies) are
+   fixed on branch `tl-narrowing-holes`, not yet merged. the design:
+   - declared types are never mutated. facts live in an immutable map from
+     place to type, carried along a small control-flow graph, and joins
+     happen in one place. the default is pessimistic: a fact survives only
+     what is known not to change its place.
+   - it retires `specialize_var` and the scope-marker bookkeeping
+     (`narrow`, `widen` and `localizing` entries, `widened_from`).
+   - field facts keep 4c's rule: a call or a write drops them. a local's
+     fact is dropped precisely by assignment.
+   - field narrowing stays, because without `readonly` syntax, restricting
+     it would cost every field read.
+
+   three restrictions come with it, each its own PR before or alongside it:
+   - R2, effectively-final captures. a function literal may read but not
+     assign a local declared outside it. the tree is migrated at every
+     site, tests included. this makes the closure-assigns-a-narrowed-local
+     class impossible, and with it step 5's pending-function machinery for
+     assignments.
+   - R3, `goto` only as `continue`: a forward jump to a label at the end of
+     the enclosing loop body.
+   - rule 17 adjusted as stated there.
+
+   rejected: narrowing only `<const>` and stable bindings (R1(b)), at 1,070
+   error lines in 203 files. assignment already drops a local's fact
+   precisely, and R2 removes the closure case.
 8. **variance, views and receivers (rules 7 and 13).** `table.concat` and
    the three option signatures take views first.
 9. **`setmetatable` and declared metamethods (rule 17),** after variance,
@@ -432,7 +528,7 @@ change in boot time and in the checker's self-compile time.
 13. **narrowing declarations, tagged unions and classes (rules 8, 9 and
     10),** each with its count in report mode first.
 14. **records and maps, `or` and `and`, casts and parameters (rules 11,
-    12, 15 and 16).** most of the tree's casts exist to get past nil,
+    12, 15 and 16).** rule 15 waits only on step 11. most of the tree's casts exist to get past nil,
     narrowing and variance, so after step 12 most are deleted rather than
     justified.
 
@@ -449,6 +545,11 @@ every checker step follows the review practice in "decisions".
 - **tests.** whether test files get a helper for an index they have
   already asserted the length of, since about 4,613 array reads are in
   tests and a nil there already fails the test.
+- **R2's out-param pattern in tests.** whether it is rewritten with return
+  values or a one-field table, and a small shared helper only if that is
+  idiomatic.
+- **strict-record checks in debug runs.** whether they come before or
+  after step 7a.
 - **dense arrays.** what rule 3 costs the tree, measured in report mode
   before step 12.
 - **the stage-2 seed.** how it is produced and kept reproducible, so a
@@ -470,7 +571,11 @@ every checker step follows the review practice in "decisions".
 - **run-time metatables are a hole,** hence rule 17.
 - **the pinned CI driver lags the tree,** so `ci/` cannot use a new API
   until the pin moves (step 7).
+- **a change can expose a bug beside it.** a deadline-rounding bug in the
+  core's C was found when the row accessors (#3051) were knocked out of
+  the merge queue (#3055).
 
+[`build.fuzz`]: ../../build/fuzz/init.tl
 [`build/compiler_test.tl`]: ../../build/compiler_test.tl
 [`build/identity.tl`]: ../../build/identity.tl
 [`build/teal.tl`]: ../../build/teal.tl
