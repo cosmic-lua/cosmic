@@ -14029,7 +14029,7 @@ do
             end
          else
             if paths then
-               -- TODO: a write to an index (`t[k] = v` drops every index
+               -- TODO: a write to an index (`t[k] = v`) drops every index
                -- place, and there are none; a key that is not a number may
                -- be a field name, so it drops every field path. It waits on
                -- doc/roadmap.md's item that makes an index a place and on
