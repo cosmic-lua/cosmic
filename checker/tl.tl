@@ -16981,9 +16981,10 @@ do
       end
 
       if (resolve_interface and checktype is InterfaceType) or checktype is RecordType then
+         local declname = checktype.declname
          return map_type(self, t, {
             ["self"] = function(_: TypeChecker, typ: SelfType): Type, boolean
-               return typedecl_to_nominal(typ, checktype.declname, selfdecl)
+               return typedecl_to_nominal(typ, declname, selfdecl)
             end,
          })
       else
