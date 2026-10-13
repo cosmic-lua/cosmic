@@ -1147,16 +1147,24 @@ local function dropped_hint(e: compiler.Error): string | nil
     -- the place is read in its body.
     cause = "the function at " .. where .. " runs later, when it may have changed"
     before = "the function"
+  elseif kind == "binding" then
+    cause = "`" .. by:sub(9) .. "` declared at " .. where .. " may name another table than the one it was checked on"
+    before = "the new binding"
   elseif kind == "loop" then
-    -- What the loop's own pass ran is told by how it is written.
-    local what = "the operator"
-    if by:sub(-5) == "(...)" then
-      what = "the call"
-    elseif by:sub(-6) == " = ..." then
-      what = by:sub(1, -7):find("[%.%[]") and "the write" or "the assignment"
-    end
-    cause = what .. " `" .. by .. "` at " .. where .. " in this loop may change it before the loop comes round again"
     before = "the loop"
+    if by:sub(1, 8) == "binding " then
+      cause = "`" .. by:sub(9) .. "` declared at " .. where .. " in this loop dropped what was known, " ..
+        "so the loop cannot carry it to its next pass"
+    else
+      -- What the loop's own pass ran is told by how it is written.
+      local what = "the operator"
+      if by:sub(-5) == "(...)" then
+        what = "the call"
+      elseif by:sub(-6) == " = ..." then
+        what = by:sub(1, -7):find("[%.%[]") and "the write" or "the assignment"
+      end
+      cause = what .. " `" .. by .. "` at " .. where .. " in this loop may change it before the loop comes round again"
+    end
   else
     return "'" .. place .. "' was checked, then assigned at " .. where .. ": the checker narrows nothing after " ..
       "an assignment, so keep the value in a local (`local " .. name .. " = <the value>`, " ..

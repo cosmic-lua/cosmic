@@ -9220,6 +9220,18 @@ do
          end
 
          self.binding_count = self.binding_count + 1
+         -- What is known of a field of the name was found on the binding
+         -- before, which this one may not be. A declaration is given its
+         -- node; an entry made without one (a type's own scope, a type
+         -- argument) is no binding of a local.
+         -- TODO: the fact about `name.f` could stand again once this
+         -- binding's scope ends, if nothing else dropped it: it waits on
+         -- narrowing facts keyed by binding (Variable.key) instead of by
+         -- name.
+         if node and narrowing.has_paths(self.st as {narrowing.Scope}) then
+            narrowing.drop(self.st as {narrowing.Scope}, narrowing.local_place(name),
+               narrowing.because("binding", "binding " .. name, node.y, node.x))
+         end
          var = { t = t, attribute = attribute, declared_at = node, key = tostring(self.binding_count), name = name, declared = t }
          scope.vars[name] = var
          self.bindings[var.key] = var
@@ -13715,9 +13727,14 @@ do
                      code = "narrowing_dropped", dropped_place = read.key, dropped_kind = "loop",
                      dropped_by = why.text, dropped_y = why.y, dropped_x = why.x,
                   })
+                  local said = ("the loop's previous pass ran %s at %d:%d, which may have changed it")
+                     :format(why.text:gsub("%%", "%%%%"), why.y, why.x)
+                  if why.kind == "binding" then
+                     said = ("the binding of %s at %d:%d dropped what was known, " ..
+                        "so the loop cannot carry it to its next pass"):format(why.text:sub(9):gsub("%%", "%%%%"), why.y, why.x)
+                  end
                   self.errs:add_coded(read.node as Node, details,
-                     ("'%s' was narrowed before this loop, but the loop's previous pass ran %s at %d:%d, " ..
-                      "which may have changed it"):format(read.key, why.text:gsub("%%", "%%%%"), why.y, why.x))
+                     ("'%s' was narrowed before this loop, but %s"):format(read.key, said))
                   break
                end
             end
