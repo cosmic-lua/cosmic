@@ -276,6 +276,10 @@ local record compiler
     shadow_mismatches: {string} | nil
     -- How many reads that took, so that none found does not mean none looked at.
     shadow_reads: integer | nil
+    -- How many of those were reads of a field path.
+    shadow_field_reads: integer | nil
+    -- How many of the reads were not compared (generics).
+    shadow_skipped: integer | nil
     reporter: any
   end
 

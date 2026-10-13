@@ -180,6 +180,10 @@ local record tl
       -- How many reads were compared, so that no disagreement can mean none
       -- was looked for.
       shadow_reads: integer
+      -- How many of those were reads of a field path.
+      shadow_field_reads: integer
+      -- How many of them were not compared (generics).
+      shadow_skipped: integer
       defaults: CheckOptions
    end
 
@@ -8313,6 +8317,7 @@ do
       -- The bindings `add_var` and `add_global` have made so far, counted:
       -- each takes the count as its `Variable.key`.
       binding_count: integer
+      shadow_host_made: narrowing.Host
       -- The shadow facts (checker/facts.tl): what is known of the places at
       -- the point the walk has reached, kept beside the narrowing on `st`,
       -- which decides every verdict. Nil where control cannot reach. See
@@ -8413,6 +8418,9 @@ do
       enter_function_body: function(TypeChecker, Node)
       macroexp_calls: function(TypeChecker, Node): boolean
       var_is_fixed: function(TypeChecker, Variable, Node): boolean
+      field_through: function(TypeChecker, Type, narrowing.Place, Where): Type
+      shadow_host: function(TypeChecker): narrowing.Host
+      shadow_carry: function(TypeChecker, string, string)
       shadow_key: function(TypeChecker, string): string
       shadow_open: function(TypeChecker)
       shadow_close: function(TypeChecker)
@@ -12767,7 +12775,11 @@ do
       if #place.fields == 0 then
          return nil
       end
-      local base = self:find_var_type(place.base, "check_only")
+      return self:field_through(self:find_var_type(place.base, "check_only"), place, w)
+   end
+
+   -- The type of the field path `place` of a base of type `base`, silent.
+   function TypeChecker:field_through(base: Type, place: narrowing.Place, w: Where): Type
       if not base then
          return nil
       end
@@ -13149,6 +13161,45 @@ do
          return host
       end
 
+      -- What evaluating a guard asks of the checker, answered by the shadow
+      -- facts: the type a place has is its fact, else the type it was declared
+      -- with, else the field of its base's. It reports nothing.
+      function TypeChecker:shadow_host(): narrowing.Host
+         local host = self.shadow_host_made
+         if host then
+            return host
+         end
+         local old = narrowing_host(self)
+         host = {
+            type_of = function(place: narrowing.Place, w: narrowing.Where): narrowing.Type
+               local key = self:shadow_key(place.key)
+               local fact = Facts.get(self.facts, key)
+               if fact ~= nil then
+                  return fact as narrowing.Type
+               end
+               local base_key = self:shadow_key(place.base)
+               local base = Facts.get(self.facts, base_key) as Type
+               if base == nil then
+                  base = self:shadow_declared(base_key)
+               end
+               if #place.fields == 0 then
+                  return base as narrowing.Type
+               end
+               return self:field_through(base, place, w as Where) as narrowing.Type
+            end,
+            is_a = old.is_a,
+            unite = old.unite,
+            intersect = old.intersect,
+            subtract = old.subtract,
+            invalid = old.invalid,
+            show = old.show,
+            warn_never = function() end,
+            refuse_never = function() end,
+         }
+         self.shadow_host_made = host
+         return host
+      end
+
       -- Narrows the places `guard` is about, in the scope that is open.
       function TypeChecker:apply_guard(w: Where, guard: narrowing.Guard)
          if not guard then
@@ -13156,6 +13207,10 @@ do
          end
 
          local facts = narrowing.evaluate(narrowing_host(self), guard)
+         -- The shadow facts narrow by what they know of the places, not by
+         -- what the narrowing has, so they hold a fact the narrowing already
+         -- held for another variable of the name.
+         local held = self.facts ~= nil and narrowing.evaluate(self:shadow_host(), guard) or nil
 
          for v, f in pairs(facts) do
             local typ = f.typ as Type
@@ -13168,7 +13223,12 @@ do
             end
             self:add_var(nil, v, t, "const", "narrow")
             narrowing.renarrowed(self.st as {narrowing.Scope}, v)
-            self:shadow_narrow(v, t)
+         end
+         for v, f in pairs(held or {}) do
+            local typ = f.typ as Type
+            if typ.typename ~= "invalid" then
+               self:shadow_narrow(v, f.no_infer and typ or self:infer_at(w, typ))
+            end
          end
       end
 
@@ -14163,6 +14223,23 @@ do
          end, narrowing.because("function", "function", node.y, node.x) as Facts.Drop)
       end
 
+      -- `local x = x` makes a variable of the same value: what is known of
+      -- the fields of `from` is known of those of `to`.
+      function TypeChecker:shadow_carry(from: string, to: string)
+         local f = self.facts
+         if f == nil or f.paths == 0 then
+            return
+         end
+         local prefix = from .. "."
+         local found = keys_where(f, function(key: string): boolean
+            return key:sub(1, #prefix) == prefix
+         end)
+         for _, key in ipairs(found or {}) do
+            f = Facts.with(f, to .. key:sub(#from + 1), Facts.get(f, key))
+         end
+         self.facts = f
+      end
+
       -- The type the binding of `key` was declared with.
       function TypeChecker:shadow_declared(key: string): Type
          local var = self.bindings[key]
@@ -14182,6 +14259,9 @@ do
             return
          end
          self.env.shadow_reads = (self.env.shadow_reads or 0) + 1
+         if is_field then
+            self.env.shadow_field_reads = (self.env.shadow_field_reads or 0) + 1
+         end
          local key = self:shadow_key(name)
          local new = Facts.get(f, key) as Type
          if new == nil and not is_field then
@@ -14190,8 +14270,14 @@ do
                return
             end
          end
+         -- TODO: compare these too. Each read of a generic gets fresh type
+         -- variables (`find_var_type`), so two reads of one variable are not the
+         -- same type to `same_type`. It waits on a comparison of types up to the
+         -- renaming of their type variables, or on a read that does not refresh
+         -- them; until then the reads are counted in `Env.shadow_skipped`.
          if (old ~= nil and (old.typename == "generic" or old.typename == "typearg"))
             or (new ~= nil and (new.typename == "generic" or new.typename == "typearg")) then
+            self.env.shadow_skipped = (self.env.shadow_skipped or 0) + 1
             return
          end
          if old == new or (old ~= nil and new ~= nil and self:same_type(old, new)) then
@@ -15844,8 +15930,13 @@ do
                   node.unvalued = node.unvalued or {}
                   table.insert(node.unvalued, var)
                end
-               local declared = self:add_var(var, var.tk, t, var.attribute, is_localizing_a_variable(node, i) and "localizing")
+               local localizing = is_localizing_a_variable(node, i)
+               local from = localizing and self:shadow_key(var.tk)
+               local declared = self:add_var(var, var.tk, t, var.attribute, localizing and "localizing")
                declared.is_loop_control = false
+               if from then
+                  self:shadow_carry(from, declared.key)
+               end
                if var.elide_type then
                   self.errs:add_warning("hint", node, "hint: consider using 'local type' instead")
                end

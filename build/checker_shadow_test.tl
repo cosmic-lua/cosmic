@@ -7,8 +7,9 @@
 ---
 --- This is the gate of step 7a's shadow mode: when a read switches to the
 --- facts, this test is what says the facts were right. A disagreement that
---- the old narrowing is to blame for is not listed here as allowed: it is
---- fixed in the old narrowing first.
+--- the old narrowing is to blame for is not allowed: it is pinned as the
+--- exact mismatch it gives, with a TODO naming the fix of the old narrowing
+--- it waits on, until that fix merges and the pin goes.
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
 local programs = require("build.checker_programs")
@@ -33,7 +34,7 @@ end
 
 --- The disagreements of `text` checked as a program of its own, and how
 --- many reads were compared.
-local function mismatches(file: string, text: string): {string}, integer
+local function mismatches(file: string, text: string): {string}, integer, integer
   local env = verdicts.environment(checker())
   local found: {string} = {}
   env.shadow_mismatches = found
@@ -43,7 +44,7 @@ local function mismatches(file: string, text: string): {string}, integer
   for _, line in ipairs(found) do
     out[#out + 1] = file .. ":" .. line
   end
-  return out, env.shadow_reads or 0
+  return out, env.shadow_reads or 0, env.shadow_field_reads or 0
 end
 
 --- The programs the checks below draw their cases from: one narrowing shape
@@ -211,6 +212,19 @@ local function g(x: string | nil): integer
 end
 return g
 ]],
+  local_x_is_x_carries_fields = [[
+local record R
+  a: integer | nil
+end
+local function g(t: R): integer
+  if t.a then
+    local t = t
+    return t.a + 1
+  end
+  return 0
+end
+return g
+]],
   shadowed_name = [[
 local function g(x: string | nil): integer
   if x == nil then return 0 end
@@ -230,13 +244,136 @@ local function test_each_narrowing_shape_agrees_with_the_facts()
     names[#names + 1] = name
   end
   table.sort(names)
-  local reads = 0
+  local reads, fields = 0, 0
   for _, name in ipairs(names) do
-    local found, n = mismatches(name, cases[name])
+    local found, n, f = mismatches(name, cases[name])
     reads = reads + n
+    fields = fields + f
     assert(#found == 0, table.concat(found, "\n"))
   end
   assert(reads > 0, "no read was compared")
+  -- A positive control: the shapes read fields (`r.a`, `r.f`, `t.a`), and a
+  -- comparison of those that was skipped would leave this at none.
+  assert(fields >= 8, "only " .. tostring(fields) .. " field reads were compared")
+end
+
+-- The old narrowing holds a field fact under the name of the place (`t.a`),
+-- so it survives a new variable of the name `t`: a `local t = s`, a `for`
+-- variable, a `local t` of an inner `do` (after which it reads the outer
+-- `t.a` as narrowed even where the fact was dropped), a redeclaration after
+-- an early return, and a local that shadows a global. That is unsound, and the
+-- facts, keyed by variable, hold none. Each program is pinned as the
+-- mismatches it gives; the `r05` one gives two, because the old narrowing
+-- takes the narrowed `t.r` for the new `t` and builds no guard for the test
+-- of it, so the facts have no guard to narrow by either.
+-- TODO: pin all of these to no mismatch once the old narrowing keys field
+-- facts by variable, the fix on main that makes a new variable of a name
+-- drop the fields narrowed under it.
+local old_field_facts: {{string}} = {
+  { "r01", [[
+local record R
+  a: integer | nil
+end
+local function g(t: R, s: R): integer
+  if t.a then
+    local t = s
+    return t.a + 1
+  end
+  return 0
+end
+return g
+]],
+    "7:13 t.a: shadow none, old integer (inferred at :5:7)" },
+  { "r03", [[
+local record R
+  a: integer | nil
+end
+local function g(t: R, rs: {R}): integer
+  local n = 0
+  if t.a then
+    for _, t in ipairs(rs) do
+      n = n + t.a
+    end
+  end
+  return n
+end
+return g
+]],
+    "8:16 t.a: shadow none, old integer (inferred at :6:7)" },
+  { "r05", [[
+local record R
+  a: integer | nil
+  r: R | nil
+end
+local function g(t: R, s: R): integer
+  if t.r and t.r.a then
+    local t = s
+    if t.r then
+      return t.r.a + 1
+    end
+  end
+  return 0
+end
+return g
+]],
+    "8:9 t.r: shadow none, old R (inferred at :6:10)", "9:15 t.r: shadow none, old R (inferred at :6:10)" },
+  { "u01", [[
+local record R
+  a: integer | nil
+end
+local function g(t: R, s: R): integer
+  if not t.a then return 0 end
+  local t = s
+  return t.a + 1
+end
+return g
+]],
+    "7:11 t.a: shadow none, old integer (inferred at :5:3)" },
+  { "u05", [[
+global record GR
+  a: integer | nil
+end
+local function g(): integer
+  if GR.a then
+    local GR = { a = nil as integer | nil }
+    return GR.a or 0
+  end
+  return 0
+end
+return g
+]],
+    "7:14 GR.a: shadow none, old integer (inferred at :5:8)" },
+  { "u06", [[
+local record R
+  a: integer | nil
+end
+local function g(t: R): integer
+  if t.a then
+    do
+      local t: R = { a = nil }
+      print(t.a)
+    end
+    return t.a + 1
+  end
+  return 0
+end
+return g
+]],
+    "8:14 t.a: shadow none, old integer (inferred at :5:7)" },
+}
+
+local function test_old_narrowing_keeps_field_facts_of_a_name_across_variables()
+  for _, case in ipairs(old_field_facts) do
+    local name, text = case[1], case[2]
+    local found, _, fields = mismatches(name .. ".tl", text)
+    assert(fields > 0, name .. ": no field read was compared")
+    local expected: {string} = {}
+    for i = 3, #case do
+      expected[#expected + 1] = name .. ".tl:" .. case[i]
+    end
+    assert(table.concat(found, "\n") == table.concat(expected, "\n"),
+      name .. ": " .. table.concat(found, "\n"))
+  end
 end
 
 --- The files of the fuzz corpora.
