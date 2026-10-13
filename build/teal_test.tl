@@ -2374,9 +2374,9 @@ end
 --- too: one mistake is one error.
 local function test_a_conjunction_with_an_invalid_right_operand_reports_once()
   local found = refusals("local record T\n  f?: string\nend\nlocal function takes(s: string) print(s) end\n" ..
-      "local t: T = {}\ntakes(t.f and t.f:upper())\n")
+      "local t: T = {}\ntakes(t.f and t.f:nosuch())\n")
   assert(#found == 1, table.concat(found, "; "))
-  assert(found[1]:find("upper", 1, true) ~= nil, found[1])
+  assert(found[1]:find("nosuch", 1, true) ~= nil, found[1])
 end
 
 --- A field fact is read against its base without the nil the field's

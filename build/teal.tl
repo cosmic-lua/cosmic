@@ -1135,6 +1135,11 @@ local function dropped_hint(e: compiler.Error): string | nil
   elseif kind == "label" then
     cause = "the label `" .. by .. "` at " .. where .. " may be reached by a `goto` from code that changes it"
     before = "the label"
+  elseif kind == "function" then
+    -- The function literal is the place the check was made around, and
+    -- the place is read in its body.
+    cause = "the function at " .. where .. " runs later, when it may have changed"
+    before = "the function"
   elseif kind == "loop" then
     -- What the loop's own pass ran is told by how it is written.
     local what = "the operator"
@@ -1152,7 +1157,7 @@ local function dropped_hint(e: compiler.Error): string | nil
       "an assignment, so keep the value in a local (`local " .. name .. " = <the value>`, " ..
       place .. " = " .. name .. ") and use that"
   end
-  local first = place:find(".", 1, true) == nil and
+  local first = place:find(".", 1, true) == nil and kind ~= "function" and
     "copy it into a local of its own after the check (`" .. copy .. "`, which no function assigns)" or
     "copy it to a local before " .. before .. " (`" .. copy .. "`), check and use that"
   return "'" .. place .. "' was checked, but " .. cause .. ": " .. first

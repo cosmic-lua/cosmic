@@ -114,6 +114,11 @@ local function test_a_narrowing_dropped_by_other_code_is_told_what_ran_it()
       "if x then\n  reset()\n  print(x + 1)\nend\n", plus,
     "'x' was checked, but the call `reset(...)` at 6:3 may change it: copy it into a local of its own " ..
       "after the check (`local x = x`, which no function assigns)")
+  -- A function literal begins without the facts that may change before it runs.
+  answers(head .. "if r.n then\n  local get = function(): integer\n    return r.n + 1\n  end\n  print(get())\nend\n",
+    plus,
+    "'r.n' was checked, but the function at 9:15 runs later, when it may have changed: " ..
+      "copy it to a local before the function (`local n = r.n`), check and use that")
   -- A place assigned after the check.
   answers(head .. "if r.n then\n  r.n = nil\n  print(r.n + 1)\nend\n", plus,
     "'r.n' was checked, then assigned at 9:3: the checker narrows nothing after an assignment, " ..

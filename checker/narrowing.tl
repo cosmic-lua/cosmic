@@ -21,8 +21,9 @@
 -- fact can say so ([`narrowing.dropped_by`]). A guard built before code
 -- ran is cut of the facts that code may have changed ([`narrowing.forget`]),
 -- the drops of a block that never reaches the code after it are put back
--- ([`narrowing.undo`]), and a function literal's body works on copies of
--- the facts outside it ([`narrowing.enter_function`]).
+-- ([`narrowing.undo`]), and a function literal's body begins without the
+-- facts outside it that may change before it runs
+-- ([`narrowing.enter_function`]).
 --
 -- Evaluating a guard asks the checker what it alone knows: a place's
 -- current type, whether one type is another, how to unite, intersect or
@@ -44,10 +45,6 @@
 -- about `r.foo`. It waits on the roadmap item that makes every guard read
 -- every place alike, which drops a place and its extensions only; the
 -- prefix test then becomes a comparison of paths held on the scopes.
---
--- TODO: `type(x) == "..."` and the left operand of `and` guard a local
--- and no field, though `x.f` is a place. It waits on the roadmap item that
--- makes every guard read every place alike.
 --
 -- TODO: a to-be-closed variable's `__close` runs where its block ends, and
 -- reading a declared field of a record that declares `__index` or
@@ -187,18 +184,29 @@ local record narrowing
       told: Drop
    end
 
-   -- A field fact an enclosing scope holds while a function literal's body
-   -- is checked: `scope` held `var` under `key`.
+   -- A fact an enclosing scope holds while a function literal's body is
+   -- checked, which the body does not see: `scope` held `var` under `key`.
+   -- A fact held in a variable declared there (`restore`) is put back by
+   -- giving the variable its `t`, `specialized_from`, `widened_from` and
+   -- specialization again; any other is the entry itself, removed.
    record Hidden
       scope: Scope
       key: string
       var: Var
+      restore: boolean
+      t: Type
+      is_specialized: string
+      specialized_from: Type
+      widened_from: Type
    end
 
    -- The part of a variable this file reads: whether the scope's entry
    -- for it is a narrowed (or widened) view of a variable declared below.
    record Var
       is_specialized: string
+      t: Type
+      specialized_from: Type
+      widened_from: Type
    end
 
    -- The syntax-tree fields places and conditions are read from.
@@ -235,7 +243,7 @@ local record narrowing
    because: function(string, string, integer, integer): Drop
    mark: function({Scope}): integer
    undo: function({Scope}, integer)
-   enter_function: function({Scope})
+   enter_function: function({Scope}, Drop, function(string): boolean)
    leave_function: function({Scope}, {Hidden})
    type_is: function(Where, Place, Type): Guard
    value_is: function(Where, Place, Type): Guard
@@ -296,6 +304,8 @@ end
 -- it: the checker then refuses `local x: T = nil`, and the checker's own
 -- source is the last of the tree to migrate (the roadmap's nil item).
 local no_place: string = nil
+local no_name: string = nil
+local no_type: narrowing.Type = nil
 
 --- What dropped a fact: a `kind` of drop (see [`narrowing.Drop`]), the
 --- expression as a message shows it, and where it begins.
@@ -512,54 +522,78 @@ function narrowing.places(g: narrowing.Guard): {narrowing.Place}
    return found
 end
 
--- A copy of `var`, which the body of a function may change without
--- changing the one it copies.
-local function copy(var: narrowing.Var): narrowing.Var
-   local made: {string:any} = {}
-   for k, v in pairs(var as {string:any}) do
-      made[k] = v
-   end
-   return made as narrowing.Var
-end
-
---- Called with a function literal's scope the innermost: moves the field
---- facts of the scopes outside it into that scope, as copies, so that what
---- the body drops is dropped from the copies only. Creating the function
---- runs none of its body, so the facts outside it stand after it, and
---- `leave_function` puts them back.
----
--- TODO: the body still sees the facts of the scopes it is in, though it
--- runs later, when they may no longer hold. It waits on the roadmap item
--- that makes the body begin with none, which refuses what is accepted now
--- (a callback reading a field its creator checked) and so needs its own
--- measurement.
-function narrowing.enter_function(scopes: {narrowing.Scope})
+--- Called with a function literal's scope the innermost: hides from the
+--- body what is known of the places outside it. The body runs later, when
+--- what a test established may no longer hold, so it begins with the types
+--- the places were declared with and learns what it tests itself. A field
+--- path is hidden always; a local is hidden unless `fixed` says nothing
+--- assigns it once it is declared, which no code that runs before the body
+--- can change. `why` is told by a read in the body of a place hidden.
+--- Creating the function runs none of its body, so the facts outside it
+--- stand after it, and `leave_function` puts them back.
+function narrowing.enter_function(scopes: {narrowing.Scope}, why: narrowing.Drop,
+                                  fixed: function(string): boolean)
    local inner = scopes[#scopes]
    local hidden: {narrowing.Hidden} = {}
    for i = #scopes - 1, 1, -1 do
       local scope = scopes[i]
-      for _, key in ipairs(path_keys(scope, "") or {}) do
+      local keys: {string} = {}
+      for key in pairs(scope.narrows or {}) do
+         if key:find(".", 1, true) or not fixed(key) then
+            keys[#keys + 1] = key
+         end
+      end
+      table.sort(keys)
+      for _, key in ipairs(keys) do
          local var = scope.vars[key]
-         if var then
-            if not inner.vars[key] then
-               inner.vars[key] = copy(var)
-               inner.narrows = inner.narrows or {}
-               inner.narrows[key] = true
+         -- A local declared `local x = x` holds its declared type itself, and
+         -- is the declaration: nothing is below it to go back to.
+         if var and var.is_specialized ~= "localizing" then
+            local h: narrowing.Hidden = {
+               scope = scope, key = key, var = var, restore = false,
+               t = no_type, is_specialized = no_name, specialized_from = no_type, widened_from = no_type,
+            }
+            if var.specialized_from or var.is_specialized == "widen" then
+               -- The variable is declared in this scope: it holds its
+               -- declared type again until the body is done.
+               h.restore = true
+               h.t = var.t
+               h.is_specialized = var.is_specialized
+               h.specialized_from = var.specialized_from
+               h.widened_from = var.widened_from
+               var.t = var.specialized_from or var.widened_from
+               if var.is_specialized ~= "widen" then
+                  var.is_specialized = nil
+               end
+               var.specialized_from = nil
+               var.widened_from = nil
+            else
+               scope.vars[key] = nil
             end
-            table.insert(hidden, { scope = scope, key = key, var = var })
-            scope.vars[key] = nil
+            table.insert(hidden, h)
             scope.narrows[key] = nil
+            inner.dropped = inner.dropped or {}
+            inner.dropped[key] = why
+            tell(scopes, key)
          end
       end
    end
    inner.hidden = hidden
 end
 
---- Puts back the facts `enter_function` moved, once the function's scope
+--- Puts back the facts `enter_function` hid, once the function's scope
 --- has ended.
 function narrowing.leave_function(_scopes: {narrowing.Scope}, hidden: {narrowing.Hidden})
-   for _, h in ipairs(hidden) do
-      h.scope.vars[h.key] = h.var
+   for i = #hidden, 1, -1 do
+      local h = hidden[i]
+      if h.restore then
+         h.var.t = h.t
+         h.var.is_specialized = h.is_specialized
+         h.var.specialized_from = h.specialized_from
+         h.var.widened_from = h.widened_from
+      else
+         h.scope.vars[h.key] = h.var
+      end
       h.scope.narrows = h.scope.narrows or {}
       h.scope.narrows[h.key] = true
    end
@@ -905,7 +939,10 @@ evaluate = function(host: narrowing.Host, f: narrowing.Guard): {string:narrowing
    elseif f.fact == "and" and f.f2 and f.f2.fact == "truthy" then
       return evaluate(host, f.f1)
    elseif f.fact == "or" and f.f2 and f.f2.fact == "truthy" then
-      return evaluate_not(host, f.f1)
+      -- `a or b` held with `b` telling nothing: either `a` held, or `a`
+      -- failed and `b` held, so what is known is what `a` and `not a` share,
+      -- which is nothing.
+      return {}
    elseif f.fact == "and" then
       return and_facts(host, evaluate(host, f.f1), evaluate(host, f.f2))
    elseif f.fact == "or" then

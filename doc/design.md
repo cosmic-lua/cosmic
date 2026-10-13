@@ -987,16 +987,30 @@ through it goes out first by a `break` of a loop around it or a `goto`. a
 label drops every field path when a `goto` below it names it, as that `goto`
 reaches it from code that may have changed one; a label only gotos above it
 name drops nothing, as what those paths dropped stays dropped. a function
-literal made in a loop, or after a check, still sees the facts of the places
-outside it though it runs later (`local f = function() return r.n + 1 end`,
-then a call that clears `r.n`, then `f()`); the roadmap's item that begins a
-function literal's body with none of them closes that. a branch that ends in `return` or a call
-that never returns drops nothing for the code after its `if`, and a
-function literal's body works on copies of the facts outside it, so what it
-drops leaves them standing.
+literal runs later, when what a test established may no longer hold
+(`local f = function() return r.n + 1 end`, then a call that clears `r.n`,
+then `f()`), so its body begins with none of the facts of the places outside it
+that may change before it runs: every field path, and each local that is
+assigned once it is declared (by an assignment anywhere, in any function; a
+local that nothing assigns keeps its facts, since it is the same whenever the
+literal runs). a read in the body of a place so hidden is refused with the
+code `narrowing_dropped`, kind `function`, and the hint copies the value to a
+local before the function. the body still learns what it tests itself, and
+creating the function runs none of its body, so the facts outside it stand
+after it. a branch that ends in `return` or a call that never returns drops
+nothing for the code after its `if`.
+
+a test of `a or b` that holds tells what `a` and `not a` tell together, which
+is nothing of a place: `a` held, or `a` failed and `b` held, so
+`assert(x == nil or y)` leaves `x` as it was. what `a or b` tells when it fails
+is what both fail to be. `type(x.f) == "..."` and the left operand of `and`
+test a field as they test a local (`r.a and r.a + 1`). a narrowing made in a
+scope that already widened the name (a function literal declared before the
+test assigns it) keeps the widening and can be dropped from it, so a call or an
+assignment drops it as it does elsewhere.
 
 a refusal of this kind has the code `narrowing_dropped`, with the place, what
-dropped it (`call`, `write`, `operator`, `label`, `loop` or `assignment`), that
+dropped it (`call`, `write`, `operator`, `label`, `loop`, `function` or `assignment`), that
 expression as written and where it is, beside the fields of the refusal it
 was. its hint copies the value to a local before the call or write
 (`local n = r.n`, then `if n then clear() print(n + 1) end`), which stays

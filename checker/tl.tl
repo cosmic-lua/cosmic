@@ -602,6 +602,10 @@ local record Variable
    attribute: Attribute
    needs_compat: boolean
    specialized_from: Type
+   -- On a "widen" entry that a test or an assignment narrowed in the scope
+   -- that widened it: the type it was widened to, which widening it again
+   -- puts back (`widen_in_scope`).
+   widened_from: Type
    is_specialized: Specialization
    declared_at: Node
    is_func_arg: boolean
@@ -614,6 +618,9 @@ local record Variable
    -- Whether no function literal assigns this local, so that a call
    -- leaves what is known of it; nil until a call asks.
    stable: boolean
+   -- Whether nothing assigns this local once it is declared; nil until a
+   -- function literal asks.
+   fixed: boolean
 end
 
 --------------------------------------------------------------------------------
@@ -1663,8 +1670,8 @@ local record Scope
    widens: {string:boolean}
    -- The narrowed places a drop removed from this scope, with what did.
    dropped: {string:narrowing.Drop}
-   -- The field facts of the scopes outside a function literal, which its
-   -- body keeps as copies in this scope (`narrowing.enter_function`).
+   -- The facts of the scopes outside a function literal that its body does
+   -- not see, put back when it ends (`narrowing.enter_function`).
    hidden: {narrowing.Hidden}
    is_transaction: boolean
 end
@@ -1982,6 +1989,9 @@ local record Node
    -- call: whether it may run code of the program's, so that a function
    -- made before it may be called by it (see `TypeChecker:drop_all`).
    runs_code: boolean
+   -- On a read of a field of a local: the type it was read as, narrowed by
+   -- what is known of the field then.
+   field_type: Type
    -- On a local declaration: the variables it declares with no value, of a
    -- type that does not admit nil.
    unvalued: {Node}
@@ -8232,6 +8242,8 @@ do
       label_back: {Node:boolean}
       closure_assigned: {Node:boolean}
       closure_loose: {string:boolean}
+      -- The binders that any assignment names, in any function.
+      written_binders: {Node:boolean}
       -- Set when an index was served by an `__index` metamethod that runs
       -- code, and by `check_metamethod` for the metamethod it found last.
       index_metamethod: boolean
@@ -8271,6 +8283,8 @@ do
       runs_no_code: function(TypeChecker, Node, Type, TupleType): boolean
       written_name: function(TypeChecker, Node): string
       find_closure_assigned: function(TypeChecker, Node)
+      local_is_fixed: function(TypeChecker, string): boolean
+      enter_function_body: function(TypeChecker, Node)
       macroexp_calls: function(TypeChecker, Node): boolean
    end
 
@@ -8948,6 +8962,14 @@ do
          local var = scope.vars[name]
          if var then
             if var.is_specialized then
+               -- A name widened in this scope and narrowed again keeps the
+               -- widening, which the end of the scope reads, and records the
+               -- type to widen to: otherwise nothing could drop the fact.
+               if var.is_specialized == "widen" and specialization ~= "widen" then
+                  var.widened_from = var.widened_from or var.t
+                  scope.narrows = scope.narrows or {}
+                  scope.narrows[name] = true
+               end
                var.t = t
                return var
             end
@@ -9077,6 +9099,14 @@ do
       local v = scope.vars[var]
       assert(v, "no " .. var .. " in scope")
       local specialization = scope.vars[var].is_specialized
+      if specialization == "widen" and v.widened_from then
+         v.t = v.widened_from
+         v.widened_from = nil
+         if scope.narrows then
+            scope.narrows[var] = nil
+         end
+         return true
+      end
       if (not specialization)
          or not (specialization == "narrow"
          or specialization == "narrowed_declaration")
@@ -9162,6 +9192,25 @@ do
       return false
    end
 
+   -- Whether nothing assigns the local `name` once it is declared, in any
+   -- function: a function literal made while a test of it holds may keep the
+   -- test, as the local is the same whenever the literal runs. A name with
+   -- no declaration of the file's own is not.
+   function TypeChecker:local_is_fixed(name: string): boolean
+      for i = #self.st, 1, -1 do
+         local var = self.st[i].vars[name]
+         if var and ((not var.is_specialized) or var.specialized_from or var.is_specialized == "localizing") then
+            if var.fixed == nil then
+               local node = var.declared_at
+               var.fixed = var.attribute == "const" or var.attribute == "close"
+                  or (self:binder_is_stable(node, name, var.attribute) and not self.written_binders[node])
+            end
+            return var.fixed
+         end
+      end
+      return false
+   end
+
    -- Finds, before the file is checked, the locals that a function literal
    -- assigns: a call may run it, so a call drops what is known of them. It
    -- walks the file with the scopes the program has, binding each name
@@ -9179,6 +9228,7 @@ do
    function TypeChecker:find_closure_assigned(root: Node)
       local binders: {Node:boolean} = {}
       local assigned: {Node:boolean} = {}
+      local written: {Node:boolean} = {}
       local loose: {string:boolean} = {}
       local depth_of: {Node:integer} = {}
       local scopes: {{string:Node}} = {}
@@ -9195,6 +9245,7 @@ do
          for i = #scopes, 1, -1 do
             local binder = scopes[i][name]
             if binder then
+               written[binder] = true
                if depth_of[binder] < depth then
                   assigned[binder] = true
                end
@@ -9334,6 +9385,7 @@ do
       self.closure_binders = binders
       self.closure_assigned = assigned
       self.closure_loose = loose
+      self.written_binders = written
    end
 
    function TypeChecker:widen_back_var(name: string): boolean
@@ -13025,6 +13077,18 @@ do
          end)
       end
 
+      -- A function literal's body begins: it runs later, so it begins with
+      -- none of what is known of the places outside it that may change
+      -- before then (`narrowing.enter_function`): every field path, and each
+      -- local that is assigned once it is declared.
+      function TypeChecker:enter_function_body(node: Node)
+         narrowing.enter_function(self.st as {narrowing.Scope},
+            narrowing.because("function", "function", node.y, node.x),
+            function(name: string): boolean
+               return self:local_is_fixed(name)
+            end)
+      end
+
       -- Records in `label_back`, for each label of the block `block` and of
       -- the blocks inside it, whether a `goto` below it names it. `visible`
       -- holds the labels of the blocks around, by name.
@@ -13080,8 +13144,9 @@ do
          for i = #st, 1, -1 do
             local var = st[i].vars[key]
             if var then
-               if var.is_specialized == "narrow" or var.is_specialized == "narrowed_declaration" then
-                  local was = declared or var.specialized_from
+               if var.is_specialized == "narrow" or var.is_specialized == "narrowed_declaration"
+                  or var.widened_from then
+                  local was = declared or var.specialized_from or var.widened_from
                   if not was then
                      local real = get_real_var_from_lower_scope(st, i, key)
                      was = real and real.t
@@ -15679,7 +15744,7 @@ do
                self.collector.reserve_symbol_list_slot(node)
             end
             self:begin_scope(node)
-            narrowing.enter_function(self.st as {narrowing.Scope})
+            self:enter_function_body(node)
          end,
          before_statements = function(self: TypeChecker, node: Node, children: {Type})
             local args = children[2]
@@ -15740,7 +15805,7 @@ do
          before = function(self: TypeChecker, node: Node)
             self:widen_all_unions()
             self:begin_scope(node)
-            narrowing.enter_function(self.st as {narrowing.Scope})
+            self:enter_function_body(node)
             if node.implicit_global_function then
                local typ = self:find_var_type(node.name.tk)
                if typ then
@@ -15786,7 +15851,7 @@ do
          before = function(self: TypeChecker, node: Node)
             self:widen_all_unions()
             self:begin_scope(node)
-            narrowing.enter_function(self.st as {narrowing.Scope})
+            self:enter_function_body(node)
          end,
          before_arguments = function(self: TypeChecker, _node: Node, children: {Type})
             local rtype = self:to_structural(resolve_typedecl(children[1]))
@@ -15930,7 +15995,7 @@ do
          before = function(self: TypeChecker, node: Node)
             self:widen_all_unions(node)
             self:begin_scope(node)
-            narrowing.enter_function(self.st as {narrowing.Scope})
+            self:enter_function_body(node)
 
             local expected = node.expected
             if expected and expected is FunctionType then
@@ -16069,10 +16134,13 @@ do
             local e1type = children[1]
 
             if node.op.op == "and" then
-               local e1_type = node.e1.kind == "variable" and not node.e1.guard and resolve_tuple(e1type)
+               -- The left operand read for its truthiness: a local, or a field
+               -- of one.
+               local e1_place = not node.e1.guard and place_of(node.e1)
+               local e1_type = e1_place and resolve_tuple(e1type)
                local e1_typ = e1_type and without_nil(self, node.e1, e1_type, true)
                if e1_typ then
-                  node.e1.guard = narrowing.type_is(node.e1, narrowing.local_place(node.e1.tk), e1_typ as narrowing.Type)
+                  node.e1.guard = narrowing.type_is(node.e1, e1_place, e1_typ as narrowing.Type)
                end
                self:apply_guard(node, node.e1.guard)
             elseif node.op.op == "or" then
@@ -16301,13 +16369,6 @@ do
                -- or any other read in a boolean context) then sets the
                -- fact for reads that follow; `==`/`~=` nil and `assert`
                -- set it at their own call sites, keyed the same way.
-               -- TODO: the left operand of `and` is not read in a
-               -- boolean context, so `if x.f and x.f.y then` does not
-               -- narrow `x.f` for the right operand (nor `local y = x.f and
-               -- x.f.g or d`, which cosmic's own code hoists `x.f` into a local
-               -- to write); give `and`'s left
-               -- operand `boolean_context` in the `op` visitor, as `not`'s
-               -- operand has, and test the narrow it then carries.
                local field_place = place_of(node)
                if field_place then
                   local narrowed = self:find_var_type(field_place.key, "check_only")
@@ -16319,6 +16380,7 @@ do
                   elseif not node.is_lvalue then
                      self:note_dropped(node, field_place.key)
                   end
+                  node.field_type = t
                   if node.expected and node.expected.typename == "boolean_context" then
                      local typ = without_nil(self, node, t, true)
                      if typ then
@@ -16603,11 +16665,14 @@ do
                local arg = call.type_of
                if arg and name.kind == "string" and lua_type_names[name.conststr] ~= name.conststr then
                   self.errs:add(name, "type() never answers \"" .. name.conststr .. "\": it answers nil, boolean, number, string, table, function, thread or userdata, and math.type tells \"integer\" from \"float\"")
-               elseif arg and arg.kind == "variable" and name.kind == "string" then
-                  local t = self:find_var_type(arg.tk, "check_only")
+               elseif arg and place_of(arg) and name.kind == "string" then
+                  -- A local, or a field of one, whose type now is what the
+                  -- argument was checked as.
+                  local place = place_of(arg)
+                  local t = #place.fields == 0 and self:find_var_type(arg.tk, "check_only") or arg.field_type
                   local typ = t and type_test_type(self, node, t, name.conststr)
                   if typ then
-                     local f = narrowing.type_is(node, narrowing.local_place(arg.tk), typ as narrowing.Type)
+                     local f = narrowing.type_is(node, place, typ as narrowing.Type)
                      node.guard = node.op.op == "==" and f or narrowing.negate(node, f)
                   end
                end
