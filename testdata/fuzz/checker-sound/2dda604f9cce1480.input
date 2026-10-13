@@ -1,0 +1,12 @@
+local function maybe(): integer | nil
+  return nil
+end
+local function one(): integer | nil
+  return 1
+end
+local x: integer | nil = maybe()
+if x == nil or maybe() then
+  local sink: integer = x + 1
+  return sink
+end
+return 0

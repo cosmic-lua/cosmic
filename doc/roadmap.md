@@ -39,8 +39,7 @@ defines the target; once something ships, it leaves this file.
 - make every guard read every place alike: a field path of any depth
   (`a.b.c`) and an index (`t[k]`, `k` a literal or a local never
   reassigned) are places, and a write to any index drops every index
-  place; `type(x.f) == "..."` and the left operand of `and` narrow a field
-  as they do a local; `x is A | B | C` guards all its members, not the last
+  place; `is` tests a field as it does a local; `x is A | B | C` guards all its members, not the last
   pair; an assignment drops the place assigned and its extensions only
   (`r.f = v` keeps `r.foo`).
 - let `setmetatable` attach metamethods only to a record type that
@@ -58,12 +57,6 @@ defines the target; once something ships, it leaves this file.
   declared field of a record that declares `__index` or `__newindex` runs
   it when the field is absent; a to-be-closed variable's `__close` runs at
   its block's end.
-- begin a function literal's body with none of the facts of the places
-  outside it: it runs later, when they may no longer hold, and it works on
-  copies of them now. a local narrowed outside it is widened only if the
-  body assigns it. this refuses what is accepted now (a callback reading a
-  field its creator checked), so it first runs in report mode and counts
-  the bodies that read a fact of the places outside them.
 - check a function that names a local not yet assigned where it escapes,
   not where code may run: stored in a table field or an upvalue, passed as an
   argument or returned counts as "may be called later" unless the local is

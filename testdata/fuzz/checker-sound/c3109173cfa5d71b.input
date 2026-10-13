@@ -1,0 +1,15 @@
+local function maybe(): integer | nil
+  return nil
+end
+local function one(): integer | nil
+  return 1
+end
+local x: integer | nil = one()
+local function reset() x = nil end
+local sink: integer = 0
+if x then
+  x = 1
+  reset()
+  sink = sink + x + 1
+end
+return sink

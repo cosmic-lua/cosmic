@@ -479,10 +479,13 @@ function shape_specs.resolve(built: compiler, env: compiler.Env, file: string,
       return nil, ("%s(%q): %s"):format(where, literal, unresolved)
     end
     local at, why = unwrapped(target.type)
-    if at == nil or at.typename ~= "record" then
+    if at == nil then
+      return nil, ("%s(%q): %s"):format(where, literal, why)
+    end
+    if at.typename ~= "record" then
       return nil, ("%s(%q): %s"):format(where, literal,
-        at == nil and why or ("it is " .. (at.typename == "enum" and "an enum, which " ..
-          shape .. ".one_of checks" or "a " .. at.typename .. ", not a record")))
+        "it is " .. (at.typename == "enum" and "an enum, which " ..
+          shape .. ".one_of checks" or "a " .. at.typename .. ", not a record"))
     end
     local spec, refusal = spec_of(at, literal, shape, {})
     if spec == nil then

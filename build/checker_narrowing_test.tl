@@ -91,7 +91,7 @@ local record Narrowing
   forget: function(Guard | nil, function(Place): boolean): Guard | nil
   mark: function({Scope}): integer
   undo: function({Scope}, integer)
-  enter_function: function({Scope})
+  enter_function: function({Scope}, Drop, function(string): boolean)
   leave_function: function({Scope}, {any})
   type_is: function(any, Place, Type): Guard
   value_is: function(any, Place, Type): Guard
@@ -469,21 +469,39 @@ local function test_the_drops_of_a_block_that_leaves_are_put_back()
   assert(outer.vars["r.m"] == nil)
 end
 
-local function test_a_function_works_on_copies_of_the_facts_outside_it()
+local function test_a_function_body_is_hidden_the_facts_that_may_change_before_it_runs()
   setup()
-  local outer = holding("r.n")
+  local outer = holding("r.n", "x", "y")
   local inner: Scope = { vars = {} }
   local scopes = { outer, inner }
-  module().enter_function(scopes)
-  assert(outer.vars["r.n"] == nil and inner.vars["r.n"] ~= nil)
-  assert(inner.vars["r.n"] ~= outer.vars["r.n"])
-  -- What the body drops, it drops from its copies.
-  module().drop_paths(scopes, call)
-  assert(inner.vars["r.n"] == nil)
-  assert(inner.hidden ~= nil and #inner.hidden == 1)
-  local hidden = inner.hidden
+  -- Every field path is hidden; a local only if it is not `fixed`.
+  module().enter_function(scopes, call, function(name: string): boolean return name == "y" end)
+  assert(outer.vars["r.n"] == nil and outer.vars["x"] == nil and outer.vars["y"] ~= nil)
+  assert(inner.vars["r.n"] == nil and inner.vars["x"] == nil)
+  assert(inner.hidden ~= nil and #inner.hidden == 2)
+  -- A read in the body is told what hid the place.
+  assert(module().dropped_by(scopes, "r.n") == call and module().dropped_by(scopes, "x") == call)
+  assert(module().dropped_by(scopes, "y") == nil)
+  local hidden = assert(inner.hidden)
   module().leave_function({ outer }, hidden)
   assert(outer.vars["r.n"] ~= nil and assert(outer.narrows)["r.n"])
+  assert(outer.vars["x"] ~= nil and assert(outer.narrows)["x"])
+end
+
+--- A narrowed view of a variable declared in the scope is given its declared
+--- type while the body is checked, and its narrowed one again after.
+local function test_a_variable_narrowed_where_it_is_declared_gets_its_type_back_after_the_body()
+  setup()
+  local declared = ty("declared")
+  local narrowed = ty("narrowed")
+  local var = { is_specialized = "narrowed_declaration", t = narrowed, specialized_from = declared }
+  local outer: Scope = { vars = { x = var }, narrows = { x = true } }
+  local inner: Scope = { vars = {} }
+  module().enter_function({ outer, inner }, call, function(_: string): boolean return false end)
+  assert(var.t == declared and var.is_specialized == nil and var.specialized_from == nil)
+  assert(outer.vars.x == var)
+  module().leave_function({ outer }, assert(inner.hidden))
+  assert(var.t == narrowed and var.is_specialized == "narrowed_declaration" and var.specialized_from == declared)
 end
 
 local function test_a_type_test_gives_its_type_and_its_negation_the_rest()
@@ -550,9 +568,11 @@ local function test_an_or_with_a_side_that_gives_nothing_counts_it_as_truthy()
   setup()
   local x = module().local_place("x")
   local types = { x = union(number, nothing) }
-  -- `x or d` is not told by `x` alone: only its falsy side is.
+  -- `x or d` held is told nothing of `x`: `x` was truthy, or `x` was nil and
+  -- `d` held. Its falsy side is told: `x` was nil.
   local guard = module().either(here, module().type_is(here, x, number), nil)
-  expect({ "x is nil" }, (facts(guard, types)))
+  expect({}, (facts(guard, types)))
+  expect({ "x is nil" }, (facts(module().negate(here, guard), types)))
   assert(module().negate(here, nil) == nil)
   assert(module().both(here, nil, nil) == nil)
   expect({}, (facts(module().truthy, types)))
@@ -568,7 +588,9 @@ local function test_a_conjunction_with_a_truthy_side_is_told_by_the_other()
   expect({ "x is number" }, (facts(guard, types)))
   expect({ "x is nil" }, (facts(module().negate(here, guard), types)))
   -- A disjunction with a truthy side is told by its negation alone.
-  expect({ "x is nil" }, (facts(module().either(here, module().type_is(here, x, number), module().truthy), types)))
+  local either = module().either(here, module().type_is(here, x, number), module().truthy)
+  expect({}, (facts(either, types)))
+  expect({ "x is nil" }, (facts(module().negate(here, either), types)))
 end
 
 local function test_a_negation_of_a_negation_is_the_guard_itself()
@@ -600,7 +622,7 @@ local function test_a_joined_union_test_with_an_absent_side_gives_nothing()
   local types = { x = union(number, nothing) }
   local test = module().type_is(here, x, number)
   -- `either` counts the absent side as truthy; [`any_of`] leaves it absent.
-  expect({ "x is nil" }, (facts(module().either(here, test, nil), types)))
+  expect({}, (facts(module().either(here, test, nil), types)))
   expect({}, (facts(module().any_of(here, test, nil), types)))
   expect({}, (facts(module().any_of(here, nil, test), types)))
 end
@@ -842,20 +864,30 @@ local function test_assert_narrows_what_it_is_given()
   accepted("assert(x ~= nil)\nprint(x + 1)")
 end
 
---- The limits [`checker/narrowing.tl`] holds TODOs for (its `type(x)` and
---- `and` one is the first two cases here; the third is `is` on a field). Each
---- is pinned as it is, so the change that lifts one flips its case.
-local function test_a_field_under_type_and_the_left_of_and_is_not_narrowed_yet()
-  refused("if type(q.a) == \"number\" then print(q.a + 1) end", "1: " .. plus:sub(1, 28))
-  refused("print(q.a and q.a + 1)", "1: " .. plus:sub(1, 28))
+--- A field is narrowed by `type(...) == "..."` and by the left operand of
+--- `and`, as a local is, and a call between the test and the use drops it.
+local function test_a_field_is_narrowed_by_type_and_by_the_left_of_and()
+  accepted("if type(q.a) == \"number\" then print(q.a + 1) end")
+  accepted("if type(q.a) ~= \"number\" then return end\nprint(q.a + 1)")
+  accepted("print(q.a and q.a + 1)")
+  accepted("print(q.c and q.c.n)")
+  refused("print(q.a and touch(q) and q.a + 1)", "1: " .. plus:sub(1, 28))
+  refused("print(q.a and q.a + (maybe() or 0) + q.a)", "1: " .. plus:sub(1, 28))
+  refused("print(type(q.a) == \"number\" and maybe() and q.a + 1)", "1: " .. plus:sub(1, 28))
+  refused("print(q.a and q.a + 1 + (touch(q) and q.a + 1 or 0))", "1: " .. plus:sub(1, 28))
+end
+
+--- The limit [`checker/narrowing.tl`] holds a TODO for: `is` on a field.
+local function test_is_on_a_field_is_not_narrowed_yet()
   refused("if q.a is number then print(1) end", "1: can only use 'is' on variables")
 end
 
 local function test_a_path_of_two_fields_is_not_a_place_yet()
   refused("assert(q.c.n)\nprint(q.c.n + 1)",
     "1: cannot index key 'n' in type Inn", "2: cannot index key 'n' in type Inn")
-  refused("if q.c and q.c.n then print(q.c.n + 1) end",
-    "1: cannot index key 'n' in type Inn", "1: cannot index key 'n' in type Inn")
+  -- The left of `and` narrows `q.c` for the index of `q.c.n`, which is no place
+  -- to narrow itself.
+  refused("if q.c and q.c.n then print(q.c.n + 1) end", "1: " .. plus:sub(1, 28))
 end
 
 local function test_an_assignment_to_a_field_drops_a_field_whose_name_it_begins()
@@ -1030,70 +1062,152 @@ local function test_a_function_declared_in_the_branch_drops_at_a_call_though_it_
   refused("if x then\n  local function own() print(1) end\n  own()\n  print(x + 1)\nend", "4: " .. plus:sub(1, 28))
 end
 
--- TODO: refuse the first two once a call drops a local that a function
--- literal in any enclosing block assigns: a nil test that leaves the block,
--- made after a function declared in the same inner block, keeps the local
--- past a call to it, and `x` is nil there. The same lines at the top of the
--- file (the third case), or with the function declared in a block around
--- the test (the fourth), are refused.
-
---- A call keeps a local that a function literal assigns when the literal is
---- declared in the inner block of the test: the first two programs are
---- accepted and fail at run time.
-local function test_a_call_keeps_a_local_a_function_declared_in_the_same_inner_block_assigns()
+--- A call drops a local that a function literal assigns when the literal is
+--- declared in the inner block of the test (a narrowing made in a scope that
+--- widened the name keeps its widening, and can be dropped from it): the same
+--- lines at the top of the file, or with the function declared in a block
+--- around the test, are refused alike.
+local function test_a_call_drops_a_local_a_function_declared_in_the_same_inner_block_assigns()
   local head = "local function maybe(): number | nil return nil end\nlocal x: number | nil = maybe()\n"
   local zero = "local x: number | nil = 0\n"
-  accepted_source(zero .. "do\n  local function reset() x = nil end\n  if x == nil then return end\n  reset()\n  print(x + 1)\nend\n")
-  accepted_source(head .. "if x then\n  local function reset() x = nil end\n  if x == nil then return end\n  reset()\n  print(x + 1)\nend\n")
+  refused_source(zero .. "do\n  local function reset() x = nil end\n  if x == nil then return end\n  reset()\n  print(x + 1)\nend\n",
+    "6: " .. plus:sub(1, 28))
+  refused_source(head .. "if x then\n  local function reset() x = nil end\n  if x == nil then return end\n  reset()\n  print(x + 1)\nend\n",
+    "7: " .. plus:sub(1, 28))
   refused_source(zero .. "local function reset() x = nil end\nif x == nil then return end\nreset()\nprint(x + 1)\n",
     "5: " .. plus:sub(1, 28))
   refused_source(zero .. "local function reset() x = nil end\ndo\n  if x == nil then return end\n  reset()\n  print(x + 1)\nend\n",
     "6: " .. plus:sub(1, 28))
+  -- And an assignment drops it: the narrowing a write makes is the write's.
+  refused_source(zero .. "do\n  local function reset() x = nil end\n  if x == nil then return end\n  x = nil\n  print(x + 1, reset)\nend\n",
+    "6: " .. plus:sub(1, 28))
 end
 
--- TODO: refuse the first two once a call drops a local that a function
--- literal in any enclosing block assigns: the second name of a declaration
--- of two names keeps what a test said of it past a call to the function, and
--- so does a local assigned a value in a block that a test of it encloses.
--- `y` and `x` are nil after the call; the first name, and a local alone in
--- its declaration, are refused.
+-- TODO: refuse the first of these once nil is assignable to no type but one
+-- that names it (the roadmap's nil item): `local x, y: number | nil = nil, 0`
+-- gives `y` the type `number`, and `local x = x` after a test of `x` gives
+-- the copy that type too, so `y = nil` in `reset` is allowed, `y` is not
+-- narrowed and `reset` puts nil in a `number`. The first name, and a local
+-- alone, are refused.
 
---- Nor does a call drop the second name of a declaration of two, or a local
---- assigned under a test of it, when a function literal assigns it.
-local function test_a_call_keeps_the_second_name_of_a_declaration_and_a_local_assigned_under_its_test()
+--- A call drops a local assigned under a test of it when a function literal
+--- assigns it. The second name of a declaration of two is `number` here, not
+--- `number | nil`, and a limit of the nil rule, pinned as it is.
+local function test_a_call_drops_a_local_assigned_under_its_test_and_keeps_the_second_name_of_a_declaration()
   local head = "local function maybe(): number | nil return nil end\n"
   accepted_source("local x, y: number | nil = nil, 0\nlocal function reset() y = nil end\nif y then\n  reset()\n  print(y + 1)\nend\n")
-  accepted_source(head .. "local x: number | nil = maybe()\nlocal function reset() x = nil end\nif x then\n  x = 1\n  reset()\n  print(x + 1)\nend\n")
+  refused_source(head .. "local x: number | nil = maybe()\nlocal function reset() x = nil end\nif x then\n  x = 1\n  reset()\n  print(x + 1)\nend\n",
+    "7: " .. plus:sub(1, 28))
   refused_source("local x, y: number | nil = 0, nil\nlocal function reset() x = nil end\nif x then\n  reset()\n  print(x + 1)\nend\n",
     "5: " .. plus:sub(1, 28))
   refused_source(head .. "local x: number | nil = maybe()\nlocal function reset() x = nil end\nif x then\n  reset()\n  print(x + 1)\nend\n",
     "6: " .. plus:sub(1, 28))
 end
 
--- TODO: refuse the field's case once a function literal's body begins with
--- none of the facts of the places outside it (the roadmap item, and the TODO
--- at `narrowing.enter_function` in checker/narrowing.tl): `g` reads `q.a`
--- under the test, runs after `q.a = nil`, and fails at run time.
-
---- The body of a function literal is checked under the facts of the places
---- outside it, though it runs wherever it is called. The same body over a
---- local is refused.
-local function test_a_function_body_begins_with_the_facts_of_the_fields_around_it()
-  accepted("if q.a then\n  local function g(): number return q.a + 1 end\n  q.a = nil\n  print(g())\nend")
+--- The body of a function literal begins with none of the facts of the
+--- places outside it that may change before it runs, though it is checked
+--- where it is made: every field, and each local that is assigned once
+--- it is declared. A local that nothing assigns keeps its facts.
+local function test_a_function_body_begins_with_the_facts_of_no_place_that_may_change()
+  refused("if q.a then\n  local function g(): number return q.a + 1 end\n  q.a = nil\n  print(g())\nend", "2: " .. plus:sub(1, 28))
+  refused("if q.a then\n  local g = function(): number return q.a + 1 end\n  print(g())\nend", "2: " .. plus:sub(1, 28))
   refused("if x then\n  local function g(): number return x + 1 end\n  x = nil\n  print(g())\nend", "2: " .. plus:sub(1, 28))
+  -- A function expression reads a local that is assigned after it is made
+  -- as it was declared, not as it was tested.
+  refused("if x then\n  local g = function(): number return x + 1 end\n  x = nil\n  print(g())\nend", "2: " .. plus:sub(1, 28))
+  -- A write after the function is made may run before it: the local is hidden.
+  refused("local w: number | nil = nil\nw = maybe()\nif w then\n  local g = function(): number return w + 1 end\n  w = nil\n  print(g())\nend", "4: " .. plus:sub(1, 28))
+  refused("local w: number | nil = maybe()\nlocal g = function(): number return w or 0 end\nif w then\n  local h = function(): number return w + 1 end\n  w = maybe()\n  print(g(), h())\nend", "4: " .. plus:sub(1, 28))
+  -- A write before it cannot: a default, or the best of a loop, then a function.
+  accepted("local w: number | nil = nil\nw = maybe()\nif w then\n  local g = function(): number return w + 1 end\n  print(g())\nend")
+  accepted("local best: number | nil = nil\nfor _ = 1, 3 do\n  best = maybe()\nend\nif best then\n  local g = function(): number return best + 1 end\n  print(g())\nend")
+  accepted_source("local record O\n  x: number | nil\nend\nlocal function f(opts: O | nil): function(): number\n  opts = opts or {}\n  return function(): number return opts.x or 0 end\nend\nprint(f)\n")
+  -- But not a write in a loop that also makes the function, which a later pass runs.
+  refused("local best: number | nil = nil\nfor _ = 1, 3 do\n  if best then\n    local g = function(): number return best + 1 end\n    print(g())\n  end\n  best = maybe()\nend", "4: " .. plus:sub(1, 28))
+  refused("local best: number | nil = nil\nwhile y do\n  best = maybe()\n  if best then\n    local g = function(): number return best + 1 end\n    print(g())\n  end\nend", "5: " .. plus:sub(1, 28))
+  -- A local no code assigns after its declaration keeps its test in the body.
+  accepted_source("local function maybe(): number | nil return nil end\nlocal z: number | nil = maybe()\nif z then\n  local g = function(): number return z + 1 end\n  print(g())\nend\n")
+  accepted_source("local function maybe(): number | nil return nil end\nlocal function each(f: function()) f() end\nlocal z: number | nil = maybe()\nif z then\n  each(function() print(z + 1) end)\nend\n")
+  -- And what the body tests itself it keeps, and the copy of a field is a local.
+  accepted("if q.a then\n  local a = q.a\n  local g = function(): number return a + 1 end\n  q.a = nil\n  print(g())\nend")
+  accepted("local g = function(): number\n  if q.a then return q.a + 1 end\n  return 0\nend\nprint(g())")
 end
 
--- TODO: refuse these once the checker reads the true branch of `a or b` as
--- nothing where `b` gives no guard (checker/narrowing.tl `evaluate` reads it
--- as `not a`). Making `evaluate` return nothing there breaks the tree's own
--- build (build/shape_specs.tl's `at == nil and why or (...at.typename...)`),
--- which would first be written to need no narrowing from it.
+--- A narrowing kept in the entry of a scope that widened the name is hidden from
+--- a function body, and a loop that drops it refuses a read before the drop,
+--- as for any other narrowing.
+local function test_a_narrowing_kept_where_the_name_was_widened_is_hidden_and_read_by_loops()
+  local zero = "local x: number | nil = 0\n"
+  refused_source(zero .. "do\n  local function reset() x = nil end\n  if x == nil then return end\n" ..
+      "  local g = function(): number return x + 1 end\n  print(g, reset)\nend\n", "5: " .. plus:sub(1, 28))
+  refused_source(zero .. "do\n  local function reset() x = nil end\n  if x == nil then return end\n" ..
+      "  for _ = 1, 2 do\n    print(x + 1)\n    reset()\n  end\nend\n", "6: 'x' was narrowed before this loop")
+end
 
---- `assert(x == nil or y)` and `if x == nil or maybe()` narrow `x` to non-nil:
---- each is accepted, and fails at run time when `x` is nil.
-local function test_an_or_whose_right_side_gives_no_guard_narrows_its_left_side()
-  accepted("assert(x == nil or y)\nprint(x + 1)")
-  accepted("if x == nil or maybe() then print(x + 1) end")
+--- A local declared `local x = x` keeps the type it was declared with, so an
+--- assignment, a call of a function that assigns it, and a function body each
+--- widen or hide it as they do any local. A parameter is a local too, and one
+--- that nothing assigns after its test keeps the test in a function body.
+local function test_a_copy_of_a_local_and_a_parameter_are_widened_and_hidden_like_any_local()
+  local def = "local function f(x: number | nil): number\n  local x = x\n  if x == nil then return 0 end\n"
+  refused_source(def .. "  x = nil\n  return x + 1\nend\nprint(f)\n", "5: cannot use operator '+' for types nil")
+  refused_source(def .. "  local function clear() x = nil end\n  clear()\n  return x + 1\nend\nprint(f)\n", "6: " .. plus:sub(1, 28))
+  refused_source(def .. "  local g = function(): number return x + 1 end\n  x = nil\n  return g()\nend\nprint(f)\n", "4: " .. plus:sub(1, 28))
+  -- Not reassigned: the test holds in the body, and in the copy a hint suggests.
+  accepted_source(def .. "  local g = function(): number return x + 1 end\n  return g()\nend\nprint(f)\n")
+  accepted_source("local function f(x: number | nil): number\n  if x == nil then return 0 end\n  local y = x\n" ..
+      "  local g = function(): number return y + 1 end\n  x = nil\n  return g()\nend\nprint(f)\n")
+  accepted_source("local function f(x: number | nil): number\n  if x == nil then return 0 end\n  local x = x\n" ..
+      "  local g = function(): number return x + 1 end\n  return g()\nend\nprint(f)\n")
+  -- A copy in the scope of what it copies is a variable of its own, with its
+  -- own assignments: a parameter, an annotated copy, a plain local, and nil.
+  local num = "local function num(): string | number return 1 end\n"
+  refused_source(num .. "local function f(x: string | number | nil): number\n  if x == nil then return 0 end\n  local x = x\n" ..
+      "  if x is number then return 0 end\n  local g = function(): number return #x end\n  x = num()\n  return g()\nend\nprint(f)\n",
+    "6: cannot use operator '#'")
+  refused_source(num .. "local function f(x: string | number | nil): number\n  if x == nil then return 0 end\n  local x: string | number = x\n" ..
+      "  if x is number then return 0 end\n  local g = function(): number return #x end\n  x = num()\n  return g()\nend\nprint(f)\n",
+    "6: cannot use operator '#'")
+  refused_source("local function f(x: number | nil): number\n  if x == nil then return 0 end\n  local x: number | nil = x\n" ..
+      "  if x == nil then return 0 end\n  local g = function(): number return x + 1 end\n  x = nil\n  return g()\nend\nprint(f)\n", "5: " .. plus:sub(1, 28))
+  refused_source(num .. "local function f(): number\n  local x: string | number | nil = num()\n  if x == nil then return 0 end\n  local x = x\n" ..
+      "  if x is number then return 0 end\n  local g = function(): number return #x end\n  x = num()\n  return g()\nend\nprint(f)\n",
+    "7: cannot use operator '#'")
+  -- Widening the copy leaves the name below it, another variable, out of it.
+  accepted_source("local function f(x: number | string | nil): number | string\n  if x == nil then return 0 end\n  do\n    local x = x\n" ..
+      "    if type(x) == \"string\" then return 1 end\n    local function set() x = \"s\" end\n    set()\n" ..
+      "    local back: number | string = x\n    return back\n  end\nend\nprint(f)\n")
+  -- A parameter assigned after the function is made.
+  refused_source("local function f(x: number | nil): function(): number\n  if x == nil then error(\"no\") end\n" ..
+      "  local g = function(): number return x + 1 end\n  x = nil\n  return g\nend\nprint(f)\n", "3: " .. plus:sub(1, 28))
+  accepted_source("local function f(x: number | nil): function(): number\n  if x == nil then error(\"no\") end\n" ..
+      "  local g = function(): number return x + 1 end\n  return g\nend\nprint(f)\n")
+end
+
+--- The refusal says the function is what hid the test, with the copy that
+--- keeps it.
+local function test_a_read_in_a_function_body_is_told_the_function_hid_the_test()
+  local compiled = setup()
+  local source = prelude .. "if q.a then\n  local g = function(): number return q.a + 1 end\n  print(g())\nend" .. after
+  local env = assert(compiled.new_env({ defaults = { feat_lax = "off", gen_compat = "off", gen_target = "5.4" } }))
+  local result = compiled.check_string(source, env, "probe.tl", "tl")
+  assert(#result.type_errors == 1)
+  local found = result.type_errors[1]
+  assert(found.code == "narrowing_dropped" and found.dropped_kind == "function" and found.dropped_place == "q.a",
+    tostring(found.code) .. " " .. tostring(found.dropped_kind))
+end
+
+--- `assert(x == nil or y)` and `if x == nil or maybe()` tell nothing of `x`:
+--- either `x` was nil and the other side held, or it was not. Each was
+--- accepted, and failed at run time when `x` was nil.
+local function test_an_or_whose_right_side_gives_no_guard_tells_nothing_of_its_left_side()
+  refused("assert(x == nil or y)\nprint(x + 1)", "2: " .. plus:sub(1, 28))
+  refused("if x == nil or maybe() then print(x + 1) end", "1: " .. plus:sub(1, 28))
+  -- What the left side said when it failed is still told in the right.
+  accepted("if x == nil or x > 1 then print(1) end")
+  accepted("if x ~= nil and maybe() then print(x + 1) end")
+  accepted("assert(x ~= nil or y)\nprint(1)")
+  accepted("print(x == nil and 1 or x + 1)")
 end
 
 local function test_a_read_before_a_call_in_the_same_expression_keeps_its_fact()

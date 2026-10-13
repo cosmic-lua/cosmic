@@ -4084,13 +4084,15 @@ local function require_of_host(ctx: Run): integer | nil
   end
   ctx.c_unavailable = {}
   if ctx.own_tree and ctx.whole and host ~= nil then
+    -- The probe below runs later, when `host` may have been assigned.
+    local probed = host
     local needs: {string: boolean} = {}
     for _, name in pairs(c_functions.prerequisites()) do needs[name] = true end
     local names: {string} = {}
     for name in pairs(needs) do names[#names + 1] = name end
     table.sort(names)
     local asked, trouble = pcall(function()
-      local answers = host_requires.answer(host, names)
+      local answers = host_requires.answer(probed, names)
       ctx.c_unavailable = c_functions.unavailable(answers, ctx.held and ctx.promises or nil)
       for _, answer in ipairs(answers) do
         if answer.kind == "refused" then

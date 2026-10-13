@@ -728,9 +728,10 @@ local function run(argv: {integer:string}): integer
   if ranks ~= nil and not oldest then
     -- Best match first; a TODO in several files with the same bytes
     -- shares one rank, so those keep file order among themselves.
+    local order = ranks
     table.sort(listed, function(a: todos.Todo, b: todos.Todo): boolean
       if a.id ~= b.id then
-        return ranks[a.id] < ranks[b.id]
+        return order[a.id] < order[b.id]
       end
       return a.file < b.file
     end)
