@@ -762,6 +762,32 @@ local function refused(body: string, ...: string)
   end
 end
 
+--- What narrowing is for, each accepted: the idioms a change to the checker
+--- must keep taking.
+local function test_the_idioms_of_narrowing_are_accepted()
+  accepted("local v: number | nil = 1\nprint(v + 1)")
+  accepted("if x then print(x + 1) end")
+  accepted("if x == nil then print(0) else print(x + 1) end")
+  accepted("if not x then print(0) else print(x + 1) end")
+  accepted("if x == nil then return end\nprint(x + 1)")
+  accepted("assert(x)\nprint(x + 1)")
+  accepted("local n: number = x or 0\nprint(n + 1)")
+  accepted("print(x and x + 1)")
+  accepted("if x and y then print(x + y) end")
+  accepted("if x == nil then print(1) elseif y == nil then print(x + 1) else print(x + y) end")
+  accepted("if x == nil then return elseif y == nil then return end\nprint(x + y)")
+  accepted("if q.a then\n  q.ab = 1\n  print(q.a + 1)\nend")
+  accepted("if q.a then\n  print(1)\n  print(q.a + 1)\nend")
+  accepted("local function own() local z: number | nil = nil z = 1 print(z) end\nif x then\n  own()\n  print(x + 1)\nend")
+  accepted("local function g(u: string | number)\n  if type(u) == \"number\" then print(u + 1) else print(#u) end\nend\nprint(g)")
+  accepted("local function g(u: string | number | nil)\n  if u is number then print(u + 1) end\nend\nprint(g)")
+  accepted("local i = 0\nwhile x and i < 3 do\n  i = i + 1\n  print(x + i)\nend")
+  accepted("local i = 0\nrepeat\n  i = i + 1\n  if i > 1 then break end\nuntil i >= 3\nprint(i)")
+  accepted("for i = 1, 3 do\n  if x then print(x + i) end\nend")
+  accepted("local opts: {number | nil} = { 1, 2 }\nfor _, v in ipairs(opts) do\n  if v then print(v + 1) end\nend")
+  accepted("for i = 1, 3 do\n  if i == 2 then goto next end\n  print(i)\n  ::next::\nend")
+end
+
 local function test_a_field_narrows_on_a_test_of_it()
   accepted("if q.a then print(q.a + 1) end")
   accepted("if q.a ~= nil then print(q.a + 1) end")
@@ -816,8 +842,9 @@ local function test_assert_narrows_what_it_is_given()
   accepted("assert(x ~= nil)\nprint(x + 1)")
 end
 
---- The limits [`checker/narrowing.tl`] holds TODOs for. Each is pinned as
---- it is, so the change that lifts one flips its case.
+--- The limits [`checker/narrowing.tl`] holds TODOs for (its `type(x)` and
+--- `and` one is the first two cases here; the third is `is` on a field). Each
+--- is pinned as it is, so the change that lifts one flips its case.
 local function test_a_field_under_type_and_the_left_of_and_is_not_narrowed_yet()
   refused("if type(q.a) == \"number\" then print(q.a + 1) end", "1: " .. plus:sub(1, 28))
   refused("print(q.a and q.a + 1)", "1: " .. plus:sub(1, 28))
@@ -988,6 +1015,85 @@ local function test_a_call_drops_a_local_a_function_literal_assigns_and_no_other
   -- A parameter is one local too.
   refused("local function g(n: number | nil)\n  local function reset() n = nil end\n  if n then\n    touch(q)\n    print(n + 1, reset)\n  end\nend\nprint(g)",
     "5: " .. plus:sub(1, 28))
+end
+
+-- TODO: accept this once a call to a function declared inside the narrowed
+-- branch drops only what its body can assign: it drops `x` though its body
+-- assigns nothing of it.
+
+--- The first of the limits of what a call drops, pinned as they are so that
+--- the change that lifts one flips its case. The fuzz properties of
+--- build/checker_fuzz_test.tl draw none of them (their generator keeps them
+--- out, with a TODO each): a program goes into their corpus once it passes.
+--- This one is safe and refused.
+local function test_a_function_declared_in_the_branch_drops_at_a_call_though_it_assigns_nothing()
+  refused("if x then\n  local function own() print(1) end\n  own()\n  print(x + 1)\nend", "4: " .. plus:sub(1, 28))
+end
+
+-- TODO: refuse the first two once a call drops a local that a function
+-- literal in any enclosing block assigns: a nil test that leaves the block,
+-- made after a function declared in the same inner block, keeps the local
+-- past a call to it, and `x` is nil there. The same lines at the top of the
+-- file (the third case), or with the function declared in a block around
+-- the test (the fourth), are refused.
+
+--- A call keeps a local that a function literal assigns when the literal is
+--- declared in the inner block of the test: the first two programs are
+--- accepted and fail at run time.
+local function test_a_call_keeps_a_local_a_function_declared_in_the_same_inner_block_assigns()
+  local head = "local function maybe(): number | nil return nil end\nlocal x: number | nil = maybe()\n"
+  local zero = "local x: number | nil = 0\n"
+  accepted_source(zero .. "do\n  local function reset() x = nil end\n  if x == nil then return end\n  reset()\n  print(x + 1)\nend\n")
+  accepted_source(head .. "if x then\n  local function reset() x = nil end\n  if x == nil then return end\n  reset()\n  print(x + 1)\nend\n")
+  refused_source(zero .. "local function reset() x = nil end\nif x == nil then return end\nreset()\nprint(x + 1)\n",
+    "5: " .. plus:sub(1, 28))
+  refused_source(zero .. "local function reset() x = nil end\ndo\n  if x == nil then return end\n  reset()\n  print(x + 1)\nend\n",
+    "6: " .. plus:sub(1, 28))
+end
+
+-- TODO: refuse the first two once a call drops a local that a function
+-- literal in any enclosing block assigns: the second name of a declaration
+-- of two names keeps what a test said of it past a call to the function, and
+-- so does a local assigned a value in a block that a test of it encloses.
+-- `y` and `x` are nil after the call; the first name, and a local alone in
+-- its declaration, are refused.
+
+--- Nor does a call drop the second name of a declaration of two, or a local
+--- assigned under a test of it, when a function literal assigns it.
+local function test_a_call_keeps_the_second_name_of_a_declaration_and_a_local_assigned_under_its_test()
+  local head = "local function maybe(): number | nil return nil end\n"
+  accepted_source("local x, y: number | nil = nil, 0\nlocal function reset() y = nil end\nif y then\n  reset()\n  print(y + 1)\nend\n")
+  accepted_source(head .. "local x: number | nil = maybe()\nlocal function reset() x = nil end\nif x then\n  x = 1\n  reset()\n  print(x + 1)\nend\n")
+  refused_source("local x, y: number | nil = 0, nil\nlocal function reset() x = nil end\nif x then\n  reset()\n  print(x + 1)\nend\n",
+    "5: " .. plus:sub(1, 28))
+  refused_source(head .. "local x: number | nil = maybe()\nlocal function reset() x = nil end\nif x then\n  reset()\n  print(x + 1)\nend\n",
+    "6: " .. plus:sub(1, 28))
+end
+
+-- TODO: refuse the field's case once a function literal's body begins with
+-- none of the facts of the places outside it (the roadmap item, and the TODO
+-- at `narrowing.enter_function` in checker/narrowing.tl): `g` reads `q.a`
+-- under the test, runs after `q.a = nil`, and fails at run time.
+
+--- The body of a function literal is checked under the facts of the places
+--- outside it, though it runs wherever it is called. The same body over a
+--- local is refused.
+local function test_a_function_body_begins_with_the_facts_of_the_fields_around_it()
+  accepted("if q.a then\n  local function g(): number return q.a + 1 end\n  q.a = nil\n  print(g())\nend")
+  refused("if x then\n  local function g(): number return x + 1 end\n  x = nil\n  print(g())\nend", "2: " .. plus:sub(1, 28))
+end
+
+-- TODO: refuse these once the checker reads the true branch of `a or b` as
+-- nothing where `b` gives no guard (checker/narrowing.tl `evaluate` reads it
+-- as `not a`). Making `evaluate` return nothing there breaks the tree's own
+-- build (build/shape_specs.tl's `at == nil and why or (...at.typename...)`),
+-- which would first be written to need no narrowing from it.
+
+--- `assert(x == nil or y)` and `if x == nil or maybe()` narrow `x` to non-nil:
+--- each is accepted, and fails at run time when `x` is nil.
+local function test_an_or_whose_right_side_gives_no_guard_narrows_its_left_side()
+  accepted("assert(x == nil or y)\nprint(x + 1)")
+  accepted("if x == nil or maybe() then print(x + 1) end")
 end
 
 local function test_a_read_before_a_call_in_the_same_expression_keeps_its_fact()
