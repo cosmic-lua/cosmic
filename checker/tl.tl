@@ -8300,6 +8300,7 @@ do
       assert_spill_message: string
 
       same_type: function(self, Type, Type): boolean, {Error}
+      same_narrowing: function(self, Type, Type): boolean, {Error}
       is_a: function(self, Type, Type): boolean, {Error}
 
       type_check_funcall: function(TypeChecker, node: Node, a: Type, b: TupleType, argdelta?: integer): InvalidOrTupleType
@@ -9667,11 +9668,62 @@ do
       return widens
    end
 
+   local function carries_literal(t: Type): boolean
+      if t is StringType then
+         return t.literal ~= nil
+      end
+      if t is UnionType then
+         for _, member in ipairs(t.types) do
+            if carries_literal(member) then
+               return true
+            end
+         end
+      end
+      return false
+   end
+
+   -- Whether `a` and `b` say the same of a name, for deciding if a narrowing
+   -- tells more than a type does. `same_type` ignores the literal of a
+   -- string, so it calls `"a"` and `string` the same, and `"a" | "b"`
+   -- the same as `"a" | "c"`; a test against a string value narrows to
+   -- exactly those. A literal is the same only as an equal one, and a union
+   -- only as one with the same members.
+   function TypeChecker:same_narrowing(a: Type, b: Type): boolean, {Error}
+      if a == b or a.typeid == b.typeid then
+         return true
+      end
+      if a is StringType and b is StringType then
+         return a.literal == b.literal and self:same_type(a, b)
+      end
+      if a is UnionType and b is UnionType then
+         if #a.types ~= #b.types then
+            return false
+         end
+         for _, ma in ipairs(a.types) do
+            local found = false
+            for _, mb in ipairs(b.types) do
+               if self:same_narrowing(ma, mb) then
+                  found = true
+                  break
+               end
+            end
+            if not found then
+               return false
+            end
+         end
+         return true
+      end
+      if carries_literal(a) or carries_literal(b) then
+         return false
+      end
+      return self:same_type(a, b)
+   end
+
    function TypeChecker:widen_all(widens: {string:boolean}, widen_types: {string:Type})
       for name, _ in pairs(widens) do
          local curr = self:find_var(name, "check_only")
          local prev = widen_types[name]
-         if (not prev) or (curr and not self:same_type(curr.t, prev)) then
+         if (not prev) or (curr and not self:same_narrowing(curr.t, prev)) then
             self:widen_back_var(name)
          end
       end
@@ -13603,7 +13655,7 @@ do
                      local real = get_real_var_from_lower_scope(st, i, key)
                      was = real and real.t
                   end
-                  if was and not self:same_type(var.t, was) then
+                  if was and not self:same_narrowing(var.t, was) then
                      self.loop_tick = self.loop_tick + 1
                      for _, loop in ipairs(self.loops) do
                         if i <= loop.depth then
