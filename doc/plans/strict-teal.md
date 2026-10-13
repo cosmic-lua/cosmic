@@ -193,11 +193,14 @@ error without another patch.
   so it is free. the strict-record and frozen-table checks run only in
   debug and test runs, as `--check-types` does. there is no always-on write
   check.
-- **the syntax gains restrictions, no new syntax.** there is no `readonly`
-  keyword, no `pure` annotation and no new metatable construct. purity, if
-  it is ever needed, is inferred and defaults to impure, and the standard
-  library's purity lives in `checker/stdlib.d.tl`. `<const>` is Lua syntax
-  and stays.
+- **type-level syntax is allowed; statement and expression syntax is not.**
+  an annotation that is erased when compiling to Lua may be added: a
+  `readonly {T}` view (rule 7, variance) and a guard signature (rule 8,
+  narrowing declarations). the Lua a file compiles to is unchanged by it.
+  no new statement or expression form is added, no `pure` annotation and no
+  new metatable construct. purity, if it is ever needed, is inferred and
+  defaults to impure, and the standard library's purity lives in
+  `checker/stdlib.d.tl`. `<const>` is Lua syntax and stays.
 - **what the claim excludes.** types do not track integer overflow,
   division by zero, or code a finalizer (`__gc`) runs. each is a run-time
   fault, not a type that lied.
@@ -474,10 +477,10 @@ change in boot time and in the checker's self-compile time.
    drops its `ci/cosmic_ci/text_rows.tl` shim. the pin lags the tree, so
    `ci/` cannot use a new API before a bump.
 7a. **narrowing by construction (rule 4).** it lands before variance, so
-   the flow analysis every later rule reads is the sound one. in progress:
-   the holes the fuzzer found in 4c (the `or` reading, closures in inner
-   blocks, function bodies keeping outer facts, `local x = x` copies) are
-   fixed on branch `tl-narrowing-holes`, not yet merged. the design:
+   the flow analysis every later rule reads is the sound one. the holes the
+   fuzzer found in 4c (the `or` reading, closures in inner blocks, function
+   bodies keeping outer facts, `local x = x` copies) are fixed (done,
+   #3065). the design is in [strict-teal-7a.md]. in short:
    - declared types are never mutated. facts live in an immutable map from
      place to type, carried along a small control-flow graph, and joins
      happen in one place. the default is pessimistic: a fact survives only
@@ -486,17 +489,17 @@ change in boot time and in the checker's self-compile time.
      (`narrow`, `widen` and `localizing` entries, `widened_from`).
    - field facts keep 4c's rule: a call or a write drops them. a local's
      fact is dropped precisely by assignment.
-   - field narrowing stays, because without `readonly` syntax, restricting
-     it would cost every field read.
+   - field narrowing stays, because restricting it would cost every field
+     read.
 
    three restrictions come with it, each its own PR before or alongside it:
-   - R2, effectively-final captures. a function literal may read but not
-     assign a local declared outside it. the tree is migrated at every
-     site, tests included. this makes the closure-assigns-a-narrowed-local
+   - R2, effectively-final captures (in the merge queue, #3067). a function
+     literal may read but not assign a local declared outside it. the tree
+     is migrated at every site, tests included. this makes the closure-assigns-a-narrowed-local
      class impossible, and with it step 5's pending-function machinery for
      assignments.
-   - R3, `goto` only as `continue`: a forward jump to a label at the end of
-     the enclosing loop body.
+   - R3, `goto` only as `continue` (done, #3066): a forward jump to a label
+     at the end of the enclosing loop body.
    - rule 17 adjusted as stated there.
 
    rejected: narrowing only `<const>` and stable bindings (R1(b)), at 1,070
@@ -575,6 +578,7 @@ every checker step follows the review practice in "decisions".
   core's C was found when the row accessors (#3051) were knocked out of
   the merge queue (#3055).
 
+[strict-teal-7a.md]: strict-teal-7a.md
 [`build.fuzz`]: ../../build/fuzz/init.tl
 [`build/compiler_test.tl`]: ../../build/compiler_test.tl
 [`build/identity.tl`]: ../../build/identity.tl
