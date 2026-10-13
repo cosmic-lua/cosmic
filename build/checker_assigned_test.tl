@@ -185,22 +185,59 @@ local function test_a_loop_assigns_only_if_it_always_runs()
   accepts("local x: integer\nwhile true do\n  for _ = 1, 2 do break end\n  x = 1\n  break\nend\nuse(x)")
 end
 
---- A `goto` takes the state it leaves with to its label.
-local function test_a_goto_brings_the_state_it_left_with_to_its_label()
-  refuses("local x: integer\ngoto skip\nx = 1\n::skip::\nuse(x)", "x")
-  accepts("local x: integer\nx = 1\ngoto skip\nuse(1)\n::skip::\nuse(x)")
-  -- The usual continue.
+--- A `goto` is a continue: it takes the state it leaves with to the label
+--- that ends the body of its loop.
+local function test_a_continue_brings_the_state_it_left_with_to_the_end_of_the_pass()
   accepts("local x: integer\nfor i = 1, 3 do\n  if cond() then goto continue end\n  x = i\n  use(x)\n  ::continue::\nend")
-  refuses("local x: integer\nfor i = 1, 3 do\n  if cond() then goto continue end\n  x = i\n  ::continue::\n  use(x)\nend", "x")
-  -- Out of a loop to a label after it.
-  refuses("local x: integer\nwhile true do\n  if cond() then goto out end\n  x = 1\nend\n::out::\nuse(x)", "x")
-  accepts("local x: integer\nwhile true do\n  x = 1\n  if cond() then goto out end\nend\n::out::\nuse(x)")
-  -- A label reached by a goto alone has its state, and one reached by both has the meeting.
-  accepts("local x: integer\nif cond() then x = 1 goto out end\nx = 2\n::out::\nuse(x)")
-  refuses("local x: integer\nif cond() then goto out end\nx = 2\n::out::\nuse(x)", "x")
-  -- A goto back to a label before the read adds nothing to the label.
-  refuses("local x: integer\n::again::\nif cond() then x = 1 end\nif not cond() then goto again end\nuse(x)", "x")
-  accepts("local x: integer\n::again::\nx = 1\nif cond() then goto again end\nuse(x)")
+  -- What a `repeat` asks after its body is asked at the label, with the meeting of the paths.
+  refuses("local x: integer\nrepeat\n  if cond() then goto continue end\n  x = 1\n  ::continue::\nuntil x == 1", "x")
+  accepts("local x: integer\nrepeat\n  x = 1\n  if cond() then goto continue end\n  use(1)\n  ::continue::\nuntil x == 1")
+  accepts("local x: integer\nrepeat\n  if cond() then x = 1 goto continue end\n  x = 2\n  ::continue::\nuntil x == 1")
+  -- A pass that continues is not one that leaves the loop.
+  accepts("local x: integer\nwhile true do\n  if cond() then goto continue end\n  x = 1\n  break\n  ::continue::\nend\nuse(x)")
+  refuses("local x: integer\nwhile true do\n  if cond() then break end\n  if cond() then goto continue end\n" ..
+      "  x = 1\n  ::continue::\nend\nuse(x)", "x")
+  -- A label is its own loop's: a continue before an inner loop whose label has the
+  -- same name is still the outer one's.
+  refuses("local x: integer\nrepeat\n  if cond() then goto continue end\n  for _ = 1, 2 do\n" ..
+      "    if cond() then goto continue end\n    ::continue::\n  end\n  x = 1\n  ::continue::\nuntil x == 1", "x")
+  accepts("local x: integer\nrepeat\n  x = 1\n  for _ = 1, 2 do\n    if cond() then goto continue end\n" ..
+      "    ::continue::\n  end\n  if cond() then goto continue end\n  ::continue::\nuntil x == 1")
+end
+
+--- A local declared in a loop's body is walked from inside the body, which
+--- a continue or a `break` leaves with a function that names it pending.
+local function test_a_local_declared_in_a_loop_body_sees_its_continue_and_its_break()
+  local box = "local box: {function()} = {}\n"
+  local made = "  local f: function()\n  local function g() f() end\n  box[1] = g\n"
+  for _, loop in ipairs({
+      { "for n = 1, 3 do\n", "end\n" },
+      { "local n = 0\nwhile n < 3 do\n  n = n + 1\n", "end\n" },
+      { "local n = 0\nrepeat\n  n = n + 1\n", "until n >= 3\n" },
+  }) do
+    refuses(box .. loop[1] .. made .. "  if n < 3 then goto continue end\n  f = g\n  ::continue::\n" .. loop[2] ..
+        "box[1]()", "f")
+    accepts(box .. loop[1] .. made .. "  f = g\n  if n < 3 then goto continue end\n  use(1)\n  ::continue::\n" ..
+        loop[2] .. "box[1]()")
+    -- A `break` leaves the variable's scope.
+    refuses(box .. loop[1] .. made .. "  if n < 3 then break end\n  f = g\n" .. loop[2] .. "box[1]()", "f")
+    accepts(box .. loop[1] .. made .. "  f = g\n  if n < 3 then break end\n" .. loop[2] .. "box[1]()")
+  end
+  -- A local of a `repeat` body is checked like any other.
+  refuses("repeat\n  local y: integer\n  use(y)\nuntil cond()", "y")
+  -- A `goto` out of a block inside the loop leaves it too.
+  local out = refuses(box .. "for n = 1, 3 do\n  do\n" .. made .. "    if n < 3 then goto continue end\n    f = g\n  end\n" ..
+      "  ::continue::\nend\nbox[1]()", "f")
+  assert(out.ran_kind == "scope", tostring(out.ran_kind))
+  accepts(box .. "for n = 1, 3 do\n  do\n" .. made .. "    f = g\n    if n < 3 then goto continue end\n  end\n" ..
+      "  ::continue::\nend\nbox[1]()")
+end
+
+--- A continue is the innermost loop's: a walk's own pass state is not an
+--- outer loop's.
+local function test_a_continue_of_an_inner_loop_does_not_reach_the_outer_label()
+  accepts("local x: integer\nrepeat\n  while true do\n    if cond() then goto continue end\n    x = 1\n    break\n" ..
+      "    ::continue::\n  end\n  use(x)\n  if cond() then goto continue end\n  ::continue::\nuntil x == 1")
 end
 
 --- A function that names the local is pending until code may run it.
@@ -306,14 +343,11 @@ local function test_a_function_that_names_the_local_is_refused_where_code_may_ru
   -- Stored where a call can get it, then a call.
   refuses("local f: function()\nlocal box: {function()} = {}\nlocal function g() f() end\nbox[1] = g\n" ..
       "use(box)\nf = g", "f")
-  -- A condition, a loop's iterator and a jump back round are code that runs again.
+  -- A condition and a loop's iterator are code that runs again.
   refuses("local f: function()\nlocal function g() f() end\nif cond() then f = g end", "f")
   local iterated = refuses("local it: function(): integer | nil = function(): integer | nil return nil end\n" ..
       "local f: function()\nlocal function g() f() end\nfor v in it do end\nf = g", "f")
   assert(iterated.ran_kind == "iterator", tostring(iterated.ran_kind))
-  local round = refuses("local f: function()\nlocal flag = true\n::top::\nlocal function g() f() end\n" ..
-      "if flag then goto top end\nf = g", "f")
-  assert(round.ran_kind == "goto", tostring(round.ran_kind))
   -- A function made in a loop's body leaves with the loop, after any round.
   refuses("local f: function()\nlocal flag = true\nwhile flag do\n  local function g() f() end\nend\nuse(0)\nf = idle", "f")
   accepts("local f: function()\nlocal flag = true\nwhile flag do\n  local function g() f() end\nend\nf = idle\nuse(0)")
@@ -324,6 +358,10 @@ local function test_a_function_that_names_the_local_is_refused_where_code_may_ru
   local again = refuses("local f: function()\nlocal flag = true\nwhile flag do\n  use(0)\n" ..
       "  local function g() f() end\nend\nf = idle", "f")
   assert(again.ran_kind == "call" and again.ran_y == 8, tostring(again.ran_y))
+  -- A pass that continues brings the function made on its way to the next one.
+  local continued = refuses("local f: function()\nlocal flag = true\nwhile flag do\n  use(0)\n  if cond() then\n" ..
+      "    local function g() f() end\n    goto continue\n  end\n  ::continue::\nend\nf = idle", "f")
+  assert(continued.ran_kind == "call" and continued.ran_y == 8, tostring(continued.ran_kind) .. tostring(continued.ran_y))
   refuses("local f: function()\nlocal flag = true\nrepeat\n  use(0)\n  local function g() f() end\nuntil flag\nf = idle", "f")
   refuses("local f: function()\nfor _ = 1, 2 do\n  use(0)\n  local function g() f() end\nend\nf = idle", "f")
 end

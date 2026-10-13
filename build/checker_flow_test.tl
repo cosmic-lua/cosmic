@@ -129,7 +129,7 @@ end
 local function test_return_break_and_goto_end_their_block()
   expect(true, { "return", "return 1", "do return end" })
   assert(ends("while x do break end", "break"))
-  assert(ends("goto done\n::done::", "goto"))
+  assert(ends("while x do goto continue\n::continue::\nend", "goto"))
 end
 
 local function test_a_call_of_a_never_function_ends_its_block()
@@ -218,15 +218,13 @@ local function test_a_goto_to_a_label_in_the_loop_does_not_end_the_loop_body()
   assert(not ends(loop, "if"))
   assert(not ends(loop, "label"))
   assert(ends(loop, "goto"))
-  assert(not ends("::top::\nx = not x\nif x then goto top end"))
 end
 
---- The limit [`checker/flow.tl`] holds a TODO for: a `goto` ends its block
---- whatever its label, so one out of an endless loop does not stop the
---- loop ending the block.
-local function test_a_goto_out_of_an_endless_loop_still_ends_it()
-  assert(ends("while true do goto out end\n::out::", "while"))
-  assert(ends("do goto out end\n::out::", "do"))
+--- A `goto` only continues a loop, so one in an endless loop does not make
+--- the loop leave: the loop still ends its block.
+local function test_a_continue_in_an_endless_loop_does_not_make_it_leave()
+  assert(ends("while true do if x then goto continue end\n::continue::\nend", "while"))
+  assert(ends("repeat goto continue\n::continue::\nuntil false", "repeat"))
 end
 
 --- Whether `statement`, the last statement of a function's body, leaves
@@ -249,7 +247,7 @@ local function test_return_and_a_call_that_never_returns_leave_and_break_and_got
     assert(not leaves(statement), "leaves: " .. statement)
   end
   -- Neither a `break` nor a `goto` leaves for good, though each ends its block.
-  for _, statement in ipairs({ "while x do break end", "goto out\n::out::" }) do
+  for _, statement in ipairs({ "while x do break end", "while x do goto continue\n::continue::\nend" }) do
     local kind = statement:find("break", 1, true) and "break" or "goto"
     local ast = check(prelude .. "local function g()\n" .. statement .. "\nend")
     local jump = assert(find(ast[#ast].body, kind))
@@ -279,12 +277,14 @@ local function test_a_body_that_may_break_or_goto_out_does_not_leave()
   assert(branch_leaves("if x then f(); return end"))
   -- It ends in `return`, but a path through it goes out first.
   assert(not branch_leaves("if x then f(); if y then break end; return end"))
-  assert(not branch_leaves("if x then if y then goto out end; return end\n::out::"))
+  assert(not branch_leaves("if x then if y then goto continue end; return end\n::continue::"))
   assert(not branch_leaves("if x then do if y then break end end; return end"))
   -- A `break` of a loop inside the body stays inside it.
   assert(branch_leaves("if x then while y do break end; return end"))
   assert(branch_leaves("if x then for _ = 1, 2 do if y then break end end; return end"))
   assert(branch_leaves("if x then repeat break until y; return end"))
+  -- And so does a `goto` that continues a loop inside it.
+  assert(branch_leaves("if x then while y do if x then goto continue end\n::continue::\nend; return end"))
 end
 
 local function test_ends_body_reads_the_last_statement()

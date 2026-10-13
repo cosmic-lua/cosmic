@@ -92,13 +92,8 @@ local function test_a_narrowing_dropped_by_other_code_is_told_what_ran_it()
       "which may have changed it",
     "'r.n' was checked, but the call `clear(...)` at 11:5 in this loop may change it before the loop " ..
       "comes round again: copy it to a local before the loop (`local n = r.n`), check and use that")
-  -- A loop whose later passes run a label, an assignment or an operator is
+  -- A loop whose later passes run a write, an assignment or an operator is
   -- told what it was, not "the call".
-  answers(head .. "if r.n then\n  for _ = 1, 2 do\n    print(r.n + 1)\n    ::again::\n    if r.n then goto again end\n  end\nend\n",
-    "'r.n' was narrowed before this loop, but the loop's previous pass ran ::again:: at 11:5, " ..
-      "which may have changed it",
-    "'r.n' was checked, but the label `::again::` at 11:5 in this loop may change it before the loop " ..
-      "comes round again: copy it to a local before the loop (`local n = r.n`), check and use that")
   answers(head .. "if r.n then\n  for _ = 1, 2 do\n    print(r.n + 1)\n    r.n = nil\n  end\nend\n",
     "'r.n' was narrowed before this loop, but the loop's previous pass ran r.n = ... at 11:5, " ..
       "which may have changed it",

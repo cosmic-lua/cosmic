@@ -1273,8 +1273,12 @@ local function test_a_branch_that_may_break_or_go_out_does_not_leave()
       "      return\n    end\n  end\n  print(q.a + 1)\nend", "9: " .. plus:sub(1, 28))
   refused("if q.a then\n  repeat\n    if y then\n      touch(q)\n      if y then break end\n      return\n" ..
       "    end\n  until true\n  print(q.a + 1)\nend", "9: " .. plus:sub(1, 28))
-  refused("if q.a then\n  if y then\n    touch(q)\n    if x then goto out end\n    return\n  end\n  ::out::\n" ..
-      "  print(q.a + 1)\nend", "8: " .. plus:sub(1, 28))
+  -- A `goto` continues the loop, so it goes out of the branch before `return`.
+  refused("if q.a then\n  for _ = 1, 3 do\n    if y then\n      touch(q)\n      if x then goto continue end\n      return\n" ..
+      "    end\n    print(q.a + 1)\n    ::continue::\n  end\nend", "8: " .. plus:sub(1, 28))
+  -- A `goto` of a loop inside the branch stays inside it.
+  accepted("if q.a then\n  for i = 1, 3 do\n    if i == 2 then\n      touch(q)\n      for _ = 1, 2 do\n" ..
+      "        if y then goto continue end\n        ::continue::\n      end\n      return\n    end\n  end\n  print(q.a + 1)\nend")
   -- A `break` of a loop inside the branch stays inside it.
   accepted("if q.a then\n  for i = 1, 3 do\n    if i == 2 then\n      touch(q)\n      for _ = 1, 2 do\n" ..
       "        if y then break end\n      end\n      return\n    end\n  end\n  print(q.a + 1)\nend")
@@ -1338,16 +1342,11 @@ local function test_a_branch_that_leaves_drops_nothing_for_the_code_after_it()
   refused("if q.a then\n  if maybe() then\n    return\n  end\n  print(q.a + 1)\nend", "5: " .. plus:sub(1, 28))
 end
 
-local function test_a_label_drops_the_fields_a_goto_below_it_may_have_changed()
-  refused("if q.a then\n  ::top::\n  print(q.a + 1)\n  if y then goto top end\nend", "3: " .. plus:sub(1, 28))
-  accepted("if x then\n  ::top::\n  print(1)\nend")
-  -- A label no goto comes back to is not a place code can arrive from.
-  accepted("if q.a then\n  ::top::\n  print(q.a + 1)\nend")
-  accepted("if q.a then\n  if y then goto skip end\n  print(q.a + 1)\n  ::skip::\n  print(q.a + 2)\nend")
-  -- A trailing `::continue::` drops nothing the loop read before it.
+local function test_a_continue_drops_nothing_the_loop_read_before_it()
   accepted("if q.a then\n  for _ = 1, 2 do\n    print(q.a + 1)\n    if y then goto continue end\n    ::continue::\n  end\nend")
-  -- And a goto that does come back to it is one of the loop.
-  refused("if q.a then\n  for _ = 1, 2 do\n    print(q.a + 1)\n    ::again::\n    if y then goto again end\n  end\nend",
+  accepted("if q.a then\n  repeat\n    if y then goto continue end\n    print(q.a + 1)\n    ::continue::\n  until x\nend")
+  -- What the pass drops before the continue is dropped for the next pass.
+  refused("if q.a then\n  for _ = 1, 2 do\n    print(q.a + 1)\n    if y then touch(q) goto continue end\n    ::continue::\n  end\nend",
     "3" .. looped)
 end
 
