@@ -80,7 +80,8 @@ local record compiler
     -- a `goto` that is not a jump forward to the label that ends the body of
     -- the loop around it, or a label no such `goto` names: `variable` (the
     -- label's name), `goto_y`, `goto_x` (none for a label), and `label_y`,
-    -- `label_x` (none where the `goto` names no label)
+    -- `label_x` (none where the `goto` names no label), and `local_y`, `local_x`
+    -- where a `repeat` continue jumps into the scope of a local its `until` sees
     "goto_not_continue"
     "other"
   end
@@ -150,7 +151,7 @@ local record compiler
     expected_tokens: {string} | nil
 
     -- What a declaration that is hidden or unused declares: "variable",
-    -- "argument", "function", "type" or "label".
+    -- "argument", "function" or "type".
     declares: string | nil
 
     -- Whether the declaration a name hides is in the program itself.
@@ -198,6 +199,10 @@ local record compiler
     goto_x: integer | nil
     label_y: integer | nil
     label_x: integer | nil
+    -- For a `goto` of a `repeat` that jumps past a local its `until` can
+    -- see: where the local is declared.
+    local_y: integer | nil
+    local_x: integer | nil
   end
 
   -- TODO: declare `ast`, `type`, [`Env.modules`], the reporter's

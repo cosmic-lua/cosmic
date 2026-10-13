@@ -441,13 +441,17 @@ local record Scan
    -- still flows, but a read or a write is another variable's.
    hidden: boolean
    loops: {Exit}
+   -- What the walk's own block receives from outside any loop it walks: the
+   -- `goto`s whose label ends the block (the body of the loop the variable
+   -- is declared in) before the walk reaches it.
+   outer: Exit
 end
 
 -- Something that may run code of the program's has run at `at`, in the way
 -- `how` tells: the function this path made that names the variable may be
 -- called before it is assigned.
 local function ran(scan: Scan, st: State, at: flow.Node, how: string)
-   if st.closure and not st.assigned and not scan.found then
+   if st and st.closure and not st.assigned and not scan.found then
       scan.found, scan.skipped, scan.ran, scan.how = st.closure, st.skipped, at, how
    end
 end
@@ -647,15 +651,17 @@ function walk.statement(scan: Scan, stmt: flow.Node, st: State): State
       local breaks = scan.loops[#scan.loops]
       if breaks then
          breaks.state = meet(breaks.state, st)
+      else
+         -- It leaves the loop the variable is declared in, and with it the
+         -- variable's scope.
+         ran(scan, st, no_node, "scope")
       end
       return nil
    elseif kind == "goto" then
       -- A continue: the rest of this pass is skipped, and the label that
       -- ends the body of the loop is reached with this state.
-      local continues = scan.loops[#scan.loops]
-      if continues then
-         continues.continued = meet(continues.continued, st)
-      end
+      local continues = scan.loops[#scan.loops] or scan.outer
+      continues.continued = meet(continues.continued, st)
       return nil
    elseif kind == "do" then
       return walk.block(scan, stmt.body, 1, st, no_node)
@@ -704,11 +710,9 @@ function walk.block(scan: Scan, body: flow.Node, first: integer, st: State, tail
       end
       local stmt = body[i]
       if stmt.kind == "label" then
-         local continues = scan.loops[#scan.loops]
-         if continues then
-            st = meet(st, continues.continued)
-            continues.continued = no_state
-         end
+         local continues = scan.loops[#scan.loops] or scan.outer
+         st = meet(st, continues.continued)
+         continues.continued = no_state
       elseif st then
          st = walk.statement(scan, stmt, st)
       elseif declares(stmt, scan.name) then
@@ -741,12 +745,15 @@ end
 function flow.unassigned_read(body: flow.Node, first: integer, name: string, tail: flow.Node): flow.Node, flow.Node, flow.Node, string
    local scan: Scan = {
       name = name, found = no_node, skipped = no_node, ran = no_node, how = "", hidden = false,
-      loops = {},
+      loops = {}, outer = { state = no_state, continued = no_state },
    }
    local final = walk.block(scan, body, first, unassigned_state, tail)
    if final then
       ran(scan, final, no_node, "scope")
    end
+   -- A `goto` whose label the walk did not reach leaves the block, and the
+   -- variable's scope, for a label further out.
+   ran(scan, scan.outer.continued, no_node, "scope")
    return scan.found, scan.skipped, scan.ran, scan.how
 end
 

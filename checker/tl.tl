@@ -267,7 +267,8 @@ local record tl
       -- a `goto` that is not a jump forward to the label that ends the body of
       -- the loop around it, or a label no such `goto` names: `variable` (the
       -- label's name), `goto_y`, `goto_x` (none for a label), and `label_y`,
-      -- `label_x` (none where the `goto` names no label)
+      -- `label_x` (none where the `goto` names no label), and `local_y`, `local_x`
+      -- where a `repeat` continue jumps into the scope of a local its `until` sees
       "goto_not_continue"
       "other"
    end
@@ -335,7 +336,7 @@ local record tl
       expected_tokens: {string}
 
       -- What a declaration that is hidden or unused declares: "variable",
-      -- "argument", "function", "type" or "label".
+      -- "argument", "function" or "type".
       declares: string
 
       -- Whether the declaration a name hides is in the program itself.
@@ -383,6 +384,9 @@ local record tl
       goto_x: integer
       label_y: integer
       label_x: integer
+      -- Where the local a `goto` of a `repeat` would jump into the scope of is.
+      local_y: integer
+      local_x: integer
 
       -- used temporarily for stable-sorting
       i: integer
@@ -2086,9 +2090,6 @@ local record Node
 
    -- goto
    label: string
-
-   -- label
-   used_label: boolean
 
    casttype: Type
 
@@ -7284,15 +7285,6 @@ function Errors:check_var_usage(scope: Scope, is_global?: boolean)
          end
       end
    end
-
-   if scope.labels then
-      for name, node in pairs(scope.labels) do
-         if not node.used_label then
-            self:add_warning_coded("unused", node, Errors.make({ code = "unused", variable = name, declares = "label" }),
-               "unused label ::%s::", name)
-         end
-      end
-   end
 end
 
 function Errors:add_unknown_dot(node: Node, name: string)
@@ -9226,8 +9218,7 @@ do
    -- of it, as the local is the same whenever the literal runs. An
    -- assignment runs after it if a function literal makes it, if it comes
    -- after the literal in the text, or if both are in a loop that the local
-   -- is not declared in (a later pass runs it); a file with a `goto` takes
-   -- every assignment to. A name with no declaration of the file's own is
+   -- is not declared in (a later pass runs it). A name with no declaration of the file's own is
    -- not fixed.
    function TypeChecker:local_is_fixed(name: string, literal: Node): boolean
       for i = #self.st, 1, -1 do
@@ -13205,6 +13196,8 @@ do
          labels: {Node}
          refused: {Node}
          continued: {Node:boolean}
+         -- A loop's `goto`s that continue to its tail.
+         jumps: {Node}
       end
 
       -- Refuses each `goto` that is not a continue, and each label that is
@@ -13217,7 +13210,7 @@ do
          local no_frame: GotoFrame = nil
          local no_tail: Node = nil
          local function new_frame(is_loop: boolean, owner: GotoFrame, tail: Node): GotoFrame
-            return { is_loop = is_loop, owner = owner, tail = tail, labels = {}, refused = {}, continued = {} }
+            return { is_loop = is_loop, owner = owner, tail = tail, labels = {}, refused = {}, continued = {}, jumps = {} }
          end
          local function new_function(): GotoFrame
             local frame = new_frame(false, no_frame, no_tail)
@@ -13265,13 +13258,42 @@ do
             end
          end
 
+         -- Lua keeps the locals of a `repeat` body in scope in its `until`,
+         -- so a continue may not jump past one declared at the body's level:
+         -- Lua refuses to load the program.
+         local function refuse_jumps_into_locals(loop_node: Node, frame: GotoFrame)
+            for _, jump in ipairs(frame.jumps) do
+               for _, stmt in ipairs(loop_node.body) do
+                  local declares = stmt.kind == "local_declaration" or stmt.kind == "local_function"
+                     or stmt.kind == "local_macroexp"
+                  if declares and (stmt.y > jump.y or (stmt.y == jump.y and stmt.x > jump.x)) then
+                     self.errs:add_coded(jump, Errors.make({
+                        code = "goto_not_continue",
+                        variable = jump.label,
+                        goto_y = jump.y,
+                        goto_x = jump.x,
+                        label_y = frame.tail.y,
+                        label_x = frame.tail.x,
+                        local_y = stmt.y,
+                        local_x = stmt.x,
+                     }), "goto '" .. jump.label .. "' jumps into the scope of the local declared at " ..
+                        tostring(stmt.y) .. ":" .. tostring(stmt.x) .. ", which the `until` of its loop can see")
+                     break
+                  end
+               end
+            end
+         end
+
          local loop: VisitorCallbacks<nil, Node, boolean> = {
             before = function(_: nil, node: Node)
                local last = node.body[#node.body]
                table.insert(frames, new_frame(true, frames[#frames].owner, last and last.kind == "label" and last or no_tail))
             end,
-            after = function(_: nil, _node: Node, _children: {boolean}): boolean
-               table.remove(frames)
+            after = function(_: nil, node: Node, _children: {boolean}): boolean
+               local frame = table.remove(frames)
+               if node.kind == "repeat" then
+                  refuse_jumps_into_locals(node, frame)
+               end
                return nil
             end,
          }
@@ -13305,6 +13327,7 @@ do
                      local frame = frames[#frames]
                      if frame.is_loop and frame.tail and frame.tail.label == node.label then
                         frame.owner.continued[frame.tail] = true
+                        table.insert(frame.jumps, node)
                      else
                         table.insert(frame.owner.refused, node)
                      end
@@ -15407,7 +15430,6 @@ do
             --for i = #self.st, 1, -1 do
                local scope = self.st[#self.st]
                if scope.pending_labels and scope.pending_labels[label_id] then
-                  node.used_label = true
                   scope.pending_labels[label_id] = nil
                   --break
                end
@@ -15429,9 +15451,7 @@ do
                end
             end
 
-            if found_label then
-               found_label.used_label = true
-            else
+            if not found_label then
                local scope = self.st[#self.st]
                scope.pending_labels = scope.pending_labels or {}
                scope.pending_labels[label_id] = scope.pending_labels[label_id] or {}
@@ -15451,6 +15471,7 @@ do
          -- only end scope after checking `until`, `statements` in repeat body has is_repeat == true
          after = function(self: TypeChecker, node: Node, children: {Type}): Type
             self:loop_end()
+            self:check_assigned(node.body, node.exp)
             return end_scope_and_none_type(self, node, children)
          end,
       },

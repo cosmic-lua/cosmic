@@ -205,6 +205,41 @@ local function test_a_continue_brings_the_state_it_left_with_to_the_end_of_the_p
       "    ::continue::\n  end\n  if cond() then goto continue end\n  ::continue::\nuntil x == 1")
 end
 
+--- A local declared in a loop's body is walked from inside the body, which
+--- a continue or a `break` leaves with a function that names it pending.
+local function test_a_local_declared_in_a_loop_body_sees_its_continue_and_its_break()
+  local box = "local box: {function()} = {}\n"
+  local made = "  local f: function()\n  local function g() f() end\n  box[1] = g\n"
+  for _, loop in ipairs({
+      { "for n = 1, 3 do\n", "end\n" },
+      { "local n = 0\nwhile n < 3 do\n  n = n + 1\n", "end\n" },
+      { "local n = 0\nrepeat\n  n = n + 1\n", "until n >= 3\n" },
+  }) do
+    refuses(box .. loop[1] .. made .. "  if n < 3 then goto continue end\n  f = g\n  ::continue::\n" .. loop[2] ..
+        "box[1]()", "f")
+    accepts(box .. loop[1] .. made .. "  f = g\n  if n < 3 then goto continue end\n  use(1)\n  ::continue::\n" ..
+        loop[2] .. "box[1]()")
+    -- A `break` leaves the variable's scope.
+    refuses(box .. loop[1] .. made .. "  if n < 3 then break end\n  f = g\n" .. loop[2] .. "box[1]()", "f")
+    accepts(box .. loop[1] .. made .. "  f = g\n  if n < 3 then break end\n" .. loop[2] .. "box[1]()")
+  end
+  -- A local of a `repeat` body is checked like any other.
+  refuses("repeat\n  local y: integer\n  use(y)\nuntil cond()", "y")
+  -- A `goto` out of a block inside the loop leaves it too.
+  local out = refuses(box .. "for n = 1, 3 do\n  do\n" .. made .. "    if n < 3 then goto continue end\n    f = g\n  end\n" ..
+      "  ::continue::\nend\nbox[1]()", "f")
+  assert(out.ran_kind == "scope", tostring(out.ran_kind))
+  accepts(box .. "for n = 1, 3 do\n  do\n" .. made .. "    f = g\n    if n < 3 then goto continue end\n  end\n" ..
+      "  ::continue::\nend\nbox[1]()")
+end
+
+--- A continue is the innermost loop's: a walk's own pass state is not an
+--- outer loop's.
+local function test_a_continue_of_an_inner_loop_does_not_reach_the_outer_label()
+  accepts("local x: integer\nrepeat\n  while true do\n    if cond() then goto continue end\n    x = 1\n    break\n" ..
+      "    ::continue::\n  end\n  use(x)\n  if cond() then goto continue end\n  ::continue::\nuntil x == 1")
+end
+
 --- A function that names the local is pending until code may run it.
 local function test_a_function_that_names_a_local_is_a_read_once_code_may_run_it()
   local made = refuses("local x: integer\nlocal g = function() use(x) end\nuse(g)", "x")

@@ -27,6 +27,8 @@ local record Recipe
   -- The labels some `goto` has been drawn for: a label nothing continues to
   -- is refused, so it is not written.
   jumped: {string:boolean}
+  -- The loops (by their label) some `break` has been drawn for.
+  broke: {string:boolean}
 end
 
 local function draw(r: Recipe, n: integer): integer
@@ -49,7 +51,7 @@ end
 --- Draws a program, a statement and a block calling each other.
 local record draws
   statement: function(r: Recipe, p: Program, depth: integer, loop_end: string): boolean
-  block: function(r: Recipe, p: Program, depth: integer, loop_end: string)
+  block: function(r: Recipe, p: Program, depth: integer, loop_end: string): boolean
 end
 
 --- The kinds of statement, a kind more often drawn the more times it is
@@ -62,7 +64,7 @@ local KINDS <const>: {string} = {
   "assign", "assign", "assign", "read", "read", "read", "shadow", "closure arg", "closure keep", "closure fn",
   "break", "return", "stop",
   "if", "if", "if", "if else", "if else", "if else", "while", "while true", "repeat", "for",
-  "continue if", "continue",
+  "continue if", "continue if", "continue",
 }
 
 --- Draws one statement into `p`; true when it ends its block (no statement
@@ -93,6 +95,7 @@ function draws.statement(r: Recipe, p: Program, depth: integer, loop_end: string
     end
   elseif kind == "break" then
     if loop_end ~= "" then
+      r.broke[loop_end] = true
       emit(p, "break")
       return true
     end
@@ -105,12 +108,17 @@ function draws.statement(r: Recipe, p: Program, depth: integer, loop_end: string
     return true
   elseif kind == "if" or kind == "if else" then
     emit(p, "if cond() then")
-    draws.block(r, p, depth - 1, loop_end)
+    local ends = draws.block(r, p, depth - 1, loop_end)
     if kind == "if else" then
       emit(p, "else")
-      draws.block(r, p, depth - 1, loop_end)
+      ends = draws.block(r, p, depth - 1, loop_end) and ends
+    else
+      ends = false
     end
     emit(p, "end")
+    -- Nothing is drawn after a statement that ends the block: the code there
+    -- is dead, and a variable declared in it is read by no way the run follows.
+    return ends
   elseif kind == "while" or kind == "while true" or kind == "repeat" or kind == "for" then
     local opening: {string:string} = {
       ["while"] = "while cond() do", ["while true"] = "while true do", ["repeat"] = "repeat",
@@ -120,16 +128,25 @@ function draws.statement(r: Recipe, p: Program, depth: integer, loop_end: string
     local continue = "c" .. r.labels
     emit(p, opening[kind])
     emit(p, "use(0)")
+    -- A body may declare a variable of its own, unassigned on each pass, which
+    -- its continues and breaks leave behind.
+    if draw(r, 3) == 0 then
+      emit(p, "local x: integer", "local x")
+    end
     -- The body is a block of its own, so a `goto` to the label at its end
     -- needs no statement to stay last, and a `return` may end the body. The
     -- label is written only if the body jumps to it.
     emit(p, "do")
-    draws.block(r, p, depth - 1, continue)
+    local body_ended = draws.block(r, p, depth - 1, continue)
     emit(p, "end")
     if r.jumped[continue] then
       emit(p, "::" .. continue .. "::")
     end
     emit(p, kind == "repeat" and "until cond()" or "end")
+    if kind == "repeat" then
+      return body_ended and not r.broke[continue] and not r.jumped[continue]
+    end
+    return kind == "while true" and not r.broke[continue]
   elseif kind == "continue if" or kind == "continue" then
     -- A `goto` to the end of the loop round, which `continue` is.
     if loop_end == "" then
@@ -148,13 +165,16 @@ end
 
 --- Draws the statements of one block: from none to a few, up to one that
 --- ends it.
-function draws.block(r: Recipe, p: Program, depth: integer, loop_end: string)
+function draws.block(r: Recipe, p: Program, depth: integer, loop_end: string): boolean
   local count = draw(r, 5)
   for _ = 1, count do
-    if r.left <= 0 or draws.statement(r, p, depth, loop_end) then
-      return
+    if r.left <= 0 then
+      return false
+    elseif draws.statement(r, p, depth, loop_end) then
+      return true
     end
   end
+  return false
 end
 
 --- The most choices a run may make, and the most steps it may take.
@@ -245,7 +265,7 @@ local head <const> = "local function use(_: any) end\n" ..
 
 --- The program `input` draws: the Teal text and the Lua body.
 local function program_of(input: string): string, string
-  local r: Recipe = { bytes = input, at = 0, left = 24, labels = 0, jumped = {} }
+  local r: Recipe = { bytes = input, at = 0, left = 24, labels = 0, jumped = {}, broke = {} }
   local p: Program = { teal = {}, lua = {} }
   draws.block(r, p, 3, "")
   return head .. "local function f()\n  local x: integer\n" .. table.concat(p.teal, "\n") .. "\nend\nuse(f)\n",

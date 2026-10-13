@@ -213,3 +213,23 @@ local function test_a_refused_goto_has_a_hint_that_says_how_to_restructure()
     end
   end
 end
+
+local function test_a_repeat_continue_may_not_jump_past_a_local_its_until_sees()
+  local body = "local n = 0\nrepeat\n  n = n + 1\n  if n < 3 then goto continue end\n  local done = true\n" ..
+    "  use(done)\n  ::continue::\nuntil n >= 3"
+  local source = program(body)
+  local found: compiler.Error = nil
+  for _, e in ipairs(type_errors(source)) do
+    assert(e.code == "goto_not_continue", e.msg)
+    found = e
+  end
+  assert(found ~= nil and found.local_y == 9 and found.goto_y == 8 and found.label_y == 11, source)
+  local hint = assert(teal.replacement(found, source))
+  assert(hint:find("do ... end", 1, true) ~= nil and hint:find("9:", 1, true) ~= nil, hint)
+  -- Wrapped, or declared before the jump, or in a loop whose condition sees no body, it is fine.
+  accepts("local n = 0\nrepeat\n  n = n + 1\n  if n < 3 then goto continue end\n  do\n    local done = true\n    use(done)\n  end\n" ..
+      "  ::continue::\nuntil n >= 3")
+  accepts("local n = 0\nrepeat\n  local done = true\n  n = n + 1\n  if n < 3 then goto continue end\n  use(done)\n" ..
+      "  ::continue::\nuntil n >= 3")
+  accepts("for n = 1, 3 do\n  if n < 3 then goto continue end\n  local done = true\n  use(done)\n  ::continue::\nend")
+end

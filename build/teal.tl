@@ -1227,7 +1227,13 @@ local function goto_hint(e: compiler.Error): string | nil
       "a label is only for `goto " .. name .. "` to skip the rest of a pass of the loop, so remove it and " ..
       "restructure the jump with an `if`, or move the body into a function"
   end
-  local at = e.label_y ~= nil and " (the label is at " .. tostring(e.label_y) .. ":" .. tostring(e.label_x) .. ")" or ""
+  if e.local_y ~= nil then
+    return "'goto " .. name .. "' jumps into the scope of the local declared at " .. tostring(e.local_y) .. ":" ..
+      tostring(e.local_x) .. ", which the `until` of a `repeat` can see and Lua refuses: wrap the code after " ..
+      "the goto in `do ... end` or an `if`, or move it into a function"
+  end
+  local at = e.label_y ~= nil and " (the label it names, at " .. tostring(e.label_y) .. ":" ..
+    tostring(e.label_x) .. ", is not)" or ""
   return "'goto " .. name .. "' may only skip the rest of a pass of the loop around it, to a label that is the " ..
     "last statement of that loop's body" .. at .. ": restructure with an `if` around the code to skip, " ..
     "or move the body into a function and `return` from it"
