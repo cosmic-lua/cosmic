@@ -976,6 +976,7 @@ local function test_a_local_assigned_under_a_nested_test_of_it_is_widened_back()
   local want = "in local declaration: n: got string, expected integer"
   local at4 = "4: " .. want
   local at5 = "5: " .. want
+  refused_source("local enum E\n  \"a\"\n  \"b\"\nend\nlocal function f(ch: string)\n  if ch == \"a\" then\n    do\n      ch = \"z\"\n    end\n    local e: E = ch\n  end\nend\nprint(f)\n", "10: in local declaration: e: string is not a E")
   refused_source("local function f(ch: string)\n  if ch == \"'\" then\n    if ch == \"'\" then ch = \"z\" end\n    local n: integer = ch\n  end\nend\nprint(f)\n", at4)
   refused_source("local function f(ch: string)\n  if ch == \"'\" or ch == \"!\" then\n    if ch == \"'\" then ch = \"z\" end\n    local n: integer = ch\n  end\nend\nprint(f)\n", at4)
   refused_source("local function f(src: string)\n  local ch = src:sub(1, 1)\n  if ch == \"'\" or ch == \"!\" then\n    if ch == \"'\" then ch = \"z\" end\n    local n: integer = ch\n  end\nend\nprint(f)\n", at5)
@@ -983,6 +984,9 @@ local function test_a_local_assigned_under_a_nested_test_of_it_is_widened_back()
   refused_source("local function f(ch: string)\n  if ch == \"'\" or ch == \"!\" then\n    do\n      if ch == \"'\" then ch = \"z\" end\n    end\n    local n: integer = ch\n  end\nend\nprint(f)\n", "6: " .. want)
   refused_source("local function f(ch: string)\n  if ch == \"a\" then\n    if ch == \"a\" then\n      if ch == \"a\" then ch = \"z\" end\n      local n: integer = ch\n    end\n    local m: integer = ch\n  end\nend\nprint(f)\n",
     "5: " .. want, "7: in local declaration: m: got string, expected integer")
+  refused_source("local enum E\n  \"a\"\n  \"b\"\nend\nlocal function f(ch: string)\n  if ch == \"a\" or ch == \"b\" then\n    if ch == \"a\" then ch = \"z\" end\n    local e: E = ch\n  end\nend\nprint(f)\n", "8: in local declaration: e: string is not a E")
+  accepted_source("local enum E\n  \"a\"\n  \"b\"\nend\nlocal function f(x: string, g: function(): string, c: boolean)\n  if x == \"a\" or x == \"b\" then\n    if c then\n      x = g()\n      assert(x == \"a\" or x == \"b\")\n    end\n    local e: E = x\n    print(e)\n  end\nend\nprint(f)\n")
+  accepted_source("local enum E\n  \"a\"\n  \"b\"\nend\nlocal function f(ch: string, g: function(): string)\n  if ch == \"a\" or ch == \"b\" then\n    do\n      ch = g()\n      assert(ch == \"a\" or ch == \"b\")\n    end\n    local e: E = ch\n    print(e)\n  end\nend\nprint(f)\n")
   refused_source("local function f(s: string)\n  local ch = s\n  if ch == \"a\" then\n    if ch == \"a\" then ch = \"z\" end\n    local n: integer = ch\n  end\nend\nprint(f)\n", at5)
 end
 

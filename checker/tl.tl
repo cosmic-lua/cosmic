@@ -9570,14 +9570,32 @@ do
    -- tells more than a type does. `same_type` ignores the literal of a
    -- string, so it calls `"a"` and `string` the same, and `"a" | "b"`
    -- the same as `"a" | "c"`; a test against a string value narrows to
-   -- exactly those. A literal is the same only as an equal one, or in the
-   -- very type it came from.
+   -- exactly those. A literal is the same only as an equal one, and a union
+   -- only as one with the same members.
    function TypeChecker:same_narrowing(a: Type, b: Type): boolean, {Error}
       if a == b or a.typeid == b.typeid then
          return true
       end
       if a is StringType and b is StringType then
          return a.literal == b.literal and self:same_type(a, b)
+      end
+      if a is UnionType and b is UnionType then
+         if #a.types ~= #b.types then
+            return false
+         end
+         for _, ma in ipairs(a.types) do
+            local found = false
+            for _, mb in ipairs(b.types) do
+               if self:same_narrowing(ma, mb) then
+                  found = true
+                  break
+               end
+            end
+            if not found then
+               return false
+            end
+         end
+         return true
       end
       if carries_literal(a) or carries_literal(b) then
          return false
