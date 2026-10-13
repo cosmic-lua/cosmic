@@ -684,6 +684,82 @@ local function g(x: string | nil): integer
 end
 return g
 ]],
+  close_block_end = [[
+local record R
+   a: number | nil
+   metamethod __close: function(R)
+end
+local function f(q: R, p: R): number
+  if q.a then
+    do
+      local c <close> = p
+      local _ = c
+    end
+    return q.a + 1
+  end
+  return 0
+end
+return f
+]],
+  close_break = [[
+local record R
+   a: number | nil
+   metamethod __close: function(R)
+end
+local function f(q: R, p: R, y: boolean): number
+  if q.a then
+    while y do
+      if y then
+        local c <close> = p
+        local _ = c
+        break
+      end
+    end
+    return q.a + 1
+  end
+  return 0
+end
+return f
+]],
+  close_goto = [[
+local record R
+   a: number | nil
+   metamethod __close: function(R)
+end
+local function f(q: R, p: R, y: boolean): number
+  if q.a then
+    for _ = 1, 2 do
+      do
+        local c <close> = p
+        local _ = c
+        if y then goto continue end
+      end
+      ::continue::
+    end
+    return q.a + 1
+  end
+  return 0
+end
+return f
+]],
+  close_repeat = [[
+local record R
+   a: number | nil
+   metamethod __close: function(R)
+end
+local function f(q: R, p: R, y: boolean): number
+  if q.a then
+    repeat
+      local n = q.a + 1
+      local c <close> = p
+      local _ = c
+      local _n = n
+    until y
+  end
+  return 0
+end
+return f
+]],
 }
 
 local function test_each_narrowing_shape_agrees_with_the_facts()

@@ -8440,6 +8440,7 @@ do
       call_text: function(TypeChecker, Node): string
       drop_all: function(TypeChecker, Where, string, ? string)
       drop_close: function(TypeChecker, Node, Node)
+      drop_for_close: function(TypeChecker, ? integer)
       drop_global: function(TypeChecker, string, narrowing.Drop)
       last_dropper: function(TypeChecker): narrowing.Drop
       drop_through: function(TypeChecker, Node)
@@ -9815,10 +9816,8 @@ do
       local scope = st[#st]
 
       -- The `__close` of a `<close>` local runs here, and before a `break`
-      -- or `goto` that leaves the block, which the checker visits with the
-      -- drop already made: only an `if` branch that ends in a `return` or a
-      -- call that never returns puts its drops back (`flow.leaves_body`),
-      -- and neither continues in this function.
+      -- or `goto` that leaves the block (`drop_for_close` drops for those,
+      -- since the facts a jump carries are the ones at the jump).
       if scope.close_var and node then
          self:drop_close(node, scope.close_var)
       end
@@ -13454,6 +13453,30 @@ do
          self:drop_all(var, "close", var.tk)
       end
 
+      -- A `break` or `goto` leaves the scopes above index `above` (those of
+      -- the function, if nil), and the `__close` of a local of one runs
+      -- before control gets where it goes. The facts at the jump are the ones
+      -- that go there, so they are dropped here and not only where the block
+      -- ends in the text.
+      function TypeChecker:drop_for_close(above?: integer)
+         if not above then
+            above = 1
+            for i = #self.st, 1, -1 do
+               if self.st[i].vars["@return"] then
+                  above = i
+                  break
+               end
+            end
+         end
+         for i = #self.st, above + 1, -1 do
+            local var = self.st[i].close_var
+            if var then
+               self:drop_all(var, "close", var.tk)
+               return
+            end
+         end
+      end
+
       -- What is known of `name` and of the paths based at it is dropped in
       -- each scope whose fact belongs to a global of that name: decided per
       -- scope by the binding that scope sees, not by the innermost one, as a
@@ -16726,17 +16749,21 @@ do
       },
       ["goto"] = {
          after = function(self: TypeChecker, node: Node, _children: {Type}): Type
-            if self.shadow_log then
-               self:shadow_kill()
-            end
             local label_id = node.label
             local found_label: Node = nil
+            local found_scope: integer = nil
             for i = #self.st, 1, -1 do
                local scope = self.st[i]
                if scope.labels and scope.labels[label_id] then
                   found_label = scope.labels[label_id]
+                  found_scope = i
                   break
                end
+            end
+            -- A label not met yet may be in any block of the function.
+            self:drop_for_close(found_scope)
+            if self.shadow_log then
+               self:shadow_kill()
             end
 
             if not found_label then
@@ -18493,6 +18520,10 @@ do
 
    visit_node.cbs["break"] = {
       after = function(self: TypeChecker, _node: Node, _children: {Type}): Type
+         local loop = self.loops[#self.loops]
+         if loop then
+            self:drop_for_close(loop.depth)
+         end
          if self.shadow_log then
             self:shadow_kill()
          end
