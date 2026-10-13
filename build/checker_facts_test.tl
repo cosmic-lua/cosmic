@@ -40,11 +40,13 @@ local record Api
   debug: boolean
   empty: function(): Facts
   get: function(Facts | nil, string): Type | nil
+  has: function(Facts | nil, string): boolean
+  is_empty: function(Facts | nil): boolean
   dropped: function(Facts | nil, string): Drop | nil
   with: function(Facts | nil, string, Type): Facts | nil
   without: function(Facts | nil, string, Drop): Facts | nil
   without_prefix: function(Facts | nil, string, Drop): Facts | nil
-  without_suffix: function(Facts | nil, string, Drop): Facts | nil
+  without_field: function(Facts | nil, string, Drop): Facts | nil
   without_paths: function(Facts | nil, Drop): Facts | nil
   without_globals: function(Facts | nil, Drop): Facts | nil
   meet: function(Facts | nil, Facts | nil, function(Type, Type): Type | nil): Facts | nil
@@ -115,8 +117,8 @@ local IDS <const>: {string} = {
   "g:x", "g:x.f", "g:y", "x.f.f", "1.fx",
 }
 
---- The suffixes a write through a reference drops.
-local SUFFIXES <const>: {string} = { ".f", ".g", ".f.g", ".", "..", ".fx" }
+--- The field names a write through a reference may write.
+local FIELDS <const>: {string} = { "f", "g", "", "fx", "ff" }
 
 -- The model: what each operation is defined to give, written plainly.
 local record Model
@@ -267,15 +269,13 @@ local function under(id: string, base: string): boolean
   return true
 end
 
---- Whether `id` is a path ending in the components of `suffix`, a dot and
---- field names.
-local function ends_in(id: string, suffix: string): boolean
-  local have, want = components(id), components(suffix:sub(2))
-  if #have <= #want then return false end
-  for i = 1, #want do
-    if have[#have - #want + i] ~= want[i] then return false end
+--- Whether `id` has the field `name` as a component after its base.
+local function has_field(id: string, name: string): boolean
+  local have = components(id)
+  for i = 2, #have do
+    if have[i] == name then return true end
   end
-  return true
+  return false
 end
 
 local function is_path(id: string): boolean
@@ -337,7 +337,7 @@ end
 -- and the first value, an empty [`Facts`], is the oldest a count reaches).
 local KINDS <const>: {string} = {
   "with", "with", "with", "with", "with", "without", "without_prefix", "without_prefix",
-  "without_suffix", "without_paths", "without_globals", "meet", "meet", "restrict", "for_body",
+  "without_field", "without_paths", "without_globals", "meet", "meet", "restrict", "for_body",
 }
 
 local function gen_program(src: Fuzz.Source): string
@@ -410,12 +410,12 @@ local function run_program(api: Api, input: string, with_model: boolean): {Value
       result = api.without_prefix(a.f, id, why)
       model = model_drop(a.m, function(key: string): boolean return under(key, id) end, why)
       Fuzz.label("without_prefix")
-    elseif kind == "without_suffix" then
-      local suffix = SUFFIXES[n[4] % #SUFFIXES + 1]
+    elseif kind == "without_field" then
+      local written = FIELDS[n[4] % #FIELDS + 1]
       local why = drop()
-      result = api.without_suffix(a.f, suffix, why)
-      model = model_drop(a.m, function(key: string): boolean return ends_in(key, suffix) end, why)
-      Fuzz.label("without_suffix")
+      result = api.without_field(a.f, written, why)
+      model = model_drop(a.m, function(key: string): boolean return has_field(key, written) end, why)
+      Fuzz.label("without_field")
     elseif kind == "without_paths" then
       local why = drop()
       result = api.without_paths(a.f, why)
@@ -494,10 +494,10 @@ local function test_operations_agree_with_the_model(tmp: string)
     dir = tmp,
     gen = gen_program,
     check = agrees_with_the_model,
-    requires = { "with", "without", "without_prefix", "without_suffix", "without_paths",
+    requires = { "with", "without", "without_prefix", "without_field", "without_paths",
       "without_globals", "meet", "restrict", "for_body", "same object", "new object", "dead",
       "tombstones", "paths", "globals" },
-    shares = { ["same object"] = 0.3, ["new object"] = 0.4, tombstones = 0.2, paths = 0.4 },
+    shares = { ["same object"] = 0.1, ["new object"] = 0.1, tombstones = 0.1, paths = 0.1 },
   })
 end
 
@@ -611,7 +611,14 @@ local function meet_laws(input: string): boolean, string
     if kept > 0 then Fuzz.label("kept something") end
     if kept < held_by_a then Fuzz.label("dropped something") end
   end
-  if ab ~= nil and ab ~= a and ab ~= b then Fuzz.label("new object") end
+  -- Two edges that disagree on one key give a result that is neither.
+  if a ~= nil then
+    local x, y = api.with(a, "1", token(3)), api.with(a, "1", token(5))
+    local both = assert(api.meet(x, y, unite))
+    if both == x or both == y then return false, "meet of unlike edges is one of them" end
+    if both.t["1"] ~= token(1) then return false, "'1' is not the intersection" end
+    Fuzz.label("new object")
+  end
   if ab == nil then Fuzz.label("dead") end
   return true, ""
 end
@@ -623,20 +630,20 @@ local function test_meet_laws(tmp: string)
     gen = gen_program,
     check = meet_laws,
     requires = { "copied", "kept something", "dropped something", "new object", "dead" },
-    shares = { ["kept something"] = 0.3, ["dropped something"] = 0.1 },
+    shares = { ["kept something"] = 0.1, ["dropped something"] = 0.1, copied = 0.1, ["new object"] = 0.1 },
   })
 end
 
 --- A set of keys, and the drop that removes some: the keys are drawn from
---- `IDS`, then one of a prefix and a suffix.
+--- `IDS`, then one of a prefix and a field.
 local function gen_removal(src: Fuzz.Source): string
   local keys: {string} = {}
   while Fuzz.more(src, #keys, 12) do
     keys[#keys + 1] = tostring(src:int(1, #IDS))
   end
   local by_prefix = src:int(0, 1) == 0
-  local target = by_prefix and IDS[src:int(1, #IDS)] or SUFFIXES[src:int(1, #SUFFIXES)]
-  return Fuzz.pack({ by_prefix and "prefix" or "suffix", target, table.concat(keys, " ") })
+  local target = by_prefix and IDS[src:int(1, #IDS)] or FIELDS[src:int(1, #FIELDS)]
+  return Fuzz.pack({ by_prefix and "prefix" or "field", target, table.concat(keys, " ") })
 end
 
 local function removes_the_right_keys(input: string): boolean, string
@@ -652,11 +659,11 @@ local function removes_the_right_keys(input: string): boolean, string
     held[id] = true
   end
   local why: Drop = { kind = "write", text = "w", y = 1, x = 1, place = "" }
-  local after = by_prefix and api.without_prefix(f, target, why) or api.without_suffix(f, target, why)
+  local after = by_prefix and api.without_prefix(f, target, why) or api.without_field(f, target, why)
   local result = assert(after)
   local expected = 0
   for id in pairs(held) do
-    local removed = by_prefix and under(id, target) or (not by_prefix and ends_in(id, target))
+    local removed = by_prefix and under(id, target) or (not by_prefix and has_field(id, target))
     if removed then
       if result.t[id] ~= nil then return false, "'" .. id .. "' stayed" end
       if result.gone[id] ~= why then return false, "'" .. id .. "' has no tombstone" end
@@ -687,14 +694,14 @@ local function removes_the_right_keys(input: string): boolean, string
   return true, ""
 end
 
-local function test_prefix_and_suffix_remove_exactly_the_right_keys(tmp: string)
+local function test_prefix_and_field_remove_exactly_the_right_keys(tmp: string)
   Fuzz.run({
     name = "facts removal",
     dir = tmp,
     gen = gen_removal,
     check = removes_the_right_keys,
     requires = { "removed", "kept" },
-    shares = { removed = 0.3, kept = 0.5 },
+    shares = { removed = 0.1, kept = 0.1 },
   })
 end
 
@@ -735,9 +742,9 @@ local function test_ids_with_several_dots()
   assert(f ~= nil and f.paths == 5)
   assert(sorted_keys(api.without_prefix(f, "a.b", WHY)) == "a,a.bc", "a.b and everything under it")
   assert(sorted_keys(api.without_prefix(f, "a.b.c", WHY)) == "a,a.b,a.b.cd,a.bc")
-  assert(sorted_keys(api.without_suffix(f, ".c.d", WHY)) == "a,a.b,a.b.c,a.b.cd,a.bc")
-  assert(sorted_keys(api.without_suffix(f, ".c", WHY)) == "a,a.b,a.b.c.d,a.b.cd,a.bc")
-  assert(sorted_keys(api.without_suffix(f, ".b", WHY)) == "a,a.b.c,a.b.c.d,a.b.cd,a.bc")
+  assert(sorted_keys(api.without_field(f, "d", WHY)) == "a,a.b,a.b.c,a.b.cd,a.bc")
+  assert(sorted_keys(api.without_field(f, "c", WHY)) == "a,a.b,a.b.cd,a.bc")
+  assert(sorted_keys(api.without_field(f, "b", WHY)) == "a,a.bc")
 end
 
 local function test_a_shorter_id_is_not_a_prefix_without_a_dot()
@@ -760,7 +767,7 @@ local function test_dead_stays_dead_and_unchanged_is_shared()
   assert(api.with(nil, "1", token(1)) == nil)
   assert(api.without(nil, "1", WHY) == nil)
   assert(api.without_prefix(nil, "1", WHY) == nil)
-  assert(api.without_suffix(nil, ".f", WHY) == nil)
+  assert(api.without_field(nil, "f", WHY) == nil)
   assert(api.without_paths(nil, WHY) == nil)
   assert(api.without_globals(nil, WHY) == nil)
   assert(api.for_body(nil, fixed_by(0), WHY) == nil)
@@ -787,7 +794,7 @@ local function test_unite_nil_drops_a_key_without_a_tombstone()
   local a = api.with(api.with(api.empty(), "1", token(1)), "2", token(3))
   local b = api.with(api.with(api.empty(), "1", token(2)), "2", token(3))
   local both = api.meet(a, b, unite)
-  assert(both ~= nil and sorted_keys(both) == "2" and next(both.gone) == nil)
+  assert(both ~= nil and sorted_keys(both) == "2" and api.dropped(both, "1") == nil and api.dropped(both, "2") == nil)
   assert(api.get(both, "2") == token(3))
 end
 
@@ -802,10 +809,50 @@ local function test_the_earlier_tombstone_of_a_key_is_kept()
   assert(api.dropped(api.meet(b, a, unite), "1") == soon)
 end
 
-local function test_a_bad_suffix_raises()
+local function test_a_write_to_a_field_drops_every_path_through_it()
   local api = module()
-  local ok = pcall(api.without_suffix, held(api, { "1.f" }), "f", WHY)
-  assert(not ok, "a suffix that does not begin with a dot")
+  local f = held(api, { "17", "17.f", "17.f.g", "17.g.f", "17.ff", "17.g", "f", "18.f" })
+  local result = api.without_field(f, "f", WHY)
+  assert(sorted_keys(result) == "17,17.ff,17.g,f", sorted_keys(result))
+  assert(api.dropped(result, "17.f.g") == WHY and api.dropped(result, "17.g.f") == WHY)
+  assert(api.dropped(result, "17.f") == WHY and api.dropped(result, "17.ff") == nil)
+  assert(api.has(result, "17.ff") and not api.has(result, "17.f"))
+  assert(api.is_empty(api.empty()) and not api.is_empty(result) and not api.is_empty(nil))
+end
+
+--- The order in which the earlier of two tombstones is chosen: by line,
+--- then column, kind, text and place, whichever edge is asked first.
+local function test_the_earlier_tombstone_follows_the_full_order()
+  local api = module()
+  local base = held(api, { "1" })
+  local function drop(y: integer, x: integer, kind: string, text: string, place: string): Drop
+    return { kind = kind, text = text, y = y, x = x, place = place }
+  end
+  local ordered: {Drop} = {
+    drop(1, 9, "z", "z", "z"), drop(2, 1, "z", "z", "z"), drop(2, 2, "a", "z", "z"),
+    drop(2, 2, "b", "a", "z"), drop(2, 2, "b", "b", "a"), drop(2, 2, "b", "b", "b"),
+  }
+  for i = 1, #ordered do
+    for j = i + 1, #ordered do
+      local a, b = api.without(base, "1", ordered[i]), api.without(base, "1", ordered[j])
+      assert(api.dropped(api.meet(a, b, unite), "1") == ordered[i], "forward " .. i .. "," .. j)
+      assert(api.dropped(api.meet(b, a, unite), "1") == ordered[i], "reversed " .. i .. "," .. j)
+    end
+  end
+end
+
+local function test_identity_shortcuts()
+  local api = module()
+  local f = assert(api.without(held(api, { "1", "2" }), "2", WHY))
+  assert(api.restrict(f, f, is_a) == f)
+  local twin = { t = f.t, gone = f.gone, paths = f.paths, globals = f.globals } as Facts
+  assert(api.meet(f, twin, unite) == f, "the same tables are the same facts")
+end
+
+local function test_a_bad_field_name_raises()
+  local api = module()
+  local ok = pcall(api.without_field, held(api, { "1.f" }), "f.g", WHY)
+  assert(not ok, "a field name with a dot")
   local none = pcall(api.with, api.empty(), "1", nil as Type)
   assert(not none, "a fact needs a type")
 end

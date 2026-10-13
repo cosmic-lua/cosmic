@@ -33,6 +33,10 @@
 -- (`without_paths`, `without_globals`) is O(1) when there are none, which is
 -- nearly always.
 --
+-- Read a `Facts` only through `get`, `has`, `is_empty`, `dropped` and `pairs`
+-- over `t` and `gone`; never `next`, `rawget` or `#` on them, which a
+-- read-only `Facts` (below) answers as if it were empty.
+--
 -- `facts.debug` makes every `Facts` the module builds read-only (a write to
 -- it raises) and checks the counts and the tombstones against its keys. It
 -- is for tests: a copy of every table costs more than the checker can spare.
@@ -79,11 +83,13 @@ local record facts
 
    empty: function(): Facts
    get: function(Facts, string): Type
+   has: function(Facts, string): boolean
+   is_empty: function(Facts): boolean
    dropped: function(Facts, string): Drop
    with: function(Facts, string, Type): Facts
    without: function(Facts, string, Drop): Facts
    without_prefix: function(Facts, string, Drop): Facts
-   without_suffix: function(Facts, string, Drop): Facts
+   without_field: function(Facts, string, Drop): Facts
    without_paths: function(Facts, Drop): Facts
    without_globals: function(Facts, Drop): Facts
    meet: function(Facts, Facts, function(Type, Type): Type): Facts
@@ -199,7 +205,7 @@ local function finish(t: {string:facts.Type}, gone: {string:facts.Drop},
 end
 
 -- Whether `x` was dropped before `y` in the order a message reads them:
--- by line, then column, then kind and text so that the choice between two
+-- by line, column, kind, text and place, so that the choice between two
 -- drops is the same whichever is asked first.
 local function before(x: facts.Drop, y: facts.Drop): boolean
    if x.y ~= y.y then
@@ -211,7 +217,10 @@ local function before(x: facts.Drop, y: facts.Drop): boolean
    if x.kind ~= y.kind then
       return x.kind < y.kind
    end
-   return x.text <= y.text
+   if x.text ~= y.text then
+      return x.text < y.text
+   end
+   return (x.place or "") <= (y.place or "")
 end
 
 --- The facts at the start of a program: live, and holding nothing.
@@ -235,6 +244,22 @@ function facts.dropped(f: facts.Facts, id: string): facts.Drop
       return nil
    end
    return f.gone[id]
+end
+
+--- Whether `f` holds a fact of `id`. False for a dead `f`.
+function facts.has(f: facts.Facts, id: string): boolean
+   return f ~= nil and f.t[id] ~= nil
+end
+
+--- Whether `f` is live and holds no fact. False for a dead `f`.
+function facts.is_empty(f: facts.Facts): boolean
+   if f == nil then
+      return false
+   end
+   for _ in pairs(f.t) do
+      return false
+   end
+   return true
 end
 
 --- `f` with `id` narrowed to `ty`, and no tombstone for it. Answers `f`
@@ -326,19 +351,21 @@ function facts.without_prefix(f: facts.Facts, id: string, why: facts.Drop): fact
    end, why)
 end
 
---- `f` without every key that ends in `suffix`, which `why` removed: a
---- write to a field through any reference. `suffix` is a `.` and a field
---- name (`".f"`), so it matches `"1.f"` and `"1.g.f"` but not `"1.fx"` or
---- `"1"`. Raises for any other suffix.
-function facts.without_suffix(f: facts.Facts, suffix: string, why: facts.Drop): facts.Facts
-   if suffix:sub(1, 1) ~= "." then
-      error("facts.without_suffix: '" .. suffix .. "' does not begin with a '.'", 2)
+--- `f` without every key that has the field `name` after its base,
+--- which `why` removed: a write to field `name` through any reference
+--- may change `a.name` and `a.name.g` and `a.g.name` alike. It matches
+--- `"1.f"`, `"1.f.g"` and `"1.g.f"` for `"f"` but not `"1.ff"`, `"1.fx"`
+--- or `"f"` (a local). Raises when `name` contains a `.`.
+function facts.without_field(f: facts.Facts, name: string, why: facts.Drop): facts.Facts
+   if name:find(".", 1, true) ~= nil then
+      error("facts.without_field: '" .. name .. "' contains a '.'", 2)
    end
    if f == nil or f.paths == 0 then
       return f
    end
+   local wanted = "." .. name .. "."
    return drop_matching(f, function(key: string): boolean
-      return #key >= #suffix and key:sub(-#suffix) == suffix
+      return (key .. "."):find(wanted, 1, true) ~= nil
    end, why)
 end
 
@@ -365,7 +392,7 @@ end
 --- the key (and no tombstone is made for it). A key both hold with the
 --- same type object keeps it without asking `unite`. The tombstones are
 --- the union of both, and where both have one for a key the earlier drop
---- ([`facts.Drop`]'s `y`, then `x`) is kept. A dead edge is the identity:
+--- is kept: by `y`, `x`, `kind`, `text` and `place`, in that order. A dead edge is the identity:
 --- `meet(nil, b)` is `b`, `meet(a, nil)` is `a`.
 ---
 --- With `unite` commutative and associative, so is `meet`, and `meet(a, a)`
@@ -376,6 +403,9 @@ function facts.meet(a: facts.Facts, b: facts.Facts,
       return b
    end
    if b == nil or a == b then
+      return a
+   end
+   if a.t == b.t and a.gone == b.gone then
       return a
    end
    local ta, tb = a.t, b.t
@@ -447,11 +477,11 @@ end
 --- stays only if `back` holds it with a type that `is_a(back's, edge's)`
 --- accepts (a type object both share needs no question). The rest are
 --- dropped with `back`'s tombstone for them, where it has one. Answers `edge`
---- itself when every key stays, and when `back` is dead: a back edge that
+--- itself when every key stays, when `back` is `edge`, and when `back` is dead: a back edge that
 --- never arrives supports every fact of the head. A dead `edge` stays dead.
 function facts.restrict(edge: facts.Facts, back: facts.Facts,
                         is_a: function(facts.Type, facts.Type): boolean): facts.Facts
-   if edge == nil or back == nil then
+   if edge == nil or back == nil or edge == back then
       return edge
    end
    local bt = back.t
