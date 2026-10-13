@@ -639,6 +639,11 @@ local record Variable
    has_been_read_from: boolean
    has_been_written_to: boolean
    is_loop_control: boolean
+   -- Names this binding apart from every other of the file being checked,
+   -- whatever its name: the value of `TypeChecker.binding_count` when
+   -- `add_var` or `add_global` made it. A narrowing's entry in a scope is no
+   -- binding and holds none.
+   key: string
 end
 
 -- Where the pre-pass (`TypeChecker:find_assignments`) met a function
@@ -8274,6 +8279,9 @@ do
 
       -- The call-like expressions met so far (`drop_all`), counted.
       drop_clock: integer
+      -- The bindings `add_var` and `add_global` have made so far, counted:
+      -- each takes the count as its `Variable.key`.
+      binding_count: integer
       -- The declarations of the file the pre-pass saw (see
       -- `find_assignments`).
       root_ast: Node
@@ -9074,7 +9082,8 @@ do
             self.errs:unused_warning(name, var)
          end
 
-         var = { t = t, attribute = attribute, declared_at = node }
+         self.binding_count = self.binding_count + 1
+         var = { t = t, attribute = attribute, declared_at = node, key = tostring(self.binding_count) }
          scope.vars[name] = var
 
          return var
@@ -12377,7 +12386,8 @@ do
          return nil
       end
 
-      local var = { t = valtype, attribute = is_const and "const" or nil }
+      self.binding_count = self.binding_count + 1
+      local var = { t = valtype, attribute = is_const and "const" or nil, key = tostring(self.binding_count) }
       self.st[1].vars[varname] = var
 
       return var
@@ -17750,6 +17760,7 @@ do
          eqtype_relations = TypeChecker.eqtype_relations,
          type_priorities = TypeChecker.type_priorities,
          drop_clock = 0,
+         binding_count = 0,
          loops = {},
          loop_tick = 0,
       }
