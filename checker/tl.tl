@@ -14003,6 +14003,10 @@ do
          local text = (written or (target.op.op == "." and "(...)." .. target.e2.tk or "(...)[...]")) .. " = ..."
          local at = start_of(target)
          local why = narrowing.because("write", text, at.y, at.x)
+         -- What the narrowing holds is what a later cut names the write for.
+         if paths or names then
+            self.last_drop, self.last_drop_node = why, nil
+         end
          -- The field written, or nil for a key that may be any.
          local field: string = nil
          if target.op.op == "." and target.e2 and target.e2.tk then
@@ -14016,9 +14020,6 @@ do
             end
          else
             return
-         end
-         if paths or names then
-            self.last_drop, self.last_drop_node = why, nil
          end
          if field then
             if paths then

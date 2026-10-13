@@ -37,6 +37,10 @@
 --- served to a `require` and not checked alone), and the modules the build
 --- generates (doc examples, templates).
 ---
+--- `TL_SHADOW_FACTS=1` makes any command also write the lines of the checker's
+--- shadow facts' disagreements with its narrowing (`shadow.mismatch`,
+--- `shadow.reads`); leave it out of a run that is diffed.
+---
 --- To compare the checker of a tree with main's, build both tools and run
 --- the same sources through each, reading one tree from both. The script is
 --- run by the tool of the checkout it sits in (`cosmic <file>` builds the

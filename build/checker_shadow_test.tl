@@ -2549,6 +2549,86 @@ local function test_global_writes_agree_with_the_facts()
   assert(reads > 0, "no read was compared")
 end
 
+-- A new variable of a name inside a loop, after reads of a narrowed field of the
+-- name: the narrowing counts the binding's drop of the field facts as an event
+-- of the loop (#3072) and refuses the reads of the next pass; the facts are keyed
+-- by variable, so the binding drops nothing of the outer `q.a`, which is sound,
+-- and they do not refuse. Each program is pinned as the two lines it gives.
+-- TODO: pin these to no mismatch once the reads switch to the facts (step 7a's
+-- PR 3), which moves the verdict of each program, triaged there.
+local old_refuses_more: {{string}} = {
+  { "assert_again_loop", [[
+local record Inner
+   n: number | nil
+end
+local record R
+   a: number | nil
+   ab: number | nil
+   b: string | nil
+   c: Inner | nil
+end
+local function touch(_r: R) print(_r) end
+local function maybe(): number | nil return nil end
+local function f(q: R, p: R, x: number | nil, y: number | nil)
+if q.a then
+  while y do
+    assert(q.a)
+    local n: number = q.a + 1
+    print(n)
+    local q = p
+    print(q)
+  end
+end
+print(p, x, y)
+end
+print(f, touch, maybe)
+]],
+    "15:13 q.a: old refuses the read of a fact the loop drops, the facts do not", "16:24 q.a: old refuses the read of a fact the loop drops, the facts do not" },
+  { "if_again_loop_binding", [[
+local record Inner
+   n: number | nil
+end
+local record R
+   a: number | nil
+   ab: number | nil
+   b: string | nil
+   c: Inner | nil
+end
+local function touch(_r: R) print(_r) end
+local function maybe(): number | nil return nil end
+local function f(q: R, p: R, x: number | nil, y: number | nil)
+if q.a then
+  while y do
+    if q.a then
+      local n: number = q.a + 1
+      print(n)
+    end
+    local q = p
+    print(q)
+  end
+end
+print(p, x, y)
+end
+print(f, touch, maybe)
+]],
+    "15:9 q.a: old refuses the read of a fact the loop drops, the facts do not", "16:26 q.a: old refuses the read of a fact the loop drops, the facts do not" },
+}
+
+local function test_the_narrowing_refuses_reads_of_a_fact_a_binding_in_the_loop_drops()
+  for _, case in ipairs(old_refuses_more) do
+    local name, text = case[1], case[2]
+    local found = mismatches(name .. ".tl", text)
+    local expected: {string} = {}
+    for i = 3, #case do
+      expected[#expected + 1] = name .. ".tl:" .. case[i]
+    end
+    table.sort(found)
+    table.sort(expected)
+    assert(table.concat(found, "\n") == table.concat(expected, "\n"),
+      name .. ": " .. table.concat(found, "\n"))
+  end
+end
+
 --- The files of the fuzz corpora.
 local function corpus(directory: string): {string:string}
   local out: {string:string} = {}
