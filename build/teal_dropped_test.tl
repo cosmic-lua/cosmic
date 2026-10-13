@@ -118,6 +118,10 @@ local function test_a_narrowing_dropped_by_other_code_is_told_what_ran_it()
   answers(head .. "if r.n then\n  r.n = nil\n  print(r.n + 1)\nend\n", plus,
     "'r.n' was checked, then assigned at 9:3: the checker narrows nothing after an assignment, " ..
       "so keep the value in a local (`local n = <the value>`, r.n = n) and use that")
+  -- A binding of the name is another table than the one that was checked.
+  answers(head .. "local r2: R = { n = 2 }\nif r.n then\n  local r = r2\n  print(r.n + 1)\nend\n", plus,
+    "'r.n' was checked, but `r` declared at 10:9 may name another table than the one it was checked on: " ..
+      "copy it to a local before the new binding (`local n = r.n`), check and use that")
   -- Wherever the value is used.
   answers(head .. "local function use(n: integer) print(n) end\nif r.n then\n  clear()\n  use(r.n)\nend\n",
     "argument 1: got integer | nil, expected integer",
