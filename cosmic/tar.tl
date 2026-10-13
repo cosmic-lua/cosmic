@@ -621,7 +621,7 @@ end
 --- false when no split works and the path needs a pax header instead.
 local function split_ustar(path: string): string, string, boolean
   if #path <= 100 then return "", path, true end
-  local best: integer
+  local best: integer | nil
   for i = 1, #path do
     if path:byte(i) == 47 then -- '/'
       local prefix_len = i - 1

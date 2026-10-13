@@ -950,7 +950,7 @@ local function test_every_leg_keeps_its_verdicts()
       tostring(env.COSMIC_CI_DECLARED_KEYS))
   local steps = jobs.platform.steps as {{string: any}}
   local at = verdict_steps(steps)
-  local back: integer
+  local back: integer | nil
   for i, step in ipairs(steps) do
     if step.name == "move the tree back to where it was checked out" then back = i end
     if step.id == "boot" or step.id == "release-suite" or step.id == "portable-suite" then
@@ -1227,17 +1227,18 @@ local function test_a_branch_saves_compiles_for_its_later_pushes()
   local jobs = ci.jobs as {string: {string: any}}
   for job, leg in pairs({ platform = "${{ matrix.name }}", checked = "linux-x86_64" }) do
     local steps = jobs[job].steps as {{string: any}}
-    local names: {string: any}
+    local names: {string: any} | nil
     for _, step in ipairs(steps) do
       if step.id == "names" then names = step end
     end
     assert(names ~= nil and names.uses == CACHE_NAMES and
         (names.with as {string: string}).leg == leg,
       job .. " names a branch's compiles by another leg: " .. tostring(names and names.with))
-    local restore: {string: string}
+    local found_restore: {string: string} | nil
     for _, step in ipairs(steps) do
-      if step.id == "compiles-restore" then restore = step.with as {string: string} end
+      if step.id == "compiles-restore" then found_restore = step.with as {string: string} end
     end
+    local restore = assert(found_restore, job .. " has no compiles-restore step")
     assert(restore.key == BRANCH_COMPILES and
         restore["restore-keys"] == BRANCH_COMPILES .. "\ncompiles-" .. leg .. "-\n",
       job .. " restores other compiles than its branch's, then main's: " .. tostring(restore["restore-keys"]))
@@ -1271,7 +1272,7 @@ local function test_a_branch_saves_compiles_for_its_later_pushes()
 
   -- The copy of what was restored: made after the restore and before
   -- the boot, where the trim reads it, outside the path saved.
-  local _, restored, copy, boot: integer, integer, integer, integer
+  local _, restored, copy, boot: integer, integer | nil, integer | nil, integer | nil
   for i, step in ipairs(steps) do
     if step.id == "compiles-restore" then restored = i end
     if step.name == "build release Cosmic" then boot = i end
@@ -1451,7 +1452,7 @@ local function test_a_main_push_reuses_the_queue_run()
   -- leg's restore's first, then, where it found none, the queue leg's
   -- artifact of them, the tar laid out with its modes, and the save.
   local zig_steps: {{string: any}} = {}
-  local relay: integer
+  local relay: integer | nil
   for i, step in ipairs(steps) do
     local with = step.with as {string: string}
     if with ~= nil and with.name == "portable-product-${{ matrix.name }}" and
@@ -1545,10 +1546,11 @@ local function test_the_queue_keeps_what_main_would_save()
       env.ZIG_BUILD_RESTORED == "${{ steps." .. restore .. ".outputs.cache-matched-key }}",
     "the zig outputs are seeded under another key than main saves them under, or held to another entry: " ..
       tostring(env.ZIG_BUILD_KEY))
-  local zrestore: {string: any}
+  local found_zrestore: {string: any} | nil
   for _, step in ipairs(steps) do
-    if step.id == restore then zrestore = step end
+    if step.id == restore then found_zrestore = step end
   end
+  local zrestore = assert(found_zrestore, "no step " .. restore)
   local first = (((zrestore.with as {string: string})["restore-keys"]):match("^([^\n]*)\n"))
   assert(env.ZIG_BUILD_EXACT == first and first:find("-${{ steps.names.outputs.core }}-", 1, true) ~= nil,
     "the zig outputs are held to another entry than one of this core: " .. tostring(env.ZIG_BUILD_EXACT))
@@ -1565,14 +1567,15 @@ local function test_the_queue_keeps_what_main_would_save()
     1, true) ~= nil, "the driver check's marker does not hold the key main saves it under: " .. writes)
   local _, trimmed = step_running(steps, "driver.tl verdicts-trim")
   local _, compiled = step_running(steps, "driver.tl compiles-trim")
-  local back: integer
+  local found_back: integer | nil
   for i, step in ipairs(steps) do
-    if step.name == "move the tree back to where it was checked out" then back = i end
+    if step.name == "move the tree back to where it was checked out" then found_back = i end
   end
-  local gone: integer
+  local found_gone: integer | nil
   for i, step in ipairs(steps) do
-    if step.name == "remove the leg's container" then gone = i end
+    if step.name == "remove the leg's container" then found_gone = i end
   end
+  local back, gone = assert(found_back, "no step puts the tree back"), assert(found_gone, "no step removes the container")
   assert(trimmed < at and compiled < at and gone < at and at < back,
     "the seed is kept before a trim, beside the leg's container, or after the tree is put back")
   local upload = steps[at + 1]
@@ -1586,11 +1589,12 @@ local function test_the_queue_keeps_what_main_would_save()
       zwith.name == "seed-zig-${{ matrix.name }}" and zwith.path == "${{ runner.temp }}/seed-zig" and
       zwith["if-no-files-found"] == "ignore",
     "the zig outputs are uploaded other than apart from the seed, and failing nothing: " .. tostring(zwith.name))
-  local download: {string: string}
+  local found_download: {string: string} | nil
   for _, step in ipairs(jobs.seed.steps as {{string: any}}) do
     local w = step.with as {string: string}
-    if w ~= nil and w.name == "seed-${{ matrix.name }}" then download = w end
+    if w ~= nil and w.name == "seed-${{ matrix.name }}" then found_download = w end
   end
+  local download = assert(found_download, "the seed is downloaded by no step")
   assert(download.path == "${{ runner.temp }}", "the seed is laid out elsewhere than it was kept: " .. download.path)
 
   -- The checked job keeps its verdicts alone, as a leg keeps its own,
@@ -1615,15 +1619,17 @@ local function test_the_queue_keeps_what_main_would_save()
   assert(cenv.ZIG_BUILD_KEY == nil and save_of(csteps, "${{ runner.temp }}/zig-build") == nil,
     "the checked job keeps zig outputs, which linux-x86_64's leg saves under the same key")
   local _, ctrim = step_running(csteps, "driver.tl verdicts-trim")
-  local removed: integer
+  local found_removed: integer | nil
   for i, step in ipairs(csteps) do
-    if step.name == "remove the leg's container" then removed = i end
+    if step.name == "remove the leg's container" then found_removed = i end
   end
-  local cback: integer
+  local found_cback: integer | nil
   for i, step in ipairs(csteps) do
-    if step.name == "move the tree back to where it was checked out" then cback = i end
+    if step.name == "move the tree back to where it was checked out" then found_cback = i end
   end
-  assert(ctrim < cat and removed < cat and cback ~= nil and cat < cback,
+  local removed = assert(found_removed, "the checked job removes no container")
+  local cback = assert(found_cback, "the checked job puts no tree back")
+  assert(ctrim < cat and removed < cat and cat < cback,
     "the checked job's seed is kept before its trim, beside its container, or after its tree is put back")
   local cupload = csteps[cat + 1]
   local cwith = cupload.with as {string: string}
@@ -1652,11 +1658,11 @@ local function test_the_checked_suite_runs_in_a_job_of_its_own_on_linux_x86_64s_
     "the checked job runs other than where the legs do: " .. tostring(checked["if"]))
   local penv, cenv = platform.env as {string: string}, checked.env as {string: string}
   assert(penv.COSMIC_CI_CHECKED_SUITE == "skip", "a leg runs the checked suite: " .. penv.COSMIC_CI_CHECKED_SUITE)
-  local leg: {string: string}
+  local found_leg: {string: string} | nil
   for _, entry in ipairs(legs_of(platform, "full")) do
-    if entry.name == "linux-x86_64" then leg = entry end
+    if entry.name == "linux-x86_64" then found_leg = entry end
   end
-  assert(leg ~= nil, "no linux-x86_64 leg")
+  local leg = assert(found_leg, "no linux-x86_64 leg")
   local name = checked.name as string
   assert(name == leg.name .. "-checked" and cenv.COSMIC_WORKER == name, "the checked job's name: " .. name)
   assert(checked["runs-on"] == leg.runner, "the checked job runs on " .. tostring(checked["runs-on"]))
@@ -1836,10 +1842,11 @@ local function test_the_checked_suite_runs_in_a_job_of_its_own_on_linux_x86_64s_
   same_table("the marker's lookup", lookup.with,
     { path = (their_lookup.with as {string: any}).path, key = want, ["lookup-only"] = true })
   local _, named = step_running(steps, "GITHUB_ENV=/dev/null cosmic-driver cosmic_ci/driver.tl leg-host-id")
-  local looked: integer
+  local found_looked: integer | nil
   for i, step in ipairs(steps) do
-    if step == lookup then looked = i end
+    if step == lookup then found_looked = i end
   end
+  local looked = assert(found_looked, "no step looks up the marker")
   local _, moved = step_running(steps, "driver.tl place-tree")
   assert(named < looked and looked < moved and looked < check,
     "a light run looks up linux-x86_64's marker after its check, or with the tree moved")
@@ -2041,10 +2048,11 @@ local function test_a_branch_restores_the_verdicts_of_its_base()
         write.run == "mkdir -p \"$RUNNER_TEMP/verdicts-commit\" && echo \"" .. key ..
         "\" > \"$RUNNER_TEMP/verdicts-commit/key\"",
       name .. " names another entry than the one it saves, or elsewhere: " .. tostring(write.run))
-    local saved: integer
+    local found_saved: integer | nil
     for i, step in ipairs(steps) do
-      if step == plain then saved = i end
+      if step == plain then found_saved = i end
     end
+    local saved = assert(found_saved, name .. " never saves its verdicts")
     assert(saved < w, name .. " names its verdicts' entry before it saves it")
     local at = verdict_steps(steps)
     local find = steps[at["merge-base"]]
@@ -2089,11 +2097,12 @@ local function test_a_branch_restores_the_verdicts_of_its_base()
   local plain, twin = save_of(steps, VERDICTS)
   assert(twin ~= nil and twin["if"] == "steps.keys.outputs.verdicts-sha != ''",
     "seed names no verdicts under the commit")
-  local plain_at, twin_at: integer, integer
+  local found_plain, found_twin: integer | nil, integer | nil
   for i, step in ipairs(steps) do
-    if step == plain then plain_at = i end
-    if step == twin then twin_at = i end
+    if step == plain then found_plain = i end
+    if step == twin then found_twin = i end
   end
+  local plain_at, twin_at = assert(found_plain, "seed saves no plain entry"), assert(found_twin, "seed saves no twin entry")
   assert(plain_at < twin_at, "seed names its verdicts' entry before it saves it")
   local keys = step_running(steps, "seed.keys")
   assert((keys.run as string):find("|verdicts-sha=verdicts-${{ matrix.name }}-[0-9a-f]{16}-[0-9a-f]+-sha-${{ github.sha }}-[0-9a-f]+|",
@@ -2211,7 +2220,7 @@ local function test_a_leg_trims_its_verdicts_before_it_saves_them()
   local ci = decoded_workflows()[DIR .. "/ci.yml"] as {string: any}
   local jobs = ci.jobs as {string: {string: any}}
   local at: {string: integer} = {}
-  local trim: {string: any}
+  local trim: {string: any} | nil
   for i, step in ipairs(jobs.platform.steps as {{string: any}}) do
     local run = step.run
     if step.id ~= nil then at[step.id as string] = i end
@@ -2261,15 +2270,16 @@ local function test_a_leg_prunes_its_zig_outputs_before_it_saves_them()
   local prune, at = step_running(steps, "driver.tl zig-prune")
   local _, assembled = step_running(steps, "driver.tl platform assemble")
   local stage, staged = step_running(steps, "driver.tl queue-stage")
-  local saved: integer
-  local upload: {string: any}
+  local found_saved: integer | nil
+  local found_upload: {string: any} | nil
   for i, step in ipairs(steps) do
     local path = step.with ~= nil and (step.with as {string: string}).path or nil
     if (step.uses as string or ""):find("actions/cache/save@", 1, true) ~= nil and
         path == "${{ runner.temp }}/zig-build" then
-      saved, upload = i, step
+      found_saved, found_upload = i, step
     end
   end
+  local saved, upload = assert(found_saved, "no step saves the zig outputs"), assert(found_upload)
   assert(assembled < at and at < saved and at < staged,
     "the zig outputs are pruned before the assemble's builds, or after they are saved")
   for i = at + 1, staged do
@@ -2392,7 +2402,7 @@ local function test_a_queue_run_takes_the_verdicts_of_the_run_ahead()
     assert((job.permissions as {string: string}).actions == "read", where .. " cannot read the run ahead")
     local steps = job.steps as {{string: any}}
     local at: {string: integer} = {}
-    local keep: {string: any}
+    local keep: {string: any} | nil
     for i, step in ipairs(steps) do
       local id = step.id as string
       if id ~= nil then at[id] = i end
@@ -2471,7 +2481,7 @@ local function test_a_queue_leg_takes_the_driver_check_of_the_run_ahead()
   local ci = decoded_workflows()[DIR .. "/ci.yml"] as {string: any}
   local steps = ((ci.jobs as {string: {string: any}}).platform).steps as {{string: any}}
   local at: {string: integer} = {}
-  local keep, upload: {string: any}, {string: any}
+  local keep, upload: {string: any} | nil, {string: any} | nil
   for i, step in ipairs(steps) do
     if step.id ~= nil then at[step.id as string] = i end
     if step.name == "keep the CI driver check for the run behind in the queue" then

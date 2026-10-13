@@ -309,7 +309,7 @@ function Archive.create(path: string, opts?: Archive.CreateOptions): Archive.Wri
   local format, why = Archive.format_of(path)
   if format == nil then return nil, why end
   local deterministic = opts ~= nil and opts.deterministic or false
-  local codec: Compress.Stream
+  local codec: Compress.Stream | nil
   if format == "tar.gz" then
     local ctrouble: string
     codec, ctrouble = Compress.deflater("gzip")
@@ -650,8 +650,8 @@ local function extract_from(from: string | Archive.Reader, dest: string,
     -- destination-relative path, and is split into components only
     -- when its parent is not already known to be a real directory.
     local rel: string
-    local parent: string
-    local parts: {string}
+    local parent: string | nil
+    local parts: {string} | nil
     if stripped ~= nil and ("/" .. stripped .. "/"):find("/%.?/") == nil then
       rel = stripped
       parent = stripped:match("^(.*)/")
@@ -678,8 +678,9 @@ local function extract_from(from: string | Archive.Reader, dest: string,
         end
         local dest_path = dest .. "/" .. rel
         if kind == "symlink" then
-          parts = parts or components(rel)
-          if not stays_inside(join(parts, #parts - 1), entry.linkpath) then
+          local split = parts or components(rel)
+          parts = split
+          if not stays_inside(join(split, #split - 1), entry.linkpath) then
             return bail("archive: refusing a symlink escaping the destination: " .. entry.path)
           end
           local link: PendingLink = {
@@ -699,15 +700,17 @@ local function extract_from(from: string | Archive.Reader, dest: string,
           -- second look.
           if kind == "dir" then
             if pending_count > 0 or not real_dirs[rel] then
-              parts = parts or components(rel)
-              local ok, dtrouble = ensure_dirs(parts, #parts, entry.path)
+              local split = parts or components(rel)
+              parts = split
+              local ok, dtrouble = ensure_dirs(split, #split, entry.path)
               if not ok then return bail(dtrouble) end
             end
             dir_times[#dir_times + 1] = { dest_path, entry.mtime }
           else
             if parent ~= nil and (pending_count > 0 or not real_dirs[parent]) then
-              parts = parts or components(rel)
-              local ok, dtrouble = ensure_dirs(parts, #parts - 1, entry.path)
+              local split = parts or components(rel)
+              parts = split
+              local ok, dtrouble = ensure_dirs(split, #split - 1, entry.path)
               if not ok then return bail(dtrouble) end
             end
             local fok, ftrouble = extract_file(dest_path, entry)

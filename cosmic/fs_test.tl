@@ -423,7 +423,7 @@ local function test_a_second_close_of_a_scratch_leaves_a_reused_descriptor(tmp: 
   local owner = scratch.owner
   close(scratch)
   local opened: {integer} = {}
-  local reused: integer
+  local reused: integer | nil
   for i = 1, 64 do
     local fd = assert(sys.open(tmp .. "/reused" .. i, sys.O_RDWR | sys.O_CREAT, 0x180))
     opened[#opened + 1] = fd

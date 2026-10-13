@@ -133,7 +133,7 @@ end
 function standalone.code(file: string, source: string,
                          variables?: {string:string}, built?: compiler): string | nil, string
   local cached = cached_path(source, variables)
-  local code: string
+  local code: string | nil
   if cached ~= nil then
     -- A cache that cannot be read is a miss.
     local read, _ = Fs.read(cached)

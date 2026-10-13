@@ -1270,7 +1270,7 @@ function Time.local_zone(opts?: Time.LocalOptions): Time.Zone | nil, string
     if tz == nil then cached = unset_local else cached = locals[tz] end
     if cached ~= nil then return cached, "" end
   end
-  local zone: Time.Zone
+  local zone: Time.Zone | nil
   -- Empty or a bare ":": UTC.
   if tz ~= nil and tz:gsub("^:", "") == "" then
     zone = Time.UTC
@@ -1355,7 +1355,7 @@ local function resolve(c: Time.CivilFields, zone: Time.Zone | nil, how: Time.Dis
   end
   table.sort(found)
   local before, after = kind_at(rules, s - highest).offset, kind_at(rules, s - lowest).offset
-  local chosen: integer
+  local chosen: integer | nil
   if #found == 0 then
     if how == "reject" then
       return nil, ("%s does not exist in %s: clocks moved from %s to %s"):format(

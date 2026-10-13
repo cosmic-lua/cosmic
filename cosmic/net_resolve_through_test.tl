@@ -222,7 +222,7 @@ local function served(tmp: string, name: string, wait_ms: integer | string, befo
     local started = this_program.program(argv,
       { stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(60) })
     local child <close> = assert(Child.start(started.argv, started.options))
-    local result: Child.Result
+    local result: Child.Result | nil
     while result == nil do
       local state = assert(child:try_wait())
       if state.finished then
@@ -231,8 +231,9 @@ local function served(tmp: string, name: string, wait_ms: integer | string, befo
         assert(Poll.delay(Clock.ms(10)))
       end
     end
-    assert(result.code == 0, tostring(result.code) .. " " .. tostring(result.stderr))
-    for line in ((result.stdout or "") .. "\n"):gmatch("([^\n]*)\n") do
+    local finished = assert(result)
+    assert(finished.code == 0, tostring(finished.code) .. " " .. tostring(finished.stderr))
+    for line in ((finished.stdout or "") .. "\n"):gmatch("([^\n]*)\n") do
       out.lines[#out.lines + 1] = line
     end
     serving:cancel()
@@ -437,8 +438,8 @@ local function test_a_name_server_reset_as_it_is_made_leaves_the_stream_in_step(
   assert(sys.set_nonblocking(pair[2], true))
   assert(sys.write(pair[2], string.pack(">I4", socket.CONNECTOR_HELLO)) == 4)
   local dns <close> = assert(Connector.adopted(pair[1], { { host = "127.0.0.1", port = 53 } }, false, Clock.ms(100)))
-  local asked: string
-  local found, why: {Net.Resolved} | nil, string
+  local asked: string | nil
+  local found, why: {Net.Resolved} | nil, string | nil
   Poll.run(function()
     -- The reply to the lookup's one request, tagged from 1: a socket the
     -- server reset as it was made.
@@ -503,8 +504,8 @@ local function test_a_connector_that_passes_the_wrong_descriptor_is_given_up(tmp
     assert(sys.set_nonblocking(pair[2], true))
     assert(sys.write(pair[2], string.pack(">I4", socket.CONNECTOR_HELLO)) == 4)
     local dns <close> = assert(Connector.adopted(pair[1], { { host = "127.0.0.1", port = 53 } }, false, Clock.ms(100)))
-    local asked: string
-    local found, why: {Net.Resolved} | nil, string
+    local asked: string | nil
+    local found, why: {Net.Resolved} | nil, string | nil
     Poll.run(function()
       Poll.spawn(function()
         assert(Poll.readable(pair[2], Clock.seconds(5)))
@@ -731,7 +732,7 @@ local function test_a_lookup_nobody_answers_stalls_no_other_task(tmp: string)
   local hosts = tmp .. "/hosts"
   assert(Fs.write(hosts, ""))
   local silent = assert(Udp.bind("127.0.0.1", 0))
-  local found, why: {Net.Resolved} | nil, string
+  local found, why: {Net.Resolved} | nil, string | nil
   local worst, took = ticking_beside(function()
     found, why = Net.resolve("silent.example.test", { timeout_ns = Clock.ms(600), servers = { { host = "127.0.0.1", port = silent.address.port } },
       hosts_file = hosts })
@@ -753,7 +754,7 @@ local function test_a_lookup_through_a_silent_connector_stalls_no_other_task(tmp
   local pair = assert(process.connector_pair())
   assert(sys.write(pair[2], string.pack(">I4", socket.CONNECTOR_HELLO)) == 4)
   local dns <close> = assert(Connector.adopted(pair[1], { { host = "127.0.0.1", port = 53 } }, false, Clock.ms(100)))
-  local found, why: {Net.Resolved} | nil, string
+  local found, why: {Net.Resolved} | nil, string | nil
   local worst, took = ticking_beside(function()
     found, why = Net.resolve("silent.example.test", { timeout_ns = Clock.ms(600), connector = dns,
       servers = { { host = "127.0.0.1", port = 53 } }, hosts_file = hosts })

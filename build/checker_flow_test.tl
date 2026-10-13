@@ -30,32 +30,39 @@ local record Flow
   leaves_body: function(Node): boolean
 end
 
-local built: compiler
-local flow: Flow
+local built: compiler | nil
+local flow: Flow | nil
 
 --- The carried compiler, and [`checker/flow.tl`] compiled by it and loaded.
-local function setup()
-  if built ~= nil then
-    return
+local function setup(): compiler, Flow
+  if built ~= nil and flow ~= nil then
+    return built, flow
   end
-  built = assert(teal.load(true))
-  local env = assert(built.new_env({ defaults = {
+  local compiled = assert(teal.load(true))
+  local env = assert(compiled.new_env({ defaults = {
     feat_lax = "off", gen_compat = "off", gen_target = "5.4",
   } }))
-  local code, result = built.gen(assert(Fs.read("checker/flow.tl")), env, nil, "tl")
+  local code, result = compiled.gen(assert(Fs.read("checker/flow.tl")), env, nil, "tl")
   assert(code ~= nil and #result.type_errors == 0, "checker/flow.tl does not compile")
   local chunk = assert(load(code, "@checker/flow.tl", "t"))
   local loaded: any = chunk()
-  flow = loaded as Flow
+  built, flow = compiled, loaded as Flow
+  return built, flow
+end
+
+--- [`checker/flow.tl`] as loaded.
+local function flow_module(): Flow
+  local _, loaded = setup()
+  return loaded
 end
 
 --- `source` checked as a program, and what the checker said of it.
 local function check(source: string): Node, {string}
-  setup()
-  local env = assert(built.new_env({ defaults = {
+  local compiled = setup()
+  local env = assert(compiled.new_env({ defaults = {
     feat_lax = "off", gen_compat = "off", gen_target = "5.4",
   } }))
-  local code, result = built.gen(source, env, nil, "tl")
+  local code, result = compiled.gen(source, env, nil, "tl")
   assert(code ~= nil, "the program did not parse: " .. source)
   local messages: {string} = {}
   for _, e in ipairs(result.type_errors) do
@@ -110,7 +117,7 @@ local function ends(statement: string, kind?: string): boolean
     node = find(body, kind)
     assert(node ~= nil, "no " .. kind .. " in " .. statement)
   end
-  return flow.ends(node)
+  return flow_module().ends(node)
 end
 
 local function expect(want: boolean, cases: {string})
@@ -228,7 +235,7 @@ end
 local function leaves(statement: string): boolean
   local ast = check(prelude .. "local function g()\n" .. statement .. "\nend")
   local body = ast[#ast].body
-  return flow.leaves(body[#body])
+  return flow_module().leaves(body[#body])
 end
 
 local function test_return_and_a_call_that_never_returns_leave_and_break_and_goto_do_not()
@@ -246,18 +253,18 @@ local function test_return_and_a_call_that_never_returns_leave_and_break_and_got
     local kind = statement:find("break", 1, true) and "break" or "goto"
     local ast = check(prelude .. "local function g()\n" .. statement .. "\nend")
     local jump = assert(find(ast[#ast].body, kind))
-    assert(flow.ends(jump) and not flow.leaves(jump), kind)
+    assert(flow_module().ends(jump) and not flow_module().leaves(jump), kind)
   end
   -- A branch is one that leaves by its last statement.
-  assert(flow.leaves(assert(find(check(prelude .. "local function g()\nif x then x = true; return end\nend"), "if_block"))))
-  assert(not flow.leaves(assert(find(check(prelude .. "local function g()\nwhile x do if y then break end end\nend"), "if_block"))))
+  assert(flow_module().leaves(assert(find(check(prelude .. "local function g()\nif x then x = true; return end\nend"), "if_block"))))
+  assert(not flow_module().leaves(assert(find(check(prelude .. "local function g()\nwhile x do if y then break end end\nend"), "if_block"))))
 end
 
 local function test_leaves_body_reads_the_last_statement()
   local ast = check(prelude .. "local function g()\nx = true\nreturn\nend\n" ..
       "local function h()\ndo return end\nx = true\nend\nlocal function e()\nend")
   local g, h, e = ast[#ast - 2], ast[#ast - 1], ast[#ast]
-  assert(flow.leaves_body(g.body) and not flow.leaves_body(h.body) and not flow.leaves_body(e.body))
+  assert(flow_module().leaves_body(g.body) and not flow_module().leaves_body(h.body) and not flow_module().leaves_body(e.body))
 end
 
 --- Whether the body of the first `if` branch of a function whose body is
@@ -265,7 +272,7 @@ end
 local function branch_leaves(statement: string): boolean
   local ast = check(prelude .. "local function g()\nwhile x do\n" .. statement .. "\nend\nend")
   local branch = assert(find(ast, "if_block"))
-  return flow.leaves_body(branch.body)
+  return flow_module().leaves_body(branch.body)
 end
 
 local function test_a_body_that_may_break_or_goto_out_does_not_leave()
@@ -284,14 +291,14 @@ local function test_ends_body_reads_the_last_statement()
   local ast = check(prelude .. "local function g()\nx = true\nreturn\nend\n" ..
       "local function h()\ndo return end\nx = true\nend\nlocal function e()\nend")
   local g, h, e = ast[#ast - 2], ast[#ast - 1], ast[#ast]
-  assert(flow.ends_body(g.body) and not flow.ends_body(h.body) and not flow.ends_body(e.body))
+  assert(flow_module().ends_body(g.body) and not flow_module().ends_body(h.body) and not flow_module().ends_body(e.body))
 end
 
 local function test_ends_all_asks_every_branch()
   local open = assert(find(check(prelude .. "local function g()\nif x then return elseif y then return else x = true end\nend"), "if"))
-  assert(not flow.ends_all(open.if_blocks))
+  assert(not flow_module().ends_all(open.if_blocks))
   local closed = assert(find(check(prelude .. "local function g()\nif x then return elseif y then return end\nend"), "if"))
-  assert(flow.ends_all(closed.if_blocks))
+  assert(flow_module().ends_all(closed.if_blocks))
 end
 
 --- What the checker says of `header`, a function head, over `statements`.

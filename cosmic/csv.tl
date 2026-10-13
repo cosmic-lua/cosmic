@@ -468,6 +468,8 @@ function Csv.load(handle: Sqlite.Handle, name: string, source: Csv.Source): Csv.
       return refuse("the path holds a NUL byte")
     end
     parameter = "filename=" .. literal(path)
+  else
+    error("csv: load reads a path or a text, one of them", 2)
   end
   loads = loads + 1
   local scratch = "temp." .. identifier("cosmic_csv_load_" .. loads)

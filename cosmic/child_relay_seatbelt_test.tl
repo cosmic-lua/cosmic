@@ -289,7 +289,7 @@ local function flows(tmp: string): Flows
   local database = sealed_client(tmp)
   local log_path = tmp .. "/relay.log"
   local log = assert(sys.open(log_path, sys.O_WRONLY | sys.O_CREAT | sys.O_TRUNC, 384))
-  local seen: Flows
+  local seen: Flows | nil
   Poll.run(function()
     local first = assert(Net.listen(Net.tcp("127.0.0.1", 0)))
     local second = assert(Net.listen(Net.tcp("127.0.0.1", 0)))
@@ -622,7 +622,7 @@ end
 --- host has no such routable (not link-local) address or the name does not resolve to it alone.
 local function test_a_granted_name_of_another_host_address_is_refused_as_its_own(tmp: string)
   macos_only()
-  local address: string
+  local address: string | nil
   for _, entry in ipairs((assert(sys.getifaddrs()))) do
     if entry.family == "ipv4" and not entry.loopback and not entry.address:find("^169%.254%.") then
       address = entry.address

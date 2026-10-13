@@ -618,7 +618,7 @@ function worker.decode(text: string): worker.Report | nil, string
       elseif tag == "violation" then
         local packed, count = rest:match("^([0-9a-f]+) (%d+)$")
         local decoded = packed ~= nil and unhex(packed) or nil
-        local kind, at, target, declared, actual: string, string, string, string, string
+        local kind, at, target, declared, actual: string | nil, string | nil, string | nil, string | nil, string | nil
         if decoded ~= nil then
           kind, at, target, declared, actual =
             decoded:match("^([^\t]*)\t([^\t]*)\t([^\t]*)\t([^\t]*)\t([^\t]*)$")

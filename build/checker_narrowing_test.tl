@@ -103,20 +103,20 @@ local record Narrowing
   evaluate: function(Host, Guard | nil): {string:Guard}
 end
 
-local built: compiler
-local narrowing: Narrowing
+local built: compiler | nil
+local narrowing: Narrowing | nil
 
 --- The carried compiler, and [`checker/narrowing.tl`] compiled by it and
 --- loaded.
-local function setup()
-  if built ~= nil then
-    return
+local function setup(): compiler, Narrowing
+  if built ~= nil and narrowing ~= nil then
+    return built, narrowing
   end
-  built = assert(teal.load(true))
-  local env = assert(built.new_env({ defaults = {
+  local compiled = assert(teal.load(true))
+  local env = assert(compiled.new_env({ defaults = {
     feat_lax = "off", gen_compat = "off", gen_target = "5.4",
   } }))
-  local code, result = built.gen(assert(Fs.read("checker/narrowing.tl")), env, nil, "tl")
+  local code, result = compiled.gen(assert(Fs.read("checker/narrowing.tl")), env, nil, "tl")
   assert(code ~= nil and #result.type_errors == 0, "checker/narrowing.tl does not compile")
   -- The compiler's environment: `os.getenv` is what the module reads its
   -- trace switch with, and the test's own has none.
@@ -127,7 +127,14 @@ local function setup()
   }
   local chunk = assert(load(code, "@checker/narrowing.tl", "t", environment as table))
   local loaded: any = chunk()
-  narrowing = loaded as Narrowing
+  built, narrowing = compiled, loaded as Narrowing
+  return built, narrowing
+end
+
+--- [`checker/narrowing.tl`] as loaded.
+local function module(): Narrowing
+  local _, loaded = setup()
+  return loaded
 end
 
 --- A stand-in for the checker's types: a name, and for a union its
@@ -240,7 +247,7 @@ local here <const> = { f = "probe.tl", y = 1, x = 1 }
 local function facts(guard: Guard | nil, types: {string:Type}): {string}, World
   setup()
   local world: World = { types = types, warned = {}, refused = {} }
-  local held = narrowing.evaluate(host_of(world), guard)
+  local held = module().evaluate(host_of(world), guard)
   local lines: {string} = {}
   for key, f in pairs(held) do
     lines[#lines + 1] = key .. " " .. f.fact .. " " .. name_of(assert(f.typ)) .. (f.no_infer and " (widened)" or "")
@@ -264,60 +271,60 @@ end
 
 local function test_a_place_is_a_local_or_a_field_of_one()
   setup()
-  local x = assert(narrowing.place_of(variable("x")))
+  local x = assert(module().place_of(variable("x")))
   assert(x.key == "x" and x.base == "x" and #x.fields == 0)
-  local f = assert(narrowing.place_of(op(".", variable("r"), { kind = "identifier", tk = "a" })))
+  local f = assert(module().place_of(op(".", variable("r"), { kind = "identifier", tk = "a" })))
   assert(f.key == "r.a" and f.base == "r" and #f.fields == 1 and f.fields[1] == "a")
-  assert(narrowing.local_place("n").key == "n" and narrowing.field_place("n", "m").key == "n.m")
+  assert(module().local_place("n").key == "n" and module().field_place("n", "m").key == "n.m")
 end
 
 local function test_no_other_expression_is_a_place()
   setup()
   local field = op(".", variable("r"), { kind = "identifier", tk = "a" })
   -- A longer path, an index, a call and a literal.
-  assert(narrowing.place_of(op(".", field, { kind = "identifier", tk = "b" })) == nil)
-  assert(narrowing.place_of(op("@index", variable("t"), { kind = "integer", tk = "1" })) == nil)
-  assert(narrowing.place_of(op("@funcall", variable("f"), variable("x"))) == nil)
-  assert(narrowing.place_of({ kind = "string", tk = "s" }) == nil)
+  assert(module().place_of(op(".", field, { kind = "identifier", tk = "b" })) == nil)
+  assert(module().place_of(op("@index", variable("t"), { kind = "integer", tk = "1" })) == nil)
+  assert(module().place_of(op("@funcall", variable("f"), variable("x"))) == nil)
+  assert(module().place_of({ kind = "string", tk = "s" }) == nil)
 end
 
 local function test_an_assignment_targets_a_name_by_its_text_else_a_place()
   setup()
-  assert(assert(narrowing.target_of(variable("x"))).key == "x")
+  assert(assert(module().target_of(variable("x"))).key == "x")
   -- Its text names the local even where the node is no variable read.
   local named: Node = { kind = "error_node", tk = "x" }
-  assert(assert(narrowing.target_of(named)).key == "x")
-  assert(narrowing.place_of(named) == nil)
+  assert(assert(module().target_of(named)).key == "x")
+  assert(module().place_of(named) == nil)
   -- And it wins over the path of a node that has both.
   local both: Node = op(".", variable("r"), { kind = "identifier", tk = "a" })
   both.tk = "t"
-  assert(assert(narrowing.target_of(both)).key == "t")
-  assert(assert(narrowing.place_of(both)).key == "r.a")
-  assert(assert(narrowing.target_of(op(".", variable("r"), { kind = "identifier", tk = "a" }))).key == "r.a")
-  assert(narrowing.target_of(op("@index", variable("t"), variable("i"))) == nil)
+  assert(assert(module().target_of(both)).key == "t")
+  assert(assert(module().place_of(both)).key == "r.a")
+  assert(assert(module().target_of(op(".", variable("r"), { kind = "identifier", tk = "a" }))).key == "r.a")
+  assert(module().target_of(op("@index", variable("t"), variable("i"))) == nil)
 end
 
 local function test_an_assignment_to_a_local_drops_its_fields_not_itself()
   setup()
-  local x = narrowing.local_place("x")
-  assert(narrowing.forgets(x, "x.f") and narrowing.forgets(x, "x.f.g"))
-  assert(not narrowing.forgets(x, "x"))
-  assert(not narrowing.forgets(x, "xy.f") and not narrowing.forgets(x, "y.f"))
+  local x = module().local_place("x")
+  assert(module().forgets(x, "x.f") and module().forgets(x, "x.f.g"))
+  assert(not module().forgets(x, "x"))
+  assert(not module().forgets(x, "xy.f") and not module().forgets(x, "y.f"))
 end
 
 local function test_an_assignment_to_a_field_drops_that_field()
   setup()
-  local f = narrowing.field_place("x", "f")
-  assert(narrowing.forgets(f, "x.f"))
-  assert(not narrowing.forgets(f, "x.g") and not narrowing.forgets(f, "y.f"))
-  assert(not narrowing.forgets(f, "x"))
+  local f = module().field_place("x", "f")
+  assert(module().forgets(f, "x.f"))
+  assert(not module().forgets(f, "x.g") and not module().forgets(f, "y.f"))
+  assert(not module().forgets(f, "x"))
 end
 
 --- The prefix test is the known limit [`checker/narrowing.tl`] holds a
 --- TODO for: `x.f` also drops `x.foo`.
 local function test_an_assignment_to_a_field_also_drops_a_longer_name()
   setup()
-  assert(narrowing.forgets(narrowing.field_place("x", "f"), "x.foo"))
+  assert(module().forgets(module().field_place("x", "f"), "x.foo"))
 end
 
 --- What drops, as the checker names it.
@@ -331,13 +338,13 @@ local function test_drop_removes_the_names_from_every_scope()
     narrows = { ["x.f"] = true, ["x.g"] = true, x = true },
   }
   local inner: Scope = { vars = { ["x.f"] = true, z = true }, narrows = { ["x.f"] = true } }
-  narrowing.drop({ outer, inner }, narrowing.field_place("x", "f"), write)
+  module().drop({ outer, inner }, module().field_place("x", "f"), write)
   assert(outer.vars["x.f"] == nil and inner.vars["x.f"] == nil)
   assert(outer.narrows ~= nil and inner.narrows ~= nil)
   assert(outer.narrows["x.f"] == nil and inner.narrows["x.f"] == nil)
   assert(outer.narrows["x.g"] and outer.narrows["x"])
   assert(outer.vars["x.g"] and outer.vars["x"] and outer.vars["y.f"] and inner.vars["z"])
-  narrowing.drop({ outer, inner }, narrowing.local_place("x"), write)
+  module().drop({ outer, inner }, module().local_place("x"), write)
   assert(outer.vars["x.g"] == nil and outer.vars["x"] and outer.vars["y.f"])
 end
 
@@ -355,7 +362,7 @@ local function test_a_write_drops_every_path_ending_in_the_field_it_names()
   setup()
   local outer = holding("r.n", "q.n", "r.m", "r.nn", "x")
   local inner = holding("c.n", "r.n")
-  narrowing.drop_written({ outer, inner }, "n", write)
+  module().drop_written({ outer, inner }, "n", write)
   assert(outer.vars["r.n"] == nil and outer.vars["q.n"] == nil and inner.vars["c.n"] == nil and
       inner.vars["r.n"] == nil)
   assert(outer.vars["r.m"] and outer.vars["r.nn"] and outer.vars["x"])
@@ -368,7 +375,7 @@ local function test_a_call_drops_every_field_path_and_no_local()
   setup()
   local outer = holding("r.n", "r.m", "x")
   local inner = holding("q.a")
-  narrowing.drop_paths({ outer, inner }, call)
+  module().drop_paths({ outer, inner }, call)
   assert(outer.vars["r.n"] == nil and outer.vars["r.m"] == nil and inner.vars["q.a"] == nil)
   assert(outer.vars["x"] and assert(outer.narrows)["x"])
   local told = assert(outer.dropped)
@@ -379,12 +386,12 @@ local function test_what_a_call_has_to_drop_is_the_paths_and_the_locals_narrowed
   setup()
   local outer = holding("x", "r.n", "y")
   local inner = holding("x", "q.a", "z")
-  local paths, names = narrowing.narrowed({ outer, inner })
+  local paths, names = module().narrowed({ outer, inner })
   assert(paths and table.concat(assert(names), ",") == "x,y,z")
-  assert(narrowing.has_paths({ outer, inner }) and not narrowing.has_paths({ holding("x") }))
-  local none, nobody = narrowing.narrowed({ holding("r.n") })
+  assert(module().has_paths({ outer, inner }) and not module().has_paths({ holding("x") }))
+  local none, nobody = module().narrowed({ holding("r.n") })
   assert(none and nobody == nil)
-  local empty, no_names = narrowing.narrowed({ { vars = {} } })
+  local empty, no_names = module().narrowed({ { vars = {} } })
   assert(not empty and no_names == nil)
 end
 
@@ -394,71 +401,71 @@ local function test_a_place_stays_dropped_until_it_is_narrowed_again()
   setup()
   local outer = holding("r.n")
   local scopes = { outer }
-  assert(narrowing.dropped_by(scopes, "r.n") == nil)
-  narrowing.drop_paths(scopes, call)
-  assert(narrowing.dropped_by(scopes, "r.n") == call)
-  assert(narrowing.dropped_by(scopes, "r.m") == nil)
-  narrowing.renarrowed(scopes, "r.n")
-  assert(narrowing.dropped_by(scopes, "r.n") == nil)
+  assert(module().dropped_by(scopes, "r.n") == nil)
+  module().drop_paths(scopes, call)
+  assert(module().dropped_by(scopes, "r.n") == call)
+  assert(module().dropped_by(scopes, "r.m") == nil)
+  module().renarrowed(scopes, "r.n")
+  assert(module().dropped_by(scopes, "r.n") == nil)
   -- A local narrowed in the outer scope, dropped (so the scope above holds
   -- a widened view), is dropped; narrowed there again, it is not.
   local below = holding("x")
   local above: Scope = { vars = { x = { is_specialized = "widen" } } }
-  narrowing.note({ below }, "x", call)
-  assert(narrowing.dropped_by({ below, above }, "x") == call)
-  narrowing.renarrowed({ below, above }, "x")
-  assert(narrowing.dropped_by({ below, above }, "x") == nil)
+  module().note({ below }, "x", call)
+  assert(module().dropped_by({ below, above }, "x") == call)
+  module().renarrowed({ below, above }, "x")
+  assert(module().dropped_by({ below, above }, "x") == nil)
   -- A fact a guard would have given, cut before it was applied, is told
   -- in the innermost scope.
-  narrowing.cut({ below, above }, "r.n", write)
-  assert(narrowing.dropped_by({ below, above }, "r.n") == write)
-  assert(narrowing.dropped_by({ below }, "r.n") == nil)
+  module().cut({ below, above }, "r.n", write)
+  assert(module().dropped_by({ below, above }, "r.n") == write)
+  assert(module().dropped_by({ below }, "r.n") == nil)
 end
 
 local function test_a_guard_forgets_the_facts_about_what_may_change()
   setup()
-  local path = narrowing.field_place("r", "n")
-  local name = narrowing.local_place("x")
-  local both = assert(narrowing.both(here, narrowing.type_is(here, path, number),
-    narrowing.type_is(here, name, number)))
+  local path = module().field_place("r", "n")
+  local name = module().local_place("x")
+  local both = assert(module().both(here, module().type_is(here, path, number),
+    module().type_is(here, name, number)))
   local types = { ["r.n"] = union(number, nothing), x = union(number, nothing) }
   expect({ "r.n == number", "x == number" }, (facts(both, types)))
   local function droppable(place: Place): boolean return #place.fields > 0 end
-  local kept = narrowing.forget(both, droppable)
+  local kept = module().forget(both, droppable)
   expect({ "x == number" }, (facts(kept, types)))
-  assert(#narrowing.places(both) == 2 and narrowing.places(both)[1].key == "r.n")
+  assert(#module().places(both) == 2 and module().places(both)[1].key == "r.n")
   -- A negation and a disjunction lose the place the same way: what they
   -- leave is what the other side says of another place.
-  local negated = narrowing.negate(here, narrowing.type_is(here, path, number))
-  assert(narrowing.forget(negated, droppable) == nil)
-  assert(narrowing.forget(nil, droppable) == nil)
-  local either = narrowing.either(here, narrowing.type_is(here, path, number), narrowing.type_is(here, name, number))
-  expect({}, (facts(narrowing.forget(either, droppable), types)))
+  local negated = module().negate(here, module().type_is(here, path, number))
+  assert(module().forget(negated, droppable) == nil)
+  assert(module().forget(nil, droppable) == nil)
+  local either = module().either(here, module().type_is(here, path, number), module().type_is(here, name, number))
+  expect({}, (facts(module().forget(either, droppable), types)))
 end
 
 local function test_the_drops_of_a_block_that_leaves_are_put_back()
   setup()
   local outer = holding("r.n", "r.m")
   local scopes = { outer }
-  local marked = narrowing.mark(scopes)
-  narrowing.drop_written(scopes, "n", write)
-  narrowing.drop_paths(scopes, call)
+  local marked = module().mark(scopes)
+  module().drop_written(scopes, "n", write)
+  module().drop_paths(scopes, call)
   assert(outer.vars["r.n"] == nil and outer.vars["r.m"] == nil)
-  narrowing.undo(scopes, marked)
+  module().undo(scopes, marked)
   assert(outer.vars["r.n"] and outer.vars["r.m"] and assert(outer.narrows)["r.n"])
   local told = assert(outer.dropped)
   assert(told["r.n"] == nil)
-  assert(narrowing.mark(scopes) == marked)
+  assert(module().mark(scopes) == marked)
   -- What was narrowed again since is left as it is.
-  local before = narrowing.mark(scopes)
-  narrowing.drop_paths(scopes, call)
+  local before = module().mark(scopes)
+  module().drop_paths(scopes, call)
   local again = { is_specialized = "narrow" }
   outer.vars["r.n"] = again
-  narrowing.undo(scopes, before)
+  module().undo(scopes, before)
   assert(outer.vars["r.n"] == again and outer.vars["r.m"] ~= nil)
   -- And the drops before the mark stay.
-  narrowing.drop_paths(scopes, call)
-  narrowing.undo(scopes, narrowing.mark(scopes))
+  module().drop_paths(scopes, call)
+  module().undo(scopes, module().mark(scopes))
   assert(outer.vars["r.m"] == nil)
 end
 
@@ -467,42 +474,43 @@ local function test_a_function_works_on_copies_of_the_facts_outside_it()
   local outer = holding("r.n")
   local inner: Scope = { vars = {} }
   local scopes = { outer, inner }
-  narrowing.enter_function(scopes)
+  module().enter_function(scopes)
   assert(outer.vars["r.n"] == nil and inner.vars["r.n"] ~= nil)
   assert(inner.vars["r.n"] ~= outer.vars["r.n"])
   -- What the body drops, it drops from its copies.
-  narrowing.drop_paths(scopes, call)
+  module().drop_paths(scopes, call)
   assert(inner.vars["r.n"] == nil)
   assert(inner.hidden ~= nil and #inner.hidden == 1)
-  narrowing.leave_function({ outer }, inner.hidden)
+  local hidden = inner.hidden
+  module().leave_function({ outer }, hidden)
   assert(outer.vars["r.n"] ~= nil and assert(outer.narrows)["r.n"])
 end
 
 local function test_a_type_test_gives_its_type_and_its_negation_the_rest()
   setup()
-  local x = narrowing.local_place("x")
+  local x = module().local_place("x")
   local maybe = union(number, nothing)
   local types = { x = maybe }
-  expect({ "x is number" }, (facts(narrowing.type_is(here, x, number), types)))
-  expect({ "x is nil" }, (facts(narrowing.negate(here, narrowing.type_is(here, x, number)), types)))
-  expect({ "x is nil" }, (facts(narrowing.type_is(here, x, nothing), types)))
-  expect({ "x is number" }, (facts(narrowing.negate(here, narrowing.type_is(here, x, nothing)), types)))
+  expect({ "x is number" }, (facts(module().type_is(here, x, number), types)))
+  expect({ "x is nil" }, (facts(module().negate(here, module().type_is(here, x, number)), types)))
+  expect({ "x is nil" }, (facts(module().type_is(here, x, nothing), types)))
+  expect({ "x is number" }, (facts(module().negate(here, module().type_is(here, x, nothing)), types)))
 end
 
 local function test_a_value_test_gives_its_type_and_its_negation_nothing()
   setup()
-  local x = narrowing.local_place("x")
+  local x = module().local_place("x")
   local types = { x = union(number, string_t) }
-  local equals = narrowing.value_is(here, x, number)
+  local equals = module().value_is(here, x, number)
   expect({ "x == number" }, (facts(equals, types)))
-  expect({ "x == number|string (widened)" }, (facts(narrowing.negate(here, equals), types)))
+  expect({ "x == number|string (widened)" }, (facts(module().negate(here, equals), types)))
 end
 
 local function test_facts_are_keyed_by_place()
   setup()
-  local guard = narrowing.both(here,
-    narrowing.type_is(here, narrowing.local_place("x"), number),
-    narrowing.type_is(here, narrowing.field_place("r", "a"), nothing))
+  local guard = module().both(here,
+    module().type_is(here, module().local_place("x"), number),
+    module().type_is(here, module().field_place("r", "a"), nothing))
   expect({ "r.a == nil", "x == number" }, (facts(guard, {
     x = union(number, nothing), ["r.a"] = union(number, nothing),
   })))
@@ -510,18 +518,18 @@ end
 
 local function test_both_intersects_what_the_same_place_is_told_twice()
   setup()
-  local x = narrowing.local_place("x")
-  local guard = narrowing.both(here,
-    narrowing.type_is(here, x, union(number, string_t)),
-    narrowing.negate(here, narrowing.type_is(here, x, string_t)))
+  local x = module().local_place("x")
+  local guard = module().both(here,
+    module().type_is(here, x, union(number, string_t)),
+    module().negate(here, module().type_is(here, x, string_t)))
   expect({ "x is number" }, (facts(guard, { x = union(number, string_t, nothing) })))
 end
 
 local function test_a_type_and_a_value_fact_together_are_both_value_facts()
   setup()
-  local guard = narrowing.both(here,
-    narrowing.type_is(here, narrowing.local_place("x"), number),
-    narrowing.value_is(here, narrowing.local_place("y"), string_t))
+  local guard = module().both(here,
+    module().type_is(here, module().local_place("x"), number),
+    module().value_is(here, module().local_place("y"), string_t))
   expect({ "x == number", "y == string" }, (facts(guard, {
     x = union(number, nothing), y = union(string_t, nothing),
   })))
@@ -529,125 +537,125 @@ end
 
 local function test_either_keeps_what_both_sides_say_of_a_place()
   setup()
-  local x = narrowing.local_place("x")
-  local y = narrowing.local_place("y")
+  local x = module().local_place("x")
+  local y = module().local_place("y")
   local types = { x = union(number, string_t, nothing), y = union(number, nothing) }
-  local same = narrowing.either(here, narrowing.type_is(here, x, number), narrowing.type_is(here, x, string_t))
+  local same = module().either(here, module().type_is(here, x, number), module().type_is(here, x, string_t))
   expect({ "x is string|number" }, (facts(same, types)))
-  local apart = narrowing.either(here, narrowing.type_is(here, x, number), narrowing.type_is(here, y, number))
+  local apart = module().either(here, module().type_is(here, x, number), module().type_is(here, y, number))
   expect({}, (facts(apart, types)))
 end
 
 local function test_an_or_with_a_side_that_gives_nothing_counts_it_as_truthy()
   setup()
-  local x = narrowing.local_place("x")
+  local x = module().local_place("x")
   local types = { x = union(number, nothing) }
   -- `x or d` is not told by `x` alone: only its falsy side is.
-  local guard = narrowing.either(here, narrowing.type_is(here, x, number), nil)
+  local guard = module().either(here, module().type_is(here, x, number), nil)
   expect({ "x is nil" }, (facts(guard, types)))
-  assert(narrowing.negate(here, nil) == nil)
-  assert(narrowing.both(here, nil, nil) == nil)
-  expect({}, (facts(narrowing.truthy, types)))
+  assert(module().negate(here, nil) == nil)
+  assert(module().both(here, nil, nil) == nil)
+  expect({}, (facts(module().truthy, types)))
   expect({}, (facts(nil, types)))
-  expect({ "x == number" }, (facts(narrowing.both(here, narrowing.type_is(here, x, number), nil), types)))
+  expect({ "x == number" }, (facts(module().both(here, module().type_is(here, x, number), nil), types)))
 end
 
 local function test_a_conjunction_with_a_truthy_side_is_told_by_the_other()
   setup()
-  local x = narrowing.local_place("x")
+  local x = module().local_place("x")
   local types = { x = union(number, nothing) }
-  local guard = narrowing.both(here, narrowing.type_is(here, x, number), narrowing.truthy)
+  local guard = module().both(here, module().type_is(here, x, number), module().truthy)
   expect({ "x is number" }, (facts(guard, types)))
-  expect({ "x is nil" }, (facts(narrowing.negate(here, guard), types)))
+  expect({ "x is nil" }, (facts(module().negate(here, guard), types)))
   -- A disjunction with a truthy side is told by its negation alone.
-  expect({ "x is nil" }, (facts(narrowing.either(here, narrowing.type_is(here, x, number), narrowing.truthy), types)))
+  expect({ "x is nil" }, (facts(module().either(here, module().type_is(here, x, number), module().truthy), types)))
 end
 
 local function test_a_negation_of_a_negation_is_the_guard_itself()
   setup()
-  local x = narrowing.local_place("x")
+  local x = module().local_place("x")
   local types = { x = union(number, nothing) }
-  local guard = narrowing.type_is(here, x, number)
-  local once = narrowing.negate(here, guard)
-  local twice = narrowing.negate(here, once)
+  local guard = module().type_is(here, x, number)
+  local once = module().negate(here, guard)
+  local twice = module().negate(here, once)
   expect({ "x is number" }, (facts(guard, types)))
   expect({ "x is nil" }, (facts(once, types)))
   expect({ "x is number" }, (facts(twice, types)))
-  expect({ "x is nil" }, (facts(narrowing.negate(here, twice), types)))
+  expect({ "x is nil" }, (facts(module().negate(here, twice), types)))
 end
 
 local function test_an_or_of_a_type_fact_and_a_value_fact_is_a_value_fact()
   setup()
-  local x = narrowing.local_place("x")
+  local x = module().local_place("x")
   local types = { x = union(number, string_t, nothing) }
-  local mixed = narrowing.either(here, narrowing.type_is(here, x, number), narrowing.value_is(here, x, nothing))
+  local mixed = module().either(here, module().type_is(here, x, number), module().value_is(here, x, nothing))
   expect({ "x == nil|number" }, (facts(mixed, types)))
-  local values = narrowing.either(here, narrowing.value_is(here, x, number), narrowing.value_is(here, x, nothing))
+  local values = module().either(here, module().value_is(here, x, number), module().value_is(here, x, nothing))
   expect({ "x == nil|number" }, (facts(values, types)))
 end
 
 local function test_a_joined_union_test_with_an_absent_side_gives_nothing()
   setup()
-  local x = narrowing.local_place("x")
+  local x = module().local_place("x")
   local types = { x = union(number, nothing) }
-  local test = narrowing.type_is(here, x, number)
+  local test = module().type_is(here, x, number)
   -- `either` counts the absent side as truthy; [`any_of`] leaves it absent.
-  expect({ "x is nil" }, (facts(narrowing.either(here, test, nil), types)))
-  expect({}, (facts(narrowing.any_of(here, test, nil), types)))
-  expect({}, (facts(narrowing.any_of(here, nil, test), types)))
+  expect({ "x is nil" }, (facts(module().either(here, test, nil), types)))
+  expect({}, (facts(module().any_of(here, test, nil), types)))
+  expect({}, (facts(module().any_of(here, nil, test), types)))
 end
 
 local function test_the_negation_of_a_conjunction_is_the_disjunction_of_negations()
   setup()
-  local x = narrowing.local_place("x")
-  local y = narrowing.local_place("y")
+  local x = module().local_place("x")
+  local y = module().local_place("y")
   local types = { x = union(number, nothing), y = union(number, nothing) }
-  local both = narrowing.both(here, narrowing.type_is(here, x, number), narrowing.type_is(here, y, number))
-  expect({}, (facts(narrowing.negate(here, both), types)))
-  local either = narrowing.either(here, narrowing.type_is(here, x, nothing), narrowing.type_is(here, y, nothing))
-  expect({ "x == number", "y == number" }, (facts(narrowing.negate(here, either), types)))
+  local both = module().both(here, module().type_is(here, x, number), module().type_is(here, y, number))
+  expect({}, (facts(module().negate(here, both), types)))
+  local either = module().either(here, module().type_is(here, x, nothing), module().type_is(here, y, nothing))
+  expect({ "x == number", "y == number" }, (facts(module().negate(here, either), types)))
 end
 
 local function test_none_of_negates_each_condition_of_the_branches_before_it()
   setup()
-  local x = narrowing.local_place("x")
-  local y = narrowing.local_place("y")
+  local x = module().local_place("x")
+  local y = module().local_place("y")
   local types = { x = union(number, nothing), y = union(number, nothing) }
   local blocks: {Node} = {
-    { kind = "if_block", exp = { kind = "op", guard = narrowing.type_is(here, x, nothing) } },
-    { kind = "if_block", exp = { kind = "op", guard = narrowing.type_is(here, y, nothing) } },
+    { kind = "if_block", exp = { kind = "op", guard = module().type_is(here, x, nothing) } },
+    { kind = "if_block", exp = { kind = "op", guard = module().type_is(here, y, nothing) } },
     { kind = "if_block" },
   }
-  expect({ "x is number" }, (facts(narrowing.none_of(here, blocks, 1), types)))
-  expect({ "x == number", "y == number" }, (facts(narrowing.none_of(here, blocks, 2), types)))
+  expect({ "x is number" }, (facts(module().none_of(here, blocks, 1), types)))
+  expect({ "x == number", "y == number" }, (facts(module().none_of(here, blocks, 2), types)))
   -- An `else` has no condition and adds none: the facts stay type-based.
-  expect({ "x is number" }, (facts(narrowing.none_of(here, { blocks[1], blocks[3] }, 2), types)))
-  expect({ "x == number", "y == number" }, (facts(narrowing.none_of(here, blocks, 3), types)))
+  expect({ "x is number" }, (facts(module().none_of(here, { blocks[1], blocks[3] }, 2), types)))
+  expect({ "x == number", "y == number" }, (facts(module().none_of(here, blocks, 3), types)))
 end
 
 local function test_a_local_the_checker_cannot_resolve_is_invalid()
   setup()
-  local x = narrowing.local_place("x")
-  expect({ "x is invalid" }, (facts(narrowing.type_is(here, x, number), {})))
-  expect({ "x == invalid" }, (facts(narrowing.negate(here, narrowing.type_is(here, x, number)), {})))
+  local x = module().local_place("x")
+  expect({ "x is invalid" }, (facts(module().type_is(here, x, number), {})))
+  expect({ "x == invalid" }, (facts(module().negate(here, module().type_is(here, x, number)), {})))
 end
 
 local function test_a_field_the_checker_cannot_resolve_gives_nothing()
   setup()
-  local f = narrowing.field_place("r", "a")
-  expect({}, (facts(narrowing.type_is(here, f, number), {})))
-  expect({}, (facts(narrowing.negate(here, narrowing.type_is(here, f, number)), {})))
+  local f = module().field_place("r", "a")
+  expect({}, (facts(module().type_is(here, f, number), {})))
+  expect({}, (facts(module().negate(here, module().type_is(here, f, number)), {})))
 end
 
 local function test_a_test_the_type_can_never_pass_is_refused_or_warned()
   setup()
-  local x = narrowing.local_place("x")
+  local x = module().local_place("x")
   local types = { x = string_t }
-  local positive, world = facts(narrowing.type_is(here, x, number), types)
+  local positive, world = facts(module().type_is(here, x, number), types)
   expect({ "x is invalid" }, positive)
   expect({ "x:string:number" }, world.refused)
   assert(#world.warned == 0)
-  local negative, other = facts(narrowing.negate(here, narrowing.type_is(here, x, number)), types)
+  local negative, other = facts(module().negate(here, module().type_is(here, x, number)), types)
   expect({ "x == invalid" }, negative)
   expect({ "x:string:number" }, other.warned)
   assert(#other.refused == 0)
@@ -655,19 +663,19 @@ end
 
 local function test_a_test_the_type_always_passes_is_taken_as_it_stands()
   setup()
-  local x = narrowing.local_place("x")
-  local held, world = facts(narrowing.type_is(here, x, union(number, string_t)), { x = number })
+  local x = module().local_place("x")
+  local held, world = facts(module().type_is(here, x, union(number, string_t)), { x = number })
   expect({ "x is number|string" }, held)
   assert(#world.refused == 0 and #world.warned == 0)
 end
 
 local function test_a_type_variable_is_not_narrowed_by_a_negation()
   setup()
-  local x = narrowing.local_place("x")
+  local x = module().local_place("x")
   local variable_t = ty("typevar")
-  expect({ "x is number" }, (facts(narrowing.type_is(here, x, number), { x = variable_t })))
+  expect({ "x is number" }, (facts(module().type_is(here, x, number), { x = variable_t })))
   expect({ "x == typevar (widened)" },
-    (facts(narrowing.negate(here, narrowing.type_is(here, x, number)), { x = variable_t })))
+    (facts(module().negate(here, module().type_is(here, x, number)), { x = variable_t })))
 end
 
 local function test_a_union_of_members_joined_by_any_of_keeps_the_last_pair()
@@ -675,9 +683,9 @@ local function test_a_union_of_members_joined_by_any_of_keeps_the_last_pair()
   -- `x is string | number | nil` is built as `(x is number) or (x is nil)`
   -- once the first member is lost: the known limit
   -- [`checker/narrowing.tl`] holds a TODO for.
-  local x = narrowing.local_place("x")
+  local x = module().local_place("x")
   local types = { x = union(string_t, number, nothing) }
-  local guard = narrowing.any_of(here, narrowing.type_is(here, x, number), narrowing.type_is(here, x, nothing))
+  local guard = module().any_of(here, module().type_is(here, x, number), module().type_is(here, x, nothing))
   expect({ "x is nil|number" }, (facts(guard, types)))
 end
 
@@ -712,12 +720,12 @@ end
 --- the carried compiler: the line (relative to `body`) and the message of
 --- each type error, or the raise, as the compiler said.
 local function errors_in(source: string, skipped: integer): {string}
-  setup()
-  local env = assert(built.new_env({ defaults = {
+  local compiled = setup()
+  local env = assert(compiled.new_env({ defaults = {
     feat_lax = "off", gen_compat = "off", gen_target = "5.4",
   } }))
   local ok, raised = pcall(function(): {string}
-    local result = built.check_string(source, env, "probe.tl", "tl")
+    local result = compiled.check_string(source, env, "probe.tl", "tl")
     assert(#result.syntax_errors == 0, "does not parse: " .. source)
     local found: {string} = {}
     for _, e in ipairs(result.type_errors) do

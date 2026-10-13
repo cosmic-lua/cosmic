@@ -1290,10 +1290,10 @@ end
 --- every overload does (43e4); the overload a call picks decides
 --- whether the call ends a block (43f1).
 local function test_a_poly_function_is_never_only_when_every_overload_is()
-  local poly = "local record P\n  f: function(string): never\n  f: function(%s)%s\nend\nlocal p: P\n"
-  assert_accepted(poly:format("integer", ": never") .. "local g: function(string): never = p.f\nprint(g)\n")
-  assert_refused(poly:format("integer", ": string") .. "local g: function(string): never = p.f\nprint(g)\n",
-    "polymorphic function with an overload that may return")
+  local poly = "local record P\n  f: function(string): never\n  f: function(%s)%s\nend\nlocal function probe(p: P)\n"
+  local read = "local g: function(string): never = p.f\nprint(g)\nend\nprint(probe)\n"
+  assert_accepted(poly:format("integer", ": never") .. read)
+  assert_refused(poly:format("integer", ": string") .. read, "polymorphic function with an overload that may return")
 end
 
 --- A function type takes the parameters of the one it stands for
@@ -1356,8 +1356,8 @@ local function test_only_a_record_receiver_of_a_field_function_is_exempt()
   -- a first parameter that is no record or interface is no receiver
   assert_refused("local record Opts\n  cb: function(number): number\nend\n" ..
       "local o: Opts = { cb = function(n: integer): number return n end }\nprint(o)\n", "argument 1")
-  assert_refused("local record Opts\n  cb: function(number): number\nend\nlocal o: Opts\n" ..
-      "o.cb = function(n: integer): number return n end\nprint(o)\n", "argument 1")
+  assert_refused("local record Opts\n  cb: function(number): number\nend\nlocal function probe(o: Opts)\n" ..
+      "o.cb = function(n: integer): number return n end\nprint(o)\nend\nprint(probe)\n", "argument 1")
   assert_refused("local interface Named\n  f: function(string): string\nend\n" ..
       "local record Impl is Named\n  f: function(integer): string\nend\nprint(Impl)\n",
     "field 'f' does not match definition in interface Named")
@@ -1378,11 +1378,11 @@ local function test_a_narrower_receiver_is_taken_wherever_fields_are_compared()
       "local r: Reader = { read = function(self: Mine, n: integer): string print(self, n) return '' end }\n" ..
       "print(r)\n")
   -- 48k: an assignment to a field of a value
-  assert_accepted(receiver_types .. "local m: Mine\n" ..
-      "m.read = function(self: Mine, n: integer): string print(self, n) return '' end\nprint(m)\n")
-  assert_refused(receiver_types .. "local m: Mine\nlocal set: function(Reader) = function(_: Reader) end\n" ..
+  assert_accepted(receiver_types .. "local function probe(m: Mine)\n" ..
+      "m.read = function(self: Mine, n: integer): string print(self, n) return '' end\nprint(m)\nend\nprint(probe)\n")
+  assert_refused(receiver_types .. "local function probe(m: Mine)\nlocal set: function(Reader) = function(_: Reader) end\n" ..
       "local f: function(Reader, integer): string = m.read\n" ..
-      "f = function(self: Mine, n: integer): string print(self, n) return '' end\nprint(f, set)\n",
+      "f = function(self: Mine, n: integer): string print(self, n) return '' end\nprint(f, set)\nend\nprint(probe)\n",
     "argument 1")
 end
 
@@ -1452,14 +1452,14 @@ local function test_never_agrees_when_nested()
         return place == "param" and "function(p: " .. t .. ")" or "function(): " .. t
       end
       for _, direction in ipairs({ { 1, 2 }, { 2, 1 } }) do
-        local source = prelude .. "local a: " .. declared(pair[direction[1]]) ..
-          "\nlocal b: " .. declared(pair[direction[2]]) .. "\nb = a\nprint(a, b)\n"
+        local source = prelude .. "local function probe(a: " .. declared(pair[direction[1]]) ..
+          ", b: " .. declared(pair[direction[2]]) .. ")\nb = a\nprint(a, b)\nend\nprint(probe)\n"
         assert_refused(source, "which differ in whether the function never returns, inside another type")
         seen = seen + 1
       end
       for i = 1, 2 do
-        assert_accepted(prelude .. "local a: " .. declared(pair[i]) .. "\nlocal b: " ..
-            declared(pair[i]) .. "\nb = a\nprint(a, b)\n")
+        assert_accepted(prelude .. "local function probe(a: " .. declared(pair[i]) .. ", b: " ..
+            declared(pair[i]) .. ")\nb = a\nprint(a, b)\nend\nprint(probe)\n")
       end
     end
   end
@@ -1470,11 +1470,11 @@ end
 --- a function expects: the forward direction forges too (a function taking
 --- a never-callback stands for one taking a callback that returns).
 local function test_never_agrees_in_a_callback_parameter()
-  assert_refused("local a: function(cb: function(): never)\n" ..
-      "local b: function(cb: function(): string)\nb = a\n",
+  assert_refused("local function probe(a: function(cb: function(): never), b: function(cb: function(): string))\n" ..
+      "b = a\nend\nprint(probe)\n",
     "got function(): never, expected function(): string, which differ in whether")
-  assert_refused("local a: function(cb: function(): string)\n" ..
-      "local b: function(cb: function(): never)\nb = a\n", "which differ in whether the function never returns, inside another type")
+  assert_refused("local function probe(a: function(cb: function(): string), b: function(cb: function(): never))\n" ..
+      "b = a\nend\nprint(probe)\n", "which differ in whether the function never returns, inside another type")
 end
 
 --- `as` and `is` give any target type unchecked, so one that contains a
@@ -1740,9 +1740,9 @@ end
 --- function that returns a string, which the row used to accept by asking
 --- for the reverse.
 local function test_a_poly_function_stands_for_what_an_overload_stands_for()
-  local poly = "local record P\n  f: function(string)\n  f: function(integer)\nend\nlocal p: P\n"
-  assert_accepted(poly .. "local g: function(string) = p.f\nprint(g)\n")
-  assert_refused(poly .. "local g: function(string): string = p.f\nprint(g)\n",
+  local poly = "local record P\n  f: function(string)\n  f: function(integer)\nend\nlocal function probe(p: P)\n"
+  assert_accepted(poly .. "local g: function(string) = p.f\nprint(g)\nend\nprint(probe)\n")
+  assert_refused(poly .. "local g: function(string): string = p.f\nprint(g)\nend\nprint(probe)\n",
     "cannot match against any alternatives of the polymorphic type")
 end
 
@@ -2571,10 +2571,12 @@ local function test_a_parameter_that_takes_nil_is_given_one()
   assert_accepted(nil_head .. "local f: function(string, ? string) = nil\nprint(f)\n")
   -- A function type's optional parameters are the ones that take nil, wherever
   -- the first of them stands, and a required one may not follow it.
-  assert_accepted(nil_head .. "local f: function(a: string, b?: string, c?: string)\nf('a', s, s)\nf('a')\n")
+  assert_accepted(nil_head .. "local function probe(f: function(a: string, b?: string, c?: string))\n" ..
+      "f('a', s, s)\nf('a')\nend\nprint(probe)\n")
   assert_refused(nil_head .. "local f: function(a: string, b?: string, c: string)\nprint(f)\n",
     "non-optional arguments cannot follow optional arguments")
-  assert_accepted(nil_head .. "local f: function(a: string, b?: string, ...: string)\nf('a', s, 'c')\n")
+  assert_accepted(nil_head .. "local function probe(f: function(a: string, b?: string, ...: string))\n" ..
+      "f('a', s, 'c')\nend\nprint(probe)\n")
 end
 
 --- A literal `nil` is no argument for a parameter that does not take nil,

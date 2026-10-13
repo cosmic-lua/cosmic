@@ -341,7 +341,7 @@ local function from_archive(tree: string, pin: Vendor.Pin, archive_path: string)
       return files[path] ~= nil
     end,
   })
-  local count: integer
+  local count: integer | nil
   local trouble = ""
   if written == nil then
     trouble = archive_path .. ": " .. extract_trouble

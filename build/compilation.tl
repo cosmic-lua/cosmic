@@ -239,8 +239,7 @@ function compilation.dependency_keys(db: Sqlite.Handle, modules: {Module},
   local identify = function(name: string, file: string): Keys | nil, string
     local seen: {string:boolean} = {}
     local graph: {string} = {}
-    local visit: function(string, string): boolean, string
-    visit = function(slot: string, display: string): boolean, string
+    local function visit(slot: string, display: string): boolean, string
       if seen[slot] then
         return true, ""
       end
@@ -371,8 +370,7 @@ function compilation.ordered(modules: {Module}): {Module} | nil, string
   local out: {Module} = {}
   local state: {string:string} = {}
 
-  local visit: function(Module): boolean, string
-  visit = function(m: Module): boolean, string
+  local function visit(m: Module): boolean, string
     if state[m.path] == "done" then
       return true, ""
     end
@@ -598,7 +596,7 @@ function compilation.generate(m: Module, built: compiler, env: compiler.Env,
   -- which on a cold build put a template's error at the field in its
   -- data module, under the template's name.
   typed.checking = m.file
-  local result: compiler.Result
+  local answer: compiler.Result | nil
   -- The module that holds the hook the checks call is compiled without
   -- them: a check of the hook's own parameters would call the hook.
   local checks = env.defaults.runtime_checks
@@ -606,7 +604,7 @@ function compilation.generate(m: Module, built: compiler, env: compiler.Env,
     env.defaults.runtime_checks = false
   end
   local checked_ok, raised = pcall(function()
-    result = built.check_string(source, env, m.file, "tl")
+    answer = built.check_string(source, env, m.file, "tl")
   end)
   env.defaults.runtime_checks = checks
   -- Put back before a raise goes on, so the run's state names no file
@@ -615,6 +613,7 @@ function compilation.generate(m: Module, built: compiler, env: compiler.Env,
   if not checked_ok then
     error(raised, 0)
   end
+  local result = assert(answer, "the checker answered no result")
   local code: string | nil = nil
   if result.ast ~= nil and #result.syntax_errors == 0 then
     local written, write_trouble = built.generate(result.ast, env.defaults.gen_target, nil)

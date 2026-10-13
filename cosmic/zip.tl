@@ -232,8 +232,8 @@ local function find_eocd(size: integer, pread: Pread): integer | nil, string
   local start = size - window
   local chunk, trouble = pread(start, window)
   if chunk == nil then return nil, trouble end
-  local last: integer
-  local exact: integer
+  local last: integer | nil
+  local exact: integer | nil
   local from = 1
   while true do
     local i = chunk:find(EOCD_SIG, from, true)
@@ -933,7 +933,7 @@ end
 --- the size `opts.size` promised, if any. Fills `done`.
 local function write_streamed(self: EntryWriter, path: string, body: Stream.Reader, method: integer,
                               dos_time: integer, dos_date: integer, hint: integer | nil, done: Written): boolean, string
-  local deflater: Compress.Stream
+  local deflater: Compress.Stream | nil
   if method == 8 then
     local made, dtrouble = Compress.deflater("raw")
     if made == nil then return false, dtrouble end

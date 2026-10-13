@@ -110,7 +110,7 @@ end
 
 --- [`Relay.start`], answering a spec it refuses (it raises) as nil and why.
 local function started(spec: Relay.Spec): Relay.Serving | nil, string
-  local server: Relay.Serving
+  local server: Relay.Serving | nil
   local ok, why = pcall(function()
     server = Relay.start(spec)
   end)
@@ -143,7 +143,7 @@ local function adopted(config: Config.Config): Relay.Handed | nil, Net.Connector
     if made == nil then return nil, nil, "the connector: " .. why end
     handed.connector = made
   end
-  local dns: Net.Connector
+  local dns: Net.Connector | nil
   if config.name_servers ~= nil then
     local made, why = Connector.adopted(Config.name_server_fd, table_of(config.name_servers), false,
       config.name_server_wait_ns)
@@ -168,8 +168,8 @@ local function serve(config: Config.Config): integer
     local _, _ = logger:complain(line)
   end
   if config.log == "null" then log = function(_: string) end end
-  local serving: Relay.Serving
-  local lost: string
+  local serving: Relay.Serving | nil
+  local lost: string | nil
   -- No connector is started anew, so one that has ended, the name
   -- servers' among them, reaches nothing again:
   -- the relay ends rather than refuse each connection that needs it, and
@@ -182,8 +182,8 @@ local function serve(config: Config.Config): integer
   end
   handed.lost = lose
   Poll.run(function()
-    local http, socks: Net.Listener, Net.Listener
-    local mixed: {Net.Listener}
+    local http, socks: Net.Listener | nil, Net.Listener | nil
+    local mixed: {Net.Listener} | nil
     if config.direct then
       mixed = {}
       for i = 1, config.listeners or 0 do
@@ -228,7 +228,7 @@ local function serve(config: Config.Config): integer
     -- name fails with the starter's why: an address a grant names needs no
     -- lookup. Where nothing names a host, no name passes the grants to be
     -- looked up, and the starter gives no why.
-    local resolve: Net.ResolveOptions
+    local resolve: Net.ResolveOptions | nil
     if dns ~= nil then
       resolve = { connector = dns, servers = endpoints_of(assert(config.name_servers)) }
     end
@@ -246,10 +246,10 @@ local function serve(config: Config.Config): integer
     local watch = Poll.spawn(function()
       until_end_of_input()
       ended = true
-      serving:stop()
+      running:stop()
     end)
     say("ready")
-    serving:wait()
+    running:wait()
     watch:cancel()
     if handed.connector ~= nil then local _, _ = handed.connector:close() end
     if dns ~= nil then local _, _ = dns:close() end

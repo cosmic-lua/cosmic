@@ -396,7 +396,7 @@ function fix.source(built: compiler, source: string,
   -- holding a block it did not before, so this repeats until none is
   -- due, which for a file already laid out is the first render.
   local parsed, text = before, rewritten
-  local out: string
+  local out: string | nil
   for pass = 1, breaking_passes do
     local layout, render_trouble = render_mod.laid_out(parsed, text)
     if layout == nil then
@@ -415,6 +415,9 @@ function fix.source(built: compiler, source: string,
       return nil, "what was broken onto lines does not parse: " .. trouble
     end
     parsed, text = reparsed, opened
+  end
+  if out == nil then
+    return nil, "breaking lines did not settle in " .. breaking_passes .. " passes"
   end
   local parsed_out = before
   if out ~= rewritten then
@@ -767,7 +770,7 @@ end
 function fix.lay_out(files: {string}, checking: boolean, changed: {string}, failures: {string})
   for _, file in ipairs(files) do
     local source, read_trouble = Fs.read(file)
-    local out, flow_trouble: string, string
+    local out, flow_trouble: string | nil, string
     if source == nil then
       flow_trouble = read_trouble
     elseif not flow.is_flow(source) then
@@ -894,11 +897,14 @@ function fix.link_context(root: string, whole: boolean, own: boolean,
                           rebuild_here: function(string): boolean, string,
                           databases: function(): docs.Sources): fix.LinkSource
   local opened: docs.Sources | nil = nil
-  local source: fix.LinkSource
+  local source: fix.LinkSource | nil
   local function open(): docs.View | nil, string
     if not whole then
       local rebuilt, rebuild_trouble = rebuild_here("fix")
-      if not rebuilt then source.unbuilt = rebuild_trouble end
+      if not rebuilt then
+        -- Opened only once the context below is made and holds this source.
+        assert(source, "the link context opened before it was made").unbuilt = rebuild_trouble
+      end
     end
     local found = databases()
     opened = found
@@ -1210,7 +1216,7 @@ local function lay_out_c(ctx: Fix)
   local compiled: {string} = {}
   for _, file in ipairs(c_files) do
     local source, read_trouble = Fs.read(root .. "/" .. file)
-    local out, layout_trouble: string, string
+    local out, layout_trouble: string | nil, string
     if source ~= nil then
       out, layout_trouble = c_check.laid_out(source)
     else
@@ -1325,13 +1331,13 @@ local function wrap_asserts(ctx: Fix)
       if file ~= nil then spilled = true end
       if file ~= nil and not checking then
         local source, read_trouble = Fs.read(file)
-        local out, wrap_trouble: string, string
+        local out, wrap_trouble: string | nil, string
         if source ~= nil then
           out, wrap_trouble = spill.wrap(built, source, file, at)
         else
           wrap_trouble = read_trouble
         end
-        local result: fix.Fixed
+        local result: fix.Fixed | nil
         if out ~= nil then
           result, wrap_trouble = fix.source(built, out, file)
         end

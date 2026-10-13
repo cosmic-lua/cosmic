@@ -69,6 +69,14 @@ local record compiler
     -- it: `dropped_place`, `dropped_kind`, `dropped_by`, `dropped_y`,
     -- `dropped_x`, and the fields of the refusal it was
     "narrowing_dropped"
+    -- a local read where a path from its declaration has not assigned it:
+    -- `variable`, `closure` where the read is a function literal that
+    -- names it with `ran_kind`, `ran_y`, `ran_x` for what may call it, and
+    -- `skipped_kind`, `skipped_y`, `skipped_x` for the statement a path
+    -- went by that skipped the assignment
+    "not_assigned"
+    -- a local declared with neither a type nor a value: `variable`
+    "no_type"
     "other"
   end
 
@@ -164,6 +172,20 @@ local record compiler
     dropped_by: string | nil
     dropped_y: integer | nil
     dropped_x: integer | nil
+
+    -- For a local read before it is assigned: whether the read is a
+    -- function literal that names it, what may call that function before
+    -- the assignment (`ran_kind`: `call`, `operator`, `iterator`,
+    -- `return`, `goto`, `never` or `scope`, at `ran_y`, `ran_x` unless it is the end
+    -- of the scope), and the statement a path went by that skipped the
+    -- assignment (`branch`, `if` or `loop`), and where.
+    closure: boolean | nil
+    ran_kind: string | nil
+    ran_y: integer | nil
+    ran_x: integer | nil
+    skipped_kind: string | nil
+    skipped_y: integer | nil
+    skipped_x: integer | nil
   end
 
   -- TODO: declare `ast`, `type`, [`Env.modules`], the reporter's

@@ -44,8 +44,8 @@ local function test_any_multipart_body_is_bounded_and_leaves_no_file(tmp: string
   local uploads = tmp .. "/uploads"
   assert(Fs.mkdirs(uploads))
   local app: Web.App
-  local outcome: Types.Parsed<Input.Multipart>
-  local opts: Types.InputOptions
+  local outcome: Types.Parsed<Input.Multipart> | nil
+  local opts: Types.InputOptions | nil
   app = Web.app{ routes = { Web.post("/x", function(req: Web.Request): Web.Response
     outcome = Input.multipart(req, opts)
     if outcome.value ~= nil then
@@ -90,7 +90,7 @@ local function test_any_multipart_body_is_bounded_and_leaves_no_file(tmp: string
       if reply.status ~= 204 then return false, "the handler faulted: " .. reply.status end
       local left = assert(Fs.list(uploads))
       if #left ~= 0 then return false, "left behind: " .. table.concat(left, ", ") end
-      local read = outcome
+      local read = assert(outcome, "the handler read nothing")
       if read.invalid ~= nil then
         if read.value ~= nil or not ALLOWED[read.invalid.status] then
           return false, "a bad refusal: " .. read.invalid.status

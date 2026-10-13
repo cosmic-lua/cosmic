@@ -330,8 +330,7 @@ local function selection_holds(input: string): boolean, string
       if seg.descendant then
         -- A descendant segment applies its selector at the node itself
         -- and at every value beneath it.
-        local visit: function(Json.Match)
-        visit = function(n: Json.Match)
+        local function visit(n: Json.Match)
           reference_select({ descendant = false, kind = seg.kind, name = seg.name, index = seg.index }, n, out)
           for _, kid in ipairs(reference_children(n)) do visit(kid) end
         end

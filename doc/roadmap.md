@@ -64,6 +64,20 @@ defines the target; once something ships, it leaves this file.
   body assigns it. this refuses what is accepted now (a callback reading a
   field its creator checked), so it first runs in report mode and counts
   the bodies that read a fact of the places outside them.
+- check a function that names a local not yet assigned where it escapes,
+  not where code may run: stored in a table field or an upvalue, passed as an
+  argument or returned counts as "may be called later" unless the local is
+  assigned by then, and a closure that names a local holding such a function
+  is pending too. a function held only in locals cannot be called after a
+  raise unwinds its frame, so `assert` and the operators that raise (division
+  by zero, indexing nil) need no rule of their own then. it replaces the
+  rule that any code that may run, and a call that never returns, lets it out,
+  and accepts what that refuses. [`checker/flow.tl`] holds a TODO for it.
+- exclude nil from every type but one that names it. the checker's own
+  source is valid upstream Teal, which indexes no `T | nil` even after a
+  guard, so it declares a local it reads before the code that assigns it
+  `local x: T = nil` (the TODO at the top of [`checker/tl.tl`] names them);
+  those and every other place nil passes for a `T` are refused then.
 - list the standard library functions that run no code of the program's
   with the declarations that say so (today [`checker/tl.tl`] marks them by
   name where it loads [`checker/stdlib.d.tl`]), and let a declaration of the
@@ -461,6 +475,7 @@ four-producer provenance join.
 [`build/shape_specs.tl`]: ../build/shape_specs.tl
 [`build/teal_test.tl`]: ../build/teal_test.tl
 [`build/workflows_test.tl`]: ../build/workflows_test.tl
+[`checker/flow.tl`]: ../checker/flow.tl
 [`checker/stdlib.d.tl`]: ../checker/stdlib.d.tl
 [`checker/tl.tl`]: ../checker/tl.tl
 [`Child.end_strays`]: ../cosmic/child.tl

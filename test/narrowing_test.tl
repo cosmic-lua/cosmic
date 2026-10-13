@@ -755,9 +755,9 @@ local function test_a_never_function_narrows_below_its_guard(tmp: string)
         "local function raise(m: string): never error(m) end\nlocal fail = id(raise)\n", 'fail("no")' },
     ["recursion"] = { "local function fail(m: string): never fail(m) end\n", 'fail("no")' },
     ["poly-all-never"] = { "local record P\n   f: function(string): never\n   f: function(integer): never\nend\n" ..
-        "local p: P\n", 'p.f("no")' },
+        "local p: P = {}\n", 'p.f("no")' },
     ["poly-chosen-never"] = { "local record P\n   f: function(string): never\n   f: function(integer): string\nend\n" ..
-        "local p: P\n", 'p.f("no")' },
+        "local p: P = {}\n", 'p.f("no")' },
     ["macroexp"] = { "local macroexp fail(m: string): never return error(m) end\n", 'fail("no")' },
   }
   for name, case in pairs(cases) do

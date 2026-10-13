@@ -98,7 +98,7 @@ local function test_a_function_over_a_local_of_its_name_is_no_global(tmp: string
     { "parameter", "local function w(f: function(): integer): integer\n" ..
         "  function f(): integer\n    return 1\n  end\n  return f()\nend\nreturn w\n" },
     { "in-if", "local n = 1\nlocal f: function(): integer\nif n == 1 then\n" ..
-        "  function f(): integer\n    return 1\n  end\nend\nreturn f\n" },
+        "  function f(): integer\n    return 1\n  end\nelse\n  function f(): integer\n    return 2\n  end\nend\nreturn f\n" },
   }
   for _, c in ipairs(legal) do
     local result, trouble = compile_project(tmp, "legal-" .. c[1], { ["main.tl"] = c[2] })

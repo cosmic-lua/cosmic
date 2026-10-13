@@ -119,7 +119,7 @@ function Example.release()
   argv[#argv + 1] = "-e"
   argv[#argv + 1] = ""
   local h = assert(Child.start(argv, { env = again.env, fds = again.fds }))
-  local result: Child.Result
+  local result: Child.Result | nil
   while result == nil do
     local state = assert(h:try_wait())
     if state.finished then
@@ -130,12 +130,13 @@ function Example.release()
       Clock.sleep_ns(Clock.ms(10))
     end
   end
+  local finished = assert(result)
   local caught = assert(guard:release())
   local untaken = guard:take()
-  if caught ~= 0 and (untaken ~= 0 or result.signal == caught) then
+  if caught ~= 0 and (untaken ~= 0 or finished.signal == caught) then
     assert(sys.kill(sys.getpid(), caught))
   end
-  print(tostring(result.code))
+  print(tostring(finished.code))
 end
 
 --- A child's output read as it comes rather than once it has exited:

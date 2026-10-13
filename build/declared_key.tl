@@ -1183,7 +1183,7 @@ function declared_key.host_identity(digests: declared_key.Digests,
     -- an order of its own. A list that cannot be read keys apart from
     -- every one that can.
     local groups: {integer} = from.groups
-    local trouble: string
+    local trouble: string | nil
     if groups == nil then groups, trouble = sys.getgroups() end
     lines[#lines + 1] = "gid " .. tostring(from.gid or sys.getgid())
     if groups == nil then

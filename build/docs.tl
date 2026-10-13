@@ -2214,7 +2214,7 @@ function docs.render(view: docs.View, entry: docs.Entry): {string} | nil, string
   -- member's own page: the most used of those with an example, else
   -- the most used. None where the module lists no call, whose first
   -- declaration may be its own record, which answers as the module.
-  local pointed: string
+  local pointed: string | nil
   if entry.symbol == "" then
     local declared, declared_trouble = across(view,
       function(db: Sqlite.Handle, public: boolean): {docs.Entry} | nil, string
@@ -2246,7 +2246,7 @@ function docs.render(view: docs.View, entry: docs.Entry): {string} | nil, string
     for _, item in ipairs(declared) do
       listed_symbols[item.symbol] = true
     end
-    local best: docs.Entry
+    local best: docs.Entry | nil
     for _, item in ipairs(declared) do
       if is_call(item) and (best == nil or points_better(item, best)) then best = item end
       index[#index + 1] = "  " .. listed(item)

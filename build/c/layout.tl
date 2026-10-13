@@ -119,7 +119,7 @@ end
 --- rather than a block of statements. `cast` is what came before the `(`
 --- that `before` closes, when it is a `)`: `= (struct t){` is a compound
 --- literal's entries, `if (x) {` a block.
-local function opens_entries(before: Token, before2: Token, cast: Token): boolean
+local function opens_entries(before: Token | nil, before2: Token | nil, cast: Token | nil): boolean
   if before == nil then return false end
   local t = before.text
   if t == ")" then
@@ -140,7 +140,7 @@ local function laid_out(source: string): string
   local spaced: {Token: boolean} = {}
   do
     local depth, parens = 0, 0
-    local prev, prev2: Token, Token
+    local prev, prev2: Token | nil, Token | nil
     for i, t in ipairs(tokens) do
       if t.kind == "punct" or t.kind == "word" or t.kind == "literal" then
         if t.text == "{" then
@@ -188,11 +188,11 @@ local function laid_out(source: string): string
   local parens = 0
   -- What came before each open parenthesis, and before the last closed.
   local opened: {Token} = {}
-  local cast: Token
+  local cast: Token | nil
   local ends = true
   local delta = 0
   local blanks = 0
-  local prev, prev2: Token, Token
+  local prev, prev2: Token | nil, Token | nil
   for _, line in ipairs(lines_of(tokens)) do
     local toks = line.tokens
     local first = 1
