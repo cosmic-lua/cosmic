@@ -34,19 +34,19 @@ end
 --- `a` and `target` the far end of `b`, and answers what pipe answered.
 local function piped(options: relay.Options,
                      body: function(client: Net.Conn, target: Net.Conn)): relay.Stats
-  local stats: relay.Stats | nil = nil
+  local stats = { value = nil as relay.Stats | nil }
   Poll.run(function()
     local client, a = pair()
     local target, b = pair()
     local task = Poll.spawn(function()
-      stats = relay.pipe(a, b, options)
+      stats.value = relay.pipe(a, b, options)
     end)
     body(client, target)
     assert(task:join(Clock.seconds(5)), "pipe did not return once both ways ended")
     local _, _ = client:close()
     local _, _ = target:close()
   end)
-  return assert(stats, "pipe answered no stats")
+  return assert(stats.value, "pipe answered no stats")
 end
 
 local function test_pipe_copies_both_ways_through_half_closes()
@@ -114,18 +114,18 @@ end
 
 local function test_pipe_moves_megabytes_whole()
   local data = string.rep("0123456789abcdef", 128 * 1024)
-  local got = ""
+  local got = { value = "" }
   local stats = piped({}, function(client: Net.Conn, target: Net.Conn)
     local writer = Poll.spawn(function()
       assert(client:write(data))
       assert(client:shutdown("write"))
     end)
     local ended: string
-    got, ended = read_n(target, #data + 1)
+    got.value, ended = read_n(target, #data + 1)
     assert(ended == "", "the end did not follow the data: " .. ended)
     assert(writer:join(Clock.seconds(5)))
     assert(target:close())
   end)
-  assert(got == data, #got .. " bytes of " .. #data)
+  assert(got.value == data, #got.value .. " bytes of " .. #data)
   assert(stats.up == #data, "up " .. tostring(stats.up))
 end

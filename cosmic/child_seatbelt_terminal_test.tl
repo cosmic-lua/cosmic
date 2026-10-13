@@ -98,14 +98,14 @@ local function on_pty(binary: string, streams: {integer}, policy?: Sandbox.Polic
   -- Darwin drops what a slave wrote and the master had not read when the
   -- slave's last descriptor closes, which a child that writes and exits at
   -- once would cause: this holds the slave until all is read.
-  local said = ""
+  local said = { value = "" }
   local function read_some(wait_ns: integer): boolean
     local ready, _ = Poll.readable(started.master, wait_ns)
     if not ready then return false end
     local data, _ = sys.read(started.master, 4096)
     if data == nil then return false end
     if data == "" then return false end
-    said = said .. data
+    said.value = said.value .. data
     return true
   end
   local result: Child.Result | nil
@@ -120,7 +120,7 @@ local function on_pty(binary: string, streams: {integer}, policy?: Sandbox.Polic
   while read_some(Clock.ms(200)) do end
   assert(sys.close(started.slave))
   assert(sys.close(started.master))
-  return (said:gsub("\r", "")), result
+  return (said.value:gsub("\r", "")), result
 end
 
 --- A policy that runs `binary` and grants nothing else.

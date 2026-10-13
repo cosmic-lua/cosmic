@@ -62,7 +62,7 @@ local function test_interleaved_writers_have_distinct_temporary_files(tmp: strin
   local real_open_temporary = sys.open_temporary
   local real_write = sys.write
   local temporaries: {string} = {}
-  local nested = false
+  local nested = { value = false }
   sys.open_temporary = function(destination: string, mode?: integer): sys.TemporaryFile | nil, string, integer
     local file, trouble, number = real_open_temporary(destination, mode)
     if file ~= nil then
@@ -72,8 +72,8 @@ local function test_interleaved_writers_have_distinct_temporary_files(tmp: strin
     return file
   end
   sys.write = function(fd: integer, data: string): integer | nil, string, integer
-    if not nested then
-      nested = true
+    if not nested.value then
+      nested.value = true
       assert(Fs.write(path, "inner"))
     end
     return real_write(fd, data)
@@ -90,11 +90,11 @@ local function test_write_failure_preserves_destination_and_cleans_its_temp(tmp:
   local path = tmp .. "/target"
   assert(Fs.write(path, "old"))
   local real_write = sys.write
-  local created = ""
+  local created = { value = "" }
   local real_open_temporary = sys.open_temporary
   sys.open_temporary = function(destination: string, mode?: integer): sys.TemporaryFile | nil, string, integer
     local file, trouble, number = real_open_temporary(destination, mode)
-    if file ~= nil then created = file.path end
+    if file ~= nil then created.value = file.path end
     if file == nil then return nil, trouble, number end
     return file
   end
@@ -106,7 +106,7 @@ local function test_write_failure_preserves_destination_and_cleans_its_temp(tmp:
   sys.open_temporary = real_open_temporary
   assert(not ok and trouble == path .. ": injected write failure", trouble)
   assert(Fs.read(path) == "old")
-  assert(created ~= "" and Fs.exists(created) == false)
+  assert(created.value ~= "" and Fs.exists(created.value) == false)
 end
 
 local function test_close_failure_preserves_destination_and_cleans_its_temp(tmp: string)
@@ -114,19 +114,19 @@ local function test_close_failure_preserves_destination_and_cleans_its_temp(tmp:
   assert(Fs.write(path, "old"))
   local real_close = sys.close
   local real_open_temporary = sys.open_temporary
-  local created = ""
-  local injected_fd = -1
+  local created = { value = "" }
+  local injected_fd = { value = -1 }
   sys.open_temporary = function(destination: string, mode?: integer): sys.TemporaryFile | nil, string, integer
     local file, trouble, number = real_open_temporary(destination, mode)
     if file ~= nil then
-      created = file.path
-      injected_fd = file.fd
+      created.value = file.path
+      injected_fd.value = file.fd
     end
     if file == nil then return nil, trouble, number end
     return file
   end
   sys.close = function(fd: integer): boolean, string, integer
-    if fd == injected_fd then
+    if fd == injected_fd.value then
       real_close(fd)
       return false, "injected close failure", 0
     end
@@ -138,7 +138,7 @@ local function test_close_failure_preserves_destination_and_cleans_its_temp(tmp:
   sys.open_temporary = real_open_temporary
   assert(not ok and trouble == path .. ": injected close failure", trouble)
   assert(Fs.read(path) == "old")
-  assert(created ~= "" and Fs.exists(created) == false)
+  assert(created.value ~= "" and Fs.exists(created.value) == false)
 end
 
 local function test_rename_failure_preserves_destination_and_cleans_its_temp(tmp: string)
@@ -146,10 +146,10 @@ local function test_rename_failure_preserves_destination_and_cleans_its_temp(tmp
   assert(Fs.write(path, "old"))
   local real_rename = sys.rename
   local real_open_temporary = sys.open_temporary
-  local created = ""
+  local created = { value = "" }
   sys.open_temporary = function(destination: string, mode?: integer): sys.TemporaryFile | nil, string, integer
     local file, trouble, number = real_open_temporary(destination, mode)
-    if file ~= nil then created = file.path end
+    if file ~= nil then created.value = file.path end
     if file == nil then return nil, trouble, number end
     return file
   end
@@ -161,7 +161,7 @@ local function test_rename_failure_preserves_destination_and_cleans_its_temp(tmp
   sys.open_temporary = real_open_temporary
   assert(not ok and trouble == path .. ": injected rename failure", trouble)
   assert(Fs.read(path) == "old")
-  assert(created ~= "" and Fs.exists(created) == false)
+  assert(created.value ~= "" and Fs.exists(created.value) == false)
 end
 
 --- A file begun with `create` is a stage of `write`: nothing is at the
@@ -561,13 +561,13 @@ local function test_read_takes_a_file_in_the_one_read_its_size_asks_for(tmp: str
   local data = string.rep("0123456789abcdef", 20000)
   assert(Fs.write(path, data))
   local real_read = sys.read
-  local reads = 0
+  local reads = { value = 0 }
   sys.read = function(fd: integer, count: integer): string | nil, string, integer
-    reads = reads + 1
+    reads.value = reads.value + 1
     return real_read(fd, count)
   end
   local read, trouble = Fs.read(path)
-  local file_reads = reads
+  local file_reads = reads.value
   sys.read = real_read
   assert(read == data, trouble)
   assert(file_reads == 2, "one read for the bytes and one for the end, not " .. file_reads)

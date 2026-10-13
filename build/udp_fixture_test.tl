@@ -31,19 +31,19 @@ end
 
 local function test_close_ends_a_wait_and_is_idempotent()
   local server = bind()
-  local answer = ""
+  local answer = { value = "" }
   Poll.run(function()
     Poll.spawn(function()
       local packet, why = Udp.receive(server)
       assert(packet == nil)
-      answer = why
+      answer.value = why
     end)
     Poll.spawn(function()
       Udp.close(server)
       Udp.close(server)
     end)
   end)
-  assert(answer == "closed", answer)
+  assert(answer.value == "closed", answer.value)
 end
 
 local function test_only_numeric_hosts_bind_and_a_port_is_not_shared()

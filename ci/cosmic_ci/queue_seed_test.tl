@@ -79,7 +79,7 @@ local record Spec
 end
 
 local function serve(spec: Spec): GithubFake.Fake
-  local runs_asked = 0
+  local runs_asked = { value = 0 }
   local kept: {string: integer} = {}
   local failing: {string: boolean} = {}
   for _, id in ipairs(spec.fail_once or {}) do failing[id] = true end
@@ -100,8 +100,8 @@ local function serve(spec: Spec): GithubFake.Fake
       local by_run = spec.jobs
       return by_run and by_run[id] or jobs()
     end
-    runs_asked = runs_asked + 1
-    local text = spec.runs[math.min(runs_asked, #spec.runs)]
+    runs_asked.value = runs_asked.value + 1
+    local text = spec.runs[math.min(runs_asked.value, #spec.runs)]
     if text == "FAIL" then return nil end
     return text
   end)

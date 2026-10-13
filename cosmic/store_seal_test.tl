@@ -21,9 +21,9 @@ end
 --- `shapes` by type alone (its bytecode does not name it), `lib` requires
 --- `leaf`, and `loop_a` and `loop_b` require each other. Attached ahead
 --- of the binary's, once; a fixture module is never in the binary.
-local attached = false
+local attached = { value = false }
 local function attach(tmp: string)
-  if attached then
+  if attached.value then
     return
   end
   local path = tmp .. "/fixture.db"
@@ -58,7 +58,7 @@ local function attach(tmp: string)
   requires("fixture.loop_b", "fixture.loop_a")
   assert(db:close())
   assert(Store.attach(path))
-  attached = true
+  attached.value = true
 end
 
 local function raises(fn: function(): any, needle: string)

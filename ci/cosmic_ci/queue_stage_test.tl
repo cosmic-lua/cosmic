@@ -21,7 +21,7 @@ Test.policy{
 
 local SHA <const> = "0123456789abcdef0123456789abcdef01234567"
 
-local runs = 0
+local runs = { value = 0 }
 
 --- A [`QueueStage.Host`] that keeps what it is told, and archives with
 --- `archive`, the real one unless the test gives another.
@@ -51,8 +51,8 @@ end
 --- program, whose mode their seed keeps.
 local function stage(tmp: string, env: {string: string}, marker: boolean, marker_key?: string,
                      archive?: function(parent: string, name: string, to: string): boolean, string): string, string, Fake
-  runs = runs + 1
-  local temp = tmp .. "/stage-" .. runs
+  runs.value = runs.value + 1
+  local temp = tmp .. "/stage-" .. runs.value
   assert(Fs.mkdirs(temp .. "/zig-build/zig-project/o/abc"))
   assert(Fs.write(temp .. "/zig-build/zig-project/o/abc/build", "z"))
   assert(Fs.chmod(temp .. "/zig-build/zig-project/o/abc/build", 493))
@@ -359,8 +359,8 @@ end
 --- over `keys` (a seed.keys), and answers what it wrote to
 --- $GITHUB_OUTPUT.
 local function read_keys(tmp: string, ci: {string: {string: any}}, leg: string, keys: string): string
-  runs = runs + 1
-  local dir = tmp .. "/read-" .. runs
+  runs.value = runs.value + 1
+  local dir = tmp .. "/read-" .. runs.value
   assert(Fs.mkdirs(dir))
   assert(Fs.write(dir .. "/seed.keys", keys))
   assert(Fs.write(dir .. "/output", ""))

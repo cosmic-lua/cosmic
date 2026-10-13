@@ -1158,10 +1158,11 @@ end
 
 local function read_tag(s: string): Tag
   local tag: Tag = { name = "", attrs = {}, selfclosing = false, state = "tag_name", at = "", rest = "", slots = {} }
-  local name, value = "", ""
+  local name = { value = "" }
+  local value = { value = "" }
   local function push()
-    tag.attrs[#tag.attrs + 1] = name .. "=" .. value
-    name, value = "", ""
+    tag.attrs[#tag.attrs + 1] = name.value .. "=" .. value.value
+    name.value, value.value = "", ""
   end
   local named: {string} = {}
   local i = 2
@@ -1174,9 +1175,9 @@ local function read_tag(s: string): Tag
       local close = s:find("\2", i, true) or #s
       local id = s:sub(i + 1, close - 1)
       if state == "value_dq" or state == "value_sq" then
-        tag.slots[#tag.slots + 1] = { id, name == "href" and value == "" and "url" or "attr" }
-        named[#tag.slots] = name
-        value = value .. s:sub(i, close)
+        tag.slots[#tag.slots + 1] = { id, name.value == "href" and value.value == "" and "url" or "attr" }
+        named[#tag.slots] = name.value
+        value.value = value.value .. s:sub(i, close)
       else
         tag.slots[#tag.slots + 1] = { id, "refuse" }
       end
@@ -1197,7 +1198,7 @@ local function read_tag(s: string): Tag
       elseif c == ">" then
         tag.state = ""
       elseif not white then
-        name = c:lower()
+        name.value = c:lower()
         tag.state = "attr_name"
       end
     elseif state == "attr_name" then
@@ -1206,7 +1207,7 @@ local function read_tag(s: string): Tag
       elseif c == "=" then
         tag.state = "before_value"
       else
-        name = name .. c:lower()
+        name.value = name.value .. c:lower()
       end
     elseif state == "after_attr" then
       if c == "/" then
@@ -1237,7 +1238,7 @@ local function read_tag(s: string): Tag
         push()
         tag.state = "after_value"
       else
-        value = value .. c
+        value.value = value.value .. c
       end
     elseif state == "after_value" then
       tag.state, again = "before_attr", true
@@ -1249,7 +1250,7 @@ local function read_tag(s: string): Tag
         push()
         tag.state = ""
       else
-        value = value .. c
+        value.value = value.value .. c
       end
     elseif state == "selfclosing" then
       if c == ">" then
@@ -1265,7 +1266,7 @@ local function read_tag(s: string): Tag
   end
   tag.rest = s:sub(i)
   if tag.state ~= "" then
-    tag.at = table.concat({ tag.state, tag.name, name, value }, "\0")
+    tag.at = table.concat({ tag.state, tag.name, name.value, value.value }, "\0")
   end
   table.sort(tag.attrs)
   local equiv = false
@@ -1374,11 +1375,11 @@ local function test_a_block_in_a_tag_adds_only_the_attributes_it_writes(tmp: str
       end
       Fuzz.label("compiled")
       -- Each slot numbered in the order the source has it, as the helpers are.
-      local count = 0
+      local count = { value = 0 }
       local function number(piece: string): string
         return (piece:gsub("{{%.x}}", function(): string
-          count = count + 1
-          return "\1" .. count .. "\2"
+          count.value = count.value + 1
+          return "\1" .. count.value .. "\2"
         end))
       end
       local n_before, n_arm = number(before), number(arm)
@@ -1388,8 +1389,8 @@ local function test_a_block_in_a_tag_adds_only_the_attributes_it_writes(tmp: str
       for made in source:gmatch("parts%[#parts %+ 1%] = _(%a+)%(v%) end") do
         kinds[#kinds + 1] = made
       end
-      if #kinds ~= count then
-        return false, #kinds .. " slots compiled of " .. count .. ": " .. body
+      if #kinds ~= count.value then
+        return false, #kinds .. " slots compiled of " .. count.value .. ": " .. body
       end
       -- What each run writes in the block, and the attributes that alone makes.
       local runs: {string} = { "", n_arm }

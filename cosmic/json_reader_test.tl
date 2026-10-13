@@ -705,11 +705,11 @@ end
 --- chunks, to tell `nan` from `null`.
 local function test_an_n_waits_for_its_next_byte()
   local chunks = { "[", "n", "", "", "an", "]" }
-  local at = 0
+  local at = { value = 0 }
   local source: Stream.Reader = {
     read = function(_self: Stream.Reader, _max?: integer): string | nil, string
-      at = at + 1
-      return chunks[at], ""
+      at.value = at.value + 1
+      return chunks[at.value], ""
     end,
     close = function(_self: Stream.Reader): boolean, string return true, "" end,
   }

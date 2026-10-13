@@ -103,14 +103,14 @@ local record Narrowing
   evaluate: function(Host, Guard | nil): {string:Guard}
 end
 
-local built: compiler | nil
-local narrowing: Narrowing | nil
+local built = { value = nil as compiler | nil }
+local narrowing = { value = nil as Narrowing | nil }
 
 --- The carried compiler, and [`checker/narrowing.tl`] compiled by it and
 --- loaded.
 local function setup(): compiler, Narrowing
-  if built ~= nil and narrowing ~= nil then
-    return built, narrowing
+  if built.value ~= nil and narrowing.value ~= nil then
+    return built.value, narrowing.value
   end
   local compiled = assert(teal.load(true))
   local env = assert(compiled.new_env({ defaults = {
@@ -127,8 +127,8 @@ local function setup(): compiler, Narrowing
   }
   local chunk = assert(load(code, "@checker/narrowing.tl", "t", environment as table))
   local loaded: any = chunk()
-  built, narrowing = compiled, loaded as Narrowing
-  return built, narrowing
+  built.value, narrowing.value = compiled, loaded as Narrowing
+  return built.value, narrowing.value
 end
 
 --- [`checker/narrowing.tl`] as loaded.

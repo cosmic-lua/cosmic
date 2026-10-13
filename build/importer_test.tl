@@ -192,10 +192,10 @@ local function test_self_compile_consumes_cache_after_identity_selection()
           "WHEN NEW.key = 'compiler' BEGIN SELECT RAISE(ABORT, 'identity refused'); END"))
     end
     local shared, trace = traced_cache()
-    local selected = false
+    local selected = { value = false }
     local result, trouble = importer.compile_tree(handle, built,
       function(recorded: identity.Identities): string | nil, string
-        selected = true
+        selected.value = true
         assert(trace.finished == 0 and trace.offered == 1,
           "identity selected before derivation completed")
         local rows = assert(Sqlite.text_rows(handle.db,
@@ -205,7 +205,7 @@ local function test_self_compile_consumes_cache_after_identity_selection()
         return "chosen-compiler", ""
       end, false, shared)
     assert(trace.finished == 1, "self-build did not finish its cache exactly once")
-    assert(selected == (phase ~= "record"))
+    assert(selected.value == (phase ~= "record"))
     if phase == "success" then
       assert(result ~= nil, trouble)
       assert(result.tool == "chosen-compiler" and result.parses.parsed == 1)
@@ -1948,9 +1948,9 @@ local function test_diagnostic_rendering_cannot_change_acceptance()
   assert(work.stage(handle, false))
   assert(importer.derive(handle, false, built))
   local modules = assert(compilation.collect(handle.db))
-  local calls = 0
+  local calls = { value = 0 }
   local function render(_file: string, _source: string, _result: Compiler.Result): string
-    calls = calls + 1
+    calls.value = calls.value + 1
     return ""
   end
   for _, m in ipairs(modules) do
@@ -1964,7 +1964,7 @@ local function test_diagnostic_rendering_cannot_change_acceptance()
       assert(made ~= nil, trouble)
     end
   end
-  assert(calls == 1, "successful compilation consulted diagnostic presentation")
+  assert(calls.value == 1, "successful compilation consulted diagnostic presentation")
   work.close(handle)
 end
 

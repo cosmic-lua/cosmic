@@ -310,15 +310,16 @@ end
 --- itself spells (1 to 300, cycling), so the sniff and the tar's header
 --- reads land across reads wherever the input puts them.
 local function chunked(bytes: string): Stream.Reader
-  local at, turn = 1, 0
+  local at = { value = 1 }
+  local turn = { value = 0 }
   local r: Stream.Reader = {}
   r.read = function(_self: Stream.Reader, max_bytes?: integer): string | nil, string
-    if at > #bytes then return nil, "" end
-    turn = turn + 1
-    local size = bytes:byte(turn % math.max(#bytes, 1) + 1) % 300 + 1
+    if at.value > #bytes then return nil, "" end
+    turn.value = turn.value + 1
+    local size = bytes:byte(turn.value % math.max(#bytes, 1) + 1) % 300 + 1
     if max_bytes ~= nil and max_bytes < size then size = max_bytes end
-    local chunk = bytes:sub(at, at + size - 1)
-    at = at + #chunk
+    local chunk = bytes:sub(at.value, at.value + size - 1)
+    at.value = at.value + #chunk
     return chunk, ""
   end
   r.close = function(_self: Stream.Reader): boolean, string return true, "" end

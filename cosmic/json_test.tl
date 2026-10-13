@@ -458,10 +458,10 @@ end
 --- A small seeded generator, so the random cases below are the same on
 --- every run and a verdict can stand.
 local function generator(seed: integer): function(integer, integer): integer
-  local state = seed
+  local state = { value = seed }
   return function(lo: integer, hi: integer): integer
-    state = (state * 6364136223846793005 + 1442695040888963407)
-    return lo + ((state >> 33) % (hi - lo + 1))
+    state.value = (state.value * 6364136223846793005 + 1442695040888963407)
+    return lo + ((state.value >> 33) % (hi - lo + 1))
   end
 end
 

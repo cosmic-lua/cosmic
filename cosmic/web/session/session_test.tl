@@ -293,7 +293,7 @@ end
 local function test_a_value_that_is_not_json_raises_at_the_set()
   local client = Web.test_client(make_app(options(cookie_store())))
   assert(client:post("/bad").status == 500)
-  local reasons: {string} = {}
+  local reasons = { value = {} as {string} }
   local app = Web.app{
     middleware = { Session.middleware(options(cookie_store())) },
     routes = { Web.get("/", function(req: Web.Request): Web.Response
@@ -301,14 +301,14 @@ local function test_a_value_that_is_not_json_raises_at_the_set()
       local _, f = pcall(function() s:set("f", print as any) end)
       local _, e = pcall(function() s:set("", 1) end)
       local _, r = pcall(function() s:set("_flash", 1) end)
-      reasons = { tostring(f), tostring(e), tostring(r) }
+      reasons.value = { tostring(f), tostring(e), tostring(r) }
       return Web.text("done")
     end) },
   }
   assert(Web.test_client(app):get("/").status == 200)
-  assert(reasons[1]:find("cannot keep f", 1, true), reasons[1])
-  assert(reasons[2]:find("non-empty string", 1, true), reasons[2])
-  assert(reasons[3]:find("reserved", 1, true), reasons[3])
+  assert(reasons.value[1]:find("cannot keep f", 1, true), reasons.value[1])
+  assert(reasons.value[2]:find("non-empty string", 1, true), reasons.value[2])
+  assert(reasons.value[3]:find("reserved", 1, true), reasons.value[3])
 end
 
 local function test_the_handle_is_frozen_once_the_response_is_built()

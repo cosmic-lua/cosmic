@@ -492,12 +492,12 @@ end
 --- A Reader over `rounds` copies of `chunk`, that calls `each(n)` before
 --- its n-th read.
 local function repeating(chunk: string, rounds: integer, each?: function(integer)): Stream.Reader
-  local n = 0
+  local n = { value = 0 }
   local r: Stream.Reader = {}
   r.read = function(_self: Stream.Reader, _max_bytes?: integer): string | nil, string
-    if n >= rounds then return nil, "" end
-    n = n + 1
-    if each ~= nil then each(n) end
+    if n.value >= rounds then return nil, "" end
+    n.value = n.value + 1
+    if each ~= nil then each(n.value) end
     return chunk, ""
   end
   r.close = function(_self: Stream.Reader): boolean, string return true, "" end
@@ -647,10 +647,10 @@ local function test_a_streamed_body_takes_bounded_memory()
   local rounds = 48 -- 3 MiB through each method
   local warm = 6
   for _, method in ipairs({ "deflate", "store" } as {Zip.Method}) do
-    local written = 0
+    local written = { value = 0 }
     local sink: Stream.Writer = {}
     sink.write = function(_self: Stream.Writer, data: string): boolean, string
-      written = written + #data
+      written.value = written.value + #data
       return true, ""
     end
     sink.close = function(_self: Stream.Writer): boolean, string return true, "" end
@@ -658,19 +658,24 @@ local function test_a_streamed_body_takes_bounded_memory()
     collectgarbage()
     collectgarbage()
     local base = collectgarbage("count")
-    local early, late = 0.0, 0.0
+    local early = { value = 0.0 }
+    local late = { value = 0.0 }
     local body = repeating(chunk, rounds, function(n: integer)
       collectgarbage()
       local grown = collectgarbage("count") - base
-      if n <= warm then early = math.max(early, grown) else late = math.max(late, grown) end
+      if n <= warm then
+        early.value = math.max(early.value, grown)
+      else
+        late.value = math.max(late.value, grown)
+      end
     end)
     local w = Zip.writer(sink)
     assert(w:add_file("big", body, { method = method }))
     assert(w:close())
-    assert(written > 0 and (method == "deflate" or written > #chunk * rounds), method)
-    assert(early < 512 and late < early + 128,
+    assert(written.value > 0 and (method == "deflate" or written.value > #chunk * rounds), method)
+    assert(early.value < 512 and late.value < early.value + 128,
       ("%s grew %.0f KiB, then %.0f KiB, over %d KiB of input"):format(
-        method, early, late, #chunk * rounds // 1024))
+        method, early.value, late.value, #chunk * rounds // 1024))
   end
 end
 

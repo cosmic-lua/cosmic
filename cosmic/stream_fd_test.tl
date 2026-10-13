@@ -74,26 +74,28 @@ end
 local function test_a_read_with_a_timeout_in_a_task_lets_the_others_run(tmp: string)
   local reader, writer = fifo(tmp, "task")
   local r = Stream.from_fd(reader, { nonblocking = true, timeout_ns = Clock.ms(120) })
-  local ticks, elapsed = 0, 0
-  local chunk, why: string | nil, string | nil
+  local ticks = { value = 0 }
+  local elapsed = { value = 0 }
+  local chunk = { value = nil as string | nil }
+  local why = { value = nil as string | nil }
   Poll.run(function()
     local done = false
     local ticker = Poll.spawn(function()
       while not done do
         assert(Poll.delay(Clock.ms(5)))
-        ticks = ticks + 1
+        ticks.value = ticks.value + 1
       end
     end)
     local before = Clock.monotonic_ns()
-    chunk, why = r:read()
-    elapsed = Clock.monotonic_ns() - before
+    chunk.value, why.value = r:read()
+    elapsed.value = Clock.monotonic_ns() - before
     done = true
     assert(ticker:join())
   end)
-  assert(chunk == nil and why == Poll.TIMEOUT, tostring(why))
-  assert(elapsed >= Clock.ms(119) and elapsed < Clock.seconds(5),
-    "timed out after " .. elapsed // Clock.ms(1) .. " ms")
-  assert(ticks >= 2, "the other task ticked " .. ticks .. " times while the read waited")
+  assert(chunk.value == nil and why.value == Poll.TIMEOUT, tostring(why.value))
+  assert(elapsed.value >= Clock.ms(119) and elapsed.value < Clock.seconds(5),
+    "timed out after " .. elapsed.value // Clock.ms(1) .. " ms")
+  assert(ticks.value >= 2, "the other task ticked " .. ticks.value .. " times while the read waited")
   assert(sys.close(reader))
   assert(sys.close(writer))
 end
@@ -170,11 +172,12 @@ local function test_a_wait_the_caller_gives_replaces_the_poll(tmp: string)
   local reader, writer = fifo(tmp, "hook")
   local body = string.rep("0123456789abcdef", 1 << 15)
   local seen: {string} = {}
-  local calls, asked = 0, 0
+  local asked = 0
+  local calls = { value = 0 }
   local fail: string | nil = nil
   local w = Stream.to_fd(writer, { nonblocking = true, wait = function(fd: integer,
                                                                        events: integer, left: integer | nil): boolean, string
-    calls = calls + 1
+    calls.value = calls.value + 1
     assert(fd == writer and events == sys.POLLOUT and left == nil)
     if fail ~= nil then return false, fail end
     seen[#seen + 1] = drained(reader)
@@ -182,16 +185,16 @@ local function test_a_wait_the_caller_gives_replaces_the_poll(tmp: string)
   end })
   assert(w:write(body))
   seen[#seen + 1] = drained(reader)
-  assert(calls > 0 and table.concat(seen) == body)
+  assert(calls.value > 0 and table.concat(seen) == body)
   fail = Poll.CANCELLED
   local filled = string.rep("x", 1 << 17)
   local ok, why = w:write(filled)
   assert(not ok and why == Poll.CANCELLED, tostring(why))
-  asked = calls
+  asked = calls.value
   fail = "the pipe is wanted elsewhere"
   local stuck, stuck_why = w:write(filled)
   assert(not stuck and stuck_why == fail, tostring(stuck_why))
-  assert(calls > asked)
+  assert(calls.value > asked)
   fail = nil
   local sticky, sticky_why = w:write("y")
   assert(not sticky and sticky_why == "the pipe is wanted elsewhere", tostring(sticky_why))

@@ -32,13 +32,13 @@ local type compiler = require("build.compiler")
 -- The compiler is the tree's own checker, keyed by the core; [`Fuzz.run`] reads the corpus.
 Test.policy{}
 
-local built: compiler | nil
+local built = { value = nil as compiler | nil }
 
 local function compiler_of(): compiler
-  if built == nil then
-    built = assert(teal.load(true))
+  if built.value == nil then
+    built.value = assert(teal.load(true))
   end
-  return built
+  return built.value
 end
 
 --- `source` checked as a program in a fresh environment, so that one

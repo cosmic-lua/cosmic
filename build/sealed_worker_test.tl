@@ -63,14 +63,14 @@ end
 --- once the test is over included.
 local function test_a_finalizer_finds_no_module_outside_the_closure()
   if not sealed() then return end
-  local failure: string = "not run"
+  local failure = { value = "not run" }
   setmetatable({}, { __gc = function()
     local ok, why = pcall(function()
       for _, name in ipairs(outside) do absent(name) end
     end)
-    failure = ok and "" or tostring(why)
+    failure.value = ok and "" or tostring(why)
   end })
   collectgarbage()
   collectgarbage()
-  assert(failure == "", failure)
+  assert(failure.value == "", failure.value)
 end

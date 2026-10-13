@@ -207,8 +207,8 @@ local function test_where_names_a_frame_by_source_and_line()
   assert(up ~= nil and same ~= nil and number(up) == number(same), tostring(up) .. " " .. tostring(same))
   -- Level 2 from a function `pcall` runs is the `pcall`, which runs C: the
   -- first Lua frame above it is this one, at the line of the call.
-  local viewed: string | nil
-  local ok, line = pcall(function() viewed = errors.where(2) end), number(errors.where() as string)
-  assert(ok and viewed ~= nil and number(viewed) == line, tostring(viewed) .. " against " .. line)
+  local viewed = { value = nil as string | nil }
+  local ok, line = pcall(function() viewed.value = errors.where(2) end), number(errors.where() as string)
+  assert(ok and viewed.value ~= nil and number(viewed.value) == line, tostring(viewed.value) .. " against " .. line)
   assert(errors.where(1000) == nil)
 end

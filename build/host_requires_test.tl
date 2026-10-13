@@ -26,14 +26,14 @@ local function ask(host: host_requires.Host, name: string): host_requires.Answer
 end
 
 local function test_unix_socket_creation_is_a_keyed_host_capability_on_every_platform()
-  local calls = 0
+  local calls = { value = 0 }
   local host = host_requires.new({ linux = false, unix_socket = function(): boolean, string
-    calls = calls + 1
+    calls.value = calls.value + 1
     return true, ""
   end })
   local answer = ask(host, "unix_socket")
   assert(answer.kind == "present" and answer.class == "host" and answer.key == "stream")
-  assert(ask(host, "unix_socket").key == answer.key and calls == 1)
+  assert(ask(host, "unix_socket").key == answer.key and calls.value == 1)
   local refused = ask(host_requires.new({ unix_socket = function(): boolean, string
     return false, "Operation not permitted"
   end }), "unix_socket")
@@ -124,18 +124,18 @@ end
 --- Off Linux every Linux requirement is n/a with no probe asked; on it,
 --- none is: what the host refuses is skipped, never n/a.
 local function test_a_platform_absence_is_n_a_and_a_host_absence_skipped()
-  local asked = 0
+  local asked = { value = 0 }
   local host = host_requires.new({ sandbox = function(): host_requires.Sandbox
-    asked = asked + 1
+    asked.value = asked.value + 1
     return { ok = false, why = "refused here", broken = false }
   end })
   local sandbox = ask(host, "sandbox")
   if assert(sys.uname()).sysname == "Linux" then
-    assert(sandbox.kind == "skipped" and sandbox.why == "refused here" and asked == 1)
+    assert(sandbox.kind == "skipped" and sandbox.why == "refused here" and asked.value == 1)
     assert(ask(host, "landlock:9999").kind == "skipped", "an ABI no kernel has is skipped, not n/a")
     assert(ask(host, "proc").kind ~= "na")
   else
-    assert(sandbox.kind == "na" and asked == 0, "no probe is asked where the platform has none")
+    assert(sandbox.kind == "na" and asked.value == 0, "no probe is asked where the platform has none")
     for _, name in ipairs({ "landlock", "userns", "nest", "own_proc", "proc" }) do
       assert(ask(host, name).kind == "na", name)
     end
@@ -175,14 +175,14 @@ end
 --- A probe runs once a host, however many times the name is asked.
 local function test_each_probe_runs_once_per_host()
   if not (assert(sys.uname()).sysname == "Linux") then Test.skip("only Linux has this probe") end
-  local asked = 0
+  local asked = { value = 0 }
   local host = host_requires.new({ sandbox = function(): host_requires.Sandbox
-    asked = asked + 1
+    asked.value = asked.value + 1
     return { ok = true, why = "", broken = false }
   end })
   local answers = host_requires.answer(host, { "sandbox", "sandbox", "proc" })
   local _ = ask(host, "sandbox")
-  assert(asked == 1 and answers[1] == answers[2])
+  assert(asked.value == 1 and answers[1] == answers[2])
 end
 
 --- Landlock follows the kernel's ABI: `landlock:N` is present up to it,

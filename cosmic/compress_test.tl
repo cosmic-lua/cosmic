@@ -477,9 +477,9 @@ end
 
 local function test_a_stream_revived_by_a_finalizer_is_finished()
   for _, case in ipairs(every_kind()) do
-    local saved: Compress.Stream | nil
+    local saved = { value = nil as Compress.Stream | nil }
     local holder: Holder = setmetatable({} as Holder, {
-      __gc = function(self: Holder) saved = self.s end,
+      __gc = function(self: Holder) saved.value = self.s end,
     } as metatable<Holder>)
     holder.s = case[1]
     -- The stream is collected in the same cycle as the table whose
@@ -489,7 +489,7 @@ local function test_a_stream_revived_by_a_finalizer_is_finished()
     holder = nil
     collectgarbage()
     collectgarbage()
-    local kept = assert(saved, "the finalizer ran")
+    local kept = assert(saved.value, "the finalizer ran")
     local ok, why = pcall(kept.update, kept, case[2])
     assert(not ok and tostring(why):find("compress: the stream is finished", 1, true), tostring(why))
     assert(not pcall(kept.finish, kept))

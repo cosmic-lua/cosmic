@@ -391,10 +391,10 @@ local function test_a_renderer_that_is_not_a_fixed_point_is_refused()
   local original = render_mod.laid_out
   local ok, trouble = pcall(function(): (any...)
     local source = "local x = 1\n"
-    local calls = 0
+    local calls = { value = 0 }
     render_mod.laid_out = function(_: ast.Parsed, src: string): render_mod.Layout | nil, string
-      calls = calls + 1
-      if calls == 1 then
+      calls.value = calls.value + 1
+      if calls.value == 1 then
         return { text = "local  x = 1\n" }
       end
       return { text = src .. "-- a second pass added this\n" }
@@ -579,23 +579,24 @@ local function test_links_read_symbols_from_a_build_made_when_needed(tmp: string
   assert(Fs.write(root .. "/a.md", "[`m.one`] [`m.two`]\n"))
   assert(Fs.write(root .. "/b.md", "[b](b.md)\n"))
   for _, whole in ipairs({ false, true }) do
-    local rebuilt, opened = 0, 0
+    local rebuilt = { value = 0 }
+    local opened = { value = 0 }
     local source = fix.link_context(root, whole, true,
       function(_: string): boolean, string
-        rebuilt = rebuilt + 1
+        rebuilt.value = rebuilt.value + 1
         return true, ""
       end,
       function(): docs.Sources
-        opened = opened + 1
+        opened.value = opened.value + 1
         return { handles = {}, public = {}, opened = {} }
       end)
     fix.links(source.context, built, { root .. "/b.md" })
-    assert(opened == 0 and rebuilt == 0, "a file with no symbol link opened the databases")
+    assert(opened.value == 0 and rebuilt.value == 0, "a file with no symbol link opened the databases")
     local found = fix.links(source.context, built, { root .. "/a.md" })
     source.close()
     assert(#found.broken == 2, table.concat(found.broken, "\n"))
-    assert(opened == 1, "opened " .. opened .. " times")
-    assert(rebuilt == (whole and 0 or 1), (whole and "whole" or "part") .. ": rebuilt " .. rebuilt)
+    assert(opened.value == 1, "opened " .. opened.value .. " times")
+    assert(rebuilt.value == (whole and 0 or 1), (whole and "whole" or "part") .. ": rebuilt " .. rebuilt.value)
   end
 end
 

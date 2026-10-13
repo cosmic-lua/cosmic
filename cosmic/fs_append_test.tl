@@ -55,87 +55,89 @@ local function test_append_completes_short_writes(tmp: string)
   local path = tmp .. "/log"
   assert(Fs.write(path, "before"))
   local real_write = sys.write
-  local writes = 0
+  local writes = { value = 0 }
   sys.write = function(fd: integer, data: string): integer | nil, string, integer
-    writes = writes + 1
+    writes.value = writes.value + 1
     return real_write(fd, data:sub(1, 2))
   end
   local ok, why = Fs.append(path, "abcdefg")
   sys.write = real_write
-  assert(ok and why == "" and writes == 4)
+  assert(ok and why == "" and writes.value == 4)
   assert(Fs.read(path) == "beforeabcdefg")
 end
 
 local function test_append_zero_progress_closes_once(tmp: string)
   local real_write, real_close = sys.write, sys.close
-  local closes = 0
+  local closes = { value = 0 }
   sys.write = function(_fd: integer, _data: string): integer | nil, string, integer
     return 0, "", 0
   end
   sys.close = function(fd: integer): boolean, string, integer
-    closes = closes + 1
+    closes.value = closes.value + 1
     return real_close(fd)
   end
   local path = tmp .. "/log"
   local ok, why = Fs.append(path, "data")
   sys.write, sys.close = real_write, real_close
   assert(not ok and why == path .. ": write made no progress", why)
-  assert(closes == 1 and Fs.read(path) == "")
+  assert(closes.value == 1 and Fs.read(path) == "")
 end
 
 local function test_append_partial_failure_keeps_prefix_and_first_error(tmp: string)
   local path = tmp .. "/log"
   assert(Fs.write(path, "before"))
   local real_write, real_close = sys.write, sys.close
-  local writes, closes = 0, 0
+  local writes = { value = 0 }
+  local closes = { value = 0 }
   sys.write = function(fd: integer, data: string): integer | nil, string, integer
-    writes = writes + 1
-    if writes == 1 then return real_write(fd, data:sub(1, 2)) end
+    writes.value = writes.value + 1
+    if writes.value == 1 then return real_write(fd, data:sub(1, 2)) end
     return nil, "write refused", 0
   end
   sys.close = function(fd: integer): boolean, string, integer
-    closes = closes + 1
+    closes.value = closes.value + 1
     assert(real_close(fd))
     return false, "close refused", 0
   end
   local ok, why = Fs.append(path, "abcdef")
   sys.write, sys.close = real_write, real_close
   assert(not ok and why == path .. ": write refused", why)
-  assert(closes == 1 and Fs.read(path) == "beforeab")
+  assert(closes.value == 1 and Fs.read(path) == "beforeab")
 end
 
 local function test_append_close_failure_does_not_retry_a_recycled_descriptor(tmp: string)
   local path = tmp .. "/log"
   local real_close = sys.close
-  local closes, recycled = 0, -1
+  local closes = { value = 0 }
+  local recycled = { value = -1 }
   sys.close = function(fd: integer): boolean, string, integer
-    closes = closes + 1
+    closes.value = closes.value + 1
     assert(real_close(fd))
-    recycled = assert(sys.open(tmp .. "/other", sys.O_WRONLY | sys.O_CREAT, 0x180))
+    recycled.value = assert(sys.open(tmp .. "/other", sys.O_WRONLY | sys.O_CREAT, 0x180))
     return false, "close refused", 0
   end
   local ok, why = Fs.append(path, "data")
   sys.close = real_close
-  local written = sys.write(recycled, "still open")
-  assert(sys.close(recycled))
+  local written = sys.write(recycled.value, "still open")
+  assert(sys.close(recycled.value))
   assert(not ok and why == path .. ": close refused", why)
-  assert(closes == 1 and written == 10 and Fs.read(path) == "data")
+  assert(closes.value == 1 and written == 10 and Fs.read(path) == "data")
 end
 
 local function test_append_raising_write_releases_descriptor_and_keeps_exception(tmp: string)
   local real_write, real_close = sys.write, sys.close
-  local closes = 0
+  local closes = { value = 0 }
   local marker = {}
   sys.write = function(_fd: integer, _data: string): integer | nil, string, integer
     error(marker)
   end
   sys.close = function(fd: integer): boolean, string, integer
-    closes = closes + 1
+    closes.value = closes.value + 1
     return real_close(fd)
   end
   local ok, why = pcall(Fs.append, tmp .. "/log", "data")
   sys.write, sys.close = real_write, real_close
-  assert(not ok and why == marker and closes == 1)
+  assert(not ok and why == marker and closes.value == 1)
 end
 
 local function test_append_rejects_invalid_data_before_creating_file(tmp: string)

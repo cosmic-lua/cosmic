@@ -14,7 +14,7 @@ local type Net = require("cosmic.net")
 --- already.
 local function fake(name: string, log: {string}, hold_ns?: integer, dies?: boolean, gone?: boolean): Net.Connector
   local hold = hold_ns or 0
-  local ended = gone or false
+  local ended = { value = gone or false }
   local stand_in: any = {
     connect = function(_: any, address: Net.Address, opts: Net.ConnectOptions): any, string
       log[#log + 1] = name .. " " .. assert(address.host) .. " " .. assert(opts.timeout_ns)
@@ -23,16 +23,16 @@ local function fake(name: string, log: {string}, hold_ns?: integer, dies?: boole
         if not waited then return nil, why end
       end
       if dies then
-        ended = true
+        ended.value = true
         return nil, "net: the connector has ended"
       end
       return nil, "refused by " .. name
     end,
     ended = function(_: any): boolean
-      return ended
+      return ended.value
     end,
     close = function(_: any): boolean, string
-      ended = true
+      ended.value = true
       return true, ""
     end,
   }

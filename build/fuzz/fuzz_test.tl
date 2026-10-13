@@ -15,17 +15,17 @@ local function any_bytes(src: Fuzz.Source): string
 end
 
 local function test_a_property_that_holds_runs_every_iteration()
-  local seen = 0
+  local seen = { value = 0 }
   local n = Fuzz.run({
     name = "holds",
     iters = 20,
     gen = any_bytes,
     check = function(_input: string): boolean, string
-      seen = seen + 1
+      seen.value = seen.value + 1
       return true, ""
     end,
   })
-  assert(n == 20 and seen == 20, ("ran %d, checked %d"):format(n, seen))
+  assert(n == 20 and seen.value == 20, ("ran %d, checked %d"):format(n, seen.value))
 end
 
 -- Any byte of 200 or more fails: the simplest failing input is that one
@@ -127,7 +127,7 @@ local function test_a_zero_budget_edit_count_leaves_the_sample()
 end
 
 local function test_mutate_stays_deterministic_and_changes_its_sample()
-  local changed = 0
+  local changed = { value = 0 }
   local err = report({
     name = "mutates",
     iters = 100,
@@ -135,11 +135,11 @@ local function test_mutate_stays_deterministic_and_changes_its_sample()
       return Fuzz.mutate(src, "ustar\0" .. string.rep("0", 20), 4)
     end,
     check = function(input: string): boolean, string
-      if input ~= "ustar\0" .. string.rep("0", 20) then changed = changed + 1 end
+      if input ~= "ustar\0" .. string.rep("0", 20) then changed.value = changed.value + 1 end
       return #input < 40, "grew"
     end,
   })
-  assert(changed > 0)
+  assert(changed.value > 0)
   assert(err:find("grew", 1, true), err)
 end
 
@@ -359,11 +359,11 @@ end
 -- A check that fails an input once and then holds for it depends on
 -- something beside the input: the report says so rather than shrinking.
 local function test_a_check_that_fails_once_is_reported_flaky()
-  local failed = false
+  local failed = { value = false }
   local err = report({ name = "once", iters = 5, gen = any_bytes,
     check = function(_input: string): boolean, string
-      if failed then return true, "" end
-      failed = true
+      if failed.value then return true, "" end
+      failed.value = true
       return false, "the first time"
     end })
   assert(err:find("fuzz once: seed=1 iteration=1: flaky: failed (the first time), then held " ..
@@ -375,12 +375,12 @@ end
 -- again is not reported as the smallest: the input that first failed
 -- is, and the report says why.
 local function test_a_shrunk_input_that_then_holds_is_named_flaky()
-  local seen_alone = false
+  local seen_alone = { value = false }
   local err = report({ name = "shrunk once", iters = 200, gen = any_bytes,
     check = function(input: string): boolean, string
       if input == "\200" then
-        if seen_alone then return true, "" end
-        seen_alone = true
+        if seen_alone.value then return true, "" end
+        seen_alone.value = true
         return false, "a high byte"
       end
       return input:find("[\200-\255]") == nil, "a high byte"

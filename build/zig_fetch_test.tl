@@ -57,7 +57,7 @@ local downloaded: Http.DownloadResult = { kind = "downloaded", reason = "" }
 local function scripted(replies: {string:{Http.DownloadResult}}, calls: {string},
                         sleeps: {integer}, per_call_ns?: integer, seen?: {Http.Options}): ZigFetch.Fetcher
   local served: {string:integer} = {}
-  local clock = 0
+  local clock = { value = 0 }
   return {
     download = function(url: string, path: string, opts: Http.Options): Http.DownloadResult
       assert(opts.sha256 == "abc")
@@ -69,7 +69,7 @@ local function scripted(replies: {string:{Http.DownloadResult}}, calls: {string}
       if seen ~= nil then
         seen[#seen + 1] = opts
       end
-      clock = clock + (per_call_ns or 0)
+      clock.value = clock.value + (per_call_ns or 0)
       served[url] = (served[url] or 0) + 1
       local reply = replies[url][served[url]] or replies[url][#replies[url]]
       if reply.kind == "downloaded" then
@@ -79,10 +79,10 @@ local function scripted(replies: {string:{Http.DownloadResult}}, calls: {string}
     end,
     sleep = function(ns: integer)
       sleeps[#sleeps + 1] = ns
-      clock = clock + ns
+      clock.value = clock.value + ns
     end,
     now = function(): integer
-      return clock
+      return clock.value
     end,
   }
 end

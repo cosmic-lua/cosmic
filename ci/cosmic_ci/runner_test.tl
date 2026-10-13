@@ -139,15 +139,17 @@ local function test_phase_keeps_exit_codes_full_errors_and_callback_times(tmp: s
     messages[#messages + 1] = bytes
     return true
   end
-  local entered, leaving, returned = 0, 0, 0
+  local entered = { value = 0 }
+  local leaving = { value = 0 }
+  local returned = { value = 0 }
   local called, failure = pcall(function(): boolean
     assert(Runner.phase(context, "done", function(): integer
-      entered = Clock.monotonic_ns()
+      entered.value = Clock.monotonic_ns()
       Clock.sleep_ns(Clock.ms(1))
-      leaving = Clock.monotonic_ns()
+      leaving.value = Clock.monotonic_ns()
       return 0
     end) == 0)
-    returned = Clock.monotonic_ns()
+    returned.value = Clock.monotonic_ns()
     assert(Runner.phase(context, "refused", function(): integer return 23 end) == 23)
     assert(#messages == 0, "a returned status logged another diagnostic")
     assert(Runner.phase(context, "raised", function(): integer error(detail, 0) end) == 1)
@@ -170,7 +172,7 @@ local function test_phase_keeps_exit_codes_full_errors_and_callback_times(tmp: s
       rows[3]:text(4) == detail, "the phase's full error or durable exit code was lost")
   local started = assert(tonumber(rows[1]:text(5)))
   local finished = assert(tonumber(rows[1]:text(6)))
-  assert(started <= entered and finished >= leaving and finished <= returned and
+  assert(started <= entered.value and finished >= leaving.value and finished <= returned.value and
       tonumber(rows[1]:text(7)) == finished - started, "phase timestamps do not enclose its callback")
   for _, row in ipairs(rows) do
     assert(row:text(8) == "1" and row:text(9) == "0", "a phase acquired a child's signal or timeout")
@@ -206,13 +208,13 @@ local function test_phase_rejects_a_candidate_database_before_its_action(tmp: st
   assert(Fs.mkdirs(candidate))
   local context: Runner.Context = { database = candidate .. "/operations.db", worker = "worker",
     run = "run", attempt = "1", candidate = candidate }
-  local ran = false
+  local ran = { value = false }
   local called, failure = pcall(Runner.phase, context, "refused", function(): integer
-    ran = true
+    ran.value = true
     return 0
   end)
   assert(not called and tostring(failure):find("outside candidate checkout", 1, true))
-  assert(not ran and not Predicate.exists(context.database), "a refused phase did work")
+  assert(not ran.value and not Predicate.exists(context.database), "a refused phase did work")
 end
 
 local function spawn_context(tmp: string): Runner.Context
