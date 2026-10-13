@@ -293,6 +293,243 @@ local function g(): integer
 end
 return g
 ]],
+  call_after_inner_scope = [[
+local record R
+   a: number | nil
+end
+local function maybe() end
+local function f(q: R, p: R): number
+  if q.a then
+    do
+      local q = p
+      print(q)
+    end
+    maybe()
+    return q.a + 1
+  end
+  return 0
+end
+print(f)
+]],
+  alias_inner_scope = [[
+local record R
+   a: number | nil
+end
+local function f(q: R, p: R): number
+  if q.a then
+    local outer = q
+    if p then
+      local q = p
+      print(q)
+    end
+    outer.a = nil
+    return q.a + 1
+  end
+  return 0
+end
+print(f)
+]],
+  method_after_inner_scope = [[
+local record R
+   a: number | nil
+   ab: number | nil
+   r: R | nil
+   metamethod __add: function(R, R): R
+   m: function(R)
+end
+local function maybe(): number | nil return nil end
+local function f(q: R, p: R): number
+  if q.a then
+    do local q = p print(q) end
+    p:m()
+    return q.a + 1
+  end
+  return 0
+end
+print(f, maybe)
+]],
+  metamethod_after_inner_scope = [[
+local record R
+   a: number | nil
+   ab: number | nil
+   r: R | nil
+   metamethod __add: function(R, R): R
+   m: function(R)
+end
+local function maybe(): number | nil return nil end
+local function f(q: R, p: R): number
+  if q.a then
+    do local q = p print(q) end
+    local s = p + p
+    return q.a + 1 + (s.a or 0)
+  end
+  return 0
+end
+print(f, maybe)
+]],
+  string_index_write_after_inner_scope = [[
+local record R
+   a: number | nil
+   ab: number | nil
+   r: R | nil
+   metamethod __add: function(R, R): R
+   m: function(R)
+end
+local function maybe(): number | nil return nil end
+local function f(q: R, p: R): number
+  if q.a then
+    do local q = p print(q) end
+    local o = q
+    o["a"] = nil
+    return q.a + 1
+  end
+  return 0
+end
+print(f, maybe)
+]],
+  index_write_after_inner_scope = [[
+local record R
+   a: number | nil
+   ab: number | nil
+   r: R | nil
+   metamethod __add: function(R, R): R
+   m: function(R)
+end
+local function maybe(): number | nil return nil end
+local function f(q: R, p: R, k: string): number
+  if q.a then
+    do local q = p print(q) end
+    local m = q as {string:any}
+    m[k] = nil
+    return q.a + 1
+  end
+  return 0
+end
+print(f, maybe)
+]],
+  closure_write_after_inner_scope = [[
+local record R
+   a: number | nil
+   ab: number | nil
+   r: R | nil
+   metamethod __add: function(R, R): R
+   m: function(R)
+end
+local function maybe(): number | nil return nil end
+local function f(q: R, p: R): number
+  if q.a then
+    do local q = p print(q) end
+    local clear = function() q.a = nil end
+    clear()
+    return q.a + 1
+  end
+  return 0
+end
+print(f, maybe)
+]],
+  loop_call_after_inner_scope = [[
+local record R
+   a: number | nil
+   ab: number | nil
+   r: R | nil
+   metamethod __add: function(R, R): R
+   m: function(R)
+end
+local function maybe(): number | nil return nil end
+local function f(q: R, p: R): number
+  if q.a then
+    for _, q in ipairs({p}) do print(q) end
+    maybe()
+    return q.a + 1
+  end
+  return 0
+end
+print(f, maybe)
+]],
+  else_call_after_binding = [[
+local record R
+   a: number | nil
+   ab: number | nil
+   r: R | nil
+   metamethod __add: function(R, R): R
+   m: function(R)
+end
+local function maybe(): number | nil return nil end
+local function f(q: R, p: R, c: boolean): number
+  if q.a then
+    if c then
+      local q = p
+      print(q)
+    else
+      maybe()
+      return q.a + 1
+    end
+  end
+  return 0
+end
+print(f, maybe)
+]],
+  nested_field_after_inner_scope = [[
+local record R
+   a: number | nil
+   ab: number | nil
+   r: R | nil
+   metamethod __add: function(R, R): R
+   m: function(R)
+end
+local function maybe(): number | nil return nil end
+local function f(q: R, p: R): number
+  if q.r and q.r.a then
+    do local q = p print(q) end
+    local o = q.r
+    o.a = nil
+    return q.r.a + 1
+  end
+  return 0
+end
+print(f, maybe)
+]],
+  two_fields_call_after_inner_scope = [[
+local record R
+  a: number | nil
+end
+local function maybe() end
+local function f(q: R, p: R): number
+  if q.a then
+    do local q = p print(q) end
+    maybe()
+    return (q.a or 0) + 1
+  end
+  return 0
+end
+local function g(q: R, p: R, s: R): number
+  if q.a and s.a then
+    do local q = p print(q) end
+    maybe()
+    return (q.a or 0) + 1
+  end
+  return 0
+end
+print(f, g)
+]],
+  field_prefix_not_dropped = [[
+local record R
+   a: number | nil
+   ab: number | nil
+   r: R | nil
+   metamethod __add: function(R, R): R
+   m: function(R)
+end
+local function maybe(): number | nil return nil end
+local function f(q: R): number
+  if q.a and q.ab then
+    q.a = 1
+    return q.ab + 1
+  end
+  return 0
+end
+print(f, maybe)
+]],
   shadowed_name = [[
 local function g(x: string | nil): integer
   if x == nil then return 0 end
@@ -459,10 +696,28 @@ local function test_reads_are_compared_when_the_log_is_set()
   assert(code ~= nil and (env.shadow_reads or 0) >= 2 and #found == 0)
 end
 
-local function test_no_read_is_compared_when_the_log_is_not_set()
-  local env = verdicts.environment(checker())
-  local code = checker().gen("local x: integer | nil = 1\nif x then print(x) end\n", env, nil, "tl")
-  assert(code ~= nil and env.shadow_reads == nil and env.shadow_mismatches == nil)
+--- With the log unset the checker keeps no shadow: nothing is counted or
+--- compared, and what it says is what it says with the log set.
+local function test_the_shadow_is_not_kept_when_the_log_is_not_set()
+  local text = [[
+local record R
+  a: integer | nil
+end
+local function g(r: R, x: integer | nil): integer
+  if r.a == nil or x == nil then return 0 end
+  local function inner(): integer return 1 end
+  return r.a + x + inner()
+end
+return g
+]]
+  local off = verdicts.environment(checker())
+  local _, off_result = checker().gen(text, off, nil, "tl")
+  assert(off.shadow_reads == nil and off.shadow_field_reads == nil and off.shadow_mismatches == nil)
+  local on = verdicts.environment(checker())
+  on.shadow_mismatches = {}
+  local _, on_result = checker().gen(text, on, nil, "tl")
+  assert((on.shadow_reads or 0) > 0 and (on.shadow_field_reads or 0) > 0)
+  assert(#off_result.type_errors == #on_result.type_errors and #off_result.warnings == #on_result.warnings)
 end
 
 -- A disagreement the old narrowing is to blame for, pinned as the mismatch
@@ -491,8 +746,8 @@ local function f(x1: integer | nil): integer
 end
 return f
 ]])
-  assert(#found >= 1, "the old narrowing no longer widens the localized variable")
-  for _, line in ipairs(found) do
-    assert(line:find("x1: shadow integer", 1, true) ~= nil, line)
-  end
+  assert(table.concat(found, "\n") == table.concat({
+    "localized.tl:6:13 x1: shadow integer (inferred at :2:6), old integer | nil",
+    "localized.tl:6:17 x1: shadow integer (inferred at :2:6), old integer | nil",
+  }, "\n"), table.concat(found, "\n"))
 end
