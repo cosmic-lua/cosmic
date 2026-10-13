@@ -116,12 +116,6 @@ local record verdicts
   --- the source in each line.
   program_lines: function(built: compiler, file: string, text: string): {Line}
 
-  --- Whether the checker's shadow facts are compared with its narrowing, so
-  --- that each disagreement is a line (`shadow.mismatch`). `main` sets it
-  --- when `TL_SHADOW_FACTS=1`; the lines are for reading, not for the diff
-  --- that shows no verdict moved.
-  shadow: boolean
-
   --- A checker environment as the build makes one, less its staged database.
   environment: function(built: compiler): compiler.Env
 
@@ -145,6 +139,12 @@ local record verdicts
   main: function(argv: {string}): integer
 end
 
+--- Whether the checker's shadow facts are compared with its narrowing, so
+--- that each disagreement is a line (`shadow.mismatch`). `main` sets it when
+--- `TL_SHADOW_FACTS=1`; the lines are for reading, not for the diff that
+--- shows no verdict moved.
+local held = { shadow_facts = false }
+
 --- A checker environment for the tree: the strictness the build holds
 --- itself to and without the names the runtime removes, as
 --- [`build.teal`]'s `environment_for` makes one.
@@ -153,7 +153,7 @@ function verdicts.environment(built: compiler): compiler.Env
     feat_lax = "off", gen_compat = "off", gen_target = "5.4", runtime_checks = false,
   } }))
   teal.strip(env)
-  if verdicts.shadow then
+  if held.shadow_facts then
     env.shadow_mismatches = {}
   end
   return env
@@ -421,7 +421,7 @@ end
 
 function verdicts.main(argv: {string}): integer
   local command = argv[1]
-  verdicts.shadow = Env.get("TL_SHADOW_FACTS") == "1"
+  held.shadow_facts = Env.get("TL_SHADOW_FACTS") == "1"
   if command == "dump" then
     return dump(argv)
   end
