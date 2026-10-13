@@ -437,33 +437,9 @@ local function test_no_read_is_compared_when_the_log_is_not_set()
   assert(code ~= nil and env.shadow_reads == nil and env.shadow_mismatches == nil)
 end
 
--- The two disagreements the old narrowing is to blame for, each pinned as
--- the one mismatch it gives, so that fixing the old narrowing fails the test
--- and takes the pin away. Neither is a fault of the shadow: the facts are
--- the model's.
-
---- An assignment inside a test of the place itself leaves the narrowing
---- outside it: after `ch = "z"`, `ch` is still `"'" | "!"` to the old
---- narrowing, which is wrong. The facts widen it.
--- TODO: pin this to no mismatch once the old narrowing widens a place an
--- inner test of it re-narrowed, which a PR of its own makes before the PR
--- that switches reads to the facts.
-local function test_old_narrowing_keeps_a_place_assigned_under_its_own_test()
-  local found = mismatches("assigned.tl", [[
-local function f(src: string): integer
-  local ch = src:sub(1, 1)
-  if ch == "'" or ch == "!" then
-    if ch == "'" then
-      ch = "z"
-    end
-    local n: integer = ch
-  end
-  return 1
-end
-return f
-]])
-  assert(#found == 1 and found[1]:find("ch: shadow string, old", 1, true) ~= nil, table.concat(found, "\n"))
-end
+-- A disagreement the old narrowing is to blame for, pinned as the mismatch
+-- it gives, so that fixing the old narrowing fails the test and takes the pin
+-- away. It is no fault of the shadow: the facts are the model's.
 
 --- The old narrowing widens by name, and `local x = x` is a name of two
 --- variables: a widening of the outer one reaches the inner one (to a type

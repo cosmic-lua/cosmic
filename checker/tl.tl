@@ -13956,10 +13956,20 @@ do
                local widened = assigned ~= nil and assigned[key]
                if held == nil and widened and deferred then
                   -- Left to the `if`.
-               elseif held == nil or (widened and not deferred
-                  and not self:same_type(held as Type, ty as Type)) then
+               elseif held == nil and not widened then
                   doomed = doomed or {}
                   doomed[#doomed + 1] = key
+               elseif widened and not deferred then
+                  -- A widened place has the type it was declared with where
+                  -- the scope ends, unless it was narrowed again.
+                  local ends = held as Type
+                  if ends == nil then
+                     ends = self:shadow_declared(key)
+                  end
+                  if ends == nil or not self:same_narrowing(ty as Type, ends) then
+                     doomed = doomed or {}
+                     doomed[#doomed + 1] = key
+                  end
                end
             end
             for _, key in ipairs(doomed or {}) do
