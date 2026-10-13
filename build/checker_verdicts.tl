@@ -94,6 +94,7 @@
 -- narrowed reads too (a `--types` mode), once checker/facts.tl feeds the
 -- type report: until then the lines cannot show a read whose type moved
 -- while its verdict did not.
+local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local shape_specs = require("build.shape_specs")
 local programs = require("build.checker_programs")
@@ -114,6 +115,12 @@ local record verdicts
   --- an environment of its own, as the fuzz properties check one. `file` names
   --- the source in each line.
   program_lines: function(built: compiler, file: string, text: string): {Line}
+
+  --- Whether the checker's shadow facts are compared with its narrowing, so
+  --- that each disagreement is a line (`shadow.mismatch`). `main` sets it
+  --- when `TL_SHADOW_FACTS=1`; the lines are for reading, not for the diff
+  --- that shows no verdict moved.
+  shadow: boolean
 
   --- A checker environment as the build makes one, less its staged database.
   environment: function(built: compiler): compiler.Env
@@ -146,9 +153,35 @@ function verdicts.environment(built: compiler): compiler.Env
     feat_lax = "off", gen_compat = "off", gen_target = "5.4", runtime_checks = false,
   } }))
   teal.strip(env)
+  if verdicts.shadow then
+    env.shadow_mismatches = {}
+  end
   return env
 end
 local environment <const> = verdicts.environment
+
+--- The disagreements the checker's shadow facts found in `env`, as lines of
+--- `file`, and none left in it.
+local function shadow_lines(out: {verdicts.Line}, file: string, env: compiler.Env)
+  local found = env.shadow_mismatches
+  if found == nil then
+    return
+  end
+  -- Reads compared go in a line of their own, for the count.
+  if (env.shadow_reads or 0) > 0 then
+    out[#out + 1] = { file = file, code = "shadow.reads", y = 0, x = 0, message = tostring(env.shadow_reads) }
+    env.shadow_reads = 0
+  end
+  for i, text in ipairs(found) do
+    local y, x, message = text:match("^(%d+):(%d+) (.*)$")
+    out[#out + 1] = {
+      file = file, code = "shadow.mismatch",
+      y = math.tointeger(tonumber(y or "")) or 0, x = math.tointeger(tonumber(x or "")) or 0,
+      message = message or text,
+    }
+    found[i] = nil
+  end
+end
 
 local function escaped(text: string): string
   return (text:gsub("[\\\t\n\r]", {
@@ -195,6 +228,7 @@ function verdicts.program_lines(built: compiler, file: string, text: string): {v
   else
     collect(out, file, result, nil)
   end
+  shadow_lines(out, file, env)
   return out
 end
 
@@ -297,6 +331,7 @@ function verdicts.tree_lines(built: compiler, root: string, names: {string}, fre
           raised(out, relative, result)
         else
           collect(out, relative, result, relative)
+          shadow_lines(out, relative, env)
           if name ~= nil and result.type ~= nil then
             env.modules[name] = result.type
           end
@@ -386,6 +421,7 @@ end
 
 function verdicts.main(argv: {string}): integer
   local command = argv[1]
+  verdicts.shadow = Env.get("TL_SHADOW_FACTS") == "1"
   if command == "dump" then
     return dump(argv)
   end
