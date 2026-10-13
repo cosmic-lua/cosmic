@@ -11,6 +11,6 @@ end
 local function test_a_write_answers_whether_it_landed()
   local Log = require("cosmic.log")
   local log = Log.new("x")
-  local ok, trouble = log:verdict("t", true, "a write to stdout")
+  local ok, trouble = log:say("a write to stdout")
   assert(ok and trouble == "", trouble)
 end
