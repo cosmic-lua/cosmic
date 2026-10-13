@@ -465,6 +465,7 @@ const core_sources = [_][]const u8{
     "http.c",
     "json.c",
     "namespace_calls.c",
+    "psa_sha_driver.c",
     "socket.c",
     "sqlite.c",
     "store.c",
