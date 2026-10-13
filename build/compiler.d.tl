@@ -77,6 +77,11 @@ local record compiler
     "not_assigned"
     -- a local declared with neither a type nor a value: `variable`
     "no_type"
+    -- a `goto` that is not a jump forward to the label that ends the body of
+    -- the loop around it, or a label no such `goto` names: `variable` (the
+    -- label's name), `goto_y`, `goto_x` (none for a label), and `label_y`,
+    -- `label_x` (none where the `goto` names no label)
+    "goto_not_continue"
     "other"
   end
 
@@ -176,7 +181,7 @@ local record compiler
     -- For a local read before it is assigned: whether the read is a
     -- function literal that names it, what may call that function before
     -- the assignment (`ran_kind`: `call`, `operator`, `iterator`,
-    -- `return`, `goto`, `never` or `scope`, at `ran_y`, `ran_x` unless it is the end
+    -- `return`, `never` or `scope`, at `ran_y`, `ran_x` unless it is the end
     -- of the scope), and the statement a path went by that skipped the
     -- assignment (`branch`, `if` or `loop`), and where.
     closure: boolean | nil
@@ -186,6 +191,13 @@ local record compiler
     skipped_kind: string | nil
     skipped_y: integer | nil
     skipped_x: integer | nil
+
+    -- For a `goto` or a label that is not a continue: where the `goto` is
+    -- and where the label it names is.
+    goto_y: integer | nil
+    goto_x: integer | nil
+    label_y: integer | nil
+    label_x: integer | nil
   end
 
   -- TODO: declare `ast`, `type`, [`Env.modules`], the reporter's

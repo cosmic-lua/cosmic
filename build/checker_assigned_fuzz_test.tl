@@ -1,5 +1,5 @@
 --- Definite assignment, held to the semantics it is a rule about. A program
---- of branches, loops, `break`, `return`, `goto` and calls that never return is
+--- of branches, loops, `break`, `return`, `goto` as a continue and calls that never return is
 --- drawn over one local `x: integer` declared with no value, and run: every
 --- way the program's choices (which branch, how often a loop goes round) can
 --- fall is followed, and the program is bad when some way reads `x` before
@@ -24,6 +24,9 @@ local record Recipe
   left: integer
   -- Labels made so far, which name the next.
   labels: integer
+  -- The labels some `goto` has been drawn for: a label nothing continues to
+  -- is refused, so it is not written.
+  jumped: {string:boolean}
 end
 
 local function draw(r: Recipe, n: integer): integer
@@ -59,7 +62,7 @@ local KINDS <const>: {string} = {
   "assign", "assign", "assign", "read", "read", "read", "shadow", "closure arg", "closure keep", "closure fn",
   "break", "return", "stop",
   "if", "if", "if", "if else", "if else", "if else", "while", "while true", "repeat", "for",
-  "continue if", "continue", "forward goto",
+  "continue if", "continue",
 }
 
 --- Draws one statement into `p`; true when it ends its block (no statement
@@ -118,31 +121,27 @@ function draws.statement(r: Recipe, p: Program, depth: integer, loop_end: string
     emit(p, opening[kind])
     emit(p, "use(0)")
     -- The body is a block of its own, so a `goto` to the label at its end
-    -- needs no statement to stay last, and a `return` may end the body.
+    -- needs no statement to stay last, and a `return` may end the body. The
+    -- label is written only if the body jumps to it.
     emit(p, "do")
     draws.block(r, p, depth - 1, continue)
     emit(p, "end")
-    emit(p, "::" .. continue .. "::")
+    if r.jumped[continue] then
+      emit(p, "::" .. continue .. "::")
+    end
     emit(p, kind == "repeat" and "until cond()" or "end")
   elseif kind == "continue if" or kind == "continue" then
     -- A `goto` to the end of the loop round, which `continue` is.
     if loop_end == "" then
       emit(p, "use(0)")
     elseif kind == "continue if" then
+      r.jumped[loop_end] = true
       emit(p, "if cond() then goto " .. loop_end .. " end")
     else
+      r.jumped[loop_end] = true
       emit(p, "goto " .. loop_end)
       return true
     end
-  else
-    -- A `goto` forward past the rest of a block.
-    r.labels = r.labels + 1
-    local skip = "s" .. r.labels
-    emit(p, "do")
-    emit(p, "if cond() then goto " .. skip .. " end")
-    draws.block(r, p, depth - 1, loop_end)
-    emit(p, "end")
-    emit(p, "::" .. skip .. "::")
   end
   return false
 end
@@ -246,7 +245,7 @@ local head <const> = "local function use(_: any) end\n" ..
 
 --- The program `input` draws: the Teal text and the Lua body.
 local function program_of(input: string): string, string
-  local r: Recipe = { bytes = input, at = 0, left = 24, labels = 0 }
+  local r: Recipe = { bytes = input, at = 0, left = 24, labels = 0, jumped = {} }
   local p: Program = { teal = {}, lua = {} }
   draws.block(r, p, 3, "")
   return head .. "local function f()\n  local x: integer\n" .. table.concat(p.teal, "\n") .. "\nend\nuse(f)\n",

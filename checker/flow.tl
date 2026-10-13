@@ -8,7 +8,10 @@
 -- A statement ends its block when control cannot reach the statement
 -- after it:
 --
---   * `return`, `break` and `goto` always;
+--   * `return`, `break` and `goto` always (the checker allows a `goto` only
+--     as a continue: a jump forward to the label that ends the body of
+--     the loop around it, so it skips the rest of a pass and leaves no
+--     loop);
 --   * `do ... end` and each branch of an `if` when the last statement of
 --     its body ends;
 --   * an `if` when it has an `else` and every branch ends;
@@ -40,12 +43,6 @@
 -- This file holds only upstream Teal 0.24.8: the boot compiles it with
 -- the vendored `tl.lua` (core/bridge.lua), as it does checker/tl.tl.
 --
--- TODO: a `goto` ends its block whatever its label is, and a loop that
--- only a `goto` leaves counts as one with no exit (`breaks_out` looks
--- for `break` alone). Both let the checker narrow after code control can
--- reach through the label. It waits on this module resolving labels,
--- which needs the checker's scopes of labels moved into it.
---
 -- TODO: a global declared with a type and no value (`global gx: integer`)
 -- is read as a value though nothing assigned it, and a local given a call
 -- that returns no values (`local v: integer = f()`) is nil though its type
@@ -54,12 +51,9 @@
 -- but one that names it, which refuses both where they are declared.
 --
 -- TODO: a function that only assigns a local it names (`local got: T;
--- spawn(function() got = v end)`) is pending as one that reads it is, and
--- a `goto` back round a label counts as running code even where none may
--- between the label and the `goto`. Both refuse what could not read the
--- local early. They wait on `mention` telling a read of a name from a
--- write to it, and on this module telling whether code may run between
--- two statements.
+-- spawn(function() got = v end)`) is pending as one that reads it is. It
+-- refuses what could not read the local early, and waits on `mention`
+-- telling a read of a name from a write to it.
 
 -- The statement fields reachability reads. The checker's own `Node`
 -- (checker/tl.tl) has all of them, and its callers cast to this type,
@@ -185,12 +179,13 @@ function flow.leaves(node: flow.Node): boolean
 end
 
 -- Whether a statement of `body`, at any depth, may go out of it to the code
--- around it: a `break` that is not of a loop inside `body` (`inside`), or any
--- `goto`, whose label may be anywhere.
+-- around it: a `break` or a `goto` that is not of a loop inside `body`
+-- (`inside`). A `goto` is a continue, to the end of the body of the
+-- innermost loop around it.
 local function exits(body: flow.Node, inside: boolean): boolean
    for _, stmt in ipairs(body) do
       local kind = stmt.kind
-      if kind == "goto" or (kind == "break" and not inside) then
+      if (kind == "goto" or kind == "break") and not inside then
          return true
       elseif kind == "do" then
          if exits(stmt.body, inside) then
@@ -426,9 +421,11 @@ local function with_closure(s: State, fn: flow.Node): State
 end
 
 -- The state each path leaves a loop by `break` (or the branches of an
--- `if`) brings together; nil where none does.
+-- `if`) brings together; nil where none does. `continued` is the state the
+-- `goto`s of a loop's pass bring to the label that ends its body.
 local record Exit
    state: State
+   continued: State
 end
 
 local record Scan
@@ -436,7 +433,7 @@ local record Scan
    found: flow.Node
    skipped: flow.Node
    -- What may have run the function `found` is, when it is one: the call,
-   -- operator, loop, `return` or `goto` (nil at the end of the variable's
+   -- operator, loop or `return` (nil at the end of the variable's
    -- scope), and which of them it is.
    ran: flow.Node
    how: string
@@ -444,10 +441,6 @@ local record Scan
    -- still flows, but a read or a write is another variable's.
    hidden: boolean
    loops: {Exit}
-   -- The state each `goto` brought to a label it has not reached yet.
-   gotos: {string:State}
-   -- The labels the walk has passed, which a `goto` back to is a round.
-   seen: {string:boolean}
 end
 
 -- Something that may run code of the program's has run at `at`, in the way
@@ -541,15 +534,6 @@ local function after_loop(loop: flow.Node, st: State, at_end: State, breaks: Exi
    return meet(st, broken)
 end
 
--- A copy of the labels passed.
-local function copied(seen: {string:boolean}): {string:boolean}
-   local copy: {string:boolean} = {}
-   for label, _ in pairs(seen) do
-      copy[label] = true
-   end
-   return copy
-end
-
 -- Walks a loop: `while`, `repeat`, a numeric and a generic `for`. A pass
 -- of the body that ends with a function pending goes round again, the
 -- function made before the first statement of the next pass; it ends the
@@ -563,10 +547,9 @@ function walk.loop(scan: Scan, stmt: flow.Node, st: State): State
    elseif kind == "forin" then
       entry = eval(scan, stmt.exps, st)
    end
-   local breaks: Exit = { state = no_state }
+   local breaks: Exit = { state = no_state, continued = no_state }
    table.insert(scan.loops, breaks)
    local saved_hidden = scan.hidden
-   local outer_seen = scan.seen
    local head: State = no_state
    local at_end: State = no_state
    for pass = 1, 2 do
@@ -577,7 +560,7 @@ function walk.loop(scan: Scan, stmt: flow.Node, st: State): State
          end
          from = meet(entry, at_end)
       end
-      scan.seen = copied(outer_seen)
+      breaks.continued = no_state
       scan.hidden = saved_hidden
       local here = from
       local tail = no_node
@@ -599,7 +582,6 @@ function walk.loop(scan: Scan, stmt: flow.Node, st: State): State
       local finished = walk.block(scan, stmt.body, 1, here, tail)
       at_end = pass == 1 and finished or meet(at_end, finished)
    end
-   scan.seen = outer_seen
    scan.hidden = saved_hidden
    table.remove(scan.loops)
    if kind == "while" and stmt.exp.kind == "boolean" and stmt.exp.tk == "true"
@@ -668,12 +650,12 @@ function walk.statement(scan: Scan, stmt: flow.Node, st: State): State
       end
       return nil
    elseif kind == "goto" then
-      -- A goto back round to a label passed runs what lies between again,
-      -- with the function pending.
-      if scan.seen[stmt.label] then
-         ran(scan, st, stmt, "goto")
+      -- A continue: the rest of this pass is skipped, and the label that
+      -- ends the body of the loop is reached with this state.
+      local continues = scan.loops[#scan.loops]
+      if continues then
+         continues.continued = meet(continues.continued, st)
       end
-      scan.gotos[stmt.label] = meet(scan.gotos[stmt.label], st)
       return nil
    elseif kind == "do" then
       return walk.block(scan, stmt.body, 1, st, no_node)
@@ -722,9 +704,11 @@ function walk.block(scan: Scan, body: flow.Node, first: integer, st: State, tail
       end
       local stmt = body[i]
       if stmt.kind == "label" then
-         scan.seen[stmt.label] = true
-         st = meet(st, scan.gotos[stmt.label])
-         scan.gotos[stmt.label] = nil
+         local continues = scan.loops[#scan.loops]
+         if continues then
+            st = meet(st, continues.continued)
+            continues.continued = no_state
+         end
       elseif st then
          st = walk.statement(scan, stmt, st)
       elseif declares(stmt, scan.name) then
@@ -745,19 +729,19 @@ end
 --- it and that something may call before the assignment: the creation of
 --- the function reads nothing, but a call, an operator that dispatches or a
 --- loop's iterator the checker marked `runs_code` may call it, and so may
---- the code that gets it by a `return`, a call that never returns, a `goto`
---- back round a label and the end of the variable's scope; an assignment inside a function literal
+--- the code that gets it by a `return`, a call that never returns and the end
+--- of the variable's scope; an assignment inside a function literal
 --- assigns nothing for the code around it. The first answer is the
 --- variable's node, or the function that names it. The second is a
 --- statement a path went by that skipped the assignment another made (an
 --- `if`, an `else`-less `if`'s branch, a loop), nil where none did. For a
 --- function the third answer is what may run it (nil at the end of the
 --- scope) and the fourth how: `call`, `operator`, `iterator`, `return`,
---- `goto`, `never` or `scope`.
+--- `never` or `scope`.
 function flow.unassigned_read(body: flow.Node, first: integer, name: string, tail: flow.Node): flow.Node, flow.Node, flow.Node, string
    local scan: Scan = {
       name = name, found = no_node, skipped = no_node, ran = no_node, how = "", hidden = false,
-      loops = {}, gotos = {}, seen = {},
+      loops = {},
    }
    local final = walk.block(scan, body, first, unassigned_state, tail)
    if final then

@@ -89,6 +89,9 @@ local record Gen
   calm: boolean
   --- A loop that has a label takes a `goto` to it first.
   want_goto: boolean
+  --- The labels a `goto` has been drawn for: a label nothing continues to
+  --- is refused, so one is written only for them.
+  jumped: {string:boolean}
   --- Depth of the function bodies the draw is inside.
   fn: integer
   --- Locals a function literal assigns, locals written in a block other than
@@ -417,7 +420,14 @@ local function block(g: Gen, v: Vis, depth: integer, max: integer, facts?: Cond,
   g.depth = g.depth - 1
 end
 
---- A loop body: the statements, then the label a `goto` skips to.
+--- A `goto` to `label`, the label that ends the body of the loop around it.
+local function jump(g: Gen, label: string): string
+  g.jumped[label] = true
+  return "goto " .. label
+end
+
+--- A loop body: the statements, then the label a `goto` skips to, when one
+--- was drawn.
 local function loop_body(g: Gen, v: Vis, depth: integer, label: string | nil, facts?: Cond)
   local inner = nest(v)
   inner.in_loop = true
@@ -430,14 +440,14 @@ local function loop_body(g: Gen, v: Vis, depth: integer, label: string | nil, fa
   g.depth = g.depth + 1
   if g.want_goto or g.src:int(0, 1) == 0 then
     local c = cond(g, inner, 1)
-    add(g, "if " .. c.text .. " then " .. (label ~= nil and (g.want_goto or g.src:int(0, 1) == 0) and "goto " .. label or "break") .. " end")
+    add(g, "if " .. c.text .. " then " .. (label ~= nil and (g.want_goto or g.src:int(0, 1) == 0) and jump(g, label) or "break") .. " end")
   end
   local n = 0
   while g.fuel > 0 and Fuzz.more(g.src, n, 4) do
     n = n + 1
     stmt(g, inner, depth)
   end
-  if label then
+  if label and g.jumped[label] then
     g.depth = g.depth - 1
     add(g, "::" .. label .. "::")
     g.depth = g.depth + 1
@@ -590,7 +600,7 @@ local function early_exit(g: Gen, v: Vis)
   if how == 0 and v.in_loop then
     leave = "break"
   elseif how == 1 and v.cont ~= nil then
-    leave = "goto " .. (v.cont as string)
+    leave = jump(g, v.cont as string)
   else
     leave = v.ret
   end
@@ -820,7 +830,7 @@ stmt = function(g: Gen, v: Vis, depth: integer)
     return add(g, "sink = sink + " .. Fuzz.pick(g.src, v.funs) .. "(" .. place(g, v) .. ")")
   end
   if k >= 26 and v.cont ~= nil then
-    return add(g, "if " .. cond(g, v, 1).text .. " then goto " .. (v.cont as string) .. " end")
+    return add(g, "if " .. cond(g, v, 1).text .. " then " .. jump(g, v.cont as string) .. " end")
   end
   if k >= 26 and v.in_loop then
     return add(g, "if " .. cond(g, v, 1).text .. " then break end")
@@ -831,7 +841,7 @@ end
 --- A well-formed program: the header, statements, and `return sink`.
 local function gen_program(src: Fuzz.Source): string
   local g: Gen = { src = src, lines = {}, id = 0, fuel = 45, depth = 0, calm = src:int(0, 3) == 0, want_goto = false,
-    fn = 0, closure_assigned = {}, nested_written = {}, multi = {} }
+    jumped = {}, fn = 0, closure_assigned = {}, nested_written = {}, multi = {} }
   local text = header(src:int(0, 2))
   local v: Vis = { ints = {}, recs = {}, procs = {}, funs = {}, focus = {}, rfocus = {},
     hole = {}, closure_here = false, in_loop = false, cont = nil, ret = "return sink" }
