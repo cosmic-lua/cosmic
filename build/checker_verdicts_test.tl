@@ -1,7 +1,9 @@
 --- Tests of the verdict harness, [`build.checker_verdicts`]: its lines are a
 --- function of the sources and the checker, they carry a finding at its place,
 --- and the programs it dumps are the ones the checker's fuzz properties draw.
+local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
+local Sqlite = require("cosmic.sqlite")
 local Fuzz = require("build.fuzz")
 local Test = require("cosmic.test")
 local programs = require("build.checker_programs")
@@ -9,7 +11,9 @@ local teal = require("build.teal")
 local verdicts = require("build.checker_verdicts")
 local type compiler = require("build.compiler")
 
-Test.policy{}
+-- `FUZZ_SEED` is declared because [`Fuzz.run`], which the seeding is compared
+-- with, reads it.
+Test.policy{ env = { "FUZZ_SEED" } }
 
 local built = { value = nil as compiler | nil }
 
@@ -81,6 +85,9 @@ local function test_a_module_is_found_by_name_and_its_findings_are_its_own(tmp: 
   assert(Fs.write(root .. "/ci/c.tl", "this is not teal\n"))
   local names = verdicts.tree_names(root, {})
   assert(table.concat(names, ",") == "a.tl,b.tl,sub/init.tl", table.concat(names, ","))
+  -- `a.tl` requires the other two, which are checked first.
+  local order = table.concat(verdicts.tree_order(root, names), ",")
+  assert(order == "b.tl,sub/init.tl,a.tl", order)
   local function run(): string
     return verdicts.render(verdicts.tree_lines(checker(), root, names))
   end
@@ -91,9 +98,55 @@ local function test_a_module_is_found_by_name_and_its_findings_are_its_own(tmp: 
   local _, first = text:find("b.tl\ttype.mismatch", 1, true)
   assert(first ~= nil and text:find("b.tl\ttype.mismatch", first, true) == nil, text)
   assert(run() == text)
+  -- An environment apiece gives the same lines as the one shared.
+  assert(verdicts.render(verdicts.tree_lines(checker(), root, names, true)) == text)
 end
 
---- The inputs [`Fuzz.run`] hands a check for the default seed.
+local function test_a_declaration_file_is_served_and_not_checked(tmp: string)
+  local root = tmp .. "/decls"
+  assert(Fs.mkdirs(root))
+  assert(Fs.write(root .. "/d.d.tl", "local record D\n  n: integer\nend\nreturn D\n"))
+  assert(Fs.write(root .. "/use.tl", 'local D = require("d")\nlocal x: D = { n = 1 }\nreturn x\n'))
+  local names = verdicts.tree_names(root, {})
+  assert(table.concat(names, ",") == "use.tl", table.concat(names, ","))
+  assert(verdicts.render(verdicts.tree_lines(checker(), root, names)) == "")
+end
+
+local function test_a_raise_of_the_checker_is_a_line()
+  local stub: {string:any} = {}
+  for key, value in pairs(checker() as {string:any}) do
+    stub[key] = value
+  end
+  stub["gen"] = function(): string
+    error("boom at table: 0x5581deadbeef", 0)
+  end
+  local text = verdicts.render(verdicts.program_lines(stub as compiler, "r.tl", "return 1\n"))
+  assert(text == "r.tl\traised\t0\t0\tboom at table: 0xADDR\n", text)
+end
+
+local function test_the_environment_is_the_builds_less_its_database()
+  local compiled = checker()
+  local ours = verdicts.environment(compiled)
+  local theirs = assert(teal.environment_for(compiled, assert(Sqlite.memory()), "/nonexistent"))
+  for _, field in ipairs({ "feat_lax", "gen_compat", "gen_target", "runtime_checks" }) do
+    assert(tostring((ours.defaults as {string:any})[field]) == tostring((theirs.defaults as {string:any})[field]),
+      field .. " differs")
+  end
+  local ours_names: {string} = {}
+  local their_names: {string} = {}
+  for name in pairs(ours.globals) do ours_names[#ours_names + 1] = name end
+  for name in pairs(theirs.globals) do their_names[#their_names + 1] = name end
+  table.sort(ours_names)
+  table.sort(their_names)
+  assert(table.concat(ours_names, " ") == table.concat(their_names, " "))
+end
+
+--- The seed [`Fuzz.run`] draws from: `FUZZ_SEED`, else 1.
+local function fuzz_seed(): integer
+  return assert(math.tointeger(tonumber(Env.get_or("FUZZ_SEED", "1"))))
+end
+
+--- The inputs [`Fuzz.run`] hands a check, for `FUZZ_SEED`.
 local function run_inputs(gen: function(Fuzz.Source): string, iters: integer): {string}
   local seen: {string} = {}
   Fuzz.run({
@@ -111,7 +164,7 @@ end
 local function test_the_programs_dumped_are_the_ones_the_fuzz_properties_draw()
   for _, kind in ipairs({ "total", "sound" }) do
     local gen = kind == "total" and programs.any or programs.well_formed
-    local drawn = programs.drawn(kind, 1, 5)
+    local drawn = programs.drawn(kind, fuzz_seed(), 5)
     local seen = run_inputs(gen, 5)
     assert(#drawn == 5 and #seen == 5)
     for i = 1, 5 do
@@ -119,6 +172,7 @@ local function test_the_programs_dumped_are_the_ones_the_fuzz_properties_draw()
     end
   end
   assert(programs.drawn("total", 2, 1)[1] ~= programs.drawn("total", 1, 1)[1])
+  assert(programs.drawn("sound", 5, 3)[3] == programs.drawn("sound", 5, 4)[3])
 end
 
 local function test_dump_writes_the_drawn_programs_to_files(tmp: string)

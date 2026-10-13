@@ -1,8 +1,8 @@
---- The programs build/checker_fuzz_test.tl draws, and the draws that
---- reach them. The generator is the one the checker's fuzz properties
---- use, moved here unchanged so that [`build.checker_verdicts`] can write
---- the same programs to files for two checkers to read; the properties
---- hold what the checker does with them.
+--- The programs build/checker_fuzz_test.tl draws, and the draws that reach
+--- them: the generator of the checker's fuzz properties, which
+--- [`build.checker_verdicts`] also uses to write the same programs to files
+--- for two checkers to read. The properties hold what the checker does with
+--- them.
 ---
 --- [`programs.drawn`] repeats [`Fuzz.run`]'s seeding (`FUZZ_SEED` makes
 --- one source of cases, each case its own source of draws), which

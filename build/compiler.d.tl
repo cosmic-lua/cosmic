@@ -266,6 +266,10 @@ local record compiler
     -- When set, the checker hands every node's type to `reporter`'s
     -- collector as it checks; see [`build.receivers`].
     report_types: boolean | nil
+    -- When set, the checker appends `name=key` to it for each variable it
+    -- finds: the name and the key of the binding it stands for, so that a
+    -- test sees which binding a name was read as.
+    key_trace: {string} | nil
     reporter: any
   end
 

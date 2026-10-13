@@ -18,18 +18,34 @@
 --- is a function of the sources and the checker alone.
 ---
 --- The checker is the running tool's: [`build.teal`]'s `load`, the compiler
---- the tree carries, with the settings and the stripped names the build
---- checks the tree with ([`build.teal`]'s `environment_for`, less the
---- staged database: modules are read from a `--root` directory instead,
---- so that two tools can read one tree). The finding is the checker's
---- own answer, before the build's discounts for tests and examples
---- ([`build.compilation`]'s `generate`).
+--- the tree carries. A tree file is checked as the build checks it
+--- ([`build.compilation`]'s `generate`) in these ways, and no other:
+---
+--- * the environment has the settings and the stripped names
+---   [`build.teal`]'s `environment_for` gives, less its staged database
+---   (build/checker_verdicts_test.tl holds the two together). Modules are
+---   read from a `--root` directory instead, so that two tools can read
+---   one tree, or from the binary for `cosmic.*`;
+--- * the source goes through [`build.shape_specs`]'s `resolve` first;
+--- * the file is checked under its own name, and the type it answers is
+---   what a later `require` of it finds.
+---
+--- It leaves out what the build does besides: the discounts for tests and
+--- examples (a test function nothing calls is an `unused` warning here),
+--- the type report and the contracts and run-time checks built on it
+--- ([`receivers.install`], `runtime_checks`), declaration files (they are
+--- served to a `require` and not checked alone), and the modules the build
+--- generates (doc examples, templates).
+---
+--- TODO: write `(file, y, x, type)` lines from the type report for the
+--- narrowed reads too (a `--types` mode), once PR 3 of step 7a (reads
+--- switch to the narrowing facts) is under way: it and PR 4 move what
+--- feeds the report, and this PR's findings do not.
 ---
 --- To compare the checker of a tree with main's, build both tools and run
 --- the same sources through each, reading one tree from both. The script is
 --- run by the tool of the checkout it sits in (`cosmic <file>` builds the
---- tree around the file), so the base checkout must hold this file:
---- main does, once this has landed.
+--- tree around the file), so the base checkout must hold this file.
 ---
 ---     git worktree add --detach ../wt-main origin/main
 ---     (cd ../wt-main && bin/zig build boot)
@@ -42,12 +58,20 @@
 ---
 --- The commands, each writing its lines to standard output:
 ---
---- * `tree [--root DIR] [--skip DIR]...`: every `.tl` file under `DIR`
----   (the working directory by default), skipping `.`-directories, `o`,
----   `ci` (a tree of its own: run `tree --root ci`) and each `--skip`.
----   One environment is shared, in the order of the names, and a module is
----   found by name under `DIR` or, for `cosmic.*`, in the binary. The file
----   is named relative to `DIR`.
+--- * `tree [--root DIR] [--skip DIR]... [--fresh] [--stride N]`: every `.tl`
+---   file under `DIR` (the working directory by default) but a `.d.tl`,
+---   skipping `.`-directories, `o`, `ci` (a tree of its own: run `tree
+---   --root ci`) and each `--skip`. One environment is shared, as the build
+---   shares one, and the files go in the order each follows the modules it
+---   requires by a literal name ([`tree_order`]), so that a module is checked
+---   before the files that use it. The checker's answer for a file can
+---   depend on what the environment has loaded (a file reading
+---   [`cosmic.shape`] after an unrelated module loaded it once gave
+---   unresolved generics), so the order is part of what the lines are a
+---   function of. `--fresh` checks each file in an environment of its own,
+---   in name order; it is too slow for the tree (over twenty minutes of
+---   checking), and `--stride N` keeps every Nth file to sample it. The
+---   file is named relative to `DIR`.
 --- * `programs PATH...`: each file, and each file under a directory, as a
 ---   program of its own, checked in an environment of its own as
 ---   build/checker_fuzz_test.tl checks one. The file is named as the path
@@ -64,6 +88,7 @@
 --- testdata/fuzz/checker-total testdata/fuzz/checker-sound`) and the
 --- dumped programs (`dump`, then `programs`), each run by both tools.
 local Fs = require("cosmic.fs")
+local shape_specs = require("build.shape_specs")
 local programs = require("build.checker_programs")
 local teal = require("build.teal")
 local type compiler = require("build.compiler")
@@ -83,9 +108,18 @@ local record verdicts
   --- the source in each line.
   program_lines: function(built: compiler, file: string, text: string): {Line}
 
-  --- The lines for each of the files under `root` that `skip` does not
-  --- name, in one environment. `names` lists them relative to `root`.
-  tree_lines: function(built: compiler, root: string, names: {string}): {Line}
+  --- A checker environment as the build makes one, less its staged database.
+  environment: function(built: compiler): compiler.Env
+
+  --- The files of `names`, relative to `root`, with each after the ones it
+  --- requires by a literal name that `names` holds (a cycle is cut where it
+  --- is met), and otherwise in the order given.
+  tree_order: function(root: string, names: {string}): {string}
+
+  --- The lines for each of the files `names` lists, relative to `root`, in
+  --- one environment in the order of [`tree_order`], or in one apiece, in the
+  --- order given, with `fresh`.
+  tree_lines: function(built: compiler, root: string, names: {string}, fresh?: boolean): {Line}
 
   --- The text of the lines, sorted, one to a line, each ending in a newline.
   render: function(lines: {Line}): string
@@ -97,15 +131,17 @@ local record verdicts
   main: function(argv: {string}): integer
 end
 
-local SETTINGS <const> = { feat_lax = "off", gen_compat = "off", gen_target = "5.4" }
-
 --- A checker environment for the tree: the strictness the build holds
---- itself to and without the names the runtime removes.
-local function environment(built: compiler): compiler.Env
-  local env = assert(built.new_env({ defaults = SETTINGS }))
+--- itself to and without the names the runtime removes, as
+--- [`build.teal`]'s `environment_for` makes one.
+function verdicts.environment(built: compiler): compiler.Env
+  local env = assert(built.new_env({ defaults = {
+    feat_lax = "off", gen_compat = "off", gen_target = "5.4", runtime_checks = false,
+  } }))
   teal.strip(env)
   return env
 end
+local environment <const> = verdicts.environment
 
 local function escaped(text: string): string
   return (text:gsub("[\\\t\n\r]", {
@@ -200,23 +236,63 @@ local function module_name(relative: string): string | nil
   return (name:gsub("/", "."))
 end
 
-function verdicts.tree_lines(built: compiler, root: string, names: {string}): {verdicts.Line}
+function verdicts.tree_order(root: string, names: {string}): {string}
+  local by_module: {string:string} = {}
+  for _, relative in ipairs(names) do
+    local name = module_name(relative)
+    if name ~= nil then
+      by_module[name] = relative
+    end
+  end
+  local visited: {string:boolean} = {}
+  local out: {string} = {}
+  local function visit(relative: string)
+    if visited[relative] then
+      return
+    end
+    visited[relative] = true
+    local text, _ = Fs.read(root .. "/" .. relative)
+    for required in (text or ""):gmatch('require%(%s*"([^"]+)"%s*%)') do
+      local dependency = by_module[required]
+      if dependency ~= nil then
+        visit(dependency)
+      end
+    end
+    out[#out + 1] = relative
+  end
+  for _, relative in ipairs(names) do
+    visit(relative)
+  end
+  return out
+end
+
+function verdicts.tree_lines(built: compiler, root: string, names: {string}, fresh?: boolean): {verdicts.Line}
   local out: {verdicts.Line} = {}
   serving(built, root)
   local env = environment(built)
-  for _, relative in ipairs(names) do
+  for _, relative in ipairs(fresh and names or verdicts.tree_order(root, names)) do
+    if fresh then
+      env = environment(built)
+    end
+    local name = module_name(relative)
     local text, why = Fs.read(root .. "/" .. relative)
     if text == nil then
       raised(out, relative, why)
     else
-      local ok, result = pcall(built.check_string, text, env, relative, "tl")
+      local ok, source, refusal = pcall(shape_specs.resolve, built, env, relative, name or relative, text)
       if not ok then
-        raised(out, relative, result)
+        raised(out, relative, source)
+      elseif source == nil then
+        raised(out, relative, refusal)
       else
-        collect(out, relative, result, relative)
-        local name = module_name(relative)
-        if name ~= nil and result.type ~= nil then
-          env.modules[name] = result.type
+        local checked, result = pcall(built.check_string, source, env, relative, "tl")
+        if not checked then
+          raised(out, relative, result)
+        else
+          collect(out, relative, result, relative)
+          if name ~= nil and result.type ~= nil then
+            env.modules[name] = result.type
+          end
         end
       end
     end
@@ -256,7 +332,7 @@ function verdicts.tree_names(root: string, skip: {string}): {string}
   end))
   local names: {string} = {}
   for _, relative in ipairs(found) do
-    if relative:find("%.tl$") ~= nil then
+    if relative:find("%.tl$") ~= nil and relative:find("%.d%.tl$") == nil then
       names[#names + 1] = relative
     end
   end
@@ -282,7 +358,7 @@ local function complain(text: string)
   local _, _ = Fs.put(Fs.stderr, "checker_verdicts: " .. text .. "\n")
 end
 
-local USAGE <const> = "usage: tree [--root DIR] [--skip DIR]... | programs PATH... | dump DIR SEED ITERS"
+local USAGE <const> = "usage: tree [--root DIR] [--skip DIR]... [--fresh] [--stride N] | programs PATH... | dump DIR SEED ITERS"
 
 local function dump(argv: {string}): integer
   local dir = argv[2]
@@ -311,9 +387,20 @@ function verdicts.main(argv: {string}): integer
   if command == "tree" then
     local root = "."
     local skip: {string} = {}
+    local fresh = false
+    local stride = 1
     local i = 2
     while argv[i] ~= nil do
-      if argv[i] == "--root" and argv[i + 1] ~= nil then
+      if argv[i] == "--stride" and argv[i + 1] ~= nil then
+        stride = math.tointeger(tonumber(argv[i + 1])) or 0
+        if stride < 1 then
+          complain(USAGE)
+          return 2
+        end
+      elseif argv[i] == "--fresh" then
+        fresh = true
+        i = i - 1
+      elseif argv[i] == "--root" and argv[i + 1] ~= nil then
         root = argv[i + 1]
       elseif argv[i] == "--skip" and argv[i + 1] ~= nil then
         skip[#skip + 1] = argv[i + 1]
@@ -323,7 +410,13 @@ function verdicts.main(argv: {string}): integer
       end
       i = i + 2
     end
-    lines = verdicts.tree_lines(built, root, verdicts.tree_names(root, skip))
+    local names: {string} = {}
+    for n, name in ipairs(verdicts.tree_names(root, skip)) do
+      if (n - 1) % stride == 0 then
+        names[#names + 1] = name
+      end
+    end
+    lines = verdicts.tree_lines(built, root, names, fresh)
   elseif command == "programs" then
     if argv[2] == nil then
       complain(USAGE)

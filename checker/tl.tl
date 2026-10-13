@@ -169,6 +169,9 @@ local record tl
       reporter: TypeReporter
       keep_going: boolean
       report_types: boolean
+      -- When set, `find_var` appends `name=key` for each variable it finds,
+      -- so a test can see which binding a name was read as.
+      key_trace: {string}
       defaults: CheckOptions
    end
 
@@ -639,10 +642,14 @@ local record Variable
    has_been_read_from: boolean
    has_been_written_to: boolean
    is_loop_control: boolean
-   -- Names this binding apart from every other of the file being checked,
-   -- whatever its name: the value of `TypeChecker.binding_count` when
-   -- `add_var` or `add_global` made it. A narrowing's entry in a scope is no
-   -- binding and holds none.
+   -- Names the binding this entry stands for apart from every other of the
+   -- file being checked, whatever its name: the value of
+   -- `TypeChecker.binding_count` when `add_var` or `add_global` made it, or
+   -- "g:" and the name for a global the environment declared. An entry that
+   -- narrows or widens a binding in a scope of its own, and the copy
+   -- `find_var` answers for a write, hold the key of that binding; so does
+   -- the entry `infer_emptytable` puts in place of one. A `local x = x` is a
+   -- binding of its own and has a key of its own.
    key: string
 end
 
@@ -8361,7 +8368,10 @@ do
             if use == "lvalue" and var.is_specialized and var.is_specialized ~= "localizing" then
                if var.specialized_from then
                   var.has_been_written_to = true
-                  return { t = var.specialized_from, attribute = var.attribute }, i, var.attribute
+                  if self.env.key_trace then
+                     table.insert(self.env.key_trace, name .. "=" .. tostring(var.key))
+                  end
+                  return { t = var.specialized_from, attribute = var.attribute, key = var.key }, i, var.attribute
                end
             else
                if i == 1 and var.needs_compat then
@@ -8385,6 +8395,9 @@ do
                   end
                end
 
+               if self.env.key_trace then
+                  table.insert(self.env.key_trace, name .. "=" .. tostring(var.key))
+               end
                return var, i, var.attribute
             end
          end
@@ -8925,7 +8938,7 @@ do
       for i = nst, 1, -1 do
          local scope = self.st[i]
          if scope.vars[emptytable.assigned_to] then
-            scope.vars[emptytable.assigned_to] = { t = fresh_t }
+            scope.vars[emptytable.assigned_to] = { t = fresh_t, key = scope.vars[emptytable.assigned_to].key }
          end
       end
    end
@@ -9005,7 +9018,7 @@ do
    end
 
    do
-      local function specialize_var(scope: Scope, node: Node, name: string, t: Type, attribute: Attribute, specialization: Specialization): Variable
+      local function specialize_var(scope: Scope, node: Node, name: string, t: Type, attribute: Attribute, specialization: Specialization, key: string): Variable
          local var = scope.vars[name]
          if specialization == "localizing" then
             -- `local x = x` declares a variable of its own, even where the
@@ -9033,7 +9046,7 @@ do
             var.specialized_from = var.t
             var.t = t
          else
-            var = { t = t, attribute = attribute, is_specialized = specialization, declared_at = node }
+            var = { t = t, attribute = attribute, is_specialized = specialization, declared_at = node, key = key }
             scope.vars[name] = var
          end
 
@@ -9063,7 +9076,20 @@ do
 
          local scope <const> = self.st[#self.st]
          if specialization then
-            return specialize_var(scope, node, name, t, attribute, specialization)
+            -- Only an entry made anew needs a key: one that exists keeps its own.
+            local key = ""
+            if specialization == "localizing" or scope.vars[name] == nil then
+               local bound = specialization ~= "localizing" and self:find_var(name, "check_only") or nil
+               if bound and bound.key then
+                  key = bound.key
+               elseif bound then
+                  key = "g:" .. name
+               else
+                  self.binding_count = self.binding_count + 1
+                  key = tostring(self.binding_count)
+               end
+            end
+            return specialize_var(scope, node, name, t, attribute, specialization, key)
          end
 
          if node then
