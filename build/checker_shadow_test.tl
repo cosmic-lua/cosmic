@@ -225,6 +225,74 @@ local function g(t: R): integer
 end
 return g
 ]],
+  new_variable_of_a_name = [[
+local record R
+  a: integer | nil
+end
+local function g(t: R, s: R): integer
+  if t.a then
+    local t = s
+    return t.a + 1
+  end
+  return 0
+end
+return g
+]],
+  for_variable_of_a_name = [[
+local record R
+  a: integer | nil
+end
+local function g(t: R, rs: {R}): integer
+  local n = 0
+  if t.a then
+    for _, t in ipairs(rs) do
+      n = n + t.a
+    end
+  end
+  return n
+end
+return g
+]],
+  deep_field_new_variable = [[
+local record R
+  a: integer | nil
+  r: R | nil
+end
+local function g(t: R, s: R): integer
+  if t.r and t.r.a then
+    local t = s
+    if t.r then
+      return t.r.a + 1
+    end
+  end
+  return 0
+end
+return g
+]],
+  redeclared_after_early_return = [[
+local record R
+  a: integer | nil
+end
+local function g(t: R, s: R): integer
+  if not t.a then return 0 end
+  local t = s
+  return t.a + 1
+end
+return g
+]],
+  local_shadows_global_field = [[
+global record GR
+  a: integer | nil
+end
+local function g(): integer
+  if GR.a then
+    local GR = { a = nil as integer | nil }
+    return GR.a or 0
+  end
+  return 0
+end
+return g
+]],
   shadowed_name = [[
 local function g(x: string | nil): integer
   if x == nil then return 0 end
@@ -257,93 +325,18 @@ local function test_each_narrowing_shape_agrees_with_the_facts()
   assert(fields >= 8, "only " .. tostring(fields) .. " field reads were compared")
 end
 
--- The old narrowing holds a field fact under the name of the place (`t.a`),
--- so it survives a new variable of the name `t`: a `local t = s`, a `for`
--- variable, a `local t` of an inner `do` (after which it reads the outer
--- `t.a` as narrowed even where the fact was dropped), a redeclaration after
--- an early return, and a local that shadows a global. That is unsound, and the
--- facts, keyed by variable, hold none. Each program is pinned as the
--- mismatches it gives; the `r05` one gives two, because the old narrowing
--- takes the narrowed `t.r` for the new `t` and builds no guard for the test
--- of it, so the facts have no guard to narrow by either.
--- TODO: pin all of these to no mismatch once the old narrowing keys field
--- facts by variable, the fix on main that makes a new variable of a name
--- drop the fields narrowed under it.
-local old_field_facts: {{string}} = {
-  { "r01", [[
-local record R
-  a: integer | nil
-end
-local function g(t: R, s: R): integer
-  if t.a then
-    local t = s
-    return t.a + 1
-  end
-  return 0
-end
-return g
-]],
-    "7:13 t.a: shadow none, old integer (inferred at :5:7)" },
-  { "r03", [[
-local record R
-  a: integer | nil
-end
-local function g(t: R, rs: {R}): integer
-  local n = 0
-  if t.a then
-    for _, t in ipairs(rs) do
-      n = n + t.a
-    end
-  end
-  return n
-end
-return g
-]],
-    "8:16 t.a: shadow none, old integer (inferred at :6:7)" },
-  { "r05", [[
-local record R
-  a: integer | nil
-  r: R | nil
-end
-local function g(t: R, s: R): integer
-  if t.r and t.r.a then
-    local t = s
-    if t.r then
-      return t.r.a + 1
-    end
-  end
-  return 0
-end
-return g
-]],
-    "8:9 t.r: shadow none, old R (inferred at :6:10)", "9:15 t.r: shadow none, old R (inferred at :6:10)" },
-  { "u01", [[
-local record R
-  a: integer | nil
-end
-local function g(t: R, s: R): integer
-  if not t.a then return 0 end
-  local t = s
-  return t.a + 1
-end
-return g
-]],
-    "7:11 t.a: shadow none, old integer (inferred at :5:3)" },
-  { "u05", [[
-global record GR
-  a: integer | nil
-end
-local function g(): integer
-  if GR.a then
-    local GR = { a = nil as integer | nil }
-    return GR.a or 0
-  end
-  return 0
-end
-return g
-]],
-    "7:14 GR.a: shadow none, old integer (inferred at :5:8)" },
-  { "u06", [[
+-- The old narrowing drops, for good, the field facts of a name where a new
+-- plain variable of the name is declared (not `local t = t`), and not
+-- when that variable's scope ends. The facts are keyed by variable and keep
+-- the outer `t.a` for the code that reads it again: after the inner scope
+-- ends, after a loop whose variable is a new `t`, and in the `else` beside
+-- the branch that declared it. Each program is pinned as the one mismatch it
+-- gives: the old narrowing is the more conservative, and the facts are right.
+-- TODO: pin these to no mismatch once the reads switch to the facts (step 7a's
+-- PR 3), which gives the outer fact back where the old narrowing dropped it
+-- and moves the verdict of each program, which is triaged there.
+local old_drops_more: {{string}} = {
+  { "after_inner_scope", [[
 local record R
   a: integer | nil
 end
@@ -359,11 +352,46 @@ local function g(t: R): integer
 end
 return g
 ]],
-    "8:14 t.a: shadow none, old integer (inferred at :5:7)" },
+    "10:13 t.a: shadow integer (inferred at :5:7), old none" },
+  { "loop_after_binding", [[
+local record R
+  a: integer | nil
+end
+local function g(t: R, rs: {R}): integer
+  local n = 0
+  if t.a then
+    for _, t in ipairs(rs) do
+      n = n + 1
+    end
+    return t.a + n
+  end
+  return n
+end
+return g
+]],
+    "10:13 t.a: shadow integer (inferred at :6:7), old none" },
+  { "sibling_else", [[
+local record R
+  a: integer | nil
+end
+local function g(t: R, s: R, c: boolean): integer
+  if t.a then
+    if c then
+      local t = s
+      print(t)
+    else
+      return t.a + 1
+    end
+  end
+  return 0
+end
+return g
+]],
+    "10:15 t.a: shadow integer (inferred at :5:7), old none" },
 }
 
-local function test_old_narrowing_keeps_field_facts_of_a_name_across_variables()
-  for _, case in ipairs(old_field_facts) do
+local function test_old_narrowing_drops_field_facts_the_facts_keep()
+  for _, case in ipairs(old_drops_more) do
     local name, text = case[1], case[2]
     local found, _, fields = mismatches(name .. ".tl", text)
     assert(fields > 0, name .. ": no field read was compared")
