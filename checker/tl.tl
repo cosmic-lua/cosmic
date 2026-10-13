@@ -268,7 +268,7 @@ local record tl
       -- the loop around it, or a label no such `goto` names: `variable` (the
       -- label's name), `goto_y`, `goto_x` (none for a label), and `label_y`,
       -- `label_x` (none where the `goto` names no label), and `local_y`, `local_x`
-      -- where a `repeat` continue jumps into the scope of a local its `until` sees
+      -- where a `repeat` continue jumps over a local its `until` sees
       "goto_not_continue"
       "other"
    end
@@ -13258,14 +13258,15 @@ do
             end
          end
 
-         -- Lua keeps the locals of a `repeat` body in scope in its `until`,
-         -- so a continue may not jump past one declared at the body's level:
-         -- Lua refuses to load the program.
+         -- The `until` of a `repeat` sees the locals of its body, so a
+         -- continue may not jump past a local declared at the body's level,
+         -- whatever it declares (a value, a function, a type, a record):
+         -- Lua refuses to load the program. The rule is the declaration's
+         -- kind, not what code is made of it.
          local function refuse_jumps_into_locals(loop_node: Node, frame: GotoFrame)
             for _, jump in ipairs(frame.jumps) do
                for _, stmt in ipairs(loop_node.body) do
-                  local declares = stmt.kind == "local_declaration" or stmt.kind == "local_function"
-                     or stmt.kind == "local_macroexp"
+                  local declares = stmt.kind:sub(1, 6) == "local_"
                   if declares and (stmt.y > jump.y or (stmt.y == jump.y and stmt.x > jump.x)) then
                      self.errs:add_coded(jump, Errors.make({
                         code = "goto_not_continue",
@@ -13276,8 +13277,8 @@ do
                         label_x = frame.tail.x,
                         local_y = stmt.y,
                         local_x = stmt.x,
-                     }), "goto '" .. jump.label .. "' jumps into the scope of the local declared at " ..
-                        tostring(stmt.y) .. ":" .. tostring(stmt.x) .. ", which the `until` of its loop can see")
+                     }), "goto '" .. jump.label .. "' jumps over the local declared at " ..
+                        tostring(stmt.y) .. ":" .. tostring(stmt.x) .. ", between the goto and the label, which the `until` of its loop can see")
                      break
                   end
                end

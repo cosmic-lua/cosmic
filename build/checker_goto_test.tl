@@ -226,6 +226,24 @@ local function test_a_repeat_continue_may_not_jump_past_a_local_its_until_sees()
   assert(found ~= nil and found.local_y == 9 and found.goto_y == 8 and found.label_y == 11, source)
   local hint = assert(teal.replacement(found, source))
   assert(hint:find("do ... end", 1, true) ~= nil and hint:find("9:", 1, true) ~= nil, hint)
+  -- Whatever the declaration is, the `until` sees it.
+  for _, declaration in ipairs({
+      "local record R\n    x: integer\n  end\n  use(R)",
+      "local type R = record\n    x: integer\n  end\n  use(R)",
+      "local enum E\n    \"a\"\n  end\n  use(E)",
+      "local macroexp m(a: integer): integer return a + 1 end\n  use(m(1))",
+      "local function h() end\n  use(h)",
+  }) do
+    local kind_source = program("local n = 0\nrepeat\n  n = n + 1\n  if n < 3 then goto continue end\n  " ..
+        declaration .. "\n  ::continue::\nuntil n >= 3")
+    local refused = 0
+    for _, e in ipairs(type_errors(kind_source)) do
+      if e.code == "goto_not_continue" and e.local_y ~= nil then refused = refused + 1 end
+    end
+    local lines: {string} = {}
+    for _, e in ipairs(type_errors(kind_source)) do lines[#lines + 1] = e.msg end
+    assert(refused == 1, table.concat(lines, "; ") .. "\n" .. kind_source)
+  end
   -- Wrapped, or declared before the jump, or in a loop whose condition sees no body, it is fine.
   accepts("local n = 0\nrepeat\n  n = n + 1\n  if n < 3 then goto continue end\n  do\n    local done = true\n    use(done)\n  end\n" ..
       "  ::continue::\nuntil n >= 3")

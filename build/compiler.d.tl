@@ -81,7 +81,7 @@ local record compiler
     -- the loop around it, or a label no such `goto` names: `variable` (the
     -- label's name), `goto_y`, `goto_x` (none for a label), and `label_y`,
     -- `label_x` (none where the `goto` names no label), and `local_y`, `local_x`
-    -- where a `repeat` continue jumps into the scope of a local its `until` sees
+    -- where a `repeat` continue jumps over a local its `until` sees
     "goto_not_continue"
     "other"
   end

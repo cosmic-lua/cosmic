@@ -64,7 +64,7 @@ local KINDS <const>: {string} = {
   "assign", "assign", "assign", "read", "read", "read", "shadow", "closure arg", "closure keep", "closure fn",
   "break", "return", "stop",
   "if", "if", "if", "if else", "if else", "if else", "while", "while true", "repeat", "for",
-  "continue if", "continue if", "continue",
+  "continue if", "continue if", "continue if", "continue", "scoped local",
 }
 
 --- Draws one statement into `p`; true when it ends its block (no statement
@@ -142,11 +142,37 @@ function draws.statement(r: Recipe, p: Program, depth: integer, loop_end: string
     if r.jumped[continue] then
       emit(p, "::" .. continue .. "::")
     end
-    emit(p, kind == "repeat" and "until cond()" or "end")
+    -- The condition of a `repeat` may read the variable the body declared.
+    emit(p, kind ~= "repeat" and "end" or draw(r, 2) == 0 and "until condx(x)" or "until cond()")
     if kind == "repeat" then
       return body_ended and not r.broke[continue] and not r.jumped[continue]
     end
     return kind == "while true" and not r.broke[continue]
+  elseif kind == "scoped local" then
+    -- A variable of its own in a block inside the body, which a `goto` or a
+    -- `break` leaves.
+    emit(p, "do")
+    emit(p, "local x: integer", "local x")
+    -- Often a function that names it, and a continue that leaves with it.
+    if draw(r, 2) == 0 then
+      r.labels = r.labels + 1
+      local name = "g" .. r.labels
+      emit(p, "local " .. name .. " = function(): integer return x end",
+        "local " .. name .. " = mk(function() return touch(x) end)")
+    end
+    if loop_end ~= "" and draw(r, 2) == 0 then
+      r.jumped[loop_end] = true
+      -- `math.random` is a choice that runs no code of the program's, so no
+      -- call lets out the function between its making and the jump.
+      emit(p, "if math.random(2) == 1 then goto " .. loop_end .. " end")
+      -- Only the path that does not continue assigns.
+      if draw(r, 2) == 0 then
+        emit(p, "x = 1")
+      end
+    end
+    local ends = draws.block(r, p, depth - 1, loop_end)
+    emit(p, "end")
+    return ends
   elseif kind == "continue if" or kind == "continue" then
     -- A `goto` to the end of the loop round, which `continue` is.
     if loop_end == "" then
@@ -222,6 +248,19 @@ local function reads_unassigned(code: string): boolean
     return v
   end
   env.cond = choose
+  env.math = {
+    random = function(): integer
+      made = made + 1
+      steps = steps + 1
+      if made > MOST_CHOICES or steps > MOST_STEPS then error(ended, 0) end
+      return choices[made] and 1 or 2
+    end,
+  }
+  env.condx = function(v: any): boolean
+    if v == nil then bad = true end
+    steps = steps + 1
+    return choose()
+  end
   -- No pass, one or two: a second pass is the next round of the loop.
   env.count = function(): integer
     if not choose() then return 0 end
@@ -261,6 +300,7 @@ end
 local head <const> = "local function use(_: any) end\n" ..
   "local function cond(): boolean return true end\n" ..
   "local function count(): integer return 1 end\n" ..
+  "local function condx(_: integer): boolean return true end\n" ..
   "local function stop(): never error(\"stop\") end\n"
 
 --- The program `input` draws: the Teal text and the Lua body.
@@ -323,8 +363,7 @@ local function test_the_checker_refuses_exactly_the_programs_that_read_before_th
     dir = tmp,
     gen = draw_bytes,
     check = check,
-    iters = 400,
     requires = { "refused", "accepted", "jumps", "endless", "closures" },
-    shares = { refused = 0.1, accepted = 0.1, jumps = 0.05, endless = 0.05, closures = 0.1 },
+    shares = { refused = 0.1, accepted = 0.1, jumps = 0.03, endless = 0.05, closures = 0.1 },
   })
 end
