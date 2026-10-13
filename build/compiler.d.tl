@@ -181,6 +181,8 @@ local record compiler
     dropped_by: string | nil
     dropped_y: integer | nil
     dropped_x: integer | nil
+    -- For a loop's refusal: the kind of the drop its pass ran.
+    dropped_via: string | nil
 
     -- For a local read before it is assigned: whether the read is a
     -- function literal that names it, what may call that function before

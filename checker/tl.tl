@@ -368,13 +368,16 @@ local record tl
       dropped_place: string
       dropped_kind: string
       dropped_by: string
+      -- For a loop's refusal (`dropped_kind` `loop`): the kind of the drop
+      -- its pass ran.
+      dropped_via: string
       dropped_y: integer
       dropped_x: integer
 
       -- For a local read before it is assigned: whether the read is a
       -- function literal that names it, what may call that function before
-      -- the assignment (`ran_kind`: `call`, `operator`, `iterator`, `return`,
-      -- `never` or `scope`, at `ran_y`, `ran_x` unless it is the end of the
+      -- the assignment (`ran_kind`: `call`, `operator`, `iterator`, `close`,
+      -- `return`, `never` or `scope`, at `ran_y`, `ran_x` unless it is the end of the
       -- scope), and the statement a path went by that skipped the
       -- assignment (`branch`, `if` or `loop`), and where.
       closure: boolean
@@ -1724,6 +1727,9 @@ local record Scope
    -- not see, put back when it ends (`narrowing.enter_function`).
    hidden: {narrowing.Hidden}
    is_transaction: boolean
+   -- A `<close>` local of this scope whose type declares `__close`, which
+   -- runs where the scope ends, however control leaves it.
+   close_var: Node
 end
 
 local interface HasDeclName
@@ -8324,6 +8330,7 @@ do
       binder_is_own: function(TypeChecker, Node, Attribute): boolean
       call_text: function(TypeChecker, Node): string
       drop_all: function(TypeChecker, Where, string, ? string)
+      drop_close: function(TypeChecker, Node, Node)
       drop_global: function(TypeChecker, string, narrowing.Drop)
       last_dropper: function(TypeChecker): narrowing.Drop
       drop_through: function(TypeChecker, Node)
@@ -9641,6 +9648,15 @@ do
    function TypeChecker:end_scope(node?: Node)
       local st = self.st
       local scope = st[#st]
+
+      -- The `__close` of a `<close>` local runs here, and before a `break`
+      -- or `goto` that leaves the block, which the checker visits with the
+      -- drop already made: only an `if` branch that ends in a `return` or a
+      -- call that never returns puts its drops back (`flow.leaves_body`),
+      -- and neither continues in this function.
+      if scope.close_var and node then
+         self:drop_close(node, scope.close_var)
+      end
 
       local widen_types: {string:Type} = nil
       if scope.widens then
@@ -13166,6 +13182,15 @@ do
          end
       end
 
+      -- The `__close` of the `<close>` local `var` runs where the block
+      -- `block` ends: code has run, as for a call. `block` is marked for
+      -- `flow.unassigned_read`; the refusal of a use that relied on what was
+      -- dropped points at `var`.
+      function TypeChecker:drop_close(block: Node, var: Node)
+         block.runs_code = true
+         self:drop_all(var, "close", var.tk)
+      end
+
       -- What is known of `name` and of the paths based at it is dropped in
       -- each scope whose fact belongs to a global of that name: decided per
       -- scope by the binding that scope sees, not by the innermost one, as a
@@ -13568,12 +13593,15 @@ do
                if event.clock > read.clock then
                   local why = event.why
                   local details = Errors.make({
-                     code = "narrowing_dropped", dropped_place = read.key, dropped_kind = "loop",
+                     code = "narrowing_dropped", dropped_place = read.key, dropped_kind = "loop", dropped_via = why.kind,
                      dropped_by = why.text, dropped_y = why.y, dropped_x = why.x,
                   })
                   local said = ("the loop's previous pass ran %s at %d:%d, which may have changed it")
                      :format(why.text:gsub("%%", "%%%%"), why.y, why.x)
-                  if why.kind == "binding" then
+                  if why.kind == "close" then
+                     said = ("the loop's previous pass ran the `__close` of `%s` at %d:%d, which may have changed it")
+                        :format(why.text:gsub("%%", "%%%%"), why.y, why.x)
+                  elseif why.kind == "binding" then
                      said = ("the binding of %s at %d:%d dropped what was known, " ..
                         "so the loop cannot carry it to its next pass"):format(why.text:sub(9):gsub("%%", "%%%%"), why.y, why.x)
                   end
@@ -15385,6 +15413,11 @@ do
                end
                local declared = self:add_var(var, var.tk, t, var.attribute, is_localizing_a_variable(node, i) and "localizing")
                declared.is_loop_control = false
+               if var.attribute == "close" and self:may_dispatch(t, "__close") then
+                  self.st[#self.st].close_var = var
+                  -- Marked for `flow.unassigned_read`: this is the closer.
+                  var.runs_code = true
+               end
                if var.elide_type then
                   self.errs:add_warning("hint", node, "hint: consider using 'local type' instead")
                end
@@ -15661,6 +15694,13 @@ do
          end,
          -- only end scope after checking `until`, `statements` in repeat body has is_repeat == true
          after = function(self: TypeChecker, node: Node, children: {Type}): Type
+            -- The body's `__close` runs after `until`, in each pass, so the
+            -- loop must see its drop before it ends.
+            local body_scope = self.st[#self.st]
+            if body_scope.close_var then
+               self:drop_close(node.body, body_scope.close_var)
+               body_scope.close_var = nil
+            end
             self:loop_end()
             self:check_assigned(node.body, node.exp)
             return end_scope_and_none_type(self, node, children)

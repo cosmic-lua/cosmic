@@ -14,7 +14,9 @@
 --
 -- A fact is dropped by an assignment to its place or a prefix of it
 -- ([`narrowing.drop`]), by a write to a field of its name through any
--- reference ([`narrowing.drop_written`]), and by code that runs, which may
+-- reference ([`narrowing.drop_written`]), and by code that runs (a call, an operator that
+-- dispatches, the end of a block holding a `<close>` local whose type
+-- declares `__close`), which may
 -- write any field of any table ([`narrowing.drop_paths`]; no local, as no
 -- function assigns a local it does not declare). Each drop
 -- says what dropped the place, so the refusal of a use that relied on the
@@ -50,10 +52,9 @@
 -- `x.f` is a place that `type(x.f) == "..."` narrows. It waits on the
 -- roadmap item that makes every guard read every place alike.
 --
--- TODO: a to-be-closed variable's `__close` runs where its block ends, and
--- reading a declared field of a record that declares `__index` or
--- `__newindex` runs it when the field is absent, and neither drops what is
--- known. They wait on doc/roadmap.md's item that makes a metamethod's run
+-- TODO: reading a declared field of a record that declares `__index` or
+-- `__newindex` runs it when the field is absent, and drops nothing that is
+-- known. It waits on doc/roadmap.md's item that makes a metamethod's run
 -- a call wherever it can happen, with the record rules for `__index` and
 -- `__newindex`.
 

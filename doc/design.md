@@ -1087,19 +1087,19 @@ call that is not marked runs code even if it does not call the function; the
 refusal is the checker's guess that it may, as the dropped narrowing is.
 
 what counts as running code is what narrowing counts, so the rule shares its
-gaps. a `<close>` local whose type declares `__close` and the read of a
-declared field of a record that declares `__index` run code that neither sees
-(the TODO in [`checker/narrowing.tl`] names them), nor does a metatable
-attached at run time (the `setmetatable` TODOs in [`checker/tl.tl`] and the
-roadmap item they wait on). a raise from `assert` (`assert(false)`,
-`assert(<expr>)`) or from an operator (division by zero, indexing nil) can let out
-a function that has already escaped, as a call of a function typed `: never`
-does, but is not seen as doing so, so those are outside the rule for now (a
-TODO in [`checker/flow.tl`], and the roadmap item that checks a function where
-it escapes). a global is not followed at all, and neither is a
-local given a call that returns no values (`local v: integer = f()`), which is
-nil though its type admits none; both are TODOs in [`checker/flow.tl`] that wait
-on the roadmap's item that excludes nil from every type but one that names it.
+gaps. the read of a declared field of a record that declares `__index` runs
+code that neither sees (the TODO in [`checker/narrowing.tl`] names it), nor
+does a metatable attached at run time (the `setmetatable` TODOs in
+[`checker/tl.tl`] and the roadmap item they wait on). a raise from `assert`
+(`assert(false)`, `assert(<expr>)`) or from an operator (division by zero,
+indexing nil) can let out a function that has already escaped, as a call of a
+function typed `: never` does, but is not seen as doing so, so those are
+outside the rule for now (a TODO in [`checker/flow.tl`], and the roadmap item
+that checks a function where it escapes). a global is not followed at all, and
+neither is a local given a call that returns no values (`local v: integer =
+f()`), which is nil though its type admits none; both are TODOs in
+[`checker/flow.tl`] that wait on the roadmap's item that excludes nil from
+every type but one that names it.
 
 a refusal of the first kind has the code `not_assigned`, with the variable, and
 where a path skipped the assignment: the `if` with no `else`, the branch that

@@ -1142,6 +1142,9 @@ local function dropped_hint(e: compiler.Error): string | nil
   elseif kind == "operator" then
     cause = "the operator `" .. by .. "` at " .. where .. " may run a metamethod that changes it"
     before = "the operator"
+  elseif kind == "close" then
+    cause = "the `__close` of `" .. by .. "` at " .. where .. " runs at the end of its block and may change it"
+    before = "the block ends"
   elseif kind == "function" then
     -- The function literal is the place the check was made around, and
     -- the place is read in its body.
@@ -1158,12 +1161,15 @@ local function dropped_hint(e: compiler.Error): string | nil
     else
       -- What the loop's own pass ran is told by how it is written.
       local what = "the operator"
-      if by:sub(-5) == "(...)" then
+      if e.dropped_via == "close" then
+        what = "the"
+      elseif by:sub(-5) == "(...)" then
         what = "the call"
       elseif by:sub(-6) == " = ..." then
         what = by:sub(1, -7):find("[%.%[]") and "the write" or "the assignment"
       end
-      cause = what .. " `" .. by .. "` at " .. where .. " in this loop may change it before the loop comes round again"
+      local ran = e.dropped_via == "close" and "`__close` of `" .. by .. "`" or "`" .. by .. "`"
+      cause = what .. " " .. ran .. " at " .. where .. " in this loop may change it before the loop comes round again"
     end
   else
     return "'" .. place .. "' was checked, then assigned at " .. where .. ": the checker narrows nothing after " ..
@@ -1204,6 +1210,8 @@ local function unassigned_hint(e: compiler.Error): string | nil
       path = " (" .. made .. "the call at " .. at .. " may run it first: assign it before that call)"
     elseif ran == "operator" then
       path = " (" .. made .. "the operator at " .. at .. " may run it first: assign it before that operator)"
+    elseif ran == "close" then
+      path = " (" .. made .. "the `__close` that runs at " .. at .. " may run it first: assign it before that block ends)"
     elseif ran == "iterator" then
       path = " (" .. made .. "the iterator of the loop at " .. at .. " may run it first)"
     elseif ran == "never" then

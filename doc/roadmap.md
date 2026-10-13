@@ -55,8 +55,7 @@ defines the target; once something ships, it leaves this file.
 - make a metamethod's run a call wherever it can happen, which the checker
   tells today by the operator or index it dispatches from: reading a
   declared field of a record that declares `__index` or `__newindex` runs
-  it when the field is absent; a to-be-closed variable's `__close` runs at
-  its block's end.
+  it when the field is absent.
 - check a function that names a local not yet assigned where it escapes,
   not where code may run: stored in a table field or an upvalue, passed as an
   argument or returned counts as "may be called later" unless the local is
