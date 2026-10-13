@@ -18,7 +18,8 @@ local record Closing
 end
 
 --- What a request's handler answered, where the closer of its bodies can
---- read it: a closure assigns a variable the checker narrows to nil.
+--- read it: the closer is a function, and a function may write a field of
+--- what it holds but not assign a local of the code around it.
 local record Answered
   reply?: Types.Response
 end

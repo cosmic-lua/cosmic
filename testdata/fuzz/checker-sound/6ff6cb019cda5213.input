@@ -7,11 +7,10 @@ end
 local x: integer | nil = one()
 local sink: integer = 0
 do
-  local x = x
-  if x == nil then return sink end
-  local function clear() x = nil end
+  local x = { value = x }
+  if x.value == nil then return sink end
+  local function clear() x.value = nil end
   clear()
-  sink = sink + x + 1
+  sink = sink + x.value + 1
 end
 return sink
--- captures

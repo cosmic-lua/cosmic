@@ -4053,11 +4053,12 @@ local function require_of_host(ctx: Run): integer | nil
       end
       local probed = assert(host)
       local asked, answers = pcall(host_requires.answer, probed, names)
-      local found: {host_requires.Answer} = answers
-      if not asked then
+      local found: {host_requires.Answer} = {}
+      if asked then
+        found = answers
+      else
         -- A probe that cannot tell (a file it may not read) is no answer: the
         -- modules that name it fail, saying why, and the run goes on.
-        found = {}
         rec.unmet[m.path] = { kind = "refused", why = "the probe of what it requires of the host " ..
             "failed: " .. tostring(answers) }
       end

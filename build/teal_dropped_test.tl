@@ -78,7 +78,7 @@ local function test_a_narrowing_dropped_by_a_call_or_an_alias_write_is_told_the_
   assert(#type_errors(copied) == 0, copied)
 end
 
---- The other things that run code, and a local a function literal assigns.
+--- The other things that run code, and a global a function assigns.
 local function test_a_narrowing_dropped_by_other_code_is_told_what_ran_it()
   -- An operator that runs a metamethod.
   answers("local record V\n  metamethod __add: function(V, V): V\nend\n" ..

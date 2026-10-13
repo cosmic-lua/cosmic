@@ -1220,10 +1220,12 @@ local function captured_hint(e: compiler.Error): string | nil
   if name == nil then
     return nil
   end
+  -- A name of its own for the table, whatever the variable is called.
+  local table_name = name == "held" and "box" or "held"
   return "'" .. name .. "' is declared at " .. tostring(e.declared_y) .. ":" .. tostring(e.declared_x) ..
     ", outside this function, which may read it but not assign it: return the value from the function, " ..
-    "or keep it in a field of a table both read (`local state = { " .. name .. " = <the value> }`, then `state." ..
-    name .. " = ...` in the function)"
+    "or keep it in a field of a table both read (`local " .. table_name .. " = { " .. name .. " = <the value> }`, then `" ..
+    table_name .. "." .. name .. " = ...` in the function)"
 end
 
 --- What to declare for a local with neither a type nor a value (the code

@@ -30,14 +30,11 @@ end
 local function id(v: integer | nil): integer | nil
   return v
 end
-local function g(n: integer | nil): integer
-  local function reset() n = nil end
-  if n then
-    reset()
-    return n + 1
-  end
-  return st.sink
+local x = { value = id(1) as integer | nil }
+local y: integer | nil = id(nil)
+local function reset() x.value = nil end
+if x.value then
+  reset()
+  st.sink = st.sink + x.value + 1
 end
-st.sink = st.sink + g(1)
 return st.sink
--- captures

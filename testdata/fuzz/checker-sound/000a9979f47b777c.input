@@ -1,0 +1,9 @@
+local x1 = { value = 0 as integer | nil }
+local sink: integer = 0
+do
+  local function p3() x1.value = nil end
+  if x1.value == nil then return sink end
+  p3()
+  sink = sink + x1.value + 1
+end
+return sink

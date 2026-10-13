@@ -4,13 +4,12 @@ end
 local function one(): integer | nil
   return 1
 end
-local x: integer | nil = one()
-local function reset() x = nil end
+local x = { value = one() as integer | nil }
+local function reset() x.value = nil end
 local sink: integer = 0
-if x then
-  x = 1
+if x.value then
+  x.value = 1
   reset()
-  sink = sink + x + 1
+  sink = sink + x.value + 1
 end
 return sink
--- captures

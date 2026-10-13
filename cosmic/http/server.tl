@@ -532,12 +532,16 @@ local function exchange(s: Serving, conn: Net.Conn, input: wire.Input, head: wir
   end
   interim.replied = true
   conn:set_timeout(s.timeout_ns)
-  local sending, sent = xpcall(wire.send, traced, conn, {
-    status = reply.status, headers = reply.headers, body = reply.body,
-    length = reply.length,
-    close = close, method = head.method, version = head.version,
-    date = Time.format_http(Clock.now_ns()),
-  })
+  -- The reply is built inside the protected call, as its date is read there.
+  local function send_reply(to: Net.Conn): wire.Sent
+    return wire.send(to, {
+      status = reply.status, headers = reply.headers, body = reply.body,
+      length = reply.length,
+      close = close, method = head.method, version = head.version,
+      date = Time.format_http(Clock.now_ns()),
+    })
+  end
+  local sending, sent = xpcall(send_reply, traced, conn)
   if not sending then
     -- A Reader body that raised: the reply is cut short.
     drop_body(reply)

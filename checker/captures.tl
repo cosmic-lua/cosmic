@@ -130,6 +130,29 @@ function captures.find(root: captures.Node): {captures.Capture}
       end
    end
 
+   -- A type declaration holds expressions of its own: the `where` clause of a
+   -- record or an interface, and of the records nested in it, is a macro
+   -- expression, and its body may hold function literals. The declaration is
+   -- walked through every table it holds, looking for those.
+   local function walk_type(root: captures.Node)
+      local seen: {any:boolean} = {}
+      local function visit(n: any)
+         if type(n) ~= "table" or seen[n] then return end
+         seen[n] = true
+         local node = n as captures.Node
+         if node.kind == "macroexp" or node.kind == "function" then
+            walk_function(node)
+            return
+         end
+         for key, child in pairs(n as {any:any}) do
+            if key ~= "if_parent" and key ~= "fn_owner" then
+               visit(child)
+            end
+         end
+      end
+      visit(root)
+   end
+
    walk_block = function(block: captures.Node)
       table.insert(scopes, {})
       for _, statement in ipairs(block) do
@@ -215,8 +238,9 @@ function captures.find(root: captures.Node): {captures.Capture}
          if s.exps then
             walk_expression(s.exps)
          end
-      elseif kind == "break" or kind == "goto" or kind == "label" or kind == "local_type"
-         or kind == "global_type" or kind == "pragma" then
+      elseif kind == "local_type" or kind == "global_type" then
+         walk_type(s)
+      elseif kind == "break" or kind == "goto" or kind == "label" or kind == "pragma" then
          return
       else
          walk_expression(s)

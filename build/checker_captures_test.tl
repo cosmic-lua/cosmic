@@ -76,7 +76,7 @@ local function test_the_hint_says_to_return_the_value_or_keep_it_in_a_table()
   local hint = assert(teal.replacement(errors[1], source), errors[1].msg)
   assert(hint == "'got' is declared at " .. tostring(head_lines + 1) .. ":7, outside this function, " ..
       "which may read it but not assign it: return the value from the function, or keep it in a field " ..
-      "of a table both read (`local state = { got = <the value> }`, then `state.got = ...` in the function)",
+      "of a table both read (`local held = { got = <the value> }`, then `held.got = ...` in the function)",
     hint)
 end
 
@@ -142,6 +142,40 @@ local function test_a_function_in_any_expression_position_is_refused()
   refuses("local n = 0\nlocal function f(): boolean return " .. make .. " end\nuse(f)", "n")
   refuses("local n = 0\nuse({ " .. make .. " })", "n")
   refuses("local n = 0\nlocal macroexp make(): boolean return " .. make .. " end\nuse(make())", "n")
+  -- The condition of a `repeat` sees the locals of its body.
+  refuses("repeat\n  local q = 1\n  use(q)\nuntil (function(): boolean q = 2 return true end)()", "q")
+end
+
+--- A type declaration holds expressions too: its `where` clause.
+local function test_a_function_in_a_where_clause_is_refused_like_any_other()
+  local make = "(function(): boolean n = 1 return true end)()"
+  refuses("local n = 0\nlocal record W where " .. make .. " and self ~= nil\n  x: integer\nend\nuse(W)", "n")
+  refuses("local n = 0\nglobal record G where " .. make .. "\n  x: integer\nend", "n")
+  refuses("local n = 0\nlocal interface I where " .. make .. "\n  x: integer\nend", "n")
+  -- A record nested in another, and one nested two deep, have their own clauses.
+  refuses("local n = 0\nlocal record W\n  record In where " .. make .. "\n    y: integer\n  end\n  x: integer\nend\nuse(W)", "n")
+  refuses("local n = 0\nlocal record W\n  record In\n    record Deep where " .. make ..
+      "\n      y: integer\n    end\n  end\nend\nuse(W)", "n")
+  -- The program that crashes if it is taken: the clause clears what the test just found.
+  refuses("local nn: integer | nil = 5\nlocal record W where (function(): boolean nn = nil return true end)() and self ~= nil\n" ..
+      "  x: integer\nend\nlocal v: any = { x = 1 }\nif nn then\n  local ok = v is W\n  use(ok)\n  use(nn + 1)\nend", "nn")
+  -- What it reads, and what it declares, are its own to use.
+  accepts("local n = 0\nlocal record W where (function(): boolean return n == 0 end)()\n  x: integer\nend\nuse(W)")
+  accepts("local record W where (function(): boolean local k = 0 k = 1 return k == 1 end)()\n  x: integer\nend\nuse(W)")
+  accepts("local record W where self.x > 0\n  x: integer\nend\nuse(W)")
+end
+
+--- The hint's table has a name of its own.
+local function test_the_hint_names_its_table_apart_from_the_variable()
+  for _, name in ipairs({ "state", "held" }) do
+    local source = head .. "local " .. name .. " = 0\neach(function() " .. name .. " = 1 end)\nuse(" .. name .. ")\n"
+    local errors = type_errors(source)
+    assert(#errors == 1, shown(errors))
+    local hint = assert(teal.replacement(errors[1], source), errors[1].msg)
+    local table_name = name == "held" and "box" or "held"
+    assert(hint:find("(`local " .. table_name .. " = { " .. name .. " = <the value> }`, then `" ..
+        table_name .. "." .. name .. " = ...` in the function)", 1, true), hint)
+  end
 end
 
 --- The kinds of local the rule is about.

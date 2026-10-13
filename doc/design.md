@@ -1025,18 +1025,21 @@ narrowed across the call because no function can assign it.
 
 a function literal does not assign a local declared outside it
 ([`checker/captures.tl`]'s `find`, asked of each file before it is checked):
-`function() ... end`, `local function`, `function f()`, a record function and
-a macro expression may read what is around them, and assign their own locals
-and parameters, but a local belongs to the code that declares it. the
-forward declaration `local f: function(); f = function() ... end` assigns
-outside any function and is fine, so is a write to a field of a captured
-table (`state.n = state.n + 1`: the rule is about the binding, not the
+`function() ... end`, `local function`, `function f()`, a record function,
+and the function literals inside a macro expression (a `where` clause is one,
+as are those of the records nested in it) may read what is around them, and
+assign their own locals and parameters, but a local belongs to the code that
+declares it: an assignment is refused when the local is declared at a smaller
+function depth than the assignment. the forward declaration
+`local f: function(); f = function() ... end` is exempt because it is
+assigned at the same depth as its declaration, and so is a write to a field
+of a captured table (`state.n = state.n + 1`: the rule is about the binding, not the
 table), and a global is not followed. so a call, whatever it calls, changes
 no local, and a value a function finds in a local came from the code that
 made it. a refusal has the code `captured_assigned`, with the variable and
 where it is declared (`declared_y`, `declared_x`); its hint says to return
 the value from the function, or keep it in a field of a table both read
-(`local state = { n = 0 }`, then `state.n = ...`).
+(`local held = { n = 0 }`, then `held.n = ...`).
 
 a local is assigned before it is read. `local x: T` with no value is nil until
 something assigns it, and a read that comes first gets nil where the type

@@ -30,11 +30,9 @@ end
 local function id(v: integer | nil): integer | nil
   return v
 end
-local x: integer | nil = id(1)
-local function reset() x = nil end
-if x then
-  reset()
-  st.sink = st.sink + x + 1
-end
+local x = { value = id(1) as integer | nil }
+local function reset() x.value = nil end
+if x.value == nil then return st.sink end
+reset()
+st.sink = st.sink + x.value + 1
 return st.sink
--- captures
