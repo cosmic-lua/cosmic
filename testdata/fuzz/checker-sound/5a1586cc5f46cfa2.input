@@ -1,0 +1,13 @@
+local function num(): string | number
+  return 1
+end
+local function f(x: string | number | nil): number
+  if x == nil then return 0 end
+  local x = x
+  if x is number then return 0 end
+  local g = function(): number return #x end
+  x = num()
+  return g()
+end
+local sink: number = f("a")
+return sink

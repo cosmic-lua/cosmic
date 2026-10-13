@@ -470,7 +470,14 @@ local function declare(g: Gen, v: Vis)
     -- A copy of a local under its own name: it has the type the original has
     -- here, which a test of the original may have narrowed.
     local p = Fuzz.pick(g.src, v.ints)
-    add(g, "local " .. p .. " = " .. p)
+    -- Mostly of a local a test around the point narrowed, in the scope that
+    -- declared it or a scope inside.
+    local tested: {string} = {}
+    for _, f in ipairs(v.focus) do
+      if not f:find(".", 1, true) then tested[#tested + 1] = f end
+    end
+    if #tested > 0 and g.src:int(0, 2) > 0 then p = Fuzz.pick(g.src, tested) end
+    add(g, "local " .. p .. (g.src:int(0, 1) == 0 and "" or ": integer | nil") .. " = " .. p)
     g.multi[p] = true
     return
   end

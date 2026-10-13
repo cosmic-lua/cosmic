@@ -991,15 +991,20 @@ literal runs later, when what a test established may no longer hold
 (`local f = function() return r.n + 1 end`, then a call that clears `r.n`,
 then `f()`), so its body begins without the facts of the places outside it
 that may change before it runs, and keeps the rest. it loses every field path,
-because any code that runs before it may write one, and each local that any
-assignment names after its declaration, in any function (a parameter, a
-`local x = x` copy and a local declared with a value alike), because the
-assignment may run between the test and the call. it keeps the facts of a
-local that nothing assigns once it is declared, since that local holds the same
-value whenever the literal runs: its test, or the value it was declared with,
-still stands in the body. a hidden local reads with the type it was declared
-with (for `local x = x`, the type of the expression it copies), never the
-type of another variable of the name. a read in the body of a place so hidden is refused with the
+because any code that runs before it may write one, and each local that an
+assignment can change once the literal is made (a parameter, a `local x = x`
+copy and a local declared with a value alike): an assignment in a function
+literal, one that comes after the literal in the text, and one in a loop that
+also makes the literal (a later pass runs it) all can, and so can any
+assignment in a file with a `goto`. it keeps the facts of a local that no such
+assignment changes, since that local holds the same value whenever the literal
+runs: a default assigned before it (`opts = opts or {}`) or the best of a loop
+that has ended is the value its test, or the value it was declared with, still
+speaks of. a `local x = x` declares a variable of its own, even in the scope of
+the one it copies, with its own assignments. a hidden local reads with the type
+it was declared with (for a copy, the type of the variable it copies where the
+copy is made, narrowed by any test before it), never the type of another
+variable of the name. a read in the body of a place so hidden is refused with the
 code `narrowing_dropped`, kind `function`, and the hint copies the value to a
 local before the function. the body still learns what it tests itself, and
 creating the function runs none of its body, so the facts outside it stand

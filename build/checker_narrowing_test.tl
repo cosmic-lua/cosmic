@@ -1115,8 +1115,16 @@ local function test_a_function_body_begins_with_the_facts_of_no_place_that_may_c
   -- A function expression reads a local that is assigned after it is made
   -- as it was declared, not as it was tested.
   refused("if x then\n  local g = function(): number return x + 1 end\n  x = nil\n  print(g())\nend", "2: " .. plus:sub(1, 28))
-  -- A write before the test is a write too: the local is assigned.
-  refused("local w: number | nil = nil\nw = maybe()\nif w then\n  local g = function(): number return w + 1 end\n  print(g())\nend", "4: " .. plus:sub(1, 28))
+  -- A write after the function is made may run before it: the local is hidden.
+  refused("local w: number | nil = nil\nw = maybe()\nif w then\n  local g = function(): number return w + 1 end\n  w = nil\n  print(g())\nend", "4: " .. plus:sub(1, 28))
+  refused("local w: number | nil = maybe()\nlocal g = function(): number return w or 0 end\nif w then\n  local h = function(): number return w + 1 end\n  w = maybe()\n  print(g(), h())\nend", "4: " .. plus:sub(1, 28))
+  -- A write before it cannot: a default, or the best of a loop, then a function.
+  accepted("local w: number | nil = nil\nw = maybe()\nif w then\n  local g = function(): number return w + 1 end\n  print(g())\nend")
+  accepted("local best: number | nil = nil\nfor _ = 1, 3 do\n  best = maybe()\nend\nif best then\n  local g = function(): number return best + 1 end\n  print(g())\nend")
+  accepted_source("local record O\n  x: number | nil\nend\nlocal function f(opts: O | nil): function(): number\n  opts = opts or {}\n  return function(): number return opts.x or 0 end\nend\nprint(f)\n")
+  -- But not a write in a loop that also makes the function, which a later pass runs.
+  refused("local best: number | nil = nil\nfor _ = 1, 3 do\n  if best then\n    local g = function(): number return best + 1 end\n    print(g())\n  end\n  best = maybe()\nend", "4: " .. plus:sub(1, 28))
+  refused("local best: number | nil = nil\nwhile y do\n  best = maybe()\n  if best then\n    local g = function(): number return best + 1 end\n    print(g())\n  end\nend", "5: " .. plus:sub(1, 28))
   -- A local no code assigns after its declaration keeps its test in the body.
   accepted_source("local function maybe(): number | nil return nil end\nlocal z: number | nil = maybe()\nif z then\n  local g = function(): number return z + 1 end\n  print(g())\nend\n")
   accepted_source("local function maybe(): number | nil return nil end\nlocal function each(f: function()) f() end\nlocal z: number | nil = maybe()\nif z then\n  each(function() print(z + 1) end)\nend\n")
@@ -1151,6 +1159,20 @@ local function test_a_copy_of_a_local_and_a_parameter_are_widened_and_hidden_lik
       "  local g = function(): number return y + 1 end\n  x = nil\n  return g()\nend\nprint(f)\n")
   accepted_source("local function f(x: number | nil): number\n  if x == nil then return 0 end\n  local x = x\n" ..
       "  local g = function(): number return x + 1 end\n  return g()\nend\nprint(f)\n")
+  -- A copy in the scope of what it copies is a variable of its own, with its
+  -- own assignments: a parameter, an annotated copy, a plain local, and nil.
+  local num = "local function num(): string | number return 1 end\n"
+  refused_source(num .. "local function f(x: string | number | nil): number\n  if x == nil then return 0 end\n  local x = x\n" ..
+      "  if x is number then return 0 end\n  local g = function(): number return #x end\n  x = num()\n  return g()\nend\nprint(f)\n",
+    "6: cannot use operator '#'")
+  refused_source(num .. "local function f(x: string | number | nil): number\n  if x == nil then return 0 end\n  local x: string | number = x\n" ..
+      "  if x is number then return 0 end\n  local g = function(): number return #x end\n  x = num()\n  return g()\nend\nprint(f)\n",
+    "6: cannot use operator '#'")
+  refused_source("local function f(x: number | nil): number\n  if x == nil then return 0 end\n  local x: number | nil = x\n" ..
+      "  if x == nil then return 0 end\n  local g = function(): number return x + 1 end\n  x = nil\n  return g()\nend\nprint(f)\n", "5: " .. plus:sub(1, 28))
+  refused_source(num .. "local function f(): number\n  local x: string | number | nil = num()\n  if x == nil then return 0 end\n  local x = x\n" ..
+      "  if x is number then return 0 end\n  local g = function(): number return #x end\n  x = num()\n  return g()\nend\nprint(f)\n",
+    "7: cannot use operator '#'")
   -- Widening the copy leaves the name below it, another variable, out of it.
   accepted_source("local function f(x: number | string | nil): number | string\n  if x == nil then return 0 end\n  do\n    local x = x\n" ..
       "    if type(x) == \"string\" then return 1 end\n    local function set() x = \"s\" end\n    set()\n" ..
