@@ -762,6 +762,32 @@ local function refused(body: string, ...: string)
   end
 end
 
+--- What narrowing is for, each accepted: the idioms a change to the checker
+--- must keep taking.
+local function test_the_idioms_of_narrowing_are_accepted()
+  accepted("local v: number | nil = 1\nprint(v + 1)")
+  accepted("if x then print(x + 1) end")
+  accepted("if x == nil then print(0) else print(x + 1) end")
+  accepted("if not x then print(0) else print(x + 1) end")
+  accepted("if x == nil then return end\nprint(x + 1)")
+  accepted("assert(x)\nprint(x + 1)")
+  accepted("local n: number = x or 0\nprint(n + 1)")
+  accepted("print(x and x + 1)")
+  accepted("if x and y then print(x + y) end")
+  accepted("if x == nil then print(1) elseif y == nil then print(x + 1) else print(x + y) end")
+  accepted("if x == nil then return elseif y == nil then return end\nprint(x + y)")
+  accepted("if q.a then\n  q.ab = 1\n  print(q.a + 1)\nend")
+  accepted("if q.a then\n  print(1)\n  print(q.a + 1)\nend")
+  accepted("local function own() local z: number | nil = nil z = 1 print(z) end\nif x then\n  own()\n  print(x + 1)\nend")
+  accepted("local function g(u: string | number)\n  if type(u) == \"number\" then print(u + 1) else print(#u) end\nend\nprint(g)")
+  accepted("local function g(u: string | number | nil)\n  if u is number then print(u + 1) end\nend\nprint(g)")
+  accepted("local i = 0\nwhile x and i < 3 do\n  i = i + 1\n  print(x + i)\nend")
+  accepted("local i = 0\nrepeat\n  i = i + 1\n  if i > 1 then break end\nuntil i >= 3\nprint(i)")
+  accepted("for i = 1, 3 do\n  if x then print(x + i) end\nend")
+  accepted("local opts: {number | nil} = { 1, 2 }\nfor _, v in ipairs(opts) do\n  if v then print(v + 1) end\nend")
+  accepted("for i = 1, 3 do\n  if i == 2 then goto next end\n  print(i)\n  ::next::\nend")
+end
+
 local function test_a_field_narrows_on_a_test_of_it()
   accepted("if q.a then print(q.a + 1) end")
   accepted("if q.a ~= nil then print(q.a + 1) end")
@@ -816,12 +842,9 @@ local function test_assert_narrows_what_it_is_given()
   accepted("assert(x ~= nil)\nprint(x + 1)")
 end
 
--- TODO: accept the first once `type(x) == "..."` guards a field, and the
--- second once the left operand of `and` does: both wait on the roadmap item
--- that makes every guard read every place alike (checker/narrowing.tl).
-
---- The limits [`checker/narrowing.tl`] holds TODOs for. Each is pinned as
---- it is, so the change that lifts one flips its case.
+--- The limits [`checker/narrowing.tl`] holds TODOs for (its `type(x)` and
+--- `and` one is the first two cases here; the third is `is` on a field). Each
+--- is pinned as it is, so the change that lifts one flips its case.
 local function test_a_field_under_type_and_the_left_of_and_is_not_narrowed_yet()
   refused("if type(q.a) == \"number\" then print(q.a + 1) end", "1: " .. plus:sub(1, 28))
   refused("print(q.a and q.a + 1)", "1: " .. plus:sub(1, 28))
