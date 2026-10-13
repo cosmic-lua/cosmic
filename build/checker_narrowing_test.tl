@@ -315,16 +315,16 @@ end
 local function test_an_assignment_to_a_field_drops_that_field()
   setup()
   local f = module().field_place("x", "f")
-  assert(module().forgets(f, "x.f"))
+  assert(module().forgets(f, "x.f") and module().forgets(f, "x.f.g"))
+  assert(not module().forgets(f, "x.fx") and not module().forgets(f, "x.foo"))
   assert(not module().forgets(f, "x.g") and not module().forgets(f, "y.f"))
   assert(not module().forgets(f, "x"))
 end
 
---- The prefix test is the known limit [`checker/narrowing.tl`] holds a
---- TODO for: `x.f` also drops `x.foo`.
-local function test_an_assignment_to_a_field_also_drops_a_longer_name()
+--- A field is a path, not a prefix of text: `x.f` does not drop `x.foo`.
+local function test_an_assignment_to_a_field_keeps_a_longer_name()
   setup()
-  assert(module().forgets(module().field_place("x", "f"), "x.foo"))
+  assert(not module().forgets(module().field_place("x", "f"), "x.foo"))
 end
 
 --- What drops, as the checker names it.
@@ -935,8 +935,8 @@ local function test_a_write_through_another_reference_leaves_no_nested_path_narr
   plain(nested("a.f.g", "b[\"f\"] = {}", "a.f.g"), "a.f.g after b[\"f\"] = {}")
 end
 
-local function test_an_assignment_to_a_field_drops_a_field_whose_name_it_begins()
-  refused("if q.ab then\n  q.a = 1\n  print(q.ab + 1)\nend", "3: " .. plus:sub(1, 28))
+local function test_an_assignment_to_a_field_keeps_a_field_whose_name_it_begins()
+  accepted("if q.ab then\n  q.a = 1\n  print(q.ab + 1)\nend")
 end
 
 local function test_a_union_test_of_three_members_loses_the_first()

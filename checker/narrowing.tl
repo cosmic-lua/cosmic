@@ -41,11 +41,6 @@
 -- every field path for the write through a key that may be a field name
 -- (`TypeChecker:drop_through`).
 --
--- TODO: `forgets` drops by string prefix, so `r.f = v` also drops a fact
--- about `r.foo`. It waits on the roadmap item that makes every guard read
--- every place alike, which drops a place and its extensions only; the
--- prefix test then becomes a comparison of paths held on the scopes.
---
 -- TODO: `x.f is T` is refused ("can only use 'is' on variables"), though
 -- `x.f` is a place that `type(x.f) == "..."` narrows. It waits on the
 -- roadmap item that makes every guard read every place alike.
@@ -294,10 +289,11 @@ function narrowing.target_of(n: narrowing.Node): narrowing.Place
 end
 
 --- Whether an assignment to `assigned` drops what is known under `key`:
---- every field of a local assigned, and a field assigned.
+--- every field of a local assigned, and a field assigned with the paths under
+--- it (`r.f` and `r.f.g`, not `r.foo`).
 function narrowing.forgets(assigned: narrowing.Place, key: string): boolean
-   local prefix = #assigned.fields == 0 and assigned.key .. "." or assigned.key
-   return key:sub(1, #prefix) == prefix
+   local prefix = assigned.key .. "."
+   return key:sub(1, #prefix) == prefix or (#assigned.fields > 0 and key == assigned.key)
 end
 
 -- The place a drop found dropped is none: the drop itself may have removed

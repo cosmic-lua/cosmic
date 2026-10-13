@@ -335,6 +335,11 @@ main's over the tree, the fuzz corpora (`testdata/fuzz/checker-*`) and the
 programs the checker's fuzz generator draws for a seed (`dump`), and
 `diff` the outputs. The module's doc comment has the commands.
 
+`TL_SHADOW_FACTS=1` in front of any of those commands also writes the
+checker's shadow facts' disagreements with its narrowing, as lines coded
+`shadow.mismatch` (and `shadow.reads`, the reads compared). They are for
+reading: leave the variable out of a run that is diffed.
+
 The tree alone is weak evidence for a change to narrowing: the tree's own
 code is written to pass, and a checker that narrowed less or more leaves
 most of its lines as they are. The corpora and the dumped programs carry
