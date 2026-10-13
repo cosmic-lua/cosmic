@@ -1,0 +1,30 @@
+file: tf-psa-crypto/core/psa_crypto_driver_wrappers.h
+note: psa_driver_wrapper_hash_compute tries cosmic's SHA-NI driver
+  (03-sha-driver-id) before the built-in, in the shape of the test
+  driver's stanza: a PSA_ERROR_NOT_SUPPORTED -- an algorithm the
+  driver does not claim, or a CPU without the SHA extensions --
+  falls through to the software hash, and anything else is the
+  answer.
+--- find
+    /* Try accelerators first */
+#if defined(PSA_CRYPTO_DRIVER_TEST)
+    status = mbedtls_test_transparent_hash_compute(
+                alg, input, input_length, hash, hash_size, hash_length );
+    if( status != PSA_ERROR_NOT_SUPPORTED )
+        return( status );
+#endif
+--- replace
+    /* Try accelerators first */
+#if defined(COSMIC_PSA_SHA_DRIVER)
+    status = cosmic_psa_hash_compute(
+                alg, input, input_length, hash, hash_size, hash_length );
+    if( status != PSA_ERROR_NOT_SUPPORTED )
+        return( status );
+#endif
+#if defined(PSA_CRYPTO_DRIVER_TEST)
+    status = mbedtls_test_transparent_hash_compute(
+                alg, input, input_length, hash, hash_size, hash_length );
+    if( status != PSA_ERROR_NOT_SUPPORTED )
+        return( status );
+#endif
+--- end

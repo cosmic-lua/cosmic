@@ -1,0 +1,25 @@
+file: tf-psa-crypto/include/psa/crypto_driver_contexts_primitives.h
+note: psa_driver_hash_context_t gains cosmic's SHA-NI driver
+  context, of the type 10-sha-driver-context-type defines, under
+  the member name the hash dispatch (04 to 09) routes through:
+  cosmic_ctx.
+--- find
+typedef union {
+    unsigned dummy; /* Make sure this union is always non-empty */
+    mbedtls_psa_hash_operation_t mbedtls_ctx;
+#if defined(PSA_CRYPTO_DRIVER_TEST)
+    mbedtls_transparent_test_driver_hash_operation_t test_driver_ctx;
+#endif
+} psa_driver_hash_context_t;
+--- replace
+typedef union {
+    unsigned dummy; /* Make sure this union is always non-empty */
+    mbedtls_psa_hash_operation_t mbedtls_ctx;
+#if defined(PSA_CRYPTO_DRIVER_TEST)
+    mbedtls_transparent_test_driver_hash_operation_t test_driver_ctx;
+#endif
+#if defined(COSMIC_PSA_SHA_DRIVER)
+    cosmic_psa_sha_operation_t cosmic_ctx;
+#endif
+} psa_driver_hash_context_t;
+--- end

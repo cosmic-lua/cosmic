@@ -94,6 +94,16 @@
 #define MBEDTLS_AESCE_C
 #define MBEDTLS_ECP_NIST_OPTIM
 
+/* The SHA extensions (x86_64) are not a vendored path -- upstream
+ * mbedtls has no x86 SHA code (Mbed-TLS/mbedtls#8739) -- but cosmic's
+ * own transparent PSA driver, core/psa_sha_driver.c, which this
+ * macro wires into the dispatch (see patch/mbedtls). The driver
+ * picks SHA-224 and SHA-256 up at run time from what the CPU
+ * reports and declines everything else, so the dispatch falls back
+ * to the portable C; on another architecture it declines all of it.
+ * None of this depends on the build machine either. */
+#define COSMIC_PSA_SHA_DRIVER
+
 /* Wall-clock time: MBEDTLS_HAVE_TIME_DATE gates mbedtls_x509_time_gmtime()
  * and the BADCERT_EXPIRED/BADCERT_FUTURE checks in x509_crt.c -- without
  * it an expired or not-yet-valid certificate verifies as trusted. */

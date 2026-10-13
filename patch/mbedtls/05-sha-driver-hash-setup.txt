@@ -1,0 +1,39 @@
+file: tf-psa-crypto/core/psa_crypto_driver_wrappers.h
+note: psa_driver_wrapper_hash_setup tries cosmic's SHA-NI driver
+  (03-sha-driver-id) before the built-in, in the shape of the test
+  driver's stanza: on success the operation carries the driver's
+  id, so clone, update, finish and abort route back to it (06 to
+  09); a PSA_ERROR_NOT_SUPPORTED falls through to the software
+  hash.
+--- find
+    /* Try setup on accelerators first */
+#if defined(PSA_CRYPTO_DRIVER_TEST)
+    status = mbedtls_test_transparent_hash_setup(
+                &operation->ctx.test_driver_ctx, alg );
+    if( status == PSA_SUCCESS )
+        operation->id = MBEDTLS_TEST_TRANSPARENT_DRIVER_ID;
+
+    if( status != PSA_ERROR_NOT_SUPPORTED )
+        return( status );
+#endif
+--- replace
+    /* Try setup on accelerators first */
+#if defined(COSMIC_PSA_SHA_DRIVER)
+    status = cosmic_psa_hash_setup(
+                &operation->ctx.cosmic_ctx, alg );
+    if( status == PSA_SUCCESS )
+        operation->id = COSMIC_PSA_SHA_DRIVER_ID;
+
+    if( status != PSA_ERROR_NOT_SUPPORTED )
+        return( status );
+#endif
+#if defined(PSA_CRYPTO_DRIVER_TEST)
+    status = mbedtls_test_transparent_hash_setup(
+                &operation->ctx.test_driver_ctx, alg );
+    if( status == PSA_SUCCESS )
+        operation->id = MBEDTLS_TEST_TRANSPARENT_DRIVER_ID;
+
+    if( status != PSA_ERROR_NOT_SUPPORTED )
+        return( status );
+#endif
+--- end

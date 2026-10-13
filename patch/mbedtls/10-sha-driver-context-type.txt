@@ -1,0 +1,29 @@
+file: tf-psa-crypto/include/psa/crypto_driver_contexts_primitives.h
+note: the operation type of cosmic's SHA-NI transparent driver,
+  for the union member 11-sha-driver-context-member adds and the
+  declarations 03-sha-driver-id adds to the wrappers.
+  core/psa_sha_driver.h carries the same definition under the
+  same guard, for a translation unit that reaches it without this
+  header's patched text (a check of the core alone, say): the PSA
+  core and the driver must agree on the layout, so the two
+  definitions are the same text and only one ever lands.
+--- find
+/* Define the context to be used for an operation that is executed through the
+ * PSA Driver wrapper layer as the union of all possible driver's contexts.
+--- replace
+#if defined(COSMIC_PSA_SHA_DRIVER)
+/* The operation state of cosmic's SHA-NI transparent driver
+ * (core/psa_sha_driver.c): plain data, so clone is a struct copy. */
+#define COSMIC_PSA_SHA_OPERATION_T_DEFINED
+typedef struct {
+    psa_algorithm_t alg;
+    uint32_t state[8];
+    uint64_t length;
+    uint8_t buffer[64];
+    size_t buffered;
+} cosmic_psa_sha_operation_t;
+#endif
+
+/* Define the context to be used for an operation that is executed through the
+ * PSA Driver wrapper layer as the union of all possible driver's contexts.
+--- end

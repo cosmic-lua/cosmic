@@ -1,0 +1,26 @@
+file: tf-psa-crypto/core/psa_crypto_driver_wrappers.h
+note: the COSMIC_PSA_SHA_DRIVER_ID arm of
+  psa_driver_wrapper_hash_finish's switch, in the shape of the test
+  driver's arm: an operation cosmic's SHA-NI driver set up (05)
+  finishes through the driver.
+--- find
+#if defined(PSA_CRYPTO_DRIVER_TEST)
+        case MBEDTLS_TEST_TRANSPARENT_DRIVER_ID:
+            return( mbedtls_test_transparent_hash_finish(
+                        &operation->ctx.test_driver_ctx,
+                        hash, hash_size, hash_length ) );
+#endif
+--- replace
+#if defined(COSMIC_PSA_SHA_DRIVER)
+        case COSMIC_PSA_SHA_DRIVER_ID:
+            return( cosmic_psa_hash_finish(
+                        &operation->ctx.cosmic_ctx,
+                        hash, hash_size, hash_length ) );
+#endif
+#if defined(PSA_CRYPTO_DRIVER_TEST)
+        case MBEDTLS_TEST_TRANSPARENT_DRIVER_ID:
+            return( mbedtls_test_transparent_hash_finish(
+                        &operation->ctx.test_driver_ctx,
+                        hash, hash_size, hash_length ) );
+#endif
+--- end

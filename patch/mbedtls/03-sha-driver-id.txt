@@ -1,0 +1,40 @@
+file: tf-psa-crypto/core/psa_crypto_driver_wrappers.h
+note: cosmic's SHA-NI transparent driver (core/psa_sha_driver.c,
+  COSMIC_PSA_SHA_DRIVER) takes the next free driver id, 5, after
+  p256's 4. Its entry points live in cosmic's core, outside this
+  tree, so their declarations are added here, over the operation
+  type 10-sha-driver-context-type gives the contexts header; the
+  hash stanzas that call them are 04 to 09.
+--- find
+#define P256_TRANSPARENT_DRIVER_ID (4)
+
+/* END-driver id */
+--- replace
+#define P256_TRANSPARENT_DRIVER_ID (4)
+#define COSMIC_PSA_SHA_DRIVER_ID (5)
+
+/* END-driver id */
+
+/* Headers for cosmic's SHA-NI transparent driver */
+#if defined(COSMIC_PSA_SHA_DRIVER)
+psa_status_t cosmic_psa_hash_compute( psa_algorithm_t alg,
+                                      const uint8_t *input,
+                                      size_t input_length,
+                                      uint8_t *hash,
+                                      size_t hash_size,
+                                      size_t *hash_length );
+psa_status_t cosmic_psa_hash_setup( cosmic_psa_sha_operation_t *operation,
+                                    psa_algorithm_t alg );
+psa_status_t cosmic_psa_hash_clone(
+                const cosmic_psa_sha_operation_t *source_operation,
+                cosmic_psa_sha_operation_t *target_operation );
+psa_status_t cosmic_psa_hash_update( cosmic_psa_sha_operation_t *operation,
+                                     const uint8_t *input,
+                                     size_t input_length );
+psa_status_t cosmic_psa_hash_finish( cosmic_psa_sha_operation_t *operation,
+                                     uint8_t *hash,
+                                     size_t hash_size,
+                                     size_t *hash_length );
+psa_status_t cosmic_psa_hash_abort( cosmic_psa_sha_operation_t *operation );
+#endif
+--- end
