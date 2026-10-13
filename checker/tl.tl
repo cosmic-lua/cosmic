@@ -8337,6 +8337,7 @@ do
       sh_entry: {integer:Facts.Facts}
       sh_assigned: {integer:{string:boolean}}
       sh_fn: {integer:boolean}
+      sh_dirty: {integer:boolean}
       sh_saved: {integer:Facts.Facts}
       -- The field paths the scope narrowed itself, which a widening of every
       -- narrowed name (`widen_all_unions`) drops from the innermost scope
@@ -12769,8 +12770,9 @@ do
    -- all just answers nil here, the same as an unknown variable would.
    function TypeChecker:place_type(place: narrowing.Place, w: Where): Type
       local typ = self:find_var_type(place.key, "check_only")
-      if #place.fields > 0 and self.facts ~= nil
-         and (typ ~= nil) ~= Facts.has(self.facts, self:shadow_key(place.key)) then
+      local held = self.facts
+      if #place.fields > 0 and held ~= nil and (typ ~= nil or held.paths > 0)
+         and (typ ~= nil) ~= Facts.has(held, self:shadow_key(place.key)) then
          self.sh_disagree = true
       end
       if self.shadow_log and (typ or #place.fields > 0) then
@@ -13854,12 +13856,6 @@ do
          local d = self.sh_depth + 1
          self.sh_depth = d
          self.sh_entry[d] = self.facts
-         self.sh_assigned[d] = nil
-         self.sh_fn[d] = nil
-         self.sh_saved[d] = nil
-         self.sh_fields[d] = nil
-         self.sh_renarrowed[d] = nil
-         self.sh_widen_entry[d] = nil
       end
 
       -- A scope ends. See the comment above.
@@ -13869,19 +13865,27 @@ do
             return
          end
          local entry = self.sh_entry[d]
-         local assigned = self.sh_assigned[d]
+         local assigned: {string:boolean} = nil
          local revive = self.sh_revive
          local deferred = self.sh_deferred
-         self.sh_revive = false
-         self.sh_deferred = false
+         if revive or deferred then
+            self.sh_revive = false
+            self.sh_deferred = false
+         end
          self.sh_depth = d - 1
          self.sh_entry[d] = nil
-         self.sh_assigned[d] = nil
-         self.sh_fn[d] = nil
-         self.sh_saved[d] = nil
-         self.sh_fields[d] = nil
-         self.sh_renarrowed[d] = nil
-         self.sh_widen_entry[d] = nil
+         -- Most scopes keep nothing of their own: only a scope that
+         -- narrowed a field, assigned a local or began a function is dirty.
+         if self.sh_dirty[d] then
+            self.sh_dirty[d] = nil
+            assigned = self.sh_assigned[d]
+            self.sh_assigned[d] = nil
+            self.sh_fn[d] = nil
+            self.sh_saved[d] = nil
+            self.sh_fields[d] = nil
+            self.sh_renarrowed[d] = nil
+            self.sh_widen_entry[d] = nil
+         end
          self.sh_last_assigned = assigned
          local now = self.facts
          if now == entry and assigned == nil then
@@ -13914,6 +13918,7 @@ do
                   if not outer then
                      outer = {}
                      self.sh_assigned[d - 1] = outer
+                     self.sh_dirty[d - 1] = true
                   end
                   outer[key] = true
                end
@@ -13945,6 +13950,7 @@ do
                if not again then
                   again = {}
                   self.sh_renarrowed[d] = again
+                  self.sh_dirty[d] = true
                end
                again[self:shadow_key(name)] = true
             end
@@ -13954,6 +13960,7 @@ do
                if not fields then
                   fields = {}
                   self.sh_fields[d] = fields
+                  self.sh_dirty[d] = true
                end
                fields[self:shadow_key(name)] = true
             end
@@ -13986,6 +13993,7 @@ do
          if not assigned then
             assigned = {}
             self.sh_assigned[d] = assigned
+            self.sh_dirty[d] = true
          end
          assigned[key] = true
          if own_entry then
@@ -13993,6 +14001,7 @@ do
             if not own then
                own = {}
                self.sh_widen_entry[d] = own
+               self.sh_dirty[d] = true
             end
             own[key] = true
          end
@@ -14227,6 +14236,7 @@ do
          local f = self.facts
          self.sh_fn[d] = true
          self.sh_saved[d] = f
+         self.sh_dirty[d] = true
          if f == nil then
             return
          end
@@ -18542,6 +18552,7 @@ do
          sh_entry = {},
          sh_assigned = {},
          sh_fn = {},
+         sh_dirty = {},
          sh_saved = {},
          sh_fields = {},
          sh_j_index = {},
