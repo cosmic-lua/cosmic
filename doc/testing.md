@@ -325,6 +325,21 @@ seeded source. A check must hold for all of them. The module doc of
   `testdata/fuzz/<property>/` as the report says. `run` checks that
   corpus before it draws.
 
+## a change to the checker's verdicts
+
+A change to the type checker that must not move a verdict, or must move
+only the ones it says, is held to [`build.checker_verdicts`]: a tool that
+writes every error and warning of a list of sources as one sorted line
+(`file`, `code`, `y`, `x`, `message`). Run it with the tree's tool and with
+main's over the tree, the fuzz corpora (`testdata/fuzz/checker-*`) and the
+programs the checker's fuzz generator draws for a seed (`dump`), and
+`diff` the outputs. The module's doc comment has the commands.
+
+The tree alone is weak evidence for a change to narrowing: the tree's own
+code is written to pass, and a checker that narrowed less or more leaves
+most of its lines as they are. The corpora and the dumped programs carry
+that sensitivity, so a narrowing change runs all three sets.
+
 ## other hazards
 
 - Every test's directory is at a path padded to macOS's length
@@ -399,6 +414,7 @@ Other rules:
   deep, those tests call [`Test.skip`].
 
 [`bin/cosmic`]: ../bin/cosmic
+[`build.checker_verdicts`]: ../build/checker_verdicts.tl
 [`build.confine`]: ../build/confine.tl
 [`build.fuzz`]: ../build/fuzz/init.tl
 [`build.harness_epoch_test`]: ../build/harness_epoch_test.tl

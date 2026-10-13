@@ -147,6 +147,16 @@ for _, name in ipairs({ "parse", "render", "scalar", "from", "write", "value", "
   allowed["build.flow." .. name] = "the API a program generates or edits a workflow " ..
     "through, which no program in the tree does yet; its test and the workflows' own do"
 end
+for _, name in ipairs({ "well_formed", "any", "captures_mark" }) do
+  allowed["build.checker_programs." .. name] = "the checker's fuzz generators and the line " ..
+    "that marks a program the checker must refuse, which build/checker_fuzz_test.tl draws " ..
+    "its inputs from; the dump of the same programs to files (`drawn`) is the tool's"
+end
+for _, name in ipairs({ "pack", "unpack" }) do
+  allowed["build.fuzz." .. name] = "the fuzz tests' inputs of several fields; only tests " ..
+    "pack them, and build.checker_programs, which the verdict tool requires for the " ..
+    "generators' draws, makes this module one a non-test module requires"
+end
 allowed["build.verb_list.entries"] = "what build/verb_list_test.tl holds each verb's spec name to"
 allowed["build.identity.compiler_modules"] = "what build/importer_test.tl holds the tree to, " ..
   "walked over the running binary's modules: every module build.importer requires is " ..

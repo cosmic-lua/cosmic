@@ -169,6 +169,9 @@ local record tl
       reporter: TypeReporter
       keep_going: boolean
       report_types: boolean
+      -- When set, `find_var` appends `name=key` for each variable it finds,
+      -- so a test can see which binding a name was read as.
+      key_trace: {string}
       defaults: CheckOptions
    end
 
@@ -639,6 +642,18 @@ local record Variable
    has_been_read_from: boolean
    has_been_written_to: boolean
    is_loop_control: boolean
+   -- Names the binding this entry stands for, whatever its name, so that
+   -- two places are the same only if their keys are. A global, whether the
+   -- environment, the standard library or a `global` declaration in any file
+   -- made it, is "g:" and its name: one global, in every file of an
+   -- environment. Any other binding is the value of
+   -- `TypeChecker.binding_count` when `add_var` made it, a decimal number
+   -- that no "g:" key equals and that is the binding's alone in the file
+   -- being checked. An entry that narrows or widens a binding in a scope of
+   -- its own, and the copy `find_var` answers for a write, hold the key of
+   -- that binding; so does the entry `infer_emptytable` puts in place of
+   -- one. A `local x = x` is a binding of its own and has a key of its own.
+   key: string
 end
 
 -- Where the pre-pass (`TypeChecker:find_assignments`) met a function
@@ -8274,6 +8289,9 @@ do
 
       -- The call-like expressions met so far (`drop_all`), counted.
       drop_clock: integer
+      -- The bindings `add_var` and `add_global` have made so far, counted:
+      -- each takes the count as its `Variable.key`.
+      binding_count: integer
       -- The declarations of the file the pre-pass saw (see
       -- `find_assignments`).
       root_ast: Node
@@ -8353,7 +8371,10 @@ do
             if use == "lvalue" and var.is_specialized and var.is_specialized ~= "localizing" then
                if var.specialized_from then
                   var.has_been_written_to = true
-                  return { t = var.specialized_from, attribute = var.attribute }, i, var.attribute
+                  if self.env.key_trace then
+                     table.insert(self.env.key_trace, name .. "=" .. tostring(var.key))
+                  end
+                  return { t = var.specialized_from, attribute = var.attribute, key = var.key }, i, var.attribute
                end
             else
                if i == 1 and var.needs_compat then
@@ -8377,6 +8398,9 @@ do
                   end
                end
 
+               if self.env.key_trace then
+                  table.insert(self.env.key_trace, name .. "=" .. tostring(var.key))
+               end
                return var, i, var.attribute
             end
          end
@@ -8917,7 +8941,7 @@ do
       for i = nst, 1, -1 do
          local scope = self.st[i]
          if scope.vars[emptytable.assigned_to] then
-            scope.vars[emptytable.assigned_to] = { t = fresh_t }
+            scope.vars[emptytable.assigned_to] = { t = fresh_t, key = scope.vars[emptytable.assigned_to].key }
          end
       end
    end
@@ -8997,7 +9021,7 @@ do
    end
 
    do
-      local function specialize_var(scope: Scope, node: Node, name: string, t: Type, attribute: Attribute, specialization: Specialization): Variable
+      local function specialize_var(scope: Scope, node: Node, name: string, t: Type, attribute: Attribute, specialization: Specialization, key: string): Variable
          local var = scope.vars[name]
          if specialization == "localizing" then
             -- `local x = x` declares a variable of its own, even where the
@@ -9025,7 +9049,7 @@ do
             var.specialized_from = var.t
             var.t = t
          else
-            var = { t = t, attribute = attribute, is_specialized = specialization, declared_at = node }
+            var = { t = t, attribute = attribute, is_specialized = specialization, declared_at = node, key = key }
             scope.vars[name] = var
          end
 
@@ -9055,7 +9079,20 @@ do
 
          local scope <const> = self.st[#self.st]
          if specialization then
-            return specialize_var(scope, node, name, t, attribute, specialization)
+            -- Only an entry made anew needs a key: one that exists keeps its own.
+            local key = ""
+            if specialization == "localizing" or scope.vars[name] == nil then
+               local bound = specialization ~= "localizing" and self:find_var(name, "check_only") or nil
+               if bound and bound.key then
+                  key = bound.key
+               elseif bound then
+                  key = "g:" .. name
+               else
+                  self.binding_count = self.binding_count + 1
+                  key = tostring(self.binding_count)
+               end
+            end
+            return specialize_var(scope, node, name, t, attribute, specialization, key)
          end
 
          if node then
@@ -9074,7 +9111,8 @@ do
             self.errs:unused_warning(name, var)
          end
 
-         var = { t = t, attribute = attribute, declared_at = node }
+         self.binding_count = self.binding_count + 1
+         var = { t = t, attribute = attribute, declared_at = node, key = tostring(self.binding_count) }
          scope.vars[name] = var
 
          return var
@@ -12377,7 +12415,7 @@ do
          return nil
       end
 
-      local var = { t = valtype, attribute = is_const and "const" or nil }
+      local var = { t = valtype, attribute = is_const and "const" or nil, key = "g:" .. varname }
       self.st[1].vars[varname] = var
 
       return var
@@ -15635,7 +15673,8 @@ do
                end
 
                expected = self:infer_at(node, got)
-               self.st[2].vars["@return"] = { t = expected }
+               self.binding_count = self.binding_count + 1
+               self.st[2].vars["@return"] = { t = expected, key = tostring(self.binding_count) }
             end
             local expected_t = expected.tuple
 
@@ -17750,6 +17789,7 @@ do
          eqtype_relations = TypeChecker.eqtype_relations,
          type_priorities = TypeChecker.type_priorities,
          drop_clock = 0,
+         binding_count = 0,
          loops = {},
          loop_tick = 0,
       }
