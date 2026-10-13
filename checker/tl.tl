@@ -8324,6 +8324,7 @@ do
       binder_is_own: function(TypeChecker, Node, Attribute): boolean
       call_text: function(TypeChecker, Node): string
       drop_all: function(TypeChecker, Where, string, ? string)
+      drop_global: function(TypeChecker, string, narrowing.Drop)
       last_dropper: function(TypeChecker): narrowing.Drop
       drop_through: function(TypeChecker, Node)
       may_dispatch: function(TypeChecker, Type, ? string): boolean
@@ -9276,8 +9277,12 @@ do
    -- Whether a call leaves what is known of the local `name`: it is a
    -- local of the file, which only the code that declares it assigns. A
    -- name with no declaration of the file's own (a global) is not.
-   function TypeChecker:local_is_own(name: string): boolean
-      for i = #self.st, 1, -1 do
+   --
+   -- `from` is the scope to look the name up from, the innermost by
+   -- default: a fact held by an outer scope belongs to the binding that
+   -- scope sees, which a local declared in a scope within it does not hide.
+   function TypeChecker:local_is_own(name: string, from?: integer): boolean
+      for i = from or #self.st, 1, -1 do
          local var = self.st[i].vars[name]
          if var and ((not var.is_specialized) or var.specialized_from or var.is_specialized == "localizing") then
             return self:binder_is_own(var.declared_at, var.attribute)
@@ -13157,9 +13162,46 @@ do
             narrowing.drop_paths(scopes, why)
          end
          for _, name in ipairs(names or {}) do
-            if not self:local_is_own(name) then
-               narrowing.note(scopes, name, why)
-               self:widen_back_var(name)
+            self:drop_global(name, why)
+         end
+      end
+
+      -- What is known of `name` and of the paths based at it is dropped in
+      -- each scope whose fact belongs to a global of that name: decided per
+      -- scope by the binding that scope sees, not by the innermost one, as a
+      -- local of the file declared within a scope (`local G` in a block) hides
+      -- the global from the code in the block only. A fact of a local of the
+      -- file stays.
+      function TypeChecker:drop_global(name: string, why: narrowing.Drop)
+         local scopes = self.st as {narrowing.Scope}
+         -- Whether a scope within the one looked at declares the name, so
+         -- that widening the fact must not touch that declaration.
+         local hidden = false
+         for i = #self.st, 1, -1 do
+            local scope = self.st[i]
+            local var = scope.vars[name]
+            local declares = var ~= nil and (not var.is_specialized or var.is_specialized == "localizing"
+               or var.is_specialized == "narrowed_declaration")
+            if narrowing.holds(scopes, i, name) and not self:local_is_own(name, i) then
+               local narrowed = scope.narrows ~= nil and scope.narrows[name] == true
+               if narrowed then
+                  narrowing.note_at(scopes, i, name, why)
+                  if not hidden then
+                     self:widen_in_scope(i, name)
+                  elseif var.specialized_from then
+                     var.t = var.specialized_from
+                     var.specialized_from = nil
+                     var.is_specialized = nil
+                     scope.narrows[name] = nil
+                  else
+                     scope.vars[name] = nil
+                     scope.narrows[name] = nil
+                  end
+               end
+               narrowing.drop_based(scopes, i, name, why)
+            end
+            if declares then
+               hidden = true
             end
          end
       end
@@ -13648,34 +13690,58 @@ do
 
       -- A write to `target` has run: a field of that name through any
       -- reference may be one that a narrowed path names, and a write
-      -- through a key that may name a field may write any.
+      -- through a key that may name a field may write any. The same holds
+      -- of a narrowed global, which is a field of `_G`: any value may be
+      -- `_G` (`_G as {string:any}`, `_G as R` for a record that declares
+      -- the field), so a write through the global's name drops it, and a
+      -- write through a key that may be its name drops every global.
       function TypeChecker:drop_through(target: Node)
          if target.kind ~= "op" then
             return
          end
          local scopes = self.st as {narrowing.Scope}
-         if not narrowing.has_paths(scopes) then
+         local paths, names = narrowing.narrowed(scopes)
+         if not paths and not names then
             return
          end
-         local name = self:written_name(target)
-         local text = (name or (target.op.op == "." and "(...)." .. target.e2.tk or "(...)[...]")) .. " = ..."
+         local written = self:written_name(target)
+         local text = (written or (target.op.op == "." and "(...)." .. target.e2.tk or "(...)[...]")) .. " = ..."
          local at = start_of(target)
          local why = narrowing.because("write", text, at.y, at.x)
          self.last_drop, self.last_drop_node = why, nil
+         -- The field written, or nil for a key that may be any.
+         local field: string = nil
          if target.op.op == "." and target.e2 and target.e2.tk then
-            narrowing.drop_written(scopes, target.e2.tk, why)
+            field = target.e2.tk
          elseif target.op.op == "@index" and target.e2 then
             local key = target.e2
             if key.kind == "string" and key.conststr then
-               narrowing.drop_written(scopes, key.conststr, why)
-            elseif target.key_kind ~= "integer" and target.key_kind ~= "number" then
-               -- TODO: a write to an index (`t[k] = v`) drops every index
-               -- place, and there are none; a key that is not a number may
-               -- be a field name, so it drops every field path. It waits on
-               -- doc/roadmap.md's item that makes an index a place and on
-               -- the rule that a record is not a map: a `{string:any}` that
-               -- holds a record is written through here.
-               narrowing.drop_paths(scopes, why)
+               field = key.conststr
+            elseif target.key_kind == "integer" or target.key_kind == "number" then
+               return
+            end
+         else
+            return
+         end
+         if field then
+            if paths then
+               narrowing.drop_written(scopes, field, why)
+            end
+         elseif paths then
+            -- TODO: a write to an index (`t[k] = v`) drops every index
+            -- place, and there are none; a key that is not a number may
+            -- be a field name, so it drops every field path. It waits on
+            -- doc/roadmap.md's item that makes an index a place and on
+            -- the rule that a record is not a map: a `{string:any}` that
+            -- holds a record is written through here. The same key drops
+            -- every narrowed global below, and waits on the same rule.
+            narrowing.drop_paths(scopes, why)
+         end
+         if field then
+            self:drop_global(field, why)
+         else
+            for _, name in ipairs(names or {}) do
+               self:drop_global(name, why)
             end
          end
       end
