@@ -635,7 +635,7 @@ print(upper(1))
       "holding it, so a test of it must not narrow")
 end
 
-local function test_type_test_of_a_field_does_not_narrow(tmp: string)
+local function test_type_test_of_a_field_narrows_and_is_of_a_field_does_not(tmp: string)
   local ok, trouble = try_build(tmp, "type-field", [[
 local record Holder
    v: any
@@ -646,7 +646,19 @@ local function upper(h: Holder): string
 end
 print(upper({}))
 ]])
-  assert(refused_index(ok, trouble, "upper"), "`is` narrows only a variable, and so does type()")
+  assert(ok, "type() narrows a field as it does a local, but: " .. tostring(trouble))
+  local built, why = try_build(tmp, "is-field", [[
+local record Holder
+   v: string | number
+end
+local function upper(h: Holder): string
+   if h.v is string then return h.v:upper() end
+   return ""
+end
+print(upper({}))
+]])
+  assert(not built and why:find("can only use 'is' on variables", 1, true) ~= nil,
+    "`is` narrows only a variable, but: " .. tostring(why))
 end
 
 local function test_type_test_no_member_answers_is_a_plain_check(tmp: string)
