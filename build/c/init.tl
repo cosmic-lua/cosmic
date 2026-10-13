@@ -400,7 +400,6 @@ function c.check(root: string, files: {string}, cwd?: string, limit?: integer):
   local declared = declared_in(root)
   local outcomes: {c.Outcome} = {}
   local units: {integer: rules.Unit} = {}
-  local running: {Child.Handle} = {}
   local which: {Child.Handle: integer} = {}
   -- One compile per file under the first variant, and one per file under
   -- each of the others the file's tree can differ in.
@@ -421,7 +420,6 @@ function c.check(root: string, files: {string}, cwd?: string, limit?: integer):
     end
   end
   local results: {integer: c.Outcome} = {}
-  local next_job = 1
   local env = environment()
   local install, runs_from = toolchain(root, env)
   local made_deps, deps_trouble = Fs.mkdtemp("cosmic-c-deps-")
@@ -441,6 +439,8 @@ function c.check(root: string, files: {string}, cwd?: string, limit?: integer):
     return path:sub(1, 1) == "/" and path or cwd .. "/" .. path
   end
   local function compile()
+    local running: {Child.Handle} = {}
+    local next_job = 1
     while next_job <= #jobs or #running > 0 do
       while next_job <= #jobs and #running < parallel do
         local job = jobs[next_job]

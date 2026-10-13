@@ -522,8 +522,7 @@ local function extract_streamed(file: string, source: Stream.Reader, dest: strin
   -- files in the way. Read as the entries pass; the entries are not kept.
   local found: {boolean} = {}
   local clashes: Clashes = { count = 0, first = {} }
-  local halted = false
-  local finished, finish_why = false, ""
+  local reading = { halted = false, finished = false, finish_why = "" }
   local function record(entry: Archive.Entry)
     local name = normal(entry.path)
     for slot, member in ipairs(wanted) do
@@ -535,10 +534,10 @@ local function extract_streamed(file: string, source: Stream.Reader, dest: strin
     end
   end
   local function advance(): Archive.Entry | nil
-    if finished then return nil end
+    if reading.finished then return nil end
     local entry, why = inner:next()
     if entry == nil then
-      finished, finish_why = true, why
+      reading.finished, reading.finish_why = true, why
       return nil
     end
     record(entry)
@@ -546,13 +545,13 @@ local function extract_streamed(file: string, source: Stream.Reader, dest: strin
   end
   local watched: Archive.Reader = {
     next = function(_self: Archive.Reader): Archive.Entry | nil, string
-      if halted then return nil, "" end
+      if reading.halted then return nil, "" end
       local entry = advance()
-      if entry == nil then return nil, finish_why end
+      if entry == nil then return nil, reading.finish_why end
       -- Files are already in the way and nothing will be written: read
       -- on for the rest of the listing without unpacking any more.
       if clashes.count > 0 then
-        halted = true
+        reading.halted = true
         return nil, ""
       end
       return entry, ""
@@ -571,8 +570,8 @@ local function extract_streamed(file: string, source: Stream.Reader, dest: strin
   -- before anything was written: its trouble comes first.
   while advance() ~= nil do end
   local _, _ = inner:close()
-  if finish_why ~= "" then
-    return give_up(fail(bare.refused, trouble_of(file, file, finish_why)))
+  if reading.finish_why ~= "" then
+    return give_up(fail(bare.refused, trouble_of(file, file, reading.finish_why)))
   end
   local missing: {string} = {}
   for slot, member in ipairs(wanted) do
@@ -735,20 +734,20 @@ local function gather(paths: {string}, skip_file: string | nil): {Item} | nil, O
     local rooted, _ = Fs.is_dir(given)
     if (root and rooted) or (not root and by_name[name].kind == "dir") then
       local seen: {{string, string}} = {}
-      local odd: string | nil
+      local odd: {string} = {}
       local listed, walk_why = Fs.walk(given, function(relative: string, _bare: string, kind: Fs.Kind): boolean
         if kind == "dir" or kind == "link" then
           seen[#seen + 1] = { relative, kind }
-        elseif kind ~= "file" and odd == nil then
+        elseif kind ~= "file" and odd[1] == nil then
           -- A fifo, a socket or a device: [`Fs.walk`] lists only files,
           -- directories and links, so it is met here or not at all.
-          odd = relative
+          odd[1] = relative
         end
         return false
       end)
       if listed == nil then return nil, fail(bare.refused, walk_why) end
-      if odd ~= nil then
-        return nil, fail(bare.refused, given .. "/" .. odd .. ": neither a file, a directory nor a symlink")
+      if odd[1] ~= nil then
+        return nil, fail(bare.refused, given .. "/" .. odd[1] .. ": neither a file, a directory nor a symlink")
       end
       for _, relative in ipairs(listed) do seen[#seen + 1] = { relative, "file" } end
       for _, pair in ipairs(seen) do

@@ -310,26 +310,28 @@ local function span_end(node: Node, tokens: {compiler.Token}): integer, integer
       return by, bx
     end
     seen[n] = true
+    -- The furthest end of the node and of everything below it.
+    local furthest = { y = by, x = bx }
+    local function reach(child: Node)
+      local cy, cx = compute(child, seen)
+      if cy > furthest.y or (cy == furthest.y and cx > furthest.x) then
+        furthest.y, furthest.x = cy, cx
+      end
+    end
     each_child(n, function(value: any)
       local child, rest = classify(value)
       if child then
-        local cy, cx = compute(child, seen)
-        if cy > by or (cy == by and cx > bx) then
-          by, bx = cy, cx
-        end
+        reach(child)
       elseif rest then
         for _, e in ipairs(rest) do
           local gc = classify(e)
           if gc then
-            local cy, cx = compute(gc, seen)
-            if cy > by or (cy == by and cx > bx) then
-              by, bx = cy, cx
-            end
+            reach(gc)
           end
         end
       end
     end)
-    return by, bx
+    return furthest.y, furthest.x
   end
   return compute(node, {})
 end

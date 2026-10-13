@@ -897,7 +897,7 @@ end
 function fix.link_context(root: string, whole: boolean, own: boolean,
                           rebuild_here: function(string): boolean, string,
                           databases: function(): docs.Sources): fix.LinkSource
-  local opened: docs.Sources | nil = nil
+  local opened: {docs.Sources} = {}
   local source: fix.LinkSource | nil
   local function open(): docs.View | nil, string
     if not whole then
@@ -908,7 +908,7 @@ function fix.link_context(root: string, whole: boolean, own: boolean,
       end
     end
     local found = databases()
-    opened = found
+    opened[1] = found
     return docs.view(found.handles, found.public)
   end
   local function unbuilt(): string | nil
@@ -918,8 +918,8 @@ function fix.link_context(root: string, whole: boolean, own: boolean,
     return "the project has no projection yet (`cosmic build` or `cosmic test` makes one)"
   end
   local function close()
-    if opened ~= nil then
-      for _, handle in ipairs(opened.opened or {}) do
+    for _, each in ipairs(opened) do
+      for _, handle in ipairs(each.opened or {}) do
         local _, _ = handle:close()
       end
     end

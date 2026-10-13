@@ -596,24 +596,21 @@ function compilation.generate(m: Module, built: compiler, env: compiler.Env,
   -- which on a cold build put a template's error at the field in its
   -- data module, under the template's name.
   typed.checking = m.file
-  local answer: compiler.Result | nil
   -- The module that holds the hook the checks call is compiled without
   -- them: a check of the hook's own parameters would call the hook.
   local checks = env.defaults.runtime_checks
   if m.path == "build.test_worker" then
     env.defaults.runtime_checks = false
   end
-  local checked_ok, raised = pcall(function()
-    answer = built.check_string(source, env, m.file, "tl")
-  end)
+  local checked_ok, outcome = pcall(built.check_string, source, env, m.file, "tl")
   env.defaults.runtime_checks = checks
   -- Put back before a raise goes on, so the run's state names no file
   -- the checker has left.
   typed.checking = ""
   if not checked_ok then
-    error(raised, 0)
+    error(outcome, 0)
   end
-  local result = assert(answer, "the checker answered no result")
+  local result = assert(outcome, "the checker answered no result")
   local code: string | nil = nil
   if result.ast ~= nil and #result.syntax_errors == 0 then
     local written, write_trouble = built.generate(result.ast, env.defaults.gen_target, nil)

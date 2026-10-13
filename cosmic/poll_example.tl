@@ -97,29 +97,29 @@ end
 --- A cancelled task's wait answers [`Poll.CANCELLED`], and it unwinds on
 --- its own terms.
 function Example.cancel()
-  local answer = ""
+  local waited = { answer = "" }
   Poll.run(function()
     local sleeper = Poll.spawn(function()
       local _, why = Poll.delay(Clock.seconds(60))
-      answer = why
+      waited.answer = why
     end)
     assert(Poll.delay(0))
     sleeper:cancel()
     assert(sleeper:join())
   end)
-  print(answer)
-  assert(answer == Poll.CANCELLED)
+  print(waited.answer)
+  assert(waited.answer == Poll.CANCELLED)
 end
 
 --- A task that waits on whatever its waits answer outlasts `cancel`,
 --- and is ended by `kill` where it waits: its `<close>` variables are
 --- closed, and a join answers [`Poll.CANCELLED`].
 function Example.kill()
-  local released = false
+  local lease = { released = false }
   local record Lease
     metamethod __close: function(Lease)
   end
-  local lease_mt: metatable<Lease> = { __close = function() released = true end }
+  local lease_mt: metatable<Lease> = { __close = function() lease.released = true end }
   Poll.run(function()
     local stubborn = Poll.spawn(function()
       local _ <close> = setmetatable({} as Lease, lease_mt)
@@ -131,8 +131,8 @@ function Example.kill()
     assert(still == Poll.TIMEOUT)
     stubborn:kill()
     local ended, why = stubborn:join()
-    print(released, ended, why)
-    assert(released and not ended and why == Poll.CANCELLED)
+    print(lease.released, ended, why)
+    assert(lease.released and not ended and why == Poll.CANCELLED)
   end)
 end
 

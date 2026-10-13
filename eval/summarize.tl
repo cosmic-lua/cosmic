@@ -128,6 +128,11 @@ local function read_word(src: string, from: integer): Word, integer
   return { text = table.concat(buf), literal = literal, spaced = spaced, quoted = quoted, arith = false }, i
 end
 
+--- A command as [`lex`] reads it: the words so far.
+local record Command
+  words: {Word}
+end
+
 --- The simple commands of a shell script as lists of words. Comments
 --- and here-document bodies are left out, and redirection operators:
 --- the word after one is a word like any other. A command substitution
@@ -135,15 +140,16 @@ end
 --- which is enough for an advisory list.
 local function lex(src: string): {{Word}}
   local commands: {{Word}} = {}
-  local current: {Word} = {}
+  -- The command being read: its words so far.
+  local reading: Command = { words = {} }
   local delims: {string} = {}
   local dashed: {boolean} = {}
   local arith = false
   local i, n = 1, #src
   local function flush()
-    if #current > 0 then
-      commands[#commands + 1] = current
-      current = {}
+    if #reading.words > 0 then
+      commands[#commands + 1] = reading.words
+      reading.words = {}
     end
   end
   while i <= n do
@@ -208,7 +214,7 @@ local function lex(src: string): {{Word}}
       if arith and word.text:find("%)%)") then
         arith = false
       end
-      current[#current + 1] = word
+      reading.words[#reading.words + 1] = word
     end
   end
   flush()

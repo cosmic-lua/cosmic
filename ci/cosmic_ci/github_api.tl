@@ -152,11 +152,11 @@ function GithubApi.live(env: {string:string}, test?: GithubApi.Live): GithubApi.
   if api_origin == nil then return nil, "GITHUB_API_URL: " .. why end
   local upload_origin, upload_path = uploads_of(base)
   assert(upload_origin ~= nil, upload_path)
-  local calls = 0
+  local made = { calls = 0 }
   local function script(): {string} | nil
-    calls = calls + 1
+    made.calls = made.calls + 1
     local scripted = test and test.script
-    return scripted and scripted[calls] or nil
+    return scripted and scripted[made.calls] or nil
   end
 
   local function send(request: GithubApi.Request): GithubApi.Reply | nil, string

@@ -153,14 +153,14 @@ local type Draw = shrink.Draw
 --- a draw past the end of `values` is its lower end, so any list of
 --- integers replays to some input.
 local function replaying(values: {integer}, draws: {Draw}): Fuzz.Source
-  local at = 0
+  local replay = { at = 0 }
   local src: Fuzz.Source = {}
   src.int = function(_self: Fuzz.Source, min: integer, max: integer): integer
     if min > max then
       error(("fuzz: int(%d, %d): min is greater than max"):format(min, max), 2)
     end
-    at = at + 1
-    local v = values[at]
+    replay.at = replay.at + 1
+    local v = values[replay.at]
     if v == nil or v < min or v > max then v = min end
     draws[#draws + 1] = { min = min, max = max, value = v }
     return v
@@ -195,7 +195,11 @@ end
 --- The labels the input being drawn and checked has reached, while
 --- `run` is counting them; nil otherwise, so shrinking and replay count
 --- nothing.
-local reached: {string: boolean} | nil = nil
+local record Counting
+  reached: {string: boolean} | nil
+end
+
+local counting: Counting = {}
 --- Records that the input under check reached `name`: an outcome worth
 --- counting ("opened", "refused at the header", "read a body"). `run`
 --- prints how many inputs reached each label and fails a property that
@@ -204,7 +208,7 @@ local reached: {string: boolean} | nil = nil
 --- does nothing.
 --- @param name string The label
 function Fuzz.label(name: string)
-  if reached ~= nil then reached[name] = true end
+  if counting.reached ~= nil then counting.reached[name] = true end
 end
 
 --- Runs `check` on `input` once, under the budget.
@@ -373,20 +377,21 @@ local function run(p: Fuzz.Property): integer
     if case_name == nil then
       reproduce = reproduce .. (", or FUZZ_SEED=%d FUZZ_ITERS=%d"):format(seed, i)
     end
-    reached = mine
+    counting.reached = mine
     local ok, input = pcall(p.gen, recording(Rand.new(case), draws))
     if not ok then
-      reached = nil
+      counting.reached = nil
       error(input, 0)
     end
     if kept ~= nil then local _, _ = Fs.write(kept, input) end
     local held, why = attempt(p.check, input, budget)
-    reached = nil
+    counting.reached = nil
     for name in pairs(mine) do counts[name] = (counts[name] or 0) + 1 end
     -- Raises the report of an input that failed, after shrinking it; the
     -- check of the input hands it to `assert` below, so an input that held
     -- is a call to `assert` made, and a failure is the report raised.
     local function failure(): boolean
+      local reason = why
       -- A check that fails an input once and holds for it the next time
       -- depends on something beside the input: shrinking would chase
       -- noise, so the report says so and stops.
@@ -395,7 +400,7 @@ local function run(p: Fuzz.Property): integer
         error(("fuzz %s: %s: flaky: failed (%s), then held when the same input was " ..
           "checked again; it depends on something beside its input\n" ..
           "  input (%s, hex): %s\n  %s\n  reproduce: %s"):
-            format(p.name, where, why, plural.count(#input, "byte"), shown(input),
+            format(p.name, where, reason, plural.count(#input, "byte"), shown(input),
               kept ~= nil and ("kept at " .. kept) or "not kept: the property names no dir",
               reproduce), 0)
       end
@@ -410,7 +415,7 @@ local function run(p: Fuzz.Property): integer
       local small_held, small_why = attempt(p.check, small, budget)
       local flaky = ""
       if not small_held then
-        why = small_why
+        reason = small_why
       else
         -- The shrunk input failed while shrinking and held just now:
         -- report the input that first failed, and say why.
@@ -423,7 +428,7 @@ local function run(p: Fuzz.Property): integer
         "  shrunk in %s from %s and %s to %s and %s; input (hex): %s%s\n" ..
         "  %s\n  reproduce: %s\n" ..
         "  once fixed, keep it as a regression case: %s"):
-          format(p.name, where, why, plural.count(tries, "try", "tries"), plural.count(#draws, "draw"),
+          format(p.name, where, reason, plural.count(tries, "try", "tries"), plural.count(#draws, "draw"),
             plural.count(#input, "byte"), plural.count(#smallest, "draw"), plural.count(#small, "byte"), shown(small), flaky,
             kept ~= nil and ("kept at " .. kept) or "not kept: the property names no dir",
             reproduce,
@@ -483,10 +488,10 @@ end
 function Fuzz.run(p: Fuzz.Property): integer
   -- A check may run a property of its own: its labels are its own, and
   -- the enclosing input's count again once it is done.
-  local enclosing = reached
-  reached = nil
+  local enclosing = counting.reached
+  counting.reached = nil
   local ok, n = pcall(run, p)
-  reached = enclosing
+  counting.reached = enclosing
   if not ok then error(n, 0) end
   return n
 end

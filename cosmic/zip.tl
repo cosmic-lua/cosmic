@@ -166,18 +166,22 @@ local NS_PER_SECOND <const> = Time.seconds(1)
 local DOS_FIRST <const> = 315532800
 local DOS_LAST <const> = 4354819199
 
---- The DOS date `last_date`'s midnight, in Unix epoch seconds: the
---- entries of one archive mostly share a date, and the calendar need
+--- The DOS date last asked about, and its midnight in Unix epoch seconds:
+--- the entries of one archive mostly share a date, and the calendar need
 --- not be asked about it again for each.
-local last_date: integer = -1
-local last_midnight: integer = 0
+local record LastDay
+  date: integer
+  midnight: integer
+end
+
+local last_dos: LastDay = { date = -1, midnight = 0 }
 
 --- A DOS date and time as Unix epoch seconds. A field its bits can
 --- spell but no clock or calendar has is clamped to the nearest it
 --- could be: month 13 to December, hour 24 to 23, a second of 60 to 59,
 --- and a day past its month's end (February 31) to the month's last.
 local function dos_to_unix(date: integer, clock: integer): integer
-  if date ~= last_date then
+  if date ~= last_dos.date then
     local c: Time.CivilFields = {
       year = ((date >> 9) & 0x7F) + 1980,
       month = math.min(math.max((date >> 5) & 0x0F, 1), 12),
@@ -190,9 +194,9 @@ local function dos_to_unix(date: integer, clock: integer): integer
       c.day = c.day - 1
       ns, _ = Time.from_civil(c)
     end
-    last_date, last_midnight = date, assert(ns) // NS_PER_SECOND
+    last_dos.date, last_dos.midnight = date, assert(ns) // NS_PER_SECOND
   end
-  return last_midnight + math.min((clock >> 11) & 0x1F, 23) * 3600 +
+  return last_dos.midnight + math.min((clock >> 11) & 0x1F, 23) * 3600 +
     math.min((clock >> 5) & 0x3F, 59) * 60 + math.min((clock & 0x1F) * 2, 59)
 end
 
@@ -725,20 +729,20 @@ function Zip.open(path: string): Zip.Reader | nil, string
     local _, _ = Fs.close(fd)
     return refuse(path .. ": " .. strouble)
   end
-  local closed = false
+  local reading = { closed = false }
   local pread: Pread = function(offset: integer, count: integer): string | nil, string
     -- Once closed, `fd` may already name some other file.
-    if closed then return refuse(path .. ": the reader is closed") end
+    if reading.closed then return refuse(path .. ": the reader is closed") end
     local data, ptrouble = sys.pread(fd, count, offset)
     if data == nil then return nil, ptrouble end
     return data, ""
   end
   local reader, otrouble = open_reader(st.size, pread, function(): boolean, string
-    closed = true
+    reading.closed = true
     return Fs.close(fd)
   end)
   if reader == nil then
-    closed = true
+    reading.closed = true
     local _, _ = Fs.close(fd)
     return nil, otrouble
   end
@@ -747,14 +751,14 @@ end
 
 --- A reader over a zip already in memory as `data`.
 function Zip.open_string(data: string): Zip.Reader | nil, string
-  local closed = false
+  local reading = { closed = false }
   local pread: Pread = function(offset: integer, count: integer): string | nil, string
-    if closed then return refuse("the reader is closed") end
+    if reading.closed then return refuse("the reader is closed") end
     if offset >= #data then return "", "" end
     return data:sub(offset + 1, offset + count), ""
   end
   return open_reader(#data, pread, function(): boolean, string
-    closed = true
+    reading.closed = true
     return true, ""
   end)
 end

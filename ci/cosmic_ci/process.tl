@@ -142,20 +142,20 @@ function Process.await_ready(work: string, diagnostics: string, label: string,
   local deadline = Clock.monotonic_ns() + bound
   local reader = Process.start("ready-" .. label,
     { "/usr/bin/env", "cat", path }, work, Fixture.environment(), diagnostics)
-  local exited = false
+  local early = { exited = false }
   local called, failure = pcall(function(): boolean
     local first, trouble = Child.wait_any({ reader.handle, child.handle }, bound)
     if first == nil then
       error(label .. ": no readiness from " .. child.label .. ": " .. trouble)
     end
-    exited = first ~= reader.handle
+    early.exited = first ~= reader.handle
     -- The child may have written before it exited, and the reader be
     -- about to end; or it never opened the pipe, and the reader waits in
     -- its open (or is yet to reach it) for a writer that will never
     -- come. An open of our own that does not wait lets that one through
     -- to an end of file; it fails (ENXIO) while no reader has the pipe
     -- open, so it is tried until the reader ends.
-    local done = not exited
+    local done = not early.exited
     while not done and Clock.monotonic_ns() < deadline do
       local fd = sys.open(path, sys.O_WRONLY | sys.O_NONBLOCK)
       if fd then assert(Fs.close(fd)) end
@@ -169,7 +169,7 @@ function Process.await_ready(work: string, diagnostics: string, label: string,
   cleanup(reader)
   if not called then error(failure, 0) end
   local answer = Fixture.small(reader.out, 128)
-  if answer == "" and exited then
+  if answer == "" and early.exited then
     local ended = assert(child.handle:wait())
     error(label .. ": " .. child.label .. " exited before it was ready (code=" ..
         tostring(ended.code) .. "; signal=" .. tostring(ended.signal) ..

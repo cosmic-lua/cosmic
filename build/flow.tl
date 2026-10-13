@@ -522,7 +522,7 @@ end
 --- not hold the text to the subset: `format` does.
 function flow.parse(text: string): flow.Doc | nil, string
   local r: Reader = { text = text, at = 1, line = 1, depth = 0 }
-  local doc: flow.Doc | nil
+  local doc: {flow.Doc} = {}
   local ok, raised = pcall(function(): string
     local head = trivia(r)
     if r.at > #text then fail(r.line, "no value") end
@@ -530,7 +530,7 @@ function flow.parse(text: string): flow.Doc | nil, string
     local foot = trivia(r)
     if r.at <= #text then fail(r.line, "more after the value") end
     local comment, rest = trailing(foot, r.line - foot.breaks)
-    doc = { head = head.entries, root = root, comment = comment, foot = rest }
+    doc[1] = { head = head.entries, root = root, comment = comment, foot = rest }
     return ""
   end)
   if not ok then
@@ -539,7 +539,7 @@ function flow.parse(text: string): flow.Doc | nil, string
     end
     error(raised, 0)
   end
-  return doc
+  return doc[1]
 end
 
 --- A container's members. A scalar has none, and is not asked.

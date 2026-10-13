@@ -1107,6 +1107,26 @@ local function plan_compiler(handle: work.Handle, cache: Cache,
   return remember(cache, "vendor.tl", key, ordinal, source, bytecode, false)
 end
 
+--- What [`compile_derived`] keeps as it compiles, for the closure
+--- that compiles every module to write and its caller to read.
+local record Progress
+  --- Why the compile stopped, "" while it has not.
+  failure: string
+  env: compiler.Env | nil
+  typed: receivers.State | nil
+  ahead: importer.Ahead | nil
+  scanned: boolean
+end
+
+--- The databases a hint looks the name of a refused module up in, found
+--- when the first refusal asks, and the projection among them that the
+--- end of the compile closes.
+local record Hinting
+  databases: {Sqlite.Handle} | nil
+  public: {boolean} | nil
+  projection: Sqlite.Handle | nil
+end
+
 --- Plans and compiles an already derived tree. Only the entry points
 --- below own the shared cache; every failure here returns through them.
 local function compile_derived(handle: work.Handle, built: compiler, tool: string,
@@ -1147,12 +1167,13 @@ local function compile_derived(handle: work.Handle, built: compiler, tool: strin
     compiled = 0, cached = 0, shared = 0, worked = 0, parses = parses,
   }
   local db = handle.db
-  local failure = ""
-  -- Made on first use, by whichever module first fails to find a
-  -- cached compile below: a run that compiles nothing never pays for
-  -- `new_env`'s parse and type-check of tl's own prelude and stdlib.
-  local env: compiler.Env | nil = nil
-  local typed: receivers.State | nil = nil
+  -- `env` and `typed` are made on first use, by whichever module first
+  -- fails to find a cached compile below: a run that compiles nothing
+  -- never pays for `new_env`'s parse and type-check of tl's own prelude
+  -- and stdlib. `ahead` is what the pool's processes compiled ahead of
+  -- the loop below, and `scanned` whether the loop below has looked at
+  -- every module for a compile elsewhere.
+  local progress: Progress = { failure = "", scanned = false }
 
   -- Where a hint ([`with_docs_hint`]) looks up the name a refused module
   -- could not resolve, as [`docs.databases`] builds the same list for
@@ -1167,16 +1188,14 @@ local function compile_derived(handle: work.Handle, built: compiler, tool: strin
   -- The working database cannot stand in: its `docs` rows are keyed by
   -- source hash, with no module to name. A projection that is missing
   -- or unreadable is left out, since the hint is best effort.
-  local hint_databases: {Sqlite.Handle} | nil = nil
-  local hint_public: {boolean} | nil = nil
-  local hint_projection: Sqlite.Handle | nil = nil
+  local hinting: Hinting = {}
   local hints: Hints = function(): {Sqlite.Handle}, {boolean}
-    if hint_databases == nil then
+    if hinting.databases == nil then
       local databases: {Sqlite.Handle} = {}
       local public: {boolean} = {}
       local projection, _ = Sqlite.open(handle.dir .. "/cosmic.db")
       if projection ~= nil then
-        hint_projection = projection
+        hinting.projection = projection
         databases[1] = projection
         public[1] = false
       end
@@ -1184,16 +1203,13 @@ local function compile_derived(handle: work.Handle, built: compiler, tool: strin
         databases[#databases + 1] = store_db
         public[#public + 1] = not own_tree
       end
-      hint_databases, hint_public = databases, public
+      hinting.databases, hinting.public = databases, public
     end
-    return hint_databases, hint_public
+    return hinting.databases, hinting.public
   end
 
-  -- What the pool's processes compiled ahead of the loop below, and the
-  -- compiles it found elsewhere in the same look at the modules.
-  local ahead: importer.Ahead | nil = nil
+  -- The compiles found elsewhere in the same look at the modules.
   local looked: {string:importer.Shared.Compile} = {}
-  local scanned = false
 
   local compile_all = function(): boolean, string
     local cleared, clear_trouble = db:exec("DELETE FROM plan")
@@ -1236,7 +1252,7 @@ local function compile_derived(handle: work.Handle, built: compiler, tool: strin
           end
         end
       end
-      scanned = true
+      progress.scanned = true
       if bytes > 0 and pool.ready(bytes) then
         local made_ahead, ahead_trouble = pool.compile(db, handle.root, order, wanted,
           own_tree, judged)
@@ -1244,7 +1260,7 @@ local function compile_derived(handle: work.Handle, built: compiler, tool: strin
           local _, _ = log:complain("build: workers: " .. ahead_trouble ..
               "; compiling in this process")
         end
-        ahead = made_ahead
+        progress.ahead = made_ahead
       end
     end
 
@@ -1268,7 +1284,7 @@ local function compile_derived(handle: work.Handle, built: compiler, tool: strin
         -- and what else decides it are the same ([`build.shared_compiles`]),
         -- and it lands as a compile does, uses and all.
         local elsewhere: importer.Shared.Compile | nil = nil
-        if lua == nil and scanned then
+        if lua == nil and progress.scanned then
           elsewhere = looked[m.path]
           looked[m.path] = nil
         elseif lua == nil and shared ~= nil then
@@ -1291,30 +1307,30 @@ local function compile_derived(handle: work.Handle, built: compiler, tool: strin
           -- also how a refusal is told: the pool only knows it did not
           -- compile.
           local early: compilation.Generated | nil = nil
-          if ahead ~= nil then
-            early = ahead.take(m.path)
+          if progress.ahead ~= nil then
+            early = progress.ahead.take(m.path)
           end
           local generated: compilation.Generated
           if early ~= nil then
             generated = early
             result.worked = result.worked + 1
           else
-            if env == nil then
+            if progress.env == nil then
               local made_env, env_trouble = teal.environment_for(built, handle.db, handle.root, checks)
               if made_env == nil then
-                failure = env_trouble
+                progress.failure = env_trouble
                 break
               end
-              env = made_env
-              typed = receivers.install(made_env)
+              progress.env = made_env
+              progress.typed = receivers.install(made_env)
             end
             local made_generated, generate_trouble =
-              compilation.generate(m, built, assert(env), assert(typed), own_tree, judged,
+              compilation.generate(m, built, assert(progress.env), assert(progress.typed), own_tree, judged,
                 function(file: string, source: string, checked: compiler.Result): string
                   return complain(file, source, checked, hints)
                 end)
             if made_generated == nil then
-              failure = generate_trouble
+              progress.failure = generate_trouble
               break
             end
             generated = made_generated
@@ -1350,7 +1366,7 @@ local function compile_derived(handle: work.Handle, built: compiler, tool: strin
       end
     end
 
-    if failure == "" then
+    if progress.failure == "" then
       local planned, plan_trouble = plan_compiler(handle, cache, tool,
         #order + 1)
       if not planned then
@@ -1373,18 +1389,18 @@ local function compile_derived(handle: work.Handle, built: compiler, tool: strin
     return db:exec(importer.prune_references)
   end
   local made, compile_trouble = compile_all()
-  if ahead ~= nil then
-    ahead.close()
+  if progress.ahead ~= nil then
+    progress.ahead.close()
   end
   -- The projection the hints opened, once a message earned one.
-  if hint_projection ~= nil then
-    local _, _ = hint_projection:close()
+  if hinting.projection ~= nil then
+    local _, _ = hinting.projection:close()
   end
   if not made then
     return nil, compile_trouble
   end
-  if failure ~= "" then
-    return nil, failure
+  if progress.failure ~= "" then
+    return nil, progress.failure
   end
   return result
 end

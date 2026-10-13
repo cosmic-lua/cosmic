@@ -17,19 +17,19 @@ local PREFIX <const> = "_web"
 
 --- The handler over the files, built on first use: the bytes never change,
 --- and gzipping them is paid by a program that serves them only.
-local served: Types.Handler | nil = nil
+local served: {Types.Handler} = {}
 
 local function handler(): Types.Handler
-  if served == nil then
+  if served[1] == nil then
     local held: {string:string} = {}
     for path, file in pairs(Htmx.assets()) do held[path:sub(#PREFIX + 3)] = file.data end
-    served = StaticFiles.handler{
+    served[1] = StaticFiles.handler{
       source = Assets.memory(held, { gzip = true }),
       cache_control = "public, max-age=31536000, immutable",
       headers = { ["Cross-Origin-Resource-Policy"] = "same-origin" },
     }
   end
-  return served
+  return served[1]
 end
 
 --- Answers `req` where it is under `/_web/`, else nil.

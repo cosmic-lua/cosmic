@@ -290,6 +290,13 @@ local function closes(line: string): boolean
   return line:match("^[})%]]") ~= nil or line:match("^end%f[^%w_]") ~= nil
 end
 
+--- A top-level piece of an example's head as [`pieces_of`] reads it: the
+--- lines so far, and its first line that is not a comment.
+local record Piece
+  lines: {string}
+  code: string
+end
+
 --- What the analyzer put above an example's function, cut into its
 --- top-level pieces: a `require`, a helper (any other `local`) or a
 --- call (`Test.policy{...}`), each with the comment lines above it. The
@@ -298,22 +305,25 @@ end
 --- piece's first line that is not a comment.
 local function pieces_of(head: string): {{string}}
   local out: {{string}} = {}
-  local lines: {string} = {}
-  local code = ""
+  -- The piece being read: its lines so far and its first line of code.
+  local current: Piece = { lines = {}, code = "" }
   local function finish()
+    local lines = current.lines
     while #lines > 0 and lines[#lines] == "" do lines[#lines] = nil end
-    if #lines > 0 then out[#out + 1] = { table.concat(lines, "\n"), code } end
-    lines = {}
-    code = ""
+    if #lines > 0 then out[#out + 1] = { table.concat(lines, "\n"), current.code } end
+    current.lines = {}
+    current.code = ""
   end
   for line in String.lines(head) do
     local comment = line:match("^%-%-") ~= nil
     if line ~= "" and line:match("^%s") == nil and not closes(line) then
-      if code ~= "" or (comment and #lines > 0 and lines[#lines] == "") then
+      local lines = current.lines
+      if current.code ~= "" or (comment and #lines > 0 and lines[#lines] == "") then
         finish()
       end
-      if not comment then code = line end
+      if not comment then current.code = line end
     end
+    local lines = current.lines
     lines[#lines + 1] = line
   end
   finish()

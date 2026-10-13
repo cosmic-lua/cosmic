@@ -235,6 +235,13 @@ function reboot.web_assets(db: Sqlite.Handle, root: string): {work.WebAsset} | n
   return web, ""
 end
 
+--- What a compile of the tree teaches [`into`] of the tree: whether the tool
+--- carries the tree's code, and the compiler identity the tree recorded.
+local record Learned
+  code: boolean
+  compiler: string | nil
+end
+
 --- Rebuilds the tool from the tree and replaces this process with it,
 --- running `argv` again. Returns only when it cannot, saying why, and
 --- whether the failure was a compile that failed while the tree's
@@ -307,21 +314,20 @@ local function into(handle: work.Handle, built: compiler,
   -- by its own code, and also when a stale tool rebuilt it across a
   -- change to the fingerprint's definition: it is stale by its own code,
   -- and settles on the "teal" path.
-  local tree_code = false
-  local tree_compiler: string | nil
+  local learned: Learned = { code = false, compiler = nil }
   -- Unjudged: this tool's build.contracts, rules and exemptions alike,
   -- may be older than the tree's, so a module it refuses is built
   -- anyway, and the tool built here judges it again, by the tree's own,
   -- when it re-enters the command.
   local result, compile_trouble = importer.compile_tree(handle, built,
     function(recorded: identity.Identities): string, string
-      tree_compiler = recorded.compiler
+      learned.compiler = recorded.compiler
       local tool = Store.meta("compiler") or ""
       if settle then
         local boot_hash, _ = identity.recorded_boot_hash(handle.db)
-        tree_code = (boot_hash ~= nil and boot_hash == Store.meta("boot_hash")) or
+        learned.code = (boot_hash ~= nil and boot_hash == Store.meta("boot_hash")) or
           reboot.carries_tree_code(handle)
-        if tree_code then tool = recorded.compiler end
+        if learned.code then tool = recorded.compiler end
       end
       return tool, ""
     end, true, shared_compiles.for_build(), workers.pool(workers.tool_spec()))
@@ -334,17 +340,17 @@ local function into(handle: work.Handle, built: compiler,
     -- identities: take the compiler's from what is staged and parsed.
     -- That walk of `requires` may be partial; a truncated one differs
     -- from the tool's, so it errs toward a boot, never toward a miss.
-    if tree_compiler == nil then
+    if learned.compiler == nil then
       local found, _ = identity.compiler_identity(handle.db)
-      tree_compiler = found
+      learned.compiler = found
     end
     return closing(handle, compile_trouble),
-      reboot.compiler_moved(Store.meta("compiler"), tree_compiler)
+      reboot.compiler_moved(Store.meta("compiler"), learned.compiler)
   end
   local layout = build_paths.resolve(handle.root)
   local database_path = layout.projection
   local written, write_trouble =
-    writer.write_result(handle, database_path, result, tree_code)
+    writer.write_result(handle, database_path, result, learned.code)
   if not written then
     return closing(handle, write_trouble), false
   end

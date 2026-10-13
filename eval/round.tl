@@ -321,7 +321,7 @@ end
 local function real_system(): Round.System
   local handles: {integer: Child.Handle} = {}
   local streams: {integer: integer} = {}
-  local issued = 0
+  local started = { issued = 0 }
   return {
     run = function(argv: {string}): Round.Output
       local result, trouble = Child.run(argv, { stdout = "capture", stderr = "stdout",
@@ -337,10 +337,10 @@ local function real_system(): Round.System
         local _, _ = Fs.close(fd)
         return nil
       end
-      issued = issued + 1
-      handles[issued] = handle
-      streams[issued] = fd
-      return issued
+      started.issued = started.issued + 1
+      handles[started.issued] = handle
+      streams[started.issued] = fd
+      return started.issued
     end,
     wait = function(numbers: {integer}): Round.Done
       local live: {Child.Handle} = {}

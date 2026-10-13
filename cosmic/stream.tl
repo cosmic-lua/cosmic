@@ -1535,12 +1535,12 @@ function Stream.run(t: Stream.Transform, data: string, max_bytes?: integer): str
     error("stream: max_bytes must be an integer of at least 0", 2)
   end
   local parts: {string} = {}
-  local total = 0
+  local kept = { bytes = 0 }
   --- Keeps `out`, or answers false when it takes the total past the bound.
   local function keep(out: string): boolean
-    total = total + #out
+    kept.bytes = kept.bytes + #out
     parts[#parts + 1] = out
-    return max_bytes == nil or total <= max_bytes
+    return max_bytes == nil or kept.bytes <= max_bytes
   end
   local function too_much(): nil, string
     return refuse("output is larger than " .. String.counted(max_bytes, "byte"))

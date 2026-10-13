@@ -751,7 +751,8 @@ local function tree(digests: declared_key.Digests, path: string, programs?: bool
     local kind, answer = entry(digests, path, true, programs)
     if kind ~= "dir" then return answer end
     local lines: {string} = {}
-    local refused: string | nil = nil
+    -- What the first link that leads out of the bounds says, if one does.
+    local refused: {string} = {}
     local function walk(directory: string, prefix: string, depth: integer)
       local listed, trouble = sys.readdir(directory)
       if listed == nil then
@@ -766,8 +767,9 @@ local function tree(digests: declared_key.Digests, path: string, programs?: bool
         local named = prefix == "" and name or (prefix .. "/" .. name)
         local what, said = entry(digests, here, false, programs)
         lines[#lines + 1] = named .. "\0" .. said
-        if what == "link" and refused == nil then
-          refused = leads_out(digests, here, directory, bounds)
+        if what == "link" and refused[1] == nil then
+          local leads = leads_out(digests, here, directory, bounds)
+          if leads ~= nil then refused[1] = leads end
         end
         if said == "dir" then
           -- Deeper than a walk goes is keyed as what could not be seen.
@@ -780,7 +782,7 @@ local function tree(digests: declared_key.Digests, path: string, programs?: bool
       end
     end
     walk(path, "", 0)
-    if refused ~= nil then return "refused " .. refused end
+    if refused[1] ~= nil then return "refused " .. refused[1] end
     return "dir " .. hex_sha256(table.concat(lines, "\n"))
   end)
 end
@@ -1250,7 +1252,7 @@ end
 local function walk_system(paths: {string}): string, {string}, integer
   local lines: {string} = {}
   local directories: {string} = {}
-  local latest = 0
+  local newest = { mtime_ns = 0 }
   local function walk(path: string, dev: integer | nil)
     local st, trouble = sys.lstat(path)
     if st == nil then
@@ -1264,7 +1266,7 @@ local function walk_system(paths: {string}): string, {string}, integer
     if st.kind == "dir" then
       lines[#lines + 1] = path .. " dir " .. tostring(st.mode)
       directories[#directories + 1] = path .. "\t" .. signature(st)
-      latest = math.max(latest, st.mtime * 1000000000 + st.mtime_ns)
+      newest.mtime_ns = math.max(newest.mtime_ns, st.mtime * 1000000000 + st.mtime_ns)
     else
       local line = path .. " " .. st.kind .. " " .. tostring(st.mode) .. " " ..
         tostring(st.size) .. " " .. tostring(st.mtime) .. "." .. tostring(st.mtime_ns)
@@ -1286,7 +1288,7 @@ local function walk_system(paths: {string}): string, {string}, integer
     for _, name in ipairs(names) do walk(path .. "/" .. name, st.dev) end
   end
   for _, path in ipairs(paths) do walk(path, nil) end
-  return hex_sha256(table.concat(lines, "\n")), directories, latest
+  return hex_sha256(table.concat(lines, "\n")), directories, newest.mtime_ns
 end
 
 --- The walk of `paths` ([`walk_system`]), remembered in `digests` as a

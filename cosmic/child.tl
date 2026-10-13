@@ -787,9 +787,13 @@ local owned: {integer:boolean} = {}
 --- its handle asked; the handle takes its own out.
 local reaped: {integer:raw_process.ChildStatus} = {}
 
---- Whether this process adopts orphaned descendants: nil until the
---- first grouped start asks.
-local adopting: boolean | nil
+local record Reaping
+  --- Whether this process adopts orphaned descendants: nil until the
+  --- first grouped start asks.
+  adopting: boolean | nil
+end
+
+local reaping: Reaping = {}
 
 local function now(): integer
   return Clock.monotonic_ns()
@@ -818,7 +822,7 @@ end
 --- meanwhile guards the waits that come after it.
 local function slice(deadline: integer | nil, handles: {Handle}): integer | nil
   local most = POLL_NS
-  if exits_seen(handles) then most = adopting and REAP_NS or -1 end
+  if exits_seen(handles) then most = reaping.adopting and REAP_NS or -1 end
   if deadline == nil then return most end
   local remaining = deadline - now()
   if remaining <= 0 then return nil end
@@ -852,7 +856,7 @@ end
 --- gone. A process that does not adopt reaps only by pid, handle by
 --- handle, and never touches a child it does not own.
 local function collect()
-  if not adopting then return end
+  if not reaping.adopting then return end
   while true do
     local status, _ = raw.waitpid(-1, true)
     if status == nil or status.pid == 0 then return end
@@ -1093,6 +1097,19 @@ local function watching(handles: {Handle}, feeding?: Handle): {Entry}
   return entries
 end
 
+--- What a shielded [`Poll.delay`] answered, which a shield hands back to
+--- [`pump`] in a table.
+local record Delayed
+  paused: boolean | nil
+  cancelled: string | nil
+end
+
+--- What a shielded [`Poll.ready`] answered, as [`Delayed`] does.
+local record Readied
+  answers: {integer} | nil
+  why: string | nil
+end
+
 --- Services `entries` once: waits up to `timeout_ns` (-1 for no limit)
 --- for any of them to be ready, then reads what is there and writes what
 --- fits. Returns whether anything moved. A "feed" is waited on only to
@@ -1134,14 +1151,13 @@ local function pump(entries: {Entry}, timeout_ns: integer,
     -- Nothing here could end a wait with no limit: it waits a slice.
     if timeout_ns < 0 then timeout_ns = POLL_NS end
     if in_run then
-      local paused: boolean | nil
-      local cancelled: string | nil
+      local waited: Delayed = {}
       local function pause()
-        paused, cancelled = Poll.delay(timeout_ns)
+        waited.paused, waited.cancelled = Poll.delay(timeout_ns)
       end
       if cancellable then pause() else Poll.shielded(pause) end
-      if paused then return false, "" end
-      return false, cancelled or ""
+      if waited.paused then return false, "" end
+      return false, waited.cancelled or ""
     end
     if timeout_ns > 0 then local _, _ = sys.nanosleep(timeout_ns) end
     return false, ""
@@ -1149,16 +1165,15 @@ local function pump(entries: {Entry}, timeout_ns: integer,
   local revents: {integer}
   local trouble = ""
   if in_run then
-    local answers: {integer} | nil
-    local why: string | nil
+    local looked: Readied = {}
     local function look()
-      answers, why = Poll.ready(fds, events, timeout_ns >= 0 and timeout_ns or nil)
+      looked.answers, looked.why = Poll.ready(fds, events, timeout_ns >= 0 and timeout_ns or nil)
     end
     if cancellable then look() else Poll.shielded(look) end
     -- A wait that ran out of time found nothing: no stream moved.
-    if answers == nil and why == Poll.TIMEOUT then return false, "" end
-    if answers == nil then return false, why or "" end
-    revents = answers
+    if looked.answers == nil and looked.why == Poll.TIMEOUT then return false, "" end
+    if looked.answers == nil then return false, looked.why or "" end
+    revents = looked.answers
   else
     -- Rounded up: a wait with time left polls for at least a millisecond.
     local polled, why = sys.poll(fds, events, timeout_ns >= 0 and Clock.ceil(timeout_ns, MS) or -1)
@@ -1636,7 +1651,7 @@ local function drain(self: Handle, opts: DrainOptions): DrainResult
   local owner <close> = consume(pipes)
   local bytes = 0
   local guard = Innermost.active()
-  local stamp: integer | nil
+  local stamp: {integer} = {}
   local deadline = now() + timeout_ns
   local function result(kind: DrainKind, reason?: string): DrainResult
     return { kind = kind, bytes = bytes, reason = reason or "" }
@@ -1649,10 +1664,10 @@ local function drain(self: Handle, opts: DrainOptions): DrainResult
     if guard ~= nil then
       if guard._closed then return result("failed", "child: the guard is closed") end
       local signal = guard:cancelled()
-      if (stamp == nil and guard._fresh ~= 0) or (stamp ~= nil and guard._read ~= stamp) then
+      if (stamp[1] == nil and guard._fresh ~= 0) or (stamp[1] ~= nil and guard._read ~= stamp[1]) then
         return result("interrupted", cancelled_by(signal))
       end
-      if stamp == nil then stamp = guard._read end
+      if stamp[1] == nil then stamp[1] = guard._read end
     end
     return nil
   end
@@ -2501,7 +2516,7 @@ local PID_SPREAD <const> = 2481
 
 --- The sandboxes this process has given a user: the part of the serial
 --- that makes two of its own differ.
-local sandboxes_started = 0
+local sandbox_serial = { started = 0 }
 
 --- The user this process runs as, which a program of a policy is not to
 --- be where it is root. Where /proc/self/status is not there (macOS) it is
@@ -2585,8 +2600,8 @@ local function mapped_user(merged: Rules.Policy): MappedUser | nil, string
     end
     return { uid = user, gid = group }, ""
   end
-  sandboxes_started = sandboxes_started + 1
-  local id, why = Rules.user_id(uid_map, gid_map, sys.getpid() * PID_SPREAD + sandboxes_started)
+  sandbox_serial.started = sandbox_serial.started + 1
+  local id, why = Rules.user_id(uid_map, gid_map, sys.getpid() * PID_SPREAD + sandbox_serial.started)
   if id == nil then return nil, why end
   return { uid = id, gid = id }, ""
 end
@@ -3708,9 +3723,9 @@ local function start(argv: {string}, opts: Options, pty?: Pty, serves_relay?: in
     held = made
   end
   local grouped = opts.process_group ~= false
-  if grouped and adopting == nil then
+  if grouped and reaping.adopting == nil then
     local subreaper, _ = raw.subreaper()
-    adopting = subreaper
+    reaping.adopting = subreaper
   end
   local wiring: Wiring = { child_ends = {}, ours = {}, streams = {} }
   local slots, wire_trouble = wire(opts, wiring, pty)
@@ -3800,25 +3815,18 @@ local function start(argv: {string}, opts: Options, pty?: Pty, serves_relay?: in
         return refuse("start: sandbox: relay: " .. relay_trouble)
       end
       prep = made
-      local launched: RelayLaunch | nil
-      local launch_trouble = ""
-      local ok, raised = pcall(function()
-        local began, why = begin_relay(made, nil)
-        launched, launch_trouble = began, why
-      end)
-      if not ok then launched, launch_trouble = nil, tostring(raised) end
+      local began_ok, began, began_trouble = pcall(begin_relay, made, nil)
+      local launched: RelayLaunch | nil = began
+      local launch_trouble = began_trouble
+      if not began_ok then launched, launch_trouble = nil, tostring(began) end
       abandon_relay(made)
-      -- Each use below holds the relay in a local of its own: a call can
-      -- reach the function that assigns `launched`.
       local started = launched
       if started ~= nil then
-        local served = false
-        ok, raised = pcall(function()
-          served, launch_trouble = await_relay(started, made.log)
-        end)
-        if not ok then
+        local awaited, served, await_trouble = pcall(await_relay, started, made.log)
+        launch_trouble = await_trouble
+        if not awaited then
           kill_relay(started.handle)
-          served, launch_trouble = false, tostring(raised)
+          served, launch_trouble = false, tostring(served)
         end
         if not served then launched = nil end
       end
@@ -3863,13 +3871,10 @@ local function start(argv: {string}, opts: Options, pty?: Pty, serves_relay?: in
         return refuse("start: sandbox: relay: " .. pair_trouble)
       end
       channel = pair
-      local launched: RelayLaunch | nil
-      local launch_trouble = ""
-      local ok, raised = pcall(function()
-        local began, why = begin_relay(made, pair[2])
-        launched, launch_trouble = began, why
-      end)
-      if not ok then launched, launch_trouble = nil, tostring(raised) end
+      local began_ok, began, began_trouble = pcall(begin_relay, made, pair[2])
+      local launched: RelayLaunch | nil = began
+      local launch_trouble = began_trouble
+      if not began_ok then launched, launch_trouble = nil, tostring(began) end
       local _, _ = sys.close(pair[2])
       abandon_relay(made)
       if launched == nil then
@@ -3972,15 +3977,11 @@ local function start(argv: {string}, opts: Options, pty?: Pty, serves_relay?: in
   if watch ~= nil then h._exit_fd = watch end
   if early ~= nil then h._relay = early.handle end
   if channel ~= nil then
-    local served = false
-    local serve_trouble = ""
     -- A channel is made with the relay it serves and the preparation it
     -- was started from.
     local relay, prepared = assert(early), assert(prep)
-    local ok, raised = pcall(function()
-      served, serve_trouble = await_relay(relay, prepared.log)
-    end)
-    if not ok then served, serve_trouble = false, tostring(raised) end
+    local awaited, served, serve_trouble = pcall(await_relay, relay, prepared.log)
+    if not awaited then served, serve_trouble = false, tostring(served) end
     if not served then
       -- A program with no way out is no program the policy described.
       kill_relay(relay.handle)
@@ -4218,7 +4219,7 @@ end
 --- how many were ended. Only a Linux process that adopts orphans can
 --- find them; elsewhere this returns 0 and they are init's.
 function Child.end_strays(spared?: {integer}): integer
-  if not adopting then return 0 end
+  if not reaping.adopting then return 0 end
   local groups: {integer:boolean} = {}
   for _, group in ipairs(spared or {}) do groups[group] = true end
   local ended = 0

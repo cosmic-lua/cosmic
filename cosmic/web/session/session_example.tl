@@ -59,22 +59,22 @@ end
 --- [`Session.KEY`]; it is nil where the middleware is not installed, and
 --- [`Session.of`] raises there.
 function Example.key()
-  local installed: boolean | nil = nil
+  local installed: {boolean} = {}
   local app = Web.app{
     routes = { Web.get("/", function(_req: Web.Request): Web.Response return Web.text("ok") end) },
     middleware = {
       Session.middleware{ store = SessionCookie.store{ keys = { Secret.generate() } } },
       function(inner: Web.Handler): Web.Handler
         return function(req: Web.Request): Web.Response
-          installed = req:get(Session.KEY) ~= nil
+          installed[1] = req:get(Session.KEY) ~= nil
           return inner(req)
         end
       end,
     },
   }
   Web.test_client(app):get("/")
-  print(installed)
-  assert(installed == true)
+  print(installed[1])
+  assert(installed[1] == true)
 end
 
 --- Sessions in SQLite are revocable: logging out ends the session on the

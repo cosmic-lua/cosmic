@@ -139,46 +139,54 @@ local function count_parameters(text: string): integer
   return count
 end
 
---- A filter at the start of the program's output.
-function TermFilter.new(): Filter
-  local state = GROUND
+--- What a filter holds as it reads.
+local record Reading
+  state: integer
   --- The UTF-8 character begun and not yet complete: its bytes so far, how
   --- many continuation bytes it still needs, and the range its next
   --- continuation byte must be in (the first one's narrows for the forms
   --- that would be overlong, surrogate, past U+10FFFF or a C1 control).
-  local held: string = ""
-  local needed = 0
-  local low, high = 0x80, 0xbf
+  held: string
+  needed: integer
+  low: integer
+  high: integer
   --- The CSI being read: its private prefix ("" or one of `<=>?`) and the
   --- parameter bytes so far, and the one string's kind being dropped.
-  local prefix = ""
-  local parameters = ""
-  local ends_at_bel = false
-  local out: {string} = {}
-  local answers: {string} = {}
+  prefix: string
+  parameters: string
+  ends_at_bel: boolean
+  out: {string}
+  answers: {string}
+  attributes_set: boolean
+  region_set: boolean
+end
+
+--- A filter at the start of the program's output.
+function TermFilter.new(): Filter
+  local st: Reading = { state = GROUND, held = "", needed = 0, low = 0x80, high = 0xbf,
+    prefix = "", parameters = "", ends_at_bel = false, out = {}, answers = {},
+    attributes_set = false, region_set = false }
   local modes: {integer:boolean} = {}
   for number, default in pairs(MODE_DEFAULTS) do modes[number] = default end
-  local attributes_set = false
-  local region_set = false
 
   local ground: function(integer)
 
   local function drop_held()
-    held, needed = "", 0
+    st.held, st.needed = "", 0
   end
 
   --- The sequence read, `prefix`, `parameters` and `final`, is passed or
   --- dropped, or answered.
   local function dispatch(final: integer)
     local f = char(final)
-    local p = parameters
-    local pre = prefix
-    prefix, parameters = "", ""
+    local p = st.parameters
+    local pre = st.prefix
+    st.prefix, st.parameters = "", ""
     if pre == "" then
       if f == "m" then
         if not long_number(p) and count_parameters(p) <= MOST_SGR_PARAMETERS then
-          attributes_set = attributes_set or (p ~= "" and p ~= "0")
-          out[#out + 1] = "\27[" .. p .. "m"
+          st.attributes_set = st.attributes_set or (p ~= "" and p ~= "0")
+          st.out[#st.out + 1] = "\27[" .. p .. "m"
         end
         return
       end
@@ -188,7 +196,7 @@ function TermFilter.new(): Filter
         pass = find(p, "^%d*$") ~= nil and not long_number(p)
       elseif f == "H" or f == "f" or f == "r" then
         pass = find(p, "^%d*;?%d*$") ~= nil and not long_number(p)
-        if pass and f == "r" then region_set = true end
+        if pass and f == "r" then st.region_set = true end
       elseif f == "J" then
         pass = find(p, "^[0-2]?$") ~= nil
       elseif f == "K" then
@@ -196,11 +204,11 @@ function TermFilter.new(): Filter
       elseif f == "s" or f == "u" then
         pass = p == ""
       elseif f == "n" then
-        if p == "6" then answers[#answers + 1] = CURSOR_REPORT end
+        if p == "6" then st.answers[#st.answers + 1] = CURSOR_REPORT end
       elseif f == "c" then
-        if p == "" or p == "0" then answers[#answers + 1] = DEVICE_ATTRIBUTES end
+        if p == "" or p == "0" then st.answers[#st.answers + 1] = DEVICE_ATTRIBUTES end
       end
-      if pass then out[#out + 1] = "\27[" .. p .. f end
+      if pass then st.out[#st.out + 1] = "\27[" .. p .. f end
     elseif pre == "?" and (f == "h" or f == "l") then
       if p == "" or count_parameters(p) > MOST_MODES or find(p, "^[%d;]+$") == nil then return end
       local listed: {integer} = {}
@@ -210,45 +218,45 @@ function TermFilter.new(): Filter
         listed[#listed + 1] = number
       end
       for _, number in ipairs(listed) do modes[number] = f == "h" end
-      out[#out + 1] = "\27[?" .. p .. f
+      st.out[#st.out + 1] = "\27[?" .. p .. f
     end
   end
 
   --- Reads `b` with nothing begun: text, a control, or the start of a
   --- sequence or character.
   ground = function(b: integer)
-    if needed > 0 then
-      local first = #held == 1
-      if b >= (first and low or 0x80) and b <= (first and high or 0xbf) then
-        held = held .. char(b)
-        needed = needed - 1
-        if needed == 0 then
-          out[#out + 1] = held
-          held = ""
+    if st.needed > 0 then
+      local first = #st.held == 1
+      if b >= (first and st.low or 0x80) and b <= (first and st.high or 0xbf) then
+        st.held = st.held .. char(b)
+        st.needed = st.needed - 1
+        if st.needed == 0 then
+          st.out[#st.out + 1] = st.held
+          st.held = ""
         end
         return
       end
       drop_held()
     end
     if b >= 0x20 and b <= 0x7e then
-      out[#out + 1] = char(b)
+      st.out[#st.out + 1] = char(b)
     elseif b == ESC then
-      state = AFTER_ESC
+      st.state = AFTER_ESC
     elseif b == BEL or b == 8 or b == 9 or b == 10 or b == 13 then
-      out[#out + 1] = char(b)
+      st.out[#st.out + 1] = char(b)
     elseif b >= 0xc2 and b <= 0xf4 then
-      held = char(b)
-      low, high = 0x80, 0xbf
+      st.held = char(b)
+      st.low, st.high = 0x80, 0xbf
       if b <= 0xdf then
-        needed = 1
+        st.needed = 1
         -- C2 80 to C2 9F is U+0080 to U+009F, the C1 controls.
-        if b == 0xc2 then low = 0xa0 end
+        if b == 0xc2 then st.low = 0xa0 end
       elseif b <= 0xef then
-        needed = 2
-        if b == 0xe0 then low = 0xa0 elseif b == 0xed then high = 0x9f end
+        st.needed = 2
+        if b == 0xe0 then st.low = 0xa0 elseif b == 0xed then st.high = 0x9f end
       else
-        needed = 3
-        if b == 0xf0 then low = 0x90 elseif b == 0xf4 then high = 0x8f end
+        st.needed = 3
+        if b == 0xf0 then st.low = 0x90 elseif b == 0xf4 then st.high = 0x8f end
       end
     end
   end
@@ -256,120 +264,120 @@ function TermFilter.new(): Filter
   local function feed(_self: Filter, chunk: string): string, string
     local at, size = 1, #chunk
     while at <= size do
-      if state == GROUND then
-        if needed == 0 then
+      if st.state == GROUND then
+        if st.needed == 0 then
           local first, last = find(chunk, "^[ -~]+", at)
           if first ~= nil then
-            out[#out + 1] = sub(chunk, first, last)
+            st.out[#st.out + 1] = sub(chunk, first, last)
             at = last + 1
           end
         end
-      elseif state == IN_CSI then
+      elseif st.state == IN_CSI then
         local first, last = find(chunk, "^[0-9;:]+", at)
         if first ~= nil then
-          if #parameters + (last - first + 1) > MOST_PARAMETER_BYTES then
-            state = IGNORING_CSI
-            prefix, parameters = "", ""
+          if #st.parameters + (last - first + 1) > MOST_PARAMETER_BYTES then
+            st.state = IGNORING_CSI
+            st.prefix, st.parameters = "", ""
           else
-            parameters = parameters .. sub(chunk, first, last)
+            st.parameters = st.parameters .. sub(chunk, first, last)
           end
           at = last + 1
         end
-      elseif state == IGNORING_CSI then
+      elseif st.state == IGNORING_CSI then
         local _, last = find(chunk, "^[ -?]+", at)
         if last ~= nil then at = last + 1 end
-      elseif state == IN_STRING then
+      elseif st.state == IN_STRING then
         local _, last = find(chunk, "^[^\27\24\26\7]+", at)
         if last ~= nil then at = last + 1 end
       end
       if at <= size then
         local b = byte(chunk, at)
         at = at + 1
-        if state == GROUND then
+        if st.state == GROUND then
           ground(b)
-        elseif state == AFTER_ESC then
+        elseif st.state == AFTER_ESC then
           if b == 0x5b then
-            state, prefix, parameters = IN_CSI, "", ""
+            st.state, st.prefix, st.parameters = IN_CSI, "", ""
           elseif b == 0x5d then
-            state, ends_at_bel = IN_STRING, true
+            st.state, st.ends_at_bel = IN_STRING, true
           elseif b == 0x50 or b == 0x58 or b == 0x5e or b == 0x5f then
-            state, ends_at_bel = IN_STRING, false
+            st.state, st.ends_at_bel = IN_STRING, false
           elseif b == 0x37 or b == 0x38 then
-            out[#out + 1] = "\27" .. char(b)
-            state = GROUND
+            st.out[#st.out + 1] = "\27" .. char(b)
+            st.state = GROUND
           elseif b >= 0x20 and b <= 0x2f then
-            state = IGNORING_ESC
+            st.state = IGNORING_ESC
           elseif b >= 0x30 and b <= 0x7e then
-            state = GROUND
+            st.state = GROUND
           elseif b ~= ESC then
-            state = GROUND
+            st.state = GROUND
             if b ~= CAN and b ~= SUB_CONTROL and b ~= 0x7f then ground(b) end
           end
-        elseif state == IN_CSI then
+        elseif st.state == IN_CSI then
           if b >= 0x40 and b <= 0x7e then
-            state = GROUND
+            st.state = GROUND
             dispatch(b)
-          elseif b >= 0x3c and b <= 0x3f and prefix == "" and parameters == "" then
-            prefix = char(b)
+          elseif b >= 0x3c and b <= 0x3f and st.prefix == "" and st.parameters == "" then
+            st.prefix = char(b)
           elseif b >= 0x20 and b <= 0x3f then
             -- An intermediate byte, or a parameter byte out of place.
-            state = IGNORING_CSI
-            prefix, parameters = "", ""
+            st.state = IGNORING_CSI
+            st.prefix, st.parameters = "", ""
           elseif b == ESC then
-            state = AFTER_ESC
+            st.state = AFTER_ESC
           else
-            state = GROUND
+            st.state = GROUND
             if b ~= CAN and b ~= SUB_CONTROL and b ~= 0x7f then ground(b) end
           end
-        elseif state == IGNORING_CSI then
+        elseif st.state == IGNORING_CSI then
           if b >= 0x40 and b <= 0x7e then
-            state = GROUND
+            st.state = GROUND
           elseif b == ESC then
-            state = AFTER_ESC
+            st.state = AFTER_ESC
           else
-            state = GROUND
+            st.state = GROUND
             if b ~= CAN and b ~= SUB_CONTROL and b ~= 0x7f then ground(b) end
           end
-        elseif state == IGNORING_ESC then
+        elseif st.state == IGNORING_ESC then
           if b >= 0x30 and b <= 0x7e then
-            state = GROUND
+            st.state = GROUND
           elseif b == ESC then
-            state = AFTER_ESC
+            st.state = AFTER_ESC
           elseif b < 0x20 or b > 0x2f then
-            state = GROUND
+            st.state = GROUND
             if b ~= CAN and b ~= SUB_CONTROL and b ~= 0x7f then ground(b) end
           end
-        elseif state == IN_STRING then
+        elseif st.state == IN_STRING then
           if b == ESC then
-            state = STRING_ESC
-          elseif b == BEL and ends_at_bel then
-            state = GROUND
+            st.state = STRING_ESC
+          elseif b == BEL and st.ends_at_bel then
+            st.state = GROUND
           elseif b == CAN or b == SUB_CONTROL then
-            state = GROUND
+            st.state = GROUND
           end
         else
           -- ESC in a string: ST ends it, and anything else is the
           -- start of a sequence of its own.
           if b == 0x5c then
-            state = GROUND
+            st.state = GROUND
           else
-            state = AFTER_ESC
+            st.state = AFTER_ESC
             at = at - 1
           end
         end
       end
     end
-    local passed, replies = concat(out), concat(answers)
-    if #out > 0 then out = {} end
-    if #answers > 0 then answers = {} end
+    local passed, replies = concat(st.out), concat(st.answers)
+    if #st.out > 0 then st.out = {} end
+    if #st.answers > 0 then st.answers = {} end
     return passed, replies
   end
 
   local function restore(_self: Filter): string
     local resets: {string} = {}
-    if attributes_set then resets[#resets + 1] = "\27[0m" end
+    if st.attributes_set then resets[#resets + 1] = "\27[0m" end
     -- DECSTBM homes the cursor, so the cursor is saved around it.
-    if region_set then resets[#resets + 1] = "\0277\27[r\0278" end
+    if st.region_set then resets[#resets + 1] = "\0277\27[r\0278" end
     local numbers: {integer} = {}
     for number in pairs(modes) do numbers[#numbers + 1] = number end
     table.sort(numbers)
@@ -379,9 +387,9 @@ function TermFilter.new(): Filter
         modes[number] = MODE_DEFAULTS[number]
       end
     end
-    attributes_set, region_set = false, false
-    state = GROUND
-    prefix, parameters = "", ""
+    st.attributes_set, st.region_set = false, false
+    st.state = GROUND
+    st.prefix, st.parameters = "", ""
     drop_held()
     return concat(resets)
   end

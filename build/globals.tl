@@ -66,8 +66,8 @@ function globals.found(parsed: ast.Parsed): {globals.Place}
   if not has_candidate(parsed.tokens) then
     return found
   end
-  local bindings: {scopes.Binding} = {}
-  local walked = false
+  -- The file's bindings, found when the first `function f()` asks for them.
+  local bindings: {{scopes.Binding}} = {}
   ast.walk(parsed.node, function(n: ast.Node)
     -- `global x: T = v` also holds a "global_declaration" the parser made
     -- of the same text, which has no position of its own.
@@ -75,11 +75,11 @@ function globals.found(parsed: ast.Parsed): {globals.Place}
       return
     end
     if n.implicit_global_function then
-      if not walked then
-        bindings, walked = scopes.bindings_of(parsed), true
+      if bindings[1] == nil then
+        bindings[1] = scopes.bindings_of(parsed)
       end
       local name = n.name ~= nil and n.name.tk or nil
-      if name ~= nil and scopes.in_scope(bindings, n.y, n.x, false)[name] ~= nil then
+      if name ~= nil and scopes.in_scope(bindings[1], n.y, n.x, false)[name] ~= nil then
         return
       end
     end

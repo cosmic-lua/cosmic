@@ -620,32 +620,35 @@ end
 -- Compiler debugging
 --------------------------------------------------------------------------------
 
-local TL_DEBUG = os.getenv("TL_DEBUG")
+local debugging = { level = os.getenv("TL_DEBUG") }
 local TL_DEBUG_FACTS = os.getenv("TL_DEBUG_FACTS")
 local TL_DEBUG_MAXLINE = math.maxinteger
 
-if TL_DEBUG_FACTS and not TL_DEBUG then
-   TL_DEBUG="1"
+if TL_DEBUG_FACTS and not debugging.level then
+   debugging.level="1"
 end
 
-if TL_DEBUG then
-   local max <const> = assert(tonumber(TL_DEBUG), "TL_DEBUG was defined, but not a number")
+if debugging.level then
+   local max <const> = assert(tonumber(debugging.level), "TL_DEBUG was defined, but not a number")
    if max < 0 then
       TL_DEBUG_MAXLINE = math.tointeger(-max)
    elseif max > 1 then
-      local count = 0
-      local skip: string = nil
+      local record Hook
+         count: integer
+         skip: string
+      end
+      local hooked: Hook = { count = 0, skip = nil }
       debug.sethook(function(event: debug.HookEvent)
          if event == "call" or event == "tail call" or event == "return" then
             local info <const> = debug.getinfo(2)
 
-            if skip then
-               if info.name == skip and event == "return" then
-                  skip = nil
+            if hooked.skip then
+               if info.name == hooked.skip and event == "return" then
+                  hooked.skip = nil
                end
                return
             elseif (info.name or "?"):match("^tl_debug_") and event == "call" then
-               skip = info.name
+               hooked.skip = info.name
                return
             end
 
@@ -653,8 +656,8 @@ if TL_DEBUG then
             io.stderr:write(name, " :: ", event as string, "\n")
             io.stderr:flush()
          else
-            count = count + 100
-            if count > max then
+            hooked.count = hooked.count + 100
+            if hooked.count > max then
                error("Too many instructions")
             end
          end
@@ -908,66 +911,71 @@ do
       local ls_open_lvl = 0
       local ls_close_lvl = 0
       local errs: {Error} = {}
-      local nt = 0
 
-      local tx: integer = nil
-      local ty: integer = nil
-      local ti: integer = nil
-      local in_token = false
-
-      local comments: {Comment} = nil
+      -- The token being read: where it began (`tx`, `ty`, `ti`) and whether
+      -- one is open, the comments waiting for the next token, and how many
+      -- tokens there are.
+      local record Lexing
+         nt: integer
+         tx: integer
+         ty: integer
+         ti: integer
+         in_token: boolean
+         comments: {Comment}
+      end
+      local lex: Lexing = { nt = 0, tx = 0, ty = 0, ti = 0, in_token = false, comments = nil }
 
       local function begin_token()
-         tx = x
-         ty = y
-         ti = i
-         in_token = true
+         lex.tx = x
+         lex.ty = y
+         lex.ti = i
+         lex.in_token = true
       end
 
       local function end_token(kind: TokenKind, tk: string)
-         nt = nt + 1
-         tokens[nt] = {
-            x = tx,
-            y = ty,
+         lex.nt = lex.nt + 1
+         tokens[lex.nt] = {
+            x = lex.tx,
+            y = lex.ty,
             tk = tk,
             kind = kind,
-            comments = comments,
+            comments = lex.comments,
          }
-         comments = nil
-         in_token = false
+         lex.comments = nil
+         lex.in_token = false
       end
 
       local function end_token_identifier()
-         local tk = input:sub(ti, i - 1)
-         nt = nt + 1
-         tokens[nt] = {
-            x = tx,
-            y = ty,
+         local tk = input:sub(lex.ti, i - 1)
+         lex.nt = lex.nt + 1
+         tokens[lex.nt] = {
+            x = lex.tx,
+            y = lex.ty,
             tk = tk,
             kind = keywords[tk] and "keyword" or "identifier",
-            comments = comments,
+            comments = lex.comments,
          }
-         comments = nil
-         in_token = false
+         lex.comments = nil
+         lex.in_token = false
       end
 
       local function end_token_prev(kind: TokenKind)
-         local tk = input:sub(ti, i - 1)
-         nt = nt + 1
-         tokens[nt] = {
-            x = tx,
-            y = ty,
+         local tk = input:sub(lex.ti, i - 1)
+         lex.nt = lex.nt + 1
+         tokens[lex.nt] = {
+            x = lex.tx,
+            y = lex.ty,
             tk = tk,
             kind = kind,
-            comments = comments,
+            comments = lex.comments,
          }
-         comments = nil
-         in_token = false
+         lex.comments = nil
+         lex.in_token = false
          if (kind == "integer" or kind == "number") and not lex_separators_between_digits(tk) then
             table.insert(errs, {
                filename = filename,
-               y = ty,
-               x = tx,
+               y = lex.ty,
+               x = lex.tx,
                code = "other",
                msg = "malformed number '" .. tk .. "': a '_' in a number goes between two digits",
             })
@@ -975,26 +983,26 @@ do
       end
 
       local function end_token_here(kind: TokenKind)
-         local tk = input:sub(ti, i)
-         nt = nt + 1
-         tokens[nt] = {
-            x = tx,
-            y = ty,
+         local tk = input:sub(lex.ti, i)
+         lex.nt = lex.nt + 1
+         tokens[lex.nt] = {
+            x = lex.tx,
+            y = lex.ty,
             tk = tk,
             kind = kind,
-            comments = comments,
+            comments = lex.comments,
 
          }
-         comments = nil
-         in_token = false
+         lex.comments = nil
+         lex.in_token = false
       end
 
       local function drop_token()
-         in_token = false
+         lex.in_token = false
       end
 
       local function add_syntax_error(msg?: string)
-         local t = tokens[nt]
+         local t = tokens[lex.nt]
          table.insert(errs, {
             filename = filename,
             y = t.y,
@@ -1005,12 +1013,12 @@ do
       end
 
       local function add_comment(text: string)
-         if not comments then
-            comments = {}
+         if not lex.comments then
+            lex.comments = {}
          end
-         comments[#comments + 1] = {
-            x = tx,
-            y = ty,
+         lex.comments[#lex.comments + 1] = {
+            x = lex.tx,
+            y = lex.ty,
             text = text,
          }
       end
@@ -1080,7 +1088,7 @@ do
             end
          elseif state == "comment short" then
             if c == "\n" then
-               add_comment(input:sub(ti, i - 1))
+               add_comment(input:sub(lex.ti, i - 1))
                state = "any"
             end
          elseif state == "got =" then
@@ -1177,13 +1185,13 @@ do
          elseif state == "pragma" then
             if not lex_word[c] then
                end_token_prev("pragma")
-               if tokens[nt].tk == "--#pragma" then
+               if tokens[lex.nt].tk == "--#pragma" then
                   state = "pragma any"
                else
                   state = "comment short"
-                  comments = tokens[nt].comments
+                  lex.comments = tokens[lex.nt].comments
                   table.remove(tokens)
-                  nt = nt - 1
+                  lex.nt = lex.nt - 1
                   drop_token()
                end
                fwd = false
@@ -1236,7 +1244,7 @@ do
             end
          elseif state == "comment long got ]" then
             if c == "]" and lc_close_lvl == lc_open_lvl then
-               add_comment(input:sub(ti, i))
+               add_comment(input:sub(lex.ti, i))
                drop_token()
                state = "any"
                lc_open_lvl = 0
@@ -1369,7 +1377,7 @@ do
          end
       end
 
-      if in_token then
+      if lex.in_token then
          if last_token_kind[state] then
             end_token_prev(last_token_kind[state])
             if last_token_kind[state] == "$ERR$" then
@@ -1383,8 +1391,8 @@ do
                else
                   add_syntax_error()
                end
-            elseif keywords[tokens[nt].tk] then
-               tokens[nt].kind = "keyword"
+            elseif keywords[tokens[lex.nt].tk] then
+               tokens[lex.nt].kind = "keyword"
             end
          else
             drop_token()
@@ -1399,7 +1407,7 @@ do
       -- from. Leaving the state at `comment short` hands the bytes to
       -- the next guard, which is where every short comment ends.
       if state == "pragma" then
-         if input:sub(ti, i - 1) == "--#pragma" then
+         if input:sub(lex.ti, i - 1) == "--#pragma" then
             end_token_prev("pragma")
             state = "pragma any"
          else
@@ -1412,10 +1420,10 @@ do
       -- comment one and two characters in, which is how they are read
       -- when a newline follows them instead of the end of the input.
       if state == "comment short" or state == "got --" or state == "got --[" then
-         add_comment(input:sub(ti, i - 1))
+         add_comment(input:sub(lex.ti, i - 1))
       end
 
-      table.insert(tokens, { x = x + 1, y = y, i = i, tk = "$EOF$", kind = "$EOF$", comments = comments })
+      table.insert(tokens, { x = x + 1, y = y, i = i, tk = "$EOF$", kind = "$EOF$", comments = lex.comments })
 
       return tokens, errs
    end
@@ -1465,11 +1473,11 @@ end
 -- Recursive descent parser
 --------------------------------------------------------------------------------
 
-local last_typeid = 0
+local typeids = { last = 0 }
 
 local function new_typeid(): integer
-   last_typeid = last_typeid + 1
-   return last_typeid
+   typeids.last = typeids.last + 1
+   return typeids.last
 end
 
 local enum TypeName
@@ -2471,7 +2479,7 @@ local look_ended = {}
 -- Is a look ahead running? One begun within another (a body's
 -- `macroexp` holds a function holding `local y = record`) answers none:
 -- its tokens would read through the other's, a call deeper for each.
-local looking = false
+local look = { running = false }
 
 -- What parse makes of the tokens from i on, or nil where it fails, run
 -- on copies so that it leaves the parse to come as it was: a type
@@ -2483,7 +2491,7 @@ local looking = false
 -- `where`, whose clause is an expression, function bodies and all, in
 -- which a look of its own could begin.
 local function look_ahead<T>(ps: ParseState, i: integer, parse: function(ParseState, integer): (integer, T)): T
-   if looking then
+   if look.running then
       return nil
    end
    local base = ps.tokens
@@ -2514,9 +2522,9 @@ local function look_ahead<T>(ps: ParseState, i: integer, parse: function(ParseSt
       required_modules = {},
       parse_lang = ps.parse_lang,
    }
-   looking = true
+   look.running = true
    local ok, raised, result = pcall(parse, err_ps, i)
-   looking = false
+   look.running = false
    if not ok then
       if raised ~= look_ended then
          error(raised, 0)
@@ -4827,7 +4835,7 @@ local record Visitor<S, K, N, T>
 end
 
 local function fields_of(t: RecordLikeType, meta?: MetaMode): (function(): string, Type)
-   local i = 1
+   local cursor = { i = 1 }
    local field_order, fields: {string}, {string:Type}
    if meta then
       field_order, fields = t.meta_field_order, t.meta_fields
@@ -4839,43 +4847,50 @@ local function fields_of(t: RecordLikeType, meta?: MetaMode): (function(): strin
       end
    end
    return function(): string, Type
-      local name = field_order[i]
+      local name = field_order[cursor.i]
       if not name then
          return nil
       end
-      i = i + 1
+      cursor.i = cursor.i + 1
       return name, fields[name]
    end
 end
 
-local tl_debug_indent = 0
 local record DebugEntry
    mark: string
    y: integer
    x: integer
    msg: string
 end
-local tl_debug_entry: DebugEntry = nil
-local tl_debug_y = 1
+
+-- What the debug trace has written: how deep it is, the entry waiting to
+-- be written, and the line it has reached.
+local record DebugTrace
+   indent: integer
+   entry: DebugEntry
+   y: integer
+end
+
+local tl_debug: DebugTrace = { indent = 0, y = 1, entry = nil }
 
 local function tl_debug_loc(y: integer, x: integer): string
    return (tostring(y) or "?") .. ":" .. (tostring(x) or "?")
 end
 
 local function tl_debug_indent_push(mark: string, y: integer, x: integer, fmt: string, ...: any)
-   if tl_debug_entry then
-      if tl_debug_entry.y and (tl_debug_entry.y > tl_debug_y) then
+   if tl_debug.entry then
+      if tl_debug.entry.y and (tl_debug.entry.y > tl_debug.y) then
          io.stderr:write("\n")
-         tl_debug_y = tl_debug_entry.y
+         tl_debug.y = tl_debug.entry.y
       end
-      io.stderr:write(("   "):rep(tl_debug_indent) .. tl_debug_entry.mark .. " " ..
-                      tl_debug_loc(tl_debug_entry.y, tl_debug_entry.x) .. " " ..
-                      tl_debug_entry.msg .. "\n")
+      io.stderr:write(("   "):rep(tl_debug.indent) .. tl_debug.entry.mark .. " " ..
+                      tl_debug_loc(tl_debug.entry.y, tl_debug.entry.x) .. " " ..
+                      tl_debug.entry.msg .. "\n")
       io.stderr:flush()
-      tl_debug_entry = nil
-      tl_debug_indent = tl_debug_indent + 1
+      tl_debug.entry = nil
+      tl_debug.indent = tl_debug.indent + 1
    end
-   tl_debug_entry = {
+   tl_debug.entry = {
       mark = mark,
       y = y,
       x = x,
@@ -4884,22 +4899,22 @@ local function tl_debug_indent_push(mark: string, y: integer, x: integer, fmt: s
 end
 
 local function tl_debug_indent_pop(mark: string, single: string, y: integer, x: integer, fmt?: string, ...: any)
-   if tl_debug_entry then
-      local msg = tl_debug_entry.msg
+   if tl_debug.entry then
+      local msg = tl_debug.entry.msg
       if fmt then
          msg = fmt:format(...)
       end
-      if y and (y > tl_debug_y) then
+      if y and (y > tl_debug.y) then
          io.stderr:write("\n")
-         tl_debug_y = y
+         tl_debug.y = y
       end
-      io.stderr:write(("   "):rep(tl_debug_indent) .. single .. " " .. tl_debug_loc(y, x) .. " " .. msg .. "\n")
+      io.stderr:write(("   "):rep(tl_debug.indent) .. single .. " " .. tl_debug_loc(y, x) .. " " .. msg .. "\n")
       io.stderr:flush()
-      tl_debug_entry = nil
+      tl_debug.entry = nil
    else
-      tl_debug_indent = tl_debug_indent - 1
+      tl_debug.indent = tl_debug.indent - 1
       if fmt then
-         io.stderr:write(("   "):rep(tl_debug_indent) .. mark .. " " .. fmt:format(...) .. "\n")
+         io.stderr:write(("   "):rep(tl_debug.indent) .. mark .. " " .. fmt:format(...) .. "\n")
          io.stderr:flush()
       end
    end
@@ -5036,7 +5051,7 @@ local type_walkers <total>: {TypeName: boolean | function<S, T>(s: S, ast: Type,
 recurse_type = function<S, T>(s: S, ast: Type, visit: Visitor<S, TypeName, Type, T>): T
    local kind = ast.typename
 
-   if TL_DEBUG then
+   if debugging.level then
       tl_debug_indent_push("---", ast.y, ast.x, "[%s] = %s", kind, show_type(ast))
    end
 
@@ -5065,7 +5080,7 @@ recurse_type = function<S, T>(s: S, ast: Type, visit: Visitor<S, TypeName, Type,
       ret = visit_after(s, ast, xs, ret)
    end
 
-   if TL_DEBUG then
+   if debugging.level then
       tl_debug_indent_pop("---", "---", ast.y, ast.x)
    end
 
@@ -5322,7 +5337,7 @@ local function recurse_node<S, T>(s: S, root: tl.Node,
          end
       end
 
-      if TL_DEBUG then
+      if debugging.level then
          if ast.y > TL_DEBUG_MAXLINE then
             error("Halting execution at input line " .. ast.y)
          end
@@ -5348,7 +5363,7 @@ local function recurse_node<S, T>(s: S, root: tl.Node,
          ret = visit_after(s, ast, xs, ret)
       end
 
-      if TL_DEBUG then
+      if debugging.level then
          local typ = ast.debug_type and " = " .. show_type(ast.debug_type) or ""
          tl_debug_indent_pop("}}}", "***", ast.y, ast.x, "[%s]%s", kprint, typ)
       end
@@ -5429,8 +5444,12 @@ local primitive: {TypeName:string} = {
 }
 
 function tl.generate(ast: tl.Node, gen_target: GenTarget, opts?: GenerateOptions): string, string
-   local err: string = nil
-   local indent = 0
+   -- The indent the node being written is at, and why it cannot be written.
+   local record Emitted
+      indent: integer
+      err: string
+   end
+   local emitted: Emitted = { indent = 0, err = nil }
 
    opts = opts or default_generate_opts
 
@@ -5448,22 +5467,22 @@ function tl.generate(ast: tl.Node, gen_target: GenTarget, opts?: GenerateOptions
          return
       end
       if child.y ~= node.y then
-         if indent == 0 and #save_indent > 0 then
-            indent = save_indent[#save_indent] + 1
+         if emitted.indent == 0 and #save_indent > 0 then
+            emitted.indent = save_indent[#save_indent] + 1
          else
-            indent = indent + 1
+            emitted.indent = emitted.indent + 1
          end
       else
-         table.insert(save_indent, indent)
-         indent = 0
+         table.insert(save_indent, emitted.indent)
+         emitted.indent = 0
       end
    end
 
    local function decrement_indent(node: Node, child: Node)
       if child.y ~= node.y then
-         indent = indent - 1
+         emitted.indent = emitted.indent - 1
       else
-         indent = table.remove(save_indent)
+         emitted.indent = table.remove(save_indent)
       end
    end
 
@@ -5638,7 +5657,7 @@ function tl.generate(ast: tl.Node, gen_target: GenTarget, opts?: GenerateOptions
             end
             local space: string = nil
             for i, child in ipairs(children) do
-               add_child(out, child, space, indent)
+               add_child(out, child, space, emitted.indent)
                if node[i].semicolon then
                   table.insert(out, ";")
                   space = " "
@@ -5660,7 +5679,7 @@ function tl.generate(ast: tl.Node, gen_target: GenTarget, opts?: GenerateOptions
                add_string(out, var.tk)
                if var.attribute then
                   if gen_target ~= "5.4" and var.attribute == "close" then
-                     err = "attempt to emit a <close> attribute for a non 5.4 target"
+                     emitted.err = "attempt to emit a <close> attribute for a non 5.4 target"
                   end
 
                   if gen_target == "5.4" then
@@ -5722,9 +5741,9 @@ function tl.generate(ast: tl.Node, gen_target: GenTarget, opts?: GenerateOptions
          after = function(_: nil, node: Node, children: {Output}): Output
             local out: Output = { y = node.y, h = 0 }
             for i, child in ipairs(children) do
-               add_child(out, child, i > 1 and " ", child.y ~= node.y and indent)
+               add_child(out, child, i > 1 and " ", child.y ~= node.y and emitted.indent)
             end
-            add_child(out, { y = node.yend, h = 0, [1] = "end" }, " ", indent)
+            add_child(out, { y = node.yend, h = 0, [1] = "end" }, " ", emitted.indent)
             return out
          end,
       },
@@ -5757,7 +5776,7 @@ function tl.generate(ast: tl.Node, gen_target: GenTarget, opts?: GenerateOptions
             table.insert(out, " do")
             add_child(out, children[2], " ")
             decrement_indent(node, node.body)
-            add_child(out, { y = node.yend, h = 0, [1] = "end" }, " ", indent)
+            add_child(out, { y = node.yend, h = 0, [1] = "end" }, " ", emitted.indent)
             return out
          end,
       },
@@ -5768,7 +5787,7 @@ function tl.generate(ast: tl.Node, gen_target: GenTarget, opts?: GenerateOptions
             table.insert(out, "repeat")
             add_child(out, children[1], " ")
             decrement_indent(node, node.body)
-            add_child(out, { y = node.yend, h = 0, [1] = "until " }, " ", indent)
+            add_child(out, { y = node.yend, h = 0, [1] = "until " }, " ", emitted.indent)
             add_child(out, children[2])
             return out
          end,
@@ -5780,7 +5799,7 @@ function tl.generate(ast: tl.Node, gen_target: GenTarget, opts?: GenerateOptions
             table.insert(out, "do")
             add_child(out, children[1], " ")
             decrement_indent(node, node.body)
-            add_child(out, { y = node.yend, h = 0, [1] = "end" }, " ", indent)
+            add_child(out, { y = node.yend, h = 0, [1] = "end" }, " ", emitted.indent)
             return out
          end,
       },
@@ -5795,7 +5814,7 @@ function tl.generate(ast: tl.Node, gen_target: GenTarget, opts?: GenerateOptions
             table.insert(out, " do")
             add_child(out, children[3], " ")
             decrement_indent(node, node.body)
-            add_child(out, { y = node.yend, h = 0, [1] = "end" }, " ", indent)
+            add_child(out, { y = node.yend, h = 0, [1] = "end" }, " ", emitted.indent)
             return out
          end,
       },
@@ -5816,7 +5835,7 @@ function tl.generate(ast: tl.Node, gen_target: GenTarget, opts?: GenerateOptions
             table.insert(out, " do")
             add_child(out, children[5], " ")
             decrement_indent(node, node.body)
-            add_child(out, { y = node.yend, h = 0, [1] = "end" }, " ", indent)
+            add_child(out, { y = node.yend, h = 0, [1] = "end" }, " ", emitted.indent)
             return out
          end,
       },
@@ -5861,7 +5880,7 @@ function tl.generate(ast: tl.Node, gen_target: GenTarget, opts?: GenerateOptions
                   table.insert(checked, ")")
                   child = checked
                end
-               add_child(out, child, space, child.y ~= node.y and indent)
+               add_child(out, child, space, child.y ~= node.y and emitted.indent)
             end
             return out
          end,
@@ -5877,13 +5896,13 @@ function tl.generate(ast: tl.Node, gen_target: GenTarget, opts?: GenerateOptions
             table.insert(out, "{")
             local n = #children
             for i, child in ipairs(children) do
-               add_child(out, child, " ", child.y ~= node.y and indent)
+               add_child(out, child, " ", child.y ~= node.y and emitted.indent)
                if i < n or node.yend ~= node.y then
                   table.insert(out, ",")
                end
             end
             decrement_indent(node, node[1])
-            add_child(out, { y = node.yend, h = 0, [1] = "}" }, " ", indent)
+            add_child(out, { y = node.yend, h = 0, [1] = "}" }, " ", emitted.indent)
             return out
          end,
       },
@@ -5930,7 +5949,7 @@ function tl.generate(ast: tl.Node, gen_target: GenTarget, opts?: GenerateOptions
             end
             add_child(out, children[4], " ")
             decrement_indent(node, node.body)
-            add_child(out, { y = node.yend, h = 0, [1] = "end" }, " ", indent)
+            add_child(out, { y = node.yend, h = 0, [1] = "end" }, " ", emitted.indent)
             return out
          end,
       },
@@ -5949,7 +5968,7 @@ function tl.generate(ast: tl.Node, gen_target: GenTarget, opts?: GenerateOptions
             end
             add_child(out, children[4], " ")
             decrement_indent(node, node.body)
-            add_child(out, { y = node.yend, h = 0, [1] = "end" }, " ", indent)
+            add_child(out, { y = node.yend, h = 0, [1] = "end" }, " ", emitted.indent)
             return out
          end,
       },
@@ -5980,7 +5999,7 @@ function tl.generate(ast: tl.Node, gen_target: GenTarget, opts?: GenerateOptions
             end
             add_child(out, children[5], " ")
             decrement_indent(node, node.body)
-            add_child(out, { y = node.yend, h = 0, [1] = "end" }, " ", indent)
+            add_child(out, { y = node.yend, h = 0, [1] = "end" }, " ", emitted.indent)
             return out
          end,
       },
@@ -5997,7 +6016,7 @@ function tl.generate(ast: tl.Node, gen_target: GenTarget, opts?: GenerateOptions
             end
             add_child(out, children[3], " ")
             decrement_indent(node, node.body)
-            add_child(out, { y = node.yend, h = 0, [1] = "end" }, " ", indent)
+            add_child(out, { y = node.yend, h = 0, [1] = "end" }, " ", emitted.indent)
             return out
          end,
       },
@@ -6005,7 +6024,7 @@ function tl.generate(ast: tl.Node, gen_target: GenTarget, opts?: GenerateOptions
          after = function(_: nil, node: Node, children: {Output}): Output
             local out: Output = { y = node.y, h = 0 }
             table.insert(out, "(")
-            add_child(out, children[1], "", indent)
+            add_child(out, children[1], "", emitted.indent)
             table.insert(out, ")")
             return out
          end,
@@ -6014,34 +6033,34 @@ function tl.generate(ast: tl.Node, gen_target: GenTarget, opts?: GenerateOptions
          after = function(_: nil, node: Node, children: {Output}): Output
             local out: Output = { y = node.y, h = 0 }
             if node.op.op == "@funcall" then
-               add_child(out, children[1], "", indent)
+               add_child(out, children[1], "", emitted.indent)
                table.insert(out, "(")
-               add_child(out, children[3], "", indent)
+               add_child(out, children[3], "", emitted.indent)
                table.insert(out, ")")
             elseif node.op.op == "@index" then
-               add_child(out, children[1], "", indent)
+               add_child(out, children[1], "", emitted.indent)
                table.insert(out, "[")
                if starts_with_longstring(node.e2) then
                   table.insert(children[3], 1, " ")
                   table.insert(children[3], " ")
                end
-               add_child(out, children[3], "", indent)
+               add_child(out, children[3], "", emitted.indent)
                table.insert(out, "]")
             elseif node.op.op == "as" then
-               add_child(out, children[1], "", indent)
+               add_child(out, children[1], "", emitted.indent)
             elseif node.op.op == "is" then
                if node.e2.casttype.typename == "integer" then
                   table.insert(out, "math.type(")
-                  add_child(out, children[1], "", indent)
+                  add_child(out, children[1], "", emitted.indent)
                   table.insert(out, ") == \"integer\"")
                elseif node.e2.casttype.typename == "nil" then
-                  add_child(out, children[1], "", indent)
+                  add_child(out, children[1], "", emitted.indent)
                   table.insert(out, " == nil")
                else
                   table.insert(out, "type(")
-                  add_child(out, children[1], "", indent)
+                  add_child(out, children[1], "", emitted.indent)
                   table.insert(out, ") == \"")
-                  add_child(out, children[3], "", indent)
+                  add_child(out, children[3], "", emitted.indent)
                   table.insert(out, "\"")
                end
             elseif spaced_op[node.op.arity][node.op.op] or tight_op[node.op.arity][node.op.op] then
@@ -6052,9 +6071,9 @@ function tl.generate(ast: tl.Node, gen_target: GenTarget, opts?: GenerateOptions
                end
                if node.op.arity == 1 then
                   table.insert(out, node.op.op)
-                  add_child(out, children[1], space, indent)
+                  add_child(out, children[1], space, emitted.indent)
                elseif node.op.arity == 2 then
-                  add_child(out, children[1], "", indent)
+                  add_child(out, children[1], "", emitted.indent)
                   if space == " " then
                      table.insert(out, " ")
                   end
@@ -6063,7 +6082,7 @@ function tl.generate(ast: tl.Node, gen_target: GenTarget, opts?: GenerateOptions
                      table.insert(children[3], 1, "(")
                      table.insert(children[3], ")")
                   end
-                  add_child(out, children[3], space, indent)
+                  add_child(out, children[3], space, emitted.indent)
                end
             else
                error("unknown node op " .. node.op.op)
@@ -6229,8 +6248,8 @@ function tl.generate(ast: tl.Node, gen_target: GenTarget, opts?: GenerateOptions
    visit_node.cbs["argument_list"] = visit_node.cbs["variable_list"]
 
    local out = recurse_node(nil, ast, visit_node, visit_type)
-   if err then
-      return nil, err
+   if emitted.err then
+      return nil, emitted.err
    end
 
    local code: Output
@@ -6484,6 +6503,8 @@ local record TypeCollector
 
    filename: string
    symbol_list: {Symbol}
+   -- How many of `symbol_list`'s slots are taken.
+   symbol_list_n: integer
 
    store_type: function(y: integer, x: integer, typ: Type)
    reserve_symbol_list_slot: function(Node)
@@ -6497,13 +6518,13 @@ function TypeReporter:get_collector(filename: string): TypeCollector
    local collector: TypeCollector = {
       filename = filename,
       symbol_list = {},
+      symbol_list_n = 0,
    }
 
    local ft: {integer:{integer:integer}} = {}
    self.tr.by_pos[filename] = ft
 
    local symbol_list = collector.symbol_list
-   local symbol_list_n = 0
 
    collector.store_type = function(y: integer, x: integer, typ: Type)
       if not typ or skip_types[typ.typename] then
@@ -6520,8 +6541,8 @@ function TypeReporter:get_collector(filename: string): TypeCollector
    end
 
    collector.reserve_symbol_list_slot = function(node: Node)
-      symbol_list_n = symbol_list_n + 1
-      node.symbol_list_slot = symbol_list_n
+      collector.symbol_list_n = collector.symbol_list_n + 1
+      node.symbol_list_slot = collector.symbol_list_n
    end
 
    collector.add_to_symbol_list = function(node: Node, name: string, t: Type)
@@ -6532,31 +6553,31 @@ function TypeReporter:get_collector(filename: string): TypeCollector
       if node.symbol_list_slot then
          slot = node.symbol_list_slot
       else
-         symbol_list_n = symbol_list_n + 1
-         slot = symbol_list_n
+         collector.symbol_list_n = collector.symbol_list_n + 1
+         slot = collector.symbol_list_n
       end
       symbol_list[slot] = { y = node.y, x = node.x, name = name, typ = t }
    end
 
    collector.begin_symbol_list_scope = function(node: Node)
-      symbol_list_n = symbol_list_n + 1
-      symbol_list[symbol_list_n] = { y = node.y, x = node.x, name = "@{" }
+      collector.symbol_list_n = collector.symbol_list_n + 1
+      symbol_list[collector.symbol_list_n] = { y = node.y, x = node.x, name = "@{" }
    end
 
    collector.rollback_symbol_list_scope = function()
-      while symbol_list[symbol_list_n].name ~= "@{" do
-         symbol_list[symbol_list_n] = nil
-         symbol_list_n = symbol_list_n - 1
+      while symbol_list[collector.symbol_list_n].name ~= "@{" do
+         symbol_list[collector.symbol_list_n] = nil
+         collector.symbol_list_n = collector.symbol_list_n - 1
       end
    end
 
    collector.end_symbol_list_scope = function(node: Node)
-      if symbol_list[symbol_list_n].name == "@{" then
-         symbol_list[symbol_list_n] = nil
-         symbol_list_n = symbol_list_n - 1
+      if symbol_list[collector.symbol_list_n].name == "@{" then
+         symbol_list[collector.symbol_list_n] = nil
+         collector.symbol_list_n = collector.symbol_list_n - 1
       else
-         symbol_list_n = symbol_list_n + 1
-         symbol_list[symbol_list_n] = { y = assert(node.yend), x = assert(node.xend), name = "@}" }
+         collector.symbol_list_n = collector.symbol_list_n + 1
+         symbol_list[collector.symbol_list_n] = { y = assert(node.yend), x = assert(node.xend), name = "@}" }
       end
    end
 
@@ -6905,7 +6926,7 @@ local function insert_error(self: Errors, y: integer, x: integer, f: string, err
    err.x = assert(x)
    err.filename = assert(f)
 
-   if TL_DEBUG then
+   if debugging.level then
       io.stderr:write("ERROR:" .. err.y .. ":" .. err.x .. ": " .. err.msg .. "\n")
    end
 
@@ -7559,7 +7580,7 @@ local function is_unknown(t: Type): boolean
 end
 
 local function display_typevar(typevar: string, what: TypeName): string
-   return TL_DEBUG
+   return debugging.level
       and (what .. " " .. typevar)
       or typevar:gsub("@.*", "")
 end
@@ -7609,14 +7630,14 @@ local function show_type_base(t: Type, short: boolean, seen: {Type:string}): str
       else
          ret = table.concat(t.names, ".")
       end
-      if TL_DEBUG then
+      if debugging.level then
          ret = "nominal " .. ret
       end
       return ret
    elseif t is SelfType then
       if t.display_type then
          local ret = show_type_base(t.display_type, short, seen)
-         if TL_DEBUG then
+         if debugging.level then
             ret = "self " .. ret
          end
          return ret
@@ -7865,14 +7886,14 @@ local function add_compat_entries(program: Node, used_set: {string: boolean}, ge
       return
    end
 
-   local tl_debug = TL_DEBUG
-   TL_DEBUG = nil
+   local saved_level = debugging.level
+   debugging.level = nil
 
    local used_list: {string} = sorted_keys(used_set)
 
    local compat_loaded = false
 
-   local n = 1
+   local inserted = { n = 1 }
    local function load_code(name: string, text: string)
       local code: Node = compat_code_cache[name]
       if not code then
@@ -7881,8 +7902,8 @@ local function add_compat_entries(program: Node, used_set: {string: boolean}, ge
          compat_code_cache[name] = code
       end
       for _, c in ipairs(code) do
-         table.insert(program, n, c)
-         n = n + 1
+         table.insert(program, inserted.n, c)
+         inserted.n = inserted.n + 1
       end
    end
 
@@ -7917,7 +7938,7 @@ local function add_compat_entries(program: Node, used_set: {string: boolean}, ge
    end
    program.y = 1
 
-   TL_DEBUG = tl_debug
+   debugging.level = saved_level
 end
 
 local function get_stdlib_compat(): {string:boolean}
@@ -7986,9 +8007,13 @@ local function convert_node_to_compat_mt_call(node: Node, mt_name: string, which
    node.e2[4] = e2
 end
 
-local stdlib_globals: {string:Variable} = nil
+local record Prepared
+   -- The globals of the prelude and the standard library, made once.
+   globals: {string:Variable}
+end
+local prepared: Prepared = { globals = nil }
 local globals_typeid = new_typeid()
-local fresh_typevar_ctr = 1
+local fresh = { typevar_ctr = 1 }
 
 local function assert_no_errors(errors: {Error}, msg: string)
    if #errors ~= 0 then
@@ -8033,9 +8058,9 @@ tl.new_env = function(opts?: EnvOptions): Env, string
       return nil, "gen-compat must be explicitly 'off' when gen-target is '5.4'"
    end
 
-   if not stdlib_globals then
-      local tl_debug = TL_DEBUG
-      TL_DEBUG = nil
+   if not prepared.globals then
+      local saved_level = debugging.level
+      debugging.level = nil
 
       do
          local program, syntax_errors = tl.parse(prelude, "prelude.d.tl", "tl")
@@ -8051,20 +8076,20 @@ tl.new_env = function(opts?: EnvOptions): Env, string
          assert_no_errors(result.type_errors, "standard library contains type errors")
       end
 
-      stdlib_globals = env.globals
+      prepared.globals = env.globals
 
-      TL_DEBUG = tl_debug
+      debugging.level = saved_level
 
       -- special cases for compatibility
-      local math_t = (stdlib_globals["math"].t as TypeDeclType).def as RecordType
-      local table_t = (stdlib_globals["table"].t as TypeDeclType).def as RecordType
+      local math_t = (prepared.globals["math"].t as TypeDeclType).def as RecordType
+      local table_t = (prepared.globals["table"].t as TypeDeclType).def as RecordType
       math_t.fields["maxinteger"].needs_compat = true
       math_t.fields["mininteger"].needs_compat = true
       table_t.fields["pack"].needs_compat = true
       table_t.fields["unpack"].needs_compat = true
 
       -- special cased functions
-      local string_t = (stdlib_globals["string"].t as TypeDeclType).def as RecordType
+      local string_t = (prepared.globals["string"].t as TypeDeclType).def as RecordType
       set_special_function(string_t.fields["find"], "string.find")
       set_special_function(string_t.fields["format"], "string.format")
       set_special_function(string_t.fields["gmatch"], "string.gmatch")
@@ -8073,17 +8098,17 @@ tl.new_env = function(opts?: EnvOptions): Env, string
       set_special_function(string_t.fields["pack"], "string.pack")
       set_special_function(string_t.fields["unpack"], "string.unpack")
 
-      set_special_function(stdlib_globals["assert"].t, "assert")
-      set_special_function(((stdlib_globals["coroutine"].t as TypeDeclType).def as RecordType).fields["wrap"], "coroutine.wrap")
-      set_special_function(stdlib_globals["ipairs"].t, "ipairs")
-      set_special_function(stdlib_globals["pairs"].t, "pairs")
-      set_special_function(stdlib_globals["pcall"].t, "pcall")
-      set_special_function(stdlib_globals["xpcall"].t, "xpcall")
-      set_special_function(stdlib_globals["rawget"].t, "rawget")
-      set_special_function(stdlib_globals["require"].t, "require")
-      set_special_function(stdlib_globals["setmetatable"].t, "setmetatable")
-      set_special_function(stdlib_globals["error"].t, "error")
-      set_special_function(stdlib_globals["type"].t, "type")
+      set_special_function(prepared.globals["assert"].t, "assert")
+      set_special_function(((prepared.globals["coroutine"].t as TypeDeclType).def as RecordType).fields["wrap"], "coroutine.wrap")
+      set_special_function(prepared.globals["ipairs"].t, "ipairs")
+      set_special_function(prepared.globals["pairs"].t, "pairs")
+      set_special_function(prepared.globals["pcall"].t, "pcall")
+      set_special_function(prepared.globals["xpcall"].t, "xpcall")
+      set_special_function(prepared.globals["rawget"].t, "rawget")
+      set_special_function(prepared.globals["require"].t, "require")
+      set_special_function(prepared.globals["setmetatable"].t, "setmetatable")
+      set_special_function(prepared.globals["error"].t, "error")
+      set_special_function(prepared.globals["type"].t, "type")
 
       -- Functions that run no code of the program's, however it is called,
       -- unless an argument they examine may dispatch to a metamethod.
@@ -8107,22 +8132,22 @@ tl.new_env = function(opts?: EnvOptions): Env, string
          end
       end
       for _, name in ipairs({ "print", "tonumber", "tostring" }) do
-         pure(stdlib_globals[name].t, "all")
+         pure(prepared.globals[name].t, "all")
       end
       for _, name in ipairs({ "next", "rawequal", "rawget", "rawlen", "select" }) do
-         pure(stdlib_globals[name].t, "none")
+         pure(prepared.globals[name].t, "none")
       end
       for _, name in ipairs({ "ipairs", "pairs" }) do
-         pure(stdlib_globals[name].t, "first")
+         pure(prepared.globals[name].t, "first")
       end
       local function pure_fields(library: string, names: {string}, examines: string)
-         local record_t = (stdlib_globals[library].t as TypeDeclType).def as RecordType
+         local record_t = (prepared.globals[library].t as TypeDeclType).def as RecordType
          for _, name in ipairs(names) do
             pure(record_t.fields[name], examines)
          end
       end
       local function all_fields(library: string): {string}
-         return ((stdlib_globals[library].t as TypeDeclType).def as RecordType).field_order
+         return ((prepared.globals[library].t as TypeDeclType).def as RecordType).field_order
       end
       pure_fields("string", all_fields("string"), "all")
       pure_fields("math", all_fields("math"), "all")
@@ -8135,14 +8160,14 @@ tl.new_env = function(opts?: EnvOptions): Env, string
       -- `@is_va` is an internal sentinel value which is
       -- `any` if `...` is accepted in this scope or `nil` if it isn't.
       local w: Where = { f = "@prelude", x = 1, y = 1 }
-      stdlib_globals["..."] = { t = a_vararg(w, { a_type(w, "string", {}) }) }
-      stdlib_globals["@is_va"] = { t = a_type(w, "any", {}) }
+      prepared.globals["..."] = { t = a_vararg(w, { a_type(w, "string", {}) }) }
+      prepared.globals["@is_va"] = { t = a_type(w, "any", {}) }
 
       env.globals = {}
    end
 
    local stdlib_compat = get_stdlib_compat()
-   for name, var in pairs(stdlib_globals) do
+   for name, var in pairs(prepared.globals) do
       env.globals[name] = var
       var.needs_compat = stdlib_compat[name]
       local t = var.t
@@ -8355,7 +8380,7 @@ do
          for _, ta in ipairs(typeargs) do
             if ta.typearg == t.typevar then
                return a_type(t, "typevar", {
-                  typevar = (t.typevar:gsub("@.*", "")) .. "@" .. fresh_typevar_ctr,
+                  typevar = (t.typevar:gsub("@.*", "")) .. "@" .. fresh.typevar_ctr,
                   constraint = t.constraint and resolve(t.constraint, false),
                } as TypeVarType), true
             end
@@ -8366,7 +8391,7 @@ do
          for _, ta in ipairs(typeargs) do
             if ta.typearg == t.typearg then
                return a_type(t, "typearg", {
-                  typearg = (t.typearg:gsub("@.*", "")) .. "@" .. fresh_typevar_ctr,
+                  typearg = (t.typearg:gsub("@.*", "")) .. "@" .. fresh.typevar_ctr,
                   constraint = t.constraint and resolve(t.constraint, false),
                } as TypeArgType), true
             end
@@ -8376,7 +8401,7 @@ do
    }
 
    local function fresh_typeargs(self: TypeChecker, g: GenericType): GenericType
-      fresh_typevar_ctr = fresh_typevar_ctr + 1
+      fresh.typevar_ctr = fresh.typevar_ctr + 1
 
       local newg, errs = map_type(g.typeargs, g, fresh_typevar_fns)
       if newg is InvalidType then
@@ -8674,7 +8699,7 @@ do
    end
 
    map_type = function<S>(self: S, ty: Type, fns: TypeFunctionMap<S>): Type, {Error}
-      local errs: {Error} = nil
+      local errs: {Error} = {}
       local seen: {Type:Type} = {}
       local resolve: ResolveFunction = nil
 
@@ -8816,7 +8841,6 @@ do
 
             local _, err = is_valid_union(copy)
             if err then
-               errs = errs or {}
                table.insert(errs, Err(err, copy))
             end
          elseif t is PolyType then
@@ -8851,7 +8875,7 @@ do
       end
 
       local copy = resolve(ty, true)
-      if errs then
+      if #errs > 0 then
          return an_invalid(ty), errs
       end
 
@@ -9182,26 +9206,26 @@ do
       local loose: {string:boolean} = {}
       local depth_of: {Node:integer} = {}
       local scopes: {{string:Node}} = {}
-      local depth = 0
+      local scan = { depth = 0 }
 
       local function bind(node: Node, name: string)
          if name and #scopes > 0 then
             scopes[#scopes][name] = node
             binders[node] = true
-            depth_of[node] = depth
+            depth_of[node] = scan.depth
          end
       end
       local function resolve(name: string)
          for i = #scopes, 1, -1 do
             local binder = scopes[i][name]
             if binder then
-               if depth_of[binder] < depth then
+               if depth_of[binder] < scan.depth then
                   assigned[binder] = true
                end
                return
             end
          end
-         if depth > 0 then
+         if scan.depth > 0 then
             loose[name] = true
          end
       end
@@ -9213,7 +9237,7 @@ do
       -- The body of a function, or the expression of a macro expression,
       -- with its arguments bound.
       local function walk_function(node: Node)
-         depth = depth + 1
+         scan.depth = scan.depth + 1
          table.insert(scopes, {})
          for _, argument in ipairs(node.args or {}) do
             bind(argument, argument.tk)
@@ -9225,7 +9249,7 @@ do
             walk_expression(node.exp)
          end
          table.remove(scopes)
-         depth = depth - 1
+         scan.depth = scan.depth - 1
       end
 
       walk_expression = function(n: Node)
@@ -11255,7 +11279,7 @@ do
       return compare_agreeing(self, self.eqtype_relations, t1, t2)
    end
 
-   if TL_DEBUG then
+   if debugging.level then
       local orig_is_a = TypeChecker.is_a
       TypeChecker.is_a = function(self: TypeChecker, t1: Type, t2: Type): boolean, {Error}
          assert(type(t1) == "table")
@@ -11617,10 +11641,9 @@ do
       do
          local check_args_rets: function(TypeChecker, w: Where, wargs: {Where}, f: FunctionType, args: TupleType, expected_rets: TupleType, argdelta: integer, or_args: TupleType, or_rets: TupleType): boolean, {Error}
          do
-            -- The parameters of the call being checked that it cannot omit.
-            local call_min_arity = 0
-            -- check if a tuple `xs` matches tuple `ys`
-            local function check_func_type_list(self: TypeChecker, w: Where, wheres: {Where}, xs: TupleType, ys: TupleType, from: integer, delta: integer, v: VarianceMode, mode: ArgCheckMode): boolean, {Error}
+            -- check if a tuple `xs` matches tuple `ys`; `call_min_arity` is how
+            -- many parameters the call being checked cannot omit
+            local function check_func_type_list(self: TypeChecker, w: Where, wheres: {Where}, xs: TupleType, ys: TupleType, from: integer, delta: integer, v: VarianceMode, mode: ArgCheckMode, call_min_arity: integer): boolean, {Error}
                local errs = {}
                local xt, yt = xs.tuple, ys.tuple
                local n_xs = #xt
@@ -11666,7 +11689,7 @@ do
 
                local fargs = or_args or f.args
                local frets = or_rets or f.rets
-               call_min_arity = f.min_arity or 0
+               local call_min_arity = f.min_arity or 0
 
                local from = 1
                if argdelta == -1 then
@@ -11693,10 +11716,10 @@ do
                   expected_rets = self:infer_at(w, expected_rets)
                   infer_emptytables(self, w, nil, expected_rets, frets, 0)
 
-                  rets_ok = check_func_type_list(self, w, nil, frets, expected_rets, 1, 0, "covariant", "return")
+                  rets_ok = check_func_type_list(self, w, nil, frets, expected_rets, 1, 0, "covariant", "return", call_min_arity)
                end
 
-               args_ok, args_errs = check_func_type_list(self, w, wargs, fargs, args, from, argdelta, "contravariant", "argument")
+               args_ok, args_errs = check_func_type_list(self, w, wargs, fargs, args, from, argdelta, "contravariant", "argument", call_min_arity)
                if (not args_ok) or (not rets_ok) then
                   if expected_rets and scope.is_transaction then
                      -- The expected type bound a type variable before the
@@ -11710,8 +11733,8 @@ do
                      for name, var in pairs(before) do
                         scope.vars[name] = var
                      end
-                     local args_ok2 = check_func_type_list(self, w, wargs, fargs, args, from, argdelta, "contravariant", "argument")
-                     if args_ok2 and check_func_type_list(self, w, nil, frets, expected_rets, 1, 0, "covariant", "return") then
+                     local args_ok2 = check_func_type_list(self, w, wargs, fargs, args, from, argdelta, "contravariant", "argument", call_min_arity)
+                     if args_ok2 and check_func_type_list(self, w, nil, frets, expected_rets, 1, 0, "covariant", "return", call_min_arity) then
                         infer_emptytables(self, w, wargs, args, fargs, argdelta)
                         return true
                      end
@@ -11776,9 +11799,10 @@ do
       end
 
       function TypeChecker:iterate_poly(p: PolyType): function(): integer, FunctionType
-         local i = 0
+         local cursor = { i = 0 }
          return function(): integer, FunctionType
-            i = i + 1
+            cursor.i = cursor.i + 1
+            local i = cursor.i
             local fg = p.types[i]
             if not fg then
                return
@@ -16520,7 +16544,7 @@ do
                   end
 
                   if ambiguous and not t then
-                     if TL_DEBUG then
+                     if debugging.level then
                         self.errs:add_warning("debug", node, "the resulting type is ambiguous: %s or %s", ua, ub)
                         self.errs:add_warning("debug", node, "currently choosing %s", ub)
                      end
@@ -17532,7 +17556,7 @@ do
             visit_type, store_type_after
          )
       end
-      if TL_DEBUG then
+      if debugging.level then
          visit_node, visit_type = patch_visitors(
             visit_node, debug_type_after
          )

@@ -144,13 +144,13 @@ local function merge_file(from: string, into: string): string, string
   local skipped: {string} = {}
   local added: {string} = {}
   local differing: {string} = {}
-  local attached = false
+  local session = { attached = false }
   local function work(): boolean, string
     local timed, time_trouble = db:exec("PRAGMA busy_timeout = " .. busy_ms)
     if not timed then return false, time_trouble end
     local ok, attach_trouble = Sqlite.run(db, "ATTACH DATABASE ?1 AS ahead", { { text = from } })
     if not ok then return false, attach_trouble end
-    attached = true
+    session.attached = true
     local begun, begin_trouble = db:exec("BEGIN IMMEDIATE")
     if not begun then return false, begin_trouble end
     local globs: {string} = {}
@@ -223,7 +223,7 @@ local function merge_file(from: string, into: string): string, string
   end
   local ok, trouble = work()
   if not ok then local _, _ = db:exec("ROLLBACK") end
-  if attached then local _, _ = db:exec("DETACH DATABASE ahead") end
+  if session.attached then local _, _ = db:exec("DETACH DATABASE ahead") end
   local _, _ = db:close()
   if not ok then
     return "", "verdicts-merge: " .. from .. " into " .. into .. ": " .. trouble ..

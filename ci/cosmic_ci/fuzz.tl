@@ -76,12 +76,12 @@ end
 local function each_line(next_chunk: function(): string,
                          each: function(string): boolean)
   local line: {string} = {}
-  local length = 0
+  local taken = { length = 0 }
   local function add(piece: string)
-    if length < cut and #piece > 0 then
-      local kept = piece:sub(1, cut - length)
+    if taken.length < cut and #piece > 0 then
+      local kept = piece:sub(1, cut - taken.length)
       line[#line + 1] = kept
-      length = length + #kept
+      taken.length = taken.length + #kept
     end
   end
   while true do
@@ -96,12 +96,12 @@ local function each_line(next_chunk: function(): string,
       end
       add(bytes:sub(at, newline - 1))
       local whole = table.concat(line)
-      line, length = {}, 0
+      line, taken.length = {}, 0
       if each(whole) then return end
       at = newline + 1
     end
   end
-  if length > 0 then each(table.concat(line)) end
+  if taken.length > 0 then each(table.concat(line)) end
 end
 
 --- The summary's first lines, before the run.
@@ -212,13 +212,14 @@ end
 local function streamed(guard: Signal.Guard, argv: {string}, cwd: string,
                         env: {string:string}, out: string, log: integer): integer | nil, string
   local out_fd = assert(Fs.open_write(out))
-  local status: integer | nil = nil
+  -- The child's exit status, once it is known.
+  local status: {integer} = {}
   local called, failure = pcall(function(): string
     local sink = Stream.tee(Stream.to_fd(out_fd), Stream.to_fd(log))
     local started, start_trouble = Child.start(argv, { cwd = cwd, env = env,
       stdout = "stream", stderr = "stdout" })
     if started == nil then
-      status = Fs.exists(argv[1]) and 126 or 127
+      status[1] = Fs.exists(argv[1]) and 126 or 127
       local wrote, why = sink:write(argv[1] .. ": " .. start_trouble .. "\n")
       return wrote and "" or why
     end
@@ -231,12 +232,12 @@ local function streamed(guard: Signal.Guard, argv: {string}, cwd: string,
         if signal ~= 0 then local _, _ = handle:stop(signal) end
         local state, why = handle:try_wait()
         if state == nil then return why end
-        if state.finished and status == nil then
-          status = Child.shell_status(assert(state.result))
+        if state.finished and status[1] == nil then
+          status[1] = Child.shell_status(assert(state.result))
           deadline = Clock.monotonic_ns() + final_output_ns
         end
         if eof then
-          if status ~= nil then return "" end
+          if status[1] ~= nil then return "" end
           Clock.sleep_ns(poll_ns)
         else
           local wait = poll_ns
@@ -256,19 +257,19 @@ local function streamed(guard: Signal.Guard, argv: {string}, cwd: string,
     local ran, why = pcall(supervise)
     -- drain may have observed exit before a sink failed or raised. Keep
     -- that actual status before scoped cleanup ends any remaining child.
-    if status == nil then
+    if status[1] == nil then
       local observed, state = pcall(function(): Child.TryWait | nil return (handle:try_wait()) end)
       if observed and state ~= nil and state.finished then
-        status = Child.shell_status(assert(state.result))
+        status[1] = Child.shell_status(assert(state.result))
       end
     end
     return ran and why or tostring(why)
   end)
   local closed, close_trouble = Fs.close(out_fd)
-  if not called then return status, tostring(failure) end
-  if failure ~= "" then return status, failure as string end
-  if not closed then return status, close_trouble end
-  return status, ""
+  if not called then return status[1], tostring(failure) end
+  if failure ~= "" then return status[1], failure as string end
+  if not closed then return status[1], close_trouble end
+  return status[1], ""
 end
 
 --- Fuzzes every property `r.root` holds on its checked core, writing

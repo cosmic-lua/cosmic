@@ -1056,12 +1056,20 @@ local zones: {string:Time.Zone} = {}
 --- Why each name `zone` found no zone for was refused, so text naming
 --- unknown zones over and over looks none up twice; emptied when it
 --- reaches `REFUSED_KEPT` names, which bounds it.
-local refused_names: {string:string} = {}
-local refused_count = 0
+local record Refused
+  names: {string:string}
+  count: integer
+end
+
+local refused: Refused = { names = {}, count = 0 }
 local REFUSED_KEPT <const> = 1024
 
 --- Every zone name the binary carries, read at the first lookup.
-local carried_names: {string:boolean} | nil = nil
+local record Carried
+  names: {string:boolean} | nil
+end
+
+local carried_zones: Carried = {}
 
 --- What a zone the carried database lacks says after it: a zone IANA
 --- added since the database was built is one a newer database has, and
@@ -1071,11 +1079,11 @@ local NEWER_ZONES <const> = "if the zone is new, `cosmic refresh tzdata --binary
 
 --- Every zone name the binary carries, read at the first call.
 local function carried_set(): {string:boolean} | nil, string
-  if carried_names ~= nil then return carried_names, "" end
+  if carried_zones.names ~= nil then return carried_zones.names, "" end
   local Store = require("cosmic.store")
   local names, trouble = Store.zone_names()
   if names == nil then return nil, trouble end
-  carried_names = names
+  carried_zones.names = names
   return names, ""
 end
 
@@ -1086,15 +1094,15 @@ local function zone_of(name: string): Time.Zone | nil, string
   if problem ~= nil then return nil, problem end
   local cached = zones[name]
   if cached ~= nil then return cached, "" end
-  local refused = refused_names[name]
-  if refused ~= nil then return nil, refused end
+  local refusal = refused.names[name]
+  if refusal ~= nil then return nil, refusal end
   -- Only an answer the database gave is remembered: a query that failed
   -- (EMFILE, a locked file) is this call's failure, and asked again.
   local function remember(why: string): string
-    if refused_count >= REFUSED_KEPT then
-      refused_names, refused_count = {}, 0
+    if refused.count >= REFUSED_KEPT then
+      refused.names, refused.count = {}, 0
     end
-    refused_names[name], refused_count = why, refused_count + 1
+    refused.names[name], refused.count = why, refused.count + 1
     return why
   end
   local Store = require("cosmic.store")
@@ -1221,7 +1229,7 @@ end
 --- Every zone [`local_zone`] has answered with no options, by `TZ`, and
 --- the one for `TZ` unset.
 local locals: {string:Time.Zone} = {}
-local unset_local: Time.Zone | nil = nil
+local unset_local: {Time.Zone} = {}
 
 --- The host's own zone, as Java and ICU find it: the host names a zone
 --- and the binary's tz database gives its rules, as `zone` does. The
@@ -1267,7 +1275,7 @@ function Time.local_zone(opts?: Time.LocalOptions): Time.Zone | nil, string
   local cacheable = opts == nil
   if cacheable then
     local cached: Time.Zone | nil
-    if tz == nil then cached = unset_local else cached = locals[tz] end
+    if tz == nil then cached = unset_local[1] else cached = locals[tz] end
     if cached ~= nil then return cached, "" end
   end
   local zone: Time.Zone | nil
@@ -1303,7 +1311,7 @@ function Time.local_zone(opts?: Time.LocalOptions): Time.Zone | nil, string
     end
   end
   if cacheable then
-    if tz == nil then unset_local = zone else locals[tz] = zone end
+    if tz == nil then unset_local[1] = zone else locals[tz] = zone end
   end
   return zone, ""
 end

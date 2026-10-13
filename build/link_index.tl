@@ -142,10 +142,9 @@ function link_index.running(): link_index.Library
     identity = "binary " .. (Store.meta("boot_hash") or ""),
     databases = function(): {Sqlite.Handle} | nil, string
       -- The binary's own is last, after any a process attached.
-      local all: {Sqlite.Handle} = {}
-      local ok, refused: boolean, any = pcall(function() all = Store.databases() end)
+      local ok, all = pcall(Store.databases)
       if not ok then
-        return nil, "the standard library a project's links name: " .. tostring(refused)
+        return nil, "the standard library a project's links name: " .. tostring(all)
       end
       return { all[#all] }
     end,
@@ -317,13 +316,13 @@ function link_index.pending(db: Sqlite.Handle, root: string,
   -- No symbol is known yet: every name reads as naming none.
   local unknown = "no symbols until the projection's docs are in"
   -- A link that asks for none reads nothing of the library.
-  local asked = false
+  local asking = { asked = false }
   local function none(_: string): {link_resolve.Symbol} | nil, string
-    asked = true
+    asking.asked = true
     return nil, unknown
   end
   local function no_member(_: string, _: string): {link_resolve.Symbol} | nil, string
-    asked = true
+    asking.asked = true
     return nil, unknown
   end
   local resolver = link_resolve.resolver(remembering(root, memo, none, no_member))
@@ -335,8 +334,8 @@ function link_index.pending(db: Sqlite.Handle, root: string,
       local _, _ = link_resolve.resolve(resolver, from, label, nothing_declared, false)
     end
   end
-  local signed = library ~= nil and asked and library.identity or nil
-  return { root = root, rows = rows, memo = memo, library = asked and library or nil,
+  local signed = library ~= nil and asking.asked and library.identity or nil
+  return { root = root, rows = rows, memo = memo, library = asking.asked and library or nil,
     digest = digest_of(root, memo, rows, signed) }
 end
 
@@ -428,13 +427,14 @@ function link_index.fill(db: Sqlite.Handle, pending: link_index.Pending,
   local index: symbol_index.Index = indexed
   -- The library is read the first time a link the projection's own
   -- symbols do not settle asks for one.
-  local library = pending.library
+  local waiting: {link_index.Library} = {}
+  waiting[1] = pending.library
   local function ready(): boolean, string
-    if library == nil then
+    local adding = waiting[1]
+    if adding == nil then
       return true, ""
     end
-    local adding = library
-    library = nil
+    waiting[1] = nil
     return add_library(index, held, adding)
   end
   -- A member of a module the projection holds is one of its own rows

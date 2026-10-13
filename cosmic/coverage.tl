@@ -48,7 +48,12 @@ local function refuse(why: string): nil, string
   return nil, "coverage: " .. why
 end
 
-local active: Coverage.Session | nil = nil
+local record Window
+  session: Coverage.Session | nil
+end
+
+--- The window `start` opened and `stop` has not closed.
+local active: Window = {}
 
 --- Starts collecting line hits, discarding anything collected before,
 --- and hands back the session `stop` needs to end this exact window.
@@ -58,11 +63,11 @@ local active: Coverage.Session | nil = nil
 --- @return Session | nil The session `stop` must be called with, or nil if refused
 --- @return string Error message when refused, "" on success
 function Coverage.start(): Coverage.Session | nil, string
-  if active ~= nil then
+  if active.session ~= nil then
     return refuse("collection is already active")
   end
   local session: Coverage.Session = {}
-  active = session
+  active.session = session
   native.start()
   return session, ""
 end
@@ -78,10 +83,10 @@ end
 --- @return Hits | nil Every line hit since `start`, or nil if refused
 --- @return string Error message when refused, "" on success
 function Coverage.stop(session: Coverage.Session): Coverage.Hits | nil, string
-  if active == nil or session ~= active then
+  if active.session == nil or session ~= active.session then
     return refuse("no matching open collection for this session")
   end
-  active = nil
+  active.session = nil
   return native.stop(), ""
 end
 

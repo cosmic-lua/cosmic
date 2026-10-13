@@ -238,11 +238,11 @@ function App.serve(app: Types.App, opts: Types.ServeOptions): boolean, string
     if cleanup == nil and why ~= nil and why ~= "" then return false, why end
     shutdown = cleanup
   end
-  local ok, err = false, ""
+  local served = { ok = false, err = "" }
   -- TODO: once Server.ServeSpec has an `on_start` run in a task before the
   -- listeners open, run the lifespan there, so it may wait on Poll.
   local ran, raised = pcall(function()
-    ok, err = Server.serve({
+    served.ok, served.err = Server.serve({
       listeners = opts.listeners, limits = opts.limits, timeout_ns = opts.timeout_ns,
       idle_ns = opts.idle_ns, head_ns = opts.head_ns, body_ns = opts.body_ns,
       grace_ns = opts.grace_ns or GRACE_NS, on_ready = opts.on_ready, handle = app.handle,
@@ -272,7 +272,7 @@ function App.serve(app: Types.App, opts: Types.ServeOptions): boolean, string
     if trouble ~= nil then sink:line("lifespan cleanup: " .. trouble) end
   end
   if not ran then error(raised, 0) end
-  if not ok then return false, err end
+  if not served.ok then return false, served.err end
   return true, ""
 end
 

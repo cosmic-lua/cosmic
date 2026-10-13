@@ -144,8 +144,7 @@ end
 --- @return Types.Handler The guarded handler
 function Errors.wrap(inner: Types.Handler): Types.Handler
   return function(req: Types.Request): Types.Response
-    local res: Types.Response | nil
-    local ok, raised = xpcall(function() res = inner(req) end, traced)
+    local ok, res = xpcall(inner, traced, req)
     if ok then
       if req.app.spec.debug then
         -- The server's own words for an answer that is no reply (see
@@ -162,8 +161,8 @@ function Errors.wrap(inner: Types.Handler): Types.Handler
       end
       return res
     end
-    local abort = Response.aborted(raised)
-    if abort == nil then return fault(req, tostring(raised)) end
+    local abort = Response.aborted(res)
+    if abort == nil then return fault(req, tostring(res)) end
     return answer_abort(req, abort)
   end
 end
@@ -177,11 +176,10 @@ end
 --- @return Types.Handler The guarded handler
 function Errors.guard(inner: Types.Handler): Types.Handler
   return function(req: Types.Request): Types.Response
-    local res: Types.Response | nil
-    local ok, raised = xpcall(function() res = inner(req) end, traced)
+    local ok, res = xpcall(inner, traced, req)
     if ok then return res end
-    local abort = Response.aborted(raised)
-    if abort == nil then error(raised, 0) end
+    local abort = Response.aborted(res)
+    if abort == nil then error(res, 0) end
     return answer_abort(req, abort)
   end
 end

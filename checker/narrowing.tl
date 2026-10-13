@@ -914,21 +914,21 @@ evaluate = function(host: narrowing.Host, f: narrowing.Guard): {string:narrowing
 end
 
 if os.getenv("TL_DEBUG_FACTS") then
-   local indent = -1
+   local trace = { indent = -1 }
    local untraced = evaluate
    evaluate = function(host: narrowing.Host, known: narrowing.Guard): {string:narrowing.Guard}
-      indent = indent + 1
-      io.stderr:write(("   "):rep(indent))
+      trace.indent = trace.indent + 1
+      io.stderr:write(("   "):rep(trace.indent))
       io.stderr:write("eval fact: ", describe(host, known), "\n")
       local facts = untraced(host, known)
       if facts then
          for _, k in ipairs(sorted_keys(facts)) do
-            io.stderr:write(("   "):rep(indent), "=> ", describe(host, facts[k]), "\n")
+            io.stderr:write(("   "):rep(trace.indent), "=> ", describe(host, facts[k]), "\n")
          end
       else
-         io.stderr:write(("   "):rep(indent), "=> .\n")
+         io.stderr:write(("   "):rep(trace.indent), "=> .\n")
       end
-      indent = indent - 1
+      trace.indent = trace.indent - 1
       return facts
    end
 end

@@ -51,6 +51,16 @@ local record Process
   alive: boolean
 end
 
+--- What a pool keeps as it starts, serves and ends its workers.
+local record PoolState
+  scratch: Fs.Scratch | nil
+  jobs_made: integer
+  started: boolean
+  started_at: integer
+  broken: boolean
+  running: {Process}
+end
+
 local record workers
   --- How to start one worker and when one is worth it.
   record Spec
@@ -200,44 +210,38 @@ end
 --- processors, by default. The caller closes it.
 function workers.pool(spec: workers.Spec, jobs?: integer): importer.Workers
   local most = jobs or jobs_of_build()
-  local scratch: Fs.Scratch | nil = nil
-  local jobs_made = 0
-  local started = false
-  local started_at = 0
-  local broken = false
-
-  local running: {Process} = {}
+  local state: PoolState = { jobs_made = 0, started = false, started_at = 0, broken = false, running = {} }
 
   local function alive(): integer
     local count = 0
-    for _, each in ipairs(running) do
+    for _, each in ipairs(state.running) do
       if each.alive then count = count + 1 end
     end
     return count
   end
 
   local function give_up(why: string)
-    if broken then return end
-    broken = true
+    if state.broken then return end
+    state.broken = true
     local _, _ = log:complain("build: workers: " .. why ..
         "; building in this process (" .. variable .. "=1 turns them off)")
   end
 
   local function finish_workers()
-    for _, each in ipairs(running) do
+    for _, each in ipairs(state.running) do
       local feed = each.handle.stdin_stream
       if feed ~= nil then
         local _, _ = feed:close()
       end
     end
-    for _, each in ipairs(running) do
+    for _, each in ipairs(state.running) do
       local waited, _ = each.handle:wait(5000000000)
       if waited == nil then
         local _, _ = each.handle:stop()
       end
       local _, _ = each.handle:close()
     end
-    running = {}
+    state.running = {}
   end
 
   local function start(): boolean
@@ -256,7 +260,7 @@ function workers.pool(spec: workers.Spec, jobs?: integer): importer.Workers
       give_up(why)
       return false
     end
-    scratch = made
+    state.scratch = made
     local _, env, fds = again({})
     -- Only here, so a build that starts no worker never loads the module.
     -- TODO: a boot still checks cosmic.child's closure, the relay and
@@ -283,33 +287,33 @@ function workers.pool(spec: workers.Spec, jobs?: integer): importer.Workers
         return false
       end
       local reader = assert(handle.stdout_stream)
-      running[#running + 1] = { handle = handle, replies = Stream.lines(reader), alive = true }
+      state.running[#state.running + 1] = { handle = handle, replies = Stream.lines(reader), alive = true }
     end
-    started = true
-    started_at = Clock.monotonic_ns()
+    state.started = true
+    state.started_at = Clock.monotonic_ns()
     return true
   end
 
   local function ready(bytes: integer): boolean
-    if broken or most < 2 then return false end
-    if started then return alive() > 0 and bytes >= spec.phase_bytes end
+    if state.broken or most < 2 then return false end
+    if state.started then return alive() > 0 and bytes >= spec.phase_bytes end
     if bytes < spec.open_bytes then return false end
     return start()
   end
 
   local pool: worker.Pool = {
     warming = function(): integer
-      if not started then return 0 end
-      return math.max(0, started_at + spec.startup_ns - Clock.monotonic_ns())
+      if not state.started then return 0 end
+      return math.max(0, state.started_at + spec.startup_ns - Clock.monotonic_ns())
     end,
     size = function(): integer
-      if started then return alive() end
-      return broken and 0 or most
+      if state.started then return alive() end
+      return state.broken and 0 or most
     end,
     path = function(name: string): string | nil, string
-      if scratch == nil then return nil, "no workers are running" end
-      jobs_made = jobs_made + 1
-      return scratch.path .. "/" .. name .. "-" .. jobs_made, ""
+      if state.scratch == nil then return nil, "no workers are running" end
+      state.jobs_made = state.jobs_made + 1
+      return state.scratch.path .. "/" .. name .. "-" .. state.jobs_made, ""
     end,
     -- TODO: give a phase a deadline: a hung worker holds the build, and
     -- the rebuild lock, until its lifetime ends. Waits on a read of a
@@ -318,7 +322,7 @@ function workers.pool(spec: workers.Spec, jobs?: integer): importer.Workers
     run = function(phase: string, job: string, count: integer): {string}
       local answers: {string} = {}
       local serving: {Process} = {}
-      for _, each in ipairs(running) do
+      for _, each in ipairs(state.running) do
         if each.alive and #serving < count then serving[#serving + 1] = each end
       end
       for index = 1, count do
@@ -372,11 +376,11 @@ function workers.pool(spec: workers.Spec, jobs?: integer): importer.Workers
     end,
     close = function()
       finish_workers()
-      if scratch ~= nil then
-        local _gone <close> = scratch
-        scratch = nil
+      if state.scratch ~= nil then
+        local _gone <close> = state.scratch
+        state.scratch = nil
       end
-      started = false
+      state.started = false
     end,
   }
 end

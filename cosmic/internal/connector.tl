@@ -537,12 +537,19 @@ local served_mt: metatable<Served> = {
 
 -- How [`cosmic.net`] makes a connection of a socket and judges an address,
 -- which it hands over as it loads.
-local make_conn: function(socket: raw_socket.Socket, timeout_ns: integer | nil): Connection.Conn = function(_socket: raw_socket.Socket, _timeout_ns: integer | nil): Connection.Conn
-  error("make_conn is called before cosmic.net registers it")
+local record Registered
+  make_conn: function(socket: raw_socket.Socket, timeout_ns: integer | nil): Connection.Conn
+  address_trouble: function(address: any): string
 end
-local address_trouble: function(address: any): string = function(_address: any): string
-  error("address_trouble is called before cosmic.net registers it")
-end
+
+local registered: Registered = {
+  make_conn = function(_socket: raw_socket.Socket, _timeout_ns: integer | nil): Connection.Conn
+    error("make_conn is called before cosmic.net registers it")
+  end,
+  address_trouble = function(_address: any): string
+    error("address_trouble is called before cosmic.net registers it")
+  end,
+}
 
 -- Every connector this module made, held weakly: what a lookup through a
 -- connector finds its [`Served`] by.
@@ -582,7 +589,7 @@ Leaf.waited = waited
 --- loaded, for [`Net.connector`] is how a program gets one.
 function Leaf.register(make: function(socket: raw_socket.Socket, timeout_ns: integer | nil): Connection.Conn,
                        trouble: function(address: any): string)
-  make_conn, address_trouble = make, trouble
+  registered.make_conn, registered.address_trouble = make, trouble
 end
 
 --- `endpoints` as a copy, so the caller's later changes to its table reach
@@ -750,7 +757,7 @@ end
 
 function Served:connect(address: Connection.Address, opts?: Connection.ConnectOptions):
     Connection.Conn | nil, string
-  local unusable = address_trouble(address)
+  local unusable = registered.address_trouble(address)
   if unusable ~= "" then error("net: address must be " .. unusable, 2) end
   if address.kind ~= "tcp" then error("net: a connector connects tcp addresses", 2) end
   local conn_ns = opts ~= nil and opts.timeout_ns or nil
@@ -788,7 +795,7 @@ function Served:connect(address: Connection.Address, opts?: Connection.ConnectOp
   if channel == nil then return nil, why end
   local socket, asked = ask(channel, body, host, port, deadline, refusal, kind)
   if socket == nil then return nil, asked end
-  return make_conn(socket, conn_ns), ""
+  return registered.make_conn(socket, conn_ns), ""
 end
 
 function Served:through(index: integer, port: integer, deadline: integer | nil): raw_socket.Socket | nil, string

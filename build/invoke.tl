@@ -78,6 +78,13 @@ local function drained(fd: integer): string
   return table.concat(out)
 end
 
+--- What [`invoke.run`] learns of the command line as it runs: the first
+--- call it was refused, and the status it exited with.
+local record Run
+  refused: string | nil
+  code: integer
+end
+
 --- Runs `args` -- the words after `cosmic` -- as the binary would, here.
 --- Raises for a command line only a process of its own can run, and when
 --- a descriptor or the working directory cannot be set up or put back.
@@ -124,14 +131,14 @@ function invoke.run(args: {string}, opts: invoke.Options): invoke.Result
 
   local getenv, environ = sys.getenv, sys.environ
   local exit, execve, attach = sys.exit, sys.execve, Store.attach
-  local refused: string | nil = nil
+  -- What the run leaves: the first call it was refused, and its status.
+  local run: Run = { refused = nil, code = 1 }
   local function refuse(what: string): never
-    refused = refused or ("invoke: the command line called " .. what ..
+    run.refused = run.refused or ("invoke: the command line called " .. what ..
       ", which only a process of its own can: start the binary instead")
-    error(refused, 0)
+    error(run.refused, 0)
   end
 
-  local code = 1
   local ran, trouble = pcall(function(): string
     assert(sys.dup2(out, 1))
     assert(sys.dup2(err, 2))
@@ -169,9 +176,9 @@ function invoke.run(args: {string}, opts: invoke.Options): invoke.Result
       if status == nil then
         logger.log:complain("the main function returned no exit status from 0 to 255: " ..
             "cmd.cosmic.main")
-        code = 2
+        run.code = 2
       else
-        code = status
+        run.code = status
       end
     end)
     return ""
@@ -182,7 +189,7 @@ function invoke.run(args: {string}, opts: invoke.Options): invoke.Result
   local out_back, out_back_trouble = sys.dup2(saved_out, 1)
   local err_back, err_back_trouble = sys.dup2(saved_err, 2)
   local back, back_trouble = sys.chdir(here)
-  local result: invoke.Result = { code = code, stdout = drained(out), stderr = drained(err) }
+  local result: invoke.Result = { code = run.code, stdout = drained(out), stderr = drained(err) }
   -- A descriptor that could not be put back is left open: closed, what it
   -- stood for would be gone for good.
   local keep: {integer:boolean} = {}
@@ -204,7 +211,7 @@ function invoke.run(args: {string}, opts: invoke.Options): invoke.Result
     error("invoke: the working directory could not be put back: " .. back_trouble)
   end
   if not ran then error(trouble, 0) end
-  if refused ~= nil then error(refused, 0) end
+  if run.refused ~= nil then error(run.refused, 0) end
   return result
 end
 

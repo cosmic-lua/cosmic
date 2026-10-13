@@ -56,6 +56,15 @@ function Shrink.values_of(draws: {Shrink.Draw}): {integer}
   return out
 end
 
+--- What a shrink has found and spent so far.
+local record Search
+  best: {Shrink.Draw}
+  tries: integer
+  proposals: integer
+  cached: integer
+  improvements: integer
+end
+
 --- The smallest failing draws found from `draws`, which must fail, and
 --- how many candidates were checked. At most `max_tries` proposals are
 --- considered, including cache hits, bounding work on repetitive traces.
@@ -66,11 +75,7 @@ end
 --- candidates were checked
 function Shrink.shrink(draws: {Shrink.Draw}, fails: Shrink.Fails,
                        max_tries: integer): Shrink.Shrunk
-  local best = draws
-  local tries = 0
-  local proposals = 0
-  local cached = 0
-  local improvements = 0
+  local search: Search = { best = draws, tries = 0, proposals = 0, cached = 0, improvements = 0 }
   local seen: {string: boolean} = {}
   local settled: {integer: string} = {}
 
@@ -83,21 +88,21 @@ function Shrink.shrink(draws: {Shrink.Draw}, fails: Shrink.Fails,
   seen[key(Shrink.values_of(draws))] = true
 
   local function try(values: {integer}): boolean
-    if proposals >= max_tries then return false end
-    proposals = proposals + 1
+    if search.proposals >= max_tries then return false end
+    search.proposals = search.proposals + 1
     local name = key(values)
     -- Best only becomes simpler: a candidate already accepted or
     -- rejected cannot improve it later. Keep keys, not replay trees.
     if seen[name] then
-      cached = cached + 1
+      search.cached = search.cached + 1
       return false
     end
     seen[name] = true
-    tries = tries + 1
+    search.tries = search.tries + 1
     local failed, used = fails(values)
-    if failed and simpler(used, best) then
-      best = used
-      improvements = improvements + 1
+    if failed and simpler(used, search.best) then
+      search.best = used
+      search.improvements = search.improvements + 1
       return true
     end
     return false
@@ -105,15 +110,15 @@ function Shrink.shrink(draws: {Shrink.Draw}, fails: Shrink.Fails,
 
   local function cut(size: integer, limit: integer): boolean
     local changed = false
-    local i = #best - size + 1
-    while i >= 1 and proposals < limit do
+    local i = #search.best - size + 1
+    while i >= 1 and search.proposals < limit do
       local values: {integer} = {}
-      for j, d in ipairs(best) do
+      for j, d in ipairs(search.best) do
         if j < i or j >= i + size then values[#values + 1] = d.value end
       end
       if try(values) then
         changed = true
-        if i > #best - size + 1 then i = #best - size + 1 end
+        if i > #search.best - size + 1 then i = #search.best - size + 1 end
       else
         i = i - 1
       end
@@ -122,38 +127,38 @@ function Shrink.shrink(draws: {Shrink.Draw}, fails: Shrink.Fails,
   end
 
   local improved = true
-  while improved and proposals < max_tries do
+  while improved and search.proposals < max_tries do
     improved = false
     -- Coarse deletions cheaply remove large stretches. Try intervening
     -- lengths only after the cheap passes stop making progress.
     local sizes: {integer: boolean} = {}
-    local size = #best
+    local size = #search.best
     -- Repetitive deletions must leave work for reducing draw values.
-    local deletion_limit = proposals + (max_tries - proposals) // 2
-    while size > 0 and proposals < deletion_limit do
+    local deletion_limit = search.proposals + (max_tries - search.proposals) // 2
+    while size > 0 and search.proposals < deletion_limit do
       if cut(size, deletion_limit) then improved = true end
-      if proposals < deletion_limit then sizes[size] = true end
+      if search.proposals < deletion_limit then sizes[size] = true end
       size = size // 2
     end
     local i = 1
-    while i <= #best and proposals < max_tries do
-      local d = best[i]
+    while i <= #search.best and search.proposals < max_tries do
+      local d = search.best[i]
       local delta = offset(d)
-      if delta ~= 0 and settled[i] ~= key(Shrink.values_of(best)) then
-        local count = #best
-        local before = best
-        local values = Shrink.values_of(best)
+      if delta ~= 0 and settled[i] ~= key(Shrink.values_of(search.best)) then
+        local count = #search.best
+        local before = search.best
+        local values = Shrink.values_of(search.best)
         values[i] = d.min
         if try(values) then
           improved = true
         else
-          while #best == count and best[i].min == d.min and proposals < max_tries do
-            local previous = best
+          while #search.best == count and search.best[i].min == d.min and search.proposals < max_tries do
+            local previous = search.best
             -- Probe disconnected failing regions across the full width;
             -- passing midpoints do not rule out smaller failures.
-            local half = offset(best[i]) >> 1
-            while half ~= 0 and #best == count and proposals < max_tries do
-              values = Shrink.values_of(best)
+            local half = offset(search.best[i]) >> 1
+            while half ~= 0 and #search.best == count and search.proposals < max_tries do
+              values = Shrink.values_of(search.best)
               values[i] = d.min + half
               if try(values) then improved = true end
               half = half >> 1
@@ -162,37 +167,37 @@ function Shrink.shrink(draws: {Shrink.Draw}, fails: Shrink.Fails,
             -- Revisit halves when this changes the high end: a different
             -- sequence can expose another disconnected failing region.
             local low = 0
-            while #best == count and best[i].min == d.min and proposals < max_tries do
-              local high = offset(best[i])
+            while #search.best == count and search.best[i].min == d.min and search.proposals < max_tries do
+              local high = offset(search.best[i])
               if not math.ult(low, high) or high - low == 1 then break end
               local middle = low + ((high - low) >> 1)
-              values = Shrink.values_of(best)
+              values = Shrink.values_of(search.best)
               values[i] = d.min + middle
               if try(values) then improved = true else low = middle end
             end
-            if best == previous then break end
+            if search.best == previous then break end
           end
         end
         -- A later draw's reduction can change this one's constraints.
         -- Reuse its completed search only while every other draw and
         -- its own range remain what they were when the search began.
-        local unchanged = #best == count
+        local unchanged = #search.best == count
         if unchanged then
           for j, old in ipairs(before) do
-            local now = best[j]
+            local now = search.best[j]
             if now.min ~= old.min or now.max ~= old.max or (j ~= i and now.value ~= old.value) then
               unchanged = false
               break
             end
           end
         end
-        if unchanged then settled[i] = key(Shrink.values_of(best)) end
+        if unchanged then settled[i] = key(Shrink.values_of(search.best)) end
       end
       i = i + 1
     end
     if not improved then
-      for length = #best, 1, -1 do
-        if proposals >= max_tries then break end
+      for length = #search.best, 1, -1 do
+        if search.proposals >= max_tries then break end
         if not sizes[length] and cut(length, max_tries) then
           improved = true
           break
@@ -200,8 +205,9 @@ function Shrink.shrink(draws: {Shrink.Draw}, fails: Shrink.Fails,
       end
     end
   end
-  return { draws = best, tries = tries, cached = cached, improvements = improvements,
-    reason = proposals >= max_tries and "budget" or "exhausted" }
+  return { draws = search.best, tries = search.tries, cached = search.cached,
+    improvements = search.improvements,
+    reason = search.proposals >= max_tries and "budget" or "exhausted" }
 end
 
 return Shrink

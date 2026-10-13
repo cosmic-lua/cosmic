@@ -539,32 +539,37 @@ function shared_compiles.settle(cache: shared_compiles.Cache, owed: shared_compi
   return db:exec("COMMIT")
 end
 
+--- The cache a build holds open, which a failure closes and drops.
+local record Opened
+  cache: shared_compiles.Cache | nil
+end
+
 --- The shared cache for one build, as [`importer.derive`] and
 --- [`importer.compile`] take it, or nil where there is none: turned off,
 --- or not to be opened. That is reported once, as is any later failure
 --- to read or write it, and the build goes on without the cache.
 function shared_compiles.for_build(environment?: {string:string}): importer.Shared | nil
   local path, trouble = location(environment)
-  local cache: shared_compiles.Cache | nil = nil
-  if path ~= nil then cache, trouble = shared_compiles.open(path) end
+  local open: Opened = { cache = nil }
+  if path ~= nil then open.cache, trouble = shared_compiles.open(path) end
   local function drop(why: string)
     -- TODO: retire broken caches automatically once cache-wide lifetime
     -- ownership and identity checks can exclude concurrent users and replacements.
-    if cache ~= nil then
-      shared_compiles.close(cache)
-      cache = nil
+    if open.cache ~= nil then
+      shared_compiles.close(open.cache)
+      open.cache = nil
     end
     local _, _ = log:complain("build: shared compiles: " .. why ..
         "; building without them (" .. variable .. "=0 turns them off)")
   end
-  if cache == nil then
+  if open.cache == nil then
     if trouble ~= "" then drop(trouble) end
     return nil
   end
   local owed: shared_compiles.Owed = { kept = {}, used = {}, parses = {}, parses_used = {} }
   return {
     look = function(m: importer.Module, own_tree: boolean): importer.Shared.Compile | nil
-      local held = cache
+      local held = open.cache
       if held == nil then return nil end
       local key = shared_compiles.key(assert(m.key), own_tree, m.generated)
       local found, look_trouble = shared_compiles.look(held, key)
@@ -576,15 +581,15 @@ function shared_compiles.for_build(environment?: {string:string}): importer.Shar
       return found
     end,
     keep = function(m: importer.Module, own_tree: boolean, made: importer.Shared.Compile)
-      if cache == nil then return end
+      if open.cache == nil then return end
       owed.kept[#owed.kept + 1] = {
         key = shared_compiles.key(assert(m.key), own_tree, m.generated),
         lua = made.lua, bytecode = made.bytecode, references = made.references,
       }
     end,
     analyzers = function(hashes: {string}): {string}
-      if cache == nil then return {} end
-      local found, found_trouble = shared_compiles.analyzers(cache, hashes)
+      if open.cache == nil then return {} end
+      local found, found_trouble = shared_compiles.analyzers(open.cache, hashes)
       if found == nil then
         drop(found_trouble)
         return {}
@@ -592,8 +597,8 @@ function shared_compiles.for_build(environment?: {string:string}): importer.Shar
       return found
     end,
     requires = function(analyzer: string, hashes: {string}): {string:{string}}
-      if cache == nil then return {} end
-      local found, found_trouble = shared_compiles.requires(cache, analyzer, hashes)
+      if open.cache == nil then return {} end
+      local found, found_trouble = shared_compiles.requires(open.cache, analyzer, hashes)
       if found == nil then
         drop(found_trouble)
         return {}
@@ -602,11 +607,11 @@ function shared_compiles.for_build(environment?: {string:string}): importer.Shar
     end,
     parse = function(analyzer: string, source_hash: string,
                      mapped: boolean): importer.Shared.Parse | nil
-      if cache == nil then return nil end
+      if open.cache == nil then return nil end
       local key: shared_compiles.ParseKey = {
         analyzer = analyzer, source_hash = source_hash, mapped = mapped,
       }
-      local found, look_trouble = shared_compiles.look_parse(cache, key)
+      local found, look_trouble = shared_compiles.look_parse(open.cache, key)
       if found == nil then
         if look_trouble ~= "" then drop(look_trouble) end
         return nil
@@ -616,14 +621,14 @@ function shared_compiles.for_build(environment?: {string:string}): importer.Shar
     end,
     offer = function(analyzer: string, source_hash: string, mapped: boolean,
                      made: importer.Shared.Parse)
-      if cache == nil then return end
+      if open.cache == nil then return end
       table.insert(assert(owed.parses), {
         key = { analyzer = analyzer, source_hash = source_hash, mapped = mapped },
         made = made,
       })
     end,
     finish = function()
-      local held = cache
+      local held = open.cache
       if held == nil then return end
       local settled, settle_trouble = shared_compiles.settle(held, owed, Clock.now_ns())
       if not settled then
@@ -631,7 +636,7 @@ function shared_compiles.for_build(environment?: {string:string}): importer.Shar
         return
       end
       shared_compiles.close(held)
-      cache = nil
+      open.cache = nil
     end,
   }
 end

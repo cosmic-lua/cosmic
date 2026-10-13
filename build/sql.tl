@@ -387,25 +387,24 @@ end
 --- UTF-8, and a `_json` that is not a JSON object's text on one line.
 local function ndjson_writer(): Writer
   local keys: {string} = {}
-  local unnamable = ""
-  local whole = false
+  local names_seen = { unnamable = "", whole = false }
   return {
     header = function(names: {string}): string | nil
-      whole = #names == 1 and names[1] == "_json"
+      names_seen.whole = #names == 1 and names[1] == "_json"
       for index, name in ipairs(unique(names)) do
         local encoded, _ = Json.encode(name)
         if encoded == nil then
-          unnamable = "column " .. index .. "'s name is not UTF-8, which a JSON key must be"
+          names_seen.unnamable = "column " .. index .. "'s name is not UTF-8, which a JSON key must be"
         end
         keys[index] = encoded or ""
       end
       return nil
     end,
     row = function(statement: Sqlite.Statement, width: integer): string | nil, string
-      if unnamable ~= "" then
-        return nil, unnamable
+      if names_seen.unnamable ~= "" then
+        return nil, names_seen.unnamable
       end
-      if whole then
+      if names_seen.whole then
         local text = statement:kind(0) == "text" and statement:bytes(0) or nil
         local object, _ = Json.decode_object(text or "")
         if text == nil or text:find("[\r\n]") ~= nil or object == nil then
@@ -931,7 +930,7 @@ function sql.run(argv: {integer:string}, root?: string, output?: sql.Output,
     complain(source.name .. ": " .. open_trouble)
     return 1
   end
-  local unwritable = false
+  local refusal = { unwritable = false }
   local written: Writer | nil = nil
   if writer ~= nil then
     local inner = writer
@@ -940,7 +939,7 @@ function sql.run(argv: {integer:string}, root?: string, output?: sql.Output,
       row = function(statement: Sqlite.Statement, width: integer): string | nil, string
         local line, why = inner.row(statement, width)
         if line == nil then
-          unwritable = true
+          refusal.unwritable = true
           return nil, why
         end
         return line, ""
@@ -953,7 +952,7 @@ function sql.run(argv: {integer:string}, root?: string, output?: sql.Output,
   end
   if rows == nil then
     -- The hint is for SQLite's refusals, not for a row `--to` cannot write.
-    if source.path == nil and not unwritable then
+    if source.path == nil and not refusal.unwritable then
       trouble = trouble .. store_hint
     end
     complain(source.name .. ": " .. trouble)
