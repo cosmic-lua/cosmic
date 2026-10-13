@@ -5,15 +5,15 @@ local function scalar(value: integer, least: integer, most: integer): {Shrink.Dr
 end
 
 local function test_threshold_search_is_logarithmic()
-  local checks = 0
+  local checks = { value = 0 }
   local function fails(values: {integer}): boolean, {Shrink.Draw}
-    checks = checks + 1
+    checks.value = checks.value + 1
     local value = values[1] or 0
     return value >= 600000000, scalar(value, 0, 1000000000)
   end
   local result = Shrink.shrink(scalar(1000000000, 0, 1000000000), fails, 2000)
   assert(result.draws[1].value == 600000000)
-  assert(checks == result.tries and checks < 200, tostring(checks))
+  assert(checks.value == result.tries and checks.value < 200, tostring(checks.value))
   assert(result.reason == "exhausted")
   assert(result.cached > 0 and result.improvements > 0)
 end
@@ -60,18 +60,18 @@ end
 local function test_candidates_are_checked_once_per_shrink()
   for _ = 1, 2 do
     local seen: {string: boolean} = {}
-    local checks = 0
+    local checks = { value = 0 }
     local function fails(values: {integer}): boolean, {Shrink.Draw}
       local name = values[1] and tostring(values[1]) or "empty"
       assert(not seen[name], "duplicate check: " .. name)
       seen[name] = true
-      checks = checks + 1
+      checks.value = checks.value + 1
       local value = values[1] or 0
       return value >= 70, scalar(value, 0, 100)
     end
     local result = Shrink.shrink(scalar(100, 0, 100), fails, 2000)
     assert(result.draws[1].value == 70)
-    assert(checks == result.tries and result.cached > 0)
+    assert(checks.value == result.tries and result.cached > 0)
   end
 end
 

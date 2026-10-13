@@ -557,22 +557,22 @@ end
 --- "cancelled" once its task is cancelled; out of one, it waits alone.
 local function test_in_a_run_a_waiting_read_ends_when_its_task_is_cancelled()
   local p <close> = pair()
-  local answer = ""
-  local others = 0
+  local answer = { value = "" }
+  local others = { value = 0 }
   Poll.run(function()
     local reader = Poll.spawn(function()
       local data, why = p.accepted:read()
       assert(data == nil)
-      answer = why
+      answer.value = why
     end)
     for _ = 1, 3 do
       assert(Poll.delay(Clock.ms(1)))
-      others = others + 1
+      others.value = others.value + 1
     end
     reader:cancel()
     assert(reader:join())
   end)
-  assert(others == 3 and answer == Poll.CANCELLED, answer)
+  assert(others.value == 3 and answer.value == Poll.CANCELLED, answer.value)
   assert(p.client:write("after"))
   assert(p.accepted:read() == "after", "the connection is usable after the run")
 end
@@ -584,13 +584,13 @@ local function test_in_a_run_a_read_on_a_connection_closed_under_it_ends()
   local server <close> = assert(Net.listen(Net.tcp("127.0.0.1", 0), { timeout_ns = Clock.seconds(5) }))
   local _first_client <close> = assert(Net.connect(server.address, { timeout_ns = Clock.seconds(5) }))
   local first = assert(server:accept())
-  local answer = ""
-  local later = ""
+  local answer = { value = "" }
+  local later = { value = "" }
   Poll.run(function()
     local reader = Poll.spawn(function()
       local data, why = first:read()
       assert(data == nil, "the closed connection answered " .. tostring(data))
-      answer = why
+      answer.value = why
     end)
     assert(Poll.delay(0))
     assert(first:close())
@@ -598,11 +598,11 @@ local function test_in_a_run_a_read_on_a_connection_closed_under_it_ends()
     local second = assert(server:accept())
     assert(second_client:write("second's"))
     assert(reader:join(Clock.seconds(5)))
-    later = assert(second:read())
+    later.value = assert(second:read())
     assert(second:close())
   end)
-  assert(answer == "net: the connection is closed", answer)
-  assert(later == "second's", later)
+  assert(answer.value == "net: the connection is closed", answer.value)
+  assert(later.value == "second's", later.value)
 end
 
 --- A write in a task that fills the peer's buffer waits for it to be
@@ -610,7 +610,7 @@ end
 local function test_in_a_run_a_write_waits_while_another_task_drains()
   local p <close> = pair()
   local size = 4 * 1024 * 1024
-  local got = 0
+  local got = { value = 0 }
   Poll.run(function()
     Poll.spawn(function()
       assert(p.client:write(string.rep("x", size)))
@@ -623,11 +623,11 @@ local function test_in_a_run_a_write_waits_while_another_task_drains()
           assert(why == "", why)
           break
         end
-        got = got + #data
+        got.value = got.value + #data
       end
     end)
   end)
-  assert(got == size, "got " .. got .. " of " .. size .. " bytes")
+  assert(got.value == size, "got " .. got.value .. " of " .. size .. " bytes")
 end
 
 --- In a task, a wait past its timeout fails with Poll.TIMEOUT, as it does out
@@ -649,12 +649,12 @@ local function test_in_a_run_a_connect_to_a_full_backlog_fails_at_once(tmp: stri
   if unix_socket.skipped(tmp) then return end
   local path = tmp .. "/s.sock"
   local _full <close> = full(path)
-  local conn: Net.Conn | nil
-  local why = ""
+  local conn = { value = nil as Net.Conn | nil }
+  local why = { value = "" }
   local began = Clock.monotonic_ns()
   Poll.run(function()
-    conn, why = Net.connect(Net.unix(path), { timeout_ns = Clock.seconds(20) })
+    conn.value, why.value = Net.connect(Net.unix(path), { timeout_ns = Clock.seconds(20) })
   end)
   assert(Clock.monotonic_ns() - began < Clock.seconds(10), "the connection waited for room")
-  assert(conn == nil and why == busy(path), why)
+  assert(conn.value == nil and why.value == busy(path), why.value)
 end

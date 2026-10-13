@@ -462,10 +462,10 @@ local function exchange(s: Serving, conn: Net.Conn, input: wire.Input, head: wir
                         timed: Timed, peer: Net.Address | nil): boolean
   -- Whether `100 Continue` went, and whether the final head has: an
   -- interim reply after it would be read as the final reply's body.
-  local continued, replied = false, false
+  local interim = { continued = false, replied = false }
   local function go_on()
-    if head.continue and not continued and not replied then
-      continued = true
+    if head.continue and not interim.continued and not interim.replied then
+      interim.continued = true
       conn:set_timeout(s.timeout_ns)
       local _, _ = conn:write("HTTP/1.1 100 Continue\r\n\r\n")
     end
@@ -480,8 +480,7 @@ local function exchange(s: Serving, conn: Net.Conn, input: wire.Input, head: wir
     method = head.method, target = head.target, path = head.path, query = head.query,
     version = head.version, headers = head.headers, body = body, length = head.length, peer = peer,
   }
-  local reply: Server.Reply | nil
-  local ok, raised: boolean, any = xpcall(function() reply = s.spec.handle(request) end, traced)
+  local ok, reply = xpcall(s.spec.handle, traced, request)
   -- A body that failed is answered for, whatever the handler made of
   -- it: its raise, or its reply, followed from the failed read.
   local state = body.state
@@ -498,7 +497,7 @@ local function exchange(s: Serving, conn: Net.Conn, input: wire.Input, head: wir
   end
   local where = head.method .. " " .. head.target
   if not ok then
-    report(s, "http: " .. where .. ": " .. tostring(raised))
+    report(s, "http: " .. where .. ": " .. tostring(reply))
     answer(s, conn, head, 500, "")
     if body.state == "open" then linger(conn) end
     return false
@@ -517,38 +516,36 @@ local function exchange(s: Serving, conn: Net.Conn, input: wire.Input, head: wir
     if body.state == "open" then linger(conn) end
     return false
   end
-  -- A handler's closure assigns `reply`, so a call may undo the check
-  -- above: the rest reads this copy.
-  local given_reply: Server.Reply = reply
-  local close = given_reply.close == true or head.close or s.stopping
+  local close = reply.close == true or head.close or s.stopping
   -- A client still waiting for `100 Continue` sends its body only once
   -- told to, or not at all. A Reader reply may read the request's body
   -- as it goes, so the client is told now; after another, what follows
   -- on the connection is unknown, and it closes.
-  if head.continue and not continued and body.state == "open" then
-    local given = given_reply.body
-    local sends_body = head.method ~= "HEAD" and given_reply.status ~= 204 and given_reply.status ~= 304
+  if head.continue and not interim.continued and body.state == "open" then
+    local given = reply.body
+    local sends_body = head.method ~= "HEAD" and reply.status ~= 204 and reply.status ~= 304
     if given ~= nil and not given is string and sends_body and not close then
       go_on()
     else
       close = true
     end
   end
-  replied = true
+  interim.replied = true
   conn:set_timeout(s.timeout_ns)
-  local sent: wire.Sent | nil = nil
-  local sending, raised_sending: boolean, any = xpcall(function()
-    sent = wire.send(conn, {
-      status = given_reply.status, headers = given_reply.headers, body = given_reply.body,
-      length = given_reply.length,
+  -- The reply is built inside the protected call, as its date is read there.
+  local function send_reply(to: Net.Conn): wire.Sent
+    return wire.send(to, {
+      status = reply.status, headers = reply.headers, body = reply.body,
+      length = reply.length,
       close = close, method = head.method, version = head.version,
       date = Time.format_http(Clock.now_ns()),
     })
-  end, traced)
+  end
+  local sending, sent = xpcall(send_reply, traced, conn)
   if not sending then
     -- A Reader body that raised: the reply is cut short.
     drop_body(reply)
-    report(s, "http: " .. where .. ": the reply's body: " .. tostring(raised_sending))
+    report(s, "http: " .. where .. ": the reply's body: " .. tostring(sent))
     return false
   end
   -- The send answered once it did not raise.

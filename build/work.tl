@@ -906,6 +906,13 @@ end
 --- definition, which needs [`identity.hash_over`]).
 local find_links: function(handle: work.Handle, texts: {string:string}): boolean, string
 
+--- What the links a walk meets teach it: the ancestors of the root, found
+--- when the first link asks, and the first link that leads above the root.
+local record Walking
+  ancestors: {string:boolean} | nil
+  above: string
+end
+
 --- Reads the tree into `files` and, in cosmic's own tree, fingerprints
 --- what the tool is made of into `tool`, everything else the walk
 --- finds into `scanned`, and each file whose links are checked into
@@ -949,8 +956,7 @@ function work.stage(handle: work.Handle, own_tree: boolean): work.Staged | nil, 
   local function for_links(entry: string): boolean
     return not link_skip(entry) and not (own_tree and identity.is_foreign_tree(identity.first_of(entry)))
   end
-  local ancestors: {string:boolean} | nil = nil
-  local above = ""
+  local walking: Walking = { ancestors = nil, above = "" }
   local function skip(entry: string, name: string, kind: string): boolean
     local parent = entry:match("^(.*)/[^/]*$")
     if (parent ~= nil and links_only[parent]) or skip_path(entry, name) then
@@ -972,9 +978,9 @@ function work.stage(handle: work.Handle, own_tree: boolean): work.Staged | nil, 
     if kind ~= "link" then
       return false
     end
-    local known: {string:boolean} = ancestors or {}
-    if ancestors == nil then
-      ancestors = known
+    local known: {string:boolean} = walking.ancestors or {}
+    if walking.ancestors == nil then
+      walking.ancestors = known
       local path = root
       local last = ""
       while true do
@@ -996,9 +1002,9 @@ function work.stage(handle: work.Handle, own_tree: boolean): work.Staged | nil, 
     -- One that leads nowhere is not walked, so it is let be.
     local st, _ = Fs.stat(root .. "/" .. entry)
     if st ~= nil and known[tostring(st.dev) .. ":" .. tostring(st.ino)] then
-      if above == "" then
+      if walking.above == "" then
         local target, _ = Fs.absolute(root .. "/" .. entry)
-        above = root .. "/" .. entry .. ": a link to " .. (target or "a directory") ..
+        walking.above = root .. "/" .. entry .. ": a link to " .. (target or "a directory") ..
           ", above the root, whose whole tree would be staged"
       end
       return true
@@ -1009,8 +1015,8 @@ function work.stage(handle: work.Handle, own_tree: boolean): work.Staged | nil, 
   if walked == nil then
     return nil, walk_trouble
   end
-  if above ~= "" then
-    return nil, above
+  if walking.above ~= "" then
+    return nil, walking.above
   end
   local files: {string} = walked
   local known: {string:{string:Known}} = {}

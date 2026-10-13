@@ -660,8 +660,7 @@ local function write_coverage(handle: Sqlite.Handle, built: compiler,
                               hits: Coverage.Hits,
                               by_test: {string: string},
                               run_at_ns: integer): integer, integer, string
-  local total_hit = 0
-  local total_lines = 0
+  local totals = { hit = 0, lines = 0 }
   local recorded, run_trouble = Sqlite.run(handle,
     "INSERT OR REPLACE INTO test_runs (ran_at_ns) VALUES (?1)",
     { { integer = run_at_ns } })
@@ -733,9 +732,9 @@ local function write_coverage(handle: Sqlite.Handle, built: compiler,
         if not ok then
           return false, write_trouble
         end
-        total_lines = total_lines + 1
+        totals.lines = totals.lines + 1
         if was_hit then
-          total_hit = total_hit + 1
+          totals.hit = totals.hit + 1
         end
       end
     end
@@ -779,7 +778,7 @@ local function write_coverage(handle: Sqlite.Handle, built: compiler,
   if not made then
     return 0, 0, trouble
   end
-  return total_hit, total_lines, ""
+  return totals.hit, totals.lines, ""
 end
 
 --- Folds every line `from` holds into `into`, both keyed by module
@@ -827,12 +826,18 @@ local record Job
   deadline_ns?: integer
 end
 
+--- What a lookup made inside [`Store.alone`], which hands nothing back,
+--- found: the value, or why there is none.
+local record Looked<T>
+  value: T | nil
+  trouble: string
+end
+
 --- The digest of the zones and CA roots the running binary's own
 --- database carries ([`schema.tables_digest`]), searched alone so no
 --- attached database stands in for it.
 local function binary_tables(): string | nil, string
-  local rows: Sqlite.Rows | nil = nil
-  local trouble = "the running binary has no database"
+  local looked: Looked<Sqlite.Rows> = { trouble = "the running binary has no database" }
   Store.alone(function()
     local databases = Store.databases()
     local binary = databases[#databases]
@@ -840,14 +845,15 @@ local function binary_tables(): string | nil, string
       local has_web, web_trouble = Sqlite.text_rows(binary,
         "SELECT 1 FROM sqlite_master WHERE name = 'web_assets'")
       if has_web == nil then
-        trouble = web_trouble
+        looked.trouble = web_trouble
       else
         -- A binary from before the table has no assets to key on.
-        rows, trouble = Sqlite.text_rows(binary, schema.tables_digest("", #has_web > 0))
+        looked.value, looked.trouble = Sqlite.text_rows(binary, schema.tables_digest("", #has_web > 0))
       end
     end
   end)
-  if rows == nil then return nil, trouble end
+  local rows = looked.value
+  if rows == nil then return nil, looked.trouble end
   return rows[1]:text(1), ""
 end
 
@@ -1167,15 +1173,15 @@ end
 --- is keyed by what it is: the epoch stands for it
 --- (build/harness_epoch.tl).
 local function binary_harness(): Harness | nil, string
-  local harness: Harness | nil = nil
-  local trouble = "the running binary has no database"
+  local looked: Looked<Harness> = { trouble = "the running binary has no database" }
   Store.alone(function()
     local databases = Store.databases()
     local binary = databases[#databases]
     if binary == nil then return end
-    harness, trouble = test.harness(binary)
+    looked.value, looked.trouble = test.harness(binary)
   end)
-  if harness == nil then return nil, trouble end
+  local harness = looked.value
+  if harness == nil then return nil, looked.trouble end
   return harness, ""
 end
 
@@ -2057,10 +2063,10 @@ function test.worker_environment(environment: {string:string}): {string:string}
 end
 
 -- Read once, since this process never changes its own environment.
-local worker_view_memo: {string:string} | nil = nil
+local worker_view_memo: {{string:string}} = {}
 worker_view = function(): {string:string}
-  if worker_view_memo == nil then worker_view_memo = test.worker_environment(Env.all()) end
-  return worker_view_memo
+  if worker_view_memo[1] == nil then worker_view_memo[1] = test.worker_environment(Env.all()) end
+  return worker_view_memo[1]
 end
 
 --- A fresh scratch directory for one test, resolved (so nothing in
@@ -4046,14 +4052,15 @@ local function require_of_host(ctx: Run): integer | nil
         })
       end
       local probed = assert(host)
+      local asked, answers = pcall(host_requires.answer, probed, names)
       local found: {host_requires.Answer} = {}
-      local asked, trouble = pcall(function() found = host_requires.answer(probed, names) end)
-      if not asked then
+      if asked then
+        found = answers
+      else
         -- A probe that cannot tell (a file it may not read) is no answer: the
         -- modules that name it fail, saying why, and the run goes on.
-        found = {}
         rec.unmet[m.path] = { kind = "refused", why = "the probe of what it requires of the host " ..
-            "failed: " .. tostring(trouble) }
+            "failed: " .. tostring(answers) }
       end
       local present: {string:string} = {}
       local unmet: Unmet | nil

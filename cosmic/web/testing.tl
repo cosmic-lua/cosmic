@@ -352,7 +352,7 @@ local function send(client: Testing.Client, method: string, path: string, opts: 
     version = "HTTP/1.1", headers = prepared.headers, body = Stream.from_string(prepared.body),
     length = #prepared.body, peer = Net.tcp("127.0.0.1", 50000),
   }
-  local result: Response | nil = nil
+  local answered: {Response} = {}
   in_loop(function()
     local reply = client.app.handle(raw)
     local trouble = Server.check(reply, method)
@@ -397,9 +397,11 @@ local function send(client: Testing.Client, method: string, path: string, opts: 
       lines[#lines + 1] = { "content-length", tostring(length) }
     end
     if method == "HEAD" or bodiless(reply.status) then body = "" end
-    result = response_of(reply.status, lines, body)
-    result.stream = stream
+    local made = response_of(reply.status, lines, body)
+    made.stream = stream
+    answered[1] = made
   end)
+  local result = answered[1]
   if result == nil then error("web: test client: the loop ended before the app answered", 0) end
   for _, line in ipairs(result.lines["set-cookie"] or {}) do
     remember(client, line, prepared.path)
@@ -680,13 +682,14 @@ local loopback_mt: metatable<Testing.Loopback> = { __index = loopback_methods }
 --- @param app Types.App The app
 --- @param fn function(client: Testing.Loopback) The test
 function Testing.with_server(app: Types.App, fn: function(client: Testing.Loopback))
-  local failure: string | nil = nil
+  -- Why the test or its connection failed, if either did.
+  local failures: {string} = {}
   local ok, why = App.serve(app, {
     listeners = { Net.tcp("127.0.0.1", 0) },
     on_ready = function(addresses: {Net.Address}, server: Net.Server)
       local conn, connect_why = Net.connect(addresses[1], { timeout_ns = IO_TIMEOUT_NS })
       if conn == nil then
-        failure = "web: with_server: connecting: " .. connect_why
+        failures[1] = "web: with_server: connecting: " .. connect_why
         server:stop()
         return
       end
@@ -694,12 +697,12 @@ function Testing.with_server(app: Types.App, fn: function(client: Testing.Loopba
       local client: Testing.Loopback = setmetatable({ conn = conn, buf = "", timeout_ns = IO_TIMEOUT_NS,
         host = "127.0.0.1:" .. assert(addresses[1].port) }, loopback_mt)
       local ran, raised = pcall(function() fn(client) end)
-      if not ran then failure = tostring(raised) end
+      if not ran then failures[1] = tostring(raised) end
       local _, _ = conn:close()
       server:stop()
     end,
   })
-  if failure ~= nil then error(failure, 0) end
+  if failures[1] ~= nil then error(failures[1], 0) end
   if not ok then error("web: with_server: " .. why, 2) end
 end
 

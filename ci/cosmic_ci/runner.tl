@@ -61,15 +61,19 @@ end
 --- started with; the descriptors are the caller's to close. Raises, with
 --- none left open, when a file cannot be opened.
 local function prepare(request: Runner.Request): Child.Options, {integer}
-  local input_fd: integer | nil = nil
-  local output_fd: integer | nil = nil
-  local error_fd: integer | nil = nil
+  local record Opened
+    input: integer | nil
+    output: integer | nil
+    error: integer | nil
+  end
+  local fds_opened: Opened = {}
   local opened, open_failure = pcall(function(): boolean
-    if request.input then input_fd = assert(Fs.open_read(request.input)) end
-    if request.output then output_fd = assert(Fs.open_write(request.output)) end
-    if request.error then error_fd = assert(Fs.open_write(request.error)) end
+    if request.input then fds_opened.input = assert(Fs.open_read(request.input)) end
+    if request.output then fds_opened.output = assert(Fs.open_write(request.output)) end
+    if request.error then fds_opened.error = assert(Fs.open_write(request.error)) end
     return true
   end)
+  local input_fd, output_fd, error_fd = fds_opened.input, fds_opened.output, fds_opened.error
   local descriptors: {integer} = {}
   for _, fd in ipairs({ input_fd or -1, output_fd or -1, error_fd or -1 }) do
     if fd >= 0 then descriptors[#descriptors + 1] = fd end

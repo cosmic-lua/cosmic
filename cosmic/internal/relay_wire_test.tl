@@ -815,7 +815,7 @@ end
 --- (Time cannot tell the two apart on a small input without flaking on a
 --- loaded host.)
 local function string_work(work: function()): integer
-  local total = 0
+  local total = { value = 0 }
   local saved: {{{string: any}, string, any}} = {}
   --- Replaces `host[name]` with a wrapper that adds `cost(result, args)`.
   local function patch(host: {string: any}, name: string, cost: function({any}, {any}): integer)
@@ -824,7 +824,7 @@ local function string_work(work: function()): integer
     host[name] = function(...: any): any...
       local args = table.pack(...)
       local results = table.pack(original(...))
-      total = total + cost(results, args)
+      total.value = total.value + cost(results, args)
       return table.unpack(results, 1, results.n)
     end
   end
@@ -856,7 +856,7 @@ local function string_work(work: function()): integer
     entry[1][entry[2]] = entry[3]
   end
   assert(ok, trouble)
-  return total
+  return total.value
 end
 
 --- Feeding a whole message a byte at a time costs a few times its length
@@ -873,25 +873,25 @@ local function test_a_head_fed_a_byte_at_a_time_costs_its_length()
   end
   local input = head(16384)
   assert(#input == 16384)
-  local answer: Wire.Connect | nil
+  local answer = { value = nil as Wire.Connect | nil }
   local work = string_work(function()
     local reader = Wire.connect_reader()
-    answer = dribbled(function(chunk: string): Wire.Connect
+    answer.value = dribbled(function(chunk: string): Wire.Connect
       return reader:feed(chunk)
     end, input)
   end)
-  local done = assert(answer, "the reader answered")
+  local done = assert(answer.value, "the reader answered")
   assert(done.status == "done" and done.consumed == 16384, tostring(done.reason))
   assert(work > 0 and work < DRIBBLE_FACTOR * #input, ("16384 single-byte feeds did %d bytes of string work"):format(work))
   -- A line of the most bytes costs the same.
   local line = "CONNECT example.com:80 HTTP/1.1\r\nX: " .. ("v"):rep(8192 - 3) .. "\r\n\r\n"
   local line_work = string_work(function()
     local reader = Wire.connect_reader()
-    answer = dribbled(function(chunk: string): Wire.Connect
+    answer.value = dribbled(function(chunk: string): Wire.Connect
       return reader:feed(chunk)
     end, line)
   end)
-  assert(assert(answer, "the reader answered").status == "done" and line_work < DRIBBLE_FACTOR * #line, line_work)
+  assert(assert(answer.value, "the reader answered").status == "done" and line_work < DRIBBLE_FACTOR * #line, line_work)
 end
 
 local function test_string_work_counts_a_reader_that_reads_its_buffer_again()
@@ -919,14 +919,14 @@ local function test_a_hello_fed_a_byte_at_a_time_costs_its_length()
     sizes[i] = 1
   end
   for _, input in ipairs({ Fixture.records(hello, { 16000 }), Fixture.records(hello, sizes), Fixture.records(hello, { 300, 400 }) }) do
-    local answer: Wire.Hello | nil
+    local answer = { value = nil as Wire.Hello | nil }
     local work = string_work(function()
       local reader = Wire.hello_reader()
-      answer = dribbled(function(chunk: string): Wire.Hello
+      answer.value = dribbled(function(chunk: string): Wire.Hello
         return reader:feed(chunk)
       end, input)
     end)
-    local done = assert(answer, "the reader answered")
+    local done = assert(answer.value, "the reader answered")
     assert(done.status == "name" and done.name == "dribble.example" and done.consumed == #input, done.status)
     assert(work > 0 and work < DRIBBLE_FACTOR * #input, ("%d single-byte feeds did %d bytes of string work"):format(#input, work))
   end
@@ -943,11 +943,11 @@ local function test_blanks_around_a_header_value_cost_its_length()
   for _, blank in ipairs({ " ", "\t", " \t" }) do
     local value = "a" .. blank:rep(1500) .. "b" .. blank:rep(1500)
     local input = Fixture.connect("example.com:80", { "Proxy-Authorization: " .. blank:rep(100) .. value })
-    local answer: Wire.Connect | nil
+    local answer = { value = nil as Wire.Connect | nil }
     local took = seconds(function()
-      answer = connect_head(input)
+      answer.value = connect_head(input)
     end)
-    local done = assert(answer, "the reader answered")
+    local done = assert(answer.value, "the reader answered")
     assert(done.status == "done", done.status)
     assert(done.authorization == "a" .. blank:rep(1500) .. "b", "the blanks inside stay")
     assert(took < 0.1, ("%.3f s"):format(took))

@@ -13,7 +13,7 @@ local TypeWatch = require("build.type_watch")
 Test.policy{ loopback = { "127.0.0.1" } }
 
 local function test_a_handler_that_answers_nothing_is_a_500_the_server_declares()
-  local answered = ""
+  local answered = { value = "" }
   local found = TypeWatch.during(function()
     Server.serve({
       listeners = { Net.tcp("127.0.0.1", 0) },
@@ -28,12 +28,12 @@ local function test_a_handler_that_answers_nothing_is_a_500_the_server_declares(
         local conn = assert(Net.connect(addresses[1]))
         assert(conn:write("GET / HTTP/1.1\r\nHost: test\r\n\r\n"))
         local piece = assert(conn:read())
-        answered = piece
+        answered.value = piece
         assert(conn:close())
         server:stop()
       end,
     })
   end, "cosmic/http/server.tl")
-  assert(answered:find("500", 1, true) ~= nil, answered)
+  assert(answered.value:find("500", 1, true) ~= nil, answered.value)
   assert(#found == 0, #found .. " violations:\n" .. table.concat(found, "\n"))
 end

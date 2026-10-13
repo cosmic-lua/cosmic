@@ -33,11 +33,11 @@ end
 
 --- A reader of `pieces`, one a read.
 local function pieces_of(pieces: {string}): Stream.Reader
-  local at = 0
+  local at = { value = 0 }
   return {
     read = function(_self: Stream.Reader, _max?: integer): string | nil, string
-      at = at + 1
-      return pieces[at], ""
+      at.value = at.value + 1
+      return pieces[at.value], ""
     end,
     close = function(_self: Stream.Reader): boolean, string return true, "" end,
   }
@@ -128,11 +128,11 @@ local function test_stopping_ends_a_stream_and_runs_the_stop_functions_in_order(
   local events: {string} = {}
   local app = Web.app{
     routes = { Web.get("/events", function(req: Web.Request): Web.Response
-      local sent = false
+      local sent = { value = false }
       return Web.stream({
         read = function(_self: Stream.Reader, _max?: integer): string | nil, string
-          if not sent then
-            sent = true
+          if not sent.value then
+            sent.value = true
             return "data: hello\n\n", ""
           end
           while not req.app:stopping() do assert(Poll.delay(Clock.ms(5))) end
@@ -176,13 +176,13 @@ local function test_stopping_ends_a_stream_and_runs_the_stop_functions_in_order(
 end
 
 local function test_a_lifespan_that_fails_stops_serve_before_it_listens()
-  local listened = false
+  local listened = { value = false }
   local app = Web.app{ routes = {}, lifespan = function(_app: Web.App): Web.Shutdown | nil, string
     return nil, "no database"
   end }
   local ok, why = Web.serve(app, { listeners = { Net.tcp("127.0.0.1", 0) },
-    on_ready = function(_addresses: {Net.Address}, _server: Net.Server) listened = true end })
-  assert(not ok and why == "no database" and not listened)
+    on_ready = function(_addresses: {Net.Address}, _server: Net.Server) listened.value = true end })
+  assert(not ok and why == "no database" and not listened.value)
 end
 
 local function test_serve_warns_when_debug_meets_a_listener_beyond_the_loopback()
@@ -287,9 +287,9 @@ local function test_the_loopback_client_fails_when_the_server_goes_silent()
 end
 
 local function test_an_upload_above_the_servers_body_limit_is_the_servers_413()
-  local reached = false
+  local reached = { value = false }
   local app = Web.app{ routes = { Web.post("/up", function(req: Web.Request): Web.Response
-    reached = true
+    reached.value = true
     return Web.text(tostring(Input.multipart(req, { max_bytes = 16 * 1024 * 1024 }).invalid))
   end) } }
   -- Only the head goes out: the server answers 413 on the Content-Length
@@ -300,7 +300,7 @@ local function test_an_upload_above_the_servers_body_limit_is_the_servers_413()
   Web.with_server(app, function(client: Web.LoopbackClient)
     local reply = assert(client:raw(head))
     assert(reply.status == 413, reply.status)
-    assert(not reached, "max_bytes above limits.body_bytes changes nothing")
+    assert(not reached.value, "max_bytes above limits.body_bytes changes nothing")
   end)
 end
 

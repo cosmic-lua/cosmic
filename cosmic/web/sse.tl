@@ -755,10 +755,10 @@ function State.subscribe(self: State, topics: {string}, opts?: Sse.SubscribeOpti
   for _, ev in ipairs(replay) do assert(queue:try_send(ev)) end
   local sub: Sub = { queue = queue, gap = gap, next = Sub.next, close = Sub.close,
     closed = Sub.closed, dropped = Sub.dropped }
-  local attached = true
+  local attachment = { attached = true }
   sub.detach = function()
-    if not attached then return end
-    attached = false
+    if not attachment.attached then return end
+    attachment.attached = false
     queue:close()
     self.total = self.total - 1
     for _, name in ipairs(names) do

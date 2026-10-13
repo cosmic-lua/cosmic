@@ -82,7 +82,7 @@ harness_epoch.acknowledged = {
 
   ["build.artifact"] = "4405196f6511a21a7493aa3d1ee196c6318d3ceec2e0202800494c46b9502745",
 
-  ["build.assertions"] = "a4385b7259b97e88c39510bf5147094c13225a5f79d36e8bf47945d65b4d3dcc",
+  ["build.assertions"] = "9acb2c37d7991bc296e6b11c778cb770f16af73ed46e9ba35c6fbbc1a1082990",
 
   ["build.bind"] = "9fee5bf681f9fcb8a2e2e88ba7982b1d3546b5c438ddd598e5de1c27e12c80ec",
 
@@ -92,11 +92,11 @@ harness_epoch.acknowledged = {
 
   ["build.caches"] = "cf7287d6ba2af1cc8e299e9ced24863c444f58a12281181663e115058ac7b6aa",
 
-  ["build.confine"] = "0bd545e460620886588c4f98d0ecc4c71d61215e555456d28f35f147e22ddf98",
+  ["build.confine"] = "02b24cb79fd44d96a48fd5295e1e732a475567af3f4f7a6178e44965a18a5ac1",
 
   ["build.core_image"] = "dfc18e0e6316237ab9fb11a957df68d6217e42cffc6f2f3a767018c5313700ac",
 
-  ["build.declared_key"] = "de42149e61289544aeb78cc234ad9af15242dbd194f7bd4f5168ddf1374aafee",
+  ["build.declared_key"] = "c05a627669361d1002157f9410412b7b17878d6da870fff9126d91296daf58fd",
 
   ["build.digest"] = "dccca5b63f2992d4d23213450142bdd05eee403ebaf3a4e0acf7437da72558f0",
 
@@ -116,7 +116,7 @@ harness_epoch.acknowledged = {
 
   ["build.shared_verdicts"] = "8b17d8fcbfeafafaa1159580fae06cd60ccef4e2bde5ba2a7b0f5e132ce831c1",
 
-  ["build.test"] = "2775f2a45e7f5695b0b84ffaf19ea0ac8acaac74de6cb541832eece45f456af6",
+  ["build.test"] = "acbe01deea4a80259f9dd1b7dc9c8dac4d2b1c7e7a1d7aa238f141f69eadae47",
 
   ["build.test_inputs"] = "aac22745c999f6c5ce55647c1c5aeb599e00fa2477bc18766f78e2211c28f5b3",
 
@@ -124,7 +124,7 @@ harness_epoch.acknowledged = {
 
   ["build.test_sandbox"] = "93b2ea055ba9bc3e19df81df64707459c8c9b5119273dd2f965a2fc48384f714",
 
-  ["build.test_worker"] = "85fc1c4727f07785f33b465bf592dc5d59c82b963fb557d64a72a18d1ee8afc7",
+  ["build.test_worker"] = "5064a071c208158e6239a1b8d9e5adbd103e2d885932626365880f68484fc10e",
 
   ["build.this_program"] = "2abacf4586a64e2b333c431a98d16d111f0dcf67af15f34f7781d3481b35b048",
 
@@ -132,11 +132,11 @@ harness_epoch.acknowledged = {
 
   ["cmd.cosmic.main"] = "d00f469acf42d89c76c2e9ebabd40e73e20d00cb3a5ad6d9189716265fcdf9bf",
 
-  ["cosmic.child"] = "43301876b7992490f2463f09bb1ca985cbfa9f650ccd836c1e82eca084ec38ac",
+  ["cosmic.child"] = "967ec61574d5d723174d9ad374a9903c52c33c25135553dfa1ebffa44fd33f64",
 
   ["cosmic.codec"] = "2ae129ad495661877283eabf153c5056250d8bd791235397fcaa45b4c8ca5f87",
 
-  ["cosmic.coverage"] = "079fe202231c4ae3ee642e27f6703a37850132c28c2a6d1daf50c7eb1669ac9a",
+  ["cosmic.coverage"] = "bce5162e40c5e901b8c6438bd984ce0101a64244c586f8d6edc400461400175c",
 
   ["cosmic.env"] = "9ae16736e69ff2305de1aff7db0f15db90993e1e61ef786d7bf6f33528ef0057",
 
@@ -144,7 +144,7 @@ harness_epoch.acknowledged = {
 
   ["cosmic.hash"] = "6bde9d7c791ae0ea7e8911760e146d07cadcff06223377ce6b4375128e144d0f",
 
-  ["cosmic.proc"] = "f3c8832b1d040798a4b4c92e67d02183a06af90efff7a82bc58da9b76ff95bc9",
+  ["cosmic.proc"] = "868938b76e8155ce997a702da70896009e2b8cc588b716ca49711aae3e4eac85",
 
   ["cosmic.project"] = "ac898dd16fd051e08c47be1dea7b86c8ea4159517e6fde765162a9f7d6678364",
 
@@ -156,7 +156,7 @@ harness_epoch.acknowledged = {
 
   ["cosmic.string"] = "bf0e5e828de84f23aa818887e0280a3ebc844c9ca5e384c33227cb42715b8655",
 
-  ["cosmic.test"] = "7e364de1da328bff737f0e19b648784a82fe8af68b20a84649cc7fb0770e69ce",
+  ["cosmic.test"] = "6bca8b40bb796e09774a4e9fc64741fee7ca92355eba798db1b419b4510e6b63",
 
 }
 

@@ -127,17 +127,17 @@ local function with_change_time(paths: {string}, check: function(function()))
   local tracked: {string:boolean} = {}
   for _, path in ipairs(paths) do tracked[path] = true end
   local stat = Fs.stat
-  local tick = 1
+  local tick = { value = 1 }
   Fs.stat = function(path: string): sys.Stat | nil, string
     local st, trouble = stat(path)
     if st ~= nil and tracked[path] then
       st.ctime = 100
-      st.ctime_ns = tick
+      st.ctime_ns = tick.value
     end
     return st, trouble
   end
   local ok, trouble = pcall(function(): boolean
-    check(function() tick = tick + 1 end)
+    check(function() tick.value = tick.value + 1 end)
     return true
   end)
   Fs.stat = stat

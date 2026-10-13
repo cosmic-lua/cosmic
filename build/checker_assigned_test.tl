@@ -54,6 +54,16 @@ local function refuses(body: string, name: string): compiler.Error
   return e
 end
 
+--- Holds `body` to be refused for a function that assigns `name`, a local
+--- declared outside it.
+local function captured(body: string, name: string)
+  local errors = type_errors(program(body))
+  for _, e in ipairs(errors) do
+    if e.code == "captured_assigned" and e.variable == name then return end
+  end
+  error("no refusal of the assignment to " .. name .. ": " .. shown(errors))
+end
+
 --- The hint [`teal.replacement`] gives `e`, the error of `source`.
 local function hint(e: compiler.Error, body: string): string
   return (assert(teal.replacement(e, program(body)), e.msg))
@@ -82,8 +92,8 @@ local function test_a_read_with_no_assignment_before_it_is_refused()
   refuses("local a, b: integer, integer\na = 1\nuse(a)\nuse(b)", "b")
   accepts("local a, b: integer, integer\na, b = 1, 2\nuse(a)\nuse(b)")
   -- The value is read before the targets are written.
-  refuses("local x: integer\nx, use = x, use", "x")
-  accepts("local x: integer\nx, use = 1, use\nuse(x)")
+  refuses("local x: integer\nlocal w = 0\nx, w = x, w", "x")
+  accepts("local x: integer\nlocal w = 0\nx, w = 1, w\nuse(x)\nuse(w)")
 end
 
 --- A type that admits nil is nil until assigned, and a local with a value
@@ -249,10 +259,11 @@ local function test_a_function_that_names_a_local_is_a_read_once_code_may_run_it
   assert(hint(made, "local x: integer\nlocal g = function() use(x) end\nuse(g)") ==
       read_msg .. " (the function made here names it, and the call at 7:" .. tostring(made.ran_x) ..
       " may run it first: assign it before that call)" .. rewrite)
-  -- An assignment in a function is not one for the code around it.
-  refuses("local x: integer\nlocal function set() x = 1 end\nset()\nuse(x)", "x")
-  refuses("local x: integer\nuse(function() x = 1 end)\nuse(x)", "x")
-  refuses("local x: integer\nlocal ok = pcall(function() x = 1 end)\nuse(ok)", "x")
+  -- An assignment in a function is not one for the code around it, and is
+  -- refused for it ([`checker/captures.tl`]).
+  captured("local x: integer\nlocal function set() x = 1 end\nset()\nuse(x)", "x")
+  captured("local x: integer\nuse(function() x = 1 end)\nuse(x)", "x")
+  captured("local x: integer\nlocal ok = pcall(function() x = 1 end)\nuse(ok)", "x")
   -- Made after the assignment, it reads an assigned variable.
   accepts("local x: integer\nx = 1\nlocal function g() use(x) end\ng()")
   accepts("local x: integer\nif cond() then x = 1 else x = 2 end\nuse(function() use(x) end)")

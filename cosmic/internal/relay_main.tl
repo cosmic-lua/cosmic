@@ -110,11 +110,8 @@ end
 
 --- [`Relay.start`], answering a spec it refuses (it raises) as nil and why.
 local function started(spec: Relay.Spec): Relay.Serving | nil, string
-  local server: Relay.Serving | nil
-  local ok, why = pcall(function()
-    server = Relay.start(spec)
-  end)
-  if not ok then return nil, tostring(why) end
+  local ok, server = pcall(Relay.start, spec)
+  if not ok then return nil, tostring(server) end
   return server, ""
 end
 
@@ -153,9 +150,17 @@ local function adopted(config: Config.Config): Relay.Handed | nil, Net.Connector
   return handed, dns, ""
 end
 
+--- What serving a relay leaves: the status to end with, the relay once it
+--- is serving, why it was lost if it was, and whether standard input ended.
+local record Run
+  status: integer
+  serving: Relay.Serving | nil
+  lost: string | nil
+  ended: boolean
+end
+
 --- Serves the relay `config` describes until standard input ends.
 local function serve(config: Config.Config): integer
-  local status = 1
   -- A listener on the host's loopback is one every user of the host reaches.
   if config.direct and (config.token == nil or config.listeners == nil) then
     return failed("a relay on the host's loopback needs its token and its listeners")
@@ -168,17 +173,16 @@ local function serve(config: Config.Config): integer
     local _, _ = logger:complain(line)
   end
   if config.log == "null" then log = function(_: string) end end
-  local serving: Relay.Serving | nil
-  local lost: string | nil
+  local run: Run = { status = 1, ended = false }
   -- No connector is started anew, so one that has ended, the name
   -- servers' among them, reaches nothing again:
   -- the relay ends rather than refuse each connection that needs it, and
   -- its starter ends the program with it.
   local function lose(why: string)
-    if lost ~= nil then return end
-    lost = why
+    if run.lost ~= nil then return end
+    run.lost = why
     log(why .. ": the relay ends")
-    if serving ~= nil then serving:stop() end
+    if run.serving ~= nil then run.serving:stop() end
   end
   handed.lost = lose
   Poll.run(function()
@@ -189,11 +193,11 @@ local function serve(config: Config.Config): integer
       for i = 1, config.listeners or 0 do
         local listener, adopt_why = Net.listener_from(CHANNEL_FD + i - 1)
         if listener == nil then
-          status = failed(adopt_why)
+          run.status = failed(adopt_why)
           return
         end
         if listener.address.port ~= (mixed[1] or listener).address.port then
-          status = failed("the loopback listeners are at two ports")
+          run.status = failed("the loopback listeners are at two ports")
           return
         end
         mixed[#mixed + 1] = listener
@@ -201,12 +205,12 @@ local function serve(config: Config.Config): integer
     else
       local listeners, listeners_why = Net.receive_listeners(CHANNEL_FD)
       if listeners == nil then
-        status = failed(listeners_why)
+        run.status = failed(listeners_why)
         return
       end
       http, socks = listeners[1], listeners[2]
       if http.address.port ~= Config.http_port or socks.address.port ~= Config.socks_port then
-        status = failed("the listeners are at ports " .. tostring(http.address.port) .. " and " ..
+        run.status = failed("the listeners are at ports " .. tostring(http.address.port) .. " and " ..
             tostring(socks.address.port) .. ", not " .. Config.http_port .. " and " .. Config.socks_port)
         return
       end
@@ -238,14 +242,13 @@ local function serve(config: Config.Config): integer
       own_addresses = config.own_addresses, upstream = config.upstream, log = log, lost = lose,
     })
     if running == nil then
-      status = failed(start_why)
+      run.status = failed(start_why)
       return
     end
-    serving = running
-    local ended = false
+    run.serving = running
     local watch = Poll.spawn(function()
       until_end_of_input()
-      ended = true
+      run.ended = true
       running:stop()
     end)
     say("ready")
@@ -253,9 +256,9 @@ local function serve(config: Config.Config): integer
     watch:cancel()
     if handed.connector ~= nil then local _, _ = handed.connector:close() end
     if dns ~= nil then local _, _ = dns:close() end
-    status = ended and 0 or failed(lost or "the relay's listeners ended")
+    run.status = run.ended and 0 or failed(run.lost or "the relay's listeners ended")
   end)
-  return status
+  return run.status
 end
 
 --- Reads the config and serves the relay. The sealed database's main.

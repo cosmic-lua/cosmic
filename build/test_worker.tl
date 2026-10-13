@@ -274,6 +274,14 @@ local function complain(line: string)
   local _, _ = put(2, "cosmic: " .. line .. "\n")
 end
 
+--- What the test's own calls hand the runner while it loads and runs: the
+--- needs its `policy` stands for, and the reason it gave for passing
+--- unchecked.
+local record Given
+  handed: Test.Needs | nil
+  deliberate: string
+end
+
 --- The run-time checks of a checked run. A module compiled with them calls
 --- the global `__cosmic_tc` at each typed boundary ([`importer.compile`]'s
 --- `checks`), with the check's spec and the values crossing it: a string of
@@ -311,7 +319,7 @@ local lua_byte = string.byte
 local checks: {string:Check} = {}
 local malformed: {string:boolean} = {}
 local found: {worker.Violation} = {}
-local dropped = 0
+local tally = { dropped = 0 }
 -- The place that sent a value is asked of the stack for every violation of
 -- a parameter, in constant time, so the report names it however often a
 -- boundary is violated; what is bounded is how many distinct violations one
@@ -389,7 +397,7 @@ local function note(check: Check, index: integer, value: any, absent: boolean)
     return
   end
   if #found >= worker.most_kept then
-    dropped = dropped + 1
+    tally.dropped = tally.dropped + 1
     return
   end
   local target: string
@@ -461,7 +469,7 @@ end
 --- How many kinds of violation this process met past the number it keeps
 --- a record of.
 function worker.dropped_violations(): integer
-  return dropped
+  return tally.dropped
 end
 
 --- The monotonic clock, in nanoseconds, straight from the binding.
@@ -1133,7 +1141,7 @@ function worker.run(argv: {integer:string}): integer
   -- What the module's `policy` call stands for as it loads, through the
   -- hook [`cosmic.test`] leaves for a runner; once it has loaded, a call
   -- is refused.
-  local handed: Test.Needs | nil = nil
+  local handed_over: Given = { deliberate = "" }
   -- Each reason the test gives [`Test.skip`], once, in order.
   local reasons: {string} = {}
   -- What [`Test.skip`] raises to end its test. Only this table counts as
@@ -1142,11 +1150,10 @@ function worker.run(argv: {integer:string}): integer
   setmetatable(ended_by_skip, {
     __tostring = function(): string return "the test was skipped" end,
   })
-  local deliberate = ""
   local runner = {
     loaded = false,
-    deliberate = function(reason: string) deliberate = reason end,
-    handed = function(needs: Test.Needs) handed = needs end,
+    deliberate = function(reason: string) handed_over.deliberate = reason end,
+    handed = function(needs: Test.Needs) handed_over.handed = needs end,
     -- Where the files above the project are, for a module that declares
     -- some ([`Test.parent`]).
     parent = env_get("COSMIC_TEST_PARENT"),
@@ -1174,7 +1181,7 @@ function worker.run(argv: {integer:string}): integer
     report.load_hits = hits
     child_into = hits
   end
-  local needs = loaded and test_inputs.canonical(test_inputs.as_declared(handed)) or ""
+  local needs = loaded and test_inputs.canonical(test_inputs.as_declared(handed_over.handed)) or ""
   if loaded and needs ~= expected_needs then
     loaded = false
     produced = "its cosmic.test policy call stands for what the build did not read " ..
@@ -1216,7 +1223,7 @@ function worker.run(argv: {integer:string}): integer
       end
       report.skipped = table.concat(reasons, "; ")
       report.asserted = Assertions.count()
-      report.deliberate = deliberate
+      report.deliberate = handed_over.deliberate
       report.elapsed_ns = finished - started
     end
   end

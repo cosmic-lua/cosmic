@@ -75,13 +75,6 @@ local function is_rest_capture(tk: any): boolean
   return tk is string and tk:match("^___[A-Z][A-Z0-9_]*$") ~= nil
 end
 
---- Lua pattern predicates from the most recent `desugar` call, by
---- desugared capture name (`_F`). [`compile_pattern`] consumes it into
---- `capture_predicates` right after `desugar` returns, so a later
---- `desugar` of unrelated text (`rewrite.tl` desugaring a replacement
---- template) overwrites it harmlessly.
-local last_predicates: {string: string} = {}
-
 --- The predicate of each capture node in a compiled pattern, keyed by
 --- node identity rather than name, since two occurrences of one name
 --- may carry different predicates. [`compile_pattern`] fills it;
@@ -98,19 +91,28 @@ local capture_predicates: {any: string} = {}
 ---
 --- A plain capture may carry a `:PATTERN` predicate suffix (`$F:^test_`).
 --- It ends at the next whitespace, `(`, `)`, or `,`, so `$F:^test_()`
---- does not swallow the call's parentheses. `desugar` strips it and
---- records it in `last_predicates` under the desugared name.
+--- does not swallow the call's parentheses. [`desugar_with_predicates`] strips it and
+--- answers it under the desugared name.
 --- @param pattern_src string The pattern in its `$NAME`/`$$$NAME` surface syntax
 --- @return string The same pattern with metavariables rewritten to identifiers
-local function desugar(pattern_src: string): string
-  last_predicates = {}
+--- @return {string: string} The Lua pattern predicates, by desugared capture name (`_F`)
+local function desugar_with_predicates(pattern_src: string): string, {string: string}
+  local predicates: {string: string} = {}
   local out = pattern_src:gsub("%$%$%$([%u_][%w_]*)", "___%1")
   out = out:gsub("%$([%u_][%w_]*):([^%s%(%),]+)",
     function(nm: string, pred: string): string
-      last_predicates["_" .. nm] = pred
+      predicates["_" .. nm] = pred
       return "_" .. nm
     end)
   out = out:gsub("%$([%u_][%w_]*)", "_%1")
+  return out, predicates
+end
+
+--- [`desugar_with_predicates`] without the predicates: the pattern's text.
+--- @param pattern_src string The pattern in its `$NAME`/`$$$NAME` surface syntax
+--- @return string The same pattern with metavariables rewritten to identifiers
+local function desugar(pattern_src: string): string
+  local out = desugar_with_predicates(pattern_src)
   return out
 end
 
@@ -119,7 +121,7 @@ end
 --- `capture_predicates`. A no-op walk when `names` is empty -- the
 --- common case, since most patterns carry no predicate at all.
 --- @param root Node A freshly compiled pattern's own top node
---- @param names {string: string} `last_predicates`, snapshotted right after parsing
+--- @param names {string: string} The predicates [`desugar_with_predicates`] answered
 --- @return Node `root`, unchanged -- returned for a one-line call site
 local function attach_predicates(root: Node, names: {string: string}): Node
   if next(names) == nil then
@@ -340,10 +342,10 @@ end
 --- @return Node|nil The pattern's own top node, or nil on a parse failure
 --- @return string Error message on failure, "" on success
 local function compile_pattern(built: compiler, pattern_src: string): Node | nil, string
-  local desugared = desugar(pattern_src)
+  local desugared, predicates = desugar_with_predicates(pattern_src)
   local parsed, err = node_mod.parse(built, desugared, "<pattern>")
   if parsed then
-    return attach_predicates(parsed.node[1], last_predicates), ""
+    return attach_predicates(parsed.node[1], predicates), ""
   end
   -- Report the direct parse's error, not the retry's.
   local wrapped, _ = node_mod.parse(built, "return " .. desugared, "<pattern>")
@@ -354,7 +356,7 @@ local function compile_pattern(built: compiler, pattern_src: string): Node | nil
   if not exps or exps[1] == nil then
     return nil, err
   end
-  return attach_predicates(exps[1], last_predicates), ""
+  return attach_predicates(exps[1], predicates), ""
 end
 
 --- Match `pattern` against `node`, returning the capture bindings on

@@ -1,9 +1,0 @@
-local x1: integer | nil = 0
-local sink: integer = 0
-do
-  local function p3() x1 = nil end
-  if x1 == nil then return sink end
-  p3()
-  sink = sink + x1 + 1
-end
-return sink

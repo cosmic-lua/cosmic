@@ -15,8 +15,8 @@
 -- A fact is dropped by an assignment to its place or a prefix of it
 -- ([`narrowing.drop`]), by a write to a field of its name through any
 -- reference ([`narrowing.drop_written`]), and by code that runs, which may
--- write any field of any table ([`narrowing.drop_paths`]; the checker
--- widens the narrowed locals that a function literal assigns). Each drop
+-- write any field of any table ([`narrowing.drop_paths`]; no local, as no
+-- function assigns a local it does not declare). Each drop
 -- says what dropped the place, so the refusal of a use that relied on the
 -- fact can say so ([`narrowing.dropped_by`]). A guard built before code
 -- ran is cut of the facts that code may have changed ([`narrowing.forget`]),
@@ -955,21 +955,21 @@ evaluate = function(host: narrowing.Host, f: narrowing.Guard): {string:narrowing
 end
 
 if os.getenv("TL_DEBUG_FACTS") then
-   local indent = -1
+   local trace = { indent = -1 }
    local untraced = evaluate
    evaluate = function(host: narrowing.Host, known: narrowing.Guard): {string:narrowing.Guard}
-      indent = indent + 1
-      io.stderr:write(("   "):rep(indent))
+      trace.indent = trace.indent + 1
+      io.stderr:write(("   "):rep(trace.indent))
       io.stderr:write("eval fact: ", describe(host, known), "\n")
       local facts = untraced(host, known)
       if facts then
          for _, k in ipairs(sorted_keys(facts)) do
-            io.stderr:write(("   "):rep(indent), "=> ", describe(host, facts[k]), "\n")
+            io.stderr:write(("   "):rep(trace.indent), "=> ", describe(host, facts[k]), "\n")
          end
       else
-         io.stderr:write(("   "):rep(indent), "=> .\n")
+         io.stderr:write(("   "):rep(trace.indent), "=> .\n")
       end
-      indent = indent - 1
+      trace.indent = trace.indent - 1
       return facts
    end
 end

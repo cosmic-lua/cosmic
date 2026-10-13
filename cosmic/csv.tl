@@ -421,7 +421,7 @@ ELSE @ END]]):gsub("@", function(): string return column end))
 end
 
 --- A name no other load on the handle holds, for its CSV table in temp.
-local loads = 0
+local counts = { loads = 0 }
 
 --- Copies CSV, from a file or text, into a new table `name` in the main
 --- schema of `handle`, through SQLite's CSV table, which reads it in C: a
@@ -471,8 +471,8 @@ function Csv.load(handle: Sqlite.Handle, name: string, source: Csv.Source): Csv.
   else
     error("csv: load reads a path or a text, one of them", 2)
   end
-  loads = loads + 1
-  local scratch = "temp." .. identifier("cosmic_csv_load_" .. loads)
+  counts.loads = counts.loads + 1
+  local scratch = "temp." .. identifier("cosmic_csv_load_" .. counts.loads)
   local ok, trouble = handle:exec("SAVEPOINT cosmic_csv_load")
   if not ok then
     return refuse(trouble)

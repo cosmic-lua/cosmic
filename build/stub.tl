@@ -106,10 +106,10 @@ local function scan(statements: {ast.Node}): Scan
   local found: {Span} = {}
   local firsts: {{integer}} = {}
   for i, statement in ipairs(statements) do
-    local first_y, first_x = statement.y, statement.x
+    local first = { y = statement.y, x = statement.x }
     local function visit(n: ast.Node)
-      if before(n.y, n.x, first_y, first_x) then
-        first_y, first_x = n.y, n.x
+      if before(n.y, n.x, first.y, first.x) then
+        first.y, first.x = n.y, n.x
       end
       local body = n.body
       local typed_by_context = n.kind == "function" and n.rets_omitted == true
@@ -133,7 +133,7 @@ local function scan(statements: {ast.Node}): Scan
       ast.each_child_node(n, skipped, visit)
     end
     visit(statement)
-    firsts[i] = { first_y, first_x }
+    firsts[i] = { first.y, first.x }
   end
   table.sort(found, function(a: Span, b: Span): boolean
     return before(a.y, a.x, b.y, b.x)
@@ -347,23 +347,23 @@ function stub.made(parsed: ast.Parsed): stub.Made
     return before(a.y, a.x, b.y, b.x)
   end)
   local out: {string} = {}
-  local y, x = 1, 1
+  local cursor = { y = 1, x = 1 }
   local function put(at_y: integer, at_x: integer, text: string)
-    if at_y > y then
-      out[#out + 1] = ("\n"):rep(at_y - y)
-      y, x = at_y, 1
+    if at_y > cursor.y then
+      out[#out + 1] = ("\n"):rep(at_y - cursor.y)
+      cursor.y, cursor.x = at_y, 1
     end
-    if at_x > x then
-      out[#out + 1] = (" "):rep(at_x - x)
+    if at_x > cursor.x then
+      out[#out + 1] = (" "):rep(at_x - cursor.x)
     end
     out[#out + 1] = text
     -- A long string may span lines.
     local last = 0
     for at in text:gmatch("()\n") do
-      y = y + 1
+      cursor.y = cursor.y + 1
       last = math.tointeger(at) or 0
     end
-    x = last > 0 and #text - last + 1 or at_x + #text
+    cursor.x = last > 0 and #text - last + 1 or at_x + #text
   end
   local next_span = 1
   for _, token in ipairs(parsed.tokens) do

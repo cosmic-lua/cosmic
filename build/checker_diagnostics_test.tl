@@ -11,14 +11,14 @@ local type compiler = require("build.compiler")
 -- The compiler is the tree's own checker, keyed by the core; nothing is read.
 Test.policy{}
 
-local built: compiler | nil
+local built = { value = nil as compiler | nil }
 
 --- What the checker says of `source`: `accepted`, `refused: ` and the codes
 --- of its type errors, or `syntax: ` and those of its syntax errors, each
 --- list sorted.
 local function verdict(source: string): string
-  local c = built or assert(teal.load(true))
-  built = c
+  local c = built.value or assert(teal.load(true))
+  built.value = c
   local env = assert(c.new_env({ defaults = { feat_lax = "off", gen_compat = "off", gen_target = "5.4" } }))
   local code, result = c.gen(source, env, nil, "tl")
   local codes: {string} = {}

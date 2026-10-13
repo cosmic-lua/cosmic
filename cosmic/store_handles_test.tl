@@ -97,15 +97,16 @@ end
 local function test_alone_searches_only_the_binarys_own_database()
   local before = #Store.databases()
   assert(before >= 2, "a test's tree is attached ahead of the binary's")
-  local inside = 0
-  local attached, nested = true, true
+  local inside = { value = 0 }
+  local attached = { value = true }
+  local nested = { value = true }
   Store.alone(function()
-    inside = #Store.databases()
-    attached = pcall(Store.attach, "/nonexistent/cosmic.db")
-    nested = pcall(Store.alone, function() end)
+    inside.value = #Store.databases()
+    attached.value = pcall(Store.attach, "/nonexistent/cosmic.db")
+    nested.value = pcall(Store.alone, function() end)
   end)
-  assert(inside == 1, tostring(inside))
-  assert(not attached and not nested)
+  assert(inside.value == 1, tostring(inside.value))
+  assert(not attached.value and not nested.value)
   assert(#Store.databases() == before)
   local ok, trouble = pcall(function(): string
     Store.alone(function() error("boom", 0) end)

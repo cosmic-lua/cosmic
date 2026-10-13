@@ -79,48 +79,55 @@ function json_query.flatten(value: any, opts?: json_query.FlattenOptions): {Json
   end
   local leaves: {Json.Match} = {}
   local open: {any:boolean} = {}
-  local failed: string | nil
   local steps: Json.Steps = table.move(root, 1, #root, 1, {})
   local function leaf(v: any)
     leaves[#leaves + 1] = { steps = table.move(steps, 1, #steps, 1, {}), value = v }
   end
-  local function walk(v: any, depth: integer)
+  -- Walks `v`, answering why it cannot be read, if it cannot.
+  local function walk(v: any, depth: integer): string | nil
     if not (v is {any:any}) then
       leaf(v)
-      return
+      return nil
     end
     local t: {any:any} = v
     local members = Json.members(t)
     local shape, keys, extent = members.layout, members.keys, members.extent
     if shape == "mixed" then
-      failed = "the value at " .. at_pointer(steps) .. " is a table with mixed keys"
-      return
+      return "the value at " .. at_pointer(steps) .. " is a table with mixed keys"
     end
     if depth >= limit then
-      failed = "the value at " .. at_pointer(steps) .. " nests deeper than max_depth " .. limit
-      return
+      return "the value at " .. at_pointer(steps) .. " nests deeper than max_depth " .. limit
     end
     if open[v] then
-      failed = "the value at " .. at_pointer(steps) .. " contains itself"
-      return
+      return "the value at " .. at_pointer(steps) .. " contains itself"
     end
     open[v] = true
     local before = #leaves
-    local function child(step: string | integer, member: any)
-      if member == nil or failed ~= nil then return end
+    local function child(step: string | integer, member: any): string | nil
+      if member == nil then return nil end
       steps[#steps + 1] = step
-      walk(member, depth + 1)
+      local why = walk(member, depth + 1)
       steps[#steps] = nil
+      return why
     end
+    local failed: string | nil = nil
     if shape == "array" then
-      for i = 1, extent do child(i, t[i]) end
+      for i = 1, extent do
+        failed = child(i, t[i])
+        if failed ~= nil then break end
+      end
     else
-      for _, key in ipairs(keys) do child(key, t[key]) end
+      for _, key in ipairs(keys) do
+        failed = child(key, t[key])
+        if failed ~= nil then break end
+      end
     end
     open[v] = nil
-    if failed == nil and #leaves == before then leaf(v) end
+    if failed ~= nil then return failed end
+    if #leaves == before then leaf(v) end
+    return nil
   end
-  walk(value, 0)
+  local failed = walk(value, 0)
   if failed ~= nil then return nil, failed end
   return leaves, ""
 end

@@ -1796,14 +1796,14 @@ local function inputs_of(parsed: ast.Parsed): analyzer.Declared | nil, string
       "that declares its policy jumps nowhere at its top level, so the call is always made"
   end
   -- `policy` reached any other way than that one statement.
-  local elsewhere: ast.Node | nil = nil
+  local elsewhere: {ast.Node} = {}
   ast.walk(parsed.node, function(node: ast.Node)
-    if elsewhere == nil and names_policy(node, names) and not callees[node] then
-      elsewhere = node
+    if #elsewhere == 0 and names_policy(node, names) and not callees[node] then
+      elsewhere[1] = node
     end
   end)
-  if elsewhere ~= nil then
-    return nil, at(elsewhere) .. "call it as a statement at the module's top level, " ..
+  if elsewhere[1] ~= nil then
+    return nil, at(elsewhere[1]) .. "call it as a statement at the module's top level, " ..
       "on the name the module binds require(\"cosmic.test\") to, and nowhere else"
   end
   if found == nil then return nil, "" end

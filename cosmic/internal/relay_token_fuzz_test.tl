@@ -80,16 +80,16 @@ local function test_no_bytes_but_the_token_reach_the_upstream(tmp: string)
     check = function(input: string): boolean, string
       -- The one input class outside the property: a credential that is right.
       if input:find(TOKEN, 1, true) then return true, "" end
-      local trouble = ""
+      local trouble = { value = "" }
       Poll.run(function()
         local http = assert(Net.listen(Net.tcp("127.0.0.1", 0)))
         local socks = assert(Net.listen(Net.tcp("127.0.0.1", 0)))
-        local asked = 0
+        local asked = { value = 0 }
         local server = Relay.start({
           http = http, socks = socks, grants = { "127.0.0.1:80" }, token = TOKEN,
           timeouts = { auth = Clock.ms(300) }, log = function(_: string) end,
           connector = function(): Net.Conn | nil, string
-            asked = asked + 1
+            asked.value = asked.value + 1
             return nil, "Connection refused"
           end,
         })
@@ -112,16 +112,16 @@ local function test_no_bytes_but_the_token_reach_the_upstream(tmp: string)
         local stats = server:stats()
         local _, _ = http:close()
         local _, _ = socks:close()
-        if asked ~= 0 then
-          trouble = "the connector was asked for a connection"
+        if asked.value ~= 0 then
+          trouble.value = "the connector was asked for a connection"
         elseif stats.accepted ~= 0 or stats.open ~= 0 then
-          trouble = ("%d accepted, %d open"):format(stats.accepted, stats.open)
+          trouble.value = ("%d accepted, %d open"):format(stats.accepted, stats.open)
         elseif reply:find("200 Connection established", 1, true) or (first == "S" and reply:sub(3, 4) == "\1\0") then
-          trouble = "an acceptance was answered"
+          trouble.value = "an acceptance was answered"
         end
         if reply ~= "" then Fuzz.label("answered") end
       end)
-      return trouble == "", trouble
+      return trouble.value == "", trouble.value
     end,
   })
 end

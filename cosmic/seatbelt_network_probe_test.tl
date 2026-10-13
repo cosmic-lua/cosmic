@@ -92,13 +92,13 @@ local record Running
   output: string
 end
 
-local counter = 0
+local counter = { value = 0 }
 
 --- Starts `argv` under `text` and its `parameters`, its output in a file of
 --- `tmp`.
 local function start(tmp: string, text: string, parameters: {string:string}, argv: {string}): Running
-  counter = counter + 1
-  local path = tmp .. "/out-" .. counter
+  counter.value = counter.value + 1
+  local path = tmp .. "/out-" .. counter.value
   local out = assert(sys.open(path, sys.O_WRONLY | sys.O_CREAT | sys.O_TRUNC, 420))
   local null = assert(sys.open("/dev/null", sys.O_RDONLY))
   local pid, why = process_table().spawn(argv[1], argv, nil, nil, null, out, out, false, nil,

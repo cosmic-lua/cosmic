@@ -142,7 +142,7 @@ local function test_a_checked_compile_takes_no_pool(tmp: string)
   project(root)
   local handle = assert(work.open(root))
   assert(work.stage(handle, false))
-  local closed = 0
+  local closed = { value = 0 }
   local pool: importer.Workers = {
     ready = function(_: integer): boolean return false end,
     parse = function(_: Sqlite.Handle, _: Compiler, _: {derivation.Fresh}, _: derivation.Parses,
@@ -153,10 +153,10 @@ local function test_a_checked_compile_takes_no_pool(tmp: string)
                        _: boolean, _: boolean): importer.Ahead | nil, string
       return nil, ""
     end,
-    close = function() closed = closed + 1 end,
+    close = function() closed.value = closed.value + 1 end,
   }
   local result, trouble = importer.compile(handle, built, "keys-test", false, nil, pool, true)
   work.close(handle)
   assert(result == nil and trouble:find("takes no pool", 1, true), tostring(trouble))
-  assert(closed == 1, "the pool was not closed")
+  assert(closed.value == 1, "the pool was not closed")
 end

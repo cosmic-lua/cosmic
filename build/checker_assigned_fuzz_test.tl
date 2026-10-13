@@ -213,10 +213,10 @@ local MOST_STEPS <const> = 400
 --- the function it is given, and every call but `stop`, and the end of the
 --- body, calls those kept.
 local function reads_unassigned(code: string): boolean
-  local bad = false
+  local bad = { value = false }
   local choices: {boolean} = {}
-  local made = 0
-  local steps = 0
+  local made = { value = 0 }
+  local steps = { value = 0 }
   local ended = {}
   local stopped = {}
   local kept: {function()} = {}
@@ -227,16 +227,16 @@ local function reads_unassigned(code: string): boolean
     end
   end
   local function choose(): boolean
-    made = made + 1
-    steps = steps + 1
+    made.value = made.value + 1
+    steps.value = steps.value + 1
     escape()
-    if made > MOST_CHOICES or steps > MOST_STEPS then error(ended, 0) end
-    return choices[made] or false
+    if made.value > MOST_CHOICES or steps.value > MOST_STEPS then error(ended, 0) end
+    return choices[made.value] or false
   end
   env.use = function(v: any)
-    steps = steps + 1
-    if steps > MOST_STEPS then error(ended, 0) end
-    if v == nil then bad = true end
+    steps.value = steps.value + 1
+    if steps.value > MOST_STEPS then error(ended, 0) end
+    if v == nil then bad.value = true end
     escape()
   end
   env.mk = function(fn: function()): function()
@@ -244,21 +244,21 @@ local function reads_unassigned(code: string): boolean
     return fn
   end
   env.touch = function(v: any): any
-    if v == nil then bad = true end
+    if v == nil then bad.value = true end
     return v
   end
   env.cond = choose
   env.math = {
     random = function(): integer
-      made = made + 1
-      steps = steps + 1
-      if made > MOST_CHOICES or steps > MOST_STEPS then error(ended, 0) end
-      return choices[made] and 1 or 2
+      made.value = made.value + 1
+      steps.value = steps.value + 1
+      if made.value > MOST_CHOICES or steps.value > MOST_STEPS then error(ended, 0) end
+      return choices[made.value] and 1 or 2
     end,
   }
   env.condx = function(v: any): boolean
-    if v == nil then bad = true end
-    steps = steps + 1
+    if v == nil then bad.value = true end
+    steps.value = steps.value + 1
     return choose()
   end
   -- No pass, one or two: a second pass is the next round of the loop.
@@ -276,9 +276,9 @@ local function reads_unassigned(code: string): boolean
   local run = chunk() as function()
   local pending: {{boolean}} = { {} }
   local runs = 0
-  while #pending > 0 and not bad do
+  while #pending > 0 and not bad.value do
     choices = table.remove(pending) as {boolean}
-    made, steps = 0, 0
+    made.value, steps.value = 0, 0
     kept = {}
     if pcall(run) then
       escape()
@@ -287,14 +287,14 @@ local function reads_unassigned(code: string): boolean
     assert(runs < 20000, "the oracle ran too long")
     -- Every call past the choices given took the first way: take the other
     -- at each of them in turn.
-    for at = #choices + 1, math.min(made, MOST_CHOICES) do
+    for at = #choices + 1, math.min(made.value, MOST_CHOICES) do
       local longer: {boolean} = {}
       for i = 1, at - 1 do longer[i] = choices[i] or false end
       longer[at] = true
       pending[#pending + 1] = longer
     end
   end
-  return bad
+  return bad.value
 end
 
 local head <const> = "local function use(_: any) end\n" ..
@@ -314,15 +314,15 @@ end
 
 local type compiler = require("build.compiler")
 
-local compiled: compiler | nil
+local compiled = { value = nil as compiler | nil }
 
 --- The carried compiler, loaded once.
 local function carried(): compiler
-  if compiled ~= nil then
-    return compiled
+  if compiled.value ~= nil then
+    return compiled.value
   end
   local loaded = assert(teal.load(true))
-  compiled = loaded
+  compiled.value = loaded
   return loaded
 end
 

@@ -53,23 +53,24 @@ end
 --- readers having no reason to give: with a login in the proxy's userinfo
 --- the relay's token reader answers too.
 local function tunnels(userinfo?: string)
-  local code = -1
-  local waiting, ended = "", false
+  local code = { value = -1 }
+  local waiting = { value = "" }
+  local ended = { value = false }
   Poll.run(function()
     local listener = assert(Net.listen(Net.tcp("127.0.0.1", 0)))
     local variables: {string:string} = { ALL_PROXY = "socks5h://" ..
         (userinfo ~= nil and (userinfo .. "@") or "") .. "127.0.0.1:" .. assert(listener.address.port) }
     local client = Poll.spawn(function()
-      code = connect.run({ "host.example", "80" }, {
+      code.value = connect.run({ "host.example", "80" }, {
         getenv = function(name: string): string | nil return variables[name] end,
         err = function(_line: string) end,
         read = function(): string | nil, string
-          while waiting == "" and not ended do
+          while waiting.value == "" and not ended.value do
             local ok, why = Poll.delay(Clock.ms(1))
             if not ok then return nil, why end
           end
-          local data = waiting
-          waiting = ""
+          local data = waiting.value
+          waiting.value = ""
           return data, ""
         end,
         write = function(_data: string): boolean, string return true, "" end,
@@ -94,13 +95,13 @@ local function tunnels(userinfo?: string)
     local length = bytes(relay, 1)
     bytes(relay, length:byte(1) + 2)
     assert(relay:write(RelayWire.socks_reply("succeeded")))
-    ended = true
+    ended.value = true
     assert(relay:shutdown("write"))
     assert(client:join(Clock.seconds(4)), "the client did not end")
     local _, _ = relay:close()
     local _, _ = listener:close()
   end)
-  assert(code == 0, tostring(code))
+  assert(code.value == 0, tostring(code.value))
 end
 
 local function test_the_relay_clients_readers_are_as_declared()

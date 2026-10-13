@@ -106,10 +106,10 @@ local function test_a_public_connect_that_hangs_holds_up_no_other()
     local wait = Clock.seconds(1)
     local public = assert(Net.connector({}, { timeout_ns = wait, public = { deny = { "10.0.0.0/8" } } }))
     local connect = Relay.handed({ connector = public })
-    local hung: string | nil
+    local hung = { value = nil as string | nil }
     local hanging = Poll.spawn(function()
       local _, why = connect("127.0.0.1", stuck, wait)
-      hung = why
+      hung.value = why
     end)
     assert(Poll.delay(Clock.ms(50)))
     for _ = 1, 3 do
@@ -120,7 +120,7 @@ local function test_a_public_connect_that_hangs_holds_up_no_other()
       assert(Clock.monotonic_ns() - began < Clock.ms(500), "the connection waited for the hanging one")
     end
     assert(hanging:join())
-    assert(hung == Poll.TIMEOUT, tostring(hung))
+    assert(hung.value == Poll.TIMEOUT, tostring(hung.value))
     assert(not public:ended(), "a connect that timed out leaves the stream in step")
     assert(public:close())
     accepting:cancel()
@@ -344,7 +344,7 @@ local function test_the_upstream_is_resolved_once_and_an_ungranted_name_never(tm
   local script = tmp .. "/relay.tl"
   assert(Fs.write(script, SCRIPT))
   local queries: {string} = {}
-  local datagrams = 0
+  local datagrams = { value = 0 }
   local lines: {string} = {}
   Poll.run(function()
     local listener = assert(Net.listen(Net.tcp("127.0.0.1", 0)))
@@ -373,7 +373,7 @@ local function test_the_upstream_is_resolved_once_and_an_ungranted_name_never(tm
       while true do
         local packet, why = Udp.receive(udp, Clock.ms(20))
         if packet ~= nil then
-          datagrams = datagrams + 1
+          datagrams.value = datagrams.value + 1
         elseif why ~= Poll.TIMEOUT then
           return
         end
@@ -406,5 +406,5 @@ local function test_the_upstream_is_resolved_once_and_an_ungranted_name_never(tm
       "ungranted.test:443 403|direct.test:443 403", table.concat(lines, "|"))
   assert(table.concat(queries, ",") == "1 direct.test,1 proxy.test,28 direct.test,28 proxy.test",
     table.concat(queries, ","))
-  assert(datagrams == 0, datagrams .. " datagrams were sent")
+  assert(datagrams.value == 0, datagrams.value .. " datagrams were sent")
 end

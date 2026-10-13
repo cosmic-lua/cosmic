@@ -562,6 +562,13 @@ local function ended(result: Child.Result): string
   return ("exited with status %d"):format(result.code or -1)
 end
 
+--- The program [`Dev.supervise`] runs: its handle while it runs, and how
+--- many times it has started.
+local record Program
+  handle: Child.Handle | nil
+  boot: integer
+end
+
 --- Runs the program and restarts it on a change until a SIGINT or SIGTERM
 --- arrives or `stop` says so. The program inherits the supervisor's
 --- standard streams and gets `COSMIC_WEB_DEV=1` and `COSMIC_WEB_BOOT=<n>`
@@ -614,28 +621,27 @@ function Dev.supervise(opts?: Dev.SuperviseOptions): boolean, string
   local made, held = Signal.guard()
   if made == nil then return false, "web: dev: " .. held end
   local guard: Signal.Guard = made
-  local handle: Child.Handle | nil = nil
-  local boot = 0
+  local program: Program = { handle = nil, boot = 0 }
 
   local function launch()
-    boot = boot + 1
+    program.boot = program.boot + 1
     local env = Env.all()
     env.COSMIC_WEB_DEV = "1"
-    env.COSMIC_WEB_BOOT = tostring(boot)
-    log(("web dev: starting (boot %d)"):format(boot))
+    env.COSMIC_WEB_BOOT = tostring(program.boot)
+    log(("web dev: starting (boot %d)"):format(program.boot))
     local started, trouble = start(env)
     if started == nil then
       log("web dev: cannot start the program: " .. trouble .. "; waiting for a change")
       return
     end
-    handle = started
-    if given.on_boot ~= nil then given.on_boot(boot, started.pid) end
+    program.handle = started
+    if given.on_boot ~= nil then given.on_boot(program.boot, started.pid) end
   end
 
   local function halt()
-    if handle == nil then return end
-    local h = handle
-    handle = nil
+    if program.handle == nil then return end
+    local h = program.handle
+    program.handle = nil
     local _, _ = h:stop()
     -- Not `h:wait(grace_ns)`: it stops at the guard's pending signal, the
     -- one that is ending this supervisor, and skips the grace. `wait_any`
@@ -656,13 +662,13 @@ function Dev.supervise(opts?: Dev.SuperviseOptions): boolean, string
   local pending: {string} | nil = nil
   launch()
   while guard:cancelled() == 0 do
-    local running = handle
+    local running = program.handle
     if running ~= nil then
       local done, _ = Child.wait_any({ running }, interval_ns)
       if done ~= nil then
         local result, _ = running:wait()
         local _, _ = running:close()
-        handle = nil
+        program.handle = nil
         log("web dev: the program " .. (result ~= nil and ended(result) or "is gone") ..
             "; waiting for a change")
       end

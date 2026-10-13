@@ -318,13 +318,10 @@ function TermRelay.run(argv: {string}, opts: Child.Options, terminal?: Terminal)
   -- caller's window is looked at every TICK_MS instead of when it changes,
   -- and a SIGHUP sent to this process (a hangup of its terminal needs no
   -- handler) ends it with the terminal still raw.
-  local pending = ""
   local keys_open = keys
-  local master_open = true
   local signals = 0
   local seen_rows, seen_columns = window(shown)
   local result: Child.Result | nil
-  local failure: string | nil
   -- Where only stdin is a terminal, a write that fails (a terminal open
   -- for reading alone) loses an echo, and ends nothing.
   local echo_only = shown == input and not sys.isatty(output) and not sys.isatty(errors)
@@ -336,32 +333,43 @@ function TermRelay.run(argv: {string}, opts: Child.Options, terminal?: Terminal)
     data: string
     fatal: boolean
   end
-  local queue: {Queued} = {}
-  local queued = 0
+  local record Relaying
+    pending: string
+    master_open: boolean
+    failure: string | nil
+    queue: {Queued}
+    queued: integer
+    notes_open: boolean
+    note_tail: string
+  end
+  -- `pending` is what the master is yet to be written, `queue` what the
+  -- caller is, `queued` the bytes in it; `failure` ends the run.
+  local relay: Relaying = { pending = "", master_open = true, queue = {}, queued = 0,
+    notes_open = notes ~= nil, note_tail = "" }
 
   --- Writes what the caller's terminal takes of the queue, without waiting.
   --- A write that fails drops its bytes, and ends the run where it was the
   --- program's output and not an echo.
   local function flush_queue(): integer
     local written = 0
-    while queue[1] ~= nil do
-      local item = queue[1]
+    while relay.queue[1] ~= nil do
+      local item = relay.queue[1]
       local count, why, errno = sys.write(item.fd, item.data)
       if count ~= nil then
         written = written + count
-        queued = queued - count
+        relay.queued = relay.queued - count
         if count < #item.data then
           item.data = item.data:sub(count + 1)
           break
         end
-        table.remove(queue, 1)
+        table.remove(relay.queue, 1)
       elseif errno == sys.EAGAIN then
         break
       elseif errno ~= sys.EINTR then
-        queued = queued - #item.data
-        table.remove(queue, 1)
+        relay.queued = relay.queued - #item.data
+        table.remove(relay.queue, 1)
         if item.fatal and not echo_only then
-          failure = "terminal: writing the program's output: " .. why
+          relay.failure = "terminal: writing the program's output: " .. why
           break
         end
       end
@@ -370,20 +378,20 @@ function TermRelay.run(argv: {string}, opts: Child.Options, terminal?: Terminal)
   end
 
   local function enqueue(fd: integer, data: string, fatal: boolean)
-    queue[#queue + 1] = { fd = fd, data = data, fatal = fatal }
-    queued = queued + #data
+    relay.queue[#relay.queue + 1] = { fd = fd, data = data, fatal = fatal }
+    relay.queued = relay.queued + #data
     local _ = flush_queue()
   end
 
   --- Writes what the master will take of `pending`.
   local function flush_pending(): boolean
-    local count, _, errno = sys.write(master, pending)
+    local count, _, errno = sys.write(master, relay.pending)
     if count ~= nil then
-      pending = pending:sub(count + 1)
+      relay.pending = relay.pending:sub(count + 1)
     elseif errno ~= sys.EAGAIN and errno ~= sys.EINTR then
       -- A master that fails is a program that has gone: its exit says so.
-      pending = ""
-      master_open = false
+      relay.pending = ""
+      relay.master_open = false
       return false
     end
     return true
@@ -398,25 +406,25 @@ function TermRelay.run(argv: {string}, opts: Child.Options, terminal?: Terminal)
       -- EAGAIN: nothing yet. Any other failure (EIO on Linux) is the
       -- last slave descriptor closed.
       if errno == sys.EAGAIN or errno == sys.EINTR then return 0 end
-      master_open = false
+      relay.master_open = false
       return -1
     end
     if data == "" then
-      master_open = false
+      relay.master_open = false
       return -1
     end
     local passed, answers = filter:feed(data)
-    if #answers > 0 and #pending + #answers <= MOST_PENDING then
-      pending = pending .. answers
+    if #answers > 0 and #relay.pending + #answers <= MOST_PENDING then
+      relay.pending = relay.pending .. answers
     end
     -- Once a signal is passed on, a full queue drops the program's output
     -- instead of holding the program on its pty: a tty's last close waits
     -- for its output to drain on macOS, so a program that cannot close its
     -- pty cannot end, and the terminal that stopped taking output would
     -- keep the run alive for good.
-    if passed ~= "" and not (signals > 0 and queued >= MOST_QUEUED) then
+    if passed ~= "" and not (signals > 0 and relay.queued >= MOST_QUEUED) then
       enqueue(shown, passed, true)
-      if failure ~= nil then return -1 end
+      if relay.failure ~= nil then return -1 end
     end
     return #data
   end
@@ -424,27 +432,25 @@ function TermRelay.run(argv: {string}, opts: Child.Options, terminal?: Terminal)
   --- Shows the caller what the notes pipe holds, as lines: how many bytes
   --- it read, 0 where there were none yet, and -1 once there are none for
   --- good. A write to the caller that fails loses the line and ends nothing.
-  local notes_open = notes ~= nil
-  local note_tail = ""
   local function relay_notes(): integer
     if notes == nil then return -1 end
     local data, _, errno = sys.read(notes, CHUNK)
     if data == nil then
       if errno == sys.EAGAIN or errno == sys.EINTR then return 0 end
-      notes_open = false
+      relay.notes_open = false
       return -1
     end
     if data == "" then
-      notes_open = false
+      relay.notes_open = false
       return -1
     end
-    local lines = TermRelay.note_lines(note_tail, data)
-    note_tail = lines.tail
+    local lines = TermRelay.note_lines(relay.note_tail, data)
+    relay.note_tail = lines.tail
     if lines.text ~= "" then enqueue(errors, lines.text, false) end
     return #data
   end
 
-  while failure == nil do
+  while relay.failure == nil do
     local signal = guard:take()
     if signal ~= 0 then
       -- The first is passed on, as a signal sent to the program itself;
@@ -465,33 +471,33 @@ function TermRelay.run(argv: {string}, opts: Child.Options, terminal?: Terminal)
     end
     local status, why = running:try_wait()
     if status == nil then
-      failure = "terminal: " .. why
+      relay.failure = "terminal: " .. why
       break
     elseif status.finished then
       result = status.result
       break
     end
-    local keys_fd = keys_open and #pending < MOST_PENDING and input or -1
+    local keys_fd = keys_open and #relay.pending < MOST_PENDING and input or -1
     -- Nothing is read for a terminal that has a full queue of output
     -- waiting: the program waits on its pty instead. After a signal the
     -- program's output is read and dropped (`relay_output`).
-    local room = queued < MOST_QUEUED
+    local room = relay.queued < MOST_QUEUED
     local reading_output = room or signals > 0
-    local master_events = (master_open and reading_output and sys.POLLIN or 0) | (#pending > 0 and sys.POLLOUT or 0)
+    local master_events = (relay.master_open and reading_output and sys.POLLIN or 0) | (#relay.pending > 0 and sys.POLLOUT or 0)
     local master_fd = master_events ~= 0 and master or -1
-    local notes_fd = notes_open and room and notes or -1
-    local out_fd = queue[1] ~= nil and queue[1].fd or -1
+    local notes_fd = relay.notes_open and room and notes or -1
+    local out_fd = relay.queue[1] ~= nil and relay.queue[1].fd or -1
     local ready, poll_why = sys.poll({ keys_fd, master_fd, notes_fd, out_fd },
       { sys.POLLIN, master_events, sys.POLLIN, sys.POLLOUT }, TICK_MS)
     if ready == nil then
-      failure = "terminal: waiting: " .. poll_why
+      relay.failure = "terminal: waiting: " .. poll_why
       break
     end
     if ready[2] ~= 0 then
-      if ready[2] & sys.POLLOUT ~= 0 and #pending > 0 then
+      if ready[2] & sys.POLLOUT ~= 0 and #relay.pending > 0 then
         local _ = flush_pending()
       end
-      if master_open and reading_output and ready[2] & (sys.POLLIN | sys.POLLHUP | sys.POLLERR) ~= 0 then
+      if relay.master_open and reading_output and ready[2] & (sys.POLLIN | sys.POLLHUP | sys.POLLERR) ~= 0 then
         local _ = relay_output()
       end
     end
@@ -504,7 +510,7 @@ function TermRelay.run(argv: {string}, opts: Child.Options, terminal?: Terminal)
     if ready[1] ~= 0 then
       local typed, _, errno = sys.read(input, CHUNK)
       if typed ~= nil and typed ~= "" then
-        pending = pending .. typed
+        relay.pending = relay.pending .. typed
         local _ = flush_pending()
       elseif typed == "" or (errno ~= sys.EAGAIN and errno ~= sys.EINTR) then
         -- The caller's terminal has gone: hang the program up as its own
@@ -518,14 +524,14 @@ function TermRelay.run(argv: {string}, opts: Child.Options, terminal?: Terminal)
   -- wrote last and the notes after it are read first. A terminal that
   -- takes nothing for `STALL_MS`, or a signal, drops what is left.
   local function settle(drain: boolean)
-    local out_budget = drain and result ~= nil and master_open and MOST_AFTER_EXIT or 0
+    local out_budget = drain and result ~= nil and relay.master_open and MOST_AFTER_EXIT or 0
     -- The program is settled, and its relay ended with it: what it wrote
     -- last is in the notes pipe, which the caller's end of keeps open.
-    local notes_budget = drain and result ~= nil and notes_open and MOST_AFTER_EXIT or 0
+    local notes_budget = drain and result ~= nil and relay.notes_open and MOST_AFTER_EXIT or 0
     local stalled = 0
     while true do
       if guard:take() ~= 0 then break end
-      if failure == nil and queued < MOST_QUEUED then
+      if relay.failure == nil and relay.queued < MOST_QUEUED then
         if out_budget > 0 then
           local count = relay_output()
           out_budget = count > 0 and out_budget - count or 0
@@ -535,26 +541,26 @@ function TermRelay.run(argv: {string}, opts: Child.Options, terminal?: Terminal)
         end
       end
       local reading = out_budget > 0 or notes_budget > 0
-      if queue[1] == nil and not reading then break end
-      if failure ~= nil and queue[1] == nil then break end
+      if relay.queue[1] == nil and not reading then break end
+      if relay.failure ~= nil and relay.queue[1] == nil then break end
       if flush_queue() > 0 then
         stalled = 0
-      elseif queue[1] ~= nil and (queued >= MOST_QUEUED or not reading) then
+      elseif relay.queue[1] ~= nil and (relay.queued >= MOST_QUEUED or not reading) then
         if stalled >= STALL_MS then break end
-        local _, _ = sys.poll({ queue[1].fd }, { sys.POLLOUT }, TICK_MS)
+        local _, _ = sys.poll({ relay.queue[1].fd }, { sys.POLLOUT }, TICK_MS)
         stalled = stalled + TICK_MS
       end
     end
-    queue = {}
-    queued = 0
+    relay.queue = {}
+    relay.queued = 0
   end
   settle(true)
-  if note_tail ~= "" then
+  if relay.note_tail ~= "" then
     -- A last line the relay did not end.
-    enqueue(errors, TermRelay.note_lines(note_tail, "\n").text, false)
+    enqueue(errors, TermRelay.note_lines(relay.note_tail, "\n").text, false)
     settle(false)
   end
-  if failure ~= nil then return nil, failure end
+  if relay.failure ~= nil then return nil, relay.failure end
   return result, ""
 end
 

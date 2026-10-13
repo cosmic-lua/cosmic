@@ -317,14 +317,14 @@ local function test_usage_names_the_escapes_for_a_file_that_reads_as_a_path()
 end
 
 local function test_a_failed_write_exits_2_and_says_so(tmp: string)
-  local complaints = ""
+  local complaints = { value = "" }
   local code = json.run(argv_of({ file(tmp) }), {
     out = function(_: string): boolean, string return false, "No space left on device" end,
-    err = function(line: string) complaints = complaints .. line .. "\n" end,
+    err = function(line: string) complaints.value = complaints.value .. line .. "\n" end,
     stdin = function(): string | nil, string return nil, "unused" end,
   })
   assert(code == 2, code)
-  assert(complaints == "cosmic: json: standard output: No space left on device\n", complaints)
+  assert(complaints.value == "cosmic: json: standard output: No space left on device\n", complaints.value)
   for _, mode in ipairs({ "--keys", "--shape" }) do
     local again = json.run(argv_of({ mode, file(tmp) }), {
       out = function(_: string): boolean, string return false, "closed" end,

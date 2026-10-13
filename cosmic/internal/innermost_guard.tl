@@ -19,16 +19,20 @@ end
 
 local type Held = innermost_guard.Held
 
-local innermost: Held | nil
+local record Open
+  innermost: Held | nil
+end
+
+local open: Open = {}
 
 --- The innermost open guard, or nil when none is open.
 function innermost_guard.active(): Held | nil
-  return innermost
+  return open.innermost
 end
 
 --- Makes `guard` the innermost open guard, or none with nil.
 function innermost_guard.set(guard: Held | nil)
-  innermost = guard
+  open.innermost = guard
 end
 
 --- Empties the wake pipe `fd`, which a signal a guard catches writes to

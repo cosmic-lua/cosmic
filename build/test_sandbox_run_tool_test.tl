@@ -231,12 +231,12 @@ end
   env.COSMIC_SANDBOX = nil
   -- Sandboxed where it can be, whatever this run's own switch says.
   env.COSMIC_TEST_SANDBOX = nil
-  local step = 0
+  local step = { value = 0 }
   local function said(wanted: string, passes?: boolean): string
-    step = step + 1
-    local text, ok = run_again(root, tmp .. "/run" .. step, env)
-    assert(ok == (passes ~= false), step .. ": " .. text)
-    assert(text:find(wanted, 1, true), step .. ": " .. text)
+    step.value = step.value + 1
+    local text, ok = run_again(root, tmp .. "/run" .. step.value, env)
+    assert(ok == (passes ~= false), step.value .. ": " .. text)
+    assert(text:find(wanted, 1, true), step.value .. ": " .. text)
     return text
   end
   local first = said("2 ran, 0 stood")

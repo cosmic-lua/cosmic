@@ -66,7 +66,11 @@ end
 local ARTIFACT_FD <const> = 254
 local CORE_FD <const> = 255
 
-local relaunch: Proc.Relaunch | nil
+local record Cached
+  relaunch: Proc.Relaunch | nil
+end
+
+local cached: Cached = {}
 
 --- Ends the process with a status. This is the explicit replacement for
 --- os.exit; it does not run finalizers and does not return.
@@ -122,26 +126,26 @@ end
 --- `fds` to [`Child.start`]. Returns nil and why when this process has no
 --- artifact to start again, or its executable or core cannot be reopened.
 function Proc.relaunch(): Proc.Relaunch | nil, string
-  if relaunch ~= nil then return relaunch, "" end
+  if cached.relaunch ~= nil then return cached.relaunch, "" end
   local found, trouble = raw.relaunch(ARTIFACT_FD, CORE_FD)
   if found == nil then return nil, trouble end
   if found.database ~= nil then
-    relaunch = { argv = { found.path, "--database", found.database }, env = {}, fds = {}, cwd = found.cwd }
-    return relaunch, ""
+    cached.relaunch = { argv = { found.path, "--database", found.database }, env = {}, fds = {}, cwd = found.cwd }
+    return cached.relaunch, ""
   end
   if found.host then
-    relaunch = { argv = { found.path }, env = {}, fds = {}, cwd = found.cwd }
-    return relaunch, ""
+    cached.relaunch = { argv = { found.path }, env = {}, fds = {}, cwd = found.cwd }
+    return cached.relaunch, ""
   end
   -- One core descriptor serves every relaunch; it is closed on exec, so
   -- nothing but a child it is handed to ever inherits it.
-  relaunch = {
+  cached.relaunch = {
     argv = { found.path, "--artifact", assert(found.artifact) },
     env = assert(found.environment),
     fds = { [ARTIFACT_FD] = assert(found.artifact_fd), [CORE_FD] = assert(found.core_fd) },
     cwd = found.cwd,
   }
-  return relaunch, ""
+  return cached.relaunch, ""
 end
 
 -- The search list `find` uses when PATH is unset, as execvp does.

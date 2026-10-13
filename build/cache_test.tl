@@ -268,17 +268,18 @@ local function test_digest_ignores_stamps_pages_and_locations_but_keeps_cell_kin
 end
 
 local function test_cli_usage_and_json_empty_arrays(tmp: string)
-  local output, trouble = "", ""
+  local output = { value = "" }
+  local trouble = { value = "" }
   local io: cache.Io = {
     out = function(text: string): boolean, string
-      output = output .. text
+      output.value = output.value .. text
       return true, ""
     end,
-    err = function(text: string) trouble = trouble .. text end,
+    err = function(text: string) trouble.value = trouble.value .. text end,
   }
   local argv: {integer:string} = { [0] = "cosmic", "cache", "trim", "compiles", tmp .. "/missing", "--since-ns", "0", "--json" }
-  assert(cache.run(argv, io) == 0 and trouble == "", trouble)
-  assert(Json.decode(output) ~= nil and output:find('"warnings":[]', 1, true), output)
+  assert(cache.run(argv, io) == 0 and trouble.value == "", trouble.value)
+  assert(Json.decode(output.value) ~= nil and output.value:find('"warnings":[]', 1, true), output.value)
   argv[6] = "-1"
   assert(cache.run(argv, io) == 2)
 end

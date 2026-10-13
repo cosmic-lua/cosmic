@@ -209,16 +209,16 @@ end
 --- @return compiler usable wherever [`teal.load`]'s result is: the same
 ---   untyped table cast to the declared surface, deferred to first use
 function teal.lazy(): compiler
-  local loaded: {any:any} | nil
+  local loaded: {{any:any}} = {}
   local function real(): {any:any}
-    local ready = loaded
+    local ready = loaded[1]
     if ready == nil then
       local built, trouble = teal.load()
       if built == nil then
         error(trouble, 0)
       end
       ready = built as {any:any}
-      loaded = ready
+      loaded[1] = ready
     end
     return ready
   end
@@ -469,8 +469,12 @@ local function bound_value(n: ast.Node | nil): ast.Node | nil
 end
 
 --- The source [`declarations_of`] last parsed, and what it found there.
-local parsed_source: string | nil = nil
-local parsed_declarations: Declarations | nil = nil
+local record LastParse
+  source: string | nil
+  declarations: Declarations | nil
+end
+
+local last_parse: LastParse = {}
 
 --- The requires and top-level types `source` parses into, however each
 --- is spelt: over several lines, without parentheses (`require "x"`),
@@ -482,8 +486,8 @@ local parsed_declarations: Declarations | nil = nil
 --- a compile asks for each refusal's hint, and the hints of a file share
 --- one parse.
 local function declarations_of(source: string): Declarations
-  if source == parsed_source and parsed_declarations ~= nil then
-    return parsed_declarations
+  if source == last_parse.source and last_parse.declarations ~= nil then
+    return last_parse.declarations
   end
   local found: Declarations = { typed = {}, bound = {}, kinds = {} }
   local ambiguous: {string: boolean} = {}
@@ -550,7 +554,7 @@ local function declarations_of(source: string): Declarations
       end
     end
   end
-  parsed_source, parsed_declarations = source, found
+  last_parse.source, last_parse.declarations = source, found
   return found
 end
 
@@ -590,7 +594,7 @@ local type Visitor = function(n: ast.Node, lookup: function(string | nil): Bindi
 --- answers only inside its scope.
 local function scoped_walk(root: ast.Node, visitor: Visitor)
   local scopes: {{string: Binding}} = {}
-  local done = false
+  local walk = { done = false }
   local function lookup(name: string | nil): Binding | nil
     for i = #scopes, 1, -1 do
       local found = name ~= nil and scopes[i][name] or nil
@@ -617,11 +621,11 @@ local function scoped_walk(root: ast.Node, visitor: Visitor)
     end
   end
   visit = function(n: ast.Node)
-    if done then
+    if walk.done then
       return
     end
     if visitor(n, lookup) then
-      done = true
+      walk.done = true
       return
     end
     local kind = n.kind
@@ -707,7 +711,7 @@ end
 --- declaration never answers for it. Nil when there is no such
 --- assignment, or its name is not a local (a global, a field).
 local function target_of(root: ast.Node, y: integer, x: integer): Binding | nil
-  local answer: Binding | nil = nil
+  local answer: {Binding} = {}
   scoped_walk(root, function(n: ast.Node, lookup: function(string | nil): Binding | nil): boolean
     if n.kind ~= "assignment" then
       return false
@@ -728,11 +732,11 @@ local function target_of(root: ast.Node, y: integer, x: integer): Binding | nil
       return false
     end
     if target.kind == "variable" and target.tk ~= nil then
-      answer = lookup(target.tk)
+      answer[1] = lookup(target.tk)
     end
     return true
   end)
-  return answer
+  return answer[1]
 end
 
 --- The hint for the assignment refused at `y`:`x` of `source` for a
@@ -886,6 +890,14 @@ local record Member
   args: ast.Node
 end
 
+--- The call [`callee_arguments`] looks for: the name it calls, the
+--- binding that name resolves to, and the member it calls on a receiver.
+local record Called
+  bare: string | nil
+  bound: Binding | nil
+  key: string | nil
+end
+
 --- The argument lists of each function the call whose `(` is at
 --- `y`:`x` of `root` may be calling, resolved through the scopes
 --- [`scoped_walk`] keeps: `f(...)` the local `f` in scope, or, with
@@ -898,9 +910,7 @@ end
 local function callee_arguments(root: ast.Node, y: integer, x: integer): {ast.Node}
   local globals: {string: {ast.Node}} = {}
   local members: {Member} = {}
-  local bare: string | nil = nil
-  local bound: Binding | nil = nil
-  local key: string | nil = nil
+  local called: Called = {}
   local receivers: {Binding} = {}
   scoped_walk(root, function(n: ast.Node, lookup: function(string | nil): Binding | nil): boolean
     local function member(owner: ast.Node | nil, name: string | nil, args: ast.Node | nil)
@@ -935,9 +945,9 @@ local function callee_arguments(root: ast.Node, y: integer, x: integer): {ast.No
       if call == nil or call.op ~= "@funcall" then
         return false
       elseif e1 ~= nil and e1.kind == "variable" then
-        bare, bound = e1.tk, lookup(e1.tk)
+        called.bare, called.bound = e1.tk, lookup(e1.tk)
       elseif (index == "." or index == ":") and object ~= nil and object.kind == "variable" then
-        key = field ~= nil and field.tk or nil
+        called.key = field ~= nil and field.tk or nil
         local receiver = lookup(object.tk)
         if receiver ~= nil then
           receivers[1] = receiver
@@ -951,13 +961,13 @@ local function callee_arguments(root: ast.Node, y: integer, x: integer): {ast.No
     return false
   end)
   local found: {ast.Node} = {}
-  if bound ~= nil then
-    found[1] = bound.args
-  elseif bare ~= nil then
-    found = globals[bare] or {}
+  if called.bound ~= nil then
+    found[1] = called.bound.args
+  elseif called.bare ~= nil then
+    found = globals[called.bare] or {}
   end
-  for _, m in ipairs(key ~= nil and members or {}) do
-    if m.name == key and (m.owner == receivers[1] or m.owner == receivers[2]) then
+  for _, m in ipairs(called.key ~= nil and members or {}) do
+    if m.name == called.key and (m.owner == receivers[1] or m.owner == receivers[2]) then
       found[#found + 1] = m.args
     end
   end
@@ -1199,6 +1209,23 @@ local function unassigned_hint(e: compiler.Error): string | nil
   return "'" .. name .. "' may be read before it is assigned" .. path ..
     ": give it a value where it is declared (`local " .. name .. ": T = ...`), assign it on every path, " ..
     "or declare it `local " .. name .. ": T | nil`, which is nil until assigned and is checked where it is used"
+end
+
+--- What to do about a function that assigns a local declared outside it
+--- (the code `captured_assigned`, [`compiler.Error`]): return the value,
+--- or keep it in a field of a table the function reads, which it may
+--- write: the rule is about the local, not the table.
+local function captured_hint(e: compiler.Error): string | nil
+  local name = e.variable
+  if name == nil then
+    return nil
+  end
+  -- A name of its own for the table, whatever the variable is called.
+  local table_name = name == "held" and "box" or "held"
+  return "'" .. name .. "' is declared at " .. tostring(e.declared_y) .. ":" .. tostring(e.declared_x) ..
+    ", outside this function, which may read it but not assign it: return the value from the function, " ..
+    "or keep it in a field of a table both read (`local " .. table_name .. " = { " .. name .. " = <the value> }`, then `" ..
+    table_name .. "." .. name .. " = ...` in the function)"
 end
 
 --- What to declare for a local with neither a type nor a value (the code
@@ -2017,6 +2044,10 @@ end
 --- neither a type nor a value (`no_type`) to declare `T | nil`
 --- ([`untyped_local_hint`]).
 ---
+--- A function literal that assigns a local declared outside it (the code
+--- `captured_assigned`) is told to return the value or keep it in a field
+--- of a table ([`captured_hint`]).
+---
 --- A `goto` that is not a continue, and a label no continue names, are told to
 --- restructure with an `if` or move the body into a function ([`goto_hint`]).
 ---
@@ -2055,6 +2086,9 @@ function teal.replacement(e: compiler.Error, source: string, file?: string,
   end
   if code == "no_type" then
     return untyped_local_hint(e)
+  end
+  if code == "captured_assigned" then
+    return captured_hint(e)
   end
   if code == "goto_not_continue" then
     return goto_hint(e)

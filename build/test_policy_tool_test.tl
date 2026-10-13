@@ -284,12 +284,12 @@ local function test_the_verdicts_of_a_sandboxed_and_an_unsandboxed_run_stand_apa
   local root = tmp .. "/root"
   suite_tree(root)
   local env = environment()
-  local step = 0
+  local step = { value = 0 }
   local function said(sandboxed: boolean, wanted: string): string
-    step = step + 1
+    step.value = step.value + 1
     env.COSMIC_TEST_SANDBOX = not sandboxed and "0" or nil
-    local text, ok = run(root, tmp .. "/run" .. step, env, { "suite/plain_test.tl" })
-    assert(ok and text:find(wanted, 1, true), step .. ": " .. text)
+    local text, ok = run(root, tmp .. "/run" .. step.value, env, { "suite/plain_test.tl" })
+    assert(ok and text:find(wanted, 1, true), step.value .. ": " .. text)
     return text
   end
   local first = said(true, "1 ran, 0 stood")

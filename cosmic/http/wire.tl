@@ -377,25 +377,26 @@ end
 --- failed, "" where the source ended before the request's first byte.
 function wire.read_head(input: wire.Input, limits: wire.Limits): wire.Read
   local start = input.taken
-  local stop: wire.Read | nil = nil
-  --- The next line of the head, without its CR; nil, `stop` set, where
+  -- Why the head is refused, once a line says so.
+  local stopped: {wire.Read} = {}
+  --- The next line of the head, without its CR; nil, `stopped` set, where
   --- there is none.
   local function next_line(): string | nil
     local text, why = line(input, limits.head_bytes - (input.taken - start))
     if text == nil then
       if input.long then
-        stop = refused(431, "the head is longer than limits.head_bytes")
+        stopped[1] = refused(431, "the head is longer than limits.head_bytes")
       elseif why ~= "" then
-        stop = refused(0, why)
+        stopped[1] = refused(0, why)
       elseif input.taken == start then
-        stop = refused(0, "")
+        stopped[1] = refused(0, "")
       else
-        stop = refused(0, "the connection ended within a head")
+        stopped[1] = refused(0, "the connection ended within a head")
       end
       return nil
     end
     local bare = without_cr(text)
-    if bare == nil then stop = refused(400, "a line holds a bare CR") end
+    if bare == nil then stopped[1] = refused(400, "a line holds a bare CR") end
     return bare
   end
   -- A blank line or more before the request line is passed over (RFC
@@ -403,7 +404,7 @@ function wire.read_head(input: wire.Input, limits: wire.Limits): wire.Read
   local request_line: string
   repeat
     request_line = next_line()
-    if request_line == nil then return stop end
+    if request_line == nil then return stopped[1] end
   until request_line ~= ""
   local method, target, version = request_line:match("^([^ ]+) ([^ ]+) ([^ ]+)$")
   if method == nil then
@@ -422,7 +423,7 @@ function wire.read_head(input: wire.Input, limits: wire.Limits): wire.Read
   local names: {string} = {}
   while true do
     local text = next_line()
-    if text == nil then return stop end
+    if text == nil then return stopped[1] end
     if text == "" then break end
     local got, why = field(text)
     if got == nil then return refused(400, why) end

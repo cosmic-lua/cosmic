@@ -96,10 +96,10 @@ local function test_uuid_v7_sorts_as_drawn_within_one_millisecond()
   -- A frozen clock, then one that steps back: every value still sorts
   -- after the one before.
   local ticks = { 5000000000, 5000000000, 5000000000, 4999000000, 5000000001 }
-  local at = 0
+  local at = { value = 0 }
   local ran = run({ "uuid", "--v7", "-n", "300" }, { now_ns = function(): integer
-    at = at + 1
-    return ticks[at] or 5000000001
+    at.value = at.value + 1
+    return ticks[at.value] or 5000000001
   end })
   local ids = lines(ran.out)
   assert(#ids == 300)
@@ -213,14 +213,14 @@ local function test_int_from_entropy_rejects_rather_than_wraps()
   -- Range 0..2 is masked to two bits: a draw of 3 is outside it and must
   -- be drawn again, not reduced modulo 3 to 0.
   local draws = { 3, 3, 1, 2, 0 }
-  local calls = 0
+  local calls = { value = 0 }
   local ran = run({ "int", "0", "2", "-n", "3" }, { entropy = function(count: integer): string | nil, string
-    calls = calls + 1
+    calls.value = calls.value + 1
     local parts: {string} = {}
     for index = 1, count // 8 do parts[index] = string.pack("<i8", draws[(index - 1) % 5 + 1]) end
     return table.concat(parts), ""
   end })
-  assert(ran.out == "1\n2\n0\n" and calls == 1, ran.out .. calls)
+  assert(ran.out == "1\n2\n0\n" and calls.value == 1, ran.out .. calls.value)
 end
 
 local function test_int_from_entropy_reaches_every_value_and_no_seed_is_used()

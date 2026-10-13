@@ -116,12 +116,12 @@ return function(args)
 end
 ]==]
 
-local attached = false
+local attached = { value = false }
 
 --- Attaches a database holding `fixture.main`, which requires two modules
 --- of the binary, once; a fixture module is never in the binary.
 local function attach(tmp: string)
-  if attached then return end
+  if attached.value then return end
   local path = tmp .. "/fixture.db"
   local db = assert(Sqlite.open(path, { writable = true }))
   for _, statement in ipairs({
@@ -142,7 +142,7 @@ local function attach(tmp: string)
   end
   assert(db:close())
   assert(Store.attach(path))
-  attached = true
+  attached.value = true
 end
 
 --- The program sealed at `path`: the closure of `fixture.main`.

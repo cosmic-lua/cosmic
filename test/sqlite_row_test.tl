@@ -211,9 +211,9 @@ end
 
 local function test_map_answers_nil_and_why_when_the_statement_fails()
   local db = assert(Sqlite.memory())
-  local called = 0
+  local called = { value = 0 }
   local function project(r: Sqlite.Row): integer
-    called = called + 1
+    called.value = called.value + 1
     return r:integer(1)
   end
   local found, trouble = Sqlite.map(db, "SELECT * FROM missing", nil, project)
@@ -222,7 +222,7 @@ local function test_map_answers_nil_and_why_when_the_statement_fails()
   found, trouble = Sqlite.map(db, "SELECT abs(n) FROM (SELECT 1 AS n UNION ALL " ..
       "SELECT -9223372036854775807 - 1)", nil, project)
   assert(found == nil and trouble ~= "", trouble)
-  assert(called == 1)
+  assert(called.value == 1)
   found, trouble = Sqlite.map(db, "SELECT ?1", { { integer = 1 }, { integer = 2 } }, project)
   assert(found == nil and trouble ~= "")
   assert(db:close(), "a failed map leaves no statement open")

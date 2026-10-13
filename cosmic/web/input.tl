@@ -381,24 +381,31 @@ end
 --- A Reader over `source` that fails with [`OVER_LIMIT`] when it would pass
 --- `limit` bytes, and the count of the bytes it passed so far.
 local function counted(source: Stream.Reader, limit: integer): Stream.Reader, function(): integer
-  local total = 0
+  local passed = { total = 0 }
   local reader: Stream.Reader = {
     read = function(_self: Stream.Reader, max?: integer): string | nil, string
-      local chunk, why = source:read(math.min(max or CHUNK, limit + 1 - total))
+      local chunk, why = source:read(math.min(max or CHUNK, limit + 1 - passed.total))
       if chunk == nil then return nil, why end
-      total = total + #chunk
-      if total > limit then return nil, OVER_LIMIT end
+      passed.total = passed.total + #chunk
+      if passed.total > limit then return nil, OVER_LIMIT end
       return chunk, ""
     end,
     close = function(_self: Stream.Reader): boolean, string return true, "" end,
   }
-  return reader, function(): integer return total end
+  return reader, function(): integer return passed.total end
 end
 
 --- The file an upload is being written to, where the closer of a killed
 --- task can reach it.
 local record Spool
   writer?: Stream.FileWriter
+end
+
+--- What a multipart read has spooled so far: the uploads kept, and the
+--- private directory made for them when the caller named none.
+local record Spooled
+  kept: {Input.Upload}
+  made?: string
 end
 
 --- The value of a `<close>` variable: only its `__close` matters.
@@ -452,19 +459,18 @@ local function read_multipart(req: Types.Request, limit: integer, opts: Types.In
   -- `Input.sweep_uploads(dir, older_than_ns)` for a lifespan hook), once an
   -- app keeps uploads in a directory of its own that outlives a request; a
   -- private directory under the temp directory is the system's to clean.
-  local made: string | nil = nil
-  local kept: {Input.Upload} = {}
+  local spooled: Spooled = { kept = {} }
   local fields: Url.Query = { pairs = {}, by_name = {} }
   local files: {string:{Input.Upload}} = {}
   local m: Input.Multipart = { fields = fields, files = files, size = 0 }
   m.discard = function(_self: Input.Multipart)
-    for _, upload in ipairs(kept) do
+    for _, upload in ipairs(spooled.kept) do
       local _, _ = Fs.remove(upload.path)
     end
-    kept = {}
-    if made ~= nil then
-      local _, _ = Fs.remove_tree(made)
-      made = nil
+    spooled.kept = {}
+    if spooled.made ~= nil then
+      local _, _ = Fs.remove_tree(spooled.made)
+      spooled.made = nil
     end
   end
   -- A task killed while it waits for the body (a client that went away)
@@ -508,7 +514,7 @@ local function read_multipart(req: Types.Request, limit: integer, opts: Types.In
       return stop_with(stop(413, "body", "", "too_many", ("the body has more than %s"):format(String.counted(max_parts, "part"))))
     end
     if part.filename ~= nil then
-      if #kept >= max_files then
+      if #spooled.kept >= max_files then
         return stop_with(stop(413, "body", "", "too_many", ("the body has more than %s"):format(String.counted(max_files, "file"))))
       end
       -- The first bytes decide whether this is a file: a browser's blank
@@ -521,7 +527,7 @@ local function read_multipart(req: Types.Request, limit: integer, opts: Types.In
         if dir == nil then
           local made_dir, trouble = Fs.mkdtemp("cosmic-upload-")
           if made_dir == nil then return storage_failed(trouble) end
-          made = made_dir
+          spooled.made = made_dir
           dir = made_dir
           into = made_dir
         else
@@ -564,7 +570,7 @@ local function read_multipart(req: Types.Request, limit: integer, opts: Types.In
         end
         local upload: Input.Upload = { field = part.name, filename = part.filename,
           content_type = part.content_type, size = size, path = path }
-        kept[#kept + 1] = upload
+        spooled.kept[#spooled.kept + 1] = upload
         local list = files[part.name]
         if list == nil then
           list = {}
@@ -610,7 +616,7 @@ local function read_multipart(req: Types.Request, limit: integer, opts: Types.In
   local _, _ = reader:close()
   settled = true
   m.size = total()
-  if #kept > 0 or made ~= nil then
+  if #spooled.kept > 0 or spooled.made ~= nil then
     -- The app closes a request's bodies when the handler has returned: the
     -- files go with them.
     -- TODO: once the app can run a hook after the reply is written, remove

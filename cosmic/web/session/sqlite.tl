@@ -194,7 +194,8 @@ end
 local function save_session(self: Session.Store, previous: string, data: Session.Data,
                             changes: Session.Changes, now: integer, _cookie: string): string | nil, string
   local store = backing(self)
-  local token = previous
+  -- The id the session is saved under when it was given a new one.
+  local minted: {string} = {}
   local failure: string | nil = nil
   -- No yield between the first read and the commit: another request of
   -- this process cannot interleave, and another process meets SQLite's lock.
@@ -227,7 +228,7 @@ local function save_session(self: Session.Store, previous: string, data: Session
     end
     local id, id_why = new_id()
     if id == nil then return false, id_why end
-    token = id
+    minted[1] = id
     if row ~= nil then
       local gone, gone_why = Sqlite.run(store.db, ("DELETE FROM %s WHERE id_hash = ?1"):format(store.table),
         { hash_of(previous) })
@@ -246,7 +247,7 @@ local function save_session(self: Session.Store, previous: string, data: Session
     -- A failed sweep costs a later one, not this request.
     local _, _ = delete_expired(store, now, store.sweep_limit)
   end
-  return token, ""
+  return minted[1] or previous, ""
 end
 
 local function destroy_session(self: Session.Store, token: string): boolean, string

@@ -172,19 +172,19 @@ local function test_open_temporary_closes_its_descriptor_whenever_an_allocation_
   local before = next_descriptor(tmp)
   -- Taken on the line that makes the call, so no hook runs between the
   -- binding's return and the test holding what it returned.
-  local received: sys.TemporaryFile | nil
-  local opened = 0
+  local received = { value = nil as sys.TemporaryFile | nil }
+  local opened = { value = 0 }
   local ended = under_every_failure(function()
-    received = sys.open_temporary(path, 420)
+    received.value = sys.open_temporary(path, 420)
   end, function()
-    if received ~= nil then
-      sys.close(received.fd)
-      received = nil
-      opened = opened + 1
+    if received.value ~= nil then
+      sys.close(received.value.fd)
+      received.value = nil
+      opened.value = opened.value + 1
     end
   end)
   assert(ended > 0, "building the answer allocates")
-  assert(opened >= 1, "the run with nothing refused opens a file")
+  assert(opened.value >= 1, "the run with nothing refused opens a file")
   collectgarbage("collect")
   local after = next_descriptor(tmp)
   assert(after == before, "a refused allocation left descriptor " .. before .. " open")
@@ -208,21 +208,21 @@ local function test_pipe_leaves_no_end_open_whenever_an_allocation_fails(tmp: st
   local before = next_descriptor(tmp)
   -- Taken on the line that makes the call, and released in `settle`, so
   -- a refused coverage hook cannot fall between the two.
-  local received: raw_process.Pipe | nil
-  local made = 0
+  local received = { value = nil as raw_process.Pipe | nil }
+  local made = { value = 0 }
   local ended = under_every_failure(function()
-    received = process.pipe()
+    received.value = process.pipe()
   end, function()
-    local pipe = received
+    local pipe = received.value
     if pipe ~= nil then
       sys.close(pipe.reader)
       sys.close(pipe.writer)
-      received = nil
-      made = made + 1
+      received.value = nil
+      made.value = made.value + 1
     end
   end)
   assert(ended > 0, "building the answer allocates")
-  assert(made >= 1, "the run with nothing refused makes a pipe")
+  assert(made.value >= 1, "the run with nothing refused makes a pipe")
   local after = next_descriptor(tmp)
   assert(after == before, "a refused allocation left descriptor " .. before .. " open")
 end
@@ -909,15 +909,15 @@ end
 --- successful acquisition too, and both must leave no descriptor behind.
 local function test_openpty_closes_both_descriptors_whenever_an_allocation_fails(tmp: string)
   local before = next_descriptor(tmp)
-  local received: sys.Pty | nil
+  local received = { value = nil as sys.Pty | nil }
   local ended = under_every_failure(function()
-    received = sys.openpty()
+    received.value = sys.openpty()
   end, function()
-    local pty = received
+    local pty = received.value
     if pty ~= nil then
       sys.close(pty.master)
       sys.close(pty.slave)
-      received = nil
+      received.value = nil
     end
   end)
   assert(ended > 0, "building a pty answer allocates")

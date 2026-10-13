@@ -55,7 +55,7 @@ end
 --- A connection's protocol runs a child while the server holds its
 --- signal guard: the run holds one of its own inside the server's.
 local function test_a_protocol_runs_a_child_under_the_server_s_guard()
-  local answer = ""
+  local answer = { value = "" }
   assert(Net.serve{
     listeners = { Net.tcp("127.0.0.1", 0) },
     serve = function(conn: Net.Conn)
@@ -65,11 +65,11 @@ local function test_a_protocol_runs_a_child_under_the_server_s_guard()
     end,
     on_ready = function(addresses: {Net.Address}, server: Net.Server)
       local conn <close> = assert(Net.connect(addresses[1], { timeout_ns = Clock.seconds(30) }))
-      answer = assert(Stream.lines(conn):read())
+      answer.value = assert(Stream.lines(conn):read())
       server:stop()
     end,
   })
-  assert(answer == "6", answer)
+  assert(answer.value == "6", answer.value)
 end
 
 --- Runs `script`, a Teal file taking the scratch directory, in a
@@ -118,19 +118,19 @@ local Poll = require("cosmic.poll")
 local Stream = require("cosmic.stream")
 local sys = require("cosmic.sys")
 return function(argv: {string}): integer
-  local started = false
+  local seen = { started = false }
   assert(Net.serve{
     listeners = { Net.tcp("127.0.0.1", 0) },
     serve = function(conn: Net.Conn)
       local line = assert(Stream.lines(conn):read())
-      started = true
+      seen.started = true
       assert(Poll.delay(Clock.ms(100)))
       assert(conn:write(line .. "\n"))
     end,
     on_ready = function(addresses: {Net.Address}, server: Net.Server)
       local conn <close> = assert(Net.connect(addresses[1], { timeout_ns = Clock.seconds(5) }))
       assert(conn:write("slow\n"))
-      while not started do assert(Poll.delay(Clock.ms(1))) end
+      while not seen.started do assert(Poll.delay(Clock.ms(1))) end
       server:stop()
       assert(sys.kill(sys.getpid(), sys.SIGTERM))
       local answer = assert(Stream.lines(conn):read())

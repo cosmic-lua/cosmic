@@ -47,7 +47,7 @@ return function(argv: {string}): integer
 end
 ]]))
   local items: {string:string} = {}
-  local result: Child.Result | nil = nil
+  local result = { value = nil as Child.Result | nil }
   assert(Server.serve{
     listeners = { Net.tcp("127.0.0.1", 0) },
     handle = function(req: Server.Request): Server.Reply
@@ -68,16 +68,16 @@ end
       local base = "http://127.0.0.1:" .. assert(addresses[1].port)
       local started = this_program.program({ "--standalone", script, base },
         { stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(60) })
-      result = assert(Child.run(started.argv, started.options))
+      result.value = assert(Child.run(started.argv, started.options))
       server:stop()
     end,
   })
-  assert(result ~= nil, "the server never became ready")
-  assert(result.code == 0, tostring(result.code) .. " " .. tostring(result.stderr))
+  assert(result.value ~= nil, "the server never became ready")
+  assert(result.value.code == 0, tostring(result.value.code) .. " " .. tostring(result.value.stderr))
   local expected = table.concat({
     "404 no a", "201 stored", "200 first value text/plain", "200 [] 11", "204",
   }, "\n")
-  assert(result.stdout == expected, result.stdout)
+  assert(result.value.stdout == expected, result.value.stdout)
   assert(items.a == nil)
 end
 
@@ -105,7 +105,7 @@ return function(argv: {string}): integer
 end
 ]]))
   local targets: {string} = {}
-  local result: Child.Result | nil = nil
+  local result = { value = nil as Child.Result | nil }
   assert(Server.serve{
     listeners = { Net.tcp("127.0.0.1", 0) },
     handle = function(req: Server.Request): Server.Reply
@@ -119,18 +119,18 @@ end
       local base = "http://127.0.0.1:" .. assert(addresses[1].port)
       local started = this_program.program({ "--standalone", script, base },
         { stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(60) })
-      result = assert(Child.run(started.argv, started.options))
+      result.value = assert(Child.run(started.argv, started.options))
       server:stop()
     end,
   })
-  assert(result ~= nil, "the server never became ready")
-  assert(result.code == 0, tostring(result.code) .. " " .. tostring(result.stderr))
+  assert(result.value ~= nil, "the server never became ready")
+  assert(result.value.code == 0, tostring(result.value.code) .. " " .. tostring(result.value.stderr))
   assert(table.concat(targets, " ") == "/two%20words.txt /caf%C3%A9.txt /two%20words.txt /a=b&c;d?e=f",
     table.concat(targets, " "))
   local expected = table.concat({
     "200 this is two words.txt", "200 this is caf\xc3\xa9.txt", "200 this is two words.txt", "404 ",
   }, "\n")
-  assert(result.stdout == expected, result.stdout)
+  assert(result.value.stdout == expected, result.value.stdout)
 end
 
 --- SIGTERM stops a server in a process of its own, which exits 0: an

@@ -142,11 +142,11 @@ local function seeded(tmp: string): {string:string}, Said, string
   local root = tmp .. "/root"
   checkout(root)
   local env = environment(tmp .. "/cache/verdicts.db")
-  local step = 0
+  local step = { value = 0 }
   local function said(wanted: string, words?: {string}): string
-    step = step + 1
-    local text = run(root, tmp .. "/" .. step .. ".out", env, words)
-    assert(text:find(wanted, 1, true), step .. ": " .. text)
+    step.value = step.value + 1
+    local text = run(root, tmp .. "/" .. step.value .. ".out", env, words)
+    assert(text:find(wanted, 1, true), step.value .. ": " .. text)
     return text
   end
   local first = run(root, tmp .. "/first.out", env)
@@ -427,18 +427,18 @@ local function tool_project(tmp: string): function(string), function(string): st
   rebuild("UPDATE meta SET value = 'one' WHERE key IN ('boot_hash', 'projected')")
   local env = environment(tmp .. "/cache/verdicts.db")
   env.COSMIC_VERDICT_CACHE = "0"
-  local step = 0
+  local step = { value = 0 }
   local function ran(wanted: string, unchecked?: boolean): string
-    step = step + 1
-    local fd = assert(Fs.open_write(tmp .. "/" .. step .. ".out"))
+    step.value = step.value + 1
+    local fd = assert(Fs.open_write(tmp .. "/" .. step.value .. ".out"))
     local result, trouble = Child.run({ tool, "test" }, {
       cwd = root, env = env, stdout = fd, stderr = fd, process_group = true, timeout_ns = Clock.seconds(60),
     })
     assert(Fs.close(fd))
-    local text = assert(Fs.read(tmp .. "/" .. step .. ".out"))
+    local text = assert(Fs.read(tmp .. "/" .. step.value .. ".out"))
     assert(result ~= nil, tostring(trouble) .. text)
     assert(unchecked or result.ok, tostring(trouble) .. text)
-    if wanted ~= "" then assert(text:find(wanted, 1, true), step .. ": " .. text) end
+    if wanted ~= "" then assert(text:find(wanted, 1, true), step.value .. ": " .. text) end
     return text
   end
   local first = ran("", true)
@@ -524,14 +524,14 @@ end
   env.COSMIC_VERDICT_CACHE = "0"
   assert(Fs.mkdirs(tmp .. "/t"))
   env.TMPDIR = assert(Fs.absolute(tmp .. "/t"))
-  local step = 0
+  local step = { value = 0 }
   -- A run of `words` after `test`: once its test says it started --
   -- its directory is one of TMPDIR's, sandboxed or not -- `then_do`
   -- moves its input or stops it. What the run said, and whether it
   -- passed.
   local function run_then(words: {string}, then_do: function(string)): string, boolean
-    step = step + 1
-    local out = tmp .. "/" .. step .. ".out"
+    step.value = step.value + 1
+    local out = tmp .. "/" .. step.value .. ".out"
     local fd = assert(Fs.open_write(out))
     local args: {string} = { "test" }
     for _, word in ipairs(words) do args[#args + 1] = word end

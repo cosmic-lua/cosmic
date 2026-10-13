@@ -211,7 +211,7 @@ local function test_a_failed_write_stops_the_statement()
   local endless = "WITH RECURSIVE c(x) AS (SELECT 1 UNION ALL SELECT x + 1 FROM c) SELECT x FROM c"
   local lines: {string} = {}
   local complaints: {string} = {}
-  local summarized = ""
+  local summarized = { value = "" }
   local code = sql.run(argv_of({ endless }), root, {
     out = function(line: string): boolean, string
       lines[#lines + 1] = line
@@ -221,13 +221,13 @@ local function test_a_failed_write_stops_the_statement()
       return true, ""
     end,
     err = function(line: string) complaints[#complaints + 1] = line end,
-    summary = function(detail: string) summarized = detail end,
+    summary = function(detail: string) summarized.value = detail end,
   })
   assert(code == 1, code)
   assert(#lines == 3, #lines)
   assert(#complaints == 1 and complaints[1]:find("Broken pipe", 1, true) ~= nil,
     table.concat(complaints, "|"))
-  assert(summarized == "", "a failure was summarized: " .. summarized)
+  assert(summarized.value == "", "a failure was summarized: " .. summarized.value)
   assert(Fs.remove_tree(root))
 end
 

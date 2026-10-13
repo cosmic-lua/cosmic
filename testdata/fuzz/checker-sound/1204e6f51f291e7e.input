@@ -5,19 +5,22 @@ local record R
 end
 local r: R = { a = 1, n = 0 }
 local s: R = { b = 2, n = 0 }
-local count: integer = 0
-local sink: integer = 0
+local record State
+  count: integer
+  sink: integer
+end
+local st: State = { count = 0, sink = 0 }
 local nums: {integer} = { 1, 2, 3 }
 local opts: {integer | nil} = { 1, 2, 3 }
 local function maybe(): integer | nil
-  count = count + 1
-  if count % 3 == 0 then return nil end
-  return count
+  st.count = st.count + 1
+  if st.count % 3 == 0 then return nil end
+  return st.count
 end
 local function pick(): R | nil
-  count = count + 1
-  if count % 3 == 0 then return nil end
-  if count % 2 == 0 then return r end
+  st.count = st.count + 1
+  if st.count % 3 == 0 then return nil end
+  if st.count % 2 == 0 then return r end
   return s
 end
 local function touch(t: R)
@@ -28,9 +31,9 @@ local function id(v: integer | nil): integer | nil
   return v
 end
 local x: integer | nil = id(1)
-local function own() local z: integer | nil = nil z = 1 sink = sink + z end
+local function own() local z: integer | nil = nil z = 1 st.sink = st.sink + z end
 if x then
   own()
-  sink = sink + x + 1
+  st.sink = st.sink + x + 1
 end
-return sink
+return st.sink

@@ -78,7 +78,7 @@ local function test_a_narrowing_dropped_by_a_call_or_an_alias_write_is_told_the_
   assert(#type_errors(copied) == 0, copied)
 end
 
---- The other things that run code, and a local a function literal assigns.
+--- The other things that run code, and a global a function assigns.
 local function test_a_narrowing_dropped_by_other_code_is_told_what_ran_it()
   -- An operator that runs a metamethod.
   answers("local record V\n  metamethod __add: function(V, V): V\nend\n" ..
@@ -104,11 +104,11 @@ local function test_a_narrowing_dropped_by_other_code_is_told_what_ran_it()
       "which may have changed it",
     "'r.n' was checked, but the assignment `r = ...` at 12:5 in this loop may change it before the loop " ..
       "comes round again: copy it to a local before the loop (`local n = r.n`), check and use that")
-  -- A local a function literal assigns is copied into one nothing assigns.
-  answers("local x: integer | nil = 1\nlocal function reset()\n  x = nil\nend\n" ..
-      "if x then\n  reset()\n  print(x + 1)\nend\n", plus,
-    "'x' was checked, but the call `reset(...)` at 6:3 may change it: copy it into a local of its own " ..
-      "after the check (`local x = x`, which no function assigns)")
+  -- A global, which any function may assign, is copied into a local, which none does.
+  answers("global gx: integer | nil = 1\nlocal function reset()\n  gx = nil\nend\n" ..
+      "if gx then\n  reset()\n  print(gx + 1)\nend\n", plus,
+    "'gx' was checked, but the call `reset(...)` at 6:3 may change it: copy it into a local of its own " ..
+      "after the check (`local gx = gx`, which no function assigns)")
   -- A function literal begins without the facts that may change before it runs.
   answers(head .. "if r.n then\n  local get = function(): integer\n    return r.n + 1\n  end\n  print(get())\nend\n",
     plus,

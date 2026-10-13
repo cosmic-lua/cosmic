@@ -40,10 +40,10 @@ end
 
 --- A function answering `text` `size` bytes at a time, then "".
 local function pieces(text: string, size: integer): function(): string
-  local at = 1
+  local at = { value = 1 }
   return function(): string
-    local piece = text:sub(at, at + size - 1)
-    at = at + size
+    local piece = text:sub(at.value, at.value + size - 1)
+    at.value = at.value + size
     return piece
   end
 end
@@ -117,16 +117,16 @@ local function test_failure_lists_the_failing_summary()
 end
 
 local function test_failure_stops_reading_once_it_has_its_lines()
-  local read_after = false
-  local served = 0
+  local read_after = { value = false }
+  local served = { value = 0 }
   local lines = string.rep("test: FAIL x\n", 30) .. string.rep("report\n", 60)
   local text = Fuzz.failure(function(): string
-    served = served + 1
-    if served == 1 then return lines end
-    read_after = true
+    served.value = served.value + 1
+    if served.value == 1 then return lines end
+    read_after.value = true
     return ""
   end, "1")
-  assert(not read_after, "it read past the lines it keeps")
+  assert(not read_after.value, "it read past the lines it keeps")
   assert(select(2, text:gsub("report\n", "")) == 60)
 end
 
@@ -405,10 +405,10 @@ local function test_a_sink_constructor_failure_closes_the_output_descriptor(tmp:
   fake_checkout(root, "0")
   assert(Fs.mkdirs(temp))
   local original_open, original_tee = Fs.open_write, Stream.tee
-  local opened: integer | nil = nil
+  local opened = { value = nil as integer | nil }
   Fs.open_write = function(path: string, mode?: integer): integer | nil, string
     local fd, why = original_open(path, mode)
-    if path == temp .. "/fuzz.out" then opened = fd end
+    if path == temp .. "/fuzz.out" then opened.value = fd end
     return fd, why
   end
   Stream.tee = function(_a: Stream.Writer, _b: Stream.Writer): Stream.Writer
@@ -418,8 +418,8 @@ local function test_a_sink_constructor_failure_closes_the_output_descriptor(tmp:
     summarize = function(_text: string) end })
   Fs.open_write, Stream.tee = original_open, original_tee
   assert(not ok and tostring(why):find("injected sink constructor failure", 1, true))
-  assert(opened ~= nil)
-  local _, _, errno = sys.write(opened, "must be closed")
+  assert(opened.value ~= nil)
+  local _, _, errno = sys.write(opened.value, "must be closed")
   assert(errno == sys.EBADF, "the output descriptor leaked")
 end
 
@@ -430,20 +430,21 @@ local function test_a_failed_drain_preserves_the_status_it_observed(tmp: string)
   fake_checkout(root, "0")
   assert(Fs.mkdirs(temp))
   local original = Child.start
-  local ended, closed = false, false
+  local ended = { value = false }
+  local closed = { value = false }
   Child.start = function(_argv: {string}, _opts?: Child.Options): Child.Handle | nil, string
     local fake: any = {
       try_wait = function(): Child.TryWait
-        return ended and { finished = true, result = { ok = false, code = 17, timed_out = false, captured = {}, truncated = false } } or { finished = false }
+        return ended.value and { finished = true, result = { ok = false, code = 17, timed_out = false, captured = {}, truncated = false } } or { finished = false }
       end,
       drain = function(_self: any, options: Child.DrainOptions): Child.DrainResult
         assert(assert(options.stdout):write("saved-once\n"))
-        ended = true
+        ended.value = true
         return { kind = "failed", bytes = 11, reason = "injected sink failure" }
       end,
       stop = function(): boolean, string return true, "" end,
     }
-    return setmetatable(fake, { __close = function() closed = true end }) as Child.Handle, ""
+    return setmetatable(fake, { __close = function() closed.value = true end }) as Child.Handle, ""
   end
   local log = assert(Fs.open_write(tmp .. "/log"))
   local ok, why = pcall(Fuzz.execute, { root = root, temp = temp, env = {}, log = log,
@@ -451,7 +452,7 @@ local function test_a_failed_drain_preserves_the_status_it_observed(tmp: string)
   Child.start = original
   assert(Fs.close(log))
   assert(not ok and tostring(why):find("injected sink failure", 1, true))
-  assert(closed and read(temp .. "/fuzz.status") == "17\n")
+  assert(closed.value and read(temp .. "/fuzz.status") == "17\n")
   assert(read(temp .. "/fuzz.out") == "saved-once\n" and read(tmp .. "/log") == "saved-once\n")
 end
 

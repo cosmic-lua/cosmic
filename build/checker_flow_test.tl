@@ -30,13 +30,13 @@ local record Flow
   leaves_body: function(Node): boolean
 end
 
-local built: compiler | nil
-local flow: Flow | nil
+local built = { value = nil as compiler | nil }
+local flow = { value = nil as Flow | nil }
 
 --- The carried compiler, and [`checker/flow.tl`] compiled by it and loaded.
 local function setup(): compiler, Flow
-  if built ~= nil and flow ~= nil then
-    return built, flow
+  if built.value ~= nil and flow.value ~= nil then
+    return built.value, flow.value
   end
   local compiled = assert(teal.load(true))
   local env = assert(compiled.new_env({ defaults = {
@@ -46,8 +46,8 @@ local function setup(): compiler, Flow
   assert(code ~= nil and #result.type_errors == 0, "checker/flow.tl does not compile")
   local chunk = assert(load(code, "@checker/flow.tl", "t"))
   local loaded: any = chunk()
-  built, flow = compiled, loaded as Flow
-  return built, flow
+  built.value, flow.value = compiled, loaded as Flow
+  return built.value, flow.value
 end
 
 --- [`checker/flow.tl`] as loaded.

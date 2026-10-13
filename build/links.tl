@@ -214,12 +214,14 @@ function links.check(resolver: link_resolve.Resolver, file: string, absolute: st
   if kind == "markdown" then
     link_resolve.holds(resolver, absolute, source)
   end
-  local own: Known | nil = facts ~= nil and facts.known or nil
+  -- What the file declares, once a link asked for it.
+  local own: {Known} = {}
+  if facts ~= nil and facts.known ~= nil then own[1] = facts.known end
   local blocks = facts ~= nil and facts.blocks or comment_blocks(kind, source, built, file)
   for _, link in ipairs(link_text.in_blocks(blocks)) do
     local function declared(): link_text.Declared
-      local found: Known = own or declarations(kind, source, built, file)
-      own = found
+      local found: Known = own[1] or declarations(kind, source, built, file)
+      own[1] = found
       return found.at(link.line)
     end
     local wrong = link.form == "definition" and misdefined(resolver, absolute, link, declared) or nil
@@ -295,12 +297,13 @@ function links.rewrite(resolver: link_resolve.Resolver, file: string, absolute: 
     facts = nil
   end
   -- What the file declares is read once a span could name something.
-  local held: Known | nil = facts ~= nil and facts.known or nil
+  local held: {Known} = {}
+  if facts ~= nil and facts.known ~= nil then held[1] = facts.known end
   local function known(): Known
-    local found = held
+    local found = held[1]
     if found == nil then
       found = declarations(kind, source, built, file)
-      held = found
+      held[1] = found
     end
     return found
   end
@@ -362,7 +365,7 @@ function links.rewrite(resolver: link_resolve.Resolver, file: string, absolute: 
     end
   end
   -- Teal that does not parse is left as it is.
-  if held ~= nil and not held.parsed then
+  if held[1] ~= nil and not held[1].parsed then
     return { source = source, linked = {}, redefined = false }
   end
   if markdown then
@@ -488,22 +491,23 @@ end
 --- answered from the view's rows held in memory ([`build.symbol_index`]).
 function links.context(root: string, open: function(): docs.View | nil, string,
                        unbuilt: function(): string | nil): link_resolve.Context
-  local held: symbol_index.Index | nil = nil
-  local trouble: string | nil = nil
+  -- The index once built, or why it could not be; neither until asked.
+  local ready_index: {symbol_index.Index} = {}
+  local failure: {string} = {}
   local function ready(): symbol_index.Index | nil, string
-    if held ~= nil then return held, "" end
-    if trouble ~= nil then return nil, trouble end
+    if ready_index[1] ~= nil then return ready_index[1], "" end
+    if failure[1] ~= nil then return nil, failure[1] end
     local opened, why = open()
     if opened == nil then
-      trouble = why
+      failure[1] = why
       return nil, why
     end
     local indexed, index_trouble = index_of(opened)
     if indexed == nil then
-      trouble = index_trouble
+      failure[1] = index_trouble
       return nil, index_trouble
     end
-    held = indexed
+    ready_index[1] = indexed
     return indexed, ""
   end
   local function named(query: string): {link_resolve.Symbol} | nil, string

@@ -492,10 +492,10 @@ function relay.handover(connect: {string}, own: {string}): Config.Handover | nil
   if planned == nil then return nil, plan_why end
   local plan: relay.Plan = planned
   local processes: {Connector.Process} = {}
-  local closed = false
+  local closing = { closed = false }
   local function close()
-    if closed then return end
-    closed = true
+    if closing.closed then return end
+    closing.closed = true
     for _, process in ipairs(processes) do local _ = process:close() end
   end
   local function fail(why: string): nil, string
@@ -589,10 +589,10 @@ function relay.hold_loopback(handover: Config.Handover): integer | nil, string
   local sockets, port = loopback.sockets, loopback.port
   handover.config.listeners = #sockets
   for i, socket in ipairs(sockets) do handover.fds[2 + i] = socket:fd() end
-  local closed = false
+  local closing = { closed = false }
   handover.close = function()
-    if closed then return end
-    closed = true
+    if closing.closed then return end
+    closing.closed = true
     for _, socket in ipairs(sockets) do local _, _ = socket:close() end
   end
   return port, ""

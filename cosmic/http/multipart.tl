@@ -269,15 +269,15 @@ end
 local function ext_value(text: string): string | nil, string
   local charset, escaped = text:match("^([%w-]+)'[%w-]*'(.*)$")
   if charset == nil then return nil, "multipart: filename* is not charset'language'value" end
-  local bad = false
+  local read = { bad = false }
   local raw = escaped:gsub("%%(%x?%x?)", function(hex: string): string
     if #hex ~= 2 then
-      bad = true
+      read.bad = true
       return ""
     end
     return string.char(tonumber(hex, 16))
   end)
-  if bad then return nil, "multipart: filename* has a bad escape" end
+  if read.bad then return nil, "multipart: filename* has a bad escape" end
   local lower = charset:lower()
   if lower == "utf-8" then return raw, "" end
   if lower == "iso-8859-1" then

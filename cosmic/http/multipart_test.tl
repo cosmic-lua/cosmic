@@ -273,11 +273,11 @@ local function test_a_failed_parser_stays_failed_and_a_part_body_reports_it()
 end
 
 local function test_a_source_failure_is_passed_on_as_it_was_given()
-  local sent = false
+  local sent = { value = false }
   local source: Stream.Reader = {
     read = function(_self: Stream.Reader, _max?: integer): string | nil, string
-      if sent then return nil, "boom" end
-      sent = true
+      if sent.value then return nil, "boom" end
+      sent.value = true
       return "--" .. B .. "\r\nContent-Disposition: form-data; name=\"a\"\r\n\r\nab", ""
     end,
     close = function(_self: Stream.Reader): boolean, string return true, "" end,

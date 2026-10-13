@@ -56,13 +56,13 @@ local probe: Rule = {
 --- @param source string
 --- @return string
 local function fixed(source: string): string
-  local out = ""
+  local out = { value = "" }
   with_rule(probe, function()
     local result, trouble = fix.source(built, source, "probe.tl")
     assert(result ~= nil, "fix refused it: " .. tostring(trouble))
-    out = result.source
+    out.value = result.source
   end)
-  return out
+  return out.value
 end
 
 --- A registered rule reaches the file, and what comes back is rendered:

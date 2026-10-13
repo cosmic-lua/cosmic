@@ -49,14 +49,14 @@ end
 local function test_walk_descends_into_if_blocks()
   local parsed = parse_ok("if x then return 1 elseif y then return 2 end",
     "if_blocks.tl")
-  local if_block_count = 0
+  local if_block_count = { value = 0 }
   walk_mod.walk(parsed.node, function(n: node_mod.Node)
     if n.kind == "if_block" then
-      if_block_count = if_block_count + 1
+      if_block_count.value = if_block_count.value + 1
     end
   end)
-  assert(if_block_count == 2,
-    "expected both if_blocks reached, got " .. if_block_count)
+  assert(if_block_count.value == 2,
+    "expected both if_blocks reached, got " .. if_block_count.value)
 end
 
 --- `return a --[[ keep this ]] + b`, three lines above the enclosing
@@ -136,15 +136,15 @@ end
 --- a string `kind` and `OpInfo` never does.
 local function test_walk_never_visits_an_op_payload_as_a_node()
   local parsed = parse_ok("os.execute(cmd)\n", "op_payload.tl")
-  local visits = 0
+  local visits = { value = 0 }
   walk_mod.walk(parsed.node, function(n: node_mod.Node)
-    visits = visits + 1
+    visits.value = visits.value + 1
     local kind: any = n.kind
     assert(kind is string,
       "visited a value with no string kind (likely an OpInfo payload): " ..
         tostring(kind))
   end)
-  assert(visits > 0, "walk visited nothing")
+  assert(visits.value > 0, "walk visited nothing")
 end
 
 --- `span_start` finds the leftmost position over the whole subtree,
@@ -167,12 +167,12 @@ end
 --- not dropped, and the two lists together are the step `walk` takes.
 local function test_children_hands_back_what_a_skipped_field_leads_to()
   local parsed = parse_ok("if x then return 1 end", "passed.tl")
-  local block: node_mod.Node | nil = nil
+  local block = { value = nil as node_mod.Node | nil }
   walk_mod.walk(parsed.node, function(n: node_mod.Node)
-    if n.kind == "if_block" then block = n end
+    if n.kind == "if_block" then block.value = n end
   end)
-  assert(block ~= nil, "no if_block")
-  local found = block
+  assert(block.value ~= nil, "no if_block")
+  local found = block.value
   local parent = found.if_parent
   local passed: {node_mod.Node} = {}
   local kept = walk_mod.children(found, { if_parent = true }, passed)

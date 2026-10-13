@@ -2584,16 +2584,16 @@ local function evaluate(text: string, leg: {string: string}, event: string, ref:
       at = at + #token
     end
   end
-  local i = 1
+  local i = { value = 1 }
   local function truthy(v: Value): boolean return v ~= "" and v ~= false end
   local disjunction: function(): Value
   local function primary(): Value
-    local token = assert(tokens[i], "an expression ends early: " .. inner)
-    i = i + 1
+    local token = assert(tokens[i.value], "an expression ends early: " .. inner)
+    i.value = i.value + 1
     if token == "(" then
       local v = disjunction()
-      assert(tokens[i] == ")", "an unclosed parenthesis: " .. inner)
-      i = i + 1
+      assert(tokens[i.value] == ")", "an unclosed parenthesis: " .. inner)
+      i.value = i.value + 1
       return v
     elseif token == "!" then
       return not truthy(primary())
@@ -2610,9 +2610,9 @@ local function evaluate(text: string, leg: {string: string}, event: string, ref:
   end
   local function comparison(): Value
     local left = primary()
-    local op = tokens[i]
+    local op = tokens[i.value]
     if op == "==" or op == "!=" then
-      i = i + 1
+      i.value = i.value + 1
       local right = primary()
       assert(left is string and right is string,
         "a comparison of other than two strings this test cannot answer: " .. inner)
@@ -2624,8 +2624,8 @@ local function evaluate(text: string, leg: {string: string}, event: string, ref:
   end
   local function conjunction(): Value
     local v = comparison()
-    while tokens[i] == "&&" do
-      i = i + 1
+    while tokens[i.value] == "&&" do
+      i.value = i.value + 1
       local right = comparison()
       if truthy(v) then v = right end
     end
@@ -2633,15 +2633,15 @@ local function evaluate(text: string, leg: {string: string}, event: string, ref:
   end
   disjunction = function(): Value
     local v = conjunction()
-    while tokens[i] == "||" do
-      i = i + 1
+    while tokens[i.value] == "||" do
+      i.value = i.value + 1
       local right = conjunction()
       if not truthy(v) then v = right end
     end
     return v
   end
   local v = disjunction()
-  assert(tokens[i] == nil, "an expression with more after its end: " .. inner)
+  assert(tokens[i.value] == nil, "an expression with more after its end: " .. inner)
   return v
 end
 

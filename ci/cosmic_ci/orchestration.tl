@@ -856,19 +856,20 @@ end
 --- or [`record_suite`] parses is unbroken by another group's output.
 local function fixture_group(c: Context, work: string, spec: FixtureSpec,
                              jobs?: integer): Orchestration.Group
-  local prepared: Prepared | nil = nil
+  -- The preparation, once the group has started.
+  local prepared: {Prepared} = {}
   return {
     name = spec.name,
     run = function(): integer return fixture_run_spec(c, work, spec) end,
     start = function(): Runner.Running
       local made = prepare_fixture(c, work, spec, spec.source, jobs)
-      prepared = made
+      prepared[1] = made
       local runner, request = request_for(c, made.command, spec.timeout_ns,
         made.project, made.env, made.out, made.err)
       return Runner.spawn(runner, "fixture: " .. spec.name, request)
     end,
     finish = function(outcome: Runner.Outcome): integer
-      local made = assert(prepared, "fixture group finished before it started")
+      local made = assert(prepared[1], "fixture group finished before it started")
       local replay_ok = replay(made.out, made.err)
       if outcome.code == 0 then
         assert(replay_ok, "could not replay retained output")
@@ -877,7 +878,7 @@ local function fixture_group(c: Context, work: string, spec: FixtureSpec,
       return outcome.code
     end,
     abandon = function(_: Runner.Outcome)
-      if prepared then replay(prepared.out, prepared.err) end
+      if prepared[1] then replay(prepared[1].out, prepared[1].err) end
     end,
   }
 end
@@ -1767,15 +1768,14 @@ function Orchestration.run_groups(high: Orchestration.Group,
     owner[running] = group
     in_low[running] = is_low
   end
-  local status = 0
-  local next_low = 1
+  local run = { status = 0, next_low = 1 }
   local ran, failure = pcall(function(): boolean
     begin(high, false)
     if low[1] then
       begin(low[1], true)
-      next_low = 2
+      run.next_low = 2
     end
-    while #active > 0 and status == 0 do
+    while #active > 0 and run.status == 0 do
       local done = Runner.wait_any(active)
       for index, running in ipairs(active) do
         if running == done then
@@ -1784,10 +1784,10 @@ function Orchestration.run_groups(high: Orchestration.Group,
         end
       end
       local group = owner[done]
-      status = group.finish(Runner.reap(done))
-      if status == 0 and in_low[done] and low[next_low] then
-        local following = low[next_low]
-        next_low = next_low + 1
+      run.status = group.finish(Runner.reap(done))
+      if run.status == 0 and in_low[done] and low[run.next_low] then
+        local following = low[run.next_low]
+        run.next_low = run.next_low + 1
         begin(following, true)
       end
     end
@@ -1802,7 +1802,7 @@ function Orchestration.run_groups(high: Orchestration.Group,
     if not abandoned and ran then ran, failure = false, trouble end
   end
   if not ran then error(failure, 0) end
-  return status
+  return run.status
 end
 
 local function phase_fixtures(p: PlatformContext): integer

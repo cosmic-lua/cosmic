@@ -212,9 +212,10 @@ local function test_save_outputs_append_without_replacing_or_reading(tmp: string
   local value = encoded(path)
   value.fresh = 2
   local payload = assert(Json.encode(value))
-  local read, append, calls = Fs.read, Fs.append, 0
+  local read, append = Fs.read, Fs.append
+  local calls = { value = 0 }
   Fs.append = function(name: string, text: string, mode?: integer): boolean, string
-    calls = calls + 1
+    calls.value = calls.value + 1
     assert(Fs.exists(restored) == false, "snapshot cleanup followed publication")
     assert(name == link and text == "digest=" .. string.rep("a", 64) .. "\nfresh=2\n")
     return append(name, text, mode)
@@ -225,7 +226,7 @@ local function test_save_outputs_append_without_replacing_or_reading(tmp: string
   end
   local ok, out, err = pcall(mocked, request, { GITHUB_OUTPUT = link }, payload)
   Fs.read, Fs.append = read, append
-  assert(ok and calls == 1 and err == "diagnostic", err)
+  assert(ok and calls.value == 1 and err == "diagnostic", err)
   assert(tostring(out):find("2 compiles", 1, true), out)
   local after = assert(Fs.stat(target))
   assert(before.ino == after.ino and before.mode == after.mode)
@@ -238,15 +239,16 @@ local function test_partial_output_failure_keeps_the_report_and_does_not_retry(t
   assert(Fs.write(output, "earlier=value\n"))
   local request: CacheTrim.Request = { family = "compiles", paths = { path }, since_ns = 1, whole = false }
   local payload = assert(Json.encode(encoded(path)))
-  local append, calls = Fs.append, 0
+  local append = Fs.append
+  local calls = { value = 0 }
   Fs.append = function(name: string, text: string, mode?: integer): boolean, string
-    calls = calls + 1
+    calls.value = calls.value + 1
     assert(append(name, text:sub(1, 3), mode))
     return false, name .. ": injected append failure"
   end
   local ok, out, err = pcall(mocked, request, { GITHUB_OUTPUT = output }, payload)
   Fs.append = append
-  assert(ok and calls == 1 and tostring(out):find("digest", 1, true), out)
+  assert(ok and calls.value == 1 and tostring(out):find("digest", 1, true), out)
   assert(err == "diagnosticcompiles-trim: " .. output .. ": injected append failure\n", err)
   assert(Fs.read(output) == "earlier=value\ndig")
 end

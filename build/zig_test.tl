@@ -388,10 +388,10 @@ local function test_lookup_exit_status_uses_kind_without_another_lookup(tmp: str
   assert(Fs.mkdirs(tmp .. "/build"))
   assert(Fs.write(tmp .. "/build/zig.tl", "-- stand-in"))
   local real_find, real_get = Proc.find_result, Env.get
-  local calls = 0
+  local calls = { value = 0 }
   local reply: Proc.FindResult = { kind = "not_executable", path = "tool", reason = "tool: not found" }
   Proc.find_result = function(_name: string, _path?: string): Proc.FindResult
-    calls = calls + 1
+    calls.value = calls.value + 1
     return reply
   end
   Env.get = function(name: string): string | nil
@@ -402,7 +402,7 @@ local function test_lookup_exit_status_uses_kind_without_another_lookup(tmp: str
   reply = { kind = "not_found", reason = "tool: not executable" }
   local missing = Zig.main({ [0] = tmp .. "/build/zig.tl", "version" })
   Proc.find_result, Env.get = real_find, real_get
-  assert(denied == 126 and missing == 127 and calls == 2)
+  assert(denied == 126 and missing == 127 and calls.value == 2)
 end
 
 local function test_boot_lock_classifies_the_begin_result_not_its_reason(tmp: string)
@@ -423,28 +423,29 @@ local function test_boot_lock_classifies_the_begin_result_not_its_reason(tmp: st
   local sample = assert(Sqlite.memory())
   local methods = (assert(getmetatable(sample)) as {string:any}).__index as {string:any}
   local real_busy, real_exec, real_close = methods.busy_timeout, methods.exec_result, methods.close
-  local calls, closes = 0, 0
+  local calls = { value = 0 }
+  local closes = { value = 0 }
   local outcome: Sqlite.ExecResult | nil
   methods.busy_timeout = function(_self: any, ns: integer) assert(ns >= 0) end
   methods.exec_result = function(_self: any, sql: string): Sqlite.ExecResult
     assert(sql == "BEGIN IMMEDIATE")
-    calls = calls + 1
-    if calls == 1 then return outcome end
+    calls.value = calls.value + 1
+    if calls.value == 1 then return outcome end
     return { code = Sqlite.OK, extended_code = Sqlite.OK, reason = "" }
   end
   methods.close = function(self: any): boolean, string
-    closes = closes + 1
+    closes.value = closes.value + 1
     return (real_close as function(any): boolean, string)(self)
   end
   Sqlite.open = function(_path: string, _opts?: Sqlite.OpenOptions): Sqlite.Handle | nil, string
     return Sqlite.memory()
   end
   for i, each in ipairs(outcomes) do
-    outcome, calls, closes = each, 0, 0
+    outcome, calls.value, closes.value = each, 0, 0
     statuses[i] = Zig.with_lock(build_dir(tmp .. "/" .. i), {}, function(_env: {string:string}): integer
       return 7
     end)
-    attempts[i], closures[i] = calls, closes
+    attempts[i], closures[i] = calls.value, closes.value
   end
   methods.busy_timeout, methods.exec_result, methods.close = real_busy, real_exec, real_close
   assert(sample:close())
@@ -461,12 +462,12 @@ local function test_snapshot_names_a_same_size_rewrite_with_preserved_mtime(tmp:
   local path = root .. "/core/a.c"
   assert(Fs.set_mtime(path, 0, 0))
   local stat = sys.stat
-  local tick = 1
+  local tick = { value = 1 }
   sys.stat = function(name: string): sys.Stat | nil, string, integer
     local st, trouble, errno = stat(name)
     if st ~= nil and name == path then
       st.ctime = 100
-      st.ctime_ns = tick
+      st.ctime_ns = tick.value
     end
     if st ~= nil then return st end
     return nil, trouble, errno
@@ -482,7 +483,7 @@ local function test_snapshot_names_a_same_size_rewrite_with_preserved_mtime(tmp:
     assert(was.ino == after.ino and was.size == after.size and
         was.mtime == after.mtime and was.mtime_ns == after.mtime_ns)
     -- A nanosecond-only change is distinct even on a coarse filesystem.
-    tick = 2
+    tick.value = 2
     assert(table.concat(Zig.changed(before, (assert(Zig.snapshot(root)))), " ") == "core/a.c")
   end)
   sys.stat = stat

@@ -231,21 +231,21 @@ end
 local function client_of(words: {string}): {string} | nil, integer
   local argv: {integer:string} = { [0] = "cosmic", [1] = "sandbox" }
   for index, word in ipairs(words) do argv[index + 1] = word end
-  local given: {string} | nil
-  local started = false
+  local given = { value = nil as {string} | nil }
+  local started = { value = false }
   local code = sandbox.run(argv, {
     err = function(_: string) end,
     run = function(_: {string}, _: Child.Options): Child.Result | nil, string
-      started = true
+      started.value = true
       return finished(0), ""
     end,
     connect = function(args: {string}): integer
-      given = args
+      given.value = args
       return 42
     end,
   })
-  assert(not started or given == nil, "the client and a program are not both run")
-  return given, code
+  assert(not started.value or given.value == nil, "the client and a program are not both run")
+  return given.value, code
 end
 
 local function test_a_connect_right_after_the_verb_is_the_relays_client()

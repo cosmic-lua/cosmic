@@ -77,6 +77,9 @@ local record compiler
     "not_assigned"
     -- a local declared with neither a type nor a value: `variable`
     "no_type"
+    -- a function literal assigning a local declared outside it: `variable`,
+    -- and `declared_y`, `declared_x` where that local is declared
+    "captured_assigned"
     -- a `goto` that is not a jump forward to the label that ends the body of
     -- the loop around it, or a label no such `goto` names: `variable` (the
     -- label's name), `goto_y`, `goto_x` (none for a label), and `label_y`,
@@ -193,6 +196,10 @@ local record compiler
     skipped_y: integer | nil
     skipped_x: integer | nil
 
+    -- For a function literal that assigns a local declared outside it: where
+    -- that local is declared.
+    declared_y: integer | nil
+    declared_x: integer | nil
     -- For a `goto` or a label that is not a continue: where the `goto` is
     -- and where the label it names is.
     goto_y: integer | nil

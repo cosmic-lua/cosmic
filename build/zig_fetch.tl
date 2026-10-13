@@ -174,11 +174,11 @@ function ZigFetch.fetch(urls: {string}, path: string, sha256: string,
   local deadline = now() + BUDGET_NS
   local last: {string:string} = {}
   local wrong: {string:boolean} = {}
-  local attempts = 0
+  local tally = { attempts = 0 }
   local out_of_time = false
 
   local function attempt(url: string, opts: Http.Options): Http.DownloadResult
-    attempts = attempts + 1
+    tally.attempts = tally.attempts + 1
     local _, _ = Fs.remove(path)
     opts.sha256 = sha256
     local started = now()
@@ -229,7 +229,7 @@ function ZigFetch.fetch(urls: {string}, path: string, sha256: string,
   end
   local why = out_of_time and "mirrors out of time; every source failed after " or
     "every source failed after "
-  return false, why .. tostring(attempts) .. " attempts:" .. table.concat(lines)
+  return false, why .. tostring(tally.attempts) .. " attempts:" .. table.concat(lines)
 end
 
 --- Downloads, verifies and extracts zig `version`'s release for `host`,

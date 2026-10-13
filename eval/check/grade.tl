@@ -1689,6 +1689,13 @@ local function mirror_pulls(g: Grade, site: Site)
   pulls(g, { "pull", base .. "/sub", "part" }, { "fetched b.bin", "fetched deep/c.txt" })
 end
 
+--- The pull [`mirror_lie`] makes from its server: the arguments, and what
+--- the run answered.
+local record Pull
+  args: {string}
+  result: Child.Result | nil
+end
+
 --- Serves a listing that lies about bad.txt's hash, and pulls from it.
 local function mirror_lie(g: Grade)
   local good, bad = "good\n", "right"
@@ -1697,8 +1704,7 @@ local function mirror_lie(g: Grade)
     { name = "good.txt", type = "file", size = #good, sha256 = Hash.hex_sha256(good) },
   }))
   local bodies: {string: string} = { ["/"] = listing, ["/bad.txt"] = bad, ["/good.txt"] = good }
-  local result: Child.Result | nil = nil
-  local args: {string} = {}
+  local pull: Pull = { args = {}, result = nil }
   local served, trouble = Net.serve({
     listeners = { Net.tcp("127.0.0.1", 0) },
     timeout_ns = Clock.seconds(5),
@@ -1718,20 +1724,19 @@ local function mirror_lie(g: Grade)
           "\r\nConnection: close\r\n\r\n" .. body)
     end,
     on_ready = function(addresses: {Net.Address}, server: Net.Server)
-      args = { "pull", "http://127.0.0.1:" .. assert(addresses[1].port) .. "/", "lied" }
-      result = run(g, args)
+      pull.args = { "pull", "http://127.0.0.1:" .. assert(addresses[1].port) .. "/", "lied" }
+      pull.result = run(g, pull.args)
       server:stop()
     end,
   })
-  -- Read once, as a local no closure assigns.
-  local ran = result
+  local ran = pull.result
   if not served or ran == nil then
     fail(g, "the lying server did not serve: " .. trouble)
     return
   end
   local err = ran.stderr or ""
   check(g, status(ran) ~= 0 and err:find("bad.txt", 1, true) ~= nil,
-    label(g, args) .. " from a listing with a wrong hash fails naming bad.txt",
+    label(g, pull.args) .. " from a listing with a wrong hash fails naming bad.txt",
     "exit " .. status(ran) .. ", stderr: " .. first_line(err))
   local left, _ = Fs.walk(g.empty .. "/lied")
   local stray: {string} = {}

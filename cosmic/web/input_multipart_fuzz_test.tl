@@ -44,13 +44,14 @@ local function test_any_multipart_body_is_bounded_and_leaves_no_file(tmp: string
   local uploads = tmp .. "/uploads"
   assert(Fs.mkdirs(uploads))
   local app: Web.App
-  local outcome: Types.Parsed<Input.Multipart> | nil
-  local opts: Types.InputOptions | nil
+  -- What the handler is told to read with, and what it read.
+  local handler = { opts = nil as Types.InputOptions | nil, outcome = nil as Types.Parsed<Input.Multipart> | nil }
   app = Web.app{ routes = { Web.post("/x", function(req: Web.Request): Web.Response
-    outcome = Input.multipart(req, opts)
-    if outcome.value ~= nil then
+    local parsed = Input.multipart(req, handler.opts)
+    handler.outcome = parsed
+    if parsed.value ~= nil then
       -- What a handler could still read while the request lasts.
-      for _, list in pairs(assert(outcome.value).files) do
+      for _, list in pairs(assert(parsed.value).files) do
         for _, up in ipairs(list) do
           local st = assert(Fs.stat(up.path))
           assert(st.size == up.size, "the size is the file's")
@@ -78,10 +79,10 @@ local function test_any_multipart_body_is_bounded_and_leaves_no_file(tmp: string
       local max_field_bytes = assert(math.tointeger(tonumber(f[3])))
       local max_files = assert(math.tointeger(tonumber(f[4])))
       local max_parts = assert(math.tointeger(tonumber(f[5])))
-      opts = { dir = uploads, max_file_bytes = max_file_bytes, max_field_bytes = max_field_bytes,
+      handler.opts = { dir = uploads, max_file_bytes = max_file_bytes, max_field_bytes = max_field_bytes,
         max_files = max_files, max_parts = max_parts, max_bytes = 600 }
       local chunked = f[6] == "1"
-      outcome = nil
+      handler.outcome = nil
       local raw: Server.Request = { method = "POST", target = "/x", path = "/x", query = "", version = "HTTP/1.1",
         headers = { host = "x", ["content-type"] = "multipart/form-data; boundary=" .. B },
         body = Stream.from_string(text), length = not chunked and #text or nil }
@@ -90,7 +91,7 @@ local function test_any_multipart_body_is_bounded_and_leaves_no_file(tmp: string
       if reply.status ~= 204 then return false, "the handler faulted: " .. reply.status end
       local left = assert(Fs.list(uploads))
       if #left ~= 0 then return false, "left behind: " .. table.concat(left, ", ") end
-      local read = assert(outcome, "the handler read nothing")
+      local read = assert(handler.outcome, "the handler read nothing")
       if read.invalid ~= nil then
         if read.value ~= nil or not ALLOWED[read.invalid.status] then
           return false, "a bad refusal: " .. read.invalid.status

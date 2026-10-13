@@ -66,7 +66,7 @@ local open_guards: {Guard} = {}
 --- The stamp of the latest signal a guard caught and then closed on
 --- while another stayed open, 0 when none: the last guard to close
 --- delivers it, where that guard opened after it and so never saw it.
-local owed = 0
+local owed = { stamp = 0 }
 
 --- Takes `stamp`, a stamp the core answered, as what `g` has read: a
 --- stamp that moved since the last is a signal caught, for both what
@@ -131,7 +131,7 @@ local function restore_guard(self: Guard): string, boolean, integer
   Innermost.set(active)
   local last = active == nil
   local owing = 0
-  if last then owing, owed = owed % raw.SIGNAL_STAMP_UNIT, 0 end
+  if last then owing, owed.stamp = owed.stamp % raw.SIGNAL_STAMP_UNIT, 0 end
   local fd = raw.child_signal_fd()
   local stamp, trouble = raw.unguard_child_signals(active ~= nil and active._read or 0)
   -- Every task waiting on the pipe looks again: one waiting on this
@@ -157,7 +157,7 @@ Guard.close = function(self: Guard): boolean, string
     -- The caller's dispositions are not back yet: the guards still
     -- open have seen the signal, if they opened before it, and the
     -- last to close delivers it.
-    if self._signal ~= 0 and self._read > owed then owed = self._read end
+    if self._signal ~= 0 and self._read > owed.stamp then owed.stamp = self._read end
     return true, ""
   end
   local signal = self._signal ~= 0 and self._signal or owing

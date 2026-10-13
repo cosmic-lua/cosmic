@@ -114,7 +114,7 @@ local function test_a_host_with_no_files_is_still_named()
   assert(HostId.features(bare) == "e3b0c44298fc1c14", HostId.features(bare))
 end
 
-local runs = 0
+local runs = { value = 0 }
 
 --- What the command appends to $GITHUB_ENV and to $GITHUB_OUTPUT (nil
 --- where `files` is false: unset), what it said and wrote to standard
@@ -122,8 +122,8 @@ local runs = 0
 --- host `host`, whose engine answers `docker`.
 local function named(tmp: string, host: string, words: {string}, env: {string:string}, docker?: string):
     string | nil, string | nil, string, integer
-  runs = runs + 1
-  local dir = tmp .. "/run-" .. runs
+  runs.value = runs.value + 1
+  local dir = tmp .. "/run-" .. runs.value
   assert(Fs.mkdirs(dir))
   local merged: {string:string} = { GITHUB_ENV = dir .. "/env", GITHUB_OUTPUT = dir .. "/output" }
   for name, value in pairs(env) do merged[name] = value end

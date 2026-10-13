@@ -196,10 +196,10 @@ local function counted(value: any, counter: {integer}): any
   for key, member in pairs(value) do copy[key] = counted(member, counter) end
   local walk_copy = function(): function(): (any, any)
     counter[1] = counter[1] + 1
-    local at: any = nil
+    local at = { value = nil as any }
     return function(): any, any
-      local key, member = next(copy, at)
-      at = key
+      local key, member = next(copy, at.value)
+      at.value = key
       return key, member
     end
   end
