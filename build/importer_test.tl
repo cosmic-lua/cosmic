@@ -1969,16 +1969,18 @@ local function test_diagnostic_rendering_cannot_change_acceptance()
 end
 
 --- What Lua's compiler refuses of a chunk the checker passed is said at
---- the Teal file and its line, not at the chunk's module name: a
---- `goto` into a local's scope, after declarations the generated Lua
---- writes in fewer lines than the Teal. Lua says it at the statement
---- after the label, and names the goto's line.
+--- the Teal file and its line, not at the chunk's module name: more locals
+--- than a function may hold, after declarations the generated Lua writes
+--- in fewer lines than the Teal.
 local function test_a_lua_refusal_is_said_at_the_teal_line()
+  local locals: {string} = {}
+  for i = 1, 201 do
+    locals[#locals + 1] = "local v" .. i .. " = " .. i .. " print(v" .. i .. ")\n"
+  end
   local root = assert(write_fixture("lua-refusal", {
     ["lib/serve.tl"] = "local record Point\n  x: integer\n  y: integer\nend\n" ..
       "local enum Mode\n  \"a\"\n  \"b\"\nend\n" ..
-      "local mode: Mode = \"a\"\nprint(mode, Point)\n" ..
-      "goto done\nlocal x = 1\nprint(x)\n::done::\nprint(2)\n",
+      "local mode: Mode = \"a\"\nprint(mode, Point)\n" .. table.concat(locals),
   }))
   local handle = assert(work.open(root))
   assert(work.stage(handle, false))
@@ -1989,8 +1991,8 @@ local function test_a_lua_refusal_is_said_at_the_teal_line()
   local typed = receivers.install(env)
   local made, trouble = compilation.generate(modules[1], built, env, typed, false, true,
     function(_file: string, _source: string, _result: Compiler.Result): string return "" end)
-  assert(made == nil, "a goto into a local's scope compiled")
-  assert(trouble == "lib/serve.tl:15: <goto done> at line 11 jumps into the scope of 'x'", trouble)
+  assert(made == nil, "more locals than a function holds compiled")
+  assert(trouble == "lib/serve.tl:209: too many local variables (limit is 200) in main function near ';'", trouble)
   work.close(handle)
 end
 

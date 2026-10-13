@@ -1142,9 +1142,6 @@ local function dropped_hint(e: compiler.Error): string | nil
   elseif kind == "operator" then
     cause = "the operator `" .. by .. "` at " .. where .. " may run a metamethod that changes it"
     before = "the operator"
-  elseif kind == "label" then
-    cause = "the label `" .. by .. "` at " .. where .. " may be reached by a `goto` from code that changes it"
-    before = "the label"
   elseif kind == "function" then
     -- The function literal is the place the check was made around, and
     -- the place is read in its body.
@@ -1153,9 +1150,7 @@ local function dropped_hint(e: compiler.Error): string | nil
   elseif kind == "loop" then
     -- What the loop's own pass ran is told by how it is written.
     local what = "the operator"
-    if by:sub(1, 2) == "::" then
-      what = "the label"
-    elseif by:sub(-5) == "(...)" then
+    if by:sub(-5) == "(...)" then
       what = "the call"
     elseif by:sub(-6) == " = ..." then
       what = by:sub(1, -7):find("[%.%[]") and "the write" or "the assignment"
@@ -1207,8 +1202,6 @@ local function unassigned_hint(e: compiler.Error): string | nil
       path = " (" .. made .. "the call at " .. at .. " never returns, and the function may be out by then)"
     elseif ran == "return" then
       path = " (" .. made .. "the return at " .. at .. " lets it out first)"
-    elseif ran == "goto" then
-      path = " (" .. made .. "the goto at " .. at .. " goes round again with it)"
     else
       path = " (" .. made .. "the end of the scope lets it out first)"
     end
@@ -1242,6 +1235,33 @@ local function untyped_local_hint(e: compiler.Error): string | nil
   end
   return "'" .. name .. "' has neither a type nor a value: declare `local " .. name ..
     ": T | nil` for one that starts with no value, or give it a value where it is declared"
+end
+
+--- What to do about a `goto` that is not a continue, or a label no continue
+--- names (the code `goto_not_continue`, [`compiler.Error`]): a `goto` may
+--- only jump forward to the label that ends the body of the loop around
+--- it, so anything else is restructured with an `if`, or moved into a
+--- function that returns where the `goto` was.
+local function goto_hint(e: compiler.Error): string | nil
+  local name = e.variable
+  if name == nil then
+    return nil
+  end
+  if e.goto_y == nil then
+    return "the label '::" .. name .. "::' is not the end of a loop body that a goto in it continues to: " ..
+      "a label is only for `goto " .. name .. "` to skip the rest of a pass of the loop, so remove it and " ..
+      "restructure the jump with an `if`, or move the body into a function"
+  end
+  if e.local_y ~= nil then
+    return "'goto " .. name .. "' jumps over the local declared at " .. tostring(e.local_y) .. ":" ..
+      tostring(e.local_x) .. ", between the goto and the label: the `until` of a `repeat` sees it, and the " ..
+      "program is refused. Wrap the code after the goto in `do ... end` or an `if`, or move it into a function"
+  end
+  local at = e.label_y ~= nil and " (the label it names, at " .. tostring(e.label_y) .. ":" ..
+    tostring(e.label_x) .. ", is not)" or ""
+  return "'goto " .. name .. "' may only skip the rest of a pass of the loop around it, to a label that is the " ..
+    "last statement of that loop's body" .. at .. ": restructure with an `if` around the code to skip, " ..
+    "or move the body into a function and `return` from it"
 end
 
 --- The kind of type `source` declares as `name` at its top level
@@ -2026,6 +2046,9 @@ end
 --- `captured_assigned`) is told to return the value or keep it in a field
 --- of a table ([`captured_hint`]).
 ---
+--- A `goto` that is not a continue, and a label no continue names, are told to
+--- restructure with an `if` or move the body into a function ([`goto_hint`]).
+---
 --- `local x = fail()` where `fail` is declared `: never` is told that
 --- `fail` never returns, so it has no value to assign
 --- ([`never_value_hint`]), whichever module declares it.
@@ -2064,6 +2087,9 @@ function teal.replacement(e: compiler.Error, source: string, file?: string,
   end
   if code == "captured_assigned" then
     return captured_hint(e)
+  end
+  if code == "goto_not_continue" then
+    return goto_hint(e)
   end
   if code == "mismatch" and e.got_members ~= nil and #e.got_members == 1 and
       e.got_members[1] == "number" and
