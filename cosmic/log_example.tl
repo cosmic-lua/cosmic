@@ -6,11 +6,11 @@ local Log = require("cosmic.log")
 
 local Example = {}
 
---- A command's findings, then its verdict line.
-function Example.verdict()
+--- A command's findings, on stdout.
+function Example.say()
   local log = Log.new("notes")
-  log:say("1  buy milk")
-  log:verdict("list", true, "1 note, 2 ms")
+  local wrote, trouble = log:say("1  buy milk")
+  assert(wrote, trouble)
 end
 
 --- A failure names the program on stderr.

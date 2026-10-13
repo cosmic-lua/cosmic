@@ -281,7 +281,7 @@ local own_exemptions: contracts.Exemptions = {
 local quieted: {string: contracts.Quiet} = {
   ["cosmic.log Logger"] = {
     reason = "a line written for a person; its failure has nowhere to go",
-    methods = { say = true, complain = true, verdict = true },
+    methods = { say = true, complain = true },
   },
 }
 
