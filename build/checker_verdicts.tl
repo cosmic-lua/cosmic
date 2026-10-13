@@ -37,6 +37,10 @@
 --- served to a `require` and not checked alone), and the modules the build
 --- generates (doc examples, templates).
 ---
+--- `TL_SHADOW_FACTS=1` makes any command also write the lines of the checker's
+--- shadow facts' disagreements with its narrowing (`shadow.mismatch`,
+--- `shadow.reads`); leave it out of a run that is diffed.
+---
 --- To compare the checker of a tree with main's, build both tools and run
 --- the same sources through each, reading one tree from both. The script is
 --- run by the tool of the checkout it sits in (`cosmic <file>` builds the
@@ -94,6 +98,7 @@
 -- narrowed reads too (a `--types` mode), once checker/facts.tl feeds the
 -- type report: until then the lines cannot show a read whose type moved
 -- while its verdict did not.
+local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local shape_specs = require("build.shape_specs")
 local programs = require("build.checker_programs")
@@ -138,6 +143,12 @@ local record verdicts
   main: function(argv: {string}): integer
 end
 
+--- Whether the checker's shadow facts are compared with its narrowing, so
+--- that each disagreement is a line (`shadow.mismatch`). `main` sets it when
+--- `TL_SHADOW_FACTS=1`; the lines are for reading, not for the diff that
+--- shows no verdict moved.
+local held = { shadow_facts = false }
+
 --- A checker environment for the tree: the strictness the build holds
 --- itself to and without the names the runtime removes, as
 --- [`build.teal`]'s `environment_for` makes one.
@@ -146,9 +157,35 @@ function verdicts.environment(built: compiler): compiler.Env
     feat_lax = "off", gen_compat = "off", gen_target = "5.4", runtime_checks = false,
   } }))
   teal.strip(env)
+  if held.shadow_facts then
+    env.shadow_mismatches = {}
+  end
   return env
 end
 local environment <const> = verdicts.environment
+
+--- The disagreements the checker's shadow facts found in `env`, as lines of
+--- `file`, and none left in it.
+local function shadow_lines(out: {verdicts.Line}, file: string, env: compiler.Env)
+  local found = env.shadow_mismatches
+  if found == nil then
+    return
+  end
+  -- Reads compared go in a line of their own, for the count.
+  if (env.shadow_reads or 0) > 0 then
+    out[#out + 1] = { file = file, code = "shadow.reads", y = 0, x = 0, message = tostring(env.shadow_reads) }
+    env.shadow_reads = 0
+  end
+  for i, text in ipairs(found) do
+    local y, x, message = text:match("^(%d+):(%d+) (.*)$")
+    out[#out + 1] = {
+      file = file, code = "shadow.mismatch",
+      y = math.tointeger(tonumber(y or "")) or 0, x = math.tointeger(tonumber(x or "")) or 0,
+      message = message or text,
+    }
+    found[i] = nil
+  end
+end
 
 local function escaped(text: string): string
   return (text:gsub("[\\\t\n\r]", {
@@ -195,6 +232,7 @@ function verdicts.program_lines(built: compiler, file: string, text: string): {v
   else
     collect(out, file, result, nil)
   end
+  shadow_lines(out, file, env)
   return out
 end
 
@@ -297,6 +335,7 @@ function verdicts.tree_lines(built: compiler, root: string, names: {string}, fre
           raised(out, relative, result)
         else
           collect(out, relative, result, relative)
+          shadow_lines(out, relative, env)
           if name ~= nil and result.type ~= nil then
             env.modules[name] = result.type
           end
@@ -386,6 +425,7 @@ end
 
 function verdicts.main(argv: {string}): integer
   local command = argv[1]
+  held.shadow_facts = Env.get("TL_SHADOW_FACTS") == "1"
   if command == "dump" then
     return dump(argv)
   end
