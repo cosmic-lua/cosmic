@@ -15840,6 +15840,12 @@ do
       },
       ["local_function"] = {
          before = function(self: TypeChecker, node: Node)
+            -- TODO: keep the facts a function expression keeps (`local_is_fixed`)
+            -- here and in `global_function` and `record_function`, once narrowing
+            -- holds its facts apart from declared types and a body is checked
+            -- against the facts that can still hold when it runs; until then a
+            -- declaration widens every narrowed name, which refuses
+            -- `opts = opts or {}; local function f() return opts.x end`.
             self:widen_all_unions()
             if self.collector then
                self.collector.reserve_symbol_list_slot(node)
