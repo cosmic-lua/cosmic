@@ -969,6 +969,35 @@ local function refused_source(source: string, ...: string)
   end
 end
 
+--- A test of a string narrows a local to that string, and an assignment under
+--- a second test of it widens the local back to its declared type for
+--- the code after that `if`, whatever the outer test said.
+local function test_a_local_assigned_under_a_nested_test_of_it_is_widened_back()
+  local want = "in local declaration: n: got string, expected integer"
+  local at4 = "4: " .. want
+  local at5 = "5: " .. want
+  refused_source("local function f(ch: string)\n  if ch == \"'\" then\n    if ch == \"'\" then ch = \"z\" end\n    local n: integer = ch\n  end\nend\nprint(f)\n", at4)
+  refused_source("local function f(ch: string)\n  if ch == \"'\" or ch == \"!\" then\n    if ch == \"'\" then ch = \"z\" end\n    local n: integer = ch\n  end\nend\nprint(f)\n", at4)
+  refused_source("local function f(src: string)\n  local ch = src:sub(1, 1)\n  if ch == \"'\" or ch == \"!\" then\n    if ch == \"'\" then ch = \"z\" end\n    local n: integer = ch\n  end\nend\nprint(f)\n", at5)
+  refused_source("local function f(ch: string)\n  if ch == \"'\" or ch == \"!\" then\n    if ch == \"'\" then ch = \"z\" elseif ch == \"!\" then ch = \"y\" end\n    local n: integer = ch\n  end\nend\nprint(f)\n", at4)
+  refused_source("local function f(ch: string)\n  if ch == \"'\" or ch == \"!\" then\n    do\n      if ch == \"'\" then ch = \"z\" end\n    end\n    local n: integer = ch\n  end\nend\nprint(f)\n", "6: " .. want)
+  refused_source("local function f(ch: string)\n  if ch == \"a\" then\n    if ch == \"a\" then\n      if ch == \"a\" then ch = \"z\" end\n      local n: integer = ch\n    end\n    local m: integer = ch\n  end\nend\nprint(f)\n",
+    "5: " .. want, "7: in local declaration: m: got string, expected integer")
+  refused_source("local function f(s: string)\n  local ch = s\n  if ch == \"a\" then\n    if ch == \"a\" then ch = \"z\" end\n    local n: integer = ch\n  end\nend\nprint(f)\n", at5)
+end
+
+--- Narrowed to a string, a local is not told apart from its declared type by
+--- `same_type`, which ignores the literal. Past an assignment it reads as
+--- the declared type, and a global narrowed so is dropped by a call a loop
+--- makes after reading it.
+local function test_a_string_narrowing_is_not_taken_for_the_declared_type()
+  refused_source("local enum E\n  \"a\"\n  \"b\"\nend\nglobal g: string\nlocal function touch() g = \"zzz\" end\nlocal function f(c: boolean)\n  if g == \"a\" then\n    while c do\n      local e: E = g\n      touch()\n    end\n  end\nend\nprint(f)\n",
+    "10: 'g' was narrowed before this loop")
+  accepted_source("local enum E\n  \"a\"\n  \"b\"\nend\nlocal function f(ch: string)\n  if ch == \"a\" then\n    local e: E = ch\n    if ch == \"a\" then ch = \"b\" end\n  end\nend\nprint(f)\n")
+  refused_source("local enum E\n  \"a\"\n  \"b\"\nend\nlocal function f(ch: string)\n  if ch == \"a\" then\n    if ch == \"a\" then ch = \"z\" end\n    local e: E = ch\n  end\nend\nprint(f)\n",
+    "8: in local declaration: e: string is not a E")
+end
+
 local function test_a_write_through_another_reference_drops_the_field()
   refused("if q.a then\n  p.a = nil\n  print(q.a + 1)\nend", "3: " .. plus:sub(1, 28))
   refused("if q.a then\n  p[\"a\"] = nil\n  print(q.a + 1)\nend", "3: " .. plus:sub(1, 28))
