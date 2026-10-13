@@ -109,9 +109,9 @@ local function test_a_refused_spawn_fails_the_test_whatever_it_made_of_it(tmp: s
 --- for spawn wraps `refusing`'s; the one running the test hears them
 --- too.
 local function test_passed_over(tmp: string)
-  local inner: {string:any} | nil = nil
+  local inner: {{string:any}} = {}
   refusing(function()
-    inner = confine.call(function()
+    inner[1] = confine.call(function()
       confine.must_confine({ reads = { "bin/probe" } })
       local ran, _ = Child.run({ "bin/probe", "write " .. tmp .. "/ran ran" })
       confine.confine(nil)
@@ -119,7 +119,7 @@ local function test_passed_over(tmp: string)
     end, nil, { tmp })
   end)
   assert(Fs.stat(tmp .. "/ran") == nil, "nothing runs in its place")
-  assert(not assert(inner).ok, "the inner stand-in's call fails")
+  assert(not assert(inner[1]).ok, "the inner stand-in's call fails")
 end
 
 local function test_raised_too(tmp: string)
@@ -156,10 +156,10 @@ local function test_a_policys_grants_alone()
 end
 
 local function test_stale(tmp: string)
-  local taken: any = nil
-  local _ = confine.call(function() taken = raw().spawn end, nil, { tmp })
+  local taken: {any} = {}
+  local _ = confine.call(function() taken[1] = raw().spawn end, nil, { tmp })
   confine.must_confine({ reads = { "bin/probe" } })
-  local spawn = taken as function(string, {string}, any, any, any, any, any, boolean): any
+  local spawn = taken[1] as function(string, {string}, any, any, any, any, any, boolean): any
   local _ = spawn("bin/probe", { "bin/probe", "exit 0" }, nil, nil, nil, nil, nil, false)
   confine.confine(nil)
 end

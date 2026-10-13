@@ -50,12 +50,12 @@ what is refused, and prints how many of its templates the compiler turned away.
 local Template = require("cosmic.template")
 
 do
-  local refused = 0
+  local tally = { refused = 0 }
   local header = "{{type Page from site.page}}{{use htmx}}\n"
   local function reason(markup: string, plain?: boolean): string
     local source, why = Template.compile((plain and "{{type Page from site.page}}\n" or header) .. markup, "page.tmpl")
     assert(source == nil, markup)
-    refused = refused + 1
+    tally.refused = tally.refused + 1
     return why
   end
   -- A link can load anything, so its href takes no slot: the layout is
@@ -73,7 +73,7 @@ do
   assert(reason("<b hx-vals='{{.vals}}'>x</b>", true):find("{{use htmx}}", 1, true))
   local ok = Template.compile(header .. '<a hx-get="/tasks/{{.id}}" hx-target="#task-{{.id}}">x</a>\n', "page.tmpl")
   assert(ok ~= nil)
-  print(refused)
+  print(tally.refused)
 end
 ```
 
