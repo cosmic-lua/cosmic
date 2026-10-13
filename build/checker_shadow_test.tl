@@ -530,6 +530,149 @@ local function f(q: R): number
 end
 print(f, maybe)
 ]],
+  loop_drops_for = [[
+local record R
+   a: number | nil
+   ab: number | nil
+   r: R | nil
+   m: function(R)
+end
+local function clr(q: R): boolean q.a = nil return true end
+
+local function f(q: R, s: R): number
+  local n = 0
+  if q.a then
+    for _ = 1, 3 do
+      n = n + q.a
+      clr(q)
+    end
+  end
+  return n
+end
+print(f)
+]],
+  loop_drops_forin = [[
+local record R
+   a: number | nil
+   ab: number | nil
+   r: R | nil
+   m: function(R)
+end
+local function clr(q: R): boolean q.a = nil return true end
+
+local function f(q: R, s: R, t: {integer}): number
+  local n = 0
+  if q.a then
+    for _, v in ipairs(t) do
+      n = n + q.a + v
+      s.a = nil
+    end
+  end
+  return n
+end
+print(f)
+]],
+  loop_drops_repeat = [[
+local record R
+   a: number | nil
+   ab: number | nil
+   r: R | nil
+   m: function(R)
+end
+local function clr(q: R): boolean q.a = nil return true end
+
+local function f(q: R, s: R): number
+  local n = 0
+  if q.a then
+    repeat
+      n = n + q.a
+      s.a = nil
+    until n > 3
+  end
+  return n
+end
+print(f)
+]],
+  loop_drops_while = [[
+local record R
+   a: number | nil
+   ab: number | nil
+   r: R | nil
+   m: function(R)
+end
+local function clr(q: R): boolean q.a = nil return true end
+
+local function f(q: R, s: R): number
+  local n = 0
+  if q.a then
+    while q.a do
+      n = n + q.a
+      clr(q)
+    end
+  end
+  return n
+end
+print(f)
+]],
+  loop_drops_while2 = [[
+local record R
+   a: number | nil
+   ab: number | nil
+   r: R | nil
+   m: function(R)
+end
+local function clr(q: R): boolean q.a = nil return true end
+
+local function f(q: R, s: R): number
+  local n = 0
+  if q.a then
+    while n < 3 do
+      n = n + q.a
+      q.a = nil
+    end
+  end
+  return n
+end
+print(f)
+]],
+  loop_drops_closure = [[
+local record R
+   a: number | nil
+   ab: number | nil
+   r: R | nil
+   m: function(R)
+end
+local function clr(q: R): boolean q.a = nil return true end
+
+local function f(q: R, s: R): number
+  if q.a then
+    local g = function(): number return q.a + 1 end
+    q.a = nil
+    return g()
+  end
+  return 0
+end
+print(f)
+]],
+  loop_drops_assert = [[
+local record R
+   a: number | nil
+   ab: number | nil
+   r: R | nil
+   m: function(R)
+end
+local function clr(q: R): boolean q.a = nil return true end
+
+local function f(q: R, s: R): number
+  if q.a then
+    assert(q.a)
+    clr(s)
+    return q.a + 1
+  end
+  return 0
+end
+print(f)
+]],
   shadowed_name = [[
 local function g(x: string | nil): integer
   if x == nil then return 0 end
@@ -568,7 +711,8 @@ end
 -- the outer `t.a` for the code that reads it again: after the inner scope
 -- ends, after a loop whose variable is a new `t`, and in the `else` beside
 -- the branch that declared it. Each program is pinned as the one mismatch it
--- gives: the old narrowing is the more conservative, and the facts are right.
+-- gives: the old narrowing is the more conservative, the facts hold what the
+-- code before left. A read of it in a loop is another matter, below.
 -- TODO: pin these to no mismatch once the reads switch to the facts (step 7a's
 -- PR 3), which gives the outer fact back where the old narrowing dropped it
 -- and moves the verdict of each program, which is triaged there.
@@ -636,6 +780,147 @@ local function test_old_narrowing_drops_field_facts_the_facts_keep()
     for i = 3, #case do
       expected[#expected + 1] = name .. ".tl:" .. case[i]
     end
+    assert(table.concat(found, "\n") == table.concat(expected, "\n"),
+      name .. ": " .. table.concat(found, "\n"))
+  end
+end
+
+-- The facts carry a fact into a loop and refuse a read of it that the body
+-- drops afterwards, as the narrowing does (`record_read`, `loop_end`). Where a
+-- new variable of the name came first, the narrowing holds no fact to refuse
+-- (it dropped it, above), so it misses the read and the facts are the
+-- stricter side. Each program is pinned as the two lines it gives.
+-- TODO: pin these to no mismatch once the reads switch to the facts (step 7a's
+-- PR 3), which refuses the read on the facts' account, and the loop rule that
+-- PR 8 replaces moves in the facts alone.
+local facts_refuse: {{string}} = {
+  { "while_cond", [[
+local record R
+   a: number | nil
+   ab: number | nil
+   r: R | nil
+   m: function(R)
+end
+local function clr(q: R): boolean q.a = nil return true end
+
+local function f(q: R, s: R): number
+  local n = 0
+  if q.a then
+    do local q = s print(q) end
+    while q.a do
+      n = n + q.a
+      clr(q)
+    end
+  end
+  return n
+end
+print(f)
+]],
+    "13:12 q.a: shadow number (inferred at :11:7), old none", "13:12 q.a: the facts refuse the read of a fact the loop drops, old does not" },
+  { "while_body", [[
+local record R
+   a: number | nil
+   ab: number | nil
+   r: R | nil
+   m: function(R)
+end
+local function clr(q: R): boolean q.a = nil return true end
+
+local function f(q: R, s: R): number
+  local n = 0
+  if q.a then
+    do local q = s print(q) end
+    while n < 3 do
+      n = n + q.a
+      q.a = nil
+    end
+  end
+  return n
+end
+print(f)
+]],
+    "14:16 q.a: shadow number (inferred at :11:7), old none", "14:16 q.a: the facts refuse the read of a fact the loop drops, old does not" },
+  { "for_body", [[
+local record R
+   a: number | nil
+   ab: number | nil
+   r: R | nil
+   m: function(R)
+end
+local function clr(q: R): boolean q.a = nil return true end
+
+local function f(q: R, s: R): number
+  local n = 0
+  if q.a then
+    do local q = s print(q) end
+    for _ = 1, 3 do
+      n = n + q.a
+      clr(q)
+    end
+  end
+  return n
+end
+print(f)
+]],
+    "14:16 q.a: shadow number (inferred at :11:7), old none", "14:16 q.a: the facts refuse the read of a fact the loop drops, old does not" },
+  { "forin_body", [[
+local record R
+   a: number | nil
+   ab: number | nil
+   r: R | nil
+   m: function(R)
+end
+local function clr(q: R): boolean q.a = nil return true end
+
+local function f(q: R, s: R, t: {integer}): number
+  local n = 0
+  if q.a then
+    do local q = s print(q) end
+    for _, v in ipairs(t) do
+      n = n + q.a + v
+      s.a = nil
+    end
+  end
+  return n
+end
+print(f)
+]],
+    "14:16 q.a: shadow number (inferred at :11:7), old none", "14:16 q.a: the facts refuse the read of a fact the loop drops, old does not" },
+  { "repeat_body", [[
+local record R
+   a: number | nil
+   ab: number | nil
+   r: R | nil
+   m: function(R)
+end
+local function clr(q: R): boolean q.a = nil return true end
+
+local function f(q: R, s: R): number
+  local n = 0
+  if q.a then
+    do local q = s print(q) end
+    repeat
+      n = n + q.a
+      s.a = nil
+    until n > 3
+  end
+  return n
+end
+print(f)
+]],
+    "14:16 q.a: shadow number (inferred at :11:7), old none", "14:16 q.a: the facts refuse the read of a fact the loop drops, old does not" },
+}
+
+local function test_the_facts_refuse_a_read_of_a_fact_the_loop_drops_where_the_narrowing_misses_it()
+  for _, case in ipairs(facts_refuse) do
+    local name, text = case[1], case[2]
+    local found = mismatches(name .. ".tl", text)
+    local expected: {string} = {}
+    for i = 3, #case do
+      expected[#expected + 1] = name .. ".tl:" .. case[i]
+    end
+    table.sort(found)
+    table.sort(expected)
     assert(table.concat(found, "\n") == table.concat(expected, "\n"),
       name .. ": " .. table.concat(found, "\n"))
   end

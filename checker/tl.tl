@@ -2054,6 +2054,11 @@ local record Node
    shadow_journal: integer
    shadow_widens: {string:boolean}
    shadow_stmt: boolean
+   -- On a read in a loop: whether the facts / the narrowing refuse it for a
+   -- fact the loop's body drops; on an `if` block, the tick when its body began.
+   shadow_refused: boolean
+   shadow_old_refused: boolean
+   shadow_tick: integer
    -- The typename of an index's key, for the write `t[k] = v`.
    key_kind: string
    -- On a call: whether it ran no code of the program's, so dropped nothing.
@@ -8263,6 +8268,30 @@ do
    local type TypeRelations = {TypeName:{TypeName:CompareTypes}}
    local type InvalidOrTupleType = InvalidType | TupleType
 
+   -- A read of a fact the facts held at a loop's head, in its body: the
+   -- node, the place and the tick it was made at.
+   local record ShadowRead
+      node: Node
+      name: string
+      key: string
+      tick: integer
+   end
+
+   -- A loop the shadow facts are in: the facts at its head, what its body read
+   -- of them, and when its body dropped each key (every drop's tick).
+   local record ShadowLoop
+      head: Facts.Facts
+      reads: {ShadowRead}
+      drops: {string:{integer}}
+   end
+
+   -- A disagreement about the type of a read inside a loop, held until the
+   -- outermost loop ends (the read may be refused by both sides).
+   local record ShadowPending
+      node: Node
+      line: string
+   end
+
    local record TypeChecker
       env: Env
       st: {Scope}
@@ -8365,6 +8394,11 @@ do
       sh_last_assigned: {string:boolean}
       -- The lines of `shadow_log` so far, so that none is written twice.
       sh_logged: {string:boolean}
+      -- The loops being checked, innermost last; the number of reads and drops
+      -- met, which orders them; the disagreements held for the outermost loop.
+      sh_loops: {ShadowLoop}
+      sh_tick: integer
+      sh_pending: {ShadowPending}
       -- Where the disagreements are appended; nil when the shadow is not
       -- compared (`Env.shadow_mismatches`).
       shadow_log: {string}
@@ -8437,7 +8471,11 @@ do
       shadow_paths: function(TypeChecker, narrowing.Drop)
       shadow_enter_function: function(TypeChecker, Node)
       shadow_declared: function(TypeChecker, string): Type
-      shadow_check: function(TypeChecker, Where, string, Type, boolean, boolean)
+      shadow_check: function(TypeChecker, Where, string, Type, boolean, boolean, ? Type)
+      shadow_loop_begin: function(TypeChecker)
+      shadow_loop_end: function(TypeChecker): {ShadowRead}
+      shadow_forget: function(TypeChecker, integer)
+      shadow_say: function(TypeChecker, Where, string)
       shadow_drop: function(TypeChecker, function(Facts.Facts): Facts.Facts)
       shadow_undo: function(TypeChecker, integer)
       shadow_widen_key: function(TypeChecker, string)
@@ -12737,8 +12775,8 @@ do
    function TypeChecker:end_function_scope(node: Node)
       self.errs:fail_unresolved_labels(self.st[#self.st])
       local hidden = self.st[#self.st].hidden
-      local in_function = self.sh_fn[self.sh_depth]
-      local saved = self.sh_saved[self.sh_depth]
+      local in_function = self.shadow_log and self.sh_fn[self.sh_depth]
+      local saved = self.shadow_log and self.sh_saved[self.sh_depth] or nil
       self:end_scope(node)
       if in_function and self.shadow_log then
          -- What the body knew is gone; the facts outside it stand as they were.
@@ -13504,7 +13542,9 @@ do
       -- before then (`narrowing.enter_function`): every field path, and each
       -- local that an assignment can change after the literal is made.
       function TypeChecker:enter_function_body(node: Node)
-         self:shadow_enter_function(node)
+         if self.shadow_log then
+            self:shadow_enter_function(node)
+         end
          narrowing.enter_function(self.st as {narrowing.Scope},
             narrowing.because("function", "function", node.y, node.x),
             function(name: string): boolean
@@ -13673,6 +13713,9 @@ do
       -- outside it, and what it reads of them is held until `loop_end`.
       function TypeChecker:loop_begin()
          table.insert(self.loops, { depth = #self.st, reads = {}, dropped = {} })
+         if self.shadow_log then
+            self:shadow_loop_begin()
+         end
       end
 
       -- A read of `key` where a fact narrowed outside a loop stood: it is
@@ -13744,6 +13787,7 @@ do
       -- previous pass left, and is refused.
       function TypeChecker:loop_end()
          local loop = table.remove(self.loops)
+         local refused = self.shadow_log and self:shadow_loop_end() or nil
          for _, read in ipairs(loop.reads) do
             local events = loop.dropped[read.key]
             for _, event in ipairs(events or {}) do
@@ -13761,8 +13805,30 @@ do
                   end
                   self.errs:add_coded(read.node as Node, details,
                      ("'%s' was narrowed before this loop, but %s"):format(read.key, said))
+                  local node = read.node as Node
+                  node.shadow_old_refused = true
+                  if refused and not node.shadow_refused then
+                     self:shadow_say(node, read.key .. ": old refuses the read of a fact the loop drops, the facts do not")
+                  end
                   break
                end
+            end
+         end
+         if refused then
+            for _, read in ipairs(refused) do
+               if not read.node.shadow_old_refused then
+                  self:shadow_say(read.node, read.name .. ": the facts refuse the read of a fact the loop drops, old does not")
+               end
+            end
+            if #self.sh_loops == 0 then
+               -- The type disagreements of the reads in the loops, but those
+               -- both sides refuse.
+               for _, held in ipairs(self.sh_pending) do
+                  if not (held.node.shadow_refused and held.node.shadow_old_refused) then
+                     self:shadow_say(held.node, held.line)
+                  end
+               end
+               self.sh_pending = {}
             end
          end
       end
@@ -14130,6 +14196,25 @@ do
          end
       end
 
+      -- Says that a fact of `key` was dropped by code that ran, for the loops
+      -- that held it at their head.
+      local function lost(self: TypeChecker, key: string)
+         if #self.sh_loops == 0 then
+            return
+         end
+         self.sh_tick = self.sh_tick + 1
+         for _, loop in ipairs(self.sh_loops) do
+            if Facts.has(loop.head, key) then
+               local ticks = loop.drops[key]
+               if not ticks then
+                  ticks = {}
+                  loop.drops[key] = ticks
+               end
+               ticks[#ticks + 1] = self.sh_tick
+            end
+         end
+      end
+
       -- The keys of `f` that `wanted` accepts.
       local function keys_where(f: Facts.Facts, wanted: function(string): boolean): {string}
          local found: {string} = nil
@@ -14210,6 +14295,13 @@ do
             return
          end
          self.facts = after
+         if #self.sh_loops > 0 then
+            for key in pairs(now.t) do
+               if not Facts.has(after, key) then
+                  lost(self, key)
+               end
+            end
+         end
          -- The facts outside a function literal's body are hidden from it, and
          -- nothing it runs drops them.
          local base = 0
@@ -14344,6 +14436,7 @@ do
          end
          mark_widened(self, key)
          self.facts = Facts.without(f, key, no_why)
+         lost(self, key)
       end
 
       -- A function literal's body begins: its facts are those of the places
@@ -14380,6 +14473,72 @@ do
          self.facts = f
       end
 
+      -- Writes one line of a disagreement at `w`, once.
+      function TypeChecker:shadow_say(w: Where, text: string)
+         local log = self.shadow_log
+         local line = ("%d:%d %s"):format(w.y or 0, w.x or 0, text)
+         if log ~= nil and not self.sh_logged[line] then
+            self.sh_logged[line] = true
+            log[#log + 1] = line
+         end
+      end
+
+      -- A loop begins: the facts at its head are what its body may carry.
+      function TypeChecker:shadow_loop_begin()
+         table.insert(self.sh_loops, { head = self.facts, reads = {}, drops = {} })
+      end
+
+      -- A read in a loop of the fact `fact`, which tells more than `declared`:
+      -- held for each loop that had it at its head.
+      local function read_in_loops(self: TypeChecker, w: Where, name: string, key: string,
+                                   fact: Type, declared: Type)
+         if #self.sh_loops == 0 or (declared ~= nil and self:same_narrowing(fact, declared)) then
+            return
+         end
+         self.sh_tick = self.sh_tick + 1
+         for _, loop in ipairs(self.sh_loops) do
+            if Facts.get(loop.head, key) == fact as Facts.Type then
+               table.insert(loop.reads, { node = w as Node, name = name, key = key, tick = self.sh_tick })
+            end
+         end
+      end
+
+      -- A loop ends: the reads whose fact the body dropped afterwards, which the
+      -- next pass would read dropped, are refused (marked on their nodes) and
+      -- returned.
+      function TypeChecker:shadow_loop_end(): {ShadowRead}
+         local loop = table.remove(self.sh_loops)
+         local refused: {ShadowRead} = {}
+         for _, read in ipairs(loop.reads) do
+            for _, tick in ipairs(loop.drops[read.key] or {}) do
+               if tick > read.tick then
+                  read.node.shadow_refused = true
+                  refused[#refused + 1] = read
+                  break
+               end
+            end
+         end
+         return refused
+      end
+
+      -- What the loops saw after `tick` need not be told: control left them.
+      function TypeChecker:shadow_forget(tick: integer)
+         for _, loop in ipairs(self.sh_loops) do
+            for i = #loop.reads, 1, -1 do
+               if loop.reads[i].tick > tick then
+                  table.remove(loop.reads, i)
+               end
+            end
+            for _, ticks in pairs(loop.drops) do
+               for i = #ticks, 1, -1 do
+                  if ticks[i] > tick then
+                     table.remove(ticks, i)
+                  end
+               end
+            end
+         end
+      end
+
       -- The type the binding of `key` was declared with.
       function TypeChecker:shadow_declared(key: string): Type
          local var = self.bindings[key]
@@ -14392,7 +14551,7 @@ do
 
       -- A read of the place named `name`, where the narrowing gave `old` (nil
       -- for a field it holds no fact of): the shadow must give its type.
-      function TypeChecker:shadow_check(w: Where, name: string, old: Type, is_field: boolean, counted: boolean)
+      function TypeChecker:shadow_check(w: Where, name: string, old: Type, is_field: boolean, counted: boolean, field_declared?: Type)
          local log = self.shadow_log
          local f = self.facts
          if log == nil or f == nil then
@@ -14408,6 +14567,9 @@ do
          end
          local key = self:shadow_key(name)
          local new = Facts.get(f, key) as Type
+         if counted and new ~= nil and #self.sh_loops > 0 then
+            read_in_loops(self, w, name, key, new, is_field and field_declared or self:shadow_declared(key))
+         end
          if new == nil and not is_field then
             new = self:shadow_declared(key)
             if new == nil then
@@ -14436,12 +14598,14 @@ do
          if same then
             return
          end
-         -- One line for one disagreement, though the read is asked again.
-         local line = ("%d:%d %s: shadow %s, old %s"):format(w.y or 0, w.x or 0, name,
+         -- One line for one disagreement, though the read is asked again; one in
+         -- a loop waits for the outermost loop to end.
+         local text = ("%s: shadow %s, old %s"):format(name,
             new and show_type(new) or "none", old and show_type(old) or "none")
-         if not self.sh_logged[line] then
-            self.sh_logged[line] = true
-            log[#log + 1] = line
+         if #self.sh_loops > 0 then
+            table.insert(self.sh_pending, { node = w as Node, line = text })
+         else
+            self:shadow_say(w, text)
          end
       end
    end
@@ -16093,13 +16257,11 @@ do
                   table.insert(node.unvalued, var)
                end
                local localizing = is_localizing_a_variable(node, i)
-               local from = localizing and self:shadow_key(var.tk)
+               local from = localizing and self.shadow_log and self:shadow_key(var.tk)
                local declared = self:add_var(var, var.tk, t, var.attribute, localizing and "localizing")
                declared.is_loop_control = false
                if from then
-                  if self.shadow_log then
-                     self:shadow_carry(from, declared.key)
-                  end
+                  self:shadow_carry(from, declared.key)
                end
                if var.elide_type then
                   self.errs:add_warning("hint", node, "hint: consider using 'local type' instead")
@@ -16303,6 +16465,7 @@ do
             if self.shadow_log then
                node.shadow_mark = self.facts
                node.shadow_journal = self.sh_j_n
+               node.shadow_tick = self.sh_tick
             end
             if node.exp then
                self:apply_guard(node.exp, node.exp.guard)
@@ -16322,6 +16485,7 @@ do
                if self.shadow_log then
                   self.facts = node.shadow_mark
                   self:shadow_undo(node.shadow_journal)
+                  self:shadow_forget(node.shadow_tick)
                end
             end
 
@@ -17545,7 +17709,7 @@ do
                if field_place then
                   local narrowed = self:find_var_type(field_place.key, "check_only")
                   if self.shadow_log then
-                     self:shadow_check(node, field_place.key, narrowed, true, true)
+                     self:shadow_check(node, field_place.key, narrowed, true, true, t)
                   end
                   if narrowed then
                      if #self.loops > 0 and not node.is_lvalue then
@@ -18710,23 +18874,29 @@ do
          binding_count = 0,
          loops = {},
          loop_tick = 0,
-         facts = env.shadow_mismatches and Facts.empty() or nil,
-         bindings = {},
-         sh_depth = 0,
-         sh_entry = {},
-         sh_assigned = {},
-         sh_fn = {},
-         sh_dirty = {},
-         sh_saved = {},
-         sh_fields = {},
-         sh_j_index = {},
-         sh_j_facts = {},
-         sh_j_n = 0,
-         sh_logged = {},
-         sh_renarrowed = {},
-         sh_widen_entry = {},
          shadow_log = env.shadow_mismatches,
       }
+      if env.shadow_mismatches then
+         -- The shadow's state is made only when the shadow is kept.
+         self.facts = Facts.empty()
+         self.bindings = {}
+         self.sh_depth = 0
+         self.sh_entry = {}
+         self.sh_assigned = {}
+         self.sh_fn = {}
+         self.sh_dirty = {}
+         self.sh_saved = {}
+         self.sh_fields = {}
+         self.sh_j_index = {}
+         self.sh_j_facts = {}
+         self.sh_j_n = 0
+         self.sh_logged = {}
+         self.sh_loops = {}
+         self.sh_tick = 0
+         self.sh_pending = {}
+         self.sh_renarrowed = {}
+         self.sh_widen_entry = {}
+      end
 
       (self.st[1] as narrowing.Scope).on_drop = function(index: integer, key: string, why: narrowing.Drop)
          self:loop_dropped(index, key, why)
