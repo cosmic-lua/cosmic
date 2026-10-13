@@ -15,8 +15,8 @@
 -- A fact is dropped by an assignment to its place or a prefix of it
 -- ([`narrowing.drop`]), by a write to a field of its name through any
 -- reference ([`narrowing.drop_written`]), and by code that runs, which may
--- write any field of any table ([`narrowing.drop_paths`]; the checker
--- widens the narrowed locals that a function literal assigns). Each drop
+-- write any field of any table ([`narrowing.drop_paths`]; no local, as no
+-- function assigns a local it does not declare). Each drop
 -- says what dropped the place, so the refusal of a use that relied on the
 -- fact can say so ([`narrowing.dropped_by`]). A guard built before code
 -- ran is cut of the facts that code may have changed ([`narrowing.forget`]),

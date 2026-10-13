@@ -2,14 +2,17 @@
 --- narrowing work touches:
 --- locals and record fields typed `integer | nil`, `if`/`elseif`/`else`
 --- on nil tests, `assert`, `and`/`or`, the four loops with `break` and
---- `goto`, function literals that assign upvalues, calls, field writes
---- and `return`. `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs
+--- `goto`, function literals that write fields of what they read, calls,
+--- field writes and `return`, and, drawn only to be refused, a function
+--- literal that assigns a local declared outside it. `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs
 --- (build/fuzz/init.tl).
 ---
 --- 1. The checker never raises: a program of any shape, well formed or
 ---    cut and flipped, is accepted or refused with errors, each carrying
 ---    a code and a place inside the source.
---- 2. Soundness: a well-formed program the checker accepts runs to its
+--- 2. A function that assigns a local declared outside it is refused with
+---    the code `captured_assigned`, and no program without one is.
+--- 3. Soundness: a well-formed program the checker accepts runs to its
 ---    end, or to a failed `assert`, without a nil operand. The programs
 ---    are bounded by construction (loops count up to three, a function
 ---    calls only those declared before it) and deterministic (nil comes
@@ -56,7 +59,7 @@ end
 
 --- What the program at a point of the draw can name: the locals of type
 --- `integer | nil` (`ints`), of type `R | nil` (`recs`), the functions
---- that take nothing and assign upvalues (`procs`), and those that take an
+--- that take nothing and write fields (`procs`), and those that take an
 --- `integer | nil` and return an `integer` (`funs`). `focus` lists the
 --- places a guard around the point says are not nil, `rfocus` the same
 --- for `recs`: a bias towards uses that the checker must decide, not a
@@ -68,6 +71,9 @@ local record Vis
   funs: {string}
   focus: {string}
   rfocus: {string}
+  --- The locals of `ints` declared outside the function being drawn, which
+  --- it may read and not assign.
+  outer: {string}
   in_loop: boolean
   cont: string | nil
   ret: string
@@ -86,10 +92,9 @@ local record Gen
   want_goto: boolean
   --- Depth of the function bodies the draw is inside.
   fn: integer
-  --- Locals a function literal assigns, and locals named second in a
-  --- declaration of two.
-  closure_assigned: {string:boolean}
-  multi: {string:boolean}
+  --- Whether the program holds a function that assigns a local declared
+  --- outside it, which the checker must refuse.
+  captures: boolean
 end
 
 --- A guard drawn: its text, and the places it says are not nil when it
@@ -117,19 +122,22 @@ local function header(seed: integer): string
     "end",
     "local r: R = { a = 1, n = 0 }",
     "local s: R = { b = 2, n = 0 }",
-    "local count: integer = " .. seed,
-    "local sink: integer = 0",
+    "local record State",
+    "  count: integer",
+    "  sink: integer",
+    "end",
+    "local st: State = { count = " .. seed .. ", sink = 0 }",
     "local nums: {integer} = { 1, 2, 3 }",
     "local opts: {integer | nil} = { 1, 2, 3 }",
     "local function maybe(): integer | nil",
-    "  count = count + 1",
-    "  if count % 3 == 0 then return nil end",
-    "  return count",
+    "  st.count = st.count + 1",
+    "  if st.count % 3 == 0 then return nil end",
+    "  return st.count",
     "end",
     "local function pick(): R | nil",
-    "  count = count + 1",
-    "  if count % 3 == 0 then return nil end",
-    "  if count % 2 == 0 then return r end",
+    "  st.count = st.count + 1",
+    "  if st.count % 3 == 0 then return nil end",
+    "  if st.count % 2 == 0 then return r end",
     "  return s",
     "end",
     "local function touch(t: R)",
@@ -162,7 +170,7 @@ end
 local function nest(v: Vis): Vis
   return {
     ints = dup(v.ints), recs = dup(v.recs), procs = dup(v.procs), funs = dup(v.funs),
-    focus = dup(v.focus), rfocus = dup(v.rfocus),
+    focus = dup(v.focus), rfocus = dup(v.rfocus), outer = dup(v.outer),
     in_loop = v.in_loop, cont = v.cont, ret = v.ret,
   }
 end
@@ -193,31 +201,20 @@ local function place(g: Gen, v: Vis): string
   return Fuzz.pick(g.src, places(v))
 end
 
---- Records a write of `p`, for `held`.
-local function note_write(g: Gen, p: string)
-  if p:find(".", 1, true) then return end
-  if g.fn > 0 then
-    g.closure_assigned[p] = true
-  end
-end
-
---- A place to write: any, with no bias.
+--- A place to write: a field, or a local the function being drawn declares
+--- (a function may not assign one it does not).
 local function target(g: Gen, v: Vis): string
-  local p = Fuzz.pick(g.src, places(v))
-  note_write(g, p)
-  return p
+  local choices: {string} = {}
+  for _, p in ipairs(places(v)) do
+    if not has(v.outer, p) then choices[#choices + 1] = p end
+  end
+  return Fuzz.pick(g.src, choices)
 end
 
---- Whether a bare use of `p` is kept out of the draw, for the hole the
---- checker has in what it keeps of a local past a call to a function that
---- assigns it: the local is the second name of a declaration of two, or a copy
---- `local x = x` of a local a test narrowed to non-nil, which the checker types
---- `integer`, as nil is assignable to it. A program
---- build/checker_narrowing_test.tl pins as a limit, with a TODO.
---- TODO: draw it once nil is assignable to no type but one that names it (the
---- TODO in build/checker_narrowing_test.tl, which has the program).
-local function held(g: Gen, _v: Vis, p: string): boolean
-  return g.closure_assigned[p] == true and g.multi[p] == true
+--- `p` itself where the function being drawn may assign it, else a field.
+local function writable(g: Gen, v: Vis, p: string): string
+  if has(v.outer, p) then return Fuzz.pick(g.src, FIELDS) end
+  return p
 end
 
 local function opt_expr(g: Gen, v: Vis): string
@@ -248,17 +245,15 @@ end
 --- otherwise mostly given a default, so that the draws are not all refused.
 local function operand(g: Gen, v: Vis): string
   local p = place(g, v)
-  if not held(g, v, p) then
-    if has(v.focus, p) then return p end
-    if not g.calm and g.src:int(0, 1) == 0 then return p end
-  end
+  if has(v.focus, p) then return p end
+  if not g.calm and g.src:int(0, 1) == 0 then return p end
   return "(" .. p .. " or 0)"
 end
 
 local function int_expr(g: Gen, v: Vis): string
   local k = g.src:int(0, 12)
   if k == 0 then return tostring(g.src:int(0, 3)) end
-  if k == 1 then return "count" end
+  if k == 1 then return "st.count" end
   if k == 2 or k == 3 then return operand(g, v) .. " + 1" end
   if k == 4 then return "(" .. place(g, v) .. " or 0)" end
   if k == 5 or k == 6 then return operand(g, v) end
@@ -312,7 +307,7 @@ local function atom(g: Gen, v: Vis): Cond
     return { text = "maybe()", yes = NONE, no = NONE, ryes = NONE, rno = NONE, guarded = false }
   end
   if k == 10 then
-    return { text = "count % 2 == 0", yes = NONE, no = NONE, ryes = NONE, rno = NONE, guarded = false }
+    return { text = "st.count % 2 == 0", yes = NONE, no = NONE, ryes = NONE, rno = NONE, guarded = false }
   end
   if k == 11 then
     local p = place(g, v)
@@ -405,10 +400,13 @@ local function loop_body(g: Gen, v: Vis, depth: integer, label: string | nil, fa
   g.depth = g.depth - 1
 end
 
---- A function that assigns upvalues: nil, or what `maybe` answers.
-local function proc(g: Gen, v: Vis)
+--- A function that writes fields (it may not assign a local it does not
+--- declare): nil, or what `maybe` answers.
+local function proc(g: Gen, outside: Vis)
   local name = fresh(g, "p")
   add(g, "local function " .. name .. "()")
+  local v = nest(outside)
+  v.outer = dup(outside.ints)
   g.depth = g.depth + 1
   g.fn = g.fn + 1
   local n = 0
@@ -424,7 +422,7 @@ local function proc(g: Gen, v: Vis)
   g.fn = g.fn - 1
   g.depth = g.depth - 1
   add(g, "end")
-  v.procs[#v.procs + 1] = name
+  outside.procs[#outside.procs + 1] = name
 end
 
 --- A function of an `integer | nil` parameter, whose body is drawn like
@@ -435,7 +433,8 @@ local function fun(g: Gen, v: Vis, depth: integer)
   local inner = nest(v)
   inner.in_loop = false
   inner.cont = nil
-  inner.ret = "return sink"
+  inner.ret = "return st.sink"
+  inner.outer = dup(v.ints)
   inner.ints[#inner.ints + 1] = param
   -- The body is checked where it is made, though it runs wherever it is
   -- called: it begins with none of the tests around it that may change.
@@ -445,18 +444,17 @@ local function fun(g: Gen, v: Vis, depth: integer)
     -- A parameter tested, read by a function made after the test, and
     -- assigned after that: the function runs after the write.
     local reader = fresh(g, "g")
-    add(g, "if " .. param .. " == nil then return sink end")
+    add(g, "if " .. param .. " == nil then return st.sink end")
     add(g, "local " .. reader .. " = function(): integer return " .. param .. " + 1 end")
-    note_write(g, param)
     add(g, param .. " = " .. Fuzz.pick(g.src, { "nil", "maybe()", "1" }))
-    add(g, "sink = sink + " .. reader .. "()")
+    add(g, "st.sink = st.sink + " .. reader .. "()")
   end
   local n = 0
   while g.fuel > 0 and Fuzz.more(g.src, n, 4) do
     n = n + 1
     stmt(g, inner, depth + 1)
   end
-  add(g, "return sink")
+  add(g, "return st.sink")
   g.fn = g.fn - 1
   g.depth = g.depth - 1
   add(g, "end")
@@ -478,7 +476,6 @@ local function declare(g: Gen, v: Vis)
     end
     if #tested > 0 and g.src:int(0, 2) > 0 then p = Fuzz.pick(g.src, tested) end
     add(g, "local " .. p .. (g.src:int(0, 1) == 0 and "" or ": integer | nil") .. " = " .. p)
-    g.multi[p] = true
     return
   end
   if k == 0 then
@@ -488,7 +485,6 @@ local function declare(g: Gen, v: Vis)
     local other = fresh(g, "x")
     add(g, "local " .. name .. ", " .. other .. ": integer | nil = " .. opt_expr(g, v) .. ", " .. opt_expr(g, v))
     v.ints[#v.ints + 1] = other
-    g.multi[other] = true
   elseif k == 2 then
     -- A type for the first name only: refused, and once raised.
     add(g, "local " .. name .. ": integer | nil, " .. fresh(g, "y") .. " = " .. opt_expr(g, v) .. ", 2")
@@ -497,7 +493,6 @@ local function declare(g: Gen, v: Vis)
     local other = fresh(g, "x")
     add(g, "local " .. name .. ", " .. other .. " = " .. typed_expr(g, v) .. ", " .. typed_expr(g, v))
     v.ints[#v.ints + 1] = other
-    g.multi[other] = true
   else
     add(g, "local " .. name .. ": integer | nil = " .. opt_expr(g, v))
   end
@@ -571,21 +566,31 @@ local function early_exit(g: Gen, v: Vis)
   learn(v, c.yes, c.ryes)
 end
 
+--- What a function made to clear `p` writes: `p` itself when it is a field, and
+--- else, a local being no function's to assign, either a field or, drawn
+--- only to be refused (`g.captures`), the local.
+local function cleared(g: Gen, p: string): string
+  if p:find(".", 1, true) then return p end
+  if g.src:int(0, 1) == 0 then
+    g.captures = true
+    return p
+  end
+  return Fuzz.pick(g.src, FIELDS)
+end
+
 --- Something that may or may not clear `p`: a call that runs other code,
 --- a write, a function literal made and called, a loop that writes it.
 local function dropper(g: Gen, v: Vis, p: string)
   local k = g.src:int(0, 13)
-  if k == 3 or k == 8 or k == 9 then note_write(g, p) end
   if k <= 2 then
     add(g, "touch(" .. Fuzz.pick(g.src, { "r", "s" }) .. ")")
   elseif k == 3 then
-    add(g, p .. " = " .. opt_expr(g, v))
+    add(g, writable(g, v, p) .. " = " .. opt_expr(g, v))
   elseif k == 4 then
     add(g, target(g, v) .. " = " .. opt_expr(g, v))
   elseif k == 5 then
     local name = fresh(g, "p")
-    if not p:find(".", 1, true) then g.closure_assigned[p] = true end
-    add(g, "local function " .. name .. "() " .. p .. " = " .. Fuzz.pick(g.src, { "nil", "maybe()" }) .. " end")
+    add(g, "local function " .. name .. "() " .. cleared(g, p) .. " = " .. Fuzz.pick(g.src, { "nil", "maybe()" }) .. " end")
     if g.src:int(0, 4) > 0 then add(g, name .. "()") end
     v.procs[#v.procs + 1] = name
   elseif k == 6 and #v.procs > 0 then
@@ -593,13 +598,13 @@ local function dropper(g: Gen, v: Vis, p: string)
   elseif k == 7 then
     add(g, "id(" .. place(g, v) .. ")")
   elseif k == 8 then
-    add(g, "while maybe() and count % 5 ~= 0 do " .. p .. " = maybe() end")
+    add(g, "while maybe() and st.count % 5 ~= 0 do " .. writable(g, v, p) .. " = maybe() end")
   elseif k == 9 then
-    add(g, "for _ = 1, 2 do " .. p .. " = " .. opt_expr(g, v) .. " end")
+    add(g, "for _ = 1, 2 do " .. writable(g, v, p) .. " = " .. opt_expr(g, v) .. " end")
   elseif k == 10 and #v.funs > 0 then
-    add(g, "sink = sink + " .. Fuzz.pick(g.src, v.funs) .. "(" .. place(g, v) .. ")")
+    add(g, "st.sink = st.sink + " .. Fuzz.pick(g.src, v.funs) .. "(" .. place(g, v) .. ")")
   elseif k == 11 then
-    add(g, "sink = sink + (maybe() or 0) + " .. (held(g, v, p) and "(" .. p .. " or 0)" or p))
+    add(g, "st.sink = st.sink + (maybe() or 0) + " .. p)
   elseif k == 12 then
     add(g, "local " .. fresh(g, "x") .. " = " .. place(g, v))
   else
@@ -619,8 +624,7 @@ local function guarded_use(g: Gen, v: Vis, depth: integer)
   local helper: string | nil = nil
   if g.src:int(0, 1) == 0 then
     helper = fresh(g, "p")
-    if not p:find(".", 1, true) then g.closure_assigned[p] = true end
-    add(g, "local function " .. helper .. "() " .. p .. " = " .. Fuzz.pick(g.src, { "nil", "maybe()", "1" }) .. " end")
+    add(g, "local function " .. helper .. "() " .. cleared(g, p) .. " = " .. Fuzz.pick(g.src, { "nil", "maybe()", "1" }) .. " end")
     v.procs[#v.procs + 1] = helper
   end
   local inner = nest(v)
@@ -658,24 +662,19 @@ local function guarded_use(g: Gen, v: Vis, depth: integer)
     end
   end
   local wrote = false
-  if close and not held(g, v, p) and g.src:int(0, 3) == 0 then
+  if close and not has(v.outer, p) and g.src:int(0, 3) == 0 then
     -- A function that reads the place under the test, called after a write.
     local reader = fresh(g, "g")
     add(g, "local function " .. reader .. "(): integer return " .. p .. " + 1 end")
-    note_write(g, p)
     add(g, p .. " = " .. Fuzz.pick(g.src, { "nil", "maybe()" }))
-    add(g, "sink = sink + " .. reader .. "()")
+    add(g, "st.sink = st.sink + " .. reader .. "()")
     -- The write undid the test for what follows.
     inner.focus = {}
     wrote = true
   end
   local uses = wrote and 0 or g.src:int(1, 2)
   for _ = 1, uses do
-    if held(g, v, p) then
-      add(g, "sink = sink + (" .. p .. " or 0)")
-    else
-      add(g, "sink = sink + " .. Fuzz.pick(g.src, { p .. " + 1", p, "(" .. p .. " or 0)", p .. " * 2" }))
-    end
+    add(g, "st.sink = st.sink + " .. Fuzz.pick(g.src, { p .. " + 1", p, "(" .. p .. " or 0)", p .. " * 2" }))
   end
   if g.src:int(0, 2) == 0 and depth > 0 then stmt(g, inner, depth - 1) end
   if close then
@@ -689,11 +688,7 @@ local function guarded_use(g: Gen, v: Vis, depth: integer)
         dropper(g, v, p)
       end
     end
-    if held(g, v, p) then
-      add(g, "sink = sink + (" .. p .. " or 0)")
-    else
-      add(g, "sink = sink + " .. Fuzz.pick(g.src, { p .. " + 1", p, "(" .. p .. " or 0)" }))
-    end
+    add(g, "st.sink = st.sink + " .. Fuzz.pick(g.src, { p .. " + 1", p, "(" .. p .. " or 0)" }))
   end
 end
 
@@ -765,7 +760,7 @@ stmt = function(g: Gen, v: Vis, depth: integer)
   if k >= 31 then k = 15 + k % 5 end
   if k <= 2 then return declare(g, v) end
   if k <= 5 then return assign(g, v) end
-  if k == 6 then return add(g, "sink = sink + " .. int_expr(g, v)) end
+  if k == 6 then return add(g, "st.sink = st.sink + " .. int_expr(g, v)) end
   if k <= 10 and depth > 0 then return if_chain(g, v, depth) end
   if k <= 12 then return assert_stmt(g, v) end
   if k <= 14 then return early_exit(g, v) end
@@ -781,7 +776,7 @@ stmt = function(g: Gen, v: Vis, depth: integer)
   if k == 23 then return add(g, "touch(" .. Fuzz.pick(g.src, { "r", "s" }) .. ")") end
   if k == 24 and depth > 0 then return fun(g, v, depth) end
   if k == 25 and #v.funs > 0 then
-    return add(g, "sink = sink + " .. Fuzz.pick(g.src, v.funs) .. "(" .. place(g, v) .. ")")
+    return add(g, "st.sink = st.sink + " .. Fuzz.pick(g.src, v.funs) .. "(" .. place(g, v) .. ")")
   end
   if k >= 26 and v.cont ~= nil then
     return add(g, "if " .. cond(g, v, 1).text .. " then goto " .. (v.cont as string) .. " end")
@@ -789,16 +784,20 @@ stmt = function(g: Gen, v: Vis, depth: integer)
   if k >= 26 and v.in_loop then
     return add(g, "if " .. cond(g, v, 1).text .. " then break end")
   end
-  return add(g, "sink = sink + " .. int_expr(g, v))
+  return add(g, "st.sink = st.sink + " .. int_expr(g, v))
 end
+
+--- The line that ends a program holding a function that assigns a local
+--- declared outside it, which the checker must refuse as such.
+local CAPTURES_MARK <const> = "-- captures\n"
 
 --- A well-formed program: the header, statements, and `return sink`.
 local function gen_program(src: Fuzz.Source): string
   local g: Gen = { src = src, lines = {}, id = 0, fuel = 45, depth = 0, calm = src:int(0, 3) == 0, want_goto = false,
-    fn = 0, closure_assigned = {}, multi = {} }
+    fn = 0, captures = false }
   local text = header(src:int(0, 2))
-  local v: Vis = { ints = {}, recs = {}, procs = {}, funs = {}, focus = {}, rfocus = {},
-    in_loop = false, cont = nil, ret = "return sink" }
+  local v: Vis = { ints = {}, recs = {}, procs = {}, funs = {}, focus = {}, rfocus = {}, outer = {},
+    in_loop = false, cont = nil, ret = "return st.sink" }
   -- Two locals to begin with, so that the draws have places to test.
   for _ = 1, 2 do
     local name = fresh(g, "x")
@@ -822,8 +821,8 @@ local function gen_program(src: Fuzz.Source): string
     loop(g, v, 2)
     early_exit(g, v)
   end
-  g.lines[#g.lines + 1] = "return sink"
-  return text .. table.concat(g.lines, "\n") .. "\n"
+  g.lines[#g.lines + 1] = "return st.sink"
+  return text .. table.concat(g.lines, "\n") .. "\n" .. (g.captures and CAPTURES_MARK or "")
 end
 
 --- A program, one in three edited at random bytes.
@@ -895,7 +894,7 @@ local CONSTRUCTS <const>: {{string}} = {
   { "break", "break" },
   { "assert", "assert%(" },
   { "function literal", "local function [pfg]%d" },
-  { "early exit", "then return sink end" },
+  { "early exit", "then return st.sink end" },
   { "elseif", "elseif " },
 }
 
@@ -903,6 +902,21 @@ local NIL_FAULT <const> = "attempt to"
 
 local function runs_safely(source: string): boolean, string
   local code, r = check(source)
+  -- A function that assigns a local it does not declare is refused as that,
+  -- and nothing else is.
+  local marked = source:sub(-#CAPTURES_MARK) == CAPTURES_MARK
+  local captured = false
+  for _, e in ipairs(r.type_errors) do
+    if e.code == "captured_assigned" then captured = true end
+  end
+  if marked and not captured then
+    return false, about("a function assigns a local declared outside it and the checker took it", source)
+  end
+  if captured and not marked then
+    return false, about("the checker refused a function as assigning a local declared outside it, " ..
+        "and none does", source)
+  end
+  if marked then Fuzz.label("captured refused") end
   if code == nil or #r.syntax_errors > 0 or #r.type_errors > 0 then
     Fuzz.label("refused")
     return true, ""
@@ -949,7 +963,7 @@ local function test_an_accepted_program_does_not_fail_on_a_nil(tmp: string)
     dir = tmp,
     gen = gen_program,
     check = runs_safely,
-    requires = { "accepted", "ran", "refused", "ran with while", "ran with repeat", "ran with numeric for",
+    requires = { "accepted", "ran", "refused", "captured refused", "ran with while", "ran with repeat", "ran with numeric for",
       "ran with generic for", "ran with goto", "ran with break", "ran with assert",
       "ran with function literal", "ran with early exit", "ran with elseif" },
     shares = { accepted = 0.2 },

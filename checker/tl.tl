@@ -79,6 +79,7 @@ global stdlib: string
 -- exist when the checker runs first.
 local flow = require("checker.flow")
 local narrowing = require("checker.narrowing")
+local captures = require("checker.captures")
 
 -- A local this file declares `local x: T = nil` is one whose value the code
 -- after it assigns: a variable a closure reads before the assignment (a
@@ -264,6 +265,9 @@ local record tl
       "not_assigned"
       -- a local declared with neither a type nor a value: `variable`
       "no_type"
+      -- a function literal assigning a local declared outside it:
+      -- `variable`, `declared_y`, `declared_x`
+      "captured_assigned"
       "other"
    end
 
@@ -371,6 +375,11 @@ local record tl
       skipped_kind: string
       skipped_y: integer
       skipped_x: integer
+
+      -- For a function literal that assigns a local declared outside it:
+      -- where that local is declared.
+      declared_y: integer
+      declared_x: integer
 
       -- used temporarily for stable-sorting
       i: integer
@@ -615,12 +624,9 @@ local record Variable
    has_been_read_from: boolean
    has_been_written_to: boolean
    is_loop_control: boolean
-   -- Whether no function literal assigns this local, so that a call
-   -- leaves what is known of it; nil until a call asks.
-   stable: boolean
 end
 
--- Where the pre-pass (`TypeChecker:find_closure_assigned`) met a function
+-- Where the pre-pass (`TypeChecker:find_assignments`) met a function
 -- literal or an assignment to a local: how many statements, function
 -- literals and assignments came before it in the text, and the loops around
 -- it, outermost first.
@@ -8265,14 +8271,11 @@ do
 
       -- The call-like expressions met so far (`drop_all`), counted.
       drop_clock: integer
-      -- The declarations of the file, whether a function literal assigns
-      -- each, and the names assigned in one that no declaration seen
-      -- binds (see `find_closure_assigned`).
+      -- The declarations of the file the pre-pass saw (see
+      -- `find_assignments`).
       root_ast: Node
-      closure_binders: {Node:boolean}
+      binders: {Node:boolean}
       label_back: {Node:boolean}
-      closure_assigned: {Node:boolean}
-      closure_loose: {string:boolean}
       -- Each binder's assignments in any function, each function literal
       -- and the loops around each binder, by node; and whether the file has
       -- a `goto`, after which the text order says nothing of what runs when.
@@ -8297,7 +8300,7 @@ do
       loop_tick: integer
 
       -- Declared where the record is, defined by the narrowing code below.
-      binder_is_stable: function(TypeChecker, Node, string, Attribute): boolean
+      binder_is_own: function(TypeChecker, Node, Attribute): boolean
       call_text: function(TypeChecker, Node): string
       drop_all: function(TypeChecker, Where, string, ? string)
       last_dropper: function(TypeChecker): narrowing.Drop
@@ -8318,7 +8321,7 @@ do
       prune: function(TypeChecker, narrowing.Guard): narrowing.Guard
       runs_no_code: function(TypeChecker, Node, Type, TupleType): boolean
       written_name: function(TypeChecker, Node): string
-      find_closure_assigned: function(TypeChecker, Node)
+      find_assignments: function(TypeChecker, Node)
       local_is_fixed: function(TypeChecker, string, Node): boolean
       enter_function_body: function(TypeChecker, Node)
       macroexp_calls: function(TypeChecker, Node): boolean
@@ -9199,50 +9202,45 @@ do
       return true
    end
 
-   -- Whether no function literal assigns the local that `node`, a binder
-   -- the file's pre-pass saw, declares as `name`. A `<const>` or `<close>`
-   -- local is assigned by nothing. A binder the pre-pass did not see is
-   -- not stable: a call may change it. The pre-pass runs when this is first
-   -- asked.
-   function TypeChecker:binder_is_stable(node: Node, name: string, attribute?: Attribute): boolean
+   -- Whether `node` declares a local of the file, as its pre-pass saw it. No
+   -- function literal assigns a local it does not declare (the code
+   -- `captured_assigned`), so a call leaves what is known of one. A
+   -- `<const>` or `<close>` local is assigned by nothing. A binder the
+   -- pre-pass did not see (a global) is any function's to change. The
+   -- pre-pass runs when this is first asked.
+   function TypeChecker:binder_is_own(node: Node, attribute?: Attribute): boolean
       if attribute == "const" or attribute == "close" then
          return true
       end
       if not node then
          return false
       end
-      if not self.closure_binders then
-         self:find_closure_assigned(self.root_ast)
+      if not self.binders then
+         self:find_assignments(self.root_ast)
       end
-      return self.closure_binders[node] == true
-         and not self.closure_assigned[node]
-         and not self.closure_loose[name]
+      return self.binders[node] == true
    end
 
-   -- Whether a call leaves what is known of the local `name`: no function
-   -- literal in its scope assigns it. A name with no declaration of the
-   -- file's own (a global) is not stable.
-   function TypeChecker:local_is_stable(name: string): boolean
+   -- Whether a call leaves what is known of the local `name`: it is a
+   -- local of the file, which only the code that declares it assigns. A
+   -- name with no declaration of the file's own (a global) is not.
+   function TypeChecker:local_is_own(name: string): boolean
       for i = #self.st, 1, -1 do
          local var = self.st[i].vars[name]
          if var and ((not var.is_specialized) or var.specialized_from or var.is_specialized == "localizing") then
-            if var.stable == nil then
-               var.stable = self:binder_is_stable(var.declared_at, name, var.attribute)
-            end
-            return var.stable
+            return self:binder_is_own(var.declared_at, var.attribute)
          end
       end
       return false
    end
 
    -- Whether no assignment to the local `name` can run after the function
-   -- literal `literal` is made, in any function: the literal may keep a test
-   -- of it, as the local is the same whenever the literal runs. An
-   -- assignment runs after it if a function literal makes it, if it comes
-   -- after the literal in the text, or if both are in a loop that the local
-   -- is not declared in (a later pass runs it); a file with a `goto` takes
-   -- every assignment to. A name with no declaration of the file's own is
-   -- not fixed.
+   -- literal `literal` is made: the literal may keep a test of it, as the
+   -- local is the same whenever the literal runs. An assignment runs after
+   -- it if it comes after the literal in the text, or if both are in a loop
+   -- that the local is not declared in (a later pass runs it); a file with a
+   -- `goto` takes every assignment to. A name with no declaration of the
+   -- file's own is not fixed.
    function TypeChecker:local_is_fixed(name: string, literal: Node): boolean
       for i = #self.st, 1, -1 do
          local var = self.st[i].vars[name]
@@ -9251,7 +9249,7 @@ do
             if var.attribute == "const" or var.attribute == "close" then
                return true
             end
-            if not self:binder_is_stable(node, name, var.attribute) then
+            if not self:binder_is_own(node, var.attribute) then
                return false
             end
             local made = self.function_marks[literal]
@@ -9291,31 +9289,25 @@ do
       return false
    end
 
-   -- Finds, before the file is checked, the locals that a function literal
-   -- assigns: a call may run it, so a call drops what is known of them. It
-   -- walks the file with the scopes the program has, binding each name
-   -- where the checker will declare it, and resolves an assignment's name
-   -- to the innermost binding in scope. A binding made in a function
-   -- other than the one that assigns it is assigned by a closure.
-   -- `closure_loose` holds the names assigned in a function literal that
-   -- resolve to no binding seen (a global, or a binder the walk does not
-   -- know), which makes every local of the name unstable.
+   -- Finds, before the file is checked, the locals the file declares and,
+   -- for each, where it is assigned: how many statements, function literals
+   -- and assignments came before each assignment in the text, and the loops
+   -- around it (`local_is_fixed` asks). It walks the file with the scopes the
+   -- program has, binding each name where the checker will declare it, and
+   -- resolves an assignment's name to the innermost binding in scope.
    --
    -- The statements are walked by kind, for the scopes they open and the
    -- names they bind; an expression is walked through every node it holds,
    -- since only a function literal in it matters and a scope is the same
    -- all through it.
-   function TypeChecker:find_closure_assigned(root: Node)
+   function TypeChecker:find_assignments(root: Node)
       local binders: {Node:boolean} = {}
-      local assigned: {Node:boolean} = {}
       local writes: {Node:{Mark}} = {}
       local marks: {Node:Mark} = {}
       local binder_loops: {Node:{integer}} = {}
       local loop_ids: {integer} = {}
-      local loose: {string:boolean} = {}
-      local depth_of: {Node:integer} = {}
       local scopes: {{string:Node}} = {}
-      local scan = { depth = 0, order = 0, loops_made = 0, any_goto = false }
+      local scan = { order = 0, loops_made = 0, any_goto = false }
 
       local function loops_now(): {integer}
          local copy: {integer} = {}
@@ -9340,7 +9332,6 @@ do
          if name and #scopes > 0 then
             scopes[#scopes][name] = node
             binders[node] = true
-            depth_of[node] = scan.depth
             binder_loops[node] = loops_now()
          end
       end
@@ -9354,14 +9345,8 @@ do
                   writes[binder] = list
                end
                table.insert(list, { order = tick(), loops = loops_now() })
-               if depth_of[binder] < scan.depth then
-                  assigned[binder] = true
-               end
                return
             end
-         end
-         if scan.depth > 0 then
-            loose[name] = true
          end
       end
 
@@ -9373,7 +9358,6 @@ do
       -- with its arguments bound.
       local function walk_function(node: Node)
          marks[node] = { order = tick(), loops = loops_now() }
-         scan.depth = scan.depth + 1
          table.insert(scopes, {})
          for _, argument in ipairs(node.args or {}) do
             bind(argument, argument.tk)
@@ -9385,7 +9369,6 @@ do
             walk_expression(node.exp)
          end
          table.remove(scopes)
-         scan.depth = scan.depth - 1
       end
 
       walk_expression = function(n: Node)
@@ -9501,9 +9484,7 @@ do
       end
 
       walk_block(root)
-      self.closure_binders = binders
-      self.closure_assigned = assigned
-      self.closure_loose = loose
+      self.binders = binders
       self.assignments = writes
       self.function_marks = marks
       self.binder_loops = binder_loops
@@ -13060,8 +13041,8 @@ do
       -- A call-like expression has run, at `w`: a call, an operator that
       -- dispatches to a metamethod, a loop whose body does either. What
       -- is known of every field path is dropped (the code may write any
-      -- field of any table), and what is known of every narrowed local that
-      -- a function literal assigns. `kind` and `text` say what ran, for the
+      -- field of any table), and what is known of every narrowed name that
+      -- is no local of the file (a global). `kind` and `text` say what ran, for the
       -- refusal of a use that relied on what was dropped.
       function TypeChecker:drop_all(w: Where, kind: string, text?: string)
          self.drop_clock = self.drop_clock + 1
@@ -13080,7 +13061,7 @@ do
             narrowing.drop_paths(scopes, why)
          end
          for _, name in ipairs(names or {}) do
-            if not self:local_is_stable(name) then
+            if not self:local_is_own(name) then
                narrowing.note(scopes, name, why)
                self:widen_back_var(name)
             end
@@ -13166,9 +13147,9 @@ do
       end
 
       -- Whether code that runs may change what a guard says of `place`: a
-      -- field path, or a local that a function literal assigns.
+      -- field path, or a name that is no local of the file.
       function TypeChecker:droppable(place: narrowing.Place): boolean
-         return #place.fields > 0 or not self:local_is_stable(place.base)
+         return #place.fields > 0 or not self:local_is_own(place.base)
       end
 
       -- The guard of `left`, an operand evaluated before `right`: what it
@@ -14777,6 +14758,21 @@ do
          return "branch"
       end
       return kind == "if" and "if" or "loop"
+   end
+
+   -- Refuses each assignment, in a function literal, to a local that the
+   -- literal does not declare ([`captures.find`]).
+   function TypeChecker:check_captures(root: Node)
+      for _, capture in ipairs(captures.find(root as captures.Node)) do
+         local at = capture.at as Node
+         local declared = capture.declared as Node
+         self.errs:add_coded(at, Errors.make({
+            code = "captured_assigned",
+            variable = capture.variable,
+            declared_y = declared.y,
+            declared_x = declared.x,
+         }), ("'%s' is a local of the code around this function, which a function may read but not assign"):format(capture.variable))
+      end
    end
 
    -- Refuses a read of a local declared with no value in `body`, a block,
@@ -17737,6 +17733,9 @@ do
          ast.rt_file = filename
       end
       self.root_ast = ast
+      if not self.feat_lax then
+         self:check_captures(ast)
+      end
       recurse_node(self, ast, visit_node, visit_type)
 
       local global_scope = self.st[1]

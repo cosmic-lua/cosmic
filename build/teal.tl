@@ -1218,6 +1218,21 @@ local function unassigned_hint(e: compiler.Error): string | nil
     "or declare it `local " .. name .. ": T | nil`, which is nil until assigned and is checked where it is used"
 end
 
+--- What to do about a function that assigns a local declared outside it
+--- (the code `captured_assigned`, [`compiler.Error`]): return the value,
+--- or keep it in a field of a table the function reads, which it may
+--- write: the rule is about the local, not the table.
+local function captured_hint(e: compiler.Error): string | nil
+  local name = e.variable
+  if name == nil then
+    return nil
+  end
+  return "'" .. name .. "' is declared at " .. tostring(e.declared_y) .. ":" .. tostring(e.declared_x) ..
+    ", outside this function, which may read it but not assign it: return the value from the function, " ..
+    "or keep it in a field of a table both read (`local state = { " .. name .. " = <the value> }`, then `state." ..
+    name .. " = ...` in the function)"
+end
+
 --- What to declare for a local with neither a type nor a value (the code
 --- `no_type`): its type, with `| nil` where it starts with no value.
 local function untyped_local_hint(e: compiler.Error): string | nil
@@ -2007,6 +2022,10 @@ end
 --- neither a type nor a value (`no_type`) to declare `T | nil`
 --- ([`untyped_local_hint`]).
 ---
+--- A function literal that assigns a local declared outside it (the code
+--- `captured_assigned`) is told to return the value or keep it in a field
+--- of a table ([`captured_hint`]).
+---
 --- `local x = fail()` where `fail` is declared `: never` is told that
 --- `fail` never returns, so it has no value to assign
 --- ([`never_value_hint`]), whichever module declares it.
@@ -2042,6 +2061,9 @@ function teal.replacement(e: compiler.Error, source: string, file?: string,
   end
   if code == "no_type" then
     return untyped_local_hint(e)
+  end
+  if code == "captured_assigned" then
+    return captured_hint(e)
   end
   if code == "mismatch" and e.got_members ~= nil and #e.got_members == 1 and
       e.got_members[1] == "number" and

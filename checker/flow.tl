@@ -53,13 +53,10 @@
 -- more. They wait on the roadmap's item that excludes nil from every type
 -- but one that names it, which refuses both where they are declared.
 --
--- TODO: a function that only assigns a local it names (`local got: T;
--- spawn(function() got = v end)`) is pending as one that reads it is, and
--- a `goto` back round a label counts as running code even where none may
--- between the label and the `goto`. Both refuse what could not read the
--- local early. They wait on `mention` telling a read of a name from a
--- write to it, and on this module telling whether code may run between
--- two statements.
+-- TODO: a `goto` back round a label counts as running code even where none
+-- may between the label and the `goto`, which refuses what could not read
+-- the local early. It waits on this module telling whether code may run
+-- between two statements.
 
 -- The statement fields reachability reads. The checker's own `Node`
 -- (checker/tl.tl) has all of them, and its callers cast to this type,

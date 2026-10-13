@@ -7,3 +7,4 @@ do
   sink = sink + x1 + 1
 end
 return sink
+-- captures

@@ -77,6 +77,9 @@ local record compiler
     "not_assigned"
     -- a local declared with neither a type nor a value: `variable`
     "no_type"
+    -- a function literal assigning a local declared outside it: `variable`,
+    -- and `declared_y`, `declared_x` where that local is declared
+    "captured_assigned"
     "other"
   end
 
@@ -186,6 +189,11 @@ local record compiler
     skipped_kind: string | nil
     skipped_y: integer | nil
     skipped_x: integer | nil
+
+    -- For a function literal that assigns a local declared outside it: where
+    -- that local is declared.
+    declared_y: integer | nil
+    declared_x: integer | nil
   end
 
   -- TODO: declare `ast`, `type`, [`Env.modules`], the reporter's

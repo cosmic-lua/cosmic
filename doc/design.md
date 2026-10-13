@@ -942,9 +942,9 @@ relied on a dropped fact is refused. an assignment to a place, or to a
 prefix of it, drops it. a write to a field `.f` through any reference drops
 every narrowed path ending in `.f`, because another reference may name the
 same table; a write through a key that may name a field drops every field
-path. a call drops every narrowed field path, and every narrowed local that
-a function literal in its scope assigns: a local no literal assigns stays
-narrowed across a call. an operator or index that dispatches to a metamethod
+path. a call drops every narrowed field path, and every narrowed global: a
+local stays narrowed across a call, because no function literal assigns a
+local it does not declare (below). an operator or index that dispatches to a metamethod
 is a call, and a value dispatches only through the metamethods its type
 declares: an operator or an index served by a metamethod a record, an
 interface or a userdata declares runs code, unless it is a macro expression
@@ -1027,6 +1027,21 @@ was. its hint copies the value to a local before the call or write
 (`local n = r.n`, then `if n then clear() print(n + 1) end`), which stays
 narrowed across the call because no function can assign it.
 
+a function literal does not assign a local declared outside it
+([`checker/captures.tl`]'s `find`, asked of each file before it is checked):
+`function() ... end`, `local function`, `function f()`, a record function and
+a macro expression may read what is around them, and assign their own locals
+and parameters, but a local belongs to the code that declares it. the
+forward declaration `local f: function(); f = function() ... end` assigns
+outside any function and is fine, so is a write to a field of a captured
+table (`state.n = state.n + 1`: the rule is about the binding, not the
+table), and a global is not followed. so a call, whatever it calls, changes
+no local, and a value a function finds in a local came from the code that
+made it. a refusal has the code `captured_assigned`, with the variable and
+where it is declared (`declared_y`, `declared_x`); its hint says to return
+the value from the function, or keep it in a field of a table both read
+(`local state = { n = 0 }`, then `state.n = ...`).
+
 a local is assigned before it is read. `local x: T` with no value is nil until
 something assigns it, and a read that comes first gets nil where the type
 promised a `T`, so it is legal only where every path from the declaration
@@ -1041,7 +1056,8 @@ a `while`, `for` and generic `for` body may run no time, so what it assigns
 does not count after the loop except on the paths that `break` out of it,
 while a `repeat` body and a `while true` body run at least once; a `goto`
 takes the state it leaves with to its label. an assignment inside a function
-literal does not count for the code around it, and a local of the same name
+literal is to a local of its own (below), so it counts for nothing around it,
+and a local of the same name
 declared inside a block hides the variable from the rest of that block.
 `local x: T | nil` with no value is always legal and is nil, so is any type
 that admits nil (`any`, an alias of a union with nil); a type variable is not
@@ -1523,6 +1539,7 @@ in [roadmap.md](roadmap.md).
 [`build/workers.tl`]: ../build/workers.tl
 [`build/zig.tl`]: ../build/zig.tl
 [`build/zig_fetch.tl`]: ../build/zig_fetch.tl
+[`checker/captures.tl`]: ../checker/captures.tl
 [`checker/flow.tl`]: ../checker/flow.tl
 [`checker/narrowing.tl`]: ../checker/narrowing.tl
 [`checker/stdlib.d.tl`]: ../checker/stdlib.d.tl

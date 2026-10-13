@@ -14,3 +14,4 @@ do
   sink = sink + x + 1
 end
 return sink
+-- captures
