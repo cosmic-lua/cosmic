@@ -48,8 +48,8 @@ local function test_a_bare_verb_says_how_it_exits_and_why_it_is_uncased()
         spec.name .. ": bare, so its exit codes are help's to state, starting with its name")
       assert(spec.passthrough ~= nil, spec.name .. ": bare, so verb_cases needs its reason")
     else
-      assert(spec.exits == nil, spec.name .. ": ends in a verdict line, so has no exit sentence")
-      assert(spec.passthrough == nil, spec.name .. ": ends in a verdict line, so is cased")
+      assert(spec.exits == nil, spec.name .. ": not bare, so `cosmic help exit` covers it")
+      assert(spec.passthrough == nil, spec.name .. ": not bare, so is cased")
     end
   end
 end

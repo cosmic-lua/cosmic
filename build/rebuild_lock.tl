@@ -55,7 +55,7 @@ local Fs = require("cosmic.fs")
 local Poll = require("cosmic.poll")
 local Sqlite = require("cosmic.sqlite")
 local sys = require("cosmic.sys")
-local log = require("build.verdict").log
+local log = require("build.logger").log
 local plural = require("build.plural")
 
 local record rebuild_lock

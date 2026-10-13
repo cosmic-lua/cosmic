@@ -274,7 +274,7 @@ end
 
 `cosmic test` builds the project and runs both test files. The next block
 does it through [`cosmic.child`], as the guide for the command line does,
-and prints the verdict line, or everything the run said when it did not pass.
+and prints its summary, or everything the run said when it did not pass.
 
 ```teal
 local Child = require("cosmic.child")

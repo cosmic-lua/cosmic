@@ -5,7 +5,7 @@
 --- time, so a file of any size takes the same memory; only a sums file
 --- and an HMAC key are read whole.
 ---
---- Like `cosmic json` it ends in no verdict line: its standard output is
+--- Like `cosmic json` it prints no summary: its standard output is
 --- data (or, with `--check`, the per-file lines), and its exit status is
 --- the verdict: 0 all well, 1 a check failed or a listed file could not
 --- be read, 2 a command line, a file to hash or a sums file it cannot

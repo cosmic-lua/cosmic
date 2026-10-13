@@ -51,21 +51,21 @@ end
 local record Written
   out: {string}
   err: {string}
-  --- The verdict line, as stdout would end in it.
-  verdict: string
+  --- The summary, as stderr would end in it; "" when the run gave none.
+  summary: string
 end
 
 local function run(root: string, words: {string}): integer, Written
-  local written: Written = { out = {}, err = {}, verdict = "" }
+  local written: Written = { out = {}, err = {}, summary = "" }
   local code = sql.run(argv_of(words), root, {
     out = function(line: string): boolean, string
       written.out[#written.out + 1] = line
       return true, ""
     end,
     err = function(line: string) written.err[#written.err + 1] = line end,
-    verdict = function(passed: boolean, detail: string)
-      assert(written.verdict == "", "a second verdict: " .. written.verdict)
-      written.verdict = "sql: " .. (passed and "PASS" or "FAIL") .. " (" .. detail .. ")"
+    summary = function(detail: string)
+      assert(written.summary == "", "a second summary: " .. written.summary)
+      written.summary = "sql: " .. detail
     end,
   })
   return code, written

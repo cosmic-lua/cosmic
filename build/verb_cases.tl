@@ -1,6 +1,6 @@
 --- The tables every verb [`cosmic.cli`] names is held to by
---- build/verbs_test.tl and build/verbs_tool_test.tl: the verbs that end
---- in no verdict line, one argument too many for each, and a command
+--- build/verbs_test.tl and build/verbs_tool_test.tl: the verbs held to no
+--- pass, fail and refusal cases, one argument too many for each, and a command
 --- line that passes and one that fails. Test support, kept in one place
 --- so the test that classifies every verb and the tests that run each
 --- one read the same tables.
@@ -21,7 +21,7 @@ local record verb_cases
   surplus: {string:{string} | string}
 end
 
---- The verbs that end in no verdict line, each with its reason:
+--- The verbs held to no pass, fail and refusal cases, each with its reason:
 --- - `run`, `standalone` and `eval`, whose words after the file are the
 ---   program's own, so no option or argument is theirs to refuse, and
 ---   whose output is the program's;
@@ -35,7 +35,7 @@ verb_cases.passthrough = {
   run = "the words after the file are its program's argv",
   standalone = "the words after the file are its program's argv",
   eval = "the words after the chunk are its `...`",
-  version = "it prints one line and no verdict",
+  version = "it prints one line and no summary",
 }
 for _, spec in ipairs(verb_list.specs()) do
   if spec.passthrough ~= nil then

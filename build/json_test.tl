@@ -1,6 +1,6 @@
 --- `cosmic json` (build/json.tl), run in this process with its input and
 --- output stood in for. build/json_tool_test.tl starts the program for
---- what a process alone shows: real standard input, and no verdict line.
+--- what a process alone shows: real standard input, and no summary.
 
 local Fs = require("cosmic.fs")
 local json = require("build.json")

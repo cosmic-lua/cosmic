@@ -226,11 +226,9 @@ local record Cli
   --- none); each row after is one line of
   --- tab-separated cells: NULL as \N, a blob as X'<hex>',
   --- and in text a backslash, tab, newline or return as \\, \t, \n or
-  --- \r and any other control byte as \xHH, and the verdict line
-  --- comes after the rows. `--to` writes the rows as data alone on
-  --- stdout, for a pipe, and the verdict line, its usage refusals'
-  --- included, on stderr. `--to csv` quotes as RFC 4180 does, each record
-  --- ended by LF: a header of the column names first, NULL an empty
+  --- \r and any other control byte as \xHH; the summary goes to
+  --- stderr. `--to` writes the rows in another format. `--to csv`
+  --- quotes as RFC 4180 does, each record ended by LF: a header of the column names first, NULL an empty
   --- field and '' a quoted empty one (so a one-column NULL is a blank
   --- line, which a CSV reader may drop), a blob's bytes as they are.
   --- `--to ndjson` writes a JSON object per row, its members the columns
@@ -293,7 +291,7 @@ local record Cli
   --- "/users/4"`; a query of many that matches nothing: `<query>: no
   --- match`; a `null` value is found), 2 for a command line or a path it
   --- cannot read, or a file that is missing or not JSON. It prints no
-  --- verdict line, which would be in the data a pipe reads
+  --- summary: its output is the data a pipe reads
   json: string
   --- `cosmic hash [options] [file|-]...`: the digest of each file, or of
   --- standard input for `-` or no file, printed as `sha256sum` prints
@@ -324,7 +322,7 @@ local record Cli
   --- command line shows in `ps` and the shell's history. Every
   --- algorithm has an HMAC, and it streams too; `--json` names it
   --- `hmac-sha256` and the like, and `--check` verifies HMACs when
-  --- given a key. It prints no verdict line: its output is data. Exits 0
+  --- given a key. It prints no summary: its output is data. Exits 0
   --- when all is well, 1 when a check failed or a listed file could not
   --- be read, 2 for a command line, a file to hash, a sums file (a
   --- malformed line among them) or a write to standard output it cannot
@@ -344,7 +342,7 @@ local record Cli
   --- Writers must remain stopped through maintenance and the caller's save.
   --- An incomplete WAL checkpoint, read or write suppresses the save digest.
   --- Exit 0 means complete, 1 incomplete maintenance, and 2 a refused command
-  --- line. Diagnostics go to stderr; no verdict line is printed.
+  --- line. Diagnostics go to stderr; no summary is printed.
   cache: string
   --- `cosmic archive list|extract|create`: the zip and tar files a
   --- release ships, with no script. `list <file>|-` prints one entry
@@ -372,8 +370,8 @@ local record Cli
   --- working directory; a fifo, socket or device is refused, named,
   --- wherever it is found. A symlink is stored as a link in both
   --- formats; a zip tool that ignores Unix attributes extracts the
-  --- target's text as a file. Prints no verdict
-  --- line, its output being data for a pipe. Exits 0 when done, 1 for a
+  --- target's text as a file. Prints no summary, its output being data
+  --- for a pipe. Exits 0 when done, 1 for a
   --- member or a path that is not there or files it would overwrite, 2
   --- for a command line, an archive it cannot read or one it refuses
   --- to unpack. See also `cosmic json`
@@ -405,7 +403,7 @@ local record Cli
   --- N` (int, pick, shuffle only) draws from `Rand.new(N)` instead, so
   --- a test or a script can replay it: that output is NOT secret, and
   --- `--seed` is refused with uuid and token. Its standard output is
-  --- data and ends in no verdict line. Exits 0 when it printed,
+  --- data, and it prints no summary. Exits 0 when it printed,
   --- 1 when the entropy source failed, 2 for a command line, a file or a
   --- request it refuses, or a failed write to standard output
   rand: string
@@ -431,7 +429,7 @@ local record Cli
   --- duration reads months as `--clamp` does, on `--zone`'s calendar or the
   --- first time's own; `--seconds` is elapsed time.
   --- `--json` prints one record: epoch, rfc3339, zone, offset and the
-  --- civil fields. It prints no verdict line, as `json` does: exit 0
+  --- civil fields. It prints no summary, as `json` does: exit 0
   --- done, 1 an `add` with no answer, 2 a command line, time, duration
   --- or zone it cannot read
   time: string
@@ -450,8 +448,8 @@ local record Cli
   --- must be padded with `=` and base64url must not be, as each is
   --- written; `--lenient` accepts the other spelling (missing padding on
   --- base64, `=` padding on base64url) and is refused for hex. The whole
-  --- input is read at once. It prints no verdict line, which would be in
-  --- the data a pipe reads; exits 0 when done, 2 for a command line, an
+  --- input is read at once. It prints no summary: its output is the data
+  --- a pipe reads; exits 0 when done, 2 for a command line, an
   --- input or a write it cannot honor
   codec: string
   --- `cosmic fetch <url[#sha256=hex]> [-o file] [--sha256 hex] [--sha512 hex] [--allow-downgrade] [--head [--json]]`: one
@@ -482,8 +480,8 @@ local record Cli
   --- failure (exit 1); a digest there buffers the whole body, uncapped. Certificates are always
   --- verified: there is no option that turns it off. GET only, by
   --- design: for a header, a body or another method write the script
-  --- with [`cosmic.http`]. It prints no verdict line, which would be in
-  --- the body a pipe reads. Exits 0 when the body was delivered, 1 when
+  --- with [`cosmic.http`]. It prints no summary: its output is the body
+  --- a pipe reads. Exits 0 when the body was delivered, 1 when
   --- the fetch failed (no connection, a bad status, a digest that does
   --- not match, a body that broke off, an `-o` write that failed), 2 for a command line, a URL or
   --- a write to standard output it cannot use
@@ -662,7 +660,7 @@ local record Cli
   --- from, an index of every verb, one line each, and where to read
   --- more. `cosmic help <verb>`
   --- prints that verb's full text, options and exit codes. `cosmic help
-  --- exit` prints the verdict lines and exit codes every verb shares.
+  --- exit` prints the exit codes and summary every verb shares.
   --- `cosmic <verb> --help` is `cosmic help <verb>`
   help: string
 end
@@ -773,8 +771,7 @@ local module: Module = {
             "no number is read, an empty cell is '' not NULL" },
         ["--at"] = { value = "path", about = "read the --from before it from the array at this " ..
             "JSONPath ($.data.rows), not the document" },
-        ["--to"] = { value = "format", about = "write the rows as csv or ndjson, data alone on " ..
-            "stdout, for a pipe; the verdict line goes to stderr" },
+        ["--to"] = { value = "format", about = "write the rows as csv or ndjson" },
       },
     },
     cache = {

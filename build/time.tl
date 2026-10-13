@@ -6,7 +6,7 @@
 --- macOS and Windows; only the default zone (the host's own, which
 --- `TZ` and /etc/localtime name) is the host's.
 ---
---- Like `cosmic json` it ends in no verdict line: its standard output is
+--- Like `cosmic json` it prints no summary: its standard output is
 --- data for a pipe or a `$(...)`, and complaints go to standard error.
 --- Its exit status is the verdict: 0 done, 1 an `add` whose answer does
 --- not exist (the day its month lacks, a moment outside what the calendar

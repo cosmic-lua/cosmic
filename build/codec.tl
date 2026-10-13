@@ -2,7 +2,7 @@
 --- ("what is this token in hex?") that a script costs more than. It
 --- reads a file, or standard input, and writes the encoding, or with
 --- `-d` the bytes it spells -- and nothing else: like `cosmic json` it
---- ends in no verdict line (its `spec` is `bare`), because its
+--- prints no summary (its `spec` is `bare`), because its
 --- standard output is data for a pipe. Its exit status is the verdict:
 --- 0 done, 2 a command line, an input or a write it cannot honor.
 --- Complaints go to standard error as `cosmic: codec: ...`.

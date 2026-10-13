@@ -682,7 +682,9 @@ function Summarize.report(transcript: string, arena: string, repo: string): stri
     if answer ~= nil and answer.error then
       failed = failed + 1
     end
-    docs_misses = docs_misses + count(text, "No exact symbol match") + count(text, "docs: FAIL")
+    -- `docs: FAIL` is a tool built from an older commit's summary of a miss.
+    docs_misses = docs_misses + count(text, "No exact symbol match") + count(text, "docs: FAIL") +
+      count(text, "docs: nothing named or documented as ")
     if first_green == nil and call.name == "Bash" and answer ~= nil and
         not answer.error and says_passed(text, false) then
       -- A command that holds the line itself (an echo, a heredoc, a

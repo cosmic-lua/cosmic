@@ -4,7 +4,7 @@
 --- file run and `-e` (build/dispatch.tl) and `--standalone`
 --- (build/standalone.tl).
 
-local log = require("build.verdict").log
+local log = require("build.logger").log
 
 local record exit_status
 end

@@ -36,7 +36,8 @@ local work = require("build.work")
 local workers = require("build.workers")
 local writer = require("build.writer")
 
-local log = require("build.verdict").log
+local logger = require("build.logger")
+local log = logger.log
 local bind = require("build.bind")
 local verb_spec = require("build.verb_spec")
 
@@ -478,8 +479,8 @@ end
 --- `cosmic build [--host] [path...]`: the tree in the working directory,
 --- and its executables in its build directory's `bin/` -- only those whose `main.tl` is
 --- under one of the paths, when there are any. Prints each executable it
---- wrote on stdout, a path per line, for a caller to run; then a verdict
---- line that names them again, or says why nothing was written.
+--- wrote on stdout, a path per line, for a caller to run; its summary on
+--- stderr names them again, or says why nothing was written.
 local function run(argv: {integer:string}): integer
   local started = Clock.monotonic_ns()
   local parsed, parse_trouble = Flags.parse(argv, 2, assert(Cli.verbs.build.spec))
@@ -506,7 +507,7 @@ local function run(argv: {integer:string}): integer
   end
   local wrote = #outputs > 0 and table.concat(outputs, ", ") or
     "no executable: no cmd/<name>/main.tl in the tree"
-  log:verdict("build", true, wrote .. ", " .. clock.took(started))
+  local _, _ = logger.summary("build", wrote .. ", " .. clock.took(started))
   return 0
 end
 

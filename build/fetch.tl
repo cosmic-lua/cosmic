@@ -21,7 +21,7 @@
 --- checked, and every one must match; a mismatch names the algorithm, the
 --- digest wanted and the one got.
 ---
---- Like `cosmic json` it ends in no verdict line -- its standard output
+--- Like `cosmic json` it prints no summary -- its standard output
 --- is the body -- and its exit status is the verdict: 0 the body was
 --- delivered, 1 the fetch failed (no connection, a status outside 2xx,
 --- a digest that does not match, a body that broke off, an `-o` write
