@@ -278,8 +278,6 @@ local record compiler
     shadow_reads: integer | nil
     -- How many of those were reads of a field path.
     shadow_field_reads: integer | nil
-    -- How many of the reads were not compared (generics).
-    shadow_skipped: integer | nil
     reporter: any
   end
 

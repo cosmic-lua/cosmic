@@ -182,8 +182,6 @@ local record tl
       shadow_reads: integer
       -- How many of those were reads of a field path.
       shadow_field_reads: integer
-      -- How many of them were not compared (generics).
-      shadow_skipped: integer
       defaults: CheckOptions
    end
 
@@ -14355,17 +14353,20 @@ do
                return
             end
          end
-         -- TODO: compare these too. Each read of a generic gets fresh type
-         -- variables (`find_var_type`), so two reads of one variable are not the
-         -- same type to `same_type`. It waits on a comparison of types up to the
-         -- renaming of their type variables, or on a read that does not refresh
-         -- them; until then the reads are counted in `Env.shadow_skipped`.
-         if (old ~= nil and (old.typename == "generic" or old.typename == "typearg"))
-            or (new ~= nil and (new.typename == "generic" or new.typename == "typearg")) then
-            self.env.shadow_skipped = (self.env.shadow_skipped or 0) + 1
-            return
+         -- Each read of a generic gets fresh type variables (`find_var_type`:
+         -- `T@12`, `T@13`), so two reads of one variable are not the same type
+         -- to `same_type`. They agree if they show alike with the numbers
+         -- of the fresh variables left out.
+         local same = old == new
+         if not same and old ~= nil and new ~= nil then
+            if old.typename == "generic" or old.typename == "typearg"
+               or new.typename == "generic" or new.typename == "typearg" then
+               same = (show_type(old):gsub("@%d+", "")) == (show_type(new):gsub("@%d+", ""))
+            else
+               same = self:same_type(old, new)
+            end
          end
-         if old == new or (old ~= nil and new ~= nil and self:same_type(old, new)) then
+         if same then
             return
          end
          log[#log + 1] = ("%d:%d %s: shadow %s, old %s"):format(w.y or 0, w.x or 0, name,

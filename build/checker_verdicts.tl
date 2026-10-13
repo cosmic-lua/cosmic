@@ -172,10 +172,6 @@ local function shadow_lines(out: {verdicts.Line}, file: string, env: compiler.En
     out[#out + 1] = { file = file, code = "shadow.reads", y = 0, x = 0, message = tostring(env.shadow_reads) }
     env.shadow_reads = 0
   end
-  if (env.shadow_skipped or 0) > 0 then
-    out[#out + 1] = { file = file, code = "shadow.skipped", y = 0, x = 0, message = tostring(env.shadow_skipped) }
-    env.shadow_skipped = 0
-  end
   for i, text in ipairs(found) do
     local y, x, message = text:match("^(%d+):(%d+) (.*)$")
     out[#out + 1] = {
