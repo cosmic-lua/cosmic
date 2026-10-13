@@ -9,7 +9,8 @@ local Example = {}
 --- A command's findings, on stdout.
 function Example.say()
   local log = Log.new("notes")
-  log:say("1  buy milk")
+  local wrote, trouble = log:say("1  buy milk")
+  assert(wrote, trouble)
 end
 
 --- A failure names the program on stderr.

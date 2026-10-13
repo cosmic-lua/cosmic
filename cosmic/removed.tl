@@ -96,9 +96,10 @@ local record Module
   -- Poll.writable, Poll.ready, `:join`, `:wait`, `:accept`,
   -- Child.wait_any, g:wait) changed its unit too, which no compile error
   -- can say: an integer is an integer.
-  -- Likewise for what cosmic.log's Logger lost: the method `verdict` (a
-  -- program's outcome is its exit status; `say` writes what it found and
-  -- `complain` what went wrong).
+  -- TODO: key cosmic.log's Logger `verdict` (a program's outcome is its
+  -- exit status; `say` writes what it found and `complain` what went
+  -- wrong) once build/teal.tl's `replacement` reads a nested record's
+  -- subject: the checker names [`Log.Logger`], a dotted subject it skips.
   -- Likewise for the calls whose parameters changed shape: `Proc.exec(path,
   -- argv, environment)` is `Proc.exec(argv, { env = environment })`, argv[1]
   -- the path, and `Fs.cache_dir(tool, environment)` is `Fs.cache_dir(tool,
