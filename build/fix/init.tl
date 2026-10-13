@@ -96,7 +96,8 @@ local tree_checks = require("build.tree_checks")
 local type compiler = require("build.compiler")
 local Sqlite = require("cosmic.sqlite")
 
-local log = require("build.verdict").log
+local logger = require("build.logger")
+local log = logger.log
 local verb_spec = require("build.verb_spec")
 local plural = require("build.plural")
 
@@ -118,7 +119,7 @@ local record fix
   --- take: one that is not there, and one that is not a source the verb
   --- handles. A refused path is carried here rather than ending the verb,
   --- so it is reported and counted like any other refused file and the
-  --- run still ends in the verb's verdict line.
+  --- run still ends in the verb's summary.
   --- What `links` found: each link that does not resolve, notes on
   --- what it could not check, each plain span that would be linked
   --- ([`build.links`]'s `rewrite`), and each file it linked spans in.
@@ -593,16 +594,16 @@ end
 --- compiler [`build.teal`] loads), of YAML ([`build.flow`]), of C and
 --- its rules ([`build.c`]), a note on the standard library
 --- ([`build.fix.near`], [`build.analyzer`]), and what reads the command
---- line, says the verdict and tells cosmic's own tree ([`build.tree`]),
+--- line, says the summary and tells cosmic's own tree ([`build.tree`]),
 --- whose files a run over the whole of it covers. A change to one can
---- change the verdict on a file that did not change, so a run of
+--- change what a run says of a file that did not change, so a run of
 --- `--changed` naming one lays out the whole tree ([`fix.narrowed`]).
 --- What checks the tree as a
 --- whole -- the build, the tree checks, the links -- is not among them:
 --- such a run makes those checks over the whole tree anyway.
 local file_checks: {string} = { "build.fix.rule", "build.fix.render", "build.fix.breaks",
   "build.fix.equiv", "build.ast", "build.teal", "build.flow", "build.c",
-  "build.fix.near", "build.analyzer", "build.verdict",
+  "build.fix.near", "build.analyzer", "build.logger",
   "build.tree", "cosmic.flags", "cosmic.cli", "cosmic.template" }
 
 --- What else a run of `--changed` lays out the whole tree for, by a
@@ -1159,7 +1160,7 @@ local function start_tally(ctx: Fix)
   local files = picked.files
   ctx.files = files
   -- A named path the verb would not take counts among the files the run
-  -- covers, so the verdict says how many of everything asked for was
+  -- covers, so the summary says how many of everything asked for was
   -- refused rather than only how many of what survived the naming.
   ctx.counted = #files + #picked.c_files + #picked.flow_files + #picked.checked +
     #picked.templates + #picked.refused
@@ -1613,7 +1614,7 @@ local function kind_list(picked: fix.Chosen): string
   return table.concat(parts, " + ")
 end
 
---- The count of files a verdict says: "1 Teal file", "3 Teal + 2 Markdown
+--- The count of files a summary says: "1 Teal file", "3 Teal + 2 Markdown
 --- files", or the bare count where refused paths leave no kind to name.
 local function files_said(ctx: Fix): string
   local picked = assert(ctx.picked)
@@ -1624,7 +1625,7 @@ local function files_said(ctx: Fix): string
   return kinds .. (ctx.counted == 1 and " file" or " files")
 end
 
---- Says each failure, finding and change, then the verdict.
+--- Says each failure, finding and change, then the summary.
 --- @return integer The exit code: 0 when nothing is left to fix
 local function report(ctx: Fix): integer
   local link_only = assert(ctx.link_only)
@@ -1700,15 +1701,15 @@ local function report(ctx: Fix): integer
     if links_unbuilt ~= nil then
       said[#said + 1] = "the links' build failing"
     end
-    log:verdict("fix", false, table.concat(said, ", ") .. ", " .. clock.took(ctx.started))
+    local _, _ = logger.summary("fix", table.concat(said, ", ") .. ", " .. clock.took(ctx.started))
     return 1
   end
   if checking and #changed > 0 then
-    log:verdict("fix", false, #changed .. " of " .. plural.count(counted, "file") .. " to fix, " ..
+    local _, _ = logger.summary("fix", #changed .. " of " .. plural.count(counted, "file") .. " to fix, " ..
         clock.took(ctx.started) .. "; `cosmic fix` rewrites them in place")
     return 1
   end
-  log:verdict("fix", true, files_said(ctx) .. ", " .. #changed ..
+  local _, _ = logger.summary("fix", files_said(ctx) .. ", " .. #changed ..
       (checking and " to fix, " or " fixed, ") .. clock.took(ctx.started))
   return 0
 end
@@ -1757,6 +1758,7 @@ end
 --- The `fix` verb as [`build/verb_list.tl`] lists it.
 fix.spec = {
   name = "fix",
+  summarizes_failure = true,
   guide = "none: a tree-maintenance verb, described by `cosmic help fix`; the quickstart does not cover checking a tree",
   tests = { "build.fix.fix_test" },
   run = function(argv: {integer:string}): integer return run(argv) end,

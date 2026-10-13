@@ -67,7 +67,7 @@ function VerifyCodesign.verify(sysname: string, binary: string, path?: string): 
       return Child.shell_status(result)
     end
   end
-  log:verdict("verify-codesign", true, binary)
+  log:say("verify-codesign: verified " .. binary)
   return 0
 end
 

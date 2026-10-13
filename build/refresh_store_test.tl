@@ -230,6 +230,7 @@ local function test_the_command_line_is_refused_by_name(tmp: string)
   -- Not a usage error, but never done: the binary it reads is not written.
   local itself = invoke.run({ "refresh", "-o", path, "--binary", path, "--cacert", pem }, { cwd = tmp })
   assert(itself.code == 1 and itself.stderr:find("never written", 1, true), itself.stderr)
+  assert(not itself.stderr:find("\nrefresh: ", 1, true), "a failure was summarized: " .. itself.stderr)
   local result = invoke.run({ "refresh", "-o", tmp .. "/out", "--binary", path, "--cacert", pem },
     { cwd = tmp })
   assert(result.code == 0, result.stderr)

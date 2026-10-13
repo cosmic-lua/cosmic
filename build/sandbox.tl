@@ -55,7 +55,7 @@
 --- ProxyCommand runs inside the sandbox; a program of that name is run after
 --- an option or a `--`.
 ---
---- Like `cosmic json` it ends in no verdict line, and prints nothing of
+--- Like `cosmic json` it prints no summary, and nothing of
 --- its own when the program starts: its exit status is the program's.
 --- That is the program's code; 128 and the signal's number when a signal
 --- ended it, as a shell reports it; 124 when `--timeout` ended it. Of its

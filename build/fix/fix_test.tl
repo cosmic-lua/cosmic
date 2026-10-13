@@ -151,7 +151,7 @@ end
 --- A named path the verb will not take is a refusal among the files the
 --- run covers, not an end to the run: it comes back in `refused` with
 --- the others still listed, so the verb can report it and still end in
---- its verdict line.
+--- its summary.
 ---
 --- What a path is decided before what it is named. A path with nothing
 --- at it is missing, whatever its suffix: answering `nope` with a
@@ -276,7 +276,7 @@ local function program_modules(): Sqlite.Handle
   for _, module in ipairs({ "build.fix.rule", "build.fix.render", "build.fix.breaks",
       "build.fix.equiv", "build.ast",
       "build.teal", "build.flow", "build.c", "build.fix.near",
-      "build.analyzer", "build.verdict", "build.tree", "cosmic.flags",
+      "build.analyzer", "build.logger", "build.tree", "cosmic.flags",
       "cosmic.cli", "cosmic.template",
       "cosmic.string" }) do
     assert(Sqlite.run(db, "INSERT INTO modules VALUES (?1, ?2)",

@@ -1,7 +1,7 @@
 --- What build/verbs_tool_test.tl and build/verbs_store_test.tl share:
 --- a tree to run verbs in, a verb's run -- in this process where it
 --- can be, else started from this program -- and the assertion that it
---- exits as asked and ends in its verdict line. Test support; the
+--- exits as asked and says how it went. Test support; the
 --- tables of each verb's cases are [`build.verb_cases`]', which the
 --- tests read themselves.
 
@@ -9,6 +9,7 @@ local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local invoke = require("build.invoke")
 local this_program = require("build.this_program")
+local verb_list = require("build.verb_list")
 local String = require("cosmic.string")
 local Clock = require("cosmic.clock")
 
@@ -70,46 +71,54 @@ function verbs_fixture.run(dir: string, args: {string}): invoke.Result
   return { code = ran.code, stdout = ran.stdout or "", stderr = ran.stderr or "" }
 end
 
---- "PASS" or "FAIL" when `line` is a verdict line of `verb`'s -- `verb:
---- PASS` or `verb: FAIL`, alone or before a detail in parentheses, or
---- `test`'s summary, `test: 9 tests passed ...` or `test: 2 of 9 tests
---- failed ...`.
-local function verdict_of(line: string, verb: string): string | nil
-  local head = verb .. ": "
-  if not String.starts_with(line, head) then
-    return nil
-  end
-  local rest = line:sub(#head + 1)
-  if verb == "test" and rest:match("^%d+ tests? passed in ") then
-    return "PASS"
-  elseif verb == "test" and rest:match("^%d+ of %d+ tests? failed, ") then
-    return "FAIL"
-  end
-  for _, word in ipairs({ "PASS", "FAIL" }) do
-    if rest == word or rest:sub(1, 6) == word .. " (" then
-      return word
-    end
-  end
-  return nil
-end
-
---- Asserts `cosmic <args>` in `dir` exits `code` and that its output ends
---- in its only verdict line for `verb`, a pass when the code is 0.
-function verbs_fixture.expect(dir: string, verb: string, args: {string}, code: integer): invoke.Result
-  local result = verbs_fixture.run(dir, args)
-  local out = result.stdout or ""
-  local shown = table.concat(args, " ") .. " exited " .. tostring(result.code) ..
-    "\nstdout:\n" .. out .. "\nstderr:\n" .. (result.stderr or "")
-  assert(result.code == code, shown)
-  local count = 0
+--- The last line of `text`, or "" when it has none.
+local function last_line(text: string): string
   local last = ""
-  for line in out:gmatch("[^\n]+") do
-    if verdict_of(line, verb) ~= nil then count = count + 1 end
+  for line in text:gmatch("[^\n]+") do
     last = line
   end
-  assert(count == 1, "expected one verdict line from " .. shown)
-  assert(verdict_of(last, verb) == (code == 0 and "PASS" or "FAIL"),
-    "expected the output to end in the verdict: " .. shown)
+  return last
+end
+
+--- Asserts `cosmic <args>` in `dir` exits `code` and says how it went:
+--- a refused command line (2) is complained about on stderr, with nothing
+--- on stdout and no summary; a run that passed ends in its summary, last
+--- on stderr (`verb: ...`) or, for `test`, last on stdout; one that failed
+--- says why on stderr, with a summary only where its spec's
+--- `summarizes_failure` says, or, for `test`, in its summary. No line is
+--- a verdict line, `verb: PASS` or `verb: FAIL`.
+function verbs_fixture.expect(dir: string, verb: string, args: {string}, code: integer): invoke.Result
+  local result = verbs_fixture.run(dir, args)
+  local out, err = result.stdout or "", result.stderr or ""
+  local shown = table.concat(args, " ") .. " exited " .. tostring(result.code) ..
+    "\nstdout:\n" .. out .. "\nstderr:\n" .. err
+  assert(result.code == code, shown)
+  for line in (out .. "\n" .. err):gmatch("[^\n]+") do
+    assert(line ~= verb .. ": PASS" and line ~= verb .. ": FAIL" and
+        not String.starts_with(line, verb .. ": PASS (") and
+        not String.starts_with(line, verb .. ": FAIL ("), "a verdict line in " .. shown)
+  end
+  if code == 2 then
+    assert(out == "" and err ~= "", "expected a complaint and no output from " .. shown)
+    for line in err:gmatch("[^\n]+") do
+      assert(not String.starts_with(line, verb .. ": "), "a summary of a refusal in " .. shown)
+    end
+  elseif verb == "test" then
+    local summary = last_line(out)
+    local pattern = code == 0 and "^test: %d+ tests? passed in " or "^test: %d+ of %d+ tests? failed, "
+    assert(summary:find(pattern) ~= nil, "expected the summary last on stdout: " .. shown)
+  elseif code == 0 then
+    assert(String.starts_with(last_line(err), verb .. ": "),
+      "expected the summary last on stderr: " .. shown)
+  else
+    assert(err ~= "", "expected stderr to say why from " .. shown)
+    local spec = verb_list.find(verb)
+    if spec == nil or not spec.summarizes_failure then
+      for line in err:gmatch("[^\n]+") do
+        assert(not String.starts_with(line, verb .. ": "), "a summary of a failure in " .. shown)
+      end
+    end
+  end
   return result
 end
 

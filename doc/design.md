@@ -71,7 +71,7 @@ these argues with the principle, not with the reviewer.
    and caches them. the build needs no network once both are present.
 8. **docs are always right.** a disagreement between doc and code is
    fixed in the code, and every example runs or says why not. tests
-   run because they are defined. gates end in a verdict line. an
+   run because they are defined. a gate's verdict is its exit code. an
    error-site hint beats a gotcha doc beats guide prose.
 9. **obviously simple, correct, and essential.** a reader sees it,
    never derives it: a line of code proves itself on sight and a
@@ -1353,15 +1353,15 @@ takes paths to narrow it (`uses` after its symbol), except `docs`,
 which takes words to search for; `sql`, which takes one statement
 and names its database by option, since a statement already says
 which rows it reads; `refresh`, which takes the datasets to fetch;
-`bom`, which takes nothing; and `help`, which takes a verb. every verb ends
-in a verdict line
-and an exit code, on stdout, or on stderr where an option makes stdout
-data for a pipe (`sql --to`); a file run, `--standalone` and `-e` are programs,
-not verbs, and print only what they print and exit with what they
-return. `cosmic help` prints an index with a line per verb, `cosmic help <verb>`
-that verb's full text and options, and `cosmic help exit` the verdict
-lines and exit codes every verb shares. no other
-stock-interpreter flags, no argv[0] personality.
+`bom`, which takes nothing; and `help`, which takes a verb. a verb's
+exit code is its verdict and its stdout is its result alone; its stderr
+says what went wrong, and a run that passed ends there in a summary of
+how it went (`test`'s summary is its result, last on stdout). a file
+run, `--standalone` and `-e` are programs, not verbs, and print only
+what they print and exit with what they return. `cosmic help` prints an
+index with a line per verb, `cosmic help <verb>` that verb's full text
+and options, and `cosmic help exit` the exit codes and summaries. no
+other stock-interpreter flags, no argv[0] personality.
 [the command-line guide](guides/command-line.md) runs each of these.
 
 from a project, `docs` and `uses` answer for the project's own code

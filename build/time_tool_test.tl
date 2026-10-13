@@ -1,6 +1,6 @@
 --- `cosmic time` run as this program: the real clock, the real
 --- environment's zone, and the rule that it prints its answer and no
---- verdict line, exiting 0, 1 or 2. These start this program, so they
+--- summary, exiting 0, 1 or 2. These start this program, so they
 --- need `tool`; the arithmetic itself is in `time_test.tl`, against a
 --- clock it can fix.
 
@@ -28,7 +28,7 @@ local function cosmic(dir: string, words: {string}, tz?: string): Ran
   return { code = result.code, out = result.stdout or "", err = result.stderr or "" }
 end
 
-local function test_now_prints_the_time_and_no_verdict(tmp: string)
+local function test_now_prints_the_time_and_no_summary(tmp: string)
   -- The wall clock is not asserted, only the shape of what it prints.
   local ran = cosmic(tmp, { "time", "now" })
   assert(ran.code == 0 and ran.err == "", ran.err)

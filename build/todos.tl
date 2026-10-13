@@ -31,7 +31,8 @@ local reboot = require("build.reboot")
 local tree = require("build.tree")
 local work = require("build.work")
 
-local log = require("build.verdict").log
+local logger = require("build.logger")
+local log = logger.log
 local verb_spec = require("build.verb_spec")
 
 local record todos
@@ -650,7 +651,7 @@ end
 --- `cosmic todos [--oldest] [path...]`: stages the tree as a build
 --- does, which indexes its TODOs, blames the ones not yet blamed, and
 --- lists them one per line, in file order or, with `--oldest`, oldest
---- commit first, then a verdict line.
+--- commit first, then its summary on stderr.
 --- @param argv the command line, re-entered if this binary embeds a
 ---   stale copy of [`build.todos`] itself -- see [`build.reboot.stale_exit`]
 local function run(argv: {integer:string}): integer
@@ -736,7 +737,7 @@ local function run(argv: {integer:string}): integer
     end)
   end
   if ranks ~= nil and #listed == 0 then
-    log:verdict("todos", false, "no TODO matches '" .. query .. "', " ..
+    local _, _ = logger.summary("todos", "no TODO matches '" .. query .. "', " ..
         clock.took(started))
     return 1
   end
@@ -765,7 +766,7 @@ local function run(argv: {integer:string}): integer
       file_count = file_count + 1
     end
   end
-  log:verdict("todos", true, plural.count(#listed, "todo") .. " in " .. plural.count(file_count, "file") ..
+  local _, _ = logger.summary("todos", plural.count(#listed, "todo") .. " in " .. plural.count(file_count, "file") ..
       ", " .. plural.count(blamed, "file") .. " blamed, " .. clock.took(started))
   return 0
 end
@@ -773,6 +774,7 @@ end
 --- The `todos` verb as [`build/verb_list.tl`] lists it.
 todos.spec = {
   name = "todos",
+  summarizes_failure = true,
   guide = "none: lists the tree's TODO comments for its maintainers, described by `cosmic help todos`",
   tests = { "build.todos_test", "build.todos_git_test" },
   run = function(argv: {integer:string}): integer return run(argv) end,

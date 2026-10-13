@@ -21,15 +21,15 @@
 --- or carriage return is `\t`, `\n` or `\r`, and any other control byte
 --- is `\xHH`. So one row is always one line, no stored escape sequence
 --- reaches the terminal, and undoing those escapes gives the stored
---- bytes back. The verdict line comes last on stdout, as every verb's
---- does (see build/verbs_tool_test.tl), so a pipe that wants only the
---- rows drops the first line and the last. Complaints go to stderr.
+--- bytes back. Stdout holds the header line and the rows alone, so a
+--- pipe that wants only the rows drops the first line. Complaints and the
+--- summary go to stderr.
 ---
 --- `--from <file|->` asks the same of a data file instead of a database.
 --- Each `--from` is loaded as a table of an in-memory database
 --- ([`build.dataset`] says how: the columns, how a value is stored, the
 --- `_json` column), and the statement runs on that, under the same
---- read-only guard, with the same rows and verdict. `--as <format>`,
+--- read-only guard, with the same rows and summary. `--as <format>`,
 --- `--at '<path>'` and `--raw` belong to the `--from` they follow. With
 --- no statement the verb prints each table's name, row count, columns
 --- with the SQLite types seen, and a sample row. `no such column` and
@@ -47,10 +47,10 @@ local Store = require("cosmic.store")
 local bare = require("build.bare")
 local clock = require("build.clock")
 local dataset = require("build.dataset")
-local verdicts = require("build.verdict")
+local logger = require("build.logger")
 local verb_spec = require("build.verb_spec")
 
-local log = verdicts.log
+local log = logger.log
 
 --- The `cosmic sql` verb: `run` is what [`build/dispatch.tl`] calls;
 --- `source`, `open` and `query` are its steps, each testable on its
@@ -60,7 +60,7 @@ local record sql
   spec: verb_spec.Spec
   --- Where a statement runs.
   record Source
-    --- What the verdict line and a complaint call it.
+    --- What the summary and a complaint call it.
     name: string
     --- The database file; nil for the binary's own database.
     path: string | nil
@@ -68,16 +68,16 @@ local record sql
     hint: string | nil
   end
 
-  --- Where `run` writes: a row line, a complaint, and the verdict.
+  --- Where `run` writes: a row line, a complaint, and the summary.
   --- `out` and `err` take a line without its newline. `out` answers
   --- false and why when it could not write the line (a closed pipe),
   --- and the statement is stepped no further.
   record Output
     out: function(line: string): boolean, string
     err: function(line: string)
-    verdict: function(passed: boolean, detail: string)
-    --- The verdict when `--to` makes stdout data alone: on stderr.
-    verdict_aside: function(passed: boolean, detail: string)
+    --- How a run that passed went: the rows it wrote and where from. A
+    --- failure's complaint says why, and it gets no summary.
+    summary: function(detail: string)
   end
 
   --- One `--from`: a data file to load as a table.
@@ -531,9 +531,7 @@ local store_hint = "; the binary's own database answers a query and no PRAGMA " 
   "but data_version: `SELECT * FROM <table> LIMIT 0` names a table's columns, " ..
   "and sqlite_schema holds each table's SQL"
 
---- Rows to stdout, then the verdict line through [`build.verdict`]'s
---- logger, which tells [`build/dispatch.tl`] one was given; complaints
---- to stderr.
+--- Rows to stdout; complaints and the summary to stderr.
 local standard: sql.Output = {
   out = function(line: string): boolean, string
     return log:say(line)
@@ -541,11 +539,8 @@ local standard: sql.Output = {
   err = function(line: string)
     local _, _ = Fs.put(Fs.stderr, line .. "\n")
   end,
-  verdict = function(passed: boolean, detail: string)
-    local _, _ = log:verdict("sql", passed, detail)
-  end,
-  verdict_aside = function(passed: boolean, detail: string)
-    local _, _ = verdicts.on_stderr("sql", passed, detail)
+  summary = function(detail: string)
+    local _, _ = logger.summary("sql", detail)
   end,
 }
 
@@ -771,13 +766,12 @@ end
 --- other option beside `--from`, which names the database instead --
 --- and 1 for a file it cannot read, load or a statement that fails.
 local function run_from(parsed: Flags.Parsed, to: sql.Output,
-                        verdict: function(passed: boolean, detail: string),
+                        summarize: function(detail: string),
                         complain: function(line: string),
                         stdin: function(): string | nil, string, writer: Writer | nil): integer
   local usage = from_usage
   local function refuse(why: string): integer
     complain(why .. "; " .. usage)
-    verdict(false, "usage: see `cosmic help sql`")
     return 2
   end
   for _, other in ipairs({ "--db", "--build", "--store" }) do
@@ -801,14 +795,12 @@ local function run_from(parsed: Flags.Parsed, to: sql.Output,
   local opened, memory_trouble = Sqlite.memory()
   if opened == nil then
     complain(memory_trouble)
-    verdict(false, source)
     return 1
   end
   local db: Sqlite.Handle = opened
   local function fail(why: string): integer
     local _, _ = db:close()
     complain(why)
-    verdict(false, source)
     return 1
   end
   local tables: {dataset.Table} = {}
@@ -859,7 +851,7 @@ local function run_from(parsed: Flags.Parsed, to: sql.Output,
     counted = rows .. (rows == 1 and " row" or " rows")
   end
   local _, _ = db:close()
-  verdict(true, counted .. " from " .. source)
+  summarize(counted .. " from " .. source)
   return 0
 end
 
@@ -871,8 +863,8 @@ end
 --- @param argv the command line, `sql` at slot 1
 --- @param root the directory whose build directory holds the databases; the working
 ---   directory when nil
---- @param output where rows, complaints and the verdict go; stdout,
----   stderr and [`build.verdict`]'s logger when nil
+--- @param output where rows, complaints and the summary go; stdout and
+---   stderr when nil
 --- @param stdin the whole of standard input for `--from -`, or nil and
 ---   why; the process's own when nil
 function sql.run(argv: {integer:string}, root?: string, output?: sql.Output,
@@ -882,24 +874,14 @@ function sql.run(argv: {integer:string}, root?: string, output?: sql.Output,
   local function complain(line: string)
     to.err("cosmic: sql: " .. line)
   end
-  -- `--to` makes stdout data from the first complaint on, even about a
-  -- command line that will not parse.
-  local aside = false
-  for _, word in pairs(argv) do
-    if word == "--to" or word:sub(1, 5) == "--to=" then
-      aside = true
-    end
-  end
-  local function verdict(passed: boolean, detail: string)
-    local give = aside and to.verdict_aside or to.verdict
-    give(passed, detail .. ", " .. clock.took(started))
+  local function summarize(detail: string)
+    to.summary(detail .. ", " .. clock.took(started))
   end
   local usage = "cosmic sql [--db <path> | --build | --store] [--to csv|ndjson] '<statement>' | " ..
     from_usage
   local parsed, parse_trouble = Flags.parse(argv, 2, spec)
   if parsed == nil then
     complain(parse_trouble .. "; " .. usage)
-    verdict(false, "usage: see `cosmic help sql`")
     return 2
   end
   local writer: Writer | nil = nil
@@ -911,35 +893,30 @@ function sql.run(argv: {integer:string}, root?: string, output?: sql.Output,
     end
     if times > 1 then
       complain("give --to once; " .. usage)
-      verdict(false, "usage: see `cosmic help sql`")
       return 2
     end
     local make = writers[format]
     if make == nil then
       complain("--to writes csv or ndjson, not " .. format .. "; " .. usage)
-      verdict(false, "usage: see `cosmic help sql`")
       return 2
     end
     if #parsed.words == 0 then
       complain("--to writes a statement's rows: give one; " .. usage)
-      verdict(false, "usage: see `cosmic help sql`")
       return 2
     end
     writer = make()
   end
   if parsed.all["--from"] or parsed.all["--as"] or parsed.all["--at"] or parsed.set["--raw"] then
-    return run_from(parsed, to, verdict, complain, stdin or read_stdin, writer)
+    return run_from(parsed, to, summarize, complain, stdin or read_stdin, writer)
   end
   if #parsed.words ~= 1 then
     complain("give one statement, quoted as one argument: " .. usage)
-    verdict(false, "usage: see `cosmic help sql`")
     return 2
   end
   if root == nil then
     local here, trouble = Fs.absolute(".")
     if here == nil then
       complain(trouble)
-      verdict(false, "no working directory")
       return 1
     end
     root = here
@@ -947,13 +924,11 @@ function sql.run(argv: {integer:string}, root?: string, output?: sql.Output,
   local source, source_trouble = sql.source(root, parsed)
   if source == nil then
     complain(source_trouble .. "; " .. usage)
-    verdict(false, "usage: see `cosmic help sql`")
     return 2
   end
   local opened, open_trouble = sql.open(source)
   if opened == nil then
     complain(source.name .. ": " .. open_trouble)
-    verdict(false, source.name)
     return 1
   end
   local unwritable = false
@@ -982,10 +957,9 @@ function sql.run(argv: {integer:string}, root?: string, output?: sql.Output,
       trouble = trouble .. store_hint
     end
     complain(source.name .. ": " .. trouble)
-    verdict(false, source.name)
     return 1
   end
-  verdict(true, rows .. (rows == 1 and " row" or " rows") .. " from " .. source.name)
+  summarize(rows .. (rows == 1 and " row" or " rows") .. " from " .. source.name)
   return 0
 end
 

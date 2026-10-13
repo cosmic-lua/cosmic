@@ -30,12 +30,7 @@ local function test_lines_go_where_they_belong(tmp: string)
 local log = Log.new("notes")
 log:say("found 2")
 log:complain("no such note: 9")
-log:verdict("rm", false, "no such note")
-log:verdict("ls", true, "2 notes, 3 ms")
-log:verdict("build", false)
-log:verdict("fix", true, "")
 ]])
-  assert(out == "found 2\nrm: FAIL (no such note)\nls: PASS (2 notes, 3 ms)\n" ..
-      "build: FAIL\nfix: PASS\n", out)
+  assert(out == "found 2\n", out)
   assert(err == "notes: no such note: 9\n", err)
 end

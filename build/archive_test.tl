@@ -3,7 +3,7 @@
 --- format, standard input), extract (members, `-C`, `--force`, and the
 --- refusals of a path that escapes), create and its round trip. Its
 --- archives are built here with the modules' own writers. The exit
---- statuses and the absence of a verdict line, which only a process of
+--- statuses and the absence of a summary, which only a process of
 --- its own shows, are in build/archive_tool_test.tl.
 
 local Compress = require("cosmic.compress")

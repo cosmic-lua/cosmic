@@ -75,15 +75,15 @@ local function run(mode: string, records_path: string, build_directory: string,
   return boot("/nonexistent-tree", argv, "")
 end
 
---- `run`'s status and the verdict lines a boot writes to [`Fs.stdout`].
+--- `run`'s status and the summary and complaints a boot writes to [`Fs.stderr`].
 local function run_capturing(mode: string, records_path: string,
                              build_directory: string, extra?: {string}): integer, string
-  local path = build_directory .. ".stdout"
+  local path = build_directory .. ".stderr"
   local fd = assert(Fs.open_write(path))
-  local real = Fs.stdout
-  Fs.stdout = fd
+  local real = Fs.stderr
+  Fs.stderr = fd
   local ok, code = pcall(run, mode, records_path, build_directory, extra)
-  Fs.stdout = real
+  Fs.stderr = real
   assert(Fs.close(fd))
   assert(ok, tostring(code))
   return code as integer, (assert(Fs.read(path)))
@@ -141,7 +141,7 @@ local function test_stage_does_not_need_the_cores(tmp: string)
   assert(Fs.write(tmp .. "/targets.tsv", records))
   local code, out = run_capturing("--stage", tmp .. "/targets.tsv", layout.directory)
   assert(code == 1, out)
-  assert(out:find("boot: FAIL", 1, true), out)
+  assert(out:find("cosmic: boot: ", 1, true), out)
   assert(not out:find("cosmic-core", 1, true), out)
   assert(Fs.stat(layout.carried .. ".stamp") == nil)
 
@@ -157,10 +157,10 @@ local function test_assemble_reports_the_whole_boot(tmp: string)
   local build_directory, records_path = directory(tmp)
   local code, out = run_capturing("--assemble", records_path, build_directory)
   assert(code == 0, out)
-  assert(out:find("boot: PASS (3 targets, 7 files staged, 5 sources parsed, " ..
+  assert(out:find("boot: 3 targets, 7 files staged, 5 sources parsed, " ..
       "3 taken from another checkout, 2 modules compiled, 1 taken from another checkout, ",
     1, true), out)
-  local total = assert(tonumber(out:match(", (%d+) ms%)")), out)
+  local total = assert(tonumber(out:match(", (%d+) ms\n")), out)
   assert(total >= 1234, out)
 end
 

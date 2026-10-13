@@ -27,7 +27,7 @@ local String = require("cosmic.string")
 
 local log = Log.new("cosmic")
 
---- What `stage` leaves for the assembly and the verdict line.
+--- What `stage` leaves for the assembly and the summary.
 local record Staged
   files: integer
   parsed: integer
@@ -49,7 +49,7 @@ local stamp_fields <const>: {string} = { "carried", "records", "files", "parsed"
 
 --- Vouches for the carried database a stage wrote: its digest, the digest
 --- of the target records the stage ran for, and the figures the boot's
---- verdict line reports. `--assemble` accepts only the database a stamp
+--- summary reports. `--assemble` accepts only the database a stamp
 --- names, so a stale or foreign `carried.db` is refused instead of
 --- shipped, and reports the whole boot's figures.
 local function stamp_text(staged: Staged, carried: string, records: string): string
@@ -110,30 +110,30 @@ local function stage(root: string, tl_dir: string, compiler_source: string,
                      started: integer): Staged | nil
   local made, mkdir_trouble = Fs.mkdirs(output.bin)
   if not made then
-    log:verdict("boot", false, mkdir_trouble)
+    log:complain("boot: " .. mkdir_trouble)
     return nil
   end
   local handle, open_trouble = work.open(root, working.directory)
   if handle == nil then
-    log:verdict("boot", false, open_trouble)
+    log:complain("boot: " .. open_trouble)
     return nil
   end
   local staged, stage_trouble = work.stage(handle, true)
   if staged == nil then
     local _, _ = work.close(handle)
-    log:verdict("boot", false, stage_trouble)
+    log:complain("boot: " .. stage_trouble)
     return nil
   end
   local fingerprint, print_trouble = identity.record_fingerprint(handle.db)
   if fingerprint == nil then
     local _, _ = work.close(handle)
-    log:verdict("boot", false, print_trouble)
+    log:complain("boot: " .. print_trouble)
     return nil
   end
   local kept, keep_trouble = derivation.put_compiler(handle.db, compiler_source)
   if not kept then
     local _, _ = work.close(handle)
-    log:verdict("boot", false, keep_trouble)
+    log:complain("boot: " .. keep_trouble)
     return nil
   end
   -- Read from the tree itself, as zig reads vendor/cacert: the zones
@@ -141,26 +141,26 @@ local function stage(root: string, tl_dir: string, compiler_source: string,
   local zones, zones_trouble = work.read_zoneinfo(root .. "/vendor/tzdata/zoneinfo")
   if zones == nil then
     local _, _ = work.close(handle)
-    log:verdict("boot", false, zones_trouble)
+    log:complain("boot: " .. zones_trouble)
     return nil
   end
   local zoned, zoned_trouble = work.put_zoneinfo(handle, zones)
   if not zoned then
     local _, _ = work.close(handle)
-    log:verdict("boot", false, zoned_trouble)
+    log:complain("boot: " .. zoned_trouble)
     return nil
   end
   -- Likewise the files cosmic.web serves under /_web/, hashed here.
   local web, web_trouble = work.read_web_assets(root .. "/vendor")
   if web == nil then
     local _, _ = work.close(handle)
-    log:verdict("boot", false, web_trouble)
+    log:complain("boot: " .. web_trouble)
     return nil
   end
   local web_put, web_put_trouble = work.put_web_assets(handle, web)
   if not web_put then
     local _, _ = work.close(handle)
-    log:verdict("boot", false, web_put_trouble)
+    log:complain("boot: " .. web_put_trouble)
     return nil
   end
 
@@ -175,7 +175,7 @@ local function stage(root: string, tl_dir: string, compiler_source: string,
   if result == nil then
     local _, _ = work.record(handle, clock.elapsed_ms(started), staged, 0, 0, "FAIL")
     local _, _ = work.close(handle)
-    log:say("boot: FAIL\n" .. compile_trouble)
+    log:complain("boot: " .. compile_trouble)
     return nil
   end
   local database_path = output.projection
@@ -185,7 +185,7 @@ local function stage(root: string, tl_dir: string, compiler_source: string,
     result.cached, written and "PASS" or "FAIL")
   if not written then
     local _, _ = work.close(handle)
-    log:say("boot: FAIL\n" .. write_trouble)
+    log:complain("boot: " .. write_trouble)
     return nil
   end
 
@@ -194,12 +194,12 @@ local function stage(root: string, tl_dir: string, compiler_source: string,
   local carried, carry_trouble = writer.carried(database_path, output.carried)
   if not carried then
     local _, _ = work.close(handle)
-    log:verdict("boot", false, carry_trouble)
+    log:complain("boot: " .. carry_trouble)
     return nil
   end
   local closed, close_trouble = work.close(handle)
   if not closed then
-    log:verdict("boot", false, close_trouble)
+    log:complain("boot: " .. close_trouble)
     return nil
   end
   return {
@@ -231,29 +231,29 @@ local function assemble(manifest_records: string, images: {string:string},
                         expected?: string): integer | nil
   local database, read_trouble = Fs.read(output.carried)
   if database == nil then
-    log:verdict("boot", false, read_trouble)
+    log:complain("boot: " .. read_trouble)
     return nil
   end
   if expected ~= nil and Hash.hex_sha256(database) ~= expected then
-    log:verdict("boot", false, output.carried ..
+    log:complain("boot: " .. output.carried ..
         " is not the database the last stage stamped")
     return nil
   end
   local prefix, prefix_trouble = artifact.prefix(manifest_records, images,
     selected_configuration)
   if prefix == nil then
-    log:verdict("boot", false, prefix_trouble)
+    log:complain("boot: " .. prefix_trouble)
     return nil
   end
   local program, program_trouble = artifact.program(prefix, database)
   if program == nil then
-    log:verdict("boot", false, program_trouble)
+    log:complain("boot: " .. program_trouble)
     return nil
   end
   local published, publish_trouble =
     Fs.write(output.tool, program, 0x1ed)
   if not published then
-    log:verdict("boot", false, publish_trouble)
+    log:complain("boot: " .. publish_trouble)
     return nil
   end
   return #database
@@ -275,7 +275,7 @@ end
 --- (the database's digest, the records it ran for, its figures and time),
 --- and removes the last one first; `--assemble` refuses a `carried.db` or
 --- records the stamp does not name, so the step graph is not all that
---- pairs the two, and its `boot: PASS` line reports the whole boot.
+--- pairs the two, and its `boot: ` summary reports the whole boot.
 --- Neither takes a checked core.
 --- Slots 7 through 9 optionally set the checked raw core, four-entry record
 --- file and checked output directory
@@ -300,29 +300,29 @@ local function boot(root: string, argv: {integer:string},
   end
   local host = slot(4)
   if host == nil or host == "" then
-    log:verdict("boot", false, "the command line names no host target")
+    log:complain("boot: " .. "the command line names no host target")
     return 1
   end
   -- The build directory bin/zig resolved and handed zig as its prefix.
   local working_directory = slot(6)
   if working_directory == nil or working_directory == "" then
-    log:verdict("boot", false, "the command line names no working directory")
+    log:complain("boot: " .. "the command line names no working directory")
     return 1
   end
   local working = build_paths.under(working_directory)
 
   local records_path = slot(5)
   if records_path == nil or records_path == "" then
-    log:verdict("boot", false, "the command line names no target records")
+    log:complain("boot: " .. "the command line names no target records")
     return 1
   end
   local records, records_trouble = Fs.read(records_path)
   if records == nil then
-    log:verdict("boot", false, records_trouble)
+    log:complain("boot: " .. records_trouble)
     return 1
   end
   if mode ~= "boot" and (slot(7) ~= nil or slot(8) ~= nil or slot(9) ~= nil) then
-    log:verdict("boot", false, "a half boot takes no checked core")
+    log:complain("boot: " .. "a half boot takes no checked core")
     return 1
   end
 
@@ -336,7 +336,7 @@ local function boot(root: string, argv: {integer:string},
       line:match("^(%d+)\t(%d+)\t([^\t]+)\t([^\t]+)\t([^\t]+)\t([^\t]+)$")
     if id == nil or configuration_id ~= "1" or configuration ~= "release" or
         target == nil or uname_os == nil or uname_arch == nil then
-      log:verdict("boot", false, "invalid generated release target record")
+      log:complain("boot: " .. "invalid generated release target record")
       return 1
     end
     -- The staging half never reads a raw core: it is the point of
@@ -345,7 +345,7 @@ local function boot(root: string, argv: {integer:string},
       local path = build_paths.core(working, target)
       local image, failure = Fs.read(path)
       if image == nil then
-        log:verdict("boot", false, failure)
+        log:complain("boot: " .. failure)
         return 1
       end
       images[target] = image
@@ -356,11 +356,11 @@ local function boot(root: string, argv: {integer:string},
     end
   end
   if #targets == 0 then
-    log:verdict("boot", false, "the generated target list is empty")
+    log:complain("boot: " .. "the generated target list is empty")
     return 1
   end
   if host_id == nil then
-    log:verdict("boot", false, "the host is absent from generated target records")
+    log:complain("boot: " .. "the host is absent from generated target records")
     return 1
   end
 
@@ -372,21 +372,21 @@ local function boot(root: string, argv: {integer:string},
   if checked_path ~= nil then
     local checked_records_path = slot(8)
     if checked_records_path == nil then
-      log:verdict("boot", false, "checked boot names no checked target records")
+      log:complain("boot: " .. "checked boot names no checked target records")
       return 1
     end
     local checked, checked_trouble = Fs.read(checked_path)
     if checked == nil then
-      log:verdict("boot", false, checked_trouble)
+      log:complain("boot: " .. checked_trouble)
       return 1
     end
     local checked_records, checked_records_trouble = Fs.read(checked_records_path)
     if checked_records == nil then
-      log:verdict("boot", false, checked_records_trouble)
+      log:complain("boot: " .. checked_records_trouble)
       return 1
     end
     if not String.starts_with(checked_records, records) then
-      log:verdict("boot", false, "checked records do not begin with release records")
+      log:complain("boot: " .. "checked records do not begin with release records")
       return 1
     end
     local extra = checked_records:sub(#records + 1)
@@ -396,14 +396,14 @@ local function boot(root: string, argv: {integer:string},
     if checked_id ~= host_id or checked_configuration_id ~= "2" or
         checked_configuration ~= "sanitized" or checked_name == nil or
         checked_os ~= host_os or checked_arch ~= host_arch then
-      log:verdict("boot", false, "invalid generated checked target record")
+      log:complain("boot: " .. "invalid generated checked target record")
       return 1
     end
     images[checked_name] = checked
     manifest_records = checked_records
     selected_configuration = 2
   elseif slot(8) ~= nil then
-    log:verdict("boot", false, "checked target records name no checked raw core")
+    log:complain("boot: " .. "checked target records name no checked raw core")
     return 1
   end
 
@@ -415,16 +415,16 @@ local function boot(root: string, argv: {integer:string},
     if made == nil then return 1 end
     local database, read_trouble = Fs.read(output.carried)
     if database == nil then
-      log:verdict("boot", false, read_trouble)
+      log:complain("boot: " .. read_trouble)
       return 1
     end
     local stamped, stamp_trouble =
       Fs.write(stamp_path(output), stamp_text(made, database, records))
     if not stamped then
-      log:verdict("boot", false, stamp_trouble)
+      log:complain("boot: " .. stamp_trouble)
       return 1
     end
-    log:verdict("stage", true, describe(made) .. ", " .. clock.took(started))
+    local _, _ = Fs.put(Fs.stderr, "stage: " .. describe(made) .. ", " .. clock.took(started) .. "\n")
     return 0
   end
   local staged: Staged
@@ -436,12 +436,12 @@ local function boot(root: string, argv: {integer:string},
   else
     local text, text_trouble = Fs.read(stamp_path(output))
     if text == nil then
-      log:verdict("boot", false, text_trouble)
+      log:complain("boot: " .. text_trouble)
       return 1
     end
     local read, read_trouble = read_stamp(text, records)
     if read == nil then
-      log:verdict("boot", false, read_trouble)
+      log:complain("boot: " .. read_trouble)
       return 1
     end
     staged, expected = read.staged, read.carried
@@ -454,9 +454,9 @@ local function boot(root: string, argv: {integer:string},
   -- stamp, and which may have run while other cores linked) and this run's.
   local total_ms = clock.elapsed_ms(started)
   if mode == "assemble" then total_ms = total_ms + staged.elapsed_ms end
-  log:verdict("boot", true, plural.count(#targets, "target") .. ", " ..
+  local _, _ = Fs.put(Fs.stderr, "boot: " .. plural.count(#targets, "target") .. ", " ..
       describe(staged) .. ", " ..
-      plural.count(database_length, "database byte") .. ", " .. total_ms .. " ms")
+      plural.count(database_length, "database byte") .. ", " .. total_ms .. " ms\n")
   return 0
 end
 

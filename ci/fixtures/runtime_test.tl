@@ -178,8 +178,10 @@ local function test_runtime_startup_phases(tmp: string)
   local diagnostics = work .. "/logs"
   Fixture.mkdir(diagnostics)
 
+  -- `--version` writes nothing to stderr itself, so the phases are all
+  -- there is; a verb would add its summary.
   local phases = Fixture.run("phases", { fixture_dir .. "/runtime.old",
-    "help" }, work, diagnostics,
+    "--version" }, work, diagnostics,
     { COSMIC_PORTABLE_CACHE = work .. "/cache-phases" })
   local expected = table.concat({
     "cosmic portable test phase: artifact adopted",
