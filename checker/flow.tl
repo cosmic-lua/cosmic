@@ -671,7 +671,7 @@ function walk.statement(scan: Scan, stmt: flow.Node, st: State): State
          if s and s.assigned then
             any_assigned = true
          end
-         ends[i] = { state = s }
+         ends[i] = { state = s, continued = no_state }
       end
       local out: State = no_state
       if any_assigned then

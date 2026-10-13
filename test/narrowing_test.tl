@@ -397,7 +397,7 @@ end
       tostring(trouble))
 end
 
-local function test_goto_narrow_ends_at_a_label(tmp: string)
+local function test_a_goto_to_a_label_that_ends_no_loop_body_is_refused(tmp: string)
   local ok, trouble = try_build(tmp, "goto-label", entry_prelude .. [[
 local e = next_entry()
 do
@@ -407,8 +407,8 @@ do
    print(e.size)
 end
 ]])
-  assert(refused_nil_index(ok, trouble), "a label is reached by the goto with e nil, so the " ..
-      "narrow must not reach the code after it")
+  assert(not ok and tostring(trouble):find("is not a continue", 1, true) ~= nil,
+    "a goto that is no continue should be refused, but: " .. tostring(trouble))
 end
 
 local function test_an_ending_do_or_endless_loop_narrows_below_the_guard(tmp: string)
@@ -459,7 +459,7 @@ use()
   end
 end
 
-local function test_a_goto_out_of_an_endless_loop_reaches_a_label_that_widens(tmp: string)
+local function test_a_goto_out_of_an_endless_loop_is_refused(tmp: string)
   local ok, trouble = try_build(tmp, "goto-out-of-loop", entry_prelude .. [[
 local function use()
    local e = next_entry()
@@ -471,8 +471,8 @@ local function use()
 end
 use()
 ]])
-  assert(refused_nil_index(ok, trouble), "the goto leaves the loop with e nil for the " ..
-      "label, so the narrow must not reach the code after it")
+  assert(not ok and tostring(trouble):find("is not a continue", 1, true) ~= nil,
+    "a goto out of a loop should be refused, but: " .. tostring(trouble))
 end
 
 local function test_error_narrows_below_the_guard(tmp: string)

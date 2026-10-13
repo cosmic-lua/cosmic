@@ -983,10 +983,8 @@ a `while` or `repeat` is part of the body, so what it drops is dropped for
 the body after it. after the loop what it dropped stays dropped, as in
 straight-line code, and a drop in a branch that leaves the loop is not one of
 the next pass. a branch leaves only if its last statement does and no path
-through it goes out first by a `break` of a loop around it or a `goto`. a
-label drops every field path when a `goto` below it names it, as that `goto`
-reaches it from code that may have changed one; a label only gotos above it
-name drops nothing, as what those paths dropped stays dropped. a function
+through it goes out first by a `break` of a loop around it or a `goto` (a
+continue, below) that is not of a loop inside the branch. a function
 literal runs later, when what a test established may no longer hold
 (`local f = function() return r.n + 1 end`, then a call that clears `r.n`,
 then `f()`), so its body begins without the facts of the places outside it
@@ -995,8 +993,7 @@ because any code that runs before it may write one, and each local that an
 assignment can change once the literal is made (a parameter, a `local x = x`
 copy and a local declared with a value alike): an assignment in a function
 literal, one that comes after the literal in the text, and one in a loop that
-also makes the literal (a later pass runs it) all can, and so can any
-assignment in a file with a `goto`. it keeps the facts of a local that no such
+also makes the literal (a later pass runs it) all can. it keeps the facts of a local that no such
 assignment changes, since that local holds the same value whenever the literal
 runs: a default assigned before it (`opts = opts or {}`) or the best of a loop
 that has ended is the value its test, or the value it was declared with, still
@@ -1021,7 +1018,7 @@ test assigns it) keeps the widening and can be dropped from it, so a call or an
 assignment drops it as it does elsewhere.
 
 a refusal of this kind has the code `narrowing_dropped`, with the place, what
-dropped it (`call`, `write`, `operator`, `label`, `loop`, `function` or `assignment`), that
+dropped it (`call`, `write`, `operator`, `loop`, `function` or `assignment`), that
 expression as written and where it is, beside the fields of the refusal it
 was. its hint copies the value to a local before the call or write
 (`local n = r.n`, then `if n then clear() print(n + 1) end`), which stays
@@ -1040,7 +1037,7 @@ on it (below). an `if` assigns if every branch does and it has an `else`;
 a `while`, `for` and generic `for` body may run no time, so what it assigns
 does not count after the loop except on the paths that `break` out of it,
 while a `repeat` body and a `while true` body run at least once; a `goto`
-takes the state it leaves with to its label. an assignment inside a function
+takes the state it leaves with to the label that ends its loop's body. an assignment inside a function
 literal does not count for the code around it, and a local of the same name
 declared inside a block hides the variable from the rest of that block.
 `local x: T | nil` with no value is always legal and is nil, so is any type
@@ -1060,8 +1057,7 @@ the narrowing it drops (`TypeChecker:drop_all`, which marks the expression
 standard library that examines no value that may dispatch is none. it also
 becomes one where the function may get out unassigned: at a `return`, at a call
 of a function typed `: never` (the path ends, but the function may be stored or
-caught by a caller above, as `error` is), at a `goto` back round a label the
-walk has passed (the code between runs again), and where the variable's scope
+caught by a caller above, as `error` is), and where the variable's scope
 ends. a loop
 body that ends with it pending goes round once more in the walk, so the code at
 its start counts. so `local f: function(); local function g() f() end; f =
@@ -1091,16 +1087,32 @@ a refusal of the first kind has the code `not_assigned`, with the variable, and
 where a path skipped the assignment: the `if` with no `else`, the branch that
 does not assign, or the loop, with its place; for a function that names it, that
 the read is a function and what may call it first (`ran_kind`: `call`,
-`operator`, `iterator`, `return`, `goto`, `never` or `scope`, with its place). its hint
+`operator`, `iterator`, `return`, `never` or `scope`, with its place). its hint
 says to give the local a value where it is declared, assign it on every path
 (before the call that may run a function that names it), or declare it
 `T | nil` and check it where it is used. the rule is held against
 the semantics it is about: a drawn program of branches, loops, `break`,
-`return`, `goto`, calls that never return and functions that name the variable
+`return`, `goto` as a continue, calls that never return and functions that name the variable
 is run down every way its choices can fall, with every call able to call every
 function made so far, and the checker refuses it exactly when some way reads
 the variable before it is assigned
 ([`build/checker_assigned_fuzz_test.tl`]).
+
+a `goto` is a continue and nothing else. it may only jump forward to the label
+that is the last statement of the body of the innermost loop around it, in the
+same function (`for`, `while` and `repeat` alike); the label's name does not
+matter. it is refused when it jumps back, jumps forward to a label anywhere
+else, jumps out of a nested function or out of a loop, or sits outside any
+loop, and a label that no such `goto` names is refused too, so a label exists
+only to continue. a refusal has the code `goto_not_continue`, with the label's
+name, where the `goto` is (none for a label nothing names) and where the label
+is (none where the `goto` names no label); its hint says to restructure with an
+`if` around the code to skip, or to move the body into a function. a `goto`
+that only skips the rest of a pass leaves no loop and re-enters nothing, so
+the checker's flow and narrowing meet a label only at the end of a loop body,
+reached by forward jumps: a label drops no fact of its own, a loop that only a
+`goto` leaves does not occur, and the order of the text says when a write
+runs, up to the loops around it.
 
 the checker's own source is valid upstream Teal and relies on nil being in
 every type, so a local it reads before the code that assigns it is declared

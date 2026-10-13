@@ -1978,7 +1978,7 @@ local function test_a_lua_refusal_is_said_at_the_teal_line()
     ["lib/serve.tl"] = "local record Point\n  x: integer\n  y: integer\nend\n" ..
       "local enum Mode\n  \"a\"\n  \"b\"\nend\n" ..
       "local mode: Mode = \"a\"\nprint(mode, Point)\n" ..
-      "goto done\nlocal x = 1\nprint(x)\n::done::\nprint(2)\n",
+      "repeat\ngoto done\nlocal x = 1\nprint(x)\n::done::\nuntil x == 1\n",
   }))
   local handle = assert(work.open(root))
   assert(work.stage(handle, false))
@@ -1990,7 +1990,7 @@ local function test_a_lua_refusal_is_said_at_the_teal_line()
   local made, trouble = compilation.generate(modules[1], built, env, typed, false, true,
     function(_file: string, _source: string, _result: Compiler.Result): string return "" end)
   assert(made == nil, "a goto into a local's scope compiled")
-  assert(trouble == "lib/serve.tl:15: <goto done> at line 11 jumps into the scope of 'x'", trouble)
+  assert(trouble == "lib/serve.tl:16: <goto done> at line 12 jumps into the scope of 'x'", trouble)
   work.close(handle)
 end
 
