@@ -1551,3 +1551,54 @@ local function test_a_metamethod_runs_code_an_operator_on_a_number_does_not()
       "  local same = a == a and \"s\" == \"t\" and z .. \"\" == \"6\"\n  print(h.n + z + #a + (same and 1 or 0))\nend")
   accepted_source(head .. "if h.n then\n  local nothing = v == nil\n  print(h.n + (nothing and 1 or 0))\nend")
 end
+
+--- A narrowed global is a field of `_G`, and any value may be `_G` (a cast
+--- to a map, or to a record that declares the field), so a write through its
+--- name drops what is known of it, and a write through a key that may be its
+--- name drops every global.
+local function test_a_write_to_a_global_through_g_or_an_alias_of_it_drops_the_fact()
+  local head <const> = "global G: number | nil\nlocal function f(k: string): number\n  if G then\n"
+  local tail <const> = "    return G + 1\n  end\n  return 0\nend\nreturn f"
+  local at <const> = "5: " .. plus
+  refused_source(head .. "    _G.G = nil\n" .. tail, at)
+  refused_source(head .. "    _G[\"G\"] = nil\n" .. tail, at)
+  refused_source(head .. "    local e = _G as {string:any}\n    e.G = nil\n" .. tail, "6: " .. plus)
+  refused_source(head .. "    local e = _G as {string:any}\n    e[k] = nil\n" .. tail, "6: " .. plus)
+  refused_source("local record R\n  G: number | nil\nend\n" .. head .. "    local r = _G as R\n    r.G = nil\n" .. tail,
+    "9: " .. plus)
+  -- A call that writes it already dropped it.
+  refused_source(head .. "    rawset(_G as {string:any}, \"G\", nil)\n" .. tail, at)
+  -- A write to another field, or a number key, is no write to the global.
+  accepted_source("global H: number | nil\n" .. head .. "    _G.H = nil\n" .. tail)
+  accepted_source(head .. "    local t: {string:any} = {}\n    t.H = 1\n" .. tail)
+  accepted_source(head .. "    local a: {integer} = {}\n    a[1] = 2\n" .. tail)
+  -- A local of the name is not the global.
+  accepted_source("global G: number | nil\nlocal function f(): number\n  local G: number | nil = 1\n  if G then\n" ..
+      "    local t: {string:any} = {}\n    t.G = nil\n    return G + 1\n  end\n  return 0\nend\nreturn f")
+end
+
+--- A local of the file that hides a narrowed global within a block does not
+--- hide it from the code after the block: the fact the outer scope holds
+--- belongs to the global, and a write or call in the block drops it.
+local function test_a_local_that_hides_a_narrowed_global_in_a_block_does_not_keep_its_fact()
+  local head <const> = "global G: number | nil\nlocal function clear() G = nil end\nlocal function f(): number\n  if G then\n    do\n"
+  local tail <const> = "    end\n    return G + 1\n  end\n  return 0\nend\nreturn f"
+  local at <const> = "10: " .. plus
+  refused_source(head .. "      local G: number | nil = 1\n      _G.G = nil\n      local _p = G\n" .. tail, at)
+  refused_source(head .. "      local G: number | nil = 1\n      if G then local _p = G end\n      _G.G = nil\n" .. tail, at)
+  refused_source(head .. "      local G: number | nil = 1\n      if G then print(G) end\n      clear()\n" .. tail, at)
+  -- A write to another field leaves the fact of a local of the file.
+  accepted_source("local function f(): number\n  local G: number | nil = 1\n  if G then\n    do\n      local t: {string:any} = {}\n" ..
+      "      t.H = 1\n    end\n    return G + 1\n  end\n  return 0\nend\nreturn f")
+end
+
+--- A write to a global replaces the table its field facts are about.
+local function test_a_write_to_a_global_through_g_drops_the_facts_of_its_fields()
+  local head <const> = "global record GR\n  a: number | nil\nend\nglobal G: GR = {}\nlocal function f(k: string): number\n  if G.a then\n"
+  local tail <const> = "    return G.a + 1\n  end\n  return 0\nend\nreturn f"
+  local at <const> = "8: " .. plus
+  refused_source(head .. "    _G.G = {}\n" .. tail, at)
+  refused_source(head .. "    local e = _G as {string:any}\n    e.G = {}\n" .. tail, "9: " .. plus)
+  refused_source(head .. "    local e = _G as {string:any}\n    e[k] = {}\n" .. tail, "9: " .. plus)
+  accepted_source("global H: number | nil\n" .. head .. "    _G.H = nil\n" .. tail)
+end
