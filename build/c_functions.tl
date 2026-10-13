@@ -54,6 +54,14 @@ local maps_ids <const> =
 local connector_only <const> =
   "runs only in the native connector, whose filter forbids coverage files and whose inherited descriptors are " ..
   "closed: the connector's live kernel probes and TCP handoff tests enter it, but it cannot report coverage"
+local sha_driver_routed <const> =
+  "a test enters it only on an x86_64 host with the SHA extensions, where the dispatch routes an operation " ..
+  "to cosmic's driver; on any other host no operation carries the driver's id. A processor-feature " ..
+  "prerequisite would hold the obligation to exactly those hosts: this exemption waits on " ..
+  "build/host_requires learning to ask the processor"
+local sha_driver_clone <const> =
+  "no binding clones a hash operation and no other core code calls psa_hash_clone; the entry point " ..
+  "completes the driver's dispatch surface (patch/mbedtls, 06-sha-driver-hash-clone)"
 
 --- The C functions no test can enter, by [`key_of`], and why.
 local exempt: {string: string} = {
@@ -99,6 +107,12 @@ local exempt: {string: string} = {
     "test's host has; the checked core's testing table reaches it (`mountinfo_local_flock`), and its run enters it",
   ["core/store.c:die_unreadable"] = "the store's own database cannot be read, and the process ends",
   ["core/crypto.c:mbedtls_psa_external_get_random"] = "mbedtls asks for randomness only to make keys, which the core never does",
+  ["core/psa_sha_driver.c:cosmic_psa_hash_clone"] = sha_driver_clone,
+  ["core/psa_sha_driver.c:cosmic_psa_hash_update"] = sha_driver_routed,
+  ["core/psa_sha_driver.c:cosmic_psa_hash_finish"] = sha_driver_routed,
+  ["core/psa_sha_driver.c:cosmic_psa_hash_abort"] = sha_driver_routed,
+  ["core/psa_sha_driver.c:cosmic_sha256_compress"] = sha_driver_routed,
+  ["core/psa_sha_driver.c:cosmic_sha256_blocks"] = sha_driver_routed,
   ["core/vfs.c:vfs_delete"] = forwarded,
   ["core/vfs.c:vfs_access"] = forwarded,
   ["core/vfs.c:vfs_randomness"] = "SQLite seeds its randomness through the default VFS, never a wrapping one",

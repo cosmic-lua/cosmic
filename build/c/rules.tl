@@ -129,6 +129,12 @@ local checked_only <const> = "every file refers to it through a macro of its hea
   "that names it only in the checked core (COSMIC_CHECKED); the check compiles " ..
   "the others as a release core does, where the macro names libc's or nothing"
 
+--- Why cosmic's SHA driver's entry points are still in its header.
+local psa_sha_driver <const> = "the PSA dispatch calls it, in " ..
+  "psa_crypto_driver_wrappers.h as patch/mbedtls wires the driver in, " ..
+  "which the check does not compile; within the core, only its own " ..
+  "file refers to it"
+
 --- The findings a rule cannot see past, and why each is not one, by
 --- `"<file> <function> <rule>"`.
 local exempt: {string: string} = {
@@ -156,6 +162,12 @@ local exempt: {string: string} = {
   ["core/memory.h cosmic_realloc single-file"] = checked_only,
   ["core/memory.h cosmic_free single-file"] = checked_only,
   ["core/fault.h cosmic_fault single-file"] = checked_only,
+  ["core/psa_sha_driver.h cosmic_psa_hash_compute single-file"] = psa_sha_driver,
+  ["core/psa_sha_driver.h cosmic_psa_hash_setup single-file"] = psa_sha_driver,
+  ["core/psa_sha_driver.h cosmic_psa_hash_clone single-file"] = psa_sha_driver,
+  ["core/psa_sha_driver.h cosmic_psa_hash_update single-file"] = psa_sha_driver,
+  ["core/psa_sha_driver.h cosmic_psa_hash_finish single-file"] = psa_sha_driver,
+  ["core/psa_sha_driver.h cosmic_psa_hash_abort single-file"] = psa_sha_driver,
   ["core/syscalls.h cosmic_sys_sandbox_platform true-alone"] =
     "its other branch, compiled off Linux, answers false with ENOSYS, which " ..
     "the check's Linux compile does not see",
