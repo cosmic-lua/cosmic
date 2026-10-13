@@ -39,9 +39,7 @@
 -- doc/roadmap.md's item that makes every guard read every place alike;
 -- a write to an index then drops every index place, and the checker drops
 -- every field path for the write through a key that may be a field name
--- (`TypeChecker:drop_through`). [`narrowing.drop_written`] already drops a
--- path with the written field anywhere after its base (`a.f.g` by `b.f = v`),
--- so the paths need no change there.
+-- (`TypeChecker:drop_through`).
 --
 -- TODO: `forgets` drops by string prefix, so `r.f = v` also drops a fact
 -- about `r.foo`. It waits on the roadmap item that makes every guard read
