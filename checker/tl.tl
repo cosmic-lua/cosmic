@@ -642,14 +642,17 @@ local record Variable
    has_been_read_from: boolean
    has_been_written_to: boolean
    is_loop_control: boolean
-   -- Names the binding this entry stands for apart from every other of the
-   -- file being checked, whatever its name: the value of
-   -- `TypeChecker.binding_count` when `add_var` or `add_global` made it, or
-   -- "g:" and the name for a global the environment declared. An entry that
-   -- narrows or widens a binding in a scope of its own, and the copy
-   -- `find_var` answers for a write, hold the key of that binding; so does
-   -- the entry `infer_emptytable` puts in place of one. A `local x = x` is a
-   -- binding of its own and has a key of its own.
+   -- Names the binding this entry stands for, whatever its name, so that
+   -- two places are the same only if their keys are. A global, whether the
+   -- environment, the standard library or a `global` declaration in any file
+   -- made it, is "g:" and its name: one global, in every file of an
+   -- environment. Any other binding is the value of
+   -- `TypeChecker.binding_count` when `add_var` made it, a decimal number
+   -- that no "g:" key equals and that is the binding's alone in the file
+   -- being checked. An entry that narrows or widens a binding in a scope of
+   -- its own, and the copy `find_var` answers for a write, hold the key of
+   -- that binding; so does the entry `infer_emptytable` puts in place of
+   -- one. A `local x = x` is a binding of its own and has a key of its own.
    key: string
 end
 
@@ -12412,8 +12415,7 @@ do
          return nil
       end
 
-      self.binding_count = self.binding_count + 1
-      local var = { t = valtype, attribute = is_const and "const" or nil, key = tostring(self.binding_count) }
+      local var = { t = valtype, attribute = is_const and "const" or nil, key = "g:" .. varname }
       self.st[1].vars[varname] = var
 
       return var
@@ -15671,7 +15673,8 @@ do
                end
 
                expected = self:infer_at(node, got)
-               self.st[2].vars["@return"] = { t = expected }
+               self.binding_count = self.binding_count + 1
+               self.st[2].vars["@return"] = { t = expected, key = tostring(self.binding_count) }
             end
             local expected_t = expected.tuple
 

@@ -190,3 +190,68 @@ return u[1]
 ]], "u")
   one_binding(others, 2, "u")
 end
+
+local function test_a_global_is_g_and_its_name_in_every_file_of_an_environment()
+  local built = assert(teal.load(true))
+  local env = verdicts.environment(built)
+  local trace: {string} = {}
+  env.key_trace = trace
+  local function check(source: string)
+    local code, result = built.gen(source, env, nil, "tl")
+    assert(code ~= nil and #result.type_errors == 0 and #result.syntax_errors == 0,
+      result.type_errors[1] ~= nil and result.type_errors[1].msg or "did not parse")
+  end
+  -- Three locals in the first file, so that the counter has reached 3 when
+  -- `gl` is declared; the second file's third local is then the counter's 3.
+  check("local a1, a2, a3 = 1, 2, 3\nglobal gl: integer = a1 + a2 + a3\nprint(gl)\n")
+  local first = #trace
+  check("local b1, b2, b3 = 1, 2, 3\nprint(gl + b1 + b2 + b3)\n")
+  local seen: {string:string} = {}
+  for index, entry in ipairs(trace) do
+    local name, key = entry:match("^(.-)=(.*)$")
+    if name == "gl" then
+      assert(key == "g:gl", entry)
+    elseif name == "print" then
+      assert(key == "g:print", entry)
+    elseif index > first and name:find("^b%d$") then
+      seen[name] = key
+    end
+  end
+  assert(seen["b1"] ~= nil and seen["b3"] ~= nil)
+  for _, key in pairs(seen) do
+    assert(not key:find("^g:") and key:find("^%d+$") ~= nil, key)
+  end
+end
+
+local function test_no_two_bindings_of_a_file_share_a_key_and_none_equals_a_global_s()
+  local lines: {string} = {}
+  local reads: {string} = {}
+  for i = 1, 170 do
+    lines[#lines + 1] = ("local v%d = %d"):format(i, i)
+    reads[#reads + 1] = "v" .. i
+  end
+  lines[#lines + 1] = "print(utf8.char(65), " .. table.concat(reads, " + ") .. ")"
+  local source = table.concat(lines, "\n") .. "\n"
+  local _, trace = keys_of(source, "")
+  local owner: {string:string} = {}
+  local count = 0
+  for _, entry in ipairs(trace) do
+    local name, key = entry:match("^(.-)=(.*)$")
+    if name:find("^v%d+$") then
+      assert(owner[key] == nil or owner[key] == name, name .. " and " .. tostring(owner[key]) .. " share " .. key)
+      if owner[key] == nil then count = count + 1 end
+      owner[key] = name
+      assert(key:find("^%d+$") ~= nil, entry)
+    else
+      assert(key:find("^g:") ~= nil, "a global without a g: key: " .. entry)
+    end
+  end
+  assert(count == 170, "only " .. count .. " of the locals were found")
+  for _, name in ipairs({ "print", "utf8" }) do
+    local keys = keys_of(source, name)
+    assert(#keys > 0)
+    for _, key in ipairs(keys) do
+      assert(key == "g:" .. name, name .. " is " .. key)
+    end
+  end
+end

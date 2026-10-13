@@ -37,11 +37,6 @@
 --- served to a `require` and not checked alone), and the modules the build
 --- generates (doc examples, templates).
 ---
---- TODO: write `(file, y, x, type)` lines from the type report for the
---- narrowed reads too (a `--types` mode), once PR 3 of step 7a (reads
---- switch to the narrowing facts) is under way: it and PR 4 move what
---- feeds the report, and this PR's findings do not.
----
 --- To compare the checker of a tree with main's, build both tools and run
 --- the same sources through each, reading one tree from both. The script is
 --- run by the tool of the checkout it sits in (`cosmic <file>` builds the
@@ -87,6 +82,18 @@
 --- tree (`tree`, and `tree --root ci`), the corpora (`programs
 --- testdata/fuzz/checker-total testdata/fuzz/checker-sound`) and the
 --- dumped programs (`dump`, then `programs`), each run by both tools.
+---
+--- The tree is weak evidence for a change to narrowing: the tree's own
+--- code is written to pass, so a checker that narrowed less or more would
+--- often leave its lines as they are (making `narrowing.drop_paths` do
+--- nothing moves none of them). The corpora and the dumped programs are
+--- drawn to put narrowing at risk and carry that sensitivity, so a change
+--- to narrowing runs all three sets, with several seeds for `dump`.
+
+-- TODO: write `(file, y, x, type)` lines from the type report for the
+-- narrowed reads too (a `--types` mode), once checker/facts.tl feeds the
+-- type report: until then the lines cannot show a read whose type moved
+-- while its verdict did not.
 local Fs = require("cosmic.fs")
 local shape_specs = require("build.shape_specs")
 local programs = require("build.checker_programs")
