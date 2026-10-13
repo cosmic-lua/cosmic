@@ -8318,6 +8318,9 @@ do
       -- each takes the count as its `Variable.key`.
       binding_count: integer
       shadow_host_made: narrowing.Host
+      -- Set by `place_type` when the narrowing holds a fact of a field that
+      -- the shadow facts do not, or the other way about.
+      sh_disagree: boolean
       -- The shadow facts (checker/facts.tl): what is known of the places at
       -- the point the walk has reached, kept beside the narrowing on `st`,
       -- which decides every verdict. Nil where control cannot reach. See
@@ -12766,6 +12769,10 @@ do
    -- all just answers nil here, the same as an unknown variable would.
    function TypeChecker:place_type(place: narrowing.Place, w: Where): Type
       local typ = self:find_var_type(place.key, "check_only")
+      if #place.fields > 0 and self.facts ~= nil
+         and (typ ~= nil) ~= Facts.has(self.facts, self:shadow_key(place.key)) then
+         self.sh_disagree = true
+      end
       if self.shadow_log and (typ or #place.fields > 0) then
          self:shadow_check(w, place.key, typ, #place.fields > 0)
       end
@@ -13206,11 +13213,14 @@ do
             return
          end
 
+         self.sh_disagree = false
          local facts = narrowing.evaluate(narrowing_host(self), guard)
-         -- The shadow facts narrow by what they know of the places, not by
-         -- what the narrowing has, so they hold a fact the narrowing already
-         -- held for another variable of the name.
-         local held = self.facts ~= nil and narrowing.evaluate(self:shadow_host(), guard) or nil
+         -- The shadow facts narrow by the narrowing's types where the two
+         -- agree on the places. Where the narrowing holds a fact of a field
+         -- the facts do not (the fact of another variable of the name), they
+         -- narrow by what they know of the places themselves.
+         local disagree = self.sh_disagree
+         local held = disagree and self.facts ~= nil and narrowing.evaluate(self:shadow_host(), guard) or nil
 
          for v, f in pairs(facts) do
             local typ = f.typ as Type
@@ -13223,6 +13233,9 @@ do
             end
             self:add_var(nil, v, t, "const", "narrow")
             narrowing.renarrowed(self.st as {narrowing.Scope}, v)
+            if not disagree then
+               self:shadow_narrow(v, t)
+            end
          end
          for v, f in pairs(held or {}) do
             local typ = f.typ as Type
