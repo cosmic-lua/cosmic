@@ -1,6 +1,6 @@
 --- The compiler compiles itself to itself. A boot compiles the tree's own
 --- checker, [`checker/tl.tl`] and the files beside it ([`checker/flow.tl`],
---- [`checker/narrowing.tl`], [`checker/captures.tl`]), with the vendored `tl.lua`, and the tool
+--- [`checker/narrowing.tl`], [`checker/captures.tl`], [`checker/facts.tl`]), with the vendored `tl.lua`, and the tool
 --- carries what that compiled to (core/bridge.lua's `bootstrap`): the
 --- entry's Lua behind a first line that holds the Lua standard library's
 --- declarations, [`checker/stdlib.d.tl`], as its local `stdlib` and the Lua
@@ -22,6 +22,7 @@ Test.policy{ grants = { { path = "checker/", letters = "r" } } }
 --- [`test_every_checker_file_is_compiled`] until it is named here.
 local parts: {{string}} = {
   { "checker.captures", "checker/captures.tl" },
+  { "checker.facts", "checker/facts.tl" },
   { "checker.flow", "checker/flow.tl" },
   { "checker.narrowing", "checker/narrowing.tl" },
 }
