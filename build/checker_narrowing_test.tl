@@ -1657,3 +1657,196 @@ local function test_a_break_or_goto_that_leaves_a_close_drops_what_is_known()
   -- A `break` that leaves no `<close>` local drops nothing.
   accepted_source(head .. "    while y do\n      if y then\n        break\n      end\n    end\n    return q.a + 1\n" .. tail)
 end
+
+--- A `break` or `goto` that leaves a block with a `<close>` local drops no
+--- more than the block's end in the text does: the code that follows a branch
+--- ending in one keeps what it knew, and a `goto continue` leaves only the
+--- blocks inside the loop body. What the end of such a block drops is refused
+--- after the loop.
+local function test_a_jump_out_of_a_close_block_drops_no_more_than_its_end_does()
+  accepted_source([[
+local record C
+   a: number | nil
+   metamethod __close: function(C)
+end
+
+local function f(q: C, p: C, y: boolean): number
+  while y do
+    local c <close> = p
+    local _ = c
+    if q.a then
+      if y then break end
+      print(q.a + 1)
+    end
+  end
+  return 0
+end
+return f
+]])
+  accepted_source([[
+local record C
+   a: number | nil
+   metamethod __close: function(C)
+end
+
+local function f(q: C, p: C, y: boolean): number
+  for _ = 1, 2 do
+    local c <close> = p
+    local _ = c
+    if q.a then
+      if y then goto continue end
+      print(q.a + 1)
+    end
+    ::continue::
+  end
+  return 0
+end
+return f
+]])
+  accepted_source([[
+local record C
+   a: number | nil
+   metamethod __close: function(C)
+end
+
+local function f(q: C, p: C, y: boolean): number
+  local c <close> = p
+  local _ = c
+  if q.a then
+    for _ = 1, 2 do
+      if y then goto continue end
+      print(q.a + 1)
+      ::continue::
+    end
+  end
+  return 0
+end
+return f
+]])
+  accepted_source([[
+local record C
+   a: number | nil
+   metamethod __close: function(C)
+end
+
+local function f(q: C, p: C, y: boolean): number
+  local c <close> = p
+  local _ = c
+  if q.a then
+    while y do
+      if y then break end
+      print(q.a + 1)
+    end
+    return q.a + 1
+  end
+  return 0
+end
+return f
+]])
+  accepted_source([[
+local record C
+   a: number | nil
+   metamethod __close: function(C)
+end
+
+local function f(q: C, p: C, y: boolean): number
+  if q.a then
+    do
+      local c <close> = p
+      local _ = c
+      for _ = 1, 2 do
+        if y then goto continue end
+        print(q.a + 1)
+        ::continue::
+      end
+    end
+  end
+  return 0
+end
+return f
+]])
+  accepted_source([[
+local record C
+   a: number | nil
+   metamethod __close: function(C)
+end
+
+local function f(q: C, p: C, y: boolean): number
+  if q.a then
+    do
+      local c <close> = p
+      local _ = c
+      while y do
+        if y then break end
+        print(q.a + 1)
+      end
+      return q.a + 1
+    end
+  end
+  return 0
+end
+return f
+]])
+  refused_source([[
+local record C
+   a: number | nil
+   metamethod __close: function(C)
+end
+
+local function f(q: C, p: C, y: boolean): number
+  if q.a then
+    while y do
+      do
+        local c <close> = p
+        local _ = c
+        if y then break end
+      end
+    end
+    return q.a + 1
+  end
+  return 0
+end
+return f
+]], "15: " .. plus)
+  refused_source([[
+local record C
+   a: number | nil
+   metamethod __close: function(C)
+end
+
+local function f(q: C, p: C, y: boolean): number
+  if q.a then
+    for _ = 1, 2 do
+      do
+        local c <close> = p
+        local _ = c
+        if y then goto continue end
+      end
+      ::continue::
+    end
+    return q.a + 1
+  end
+  return 0
+end
+return f
+]], "16: " .. plus)
+  refused_source([[
+local record C
+   a: number | nil
+   metamethod __close: function(C)
+end
+
+local function f(q: C, p: C, y: boolean): number
+  if q.a then
+    repeat
+      local c <close> = p
+      local _ = c
+      if y then break end
+    until y
+    return q.a + 1
+  end
+  return 0
+end
+return f
+]], "13: " .. plus)
+end

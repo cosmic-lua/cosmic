@@ -742,6 +742,129 @@ local function f(q: R, p: R, y: boolean): number
 end
 return f
 ]],
+  close_h01 = [[
+local record C
+   a: number | nil
+   metamethod __close: function(C)
+end
+
+local function f(q: C, p: C, y: boolean): number
+  while y do
+    local c <close> = p
+    local _ = c
+    if q.a then
+      if y then break end
+      print(q.a + 1)
+    end
+  end
+  return 0
+end
+return f
+]],
+  close_h02 = [[
+local record C
+   a: number | nil
+   metamethod __close: function(C)
+end
+
+local function f(q: C, p: C, y: boolean): number
+  for _ = 1, 2 do
+    local c <close> = p
+    local _ = c
+    if q.a then
+      if y then goto continue end
+      print(q.a + 1)
+    end
+    ::continue::
+  end
+  return 0
+end
+return f
+]],
+  close_h03 = [[
+local record C
+   a: number | nil
+   metamethod __close: function(C)
+end
+
+local function f(q: C, p: C, y: boolean): number
+  local c <close> = p
+  local _ = c
+  if q.a then
+    for _ = 1, 2 do
+      if y then goto continue end
+      print(q.a + 1)
+      ::continue::
+    end
+  end
+  return 0
+end
+return f
+]],
+  close_h04 = [[
+local record C
+   a: number | nil
+   metamethod __close: function(C)
+end
+
+local function f(q: C, p: C, y: boolean): number
+  local c <close> = p
+  local _ = c
+  if q.a then
+    while y do
+      if y then break end
+      print(q.a + 1)
+    end
+    return q.a + 1
+  end
+  return 0
+end
+return f
+]],
+  close_h05 = [[
+local record C
+   a: number | nil
+   metamethod __close: function(C)
+end
+
+local function f(q: C, p: C, y: boolean): number
+  if q.a then
+    do
+      local c <close> = p
+      local _ = c
+      for _ = 1, 2 do
+        if y then goto continue end
+        print(q.a + 1)
+        ::continue::
+      end
+    end
+  end
+  return 0
+end
+return f
+]],
+  close_h06 = [[
+local record C
+   a: number | nil
+   metamethod __close: function(C)
+end
+
+local function f(q: C, p: C, y: boolean): number
+  if q.a then
+    do
+      local c <close> = p
+      local _ = c
+      while y do
+        if y then break end
+        print(q.a + 1)
+      end
+      return q.a + 1
+    end
+  end
+  return 0
+end
+return f
+]],
   close_repeat = [[
 local record R
    a: number | nil

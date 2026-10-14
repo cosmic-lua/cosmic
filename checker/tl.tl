@@ -8440,7 +8440,6 @@ do
       call_text: function(TypeChecker, Node): string
       drop_all: function(TypeChecker, Where, string, ? string)
       drop_close: function(TypeChecker, Node, Node)
-      drop_for_close: function(TypeChecker, ? integer)
       drop_global: function(TypeChecker, string, narrowing.Drop)
       last_dropper: function(TypeChecker): narrowing.Drop
       drop_through: function(TypeChecker, Node)
@@ -8473,6 +8472,7 @@ do
       shadow_kill: function(TypeChecker)
       shadow_widen: function(TypeChecker, ? Node)
       shadow_run: function(TypeChecker, narrowing.Drop)
+      shadow_edge_run: function(TypeChecker, narrowing.Drop)
       shadow_narrow: function(TypeChecker, string, Type)
       shadow_assigned: function(TypeChecker, narrowing.Place, narrowing.Drop)
       shadow_assign_local: function(TypeChecker, string)
@@ -9816,8 +9816,9 @@ do
       local scope = st[#st]
 
       -- The `__close` of a `<close>` local runs here, and before a `break`
-      -- or `goto` that leaves the block (`drop_for_close` drops for those,
-      -- since the facts a jump carries are the ones at the jump).
+      -- or `goto` that leaves the block, which the checker visits with the
+      -- drop already made (`drop_close` drops the shadow facts at the jump
+      -- as well).
       if scope.close_var and node then
          self:drop_close(node, scope.close_var)
       end
@@ -13451,29 +13452,15 @@ do
       function TypeChecker:drop_close(block: Node, var: Node)
          block.runs_code = true
          self:drop_all(var, "close", var.tk)
-      end
-
-      -- A `break` or `goto` leaves the scopes above index `above` (those of
-      -- the function, if nil), and the `__close` of a local of one runs
-      -- before control gets where it goes. The facts at the jump are the ones
-      -- that go there, so they are dropped here and not only where the block
-      -- ends in the text.
-      function TypeChecker:drop_for_close(above?: integer)
-         if not above then
-            above = 1
-            for i = #self.st, 1, -1 do
-               if self.st[i].vars["@return"] then
-                  above = i
-                  break
-               end
-            end
-         end
-         for i = #self.st, above + 1, -1 do
-            local var = self.st[i].close_var
-            if var then
-               self:drop_all(var, "close", var.tk)
-               return
-            end
+         -- Where a `break` or `goto` ended the block, the facts are dead, and
+         -- the live ones are those at the jump, which the code after an `if`
+         -- or a label goes on from. The old narrowing drops here in the text
+         -- for the code after them too, so the facts at the jump do as well.
+         if self.shadow_log and self.facts == nil and self.last_live ~= nil then
+            self.facts = self.last_live
+            self:shadow_edge_run(narrowing.because("close", var.tk, var.y, var.x))
+            self.last_live = self.facts
+            self.facts = nil
          end
       end
 
@@ -14496,6 +14483,25 @@ do
          widen_names(self, function(key: string): boolean
             return unowned(self, key)
          end, d)
+      end
+
+      -- The facts lose what `shadow_run` drops, and nothing else: the scopes'
+      -- entry facts and the loops are left alone, for the facts at a jump
+      -- (`drop_close`).
+      function TypeChecker:shadow_edge_run(why: narrowing.Drop)
+         local f = self.facts
+         if f == nil or Facts.is_empty(f) then
+            return
+         end
+         local d = why as Facts.Drop
+         f = Facts.without_paths(f, d)
+         local doomed = keys_where(f, function(key: string): boolean
+            return not key:find(".", 1, true) and unowned(self, key)
+         end)
+         for _, key in ipairs(doomed or {}) do
+            f = Facts.without(f, key, d)
+         end
+         self.facts = f
       end
 
       -- Every field path is dropped: a write through a key that may name a field.
@@ -16751,17 +16757,13 @@ do
          after = function(self: TypeChecker, node: Node, _children: {Type}): Type
             local label_id = node.label
             local found_label: Node = nil
-            local found_scope: integer = nil
             for i = #self.st, 1, -1 do
                local scope = self.st[i]
                if scope.labels and scope.labels[label_id] then
                   found_label = scope.labels[label_id]
-                  found_scope = i
                   break
                end
             end
-            -- A label not met yet may be in any block of the function.
-            self:drop_for_close(found_scope)
             if self.shadow_log then
                self:shadow_kill()
             end
@@ -18520,10 +18522,6 @@ do
 
    visit_node.cbs["break"] = {
       after = function(self: TypeChecker, _node: Node, _children: {Type}): Type
-         local loop = self.loops[#self.loops]
-         if loop then
-            self:drop_for_close(loop.depth)
-         end
          if self.shadow_log then
             self:shadow_kill()
          end
