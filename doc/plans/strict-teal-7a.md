@@ -48,10 +48,14 @@ against main with R2 (effectively-final captures) merged.
   local kept only if `local_is_fixed` says nothing assigns it after the
   literal is made. on leaving, the saved facts come back; nothing was
   changed, so there is nothing to undo.
-- drop events stay where they are (calls, metamethod operators and
-  indexes, `is`, iterators, writes through a reference). one
-  `run_event` replaces `drop_all`: it drops field paths and globals and
-  sets `runs_code` for `flow.tl`.
+- a fact survives only what is known to keep it. the walk names the pure
+  node kinds (a local or upvalue read, a literal, arithmetic, comparison
+  and concatenation on primitive operands, a field read on a type that
+  declares no `__index`, a constructor of pure parts); every other node
+  runs code, through one `run_event` that drops field paths and globals
+  and sets `runs_code` for `flow.tl`. a kind nobody named costs precision,
+  never soundness. the old narrowing lists what drops instead, and each
+  missing entry was a hole (`_G` writes, `__close`, a rebinding).
 
 ## what goes
 
@@ -66,7 +70,8 @@ shrinks to places and the two refinements. `flow.tl`, `captures.tl`,
 
 ## the order of PRs
 
-each keeps the tree green. the first five change no verdict.
+each keeps the tree green. the first three change no verdict; PR 3
+moves exactly the pinned shadow mismatches.
 
 0. a verdict harness: a tool that writes every error and warning
    (`file, code, y, x, text`) for a list of sources, run with the PR's
@@ -82,15 +87,25 @@ each keeps the tree green. the first five change no verdict.
    an old-state bug is fixed first, in a PR of its own (done, #3074; the
    flag is off by default and nothing is kept without it).
 3. reads switch to `self.facts`; the old state is written but unread.
-   the harness diff is empty.
+   the flipped verdicts are the pinned shadow mismatches, each triaged.
+   message text may change where the facts give a better cause; no more
+   mirroring of the old wording.
 4. the old state is deleted. the checker's pinned type-error count moves
    and is measured and set.
+4a. the stage-2 seed (the plan's step 11, moved here), so the checker's
+   own source is held to the rules it enforces and `known` only falls.
+4b. one flow pass: the checker's walk records the control-flow edges and
+   the events where code runs, once, and both narrowing and definite
+   assignment (`flow.tl`) read them. it takes PRs 7 and 8 below (edge-pair
+   conditions, the loop edge rule) and retires the text-order machinery
+   (the journal, retroactive loop refusals, `last_live`, `flow.tl`'s own
+   exits and closers), which the `<close>` fix had to build twice.
 5. function declarations keep local facts, as function expressions do
    (accepts more; resolves the TODO in `local_function`).
 6. joins unite types instead of requiring the same one (accepts more).
-7. edge-pair conditions replace the guard algebra and the clock.
+7. edge-pair conditions replace the guard algebra and the clock (in 4b).
 8. the loop edge rule replaces the text-order rule (accepts more: a fact
-   re-tested after a drop, drops in branches that leave).
+   re-tested after a drop, drops in branches that leave) (in 4b).
 9. if needed, an assignment drops its target after the values are
    evaluated, not before.
 
@@ -120,8 +135,11 @@ nor the four above: its generator makes no globals, `_G`, `<close>`,
 rebindings, writing metamethods or loop bodies that drop their own facts.
 every checker change also needed a second review round. so:
 
-- the fuzz generator is widened to those shapes before PR 3, and shown to
-  find each of the four bugs on the checker before its fix.
+- the fuzz generator is widened to those shapes, and checked narrowing
+  lands, both before PR 3, and the fuzz is shown to find each of the four
+  bugs on the checker before its fix.
+- until PR 3, an old-narrowing bug is fixed in the facts only and its
+  difference pinned; old-side machinery that PR 4 deletes is not built.
 - every checker PR gets two independent review rounds.
 - what remains pinned in `build/checker_shadow_test.tl` (old drops more
   after #3072, the facts refuse where old misses in loops, and `local x =
@@ -154,9 +172,9 @@ sites.
   generator wraps each read whose type came from a fact in a check of the
   fact (mostly `~= nil`), raising "fact violated at y:x". a CI leg runs the
   whole suite with it, so every narrowed read is checked against real
-  runs. normal builds emit nothing, so they pay nothing. proposed to land
-  before PR 3, with the fuzz widening, since PR 3 is where the facts'
-  soundness starts to matter (open: see the plan's questions).
+  runs. normal builds emit nothing, so they pay nothing. it lands before
+  PR 3, with the fuzz widening, since PR 3 is where the facts' soundness
+  starts to matter.
 
 ## risks
 

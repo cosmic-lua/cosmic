@@ -507,14 +507,26 @@ change in boot time and in the checker's self-compile time.
    rejected: narrowing only `<const>` and stable bindings (R1(b)), at 1,070
    error lines in 203 files. assignment already drops a local's fact
    precisely, and R2 removes the closure case.
+7b. **restrictions that close the open ends of rule 4, before variance.**
+   each removes a conservative fallback the narrowing carries now:
+   - `_G` gets an opaque type that is not cast, aliased or indexed by a
+     computed key, so a global changes only by its assignment or a call,
+     and a write to `t.G` no longer drops the global `G`.
+   - rule 11, a record is not a map, so a write through a `{string:any}`
+     key no longer drops every field path and every global.
+   - rule 17's dispatch half: an operator, index or comparison is
+     call-like only on a type that declares the metamethod, and
+     `setmetatable` attaches only declared ones. the part that types a
+     metatable as a record view waits on step 8.
+   each counts its sites in report mode first, and the tree migrates.
 8. **variance, views and receivers (rules 7 and 13).** `table.concat` and
    the three option signatures take views first.
-9. **`setmetatable` and declared metamethods (rule 17),** after variance,
+9. **the rest of rule 17,** after variance,
    since a metatable is typed as a record. its report mode counts the
    `setmetatable` calls that attach an undeclared metamethod.
 10. **never as the bottom type (rule 6),** once nil leaves the bottom of
     the lattice in the type representation, before the tree migrates.
-11. **the stage-2 seed, before the checker migrates for nil.** the
+11. **the stage-2 seed (moved to step 7a, after its PR 4).** the
     checker's own source moves to a seed compiler that accepts the
     extensions (`?:`, `never`, the strict rules), so the checker is held to
     the rules it enforces. a sketch, not a design:
@@ -532,18 +544,16 @@ change in boot time and in the checker's self-compile time.
     #3043, #3045, #3046). several PRs remain.
 13. **narrowing declarations, tagged unions and classes (rules 8, 9 and
     10),** each with its count in report mode first.
-14. **records and maps, `or` and `and`, casts and parameters (rules 11,
-    12, 15 and 16).** rule 15 waits only on step 11. most of the tree's casts exist to get past nil,
+14. **`or` and `and`, casts and parameters (rules 12, 15 and 16; rule 11
+    moved to 7b).** rule 15 waits only on the stage-2 seed. most of the tree's casts exist to get past nil,
     narrowing and variance, so after step 12 most are deleted rather than
     justified.
 
-every checker step follows the review practice in "decisions".
+every checker step follows the review practice in "decisions", with two
+independent review rounds per PR.
 
 ## open questions
 
-- **the oracles' order.** whether the widened fuzz generator and checked
-  narrowing both land before step 7a's PR 3 (proposed), only the fuzz, or
-  in the order the design gives.
 
 - **the checker's root.** its directory name, and how the module scanner
   tells it from a module of the tree.
