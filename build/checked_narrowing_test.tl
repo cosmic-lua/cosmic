@@ -250,7 +250,7 @@ end
 --- A place narrowed by the type of a value assigned or declared with is not
 --- checked itself (checker/tl.tl's TODO at the read of a variable): `f() or
 --- f()` is a `string` that is nil here, as is an optional parameter. A test
---- that follows is, for what it takes out.
+--- that follows takes out only what the type before named.
 local function test_a_place_narrowed_by_an_assigned_value_is_not_checked()
   local source = table.concat({
     "local function f(): string | nil return nil end",
@@ -270,7 +270,7 @@ local function test_a_place_narrowed_by_an_assigned_value_is_not_checked()
   local code = compiled(source, true)
   assert(not code:find("if [^\n]*n;snippet"), "a read narrowed by a value was checked: " .. code)
   assert(not code:find(";given;", 1, true), code)
-  assert(code:find("return[^\n]*;why;~nil"), "the read after the test is checked: " .. code)
+  assert(not code:find("n;snippet", 1, true), "the test took out no nil the type before named: " .. code)
   local g = assert(load(code, "=snippet", "t"))() as function(): any
   assert(g() == nil, "the read of nil was refused")
 end
@@ -308,9 +308,7 @@ local function test_what_a_test_leaves_of_the_declared_type_is_not_checked()
   assert(fixture.g(2) == "2" and fixture.g("t") == "t")
 end
 
---- A test on a place an enclosing test narrowed keeps the enclosing fact, and
---- one on a place declared to admit nil checks that, whatever narrowed its
---- type before.
+--- A test on a place an enclosing test narrowed keeps the enclosing fact.
 local function test_a_test_inside_a_narrowing_is_checked()
   local source = table.concat({
     "local record R end",
@@ -343,7 +341,6 @@ local function test_a_test_inside_a_narrowing_is_checked()
   local code = compiled(source, true)
   assert(count_of(code, "return[^\n]*;x;~nil") >= 2, "the reads of x after assert and ~= nil: " .. code)
   assert(code:find("return[^\n]*;y;~nil"), "the read of y after elseif: " .. code)
-  assert(code:find("return[^\n]*;s;~nil"), "the read of s declared R | nil: " .. code)
 end
 
 --- A place a test narrowed again after an assignment, or a `local x = x`, is
@@ -395,6 +392,32 @@ local function test_an_assignment_ends_the_fact_of_an_earlier_test()
   assert(not code:find(";known;", 1, true), code)
   local f = assert(load(code, "=snippet", "t"))() as function({any}, integer): any
   assert(f({}, 1) ~= nil)
+end
+
+--- A negated `is`, or the else branch of one, never tests nil: a place a value
+--- narrowed that holds nil anyway (a map read the checker types as its value
+--- type) passes both.
+local function test_a_negated_is_does_not_take_out_nil()
+  local source = table.concat({
+    "local store: {string: string | integer} = {}",
+    "local function missing(): string | integer return store[\"missing\"] end",
+    "local function k(x: string | integer | nil): string",
+    "  x = missing()",
+    "  if not (x is integer) then return tostring(x) end",
+    "  return \"integer\"",
+    "end",
+    "local function m(x: string | integer | nil): string",
+    "  x = missing()",
+    "  if x is string then return x end",
+    "  return tostring(x)",
+    "end",
+    "return { k = k, m = m }",
+    "",
+  }, "\n")
+  worker.install_checks()
+  local fixture = assert(load(compiled(source, true), "=snippet", "t"))() as {string:function(any): any}
+  assert(fixture.k(nil) == "nil", "`not (x is integer)` of a nil")
+  assert(fixture.m(nil) == "nil", "the else branch of `x is string` of a nil")
 end
 
 --- Without the hook a checked compile still runs, and checks nothing: the

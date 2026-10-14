@@ -10477,13 +10477,18 @@ do
    -- breaks it. It says nothing of the kinds that are left, which are the
    -- declared type's, and a caller can break those (a nil from a map read
    -- is no `T | R` and passes both branches of `v is R`). The kinds taken
-   -- out are those of `before` that `after` lacks, and nil where the place
-   -- was declared to admit it (`declared_nil`) and `after` does not: every
-   -- test that leaves such a place with no nil excludes it. `prior` is the
-   -- fact of the entry the test narrowed further, which still holds. Where
-   -- `before` has no kinds (`any`), the kinds of `after` are the fact, as
-   -- the test took the value to them. Nil where a check could say nothing.
-   function TypeChecker:narrowed_fact(before: Type, after: Type, declared_nil: boolean, prior: string): string
+   -- out are those of `before` that `after` lacks. `prior` is the fact of
+   -- the entry the test narrowed further, which still holds. Where `before`
+   -- has no kinds (`any`), the kinds of `after` are the fact, as the test
+   -- took the value to them. Nil where a check could say nothing.
+   -- TODO: also say what the test kept (`is string` gives "string", `x == nil`
+   -- gives "nil"), and that a truthiness test or `~= nil` took nil out of a
+   -- place whose type has none (`x: R; if x then`, `local s: R | nil = mk()`
+   -- narrowed by its value). Both wait on a guard saying which way it tests:
+   -- `narrowing.evaluate` answers the type a place is left with, and a negated
+   -- `is` or an else branch leaves nil in a type that has none, so nil is taken
+   -- out only when the type before named it.
+   function TypeChecker:narrowed_fact(before: Type, after: Type, prior: string): string
       if not before or not after or before is TupleType or after is TupleType then
          return prior
       end
@@ -10504,9 +10509,6 @@ do
                removed[kind] = true
             end
          end
-      end
-      if declared_nil and not self:names_nil(after) then
-         removed["nil"] = true
       end
       if prior and prior:sub(1, 1) == "~" then
          for kind in prior:gmatch("[^~|]+") do
@@ -10536,19 +10538,14 @@ do
       return self:field_through(self:find_var_type(place.base, "check_only"), place, w)
    end
 
-   -- Whether the place was declared to admit nil, and the fact of the test
-   -- that narrowed it already, if one did (nil for a place no entry holds).
-   function TypeChecker:declared_nil_and_prior(key: string, before: Type): boolean, string
-      local var, level = self:find_var(key, "check_only")
-      if not var then
-         return (before ~= nil and self:names_nil(before)), nil
+   -- The fact of the test that narrowed the place already, if its entry
+   -- still holds the type the test gave it.
+   function TypeChecker:prior_fact(key: string): string
+      local var = self:find_var(key, "check_only")
+      if var and var.t == var.test_fact_for then
+         return var.test_fact
       end
-      local declared = var.specialized_from
-      if not declared then
-         local real = get_real_var_from_lower_scope(self.st, level, key)
-         declared = real and (real.specialized_from or real.t)
-      end
-      return (declared ~= nil and self:names_nil(declared)), var.test_fact
+      return nil
    end
 
    local function unite(w: Where, types: {Type}, flatten_constants?: boolean): Type
@@ -13559,14 +13556,13 @@ do
                t.inferred_at = nil
             end
             local before: Type = nil
-            local declared_nil = false
             local prior: string = nil
             if self.runtime_checks then
                before = self:type_before(f.place, w)
-               declared_nil, prior = self:declared_nil_and_prior(v, before)
+               prior = self:prior_fact(v)
             end
             local made = self:add_var(nil, v, t, "const", "narrow")
-            made.test_fact = self.runtime_checks and self:narrowed_fact(before, t, declared_nil, prior) or nil
+            made.test_fact = self.runtime_checks and self:narrowed_fact(before, t, prior) or nil
             made.test_fact_for = made.t
             narrowing.renarrowed(self.st as {narrowing.Scope}, v)
             if not disagree then

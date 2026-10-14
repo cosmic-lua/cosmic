@@ -548,6 +548,7 @@ local checked_suite_test_timeout_s <const> = "120"
 --- The whole suite on a checked run ([`phase_checked_narrowing`]): the run
 --- took 510 s on four processors, and a test 120 s at most, as on the
 --- checked core.
+
 -- TODO: lower these bounds once CI's own runs of the phase show its elapsed
 -- time; they are sized from that one local run.
 local checked_narrowing_timeout_ns <const> = Clock.seconds(1800)
