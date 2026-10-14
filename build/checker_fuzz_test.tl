@@ -4,8 +4,13 @@
 --- on nil tests, `assert`, `and`/`or`, the four loops with `break` and
 --- `goto`, function literals that write fields of what they read, calls,
 --- field writes and `return`, and, drawn only to be refused, a function
---- literal that assigns a local declared outside it. `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs
---- (build/fuzz/init.tl).
+--- literal that assigns a local declared outside it. A quarter of the
+--- programs also draw shapes where narrowing bugs have lived (see
+--- build/checker_programs.tl): a nested test of a string local that is
+--- assigned under it, a new binding of a name whose field is narrowed, a
+--- global `G` written through `_G` or hidden by a local, metamethods that
+--- write, and a loop that reads a fact and clears it. `FUZZ_SEED` and
+--- `FUZZ_ITERS` pick the inputs (build/fuzz/init.tl).
 ---
 --- 1. The checker never raises: a program of any shape, well formed or
 ---    cut and flipped, is accepted or refused with errors, each carrying
@@ -13,7 +18,9 @@
 --- 2. A function that assigns a local declared outside it is refused with
 ---    the code `captured_assigned`, and no program without one is.
 --- 3. Soundness: a well-formed program the checker accepts runs to its
----    end, or to a failed `assert`, without a nil operand. The programs
+---    end, or to a failed `assert`, without a nil operand (a string
+---    narrowed to a literal is held to a map keyed by the literals, which
+---    reads nil for any other). The programs
 ---    are bounded by construction (loops count up to three, a function
 ---    calls only those declared before it) and deterministic (nil comes
 ---    from a counter), so the run needs no hook; [`Fuzz.run`]'s budget ends
@@ -108,6 +115,28 @@ local function never_raises(source: string): boolean, string
   return true, ""
 end
 
+--- Shapes of the generator beyond those: each the patterns that show a
+--- program holds it. A program that holds one is said to have drawn it,
+--- accepted or not, since most are refused; one that ran, to have exercised it.
+local SHAPES <const>: {{string}} = {
+  { "shape", "global G" },
+  { "string test", "== \"'\"" },
+  { "rebinding", "local [rs] = [rs]\n", "for _, [rs] in ipairs%({ [rs] }%)", "%([rs]: R%)" },
+  { "metamethod", "[#(]mm[ .)\n]", "\n%s*mm%.zz", "if mm ==" },
+  { "loop drop", "for k%d+ ", "k%d+ [<>]" },
+  { "write through _G", "_G%.G", "_G%[", "= _G" },
+  { "shadowed global", "local G: " },
+  { "close", "<close>" },
+}
+
+--- Whether `source` holds a construct of `list`, by one of its patterns.
+local function holds(entry: {string}, source: string): boolean
+  for i = 2, #entry do
+    if source:find(entry[i]) then return true end
+  end
+  return false
+end
+
 --- Constructs a program that ran is said to have exercised.
 local CONSTRUCTS <const>: {{string}} = {
   { "while", "while " },
@@ -141,13 +170,19 @@ local function runs_safely(source: string): boolean, string
         "and none does", source)
   end
   if marked then Fuzz.label("captured refused") end
+  for _, c in ipairs(SHAPES) do
+    if holds(c, source) then Fuzz.label("drew " .. c[1]) end
+  end
   if code == nil or #r.syntax_errors > 0 or #r.type_errors > 0 then
     Fuzz.label("refused")
     return true, ""
   end
   Fuzz.label("accepted")
   if source:find("assert%(") then Fuzz.label("accepted with assert") end
-  local env: {string:any} = { assert = assert, ipairs = ipairs, tostring = tostring, type = type }
+  local env: {string:any} = { assert = assert, ipairs = ipairs, tostring = tostring, type = type,
+    setmetatable = setmetatable }
+  -- A program reaches its globals through `_G` as well.
+  env["_G"] = env
   local chunk, why = load(code, "=fuzz", "t", env)
   if chunk == nil then
     return false, about("the checker accepted a program whose Lua does not load: " .. tostring(why), source)
@@ -156,7 +191,10 @@ local function runs_safely(source: string): boolean, string
   if ran then
     Fuzz.label("ran")
     for _, c in ipairs(CONSTRUCTS) do
-      if source:find(c[2]) then Fuzz.label("ran with " .. c[1]) end
+      if holds(c, source) then Fuzz.label("ran with " .. c[1]) end
+    end
+    for _, c in ipairs(SHAPES) do
+      if holds(c, source) then Fuzz.label("ran with " .. c[1]) end
     end
     return true, ""
   end
@@ -168,6 +206,21 @@ local function runs_safely(source: string): boolean, string
   local what = message:find(NIL_FAULT, 1, true) and "accepted a program that fails at run time: " or
     "an accepted program raised: "
   return false, about(what .. message, source)
+end
+
+--- The prologue every program with shapes begins with is accepted and
+--- runs, whichever option each of its draws takes: a shape that is refused
+--- for it would be refused for a fault of the generator.
+local function test_the_prologue_of_the_shapes_type_checks_and_runs()
+  -- The draws of the prologue pick among at most six options.
+  for choice = 0, 6 do
+    local source = programs.bare_shapes(choice)
+    local code, r = check(source)
+    assert(code ~= nil and #r.syntax_errors == 0 and #r.type_errors == 0, about("the prologue is refused", source))
+    local env: {string:any} = { setmetatable = setmetatable }
+    local chunk = assert(load(code, "=prologue", "t", env))
+    assert(pcall(chunk))
+  end
 end
 
 local function test_the_checker_never_raises_and_places_its_errors(tmp: string)
@@ -189,7 +242,7 @@ local function test_an_accepted_program_does_not_fail_on_a_nil(tmp: string)
     check = runs_safely,
     requires = { "accepted", "ran", "refused", "captured refused", "ran with while", "ran with repeat", "ran with numeric for",
       "ran with generic for", "ran with goto", "ran with break", "ran with assert",
-      "ran with function literal", "ran with early exit", "ran with elseif" },
+      "ran with function literal", "ran with early exit", "ran with elseif", "drew shape" },
     shares = { accepted = 0.2 },
   })
 end

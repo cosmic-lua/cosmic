@@ -147,9 +147,10 @@ for _, name in ipairs({ "parse", "render", "scalar", "from", "write", "value", "
   allowed["build.flow." .. name] = "the API a program generates or edits a workflow " ..
     "through, which no program in the tree does yet; its test and the workflows' own do"
 end
-for _, name in ipairs({ "well_formed", "any", "captures_mark" }) do
+for _, name in ipairs({ "well_formed", "any", "captures_mark", "bare_shapes" }) do
   allowed["build.checker_programs." .. name] = "the checker's fuzz generators and the line " ..
-    "that marks a program the checker must refuse, which build/checker_fuzz_test.tl draws " ..
+    "that marks a program the checker must refuse, and the bare prologue of the shapes, which " ..
+    "build/checker_fuzz_test.tl draws " ..
     "its inputs from; the dump of the same programs to files (`drawn`) is the tool's"
 end
 for _, name in ipairs({ "pack", "unpack" }) do

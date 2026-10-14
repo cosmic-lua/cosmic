@@ -1,0 +1,10 @@
+local record R
+  a: integer | nil
+end
+local r: R = { a = 1 }
+local s: R = {}
+local sink: integer = 0
+if not r.a then return sink end
+local r = s
+sink = sink + r.a + 1
+return sink
