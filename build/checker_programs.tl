@@ -1250,7 +1250,7 @@ end
 local function gen_program(src: Fuzz.Source): string
   local g: Gen = { src = src, lines = {}, id = 0, fuel = 45, depth = 0, calm = src:int(0, 3) == 0, want_goto = false,
     jumped = {}, fn = 0, captures = false, shapes = false, budget = 0, drawn = 0 }
-  g.shapes = src:int(0, 2) == 0
+  g.shapes = src:int(0, 3) == 0
   -- The other statements of a program with shapes are mostly calm, so that
   -- a shape the checker takes is not hidden by a refusal elsewhere.
   if g.shapes and not g.calm then g.calm = src:int(0, 3) > 0 end
@@ -1286,8 +1286,16 @@ local function gen_program(src: Fuzz.Source): string
     loop(g, v, 2, 0, true)
     g.want_goto = false
     loop(g, v, 2, 2)
+    loop(g, v, 2, 1)
+    loop(g, v, 2, 3)
     loop(g, v, 2)
     early_exit(g, v)
+    -- Constructs the property requires of the programs it runs, so that a
+    -- run of 64 draws reaches each whatever share of them draws shapes.
+    proc(g, v)
+    add(g, v.procs[#v.procs] .. "()")
+    assert_stmt(g, v)
+    add(g, "for _ = 1, 3 do if st.count % 2 == 0 then break end end")
   end
   g.lines[#g.lines + 1] = "return st.sink"
   return text .. table.concat(g.lines, "\n") .. "\n" .. (g.captures and CAPTURES_MARK or "")

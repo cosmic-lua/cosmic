@@ -4,7 +4,7 @@
 --- on nil tests, `assert`, `and`/`or`, the four loops with `break` and
 --- `goto`, function literals that write fields of what they read, calls,
 --- field writes and `return`, and, drawn only to be refused, a function
---- literal that assigns a local declared outside it. A third of the
+--- literal that assigns a local declared outside it. A quarter of the
 --- programs also draw shapes where narrowing bugs have lived (see
 --- build/checker_programs.tl): a nested test of a string local that is
 --- assigned under it, a new binding of a name whose field is narrowed, a
