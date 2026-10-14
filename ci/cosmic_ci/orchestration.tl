@@ -1402,6 +1402,16 @@ local function phase_checked_narrowing(p: PlatformContext): integer
   local out = p.local_diagnostics .. "/checked-narrowing-test.out"
   local _, values = Orchestration.suite_run()
   values.COSMIC_TEST_TIMEOUT = checked_narrowing_test_timeout_s
+  -- The checked job's leg promises `checked`, the sanitized core's
+  -- instruments, which this run's core (the release one, with checks
+  -- compiled into the modules) lacks: a held run would fail every test that
+  -- requires it, where it should find it not applicable. The `checked`
+  -- phase runs those on the core that has them.
+  local promised: {string} = {}
+  for name in (values.COSMIC_TEST_PROMISES or ""):gmatch("[^,]+") do
+    if name ~= "checked" then promised[#promised + 1] = name end
+  end
+  values.COSMIC_TEST_PROMISES = table.concat(promised, ",")
   local status = logged(c, "checked narrowing", argv, out,
     p.local_diagnostics .. "/checked-narrowing-test.err", checked_narrowing_timeout_ns, c.root, values)
   -- A run that prints no "run-time types" line (the summary of a checked

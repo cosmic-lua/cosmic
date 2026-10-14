@@ -1521,13 +1521,17 @@ end
 --- nothing of its checks, and does nothing on another target.
 local function test_the_checked_narrowing_phase_runs_the_whole_suite_checked_on_linux_x86_64(tmp: string)
   local base, project = command(tmp)
+  -- The checked job's leg promises these and `checked`, which the run's
+  -- core does not have: the phase leaves that one out.
+  local promised = "sandbox,landlock,userns,nest,own_proc,proc,unix_socket,path:/bin/sh,path:/bin/cat," ..
+    "path:/proc/thread-self/children,path:/usr/bin/env,path:/etc/passwd"
   local cases = {
     { name = "linux", target = "x86_64-linux-musl", report = true, status = 0, ok = true,
-      ran = "test --check-types 120\n" },
+      ran = "test --check-types 120 " .. promised .. "\n" },
     { name = "linux-failing", target = "x86_64-linux-musl", report = true, status = 1, ok = false,
-      ran = "test --check-types 120\n" },
+      ran = "test --check-types 120 " .. promised .. "\n" },
     { name = "linux-unchecked", target = "x86_64-linux-musl", report = false, status = 0, ok = false,
-      ran = "test --check-types 120\n" },
+      ran = "test --check-types 120 " .. promised .. "\n" },
     { name = "linux-aarch64", target = "aarch64-linux-musl", report = true, status = 0, ok = true,
       ran = nil },
   }
@@ -1543,10 +1547,11 @@ local function test_the_checked_narrowing_phase_runs_the_whole_suite_checked_on_
       "printf '%s\\n' 'test: run-time types: 0 violations, 0 distinct, at 0 places'\n" or ""
     Fixture.write(fake .. "/bin/zig", "#!/bin/sh\nmkdir -p o/bin\nprintf db > o/build.db\n" ..
         "cat > o/bin/cosmic <<'EOF'\n#!/bin/sh\n" ..
-        "if [ \"$1\" = test ]; then printf '%s %s\\n' \"$*\" \"$COSMIC_TEST_TIMEOUT\" >> \"$0.ran\"; fi\n" ..
+        "if [ \"$1\" = test ]; then printf '%s %s %s\\n' \"$*\" \"$COSMIC_TEST_TIMEOUT\" \"$COSMIC_TEST_PROMISES\" >> \"$0.ran\"; fi\n" ..
         summary .. "exit " .. case.status .. "\nEOF\n" ..
         "chmod 755 o/bin/cosmic\n", 493)
     local env = context(fake, runner_temp, { TARGET = case.target, TMPDIR = tmp,
+      COSMIC_WORKER = "linux-x86_64-checked",
       COSMIC_CI_EVENT = "push", COSMIC_CI_HARNESS_MOVED = "0" })
     for _, phase in ipairs({ "boot", "checked-narrowing" }) do
       local outcome = Fixture.call("checked-narrowing-" .. case.name .. "-" .. phase,
