@@ -294,6 +294,15 @@ end
 --- which Lua reads as nil, apart from a nil it gave. A violation is
 --- recorded and the value passes on: a checked run reports and fails
 --- nothing.
+---
+--- One kind of check fails: "n", a read whose type a test narrowed (an
+--- `if x then`, a `~= nil`, an `is`, `assert`, a type test; the checker's
+--- `Node.rt_fact`), with the place, its name and what the test says of the
+--- value: "~" and the kinds the test took out, joined by "|" (a value of
+--- one of them breaks it; "integer" among them takes out integers alone),
+--- or the kinds the value has. The hook answers the value, or raises "fact
+--- violated at <place>" for one the fact is false of, since the checker's
+--- own proof was wrong there.
 local record Check
   kind: string
   at: string
@@ -314,9 +323,21 @@ end
 -- call it, for the wrapper's own checked parameters would call the hook.
 local gmatch, match = string.gmatch, string.match
 local lua_type, math_type, lua_select, lua_pcall = type, math.type, select, pcall
-local lua_byte = string.byte
+local lua_byte, lua_char, lua_gsub, lua_tonumber, lua_error = string.byte, string.char, string.gsub, tonumber, error
+
+--- A fact of a narrowed read, parsed.
+local record Fact
+  at: string
+  name: string
+  --- The kinds the value may have, or those it may not (`negated`).
+  kinds: {string:boolean}
+  negated: boolean
+  declared: string
+  integral: boolean
+end
 
 local checks: {string:Check} = {}
+local facts: {string:Fact} = {}
 local malformed: {string:boolean} = {}
 local found: {worker.Violation} = {}
 local tally = { dropped = 0 }
@@ -414,12 +435,65 @@ local function note(check: Check, index: integer, value: any, absent: boolean)
   found[#found + 1] = met
 end
 
+local function parse_fact(text: string)
+  local at, name, declared = match(text, "^n;([^;]*);([^;]*);([^;]*)$")
+  if at == nil then error("a fact of no place") end
+  local negated = lua_byte(declared, 1) == 126
+  local fact: Fact = { at = (lua_gsub(at, "%%(%x%x)", function(digits: string): string
+    local byte = lua_tonumber(digits, 16)
+    return byte is integer and lua_char(byte) or "?"
+  end)), name = name, declared = negated and "not " .. declared:sub(2) or declared,
+    kinds = {}, negated = negated, integral = false }
+  local integer, number = false, false
+  for kind in gmatch(negated and declared:sub(2) or declared, "[^|]+") do
+    if kind == "integer" then
+      integer = true
+    else
+      fact.kinds[kind] = true
+      number = number or kind == "number"
+    end
+  end
+  if integer and not number then
+    if negated then
+      fact.kinds.integer = true
+    else
+      fact.kinds.number = true
+    end
+    fact.integral = true
+  end
+  facts[text] = fact
+end
+
+-- The value of a read whose fact holds of it, else the failure.
+local function verify(fact: Fact, value: any): any
+  local kind = lua_type(value)
+  local kinds = fact.kinds
+  local broken: boolean
+  if fact.negated then
+    broken = kinds[kind] == true or (kind == "number" and kinds.integer == true and math_type(value) == "integer")
+  else
+    broken = not kinds[kind] or (kind == "number" and fact.integral and math_type(value) ~= "integer")
+  end
+  if not broken then return value end
+  local actual = kind
+  if actual == "number" then actual = math_type(value) end
+  lua_error("fact violated at " .. fact.at .. ": " .. fact.name .. " is " .. actual ..
+      ", the checker proved " .. fact.declared, 0)
+end
+
 local function hook(_: integer, text: string, ...: any): any...
   local check = checks[text]
   if check == nil then
+    local fact = facts[text]
+    if fact ~= nil then return verify(fact, (...)) end
     if not malformed[text] then
+      if lua_byte(text, 1) == 110 then
+        if lua_pcall(parse_fact, text) then
+          return verify(facts[text], (...))
+        end
+        malformed[text] = true
       -- A parse that succeeds leaves its check in `checks`.
-      if lua_pcall(parse_check, text) then
+      elseif lua_pcall(parse_check, text) then
         check = checks[text]
       else
         malformed[text] = true

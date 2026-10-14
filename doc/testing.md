@@ -279,12 +279,13 @@ reports.
 A violation is a value whose Lua kind the declared type does not admit:
 nil or a missing return value for a type that admits no nil, a float for
 an integer, a string for a record. `any` and a type variable are not
-checked. The checks report and fail nothing: the checker accepts nil for
-any type, so they list code it allows.
+checked. These checks report and fail nothing: the checker accepts nil for
+any type, so they list code it allows. The checks of narrowing (below) are
+the one kind that fails.
 
 Three tests compare the bytecode of a module with the binary's
 ([`build/harness_epoch_test.tl`], [`cosmic/store_seal_test.tl`],
-[`build/rebuild_lock_tool_test.tl`]) and fail in a checked run, whose
+[`build/rebuild_lock_tool_test.tl`]) and skip in a checked run, whose
 modules carry checks.
 
 Not checked: a `return f(x)`, a tail call, which a check would end; a
@@ -299,6 +300,43 @@ FROM type_violations'` lists all of them, from the latest checked run.
 A module compiled with checks is another compile of the same source: it
 has its own keys, and the tool and the executables `cosmic build` writes
 carry none.
+
+### checked narrowing
+
+A checked run also tests what the checker concluded from a test. A read of
+a local, a global or a field of a local (`x`, `t.a`) whose type a test
+narrowed (`if x then`, `x ~= nil`, `is`, `type(x) ==`, `assert(x)`) is
+written as a check of what the test took out: the kinds of the type before
+the test that the type after lacks (`x is string` on `string | R` takes out
+`string` in the else branch and `R` in the then branch), and nil where the
+place was declared to admit it and the test left it none. A value of a kind
+taken out raises `fact violated at <file>:<y>:<x>: <place> is <kind>, the
+checker proved not <kinds>` at the read, which fails the test. Where the type
+before was `any`, the test took the value to the kinds of the type after, and
+the check is that. Such a failure is the checker's: it accepted a program in
+which a place it narrowed is not what it narrowed it to (a read that runs
+`__index` again, a write it did not see), so a test that meets one found a
+hole in the narrowing, not a fault of the test. Report it with the smallest
+program that shows it.
+
+- It checks what the test took out, not what the declared type leaves: a
+  nil that a map read or an optional gives a `T | R`, or a float given an
+  `integer | string`, passes both branches of an `is`, and is the type
+  checks' to report.
+- It checks nothing of a place narrowed by the type of a value assigned or
+  declared with (`x = f() or g()`), which holds nil where the checker's type
+  does not say so (checker/tl.tl's TODO at the read of a variable).
+- A place that is not a local, a global or a field of a local (`a.b.c`,
+  `t[k]`) is not checked, as the narrowing does not hold one.
+- The check is a call of the hook per narrowed read, which costs. A fuzz
+  property's instruction budget allows a checked run four times as many
+  instructions ([`build.fuzz`]).
+- The tests that compare a module's bytecode with the binary's skip in a
+  checked run (a TODO beside each).
+
+CI runs the whole suite so in the `checked` job of a full run
+(`cosmic-driver cosmic_ci/driver.tl platform checked-narrowing`), and
+`bin/cosmic test --check-types` runs it anywhere.
 
 ## fuzz tests
 
