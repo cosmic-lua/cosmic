@@ -72,6 +72,12 @@ local DEFAULT_ITERS <const> = 64
 --- coverage, far past what one parse of a small input should need.
 local DEFAULT_BUDGET <const> = 50000000
 
+--- How many times the budget a checked run (`cosmic test --check-types`)
+--- allows: the code it compiles spends instructions on its checks, the
+--- hook call at each narrowed read and typed boundary, that the budget is
+--- not meant to count.
+local CHECKED_BUDGET_FACTOR <const> = 4
+
 --- How many candidate inputs shrinking may check before it reports the
 --- smallest failing one found so far.
 local SHRINK_TRIES <const> = 2000
@@ -214,7 +220,12 @@ end
 --- Runs `check` on `input` once, under the budget.
 local function attempt(check: function(string): boolean, string, input: string,
                        budget: integer): boolean, string
-  if arm then arm(budget) end
+  if arm then
+    -- The hook a checked run defines as a global, which a chunk reads,
+    -- since it is no field of the checker's `_G`.
+    local read = assert(load("return __cosmic_tc", "=fuzz", "t"))
+    arm((read()) ~= nil and budget * CHECKED_BUDGET_FACTOR or budget)
+  end
   local ok, held, why = pcall(check, input)
   if arm then arm() end
   if not ok then

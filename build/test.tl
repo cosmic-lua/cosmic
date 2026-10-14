@@ -3375,12 +3375,12 @@ local function read_command(ctx: Run): integer | nil
   ctx.consult = not (parsed.set["--no-shared"] == true or
     Env.get("COSMIC_TEST_NO_SHARED") == "1")
   ctx.census = parsed.set["--census"] == true
-  -- TODO: keep a checked run's three tests that compare the bytecode of a
+  -- TODO: run a checked run's three tests that compare the bytecode of a
   -- module with the binary's (build/harness_epoch_test.tl,
-  -- cosmic/store_seal_test.tl, build/rebuild_lock_tool_test.tl) from
-  -- failing, whose modules carry checks the binary's do not: it waits on
-  -- each reading the binary's copy of the module, or its source, in
-  -- place of the bytecode it was given.
+  -- cosmic/store_seal_test.tl, build/rebuild_lock_tool_test.tl), which skip
+  -- there, since the modules they read carry checks the binary's do not: it
+  -- waits on each reading the binary's copy of the module, or its source,
+  -- in place of the bytecode it was given.
   ctx.checks = parsed.set["--check-types"] == true or Env.get("COSMIC_TEST_CHECK_TYPES") == "1"
   -- A verdict that stands runs no worker, and a worker is what reports.
   if ctx.checks then ctx.forced = true end

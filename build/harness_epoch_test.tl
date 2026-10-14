@@ -16,6 +16,7 @@ local Test = require("cosmic.test")
 local build_paths = require("build.paths")
 local harness_epoch = require("build.harness_epoch")
 local test = require("build.test")
+local TypeWatch = require("build.type_watch")
 
 --- The harness is read from the projection, in the tree's build
 --- directory (`o/cosmic.db`, as a grant names it): its modules
@@ -157,6 +158,12 @@ local function unacknowledged(found: {string:string}, acknowledged: {string:stri
 end
 
 local function test_the_harness_is_acknowledged()
+  -- TODO: check this on a checked run too. It waits on the test reading the
+  -- binary's copy of the module, or its source, in place of the bytecode it
+  -- was given (build/test.tl's TODO on the same).
+  if TypeWatch.checked() then
+    Test.skip("a checked run's modules carry checks, so their bytecode is not the binary's")
+  end
   local db = assert(Sqlite.open(projection))
   local found, trouble = test.harness(db)
   db:close()

@@ -1515,6 +1515,50 @@ local function test_the_darwin_suite_runs_on_the_macos_legs_gating_runs_alone(tm
   end
 end
 
+--- The `checked-narrowing` phase runs the whole suite on a checked run
+--- (`test --check-types`, no module named) on the linux-x86_64 leg, with
+--- the checked run's test timeout, fails where that run fails or reports
+--- nothing of its checks, and does nothing on another target.
+local function test_the_checked_narrowing_phase_runs_the_whole_suite_checked_on_linux_x86_64(tmp: string)
+  local base, project = command(tmp)
+  local cases = {
+    { name = "linux", target = "x86_64-linux-musl", report = true, status = 0, ok = true,
+      ran = "test --check-types 120\n" },
+    { name = "linux-failing", target = "x86_64-linux-musl", report = true, status = 1, ok = false,
+      ran = "test --check-types 120\n" },
+    { name = "linux-unchecked", target = "x86_64-linux-musl", report = false, status = 0, ok = false,
+      ran = "test --check-types 120\n" },
+    { name = "linux-aarch64", target = "aarch64-linux-musl", report = true, status = 0, ok = true,
+      ran = nil },
+  }
+  for _, case in ipairs(cases) do
+    local fake = tmp .. "/" .. case.name
+    local runner_temp = fake .. "-runner-temp"
+    assert(Fs.mkdirs(fake .. "/bin") and Fs.mkdirs(fake .. "/ci/testdata/portable"))
+    assert(Fs.mkdirs(runner_temp .. "/cosmic-ci"))
+    assert(Fs.write(fake .. "/AGENTS.md", "fixture\n"))
+    -- bin/zig's boot leaves a cosmic that logs the command line and the
+    -- test timeout it was given, and says what a checked run does.
+    local summary = case.report and
+      "printf '%s\\n' 'test: run-time types: 0 violations, 0 distinct, at 0 places'\n" or ""
+    Fixture.write(fake .. "/bin/zig", "#!/bin/sh\nmkdir -p o/bin\nprintf db > o/build.db\n" ..
+        "cat > o/bin/cosmic <<'EOF'\n#!/bin/sh\n" ..
+        "if [ \"$1\" = test ]; then printf '%s %s\\n' \"$*\" \"$COSMIC_TEST_TIMEOUT\" >> \"$0.ran\"; fi\n" ..
+        summary .. "exit " .. case.status .. "\nEOF\n" ..
+        "chmod 755 o/bin/cosmic\n", 493)
+    local env = context(fake, runner_temp, { TARGET = case.target, TMPDIR = tmp,
+      COSMIC_CI_EVENT = "push", COSMIC_CI_HARNESS_MOVED = "0" })
+    for _, phase in ipairs({ "boot", "checked-narrowing" }) do
+      local outcome = Fixture.call("checked-narrowing-" .. case.name .. "-" .. phase,
+        append(base, { "platform", phase }), project, tmp .. "/logs", env)
+      local ok = phase == "boot" or case.ok
+      assert(outcome.result.ok == ok, case.name .. ": " .. phase .. ": " .. Fixture.read(outcome.err))
+    end
+    local ran = Fs.read(fake .. "/o/bin/cosmic.ran")
+    assert(ran == case.ran, case.name .. ": " .. tostring(ran))
+  end
+end
+
 --- A native suite that passed with none standing ran every test it
 --- chose; one where any stood, that failed, or that the driver ended
 --- did not, nor did one that said no summary or ran a share.

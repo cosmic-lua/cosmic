@@ -9,6 +9,7 @@ local schema = require("build.schema")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local Test = require("cosmic.test")
+local TypeWatch = require("build.type_watch")
 
 --- `store`: both read every module's rows through [`Store.databases()`].
 Test.policy{ grants = { { path = "o/cosmic.db", letters = "r" } } }
@@ -177,6 +178,12 @@ end
 --- The binary's modules are copied from the binary, not from an
 --- attached database that holds a module of the same name.
 local function test_seal_takes_a_reserved_name_from_the_binary(tmp: string)
+  -- TODO: check this on a checked run too. It waits on the test reading the
+  -- binary's copy of the module, or its source, in place of the bytecode it
+  -- was given (build/test.tl's TODO on the same).
+  if TypeWatch.checked() then
+    Test.skip("a checked run's modules carry checks, so their bytecode is not the binary's")
+  end
   attach(tmp)
   local path = tmp .. "/binary.db"
   assert(Store.seal({ "cosmic.codec" }, path))

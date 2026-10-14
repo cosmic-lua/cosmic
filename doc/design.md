@@ -1246,6 +1246,19 @@ the tool and every executable `cosmic build` writes never carry a check.
 [`build.test_worker`], which holds the hook the checks call, is compiled
 without them.
 
+the same run checks narrowing, the oracle the strict plan asked for: a read
+of a local, a global or a field of a local whose type a test narrowed
+(`if x then`, `~= nil`, `is`, `type()`, `assert`) is written as a call of
+the hook with the place and the test's fact, not nil or the kinds the
+narrowed type admits, and the hook raises "fact violated at file:y:x" for a
+value the fact is false of. the checker marks the read when the test makes
+the entry (`Variable.test_fact`), so what is checked is exactly what a test
+concluded and nothing the declared type said. a place narrowed by the type
+of an assigned or declared value is not, since that type holds nil where it
+does not say so until the nil item of the roadmap lands. CI runs the whole
+suite so on one leg; the programs the checker accepts that it fails are its
+holes, found by real runs.
+
 a function type stands for another when its parameters accept what the
 other's do (contravariant) and its returns are subtypes of the other's
 (covariant); Teal's own rule took either direction for each, so

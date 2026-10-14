@@ -11,6 +11,7 @@ local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local importer = require("build.importer")
+local TypeWatch = require("build.type_watch")
 local teal = require("build.teal")
 local work = require("build.work")
 local writer = require("build.writer")
@@ -165,6 +166,12 @@ end
 --- A result waiting to publish keeps the rows and signature it compiled,
 --- even when another run commits a failed or a different successful plan.
 local function test_a_waiting_projection_keeps_its_compiled_snapshot(tmp: string)
+  -- TODO: check this on a checked run too. It waits on the test reading the
+  -- binary's copy of the module, or its source, in place of the bytecode it
+  -- was given (build/test.tl's TODO on the same).
+  if TypeWatch.checked() then
+    Test.skip("a checked run's modules carry checks, so their bytecode is not the binary's")
+  end
   local built = assert(teal.load())
   for _, succeeds in ipairs({ false, true }) do
     local root = tmp .. (succeeds and "/valid" or "/failed")

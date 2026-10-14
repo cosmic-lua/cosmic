@@ -156,8 +156,9 @@ local record tl
       gen_target: GenTarget
       run_internal_compiler_checks: boolean
       -- Annotates the syntax tree with the run-time checks a typed
-      -- boundary asks for, which `generate` then writes (see
-      -- `TypeChecker:runtime_kinds`).
+      -- boundary asks for, and with the fact a test narrowed each read by,
+      -- which `generate` then writes (see `TypeChecker:runtime_kinds`,
+      -- `TypeChecker:narrowed_fact`).
       runtime_checks: boolean
    end
 
@@ -647,6 +648,12 @@ local record Variable
    -- puts back (`widen_in_scope`).
    widened_from: Type
    is_specialized: Specialization
+   -- On a "narrow" entry a test made (a guard, `assert`) under
+   -- `runtime_checks`: what the test says of the place, that a read
+   -- checks (`TypeChecker:narrowed_fact`). Nil on an entry made by the
+   -- type of a value assigned or declared with, which is left unchecked
+   -- (see the TODO at the read of a variable).
+   test_fact: string
    declared_at: Node
    is_func_arg: boolean
    used_as_type: boolean
@@ -2178,11 +2185,17 @@ local record Node
    -- (CheckOptions.runtime_checks): on an argument, "name=kinds"; on a
    -- return, the kinds of each value, joined by ";"; on the expression
    -- list of an assignment, the check of each value written to a record
-   -- field; on the root, the file the checks name.
+   -- field; on the root, the file the checks name. On a read of a local, a
+   -- global or a field of a local whose type a fact narrowed (one that is
+   -- not written), `rt_fact` is "name;fact" for the place read: the fact is
+   -- the Lua kinds the narrowed type admits, joined by "|" as in
+   -- `TypeChecker:runtime_kinds`, or "!" where it says only that the value
+   -- is not nil.
    rt_check: string
    rt_rets: string
    rt_set: {integer:string}
    rt_file: string
+   rt_fact: string
 end
 
 local show_type: function(Type, ? boolean, ? {Type:string}): string
@@ -5692,6 +5705,7 @@ function tl.generate(ast: tl.Node, gen_target: GenTarget, opts?: GenerateOptions
    -- "r" return values, "f" a record field written), the file and line,
    -- and for each value its name and kinds. The line is that of the
    -- Lua written, which keeps the Teal's.
+   -- A check of a fact ("n") names the column as well as the line.
    local function runtime_spec(kind: string, node: Node, ...: string): string
       -- The file's name is written so that none of the characters that
       -- split a spec, or a report line, is in it: each is "%" and its
@@ -5699,8 +5713,51 @@ function tl.generate(ast: tl.Node, gen_target: GenTarget, opts?: GenerateOptions
       local file = ((ast as Node).rt_file or "?"):gsub("[%%;\t\r\n]", function(c: string): string
          return string.format("%%%02X", string.byte(c))
       end)
-      local fields: {string} = { kind, file .. ":" .. node.y, ... }
+      local place = file .. ":" .. node.y
+      if kind == "n" then
+         place = place .. ":" .. node.x
+      end
+      local fields: {string} = { kind, place, ... }
       return string.format("%q", table.concat(fields, ";"))
+   end
+
+   -- Whether the statement `node` is written beginning with a read that a
+   -- fact narrowed (Node.rt_fact). Its check is a call written in
+   -- parentheses, which Lua would read as the arguments of a call to the
+   -- expression that ends the statement above.
+   local function begins_with_checked_read(node: Node): boolean
+      local n = node
+      for _ = 1, 10000 do
+         if n.rt_fact then
+            return true
+         elseif n.kind == "assignment" then
+            n = n.vars[1]
+         elseif n.kind == "op" and n.e1 and (n.op.op == "." or n.op.op == ":"
+            or n.op.op == "@index" or n.op.op == "@funcall") then
+            n = n.e1
+         else
+            return false
+         end
+      end
+      return false
+   end
+
+   -- Writes a read that a fact narrowed as a call of the check, which
+   -- answers the value (the select of the spec, where the program has no
+   -- hook, answers what follows the spec). The read is one value, so the
+   -- call answers one.
+   local function fact_check(node: Node, out: Output): Output
+      local name, fact = node.rt_fact:match("^([^;]*);(.*)$")
+      -- The place a field read begins at, not its dot.
+      local start = node
+      while start.kind == "op" and start.e1 and start.op.op == "." do
+         start = start.e1
+      end
+      local checked: Output = { y = out.y, h = 0 }
+      table.insert(checked, "(__cosmic_tc or select)(2, " .. runtime_spec("n", start, name, fact) .. ", ")
+      add_child(checked, out)
+      table.insert(checked, ")")
+      return checked
    end
 
    local function parameter_check(node: Node, name: string): string
@@ -5740,6 +5797,10 @@ function tl.generate(ast: tl.Node, gen_target: GenTarget, opts?: GenerateOptions
             end
             local space: string = nil
             for i, child in ipairs(children) do
+               if i > 1 and not node[i - 1].semicolon and begins_with_checked_read(node[i]) then
+                  table.insert(out, ";")
+                  space = " "
+               end
                add_child(out, child, space, emitted.indent)
                if node[i].semicolon then
                   table.insert(out, ";")
@@ -6329,6 +6390,17 @@ function tl.generate(ast: tl.Node, gen_target: GenTarget, opts?: GenerateOptions
 
    visit_node.cbs["expression_list"] = visit_node.cbs["variable_list"]
    visit_node.cbs["argument_list"] = visit_node.cbs["variable_list"]
+
+   -- Only a tree checked with the run-time checks holds a mark (the root
+   -- names its file then), so any other is written as it was.
+   if (ast as Node).rt_file then
+      visit_node.after = function(_: nil, node: Node, _children: {Output}, out: Output): Output
+         if node.rt_fact and out then
+            return fact_check(node, out)
+         end
+         return out
+      end
+   end
 
    local out = recurse_node(nil, ast, visit_node, visit_type)
    if emitted.err then
@@ -10366,6 +10438,65 @@ do
       return table.concat(out, "|")
    end
 
+   -- Whether `t` names nil, as itself or as a member of a union.
+   function TypeChecker:names_nil(t: Type, depth?: integer): boolean
+      local level = depth or 1
+      if t is TupleType or level > 6 then
+         return false
+      end
+      local u = self:to_structural(t)
+      if u.typename == "nil" then
+         return true
+      end
+      if u is UnionType then
+         for _, member in ipairs(u.types) do
+            if self:names_nil(member, level + 1) then
+               return true
+            end
+         end
+      end
+      return false
+   end
+
+   -- What a test that narrowed a place from the type `before` to `after`
+   -- says of the value (Node.rt_fact), as far as a check can tell it:
+   -- "!" where the test left out nil alone, for the kinds of the other
+   -- members were the declared type's and a caller can break them; the Lua
+   -- kinds `after` admits where the test left out a member of another
+   -- kind (an `is`, a `type()` test); nil where the test says nothing a
+   -- check could test.
+   function TypeChecker:narrowed_fact(before: Type, after: Type): string
+      if not before or not after or before is TupleType or after is TupleType then
+         return nil
+      end
+      local kinds = self:runtime_kinds(after)
+      if kinds then
+         local was = self:runtime_kinds(before)
+         if kinds == was then
+            return nil
+         end
+         if was and kinds == (was:gsub("^nil|?", "")) then
+            return "!"
+         end
+         return kinds
+      end
+      if self:names_nil(before) and not self:names_nil(after) then
+         return "!"
+      end
+      return nil
+   end
+
+   -- The type the place had before a test narrowed it, silently: what the
+   -- scopes know of it, else the field its record declares (`place_type`
+   -- without the shadow facts' bookkeeping).
+   function TypeChecker:type_before(place: narrowing.Place, w: Where): Type
+      local typ = self:find_var_type(place.key, "check_only")
+      if typ or #place.fields == 0 then
+         return typ
+      end
+      return self:field_through(self:find_var_type(place.base, "check_only"), place, w)
+   end
+
    local function unite(w: Where, types: {Type}, flatten_constants?: boolean): Type
       if #types == 1 then
          return types[1]
@@ -13373,7 +13504,9 @@ do
             if f.no_infer then
                t.inferred_at = nil
             end
-            self:add_var(nil, v, t, "const", "narrow")
+            local before = self.runtime_checks and self:type_before(f.place, w) or nil
+            local made = self:add_var(nil, v, t, "const", "narrow")
+            made.test_fact = self.runtime_checks and self:narrowed_fact(before, t) or nil
             narrowing.renarrowed(self.st as {narrowing.Scope}, v)
             if not disagree then
                if self.shadow_log then
@@ -16474,7 +16607,7 @@ do
                      and not self:same_type(t, infertype)
                   then
                      t = self:infer_at(w, infertype)
-                     self:add_var(w, var.tk, t, "const", "narrowed_declaration")
+                     self:add_var(w, var.tk, t, "const", "narrowed_declaration").test_fact = nil
                      if self.shadow_log then
                         self:shadow_narrow(var.tk, t)
                      end
@@ -16574,7 +16707,7 @@ do
 
                   if varname and (rvar is UnionType or rvar is InterfaceType) then
                      -- narrow unions and interfaces
-                     self:add_var(varnode, varname, valtype, nil, "narrow")
+                     self:add_var(varnode, varname, valtype, nil, "narrow").test_fact = nil
                      if self.shadow_log then
                         self:shadow_narrow(varname, valtype)
                      end
@@ -17915,6 +18048,11 @@ do
                   if self.shadow_log then
                      self:shadow_check(node, field_place.key, narrowed, true, true, t)
                   end
+                  if self.runtime_checks then
+                     local entry = not node.is_lvalue and narrowed and self:find_var(field_place.key, "check_only") or nil
+                     local fact = entry and entry.is_specialized == "narrow" and entry.test_fact or nil
+                     node.rt_fact = fact and (node.e1.tk .. "." .. node.e2.tk .. ";" .. fact) or nil
+                  end
                   if narrowed then
                      if #self.loops > 0 and not node.is_lvalue then
                         self:record_read(node, field_place.key, t)
@@ -18411,6 +18549,20 @@ do
 
             if self.shadow_log and not node.is_lvalue and node.tk ~= "_G" and node.tk ~= "..." then
                self:shadow_check(node, node.tk, t, false, true)
+            end
+
+            if self.runtime_checks and not node.is_lvalue and node.tk ~= "_G" and node.tk ~= "..." then
+               -- The place is a local or a global: a test narrowed it where
+               -- its entry is a narrowing made by one, which kept the fact.
+               -- TODO: check a place narrowed by the type of a value assigned or
+               -- declared with (`x = f() or g()`, `local y: any = opt`) too. It
+               -- waits on nil being excluded from every type but one that names it
+               -- (doc/roadmap.md's nil item): until then such a type holds nil
+               -- where it does not say so, and the check fails on code the checker
+               -- accepts by design (an optional parameter `opts?: T` is a `T`).
+               local var = self:find_var(node.tk, "check_only")
+               local fact = var and var.is_specialized == "narrow" and var.test_fact or nil
+               node.rt_fact = fact and (node.tk .. ";" .. fact) or nil
             end
 
             if t is TypeDeclType then
