@@ -399,6 +399,77 @@ local function test_an_operator_that_dispatches_may_run_the_function()
   accepts("local f: function()\nlocal function g() f() end\nlocal c = 1 + 2\nf = g\nuse(c)")
 end
 
+--- The not-assigned errors for `source`, which holds a `<close>` local: the
+--- file is checked for Lua 5.3, which refuses `<close>` itself.
+local function unassigned_errors(source: string): {compiler.Error}
+  local found: {compiler.Error} = {}
+  for _, e in ipairs(type_errors(source)) do
+    if e.code == "not_assigned" then
+      found[#found + 1] = e
+    end
+  end
+  return found
+end
+
+--- `body`, the statements of a function with the unassigned `f` and the
+--- function `g` that names it, over a record with a `__close`.
+local function closing_program(body: string): string
+  return head .. "local record C\n  metamethod __close: function(C)\nend\n" ..
+    "local function closing(p: C, y: boolean)\n  local f: function()\n  local function g() f() end\n" ..
+    body .. "end\nuse(closing)\n"
+end
+
+--- Holds `body` to be refused for the `__close` that runs at `line`, the
+--- `<close>` local's.
+local function ran_at_close(body: string, line: integer)
+  local source = closing_program(body)
+  local errors = unassigned_errors(source)
+  assert(#errors == 1 and errors[1].ran_kind == "close", tostring(errors[1] and errors[1].ran_kind) .. shown(errors) .. "\n" .. source)
+  assert(errors[1].ran_y == line, tostring(errors[1].ran_y) .. "\n" .. source)
+end
+
+local function accepted_closing(body: string)
+  local source = closing_program(body)
+  local errors = unassigned_errors(source)
+  assert(#errors == 0, shown(errors) .. "\n" .. source)
+end
+
+--- The `__close` of a `<close>` local runs where its block ends, and before a
+--- `break` or `goto` that leaves it.
+local function test_a_close_may_run_the_function_where_its_block_ends()
+  ran_at_close("  do\n    local c <close> = p\n    local _ = c\n  end\n  f = g\n", 11)
+  ran_at_close("  repeat\n    local c <close> = p\n    local _ = c\n  until y\n  f = g\n", 11)
+  ran_at_close("  while y do\n    local c <close> = p\n    local _ = c\n    break\n  end\n  f = g\n", 11)
+  -- The local's own position, past other statements of the block.
+  ran_at_close("  do\n    local _a = 1\n    local c <close> = p\n    local _ = c\n  end\n  f = g\n", 12)
+  -- A block inside a loop, left by a `break` or a `goto`, or by the loop's pass.
+  ran_at_close("  while y do\n    do\n      local c <close> = p\n      local _ = c\n    end\n  end\n  f = g\n", 12)
+  ran_at_close("  while y do\n    if y then\n      do\n        local c <close> = p\n        local _ = c\n        break\n      end\n    end\n  end\n  f = g\n", 13)
+  ran_at_close("  for _ = 1, 2 do\n    do\n      local c <close> = p\n      local _ = c\n      if y then goto continue end\n    end\n    ::continue::\n  end\n  f = g\n", 12)
+  -- Known over-refusal: a `goto continue` past the `<close>` local brings a
+  -- pending function to the block's end, which runs a `__close` it never
+  -- reached (the TODO in `walk.block`).
+  ran_at_close("  for _ = 1, 2 do\n    if y then goto continue end\n    local c <close> = p\n    local _ = c\n    f = g\n" ..
+      "    ::continue::\n  end\n  f = g\n", 12)
+end
+
+--- A block that holds a `<close>` local, assigned before it ends, or with
+--- none, and a `break` or `goto` that leaves no `__close` to run: a loop
+--- inside the block, or a jump before the local is declared.
+local function test_a_break_or_goto_that_leaves_no_close_is_accepted()
+  accepted_closing("  f = g\n  do\n    local c <close> = p\n    local _ = c\n  end\n")
+  accepted_closing("  do\n    local c = p\n    local _ = c\n  end\n  f = g\n")
+  accepted_closing("  do\n    local c <close> = p\n    local _ = c\n    while y do break end\n    f = g\n  end\n  f()\n")
+  accepted_closing("  do\n    local c <close> = p\n    local _ = c\n    for _ = 1, 2 do\n      if y then goto continue end\n" ..
+      "      ::continue::\n    end\n    f = g\n  end\n  f()\n")
+  accepted_closing("  do\n    while y do break end\n    local c <close> = p\n    local _ = c\n    f = g\n  end\n  f()\n")
+  -- The same inside a loop, whose body block closes each pass.
+  accepted_closing("  while y do\n    do\n      local c <close> = p\n      local _ = c\n      while y do break end\n" ..
+      "      f = g\n    end\n  end\n  f = g\n  f()\n")
+  -- A second `<close>` local whose type declares no `__close` is not the closer.
+  ran_at_close("  do\n    local a <close> = p\n    local b <close> = nil\n    local _a = a\n    local _b = b\n  end\n  f = g\n", 11)
+end
+
 --- A local of the same name hides the variable from its scope.
 local function test_a_local_of_the_same_name_hides_the_variable()
   accepts("local x: integer\ndo\n  local x = 1\n  use(x)\nend\nx = 2\nuse(x)")

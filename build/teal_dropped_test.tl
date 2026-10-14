@@ -78,6 +78,20 @@ local function test_a_narrowing_dropped_by_a_call_or_an_alias_write_is_told_the_
   assert(#type_errors(copied) == 0, copied)
 end
 
+--- The end of a block that holds a `<close>` local is told by the local.
+local function test_a_narrowing_dropped_by_a_close_is_told_the_local()
+  local closing <const> = "local record C\n  n: integer | nil\n  metamethod __close: function(C)\nend\n" ..
+    "local c0: C = setmetatable({ n = 1 } as C, {})\n"
+  answers(closing .. "if c0.n then\n  do\n    local c <close> = c0\n    local _ = c\n  end\n  print(c0.n + 1)\nend\n", plus,
+    "'c0.n' was checked, but the `__close` of `c` at 8:11 runs at the end of its block and may change it: " ..
+      "copy it to a local before the block ends (`local n = c0.n`), check and use that")
+  answers(closing .. "if c0.n then\n  for _ = 1, 2 do\n    print(c0.n + 1)\n    local c <close> = c0\n    local _ = c\n  end\nend\n",
+    "'c0.n' was narrowed before this loop, but the loop's previous pass ran the `__close` of `c` at 9:11, " ..
+      "which may have changed it",
+    "'c0.n' was checked, but the `__close` of `c` at 9:11 in this loop may change it before the loop " ..
+      "comes round again: copy it to a local before the loop (`local n = c0.n`), check and use that")
+end
+
 --- The other things that run code, and a global a function assigns.
 local function test_a_narrowing_dropped_by_other_code_is_told_what_ran_it()
   -- An operator that runs a metamethod.

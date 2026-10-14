@@ -28,11 +28,10 @@
 -- for, `TypeChecker:drop_all`) may call before then.
 --
 -- What counts as running code is what the checker marks `runs_code` for
--- the narrowing it drops, so the rule is blind to what that misses: a
--- `<close>` local whose type declares `__close`, and reading a declared
--- field of a record that declares `__index`, which run code unseen (the
--- TODO in checker/narrowing.tl names them); a metatable attached at run
--- time (the `setmetatable` TODOs in checker/tl.tl and the roadmap item
+-- the narrowing it drops, so the rule is blind to what that misses: reading
+-- a declared field of a record that declares `__index`, which runs code
+-- unseen (the TODO in checker/narrowing.tl names it); a metatable attached
+-- at run time (the `setmetatable` TODOs in checker/tl.tl and the roadmap item
 -- they wait on); and a global, which this rule does not follow (see the
 -- TODOs below).
 --
@@ -67,6 +66,7 @@ local record flow
       if_blocks: {Node}
       never_call: boolean
       runs_code: boolean
+      attribute: string
       vars: Node
       exps: Node
       args: Node
@@ -421,6 +421,9 @@ end
 local record Exit
    state: State
    continued: State
+   -- How many `<close>` locals were open (`Scan.closers`) where the loop
+   -- began: a `break` or `goto` that leaves it runs the ones opened since.
+   closers: integer
 end
 
 local record Scan
@@ -436,6 +439,11 @@ local record Scan
    -- still flows, but a read or a write is another variable's.
    hidden: boolean
    loops: {Exit}
+   -- The `<close>` locals declared so far in the blocks around the walk's
+   -- position, the innermost last. The checker marks a block that holds
+   -- one whose type declares `__close` `runs_code`. The `__close` runs where
+   -- the block ends, and before a `break` or `goto` that leaves it.
+   closers: {flow.Node}
    -- What the walk's own block receives from outside any loop it walks: the
    -- `goto`s whose label ends the block (the body of the loop the variable
    -- is declared in) before the walk reaches it.
@@ -546,7 +554,7 @@ function walk.loop(scan: Scan, stmt: flow.Node, st: State): State
    elseif kind == "forin" then
       entry = eval(scan, stmt.exps, st)
    end
-   local breaks: Exit = { state = no_state, continued = no_state }
+   local breaks: Exit = { state = no_state, continued = no_state, closers = #scan.closers }
    table.insert(scan.loops, breaks)
    local saved_hidden = scan.hidden
    local head: State = no_state
@@ -644,6 +652,9 @@ function walk.statement(scan: Scan, stmt: flow.Node, st: State): State
       return nil
    elseif kind == "break" then
       local breaks = scan.loops[#scan.loops]
+      if #scan.closers > (breaks and breaks.closers or 0) then
+         ran(scan, st, scan.closers[#scan.closers], "close")
+      end
       if breaks then
          breaks.state = meet(breaks.state, st)
       else
@@ -656,6 +667,9 @@ function walk.statement(scan: Scan, stmt: flow.Node, st: State): State
       -- A continue: the rest of this pass is skipped, and the label that
       -- ends the body of the loop is reached with this state.
       local continues = scan.loops[#scan.loops] or scan.outer
+      if #scan.closers > continues.closers then
+         ran(scan, st, scan.closers[#scan.closers], "close")
+      end
       continues.continued = meet(continues.continued, st)
       return nil
    elseif kind == "do" then
@@ -672,7 +686,7 @@ function walk.statement(scan: Scan, stmt: flow.Node, st: State): State
          if s and s.assigned then
             any_assigned = true
          end
-         ends[i] = { state = s, continued = no_state }
+         ends[i] = { state = s, continued = no_state, closers = #scan.closers }
       end
       local out: State = no_state
       if any_assigned then
@@ -697,8 +711,33 @@ function walk.statement(scan: Scan, stmt: flow.Node, st: State): State
    return st
 end
 
+-- The variable of `stmt`, a declaration, that is `<close>` and that the
+-- checker marked `runs_code` (its type declares `__close`); nil for any
+-- other statement.
+local function closer_in(stmt: flow.Node): flow.Node
+   if stmt.kind ~= "local_declaration" then
+      return nil
+   end
+   for _, v in ipairs(stmt.vars) do
+      if v.attribute == "close" and v.runs_code then
+         return v
+      end
+   end
+   return nil
+end
+
 function walk.block(scan: Scan, body: flow.Node, first: integer, st: State, tail: flow.Node): State
    local saved = scan.hidden
+   local opened = #scan.closers
+   -- A `<close>` local declared before the walk's first statement is open.
+   if body.runs_code then
+      for i = 1, first - 1 do
+         local closer = closer_in(body[i])
+         if closer then
+            table.insert(scan.closers, closer)
+         end
+      end
+   end
    for i = first, #body do
       if scan.found then
          break
@@ -713,9 +752,27 @@ function walk.block(scan: Scan, body: flow.Node, first: integer, st: State, tail
       elseif declares(stmt, scan.name) then
          scan.hidden = true
       end
+      -- Open once its initializer has run.
+      local closer = body.runs_code and closer_in(stmt)
+      if closer then
+         table.insert(scan.closers, closer)
+      end
    end
    if st and tail then
       st = eval(scan, tail, st)
+   end
+   -- The `__close` of its `<close>` locals, after the `until` of a `repeat`.
+   -- TODO: this runs on the state a `goto` brought to a label after the
+   -- `<close>` local too, though that path jumped over its declaration (a
+   -- `continue` that skips it), so a pending function that path carries is
+   -- refused for a `__close` that never ran. It waits on a state that tells
+   -- whether it passed the declaration, which only this file's `State` and
+   -- `meet` need.
+   if #scan.closers > opened then
+      ran(scan, st, scan.closers[#scan.closers], "close")
+   end
+   while #scan.closers > opened do
+      table.remove(scan.closers)
    end
    scan.hidden = saved
    return st
@@ -735,12 +792,12 @@ end
 --- statement a path went by that skipped the assignment another made (an
 --- `if`, an `else`-less `if`'s branch, a loop), nil where none did. For a
 --- function the third answer is what may run it (nil at the end of the
---- scope) and the fourth how: `call`, `operator`, `iterator`, `return`,
---- `never` or `scope`.
+--- scope) and the fourth how: `call`, `operator`, `iterator`, `close`,
+--- `return`, `never` or `scope`.
 function flow.unassigned_read(body: flow.Node, first: integer, name: string, tail: flow.Node): flow.Node, flow.Node, flow.Node, string
    local scan: Scan = {
       name = name, found = no_node, skipped = no_node, ran = no_node, how = "", hidden = false,
-      loops = {}, outer = { state = no_state, continued = no_state },
+      loops = {}, closers = {}, outer = { state = no_state, continued = no_state, closers = 0 },
    }
    local final = walk.block(scan, body, first, unassigned_state, tail)
    if final then

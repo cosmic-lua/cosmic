@@ -1602,3 +1602,251 @@ local function test_a_write_to_a_global_through_g_drops_the_facts_of_its_fields(
   refused_source(head .. "    local e = _G as {string:any}\n    e[k] = {}\n" .. tail, "9: " .. plus)
   accepted_source("global H: number | nil\n" .. head .. "    _G.H = nil\n" .. tail)
 end
+
+--- A to-be-closed local's `__close` runs where its block ends and on each
+--- `break` and `goto` that leaves it, so it drops what is known of a field
+--- or a global like a call does.
+local close_head <const> = "local record C\n  a: number | nil\n  metamethod __close: function(C)\nend\n" ..
+  "local record N\n  a: number | nil\nend\n"
+
+local function test_a_close_at_the_end_of_a_block_drops_a_field_fact()
+  local head <const> = close_head .. "local function f(q: C, p: C): number\n  if q.a then\n"
+  local tail <const> = "    return q.a + 1\n  end\n  return 0\nend\nreturn f"
+  refused_source(head .. "    do\n      local c <close> = p\n      local _ = c\n    end\n" .. tail, "14: " .. plus)
+  -- The block of an `if` is a block too.
+  refused_source(head .. "    if p.a then\n      local c <close> = p\n      local _ = c\n    end\n" .. tail, "14: " .. plus)
+  -- A type that declares no `__close` runs nothing.
+  accepted_source(close_head .. "local function f(q: N, p: C): number\n  if q.a then\n" ..
+      "    do\n      local c <close> = nil\n      local _ = c\n    end\n" .. tail)
+  -- A block with no `<close>` local drops nothing.
+  accepted_source(head .. "    do\n      local c = p\n      local _ = c\n    end\n" .. tail)
+  -- Nothing is read after the block closes.
+  accepted_source(head .. "    local n = q.a + 1\n    do\n      local c <close> = p\n      local _ = c\n    end\n    return n\n  end\n  return 0\nend\nreturn f")
+end
+
+local function test_a_close_at_the_end_of_a_block_drops_a_global_fact()
+  refused_source(close_head .. "global G: number | nil\nlocal function f(p: C): number\n  if G then\n" ..
+      "    do\n      local c <close> = p\n      local _ = c\n    end\n    return G + 1\n  end\n  return 0\nend\nreturn f", "15: " .. plus)
+  -- A local of the file is assigned by no `__close`.
+  accepted_source(close_head .. "local function f(p: C): number\n  local v: number | nil = 1\n  if v then\n" ..
+      "    do\n      local c <close> = p\n      local _ = c\n    end\n    return v + 1\n  end\n  return 0\nend\nreturn f")
+end
+
+local function test_a_close_in_a_loop_body_runs_in_each_pass()
+  local head <const> = close_head .. "local function f(q: C, p: C, y: boolean): number\n  if q.a then\n"
+  local tail <const> = "  end\n  return 0\nend\nreturn f"
+  local at <const> = "11: 'q.a' was narrowed before this loop"
+  refused_source(head .. "    while y do\n      print(q.a + 1)\n      local c <close> = p\n      local _ = c\n    end\n" .. tail, at)
+  refused_source(head .. "    for _ = 1, 2 do\n      print(q.a + 1)\n      local c <close> = p\n      local _ = c\n    end\n" .. tail, at)
+  -- A `repeat` closes after its `until`.
+  refused_source(head .. "    repeat\n      print(q.a + 1)\n      local c <close> = p\n      local _ = c\n    until y\n" .. tail, at)
+  -- A fact taken after the loop's closes stands.
+  accepted_source(head .. "    while y do\n      do\n        local c <close> = p\n        local _ = c\n      end\n    end\n" ..
+      "    if q.a then\n      return q.a + 1\n    end\n" .. tail)
+end
+
+local function test_a_break_or_goto_that_leaves_a_close_drops_what_is_known()
+  local head <const> = close_head .. "local function f(q: C, p: C, y: boolean): number\n  if q.a then\n"
+  local tail <const> = "  end\n  return 0\nend\nreturn f"
+  -- Control leaves the loop with the `__close` run: what is known of `q.a`
+  -- before the loop is gone after it.
+  refused_source(head .. "    while y do\n      if y then\n        local c <close> = p\n        local _ = c\n        break\n      end\n" ..
+      "    end\n    return q.a + 1\n" .. tail, "17: " .. plus)
+  refused_source(head .. "    for _ = 1, 2 do\n      do\n        local c <close> = p\n        local _ = c\n        goto continue\n      end\n" ..
+      "      ::continue::\n    end\n    return q.a + 1\n" .. tail, "18: " .. plus)
+  -- A `break` that leaves no `<close>` local drops nothing.
+  accepted_source(head .. "    while y do\n      if y then\n        break\n      end\n    end\n    return q.a + 1\n" .. tail)
+end
+
+--- A `break` or `goto` that leaves a block with a `<close>` local drops no
+--- more than the block's end in the text does: the code that follows a branch
+--- ending in one keeps what it knew, and a `goto continue` leaves only the
+--- blocks inside the loop body. What the end of such a block drops is refused
+--- after the loop.
+local function test_a_jump_out_of_a_close_block_drops_no_more_than_its_end_does()
+  accepted_source([[
+local record C
+   a: number | nil
+   metamethod __close: function(C)
+end
+
+local function f(q: C, p: C, y: boolean): number
+  while y do
+    local c <close> = p
+    local _ = c
+    if q.a then
+      if y then break end
+      print(q.a + 1)
+    end
+  end
+  return 0
+end
+return f
+]])
+  accepted_source([[
+local record C
+   a: number | nil
+   metamethod __close: function(C)
+end
+
+local function f(q: C, p: C, y: boolean): number
+  for _ = 1, 2 do
+    local c <close> = p
+    local _ = c
+    if q.a then
+      if y then goto continue end
+      print(q.a + 1)
+    end
+    ::continue::
+  end
+  return 0
+end
+return f
+]])
+  accepted_source([[
+local record C
+   a: number | nil
+   metamethod __close: function(C)
+end
+
+local function f(q: C, p: C, y: boolean): number
+  local c <close> = p
+  local _ = c
+  if q.a then
+    for _ = 1, 2 do
+      if y then goto continue end
+      print(q.a + 1)
+      ::continue::
+    end
+  end
+  return 0
+end
+return f
+]])
+  accepted_source([[
+local record C
+   a: number | nil
+   metamethod __close: function(C)
+end
+
+local function f(q: C, p: C, y: boolean): number
+  local c <close> = p
+  local _ = c
+  if q.a then
+    while y do
+      if y then break end
+      print(q.a + 1)
+    end
+    return q.a + 1
+  end
+  return 0
+end
+return f
+]])
+  accepted_source([[
+local record C
+   a: number | nil
+   metamethod __close: function(C)
+end
+
+local function f(q: C, p: C, y: boolean): number
+  if q.a then
+    do
+      local c <close> = p
+      local _ = c
+      for _ = 1, 2 do
+        if y then goto continue end
+        print(q.a + 1)
+        ::continue::
+      end
+    end
+  end
+  return 0
+end
+return f
+]])
+  accepted_source([[
+local record C
+   a: number | nil
+   metamethod __close: function(C)
+end
+
+local function f(q: C, p: C, y: boolean): number
+  if q.a then
+    do
+      local c <close> = p
+      local _ = c
+      while y do
+        if y then break end
+        print(q.a + 1)
+      end
+      return q.a + 1
+    end
+  end
+  return 0
+end
+return f
+]])
+  refused_source([[
+local record C
+   a: number | nil
+   metamethod __close: function(C)
+end
+
+local function f(q: C, p: C, y: boolean): number
+  if q.a then
+    while y do
+      do
+        local c <close> = p
+        local _ = c
+        if y then break end
+      end
+    end
+    return q.a + 1
+  end
+  return 0
+end
+return f
+]], "15: " .. plus)
+  refused_source([[
+local record C
+   a: number | nil
+   metamethod __close: function(C)
+end
+
+local function f(q: C, p: C, y: boolean): number
+  if q.a then
+    for _ = 1, 2 do
+      do
+        local c <close> = p
+        local _ = c
+        if y then goto continue end
+      end
+      ::continue::
+    end
+    return q.a + 1
+  end
+  return 0
+end
+return f
+]], "16: " .. plus)
+  refused_source([[
+local record C
+   a: number | nil
+   metamethod __close: function(C)
+end
+
+local function f(q: C, p: C, y: boolean): number
+  if q.a then
+    repeat
+      local c <close> = p
+      local _ = c
+      if y then break end
+    until y
+    return q.a + 1
+  end
+  return 0
+end
+return f
+]], "13: " .. plus)
+end
