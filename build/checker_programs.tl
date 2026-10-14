@@ -473,9 +473,10 @@ local function declare(g: Gen, v: Vis)
   if k == 0 then
     add(g, "local " .. name .. ": integer | nil")
   elseif k == 1 then
-    -- Two names under one type annotation.
+    -- Two names, each with its type: the list is positional, so one type
+    -- would leave the second name the type of its value.
     local other = fresh(g, "x")
-    add(g, "local " .. name .. ", " .. other .. ": integer | nil = " .. opt_expr(g, v) .. ", " .. opt_expr(g, v))
+    add(g, "local " .. name .. ", " .. other .. ": integer | nil, integer | nil = " .. opt_expr(g, v) .. ", " .. opt_expr(g, v))
     v.ints[#v.ints + 1] = other
   elseif k == 2 then
     -- A type for the first name only: refused, and once raised.
