@@ -85,3 +85,75 @@ local function test_an_optional_with_no_guard_is_no_number()
   gives("refused: operator_binary", head .. "print(x + 1)\n")
   gives("refused: operator_binary", head .. "if x or r.a then print(x + 1) end\n")
 end
+
+--- What `verdict` says of `source`, or the error the checker raised: a
+--- program the checker cannot answer for must be refused, not raise.
+local function verdict_or_raise(source: string): string
+  local ok, got = pcall(verdict, source)
+  return ok and got or "raised: " .. tostring(got)
+end
+
+local function test_a_u_escape_with_no_brace_is_a_syntax_error_not_a_raise()
+  for _, source in ipairs({ "return \"\\ux\"", "local s = \"\\u\"", "return \"\\u12\"", "return '\\u'" }) do
+    local got = verdict_or_raise(source)
+    assert(got:sub(1, 7) == "syntax:", got .. " for: " .. source)
+  end
+end
+
+local function test_a_u_escape_with_no_brace_is_reported_at_the_string()
+  local c = built.value or assert(teal.load(true))
+  built.value = c
+  local env = assert(c.new_env({ defaults = { feat_lax = "off", gen_compat = "off", gen_target = "5.4" } }))
+  local code, result = c.gen("return \"\\ux\"", env, nil, "tl")
+  assert(code == nil)
+  local e = assert(result.syntax_errors[1])
+  assert(e.msg == "malformed string", tostring(e.msg))
+  assert(e.y == 1 and e.x == 8, tostring(e.y) .. ":" .. tostring(e.x))
+end
+
+local function test_a_well_formed_string_escape_is_accepted()
+  for _, escape in ipairs({
+      "\\x41", "\\u{41}", "\\u{0000000041}", "\\u{7FFFFFFF}", "\\255", "\\065", "\\z", "\\n",
+  }) do
+    for _, quote in ipairs({ "\"", "'" }) do
+      gives("accepted", "return " .. quote .. escape .. quote)
+    end
+  end
+end
+
+local function test_a_malformed_string_escape_is_a_syntax_error_not_a_raise()
+  for _, escape in ipairs({
+      "\\x", "\\xg1", "\\x1", "\\x1g", "\\u", "\\u{", "\\u{}", "\\u{41", "\\u{4g}",
+      "\\u{80000000}", "\\u{110000000000}", "\\u{FFFFFFFFFFFFFFFFFFFFF}", "\\256", "\\999", "\\q",
+  }) do
+    for _, quote in ipairs({ "\"", "'" }) do
+      local source = "return " .. quote .. escape .. quote
+      gives("syntax: other", source)
+    end
+    -- Unfinished: the string ends where the escape does.
+    gives("syntax: other", "return \"" .. escape)
+  end
+  gives("syntax: other", "return \"\\")
+end
+
+local function test_an_argument_with_no_name_before_a_question_mark_is_refused_not_raised()
+  for _, source in ipairs({ "function x~(?", "function*???", "function>+.?", "function f(?) end", "function f(a, ?) end" }) do
+    local got = verdict_or_raise(source)
+    assert(got:sub(1, 7) == "syntax:", got .. " for: " .. source)
+  end
+end
+
+local function test_an_interface_list_that_ends_early_is_refused_not_raised()
+  for _, source in ipairs({
+      "record is", "local record R is", "local record R is end", "local interface I is end", "local record R is\nend", "local record R is A.", "local record R is A.x.", "local interface I is A.(",
+      "local record R is a. end", "local record R is A.,", "local function f<T is>() end",
+  }) do
+    local got = verdict_or_raise(source)
+    assert(got:sub(1, 7) == "syntax:", got .. " for: " .. source)
+  end
+end
+
+local function test_a_close_local_of_an_unresolved_type_is_an_unknown_type_not_a_raise()
+  gives("refused: unknown_type", "local function f(): r end\nlocal c <close> = f()\n")
+  gives("refused: unknown_type", "local c <close> = (nil as r)\n")
+end
