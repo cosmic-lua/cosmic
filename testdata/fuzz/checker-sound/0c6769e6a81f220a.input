@@ -1,0 +1,9 @@
+global G: integer | nil = 1
+local sink: integer = 0
+if G then
+  local e = _G as {string:any}
+  local k: string = "G"
+  e[k] = nil
+  sink = sink + G + 1
+end
+return sink

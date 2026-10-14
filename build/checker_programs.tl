@@ -28,6 +28,9 @@ local record Vis
   --- The locals of `ints` declared outside the function being drawn, which
   --- it may read and not assign.
   outer: {string}
+  --- The globals declared of type `integer | nil` (`G`, in a program
+  --- that draws shapes), which any function may assign.
+  globals: {string}
   in_loop: boolean
   cont: string | nil
   ret: string
@@ -52,6 +55,18 @@ local record Gen
   --- Whether the program holds a function that assigns a local declared
   --- outside it, which the checker must refuse.
   captures: boolean
+  --- A program of this kind declares a global, metamethods and closers
+  --- that write, and draws the shapes of `shape` beside the statements
+  --- of any other: narrowing tests of strings, new bindings of a name whose
+  --- fields are narrowed, writes through `_G`, loops that read a fact and
+  --- drop it. A shape clears a place to test the checker and is mostly
+  --- refused, so the rest of such a program is mostly calm.
+  shapes: boolean
+  --- How many shapes the program may draw still, and how many it has.
+  --- Each is mostly refused, as it is meant to be, and a program that
+  --- draws many is refused for one the checker was right to.
+  budget: integer
+  drawn: integer
 end
 
 --- A guard drawn: its text, and the places it says are not nil when it
@@ -127,7 +142,7 @@ end
 local function nest(v: Vis): Vis
   return {
     ints = dup(v.ints), recs = dup(v.recs), procs = dup(v.procs), funs = dup(v.funs),
-    focus = dup(v.focus), rfocus = dup(v.rfocus), outer = dup(v.outer),
+    focus = dup(v.focus), rfocus = dup(v.rfocus), outer = dup(v.outer), globals = v.globals,
     in_loop = v.in_loop, cont = v.cont, ret = v.ret,
   }
 end
@@ -146,6 +161,19 @@ local function places(v: Vis): {string}
   local out = dup(v.ints)
   for _, f in ipairs(FIELDS) do
     out[#out + 1] = f
+  end
+  for _, name in ipairs(v.globals) do
+    out[#out + 1] = name
+  end
+  return out
+end
+
+--- The places a function may assign wherever it is made: the fields of
+--- `r` and `s`, and the globals.
+local function shared(v: Vis): {string}
+  local out = dup(FIELDS)
+  for _, name in ipairs(v.globals) do
+    out[#out + 1] = name
   end
   return out
 end
@@ -170,7 +198,7 @@ end
 
 --- `p` itself where the function being drawn may assign it, else a field.
 local function writable(g: Gen, v: Vis, p: string): string
-  if has(v.outer, p) then return Fuzz.pick(g.src, FIELDS) end
+  if has(v.outer, p) then return Fuzz.pick(g.src, shared(v)) end
   return p
 end
 
@@ -436,7 +464,7 @@ local function declare(g: Gen, v: Vis)
     -- declared it or a scope inside.
     local tested: {string} = {}
     for _, f in ipairs(v.focus) do
-      if not f:find(".", 1, true) then tested[#tested + 1] = f end
+      if not f:find(".", 1, true) and not has(v.globals, f) then tested[#tested + 1] = f end
     end
     if #tested > 0 and g.src:int(0, 2) > 0 then p = Fuzz.pick(g.src, tested) end
     add(g, "local " .. p .. (g.src:int(0, 1) == 0 and "" or ": integer | nil") .. " = " .. p)
@@ -534,18 +562,142 @@ end
 --- What a function made to clear `p` writes: `p` itself when it is a field, and
 --- else, a local being no function's to assign, either a field or, drawn
 --- only to be refused (`g.captures`), the local.
-local function cleared(g: Gen, p: string): string
-  if p:find(".", 1, true) then return p end
+local function cleared(g: Gen, v: Vis, p: string): string
+  if p:find(".", 1, true) or has(v.globals, p) then return p end
   if g.src:int(0, 1) == 0 then
     g.captures = true
     return p
   end
-  return Fuzz.pick(g.src, FIELDS)
+  return Fuzz.pick(g.src, shared(v))
+end
+
+--- Whether `p` names a field of `r` or `s`.
+local function is_field(p: string): boolean
+  return p:find(".", 1, true) ~= nil
+end
+
+--- A statement that runs a metamethod of `mm` or `mm2`, each of which writes
+--- (a field or the global) as the prologue drew it. The record declares them
+--- all, so the checker sees what runs; a metatable it was not told of is a
+--- limit of the checker (build/checker_narrowing_test.tl pins it).
+local function meta_stmt(g: Gen): string
+  local k = g.src:int(0, 5)
+  if k == 0 then return "st.sink = st.sink + (mm + mm2).v" end
+  if k == 1 then return "st.sink = st.sink + mm.zz" end
+  if k == 2 then return "mm.zz = 1" end
+  if k == 3 then return "st.sink = st.sink + #mm" end
+  if k == 4 then return "if mm == mm2 then st.sink = st.sink + 1 end" end
+  return "st.sink = st.sink + #(mm .. mm2)"
+end
+
+--- A block that closes a local whose `__close` clears `r`'s fields, `s`'s
+--- or the global (`clo_r`, `clo_s`, `clo_g`), then `leave`.
+local function close_lines(g: Gen, who: string, leave?: string): {string}
+  local name = fresh(g, "c")
+  local out = { "do", "  local " .. name .. " <close> = clo_" .. who, "  local _ = " .. name }
+  if leave then out[#out + 1] = "  " .. leave end
+  out[#out + 1] = "end"
+  return out
+end
+
+--- Lines to write before a test (`pre`) and the lines that clear `p` after
+--- it (`body`).
+local record Plan
+  pre: {string}
+  body: {string}
+end
+
+--- A way to clear `p` that a checker may miss: a write, a call, a write
+--- through another name for the record, a write to a global through `_G`,
+--- under another name, or by a key, a local that hides the global while a
+--- function sets it, a `__close` or a metamethod that runs. `hoist` is
+--- whether a function or an alias may be made before the test (a function
+--- made after it is dropped at the call for another reason).
+local function drop_plan(g: Gen, v: Vis, p: string, hoist: boolean): Plan
+  local pre: {string} = {}
+  local body: {string} = {}
+  local k = g.src:int(0, 11)
+  -- A `<close>` local is a way to clear that has its own bias.
+  if g.src:int(0, 2) == 0 then k = is_field(p) and 7 or 8 end
+  local name = fresh(g, "d")
+  if is_field(p) then
+    local base, field = p:sub(1, 1), p:sub(3)
+    if k <= 1 then
+      body = { p .. " = nil" }
+    elseif k == 2 then
+      body = { "touch(" .. base .. ")" }
+    elseif k == 3 and hoist then
+      pre = { "local function " .. name .. "() " .. p .. " = nil end" }
+      body = { name .. "()" }
+    elseif k == 4 or k == 5 then
+      -- A write through another name for the same table.
+      local alias = "local " .. name .. ": R = " .. base
+      if hoist and k == 4 then pre = { alias } else body = { alias } end
+      body[#body + 1] = name .. "." .. field .. " = nil"
+    elseif k == 6 then
+      body = { p .. " = maybe()" }
+    elseif k == 7 then
+      body = close_lines(g, base)
+    elseif k == 8 then
+      body = { meta_stmt(g) }
+    else
+      body = { "touch(" .. base .. ")" }
+    end
+  elseif has(v.globals, p) then
+    if k <= 1 then
+      body = { p .. " = nil" }
+    elseif k == 2 then
+      body = { "_G." .. p .. " = nil" }
+    elseif k == 3 then
+      body = { "_G[\"" .. p .. "\"] = nil" }
+    elseif k == 4 then
+      -- An alias of `_G`, as the record it is or as a map.
+      local cast = g.src:int(0, 1) == 0 and "" or " as {string:any}"
+      body = { "local " .. name .. " = _G" .. cast, name .. "." .. p .. " = nil" }
+    elseif k == 5 then
+      body = { "local " .. name .. ": string = \"" .. p .. "\"", "(_G as {string:any})[" .. name .. "] = nil" }
+    elseif k == 6 and hoist then
+      pre = { "local function " .. name .. "() " .. p .. " = nil end" }
+      body = { name .. "()" }
+    elseif k == 7 and hoist then
+      -- A local of the name hides the global where a function sets it.
+      pre = { "local function " .. name .. "() " .. p .. " = nil end" }
+      body = { "do", "  local " .. p .. ": integer | nil = 1", "  local _ = " .. p, "  " .. name .. "()", "end" }
+    elseif k == 8 then
+      body = close_lines(g, "g")
+    elseif k == 9 then
+      body = { meta_stmt(g) }
+    else
+      body = { p .. " = nil" }
+    end
+  else
+    -- A local the function being drawn does not declare is no function's to
+    -- assign.
+    local w = writable(g, v, p)
+    if k <= 3 then
+      body = { w .. " = nil" }
+    elseif k <= 5 then
+      body = { w .. " = maybe()" }
+    elseif k == 6 and hoist then
+      pre = { "local function " .. name .. "() " .. cleared(g, v, p) .. " = nil end" }
+      body = { name .. "()" }
+    else
+      body = { w .. " = nil" }
+    end
+  end
+  return { pre = pre, body = body }
 end
 
 --- Something that may or may not clear `p`: a call that runs other code,
 --- a write, a function literal made and called, a loop that writes it.
 local function dropper(g: Gen, v: Vis, p: string)
+  if g.shapes and g.src:int(0, 2) == 0 then
+    local plan = drop_plan(g, v, p, false)
+    for _, line in ipairs(plan.body) do
+      add(g, line)
+    end
+    return
+  end
   local k = g.src:int(0, 13)
   if k <= 2 then
     add(g, "touch(" .. Fuzz.pick(g.src, { "r", "s" }) .. ")")
@@ -555,7 +707,7 @@ local function dropper(g: Gen, v: Vis, p: string)
     add(g, target(g, v) .. " = " .. opt_expr(g, v))
   elseif k == 5 then
     local name = fresh(g, "p")
-    add(g, "local function " .. name .. "() " .. cleared(g, p) .. " = " .. Fuzz.pick(g.src, { "nil", "maybe()" }) .. " end")
+    add(g, "local function " .. name .. "() " .. cleared(g, v, p) .. " = " .. Fuzz.pick(g.src, { "nil", "maybe()" }) .. " end")
     if g.src:int(0, 4) > 0 then add(g, name .. "()") end
     v.procs[#v.procs + 1] = name
   elseif k == 6 and #v.procs > 0 then
@@ -580,7 +732,7 @@ end
 --- A test of one place, then something that may clear it, then its uses:
 --- the shape a narrowing must survive or be refused for.
 local function guarded_use(g: Gen, v: Vis, depth: integer)
-  local pool = (g.src:int(0, 1) == 0 or #v.ints == 0) and FIELDS or v.ints
+  local pool = (g.src:int(0, 1) == 0 or #v.ints == 0) and shared(v) or v.ints
   local p = Fuzz.pick(g.src, pool)
   local form = g.src:int(0, 6)
   -- A function that clears the place, declared before the test: one declared
@@ -589,7 +741,7 @@ local function guarded_use(g: Gen, v: Vis, depth: integer)
   local helper: string | nil = nil
   if g.src:int(0, 1) == 0 then
     helper = fresh(g, "p")
-    add(g, "local function " .. helper .. "() " .. cleared(g, p) .. " = " .. Fuzz.pick(g.src, { "nil", "maybe()", "1" }) .. " end")
+    add(g, "local function " .. helper .. "() " .. cleared(g, v, p) .. " = " .. Fuzz.pick(g.src, { "nil", "maybe()", "1" }) .. " end")
     v.procs[#v.procs + 1] = helper
   end
   local inner = nest(v)
@@ -718,7 +870,285 @@ local function loop(g: Gen, v: Vis, depth: integer, kind?: integer, labelled?: b
   end
 end
 
+--- A test of a string narrows the local to the literal, and an assignment
+--- under a second test of it widens it back for the code after that `if`
+--- (the tests nest, `or` and a copy of the local are drawn): a use that
+--- is only sound if the local is not nil, after an assignment that makes it
+--- nil.
+local function str_nest(g: Gen)
+  local a, b = "\"'\"", "\"!\""
+  local var = fresh(g, "c")
+  add(g, "local " .. var .. ": string | nil = " .. Fuzz.pick(g.src, { a, a, a, a, "mstr()", b }))
+  if g.src:int(0, 3) == 0 then
+    local copy = fresh(g, "c")
+    -- Typed: a copy of a local the declaration narrowed has the type it was
+    -- narrowed to, which nil is assignable to by the language's own rule.
+    add(g, "local " .. copy .. ": string | nil = " .. var)
+    var = copy
+  end
+  if g.src:int(0, 1) == 0 then
+    add(g, "if " .. var .. " == " .. a .. " or " .. var .. " == " .. b .. " then")
+  else
+    add(g, "if " .. var .. " == " .. a .. " then")
+  end
+  g.depth = g.depth + 1
+  local levels = g.src:int(1, 3)
+  -- Cleared to nil, or set to a string that is none of the literals.
+  local wipes = g.src:int(0, 3) == 0
+  local function level(left: integer)
+    -- A second test of the same literal, or a block that is no test, and
+    -- what it holds.
+    if g.src:int(0, 3) == 0 then
+      add(g, "do")
+    else
+      add(g, "if " .. var .. " == " .. a .. " then")
+    end
+    g.depth = g.depth + 1
+    if left > 1 then
+      level(left - 1)
+    else
+      add(g, var .. " = " .. (wipes and Fuzz.pick(g.src, { "nil", "mstr()" }) or Fuzz.pick(g.src, { "\"z\"", "\"z\"", b })))
+    end
+    g.depth = g.depth - 1
+    add(g, "end")
+    if left < levels and g.src:int(0, 2) > 0 then return end
+    -- A key that only a narrowing to the literals is accepted for, which a
+    -- string that is none of them reads as nil from.
+    local uses = { "#(" .. var .. " or \"\")" }
+    if wipes then
+      uses = { "#" .. var, "#" .. var, "#(" .. var .. " .. \"x\")", "#" .. var .. ":upper()", uses[1] }
+    else
+      uses = { "keyed[" .. var .. "]", "keyed[" .. var .. "]", "keyed[" .. var .. "]", "keyed[" .. var .. "]", uses[1] }
+    end
+    add(g, "st.sink = st.sink + " .. Fuzz.pick(g.src, uses))
+  end
+  level(levels)
+  g.depth = g.depth - 1
+  add(g, "end")
+end
+
+--- A test of a field of `r` or `s`, and then a new binding of that name (a
+--- local, a loop variable, a parameter, a copy of itself) that the use
+--- after it reads the field of: the other record's field is nil, where the
+--- one tested was not.
+local function rebind(g: Gen, v: Vis)
+  local p = Fuzz.pick(g.src, g.src:int(0, 1) == 0 and { "r.a", "s.b" } or FIELDS)
+  local base, other = p:sub(1, 1), "s"
+  if base == "s" then other = "r" end
+  local close = true
+  local form = g.src:int(0, 2)
+  if form == 0 then
+    add(g, "if " .. p .. " then")
+  elseif form == 1 then
+    add(g, "if " .. p .. " ~= nil then")
+  else
+    add(g, "if " .. p .. " == nil then " .. v.ret .. " end")
+    close = false
+  end
+  if close then g.depth = g.depth + 1 end
+  local use = "st.sink = st.sink + " .. (g.src:int(0, 2) == 0 and "(" .. p .. " or 0)" or p .. " + 1")
+  local k = g.src:int(0, 7)
+  if k <= 1 then
+    add(g, "local " .. base .. " = " .. other)
+    add(g, use)
+  elseif k <= 3 then
+    add(g, "do")
+    add(g, "  local " .. base .. " = " .. other)
+    add(g, "  " .. use)
+    add(g, "end")
+  elseif k <= 5 then
+    add(g, "for _, " .. base .. " in ipairs({ " .. other .. " }) do")
+    add(g, "  " .. use)
+    add(g, "end")
+  elseif k == 6 then
+    -- A parameter of the name, in a function made where the field is narrowed.
+    local name = fresh(g, "f")
+    if g.src:int(0, 1) == 0 then
+      add(g, "local function " .. name .. "(" .. base .. ": R): integer")
+      add(g, "  return " .. p .. " + 1")
+      add(g, "end")
+    else
+      add(g, "local " .. name .. " = function(" .. base .. ": R): integer return " .. p .. " + 1 end")
+    end
+    add(g, "st.sink = st.sink + " .. name .. "(" .. other .. ")")
+  else
+    -- The same value: what is known of its fields stands.
+    add(g, "local " .. base .. " = " .. base)
+    add(g, use)
+  end
+  if close then
+    g.depth = g.depth - 1
+    add(g, "end")
+  end
+end
+
+--- A loop that reads a place a test before it said is not nil, and then
+--- clears it in the same body: the next pass reads nil. A body does not
+--- start from the tests around it in the other loops, so this is where the
+--- loop's own handling of a fact held from before it is drawn.
+local function loop_drop(g: Gen, v: Vis)
+  local pool: {string} = {}
+  for _, c in ipairs(places(v)) do
+    if not has(v.outer, c) then pool[#pool + 1] = c end
+  end
+  local p = Fuzz.pick(g.src, pool)
+  -- Mostly the place read, now and then another (which the checker may
+  -- take, when no write to it reaches the place read).
+  local plan = drop_plan(g, v, g.src:int(0, 3) == 0 and Fuzz.pick(g.src, pool) or p, true)
+  for _, line in ipairs(plan.pre) do
+    add(g, line)
+  end
+  local close = true
+  local form = g.src:int(0, 3)
+  if form == 0 then
+    add(g, "if " .. p .. " then")
+  elseif form == 1 then
+    add(g, "if " .. p .. " ~= nil then")
+  elseif form == 2 then
+    add(g, "assert(" .. p .. ")")
+    close = false
+  else
+    add(g, "if type(" .. p .. ") == \"number\" then")
+  end
+  if close then g.depth = g.depth + 1 end
+  local i = fresh(g, "k")
+  local kind = g.src:int(0, 3)
+  local tail = "end"
+  if kind == 0 then
+    add(g, "local " .. i .. " = 0")
+    add(g, "while " .. i .. " < 3 do")
+  elseif kind == 1 then
+    add(g, "local " .. i .. " = 0")
+    add(g, "repeat")
+    tail = "until " .. i .. " >= 3"
+  elseif kind == 2 then
+    add(g, "for " .. i .. " = 1, 3 do")
+  else
+    add(g, "for " .. i .. " in ipairs(nums) do")
+  end
+  g.depth = g.depth + 1
+  if kind <= 1 then add(g, i .. " = " .. i .. " + 1") end
+  add(g, "st.sink = st.sink + " .. Fuzz.pick(g.src, { p .. " + 1", p, p .. " * 2", "(" .. p .. " or 0)" }))
+  local conditional = g.src:int(0, 2) == 0
+  if conditional then
+    add(g, "if " .. i .. " == 1 then")
+    g.depth = g.depth + 1
+  end
+  for _, line in ipairs(plan.body) do
+    add(g, line)
+  end
+  if conditional then
+    g.depth = g.depth - 1
+    add(g, "end")
+  end
+  if g.shapes and g.src:int(0, 3) == 0 then
+    -- A `break` that leaves the block of a `<close>` local runs its `__close`.
+    local who = has(v.globals, p) and "g" or is_field(p) and p:sub(1, 1) or "r"
+    add(g, "if " .. i .. " >= 2 then")
+    g.depth = g.depth + 1
+    for _, line in ipairs(close_lines(g, who, "break")) do
+      add(g, line)
+    end
+    g.depth = g.depth - 1
+    add(g, "end")
+  elseif g.src:int(0, 4) == 0 then
+    add(g, "if " .. i .. " >= 2 then break end")
+  end
+  g.depth = g.depth - 1
+  add(g, tail)
+  -- What follows the loop is held to the test too.
+  if g.src:int(0, 2) == 0 then
+    add(g, "st.sink = st.sink + " .. Fuzz.pick(g.src, { p .. " + 1", p }))
+  end
+  if close then
+    g.depth = g.depth - 1
+    add(g, "end")
+  end
+end
+
+--- A local of the name of a global, in a block where a function sets the
+--- global, inside a test of it: what follows the block reads the global.
+local function shadow_global(g: Gen)
+  local name = fresh(g, "d")
+  local set = g.src:int(0, 3)
+  if set <= 1 then add(g, "local function " .. name .. "() G = nil end") end
+  add(g, "if G then")
+  add(g, "  do")
+  -- Not from a call, which drops what is known of the global as it is.
+  add(g, "    local G: integer | nil = " .. Fuzz.pick(g.src, { "1", "2", "nil" }))
+  add(g, "    local _ = G")
+  if set <= 1 then
+    add(g, "    " .. name .. "()")
+  elseif set == 2 then
+    add(g, "    _G.G = nil")
+  else
+    -- The local, not the global.
+    add(g, "    G = nil")
+  end
+  add(g, "  end")
+  add(g, "  st.sink = st.sink + " .. Fuzz.pick(g.src, { "G + 1", "G", "(G or 0)" }))
+  add(g, "end")
+end
+
+--- A test of `p`, something that clears it, and a use: the plain shape of
+--- a place that is dropped, without the loop.
+local function test_drop_use(g: Gen, v: Vis, p: string)
+  local plan = drop_plan(g, v, p, true)
+  for _, line in ipairs(plan.pre) do
+    add(g, line)
+  end
+  local close = true
+  local form = g.src:int(0, 3)
+  if form == 0 then
+    add(g, "if " .. p .. " then")
+  elseif form == 1 then
+    add(g, "if " .. p .. " ~= nil then")
+  elseif form == 2 then
+    add(g, "assert(" .. p .. ")")
+    close = false
+  else
+    add(g, "if type(" .. p .. ") == \"number\" then")
+  end
+  if close then g.depth = g.depth + 1 end
+  for _, line in ipairs(plan.body) do
+    add(g, line)
+  end
+  add(g, "st.sink = st.sink + " .. Fuzz.pick(g.src, { p .. " + 1", p .. " + 1", p, "(" .. p .. " or 0)" }))
+  if close then
+    g.depth = g.depth - 1
+    add(g, "end")
+  end
+end
+
+--- One of the shapes the program's other statements do not reach.
+local function shape(g: Gen, v: Vis, depth: integer)
+  local k = g.src:int(0, 17)
+  if k <= 2 then return str_nest(g) end
+  if k <= 6 then return rebind(g, v) end
+  if k <= 8 then return loop_drop(g, v) end
+  if k == 9 then return guarded_use(g, v, depth) end
+  if k <= 11 then return shadow_global(g) end
+  -- Code that runs a metamethod or writes the global another way, with no
+  -- test of the place it clears before it.
+  if k <= 13 then return add(g, meta_stmt(g)) end
+  if k <= 15 then
+    for _, line in ipairs(drop_plan(g, v, "G", false).body) do
+      add(g, line)
+    end
+    return
+  end
+  return test_drop_use(g, v, g.src:int(0, 2) > 0 and "G" or Fuzz.pick(g.src, places(v)))
+end
+
 stmt = function(g: Gen, v: Vis, depth: integer)
+  if g.shapes and g.drawn < g.budget then
+    -- Mostly where the program runs it: a block or a function may not.
+    local top = g.depth == 0 and g.fn == 0
+    if g.src:int(0, top and 1 or 5) == 0 then
+      g.drawn = g.drawn + 1
+      return shape(g, v, depth)
+    end
+  end
   local k = g.src:int(0, 39)
   if k >= 28 and not g.calm then return guarded_use(g, v, depth) end
   if k >= 28 and k <= 30 then k = 7 + k % 3 end
@@ -757,13 +1187,81 @@ end
 --- declared outside it, which the checker must refuse as such.
 local CAPTURES_MARK <const> = "-- captures\n"
 
+--- What a program that draws shapes begins with: a global `G`, a function
+--- that answers a string or nil, a record whose metamethods each write a
+--- field or the global, and, with `<close>`, locals whose `__close` does.
+local function prologue(g: Gen)
+  local lines = g.lines
+  local function writes(): string
+    return Fuzz.pick(g.src, { "r.a = nil", "touch(r)", "touch(s)", "G = nil", "s.b = nil", "r.b = nil" })
+  end
+  local function emit(text: string)
+    lines[#lines + 1] = text
+  end
+  emit("global G: integer | nil = maybe()")
+  emit("local function mstr(): string | nil")
+  emit("  st.count = st.count + 1")
+  emit("  if st.count % 3 == 0 then return nil end")
+  emit("  if st.count % 2 == 0 then return \"'\" end")
+  emit("  return \"!\"")
+  emit("end")
+  emit("local enum K")
+  emit("  \"'\"")
+  emit("  \"!\"")
+  emit("end")
+  emit("local keyed: {K:integer} = { [\"'\"] = 1, [\"!\"] = 2 }")
+  emit("local record M")
+  emit("  v: integer")
+  emit("  metamethod __add: function(M, M): M")
+  emit("  metamethod __index: function(M, string): integer")
+  emit("  metamethod __newindex: function(M, string, integer)")
+  emit("  metamethod __len: function(M): integer")
+  emit("  metamethod __eq: function(M, M): boolean")
+  emit("  metamethod __concat: function(M, M): string")
+  emit("end")
+  emit("local mmt = {")
+  emit("  __add = function(a: M, _b: M): M " .. writes() .. " return a end,")
+  emit("  __index = function(_t: M, _k: string): integer " .. writes() .. " return 0 end,")
+  emit("  __newindex = function(_t: M, _k: string, _x: integer) " .. writes() .. " end,")
+  emit("  __len = function(_t: M): integer " .. writes() .. " return 0 end,")
+  emit("  __eq = function(_a: M, _b: M): boolean " .. writes() .. " return true end,")
+  emit("  __concat = function(_a: M, _b: M): string " .. writes() .. " return \"\" end,")
+  emit("} as metatable<M>")
+  emit("local mm: M = setmetatable({ v = 1 } as M, mmt)")
+  emit("local mm2: M = setmetatable({ v = 2 } as M, mmt)")
+  -- TODO: the checker raises "assertion failed!" on `local c <close> = f()`
+  -- where `f` answers a type that is not declared (`local function f(): r
+  -- end`); the totality property meets it when a byte edit damages the name
+  -- of `Closer`. It waits on the checker refusing such a local with an error.
+  emit("local record Closer")
+  emit("  fire: function()")
+  emit("  metamethod __close: function(Closer)")
+  emit("end")
+  emit("local close_mt = { __close = function(c: Closer) c.fire() end } as metatable<Closer>")
+  emit("local function closer(f: function()): Closer")
+  emit("  return setmetatable({ fire = f } as Closer, close_mt)")
+  emit("end")
+  emit("local clo_r = closer(function() touch(r) end)")
+  emit("local clo_s = closer(function() touch(s) end)")
+  emit("local clo_g = closer(function() G = nil end)")
+end
+
 --- A well-formed program: the header, statements, and `return sink`.
 local function gen_program(src: Fuzz.Source): string
   local g: Gen = { src = src, lines = {}, id = 0, fuel = 45, depth = 0, calm = src:int(0, 3) == 0, want_goto = false,
-    jumped = {}, fn = 0, captures = false }
+    jumped = {}, fn = 0, captures = false, shapes = false, budget = 0, drawn = 0 }
+  g.shapes = src:int(0, 2) == 0
+  -- The other statements of a program with shapes are mostly calm, so that
+  -- a shape the checker takes is not hidden by a refusal elsewhere.
+  if g.shapes and not g.calm then g.calm = src:int(0, 3) > 0 end
+  g.budget = src:int(1, 3)
   local text = header(src:int(0, 2))
-  local v: Vis = { ints = {}, recs = {}, procs = {}, funs = {}, focus = {}, rfocus = {}, outer = {},
+  local v: Vis = { ints = {}, recs = {}, procs = {}, funs = {}, focus = {}, rfocus = {}, outer = {}, globals = {},
     in_loop = false, cont = nil, ret = "return st.sink" }
+  if g.shapes then
+    prologue(g)
+    v.globals = { "G" }
+  end
   -- Two locals to begin with, so that the draws have places to test.
   for _ = 1, 2 do
     local name = fresh(g, "x")
@@ -774,6 +1272,10 @@ local function gen_program(src: Fuzz.Source): string
   while g.fuel > 0 and Fuzz.more(src, n, 8) do
     n = n + 1
     stmt(g, v, 3)
+  end
+  if g.shapes and g.drawn == 0 then
+    g.fuel = math.max(g.fuel, 20)
+    shape(g, v, 3)
   end
   if g.calm then
     -- A calm program ends with the constructs the property wants to have run:
