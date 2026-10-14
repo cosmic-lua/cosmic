@@ -221,7 +221,9 @@ local function typed_expr(g: Gen, v: Vis): string
   local k = g.src:int(0, 2)
   if k == 0 then return "maybe()" end
   if k == 1 then return "id(" .. place(g, v) .. ")" end
-  return "(" .. place(g, v) .. " or nil)"
+  -- Not `(place or nil)`: a place a declaration narrowed to `integer` gives
+  -- that type, which nil is assignable to by the language's own rule.
+  return "(maybe() or nil)"
 end
 
 --- An expression of type `integer`: some use a place that must have been
@@ -1230,10 +1232,6 @@ local function prologue(g: Gen)
   emit("} as metatable<M>")
   emit("local mm: M = setmetatable({ v = 1 } as M, mmt)")
   emit("local mm2: M = setmetatable({ v = 2 } as M, mmt)")
-  -- TODO: the checker raises "assertion failed!" on `local c <close> = f()`
-  -- where `f` answers a type that is not declared (`local function f(): r
-  -- end`); the totality property meets it when a byte edit damages the name
-  -- of `Closer`. It waits on the checker refusing such a local with an error.
   emit("local record Closer")
   emit("  fire: function()")
   emit("  metamethod __close: function(Closer)")
@@ -1296,7 +1294,19 @@ local function gen_program(src: Fuzz.Source): string
     proc(g, v)
     add(g, v.procs[#v.procs] .. "()")
     assert_stmt(g, v)
-    add(g, "for _ = 1, 3 do if st.count % 2 == 0 then break end end")
+    -- A loop that leaves on a test of drawn places.
+    local i = fresh(g, "i")
+    local inner = nest(v)
+    inner.in_loop = true
+    inner.cont = nil
+    inner.focus = {}
+    inner.rfocus = {}
+    add(g, "for " .. i .. " = 1, 3 do")
+    g.depth = g.depth + 1
+    add(g, "if " .. cond(g, inner, 1).text .. " then break end")
+    stmt(g, inner, 1)
+    g.depth = g.depth - 1
+    add(g, "end")
   end
   g.lines[#g.lines + 1] = "return st.sink"
   return text .. table.concat(g.lines, "\n") .. "\n" .. (g.captures and CAPTURES_MARK or "")
@@ -1311,7 +1321,24 @@ local function gen_any(src: Fuzz.Source): string
   return text
 end
 
+--- The header and the prologue of a program that draws shapes, with
+--- nothing drawn after them. `high` makes every draw its greatest.
+local function bare_shapes(high: boolean): string
+  local src: Fuzz.Source = {}
+  src.int = function(_self: Fuzz.Source, min: integer, max: integer): integer
+    if high then return max end
+    return min
+  end
+  local g: Gen = { src = src, lines = {}, id = 0, fuel = 0, depth = 0, calm = false, want_goto = false,
+    jumped = {}, fn = 0, captures = false, shapes = true, budget = 0, drawn = 0 }
+  prologue(g)
+  return header(0) .. table.concat(g.lines, "\n") .. "\nreturn st.sink\n"
+end
+
 local record programs
+  --- The header and the prologue of a program that draws shapes and
+  --- nothing else, every draw the least or, with `high`, the greatest.
+  bare_shapes: function(high: boolean): string
   --- The line that ends a program holding a function that assigns a local
   --- declared outside it, which the checker must refuse as such.
   captures_mark: string
@@ -1327,6 +1354,7 @@ local record programs
 end
 
 programs.captures_mark = CAPTURES_MARK
+programs.bare_shapes = bare_shapes
 programs.well_formed = gen_program
 programs.any = gen_any
 

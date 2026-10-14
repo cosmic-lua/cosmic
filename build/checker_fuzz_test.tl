@@ -91,11 +91,6 @@ local function about(why: string, source: string): string
   return why .. "\n--- program ---\n" .. source
 end
 
--- TODO: the checker raises "attempt to perform arithmetic on a nil value" on
--- a string whose `\u` is not followed by `{` (`return "\ux"`), which a byte
--- edit of `"number"` writes; this property fails on it. It waits on the
--- lexer refusing a malformed escape with a syntax error.
-
 --- A raise of the checker is [`Fuzz.run`]'s to report (and to attribute to
 --- the budget when the checker stops terminating), so it is not caught here.
 local function never_raises(source: string): boolean, string
@@ -211,6 +206,20 @@ local function runs_safely(source: string): boolean, string
   local what = message:find(NIL_FAULT, 1, true) and "accepted a program that fails at run time: " or
     "an accepted program raised: "
   return false, about(what .. message, source)
+end
+
+--- The prologue every program with shapes begins with is accepted and
+--- runs, for the least and the greatest of its draws: a shape that is
+--- refused for it would be refused for a fault of the generator.
+local function test_the_prologue_of_the_shapes_type_checks_and_runs()
+  for _, high in ipairs({ false, true }) do
+    local source = programs.bare_shapes(high)
+    local code, r = check(source)
+    assert(code ~= nil and #r.syntax_errors == 0 and #r.type_errors == 0, about("the prologue is refused", source))
+    local env: {string:any} = { setmetatable = setmetatable }
+    local chunk = assert(load(code, "=prologue", "t", env))
+    assert(pcall(chunk))
+  end
 end
 
 local function test_the_checker_never_raises_and_places_its_errors(tmp: string)
