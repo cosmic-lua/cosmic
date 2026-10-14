@@ -945,14 +945,20 @@ do
             if not lex_hexadecimals[input:sub(p, p)] then
                return 2, false
             end
+            -- Lua 5.4 refuses a code point over 0x7FFFFFFF.
+            local value = tonumber(input:sub(p, p), 16)
             while true do
                p = p + 1
                c = input:sub(p, p)
                if not lex_hexadecimals[c] then
-                  return p - i, c == "}"
+                  return p - i, c == "}" and value <= 0x7FFFFFFF
+               end
+               if value <= 0x7FFFFFFF then
+                  value = value * 16 + tonumber(c, 16)
                end
             end
          end
+         return 0, false
       elseif lex_decimals[c] then
          local len = lex_decimals[input:sub(i+1, i+1)]
                      and (lex_decimals[input:sub(i+2, i+2)] and 2 or 1)
@@ -3562,7 +3568,10 @@ local function parse_argument(ps: ParseState, i: integer): integer, Node, intege
    end
    if ps.tokens[i].tk == "?" then
       i = i + 1
-      node.opt = true
+      -- `node` is nil when no name was there: verify_kind has failed.
+      if node then
+         node.opt = true
+      end
    end
    if ps.tokens[i].tk == ":" then
       i = i + 1
@@ -4194,8 +4203,17 @@ end
 
 parse_interface_name = function(ps: ParseState, i: integer): integer, FirstOrderType, integer
    local istart = i
+   -- parse_simple_type_or_nominal takes any token for a name, and steps
+   -- past `$EOF$`.
+   if ps.tokens[i].kind ~= "identifier" then
+      return fail(ps, i, "expected an interface")
+   end
    local typ: FirstOrderType
    i, typ = parse_simple_type_or_nominal(ps, i)
+   -- A failed parse of a dotted name has said why, and gives no type.
+   if not typ then
+      return i
+   end
    if not typ is NominalType then
       return fail(ps, istart, "expected an interface")
    end
@@ -4274,7 +4292,12 @@ parse_record_body = function(ps: ParseState, i: integer, def: RecordLikeType): i
             table.insert(def.interface_list, 1, atype)
          end
       else
+         local istart = i
          i, def.interface_list = parse_trying_list(ps, i, {}, parse_interface_name)
+         -- The try drops its errors when the first item fails.
+         if #def.interface_list == 0 then
+            fail(ps, istart, "expected an interface")
+         end
       end
 
       if def.interface_list then
@@ -11923,7 +11946,12 @@ do
          return true
       end
       if t is NominalType then
-         t = assert(t.resolved)
+         -- A name that never resolved has its own `unknown_type` error;
+         -- refusing the `<close>` local as well would only echo it.
+         if not t.resolved then
+            return true
+         end
+         t = t.resolved
       end
       if t is RecordLikeType then
          return t.meta_fields and t.meta_fields["__close"] ~= nil
