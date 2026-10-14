@@ -480,7 +480,9 @@ change in boot time and in the checker's self-compile time.
    the flow analysis every later rule reads is the sound one. the holes the
    fuzzer found in 4c (the `or` reading, closures in inner blocks, function
    bodies keeping outer facts, `local x = x` copies) are fixed (done,
-   #3065). the design is in [strict-teal-7a.md]. in short:
+   #3065). the design is in [strict-teal-7a.md], whose PRs 0 to 2 are
+   done (#3070, #3069, #3074); shadow mode found four old-narrowing bugs,
+   fixed in #3071, #3072, #3073 and #3075. in short:
    - declared types are never mutated. facts live in an immutable map from
      place to type, carried along a small control-flow graph, and joins
      happen in one place. the default is pessimistic: a fact survives only
@@ -493,7 +495,7 @@ change in boot time and in the checker's self-compile time.
      read.
 
    three restrictions come with it, each its own PR before or alongside it:
-   - R2, effectively-final captures (in the merge queue, #3067). a function
+   - R2, effectively-final captures (done, #3067). a function
      literal may read but not assign a local declared outside it. the tree
      is migrated at every site, tests included. this makes the closure-assigns-a-narrowed-local
      class impossible, and with it step 5's pending-function machinery for
@@ -538,6 +540,10 @@ change in boot time and in the checker's self-compile time.
 every checker step follows the review practice in "decisions".
 
 ## open questions
+
+- **the oracles' order.** whether the widened fuzz generator and checked
+  narrowing both land before step 7a's PR 3 (proposed), only the fuzz, or
+  in the order the design gives.
 
 - **the checker's root.** its directory name, and how the module scanner
   tells it from a module of the tree.

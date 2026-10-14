@@ -71,14 +71,16 @@ each keeps the tree green. the first five change no verdict.
 0. a verdict harness: a tool that writes every error and warning
    (`file, code, y, x, text`) for a list of sources, run with the PR's
    checker and main's over the tree, the fuzz corpora and dumped fuzz
-   programs. also `Variable.key` and loop ids in the pre-pass.
+   programs. also `Variable.key` and loop ids in the pre-pass (done,
+   #3070).
 1. `checker/facts.tl` and its property tests (meet is commutative,
    associative, idempotent, with nil as identity; operations agree with a
-   model map; frozen values raise on write). unused.
+   model map; frozen values raise on write). unused (done, #3069).
 2. shadow mode: the checker keeps `self.facts` beside the old state and,
    under a flag, compares every read. the gate is zero unexplained
    mismatches over the tree, corpora, tests and fuzz. a mismatch that is
-   an old-state bug is fixed first, in a PR of its own.
+   an old-state bug is fixed first, in a PR of its own (done, #3074; the
+   flag is off by default and nothing is kept without it).
 3. reads switch to `self.facts`; the old state is written but unread.
    the harness diff is empty.
 4. the old state is deleted. the checker's pinned type-error count moves
@@ -94,6 +96,42 @@ each keeps the tree green. the first five change no verdict.
 
 each of 5 to 9 ships alone with the harness's list of flipped verdicts,
 every flip triaged, and the fuzz soundness property green.
+
+## what shadow mode found
+
+comparing every narrowed read found four unsound acceptances in the old
+narrowing, each fixed on main before shadow mode merged, and each a
+consequence of keying facts by name instead of by binding:
+
+- an assignment under a nested test of the same local kept the outer
+  narrowing, because `same_type` ignored a string literal (#3071).
+- a field fact outlived a new binding of its base name (`local t = s`, a
+  loop variable, a parameter). the old side now drops it for good; the
+  facts give it back after the inner scope (#3072).
+- a write through `_G` or an alias of it kept a narrowed global, and a
+  local that shadowed the global hid it from drops (#3073).
+- a `<close>` local's `__close` at its block's end dropped nothing, for
+  narrowing or definite assignment (#3075).
+
+the facts side was itself unsound three times before review caught it:
+drops skipped behind the old side's early returns, no rule for a loop's
+next pass, and the close on a `break` edge. the fuzz caught none of these
+nor the four above: its generator makes no globals, `_G`, `<close>`,
+rebindings, writing metamethods or loop bodies that drop their own facts.
+every checker change also needed a second review round. so:
+
+- the fuzz generator is widened to those shapes before PR 3, and shown to
+  find each of the four bugs on the checker before its fix.
+- every checker PR gets two independent review rounds.
+- what remains pinned in `build/checker_shadow_test.tl` (old drops more
+  after #3072, the facts refuse where old misses in loops, and `local x =
+  x` widened by name) is PR 3's triage list.
+
+known gaps left with TODOs: a declared field read on a record with
+`__index` or `__newindex` drops nothing; a `goto` that skips a `<close>`
+declaration over-refuses in definite assignment; the shadow's comparison
+of generic types equates type variables of one name; the harness compares
+codes and messages, not types (`--types`).
 
 ## seed constraints
 
@@ -116,7 +154,9 @@ sites.
   generator wraps each read whose type came from a fact in a check of the
   fact (mostly `~= nil`), raising "fact violated at y:x". a CI leg runs the
   whole suite with it, so every narrowed read is checked against real
-  runs. normal builds emit nothing, so they pay nothing.
+  runs. normal builds emit nothing, so they pay nothing. proposed to land
+  before PR 3, with the fuzz widening, since PR 3 is where the facts'
+  soundness starts to matter (open: see the plan's questions).
 
 ## risks
 
