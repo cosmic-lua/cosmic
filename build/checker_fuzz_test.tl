@@ -209,11 +209,12 @@ local function runs_safely(source: string): boolean, string
 end
 
 --- The prologue every program with shapes begins with is accepted and
---- runs, for the least and the greatest of its draws: a shape that is
---- refused for it would be refused for a fault of the generator.
+--- runs, whichever option each of its draws takes: a shape that is refused
+--- for it would be refused for a fault of the generator.
 local function test_the_prologue_of_the_shapes_type_checks_and_runs()
-  for _, high in ipairs({ false, true }) do
-    local source = programs.bare_shapes(high)
+  -- The draws of the prologue pick among at most six options.
+  for choice = 0, 6 do
+    local source = programs.bare_shapes(choice)
     local code, r = check(source)
     assert(code ~= nil and #r.syntax_errors == 0 and #r.type_errors == 0, about("the prologue is refused", source))
     local env: {string:any} = { setmetatable = setmetatable }

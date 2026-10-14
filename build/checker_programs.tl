@@ -469,7 +469,9 @@ local function declare(g: Gen, v: Vis)
       if not f:find(".", 1, true) and not has(v.globals, f) then tested[#tested + 1] = f end
     end
     if #tested > 0 and g.src:int(0, 2) > 0 then p = Fuzz.pick(g.src, tested) end
-    add(g, "local " .. p .. (g.src:int(0, 1) == 0 and "" or ": integer | nil") .. " = " .. p)
+    -- Typed: untyped, a copy of a narrowed local is `integer`, which a later
+    -- nil is assigned to by the language's own rule.
+    add(g, "local " .. p .. ": integer | nil = " .. p)
     return
   end
   if k == 0 then
@@ -1303,7 +1305,11 @@ local function gen_program(src: Fuzz.Source): string
     inner.rfocus = {}
     add(g, "for " .. i .. " = 1, 3 do")
     g.depth = g.depth + 1
-    add(g, "if " .. cond(g, inner, 1).text .. " then break end")
+    -- The loop leaves unless a place is not nil, so what follows holds it.
+    local p = place(g, inner)
+    add(g, "if " .. Fuzz.pick(g.src, { "not " .. p, p .. " == nil", "not (type(" .. p .. ") == \"number\")" }) .. " then break end")
+    inner.focus[#inner.focus + 1] = p
+    add(g, "st.sink = st.sink + " .. p .. " + 1")
     stmt(g, inner, 1)
     g.depth = g.depth - 1
     add(g, "end")
@@ -1322,12 +1328,12 @@ local function gen_any(src: Fuzz.Source): string
 end
 
 --- The header and the prologue of a program that draws shapes, with
---- nothing drawn after them. `high` makes every draw its greatest.
-local function bare_shapes(high: boolean): string
+--- nothing drawn after them. A draw is `choice` above its least, or its
+--- greatest where that is less.
+local function bare_shapes(choice: integer): string
   local src: Fuzz.Source = {}
   src.int = function(_self: Fuzz.Source, min: integer, max: integer): integer
-    if high then return max end
-    return min
+    return math.min(max, min + choice)
   end
   local g: Gen = { src = src, lines = {}, id = 0, fuel = 0, depth = 0, calm = false, want_goto = false,
     jumped = {}, fn = 0, captures = false, shapes = true, budget = 0, drawn = 0 }
@@ -1337,8 +1343,8 @@ end
 
 local record programs
   --- The header and the prologue of a program that draws shapes and
-  --- nothing else, every draw the least or, with `high`, the greatest.
-  bare_shapes: function(high: boolean): string
+  --- nothing else, every draw `choice` above its least or its greatest.
+  bare_shapes: function(choice: integer): string
   --- The line that ends a program holding a function that assigns a local
   --- declared outside it, which the checker must refuse as such.
   captures_mark: string
