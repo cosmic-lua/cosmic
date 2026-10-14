@@ -544,6 +544,15 @@ local checked_suite_timeout_ns <const> = Clock.seconds(1200)
 -- the runner's default 30 s on CI's checked job when no verdict stood),
 -- and doubled for a loaded runner.
 local checked_suite_test_timeout_s <const> = "120"
+
+--- The whole suite on a checked run ([`phase_checked_narrowing`]): the run
+--- took 510 s on four processors, and a test 120 s at most, as on the
+--- checked core.
+
+-- TODO: lower these bounds once CI's own runs of the phase show its elapsed
+-- time; they are sized from that one local run.
+local checked_narrowing_timeout_ns <const> = Clock.seconds(1800)
+local checked_narrowing_test_timeout_s <const> = "120"
 -- A boot the product drives from another path compiles no C again (it
 -- compiles from copies in zig's cache, build.zig's `Own`), only the tree:
 -- about 110 s for the whole fixture in a local run on four cores, loaded.
@@ -1378,6 +1387,42 @@ local function phase_declared_types(p: PlatformContext): integer
   return status
 end
 
+--- The whole suite on a checked run (`cosmic test --check-types`), on the
+--- linux-x86_64 target alone: each read the checker narrowed by a test is
+--- written as a check of the test's fact, and a test that meets a read
+--- whose fact is false fails there ("fact violated at <file>:<y>:<x>",
+--- doc/testing.md's "checked narrowing"). It runs every test, since a
+--- checked run stands on no verdict. ci.yml runs it in the `checked` job,
+--- after `boot`.
+local function phase_checked_narrowing(p: PlatformContext): integer
+  if p.target ~= "x86_64-linux-musl" then return 0 end
+  local c = p.operation
+  local argv: {string} = { BuildPaths.directory(p.root) .. "/bin/cosmic", "test", "--check-types" }
+  mkdir(p.local_diagnostics)
+  local out = p.local_diagnostics .. "/checked-narrowing-test.out"
+  local _, values = Orchestration.suite_run()
+  values.COSMIC_TEST_TIMEOUT = checked_narrowing_test_timeout_s
+  -- The checked job's leg promises `checked`, the sanitized core's
+  -- instruments, which this run's core (the release one, with checks
+  -- compiled into the modules) lacks: a held run would fail every test that
+  -- requires it, where it should find it not applicable. The `checked`
+  -- phase runs those on the core that has them.
+  local promised: {string} = {}
+  for name in (values.COSMIC_TEST_PROMISES or ""):gmatch("[^,]+") do
+    if name ~= "checked" then promised[#promised + 1] = name end
+  end
+  values.COSMIC_TEST_PROMISES = table.concat(promised, ",")
+  local status = logged(c, "checked narrowing", argv, out,
+    p.local_diagnostics .. "/checked-narrowing-test.err", checked_narrowing_timeout_ns, c.root, values)
+  -- A run that prints no "run-time types" line (the summary of a checked
+  -- run) was not one: its modules carried no checks.
+  if status == 0 and read(out):find("test: run-time types:", 1, true) == nil then
+    Fs.put(Fs.stderr, "checked narrowing: the run reported nothing of the checks, so it carried none\n")
+    return 1
+  end
+  return status
+end
+
 --- The native suite, on the tree `boot` built: the `build` phase
 --- without its boot, which ci.yml's legs run apart so that what comes
 --- between (the verdicts of the merge queue's run ahead) waits on
@@ -1942,6 +1987,8 @@ local function platform_impl(phase: string, p: PlatformContext): integer
     return phase_local_boundary(p)
   elseif phase == "declared-types" then
     return phase_declared_types(p)
+  elseif phase == "checked-narrowing" then
+    return phase_checked_narrowing(p)
   elseif phase == "darwin-suite" then
     return phase_darwin_suite(p)
   elseif phase == "format" then

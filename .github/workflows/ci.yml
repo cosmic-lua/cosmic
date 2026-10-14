@@ -1435,6 +1435,16 @@
           if: "env.COSMIC_CI_SCOPE == 'full'",
           run: "cosmic-driver cosmic_ci/driver.tl platform performance-checked",
         },
+        # The whole suite on a checked run (`--check-types`): each read the
+        # checker narrowed by a test is checked against the real run, and a
+        # fact that is false fails the test (cosmic_ci's
+        # phase_checked_narrowing). Here, not on a platform leg, which
+        # carries the suites already; a full run only, as the suite above.
+        {
+          name: "run the whole suite on a checked run",
+          if: "env.COSMIC_CI_SCOPE == 'full'",
+          run: "cosmic-driver cosmic_ci/driver.tl platform checked-narrowing",
+        },
         # A run that failed keeps what it restored too (`whole`).
         {
           name: "keep only this run's test verdicts",

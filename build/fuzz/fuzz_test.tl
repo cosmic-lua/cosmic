@@ -97,6 +97,37 @@ local function test_a_check_that_never_ends_spends_its_budget()
   assert(total > 0)
 end
 
+-- A checked run's code spends instructions on its checks, which the
+-- budget does not count: a run that defines the hook allows four times
+-- the budget.
+local function test_a_checked_run_allows_the_checks_their_instructions()
+  local function property(): Fuzz.Property
+    return {
+      name = "spends",
+      iters = 1,
+      budget = 100000,
+      gen = any_bytes,
+      check = function(_input: string): boolean, string
+        local total = 0
+        for i = 1, 60000 do total = total + i end
+        return total > 0, ""
+      end,
+    }
+  end
+  -- A checked run has the hook already: take it away, and give it back.
+  local globals = _G as {string:any}
+  local saved = globals.__cosmic_tc
+  globals.__cosmic_tc = nil
+  local unhooked_ok, unhooked_held, unhooked_why = pcall(Fuzz.replay, property(), "input")
+  -- A hook that answers the values, as `select` does.
+  globals.__cosmic_tc = select
+  local ok, hooked_held, hooked_why = pcall(Fuzz.replay, property(), "input")
+  globals.__cosmic_tc = saved
+  assert(unhooked_ok and unhooked_held == false and
+      tostring(unhooked_why):find("spent its budget of 100000 VM instructions", 1, true), tostring(unhooked_why))
+  assert(ok and hooked_held == true, tostring(hooked_why))
+end
+
 local function test_a_failing_input_is_kept_in_the_property_dir(tmp: string)
   local err = report({
     name = "keeps it",
