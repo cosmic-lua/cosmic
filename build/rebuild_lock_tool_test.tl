@@ -166,9 +166,9 @@ end
 --- A result waiting to publish keeps the rows and signature it compiled,
 --- even when another run commits a failed or a different successful plan.
 local function test_a_waiting_projection_keeps_its_compiled_snapshot(tmp: string)
-  -- TODO: check this on a checked run too. It waits on the test reading the
-  -- binary's copy of the module, or its source, in place of the bytecode it
-  -- was given (build/test.tl's TODO on the same).
+  -- TODO: check this on a checked run too. It waits on a way to read the
+  -- tree's projection and the binary's own modules there, as the checked
+  -- worker is given the checked ones (build/test.tl's TODO on the same).
   if TypeWatch.checked() then
     Test.skip("a checked run's modules carry checks, so their bytecode is not the binary's")
   end

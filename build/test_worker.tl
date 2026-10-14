@@ -295,12 +295,14 @@ end
 --- recorded and the value passes on: a checked run reports and fails
 --- nothing.
 ---
---- One kind of check fails: "n", a read whose type a fact narrowed (an
+--- One kind of check fails: "n", a read whose type a test narrowed (an
 --- `if x then`, a `~= nil`, an `is`, `assert`, a type test; the checker's
---- `Node.rt_fact`), with the place, its name and what the fact says of the
---- value: the kinds it admits as above, or "!" for any value but nil. The
---- hook answers the value, or raises "fact violated at <place>" for one the
---- fact does not hold of, since the checker's own proof was wrong there.
+--- `Node.rt_fact`), with the place, its name and what the test says of the
+--- value: "~" and the kinds the test took out, joined by "|" (a value of
+--- one of them breaks it; "integer" among them takes out integers alone),
+--- or the kinds the value has. The hook answers the value, or raises "fact
+--- violated at <place>" for one the fact is false of, since the checker's
+--- own proof was wrong there.
 local record Check
   kind: string
   at: string
@@ -327,8 +329,9 @@ local lua_byte, lua_char, lua_gsub, lua_tonumber, lua_error = string.byte, strin
 local record Fact
   at: string
   name: string
-  --- The kinds the value may have, nil for "any value but nil".
-  kinds?: {string:boolean}
+  --- The kinds the value may have, or those it may not (`negated`).
+  kinds: {string:boolean}
+  negated: boolean
   declared: string
   integral: boolean
 end
@@ -435,42 +438,44 @@ end
 local function parse_fact(text: string)
   local at, name, declared = match(text, "^n;([^;]*);([^;]*);([^;]*)$")
   if at == nil then error("a fact of no place") end
+  local negated = lua_byte(declared, 1) == 126
   local fact: Fact = { at = (lua_gsub(at, "%%(%x%x)", function(digits: string): string
     local byte = lua_tonumber(digits, 16)
     return byte is integer and lua_char(byte) or "?"
-  end)), name = name, declared = declared == "!" and "any value but nil" or declared, integral = false }
-  if declared ~= "!" then
-    local kinds: {string:boolean} = {}
-    local integer, number = false, false
-    for kind in gmatch(declared, "[^|]+") do
-      if kind == "integer" then
-        integer = true
-      else
-        kinds[kind] = true
-        number = number or kind == "number"
-      end
+  end)), name = name, declared = negated and "not " .. declared:sub(2) or declared,
+    kinds = {}, negated = negated, integral = false }
+  local integer, number = false, false
+  for kind in gmatch(negated and declared:sub(2) or declared, "[^|]+") do
+    if kind == "integer" then
+      integer = true
+    else
+      fact.kinds[kind] = true
+      number = number or kind == "number"
     end
-    if integer and not number then
-      kinds.number = true
-      fact.integral = true
+  end
+  if integer and not number then
+    if negated then
+      fact.kinds.integer = true
+    else
+      fact.kinds.number = true
     end
-    fact.kinds = kinds
+    fact.integral = true
   end
   facts[text] = fact
 end
 
 -- The value of a read whose fact holds of it, else the failure.
 local function verify(fact: Fact, value: any): any
+  local kind = lua_type(value)
   local kinds = fact.kinds
-  if kinds == nil then
-    if value ~= nil then return value end
+  local broken: boolean
+  if fact.negated then
+    broken = kinds[kind] == true or (kind == "number" and kinds.integer == true and math_type(value) == "integer")
   else
-    local kind = lua_type(value)
-    if kinds[kind] and not (kind == "number" and fact.integral and math_type(value) ~= "integer") then
-      return value
-    end
+    broken = not kinds[kind] or (kind == "number" and fact.integral and math_type(value) ~= "integer")
   end
-  local actual = lua_type(value)
+  if not broken then return value end
+  local actual = kind
   if actual == "number" then actual = math_type(value) end
   lua_error("fact violated at " .. fact.at .. ": " .. fact.name .. " is " .. actual ..
       ", the checker proved " .. fact.declared, 0)

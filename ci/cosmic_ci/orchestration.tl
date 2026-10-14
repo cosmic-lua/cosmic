@@ -544,8 +544,14 @@ local checked_suite_timeout_ns <const> = Clock.seconds(1200)
 -- the runner's default 30 s on CI's checked job when no verdict stood),
 -- and doubled for a loaded runner.
 local checked_suite_test_timeout_s <const> = "120"
---- The whole suite on a checked run ([`phase_checked_narrowing`]).
+
+--- The whole suite on a checked run ([`phase_checked_narrowing`]): the run
+--- took 510 s on four processors, and a test 120 s at most, as on the
+--- checked core.
+-- TODO: lower these bounds once CI's own runs of the phase show its elapsed
+-- time; they are sized from that one local run.
 local checked_narrowing_timeout_ns <const> = Clock.seconds(1800)
+local checked_narrowing_test_timeout_s <const> = "120"
 -- A boot the product drives from another path compiles no C again (it
 -- compiles from copies in zig's cache, build.zig's `Own`), only the tree:
 -- about 110 s for the whole fixture in a local run on four cores, loaded.
@@ -1381,15 +1387,12 @@ local function phase_declared_types(p: PlatformContext): integer
 end
 
 --- The whole suite on a checked run (`cosmic test --check-types`), on the
---- linux-x86_64 leg alone: each read the checker narrowed by a test is
+--- linux-x86_64 target alone: each read the checker narrowed by a test is
 --- written as a check of the test's fact, and a test that meets a read
 --- whose fact is false fails there ("fact violated at <file>:<y>:<x>",
---- doc/testing.md's "run-time type checks"). It runs every test, since a
---- checked run stands on no verdict. After `declared-types`, which writes
---- the same working database.
--- TODO: lower these bounds, and say whether this phase can share a leg's
--- time better, once CI's own runs show its elapsed time: they are sized
--- from one local run, 510 s on four processors.
+--- doc/testing.md's "checked narrowing"). It runs every test, since a
+--- checked run stands on no verdict. ci.yml runs it in the `checked` job,
+--- after `boot`.
 local function phase_checked_narrowing(p: PlatformContext): integer
   if p.target ~= "x86_64-linux-musl" then return 0 end
   local c = p.operation
@@ -1397,10 +1400,11 @@ local function phase_checked_narrowing(p: PlatformContext): integer
   mkdir(p.local_diagnostics)
   local out = p.local_diagnostics .. "/checked-narrowing-test.out"
   local _, values = Orchestration.suite_run()
-  values.COSMIC_TEST_TIMEOUT = checked_suite_test_timeout_s
+  values.COSMIC_TEST_TIMEOUT = checked_narrowing_test_timeout_s
   local status = logged(c, "checked narrowing", argv, out,
     p.local_diagnostics .. "/checked-narrowing-test.err", checked_narrowing_timeout_ns, c.root, values)
-  -- A run that reports no violations of the declared types was not checked.
+  -- A run that prints no "run-time types" line (the summary of a checked
+  -- run) was not one: its modules carried no checks.
   if status == 0 and read(out):find("test: run-time types:", 1, true) == nil then
     Fs.put(Fs.stderr, "checked narrowing: the run reported nothing of the checks, so it carried none\n")
     return 1

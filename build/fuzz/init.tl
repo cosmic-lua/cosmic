@@ -75,8 +75,13 @@ local DEFAULT_BUDGET <const> = 50000000
 --- How many times the budget a checked run (`cosmic test --check-types`)
 --- allows: the code it compiles spends instructions on its checks, the
 --- hook call at each narrowed read and typed boundary, that the budget is
---- not meant to count.
+--- not meant to count. The "wide" corpus input of core/sqlite_functions_fuzz_test.tl's
+--- rtree property (40 rows) spends over 50M with them and under 100M.
 local CHECKED_BUDGET_FACTOR <const> = 4
+
+--- Reads the hook a checked run defines as a global, which a chunk reads,
+--- since it is no field of the checker's `_G`.
+local read_hook = assert(load("return __cosmic_tc", "=fuzz", "t"))
 
 --- How many candidate inputs shrinking may check before it reports the
 --- smallest failing one found so far.
@@ -221,10 +226,7 @@ end
 local function attempt(check: function(string): boolean, string, input: string,
                        budget: integer): boolean, string
   if arm then
-    -- The hook a checked run defines as a global, which a chunk reads,
-    -- since it is no field of the checker's `_G`.
-    local read = assert(load("return __cosmic_tc", "=fuzz", "t"))
-    arm((read()) ~= nil and budget * CHECKED_BUDGET_FACTOR or budget)
+    arm((read_hook()) ~= nil and budget * CHECKED_BUDGET_FACTOR or budget)
   end
   local ok, held, why = pcall(check, input)
   if arm then arm() end

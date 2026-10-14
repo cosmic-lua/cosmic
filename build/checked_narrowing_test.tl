@@ -95,7 +95,8 @@ local function test_a_narrowed_read_whose_fact_is_false_raises()
 end
 
 --- What the hook holds a value to, from the specs the code generator writes:
---- any value but nil for "!", else the kinds, an integer by `math.type`.
+--- not the kinds a test took out ("~"), else the kinds the value has, an
+--- integer by `math.type`.
 local function test_the_hook_holds_a_value_to_its_fact()
   worker.install_checks()
   local hook = (_G as {string:any}).__cosmic_tc as function(integer, string, any...): any...
@@ -104,10 +105,15 @@ local function test_the_hook_holds_a_value_to_its_fact()
     assert(not ok, spec .. " passed " .. tostring(value))
     return tostring(err)
   end
-  assert(hook(2, "n;f.tl:3:4;x;!", "a") == "a")
-  assert(hook(2, "n;f.tl:3:4;x;!", false) == false, "false is a value")
-  local message = refused("n;f.tl:3:4;x;!", nil)
+  assert(hook(2, "n;f.tl:3:4;x;~nil", "a") == "a")
+  assert(hook(2, "n;f.tl:3:4;x;~nil", false) == false, "false is a value")
+  local message = refused("n;f.tl:3:4;x;~nil", nil)
   assert(message:find("fact violated at f.tl:3:4: x is nil", 1, true), message)
+  assert(message:find("the checker proved not nil", 1, true), message)
+  assert(hook(2, "n;f.tl:3:4;x;~string|table", nil) == nil, "a kind that was not taken out")
+  assert(refused("n;f.tl:3:4;x;~string|table", {}):find("x is table", 1, true))
+  assert(hook(2, "n;f.tl:3:4;n;~integer", 1.5) == 1.5 and hook(2, "n;f.tl:3:4;n;~integer", "s") == "s")
+  assert(refused("n;f.tl:3:4;n;~integer", 3):find("n is integer", 1, true))
   assert(hook(2, "n;f.tl:3:4;x;string|nil", nil) == nil)
   assert(refused("n;f.tl:3:4;x;string|nil", 5):find("x is integer", 1, true))
   assert(hook(2, "n;f.tl:3:4;t.a;table", {}) ~= nil)
@@ -117,7 +123,7 @@ local function test_the_hook_holds_a_value_to_its_fact()
   assert(hook(2, "n;f.tl:3:4;n;number", 1.5) == 1.5 and hook(2, "n;f.tl:3:4;n;number", 2) == 2)
   assert(hook(2, "n;f.tl:3:4;n;nil", nil) == nil)
   assert(refused("n;f.tl:3:4;n;nil", 0):find("n is integer", 1, true))
-  assert(refused("n;a%3Bb.tl:1:2;x;!", nil):find("fact violated at a;b.tl:1:2", 1, true), "an escaped file name")
+  assert(refused("n;a%3Bb.tl:1:2;x;~nil", nil):find("fact violated at a;b.tl:1:2", 1, true), "an escaped file name")
   -- A spec that does not parse checks nothing, and answers the value.
   assert(hook(2, "n;broken", 7) == 7)
 end
@@ -216,11 +222,11 @@ end
 local function test_valid_narrowed_reads_pass_and_answer_what_they_did()
   worker.install_checks()
   local code = compiled(valid_source, true)
-  assert(count_of(code, "n;snippet:%d+:%d+;x;!") > 3, "no read of x was checked")
-  assert(code:find("n;snippet:%d+:%d+;b.name;!", 1), "no read of a field was checked")
-  assert(code:find("n;snippet:%d+:%d+;v;string", 1), "no `is` was checked")
+  assert(count_of(code, "n;snippet:%d+:%d+;x;~nil") > 3, "no read of x was checked")
+  assert(code:find("n;snippet:%d+:%d+;b.name;~nil", 1), "no read of a field was checked")
+  assert(code:find("n;snippet:%d+:%d+;v;~nil|number", 1), "no `is` was checked")
   assert(code:find("n;snippet:%d+:%d+;a;string", 1), "no `type()` test was checked")
-  assert(code:find("n;snippet:%d+:%d+;shared;!", 1), "no global was checked")
+  assert(code:find("n;snippet:%d+:%d+;shared;~nil", 1), "no global was checked")
   local with = (assert(load(code, "=snippet", "t"))() as Valid)
   local without = (assert(load(compiled(valid_source, false), "=snippet", "t"))() as Valid)
   for _, shared in ipairs({ "g", "" }) do
@@ -242,8 +248,9 @@ local function test_valid_narrowed_reads_pass_and_answer_what_they_did()
 end
 
 --- A place narrowed by the type of a value assigned or declared with is not
---- checked (checker/tl.tl's TODO at the read of a variable): `f() or f()` is
---- a `string` that is nil here, as is an optional parameter.
+--- checked itself (checker/tl.tl's TODO at the read of a variable): `f() or
+--- f()` is a `string` that is nil here, as is an optional parameter. A test
+--- that follows is, for what it takes out.
 local function test_a_place_narrowed_by_an_assigned_value_is_not_checked()
   local source = table.concat({
     "local function f(): string | nil return nil end",
@@ -261,9 +268,133 @@ local function test_a_place_narrowed_by_an_assigned_value_is_not_checked()
   }, "\n")
   worker.install_checks()
   local code = compiled(source, true)
-  assert(not code:find("n;snippet", 1, true), code)
+  assert(not code:find("if [^\n]*n;snippet"), "a read narrowed by a value was checked: " .. code)
+  assert(not code:find(";given;", 1, true), code)
+  assert(code:find("return[^\n]*;why;~nil"), "the read after the test is checked: " .. code)
   local g = assert(load(code, "=snippet", "t"))() as function(): any
   assert(g() == nil, "the read of nil was refused")
+end
+
+--- A test takes out what it tests, not the kinds the declared type leaves: a
+--- nil a map read gives a `string | R`, or a float given an `integer |
+--- string`, passes both branches of an `is`.
+local function test_what_a_test_leaves_of_the_declared_type_is_not_checked()
+  local source = table.concat({
+    "local record R end",
+    "local function f(v: string | R): string",
+    "  if v is string then",
+    "    return v",
+    "  else",
+    "    return tostring(v)",
+    "  end",
+    "end",
+    "local function g(w: integer | string): string",
+    "  if w is string then",
+    "    return w",
+    "  else",
+    "    return tostring(w)",
+    "  end",
+    "end",
+    "return { f = f, g = g }",
+    "",
+  }, "\n")
+  worker.install_checks()
+  local code = compiled(source, true)
+  assert(code:find(";v;~", 1, true) and code:find(";w;~", 1, true), code)
+  local fixture = assert(load(code, "=snippet", "t"))() as {string:function(any): any}
+  assert(fixture.f(nil) == "nil", "a nil for `string | R`")
+  assert(fixture.f("s") == "s" and fixture.f({}) ~= nil)
+  assert(fixture.g(1.5) == "1.5", "a float for `integer | string`")
+  assert(fixture.g(2) == "2" and fixture.g("t") == "t")
+end
+
+--- A test on a place an enclosing test narrowed keeps the enclosing fact, and
+--- one on a place declared to admit nil checks that, whatever narrowed its
+--- type before.
+local function test_a_test_inside_a_narrowing_is_checked()
+  local source = table.concat({
+    "local record R end",
+    "local function mk(): R | nil return {} end",
+    "local function a(x: string | nil): string",
+    "  assert(x)",
+    "  if x ~= nil then",
+    "    return x",
+    "  end",
+    "  return \"\"",
+    "end",
+    "local function b(x: string | nil, y: string | nil): string",
+    "  if x ~= nil then",
+    "    return x",
+    "  elseif y ~= nil then",
+    "    return y",
+    "  end",
+    "  return \"\"",
+    "end",
+    "local function c(): string",
+    "  local s: R | nil = mk()",
+    "  if s then",
+    "    return tostring(s)",
+    "  end",
+    "  return \"\"",
+    "end",
+    "return { a = a, b = b, c = c }",
+    "",
+  }, "\n")
+  local code = compiled(source, true)
+  assert(count_of(code, "return[^\n]*;x;~nil") >= 2, "the reads of x after assert and ~= nil: " .. code)
+  assert(code:find("return[^\n]*;y;~nil"), "the read of y after elseif: " .. code)
+  assert(code:find("return[^\n]*;s;~nil"), "the read of s declared R | nil: " .. code)
+end
+
+--- A place a test narrowed again after an assignment, or a `local x = x`, is
+--- checked as it was before the entry was reused.
+local function test_a_test_after_a_widening_is_checked()
+  local source = table.concat({
+    "local function g(): string | nil return \"g\" end",
+    "local function a(x: string | nil): string",
+    "  if x then",
+    "    x = g()",
+    "    if not x then return \"\" end",
+    "    return x",
+    "  end",
+    "  return \"\"",
+    "end",
+    "local function b(y: string | nil): string",
+    "  local y = y",
+    "  if not y then return \"\" end",
+    "  return y",
+    "end",
+    "return { a = a, b = b }",
+    "",
+  }, "\n")
+  local code = compiled(source, true)
+  assert(code:find("return[^\n]*;x;~nil"), "the read of x after the early return: " .. code)
+  assert(code:find("return[^\n]*;y;~nil"), "the read of a local y = y: " .. code)
+end
+
+--- An assignment ends what a test said of the place: `known` is a `R` again
+--- after `known = {}`, however the early return narrowed it, and the read
+--- is not checked against the old fact.
+local function test_an_assignment_ends_the_fact_of_an_earlier_test()
+  local source = table.concat({
+    "local record R",
+    "  n: integer",
+    "end",
+    "local function f(seen: {integer:R}, place: integer): R",
+    "  local known = seen[place]",
+    "  if known ~= nil then return known end",
+    "  known = { n = 1 }",
+    "  seen[place] = known",
+    "  return known",
+    "end",
+    "return f",
+    "",
+  }, "\n")
+  worker.install_checks()
+  local code = compiled(source, true)
+  assert(not code:find(";known;", 1, true), code)
+  local f = assert(load(code, "=snippet", "t"))() as function({any}, integer): any
+  assert(f({}, 1) ~= nil)
 end
 
 --- Without the hook a checked compile still runs, and checks nothing: the

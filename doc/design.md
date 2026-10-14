@@ -1249,14 +1249,14 @@ without them.
 the same run checks narrowing, the oracle the strict plan asked for: a read
 of a local, a global or a field of a local whose type a test narrowed
 (`if x then`, `~= nil`, `is`, `type()`, `assert`) is written as a call of
-the hook with the place and the test's fact, not nil or the kinds the
-narrowed type admits, and the hook raises "fact violated at file:y:x" for a
+the hook with the place and the test's fact, the kinds the test took out
+of the type, and the hook raises "fact violated at file:y:x" for a
 value the fact is false of. the checker marks the read when the test makes
 the entry (`Variable.test_fact`), so what is checked is exactly what a test
 concluded and nothing the declared type said. a place narrowed by the type
 of an assigned or declared value is not, since that type holds nil where it
 does not say so until the nil item of the roadmap lands. CI runs the whole
-suite so on one leg; the programs the checker accepts that it fails are its
+suite so in the `checked` job; the programs the checker accepts that it fails are its
 holes, found by real runs.
 
 a function type stands for another when its parameters accept what the

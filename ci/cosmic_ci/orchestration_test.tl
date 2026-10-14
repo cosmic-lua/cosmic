@@ -1038,11 +1038,11 @@ local function test_the_checked_suite_runs_in_its_own_job_and_the_format_check_o
     local run = step.run
     local phase = run is string and run:match("driver%.tl platform ([%w-]+)$") or nil
     if phase ~= nil then phases[#phases + 1] = phase end
-    if phase == "performance-checked" then
-      assert(step["if"] == "env.COSMIC_CI_SCOPE == 'full'", "performance fixture must run only in full scope")
+    if phase == "performance-checked" or phase == "checked-narrowing" then
+      assert(step["if"] == "env.COSMIC_CI_SCOPE == 'full'", "the performance fixture and the checked-narrowing suite run only in full scope")
     end
   end
-  assert(table.concat(phases, " ") == "boot format checked-build checked performance-checked",
+  assert(table.concat(phases, " ") == "boot format checked-build checked performance-checked checked-narrowing",
     "the checked job runs the phases " .. table.concat(phases, " "))
 end
 
