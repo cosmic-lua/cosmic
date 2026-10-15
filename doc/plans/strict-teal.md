@@ -274,12 +274,13 @@ stack can carry.
   modules now. the strict-record and frozen-table checks run only in debug
   and test runs, as `--check-types` does. there is no always-on write
   check.
-- **type-level syntax is allowed in the fork; statement and expression
-  syntax waits for the new checker.** an annotation that is erased when
-  compiling to Lua may be added to the fork, as a read-only field is. no
-  new statement or expression form is added to the fork, and no `pure`
-  annotation. the new checker's grammar is cosmic's own, and what it adds
-  or removes is an open question. `<const>` is Lua syntax and stays.
+- **the new checker has its own grammar from its first PR.** it is not a
+  drop-in for the fork: its grammar, its syntax tree and its interface to
+  the tree ([`build/compiler.d.tl`]) are designed for the language, and
+  the `build/` modules that read the syntax tree are rewritten beside it.
+  the fork takes only type-level syntax that is erased in the emitted
+  Lua, as a read-only field is, and no new statement or expression form.
+  `<const>` is Lua syntax and stays.
 - **what the claim excludes.** types do not track integer overflow,
   division by zero, or code a C userdata's finalizer runs. each is a
   run-time fault, not a type that lied. a table a program makes has no
@@ -898,17 +899,23 @@ written for the language the foundations leave, not forked from
 22,000. it starts now, beside the fork's foundations, and holds each
 foundation's final form as the fork lands it. a sketch, not a design:
 
-- its contract with the rest of the tree is frozen first:
-  [`build/compiler.d.tl`], the AST that about twenty `build/` modules read
-  (`build/ast/`, the analyzer, stubs, docs, links, scopes), tokens with
-  comments, warnings, error codes, line-preserving output, the
-  `--check-types` and checked-narrowing code, and every row the checker
-  writes into the database ("what the language keeps working"). a grammar
-  change comes after it replaces the fork, as a step of its own.
-- a parity track comes first: the new lexer, parser and code generator
-  must give the same AST and byte-identical Lua over the whole tree, an
-  oracle as cheap as it is strong, and one that does not wait on the
-  fork's work.
+- its grammar is designed first, with the syntax tree and the interface
+  that about twenty `build/` modules read (`build/ast/`, the analyzer,
+  stubs, docs, links, scopes); those modules are rewritten to it beside
+  the checker, not after. what it keeps of the fork's contract is what the
+  rest of the tree relies on: tokens with comments, warnings, error codes,
+  line-preserving output, the `--check-types` and checked-narrowing code,
+  and every row the checker writes into the database ("what the language
+  keeps working").
+- a translator comes with the grammar: it rewrites a Teal module into the
+  new grammar, and is how the tree moves to it, in the change that
+  replaces the fork. it is also the oracle a drop-in parser would have
+  been: where the new grammar only respells a construct, the new
+  checker's Lua for the translated module is byte-identical to the fork's
+  Lua for the original, over the whole tree, so the parser and code
+  generator are checked before any type rule is. a construct whose meaning
+  changes is listed, and its emitted Lua is compared by the test suite
+  instead.
 - one pass builds a control-flow graph that narrowing and definite
   assignment both read, with facts keyed by binding; there is no
   metamethod or "runs code" reasoning, because the foundations left
@@ -922,13 +929,18 @@ foundation's final form as the fork lands it. a sketch, not a design:
 - types cross processes as rows, and a requiring module is recompiled
   only when the hash of what it reads moves ("what the language builds
   on").
-- its gate to replace the fork: it accepts the whole tree, refuses every
-  program pinned in [`build/teal_test.tl`], and every verdict it gives
-  differently from the fork, file by file, is a row in the verdict tables
-  tied to a rule's name; the fuzz soundness property and checked
-  narrowing run against it; it compiles itself to a fixed point. then it
-  replaces `checker/` in one change, and the seed moves to the release
-  that carries it.
+- its gate to replace the fork: it accepts the whole translated tree,
+  refuses every program pinned in [`build/teal_test.tl`] (translated),
+  and every verdict it gives differently from the fork, file by file, is
+  a row in the verdict tables tied to a rule's name; the fuzz soundness
+  property and checked narrowing run against it. then it replaces
+  `checker/` in one change that also translates the tree.
+- its own source is written in Teal, in what the pinned release's checker
+  accepts, since the seed compiles it and the seed parses only Teal until
+  a release carries the new checker. once the pin moves to that release,
+  its source is translated like the rest of the tree, and from then on it
+  compiles itself to a fixed point, one pin move behind its own grammar as
+  the fork is behind its own rules.
 
 ### nil out of every type
 
@@ -977,11 +989,13 @@ the switch, since the seed's Lua runs on the tree's VM.
 
 ## open questions
 
-- **the new checker's grammar.** what it adds once it replaces the fork:
-  an `if` expression (about 800 `and`/`or` ternaries would read safely),
-  `match` over a tagged union, `continue` (5 to 8 sites), a `defer`-like
-  form for the per-call `__close` guards; and whether `as` goes entirely,
-  a checked `is` taking its place.
+- **the new checker's grammar.** what it holds: an `if` expression (about
+  800 `and`/`or` ternaries would read safely), `match` over a tagged
+  union, `continue` in place of `goto` (5 to 8 sites), a `defer`-like
+  form for the per-call `__close` guards, `T?` and read-only fields as
+  first-class syntax, a class declaration with its fields and methods in
+  one place; what it drops (`goto`, the `and`/`or` ternary, `as` in favour
+  of a checked `is`); and whether its files keep the `.tl` extension.
 - **finalizers.** whether a class may declare `__gc`, so a dropped process
   handle is still reaped, or a handle that must not leak is a C userdata,
   or `<close>` alone is the rule.
