@@ -907,6 +907,17 @@ foundation's final form as the fork lands it. a sketch, not a design:
   line-preserving output, the `--check-types` and checked-narrowing code,
   and every row the checker writes into the database ("what the language
   keeps working").
+- the grammar holds, provisionally, beyond Teal's: an `if` expression
+  (`if n == 1 then "item" else "items" end`), which gives the 800 or so
+  `and`/`or` ternaries a form that cannot answer the wrong branch when
+  the middle value is false or nil; `match` over a tagged union, refused
+  when a member is missing, so exhaustiveness is checked in one place,
+  not in `if` chains; a `class` declaration holding a class's fields,
+  read-only markers and methods in one place, which [compiler-written
+  classes] needs to read plainly; and `T?` and read-only fields as
+  syntax of their own. it drops `goto` (a `continue` takes its one
+  allowed use), the `and`/`or` ternary, and `as` (a checked `is` takes
+  its place). each is confirmed or dropped when the grammar is written.
 - a translator comes with the grammar: it rewrites a Teal module into the
   new grammar, and is how the tree moves to it, in the change that
   replaces the fork. it is also the oracle a drop-in parser would have
@@ -989,13 +1000,11 @@ the switch, since the seed's Lua runs on the tree's VM.
 
 ## open questions
 
-- **the new checker's grammar.** what it holds: an `if` expression (about
-  800 `and`/`or` ternaries would read safely), `match` over a tagged
-  union, `continue` in place of `goto` (5 to 8 sites), a `defer`-like
-  form for the per-call `__close` guards, `T?` and read-only fields as
-  first-class syntax, a class declaration with its fields and methods in
-  one place; what it drops (`goto`, the `and`/`or` ternary, `as` in favour
-  of a checked `is`); and whether its files keep the `.tl` extension.
+- **`defer`.** whether the grammar earns a `defer` form for the six
+  per-call `__close` guards, revisited once they have been written as
+  small classes with `__close` and a `<close>` local.
+- **the files' extension.** whether a module in the new grammar keeps
+  `.tl`.
 - **finalizers.** whether a class may declare `__gc`, so a dropped process
   handle is still reaped, or a handle that must not leak is a C userdata,
   or `<close>` alone is the rule.
