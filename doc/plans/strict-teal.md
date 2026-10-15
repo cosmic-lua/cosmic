@@ -558,8 +558,10 @@ are the methods of those names it declares. a value of a class is made by
 a table literal typed as the class, which the compiler emits with the
 metatable attached; there is no other way to make one, and a program
 cannot call `setmetatable`. no other metamethod exists on a table a
-program makes: an operator other than `==` on a record, an interface or a
-class is refused, `==` on two tables is identity, and a function
+program makes, except a marker C attaches that has no metamethods (the
+JSON array marker), which runs no code and which no program can read:
+an operator other than `==` on a record, an interface or a class is
+refused, `==` on two tables is identity, and a function
 `__index`, `__newindex`, `__call`, `__len`, `__concat`, `__pairs` and the
 arithmetic and comparison metamethods have no form. what the tree does
 with them now becomes a method (`v:call(...)`, `v:len()`) or, for
@@ -896,8 +898,11 @@ decoder attaches in C ([`core/json.c`]). each gets its class form, except
 the two process handles ([`Child.Handle`] and the connector's process),
 which become C userdata with a `__gc` that kills and reaps a child its
 handle was dropped without closing; the class form holds only Teal
-state, and a handle that must not leak is a resource C owns (an open
-question settles the marker). then `setmetatable`,
+state, and a handle that must not leak is a resource C owns. the JSON
+array marker stays: `core/json.c` attaches [`cosmic.json.array`] to a
+decoded array, and `Json.array` to a table a program marks, so an empty
+`[]` encodes back as `[]`. it has no metamethods, and once a program has
+no `getmetatable` it cannot see it. then `setmetatable`,
 `getmetatable`, `rawset` and `rawget` leave the surface a program sees.
 the checker's source keeps the `setmetatable` dialect until the pin
 carries this step.
@@ -1015,9 +1020,6 @@ the switch, since the seed's Lua runs on the tree's VM.
   small classes with `__close` and a `<close>` local.
 - **the files' extension.** whether a module in the new grammar keeps
   `.tl`.
-- **the JSON array marker.** whether the decoder's array marker stays a
-  metatable C attaches, an exception to [compiler-written classes], or
-  becomes a tag the encoder reads.
 - **a query's schema.** how a module ties a [`cosmic.sqlite`] handle to
   the schema [typed queries] checks against: a declared schema the
   handle's type carries, or the `CREATE` statements the module runs.
@@ -1111,3 +1113,4 @@ the switch, since the seed's Lua runs on the tree's VM.
 [`vendor/tl/PIN`]: ../../vendor/tl/PIN
 
 [`Child.Handle`]: ../../cosmic/child.tl
+[`cosmic.json.array`]: ../../cosmic/json.tl
