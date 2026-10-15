@@ -199,7 +199,7 @@ stack can carry.
   checker. every rule after the foundations ([nil out of every type] first,
   then [one variance per type constructor], [named receivers], [narrowing
   declarations], [tagged unions], [honest `or` and `and`], [confined
-  casts], [annotated parameters], [typed queries]) is specified here and
+  casts], [annotated parameters]) is specified here and
   built in [the new checker], not in the fork.
 - **declarations are the trust boundary.** a `.d.tl` signature, and a
   narrowing declaration, is the only typing the checker takes without
@@ -368,9 +368,6 @@ keeps every part of it working and builds on it where it helps.
   with its rule's name, why it holds and how to fix it, indexed by FTS5, so
   `cosmic docs <code>` and the error itself read one text, and the fix an
   error prints is pinned once.
-- **queries are typed against their schema.** SQLite's own parser checks a
-  literal query and types the row it answers ([typed queries]), so the
-  language's types reach into the SQL the tree is built on.
 
 ## the rules
 
@@ -667,20 +664,6 @@ the whole test suite before the rewrite starts, since a removed coercion
 fails at run time, in Teal or in the core's C, not at compile time. each
 lands with the rewrite of what it finds.
 
-### typed queries
-
-an extension, built in [the new checker]. a literal SQL string passed to
-[`cosmic.sqlite`] is prepared at check time against the schema of the
-database it is run on, by SQLite's own parser over an empty in-memory
-database built from that schema: a statement that does not prepare is a
-compile error that quotes SQLite's message, the parameters it names must
-be the ones passed, and the row it answers is typed from its result
-columns. the tree's databases declare their schemas in code already
-(`build.db`, the shipped projection, the shared caches), so the checker
-reads what the program already says. how a module ties a handle to its
-schema is an open question, and the rule lands with a count of literal
-queries first.
-
 ### not adopted
 
 `any` is legal only where untrusted data enters, and the checker refuses
@@ -700,6 +683,11 @@ files, and assignment already drops a local's fact precisely), a typed
 `setmetatable` ([compiler-written classes] removes it), removing
 number-to-string conversion, and the compiler writing bytecode. each
 waits for a measured need.
+
+deferred until the new checker replaces the fork, and decided then:
+typed queries, in which SQLite's own parser checks each literal query
+against the schema of the database it runs on and types the row it
+answers. how a handle names its schema is the question it waits on.
 
 ## what the tree measured
 
@@ -999,11 +987,6 @@ the new checker. most of the tree's casts exist to get past nil,
 narrowing and variance, so after nil is out of every type most are
 deleted rather than justified.
 
-### typed queries, in the new checker
-
-[typed queries], after a count of the tree's literal queries and the
-answer to how a handle names its schema.
-
 ### the runtime cut
 
 it lands [no implicit conversion or hidden code], in parts:
@@ -1020,9 +1003,6 @@ the switch, since the seed's Lua runs on the tree's VM.
   small classes with `__close` and a `<close>` local.
 - **the files' extension.** whether a module in the new grammar keeps
   `.tl`.
-- **a query's schema.** how a module ties a [`cosmic.sqlite`] handle to
-  the schema [typed queries] checks against: a declared schema the
-  handle's type carries, or the `CREATE` statements the module runs.
 - **`require` cycles.** what a cycle answers, which decides whether a
   module's read-only fields can be seen before they are set.
 - **the narrowing declaration's syntax.** it must read in a `.d.tl` and in
@@ -1088,7 +1068,6 @@ the switch, since the seed's Lua runs on the tree's VM.
 [tagged unions]: #tagged-unions
 [the new checker]: #the-new-checker
 [the pinned-release seed]: #the-pinned-release-seed
-[typed queries]: #typed-queries
 [varargs end in nil]: #varargs-end-in-nil
 [`bin/cosmic-bootstrap`]: ../../bin/cosmic-bootstrap
 [`bin/perf`]: ../../bin/perf
