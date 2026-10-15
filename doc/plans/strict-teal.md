@@ -1,11 +1,21 @@
 # strict teal
 
-this document is the plan for the language cosmic checks: Teal held to
-stricter rules, plus the extensions that correct typing needs and Teal
-cannot express. it is a subset of Teal in what it refuses and a superset
-in what it adds. it states the stance, the rules the checker is to hold,
-what the tree measured against them, the order the work lands in, and the
-questions still open. once a step merges its section is marked done, and
+this document is the plan for the language cosmic checks. it starts from
+Teal's syntax and compiles to Lua 5.5, and it is cosmic's own: where Teal
+or a Lua idiom costs soundness, simplicity or speed, the language breaks
+with it, and the error, its doc and its rewrite carry the break. it states
+the stance, the rules the checker is to hold, what the tree measured
+against them, the order the work lands in, and the questions still open.
+
+the work has two phases. in the first, the checker forked from Teal is
+taken as far as four foundations: it compiles from the pinned release
+rather than upstream's `tl.lua`, its narrowing is the facts of step 7a and
+narrows only what cannot change behind its back, nil is in no type that
+does not name it, and classes have no metatable but the one the compiler
+writes. in the second, a new checker is written for the smaller language
+those leave, and the remaining rules land in it.
+
+once a step merges its section is marked done, and
 [design.md](../design.md)'s teal section states each rule as it lands.
 once every step is done this file is deleted, as
 [roadmap.md](../roadmap.md) deletes what ships.
@@ -93,7 +103,11 @@ local fix, and the cause sits in upstream's design, not in any one fix.
   ran them against what the checker accepted until the fuzz test did.
 
 step 7a replaces the first three with a design that is sound by
-construction. a patch finds and replaces text in one
+construction. the fourth is answered by narrowing only what no other code
+can change: a local, which only its own function assigns once closures
+cannot (R2), and a read-only field, which nothing assigns after its table
+is made. a call then drops no fact, and no list of what runs code is kept
+for narrowing. a patch finds and replaces text in one
 15,000-line file, so a change of one idea lands as dozens of local hunks,
 and a change to a foundation, such as nil's place in the subtype table,
 touches more places than a patch stack can carry. the hints in
@@ -103,13 +117,19 @@ error without another patch.
 
 ## the stance
 
-- **restrictions, plus named extensions.** a restriction refuses a program
-  upstream Teal accepts. an extension adds syntax or a typing upstream
-  lacks, and is admitted only where the typing it gives cannot be written
-  otherwise. a shorter spelling of a type the language already has is not
-  an extension: `T?` for `T | nil` is a spelling. a cosmic program need not
-  be valid upstream Teal. the compiler emits plain Lua for the 5.5 runtime
-  either way.
+- **cosmic's own language, not a dialect of Teal.** a restriction refuses
+  a program upstream Teal accepts. an extension adds syntax or a typing
+  upstream lacks, and is admitted only where the typing it gives cannot be
+  written otherwise. a shorter spelling of a type the language already has
+  is not an extension: `T?` for `T | nil` is a spelling. a cosmic program
+  need not be valid upstream Teal, and compatibility with Teal or with a
+  Lua idiom is never a reason to keep a rule. the compiler emits Lua for
+  the 5.5 runtime.
+- **simple, strict and fast, in that order of cost.** a rule that makes
+  the checker smaller or the emitted Lua faster is preferred to one that
+  keeps an idiom. what the checker knows about a type may change the Lua
+  it emits (a class's metatable, rule 10), where that is the price of a
+  sound rule.
 - **a category is closed by a rule, never by sites.** each rule is stated
   once in the checker: one subtype relation with its variance, one flow
   analysis. a change that adds a check for one more syntactic form is the
@@ -129,7 +149,12 @@ error without another patch.
   hint that names the plain rewrite, both pinned in
   [`build/teal_test.tl`] as `test_a_value_that_may_be_nil_is_told_the_check`
   pins today's. a refusal of a narrowing names the call or write that
-  dropped it.
+  dropped it. each code has a page `cosmic docs <code>` shows: the rule,
+  why it holds, and the rewrite. a rewrite that is mechanical (a field
+  declared read-only, a class made by its literal, a cast that becomes an
+  `is`) ships as a migration in `cosmic fix`, so a break costs the tree,
+  and a project outside it, one command. the error, its doc and its
+  migration are what make a break affordable.
 - **strict is the only mode.** a rule moves through the tree in report
   mode, then lands for every module at once. no module keeps a lax mode,
   which would be an escape hatch.
@@ -137,32 +162,51 @@ error without another patch.
 ## decisions
 
 - **the checker is the tree's own source, split by concern as each
-  concern lands.** it moves out of `vendor/tl/` into `checker/`, outside
-  the module closure it compiles, and is edited directly from then on. a
-  step that gives a concern its rule gives it a module of its own
-  (`checker/flow.tl`, `checker/narrowing.tl`), so no step exists only to
-  split. the patches are not proposed upstream and are not
-  rebased onto a newer release, so the patch format buys nothing and costs
-  every foundational change.
-- **the seed is upstream's `tl.lua` until the stage-2 seed (step 11).**
-  `vendor/tl/` keeps `tl.lua` alone, unedited: it compiles the checker at
-  boot, and [`build/compiler_test.tl`] holds the checker to compiling its
-  own source to exactly itself. so the checker's own source is valid
-  upstream 0.24.8: it obeys the restrictions, which upstream accepts, and
-  uses none of the extensions. that already costs it: it cannot write
-  `name?: T` or `: never`, and a cast stands where `never` would. seeding from the release [`ci/cosmic-driver.pin`] names
-  would not let the checker use an extension in the change that adds it
-  (the pin lags the tree), and would make a binary the root of trust for
-  the language, with no way back from a release whose checker is broken.
-  when the checker wants an extension, one deliberate change moves its
-  seed to a compiler that accepts it (step 11).
+  concern lands, until the new checker replaces it.** it lives in
+  `checker/`, outside the module closure it compiles, and is edited
+  directly. a step that gives a concern its rule gives it a module of its
+  own (`checker/flow.tl`, `checker/narrowing.tl`, `checker/facts.tl`), so
+  no step exists only to split. the patches are not proposed upstream and
+  are not rebased onto a newer release, so the patch format buys nothing
+  and costs every foundational change.
+- **the seed is the pinned release (step 7b).** the release
+  [`ci/cosmic-driver.pin`] names compiles the checker's source to Lua, and
+  boot loads that in place of upstream's `tl.lua`. `vendor/tl/` goes,
+  except for the license and notice the checker inherits, and so does the
+  part of the boot bridge that fakes `io`, `os` and `package` for
+  `tl.lua`, with its own compile cache. the pin is already the root of
+  trust for [`bin/zig`], [`bin/vendor`] and the scripts they run, so it
+  adds no root; a seed committed to the tree would add one beside the pin
+  and the pinned Zig. the
+  checker's own source may use what the pinned release's checker accepts:
+  a rule or a syntax lands in the tree first and reaches the checker's
+  source one pin move later, as in any compiler that compiles itself, while
+  the rest of the tree uses it at once. the way back from a release whose
+  checker is broken is the previous pin, a one-line revert, and
+  `COSMIC_BOOTSTRAP` runs any other cosmic in its place. the fixed point
+  of [`build/compiler_test.tl`] keeps a broken checker from being released:
+  the checker compiled by the seed compiles its own source, and the
+  checker that gives compiles it again to exactly the same Lua.
+- **a new checker for the smaller language (step 10).** once the four
+  foundations hold (the seed, narrowing by construction on places nothing
+  else changes, nil in no type that does not name it, classes whose
+  metatable the compiler writes), the language the forked checker must
+  handle is much smaller than Teal: structured control flow, no
+  closure-assigned locals, no run-time metatables, no nil in every type.
+  a checker written for that language is smaller and faster than one
+  migrated in place, and the migration's cost is visible already: shadow
+  mode had to copy the old narrowing's quirks to agree with it. the
+  forked checker gets only what the four foundations need. every rule
+  after them (variance, views, named receivers, narrowing declarations,
+  tagged unions, `or` and `and`, casts and parameters) is specified here
+  and built in the new checker, not in the fork.
 - **declarations are the trust boundary.** a `.d.tl` signature, and a
   narrowing declaration (rule 8), is the only typing the checker takes
   without proof. the standard library's Lua declarations move out of the
   checker into `.d.tl` files, so auditing them changes no checker logic.
   a declaration answers `any` only at a named untrusted-data entry point:
-  `load`, `require` of an untyped module, `string.unpack`, the raw `io`
-  reads, `getmetatable`, and the [`cosmic.sys`] bindings.
+  `require` of an untyped module, `string.unpack`, and the [`cosmic.sys`]
+  bindings.
 - **the rules are tested against programs that must be refused.** every
   hole found becomes a refused program in [`build/teal_test.tl`], which
   already pins today's known holes (`test_as_and_is_forge_a_never_function`,
@@ -187,23 +231,37 @@ error without another patch.
 - **optimize for the strong design; it is easy to rewrite the existing
   code.** migration cost is not a reason to choose a weaker rule. a rule is
   chosen for soundness and simplicity, and the tree is migrated to it.
-- **the runtime changes only where normal runs pay nothing.** the
-  guarantees are type-level restrictions, plus Lua VM changes only where
-  they cost a normal run nothing. a locked metatable reuses `__metatable`,
-  so it is free. the strict-record and frozen-table checks run only in
-  debug and test runs, as `--check-types` does. there is no always-on write
-  check.
-- **type-level syntax is allowed; statement and expression syntax is not.**
-  an annotation that is erased when compiling to Lua may be added: a
-  `readonly {T}` view (rule 7, variance) and a guard signature (rule 8,
-  narrowing declarations). the Lua a file compiles to is unchanged by it.
-  no new statement or expression form is added, no `pure` annotation and no
-  new metatable construct. purity, if it is ever needed, is inferred and
-  defaults to impure, and the standard library's purity lives in
-  `checker/stdlib.d.tl`. `<const>` is Lua syntax and stays.
+- **the checker, the compiler and the Lua VM are one target.** cosmic
+  vendors and patches its Lua, so the compiler emits for exactly that VM,
+  the patches included, and never for a range of Lua versions: the
+  generator's 5.1, 5.3 and 5.4 branches, `gen_target`, `gen_compat` and
+  the compat entries go, and so does any shim for a Lua the tree does not
+  run. a rule may rest on a VM change (rule 18), and the VM may gain what
+  the compiler needs: an entry point that makes a class's value with its
+  metatable, an opcode, a bytecode the compiler writes directly. the
+  compiler's identity already holds the Lua pin and patches, so a VM
+  change rekeys every compile. the one boundary is the seed: the pinned
+  release emits Lua source for the checker, not bytecode, because the
+  tree's VM may have moved past the release's.
+- **the runtime changes only where normal runs pay nothing, and loses
+  what the language does not need.** the guarantees are type-level
+  restrictions, plus Lua VM and surface changes that cost a normal run
+  nothing or make it faster (rule 18). a program has no `setmetatable`,
+  `getmetatable`, `rawset` or `rawget`: the code the compiler emits for a
+  class reaches the VM through an entry point a program cannot name. the
+  strict-record and frozen-table checks run only in debug and test runs, as
+  `--check-types` does. there is no always-on write check.
+- **type-level syntax is allowed in the fork; statement and expression
+  syntax waits for the new checker.** an annotation that is erased when
+  compiling to Lua may be added to the forked checker, as a read-only
+  field (rule 4) is. no new statement or expression form is added to the
+  fork, and no `pure` annotation. the new checker's grammar is cosmic's
+  own, and what it adds or removes is an open question. `<const>` is Lua
+  syntax and stays.
 - **what the claim excludes.** types do not track integer overflow,
-  division by zero, or code a finalizer (`__gc`) runs. each is a run-time
-  fault, not a type that lied.
+  division by zero, or code a C userdata's finalizer runs. each is a
+  run-time fault, not a type that lied. a table a program makes has no
+  finalizer (rule 18).
 
 ## the rules
 
@@ -225,15 +283,13 @@ is in "the steps".
    `coroutine.resume`.
 2. **an index read can answer nil (R).** `m[k]` and `m.k` on a `{K:V}` are
    `V | nil`. `t[i]` on a `{T}` is `T | nil`, because Lua answers nil for an
-   index out of range rather than trapping. two refinements answer `T`, and
-   only these:
-   - an index place narrows like a field path (rule 4): `t[k]`, with `t` a
-     place and `k` a literal or a local that is never reassigned, is
-     narrowed by a nil or truthiness test and by an assignment
-     `t[k] = v`.
-   - in `for i = a, #t` (or `#t - d`) and `for i = #t, 1, -1`, with `a` a
-     literal of at least 1, `t[i]` (and `t[i + c]` for `c <= d`) is `T`
-     when `t` is a local the body neither assigns nor passes to a call.
+   index out of range rather than trapping. one refinement answers `T`,
+   and only this: in `for i = a, #t` (or `#t - d`) and
+   `for i = #t, 1, -1`, with `a` a literal of at least 1, `t[i]` (and
+   `t[i + c]` for `c <= d`) is `T` when `t` is a local the body neither
+   assigns nor passes to a call. an index is not a place (rule 4): a test
+   of `t[k]` narrows nothing, and the rewrite is
+   `local v = t[k] if v then ... end`.
 
    a tuple type indexed by a literal in range is its member's type, and out
    of range is refused. length facts (`#t > 0` giving `t[1]`) are not
@@ -242,30 +298,38 @@ is in "the steps".
    `ipairs` and `table.insert` are defined on a sequence, and a hole makes
    each unreliable. sparse data is a map, `{integer:T}`, and `#` on a map
    is refused.
-4. **one flow analysis decides narrowing and reachability.**
-   - a place is a local, a field path from a local (`r.a.b`), or an index
-     place (rule 2).
+4. **one flow analysis decides narrowing and reachability, and narrows
+   only what no other code can change (R, E).**
+   - a place is a local, or a path of read-only fields from a local
+     (`r.a.b`, with `a` and `b` each declared read-only). a field of a
+     record is read-only when the record declares it so: it is given a
+     value by the table literal that makes the record and is never
+     assigned after, through any reference. a global, a mutable field and
+     an index are not places, and a test of one narrows nothing; the
+     rewrite is a local copy, `local n = r.n if n then ... end`, which the
+     hint gives.
    - a guard is a truthiness test, `== nil` and `~= nil`, `==` with a
      literal, `is`, `type(x) == "..."`, their `not`, `and` and `or`, a
      narrowing call (rule 8), and a branch that ends its block.
-   - an assignment to a place, or to a prefix of it, drops what was known
-     of it. a write to a field `.f` through any base drops every narrowed
-     path ending in `.f`, and a write to any index drops every index place,
-     because another reference may name the same table.
-   - a call-like expression drops what was known of every field path and
-     index place, and of every local that any function literal in its
-     scope assigns. a call is call-like, and so is an operator, index or
-     comparison on a record, interface, userdata or `any`, which can run a
-     metamethod. on a string, a number or a plain array or map, an operator
-     is not call-like. a local that no closure assigns stays narrowed
-     across a call.
+   - an assignment to a local drops what was known of it and of every path
+     from it. nothing else drops a fact: a closure cannot assign a local it
+     does not declare (R2), and no reference can assign a read-only field,
+     so neither a call, a write through an alias, an operator nor a
+     metamethod can change a place. the analysis keeps no list of what
+     runs code for narrowing; definite assignment (rule 5) keeps the one
+     it needs.
    - a statement with no successor (`return`, `break`, a `goto` out of the
      block, a loop with no exit, a call of a `: never` function) ends its
      block. a `goto continue` to a label in the same loop does not end the
      path.
 
    this replaces upstream's facts and the per-form narrowing and
-   block-ending patches. step 7a gives it the form described there.
+   block-ending patches. step 7a gives it the form described there. a
+   read-only field is type-level syntax, erased in the emitted Lua. a
+   record that implements an interface declares a field read-only exactly
+   when the interface does, which the read-only field's own step checks
+   before rule 7's exact field types land, and a record passed as a map is
+   refused (rule 11), so no view of the table can assign the field.
 5. **a local is assigned before it is read (R).** `local x: T` with no
    value is legal only where every path assigns `x` before its first read.
    a loop body may run zero times. an assignment inside a function literal
@@ -311,20 +375,29 @@ is in "the steps".
    single-member enum, and comparing that field with a literal narrows the
    union. a chain of tests that covers every member leaves `never` in its
    final branch, so a function that must return can end there. `is` applies
-   to primitive types, enums, `nil`, and function and table kinds; `v is R`
-   for a record `R` is refused (R), since Lua erases the record. the hint
-   names a tag field or a [`cosmic.shape`] validator.
-10. **a record with methods comes from its metatable (R).** a method is a
+   to primitive types, enums, `nil`, function and table kinds, and classes
+   (rule 10); `v is R` for a record `R` that is not a class is refused (R),
+   since Lua erases the record. the hint names a tag field or a
+   [`cosmic.shape`] validator.
+10. **a class's metatable is the compiler's (R, E).** a method is a
     `function R:name()` declaration or a field whose function names its
-    receiver. a record that declares one is a class: a value of it is made
-    by `setmetatable` with its `metatable<R>`, whose table is checked as
-    `R` without its methods, as it is now. a table literal typed as a
-    class is refused, because it carries none of the methods. each method
-    the class declares is defined in its module. a function `__index`
-    serves one declared type that every field read through it satisfies.
-    a metamethod is declared in the record, with its signature, or the
-    operator is refused on it, and a record with `__newindex` narrows no
-    field.
+    receiver. a record that declares one is a class, and each method it
+    declares is defined in its module. the compiler writes the class's one
+    metatable: `__index` is its method table, and `__close` and
+    `__tostring` are the methods of those names it declares. a value of a
+    class is made by a table literal typed as the class, which the
+    compiler emits with the metatable attached; there is no other way to
+    make one, and a program cannot call `setmetatable` (rule 18). no other
+    metamethod exists on a table a program makes: an operator other than
+    `==` on a record, an interface or a class is refused, `==` on two
+    tables is identity, and a function `__index`, `__newindex`, `__call`,
+    `__len`, `__concat`, `__pairs` and the arithmetic and comparison
+    metamethods have no form. what the tree does with them now becomes a
+    method (`v:call(...)`, `v:len()`) or, for `__mode`, a weak table from
+    the standard library. because the metatable is the compiler's,
+    `v is C` for a class `C` is a check of it, so classes are told apart
+    without a tag (rule 9 refuses `is` only on a record that is not a
+    class).
 11. **a record is not a map (R).** a record is never passed where a map or
     `{string:any}` is expected, and `pairs`, `next` and `rawset` refuse
     it, because its fields have types of their own.
@@ -344,22 +417,40 @@ is in "the steps".
     wanted, answers `T | nil`.
 15. **casts are confined (R).** as [design.md](../design.md)'s teal section
     states: `x as T` only from `any`, from a userdata record declared in a
-    `.d.tl`, or from the enclosing generic's type variable. the rule waits
-    only on the stage-2 seed (step 11): 230 of the 290 non-test casts not
-    from `any` are in the checker's own source.
+    `.d.tl`, or from the enclosing generic's type variable. 230 of the 290
+    non-test casts not from `any` are in the checker's own source, which
+    the new checker replaces (step 10).
 16. **a parameter is annotated (R).** a parameter of a function declaration,
     or of a function literal with no expected function type, has a type. a
     literal passed where a function type is expected takes its parameter
     types from it, as patch 37 does now, so a `table.sort` comparator needs
     none.
-17. **a value dispatches only through the metamethods its type declares
-    (R).** the flow analysis (rule 4) treats an operator, index or
-    comparison as call-like only on a type whose record declares the
-    metamethod. a metatable attached at run time would add dispatch no type
-    shows. so `setmetatable` attaches a metamethod only to a record type
-    that declares it, with the declared signature, and refuses a metatable
-    that carries any other. the one allowance besides those metamethods is
-    `__index` set to the record's own method table. [roadmap.md](../roadmap.md) holds the item.
+17. **a value dispatches only through what its type declares (R).** with
+    rule 10, this holds by construction: the only metatables on tables a
+    program makes are the compiler's, and the only code they run is a
+    class's `__close` at a block's end and its `__tostring` under
+    `tostring`. a C userdata declared in a `.d.tl` dispatches through the
+    metamethods its declaration names. [roadmap.md](../roadmap.md) holds
+    the item.
+18. **the runtime has no implicit conversion and no hidden code (R).** the
+    patched Lua and the surface [`core/surface.c`] opens are cut to what the
+    language needs:
+    - a string is never a number: arithmetic on a string and a string
+      `for` bound fail in the VM, not only in the checker, so data typed
+      `any` fails at the operation. `..` joins strings; a number is
+      joined through `tostring`. this removes the coercion from `lvm.c`
+      and the string metatable's arithmetic.
+    - a program has no `setmetatable`, `getmetatable`, `rawset`, `rawget`,
+      text `load` or `string.dump`. code the compiler emits, and the
+      build's own compile, reach them through bindings a program cannot
+      name, so everything a program runs came through `require` and the
+      checker.
+    - a table a program makes has no `__gc` and no `__mode`; a C userdata
+      keeps its `__gc`. `<close>` is the finalizer of a Lua value.
+    - `_G` cannot be replaced, assigned through, or given a metatable.
+
+    each lands with its count in report mode, as `--check-types` runs
+    measure it, before the VM refuses it.
 
 `any` stays as it is: it is legal only where untrusted data enters, and the
 checker already refuses to assign it, call it or index it.
@@ -368,8 +459,9 @@ rejected, so nobody proposes them again: a non-nil assertion `x!` (an
 escape hatch; `assert(x)` says why), `a?.b` (the tree's field paths are
 almost all non-nil), a `??` operator (rule 12 refuses the hazard
 instead), bounded generics over primitive types, declaration-site variance
-(`record Box<out T>`), and read-only record fields. each waits for a
-measured need.
+(`record Box<out T>`), narrowing a mutable field (rule 4 refuses it; a
+local copy is the rewrite), and a typed `setmetatable` (rule 10 removes
+it). each waits for a measured need.
 
 ## what the tree measured
 
@@ -391,9 +483,16 @@ lands.
   `gsub`'s table, `flags`) hold most of the rest. every callee reads only,
   except [`Json.array`], which returns its argument and needs a generic.
   no array of records passes as an array of an interface.
-- **narrowing after a call (rule 4).** of about 1,080 guards on a field
-  path, at most 76 call a function in the guarded body and read the path
-  again (heuristic).
+- **narrowing a field (rule 4).** of about 1,080 guards on a field path, at
+  most 76 call a function in the guarded body and read the path again
+  (heuristic). of the 752 narrowed field reads below, 79% are on fields
+  never written after the table is made, so declaring those fields
+  read-only keeps them; the rest, about 160 reads, take a local copy.
+- **metamethods (rules 10 and 18).** raw mentions in `.tl` files outside
+  `vendor/`, tests and comments included (heuristic): `__call` 29, `__gc`
+  18, `__add` 14, `__newindex` 9, `__eq` 8, `__tostring` 5, `__mode` 5,
+  `__len` 5, `__pairs` 3, `__concat` 3. `__close` and `__index` are the
+  bulk of what classes declare.
 - **narrowing by construction (step 7a),** measured on `origin/main` at
   e95cd66f4.
   - narrowed reads: 12,513. field reads: 752 (609 outside tests) on 557
@@ -422,7 +521,7 @@ lands.
 - **nil (rules 1 and 5).** the migration of every directory outside
   `checker/` cost less than planned. `--check-types` finds what a call or
   return passes, but not a local or a field omitted from a table literal;
-  those stay honest only once the static nil rule (step 12) lands.
+  those stay honest only once the static nil rule (step 8) lands.
   heuristic floors: about 80 `return nil` in
   functions declared to return non-nil, about 460 `local x: T` with no
   value, and 39 `table.remove` and 36 `select` calls. the uncounted class
@@ -476,23 +575,30 @@ change in boot time and in the checker's self-compile time.
    [`ci/cosmic-driver.pin`] moves to a release that carries them and `ci/`
    drops its `ci/cosmic_ci/text_rows.tl` shim. the pin lags the tree, so
    `ci/` cannot use a new API before a bump.
-7a. **narrowing by construction (rule 4).** it lands before variance, so
-   the flow analysis every later rule reads is the sound one. the holes the
+7a. **narrowing by construction (rule 4).** it lands before every later
+   rule, so the flow analysis they read is the sound one. the holes the
    fuzzer found in 4c (the `or` reading, closures in inner blocks, function
    bodies keeping outer facts, `local x = x` copies) are fixed (done,
    #3065). the design is in [strict-teal-7a.md], whose PRs 0 to 2 are
    done (#3070, #3069, #3074); shadow mode found four old-narrowing bugs,
-   fixed in #3071, #3072, #3073 and #3075. in short:
+   fixed in #3071, #3072, #3073 and #3075. its PR 3, where reads switch to
+   the facts, lands after the seed (step 7b). in short:
    - declared types are never mutated. facts live in an immutable map from
-     place to type, carried along a small control-flow graph, and joins
-     happen in one place. the default is pessimistic: a fact survives only
-     what is known not to change its place.
+     place to type, keyed by binding, carried along a small control-flow
+     graph, and joins happen in one place.
    - it retires `specialize_var` and the scope-marker bookkeeping
      (`narrow`, `widen` and `localizing` entries, `widened_from`).
-   - field facts keep 4c's rule: a call or a write drops them. a local's
-     fact is dropped precisely by assignment.
-   - field narrowing stays, because restricting it would cost every field
-     read.
+   - a place is a local or a path of read-only fields from one (rule 4).
+     a local's fact is dropped precisely by assignment, and nothing drops
+     a read-only path's. the field-path and global drops of 4c, and the
+     facts that serve them, go.
+   - read-only fields land in the same PR series, before reads switch: the
+     syntax (erased in the emitted Lua), the refusal of a write to one
+     outside the literal that makes its record, and rule 11, a record is
+     not a map, so no view of a record can write the field. report mode
+     counts the narrowed reads of mutable fields; a migration in
+     `cosmic fix` declares read-only each field the tree never writes after
+     creation, and the rest take a local copy.
 
    three restrictions come with it, each its own PR before or alongside it:
    - R2, effectively-final captures (done, #3067). a function
@@ -502,52 +608,81 @@ change in boot time and in the checker's self-compile time.
      assignments.
    - R3, `goto` only as `continue` (done, #3066): a forward jump to a label
      at the end of the enclosing loop body.
-   - rule 17 adjusted as stated there.
+   - rule 11, as above.
 
    rejected: narrowing only `<const>` and stable bindings (R1(b)), at 1,070
    error lines in 203 files. assignment already drops a local's fact
-   precisely, and R2 removes the closure case.
-7b. **restrictions that close the open ends of rule 4, before variance.**
-   each removes a conservative fallback the narrowing carries now:
-   - `_G` gets an opaque type that is not cast, aliased or indexed by a
-     computed key, so a global changes only by its assignment or a call,
-     and a write to `t.G` no longer drops the global `G`.
-   - rule 11, a record is not a map, so a write through a `{string:any}`
-     key no longer drops every field path and every global.
-   - rule 17's dispatch half: an operator, index or comparison is
-     call-like only on a type that declares the metamethod, and
-     `setmetatable` attaches only declared ones. the part that types a
-     metatable as a record view waits on step 8.
-   each counts its sites in report mode first, and the tree migrates.
-8. **variance, views and receivers (rules 7 and 13).** `table.concat` and
-   the three option signatures take views first.
-9. **the rest of rule 17,** after variance,
-   since a metatable is typed as a record. its report mode counts the
-   `setmetatable` calls that attach an undeclared metamethod.
-10. **never as the bottom type (rule 6),** once nil leaves the bottom of
-    the lattice in the type representation, before the tree migrates.
-11. **the stage-2 seed (moved to step 7a, after its PR 4).** the
-    checker's own source moves to a seed compiler that accepts the
-    extensions (`?:`, `never`, the strict rules), so the checker is held to
-    the rules it enforces. a sketch, not a design:
-    - the seed is a compiled checker built from the tree and committed as
-      a vendored artifact, in place of upstream's `tl.lua`. the checker
-      compiles its own source with it, and the result must equal itself
-      (the fixed point of [`build/compiler_test.tl`]).
-    - a change to the checker that the seed cannot compile first moves the
-      seed in a change of its own.
-12. **nil (rules 1, 2, 3 and 14).** report mode first; the declarations
-    audit; then migration PRs one directory at a time, tests with their
-    modules, the checker's own source last, after step 11; then one change
-    that turns the rules on. every directory outside `checker/` is already
-    honest about nil as far as `--check-types` can see (#3028 to #3031,
-    #3043, #3045, #3046). several PRs remain.
-13. **narrowing declarations, tagged unions and classes (rules 8, 9 and
-    10),** each with its count in report mode first.
-14. **`or` and `and`, casts and parameters (rules 12, 15 and 16; rule 11
-    moved to 7b).** rule 15 waits only on the stage-2 seed. most of the tree's casts exist to get past nil,
-    narrowing and variance, so after step 12 most are deleted rather than
+   precisely, and R2 removes the closure case. locals narrow fully; only
+   heap places are restricted.
+7b. **the seed is the pinned release.** the next step, before 7a's PR 3.
+   - a script that [`bin/cosmic-bootstrap`] runs on the pinned release
+     compiles `checker/*.tl` and `checker/stdlib.d.tl` to Lua for the 5.5
+     runtime, as the release's own build compiles its checker, and boot
+     loads that in place of running `tl.lua` through the bridge. if the
+     pinned release cannot yet do this, the step starts with the change
+     that lets it and the pin move that carries it.
+   - `vendor/tl/` goes, except the license and notice, which move beside
+     the checker and stay in the bill of materials. the bridge's faked
+     `io`, `os` and `package` and its own compile cache go with it.
+   - boot and the tool's self-rebuild compile the checker by one path,
+     keyed the same way, so a rebuild no longer reconciles two compilers'
+     identities.
+   - [`build/compiler_test.tl`] checks the fixed point: the checker the
+     seed compiles compiles its own source, and that checker compiles it
+     again to the same Lua. its pinned type-error count only falls.
+   - the checker's own source may then use `name?: T`, `: never` and the
+     strict rules, one pin move after each lands.
+8. **nil (rules 1, 2, 3, 5, 6 and 14).** report mode first; the
+   declarations audit; then migration PRs one directory at a time, tests
+   with their modules, the checker's own source last; then one change that
+   turns the rules on. `never` becomes the bottom type (rule 6) in the
+   type representation as nil leaves it, before the tree migrates. every
+   directory outside `checker/` is already honest about nil as far as
+   `--check-types` can see (#3028 to #3031, #3043, #3045, #3046). several
+   PRs remain.
+9. **classes (rules 10 and 17).** report mode counts the `setmetatable`
+   calls and the metamethods rule 10 has no form for. a migration in
+   `cosmic fix` turns the class pattern (`setmetatable(o, R)` with
+   `R.__index = R`) into a literal typed as the class. the tree moves its
+   `__call`, `__len`, `__eq` and arithmetic metamethods to methods, and its
+   `__mode` tables to the standard library's weak tables. then the
+   compiler writes each class's metatable, and `setmetatable`,
+   `getmetatable`, `rawset` and `rawget` leave the surface a program sees
+   (rule 18).
+10. **the new checker.** written for the language steps 7a to 9 leave, not
+    forked from `checker/tl.tl`; it may start from that file's lexer and
+    parser, which already answer malformed input with errors. a sketch,
+    not a design:
+    - one pass builds a control-flow graph that narrowing and definite
+      assignment both read, with facts keyed by binding; there is no
+      metamethod or "runs code" reasoning, because rules 4, 10 and 17 left
+      nothing for it to decide.
+    - one subtype relation with its variance; nil and `never` where rules
+      1 and 6 put them.
+    - each error a code, its places and a doc page, from the first PR.
+    - it emits for the tree's own VM only, and may write bytecode
+      directly where that removes the Lua-text round trip.
+    - a module's exported types hashed apart from its body, so a module
+      that requires it is rechecked only when that hash moves.
+    - it runs beside the forked checker until the verdict harness (#3070)
+      shows no unexplained difference over the tree, the fuzz corpora and
+      dumped fuzz programs; the fuzz soundness property and checked
+      narrowing run against it; it compiles itself to a fixed point. then
+      it replaces `checker/` in one change, and the seed moves to the
+      release that carries it.
+11. **variance, views and receivers (rules 7 and 13),** in the new
+    checker. `table.concat` and the three option signatures take views
+    first.
+12. **narrowing declarations and tagged unions (rules 8 and 9),** in the
+    new checker, each with its count in report mode first.
+13. **`or` and `and`, casts and parameters (rules 12, 15 and 16),** in the
+    new checker. most of the tree's casts exist to get past nil,
+    narrowing and variance, so after step 8 most are deleted rather than
     justified.
+14. **the rest of the runtime (rule 18):** string coercion out of the VM,
+    no text `load` or `string.dump` for a program, no `__gc` or `__mode`
+    on a program's tables, and a fixed `_G`. it depends on no checker step
+    after 9, and each part lands when its report-mode count is migrated.
 
 every checker step follows the review practice in "decisions", with two
 independent review rounds per PR.
@@ -555,8 +690,6 @@ independent review rounds per PR.
 ## open questions
 
 
-- **the checker's root.** its directory name, and how the module scanner
-  tells it from a module of the tree.
 - **the narrowing declaration's syntax.** it must read in a `.d.tl` and in
   `cosmic docs` as plainly as a return type does.
 - **variadic generics.** whether `pcall`, `xpcall` and the coroutine
@@ -570,11 +703,26 @@ independent review rounds per PR.
 - **strict-record checks in debug runs.** whether they come before or
   after step 7a.
 - **dense arrays.** what rule 3 costs the tree, measured in report mode
-  before step 12.
-- **the stage-2 seed.** how it is produced and kept reproducible, so a
-  broken seed has a way back; whether it is committed or built from an
-  earlier release; and how the fixed-point test changes when the seed is
-  no longer upstream's.
+  before step 8.
+- **the seed's interface.** what the pinned release offers the script that
+  compiles the checker (a verb, or a module the script requires), and
+  whether its type errors in the checker's source are reported, as the
+  self-compile test counts them now, or refused.
+- **the new checker's grammar.** whether it adds `continue` in place of
+  `goto`, an `if` expression in place of the `and`/`or` ternary, and a
+  `match` over a tagged union; and whether `as` goes entirely, a checked
+  `is` (or `must(x is T)`) taking its place.
+- **what a class may declare.** whether `__tostring` stays a metamethod
+  or becomes a method `tostring` calls, and whether `__eq` earns a place
+  beside `__close`.
+- **bytecode.** whether the new checker emits bytecode for the patched
+  VM directly, keeping line and name information for messages and
+  coverage, or keeps emitting Lua source; and which VM entry points or
+  opcodes the compiler earns (a class constructor, integer-only
+  arithmetic where the types are `integer`).
+- **the interface hash.** what a module's exported types hash over (the
+  standard library's stubs already compute it) and whether module keys
+  read it in the forked checker before step 10.
 
 ## what the first steps taught
 
@@ -587,7 +735,11 @@ independent review rounds per PR.
 - **a restriction can over-refuse.** the syntactic loop rule refused common
   code that main accepted, and became a typed analysis. every review found
   at least one blocking issue, often visible only by testing against main.
-- **run-time metatables are a hole,** hence rule 17.
+- **run-time metatables are a hole,** hence rules 10 and 17.
+- **migrating a forked checker in place costs more than the language it
+  checks.** shadow mode had to copy the old narrowing's quirks to agree
+  with it, and most of the fuzzer's finds were keyed by name or scope
+  bookkeeping no new design would have. hence the new checker (step 10).
 - **the pinned CI driver lags the tree,** so `ci/` cannot use a new API
   until the pin moves (step 7).
 - **a change can expose a bug beside it.** a deadline-rounding bug in the
@@ -595,6 +747,9 @@ independent review rounds per PR.
   the merge queue (#3055).
 
 [strict-teal-7a.md]: strict-teal-7a.md
+[`bin/cosmic-bootstrap`]: ../../bin/cosmic-bootstrap
+[`bin/vendor`]: ../../bin/vendor
+[`bin/zig`]: ../../bin/zig
 [`build.fuzz`]: ../../build/fuzz/init.tl
 [`build/compiler_test.tl`]: ../../build/compiler_test.tl
 [`build/identity.tl`]: ../../build/identity.tl
@@ -606,3 +761,5 @@ independent review rounds per PR.
 [`cosmic.sys`]: ../../core/syscalls.h
 [`Json.array`]: ../../cosmic/json.tl
 [`Sqlite.rows`]: ../../cosmic/sqlite.tl
+
+[`core/surface.c`]: ../../core/surface.c

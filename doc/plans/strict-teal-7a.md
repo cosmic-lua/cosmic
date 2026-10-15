@@ -1,24 +1,26 @@
 # step 7a: narrowing by construction
 
 the design of step 7a in [strict-teal.md](strict-teal.md). it is written
-against main with R2 (effectively-final captures) merged.
+against main with R2 (effectively-final captures) merged, and with the
+plan's rule 4: a place is a local or a path of read-only fields from one.
 
 ## the model
 
 - declared types are never mutated. a new `checker/facts.tl` holds an
-  immutable `Facts`: `t` (place id to narrowed type), `gone` (place id to
-  what removed it, for messages), and counts of field-path and global keys
-  so a call is O(1) when there are none. `nil` means control cannot reach.
+  immutable `Facts`: `t` (place id to narrowed type) and `gone` (place id
+  to what removed it, for messages). `nil` means control cannot reach.
 - a place's id is its binding's identity, not its name: `Variable.key`, a
-  counter value given in `add_var` and `add_global`; `"17"` a local,
-  `"17.f"` a field path, `"g:name"` a global. a `local x = x` is a new
-  variable with a new key, so the shadowing cases disappear. `Place.key`
-  stays the display name in messages.
+  counter value given in `add_var`; `"17"` a local, `"17.f"` a path of
+  read-only fields. a `local x = x` is a new variable with a new key, so
+  the shadowing cases disappear. `Place.key` stays the display name in
+  messages. a global, a mutable field and an index have no id: a test of
+  one narrows nothing.
 - operations return new values and share when nothing changes: `with`,
-  `without`, `without_prefix` (assignment to a local), `without_suffix`
-  (a write to `.f` through any base), `without_paths` (a call),
-  `without_globals`, `meet` (a key survives only if both edges hold it),
-  `restrict` (loops) and `for_body` (function bodies).
+  `without`, `without_prefix` (assignment to a local), `meet` (a key
+  survives only if both edges hold it), `restrict` (loops) and `for_body`
+  (function bodies). `without_suffix`, `without_paths` and
+  `without_globals`, which served writes through aliases, calls and
+  globals, go with the places they dropped.
 - the checker's existing in-order walk carries one register, `self.facts`,
   updated in Lua's evaluation order. there is no separate graph. the walk
   stays in the checker, not in `flow.tl`: narrowing needs types while it
@@ -44,18 +46,18 @@ against main with R2 (effectively-final captures) merged.
   and an exit edge keeps a head fact only if the back edge does. a fact
   that came unchanged from the head is recognised by object identity,
   which immutability makes sound.
-- a function body starts from `for_body`: every field path dropped, and a
-  local kept only if `local_is_fixed` says nothing assigns it after the
-  literal is made. on leaving, the saved facts come back; nothing was
+- a function body starts from `for_body`: a local, and the read-only
+  paths from it, kept only if `local_is_fixed` says nothing assigns it
+  after the literal is made. on leaving, the saved facts come back; nothing was
   changed, so there is nothing to undo.
-- a fact survives only what is known to keep it. the walk names the pure
-  node kinds (a local or upvalue read, a literal, arithmetic, comparison
-  and concatenation on primitive operands, a field read on a type that
-  declares no `__index`, a constructor of pure parts); every other node
-  runs code, through one `run_event` that drops field paths and globals
-  and sets `runs_code` for `flow.tl`. a kind nobody named costs precision,
-  never soundness. the old narrowing lists what drops instead, and each
-  missing entry was a hole (`_G` writes, `__close`, a rebinding).
+- a fact is dropped only by an assignment to its local. a closure cannot
+  assign a local it does not declare (R2), and nothing assigns a read-only
+  field after its table is made, so no call, write through an alias,
+  operator or metamethod can change a place, and the walk keeps no list of
+  what runs code for narrowing. `run_event` stays only to set `runs_code`
+  for definite assignment in `flow.tl`. the old narrowing lists what drops
+  instead, and each missing entry was a hole (`_G` writes, `__close`, a
+  rebinding); the places those holes were in are no longer places.
 
 ## what goes
 
@@ -70,8 +72,9 @@ shrinks to places and the two refinements. `flow.tl`, `captures.tl`,
 
 ## the order of PRs
 
-each keeps the tree green. the first three change no verdict; PR 3
-moves exactly the pinned shadow mismatches.
+each keeps the tree green. PRs 0 to 2a change no verdict; 2b refuses
+the narrowings rule 4 no longer allows, after the tree migrates; PR 3
+moves exactly the pinned shadow mismatches that remain.
 
 0. a verdict harness: a tool that writes every error and warning
    (`file, code, y, x, text`) for a list of sources, run with the PR's
@@ -86,14 +89,25 @@ moves exactly the pinned shadow mismatches.
    mismatches over the tree, corpora, tests and fuzz. a mismatch that is
    an old-state bug is fixed first, in a PR of its own (done, #3074; the
    flag is off by default and nothing is kept without it).
+2a. the seed is the pinned release (the plan's step 7b), the next PR, so
+   the checker's own source can declare read-only fields, `name?: T` and
+   `: never`, and is held to the rules it enforces one pin move after each
+   lands.
+2b. read-only fields: the syntax, erased in the emitted Lua; the refusal
+   of a write to one outside the literal that makes its record; and the
+   plan's rule 11, a record is not a map. report mode counts the narrowed
+   reads of mutable fields, globals and indexes; a migration in
+   `cosmic fix` declares read-only each field the tree never writes after
+   creation, and the other reads take a local copy. the old narrowing and
+   the facts both narrow only locals and read-only paths from here, so the
+   field-path and global mismatches pinned by shadow mode leave the triage
+   list.
 3. reads switch to `self.facts`; the old state is written but unread.
    the flipped verdicts are the pinned shadow mismatches, each triaged.
    message text may change where the facts give a better cause; no more
    mirroring of the old wording.
 4. the old state is deleted. the checker's pinned type-error count moves
    and is measured and set.
-4a. the stage-2 seed (the plan's step 11, moved here), so the checker's
-   own source is held to the rules it enforces and `known` only falls.
 4b. one flow pass: the checker's walk records the control-flow edges and
    the events where code runs, once, and both narrowing and definite
    assignment (`flow.tl`) read them. it takes PRs 7 and 8 below (edge-pair
@@ -146,18 +160,20 @@ every checker change also needed a second review round. so:
   x` widened by name) is PR 3's triage list.
 
 known gaps left with TODOs: a declared field read on a record with
-`__index` or `__newindex` drops nothing; a `goto` that skips a `<close>`
+`__index` or `__newindex` drops nothing, which PR 2b ends by narrowing no
+mutable field; a `goto` that skips a `<close>`
 declaration over-refuses in definite assignment; the shadow's comparison
 of generic types equates type variables of one name; the harness compares
 codes and messages, not types (`--types`).
 
 ## seed constraints
 
-[`vendor/tl/tl.lua`] (upstream 0.24.8) compiles the checker: no `name?: T`,
-no `: never`, no narrowing of a field (copy to a local first), and `nil`
-as a typed value through the `local x: T = nil` idiom with its TODO. the
-new code lives in `facts.tl` with no type errors; `tl.tl` gets thin call
-sites.
+until PR 2a, [`vendor/tl/tl.lua`] (upstream 0.24.8) compiles the checker:
+no `name?: T`, no `: never`, no narrowing of a field (copy to a local
+first), and `nil` as a typed value through the `local x: T = nil` idiom
+with its TODO. the new code lives in `facts.tl` with no type errors;
+`tl.tl` gets thin call sites. from PR 2a the pinned release compiles it,
+and the checker's source may use what that release's checker accepts.
 
 ## oracles
 
@@ -165,9 +181,9 @@ sites.
   a subtype of the declared type; the register is `nil` after a statement
   exactly when `flow.ends` says it ends; the frame stack balances.
 - a metamorphic fuzz property: insert, between a test and a narrowed
-  read, a statement that changes the place (a call that writes the field,
-  a write through another reference, `x = nil`); the program must then be
-  refused.
+  read, a statement that changes the place (`x = nil`, a write to a
+  read-only field through another reference); the program must then be
+  refused, at the read or at the write.
 - checked narrowing: under the existing `runtime_checks` option, the code
   generator wraps each read whose type came from a fact in a check of the
   fact (mostly `~= nil`), raising "fact violated at y:x". a CI leg runs the
