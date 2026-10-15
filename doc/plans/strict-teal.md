@@ -924,7 +924,9 @@ foundation's final form as the fork lands it. a sketch, not a design:
   classes] needs to read plainly; and `T?` and read-only fields as
   syntax of their own. it drops `goto` (a `continue` takes its one
   allowed use), the `and`/`or` ternary, and `as` (a checked `is` takes
-  its place). each is confirmed or dropped when the grammar is written.
+  its place). each is confirmed or dropped when the grammar is written. files in the
+  new grammar keep `.tl`: the tree holds one language, and no path rule,
+  glob or importer changes with the grammar.
 - a translator comes with the grammar: it rewrites a Teal module into the
   new grammar, and is how the tree moves to it, in the change that
   replaces the fork. it is also the oracle a drop-in parser would have
@@ -1005,8 +1007,6 @@ the switch, since the seed's Lua runs on the tree's VM.
 - **`defer`.** whether the grammar earns a `defer` form for the six
   per-call `__close` guards, revisited once they have been written as
   small classes with `__close` and a `<close>` local.
-- **the files' extension.** whether a module in the new grammar keeps
-  `.tl`.
 - **the narrowing declaration's syntax.** it must read in a `.d.tl` and in
   `cosmic docs` as plainly as a return type does.
 - **variadic generics.** whether `pcall`, `xpcall` and the coroutine
