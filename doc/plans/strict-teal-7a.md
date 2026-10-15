@@ -48,7 +48,10 @@ plan's rule 4: a place is a local or a path of read-only fields from one.
   which immutability makes sound.
 - a function body starts from `for_body`: a local, and the read-only
   paths from it, kept only if `local_is_fixed` says nothing assigns it
-  after the literal is made. on leaving, the saved facts come back; nothing was
+  after the literal is made. the same test decides whether a test inside
+  the body narrows a local of the code around it at all, since the code
+  that declares it can assign it while the function is suspended in a
+  coroutine. on leaving, the saved facts come back; nothing was
   changed, so there is nothing to undo.
 - a fact is dropped only by an assignment to its local. a closure cannot
   assign a local it does not declare (R2), and nothing assigns a read-only
@@ -72,9 +75,10 @@ shrinks to places and the two refinements. `flow.tl`, `captures.tl`,
 
 ## the order of PRs
 
-each keeps the tree green. PRs 0 to 2a change no verdict; 2b refuses
-the narrowings rule 4 no longer allows, after the tree migrates; PR 3
-moves exactly the pinned shadow mismatches that remain.
+each keeps the tree green. PRs 0 to 2 change no verdict; 2a refuses the
+narrowings rule 4 no longer allows, with the tree's rewrite; PR 3 moves
+exactly the pinned shadow mismatches that remain. the seed (the plan's
+step 7b) runs beside these and none of them needs it.
 
 0. a verdict harness: a tool that writes every error and warning
    (`file, code, y, x, text`) for a list of sources, run with the PR's
@@ -89,42 +93,28 @@ moves exactly the pinned shadow mismatches that remain.
    mismatches over the tree, corpora, tests and fuzz. a mismatch that is
    an old-state bug is fixed first, in a PR of its own (done, #3074; the
    flag is off by default and nothing is kept without it).
-2a. the seed is the pinned release (the plan's step 7b), the next PR, so
-   the checker's own source can declare read-only fields, `name?: T` and
-   `: never`, and is held to the rules it enforces one pin move after each
-   lands.
-2b. read-only fields: the syntax, erased in the emitted Lua; the refusal
-   of a write to one outside the literal that makes its record; and the
-   plan's rule 11, a record is not a map. report mode counts the narrowed
-   reads of mutable fields, globals and indexes; a migration in
-   `cosmic fix` declares read-only each field the tree never writes after
-   creation, and the other reads take a local copy. the old narrowing and
-   the facts both narrow only locals and read-only paths from here, so the
-   field-path and global mismatches pinned by shadow mode leave the triage
-   list.
+2a. read-only fields, in the PRs [strict-teal.md](strict-teal.md)'s step
+   7a lists: the syntax and the write refusal, the literal rules, interface
+   agreement and the casts that would forge a writer, the [`cosmic.sys`]
+   audit, rule 11, and the change that declares the tree's read-only
+   fields, copies the other narrowed reads to locals, and restricts the
+   old narrowing to the same places. the facts then narrow only locals and
+   read-only paths, and the field-path and global mismatches pinned by
+   shadow mode leave the triage list. the old places are one field deep,
+   so a mismatch on a deeper read-only path is expected and pinned. this
+   restricts old-side machinery PR 4 deletes, an exception to building
+   none, so that PR 3 flips only what the facts decide differently.
 3. reads switch to `self.facts`; the old state is written but unread.
    the flipped verdicts are the pinned shadow mismatches, each triaged.
    message text may change where the facts give a better cause; no more
    mirroring of the old wording.
 4. the old state is deleted. the checker's pinned type-error count moves
    and is measured and set.
-4b. one flow pass: the checker's walk records the control-flow edges and
-   the events where code runs, once, and both narrowing and definite
-   assignment (`flow.tl`) read them. it takes PRs 7 and 8 below (edge-pair
-   conditions, the loop edge rule) and retires the text-order machinery
-   (the journal, retroactive loop refusals, `last_live`, `flow.tl`'s own
-   exits and closers), which the `<close>` fix had to build twice.
-5. function declarations keep local facts, as function expressions do
-   (accepts more; resolves the TODO in `local_function`).
-6. joins unite types instead of requiring the same one (accepts more).
-7. edge-pair conditions replace the guard algebra and the clock (in 4b).
-8. the loop edge rule replaces the text-order rule (accepts more: a fact
-   re-tested after a drop, drops in branches that leave) (in 4b).
-9. if needed, an assignment drops its target after the values are
-   evaluated, not before.
-
-each of 5 to 9 ships alone with the harness's list of flipped verdicts,
-every flip triaged, and the fuzz soundness property green.
+PRs 4b to 9 of the earlier order (one flow pass, function declarations
+keeping local facts, joins that unite types, edge-pair conditions, the loop
+edge rule, dropping a target after its values) are not built in the fork. the new checker
+(the plan's step 10) builds its one pass with them, and a measured need in
+the tree before then is the only reason to build one here.
 
 ## what shadow mode found
 
@@ -160,7 +150,7 @@ every checker change also needed a second review round. so:
   x` widened by name) is PR 3's triage list.
 
 known gaps left with TODOs: a declared field read on a record with
-`__index` or `__newindex` drops nothing, which PR 2b ends by narrowing no
+`__index` or `__newindex` drops nothing, which PR 2a ends by narrowing no
 mutable field; a `goto` that skips a `<close>`
 declaration over-refuses in definite assignment; the shadow's comparison
 of generic types equates type variables of one name; the harness compares
@@ -168,11 +158,11 @@ codes and messages, not types (`--types`).
 
 ## seed constraints
 
-until PR 2a, [`vendor/tl/tl.lua`] (upstream 0.24.8) compiles the checker:
+until the plan's step 7b, [`vendor/tl/tl.lua`] (upstream 0.24.8) compiles the checker:
 no `name?: T`, no `: never`, no narrowing of a field (copy to a local
 first), and `nil` as a typed value through the `local x: T = nil` idiom
 with its TODO. the new code lives in `facts.tl` with no type errors;
-`tl.tl` gets thin call sites. from PR 2a the pinned release compiles it,
+`tl.tl` gets thin call sites. from step 7b the pinned release compiles it,
 and the checker's source may use what that release's checker accepts.
 
 ## oracles
@@ -202,4 +192,5 @@ and the checker's source may use what that release's checker accepts.
 - the type report reads narrowed types at declarations and assignments;
   those two collector calls move to where facts are made.
 
+[`cosmic.sys`]: ../../core/syscalls.h
 [`vendor/tl/tl.lua`]: ../../vendor/tl/tl.lua
