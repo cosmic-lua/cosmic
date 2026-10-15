@@ -681,8 +681,12 @@ queries first.
 
 ### not adopted
 
-`any` stays as it is: it is legal only where untrusted data enters, and
-the checker already refuses to assign it, call it or index it.
+`any` is legal only where untrusted data enters, and the checker refuses
+to assign it, call it or index it. data only enters it: a record, a
+class or a value whose type has a read-only field is never assigned to
+`any`, so no round trip through `any` and a cast to a map can write a
+field behind its type. code that needs a value of any type uses a type
+variable or a tagged union, and an encoder takes the type it encodes.
 
 rejected, so nobody proposes them again: a non-nil assertion `x!` (an
 escape hatch; `assert(x)` says why), `a?.b` (the tree's field paths are
@@ -1011,8 +1015,6 @@ the switch, since the seed's Lua runs on the tree's VM.
   small classes with `__close` and a `<close>` local.
 - **the files' extension.** whether a module in the new grammar keeps
   `.tl`.
-- **records and `any`.** whether a record may be assigned to `any` at all;
-  if so, data typed `any` that was a record can reach a map cast.
 - **the JSON array marker.** whether the decoder's array marker stays a
   metatable C attaches, an exception to [compiler-written classes], or
   becomes a tag the encoder reads.
