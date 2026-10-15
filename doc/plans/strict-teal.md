@@ -284,7 +284,9 @@ stack can carry.
 - **what the claim excludes.** types do not track integer overflow,
   division by zero, or code a C userdata's finalizer runs. each is a
   run-time fault, not a type that lied. a table a program makes has no
-  finalizer.
+  finalizer: a resource that must be released even when its handle is
+  dropped, such as a child process, is a C userdata whose `__gc` C owns,
+  and `<close>` releases everything else.
 
 ## the database
 
@@ -886,8 +888,12 @@ become nominal; the patched parser gains the reserved class literal form
 and its opcode. the tree's other metatables are few outside tests: four
 `__mode` tables, two proxies with function `__index`, one `__tostring`,
 two `__gc` safety nets on process handles, and the array marker the JSON
-decoder attaches in C ([`core/json.c`]). each gets its class form (an
-open question settles `__gc` and the marker). then `setmetatable`,
+decoder attaches in C ([`core/json.c`]). each gets its class form, except
+the two process handles ([`Child.Handle`] and the connector's process),
+which become C userdata with a `__gc` that kills and reaps a child its
+handle was dropped without closing; the class form holds only Teal
+state, and a handle that must not leak is a resource C owns (an open
+question settles the marker). then `setmetatable`,
 `getmetatable`, `rawset` and `rawget` leave the surface a program sees.
 the checker's source keeps the `setmetatable` dialect until the pin
 carries this step.
@@ -1005,9 +1011,6 @@ the switch, since the seed's Lua runs on the tree's VM.
   small classes with `__close` and a `<close>` local.
 - **the files' extension.** whether a module in the new grammar keeps
   `.tl`.
-- **finalizers.** whether a class may declare `__gc`, so a dropped process
-  handle is still reaped, or a handle that must not leak is a C userdata,
-  or `<close>` alone is the rule.
 - **records and `any`.** whether a record may be assigned to `any` at all;
   if so, data typed `any` that was a record can reach a map cast.
 - **the JSON array marker.** whether the decoder's array marker stays a
@@ -1104,3 +1107,5 @@ the switch, since the seed's Lua runs on the tree's VM.
 [`Json.array`]: ../../cosmic/json.tl
 [`Sqlite.rows`]: ../../cosmic/sqlite.tl
 [`vendor/tl/PIN`]: ../../vendor/tl/PIN
+
+[`Child.Handle`]: ../../cosmic/child.tl
