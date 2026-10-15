@@ -436,6 +436,10 @@ decides narrowing and reachability.
   its own, which is not a record with a read-only field, so no second
   reference to it can write the field. a literal of such a record gives
   every read-only field a value.
+- a module's read-only fields are never seen before they are set: the
+  build refuses a cycle of imports ([`compilation.ordered`] reports "a
+  cycle of imports"), and only declarations, which run no code, may form
+  one, so a module's body has run before any module that requires it.
 - a `.d.tl` declaration that takes a record with a read-only field
   promises that its C does not write it; the step that adds read-only
   fields audits every [`cosmic.sys`] binding that takes a table, and a
@@ -1003,8 +1007,6 @@ the switch, since the seed's Lua runs on the tree's VM.
   small classes with `__close` and a `<close>` local.
 - **the files' extension.** whether a module in the new grammar keeps
   `.tl`.
-- **`require` cycles.** what a cycle answers, which decides whether a
-  module's read-only fields can be seen before they are set.
 - **the narrowing declaration's syntax.** it must read in a `.d.tl` and in
   `cosmic docs` as plainly as a return type does.
 - **variadic generics.** whether `pcall`, `xpcall` and the coroutine
@@ -1092,4 +1094,5 @@ the switch, since the seed's Lua runs on the tree's VM.
 [`vendor/tl/PIN`]: ../../vendor/tl/PIN
 
 [`Child.Handle`]: ../../cosmic/child.tl
+[`compilation.ordered`]: ../../build/compilation.tl
 [`cosmic.json.array`]: ../../cosmic/json.tl
