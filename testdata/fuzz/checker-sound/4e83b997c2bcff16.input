@@ -1,0 +1,17 @@
+local enum K
+  "'"
+  "!"
+end
+local keyed: {K:integer} = { ["'"] = 1, ["!"] = 2 }
+local c: string | nil = "'"
+local d: string | nil = c
+local sink: integer = 0
+if d == "'" then
+  do
+    if d == "'" then
+      if d == "'" then d = "z" end
+    end
+  end
+  sink = sink + keyed[d]
+end
+return sink

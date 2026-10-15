@@ -10,10 +10,10 @@ local function scalar(db: Sqlite.Handle, sql: string): string | nil, string
   if rows == nil then
     return nil, trouble
   end
-  if #rows ~= 1 or #rows[1] ~= 1 then
+  if #rows ~= 1 or rows[1]:count() ~= 1 then
     return nil, "query returned an unexpected shape"
   end
-  return rows[1][1], ""
+  return rows[1]:text(1), ""
 end
 
 return function(argv: {string}): integer
@@ -28,7 +28,8 @@ return function(argv: {string}): integer
   -- recover that copy before integrity checks. The preserved bytes remain
   -- unopened and retain their exact database+journal hashes.
   -- This file runs only on the candidate's own binary (orchestration.tl's
-  -- local and portable boundaries), so the options table is read as such.
+  -- local and portable boundaries), so the options table is read as such,
+  -- and a row is read through its accessors.
   local db, open_trouble = Sqlite.open(path, { writable = recover })
   if db == nil then
     print("work database integrity: FAIL (open: " .. open_trouble .. ")")
@@ -54,11 +55,11 @@ return function(argv: {string}): integer
     print("work database integrity: FAIL (close: " .. close_trouble .. ")")
     return 1
   end
-  if integrity == nil or #integrity ~= 1 or #integrity[1] ~= 1 or
-      integrity[1][1] ~= "ok" then
+  if integrity == nil or #integrity ~= 1 or integrity[1]:count() ~= 1 or
+      integrity[1]:text(1) ~= "ok" then
     local findings: {string} = {}
     for _, row in ipairs(integrity or {}) do
-      findings[#findings + 1] = table.concat(row, " | ")
+      findings[#findings + 1] = table.concat(row:texts(), " | ")
     end
     print("work database integrity: FAIL (" .. table.concat(findings, "; ") .. ")")
     return 1

@@ -23,6 +23,7 @@ local Proc = require("cosmic.proc")
 local type raw_store = require("cosmic.internal.store")
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
+local raw_errors = require("cosmic.internal.errors")
 local Assertions = require("build.assertions")
 local confine = require("build.confine")
 local key_parts = require("build.key_parts")
@@ -66,6 +67,25 @@ local record worker
     --- test passed having deliberately not checked, which is no
     --- [`Judgement.unchecked`].
     deliberate?: string
+    --- The violations a checked run's worker met, in the order met, and
+    --- how many more it kept no record of ([`worker.install_checks`]).
+    violations?: {Violation}
+    dropped?: integer
+  end
+
+  --- One value that crossed a typed boundary of a checked run
+  --- ([`importer.compile`]'s `checks`) as a kind its declared type does
+  --- not admit, which the run reports and does not fail. `at` is the place
+  --- that sent it: the caller's file and line for a parameter, the `return`
+  --- or the write for a return value and a field. The same boundary, place
+  --- and kinds again count up `count`.
+  record Violation
+    kind: string
+    at: string
+    target: string
+    declared: string
+    actual: string
+    count: integer
   end
 
   --- How a sandboxed worker is held by a Landlock ruleset
@@ -121,6 +141,9 @@ local record worker
     --- since a worker the policy holds cannot list / to find them
     --- (`--runs`).
     runs?: {string}
+    --- Whether the worker reports the violations of the run-time checks
+    --- its modules carry (`COSMIC_TEST_TYPES`).
+    checks?: boolean
     --- The name the worker is to have its program by, in place of the
     --- artifact path `start` names (build.test_sandbox's
     --- [`Plan.program`]), or nil to keep that.
@@ -174,6 +197,14 @@ local record worker
 
   --- The descriptor the report is written to.
   report_fd: integer
+
+  --- The most distinct violations a worker keeps a record of: any more are
+  --- counted ([`worker.dropped_violations`]) and nothing else.
+  most_kept: integer
+
+  install_checks: function()
+  violations: function(): {Violation}
+  dropped_violations: function(): integer
 
   loads: {string}
 end
@@ -241,6 +272,278 @@ end
 local put = Fs.put
 local function complain(line: string)
   local _, _ = put(2, "cosmic: " .. line .. "\n")
+end
+
+--- What the test's own calls hand the runner while it loads and runs: the
+--- needs its `policy` stands for, and the reason it gave for passing
+--- unchecked.
+local record Given
+  handed: Test.Needs | nil
+  deliberate: string
+end
+
+--- The run-time checks of a checked run. A module compiled with them calls
+--- the global `__cosmic_tc` at each typed boundary ([`importer.compile`]'s
+--- `checks`), with the check's spec and the values crossing it: a string of
+--- fields joined by ";", the kind of boundary ("p" parameters, "r" return
+--- values, "f" a record field written), the place, and for each value its
+--- label and the kinds its declared type admits, joined by "|" (`type`'s
+--- names, and "integer" for a number that `math.type` says is one). The
+--- hook answers the values (the first, for a field) and records a value of
+--- another kind: "absent" for a return value the `return` gave none of,
+--- which Lua reads as nil, apart from a nil it gave. A violation is
+--- recorded and the value passes on: a checked run reports and fails
+--- nothing.
+---
+--- One kind of check fails: "n", a read whose type a test narrowed (an
+--- `if x then`, a `~= nil`, an `is`, `assert`, a type test; the checker's
+--- `Node.rt_fact`), with the place, its name and what the test says of the
+--- value: "~" and the kinds the test took out, joined by "|" (a value of
+--- one of them breaks it; "integer" among them takes out integers alone),
+--- or the kinds the value has. The hook answers the value, or raises "fact
+--- violated at <place>" for one the fact is false of, since the checker's
+--- own proof was wrong there.
+local record Check
+  kind: string
+  at: string
+  name: string
+  n: integer
+  labels: {string}
+  declared: {string}
+  kinds: {{string:boolean}}
+  integral: {boolean}
+  -- The violations met at each position, by the value's kind and then the
+  -- place that sent it, so a repeated one is found without building a key.
+  memo: {{string:{string:worker.Violation}}}
+end
+
+-- The library the hook runs on, taken as the module loads: a test that
+-- replaces `string.match` or `table.concat` with a wrapper of its own, as
+-- one counts the string work of what it measures, must not have the hook
+-- call it, for the wrapper's own checked parameters would call the hook.
+local gmatch, match = string.gmatch, string.match
+local lua_type, math_type, lua_select, lua_pcall = type, math.type, select, pcall
+local lua_byte, lua_char, lua_gsub, lua_tonumber, lua_error = string.byte, string.char, string.gsub, tonumber, error
+
+--- A fact of a narrowed read, parsed.
+local record Fact
+  at: string
+  name: string
+  --- The kinds the value may have, or those it may not (`negated`).
+  kinds: {string:boolean}
+  negated: boolean
+  declared: string
+  integral: boolean
+end
+
+local checks: {string:Check} = {}
+local facts: {string:Fact} = {}
+local malformed: {string:boolean} = {}
+local found: {worker.Violation} = {}
+local tally = { dropped = 0 }
+-- The place that sent a value is asked of the stack for every violation of
+-- a parameter, in constant time, so the report names it however often a
+-- boundary is violated; what is bounded is how many distinct violations one
+-- worker keeps ([`worker.most_kept`]).
+
+local function parse_check(text: string): Check
+  local fields: {string} = {}
+  for field in gmatch(text .. ";", "([^;]*);") do fields[#fields + 1] = field end
+  local check: Check = { kind = fields[1], at = fields[2], name = "", n = 0, labels = {},
+    declared = {}, kinds = {}, integral = {}, memo = {} }
+  if check.kind ~= "p" and check.kind ~= "r" and check.kind ~= "f" then
+    error("a check of no kind")
+  end
+  local first = 3
+  if check.kind == "p" or check.kind == "f" then
+    check.name = fields[3]
+    first = 4
+  end
+  for i = first, #fields do
+    local index = i - first + 1
+    local label, declared = fields[i], fields[i]
+    if check.kind == "p" then
+      label, declared = match(fields[i], "^([^=]*)=(.*)$")
+    elseif check.kind == "r" then
+      label = "return value " .. tostring(index)
+    else
+      label = check.name
+    end
+    check.n = index
+    check.memo[index] = {}
+    check.labels[index] = label
+    if declared ~= "-" then
+      local kinds: {string:boolean} = {}
+      local integer, number = false, false
+      for kind in gmatch(declared, "[^|]+") do
+        if kind == "integer" then
+          integer = true
+        else
+          kinds[kind] = true
+          number = number or kind == "number"
+        end
+      end
+      if integer and not number then
+        kinds.number = true
+        check.integral[index] = true
+      end
+      check.kinds[index] = kinds
+      check.declared[index] = declared
+    end
+  end
+  checks[text] = check
+  return check
+end
+
+local function note(check: Check, index: integer, value: any, absent: boolean)
+  local actual = lua_type(value)
+  if actual == "number" then actual = math_type(value) end
+  if absent then actual = "absent" end
+  local at = check.at
+  if check.kind == "p" then
+    -- The frame that called the checked function: this, the `pcall` that
+    -- calls it, the hook, the checked function, its caller (a caller that
+    -- runs C is passed over, as one that tail-called the function is no
+    -- frame and names its own caller).
+    at = raw_errors.where(5) or "?"
+  end
+  local sites = check.memo[index][actual]
+  if sites == nil then
+    sites = {}
+    check.memo[index][actual] = sites
+  end
+  local known = sites[at]
+  if known ~= nil then
+    known.count = known.count + 1
+    return
+  end
+  if #found >= worker.most_kept then
+    tally.dropped = tally.dropped + 1
+    return
+  end
+  local target: string
+  if check.kind == "p" then
+    target = "parameter " .. check.labels[index] .. " of " .. check.name .. " (" .. check.at .. ")"
+  elseif check.kind == "r" then
+    target = check.labels[index]
+  else
+    target = "field " .. check.name
+  end
+  local met: worker.Violation = { kind = check.kind == "p" and "parameter" or check.kind == "r" and "return" or "field",
+    at = at, target = target, declared = check.declared[index], actual = actual, count = 1 }
+  sites[at] = met
+  found[#found + 1] = met
+end
+
+local function parse_fact(text: string)
+  local at, name, declared = match(text, "^n;([^;]*);([^;]*);([^;]*)$")
+  if at == nil then error("a fact of no place") end
+  local negated = lua_byte(declared, 1) == 126
+  local fact: Fact = { at = (lua_gsub(at, "%%(%x%x)", function(digits: string): string
+    local byte = lua_tonumber(digits, 16)
+    return byte is integer and lua_char(byte) or "?"
+  end)), name = name, declared = negated and "not " .. declared:sub(2) or declared,
+    kinds = {}, negated = negated, integral = false }
+  local integer, number = false, false
+  for kind in gmatch(negated and declared:sub(2) or declared, "[^|]+") do
+    if kind == "integer" then
+      integer = true
+    else
+      fact.kinds[kind] = true
+      number = number or kind == "number"
+    end
+  end
+  if integer and not number then
+    if negated then
+      fact.kinds.integer = true
+    else
+      fact.kinds.number = true
+    end
+    fact.integral = true
+  end
+  facts[text] = fact
+end
+
+-- The value of a read whose fact holds of it, else the failure.
+local function verify(fact: Fact, value: any): any
+  local kind = lua_type(value)
+  local kinds = fact.kinds
+  local broken: boolean
+  if fact.negated then
+    broken = kinds[kind] == true or (kind == "number" and kinds.integer == true and math_type(value) == "integer")
+  else
+    broken = not kinds[kind] or (kind == "number" and fact.integral and math_type(value) ~= "integer")
+  end
+  if not broken then return value end
+  local actual = kind
+  if actual == "number" then actual = math_type(value) end
+  lua_error("fact violated at " .. fact.at .. ": " .. fact.name .. " is " .. actual ..
+      ", the checker proved " .. fact.declared, 0)
+end
+
+local function hook(_: integer, text: string, ...: any): any...
+  local check = checks[text]
+  if check == nil then
+    local fact = facts[text]
+    if fact ~= nil then return verify(fact, (...)) end
+    if not malformed[text] then
+      if lua_byte(text, 1) == 110 then
+        if lua_pcall(parse_fact, text) then
+          return verify(facts[text], (...))
+        end
+        malformed[text] = true
+      -- A parse that succeeds leaves its check in `checks`.
+      elseif lua_pcall(parse_check, text) then
+        check = checks[text]
+      else
+        malformed[text] = true
+      end
+    end
+    -- A spec that does not parse checks nothing and is no failure of the
+    -- test: the values pass as they came.
+    if check == nil then
+      if lua_byte(text, 1) == 102 then return (...) end
+      return ...
+    end
+  end
+  local given = lua_select("#", ...)
+  for index = 1, check.n do
+    local kinds = check.kinds[index]
+    if kinds ~= nil then
+      local value = (lua_select(index, ...))
+      local kind = lua_type(value)
+      if not kinds[kind] or (kind == "number" and check.integral[index] and
+          math_type(value) ~= "integer") then
+        -- A check that fails to say so is no failure of the test.
+        local _ = lua_pcall(note, check, index, value, index > given)
+      end
+    end
+  end
+  if check.kind == "f" then return (...) end
+  return ...
+end
+
+worker.most_kept = 2000
+
+--- Defines the global `__cosmic_tc` the Lua of a checked run calls, which
+--- records what [`worker.violations`] answers. Install it before a test's
+--- module loads: the boundaries its load crosses are checked too.
+function worker.install_checks()
+  rawset(_G as {string:any}, "__cosmic_tc", hook)
+end
+
+--- The violations this process has met since it installed its checks, in
+--- the order met.
+function worker.violations(): {worker.Violation}
+  local out: {worker.Violation} = {}
+  for i, met in ipairs(found) do out[i] = met end
+  return out
+end
+
+--- How many kinds of violation this process met past the number it keeps
+--- a record of.
+function worker.dropped_violations(): integer
+  return tally.dropped
 end
 
 --- The monotonic clock, in nanoseconds, straight from the binding.
@@ -313,6 +616,13 @@ function worker.encode(report: worker.Report): string
   lines[#lines + 1] = "asserted " .. tostring(report.asserted or 0)
   if report.deliberate ~= nil and report.deliberate ~= "" then
     lines[#lines + 1] = "deliberate " .. hex(report.deliberate)
+  end
+  for _, met in ipairs(report.violations or {}) do
+    lines[#lines + 1] = "violation " .. hex(table.concat({ met.kind, met.at, met.target,
+      met.declared, met.actual }, "\t")) .. " " .. tostring(met.count)
+  end
+  if report.dropped ~= nil and report.dropped > 0 then
+    lines[#lines + 1] = "dropped " .. tostring(report.dropped)
   end
   lines[#lines + 1] = "end"
   return table.concat(lines, "\n") .. "\n"
@@ -387,6 +697,23 @@ function worker.decode(text: string): worker.Report | nil, string
         local decoded = unhex(rest)
         if decoded == nil or decoded == "" then return nil, "a malformed deliberate: " .. line end
         report.deliberate = decoded
+      elseif tag == "violation" then
+        local packed, count = rest:match("^([0-9a-f]+) (%d+)$")
+        local decoded = packed ~= nil and unhex(packed) or nil
+        local kind, at, target, declared, actual: string | nil, string | nil, string | nil, string | nil, string | nil
+        if decoded ~= nil then
+          kind, at, target, declared, actual =
+            decoded:match("^([^\t]*)\t([^\t]*)\t([^\t]*)\t([^\t]*)\t([^\t]*)$")
+        end
+        if actual == nil then return nil, "a malformed violation: " .. line end
+        local met = report.violations or {}
+        report.violations = met
+        met[#met + 1] = { kind = kind, at = at, target = target, declared = declared,
+          actual = actual, count = math.tointeger(tonumber(count)) or 1 }
+      elseif tag == "dropped" then
+        local count = math.tointeger(tonumber(rest))
+        if count == nil or count < 0 then return nil, "a malformed count: " .. line end
+        report.dropped = count
       elseif tag == "asserted" then
         local count = math.tointeger(tonumber(rest))
         if count == nil or count < 0 then return nil, "a malformed count: " .. line end
@@ -561,6 +888,7 @@ function worker.invocation(given: worker.Invocation): worker.Command
   for name, value in pairs(given.env) do env[name] = value end
   for name, value in pairs(given.start.env) do env[name] = value end
   env.COSMIC_COVERAGE_STARTUP = "1"
+  env.COSMIC_TEST_TYPES = given.checks and "1" or nil
   local fds: {integer:integer | string} = { [worker.report_fd] = "capture" }
   for number, fd in pairs(given.start.fds) do fds[number] = fd end
   if given.policy ~= nil and promises_nest(given.policy) then
@@ -769,7 +1097,7 @@ function worker.run(argv: {integer:string}): integer
   -- The closure's names start after `--store` and its path.
   local first = 9
   local sandboxed = argv[first] == "--sandboxed"
-  local runs: {string} = nil
+  local runs: {string} | nil = nil
   local own_scratch = false
   if sandboxed then
     first = first + 1
@@ -856,8 +1184,9 @@ function worker.run(argv: {integer:string}): integer
   }
   -- Where the C hits of the processes the test starts are folded: the
   -- test's coverage once it ran, else the load's, else nowhere.
-  local child_into: Coverage.Hits = nil
+  local child_into: Coverage.Hits | nil = nil
   Assertions.install()
+  if env_get("COSMIC_TEST_TYPES") == "1" then worker.install_checks() end
   -- Processes the test starts report the core's C they ran here, so it
   -- counts for the test like the C it runs itself.
   local made, _ = sys.mkdir(children_path, 0x1c0)
@@ -886,7 +1215,7 @@ function worker.run(argv: {integer:string}): integer
   -- What the module's `policy` call stands for as it loads, through the
   -- hook [`cosmic.test`] leaves for a runner; once it has loaded, a call
   -- is refused.
-  local handed: Test.Needs = nil
+  local handed_over: Given = { deliberate = "" }
   -- Each reason the test gives [`Test.skip`], once, in order.
   local reasons: {string} = {}
   -- What [`Test.skip`] raises to end its test. Only this table counts as
@@ -895,11 +1224,10 @@ function worker.run(argv: {integer:string}): integer
   setmetatable(ended_by_skip, {
     __tostring = function(): string return "the test was skipped" end,
   })
-  local deliberate = ""
   local runner = {
     loaded = false,
-    deliberate = function(reason: string) deliberate = reason end,
-    handed = function(needs: Test.Needs) handed = needs end,
+    deliberate = function(reason: string) handed_over.deliberate = reason end,
+    handed = function(needs: Test.Needs) handed_over.handed = needs end,
     -- Where the files above the project are, for a module that declares
     -- some ([`Test.parent`]).
     parent = env_get("COSMIC_TEST_PARENT"),
@@ -927,7 +1255,7 @@ function worker.run(argv: {integer:string}): integer
     report.load_hits = hits
     child_into = hits
   end
-  local needs = loaded and test_inputs.canonical(test_inputs.as_declared(handed)) or ""
+  local needs = loaded and test_inputs.canonical(test_inputs.as_declared(handed_over.handed)) or ""
   if loaded and needs ~= expected_needs then
     loaded = false
     produced = "its cosmic.test policy call stands for what the build did not read " ..
@@ -969,7 +1297,7 @@ function worker.run(argv: {integer:string}): integer
       end
       report.skipped = table.concat(reasons, "; ")
       report.asserted = Assertions.count()
-      report.deliberate = deliberate
+      report.deliberate = handed_over.deliberate
       report.elapsed_ns = finished - started
     end
   end
@@ -984,6 +1312,7 @@ function worker.run(argv: {integer:string}): integer
   end
   table.sort(modules)
   report.modules = modules
+  report.violations, report.dropped = worker.violations(), worker.dropped_violations()
   local written, trouble = put(worker.report_fd, worker.encode(report))
   if not written then
     complain("the test report: " .. trouble)

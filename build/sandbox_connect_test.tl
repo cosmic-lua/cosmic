@@ -105,7 +105,7 @@ local function against(args: {string}, body: function(relay: Net.Conn, send: fun
   local held = streams()
   Poll.run(function()
     local listener = assert(Net.listen(Net.tcp("127.0.0.1", 0)))
-    local variables = { [variable or "ALL_PROXY"] = proxy_at(listener.address.port, userinfo), COSMIC_CONNECT_TRACE = "1" }
+    local variables = { [variable or "ALL_PROXY"] = proxy_at(assert(listener.address.port), userinfo), COSMIC_CONNECT_TRACE = "1" }
     if variable == "all_proxy" then variables.all_proxy = variables.all_proxy .. "/" end
     local client = Poll.spawn(function()
       ran.code = connect.run(args, io_of(held, variables, function(line: string)
@@ -116,12 +116,12 @@ local function against(args: {string}, body: function(relay: Net.Conn, send: fun
         end
       end, timeout_ns))
     end)
-    local relay: Net.Conn | nil
+    local relay = { value = nil as Net.Conn | nil }
     -- However the body ends, the listener and the connection are closed, so
     -- that one failing test leaves nothing for the next.
     local ok, trouble = pcall(function()
       local accepted = assert(listener:accept(WAIT))
-      relay = accepted
+      relay.value = accepted
       accepted:set_timeout(WAIT)
       body(accepted, function(data: string)
         held.waiting = held.waiting .. data
@@ -133,7 +133,7 @@ local function against(args: {string}, body: function(relay: Net.Conn, send: fun
       assert(client:join(WAIT), "the client did not end")
       ran.out = held.out
     end)
-    if relay ~= nil then local _, _ = relay:close() end
+    if relay.value ~= nil then local _, _ = relay.value:close() end
     client:cancel()
     local _, _ = listener:close()
     if not ok then
@@ -164,10 +164,10 @@ local function asked(relay: Net.Conn): string
 end
 
 local function test_a_name_is_asked_for_as_a_name_and_the_bytes_go_both_ways()
-  local request: string
-  local seen_end = false
+  local request = { value = nil as string | nil }
+  local seen_end = { value = false }
   local ran = against({ "api.github.com", "443" }, function(relay: Net.Conn, send: function(string), finish: function())
-    request = asked(relay)
+    request.value = asked(relay)
     -- The relay's first bytes of the tunnel come in the same write as its answer.
     assert(relay:write(RelayWire.socks_reply("succeeded") .. "banner "))
     send("ping")
@@ -176,35 +176,35 @@ local function test_a_name_is_asked_for_as_a_name_and_the_bytes_go_both_ways()
     -- The end of what the client sends reaches the relay as a half-close, and
     -- the relay can still answer.
     assert(relay:read(1) == nil, "the relay sees the end")
-    seen_end = true
+    seen_end.value = true
     assert(relay:write("pong"))
     assert(relay:shutdown("write"))
   end)
   assert(ran.code == 0, ran.code .. table.concat(ran.complaints, "\n"))
-  assert(request == "\5\1\0\3\14api.github.com\1\187", "the host is a name: " .. request)
-  assert(seen_end, "a half-close was seen")
+  assert(request.value == "\5\1\0\3\14api.github.com\1\187", "the host is a name: " .. tostring(request.value))
+  assert(seen_end.value, "a half-close was seen")
   assert(ran.out == "banner pong", "the output is the tunnel's: " .. ran.out)
   assert(#ran.complaints == 0, table.concat(ran.complaints))
 end
 
 local function test_an_address_is_asked_for_as_an_address()
-  local request: string
+  local request = { value = nil as string | nil }
   local ran = against({ "127.0.0.2", "22" }, function(relay: Net.Conn, _: function(string), finish: function())
-    request = asked(relay)
+    request.value = asked(relay)
     assert(relay:write(RelayWire.socks_reply("succeeded")))
     finish()
     assert(relay:shutdown("write"))
   end)
   assert(ran.code == 0, table.concat(ran.complaints))
-  assert(request == "\5\1\0\1\127\0\0\2\0\22", "an address of type 1")
-  local ipv6: string
+  assert(request.value == "\5\1\0\1\127\0\0\2\0\22", "an address of type 1")
+  local ipv6 = { value = nil as string | nil }
   assert(against({ "::1", "22" }, function(relay: Net.Conn, _: function(string), finish: function())
-    ipv6 = asked(relay)
+    ipv6.value = asked(relay)
     assert(relay:write(RelayWire.socks_reply("succeeded")))
     finish()
     assert(relay:shutdown("write"))
   end).code == 0)
-  assert(ipv6 == "\5\1\0\4" .. ("\0"):rep(15) .. "\1\0\22", "an address of type 4")
+  assert(ipv6.value == "\5\1\0\4" .. ("\0"):rep(15) .. "\1\0\22", "an address of type 4")
 end
 
 local function test_the_relay_ending_first_ends_the_output_and_the_run_ends_with_the_input()
@@ -312,16 +312,17 @@ end
 
 local function test_nothing_listening_is_a_failure_naming_the_relay(_: string)
   -- A port that was just listened at and is shut: nothing is there.
-  local port: integer
+  local port = { value = nil as integer | nil }
   Poll.run(function()
     local listener = assert(Net.listen(Net.tcp("127.0.0.1", 0)))
-    port = listener.address.port
+    port.value = listener.address.port
     assert(listener:close())
   end)
+  local closed = assert(port.value, "the listener was made")
   local complaints: {string} = {}
   local code = connect.run({ "host", "22" }, {
     getenv = function(name: string): string | nil
-      if name == "ALL_PROXY" then return proxy_at(port) end
+      if name == "ALL_PROXY" then return proxy_at(closed) end
       return nil
     end,
     err = function(line: string) complaints[#complaints + 1] = line end,
@@ -329,7 +330,7 @@ local function test_nothing_listening_is_a_failure_naming_the_relay(_: string)
     write = function(): boolean, string return true, "" end,
     finish = function(): boolean, string return true, "" end,
   })
-  assert(code == 1 and complaints[1]:find("the relay at " .. proxy_at(port), 1, true), tostring(complaints[1]))
+  assert(code == 1 and complaints[1]:find("the relay at " .. proxy_at(closed), 1, true), tostring(complaints[1]))
 end
 
 local function test_a_relay_that_never_answers_is_a_failure_after_the_timeout_naming_the_relay()
@@ -363,34 +364,36 @@ local function asked_with_login(relay: Net.Conn, verdict: string): string, strin
 end
 
 local function test_a_userinfo_is_sent_as_the_username_and_password_percent_decoded()
-  local user, password, request: string, string, string | nil
+  local user = { value = nil as string | nil }
+  local password = { value = nil as string | nil }
+  local request = { value = nil as string | nil }
   local ran = against({ "api.github.com", "443" }, function(relay: Net.Conn, _: function(string), finish: function())
-    user, password, request = asked_with_login(relay, "\1\0")
+    user.value, password.value, request.value = asked_with_login(relay, "\1\0")
     assert(relay:write(RelayWire.socks_reply("succeeded") .. "banner"))
     finish()
     assert(relay:shutdown("write"))
   end, nil, nil, "sandbox:tok%2Fen%40x%3a:%25")
   assert(ran.code == 0, ran.code .. table.concat(ran.complaints))
-  assert(user == "sandbox" and password == "tok/en@x::%", "the userinfo is decoded: " .. tostring(password))
-  assert(request == "\5\1\0\3\14api.github.com\1\187", "the request follows the login")
+  assert(user.value == "sandbox" and password.value == "tok/en@x::%", "the userinfo is decoded: " .. tostring(password.value))
+  assert(request.value == "\5\1\0\3\14api.github.com\1\187", "the request follows the login")
   assert(ran.out == "banner" and #ran.complaints == 0, ran.out .. table.concat(ran.complaints))
   -- An empty user name is sent as a name the relay takes.
-  local named: string
+  local named = { value = nil as string | nil }
   local anonymous = against({ "h", "1" }, function(relay: Net.Conn)
-    named = asked_with_login(relay, "\1\0")
+    named.value = asked_with_login(relay, "\1\0")
     assert(relay:write(RelayWire.socks_reply("refused")))
   end, nil, nil, ":tok")
-  assert(anonymous.code == 1 and named == "cosmic", tostring(named))
+  assert(anonymous.code == 1 and named.value == "cosmic", tostring(named.value))
 end
 
 local function test_a_relay_that_refuses_the_token_exits_1_naming_it_and_never_the_password()
   local secret <const> = "SECRET-token-1234"
-  local seen: string
+  local seen = { value = nil as string | nil }
   local ran = against({ "host.example", "22" }, function(relay: Net.Conn)
     local _, got = asked_with_login(relay, "\1\1")
-    seen = got
+    seen.value = got
   end, nil, nil, "u:" .. secret)
-  assert(seen == secret, "the relay was sent it")
+  assert(seen.value == secret, "the relay was sent it")
   assert(ran.code == 1 and #ran.complaints == 1, ran.code .. table.concat(ran.complaints))
   assert(ran.complaints[1] == "cosmic: sandbox connect: host.example:22: the relay refused the sandbox's token",
     ran.complaints[1])

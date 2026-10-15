@@ -32,40 +32,42 @@ local function header(res: Web.Response, name: string): string | nil
 end
 
 local function test_request_reads_the_hx_headers()
-  local seen: Htmx.Request = nil
+  local seen = { value = nil as Htmx.Request | nil }
   through(function(req: Web.Request): Web.Response
-    seen = Htmx.request(req)
+    seen.value = Htmx.request(req)
     return Web.text("")
   end, { ["HX-Request"] = "true", ["HX-Target"] = "list", ["HX-Trigger"] = "btn",
     ["HX-Trigger-Name"] = "save", ["HX-Current-URL"] = "http://x.test/items", ["HX-Prompt"] = "yes" })
-  assert(seen.active and not seen.boosted and not seen.history_restore)
-  assert(seen.target == "list" and seen.trigger == "btn" and seen.trigger_name == "save")
-  assert(seen.current_url == "http://x.test/items" and seen.prompt == "yes")
+  local first = assert(seen.value, "the handler never ran")
+  assert(first.active and not first.boosted and not first.history_restore)
+  assert(first.target == "list" and first.trigger == "btn" and first.trigger_name == "save")
+  assert(first.current_url == "http://x.test/items" and first.prompt == "yes")
   through(function(req: Web.Request): Web.Response
-    seen = Htmx.request(req)
+    seen.value = Htmx.request(req)
     return Web.text("")
   end)
-  assert(not seen.active and seen.target == nil and seen.prompt == nil)
+  local second = assert(seen.value, "the handler never ran")
+  assert(not second.active and second.target == nil and second.prompt == nil)
 end
 
 local function test_only_the_literal_true_sets_a_flag()
-  local flags: {boolean} = {}
+  local flags = { value = {} as {boolean} }
   through(function(req: Web.Request): Web.Response
     local seen = Htmx.request(req)
-    flags = { seen.active, seen.boosted, seen.history_restore }
+    flags.value = { seen.active, seen.boosted, seen.history_restore }
     return Web.text("")
   end, { ["HX-Request"] = "TRUE", ["HX-Boosted"] = "1", ["HX-History-Restore-Request"] = "yes" })
-  assert(not flags[1] and not flags[2] and not flags[3])
+  assert(not flags.value[1] and not flags.value[2] and not flags.value[3])
 end
 
 local function test_a_fragment_is_wanted_only_by_a_plain_htmx_request()
   local function partial(headers: {string:string}): boolean
-    local answer = false
+    local answer = { value = false }
     through(function(req: Web.Request): Web.Response
-      answer = Htmx.partial(req)
+      answer.value = Htmx.partial(req)
       return Web.text("")
     end, headers)
-    return answer
+    return answer.value
   end
   assert(partial({ ["HX-Request"] = "true" }))
   assert(not partial({}))

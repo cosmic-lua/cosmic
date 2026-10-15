@@ -13,15 +13,16 @@ local function grid(db: Sqlite.Handle, sql: string): {string}
   local q <close> = assert(Sqlite.query(db, sql))
   for row in q:each() do
     local cells: {string} = {}
-    for index, cell in ipairs(row) do
-      if cell.kind == "null" then
+    for index = 1, row:count() do
+      local kind = row:kind(index)
+      if kind == "null" then
         cells[index] = "NULL"
-      elseif cell.kind == "integer" then
-        cells[index] = "i" .. assert(cell.integer)
-      elseif cell.kind == "number" then
-        cells[index] = "r" .. assert(cell.number)
+      elseif kind == "integer" then
+        cells[index] = "i" .. row:integer(index)
+      elseif kind == "number" then
+        cells[index] = "r" .. row:number(index)
       else
-        cells[index] = cell.text
+        cells[index] = row:text(index)
       end
     end
     out[#out + 1] = table.concat(cells, "|")
@@ -74,7 +75,7 @@ local function test_keys_are_quoted_and_collisions_renamed()
   -- Each key's value is in the column named for it, or the renamed one.
   local function value(column: string): string
     local rows = assert(Sqlite.text_rows(db, 'SELECT "' .. column:gsub('"', '""') .. '" FROM t'))
-    return rows[1][1]
+    return rows[1]:text(1)
   end
   assert(value("a b") == "1" and value('x"y') == "2" and value("select") == "3")
   assert(value("A") == "4" and value("_") == "6")
@@ -286,7 +287,7 @@ local function test_a_csv_table_follows_the_header_and_json_stays_sorted()
   local made = assert(dataset.load(db, "t", rows))
   assert(table.concat(made.columns, ",") == "z,a,m,_json", table.concat(made.columns, ","))
   local star = Sqlite.text_rows(db, "SELECT * FROM t")
-  assert(star ~= nil and star[1][1] == "1" and star[1][2] == "2" and star[1][3] == "3")
+  assert(star ~= nil and star[1]:text(1) == "1" and star[1]:text(2) == "2" and star[1]:text(3) == "3")
   -- Rows with no order of their own are in byte order.
   local db2 = memory()
   assert(table.concat(assert(dataset.load(db2, "t", { { z = 1, a = 2 } })).columns, ",") == "a,z,_json")
@@ -326,8 +327,8 @@ local function test_a_csv_file_answers_a_sum_by_group()
   assert(table.concat(made.columns, ",") == "type,balance,_json")
   local totals = assert(Sqlite.text_rows(db,
     "SELECT type, sum(balance) FROM accounts GROUP BY type ORDER BY type"))
-  assert(totals[1][1] == "checking" and totals[1][2] == "5")
-  assert(totals[2][1] == "savings" and totals[2][2] == "12.5")
+  assert(totals[1]:text(1) == "checking" and totals[1]:text(2) == "5")
+  assert(totals[2]:text(1) == "savings" and totals[2]:text(2) == "12.5")
 end
 
 --- JSON rows carry no column order, so a key one row lacks is NULL there
@@ -336,6 +337,36 @@ local function test_json_rows_have_null_for_a_missing_key_and_byte_order_columns
   local db, made = loaded('[{"id": 1, "type": "a"}, {"id": 2}]', "accounts")
   assert(table.concat(made.columns, ",") == "id,type,_json")
   local nulls = assert(Sqlite.rows(db, "SELECT id FROM accounts WHERE type IS NULL"))
-  assert(#nulls == 1 and nulls[1][1].integer == 2)
+  assert(#nulls == 1 and nulls[1]:integer(1) == 2)
   assert(dataset.format_of("accounts.jsonl") == "ndjson")
+end
+
+--- A csv is copied in C up to the 500 fields json_object takes for
+--- `_json`, and read here past them, into the same table.
+local function test_load_text_copies_a_csv_up_to_500_fields()
+  for _, width in ipairs({ 500, 501 }) do
+    local header, row = {}, {}
+    for column = 1, width do
+      header[column] = "c" .. column
+      row[column] = tostring(column)
+    end
+    local db = assert(Sqlite.memory())
+    local made = assert(dataset.load_text(db, "t", "csv", table.concat(header, ",") .. "\n" ..
+        table.concat(row, ",") .. "\n"))
+    assert((made.copied == true) == (width == 500), width .. " fields: copied " .. tostring(made.copied))
+    assert(#made.columns == width + 1 and made.count == 1)
+    assert(grid(db, "SELECT json_extract(_json, '$.c" .. width .. "') FROM t")[1] == "i" .. width)
+    assert(db:close())
+  end
+end
+
+--- `_json` is text, as a stored row's is, whichever way it was loaded:
+--- a JSON function nests it as a string.
+local function test_a_copied_csv_json_column_is_text()
+  local db = assert(Sqlite.memory())
+  local made = assert(dataset.load_text(db, "t", "csv", "a,b\n1,x\n"))
+  assert(made.copied)
+  assert(grid(db, "SELECT json_object('row', _json) FROM t")[1] == '{"row":"{\\"a\\":1,\\"b\\":\\"x\\"}"}',
+    grid(db, "SELECT json_object('row', _json) FROM t")[1])
+  assert(db:close())
 end

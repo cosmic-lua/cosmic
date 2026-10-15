@@ -187,3 +187,28 @@ local function test_trace_of_a_coroutine_that_raised_names_where()
   -- A coroutine other than the running one is read from its top.
   assert(errors.trace_of(co, nil, 5) == errors.trace_of(co))
 end
+
+--- `where` names the source and line of a Lua frame without a
+--- traceback: the caller at level 1, its caller at 2, and past a frame that
+--- runs C (a `pcall`) the first Lua one above it; nil where the stack ends.
+local function test_where_names_a_frame_by_source_and_line()
+  local here = errors.where() as string
+  assert(here:match("^.-:(%d+)$") ~= nil, here)
+  local function asks(level: integer): string | nil
+    local place = errors.where(level)
+    return place
+  end
+  local inner = asks(1) as string
+  local function number(place: string): integer
+    return math.tointeger(tonumber(place:match(":(%d+)$"))) or -1
+  end
+  assert(number(inner) == number(here) + 3, inner .. " against " .. here)
+  local up, same = asks(2), errors.where()
+  assert(up ~= nil and same ~= nil and number(up) == number(same), tostring(up) .. " " .. tostring(same))
+  -- Level 2 from a function `pcall` runs is the `pcall`, which runs C: the
+  -- first Lua frame above it is this one, at the line of the call.
+  local viewed = { value = nil as string | nil }
+  local ok, line = pcall(function() viewed.value = errors.where(2) end), number(errors.where() as string)
+  assert(ok and viewed.value ~= nil and number(viewed.value) == line, tostring(viewed.value) .. " against " .. line)
+  assert(errors.where(1000) == nil)
+end

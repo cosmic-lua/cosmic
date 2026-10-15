@@ -77,7 +77,7 @@ end
 local function test_a_descriptor_the_relaunch_hands_on_is_refused(tmp: string)
   local work = scripted(tmp, 'print("ran")\n')
   local relaunch = assert(Proc.relaunch())
-  local taken: integer
+  local taken: integer | nil
   for number in pairs(relaunch.fds) do taken = number end
   if taken == nil then return end
   local result, why = Child.run({ assert(Proc.executable()), work .. "/run.tl" },

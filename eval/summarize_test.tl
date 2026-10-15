@@ -41,6 +41,17 @@ local function test_the_first_lines_count_the_run()
   }))
 end
 
+--- A docs miss as the tool summarizes it counts, as an older tool's
+--- `docs: FAIL` does.
+local function test_a_docs_miss_summary_counts()
+  local text = lines({
+    call("1", "Bash", { command = "cosmic docs Fs.nope" }),
+    answer("1", "docs: nothing named or documented as 'Fs.nope', 9 ms", true),
+  })
+  local report = Summarize.report(text, arena, repo)
+  assert(report:find("docs_misses=1 ", 1, true), report)
+end
+
 local function test_a_run_without_a_result_says_it_may_have_timed_out()
   local text = lines({ call("1", "Bash", { command = "true" }), "not json", "3", "" })
   assert(Summarize.report(text, arena, repo) == lines({
@@ -251,6 +262,11 @@ local function test_only_a_cosmic_test_run_is_green()
   assert(green("cosmic test; echo 'test: PASS'", "test: PASS") == "null")
   assert(green("cosmic test || echo test: PASS", "test: PASS") == "null")
   assert(green("cosmic test; printf 'test: PASS\\n'", "test: PASS") == "null")
+  -- The summary as the tool says it; the PASS line above is an older tool's.
+  local passed <const> = "build: ok\ntest: 3 tests passed in 1 module; 3 ran, 0 stood, 9 ms"
+  assert(green("cosmic test", passed) == "1")
+  assert(green("cosmic test", "test: 1 of 3 tests failed, 0 infrastructure errors, 9 ms") == "null")
+  assert(green("cosmic test; echo 'test: 3 tests passed in 1 module'", passed) == "null")
   local failed = Summarize.report(call("1", "Bash", { command = "cosmic test" }) .. "\n" ..
       answer("1", pass, true) .. "\n", arena, repo)
   assert(failed:find("first_green_test_call=null", 1, true), failed)

@@ -54,7 +54,7 @@ local function projected_signature(path: string): string
   if rows == nil or #rows == 0 then
     return ""
   end
-  return rows[1][1]
+  return rows[1]:text(1)
 end
 
 --- The shipped modules: this run's plan joined to the inputs it named
@@ -277,6 +277,13 @@ local function signature_sql(): string
     "char(10) || ?2 || char(10) || ?3 || char(10) || ?4)))"
 end
 
+-- TODO: digest the source of cosmic.mime in place of its bytecode, so that a
+-- process whose modules carry run-time checks (`cosmic test --check-types`)
+-- signs a projection as the tool does:
+-- build/rebuild_lock_tool_test.tl's test_a_waiting_projection_keeps_its_compiled_snapshot
+-- fails in a checked run for it. It waits on the change to every signature,
+-- which writes every projection again once.
+
 --- The digest of the [`cosmic.mime`] this writer runs, which the `type` and
 --- `gzip` of a `payload` row come from: the signature holds it, so an edit
 --- to that module writes the rows again.
@@ -295,7 +302,7 @@ local function signed(handle: work.Handle, result: importer.Result, pending: lin
   if rows == nil then
     return nil, trouble
   end
-  return rows[1][1]
+  return rows[1]:text(1)
 end
 
 --- What the links of the tree at `root` may name beside its own
@@ -356,7 +363,7 @@ local function fill_payload(db: Sqlite.Handle): boolean, string
     return false, trouble
   end
   for _, row in ipairs(files) do
-    local path, data, sha256 = row[1], row[2], row[3]
+    local path, data, sha256 = row:text(1), row:text(2), row:text(3)
     local packed = Mime.gzip(path, data)
     local ok, failure = Sqlite.run(db,
       "INSERT INTO out.payload (path, data, sha256, type, gzip) VALUES (?1, ?2, ?3, ?4, ?5)",
@@ -469,7 +476,7 @@ local function project(handle: work.Handle,
       return false, unstubbed_trouble
     end
     if #unstubbed > 0 then
-      return false, unstubbed[1][1] .. ": the projection holds no stub of it (build/stub.tl)"
+      return false, unstubbed[1]:text(1) .. ": the projection holds no stub of it (build/stub.tl)"
     end
   end
   local carried_main, main_trouble = Sqlite.run(db,

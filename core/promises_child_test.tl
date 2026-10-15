@@ -60,7 +60,7 @@ local function under(tmp: string, promises: {string}, script: string, probe?: st
     sys.close(output)
     Test.skip("the kernel gives no seccomp filter: " .. tostring(trouble))
   end
-  local status = assert(process.waitpid(pid, false))
+  local status = assert(process.waitpid(assert(pid), false))
   sys.close(output)
   return { code = status.code, signal = status.signal, said = (Fs.read(path)) or "" }
 end

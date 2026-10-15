@@ -236,7 +236,7 @@ local function listed(name: string, names: {string}): boolean
 end
 
 --- Why the limit `name`, nil for none, is below `least`, or "".
-local function below(name: string, value: integer, least: integer): string
+local function below(name: string, value: integer | nil, least: integer): string
   if value == nil or value >= least then return "" end
   return "pointer \"/limits/" .. name .. "\": a limit is at least " .. least
 end
@@ -346,8 +346,9 @@ local function invalid(p: rules.Policy, exact: boolean): string
   if p.group ~= nil and p.user == nil then
     return at("/group", "a group is given with a user")
   end
-  if p.database ~= nil then
-    local path = p.database.path
+  local given = p.database
+  if given ~= nil then
+    local path = given.path
     if path == "" or path:find("\0", 1, true) then
       return at("/database/path", "a path is not empty and holds no NUL")
     end
@@ -360,7 +361,7 @@ local function invalid(p: rules.Policy, exact: boolean): string
         return at("/database/path", "\"..\" is not allowed; name the file itself")
       end
     end
-    local digest = p.database.sha256
+    local digest = given.sha256
     if digest ~= nil and not (digest:find("^%x+$") and #digest == 64 and digest:lower() == digest) then
       return at("/database/sha256", "a digest is 64 lowercase hex digits")
     end
@@ -427,14 +428,13 @@ local function digest_of(value: string): string
   return Codec.hex(Hash.sha256(value))
 end
 
---- The limit `name` once `incoming` joins `held`, either nil for none:
---- the one value given. Two different values answer why.
-local function join_limit(name: string, held: integer, incoming: integer): integer, string
-  if incoming == nil then return held, "" end
-  if held ~= nil and held ~= incoming then
-    return held, "limits." .. name .. " is given two values, " .. held .. " and " .. incoming
+--- Why `held` and `incoming`, two values for the limit `name` (either nil
+--- for none), disagree, or "" when they do not.
+local function limit_conflict(name: string, held: integer | nil, incoming: integer | nil): string
+  if held ~= nil and incoming ~= nil and held ~= incoming then
+    return "limits." .. name .. " is given two values, " .. held .. " and " .. incoming
   end
-  return incoming, ""
+  return ""
 end
 
 local record Joined
@@ -600,12 +600,13 @@ function rules.merge(...: rules.Policy): rules.Policy | nil, string
   local loopback: {string} = {}
   local env: {string} = {}
   local tmp = false
-  local user, group: integer, integer
-  local database: rules.Database = nil
+  local user, group: integer | nil, integer | nil
+  local database: rules.Database | nil = nil
   for _, p in ipairs(flat) do
-    if p.database ~= nil then
-      local at = clean_path(p.database.path)
-      local digest = p.database.sha256
+    local named = p.database
+    if named ~= nil then
+      local at = clean_path(named.path)
+      local digest = named.sha256
       if database ~= nil and database.path ~= at then
         return refuse("database is given two values, " .. database.path .. " and " .. at)
       end
@@ -652,17 +653,14 @@ function rules.merge(...: rules.Policy): rules.Policy | nil, string
     end
     user, group = p.user or user, p.group or group
     local own = p.limits or {}
-    local why: string
-    limits.open_files, why = join_limit("open_files", limits.open_files, own.open_files)
-    if why == "" then
-      limits.file_bytes, why = join_limit("file_bytes", limits.file_bytes, own.file_bytes)
-    end
-    if why == "" then
-      limits.cpu_seconds, why = join_limit("cpu_seconds", limits.cpu_seconds, own.cpu_seconds)
-    end
-    if why == "" then
-      limits.processes, why = join_limit("processes", limits.processes, own.processes)
-    end
+    local why = limit_conflict("open_files", limits.open_files, own.open_files)
+    if why == "" then why = limit_conflict("file_bytes", limits.file_bytes, own.file_bytes) end
+    if why == "" then why = limit_conflict("cpu_seconds", limits.cpu_seconds, own.cpu_seconds) end
+    if why == "" then why = limit_conflict("processes", limits.processes, own.processes) end
+    limits.open_files = own.open_files or limits.open_files
+    limits.file_bytes = own.file_bytes or limits.file_bytes
+    limits.cpu_seconds = own.cpu_seconds or limits.cpu_seconds
+    limits.processes = own.processes or limits.processes
     if why ~= "" then return refuse(why) end
   end
   local grants: {rules.Grant} = {}

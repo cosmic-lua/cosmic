@@ -8,35 +8,32 @@
 --- (`transact`).
 ---
 --- A parameter is a one-field table naming its type, one per `?N`, in
---- order; a result cell carries its `kind` and the matching field:
+--- order; a result row is read a column at a time by the type the caller
+--- expects, from 1:
 ---
 ---     local db = assert(Sqlite.open("notes.db", { writable = true }))
 ---     assert(db:exec("CREATE TABLE IF NOT EXISTS t (id INTEGER PRIMARY KEY, body TEXT)"))
 ---     assert(Sqlite.run(db, "INSERT INTO t (body) VALUES (?1)", { { text = "hi" } }))
 ---     local rows = assert(Sqlite.rows(db, "SELECT id, body FROM t WHERE id = ?1",
 ---       { { integer = db:last_insert_rowid() } }))
----     print(rows[1][1].integer, rows[1][2].text) -- 1  hi
+---     print(rows[1]:integer(1), rows[1]:text(2)) -- 1  hi
 ---
 --- `{ integer = n }`, `{ number = x }`, `{ text = s }` and `{ blob = b }`
---- bind those types; `{}` binds NULL.
+--- bind those types; `{}` binds NULL. A [`Sqlite.Row`] is not a list:
+--- `row:text(2)`, `row:integer(2)`, `row:number(2)` and `row:blob(2)` answer
+--- column 2 when it holds that type, and raise when it does not;
+--- [`Sqlite.map`] turns each row into a record of such reads.
 ---
 --- SQLite's JSON functions read JSON5 always, and in cosmic's copy `#`
 --- line comments too, as `cosmic.json` does given `hash_comments`: a
 --- text in YAML's flow style reads the same through either.
 ---
---- SQLite's math functions (`sqrt`, `pow`, `ln`, `floor`, ...) and its
---- percentile aggregates (`median`, `percentile`, `percentile_cont`,
---- `percentile_disc`) are built in.
---- So are these of SQLite's own extensions, on every handle this module
---- opens: `generate_series`; the `REGEXP` operator and `regexpi`; exact
---- arithmetic on decimal text (`decimal`, `decimal_add`, `decimal_sum`,
---- ...); `uuid`, `uuid_str` and `uuid_blob`; `sha1`, `sha1b`, `sha3` and
---- `sha3_agg`, and `sha1_query` and `sha3_query`, which hash what a
---- query yields; `base64` and `base85`, each of which encodes a blob as
---- text in lines and decodes such text back to a blob, and `is_base85`;
---- and `compress` and `uncompress`, whose blob is the uncompressed
---- length as a varint and then a zlib stream, and which answers NULL
---- for a blob it cannot read.
+--- Every handle answers the SQL functions, virtual tables and
+--- collations [the SQL guide](doc/guides/sql.md) lists, and only those:
+--- SQLite's own, its math and percentile functions, cosmic's, and the
+--- extensions from SQLite's `ext/misc/` the core is built with
+--- (`generate_series`, `REGEXP`, `decimal`, `uuid`, `sha3`, `base64`,
+--- `compress`, ...).
 
 -- The raw module behind this one lives under the reserved
 -- `cosmic.internal.` namespace, which never satisfies an ordinary
@@ -100,7 +97,7 @@ local record Sqlite
   --- All text rows, or no rows on a captured failure.
   record TextRowsResult is raw_sqlite.Outcome
     --- Every row on success; nil on failure, including a failed later step.
-    rows?: {{string}}
+    rows?: Rows
     --- The primary SQLite code; [`Sqlite.OK`] on success.
     code: integer
     --- The extended SQLite code, captured before cleanup; zero on success.
@@ -125,12 +122,15 @@ local record Sqlite
   --- One bound parameter. Its field says what SQLite is told it is, so
   --- a blob never arrives as text by accident. At most one field is
   --- allowed; an empty table explicitly binds SQL NULL. A value of
-  --- another shape raises where it is bound.
+  --- another shape raises where it is bound. A list in `integers`,
+  --- `numbers`, `texts` or `blobs` is bound as an array that only
+  --- `carray(?N)` reads, as a table of its elements: `x IN carray(?1)`
+  --- tests membership in it. Used as a value, compared, stored or
+  --- returned, it is NULL.
   type Value = raw_sqlite.Value
 
-  --- The SQLite storage class of a result cell: the field of a [`Cell`]
-  --- that holds its value is the one of the same name, and a `"null"`
-  --- cell has none.
+  --- The SQLite storage class of a result cell, as [`Sqlite.Row.kind`] names
+  --- it.
   enum Kind
     "null"
     "integer"
@@ -151,23 +151,60 @@ local record Sqlite
     immutable?: boolean
   end
 
-  --- One query result value. Exactly the field its `kind` names is
-  --- present, except that a null cell has no value field.
-  record Cell
-    --- Which field holds the value.
-    kind: Kind
-    --- The value of an integer cell.
-    integer?: integer
-    --- The value of a number cell.
-    number?: number
-    --- The value of a text cell.
-    text?: string
-    --- The bytes of a blob cell.
-    blob?: string
+  --- One result row, read a column at a time. A column is its position
+  --- from 1; the accessor names the type the caller expects, and a
+  --- column of any other type raises, as does a position the row has no
+  --- column at, so a query that does not answer what the reader assumed
+  --- fails where it is read, not later. A row is no list: it has no
+  --- numeric keys, and `#row` is not its length (use `count`). Code the
+  --- checker does not see (a cast, an `any`, a Lua chunk) that indexes a row
+  --- reads the row's internal slots, kinds mixed with values, and nothing
+  --- refuses it: read a row only through its accessors.
+  ---
+  ---     local db = assert(Sqlite.memory())
+  ---     local rows = assert(Sqlite.rows(db, "SELECT 7, 'seven', NULL, x'ff'"))
+  ---     local row = rows[1]
+  ---     print(row:count(), row:integer(1), row:text(2), row:is_null(3), #row:blob(4))
+  ---
+  --- `rows` and [`Sqlite.query`] answer rows that keep each column's
+  --- SQLite type; [`Sqlite.text_rows`] answers rows whose every column is
+  --- text.
+  interface Row
+    --- The number of columns.
+    count: function(Row): integer
+    --- The type of the column: `"null"` for SQL NULL. A row from
+    --- [`text_rows`] has only `"text"` columns.
+    kind: function(Row, integer): Kind
+    --- Whether the column is SQL NULL. Always false for a row from
+    --- [`text_rows`], which holds no NULL.
+    is_null: function(Row, integer): boolean
+    --- The column of an INTEGER cell. A number, text or NULL cell raises.
+    integer: function(Row, integer): integer
+    --- The column of an INTEGER or REAL cell, an integer as the nearest
+    --- float (one beyond 2^53 rounds). A REAL cell is answered as stored,
+    --- `-0.0` included. Text, a blob or NULL raises.
+    number: function(Row, integer): number
+    --- The column of a TEXT cell, or of any column of a row from
+    --- [`text_rows`]. An integer, number, blob or NULL cell of a typed
+    --- row raises.
+    text: function(Row, integer): string
+    --- The bytes of a BLOB cell. Any other cell raises, and so does a
+    --- column of a row from [`text_rows`].
+    blob: function(Row, integer): string
+    --- The bytes of a TEXT or BLOB cell, for a column that may hold
+    --- either. An integer, number or NULL cell raises.
+    bytes: function(Row, integer): string
+    --- Every column as `text` answers it, in order, as a new list: for a
+    --- row from [`text_rows`], its columns. A column of another type
+    --- raises.
+    texts: function(Row): {string}
+    --- The parameter that binds this column back as it is, of the type
+    --- `kind` names: `{ integer = n }`, `{ number = x }`, `{ text = s }`,
+    --- `{ blob = b }`, and `{}` for NULL. It is how a row is copied to
+    --- another table.
+    value: function(Row, integer): Value
   end
 
-  --- One result row: its cells in column order.
-  type Row = {Cell}
   --- Every row of a result, in the order the query gave them.
   type Rows = {Row}
 
@@ -179,6 +216,11 @@ local record Sqlite
     read: function(Query): Row | nil, string
     --- An iterator for a `for` loop over the rows still to come. It
     --- ends at the last one or at a failure, which `failure` then says.
+    ---
+    -- TODO: this iterator answers nil to end a loop, which its type
+    -- `function(): Row` does not admit; declare `function(): Row | nil`
+    -- once the checker reads the nil that ends a `for` loop's iterator
+    -- as the end, not as a possible value of the loop variable.
     each: function(Query): function(): Row
     --- Why the rows ended early, or "" when they have not: after an
     --- `each` loop that ran out, "" means every row was read. A `break`,
@@ -246,12 +288,39 @@ function Sqlite.memory(): Sqlite.Handle | nil, string
   return sqlite.open(":memory:", true)
 end
 
+--- Raises, blaming as [`checked`] does, unless `list` holds elements 1 to
+--- its length, each of the type `field` names: an integer for integers,
+--- a number for numbers, a string for texts and blobs, and no NUL in a
+--- text, which carray reads to its first NUL.
+local function check_array<T>(key: integer, field: string, list: {T})
+  if type(list) ~= "table" then
+    error("sqlite: parameter " .. key .. "'s " .. field .. " is no list", 5)
+  end
+  for i = 1, rawlen(list) do
+    local element = rawget(list, i)
+    local fits: boolean
+    if field == "integers" then
+      fits = math.type(element) == "integer"
+    elseif field == "numbers" then
+      fits = type(element) == "number"
+    else
+      fits = type(element) == "string"
+    end
+    if not fits then
+      error("sqlite: element " .. i .. " of parameter " .. key .. "'s " .. field .. " is not of its type", 5)
+    end
+    if field == "texts" and element is string and element:find("\0", 1, true) ~= nil then
+      error("sqlite: element " .. i .. " of parameter " .. key .. "'s texts holds a NUL; bind it in blobs", 5)
+    end
+  end
+end
+
 --- Raises, blaming the caller of the public function that calls the
 --- function that calls this, unless `values` is a list of Values: each a
---- table with at most one field, named integer, number, text, or blob
---- ({} for NULL), under keys that are positions from 1. It runs before a
---- statement is prepared, so a raise leaves none to finalize. Answers the
---- highest key, 0 for none.
+--- table with at most one field, named integer, number, text, blob, or an
+--- array's integers, numbers, texts or blobs ({} for NULL), under keys
+--- that are positions from 1. It runs before a statement is prepared, so
+--- a raise leaves none to finalize. Answers the highest key, 0 for none.
 local function checked(values: {Sqlite.Value}): integer
   local highest = 0
   for key, value in pairs(values as {any: any}) do
@@ -263,10 +332,18 @@ local function checked(values: {Sqlite.Value}): integer
     end
     local fields = 0
     for field in pairs(value as {any: any}) do
-      if field ~= "integer" and field ~= "number" and field ~= "text" and field ~= "blob" then
+      if field ~= "integer" and field ~= "number" and field ~= "text" and field ~= "blob" and
+          field ~= "integers" and field ~= "numbers" and field ~= "texts" and field ~= "blobs" then
         error("sqlite: parameter " .. key .. " has an unknown Value field: " .. tostring(field), 4)
       end
       fields = fields + 1
+    end
+    if key is integer then
+      local held = values[key]
+      if held.integers ~= nil then check_array(key, "integers", held.integers) end
+      if held.numbers ~= nil then check_array(key, "numbers", held.numbers) end
+      if held.texts ~= nil then check_array(key, "texts", held.texts) end
+      if held.blobs ~= nil then check_array(key, "blobs", held.blobs) end
     end
     if fields > 1 then
       error("sqlite: parameter " .. key .. " has more than one Value field", 4)
@@ -303,6 +380,14 @@ local function bind(
       ok, trouble = statement:bind_text(index, value.text)
     elseif value.blob ~= nil then
       ok, trouble = statement:bind_blob(index, value.blob)
+    elseif value.integers ~= nil then
+      ok, trouble = statement:bind_integers(index, value.integers)
+    elseif value.numbers ~= nil then
+      ok, trouble = statement:bind_numbers(index, value.numbers)
+    elseif value.texts ~= nil then
+      ok, trouble = statement:bind_texts(index, value.texts)
+    elseif value.blobs ~= nil then
+      ok, trouble = statement:bind_blobs(index, value.blobs)
     else
       ok, trouble = statement:bind_null(index)
     end
@@ -316,8 +401,8 @@ end
 --- `sql` prepared on `handle` with `values` bound, or nil and why; a
 --- statement that does not bind is finalized.
 local function prepared(handle: Sqlite.Handle, sql: string,
-                        values: {Sqlite.Value}): Sqlite.Statement | nil, string
-  values = values or {}
+                        given?: {Sqlite.Value}): Sqlite.Statement | nil, string
+  local values = given or {}
   local highest = checked(values)
   local statement, trouble = handle:prepare(sql)
   if statement == nil then
@@ -354,37 +439,245 @@ function Sqlite.run(handle: Sqlite.Handle, sql: string,
   return true, ""
 end
 
---- The column at `index`, from zero, of the row `statement` was just
---- stepped to, as a typed cell: SQL NULL is `kind = "null"`.
-local function cell_of(statement: Sqlite.Statement, index: integer): Sqlite.Cell
-  local kind = statement:kind(index)
-  if kind == "integer" then
-    return { kind = "integer", integer = statement:integer(index) }
-  elseif kind == "number" then
-    return { kind = "number", number = statement:number(index) }
-  elseif kind == "text" then
-    return { kind = "text", text = statement:bytes(index) }
-  elseif kind == "blob" then
-    return { kind = "blob", blob = statement:bytes(index) }
+-- A row is one table with a metatable, so reading a result allocates
+-- the row and nothing per cell. It holds each cell as two slots, the
+-- cell's kind then its value (`false` for NULL, which a table cannot
+-- hold as nil). A text row, whose cells are all text, holds only each
+-- value, one slot a column, and has accessors of its own. Only the
+-- accessors below look inside.
+local record Stored is {any}, Sqlite.Row
+  count: function(Stored): integer
+  kind: function(Stored, integer): Sqlite.Kind
+  is_null: function(Stored, integer): boolean
+  integer: function(Stored, integer): integer
+  number: function(Stored, integer): number
+  text: function(Stored, integer): string
+  blob: function(Stored, integer): string
+  bytes: function(Stored, integer): string
+  texts: function(Stored): {string}
+  value: function(Stored, integer): Sqlite.Value
+end
+
+local stored_mt: metatable<Stored> = { __index = Stored }
+
+--- What a cell of kind `kind` is called in a failure.
+local function described(kind: Sqlite.Kind): string
+  if kind == "null" then return "NULL" end
+  if kind == "integer" then return "an integer" end
+  if kind == "number" then return "a number" end
+  if kind == "blob" then return "a blob" end
+  return "text"
+end
+
+--- The kind a row stored for a cell.
+local function kind_of(stored: any): Sqlite.Kind
+  if stored == "integer" then return "integer" end
+  if stored == "number" then return "number" end
+  if stored == "text" then return "text" end
+  if stored == "blob" then return "blob" end
+  return "null"
+end
+
+--- The kind and value of column `index` of `row`, which `name` reads.
+--- Raises, blaming the caller of the accessor that called this, unless
+--- `index` is an integer position the row has a column at.
+local function cell_at(row: Stored, index: integer, name: string): Sqlite.Kind, any
+  if math.type(index) ~= "integer" then
+    error("sqlite: row:" .. name .. "(" .. tostring(index) ..
+        "): a column is an integer position from 1", 3)
   end
-  return { kind = "null" }
+  local count = #row // 2
+  if index < 1 or index > count then
+    error("sqlite: row:" .. name .. "(" .. index .. "): the row has " .. count ..
+        (count == 1 and " column" or " columns"), 3)
+  end
+  local at = 2 * index - 1
+  return kind_of(row[at]), row[at + 1]
+end
+
+--- The failure of reading column `index` as `wants` when it holds a
+--- cell of kind `kind`, blaming the caller of the accessor that raises
+--- it.
+local function mismatch(name: string, index: integer, kind: Sqlite.Kind, wants: string): string
+  return "sqlite: row:" .. name .. "(" .. index .. "): column " .. index .. " is " ..
+    described(kind) .. ", not " .. wants
+end
+
+function Stored.count(self: Stored): integer
+  return #self // 2
+end
+
+function Stored.kind(self: Stored, index: integer): Sqlite.Kind
+  local kind, _ = cell_at(self, index, "kind")
+  return kind
+end
+
+function Stored.is_null(self: Stored, index: integer): boolean
+  local kind, _ = cell_at(self, index, "is_null")
+  return kind == "null"
+end
+
+function Stored.integer(self: Stored, index: integer): integer
+  local kind, held = cell_at(self, index, "integer")
+  if held is integer then return held end
+  error(mismatch("integer", index, kind, "an integer"), 2)
+end
+
+function Stored.number(self: Stored, index: integer): number
+  local kind, held = cell_at(self, index, "number")
+  if held is integer then return held + 0.0 end
+  if held is number then return held end
+  error(mismatch("number", index, kind, "a number or an integer"), 2)
+end
+
+function Stored.text(self: Stored, index: integer): string
+  local kind, held = cell_at(self, index, "text")
+  if kind == "text" and held is string then return held end
+  error(mismatch("text", index, kind, "text"), 2)
+end
+
+function Stored.blob(self: Stored, index: integer): string
+  local kind, held = cell_at(self, index, "blob")
+  if kind == "blob" and held is string then return held end
+  error(mismatch("blob", index, kind, "a blob"), 2)
+end
+
+function Stored.bytes(self: Stored, index: integer): string
+  local kind, held = cell_at(self, index, "bytes")
+  if held is string then return held end
+  error(mismatch("bytes", index, kind, "text or a blob"), 2)
+end
+
+function Stored.texts(self: Stored): {string}
+  local out: {string} = {}
+  for index = 1, #self // 2 do
+    local kind, held = cell_at(self, index, "texts")
+    if kind == "text" and held is string then
+      out[index] = held
+    else
+      error(mismatch("texts", index, kind, "text"), 2)
+    end
+  end
+  return out
+end
+
+function Stored.value(self: Stored, index: integer): Sqlite.Value
+  local kind, held = cell_at(self, index, "value")
+  if held is integer then return { integer = held } end
+  if held is number then return { number = held } end
+  if held is string then
+    if kind == "blob" then return { blob = held } end
+    return { text = held }
+  end
+  return {}
+end
+
+--- A row of [`text_rows`]: one slot a column, each its bytes.
+local record TextStored is {any}, Sqlite.Row
+  count: function(TextStored): integer
+  kind: function(TextStored, integer): Sqlite.Kind
+  is_null: function(TextStored, integer): boolean
+  integer: function(TextStored, integer): integer
+  number: function(TextStored, integer): number
+  text: function(TextStored, integer): string
+  blob: function(TextStored, integer): string
+  bytes: function(TextStored, integer): string
+  texts: function(TextStored): {string}
+  value: function(TextStored, integer): Sqlite.Value
+end
+
+local text_stored_mt: metatable<TextStored> = { __index = TextStored }
+
+--- The bytes of column `index` of `row`, which `name` reads. Raises,
+--- blaming the caller of the accessor that called this, unless `index`
+--- is an integer position the row has a column at.
+local function text_at(row: TextStored, index: integer, name: string): string
+  local held = row[index]
+  if held is string and math.type(index) == "integer" then return held end
+  if math.type(index) ~= "integer" then
+    error("sqlite: row:" .. name .. "(" .. tostring(index) ..
+        "): a column is an integer position from 1", 3)
+  end
+  local count = #row
+  error("sqlite: row:" .. name .. "(" .. index .. "): the row has " .. count ..
+      (count == 1 and " column" or " columns"), 3)
+end
+
+function TextStored.count(self: TextStored): integer
+  return #self
+end
+
+function TextStored.kind(self: TextStored, index: integer): Sqlite.Kind
+  local _ = text_at(self, index, "kind")
+  return "text"
+end
+
+function TextStored.is_null(self: TextStored, index: integer): boolean
+  local _ = text_at(self, index, "is_null")
+  return false
+end
+
+function TextStored.integer(self: TextStored, index: integer): integer
+  local _ = text_at(self, index, "integer")
+  error(mismatch("integer", index, "text", "an integer"), 2)
+end
+
+function TextStored.number(self: TextStored, index: integer): number
+  local _ = text_at(self, index, "number")
+  error(mismatch("number", index, "text", "a number or an integer"), 2)
+end
+
+function TextStored.text(self: TextStored, index: integer): string
+  return text_at(self, index, "text")
+end
+
+function TextStored.blob(self: TextStored, index: integer): string
+  local _ = text_at(self, index, "blob")
+  error(mismatch("blob", index, "text", "a blob"), 2)
+end
+
+function TextStored.bytes(self: TextStored, index: integer): string
+  return text_at(self, index, "bytes")
+end
+
+function TextStored.texts(self: TextStored): {string}
+  local out: {string} = {}
+  for index = 1, #self do
+    local held = self[index]
+    if held is string then out[index] = held end
+  end
+  return out
+end
+
+function TextStored.value(self: TextStored, index: integer): Sqlite.Value
+  return { text = text_at(self, index, "value") }
 end
 
 --- The row `statement` was just stepped to, as typed cells in column
 --- order. Its columns are asked after each step: a schema change
 --- re-prepares the statement, and its columns with it.
 local function cells_of(statement: Sqlite.Statement): Sqlite.Row
-  local row: Sqlite.Row = {}
+  local row: Stored = setmetatable({}, stored_mt)
   for index = 0, statement:columns() - 1 do
-    row[index + 1] = cell_of(statement, index)
+    local kind = statement:kind(index)
+    local at = 2 * index + 1
+    if kind == "integer" then
+      row[at], row[at + 1] = "integer", statement:integer(index)
+    elseif kind == "number" then
+      row[at], row[at + 1] = "number", statement:number(index)
+    elseif kind == "text" or kind == "blob" then
+      row[at], row[at + 1] = kind, statement:bytes(index)
+    else
+      row[at], row[at + 1] = "null", false
+    end
   end
   return row
 end
 
 --- The row `statement` was just stepped to, as the bytes of each column
---- in order. Asked after each step, as [`cells_of`] is.
-local function texts_of(statement: Sqlite.Statement): {string}
-  local row: {string} = {}
+--- in order, each a "text" cell. Asked after each step, as [`cells_of`] is.
+local function texts_of(statement: Sqlite.Statement): Sqlite.Row
+  local row: TextStored = setmetatable({}, text_stored_mt)
   for index = 0, statement:columns() - 1 do
     row[index + 1] = statement:bytes(index)
   end
@@ -426,9 +719,9 @@ local function each_row<T>(statement: Sqlite.Statement,
   end
 end
 
---- Every row a query yields, each a dense list of typed cells in column
---- order; SQL NULL is a cell with `kind = "null"`. Answers the rows, or
---- `nil` and why. `values` follows [`Sqlite.run`]'s contract.
+--- Every row a query yields, each a [`Sqlite.Row`] that keeps its
+--- columns' SQLite types. Answers the rows, or `nil` and why. `values`
+--- follows [`Sqlite.run`]'s contract.
 function Sqlite.rows(handle: Sqlite.Handle, sql: string,
                      values?: {Sqlite.Value}): Sqlite.Rows | nil, string
   local statement, trouble = prepared(handle, sql, values)
@@ -436,6 +729,55 @@ function Sqlite.rows(handle: Sqlite.Handle, sql: string,
     return nil, trouble
   end
   return each_row(statement, cells_of)
+end
+
+--- Every row a query yields as `project` makes it: the list of what
+--- `project` answered for each row in turn, or `nil` and why. `project`
+--- reads the row's columns (`r:text(1)`) and answers one value, never
+--- nil, which is how a caller builds a record per row. A raise inside
+--- `project`, such as a column of another type than it read, leaves
+--- nothing open and reaches the caller. `values` follows
+--- [`Sqlite.run`]'s contract, and is nil where the query takes none.
+---
+---     local record Named
+---       name: string
+---       n: integer
+---     end
+---     local db = assert(Sqlite.memory())
+---     assert(db:exec("CREATE TABLE t (name TEXT, n INTEGER); INSERT INTO t VALUES ('a', 1), ('b', 2)"))
+---     local found = assert(Sqlite.map(db, "SELECT name, n FROM t WHERE n > ?1 ORDER BY n",
+---       { { integer = 0 } }, function(r: Sqlite.Row): Named
+---         return { name = r:text(1), n = r:integer(2) }
+---       end))
+---     print(#found, found[2].name) -- 2  b
+function Sqlite.map<T>(handle: Sqlite.Handle, sql: string, values: {Sqlite.Value} | nil,
+                       project: function(Sqlite.Row): T): {T} | nil, string
+  local statement, trouble = prepared(handle, sql, values)
+  if statement == nil then
+    return nil, trouble
+  end
+  local out: {T} = {}
+  while true do
+    local state, failure = statement:step()
+    if state == nil then
+      statement:finalize()
+      return nil, failure ~= "" and failure or "sqlite: the step failed"
+    end
+    if state == "done" then
+      statement:finalize()
+      return out, ""
+    end
+    local called, made = pcall(project, cells_of(statement))
+    if not called then
+      statement:finalize()
+      error(made, 0)
+    end
+    if made == nil then
+      statement:finalize()
+      error("sqlite: map: project answered nil for a row; answer a value", 2)
+    end
+    out[#out + 1] = made
+  end
 end
 
 -- How an object of this module is made: see the note on objects in
@@ -486,6 +828,10 @@ function StatementQuery:read(): Sqlite.Row | nil, string
 end
 
 function StatementQuery:each(): function(): Sqlite.Row
+  -- TODO: the iterator answers nil after the last row, which `function():
+  -- Sqlite.Row` does not admit; declare it `| nil` (here and in
+  -- [`Query`]'s `each`) once the checker reads the nil that ends a `for`
+  -- loop's iterator as the end.
   return function(): Sqlite.Row
     local row, _ = self:read()
     return row
@@ -517,7 +863,7 @@ end
 --- read, not before: [`Sqlite.run`] is for one that yields no rows.
 ---
 ---     local q <close> = assert(Sqlite.query(db, "SELECT id, body FROM t"))
----     for row in q:each() do print(row[1].integer, row[2].text) end
+---     for row in q:each() do print(row:integer(1), row:text(2)) end
 ---     assert(q:failure() == "", q:failure())
 function Sqlite.query(handle: Sqlite.Handle, sql: string,
                       values?: {Sqlite.Value}): Sqlite.Query | nil, string
@@ -532,12 +878,15 @@ function Sqlite.query(handle: Sqlite.Handle, sql: string,
 end
 
 --- A direct text projection for callers whose SQL already defines the
---- coercion they want. SQLite's byte representation is returned for
---- every value: NULL, empty text and empty blob all become `""`;
---- integers and floats use SQLite's text formatting; text and blobs
---- remain byte strings, including NUL.
+--- coercion they want. Every column of every row is text, read with
+--- `row:text(i)`: SQLite's byte representation is returned for every
+--- value: NULL, empty text and empty blob all become `""`; integers and
+--- floats use SQLite's text formatting; text and blobs remain byte
+--- strings, including NUL. Such a row answers `kind` as `"text"` for
+--- every column and [`is_null`] as false, and raises from `integer`,
+--- `number` and `blob`: read those from [`Sqlite.rows`].
 function Sqlite.text_rows(handle: Sqlite.Handle, sql: string,
-                          values?: {Sqlite.Value}): {{string}} | nil, string
+                          values?: {Sqlite.Value}): Sqlite.Rows | nil, string
   local statement, trouble = prepared(handle, sql, values)
   if statement == nil then
     return nil, trouble
@@ -555,7 +904,7 @@ end
 --- A typed helper owns preparation and binding failures alike. A bad
 --- parameter shape raises, but must not leave a statement holding its handle.
 local function prepared_result(handle: Sqlite.Handle, sql: string,
-                               values: {Sqlite.Value}): Sqlite.PrepareResult
+                               values?: {Sqlite.Value}): Sqlite.PrepareResult
   local opened = handle:prepare_result(sql)
   if opened.statement == nil then return opened end
   local statement = opened.statement

@@ -170,6 +170,8 @@ local parsing: {string: string} = {
 local casts: {string: string} = {
   ["build/assertions.tl:assertions.install"] =
     "_G is a record and rawset takes a map; the write is of a name the record does not declare",
+  ["build/test_worker.tl:worker.install_checks"] =
+    "_G is a record and rawset takes a map; the write is of a name the record does not declare",
   ["build/standalone.tl:standalone.run"] =
     "_G is a record and rawset takes a map; the write is of a name the record does not declare",
   ["build/dispatch.tl:run"] =
@@ -212,34 +214,34 @@ local casts: {string: string} = {
   ["build/ast/match_cast.tl:type_view"] =
     "a parsed type's fields, which no Node field names, by reflection",
   ["build/ast/node.tl:parse"] =
-    "vendored tl hands its checked AST and type objects as any " ..
+    "tl hands its checked AST and type objects as any " ..
     "(build/compiler.d.tl)",
   ["build/ast/walk.tl:map_of"] =
     "a node's fields read by reflection: which it has depends on its kind",
   ["build/contracts.tl:exported_functions"] =
-    "vendored tl hands a module's checked type as any (build/compiler.d.tl)",
+    "tl hands a module's checked type as any (build/compiler.d.tl)",
   ["build/contracts.tl:check_function"] =
     "build.ast declares tl's type objects as TypeNode and " ..
     "build.receivers as Type: two declarations of one thing",
   ["build/receivers.tl:receivers.record_named"] =
-    "vendored tl hands its checked AST and type objects as any " ..
+    "tl hands its checked AST and type objects as any " ..
     "(build/compiler.d.tl)",
   ["build/receivers.tl:receivers.references"] =
-    "vendored tl hands its checked AST and type objects as any " ..
+    "tl hands its checked AST and type objects as any " ..
     "(build/compiler.d.tl)",
   ["build/receivers.tl:reporter_for"] =
-    "vendored tl hands its checked AST and type objects as any " ..
+    "tl hands its checked AST and type objects as any " ..
     "(build/compiler.d.tl)",
   ["build/shape_specs.tl:view_of_node"] =
-    "vendored tl hands its type objects as TypeNode and any (build/compiler.d.tl)",
+    "tl hands its type objects as TypeNode and any (build/compiler.d.tl)",
   ["build/shape_specs.tl:view_of_type"] =
-    "vendored tl hands its type objects as Type and any (build/compiler.d.tl)",
+    "tl hands its type objects as Type and any (build/compiler.d.tl)",
   ["build/teal.tl:teal.lazy.real"] =
     "the loaded compiler, indexed by whatever key the capsule is asked for",
   ["build/teal.tl:teal.lazy"] =
     "a capsule standing for the compiler until it loads",
   ["build/teal.tl:teal.load"] =
-    "the one boundary where the vendored compiler's untyped chunk " ..
+    "the one boundary where the compiler's untyped chunk " ..
     "becomes its declared surface (build/compiler.d.tl)",
   ["cosmic/shape.tl:Shape.into"] =
     "the one cast from any, to the caller's annotation, of a value " ..
@@ -279,7 +281,7 @@ local own_exemptions: contracts.Exemptions = {
 local quieted: {string: contracts.Quiet} = {
   ["cosmic.log Logger"] = {
     reason = "a line written for a person; its failure has nowhere to go",
-    methods = { say = true, complain = true, verdict = true },
+    methods = { say = true, complain = true },
   },
 }
 
@@ -319,7 +321,7 @@ end
 -- bootstrap pin's release, so a fix there must suit both.
 --- @param kind the module's kind as the importer staged it
 --- @param generated whether a generator wrote it
-function contracts.applies(kind: string, generated: boolean): boolean
+function contracts.applies(kind: string, generated?: boolean): boolean
   return (kind == "module" or kind == "main") and not generated
 end
 
@@ -944,22 +946,21 @@ end
 
 --- The last position any node of `n`'s subtree stands at.
 local function last_position(n: Node, index: Index): integer
-  local last = 0
   local seen: {Node: boolean} = {}
   local kids, passed = index.kids, index.passed
-  local function go(child: Node)
-    if seen[child] then return end
+  local function go(child: Node): integer
+    if seen[child] then return 0 end
     seen[child] = true
+    local last = 0
     -- A list the parser built without a position of its own has none.
     if child.y ~= nil and child.x ~= nil then
-      local at = position(child.y, child.x)
-      if at > last then last = at end
+      last = position(child.y, child.x)
     end
-    for _, next_child in ipairs(kids[child]) do go(next_child) end
-    for _, next_child in ipairs(passed[child]) do go(next_child) end
+    for _, next_child in ipairs(kids[child]) do last = math.max(last, go(next_child)) end
+    for _, next_child in ipairs(passed[child]) do last = math.max(last, go(next_child)) end
+    return last
   end
-  go(n)
-  return last
+  return go(n)
 end
 
 --- Rule 6: a reason bound to a name is passed on, compared with `""`,
@@ -1059,9 +1060,10 @@ local function check_inspections(file: string, index: Index, callees: {integer: 
         else
           if b.reason then return true end
           local alias = b.alias
-          if alias == nil or alias.tk == nil then return false end
+          local alias_name = alias ~= nil and alias.tk or nil
+          if alias == nil or alias_name == nil then return false end
           local from = position(alias.y, alias.x)
-          return from < b.at and holds_reason(alias.tk, from)
+          return from < b.at and holds_reason(alias_name, from)
         end
       end
     end
@@ -1289,11 +1291,12 @@ end
 --- nested in it, as `module.name`; nil when it calls none.
 local function sys_call_in(fn: Node, index: Index, callees: {integer: Type},
                            records: {integer: Type}, bindings: {integer: string}): string | nil
-  if fn.body == nil then return nil end
-  local found: string | nil = nil
+  local found_body = fn.body
+  if found_body == nil then return nil end
+  local body: Node = found_body
   local seen: {Node: boolean} = {}
-  local function go(n: Node)
-    if found ~= nil or seen[n] then return end
+  local function go(n: Node): string | nil
+    if seen[n] then return nil end
     seen[n] = true
     local e1 = n.e1
     local receiver = e1 ~= nil and e1.e1 or nil
@@ -1302,14 +1305,17 @@ local function sys_call_in(fn: Node, index: Index, callees: {integer: Type},
         fallible_type(callees[position(e1.y, e1.x)]) then
       local owner = records[position(receiver.y, receiver.x)]
       local module = owner ~= nil and owner.typeid ~= nil and bindings[owner.typeid] or nil
-      if module ~= nil then found = module .. "." .. assert(member.tk) end
+      if module ~= nil then return module .. "." .. assert(member.tk) end
     end
     for _, child in ipairs(index.kids[n] or {}) do
-      if not is_function(child) then go(child) end
+      if not is_function(child) then
+        local found = go(child)
+        if found ~= nil then return found end
+      end
     end
+    return nil
   end
-  go(fn.body)
-  return found
+  return go(body)
 end
 
 --- Rule 11, over every exported function defined in this module.
@@ -1402,8 +1408,9 @@ end
 --- Rule 8: a type the returned record declares, at any depth, whose
 --- name repeats the module's.
 local function check_stutter(file: string, root: Node, problems: {string})
-  local name, def = returned(root)
-  if name == nil or def == nil then return end
+  local returned_name, returned_def = returned(root)
+  if returned_name == nil or returned_def == nil then return end
+  local name, def: string, ast.TypeNode = returned_name, returned_def
   local function visit(path: string, def_at: ast.TypeNode)
     local order, fields = def_at.field_order, def_at.fields
     if order == nil or fields == nil then return end

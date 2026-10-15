@@ -384,7 +384,7 @@ function Body.read(self: Body, max_bytes?: integer): string | nil, string
       end
       if timeout == nil or left < timeout then timeout = left end
     end
-    local ev: Sse.Event = nil
+    local ev: Sse.Event | nil = nil
     local why = ""
     do
       -- The guard covers only a wait in `source:next`: a task killed there
@@ -405,7 +405,8 @@ function Body.read(self: Body, max_bytes?: integer): string | nil, string
       end
       self.pending = text
     elseif why == Poll.TIMEOUT then
-      if self.deadline == nil or Clock.monotonic_ns() < self.deadline then
+      local deadline = self.deadline
+      if deadline == nil or Clock.monotonic_ns() < deadline then
         self.pending = HEARTBEAT
       end
     elseif why == "" then
@@ -432,7 +433,7 @@ local EVENT_STREAM_FIELDS <const>: {string:boolean} = {
 }
 
 --- Why `value` is no integer of at least `least`; nil when it is, or nil.
-local function not_counted(what: string, value: integer, least: integer): string | nil
+local function not_counted(what: string, value: integer | nil, least: integer): string | nil
   if value ~= nil and (math.type(value) ~= "integer" or value < least) then
     return ("sse: %s must be an integer of at least %d"):format(what, least)
   end
@@ -452,7 +453,7 @@ local function not_checked(given: any, known: {string:boolean}, what: string): s
 end
 
 --- Raises unless `value` is nil or an integer of at least `least`.
-local function counted(what: string, value: integer, least: integer)
+local function counted(what: string, value: integer | nil, least: integer)
   local why = not_counted(what, value, least)
   if why ~= nil then error(why, 3) end
 end
@@ -519,7 +520,8 @@ local function event_stream(req: Types.Request, source: Sse.EventSource,
     on_close = given.on_close, pending = "", started = false, held = false, done = false, waiting = false,
     prologue = prologue, read = Body.read, close = Body.close,
   }
-  if given.max_age_ns ~= nil then body.deadline = Clock.monotonic_ns() + given.max_age_ns end
+  local max_age_ns = given.max_age_ns
+  if max_age_ns ~= nil then body.deadline = Clock.monotonic_ns() + max_age_ns end
   local guard: Guard = {}
   local guard_mt: metatable<Guard> = { __close = function()
     if body.waiting then
@@ -664,7 +666,7 @@ end
 --- The events of the rings of `names` after the one with id `after`:
 --- nil where no ring holds it.
 local function replayed(self: State, names: {string}, after: string): {Sse.Event} | nil
-  local found: integer = nil
+  local found: integer | nil = nil
   for _, name in ipairs(names) do
     local topic = self.topics[name]
     if topic ~= nil then
@@ -701,7 +703,7 @@ end
 
 --- The id of the newest event the rings of `names` hold.
 local function head_id(self: State, names: {string}): string | nil
-  local best: Entry = nil
+  local best: Entry | nil = nil
   for _, name in ipairs(names) do
     local topic = self.topics[name]
     if topic ~= nil and topic.last >= topic.first then
@@ -725,7 +727,7 @@ function State.subscribe(self: State, topics: {string}, opts?: Sse.SubscribeOpti
       names[#names + 1] = name
     end
   end
-  local after: string = nil
+  local after: string | nil = nil
   if opts ~= nil then
     if type(opts) ~= "table" then error("sse: subscribe takes a table of options", 2) end
     if type(opts.after) == "string" and opts.after ~= "" then after = opts.after end
@@ -753,10 +755,10 @@ function State.subscribe(self: State, topics: {string}, opts?: Sse.SubscribeOpti
   for _, ev in ipairs(replay) do assert(queue:try_send(ev)) end
   local sub: Sub = { queue = queue, gap = gap, next = Sub.next, close = Sub.close,
     closed = Sub.closed, dropped = Sub.dropped }
-  local attached = true
+  local attachment = { attached = true }
   sub.detach = function()
-    if not attached then return end
-    attached = false
+    if not attachment.attached then return end
+    attachment.attached = false
     queue:close()
     self.total = self.total - 1
     for _, name in ipairs(names) do

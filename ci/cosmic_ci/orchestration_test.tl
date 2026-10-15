@@ -132,6 +132,15 @@ local function test_provenance_failures_are_durable(tmp: string)
   assert(not Fixture.call("corrupt-attestation", append(base, { "provenance" }), project,
     tmp .. "/logs", context(candidate, corrupt_runner_temp)).result.ok)
 
+  -- No product to compare is told so, rather than counted in a message
+  -- built before the check.
+  local empty_runner_temp = tmp .. "/empty-runner-temp"
+  assert(Fs.mkdirs(empty_runner_temp .. "/cosmic-ci/products"))
+  local empty = Fixture.call("empty-provenance", append(base, { "provenance" }), project,
+    tmp .. "/logs", context(candidate, empty_runner_temp))
+  assert(not empty.result.ok)
+  assert(assert(Fs.read(empty.err)):find("no product to compare", 1, true) ~= nil)
+
   local missing_runner_temp = seeded_runner_temp("missing")
   assert(Fs.remove(
     missing_runner_temp .. "/cosmic-ci/products/portable-product-b/executed-cosmic.sha256"))
@@ -464,7 +473,7 @@ local function test_the_self_rebuild_seed_copies_the_legs_compiles(tmp: string)
     local rows = assert(Sqlite.text_rows(db, "SELECT key FROM compiles"))
     assert(db:close())
     assert(#rows == 1, path .. ": " .. tostring(#rows) .. " rows")
-    return rows[1][1]
+    return rows[1]:text(1)
   end
 
   local named = tmp .. "/named/cache.db"
@@ -824,7 +833,7 @@ local function test_only_a_leg_that_runs_the_checked_suite_runs_the_checked_cosm
       "[ \"$2 $3\" = '--all core/socket_sigpipe_checked_test.tl' ] || exit 9; fi\n" ..
       "printf '%s\\n' " ..
       "'test: key parts: host features 01, host 02, system , runtime 04, compiler 05, harness 06' " ..
-      "'test: PASS (7 tests, 2 modules; 3 ran, 4 stood, 55 ms; sandboxed)'; exit 0; fi\n" ..
+      "'test: 7 tests passed in 2 modules; 3 ran, 4 stood, 55 ms; sandboxed'; exit 0; fi\n" ..
       entry(checked) .. "exit 0\n"
     Fixture.write(fake .. "/o/sanitized/bin/cosmic",
       script .. string.rep("#", 16384 - #script) .. core, 493)
@@ -943,7 +952,7 @@ local function test_the_native_suite_writes_its_row_and_a_lost_row_fails_nothing
         "cat > o/bin/cosmic <<'EOF'\n#!/bin/sh\n" ..
         "if [ \"$1 $2\" = \"test --census\" ]; then printf '%s\\n' " ..
         "'test: key parts: host features 01, host 02, system 03, runtime 04, compiler 05, harness 06' " ..
-        "'test: PASS (9 tests, 2 modules; 5 ran, 4 stood, 77 ms; sandboxed)'; fi\nexit 0\nEOF\n" ..
+        "'test: 9 tests passed in 2 modules; 5 ran, 4 stood, 77 ms; sandboxed'; fi\nexit 0\nEOF\n" ..
         "chmod 755 o/bin/cosmic\n", 493)
     local database = runner_temp .. "/cosmic-ci/operations.db"
     if case.broken then
@@ -959,7 +968,7 @@ local function test_the_native_suite_writes_its_row_and_a_lost_row_fails_nothing
     local db = assert(Sqlite.open(database))
     if case.broken then
       local count = assert(Sqlite.text_rows(db, "SELECT COUNT(*) FROM suite_runs"))
-      assert(count[1][1] == "0", case.name .. ": " .. count[1][1] .. " rows")
+      assert(count[1]:text(1) == "0", case.name .. ": " .. count[1]:text(1) .. " rows")
       assert(err:find("local suite: row not recorded", 1, true), err)
     else
       local rows = State.suite_rows(db)
@@ -973,7 +982,7 @@ local function test_the_native_suite_writes_its_row_and_a_lost_row_fails_nothing
     end
     local phases = assert(Sqlite.text_rows(db, "SELECT phase, status FROM operation_events " ..
         "WHERE event = 'complete' AND phase IN ('local suite', 'platform: build') ORDER BY id"))
-    assert(#phases == 2 and phases[1][2] == "success" and phases[2][2] == "success",
+    assert(#phases == 2 and phases[1]:text(2) == "success" and phases[2]:text(2) == "success",
       case.name .. ": the phases did not succeed")
     assert(db:close())
   end
@@ -1029,11 +1038,11 @@ local function test_the_checked_suite_runs_in_its_own_job_and_the_format_check_o
     local run = step.run
     local phase = run is string and run:match("driver%.tl platform ([%w-]+)$") or nil
     if phase ~= nil then phases[#phases + 1] = phase end
-    if phase == "performance-checked" then
-      assert(step["if"] == "env.COSMIC_CI_SCOPE == 'full'", "performance fixture must run only in full scope")
+    if phase == "performance-checked" or phase == "checked-narrowing" then
+      assert(step["if"] == "env.COSMIC_CI_SCOPE == 'full'", "the performance fixture and the checked-narrowing suite run only in full scope")
     end
   end
-  assert(table.concat(phases, " ") == "boot format checked-build checked performance-checked",
+  assert(table.concat(phases, " ") == "boot format checked-build checked performance-checked checked-narrowing",
     "the checked job runs the phases " .. table.concat(phases, " "))
 end
 
@@ -1358,6 +1367,32 @@ local function test_a_darwin_list_names_a_path_a_line()
   assert(#parsed == 1 and parsed[1] == "a_test.tl", table.concat(parsed, ","))
 end
 
+--- The declared-types tests ci.yml runs on a checked run are every
+--- `*declared_types_test.tl` under cosmic/, build/, core/ and eval/,
+--- wherever it sits, and none elsewhere.
+local function test_the_declared_types_tests_are_found_by_name(tmp: string)
+  local Orchestration = require("cosmic_ci.orchestration")
+  assert(Fs.mkdirs(tmp .. "/cosmic/web"))
+  assert(Fs.mkdirs(tmp .. "/build/c"))
+  assert(Fs.mkdirs(tmp .. "/core"))
+  assert(Fs.mkdirs(tmp .. "/eval"))
+  assert(Fs.mkdirs(tmp .. "/ci"))
+  assert(Fs.write(tmp .. "/cosmic/a_declared_types_test.tl", ""))
+  assert(Fs.write(tmp .. "/cosmic/web/declared_types_test.tl", ""))
+  assert(Fs.write(tmp .. "/cosmic/other_test.tl", ""))
+  assert(Fs.write(tmp .. "/build/importer_declared_types_test.tl", ""))
+  assert(Fs.write(tmp .. "/build/c/declared_types_test.tl", ""))
+  assert(Fs.write(tmp .. "/build/c/rules_test.tl", ""))
+  assert(Fs.write(tmp .. "/core/syscalls_declared_types_test.tl", ""))
+  assert(Fs.write(tmp .. "/eval/declared_types_test.tl", ""))
+  assert(Fs.write(tmp .. "/eval/round_test.tl", ""))
+  assert(Fs.write(tmp .. "/ci/declared_types_test.tl", ""))
+  local files = Orchestration.declared_types_files(tmp)
+  assert(table.concat(files, ",") == "build/c/declared_types_test.tl,build/importer_declared_types_test.tl," ..
+      "core/syscalls_declared_types_test.tl,cosmic/a_declared_types_test.tl," ..
+      "cosmic/web/declared_types_test.tl,eval/declared_types_test.tl", table.concat(files, ","))
+end
+
 --- The darwin list runs where the native suite stands on verdicts:
 --- `--all` over the listed modules, so none of them stands on one. A
 --- run of every test already (the scheduled run's `--all`) runs them.
@@ -1442,15 +1477,15 @@ local function test_the_darwin_suite_runs_on_the_macos_legs_gating_runs_alone(tm
     -- line.
     local failing = case.ok and "" or
       "if [ \"$*\" = '" .. darwin .. "' ]; then printf '%s\\n' " ..
-      "'test: FAIL (1 of 2 failed, 0 infrastructure errors, 5 ms; unsandboxed)'; exit 1; fi\n"
+      "'test: 1 of 2 tests failed, 0 infrastructure errors, 5 ms; unsandboxed'; exit 1; fi\n"
     Fixture.write(fake .. "/bin/zig", "#!/bin/sh\nmkdir -p o/bin\nprintf db > o/build.db\n" ..
         "cat > o/bin/cosmic <<'EOF'\n#!/bin/sh\n" ..
         "if [ \"$1\" = test ]; then printf '%s\\n' \"$*\" >> \"$0.ran\"; fi\n" .. failing ..
         "case \"$*\" in 'test --census'*) printf '%s\\n' " ..
-        "'test: PASS (" .. (2 + case.stood) .. " tests, 2 modules; 2 ran, " .. case.stood ..
-        " stood, 5 ms; unsandboxed)'; exit 0;; esac\n" ..
+        "'test: " .. (2 + case.stood) .. " tests passed in 2 modules; 2 ran, " .. case.stood ..
+        " stood, 5 ms; unsandboxed'; exit 0;; esac\n" ..
         "if [ \"$1\" = test ]; then printf '%s\\n' " ..
-        "'test: PASS (2 tests, 2 modules; 2 ran, 0 stood, 5 ms; unsandboxed)'; fi\nexit 0\nEOF\n" ..
+        "'test: 2 tests passed in 2 modules; 2 ran, 0 stood, 5 ms; unsandboxed'; fi\nexit 0\nEOF\n" ..
         "chmod 755 o/bin/cosmic\n", 493)
     local env = context(fake, runner_temp, { TARGET = case.target,
       TMPDIR = tmp, COSMIC_CI_EVENT = case.event, COSMIC_CI_HARNESS_MOVED = "0",
@@ -1480,13 +1515,62 @@ local function test_the_darwin_suite_runs_on_the_macos_legs_gating_runs_alone(tm
   end
 end
 
+--- The `checked-narrowing` phase runs the whole suite on a checked run
+--- (`test --check-types`, no module named) on the linux-x86_64 leg, with
+--- the checked run's test timeout, fails where that run fails or reports
+--- nothing of its checks, and does nothing on another target.
+local function test_the_checked_narrowing_phase_runs_the_whole_suite_checked_on_linux_x86_64(tmp: string)
+  local base, project = command(tmp)
+  -- The checked job's leg promises these and `checked`, which the run's
+  -- core does not have: the phase leaves that one out.
+  local promised = "sandbox,landlock,userns,nest,own_proc,proc,unix_socket,path:/bin/sh,path:/bin/cat," ..
+    "path:/proc/thread-self/children,path:/usr/bin/env,path:/etc/passwd"
+  local cases = {
+    { name = "linux", target = "x86_64-linux-musl", report = true, status = 0, ok = true,
+      ran = "test --check-types 120 " .. promised .. "\n" },
+    { name = "linux-failing", target = "x86_64-linux-musl", report = true, status = 1, ok = false,
+      ran = "test --check-types 120 " .. promised .. "\n" },
+    { name = "linux-unchecked", target = "x86_64-linux-musl", report = false, status = 0, ok = false,
+      ran = "test --check-types 120 " .. promised .. "\n" },
+    { name = "linux-aarch64", target = "aarch64-linux-musl", report = true, status = 0, ok = true,
+      ran = nil },
+  }
+  for _, case in ipairs(cases) do
+    local fake = tmp .. "/" .. case.name
+    local runner_temp = fake .. "-runner-temp"
+    assert(Fs.mkdirs(fake .. "/bin") and Fs.mkdirs(fake .. "/ci/testdata/portable"))
+    assert(Fs.mkdirs(runner_temp .. "/cosmic-ci"))
+    assert(Fs.write(fake .. "/AGENTS.md", "fixture\n"))
+    -- bin/zig's boot leaves a cosmic that logs the command line and the
+    -- test timeout it was given, and says what a checked run does.
+    local summary = case.report and
+      "printf '%s\\n' 'test: run-time types: 0 violations, 0 distinct, at 0 places'\n" or ""
+    Fixture.write(fake .. "/bin/zig", "#!/bin/sh\nmkdir -p o/bin\nprintf db > o/build.db\n" ..
+        "cat > o/bin/cosmic <<'EOF'\n#!/bin/sh\n" ..
+        "if [ \"$1\" = test ]; then printf '%s %s %s\\n' \"$*\" \"$COSMIC_TEST_TIMEOUT\" \"$COSMIC_TEST_PROMISES\" >> \"$0.ran\"; fi\n" ..
+        summary .. "exit " .. case.status .. "\nEOF\n" ..
+        "chmod 755 o/bin/cosmic\n", 493)
+    local env = context(fake, runner_temp, { TARGET = case.target, TMPDIR = tmp,
+      COSMIC_WORKER = "linux-x86_64-checked",
+      COSMIC_CI_EVENT = "push", COSMIC_CI_HARNESS_MOVED = "0" })
+    for _, phase in ipairs({ "boot", "checked-narrowing" }) do
+      local outcome = Fixture.call("checked-narrowing-" .. case.name .. "-" .. phase,
+        append(base, { "platform", phase }), project, tmp .. "/logs", env)
+      local ok = phase == "boot" or case.ok
+      assert(outcome.result.ok == ok, case.name .. ": " .. phase .. ": " .. Fixture.read(outcome.err))
+    end
+    local ran = Fs.read(fake .. "/o/bin/cosmic.ran")
+    assert(ran == case.ran, case.name .. ": " .. tostring(ran))
+  end
+end
+
 --- A native suite that passed with none standing ran every test it
 --- chose; one where any stood, that failed, or that the driver ended
 --- did not, nor did one that said no summary or ran a share.
 local function test_a_native_suite_ran_every_test_where_none_stood()
   local Orchestration = require("cosmic_ci.orchestration")
   local function line(ran: integer, stood: integer): string
-    return string.format("test: PASS (%d tests, 3 modules; %d ran, %d stood, 5 ms; unsandboxed)\n",
+    return string.format("test: %d tests passed in 3 modules; %d ran, %d stood, 5 ms; unsandboxed\n",
       ran + stood, ran, stood)
   end
   assert(Orchestration.native_ran_every(line(4, 0), 0))
@@ -1495,9 +1579,9 @@ local function test_a_native_suite_ran_every_test_where_none_stood()
   assert(not Orchestration.native_ran_every(line(4, 0), 124))
   assert(not Orchestration.native_ran_every("", 0))
   assert(not Orchestration.native_ran_every(
-    "test: PASS (4 tests, 3 modules; 4 ran, 0 stood, 5 ms; unsandboxed; shard 1 of 2)\n", 0))
+    "test: 4 tests passed in 3 modules; 4 ran, 0 stood, 5 ms; unsandboxed; shard 1 of 2\n", 0))
   assert(not Orchestration.native_ran_every(
-    "test: FAIL (1 of 4 failed, 0 infrastructure errors, 5 ms; unsandboxed)\n", 1))
+    "test: 1 of 4 tests failed, 0 infrastructure errors, 5 ms; unsandboxed\n", 1))
 end
 
 --- The noexec launcher uses the same keyed product contract as the

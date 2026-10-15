@@ -85,8 +85,8 @@ local credentials: {string} = { "/home/claude/.claude/remote/.oauth_token" }
 
 local USAGE <const> = "usage: eval/solve <arena> --model <id> [--max-turns N] [--timeout S]"
 
-local function positive(text: string): integer
-  if text == nil or not text:match("^[1-9]%d*$") then return nil end
+local function positive(text: string): integer | nil
+  if not text:match("^[1-9]%d*$") then return nil end
   return math.tointeger(tonumber(text))
 end
 
@@ -94,8 +94,8 @@ end
 --- `--max-turns` (150 by default) and `--timeout` (600 seconds by
 --- default), as eval/README.md's manual launch has them.
 function Solve.parse(argv: {integer: string}): Solve.Options | nil, string
-  local arena: string = nil
-  local model: string = nil
+  local arena: string | nil = nil
+  local model: string | nil = nil
   local max_turns, timeout = 150, 600
   local i = 1
   while argv[i] ~= nil do

@@ -33,7 +33,7 @@ local function reduce(scheme: string, authority: string): string | nil
       if label == "" or label:find("^%-") or label:find("%-$") then return nil end
     end
   end
-  local number: string = nil
+  local number: string | nil = nil
   if port ~= nil then
     local n = tonumber(port:sub(2))
     if n == nil or n < 1 or n > 65535 or #port > 6 then return nil end

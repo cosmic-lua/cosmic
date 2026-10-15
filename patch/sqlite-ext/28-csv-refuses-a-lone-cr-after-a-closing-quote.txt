@@ -1,0 +1,9 @@
+file: ext/misc/csv.c
+note: After a closing quote, a CR not followed by LF is taken into the field with the quote, and the reader goes on as if still inside it: `"a"<CR>x` reads as `a"<CR>x`, and a quote after the CR opens trouble further on. A lone CR ends no record, so like any other byte after a closing quote it is a fault, as cosmic.csv reads it; this refuses it with the message for one (11-csv-names-the-line-of-a-quote-fault.txt). A closing quote followed by CRLF ends its record as before. Upstream reads it into the field as of 3.54.0.
+--- find
+      if( c<='"' || pc=='"' ){
+        if( c=='\n' ) p->nLine++;
+--- replace
+      if( c<='"' || pc=='"' || (pc=='\r' && ppc=='"') ){
+        if( c=='\n' ) p->nLine++;
+--- end

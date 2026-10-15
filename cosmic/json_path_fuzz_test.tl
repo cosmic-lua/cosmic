@@ -320,8 +320,9 @@ local function selection_holds(input: string): boolean, string
   -- A document of `null` alone decodes to nil: test the message.
   local doc, derr = Json.decode(text, { null_value = (not holes) and Json.null or nil })
   if derr ~= "" then return false, "a drawn document does not decode: " .. derr end
-  local q, qerr = Json.query(query)
-  if q == nil then return false, "a drawn query does not read: " .. qerr end
+  local parsed, qerr = Json.query(query)
+  if parsed == nil then return false, "a drawn query does not read: " .. qerr end
+  local q: Json.Query = parsed
   local nodes: {Json.Match} = { { steps = {}, value = doc } }
   for _, seg in ipairs(q.segments) do
     local out: {Json.Match} = {}
@@ -329,8 +330,7 @@ local function selection_holds(input: string): boolean, string
       if seg.descendant then
         -- A descendant segment applies its selector at the node itself
         -- and at every value beneath it.
-        local visit: function(Json.Match)
-        visit = function(n: Json.Match)
+        local function visit(n: Json.Match)
           reference_select({ descendant = false, kind = seg.kind, name = seg.name, index = seg.index }, n, out)
           for _, kid in ipairs(reference_children(n)) do visit(kid) end
         end

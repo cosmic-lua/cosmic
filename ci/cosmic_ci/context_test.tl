@@ -39,9 +39,10 @@ end
 local function test_summary_reports_one_failure_and_keeps_a_partial_append(tmp: string)
   local path = tmp .. "/summary"
   assert(Fs.write(path, "earlier\n"))
-  local append, calls = Fs.append, 0
+  local append = Fs.append
+  local calls = { value = 0 }
   Fs.append = function(name: string, text: string, mode?: integer): boolean, string
-    calls = calls + 1
+    calls.value = calls.value + 1
     assert(append(name, text:sub(1, 2), mode))
     return false, name .. ": injected append failure"
   end
@@ -49,19 +50,20 @@ local function test_summary_reports_one_failure_and_keeps_a_partial_append(tmp: 
   Fs.append = append
   local reason = tostring(why)
   local first, last = reason:find(path .. ": injected append failure", 1, true)
-  assert(not ok and calls == 1 and first ~= nil, reason)
+  assert(not ok and calls.value == 1 and first ~= nil, reason)
   assert(not reason:find(path, (last or 0) + 1, true), reason)
   assert(Fs.read(path) == "earlier\nne")
 end
 
 local function test_summary_without_a_file_writes_stdout()
-  local put, calls = Fs.put, 0
+  local put = Fs.put
+  local calls = { value = 0 }
   Fs.put = function(fd: integer, text: string): boolean, string
-    calls = calls + 1
+    calls.value = calls.value + 1
     assert(fd == Fs.stdout and text == "summary\n")
     return true, ""
   end
   local ok, why = summarize("", "summary\n")
   Fs.put = put
-  assert(ok and calls == 1, why)
+  assert(ok and calls.value == 1, why)
 end

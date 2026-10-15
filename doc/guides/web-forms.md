@@ -19,7 +19,7 @@ A route made with [`Web.post_typed`] and its siblings names
 after the request: the spec `SIGNUP` below is `Shape.record_of("Signup")`,
 so the handler reads `form.email` as a `string` that is certainly there. A
 slot a route does not read is [`Web.NONE`] (or [`Web.no_body`]) and its
-parameter is nil.
+parameter is an empty [`Web.None`].
 
 A form is text, so the binder reads by the spec: `integer` from digits, a
 `boolean` from its presence, a list from a name sent twice, an empty
@@ -274,7 +274,7 @@ end
 
 `cosmic test` builds the project and runs both test files. The next block
 does it through [`cosmic.child`], as the guide for the command line does,
-and prints the verdict line, or everything the run said when it did not pass.
+and prints its summary, or everything the run said when it did not pass.
 
 ```teal
 local Child = require("cosmic.child")
@@ -292,13 +292,13 @@ local said = assert(Child.run(argv,
   { env = env, fds = relaunch.fds, cwd = tmp, stdout = "capture", stderr = "capture",
     timeout_ns = Clock.seconds(120) }))
 local out = (said.stderr or "") .. (said.stdout or "")
-local verdict = out:match("test: [A-Z]+")
+local passed = out:match("test: %d+ tests? passed")
 -- The whole run where it did not pass, so a failure says which test and why.
-print(verdict == "test: PASS" and verdict or out)
+print(passed or out)
 ```
 
 ```output
-test: PASS
+test: 9 tests passed
 ```
 
 [`cosmic.child`]: ../../cosmic/child.tl

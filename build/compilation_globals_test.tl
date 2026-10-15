@@ -10,10 +10,7 @@ local work = require("build.work")
 
 Test.policy{ grants = { { path = "core", letters = "r" } } }
 
-local built, load_trouble = teal.load()
-if built == nil then
-  error("could not load the compiler: " .. tostring(load_trouble))
-end
+local built = assert(teal.load())
 
 local REFUSED <const> = ": a global is not allowed in a cosmic build: it reaches other modules by no " ..
   "`require`, which is all a build's cache and its order see -- put the value in a module and " ..
@@ -101,7 +98,7 @@ local function test_a_function_over_a_local_of_its_name_is_no_global(tmp: string
     { "parameter", "local function w(f: function(): integer): integer\n" ..
         "  function f(): integer\n    return 1\n  end\n  return f()\nend\nreturn w\n" },
     { "in-if", "local n = 1\nlocal f: function(): integer\nif n == 1 then\n" ..
-        "  function f(): integer\n    return 1\n  end\nend\nreturn f\n" },
+        "  function f(): integer\n    return 1\n  end\nelse\n  function f(): integer\n    return 2\n  end\nend\nreturn f\n" },
   }
   for _, c in ipairs(legal) do
     local result, trouble = compile_project(tmp, "legal-" .. c[1], { ["main.tl"] = c[2] })

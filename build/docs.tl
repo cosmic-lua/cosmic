@@ -28,7 +28,8 @@ local symbol_index = require("build.symbol_index")
 local symbols = require("build.symbols")
 local tree = require("build.tree")
 
-local log = require("build.verdict").log
+local logger = require("build.logger")
+local log = logger.log
 local bind = require("build.bind")
 local verb_spec = require("build.verb_spec")
 
@@ -115,13 +116,13 @@ local record docs
     closest: boolean
   end
 
-  --- What `cosmic docs` prints for its words, short of the verdict
-  --- line: see [`docs.answer`].
+  --- What `cosmic docs` prints for its words, short of its summary:
+  --- see [`docs.answer`].
   record Answer
     lines: {string}
-    --- Whether every word found something: the verdict's pass.
+    --- Whether every word found something: the run's pass.
     found: boolean
-    --- What the verdict counts ("2 named", "7 found"), led, when a
+    --- What the summary counts ("2 named", "7 found"), led, when a
     --- word found nothing, by the words that found nothing.
     said: string
   end
@@ -193,15 +194,15 @@ local columns =
   "('\"' || replace(replace(d.source_symbol, '.', ' '), ':', ' ') || '\"') " ..
   "AND " .. EXAMPLE_BOUNDARY_SQL .. ") END"
 
-local function entries_of(rows: {{string}}): {docs.Entry}
+local function entries_of(rows: Sqlite.Rows): {docs.Entry}
   local out: {docs.Entry} = {}
   for _, row in ipairs(rows) do
     out[#out + 1] = {
-      module = row[1], symbol = row[2], source_symbol = row[3],
-      exported = row[4] == "1", kind = row[5], signature = row[6],
-      text = row[7], file = row[8], line = math.tointeger(tonumber(row[9])) or 0,
-      uses = math.tointeger(tonumber(row[10])) or 0, links = 0,
-      examples = math.tointeger(tonumber(row[11])) or 0,
+      module = row:text(1), symbol = row:text(2), source_symbol = row:text(3),
+      exported = row:text(4) == "1", kind = row:text(5), signature = row:text(6),
+      text = row:text(7), file = row:text(8), line = math.tointeger(tonumber(row:text(9))) or 0,
+      uses = math.tointeger(tonumber(row:text(10))) or 0, links = 0,
+      examples = math.tointeger(tonumber(row:text(11))) or 0,
       related = {},
     }
   end
@@ -232,8 +233,8 @@ local function examples_for(db: Sqlite.Handle, public: boolean, module: string,
   end
   local out: {docs.Example} = {}
   for _, row in ipairs(rows) do
-    out[#out + 1] = { name = row[1], text = row[2], file = row[3],
-      line = math.tointeger(tonumber(row[4])) or 0, source = row[5] }
+    out[#out + 1] = { name = row:text(1), text = row:text(2), file = row:text(3),
+      line = math.tointeger(tonumber(row:text(4))) or 0, source = row:text(5) }
   end
   return out
 end
@@ -289,6 +290,13 @@ local function closes(line: string): boolean
   return line:match("^[})%]]") ~= nil or line:match("^end%f[^%w_]") ~= nil
 end
 
+--- A top-level piece of an example's head as [`pieces_of`] reads it: the
+--- lines so far, and its first line that is not a comment.
+local record Piece
+  lines: {string}
+  code: string
+end
+
 --- What the analyzer put above an example's function, cut into its
 --- top-level pieces: a `require`, a helper (any other `local`) or a
 --- call (`Test.policy{...}`), each with the comment lines above it. The
@@ -297,22 +305,25 @@ end
 --- piece's first line that is not a comment.
 local function pieces_of(head: string): {{string}}
   local out: {{string}} = {}
-  local lines: {string} = {}
-  local code = ""
+  -- The piece being read: its lines so far and its first line of code.
+  local current: Piece = { lines = {}, code = "" }
   local function finish()
+    local lines = current.lines
     while #lines > 0 and lines[#lines] == "" do lines[#lines] = nil end
-    if #lines > 0 then out[#out + 1] = { table.concat(lines, "\n"), code } end
-    lines = {}
-    code = ""
+    if #lines > 0 then out[#out + 1] = { table.concat(lines, "\n"), current.code } end
+    current.lines = {}
+    current.code = ""
   end
   for line in String.lines(head) do
     local comment = line:match("^%-%-") ~= nil
     if line ~= "" and line:match("^%s") == nil and not closes(line) then
-      if code ~= "" or (comment and #lines > 0 and lines[#lines] == "") then
+      local lines = current.lines
+      if current.code ~= "" or (comment and #lines > 0 and lines[#lines] == "") then
         finish()
       end
-      if not comment then code = line end
+      if not comment then current.code = line end
     end
+    local lines = current.lines
     lines[#lines + 1] = line
   end
   finish()
@@ -673,7 +684,7 @@ end
 --- more of the words first and, among equals, the better match by
 --- relevance. Each row's last field is its id.
 local function partly_searched(db: Sqlite.Handle, public: boolean,
-                               words: {string}): {{string}} | nil, string
+                               words: {string}): Sqlite.Rows | nil, string
   local matched: {integer:integer} = {}
   local score: {integer:number} = {}
   for _, word in ipairs(words) do
@@ -685,9 +696,9 @@ local function partly_searched(db: Sqlite.Handle, public: boolean,
       return nil, trouble
     end
     for _, row in ipairs(rows) do
-      local id = math.tointeger(tonumber(row[1])) or 0
+      local id = math.tointeger(tonumber(row:text(1))) or 0
       matched[id] = (matched[id] or 0) + 1
-      score[id] = (score[id] or 0) + (tonumber(row[2]) or 0)
+      score[id] = (score[id] or 0) + (tonumber(row:text(2)) or 0)
     end
   end
   local ids: {integer} = {}
@@ -710,11 +721,11 @@ local function partly_searched(db: Sqlite.Handle, public: boolean,
   if rows == nil then
     return nil, trouble
   end
-  local by_id: {integer:{string}} = {}
+  local by_id: {integer:Sqlite.Row} = {}
   for _, row in ipairs(rows) do
-    by_id[math.tointeger(tonumber(row[#row])) or 0] = row
+    by_id[math.tointeger(tonumber(row:text(row:count()))) or 0] = row
   end
-  local out: {{string}} = {}
+  local out: Sqlite.Rows = {}
   for _, id in ipairs(ids) do
     out[#out + 1] = by_id[id]
   end
@@ -823,13 +834,13 @@ local function searched_examples(db: Sqlite.Handle, public: boolean, fts: string
   end
   local out: {docs.Entry} = {}
   for _, row in ipairs(rows) do
-    out[#out + 1] = { module = row[1], symbol = "Example." .. row[2],
-      source_symbol = "Example." .. row[2], exported = true, kind = "example",
-      signature = "", text = row[3],
-      file = row[4], line = math.tointeger(tonumber(row[5])) or 0,
+    out[#out + 1] = { module = row:text(1), symbol = "Example." .. row:text(2),
+      source_symbol = "Example." .. row:text(2), exported = true, kind = "example",
+      signature = "", text = row:text(3),
+      file = row:text(4), line = math.tointeger(tonumber(row:text(5))) or 0,
       uses = 0, links = 0, examples = 0,
-      related = { { name = row[2], text = row[3], file = row[4],
-        line = math.tointeger(tonumber(row[5])) or 0, source = row[6] } },
+      related = { { name = row:text(2), text = row:text(3), file = row:text(4),
+        line = math.tointeger(tonumber(row:text(5))) or 0, source = row:text(6) } },
     }
   end
   return out
@@ -894,8 +905,8 @@ local function uses_of(db: Sqlite.Handle, public: boolean, query: string): {docs
   end
   local out: {docs.Use} = {}
   for _, row in ipairs(rows) do
-    out[#out + 1] = { module = row[1], symbol = row[2], from_module = row[3],
-      from_file = row[4], line = math.tointeger(tonumber(row[5])) or 0,
+    out[#out + 1] = { module = row:text(1), symbol = row:text(2), from_module = row:text(3),
+      from_file = row:text(4), line = math.tointeger(tonumber(row:text(5))) or 0,
       link = false, path = "", anchor = "" }
   end
   local linked, linked_trouble = has_links(db)
@@ -926,9 +937,9 @@ local function uses_of(db: Sqlite.Handle, public: boolean, query: string): {docs
     return nil, link_trouble
   end
   for _, row in ipairs(link_rows) do
-    out[#out + 1] = { module = row[1], symbol = row[2], from_module = row[3],
-      from_file = row[4], line = math.tointeger(tonumber(row[5])) or 0,
-      link = true, path = row[6], anchor = row[7] }
+    out[#out + 1] = { module = row:text(1), symbol = row:text(2), from_module = row:text(3),
+      from_file = row:text(4), line = math.tointeger(tonumber(row:text(5))) or 0,
+      link = true, path = row:text(6), anchor = row:text(7) }
   end
   return out
 end
@@ -1050,7 +1061,7 @@ local function value_record(db: Sqlite.Handle, module: string): string | nil, st
   if #rows == 0 then
     return nil
   end
-  return alias_members.value_record(rows[1][1])
+  return alias_members.value_record(rows[1]:text(1))
 end
 
 --- The name `entry` is used by, as a use of it is recorded, when that
@@ -1110,12 +1121,12 @@ local function count_uses(view: docs.View, module: string,
         return nil, trouble
       end
       for _, row in ipairs(rows) do
-        local from_module = row[1]
+        local from_module = row:text(1)
         local counted = not view.public[index] or
           (symbols.is_public_module(module) and symbols.is_public_module(from_module))
         if counted and view.owners[from_module] == index then
           local position = module .. "\n" .. symbol .. "\n" .. from_module ..
-            "\n" .. row[2] .. "\n" .. row[3]
+            "\n" .. row:text(2) .. "\n" .. row:text(3)
           if not seen[position] then
             seen[position] = true
             total = total + 1
@@ -1154,11 +1165,11 @@ local function count_links(view: docs.View, module: string,
         return nil, trouble
       end
       for _, row in ipairs(rows) do
-        local from_module = row[1]
+        local from_module = row:text(1)
         local counted = not view.public[index] or
           (symbols.is_public_module(module) and symbols.is_public_module(from_module))
         -- One place per line, as [`docs.uses`] lists them.
-        local position = row[2] .. "\n" .. row[3]
+        local position = row:text(2) .. "\n" .. row:text(3)
         if counted and answers_for(view, index, from_module) and not seen[position] then
           seen[position] = true
           total = total + 1
@@ -1209,8 +1220,8 @@ function docs.view(databases: {Sqlite.Handle}, public?: {boolean}): docs.View | 
       return nil, trouble
     end
     for _, row in ipairs(rows) do
-      if owners[row[1]] == nil then
-        owners[row[1]] = index
+      if owners[row:text(1)] == nil then
+        owners[row:text(1)] = index
       end
     end
   end
@@ -1273,7 +1284,7 @@ local function by_options(view: docs.View, query: string,
     local verb = entry.module == "cosmic.cli" and entry.symbol:match("^Cli%.(%w+)$") or nil
     if verb ~= nil and not held[entry.module .. "\n" .. entry.symbol] then
       local spoken = tokens_of(entry.source_symbol .. "\n" .. entry.signature .. "\n" ..
-          entry.text .. "\n" .. Flags.options(Cli.verbs[verb].spec))
+          entry.text .. "\n" .. Flags.options(Cli.verbs[verb].spec or {}))
       local all = true
       for _, phrase in ipairs(wanted) do
         if not spoken:find(phrase, 1, true) then all = false end
@@ -1794,8 +1805,8 @@ local function member_uses(db: Sqlite.Handle, public: boolean, module: string, s
     return nil, trouble
   end
   for _, row in ipairs(rows) do
-    out[#out + 1] = { module = module, symbol = used, from_module = row[1], from_file = row[2],
-      line = math.tointeger(tonumber(row[3])) or 0, link = false, path = "", anchor = "" }
+    out[#out + 1] = { module = module, symbol = used, from_module = row:text(1), from_file = row:text(2),
+      line = math.tointeger(tonumber(row:text(3))) or 0, link = false, path = "", anchor = "" }
   end
   local linked, linked_trouble = has_links(db)
   if linked == nil then
@@ -1813,8 +1824,8 @@ local function member_uses(db: Sqlite.Handle, public: boolean, module: string, s
     return nil, links_trouble
   end
   for _, row in ipairs(links) do
-    out[#out + 1] = { module = module, symbol = symbol, from_module = row[1], from_file = row[2],
-      line = math.tointeger(tonumber(row[3])) or 0, link = true, path = "", anchor = "" }
+    out[#out + 1] = { module = module, symbol = symbol, from_module = row:text(1), from_file = row:text(2),
+      line = math.tointeger(tonumber(row:text(3))) or 0, link = true, path = "", anchor = "" }
   end
   return out, ""
 end
@@ -2214,7 +2225,7 @@ function docs.render(view: docs.View, entry: docs.Entry): {string} | nil, string
   -- member's own page: the most used of those with an example, else
   -- the most used. None where the module lists no call, whose first
   -- declaration may be its own record, which answers as the module.
-  local pointed: string
+  local pointed: string | nil
   if entry.symbol == "" then
     local declared, declared_trouble = across(view,
       function(db: Sqlite.Handle, public: boolean): {docs.Entry} | nil, string
@@ -2246,7 +2257,7 @@ function docs.render(view: docs.View, entry: docs.Entry): {string} | nil, string
     for _, item in ipairs(declared) do
       listed_symbols[item.symbol] = true
     end
-    local best: docs.Entry
+    local best: docs.Entry | nil
     for _, item in ipairs(declared) do
       if is_call(item) and (best == nil or points_better(item, best)) then best = item end
       index[#index + 1] = "  " .. listed(item)
@@ -2487,7 +2498,7 @@ function docs.asked(words: {string}): {string} | nil
   return words
 end
 
---- What `cosmic docs <words...>` prints, short of the verdict line:
+--- What `cosmic docs <words...>` prints, short of its summary:
 --- - no words: every module ([`docs.index`]);
 --- - `cosmic` (or `cosmic.`) alone: the standard library's modules and
 ---   guides, which no search for the word could list in a page;
@@ -2569,7 +2580,7 @@ function docs.answer(view: docs.View, words: {string}): docs.Answer | nil, strin
 end
 
 --- `cosmic docs <words...>`: prints what [`docs.answer`] says of the
---- words and ends in a verdict line; fails when a word finds nothing.
+--- words, then its summary on stderr; fails when a word finds nothing.
 local function run(argv: {integer:string}): integer
   local parsed, parse_trouble = Flags.parse(argv, 2, {})
   if parsed == nil then
@@ -2600,17 +2611,17 @@ local function run(argv: {integer:string}): integer
     log:say(line)
   end
   if not answer.found then
-    log:verdict("docs", false, answer.said .. ", " .. clock.took(started))
+    local _, _ = logger.summary("docs", answer.said .. ", " .. clock.took(started))
     return 1
   end
-  log:verdict("docs", true, answer.said .. ", " ..
+  local _, _ = logger.summary("docs", answer.said .. ", " ..
       plural.count(#view.databases, "database") .. ", " .. clock.took(started))
   return 0
 end
 
 --- `cosmic uses <symbol> [path...]`: every place that refers to the
 --- symbol, one `file:line` per line -- only those in a file under one
---- of the paths, when there are any -- and a verdict line. A link is
+--- of the paths, when there are any -- then its summary on stderr. A link is
 --- marked `link`; the symbol may be a file instead, which only links
 --- name ([`doc/writing.md`], `doc/writing.md#every-example-runs`).
 local function run_uses(argv: {integer:string}): integer
@@ -2666,17 +2677,18 @@ local function run_uses(argv: {integer:string}): integer
   end
   if shown == 0 then
     local where = #paths > 0 and " under " .. table.concat(paths, ", ") or ""
-    log:verdict("uses", false, "nothing" .. where .. " refers to '" .. query .. "', " ..
+    local _, _ = logger.summary("uses", "nothing" .. where .. " refers to '" .. query .. "', " ..
         clock.took(started))
     return 1
   end
-  log:verdict("uses", true, plural.count(shown, "place") .. ", " .. clock.took(started))
+  local _, _ = logger.summary("uses", plural.count(shown, "place") .. ", " .. clock.took(started))
   return 0
 end
 
 --- The `docs` verb as [`build/verb_list.tl`] lists it.
 docs.spec = {
   name = "docs",
+  summarizes_failure = true,
   guide = "looking up a symbol and where it is used",
   tests = { "build.docs_test" },
   run = function(argv: {integer:string}): integer return run(argv) end,
@@ -2687,6 +2699,7 @@ docs.spec = {
 --- The `uses` verb as [`build/verb_list.tl`] lists it.
 docs.uses_spec = {
   name = "uses",
+  summarizes_failure = true,
   guide = "looking up a symbol and where it is used",
   tests = { "build.docs_test" },
   run = run_uses,

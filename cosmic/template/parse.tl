@@ -367,7 +367,7 @@ nodes = function(p: Parser): {types.Node} | nil, string
 end
 
 --- Whether `item` is literal text with nothing visible in it.
-local function blank_text(item: types.Item): boolean
+local function blank_text(item: types.Item | nil): boolean
   return item ~= nil and not item.action and not item.text:find("[^ \t\r\n]")
 end
 
@@ -422,7 +422,7 @@ function Parse.parse(src: string, name: string, registry: {string: types.Def}): 
   local mode: types.Mode = "html"
   local dialects: {string} = {}
   local uses: {string: boolean} = {}
-  local first_use: types.Item
+  local first_use: types.Item | nil
   local seen_mode = false
   -- `{{mode}}` and `{{use}}` follow `{{type}}` in any order, each with blank
   -- text before it; the blank text after the last is the body's.
@@ -460,7 +460,7 @@ function Parse.parse(src: string, name: string, registry: {string: types.Def}): 
       end
       uses[value.value] = true
       dialects[#dialects + 1] = value.value
-      first_use = first_use or decl
+      if first_use == nil then first_use = decl end
     else
       break
     end

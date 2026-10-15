@@ -142,10 +142,9 @@ function link_index.running(): link_index.Library
     identity = "binary " .. (Store.meta("boot_hash") or ""),
     databases = function(): {Sqlite.Handle} | nil, string
       -- The binary's own is last, after any a process attached.
-      local all: {Sqlite.Handle} = {}
-      local ok, refused: boolean, any = pcall(function() all = Store.databases() end)
+      local ok, all = pcall(Store.databases)
       if not ok then
-        return nil, "the standard library a project's links name: " .. tostring(refused)
+        return nil, "the standard library a project's links name: " .. tostring(all)
       end
       return { all[#all] }
     end,
@@ -157,15 +156,14 @@ local text = bind.text
 --- Every link the parse recorded in a planned module or a declaration
 --- -- preferring a paired declaration, as the documented interface does
 --- ([`build.writer`]'s `insert_docs`), each under the module its docs name -- in file and
---- line order. A source named under o/ -- the compiler a boot puts in,
---- which [`build.derivation`] names `o/vendor/tl/tl.tl` wherever the
---- build directory is -- is the tree's by no link.
+--- line order. The compiler a boot puts in, which [`build.derivation`] names
+--- [`checker/tl.tl`], is the tree's by no link: it is that file's Lua.
 --- Then every link the stage read of a file that is no module (`linked`).
 local raw_links =
   "SELECT m.path, i.file, l.line, l.column, l.form, " ..
   "CASE l.doc WHEN 1 THEN 'doc' ELSE 'comment' END, l.text, l.target, l.own, l.alias " ..
   "FROM (SELECT path FROM plan UNION SELECT path FROM inputs WHERE kind = 'decl') m " ..
-  "JOIN inputs i ON i.path = m.path AND i.file NOT GLOB 'o/*' " ..
+  "JOIN inputs i ON i.path = m.path AND i.origin <> 'vendor' " ..
   "AND (i.kind = 'decl' OR NOT EXISTS (SELECT 1 FROM inputs d " ..
   "WHERE d.path = i.path AND d.kind = 'decl')) " ..
   "JOIN links l ON l.source_hash = i.source_hash " ..
@@ -308,23 +306,23 @@ function link_index.pending(db: Sqlite.Handle, root: string,
   local rows: {link_index.Raw} = {}
   for _, row in ipairs(found) do
     rows[#rows + 1] = {
-      from_module = row[1], from_file = row[2],
-      line = math.tointeger(tonumber(row[3])) or 0, column = math.tointeger(tonumber(row[4])) or 0,
-      form = row[5], source = row[6], text = row[7], target = row[8],
-      own = row[9] == "1", alias = row[10],
+      from_module = row:text(1), from_file = row:text(2),
+      line = math.tointeger(tonumber(row:text(3))) or 0, column = math.tointeger(tonumber(row:text(4))) or 0,
+      form = row:text(5), source = row:text(6), text = row:text(7), target = row:text(8),
+      own = row:text(9) == "1", alias = row:text(10),
     }
   end
   local memo: link_index.Memo = { kinds = {}, reads = {}, reals = {} }
   -- No symbol is known yet: every name reads as naming none.
   local unknown = "no symbols until the projection's docs are in"
   -- A link that asks for none reads nothing of the library.
-  local asked = false
+  local asking = { asked = false }
   local function none(_: string): {link_resolve.Symbol} | nil, string
-    asked = true
+    asking.asked = true
     return nil, unknown
   end
   local function no_member(_: string, _: string): {link_resolve.Symbol} | nil, string
-    asked = true
+    asking.asked = true
     return nil, unknown
   end
   local resolver = link_resolve.resolver(remembering(root, memo, none, no_member))
@@ -336,8 +334,8 @@ function link_index.pending(db: Sqlite.Handle, root: string,
       local _, _ = link_resolve.resolve(resolver, from, label, nothing_declared, false)
     end
   end
-  local signed = library ~= nil and asked and library.identity or nil
-  return { root = root, rows = rows, memo = memo, library = asked and library or nil,
+  local signed = library ~= nil and asking.asked and library.identity or nil
+  return { root = root, rows = rows, memo = memo, library = asking.asked and library or nil,
     digest = digest_of(root, memo, rows, signed) }
 end
 
@@ -351,8 +349,8 @@ local function index_of(db: Sqlite.Handle, qualifier: string,
     return nil, modules_trouble
   end
   for _, row in ipairs(modules) do
-    symbol_index.module(out, row[1])
-    held[row[1]] = true
+    symbol_index.module(out, row:text(1))
+    held[row:text(1)] = true
   end
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT module, symbol, source_symbol, file, kind, signature, exported, id FROM " ..
@@ -361,9 +359,9 @@ local function index_of(db: Sqlite.Handle, qualifier: string,
     return nil, trouble
   end
   for _, row in ipairs(rows) do
-    symbol_index.add(out, { module = row[1], symbol = row[2], source_symbol = row[3],
-      file = row[4], kind = row[5], signature = row[6], exported = row[7] == "1",
-      shown = true, database = 1, id = math.tointeger(tonumber(row[8])) or 0 })
+    symbol_index.add(out, { module = row:text(1), symbol = row:text(2), source_symbol = row:text(3),
+      file = row:text(4), kind = row:text(5), signature = row:text(6), exported = row:text(7) == "1",
+      shown = true, database = 1, id = math.tointeger(tonumber(row:text(8))) or 0 })
   end
   local bound, bound_trouble = symbol_index.add_bound(out, db, qualifier)
   if not bound then
@@ -391,9 +389,9 @@ local function add_library(index: symbol_index.Index, held: {string: boolean},
       return false, modules_trouble
     end
     for _, row in ipairs(modules) do
-      if not held[row[1]] and owners[row[1]] == nil then
-        owners[row[1]] = database
-        symbol_index.module(index, row[1])
+      if not held[row:text(1)] and owners[row:text(1)] == nil then
+        owners[row:text(1)] = database
+        symbol_index.module(index, row:text(1))
       end
     end
     local rows, rows_trouble = Sqlite.text_rows(db,
@@ -403,10 +401,10 @@ local function add_library(index: symbol_index.Index, held: {string: boolean},
       return false, rows_trouble
     end
     for _, row in ipairs(rows) do
-      symbol_index.add(index, { module = row[1], symbol = row[2], source_symbol = row[3],
-        file = row[4], kind = row[5], signature = row[6], exported = row[7] == "1",
-        shown = row[9] == "1" and owners[row[1]] == database, database = database,
-        id = math.tointeger(tonumber(row[8])) or 0 })
+      symbol_index.add(index, { module = row:text(1), symbol = row:text(2), source_symbol = row:text(3),
+        file = row:text(4), kind = row:text(5), signature = row:text(6), exported = row:text(7) == "1",
+        shown = row:text(9) == "1" and owners[row:text(1)] == database, database = database,
+        id = math.tointeger(tonumber(row:text(8))) or 0 })
     end
     local bound, bound_trouble = symbol_index.add_bound(index, db, "")
     if not bound then
@@ -429,13 +427,14 @@ function link_index.fill(db: Sqlite.Handle, pending: link_index.Pending,
   local index: symbol_index.Index = indexed
   -- The library is read the first time a link the projection's own
   -- symbols do not settle asks for one.
-  local library = pending.library
+  local waiting: {link_index.Library} = {}
+  waiting[1] = pending.library
   local function ready(): boolean, string
-    if library == nil then
+    local adding = waiting[1]
+    if adding == nil then
       return true, ""
     end
-    local adding = library
-    library = nil
+    waiting[1] = nil
     return add_library(index, held, adding)
   end
   -- A member of a module the projection holds is one of its own rows

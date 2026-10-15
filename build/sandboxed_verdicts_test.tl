@@ -142,11 +142,11 @@ local function seeded(tmp: string): {string:string}, Said, string
   local root = tmp .. "/root"
   checkout(root)
   local env = environment(tmp .. "/cache/verdicts.db")
-  local step = 0
+  local step = { value = 0 }
   local function said(wanted: string, words?: {string}): string
-    step = step + 1
-    local text = run(root, tmp .. "/" .. step .. ".out", env, words)
-    assert(text:find(wanted, 1, true), step .. ": " .. text)
+    step.value = step.value + 1
+    local text = run(root, tmp .. "/" .. step.value .. ".out", env, words)
+    assert(text:find(wanted, 1, true), step.value .. ": " .. text)
     return text
   end
   local first = run(root, tmp .. "/first.out", env)
@@ -231,7 +231,7 @@ end
   local refused = run(tmp .. "/beyond", tmp .. "/beyond.out", env, nil, true)
   assert(refused:find('suite/beyond_test.tl:6: test.policy: loopback "example.com": loopback ' ..
       "takes loopback addresses 127.a.b.c only", 1, true) and
-      not refused:find("test: PASS", 1, true), refused)
+      not refused:find("test: %d+ tests? passed in "), refused)
   suite(tmp .. "/root", "loopback", '"127.0.0.1", "127.0.0.2"', false)
   local first = run(tmp .. "/root", tmp .. "/first.out", env)
   if unsandboxed(first) then return end
@@ -370,7 +370,7 @@ local function test_a_sandboxed_test_runs_the_tool_only_declared(tmp: string)
   env.XDG_CACHE_HOME = tmp .. "/cache"
   local first = run(root, tmp .. "/first.out", env, nil, true)
   if unsandboxed(first) then return end
-  assert(first:find("test: PASS", 1, true) and first:find("3 ran, 0 stood", 1, true), first)
+  assert(first:find("test: %d+ tests? passed in ") and first:find("3 ran, 0 stood", 1, true), first)
   local again = run(root, tmp .. "/again.out", env)
   assert(again:find("0 ran, 3 stood", 1, true), again)
   -- The tool rebuilt: what declares it runs again.
@@ -427,23 +427,23 @@ local function tool_project(tmp: string): function(string), function(string): st
   rebuild("UPDATE meta SET value = 'one' WHERE key IN ('boot_hash', 'projected')")
   local env = environment(tmp .. "/cache/verdicts.db")
   env.COSMIC_VERDICT_CACHE = "0"
-  local step = 0
+  local step = { value = 0 }
   local function ran(wanted: string, unchecked?: boolean): string
-    step = step + 1
-    local fd = assert(Fs.open_write(tmp .. "/" .. step .. ".out"))
+    step.value = step.value + 1
+    local fd = assert(Fs.open_write(tmp .. "/" .. step.value .. ".out"))
     local result, trouble = Child.run({ tool, "test" }, {
       cwd = root, env = env, stdout = fd, stderr = fd, process_group = true, timeout_ns = Clock.seconds(60),
     })
     assert(Fs.close(fd))
-    local text = assert(Fs.read(tmp .. "/" .. step .. ".out"))
+    local text = assert(Fs.read(tmp .. "/" .. step.value .. ".out"))
     assert(result ~= nil, tostring(trouble) .. text)
     assert(unchecked or result.ok, tostring(trouble) .. text)
-    if wanted ~= "" then assert(text:find(wanted, 1, true), step .. ": " .. text) end
+    if wanted ~= "" then assert(text:find(wanted, 1, true), step.value .. ": " .. text) end
     return text
   end
   local first = ran("", true)
   if unsandboxed(first) then return nil, nil end
-  assert(first:find("test: PASS", 1, true) and first:find("2 ran, 0 stood", 1, true), first)
+  assert(first:find("test: %d+ tests? passed in ") and first:find("2 ran, 0 stood", 1, true), first)
   return rebuild, function(wanted: string): string return ran(wanted) end
 end
 
@@ -524,14 +524,14 @@ end
   env.COSMIC_VERDICT_CACHE = "0"
   assert(Fs.mkdirs(tmp .. "/t"))
   env.TMPDIR = assert(Fs.absolute(tmp .. "/t"))
-  local step = 0
+  local step = { value = 0 }
   -- A run of `words` after `test`: once its test says it started --
   -- its directory is one of TMPDIR's, sandboxed or not -- `then_do`
   -- moves its input or stops it. What the run said, and whether it
   -- passed.
   local function run_then(words: {string}, then_do: function(string)): string, boolean
-    step = step + 1
-    local out = tmp .. "/" .. step .. ".out"
+    step.value = step.value + 1
+    local out = tmp .. "/" .. step.value .. ".out"
     local fd = assert(Fs.open_write(out))
     local args: {string} = { "test" }
     for _, word in ipairs(words) do args[#args + 1] = word end
@@ -641,7 +641,49 @@ end
     "SELECT group_concat(path, ' ') FROM (SELECT path FROM runs " ..
       "WHERE run_at_ns = (SELECT max(run_at_ns) FROM runs) ORDER BY path)"))
   assert(db:close())
-  assert(rows[1][1] == "core.allocation_test", "ran under another compiler: " .. rows[1][1])
+  assert(rows[1]:text(1) == "core.allocation_test", "ran under another compiler: " .. rows[1]:text(1))
+end
+
+--- A checked run (`--check-types`) compiles the tree with run-time checks
+--- under a compiler of its own ([`importer.checked_tool`]), which moves
+--- the key of a test whose closure reads the compiler's identity as
+--- another compiler does: a verdict it earned never stands for the same
+--- test of an unchecked run. A test of the same bytes that reads no
+--- compiler stands across the two.
+local function test_a_checked_runs_verdicts_never_stand_for_an_unchecked_run(tmp: string)
+  local root = tmp .. "/root"
+  assert(Fs.mkdirs(root .. "/suite"))
+  assert(Fs.mkdirs(root .. "/core"))
+  assert(Fs.write(root .. "/suite/lib.tl", "return { value = 1 }\n"))
+  assert(Fs.write(root .. "/suite/plain_test.tl", [[
+local lib = require("suite.lib")
+
+local function test_plain()
+  assert(lib.value == 1)
+end
+]]))
+  assert(Fs.write(root .. "/core/allocation_test.tl", [[
+local lib = require("suite.lib")
+
+local function test_reads()
+  assert(lib.value == 1)
+end
+]]))
+  local env = environment(tmp .. "/cache/verdicts.db")
+  local checked = run(root, tmp .. "/checked.out", env, { "--check-types" })
+  if unsandboxed(checked) then Test.skip("no worker could be sandboxed here") end
+  assert(checked:find("2 ran, 0 stood", 1, true), checked)
+  local function ran_last(): string
+    local db = assert(Sqlite.open(build_dir(root) .. "/build.db"))
+    local rows = assert(Sqlite.text_rows(db,
+      "SELECT group_concat(path, ' ') FROM (SELECT path FROM runs " ..
+        "WHERE run_at_ns = (SELECT max(run_at_ns) FROM runs) ORDER BY path)"))
+    assert(db:close())
+    return rows[1]:text(1)
+  end
+  local plain = run(root, tmp .. "/plain.out", env)
+  assert(plain:find("1 ran, 1 stood", 1, true), plain)
+  assert(ran_last() == "core.allocation_test", "ran: " .. ran_last())
 end
 
 --- A test whose module does not declare `store` is given the store of
@@ -695,7 +737,7 @@ end
   -- test fails -- `unsandboxed` then ends this one.
   local first = run(root, tmp .. "/first.out", env, nil, true)
   if unsandboxed(first) then return end
-  assert(first:find("test: PASS", 1, true) and first:find("1 ran, 0 stood", 1, true), first)
+  assert(first:find("test: %d+ tests? passed in ") and first:find("1 ran, 0 stood", 1, true), first)
   local projection = assert(Fs.read(build_dir(root) .. "/cosmic.db"))
   local stores = closure_stores()
   assert(#stores == 1, table.concat(stores, " "))
@@ -784,7 +826,7 @@ end
   local env = environment(tmp .. "/cache/verdicts.db")
   env.COSMIC_TEST_SANDBOX = "0"
   local text = run(root, tmp .. "/first.out", env)
-  assert(text:find("test: PASS", 1, true) and text:find("1 ran, 0 stood", 1, true), text)
+  assert(text:find("test: %d+ tests? passed in ") and text:find("1 ran, 0 stood", 1, true), text)
 end
 
 --- A digest kept of a store's address that its bytes, here or written
@@ -809,14 +851,14 @@ local function test_a_store_whose_bytes_differ_from_its_kept_digest_fails_the_ru
   local here = run(root, tmp .. "/here.out", env, nil, true)
   assert(here:find("must follow from its address alone", 1, true) and
       here:find("the shared verdicts at", 1, true) and here:find("The next run keeps", 1, true) and
-      here:find("test: FAIL", 1, true), here)
+      here:find("test: %d+ of %d+ tests? failed"), here)
   -- Where they are not: the checkout takes the digests kept, and its
   -- tests, given stores that are not those bytes, are keyed again.
   forge()
   checkout(tmp .. "/second")
   local second = run(tmp .. "/second", tmp .. "/second.out", env, { "--all" }, true)
   assert(second:find("must follow from its address alone", 1, true) and
-      second:find("test: FAIL", 1, true), second)
+      second:find("test: %d+ of %d+ tests? failed"), second)
   local kept_aside = false
   for _, entry in ipairs(Fs.list(build_dir(tmp .. "/second") .. "/stores") or {}) do
     if entry:match("%.mismatch%.db$") then kept_aside = true end
@@ -851,5 +893,5 @@ local function test_a_run_that_writes_no_store_checks_one(tmp: string)
   assert(db:close())
   local checked = run(root, tmp .. "/checked.out", env, nil, true)
   assert(checked:find("must follow from its address alone", 1, true) and
-      checked:find("%.db has %x+") ~= nil and checked:find("test: FAIL", 1, true), checked)
+      checked:find("%.db has %x+") ~= nil and checked:find("test: %d+ of %d+ tests? failed"), checked)
 end

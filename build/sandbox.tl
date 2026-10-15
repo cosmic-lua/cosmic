@@ -55,7 +55,7 @@
 --- ProxyCommand runs inside the sandbox; a program of that name is run after
 --- an option or a `--`.
 ---
---- Like `cosmic json` it ends in no verdict line, and prints nothing of
+--- Like `cosmic json` it prints no summary, and nothing of
 --- its own when the program starts: its exit status is the program's.
 --- That is the program's code; 128 and the signal's number when a signal
 --- ended it, as a shell reports it; 124 when `--timeout` ended it. Of its
@@ -619,13 +619,14 @@ local function execute(argv: {integer:string}, io: verb.Io | nil, held: {string}
     local path, why = absolute(request.database, request.cwd)
     sealing = { path = path, why = why, refused = true }
   elseif request.modules ~= nil then
+    local modules = request.modules
     -- The first is the main, which the core runs; the rest are what it
     -- requires, as the program's whole set.
-    if preloaded(request.modules[1]) then
-      sealing = { why = request.modules[1] .. " is the core's own, which has no main to run",
+    if preloaded(modules[1]) then
+      sealing = { why = modules[1] .. " is the core's own, which has no main to run",
         refused = true }
     else
-      sealing = sealed(stored(request.modules), { main = request.modules[1] }, held)
+      sealing = sealed(stored(modules), { main = modules[1] }, held)
     end
   elseif request.closure then
     sealing = seal_script(request.argv[2], request.cwd, held)

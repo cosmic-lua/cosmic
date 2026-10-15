@@ -57,13 +57,14 @@ local function unsandboxable(why: string): boolean
 end
 
 --- Starts `probe` running `script` under `sandbox`, its output in a file of
---- `tmp`'s: the pid, or nil and why and the errno. Closes the file.
+--- `tmp`'s: the pid, or nil and why and the errno (empty text and 0 beside a
+--- pid). Closes the file.
 local function start(tmp: string, probe: string, script: string, sandbox: raw_process.Sandbox): integer | nil, string, integer
   local output = assert(sys.open(tmp .. "/said", sys.O_CREAT | sys.O_RDWR | sys.O_TRUNC, 420))
   local pid, why, errno = process.spawn(probe, { probe, script }, nil, "/", nil, output, output,
     false, nil, sandbox)
   sys.close(output)
-  return pid, why, errno
+  return pid, why or "", errno or 0
 end
 
 --- What the program said, once it ended, and how.
@@ -94,6 +95,7 @@ local function relays(tmp: string, probe: string, sandbox: raw_process.Sandbox, 
     sys.close(pair[2])
     assert(unsandboxable(why), "the start was refused: " .. why)
     Test.skip("this host gives no such sandbox: " .. why)
+    return
   end
   -- The start waited for the child's exec, so both descriptors are sent.
   local received = assert(socket.recvfds(pair[2], 2))
@@ -137,6 +139,7 @@ local function test_the_relay_ports_default_to_http_connect_and_socks(tmp: strin
   if pid == nil then
     assert(unsandboxable(why), "the start was refused: " .. why)
     Test.skip("this host gives no such sandbox: " .. why)
+    return
   end
   local received = assert(socket.recvfds(pair[2], 2))
   local first = assert(socket.bound(received[1]:fd()))
@@ -202,6 +205,7 @@ local function test_an_offline_childs_loopback_is_its_own(tmp: string)
     assert(alone:close())
     assert(unsandboxable(why), "the start was refused: " .. why)
     Test.skip("this host gives no such sandbox: " .. why)
+    return
   end
   local refused = finished(tmp, private)
   assert(refused:find("refused", 1, true), "its loopback is its own: " .. refused)

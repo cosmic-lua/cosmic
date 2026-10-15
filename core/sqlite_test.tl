@@ -233,7 +233,7 @@ local function test_existing_only_open_can_commit_to_an_existing_database(tmp: s
   assert(writer:exec("BEGIN; INSERT INTO t VALUES (42); COMMIT"))
   local reader = assert(Sqlite.open(path, { create = true }))
   local rows = assert(Sqlite.rows(reader, "SELECT a FROM t"))
-  assert(#rows == 1 and rows[1][1].integer == 42)
+  assert(#rows == 1 and rows[1]:integer(1) == 42)
   failed(reader:exec("INSERT INTO t VALUES (43)"))
   assert(reader:close())
   assert(writer:close())
@@ -245,7 +245,7 @@ local function test_existing_only_open_keeps_sqlites_temporary_paths()
     local db = assert(Sqlite.open(path, { writable = true, create = false }))
     assert(db:exec("CREATE TABLE t (a); INSERT INTO t VALUES (42)"))
     local rows = assert(Sqlite.rows(db, "SELECT a FROM t"))
-    assert(rows[1][1].integer == 42)
+    assert(rows[1]:integer(1) == 42)
     assert(db:close())
   end
 end
@@ -393,7 +393,7 @@ local function test_a_reader_beside_an_open_write_reads_the_last_commit(tmp: str
       "INSERT INTO t VALUES ('committed'); BEGIN; INSERT INTO t VALUES ('pending')"))
   local reader = assert(Sqlite.open(path))
   local rows = assert(Sqlite.text_rows(reader, "SELECT v FROM t"))
-  assert(#rows == 1 and rows[1][1] == "committed", "the reader must see only the last commit")
+  assert(#rows == 1 and rows[1]:text(1) == "committed", "the reader must see only the last commit")
   assert(reader:close())
   assert(writer:exec("COMMIT"))
   assert(writer:close())
@@ -407,7 +407,7 @@ local function test_an_immutable_open_makes_no_wal_or_shm_and_takes_no_lock(tmp:
   assert(Fs.exists(path .. "-wal") == false)
   local reader = assert(Sqlite.open(path, { immutable = true }))
   local rows = assert(Sqlite.text_rows(reader, "SELECT v FROM t"))
-  assert(#rows == 1 and rows[1][1] == "1")
+  assert(#rows == 1 and rows[1]:text(1) == "1")
   assert(Fs.exists(path .. "-wal") == false, "an immutable open made a -wal")
   assert(Fs.exists(path .. "-shm") == false, "an immutable open made a -shm")
   failed(reader:exec("INSERT INTO t VALUES (2)"))
@@ -437,7 +437,7 @@ local function test_an_immutable_open_names_the_path_it_was_given(tmp: string)
     assert(made:close())
     local read = assert(Sqlite.open(path, { immutable = true }), name)
     local rows = assert(Sqlite.text_rows(read, "SELECT v FROM t"))
-    assert(rows[1][1] == name, name)
+    assert(rows[1]:text(1) == name, name)
     assert(read:close())
   end
   -- The same names as relative paths, from the working directory, and one
@@ -452,7 +452,7 @@ local function test_an_immutable_open_names_the_path_it_was_given(tmp: string)
       break
     end
     local rows = Sqlite.text_rows(read, "SELECT v FROM t")
-    if rows == nil or rows[1][1] ~= name then
+    if rows == nil or rows[1]:text(1) ~= name then
       trouble = name .. " read another file"
     end
     read:close()
@@ -520,7 +520,7 @@ local function test_exec_result_does_not_retry_or_rollback_a_partial_batch()
   local result = handle:exec_result("INSERT INTO t VALUES (1); SELECT * FROM missing; INSERT INTO t VALUES (2)")
   assert(result.code == 1 and result.reason:find("missing", 1, true))
   local rows = assert(Sqlite.text_rows(handle, "SELECT x FROM t"))
-  assert(#rows == 1 and rows[1][1] == "1")
+  assert(#rows == 1 and rows[1]:text(1) == "1")
   local ok, reason = handle:exec("SELECT * FROM missing")
   assert(not ok and reason == result.reason, "legacy failure wording changed")
   assert(handle:close())

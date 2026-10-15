@@ -231,17 +231,17 @@ local function test_a_closed_incremental_hmac_is_finished()
 end
 
 local function test_an_incremental_hmac_revived_by_a_finalizer_is_finished()
-  local saved: Hash.Hasher
+  local saved = { value = nil as Hash.Hasher | nil }
   local holder: Holder = setmetatable({} as Holder, {
-    __gc = function(self: Holder) saved = self.h end,
+    __gc = function(self: Holder) saved.value = self.h end,
   } as metatable<Holder>)
   holder.h = assert(Hash.hmac_hasher("sha256", "key"))
   holder = nil
   collectgarbage()
   collectgarbage()
-  assert(saved ~= nil, "the finalizer ran")
-  assert(not pcall(saved.update, saved, "abc"))
-  assert(not pcall(saved.digest, saved))
+  local kept = assert(saved.value, "the finalizer ran")
+  assert(not pcall(kept.update, kept, "abc"))
+  assert(not pcall(kept.digest, kept))
 end
 
 --- Two incremental HMACs under different keys, fed alternately, do not
@@ -297,7 +297,7 @@ local function test_hmac_takes_a_key_of_any_length()
     assert(Codec.hex(Hash.hmac(algorithm, case[2], case[3])) == case[4], label)
     local rows = assert(Sqlite.text_rows(db, "SELECT lower(hex(hmac(?1, ?2, ?3)))",
       { { text = case[1] }, { blob = case[2] }, { text = case[3] } }))
-    assert(rows[1][1] == case[4], "SQL, " .. label)
+    assert(rows[1]:text(1) == case[4], "SQL, " .. label)
   end
   db:close()
 end
@@ -314,18 +314,18 @@ local function test_sql_knows_the_same_digests()
   for _, v in ipairs(vectors) do
     local rows = assert(Sqlite.text_rows(db,
       "SELECT lower(hex(digest(?1, ?2)))", { { text = v[1] }, { text = v[2] } }))
-    assert(rows[1][1] == v[3], v[1])
+    assert(rows[1]:text(1) == v[3], v[1])
   end
   for _, v in ipairs(macs) do
     local rows = assert(Sqlite.text_rows(db,
       "SELECT lower(hex(hmac(?1, 'key', ?2)))", { { text = v[1] }, { text = fox } }))
-    assert(rows[1][1] == v[2], v[1])
+    assert(rows[1]:text(1) == v[2], v[1])
   end
   local same = assert(Sqlite.text_rows(db, "SELECT sha256('abc') = digest('sha256', 'abc')"))
-  assert(same[1][1] == "1")
+  assert(same[1]:text(1) == "1")
   local nulls = assert(Sqlite.text_rows(db,
     "SELECT digest(NULL, 'abc') IS NULL, hmac('sha256', NULL, 'abc') IS NULL"))
-  assert(nulls[1][1] == "1" and nulls[1][2] == "1")
+  assert(nulls[1]:text(1) == "1" and nulls[1]:text(2) == "1")
   local rows, trouble = Sqlite.text_rows(db, "SELECT digest('sha0', 'abc')")
   assert(rows == nil)
   assert(trouble:find("no such digest algorithm", 1, true) ~= nil, trouble)
@@ -382,21 +382,21 @@ local function test_hasher_and_digest_carry_an_empty_error()
 end
 
 local function test_a_hasher_revived_by_a_finalizer_is_finished()
-  local saved: Hash.Hasher
+  local saved = { value = nil as Hash.Hasher | nil }
   local holder: Holder = setmetatable({} as Holder, {
-    __gc = function(self: Holder) saved = self.h end,
+    __gc = function(self: Holder) saved.value = self.h end,
   } as metatable<Holder>)
   holder.h = assert(Hash.hasher("sha256"))
   holder = nil
   collectgarbage()
   collectgarbage()
-  assert(saved ~= nil, "the finalizer ran")
+  local kept = assert(saved.value, "the finalizer ran")
   local ok, why = pcall(function(): any
-    saved:update("abc")
+    kept:update("abc")
     return nil
   end)
   assert(not ok and tostring(why):find("finished", 1, true), tostring(why))
-  assert(not pcall(saved.digest, saved))
+  assert(not pcall(kept.digest, kept))
 end
 
 local function test_a_closed_hasher_is_finished()

@@ -20,7 +20,7 @@ local function keys(path: string): string
   local db = assert(Sqlite.open(path))
   local out: {string} = {}
   for _, row in ipairs((assert(Sqlite.text_rows(db, "SELECT key FROM compiled_v2 ORDER BY key")))) do
-    out[#out + 1] = row[1]
+    out[#out + 1] = row:text(1)
   end
   assert(db:close())
   return table.concat(out, ",")
@@ -76,7 +76,7 @@ local function test_unknown_format_is_retained_and_fresh_comparison_is_incomplet
   assert(code == 0 and err ~= "")
   assert(Fs.stat(tmp .. "/output") == nil)
   db = assert(Sqlite.open(path))
-  assert(assert(Sqlite.text_rows(db, "SELECT key FROM compiled_v99"))[1][1] == "future")
+  assert(assert(Sqlite.text_rows(db, "SELECT key FROM compiled_v99"))[1]:text(1) == "future")
   assert(db:close())
 end
 

@@ -1,0 +1,2 @@
+local n: integer = 1
+for _, v in ipairs(n) do print(v) end

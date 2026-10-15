@@ -544,6 +544,15 @@ local checked_suite_timeout_ns <const> = Clock.seconds(1200)
 -- the runner's default 30 s on CI's checked job when no verdict stood),
 -- and doubled for a loaded runner.
 local checked_suite_test_timeout_s <const> = "120"
+
+--- The whole suite on a checked run ([`phase_checked_narrowing`]): the run
+--- took 510 s on four processors, and a test 120 s at most, as on the
+--- checked core.
+
+-- TODO: lower these bounds once CI's own runs of the phase show its elapsed
+-- time; they are sized from that one local run.
+local checked_narrowing_timeout_ns <const> = Clock.seconds(1800)
+local checked_narrowing_test_timeout_s <const> = "120"
 -- A boot the product drives from another path compiles no C again (it
 -- compiles from copies in zig's cache, build.zig's `Own`), only the tree:
 -- about 110 s for the whole fixture in a local run on four cores, loaded.
@@ -856,19 +865,20 @@ end
 --- or [`record_suite`] parses is unbroken by another group's output.
 local function fixture_group(c: Context, work: string, spec: FixtureSpec,
                              jobs?: integer): Orchestration.Group
-  local prepared: Prepared | nil = nil
+  -- The preparation, once the group has started.
+  local prepared: {Prepared} = {}
   return {
     name = spec.name,
     run = function(): integer return fixture_run_spec(c, work, spec) end,
     start = function(): Runner.Running
       local made = prepare_fixture(c, work, spec, spec.source, jobs)
-      prepared = made
+      prepared[1] = made
       local runner, request = request_for(c, made.command, spec.timeout_ns,
         made.project, made.env, made.out, made.err)
       return Runner.spawn(runner, "fixture: " .. spec.name, request)
     end,
     finish = function(outcome: Runner.Outcome): integer
-      local made = assert(prepared, "fixture group finished before it started")
+      local made = assert(prepared[1], "fixture group finished before it started")
       local replay_ok = replay(made.out, made.err)
       if outcome.code == 0 then
         assert(replay_ok, "could not replay retained output")
@@ -877,7 +887,7 @@ local function fixture_group(c: Context, work: string, spec: FixtureSpec,
       return outcome.code
     end,
     abandon = function(_: Runner.Outcome)
-      if prepared then replay(prepared.out, prepared.err) end
+      if prepared[1] then replay(prepared[1].out, prepared[1].err) end
     end,
   }
 end
@@ -1220,10 +1230,11 @@ local function boot(p: PlatformContext): integer
     Fs.put(Fs.stderr, "build: no zig-cache at " .. cache ..
         "; compiling from nothing\n")
   end
-  if not seed and from and is_dir(from) then
+  if seed == nil and from ~= nil and is_dir(from) then
+    local source: string = from
     mkdir(BuildPaths.directory(root))
     local copied = step(c, "restore zig-cache", function(): boolean, string
-      return Fs.copy_tree(from, BuildPaths.directory(root) .. "/zig-cache")
+      return Fs.copy_tree(source, BuildPaths.directory(root) .. "/zig-cache")
     end)
     if copied ~= 0 then return copied end
   end
@@ -1325,6 +1336,89 @@ local function phase_darwin_suite(p: PlatformContext): integer
   record_suite(c, "darwin", status, out)
   if status ~= 0 then
     Fs.put(Fs.stderr, "darwin suite: failed (status " .. status .. ")\n")
+  end
+  return status
+end
+
+--- The test files under cosmic/, build/, core/ and eval/ that watch the
+--- declared types of the standard library and of the modules beside those
+--- tests (`*declared_types_test.tl`, which a later directory's change adds files
+--- to without touching CI), by their path in the checkout.
+function Orchestration.declared_types_files(root: string): {string}
+  local files: {string} = {}
+  for _, directory in ipairs({ "cosmic", "build", "core", "eval" }) do
+    local found = Fs.walk(root .. "/" .. directory) or {}
+    for _, relative in ipairs(found) do
+      if relative:find("declared_types_test%.tl$") ~= nil then
+        files[#files + 1] = directory .. "/" .. relative
+      end
+    end
+  end
+  table.sort(files)
+  return files
+end
+
+--- The declared-types tests on a checked run (`cosmic test
+--- --check-types`), on the linux-x86_64 leg alone: they skip in any
+--- other run, so nothing else would notice a declaration that lies about
+--- nil again. After `local-boundary`, as a checked run writes a working
+--- database of its own beside the tree's.
+local function phase_declared_types(p: PlatformContext): integer
+  if p.target ~= "x86_64-linux-musl" then return 0 end
+  local c = p.operation
+  local files = Orchestration.declared_types_files(c.root)
+  if #files == 0 then
+    Fs.put(Fs.stderr, "declared types: no cosmic/, build/, core/ or eval/ *declared_types_test.tl file\n")
+    return 1
+  end
+  local argv: {string} = { BuildPaths.directory(p.root) .. "/bin/cosmic", "test", "--check-types" }
+  for _, file in ipairs(files) do argv[#argv + 1] = file end
+  mkdir(p.local_diagnostics)
+  local out = p.local_diagnostics .. "/declared-types-test.out"
+  local _, values = Orchestration.suite_run()
+  values.COSMIC_TEST_TIMEOUT = suite_test_timeout_s
+  local status = logged(c, "declared types", argv, out,
+    p.local_diagnostics .. "/declared-types-test.err", suite_timeout_ns, c.root, values)
+  -- A test that skipped asked nothing of the checks: the run was not checked.
+  if status == 0 and read(out):find("test: SKIP", 1, true) ~= nil then
+    Fs.put(Fs.stderr, "declared types: a test skipped, so the run carried no checks\n")
+    return 1
+  end
+  return status
+end
+
+--- The whole suite on a checked run (`cosmic test --check-types`), on the
+--- linux-x86_64 target alone: each read the checker narrowed by a test is
+--- written as a check of the test's fact, and a test that meets a read
+--- whose fact is false fails there ("fact violated at <file>:<y>:<x>",
+--- doc/testing.md's "checked narrowing"). It runs every test, since a
+--- checked run stands on no verdict. ci.yml runs it in the `checked` job,
+--- after `boot`.
+local function phase_checked_narrowing(p: PlatformContext): integer
+  if p.target ~= "x86_64-linux-musl" then return 0 end
+  local c = p.operation
+  local argv: {string} = { BuildPaths.directory(p.root) .. "/bin/cosmic", "test", "--check-types" }
+  mkdir(p.local_diagnostics)
+  local out = p.local_diagnostics .. "/checked-narrowing-test.out"
+  local _, values = Orchestration.suite_run()
+  values.COSMIC_TEST_TIMEOUT = checked_narrowing_test_timeout_s
+  -- The checked job's leg promises `checked`, the sanitized core's
+  -- instruments, which this run's core (the release one, with checks
+  -- compiled into the modules) lacks: a held run would fail every test that
+  -- requires it, where it should find it not applicable. The `checked`
+  -- phase runs those on the core that has them.
+  local promised: {string} = {}
+  for name in (values.COSMIC_TEST_PROMISES or ""):gmatch("[^,]+") do
+    if name ~= "checked" then promised[#promised + 1] = name end
+  end
+  values.COSMIC_TEST_PROMISES = table.concat(promised, ",")
+  local status = logged(c, "checked narrowing", argv, out,
+    p.local_diagnostics .. "/checked-narrowing-test.err", checked_narrowing_timeout_ns, c.root, values)
+  -- A run that prints no "run-time types" line (the summary of a checked
+  -- run) was not one: its modules carried no checks.
+  if status == 0 and read(out):find("test: run-time types:", 1, true) == nil then
+    Fs.put(Fs.stderr, "checked narrowing: the run reported nothing of the checks, so it carried none\n")
+    return 1
   end
   return status
 end
@@ -1650,7 +1744,7 @@ function Orchestration.seed_compiles(env: {string:string},
     local path, kind = pair[1], pair[2]
     -- A link to the directory is followed, as shared_compiles' `private`
     -- follows it; one to the file is not.
-    local st, stat_trouble: sys.Stat, string = nil, ""
+    local st, stat_trouble: sys.Stat | nil, string = nil, ""
     if kind == "file" then
       st, stat_trouble = sys.lstat(path)
     else
@@ -1719,15 +1813,14 @@ function Orchestration.run_groups(high: Orchestration.Group,
     owner[running] = group
     in_low[running] = is_low
   end
-  local status = 0
-  local next_low = 1
+  local run = { status = 0, next_low = 1 }
   local ran, failure = pcall(function(): boolean
     begin(high, false)
     if low[1] then
       begin(low[1], true)
-      next_low = 2
+      run.next_low = 2
     end
-    while #active > 0 and status == 0 do
+    while #active > 0 and run.status == 0 do
       local done = Runner.wait_any(active)
       for index, running in ipairs(active) do
         if running == done then
@@ -1736,10 +1829,10 @@ function Orchestration.run_groups(high: Orchestration.Group,
         end
       end
       local group = owner[done]
-      status = group.finish(Runner.reap(done))
-      if status == 0 and in_low[done] and low[next_low] then
-        local following = low[next_low]
-        next_low = next_low + 1
+      run.status = group.finish(Runner.reap(done))
+      if run.status == 0 and in_low[done] and low[run.next_low] then
+        local following = low[run.next_low]
+        run.next_low = run.next_low + 1
         begin(following, true)
       end
     end
@@ -1754,7 +1847,7 @@ function Orchestration.run_groups(high: Orchestration.Group,
     if not abandoned and ran then ran, failure = false, trouble end
   end
   if not ran then error(failure, 0) end
-  return status
+  return run.status
 end
 
 local function phase_fixtures(p: PlatformContext): integer
@@ -1892,6 +1985,10 @@ local function platform_impl(phase: string, p: PlatformContext): integer
     return phase_local_suite(p)
   elseif phase == "local-boundary" then
     return phase_local_boundary(p)
+  elseif phase == "declared-types" then
+    return phase_declared_types(p)
+  elseif phase == "checked-narrowing" then
+    return phase_checked_narrowing(p)
   elseif phase == "darwin-suite" then
     return phase_darwin_suite(p)
   elseif phase == "format" then
@@ -1948,7 +2045,8 @@ local function provenance_impl(c: Context, products: string): integer
       count = count + 1
     end
   end
-  assert(expected and count == expected, "expected " .. Plural.count(expected, "product") .. ", found " .. count)
+  assert(expected ~= nil, "no product to compare")
+  assert(count == expected, "expected " .. Plural.count(expected, "product") .. ", found " .. count)
   return step(c, "provenance comparison", function(): boolean, string
     return true
   end)

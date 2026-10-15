@@ -13,7 +13,7 @@
 --- nonce. `--seed` is refused with `uuid` and `token`, which have no use
 --- for it.
 ---
---- Like `cosmic json` it ends in no verdict line: its standard output is
+--- Like `cosmic json` it prints no summary: its standard output is
 --- data for a pipe. Exit 0 is ok, 2 a command line, a file or a request
 --- it refuses (a failed write to standard output included), 1 the
 --- operating system's entropy source failing. Complaints go to standard
@@ -263,11 +263,16 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
   -- THE ONE READ OF THE OPERATING SYSTEM'S ENTROPY. Every value that
   -- may be a secret is made from bytes this returns; a seeded
   -- generator ([`Rand.new`]) is reached only from `seeded` below.
-  local broken: string | nil
+  local record Drawn
+    broken: string | nil
+    pool: string
+    used: integer
+  end
+  local drawn: Drawn = { pool = "", used = 0 }
   local function fetch(count: integer): string
     local bytes, why = draw_entropy(count)
     if bytes == nil or #bytes ~= count then
-      broken = why ~= "" and why or "short read"
+      drawn.broken = why ~= "" and why or "short read"
       error("entropy", 0)
     end
     return bytes
@@ -276,14 +281,13 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
   -- for many values), which is still the operating system's entropy:
   -- each byte is handed out once. A large draw reads for itself.
   local POOL <const> = 8192
-  local pool, used = "", 0
   local function secret(count: integer): string
     if count > 64 then return fetch(count) end
-    if used + count > #pool then
-      pool, used = fetch(POOL), 0
+    if drawn.used + count > #drawn.pool then
+      drawn.pool, drawn.used = fetch(POOL), 0
     end
-    local bytes = pool:sub(used + 1, used + count)
-    used = used + count
+    local bytes = drawn.pool:sub(drawn.used + 1, drawn.used + count)
+    drawn.used = drawn.used + count
     return bytes
   end
 
@@ -309,19 +313,22 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
   end
 
   -- Output goes out in pieces, so a large -n is never held whole.
-  local pending: {string} = {}
-  local pending_size = 0
+  local record Output
+    pending: {string}
+    size: integer
+  end
+  local output: Output = { pending = {}, size = 0 }
   local function flush(): boolean
-    if pending_size == 0 then return true end
-    local text = table.concat(pending)
-    pending, pending_size = {}, 0
+    if output.size == 0 then return true end
+    local text = table.concat(output.pending)
+    output.pending, output.size = {}, 0
     return bare.delivered(complain, to.out(text))
   end
   local function emit(text: string): boolean
-    pending[#pending + 1] = text
-    pending[#pending + 1] = "\n"
-    pending_size = pending_size + #text + 1
-    if pending_size >= 65536 then return flush() end
+    output.pending[#output.pending + 1] = text
+    output.pending[#output.pending + 1] = "\n"
+    output.size = output.size + #text + 1
+    if output.size >= 65536 then return flush() end
     return true
   end
 
@@ -331,7 +338,7 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
       hex:sub(17, 20) .. "-" .. hex:sub(21, 32)
   end
 
-  local last_v7 = -1
+  local uuids = { last_v7 = -1 }
   --- One UUID: version 4 from 16 entropy bytes with the version and
   --- variant bits set, or version 7 laid out as 48 bits of milliseconds,
   --- the version, the 12-bit counter, the variant and 62 entropy bits.
@@ -345,8 +352,8 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
     end
     local ns = now_ns()
     local stamp = ((ns // 1000000) << 12) | ((ns % 1000000) * 4096 // 1000000)
-    if stamp <= last_v7 then stamp = last_v7 + 1 end
-    last_v7 = stamp
+    if stamp <= uuids.last_v7 then stamp = uuids.last_v7 + 1 end
+    uuids.last_v7 = stamp
     local tail = secret(8)
     local b8 = (tail:byte(1) & 0x3f) | 0x80
     local head = string.pack(">I6", stamp >> 12)
@@ -355,39 +362,33 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
         string.char(b8) .. tail:sub(2))
   end
 
-  local code = 0
-  local function body()
+  local function body(): integer
     local command = request.command
     if command == "uuid" then
       for _ = 1, request.count or 1 do
         if not emit(uuid(request.version)) then
-          code = 2
-          return
+          return 2
         end
       end
     elseif command == "token" then
       local bytes = secret(request.bytes)
       local text = request.encoding == "hex" and Codec.hex(bytes) or Codec.base64url(bytes)
       if not emit(text) then
-        code = 2
-        return
+        return 2
       end
     elseif command == "int" then
       local lo, hi = integer_of(request.words[1]), integer_of(request.words[2])
       if lo == nil or hi == nil then
         complain("the bounds are whole numbers, not " .. request.words[1] .. " and " .. request.words[2])
-        code = 2
-        return
+        return 2
       end
       if lo > hi then
         complain(("the low bound %d is above the high bound %d"):format(lo, hi))
-        code = 2
-        return
+        return 2
       end
       for _ = 1, request.count or 1 do
         if not emit(tostring(source.int(lo, hi))) then
-          code = 2
-          return
+          return 2
         end
       end
     else
@@ -401,8 +402,7 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
       end
       if text == nil then
         complain(why)
-        code = 2
-        return
+        return 2
       end
       local items = lines_of(text)
       -- Fisher-Yates: each step swaps slot i with a uniform slot from i
@@ -413,34 +413,30 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
         wanted = request.count or 1
         if wanted > #items then
           complain(("cannot pick %d of %s"):format(wanted, plural.count(#items, "line")))
-          code = 2
-          return
+          return 2
         end
       end
       for slot = 1, wanted do
         local other = source.int(slot, #items)
         items[slot], items[other] = items[other], items[slot]
         if not emit(items[slot]) then
-          code = 2
-          return
+          return 2
         end
       end
     end
-    if not flush() then code = 2 end
+    if not flush() then return 2 end
+    return 0
   end
 
-  local ok, result = pcall(function(): integer
-    body()
-    return code
-  end)
+  local ok, result = pcall(body)
   if not ok then
-    if broken ~= nil then
-      complain("the operating system's entropy source failed: " .. broken)
+    if drawn.broken ~= nil then
+      complain("the operating system's entropy source failed: " .. drawn.broken)
       return 1
     end
     error(result, 0)
   end
-  return code
+  return result
 end
 
 --- The `rand` verb as [`build/verb_list.tl`] lists it. It reads no tree,

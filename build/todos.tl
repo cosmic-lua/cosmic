@@ -31,7 +31,8 @@ local reboot = require("build.reboot")
 local tree = require("build.tree")
 local work = require("build.work")
 
-local log = require("build.verdict").log
+local logger = require("build.logger")
+local log = logger.log
 local verb_spec = require("build.verb_spec")
 
 local record todos
@@ -85,8 +86,8 @@ end
 --- What `git blame --line-porcelain` said, by final line number.
 function todos.parse_blame(porcelain: string): {integer:todos.Blame}
   local out: {integer:todos.Blame} = {}
-  local current: todos.Blame = nil
-  local final: integer = nil
+  local current: todos.Blame | nil = nil
+  local final: integer | nil = nil
   for line in porcelain:gmatch("([^\n]*)\n?") do
     local commit, at = line:match("^(%x+) %d+ (%d+)")
     if commit ~= nil and #commit >= 40 then
@@ -389,7 +390,7 @@ end
 --- file and line order: a row with no blame for `head` has `commit` ""
 --- and `blamed` false.
 local function rows_of(db: Sqlite.Handle, head: string): {Row} | nil, string
-  local rows, trouble = Sqlite.rows(db,
+  return Sqlite.map(db,
     "SELECT f.path, t.line, t.last, t.text, t.sha256, b.commit_id, " ..
       "b.author_time, b.summary, b.boundary, t.id FROM " ..
       "(SELECT path, sha256 FROM files UNION SELECT path, sha256 FROM tool " ..
@@ -397,30 +398,24 @@ local function rows_of(db: Sqlite.Handle, head: string): {Row} | nil, string
       "JOIN todos t ON t.sha256 = f.sha256 " ..
       "LEFT JOIN blames b ON b.path = f.path AND b.line = t.line " ..
       "AND b.sha256 = t.sha256 AND b.head = ?1 " ..
-      "ORDER BY f.path, t.line", { { text = head } })
-  if rows == nil then
-    return nil, trouble
-  end
-  local out: {Row} = {}
-  for _, row in ipairs(rows) do
-    local blamed = row[6].kind ~= "null"
-    out[#out + 1] = {
-      todo = {
-        id = row[10].integer,
-        file = row[1].text,
-        line = row[2].integer,
-        last = row[3].integer,
-        text = row[4].text,
-        commit = blamed and row[6].text or "",
-        author_time = blamed and row[7].integer or 0,
-        summary = blamed and row[8].text or "",
-        boundary = blamed and row[9].integer ~= 0,
-      },
-      sha256 = row[5].text,
-      blamed = blamed,
-    }
-  end
-  return out
+      "ORDER BY f.path, t.line", { { text = head } }, function(row: Sqlite.Row): Row
+        local blamed = not row:is_null(6)
+        return {
+          todo = {
+            id = row:integer(10),
+            file = row:text(1),
+            line = row:integer(2),
+            last = row:integer(3),
+            text = row:text(4),
+            commit = blamed and row:text(6) or "",
+            author_time = blamed and row:integer(7) or 0,
+            summary = blamed and row:text(8) or "",
+            boundary = blamed and row:integer(9) ~= 0,
+          },
+          sha256 = row:text(5),
+          blamed = blamed,
+        }
+      end)
 end
 
 --- Moves the blame recorded at an earlier `HEAD` on to `head`, for
@@ -442,9 +437,9 @@ local function carry_forward(db: Sqlite.Handle, root: string, head: string,
     return false, trouble
   end
   for _, row in ipairs(heads) do
-    local old = row[1]
+    local old = row:text(1)
     local ancestor = git(root, { "merge-base", "--is-ancestor", old, head }, run_git)
-    local changed: string = nil
+    local changed: string | nil = nil
     if ancestor ~= nil then
       changed = git(root, { "diff", "--name-only", "--no-renames", "--relative",
         old, head, "--" }, run_git)
@@ -465,10 +460,10 @@ local function carry_forward(db: Sqlite.Handle, root: string, head: string,
         return false, rows_trouble
       end
       for _, each in ipairs(kept) do
-        if touched ~= nil and not touched[each[1]] then
+        if touched ~= nil and not touched[each:text(1)] then
           local ok, move_trouble = Sqlite.run(db,
             "UPDATE blames SET head = ?1 WHERE head = ?2 AND path = ?3",
-            { { text = head }, { text = old }, { text = each[1] } })
+            { { text = head }, { text = old }, { text = each:text(1) } })
           if not ok then
             return false, move_trouble
           end
@@ -609,7 +604,7 @@ end
 function todos.search(db: Sqlite.Handle, query: string): {integer:integer} | nil, string
   local sql = "SELECT rowid FROM todos_fts WHERE todos_fts MATCH ?1 ORDER BY rank"
   local first, _ = Sqlite.text_rows(db, sql, { { text = query } })
-  local rows: {{string}} = {}
+  local rows: Sqlite.Rows = {}
   if first ~= nil then
     rows = first
   else
@@ -625,7 +620,7 @@ function todos.search(db: Sqlite.Handle, query: string): {integer:integer} | nil
   end
   local out: {integer:integer} = {}
   for index, row in ipairs(rows) do
-    local id = math.tointeger(tonumber(row[1]))
+    local id = math.tointeger(tonumber(row:text(1)))
     if id ~= nil then out[id] = index end
   end
   return out
@@ -656,7 +651,7 @@ end
 --- `cosmic todos [--oldest] [path...]`: stages the tree as a build
 --- does, which indexes its TODOs, blames the ones not yet blamed, and
 --- lists them one per line, in file order or, with `--oldest`, oldest
---- commit first, then a verdict line.
+--- commit first, then its summary on stderr.
 --- @param argv the command line, re-entered if this binary embeds a
 ---   stale copy of [`build.todos`] itself -- see [`build.reboot.stale_exit`]
 local function run(argv: {integer:string}): integer
@@ -675,7 +670,7 @@ local function run(argv: {integer:string}): integer
   if code ~= nil then
     return code
   end
-  local parsed, parse_trouble = Flags.parse(argv, 2, Cli.verbs.todos.spec)
+  local parsed, parse_trouble = Flags.parse(argv, 2, assert(Cli.verbs.todos.spec))
   if parsed == nil then
     log:complain("todos: " .. parse_trouble)
     return 2
@@ -708,7 +703,7 @@ local function run(argv: {integer:string}): integer
     return 1
   end
   local all, blamed = listing.todos, listing.blamed
-  local ranks: {integer:integer} = nil
+  local ranks: {integer:integer} | nil = nil
   if query ~= "" then
     local found, search_trouble = todos.search(handle.db, query)
     if found == nil then
@@ -733,15 +728,16 @@ local function run(argv: {integer:string}): integer
   if ranks ~= nil and not oldest then
     -- Best match first; a TODO in several files with the same bytes
     -- shares one rank, so those keep file order among themselves.
+    local order = ranks
     table.sort(listed, function(a: todos.Todo, b: todos.Todo): boolean
       if a.id ~= b.id then
-        return ranks[a.id] < ranks[b.id]
+        return order[a.id] < order[b.id]
       end
       return a.file < b.file
     end)
   end
   if ranks ~= nil and #listed == 0 then
-    log:verdict("todos", false, "no TODO matches '" .. query .. "', " ..
+    local _, _ = logger.summary("todos", "no TODO matches '" .. query .. "', " ..
         clock.took(started))
     return 1
   end
@@ -770,7 +766,7 @@ local function run(argv: {integer:string}): integer
       file_count = file_count + 1
     end
   end
-  log:verdict("todos", true, plural.count(#listed, "todo") .. " in " .. plural.count(file_count, "file") ..
+  local _, _ = logger.summary("todos", plural.count(#listed, "todo") .. " in " .. plural.count(file_count, "file") ..
       ", " .. plural.count(blamed, "file") .. " blamed, " .. clock.took(started))
   return 0
 end
@@ -778,10 +774,12 @@ end
 --- The `todos` verb as [`build/verb_list.tl`] lists it.
 todos.spec = {
   name = "todos",
+  summarizes_failure = true,
   guide = "none: lists the tree's TODO comments for its maintainers, described by `cosmic help todos`",
   tests = { "build.todos_test", "build.todos_git_test" },
   run = function(argv: {integer:string}): integer return run(argv) end,
   bare = false,
+  recheck_on_refusal = false,
   takes = "the files or directories to act on",
 }
 

@@ -74,7 +74,7 @@ local function summarize(_argv: {string}): integer
     lines[#lines + 1] = "|---|---|---|---|---:|---:|---:|---:|---|\n"
     for _, row in ipairs(rows) do
       local cells: {string} = {}
-      for i = 1, 9 do cells[i] = clean(row[i]) end
+      for i = 1, 9 do cells[i] = clean(row:text(i)) end
       lines[#lines + 1] = "| " .. table.concat(cells, " | ") .. " |\n"
     end
     -- Each suite's row (orchestration's `record_suite`), for a reader

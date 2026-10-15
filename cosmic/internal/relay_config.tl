@@ -258,7 +258,7 @@ function relay_config.parse_addresses(fib_trie: string, if_inet6: string): {stri
       found[#found + 1] = address
     end
   end
-  local last: string
+  local last: string | nil
   for line in fib_trie:gmatch("[^\n]+") do
     local address = line:match("^%s*|%-%- (%d+%.%d+%.%d+%.%d+)%s*$")
     if address ~= nil then
@@ -404,7 +404,7 @@ end
 --- @param config Config What the relay is told
 --- @return string The line, with no newline
 function relay_config.encode(config: relay_config.Config): string
-  local function endpoints(list: {relay_config.Endpoint}): any
+  local function endpoints(list: {relay_config.Endpoint} | nil): any
     if list == nil then return nil end
     local out: {any} = {}
     for i, entry in ipairs(list) do out[i] = { host = entry.host, port = entry.port } end

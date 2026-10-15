@@ -293,7 +293,7 @@ end
 local function test_a_value_that_is_not_json_raises_at_the_set()
   local client = Web.test_client(make_app(options(cookie_store())))
   assert(client:post("/bad").status == 500)
-  local reasons: {string} = {}
+  local reasons = { value = {} as {string} }
   local app = Web.app{
     middleware = { Session.middleware(options(cookie_store())) },
     routes = { Web.get("/", function(req: Web.Request): Web.Response
@@ -301,14 +301,14 @@ local function test_a_value_that_is_not_json_raises_at_the_set()
       local _, f = pcall(function() s:set("f", print as any) end)
       local _, e = pcall(function() s:set("", 1) end)
       local _, r = pcall(function() s:set("_flash", 1) end)
-      reasons = { tostring(f), tostring(e), tostring(r) }
+      reasons.value = { tostring(f), tostring(e), tostring(r) }
       return Web.text("done")
     end) },
   }
   assert(Web.test_client(app):get("/").status == 200)
-  assert(reasons[1]:find("cannot keep f", 1, true), reasons[1])
-  assert(reasons[2]:find("non-empty string", 1, true), reasons[2])
-  assert(reasons[3]:find("reserved", 1, true), reasons[3])
+  assert(reasons.value[1]:find("cannot keep f", 1, true), reasons.value[1])
+  assert(reasons.value[2]:find("non-empty string", 1, true), reasons.value[2])
+  assert(reasons.value[3]:find("reserved", 1, true), reasons.value[3])
 end
 
 local function test_the_handle_is_frozen_once_the_response_is_built()
@@ -419,7 +419,7 @@ local function test_sqlite_sessions_are_revocable_by_logout_and_by_subject()
   assert(gone.max_age == 0 and gone.value == "" and client.jar.session == nil)
   local thief = Web.test_client(app)
   assert(thief:get("/get/user", { cookies = { session = stolen } }):text() == "-", "the id is revoked")
-  assert(assert(Sqlite.rows(db, "SELECT count(*) FROM web_sessions"))[1][1].integer == 0)
+  assert(assert(Sqlite.rows(db, "SELECT count(*) FROM web_sessions"))[1]:integer(1) == 0)
   local first, second = Web.test_client(app), Web.test_client(app)
   first:post("/login")
   second:post("/login")
@@ -641,7 +641,7 @@ local function test_invalidate_revokes_even_when_the_response_is_a_500()
   local before = client.jar.session
   local res = client:post("/logout-fails")
   assert(res.status == 500)
-  assert(assert(Sqlite.rows(db, "SELECT count(*) FROM web_sessions"))[1][1].integer == 0, "the row is gone")
+  assert(assert(Sqlite.rows(db, "SELECT count(*) FROM web_sessions"))[1]:integer(1) == 0, "the row is gone")
   assert(store:load(before, clock.now, "session") == nil)
   assert(#set_cookies(res) == 1 and client.jar.session == nil, "and the cookie is expired")
 end

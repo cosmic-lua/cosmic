@@ -32,7 +32,7 @@ local function carried_root(label: string): string
   local rows = assert(Sqlite.text_rows(databases[#databases],
     "SELECT hex(der) FROM ca_roots WHERE label = ?1", { { text = label } }))
   assert(#rows == 1, label .. " is not among the binary's CA roots")
-  return (assert(Codec.unhex(rows[1][1])))
+  return (assert(Codec.unhex(rows[1]:text(1))))
 end
 
 --- An https connection is verified against the CA roots the binary's
@@ -63,8 +63,8 @@ local function test_check_certificate_reads_what_the_binary_trusts()
   local roots = assert(Sqlite.rows(databases[#databases], "SELECT der, label FROM ca_roots"))
   assert(#roots > 0)
   for _, row in ipairs(roots) do
-    local ok, why = Http.check_certificate(row[1].blob)
-    assert(ok and why == "", assert(row[2].text) .. ": " .. tostring(why))
+    local ok, why = Http.check_certificate(row:blob(1))
+    assert(ok and why == "", row:text(2) .. ": " .. tostring(why))
   end
   for _, der in ipairs({ "", "\x30\x03abc", "not der" }) do
     local ok, why = Http.check_certificate(der)

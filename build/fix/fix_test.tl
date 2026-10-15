@@ -26,10 +26,7 @@ local render_mod = require("build.fix.render")
 local Sqlite = require("cosmic.sqlite")
 local teal = require("build.teal")
 
-local built, load_trouble = teal.load()
-if built == nil then
-  error("could not load the compiler: " .. tostring(load_trouble))
-end
+local built = assert(teal.load())
 
 --- A fixture broad enough to reach most of the grammar at once, in one
 --- string, so the properties below are checked over something with
@@ -154,7 +151,7 @@ end
 --- A named path the verb will not take is a refusal among the files the
 --- run covers, not an end to the run: it comes back in `refused` with
 --- the others still listed, so the verb can report it and still end in
---- its verdict line.
+--- its summary.
 ---
 --- What a path is decided before what it is named. A path with nothing
 --- at it is missing, whatever its suffix: answering `nope` with a
@@ -222,6 +219,32 @@ local function test_c_is_taken_only_in_cosmics_own_tree(tmp: string)
   assert(#named.c_files == 1 and #named.refused == 0, "a header named is checked")
 end
 
+--- The checker is not laid out, however it is named: found in a walk, a
+--- directory named or the file itself, spelled with a `..` or not. Another
+--- tree's `checker/` is its own source.
+local function test_the_checker_is_held_out_when_named_as_a_file(tmp: string)
+  local own = tmp .. "/held"
+  assert(Fs.mkdirs(own .. "/core"))
+  assert(Fs.mkdirs(own .. "/build"))
+  assert(Fs.mkdirs(own .. "/checker"))
+  assert(Fs.mkdirs(own .. "/vendor/lua"))
+  assert(Fs.write(own .. "/build/importer.tl", "return {}\n"))
+  assert(Fs.write(own .. "/checker/tl.tl", "return {}\n"))
+  for _, named in ipairs({ {}, { own }, { own .. "/checker" }, { own .. "/checker/tl.tl" },
+      { own .. "/build/../checker/tl.tl" } }) do
+    for _, file in ipairs(assert(fix.chosen(own, named)).files) do
+      assert(not file:find("/checker/", 1, true), "laid out " .. file)
+    end
+  end
+  local mixed = assert(fix.chosen(own, { own .. "/checker/tl.tl", own .. "/build/importer.tl" }))
+  assert(#mixed.files == 1 and #mixed.refused == 0, "the checker named beside another file")
+  local other = tmp .. "/elsewhere"
+  assert(Fs.mkdirs(other .. "/checker"))
+  assert(Fs.write(other .. "/checker/tl.tl", "return {}\n"))
+  assert(#assert(fix.chosen(other, { other .. "/checker/tl.tl" })).files == 1,
+    "another tree's checker/ is its own source")
+end
+
 --- The tree-wide checks run only over every Teal source of cosmic's own
 --- tree, however it is named: not over a part of it, nor over a tree
 --- of another's.
@@ -253,7 +276,7 @@ local function program_modules(): Sqlite.Handle
   for _, module in ipairs({ "build.fix.rule", "build.fix.render", "build.fix.breaks",
       "build.fix.equiv", "build.ast",
       "build.teal", "build.flow", "build.c", "build.fix.near",
-      "build.analyzer", "build.verdict", "build.tree", "cosmic.flags",
+      "build.analyzer", "build.logger", "build.tree", "cosmic.flags",
       "cosmic.cli", "cosmic.template",
       "cosmic.string" }) do
     assert(Sqlite.run(db, "INSERT INTO modules VALUES (?1, ?2)",
@@ -297,13 +320,15 @@ local function test_changed_lays_out_only_the_paths_named(tmp: string)
   assert(narrowed.whole and narrowed.every == every, "a run of --changed is not whole")
   assert(names(narrowed.files) == "ci/a.tl cosmic/thing.tl", names(narrowed.files))
   assert(#narrowed.c_files == 0 and #narrowed.flow_files == 0, "it lays out C or YAML that did not change")
-  assert(names(narrowed.noted) == "ci/a.tl cosmic/other.tl cosmic/string.tl cosmic/thing.tl",
-    "it notes " .. names(narrowed.noted))
+  local noted = assert(narrowed.noted)
+  assert(names(noted) == "ci/a.tl cosmic/other.tl cosmic/string.tl cosmic/thing.tl",
+    "it notes " .. names(noted))
 
   narrowed = fix.narrowed(own, every, { "ci/a.tl", "lib/b.c" }, { db })
+  noted = assert(narrowed.noted)
   assert(narrowed.widened == nil and names(narrowed.files) == "ci/a.tl" and
-      names(narrowed.noted) == "ci/a.tl cosmic/other.tl cosmic/string.tl cosmic/thing.tl",
-    "outside the standard library, it notes " .. names(narrowed.noted))
+      names(noted) == "ci/a.tl cosmic/other.tl cosmic/string.tl cosmic/thing.tl",
+    "outside the standard library, it notes " .. names(noted))
   assert(names(narrowed.c_files) == "core/a.c lib/b.c", "one C file changed holds " ..
       names(narrowed.c_files) .. " to the rules")
 
@@ -366,10 +391,10 @@ local function test_a_renderer_that_is_not_a_fixed_point_is_refused()
   local original = render_mod.laid_out
   local ok, trouble = pcall(function(): (any...)
     local source = "local x = 1\n"
-    local calls = 0
+    local calls = { value = 0 }
     render_mod.laid_out = function(_: ast.Parsed, src: string): render_mod.Layout | nil, string
-      calls = calls + 1
-      if calls == 1 then
+      calls.value = calls.value + 1
+      if calls.value == 1 then
         return { text = "local  x = 1\n" }
       end
       return { text = src .. "-- a second pass added this\n" }
@@ -554,23 +579,24 @@ local function test_links_read_symbols_from_a_build_made_when_needed(tmp: string
   assert(Fs.write(root .. "/a.md", "[`m.one`] [`m.two`]\n"))
   assert(Fs.write(root .. "/b.md", "[b](b.md)\n"))
   for _, whole in ipairs({ false, true }) do
-    local rebuilt, opened = 0, 0
+    local rebuilt = { value = 0 }
+    local opened = { value = 0 }
     local source = fix.link_context(root, whole, true,
       function(_: string): boolean, string
-        rebuilt = rebuilt + 1
+        rebuilt.value = rebuilt.value + 1
         return true, ""
       end,
       function(): docs.Sources
-        opened = opened + 1
+        opened.value = opened.value + 1
         return { handles = {}, public = {}, opened = {} }
       end)
     fix.links(source.context, built, { root .. "/b.md" })
-    assert(opened == 0 and rebuilt == 0, "a file with no symbol link opened the databases")
+    assert(opened.value == 0 and rebuilt.value == 0, "a file with no symbol link opened the databases")
     local found = fix.links(source.context, built, { root .. "/a.md" })
     source.close()
     assert(#found.broken == 2, table.concat(found.broken, "\n"))
-    assert(opened == 1, "opened " .. opened .. " times")
-    assert(rebuilt == (whole and 0 or 1), (whole and "whole" or "part") .. ": rebuilt " .. rebuilt)
+    assert(opened.value == 1, "opened " .. opened.value .. " times")
+    assert(rebuilt.value == (whole and 0 or 1), (whole and "whole" or "part") .. ": rebuilt " .. rebuilt.value)
   end
 end
 

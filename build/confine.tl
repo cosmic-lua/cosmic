@@ -107,6 +107,9 @@ local record Entry
   --- What each start that failed for what the sandbox lacked said of
   --- it ([`confine.unseen`]), once each.
   unseen: {string}
+  --- Whether the stand-in has been left, so a reference to it that
+  --- outlives it is told.
+  ended: boolean
 end
 
 --- Every running stand-in, innermost last: one wraps another when a
@@ -166,19 +169,21 @@ local record Resolved
   writes: {string}
 end
 
---- What the running test declared its processes need, or nil: see
---- [`confine.confine`].
-local confinement: Resolved | nil = nil
+local record Declared
+  --- What the running test declared its processes need, or nil: see
+  --- [`confine.confine`].
+  confinement: Resolved | nil
+  --- How the declaration in `confinement` is held: nil where a process
+  --- the kernel cannot confine starts unconfined, and otherwise what
+  --- names the call that asked for no fallback, for the failure a spawn
+  --- answers instead (see [`confine.must_confine`]).
+  strict: string | nil
+  --- What the library whose work is running declared its processes need,
+  --- or nil: see [`confine.declaring`].
+  library: Resolved | nil
+end
 
---- How the declaration in `confinement` is held: nil where a process
---- the kernel cannot confine starts unconfined, and otherwise what
---- names the call that asked for no fallback, for the failure a spawn
---- answers instead (see [`confine.must_confine`]).
-local strict: string | nil = nil
-
---- What the library whose work is running declared its processes need,
---- or nil: see [`confine.declaring`].
-local library: Resolved | nil = nil
+local declared_by: Declared = {}
 
 --- The variable that turns every `confine` into [`must_confine`].
 local SANDBOX_MODE <const> = "COSMIC_SANDBOX"
@@ -253,10 +258,10 @@ end
 --- fallback, or nil.
 local function declare(declared: confine.Confinement | nil, must: string | nil)
   if declared == nil then
-    confinement, strict = nil, nil
+    declared_by.confinement, declared_by.strict = nil, nil
     return
   end
-  confinement, strict = absolute(declared), must
+  declared_by.confinement, declared_by.strict = absolute(declared), must
 end
 
 --- Declares what every process the calling test starts from here on
@@ -344,10 +349,10 @@ end
 ---
 --- Relative paths are taken from the directory this is called in.
 function confine.declaring(declared: confine.Confinement, fn: function())
-  local before = library
-  library = absolute(declared)
+  local before = declared_by.library
+  declared_by.library = absolute(declared)
   local ok, trouble: boolean, any = pcall(fn)
-  library = before
+  declared_by.library = before
   if not ok then error(trouble, 0) end
 end
 
@@ -635,7 +640,7 @@ function confine.resolution(path: string): string
     return n
   end
   local finish = #path
-  local real: string = nil
+  local real: string | nil = nil
   while true do
     local found, _ = realpath(path:sub(1, finish))
     if found ~= nil then
@@ -649,6 +654,8 @@ function confine.resolution(path: string): string
     finish = unslashed(name)
     if finish == 0 then finish = 1 end
   end
+  -- The loop ends only on a path some prefix of which resolved.
+  assert(real ~= nil)
   local names: {string} = {}
   for name in path:sub(finish + 1):gmatch("[^/]+") do names[#names + 1] = name end
   if #names == 0 then return real end
@@ -996,21 +1003,23 @@ local type Leave = function(): string | nil
 local function enter(own?: {string}, sandboxed?: boolean): Leave, {string}
   -- The call the stand-in wraps: what `spawn` was as it began.
   local spawn = process.spawn
-  local ended = false
   local owned: {string} = {}
   for i, directory in ipairs(own or {}) do owned[i] = directory end
-  local entry: Entry = { own = owned, sandboxed = sandboxed == true, unseen = {} }
+  local entry: Entry = { own = owned, sandboxed = sandboxed == true, unseen = {}, ended = false }
   process.spawn = function(path: string, argv: {string}, environment: {string:string} | nil,
                            cwd: string | nil, stdin: integer | nil, stdout: integer | nil,
                            stderr: integer | nil, process_group: boolean,
                            fds?: {integer:integer}, sandbox?: raw_process.Sandbox,
                            credentials?: raw_process.Credentials, terminal?: boolean | string):
       integer | nil, string, integer
-    if ended then
+    -- Declared as the real spawn is. A process that started is answered by
+    -- its pid alone, as the real one answers it: a reason and an errno
+    -- come only with a failure (a later slot left out is the failure idiom).
+    if entry.ended then
       -- A reference to a stand-in that no longer stands in starts a
       -- process no confinement holds: under [`must_confine`], none.
-      if strict ~= nil and confinement ~= nil then
-        return nil, refuse(strict, path, "unveil and offline",
+      if declared_by.strict ~= nil and declared_by.confinement ~= nil then
+        return nil, refuse(declared_by.strict, path, "unveil and offline",
           "started through a spawn taken while an earlier stand-in ran", sys.EINVAL), sys.EINVAL
       end
       return own_spawn(path, argv, environment, cwd, stdin, stdout, stderr, process_group,
@@ -1029,10 +1038,10 @@ local function enter(own?: {string}, sandboxed?: boolean): Leave, {string}
     local kind = sandbox ~= nil and plain == nil and policy_kind(sandbox) or ""
     if holder ~= nil and ((plain ~= nil and plain.unveil ~= nil) or
         kind == "rooted" or kind == "isolating" or
-        (sandbox == nil and confinement ~= nil)) then
+        (sandbox == nil and declared_by.confinement ~= nil)) then
       return nil, refuse_nesting(path, holder), sys.EPERM
     end
-    local must = confinement ~= nil and strict or nil
+    local must = declared_by.confinement ~= nil and declared_by.strict or nil
     if plain ~= nil and plain.unveil ~= nil and plain.offline == true then
       local pid, trouble, errno = spawn(path, argv, environment, cwd, stdin, stdout, stderr,
         process_group, fds, plain, credentials, terminal)
@@ -1040,6 +1049,7 @@ local function enter(own?: {string}, sandboxed?: boolean): Leave, {string}
         return nil, refuse(must, path, "its own sandbox's unveil and offline", trouble, errno),
           errno
       end
+      if pid ~= nil then return pid end
       return pid, trouble, errno
     end
     -- A sandbox of its own that does not both unveil and take the
@@ -1061,11 +1071,11 @@ local function enter(own?: {string}, sandboxed?: boolean): Leave, {string}
     -- elsewhere by what the library declared, as a test's own
     -- confinement holds one, but where a ruleset holds this process:
     -- that one starts as one declared by nothing does.
-    local declared = confinement
-    local declared_strict = strict
-    if sandbox == nil and declared == nil and library ~= nil and not in_sandbox() and
+    local declared = declared_by.confinement
+    local declared_strict = declared_by.strict
+    if sandbox == nil and declared == nil and declared_by.library ~= nil and not in_sandbox() and
         holder == nil then
-      declared = library
+      declared = declared_by.library
       declared_strict = must_everywhere() and "confine (" .. SANDBOX_MODE .. "=must)" or nil
     end
     if sandbox == nil and declared ~= nil then
@@ -1109,7 +1119,7 @@ local function enter(own?: {string}, sandboxed?: boolean): Leave, {string}
         if environment ~= nil then temporary = environment.TMPDIR end
         local replace = temporary ~= nil and temporary == inherited
         for _, given in ipairs(writes) do
-          if replace and Fs.within(temporary, given) then replace = false end
+          if replace and temporary ~= nil and Fs.within(temporary, given) then replace = false end
         end
         if replace and writes[1] ~= nil then
           given_environment = {}
@@ -1152,6 +1162,7 @@ local function enter(own?: {string}, sandboxed?: boolean): Leave, {string}
           stderr, process_group, fds, { unveil = { reads = reads, writes = writes },
             offline = true }, credentials, terminal)
         if pid ~= nil or not unconfinable[errno] then
+          if pid ~= nil then return pid end
           return pid, trouble, errno
         end
         if declared_strict ~= nil then
@@ -1185,11 +1196,12 @@ local function enter(own?: {string}, sandboxed?: boolean): Leave, {string}
         end
       end
     end
+    if pid ~= nil then return pid end
     return pid, trouble, errno
   end
   entered[#entered + 1] = entry
   return function(): string | nil
-    ended = true
+    entry.ended = true
     process.spawn = spawn
     for at = #entered, 1, -1 do
       if entered[at] == entry then

@@ -24,8 +24,7 @@
 ---
 --- What stays shared: a module the verb requires stays loaded after it,
 --- and a global `-e` sets stays set, as in any process that runs two
---- chunks; [`build.verdict`]'s record of a verdict line is set back for
---- each run. The environment given is what a verb reads through
+--- chunks. The environment given is what a verb reads through
 --- [`cosmic.env`]; C that reads its own (the core's startup, coverage)
 --- sees this process's. Nothing times the run out but the test's own
 --- limit.
@@ -35,7 +34,7 @@ local Store = require("cosmic.store")
 local dispatch = require("build.dispatch")
 local exit_status = require("build.exit_status")
 local sys = require("cosmic.sys")
-local verdict = require("build.verdict")
+local logger = require("build.logger")
 
 local record invoke
   --- How to run.
@@ -79,6 +78,13 @@ local function drained(fd: integer): string
   return table.concat(out)
 end
 
+--- What [`invoke.run`] learns of the command line as it runs: the first
+--- call it was refused, and the status it exited with.
+local record Run
+  refused: string | nil
+  code: integer
+end
+
 --- Runs `args` -- the words after `cosmic` -- as the binary would, here.
 --- Raises for a command line only a process of its own can run, and when
 --- a descriptor or the working directory cannot be set up or put back.
@@ -99,10 +105,10 @@ function invoke.run(args: {string}, opts: invoke.Options): invoke.Result
     for _, fd in ipairs(held) do local _, _ = sys.close(fd) end
     local _, _ = Fs.remove_tree(dir)
   end
-  local function hold(fd: integer | nil, trouble: string, what: string): integer
+  local function hold(fd: integer | nil, trouble: string | nil, what: string): integer
     if fd == nil then
       release()
-      error("invoke: " .. what .. ": " .. trouble, 3)
+      error("invoke: " .. what .. ": " .. (trouble or "no reason given"), 3)
     end
     held[#held + 1] = fd
     return fd
@@ -116,23 +122,23 @@ function invoke.run(args: {string}, opts: invoke.Options): invoke.Result
   local saved_out = hold(saved_out_fd, saved_out_trouble, "standard output")
   local saved_err_fd, saved_err_trouble = sys.dup(2)
   local saved_err = hold(saved_err_fd, saved_err_trouble, "standard error")
-  local here, here_trouble = sys.getcwd()
-  if here == nil then
+  local working, here_trouble = sys.getcwd()
+  if working == nil then
     release()
     error("invoke: the working directory: " .. here_trouble, 2)
   end
+  local here: string = working
 
   local getenv, environ = sys.getenv, sys.environ
   local exit, execve, attach = sys.exit, sys.execve, Store.attach
-  local given = verdict.given
-  local refused: string | nil = nil
+  -- What the run leaves: the first call it was refused, and its status.
+  local run: Run = { refused = nil, code = 1 }
   local function refuse(what: string): never
-    refused = refused or ("invoke: the command line called " .. what ..
+    run.refused = run.refused or ("invoke: the command line called " .. what ..
       ", which only a process of its own can: start the binary instead")
-    error(refused, 0)
+    error(run.refused, 0)
   end
 
-  local code = 1
   local ran, trouble = pcall(function(): string
     assert(sys.dup2(out, 1))
     assert(sys.dup2(err, 2))
@@ -155,7 +161,6 @@ function invoke.run(args: {string}, opts: invoke.Options): invoke.Result
     Store.attach = function(_: string): boolean, string
       refuse("Store.attach")
     end
-    verdict.given = false
     Store.alone(function()
       local called, answer = pcall(function(): any return dispatch.main(argv) end)
       if not called then
@@ -164,16 +169,16 @@ function invoke.run(args: {string}, opts: invoke.Options): invoke.Result
         -- guidance (core/main.c's `failed`) -- once a binding hands them
         -- to Lua.
         local message = (answer is string or answer is number) and tostring(answer) or "failed"
-        verdict.log:complain(message)
+        logger.log:complain(message)
         return
       end
       local status = exit_status.status(answer)
       if status == nil then
-        verdict.log:complain("the main function returned no exit status from 0 to 255: " ..
+        logger.log:complain("the main function returned no exit status from 0 to 255: " ..
             "cmd.cosmic.main")
-        code = 2
+        run.code = 2
       else
-        code = status
+        run.code = status
       end
     end)
     return ""
@@ -181,11 +186,10 @@ function invoke.run(args: {string}, opts: invoke.Options): invoke.Result
 
   sys.getenv, sys.environ = getenv, environ
   sys.exit, sys.execve, Store.attach = exit, execve, attach
-  verdict.given = given
   local out_back, out_back_trouble = sys.dup2(saved_out, 1)
   local err_back, err_back_trouble = sys.dup2(saved_err, 2)
   local back, back_trouble = sys.chdir(here)
-  local result: invoke.Result = { code = code, stdout = drained(out), stderr = drained(err) }
+  local result: invoke.Result = { code = run.code, stdout = drained(out), stderr = drained(err) }
   -- A descriptor that could not be put back is left open: closed, what it
   -- stood for would be gone for good.
   local keep: {integer:boolean} = {}
@@ -207,7 +211,7 @@ function invoke.run(args: {string}, opts: invoke.Options): invoke.Result
     error("invoke: the working directory could not be put back: " .. back_trouble)
   end
   if not ran then error(trouble, 0) end
-  if refused ~= nil then error(refused, 0) end
+  if run.refused ~= nil then error(run.refused, 0) end
   return result
 end
 

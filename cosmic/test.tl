@@ -300,12 +300,15 @@ local function runner_in(module: any): {string:any}
   return nil
 end
 
---- The files of the parent directory this module's policy declared
---- ([`Needs.parent`]), by their relative paths.
-local declared_parents: {string:boolean} = {}
+local record Declared
+  --- The files of the parent directory this module's policy declared
+  --- ([`Needs.parent`]), by their relative paths.
+  parents: {string:boolean}
+  --- Where the one `policy` call came from, once it has come.
+  called_at: string | nil
+end
 
---- Where the one `policy` call came from, once it has come.
-local called_at: string = nil
+local declared: Declared = { parents = {} }
 
 --- Where `policy` was called from, as the chunk and line a
 --- traceback names -- its frame four up: this, `declare`, the call, its
@@ -323,13 +326,13 @@ local function declare(needs: Test.Needs)
   if installed ~= nil and installed.loaded == true then
     error("test: policy is called at the top of a test module, while it loads", 3)
   end
-  if called_at ~= nil then
-    error("test: policy is called once, and " .. called_at .. " called it already; " ..
+  if declared.called_at ~= nil then
+    error("test: policy is called once, and " .. declared.called_at .. " called it already; " ..
         "a test module never requires another that calls it", 3)
   end
-  called_at = caller()
-  declared_parents = {}
-  for _, relative in ipairs(needs.parent or {}) do declared_parents[relative] = true end
+  declared.called_at = caller()
+  declared.parents = {}
+  for _, relative in ipairs(needs.parent or {}) do declared.parents[relative] = true end
   local handed = installed ~= nil and installed.handed or nil
   if handed is function(Test.Needs) then handed(needs) end
 end
@@ -777,7 +780,7 @@ end
 --- @return the path the worker reads it at
 function Test.parent(relative: string): string
   if not (relative is string) then error("test: parent takes a string", 2) end
-  if not declared_parents[relative] then
+  if not declared.parents[relative] then
     error(string.format("test: parent(%q) is not declared; grant " ..
         "{ path = \"/parent/%s\", letters = \"r\" } in Test.policy", relative, relative), 2)
   end
@@ -791,12 +794,15 @@ end
 
 --- Ends the running test as skipped: this host cannot check what it
 --- exists to check -- a kernel that refuses the sandbox it is about,
---- say -- for `reason`, which the run prints beside its name. It raises
---- a value the runner takes for a skip rather than a failure, so
---- nothing after the call runs, as in
+--- say -- for `reason`, which the run prints beside its name. Under a
+--- runner it raises a value the runner takes for a skip rather than a
+--- failure, so nothing after the call runs; the checker does not know
+--- that, so a `return` follows it where later code needs a value the
+--- skip guards, as in
 ---
 ---     if ruleset == nil then
 ---       Test.skip("no Landlock: " .. trouble)
+---       return
 ---     end
 ---     use(ruleset)
 ---

@@ -41,16 +41,16 @@ local function test_a_typed_get_is_given_its_path_and_query_as_records()
   local app = Web.app{ routes = {
     Web.get_typed("/items/:id", Web.input(PATH, QUERY, Web.no_body),
       function(_req: Web.Request, p: ItemPath, q: Listing, b: Web.None): Web.Response
-        seen[#seen + 1] = ("%d|%s|%s|%s"):format(p.id, tostring(q.page), table.concat(q.tag or {}, ","), tostring(b))
+        seen[#seen + 1] = ("%d|%s|%s|%s"):format(p.id, tostring(q.page), table.concat(q.tag or {}, ","), next(b) == nil and "empty" or "full")
         return Web.json({ id = p.id })
       end, { name = "item" }),
   } }
   local client = Web.test_client(app)
   local reply = client:get("/items/7?page=2&tag=a&tag=b&ignored=1")
   assert(reply.status == 200 and reply:json() ~= nil)
-  assert(seen[1] == "7|2|a,b|nil", seen[1])
+  assert(seen[1] == "7|2|a,b|empty", seen[1])
   assert(client:get("/items/7"):text() == '{"id":7}')
-  assert(seen[2] == "7|nil||nil", "an optional query field is nil, a list empty")
+  assert(seen[2] == "7|nil||empty", "an optional query field is nil, a list empty")
   assert(client:head("/items/7").status == 200, "HEAD is answered by the GET")
   assert(app:url_for("item", { id = 7 }) == "/items/7")
 end
@@ -67,17 +67,17 @@ local function test_a_json_body_binds_and_a_key_the_record_lacks_is_dropped()
 end
 
 local function test_a_bad_path_value_is_422_before_the_query_or_body_is_read()
-  local called = false
+  local called = { value = false }
   local app = Web.app{ routes = {
     Web.put_typed("/items/:id", Web.input(PATH, QUERY, Web.json_body(NEW)),
       function(_req: Web.Request, _p: ItemPath, _q: Listing, _b: NewItem): Web.Response
-        called = true
+        called.value = true
         return Web.empty()
       end),
   } }
   local client = Web.test_client(app)
   local reply = client:put("/items/abc?page=x", { json = { title = 1 } })
-  assert(reply.status == 422 and not called)
+  assert(reply.status == 422 and not called.value)
   local errors = problem(reply).errors as {{string:any}}
   assert(#errors == 1 and errors[1].source == "path" and errors[1].field == "id" and errors[1].code == "integer")
   assert(errors[1].pointer == nil, "only a JSON body has a pointer")
@@ -87,7 +87,7 @@ local function test_a_bad_path_value_is_422_before_the_query_or_body_is_read()
   reply = client:put("/items/1", { json = { title = 1 } })
   errors = problem(reply).errors as {{string:any}}
   assert(errors[1].source == "body" and errors[1].pointer == "/qty", "then the body")
-  assert(not called)
+  assert(not called.value)
 end
 
 local function test_a_json_route_answers_a_problem_body_with_every_error_listed()
@@ -131,17 +131,17 @@ local function test_a_form_route_prefers_a_page_and_lists_all_errors_as_json_whe
 end
 
 local function test_on_invalid_re_renders_in_place_of_the_handler()
-  local called = false
-  local seen: Web.Invalid
+  local called = { value = false }
+  local seen = { value = nil as Web.Invalid | nil }
   local app = Web.app{ routes = {
     Web.post_typed("/settings", Web.input(Web.NONE, Web.NONE, Web.form_body(SETTINGS)),
       function(_req: Web.Request, _p: Web.None, _q: Web.None, _b: Settings): Web.Response
-        called = true
+        called.value = true
         return Web.empty()
       end, {
         input_options = { secret = { "secret" } },
         on_invalid = function(req: Web.Request, bad: Web.Invalid): Web.Response
-          seen = bad
+          seen.value = bad
           return Web.text(("%s:%s:%s"):format(req.method, bad.errors[1].field, assert(bad.submitted).by_name.name[1]),
             { status = bad.status })
         end,
@@ -149,24 +149,25 @@ local function test_on_invalid_re_renders_in_place_of_the_handler()
   } }
   local reply = Web.test_client(app):post("/settings", { form = { name = "Ada", notify = "perhaps", secret = "s3" } })
   assert(reply.status == 422 and reply:text() == "POST:notify:Ada", reply:text())
-  assert(not called and assert(seen.submitted).by_name.secret == nil, "the secret is not sent back")
+  assert(not called.value and assert(assert(seen.value).submitted).by_name.secret == nil, "the secret is not sent back")
   local ok = Web.test_client(app):post("/settings", { form = { name = "Ada" } })
-  assert(ok.status == 204 and called, "an absent checkbox is false")
+  assert(ok.status == 204 and called.value, "an absent checkbox is false")
 end
 
 local function test_a_checkbox_form_binds_and_unknown_names_bind_nothing()
-  local got: Settings
+  local got = { value = nil as Settings | nil }
   local app = Web.app{ routes = {
     Web.post_typed("/settings", Web.input(Web.NONE, Web.NONE, Web.form_body(SETTINGS)),
       function(_req: Web.Request, _p: Web.None, _q: Web.None, b: Settings): Web.Response
-        got = b
+        got.value = b
         return Web.empty()
       end),
   } }
   local client = Web.test_client(app)
   assert(client:post("/settings", { form = { name = "Ada", notify = { "0", "1" }, is_admin = "1" } }).status == 204)
-  assert(got.name == "Ada" and got.notify == true and got.secret == nil)
-  assert((got as {string:any})["is_admin"] == nil)
+  local bound = assert(got.value, "the handler never ran")
+  assert(bound.name == "Ada" and bound.notify == true and bound.secret == nil)
+  assert((bound as {string:any})["is_admin"] == nil)
 end
 
 local function test_the_wrong_content_type_is_415_and_a_big_body_413_and_bad_json_400()

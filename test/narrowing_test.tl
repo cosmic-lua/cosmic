@@ -1,8 +1,8 @@
---- Proves the narrowing that patch/tl adds. A bare variable narrows
---- across a statement-form `assert(x, ...)` (07-assert-narrows.txt).
+--- Proves the narrowing that the checker ([`checker/tl.tl`]) does. A bare
+--- variable narrows across a statement-form `assert(x, ...)`.
 --- `x.field` on a plain-variable base narrows as a bare variable does
 --- -- truthy read, `assert`, `== nil` / `~= nil`, and the early-return
---- shape -- through the fact-key mechanism of 08 through 14. Each such
+--- shape -- through the checker's fact-key mechanism. Each such
 --- positive case has a negative one proving a write drops the narrow,
 --- and one proving a chained base (`a.b.field`, whose base is itself a
 --- field access rather than a bare variable) is never narrowed.
@@ -397,7 +397,7 @@ end
       tostring(trouble))
 end
 
-local function test_goto_narrow_ends_at_a_label(tmp: string)
+local function test_a_goto_to_a_label_that_ends_no_loop_body_is_refused(tmp: string)
   local ok, trouble = try_build(tmp, "goto-label", entry_prelude .. [[
 local e = next_entry()
 do
@@ -407,8 +407,8 @@ do
    print(e.size)
 end
 ]])
-  assert(refused_nil_index(ok, trouble), "a label is reached by the goto with e nil, so the " ..
-      "narrow must not reach the code after it")
+  assert(not ok and tostring(trouble):find("is not a continue", 1, true) ~= nil,
+    "a goto that is no continue should be refused, but: " .. tostring(trouble))
 end
 
 local function test_an_ending_do_or_endless_loop_narrows_below_the_guard(tmp: string)
@@ -459,7 +459,7 @@ use()
   end
 end
 
-local function test_a_goto_out_of_an_endless_loop_reaches_a_label_that_widens(tmp: string)
+local function test_a_goto_out_of_an_endless_loop_is_refused(tmp: string)
   local ok, trouble = try_build(tmp, "goto-out-of-loop", entry_prelude .. [[
 local function use()
    local e = next_entry()
@@ -471,8 +471,8 @@ local function use()
 end
 use()
 ]])
-  assert(refused_nil_index(ok, trouble), "the goto leaves the loop with e nil for the " ..
-      "label, so the narrow must not reach the code after it")
+  assert(not ok and tostring(trouble):find("is not a continue", 1, true) ~= nil,
+    "a goto out of a loop should be refused, but: " .. tostring(trouble))
 end
 
 local function test_error_narrows_below_the_guard(tmp: string)
@@ -635,7 +635,7 @@ print(upper(1))
       "holding it, so a test of it must not narrow")
 end
 
-local function test_type_test_of_a_field_does_not_narrow(tmp: string)
+local function test_type_test_of_a_field_narrows_and_is_of_a_field_does_not(tmp: string)
   local ok, trouble = try_build(tmp, "type-field", [[
 local record Holder
    v: any
@@ -646,7 +646,19 @@ local function upper(h: Holder): string
 end
 print(upper({}))
 ]])
-  assert(refused_index(ok, trouble, "upper"), "`is` narrows only a variable, and so does type()")
+  assert(ok, "type() narrows a field as it does a local, but: " .. tostring(trouble))
+  local built, why = try_build(tmp, "is-field", [[
+local record Holder
+   v: string | number
+end
+local function upper(h: Holder): string
+   if h.v is string then return h.v:upper() end
+   return ""
+end
+print(upper({}))
+]])
+  assert(not built and why:find("can only use 'is' on variables", 1, true) ~= nil,
+    "`is` narrows only a variable, but: " .. tostring(why))
 end
 
 local function test_type_test_no_member_answers_is_a_plain_check(tmp: string)
@@ -690,7 +702,7 @@ print(upper(1))
 end
 
 --- `local error = error` has the type of `error`, so it narrows as `error`
---- does (patch/tl's 44a, 44b): the guarantee is checked where the variable
+--- does: the guarantee is checked where the variable
 --- is written, and assigning it a function that may return is refused.
 local function test_a_local_holding_error_narrows(tmp: string)
   local ok, trouble = try_build(tmp, "error-localized", entry_prelude .. [[
@@ -732,7 +744,7 @@ print(size("a"))
 end
 
 --- A call of a function declared `: never` ends its block as `error(...)`
---- does (patch/tl's 43f1), so the guard narrows below it. The helper is
+--- does, so the guard narrows below it. The helper is
 --- declared as a local function, a record field, a method, a `__call`
 --- and a generic; each case declares `fail` and the guard is the same.
 local never_guard = [[
@@ -755,9 +767,9 @@ local function test_a_never_function_narrows_below_its_guard(tmp: string)
         "local function raise(m: string): never error(m) end\nlocal fail = id(raise)\n", 'fail("no")' },
     ["recursion"] = { "local function fail(m: string): never fail(m) end\n", 'fail("no")' },
     ["poly-all-never"] = { "local record P\n   f: function(string): never\n   f: function(integer): never\nend\n" ..
-        "local p: P\n", 'p.f("no")' },
+        "local p: P = {}\n", 'p.f("no")' },
     ["poly-chosen-never"] = { "local record P\n   f: function(string): never\n   f: function(integer): string\nend\n" ..
-        "local p: P\n", 'p.f("no")' },
+        "local p: P = {}\n", 'p.f("no")' },
     ["macroexp"] = { "local macroexp fail(m: string): never return error(m) end\n", 'fail("no")' },
   }
   for name, case in pairs(cases) do

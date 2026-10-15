@@ -37,11 +37,11 @@ local record assertions
   reset: function()
 end
 
-local installed = false
+local state <const> = { installed = false }
 
 function assertions.install()
-  if installed then return end
-  installed = true
+  if state.installed then return end
+  state.installed = true
   rawset(_G as {string:any}, "assert", raw.assert)
 end
 

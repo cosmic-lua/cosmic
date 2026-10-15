@@ -8,12 +8,12 @@ local key_parts <const> = "test: key parts: host features 0123456789abcdef, host
 
 --- A sandboxed run's lines as build/test.tl says them, --census asked.
 local function test_a_passing_sandboxed_run()
-  local figures = SuiteOutput.parse("boot: PASS (3 targets, 2344 ms)\n" ..
+  local figures = SuiteOutput.parse("boot: 3 targets, 2344 ms\n" ..
       "test: sandbox: each worker is held to its inputs, the tree at /tree\n" ..
       key_parts .. "\n" ..
       "test: 1994 tests keyed by their declared inputs in 12.5 ms (40 files read)\n" ..
       "test: coverage 71.2% (1/2 lines; informational, never a failure)\n" ..
-      "test: PASS (1994 tests, 193 modules; 0 ran, 1994 stood, 2385 ms; sandboxed)\n")
+      "test: 1994 tests passed in 193 modules; 0 ran, 1994 stood, 2385 ms; sandboxed\n")
   assert(figures.verdict == "pass" and figures.tests == 1994 and figures.modules == 193)
   assert(figures.ran == 0 and figures.stood == 1994 and figures.shared == 0)
   assert(figures.every == 0 and figures.failed == 0)
@@ -29,10 +29,10 @@ end
 --- Every optional count goes after `stood`, so a figure the summary adds
 --- there -- `skipped`, which no row keeps -- leaves the rest read by place.
 local function test_a_pass_with_every_optional_count()
-  local figures = SuiteOutput.parse("test: PASS (40 tests, 3 modules; 12 ran, 28 stood, " ..
+  local figures = SuiteOutput.parse("test: 40 tests passed in 3 modules; 12 ran, 28 stood, " ..
       "3 skipped (this host could not check them), 2 run every time (no key holds them), " ..
       "20 of them on another checkout's verdict, 901 ms; unsandboxed (COSMIC_TEST_SANDBOX=0), " ..
-      "sharing no verdicts)\n")
+      "sharing no verdicts\n")
   assert(figures.ran == 12 and figures.stood == 28 and figures.every == 2)
   assert(figures.shared == 20 and figures.elapsed_ms == 901)
   assert(figures.sandbox == "unsandboxed (COSMIC_TEST_SANDBOX=0), sharing no verdicts",
@@ -44,11 +44,11 @@ end
 --- single test, module or infrastructure error is read as well.
 local function test_a_count_of_one_is_read_in_the_singular()
   local passed = SuiteOutput.parse(
-    "test: PASS (1 test, 1 module; 1 ran, 0 stood, 3 ms; sandboxed)\n")
+    "test: 1 test passed in 1 module; 1 ran, 0 stood, 3 ms; sandboxed\n")
   assert(passed.verdict == "pass" and passed.tests == 1 and passed.modules == 1)
   assert(passed.ran == 1 and passed.stood == 0)
   local failed = SuiteOutput.parse(
-    "test: FAIL (1 of 1 failed, 1 infrastructure error, 9 ms)\n")
+    "test: 1 of 1 test failed, 1 infrastructure error, 9 ms\n")
   assert(failed.verdict == "fail" and failed.tests == 1 and failed.errors == 1)
   local unmatched = SuiteOutput.parse(
     "test: shared verdicts: none of 1 test looked up stood, though x holds 1 row, " ..
@@ -63,22 +63,22 @@ end
 local function test_a_failing_run()
   local figures = SuiteOutput.parse(key_parts .. "\n" ..
       "test: FAIL  build/x_test.tl: test_y (assertion failed!)\n" ..
-      "test: FAIL (2 of 1994 failed, 1 infrastructure errors, 4100 ms; sandboxed)\n")
+      "test: 2 of 1994 tests failed, 1 infrastructure errors, 4100 ms; sandboxed\n")
   assert(figures.verdict == "fail" and figures.failed == 2 and figures.tests == 1994)
   assert(figures.errors == 1 and figures.elapsed_ms == 4100 and figures.sandbox == "sandboxed")
   assert(figures.ran == nil and figures.stood == nil)
   local failed_parts = assert(figures.parts)
   assert(failed_parts.harness == "dddddddddddd")
   assert(SuiteOutput.status(figures, 1) == "fail")
-  local bare = SuiteOutput.parse("test: FAIL (1 of 3 failed, 0 infrastructure errors, 9 ms)\n")
+  local bare = SuiteOutput.parse("test: 1 of 3 tests failed, 0 infrastructure errors, 9 ms\n")
   assert(bare.verdict == "fail" and bare.sandbox == "" and bare.not_run == nil)
   -- A bailing run's tail is no part of the sandbox's words.
-  local bailed = SuiteOutput.parse("test: FAIL (1 of 3 failed, 0 infrastructure errors, 9 ms; " ..
-      "sandboxed; 2 not run after the first failure)\n")
+  local bailed = SuiteOutput.parse("test: 1 of 3 tests failed, 0 infrastructure errors, 9 ms; " ..
+      "sandboxed; 2 not run after the first failure\n")
   assert(bailed.verdict == "fail" and bailed.failed == 1 and bailed.sandbox == "sandboxed" and
       bailed.not_run == 2, tostring(bailed.sandbox))
-  local bare_bailed = SuiteOutput.parse("test: FAIL (1 of 3 failed, 0 infrastructure errors, " ..
-      "9 ms; 2 not run after the first failure)\n")
+  local bare_bailed = SuiteOutput.parse("test: 1 of 3 tests failed, 0 infrastructure errors, " ..
+      "9 ms; 2 not run after the first failure\n")
   assert(bare_bailed.sandbox == "" and bare_bailed.not_run == 2)
 end
 
@@ -89,7 +89,7 @@ local function test_the_unmatched_line_says_the_parts()
       "stood, though /c/checked.db holds 2000 rows, 1994 of them of those tests: none under " ..
       "the keys this run reached (host features 01, host 02, system 03, runtime 04, " ..
       "compiler 05, harness 06, launcher 07)\n" ..
-      "test: PASS (1994 tests, 193 modules; 1994 ran, 0 stood, 250000 ms; sandboxed)\n")
+      "test: 1994 tests passed in 193 modules; 1994 ran, 0 stood, 250000 ms; sandboxed\n")
   local parts = assert(figures.parts)
   assert(parts.runtime == "04" and parts.harness == "06" and parts.launcher == "07")
   assert(figures.ran == 1994 and figures.stood == 0)
@@ -101,7 +101,7 @@ local function test_the_census_line_says_what_the_cache_held(tmp: string)
   local figures, status = SuiteOutput.read(key_parts .. "\n" ..
       "test: census: 1990 rows under host features 01, runtime bbbbbbbbbbbb, " ..
       "harness e8-072f7458-t60000; 1 row under no parts named\n" ..
-      "test: PASS (1994 tests, 193 modules; 0 ran, 1994 stood, 2385 ms; sandboxed)\n", 0)
+      "test: 1994 tests passed in 193 modules; 0 ran, 1994 stood, 2385 ms; sandboxed\n", 0)
   assert(status == "pass" and figures.stood == 1994)
   local held = SuiteOutput.held(assert(figures.held))
   assert(#held == 2 and held[1].rows == 1990 and held[2].rows == 1)
@@ -154,7 +154,7 @@ local function test_a_run_without_its_summary()
   assert(SuiteOutput.status(timed, 1) == "fail")
   assert(SuiteOutput.status(SuiteOutput.parse(""), 0) == "unreported")
   -- A summary cut short is no summary.
-  local cut = SuiteOutput.parse("test: PASS (1994 tests, 193 mod")
+  local cut = SuiteOutput.parse("test: 1994 tests passed in 193 mod")
   assert(cut.verdict == nil)
 end
 
@@ -162,7 +162,7 @@ end
 --- said after: a summary there is a test's own nested run's.
 local function test_a_timed_out_suite_keeps_only_its_key_parts()
   local figures, status = SuiteOutput.read(key_parts .. "\n" ..
-      "test: PASS (1 test, 1 module; 1 ran, 0 stood, 3 ms)\n", 124)
+      "test: 1 test passed in 1 module; 1 ran, 0 stood, 3 ms\n", 124)
   assert(status == "timeout")
   assert(figures.verdict == nil and figures.tests == nil and figures.ran == nil)
   assert(figures.stood == nil and figures.elapsed_ms == nil)
@@ -171,14 +171,14 @@ local function test_a_timed_out_suite_keeps_only_its_key_parts()
   assert(bare_status == "timeout" and bare.parts == nil)
 end
 
---- A suite that exited otherwise than 0 failed, though it said PASS:
+--- A suite that exited otherwise than 0 failed, though it said it passed:
 --- its status is what it answered. Its counts are still the suite's.
 local function test_a_pass_that_exits_nonzero_is_a_failure()
   local figures, status = SuiteOutput.read(
-    "test: PASS (10 tests, 2 modules; 4 ran, 6 stood, 30 ms; sandboxed)\n", 1)
+    "test: 10 tests passed in 2 modules; 4 ran, 6 stood, 30 ms; sandboxed\n", 1)
   assert(status == "fail" and figures.ran == 4 and figures.stood == 6)
   local _, passed = SuiteOutput.read(
-    "test: PASS (10 tests, 2 modules; 4 ran, 6 stood, 30 ms; sandboxed)\n", 0)
+    "test: 10 tests passed in 2 modules; 4 ran, 6 stood, 30 ms; sandboxed\n", 0)
   assert(passed == "pass")
   local _, unreported = SuiteOutput.read("", 0)
   assert(unreported == "unreported")
@@ -189,8 +189,8 @@ end
 --- The last summary is the suite's: a test's own output may hold one.
 local function test_the_last_summary_is_the_suites()
   local figures = SuiteOutput.parse(
-    "test: PASS (1 test, 1 module; 1 ran, 0 stood, 3 ms)\r\n" ..
-      "test: PASS (10 tests, 2 modules; 4 ran, 6 stood, 30 ms; sandboxed)\r\n")
+    "test: 1 test passed in 1 module; 1 ran, 0 stood, 3 ms\r\n" ..
+      "test: 10 tests passed in 2 modules; 4 ran, 6 stood, 30 ms; sandboxed\r\n")
   assert(figures.tests == 10 and figures.stood == 6 and figures.sandbox == "sandboxed")
 end
 
@@ -198,7 +198,7 @@ end
 local function test_rows_round_trip_into_the_summary_table(tmp: string)
   local path = tmp .. "/operations.db"
   local figures = SuiteOutput.parse(key_parts .. "\n" ..
-      "test: PASS (200 tests, 20 modules; 1 ran, 199 stood, 2385 ms; sandboxed)\n")
+      "test: 200 tests passed in 20 modules; 1 ran, 199 stood, 2385 ms; sandboxed\n")
   State.suite(path, { worker = "linux-x86_64", run = "7", attempt = "1", phase = "build",
     suite = "local", status = SuiteOutput.status(figures, 0), exit_code = 0,
     tests = figures.tests, modules = figures.modules, ran = figures.ran,
@@ -238,7 +238,7 @@ local function test_skips_are_grouped_by_reason_for_the_summary()
     "test: SKIP  a.b_test test_x: no socket (/tmp/cosmic-test-pad/x/probe.sock: denied)",
     "test: SKIP  a.b_test test_y: no socket (/tmp/cosmic-test-pad/y/probe.sock: denied)",
     "test: SKIP  c.d_test test_z: nests: a worker | pipe",
-    "test: PASS (5 tests, 2 modules; 2 ran, 0 stood, 3 skipped (this host could not check them), 9 ms; sandboxed)",
+    "test: 5 tests passed in 2 modules; 2 ran, 0 stood, 3 skipped (this host could not check them), 9 ms; sandboxed",
   }, "\n") .. "\n"
   local skips = SuiteOutput.skips(text)
   assert(#skips == 2 and skips[1][2] == 2 and skips[1][1] == "no socket (<dir>: denied)")
@@ -247,5 +247,5 @@ local function test_skips_are_grouped_by_reason_for_the_summary()
   assert(report:find("| 2 | no socket (\\<dir\\>: denied) |", 1, true), report)
   assert(report:find("| 1 | nests: a worker \\| pipe |", 1, true), report)
   assert(SuiteOutput.skip_report("l", "test: SKIP  a b: a `x` *y*\n"):find("a \\`x\\` \\*y\\*", 1, true))
-  assert(SuiteOutput.skip_report("local", "test: PASS (1 test, 1 module)\n") == "")
+  assert(SuiteOutput.skip_report("local", "test: 1 test passed in 1 module\n") == "")
 end

@@ -33,9 +33,11 @@ local schema = require("build.schema")
 local teal = require("build.teal")
 local tree = require("build.tree")
 local work = require("build.work")
+local workers = require("build.workers")
 local writer = require("build.writer")
 
-local log = require("build.verdict").log
+local logger = require("build.logger")
+local log = logger.log
 local bind = require("build.bind")
 local verb_spec = require("build.verb_spec")
 
@@ -391,7 +393,7 @@ function embed.tree(root: string, host?: boolean, under?: {string}): {string} | 
   local project = build_paths.resolve(root).projection
   local result, compile_trouble =
     importer.compile(handle, built, Store.meta("compiler") or "", false,
-      shared_compiles.for_build())
+      shared_compiles.for_build(), workers.pool(workers.tool_spec()))
   if result == nil then
     local _, _ = work.record(handle, clock.elapsed_ms(started), staged, 0, 0, "FAIL")
     local _, _ = work.close(handle)
@@ -428,7 +430,7 @@ function embed.tree(root: string, host?: boolean, under?: {string}): {string} | 
     return {}
   end
 
-  local prefix, core: string, raw_store.Core
+  local prefix, core: string | nil, raw_store.Core | nil
   local source_trouble: string
   if host then
     core, source_trouble = artifact.trusted_core()
@@ -457,8 +459,10 @@ function embed.tree(root: string, host?: boolean, under?: {string}): {string} | 
     local program, program_trouble: string, string
     if core ~= nil then
       program, program_trouble = artifact.host_program(core, database)
-    else
+    elseif prefix ~= nil then
       program, program_trouble = artifact.program(prefix, database)
+    else
+      return nil, source_trouble
     end
     if program == nil then
       return nil, out .. ": " .. program_trouble
@@ -474,11 +478,12 @@ end
 
 --- `cosmic build [--host] [path...]`: the tree in the working directory,
 --- and its executables in its build directory's `bin/` -- only those whose `main.tl` is
---- under one of the paths, when there are any. Ends in a verdict line
---- that names what was written, or says why nothing was.
+--- under one of the paths, when there are any. Prints each executable it
+--- wrote on stdout, a path per line, for a caller to run; its summary on
+--- stderr names them again, or says why nothing was written.
 local function run(argv: {integer:string}): integer
   local started = Clock.monotonic_ns()
-  local parsed, parse_trouble = Flags.parse(argv, 2, Cli.verbs.build.spec)
+  local parsed, parse_trouble = Flags.parse(argv, 2, assert(Cli.verbs.build.spec))
   if parsed == nil then
     log:complain("build: " .. parse_trouble)
     return 2
@@ -497,11 +502,12 @@ local function run(argv: {integer:string}): integer
   local outputs: {string} = {}
   local bin = build_paths.resolve(root).bin
   for _, name in ipairs(names) do
+    log:say(bin .. "/" .. name)
     outputs[#outputs + 1] = bin .. "/" .. name .. (host and " (host)" or "")
   end
   local wrote = #outputs > 0 and table.concat(outputs, ", ") or
     "no executable: no cmd/<name>/main.tl in the tree"
-  log:verdict("build", true, wrote .. ", " .. clock.took(started))
+  local _, _ = logger.summary("build", wrote .. ", " .. clock.took(started))
   return 0
 end
 

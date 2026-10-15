@@ -177,7 +177,7 @@ local record Server
     --- Given what a handler raised, with its stack, or why its reply
     --- could not be sent; nil to write each to stderr. See
     --- [`Net.ServeSpec.on_error`].
-    on_error: function(trouble: string)
+    on_error?: function(trouble: string)
   end
 
   --- What a Range header asks of a representation, as [`Server.range`]
@@ -317,8 +317,9 @@ end
 
 --- Gives `trouble` to the spec's [`Server.ServeSpec.on_error`], or stderr.
 local function report(s: Serving, trouble: string)
-  if s.spec.on_error ~= nil then
-    s.spec.on_error(trouble)
+  local on_error = s.spec.on_error
+  if on_error ~= nil then
+    on_error(trouble)
     return
   end
   local _, _ = Fs.put(Fs.stderr, trouble .. "\n")
@@ -416,7 +417,7 @@ end
 --- Closes the Reader body of `reply`, what a handler answered, where it
 --- has one the server will not send: checked as it runs, since the
 --- handler's answer is a [`Reply`] only by its declaration.
-local function drop_body(reply: Server.Reply)
+local function drop_body(reply: Server.Reply | nil)
   if type(reply) ~= "table" then return end
   local body = reply.body
   if body == nil then return end
@@ -461,10 +462,10 @@ local function exchange(s: Serving, conn: Net.Conn, input: wire.Input, head: wir
                         timed: Timed, peer: Net.Address | nil): boolean
   -- Whether `100 Continue` went, and whether the final head has: an
   -- interim reply after it would be read as the final reply's body.
-  local continued, replied = false, false
+  local interim = { continued = false, replied = false }
   local function go_on()
-    if head.continue and not continued and not replied then
-      continued = true
+    if head.continue and not interim.continued and not interim.replied then
+      interim.continued = true
       conn:set_timeout(s.timeout_ns)
       local _, _ = conn:write("HTTP/1.1 100 Continue\r\n\r\n")
     end
@@ -479,8 +480,7 @@ local function exchange(s: Serving, conn: Net.Conn, input: wire.Input, head: wir
     method = head.method, target = head.target, path = head.path, query = head.query,
     version = head.version, headers = head.headers, body = body, length = head.length, peer = peer,
   }
-  local reply: Server.Reply = nil
-  local ok, raised: boolean, any = xpcall(function() reply = s.spec.handle(request) end, traced)
+  local ok, reply = xpcall(s.spec.handle, traced, request)
   -- A body that failed is answered for, whatever the handler made of
   -- it: its raise, or its reply, followed from the failed read.
   local state = body.state
@@ -497,13 +497,19 @@ local function exchange(s: Serving, conn: Net.Conn, input: wire.Input, head: wir
   end
   local where = head.method .. " " .. head.target
   if not ok then
-    report(s, "http: " .. where .. ": " .. tostring(raised))
+    report(s, "http: " .. where .. ": " .. tostring(reply))
     answer(s, conn, head, 500, "")
     if body.state == "open" then linger(conn) end
     return false
   end
-  local trouble = Server.check(reply, head.method)
-  if trouble ~= "" then
+  -- A handler is a Reply only by its declaration: it may answer nothing.
+  local trouble: string
+  if reply == nil then
+    trouble = reply_trouble(reply)
+  else
+    trouble = Server.check(reply, head.method)
+  end
+  if trouble ~= "" or reply == nil then
     drop_body(reply)
     report(s, "http: " .. where .. ": " .. trouble)
     answer(s, conn, head, 500, "")
@@ -515,7 +521,7 @@ local function exchange(s: Serving, conn: Net.Conn, input: wire.Input, head: wir
   -- told to, or not at all. A Reader reply may read the request's body
   -- as it goes, so the client is told now; after another, what follows
   -- on the connection is unknown, and it closes.
-  if head.continue and not continued and body.state == "open" then
+  if head.continue and not interim.continued and body.state == "open" then
     local given = reply.body
     local sends_body = head.method ~= "HEAD" and reply.status ~= 204 and reply.status ~= 304
     if given ~= nil and not given is string and sends_body and not close then
@@ -524,28 +530,33 @@ local function exchange(s: Serving, conn: Net.Conn, input: wire.Input, head: wir
       close = true
     end
   end
-  replied = true
+  interim.replied = true
   conn:set_timeout(s.timeout_ns)
-  local sent: wire.Sent = nil
-  local sending, raised_sending: boolean, any = xpcall(function()
-    sent = wire.send(conn, {
-      status = reply.status, headers = reply.headers, body = reply.body, length = reply.length,
+  -- The reply is built inside the protected call, as its date is read there.
+  local function send_reply(to: Net.Conn): wire.Sent
+    return wire.send(to, {
+      status = reply.status, headers = reply.headers, body = reply.body,
+      length = reply.length,
       close = close, method = head.method, version = head.version,
       date = Time.format_http(Clock.now_ns()),
     })
-  end, traced)
+  end
+  local sending, sent = xpcall(send_reply, traced, conn)
   if not sending then
     -- A Reader body that raised: the reply is cut short.
     drop_body(reply)
-    report(s, "http: " .. where .. ": the reply's body: " .. tostring(raised_sending))
+    report(s, "http: " .. where .. ": the reply's body: " .. tostring(sent))
     return false
   end
+  -- The send answered once it did not raise.
+  local result = sent
+  if result == nil then return false end
   local failed = body.state ~= "open" and body.state ~= "done"
-  if sent.body_failure ~= "" and not failed then
-    report(s, "http: " .. where .. ": the reply's body: " .. sent.body_failure)
+  if result.body_failure ~= "" and not failed then
+    report(s, "http: " .. where .. ": the reply's body: " .. result.body_failure)
   end
-  if sent.close then
-    if sent.write_failure == "" and body.state == "open" then linger(conn) end
+  if result.close then
+    if result.write_failure == "" and body.state == "open" then linger(conn) end
     return false
   end
   -- A reply Reader that read the request's body may have ended cleanly
@@ -779,7 +790,7 @@ function Server.range(header: string | nil, size: integer): Server.Range
   if equals == nil or value:sub(1, equals - 1):lower() ~= "bytes" or ows(value:byte(equals + 1)) then
     return unranged
   end
-  local spec: string = nil
+  local spec: string | nil = nil
   local from = equals + 1
   while true do
     local comma = value:find(",", from, true)
@@ -810,15 +821,20 @@ function Server.range(header: string | nil, size: integer): Server.Range
   return { kind = "span", first = size - math.min(n, size), last = size - 1 }
 end
 
+local record EntityTag
+  last: integer
+  opaque: string
+end
+
 --- Where the entity tag that starts at `at` in `text` ends, and its
 --- opaque tag, quotes and all, which a weak comparison compares; nil
 --- where none starts there.
-local function entity_tag(text: string, at: integer): integer, string
+local function entity_tag(text: string, at: integer): EntityTag | nil
   local from = at
   if text:sub(at, at + 1) == "W/" then from = at + 2 end
   local _, last = text:find('^"[!\x23-\x7e\x80-\xff]*"', from)
-  if last == nil then return nil, nil end
-  return last, text:sub(from, last)
+  if last == nil then return nil end
+  return { last = last, opaque = text:sub(from, last) }
 end
 
 --- Whether the If-None-Match `header` (nil where none was sent) names
@@ -838,8 +854,8 @@ end
 --- one it has. A list element that is no entity tag names nothing, and
 --- the rest are still read. An `etag` that is no entity tag raises.
 function Server.none_match(header: string | nil, etag: string): boolean
-  local own_last, own = entity_tag(etag, 1)
-  if own_last ~= #etag then
+  local own = entity_tag(etag, 1)
+  if own == nil or own.last ~= #etag then
     error(("http: Server.none_match's etag %q is no entity tag, as \"v1\" or W/\"v1\""):format(etag), 2)
   end
   if header == nil then return false end
@@ -851,11 +867,11 @@ function Server.none_match(header: string | nil, etag: string): boolean
     if b == 44 or ows(b) then
       at = at + 1
     else
-      local last, opaque = entity_tag(value, at)
-      local after = last ~= nil and last + 1 or at
+      local found = entity_tag(value, at)
+      local after = found ~= nil and found.last + 1 or at
       while ows(value:byte(after)) do after = after + 1 end
-      if last ~= nil and (after > #value or value:byte(after) == 44) then
-        if opaque == own then return true end
+      if found ~= nil and (after > #value or value:byte(after) == 44) then
+        if found.opaque == own.opaque then return true end
       else
         -- What is no entity tag runs to the next comma.
         after = value:find(",", after, true) or #value + 1

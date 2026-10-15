@@ -58,9 +58,9 @@ local function test_text_refuses_a_body_that_is_not_utf8()
 end
 
 local function test_a_failed_body_read_answers_nil_and_why()
-  local req: Web.Request = nil
+  local req = { value = nil as Web.Request | nil }
   local app = Web.app{ routes = { Web.post("/", function(r: Web.Request): Web.Response
-    req = r
+    req.value = r
     return Web.text("ok")
   end) } }
   local broken: Stream.Reader = {
@@ -72,7 +72,7 @@ local function test_a_failed_body_read_answers_nil_and_why()
   local raw: Server.Request = { method = "POST", target = "/", path = "/", query = "", version = "HTTP/1.1",
     headers = { host = "x" }, body = broken, length = 5 }
   assert(app.handle(raw).status == 200)
-  local data, why = req:bytes()
+  local data, why = assert(req.value, "the handler never ran"):bytes()
   assert(data == nil and why:find("over the limit", 1, true), why)
 end
 
@@ -140,17 +140,19 @@ local function test_client_info_ignores_forwarded_headers_unless_the_proxy_is_tr
 end
 
 local function test_a_connection_without_a_peer_has_no_client()
-  local seen: Web.Request = nil
+  local seen = { value = nil as Web.Request | nil }
   local app = Web.app{ routes = { Web.get("/", function(r: Web.Request): Web.Response
-    seen = r
+    seen.value = r
     return Web.text("ok")
   end) } }
   local raw: Server.Request = { method = "GET", target = "/", path = "/", query = "", version = "HTTP/1.1",
     headers = { host = "x" }, body = Stream.from_string(""), length = 0 }
-  assert(app.handle(raw).status == 200 and seen.client == nil)
+  assert(app.handle(raw).status == 200 and assert(seen.value, "the handler never ran").client == nil)
   local unix: Server.Request = { method = "GET", target = "/", path = "/", query = "", version = "HTTP/1.1",
     headers = {}, body = Stream.from_string(""), length = 0, peer = Net.unix("/tmp/x") }
-  assert(app.handle(unix).status == 200 and seen.client == nil and seen.host == nil)
+  assert(app.handle(unix).status == 200)
+  local over_unix = assert(seen.value, "the handler never ran")
+  assert(over_unix.client == nil and over_unix.host == nil)
 end
 
 local function test_base_url_needs_trusted_hosts()
@@ -214,15 +216,15 @@ local function test_a_trusted_host_with_a_port_or_no_host_raises_when_the_app_is
 end
 
 local function test_a_failed_body_read_is_remembered()
-  local reads = 0
-  local seen: Web.Request = nil
+  local reads = { value = 0 }
+  local seen = { value = nil as Web.Request | nil }
   local app = Web.app{ routes = { Web.post("/", function(r: Web.Request): Web.Response
-    seen = r
+    seen.value = r
     return Web.text("ok")
   end) } }
   local body: Stream.Reader = {
     read = function(_self: Stream.Reader, _max?: integer): string | nil, string
-      reads = reads + 1
+      reads.value = reads.value + 1
       return nil, "the client went away"
     end,
     close = function(_self: Stream.Reader): boolean, string return true, "" end,
@@ -230,14 +232,15 @@ local function test_a_failed_body_read_is_remembered()
   local raw: Server.Request = { method = "POST", target = "/", path = "/", query = "", version = "HTTP/1.1",
     headers = { host = "x" }, body = body, length = 5 }
   assert(app.handle(raw).status == 200)
-  local first, first_why = seen:bytes()
+  local request = assert(seen.value, "the handler never ran")
+  local first, first_why = request:bytes()
   assert(first == nil and first_why == "the client went away")
-  local reads_after_first = reads
-  local second, second_why = seen:bytes()
+  local reads_after_first = reads.value
+  local second, second_why = request:bytes()
   assert(second == nil and second_why == first_why, "the same failure again")
-  local third, third_why = seen:text()
+  local third, third_why = request:text()
   assert(third == nil and third_why == first_why)
-  assert(reads == reads_after_first, "the spent reader is not read again")
+  assert(reads.value == reads_after_first, "the spent reader is not read again")
 end
 
 local function test_a_forwarded_client_is_an_address_or_the_peer()

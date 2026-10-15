@@ -170,18 +170,21 @@ function scopes.walk(parsed: ast.Parsed,
       process_function(n)
       return
     end
-    if member ~= nil and n.kind == "op" and n.op ~= nil and n.op.op == "." and n.e1 ~= nil and
-        n.e2 ~= nil and n.e2.tk ~= nil then
+    local receiver, field = n.e1, n.e2
+    local read = field ~= nil and field.tk or nil
+    if member ~= nil and n.kind == "op" and n.op ~= nil and n.op.op == "." and receiver ~= nil and
+        read ~= nil then
       -- `alias.member`, or a member read straight off the module a
       -- literal `require` names: `require("build.test").run`.
       local module: string | nil = nil
-      if n.e1.kind == "variable" and n.e1.tk ~= nil then
-        module = binding(stack, n.e1.tk)
+      local alias = receiver.tk
+      if receiver.kind == "variable" and alias ~= nil then
+        module = binding(stack, alias)
       elseif not bound(stack, "require") then
-        module = required_name(n.e1)
+        module = required_name(receiver)
       end
       if module ~= nil then
-        member(module, n.e2.tk, n.e1.y)
+        member(module, read, receiver.y)
       end
     end
     ast.each_child_node(n, back_up, walk_expression)
@@ -214,12 +217,13 @@ function scopes.walk(parsed: ast.Parsed,
         if stmt.exps ~= nil then
           walk_expression(stmt.exps)
         end
-        if stmt.vars ~= nil then
+        local vars = stmt.vars
+        if vars ~= nil then
           -- A `require` a local or a parameter shadows is no import. A
           -- `local type`'s is read by the compiler whatever is in scope.
           local module = bound(stack, "require") and "" or alias_of(stmt)
           local declared = stmt.decltuple ~= nil and stmt.decltuple.tuple or nil
-          for index, var in ipairs(stmt.vars) do
+          for index, var in ipairs(vars) do
             local made = declare(var.tk, module, math.maxinteger, head_of(stmt),
               declared ~= nil and declared[index] ~= nil)
             if made ~= nil then pending[#pending + 1] = made end

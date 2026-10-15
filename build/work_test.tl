@@ -22,7 +22,7 @@ end
 
 local function count(db: Sqlite.Handle, table_name: string): integer
   local rows = assert(Sqlite.text_rows(db, "SELECT count(*) FROM " .. table_name))
-  return math.tointeger(tonumber(rows[1][1])) as integer
+  return math.tointeger(tonumber(rows[1]:text(1))) as integer
 end
 
 local function test_recording_error_rolls_back_every_table(tmp: string)
@@ -100,7 +100,7 @@ local function test_symbol_schema_upgrade_discards_old_analysis(tmp: string)
   assert(count(upgraded.db, "refs") == 0)
   local columns = assert(Sqlite.text_rows(upgraded.db, "PRAGMA table_info(docs)"))
   local names: {string: boolean} = {}
-  for _, row in ipairs(columns) do names[row[2]] = true end
+  for _, row in ipairs(columns) do names[row:text(2)] = true end
   assert(names["source_symbol"] and names["exported"])
   assert(work.close(upgraded))
 end
@@ -109,7 +109,7 @@ end
 local function staged_bytes(db: Sqlite.Handle, path: string): string
   local rows = assert(Sqlite.text_rows(db,
     "SELECT CAST(data AS TEXT) FROM files WHERE path = ?1", { { text = path } }))
-  return rows[1][1]
+  return rows[1]:text(1)
 end
 
 --- Stage after the timestamp tick has settled, without waiting on the host clock.
@@ -127,17 +127,17 @@ local function with_change_time(paths: {string}, check: function(function()))
   local tracked: {string:boolean} = {}
   for _, path in ipairs(paths) do tracked[path] = true end
   local stat = Fs.stat
-  local tick = 1
+  local tick = { value = 1 }
   Fs.stat = function(path: string): sys.Stat | nil, string
     local st, trouble = stat(path)
     if st ~= nil and tracked[path] then
       st.ctime = 100
-      st.ctime_ns = tick
+      st.ctime_ns = tick.value
     end
     return st, trouble
   end
   local ok, trouble = pcall(function(): boolean
-    check(function() tick = tick + 1 end)
+    check(function() tick.value = tick.value + 1 end)
     return true
   end)
   Fs.stat = stat
@@ -158,7 +158,7 @@ local function test_an_unsettled_row_is_read_again_at_the_epoch(tmp: string)
   assert(staged_bytes(handle.db, "probe.tl") == "return 1\n")
   local unsettled = assert(Sqlite.text_rows(handle.db,
     "SELECT mtime_ns IS NULL FROM files WHERE path = 'probe.tl'"))
-  assert(unsettled[1][1] == "1", "the first stage must leave the row unsettled")
+  assert(unsettled[1]:text(1) == "1", "the first stage must leave the row unsettled")
   local before = assert(Fs.stat(path))
 
   local fd = assert(Fs.open_write(path))
@@ -216,7 +216,7 @@ local function test_stage_takes_a_link_for_what_it_leads_to(tmp: string)
   assert(staged_bytes(handle.db, "linked_test.tl") ~= nil, "the linked test is staged")
   local looped = assert(Sqlite.text_rows(handle.db,
     "SELECT count(*) FROM files WHERE path LIKE 'loop/%'"))
-  assert(looped[1][1] == "0", "nothing is staged through the loop")
+  assert(looped[1]:text(1) == "0", "nothing is staged through the loop")
   assert(work.close(handle))
 end
 
@@ -226,14 +226,14 @@ local function refused_above(project: string, target: string, link: string)
   local handle = assert(work.open(project))
   assert(work.stage(handle, false))
   local before = assert(Sqlite.text_rows(handle.db, "SELECT count(*) FROM files"))
-  assert(before[1][1] ~= "0")
+  assert(before[1]:text(1) ~= "0")
   assert(Fs.symlink(target, project .. "/" .. link))
   local staged, trouble = work.stage(handle, false)
   assert(staged == nil, "a link above the root is refused")
   assert(trouble:find(link .. ": a link to ", 1, true), trouble)
   assert(trouble:find("above the root", 1, true), trouble)
   local after = assert(Sqlite.text_rows(handle.db, "SELECT count(*) FROM files"))
-  assert(after[1][1] == before[1][1], "the refusal leaves the rows staged before")
+  assert(after[1]:text(1) == before[1]:text(1), "the refusal leaves the rows staged before")
   assert(work.close(handle))
 end
 
@@ -278,7 +278,7 @@ local function test_zoneinfo_is_replaced_whole_and_read_back(tmp: string)
   assert(back["Europe/Paris"] == "TZif\0paris" and back["UTC"] == "TZif utc")
   local rows = assert(Sqlite.text_rows(handle.db,
     "SELECT group_concat(name || ' ' || typeof(data), ',' ORDER BY rowid) FROM zoneinfo"))
-  assert(rows[1][1] == "Europe/Paris blob,UTC blob", rows[1][1])
+  assert(rows[1]:text(1) == "Europe/Paris blob,UTC blob", rows[1]:text(1))
   assert(work.close(handle))
 
   local older = assert(Sqlite.memory())
@@ -397,7 +397,7 @@ local function test_settled_rewrites_with_preserved_mtime_are_read(tmp: string)
     for _, table_name in ipairs({ "files", "tool", "scanned", "linked" }) do
       local rows = assert(Sqlite.text_rows(handle.db, "SELECT DISTINCT sha256 FROM " .. table_name))
       assert(#rows > 0, table_name .. " must be exercised")
-      for _, row in ipairs(rows) do assert(row[1] == Hash.hex_sha256("new text\n")) end
+      for _, row in ipairs(rows) do assert(row:text(1) == Hash.hex_sha256("new text\n")) end
     end
     assert(stage_settled(handle, true).read == 0)
     assert(work.close(handle))
@@ -435,7 +435,7 @@ local function test_metadata_changes_and_unknown_change_times_keep_content_ident
       local rows = assert(Sqlite.text_rows(handle.db, "SELECT sha256, ctime_ns IS NULL FROM " .. name))
       assert(#rows > 0, name .. " migration fixture missing")
       for _, row in ipairs(rows) do
-        assert(row[1] == Hash.hex_sha256("return 1\n") and row[2] == "1")
+        assert(row:text(1) == Hash.hex_sha256("return 1\n") and row:text(2) == "1")
       end
     end
     assert(stage_settled(handle, true).read == 4, "legacy rows must be read once")
@@ -602,7 +602,8 @@ local function stage_files(root: string, files: {string:string}): work.Staged | 
   local handle = assert(work.open(root))
   local staged, trouble = work.stage(handle, false)
   assert(work.close(handle))
-  return staged, trouble
+  if staged ~= nil then return staged end
+  return nil, trouble
 end
 
 --- A file under `static/` is an input whatever it is called: Teal, a
@@ -618,7 +619,7 @@ local function test_stage_takes_every_file_under_static(tmp: string)
   local rows = assert(Sqlite.text_rows(db,
     "SELECT path FROM files WHERE path GLOB 'static/*' ORDER BY path"))
   local paths: {string} = {}
-  for i, row in ipairs(rows) do paths[i] = row[1] end
+  for i, row in ipairs(rows) do paths[i] = row:text(1) end
   assert(table.concat(paths, " ") == "static/bin.dat static/css/app.css static/notes.tl static/p.tmpl",
     table.concat(paths, " "))
   assert(count(db, "todos") == 0, "a TODO inside an asset is no TODO of the project's")

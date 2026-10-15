@@ -10,30 +10,20 @@ defines the target; once something ships, it leaves this file.
 
 - implement the cast policy in design.md. a cast is legal only from `any`, from
   a userdata record declared in `.d.tl`, or from the enclosing generic's type
-  variable. none of `patch/tl` enforces it yet, and the tree's own Teal holds
+  variable. the checker does not enforce it yet, and the tree's own Teal holds
   about seventy `as` casts to migrate or justify first. old's
   `3p/tl/tl_patch/cast.tl` and `docs/design/cast-legality.md` are useful
   implementation and migration evidence. the policy covers `is` too: `as` and `is`
   give any target type unchecked, so one that contains a never-function (a
   function type, or a record or container with such a field) forges the
   guarantee of `: never`.
-- refuse the uses of a nil-admitting record field that raise at run time.
-  a table literal must give every field that does not admit nil (patch/tl 50),
-  and `name?: T` (49a to 49e4) declares one it may omit, typed `T | nil`.
-  TODO: refuse a nil-admitting value as an argument for any parameter that
-  does not admit nil, not only of `table.insert` and `table.concat` (the TODO
-  in patch/tl 51f).
-  a warning first is no option: every warning cosmic sees is
-  a refused compile ([`build/compilation.tl`]'s `generate`,
-  [`build/standalone.tl`] and [`build/example_checks.tl`] each reject on
-  one), and the compile cache keeps no warnings to show again on a hit.
 - declare cosmic.stream's interface methods with a named receiver
   (`read: function(self: Reader, ...)`) and drop each implementing record's
   redeclaration of them: the documented signatures then read as
   `records_interfaces_methods` teaches, and the design note above
   `FromStringReader` in [`cosmic/stream.tl`] shrinks. every interface of the
   module and every record that implements one changes together. it also
-  lets the receiver exemption go from `patch/tl`'s 48e: the first
+  lets the receiver exemption go from the checker: the first
   parameter of a function-typed record field, when it is a record or an
   interface, is the one place a record parameter is compared in either
   direction, because those redeclarations narrow it. it closes the hole
@@ -43,9 +33,48 @@ defines the target; once something ships, it leaves this file.
   functions among them ([doc/design.md](design.md)'s teal section states the
   bar): a function `__index` given to `setmetatable` is declared to return
   `any`, so what it serves is not checked against the record (a table
-  `__index` is, patch/tl's 47a, and `test_a_function_index_serves_any` in
+  `__index` is checked, and `test_a_function_index_serves_any` in
   [`build/teal_test.tl`] pins the rest). a call through `any` carries no flag
   either.
+- make every guard read every place alike: a field path of any depth
+  (`a.b.c`) and an index (`t[k]`, `k` a literal or a local never
+  reassigned) are places, and a write to any index drops every index
+  place; `is` tests a field as it does a local; `x is A | B | C` guards all its members, not the last
+  pair; an assignment drops the place assigned and its extensions only
+  (`r.f = v` keeps `r.foo`).
+- let `setmetatable` attach metamethods only to a record type that
+  declares them, so that "a value dispatches only through metamethods its
+  type declares" ([doc/design.md](design.md)'s narrowing paragraph) holds of
+  run-time metatables too: today `setmetatable({}, {__index = f})` gives a
+  plain map an `__index` the checker never sees, and the narrowing checks
+  let `f` change a field the program had checked.
+  `may_dispatch` and `runs_no_code` in [`checker/tl.tl`] carry a TODO that
+  names this item, and `test_a_metatable_attached_at_run_time_is_not_seen_yet`
+  in [`build/checker_narrowing_test.tl`] pins four programs it will refuse.
+  `__gc` finalizers stay outside the claim.
+- make a metamethod's run a call wherever it can happen, which the checker
+  tells today by the operator or index it dispatches from: reading a
+  declared field of a record that declares `__index` or `__newindex` runs
+  it when the field is absent.
+- check a function that names a local not yet assigned where it escapes,
+  not where code may run: stored in a table field or an upvalue, passed as an
+  argument or returned counts as "may be called later" unless the local is
+  assigned by then, and a closure that names a local holding such a function
+  is pending too. a function held only in locals cannot be called after a
+  raise unwinds its frame, so `assert` and the operators that raise (division
+  by zero, indexing nil) need no rule of their own then. it replaces the
+  rule that any code that may run, and a call that never returns, lets it out,
+  and accepts what that refuses. [`checker/flow.tl`] holds a TODO for it.
+- exclude nil from every type but one that names it. the checker's own
+  source is valid upstream Teal, which indexes no `T | nil` even after a
+  guard, so it declares a local it reads before the code that assigns it
+  `local x: T = nil` (the TODO at the top of [`checker/tl.tl`] names them);
+  those and every other place nil passes for a `T` are refused then.
+- list the standard library functions that run no code of the program's
+  with the declarations that say so (today [`checker/tl.tl`] marks them by
+  name where it loads [`checker/stdlib.d.tl`]), and let a declaration of the
+  program's own say it too, so a call of one given arguments that cannot
+  dispatch keeps the narrowing as `tostring` and `table.concat` do.
 - add earned lint rules and their fixes to [`build/fix/rule.tl`]'s rule list.
   the rewrite stage is in place and the list is still empty.
 - add a floor for line coverage, C included: `cosmic test --min PCT
@@ -427,19 +456,20 @@ four-producer provenance join.
 [`build/archive_test.tl`]: ../build/archive_test.tl
 [`build/c/tree.tl`]: ../build/c/tree.tl
 [`build/c_functions.tl`]: ../build/c_functions.tl
-[`build/compilation.tl`]: ../build/compilation.tl
+[`build/checker_narrowing_test.tl`]: ../build/checker_narrowing_test.tl
 [`build/contracts.tl`]: ../build/contracts.tl
 [`build/dataset.tl`]: ../build/dataset.tl
-[`build/example_checks.tl`]: ../build/example_checks.tl
 [`build/fix/rule.tl`]: ../build/fix/rule.tl
 [`build/flow.tl`]: ../build/flow.tl
 [`build/hash_test.tl`]: ../build/hash_test.tl
 [`build/json.tl`]: ../build/json.tl
 [`build/locator_fuzz_test.tl`]: ../build/locator_fuzz_test.tl
 [`build/shape_specs.tl`]: ../build/shape_specs.tl
-[`build/standalone.tl`]: ../build/standalone.tl
 [`build/teal_test.tl`]: ../build/teal_test.tl
 [`build/workflows_test.tl`]: ../build/workflows_test.tl
+[`checker/flow.tl`]: ../checker/flow.tl
+[`checker/stdlib.d.tl`]: ../checker/stdlib.d.tl
+[`checker/tl.tl`]: ../checker/tl.tl
 [`Child.end_strays`]: ../cosmic/child.tl
 [`ci/cosmic-driver.pin`]: ../ci/cosmic-driver.pin
 [`ci/cosmic_ci/prerelease.tl`]: ../ci/cosmic_ci/prerelease.tl

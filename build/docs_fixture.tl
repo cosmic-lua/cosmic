@@ -24,7 +24,7 @@ end
 
 --- How many databases this process has written, so each has a file of
 --- its own under a directory one test shares.
-local written = 0
+local written = { value = 0 }
 
 --- The shipped database the tree `files` would build to, written as a
 --- file of its own under `dir` and opened read-only. `files` maps each file's path
@@ -63,13 +63,13 @@ function docs_fixture.database(dir: string, files: {string: string}): Sqlite.Han
   assert(db:exec(
     "INSERT INTO compiled (key, tool, lua, bytecode, seen) " ..
       "SELECT key, '', '', '', 0 FROM plan"))
-  written = written + 1
-  local path = dir .. "/cosmic-" .. written .. ".db"
+  written.value = written.value + 1
+  local path = dir .. "/cosmic-" .. written.value .. ".db"
   -- A fixture's tree stands in for cosmic's own, whose links name its
   -- own standard library and not the binary's.
   assert(writer.write_result(handle, path, {
     modules = {}, tool = "", refused = {}, compiled = 0, cached = 0, shared = 0,
-    parses = { parsed = 0, shared = 0 },
+    worked = 0, parses = { parsed = 0, shared = 0, worked = 0 },
   }, nil, link_index.none))
   assert(db:close())
   return (assert(Sqlite.open(path)))

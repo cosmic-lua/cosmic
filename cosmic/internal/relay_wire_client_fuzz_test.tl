@@ -160,7 +160,7 @@ local function test_feeding_in_pieces_agrees_with_feeding_the_whole(tmp: string)
           end
         end
         local feed = format.fresh()
-        local last_key: string
+        local last_key: string | nil
         for at = 1, #input do
           local _, _, each = feed(input:sub(at, at))
           last_key = each
@@ -227,13 +227,13 @@ local function test_a_request_the_client_writes_is_read_back_by_the_relay(tmp: s
         if seen.kind == "ipv4" then
           if seen.host ~= host then return false, ("%q was read as %s"):format(host, seen.host) end
         elseif seen.kind == "ipv6" then
-          if Fixture.ipv6_bytes(seen.host) ~= request:sub(5, 20) then
+          if Fixture.ipv6_bytes(assert(seen.host)) ~= request:sub(5, 20) then
             return false, ("%q was read as %s, other bytes"):format(host, seen.host)
           end
         elseif seen.host ~= (host:lower():gsub("%.$", "")) then
           return false, ("%q was read as %s"):format(host, seen.host)
         end
-        Fuzz.label(seen.kind)
+        Fuzz.label(assert(seen.kind))
         Fuzz.label("read")
       elseif request:byte(4) ~= 3 then
         return false, ("an address of type %d was refused: %s"):format(request:byte(4), tostring(seen.reason))
@@ -279,9 +279,10 @@ local function test_a_username_and_password_the_client_writes_are_read_back_by_t
         return false, ("read back as %s with %d bytes taken"):format(whole.status, whole.consumed)
       end
       local reader = Wire.socks_auth_reader()
-      local last: Wire.SocksAuth
+      local last: Wire.SocksAuth | nil
       for at = 1, #message do last = reader:feed(message:sub(at, at)) end
-      if last.status ~= "done" or last.password ~= password then
+      local final = assert(last, "the message has a byte")
+      if final.status ~= "done" or final.password ~= password then
         return false, "a byte at a time it reads another"
       end
       Fuzz.label("written")

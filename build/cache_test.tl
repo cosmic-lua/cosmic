@@ -28,7 +28,7 @@ local function count(path: string, name: string): integer
   local db = assert(Sqlite.open(path))
   local rows = assert(Sqlite.rows(db, "SELECT count(*) FROM " .. name))
   assert(db:close())
-  return rows[1][1].integer
+  return rows[1]:integer(1)
 end
 
 local function test_compiles_trim_even_when_no_row_was_reached(tmp: string)
@@ -42,6 +42,22 @@ local function test_compiles_trim_even_when_no_row_was_reached(tmp: string)
   local file = result.report.files[1]
   assert(file.kept == 0 and file.removed == 2 and not file.reached)
   assert(count(path, "compiled_v2") == 0 and count(path, "parsed_v1") == 0)
+end
+
+--- The boot bridge's compiles (core/bridge.lua) share the file, and a trim
+--- takes those no build has used since the cutoff as it takes any other
+--- compile's, without calling their table unknown.
+local function test_bridge_rows_are_trimmed_with_the_compiles(tmp: string)
+  local path = tmp .. "/cache.db"
+  local db = database(path, formats.compiles)
+  for _, statement in ipairs(formats.bridge_statements) do assert(db:exec(statement)) end
+  assert(db:exec("INSERT INTO bridge_v1 VALUES ('old','modules','',x'00','d',1,4)"))
+  assert(db:exec("INSERT INTO bridge_v1 VALUES ('new','modules','',x'00','d',1,6)"))
+  assert(db:close())
+  local result = trim(path, "compiles", 5)
+  assert(result.complete, result.report.files[1].reason)
+  local file = result.report.files[1]
+  assert(file.removed == 1 and #file.unknown_tables == 0 and count(path, "bridge_v1") == 1)
 end
 
 local function test_equal_cutoff_is_kept_and_fresh_counts_only_compiles(tmp: string)
@@ -186,8 +202,7 @@ local function test_failed_retired_file_removal_withholds_save_digest(tmp: strin
     if name == retired then return false, "injected unlink failure" end
     return original(name)
   end
-  local result: maintenance.Result
-  local ok = pcall(function() result = trim(path, "compiles", 5) end)
+  local ok, result = pcall(function(): maintenance.Result return trim(path, "compiles", 5) end)
   Fs.remove = original
   assert(ok and not result.complete and result.report.digest == nil)
   assert(result.report.files[1].reason == "injected unlink failure")
@@ -205,8 +220,7 @@ local function test_retired_file_disappearance_before_inspection_is_harmless(tmp
     if dir == tmp then assert(Fs.remove(retired)) end
     return names, why
   end
-  local result: maintenance.Result
-  local ok = pcall(function() result = trim(path, "compiles", 5) end)
+  local ok, result = pcall(function(): maintenance.Result return trim(path, "compiles", 5) end)
   Fs.list = original
   assert(ok and result.complete and result.report.files[1].state == "missing")
   assert(#result.report.files[1].removed_set_aside == 0)
@@ -225,8 +239,7 @@ local function test_failed_retired_file_inspection_withholds_save_digest(tmp: st
     if name == retired then return nil, "injected lstat failure", sys.EACCES end
     return original(name)
   end
-  local result: maintenance.Result
-  local ok = pcall(function() result = trim(path, "compiles", 5) end)
+  local ok, result = pcall(function(): maintenance.Result return trim(path, "compiles", 5) end)
   sys.lstat = original
   assert(ok and not result.complete and result.report.digest == nil)
   assert(result.report.files[1].reason == "injected lstat failure")
@@ -255,17 +268,18 @@ local function test_digest_ignores_stamps_pages_and_locations_but_keeps_cell_kin
 end
 
 local function test_cli_usage_and_json_empty_arrays(tmp: string)
-  local output, trouble = "", ""
+  local output = { value = "" }
+  local trouble = { value = "" }
   local io: cache.Io = {
     out = function(text: string): boolean, string
-      output = output .. text
+      output.value = output.value .. text
       return true, ""
     end,
-    err = function(text: string) trouble = trouble .. text end,
+    err = function(text: string) trouble.value = trouble.value .. text end,
   }
   local argv: {integer:string} = { [0] = "cosmic", "cache", "trim", "compiles", tmp .. "/missing", "--since-ns", "0", "--json" }
-  assert(cache.run(argv, io) == 0 and trouble == "", trouble)
-  assert(Json.decode(output) ~= nil and output:find('"warnings":[]', 1, true), output)
+  assert(cache.run(argv, io) == 0 and trouble.value == "", trouble.value)
+  assert(Json.decode(output.value) ~= nil and output.value:find('"warnings":[]', 1, true), output.value)
   argv[6] = "-1"
   assert(cache.run(argv, io) == 2)
 end
@@ -281,8 +295,7 @@ local function test_failed_delete_rolls_back_earlier_tables(tmp: string)
     if sql:find('DELETE FROM "parsed_v1"', 1, true) then return false, "injected delete failure" end
     return original(handle, sql, values)
   end
-  local result: maintenance.Result
-  local ok = pcall(function() result = trim(path, "compiles", 5) end)
+  local ok, result = pcall(function(): maintenance.Result return trim(path, "compiles", 5) end)
   Sqlite.run = original
   assert(ok)
   assert(not result.complete and result.report.digest == nil)
@@ -332,8 +345,7 @@ local function test_disappearance_before_open_does_not_recreate_database(tmp: st
     if name == path then assert(Fs.remove(path)) end
     return original(name, options)
   end
-  local result: maintenance.Result
-  local ok = pcall(function() result = trim(path, "compiles", 5) end)
+  local ok, result = pcall(function(): maintenance.Result return trim(path, "compiles", 5) end)
   Sqlite.open = original
   assert(ok and not result.complete and result.report.digest == nil)
   assert(Fs.stat(path) == nil)
@@ -344,15 +356,13 @@ local function test_busy_checkpoint_row_suppresses_save_digest(tmp: string)
   local db = database(path, formats.verdicts)
   assert(db:close())
   local original = Sqlite.rows
-  Sqlite.rows = function(handle: Sqlite.Handle, sql: string, values?: {Sqlite.Value}): {{Sqlite.Cell}} | nil, string
+  Sqlite.rows = function(handle: Sqlite.Handle, sql: string, values?: {Sqlite.Value}): Sqlite.Rows | nil, string
     if sql == "PRAGMA wal_checkpoint(TRUNCATE)" then
-      return { { { kind = "integer", integer = 1 }, { kind = "integer", integer = 3 },
-        { kind = "integer", integer = 2 } } }, ""
+      return original(handle, "SELECT 1, 3, 2")
     end
     return original(handle, sql, values)
   end
-  local result: maintenance.Result
-  local ok = pcall(function() result = trim(path, "verdicts") end)
+  local ok, result = pcall(function(): maintenance.Result return trim(path, "verdicts") end)
   Sqlite.rows = original
   assert(ok and not result.complete and result.report.digest == nil)
   assert(result.report.files[1].reason:find("checkpoint", 1, true))
@@ -385,8 +395,7 @@ local function test_vacuum_failure_reports_already_committed_row_counts(tmp: str
     end
     return ok, why
   end
-  local result: maintenance.Result
-  local ok = pcall(function() result = trim(path, "compiles", 5) end)
+  local ok, result = pcall(function(): maintenance.Result return trim(path, "compiles", 5) end)
   Sqlite.run = original
   assert(ok and not result.complete and result.report.digest == nil)
   assert(result.report.files[1].kept == 1 and result.report.files[1].removed == 1)

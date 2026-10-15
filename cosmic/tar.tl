@@ -341,11 +341,9 @@ local function parse_header(block: string, long_name: string | nil, long_link: s
     name = name, linkname = linkname, size = size, mtime = mtime, uid = uid, gid = gid,
     mode = raw_mode & 0xFFF, typeflag = typeflag, sparse = false,
   }
-  if pax_local ~= nil or next(pax_global) ~= nil then
-    local ok, trouble = apply_pax(pax_global, f)
-    if ok and pax_local ~= nil then ok, trouble = apply_pax(pax_local, f) end
-    if not ok then return nil, trouble end
-  end
+  local ok, trouble = apply_pax(pax_global, f)
+  if ok and pax_local ~= nil then ok, trouble = apply_pax(pax_local, f) end
+  if not ok then return nil, trouble end
   if f.size < 0 then return refuse("negative entry size") end
   -- Its padding added, a size this near the integer limit could wrap
   -- negative, and `next` would skip none of its body; a block below the
@@ -550,7 +548,7 @@ function EntryReader:next(): Tar.Entry | nil, string
         uid = f.uid,
         gid = f.gid,
         typeflag = typeflag,
-      }, self.entry_mt)
+      }, assert(self.entry_mt))
       self.current = entry
       self.opened = false
       self.size = f.size
@@ -623,7 +621,7 @@ end
 --- false when no split works and the path needs a pax header instead.
 local function split_ustar(path: string): string, string, boolean
   if #path <= 100 then return "", path, true end
-  local best: integer
+  local best: integer | nil
   for i = 1, #path do
     if path:byte(i) == 47 then -- '/'
       local prefix_len = i - 1
@@ -742,16 +740,17 @@ end
 function EntryWriter:add_file(path: string, data: string | Stream.Reader,
                               fopts?: Stream.EntryOptions): boolean, string
   fopts = fopts or {}
-  local size = fopts.size
-  if size ~= nil and (math.type(size) ~= "integer" or size < 0) then
+  local given = fopts.size
+  if given ~= nil and (math.type(given) ~= "integer" or given < 0) then
     error("tar: opts.size must be an integer of at least 0", 2)
   end
-  if size == nil then
-    if data is string then
-      size = #data
-    else
-      return false, "tar: add_file needs opts.size for a Reader body"
-    end
+  local size: integer
+  if given ~= nil then
+    size = given
+  elseif data is string then
+    size = #data
+  else
+    return false, "tar: add_file needs opts.size for a Reader body"
   end
   local mode = fopts.mode or 0x1a4
   local mtime = fopts.mtime or 0

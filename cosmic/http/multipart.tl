@@ -59,7 +59,7 @@ local record Multipart
     --- The `filename` of its Content-Disposition reduced to its last path
     --- component; nil for a part with none (a text field), "" for an empty
     --- one (a browser's file input left blank).
-    filename: string
+    filename?: string
     --- Its Content-Type as sent; "text/plain" when it sent none.
     content_type: string
     --- The part's bytes, read as they arrive. It ends at the part's end
@@ -269,15 +269,15 @@ end
 local function ext_value(text: string): string | nil, string
   local charset, escaped = text:match("^([%w-]+)'[%w-]*'(.*)$")
   if charset == nil then return nil, "multipart: filename* is not charset'language'value" end
-  local bad = false
+  local read = { bad = false }
   local raw = escaped:gsub("%%(%x?%x?)", function(hex: string): string
     if #hex ~= 2 then
-      bad = true
+      read.bad = true
       return ""
     end
     return string.char(tonumber(hex, 16))
   end)
-  if bad then return nil, "multipart: filename* has a bad escape" end
+  if read.bad then return nil, "multipart: filename* has a bad escape" end
   local lower = charset:lower()
   if lower == "utf-8" then return raw, "" end
   if lower == "iso-8859-1" then
@@ -376,7 +376,7 @@ local function parse_headers(p: Parser, block: string, body: Stream.Reader): Mul
   if has_control(name) or not utf8.len(name) then
     return nil, "multipart: a part's name holds a control byte or is not UTF-8"
   end
-  local filename: string = nil
+  local filename: string | nil = nil
   local claimed = params["filename"]
   if claimed ~= nil then
     local clean, trouble = clean_filename(unescape(claimed))

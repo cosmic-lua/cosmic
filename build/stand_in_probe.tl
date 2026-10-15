@@ -23,23 +23,25 @@ local signals: {string:integer} = {
   TERM = sys.SIGTERM, INT = sys.SIGINT, KILL = sys.SIGKILL, HUP = sys.SIGHUP,
 }
 
---- The guard `trap` opened, the status it ends with, and whether it
---- ends with it at all (`trap -` goes on).
-local guard: Signal.Guard = nil
-local trapped = 0
-local ignoring = false
+--- What the script has done so far: the guard `trap` opened, the status it
+--- ends with, whether it ends with it at all (`trap -` goes on), and what
+--- the commands of the chain running have said of their failures, said
+--- once the chain ends the script, and not where a `||` takes one up.
+local record Probe
+  guard: Signal.Guard | nil
+  trapped: integer
+  ignoring: boolean
+  troubles: {string}
+end
+
+local probe: Probe = { trapped = 0, ignoring = false, troubles = {} }
 
 --- What `start` started, kept from the collector, whose end of a handle
 --- would end its process: the script then ends by [`sys.exit`].
 local started: {Child.Handle} = {}
 
---- What the commands of the chain running have said of their failures,
---- said once the chain ends the script, and not where a `||` takes one
---- up.
-local troubles: {string} = {}
-
 local function trap_fired(): boolean
-  return guard ~= nil and not ignoring and guard:cancelled() ~= 0
+  return probe.guard ~= nil and not probe.ignoring and probe.guard:cancelled() ~= 0
 end
 
 --- Sleeps `ns` nanoseconds by the clock, a slice at a time, however
@@ -48,12 +50,12 @@ end
 local function sleep_for(ns: integer): integer
   local deadline = Time.monotonic_ns() + ns
   while true do
-    if trap_fired() then return trapped end
+    if trap_fired() then return probe.trapped end
     local left = deadline - Time.monotonic_ns()
     if left <= 0 then break end
     local _, _ = sys.nanosleep(math.min(left, SLICE_NS))
   end
-  if trap_fired() then return trapped end
+  if trap_fired() then return probe.trapped end
   return nil
 end
 
@@ -64,7 +66,7 @@ local function exists(path: string): boolean
 end
 
 local function failed(what: string, trouble: string): integer
-  troubles[#troubles + 1] = "probe: " .. what .. ": " .. trouble .. "\n"
+  probe.troubles[#probe.troubles + 1] = "probe: " .. what .. ": " .. trouble .. "\n"
   return 1
 end
 
@@ -189,10 +191,10 @@ local verbs: {string:function(string, string): integer} = {
     return SIGNAL_MISSED
   end,
   trap = function(status: string): integer
-    local opened, trouble = guard, ""
+    local opened, trouble = probe.guard, ""
     if opened == nil then opened, trouble = Signal.guard() end
     if opened == nil then return failed("trap", trouble) end
-    guard, trapped, ignoring = opened, number(status) or 2, status == "-"
+    probe.guard, probe.trapped, probe.ignoring = opened, number(status) or 2, status == "-"
     return nil
   end,
   sleep = function(ms: string): integer
@@ -376,7 +378,7 @@ local verbs: {string:function(string, string): integer} = {
   ["loopback-tcp"] = function(host: string): integer
     local server, trouble = Net.listen(Net.tcp(host, 0), { timeout_ns = Time.seconds(5) })
     if server == nil then return put_all(1, trouble .. "\n") end
-    local conn, connect_trouble = Net.connect(Net.tcp(host, server.address.port),
+    local conn, connect_trouble = Net.connect(Net.tcp(host, assert(server.address.port)),
       { timeout_ns = Time.seconds(5) })
     if conn == nil then
       local _, _ = server:close()
@@ -550,7 +552,7 @@ local function run_script(script: string, args: {string}, dir: string): integer
     local verb, first, rest: string, string, string = line:match("^(%S+)%s*(%S*)%s*(.-)$")
     local run = verbs[verb]
     if run == nil then
-      troubles[#troubles + 1] = "probe: unknown verb " .. verb .. "\n"
+      probe.troubles[#probe.troubles + 1] = "probe: unknown verb " .. verb .. "\n"
       return 2
     end
     return run(substituted(first, joined, dir), substituted(rest, joined, dir))
@@ -568,17 +570,17 @@ local function run_script(script: string, args: {string}, dir: string): integer
         if operator == "&&" and stopped == nil then
           stopped = command(commands[i + 1])
         elseif operator == "||" and stopped ~= nil then
-          troubles = {}
+          probe.troubles = {}
           stopped = command(commands[i + 1])
         end
       end
       if stopped ~= nil then
-        local _, _ = Fs.put(2, table.concat(troubles))
+        local _, _ = Fs.put(2, table.concat(probe.troubles))
         return stopped
       end
-      troubles = {}
+      probe.troubles = {}
     end
-    if trap_fired() then return trapped end
+    if trap_fired() then return probe.trapped end
   end
   return 0
 end
@@ -590,7 +592,7 @@ return function(argv: {string}): integer
   if beside == nil and argv[1] ~= nil then
     -- A script file whose `#!` line names it: its body.
     local st, _ = sys.stat(argv[1])
-    local text: string = nil
+    local text: string | nil = nil
     if st ~= nil and st.kind == "file" then
       local read, _ = Fs.read(argv[1])
       text = read

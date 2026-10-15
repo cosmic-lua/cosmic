@@ -12,10 +12,7 @@ local work = require("build.work")
 -- fixtures name.
 local type _sys = require("cosmic.sys")
 
-local built, load_trouble = teal.load()
-if built == nil then
-  error("could not load the compiler: " .. tostring(load_trouble))
-end
+local built = assert(teal.load())
 
 --- Compiles `source` as the one module of a fresh fixture project:
 --- true, or false and what the compile refused.
@@ -62,8 +59,8 @@ end)
 end
 
 -- A function literal's untyped parameter is the type its callee
--- declares (patch/tl/37d), so a `skip` is held to the enum without
--- naming [`Fs.Kind`].
+-- declares, so a `skip` is held to the enum without naming
+-- [`Fs.Kind`].
 local function test_an_untyped_skip_is_told_a_kind(tmp: string)
   local ok, trouble = compiles(tmp, "walk-untyped", [[
 local Fs = require("cosmic.fs")

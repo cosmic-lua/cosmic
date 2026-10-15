@@ -9,13 +9,13 @@ local Sqlite = require("cosmic.sqlite")
 local function minified(db: Sqlite.Handle, text: string): string | nil, string
   local rows, failure = Sqlite.text_rows(db, "SELECT json(?1)", { { text = text } })
   if rows == nil then return nil, failure end
-  return rows[1][1]
+  return rows[1]:text(1)
 end
 
 local function valid(db: Sqlite.Handle, text: string, flags: integer): boolean
   local rows = assert(Sqlite.text_rows(db, "SELECT json_valid(?1, ?2)",
     { { text = text }, { integer = flags } }))
-  return rows[1][1] == "1"
+  return rows[1]:text(1) == "1"
 end
 
 local function test_hash_comments_read_as_whitespace()

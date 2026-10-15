@@ -13,11 +13,9 @@
 --- lookup and no query language, and `grep` over `--flat` does what they
 --- would.
 ---
---- Like the other bare verbs (build/bare.tl) it ends in no verdict line.
---- Its standard output is data for a pipe or a `$(...)`, and a line of
---- its own after the value would be in that data; `cosmic sql` puts its
---- verdict last, for a reader to drop, but a JSON value has no line to
---- drop. Its exit status is the verdict: 0 found, 1 the path is not
+--- Like the other bare verbs (build/bare.tl) it prints no summary: its
+--- standard output is data for a pipe or a `$(...)`, and what it found is
+--- the value itself. Its exit status says how it went: 0 found, 1 the path is not
 --- there, 2 a command line, a file or a text it cannot read. Complaints
 --- go to standard error, as every verb's do, a missing place named by
 --- its JSON Pointer as [`Json.get`] names it. Its `spec`
@@ -290,7 +288,7 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
     local lines: {string} = {}
     for _, item in ipairs(found) do
       local line: string | nil
-      local why: string
+      local why: string | nil
       local leaf = item.value
       if as_text and leaf is string then
         line = leaf
@@ -300,7 +298,7 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
         line, why = json_query.flat_line(item.steps, leaf)
       end
       if line == nil then
-        complain(plain(why))
+        complain(plain(why or ""))
         return bare.failed
       end
       lines[#lines + 1] = line

@@ -194,7 +194,7 @@ local function test_a_zone_is_read_only()
   rawset(ny as {string:string}, "name", "X][!evil=1")
   assert(Time.format_rfc3339(0, ny, { zone_name = true }) ==
       "1969-12-31T19:00:00-05:00[America/New_York]")
-  rawset(ny as {string:string}, "name", nil)
+  rawset(ny as {string:any}, "name", nil)
   assert(ny.name == "America/New_York")
 end
 
@@ -417,14 +417,14 @@ local function test_tzif_with_long_abbreviations_is_read_in_linear_time()
     read(few, near)
     read(many, near)
     local few_ns, many_ns = math.maxinteger, math.maxinteger
-    local ratio: number
+    local ratio: number | nil
     for _ = 1, 30 do
       few_ns = math.min(few_ns, read(few, near))
       many_ns = math.min(many_ns, read(many, near))
       ratio = many_ns / math.max(few_ns, 1000000)
       if ratio < 24 then break end
     end
-    assert(ratio < 24, ("80000 types took %d ms, 10000 %d ms: %.1fx"):format(
+    assert(ratio ~= nil and ratio < 24, ("80000 types took %d ms, 10000 %d ms: %.1fx"):format(
       many_ns // 1000000, few_ns // 1000000, ratio))
   end
 end
@@ -691,7 +691,7 @@ end
 --- binary's copy; with no name to take, UTC.
 local function test_local_zone_names_a_carried_zone(tmp: string)
   local missing = tmp .. "/none"
-  local function lz(tz: string, localtime?: string, timezone?: string): Time.Zone
+  local function lz(tz?: string, localtime?: string, timezone?: string): Time.Zone
     local z, why = Time.local_zone({ tz = tz, unset = tz == nil, localtime = localtime or missing,
       timezone = timezone or missing })
     assert(z ~= nil, tostring(tz) .. ": " .. why)

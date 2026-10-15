@@ -79,7 +79,7 @@ end
 
 --- The promises of a worker: `base_promises`, and `nest` where its module
 --- declares `nests`, whose tests build roots of their own.
-local function worker_promises(nests: boolean): {Sandbox.Promise}
+local function worker_promises(nests?: boolean): {Sandbox.Promise}
   local out: {Sandbox.Promise} = {}
   for _, promise in ipairs(base_promises) do out[#out + 1] = promise end
   if nests then out[#out + 1] = "nest" end
@@ -150,7 +150,7 @@ function test_policy.worker(plan: test_sandbox.Plan, effective: test_inputs.Effe
     grants[#grants + 1] = { path = inside, from = at[path] ~= nil and path or nil,
       letters = letters_of(path, inside, plan.runs) }
   end
-  local scratch: string = nil
+  local scratch: string | nil = nil
   for _, path in ipairs(unveil.writes or {}) do
     local inside = at[path] or path
     grants[#grants + 1] = { path = inside, from = at[path] ~= nil and path or nil, letters = "rwxc" }

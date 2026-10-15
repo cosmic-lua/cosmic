@@ -296,7 +296,7 @@ local record declared_key
     --- The system the host says it is, then its kernel's release and
     --- version: [`system_identity`] reads the first, [`host_identity`] the
     --- other two. Where it is nil, `system_sources(sysname)`.
-    system: {string}
+    system?: {string}
     --- The kernel `uname` names, which chooses where `system` looks
     --- when it is nil ([`system_sources`]).
     sysname?: string
@@ -439,7 +439,7 @@ local function carried_digest(database: string): string | nil, string
   local scratch, scratch_trouble = Fs.mkdtemp("cosmic-program-")
   if scratch == nil then return nil, scratch_trouble end
   local path = scratch .. "/carried.db"
-  local answer: string = nil
+  local answer: string | nil = nil
   local trouble = ""
   local written, write_trouble = Fs.write(path, database)
   if not written then
@@ -454,12 +454,12 @@ local function carried_digest(database: string): string | nil, string
         "SELECT type, name, coalesce(sql, '') FROM sqlite_schema ORDER BY type, name")
       if schema == nil then trouble = schema_trouble end
       for _, row in ipairs(schema or {}) do
-        lines[#lines + 1] = row[1] .. " " .. row[2] .. " " .. row[3]
-        if row[1] == "table" and row[2]:sub(1, 7) ~= "sqlite_" and
-            row[3]:upper():sub(1, 20) ~= "CREATE VIRTUAL TABLE" then
-          local quoted = row[2]:gsub('"', '""')
+        lines[#lines + 1] = row:text(1) .. " " .. row:text(2) .. " " .. row:text(3)
+        if row:text(1) == "table" and row:text(2):sub(1, 7) ~= "sqlite_" and
+            row:text(3):upper():sub(1, 20) ~= "CREATE VIRTUAL TABLE" then
+          local quoted = row:text(2):gsub('"', '""')
           local columns, columns_trouble = Sqlite.text_rows(db,
-            "SELECT name FROM pragma_table_info(?1) ORDER BY cid", { { text = row[2] } })
+            "SELECT name FROM pragma_table_info(?1) ORDER BY cid", { { text = row:text(2) } })
           if columns == nil then
             trouble = columns_trouble
             break
@@ -469,13 +469,13 @@ local function carried_digest(database: string): string | nil, string
           local parts: {string} = {}
           -- And a rowid table's rowids, which a read in no other order
           -- (ca_roots', zoneinfo's) turns on.
-          if not row[3]:upper():find("WITHOUT%s+ROWID") then parts[1] = "quote(rowid)" end
+          if not row:text(3):upper():find("WITHOUT%s+ROWID") then parts[1] = "quote(rowid)" end
           for _, column in ipairs(columns) do
-            local named = '"' .. column[1]:gsub('"', '""') .. '"'
+            local named = '"' .. column:text(1):gsub('"', '""') .. '"'
             parts[#parts + 1] = "typeof(" .. named .. ") || ':' || quote(CASE WHEN typeof(" ..
               named .. ") = 'text' THEN CAST(" .. named .. " AS BLOB) ELSE " .. named .. " END)"
           end
-          local where = row[2] == "meta" and (" WHERE key NOT IN " .. tree_wide_meta) or ""
+          local where = row:text(2) == "meta" and (" WHERE key NOT IN " .. tree_wide_meta) or ""
           local digest, digest_trouble = Sqlite.text_rows(db,
             "SELECT lower(hex(sha256(coalesce(group_concat(r, char(10) ORDER BY r), '')))) " ..
               "FROM (SELECT " .. table.concat(parts, " || ',' || ") .. ' AS r FROM "' ..
@@ -484,7 +484,7 @@ local function carried_digest(database: string): string | nil, string
             trouble = digest_trouble
             break
           end
-          lines[#lines + 1] = "rows " .. row[2] .. " " .. digest[1][1]
+          lines[#lines + 1] = "rows " .. row:text(2) .. " " .. digest[1]:text(1)
         end
       end
       local _, _ = db:close()
@@ -608,10 +608,16 @@ function declared_key.runtime_identity(digests: declared_key.Digests, raw: strin
                                        host_image: string, basis: string): string
   local name = "runtime-image\0" .. host_image
   digests.used[name] = true
-  local said, image: string, string = nil, nil
+  local said, image = "", ""
+  local was_known = false
   local was = digests.hashed[name]
-  if was ~= nil then said, image = was:match("^([^\0]*)\0(%x+)$") end
-  if said == nil then
+  if was ~= nil then
+    local was_said, was_image = was:match("^([^\0]*)\0(%x+)$")
+    if was_said ~= nil and was_image ~= nil then
+      said, image, was_known = was_said, was_image, true
+    end
+  end
+  if not was_known then
     local core, _ = artifact.trusted_core()
     if core == nil or hex(core.digest) ~= host_image then return raw end
     local digest = core_image.digest(core.bytes)
@@ -745,7 +751,8 @@ local function tree(digests: declared_key.Digests, path: string, programs?: bool
     local kind, answer = entry(digests, path, true, programs)
     if kind ~= "dir" then return answer end
     local lines: {string} = {}
-    local refused: string = nil
+    -- What the first link that leads out of the bounds says, if one does.
+    local refused: {string} = {}
     local function walk(directory: string, prefix: string, depth: integer)
       local listed, trouble = sys.readdir(directory)
       if listed == nil then
@@ -760,8 +767,9 @@ local function tree(digests: declared_key.Digests, path: string, programs?: bool
         local named = prefix == "" and name or (prefix .. "/" .. name)
         local what, said = entry(digests, here, false, programs)
         lines[#lines + 1] = named .. "\0" .. said
-        if what == "link" and refused == nil then
-          refused = leads_out(digests, here, directory, bounds)
+        if what == "link" and refused[1] == nil then
+          local leads = leads_out(digests, here, directory, bounds)
+          if leads ~= nil then refused[1] = leads end
         end
         if said == "dir" then
           -- Deeper than a walk goes is keyed as what could not be seen.
@@ -774,7 +782,7 @@ local function tree(digests: declared_key.Digests, path: string, programs?: bool
       end
     end
     walk(path, "", 0)
-    if refused ~= nil then return "refused " .. refused end
+    if refused[1] ~= nil then return "refused " .. refused[1] end
     return "dir " .. hex_sha256(table.concat(lines, "\n"))
   end)
 end
@@ -1059,7 +1067,7 @@ local function system_of(from: declared_key.HostSources): {string}
   local sysname = from.sysname
   if sysname == nil then
     local names, _ = sys.uname()
-    sysname = names ~= nil and names.sysname or ""
+    return declared_key.system_sources(names ~= nil and names.sysname or "")
   end
   return declared_key.system_sources(sysname)
 end
@@ -1177,7 +1185,7 @@ function declared_key.host_identity(digests: declared_key.Digests,
     -- an order of its own. A list that cannot be read keys apart from
     -- every one that can.
     local groups: {integer} = from.groups
-    local trouble: string
+    local trouble: string | nil
     if groups == nil then groups, trouble = sys.getgroups() end
     lines[#lines + 1] = "gid " .. tostring(from.gid or sys.getgid())
     if groups == nil then
@@ -1244,7 +1252,7 @@ end
 local function walk_system(paths: {string}): string, {string}, integer
   local lines: {string} = {}
   local directories: {string} = {}
-  local latest = 0
+  local newest = { mtime_ns = 0 }
   local function walk(path: string, dev: integer | nil)
     local st, trouble = sys.lstat(path)
     if st == nil then
@@ -1258,7 +1266,7 @@ local function walk_system(paths: {string}): string, {string}, integer
     if st.kind == "dir" then
       lines[#lines + 1] = path .. " dir " .. tostring(st.mode)
       directories[#directories + 1] = path .. "\t" .. signature(st)
-      latest = math.max(latest, st.mtime * 1000000000 + st.mtime_ns)
+      newest.mtime_ns = math.max(newest.mtime_ns, st.mtime * 1000000000 + st.mtime_ns)
     else
       local line = path .. " " .. st.kind .. " " .. tostring(st.mode) .. " " ..
         tostring(st.size) .. " " .. tostring(st.mtime) .. "." .. tostring(st.mtime_ns)
@@ -1280,7 +1288,7 @@ local function walk_system(paths: {string}): string, {string}, integer
     for _, name in ipairs(names) do walk(path .. "/" .. name, st.dev) end
   end
   for _, path in ipairs(paths) do walk(path, nil) end
-  return hex_sha256(table.concat(lines, "\n")), directories, latest
+  return hex_sha256(table.concat(lines, "\n")), directories, newest.mtime_ns
 end
 
 --- The walk of `paths` ([`walk_system`]), remembered in `digests` as a
@@ -1401,7 +1409,7 @@ function declared_key.host_features(sources?: declared_key.HostSources): string
   end
   for i = 2, 3 do
     -- None ("", macOS's version) is read as nothing, as in [`host_identity`].
-    local text: string = nil
+    local text: string | nil = nil
     if (system[i] or "") ~= "" then
       local read, _ = Fs.read(system[i])
       text = read

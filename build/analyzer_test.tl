@@ -3,10 +3,7 @@ local analyzer = require("build.analyzer")
 local ast = require("build.ast")
 local Test = require("cosmic.test")
 
-local built, load_trouble = teal.load()
-if built == nil then
-  error("could not load the compiler: " .. tostring(load_trouble))
-end
+local built = assert(teal.load())
 
 --- Joins lines the way a real source file would read.
 local function lines(parts: {string}): string
@@ -1090,7 +1087,7 @@ local function test_export_alias_survives_later_local_reassignment()
     "implementation = function(): boolean return false end",
     "return Public",
   }), "fixture.tl"))
-  local exported: analyzer.DocEntry = nil
+  local exported: analyzer.DocEntry | nil = nil
   for _, entry in ipairs(found.docs) do
     if entry.exported and entry.symbol == "run" then exported = entry end
   end
@@ -1112,7 +1109,7 @@ local function test_nested_shadow_does_not_invalidate_export_alias()
     "end",
     "return Public",
   }), "fixture.tl"))
-  local exported: analyzer.DocEntry = nil
+  local exported: analyzer.DocEntry | nil = nil
   for _, entry in ipairs(found.docs) do
     if entry.exported and entry.symbol == "run" then exported = entry end
   end
@@ -1157,8 +1154,8 @@ local function test_table_return_alias_points_to_implementation()
     "end",
     "return { run = implementation }",
   }), "fixture.tl"))
-  local exported: analyzer.DocEntry = nil
-  local private: analyzer.DocEntry = nil
+  local exported: analyzer.DocEntry | nil = nil
+  local private: analyzer.DocEntry | nil = nil
   for _, entry in ipairs(found.docs) do
     if entry.symbol == "run" then exported = entry end
     if entry.symbol == "implementation" then private = entry end

@@ -96,6 +96,10 @@ local record Module
   -- Poll.writable, Poll.ready, `:join`, `:wait`, `:accept`,
   -- Child.wait_any, g:wait) changed its unit too, which no compile error
   -- can say: an integer is an integer.
+  -- TODO: key cosmic.log's Logger `verdict` (a program's outcome is its
+  -- exit status; `say` writes what it found and `complain` what went
+  -- wrong) once build/teal.tl's `replacement` reads a nested record's
+  -- subject: the checker names [`Log.Logger`], a dotted subject it skips.
   -- Likewise for the calls whose parameters changed shape: `Proc.exec(path,
   -- argv, environment)` is `Proc.exec(argv, { env = environment })`, argv[1]
   -- the path, and `Fs.cache_dir(tool, environment)` is `Fs.cache_dir(tool,
@@ -451,8 +455,13 @@ local module: Module = {
     ["cosmic.proc.arguments"] = "a program's main function is handed its arguments, " ..
       "`return function(argv: {string}): integer`; Proc.relaunch() answers the command " ..
       "that starts this program again, to which the caller appends them (" .. proc .. ")",
-    ["cosmic.sqlite.cell"] = "use Sqlite.rows(db, sql, values), whose rows carry typed cells, " ..
-      "or Sqlite.query(db, sql, values) to read them one at a time (" .. sqlite .. ")",
+    ["cosmic.sqlite.cell"] = "use Sqlite.rows(db, sql, values), whose rows are read with " ..
+      "row:integer(1), row:text(1) and the like, or Sqlite.query(db, sql, values) to read " ..
+      "them one at a time (" .. sqlite .. ")",
+    ["cosmic.sqlite.Cell"] = "a result row has no cells to index: read column i with " ..
+      "row:integer(i), row:number(i), row:text(i) or row:blob(i), ask row:kind(i) or " ..
+      "row:is_null(i) first when it may be NULL, and build a record per row with " ..
+      "Sqlite.map (" .. sqlite .. ")",
     ["cosmic.sqlite.exec"] = "use db:exec(sql), the method on the handle Sqlite.open " ..
       "answers (" .. sqlite .. ")",
     ["cosmic.sqlite.close"] = "use db:close(), the method on the handle Sqlite.open " ..
@@ -505,6 +514,11 @@ local module: Module = {
   -- boolean given for a record. Say `Flags.help({ spec = spec, about =
   -- about, usage = <what follows the program's name> }, program)` once
   -- [`build.teal`]'s `replacement` also reads a string given for a record.
+  -- TODO: a program that still reads a row as a list (`row[1]`, `row[1].text`)
+  -- gets only `cannot index object of type Row with integer`, with no hint:
+  -- say `row:text(1)`, `row:integer(1)` and [`cosmic.sqlite`]'s other
+  -- accessors once the checker carries a hint for an index error that names
+  -- the indexed record.
   -- TODO: a call that still passes Sqlite.open's old third argument gets
   -- only the arity error (`wrong number of arguments ... at most 2`), with
   -- no hint: the message names no callee. Say `{ immutable = true }` for

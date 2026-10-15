@@ -96,7 +96,7 @@ local function test_a_held_run_fails_a_pass_that_asserted_nothing(tmp: string)
     local out, code = run(project(tmp .. "/" .. tostring(i)), held)
     assert(code ~= 0, out)
     assert(out:find("checks_test test_asserts_nothing: made no call to assert", 1, true), out)
-    assert(out:find("1 of 6 failed", 1, true), out)
+    assert(out:find("1 of 6 tests failed", 1, true), out)
   end
 end
 

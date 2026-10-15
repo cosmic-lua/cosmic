@@ -16,7 +16,7 @@ end
 --- Statement kinds a "statements" node's array part can hold that are
 --- left out of the executable count. Teal emits no Lua for a bare
 --- type-only declaration whose name is never used as a value (it sets
---- `elide_type`, in `check_var_usage` of vendor/tl/tl.lua), but emits an
+--- `elide_type`, in `check_var_usage` of [`checker/tl.tl`]), but emits an
 --- initializer line (`local Foo = {}`) for a record or enum whose name is
 --- used as a value elsewhere, such as `local record Foo end` with a
 --- `function Foo.bar()` attached later. Whether a name is used as a value
@@ -105,7 +105,7 @@ function lines.executable_cached(db: Sqlite.Handle, built: compiler,
   end
   if #cached > 0 then
     local out: {integer: boolean} = {}
-    for piece in cached[1][1]:gmatch("%d+") do
+    for piece in cached[1]:text(1):gmatch("%d+") do
       local line = math.tointeger(tonumber(piece))
       if line ~= nil then out[line] = true end
     end

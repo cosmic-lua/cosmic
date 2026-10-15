@@ -71,7 +71,7 @@ these argues with the principle, not with the reviewer.
    and caches them. the build needs no network once both are present.
 8. **docs are always right.** a disagreement between doc and code is
    fixed in the code, and every example runs or says why not. tests
-   run because they are defined. gates end in a verdict line. an
+   run because they are defined. a gate's verdict is its exit code. an
    error-site hint beats a gotcha doc beats guide prose.
 9. **obviously simple, correct, and essential.** a reader sees it,
    never derives it: a line of code proves itself on sight and a
@@ -117,7 +117,7 @@ kernel                               Linux; macOS
     syscall table                    C, one function per syscall
   cosmic binary
     modules in a sqlite database     the only module source
-    teal compiler + checker          vendored tl, carried patches
+    teal compiler + checker          the tree's own source, seeded by vendored tl.lua
     cosmic.* stdlib in teal          typed wrappers, honest returns
     docs                             rows in the same database
     Mozilla's CA roots               DER rows, once for every core
@@ -292,7 +292,7 @@ the replacement for that very field, at the site that used it.
 [`cosmic.removed`] is the one place the map from a removed name to its
 replacement lives.
 
-the compiler -- the Lua the vendored `tl.tl` compiles to (below) --
+the compiler -- the Lua the tree's checker, [`checker/tl.tl`], compiles to (below) --
 reaches outside the pure libraries in five
 places: `io.open` and the file handle it returns, `os.getenv`,
 `package.path`, `package.searchers`, and `load`. it ships as a row
@@ -440,8 +440,9 @@ input to the build, never to the runtime. one database holds:
   Teal-only rebuild carries the running binary's rows over, and `cosmic
   build` copies them into every executable it writes;
   [`Store.web_asset`] reads one.
-- **the compiler**: the Lua the vendored `tl.tl`, patched, compiles to,
-  one row, loaded with its own environment.
+- **the compiler**: the Lua [`checker/tl.tl`] and its modules compile to,
+  started with the text of [`checker/stdlib.d.tl`], one row, loaded with
+  its own environment.
 - **decls**: every declaration the tree holds, generated or written,
   so a checker building another tree against this binary can type
   what it requires.
@@ -556,7 +557,7 @@ builds and tests a tree other than its own.
 
 inside cosmic's own tree, every run first compares the boot hash with
 the one the running binary carries: a fingerprint of everything the
-tool is made of, `build/`, `core/`, `cosmic/`, `cmd/`, `patch/`, each
+tool is made of, `build/`, `core/`, `cosmic/`, `cmd/`, `patch/`, `checker/`, each
 vendored tree's `PIN`, `build.zig` and the zig wrapper, but the Teal
 tests among them, which no binary carries: an edit to a test rebuilds
 no tool, and only a test may require one. a vendored
@@ -585,7 +586,7 @@ and `zig build` installs them under the build directory's `vendor/` and produces
 for each target. `zig build boot`
 bridges: it runs the fresh host core over `build/` to compile the
 importer with the compiler the vendored `tl.lua` compiles from the
-patched `tl.tl`, writes `cosmic.db`, and writes one
+checker, [`checker/tl.tl`], writes `cosmic.db`, and writes one
 portable [`bin/cosmic`], each in the build directory. the tool carries `carried.db`, that projection
 without the tree's own tests and examples, and with the docs, uses
 and examples of the public standard library alone (and the doc rows
@@ -624,16 +625,16 @@ the tree's tool runs `bin/zig build boot` and re-enters, or, under
 
 semantic identities keep different kinds of reuse separate. the compiler
 identity holds the modules that decide generated code, stored analysis and
-acceptance, plus the Teal compiler's and Lua's pins and patches
-([`build.identity.compiler_identity`]). module keys carry it; importer
+acceptance, plus the checker's source and the Teal compiler's and Lua's
+pins and Lua's patches ([`build.identity.compiler_identity`]). module keys carry it; importer
 coordination, diagnostic presentation and general standard-library plumbing
 stay outside it. the analyzer identity keys stored parses and includes that
 compiler identity plus the analyzer modules' sources
 ([`build.importer.analyzer_identity`]). the writer identity holds the code and
 core image that determine a projection's bytes, including its standard-library
 dependencies. the projection records which compiler and writer produced it so a
-self-rebuild can settle on its own code. the runtime basis holds the Teal and Lua
-pins and patches; startup combines it with the validated target, configuration
+self-rebuild can settle on its own code. the runtime basis holds the same pins, patches
+and checker source; startup combines it with the validated target, configuration
 and exact core digest to identify the running runtime. every test verdict holds
 that runtime identity. a row compiled by another compiler is never mistaken
 for this one's. a sandboxed test's key holds what the
@@ -729,7 +730,26 @@ that does run runs in a worker process of its own:
   its analyzer by the very parse it has yet to make, takes an
   analyzer's parses only where the `requires` rows that analyzer found
   name it again over this tree ([`build/importer.tl`]'s
-  `shared_analyzer`).
+  `shared_analyzer`). the boot bridge's own compiles share the file too,
+  in a table of their own ([`core/bridge.lua`]): the compiler's, and every
+  module it loads up to [`build.boot`], keyed by the digest of every `.tl`
+  and `.h` under the root and of the compiler and the bridge, since no
+  import graph exists yet to key them by. a boot of a tree none of whose
+  `.tl` or `.h` has changed, and each worker it starts, compile nothing
+  in the bridge; an edit to any one of them compiles it all again.
+- *parallel*: a build with much to parse or compile, a cold boot or an
+  edit that reaches most of the tree, does it in worker processes: one
+  fewer than the processors, `COSMIC_BUILD_JOBS` naming another count
+  and `1` none ([`build/workers.tl`]). sources are dealt to them by
+  size. modules are dealt by what they import ([`build/shards.tl`]),
+  since the checker's types cannot leave a process and a worker checks
+  every import of what it compiles. the build process alone writes the
+  rows, in the order a build without workers writes them, and compiles
+  itself what no worker did, a refusal included, so its error is the one
+  a build alone gives and the database and the tool come out byte for
+  byte the same ([`build/worker.tl`]). a boot loads the build's code from
+  source in each worker, which takes seconds, so it starts them only for
+  a few megabytes of new source.
 - *fast*: compile and check run in one process, one transaction,
   against declarations already in the database. each test runs in a worker
   -- the same core relaunched directly, never through the launcher --
@@ -871,7 +891,7 @@ keys a C object by its source's path, compiles a vendored file once
 for all of them -- and hands zig their manifest;
 a record whose anchor no longer matches fails the build by name.
 
-vendored: Lua 5.5, the SQLite amalgamation and nine of its ext/misc
+vendored: Lua 5.5, the SQLite amalgamation and twelve of its ext/misc
 extensions, mbedtls, miniz, bzip2,
 xz's liblzma decoder, c-ares, curl, yyjson, Mozilla's CA bundle, the
 IANA time zone database's compiled `zoneinfo`, and tl;
@@ -900,20 +920,290 @@ a CycloneDX document. a pin with no license fails the build.
 
 ### teal
 
-tl vendored, its Teal source `tl.tl` beside the `tl.lua` upstream
-generated from it. its changes are carried as patches to `tl.tl` under
-`patch/tl/`, typed and checked like any Teal, and not proposed upstream.
-the boot compiles the patched source with the upstream `tl.lua`, and the
-compiler that makes compiles its own source to exactly itself, which
-[`build/compiler_test.tl`] holds it to: the compiler is a function of its
-Teal source and records, not of what first compiled it.
+the checker and compiler are the tree's own source, [`checker/tl.tl`] and the
+files beside it: they descend from tl 0.24.8 (MIT; the license and notice
+travel in the bill of materials with `tl.lua`) and are edited directly.
+[`checker/tl.tl`] is the entry and holds most of the checker.
+[`checker/flow.tl`] is the first module split out of it, and it decides
+reachability: which statements end their block (`return`, `break`, `goto`,
+an `if` with an `else` all of whose branches end, `while true` with no
+`break`, a call of a `: never` function), which a function declared `:
+never` or returning a value and a narrowing after an `if` that ends read.
+the checker asks it, never decides it. [`checker/narrowing.tl`] decides what
+a test tells of a place. a place is a local or a field of one. a guard is a
+test of a place (a truthiness read, a comparison with nil or a literal,
+`is`, `type(x) == "..."`, an `assert`), or a `not`, `and` or `or` of
+guards. evaluating a guard gives the facts it holds, one per place. the
+checker builds a guard on each expression and applies one where a branch
+begins.
+
+a fact is dropped where the value it is about can change, and a use that
+relied on a dropped fact is refused. an assignment to a place, or to a
+prefix of it, drops it. a write to a field `.f` through any reference drops
+every narrowed path with `.f` after its base (`a.f`, and `a.f.g` or `a.g.f`
+once a path of two fields is a place), because another reference may name
+the same table or one on the way to it; a write through a key that may name
+a field drops every field path. a call drops every narrowed field path, and every narrowed global: a
+local stays narrowed across a call, because no function literal assigns a
+local it does not declare (below). an operator or index that dispatches to a metamethod
+is a call, and a value dispatches only through the metamethods its type
+declares: an operator or an index served by a metamethod a record, an
+interface or a userdata declares runs code, unless it is a macro expression
+(a `where` clause is one) that calls nothing; `==` of two values that may be
+tables runs code only if the type of one declares `__eq`; `any` and a type
+variable may be anything, so they always dispatch; and an operator on a
+string, a number, a plain array or map, a function, nil or a record that
+declares no metamethod does not. a call of `assert` or `type`, of a function
+declared `: never`, and of a standard library function that runs no code of
+the program's (`tostring`, `print`, `ipairs`, the `string`, `math` and
+`utf8` functions, `table.concat`, `table.insert` and a few more) given
+arguments that cannot dispatch (a type that declares a metamethod, `any`, or
+a function, alone or in a union, can) drops nothing.
+
+the principle stops where the checker cannot see: a metatable attached at run
+time, by `setmetatable({}, {__index = f})` on a plain map or a metamethod a
+record does not declare, dispatches whatever the program gave it, and a
+`__gc` finalizer runs at a time no operation names. neither is seen, so a
+narrowing is not held against them; the roadmap's `setmetatable` item
+closes the first, and the second is outside the claim.
+
+the order is the order Lua runs things in: operands and arguments left to
+right, a call after its arguments. so a narrowed read before a call in the same
+expression keeps its fact and one after it loses it (`print(r.n + 1, clear())`
+is accepted, `print(clear(), r.n + 1)` is refused). what one operand of `and`
+or `or`, or the first argument of `assert`, tested holds past a later operand
+only if that ran nothing that drops it, and what an `if` chain's earlier
+condition tested holds past its later conditions on the same terms. a loop body
+is checked once with the facts from before the loop standing, and a read of one
+it narrowed outside itself is remembered. when the body then drops that fact (a
+call, a write, an operator that dispatches, an iterator that is not `pairs`,
+`ipairs` or `gmatch` of what runs no code, or `next`), each such read that came
+before the drop is refused, because the next pass reads what this one dropped.
+the condition of a `while` or `repeat` is part of the body, so what it drops is
+dropped for the body after it. after the loop what it dropped stays dropped, as
+in straight-line code, and a drop in a branch that leaves the loop is not one
+of the next pass. a branch leaves only if its last statement does and no path
+through it goes out first by a `break` of a loop around it or a `goto` (a
+continue, below) that is not of a loop inside the branch. a function literal
+runs later, when what a test established may no longer hold (`local f =
+function() return r.n + 1 end`, then a call that clears `r.n`, then `f()`), so
+its body begins without the facts of the places outside it that may change
+before it runs, and keeps the rest. it loses every field path, because any code
+that runs before it may write one, and each local that an assignment can change
+once the literal is made (a parameter, a `local x = x` copy and a local
+declared with a value alike): an assignment in a function literal, one that
+comes after the literal in the text, and one in a loop that also makes the
+literal (a later pass runs it) all can. it keeps the facts of a local that no
+such assignment changes, since that local holds the same value whenever the
+literal runs: a default assigned before it (`opts = opts or {}`) or the best of
+a loop that has ended is the value its test, or the value it was declared with,
+still speaks of. a `local x = x` declares a variable of its own, even in the
+scope of the one it copies, with its own assignments. a hidden local reads with
+the type it was declared with (for a copy, the type of the variable it copies
+where the copy is made, narrowed by any test before it), never the type of
+another variable of the name. a read in the body of a place so hidden is
+refused with the code `narrowing_dropped`, kind `function`, and the hint copies
+the value to a local before the function. the body still learns what it tests
+itself, and creating the function runs none of its body, so the facts outside
+it stand after it. a branch that ends in `return` or a call that never returns
+drops nothing for the code after its `if`.
+
+a test of `a or b` that holds tells what `a` and `not a` tell together, which
+is nothing of a place: `a` held, or `a` failed and `b` held, so
+`assert(x == nil or y)` leaves `x` as it was. what `a or b` tells when it fails
+is what both fail to be. `type(x.f) == "..."` and the left operand of `and`
+test a field as they test a local (`r.a and r.a + 1`). a narrowing made in a
+scope that already widened the name (a function literal declared before the
+test assigns it) keeps the widening and can be dropped from it, so a call or an
+assignment drops it as it does elsewhere.
+
+a refusal of this kind has the code `narrowing_dropped`, with the place, what
+dropped it (`call`, `write`, `operator`, `loop`, `function` or `assignment`), that
+expression as written and where it is, beside the fields of the refusal it
+was. its hint copies the value to a local before the call or write
+(`local n = r.n`, then `if n then clear() print(n + 1) end`), which stays
+narrowed across the call because no function can assign it.
+
+a function literal does not assign a local declared outside it
+([`checker/captures.tl`]'s `find`, asked of each file before it is checked):
+`function() ... end`, `local function`, `function f()`, a record function,
+and the function literals inside a macro expression (a `where` clause is one,
+as are those of the records nested in it) may read what is around them, and
+assign their own locals and parameters, but a local belongs to the code that
+declares it: an assignment is refused when the local is declared at a smaller
+function depth than the assignment. the forward declaration
+`local f: function(); f = function() ... end` is exempt because it is
+assigned at the same depth as its declaration, and so is a write to a field
+of a captured table (`state.n = state.n + 1`: the rule is about the binding, not the
+table), and a global is not followed. so a call, whatever it calls, changes
+no local, and a value a function finds in a local came from the code that
+made it. a refusal has the code `captured_assigned`, with the variable and
+where it is declared (`declared_y`, `declared_x`); its hint says to return
+the value from the function, or keep it in a field of a table both read
+(`local held = { n = 0 }`, then `held.n = ...`).
+
+a local is assigned before it is read. `local x: T` with no value is nil until
+something assigns it, and a read that comes first gets nil where the type
+promised a `T`, so it is legal only where every path from the declaration
+assigns `x` before its first read ([`checker/flow.tl`]'s `unassigned_read`,
+asked of each declaration once the block that holds it is checked). a read is
+any use of `x` as a value (an operand, an argument, an index, the target of
+`x.f = v` or `x[i] = v`). a path that ends first (`return`, a `break` or `goto`
+that leaves, a call of a function typed `: never`) never reaches a read of the
+variable, but a function that names it may have got out on it (below). an `if`
+assigns if every branch does and it has an `else`; a `while`, `for` and generic
+`for` body may run no time, so what it assigns does not count after the loop
+except on the paths that `break` out of it, while a `repeat` body and a `while
+true` body run at least once; a `goto` takes the state it leaves with to the
+label that ends its loop's body. an assignment inside a function literal is to
+a local of its own (below), so it counts for nothing around it, and a local of
+the same name declared inside a block hides the variable from the rest of that block. `local x: T | nil` with
+no value is always legal and is nil, so is any type that admits nil (`any`, an
+alias of a union with nil); a type variable is not taken to, since it may stand
+for a type that does not. a local with neither a type nor a value (`local x`)
+is refused too, with the code `no_type`.
+
+a function literal (or a `local function`) that names `x` does not read it
+where it is made, only when it is called. so it is pending from its creation
+until `x` is assigned on every path, and it becomes a read if code of the
+program's may run in between: a call, an operator, index or `==` that
+dispatches to a declared metamethod, a `tostring` or `print` of a value with a
+declared `__tostring`, a `for ... in` loop whose iterator is not `pairs`,
+`ipairs` or `gmatch` of what runs none: what the checker counts as running code
+for the narrowing it drops (`TypeChecker:drop_all`, which marks the expression
+`runs_code` for `unassigned_read`), and a call of `assert` or `type` or of the
+standard library that examines no value that may dispatch is none. it also
+becomes one where the function may get out unassigned: at a `return`, at a call
+of a function typed `: never` (the path ends, but the function may be stored or
+caught by a caller above, as `error` is), at a `break`, or a `goto` to a label
+further out, that leaves the block the variable is declared in (its scope ends
+there), and where the variable's scope ends. a loop body that ends with it
+pending goes round once more in the walk, so the code at its start counts. so
+`local f: function(); local function g() f() end; f = function() g() end` and
+`local f: function(); f = function() f() end` pass, and `local f: function();
+local function g() f() end; g(); f = ...`, a function that is returned or whose
+scope ends with `f` unassigned, and an assignment a path skips are refused. a
+call that is not marked runs code even if it does not call the function; the
+refusal is the checker's guess that it may, as the dropped narrowing is.
+
+what counts as running code is what narrowing counts, so the rule shares its
+gaps. the read of a declared field of a record that declares `__index` runs
+code that neither sees (the TODO in [`checker/narrowing.tl`] names it), nor
+does a metatable attached at run time (the `setmetatable` TODOs in
+[`checker/tl.tl`] and the roadmap item they wait on). a raise from `assert`
+(`assert(false)`, `assert(<expr>)`) or from an operator (division by zero,
+indexing nil) can let out a function that has already escaped, as a call of a
+function typed `: never` does, but is not seen as doing so, so those are
+outside the rule for now (a TODO in [`checker/flow.tl`], and the roadmap item
+that checks a function where it escapes). a global is not followed at all, and
+neither is a local given a call that returns no values (`local v: integer =
+f()`), which is nil though its type admits none; both are TODOs in
+[`checker/flow.tl`] that wait on the roadmap's item that excludes nil from
+every type but one that names it.
+
+a refusal of the first kind has the code `not_assigned`, with the variable, and
+where a path skipped the assignment: the `if` with no `else`, the branch that
+does not assign, or the loop, with its place; for a function that names it,
+that the read is a function and what may call it first (`ran_kind`: `call`,
+`operator`, `iterator`, `return`, `never` or `scope`, with its place). its hint
+says to give the local a value where it is declared, assign it on every path
+(before the call that may run a function that names it), or declare it `T |
+nil` and check it where it is used. the rule is held against the semantics it
+is about: a drawn program of branches, loops, `break`, `return`, `goto` as a
+continue, calls that never return and functions that name the variable is run
+down every way its choices can fall, with every call able to call every
+function made so far, and the checker refuses it exactly when some way reads
+the variable before it is assigned ([`build/checker_assigned_fuzz_test.tl`]).
+
+a `goto` is a continue and nothing else. it may only jump forward to the label
+that is the last statement of the body of the innermost loop around it, in the
+same function (`for`, `while` and `repeat` alike); the label's name does not
+matter. it is refused when it jumps back, jumps forward to a label anywhere
+else, jumps out of a nested function or out of a loop, or sits outside any
+loop, and a label that no such `goto` names is refused too, so a label exists
+only to continue. a `repeat` continue is also refused when it jumps past a
+local declared at the body's level, which the `until` can see and Lua refuses
+to load; wrapping the code after the `goto` in `do ... end` or an `if` clears
+it. a refusal has the code `goto_not_continue`, with the label's name, where
+the `goto` is (none for a label nothing names) and where the label is (none
+where the `goto` names no label); its hint says to restructure with an `if`
+around the code to skip, or to move the body into a function. a `goto` that
+only skips the rest of a pass leaves no loop and re-enters nothing, so the
+checker's flow and narrowing meet a label only at the end of a loop body,
+reached by forward jumps: a label drops no fact of its own, a loop that only a
+`goto` leaves does not occur, and the order of the text says when a write runs,
+up to the loops around it.
+
+the checker's own source is valid upstream Teal and relies on nil being in
+every type, so a local it reads before the code that assigns it is declared
+`local x: T = nil`, which has a value; the checker's TODO there waits on nil
+leaving every type but one that names it.
+
+later parts of the checker move into modules the same way, each a file in
+`checker/` with a main chunk and a count of locals of its own. the files sit
+outside the module closure they compile: the scanner
+reads `checker/` as part of the tool, never as a module or a test
+([`build/identity.tl`]), and `cosmic fix` does not lay it out. the vendored
+tree keeps upstream's `tl.lua` alone, unedited, as the seed: the boot
+compiles each file in `checker/` with it, so the checker's sources are valid
+upstream Teal, and the compiler that makes compiles its own sources to
+exactly itself, which [`build/compiler_test.tl`] holds it to: the compiler
+is a function of its Teal sources, not of what first compiled it. the
+sources are in the compiler's identity, so in every compile's key, and in
+the tool's boot hash, so an edit to one boots the tool. a file added to
+`checker/` is covered by all of these, and by that test's list of files.
+
+the entry requires a module by its dotted name (`require("checker.flow")`),
+which the boot answers to the seed from the file's text. the tool carries
+one compiler, one row: the entry's Lua behind a first line that holds the
+standard library's declarations as the local `stdlib` and the Lua of each
+other file, which a `require` in the entry, or in another such file, loads on
+first use as a chunk of its own named by its path, under the local `require`
+that shadows the host's. only `<identifier>.tl` files beside the entry are
+parts. the checker's
+module system is nothing more than that.
+
+the Lua standard library's declarations are not in that source. they are
+[`checker/stdlib.d.tl`], the typing the checker takes without proof, so
+auditing or changing one is an edit of that file and touches no checker
+logic. the file sits beside the checker, not under a module's path, for
+three reasons. the checker reads it before any module system exists: a
+`.d.tl` of a module is found by `require`, and the declarations are
+the checker's own environment, which makes `string`, `table` and the
+rest globals. it is outside the closure the checker compiles, as the
+checker is. and the compiler's identity, the tool's boot hash and the CI
+cache key hash everything under `checker/`, so an edit to a
+declaration recompiles every module and boots the tool. the boot carries
+the file: the bridge ([`core/bridge.lua`]) starts the compiled checker
+with `local stdlib = "<the file's text>"` on its first line, so the
+compiler the tool carries holds the declarations it was compiled with, and
+compiling the checker's sources again with the same file gives exactly that
+Lua ([`build/compiler_test.tl`]). the checker still names the few
+functions it handles in code (`assert`, `type`, `setmetatable`, `pcall`,
+`require`, `ipairs`, `pairs`, `coroutine.wrap`, and `string.format`,
+`gsub`, `match`, `find` and the like) after reading the file, in
+`tl.new_env`. the prelude (`any`, `thread`, `userdata`, `metatable`)
+stays in the checker: its names are the language's, and the checker's
+logic reads them. `cosmic docs` does not show these declarations: it
+indexes the tree's modules and their declarations, and this file is
+neither. [`build/stdlib_declarations_test.tl`] pins how the checker
+prints representative names.
+
+an error the checker reports carries a `code` and the places and values it
+is about (an argument's position, the types shown, the key and the record's
+fields, the counts of a call), declared as `Error` in
+[`build/compiler.d.tl`]. the hints [`build/teal.tl`] adds to a refusal read
+those, never its message, which only a person reads; an error no hint reads
+has the code `other`. a rule that refuses more lands with its code and its
+hint together.
+
 the planned cast restriction would allow `x as T` only from `any`, from a
 userdata record declared in a `.d.tl`, or from the enclosing
 generic's type variable. `any` is legal only where untrusted data
 enters and a shape validator turns it into a record by construction.
 no justification comments, no ledger in the target policy. this cast
-restriction is not implemented. record-field narrowing has landed as
-carried patches; container covariance was dropped (see the roadmap).
+restriction is not implemented. record-field narrowing has landed in the
+checker; container covariance was dropped (see the roadmap).
 there is no planned `cosmic check` verb: compilation performs checking,
 while `cosmic fix`'s structural rule list ([`build/fix/rule.tl`]) is still
 empty: its one type-driven fix wraps a multi-value `assert(...)` in
@@ -933,8 +1223,41 @@ a container, a generic's argument, a callback's parameter), and a function
 declared `: never` neither returns nor reaches its end. the `as` and `is`
 casts and the holes every type has (`coroutine.wrap`, `rawset`,
 `setmetatable`) are on the roadmap, and [`test/narrowing_test.tl`] and
-[`build/teal_test.tl`] pin today's behavior of each. the patches are
-`patch/tl/43*` and `44*`.
+[`build/teal_test.tl`] pin today's behavior of each.
+
+a checked test run (`cosmic test --check-types`) finds where the types
+lie. it compiles the tree with a run-time check at each declared boundary:
+an annotated parameter at the function's entry, a declared return value at
+its `return`, and a write to a record field (`r.f = v`). the check compares
+the value's Lua kind (`type`, and `math.type` for an integer) with the
+kinds the declared type admits: nil only where the type admits it, a record
+or a map as a table, an enum as a string; `any` and a type variable are not
+checked. a violation is recorded with the line that sent the value (the
+caller for a parameter, the statement for a return and a write), the
+declared kinds and the value's, and the run reports them and fails
+nothing: the checker accepts nil for any type, so the report lists code it
+allows. a `return f(x)` (a tail call, which a check would end), a vararg
+parameter or return, and a write to a field a record inherits or a generic
+record declares are not checked. the run changes the Lua, so its compiler
+has an identity of its own ([`build.importer`]'s `checked_tool`) in every compile key, the
+working database's rows and the compiles every checkout shares alike, and
+its projection is written aside (`cosmic.checked.db`): the tree's projection,
+the tool and every executable `cosmic build` writes never carry a check.
+[`build.test_worker`], which holds the hook the checks call, is compiled
+without them.
+
+the same run checks narrowing, the oracle the strict plan asked for: a read
+of a local, a global or a field of a local whose type a test narrowed
+(`if x then`, `~= nil`, `is`, `type()`, `assert`) is written as a call of
+the hook with the place and the test's fact, the kinds the test took out
+of the type, and the hook raises "fact violated at file:y:x" for a
+value the fact is false of. the checker marks the read when the test makes
+the entry (`Variable.test_fact`), so what is checked is exactly what a test
+concluded and nothing the declared type said. a place narrowed by the type
+of an assigned or declared value is not, since that type holds nil where it
+does not say so until the nil item of the roadmap lands. CI runs the whole
+suite so in the `checked` job; the programs the checker accepts that it fails are its
+holes, found by real runs.
 
 a function type stands for another when its parameters accept what the
 other's do (contravariant) and its returns are subtypes of the other's
@@ -951,8 +1274,7 @@ call that names another receiver (`r.read(other, 1)`) still checks, as it
 always did. nothing tells a receiver from another record parameter of a
 field's function, so a callback field `function(Event)` also takes a
 `function(k: KeyEvent)`, as on main. the roadmap item for named receivers
-retires the second, and that hole with it. the
-patches are `patch/tl/48*`.
+retires the second, and that hole with it.
 
 the spirit is consistent, strong, explicit typing, the same shape the
 languages that hold it converged on: the top type inert until
@@ -988,9 +1310,9 @@ modules by none of those, so a cached compile could stand after the
 module that declares it changed, the verdict of a serial build would
 depend on that order, and parallel workers could not reproduce it.
 everything a module sees comes through a `require`, which the key
-covers. tl's own prelude and standard-library declarations
-([`vendor/tl/tl.tl`]) are read by the checker's environment, not built as
-a source, and are unaffected. a Lua runtime trick the checker cannot
+covers. tl's own prelude ([`checker/tl.tl`]) and the Lua
+standard-library declarations ([`checker/stdlib.d.tl`]) are read by the
+checker's environment, not built as a source, and are unaffected. a Lua runtime trick the checker cannot
 see, `setmetatable(_G, ...)` or `local _ENV = ...`, is not refused, and
 neither is a file run by `cosmic --standalone`, which no build checks.
 
@@ -1087,14 +1409,15 @@ takes paths to narrow it (`uses` after its symbol), except `docs`,
 which takes words to search for; `sql`, which takes one statement
 and names its database by option, since a statement already says
 which rows it reads; `refresh`, which takes the datasets to fetch;
-`bom`, which takes nothing; and `help`, which takes a verb. every verb ends
-in a verdict line
-and an exit code; a file run, `--standalone` and `-e` are programs,
-not verbs, and print only what they print and exit with what they
-return. `cosmic help` prints an index with a line per verb, `cosmic help <verb>`
-that verb's full text and options, and `cosmic help exit` the verdict
-lines and exit codes every verb shares. no other
-stock-interpreter flags, no argv[0] personality.
+`bom`, which takes nothing; and `help`, which takes a verb. a verb's
+exit code is its verdict and its stdout is its result alone; its stderr
+says what went wrong, and a run that passed ends there in a summary of
+how it went (`test`'s summary is its result, last on stdout). a file
+run, `--standalone` and `-e` are programs, not verbs, and print only
+what they print and exit with what they return. `cosmic help` prints an
+index with a line per verb, `cosmic help <verb>` that verb's full text
+and options, and `cosmic help exit` the exit codes and summaries. no
+other stock-interpreter flags, no argv[0] personality.
 [the command-line guide](guides/command-line.md) runs each of these.
 
 from a project, `docs` and `uses` answer for the project's own code
@@ -1122,7 +1445,10 @@ patch/<name>/       exact find/replace records, each with a note
 core/               C: entry, locator, VFS, store, sqlite, surface, boot
 core/syscalls.h     the annotated header cosmic.sys's .d.tl and doc rows derive from
 core/process.h      the same for the raw cosmic.internal.process table
-core/bridge.lua     the boot environment for tl, and its compile of tl.tl, by hand
+core/bridge.lua     the boot environment for tl, and its compile of checker/*.tl, by hand
+checker/tl.tl       the Teal checker and compiler, the entry, compiled at boot by vendor/tl/tl.lua
+checker/flow.tl     the checker's reachability: which statements end their block
+checker/narrowing.tl the checker's places and guards: what a test tells of a place
 cosmic/             the standard library; entry files are public, siblings not
 cmd/cosmic/         the binary's main
 build/              the importer, checker driver, embed (Teal; private to build/ cmd/ test/ tests)
@@ -1202,6 +1528,7 @@ in [roadmap.md](roadmap.md).
 [`bin/vendor`]: ../bin/vendor
 [`bin/zig.pin`]: ../bin/zig.pin
 [`bin/zig`]: ../bin/zig
+[`build.boot`]: ../build/boot.tl
 [`build.compilation`]: ../build/compilation.tl
 [`build.derivation`]: ../build/derivation.tl
 [`build.identity.compiler_identity`]: ../build/identity.tl
@@ -1211,27 +1538,41 @@ in [roadmap.md](roadmap.md).
 [`build.positions`]: ../build/positions.tl
 [`build.reboot.own_tool`]: ../build/reboot.tl
 [`build.stub`]: ../build/stub.tl
+[`build.test_worker`]: ../build/test_worker.tl
 [`build.work`]: ../build/work.tl
 [`build.writer`]: ../build/writer.tl
 [`build/bom.tl`]: ../build/bom.tl
+[`build/checker_assigned_fuzz_test.tl`]: ../build/checker_assigned_fuzz_test.tl
 [`build/closure_store.tl`]: ../build/closure_store.tl
+[`build/compiler.d.tl`]: ../build/compiler.d.tl
 [`build/compiler_test.tl`]: ../build/compiler_test.tl
 [`build/declared_key.tl`]: ../build/declared_key.tl
 [`build/dispatched_features_test.tl`]: ../build/dispatched_features_test.tl
 [`build/fix/rule.tl`]: ../build/fix/rule.tl
+[`build/identity.tl`]: ../build/identity.tl
 [`build/importer.tl`]: ../build/importer.tl
 [`build/key_parts.tl`]: ../build/key_parts.tl
 [`build/link_index.tl`]: ../build/link_index.tl
 [`build/patch.tl`]: ../build/patch.tl
 [`build/rebuild_lock.tl`]: ../build/rebuild_lock.tl
 [`build/refresh.tl`]: ../build/refresh.tl
+[`build/shards.tl`]: ../build/shards.tl
 [`build/shared_compiles.tl`]: ../build/shared_compiles.tl
+[`build/stdlib_declarations_test.tl`]: ../build/stdlib_declarations_test.tl
+[`build/teal.tl`]: ../build/teal.tl
 [`build/teal_test.tl`]: ../build/teal_test.tl
 [`build/test.tl`]: ../build/test.tl
 [`build/test_worker.tl`]: ../build/test_worker.tl
 [`build/vendor.tl`]: ../build/vendor.tl
+[`build/worker.tl`]: ../build/worker.tl
+[`build/workers.tl`]: ../build/workers.tl
 [`build/zig.tl`]: ../build/zig.tl
 [`build/zig_fetch.tl`]: ../build/zig_fetch.tl
+[`checker/captures.tl`]: ../checker/captures.tl
+[`checker/flow.tl`]: ../checker/flow.tl
+[`checker/narrowing.tl`]: ../checker/narrowing.tl
+[`checker/stdlib.d.tl`]: ../checker/stdlib.d.tl
+[`checker/tl.tl`]: ../checker/tl.tl
 [`ci/cosmic-driver.pin`]: ../ci/cosmic-driver.pin
 [`ci/cosmic_ci/host_id.tl`]: ../ci/cosmic_ci/host_id.tl
 [`ci/cosmic_ci/orchestration.tl`]: ../ci/cosmic_ci/orchestration.tl
@@ -1278,4 +1619,3 @@ in [roadmap.md](roadmap.md).
 [`Store.web_asset`]: ../cosmic/store.tl
 [`Test.policy`]: ../cosmic/test.tl
 [`test/narrowing_test.tl`]: ../test/narrowing_test.tl
-[`vendor/tl/tl.tl`]: ../vendor/tl/tl.tl

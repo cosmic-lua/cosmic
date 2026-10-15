@@ -89,7 +89,7 @@ local function suite_columns_of(db: Sqlite.Handle): {string:boolean}
   local out: {string:boolean} = {}
   for _, row in ipairs((assert(Sqlite.text_rows(db,
       "SELECT name FROM pragma_table_info('suite_runs')")))) do
-    out[row[1]] = true
+    out[row:text(1)] = true
   end
   return out
 end
@@ -178,19 +178,19 @@ function State.suite_rows(db: Sqlite.Handle): {State.SuiteRun}
     local row: {string:any} = {}
     local column = 1
     for _, name in ipairs(State.suite_columns) do
-      if cells[column] ~= "1" then
-        local value = cells[column + 1]
+      if cells:text(column) ~= "1" then
+        local value = cells:text(column + 1)
         row[name] = integer_columns[name] and math.tointeger(tonumber(value)) or value
       end
       column = column + 2
     end
     local parts: {string:string} = {}
     for _, part in ipairs(State.key_parts) do
-      if cells[column] ~= "1" then parts[part[1]] = cells[column + 1] end
+      if cells:text(column) ~= "1" then parts[part[1]] = cells:text(column + 1) end
       column = column + 2
     end
     row.parts = parts
-    if cells[column] ~= "1" then row.held = cells[column + 1] end
+    if cells:text(column) ~= "1" then row.held = cells:text(column + 1) end
     out[#out + 1] = row as State.SuiteRun
   end
   return out

@@ -15,10 +15,7 @@ local equiv = require("build.fix.equiv")
 local fix = require("build.fix")
 local teal = require("build.teal")
 
-local built, load_trouble = teal.load()
-if built == nil then
-  error("could not load the compiler: " .. tostring(load_trouble))
-end
+local built = assert(teal.load())
 
 --- One program being drawn: its source, the count of comments marked so
 --- far, and what the enclosing function and loop allow.
@@ -556,7 +553,7 @@ end
 --- What [`build.fix.source`] makes of `input`: nil, and true, when the
 --- input does not parse or is refused by name; nil, false and why when
 --- it is refused for any other reason, which is a renderer's failure.
-local function fixed(input: string): string, boolean, string
+local function fixed(input: string): string | nil, boolean, string
   local parsed, _ = ast.parse(built, input, "fuzz.tl")
   if parsed == nil then
     Fuzz.label("unparsed")

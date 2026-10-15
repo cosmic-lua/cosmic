@@ -567,7 +567,9 @@ local function test_every_field_of_the_host_sources_moves_the_host(tmp: string)
   end
   local changes: {string:Change<declared_key.HostSources>} = {
     packages = set("packages", { tmp .. "/packages2" }),
-    system = { change = function(s: declared_key.HostSources) s.system[1] = tmp .. "/os2" end },
+    system = { change = function(s: declared_key.HostSources)
+      assert(s.system)[1] = tmp .. "/os2"
+    end },
     -- Read only where `system` names none, to choose where to look.
     sysname = { from = function(s: declared_key.HostSources) s.system = nil end,
       change = function(s: declared_key.HostSources) s.sysname = "Darwin" end },
@@ -592,7 +594,7 @@ end
 local function test_the_groups_key_a_host_with_no_status(tmp: string)
   assert(Fs.write(tmp .. "/status", "Name:\tx\nUid:\t1\t1\t1\t1\nGid:\t1\t1\t1\t1\n" ..
       "Groups:\t1 20 \n"))
-  local function host(status: string, gid: integer, groups: {integer}): string
+  local function host(status: string, gid?: integer, groups?: {integer}): string
     return declared_key.host_identity(declared_key.digests(tmp), {
       system = { "", "", "" }, cpu_features = { "aes" }, machine = "arm64",
       own_proc = false, host_id = "h", uid = 501, status = tmp .. "/" .. status,

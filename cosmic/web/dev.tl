@@ -378,7 +378,7 @@ local function look(self: Watch)
 end
 
 function Watch.next(self: Watch, timeout_ns?: integer): Sse.Event | nil, string
-  local deadline: integer = nil
+  local deadline: integer | nil = nil
   if timeout_ns ~= nil then deadline = Clock.monotonic_ns() + timeout_ns end
   while true do
     if self.queue[1] ~= nil then return table.remove(self.queue, 1), "" end
@@ -431,7 +431,7 @@ local function injected(res: Types.Response, nonce: string | nil): Types.Respons
   if kind == nil or not kind:lower():find("^text/html") then return res end
   if Response.header(res, "Content-Encoding") ~= nil then return res end
   local lowered = body:lower()
-  local at: integer = nil
+  local at: integer | nil = nil
   local from = 1
   while true do
     local found = lowered:find("</body>", from, true)
@@ -562,6 +562,13 @@ local function ended(result: Child.Result): string
   return ("exited with status %d"):format(result.code or -1)
 end
 
+--- The program [`Dev.supervise`] runs: its handle while it runs, and how
+--- many times it has started.
+local record Program
+  handle: Child.Handle | nil
+  boot: integer
+end
+
 --- Runs the program and restarts it on a change until a SIGINT or SIGTERM
 --- arrives or `stop` says so. The program inherits the supervisor's
 --- standard streams and gets `COSMIC_WEB_DEV=1` and `COSMIC_WEB_BOOT=<n>`
@@ -581,8 +588,10 @@ function Dev.supervise(opts?: Dev.SuperviseOptions): boolean, string
   local interval_ns = given.interval_ns or SUPERVISE_INTERVAL_NS
   local grace_ns = given.grace_ns or DEFAULT_GRACE_NS
   local roots = given.watch or { "." }
-  local ignore = given.ignore
-  if ignore == nil then
+  local ignore: {string}
+  if given.ignore ~= nil then
+    ignore = given.ignore
+  else
     ignore = {}
     for i, glob in ipairs(DEFAULT_IGNORE) do ignore[i] = glob end
     ignore[#ignore + 1] = "/" .. (given.static or "static")
@@ -590,8 +599,10 @@ function Dev.supervise(opts?: Dev.SuperviseOptions): boolean, string
   local ignored = ignorer(ignore)
   local start = given.start
   if start == nil then
-    local command = given.command
-    if command == nil then
+    local command: {string}
+    if given.command ~= nil then
+      command = given.command
+    else
       local program, why = Proc.executable()
       if program == nil then return false, "web: dev: no program to run: " .. why end
       command = { program, "app.tl" }
@@ -600,8 +611,9 @@ function Dev.supervise(opts?: Dev.SuperviseOptions): boolean, string
       return Child.start(command, { env = env })
     end
   end
-  local seen, why = scan(roots, ignored)
-  if seen == nil then return false, why end
+  local first, why = scan(roots, ignored)
+  if first == nil then return false, why end
+  local seen: {string:string} = first
   -- TODO: hold SIGHUP as well once cosmic.signal's guard can: a closed
   -- terminal ends the supervisor at once and leaves the program running.
   -- TODO: once cosmic.child can start a program with PR_SET_PDEATHSIG, set
@@ -609,28 +621,27 @@ function Dev.supervise(opts?: Dev.SuperviseOptions): boolean, string
   local made, held = Signal.guard()
   if made == nil then return false, "web: dev: " .. held end
   local guard: Signal.Guard = made
-  local handle: Child.Handle = nil
-  local boot = 0
+  local program: Program = { handle = nil, boot = 0 }
 
   local function launch()
-    boot = boot + 1
+    program.boot = program.boot + 1
     local env = Env.all()
     env.COSMIC_WEB_DEV = "1"
-    env.COSMIC_WEB_BOOT = tostring(boot)
-    log(("web dev: starting (boot %d)"):format(boot))
+    env.COSMIC_WEB_BOOT = tostring(program.boot)
+    log(("web dev: starting (boot %d)"):format(program.boot))
     local started, trouble = start(env)
     if started == nil then
       log("web dev: cannot start the program: " .. trouble .. "; waiting for a change")
       return
     end
-    handle = started
-    if given.on_boot ~= nil then given.on_boot(boot, started.pid) end
+    program.handle = started
+    if given.on_boot ~= nil then given.on_boot(program.boot, started.pid) end
   end
 
   local function halt()
-    if handle == nil then return end
-    local h = handle
-    handle = nil
+    if program.handle == nil then return end
+    local h = program.handle
+    program.handle = nil
     local _, _ = h:stop()
     -- Not `h:wait(grace_ns)`: it stops at the guard's pending signal, the
     -- one that is ending this supervisor, and skips the grace. `wait_any`
@@ -648,15 +659,16 @@ function Dev.supervise(opts?: Dev.SuperviseOptions): boolean, string
 
   -- A change is acted on once a look finds nothing further moved, so an
   -- editor's burst of writes (or a build's) restarts the program once.
-  local pending: {string} = nil
+  local pending: {string} | nil = nil
   launch()
   while guard:cancelled() == 0 do
-    if handle ~= nil then
-      local done, _ = Child.wait_any({ handle }, interval_ns)
+    local running = program.handle
+    if running ~= nil then
+      local done, _ = Child.wait_any({ running }, interval_ns)
       if done ~= nil then
-        local result, _ = handle:wait()
-        local _, _ = handle:close()
-        handle = nil
+        local result, _ = running:wait()
+        local _, _ = running:close()
+        program.handle = nil
         log("web dev: the program " .. (result ~= nil and ended(result) or "is gone") ..
             "; waiting for a change")
       end
@@ -668,7 +680,7 @@ function Dev.supervise(opts?: Dev.SuperviseOptions): boolean, string
       local paths = changed(seen, now)
       seen = now
       if #paths > 0 then
-        pending = pending or paths
+        if pending == nil then pending = paths end
       elseif pending ~= nil then
         local moved = pending
         pending = nil

@@ -55,7 +55,7 @@ local function test_a_worker_loads_what_worker_loads_names(tmp: string)
     end
   end
   for _, name in ipairs({ "build.declared_key", "build.artifact", "build.core_image",
-      "build.launcher", "build.verdict", "cosmic.time", "cosmic.log",
+      "build.launcher", "build.logger", "cosmic.time", "cosmic.log",
       "cosmic.string", "cosmic.hash", "cosmic.codec" }) do
     assert(not ran[name], "a worker loaded " .. name)
   end

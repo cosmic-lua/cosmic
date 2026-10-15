@@ -145,9 +145,9 @@ local function test_json_refusals_point_at_the_field_they_name(tmp: string)
   local TEXTS <const>: {string} = { '{"title":"t","qty":1}', '{"qty":"x"}', '{"title":null}', "[]", "null", '"s"',
     '{"title":1,"qty":1.5,"tags":[1]}', '{"address":{"city":3}}', "{", "", '{"tags":{"a":1}}',
     '{"title":"t","qty":1,"address":{"city":"c","zip":"z"}}' }
-  local last: Types.Parsed<Doc>
+  local last = { value = nil as Types.Parsed<Doc> | nil }
   local app = Web.app{ routes = { Web.post("/x", function(req: Web.Request): Web.Response
-    last = Input.json_into(req, DOC)
+    last.value = Input.json_into(req, DOC)
     return Web.empty()
   end) }, sink = { line = function(_self: Web.Sink, _text: string) end } }
   Fuzz.run({
@@ -159,18 +159,20 @@ local function test_json_refusals_point_at_the_field_they_name(tmp: string)
     requires = { "bound", "pointed", "unreadable" },
     shares = { pointed = 0.1 },
     check = function(input: string): boolean, string
-      last = nil
+      last.value = nil
       local raw: Server.Request = { method = "POST", target = "/x", path = "/x", query = "", version = "HTTP/1.1",
         headers = { host = "x", ["content-type"] = "application/json" }, body = Stream.from_string(input),
         length = #input }
       local res = app.handle(raw)
       if res.status ~= 204 then return false, "the handler faulted: " .. res.status end
-      if last.invalid == nil then
-        if last.value == nil then return false, "neither a value nor a refusal" end
+      local parsed = last.value
+      if parsed == nil then return false, "the handler parsed nothing" end
+      if parsed.invalid == nil then
+        if parsed.value == nil then return false, "neither a value nor a refusal" end
         Fuzz.label("bound")
         return true, ""
       end
-      local bad = last.invalid
+      local bad = parsed.invalid
       if bad.status ~= 400 and bad.status ~= 422 then return false, "status " .. bad.status end
       local e = bad.errors[1]
       if #bad.errors ~= 1 or e.message == "" or e.source ~= "body" then return false, "errors" end

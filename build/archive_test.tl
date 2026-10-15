@@ -3,7 +3,7 @@
 --- format, standard input), extract (members, `-C`, `--force`, and the
 --- refusals of a path that escapes), create and its round trip. Its
 --- archives are built here with the modules' own writers. The exit
---- statuses and the absence of a verdict line, which only a process of
+--- statuses and the absence of a summary, which only a process of
 --- its own shows, are in build/archive_tool_test.tl.
 
 local Compress = require("cosmic.compress")
@@ -219,11 +219,11 @@ local function test_list_and_extract_read_a_tgz_and_a_zip_from_standard_input(tm
 end
 
 local function test_list_spools_no_temporary_file_for_a_tar_stream_but_does_for_a_zip(tmp: string)
-  local made = 0
+  local made = { value = 0 }
   local real_mkdtemp = Fs.mkdtemp
   local patched = Fs as {string:any}
   patched.mkdtemp = function(prefix: string): string | nil, string
-    made = made + 1
+    made.value = made.value + 1
     return real_mkdtemp(prefix)
   end
   local ok, err = pcall(function(): string
@@ -232,11 +232,11 @@ local function test_list_spools_no_temporary_file_for_a_tar_stream_but_does_for_
       local ran = run({ "list", "-" }, bytes)
       assert(ran.code == 0 and ran.out:find("top.txt", 1, true), ran.err)
     end
-    assert(made == 0, "a tar stream was written to a temporary file")
+    assert(made.value == 0, "a tar stream was written to a temporary file")
     local zip = assert(Fs.read(make_zip(tmp .. "/z.zip", SAMPLE)))
     local ran = run({ "list", "-" }, zip)
     assert(ran.code == 0 and ran.out:find("top.txt", 1, true), ran.err)
-    assert(made == 1, "a zip needs its file")
+    assert(made.value == 1, "a zip needs its file")
     return ""
   end)
   patched.mkdtemp = real_mkdtemp
@@ -250,11 +250,11 @@ local function write_big_tgz(path: string, mib: integer): integer
   for i = 1, 1 << 16 do block[i] = string.char(math.random(0, 255)) end
   local chunk = table.concat(block)
   local rounds = mib * 16
-  local left = rounds
+  local left = { value = rounds }
   local body: Stream.Reader = {}
   body.read = function(_self: Stream.Reader, _max_bytes?: integer): string | nil, string
-    if left == 0 then return nil, "" end
-    left = left - 1
+    if left.value == 0 then return nil, "" end
+    left.value = left.value - 1
     return chunk, ""
   end
   body.close = function(_self: Stream.Reader): boolean, string return true, "" end
@@ -274,20 +274,21 @@ local function test_list_of_a_large_piped_tar_gz_keeps_memory_bounded(tmp: strin
   -- sample of live memory: a run that held the input whole would show
   -- all of it at once.
   local inner = assert(Stream.open(tmp .. "/big.tar.gz"))
-  local reads, peak = 0, 0.0
+  local reads = { value = 0 }
+  local peak = { value = 0.0 }
   local piped: Stream.Reader = {}
   piped.read = function(_self: Stream.Reader, max_bytes?: integer): string | nil, string
     collectgarbage()
-    peak = math.max(peak, collectgarbage("count"))
-    reads = reads + 1
+    peak.value = math.max(peak.value, collectgarbage("count"))
+    reads.value = reads.value + 1
     return inner:read(max_bytes)
   end
   piped.close = function(_self: Stream.Reader): boolean, string return inner:close() end
   local ran = run({ "list", "-" }, piped)
   assert(ran.code == 0 and ran.err == "", ran.err)
   assert(ran.out:find("big.bin\t" .. total .. "\t", 1, true), ran.out)
-  assert(reads >= 100, "standard input was read " .. tostring(reads) .. " times")
-  local grown = (peak - base) / 1024
+  assert(reads.value >= 100, "standard input was read " .. tostring(reads.value) .. " times")
+  local grown = (peak.value - base) / 1024
   assert(grown < 4, ("memory grew %.1f MiB listing %d MiB"):format(grown, total >> 20))
 end
 
@@ -487,7 +488,8 @@ local function test_create_streams_a_large_file_into_a_zip_in_bounded_memory(tmp
   -- whole would hold all of it at once, and one that never opened it
   -- as a Stream would make no read at all.
   local real_open = Stream.open
-  local reads, peak = 0, 0.0
+  local reads = { value = 0 }
+  local peak = { value = 0.0 }
   local patched = Stream as {string:any}
   patched.open = function(path: string): Stream.Reader | nil, string
     local opened, why = real_open(path)
@@ -496,8 +498,8 @@ local function test_create_streams_a_large_file_into_a_zip_in_bounded_memory(tmp
     local wrapped: Stream.Reader = {}
     wrapped.read = function(_self: Stream.Reader, max_bytes?: integer): string | nil, string
       collectgarbage()
-      peak = math.max(peak, collectgarbage("count"))
-      reads = reads + 1
+      peak.value = math.max(peak.value, collectgarbage("count"))
+      reads.value = reads.value + 1
       return inner:read(max_bytes)
     end
     wrapped.close = function(_self: Stream.Reader): boolean, string return inner:close() end
@@ -508,9 +510,9 @@ local function test_create_streams_a_large_file_into_a_zip_in_bounded_memory(tmp
   assert(ok, ran)
   local made = ran as Ran
   assert(made.code == 0 and made.err == "", made.err)
-  assert(reads >= rounds // 2, "the file was read " .. tostring(reads) .. " times")
+  assert(reads.value >= rounds // 2, "the file was read " .. tostring(reads.value) .. " times")
   -- Reading the file whole would hold all of it, and its deflated copy.
-  local grown = (peak - base) / 1024
+  local grown = (peak.value - base) / 1024
   assert(grown < 4, ("memory grew %.1f MiB packing %d MiB"):format(grown, total >> 20))
   local r = assert(Zip.open(tmp .. "/out.zip"))
   local entries = assert(r:entries())
@@ -535,25 +537,26 @@ end
 --- the run, the opens and the closes the archive made.
 local function create_counting(src: string, out: string, extra: string): Ran, integer, integer
   local real_open = Stream.open
-  local opens, closes = 0, 0
+  local opens = { value = 0 }
+  local closes = { value = 0 }
   local patched = Stream as {string:any}
   patched.open = function(path: string): Stream.Reader | nil, string
     local opened, why = real_open(path)
     if opened == nil or path:sub(-4) ~= ".txt" then return opened, why end
-    opens = opens + 1
+    opens.value = opens.value + 1
     local inner: Stream.Reader = opened
     local wrapped: Stream.Reader = {}
-    local grown = false
+    local grown = { value = false }
     wrapped.read = function(_self: Stream.Reader, max_bytes?: integer): string | nil, string
       local got, trouble = inner:read(max_bytes)
-      if got == nil and trouble == "" and extra ~= "" and not grown then
-        grown = true
+      if got == nil and trouble == "" and extra ~= "" and not grown.value then
+        grown.value = true
         return extra, ""
       end
       return got, trouble
     end
     wrapped.close = function(_self: Stream.Reader): boolean, string
-      closes = closes + 1
+      closes.value = closes.value + 1
       return inner:close()
     end
     return wrapped, ""
@@ -561,7 +564,7 @@ local function create_counting(src: string, out: string, extra: string): Ran, in
   local ok, ran = pcall(in_dir, src, { "create", out, "tree" })
   patched.open = real_open
   assert(ok, ran)
-  return ran as Ran, opens, closes
+  return ran as Ran, opens.value, closes.value
 end
 
 local function test_create_closes_every_file_it_opens(tmp: string)
@@ -809,11 +812,11 @@ end
 --- Runs `body` with [`Fs.mkdtemp`] counted: how many temporary
 --- directories it made, which is how many copies of standard input.
 local function counting_mkdtemp(body: function()): integer
-  local made = 0
+  local made = { value = 0 }
   local real = Fs.mkdtemp
   local patched = Fs as {string:any}
   patched.mkdtemp = function(prefix: string): string | nil, string
-    made = made + 1
+    made.value = made.value + 1
     return real(prefix)
   end
   local ok, err = pcall(function(): string
@@ -822,7 +825,7 @@ local function counting_mkdtemp(body: function()): integer
   end)
   patched.mkdtemp = real
   assert(ok, err)
-  return made
+  return made.value
 end
 
 local function test_extract_of_a_tar_stream_makes_no_temporary_copy(tmp: string)
@@ -998,11 +1001,11 @@ local function test_a_move_that_fails_partway_is_undone(tmp: string)
   end
   local real = Fs.rename
   local patched = Fs as {string:any}
-  local into = 0
+  local into = { value = 0 }
   patched.rename = function(from: string, to: string): boolean, string
     if to:find(dest .. "/", 1, true) == 1 and from:find("/tree/", 1, true) then
-      into = into + 1
-      if into == 3 then return false, from .. ": injected failure" end
+      into.value = into.value + 1
+      if into.value == 3 then return false, from .. ": injected failure" end
     end
     return real(from, to)
   end
@@ -1050,12 +1053,13 @@ local function test_extract_of_a_large_piped_tar_gz_keeps_memory_bounded(tmp: st
   collectgarbage()
   local base = collectgarbage("count")
   local inner = assert(Stream.open(tmp .. "/big.tar.gz"))
-  local reads, peak = 0, 0.0
+  local reads = { value = 0 }
+  local peak = { value = 0.0 }
   local piped: Stream.Reader = {}
   piped.read = function(_self: Stream.Reader, max_bytes?: integer): string | nil, string
     collectgarbage()
-    peak = math.max(peak, collectgarbage("count"))
-    reads = reads + 1
+    peak.value = math.max(peak.value, collectgarbage("count"))
+    reads.value = reads.value + 1
     return inner:read(max_bytes)
   end
   piped.close = function(_self: Stream.Reader): boolean, string return inner:close() end
@@ -1064,8 +1068,8 @@ local function test_extract_of_a_large_piped_tar_gz_keeps_memory_bounded(tmp: st
   assert(ran.code == 0 and ran.err == "", ran.err)
   local st = assert(sys.stat(dest .. "/big.bin"))
   assert(st.size == total, "extracted " .. tostring(st.size) .. " of " .. tostring(total))
-  assert(reads >= 100, "standard input was read " .. tostring(reads) .. " times")
-  local grown = (peak - base) / 1024
+  assert(reads.value >= 100, "standard input was read " .. tostring(reads.value) .. " times")
+  local grown = (peak.value - base) / 1024
   assert(grown < 4, ("memory grew %.1f MiB extracting %d MiB"):format(grown, total >> 20))
   assert(table.concat(tree_of(tmp), ",") == "big.tar.gz,dest,dest/big.bin", table.concat(tree_of(tmp), ","))
 end

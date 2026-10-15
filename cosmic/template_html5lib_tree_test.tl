@@ -355,19 +355,19 @@ local function check_case(file: string, case: Case, reach: Reach)
       named[value] = (named[value] == nil or named[value] == name) and name or false
     end
   end
-  local closer: string | nil = nil
-  local tried = false
+  local closer = { value = nil as string | nil }
+  local tried = { value = false }
   local function closed(): string | nil
-    if not tried then
-      tried = true
-      closer = closer_for(input, tree)
-      if closer == nil then
+    if not tried.value then
+      tried.value = true
+      closer.value = closer_for(input, tree)
+      if closer.value == nil then
         reach.unclosed = reach.unclosed + 1
-      elseif closer ~= "" then
+      elseif closer.value ~= "" then
         reach.closers = reach.closers + 1
       end
     end
-    return closer
+    return closer.value
   end
   for at, line in ipairs(tree) do
     local depth, body = split(line)

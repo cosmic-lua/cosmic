@@ -309,7 +309,7 @@ function Archive.create(path: string, opts?: Archive.CreateOptions): Archive.Wri
   local format, why = Archive.format_of(path)
   if format == nil then return nil, why end
   local deterministic = opts ~= nil and opts.deterministic or false
-  local codec: Compress.Stream
+  local codec: Compress.Stream | nil
   if format == "tar.gz" then
     local ctrouble: string
     codec, ctrouble = Compress.deflater("gzip")
@@ -371,9 +371,7 @@ local function apply_strip(path: string, prefix: string | nil, count: integer | 
       rest = rest:gsub("^/+", "")
     end
   end
-  -- A float that is a whole number (2.0) counts as one; [`extract_from`]
-  -- has already refused any other.
-  for _ = 1, math.tointeger(count) or 0 do
+  for _ = 1, count or 0 do
     local slash = rest:find("/", 1, true)
     if slash == nil then return nil end
     rest = rest:sub(slash + 1)
@@ -454,12 +452,14 @@ local function extract_from(from: string | Archive.Reader, dest: string,
   end
   local entry_limit = byte_limit("max_entry_bytes", opts.max_entry_bytes, DEFAULT_MAX_ENTRY_BYTES)
   local total_limit = byte_limit("max_bytes", opts.max_bytes, DEFAULT_MAX_BYTES)
-  local count = opts.strip_components
-  if count ~= nil and math.tointeger(count) == nil then
+  local strip = opts.strip_components
+  if strip ~= nil and math.tointeger(strip) == nil then
     error("archive: strip_components is not a whole number of components", 2)
-  elseif count ~= nil and count < 0 then
+  elseif strip ~= nil and strip < 0 then
     error("archive: strip_components is negative", 2)
   end
+  -- A float that is a whole number (2.0) counts as one.
+  local count = strip ~= nil and math.tointeger(strip) or nil
   local links_mode = opts.links or "skip"
   local entries_left = opts.max_entries
   local reader: Archive.Reader
@@ -478,7 +478,7 @@ local function extract_from(from: string | Archive.Reader, dest: string,
 
   local written: {string} = {}
   -- The bytes of the files written so far, against `total_limit`.
-  local bytes_written = 0
+  local tally = { bytes = 0 }
   -- Directories under `dest` known to be real directories (not
   -- symlinks), by dest-relative path: checked with lstat, or made here.
   local real_dirs: {string:boolean} = {}
@@ -540,7 +540,7 @@ local function extract_from(from: string | Archive.Reader, dest: string,
         String.counted(total_limit, "byte") .. ")"
     end
     if entry.size > entry_limit then return over_entry() end
-    if entry.size > total_limit - bytes_written then return over_total() end
+    if entry.size > total_limit - tally.bytes then return over_total() end
     local body, otrouble = entry:open()
     if body == nil then return false, otrouble end
     local mode = safe_mode(entry.mode)
@@ -553,7 +553,7 @@ local function extract_from(from: string | Archive.Reader, dest: string,
       -- limit from one that goes on. `left + 1` cannot overflow: `left`
       -- is under `CHUNK` there.
       local want = CHUNK
-      local left = math.min(entry_limit - size, total_limit - bytes_written - size)
+      local left = math.min(entry_limit - size, total_limit - tally.bytes - size)
       if left < want then want = left + 1 end
       local chunk, rtrouble = body:read(want)
       if chunk == nil then
@@ -562,7 +562,7 @@ local function extract_from(from: string | Archive.Reader, dest: string,
         return false, rtrouble
       end
       size = size + #chunk
-      if size > entry_limit or bytes_written + size > total_limit then
+      if size > entry_limit or tally.bytes + size > total_limit then
         local _, _ = w:abort()
         if size > entry_limit then return over_entry() end
         return over_total()
@@ -575,7 +575,7 @@ local function extract_from(from: string | Archive.Reader, dest: string,
     end
     local ok, wtrouble = w:close()
     if not ok then return false, wtrouble end
-    bytes_written = bytes_written + size
+    tally.bytes = tally.bytes + size
     local _, _ = Fs.set_mtime(dest_path, entry.mtime)
     return true, ""
   end
@@ -650,8 +650,8 @@ local function extract_from(from: string | Archive.Reader, dest: string,
     -- destination-relative path, and is split into components only
     -- when its parent is not already known to be a real directory.
     local rel: string
-    local parent: string
-    local parts: {string}
+    local parent: string | nil
+    local parts: {string} | nil
     if stripped ~= nil and ("/" .. stripped .. "/"):find("/%.?/") == nil then
       rel = stripped
       parent = stripped:match("^(.*)/")
@@ -660,7 +660,7 @@ local function extract_from(from: string | Archive.Reader, dest: string,
       rel = join(parts, #parts)
       if #parts > 1 then parent = join(parts, #parts - 1) end
     end
-    if rel ~= "" and (opts.filter == nil or opts.filter(stripped)) then
+    if rel ~= "" and stripped ~= nil and (opts.filter == nil or opts.filter(stripped)) then
       local kind = entry.kind
       local wanted = kind == "dir" or kind == "file" or
         (kind == "symlink" and links_mode == "create")
@@ -671,15 +671,16 @@ local function extract_from(from: string | Archive.Reader, dest: string,
       if wanted then
         if entries_left ~= nil then
           if entries_left <= 0 then
-            return bail("archive: more than " .. String.counted(opts.max_entries, "entry", "entries") ..
+            return bail("archive: more than " .. String.counted(assert(opts.max_entries), "entry", "entries") ..
                 " to extract")
           end
           entries_left = entries_left - 1
         end
         local dest_path = dest .. "/" .. rel
         if kind == "symlink" then
-          parts = parts or components(rel)
-          if not stays_inside(join(parts, #parts - 1), entry.linkpath) then
+          local split = parts or components(rel)
+          parts = split
+          if not stays_inside(join(split, #split - 1), entry.linkpath) then
             return bail("archive: refusing a symlink escaping the destination: " .. entry.path)
           end
           local link: PendingLink = {
@@ -699,15 +700,17 @@ local function extract_from(from: string | Archive.Reader, dest: string,
           -- second look.
           if kind == "dir" then
             if pending_count > 0 or not real_dirs[rel] then
-              parts = parts or components(rel)
-              local ok, dtrouble = ensure_dirs(parts, #parts, entry.path)
+              local split = parts or components(rel)
+              parts = split
+              local ok, dtrouble = ensure_dirs(split, #split, entry.path)
               if not ok then return bail(dtrouble) end
             end
             dir_times[#dir_times + 1] = { dest_path, entry.mtime }
           else
             if parent ~= nil and (pending_count > 0 or not real_dirs[parent]) then
-              parts = parts or components(rel)
-              local ok, dtrouble = ensure_dirs(parts, #parts - 1, entry.path)
+              local split = parts or components(rel)
+              parts = split
+              local ok, dtrouble = ensure_dirs(split, #split - 1, entry.path)
               if not ok then return bail(dtrouble) end
             end
             local fok, ftrouble = extract_file(dest_path, entry)

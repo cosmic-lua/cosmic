@@ -260,9 +260,10 @@ local function test_publish_reports_output_before_one_failed_summary_append(tmp:
   assert(Fs.write(path, "earlier\n"))
   local output = tmp .. "/out"
   local out = assert(Fs.open_write(output))
-  local append, calls = Fs.append, 0
+  local append = Fs.append
+  local calls = { value = 0 }
   Fs.append = function(name: string, text: string, mode?: integer): boolean, string
-    calls = calls + 1
+    calls.value = calls.value + 1
     assert(read(output) == "ghcr.io/owner/repo-ci-ubuntu@sha256:0123abcd\n")
     assert(append(name, text:sub(1, 2), mode))
     return false, name .. ": injected append failure"
@@ -270,7 +271,7 @@ local function test_publish_reports_output_before_one_failed_summary_append(tmp:
   local ok, code, trouble = pcall(Images.publish, env, out)
   Fs.append = append
   assert(Fs.close(out))
-  assert(ok and code == 1 and calls == 1, trouble)
+  assert(ok and code == 1 and calls.value == 1, trouble)
   assert(trouble == path .. ": injected append failure", trouble)
   assert(read(path) == "earlier\nUb")
 end
@@ -278,18 +279,19 @@ end
 local function test_failed_image_output_does_not_append_the_summary(tmp: string)
   local env = publish_env(tmp)
   local output = assert(Fs.open_write(tmp .. "/out"))
-  local put, append, calls = Fs.put, Fs.append, 0
+  local put, append = Fs.put, Fs.append
+  local calls = { value = 0 }
   Fs.put = function(fd: integer, text: string): boolean, string
     if fd == output then return false, "injected output failure" end
     return put(fd, text)
   end
   Fs.append = function(_name: string, _text: string, _mode?: integer): boolean, string
-    calls = calls + 1
+    calls.value = calls.value + 1
     return true, ""
   end
   local ok, code, trouble = pcall(Images.publish, env, output)
   Fs.put, Fs.append = put, append
   assert(Fs.close(output))
   assert(ok and code == 1 and trouble == "injected output failure", trouble)
-  assert(calls == 0 and Fs.exists(env.GITHUB_STEP_SUMMARY) == false)
+  assert(calls.value == 0 and Fs.exists(env.GITHUB_STEP_SUMMARY) == false)
 end

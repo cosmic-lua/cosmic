@@ -20,8 +20,9 @@
 --- against, and the system call tables Cosmopolitan libc's
 --- pledge-linux.c is ported into core/promises.c from -- has a record of
 --- the same grammar at `build/bom/<name>.pin`, its notices beside it. A
---- tree's patches under `patch/<name>/` are listed with it, so a reader
---- knows the code is not upstream's as published.
+--- tree's patches under `patch/<name>/` are listed with it, and so are the
+--- files of the tree that descend from it whole (`descendants`), so a
+--- reader knows the code is not upstream's as published.
 ---
 --- The tool's database carries two tables built from these (see
 --- [`build.schema`]): `components`, a row each, and `notices`, each
@@ -46,7 +47,8 @@ local Store = require("cosmic.store")
 local String = require("cosmic.string")
 local bind = require("build.bind")
 local clock = require("build.clock")
-local log = require("build.verdict").log
+local logger = require("build.logger")
+local log = logger.log
 local verb_spec = require("build.verb_spec")
 local plural = require("build.plural")
 
@@ -88,8 +90,9 @@ local record bom
     url: string
     sha256: string
     sha3_256: string
-    --- `patch/<name>/<file> <sha256>`, one per line, in name order; ""
-    --- for a component shipped as published.
+    --- `<file> <sha256>`, one per line: first the files of the tree that
+    --- descend from the component whole, then `patch/<name>/<file>` in name
+    --- order; "" for a component shipped as published.
     patches: string
   end
 end
@@ -195,21 +198,39 @@ local function notice_text(directory: string, notice: bom.Notice): string | nil,
   return table.concat(kept, "\n") .. "\n"
 end
 
---- The files under `patch/<name>/`, each with its sha256, one per line.
+--- The files of the tree that descend whole from a vendored tree, by its
+--- name: the binary carries the compile of the checker ([`checker/tl.tl`],
+--- [`checker/flow.tl`], [`checker/narrowing.tl`], [`checker/captures.tl`] and [`checker/facts.tl`]) and of the standard
+--- library's declarations
+--- ([`checker/stdlib.d.tl`]),
+--- which descend from tl, not tl's own source. They are listed with the
+--- tree's patches, as modified rather than patched.
+local descendants: {string:{string}} = {
+  tl = { "checker/tl.tl", "checker/flow.tl", "checker/narrowing.tl", "checker/captures.tl", "checker/facts.tl", "checker/stdlib.d.tl" },
+}
+
+--- The tree's `descendants`, then the files under `patch/<name>/`, each
+--- with its sha256, one per line.
 local function patches_of(root: string, name: string): string | nil, string
+  local lines: {string} = {}
+  for _, file in ipairs(descendants[name] or {}) do
+    local data, _ = Fs.read(root .. "/" .. file)
+    if data ~= nil then
+      lines[#lines + 1] = file .. " " .. Hash.hex_sha256(data)
+    end
+  end
   local directory = root .. "/patch/" .. name
   local exists, trouble = Fs.exists(directory)
   if exists == nil then
     return nil, trouble
   end
   if not exists then
-    return "", ""
+    return table.concat(lines, "\n"), ""
   end
   local names, list_trouble = Fs.list(directory)
   if names == nil then
     return nil, list_trouble
   end
-  local lines: {string} = {}
   for _, file in ipairs(names) do
     -- Only what [`build/patch.tl`] applies: a patch record is a `.txt`.
     if String.ends_with(file, ".txt") and #file > 4 then
@@ -338,23 +359,35 @@ function bom.rows(db: Sqlite.Handle): {bom.Row} | nil, string
   end
   local out: {bom.Row} = {}
   for _, row in ipairs(rows) do
-    out[#out + 1] = { name = row[1], kind = row[2], version = row[3],
-      license = row[4], url = row[5], sha256 = row[6], sha3_256 = row[7], patches = row[8] }
+    out[#out + 1] = { name = row:text(1), kind = row:text(2), version = row:text(3),
+      license = row:text(4), url = row:text(5), sha256 = row:text(6), sha3_256 = row:text(7), patches = row:text(8) }
   end
   return out
 end
 
 --- One line per component: name, version, license, and whether cosmic
---- patches it -- or, for data upstream releases on its own schedule (the
+--- patches it or carries a modified descendant of it -- or, for data upstream releases on its own schedule (the
 --- CA roots, the time zones), that `cosmic refresh` updates it.
-local function lines_of(rows: {bom.Row}): {string}
+function bom.lines(rows: {bom.Row}): {string}
   local lines: {string} = {}
   for _, row in ipairs(rows) do
     local line = row.name .. " " .. row.version .. "  " .. row.license
     if row.patches ~= "" then
-      local _, breaks = row.patches:gsub("\n", "")
-      local count = breaks + 1
-      line = line .. "  (" .. count .. " patch" .. (count == 1 and "" or "es") .. ")"
+      local patched: {string} = {}
+      local modified: {string} = {}
+      for entry in String.lines(row.patches) do
+        if entry:sub(1, 6) == "patch/" then
+          patched[#patched + 1] = entry
+        else
+          modified[#modified + 1] = (entry:match("^(%S+)"))
+        end
+      end
+      if #patched > 0 then
+        line = line .. "  (" .. plural.count(#patched, "patch", "patches") .. ")"
+      end
+      if #modified > 0 then
+        line = line .. "  (modified: " .. table.concat(modified, ", ") .. ")"
+      end
     elseif row.kind == "data" then
       line = line .. "  (data: `cosmic refresh` updates it)"
     end
@@ -378,11 +411,11 @@ function bom.notices(db: Sqlite.Handle): string | nil, string
   end
   local parts: {string} = {}
   for _, row in ipairs(rows) do
-    local head = "== " .. row[1] .. " " .. row[2] .. " (" .. row[3] .. ")"
-    if row[5] == "1" then
-      parts[#parts + 1] = head .. "\n\nno notice; its source: " .. row[4] .. "\n"
+    local head = "== " .. row:text(1) .. " " .. row:text(2) .. " (" .. row:text(3) .. ")"
+    if row:text(5) == "1" then
+      parts[#parts + 1] = head .. "\n\nno notice; its source: " .. row:text(4) .. "\n"
     else
-      parts[#parts + 1] = head .. ": " .. row[6] .. "\n\n" .. row[7]
+      parts[#parts + 1] = head .. ": " .. row:text(6) .. "\n\n" .. row:text(7)
     end
   end
   return table.concat(parts, "\n")
@@ -399,7 +432,7 @@ end
 --- The rows as a CycloneDX 1.6 document, `subject` naming what they
 --- are the materials of. A component's archive hash goes with the
 --- distribution reference it came from: it is upstream's as published,
---- which a patched component's code no longer is.
+--- which a patched or modified component's code no longer is.
 function bom.cyclonedx(rows: {bom.Row}, subject: string, version: string): string | nil, string
   local components: {any} = {}
   for _, row in ipairs(rows) do
@@ -425,7 +458,24 @@ function bom.cyclonedx(rows: {bom.Row}, subject: string, version: string): strin
       externalReferences = { reference },
     }
     if row.patches ~= "" then
-      component.pedigree = { notes = "patched by cosmic:\n" .. row.patches }
+      local patched: {string} = {}
+      local modified: {string} = {}
+      for entry in String.lines(row.patches) do
+        if entry:sub(1, 6) == "patch/" then
+          patched[#patched + 1] = entry
+        else
+          modified[#modified + 1] = entry
+        end
+      end
+      local notes: {string} = {}
+      if #modified > 0 then
+        notes[#notes + 1] = "modified by cosmic, a descendant of this component:\n" ..
+          table.concat(modified, "\n")
+      end
+      if #patched > 0 then
+        notes[#notes + 1] = "patched by cosmic:\n" .. table.concat(patched, "\n")
+      end
+      component.pedigree = { notes = table.concat(notes, "\n") }
     end
     components[#components + 1] = component
   end
@@ -446,58 +496,59 @@ end
 --- [`build.writer`].
 local function run(argv: {integer:string}): integer
   local started = Clock.monotonic_ns()
-  local function finish(code: integer, detail: string): integer
-    log:verdict("bom", code == 0, detail .. ", " .. clock.took(started))
-    return code
+  -- A failure's complaint says why; only a run that passed is summarized.
+  local function passed(detail: string): integer
+    local _, _ = logger.summary("bom", detail .. ", " .. clock.took(started))
+    return 0
   end
   local usage = "cosmic bom [--licenses | --json <path>]"
-  local parsed, parse_trouble = Flags.parse(argv, 2, Cli.verbs.bom.spec)
+  local parsed, parse_trouble = Flags.parse(argv, 2, assert(Cli.verbs.bom.spec))
   if parsed == nil then
     log:complain("bom: " .. parse_trouble .. "; " .. usage)
-    return finish(2, "usage: see `cosmic help bom`")
+    return 2
   end
   if #parsed.words > 0 or #parsed.given > 1 then
     log:complain("bom: takes one option at most, and no words: " .. usage)
-    return finish(2, "usage: see `cosmic help bom`")
+    return 2
   end
   local databases = Store.databases()
   local binary = databases[#databases]
   if binary == nil then
     log:complain("bom: the running artifact has no database")
-    return finish(1, "no database")
+    return 1
   end
   local rows, trouble = bom.rows(binary)
   if rows == nil then
     log:complain("bom: " .. trouble)
-    return finish(1, "the binary's own database")
+    return 1
   end
   if parsed.set["--licenses"] then
     local notices, notice_trouble = bom.notices(binary)
     if notices == nil then
       log:complain("bom: " .. notice_trouble)
-      return finish(1, "the binary's own database")
+      return 1
     end
     log:say(notices)
-    return finish(0, plural.count(#rows, "component"))
+    return passed(plural.count(#rows, "component"))
   end
   local path = parsed.values["--json"]
   if path ~= nil then
     local document, encode_trouble = bom.cyclonedx(rows, "cosmic", Store.meta("boot_hash") or "")
     if document == nil then
       log:complain("bom: " .. encode_trouble)
-      return finish(1, "encoding")
+      return 1
     end
     local written, write_trouble = Fs.write(path, document .. "\n")
     if not written then
       log:complain("bom: " .. path .. ": " .. write_trouble)
-      return finish(1, path)
+      return 1
     end
-    return finish(0, plural.count(#rows, "component") .. " written to " .. path)
+    return passed(plural.count(#rows, "component") .. " written to " .. path)
   end
-  for _, line in ipairs(lines_of(rows)) do
+  for _, line in ipairs(bom.lines(rows)) do
     log:say(line)
   end
-  return finish(0, plural.count(#rows, "component"))
+  return passed(plural.count(#rows, "component"))
 end
 
 --- The `bom` verb as [`build/verb_list.tl`] lists it. The rows are the

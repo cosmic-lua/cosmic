@@ -103,5 +103,5 @@ end
   local refreshed = tmp .. "/refreshed"
   assert(refresh.binary(itself, refreshed, { datasets.tzdata }, { tzdata = archive }))
   ok, text = run(refreshed, "refreshed")
-  assert(not ok and text:find("1 of 1 failed", 1, true) and text:find("Europe/Paris", 1, true), text)
+  assert(not ok and text:find("1 of 1 test failed", 1, true) and text:find("Europe/Paris", 1, true), text)
 end

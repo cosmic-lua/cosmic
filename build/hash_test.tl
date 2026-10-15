@@ -358,18 +358,18 @@ end
 --- A Reader of `total` bytes of one repeating chunk, noting the most Lua
 --- memory in use at any of its reads.
 local function pattern(total: integer, chunk: string): Stream.Reader, function(): integer
-  local left = total
-  local peak = 0
+  local left = { value = total }
+  local peak = { value = 0 }
   local reader: Stream.Reader = {}
   reader.read = function(_self: Stream.Reader, max_bytes?: integer): string | nil, string
-    peak = math.max(peak, collectgarbage("count") as integer)
-    if left == 0 then return nil, "" end
-    local size = math.min(left, max_bytes or #chunk, #chunk)
-    left = left - size
+    peak.value = math.max(peak.value, math.floor(collectgarbage("count") as number))
+    if left.value == 0 then return nil, "" end
+    local size = math.min(left.value, max_bytes or #chunk, #chunk)
+    left.value = left.value - size
     return chunk:sub(1, size), ""
   end
   reader.close = function(): boolean, string return true, "" end
-  return reader, function(): integer return peak end
+  return reader, function(): integer return peak.value end
 end
 
 local function test_a_large_input_streams_in_bounded_memory()
@@ -380,7 +380,7 @@ local function test_a_large_input_streams_in_bounded_memory()
   local raw = expected:digest()
   local want = Codec.hex(raw as string)
   collectgarbage()
-  local before = collectgarbage("count") as integer
+  local before = math.floor(collectgarbage("count") as number)
   local reader, peak = pattern(total, chunk)
   local ran = run({ "-" }, reader)
   assert(ran.code == 0 and ran.out == want .. "  -\n", ran.out .. ran.err)

@@ -15,10 +15,7 @@ local teal = require("build.teal")
 
 local type Rule = rule.Rule
 
-local built, load_trouble = teal.load()
-if built == nil then
-  error("could not load the compiler: " .. tostring(load_trouble))
-end
+local built = assert(teal.load())
 
 --- Run `body` with `probe` as the one registered rule, and put the list
 --- back the way it was found afterwards, however `body` ends. The list
@@ -59,13 +56,13 @@ local probe: Rule = {
 --- @param source string
 --- @return string
 local function fixed(source: string): string
-  local out = ""
+  local out = { value = "" }
   with_rule(probe, function()
     local result, trouble = fix.source(built, source, "probe.tl")
     assert(result ~= nil, "fix refused it: " .. tostring(trouble))
-    out = result.source
+    out.value = result.source
   end)
-  return out
+  return out.value
 end
 
 --- A registered rule reaches the file, and what comes back is rendered:

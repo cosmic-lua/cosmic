@@ -297,8 +297,8 @@ local record SocketConn is Net.Conn
   fd: integer
   open: boolean
   -- Set by [`set_timeout`], and read by each wait, so a change reaches a
-  -- wait the next read or write starts.
-  limit: integer
+  -- wait the next read or write starts. Nil for no limit.
+  limit?: integer
   -- Each direction's sticky failure, "" until one: once a read or a
   -- write fails for good, every later one of it says so.
   read_failure: string
@@ -439,7 +439,8 @@ local record SocketListener is Net.Listener
   fd: integer
   open: boolean
   -- Set by [`set_timeout`], and given to each connection accepted after.
-  limit: integer
+  -- Nil for no limit.
+  limit?: integer
   set_timeout: function(SocketListener, wait_ns: integer | nil)
   accept: function(SocketListener, wait_ns?: integer): Net.Conn | nil, string
   close: function(SocketListener): boolean, string
@@ -504,7 +505,8 @@ end
 --- unclaimed -- a run torn down while it waits included -- rather than
 --- left to the collector.
 local record Connecting
-  socket: raw_socket.Socket
+  --- Nil once the task has handed the socket on.
+  socket?: raw_socket.Socket
   metamethod __close: function(Connecting)
 end
 
@@ -579,7 +581,7 @@ function Net.resolve(name: string, opts?: Net.ResolveOptions): {Net.Resolved} | 
   if hosts_file ~= nil and not (hosts_file is string) then
     error("net: hosts_file must be a string", 2)
   end
-  local servers: string
+  local servers: string | nil
   if opts.servers ~= nil then
     local listed = opts.servers
     if type(listed) ~= "table" or #listed == 0 then
@@ -672,14 +674,14 @@ local function listening(address: Net.Address, opts: Net.ListenOptions,
   local socket, trouble, errno = raw.listen(address, backlog)
   if socket == nil then return nil, named(address) .. ": " .. said(trouble, errno, address) end
   if address.kind ~= "tcp" then
-    return new_listener(socket, Net.unix(address.path), opts.timeout_ns), ""
+    return new_listener(socket, Net.unix(assert(address.path)), opts.timeout_ns), ""
   end
   local bound, why = raw.bound(socket:fd())
   if bound == nil then
     local _, _ = socket:close()
     return nil, named(address) .. ": " .. why
   end
-  return new_listener(socket, Net.tcp(bound.host, bound.port), opts.timeout_ns), ""
+  return new_listener(socket, Net.tcp(assert(bound.host), assert(bound.port)), opts.timeout_ns), ""
 end
 
 --- Listens at `address`. A unix one makes its socket file, and fails
@@ -729,7 +731,7 @@ function Net.listener_from(fd: integer, opts?: Net.ListenOptions): Net.Listener 
     local _, _ = socket:close()
     return nil, "net: descriptor " .. fd .. ": " .. trouble
   end
-  return new_listener(socket, Net.tcp(bound.host, bound.port),
+  return new_listener(socket, Net.tcp(assert(bound.host), assert(bound.port)),
     opts ~= nil and opts.timeout_ns or nil).listener, ""
 end
 
@@ -793,7 +795,7 @@ function Net.connect(address: Net.Address, opts?: Net.ConnectOptions): Net.Conn 
   local timeout_ns = opts ~= nil and opts.timeout_ns or nil
   local attempt = connection(address, timeout_ns)
   if attempt.socket == nil then
-    return nil, named(address) .. ": " .. said(attempt.trouble, attempt.errno, address)
+    return nil, named(address) .. ": " .. said(assert(attempt.trouble), assert(attempt.errno), address)
   end
   return new_conn(attempt.socket, timeout_ns), ""
 end
@@ -895,7 +897,7 @@ end
 --- connector's deny list".
 function Net.connector(endpoints: {Net.Endpoint}, opts?: Net.ConnectorOptions): Net.Connector | nil, string
   local timeout_ms = Leaf.checked_timeout_ms(opts ~= nil and opts.timeout_ns or nil, 2)
-  local public: Leaf.Public
+  local public: Leaf.Public | nil
   if opts ~= nil and opts.public ~= nil then public = checked_public(opts.public) end
   if public == nil and (type(endpoints) ~= "table" or #endpoints == 0) then
     error("net: a connector needs endpoints, opts.public, or both", 2)
@@ -1051,7 +1053,7 @@ local resume_accepting: function(s: Serving)
 --- is done with it.
 local function serve_conn(s: Serving, conn: Net.Conn)
   s.open = s.open + 1
-  local task: Poll.Task
+  local task: Poll.Task | nil
   task = Poll.spawn(function()
     local held <close> = conn
     local ok, trouble: boolean, any = xpcall(s.spec.serve, traced, held)
@@ -1110,7 +1112,7 @@ local function drain(s: Serving)
       while true do
         local task = next(s.conns)
         if task == nil then return end
-        local left: integer = nil
+        local left: integer | nil = nil
         if deadline ~= nil then left = math.max(deadline - Clock.monotonic_ns(), 0) end
         local ended, _ = task:join(left)
         if not ended then return end
@@ -1275,9 +1277,9 @@ function Net.serve(spec: Net.ServeSpec): boolean, string
   if Poll.in_task() then
     error("net: serve runs a Poll.run of its own, and cannot be called in a task of another", 2)
   end
-  local ok, why = true, ""
-  Poll.run(function() ok, why = serving(spec) end)
-  if not ok then return false, why end
+  local served = { ok = true, why = "" }
+  Poll.run(function() served.ok, served.why = serving(spec) end)
+  if not served.ok then return false, served.why end
   return true, ""
 end
 

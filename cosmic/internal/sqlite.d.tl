@@ -40,6 +40,14 @@ local record sqlite
     text?: string
     --- Bound as bytes, distinct from text.
     blob?: string
+    --- Bound as an array of 64-bit integers, for `carray(?N)` alone.
+    integers?: {integer}
+    --- Bound as an array of floating-point numbers, for `carray(?N)` alone.
+    numbers?: {number}
+    --- Bound as an array of texts, each without a NUL, for `carray(?N)` alone.
+    texts?: {string}
+    --- Bound as an array of blobs, for `carray(?N)` alone.
+    blobs?: {string}
   end
   --- One prepared statement. It keeps its handle alive while it is
   --- open. Every call on a finalized statement raises.
@@ -59,6 +67,17 @@ local record sqlite
     bind_text: function(Statement, index: integer, value: string): boolean, string
     --- Binds `value`'s bytes as a blob to the parameter at `index`.
     bind_blob: function(Statement, index: integer, value: string): boolean, string
+    --- Binds a copy of `list` to the parameter at `index`, as an array
+    --- of 64-bit integers that `carray` reads. Raises for an element that
+    --- is no integer.
+    bind_integers: function(Statement, index: integer, list: {integer}): boolean, string
+    --- The same, as an array of floating-point numbers.
+    bind_numbers: function(Statement, index: integer, list: {number}): boolean, string
+    --- The same, as an array of texts; raises for one holding a NUL,
+    --- which carray reads to.
+    bind_texts: function(Statement, index: integer, list: {string}): boolean, string
+    --- The same, as an array of blobs.
+    bind_blobs: function(Statement, index: integer, list: {string}): boolean, string
 
     --- "row" when a row is ready, "done" when the statement is finished.
     step: function(Statement): string | nil, string

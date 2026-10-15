@@ -113,8 +113,8 @@ function symbol_index.add_bound(index: symbol_index.Index, db: Sqlite.Handle,
     return false, trouble
   end
   for _, row in ipairs(rows) do
-    local key = row[1] .. "\n" .. row[2]
-    if index.bound[key] == nil then index.bound[key] = row[3] end
+    local key = row:text(1) .. "\n" .. row:text(2)
+    if index.bound[key] == nil then index.bound[key] = row:text(3) end
   end
   return true, ""
 end
@@ -184,7 +184,7 @@ end
 --- database that declares any, in its order.
 local function members_under(index: symbol_index.Index, target: symbol_index.Row): {symbol_index.Row}
   local rows = index.under[target.module .. "\n" .. target.source_symbol] or {}
-  local first: integer = nil
+  local first: integer | nil = nil
   for _, row in ipairs(rows) do
     if first == nil or row.database < first then first = row.database end
   end

@@ -30,7 +30,7 @@ local function snapshot(path: string, query: string): string
   local rows = assert(Sqlite.text_rows(db, query))
   assert(db:close())
   local out: {string} = {}
-  for _, row in ipairs(rows) do out[#out + 1] = table.concat(row, "|") end
+  for _, row in ipairs(rows) do out[#out + 1] = table.concat(row:texts(), "|") end
   return table.concat(out, "\n")
 end
 
@@ -117,7 +117,7 @@ local function test_d_unstarted() assert(true) end
   -- its working database so a fresh consumer meets exactly the same key.
   assert(Fs.rename(build_dir(root), tmp .. "/saved-o"))
   local fresh = run("fresh", { "work_test.tl:test_b_observed_failure" }, false)
-  assert(fresh:find("1 of 1 failed, 0 infrastructure errors", 1, true), fresh)
+  assert(fresh:find("1 of 1 test failed, 0 infrastructure errors", 1, true), fresh)
   assert(Fs.remove_tree(build_paths.required(root)))
   assert(Fs.rename(tmp .. "/saved-o", build_paths.required(root)))
   -- Another checkout may subsequently share a pass. The local failure
@@ -129,5 +129,5 @@ local function test_d_unstarted() assert(true) end
   assert(shared:close())
   assert(snapshot(cache, "SELECT key FROM " .. declared .. " WHERE key = '" .. key .. "'") == key)
   local again = run("again", { "work_test.tl:test_b_observed_failure" }, false)
-  assert(again:find("1 of 1 failed, 0 infrastructure errors", 1, true), again)
+  assert(again:find("1 of 1 test failed, 0 infrastructure errors", 1, true), again)
 end

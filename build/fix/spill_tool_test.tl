@@ -53,7 +53,7 @@ local function test_a_tree_the_build_refuses_fails(tmp: string)
     local out = assert(failed.stdout)
     assert(not failed.ok, out)
     assert(out:find("fix: FAIL  a.tl: the compiler refused it\na.tl:1:20: ", 1, true) ~= nil, out)
-    assert(out:find("fix: FAIL (the tree not building, ", 1, true) ~= nil, out)
+    assert(out:find("fix: the tree not building, ", 1, true) ~= nil, out)
   end
   assert(Fs.write(root .. "/a.tl", 'local x: integer = 1\n\nreturn x\n'))
   local passed = fix(root, false)

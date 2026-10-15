@@ -31,7 +31,7 @@ local function keys(path: string): {string}
   local out: {string} = {}
   for _, row in ipairs((assert(Sqlite.text_rows(db,
       "SELECT key FROM declared_v1 UNION ALL SELECT key FROM verdicts_v3 ORDER BY 1")))) do
-    out[#out + 1] = row[1]
+    out[#out + 1] = row:text(1)
   end
   assert(db:close())
   return out
@@ -117,7 +117,7 @@ local function rows(path: string): string
   local out: {string} = {}
   for _, row in ipairs((assert(Sqlite.text_rows(db,
       "SELECT key, test, used_ns / 1000000000 FROM declared_v1 ORDER BY key")))) do
-    out[#out + 1] = table.concat(row, " ")
+    out[#out + 1] = table.concat(row:texts(), " ")
   end
   assert(db:close())
   return table.concat(out, "\n")
@@ -225,7 +225,7 @@ local function addresses(path: string): string
   local out: {string} = {}
   for _, row in ipairs((assert(Sqlite.text_rows(db,
       "SELECT address, used_ns / 1000000000 FROM stores_v1 ORDER BY address")))) do
-    out[#out + 1] = table.concat(row, " ")
+    out[#out + 1] = table.concat(row:texts(), " ")
   end
   assert(db:close())
   return table.concat(out, "\n")
@@ -259,5 +259,5 @@ local function test_store_digests_are_trimmed_and_merged_as_verdicts_are(tmp: st
   db = assert(Sqlite.open(ours .. "/verdicts.db"))
   local digest = assert(Sqlite.text_rows(db, "SELECT digest FROM stores_v1 WHERE address = 'a2'"))
   assert(db:close())
-  assert(digest[1][1] == "d", digest[1][1])
+  assert(digest[1]:text(1) == "d", digest[1]:text(1))
 end

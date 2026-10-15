@@ -172,19 +172,19 @@ local function test_open_temporary_closes_its_descriptor_whenever_an_allocation_
   local before = next_descriptor(tmp)
   -- Taken on the line that makes the call, so no hook runs between the
   -- binding's return and the test holding what it returned.
-  local received: sys.TemporaryFile
-  local opened = 0
+  local received = { value = nil as sys.TemporaryFile | nil }
+  local opened = { value = 0 }
   local ended = under_every_failure(function()
-    received = sys.open_temporary(path, 420)
+    received.value = sys.open_temporary(path, 420)
   end, function()
-    if received ~= nil then
-      sys.close(received.fd)
-      received = nil
-      opened = opened + 1
+    if received.value ~= nil then
+      sys.close(received.value.fd)
+      received.value = nil
+      opened.value = opened.value + 1
     end
   end)
   assert(ended > 0, "building the answer allocates")
-  assert(opened >= 1, "the run with nothing refused opens a file")
+  assert(opened.value >= 1, "the run with nothing refused opens a file")
   collectgarbage("collect")
   local after = next_descriptor(tmp)
   assert(after == before, "a refused allocation left descriptor " .. before .. " open")
@@ -208,20 +208,21 @@ local function test_pipe_leaves_no_end_open_whenever_an_allocation_fails(tmp: st
   local before = next_descriptor(tmp)
   -- Taken on the line that makes the call, and released in `settle`, so
   -- a refused coverage hook cannot fall between the two.
-  local received: raw_process.Pipe
-  local made = 0
+  local received = { value = nil as raw_process.Pipe | nil }
+  local made = { value = 0 }
   local ended = under_every_failure(function()
-    received = process.pipe()
+    received.value = process.pipe()
   end, function()
-    if received ~= nil then
-      sys.close(received.reader)
-      sys.close(received.writer)
-      received = nil
-      made = made + 1
+    local pipe = received.value
+    if pipe ~= nil then
+      sys.close(pipe.reader)
+      sys.close(pipe.writer)
+      received.value = nil
+      made.value = made.value + 1
     end
   end)
   assert(ended > 0, "building the answer allocates")
-  assert(made >= 1, "the run with nothing refused makes a pipe")
+  assert(made.value >= 1, "the run with nothing refused makes a pipe")
   local after = next_descriptor(tmp)
   assert(after == before, "a refused allocation left descriptor " .. before .. " open")
 end
@@ -525,7 +526,7 @@ local function test_deflate_and_inflate_leave_nothing_whenever_an_allocation_fai
   local ended = under_every_failure(function()
     local rows = assert(Sqlite.rows(db, "SELECT inflate(deflate(?1))",
       { { text = text } }))
-    assert(rows[1][1].blob == text)
+    assert(rows[1]:blob(1) == text)
   end)
   assert(ended > 0, "a query allocates")
   assert_c_heap(bytes, blocks, "deflate and inflate under refusal")
@@ -872,6 +873,21 @@ local function test_sqlite_captured_operations_release_every_refused_allocation(
     assert(testing.open_statements() == statements)
     assert_c_heap(bytes, blocks, "captured SQLite preparation/binding")
   end
+  -- A list is copied for carray(); a refusal of the copy, or of the
+  -- room its elements are gathered in, fails the binding alone.
+  local lists: {Sqlite.Value} = { { integers = { 1, 2 } }, { numbers = { 0.5 } },
+    { texts = { "a", "bb" } }, { blobs = { "\0", "" } } }
+  for _, list in ipairs(lists) do
+    local ended = under_every_failure(function()
+      local statement = assert(db:prepare_result("SELECT count(*) FROM carray(?1)").statement)
+      assert(statement:bind_values_result({ list }).code == Sqlite.OK)
+      assert(statement:step_result() == "row")
+      statement:finalize()
+    end)
+    assert(ended > 0)
+    assert(testing.open_statements() == statements)
+    assert_c_heap(bytes, blocks, "captured SQLite list binding")
+  end
   local ended = under_every_failure(function()
     local statement = assert(db:prepare("SELECT CASE WHEN ?1 THEN 1 ELSE json('bad') END"))
     assert(statement:bind_integer(1, 1))
@@ -893,14 +909,15 @@ end
 --- successful acquisition too, and both must leave no descriptor behind.
 local function test_openpty_closes_both_descriptors_whenever_an_allocation_fails(tmp: string)
   local before = next_descriptor(tmp)
-  local received: sys.Pty
+  local received = { value = nil as sys.Pty | nil }
   local ended = under_every_failure(function()
-    received = sys.openpty()
+    received.value = sys.openpty()
   end, function()
-    if received ~= nil then
-      sys.close(received.master)
-      sys.close(received.slave)
-      received = nil
+    local pty = received.value
+    if pty ~= nil then
+      sys.close(pty.master)
+      sys.close(pty.slave)
+      received.value = nil
     end
   end)
   assert(ended > 0, "building a pty answer allocates")

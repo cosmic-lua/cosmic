@@ -128,7 +128,7 @@ end
 --- a q-value other than 0; an explicit gzip beats `*`.
 local function takes_gzip(header: string | nil): boolean
   if header == nil then return false end
-  local star: boolean = nil
+  local star: boolean | nil = nil
   for item in (header .. ","):gmatch("([^,]*),") do
     local token, rest = item:match("^%s*([^;%s]*)(.*)$")
     if token ~= nil then
@@ -255,7 +255,7 @@ function StaticFiles.handler(opts?: StaticFiles.Options): Types.Handler
       not_modified = Server.none_match(none_match, etag)
     elseif asset.mtime > 0 then
       local since = req:header("if-modified-since")
-      local stamp: integer = nil
+      local stamp: integer | nil = nil
       if since ~= nil then
         local parsed, _ = Time.parse_http(since)
         stamp = parsed

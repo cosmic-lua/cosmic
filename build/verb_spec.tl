@@ -1,7 +1,7 @@
 --- The record every verb module's `spec` is, defined once so a verb is
 --- registered by one value in its own module (listed in build/verb_list.tl)
 --- rather than by a line in each place that has to know it: the dispatch
---- table, the set of verbs that print no verdict, the help prose that says
+--- table, the set of verbs that print no summary, the help prose that says
 --- what a verb takes and how it exits, and the cases in build/verb_cases.tl.
 --- What a person reads about a verb -- its description and options -- stays
 --- in [`cosmic.cli`].
@@ -13,15 +13,26 @@ local record verb_spec
     name: string
     --- Runs the command line, `name` at slot 1, and answers the exit code.
     run: function(argv: {integer:string}): integer
-    --- True when the verb ends in no verdict line, its output being data for
-    --- a pipe: its exit status is the verdict, a usage error is complained
-    --- about and nothing more, and the tool's staleness is not checked
-    --- after it.
+    --- True when the verb prints no summary, its output being data for a
+    --- pipe and its exit status saying how it went, and the tool's
+    --- staleness is not checked after it.
     bare: boolean
     --- True when a tool older than the tree rebuilds itself before the verb
     --- runs, for a verb that does not check as it goes ([`build.reboot`]'s
     --- `stale_exit`): one whose rows, or whose own code, are the tree's.
     fresh: boolean | nil
+    --- False when, after the verb refuses its command line (exit 2),
+    --- [`build/dispatch.tl`] does not ask whether a tool older than the
+    --- tree refused an option the tree added, as it asks of other verbs:
+    --- for one that asks before it reads its line (`help`, `todos`), or
+    --- that must never stage the tree to ask (`sql`). A bare verb, and a
+    --- `fresh` one, which was asked about before it ran, never are.
+    recheck_on_refusal: boolean | nil
+    --- True when a failure, too, ends in a summary on stderr: what the run
+    --- found nothing of (`db`, `docs`, `uses`, `todos`) or what is left to
+    --- fix (`fix`). Another verb summarizes only a run that passed; a
+    --- failure's complaint says why.
+    summarizes_failure: boolean | nil
     --- What the verb takes after its name, as `cosmic help <verb>` phrases it
     --- ("a path and a file").
     takes: string
@@ -29,10 +40,10 @@ local record verb_spec
     --- verb's output and exit codes
     --- ("`json` prints its value ... and exits 0 when it ..."), starting
     --- with its name in backticks, on one line: help wraps it. Nil for a
-    --- verb that ends in a verdict line.
+    --- verb that is not bare, which `cosmic help exit` covers.
     exits: string | nil
-    --- Why build/verb_cases.tl holds the verb to no verdict-line case, when
-    --- it has none.
+    --- Why build/verb_cases.tl holds the verb to no pass, fail and refusal
+    --- cases, when it has none.
     passthrough: string | nil
     --- For a verb that runs another program, the slot of that program in
     --- its command line (nil when it names none): the words from it on

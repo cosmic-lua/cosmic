@@ -140,9 +140,9 @@ local function test_an_internal_module_is_absent_from_the_public_docs(dir: strin
   local all = assert(Sqlite.text_rows(db, "SELECT DISTINCT module FROM docs ORDER BY module"))
   local public = assert(Sqlite.text_rows(db, "SELECT DISTINCT module FROM docs WHERE " ..
       symbols.public_only("module", true) .. " ORDER BY module"))
-  assert(#all == 2 and all[1][1] == "cosmic.fs" and all[2][1] == "cosmic.internal.shared",
+  assert(#all == 2 and all[1]:text(1) == "cosmic.fs" and all[2]:text(1) == "cosmic.internal.shared",
     #all .. " modules")
-  assert(#public == 1 and public[1][1] == "cosmic.fs")
+  assert(#public == 1 and public[1]:text(1) == "cosmic.fs")
   assert(symbols.is_public_module("cosmic.fs"))
   assert(not symbols.is_public_module("cosmic.internal.shared"))
 end
@@ -866,4 +866,17 @@ local function test_a_guide_in_neither_list_is_refused()
   found = tree_checks.guides(db)
   assert(#found == 1 and found[1]:find("^doc/guides/newcomer%.md is in neither") ~= nil,
     table.concat(found, "\n"))
+end
+
+--- An unused local is as unused as an unused import: a test module under
+--- `ci/testdata` is not refused for one, and any other file is.
+local function test_an_unused_local_in_ci_testdata_follows_the_unused_rule(dir: string)
+  local base = dir .. "/tree/ci/testdata/sub"
+  assert(Fs.mkdirs(base))
+  assert(Fs.write(base .. "/zz_test.tl", "local function test_x()\n  local lonely = 1\n  assert(true)\nend\n"))
+  assert(Fs.write(base .. "/label.tl", "do\n  local lonely = 1\nend\nreturn 1\n"))
+  local found = tree_checks.ci_testdata(dir .. "/tree", (assert(teal.load())))
+  local all = table.concat(found, "\n")
+  assert(all:find("zz_test", 1, true) == nil, all)
+  assert(all:find("ci/testdata/sub/label.tl:2:", 1, true) ~= nil, all)
 end

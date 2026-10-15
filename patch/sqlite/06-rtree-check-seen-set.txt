@@ -1,0 +1,68 @@
+file: sqlite3.c
+note: The set of nodes the check's walk has read (05-rtree-check-reads-each-node-once.txt), kept in sorted runs whose sizes are the bits of its count, largest first, as a binary counter keeps its carries: an add appends a run of one and merges the last two runs while they are the same size. A lookup searches each run, O(log^2 n), and an add costs O(log n) amortized, whatever the node numbers; a hash with a fixed multiplier, which the numbers in a file may be chosen to collide under, does not bound it. No number below 1 enters the set. A set that cannot grow fails the check as out of memory, as it does past 2^27 nodes read, where its next doubling passes SQLite's largest allocation of 2 GiB; a tree that large holds 100 GB of nodes.
+--- find
+static void rtreeCheckNode(
+  RtreeCheck *pCheck,
+--- replace
+/*
+** Whether node iNode is in pCheck's set of nodes the walk has read.
+*/
+static int rtreeCheckSeen(RtreeCheck *pCheck, i64 iNode){
+  i64 iOff = 0;
+  int iBit;
+  for(iBit=62; iBit>=0; iBit--){
+    i64 nRun = (i64)1<<iBit;
+    if( pCheck->nSeen & nRun ){
+      i64 *a = &pCheck->aSeen[iOff];
+      i64 lo = 0, hi = nRun;
+      while( lo<hi ){
+        i64 mid = lo + (hi-lo)/2;
+        if( a[mid]==iNode ) return 1;
+        if( a[mid]<iNode ) lo = mid+1; else hi = mid;
+      }
+      iOff += nRun;
+    }
+  }
+  return 0;
+}
+
+/*
+** Put node iNode, not yet in the set, in pCheck's set of nodes the walk
+** has read: append it as a run of one, then merge the last two runs while
+** they are the same size.
+*/
+static void rtreeCheckAddSeen(RtreeCheck *pCheck, i64 iNode){
+  i64 nRun;
+  if( pCheck->nSeen==pCheck->nSeenAlloc ){
+    i64 nAlloc = pCheck->nSeenAlloc ? 2*pCheck->nSeenAlloc : 16;
+    i64 *aNew = sqlite3_realloc64(pCheck->aSeen, sizeof(i64)*nAlloc);
+    if( aNew==0 ){
+      pCheck->rc = SQLITE_NOMEM;
+      return;
+    }
+    pCheck->aSeen = aNew;
+    aNew = sqlite3_realloc64(pCheck->aSeenTmp, sizeof(i64)*nAlloc);
+    if( aNew==0 ){
+      pCheck->rc = SQLITE_NOMEM;
+      return;
+    }
+    pCheck->aSeenTmp = aNew;
+    pCheck->nSeenAlloc = nAlloc;
+  }
+  pCheck->aSeen[pCheck->nSeen++] = iNode;
+  for(nRun=1; (pCheck->nSeen & nRun)==0; nRun*=2){
+    i64 *a = &pCheck->aSeen[pCheck->nSeen - 2*nRun];
+    i64 *b = &pCheck->aSeen[pCheck->nSeen - nRun];
+    i64 i = 0, j = 0, k = 0;
+    while( i<nRun && j<nRun ){
+      pCheck->aSeenTmp[k++] = a[i]<b[j] ? a[i++] : b[j++];
+    }
+    while( i<nRun ) pCheck->aSeenTmp[k++] = a[i++];
+    while( j<nRun ) pCheck->aSeenTmp[k++] = b[j++];
+    memcpy(a, pCheck->aSeenTmp, sizeof(i64)*2*nRun);
+  }
+}
+
+static void rtreeCheckNode(
+  RtreeCheck *pCheck,
+--- end

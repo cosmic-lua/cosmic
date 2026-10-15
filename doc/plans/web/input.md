@@ -96,7 +96,7 @@ local record Url
     max_pairs: integer
     --- The most bytes of text read; more is a refusal (nil: no bound, the
     --- caller bounds the text, as a server bounds head and body).
-    max_bytes: integer
+    max_bytes?: integer
     --- Read a "%" not followed by two hex digits as itself rather than
     --- refusing (false).
     lenient: boolean
@@ -210,7 +210,7 @@ local record Input
     field: string
     --- For a JSON body only: the JSON Pointer of the failing value
     --- ("/address/city"); nil for the other sources.
-    pointer: string
+    pointer?: string
     --- Plain text for a person ("must be a whole number").
     message: string
     --- A stable machine code: "required", "integer", "number", "boolean",
@@ -228,7 +228,7 @@ local record Input
     errors: {FieldError}
     --- The submitted values, for re-rendering a form; names listed in
     --- `Options.secret` are left out. Nil for JSON.
-    submitted: Url.Query
+    submitted?: Url.Query
   end
 
   record Options
@@ -236,7 +236,7 @@ local record Input
     --- 8 MiB of text parts and 64 MiB per file for multipart (the latter two
     --- in MultipartOptions). Above the server's limit it has no effect: the
     --- server's 413 comes first.
-    max_bytes: integer
+    max_bytes?: integer
     --- Field names left out of `Invalid.submitted` (passwords, tokens).
     secret: {string}
   end
@@ -597,9 +597,9 @@ local record Multipart
     name: string
     --- Content-Disposition filename (basename only, see below); nil for a
     --- text field.
-    filename: string
+    filename?: string
     --- Content-Type of the part ("text/plain; charset=utf-8" default).
-    content_type: string
+    content_type?: string
     --- The part's bytes, read as they arrive; invalid after next_part().
     body: Stream.Reader
   end
@@ -681,7 +681,7 @@ local record Input
   record MultipartOptions is Input.Options
     --- Where file parts are spooled; mkdtemp'd under the system temp
     --- dir if nil. Files are removed after the response is written.
-    dir: string
+    dir?: string
     --- Per-file and per-text-field caps, and total, in bytes.
     max_file_bytes: integer      -- 8 MiB
     max_field_bytes: integer     -- 1 MiB for a text field
@@ -796,21 +796,21 @@ local record Cookies
 
   record Attributes
     --- Default "/".
-    path: string
+    path?: string
     domain: string
     --- Seconds. nil: a session cookie (ends with the browser session, which
     --- modern browsers restore, so not a reliable expiry).
-    max_age: integer
+    max_age?: integer
     --- Absolute expiry in ns since the epoch (Clock.now_ns scale); written
     --- as Expires only when `max_age` is nil and for compatibility with
     --- very old clients (default: never).
-    expires_ns: integer
+    expires_ns?: integer
     --- Default true: not readable from script.
-    http_only: boolean
+    http_only?: boolean
     --- true/false; nil: take the middleware's default (section 7).
-    secure: boolean
+    secure?: boolean
     --- Default "Lax".
-    same_site: SameSite
+    same_site?: SameSite
     partitioned: boolean
   end
 end
@@ -945,7 +945,7 @@ local record Session
     --- Extend the expiry on use (false). See "Rolling".
     rolling: boolean
     --- Cookie attributes; defaults "/", HttpOnly, "Lax"; secure: nil = auto.
-    path: string
+    path?: string
     domain: string
     same_site: Cookies.SameSite
     secure: boolean
@@ -985,7 +985,7 @@ record Handle
   is_new: function(Handle): boolean
   --- The opaque id (SQLite) or nil (cookie): for logs only, never a
   --- credential once logged: it is. See "Logging".
-  id: function(Handle): string
+  id: function(Handle): string | nil
 end
 ```
 
@@ -1384,12 +1384,12 @@ local record Csrf
     --- Treat same-site cross-origin as cross-site (false).
     strict_same_site: boolean
     --- Skip requests this returns true for (nil).
-    exempt: function(Web.Request): boolean
+    exempt?: function(Web.Request): boolean
     --- Do not require a token for a request with `Authorization: Bearer`
     --- (true). Basic auth is ambient in browsers and is never exempt.
     bearer_exempt: boolean
     --- Replies to a rejected request; default a 403 problem.
-    on_failure: function(Web.Request, reason: string): Web.Response
+    on_failure?: function(Web.Request, reason: string): Web.Response
   end
 end
 
@@ -1496,17 +1496,17 @@ local record Cors
     allow_origin: function(origin: string): boolean
     --- Methods a cross-origin preflight may ask for. Default
     --- {"GET", "HEAD", "POST"} (Starlette defaults to GET only).
-    allow_methods: {string}
+    allow_methods?: {string}
     --- Request headers a preflight may ask for; {"*"} reflects the
     --- requested ones. CORS-safelisted headers are always allowed.
     allow_headers: {string}
     --- Response headers JS may read (Access-Control-Expose-Headers).
     expose_headers: {string}
     --- Allow credentials (cookies, Authorization). Default false.
-    allow_credentials: boolean
+    allow_credentials?: boolean
     --- Seconds a preflight is cached; default 600 (browsers cap it:
     --- Chrome 7200, Firefox 86400).
-    max_age: integer
+    max_age?: integer
   end
 end
 
@@ -1587,14 +1587,14 @@ local record Headers
     coop: string
     --- Cross-Origin-Resource-Policy: nil (omitted) unless set; "same-origin"
     --- for an HTML app that serves nothing cross-origin.
-    corp: string
+    corp?: string
     --- Permissions-Policy ("camera=(), microphone=(), geolocation=()").
     permissions_policy: string
     --- Strict-Transport-Security; nil (omitted) unless set. Applied only to
     --- https requests (req.scheme).
-    hsts: { max_age: integer, include_subdomains: boolean, preload: boolean }
+    hsts?: { max_age: integer, include_subdomains: boolean, preload: boolean }
     --- nil: no CSP. See Csp.
-    csp: Csp.Policy
+    csp?: Csp.Policy
     --- Send as Content-Security-Policy-Report-Only instead (false).
     csp_report_only: boolean
     --- Draw a per-request nonce (false); see below.

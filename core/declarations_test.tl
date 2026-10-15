@@ -338,7 +338,7 @@ local function raw_module(name: string): any
     assert(open ~= nil, "cosmic.internal." .. name .. " is not preloaded")
     return open("cosmic.internal." .. name)
   end
-  local wrapper: string = nil
+  local wrapper: string | nil = nil
   for candidate, declaration in pairs(wrappers) do
     if declaration == name and (wrapper == nil or candidate < wrapper) then
       wrapper = candidate

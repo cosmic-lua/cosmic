@@ -14,10 +14,7 @@ local teal = require("build.teal")
 local work = require("build.work")
 local parses_fixture = require("build.parses_fixture")
 
-local built, load_trouble = teal.load()
-if built == nil then
-  error("could not load the compiler: " .. tostring(load_trouble))
-end
+local built = assert(teal.load())
 
 --- Every row `sql` answers of the database at `path`, a line each, and
 --- every row of every parse table of a working database.
@@ -68,7 +65,7 @@ local function boot(root: string, path: string): importer.Parses, string, string
     "SELECT value FROM meta WHERE key = 'analyzer'"))
   local rows = parse_rows(handle.db)
   work.close(handle)
-  return parses, recorded[1][1], rows
+  return parses, recorded[1]:text(1), rows
 end
 
 --- A tree like `analyzer_tree` at `root`, with `changed` written over it.
@@ -223,7 +220,7 @@ local function test_a_kept_parse_comes_back_whole(tmp: string)
   assert(shared_compiles.settle(cache, { kept = { kept }, used = {} }, 5))
   local sizes = assert(Sqlite.text_rows(cache.db,
     "SELECT (SELECT size FROM compiled_v2), (SELECT size FROM parsed_v1)"))
-  local parse_size = math.tointeger(tonumber(sizes[1][2])) or 0
+  local parse_size = math.tointeger(tonumber(sizes[1]:text(2))) or 0
   assert(parse_size > 0)
   assert(shared_compiles.settle(cache, { kept = {}, used = {},
     parses = { { key = { analyzer = "y", source_hash = "ab", mapped = false }, made = made } },
@@ -231,5 +228,5 @@ local function test_a_kept_parse_comes_back_whole(tmp: string)
   local left = assert(Sqlite.text_rows(cache.db,
     "SELECT (SELECT count(*) FROM compiled_v2), (SELECT count(*) FROM parsed_v1)"))
   shared_compiles.close(cache)
-  assert(left[1][1] == "0" and left[1][2] == "2", left[1][1] .. " " .. left[1][2])
+  assert(left[1]:text(1) == "0" and left[1]:text(2) == "2", left[1]:text(1) .. " " .. left[1]:text(2))
 end

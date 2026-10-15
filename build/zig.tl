@@ -701,7 +701,7 @@ function Zig.run(argv: {string}, env?: {string:string}): integer
   local g <close> = opened
   -- The last signal taken but not yet passed on to the child, 0 when
   -- none.
-  local pending = 0
+  local signals = { pending = 0 }
   local function supervise(): Child.Result | nil, string
     local h, trouble = Child.start(argv, { process_group = false, env = env })
     if h == nil then
@@ -722,12 +722,12 @@ function Zig.run(argv: {string}, env?: {string:string}): integer
       local taken = g:take()
       if taken ~= 0 then
         -- A repeat within the window is passed on once, as the last.
-        if pending == 0 then
+        if signals.pending == 0 then
           pass_on_at = now + PASS_ON_NS
         end
-        pending = taken
+        signals.pending = taken
       end
-      if pending ~= 0 and now >= pass_on_at then
+      if signals.pending ~= 0 and now >= pass_on_at then
         -- TODO: this reaches zig's own pid alone -- `zig build` execs its
         -- maker there, which exits on it -- so the compile jobs the
         -- maker started outlive it, orphaned, and build on to the end
@@ -738,8 +738,8 @@ function Zig.run(argv: {string}, env?: {string:string}): integer
         -- catches the signal sent to the group: such a fix must drop its
         -- own reflected signal rather than take it as a new one and pass
         -- it on again every PASS_ON_NS.
-        local _, _ = h:stop(pending)
-        pending = 0
+        local _, _ = h:stop(signals.pending)
+        signals.pending = 0
       end
       local _, _ = sys.nanosleep(POLL_NS)
     end
@@ -759,7 +759,7 @@ function Zig.run(argv: {string}, env?: {string:string}): integer
   -- this process or its group. A never-passed SIGINT may already have
   -- reached a child that caught it and exited cleanly, so its status
   -- wins; SIGTERM remains an unanswered cancellation.
-  local unpassed = untaken ~= 0 and untaken or pending
+  local unpassed = untaken ~= 0 and untaken or signals.pending
   if unpassed ~= sys.SIGTERM then
     unpassed = 0
   end
@@ -948,13 +948,17 @@ local function take(lock: Lock, path: string, wait_ns: integer): string | nil, s
   local kind, kind_trouble = sys.flock_kind(lock.fd)
   if kind == nil then return nil, path .. ": " .. kind_trouble end
   if kind == "apart" then
-    if lock.db == nil then
-      local db, db_trouble = Sqlite.open(path, { writable = true })
-      if db == nil then return nil, path .. ": " .. db_trouble end
-      lock.db = db
+    local db: Sqlite.Handle
+    if lock.db ~= nil then
+      db = lock.db
+    else
+      local opened, db_trouble = Sqlite.open(path, { writable = true })
+      if opened == nil then return nil, path .. ": " .. db_trouble end
+      lock.db = opened
+      db = opened
     end
     local left = math.max(0, wait_ns - (Clock.monotonic_ns() - started))
-    return begin(lock.db, path, left)
+    return begin(db, path, left)
   end
   return "held", ""
 end
@@ -1019,11 +1023,12 @@ end
 --- The whole entry point, over `argv` as the entry-point contract
 --- hands it: `argv[0]` is this script's own path.
 function Zig.main(argv: {integer:string}): integer
-  local root, root_trouble = Zig.repo_root(argv[0])
-  if root == nil then
+  local found_root, root_trouble = Zig.repo_root(argv[0])
+  if found_root == nil then
     log:complain(root_trouble)
     return 2
   end
+  local root: string = found_root
   local found, ztrouble = locate(root)
   if found == nil then
     log:complain(ztrouble)

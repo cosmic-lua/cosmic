@@ -311,14 +311,10 @@ function SandboxProbe.main(_argv: {integer:string}): integer
     return 0
   end
   local tmp = assert(Fs.mkdtemp("sandbox-probe-"))
-  local report: SandboxProbe.Report | nil = nil
-  local called, trouble = pcall(function(): boolean
-    report = SandboxProbe.run(tmp)
-    return true
-  end)
+  local called, outcome = pcall(SandboxProbe.run, tmp)
   local _, _ = Fs.remove_tree(tmp)
-  if not called or report == nil then error(trouble, 0) end
-  assert(Fs.put(Fs.stdout, SandboxProbe.markdown(report)))
+  if not called then error(outcome, 0) end
+  assert(Fs.put(Fs.stdout, SandboxProbe.markdown(outcome)))
   return 0
 end
 

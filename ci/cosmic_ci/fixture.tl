@@ -15,7 +15,11 @@ local default_child_timeout_ns <const> = Clock.seconds(30)
 
 --- Where this fixture's children build, once [`Fixture.builds_beneath`]
 --- names it; nil until then, for them to build where the environment says.
-local build_home: string | nil = nil
+local record Builds
+  home: string | nil
+end
+
+local builds: Builds = {}
 
 local record Fixture
   inherited: {string}
@@ -91,13 +95,13 @@ end
 function Fixture.builds_beneath(directory: string)
   local made, trouble, errno = sys.mkdir(directory, 0x1c0)
   assert(made or errno == sys.EEXIST, directory .. ": " .. tostring(trouble))
-  build_home = (assert(sys.realpath(directory)))
+  builds.home = (assert(sys.realpath(directory)))
 end
 
 --- The build directory of the project at `project` that this fixture's
 --- children build in ([`builds_beneath`]).
 function Fixture.built(project: string): string
-  return beneath(project, (assert(build_home, "Fixture.built: call Fixture.builds_beneath first")))
+  return beneath(project, (assert(builds.home, "Fixture.built: call Fixture.builds_beneath first")))
 end
 
 function Fixture.mkdir(path: string)
@@ -241,7 +245,7 @@ function Fixture.environment_of(base: {string:string},
   for _, name in ipairs(Fixture.inherited) do
     if base[name] ~= nil then environment[name] = base[name] end
   end
-  if build_home ~= nil then environment.COSMIC_BUILD_HOME = build_home end
+  if builds.home ~= nil then environment.COSMIC_BUILD_HOME = builds.home end
   environment.COSMIC_BUILD_CACHE = "0"
   environment.COSMIC_TEST_SANDBOX = "0"
   if extra then

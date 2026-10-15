@@ -390,12 +390,12 @@ function Relay.handed(handed: Relay.Handed): Relay.Connector
     error("relay: handed.lost must be a function", 2)
   end
   local connector, lost = handed.connector, handed.lost
-  local told = false
+  local telling = { told = false }
   --- Tells `lost`, the first time, that the connector has ended.
   local function ended(): string
     local why = "relay: the connector has ended"
-    if lost ~= nil and not told then
-      told = true
+    if lost ~= nil and not telling.told then
+      telling.told = true
       lost(why)
     end
     return why
@@ -656,7 +656,7 @@ local function read_socks(run: Running, conn: Net.Conn, authenticated: function(
     if greeted.method == 255 then
       local _ = send(conn, Wire.socks_method_reply(255), run.timeouts.head)
     end
-    return early(greeted.reason, "failure", false)
+    return early(assert(greeted.reason), "failure", false)
   end
   -- Whatever the greeting reader chose, a relay with a token serves nothing
   -- but a client that has sent it.
@@ -664,7 +664,7 @@ local function read_socks(run: Running, conn: Net.Conn, authenticated: function(
     local _ = send(conn, Wire.socks_method_reply(255), run.timeouts.head)
     return early("not authenticated: the relay takes only username/password authentication", "failure", false)
   end
-  if not send(conn, Wire.socks_method_reply(greeted.method), run.timeouts.head) then
+  if not send(conn, Wire.socks_method_reply(assert(greeted.method)), run.timeouts.head) then
     return early("the program closed before its request was whole", "failure", false)
   end
   local rest = all:sub(greeted.consumed + 1)
@@ -696,7 +696,7 @@ local function read_socks(run: Running, conn: Net.Conn, authenticated: function(
       local _ = send(conn, Wire.socks_auth_reply(false), run.timeouts.head)
       return early("not authenticated: " .. assert(given.reason), "failure", false)
     end
-    if not is_token(run, given.password) then
+    if not is_token(run, assert(given.password)) then
       local _ = send(conn, Wire.socks_auth_reply(false), run.timeouts.head)
       return early("not authenticated: the password is not the sandbox's token", "failure", false)
     end
@@ -724,7 +724,9 @@ local function read_socks(run: Running, conn: Net.Conn, authenticated: function(
     end
     held = held .. data
     local answer = request:feed(data)
-    if answer.status == "refused" then return early(answer.reason, answer.reply, true) end
+    if answer.status == "refused" then
+      return early(assert(answer.reason), assert(answer.reply), true)
+    end
     if answer.status == "done" then
       return { status = "done", reason = "", reply = "succeeded", host = answer.host, kind = answer.kind,
         port = answer.port, leftover = held:sub(answer.consumed + 1), answer = true }
@@ -738,6 +740,13 @@ end
 local record Found
   addresses: {string}
   refused?: Refusal
+end
+
+--- What a lookup in a task of its own answered, which it hands back in a
+--- table.
+local record Looked
+  found: {Net.Resolved} | nil
+  why: string | nil
 end
 
 --- Resolves `name` once, and every address the checks allow, in order.
@@ -771,14 +780,14 @@ local function address_of(run: Running, name: string, kind: Wire.Kind, port: int
       return { addresses = {}, refused = refusal(("could not resolve %s: the relay is stopping"):format(name), 502,
         "host_unreachable") }
     end
-    local found: {Net.Resolved} | nil
-    local why: string
+    local looked: Looked = {}
     local lookup = Poll.spawn(function()
-      found, why = Net.resolve(name, opts)
+      looked.found, looked.why = Net.resolve(name, opts)
     end)
     run.lookups[lookup] = true
     local joined, joined_why = lookup:join()
     run.lookups[lookup] = nil
+    local found, why = looked.found, looked.why
     if not joined then
       -- This connection's task was cancelled, or the lookup was at stop.
       lookup:cancel()
@@ -843,7 +852,7 @@ end
 local function connect_any(run: Running, addresses: {string}, port: integer, deadline: integer,
                            label: string, name: string): Connected
   local failures: {string} = {}
-  local last: Refusal
+  local last: Refusal | nil
   for i, address in ipairs(addresses) do
     local left = i == 1 and run.timeouts.connect or deadline - Clock.monotonic_ns()
     if left <= 0 then
@@ -856,9 +865,10 @@ local function connect_any(run: Running, addresses: {string}, port: integer, dea
     failures[#failures + 1] = ("%s: %s"):format(target(address, port), trouble)
     last = connect_failure(label .. target(address, port), trouble)
   end
-  if #addresses == 1 then return { refused = last } end
+  local refused = assert(last, "connect_any is given an address to try")
+  if #addresses == 1 then return { refused = refused } end
   return { refused = refusal(("could not connect to %s%s: none of its addresses answered (%s)"):format(label,
-    target(name, port), table.concat(failures, "; ")), last.http, last.socks) }
+    target(name, port), table.concat(failures, "; ")), refused.http, refused.socks) }
 end
 
 --- The part of a CONNECT through an upstream the relay reads: its status
@@ -942,19 +952,20 @@ end
 local function tunnel(run: Running, req: Request, client: Net.Conn, far: Net.Conn, first: string,
                       sniff: Sniff | nil): string
   local idle = run.timeouts.idle
-  local ended = ""
-  local stamp = Clock.monotonic_ns()
+  local flow = { ended = "", stamp = Clock.monotonic_ns() }
   local function end_with(why: string)
-    if ended == "" then
-      ended = why
+    if flow.ended == "" then
+      flow.ended = why
       local _, _ = client:close()
       local _, _ = far:close()
     end
   end
   --- Pumps `from` to `to`; `check` is the sniff, for the client's side.
   local function pump(from: Net.Conn, to: Net.Conn, pending: string, check: Sniff | nil, name: string)
+    -- The check stands until the hello is judged.
+    local sniffed = { check = check }
     local function pass(data: string): boolean
-      stamp = Clock.monotonic_ns()
+      flow.stamp = Clock.monotonic_ns()
       if not send(to, data, idle) then
         end_with(name .. ": the other side stopped taking bytes")
         return false
@@ -962,14 +973,17 @@ local function tunnel(run: Running, req: Request, client: Net.Conn, far: Net.Con
       return true
     end
     local function take(data: string): boolean
-      if check == nil then return pass(data) end
+      local sniffing = sniffed.check
+      if sniffing == nil then return pass(data) end
       -- The hello's time starts at the program's first byte: a client that
       -- waits for a server that speaks first is not on the clock.
-      if check.deadline == 0 then check.deadline = Clock.monotonic_ns() + run.timeouts.head end
-      check.held = check.held .. data
-      local seen = check.reader:feed(data)
+      if sniffing.deadline == 0 then
+        sniffing.deadline = Clock.monotonic_ns() + run.timeouts.head
+      end
+      sniffing.held = sniffing.held .. data
+      local seen = sniffing.reader:feed(data)
       if seen.status == "more" then return true end
-      local ok, why = judged(check, seen, target(req.host, req.port))
+      local ok, why = judged(sniffing, seen, target(req.host, req.port))
       if not ok then
         run.log(("#%d %s %s: %s"):format(req.id, req.protocol, target(req.host, req.port), why))
         run.refused = run.refused + 1
@@ -977,16 +991,16 @@ local function tunnel(run: Running, req: Request, client: Net.Conn, far: Net.Con
         end_with("refused by the hello check")
         return false
       end
-      local held = check.held
-      check = nil
+      local held = sniffing.held
+      sniffed.check = nil
       return pass(held)
     end
     if pending ~= "" and not take(pending) then return end
-    while ended == "" do
-      local left = idle - (Clock.monotonic_ns() - stamp)
+    while flow.ended == "" do
+      local left = idle - (Clock.monotonic_ns() - flow.stamp)
       local hello_late = false
-      if check ~= nil and check.deadline ~= 0 then
-        local remaining = check.deadline - Clock.monotonic_ns()
+      if sniffed.check ~= nil and sniffed.check.deadline ~= 0 then
+        local remaining = sniffed.check.deadline - Clock.monotonic_ns()
         if remaining < left then left, hello_late = remaining, true end
       end
       if left <= 0 then
@@ -1003,7 +1017,7 @@ local function tunnel(run: Running, req: Request, client: Net.Conn, far: Net.Con
       end
       from:set_timeout(left)
       local data, why = from:read(CHUNK)
-      if ended ~= "" then return end
+      if flow.ended ~= "" then return end
       if data == nil then
         if why == "" then
           -- The side has ended what it sends: the other hears it as a half-close.
@@ -1021,15 +1035,15 @@ local function tunnel(run: Running, req: Request, client: Net.Conn, far: Net.Con
   local down = Poll.spawn(function() pump(far, client, first, nil, "from the far side") end)
   pump(client, far, req.leftover, sniff, "from the program")
   local _, _ = down:join()
-  if ended == "" then
-    ended = "both sides ended"
-  elseif not ended:find("hello", 1, true) then
+  if flow.ended == "" then
+    flow.ended = "both sides ended"
+  elseif not flow.ended:find("hello", 1, true) then
     -- A refused hello has its own line; any other early end gets this one.
-    run.log(("#%d %s %s: closed: %s"):format(req.id, req.protocol, target(req.host, req.port), ended))
+    run.log(("#%d %s %s: closed: %s"):format(req.id, req.protocol, target(req.host, req.port), flow.ended))
   end
   local _, _ = client:close()
   local _, _ = far:close()
-  return ended
+  return flow.ended
 end
 
 --- Why a connection that arrives now is refused outright, or "".
@@ -1071,6 +1085,9 @@ end
 local function serve_connection(run: Running, protocol: string, client: Net.Conn, id: integer, slot: Slot,
                                 over: string | nil)
   local req: Request = { id = id, protocol = protocol, client = client, host = "", kind = "name", port = 0, leftover = "" }
+  -- Why the connection is refused outright, "" when it is counted already,
+  -- nil until it has authenticated.
+  local admission = { over = over }
   local function reject(why: Refusal, replied: boolean)
     run.refused = run.refused + 1
     local at = req.host ~= "" and (" " .. target(req.host, req.port)) or ""
@@ -1086,7 +1103,7 @@ local function serve_connection(run: Running, protocol: string, client: Net.Conn
     close_refused(client)
   end
   local function authenticated()
-    if over == nil then over = admit(run, slot) end
+    if admission.over == nil then admission.over = admit(run, slot) end
   end
   local reading_until = Clock.monotonic_ns() + first_wait(run)
   local sniffed = ""
@@ -1107,7 +1124,8 @@ local function serve_connection(run: Running, protocol: string, client: Net.Conn
   if protocol == "connect" then
     local head, rest = read_connect(run, client, sniffed, reading_until)
     if head.status == "refused" then
-      reject(refusal(head.reason, head.http_status == 0 and 400 or head.http_status, "failure"), head.http_status ~= 0)
+      local status = assert(head.http_status)
+      reject(refusal(assert(head.reason), status == 0 and 400 or status, "failure"), status ~= 0)
       return
     end
     if run.token_digest ~= nil then
@@ -1129,13 +1147,13 @@ local function serve_connection(run: Running, protocol: string, client: Net.Conn
     req.host, req.kind, req.port, req.leftover = asked.host, asked.kind, asked.port, asked.leftover
   end
   local shown = target(req.host, req.port)
-  if over == nil then
+  if admission.over == nil then
     -- A relay with a token has admitted nothing that did not authenticate.
     reject(refusal("not authenticated", 407, "failure"), true)
     return
   end
-  if over ~= "" then
-    reject(refusal(over, 503, "failure"), true)
+  if admission.over ~= "" then
+    reject(refusal(admission.over, 503, "failure"), true)
     return
   end
   -- Step 2: the grants, before anything is resolved.

@@ -1,5 +1,5 @@
---- Proves the contextual typing of a function literal that patch/tl's
---- 37a through 37i add. A literal checked where a function type is
+--- Proves the contextual typing of a function literal that the checker
+--- ([`checker/tl.tl`]) gives. A literal checked where a function type is
 --- expected -- a call's argument, a declared local, an assignment, a
 --- table field, a return -- gives each parameter it leaves untyped the
 --- expected parameter type, and an omitted return list the expected
@@ -26,10 +26,7 @@ local importer = require("build.importer")
 local teal = require("build.teal")
 local work = require("build.work")
 
-local built, load_trouble = teal.load()
-if built == nil then
-  error("could not load the compiler: " .. tostring(load_trouble))
-end
+local built = assert(teal.load())
 
 --- Compiles `source` as the one module of a fresh fixture project:
 --- true, or false and what the compile refused.
@@ -141,7 +138,7 @@ while true do
    if k == "dir" then return true end
 end]] },
   { "do-while", "do while true do if k == \"dir\" then return true end end end" },
-  { "goto-back", "::top:: while true do if k == \"dir\" then return true end goto top end" },
+  { "goto-continue", "while true do if k == \"dir\" then return true end goto continue ::continue:: end" },
 }
 
 local function test_an_ending_block_or_endless_loop_needs_no_return(tmp: string)
@@ -155,8 +152,8 @@ end
 
 --- Each body that can still reach its end: a loop whose condition is
 --- not the literal that never ends it, one a `break` leaves (in its
---- body, an `if` or a `do` there), one a `goto` leaves for a label at
---- the end, a `for`, and a `do` whose body falls through.
+--- body, an `if` or a `do` there), one a `break` leaves after a
+--- `goto` continues, a `for`, and a `do` whose body falls through.
 local falling_bodies: {{string}} = {
   { "while-cond", "while k == \"dir\" do return true end" },
   { "while-break", "while true do if k == \"dir\" then break end return true end" },
@@ -164,7 +161,7 @@ local falling_bodies: {{string}} = {
   { "while-else-break", "while true do if k == \"dir\" then return true else break end end" },
   { "repeat-true", "repeat if k == \"dir\" then return true end until true" },
   { "repeat-break", "repeat if k == \"dir\" then break end until false" },
-  { "goto-out", "while true do if k == \"dir\" then goto out end end ::out::" },
+  { "goto-continue-break", "while true do if k == \"dir\" then goto continue end break ::continue:: end" },
   { "for", "for _ = 1, 2 do return true end" },
   { "forin", "for _ in pairs({}) do return true end" },
   { "do-falls", "do if k == \"dir\" then return true end end" },

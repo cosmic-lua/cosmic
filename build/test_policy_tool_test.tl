@@ -155,7 +155,7 @@ local function test_a_run_under_a_policy_passes_what_is_declared_and_fails_what_
   if unsandboxed(text) then return end
   assert(not ok, text)
   assert(names_policy_path(text), text)
-  assert(text:find("1 of 2 failed", 1, true), text)
+  assert(text:find("1 of 2 tests failed", 1, true), text)
   assert(text:find("FAIL  suite.held_test test_an_undeclared_read_fails", 1, true), text)
   assert(text:find("suite/secret.txt: No such file or directory", 1, true) and
       text:find("rerun: cosmic test suite/held_test.tl:", 1, true), text)
@@ -244,7 +244,7 @@ end
   if unsandboxed(text) then return end
   assert(not ok, text)
   assert(names_policy_path(text), text)
-  assert(text:find("1 of 2 failed", 1, true), text)
+  assert(text:find("1 of 2 tests failed", 1, true), text)
   assert(text:find("failed on purpose", 1, true), text)
   assert(text:find("its directory was a tmpfs of its worker's own, gone with it", 1, true), text)
   assert(not text:find("its directory is kept:", 1, true), text)
@@ -284,12 +284,12 @@ local function test_the_verdicts_of_a_sandboxed_and_an_unsandboxed_run_stand_apa
   local root = tmp .. "/root"
   suite_tree(root)
   local env = environment()
-  local step = 0
+  local step = { value = 0 }
   local function said(sandboxed: boolean, wanted: string): string
-    step = step + 1
+    step.value = step.value + 1
     env.COSMIC_TEST_SANDBOX = not sandboxed and "0" or nil
-    local text, ok = run(root, tmp .. "/run" .. step, env, { "suite/plain_test.tl" })
-    assert(ok and text:find(wanted, 1, true), step .. ": " .. text)
+    local text, ok = run(root, tmp .. "/run" .. step.value, env, { "suite/plain_test.tl" })
+    assert(ok and text:find(wanted, 1, true), step.value .. ": " .. text)
     return text
   end
   local first = said(true, "1 ran, 0 stood")
@@ -325,7 +325,7 @@ end
   local env = environment()
   local text, ok = run(root, tmp .. "/exec", env, { "--all" })
   if unsandboxed(text) then return end
-  assert(not ok and text:find("1 of 2 failed", 1, true), text)
+  assert(not ok and text:find("1 of 2 tests failed", 1, true), text)
   assert(text:find("FAIL  suite.plain_exec_test test_runs_the_core", 1, true), text)
   assert(text:find("Permission denied", 1, true), text)
   assert(not text:find("FAIL  suite.tool_exec_test", 1, true), text)

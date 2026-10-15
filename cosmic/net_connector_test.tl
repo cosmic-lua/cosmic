@@ -129,7 +129,7 @@ local function test_a_listener_received_over_a_socketpair_accepts_a_loopback_con
     task:cancel()
     -- Closing the adopted listener leaves the one it was copied from listening.
     assert(listener:close())
-    local again = assert(Net.connect(Net.tcp("127.0.0.1", bound.port), { timeout_ns = Clock.seconds(5) }))
+    local again = assert(Net.connect(Net.tcp("127.0.0.1", assert(bound.port)), { timeout_ns = Clock.seconds(5) }))
     assert(socket.wait(original:fd(), false, 5000))
     local accepted = assert(socket.accept(original:fd()))
     assert(accepted:close())
@@ -284,9 +284,9 @@ local function test_a_table_connector_serves_tasks_at_once()
   require_native_connector()
   Poll.run(function()
     local listener, task = echo_server()
-    local port = listener.address.port
+    local port = assert(listener.address.port)
     local connector = assert(Net.connector({ { host = "127.0.0.1", port = port } }))
-    local done = 0
+    local done = { value = 0 }
     local tasks: {Poll.Task} = {}
     for n = 1, 4 do
       tasks[n] = Poll.spawn(function()
@@ -295,11 +295,11 @@ local function test_a_table_connector_serves_tasks_at_once()
         assert(conn:write(tostring(n)))
         assert(assert(conn:read()) == tostring(n))
         assert(conn:close())
-        done = done + 1
+        done.value = done.value + 1
       end)
     end
     for n = 1, 4 do assert(tasks[n]:join()) end
-    assert(done == 4)
+    assert(done.value == 4)
     assert(connector:close())
     task:cancel()
     assert(listener:close())
@@ -328,8 +328,8 @@ local function test_a_fixed_connector_reaches_only_its_endpoints()
     local listener, task = echo_server()
     local other, other_task = echo_server()
     local connector = assert(Net.connector({ { host = "127.0.0.1", port = listener.address.port } }))
-    echo_through(assert(dial(connector, "127.0.0.1", listener.address.port, Clock.seconds(5))), "fixed")
-    local conn, why = dial(connector, "127.0.0.1", other.address.port, Clock.seconds(5))
+    echo_through(assert(dial(connector, "127.0.0.1", assert(listener.address.port), Clock.seconds(5))), "fixed")
+    local conn, why = dial(connector, "127.0.0.1", assert(other.address.port), Clock.seconds(5))
     assert(conn == nil and why:find("is not in the connector's table", 1, true) ~= nil, tostring(why))
     assert(connector:close())
     task:cancel()
@@ -344,14 +344,14 @@ local function test_a_public_only_connector_reaches_public_addresses_through_its
   local before = descriptor_count()
   Poll.run(function()
     local listener, task = echo_server()
-    local port = listener.address.port
+    local port = assert(listener.address.port)
     local connector = assert(Net.connector({}, { public = { deny = {} } }))
     for n = 1, 3 do
       echo_through(assert(dial(connector, "127.0.0.1", port, Clock.seconds(5))), "n" .. n)
     end
     -- A port that was free a moment ago: the connector's errno is the reason.
     local free = assert(Net.listen(Net.tcp("127.0.0.1", 0)))
-    local closed = free.address.port
+    local closed = assert(free.address.port)
     assert(free:close())
     local conn, why = dial(connector, "127.0.0.1", closed, Clock.seconds(5))
     assert(conn == nil and why:find("refused", 1, true) ~= nil, tostring(why))
@@ -395,7 +395,7 @@ local function test_a_connection_waits_as_its_call_asked()
   require_native_connector()
   Poll.run(function()
     local listener = assert(Net.listen(Net.tcp("127.0.0.1", 0)))
-    local port = listener.address.port
+    local port = assert(listener.address.port)
     local connector = assert(Net.connector({ { host = "127.0.0.1", port = port } }))
     local waiting = assert(dial(connector, "127.0.0.1", port, Clock.ms(200)))
     local started = Clock.monotonic_ns()
@@ -449,15 +449,15 @@ local function test_a_hung_connect_holds_up_no_other()
   Poll.run(function()
     local port, held = hung_port()
     local listener, task = echo_server()
-    local echo = listener.address.port
+    local echo = assert(listener.address.port)
     local connector = assert(Net.connector({
       { host = "127.0.0.1", port = port }, { host = "127.0.0.1", port = echo },
     }, { timeout_ns = Clock.seconds(30) }))
-    local hung: string
+    local hung = { value = nil as string | nil }
     local started = Clock.monotonic_ns()
     local hanging = Poll.spawn(function()
       local _, why = dial(connector, "127.0.0.1", port, Clock.ms(800))
-      hung = why
+      hung.value = why
     end)
     assert(Poll.delay(Clock.ms(50)))
     local tasks: {Poll.Task} = {}
@@ -474,11 +474,11 @@ local function test_a_hung_connect_holds_up_no_other()
     end
     for n = 1, 8 do assert(tasks[n]:join()) end
     local others = Clock.monotonic_ns() - started
-    assert(#done == 8 and hung == nil, "the others finished first")
+    assert(#done == 8 and hung.value == nil, "the others finished first")
     assert(others < Clock.ms(700), "the others waited for the hung connect: " .. others // Clock.ms(1) .. " ms")
     assert(hanging:join())
     local elapsed = Clock.monotonic_ns() - started
-    assert(hung == Poll.TIMEOUT, tostring(hung))
+    assert(hung.value == Poll.TIMEOUT, tostring(hung.value))
     assert(elapsed >= Clock.ms(790) and elapsed < Clock.seconds(3), elapsed // Clock.ms(1) .. " ms")
     -- The hung connect's reply came whole: the same stream serves on.
     assert(not connector:ended())
@@ -501,7 +501,7 @@ local function test_requests_past_the_flight_wait_for_room()
   Poll.run(function()
     local port, held = hung_port()
     local listener, task = echo_server()
-    local echo = listener.address.port
+    local echo = assert(listener.address.port)
     local connector = assert(Net.connector({
       { host = "127.0.0.1", port = port }, { host = "127.0.0.1", port = echo },
     }, { timeout_ns = Clock.seconds(30) }))
@@ -533,19 +533,19 @@ end
 --- Makes `count` connections at once with `connect`, each within 500 ms:
 --- how many were made, closed again.
 local function made_at_once(count: integer, connect: function(): Net.Conn | nil, string): integer
-  local made = 0
+  local made = { value = 0 }
   local tasks: {Poll.Task} = {}
   for i = 1, count do
     tasks[i] = Poll.spawn(function()
       local conn = connect()
       if conn ~= nil then
-        made = made + 1
+        made.value = made.value + 1
         assert(conn:close())
       end
     end)
   end
   for _, task in ipairs(tasks) do assert(task:join()) end
-  return made
+  return made.value
 end
 
 --- A connector with a table and public lists shares its flights between
@@ -573,9 +573,9 @@ local function keeps_flights_against(flooded: string)
     end
     local function other(): Net.Conn | nil, string
       if flooded == "table" then
-        return dial(connector, "127.0.0.1", public_echo.address.port, Clock.ms(500))
+        return dial(connector, "127.0.0.1", assert(public_echo.address.port), Clock.ms(500))
       end
-      return dial(connector, "127.0.0.1", table_echo.address.port, Clock.ms(500))
+      return dial(connector, "127.0.0.1", assert(table_echo.address.port), Clock.ms(500))
     end
     local hanging: {Poll.Task} = {}
     for n = 1, FLIGHT do
@@ -593,9 +593,9 @@ local function keeps_flights_against(flooded: string)
     -- Once the stalled connects end at the process, the kind is served again.
     assert(Poll.delay(STALL + Clock.ms(500)))
     assert(made_at_once(1, flooded == "table" and function(): Net.Conn | nil, string
-      return dial(connector, "127.0.0.1", table_echo.address.port, Clock.ms(500))
+      return dial(connector, "127.0.0.1", assert(table_echo.address.port), Clock.ms(500))
     end or function(): Net.Conn | nil, string
-      return dial(connector, "127.0.0.1", public_echo.address.port, Clock.ms(500))
+      return dial(connector, "127.0.0.1", assert(public_echo.address.port), Clock.ms(500))
     end) == 1)
     assert(connector:close())
     table_task:cancel()
@@ -620,16 +620,16 @@ local function test_closing_a_connector_wakes_a_request_in_flight()
     local port, held = hung_port()
     local connector = assert(Net.connector({ { host = "127.0.0.1", port = port } },
       { timeout_ns = Clock.seconds(30) }))
-    local answer: string
+    local answer = { value = nil as string | nil }
     local started = Clock.monotonic_ns()
     local waiting = Poll.spawn(function()
       local _, why = dial(connector, "127.0.0.1", port, Clock.seconds(20))
-      answer = why
+      answer.value = why
     end)
     assert(Poll.delay(Clock.ms(100)))
     assert(connector:close())
     assert(waiting:join(Clock.seconds(5)), "the request was left parked")
-    assert(answer:find("closed", 1, true) ~= nil, tostring(answer))
+    assert(tostring(answer.value):find("closed", 1, true) ~= nil, tostring(answer.value))
     assert(Clock.monotonic_ns() - started < Clock.seconds(3))
     for _, each in ipairs(held) do assert(each:close()) end
   end)
@@ -640,7 +640,7 @@ local function test_a_killed_request_leaves_the_connector_free()
   Poll.run(function()
     local port, held = hung_port()
     local listener, task = echo_server()
-    local echo = listener.address.port
+    local echo = assert(listener.address.port)
     local connector = assert(Net.connector({
       { host = "127.0.0.1", port = port }, { host = "127.0.0.1", port = echo },
     }, { timeout_ns = Clock.seconds(30) }))
@@ -663,7 +663,7 @@ local function test_a_connectors_table_is_a_copy()
   require_native_connector()
   Poll.run(function()
     local listener, task = echo_server()
-    local port = listener.address.port
+    local port = assert(listener.address.port)
     local given: {Net.Endpoint} = { { host = "127.0.0.1", port = port } }
     local connector = assert(Net.connector(given))
     given[1].host = "127.0.0.9"
@@ -719,7 +719,7 @@ local function test_a_public_connector_connects_to_an_address_its_table_lacks()
   local before = descriptor_count()
   Poll.run(function()
     local listener, task = echo_server()
-    local port = listener.address.port
+    local port = assert(listener.address.port)
     -- No test reaches a public host, so loopback stands in with an empty deny list.
     local bare = assert(Net.connector({}, { public = { deny = {} } }))
     echo_through(assert(dial(bare, "127.0.0.1", port, Clock.seconds(5))), "public")
@@ -735,7 +735,7 @@ local function test_a_public_connector_connects_to_an_address_its_table_lacks()
     local both = assert(Net.connector({ { host = "127.0.0.1", port = port } }, { public = { deny = {} } }))
     echo_through(assert(dial(both, "127.0.0.1", port, Clock.seconds(5))), "by address")
     local free = assert(Net.listen(Net.tcp("127.0.0.1", 0)))
-    local other = free.address.port
+    local other = assert(free.address.port)
     assert(free:close())
     local conn, why = dial(both, "127.0.0.1", other, Clock.seconds(5))
     assert(conn == nil and why:find("refused", 1, true) ~= nil, tostring(why))
@@ -756,8 +756,8 @@ local function test_a_full_table_and_the_public_lists_share_one_process()
     local rows: {Net.Endpoint} = { { host = "127.0.0.1", port = listener.address.port } }
     for i = 2, 128 do rows[i] = { host = "10.0.0." .. i, port = 80 } end
     local connector = assert(Net.connector(rows, { public = { deny = {} } }))
-    echo_through(assert(dial(connector, "127.0.0.1", listener.address.port, Clock.seconds(5))), "table")
-    echo_through(assert(dial(connector, "127.0.0.1", other.address.port, Clock.seconds(5))), "public")
+    echo_through(assert(dial(connector, "127.0.0.1", assert(listener.address.port), Clock.seconds(5))), "table")
+    echo_through(assert(dial(connector, "127.0.0.1", assert(other.address.port), Clock.seconds(5))), "public")
     assert(connector:close())
     task:cancel()
     other_task:cancel()
@@ -770,7 +770,7 @@ local function test_a_public_connector_refuses_what_its_lists_hold()
   require_native_connector()
   Poll.run(function()
     local listener, task = echo_server()
-    local port = listener.address.port
+    local port = assert(listener.address.port)
     for _, public in ipairs({ { deny = { "127.0.0.0/8" } }, { deny = {}, own = { "127.0.0.1" } },
         { deny = Relay.Address.deny_cidrs() } } as {Net.PublicOptions}) do
       local connector = assert(Net.connector({}, { public = public }))
@@ -795,7 +795,7 @@ local function test_a_public_connector_is_asked_nothing_it_was_not_started_for()
   -- A table connector with no public mode asks only its table.
   Poll.run(function()
     local listener, task = echo_server()
-    local port = listener.address.port
+    local port = assert(listener.address.port)
     local connector = assert(Net.connector({ { host = "127.0.0.1", port = port } }))
     local conn, trouble = dial(connector, "127.0.0.2", port, Clock.seconds(5))
     assert(conn == nil and trouble:find("is not in the connector's table", 1, true) ~= nil, tostring(trouble))

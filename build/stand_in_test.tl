@@ -435,7 +435,7 @@ local function test_the_stand_in_s_main_loads_as_a_built_program_s(tmp: string)
   local db = assert(Sqlite.open(path))
   local function one(sql: string): string
     local rows = assert(Sqlite.text_rows(db, sql))
-    return rows[1] and rows[1][1] or ""
+    return rows[1] and rows[1]:text(1) or ""
   end
   assert(one("SELECT value FROM meta WHERE key = 'main'") == "stand_in.main")
   assert(one("SELECT kind FROM modules WHERE path = 'stand_in.main'") == "main")

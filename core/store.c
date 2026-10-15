@@ -498,7 +498,7 @@ static int lookup (lua_State *L, sqlite3 *db, const char *sql,
 }
 
 /* One module's compiled bytes, for a caller that must load a chunk in
- * an environment of its own -- which is how the vendored compiler runs
+ * an environment of its own -- which is how the compiler runs
  * without the names the surface removed. */
 static int store_bytecode (lua_State *L) {
   const char *name = luaL_checkstring(L, 1);

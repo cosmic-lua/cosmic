@@ -13,10 +13,10 @@
 
 local exit_status = require("build.exit_status")
 local help_source = require("build.help_source")
-local verdict = require("build.verdict")
+local logger = require("build.logger")
 local type verb_spec = require("build.verb_spec")
 
-local log = verdict.log
+local log = logger.log
 
 -- Require modules lazily inside what needs them, so a verb's command line
 -- loads that verb's module alone ([`verb_list.find`]), and `-e`,
@@ -92,7 +92,10 @@ end
 
 --- What follows the list of bare verbs in the paragraph that names them,
 --- before the sentence each bare verb's spec gives for its exit codes.
-local help_verdict = "ends in a verdict line -- `fix: PASS (...)` or `fix: FAIL (...)` -- and an exit code: 0 when it passed; 1 when it failed; 2 when its command line was refused -- an option, an argument or a verb it does not know; 3 when the tool is older than the tree and did not rebuild itself (`COSMIC_AUTO_BOOT=0`, or a boot that failed). A file run, `--standalone` and `-e` are not verbs of that kind: each prints only what its program prints and exits with what it returns. `--version` is not one either: it prints its one line."
+local help_exit = "exits 0 when it passed; 1 when it failed; 2 when its command line was refused -- an option, an argument or a verb it does not know; 3 when the tool is older than the tree and did not rebuild itself (`COSMIC_AUTO_BOOT=0`, or a boot that failed). Its stdout is its result alone. Its stderr says what went wrong, and a run that passed ends there in a summary of how it went, `fix: 3 Teal files, 0 fixed, 12 ms`. `test`'s summary is its result instead, last on stdout once its tests ran, whether they passed or not: `test: 9 tests passed in 2 modules; ...` or `test: 2 of 9 tests failed, ...`."
+
+--- What `cosmic help exit` says of what is not a verb.
+local help_programs = "A file run, `--standalone` and `-e` are not verbs of that kind: each prints only what its program prints and exits with what it returns. `--version` is not one either: it prints its one line."
 
 --- `a`, `b` and `c`: the words in backticks, the last after "and".
 local function listed(names: {string}): string
@@ -168,27 +171,40 @@ local function spec_notes(verb: string, spec: verb_spec.Spec | nil): string
   paragraphs[#paragraphs + 1] = wrapped("Takes " .. spec.takes .. ".", help_width)
   if spec.exits ~= nil then
     paragraphs[#paragraphs + 1] = wrapped(spec.exits, help_width)
+  elseif verb == "test" then
+    paragraphs[#paragraphs + 1] = wrapped("Once its tests ran, ends its stdout in their summary, " ..
+        "`test: 9 tests passed in 2 modules; ...` or `test: 2 of 9 tests failed, ...`, and exits " ..
+        "as `cosmic help exit` says.", help_width)
+  elseif spec.summarizes_failure then
+    paragraphs[#paragraphs + 1] = wrapped("Ends a run with a summary on stderr, `" .. verb ..
+        ": ...`, whether it passed or failed, and exits as `cosmic help exit` says.", help_width)
   else
-    paragraphs[#paragraphs + 1] = wrapped("Ends in a verdict line, `" .. verb .. ": PASS (...)` or `" ..
-        verb .. ": FAIL (...)`, and an exit code: see `cosmic help exit`.", help_width)
+    paragraphs[#paragraphs + 1] = wrapped("Ends a run that passed with a summary on stderr, `" ..
+        verb .. ": ...`, and exits as `cosmic help exit` says.", help_width)
   end
   return table.concat(paragraphs, "\n\n")
 end
 
---- The text of `cosmic help exit`: the verdict line and exit codes the
---- verbs share, then how each verb that prints no verdict exits.
+--- The text of `cosmic help exit`: the exit codes and summary the verbs
+--- share, then how each bare verb exits.
 --- @param specs every verb's spec, in help's order
 local function exit_help(specs: {verb_spec.Spec}): string
   local bare: {string} = {}
+  local failing: {string} = {}
   local sentences: {string} = {}
   for _, spec in ipairs(specs) do
     if spec.bare then
       bare[#bare + 1] = spec.name
       sentences[#sentences + 1] = spec.exits or ""
     end
+    if spec.summarizes_failure then
+      failing[#failing + 1] = spec.name
+    end
   end
-  return wrapped("Every verb but " .. listed(bare) .. " " .. help_verdict .. " " ..
-      table.concat(sentences, " "), help_width) .. "\n"
+  return wrapped("Every verb but " .. listed(bare) .. " " .. help_exit .. " " ..
+      listed(failing) .. " end a failed run in one too: what it found nothing of, or what is left " ..
+      "to fix. " ..
+      help_programs .. " " .. table.concat(sentences, " "), help_width) .. "\n"
 end
 
 --- The text of `cosmic help <verb>`: the verb's docs, its options, then
@@ -272,7 +288,7 @@ local function index_help(): string
       "",
       "More:",
       "  cosmic help <verb>       a verb's full text, with its options",
-      "  cosmic help exit         verdict lines and exit codes",
+      "  cosmic help exit         exit codes and summaries",
       "  cosmic docs              every module of the standard library",
       "  cosmic docs <module>     a module, or a symbol such as Fs.read",
       "",
@@ -362,6 +378,7 @@ local function run(file: string, argv: {integer:string}): integer
   local tree = require("build.tree")
   local build_paths = require("build.paths")
   local work = require("build.work")
+  local workers = require("build.workers")
   local writer = require("build.writer")
   local root, trouble = root_of(file)
   if root == nil then
@@ -411,7 +428,7 @@ local function run(file: string, argv: {integer:string}): integer
   local database = build_paths.under(handle.dir).projection
 
   local result, compile_trouble = importer.compile(handle, built, tool, false,
-    shared_compiles.for_build())
+    shared_compiles.for_build(), workers.pool(workers.tool_spec()))
   if result == nil then
     local _, _ = work.record(handle, clock.elapsed_ms(started), staged, 0, 0, "FAIL")
     local _, _ = work.close(handle)
@@ -543,10 +560,10 @@ end
 
 --- `help` is dispatch's own spec (below): it prints the specs of every other
 --- verb, so it is declared here and set once `help` exists.
-local help_spec: verb_spec.Spec
+local help_spec: verb_spec.Spec | nil
 
 --- `cosmic help [verb | exit]`: the index, or one verb's full text, or the
---- exit codes, and a verdict line.
+--- exit codes, then its summary on stderr.
 --- @param asked the verb `cosmic <verb> --help` asked about, or nil to
 ---   read the words after `help` itself
 local function help(argv: {integer:string}, asked: string | nil): integer
@@ -562,7 +579,7 @@ local function help(argv: {integer:string}, asked: string | nil): integer
   if asked == "cache" or (asked == nil and argv[2] == "cache" and argv[3] == nil) then
     local spec = assert(verb_list.find("cache"))
     log:say(verb_text("cache", { spec }, verb_help({ "cache" }, true).cache) .. "\n")
-    log:verdict("help", true, "1 verb, " .. clock.took(started))
+    local _, _ = logger.summary("help", "1 verb, " .. clock.took(started))
     return 0
   end
   -- The staleness guard `test` applies: a fingerprint compare when the
@@ -585,14 +602,12 @@ local function help(argv: {integer:string}, asked: string | nil): integer
     local parsed, parse_trouble = require("cosmic.flags").parse(line, 2, { ["--help"] = { about = "the index" }, ["-h"] = { about = "the index" } })
     if parsed == nil then
       log:complain("help: " .. parse_trouble)
-      log:verdict("help", false, parse_trouble)
       return 2
     end
     words = parsed.words
   end
   if #words > 1 then
     log:complain("help: one verb at a time, not " .. #words)
-    log:verdict("help", false, "one verb at a time")
     return 2
   end
   if #words == 1 then
@@ -605,7 +620,6 @@ local function help(argv: {integer:string}, asked: string | nil): integer
     end
     if not known then
       log:complain("help: no such verb: " .. words[1])
-      log:verdict("help", false, "no such verb: " .. words[1])
       return 2
     end
     local specs = verb_list.specs()
@@ -615,11 +629,11 @@ local function help(argv: {integer:string}, asked: string | nil): integer
     else
       log:say(verb_text(words[1], specs) .. "\n")
     end
-    log:verdict("help", true, "1 verb, " .. clock.took(started))
+    local _, _ = logger.summary("help", "1 verb, " .. clock.took(started))
     return 0
   end
   log:say(index_help())
-  log:verdict("help", true, plural.count(#Cli.order, "verb") .. ", " .. clock.took(started))
+  local _, _ = logger.summary("help", plural.count(#Cli.order, "verb") .. ", " .. clock.took(started))
   return 0
 end
 
@@ -631,14 +645,14 @@ help_spec = {
     return help(argv, nil)
   end,
   bare = false,
+  recheck_on_refusal = false,
   takes = "a verb, or `exit`",
 }
 
 --- The spec of the verb a command line's first word names, loading the
---- module of that verb alone, or nil for a word that names none. Every
---- verb but the bare ones ([`Spec.bare`]) ends in a verdict line: their
---- exit status is the verdict, and a usage error is complained about and
---- nothing more. build/json.tl says why.
+--- module of that verb alone, or nil for a word that names none. A bare
+--- verb ([`Spec.bare`]) prints no summary, its output being data:
+--- build/json.tl says why.
 local function spec_of(word: string): verb_spec.Spec | nil
   local verb_list = require("build.verb_list")
   if word == "help" then
@@ -658,22 +672,15 @@ local function spec_of(word: string): verb_spec.Spec | nil
         return inner(argv)
       end,
       bare = found.bare,
+      fresh = found.fresh,
+      recheck_on_refusal = found.recheck_on_refusal,
+      summarizes_failure = found.summarizes_failure,
       takes = found.takes,
       guide = found.guide,
       tests = found.tests,
     }
   end
   return found
-end
-
---- What a verdict line a verb did not give itself says of its exit code.
-local function detail_of(code: integer): string
-  if code == 2 then
-    return "usage: see `cosmic help`"
-  elseif code == 3 then
-    return "the tool is stale"
-  end
-  return ""
 end
 
 local dispatch = {}
@@ -766,6 +773,7 @@ function dispatch.main(argv: {integer:string}): integer
   if chosen ~= nil and verb ~= "help" and Flags.asks_help(own, 2, options) then
     -- `cosmic <verb> --help` is `cosmic help <verb>`.
     local asked = verb
+    local own_spec = assert(help_spec, "help's spec is set before a verb is dispatched")
     verb = "help"
     chosen = {
       name = "help",
@@ -773,9 +781,10 @@ function dispatch.main(argv: {integer:string}): integer
         return help(line, asked)
       end,
       bare = false,
-      takes = help_spec.takes,
-      guide = help_spec.guide,
-      tests = help_spec.tests,
+      recheck_on_refusal = false,
+      takes = own_spec.takes,
+      guide = own_spec.guide,
+      tests = own_spec.tests,
     }
   end
   if chosen ~= nil and verb ~= "help" then
@@ -803,11 +812,8 @@ function dispatch.main(argv: {integer:string}): integer
     end
   end
   if chosen ~= nil then
-    -- A verb gives its own verdict wherever it has one to give; an exit
-    -- it left without one -- its command line refused, a setup failure,
-    -- a stale tool -- still ends in one here.
     local code = chosen.run(argv)
-    if code == 2 and not verdict.given and not chosen.bare then
+    if code == 2 and not chosen.bare and not chosen.fresh and chosen.recheck_on_refusal ~= false then
       -- A verb may read its command line before it checks the tool is
       -- as new as the tree, and an option the tree added is one a stale
       -- tool refuses: it rebuilds and runs the line again here instead.
@@ -821,9 +827,6 @@ function dispatch.main(argv: {integer:string}): integer
       if stale ~= nil then
         code = stale
       end
-    end
-    if not verdict.given and not chosen.bare then
-      log:verdict(verb, code == 0, detail_of(code))
     end
     return code
   end

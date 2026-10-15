@@ -143,7 +143,7 @@ end
 --- reduces to `""`, which [`catalog_of`] treats as nothing to catalog --
 --- there is no text a person's error could ever contain to match it
 --- against.
-local function static_text(node: ast.Node): string
+local function static_text(node: ast.Node | nil): string
   if node == nil then
     return ""
   end
@@ -202,7 +202,7 @@ end
 --- trailing the code before it ([`trails_code`]) is not part of the run
 --- it starts. One line per comment line, leaders stripped, so a
 --- paragraph break survives.
-local function doc_before(lines: {string}, all: {compiler.Comment}, line: integer): string
+local function doc_before(lines: {string}, all: {compiler.Comment} | nil, line: integer): string
   if all == nil or #all == 0 then
     return ""
   end
@@ -467,10 +467,11 @@ local function catalog_of(built: compiler, parsed: ast.Parsed): {analyzer.Catalo
   end
   local out: {analyzer.CatalogEntry} = {}
   for _, stmt in ipairs(parsed.node) do
+    local body = stmt.body
     if (stmt.kind == "local_function" or stmt.kind == "record_function") and
-        stmt.body ~= nil then
+        body ~= nil then
       local symbol = symbol_of(stmt)
-      for _, entry in ipairs(catalog_in_body(stmt.body, patterns, symbol)) do
+      for _, entry in ipairs(catalog_in_body(body, patterns, symbol)) do
         out[#out + 1] = entry
       end
     end
@@ -571,12 +572,12 @@ local record_docs: function(lines: {string}, tokens: {compiler.Token}, symbol: s
 --- their signature keeps the keyword, as the source spells it.
 local function fields_docs(lines: {string}, tokens: {compiler.Token}, symbol: string,
                            order: {string}, fields: {string: ast.TypeNode},
-                           field_comments: {string: {{compiler.Comment}}},
+                           field_comments: {string: {{compiler.Comment}}} | nil,
                            metamethod: boolean, out: {analyzer.DocEntry})
   for _, name in ipairs(order) do
     local field = fields[name]
     if field ~= nil then
-      local comments: {compiler.Comment} = nil
+      local comments: {compiler.Comment} | nil = nil
       if field_comments ~= nil then
         local lists = field_comments[name]
         if lists ~= nil then
@@ -706,6 +707,7 @@ local function docs_of(lines: {string}, parsed: ast.Parsed): {analyzer.DocEntry}
       end
     elseif stmt.kind == "local_declaration" and stmt.vars ~= nil and
         stmt.vars[1] ~= nil then
+      local first = stmt.vars[1]
       local text = doc_before(lines, stmt.comments, stmt.y)
       -- The run above the file's first `local` is the module's (see
       -- [`module_doc`]), never that value's.
@@ -713,7 +715,7 @@ local function docs_of(lines: {string}, parsed: ast.Parsed): {analyzer.DocEntry}
         text = ""
       end
       if #text > 0 then
-        local symbol = stmt.vars[1].tk or ""
+        local symbol = first.tk or ""
         out[#out + 1] = { symbol = symbol, source_symbol = symbol,
           exported = false, kind = "value",
           signature = line_at(lines, stmt.y), text = text, line = stmt.y }
@@ -863,13 +865,14 @@ local function canonicalize_docs(entries: {analyzer.DocEntry}, parsed: ast.Parse
       local public_source = export .. "." .. fn_name.tk
       members[public_source] = public_source
     elseif stmt.kind == "assignment" and stmt.vars ~= nil then
+      local targets = stmt.vars
       local rhs_values: {string} = {}
-      for index in ipairs(stmt.vars) do
+      for index in ipairs(targets) do
         local rhs = stmt.exps ~= nil and stmt.exps[index] or nil
         rhs_values[index] = rhs ~= nil and rhs.kind == "variable" and
           rhs.tk ~= nil and (values[rhs.tk] or "") or ""
       end
-      for index, lhs in ipairs(stmt.vars) do
+      for index, lhs in ipairs(targets) do
         local member = lhs.e2
         if lhs.kind == "op" and lhs.op ~= nil and lhs.op.op == "." and
             lhs.e1 ~= nil and lhs.e1.kind == "variable" and
@@ -901,7 +904,7 @@ local function canonicalize_docs(entries: {analyzer.DocEntry}, parsed: ast.Parse
     local implementations = implementation_name ~= "" and by_source[implementation_name] or nil
     local implementation = implementations ~= nil and implementations[#implementations] or nil
     local candidates = by_source[public_source] or {}
-    local public: analyzer.DocEntry = nil
+    local public: analyzer.DocEntry | nil = nil
     -- A declared record field is the stable surface row. When a callable
     -- implementation is known it lends this row its docs and location; every
     -- overwritten callable declaration remains inspectable but private.
@@ -979,16 +982,13 @@ local function uses_of(root: ast.Node, used: {string: boolean})
   local function bind(name: string | nil)
     if name ~= nil then stack[#stack][name] = true end
   end
-  local walk: function(ast.Node)
-  local function walk_all(list: ast.Node | nil)
-    if list ~= nil then walk(list) end
-  end
-  walk = function(n: ast.Node)
+  local function walk(n: ast.Node | nil)
+    if n == nil then return end
     local kind = n.kind
     if kind == "variable" then
       if n.tk ~= nil and not bound(n.tk) then used[n.tk] = true end
     elseif kind == "local_declaration" then
-      walk_all(n.exps)
+      walk(n.exps)
       for _, var in ipairs(n.vars or {}) do bind(var.tk) end
     elseif kind == "local_type" then
       bind(n.var ~= nil and n.var.tk or nil)
@@ -997,23 +997,23 @@ local function uses_of(root: ast.Node, used: {string: boolean})
       if kind == "local_function" and n.name ~= nil then bind(n.name.tk) end
       stack[#stack + 1] = {}
       for _, parameter in ipairs(n.args or {}) do bind(parameter.tk) end
-      walk_all(n.body)
+      walk(n.body)
       stack[#stack] = nil
     elseif kind == "fornum" or kind == "forin" then
-      walk_all(n.from)
-      walk_all(n.to)
-      walk_all(n.step)
-      walk_all(n.exps)
+      walk(n.from)
+      walk(n.to)
+      walk(n.step)
+      walk(n.exps)
       stack[#stack + 1] = {}
       bind(n.var ~= nil and n.var.tk or nil)
       for _, var in ipairs(n.vars or {}) do bind(var.tk) end
-      walk_all(n.body)
+      walk(n.body)
       stack[#stack] = nil
     elseif kind == "repeat" then
       -- Lua keeps the body's locals in scope through `until`.
       stack[#stack + 1] = {}
       for _, stmt in ipairs(n.body or {}) do walk(stmt) end
-      walk_all(n.exp)
+      walk(n.exp)
       stack[#stack] = nil
     elseif kind == "statements" then
       stack[#stack + 1] = {}
@@ -1380,7 +1380,7 @@ end
 
 --- Whether `node` names [`Test.policy`] through one of `names`, the locals
 --- a chunk binds `require("cosmic.test")` to.
-local function names_policy(node: ast.Node, names: {string:boolean}): boolean
+local function names_policy(node: ast.Node | nil, names: {string:boolean}): boolean
   local index = node ~= nil and node.kind == "op" and node.op or nil
   local base: ast.Node = node ~= nil and node.e1 or nil
   local member: ast.Node = node ~= nil and node.e2 or nil
@@ -1392,7 +1392,7 @@ local function names_policy(node: ast.Node, names: {string:boolean}): boolean
 end
 
 --- Whether `node` is `require("cosmic.test")`.
-local function requires_test(node: ast.Node): boolean
+local function requires_test(node: ast.Node | nil): boolean
   local call = node ~= nil and node.kind == "op" and node.op or nil
   local callee: ast.Node = node ~= nil and node.e1 or nil
   local args: ast.Node = node ~= nil and node.e2 or nil
@@ -1768,9 +1768,9 @@ local function inputs_of(parsed: ast.Parsed): analyzer.Declared | nil, string
     return (node.f or "") .. ":" .. tostring(node.y) .. ": test.policy: "
   end
   local names: {string:boolean} = {}
-  local found: ast.Node = nil
+  local found: ast.Node | nil = nil
   local callees: {ast.Node:boolean} = {}
-  local jump: ast.Node = nil
+  local jump: ast.Node | nil = nil
   for _, stmt in ipairs(parsed.node) do
     if stmt.kind == "local_declaration" and stmt.vars ~= nil then
       for i, var in ipairs(stmt.vars) do
@@ -1796,14 +1796,14 @@ local function inputs_of(parsed: ast.Parsed): analyzer.Declared | nil, string
       "that declares its policy jumps nowhere at its top level, so the call is always made"
   end
   -- `policy` reached any other way than that one statement.
-  local elsewhere: ast.Node = nil
+  local elsewhere: {ast.Node} = {}
   ast.walk(parsed.node, function(node: ast.Node)
-    if elsewhere == nil and names_policy(node, names) and not callees[node] then
-      elsewhere = node
+    if #elsewhere == 0 and names_policy(node, names) and not callees[node] then
+      elsewhere[1] = node
     end
   end)
-  if elsewhere ~= nil then
-    return nil, at(elsewhere) .. "call it as a statement at the module's top level, " ..
+  if elsewhere[1] ~= nil then
+    return nil, at(elsewhere[1]) .. "call it as a statement at the module's top level, " ..
       "on the name the module binds require(\"cosmic.test\") to, and nowhere else"
   end
   if found == nil then return nil, "" end

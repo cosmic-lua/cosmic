@@ -105,7 +105,7 @@ local function test_a_sandboxed_worker_is_held_by_a_ruleset_and_refused_a_root_o
   env[confine.held_variable] = nil
   local text, ok = run(root, tmp .. "/sandboxed", env, { "--all" })
   if unsandboxed(text) then return end
-  assert(not ok and text:find("(2 of 3 failed", 1, true), text)
+  assert(not ok and text:find("2 of 3 tests failed", 1, true), text)
   local refused = fixture.refusal("suite.held_test")
   assert(failure_of(text, "held_test", "test_confined") == refused, text)
   assert(failure_of(text, "held_test", "test_own_sandbox") == refused, text)

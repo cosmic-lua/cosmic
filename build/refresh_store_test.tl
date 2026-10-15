@@ -78,7 +78,7 @@ local function carried(path: string): Sqlite.Handle
   return (assert(Sqlite.open(path .. ".db")))
 end
 
-local function rows(db: Sqlite.Handle, sql: string): {{string}}
+local function rows(db: Sqlite.Handle, sql: string): Sqlite.Rows
   return (assert(Sqlite.text_rows(db, sql)))
 end
 
@@ -130,17 +130,17 @@ local function test_a_new_bundle_replaces_the_roots(tmp: string)
   local file = tmp .. "/smaller.pem"
   assert(Fs.write(file, smaller))
   local before = carried(path)
-  local count = math.tointeger(tonumber(rows(before, "SELECT count(*) FROM ca_roots")[1][1]))
+  local count = math.tointeger(tonumber(rows(before, "SELECT count(*) FROM ca_roots")[1]:text(1)))
   assert(before:close())
 
   local out = tmp .. "/refreshed"
   assert(refresh.binary(path, out, { datasets.cacert }, { cacert = file }))
   local after = carried(out)
-  assert(rows(after, "SELECT count(*) FROM ca_roots")[1][1] == tostring(count - 1))
+  assert(rows(after, "SELECT count(*) FROM ca_roots")[1]:text(1) == tostring(count - 1))
   local component = rows(after, "SELECT version, url, sha256 FROM components WHERE name = 'cacert'")[1]
-  assert(component[1] == pinned("cacert"), component[1])
-  assert(component[2] == "file:smaller.pem", component[2])
-  assert(component[3] == Hash.hex_sha256(smaller), component[3])
+  assert(component:text(1) == pinned("cacert"), component:text(1))
+  assert(component:text(2) == "file:smaller.pem", component:text(2))
+  assert(component:text(3) == Hash.hex_sha256(smaller), component:text(3))
   assert(after:close())
 
   local ran = assert(Child.run({ out }, { stdout = "capture",
@@ -170,11 +170,11 @@ local function test_a_tzdata_sdist_replaces_the_zones(tmp: string)
   local was, now = rows(before, query), rows(after, query)
   assert(#now == #was, #now .. " zones, not " .. #was)
   for i, row in ipairs(was) do
-    assert(now[i][1] == row[1] and now[i][2] == row[2] and now[i][3] == row[3], row[2])
+    assert(now[i]:text(1) == row:text(1) and now[i]:text(2) == row:text(2) and now[i]:text(3) == row:text(3), row:text(2))
   end
   local component = rows(after, "SELECT version, sha256 FROM components WHERE name = 'tzdata'")[1]
-  assert(component[1] == "2099.1", component[1])
-  assert(component[2] == Hash.hex_sha256((assert(Fs.read(archive)))), component[2])
+  assert(component:text(1) == "2099.1", component:text(1))
+  assert(component:text(2) == Hash.hex_sha256((assert(Fs.read(archive)))), component:text(2))
   assert(before:close())
   assert(after:close())
 end
@@ -230,6 +230,7 @@ local function test_the_command_line_is_refused_by_name(tmp: string)
   -- Not a usage error, but never done: the binary it reads is not written.
   local itself = invoke.run({ "refresh", "-o", path, "--binary", path, "--cacert", pem }, { cwd = tmp })
   assert(itself.code == 1 and itself.stderr:find("never written", 1, true), itself.stderr)
+  assert(not itself.stderr:find("\nrefresh: ", 1, true), "a failure was summarized: " .. itself.stderr)
   local result = invoke.run({ "refresh", "-o", tmp .. "/out", "--binary", path, "--cacert", pem },
     { cwd = tmp })
   assert(result.code == 0, result.stderr)

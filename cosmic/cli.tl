@@ -116,7 +116,9 @@ local record Cli
   --- any checkout compiled or parsed the same, through
   --- $XDG_CACHE_HOME/cosmic/build (~/.cache/cosmic/build):
   --- COSMIC_BUILD_CACHE names another file, and COSMIC_BUILD_CACHE=0
-  --- turns it off.
+  --- turns it off. What is left to parse and compile is done by worker
+  --- processes when there is much of it, one fewer than the processors:
+  --- COSMIC_BUILD_JOBS names another count, and 1 turns them off.
   ---
   --- The tree is the working directory, unless no build of it has
   --- written its projection (cosmic.db in its build directory, as `run`
@@ -147,8 +149,9 @@ local record Cli
   --- `cosmic build [options] [path...]`: builds the tree in the working
   --- directory, then writes one executable in its build directory's
   --- bin/ for each cmd/<name>/main.tl it holds -- or only those under
-  --- the paths -- bin/<name>, whose path it prints -- see cmd. The
-  --- build directory is $XDG_CACHE_HOME/cosmic/trees/<key> (the
+  --- the paths -- bin/<name>, whose path it prints on a line of its own
+  --- on stdout -- see cmd. The build directory is
+  --- $XDG_CACHE_HOME/cosmic/trees/<key> (the
   --- home directory's .cache/cosmic/trees/<key>), <key> the SHA-256 of
   --- the project root's canonical path, so the file is
   --- <that>/bin/<name>; COSMIC_BUILD_HOME=/absolute/path puts the
@@ -183,7 +186,7 @@ local record Cli
   --- bytes and builds are not per source, so a narrowed report leaves
   --- them out. The tree is found as `test` finds it
   db: string
-  --- `cosmic sql [--db <path> | --build | --store] <statement>`: runs
+  --- `cosmic sql [--db <path> | --build | --store] [--to csv|ndjson] <statement>`: runs
   --- one SQL statement read-only -- SQLite itself refuses a write --
   --- against the projection in the build directory, or the binary's own
   --- database when there is none, or the one database an option names.
@@ -223,8 +226,19 @@ local record Cli
   --- none); each row after is one line of
   --- tab-separated cells: NULL as \N, a blob as X'<hex>',
   --- and in text a backslash, tab, newline or return as \\, \t, \n or
-  --- \r and any other control byte as \xHH. The verdict line comes
-  --- after the rows, as every verb's last line. Exits 0 when the
+  --- \r and any other control byte as \xHH; the summary goes to
+  --- stderr. `--to` writes the rows in another format. `--to csv`
+  --- quotes as RFC 4180 does, each record ended by LF: a header of the column names first, NULL an empty
+  --- field and '' a quoted empty one (so a one-column NULL is a blank
+  --- line, which a CSV reader may drop), a blob's bytes as they are.
+  --- `--to ndjson` writes a JSON object per row, its members the columns
+  --- in order, a repeated name given `_2`; a result of one column named
+  --- `_json`, as `--from` gives each row, is written as that object's
+  --- text, which holds the row's members with its keys in byte order.
+  --- A blob, an infinity, text or a name that is not UTF-8, or a `_json`
+  --- that is not one, fails the statement, naming the row. `--to` takes
+  --- a statement, not the description no statement gives.
+  --- Exits 0 when the
   --- statement ran, rows or none; 1 when the
   --- database or the statement failed, a write among them; 2 for a
   --- command line it cannot read. Nothing is built or staged.
@@ -277,7 +291,7 @@ local record Cli
   --- "/users/4"`; a query of many that matches nothing: `<query>: no
   --- match`; a `null` value is found), 2 for a command line or a path it
   --- cannot read, or a file that is missing or not JSON. It prints no
-  --- verdict line, which would be in the data a pipe reads
+  --- summary: its output is the data a pipe reads
   json: string
   --- `cosmic hash [options] [file|-]...`: the digest of each file, or of
   --- standard input for `-` or no file, printed as `sha256sum` prints
@@ -308,7 +322,7 @@ local record Cli
   --- command line shows in `ps` and the shell's history. Every
   --- algorithm has an HMAC, and it streams too; `--json` names it
   --- `hmac-sha256` and the like, and `--check` verifies HMACs when
-  --- given a key. It prints no verdict line: its output is data. Exits 0
+  --- given a key. It prints no summary: its output is data. Exits 0
   --- when all is well, 1 when a check failed or a listed file could not
   --- be read, 2 for a command line, a file to hash, a sums file (a
   --- malformed line among them) or a write to standard output it cannot
@@ -328,7 +342,7 @@ local record Cli
   --- Writers must remain stopped through maintenance and the caller's save.
   --- An incomplete WAL checkpoint, read or write suppresses the save digest.
   --- Exit 0 means complete, 1 incomplete maintenance, and 2 a refused command
-  --- line. Diagnostics go to stderr; no verdict line is printed.
+  --- line. Diagnostics go to stderr; no summary is printed.
   cache: string
   --- `cosmic archive list|extract|create`: the zip and tar files a
   --- release ships, with no script. `list <file>|-` prints one entry
@@ -356,8 +370,8 @@ local record Cli
   --- working directory; a fifo, socket or device is refused, named,
   --- wherever it is found. A symlink is stored as a link in both
   --- formats; a zip tool that ignores Unix attributes extracts the
-  --- target's text as a file. Prints no verdict
-  --- line, its output being data for a pipe. Exits 0 when done, 1 for a
+  --- target's text as a file. Prints no summary, its output being data
+  --- for a pipe. Exits 0 when done, 1 for a
   --- member or a path that is not there or files it would overwrite, 2
   --- for a command line, an archive it cannot read or one it refuses
   --- to unpack. See also `cosmic json`
@@ -389,7 +403,7 @@ local record Cli
   --- N` (int, pick, shuffle only) draws from `Rand.new(N)` instead, so
   --- a test or a script can replay it: that output is NOT secret, and
   --- `--seed` is refused with uuid and token. Its standard output is
-  --- data and ends in no verdict line. Exits 0 when it printed,
+  --- data, and it prints no summary. Exits 0 when it printed,
   --- 1 when the entropy source failed, 2 for a command line, a file or a
   --- request it refuses, or a failed write to standard output
   rand: string
@@ -415,7 +429,7 @@ local record Cli
   --- duration reads months as `--clamp` does, on `--zone`'s calendar or the
   --- first time's own; `--seconds` is elapsed time.
   --- `--json` prints one record: epoch, rfc3339, zone, offset and the
-  --- civil fields. It prints no verdict line, as `json` does: exit 0
+  --- civil fields. It prints no summary, as `json` does: exit 0
   --- done, 1 an `add` with no answer, 2 a command line, time, duration
   --- or zone it cannot read
   time: string
@@ -434,8 +448,8 @@ local record Cli
   --- must be padded with `=` and base64url must not be, as each is
   --- written; `--lenient` accepts the other spelling (missing padding on
   --- base64, `=` padding on base64url) and is refused for hex. The whole
-  --- input is read at once. It prints no verdict line, which would be in
-  --- the data a pipe reads; exits 0 when done, 2 for a command line, an
+  --- input is read at once. It prints no summary: its output is the data
+  --- a pipe reads; exits 0 when done, 2 for a command line, an
   --- input or a write it cannot honor
   codec: string
   --- `cosmic fetch <url[#sha256=hex]> [-o file] [--sha256 hex] [--sha512 hex] [--allow-downgrade] [--head [--json]]`: one
@@ -466,8 +480,8 @@ local record Cli
   --- failure (exit 1); a digest there buffers the whole body, uncapped. Certificates are always
   --- verified: there is no option that turns it off. GET only, by
   --- design: for a header, a body or another method write the script
-  --- with [`cosmic.http`]. It prints no verdict line, which would be in
-  --- the body a pipe reads. Exits 0 when the body was delivered, 1 when
+  --- with [`cosmic.http`]. It prints no summary: its output is the body
+  --- a pipe reads. Exits 0 when the body was delivered, 1 when
   --- the fetch failed (no connection, a bad status, a digest that does
   --- not match, a body that broke off, an `-o` write that failed), 2 for a command line, a URL or
   --- a write to standard output it cannot use
@@ -501,7 +515,8 @@ local record Cli
   --- `cosmic bom [--licenses | --json <path>]`: the bill of materials
   --- this binary ships under -- every third-party component its cores
   --- and database carry, one line each: name, version, license, and
-  --- how many patches cosmic applies to it -- or, for data (the CA
+  --- how many patches cosmic applies to it, or the files of the tree that
+  --- stand in for it (`modified:`) -- or, for data (the CA
   --- roots, the time zones), that `cosmic refresh` updates it. `--licenses` prints the
   --- notices those licenses ask a copy to travel with; `--json` writes
   --- the list as a CycloneDX document instead. An executable `cosmic
@@ -645,7 +660,7 @@ local record Cli
   --- from, an index of every verb, one line each, and where to read
   --- more. `cosmic help <verb>`
   --- prints that verb's full text, options and exit codes. `cosmic help
-  --- exit` prints the verdict lines and exit codes every verb shares.
+  --- exit` prints the exit codes and summary every verb shares.
   --- `cosmic <verb> --help` is `cosmic help <verb>`
   help: string
 end
@@ -710,6 +725,10 @@ local module: Module = {
         ["--census"] = { about = "say the digests every key of the run holds, and where none " ..
             "stood on the shared cache, how many rows it holds, even in a checkout " ..
             "that ran before" },
+        ["--check-types"] = { about = "compile the tree with a run-time check of each declared " ..
+            "parameter, return value and record field write against its type's kind, run every " ..
+            "test, and report the values that fail one; reporting only, no verdict changes " ..
+            "(COSMIC_TEST_CHECK_TYPES=1)" },
         ["--jobs"] = { value = "n", about = "run n tests at once; one per processor by default" },
         ["--shard"] = { value = "i/n", about = "run only the i-th of n shares of the chosen " ..
             "tests, dealt in turn in sorted order, so n runs, i = 1 to n, run each test once" },
@@ -752,6 +771,7 @@ local module: Module = {
             "no number is read, an empty cell is '' not NULL" },
         ["--at"] = { value = "path", about = "read the --from before it from the array at this " ..
             "JSONPath ($.data.rows), not the document" },
+        ["--to"] = { value = "format", about = "write the rows as csv or ndjson" },
       },
     },
     cache = {

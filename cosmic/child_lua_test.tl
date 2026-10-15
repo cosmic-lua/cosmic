@@ -187,12 +187,12 @@ end
 local function test_a_child_exiting_as_a_wait_ends_it_is_reaped()
   local h <close> = assert(Child.start(lua(sleep(30000))))
   local kill = sys.kill
-  local refused = false
+  local refused = { value = false }
   local ok, trouble: boolean, any = pcall(function()
     sys.kill = function(pid: integer, signal: integer): boolean, string, integer
       -- The child leads its group, which the handle signals.
-      if pid == -h.pid and signal == sys.SIGTERM and not refused then
-        refused = true
+      if pid == -h.pid and signal == sys.SIGTERM and not refused.value then
+        refused.value = true
         assert(kill(pid, signal))
         return false, "No such process", sys.ESRCH
       end
@@ -204,7 +204,7 @@ local function test_a_child_exiting_as_a_wait_ends_it_is_reaped()
   end)
   sys.kill = kill
   assert(ok, tostring(trouble))
-  assert(refused and not sys.kill(h.pid, 0), "the child is reaped")
+  assert(refused.value and not sys.kill(h.pid, 0), "the child is reaped")
 end
 
 -- The `/bin/sh` a refusal case in this module names is never started:

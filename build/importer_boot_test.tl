@@ -25,10 +25,7 @@ local function build_dir(root: string): string
   return (assert(build_paths.prepare(root)))
 end
 
-local built, load_trouble = teal.load()
-if built == nil then
-  error("could not load the compiler: " .. tostring(load_trouble))
-end
+local built = assert(teal.load())
 
 --- A boot carries no database and runs the tree's own code, so it names
 --- the analyzer by the tree ([`importer.tree_code`]). It must name it as
@@ -85,14 +82,14 @@ local function test_a_boot_names_its_analyzer_as_the_tool_it_writes()
   local compiled_by = assert(Sqlite.text_rows(out,
     "SELECT value FROM meta WHERE key = 'compiler'"))
   local binary: importer.Code = {
-    compiler = compiled_by[1][1],
+    compiler = compiled_by[1]:text(1),
     requires = function(name: string): {string} | nil, string
       local rows, trouble = Sqlite.text_rows(out,
         "SELECT requires FROM imports WHERE path = ?1 ORDER BY requires",
         { { text = name } })
       if rows == nil then return nil, trouble end
       local names: {string} = {}
-      for _, row in ipairs(rows) do names[#names + 1] = row[1] end
+      for _, row in ipairs(rows) do names[#names + 1] = row:text(1) end
       return names, ""
     end,
     source = function(name: string): string | nil, string
@@ -101,7 +98,7 @@ local function test_a_boot_names_its_analyzer_as_the_tool_it_writes()
           "SELECT CAST(inflate(source) AS TEXT) FROM " .. table_name ..
             " WHERE path = ?1", { { text = name } })
         if rows == nil then return nil, trouble end
-        if #rows > 0 then return rows[1][1], "" end
+        if #rows > 0 then return rows[1]:text(1), "" end
       end
       return nil, "no module '" .. name .. "' in the binary"
     end,
@@ -143,7 +140,7 @@ local function test_a_boot_names_its_analyzer_as_the_tool_it_writes()
     local planted = assert(Sqlite.text_rows(again.db,
       "SELECT count(*) FROM docs WHERE symbol = 'Planted'"))
     work.close(again)
-    return before, after, recorded[1][1], planted[1][1] == "1"
+    return before, after, recorded[1]:text(1), planted[1]:text(1) == "1"
   end
   -- The first boot after the suite's own binary derived: that binary's
   -- rows go, and the boot names its own as the tool does.

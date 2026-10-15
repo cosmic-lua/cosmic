@@ -268,6 +268,76 @@ and keeps no verdict of it. A held run fails it.
 [`Test.passed_unchecked`] is for the fuzz runner alone. `bin/cosmic fix
 --check .` fails any other use.
 
+## run-time type checks
+
+`cosmic test --check-types` (`COSMIC_TEST_CHECK_TYPES=1`) shows where a
+value breaks the type declared for it. It compiles the tree with a check
+at each annotated parameter, declared return value and write to a record
+field, and runs every test, whatever verdict stands, since only a worker
+reports.
+
+A violation is a value whose Lua kind the declared type does not admit:
+nil or a missing return value for a type that admits no nil, a float for
+an integer, a string for a record. `any` and a type variable are not
+checked. These checks report and fail nothing: the checker accepts nil for
+any type, so they list code it allows. The checks of narrowing (below) are
+the one kind that fails.
+
+Three tests compare the bytecode of a module with the binary's
+([`build/harness_epoch_test.tl`], [`cosmic/store_seal_test.tl`],
+[`build/rebuild_lock_tool_test.tl`]) and skip in a checked run, whose
+modules carry checks.
+
+Not checked: a `return f(x)`, a tail call, which a check would end; a
+vararg parameter or return; and a write to a field a record inherits or a
+generic record declares.
+
+The run ends with the count, the distinct violations and the commonest
+ten, each with the line that sent the value: the caller for a parameter,
+the `return` or the write for the others. `cosmic sql --build 'SELECT *
+FROM type_violations'` lists all of them, from the latest checked run.
+
+A module compiled with checks is another compile of the same source: it
+has its own keys, and the tool and the executables `cosmic build` writes
+carry none.
+
+### checked narrowing
+
+A checked run also tests what the checker concluded from a test. A read of
+a local, a global or a field of a local (`x`, `t.a`) whose type a test
+narrowed (`if x then`, `x ~= nil`, `is`, `type(x) ==`, `assert(x)`) is
+written as a check of what the test took out: the kinds of the type before
+the test that the type after lacks (`x is string` on `string | R` takes out
+`string` in the else branch and `R` in the then branch), and nil where the
+place was declared to admit it and the test left it none. A value of a kind
+taken out raises `fact violated at <file>:<y>:<x>: <place> is <kind>, the
+checker proved not <kinds>` at the read, which fails the test. Where the type
+before was `any`, the test took the value to the kinds of the type after, and
+the check is that. Such a failure is the checker's: it accepted a program in
+which a place it narrowed is not what it narrowed it to (a read that runs
+`__index` again, a write it did not see), so a test that meets one found a
+hole in the narrowing, not a fault of the test. Report it with the smallest
+program that shows it.
+
+- It checks what the test took out, not what the declared type leaves: a
+  nil that a map read or an optional gives a `T | R`, or a float given an
+  `integer | string`, passes both branches of an `is`, and is the type
+  checks' to report.
+- It checks nothing of a place narrowed by the type of a value assigned or
+  declared with (`x = f() or g()`), which holds nil where the checker's type
+  does not say so (checker/tl.tl's TODO at the read of a variable).
+- A place that is not a local, a global or a field of a local (`a.b.c`,
+  `t[k]`) is not checked, as the narrowing does not hold one.
+- The check is a call of the hook per narrowed read, which costs. A fuzz
+  property's instruction budget allows a checked run four times as many
+  instructions ([`build.fuzz`]).
+- The tests that compare a module's bytecode with the binary's skip in a
+  checked run (a TODO beside each).
+
+CI runs the whole suite so in the `checked` job of a full run
+(`cosmic-driver cosmic_ci/driver.tl platform checked-narrowing`), and
+`bin/cosmic test --check-types` runs it anywhere.
+
 ## fuzz tests
 
 A parser that reads untrusted bytes gets a `*_fuzz_test.tl` beside it,
@@ -292,6 +362,26 @@ seeded source. A check must hold for all of them. The module doc of
 - Once a failure is fixed, keep its input in
   `testdata/fuzz/<property>/` as the report says. `run` checks that
   corpus before it draws.
+
+## a change to the checker's verdicts
+
+A change to the type checker that must not move a verdict, or must move
+only the ones it says, is held to [`build.checker_verdicts`]: a tool that
+writes every error and warning of a list of sources as one sorted line
+(`file`, `code`, `y`, `x`, `message`). Run it with the tree's tool and with
+main's over the tree, the fuzz corpora (`testdata/fuzz/checker-*`) and the
+programs the checker's fuzz generator draws for a seed (`dump`), and
+`diff` the outputs. The module's doc comment has the commands.
+
+`TL_SHADOW_FACTS=1` in front of any of those commands also writes the
+checker's shadow facts' disagreements with its narrowing, as lines coded
+`shadow.mismatch` (and `shadow.reads`, the reads compared). They are for
+reading: leave the variable out of a run that is diffed.
+
+The tree alone is weak evidence for a change to narrowing: the tree's own
+code is written to pass, and a checker that narrowed less or more leaves
+most of its lines as they are. The corpora and the dumped programs carry
+that sensitivity, so a narrowing change runs all three sets.
 
 ## other hazards
 
@@ -367,6 +457,7 @@ Other rules:
   deep, those tests call [`Test.skip`].
 
 [`bin/cosmic`]: ../bin/cosmic
+[`build.checker_verdicts`]: ../build/checker_verdicts.tl
 [`build.confine`]: ../build/confine.tl
 [`build.fuzz`]: ../build/fuzz/init.tl
 [`build.harness_epoch_test`]: ../build/harness_epoch_test.tl
@@ -378,10 +469,13 @@ Other rules:
 [`build.test_sandbox`]: ../build/test_sandbox.tl
 [`build.this_program`]: ../build/this_program.tl
 [`build.tree_checks`]: ../build/tree_checks.tl
+[`build/harness_epoch_test.tl`]: ../build/harness_epoch_test.tl
+[`build/rebuild_lock_tool_test.tl`]: ../build/rebuild_lock_tool_test.tl
 [`ci.cosmic_ci.capabilities`]: ../ci/cosmic_ci/capabilities.tl
 [`ci/README.md`]: ../ci/README.md
 [`cosmic.layout`]: ../cosmic/layout.tl
 [`cosmic.sandbox`]: ../cosmic/sandbox/init.tl
+[`cosmic/store_seal_test.tl`]: ../cosmic/store_seal_test.tl
 [`doc/performance.md`]: performance.md
 [`Fuzz.label`]: ../build/fuzz/init.tl
 [`Fuzz.more`]: ../build/fuzz/init.tl

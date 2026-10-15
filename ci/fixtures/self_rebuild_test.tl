@@ -111,22 +111,23 @@ end
 --- counted.
 local function compiles_in(path: string, since_ns: integer): integer, integer
   local db = assert(Sqlite.open(path))
-  local total, used = 0, 0
+  local total = { value = 0 }
+  local used = { value = 0 }
   local ok, failure = pcall(function(): boolean
     local tables = assert(Sqlite.text_rows(db,
       "SELECT name FROM sqlite_schema WHERE type = 'table' AND name GLOB 'compiled_v*'"))
     for _, row in ipairs(tables) do
       local counts = assert(Sqlite.text_rows(db, "SELECT count(*), " ..
-          "count(*) FILTER (WHERE used_ns >= ?1) FROM \"" .. row[1] .. "\"",
+          "count(*) FILTER (WHERE used_ns >= ?1) FROM \"" .. row:text(1) .. "\"",
         { { integer = since_ns } }))
-      total = total + math.tointeger(tonumber(counts[1][1]))
-      used = used + math.tointeger(tonumber(counts[1][2]))
+      total.value = total.value + math.tointeger(tonumber(counts[1]:text(1)))
+      used.value = used.value + math.tointeger(tonumber(counts[1]:text(2)))
     end
     return true
   end)
   local _, _ = db:close()
   if not ok then error(failure) end
-  return total, used
+  return total.value, used.value
 end
 
 local function seeded_compiles(case_root: string): Seed
@@ -357,7 +358,7 @@ local function run_rebuild_case(fixture_dir: string,
 
     Fixture.assert_executable(program)
     assert(Fixture.read(child.out):match(
-      "test: PASS %([^;]+; [1-9][0-9]* ran, 0 stood"),
+      "test: %d+ tests? passed in [^;]+; [1-9][0-9]* ran, 0 stood"),
       action .. ": self-rebuild output did not match the expected pattern")
     local err = Fixture.read(child.err)
     took_compiles(action, seed, since, err)
@@ -421,8 +422,8 @@ local function run_rebuild_case(fixture_dir: string,
   end)
 end
 
--- One of the three ways a stale tool (a pinned tl version, an unapplied
--- patch, or an edited launcher generator) is refused outright, when
+-- One of the three ways a stale tool (a pinned tl version, an edited
+-- checker, or an edited launcher generator) is refused outright, when
 -- COSMIC_AUTO_BOOT=0 says not to boot, without ever reaching `test.run` or
 -- touching the artifact.
 local function run_refusal_case(fixture_dir: string,
@@ -439,10 +440,9 @@ local function run_refusal_case(fixture_dir: string,
   if name == "tl-pin" then
     local pin = tree .. "/vendor/tl/PIN"
     Fixture.write(pin, Fixture.read(pin) .. "\n# refusal fixture\n")
-  elseif name == "tl-patch" then
-    Fixture.mkdir(tree .. "/patch/tl")
-    Fixture.write(tree .. "/patch/tl/refusal-fixture.patch",
-      "refusal fixture\n")
+  elseif name == "tl-checker" then
+    local checker = tree .. "/checker/tl.tl"
+    Fixture.write(checker, Fixture.read(checker) .. "\n-- refusal fixture\n")
   elseif name == "launcher" then
     local launcher = tree .. "/build/launcher.tl"
     Fixture.write(launcher, Fixture.read(launcher) ..
@@ -489,7 +489,7 @@ end
 
 local function test_self_rebuild_refusals(tmp: string)
   local fixture_dir = Fixture.required("COSMIC_FIXTURE_RUNTIME")
-  for _, name in ipairs({ "tl-pin", "tl-patch", "launcher" }) do
+  for _, name in ipairs({ "tl-pin", "tl-checker", "launcher" }) do
     run_refusal_case(fixture_dir, tmp, name)
   end
 end

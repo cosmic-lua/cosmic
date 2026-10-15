@@ -126,16 +126,23 @@ function Grader.failed_in_cosmic(err: string): boolean
 end
 
 --- Whether `cosmic build`'s output names bin/<name> among the
---- executables it wrote: `build: PASS (/home/u/.cache/cosmic/trees/<key>/bin/notes,
---- 433 ms)`, or as a tool that built into the project's o/ named it,
---- `build: PASS (o/bin/notes, 433 ms)`.
+--- executables it wrote: a line of its own
+--- (`/home/u/.cache/cosmic/trees/<key>/bin/notes`), or, from a tool that
+--- names them only in its verdict, `build: PASS (o/bin/notes, 433 ms)`.
 function Grader.built(output: string, name: string): boolean
+  local function names(path: string): boolean
+    return path == "o/bin/" .. name or String.ends_with(path, "/bin/" .. name)
+  end
   for line in output:gmatch("[^\n]+") do
+    if line:sub(1, 1) == "/" and names(line) then
+      return true
+    end
+    -- An arena may hold a tool built from an older commit, which names
+    -- what it wrote only in its verdict.
     local wrote = line:match("^build: PASS %((.*)%)$")
     if wrote ~= nil then
       for each in wrote:gmatch("[^,]+") do
-        local path = String.trim(each)
-        if path == "o/bin/" .. name or String.ends_with(path, "/bin/" .. name) then
+        if names(String.trim(each)) then
           return true
         end
       end
@@ -200,7 +207,7 @@ function Grader.evidence(path: string): Grader.Evidence | nil, string
   end
   local tests, examples = 0, 0
   for _, row in ipairs(rows) do
-    local kind, origin, n = row[1], row[2], math.tointeger(tonumber(row[3])) or 0
+    local kind, origin, n = row:text(1), row:text(2), math.tointeger(tonumber(row:text(3))) or 0
     if kind == "test" and origin ~= "doctest" then
       tests = tests + n
     end
@@ -379,7 +386,9 @@ function Grader.api_failures(output: string): {string}
   if refused > 5 then
     failures[#failures + 1] = "does not compile: " .. (refused - 5) .. " more lines"
   end
-  if #failures == 0 and not last:match("^test: PASS") then
+  -- A tool built from an older commit says `test: PASS (...)`.
+  if #failures == 0 and not last:match("^test: %d+ tests? passed in ") and
+      not last:match("^test: PASS") then
     failures[#failures + 1] = "cosmic test failed: " .. last
   end
   return failures
@@ -614,11 +623,17 @@ end
 
 -- servers
 
+--- A server started and the port it listens on.
+local record Served
+  server: Child.Handle
+  port: integer
+end
+
 --- Starts `./<name> <args>` in the empty directory, its output kept in
 --- the arena as `log` (check-serve.out by default), and waits up to
 --- 5 s for the line naming the port it listens on. Answers the server
 --- and its port, or nil once it has failed.
-local function serves(g: Grade, args: {string}, log?: string): Child.Handle, integer
+local function serves(g: Grade, args: {string}, log?: string): Served | nil
   local what = g.name .. " " .. table.concat(args, " ")
   local out_path = g.logs .. "/" .. (log or "check-serve.out")
   local out = assert(Fs.open_write(out_path))
@@ -628,7 +643,7 @@ local function serves(g: Grade, args: {string}, log?: string): Child.Handle, int
   local _, _ = Fs.close(out)
   if server == nil then
     fail(g, what .. " did not start: " .. trouble)
-    return nil, 0
+    return nil
   end
   local deadline = Clock.monotonic_ns() + Clock.seconds(5)
   while Clock.monotonic_ns() < deadline do
@@ -637,7 +652,7 @@ local function serves(g: Grade, args: {string}, log?: string): Child.Handle, int
     if found then
       local port = math.tointeger(tonumber(found))
       ok(what .. " -> listening on 127.0.0.1:" .. port)
-      return server, port
+      return { server = server, port = port }
     end
     local _, _ = Clock.sleep_ns(Clock.ms(50))
   end
@@ -645,7 +660,7 @@ local function serves(g: Grade, args: {string}, log?: string): Child.Handle, int
   fail(g, what .. " printed no 'listening on 127.0.0.1:<port>' line in 5s: " ..
       first_line(text or ""))
   local _, _ = server:close()
-  return nil, 0
+  return nil
 end
 
 --- Checks that the server, `what` (`<name> serve` by default), exits 0
@@ -681,8 +696,8 @@ end
 --- to its close; without, a response with no length is an error.
 local function receive(conn: Net.Conn, head_only: boolean, to_close: boolean): Answer | nil, string
   local got = ""
-  local answer: Answer = nil
-  local body_length: integer = nil
+  local answer: Answer | nil = nil
+  local body_length: integer | nil = nil
   while true do
     if answer == nil then
       local head, rest = got:match("^(.-)\r\n\r\n(.*)$")
@@ -725,6 +740,8 @@ local function receive(conn: Net.Conn, head_only: boolean, to_close: boolean): A
     end
     if answer == nil then got = got .. chunk else answer.body = answer.body .. chunk end
   end
+  -- The loop breaks only once a head was read.
+  assert(answer ~= nil)
   if to_close then
     conn:set_timeout(Clock.ms(300))
     while true do
@@ -760,7 +777,7 @@ end
 --- Runs [`./notes`] with nothing in its environment but `env`, and
 --- checks that it exits 0 printing exactly `want` on stdout and stderr
 --- together, or anything when `want` is nil.
-local function notes_expect(g: Grade, want: string, args: {string}, env?: {string: string})
+local function notes_expect(g: Grade, want: string | nil, args: {string}, env?: {string: string})
   local shown_args: {string} = { "env -i" }
   local names: {string} = {}
   for name in pairs(env or {}) do
@@ -783,7 +800,7 @@ local function notes_expect(g: Grade, want: string, args: {string}, env?: {strin
   if code == 0 and want == nil then
     ok(what .. " -> exit 0")
   elseif code == 0 and got == want then
-    ok(what .. " -> " .. first_line(want))
+    ok(what .. " -> " .. first_line(assert(want)))
   else
     fail(g, what .. ": exit " .. code .. ", got '" .. got .. "', wanted '" .. (want or "exit 0") .. "'")
   end
@@ -1066,10 +1083,11 @@ end
 local function kv_lru(g: Grade)
   refuses(g, { "serve", "0", "--max-keys", "0" })
   refuses(g, { "serve", "0", "--max-keys", "two" })
-  local server, port = serves(g, { "serve", "0", "--max-keys", "2" })
-  if server == nil then
+  local served = serves(g, { "serve", "0", "--max-keys", "2" })
+  if served == nil then
     return
   end
+  local server, port = served.server, served.port
   local function put(key: string, value: string)
     answers(g, port, "PUT /" .. key .. " HTTP/1.1\r\nHost: x\r\nContent-Length: " .. #value ..
         "\r\n\r\n" .. value, { "204" })
@@ -1101,10 +1119,11 @@ local function kv_lru(g: Grade)
 end
 
 local function kv(g: Grade)
-  local server, port = serves(g, { "serve", "0" })
-  if server == nil then
+  local served = serves(g, { "serve", "0" })
+  if served == nil then
     return
   end
+  local server, port = served.server, served.port
   local base = "http://127.0.0.1:" .. port
 
   succeeds(g, { "put", base .. "/alpha", "hello" })
@@ -1189,7 +1208,7 @@ local function each_job(g: Grade, report: {string: any}, key: string, want: {str
     table.concat(wrong, "; "))
 end
 
-local function number_of(value: any): number
+local function number_of(value: any): number | nil
   if value is number then return value end
   return nil
 end
@@ -1473,7 +1492,7 @@ local function asks(g: Grade, site: Site, method: string, target: string,
   return nil
 end
 
-local function has(g: Grade, answer: Answer, what: string, name: string, want: string)
+local function has(g: Grade, answer: Answer, what: string, name: string, want: string | nil)
   if answer == nil then return end
   local got = answer.headers[name:lower()]
   check(g, got == want, what .. " " .. name .. ": " .. shown(got),
@@ -1670,6 +1689,13 @@ local function mirror_pulls(g: Grade, site: Site)
   pulls(g, { "pull", base .. "/sub", "part" }, { "fetched b.bin", "fetched deep/c.txt" })
 end
 
+--- The pull [`mirror_lie`] makes from its server: the arguments, and what
+--- the run answered.
+local record Pull
+  args: {string}
+  result: Child.Result | nil
+end
+
 --- Serves a listing that lies about bad.txt's hash, and pulls from it.
 local function mirror_lie(g: Grade)
   local good, bad = "good\n", "right"
@@ -1678,8 +1704,7 @@ local function mirror_lie(g: Grade)
     { name = "good.txt", type = "file", size = #good, sha256 = Hash.hex_sha256(good) },
   }))
   local bodies: {string: string} = { ["/"] = listing, ["/bad.txt"] = bad, ["/good.txt"] = good }
-  local result: Child.Result = nil
-  local args: {string} = {}
+  local pull: Pull = { args = {}, result = nil }
   local served, trouble = Net.serve({
     listeners = { Net.tcp("127.0.0.1", 0) },
     timeout_ns = Clock.seconds(5),
@@ -1699,19 +1724,20 @@ local function mirror_lie(g: Grade)
           "\r\nConnection: close\r\n\r\n" .. body)
     end,
     on_ready = function(addresses: {Net.Address}, server: Net.Server)
-      args = { "pull", "http://127.0.0.1:" .. assert(addresses[1].port) .. "/", "lied" }
-      result = run(g, args)
+      pull.args = { "pull", "http://127.0.0.1:" .. assert(addresses[1].port) .. "/", "lied" }
+      pull.result = run(g, pull.args)
       server:stop()
     end,
   })
-  if not served or result == nil then
+  local ran = pull.result
+  if not served or ran == nil then
     fail(g, "the lying server did not serve: " .. trouble)
     return
   end
-  local err = result.stderr or ""
-  check(g, status(result) ~= 0 and err:find("bad.txt", 1, true) ~= nil,
-    label(g, args) .. " from a listing with a wrong hash fails naming bad.txt",
-    "exit " .. status(result) .. ", stderr: " .. first_line(err))
+  local err = ran.stderr or ""
+  check(g, status(ran) ~= 0 and err:find("bad.txt", 1, true) ~= nil,
+    label(g, pull.args) .. " from a listing with a wrong hash fails naming bad.txt",
+    "exit " .. status(ran) .. ", stderr: " .. first_line(err))
   local left, _ = Fs.walk(g.empty .. "/lied")
   local stray: {string} = {}
   for _, rel in ipairs(left or {}) do
@@ -1757,8 +1783,9 @@ local function mirror_archives(g: Grade, site: Site)
   for _, case in ipairs({ { "site.tar.gz", "dirs" }, { "site.zip", "" }, { "site.tar", "dirs" } }) do
     local name = case[1]
     if packed(g, site, name, case[2] == "dirs") then
-      local server, port = serves(g, { "serve", name, "0" })
-      if server ~= nil then
+      local started = serves(g, { "serve", name, "0" })
+      if started ~= nil then
+        local server, port = started.server, started.port
         local served: Site = { port = port, files = site.files, closes = true }
         mirror_listings(g, served)
         local b = asks(g, served, "GET", "/sub/b.bin", {}, { 200 })
@@ -1797,10 +1824,11 @@ local function mirror(g: Grade)
   local files = mirror_files()
   for path, data in pairs(files) do write(g, "site/" .. path, data) end
   write(g, "secret.txt", "TOP SECRET\n")
-  local server, port = serves(g, { "serve", "site", "0" })
-  if server == nil then
+  local served = serves(g, { "serve", "site", "0" })
+  if served == nil then
     return
   end
+  local server, port = served.server, served.port
   local site: Site = { port = port, files = files, closes = true }
   mirror_requests(g, site)
   mirror_listings(g, site)
@@ -1980,9 +2008,10 @@ end
 --- A connection with nothing moving for --idle is closed; one with
 --- something moving is not; SIGTERM ends the relay with its count.
 local function relay_idle(g: Grade, target_port: integer)
-  local server, port = serves(g, { "0", "127.0.0.1:" .. target_port, "--idle", "0.5" },
+  local served = serves(g, { "0", "127.0.0.1:" .. target_port, "--idle", "0.5" },
     "check-relay-idle.out")
-  if server == nil then return end
+  if served == nil then return end
+  local server, port = served.server, served.port
   local quiet, trouble = dial(port)
   if quiet == nil then
     fail(g, "connect to the relay: " .. trouble)
@@ -2032,8 +2061,9 @@ local function relay_refused(g: Grade)
   end
   local dead = assert(listener.address.port)
   local _, _ = listener:close()
-  local server, port = serves(g, { "0", "127.0.0.1:" .. dead }, "check-relay-refused.out")
-  if server == nil then return end
+  local served = serves(g, { "0", "127.0.0.1:" .. dead }, "check-relay-refused.out")
+  if served == nil then return end
+  local server, port = served.server, served.port
   for i = 1, 2 do
     local conn, ctrouble = dial(port)
     if conn == nil then
@@ -2075,8 +2105,9 @@ local function relay(g: Grade)
     end,
     on_ready = function(addresses: {Net.Address}, server: Net.Server)
       local target_port = assert(addresses[1].port)
-      local main, port = serves(g, { "0", "127.0.0.1:" .. target_port }, "check-relay.out")
-      if main ~= nil then
+      local served = serves(g, { "0", "127.0.0.1:" .. target_port }, "check-relay.out")
+      if served ~= nil then
+        local main, port = served.server, served.port
         relay_echo(g, port)
         relay_split(g, target, port)
         relay_stalled(g, port)

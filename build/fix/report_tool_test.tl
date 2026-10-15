@@ -45,7 +45,7 @@ local function test_a_link_rewrite_says_why_only_when_it_is_the_only_change(tmp:
   local out = fix(root, false)
   assert(out:find("fixed  linked.tl (links)\n", 1, true), out)
   assert(out:find("fixed  both.tl\n", 1, true), out)
-  assert(out:find("fix: PASS (3 Teal + 1 Markdown files, ", 1, true), out)
+  assert(out:find("fix: 3 Teal + 1 Markdown files, ", 1, true), out)
 end
 
 --- A method named like a command stands in for nothing; a plain function
@@ -77,8 +77,8 @@ local function test_a_path_under_static_is_refused(tmp: string)
   assert(Fs.write(root .. "/main.tl", "return 1\n"))
   local named = fix(root, false, { "static/notes.tl" })
   assert(named:find("carried verbatim", 1, true), named)
-  assert(named:find("fix: FAIL", 1, true), named)
+  assert(named:find("fix: 1 of 1 file refused, ", 1, true), named)
   assert(assert(Fs.read(root .. "/static/notes.tl")) == "not   teal {{\n", "the asset is untouched")
   local whole = fix(root, false)
-  assert(whole:find("fix: PASS", 1, true) and not whole:find("carried verbatim", 1, true), whole)
+  assert(whole:find("fix: [^\n]*, 0 fixed, ") and not whole:find("carried verbatim", 1, true), whole)
 end

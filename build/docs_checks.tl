@@ -158,10 +158,11 @@ function docs_checks.rendered(db: Sqlite.Handle, exempt?: docs_checks.Exempt): {
   local excused = exempt and exempt.undocumented or undocumented
   local kept = exempt and exempt.surfaces or surfaces
   local out: {string} = {}
-  local view, view_trouble = docs.view({ db }, { true })
-  if view == nil then
+  local read_view, view_trouble = docs.view({ db }, { true })
+  if read_view == nil then
     return { "reading the view: " .. view_trouble }
   end
+  local view: docs.View = read_view
   local index, index_trouble = docs.index(view)
   if index == nil then
     return { "reading the index: " .. index_trouble }
@@ -174,7 +175,7 @@ function docs_checks.rendered(db: Sqlite.Handle, exempt?: docs_checks.Exempt): {
   if rows == nil then
     return { "reading the docs: " .. trouble }
   end
-  local shown: {{string}} = rows
+  local shown: Sqlite.Rows = rows
 
   -- Several modules declare `Entry.path`, so one lookup answers each.
   local looked: {string: docs.Lookup} = {}
@@ -270,7 +271,7 @@ function docs_checks.rendered(db: Sqlite.Handle, exempt?: docs_checks.Exempt): {
   local signatures: {string: {string}} = {}
   local canonical: {string: boolean} = {}
   for _, row in ipairs(shown) do
-    local module, symbol, source_symbol, signature = row[1], row[2], row[3], row[5]
+    local module, symbol, source_symbol, signature = row:text(1), row:text(2), row:text(3), row:text(5)
     signatures[module] = signatures[module] or {}
     table.insert(signatures[module], " " .. signature .. " ")
     if symbol ~= source_symbol then
@@ -282,9 +283,9 @@ function docs_checks.rendered(db: Sqlite.Handle, exempt?: docs_checks.Exempt): {
   local kept_used: {string: boolean} = {}
   for _, row in ipairs(shown) do
     local module, symbol, source_symbol, kind, signature, text =
-      row[1], row[2], row[3], row[4], row[5], row[6]
+      row:text(1), row:text(2), row:text(3), row:text(4), row:text(5), row:text(6)
     local key = module .. "." .. source_symbol
-    local where = row[7] .. ":" .. row[8] .. ": " .. key
+    local where = row:text(7) .. ":" .. row:text(8) .. ": " .. key
     if symbol ~= "" then
       if signature:gsub("^local ", ""):find("--", 1, true) ~= nil then
         out[#out + 1] = where .. ": the signature has a comment in it: " ..
@@ -399,10 +400,11 @@ function docs_checks.references(db: Sqlite.Handle, help?: {string: string},
   local danglers: {string: boolean} = {}
   local known: {string: boolean} = { exit = true }
   for _, verb in ipairs(verbs or Cli.order) do known[verb] = true end
-  local view, view_trouble = docs.view({ db }, { true })
-  if view == nil then
+  local read_view, view_trouble = docs.view({ db }, { true })
+  if read_view == nil then
     return { "reading the view: " .. view_trouble }
   end
+  local view: docs.View = read_view
   local index, index_trouble = docs.index(view)
   if index == nil then
     return { "reading the index: " .. index_trouble }
@@ -423,7 +425,7 @@ function docs_checks.references(db: Sqlite.Handle, help?: {string: string},
   if rows == nil then
     return { "reading the docs: " .. trouble }
   end
-  local texts: {{string}} = rows
+  local texts: Sqlite.Rows = rows
 
   local out: {string} = {}
   local answered: {string: boolean} = {}
@@ -497,8 +499,8 @@ function docs_checks.references(db: Sqlite.Handle, help?: {string: string},
     end
   end
   for _, row in ipairs(texts) do
-    check(row[4] .. ":" .. row[5] .. ": " .. row[1] ..
-        (row[2] ~= "" and " " .. row[2] or ""), row[3])
+    check(row:text(4) .. ":" .. row:text(5) .. ": " .. row:text(1) ..
+        (row:text(2) ~= "" and " " .. row:text(2) or ""), row:text(3))
   end
   for name, text in pairs(help) do
     check("`cosmic help" .. (name ~= "" and " " .. name or "") .. "`", text)

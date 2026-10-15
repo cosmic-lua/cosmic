@@ -1,0 +1,13 @@
+local record R
+  a: integer | nil
+  n: integer
+end
+local r: R = { n = 0 }
+local function maybe(): integer | nil return nil end
+local x: integer | nil = maybe()
+local y: integer | nil = maybe()
+local function touch(t: R) t.a = nil end
+assert(r.a)
+r.a = 1
+local g = function() end
+g = function() print(g) end

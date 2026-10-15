@@ -148,8 +148,8 @@ function Store.web_asset(name: string): Store.WebAsset | nil, string
   if row == nil then
     return nil, "the binary carries no web asset " .. name
   end
-  return { data = row[1].blob or row[1].text, sha256 = row[2].text, sha384 = row[3].text,
-    version = row[4].text }
+  return { data = row:bytes(1),
+    sha256 = row:text(2), sha384 = row:text(3), version = row:text(4) }
 end
 
 --- Every time zone name the binary's own database carries, as a set,
@@ -250,7 +250,7 @@ local function requires_of(db: Handle, name: string, types: boolean): {string}
   end
   local out: {string} = {}
   for index, row in ipairs(rows) do
-    out[index] = row[1]
+    out[index] = row:text(1)
   end
   return out
 end
@@ -302,22 +302,6 @@ function Store.closure(roots: {string}, opts?: Store.ClosureOptions): {string}
   return names
 end
 
-local function value_of(cell: Sqlite.Cell): Sqlite.Value
-  if cell.kind == "null" then
-    return {}
-  end
-  if cell.kind == "blob" then
-    return { blob = cell.blob }
-  end
-  if cell.kind == "integer" then
-    return { integer = cell.integer }
-  end
-  if cell.kind == "number" then
-    return { number = cell.number }
-  end
-  return text(cell.text)
-end
-
 --- Copies every row `query` yields from `from`, bound to `values`, into
 --- `table_name` of `into`, column for column and each value as the
 --- kind it was read as. `columns` names the destination's, in
@@ -337,8 +321,8 @@ local function copy_rows(from: Handle, into: Handle, table_name: string,
     table.concat(columns, ", ") .. ") VALUES (" .. table.concat(slots, ", ") .. ")"
   for _, row in ipairs(rows) do
     local bound: {Sqlite.Value} = {}
-    for index, cell in ipairs(row) do
-      bound[index] = value_of(cell)
+    for index = 1, row:count() do
+      bound[index] = row:value(index)
     end
     local ok, why = Sqlite.run(into, insert, bound)
     if not ok then
@@ -445,10 +429,10 @@ local function write_database(names: {string}, file: string, main: string | nil,
           return false, "imports: " .. edge_trouble
         end
         for _, edge in ipairs(edges) do
-          if present[edge[1]] then
+          if present[edge:text(1)] then
             local inserted, insert_trouble = Sqlite.run(db,
               "INSERT OR IGNORE INTO imports (path, requires) VALUES (?1, ?2)",
-              { text(name), text(edge[1]) })
+              { text(name), text(edge:text(1)) })
             if not inserted then
               return false, "imports: " .. insert_trouble
             end

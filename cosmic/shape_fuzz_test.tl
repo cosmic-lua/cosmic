@@ -27,9 +27,7 @@ local function key(r: Recipe): string
   return KEYS[byte(r, #KEYS) + 1]
 end
 
-local gen_spec: function(r: Recipe, depth: integer): Shape.Spec
-
-gen_spec = function(r: Recipe, depth: integer): Shape.Spec
+local function gen_spec(r: Recipe, depth: integer): Shape.Spec
   local pick = byte(r, depth > 0 and 9 or 6)
   local spec: Shape.Spec
   if pick == 0 then
@@ -62,12 +60,10 @@ local STRAYS <const>: {any} = {
   true, false, Json.null, print,
 }
 
-local gen_value: function(r: Recipe, spec: Shape.Spec, depth: integer, strict: boolean): any
-
 --- A value for `spec`. Unless `strict`, one time in eight it is whatever
 --- else, and a record's required field may be missing. A strict value
 --- fits its spec and holds only what JSON can carry.
-gen_value = function(r: Recipe, spec: Shape.Spec, depth: integer, strict: boolean): any
+local function gen_value(r: Recipe, spec: Shape.Spec, depth: integer, strict: boolean): any
   if not strict and (byte(r, 8) == 0 or depth == 0) then
     local pick = byte(r, #STRAYS + 3)
     if pick < #STRAYS then return STRAYS[pick + 1] end
@@ -143,13 +139,11 @@ same = function(a: any, b: any): boolean
   return true
 end
 
-local fits: function(v: any, spec: Shape.Spec): boolean
-
 --- Whether an answer strictly is `spec`: the oracle, written apart from
 --- the walk. An answer is never [`Json.null`] outside an `any`, holds
 --- integers where the spec says integer, a JSON array for a list, and no
 --- key a record does not name.
-fits = function(v: any, spec: Shape.Spec): boolean
+local function fits(v: any, spec: Shape.Spec): boolean
   if v == nil then return spec.optional end
   if rawequal(v, Json.null) then return false end
   local kind = spec.kind
@@ -280,7 +274,7 @@ local function check_strict(input: string): boolean, string
   if byte(r, 2) == 0 then spec = Shape.optional(spec) end
   local value = gen_value(r, spec, 4, true) as {any: any}
   local extra: any
-  local want: string
+  local want: string | nil
   if byte(r, 2) == 0 then
     extra = byte(r, 4) - 1
     want = ("pointer \"\": expected record, got the integer key %d"):format(extra as integer)

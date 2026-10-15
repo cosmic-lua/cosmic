@@ -1,0 +1,11 @@
+file: ext/misc/csv.c
+note: An unquoted field that ends at the delimiter (32-csv-unquoted-field-ends-at-the-delimiter.txt) is answered as ending at a comma, as 30-csv-reader-holds-a-delimiter.txt says.
+--- find
+    p->cTerm = (char)c;
+  }
+  assert( p->z==0 || p->n<p->nAlloc );
+--- replace
+    p->cTerm = c==CSV_SEP(p) ? ',' : (char)c;
+  }
+  assert( p->z==0 || p->n<p->nAlloc );
+--- end

@@ -286,7 +286,7 @@ local record Types
   end
 
   --- The type of an absent slot of [`Web.input`]: a path, query or body
-  --- the route does not read. A handler is given nil for it.
+  --- the route does not read. A handler is given an empty one for it.
   record None
   end
 
@@ -394,13 +394,13 @@ local record Types
   --- What a typed route binds, without the types.
   record RouteInput
     --- The path spec; nil for none.
-    path: Shape.Spec
+    path?: Shape.Spec
     --- The query spec; nil for none.
-    query: Shape.Spec
+    query?: Shape.Spec
     --- "json", "form", "multipart" or "none".
     body_kind: string
     --- The body spec; nil for none.
-    body: Shape.Spec
+    body?: Shape.Spec
     --- The body limit the route enforces.
     max_bytes: integer
   end

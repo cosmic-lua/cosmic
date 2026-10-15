@@ -17,10 +17,7 @@ local work = require("build.work")
 local writer = require("build.writer")
 local fixture = require("build.docs_fixture")
 
-local built, load_trouble = teal.load()
-if built == nil then
-  error("could not load the compiler: " .. tostring(load_trouble))
-end
+local built = assert(teal.load())
 
 --- Writes a minimal one-module project at `root`, greeting `whom`, so
 --- two projects built from a different `whom` compile to different
@@ -69,7 +66,7 @@ local function projected(path: string): string
   if #rows == 0 then
     return ""
   end
-  return rows[1][1]
+  return rows[1]:text(1)
 end
 
 --- A file at `out` that some other write replaced -- a different
@@ -154,8 +151,8 @@ local function test_a_declaration_ships_its_docs(tmp: string)
     "SELECT text, file, line FROM docs WHERE module = 'clock' AND symbol = 'now'"))
   assert(out:close())
   assert(#rows == 1, tostring(#rows))
-  assert(rows[1][1] == "Seconds since the epoch." and rows[1][2] == "clock.d.tl" and
-      rows[1][3] == "3", table.concat(rows[1], " "))
+  assert(rows[1]:text(1) == "Seconds since the epoch." and rows[1]:text(2) == "clock.d.tl" and
+      rows[1]:text(3) == "3", table.concat(rows[1]:texts(), " "))
 end
 
 --- What the tool carries is the projection without the tree's own
@@ -215,7 +212,7 @@ local function test_the_carried_database_leaves_the_tree_s_tests_out(tmp: string
   assert(Fs.read(tmp .. "/carried.db") == Fs.read(tmp .. "/again.db"),
     "the carried database is a function of the projection")
 
-  local function rows(path: string, sql: string): {{string}}
+  local function rows(path: string, sql: string): Sqlite.Rows
     local db = assert(Sqlite.open(path))
     local found = assert(Sqlite.text_rows(db, sql))
     assert(db:close())
@@ -223,12 +220,12 @@ local function test_the_carried_database_leaves_the_tree_s_tests_out(tmp: string
   end
   local whole = rows(tmp .. "/whole.db",
     "SELECT group_concat(path, ' ') FROM (SELECT path FROM modules ORDER BY path)")
-  assert(whole[1][1] ==
+  assert(whole[1]:text(1) ==
       "cmd.hello.main fixture_test greet greet_example greet_test shared",
-    whole[1][1])
+    whole[1]:text(1))
   local carried = rows(tmp .. "/carried.db",
     "SELECT group_concat(path, ' ') FROM (SELECT path FROM modules ORDER BY path)")
-  assert(carried[1][1] == "cmd.hello.main fixture_test greet shared", carried[1][1])
+  assert(carried[1]:text(1) == "cmd.hello.main fixture_test greet shared", carried[1]:text(1))
   local about_dropped = rows(tmp .. "/carried.db",
     "SELECT (SELECT count(*) FROM docs WHERE module IN ('greet_test', 'greet_example')) " ..
       "+ (SELECT count(*) FROM uses WHERE from_module IN ('greet_test', 'greet_example')) " ..
@@ -237,8 +234,8 @@ local function test_the_carried_database_leaves_the_tree_s_tests_out(tmp: string
       "+ (SELECT count(*) FROM catalog WHERE module IN ('greet_test', 'greet_example'))")
   local in_whole = rows(tmp .. "/whole.db",
     "SELECT count(*) FROM catalog WHERE module = 'greet_test'")
-  assert(in_whole[1][1] == "1", "the projection holds the test's catalog row")
-  assert(about_dropped[1][1] == "0", "a row about a dropped module is carried")
+  assert(in_whole[1]:text(1) == "1", "the projection holds the test's catalog row")
+  assert(about_dropped[1]:text(1) == "0", "a row about a dropped module is carried")
   -- `greet` is no public standard-library module, so its docs and the
   -- example about it stay in the projection: `test_the_carried_docs_*`
   -- below covers which docs rows are carried.
@@ -249,17 +246,17 @@ local function test_the_carried_database_leaves_the_tree_s_tests_out(tmp: string
   local documented = rows(tmp .. "/whole.db",
     "SELECT (SELECT count(*) FROM examples WHERE module = 'greet'), " ..
       "(SELECT count(*) FROM docs WHERE module = 'greet')")
-  assert(documented[1][1] == "1" and tonumber(documented[1][2]) > 0,
+  assert(documented[1]:text(1) == "1" and tonumber(documented[1]:text(2)) > 0,
     "the projection documents greet")
-  assert(kept[1][1] == "0" and kept[1][2] == "0", "greet's docs stay in the projection")
-  assert(kept[1][3] == "cmd.hello.main", "meta is carried")
+  assert(kept[1]:text(1) == "0" and kept[1]:text(2) == "0", "greet's docs stay in the projection")
+  assert(kept[1]:text(3) == "cmd.hello.main", "meta is carried")
   local materials = rows(tmp .. "/carried.db",
     "SELECT c.name, c.license, n.text FROM components c JOIN notices n ON n.component = c.name")
-  assert(#materials == 1 and materials[1][1] == "zlib" and materials[1][2] == "Zlib" and
-      materials[1][3] == "(C) 1995 Jean-loup Gailly and Mark Adler\n",
+  assert(#materials == 1 and materials[1]:text(1) == "zlib" and materials[1]:text(2) == "Zlib" and
+      materials[1]:text(3) == "(C) 1995 Jean-loup Gailly and Mark Adler\n",
     "the tool carries the projection's bill of materials")
   local trusted = rows(tmp .. "/carried.db", "SELECT label, hex(der) FROM ca_roots")
-  assert(#trusted == 1 and trusted[1][1] == "A Root" and trusted[1][2] == "0506",
+  assert(#trusted == 1 and trusted[1]:text(1) == "A Root" and trusted[1]:text(2) == "0506",
     "the tool carries the projection's CA roots")
 end
 
@@ -315,9 +312,9 @@ local function test_a_module_ships_its_bytecode_and_not_its_lua(tmp: string)
       "FROM modules WHERE path = 'greet'"))
   assert(out:close())
   assert(#columns == 0, "the shipped modules table carries generated Lua")
-  assert(#rows == 1 and rows[1][1] == "1" and rows[1][2] == "1",
+  assert(#rows == 1 and rows[1]:text(1) == "1" and rows[1]:text(2) == "1",
     tostring(#rows))
-  assert(rows[1][3] == "1", "the source is stored deflated")
+  assert(rows[1]:text(3) == "1", "the source is stored deflated")
 end
 
 --- The zones the working database holds ship in the projection, and are
@@ -335,14 +332,14 @@ local function test_the_zones_ship_and_sign_the_projection(tmp: string)
     "SELECT group_concat(name || ' ' || typeof(data) || ' ' || length(data), ',' ORDER BY rowid) " ..
       "FROM zoneinfo"))
   assert(db:close())
-  assert(rows[1][1] == "A/Zone blob 6,Test/Zone blob 9", rows[1][1])
+  assert(rows[1]:text(1) == "A/Zone blob 6,Test/Zone blob 9", rows[1]:text(1))
   -- And the tool built from the projection carries them too.
   assert(writer.carried(out, tmp .. "/carried.db"))
   local carried = assert(Sqlite.open(tmp .. "/carried.db"))
   local kept = assert(Sqlite.text_rows(carried,
     "SELECT group_concat(name || ' ' || typeof(data), ',' ORDER BY rowid) FROM zoneinfo"))
   assert(carried:close())
-  assert(kept[1][1] == "A/Zone blob,Test/Zone blob", kept[1][1])
+  assert(kept[1]:text(1) == "A/Zone blob,Test/Zone blob", kept[1]:text(1))
 end
 
 --- The web assets the working database holds ship in the projection and
@@ -363,7 +360,7 @@ local function test_the_web_assets_ship_and_sign_the_projection(tmp: string)
       "SELECT group_concat(name || ' ' || typeof(data) || ' ' || length(data) || ' ' || " ..
         "sha256 || ' ' || sha384 || ' ' || version, ',' ORDER BY name) FROM web_assets"))
     assert(db:close())
-    return rows[1][1]
+    return rows[1]:text(1)
   end
   local expected = "a.js blob 2 s1 t1 1,b.js blob 4 s2 t2 2"
   assert(listed(out) == expected, listed(out))
@@ -436,7 +433,7 @@ local function test_the_carried_docs_are_the_public_standard_library_s(tmp: stri
   local function column(sql: string): string
     local found = assert(Sqlite.text_rows(out,
       "SELECT coalesce(group_concat(v, ' '), '') FROM (" .. sql .. ")"))
-    return found[1][1]
+    return found[1]:text(1)
   end
   local docs = column("SELECT module AS v FROM docs ORDER BY id")
   local uses = column("SELECT from_module || '>' || module AS v FROM uses " ..
@@ -515,7 +512,7 @@ local function test_the_carried_internal_types_are_the_ones_a_public_signature_n
     "SELECT coalesce(group_concat(symbol, ' '), '') FROM (SELECT symbol FROM docs " ..
       "WHERE module LIKE 'cosmic.internal.%' ORDER BY id)"))
   assert(out:close())
-  assert(found[1][1] == "Alias First Second Base Alias.size", "the internal types carried: " .. found[1][1])
+  assert(found[1]:text(1) == "Alias First Second Base Alias.size", "the internal types carried: " .. found[1]:text(1))
 end
 
 --- A user guide is a generated test module, which the tool does not
@@ -546,7 +543,7 @@ local function test_the_carried_docs_hold_the_user_guides_prose(tmp: string)
   local found = assert(Sqlite.text_rows(out,
     "SELECT coalesce(group_concat(module || '|' || text, ' '), '') FROM docs"))
   assert(out:close())
-  assert(found[1][1] == "doc.guides.quickstart|A tour.", found[1][1])
+  assert(found[1]:text(1) == "doc.guides.quickstart|A tour.", found[1]:text(1))
 end
 
 --- Rebuilding the projection from the same source assigns the same
@@ -574,29 +571,29 @@ local function test_paired_declaration_projects_each_source_in_its_role(tmp: str
       '  return nil, "implementation error"\nend\nreturn {answer = 42} as Foo\n',
     ["only.d.tl"] = "--- Declaration alone.\nlocal record Only\nend\nreturn Only\n",
   })
-  local function rows(sql: string): {{string}}
+  local function rows(sql: string): Sqlite.Rows
     return (assert(Sqlite.text_rows(db, sql)))
   end
   local module = rows("SELECT file, kind, inflate(source) FROM modules WHERE path = 'foo'")
-  assert(#module == 1 and module[1][1] == "foo.tl" and module[1][2] ~= "decl")
-  assert(module[1][3]:find("answer = 42", 1, true), module[1][3])
-  assert(rows("SELECT count(*) FROM decls WHERE path IN ('foo', 'only')")[1][1] == "2")
-  assert(rows("SELECT count(*) FROM modules WHERE path = 'only'")[1][1] == "0")
+  assert(#module == 1 and module[1]:text(1) == "foo.tl" and module[1]:text(2) ~= "decl")
+  assert(module[1]:text(3):find("answer = 42", 1, true), module[1]:text(3))
+  assert(rows("SELECT count(*) FROM decls WHERE path IN ('foo', 'only')")[1]:text(1) == "2")
+  assert(rows("SELECT count(*) FROM modules WHERE path = 'only'")[1]:text(1) == "0")
   local imports = rows("SELECT requires FROM imports WHERE path = 'foo'")
-  assert(#imports == 1 and imports[1][1] == "impl_dep")
+  assert(#imports == 1 and imports[1]:text(1) == "impl_dep")
   local bound = rows("SELECT requires FROM bound WHERE path = 'foo' AND name = 'Dep'")
-  assert(#bound == 1 and bound[1][1] == "decl_dep")
+  assert(#bound == 1 and bound[1]:text(1) == "decl_dep")
   local docs = rows("SELECT file, text FROM docs WHERE module = 'foo' AND symbol = 'Foo'")
-  assert(#docs == 1 and docs[1][1] == "foo.d.tl" and docs[1][2]:find("Public interface.", 1, true))
+  assert(#docs == 1 and docs[1]:text(1) == "foo.d.tl" and docs[1]:text(2):find("Public interface.", 1, true))
   local uses = rows("SELECT module, symbol, from_file FROM uses WHERE from_module = 'foo'")
-  assert(#uses == 1 and uses[1][1] == "impl_dep" and uses[1][2] == "executed" and
-      uses[1][3] == "foo.tl")
+  assert(#uses == 1 and uses[1]:text(1) == "impl_dep" and uses[1]:text(2) == "executed" and
+      uses[1]:text(3) == "foo.tl")
   local catalog = rows("SELECT message, file FROM catalog WHERE module = 'foo'")
-  assert(#catalog == 1 and catalog[1][1] == "implementation error" and catalog[1][2] == "foo.tl")
+  assert(#catalog == 1 and catalog[1]:text(1) == "implementation error" and catalog[1]:text(2) == "foo.tl")
   local links = rows("SELECT module, symbol, from_file FROM links WHERE from_module = 'foo'")
-  assert(#links == 1 and links[1][1] == "decl_dep" and links[1][2] == "declared" and
-      links[1][3] == "foo.d.tl")
-  assert(rows("SELECT count(*) FROM docs WHERE module = 'only'")[1][1] ~= "0")
+  assert(#links == 1 and links[1]:text(1) == "decl_dep" and links[1]:text(2) == "declared" and
+      links[1]:text(3) == "foo.d.tl")
+  assert(rows("SELECT count(*) FROM docs WHERE module = 'only'")[1]:text(1) ~= "0")
   assert(db:close())
 end
 
@@ -617,17 +614,17 @@ local function test_an_edge_to_a_declaration_is_kept_beside_the_runtime_edges(tm
       "SELECT requires FROM " .. table_name .. " WHERE path = 'foo' AND requires <> '' " ..
         "ORDER BY requires"))
     local out: {string} = {}
-    for index, row in ipairs(rows) do out[index] = row[1] end
+    for index, row in ipairs(rows) do out[index] = row:text(1) end
     return table.concat(out, ",")
   end
   assert(names("imports") == "dep", names("imports"))
   assert(names("decl_imports") == "dep,only", names("decl_imports"))
   local paired = assert(Sqlite.text_rows(db,
     "SELECT requires FROM decl_imports WHERE path = 'paired' AND requires <> ''"))
-  assert(#paired == 1 and paired[1][1] == "dep", "a pair keeps its declaration's edges")
+  assert(#paired == 1 and paired[1]:text(1) == "dep", "a pair keeps its declaration's edges")
   local leaf = assert(Sqlite.text_rows(db,
     "SELECT requires FROM decl_imports WHERE path = 'dep'"))
-  assert(#leaf == 1 and leaf[1][1] == "", "a module with no edge has the empty row")
+  assert(#leaf == 1 and leaf[1]:text(1) == "", "a module with no edge has the empty row")
   assert(db:close())
 end
 
@@ -687,18 +684,18 @@ local function test_static_files_ship_as_payload_not_as_modules(tmp: string)
   local rows = assert(Sqlite.text_rows(db,
     "SELECT path, sha256, type, gzip IS NOT NULL, length(data) FROM payload ORDER BY path"))
   assert(#rows == 4, #rows .. " payload rows")
-  assert(rows[1][1] == "css/app.css" and rows[1][2] == Hash.hex_sha256(css))
-  assert(rows[1][3] == "text/css; charset=utf-8" and rows[1][4] == "1" and rows[1][5] == tostring(#css))
-  assert(rows[2][1] == "logo.png" and rows[2][3] == "image/png" and rows[2][4] == "0")
-  assert(rows[3][1] == "notes.tl" and rows[3][3] == "application/octet-stream")
-  assert(rows[4][1] == "page.tmpl")
+  assert(rows[1]:text(1) == "css/app.css" and rows[1]:text(2) == Hash.hex_sha256(css))
+  assert(rows[1]:text(3) == "text/css; charset=utf-8" and rows[1]:text(4) == "1" and rows[1]:text(5) == tostring(#css))
+  assert(rows[2]:text(1) == "logo.png" and rows[2]:text(3) == "image/png" and rows[2]:text(4) == "0")
+  assert(rows[3]:text(1) == "notes.tl" and rows[3]:text(3) == "application/octet-stream")
+  assert(rows[4]:text(1) == "page.tmpl")
   local packed = assert(Sqlite.text_rows(db, "SELECT gzip FROM payload WHERE path = 'css/app.css'"))
-  assert(Compress.inflate("gzip", packed[1][1]) == css)
+  assert(Compress.inflate("gzip", packed[1]:text(1)) == css)
   local bytes = assert(Sqlite.text_rows(db, "SELECT data FROM payload WHERE path = 'logo.png'"))
-  assert(bytes[1][1] == "\137PNG\0\1\2", "binary bytes, a NUL among them, are kept")
+  assert(bytes[1]:text(1) == "\137PNG\0\1\2", "binary bytes, a NUL among them, are kept")
   local modules = assert(Sqlite.text_rows(db,
     "SELECT count(*) FROM modules WHERE path LIKE 'static%' OR path LIKE '%notes%' OR path LIKE '%page%'"))
-  assert(modules[1][1] == "0")
+  assert(modules[1]:text(1) == "0")
   assert(db:close())
 end
 
@@ -717,7 +714,7 @@ local function test_an_edit_to_an_asset_moves_the_projection(tmp: string)
   assert(projected(tmp .. "/one.db") ~= before)
   local db = assert(Sqlite.open(tmp .. "/one.db"))
   local rows = assert(Sqlite.text_rows(db, "SELECT data FROM payload WHERE path = 'css/app.css'"))
-  assert(rows[1][1] == "body { margin: 0 }")
+  assert(rows[1]:text(1) == "body { margin: 0 }")
   assert(db:close())
 end
 
@@ -744,6 +741,6 @@ local function test_a_tree_without_static_has_no_payload(tmp: string)
   write_projection(tmp .. "/p", tmp .. "/p.db")
   local db = assert(Sqlite.open(tmp .. "/p.db"))
   local rows = assert(Sqlite.text_rows(db, "SELECT count(*) FROM payload"))
-  assert(rows[1][1] == "0")
+  assert(rows[1]:text(1) == "0")
   assert(db:close())
 end

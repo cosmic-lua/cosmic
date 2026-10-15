@@ -87,7 +87,7 @@ local record Csrf
     --- of another origin is refused either way.
     strict_same_site?: boolean
     --- Requests this answers true for are not checked (nil).
-    exempt: function(Types.Request): boolean
+    exempt?: function(Types.Request): boolean
     --- Skip the token layer for a request with `Authorization: Bearer` (true).
     bearer_exempt?: boolean
     --- Answers a refused request, given why ("origin", "cross-site",
@@ -134,11 +134,10 @@ end
 local function secret_for(req: Types.Request): string
   local session = Session.of(req)
   local secret = secret_of(session)
-  if secret == nil then
-    secret = (assert(Rand.entropy(32)))
-    session:set(Session.CSRF_KEY, Codec.base64url(secret))
-  end
-  return secret
+  if secret ~= nil then return secret end
+  local drawn = assert(Rand.entropy(32))
+  session:set(Session.CSRF_KEY, Codec.base64url(drawn))
+  return drawn
 end
 
 --- A masked token for this request's session, drawing the session's secret
@@ -207,7 +206,7 @@ local function multipart_token(req: Types.Request): string | nil
   local reader, _ = Multipart.reader(Stream.from_string(head), { boundary = boundary, max_parts = 1 })
   if reader == nil then return nil end
   local part, _ = reader:next_part()
-  local value: string = nil
+  local value: string | nil = nil
   if part ~= nil and part.name == Csrf.FIELD and part.filename == nil then
     value, _ = Stream.read_up_to(part.body, TOKEN_LENGTH + 1)
   end
@@ -227,7 +226,7 @@ local function urlencoded_token(req: Types.Request): string | nil
   local head, _ = Stream.read_up_to(body, PEEK)
   if head == nil then return nil end
   req.raw.body = Stream.prepend(head, body)
-  local found: string = nil
+  local found: string | nil = nil
   local count = 0
   local from = 1
   while from <= #head do
@@ -265,7 +264,7 @@ end
 --- Why the Origin layer refuses `req`, or nil.
 local function origin_refusal(req: Types.Request, trusted: {string:boolean}, strict: boolean): string | nil
   local origin = req.headers["origin"]
-  local normal: string = nil
+  local normal: string | nil = nil
   if origin ~= nil then
     if origin == "null" then
       if trusted["null"] then return nil end
@@ -351,7 +350,7 @@ function Csrf.middleware(opts?: Csrf.Options): Types.Middleware
   return function(inner: Types.Handler): Types.Handler
     return function(req: Types.Request): Types.Response
       if not checked(req) or (exempt ~= nil and exempt(req)) then return inner(req) end
-      local reason: string = nil
+      local reason: string | nil = nil
       if origin_on then reason = origin_refusal(req, trusted, strict) end
       if reason == nil and token_on and not (bearer_exempt and bearer(req)) then
         local secret = secret_of(Session.of(req))

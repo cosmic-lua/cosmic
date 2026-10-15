@@ -108,8 +108,8 @@ local function columns(db: Sqlite.Handle, schema: string, name: string): {string
   local out: {string} = {}
   local keyed = false
   for _, row in ipairs(rows) do
-    out[#out + 1] = row[1]
-    keyed = keyed or row[2] ~= "0"
+    out[#out + 1] = row:text(1)
+    keyed = keyed or row:text(2) ~= "0"
   end
   return out, keyed, ""
 end
@@ -118,7 +118,7 @@ end
 local function counted(db: Sqlite.Handle, sql: string): integer | nil, string
   local rows, trouble = Sqlite.text_rows(db, sql)
   if rows == nil then return nil, trouble end
-  return math.tointeger(tonumber(rows[1][1])) or 0, ""
+  return math.tointeger(tonumber(rows[1]:text(1))) or 0, ""
 end
 
 --- Adds to the cache at `into` (made where it is not there) the rows of
@@ -144,13 +144,13 @@ local function merge_file(from: string, into: string): string, string
   local skipped: {string} = {}
   local added: {string} = {}
   local differing: {string} = {}
-  local attached = false
+  local session = { attached = false }
   local function work(): boolean, string
     local timed, time_trouble = db:exec("PRAGMA busy_timeout = " .. busy_ms)
     if not timed then return false, time_trouble end
     local ok, attach_trouble = Sqlite.run(db, "ATTACH DATABASE ?1 AS ahead", { { text = from } })
     if not ok then return false, attach_trouble end
-    attached = true
+    session.attached = true
     local begun, begin_trouble = db:exec("BEGIN IMMEDIATE")
     if not begun then return false, begin_trouble end
     local globs: {string} = {}
@@ -161,7 +161,7 @@ local function merge_file(from: string, into: string): string, string
         "WHERE type = 'table' AND (" .. table.concat(globs, " OR ") .. ") ORDER BY name")
     if names == nil then return false, trouble end
     for _, row in ipairs(names) do
-      local name, sql = row[1], row[2]
+      local name, sql = row:text(1), row:text(2)
       local q = quote(name)
       local theirs, keyed, their_trouble = columns(db, "ahead", name)
       if theirs == nil then return false, their_trouble end
@@ -181,8 +181,8 @@ local function merge_file(from: string, into: string): string, string
               "WHERE type = 'index' AND tbl_name = ?1 AND sql IS NOT NULL ORDER BY name", { { text = name } })
           if indexes == nil then return false, index_trouble end
           for _, index in ipairs(indexes) do
-            if index[1]:sub(1, 13) == "CREATE INDEX " then
-              local indexed, indexed_trouble = db:exec(index[1])
+            if index:text(1):sub(1, 13) == "CREATE INDEX " then
+              local indexed, indexed_trouble = db:exec(index:text(1))
               if not indexed then return false, indexed_trouble end
             end
           end
@@ -223,7 +223,7 @@ local function merge_file(from: string, into: string): string, string
   end
   local ok, trouble = work()
   if not ok then local _, _ = db:exec("ROLLBACK") end
-  if attached then local _, _ = db:exec("DETACH DATABASE ahead") end
+  if session.attached then local _, _ = db:exec("DETACH DATABASE ahead") end
   local _, _ = db:close()
   if not ok then
     return "", "verdicts-merge: " .. from .. " into " .. into .. ": " .. trouble ..

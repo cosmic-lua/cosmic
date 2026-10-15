@@ -6,7 +6,7 @@
 --- macOS and Windows; only the default zone (the host's own, which
 --- `TZ` and /etc/localtime name) is the host's.
 ---
---- Like `cosmic json` it ends in no verdict line: its standard output is
+--- Like `cosmic json` it prints no summary: its standard output is
 --- data for a pipe or a `$(...)`, and complaints go to standard error.
 --- Its exit status is the verdict: 0 done, 1 an `add` whose answer does
 --- not exist (the day its month lacks, a moment outside what the calendar
@@ -361,17 +361,18 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
     return refuse("--disambiguate is reject, earlier, later or compatible, not " .. how)
   end
 
-  local host: Time.Zone | nil
+  -- The host's zone once asked for, which is asked for once.
+  local host: {Time.Zone} = {}
   local function local_zone(): Time.Zone | nil
-    if host == nil then
+    if host[1] == nil then
       local zone, why = to.local_zone()
       if zone == nil then
         complain("the host's time zone: " .. plain(why) .. "; name one with --zone, --from or --to")
         return nil
       end
-      host = zone
+      host[1] = zone
     end
-    return host
+    return host[1]
   end
   --- The zone an option names, the host's when it is not given; nil after
   --- a complaint.

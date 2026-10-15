@@ -96,7 +96,8 @@ local tree_checks = require("build.tree_checks")
 local type compiler = require("build.compiler")
 local Sqlite = require("cosmic.sqlite")
 
-local log = require("build.verdict").log
+local logger = require("build.logger")
+local log = logger.log
 local verb_spec = require("build.verb_spec")
 local plural = require("build.plural")
 
@@ -118,7 +119,7 @@ local record fix
   --- take: one that is not there, and one that is not a source the verb
   --- handles. A refused path is carried here rather than ending the verb,
   --- so it is reported and counted like any other refused file and the
-  --- run still ends in the verb's verdict line.
+  --- run still ends in the verb's summary.
   --- What `links` found: each link that does not resolve, notes on
   --- what it could not check, each plain span that would be linked
   --- ([`build.links`]'s `rewrite`), and each file it linked spans in.
@@ -183,6 +184,16 @@ local not_source: {string:boolean} = {
   ["core"] = true,
 }
 
+--- The directory of cosmic's own tree whose Teal is never laid out, apart
+--- from the ones `not_source` holds out of every tree: another project's
+--- `checker/` is its own source.
+---
+--- TODO: lay out the checker ([`checker/tl.tl`]) like the rest of the tree,
+--- and drop this exemption, once a change settles which of the tree's checks
+--- hold the checker's source: the file is upstream Teal 0.24.8's with
+--- patches applied in place, and its first layout is a change of its own.
+local held_out_of_own_tree <const> = "checker"
+
 local function skip(entry: string): boolean
   local first = entry:match("^([^/]+)") or entry
   if not_source[first] then
@@ -195,10 +206,13 @@ end
 --- files count, since the renderer must write them back unchanged like
 --- any other source.
 --- @param root string
+--- @param own whether `root` is cosmic's own tree, which holds out `held_out_of_own_tree`
 --- @return {string}|nil
 --- @return string Error message on failure
-local function sources(root: string): {string} | nil, string
-  local files, trouble = Fs.walk(root, skip)
+local function sources(root: string, own: boolean): {string} | nil, string
+  local files, trouble = Fs.walk(root, function(entry: string): boolean
+    return skip(entry) or (own and entry == held_out_of_own_tree)
+  end)
   if files == nil then
     return nil, trouble
   end
@@ -253,10 +267,18 @@ local function checked_sources(root: string): {string} | nil, string
   return out
 end
 
+--- Whether `file`, a path named or found under a named directory, is in
+--- `root`'s `held_out_of_own_tree`, however it is spelled.
+local function held_out(root: string, file: string): boolean
+  local absolute, _ = Fs.absolute(file)
+  local held, _ = Fs.absolute(root .. "/" .. held_out_of_own_tree)
+  return absolute ~= nil and held ~= nil and String.starts_with(absolute, held .. "/")
+end
+
 --- Whether `files`, however each was named, hold every Teal source
 --- under `root`.
 local function covers(root: string, files: {string}): boolean
-  local all, _ = sources(root)
+  local all, _ = sources(root, true)
   if all == nil then return false end
   local named: {string: boolean} = {}
   for _, file in ipairs(files) do
@@ -375,7 +397,7 @@ function fix.source(built: compiler, source: string,
   -- holding a block it did not before, so this repeats until none is
   -- due, which for a file already laid out is the first render.
   local parsed, text = before, rewritten
-  local out: string
+  local out: string | nil
   for pass = 1, breaking_passes do
     local layout, render_trouble = render_mod.laid_out(parsed, text)
     if layout == nil then
@@ -394,6 +416,9 @@ function fix.source(built: compiler, source: string,
       return nil, "what was broken onto lines does not parse: " .. trouble
     end
     parsed, text = reparsed, opened
+  end
+  if out == nil then
+    return nil, "breaking lines did not settle in " .. breaking_passes .. " passes"
   end
   local parsed_out = before
   if out ~= rewritten then
@@ -449,7 +474,7 @@ function fix.chosen(root: string, paths: {string}): fix.Chosen | nil, string
     return nil, own_trouble
   end
   if #paths == 0 then
-    local all, trouble = sources(root)
+    local all, trouble = sources(root, own)
     if all == nil then
       return nil, trouble
     end
@@ -487,7 +512,7 @@ function fix.chosen(root: string, paths: {string}): fix.Chosen | nil, string
   local static_root, _ = Fs.absolute(root .. "/static")
   for _, path in ipairs(paths) do
     local what, missing = Fs.stat(path)
-    local real: string = nil
+    local real: string | nil = nil
     if what ~= nil then
       local resolved, _ = Fs.absolute(path)
       real = resolved
@@ -498,12 +523,15 @@ function fix.chosen(root: string, paths: {string}): fix.Chosen | nil, string
         (real == static_root or real:sub(1, #static_root + 1) == static_root .. "/") then
       refused[#refused + 1] = path .. ": under static/, which is carried verbatim, not laid out"
     elseif what.kind == "dir" then
-      local under, trouble = sources(path)
+      local under, trouble = sources(path, false)
       if under == nil then
         return nil, trouble
       end
       for _, file in ipairs(under) do
-        out[#out + 1] = path .. "/" .. file
+        local named = path .. "/" .. file
+        if not (own and held_out(root, named)) then
+          out[#out + 1] = named
+        end
       end
       local checked, checked_trouble = checked_sources(path)
       if checked == nil then
@@ -536,6 +564,8 @@ function fix.chosen(root: string, paths: {string}): fix.Chosen | nil, string
           flow_out[#flow_out + 1] = base .. "/" .. file
         end
       end
+    elseif own and String.ends_with(path, ".tl") and held_out(root, path) then
+      -- Named as a file, the checker is passed over as it is in a walk.
     elseif String.ends_with(path, ".c") or String.ends_with(path, ".h") then
       if own then
         c_out[#c_out + 1] = path
@@ -564,16 +594,16 @@ end
 --- compiler [`build.teal`] loads), of YAML ([`build.flow`]), of C and
 --- its rules ([`build.c`]), a note on the standard library
 --- ([`build.fix.near`], [`build.analyzer`]), and what reads the command
---- line, says the verdict and tells cosmic's own tree ([`build.tree`]),
+--- line, says the summary and tells cosmic's own tree ([`build.tree`]),
 --- whose files a run over the whole of it covers. A change to one can
---- change the verdict on a file that did not change, so a run of
+--- change what a run says of a file that did not change, so a run of
 --- `--changed` naming one lays out the whole tree ([`fix.narrowed`]).
 --- What checks the tree as a
 --- whole -- the build, the tree checks, the links -- is not among them:
 --- such a run makes those checks over the whole tree anyway.
 local file_checks: {string} = { "build.fix.rule", "build.fix.render", "build.fix.breaks",
   "build.fix.equiv", "build.ast", "build.teal", "build.flow", "build.c",
-  "build.fix.near", "build.analyzer", "build.verdict",
+  "build.fix.near", "build.analyzer", "build.logger",
   "build.tree", "cosmic.flags", "cosmic.cli", "cosmic.template" }
 
 --- What else a run of `--changed` lays out the whole tree for, by a
@@ -583,6 +613,7 @@ local file_checks: {string} = { "build.fix.rule", "build.fix.render", "build.fix
 local file_check_dirs: {string: string} = {
   ["vendor"] = "the program and its Teal compiler are built from vendor/",
   ["patch"] = "the program and its Teal compiler are built from patch/'s records",
+  ["checker"] = "the program's Teal compiler is built from checker/",
   ["bin"] = "bin/ pins zig, whose clang reads each C file",
   ["core"] = "the program runs on core/, whose headers each C file reads",
   ["cmd"] = "the program starts in cmd/",
@@ -640,8 +671,8 @@ local function file_check_sources(databases: {Sqlite.Handle}): {string: boolean}
   for _, db in ipairs(databases) do
     local rows, _ = Sqlite.text_rows(db, query)
     for _, row in ipairs(rows or {}) do
-      found[row[1]] = true
-      out[row[2]] = true
+      found[row:text(1)] = true
+      out[row:text(2)] = true
     end
   end
   for _, module in ipairs(file_checks) do
@@ -740,7 +771,7 @@ end
 function fix.lay_out(files: {string}, checking: boolean, changed: {string}, failures: {string})
   for _, file in ipairs(files) do
     local source, read_trouble = Fs.read(file)
-    local out, flow_trouble: string, string
+    local out, flow_trouble: string | nil, string
     if source == nil then
       flow_trouble = read_trouble
     elseif not flow.is_flow(source) then
@@ -866,15 +897,18 @@ end
 function fix.link_context(root: string, whole: boolean, own: boolean,
                           rebuild_here: function(string): boolean, string,
                           databases: function(): docs.Sources): fix.LinkSource
-  local opened: docs.Sources | nil = nil
-  local source: fix.LinkSource
+  local opened: {docs.Sources} = {}
+  local source: fix.LinkSource | nil
   local function open(): docs.View | nil, string
     if not whole then
       local rebuilt, rebuild_trouble = rebuild_here("fix")
-      if not rebuilt then source.unbuilt = rebuild_trouble end
+      if not rebuilt then
+        -- Opened only once the context below is made and holds this source.
+        assert(source, "the link context opened before it was made").unbuilt = rebuild_trouble
+      end
     end
     local found = databases()
-    opened = found
+    opened[1] = found
     return docs.view(found.handles, found.public)
   end
   local function unbuilt(): string | nil
@@ -884,8 +918,8 @@ function fix.link_context(root: string, whole: boolean, own: boolean,
     return "the project has no projection yet (`cosmic build` or `cosmic test` makes one)"
   end
   local function close()
-    if opened ~= nil then
-      for _, handle in ipairs(opened.opened or {}) do
+    for _, each in ipairs(opened) do
+      for _, handle in ipairs(each.opened or {}) do
         local _, _ = handle:close()
       end
     end
@@ -1053,7 +1087,7 @@ end
 --- Reads the command line and the working directory into `ctx`.
 --- @return integer | nil The exit code when either is refused, else nil
 local function read_command(ctx: Fix): integer | nil
-  local parsed, parse_trouble = Flags.parse(ctx.argv, 2, Cli.verbs.fix.spec)
+  local parsed, parse_trouble = Flags.parse(ctx.argv, 2, assert(Cli.verbs.fix.spec))
   if parsed == nil then
     log:complain("fix: " .. parse_trouble)
     return 2
@@ -1074,7 +1108,7 @@ end
 --- Chooses the files the run covers, narrowing them for `--changed`.
 --- @return integer | nil The exit code when the choice fails, else nil
 local function choose_files(ctx: Fix): integer | nil
-  local root = ctx.root
+  local root = assert(ctx.root)
   local paths = assert(ctx.paths)
   -- A run of `--changed` starts from the whole tree, which it narrows.
   local covered: {string} = paths
@@ -1126,7 +1160,7 @@ local function start_tally(ctx: Fix)
   local files = picked.files
   ctx.files = files
   -- A named path the verb would not take counts among the files the run
-  -- covers, so the verdict says how many of everything asked for was
+  -- covers, so the summary says how many of everything asked for was
   -- refused rather than only how many of what survived the naming.
   ctx.counted = #files + #picked.c_files + #picked.flow_files + #picked.checked +
     #picked.templates + #picked.refused
@@ -1183,7 +1217,7 @@ local function lay_out_c(ctx: Fix)
   local compiled: {string} = {}
   for _, file in ipairs(c_files) do
     local source, read_trouble = Fs.read(root .. "/" .. file)
-    local out, layout_trouble: string, string
+    local out, layout_trouble: string | nil, string
     if source ~= nil then
       out, layout_trouble = c_check.laid_out(source)
     else
@@ -1214,7 +1248,7 @@ local function lay_out_c(ctx: Fix)
       end
     end
   end
-  fix.lay_out(picked.flow_files, ctx.checking, changed, failures)
+  fix.lay_out(picked.flow_files, ctx.checking == true, changed, failures)
 end
 
 --- Lays out each Teal file, keeping what its parse gives the later
@@ -1298,13 +1332,13 @@ local function wrap_asserts(ctx: Fix)
       if file ~= nil then spilled = true end
       if file ~= nil and not checking then
         local source, read_trouble = Fs.read(file)
-        local out, wrap_trouble: string, string
+        local out, wrap_trouble: string | nil, string
         if source ~= nil then
           out, wrap_trouble = spill.wrap(built, source, file, at)
         else
           wrap_trouble = read_trouble
         end
-        local result: fix.Fixed
+        local result: fix.Fixed | nil
         if out ~= nil then
           result, wrap_trouble = fix.source(built, out, file)
         end
@@ -1463,7 +1497,7 @@ local function check_links(ctx: Fix)
   local c_files = assert(ctx.c_files)
   local ready = assert(ctx.ready)
   local built = assert(ctx.built)
-  local root = ctx.root
+  local root = assert(ctx.root)
   local picked = assert(ctx.picked)
   local every = assert(ctx.every)
   local files = assert(ctx.files)
@@ -1530,7 +1564,7 @@ local function say_notes(ctx: Fix)
   local ready = assert(ctx.ready)
   local linked_out = assert(ctx.linked_out)
   local built = assert(ctx.built)
-  local root = ctx.root
+  local root = assert(ctx.root)
   local picked = assert(ctx.picked)
   local findings = assert(ctx.findings)
   for _, line in ipairs(linked_out.notes) do
@@ -1580,18 +1614,18 @@ local function kind_list(picked: fix.Chosen): string
   return table.concat(parts, " + ")
 end
 
---- The count of files a verdict says: "1 Teal file", "3 Teal + 2 Markdown
+--- The count of files a summary says: "1 Teal file", "3 Teal + 2 Markdown
 --- files", or the bare count where refused paths leave no kind to name.
 local function files_said(ctx: Fix): string
   local picked = assert(ctx.picked)
   local kinds = kind_list(picked)
   if kinds == "" or #picked.refused > 0 then
-    return plural.count(ctx.counted, "file")
+    return plural.count(assert(ctx.counted), "file")
   end
   return kinds .. (ctx.counted == 1 and " file" or " files")
 end
 
---- Says each failure, finding and change, then the verdict.
+--- Says each failure, finding and change, then the summary.
 --- @return integer The exit code: 0 when nothing is left to fix
 local function report(ctx: Fix): integer
   local link_only = assert(ctx.link_only)
@@ -1600,7 +1634,7 @@ local function report(ctx: Fix): integer
   local failures = assert(ctx.failures)
   local findings = assert(ctx.findings)
   local changed = assert(ctx.changed)
-  local counted = ctx.counted
+  local counted = assert(ctx.counted)
   local unbuilt = ctx.unbuilt
   local links_unbuilt = ctx.links_unbuilt
   local broken = linked_out.broken
@@ -1667,15 +1701,15 @@ local function report(ctx: Fix): integer
     if links_unbuilt ~= nil then
       said[#said + 1] = "the links' build failing"
     end
-    log:verdict("fix", false, table.concat(said, ", ") .. ", " .. clock.took(ctx.started))
+    local _, _ = logger.summary("fix", table.concat(said, ", ") .. ", " .. clock.took(ctx.started))
     return 1
   end
   if checking and #changed > 0 then
-    log:verdict("fix", false, #changed .. " of " .. plural.count(counted, "file") .. " to fix, " ..
+    local _, _ = logger.summary("fix", #changed .. " of " .. plural.count(counted, "file") .. " to fix, " ..
         clock.took(ctx.started) .. "; `cosmic fix` rewrites them in place")
     return 1
   end
-  log:verdict("fix", true, files_said(ctx) .. ", " .. #changed ..
+  local _, _ = logger.summary("fix", files_said(ctx) .. ", " .. #changed ..
       (checking and " to fix, " or " fixed, ") .. clock.took(ctx.started))
   return 0
 end
@@ -1724,6 +1758,7 @@ end
 --- The `fix` verb as [`build/verb_list.tl`] lists it.
 fix.spec = {
   name = "fix",
+  summarizes_failure = true,
   guide = "none: a tree-maintenance verb, described by `cosmic help fix`; the quickstart does not cover checking a tree",
   tests = { "build.fix.fix_test" },
   run = function(argv: {integer:string}): integer return run(argv) end,

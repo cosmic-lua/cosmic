@@ -477,9 +477,9 @@ end
 
 local function test_a_stream_revived_by_a_finalizer_is_finished()
   for _, case in ipairs(every_kind()) do
-    local saved: Compress.Stream
+    local saved = { value = nil as Compress.Stream | nil }
     local holder: Holder = setmetatable({} as Holder, {
-      __gc = function(self: Holder) saved = self.s end,
+      __gc = function(self: Holder) saved.value = self.s end,
     } as metatable<Holder>)
     holder.s = case[1]
     -- The stream is collected in the same cycle as the table whose
@@ -489,12 +489,12 @@ local function test_a_stream_revived_by_a_finalizer_is_finished()
     holder = nil
     collectgarbage()
     collectgarbage()
-    assert(saved ~= nil, "the finalizer ran")
-    local ok, why = pcall(saved.update, saved, case[2])
+    local kept = assert(saved.value, "the finalizer ran")
+    local ok, why = pcall(kept.update, kept, case[2])
     assert(not ok and tostring(why):find("compress: the stream is finished", 1, true), tostring(why))
-    assert(not pcall(saved.finish, saved))
-    assert(not saved:pending())
-    assert(saved:rest() == "")
+    assert(not pcall(kept.finish, kept))
+    assert(not kept:pending())
+    assert(kept:rest() == "")
   end
 end
 
@@ -732,19 +732,19 @@ local function test_sql_deflate_and_inflate_speak_raw_deflate()
   for _, input in ipairs({ text, "", "x" }) do
     local rows = assert(Sqlite.rows(db,
       "SELECT deflate(?1), inflate(deflate(?1))", { { text = input } }))
-    local stored = rows[1][1].blob
+    local stored = rows[1]:blob(1)
     assert(stored == assert(Compress.deflate("raw", input)),
       "SQL and Compress deflate alike")
     assert(assert(Compress.inflate("raw", stored)) == input)
-    assert(rows[1][2].kind == "blob" and rows[1][2].blob == input)
+    assert(rows[1]:kind(2) == "blob" and rows[1]:blob(2) == input)
     local back = assert(Sqlite.rows(db, "SELECT inflate(?1)",
       { { blob = assert(Compress.deflate("raw", input)) } }))
-    assert(back[1][1].blob == input, "SQL inflates what Compress deflated")
+    assert(back[1]:blob(1) == input, "SQL inflates what Compress deflated")
   end
   assert(#assert(Compress.deflate("raw", text)) < #text // 10)
   local nulls = assert(Sqlite.text_rows(db,
     "SELECT deflate(NULL) IS NULL, inflate(NULL) IS NULL"))
-  assert(nulls[1][1] == "1" and nulls[1][2] == "1")
+  assert(nulls[1]:text(1) == "1" and nulls[1]:text(2) == "1")
   local stream = assert(Compress.deflate("raw", text))
   for _, case in ipairs({
       { stream:sub(1, #stream - 4), "truncated deflate stream" },

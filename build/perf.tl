@@ -205,7 +205,7 @@ end
 
 --- Check the exact effect of a command outside its timed region. Reads and
 --- compilation belong only to the deliberate leaf mutation workload.
-function Perf.check_transition(before: {string}, after: {string}, builds: boolean, change: boolean)
+function Perf.check_transition(before: {string}, after: {string}, builds?: boolean, change?: boolean)
   assert(#before == 6 and #after == 6, "missing build history counters")
   local delta = builds and 1 or 0
   assert(tonumber(after[5]) == tonumber(before[5]) + delta and
@@ -306,8 +306,8 @@ local function latest_build(fixture: Fixture): {string}
   local rows = assert(Sqlite.text_rows(db,
     "SELECT compiled, cached, read, verdict, run, (SELECT COUNT(*) FROM builds) FROM builds ORDER BY run DESC LIMIT 1"))
   assert(db:close())
-  assert(#rows == 1 and rows[1][4] == "PASS", "missing successful build counters")
-  return rows[1]
+  assert(#rows == 1 and rows[1]:text(4) == "PASS", "missing successful build counters")
+  return rows[1]:texts()
 end
 
 local function fixture(binary: string, root: string): Fixture
@@ -459,11 +459,12 @@ local function measure(f: Fixture, w: Workload, phase: string, pair: integer,
     assert(db:close())
   end
   local before = latest_build(f)
-  local result: Child.Result
+  local result: Child.Result | nil
   local start = Clock.monotonic_ns()
   for _ = 1, w.batch do result = command(argv, f) end
   local elapsed = Clock.monotonic_ns() - start
-  local stdout, stderr = result.stdout or "", result.stderr or ""
+  local last = assert(result, "a workload runs its command at least once")
+  local stdout, stderr = last.stdout or "", last.stderr or ""
   local observation: Observation = { phase = phase, workload = w.name, pair = pair, label = label,
     elapsed_ns = elapsed, batch = w.batch, argv = argv, cwd = f.root,
     stdout = stdout, stderr = stderr, before = before, after = latest_build(f) }

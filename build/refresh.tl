@@ -44,7 +44,8 @@ local clock = require("build.clock")
 local roots = require("build.roots")
 local work = require("build.work")
 
-local log = require("build.verdict").log
+local logger = require("build.logger")
+local log = logger.log
 local verb_spec = require("build.verb_spec")
 local plural = require("build.plural")
 
@@ -292,7 +293,7 @@ local tzdata: refresh.Dataset = {
       return nil, path .. ": " .. trouble
     end
     -- The sdist's one top directory names its version.
-    local version: string = nil
+    local version: string | nil = nil
     for _, entry in ipairs(entries) do
       local path_in = entry.path
       while path_in:sub(1, 2) == "./" do
@@ -363,10 +364,10 @@ local function recorded(db: Sqlite.Handle, name: string): {string} | nil, string
     return nil, "the binary records no " .. name .. " component"
   end
   -- A release as upstream publishes it would lose what cosmic changed.
-  if rows[1][4] ~= "" then
+  if rows[1]:text(4) ~= "" then
     return nil, "the binary's " .. name .. " carries cosmic's patches, which a refresh cannot apply"
   end
-  return rows[1], ""
+  return rows[1]:texts(), ""
 end
 
 --- Replaces `dataset`'s rows in `db` with the release at `source` and
@@ -500,7 +501,7 @@ function refresh.binary(binary: string, out: string, chosen: {refresh.Dataset},
       return done(cookie_trouble)
     end
     local kept, keep_trouble = db:exec("PRAGMA schema_version = " ..
-        (math.tointeger(tonumber(cookie[1][1])) - 1))
+        (math.tointeger(tonumber(cookie[1]:text(1))) - 1))
     if not kept then
       return done(keep_trouble)
     end
@@ -537,15 +538,16 @@ local usage <const> = "cosmic refresh -o <path> [--binary <path>] [--<dataset> <
 --- `cosmic refresh`'s command line: see [`cosmic.cli.Cli.refresh`].
 local function run(argv: {integer:string}): integer
   local started = Time.monotonic_ns()
-  local function finish(code: integer, detail: string): integer
-    log:verdict("refresh", code == 0, detail .. ", " .. clock.took(started))
-    return code
+  -- A failure's complaint says why; only a run that passed is summarized.
+  local function passed(detail: string): integer
+    local _, _ = logger.summary("refresh", detail .. ", " .. clock.took(started))
+    return 0
   end
   local function refuse(why: string): integer
     log:complain("refresh: " .. why .. "; " .. usage)
-    return finish(2, "usage: see `cosmic help refresh`")
+    return 2
   end
-  local parsed, parse_trouble = Flags.parse(argv, 2, Cli.verbs.refresh.spec)
+  local parsed, parse_trouble = Flags.parse(argv, 2, assert(Cli.verbs.refresh.spec))
   if parsed == nil then
     return refuse(parse_trouble)
   end
@@ -571,7 +573,7 @@ local function run(argv: {integer:string}): integer
       local path, trouble = Fs.absolute(given)
       if path == nil then
         log:complain("refresh: " .. trouble)
-        return finish(1, "nothing written")
+        return 1
       end
       sources[dataset.name] = path
       wanted[dataset.name] = true
@@ -594,23 +596,23 @@ local function run(argv: {integer:string}): integer
     local running, trouble = Proc.executable()
     if running == nil then
       log:complain("refresh: " .. trouble)
-      return finish(1, "no binary")
+      return 1
     end
     binary = running
   end
   if same_file(binary, out) then
     log:complain("refresh: " .. out .. " is the binary it refreshes, which is never written")
-    return finish(1, "nothing written")
+    return 1
   end
   local lines, trouble = refresh.binary(binary, out, chosen, sources)
   if lines == nil then
     log:complain("refresh: " .. trouble)
-    return finish(1, "nothing written")
+    return 1
   end
   for _, line in ipairs(lines) do
     log:say(line)
   end
-  return finish(0, "wrote " .. out)
+  return passed("wrote " .. out)
 end
 
 --- The `refresh` verb as [`build/verb_list.tl`] lists it. What it copies is

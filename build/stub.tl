@@ -11,9 +11,9 @@
 ---
 --- Leaving a body out cannot change the module's type: tl takes a
 --- function's types from its signature, or from the context of a function
---- literal (patch/tl/37), never from its body. A body is still checked
+--- literal, never from its body. A body is still checked
 --- against those types in two ways. A function declared `: never` must
---- not reach its end (patch/tl/43), so its stub body is `error()`. A
+--- not reach its end, so its stub body is `error()`. A
 --- function literal written with no return list must return what its
 --- context expects of it, and nothing in its signature says what that is,
 --- so its body is kept. The checker still warns of the parameters and
@@ -106,11 +106,10 @@ local function scan(statements: {ast.Node}): Scan
   local found: {Span} = {}
   local firsts: {{integer}} = {}
   for i, statement in ipairs(statements) do
-    local first_y, first_x = statement.y, statement.x
-    local visit: function(ast.Node)
-    visit = function(n: ast.Node)
-      if before(n.y, n.x, first_y, first_x) then
-        first_y, first_x = n.y, n.x
+    local first = { y = statement.y, x = statement.x }
+    local function visit(n: ast.Node)
+      if before(n.y, n.x, first.y, first.x) then
+        first.y, first.x = n.y, n.x
       end
       local body = n.body
       local typed_by_context = n.kind == "function" and n.rets_omitted == true
@@ -134,7 +133,7 @@ local function scan(statements: {ast.Node}): Scan
       ast.each_child_node(n, skipped, visit)
     end
     visit(statement)
-    firsts[i] = { first_y, first_x }
+    firsts[i] = { first.y, first.x }
   end
   table.sort(found, function(a: Span, b: Span): boolean
     return before(a.y, a.x, b.y, b.x)
@@ -184,6 +183,20 @@ local function names_of(s: ast.Node): {string}, string | nil
   return declared, nil
 end
 
+--- The names the top-level statement `s`, an assignment, writes as plain
+--- names (`feed = function() ... end`); none for any other statement.
+local function written_names(s: ast.Node): {string}
+  local written: {string} = {}
+  if s.kind == "assignment" then
+    for _, var in ipairs(s.vars or {}) do
+      if var.kind == "variable" then
+        written[#written + 1] = var.tk
+      end
+    end
+  end
+  return written
+end
+
 --- Whether the top-level statement `s` gives the one name it declares a
 --- type no later statement can change: a type declaration (`local record
 --- M`), a local function, whose type is its signature, or a local whose
@@ -223,10 +236,12 @@ local function unneeded(parsed: ast.Parsed, scanned: Scan): {Span} | nil
     return nil
   end
   local declares: {{string}} = {}
+  local writes: {{string}} = {}
   local owners: {string | nil} = {}
   local typed = false
   for i, s in ipairs(statements) do
     declares[i], owners[i] = names_of(s)
+    writes[i] = written_names(s)
     -- The returned name's last top-level declaration decides what it is.
     for _, name in ipairs(declares[i]) do
       if name == returned then
@@ -291,6 +306,12 @@ local function unneeded(parsed: ast.Parsed, scanned: Scan): {Span} | nil
         for _, name in ipairs(declares[i]) do
           keep = keep or wanted[name] == true
         end
+        -- The assignment of a name a kept statement spells stays: a local
+        -- declared with no value is read in the stub only if the stub
+        -- assigns it, as the source does.
+        for _, name in ipairs(writes[i]) do
+          keep = keep or wanted[name] == true
+        end
         if keep then
           kept[i], grew = true, true
         end
@@ -326,23 +347,23 @@ function stub.made(parsed: ast.Parsed): stub.Made
     return before(a.y, a.x, b.y, b.x)
   end)
   local out: {string} = {}
-  local y, x = 1, 1
+  local cursor = { y = 1, x = 1 }
   local function put(at_y: integer, at_x: integer, text: string)
-    if at_y > y then
-      out[#out + 1] = ("\n"):rep(at_y - y)
-      y, x = at_y, 1
+    if at_y > cursor.y then
+      out[#out + 1] = ("\n"):rep(at_y - cursor.y)
+      cursor.y, cursor.x = at_y, 1
     end
-    if at_x > x then
-      out[#out + 1] = (" "):rep(at_x - x)
+    if at_x > cursor.x then
+      out[#out + 1] = (" "):rep(at_x - cursor.x)
     end
     out[#out + 1] = text
     -- A long string may span lines.
     local last = 0
     for at in text:gmatch("()\n") do
-      y = y + 1
+      cursor.y = cursor.y + 1
       last = math.tointeger(at) or 0
     end
-    x = last > 0 and #text - last + 1 or at_x + #text
+    cursor.x = last > 0 and #text - last + 1 or at_x + #text
   end
   local next_span = 1
   for _, token in ipairs(parsed.tokens) do

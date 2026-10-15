@@ -85,7 +85,7 @@ local record test_inputs
 
   lua_loads: {string}
   standalone_loads: {string}
-  compiler_sought: function(closure: {string}, lua: boolean): {string}
+  compiler_sought: function(closure: {string}, lua?: boolean): {string}
 end
 
 --- The variables every test may read undeclared, which a sandboxed
@@ -116,7 +116,7 @@ for _, name in ipairs(this_program.runtime_environment) do pinned_env[#pinned_en
 -- `ask_guidance`), which a child of a `lua` module cannot load and so
 -- prints none, silently, where another prints the catalog's.
 test_inputs.lua_loads = {
-  "build.dispatch", "build.exit_status", "build.help_source", "build.paths", "build.verdict",
+  "build.dispatch", "build.exit_status", "build.help_source", "build.paths", "build.logger",
   "cmd.cosmic.main", "cosmic.codec", "cosmic.env", "cosmic.fs", "cosmic.hash", "cosmic.log",
 }
 
@@ -150,7 +150,7 @@ test_inputs.standalone_loads = {
 --- process reach that read holds a reader the search finds anyway, and
 --- an edit to the compiler, which moves its identity, runs a test that
 --- only runs Lua in a child no more than one that runs none.
-function test_inputs.compiler_sought(closure: {string}, lua: boolean): {string}
+function test_inputs.compiler_sought(closure: {string}, lua?: boolean): {string}
   if not lua then return closure end
   local added: {string:boolean} = {}
   for _, list in ipairs({ test_inputs.lua_loads, test_inputs.standalone_loads }) do
@@ -192,8 +192,8 @@ local corpora <const> = "testdata/fuzz/"
 --- ([`build.test_worker`]), so the miss fails the test rather than
 --- leaving its key short.
 ---
---- The compiler -- `vendor.tl`, derived from vendor/tl/ and its
---- patches -- is no file of it, though build.teal loads it as bytecode
+--- The compiler -- `vendor.tl`, derived from checker/tl.tl -- is no file
+--- of it, though build.teal loads it as bytecode
 --- (`Store.bytecode("vendor.tl")`) rather than by `require`, so no
 --- parse follows it: a key over the closure holds it apart, by its
 --- bytecode, in the bytes of the closure store that carries it beside
@@ -380,12 +380,12 @@ function test_inputs.resolve(effective: test_inputs.Effective, roots: {string})
     local path, trouble = test_inputs.resolved(declared, roots)
     -- A file, or /proc: a directory no key holds by what it holds (R3).
     -- One not there is none, as a file of another platform's is not.
-    local st: sys.Stat = nil
+    local st: sys.Stat | nil = nil
     if path ~= nil then
       local found, _ = sys.stat(path)
       st = found
     end
-    if st ~= nil and st.kind == "dir" and not beneath(path, "/proc") then
+    if path ~= nil and st ~= nil and st.kind == "dir" and not beneath(path, "/proc") then
       path, trouble = nil, string.format("Test.policy grant of the host path %q: %s is a " ..
           "directory; a grant of the host names files, or /proc: grant the files the tests read",
         declared, path)

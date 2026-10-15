@@ -1,0 +1,9 @@
+file: sqlite3.c
+note: The check frees its set of read nodes (05-rtree-check-reads-each-node-once.txt) with its statements.
+--- find
+  sqlite3_finalize(check.pGetNode);
+--- replace
+  sqlite3_free(check.aSeen);
+  sqlite3_free(check.aSeenTmp);
+  sqlite3_finalize(check.pGetNode);
+--- end

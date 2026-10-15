@@ -1,0 +1,7 @@
+file: ext/misc/csv.c
+note: An unquoted field ends at the reader's delimiter (30-csv-reader-holds-a-delimiter.txt), which is answered as a comma; a comma is data when the delimiter is another byte. The loop's test is the one upstream's `c>','` shortcut stood for.
+--- find
+    while( c>',' || (c!=EOF && c!=',' && c!='\n') ){
+--- replace
+    while( c!=EOF && c!=CSV_SEP(p) && c!='\n' ){
+--- end

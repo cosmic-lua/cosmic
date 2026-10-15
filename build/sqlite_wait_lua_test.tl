@@ -11,7 +11,7 @@ local type Log = require("cosmic.log")
 local build_paths = require("build.paths")
 local rebuild_lock = require("build.rebuild_lock")
 local this_program = require("build.this_program")
-local verdict = require("build.verdict")
+local logger = require("build.logger")
 local work = require("build.work")
 
 Test.policy{ profiles = { "cosmic" } }
@@ -99,10 +99,10 @@ local function test_work_open_does_not_retry_a_cancelled_first_or_second_begin(t
   -- The first is caught before the open, which its first BEGIN then
   -- finds; the second is sent once the notice is given, so neither
   -- meets the other phase however slow the host.
-  local log = verdict.log
+  local log = logger.log
   local complain = log.complain
   for _, retried in ipairs({ false, true }) do
-    local notices = 0
+    local notices = { value = 0 }
     local guard <close> = assert(Signal.guard())
     local sender: Child.Handle | nil
     if retried then
@@ -111,7 +111,7 @@ local function test_work_open_does_not_retry_a_cancelled_first_or_second_begin(t
       assert(sys.kill(sys.getpid(), sys.SIGTERM))
     end
     log.complain = function(_: Log.Logger, _: string): boolean, string
-      notices = notices + 1
+      notices.value = notices.value + 1
       if sender ~= nil then signal(sender) end
       return true, ""
     end
@@ -122,7 +122,7 @@ local function test_work_open_does_not_retry_a_cancelled_first_or_second_begin(t
     guard:release()
     assert(opened == nil and reason:find("interrupted", 1, true), reason)
     assert(caught == sys.SIGTERM)
-    assert(notices == (retried and 1 or 0), notices .. " notices")
+    assert(notices.value == (retried and 1 or 0), notices.value .. " notices")
     if sender ~= nil then done(sender) end
   end
   assert(assert(holder.stdin_stream):close())

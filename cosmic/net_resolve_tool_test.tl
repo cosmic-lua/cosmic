@@ -112,7 +112,7 @@ end
 --- against a server that answers each query as `serve` says, and the
 --- "type name" of each query the server saw.
 local function lookup(tmp: string, name: string, timeout_ms: integer,
-                      serve: function(string, integer): Reply,
+                      serve: function(string, integer): Reply | nil,
                       guarded?: boolean): {string}, {string}
   local script = tmp .. "/resolve.tl"
   assert(Fs.write(script, guarded and GUARDED or SCRIPT))
@@ -122,7 +122,7 @@ local function lookup(tmp: string, name: string, timeout_ms: integer,
     { stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(60) })
   local child <close> = assert(Child.start(started.argv, started.options))
   local seen: {string} = {}
-  local result: Child.Result
+  local result: Child.Result | nil
   while result == nil do
     local state = assert(child:try_wait())
     if state.finished then
@@ -143,9 +143,10 @@ local function lookup(tmp: string, name: string, timeout_ms: integer,
       end
     end
   end
-  assert(result.code == 0, tostring(result.code) .. " " .. tostring(result.stderr))
+  local finished = assert(result)
+  assert(finished.code == 0, tostring(finished.code) .. " " .. tostring(finished.stderr))
   local lines: {string} = {}
-  for line in ((result.stdout or "") .. "\n"):gmatch("([^\n]*)\n") do lines[#lines + 1] = line end
+  for line in ((finished.stdout or "") .. "\n"):gmatch("([^\n]*)\n") do lines[#lines + 1] = line end
   table.sort(seen)
   return lines, seen
 end
@@ -195,7 +196,7 @@ local function test_a_failing_server_is_a_failure_not_an_answer(tmp: string)
 end
 
 local function test_a_server_that_never_answers_times_out(tmp: string)
-  local lines, seen = lookup(tmp, "silent.example.test", 400, function(): Reply return nil end)
+  local lines, seen = lookup(tmp, "silent.example.test", 400, function(): Reply | nil return nil end)
   assert(lines[1] == "error " .. Poll.TIMEOUT, lines[1])
   assert(#seen >= 1, "the server was never asked")
 end
@@ -209,6 +210,6 @@ local function test_one_family_failing_leaves_the_addresses_of_the_other(tmp: st
 end
 
 local function test_a_caught_signal_ends_a_lookup_that_waits(tmp: string)
-  local lines = lookup(tmp, "stalled.example.test", 20000, function(): Reply return nil end, true)
+  local lines = lookup(tmp, "stalled.example.test", 20000, function(): Reply | nil return nil end, true)
   assert(lines[1] == "error interrupted", lines[1])
 end

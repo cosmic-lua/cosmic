@@ -87,16 +87,22 @@ local function echoing(listener: Net.Listener, heard: function(data: string)): P
   end)
 end
 
---- A server at 127.0.0.2, the one `body` is given the port of.
-local function serving(body: function(port: integer, heard: {string}))
+--- A server at 127.0.0.2, the one `body` is given the port of. Answers
+--- what `body` returned, the bytes the server heard, and its port.
+local function serving(body: function(port: integer, heard: {string}): Ran): Ran, {string}, integer
   local heard: {string} = {}
+  local answered = { value = nil as Ran | nil }
+  local at = { value = nil as integer | nil }
   Poll.run(function()
     local listener = assert(Net.listen(Net.tcp("127.0.0.2", 0)))
     local task = echoing(listener, function(data: string) heard[#heard + 1] = data end)
-    body(listener.address.port, heard)
+    local port = assert(listener.address.port)
+    at.value = port
+    answered.value = body(port, heard)
     task:cancel()
     assert(listener:close())
   end)
+  return assert(answered.value), heard, assert(at.value)
 end
 
 --- The command line of a verb that grants `target` and runs the client for
@@ -107,11 +113,8 @@ local function client(target: string, host: string, port: integer): {string}
 end
 
 local function test_the_client_carries_bytes_both_ways_with_the_half_close(tmp: string)
-  local ran: Ran
-  local heard: {string}
-  serving(function(port: integer, bytes: {string})
-    ran = verb(tmp, client("127.0.0.2:" .. port, "127.0.0.2", port), "ping")
-    heard = bytes
+  local ran, heard = serving(function(port: integer, _: {string}): Ran
+    return verb(tmp, client("127.0.0.2:" .. port, "127.0.0.2", port), "ping")
   end)
   assert(ran.code == 0, ran.code .. ": " .. ran.err)
   -- The server answered only after the end of what was sent, which is the
@@ -124,12 +127,10 @@ local function test_the_client_carries_bytes_both_ways_with_the_half_close(tmp: 
 end
 
 local function test_a_port_nothing_grants_exits_1_and_the_relay_says_the_remedy(tmp: string)
-  local ran: Ran
-  local port: integer
-  serving(function(granted: integer)
-    port = granted + 1
-    ran = verb(tmp, client("127.0.0.2:" .. granted, "127.0.0.2", port), "never sent")
+  local ran, _, granted = serving(function(at: integer, _: {string}): Ran
+    return verb(tmp, client("127.0.0.2:" .. at, "127.0.0.2", at + 1), "never sent")
   end)
+  local port = granted + 1
   assert(ran.code == 1, ran.code .. ": " .. ran.err)
   assert(ran.out == "", ran.out)
   -- The relay's own line, on the verb's standard error, names the grant that
@@ -139,11 +140,10 @@ local function test_a_port_nothing_grants_exits_1_and_the_relay_says_the_remedy(
 end
 
 local function test_a_name_is_resolved_by_the_relay_and_never_by_the_program(tmp: string)
-  local ran: Ran
-  serving(function(port: integer)
+  local ran = serving(function(port: integer, _: {string}): Ran
     -- No name of this sandbox resolves: the relay is asked for a name and
     -- refuses it as it is not granted, and the program has no DNS to ask.
-    ran = verb(tmp, client("127.0.0.2:" .. port, "ungranted.example", 443), "")
+    return verb(tmp, client("127.0.0.2:" .. port, "ungranted.example", 443), "")
   end)
   assert(ran.code == 1, ran.code .. ": " .. ran.err)
   assert(ran.err:find("not granted: --connect ungranted.example:443", 1, true), ran.err)
@@ -152,13 +152,14 @@ end
 --- What a proxy of the caller's is given: the line of its CONNECT and the
 --- bytes it carries, answered `echo:` as the servers do.
 local function test_a_callers_https_proxy_is_the_relays_upstream(tmp: string)
-  local ran: Ran
-  local request: string
-  local carried: string
-  local proxy: integer
+  local made = { value = nil as Ran | nil }
+  local request = { value = nil as string | nil }
+  local carried = { value = nil as string | nil }
+  local at = { value = nil as integer | nil }
   Poll.run(function()
     local listener = assert(Net.listen(Net.tcp("127.0.0.2", 0)))
-    proxy = listener.address.port
+    local proxy = assert(listener.address.port)
+    at.value = proxy
     local task = Poll.spawn(function()
       local conn = listener:accept()
       if conn == nil then return end
@@ -169,7 +170,7 @@ local function test_a_callers_https_proxy_is_the_relays_upstream(tmp: string)
         if chunk == nil then return end
         head = head .. chunk
       end
-      request = head:match("^[^\r]*")
+      request.value = head:match("^[^\r]*")
       assert(conn:write("HTTP/1.1 200 Connection established\r\n\r\n"))
       local data = ""
       while true do
@@ -177,20 +178,21 @@ local function test_a_callers_https_proxy_is_the_relays_upstream(tmp: string)
         if chunk == nil then break end
         data = data .. chunk
       end
-      carried = data
+      carried.value = data
       local _, _ = conn:write("echo:" .. data)
       local _, _ = conn:shutdown("write")
       local _, _ = conn:close()
     end)
     local env = this_program.environment()
     env.https_proxy = "http://127.0.0.2:" .. proxy
-    ran = verb(tmp, client("through.example:443", "through.example", 443), "ping", env)
+    made.value = verb(tmp, client("through.example:443", "through.example", 443), "ping", env)
     task:cancel()
     assert(listener:close())
   end)
+  local ran, proxy = assert(made.value), assert(at.value)
   assert(ran.code == 0, ran.code .. ": " .. ran.err)
-  assert(request == "CONNECT through.example:443 HTTP/1.1", "the proxy was asked: " .. tostring(request))
-  assert(carried == "ping" and ran.out == "echo:ping", "the bytes went through it: " .. ran.out)
+  assert(request.value == "CONNECT through.example:443 HTTP/1.1", "the proxy was asked: " .. tostring(request.value))
+  assert(carried.value == "ping" and ran.out == "echo:ping", "the bytes went through it: " .. ran.out)
   -- Said once, as the relay starts, on the verb's standard error.
   local note = "upstream proxy 127.0.0.2:" .. proxy .. ": it resolves the names it is asked for"
   local first, last = ran.err:find(note, 1, true)

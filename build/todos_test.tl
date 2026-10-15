@@ -24,7 +24,7 @@ local function test_a_todo_carries_on_through_its_paragraph()
   local found = todo_scan.scan(text({
     "local x = 1",
     "  -- TODO: drop the cast once the pin names a cosmic",
-    "  -- carrying patch/tl/24.",
+    "  -- carrying the fix.",
     "  --",
     "  -- Not part of it.",
     "  return x",
@@ -32,7 +32,7 @@ local function test_a_todo_carries_on_through_its_paragraph()
   assert(#found == 1, "found " .. #found)
   assert(found[1].line == 2 and found[1].last == 3)
   assert(found[1].text ==
-      "drop the cast once the pin names a cosmic carrying patch/tl/24.",
+      "drop the cast once the pin names a cosmic carrying the fix.",
     found[1].text)
 end
 
@@ -230,7 +230,7 @@ local function test_staging_indexes_what_it_reads_and_forgets_what_goes()
   listed = assert(todos.list(handle.db, root)).todos
   assert(#listed == 1 and listed[1].file == "src/b.tl" and listed[1].line == 2)
   local rows = assert(Sqlite.text_rows(handle.db, "SELECT count(*) FROM todos"))
-  assert(rows[1][1] == "1", rows[1][1])
+  assert(rows[1]:text(1) == "1", rows[1]:text(1))
   assert(work.close(handle))
   assert(Fs.remove_tree(root))
 end
@@ -251,14 +251,14 @@ local function test_a_file_the_build_does_not_consume_is_scanned_all_the_same()
   -- Scanned, not staged: nothing the build compiles or runs sees it.
   local rows = assert(Sqlite.text_rows(handle.db,
     "SELECT count(*) FROM files WHERE path = 'scripts/release.sh'"))
-  assert(rows[1][1] == "0", rows[1][1])
+  assert(rows[1]:text(1) == "0", rows[1]:text(1))
 
   assert(Fs.remove(root .. "/scripts/release.sh"))
   assert(work.stage(handle, false))
   listed = assert(todos.list(handle.db, root)).todos
   assert(#listed == 0, "found " .. #listed)
   rows = assert(Sqlite.text_rows(handle.db, "SELECT count(*) FROM scanned"))
-  assert(rows[1][1] == "0", rows[1][1])
+  assert(rows[1]:text(1) == "0", rows[1]:text(1))
   assert(work.close(handle))
   assert(Fs.remove_tree(root))
 end
@@ -289,7 +289,7 @@ local function test_own_tree_scans_github_for_todos()
       ".github/check.tl:1: not an input|.github/workflows/ci.yml:1: pin the runner", table.concat(seen, "|"))
   local rows = assert(Sqlite.text_rows(handle.db,
     "SELECT count(*) FROM files WHERE path LIKE '.github/%'"))
-  assert(rows[1][1] == "0", rows[1][1])
+  assert(rows[1]:text(1) == "0", rows[1]:text(1))
   assert(work.close(handle))
 
   -- Staged again as another project's tree, it is hidden, and what the
@@ -299,7 +299,7 @@ local function test_own_tree_scans_github_for_todos()
   listed = assert(todos.list(other.db, root)).todos
   assert(#listed == 0, "found " .. #listed)
   rows = assert(Sqlite.text_rows(other.db, "SELECT count(*) FROM scanned"))
-  assert(rows[1][1] == "0", rows[1][1])
+  assert(rows[1]:text(1) == "0", rows[1]:text(1))
   assert(work.close(other))
   assert(Fs.remove_tree(root))
 end
@@ -394,15 +394,15 @@ end
 --- file under `patch/` that is no record, and the vendored tree, are not.
 local function test_own_tree_lists_a_patch_record_s_own_todos()
   local root = assert(Fs.mkdtemp("cosmic-todos-test-"))
-  assert(Fs.mkdirs(root .. "/patch/tl"))
-  assert(Fs.mkdirs(root .. "/vendor/tl"))
-  assert(Fs.write(root .. "/patch/tl/01-x.txt", record_text))
+  assert(Fs.mkdirs(root .. "/patch/curl"))
+  assert(Fs.mkdirs(root .. "/vendor/curl"))
+  assert(Fs.write(root .. "/patch/curl/01-x.txt", record_text))
   -- The same bytes elsewhere, staged first, are scanned as the record is:
   -- a file's TODOs are kept by its bytes alone.
   assert(Fs.mkdirs(root .. "/aaa"))
   assert(Fs.write(root .. "/aaa/copy.txt", record_text))
-  assert(Fs.write(root .. "/patch/tl/notes.md", text({ "# TODO: not a record" })))
-  assert(Fs.write(root .. "/vendor/tl/PIN", text({ "# TODO: upstream's pin" })))
+  assert(Fs.write(root .. "/patch/curl/notes.md", text({ "# TODO: not a record" })))
+  assert(Fs.write(root .. "/vendor/curl/PIN", text({ "# TODO: upstream's pin" })))
   local handle = assert(work.open(root))
   assert(work.stage(handle, true))
   local listed = assert(todos.list(handle.db, root)).todos
@@ -417,14 +417,14 @@ local function test_own_tree_lists_a_patch_record_s_own_todos()
   table.sort(seen)
   assert(table.concat(seen, "|") == "aaa/copy.txt:2: drop this once upstream takes it|" ..
       "aaa/copy.txt:9: ours, once ci/cosmic-driver.pin names a release carrying it|" ..
-      "patch/tl/01-x.txt:2: drop this once upstream takes it|" ..
-      "patch/tl/01-x.txt:9: ours, once ci/cosmic-driver.pin names a release carrying it",
+      "patch/curl/01-x.txt:2: drop this once upstream takes it|" ..
+      "patch/curl/01-x.txt:9: ours, once ci/cosmic-driver.pin names a release carrying it",
     table.concat(seen, "|"))
   local hits: {string} = {}
   for id in pairs((assert(todos.search(handle.db, "\"cosmic-driver.pin\"")))) do
     hits[#hits + 1] = id_of[id]
   end
-  assert(#hits == 1 and hits[1] == "patch/tl/01-x.txt:9", table.concat(hits, " "))
+  assert(#hits == 1 and hits[1] == "patch/curl/01-x.txt:9", table.concat(hits, " "))
   assert(work.close(handle))
   assert(Fs.remove_tree(root))
 end

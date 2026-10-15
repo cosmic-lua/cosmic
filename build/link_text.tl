@@ -717,30 +717,36 @@ local function teal_comment(text: string): {string} | nil
   return { (text:gsub("^%-%-+", "")) }
 end
 
+--- The block [`link_text.blocks_of`] is joining comments into.
+local record Joining
+  lines: {string}
+  starts: {integer}
+end
+
 --- Comments on consecutive lines, joined into blocks: a definition
 --- holds for the block it is in.
 function link_text.blocks_of(comments: {link_text.Comment}): {link_text.Block}
   local out: {link_text.Block} = {}
-  local current: {string} = {}
-  local starts: {integer} = {}
+  -- The block being joined: its lines, and where each starts.
+  local open: Joining = { lines = {}, starts = {} }
   local first, next_line = 0, -1
   local function flush()
-    if #current > 0 then
-      out[#out + 1] = { line = first, text = table.concat(current, "\n"), starts = starts }
+    if #open.lines > 0 then
+      out[#out + 1] = { line = first, text = table.concat(open.lines, "\n"), starts = open.starts }
     end
-    current = {}
-    starts = {}
+    open.lines = {}
+    open.starts = {}
   end
   for _, comment in ipairs(comments) do
     local lines = comment.lines
     local at = comment.starts or {}
-    if #current > 0 and comment.line == next_line - 1 then
+    if #open.lines > 0 and comment.line == next_line - 1 then
       -- A second comment on the line the one before it ended on.
-      current[#current] = current[#current] .. " " .. lines[1]
-      starts[#current] = 0
+      open.lines[#open.lines] = open.lines[#open.lines] .. " " .. lines[1]
+      open.starts[#open.lines] = 0
       for index = 2, #lines do
-        current[#current + 1] = lines[index]
-        starts[#current] = at[index] or 0
+        open.lines[#open.lines + 1] = lines[index]
+        open.starts[#open.lines] = at[index] or 0
       end
     else
       if comment.line ~= next_line then
@@ -748,8 +754,8 @@ function link_text.blocks_of(comments: {link_text.Comment}): {link_text.Block}
         first = comment.line
       end
       for index, line in ipairs(lines) do
-        current[#current + 1] = line
-        starts[#current] = at[index] or 0
+        open.lines[#open.lines + 1] = line
+        open.starts[#open.lines] = at[index] or 0
       end
     end
     next_line = comment.line + #lines
@@ -996,17 +1002,17 @@ function link_text.declarations(parsed: ast.Parsed): link_text.Declarations
   for name in pairs(top) do
     if not inner[name] then module_level[name] = true end
   end
-  local bindings: {scopes.Binding} | nil = nil
+  local bindings: {{scopes.Binding}} = {}
   -- What every comment sees: `names`, the top-level block's bindings,
   -- and its aliases, the first binding of each name deciding before a
   -- later one is in scope.
   local everywhere: {string: boolean} = {}
   local top_aliases: {string: string} = {}
   local function scoped(): {scopes.Binding}
-    local found = bindings
+    local found = bindings[1]
     if found == nil then
       found = scopes.bindings_of(parsed)
-      bindings = found
+      bindings[1] = found
       for _, each in ipairs(found) do
         if each.top and not everywhere[each.name] then
           everywhere[each.name] = true
@@ -1112,10 +1118,10 @@ function link_text.found(built: compiler, root: ast.Node, source: string,
     doc[comment.line] = comment.doc
     column[comment.line] = comment.column
   end
-  local known: link_text.Declarations | nil = nil
+  local known: {link_text.Declarations} = {}
   local function declared(line: integer): link_text.Declared
-    local found: link_text.Declarations = known or link_text.declarations({ node = root, tokens = tokens })
-    known = found
+    local found: link_text.Declarations = known[1] or link_text.declarations({ node = root, tokens = tokens })
+    known[1] = found
     return found.at(line)
   end
   for _, link in ipairs(link_text.in_blocks(link_text.blocks_of(comments))) do

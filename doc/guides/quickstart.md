@@ -148,8 +148,7 @@ standard input on one line (`--wrap N` wraps it; GNU base64's 76 is not
 the default) and with `-d` decodes it, ignoring whitespace and refusing
 a bad character or padding with exit 2 and its byte offset: `printf hi
 | cosmic codec base64` prints `aGk=`. base64url is unpadded, as JWTs
-write it; `--lenient` accepts the other padding. It prints no verdict
-line.
+write it; `--lenient` accepts the other padding. It prints no summary.
 
 ## a quick look inside an archive
 

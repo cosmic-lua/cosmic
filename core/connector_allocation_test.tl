@@ -25,19 +25,20 @@ end
 local function test_pair_allocation_refusals_leave_no_descriptors(tmp: string)
   local before = next_descriptor(tmp)
   local refused_count = 0
-  local pair: {integer}
+  local pair = { value = nil as {integer} | nil }
   local function work(): any
-    pair = assert(process.connector_pair())
+    pair.value = assert(process.connector_pair())
     return true
   end
   for after = 0, 1000 do
-    pair = nil
+    pair.value = nil
     testing.fail_allocations(after)
     local ok, failure = pcall(work)
     local refused = testing.allow_allocations()
-    if pair ~= nil then
-      assert(sys.close(pair[1]))
-      assert(sys.close(pair[2]))
+    local made = pair.value
+    if made ~= nil then
+      assert(sys.close(made[1]))
+      assert(sys.close(made[2]))
     end
     collectgarbage("collect")
     assert(next_descriptor(tmp) == before, "pair allocation refusal leaked a descriptor")

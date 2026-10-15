@@ -492,10 +492,10 @@ function relay.handover(connect: {string}, own: {string}): Config.Handover | nil
   if planned == nil then return nil, plan_why end
   local plan: relay.Plan = planned
   local processes: {Connector.Process} = {}
-  local closed = false
+  local closing = { closed = false }
   local function close()
-    if closed then return end
-    closed = true
+    if closing.closed then return end
+    closing.closed = true
     for _, process in ipairs(processes) do local _ = process:close() end
   end
   local function fail(why: string): nil, string
@@ -505,7 +505,7 @@ function relay.handover(connect: {string}, own: {string}): Config.Handover | nil
   local config: Config.Config = { grants = connect, own_addresses = own, log = "null", public = false }
   local fds: {integer: integer} = {}
   local up = plan.upstream
-  local servers: relay.NameServers
+  local servers: relay.NameServers | nil
   local unresolved = ""
   -- A name is reached directly, and so resolved and connected by the relay
   -- itself, only with no upstream or one that no_proxy bypasses for some.
@@ -515,10 +515,10 @@ function relay.handover(connect: {string}, own: {string}): Config.Handover | nil
     local listed, servers_why = relay.name_servers()
     if listed == nil then unresolved = servers_why else servers = listed end
   end
-  local addresses: {string}
+  local addresses: {string} | nil
   if up ~= nil then
-    local through: relay.Through
-    local lookup: Connector.Process
+    local through: relay.Through | nil
+    local lookup: Connector.Process | nil
     if upstream_named and servers ~= nil then
       local started, dns_why = relay_connector(servers.servers, servers.wait_ns)
       if started == nil then return fail("the name servers' connector: " .. dns_why) end
@@ -547,7 +547,7 @@ function relay.handover(connect: {string}, own: {string}): Config.Handover | nil
     processes[#processes + 1] = process
     config.public, fds[Config.connector_fd] = public, process.fd
   end
-  if public then
+  if public and servers ~= nil then
     local dns, dns_why = relay_connector(servers.servers, servers.wait_ns)
     if dns == nil then return fail("the name servers' connector: " .. dns_why) end
     processes[#processes + 1] = dns
@@ -589,10 +589,10 @@ function relay.hold_loopback(handover: Config.Handover): integer | nil, string
   local sockets, port = loopback.sockets, loopback.port
   handover.config.listeners = #sockets
   for i, socket in ipairs(sockets) do handover.fds[2 + i] = socket:fd() end
-  local closed = false
+  local closing = { closed = false }
   handover.close = function()
-    if closed then return end
-    closed = true
+    if closing.closed then return end
+    closing.closed = true
     for _, socket in ipairs(sockets) do local _, _ = socket:close() end
   end
   return port, ""

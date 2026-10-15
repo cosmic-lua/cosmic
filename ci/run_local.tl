@@ -243,7 +243,7 @@ local function execute(argv: {integer:string}): integer
         successful(privileged({ assert(chown), "-h", "-R", "-P",
           tostring(credentials.user) .. ":" .. tostring(credentials.group), path }), "chown")
       else
-        assert(sys.chown(path, credentials.user, credentials.group))
+        assert(sys.chown(path, assert(credentials.user), assert(credentials.group)))
       end
     end
   end
@@ -316,7 +316,7 @@ local function execute(argv: {integer:string}): integer
     at = at + 1
   end
   if #phases == 0 then
-    phases = { "build", "local-boundary", "darwin-suite", "sandbox", "assemble",
+    phases = { "build", "local-boundary", "declared-types", "darwin-suite", "sandbox", "assemble",
       "fixtures", "portable", "portable-boundary" }
   end
   local function git_run(words: {string}, values?: {string:string}, input?: string): string
@@ -401,7 +401,8 @@ local function execute(argv: {integer:string}): integer
             if trouble ~= "" then say("log diagnostics stopped: " .. trouble) end
             break
           end
-          if line:match("^FAIL") or line:find(" FAIL", 1, true) or
+          -- A complaint names the trouble; a failing test says FAIL.
+          if line:match("^FAIL") or line:find(" FAIL", 1, true) or line:match("^cosmic: ") or
               line:find("timed out", 1, true) or line:find("error", 1, true) then
             Fs.put(Fs.stderr, line .. "\n")
             lines = lines + 1

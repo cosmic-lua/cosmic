@@ -29,7 +29,7 @@ local todo_scan = require("build.todo_scan")
 local gen_syscalls = require("build.gen_syscalls")
 local bind = require("build.bind")
 local link_files = require("build.link_files")
-local log = require("build.verdict").log
+local log = require("build.logger").log
 
 local record work
   --- One file of `web_assets`: its name in the table, its bytes, their
@@ -277,6 +277,11 @@ local version <const> = "29"
 --- run, and writing them, then deleting the last run's, cost a full run
 --- most of its time.
 ---
+--- `type_violations` holds what the last `cosmic test --check-types` run
+--- reported ([`build.test`]'s `keep_violations`): a row for each distinct
+--- violation, where it was met and the first test that met it, replacing
+--- the run before's.
+---
 --- The statements of `derived`, `inputs` and the tables a parse fills
 --- are [`build.analysis_schema`]'s, which this places between the
 --- stage's and the records': what a parse's rows are shaped by is kept
@@ -422,6 +427,16 @@ for _, statement in ipairs({
                                                  test TEXT NOT NULL,
                                                  hits TEXT NOT NULL,
                                                  PRIMARY KEY (ran_at_ns, test))]],
+    [[CREATE TABLE IF NOT EXISTS type_violations (ran_at_ns INTEGER NOT NULL,
+                                                kind TEXT NOT NULL,
+                                                site TEXT NOT NULL,
+                                                target TEXT NOT NULL,
+                                                declared TEXT NOT NULL,
+                                                actual TEXT NOT NULL,
+                                                count INTEGER NOT NULL,
+                                                test TEXT NOT NULL,
+                                                PRIMARY KEY (kind, site, target, declared,
+                                                             actual)) WITHOUT ROWID]],
 }) do
   work.schema[#work.schema + 1] = statement
 end
@@ -431,11 +446,11 @@ local text = bind.text
 local integer = bind.integer
 
 --- One column of one row, read as the integer it was written as.
-local function integer_of(rows: {{string}}): integer
+local function integer_of(rows: Sqlite.Rows): integer
   if #rows == 0 then
     return 0
   end
-  return math.tointeger(tonumber(rows[1][1]) or 0) or 0
+  return math.tointeger(tonumber(rows[1]:text(1)) or 0) or 0
 end
 
 --- How long a run waits for another run of the same tree to end its
@@ -486,7 +501,7 @@ local function create(db: Sqlite.Handle, path: string): boolean, string
   if tables == nil then
     return false, count_trouble
   end
-  local fresh = tables[1][1] == "0"
+  local fresh = tables[1]:text(1) == "0"
   if fresh then
     local begun, begin_trouble = begin_waiting(db, path)
     if not begun then
@@ -550,7 +565,7 @@ function work.open(root: string, dir?: string): work.Handle | nil, string
     local _, _ = db:close()
     return nil, path .. ": " .. version_trouble
   end
-  if #versions > 0 and versions[1][1] ~= version then
+  if #versions > 0 and versions[1]:text(1) ~= version then
     local _, _ = db:close()
     local removed, remove_trouble = Fs.remove(path)
     if not removed then
@@ -577,7 +592,7 @@ function work.open(root: string, dir?: string): work.Handle | nil, string
     end
     local has_ctime = false
     for _, column in ipairs(columns) do
-      if column[2] == "ctime_ns" then has_ctime = true end
+      if column:text(2) == "ctime_ns" then has_ctime = true end
     end
     if not has_ctime then
       local added, why = db:exec("ALTER TABLE " .. table_name .. " ADD COLUMN ctime_ns INTEGER")
@@ -891,6 +906,13 @@ end
 --- definition, which needs [`identity.hash_over`]).
 local find_links: function(handle: work.Handle, texts: {string:string}): boolean, string
 
+--- What the links a walk meets teach it: the ancestors of the root, found
+--- when the first link asks, and the first link that leads above the root.
+local record Walking
+  ancestors: {string:boolean} | nil
+  above: string
+end
+
 --- Reads the tree into `files` and, in cosmic's own tree, fingerprints
 --- what the tool is made of into `tool`, everything else the walk
 --- finds into `scanned`, and each file whose links are checked into
@@ -934,8 +956,7 @@ function work.stage(handle: work.Handle, own_tree: boolean): work.Staged | nil, 
   local function for_links(entry: string): boolean
     return not link_skip(entry) and not (own_tree and identity.is_foreign_tree(identity.first_of(entry)))
   end
-  local ancestors: {string:boolean} = nil
-  local above = ""
+  local walking: Walking = { ancestors = nil, above = "" }
   local function skip(entry: string, name: string, kind: string): boolean
     local parent = entry:match("^(.*)/[^/]*$")
     if (parent ~= nil and links_only[parent]) or skip_path(entry, name) then
@@ -957,8 +978,9 @@ function work.stage(handle: work.Handle, own_tree: boolean): work.Staged | nil, 
     if kind ~= "link" then
       return false
     end
-    if ancestors == nil then
-      ancestors = {}
+    local known: {string:boolean} = walking.ancestors or {}
+    if walking.ancestors == nil then
+      walking.ancestors = known
       local path = root
       local last = ""
       while true do
@@ -971,7 +993,7 @@ function work.stage(handle: work.Handle, own_tree: boolean): work.Staged | nil, 
           break
         end
         if last ~= "" then
-          ancestors[key] = true
+          known[key] = true
         end
         last = key
         path = path .. "/.."
@@ -979,10 +1001,10 @@ function work.stage(handle: work.Handle, own_tree: boolean): work.Staged | nil, 
     end
     -- One that leads nowhere is not walked, so it is let be.
     local st, _ = Fs.stat(root .. "/" .. entry)
-    if st ~= nil and ancestors[tostring(st.dev) .. ":" .. tostring(st.ino)] then
-      if above == "" then
+    if st ~= nil and known[tostring(st.dev) .. ":" .. tostring(st.ino)] then
+      if walking.above == "" then
         local target, _ = Fs.absolute(root .. "/" .. entry)
-        above = root .. "/" .. entry .. ": a link to " .. (target or "a directory") ..
+        walking.above = root .. "/" .. entry .. ": a link to " .. (target or "a directory") ..
           ", above the root, whose whole tree would be staged"
       end
       return true
@@ -993,8 +1015,8 @@ function work.stage(handle: work.Handle, own_tree: boolean): work.Staged | nil, 
   if walked == nil then
     return nil, walk_trouble
   end
-  if above ~= "" then
-    return nil, above
+  if walking.above ~= "" then
+    return nil, walking.above
   end
   local files: {string} = walked
   local known: {string:{string:Known}} = {}
@@ -1018,7 +1040,7 @@ function work.stage(handle: work.Handle, own_tree: boolean): work.Staged | nil, 
   local staged: work.Staged = { files = 0, read = 0, notes = {} }
   -- The real path of `root`, once a static asset asks for it, and the
   -- static paths seen by their lowercase spelling.
-  local real_root: string = nil
+  local real_root: string | nil = nil
   local static_seen: {string:string} = {}
   -- The text of each file of `linked` read here, by path.
   local texts: {string:string} = {}
@@ -1038,15 +1060,19 @@ function work.stage(handle: work.Handle, own_tree: boolean): work.Staged | nil, 
       scan = false
     end
     if input and identity.is_static(file) then
-      if real_root == nil then
+      local static_root: string
+      if real_root ~= nil then
+        static_root = real_root
+      else
         local resolved, resolve_trouble = Fs.absolute(root)
         if resolved == nil then
           finish(put)
           return nil, resolve_trouble
         end
+        static_root = resolved
         real_root = resolved
       end
-      local refusal = static_refusal(root, real_root, file, st.size, static_seen)
+      local refusal = static_refusal(root, static_root, file, st.size, static_seen)
       if refusal ~= nil then
         finish(put)
         return nil, refusal
@@ -1084,11 +1110,12 @@ function work.stage(handle: work.Handle, own_tree: boolean): work.Staged | nil, 
             return nil, file .. ": " .. why
           end
         end
+        local stat, content: sys.Stat, string = st, data
         local function write(wanted: boolean, statement: Sqlite.Statement): boolean, string
           if not wanted then
             return true, ""
           end
-          return put_row(statement, file, st, mtime_ns, settled, data, sha256)
+          return put_row(statement, file, stat, mtime_ns, settled, content, sha256)
         end
         local ok, why = write(write_files, put["files"])
         if ok then
@@ -1097,7 +1124,7 @@ function work.stage(handle: work.Handle, own_tree: boolean): work.Staged | nil, 
         if ok then
           ok, why = write(write_scanned, put["scanned"])
         end
-        if ok and write_linked then
+        if ok and write_linked and link_kind ~= nil then
           texts[file] = data
           ok, why = put["linked"]:bind_text(8, link_kind)
           if ok then
@@ -1206,7 +1233,7 @@ local function links_finder(db: Sqlite.Handle): string | nil, string
     return nil, last_trouble
   end
   local recorded: {string:string} = {}
-  for _, row in ipairs(last) do recorded[row[1]] = row[2] end
+  for _, row in ipairs(last) do recorded[row:text(1)] = row:text(2) end
   if recorded["links_boot"] == boot_hash and recorded["links_by"] ~= nil then
     return recorded["links_by"]
   end
@@ -1257,7 +1284,7 @@ find_links = function(handle: work.Handle, texts: {string:string}): boolean, str
   if last == nil then
     return false, last_trouble
   end
-  if #last == 0 or last[1][1] ~= finder then
+  if #last == 0 or last[1]:text(1) ~= finder then
     for _, statement in ipairs({ "DELETE FROM linked_found", "DELETE FROM linked_texts" }) do
       local ok, trouble = db:exec(statement)
       if not ok then
@@ -1277,7 +1304,7 @@ find_links = function(handle: work.Handle, texts: {string:string}): boolean, str
     return false, unread_trouble
   end
   for _, row in ipairs(unread) do
-    local path, kind, sha256 = row[1], row[2], row[3]
+    local path, kind, sha256 = row:text(1), row:text(2), row:text(3)
     local data = texts[path]
     if data == nil then
       local read, read_trouble = Fs.read(handle.root .. "/" .. path)
@@ -1357,7 +1384,7 @@ function work.zoneinfo_of(db: Sqlite.Handle): {string:string} | nil, string
     return nil, trouble
   end
   local zones: {string:string} = {}
-  if tables[1][1] == "0" then
+  if tables[1]:text(1) == "0" then
     return zones, ""
   end
   local rows, rows_trouble = Sqlite.rows(db, "SELECT name, data FROM zoneinfo")
@@ -1365,7 +1392,7 @@ function work.zoneinfo_of(db: Sqlite.Handle): {string:string} | nil, string
     return nil, rows_trouble
   end
   for _, row in ipairs(rows) do
-    zones[row[1].text] = row[2].blob or row[2].text
+    zones[row:text(1)] = row:bytes(2)
   end
   return zones, ""
 end
@@ -1443,7 +1470,7 @@ function work.web_assets_of(db: Sqlite.Handle): {work.WebAsset} | nil, string
     return nil, trouble
   end
   local assets: {work.WebAsset} = {}
-  if tables[1][1] == "0" then
+  if tables[1]:text(1) == "0" then
     return assets, ""
   end
   local rows, rows_trouble = Sqlite.rows(db,
@@ -1452,8 +1479,8 @@ function work.web_assets_of(db: Sqlite.Handle): {work.WebAsset} | nil, string
     return nil, rows_trouble
   end
   for _, row in ipairs(rows) do
-    assets[#assets + 1] = { name = row[1].text, data = row[2].blob or row[2].text,
-      sha256 = row[3].text, sha384 = row[4].text, version = row[5].text }
+    assets[#assets + 1] = { name = row:text(1), data = row:bytes(2),
+      sha256 = row:text(3), sha384 = row:text(4), version = row:text(5) }
   end
   return assets, ""
 end

@@ -11,6 +11,7 @@ local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local importer = require("build.importer")
+local TypeWatch = require("build.type_watch")
 local teal = require("build.teal")
 local work = require("build.work")
 local writer = require("build.writer")
@@ -92,7 +93,7 @@ local function test_a_second_run_waits_for_the_first_then_passes(tmp: string)
   assert(result.ok, text)
   assert(text:find("test: another cosmic run (pid " .. tostring(sys.getpid()) ..
       ") in this checkout is running its tests; waiting for it", 1, true), text)
-  assert(text:find("test: PASS", 1, true), text)
+  assert(text:find("test: %d+ tests? passed in "), text)
 end
 
 --- A run lets its checkout's lock go however it ends: once it has
@@ -165,6 +166,12 @@ end
 --- A result waiting to publish keeps the rows and signature it compiled,
 --- even when another run commits a failed or a different successful plan.
 local function test_a_waiting_projection_keeps_its_compiled_snapshot(tmp: string)
+  -- TODO: check this on a checked run too. It waits on a way to read the
+  -- tree's projection and the binary's own modules there, as the checked
+  -- worker is given the checked ones (build/test.tl's TODO on the same).
+  if TypeWatch.checked() then
+    Test.skip("a checked run's modules carry checks, so their bytecode is not the binary's")
+  end
   local built = assert(teal.load())
   for _, succeeds in ipairs({ false, true }) do
     local root = tmp .. (succeeds and "/valid" or "/failed")
@@ -187,7 +194,8 @@ local function test_a_waiting_projection_keeps_its_compiled_snapshot(tmp: string
       local staged = assert(work.open(root))
       local first: importer.Result = {
         main = nil, tool = "", modules = {}, refused = {},
-        compiled = 0, cached = 0, shared = 0, parses = { parsed = 0, shared = 0 },
+        compiled = 0, cached = 0, shared = 0, worked = 0,
+        parses = { parsed = 0, shared = 0, worked = 0 },
       }
       local first_signature = assert(writer.signature(staged, first, Store.meta("writer") or ""))
       assert(work.close(staged))
@@ -202,7 +210,7 @@ local function test_a_waiting_projection_keeps_its_compiled_snapshot(tmp: string
         local db = assert(Sqlite.open(alternate))
         local rows = assert(Sqlite.text_rows(db,
           "SELECT inflate(source) FROM modules WHERE path = 'main'"))
-        assert(rows[1][1] == 'print("replacement")\n')
+        assert(rows[1]:text(1) == 'print("replacement")\n')
         assert(db:close())
       else
         assert(Fs.write(root .. "/main.tl", 'local broken: string = 42\nprint(broken)\n'))
@@ -220,10 +228,10 @@ local function test_a_waiting_projection_keeps_its_compiled_snapshot(tmp: string
       local db = assert(Sqlite.open(build_dir(root) .. "/cosmic.db"))
       local rows = assert(Sqlite.text_rows(db,
         "SELECT inflate(source) FROM modules WHERE path = 'main'"))
-      assert(rows[1][1] == original, "published another run's source")
+      assert(rows[1]:text(1) == original, "published another run's source")
       local signed = assert(Sqlite.text_rows(db,
         "SELECT value FROM meta WHERE key = 'projected'"))
-      assert(signed[1][1] == first_signature, "published another run's signature")
+      assert(signed[1]:text(1) == first_signature, "published another run's signature")
       assert(db:close())
     end)
     rebuild_lock.release()

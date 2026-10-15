@@ -55,7 +55,7 @@ local Fs = require("cosmic.fs")
 local Poll = require("cosmic.poll")
 local Sqlite = require("cosmic.sqlite")
 local sys = require("cosmic.sys")
-local log = require("build.verdict").log
+local log = require("build.logger").log
 local plural = require("build.plural")
 
 local record rebuild_lock
@@ -124,11 +124,14 @@ local lock_mt: metatable<Lock> = {
 
 --- The lock this process holds, kept here so it lives as long as the
 --- process does, or until the exec that replaces it.
-local held: Lock | nil = nil
---- The path of the lock `held` holds, as [`build.paths`] names it, so
---- two spellings of a root that resolve to one build directory hold one
---- lock.
-local held_lock: string | nil = nil
+local record Hold
+  lock: Lock | nil
+  --- The path of the lock, as [`build.paths`] names it, so two spellings
+  --- of a root that resolve to one build directory hold one lock.
+  path: string | nil
+end
+
+local held: Hold = {}
 
 --- Takes SQLite's half of the lock on `path` into `lock`, waiting up to
 --- `wait_ns`. Answers "held", "busy", or nil and why.
@@ -209,11 +212,11 @@ function rebuild_lock.take(root: string, wait_ns: integer,
   if directory == nil then return nil, directory_trouble end
   local layout = build_paths.under(directory)
   local path = layout.lock
-  if held ~= nil then
-    if held_lock == path then
+  if held.lock ~= nil then
+    if held.path == path then
       return "held", ""
     end
-    return nil, "this process holds " .. tostring(held_lock) ..
+    return nil, "this process holds " .. tostring(held.path) ..
       " and cannot take another checkout's too"
   end
   local holding, trouble = acquire(path, wait_ns)
@@ -221,7 +224,7 @@ function rebuild_lock.take(root: string, wait_ns: integer,
     if trouble == "" then return "busy", "" end
     return nil, trouble
   end
-  held, held_lock = holding, path
+  held.lock, held.path = holding, path
   -- Written aside and moved into place, so a waiting run reads a whole
   -- one or the one before.
   local aside = layout.holder .. "." .. tostring(sys.getpid())
@@ -246,13 +249,13 @@ end
 
 --- Whether this process holds the rebuild lock of `root`.
 function rebuild_lock.holds(root: string): boolean
-  return held ~= nil and held_lock == build_paths.resolve(root).lock
+  return held.lock ~= nil and held.path == build_paths.resolve(root).lock
 end
 
 --- Lets go of the rebuild lock this process holds, if it holds it.
 function rebuild_lock.release()
-  local lock = held
-  held, held_lock = nil, nil
+  local lock = held.lock
+  held.lock, held.path = nil, nil
   if lock ~= nil then
     local _letting <close> = lock
   end

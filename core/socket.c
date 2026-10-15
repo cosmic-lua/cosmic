@@ -441,7 +441,7 @@ static int unix_owner_push (lua_State *L, const struct target *target, struct ow
 static int64_t deadline_of (lua_State *L, int arg) {
   lua_Integer timeout = luaL_checkinteger(L, arg);
   luaL_argcheck(L, timeout >= -1 && timeout <= INT_MAX, arg, "timeout is out of range");
-  return timeout < 0 ? -1 : cosmic_now_ms() + timeout;
+  return cosmic_deadline_ms(timeout);
 }
 
 /* Waits until `fd` has `events`, in slices: 0 once it has, ETIMEDOUT
@@ -1569,7 +1569,7 @@ static int lookup_wait (lua_State *L) {
   struct resolution *resolution = lookup_open(L);
   int timeout = cosmic_checkint(L, 2);
   luaL_argcheck(L, timeout >= -1, 2, "timeout is out of range");
-  int64_t deadline = timeout < 0 ? -1 : cosmic_now_ms() + timeout;
+  int64_t deadline = cosmic_deadline_ms(timeout);
   if (resolution->done) return cosmic_ok(L);
   if (cosmic_signal_caught()) return cosmic_fail_effect(L, EINTR);
   int left = cosmic_wait_slice(deadline);
@@ -1833,7 +1833,7 @@ COSMIC_SYSCALL(lookup, 5) {
   struct resolution *resolution = calloc(1, sizeof *resolution);
   if (resolution == NULL) return cosmic_fail (L, ENOMEM);
   lookup->resolution = resolution;
-  resolution->deadline = timeout < 0 ? -1 : cosmic_now_ms() + timeout;
+  resolution->deadline = cosmic_deadline_ms(timeout);
   char *listed = NULL;
   if (through) {
     resolution->through = true;
@@ -1876,7 +1876,7 @@ COSMIC_SYSCALL(lookup, 5) {
   struct resolution *resolution = calloc(1, sizeof *resolution);
   if (resolution == NULL) return cosmic_fail (L, ENOMEM);
   lookup->resolution = resolution;
-  resolution->deadline = timeout < 0 ? -1 : cosmic_now_ms() + timeout;
+  resolution->deadline = cosmic_deadline_ms(timeout);
   if (numeric_literal(name, size, &resolution->literal_family, resolution->literal)) {
     resolution->done = true;
     lua_pushvalue(L, owner);

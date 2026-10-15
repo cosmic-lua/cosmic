@@ -106,21 +106,21 @@ local function test_a_public_connect_that_hangs_holds_up_no_other()
     local wait = Clock.seconds(1)
     local public = assert(Net.connector({}, { timeout_ns = wait, public = { deny = { "10.0.0.0/8" } } }))
     local connect = Relay.handed({ connector = public })
-    local hung: string
+    local hung = { value = nil as string | nil }
     local hanging = Poll.spawn(function()
       local _, why = connect("127.0.0.1", stuck, wait)
-      hung = why
+      hung.value = why
     end)
     assert(Poll.delay(Clock.ms(50)))
     for _ = 1, 3 do
       local began = Clock.monotonic_ns()
-      local conn, why = connect("127.0.0.1", listener.address.port, wait)
+      local conn, why = connect("127.0.0.1", assert(listener.address.port), wait)
       assert(conn ~= nil, "the connector connects beside the hanging connect: " .. why)
       assert(conn:close())
       assert(Clock.monotonic_ns() - began < Clock.ms(500), "the connection waited for the hanging one")
     end
     assert(hanging:join())
-    assert(hung == Poll.TIMEOUT, tostring(hung))
+    assert(hung.value == Poll.TIMEOUT, tostring(hung.value))
     assert(not public:ended(), "a connect that timed out leaves the stream in step")
     assert(public:close())
     accepting:cancel()
@@ -137,7 +137,7 @@ local function test_a_public_connector_that_ended_tells_lost()
   local told: {string} = {}
   Poll.run(function()
     local listener = assert(Net.listen(Net.tcp("127.0.0.1", 0)))
-    local port = listener.address.port
+    local port = assert(listener.address.port)
     local accepting = Poll.spawn(function()
       while true do
         local conn = listener:accept()
@@ -344,11 +344,11 @@ local function test_the_upstream_is_resolved_once_and_an_ungranted_name_never(tm
   local script = tmp .. "/relay.tl"
   assert(Fs.write(script, SCRIPT))
   local queries: {string} = {}
-  local datagrams = 0
+  local datagrams = { value = 0 }
   local lines: {string} = {}
   Poll.run(function()
     local listener = assert(Net.listen(Net.tcp("127.0.0.1", 0)))
-    local port = listener.address.port
+    local port = assert(listener.address.port)
     local udp = assert(Udp.bind("127.0.0.1", port))
     local serving = Poll.spawn(function()
       while true do
@@ -373,7 +373,7 @@ local function test_the_upstream_is_resolved_once_and_an_ungranted_name_never(tm
       while true do
         local packet, why = Udp.receive(udp, Clock.ms(20))
         if packet ~= nil then
-          datagrams = datagrams + 1
+          datagrams.value = datagrams.value + 1
         elseif why ~= Poll.TIMEOUT then
           return
         end
@@ -382,7 +382,7 @@ local function test_the_upstream_is_resolved_once_and_an_ungranted_name_never(tm
     local started = this_program.program({ "--standalone", script, tostring(port) },
       { stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(60) })
     local child <close> = assert(Child.start(started.argv, started.options))
-    local result: Child.Result
+    local result: Child.Result | nil
     while result == nil do
       local state = assert(child:try_wait())
       if state.finished then
@@ -391,8 +391,11 @@ local function test_the_upstream_is_resolved_once_and_an_ungranted_name_never(tm
         assert(Poll.delay(Clock.ms(10)))
       end
     end
-    assert(result.code == 0, tostring(result.code) .. " " .. tostring(result.stderr))
-    for line in ((result.stdout or "") .. "\n"):gmatch("([^\n]*)\n") do lines[#lines + 1] = line end
+    local finished = assert(result)
+    assert(finished.code == 0, tostring(finished.code) .. " " .. tostring(finished.stderr))
+    for line in ((finished.stdout or "") .. "\n"):gmatch("([^\n]*)\n") do
+      lines[#lines + 1] = line
+    end
     serving:cancel()
     watching:cancel()
     assert(listener:close())
@@ -403,5 +406,5 @@ local function test_the_upstream_is_resolved_once_and_an_ungranted_name_never(tm
       "ungranted.test:443 403|direct.test:443 403", table.concat(lines, "|"))
   assert(table.concat(queries, ",") == "1 direct.test,1 proxy.test,28 direct.test,28 proxy.test",
     table.concat(queries, ","))
-  assert(datagrams == 0, datagrams .. " datagrams were sent")
+  assert(datagrams.value == 0, datagrams.value .. " datagrams were sent")
 end

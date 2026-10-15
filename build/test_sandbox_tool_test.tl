@@ -320,7 +320,7 @@ local function test_an_unsandboxed_run_reads_the_tree_and_a_platform_with_no_san
   local text, ok = run(root, tmp .. "/plain", env)
   assert(not ok, text)
   assert(text:find("; unsandboxed (COSMIC_TEST_SANDBOX=0), keyed by declared inputs, " ..
-      "sharing no verdicts)", 1, true), text)
+      "sharing no verdicts\n", 1, true), text)
   assert(text:find("rerun: COSMIC_TEST_SANDBOX=0 cosmic test suite/view_test.tl:test_view", 1,
     true), text)
   local seen = text:match("seen|([^\n]*)|end")
@@ -338,10 +338,10 @@ local function test_an_unsandboxed_run_reads_the_tree_and_a_platform_with_no_san
   assert(not ok, text)
   -- And why, in the summary.
   assert(text:find("; unsandboxed, as no worker can be sandboxed here (", 1, true) and
-      text:find("), keyed by declared inputs, sharing no verdicts)", 1, true), text)
+      text:find("), keyed by declared inputs, sharing no verdicts\n", 1, true), text)
   -- Required, the run fails instead.
   env.COSMIC_TEST_SANDBOX = "1"
-  local required: string = nil
+  local required: string | nil = nil
   required, ok = run(root, tmp .. "/required", env)
   assert(not ok and required:find("COSMIC_TEST_SANDBOX=1, but no worker can be sandboxed here",
     1, true), required)

@@ -90,7 +90,7 @@ local record Web
     --- The prefix of the Mount that is serving this request ("" at the top).
     mount_path: string
     --- The route matched: its name, pattern and options; nil in a 404/405.
-    route: Web.RouteInfo
+    route?: Web.RouteInfo
     --- The app serving this request (for url_for, state, config).
     app: Web.App
     --- The untyped escape hatch for ad-hoc scratch values. Shipped
@@ -98,7 +98,7 @@ local record Web
     --- typed keys instead, see 2.3.
     state: {string:any}
     --- The peer, or nil where unknown. See 13.3.
-    client: Web.Client
+    client?: Web.Client
     --- "http"; "https" only when a trusted-proxy middleware (TODO, not v1)
     --- sets it from X-Forwarded-Proto.
     scheme: string
@@ -596,7 +596,7 @@ is `any`, and a read of its fields is a compile error. So the handler
 annotates its parameters (`p: ItemPath`), which is sound and no more than
 the examples below already wrote; there is no explicit-type-argument form
 to fall back to, since Teal's call syntax has none. An absent slot's
-parameter is nil, typed [`Web.None`]. The reading and binding functions
+parameter is an empty [`Web.None`]. The reading and binding functions
 answer `Parsed<T>` (`value` or `invalid`), not `T | nil, Invalid`, since the
 build's contracts allow an exported function two results only as a value
 and a string reason.
@@ -894,12 +894,12 @@ record App
   hubs: {Sse.Hub}
   --- Most open event streams (default: half of the connection limit;
   --- assets.md section 5.9).
-  max_streams: integer
+  max_streams?: integer
   --- Serve files from disk and add the reload script (assets.md sections
   --- 1.6 and 6.4); default from COSMIC_WEB_DEV.
-  dev: boolean
+  dev?: boolean
   --- Register the built-in routes under /_web/ (default true; 5.5).
-  builtin: boolean
+  builtin?: boolean
   error_pages: {integer: Handler}
   error_view: function(Request, integer, string): Response
   sink: Sink                            -- default stderr

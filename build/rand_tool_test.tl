@@ -1,5 +1,5 @@
 --- `cosmic rand` run as this program: real standard input and output,
---- no verdict line, and the exit status. These start this program, so
+--- no summary, and the exit status. These start this program, so
 --- they need `tool`; the draws themselves are in `rand_test.tl`.
 
 local Child = require("cosmic.child")
@@ -25,7 +25,7 @@ local function cosmic(dir: string, words: {string}, input?: string): Ran
   return { code = result.code, out = result.stdout or "", err = result.stderr or "" }
 end
 
-local function test_it_prints_data_and_no_verdict_line(tmp: string)
+local function test_it_prints_data_and_no_summary(tmp: string)
   local ran = cosmic(tmp, { "rand", "uuid", "--v7", "-n", "3" })
   assert(ran.code == 0 and ran.err == "", ran.err)
   local count = 0
@@ -45,7 +45,7 @@ local function test_standard_input_and_a_seed_replay(tmp: string)
   assert(negative.code == 0 and negative.out == "-5\n", negative.out .. negative.err)
 end
 
-local function test_usage_is_exit_2_with_no_verdict(tmp: string)
+local function test_usage_is_exit_2_with_no_summary(tmp: string)
   local seeded = cosmic(tmp, { "rand", "token", "--seed", "1" })
   assert(seeded.code == 2 and seeded.out == "", seeded.out)
   assert(seeded.err:find("cosmic: rand: --seed is refused with token", 1, true), seeded.err)

@@ -79,9 +79,10 @@ end
 local function fake(fails: {string: boolean}, lay_fails: {string: boolean}): Fake
   local f: Fake = { events = {}, files = {}, most = 0, system = nil }
   local running: {integer: string} = {}
-  local count, issued = 0, 0
+  local count = { value = 0 }
+  local issued = { value = 0 }
   local function task_of(argv: {string}): string
-    return (argv[2]:match("/([^/]+)/run%-%d+")) or argv[2]:match("/([^/]+)$")
+    return (argv[2]:match("/([^/]+)/run%-%d+")) or argv[2]:match("/([^/]+)$") or ""
   end
   f.system = {
     mkdirs = function(path: string): boolean
@@ -115,16 +116,16 @@ local function fake(fails: {string: boolean}, lay_fails: {string: boolean}): Fak
       return { code = 0, text = "" }
     end,
     start = function(argv: {string}, _log: string): integer | nil
-      issued = issued + 1
-      running[issued] = task_of(argv)
-      count = count + 1
-      if count > f.most then f.most = count end
-      f.events[#f.events + 1] = "solve " .. running[issued]
-      return issued
+      issued.value = issued.value + 1
+      running[issued.value] = task_of(argv)
+      count.value = count.value + 1
+      if count.value > f.most then f.most = count.value end
+      f.events[#f.events + 1] = "solve " .. running[issued.value]
+      return issued.value
     end,
     wait = function(ids: {integer}): Round.Done
       local id = ids[1]
-      count = count - 1
+      count.value = count.value - 1
       f.events[#f.events + 1] = "solved " .. running[id]
       return { id = id, code = 0 }
     end,

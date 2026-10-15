@@ -89,7 +89,7 @@ local function entries_of(input: string, read: boolean): {string} | nil, string
       if body ~= nil then
         -- Every other body is asked for whole, its size in one read, as
         -- a caller that trusts the header would; the rest in chunks.
-        local data: string = nil
+        local data: string | nil = nil
         if #seen % 2 == 0 and e.size > 0 then
           local first, ftrouble = body:read(e.size)
           if first ~= nil then

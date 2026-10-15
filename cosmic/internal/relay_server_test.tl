@@ -154,7 +154,7 @@ end
 local function start(tmp: string, opts: Options): Rig
   local hosts = tmp .. "/hosts"
   assert(Fs.write(hosts, HOSTS))
-  local http, socks, mixed: Net.Listener, Net.Listener, Net.Listener
+  local http, socks, mixed: Net.Listener | nil, Net.Listener | nil, Net.Listener | nil
   local at_http, at_socks: Net.Address, Net.Address
   local listeners: {Net.Listener}
   if opts.mixed then
@@ -634,14 +634,14 @@ local function test_a_lookup_that_is_not_answered_stalls_only_its_own_connection
     local rig = start(tmp, { grants = { "slow.test:80", "127.0.0.1:" .. port },
       timeouts = { resolve = Clock.seconds(2) },
       resolve = { hosts_file = tmp .. "/hosts", servers = { { host = "127.0.0.1", port = silent.address.port } } } })
-    local slow_answered = false
+    local slow_answered = { value = false }
     local began = Clock.monotonic_ns()
     local waiting = Poll.spawn(function()
       local conn = dial(rig.http)
       assert(conn:write(Fixture.connect("slow.test:80")))
       -- Answered, or ended by the relay's stop.
       local _, _ = conn:read(1)
-      slow_answered = true
+      slow_answered.value = true
       local _, _ = conn:close()
     end)
     -- Let the lookup start, then use the relay for something else.
@@ -652,7 +652,7 @@ local function test_a_lookup_that_is_not_answered_stalls_only_its_own_connection
     assert(read_exact(conn, 9) == "meanwhile")
     local meanwhile = (Clock.monotonic_ns() - began) // 1000000
     assert(meanwhile < 1000, "a tunnel waited " .. meanwhile .. " ms behind another connection's lookup")
-    assert(not slow_answered, "the lookup ended before its time")
+    assert(not slow_answered.value, "the lookup ended before its time")
     -- The relay stops while the lookup is pending, and does not wait it out.
     local _, _ = conn:close()
     local stopping = Clock.monotonic_ns()
@@ -674,10 +674,10 @@ local function test_a_lookup_out_of_time_is_refused_while_another_is_answered(tm
     local rig = start(tmp, { grants = { "slow.test:80", "svc.test:" .. port, "127.0.0.1:" .. port },
       timeouts = { resolve = Clock.ms(300) },
       resolve = { hosts_file = tmp .. "/hosts", servers = { { host = "127.0.0.1", port = silent.address.port } } } })
-    local head = ""
+    local head = { value = "" }
     local waiting = Poll.spawn(function()
       local conn, answer = connect_to(rig, "slow.test:80")
-      head = answer
+      head.value = answer
       local _, _ = conn:close()
     end)
     -- A name the hosts file answers needs no server.
@@ -685,9 +685,9 @@ local function test_a_lookup_out_of_time_is_refused_while_another_is_answered(tm
     assert(status_line(answer):find("^HTTP/1.1 200 "), answer)
     assert(conn:write("hosts"))
     assert(read_exact(conn, 5) == "hosts")
-    assert(head == "", "the slow lookup ended before its time")
-    until_it(function(): boolean return head ~= "" end)
-    local line = status_line(head)
+    assert(head.value == "", "the slow lookup ended before its time")
+    until_it(function(): boolean return head.value ~= "" end)
+    local line = status_line(head.value)
     assert(line:find("^HTTP/1.1 504 ") and line:find("resolving slow.test timed out after 300 milliseconds", 1, true), line)
     assert(waiting:join())
     local _, _ = conn:close()
@@ -1142,7 +1142,7 @@ local record Proxy
 end
 
 local function proxy(status: string): Proxy
-  local state: Proxy
+  local state: Proxy | nil
   local server = origin(function(conn: Net.Conn, seen: Origin)
     local text = ""
     while not text:find("\r\n\r\n", 1, true) do
@@ -1152,7 +1152,7 @@ local function proxy(status: string): Proxy
       end
       text = text .. data
     end
-    state.head = text
+    assert(state, "the proxy is made before it is dialled").head = text
     if status ~= "200" then
       local _, _ = conn:write("HTTP/1.1 " .. status .. "\r\nContent-Length: 0\r\n\r\n")
       return

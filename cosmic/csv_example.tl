@@ -2,6 +2,7 @@
 --- `cosmic test`.
 
 local Csv = require("cosmic.csv")
+local Sqlite = require("cosmic.sqlite")
 
 local Example = {}
 
@@ -63,6 +64,17 @@ function Example.column_names()
   local names = Csv.column_names({ "id", "ID", "", "id" }, { "rowid" })
   assert(table.concat(names, ",") == "id,ID_2,_,id_3")
   assert(Csv.column_names({ "rowid" }, { "rowid" })[1] == "rowid_2")
+end
+
+--- `load` copies CSV into a table, in C, and types plain numbers, so a
+--- query compares them as numbers.
+function Example.load()
+  local db = assert(Sqlite.memory())
+  local loaded = assert(Csv.load(db, "sales", { text = "city,amount\nParis,120\nLagos,95.5\n" }))
+  assert(loaded.count == 2)
+  local rows = assert(Sqlite.text_rows(db, "SELECT city FROM sales WHERE amount > 100"))
+  assert(#rows == 1 and rows[1]:text(1) == "Paris")
+  assert(db:close())
 end
 
 return Example

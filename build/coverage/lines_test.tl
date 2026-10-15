@@ -8,14 +8,11 @@ local lines = require("build.coverage.lines")
 local teal = require("build.teal")
 local work = require("build.work")
 
-local built, load_trouble = teal.load()
-if built == nil then
-  error("could not load the compiler: " .. tostring(load_trouble))
-end
+local built = assert(teal.load())
 
 local function count(db: Sqlite.Handle, table_name: string): integer
   local rows = assert(Sqlite.text_rows(db, "SELECT count(*) FROM " .. table_name))
-  return math.tointeger(tonumber(rows[1][1])) as integer
+  return math.tointeger(tonumber(rows[1]:text(1))) as integer
 end
 
 --- Same keys in both executable-line sets, ignoring the `true` payload

@@ -45,7 +45,7 @@ local record Assets
     type: string
     --- The gzip of `data` when the source holds one, else nil. Its entity
     --- tag is `etag` with "-gzip" before the closing quote.
-    gzip: string
+    gzip?: string
     --- The file's modification time in seconds, for Last-Modified: 0 for
     --- an asset that has none (an embedded one: a reproducible build
     --- carries no time).
@@ -159,7 +159,7 @@ function Assets.memory(files: {string:string}, opts?: {string:boolean}): Assets.
   for path, data in pairs(files) do
     local why = path_refusal(path)
     if why ~= nil then error(("web: assets: memory: %q: %s"):format(tostring(path), why), 2) end
-    local gzip: string = nil
+    local gzip: string | nil = nil
     if opts ~= nil and opts.gzip then gzip = Mime.gzip(path, data) end
     held[path] = make(path, data, { gzip = gzip })
     names[#names + 1] = path
@@ -251,7 +251,7 @@ end
 --- The first database of the store holding the payload table, queried.
 --- Each handle is tried in search order; one without the table is
 --- skipped.
-local function payload_query(sql: string, values: {Sqlite.Value}): {{string}} | nil
+local function payload_query(sql: string, values: {Sqlite.Value}): Sqlite.Rows | nil
   for _, handle in ipairs(Store.databases()) do
     local rows, _ = Sqlite.text_rows(handle, sql, values)
     if rows ~= nil and #rows > 0 then return rows end
@@ -278,15 +278,15 @@ function Assets.embedded(): Assets.Source
     if rows == nil then return miss(path, "not held") end
     local row = rows[1]
     local packed: string | nil = nil
-    if row[5] == "1" then packed = row[4] end
-    asset = make(path, row[1], { sha256 = row[2], type = row[3], gzip = packed })
+    if row:text(5) == "1" then packed = row:text(4) end
+    asset = make(path, row:text(1), { sha256 = row:text(2), type = row:text(3), gzip = packed })
     held[path] = asset
     return asset, ""
   end
   source.paths = function(_self: Assets.Source): {string}
     local rows = payload_query("SELECT path FROM payload ORDER BY path", {})
     local list: {string} = {}
-    for i, row in ipairs(rows or {}) do list[i] = row[1] end
+    for i, row in ipairs(rows or {}) do list[i] = row:text(1) end
     return list
   end
   source.dynamic = function(_self: Assets.Source): boolean return false end

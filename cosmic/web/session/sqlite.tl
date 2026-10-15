@@ -175,9 +175,9 @@ local function load_session(self: Session.Store, token: string, now: integer, _c
   local store = backing(self)
   local row, why = find(store, token, now)
   if row == nil then return nil, why end
-  local values = values_of(row[1].text)
+  local values = values_of(row:text(1))
   if values == nil then return nil, "" end
-  return { values = values, created = row[2].integer, expires = row[3].integer }, ""
+  return { values = values, created = row:integer(2), expires = row:integer(3) }, ""
 end
 
 --- Applies `changes` to `values`.
@@ -194,8 +194,9 @@ end
 local function save_session(self: Session.Store, previous: string, data: Session.Data,
                             changes: Session.Changes, now: integer, _cookie: string): string | nil, string
   local store = backing(self)
-  local token = previous
-  local failure: string = nil
+  -- The id the session is saved under when it was given a new one.
+  local minted: {string} = {}
+  local failure: string | nil = nil
   -- No yield between the first read and the commit: another request of
   -- this process cannot interleave, and another process meets SQLite's lock.
   -- The transaction begins IMMEDIATE, taking the write lock before the read:
@@ -212,9 +213,9 @@ local function save_session(self: Session.Store, previous: string, data: Session
     local created = data.created
     local subject = changes.subject
     if row ~= nil then
-      base = values_of(row[1].text) or {}
-      if not changes.regenerated then created = row[2].integer end
-      if subject == nil and row[4].kind == "text" then subject = row[4].text end
+      base = values_of(row:text(1)) or {}
+      if not changes.regenerated then created = row:integer(2) end
+      if subject == nil and row:kind(4) == "text" then subject = row:text(4) end
     end
     local text, encode_why = Json.encode(apply(base, changes), { max_depth = Session.MAX_DEPTH })
     if text == nil then return false, "cannot encode the session: " .. encode_why end
@@ -227,7 +228,7 @@ local function save_session(self: Session.Store, previous: string, data: Session
     end
     local id, id_why = new_id()
     if id == nil then return false, id_why end
-    token = id
+    minted[1] = id
     if row ~= nil then
       local gone, gone_why = Sqlite.run(store.db, ("DELETE FROM %s WHERE id_hash = ?1"):format(store.table),
         { hash_of(previous) })
@@ -246,7 +247,7 @@ local function save_session(self: Session.Store, previous: string, data: Session
     -- A failed sweep costs a later one, not this request.
     local _, _ = delete_expired(store, now, store.sweep_limit)
   end
-  return token, ""
+  return minted[1] or previous, ""
 end
 
 local function destroy_session(self: Session.Store, token: string): boolean, string

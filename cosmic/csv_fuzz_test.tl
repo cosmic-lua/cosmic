@@ -4,13 +4,14 @@
 --- of writing and reading again; and a defect put into well-formed text is
 --- refused naming the line and column it was put at; and `table` answers
 --- the line each row was written to begin on; `records` refuses what `parse`
---- refuses, reads its records, and puts each at the line `table` gives its row.
+--- refuses, reads its records, and puts each at the line `table` gives its row;
+--- and `load`, reading through SQLite's CSV table, copies what `table` reads.
 --- `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (build/fuzz/init.tl).
 
 local Csv = require("cosmic.csv")
 local Fuzz = require("build.fuzz")
 
-local DELIMITERS <const> = { ",", "\t", ";", "|" }
+local DELIMITERS <const> = { ",", "\t", ";", "|", "\xa7" }
 
 local BOM <const> = "\xEF\xBB\xBF"
 
@@ -148,7 +149,8 @@ local SAMPLES <const> = {
   "a,b,\n,,\n", 'a"b\n', '"a"b\n', '"never closed', "a\rb\n", "\n\n\n", '""\n', "a\tb\n1\t2\n",
 }
 
-local TOKENS <const> = { ",", '"', "\n", "\r\n", "\r", "\t", ";", "a", "1", " ", '""', "\0", "\xff", "\xEF\xBB\xBF" }
+local TOKENS <const> = { ",", '"', "\n", "\r\n", "\r", "\t", ";", "|", "\xa7", "a", "1", " ", '""', "\0", "\xff",
+  "\xEF\xBB\xBF" }
 
 local function gen_text(src: Fuzz.Source): string
   local text: string
@@ -470,5 +472,90 @@ local function test_each_row_is_at_the_line_its_record_was_written_on(tmp: strin
       if #expected > 0 then Fuzz.label("rows") end
       return true, ""
     end,
+  })
+end
+
+--- Text for [`Csv.load`], read as text or from a file, with one of the
+--- delimiters: some padded so
+--- what follows lands where SQLite's CSV table refills its 1024-byte
+--- buffer from a file.
+local function gen_load(src: Fuzz.Source): string
+  local fields = Fuzz.unpack(gen_text(src))
+  local text = fields[2]
+  if src:int(0, 3) == 0 then
+    text = "a\n" .. string.rep("b", src:int(1018, 1030)) .. "\n" .. text
+  end
+  return Fuzz.pack({ src:int(0, 1) == 0 and "text" or "path", text, fields[1] })
+end
+
+--- What [`Csv.load`] copies with `raw` is what [`Csv.table`] reads, row for
+--- row and cell for cell, and it refuses what `table` refuses: one reading
+--- of CSV, whichever reader reads it. Text holding a NUL, which SQLite's
+--- CSV table cannot read, it refuses.
+local function test_load_reads_what_table_reads(tmp: string)
+  local Sqlite = require("cosmic.sqlite")
+  local Fs = require("cosmic.fs")
+  local db = assert(Sqlite.memory())
+  local path = tmp .. "/load.csv"
+  Fuzz.run({
+    name = "csv load agrees with table",
+    dir = tmp,
+    gen = gen_load,
+    check = function(input: string): boolean, string
+      local fields = Fuzz.unpack(input)
+      local how, text = fields[1], fields[2]
+      -- An input kept before inputs held a delimiter reads with a comma.
+      local delimiter = fields[3] or ","
+      local source: Csv.Source = { raw = true, delimiter = delimiter }
+      if how == "text" then
+        source.text = text
+      else
+        assert(Fs.write(path, text))
+        source.path = path
+      end
+      local made, refused = Csv.table(text, { delimiter = delimiter })
+      local loaded, why = Csv.load(db, "loaded", source)
+      local copied = loaded and loaded.count
+      local cells: Sqlite.Rows = {}
+      if copied ~= nil then
+        cells = assert(Sqlite.text_rows(db, "SELECT * FROM loaded ORDER BY rowid"))
+      end
+      local _, _ = db:exec("DROP TABLE IF EXISTS loaded")
+      local temps = assert(Sqlite.text_rows(db, "SELECT count(*) FROM sqlite_temp_schema"))
+      if temps[1]:text(1) ~= "0" then return false, "load left its CSV table behind" end
+      if text:find("\0", 1, true) ~= nil then
+        Fuzz.label("a NUL")
+        if copied ~= nil then
+          return false, string.format("load read %q, which holds a NUL", text)
+        end
+        return true, ""
+      end
+      if made == nil or #made.columns == 0 then
+        Fuzz.label("refused")
+        if copied ~= nil then
+          return false, string.format("load read %q, which table refuses: %s", text, refused)
+        end
+        return true, ""
+      end
+      if copied == nil then
+        return false, string.format("load refused %q, which table reads: %s", text, why)
+      end
+      Fuzz.label("read")
+      if copied ~= #made.rows then
+        return false, string.format("load copied %d rows of %q, table read %d", copied, text, #made.rows)
+      end
+      for number, row in ipairs(made.rows) do
+        for index, column in ipairs(made.columns) do
+          if cells[number]:text(index) ~= row[column] then
+            return false, string.format("load read row %d column %d of %q as %q, table as %q",
+              number, index, text, tostring(cells[number]:text(index)), row[column])
+          end
+        end
+      end
+      if how == "path" then Fuzz.label("from a file") end
+      if delimiter ~= "," then Fuzz.label("another delimiter") end
+      return true, ""
+    end,
+    requires = { "read", "refused", "a NUL", "from a file", "another delimiter" },
   })
 end

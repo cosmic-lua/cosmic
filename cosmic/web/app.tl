@@ -17,6 +17,13 @@ local record Closing
   metamethod __close: function(Closing)
 end
 
+--- What a request's handler answered, where the closer of its bodies can
+--- read it: the closer is a function, and a function may write a field of
+--- what it holds but not assign a local of the code around it.
+local record Answered
+  reply?: Types.Response
+end
+
 local record App
 end
 
@@ -92,8 +99,10 @@ function App.new(spec: Types.AppSpec): Types.App
   checked(spec, SPEC_FIELDS, "app")
   local sink: Types.Sink = spec.sink or Middleware.stderr_sink()
   local hubs: {Types.Closable} = spec.hubs or {}
+  local routes: {Types.Route} = spec.routes or {}
+  local middleware: {Types.Middleware} = spec.middleware or {}
   local kept: Types.AppSpec = {
-    routes = spec.routes or {}, middleware = spec.middleware or {}, lifespan = spec.lifespan,
+    routes = routes, middleware = middleware, lifespan = spec.lifespan,
     debug = spec.debug == true, trailing_slash = spec.trailing_slash,
     trusted_proxy = spec.trusted_proxy == true, error_pages = spec.error_pages,
     error_view = spec.error_view, sink = sink,
@@ -108,12 +117,13 @@ function App.new(spec: Types.AppSpec): Types.App
       error("web: hubs holds only what has a close method", 2)
     end
   end
-  local trusted: {string:boolean} = nil
-  if spec.trusted_hosts ~= nil then
+  local trusted: {string:boolean} | nil = nil
+  local trusted_hosts = spec.trusted_hosts
+  if trusted_hosts ~= nil then
     trusted = {}
     local hosts: {string} = {}
     kept.trusted_hosts = hosts
-    for i, host in ipairs(spec.trusted_hosts) do
+    for i, host in ipairs(trusted_hosts) do
       local parsed = type(host) == "string" and Request.parse_host(host) or nil
       if parsed == nil or parsed.port ~= nil then
         error(("web: trusted_hosts: %q is not a host name without a port"):format(tostring(host)), 2)
@@ -122,7 +132,7 @@ function App.new(spec: Types.AppSpec): Types.App
       hosts[i] = parsed.host
     end
   end
-  local router = Router.build(kept.routes, Errors.terminal, kept.trailing_slash, kept.builtin)
+  local router = Router.build(routes, Errors.terminal, kept.trailing_slash, kept.builtin)
   local app: Types.App = { spec = kept, state = {}, router = router, stopped = false, stoppers = {},
     streams = {}, stream_count = 0, stream_limit = kept.max_streams or DEFAULT_STREAM_LIMIT }
   local function dispatch(req: Types.Request): Types.Response
@@ -141,10 +151,10 @@ function App.new(spec: Types.AppSpec): Types.App
     req.mount_path = outcome.mount_path
     return outcome.handler(req)
   end
-  local stack = Middleware.compose(kept.middleware, Errors.wrap(dispatch))
+  local stack = Middleware.compose(middleware, Errors.wrap(dispatch))
   app.handle = function(raw: Server.Request): Types.Response
     local parts: Request.Parts = { path = "/", segments = {}, trailing = false }
-    local outcome: Types.Outcome = nil
+    local outcome: Types.Outcome | nil = nil
     if raw.path == "*" then
       outcome = Router.star(router, raw.method)
     else
@@ -167,21 +177,26 @@ function App.new(spec: Types.AppSpec): Types.App
       end
     end
     req.outcome = outcome
-    local reply: Types.Response = nil
+    local answered: Answered = {}
     -- A `<close>` variable, not code after the call: a task killed where
     -- its handler waits (a client that went away mid-upload) runs the
     -- pending closes of its coroutine and nothing after them. The bodies
     -- a reply streams are the server's to close.
     local closing_mt: metatable<Closing> = { __close = function()
       for _, body in ipairs(req.bodies) do
+        local reply = answered.reply
         if reply == nil or reply.body ~= body then
           local _, _ = body:close()
         end
       end
     end }
     local _closing <close>: Closing = setmetatable({}, closing_mt)
-    local ok, raised = pcall(function() reply = stack(req) end)
+    local ok, raised = pcall(function() answered.reply = stack(req) end)
     if not ok then error(raised, 0) end
+    local reply = answered.reply
+    -- Out of contract (a middleware that returns nothing): the server
+    -- answers 500 for the raise, as it did for the nil it was given.
+    if reply == nil then error("web: the handler stack answered no Response", 0) end
     return reply
   end
   return setmetatable(app, app_mt)
@@ -218,17 +233,17 @@ function App.serve(app: Types.App, opts: Types.ServeOptions): boolean, string
   end
   app.stopped = false
   app.stream_limit = app.spec.max_streams or ((opts.limits or {}).connections or 256) // 2
-  local shutdown: Types.Shutdown = nil
+  local shutdown: Types.Shutdown | nil = nil
   if app.spec.lifespan ~= nil then
     local cleanup, why = app.spec.lifespan(app)
     if cleanup == nil and why ~= nil and why ~= "" then return false, why end
     shutdown = cleanup
   end
-  local ok, err = false, ""
+  local served = { ok = false, err = "" }
   -- TODO: once Server.ServeSpec has an `on_start` run in a task before the
   -- listeners open, run the lifespan there, so it may wait on Poll.
   local ran, raised = pcall(function()
-    ok, err = Server.serve({
+    served.ok, served.err = Server.serve({
       listeners = opts.listeners, limits = opts.limits, timeout_ns = opts.timeout_ns,
       idle_ns = opts.idle_ns, head_ns = opts.head_ns, body_ns = opts.body_ns,
       grace_ns = opts.grace_ns or GRACE_NS, on_ready = opts.on_ready, handle = app.handle,
@@ -258,7 +273,7 @@ function App.serve(app: Types.App, opts: Types.ServeOptions): boolean, string
     if trouble ~= nil then sink:line("lifespan cleanup: " .. trouble) end
   end
   if not ran then error(raised, 0) end
-  if not ok then return false, err end
+  if not served.ok then return false, served.err end
   return true, ""
 end
 

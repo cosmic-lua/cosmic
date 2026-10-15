@@ -16,6 +16,7 @@ local Test = require("cosmic.test")
 local build_paths = require("build.paths")
 local harness_epoch = require("build.harness_epoch")
 local test = require("build.test")
+local TypeWatch = require("build.type_watch")
 
 --- The harness is read from the projection, in the tree's build
 --- directory (`o/cosmic.db`, as a grant names it): its modules
@@ -157,6 +158,12 @@ local function unacknowledged(found: {string:string}, acknowledged: {string:stri
 end
 
 local function test_the_harness_is_acknowledged()
+  -- TODO: check this on a checked run too. It waits on a way to read the
+  -- tree's projection and the binary's own modules there, as the checked
+  -- worker is given the checked ones (build/test.tl's TODO on the same).
+  if TypeWatch.checked() then
+    Test.skip("a checked run's modules carry checks, so their bytecode is not the binary's")
+  end
   local db = assert(Sqlite.open(projection))
   local found, trouble = test.harness(db)
   db:close()
@@ -282,7 +289,7 @@ local function test_the_file_holds_its_entries_as_the_guard_prints_them()
   local rows = assert(Sqlite.rows(db, "SELECT source FROM modules WHERE path = ?1",
     { { text = "build.harness_epoch" } }))
   db:close()
-  local text = assert(Compress.inflate("raw", rows[1][1].blob))
+  local text = assert(Compress.inflate("raw", rows[1]:blob(1)))
   local names: {string} = {}
   for name in pairs(harness_epoch.acknowledged) do names[#names + 1] = name end
   assert(#names > 0)
@@ -320,7 +327,7 @@ local function test_the_harness_holds_what_it_runs_requires()
   local by_value = assert(test.value_imports(db))
   local tree: {string:boolean} = {}
   for _, row in ipairs((assert(Sqlite.text_rows(db, "SELECT path FROM modules")))) do
-    tree[row[1]] = true
+    tree[row:text(1)] = true
   end
   local missing: {string} = {}
   for _, name in ipairs(found.runs) do

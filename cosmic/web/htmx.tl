@@ -350,7 +350,7 @@ function Htmx.apply(res: Types.Response, reply: Htmx.Reply): Types.Response | ni
       put("HX-Location", url)
     end
   end
-  local function url_field(label: string, header: string, value: string | Html.SafeUrl | boolean): string | nil
+  local function url_field(label: string, header: string, value: string | Html.SafeUrl | boolean | nil): string | nil
     if value == nil then return nil end
     if value is boolean then
       put(header, value and "true" or "false")
@@ -382,7 +382,7 @@ function Htmx.apply(res: Types.Response, reply: Htmx.Reply): Types.Response | ni
     end
     put("HX-Reswap", swap)
   end
-  local function events_field(label: string, header: string, events: {Htmx.Event}): string | nil
+  local function events_field(label: string, header: string, events: {Htmx.Event} | nil): string | nil
     if events == nil then return nil end
     local text, why = events_of(label, events)
     if text == nil then return why end
@@ -413,8 +413,7 @@ function Htmx.redirect_to(req: Types.Request, url: string | Html.SafeUrl): Types
   if seen.active and not seen.boosted then
     return Htmx.apply(Response.empty(200), { redirect = Html.trust_url(target) })
   end
-  local made: Types.Response = nil
-  local ok = pcall(function() made = Response.redirect(target) end)
+  local ok, made = pcall(Response.redirect, target)
   if not ok then return nil, "htmx: redirect is not a path or an http(s) URL" end
   return made
 end

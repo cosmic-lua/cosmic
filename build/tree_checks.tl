@@ -64,6 +64,12 @@ end
 --- uses them, by `<module>.<member>`, and why each is kept.
 local allowed: {string: string} = {}
 
+allowed["build.dataset.read"] = "the reader load_text composes and falls back on, tested directly " ..
+  "over each format's text, and with load the reference load_text's fuzz property is held to"
+
+allowed["build.dataset.load"] = "the loader load_text composes and falls back on, tested directly " ..
+  "over rows a test builds, whose keys no file need hold"
+
 allowed["cosmic.net.nameservers"] = "the public way to list the system's DNS servers for " ..
   "callers outside this tree; tested directly over a resolv.conf"
 
@@ -91,6 +97,11 @@ allowed["cosmic.sandbox.seatbelt.grants"] = "called through cosmic.sandbox's `Se
   "call by the module's own name alone"
 allowed["cosmic.sandbox.seatbelt.credentials_unmet"] = "called through cosmic.sandbox's `Seatbelt`, " ..
   "as `grants` is"
+for _, name in ipairs({ "install_checks", "dropped_violations", "most_kept" }) do
+  allowed["build.test_worker." .. name] = "the seam that lets a test run the hook a checked run's Lua calls " ..
+    "in its own process, over Lua it compiled with the checks, and read what the hook met; " ..
+    "`run` calls them for a worker"
+end
 allowed["cosmic.sandbox.policy.system_profile"] = "the seam that lets a test draw the " ..
   "other host's \"system\" profile; rules.profile calls it with this host's"
 allowed["build.teal.withheld"] = "the names `strip` takes from the checker, spelled in this " ..
@@ -128,11 +139,24 @@ allowed["build.flow.bare"] = "the subset build/workflows_test.tl holds " ..
 allowed["build.flow.problems"] = "the subset build/workflows_test.tl holds " ..
   "the workflows to, which the layout is also held to"
 allowed["build.flow.comments"] = "what the fuzz test holds a layout to keep"
+allowed["build.shards.plan"] = "tested directly: the plan for exactly `count` shards, which " ..
+  "`best`, the only call outside the module, takes the best of"
 allowed["build.analyzer.analyze"] = "a convenience the tests call, a parse and " ..
   "analysis_of; every caller outside them calls analysis_of on a parse it has"
 for _, name in ipairs({ "parse", "render", "scalar", "from", "write", "value", "get", "set", "update" }) do
   allowed["build.flow." .. name] = "the API a program generates or edits a workflow " ..
     "through, which no program in the tree does yet; its test and the workflows' own do"
+end
+for _, name in ipairs({ "well_formed", "any", "captures_mark", "bare_shapes" }) do
+  allowed["build.checker_programs." .. name] = "the checker's fuzz generators and the line " ..
+    "that marks a program the checker must refuse, and the bare prologue of the shapes, which " ..
+    "build/checker_fuzz_test.tl draws " ..
+    "its inputs from; the dump of the same programs to files (`drawn`) is the tool's"
+end
+for _, name in ipairs({ "pack", "unpack" }) do
+  allowed["build.fuzz." .. name] = "the fuzz tests' inputs of several fields; only tests " ..
+    "pack them, and build.checker_programs, which the verdict tool requires for the " ..
+    "generators' draws, makes this module one a non-test module requires"
 end
 allowed["build.verb_list.entries"] = "what build/verb_list_test.tl holds each verb's spec name to"
 allowed["build.identity.compiler_modules"] = "what build/importer_test.tl holds the tree to, " ..
@@ -305,7 +329,7 @@ local function unearned(db: Sqlite.Handle): {string} | nil, string
   end
   local out: {string} = {}
   for _, row in ipairs(rows) do
-    out[#out + 1] = row[1]
+    out[#out + 1] = row:text(1)
   end
   return out
 end
@@ -420,15 +444,15 @@ function tree_checks.unnamed_types(db: Sqlite.Handle): {string}
     return { "reading the modules: " .. why }
   end
   local text: {string:string} = {}
-  for _, row in ipairs(sources) do text[row[1]] = row[2] end
-  local by_module: {string:{{string}}} = {}
+  for _, row in ipairs(sources) do text[row:text(1)] = row:text(2) end
+  local by_module: {string:Sqlite.Rows} = {}
   local order: {string} = {}
   for _, row in ipairs(rows) do
-    if by_module[row[1]] == nil then
-      by_module[row[1]] = {}
-      order[#order + 1] = row[1]
+    if by_module[row:text(1)] == nil then
+      by_module[row:text(1)] = {}
+      order[#order + 1] = row:text(1)
     end
-    table.insert(by_module[row[1]], row)
+    table.insert(by_module[row:text(1)], row)
   end
   local out: {string} = {}
   for _, module in ipairs(order) do
@@ -436,12 +460,12 @@ function tree_checks.unnamed_types(db: Sqlite.Handle): {string}
     local source = text[module] or ""
     local record = returned_record(source)
     local body = record ~= nil and record_body(source, record) or nil
-    local tops: {string:{string}} = {}
+    local tops: {string:Sqlite.Row} = {}
     for _, row in ipairs(members) do
-      if row[2] ~= "" and not row[2]:find("[.:]") and row[2] ~= record and
-          (row[3] == "record" or row[3] == "enum" or row[3] == "interface" or
-              row[3] == "type") then
-        tops[row[2]] = row
+      if row:text(2) ~= "" and not row:text(2):find("[.:]") and row:text(2) ~= record and
+          (row:text(3) == "record" or row:text(3) == "enum" or row:text(3) == "interface" or
+              row:text(3) == "type") then
+        tops[row:text(2)] = row
       end
     end
     local reached: {string:boolean} = {}
@@ -455,21 +479,21 @@ function tree_checks.unnamed_types(db: Sqlite.Handle): {string}
       end
     end
     for _, row in ipairs(members) do
-      if row[7] == "1" and row[2] ~= "" and not row[2]:find("[.:]") and
-          (row[3] == "function" or row[3] == "method" or row[3] == "field" or
-              row[3] == "value") then
-        names_in(row[4])
+      if row:text(7) == "1" and row:text(2) ~= "" and not row:text(2):find("[.:]") and
+          (row:text(3) == "function" or row:text(3) == "method" or row:text(3) == "field" or
+              row:text(3) == "value") then
+        names_in(row:text(4))
       end
     end
     while #pending > 0 do
       local name = pending[#pending]
       pending[#pending] = nil
       for _, row in ipairs(members) do
-        local head = row[2]:sub(1, #name + 1)
+        local head = row:text(2):sub(1, #name + 1)
         if (head == name .. "." or head == name .. ":") and
-            row[2]:sub(#name + 2, #name + 2) ~= "_" and
-            (row[3] == "function" or row[3] == "method" or row[3] == "field") then
-          names_in(row[4])
+            row:text(2):sub(#name + 2, #name + 2) ~= "_" and
+            (row:text(3) == "function" or row:text(3) == "method" or row:text(3) == "field") then
+          names_in(row:text(4))
         end
       end
     end
@@ -481,7 +505,7 @@ function tree_checks.unnamed_types(db: Sqlite.Handle): {string}
     for _, name in ipairs(unnamed) do
       local row = tops[name]
       local owner = record or module:match("[^.]+$")
-      out[#out + 1] = row[5] .. ":" .. row[6] .. ": " .. module .. ": " .. name ..
+      out[#out + 1] = row:text(5) .. ":" .. row:text(6) .. ": " .. module .. ": " .. name ..
         " is named by the API but is no member of the module: add `type " .. name .. " = " ..
         name .. "` to " .. owner .. ", so a caller can write " .. owner .. "." .. name
     end
@@ -540,8 +564,8 @@ function tree_checks.anchors(db: Sqlite.Handle, expected?: {string}): {string}
   end
   local all: {Row} = {}
   for _, r in ipairs(rows) do
-    all[#all + 1] = { module = r[1], symbol = r[2], kind = r[3], signature = r[4],
-      text = r[5], file = r[6], line = r[7] }
+    all[#all + 1] = { module = r:text(1), symbol = r:text(2), kind = r:text(3), signature = r:text(4),
+      text = r:text(5), file = r:text(6), line = r:text(7) }
   end
   -- What takes or returns a value: a function, a method, or a field
   -- whose type is a function.
@@ -631,9 +655,9 @@ function tree_checks.compiler_readers(db: Sqlite.Handle, named?: {string}): {str
   end
   local found: {string: boolean} = {}
   for _, row in ipairs(rows) do
-    for line in String.lines(row[2]) do
+    for line in String.lines(row:text(2)) do
       if reads(line) then
-        found[row[1]] = true
+        found[row:text(1)] = true
         break
       end
     end
@@ -699,12 +723,12 @@ function tree_checks.build_directory(db: Sqlite.Handle, excused?: {string: strin
   local found: {string: boolean} = {}
   for _, row in ipairs(rows) do
     local number = 0
-    for line in String.lines(row[2]) do
+    for line in String.lines(row:text(2)) do
       number = number + 1
       if spells_build_directory(line) then
-        found[row[1]] = true
-        if excused[row[1]] == nil then
-          out[#out + 1] = row[1] .. ":" .. tostring(number) .. ": spells the build directory " ..
+        found[row:text(1)] = true
+        if excused[row:text(1)] == nil then
+          out[#out + 1] = row:text(1) .. ":" .. tostring(number) .. ": spells the build directory " ..
             "by hand; ask build.paths' `resolve` for it, or for the path under it"
         end
       end
@@ -891,8 +915,8 @@ function tree_checks.restricted(db: Sqlite.Handle, rules?: {string: Restriction}
     local allowed_here: {string: boolean} = {}
     for _, file in ipairs(rule.files) do allowed_here[file] = true end
     for _, row in ipairs(rows) do
-      if not allowed_here[row[1]] then
-        out[#out + 1] = row[1] .. ":" .. row[2] .. ": " .. name .. " is used outside " ..
+      if not allowed_here[row:text(1)] then
+        out[#out + 1] = row:text(1) .. ":" .. row:text(2) .. ": " .. name .. " is used outside " ..
           table.concat(rule.files, ", ") .. ": " .. rule.why
       end
     end
@@ -912,12 +936,12 @@ function tree_checks.declarations(db: Sqlite.Handle): {string}
     return { "reading the declarations: " .. trouble }
   end
   local declared: {string:boolean} = {}
-  for _, row in ipairs(rows) do declared[row[1]] = true end
+  for _, row in ipairs(rows) do declared[row:text(1)] = true end
   local out: {string} = {}
   for _, row in ipairs(rows) do
-    for _, name in ipairs(closure_store.required_by(row[2])) do
+    for _, name in ipairs(closure_store.required_by(row:text(2))) do
       if not declared[name] then
-        out[#out + 1] = row[1] .. " requires " .. name .. ", which is no declaration: " ..
+        out[#out + 1] = row:text(1) .. " requires " .. name .. ", which is no declaration: " ..
           "a closure store follows a declaration's requires among declarations alone " ..
           "(build/closure_store.tl's `declared`), so declare what it needs of " .. name ..
           " in a declaration, or teach the store to follow a module"
@@ -940,12 +964,12 @@ function tree_checks.requirements(build: Sqlite.Handle): {string:{string}} | nil
   if rows == nil then return nil, "reading the declared requirements: " .. trouble end
   local out: {string:{string}} = {}
   for _, row in ipairs(rows) do
-    local names = out[row[1]]
+    local names = out[row:text(1)]
     if names == nil then
       names = {}
-      out[row[1]] = names
+      out[row:text(1)] = names
     end
-    names[#names + 1] = row[2]
+    names[#names + 1] = row:text(2)
   end
   return out
 end
@@ -963,7 +987,7 @@ function tree_checks.unsealed(build: Sqlite.Handle): {string:boolean} | nil, str
       "WHERE t.field IN ('tool', 'store') OR (t.field = 'requires' AND t.value = 'portable')")
   if rows == nil then return nil, "reading the unsealed modules: " .. trouble end
   local out: {string:boolean} = {}
-  for _, row in ipairs(rows) do out[row[1]] = true end
+  for _, row in ipairs(rows) do out[row:text(1)] = true end
   return out
 end
 
@@ -1016,17 +1040,17 @@ function tree_checks.sealed_launch(db: Sqlite.Handle, unsealed: {string:boolean}
   local seen: {string: boolean} = {}
   for _, row in ipairs(rows) do
     local named = false
-    for line in String.lines(row[2]) do
+    for line in String.lines(row:text(2)) do
       if line:find("^%s*%-%-") == nil and
           (line:find("COSMIC_PORTABLE_", 1, true) ~= nil or line:find('"--artifact', 1, true) ~= nil) then
         named = true
         break
       end
     end
-    if named and not unsealed[row[1]] then
-      seen[row[1]] = true
-      if allowed_here[row[1]] == nil then
-        out[#out + 1] = row[1] .. " names the portable launcher's contract, but its worker runs " ..
+    if named and not unsealed[row:text(1)] then
+      seen[row:text(1)] = true
+      if allowed_here[row:text(1)] == nil then
+        out[#out + 1] = row:text(1) .. " names the portable launcher's contract, but its worker runs " ..
           "sealed and never sees the launcher: declare `tool` or `store`, or " ..
           "`requires = { \"portable\" }`, or excuse it in build/tree_checks.tl's `launcher_allowed`"
       end
@@ -1319,7 +1343,7 @@ function tree_checks.verbs(db: Sqlite.Handle, quickstart: string | nil): {string
     return { "reading the imports: " .. trouble }
   end
   local listed: {string:boolean} = {}
-  for _, row in ipairs(required) do listed[row[1]] = true end
+  for _, row in ipairs(required) do listed[row:text(1)] = true end
   local modules, module_trouble = Sqlite.text_rows(db,
     "SELECT path, kind, CAST(inflate(source) AS TEXT) FROM modules ORDER BY path")
   if modules == nil then
@@ -1328,8 +1352,8 @@ function tree_checks.verbs(db: Sqlite.Handle, quickstart: string | nil): {string
   local kinds: {string:string} = {}
   local texts: {string:string} = {}
   for _, row in ipairs(modules) do
-    kinds[row[1]] = row[2]
-    texts[row[1]] = row[3]
+    kinds[row:text(1)] = row:text(2)
+    texts[row:text(1)] = row:text(3)
   end
 
   -- Each `## ` heading of the quickstart, outside a fenced block, and the
@@ -1359,21 +1383,21 @@ function tree_checks.verbs(db: Sqlite.Handle, quickstart: string | nil): {string
   local found_fields: {string:{string:boolean}} = {}
 
   for _, row in ipairs(modules) do
-    if row[2] ~= "test" then
+    if row:text(2) ~= "test" then
       local assigned = 0
       local at = 1
       while true do
-        local first, last, field = row[3]:find("\n[%w_]+%.([%w_]*spec) = {", at)
+        local first, last, field = row:text(3):find("\n[%w_]+%.([%w_]*spec) = {", at)
         if first == nil then break end
         at = last + 1
         if field == "spec" or field:match("^[%w_]*_spec$") ~= nil then
           assigned = assigned + 1
-          found_fields[row[1]] = found_fields[row[1]] or {}
-          found_fields[row[1]][field] = true
-          local spec = spec_fields(row[3], last)
+          found_fields[row:text(1)] = found_fields[row:text(1)] or {}
+          found_fields[row:text(1)][field] = true
+          local spec = spec_fields(row:text(3), last)
           local name = spec.strings.name or "?"
-          if not listed[row[1]] then
-            out[#out + 1] = "`" .. name .. "` (" .. row[1] .. ") assigns a `spec` but " ..
+          if not listed[row:text(1)] then
+            out[#out + 1] = "`" .. name .. "` (" .. row:text(1) .. ") assigns a `spec` but " ..
               "build/verb_list.tl does not list its module, so no verb dispatches to it -- " ..
               "list it there"
           end
@@ -1439,7 +1463,7 @@ function tree_checks.guides(db: Sqlite.Handle): {string}
   for name in pairs(symbols.internal_guides) do known[name] = true end
   local out: {string} = {}
   for _, row in ipairs(rows) do
-    local name = row[1]:sub(#"doc.guides." + 1)
+    local name = row:text(1):sub(#"doc.guides." + 1)
     if not known[name] then
       out[#out + 1] = "doc/guides/" .. name .. ".md is in neither `symbols.guides` nor " ..
         "`symbols.internal_guides` (build/symbols.tl): name it in one, so it ships or " ..
@@ -1553,11 +1577,11 @@ function tree_checks.public_docs(db: Sqlite.Handle, excused?: {string: string}):
     return { "reading the modules: " .. names_trouble }
   end
   local modules: {string: boolean} = {}
-  for _, row in ipairs(names) do modules[row[1]] = true end
+  for _, row in ipairs(names) do modules[row:text(1)] = true end
   local out: {string} = {}
   local found: {string: boolean} = {}
   for _, row in ipairs(rows) do
-    local text = " " .. link_text.unlinked(row[3]) .. " "
+    local text = " " .. link_text.unlinked(row:text(3)) .. " "
     local seen: {string: boolean} = {}
     for _, rule in ipairs(doc_rules) do
       local at = 1
@@ -1573,12 +1597,12 @@ function tree_checks.public_docs(db: Sqlite.Handle, excused?: {string: string}):
         local word = text:sub(start, stop)
         local before, after = text:sub(from - 1, from - 1), text:sub(to + 1, to + 1)
         if rule.breaks(before, hit, after, modules) then
-          local key = row[1] .. " " .. (row[2] ~= "" and row[2] or "(module)") .. " " .. rule.name
+          local key = row:text(1) .. " " .. (row:text(2) ~= "" and row:text(2) or "(module)") .. " " .. rule.name
           found[key] = true
           if excused[key] == nil and not seen[word] then
             seen[word] = true
-            out[#out + 1] = row[4] .. ":" .. row[5] .. ": " .. row[1] .. " " ..
-              (row[2] ~= "" and row[2] or "(module)") .. ": its doc text has `" .. word ..
+            out[#out + 1] = row:text(4) .. ":" .. row:text(5) .. ": " .. row:text(1) .. " " ..
+              (row:text(2) ~= "" and row:text(2) or "(module)") .. ": its doc text has `" .. word ..
               "` (" .. rule.name .. " rule) -- " .. rule.fix
           end
         end
@@ -1804,20 +1828,20 @@ function tree_checks.plurals(db: Sqlite.Handle, built: compiler, extra?: {{strin
     return { "reading the sources: " .. trouble }
   end
   local sources: {{string}} = {}
-  for _, row in ipairs(rows) do sources[#sources + 1] = row end
+  for _, row in ipairs(rows) do sources[#sources + 1] = { row:text(1), row:text(2) } end
   for _, row in ipairs(extra or {}) do sources[#sources + 1] = row end
   local out: {string} = {}
   local found: {string: boolean} = {}
   for _, row in ipairs(sources) do
     local known = read ~= nil and read[row[1]] or nil
-    local sites, parse_trouble: {{string}}, string
+    local sites, parse_trouble: {{string}}, string | nil
     if known ~= nil and known.source == row[2] then
       sites = known.sites
     else
       sites, parse_trouble = plural_sites(built, row[2], row[1])
     end
     if sites == nil then
-      out[#out + 1] = row[1] .. ": cannot read it to check its plurals: " .. parse_trouble
+      out[#out + 1] = row[1] .. ": cannot read it to check its plurals: " .. (parse_trouble or "")
     else
       for _, site in ipairs(sites) do
         local key = row[1] .. ":" .. site[2]
@@ -1897,7 +1921,7 @@ function tree_checks.ci_testdata(root: string, built: compiler): {string}
         local warned = result and result.warnings or {}
         for _, group in ipairs({ errors, typed, warned }) do
           for _, e in ipairs(group) do
-            if group ~= warned or not testy or not e.msg:match("^unused ") then
+            if group ~= warned or not testy or e.code ~= "unused" then
               found = found + 1
               out[#out + 1] = file .. ":" .. e.y .. ":" .. e.x .. ": " .. e.msg
             end

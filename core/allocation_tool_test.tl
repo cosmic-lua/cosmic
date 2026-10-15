@@ -76,18 +76,18 @@ end
 local function test_waitpid_never_loses_a_status_to_a_failed_allocation()
   -- A chunk that exits 7: a real status to reap.
   local pid = spawn_again("return 7")
-  local received: raw_process.ChildStatus
-  local reaped: raw_process.ChildStatus
+  local received = { value = nil as raw_process.ChildStatus | nil }
+  local reaped = { value = nil as raw_process.ChildStatus | nil }
   under_every_failure(function()
-    if reaped == nil then received = process.waitpid(pid, false) end
+    if reaped.value == nil then received.value = process.waitpid(pid, false) end
   end, function()
-    if received ~= nil then
-      reaped = received
-      received = nil
+    if received.value ~= nil then
+      reaped.value = received.value
+      received.value = nil
     end
   end)
-  assert(reaped ~= nil, "the child's status was lost to a refused allocation")
-  assert(reaped.pid == pid and reaped.code == 7 and reaped.signal == -1)
+  assert(reaped.value ~= nil, "the child's status was lost to a refused allocation")
+  assert(reaped.value.pid == pid and reaped.value.code == 7 and reaped.value.signal == -1)
 end
 
 --- An exit watch owns its descriptor from the call that opens it: a
@@ -103,18 +103,18 @@ local function test_an_exit_watch_leaves_no_descriptor_whenever_an_allocation_fa
     return fd
   end
   local before = next_descriptor()
-  local received: integer
-  local opened = 0
+  local received = { value = nil as integer | nil }
+  local opened = { value = 0 }
   under_every_failure(function()
-    received = process.exit_watch(pid)
+    received.value = process.exit_watch(pid)
   end, function()
-    if received ~= nil then
-      sys.close(received)
-      received = nil
-      opened = opened + 1
+    if received.value ~= nil then
+      sys.close(received.value)
+      received.value = nil
+      opened.value = opened.value + 1
     end
   end)
-  assert(opened >= 1, "the run with nothing refused opens a watch")
+  assert(opened.value >= 1, "the run with nothing refused opens a watch")
   assert(sys.kill(pid, sys.SIGKILL))
   assert(process.waitpid(pid, false))
   -- Reaped, the child has no watch to give, and its failure is made

@@ -64,7 +64,7 @@ local function test_inputs_by_hash(db: Sqlite.Handle): {string:analyzer.Declared
   end
   local declared: {string:analyzer.Declared} = {}
   for _, row in ipairs(rows) do
-    local hash, field, value = row[1], row[2], row[3]
+    local hash, field, value = row:text(1), row:text(2), row:text(3)
     local one = declared[hash]
     if one == nil then
       one = { line = 0, reads = {}, host = {}, env = {}, network = {},
@@ -118,12 +118,12 @@ local function names_by_hash(db: Sqlite.Handle,
   end
   local out: {string:{string}} = {}
   for _, row in ipairs(rows) do
-    local list = out[row[1]]
+    local list = out[row:text(1)]
     if list == nil then
       list = {}
-      out[row[1]] = list
+      out[row:text(1)] = list
     end
-    list[#list + 1] = row[2]
+    list[#list + 1] = row:text(2)
   end
   return out
 end
@@ -152,8 +152,8 @@ local function embedded_edges(name: string): {string} | nil, string
   end
   local out: {string} = {}
   for _, row in ipairs(rows) do
-    if row[1] ~= "" then
-      out[#out + 1] = row[1]
+    if row:text(1) ~= "" then
+      out[#out + 1] = row:text(1)
     end
   end
   return out, ""
@@ -179,10 +179,10 @@ function compilation.dependency_keys(db: Sqlite.Handle, modules: {Module},
     return nil, rows_trouble
   end
   for _, row in ipairs(rows) do
-    if dependencies[row[1]] == nil then
-      dependencies[row[1]] = {
-        kind = row[2], source_hash = row[3],
-        requires = requires[row[3]] or {},
+    if dependencies[row:text(1)] == nil then
+      dependencies[row:text(1)] = {
+        kind = row:text(2), source_hash = row:text(3),
+        requires = requires[row:text(3)] or {},
       }
     end
   end
@@ -239,8 +239,7 @@ function compilation.dependency_keys(db: Sqlite.Handle, modules: {Module},
   local identify = function(name: string, file: string): Keys | nil, string
     local seen: {string:boolean} = {}
     local graph: {string} = {}
-    local visit: function(string, string): boolean, string
-    visit = function(slot: string, display: string): boolean, string
+    local function visit(slot: string, display: string): boolean, string
       if seen[slot] then
         return true, ""
       end
@@ -327,8 +326,8 @@ function compilation.collect(db: Sqlite.Handle): {Module} | nil, string
   end
   local out: {Module} = {}
   for _, row in ipairs(rows) do
-    local path, file, kind, origin = row[1], row[2], row[3], row[4]
-    local source, source_hash, has_return = row[5], row[6], row[7]
+    local path, file, kind, origin = row:text(1), row:text(2), row:text(3), row:text(4)
+    local source, source_hash, has_return = row:text(5), row:text(6), row:text(7)
     local inputs = declared[source_hash]
     if inputs ~= nil and kind ~= "test" and kind ~= "example" then
       -- A declaration holds for the tests of its own module, and a
@@ -354,7 +353,7 @@ function compilation.collect(db: Sqlite.Handle): {Module} | nil, string
       key = "",
       graph_key = "",
       lua = "",
-      stub = row[8] == "1" and { text = row[9], pruned = row[10] == "1" } or nil,
+      stub = row:text(8) == "1" and { text = row:text(9), pruned = row:text(10) == "1" } or nil,
     }
   end
   return out, ""
@@ -371,8 +370,7 @@ function compilation.ordered(modules: {Module}): {Module} | nil, string
   local out: {Module} = {}
   local state: {string:string} = {}
 
-  local visit: function(Module): boolean, string
-  visit = function(m: Module): boolean, string
+  local function visit(m: Module): boolean, string
     if state[m.path] == "done" then
       return true, ""
     end
@@ -432,7 +430,7 @@ local function discount_test_warnings(result: compiler.Result,
   end
   local kept: {compiler.Error} = {}
   for _, w in ipairs(result.warnings) do
-    local unused = w.msg:match("^unused function ([%w_]+):")
+    local unused = w.code == "unused" and w.declares == "function" and w.variable or nil
     if unused == nil or not names[unused] then
       kept[#kept + 1] = w
     end
@@ -453,7 +451,8 @@ end
 local function discount_doctest_shadow_warnings(result: compiler.Result): compiler.Result
   local kept: {compiler.Error} = {}
   for _, w in ipairs(result.warnings) do
-    if w.msg ~= "variable shadows previous declaration of 'print'" then
+    if not (w.code == "shadows" and w.declares == "variable" and w.variable == "print" and
+        not w.declared_before) then
       kept[#kept + 1] = w
     end
   end
@@ -505,7 +504,7 @@ local function bytecode_of(code: string, name: string,
     -- method name; a `goto` into a local's scope; and `function f()`
     -- over a `<const>` local or a for loop's control variable. The
     -- generator would write a key named `global` as `["global"]`, and
-    -- the checker refuse the rest, as patch/tl/34 does an assignment.
+    -- the checker refuse the rest, as it does an assignment.
     return nil, at_source_line(tostring(load_trouble), file)
   end
   local bytecode = string.dump(chunk, false)
@@ -572,7 +571,7 @@ function compilation.refuse_globals(db: Sqlite.Handle): string | nil, string
   end
   local lines: {string} = {}
   for _, row in ipairs(rows) do
-    lines[#lines + 1] = row[1] .. ":" .. row[2] .. ":" .. row[3] ..
+    lines[#lines + 1] = row:text(1) .. ":" .. row:text(2) .. ":" .. row:text(3) ..
       ": a global is not allowed in a cosmic build: it reaches other modules by no " ..
       "`require`, which is all a build's cache and its order see -- put the value " ..
       "in a module and `require` it"
@@ -597,16 +596,21 @@ function compilation.generate(m: Module, built: compiler, env: compiler.Env,
   -- which on a cold build put a template's error at the field in its
   -- data module, under the template's name.
   typed.checking = m.file
-  local result: compiler.Result
-  local checked_ok, raised = pcall(function()
-    result = built.check_string(source, env, m.file, "tl")
-  end)
+  -- The module that holds the hook the checks call is compiled without
+  -- them: a check of the hook's own parameters would call the hook.
+  local checks = env.defaults.runtime_checks
+  if m.path == "build.test_worker" then
+    env.defaults.runtime_checks = false
+  end
+  local checked_ok, outcome = pcall(built.check_string, source, env, m.file, "tl")
+  env.defaults.runtime_checks = checks
   -- Put back before a raise goes on, so the run's state names no file
   -- the checker has left.
   typed.checking = ""
   if not checked_ok then
-    error(raised, 0)
+    error(outcome, 0)
   end
+  local result = assert(outcome, "the checker answered no result")
   local code: string | nil = nil
   if result.ast ~= nil and #result.syntax_errors == 0 then
     local written, write_trouble = built.generate(result.ast, env.defaults.gen_target, nil)
@@ -743,7 +747,7 @@ function compilation.receivers_identity(db: Sqlite.Handle): string | nil, string
         return nil, trouble
       end
       if #rows > 0 then
-        source = rows[1][1]
+        source = rows[1]:text(1)
       end
     else
       local carried, _ = Store.source(name)

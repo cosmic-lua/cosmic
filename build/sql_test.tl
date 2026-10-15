@@ -35,21 +35,21 @@ end
 local record Written
   out: {string}
   err: {string}
-  --- The verdict line, as stdout would end in it.
-  verdict: string
+  --- The summary, as stderr would end in it; "" when the run gave none.
+  summary: string
 end
 
 local function run(root: string, words: {string}, input?: string): integer, Written
-  local written: Written = { out = {}, err = {}, verdict = "" }
+  local written: Written = { out = {}, err = {}, summary = "" }
   local code = sql.run(argv_of(words), root, {
     out = function(line: string): boolean, string
       written.out[#written.out + 1] = line
       return true, ""
     end,
     err = function(line: string) written.err[#written.err + 1] = line end,
-    verdict = function(passed: boolean, detail: string)
-      assert(written.verdict == "", "a second verdict: " .. written.verdict)
-      written.verdict = "sql: " .. (passed and "PASS" or "FAIL") .. " (" .. detail .. ")"
+    summary = function(detail: string)
+      assert(written.summary == "", "a second summary: " .. written.summary)
+      written.summary = "sql: " .. detail
     end,
   }, function(): string | nil, string
     if input == nil then return nil, "no standard input given" end
@@ -81,17 +81,17 @@ local function test_rows_come_back_one_line_each_with_cells_escaped()
   -- A statement with no rows still names its columns.
   local none = assert(query(path, "SELECT a, b AS \"tab\tbed\" FROM t WHERE 0"))
   assert(#none == 1 and none[1] == "a\ttab\\tbed", none[1])
-  -- Rows go to stdout, then the verdict; complaints go to stderr.
+  -- Rows go to stdout; complaints and the summary go to stderr.
   local code, written = run(root, { "SELECT a FROM t WHERE a > 1 AND a < 3 ORDER BY a" })
   assert(code == 0)
   assert(#written.out == 3 and written.out[1] == "a" and written.out[2] == "1.5" and
       written.out[3] == "2.0", table.concat(written.out, "|"))
   assert(#written.err == 0, table.concat(written.err, "|"))
-  assert(String.starts_with(written.verdict, "sql: PASS (2 rows from " .. build_dir(root) .. "/cosmic.db, "),
-    written.verdict)
+  assert(String.starts_with(written.summary, "sql: 2 rows from " .. build_dir(root) .. "/cosmic.db, "),
+    written.summary)
   code, written = run(root, { "SELECT a FROM t WHERE 0" })
   assert(code == 0 and #written.out == 1 and written.out[1] == "a")
-  assert(written.verdict:find("^sql: PASS %(0 rows") ~= nil, written.verdict)
+  assert(written.summary:find("^sql: 0 rows") ~= nil, written.summary)
   -- A parameter is refused rather than read as NULL.
   local unbound, unbound_trouble = query(path, "SELECT a FROM t WHERE a = ?")
   assert(unbound == nil and unbound_trouble ==
@@ -102,7 +102,7 @@ local function test_rows_come_back_one_line_each_with_cells_escaped()
   -- A statement with no columns prints no header, and counts no row.
   code, written = run(root, { "PRAGMA query_only = 1" })
   assert(code == 0 and #written.out == 0, table.concat(written.out, "|"))
-  assert(written.verdict:find("^sql: PASS %(0 rows") ~= nil, written.verdict)
+  assert(written.summary:find("^sql: 0 rows") ~= nil, written.summary)
   assert(Fs.remove_tree(root))
 end
 
@@ -211,7 +211,7 @@ local function test_a_failed_write_stops_the_statement()
   local endless = "WITH RECURSIVE c(x) AS (SELECT 1 UNION ALL SELECT x + 1 FROM c) SELECT x FROM c"
   local lines: {string} = {}
   local complaints: {string} = {}
-  local passed: boolean | nil
+  local summarized = { value = "" }
   local code = sql.run(argv_of({ endless }), root, {
     out = function(line: string): boolean, string
       lines[#lines + 1] = line
@@ -221,13 +221,13 @@ local function test_a_failed_write_stops_the_statement()
       return true, ""
     end,
     err = function(line: string) complaints[#complaints + 1] = line end,
-    verdict = function(ok: boolean, _: string) passed = ok end,
+    summary = function(detail: string) summarized.value = detail end,
   })
   assert(code == 1, code)
   assert(#lines == 3, #lines)
   assert(#complaints == 1 and complaints[1]:find("Broken pipe", 1, true) ~= nil,
     table.concat(complaints, "|"))
-  assert(passed == false)
+  assert(summarized.value == "", "a failure was summarized: " .. summarized.value)
   assert(Fs.remove_tree(root))
 end
 
@@ -241,7 +241,7 @@ local function test_rows_are_written_before_the_statement_finishes()
   assert(code == 1)
   assert(#written.out == 3 and written.out[1] == "x\ty" and written.out[2] == "1\t0" and
       written.out[3] == "2\t0", table.concat(written.out, "|"))
-  assert(#written.err == 1 and written.verdict:find("^sql: FAIL") ~= nil)
+  assert(#written.err == 1 and written.summary == "")
   assert(Fs.remove_tree(root))
 end
 
@@ -259,7 +259,7 @@ local function test_a_missing_database_and_bad_sql_fail()
   assert(written.err[1] == "cosmic: sql: " .. working .. ": no such database: " .. working ..
       "; the build directory is the working directory's, never a project's above it",
     written.err[1])
-  assert(String.starts_with(written.verdict, "sql: FAIL (" .. working .. ", "), written.verdict)
+  assert(written.summary == "", written.summary)
   assert(Fs.exists(missing) == false, "opening made the file")
   local lines, why = query(build_dir(root) .. "/cosmic.db", "SELEC 1")
   assert(lines == nil and why:find("syntax error", 1, true) ~= nil, why)
@@ -290,8 +290,8 @@ local function test_a_command_line_it_cannot_read_is_a_usage_error()
   assert(code == 2 and #written.out == 0)
   assert(written.err[1]:find("name one database, not --build and --build", 1, true) ~= nil,
     written.err[1])
-  -- A refused command line still ends in the verb's own verdict.
-  assert(written.verdict:find("^sql: FAIL %(usage") ~= nil, written.verdict)
+  -- A refused command line gets its complaint and no summary.
+  assert(written.summary == "", written.summary)
   -- After "--" a word is the statement, even one that looks like an option.
   assert(run(root, { "--", "--build" }) == 1)
   assert(Fs.remove_tree(root))
@@ -318,8 +318,8 @@ local function test_from_answers_a_statement_in_the_rows_format()
   assert(code == 0, table.concat(written.err, "|"))
   assert(table.concat(written.out, "\n") == "type\ttotal\tcount(*)\nchecking\t120.5\t2\nsavings\t50\t1",
     table.concat(written.out, "|"))
-  assert(written.verdict:find("^sql: PASS %(2 rows from " .. dir:gsub("%p", "%%%0") ..
-      "/accounts.json, %d+ ms%)$") ~= nil, written.verdict)
+  assert(written.summary:find("^sql: 2 rows from " .. dir:gsub("%p", "%%%0") ..
+      "/accounts.json, %d+ ms$") ~= nil, written.summary)
   -- json_extract reaches a nested value; a boolean is 0 or 1.
   code, written = run(dir, { "--from", dir .. "/accounts.json",
     "SELECT json_extract(tags, '$[1]'), active FROM accounts WHERE id = 1" })
@@ -341,7 +341,7 @@ local function test_several_files_join_and_a_name_can_be_given()
   code, written = run(dir, { "--from", dir .. "/accounts.json", "--from", "accounts=" .. dir .. "/owners.jsonl", "SELECT 1" })
   assert(code == 2 and written.err[1]:find("two tables are named accounts", 1, true), written.err[1])
   assert(written.err[1]:find("--from <name>=<file>", 1, true))
-  assert(written.verdict:find("^sql: FAIL %(usage") ~= nil, written.verdict)
+  assert(written.summary == "", written.summary)
   -- A stem that is no identifier is made one.
   assert(Fs.write(dir .. "/my-data 2024.json", '[{"x": 1}]'))
   code, written = run(dir, { "--from", dir .. "/my-data 2024.json", "SELECT x FROM my_data_2024" })
@@ -407,7 +407,7 @@ local function test_standard_input_needs_as()
   local dir = data()
   local code, written = run(dir, { "--from", "-", "--as", "ndjson", "SELECT sum(a) FROM stdin" }, '{"a": 1}\n{"a": 5}\n')
   assert(code == 0, table.concat(written.err, "|"))
-  assert(written.out[2] == "6" and written.verdict:find("rows? from standard input") ~= nil, written.verdict)
+  assert(written.out[2] == "6" and written.summary:find("rows? from standard input") ~= nil, written.summary)
   code, written = run(dir, { "--from", "t=-", "--as", "json", "SELECT sum(a) FROM t" }, '[{"a": 2}]')
   assert(code == 0 and written.out[2] == "2", table.concat(written.err, "|"))
   code, written = run(dir, { "--from", "-", "SELECT 1" }, "[]")
@@ -433,9 +433,9 @@ local function test_no_statement_prints_the_schema()
     "  _json    text",
     '  sample: {"active":true,"balance":100.5,"id":1,"tags":["a","b"],"type":"checking"}',
   }, "\n"), table.concat(written.out, "\n"))
-  assert(written.verdict:find("^sql: PASS %(1 table from ") ~= nil, written.verdict)
+  assert(written.summary:find("^sql: 1 table from ") ~= nil, written.summary)
   code, written = run(dir, { "--from", dir .. "/accounts.json", "--from", dir .. "/owners.jsonl" })
-  assert(code == 0 and written.verdict:find("^sql: PASS %(2 tables from ") ~= nil, written.verdict)
+  assert(code == 0 and written.summary:find("^sql: 2 tables from ") ~= nil, written.summary)
   local text = table.concat(written.out, "\n")
   assert(text:find("\nowners: 2 rows\n  id     integer\n  who    text\n  _json  text\n  sample: ", 1, true), text)
   assert(Fs.remove_tree(dir))
@@ -447,7 +447,7 @@ local function test_a_missing_name_is_answered_with_the_names_there_are()
   assert(code == 1 and #written.out == 0)
   assert(written.err[1] == "cosmic: sql: " .. dir .. "/accounts.json: no such column: balanse; " ..
       "columns: active, balance, id, note, tags, type, _json", written.err[1])
-  assert(written.verdict:find("^sql: FAIL %(") ~= nil, written.verdict)
+  assert(written.summary == "", written.summary)
   code, written = run(dir, { "--from", dir .. "/accounts.json", "SELECT * FROM account" })
   assert(code == 1 and written.err[1]:find("no such table: account; tables: accounts$") ~= nil, written.err[1])
   code, written = run(dir, { "--from", dir .. "/accounts.json", "--from", dir .. "/owners.jsonl",
@@ -476,7 +476,7 @@ local function test_from_refuses_every_write_and_leaves_the_file_alone()
   }) do
     local code, written = run(dir, { "--from", dir .. "/accounts.json", statement })
     assert(code == 1, statement .. " ran")
-    assert(#written.out == 0 and written.verdict:find("^sql: FAIL") ~= nil, statement)
+    assert(#written.out == 0 and written.summary == "", statement)
   end
   assert(assert(Fs.read(dir .. "/accounts.json")) == before)
   assert(Fs.exists(dir .. "/copy.db") == false, "VACUUM INTO made a file")
@@ -499,7 +499,7 @@ local function test_from_refuses_an_unknown_extension_invalid_json_and_a_missing
   assert(code == 1 and written.err[1]:find("notes.txt: json: invalid JSON", 1, true), written.err[1])
   code, written = run(dir, { "--from", dir .. "/bad.json", "SELECT 1" })
   assert(code == 1 and written.err[1]:find("bad.json: json: invalid JSON at line 1", 1, true), written.err[1])
-  assert(#written.out == 0 and written.verdict:find("^sql: FAIL %(") ~= nil, written.verdict)
+  assert(#written.out == 0 and written.summary == "", written.summary)
   code, written = run(dir, { "--from", dir .. "/none.json", "SELECT 1" })
   assert(code == 1 and written.err[1]:find("none.json", 1, true), written.err[1])
   assert(Fs.remove_tree(dir))
@@ -645,4 +645,70 @@ local function test_a_csv_keeps_its_header_order_and_a_one_column_blank_line()
   code, written = run(dir, { "--from", dir .. "/one.csv", "SELECT count(*), count(a) FROM one" })
   assert(code == 0 and written.out[2] == "3\t2", table.concat(written.err, "|") .. table.concat(written.out, "|"))
   assert(Fs.remove_tree(dir))
+end
+
+--- `--to csv` writes RFC 4180 alone to stdout, a header first, NULL an
+--- empty field and '' a quoted empty one, and its summary on stderr.
+local function test_to_csv_writes_data_alone_and_its_summary_on_stderr()
+  local dir = delimited()
+  local code, written = run(dir, { "--from", "-", "--as", "csv", "--to", "csv",
+    "SELECT name, n, NULL AS z, '' AS e, 2.5 AS r FROM stdin WHERE n > 10" },
+    'id,name,n\n1,a,5\n2,"b, ""c""",20\n3,,30\n')
+  assert(code == 0, table.concat(written.err, "|"))
+  assert(table.concat(written.out, "\n") == 'name,n,z,e,r\n"b, ""c""",20,,"",2.5\n,30,,"",2.5',
+    table.concat(written.out, "\n"))
+  assert(written.summary:find("^sql: 2 rows from standard input") ~= nil,
+    written.summary)
+end
+
+--- `--to ndjson` writes an object per row, its members the columns in
+--- order and named apart, and a result of `_json` alone as its text.
+local function test_to_ndjson_writes_a_row_an_object_in_column_order()
+  local dir = delimited()
+  local input = '{"a":1,"b":"x\\"q"}\n{"a":3,"b":"y","c":{"d":[1,2]}}\n'
+  local code, written = run(dir, { "--from", "-", "--as", "ndjson", "--to", "ndjson",
+    "SELECT b, a, a * 1.5 AS f, a, NULL AS z FROM stdin ORDER BY a" }, input)
+  assert(code == 0, table.concat(written.err, "|"))
+  assert(table.concat(written.out, "\n") ==
+      '{"b":"x\\"q","a":1,"f":1.5,"a_2":1,"z":null}\n{"b":"y","a":3,"f":4.5,"a_2":3,"z":null}',
+    table.concat(written.out, "\n"))
+  code, written = run(dir, { "--from", "-", "--as", "ndjson", "--to", "ndjson",
+    "SELECT _json FROM stdin WHERE a > 1" }, input)
+  assert(code == 0 and table.concat(written.out, "\n") == '{"a":3,"b":"y","c":{"d":[1,2]}}',
+    table.concat(written.out, "\n"))
+  assert(written.summary:find("^sql: ") ~= nil, written.summary)
+end
+
+--- What `--to` cannot write fails the statement, naming the row, and
+--- gets no summary; a format it does not know, or no statement, is a
+--- usage error; and `--to` is no database of its own.
+local function test_to_refuses_what_it_cannot_write()
+  local dir = delimited()
+  for _, case in ipairs({
+      { "SELECT x'00ff' AS b", "row 1: column 1 is a blob" },
+      { "SELECT CAST(x'ff' AS TEXT) AS t", "row 1: column 1: json: cannot encode a string that is not UTF-8" },
+      { "SELECT 1 AS \"\xff\"", "row 1: column 1's name is not UTF-8" },
+      { "SELECT 'not json' AS _json", "row 1: _json is not a JSON object's text on one line" },
+      { "SELECT 5 AS _json", "row 1: _json is not a JSON object's text on one line" },
+      { "SELECT '{\"a\":' || char(10) || '1}' AS _json", "row 1: _json is not a JSON object's text on one line" },
+  }) do
+    local code, written = run(dir, { "--from", "-", "--as", "csv", "--to", "ndjson", case[1] }, "a\n1\n")
+    assert(code == 1 and written.err[1]:find(case[2], 1, true) ~= nil, tostring(written.err[1]))
+    assert(written.summary == "", written.summary)
+  end
+  local code, written = run(dir, { "--from", "-", "--as", "csv", "--to", "xml", "SELECT 1" }, "a\n1\n")
+  assert(code == 2 and written.err[1]:find("--to writes csv or ndjson, not xml", 1, true) ~= nil, written.err[1])
+  code, written = run(dir, { "--from", "-", "--as", "csv", "--to", "csv" }, "a\n1\n")
+  assert(code == 2 and written.err[1]:find("--to writes a statement's rows", 1, true) ~= nil, written.err[1])
+  local root = project()
+  code, written = run(root, { "--db", build_dir(root) .. "/cosmic.db", "--to", "csv", "SELECT 1 AS one" })
+  assert(code == 0 and table.concat(written.out, "\n") == "one\n1", table.concat(written.err, "|"))
+end
+
+--- JSON keys tell case apart, so only a name repeated exactly is renamed.
+local function test_to_ndjson_renames_only_an_exact_repeat()
+  local dir = delimited()
+  local code, written = run(dir, { "--from", "-", "--as", "csv", "--to", "ndjson",
+    "SELECT a, a AS A, a, a AS a_2 FROM stdin" }, "a\n1\n")
+  assert(code == 0 and written.out[1] == '{"a":1,"A":1,"a_2":1,"a_2_2":1}', tostring(written.out[1]))
 end

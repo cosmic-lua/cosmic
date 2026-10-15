@@ -114,11 +114,11 @@ end
 local function test_a_download_fetches_the_redirect_without_the_token(tmp: string)
   local client, sent = live({ { reply("302 Found", "Location: https://blob.test/signed?sig=abc\r\n") }, {} })
   local urls: {string} = {}
-  local options: Http.Options = {}
+  local options = { value = {} as Http.Options }
   local real = Http.download_result
   Http.download_result = function(url: string, path: string, opts?: Http.Options): Http.DownloadResult
     urls[#urls + 1] = url
-    options = opts as Http.Options
+    options.value = opts as Http.Options
     assert(Fs.write(path, "zip bytes"))
     return { kind = "downloaded", reason = "" }
   end
@@ -131,12 +131,12 @@ local function test_a_download_fetches_the_redirect_without_the_token(tmp: strin
   has(sent[1], "Authorization: Bearer " .. token)
   assert(#urls == 1 and urls[1] == "https://blob.test/signed?sig=abc", table.concat(urls, " "))
   assert(Fs.read(tmp .. "/a.zip") == "zip bytes")
-  for name in pairs(options.headers or {}) do
+  for name in pairs(options.value.headers or {}) do
     assert(name:lower() ~= "authorization", "the token went to the redirect's host")
   end
-  local protocols = options.redirect_protocols
+  local protocols = options.value.redirect_protocols
   assert(protocols and #protocols == 1 and protocols[1] == "https", "a redirect may leave https")
-  assert(options.follow ~= false and (options.max_redirects or 0) <= 3)
+  assert(options.value.follow ~= false and (options.value.max_redirects or 0) <= 3)
 end
 
 local function test_a_download_refuses_a_location_that_is_not_https(tmp: string)
@@ -146,17 +146,17 @@ local function test_a_download_refuses_a_location_that_is_not_https(tmp: string)
     { reply("302 Found", "") },
     { reply("200 OK", "", "inline") },
   })
-  local fetched = false
+  local fetched = { value = false }
   local real = client.fetch
   client.fetch = function(url: string, path: string): boolean, string
-    fetched = true
+    fetched.value = true
     return real(url, path)
   end
   for i = 1, 4 do
     local ok, why = GithubApi.download(client, "repos/o/r/z" .. i, tmp .. "/z")
     assert(not ok and why:find("GET repos/o/r/z" .. i .. ": ", 1, true) == 1, tostring(why))
   end
-  assert(not fetched, "a URL was fetched")
+  assert(not fetched.value, "a URL was fetched")
   assert(not Fs.exists(tmp .. "/z"))
 end
 
@@ -167,10 +167,9 @@ local function test_a_download_reports_the_apis_refusal_and_the_fetchs_failure(t
   assert(not ok and why == "GET repos/o/r/artifacts/1/zip: HTTP 404: Not Found", why)
   ok, why = GithubApi.download(client, "repos/o/r/artifacts/2/zip", tmp .. "/z")
   assert(not ok and why == "GET repos/o/r/artifacts/2/zip: HTTP 410: Artifact has expired", why)
-  local failing = GithubApi.live({ GH_TOKEN = token, GITHUB_API_URL = "http://api.test" },
+  local failing = assert(GithubApi.live({ GH_TOKEN = token, GITHUB_API_URL = "http://api.test" },
     { script = { { reply("302 Found", "Location: https://blob.test/signed?sig=abc\r\n") },
-      { reply("403 Forbidden", "", "expired") } } })
-  assert(failing ~= nil)
+      { reply("403 Forbidden", "", "expired") } } }))
   local real = Http.download_result
   Http.download_result = function(): Http.DownloadResult
     return { kind = "http_status", reason = "", status = 403 }
@@ -272,15 +271,15 @@ end
 --- A client made by hand without an upload origin refuses an upload
 --- before it sends anything.
 local function test_a_client_without_an_upload_origin_uploads_nothing()
-  local sent = 0
+  local sent = { value = 0 }
   local client: GithubApi.Client = { base = "http://api.test", fetch = nil as GithubApi.Fetch,
     send = function(_request: GithubApi.Request): GithubApi.Reply | nil, string
-      sent = sent + 1
+      sent.value = sent.value + 1
       return { status = 201, headers = {}, body = "" }, ""
     end }
   local ok, why = GithubApi.upload(client, "http://api.test/repos/o/r/releases/1/assets{?name}", "x", "b")
   assert(not ok and why:find("no upload origin", 1, true), why)
-  assert(sent == 0)
+  assert(sent.value == 0)
 end
 
 local function test_the_upload_origin_follows_the_api()
@@ -424,18 +423,18 @@ end
 --- A client whose `send` answers each page after `cost_ns` of a clock
 --- the test steps, recording the timeout each request was given.
 local function stepped(pages: integer, cost_ns: integer): GithubApi.Client, {integer}
-  local clock = 0
+  local clock = { value = 0 }
   local timeouts: {integer} = {}
   local function send(request: GithubApi.Request): GithubApi.Reply | nil, string
     timeouts[#timeouts + 1] = request.timeout_ns as integer
-    clock = clock + cost_ns
+    clock.value = clock.value + cost_ns
     local number = #timeouts
     local head = {}
     if number < pages then head["link"] = '<http://api.test/next' .. number .. '>; rel="next"' end
     return { status = 200, headers = head, body = "[]" }, ""
   end
   return { send = send, fetch = nil as GithubApi.Fetch, base = "http://api.test",
-    now_ns = function(): integer return clock end }, timeouts
+    now_ns = function(): integer return clock.value end }, timeouts
 end
 
 local function test_pages_share_one_deadline_so_each_gets_the_time_left()

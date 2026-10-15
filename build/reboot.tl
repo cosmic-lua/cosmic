@@ -38,8 +38,9 @@ local shared_compiles = require("build.shared_compiles")
 local teal = require("build.teal")
 local tree = require("build.tree")
 local work = require("build.work")
+local workers = require("build.workers")
 local writer = require("build.writer")
-local log = require("build.verdict").log
+local log = require("build.logger").log
 local type compiler = require("build.compiler")
 
 local record reboot
@@ -195,8 +196,8 @@ function reboot.carries_tree_code(handle: work.Handle): boolean
     return false
   end
   for _, row in ipairs(rows) do
-    local source, _ = Store.source(row[1])
-    if source == nil or Hash.hex_sha256(source) ~= row[2] then
+    local source, _ = Store.source(row:text(1))
+    if source == nil or Hash.hex_sha256(source) ~= row:text(2) then
       return false
     end
   end
@@ -232,6 +233,13 @@ function reboot.web_assets(db: Sqlite.Handle, root: string): {work.WebAsset} | n
     if vendored ~= nil then web = vendored end
   end
   return web, ""
+end
+
+--- What a compile of the tree teaches [`into`] of the tree: whether the tool
+--- carries the tree's code, and the compiler identity the tree recorded.
+local record Learned
+  code: boolean
+  compiler: string | nil
 end
 
 --- Rebuilds the tool from the tree and replaces this process with it,
@@ -306,24 +314,23 @@ local function into(handle: work.Handle, built: compiler,
   -- by its own code, and also when a stale tool rebuilt it across a
   -- change to the fingerprint's definition: it is stale by its own code,
   -- and settles on the "teal" path.
-  local tree_code = false
-  local tree_compiler: string | nil
+  local learned: Learned = { code = false, compiler = nil }
   -- Unjudged: this tool's build.contracts, rules and exemptions alike,
   -- may be older than the tree's, so a module it refuses is built
   -- anyway, and the tool built here judges it again, by the tree's own,
   -- when it re-enters the command.
   local result, compile_trouble = importer.compile_tree(handle, built,
     function(recorded: identity.Identities): string, string
-      tree_compiler = recorded.compiler
+      learned.compiler = recorded.compiler
       local tool = Store.meta("compiler") or ""
       if settle then
         local boot_hash, _ = identity.recorded_boot_hash(handle.db)
-        tree_code = (boot_hash ~= nil and boot_hash == Store.meta("boot_hash")) or
+        learned.code = (boot_hash ~= nil and boot_hash == Store.meta("boot_hash")) or
           reboot.carries_tree_code(handle)
-        if tree_code then tool = recorded.compiler end
+        if learned.code then tool = recorded.compiler end
       end
       return tool, ""
-    end, true, shared_compiles.for_build())
+    end, true, shared_compiles.for_build(), workers.pool(workers.tool_spec()))
   if result == nil then
     -- The compiler of a tool settling is the tree's: it cannot have moved.
     if settle then
@@ -333,17 +340,17 @@ local function into(handle: work.Handle, built: compiler,
     -- identities: take the compiler's from what is staged and parsed.
     -- That walk of `requires` may be partial; a truncated one differs
     -- from the tool's, so it errs toward a boot, never toward a miss.
-    if tree_compiler == nil then
+    if learned.compiler == nil then
       local found, _ = identity.compiler_identity(handle.db)
-      tree_compiler = found
+      learned.compiler = found
     end
     return closing(handle, compile_trouble),
-      reboot.compiler_moved(Store.meta("compiler"), tree_compiler)
+      reboot.compiler_moved(Store.meta("compiler"), learned.compiler)
   end
   local layout = build_paths.resolve(handle.root)
   local database_path = layout.projection
   local written, write_trouble =
-    writer.write_result(handle, database_path, result, tree_code)
+    writer.write_result(handle, database_path, result, learned.code)
   if not written then
     return closing(handle, write_trouble), false
   end
@@ -427,7 +434,7 @@ local function replaced(root: string, out: string): boolean
   end
   local carried: {string:string} = {}
   for _, row in ipairs(rows) do
-    carried[row[1]] = row[2]
+    carried[row:text(1)] = row:text(2)
   end
   -- The running tool's own, not a database a verb attached before
   -- [`stale_exit`] ran (the projection, whose meta Store.meta finds first).

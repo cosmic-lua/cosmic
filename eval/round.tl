@@ -93,7 +93,7 @@ local USAGE <const> = "usage: eval/round <task,...|all> --model M [--tool PATH] 
   "[--run N] [--jobs N] [--max-turns N] [--timeout S]"
 
 local function positive(text: string): integer | nil
-  if text == nil or not text:match("^[1-9]%d*$") then return nil end
+  if not text:match("^[1-9]%d*$") then return nil end
   return math.tointeger(tonumber(text))
 end
 
@@ -101,10 +101,10 @@ end
 --- `--jobs` 3, `--max-turns` 150 and `--timeout` 600 (eval/solve's own
 --- defaults, stated so result.json records them) unless given.
 function Round.parse(argv: {integer: string}): Round.Options | nil, string
-  local tasks: {string} = nil
-  local model: string = nil
-  local tool: string = nil
-  local out: string = nil
+  local tasks: {string} | nil = nil
+  local model: string | nil = nil
+  local tool: string | nil = nil
+  local out: string | nil = nil
   local run, jobs, max_turns, timeout = 1, 3, 150, 600
   local i = 1
   while argv[i] ~= nil do
@@ -321,7 +321,7 @@ end
 local function real_system(): Round.System
   local handles: {integer: Child.Handle} = {}
   local streams: {integer: integer} = {}
-  local issued = 0
+  local started = { issued = 0 }
   return {
     run = function(argv: {string}): Round.Output
       local result, trouble = Child.run(argv, { stdout = "capture", stderr = "stdout",
@@ -337,10 +337,10 @@ local function real_system(): Round.System
         local _, _ = Fs.close(fd)
         return nil
       end
-      issued = issued + 1
-      handles[issued] = handle
-      streams[issued] = fd
-      return issued
+      started.issued = started.issued + 1
+      handles[started.issued] = handle
+      streams[started.issued] = fd
+      return started.issued
     end,
     wait = function(numbers: {integer}): Round.Done
       local live: {Child.Handle} = {}
@@ -389,8 +389,10 @@ function Round.main(argv: {integer: string}): integer
   end
   local system = real_system()
   local short = Round.short_commit(root)
-  local tool = options.tool
-  if tool == nil then
+  local tool: string
+  if options.tool ~= nil then
+    tool = options.tool
+  else
     local built = system.run({ root .. "/bin/cosmic-bootstrap", "--standalone",
       root .. "/build/paths.tl", root })
     if built.code ~= 0 then

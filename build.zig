@@ -720,7 +720,6 @@ pub fn build(b: *std.Build) void {
     const lua = patched(b, trees, "lua");
     const sqlite = patched(b, trees, "sqlite");
     const sqlite_ext = patched(b, trees, "sqlite-ext");
-    const tl = patched(b, trees, "tl");
     const miniz = patched(b, trees, "miniz");
     const mbedtls = patched(b, trees, "mbedtls");
     const bzip2 = patched(b, trees, "bzip2");
@@ -729,17 +728,14 @@ pub fn build(b: *std.Build) void {
     const curl = patched(b, trees, "curl");
     const yyjson = patched(b, trees, "yyjson");
 
-    // The patched copies land in the build directory's vendor/, which is
-    // where the boot
-    // bridge reads the Teal compiler from.
+    // The patched copies land in the build directory's vendor/.
     const vendored = b.step("vendor", "write the patched vendor trees");
     for ([_]struct { []const u8, std.Build.LazyPath }{
-        .{ "lua", lua },         .{ "sqlite", sqlite },
-        .{ "tl", tl },           .{ "miniz", miniz },
-        .{ "mbedtls", mbedtls }, .{ "bzip2", bzip2 },
-        .{ "xz", xz },           .{ "cares", cares },
-        .{ "curl", curl },       .{ "yyjson", yyjson },
-        .{ "sqlite-ext", sqlite_ext },
+        .{ "lua", lua },       .{ "sqlite", sqlite },
+        .{ "miniz", miniz },   .{ "mbedtls", mbedtls },
+        .{ "bzip2", bzip2 },   .{ "xz", xz },
+        .{ "cares", cares },   .{ "curl", curl },
+        .{ "yyjson", yyjson }, .{ "sqlite-ext", sqlite_ext },
     }) |pair| {
         const install = b.addInstallDirectory(.{
             .source_dir = pair[1],
@@ -909,22 +905,24 @@ pub fn build(b: *std.Build) void {
         portable_hook_cores.dependOn(&hooked_out.step);
 
         if (std.mem.eql(u8, t.name, hostName(b))) {
-            const bridge = b.addRunArtifact(exe);
-            bridge.addArg("--boot");
-            bridge.addDirectoryArg2(b.path("."), .{});
-            bridge.addDirectoryArg2(tl, .{});
-            bridge.addArg(t.name);
-            bridge.addFileArg2(target_records, .{});
-            bridge.addDirectoryArg2(
-                .{ .relative = .{ .base = .install_prefix, .sub_path = "" } },
-                .{ .make_absolute = true },
-            );
-            // The bridge reads every raw core and writes the database
-            // beside them, so it runs after both.
-            bridge.step.dependOn(cores);
+            // The boot's Teal half reads no core but this one, which is
+            // what runs it: staging, parsing and compiling wait on the
+            // vendored trees only. The other cores matter to the assembly
+            // alone, so they are not waited for here, and the work runs
+            // while they link. Both steps write the build directory, and
+            // [`bin/zig`] holds its rebuild lock around the whole of
+            // `zig build`, so they cannot race; the second depends on the
+            // first and so runs after it.
+            const bridge = bootBridge(b, exe, target_records, t.name, "--stage");
             bridge.step.dependOn(vendored);
-            bridge.has_side_effects = true;
-            boot.dependOn(&bridge.step);
+            // The assembly reads every raw core and the carried database
+            // beside them, and writes the tool last: a boot interrupted
+            // or failing before then leaves the previous tool, and the
+            // next boot stages again.
+            const assembly = bootBridge(b, exe, target_records, t.name, "--assemble");
+            assembly.step.dependOn(&bridge.step);
+            assembly.step.dependOn(cores);
+            boot.dependOn(&assembly.step);
         }
     }
 
@@ -990,10 +988,13 @@ pub fn build(b: *std.Build) void {
         checked_records,
         "sanitized/targets.tsv",
     );
+    // TODO: split this boot into a stage and an assembly as the release
+    // one is, once a cold `bin/zig build sanitized` shows the checked core
+    // linked well before the cores it waits for: nothing measures that yet.
     const checked_boot = b.addRunArtifact(checked);
     checked_boot.addArg("--boot");
     checked_boot.addDirectoryArg2(b.path("."), .{});
-    checked_boot.addDirectoryArg2(tl, .{});
+    checked_boot.addDirectoryArg2(b.path("vendor/tl"), .{});
     checked_boot.addArg(checked_target.name);
     checked_boot.addFileArg2(target_records, .{});
     checked_boot.addDirectoryArg2(
@@ -1016,6 +1017,24 @@ pub fn build(b: *std.Build) void {
     portable_hook_cores.dependOn(cores);
 
     b.getInstallStep().dependOn(cores);
+}
+
+/// A run of the host core's `--boot` bridge in `mode`, `--stage` or
+/// `--assemble` ([`build/boot.tl`]), over the release targets alone.
+fn bootBridge(b: *std.Build, exe: *std.Build.Step.Compile, target_records: std.Build.LazyPath, host: []const u8, mode: []const u8) *std.Build.Step.Run {
+    const run = b.addRunArtifact(exe);
+    run.addArg("--boot");
+    run.addDirectoryArg2(b.path("."), .{});
+    run.addDirectoryArg2(b.path("vendor/tl"), .{});
+    run.addArg(mode);
+    run.addArg(host);
+    run.addFileArg2(target_records, .{});
+    run.addDirectoryArg2(
+        .{ .relative = .{ .base = .install_prefix, .sub_path = "" } },
+        .{ .make_absolute = true },
+    );
+    run.has_side_effects = true;
+    return run;
 }
 
 fn targetRecord(b: *std.Build, target: Target, configuration: Configuration, name: []const u8) []const u8 {
@@ -1438,7 +1457,20 @@ fn vendorLibraries(
     // core (three raw cores per portable artifact). The math functions
     // (`sqrt`, `ln`, `pow`, ...) and the percentile aggregates
     // (`median`, `percentile`, ...) are on, which the bare amalgamation
-    // leaves out: about 12 KB per raw core on Linux, 17 KB on macOS.
+    // leaves out: about 12 KB per raw core on Linux, 17 KB on macOS. The
+    // `bytecode` and `tables_used` tables are on: what a statement compiles
+    // to, and which tables and indexes it opens, learned without running
+    // it, in about 4 KB. They compile what they are given, which applies a
+    // PRAGMA that changes a connection setting, so patch/sqlite/ keeps them
+    // from the views and triggers a database file holds. The R*Tree is on:
+    // an index of boxes and ranges, for which rows a box or a span
+    // overlaps, in about 44 KB per raw core (35 KB on macOS). SQLite's own
+    // fuzzcheck builds with it; OSS-Fuzz's SQLite target does not, so
+    // core/sqlite_functions_fuzz_test.tl damages trees here, and
+    // patch/sqlite/ bounds the check of a damaged one. `carray` is on: a
+    // table of the elements of a list a caller binds (core/sqlite.c), as
+    // in `x IN carray(?1)`. It reads only an array bound from C, which SQL
+    // cannot forge, and core/sqlite.c binds a copy.
     const sqlite_flags = [_][]const u8{
         "-std=c11",
         debug_dir,
@@ -1460,6 +1492,9 @@ fn vendorLibraries(
         "-DSQLITE_ENABLE_FTS5=1",
         "-DSQLITE_ENABLE_MATH_FUNCTIONS=1",
         "-DSQLITE_ENABLE_PERCENTILE=1",
+        "-DSQLITE_ENABLE_BYTECODE_VTAB=1",
+        "-DSQLITE_ENABLE_RTREE=1",
+        "-DSQLITE_ENABLE_CARRAY=1",
     };
     vendorPart(b, &libraries, configuration, target, "sqlite", &.{sqlite}).addCSourceFiles(.{
         .root = sqlite,
@@ -1472,14 +1507,17 @@ fn vendorLibraries(
     // SQLite (SQLITE_CORE), so it calls SQLite directly rather than
     // through a loader's table, under SQLite's own configuration.
     // basexx.c holds base64.c and base85.c, which it includes, and
-    // compress.c calls miniz (patch/sqlite-ext/). They cost about 50 KB
-    // per raw core.
+    // compress.c calls miniz (patch/sqlite-ext/). csv.c reads CSV text or
+    // a file as a table, which cosmic.csv's `load` copies into a real one;
+    // patch/sqlite-ext/ holds it to the temp schema, so no database file
+    // names a file for it to read. They cost about 63 KB per raw core.
     const sqlite_ext_misc = sqlite_ext.path(b, "ext/misc");
     vendorPart(b, &libraries, configuration, target, "sqlite-ext", &.{ sqlite, sqlite_ext.path(b, "src"), miniz }).addCSourceFiles(.{
         .root = sqlite_ext_misc,
         .files = &.{
-            "basexx.c", "compress.c", "decimal.c",  "regexp.c",
-            "series.c", "sha1.c",     "shathree.c", "uuid.c",
+            "basexx.c", "compress.c", "csv.c",    "decimal.c", "ieee754.c",
+            "regexp.c", "series.c",   "sha1.c",   "shathree.c", "totype.c",
+            "uint.c",   "uuid.c",
         },
         .flags = &(sqlite_flags ++ [_][]const u8{
             "-DSQLITE_CORE=1",
@@ -1848,11 +1886,34 @@ fn core(
         // The release cores are stripped. The checked core keeps its debug
         // information; [`debug_dir`] and the map's `-g0` keep it naming no
         // path of the build, so it too is the same bytes at any path.
-        // A first link keeps its debug information for the block map to
-        // read; it is never installed.
-        .strip = !configuration.sanitize and native_coverage != .first_link,
+        // A first link is stripped here too, though it keeps its debug
+        // information (see `empty_map` below): zig 0.17 builds a link's
+        // libc and compiler-rt stripped exactly when its root module is
+        // (Compilation.compilerRtStrip), so both links of a core share
+        // one build of them rather than building each twice.
+        .strip = !configuration.sanitize,
         .sanitize_c = if (configuration.sanitize) .full else .off,
     });
+    // The module the first link's empty block table is compiled in. For a
+    // release core it is an unstripped module of its own, and that alone
+    // keeps the link's debug information: zig 0.17 turns its global debug
+    // format to DWARF when any module is unstripped (Compilation/Config.zig
+    // `any_non_stripped`), which gives the core's own C its `-g` and keeps
+    // the DWARF through the link. It needs a source to be linked at all,
+    // and the table is that source; being data, it adds no block. Were
+    // zig to change this, the table's symbols would be missing from the
+    // link, or `coverage-map write` would fail for want of DWARF.
+    // TODO: drop this module once zig keys the libc and compiler-rt it
+    // builds for a link by something other than the root module's strip,
+    // or keeps debug information under a setting of its own: each would
+    // let the first link be unstripped at the root again. Until then a
+    // zig that again built libc once per strip would only slow a cold
+    // build, which nothing here notices.
+    var empty_map = mod;
+    if (native_coverage == .first_link and !configuration.sanitize) {
+        empty_map = b.createModule(.{ .target = target, .strip = false });
+        mod.addImport("debug_info", empty_map);
+    }
     for (libraryIncludes(b, sources)) |dir| mod.addIncludePath(dir);
     // mbedtls's headers name the library's configuration header, which is
     // not beside them. Only it: an edit to any other header of core/ is no
@@ -1907,7 +1968,7 @@ fn core(
     // same order: the table is data and adds none.
     switch (native_coverage) {
         .off => {},
-        .first_link => sources.own.add(mod, &.{"core/coverage_map_empty.c"}, &.{ "-std=c11", debug_dir }),
+        .first_link => sources.own.add(empty_map, &.{"core/coverage_map_empty.c"}, &.{ "-std=c11", debug_dir }),
         // No debug information for the generated map: it is data, and its
         // file's name is its zig-cache output directory, new on every
         // relink, which would move the checked core's bytes with it.

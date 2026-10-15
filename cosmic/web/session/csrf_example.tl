@@ -77,33 +77,35 @@ end
 
 --- The meta tag, for a script that sets the header itself.
 function Example.meta()
-  local text: string = nil
+  local seen: {string} = {}
   local app = Web.app{
     middleware = { Session.middleware{ store = SessionCookie.store{ keys = { Secret.generate() } } } },
     routes = { Web.get("/", function(req: Web.Request): Web.Response
-      text = Html.raw(Csrf.meta(req))
+      seen[1] = Html.raw(Csrf.meta(req))
       return Web.text("ok")
     end) },
   }
   Web.test_client(app):get("/")
-  print(text)
-  assert(text:find('name="csrf-token"', 1, true))
+  local shown = assert(seen[1], "the handler never ran")
+  print(shown)
+  assert(shown:find('name="csrf-token"', 1, true))
 end
 
 --- The attribute value that puts the token on every htmx request below an
 --- element: `<body hx-headers='...'>`.
 function Example.hx_headers()
-  local text: string = nil
+  local seen: {string} = {}
   local app = Web.app{
     middleware = { Session.middleware{ store = SessionCookie.store{ keys = { Secret.generate() } } } },
     routes = { Web.get("/", function(req: Web.Request): Web.Response
-      text = Html.raw_json(Csrf.hx_headers(req))
+      seen[1] = Html.raw_json(Csrf.hx_headers(req))
       return Web.text("ok")
     end) },
   }
   Web.test_client(app):get("/")
-  print(text)
-  assert(text:find('{"X-CSRF-Token":"', 1, true))
+  local shown = assert(seen[1], "the handler never ran")
+  print(shown)
+  assert(shown:find('{"X-CSRF-Token":"', 1, true))
 end
 
 return Example

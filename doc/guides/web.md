@@ -50,12 +50,12 @@ what is refused, and prints how many of its templates the compiler turned away.
 local Template = require("cosmic.template")
 
 do
-  local refused = 0
+  local tally = { refused = 0 }
   local header = "{{type Page from site.page}}{{use htmx}}\n"
   local function reason(markup: string, plain?: boolean): string
     local source, why = Template.compile((plain and "{{type Page from site.page}}\n" or header) .. markup, "page.tmpl")
     assert(source == nil, markup)
-    refused = refused + 1
+    tally.refused = tally.refused + 1
     return why
   end
   -- A link can load anything, so its href takes no slot: the layout is
@@ -73,7 +73,7 @@ do
   assert(reason("<b hx-vals='{{.vals}}'>x</b>", true):find("{{use htmx}}", 1, true))
   local ok = Template.compile(header .. '<a hx-get="/tasks/{{.id}}" hx-target="#task-{{.id}}">x</a>\n', "page.tmpl")
   assert(ok ~= nil)
-  print(refused)
+  print(tally.refused)
 end
 ```
 
@@ -307,7 +307,7 @@ function Site.routes(store: Store): {Web.Route}
   local function create(req: Web.Request): Web.Response
     local read = Input.form(req)
     if read.invalid ~= nil then return Web.abort(read.invalid.status, read.invalid.message) end
-    local title = (Url.query_last(read.value, "title") or ""):match("^%s*(.-)%s*$")
+    local title = (Url.query_last(assert(read.value), "title") or ""):match("^%s*(.-)%s*$")
     if title == "" then
       return Web.html(shown("", "give the task a name"), { status = 422 })
     end
@@ -741,11 +741,11 @@ argv[#argv + 1] = "test"
 local said = assert(Child.run(argv,
   { env = env, fds = relaunch.fds, cwd = tmp, stdout = "capture", stderr = "capture",
     timeout_ns = Clock.seconds(120) }))
-print(((said.stderr or "") .. (said.stdout or "")):match("test: [A-Z]+"))
+print(((said.stderr or "") .. (said.stdout or "")):match("test: %d+ tests? passed"))
 ```
 
 ```output
-test: PASS
+test: 4 tests passed
 ```
 
 ## where next

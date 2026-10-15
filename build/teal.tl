@@ -1,4 +1,4 @@
---- The vendored Teal compiler, loaded to run.
+--- The Teal compiler, loaded to run.
 ---
 --- The compiler reaches outside the pure Lua libraries in a few places:
 --- `io.open` and the handle it returns, `io.stderr`, `os.getenv`,
@@ -209,16 +209,18 @@ end
 --- @return compiler usable wherever [`teal.load`]'s result is: the same
 ---   untyped table cast to the declared surface, deferred to first use
 function teal.lazy(): compiler
-  local loaded: {any:any}
+  local loaded: {{any:any}} = {}
   local function real(): {any:any}
-    if loaded == nil then
+    local ready = loaded[1]
+    if ready == nil then
       local built, trouble = teal.load()
       if built == nil then
         error(trouble, 0)
       end
-      loaded = built as {any:any}
+      ready = built as {any:any}
+      loaded[1] = ready
     end
-    return loaded
+    return ready
   end
   local capsule: any = {}
   setmetatable(capsule, {
@@ -273,7 +275,7 @@ function teal.standard_text(name: string): teal.Standard | nil
     "SELECT inflate(source) FROM stubs WHERE path = ?1 " ..
       "AND path NOT IN (SELECT path FROM decls)", { { text = name } })
   if rows ~= nil and #rows > 0 then
-    return { text = rows[1][1], stubbed = true }
+    return { text = rows[1]:text(1), stubbed = true }
   end
   local source, _ = Store.source(name)
   if source == nil then
@@ -322,7 +324,7 @@ local function serve(built: compiler, db: Sqlite.Handle, root: string)
         "ORDER BY kind = 'decl' DESC LIMIT 1", { { text = name } })
     local stem = name:gsub("%.", "/")
     if rows ~= nil and #rows > 0 then
-      local kind, source = rows[1][1], rows[1][2]
+      local kind, source = rows[1]:text(1), rows[1]:text(2)
       return root .. "/" .. stem .. (kind == "decl" and ".d.tl" or ".tl"),
         served(source)
     end
@@ -382,14 +384,19 @@ end
 --- handle: a require of build.work would carry the rest of it into the
 --- compiler's identity (`compiler_identity` in build.identity), of which
 --- this module is a root.
+---
+--- With `checks`, the Lua its compiles write checks a value against the
+--- kind of its declared type at each declared parameter, return value and
+--- record field write ([`importer.compile`]'s `checks`).
 function teal.environment_for(built: compiler, db: Sqlite.Handle,
-                              root: string): compiler.Env | nil, string
+                              root: string, checks?: boolean): compiler.Env | nil, string
   serve(built, db, root)
   local env, trouble = built.new_env({
     defaults = {
       feat_lax = "off",
       gen_compat = "off",
       gen_target = "5.4",
+      runtime_checks = checks == true,
     },
   })
   if env == nil then
@@ -462,8 +469,12 @@ local function bound_value(n: ast.Node | nil): ast.Node | nil
 end
 
 --- The source [`declarations_of`] last parsed, and what it found there.
-local parsed_source: string | nil = nil
-local parsed_declarations: Declarations | nil = nil
+local record LastParse
+  source: string | nil
+  declarations: Declarations | nil
+end
+
+local last_parse: LastParse = {}
 
 --- The requires and top-level types `source` parses into, however each
 --- is spelt: over several lines, without parentheses (`require "x"`),
@@ -475,8 +486,8 @@ local parsed_declarations: Declarations | nil = nil
 --- a compile asks for each refusal's hint, and the hints of a file share
 --- one parse.
 local function declarations_of(source: string): Declarations
-  if source == parsed_source and parsed_declarations ~= nil then
-    return parsed_declarations
+  if source == last_parse.source and last_parse.declarations ~= nil then
+    return last_parse.declarations
   end
   local found: Declarations = { typed = {}, bound = {}, kinds = {} }
   local ambiguous: {string: boolean} = {}
@@ -514,10 +525,11 @@ local function declarations_of(source: string): Declarations
           end
         end
       elseif n.kind == "local_declaration" and n.vars ~= nil and n.exps ~= nil then
+        local exps = n.exps
         local written = n.decltuple ~= nil and n.decltuple.tuple or nil
         if written == nil or #written == 0 then
           for i, name in ipairs(n.vars) do
-            bind(name.tk, (required_module(bound_value(n.exps[i]))))
+            bind(name.tk, (required_module(bound_value(exps[i]))))
           end
         end
       end
@@ -542,7 +554,7 @@ local function declarations_of(source: string): Declarations
       end
     end
   end
-  parsed_source, parsed_declarations = source, found
+  last_parse.source, last_parse.declarations = source, found
   return found
 end
 
@@ -582,7 +594,7 @@ local type Visitor = function(n: ast.Node, lookup: function(string | nil): Bindi
 --- answers only inside its scope.
 local function scoped_walk(root: ast.Node, visitor: Visitor)
   local scopes: {{string: Binding}} = {}
-  local done = false
+  local walk = { done = false }
   local function lookup(name: string | nil): Binding | nil
     for i = #scopes, 1, -1 do
       local found = name ~= nil and scopes[i][name] or nil
@@ -609,11 +621,11 @@ local function scoped_walk(root: ast.Node, visitor: Visitor)
     end
   end
   visit = function(n: ast.Node)
-    if done then
+    if walk.done then
       return
     end
     if visitor(n, lookup) then
-      done = true
+      walk.done = true
       return
     end
     local kind = n.kind
@@ -666,15 +678,16 @@ local function scoped_walk(root: ast.Node, visitor: Visitor)
       visit_all(n.exp)
       scopes[#scopes] = nil
     elseif n.args ~= nil and n.body ~= nil then
+      local arguments = n.args
       if kind == "local_function" and n.name ~= nil then
-        declare(n.name.tk, { args = n.args })
+        declare(n.name.tk, { args = arguments })
       end
       scopes[#scopes + 1] = {}
       if n.is_method == true then
         local owner = n.fn_owner
         declare("self", { type_name = owner ~= nil and owner.e1 == nil and owner.tk or nil })
       end
-      for _, argument in ipairs(n.args) do
+      for _, argument in ipairs(arguments) do
         if not argument.is_self then
           declare(argument.tk, { type_name = nominal_name(argument.argtype) })
         end
@@ -698,7 +711,7 @@ end
 --- declaration never answers for it. Nil when there is no such
 --- assignment, or its name is not a local (a global, a field).
 local function target_of(root: ast.Node, y: integer, x: integer): Binding | nil
-  local answer: Binding | nil = nil
+  local answer: {Binding} = {}
   scoped_walk(root, function(n: ast.Node, lookup: function(string | nil): Binding | nil): boolean
     if n.kind ~= "assignment" then
       return false
@@ -719,11 +732,11 @@ local function target_of(root: ast.Node, y: integer, x: integer): Binding | nil
       return false
     end
     if target.kind == "variable" and target.tk ~= nil then
-      answer = lookup(target.tk)
+      answer[1] = lookup(target.tk)
     end
     return true
   end)
-  return answer
+  return answer[1]
 end
 
 --- The hint for the assignment refused at `y`:`x` of `source` for a
@@ -778,7 +791,7 @@ local function present(names: {string}): {string:boolean}
 end
 
 --- The functions and libraries tl's standard library declares as
---- globals (its prelude in vendor/tl/tl.tl), which a local of the same
+--- globals (its prelude in [`checker/tl.tl`]), which a local of the same
 --- name hides. `arg`, the program's arguments, is no library's.
 local standard_globals <const> = present({
   "assert", "collectgarbage", "coroutine", "debug", "dofile", "error",
@@ -877,6 +890,14 @@ local record Member
   args: ast.Node
 end
 
+--- The call [`callee_arguments`] looks for: the name it calls, the
+--- binding that name resolves to, and the member it calls on a receiver.
+local record Called
+  bare: string | nil
+  bound: Binding | nil
+  key: string | nil
+end
+
 --- The argument lists of each function the call whose `(` is at
 --- `y`:`x` of `root` may be calling, resolved through the scopes
 --- [`scoped_walk`] keeps: `f(...)` the local `f` in scope, or, with
@@ -889,9 +910,7 @@ end
 local function callee_arguments(root: ast.Node, y: integer, x: integer): {ast.Node}
   local globals: {string: {ast.Node}} = {}
   local members: {Member} = {}
-  local bare: string | nil = nil
-  local bound: Binding | nil = nil
-  local key: string | nil = nil
+  local called: Called = {}
   local receivers: {Binding} = {}
   scoped_walk(root, function(n: ast.Node, lookup: function(string | nil): Binding | nil): boolean
     local function member(owner: ast.Node | nil, name: string | nil, args: ast.Node | nil)
@@ -926,9 +945,9 @@ local function callee_arguments(root: ast.Node, y: integer, x: integer): {ast.No
       if call == nil or call.op ~= "@funcall" then
         return false
       elseif e1 ~= nil and e1.kind == "variable" then
-        bare, bound = e1.tk, lookup(e1.tk)
+        called.bare, called.bound = e1.tk, lookup(e1.tk)
       elseif (index == "." or index == ":") and object ~= nil and object.kind == "variable" then
-        key = field ~= nil and field.tk or nil
+        called.key = field ~= nil and field.tk or nil
         local receiver = lookup(object.tk)
         if receiver ~= nil then
           receivers[1] = receiver
@@ -942,13 +961,13 @@ local function callee_arguments(root: ast.Node, y: integer, x: integer): {ast.No
     return false
   end)
   local found: {ast.Node} = {}
-  if bound ~= nil then
-    found[1] = bound.args
-  elseif bare ~= nil then
-    found = globals[bare] or {}
+  if called.bound ~= nil then
+    found[1] = called.bound.args
+  elseif called.bare ~= nil then
+    found = globals[called.bare] or {}
   end
-  for _, m in ipairs(key ~= nil and members or {}) do
-    if m.name == key and (m.owner == receivers[1] or m.owner == receivers[2]) then
+  for _, m in ipairs(called.key ~= nil and members or {}) do
+    if m.name == called.key and (m.owner == receivers[1] or m.owner == receivers[2]) then
       found[#found + 1] = m.args
     end
   end
@@ -973,8 +992,9 @@ local function arity_hint(source: string, y: integer, x: integer, given: integer
   -- record field's function type (`run: function(a: string, b: string
   -- | nil)`), a module's function -- or declares on a `global record`,
   -- or calls on a receiver of an inferred type (`local r = make()`): it
-  -- waits on a patch/tl record giving this error the callee's
-  -- parameters, as patch/tl/33a gives a missing key's fields.
+  -- waits on the checker's function types keeping their parameter names,
+  -- which this error could then carry with the callee's parameter types,
+  -- as it carries a missing key's fields.
   local spelled: {string} | nil = nil
   local starts = ast.line_starts(source)
   for _, arguments in ipairs(callee_arguments(parsed.node, y, x)) do
@@ -1009,23 +1029,20 @@ local function arity_hint(source: string, y: integer, x: integer, given: integer
 end
 
 --- The hint for the checker refusing one nominal type for another
---- whose last name is the same (`Store is not a Kv.Store`, or, both
---- shown alike, `Store (defined in :7) is not a Store (defined in
---- kv.tl:3)`): two declarations made two types, and only one of them
+--- whose last name is the same (`Store` for a `Kv.Store`, or, both
+--- shown alike, a `Store` defined at :7 for a `Store` defined in
+--- kv.tl:3): two declarations made two types, and only one of them
 --- should be. Where one name is qualified and the other is not, the
 --- bare one is the program's own declaration, and the qualified one
 --- what to name instead; where both are qualified (`A.Node is not a
 --- B.Node`) neither is the program's own, and nothing is said.
-local function same_named(msg: string): string | nil
+local function same_named(e: compiler.Error): string | nil
   -- TODO: hint a generic type too (`Box<integer> is not a C.Box<integer>`):
-  -- the patterns here stop at an identifier, and a type's arguments may
+  -- the names here stop at an identifier, and a type's arguments may
   -- hold spaces and parentheses of their own.
-  local given, wanted = msg:match(
-    "([%a_][%w_.]*) %(defined in [^)]*%) is not a ([%a_][%w_.]*) %(defined in [^)]*%)$")
-  if given == nil then
-    given, wanted = msg:match("([%a_][%w_.]*) is not a ([%a_][%w_.]*)$")
-  end
-  if given == nil then
+  local given, wanted = e.got, e.expected
+  if e.code ~= "not_a" or given == nil or wanted == nil or
+      given:match("^[%a_][%w_.]*$") == nil or wanted:match("^[%a_][%w_.]*$") == nil then
     return nil
   end
   local name = given:match("[%a_][%w_]*$")
@@ -1047,45 +1064,23 @@ local function same_named(msg: string): string | nil
     name .. " = Kv." .. name .. "' for one declared in a module required as Kv"
 end
 
---- The members of a type the checker printed, less where it inferred
---- it from (`string | nil (inferred at :3:9)`): split at each top-level
---- ` | `, so the one inside `{string | integer}` or a function's
---- parameters splits nothing.
-local function type_members(t: string): {string}
-  local bare = t:gsub(" %(inferred at [^)]*%)$", "")
-  local masked = bare:gsub("%b{}", function(m: string): string return ("x"):rep(#m) end):
-    gsub("%b()", function(m: string): string return ("x"):rep(#m) end)
-  local found: {string} = {}
-  local start = 1
-  while true do
-    local at = masked:find(" | ", start, true)
-    if at == nil then
-      found[#found + 1] = bare:sub(start)
-      return found
-    end
-    found[#found + 1] = bare:sub(start, at - 1)
-    start = at + 3
-  end
+--- Whether the members of a type the checker gave (`members` of its
+--- error) are one type or nil (`R | nil`): the only kind of union a nil
+--- check alone makes usable.
+local function one_or_nil(of: {string} | nil): boolean
+  return of ~= nil and #of == 2 and of[2] == "nil" and of[1] ~= "<any type>"
 end
 
---- Whether a type the checker printed is one type or nil (`R | nil`):
---- the only kind of union a nil check alone makes usable.
-local function one_or_nil(t: string): boolean
-  local of = type_members(t)
-  return #of == 2 and of[2] == "nil" and of[1] ~= "<any type>"
-end
-
---- Whether a type the checker printed is `any`, or `any` or nil.
-local function untyped(t: string): boolean
-  local of = type_members(t)
-  return of[1] == "<any type>" and (#of == 1 or (#of == 2 and of[2] == "nil"))
+--- Whether the members of a type are `any`, or `any` or nil.
+local function untyped(of: {string} | nil): boolean
+  return of ~= nil and of[1] == "<any type>" and (#of == 1 or (#of == 2 and of[2] == "nil"))
 end
 
 --- What to write for a value of `any`, which is what [`Json.decode`]
 --- answers, and what a field of one reads as: check it against a record
 --- with [`Shape.record_of`], or cast it unchecked. `value` is what the
---- code names it; `wanted` the type expected of it, when the message
---- says. A primitive is narrowed with `is`. A capitalized name may be a
+--- code names it; `wanted` the type expected of it, when the error
+--- gives it. A primitive is narrowed with `is`. A capitalized name may be a
 --- record, or an enum or a function type, which `record_of` refuses, so
 --- the check is offered only for a record; a qualified one (`L.Month`)
 --- is named for `record_of` by the module `source` binds `L` to, which
@@ -1124,6 +1119,169 @@ local function nil_answer(who: string, value: string): string
     value .. " = assert(<the call>)`"
 end
 
+--- What a use is told when the narrowing of its place was dropped (see
+--- [`teal.replacement`]): what dropped it, and the copy to a local that
+--- keeps the check and the use together, past the call or write that
+--- would change the place.
+local function dropped_hint(e: compiler.Error): string | nil
+  local place, kind, by = e.dropped_place, e.dropped_kind, e.dropped_by
+  if place == nil or kind == nil or by == nil then
+    return nil
+  end
+  local where = tostring(e.dropped_y) .. ":" .. tostring(e.dropped_x)
+  local field = place:match("%.([%a_][%w_]*)$")
+  local copy = field ~= nil and "local " .. field .. " = " .. place or "local " .. place .. " = " .. place
+  local name = field or place
+  local cause: string
+  local before = "the call"
+  if kind == "call" then
+    cause = "the call `" .. by .. "` at " .. where .. " may change it"
+  elseif kind == "write" then
+    cause = "the write `" .. by .. "` at " .. where .. " may be to the same table"
+    before = "the write"
+  elseif kind == "operator" then
+    cause = "the operator `" .. by .. "` at " .. where .. " may run a metamethod that changes it"
+    before = "the operator"
+  elseif kind == "close" then
+    cause = "the `__close` of `" .. by .. "` at " .. where .. " runs at the end of its block and may change it"
+    before = "the block ends"
+  elseif kind == "function" then
+    -- The function literal is the place the check was made around, and
+    -- the place is read in its body.
+    cause = "the function at " .. where .. " runs later, when it may have changed"
+    before = "the function"
+  elseif kind == "binding" then
+    cause = "`" .. by:sub(9) .. "` declared at " .. where .. " may name another table than the one it was checked on"
+    before = "the new binding"
+  elseif kind == "loop" then
+    before = "the loop"
+    if by:sub(1, 8) == "binding " then
+      cause = "`" .. by:sub(9) .. "` declared at " .. where .. " in this loop dropped what was known, " ..
+        "so the loop cannot carry it to its next pass"
+    else
+      -- What the loop's own pass ran is told by how it is written.
+      local what = "the operator"
+      if e.dropped_via == "close" then
+        what = "the"
+      elseif by:sub(-5) == "(...)" then
+        what = "the call"
+      elseif by:sub(-6) == " = ..." then
+        what = by:sub(1, -7):find("[%.%[]") and "the write" or "the assignment"
+      end
+      local ran = e.dropped_via == "close" and "`__close` of `" .. by .. "`" or "`" .. by .. "`"
+      cause = what .. " " .. ran .. " at " .. where .. " in this loop may change it before the loop comes round again"
+    end
+  else
+    return "'" .. place .. "' was checked, then assigned at " .. where .. ": the checker narrows nothing after " ..
+      "an assignment, so keep the value in a local (`local " .. name .. " = <the value>`, " ..
+      place .. " = " .. name .. ") and use that"
+  end
+  local first = place:find(".", 1, true) == nil and kind ~= "function" and
+    "copy it into a local of its own after the check (`" .. copy .. "`, which no function assigns)" or
+    "copy it to a local before " .. before .. " (`" .. copy .. "`), check and use that"
+  return "'" .. place .. "' was checked, but " .. cause .. ": " .. first
+end
+
+--- What to do about a local read before every path to the read assigns it
+--- (the code `not_assigned`, [`compiler.Error`]): give it a value where it
+--- is declared, assign it on every path, or declare it `T | nil`, which is
+--- nil until assigned. The statement a path went by that skipped the
+--- assignment, and what may call a function that names the local before it
+--- is assigned, are told where they are.
+local function unassigned_hint(e: compiler.Error): string | nil
+  local name = e.variable
+  if name == nil then
+    return nil
+  end
+  local where = tostring(e.skipped_y) .. ":" .. tostring(e.skipped_x)
+  local skipped = e.skipped_kind
+  local path = ""
+  if skipped == "if" then
+    path = " (the `if` at " .. where .. " has no `else` that assigns it)"
+  elseif skipped == "branch" then
+    path = " (the branch at " .. where .. " does not assign it)"
+  elseif skipped == "loop" then
+    path = " (the loop at " .. where .. " may run no pass)"
+  elseif e.closure then
+    local ran = e.ran_kind
+    local at = tostring(e.ran_y) .. ":" .. tostring(e.ran_x)
+    local made = "the function made here names it, and "
+    if ran == "call" then
+      path = " (" .. made .. "the call at " .. at .. " may run it first: assign it before that call)"
+    elseif ran == "operator" then
+      path = " (" .. made .. "the operator at " .. at .. " may run it first: assign it before that operator)"
+    elseif ran == "close" then
+      path = " (" .. made .. "the `__close` that runs at " .. at .. " may run it first: assign it before that block ends)"
+    elseif ran == "iterator" then
+      path = " (" .. made .. "the iterator of the loop at " .. at .. " may run it first)"
+    elseif ran == "never" then
+      path = " (" .. made .. "the call at " .. at .. " never returns, and the function may be out by then)"
+    elseif ran == "return" then
+      path = " (" .. made .. "the return at " .. at .. " lets it out first)"
+    else
+      path = " (" .. made .. "the end of the scope lets it out first)"
+    end
+  end
+  return "'" .. name .. "' may be read before it is assigned" .. path ..
+    ": give it a value where it is declared (`local " .. name .. ": T = ...`), assign it on every path, " ..
+    "or declare it `local " .. name .. ": T | nil`, which is nil until assigned and is checked where it is used"
+end
+
+--- What to do about a function that assigns a local declared outside it
+--- (the code `captured_assigned`, [`compiler.Error`]): return the value,
+--- or keep it in a field of a table the function reads, which it may
+--- write: the rule is about the local, not the table.
+local function captured_hint(e: compiler.Error): string | nil
+  local name = e.variable
+  if name == nil then
+    return nil
+  end
+  -- A name of its own for the table, whatever the variable is called.
+  local table_name = name == "held" and "box" or "held"
+  return "'" .. name .. "' is declared at " .. tostring(e.declared_y) .. ":" .. tostring(e.declared_x) ..
+    ", outside this function, which may read it but not assign it: return the value from the function, " ..
+    "or keep it in a field of a table both read (`local " .. table_name .. " = { " .. name .. " = <the value> }`, then `" ..
+    table_name .. "." .. name .. " = ...` in the function)"
+end
+
+--- What to declare for a local with neither a type nor a value (the code
+--- `no_type`): its type, with `| nil` where it starts with no value.
+local function untyped_local_hint(e: compiler.Error): string | nil
+  local name = e.variable
+  if name == nil then
+    return nil
+  end
+  return "'" .. name .. "' has neither a type nor a value: declare `local " .. name ..
+    ": T | nil` for one that starts with no value, or give it a value where it is declared"
+end
+
+--- What to do about a `goto` that is not a continue, or a label no continue
+--- names (the code `goto_not_continue`, [`compiler.Error`]): a `goto` may
+--- only jump forward to the label that ends the body of the loop around
+--- it, so anything else is restructured with an `if`, or moved into a
+--- function that returns where the `goto` was.
+local function goto_hint(e: compiler.Error): string | nil
+  local name = e.variable
+  if name == nil then
+    return nil
+  end
+  if e.goto_y == nil then
+    return "the label '::" .. name .. "::' is not the end of a loop body that a goto in it continues to: " ..
+      "a label is only for `goto " .. name .. "` to skip the rest of a pass of the loop, so remove it and " ..
+      "restructure the jump with an `if`, or move the body into a function"
+  end
+  if e.local_y ~= nil then
+    return "'goto " .. name .. "' jumps over the local declared at " .. tostring(e.local_y) .. ":" ..
+      tostring(e.local_x) .. ", between the goto and the label: the `until` of a `repeat` sees it, and the " ..
+      "program is refused. Wrap the code after the goto in `do ... end` or an `if`, or move it into a function"
+  end
+  local at = e.label_y ~= nil and " (the label it names, at " .. tostring(e.label_y) .. ":" ..
+    tostring(e.label_x) .. ", is not)" or ""
+  return "'goto " .. name .. "' may only skip the rest of a pass of the loop around it, to a label that is the " ..
+    "last statement of that loop's body" .. at .. ": restructure with an `if` around the code to skip, " ..
+    "or move the body into a function and `return` from it"
+end
+
 --- The kind of type `source` declares as `name` at its top level
 --- (`local record Month`, `local type Month = ...`), nil when none does,
 --- as [`declarations_of`] reads it.
@@ -1137,8 +1295,8 @@ local not_records <const>: {string:boolean} = {
   boolean = true, thread = true, ["function"] = true, table = true,
 }
 
---- What to declare for `<close>` on a value whose type `closing` the
---- checker refused as non-closable: a record names a `__close` metamethod
+--- What to declare for `<close>` on a value whose type `closing` (as the
+--- checker shows it) the checker refused as non-closable: a record names a `__close` metamethod
 --- in its body and carries one in the metatable of each value. `closing`
 --- must be a name, and not one `source` declares as anything but a record
 --- (an enum, an alias); nil for any other type.
@@ -1160,131 +1318,120 @@ end
 --- The hint for `local x = fail()` where `fail` is declared `: never`: the
 --- checker refuses it as it does any call that answers nothing, but a
 --- never-function is no mistaken call to fix, it ends the block, so there
---- is no value for the variable. Nil for another message, a line that is
---- no such declaration, or a callee `source` does not declare `: never`
---- (the standard `error` and [`Proc.exit`] apart).
-local function never_value_hint(msg: string, source: string, y: integer): string | nil
-  -- TODO: hint a callee declared `: never` in another module
-  -- (`local x = Mod.fail()`): it waits on the checker's message for a call
-  -- that returns nothing saying the callee is a never-function (a
-  -- patch/tl record), as the hint reads only `source`.
-  if not msg:match("^assignment in declaration did not produce an initial value for variable ") then
+--- is no value for the variable. Nil for another error, and for a callee
+--- the checker did not find to be a never-function.
+local function never_value_hint(e: compiler.Error): string | nil
+  if e.code ~= "no_initial_value" or not e.callee_never or e.callee == nil then
     return nil
   end
-  local line = line_at(source, y)
-  local callee = line ~= nil and line:match("^%s*local%s+[%w_,%s]-=%s*([%a_][%w_%.:]*)%s*%(") or nil
-  if callee == nil then
-    return nil
-  end
-  local function escaped(text: string): string
-    return (text:gsub("%p", "%%%0"))
-  end
-  local never = false
-  if callee == "error" then
-    -- the standard one, unless the source binds a local of that name
-    never = source:find("local%s+function%s+error%f[^%w_]") == nil and
-      source:find("local%s+error%f[^%w_]") == nil
-  elseif callee == "Proc.exit" then
-    never = true
-  else
-    -- a declaration names the callee as written, `o.die` or `o:die`
-    -- alike; a bare name is only a bare name, and a field is declared
-    -- by its last segment.
-    local method = callee:gsub("%.([%w_]+)$", ":%1")
-    local plain = callee:gsub(":([%w_]+)$", ".%1")
-    local last = callee:match("[%.:]([%w_]+)$")
-    never = source:find("function%s+" .. escaped(plain) .. "%s*%b()%s*:%s*never%f[^%w_.<]") ~= nil or
-      source:find("function%s+" .. escaped(method) .. "%s*%b()%s*:%s*never%f[^%w_.<]") ~= nil or
-      (last ~= nil and
-        source:find("%f[%w_]" .. last .. "%s*:%s*function%s*%b()%s*:%s*never%f[^%w_.<]") ~= nil)
-  end
-  if not never then
-    return nil
-  end
-  return "`" .. callee .. "` never returns, so it has no value to assign: call it as a " ..
+  return "`" .. e.callee .. "` never returns, so it has no value to assign: call it as a " ..
     "statement, and the code after it is unreachable"
+end
+
+--- The places a value is wanted that [`wanted_value`] reads, besides an
+--- argument: the contexts the checker names with words alone.
+local value_contexts <const>: {string:boolean} = {
+  ["in local declaration"] = true, ["in global declaration"] = true,
+  ["in assignment"] = true, ["in table item"] = true,
+  ["in message handler"] = true, ["in return value"] = true,
+}
+
+--- Whether `e` is a value refused where it was wanted, with no words of
+--- the checker's between that place and the refusal: an argument, a
+--- declared variable, an assignment, a table item, a message handler or a
+--- returned value. A return list entry, a receiver, a field's type, a
+--- type parameter and the like are somewhere the hints say nothing of.
+local function wanted_value(e: compiler.Error): boolean
+  if e.code ~= "mismatch" or e.nested or e.context == nil then
+    return false
+  end
+  if e.context == "argument" then
+    return e.index ~= nil
+  end
+  if e.context_name ~= nil then
+    return e.context == "in local declaration"
+  end
+  return value_contexts[e.context] == true
 end
 
 --- The hint for a value the checker refused because it is `any` or may
 --- be nil (see [`teal.replacement`]), whose fix is a line every such
---- refusal shares: nil for any other message.
-local function narrowing_hint(msg: string, source: string): string | nil
-  local variable, seen = msg:match("^cannot index key '[^']*' in variable '([%a_][%w_]*)' of type (.+)$")
-  local who = variable ~= nil and "'" .. variable .. "'" or "the value"
-  local value = variable or "value"
-  if seen == nil then
-    seen = msg:match("^cannot index key '[^']*' in type (.+)$") or
-      msg:match("^cannot index object of type (.+) with %a+$")
-  end
-  if seen ~= nil then
-    if untyped(seen) then
+--- refusal shares: nil for any other error.
+local function narrowing_hint(e: compiler.Error, source: string): string | nil
+  local code = e.code
+  if code == "cannot_index_key" or code == "cannot_index_object" then
+    local variable = code == "cannot_index_key" and e.variable or nil
+    local who = variable ~= nil and "'" .. variable .. "'" or "the value"
+    local value = variable or "value"
+    if untyped(e.members) then
       return untyped_answer(who, value, source)
-    elseif one_or_nil(seen) then
+    elseif one_or_nil(e.members) then
       return nil_answer(who, value)
     end
     return nil
   end
-  local closed, closing = msg:match("^to%-be%-closed variable ([%a_][%w_]*) has a non%-closable type (.+)$")
-  if closed ~= nil then
-    if one_or_nil(closing) then
+  local closed = e.variable
+  if code == "not_closable" and closed ~= nil then
+    if one_or_nil(e.members) then
       return "the call may answer nil: `local " .. closed .. " <close> = assert(<the call>)` " ..
         "closes what it answers, and raises its error in place of the nil"
     end
-    return closable_hint(closing, source)
+    return closable_hint(e.subject or "", source)
   end
-  local iterated = msg:match("^attempting ipairs on something that's not an array: (.+)$")
-  local iterator = "ipairs"
-  if iterated == nil then
-    iterated, iterator = msg:match("^cannot apply pairs on values of type: (.+)$"), "pairs"
-  end
-  if iterated ~= nil then
-    if one_or_nil(iterated) then
+  if code == "not_array" or code == "pairs_of_non_table" then
+    if one_or_nil(e.members) then
       return "the table may be nil: check it first (`if t == nil then return nil, err end`) " ..
-        "or loop over `" .. iterator .. "(t or {})`"
+        "or loop over `" .. (code == "not_array" and "ipairs" or "pairs") .. "(t or {})`"
     end
     return nil
   end
-  local given, wanted = msg:match("^in local declaration: [%a_][%w_]*: got (.+), expected (.+)$")
-  if given == nil then
-    given, wanted = msg:match("^argument %d+: got (.+), expected (.+)$")
+  if wanted_value(e) then
+    local given, wanted = e.got_members or {}, e.expected_members or {}
+    if untyped(given) then
+      return untyped_answer("the value", "value", source, table.concat(wanted, " | "))
+    end
+    -- A value that may be nil is refused as an argument for any parameter
+    -- that does not take nil: the type expected is the
+    -- value's own, less the nil.
+    if one_or_nil(given) and #wanted == 1 and given[1] == wanted[1] then
+      return "the argument may be nil: check it first (`if value == nil then return nil, err end`); " ..
+        "where a call answers it, take it with `local value = assert(<the call>)`; " ..
+        "or, where a default fits, write `value = value or <default>`"
+    end
   end
-  if given == nil then
-    given, wanted = msg:match("^in [%a ]+: got (.+), expected (.+)$")
+  -- A module name for `require` that is nil or may be.
+  if code == "require_argument" then
+    if e.got == "nil" then
+      return "require takes a module name: pass a string"
+    elseif one_or_nil(e.got_members) then
+      return nil_answer("the name", "name")
+    end
   end
-  -- A value that may be nil is refused as an argument of `table.insert`
-  -- and `table.concat` alone (patch/tl 51f), where the type expected is
-  -- the value's own, less the nil; other calls answer only `any`.
-  if given ~= nil and wanted ~= nil and untyped(given) then
-    local expected = type_members(wanted)
-    return untyped_answer("the value", "value", source,
-      #expected == 1 and expected[1] or table.concat(expected, " | "))
+  -- A literal nil for a parameter that takes none.
+  if wanted_value(e) and e.context == "argument" and e.got == "nil" then
+    return "the parameter takes no nil: pass a value, or, where the callee handles nil, " ..
+      "declare the parameter `name?: T` or `T | nil`"
   end
-  if given ~= nil and wanted ~= nil and one_or_nil(given) and type_members(given)[1] == wanted then
-    return nil_answer("the argument", "value")
-  end
-  -- A numeric `for` bound that may be nil (patch/tl 51c).
-  local bound = msg:match("^cannot use (.+) as the 'for' %a+$")
-  if bound ~= nil and one_or_nil(bound) then
+  -- A numeric `for` bound that may be nil.
+  if code == "for_bound" and one_or_nil(e.members) then
     return nil_answer("the bound", "value")
   end
-  -- A unary operator's operand that may be nil (patch/tl 51b).
-  local operand = msg:match("^cannot use operator '.-' on type (.+)$")
-  if operand ~= nil and one_or_nil(operand) then
+  -- A unary operator's operand that may be nil.
+  if code == "operator_unary" and one_or_nil(e.members) then
     return nil_answer("the operand", "value")
   end
-  -- The first " and " parts the operands: only a string literal's type
-  -- (`string "a and b"`) holds one, and parting there at worst says
-  -- nothing of a union it misses.
-  local left, right = msg:match("^cannot use operator '.-' for types (.-) and (.+)$")
-  if left ~= nil and one_or_nil(left) then
-    return nil_answer("the left operand", "value")
-  end
-  if right ~= nil and one_or_nil(right) then
-    return nil_answer("the right operand", "value")
-  end
-  if left ~= nil and (#type_members(left) > 1 or #type_members(right) > 1) then
-    return "an operand is a union: narrow it first, as `if v is string then ... end` " ..
-      "or `type(v) == \"string\"` does"
+  if code == "operator_binary" then
+    local left, right = e.left_members or {}, e.right_members or {}
+    if one_or_nil(left) then
+      return nil_answer("the left operand", "value")
+    end
+    if one_or_nil(right) then
+      return nil_answer("the right operand", "value")
+    end
+    if #left > 1 or #right > 1 then
+      return "an operand is a union: narrow it first, as `if v is string then ... end` " ..
+        "or `type(v) == \"string\"` does"
+    end
   end
   return nil
 end
@@ -1295,12 +1442,8 @@ local function type_require_at(source: string, y: integer, x: integer): TypeRequ
   return declarations_of(source).typed[y .. ":" .. x]
 end
 
---- The checker's refusal of a `local type` require of a module that
---- returns no type.
-local not_a_type <const> = "^'require' did not return a type, got "
-
 --- The names `source` binds by a `local type` require the checker
---- refused in `result` ("'require' did not return a type"), for
+--- refused in `result` (a `require_not_type` error), for
 --- [`teal.replacement`]'s `refused`: the module returns a value, so no
 --- type is reached through the name, and a hint that blames a type it
 --- names would mislead. Only the errors of `file` itself count.
@@ -1309,7 +1452,7 @@ function teal.refused_type_requires(file: string, source: string,
   local refused: {string:boolean} = {}
   for _, e in ipairs(result.type_errors or {}) do
     if (e.filename == nil or e.filename == "" or e.filename == file) and
-        e.msg:match(not_a_type) ~= nil then
+        e.code == "require_not_type" then
       local bound = type_require_at(source, e.y, e.x)
       if bound ~= nil then
         refused[bound.name] = true
@@ -1320,23 +1463,23 @@ function teal.refused_type_requires(file: string, source: string,
 end
 
 --- What the refused `local type` require `bound`, on line `y` of
---- `source`, must change; `msg` is the refusal. In a template's module
+--- `source`, must change; `e` is the refusal. In a template's module
 --- (`file` a `.tmpl`) it is the record's module its `{{type}}` names,
 --- whose type the declaration of `render` on that line gives. Elsewhere,
 --- a module that returns a value of a record (`got record Ledger`) may be
 --- required as a value instead, since the value's type holds the
 --- record's types; a function or a map of the record holds none.
-local function type_require_hint(msg: string, file: string, source: string, y: integer,
+local function type_require_hint(e: compiler.Error, file: string, source: string,
                                  bound: TypeRequire): string
   local name, module = bound.name, bound.module
   local return_type = "as `local record M ... end return M` or a `.d.tl` does"
   if file:match("%.tmpl$") ~= nil then
-    local record_type = (line_at(source, y) or ""):match(
+    local record_type = (line_at(source, e.y) or ""):match(
       "local function render%([%a_][%w_]*: " .. name .. "%.([%a_][%w_]*)%)") or "..."
     return module .. ", which {{type " .. record_type .. " from " .. module ..
       "}} names, must return its record type, " .. return_type .. ", not a value"
   end
-  if msg:match(not_a_type .. "record ") ~= nil then
+  if e.got_kind == "record" then
     return module .. " returns a value of its record, not the record type: a `local type` " ..
       "require needs the type, " .. return_type .. "; or require it as a value"
   end
@@ -1372,8 +1515,7 @@ local function nesting_hint(source: string, owner: string, member: string,
   end
   -- TODO: name the members the module's record does declare, as a
   -- missing field is told them: it waits on the checker giving this
-  -- error the required record's types, as patch/tl/33a gives a missing
-  -- key's fields.
+  -- error the required record's types, as it gives a missing key's fields.
   return owner .. " has no type " .. member .. ": check its spelling, or declare `record " ..
     member .. " ... end` inside the record " .. module .. " returns (a `local record " ..
     member .. "` beside that record is its file's alone)"
@@ -1385,7 +1527,7 @@ local record Catalog
   names: {string:string}
   members: {string:string}
   arguments: {string:string}
-  message: function(name: string, field: string): string
+  message: function(name: string, field?: string): string
 end
 
 --- The module [`replacement`] quotes, named by a constant rather than
@@ -1410,7 +1552,7 @@ local function catalog(): Catalog | nil
   local names, members, arguments, message = loaded.names, loaded.members, loaded.arguments, loaded.message
   local replacements = loaded.replacements
   if names is {string:string} and members is {string:string} and arguments is {string:string} and
-      replacements is {string:string} and message is function(string, string): string then
+      replacements is {string:string} and message is function(name: string, field?: string): string then
     return {
       names = names, members = members, arguments = arguments,
       replacements = replacements, message = message,
@@ -1554,30 +1696,19 @@ local record MissingKey
   owner: string
 end
 
---- What [`MissingKey`] the checker's refusal `msg` names: `invalid key
---- 'type' in record 'st' of type sys.Stat`, the same `in 'st' of
---- interface type ...`, or `in type ...` for an expression that is no
---- variable. A record described rather than named (`of type record
---- Module`, cosmic.cli's) is named by the variable, or, with none, as
---- "the record".
-local function missing_key(msg: string): MissingKey | nil
-  local key, variable, owner = msg:match("^invalid key '(.-)' in record '([%a_][%w_]*)' of type (.+)$")
-  if key == nil then
-    key, variable, owner = msg:match("^invalid key '(.-)' in '([%a_][%w_]*)' of interface type (.+)$")
-  end
-  if key == nil then
-    key, owner = msg:match("^invalid key '(.-)' in type (.+)$")
-  end
-  if key == nil then
+--- What [`MissingKey`] the checker's refusal `e` names: a key refused by
+--- a record through a variable, an interface, or an expression that is no
+--- variable. A record described rather than named (cosmic.cli's `record
+--- Module`) is named by the variable, or, with none, as "the record".
+local function missing_key(e: compiler.Error): MissingKey | nil
+  if e.code ~= "invalid_key" or e.key == nil or e.subject == nil then
     return nil
   end
-  -- A type the checker inferred carries where (`string "x" (inferred
-  -- at :2:9)`); the type is the name.
-  owner = owner:gsub(" %(inferred at [^)]*%)$", "")
-  if owner:match("^record ") then
-    owner = variable or "the record"
+  local owner = e.subject
+  if e.subject_kind == "record" then
+    owner = e.variable or "the record"
   end
-  return { key = key, owner = owner }
+  return { key = e.key, owner = owner }
 end
 
 --- Whether `before`, the text of a line up to a `...`, ends inside a
@@ -1654,18 +1785,17 @@ local function vararg_name_hint(source: string, y: integer, x: integer): string 
 end
 
 --- What to write for an interface method declared with an unnamed
---- receiver, when `msg` is a record's `function Rec:m` refused against it
---- (`type signature of 'm' does not match its declaration in Rec: argument
---- 0: Rec is not a Iface`): the unnamed `m: function(Iface, ...)` takes
---- the interface itself, which a method of the record taking the record is
---- no substitute for; `m: function(self: Iface, ...)` takes whatever
---- implements it. nil for any other message, and for one whose argument 0
---- is not the record named in it.
-local function interface_self_hint(msg: string): string | nil
-  local method, record, given, interface = msg:match(
-    "^type signature of '([%a_][%w_]*)' does not match its declaration in " ..
-      "([%a_][%w_%.]*): argument 0: ([%a_][%w_%.]*) is not an? ([%a_][%w_%.]*)$")
-  if method == nil or record ~= given then
+--- receiver, when `e` is a record's `function Rec:m` refused against it
+--- (`Rec` for an `Iface` at argument 0): the unnamed `m: function(Iface,
+--- ...)` takes the interface itself, which a method of the record taking
+--- the record is no substitute for; `m: function(self: Iface, ...)` takes
+--- whatever implements it. nil for any other error, and for one whose
+--- argument 0 is not the record that declares the method.
+local function interface_self_hint(e: compiler.Error): string | nil
+  local method, record, given, interface = e.signature_of, e.declared_in, e.got, e.expected
+  if e.code ~= "not_a" or e.context ~= "argument" or e.index ~= 0 or method == nil or
+      record == nil or record ~= given or interface == nil or
+      record:match("^[%a_][%w_%.]*$") == nil or interface:match("^[%a_][%w_%.]*$") == nil then
     return nil
   end
   return "if " .. interface .. " declares `" .. method .. "` with an unnamed receiver, that is " ..
@@ -1674,14 +1804,16 @@ local function interface_self_hint(msg: string): string | nil
     "`function " .. record .. ":" .. method .. "` is checked with its own type as self"
 end
 
---- What to try for a call refused on a type parameter (`argument 2: type
---- parameter <T>: got R, expected R | nil`, `... R is not a I`): where the
---- call's result is expected to have a type, the checker may have bound the
---- parameter to it before the arguments, and patch/tl/40 could not bind it
---- from them instead. The hint says so conditionally, since the arguments
---- may simply disagree. nil for any other message.
-local function type_parameter_hint(msg: string): string | nil
-  if msg:match("^argument %d+: type parameter <[%w_]+>: ") == nil then
+--- What to try for a call refused on a type parameter (an argument
+--- refused for its type parameter `<T>`, `R` for an `R | nil` or `R` for
+--- an `I`): where the call's result is expected to have a type, the
+--- checker may have bound the parameter to it before the arguments, and a
+--- second attempt with the arguments first could not bind it from them
+--- instead. The hint says so conditionally, since the arguments may simply
+--- disagree. nil for any other error.
+local function type_parameter_hint(e: compiler.Error): string | nil
+  if e.context ~= "argument" or e.index == nil or e.type_parameter == nil or
+      e.type_parameter:match("^[%w_]+$") == nil then
     return nil
   end
   return "if this call's result is expected to have a type (a return type or a declaration), " ..
@@ -1694,12 +1826,14 @@ end
 --- arguments at the `function` line `y` of `source`: Teal has no
 --- `function Rec<K, V>:m`, so the method is a function of `Rec` taking
 --- `self` explicitly, the type arguments on its own name. nil for any
---- other message, and for a line that does not declare a method of that
+--- other error, and for a line that does not declare a method of that
 --- record.
-local function method_type_arguments_hint(msg: string, source: string, y: integer): string | nil
-  local arguments, name = msg:match("^missing type arguments in record<(.-)> ([%a_][%w_]*)$")
-  local line = arguments ~= nil and line_at(source, y) or nil
-  if line == nil then
+local function method_type_arguments_hint(e: compiler.Error, source: string): string | nil
+  local name = e.names ~= nil and e.names[1] or nil
+  local arguments = e.type_arguments ~= nil and table.concat(e.type_arguments, ", ") or nil
+  local line = e.code == "missing_type_arguments" and e.subject_kind == "record" and name ~= nil and
+    arguments ~= nil and line_at(source, e.y) or nil
+  if line == nil or name:match("^[%a_][%w_]*$") == nil then
     return nil
   end
   local owner, method = line:match("^%s*function%s+([%a_][%w_%.]*):([%a_][%w_]*)%s*[%(<]")
@@ -1746,24 +1880,25 @@ local call_type_arguments_answer <const> =
   "(`local g: function(string): string = f`)"
 
 --- What to write for type arguments given at a call (`f<string>("a")`),
---- when `msg` is the checker refusing `<` for a generic function and a
---- type at `y`:`x` of `source`, which reads the line as a comparison; or
---- the type argument itself read as a variable (`f<integer>(1)`,
---- `unknown variable: integer`), with a callable name and `<` before it
---- and `>(` after. nil for any other message, and where the line has no
+--- when `e` is the checker refusing `<` for a generic function and a
+--- type, at the position of `source` that reads the line as a comparison;
+--- or the type argument itself read as a variable (`f<integer>(1)`, an
+--- unknown variable `integer`), with a callable name and `<` before it
+--- and `>(` after. nil for any other error, and where the line has no
 --- `>(` after the `<`.
-local function call_type_arguments_hint(msg: string, source: string, y: integer, x: integer): string | nil
-  local line = line_at(source, y)
+local function call_type_arguments_hint(e: compiler.Error, source: string): string | nil
+  local line = line_at(source, e.y)
+  local x = e.x
   if line == nil then
     return nil
   end
-  if msg:match("^cannot use operator '<' for types function<.- and ") ~= nil then
+  if e.code == "operator_binary" and e.operator == "<" and e.left_is_generic_function then
     if line:sub(x, x) == "<" and line:sub(x):match("^<.->%s*%(") ~= nil then
       return call_type_arguments_answer
     end
     return nil
   end
-  local name = msg:match("^unknown variable: ([%a_][%w_]*)$")
+  local name = e.code == "unknown_variable" and e.variable or nil
   if name ~= nil and line:sub(x, x + #name - 1) == name and
       line:sub(1, x - 1):match("[%a_][%w_%.:]*<%s*$") ~= nil and
       line:sub(x + #name):match("^[%w_%s,%.]*>%s*%(") ~= nil then
@@ -1801,14 +1936,16 @@ end
 --- of type Store`) when `source` defines it below the use: the checker
 --- reads a file top to bottom, so a method is known only from its
 --- declaration on. The declaration offered is a template, to be given the
---- definition's own parameters. nil for any other message, and a key not
+--- definition's own parameters. nil for any other error, and a key not
 --- defined below.
-local function later_method_hint(msg: string, source: string, y: integer): string | nil
-  local key, owner = msg:match("^invalid key '([%a_][%w_]*)' in record '[%a_][%w_]*' of type ([%a_][%w_%.]*)$")
-  if key == nil then
+local function later_method_hint(e: compiler.Error, source: string): string | nil
+  local key, owner = e.key, e.subject
+  if e.code ~= "invalid_key" or e.variable == nil or e.resolved_kind ~= "record" or
+      key == nil or owner == nil or key:match("^[%a_][%w_]*$") == nil or
+      owner:match("^[%a_][%w_%.]*$") == nil then
     return nil
   end
-  local below = defined_below(source, y, owner, key)
+  local below = defined_below(source, e.y, owner, key)
   if below == nil then
     return nil
   end
@@ -1820,11 +1957,13 @@ local function later_method_hint(msg: string, source: string, y: integer): strin
     "parameters, and keep the definition where it is"
 end
 
---- What to write instead, when `msg` is the checker refusing a name
+--- What to write instead, when `e` is the checker refusing a name
 --- [`environment_for`] stripped or a member [`cosmic.removed`] lists; nil
---- for any other message, and for those where the catalog cannot be
---- loaded (`catalog_module`). `y` and `x` are the line and column in
---- `source` where the checker reported it.
+--- for any other error, and for those where the catalog cannot be
+--- loaded (`catalog_module`). `e` is read by its `code` and the fields
+--- the checker sets for it ([`compiler.ErrorCode`]), never by its message;
+--- `source` is the file it was reported in, at `e.y` and `e.x`, and
+--- `file` its name.
 ---
 --- `unknown variable: os` is read together with the field that follows
 --- it there (`os.getenv` names [`Env.get`]); `module not found: 'io'`
@@ -1911,9 +2050,30 @@ end
 --- `unknown type Kv.Kv` whose `Kv` `source` binds to a `require` that
 --- `Kv` itself is the module's record type, unless `refused` holds `Kv`.
 ---
---- `local x = fail()` where `source` declares `fail` `: never` is told
---- that `fail` never returns, so it has no value to assign
---- ([`never_value_hint`]).
+--- A use refused because the narrowing it relied on was dropped (the code
+--- `narrowing_dropped`) is told what dropped it and the copy to a local that
+--- keeps the check with the use ([`dropped_hint`]).
+---
+--- A local read where a path from its declaration has not assigned it (the
+--- code `not_assigned`) is told to give it a value, assign it on every path
+--- or declare it `T | nil` ([`unassigned_hint`]), and a local declared with
+--- neither a type nor a value (`no_type`) to declare `T | nil`
+--- ([`untyped_local_hint`]).
+---
+--- A function literal that assigns a local declared outside it (the code
+--- `captured_assigned`) is told to return the value or keep it in a field
+--- of a table ([`captured_hint`]).
+---
+--- A `goto` that is not a continue, and a label no continue names, are told to
+--- restructure with an `if` or move the body into a function ([`goto_hint`]).
+---
+--- `local x = fail()` where `fail` is declared `: never` is told that
+--- `fail` never returns, so it has no value to assign
+--- ([`never_value_hint`]), whichever module declares it.
+---
+--- A field a table literal names that its record lacks (`in local
+--- declaration: r: unknown field alpah`) is told the record's fields like a
+--- missing key ([`field_hint`]).
 ---
 --- A `local type Ledger = require("ledger")` refused because the module
 --- returns a value (`'require' did not return a type, got record
@@ -1926,84 +2086,108 @@ end
 --- such a refusal is told nothing where `refused`
 --- ([`teal.refused_type_requires`]) holds `Ledger`, since no type is
 --- reached through it.
-function teal.replacement(msg: string, source: string, y: integer, x: integer,
-                          fields?: {string}, file?: string,
+function teal.replacement(e: compiler.Error, source: string, file?: string,
                           refused?: {string:boolean}): string | nil
-  if msg:match(not_a_type) ~= nil then
+  local code = e.code
+  local y, x = e.y, e.x
+  if code == "require_not_type" then
     local bound = type_require_at(source, y, x)
-    return bound ~= nil and type_require_hint(msg, file or "", source, y, bound) or nil
+    return bound ~= nil and type_require_hint(e, file or "", source, bound) or nil
   end
-  if msg:match("got number, expected integer$") or
-      msg:match("got number, expected integer | nil$") or
-      msg:match("got number %(inferred at [^)]*%), expected integer$") then
+  if code == "narrowing_dropped" then
+    return dropped_hint(e)
+  end
+  if code == "not_assigned" then
+    return unassigned_hint(e)
+  end
+  if code == "no_type" then
+    return untyped_local_hint(e)
+  end
+  if code == "captured_assigned" then
+    return captured_hint(e)
+  end
+  if code == "goto_not_continue" then
+    return goto_hint(e)
+  end
+  if code == "mismatch" and e.got_members ~= nil and #e.got_members == 1 and
+      e.got_members[1] == "number" and
+      (e.expected == "integer" or e.expected == "integer | nil") then
     -- TODO: hint a table field too (`local t = {n = 0}; t.n = t.n + 0.5`,
     -- `t.n` an "op" node here): it waits on the checker's inferred type of
     -- a record field being readable from the AST; the parser alone does
     -- not give it.
-    local inferred = msg == "in assignment: got number, expected integer" and
-      integer_hint(source, y, x) or nil
+    local inferred = e.context == "in assignment" and e.context_name == nil and not e.nested and
+      e.got == "number" and e.expected == "integer" and integer_hint(source, y, x) or nil
     return inferred or integer_conversion
   end
-  if msg == "syntax error, expected one of: ')', ','" then
+  if code == "expected_one_of" and e.expected_tokens ~= nil and #e.expected_tokens == 2 and
+      e.expected_tokens[1] == ")" and e.expected_tokens[2] == "," then
     return vararg_name_hint(source, y, x)
   end
-  if msg == "unknown type never" then
+  -- A type name the checker shows as written, with no type arguments or
+  -- place it was inferred at.
+  local names = code == "unknown_type" and e.names ~= nil and e.subject == table.concat(e.names, ".") and
+    e.names or nil
+  if names ~= nil and #names == 1 and names[1] == "never" then
     return "`never` is no type: `: never` is the whole return list of a function that does not " ..
       "return, so `function(): never | nil` is a function returning `never | nil`. " ..
       "To allow nil, name the function type, `local type Fail = function(): never`, " ..
       "and write `Fail | nil`"
   end
-  if msg == "expected a type list" then
+  if code == "type_list_expected" then
     return string_type_hint(source, y, x)
   end
-  local never_value = never_value_hint(msg, source, y)
+  local never_value = never_value_hint(e)
   if never_value ~= nil then
     return never_value
   end
-  local call_typed = call_type_arguments_hint(msg, source, y, x) or
-    method_type_arguments_hint(msg, source, y)
+  local call_typed = call_type_arguments_hint(e, source) or method_type_arguments_hint(e, source)
   if call_typed ~= nil then
     return call_typed
   end
-  local self_hint = interface_self_hint(msg) or type_parameter_hint(msg)
+  local self_hint = interface_self_hint(e) or type_parameter_hint(e)
   if self_hint ~= nil then
     return self_hint
   end
-  local passed, takes = msg:match("^wrong number of arguments %(given (%d+), expects (%d+)%)$")
-  local short = passed ~= nil and math.tointeger(tonumber(passed)) or nil
-  local count = takes ~= nil and math.tointeger(tonumber(takes)) or nil
-  if short ~= nil and count ~= nil and short < count then
+  local short, count = e.given, e.expects
+  if code == "arity" and short ~= nil and count ~= nil and short < count then
     return arity_hint(source, y, x, short, count)
   end
-  local shadowed = msg:match("^%a+ shadows previous declaration of '([%a_][%w_]*)'$")
+  local shadowed = code == "shadows" and not e.declared_before and e.variable or nil
   if shadowed ~= nil and standard_globals[shadowed] then
     return "this hides the standard library's " .. shadowed .. " for the rest of its scope: rename it"
   end
-  local hidden, seen = msg:match("^invalid key '[^']*' in record '([%a_][%w_]*)' of type (.+)$")
-  if hidden == nil then
-    hidden, seen = msg:match("^cannot index key '[^']*' in variable '([%a_][%w_]*)' of type (.+)$")
-  end
-  if hidden ~= nil and standard_libraries[hidden] and seen ~= hidden then
+  -- A local that hides a standard library, the key refused of it a key the
+  -- library has: the record is told by a variable, not an interface.
+  local hidden = (code == "invalid_key" and e.resolved_kind ~= "interface" or
+    code == "cannot_index_key") and e.variable or nil
+  if hidden ~= nil and standard_libraries[hidden] and e.subject ~= hidden then
     return "'" .. hidden .. "' here is a local that hides the standard library's " ..
       hidden .. ": rename it"
   end
-  local narrowed = narrowing_hint(msg, source)
+  local narrowed = narrowing_hint(e, source)
   if narrowed ~= nil then
     return narrowed
   end
-  local same = same_named(msg)
+  local same = same_named(e)
   if same ~= nil then
     return same
   end
-  local outer, inner = msg:match("^unknown type ([%a_][%w_]*)%.([%a_][%w_]*)$")
+  local outer, inner = names ~= nil and #names == 2 and names[1] or nil, names ~= nil and names[2] or nil
   if outer ~= nil and outer == inner and module_bound(source, outer) ~= nil and
       not (refused or {})[outer] then
     return outer .. " is itself the type of the record its module returns: write " ..
       outer .. ", not " .. outer .. "." .. inner
   end
-  local given, owner, option = msg:match(
-    "^argument %d+: got (%a+), expected ([%a_][%w_]*)%.([%a_][%w_]*)$")
-  if given == "boolean" and owner ~= nil and option ~= nil then
+  local owner: string | nil = nil
+  local option: string | nil = nil
+  local expected_names = e.expected_names
+  if wanted_value(e) and e.context == "argument" and e.got == "boolean" and
+      expected_names ~= nil and #expected_names == 2 and
+      table.concat(expected_names, ".") == e.expected then
+    owner, option = expected_names[1], expected_names[2]
+  end
+  if owner ~= nil and option ~= nil then
     local module = module_bound(source, owner)
     local removed = module ~= nil and catalog() or nil
     local instead = module ~= nil and removed ~= nil and removed.arguments[module .. "." .. option] or nil
@@ -2012,31 +2196,39 @@ function teal.replacement(msg: string, source: string, y: integer, x: integer,
     end
     return nil
   end
-  local key, alias, typename = msg:match(
-    "^invalid key '([%a_][%w_]*)' in record '([%a_][%w_]*)' of type ([%a_][%w_]*)$")
-  if key ~= nil and alias == "package" and typename == "package" then
-    -- tl's `package` has no field the runtime removed ([`strip`]), and
-    -- the catalog says what to write for each.
-    local removed = catalog()
-    if removed ~= nil and removed.replacements["package." .. key] ~= nil then
-      return removed.message("package", key)
+  -- A member a module removed, told by the record's name, the variable a
+  -- record is read through or the type a name is qualified by.
+  local key: string | nil = nil
+  local alias: string | nil = nil
+  local typename: string | nil = nil
+  local wrote, read_through, subject = e.key, e.variable, e.subject
+  if code == "invalid_key" and read_through ~= nil and e.resolved_kind ~= "interface" and
+      wrote ~= nil and wrote:match("^[%a_][%w_]*$") ~= nil and subject ~= nil then
+    if subject:match("^[%a_][%w_]*$") ~= nil then
+      key, alias, typename = wrote, read_through, subject
+      if alias == "package" and typename == "package" then
+        -- tl's `package` has no field the runtime removed ([`strip`]), and
+        -- the catalog says what to write for each.
+        local removed = catalog()
+        if removed ~= nil and removed.replacements["package." .. key] ~= nil then
+          return removed.message("package", key)
+        end
+      end
+    elseif subject:match("^record [%a_][%w_]*$") ~= nil then
+      -- A module whose record is a local of its own (cosmic.cli's) is
+      -- named by its description, `record Module`, not by the alias; the
+      -- alias is then what the `require` was bound to.
+      key, alias = wrote, read_through
+      typename = alias
     end
   end
-  if key == nil then
-    -- A module whose record is a local of its own (cosmic.cli's) is
-    -- named by its description, `record Module`, not by the alias; the
-    -- alias is then what the `require` was bound to.
-    key, alias = msg:match(
-      "^invalid key '([%a_][%w_]*)' in record '([%a_][%w_]*)' of type record [%a_][%w_]*$")
-    typename = alias
-  end
-  if key == nil then
+  if key == nil and names ~= nil and #names == 2 and names[2]:match("^%u[%w_]*$") ~= nil then
     -- A type's name is capitalized, so only a member spelled as one is
     -- offered for it: a removed function is never a type's answer.
-    typename, key = msg:match("^unknown type ([%a_][%w_]*)%.(%u[%w_]*)$")
+    typename, key = names[1], names[2]
     alias = typename
   end
-  if key ~= nil then
+  if key ~= nil and typename ~= nil and alias ~= nil then
     local module = module_bound(source, typename)
     local removed = module ~= nil and catalog() or nil
     local instead = module ~= nil and removed ~= nil and removed.members[module .. "." .. key] or nil
@@ -2044,50 +2236,51 @@ function teal.replacement(msg: string, source: string, y: integer, x: integer,
       return alias .. "." .. key .. " was removed: " .. instead
     end
   end
-  local holder, held = msg:match("^unknown type ([%a_][%w_]*)%.([%a_][%w_]*)$")
-  if holder ~= nil then
-    local nested = nesting_hint(source, holder, held, refused or {})
+  if names ~= nil and #names == 2 then
+    local nested = nesting_hint(source, names[1], names[2], refused or {})
     if nested ~= nil then
       return nested
     end
   end
-  -- TODO: hint a field a table literal names that its record lacks
-  -- (`in local declaration: r: unknown field alpah`) the same way: it
-  -- waits on a patch/tl record giving that error the record's fields too.
   -- TODO: hint a key a union's records lack (`cannot index key 'type'
-  -- in type A | B`): the checker gives fields only for a single record
-  -- (patch/tl/33d); the fix is fields for each record member. One
+  -- in type A | B`): the checker gives fields only for a single record;
+  -- the fix is fields for each record member. One
   -- record or nil is told to check for nil ([`narrowing_hint`]) even
   -- where the record lacks the key too, which its fields would tell.
-  local later = later_method_hint(msg, source, y)
+  local later = later_method_hint(e, source)
   if later ~= nil then
     return later
   end
-  local missing = missing_key(msg)
-  if missing ~= nil and fields ~= nil then
-    return field_hint(missing.key, missing.owner, fields)
+  local missing = missing_key(e)
+  if missing ~= nil and e.fields ~= nil then
+    return field_hint(missing.key, missing.owner, e.fields)
+  end
+  if code == "unknown_field" and e.key ~= nil and e.fields ~= nil then
+    return field_hint(e.key, e.subject or "the record", e.fields)
   end
   if key ~= nil then
     return nil
   end
-  local name = msg:match("^unknown variable: ([%a_][%w_]*)$")
+  local name: string | nil = nil
   local field: string | nil = nil
-  if name ~= nil then
+  if code == "unknown_variable" and e.variable ~= nil then
+    name = e.variable
     local line = line_at(source, y)
     if line ~= nil and line:sub(x, x + #name - 1) == name then
       field = line:sub(x + #name):match("^%s*[%.:]%s*([%a_][%w_]*)")
     end
-  else
-    name = msg:match("^module not found: '(.-)'$")
+  elseif code == "module_not_found" then
+    name = e.key
   end
   if name == nil then
     return nil
   end
+  local wanted: string = name
   local removed = catalog()
-  if removed == nil or removed.names[name] == nil then
+  if removed == nil or removed.names[wanted] == nil then
     return nil
   end
-  return removed.message(name, field)
+  return removed.message(wanted, field)
 end
 
 return teal

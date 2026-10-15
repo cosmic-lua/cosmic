@@ -47,12 +47,18 @@ static int run_bridge (lua_State *L, const char *root) {
   return 0;
 }
 
-/* Loads the vendored compiler under the environment the bridge built,
- * then has it compile the compiler's patched Teal source (the bridge's
- * `bootstrap`): leaves that compiler, and the Lua it was compiled to,
- * on the stack. */
-static int run_compiler (lua_State *L, const char *tl_dir, int bridge) {
+/* Loads the vendored compiler (`tl_dir`/tl.lua) under the environment the
+ * bridge built, then has it compile the tree's own checker, `root`/
+ * checker/tl.tl (the bridge's `bootstrap`, which is told where tl.lua is
+ * too, to key what it keeps): leaves that checker, and the Lua it was
+ * compiled to, on the stack. */
+static int run_compiler (lua_State *L, const char *root, const char *tl_dir,
+                         int bridge) {
   char path[4096];
+  char source[4096];
+  if (!join_path(source, sizeof source, root, "checker/tl.tl")) {
+    return 1;
+  }
   if (!join_path(path, sizeof path, tl_dir, "tl.lua")) {
     return 1;
   }
@@ -69,8 +75,9 @@ static int run_compiler (lua_State *L, const char *tl_dir, int bridge) {
   }
   lua_getfield(L, bridge, "bootstrap");
   lua_insert(L, -2);
+  lua_pushstring(L, source);
   lua_pushstring(L, tl_dir);
-  if (lua_pcall(L, 2, 2, 0) != LUA_OK) {
+  if (lua_pcall(L, 3, 2, 0) != LUA_OK) {
     return report(L, "the compiler would not compile itself");
   }
   return 0;
@@ -187,7 +194,7 @@ int cosmic_boot (lua_State *L, const char *root, const char *tl_dir, int argc,
   }
   int bridge = lua_gettop(L);
 
-  if (run_compiler(L, tl_dir, bridge) != 0) {
+  if (run_compiler(L, root, tl_dir, bridge) != 0) {
     return 1;
   }
   int source = lua_gettop(L);

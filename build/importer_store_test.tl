@@ -34,10 +34,7 @@ local function build_dir(root: string): string
   return (assert(build_paths.prepare(root)))
 end
 
-local built, load_trouble = teal.load()
-if built == nil then
-  error("could not load the compiler: " .. tostring(load_trouble))
-end
+local built = assert(teal.load())
 
 --- Writes every entry of `files` (filename -> source) into a fresh
 --- project directory of its own, named after `case`.
@@ -105,13 +102,13 @@ local function test_project_keeps_uses_of_bundled_symbols()
   local rows = assert(Sqlite.text_rows(shipped,
     "SELECT module, symbol, from_module, line FROM uses ORDER BY module, symbol"))
   assert(#rows == 1, tostring(#rows))
-  assert(rows[1][1] == "cosmic.fs" and rows[1][2] == "exists")
-  assert(rows[1][3] == "main" and rows[1][4] == "6")
+  assert(rows[1]:text(1) == "cosmic.fs" and rows[1]:text(2) == "exists")
+  assert(rows[1]:text(3) == "main" and rows[1]:text(4) == "6")
   local guidance = assert(Sqlite.text_rows(shipped,
     "SELECT coalesce(c.text, (SELECT d.text FROM docs d " ..
       "WHERE d.module = c.module AND d.source_symbol = c.symbol)) " ..
       "FROM catalog c WHERE c.module = 'main' AND c.symbol = 'Main.check'"))
-  assert(#guidance == 1 and guidance[1][1] == "Checks whether a path exists.")
+  assert(#guidance == 1 and guidance[1]:text(1) == "Checks whether a path exists.")
   local databases: {Sqlite.Handle} = { shipped }
   for _, database in ipairs(Store.databases()) do
     databases[#databases + 1] = database
@@ -304,7 +301,7 @@ local function test_a_closure_leaves_out_the_names_only_a_declaration_requires()
     reached[name] = true
   end
   for _, row in ipairs(only) do
-    assert(not reached[row[1]], row[1] .. " is in a closure of modules it is no import of")
+    assert(not reached[row:text(1)], row:text(1) .. " is in a closure of modules it is no import of")
   end
 end
 
@@ -318,7 +315,7 @@ local function test_stored_edges_equal_the_parsed_ones()
       "UNION SELECT path FROM decls WHERE path LIKE 'cosmic.%' ORDER BY path"))
   assert(#paths > 0)
   for _, row in ipairs(paths) do
-    local name = row[1]
+    local name = row:text(1)
     local source = assert(Store.source(name))
     local parsed = assert(ast.parse(built, source, name))
     local found = assert(ast.all_requires(built, parsed))
@@ -332,7 +329,7 @@ local function test_stored_edges_equal_the_parsed_ones()
         "ORDER BY requires",
       { { text = name } }))
     local got: {string} = {}
-    for index, edge in ipairs(stored) do got[index] = edge[1] end
+    for index, edge in ipairs(stored) do got[index] = edge:text(1) end
     assert(table.concat(got, ",") == table.concat(wanted, ","),
       name .. ": stored " .. table.concat(got, ",") .. ", parsed " .. table.concat(wanted, ","))
   end

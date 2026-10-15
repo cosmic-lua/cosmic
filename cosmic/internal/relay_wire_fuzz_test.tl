@@ -278,7 +278,7 @@ local function gen_hello(src: Fuzz.Source): string
   if kind == 0 then
     return Fuzz.bytes(src, 24)
   end
-  local name: string = nil
+  local name: string | nil = nil
   if src:int(0, 4) ~= 0 then
     name = gen_name(src, src:int(0, 2) ~= 0)
   end
@@ -377,7 +377,7 @@ local function test_feeding_in_pieces_agrees_with_feeding_the_whole(tmp: string)
         end
         -- And a byte at a time.
         local feed = format.fresh()
-        local last: Answer
+        local last: Answer | nil
         for at = 1, #input do
           last = feed(input:sub(at, at))
         end
@@ -406,13 +406,14 @@ local function test_a_request_built_from_an_answer_reads_back_the_same(tmp: stri
       if first.status ~= "done" then
         return true, ""
       end
-      Fuzz.label(first.kind)
+      Fuzz.label(assert(first.kind))
       local headers: {string} = {}
-      if first.authorization ~= nil then
+      local authorization = first.authorization
+      if authorization ~= nil then
         Fuzz.label("authorization")
-        headers[1] = "Proxy-Authorization: " .. first.authorization
+        headers[1] = "Proxy-Authorization: " .. authorization
       end
-      local rebuilt = Fixture.connect(authority_of(first.host, first.kind, first.port), headers)
+      local rebuilt = Fixture.connect(authority_of(assert(first.host), assert(first.kind), assert(first.port)), headers)
       local second = Wire.connect_reader():feed(rebuilt)
       if second.status ~= "done" or second.host ~= first.host or second.kind ~= first.kind or second.port ~= first.port or
           second.authorization ~= first.authorization or second.consumed ~= #rebuilt then
@@ -437,7 +438,8 @@ local function test_a_socks_request_built_from_an_answer_reads_back_the_same(tmp
       if first.status ~= "done" then
         return true, ""
       end
-      Fuzz.label(first.kind)
+      local kind = assert(first.kind)
+      Fuzz.label(kind)
       local address: string
       local host = assert(first.host)
       if first.kind == "name" then
@@ -450,7 +452,7 @@ local function test_a_socks_request_built_from_an_answer_reads_back_the_same(tmp
         address = Fixture.ipv6_bytes(host)
       end
       local atyp = first.kind == "name" and 3 or first.kind == "ipv4" and 1 or 4
-      local rebuilt = Fixture.socks_request(1, atyp, address, first.port)
+      local rebuilt = Fixture.socks_request(1, atyp, address, assert(first.port))
       local second = Wire.socks_request_reader():feed(rebuilt)
       if second.status ~= "done" or second.host ~= first.host or second.kind ~= first.kind or second.port ~= first.port or
           second.consumed ~= #rebuilt then

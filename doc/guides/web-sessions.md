@@ -85,7 +85,7 @@ function Greet.app(options: Session.Options): Web.App
       Web.post("/hello", function(req: Web.Request): Web.Response
         local read = Input.form(req)
         if read.invalid ~= nil then return Web.abort(read.invalid.status, read.invalid.message) end
-        local name = Url.query_last(read.value, "name") or ""
+        local name = Url.query_last(assert(read.value), "name") or ""
         if #name > MAX_NAME then return Web.abort(422, "the name is longer than 100 bytes") end
         local session = Session.of(req)
         session:set("name", name)
@@ -258,11 +258,11 @@ argv[#argv + 1] = "test"
 local said = assert(Child.run(argv,
   { env = env, fds = relaunch.fds, cwd = tmp, stdout = "capture", stderr = "capture",
     timeout_ns = Clock.seconds(120) }))
-print(((said.stderr or "") .. (said.stdout or "")):match("test: [A-Z]+"))
+print(((said.stderr or "") .. (said.stdout or "")):match("test: %d+ tests? passed"))
 ```
 
 ```output
-test: PASS
+test: 7 tests passed
 ```
 
 [`cosmic.child`]: ../../cosmic/child.tl

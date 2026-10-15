@@ -25,23 +25,28 @@ local type Parsed = ast_node.Parsed
 --- The pattern [`all_requires`] is built on: a call to `require` with
 --- exactly one argument, captured whole whatever it is (a string
 --- literal, a variable, a concatenation). Compiled on first use and
---- memoized in the locals below.
+--- memoized in `all_pattern`.
 local ALL_PATTERN_SRC = "require($M)"
-local all_pattern_cache: Node = nil
-local all_pattern_err: string = nil
-local all_pattern_compiled = false
+
+local record PatternMemo
+  compiled: boolean
+  pattern: Node | nil
+  err: string | nil
+end
+
+local all_pattern: PatternMemo = { compiled = false }
 
 --- Compile `ALL_PATTERN_SRC` on first use and memoize the result,
 --- success or failure.
 --- @param built compiler The loaded compiler capsule ([`build.teal.load()`])
 --- @return Node | nil, string
 local function get_all_pattern(built: compiler): Node | nil, string
-  if not all_pattern_compiled then
-    all_pattern_cache, all_pattern_err = ast_match.compile_pattern(built, ALL_PATTERN_SRC)
-    all_pattern_compiled = true
+  if not all_pattern.compiled then
+    all_pattern.pattern, all_pattern.err = ast_match.compile_pattern(built, ALL_PATTERN_SRC)
+    all_pattern.compiled = true
   end
-  if all_pattern_cache == nil then return nil, all_pattern_err end
-  return all_pattern_cache, ""
+  if all_pattern.pattern == nil then return nil, all_pattern.err end
+  return all_pattern.pattern, ""
 end
 
 --- Every module a `require(...)` call names anywhere in `parsed`'s

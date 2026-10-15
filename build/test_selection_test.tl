@@ -88,7 +88,7 @@ local function test_cli_selects_one_path_and_runs_it_fresh(tmp: string)
   local rows = assert(Sqlite.text_rows(db,
     "SELECT COUNT(*) FROM coverage WHERE path = 'suite.helper'"))
   assert(db:close())
-  assert(rows[1][1] ~= "0", "selected run omitted dependency coverage")
+  assert(rows[1]:text(1) ~= "0", "selected run omitted dependency coverage")
 end
 
 local function test_a_standing_verdict_still_credits_its_coverage(tmp: string)
@@ -108,10 +108,10 @@ local function test_a_standing_verdict_still_credits_its_coverage(tmp: string)
     "SELECT test, hits FROM coverage_by_test"))
   assert(db:close())
   assert(#by_run == 2, "expected a coverage snapshot per run")
-  assert(by_run[1][1] ~= "0" and by_run[2][1] == by_run[1][1],
-    "the standing run credited " .. by_run[2][1] .. " lines, not " .. by_run[1][1])
+  assert(by_run[1]:text(1) ~= "0" and by_run[2]:text(1) == by_run[1]:text(1),
+    "the standing run credited " .. by_run[2]:text(1) .. " lines, not " .. by_run[1]:text(1))
   assert(#credits == 1, "expected one coverage_by_test row for the one test")
-  assert(credits[1][2]:find("suite.helper\t", 1, true), credits[1][2])
+  assert(credits[1]:text(2):find("suite.helper\t", 1, true), credits[1]:text(2))
 end
 
 local function test_cli_runs_only_the_one_test_a_selector_names(tmp: string)
@@ -130,7 +130,7 @@ end
     local result = invoke(root, output, "./suite/selected_test.tl:test_selected")
     local text = assert(Fs.read(output))
     assert(result.ok, text)
-    assert(text:find("1 test, 1 module; " .. expected, 1, true), text)
+    assert(text:find("1 test passed in 1 module; " .. expected, 1, true), text)
     assert(not text:find("executed", 1, true), text)
   end
   local output = tmp .. "/module.out"
@@ -141,7 +141,7 @@ end
   local db = assert(Sqlite.open(build_dir(root) .. "/build.db"))
   local credits = assert(Sqlite.text_rows(db, "SELECT test FROM coverage_by_test"))
   assert(db:close())
-  assert(#credits == 1 and credits[1][1] == "suite.selected_test test_selected",
+  assert(#credits == 1 and credits[1]:text(1) == "suite.selected_test test_selected",
     "expected only the named test credited")
 end
 
@@ -172,12 +172,12 @@ return Example
   local result = invoke(root, output, "suite/answer_example.tl:answer")
   local text = assert(Fs.read(output))
   assert(result.ok, text)
-  assert(text:find("1 test, 1 module; 1 ran", 1, true), text)
+  assert(text:find("1 test passed in 1 module; 1 ran", 1, true), text)
   output = tmp .. "/prefixed.out"
   result = invoke(root, output, "suite/answer_example.tl:Example.answer")
   text = assert(Fs.read(output))
   assert(result.ok, text)
-  assert(text:find("1 test, 1 module; 0 ran, 1 stood", 1, true), text)
+  assert(text:find("1 test passed in 1 module; 0 ran, 1 stood", 1, true), text)
 end
 
 --- A failing test's report names the selector that reruns it, quoted
@@ -224,7 +224,7 @@ end
     assert(not result.ok, again)
     assert(again:find("unrelated test executed", 1, true), again)
     assert(not again:find("sibling test executed", 1, true), again)
-    assert(again:find("1 of 1 failed", 1, true), again)
+    assert(again:find("1 of 1 test failed", 1, true), again)
   end
 end
 
@@ -260,7 +260,7 @@ end
       "AND test = 'test_sleeps_a_known_duration'"))
   assert(db:close())
   assert(#rows == 1, "expected exactly one recorded run")
-  local elapsed = math.tointeger(tonumber(rows[1][1]))
+  local elapsed = math.tointeger(tonumber(rows[1]:text(1)))
   assert(elapsed ~= nil)
   assert(elapsed >= Clock.ms(50),
     "elapsed_ns " .. tostring(elapsed) .. " is shorter than the sleep")
@@ -298,8 +298,8 @@ local function test_another_project_counts_none_of_the_cores_c(tmp: string)
   local credits = assert(Sqlite.text_rows(db,
     "SELECT COUNT(*) FROM coverage_by_test WHERE hits LIKE '%core/%'"))
   assert(db:close())
-  assert(lines[1][1] == "0", lines[1][1] .. " coverage rows name the core's C")
-  assert(credits[1][1] == "0", credits[1][1] .. " tests are credited the core's C")
+  assert(lines[1]:text(1) == "0", lines[1]:text(1) .. " coverage rows name the core's C")
+  assert(credits[1]:text(1) == "0", credits[1]:text(1) .. " tests are credited the core's C")
 end
 
 --- A test whose directory cannot be made fails as that test's own
@@ -353,10 +353,10 @@ end
     local output = at .. "/run.out"
     local result = invoke_words(root, output, { "--shard", tostring(index) .. "/2" })
     local text = assert(Fs.read(output))
-    assert(text:find("; shard " .. tostring(index) .. " of 2)", 1, true), text)
+    assert(text:find("; shard " .. tostring(index) .. " of 2\n", 1, true), text)
     if text:find("the failing test ran", 1, true) then
       failed = failed + 1
-      assert(not result.ok and text:find("test: FAIL (1 of ", 1, true), text)
+      assert(not result.ok and text:find("test: 1 of ", 1, true), text)
     else
       assert(result.ok, text)
     end
@@ -364,7 +364,7 @@ end
     local rows = assert(Sqlite.text_rows(db, "SELECT path, test FROM runs"))
     assert(db:close())
     for _, row in ipairs(rows) do
-      local id = row[1] .. " " .. row[2]
+      local id = row:text(1) .. " " .. row:text(2)
       seen[id] = (seen[id] or 0) + 1
     end
   end

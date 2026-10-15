@@ -119,7 +119,7 @@ function Example.plain_route()
         return Web.text(read.invalid.message, { status = read.invalid.status })
       end
       assert(rawequal(req:get(Input.FORM), read.value))
-      if Url.query_last(read.value, "email") == "taken@example.org" then
+      if Url.query_last(assert(read.value), "email") == "taken@example.org" then
         local bad = Input.fail(req, "email", "is already registered", { secret = { "password" } })
         return Web.text(Input.errors_by_field(bad).email, { status = bad.status })
       end
@@ -157,13 +157,13 @@ local PROFILE <const> = Shape.record_of("Profile")
 --- spooled under a random name, with the client's filename kept for display
 --- alone, and removed when the handler returns unless it moves the file.
 function Example.upload()
-  local kept: string = nil
+  local kept: {string} = {}
   local app = Web.app{ routes = {
     Web.post_typed("/profile", Web.input(Web.NONE, Web.NONE, Web.multipart_body(PROFILE)),
       function(req: Web.Request, _p: Web.None, _q: Web.None, form: Profile): Web.Response
         local avatar = assert(Input.multipart(req).value).files["avatar"][1]
         assert(avatar.path:find(avatar.filename, 1, true) == nil, "the client's name is no part of the path")
-        kept = assert(Fs.read(avatar.path))
+        kept[1] = assert(Fs.read(avatar.path))
         return Web.text(form.display_name .. ":" .. avatar.filename .. ":" .. avatar.size)
       end, { input_options = { max_file_bytes = 1024 } }),
   } }
@@ -173,11 +173,11 @@ function Example.upload()
     'Content-Type: image/png\r\n\r\nPNG\r\n--xyz--\r\n'
   local reply = Web.test_client(app):post("/profile", { body = body,
     content_type = "multipart/form-data; boundary=" .. boundary })
-  assert(reply:text() == "Ada:a.png:3" and kept == "PNG", reply:text())
+  assert(reply:text() == "Ada:a.png:3" and kept[1] == "PNG", reply:text())
 end
 
 --- Each method has a typed constructor; a slot a route does not read is
---- [`Web.NONE`], or [`Web.no_body`], and its parameter is nil.
+--- [`Web.NONE`], or [`Web.no_body`], and its parameter is an empty [`Web.None`].
 function Example.methods()
   local function show(_req: Web.Request, _p: Web.None, q: Query, _b: Web.None): Web.Response
     return Web.text(tostring(q.page))

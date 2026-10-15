@@ -9,11 +9,15 @@
 local help_source = {}
 
 --- What makes the texts `cosmic help` prints, set by [`provide`].
-local source: function(): {string: string} | nil = nil
+local record Provided
+  source: function(): {string: string} | nil
+end
+
+local provided: Provided = {}
 
 --- Names what makes the texts `cosmic help` prints, for [`texts`].
 function help_source.provide(made_by: function(): {string: string})
-  source = made_by
+  provided.source = made_by
 end
 
 --- What `cosmic help` prints, by what asks for it: `""` the index,
@@ -21,6 +25,7 @@ end
 --- Nil and why until [`build.dispatch`] has loaded and called
 --- [`provide`].
 function help_source.texts(): {string: string} | nil, string
+  local source = provided.source
   if source == nil then
     return nil, "build.dispatch has not provided the texts of `cosmic help`"
   end

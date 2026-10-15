@@ -45,8 +45,8 @@ local bundle = assert(Fs.absolute("vendor/cacert/cacert.pem"))
 local cases = verb_cases.cases(bundle)
 
 --- Asserts each verb whose cases run in this process passes and fails its case,
---- each run ending in its verdict line.
-local function ends_in_a_verdict(tmp: string)
+--- each run saying how it went.
+local function says_how_it_went(tmp: string)
   local tree = verbs_fixture.write_tree(tmp)
   -- `db` passes once the tree has a database.
   local _ = verbs_fixture.expect(tree, "build", { "build" }, 0)
@@ -63,8 +63,8 @@ local function ends_in_a_verdict(tmp: string)
   end
 end
 
-local function test_every_verb_ends_in_a_verdict(tmp: string)
-  ends_in_a_verdict(tmp)
+local function test_every_verb_says_how_it_went(tmp: string)
+  says_how_it_went(tmp)
 end
 
 local function test_help_takes_a_verb(tmp: string)
@@ -79,8 +79,8 @@ local function test_help_takes_a_verb(tmp: string)
   -- Not after a "--": there "-h" is the statement, which fails as SQL.
   local _ = verbs_fixture.expect(tmp, "sql", { "sql", "--", "-h" }, 1)
   local refused = verbs_fixture.expect(tmp, "help", { "help", "tset" }, 2)
-  local out = refused.stdout or ""
-  assert(out:find("help: FAIL (no such verb: tset)", 1, true), out)
+  local err = refused.stderr or ""
+  assert(err:find("help: no such verb: tset", 1, true), err)
 end
 
 local function test_help_lists_each_option_a_verb_parses(tmp: string)
@@ -145,7 +145,7 @@ local function test_help_is_a_short_index_of_every_verb(tmp: string)
   for _, verb in ipairs(Cli.order) do
     local command = Cli.verbs[verb]
     assert(all:find(assert(command.usage) .. "  ", 1, true), verb .. " is not in the index:\n" .. all)
-    assert(all:find(command.about, 1, true), verb .. " has no line:\n" .. all)
+    assert(all:find(assert(command.about), 1, true), verb .. " has no line:\n" .. all)
   end
   -- A usage follows the word that names its verb, or what is typed
   -- where a verb has no word of its own.
@@ -159,8 +159,9 @@ local function test_help_is_a_short_index_of_every_verb(tmp: string)
     assert(all:find(pointer, 1, true), pointer .. ":\n" .. all)
   end
   assert(not all:find("--jobs", 1, true), all)
-  local bare = verbs_fixture.expect(tmp, "help", {}, 0).stdout or ""
-  assert(all:find("\nhelp: PASS %(22 verbs") or all:find("\nhelp: PASS (", 1, true), all)
+  local bare_run = verbs_fixture.expect(tmp, "help", {}, 0)
+  local bare = bare_run.stdout or ""
+  assert((bare_run.stderr or ""):find("^help: %d+ verbs, %d+ ms\n$"), bare_run.stderr)
   assert(all:find("(print stays)", 1, true), all)
   local asked = verbs_fixture.expect(tmp, "help", { "help", "--help" }, 0).stdout or ""
   assert(asked:find("\nMore:\n", 1, true), asked)
@@ -230,7 +231,7 @@ end
 local function test_build_takes_paths_to_narrow_it(tmp: string)
   local tree = write_programs(tmp)
   local one = verbs_fixture.expect(tree, "build", { "build", "./cmd/hi/" }, 0).stdout or ""
-  assert(one:find(build_dir(tree) .. "/bin/hi,", 1, true) and not one:find("bye", 1, true), one)
+  assert(one == build_dir(tree) .. "/bin/hi\n", one)
   assert(Fs.exists(build_dir(tree) .. "/bin/hi"))
   assert(not Fs.exists(build_dir(tree) .. "/bin/bye"))
   local refused = verbs_fixture.expect(tree, "build", { "build", "cmd/hi", "lib" }, 1)
@@ -247,8 +248,9 @@ local function test_uses_takes_paths_to_narrow_it(tmp: string)
   assert(not narrowed:find("cosmic/", 1, true), narrowed)
   local all = verbs_fixture.expect(tree, "uses", { "uses", "Fs.read" }, 0).stdout or ""
   assert(all:find("lib/reader.tl:2:", 1, true), all)
-  local none = verbs_fixture.expect(tree, "uses", { "uses", "Fs.read", "cmd" }, 1).stdout or ""
-  assert(none:find("nothing under cmd refers to 'Fs.read'", 1, true), none)
+  local none = verbs_fixture.expect(tree, "uses", { "uses", "Fs.read", "cmd" }, 1)
+  assert(none.stdout == "", none.stdout)
+  assert((none.stderr or ""):find("uses: nothing under cmd refers to 'Fs.read'", 1, true), none.stderr)
 end
 
 --- `uses` marks each link, and names what it links to: a symbol by its
@@ -290,21 +292,22 @@ local function test_uses_prints_each_link_it_finds(tmp: string)
   assert(notes:find("lib/links.tl:2: link notes.md#usage\n", 1, true), notes)
 end
 
---- The verdict counts one file as one file.
+--- The summary counts one file as one file.
 local function test_fix_says_one_file_not_one_files(tmp: string)
   local tree = verbs_fixture.write_tree(tmp)
-  local one = verbs_fixture.expect(tree, "fix", { "fix", "good/ok_test.tl" }, 0).stdout or ""
-  assert(one:find("fix: PASS (1 Teal file, 0 fixed", 1, true), one)
+  local one = verbs_fixture.expect(tree, "fix", { "fix", "good/ok_test.tl" }, 0).stderr or ""
+  assert(one:find("fix: 1 Teal file, 0 fixed", 1, true), one)
   local two = verbs_fixture.expect(tree, "fix",
-    { "fix", "good/ok_test.tl", "bad/no_test.tl" }, 0).stdout or ""
-  assert(two:find("fix: PASS (2 Teal files, 0 fixed", 1, true), two)
+    { "fix", "good/ok_test.tl", "bad/no_test.tl" }, 0).stderr or ""
+  assert(two:find("fix: 2 Teal files, 0 fixed", 1, true), two)
 end
 
 local function test_db_takes_paths_to_narrow_it(tmp: string)
   local tree = write_programs(tmp)
   local _ = verbs_fixture.expect(tree, "build", { "build" }, 0)
-  local narrowed = verbs_fixture.expect(tree, "db", { "db", "./lib/" }, 0).stdout or ""
-  assert(narrowed:find("rows about lib in 2 databases", 1, true), narrowed)
+  local narrowed_run = verbs_fixture.expect(tree, "db", { "db", "./lib/" }, 0)
+  local narrowed = narrowed_run.stdout or ""
+  assert((narrowed_run.stderr or ""):find("rows about lib in 2 databases", 1, true), narrowed_run.stderr)
   -- lib/reader.tl is one module and one staged file.
   assert(narrowed:find("\n +1  modules\n"), narrowed)
   assert(narrowed:find("\n +1  files\n"), narrowed)
@@ -312,11 +315,11 @@ local function test_db_takes_paths_to_narrow_it(tmp: string)
   assert(narrowed:find("\n +1  parsed\n"), narrowed)
   assert(not narrowed:find("builds, latest first", 1, true), narrowed)
   assert(not narrowed:find("pages", 1, true), narrowed)
-  local whole = verbs_fixture.expect(tree, "db", { "db" }, 0).stdout or ""
-  assert(whole:find("in 2 databases", 1, true) and whole:find("builds, latest first", 1, true),
-    whole)
-  local none = verbs_fixture.expect(tree, "db", { "db", "nowhere" }, 1).stdout or ""
-  assert(none:find("no row is about nowhere", 1, true), none)
+  local whole = verbs_fixture.expect(tree, "db", { "db" }, 0)
+  assert((whole.stderr or ""):find("in 2 databases", 1, true), whole.stderr)
+  assert((whole.stdout or ""):find("builds, latest first", 1, true), whole.stdout)
+  local none = verbs_fixture.expect(tree, "db", { "db", "nowhere" }, 1).stderr or ""
+  assert(none:find("db: no row is about nowhere", 1, true), none)
 end
 
 --- `sql` reads o/ and nothing else: it never lists a directory of the

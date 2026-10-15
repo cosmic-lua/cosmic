@@ -106,13 +106,13 @@ end
 --- Checks deadline isolation in the selected worker mode. With `probe`, the hung
 --- worker also leaves an orphan in its own group: its caller requires the
 --- kernel's children list, which lets the runner find and end that orphan.
-function fixture.hung_runs(tmp: string, probe: string, sandbox_workers: boolean)
+function fixture.hung_runs(tmp: string, probe: string | nil, sandbox_workers: boolean)
   -- Why the sandboxed case ran unsandboxed, which skips the test once
   -- that case has checked what the unsandboxed one does. The workers
   -- nest in this test's own sandbox, which a host may refuse: the
   -- kernel lets root nest one only two deep (core/syscalls.c's
   -- `map_ids`). CI's unprivileged runners nest them.
-  local unsandboxed: string = nil
+  local unsandboxed: string | nil = nil
   for _, mode in ipairs({ sandbox_workers and "" or "0" }) do
     local marker = "cosmic-hang-" .. tostring(Clock.monotonic_ns())
     local here = tmp .. "/mode" .. mode
@@ -136,7 +136,7 @@ function fixture.hung_runs(tmp: string, probe: string, sandbox_workers: boolean)
         "before it reported", 1, true), text)
     assert(text:find("  | said something", 1, true), text)
     assert(not text:find("quiet", 1, true), text)
-    assert(text:find("2 of 3 failed", 1, true), text)
+    assert(text:find("2 of 3 tests failed", 1, true), text)
     local sandboxed = text:find("; sandboxed", 1, true) ~= nil
     if mode == "0" then
       assert(not sandboxed, text)

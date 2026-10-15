@@ -42,7 +42,7 @@ local Hash = require("cosmic.hash")
 local Store = require("cosmic.store")
 local exit_status = require("build.exit_status")
 local teal = require("build.teal")
-local log = require("build.verdict").log
+local log = require("build.logger").log
 local type compiler = require("build.compiler")
 
 local record standalone
@@ -107,7 +107,7 @@ local function generate(file: string, source: string, built?: compiler): string 
       for _, e in ipairs(group or {}) do
         local where = (e.filename == nil or e.filename == "") and file or e.filename
         local instead = where == file and
-          teal.replacement(e.msg, source, e.y, e.x, e.fields, file, refused) or nil
+          teal.replacement(e, source, file, refused) or nil
         lines[#lines + 1] = where .. ":" .. e.y .. ":" .. e.x .. ": " .. e.msg ..
           (instead ~= nil and " -- " .. instead or "")
       end
@@ -133,7 +133,7 @@ end
 function standalone.code(file: string, source: string,
                          variables?: {string:string}, built?: compiler): string | nil, string
   local cached = cached_path(source, variables)
-  local code: string
+  local code: string | nil
   if cached ~= nil then
     -- A cache that cannot be read is a miss.
     local read, _ = Fs.read(cached)

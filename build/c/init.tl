@@ -306,7 +306,7 @@ local function declared_in(root: string): {string: rules.Declared}
 end
 
 --- What checking `file` came to, and what it defines and refers to.
-local function outcome(root: string, file: string, result: Child.Result, trouble: string,
+local function outcome(root: string, file: string, result: Child.Result | nil, trouble: string,
                        declared: {string: rules.Declared}, limit: integer):
     c.Outcome, rules.Unit
   if result == nil then
@@ -400,7 +400,6 @@ function c.check(root: string, files: {string}, cwd?: string, limit?: integer):
   local declared = declared_in(root)
   local outcomes: {c.Outcome} = {}
   local units: {integer: rules.Unit} = {}
-  local running: {Child.Handle} = {}
   local which: {Child.Handle: integer} = {}
   -- One compile per file under the first variant, and one per file under
   -- each of the others the file's tree can differ in.
@@ -421,16 +420,16 @@ function c.check(root: string, files: {string}, cwd?: string, limit?: integer):
     end
   end
   local results: {integer: c.Outcome} = {}
-  local next_job = 1
   local env = environment()
   local install, runs_from = toolchain(root, env)
-  local deps, deps_trouble = Fs.mkdtemp("cosmic-c-deps-")
-  if deps == nil then
+  local made_deps, deps_trouble = Fs.mkdtemp("cosmic-c-deps-")
+  if made_deps == nil then
     for i, file in ipairs(files) do
       outcomes[i] = { file = file, trouble = "no directory for its compiler's caches: " .. deps_trouble }
     end
     return outcomes
   end
+  local deps: string = made_deps
   -- zig's caches are the check's own: `-E` keeps nothing a later
   -- compile finds there, and a cache shared with every build is no path
   -- to give a confined compiler.
@@ -440,6 +439,8 @@ function c.check(root: string, files: {string}, cwd?: string, limit?: integer):
     return path:sub(1, 1) == "/" and path or cwd .. "/" .. path
   end
   local function compile()
+    local running: {Child.Handle} = {}
+    local next_job = 1
     while next_job <= #jobs or #running > 0 do
       while next_job <= #jobs and #running < parallel do
         local job = jobs[next_job]
@@ -538,7 +539,8 @@ function c.check(root: string, files: {string}, cwd?: string, limit?: integer):
       local result = results[job]
       local name = c.variants[v].name
       variants[#variants + 1] = name
-      if result.findings == nil then
+      local reported = result.findings
+      if reported == nil then
         out.findings = nil
         out.trouble = (v == 1 and "" or name .. ": ") .. assert(result.trouble)
         break
@@ -547,7 +549,7 @@ function c.check(root: string, files: {string}, cwd?: string, limit?: integer):
         out.findings = findings
         first_unit[i] = units[job]
       end
-      for _, f in ipairs(result.findings) do
+      for _, f in ipairs(reported) do
         local key = f.file .. ":" .. f.line .. ":" .. f.rule .. ":" .. f.within
         local same = at[key]
         if same == nil then

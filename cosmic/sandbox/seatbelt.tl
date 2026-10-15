@@ -271,7 +271,7 @@ function Seatbelt.compile(policy: rules.Policy, options?: Seatbelt.Options): Sea
   local parameters: {string:string} = { ROOT = "/" }
   local serves = options and options.serves_relay
   -- The relay runs its core alone, which the start executes under the profile.
-  local runs: string
+  local runs: string | nil
   if serves ~= nil and options.core ~= nil then runs = paths[options.core].path end
   for i, grant in ipairs(merged.grants or {}) do
     local name = "PATH_" .. i
@@ -279,7 +279,7 @@ function Seatbelt.compile(policy: rules.Policy, options?: Seatbelt.Options): Sea
     allow(text, fattr, grant.letters, '(' .. (directories[grant.path] and "subpath" or "literal") ..
         ' (param "' .. name .. '"))', serves ~= nil and grant.path ~= runs)
   end
-  local tmp: string
+  local tmp: string | nil
   if policy.tmp then
     tmp = TMP_PARAMETER
     allow(text, fattr, "rwc", '(subpath (param "' .. tmp .. '"))')
@@ -410,7 +410,7 @@ function Seatbelt.resolve(policy: rules.Policy, base?: string, executable?: stri
       if trouble ~= "" then return refuse(string.format("%q", name) .. ": " .. trouble) end
     end
   end
-  local real_terminal: string
+  local real_terminal: string | nil
   if terminal ~= nil then
     local real, trouble = sys.realpath(terminal)
     if real == nil then

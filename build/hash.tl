@@ -5,7 +5,7 @@
 --- time, so a file of any size takes the same memory; only a sums file
 --- and an HMAC key are read whole.
 ---
---- Like `cosmic json` it ends in no verdict line: its standard output is
+--- Like `cosmic json` it prints no summary: its standard output is
 --- data (or, with `--check`, the per-file lines), and its exit status is
 --- the verdict: 0 all well, 1 a check failed or a listed file could not
 --- be read, 2 a command line, a file to hash or a sums file it cannot
@@ -354,25 +354,26 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
 
   -- A sums file is a list, small beside what it names: read whole.
   local sums_name = request.check
-  local text: string | nil
+  local text: string
   if sums_name == "-" then
     local reader, why = to.stdin()
     if reader == nil then
       complain(why)
       return bare.refused
     end
-    text, why = Stream.read_all(reader)
-    if text == nil then
-      complain("standard input: " .. why)
+    local read, read_why = Stream.read_all(reader)
+    if read == nil then
+      complain("standard input: " .. read_why)
       return bare.refused
     end
+    text = read
   else
-    local why: string
-    text, why = Fs.read(sums_name)
-    if text == nil then
-      complain(why)
+    local read, read_why = Fs.read(sums_name)
+    if read == nil then
+      complain(read_why)
       return bare.refused
     end
+    text = read
   end
   local sums = verb.parse_sums(text, SIZE[request.algorithm])
   for _, bad in ipairs(sums.bad) do

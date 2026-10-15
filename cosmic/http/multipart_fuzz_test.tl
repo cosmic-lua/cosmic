@@ -183,9 +183,10 @@ local function test_a_well_formed_body_round_trips_under_any_chunking(tmp: strin
       if got.failure ~= "" then return false, "a well-formed body was refused: " .. got.failure end
       if #got.parts > 0 then Fuzz.label("parts") end
       for _, p in ipairs(got.parts) do
-        if p.filename ~= nil then
+        local filename = p.filename
+        if filename ~= nil then
           Fuzz.label("file_part")
-          if p.filename:find("[/\\]") or p.filename:find("%c") then
+          if filename:find("[/\\]") or filename:find("%c") then
             return false, "a filename holds a path or control"
           end
         end
@@ -222,7 +223,7 @@ local function test_parts_come_back_as_they_were_drawn(tmp: string)
       if got.failure ~= "" then return false, "refused: " .. got.failure end
       local last: {Drawn} = {}
       for i = 4, #f - 3, 4 do
-        local filename: string = nil
+        local filename: string | nil = nil
         if f[i + 1]:sub(1, 1) == "F" then filename = f[i + 1]:sub(2) end
         last[#last + 1] = { name = f[i], filename = filename, content_type = f[i + 2], body = f[i + 3] }
       end

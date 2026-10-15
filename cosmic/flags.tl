@@ -127,7 +127,7 @@ function Flags.parse(argv: {integer:string}, from: integer,
     end
   end
   local parsed: Flags.Parsed = { set = {}, values = {}, all = {}, given = {}, words = {} }
-  local slot = from
+  local cursor = { slot = from }
   local function flag(name: string)
     parsed.set[name] = true
     parsed.given[#parsed.given + 1] = name
@@ -137,8 +137,8 @@ function Flags.parse(argv: {integer:string}, from: integer,
   -- value is attached to `name` in one word, for the refusal to show.
   local function valued(name: string, value: string | nil, same: string): string
     if value == nil then
-      slot = slot + 1
-      value = argv[slot]
+      cursor.slot = cursor.slot + 1
+      value = argv[cursor.slot]
       if value == nil then
         return name .. " needs a value"
       elseif looks_like_option(value) then
@@ -164,8 +164,8 @@ function Flags.parse(argv: {integer:string}, from: integer,
     return name ~= nil and #name > 2 and spec[name] ~= nil
   end
   local options = true
-  while argv[slot] ~= nil do
-    local word = argv[slot]
+  while argv[cursor.slot] ~= nil do
+    local word = argv[cursor.slot]
     if not options or word == "-" or word:sub(1, 1) ~= "-" then
       parsed.words[#parsed.words + 1] = word
     elseif word == "--" then
@@ -212,7 +212,7 @@ function Flags.parse(argv: {integer:string}, from: integer,
         at = at + 1
       end
     end
-    slot = slot + 1
+    cursor.slot = cursor.slot + 1
   end
   return parsed, ""
 end

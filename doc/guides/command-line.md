@@ -42,15 +42,16 @@ print("exit " .. tostring(exited.code))
 exit 3
 ```
 
-A chunk prints only what it prints. It gets no verdict line, as a
-file run gets none.
+A chunk prints only what it prints. It gets no summary, as a file run
+gets none.
 
 ## help for one verb
 
 `cosmic help` prints a short index, a line per verb. `cosmic help <verb>`
-prints that verb's full text and options, then a verdict line; `--help`
-or `-h` anywhere on a verb's line, before a `--`, does the same.
-`cosmic help exit` says what the verdict lines and exit codes mean.
+prints that verb's full text and options; `--help` or `-h` anywhere on a
+verb's line, before a `--`, does the same. Like every verb's, its summary
+goes to stderr, so stdout holds the text alone. `cosmic help exit` says
+what the exit codes and summaries mean.
 
 ```teal
 local Child = require("cosmic.child")
@@ -68,7 +69,8 @@ local argv = { table.unpack(relaunch.argv) }
 argv[#argv + 1] = "help"
 argv[#argv + 1] = "db"
 local result = assert(Child.run(argv,
-  { env = env, fds = relaunch.fds, cwd = dir, stdout = "capture", timeout_ns = Clock.seconds(10) }))
+  { env = env, fds = relaunch.fds, cwd = dir, stdout = "capture", stderr = "capture",
+    timeout_ns = Clock.seconds(10) }))
 assert(Fs.remove_tree(dir))
 local out = result.stdout or ""
 print(out:match("^`cosmic db[^`]*`"))
@@ -77,13 +79,13 @@ for line in out:gmatch("[^\n]+") do
   if line:sub(1, 8) == "`cosmic " then verbs = verbs + 1 end
 end
 print(verbs .. " verb")
-print(out:match("help: PASS %(1 verb") ~= nil)
+print(out:find("help: ", 1, true) == nil, (result.stderr or ""):match("^help: 1 verb, ") ~= nil)
 ```
 
 ```output
 `cosmic db [path...]`
 1 verb
-true
+true	true
 ```
 
 ## paths narrow a verb
@@ -121,8 +123,8 @@ for _, word in ipairs({ "build", "--host", "cmd/hi" }) do argv[#argv + 1] = word
 local built = assert(Child.run(argv,
   { env = env, fds = relaunch.fds, cwd = tmp, stdout = "capture", timeout_ns = Clock.seconds(60) }))
 print("exit " .. tostring(built.code))
--- The build line names each program it wrote, in the build directory.
-local program = assert((built.stdout or ""):match("build: PASS %((/[^ ,]+)"))
+-- The build prints each program it wrote, a path per line.
+local program = assert(("\n" .. (built.stdout or "")):match("\n(/[^\n]+)"))
 local hi, _ = Fs.exists(program)
 local bye, _ = Fs.exists(Fs.dirname(program) .. "/bye")
 print(Fs.basename(program) .. ": " .. tostring(hi) .. ", bye: " .. tostring(bye))

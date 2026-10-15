@@ -253,7 +253,7 @@ function near.notes(module: string, candidates: {near.Candidate},
       if comparable[index] then
         local same = other.module == module and
           (other.source_symbol == mine.source_symbol or other.symbol == name)
-        local why: string = nil
+        local why: string | nil = nil
         if same then
           why = nil
         elseif commands and other.module ~= module and stands_in(other, name) then
@@ -288,7 +288,7 @@ function near.known(databases: {Sqlite.Handle}): {near.Known} | nil, string
     if tables == nil then
       return nil, tables_trouble
     end
-    local rows: {{string}} = {}
+    local rows: Sqlite.Rows = {}
     if #tables > 0 then
       local found, trouble = Sqlite.text_rows(db,
         "SELECT module, symbol, source_symbol, signature, text, kind FROM docs " ..
@@ -299,12 +299,12 @@ function near.known(databases: {Sqlite.Handle}): {near.Known} | nil, string
       rows = found
     end
     for _, row in ipairs(rows) do
-      local module = row[1]
+      local module = row:text(1)
       if symbols.is_public_module(module) and module:sub(-8) ~= "_example" then
         owner[module] = owner[module] or index
         if owner[module] == index then
-          out[#out + 1] = { module = module, symbol = row[2],
-            source_symbol = row[3], signature = row[4], text = row[5], kind = row[6] }
+          out[#out + 1] = { module = module, symbol = row:text(2),
+            source_symbol = row:text(3), signature = row:text(4), text = row:text(5), kind = row:text(6) }
         end
       end
     end

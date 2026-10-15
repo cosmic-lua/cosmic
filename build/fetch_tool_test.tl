@@ -1,4 +1,4 @@
---- `cosmic fetch` run as this program: no verdict line, exit 2 for a
+--- `cosmic fetch` run as this program: no summary, exit 2 for a
 --- refused command line and 1 for a fetch that fails, and a download
 --- interrupted by a signal, all offline on the loopback. The fetches
 --- themselves are in `fetch_test.tl`.
@@ -27,14 +27,14 @@ local function cosmic(dir: string, words: {string}): integer, string, string
   return result.code, result.stdout or "", result.stderr or ""
 end
 
-local function test_a_refusal_is_two_and_prints_no_verdict(tmp: string)
+local function test_a_refusal_is_two_and_prints_no_summary(tmp: string)
   local code, out, err = cosmic(tmp, { "fetch", "notaurl" })
   assert(code == 2 and out == "", out)
   assert(err:find("cosmic: fetch: ", 1, true) == 1, err)
   assert(not err:find("fetch: FAIL", 1, true), err)
 end
 
-local function test_a_failed_fetch_is_one_and_prints_no_verdict(tmp: string)
+local function test_a_failed_fetch_is_one_and_prints_no_summary(tmp: string)
   local code, out, err = cosmic(tmp, { "fetch", "http://127.0.0.1:1/" })
   assert(code == 1 and out == "", out)
   assert(not err:find("fetch: FAIL", 1, true), err)
@@ -58,14 +58,14 @@ local Signal = require("cosmic.signal")
 local sys = require("cosmic.sys")
 return function(argv: {string}): integer
   local guard = assert(Signal.guard())
-  local asked = 0
+  local calls = { asked = 0 }
   local body = string.rep("z", 300000)
   local ok, why = Http.download("http://cosmic.test/", argv[1] .. "/target", {
     script = { "HTTP/1.1 200 OK\r\nContent-Length: " .. #body ..
       "\r\nConnection: close\r\n\r\n" .. body },
     cancelled = function(): boolean
-      asked = asked + 1
-      if asked == 2 then assert(sys.kill(sys.getpid(), sys.SIGINT)) end
+      calls.asked = calls.asked + 1
+      if calls.asked == 2 then assert(sys.kill(sys.getpid(), sys.SIGINT)) end
       return guard:cancelled() ~= 0
     end,
   })
