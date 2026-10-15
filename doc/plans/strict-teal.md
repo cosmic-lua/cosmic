@@ -11,13 +11,14 @@ database, what the tree measured, the order the work lands in, and the
 questions still open. rules, decisions and steps go by their names, never
 by a number.
 
-the work has two phases. in the first, the checker forked from Teal is
-taken as far as four foundations: [the pinned-release seed] compiles it in
-place of upstream's `tl.lua`, [narrowing by construction] narrows only
-what nothing else can change, [nil out of every type] makes nil a type of
-its own, and [compiler-written classes] leave no metatable but the
-compiler's. in the second, [the new checker] is written for the smaller
-language those leave, and the remaining rules land in it.
+the work runs on two tracks from now. the checker forked from Teal is
+taken as far as three foundations: [the pinned-release seed] compiles it
+in place of upstream's `tl.lua`, [narrowing by construction] narrows only
+what nothing else can change, and [compiler-written classes] leave no
+metatable but the compiler's. beside it, [the new checker] is written for
+the smaller language those leave. it replaces the fork once it gives the
+fork's verdicts, and then the rules the fork never holds land in it, [nil
+out of every type] first.
 
 once a step merges its section is marked done, and
 [design.md](../design.md)'s teal section states each rule as it lands.
@@ -185,17 +186,21 @@ stack can carry.
   previous pin, a one-line revert, and `COSMIC_BOOTSTRAP` runs any other
   cosmic in its place. the fixed point of [`build/compiler_test.tl`] keeps
   a broken checker from being released.
-- **a new checker for the smaller language.** once the four foundations
-  hold, the language the forked checker must handle is much smaller than
+- **a new checker for the smaller language, started now.** with the three
+  foundations, the language a checker must handle is much smaller than
   Teal: structured control flow, no closure-assigned locals, no run-time
-  metatables, no nil in every type. a checker written for that language is
-  smaller and faster than one migrated in place, and the migration's cost
-  is visible already: shadow mode had to copy the old narrowing's quirks
-  to agree with it. the fork gets only what the four foundations need.
-  every rule after them ([one variance per type constructor], [named
-  receivers], [narrowing declarations], [tagged unions], [honest `or` and
-  `and`], [confined casts], [annotated parameters], [typed queries]) is
-  specified here and built in [the new checker], not in the fork.
+  metatables. a checker written for that language is smaller and faster
+  than one migrated in place, and the migration's cost is visible already:
+  shadow mode had to copy the old narrowing's quirks to agree with it. the
+  fork gets only what the three foundations need, and no nil work: nil in
+  every type reaches into the fork's subtype table, `never`, generics and
+  every per-site nil check, and the tree's nil rewrite can only be
+  verified by a checker that enforces the rule, so the new checker is that
+  checker. every rule after the foundations ([nil out of every type] first,
+  then [one variance per type constructor], [named receivers], [narrowing
+  declarations], [tagged unions], [honest `or` and `and`], [confined
+  casts], [annotated parameters], [typed queries]) is specified here and
+  built in [the new checker], not in the fork.
 - **declarations are the trust boundary.** a `.d.tl` signature, and a
   narrowing declaration, is the only typing the checker takes without
   proof. the standard library's Lua declarations live in `.d.tl` files,
@@ -834,8 +839,9 @@ and #3075. in short:
 ### the pinned-release seed
 
 it needs a release between its parts, so the first two start now, beside
-narrowing by construction, and the rest land before [the new checker],
-which needs them; narrowing by construction does not.
+narrowing by construction, and the rest land before [the new checker]
+replaces the fork, which needs them; narrowing by construction does
+not.
 
 - **a compile verb in the release.** a verb or module the pinned release
   can run that compiles a list of `.tl` files to one Lua text each, for
@@ -870,22 +876,6 @@ rules, one pin move after each lands. it is never rewritten to a rule the
 new checker replaces it before, and the self-compile's pinned type-error
 count becomes a ceiling.
 
-### nil out of every type
-
-[nil is its own type], [an index read may be nil], [arrays are dense],
-[never is the bottom type] and [varargs end in nil]. the count and the
-declarations audit first, and a spike: nil taken out of the fork's
-subtype table behind a flag, run over everything outside `checker/`, to
-size what the rule refuses. `--check-types` cannot see a local or a field
-a literal leaves out, so the tree's rewrite is verified only by a checker
-that enforces the rule; which checker that is, the fork behind its flag
-or the new checker first, is an open question the spike answers. the tree
-is rewritten one directory at a time, tests with their modules, while the
-rule is off, then one change turns it on. `never` becomes the bottom type
-as nil leaves it. `checker/` is not rewritten. the nil error names the
-call that answered nil and its declaration before the rule lands, since
-the rule multiplies it.
-
 ### compiler-written classes, in the fork
 
 [compiler-written classes] and [dispatch only through declared types].
@@ -905,7 +895,8 @@ carries this step.
 
 written for the language the foundations leave, not forked from
 `checker/tl.tl`, at about 10,000 to 13,000 lines against the fork's
-22,000. a sketch, not a design:
+22,000. it starts now, beside the fork's foundations, and holds each
+foundation's final form as the fork lands it. a sketch, not a design:
 
 - its contract with the rest of the tree is frozen first:
   [`build/compiler.d.tl`], the AST that about twenty `build/` modules read
@@ -914,16 +905,18 @@ written for the language the foundations leave, not forked from
   `--check-types` and checked-narrowing code, and every row the checker
   writes into the database ("what the language keeps working"). a grammar
   change comes after it replaces the fork, as a step of its own.
-- a parity track starts as soon as narrowing by construction switches its
-  reads, beside the fork's remaining work: the new lexer, parser and code
-  generator must give the same AST and byte-identical Lua over the whole
-  tree, an oracle as cheap as it is strong.
+- a parity track comes first: the new lexer, parser and code generator
+  must give the same AST and byte-identical Lua over the whole tree, an
+  oracle as cheap as it is strong, and one that does not wait on the
+  fork's work.
 - one pass builds a control-flow graph that narrowing and definite
   assignment both read, with facts keyed by binding; there is no
   metamethod or "runs code" reasoning, because the foundations left
   nothing for it to decide.
-- one subtype relation with its variance; nil and `never` where [nil is
-  its own type] and [never is the bottom type] put them.
+- one subtype relation with its variance, built so that nil leaves every
+  type by a change to the relation, not a rewrite: the representation
+  keeps nil a type of its own and `never` below it from the first PR,
+  with nil admitted everywhere only until [nil out of every type] lands.
 - each error a code, its places and the fix, catalogued, from the first
   PR.
 - types cross processes as rows, and a requiring module is recompiled
@@ -936,6 +929,20 @@ written for the language the foundations leave, not forked from
   narrowing run against it; it compiles itself to a fixed point. then it
   replaces `checker/` in one change, and the seed moves to the release
   that carries it.
+
+### nil out of every type
+
+[nil is its own type], [an index read may be nil], [arrays are dense],
+[never is the bottom type] and [varargs end in nil], the first rules the
+new checker holds once it replaces the fork. the count and the
+declarations audit come first, the count from the new checker run with
+the rules on over everything outside `checker/`. `--check-types` cannot
+see a local or a field a literal leaves out, so the new checker is what
+verifies the tree's rewrite. the tree is rewritten one directory at a
+time, tests with their modules, while the rules are off, then one change
+turns them on. `never` becomes the bottom type as nil leaves it. the nil
+error names the call that answered nil and its declaration, since the
+rule multiplies it.
 
 ### variance, views and receivers
 
@@ -970,8 +977,6 @@ the switch, since the seed's Lua runs on the tree's VM.
 
 ## open questions
 
-- **where nil is enforced.** in the fork behind a flag, or first in the
-  new checker, which would then start earlier.
 - **the new checker's grammar.** what it adds once it replaces the fork:
   an `if` expression (about 800 `and`/`or` ternaries would read safely),
   `match` over a tagged union, `continue` (5 to 8 sites), a `defer`-like
@@ -999,8 +1004,8 @@ the switch, since the seed's Lua runs on the tree's VM.
   tests and a nil there already fails the test.
 - **strict-record checks in debug runs.** whether they come before or
   after narrowing by construction.
-- **dense arrays.** what [arrays are dense] costs the tree, counted before
-  nil leaves every type.
+- **dense arrays.** what [arrays are dense] costs the tree, counted by the
+  new checker before nil leaves every type.
 
 ## what the first steps taught
 
