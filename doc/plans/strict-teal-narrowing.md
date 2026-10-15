@@ -7,13 +7,13 @@ a path of read-only fields from one.
 
 ## the model
 
-- declared types are never mutated. a new `checker/facts.tl` holds an
+- declared types are never mutated. a new [`checker/facts.tl`] holds an
   immutable `Facts`: `t` (place id to narrowed type) and `gone` (place id
   to what removed it, for messages). `nil` means control cannot reach.
 - a place's id is its binding's identity, not its name: `Variable.key`, a
   counter value given in `add_var`; `"17"` a local, `"17.f"` a path of
   read-only fields. a `local x = x` is a new variable with a new key, so
-  the shadowing cases disappear. `Place.key` stays the display name in
+  the shadowing cases disappear. [`Place.key`] stays the display name in
   messages. a global, a mutable field and an index have no id: a test of
   one narrows nothing.
 - operations return new values and share when nothing changes: `with`,
@@ -86,7 +86,7 @@ needs it.
   and warning (`file, code, y, x, text`) for a list of sources, run with
   the PR's checker and main's over the tree, the fuzz corpora and dumped
   fuzz programs; also `Variable.key` and loop ids in the pre-pass.
-- **the facts module (done, #3069).** `checker/facts.tl` and its property
+- **the facts module (done, #3069).** [`checker/facts.tl`] and its property
   tests (meet is commutative, associative, idempotent, with nil as
   identity; operations agree with a model map; frozen values raise on
   write), unused.
@@ -149,7 +149,7 @@ every checker change also needed a second review round. so:
   its difference pinned; old-side machinery the deletion removes is not
   built.
 - every checker PR gets two independent review rounds.
-- what remains pinned in `build/checker_shadow_test.tl` (old drops more
+- what remains pinned in [`build/checker_shadow_test.tl`] (old drops more
   after #3072, the facts refuse where old misses in loops, and `local x =
   x` widened by name) is the switch's triage list.
 
@@ -204,3 +204,7 @@ and the checker's source may use what that release's checker accepts.
 [strict-teal.md]: strict-teal.md
 [the new checker]: strict-teal.md#the-new-checker
 [the pinned-release seed]: strict-teal.md#the-pinned-release-seed
+
+[`build/checker_shadow_test.tl`]: ../../build/checker_shadow_test.tl
+[`checker/facts.tl`]: ../../checker/facts.tl
+[`Place.key`]: ../../build/checker_narrowing_test.tl

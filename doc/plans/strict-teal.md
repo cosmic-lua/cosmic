@@ -169,7 +169,7 @@ stack can carry.
   concern lands, until the new checker replaces it.** it lives in
   `checker/`, outside the module closure it compiles, and is edited
   directly. a step that gives a concern its rule gives it a module of its
-  own (`checker/flow.tl`, `checker/narrowing.tl`, `checker/facts.tl`), so
+  own ([`checker/flow.tl`], [`checker/narrowing.tl`], [`checker/facts.tl`]), so
   no step exists only to split.
 - **the seed is the pinned release.** the release [`ci/cosmic-driver.pin`]
   names compiles the checker's source to Lua, and boot loads that in place
@@ -339,7 +339,7 @@ keeps every part of it working and builds on it where it helps.
   module's exported types, canonicalised, as a row beside its stub, and a
   module is checked against its requirements' rows rather than by checking
   their sources again. a worker can then check any module, so the
-  sharding by import closure in `build/shards.tl`, which exists because
+  sharding by import closure in [`build/shards.tl`], which exists because
   "the checker's types cannot leave a process", goes, and the hash of
   that row is what a requiring module's compile key reads: an edit that
   leaves a module's exported types alone recompiles nothing that requires
@@ -793,7 +793,7 @@ review rounds per PR.
 - **run-time checks in test runs (#3040).** they report, and size what the
   later steps refuse.
 - **the flow analysis as checker modules.** reachability (#3041); places
-  and guards in `checker/narrowing.tl` (#3044); drops at writes, calls,
+  and guards in [`checker/narrowing.tl`] (#3044); drops at writes, calls,
   declared-metamethod operators, loops and labels (#3050).
 - **[assigned before read] (#3061), [captures are read-only] (#3067) and
   [goto only as continue] (#3066).**
@@ -866,7 +866,7 @@ not.
 - **`vendor/tl/` removed.** it goes, except the license and notice, which
   move beside the checker and stay in the bill of materials; the
   compiler's identity loses [`vendor/tl/PIN`].
-- **the standalone shims removed.** `checker/tl.tl`'s command-line code,
+- **the standalone shims removed.** [`checker/tl.tl`]'s command-line code,
   which reads `io`, `os`, `package`, `load` and `debug`, is deleted, and
   then the boot bridge's stand-ins and [`build/teal.tl`]'s copy of them
   go. the bridge's compile of the `build.*` closure stays; only its
@@ -902,7 +902,7 @@ carries this step.
 ### the new checker
 
 written for the language the foundations leave, not forked from
-`checker/tl.tl`, at about 10,000 to 13,000 lines against the fork's
+[`checker/tl.tl`], at about 10,000 to 13,000 lines against the fork's
 22,000. it starts now, beside the fork's foundations, and holds each
 foundation's final form as the fork lands it. a sketch, not a design:
 
@@ -1093,6 +1093,11 @@ the switch, since the seed's Lua runs on the tree's VM.
 [`Sqlite.rows`]: ../../cosmic/sqlite.tl
 [`vendor/tl/PIN`]: ../../vendor/tl/PIN
 
+[`build/shards.tl`]: ../../build/shards.tl
+[`checker/facts.tl`]: ../../checker/facts.tl
+[`checker/flow.tl`]: ../../checker/flow.tl
+[`checker/narrowing.tl`]: ../../checker/narrowing.tl
+[`checker/tl.tl`]: ../../checker/tl.tl
 [`Child.Handle`]: ../../cosmic/child.tl
 [`compilation.ordered`]: ../../build/compilation.tl
 [`cosmic.json.array`]: ../../cosmic/json.tl
