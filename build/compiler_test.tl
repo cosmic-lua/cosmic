@@ -11,6 +11,7 @@
 local Fs = require("cosmic.fs")
 local Store = require("cosmic.store")
 local Test = require("cosmic.test")
+local checker_wrapper = require("build.checker_wrapper")
 local teal = require("build.teal")
 local type compiler = require("build.compiler")
 
@@ -26,29 +27,6 @@ local parts: {{string}} = {
   { "checker.flow", "checker/flow.tl" },
   { "checker.narrowing", "checker/narrowing.tl" },
 }
-
---- `code`, a compiled checker, as the bridge starts it: `declarations`
---- quoted on one line as the local `stdlib`, and `modules`, the Lua of
---- each other file as `{ name, Lua, path }`, quoted on the same line
---- under the local `require`, so no line of `code` moves.
-local function wrapped(code: string, declarations: string, modules: {{string}}): string
-  local function quoted(text: string): string
-    return (string.format("%q", text):gsub("\\\n", "\\n"))
-  end
-  local sources: {string} = {}
-  for index, module in ipairs(modules) do
-    sources[index] = "[" .. quoted(module[1]) .. "] = {" .. quoted(module[3]) ..
-      ", " .. quoted(module[2]) .. "}"
-  end
-  return "local stdlib, require = " .. quoted(declarations) ..
-    ", (function(parts, env) local loaded, part_env = {}, nil " ..
-    "local function req(name) local module = loaded[name] if module == nil then " ..
-    "local part = parts[name] if part == nil then return require(name) end " ..
-    "module = assert(load(part[2], \"@\" .. part[1], \"t\", part_env))() loaded[name] = module " ..
-    "end return module end " ..
-    "part_env = setmetatable({ require = req }, { __index = env }) return req end)" ..
-    "({" .. table.concat(sources, ", ") .. "}, _ENV) " .. code
-end
 
 --- Makes `built` find the checker's other files by name in `texts`, as
 --- the bridge makes `stage0` do, and nothing else.
@@ -114,7 +92,7 @@ local function test_the_compiler_compiles_itself_to_itself()
         tostring(#module_result.type_errors) .. " type errors")
     modules[index] = { part[1], module_code, part[2] }
   end
-  code = wrapped(code, declarations, modules)
+  code = checker_wrapper.wrapped(code, declarations, modules)
   assert(code == carried, "the compiler compiled its own source to other Lua " ..
       "than it is: " .. tostring(#code) .. " bytes against " .. tostring(#carried))
 end

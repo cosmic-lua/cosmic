@@ -141,6 +141,16 @@ cosmic json '$.items'` works. A URL may carry its digest, as pip's do:
 
 `cosmic hash [--sha512 | --sha1 | --md5 | ...] [<file>|-]...` prints `sha256sum`'s `<hex>  <name>` lines, the same on every platform (`sha256sum` and `shasum -a 256` differ), streaming each file; `--check sums.txt` verifies a list (`name: OK` or `FAILED`, exit 1 on any failure), and `--hmac-file key.bin` makes each digest an HMAC without the key in `ps`. `cosmic help hash` has the rest.
 
+## the Lua of a Teal file
+
+`cosmic compile file.tl` prints the Lua this binary's compiler writes for a
+`.tl` file; `cosmic compile -o out a.tl b.tl` writes `out/a.lua` and
+`out/b.lua`. It reads only the files you name, so it runs in any directory,
+and the Lua is raw, with no wrapper. A type error is counted on standard
+error (`--errors` lists each) and the Lua is written anyway; only a syntax
+error refuses, naming `file:line:column`, writing nothing and exiting 2.
+`cosmic help compile` has the rest.
+
 ## bytes to text and back
 
 `cosmic codec hex|base64|base64url [-d] [file|-]` encodes a file or
