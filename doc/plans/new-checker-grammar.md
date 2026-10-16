@@ -402,7 +402,7 @@ source; hand-written in the rewrites).
 | `...: T` | `T...` as a parameter type | rewrite in place | respelling |
 | `continue` | `goto continue` and `::continue::` at a loop's end | replace the goto; blank the label's line | layout: the label moves to the loop's `end` line; the oracle deletes `::continue::` tokens first |
 | `if` expression | `c and a or b` | when the fork's type report shows `a` neither boolean nor optional; any other ternary stays and counts under the [honest `or` and `and`] ceiling | respelling |
-| `class` | a record with `function R:m()` or `metamethod __close` | move each method into the class and add `self`; the `setmetatable` pattern is already a typed literal ([compiler-written classes, in the fork]) | meaning: bodies move, the reserved form replaces the metatable |
+| `class` | a record with `function R:m()` or `metamethod __close` | move each method into the class and add `self`; the translator writes the `setmetatable` pattern as the class ([compiler-written classes, in the new checker]) | meaning: bodies move, the reserved form replaces the metatable |
 | `__close` field | `metamethod __close: T` in a declaration file | drop `metamethod` | respelling |
 | `as` | `e as T` | kept as the transition form, counted in the [no casts] ceiling | respelling; the checker refuses it |
 | `is` | `e is T` | unchanged | respelling for primitives, enums, `nil`, function and table kinds; meaning for a class (the compiler's metatable test); refused for a record that is not a class |
@@ -829,7 +829,7 @@ returns as the production named, when a use appears.
 [assigned before read]: strict-teal.md#assigned-before-read
 [collections are views unless declared mutable]: strict-teal.md#collections-are-views-unless-declared-mutable
 [compiler-written classes]: strict-teal.md#compiler-written-classes
-[compiler-written classes, in the fork]: strict-teal.md#compiler-written-classes-in-the-fork
+[compiler-written classes, in the new checker]: strict-teal.md#compiler-written-classes-in-the-new-checker
 [goto only as continue]: strict-teal.md#goto-only-as-continue
 [honest `or` and `and`]: strict-teal.md#honest-or-and-and
 [lookahead]: #lookahead

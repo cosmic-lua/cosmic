@@ -428,7 +428,8 @@ and `fixed`), so it is reused as written with interned types as its values.
   join keeps it assigned only if both edges assign it; a function literal
   reads each outer variable it names where it is made.
 - **loops** are walked once under the head's facts minus what the loop
-  assigns, as [strict-teal-narrowing.md] has it.
+  assigns. a read of a head fact the back edge no longer supports is
+  refused, and an exit edge keeps a head fact only if the back edge does.
 
 ### `match` and tagged unions
 
@@ -521,10 +522,13 @@ set when the first measurement exists.
 each is a PR with its tests and a check in [`build/tree_checks.tl`], beside
 `lexed` and `scoped`, that checks the translated tree and counts errors per
 code, pinned by file and code. a rule's ceiling is its codes' count; it only
-falls ([a count the tree cannot yet bring to zero is a ceiling]) and a rewrite
-lowers it. every error has a code, a fix and a catalogue row from the PR that
-adds it. the translator ([`lang/translate.tl`]), the scope builder and the
-speed harness exist already.
+falls ([a count the tree cannot yet bring to zero is a ceiling]) and a new
+violation is refused. every error has a code, a fix and a catalogue row from
+the PR that adds it. the translator ([`lang/translate.tl`]), the scope
+builder and the speed harness exist already. a piece is briefed to its
+builder in a page of this file, not the whole plan. the pieces end at [the
+switch]: the new checker replaces the fork once it is at least as sound as
+the fork, and rows and incremental checking come after it.
 
 - **the store.** forms, interning, union normal form, display. property
   tests: interning is idempotent, a union does not depend on member order, an
@@ -534,21 +538,31 @@ speed harness exist already.
   reflexive, transitive, `never` below everything, only `nil` and optionals
   admit nil, a `mut` collection is invariant.
 - **declarations.** lowering of every declaration and annotation with its
-  checks (agreement, tags, keys, dense arrays); the tree check lowers every
+  checks (agreement, tags, keys, dense arrays). the tree check lowers every
   declaration of the tree and pins what fails.
-- **rows.** encoding, Merkle hashes, interface hashes, decoding. a test checks
-  a module in a second process from rows alone and compares every verdict.
+- **classes,** built once, here ([compiler-written classes, in the new
+  checker]): nominal class types, the class literal and its reserved form.
 - **expressions without flow.** operators, calls, overloads, literals, fields,
   writes, returns. the ceilings for nil, indexes, views, mutable fields,
   records as maps, conditions, `or`/`and`, concatenation and numeric keys
-  start here.
+  start here. once expressions exist, the speed harness measures checking the
+  whole tree in one process against the test suite's budget. that
+  decides where rows go.
 - **flow.** facts, narrowing, definite assignment, reachability, with the fuzz
-  and checked narrowing of [strict-teal-narrowing.md] run against it.
-- **generics, then `match`, tagged unions, protected calls and coroutines.**
+  and checked narrowing of [narrowing by construction] run against it.
+- **generics, `match`, tagged unions, protected calls and coroutines.** they
+  share a seam, the instantiation of a call and the alternatives of a union,
+  so they land as few pieces as the seam allows, cut where the work cuts.
   `table.insert`, `ipairs`, `assert`, `pcall` and `Coroutine` lose their
   special cases to declarations.
-- **incremental.** the trace, the worker split that replaces
-  [`build/shards.tl`], and the speed workloads.
+- **the switch.** the gate, then one change that commits the translated tree
+  and deletes `checker/` and the translator.
+- **rows, then incremental,** after the switch if checking the whole tree in
+  one process is fast enough for the test suite, and if it is not, before
+  it, after declarations. rows are encoding, Merkle hashes, interface hashes
+  and decoding, with a test that checks a module in a second process from
+  rows alone and compares every verdict. incremental is the trace, the worker
+  split that replaces [`build/shards.tl`], and the speed workloads.
 
 ## decisions
 
@@ -707,6 +721,7 @@ added when a measurement asks for it. *not adopted:* each reading's looser form,
 [an index read may be nil]: strict-teal.md#an-index-read-may-be-nil
 [arrays are dense]: strict-teal.md#arrays-are-dense
 [collections are views unless declared mutable]: strict-teal.md#collections-are-views-unless-declared-mutable
+[compiler-written classes, in the new checker]: strict-teal.md#compiler-written-classes-in-the-new-checker
 [conditions are booleans or optionals]: strict-teal.md#conditions-are-booleans-or-optionals
 [fields are fixed unless declared mutable]: strict-teal.md#fields-are-fixed-unless-declared-mutable
 [generic bodies compare, pass and store]: strict-teal.md#generic-bodies-compare-pass-and-store
@@ -722,10 +737,10 @@ added when a measurement asks for it. *not adopted:* each reading's looser form,
 [one variance per type constructor]: strict-teal.md#one-variance-per-type-constructor
 [pcall and coroutines are typed]: strict-teal.md#pcall-and-coroutines-are-typed
 [records are not maps]: strict-teal.md#records-are-not-maps
-[strict-teal-narrowing.md]: strict-teal-narrowing.md
 [strict-teal.md]: strict-teal.md
 [tagged unions]: strict-teal.md#tagged-unions
 [the new checker]: strict-teal.md#the-new-checker
+[the switch]: strict-teal.md#the-switch
 [the decisions]: #decisions
 [varargs end in nil]: strict-teal.md#varargs-end-in-nil
 [what the types leave out]: #what-the-types-leave-out

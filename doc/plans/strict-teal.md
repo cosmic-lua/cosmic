@@ -11,20 +11,21 @@ database, what the tree measured, the order the work lands in, and the
 questions still open. rules, decisions and steps go by their names, never
 by a number.
 
-the work runs on two tracks from now. the checker forked from Teal is
-taken as far as three foundations: [the pinned-release seed] compiles it
-in place of upstream's `tl.lua`, [narrowing by construction] narrows only
-what nothing else can change, and [compiler-written classes] leave no
-metatable but the compiler's. beside it, [the new checker] is written for
-the smaller language those leave, and holds the strongest form of every
-rule from its first PR: fixed fields, records that are not maps, no `as`,
-nil out of every type, conditions that are booleans or optionals, and
-collections that are views. the tree does not obey them yet, so each
-rule's violations over the translated tree are a ceiling that only falls
-([a count the tree cannot yet bring to zero is a ceiling]), and the work
-after the foundations is the rewrites that bring each ceiling to zero
-([the rewrites to zero]). the new checker replaces the fork when the tree
-checks with every ceiling at zero.
+the work runs on two tracks. the checker forked from Teal is taken as
+far as two foundations and then frozen: [the pinned-release seed]
+compiles it in place of upstream's `tl.lua`, and [narrowing by
+construction] narrows only what nothing else can change. beside it, [the
+new checker] is written for the smaller language those leave, and holds
+the strongest form of every rule from its first PR: fixed fields, records
+that are not maps, no `as`, nil out of every type, conditions that are
+booleans or optionals, collections that are views, and classes the
+compiler writes. the tree does not obey them yet, so each rule's
+violations over the translated tree are a ceiling per file and code that
+only falls, and a new violation is refused ([a count the tree cannot yet
+bring to zero is a ceiling]). the new checker replaces the fork once it
+is at least as sound as the fork, not once every ceiling is zero ([the
+switch]). the rewrites that bring each ceiling to zero come after, in the
+new grammar ([the rewrites to zero]).
 
 once a step merges its section is marked done, and
 [design.md](../design.md)'s teal section states each rule as it lands.
@@ -163,11 +164,12 @@ stack can carry.
   error whose fix the checker cannot state is a bug in the error.
 - **strict is the only mode.** a rule holds for every module from the PR
   that adds it. no module keeps a lax mode, which would be an escape
-  hatch. where the tree does not yet obey a rule, its violations are one
-  count for the whole tree, a ceiling that only falls and that the
-  rewrite brings to zero; no file is exempt and no rule is switched on
-  last. a count over the tree, taken first, sizes the rewrite; it is a
-  measurement, not a gate.
+  hatch. where the tree does not yet obey a rule, its violations are
+  pinned as a ceiling per file and code that only falls and that a
+  rewrite brings to zero, and a new violation is refused, so code written
+  after the switch meets the full rules; no file is exempt and no rule is
+  switched on last. a count over the tree, taken first, sizes the
+  rewrite; it is a measurement, not a gate.
 - **names, not numbers.** a rule, a decision, a step and a part of a step
   is named for what it does, and is referred to by that name.
 
@@ -194,34 +196,47 @@ stack can carry.
   previous pin, a one-line revert, and `COSMIC_BOOTSTRAP` runs any other
   cosmic in its place. the fixed point of [`build/compiler_test.tl`] keeps
   a broken checker from being released.
-- **a new checker for the smaller language, started now.** with the three
-  foundations, the language a checker must handle is much smaller than
-  Teal: structured control flow, no closure-assigned locals, no run-time
+- **a new checker for the smaller language, started now.** the language
+  a checker must handle is much smaller than Teal: structured control
+  flow, no closure-assigned locals, and, in the new checker, no run-time
   metatables. a checker written for that language is smaller and faster
-  than one migrated in place, and the migration's cost is visible already:
-  shadow mode had to copy the old narrowing's quirks to agree with it. the
-  fork gets only what the three foundations need, and no nil work: nil in
-  every type reaches into the fork's subtype table, `never`, generics and
-  every per-site nil check, and the tree's nil rewrite can only be
-  verified by a checker that enforces the rule, so the new checker is that
-  checker. every rule after the foundations ([nil is its own type],
+  than one migrated in place, and the migration's cost showed: shadow mode
+  had to copy the old narrowing's quirks to agree with it. the fork gets
+  only the foundations it has, and no nil work: nil in every type reaches
+  into the fork's subtype table, `never`, generics and every per-site nil
+  check, and the tree's nil rewrite can only be verified by a checker that
+  enforces the rule, so the new checker is that checker. every rule after
+  the foundations ([nil is its own type],
   [collections are views unless declared mutable], [fields are fixed
   unless declared mutable], [records are not maps], [no casts],
   [conditions are booleans or optionals], [one variance per type
   constructor], [named receivers], [narrowing declarations], [tagged
   unions], [honest `or` and `and`], [annotated parameters], [generic
-  bodies compare, pass and store], [numeric keys are integers] and [pcall
-  and coroutines are typed]) is specified here and built in [the new
+  bodies compare, pass and store], [numeric keys are integers], [pcall
+  and coroutines are typed], [compiler-written classes] and [dispatch only
+  through declared types]) is specified here and built in [the new
   checker], not in the fork. the new checker holds the strongest of them
   from its first PR, each with a ceiling on the translated tree, rather
   than gaining them one at a time or switching them on at the end.
-- **the fork stops at what narrowing needs.** a hole the fork leaves that
-  the new checker closes by its defaults is not closed in the fork. the
-  fork narrows only locals, so the tree declares no read-only field in
+- **the fork is frozen.** it gets no new work except a real soundness
+  bug: a program it accepts that faults at run time on a type that lied.
+  a hole the new checker closes by its defaults is not closed in the fork.
+  the fork narrows only locals, so the tree declares no read-only field in
   it: the fork's `readonly` syntax and its write and literal rules (#3081,
-  #3083) stay unused by the tree and go with the fork. read-only field
-  paths return as places in the new checker, through [fields are fixed
-  unless declared mutable].
+  #3083) stay unused by the tree and go with the fork, and so do the guard
+  algebra and the clock it keeps. read-only field paths return as places
+  in the new checker, through [fields are fixed unless declared mutable].
+  classes are built once, in the new checker ([compiler-written classes,
+  in the new checker]).
+- **the new checker replaces the fork once it is at least as sound.**
+  the aim is lower cost, accepting harder transitions while keeping a
+  high bar for soundness and correctness. the gate is not every ceiling
+  at zero but the three conditions of [the switch], and the rewrites that
+  bring each ceiling to zero happen after it, in the new grammar.
+- **rows and incremental checking come after the switch,** if checking
+  the whole tree in one process is fast enough for the test suite. that
+  is measured once expressions exist; if it is not fast enough, rows come
+  back before the switch ([the order the pieces land in]).
 - **declarations are the trust boundary.** a `.d.tl` signature is the
   only typing the checker takes without proof. a narrowing declaration
   ([narrowing declarations]) is taken on trust too, but a test run
@@ -255,22 +270,27 @@ stack can carry.
   executable carries a check, and a report names the caller's line, not
   the callee's.
 - **a count the tree cannot yet bring to zero is a ceiling that only
-  falls.** the run-time reports, each rule's violations over the
-  translated tree, and the type errors in the checker's own source are
-  each counted, and each count is a ceiling kept in the build database. a
-  rise fails the build, so a change cannot add what the tree is working to
-  remove, and a rewrite that lowers a count lowers its ceiling with it.
-  [`build/compiler_test.tl`] pins the checker's own count today as an
-  exact number in its source; the ceiling replaces that pin, and the
-  checker's own ceiling is 0 when the new checker replaces the fork,
-  whose source obeys its own rules.
-- **a checker step is reviewed twice and measured against main.** each
-  step has two review rounds. each also runs a differential against main
-  over the common idioms of the tree, which measures over-refusal as well
-  as soundness: a rule that refuses what main accepted and the tree writes
-  is a bug in the rule or a missing rewrite. random programs and
-  differential runs find what review does not (see "what the first steps
-  taught").
+  falls.** the run-time reports and each rule's violations over the
+  translated tree are each counted per file and code, and each count is a
+  ceiling kept in the build database. a rise fails the build, so a change cannot add what the
+  tree is working to remove, and a rewrite that lowers a count lowers its
+  ceiling with it. [`build/compiler_test.tl`] pins the frozen fork's own
+  count as an exact number in its source, and the pin goes with the
+  fork; the new checker's source is part of the tree and under the same
+  ceilings.
+- **a checker PR gets one adversarial review, and the automated gates
+  carry the rest.** the review is one round, and a second only when the
+  first finds a soundness bug. the fuzz properties are the automated
+  gate, with mutation testing in the review, and each PR also runs a differential against
+  the fork over the common idioms of the tree, which measures
+  over-refusal as well as soundness: a rule that refuses what the fork
+  accepted and the tree writes is a bug in the rule or a missing rewrite.
+  random programs and differential runs find what review does not (see
+  "what the first steps taught"). reviews and fixes cover soundness and
+  correctness reachable from source, and the missing tests for them, not
+  hardening against a misuse of an internal API that no caller makes. a
+  prose nit rides with the next change and never starts a round of its
+  own. a piece is briefed to its builder in a page, not the whole plan.
 - **optimize for the strong design; it is easy to rewrite the existing
   code.** rewrite cost is not a reason to choose a weaker rule. a rule is
   chosen for soundness and simplicity, and the tree is rewritten to it.
@@ -381,16 +401,20 @@ keeps every part of it working and builds on it where it helps.
 
 ### what the language builds on
 
-- **types cross processes as rows.** [the new checker] writes each
-  module's exported types, canonicalised, as a row beside its stub, and a
-  module is checked against its requirements' rows rather than by checking
-  their sources again. a worker can then check any module, so the
-  sharding by import closure in [`build/shards.tl`], which exists because
-  "the checker's types cannot leave a process", goes, and the hash of
-  that row is what a requiring module's compile key reads: an edit that
-  leaves a module's exported types alone recompiles nothing that requires
-  it. only a test verdict's key keeps the source closure.
-- **a module is rechecked for what it uses.** `uses` already records
+- **types cross processes as rows, after the switch.** [the new checker]
+  writes each module's exported types, canonicalised, as a row beside its
+  stub, and a module is checked against its requirements' rows rather
+  than by checking their sources again. a worker can then check any
+  module, so the sharding by import closure in [`build/shards.tl`], which
+  exists because "the checker's types cannot leave a process", goes, and
+  the hash of that row is what a requiring module's compile key reads: an
+  edit that leaves a module's exported types alone recompiles nothing
+  that requires it. only a test verdict's key keeps the source closure.
+  this waits on a measurement: if checking the whole tree in one process
+  is fast enough for the test suite, rows come after the switch, and if
+  it is not, before ([the order the pieces land in]).
+- **a module is rechecked for what it uses,** also after the switch.
+  `uses` already records
   which declarations of another module each module refers to. keying a
   module by the hashes of the declarations it uses, and of the types they
   reach, rather than by its requirements' whole interfaces, means an edit
@@ -670,8 +694,8 @@ with them now becomes a method (`v:call(...)`, `v:len()`) or, for
 `__mode`, a weak table from the standard library. because the metatable
 is the compiler's, `v is C` for a class `C` is a check of it, so classes
 are told apart without a tag. this needs classes compared by name, so the
-classes step makes class types nominal before [one variance per type
-constructor] does it for every record.
+new checker makes class types nominal from its first PR, before [one
+variance per type constructor] does it for every record.
 
 the literal that makes a class's value names every field, a field not yet
 known taking its empty value (`fd = -1`), or nil where the field is a `?`
@@ -762,15 +786,15 @@ naming the instance. of the tree's 1,624 casts, 666 are from `any` and
 become validators, and most of the 958 others exist to get past nil,
 narrowing and variance, which the other rules make unnecessary;
 230 of the 290 outside tests are in the checker's own source, which [the
-new checker] replaces. until the replacing change the translated tree is
-only checked, never committed. the translator writes each remaining cast
-as a form the new checker parses only to refuse as a cast, counted under
-the no-casts ceiling, and its error names the check that replaces it. the
-new checker's verdicts on the translated tree then guide the Teal source:
-a cast becomes a validator, `is` or a guard, or is deleted once nil,
-narrowing and variance make it unneeded. the gate (every ceiling at zero)
-means the tree has no casts when the fork is replaced, and the
-translation form goes with that change: the final grammar has no `as`.
+new checker] replaces. until the switch the translated tree is only
+checked, never committed. the translator writes each remaining cast as a
+form the new checker parses only to refuse as a cast, counted under the
+no-casts ceiling, and its error names the check that replaces it. the
+new checker's verdicts on the translated tree then guide the rewrite of
+the source: a cast becomes a validator, `is` or a guard, or is deleted
+once nil, narrowing and variance make it unneeded. the translation form
+goes when the no-casts ceiling reaches zero: the final grammar has no
+`as`.
 
 ### numeric keys are integers
 
@@ -922,30 +946,19 @@ each step measures again with the checker's own rows before it lands.
   ([numeric keys are integers]) and uses of raw `coroutine.*` and `pcall`
   ([pcall and coroutines are typed]) are counted by query over the type
   report before each rule's rewrite.
-- **narrowing by construction,** measured on `origin/main` at e95cd66f4.
-  - narrowed reads: 12,513. field reads: 752 (609 outside tests) on 557
-    places; 79% of them are on fields never written after creation.
-  - mutable-local narrowed reads: 1,545. turning narrowing off for them
-    gives 1,070 error lines in 203 files.
-  - closure-assigned narrowed reads: 153, on 105 places.
-  - function literals that assign an outer local: 1,182 (436 outside
-    tests, 746 in tests) over 838 captured locals, all since rewritten for
-    [captures are read-only]. no forward-declared function is assigned by
-    a closure. the patterns: 190 out-params declared without a value, 135
-    declared `= nil`, 324 accumulators, 119 flags, 410 other.
-  - `goto`: 5, all of the shape [goto only as continue] allows.
-  - `setmetatable`: 163 calls. 67 attach to a record that declares
-    metamethods, 70 to a record that declares none (64 of them the
-    class-method `__index = R` pattern), and 25 are untyped.
-  - casts: 1,624, of which 958 are not from `any`: 290 outside tests (230
-    in the checker) and 668 in tests.
-  - drop sites with field facts: 1,008. about 30% of their callees in the
-    tree are pure one level deep.
-  - `rawset` 11, `rawget` 29, `debug.*` 3 (all in the checker).
-- **the checker's own source.** 317 type errors under its own rules,
-  pinned as an exact count by [`build/compiler_test.tl`], which becomes a
-  ceiling that only falls ([a count the tree cannot yet bring to zero is a
-  ceiling]). it has about 94 free locals, short of Lua's limit of 200.
+- **narrowing by construction,** measured on `origin/main` at e95cd66f4:
+  12,513 narrowed reads, 752 of them field reads (609 outside tests) on 557
+  places, 79% of them on fields never written after creation; 1,182
+  function literals that assign an outer local, all since rewritten for
+  [captures are read-only]; `setmetatable` 163 calls (67 on a record that
+  declares metamethods, 70 on one that declares none, 64 of them the
+  class-method `__index = R` pattern, and 25 untyped); casts 1,624, of
+  which 958 are not from `any`: 290 outside tests (230 in the checker)
+  and 668 in tests; `rawset` 11, `rawget` 29, `debug.*` 3 (all in the
+  checker).
+- **the checker's own source.** 314 type errors under its own rules,
+  pinned as an exact count by [`build/compiler_test.tl`] until the fork
+  goes. it has about 94 free locals, short of Lua's limit of 200.
 - **nil ([nil is its own type], [assigned before read]).** the rewrite of
   every directory outside `checker/` cost less than planned.
   `--check-types` finds what a call or return passes, but not a local or a
@@ -961,154 +974,103 @@ each step measures again with the checker's own rows before it lands.
 
 each step is one or more PRs that follow
 [doc/contributing.md](../contributing.md): each stands alone, passes CI,
-and has a test that fails without it. a fork foundation counts its sites
-over the tree first, then rewrites the tree and turns the refusal on for
-every module, in one change where its size allows. a rule of the new
-checker is held from the PR that adds it, and its step is the rewrite
-that brings its ceiling to zero. each PR states the
-change in boot time and in the checker's self-compile time. every checker
-step follows the review practice in "decisions", with two independent
-review rounds per PR.
+and has a test that fails without it. a rule of the new checker is held
+from the PR that adds it, and its step after the switch is the rewrite
+that brings its ceiling to zero. each PR states the change in boot time
+and in the checker's self-compile time. every checker PR follows the
+review practice in "decisions": one adversarial review round, and a
+second only when the first finds a soundness bug. a piece is briefed to
+its builder in a page, not the whole plan.
 
 ### done
 
-- **the checker moved into the tree (#3032).** the patched `tl.tl` moved
-  to its own root, compiled at boot, emitting byte-identical Lua; the
-  compiler's identity and cache keys, the boot bridge, the bill of
-  materials and [`build/compiler_test.tl`] moved with it, and `patch/tl/`
-  was deleted.
-- **structured errors and declarations (#3033, #3039).** the checker
-  answers a code and its places with each error; the hints in
-  [`build/teal.tl`] read those, not message text. the Lua standard
-  library's declarations live in `.d.tl` files.
-- **run-time checks in test runs (#3040).** they report, and size what the
-  later steps refuse.
-- **the flow analysis as checker modules.** reachability (#3041); places
-  and guards in [`checker/narrowing.tl`] (#3044); drops at writes, calls,
-  declared-metamethod operators, loops and labels (#3050).
-- **[assigned before read] (#3061), [captures are read-only] (#3067) and
-  [goto only as continue] (#3066).**
-- **checker fuzzing (#3060, #3062).** a test runs random programs through
-  the checker and fails on any crash, and a differential against a pinned
-  corpus fails when what the checker accepts changes without a deliberate
-  update. it runs on [`build.fuzz`], with its corpus in `testdata/fuzz/`.
-- **the row-accessor pin move (#3056).** [`Sqlite.rows`] results are read
-  through typed accessors (#3051), and `ci/` dropped its shim once the pin
-  carried them.
+- the checker moved into the tree, compiled at boot (#3032).
+- structured errors, and the Lua library's declarations in `.d.tl` files
+  (#3033, #3039).
+- run-time checks in test runs (#3040).
+- the flow analysis as checker modules: reachability, places and guards,
+  drops (#3041, #3044, #3050).
+- [assigned before read] (#3061), [captures are read-only] (#3067) and
+  [goto only as continue] (#3066).
+- checker fuzzing: random programs through the checker, and a
+  differential against a pinned corpus, on [`build.fuzz`] (#3060, #3062).
+- checked narrowing and the program shapes narrowing bugs lived in
+  (#3077, #3078).
+- the row-accessor pin move (#3051, #3056).
 
 ### narrowing by construction
 
-it lands before every later rule, so the flow analysis they read is the
-sound one. the design is in [strict-teal-narrowing.md]; its verdict
-harness, facts module and shadow mode are done (#3070, #3069, #3074), and
-shadow mode found four old-narrowing bugs, fixed in #3071, #3072, #3073 and
-#3075. the reads have switched to the facts. in short:
+done: the verdict harness (#3070), the facts module (#3069), shadow mode
+(#3074), the narrowed field reads copied to locals (#3088), the old
+narrowing restricted to locals (#3089), reads from the facts (#3092) and
+the old narrowing deleted (#3096). shadow mode found four unsound
+acceptances in the old narrowing, fixed in #3071, #3072, #3073 and #3075.
 
-- declared types are never mutated. facts live in an immutable map from
-  place to type, keyed by binding, carried along a small control-flow
-  graph, and joins happen in one place.
-- it retires `specialize_var` and the scope-marker bookkeeping (`narrow`,
-  `widen` and `localizing` entries, `widened_from`).
-- a place is a local. a local's fact is dropped precisely by assignment.
-  the field-path and global drops, and the facts that serve them, go.
-- one change, before reads switch, copies the narrowed field reads (752,
-  609 outside tests) to locals and restricts the old narrowing to locals,
-  so the switch to the facts flips only what the facts decide differently.
-  the tree declares no read-only field in the fork: the `readonly` syntax
-  and its rules (#3081, #3083) stay unused and go with the fork, and
-  read-only field paths return as places in the new checker through
-  [fields are fixed unless declared mutable] ("the fork stops at what
-  narrowing needs").
-- before reads switch, the fuzz generator makes coroutines that yield
-  between a test and a read and literals aliased before they are typed,
-  and is shown to find each hole the fork's narrowing closes on a checker
-  without its fix. casts and maps join the generator in the new checker.
-- the refinements that accept more are not built in the fork: the new
-  checker's one pass gives them.
+what landed in the fork:
+
+- declared types are never mutated. an immutable map from a binding's
+  identity to its narrowed type ([`checker/facts.tl`]) is one register of
+  the checker's in-order walk, so a shadowing name is a new binding. a
+  read is the declared type met with its fact.
+- a place is a local, and a fact is dropped only by an assignment to it.
+  a call, an alias, an operator or a metamethod drops nothing, and a
+  field narrows nothing: the 752 narrowed field reads (609 outside
+  tests) were copied to locals. a function body keeps a local of the code
+  around it only if nothing assigns it after the function is made.
+- `specialize_var`, the scope markers and the shadow comparison are gone.
+  the verdicts the switch moved are pinned in
+  [`build/checker_facts_reads_test.tl`].
+
+what was dropped: the refinements that accept more (one flow pass,
+function declarations keeping local facts, joins that unite types, the
+loop edge rule) are built once, in the new checker, and the guard algebra
+and the clock stay in the frozen fork until it goes.
 
 ### the pinned-release seed
 
-it needs a release between its parts, so the first two start now, beside
-narrowing by construction, and the rest land before [the new checker]
-replaces the fork, which needs them; narrowing by construction does
-not.
+done: a compile verb in the release (#3079), the pin move (#3080), boot
+from the seed (#3082), and `vendor/tl/` and the standalone shims removed
+(#3084). boot compiles the checker in two stages, the seed's and then
+the checker's own, and the tool carries the second. `checker/SEED_DIFFERS`
+lists the files the emitter has moved ahead of the pin.
 
-- **a compile verb in the release.** a verb or module the pinned release
-  can run that compiles a list of `.tl` files to one Lua text each, for
-  the tree's VM, with the compat targets off. it emits despite type errors
-  and refuses only syntax errors, since the checker's source does not obey
-  its own rules. it emits each file raw; the wrapper that joins the
-  checker's parts lives once, in the tree, where today
-  [`build/compiler_test.tl`] and the boot bridge each build it.
-- **the pin move.** the pin moves to a release that carries the verb.
-- **boot from the seed.** a `build.zig` step runs [`bin/cosmic-bootstrap`]
-  on `checker/` and the pin before boot. boot compiles in two stages, the
-  seed's checker compiling the checker's source and that checker
-  compiling it again, and the tool carries the second stage, so the
-  carried compiler never depends on the pin's emitter.
-  [`build/compiler_test.tl`]'s fixed point is the third stage equal to
-  the second; the boot also asserts the first equal to the second, file by
-  file, which catches a seed that miscompiles: a change to the emitter
-  lists the files it moves in `checker/SEED_DIFFERS` until the pin
-  moves, and a difference in an unlisted file, or a listed file that does
-  not differ, fails the boot. a boot whose seed cannot parse the checker
-  says which syntax and that the pin must move. the self-rebuild already
-  uses the carried compiler and is unchanged.
-- **`vendor/tl/` removed.** it goes, except the license and notice, which
-  move to [`build/bom/tl.pin`] and [`build/bom/tl.LICENSE`], where the bill of
-  materials reads the components that are not a vendored tree; the
-  compiler's identity lost `vendor/tl/PIN` a step before.
-- **the standalone shims removed.** [`checker/tl.tl`]'s code that reads
-  `io`, `os`, `package`, `load` and `debug` is deleted: the `TL_DEBUG`
-  and `TL_DEBUG_FACTS` trace, the module search of the filesystem
-  (`TL_PATH`, `tl.path`), the file-opening `check_file` and the package
-  loader and `load`. what the checker is asked to `require` it is handed
-  through `search_module`. then the boot bridge's stand-ins and
-  [`build/teal.tl`]'s copy of them go, and the compiler is loaded in an
-  environment of the pure libraries and `load`, which the checker
-  wrapper uses. the bridge's compile of the
-  `build.*` closure stays, with a search of its own over the tree's files;
-  so does the row that caches the carried compiler, since boot still
-  compiles it twice.
+### compiler-written classes, in the new checker
 
-the checker's own source may then use `name?: T`, `: never` and the strict
-rules, one pin move after each lands. it is never rewritten to a rule the
-new checker replaces it before, and the self-compile's pinned type-error
-count becomes a ceiling that only falls ([a count the tree cannot yet bring
-to zero is a ceiling]).
+[compiler-written classes] and [dispatch only through declared types],
+built once, here and not in the fork. the new checker compares classes by
+name from its first PR and checks a class literal that names every
+field; its code generator emits the reserved class literal, and the
+patched parser gains that form and its opcode. the translator writes the
+tree's class pattern (`setmetatable(o, R)` with `R.__index = R`) as a
+class where it can, and the sites it cannot are the rule's ceiling.
 
-### compiler-written classes, in the fork
-
-[compiler-written classes] and [dispatch only through declared types].
-the tree's class pattern (`setmetatable(o, R)` with `R.__index = R`)
-becomes a literal typed as the class, naming every field; class types
-become nominal; the patched parser gains the reserved class literal form
-and its opcode. the tree's other metatables are few outside tests: four
-`__mode` tables, two proxies with function `__index`, one `__tostring`,
-two `__gc` safety nets on process handles, and the array marker the JSON
-decoder attaches in C ([`core/json.c`]). each gets its class form, except
-the two process handles ([`Child.Handle`] and the connector's process),
-which become C userdata with a `__gc` that kills and reaps a child its
-handle was dropped without closing; the class form holds only Teal
-state, and a handle that must not leak is a resource C owns. the JSON
-array marker stays: `core/json.c` attaches [`cosmic.json.array`] to a
-decoded array, and `Json.array` to a table a program marks, so an empty
-`[]` encodes back as `[]`. it has no metamethods, and once a program has
-no `getmetatable` it cannot see it. then `setmetatable`,
-`getmetatable`, `rawset` and `rawget` leave the surface a program sees.
-the checker's source keeps the `setmetatable` dialect until the pin
-carries this step.
+the tree's other metatables are few outside tests: four `__mode` tables,
+two proxies with function `__index`, one `__tostring`, two `__gc` safety
+nets on process handles, and the array marker the JSON decoder attaches
+in C ([`core/json.c`]). a rewrite after the switch gives each its class
+form, except the two process handles ([`Child.Handle`] and the
+connector's process), which become C userdata with a `__gc` that kills
+and reaps a child its handle was dropped without closing; the class form
+holds only Teal state, and a handle that must not leak is a resource C
+owns. the JSON array marker stays: `core/json.c` attaches
+[`cosmic.json.array`] to a decoded array, and `Json.array` to a table a
+program marks, so an empty `[]` encodes back as `[]`. it has no
+metamethods, and once a program has no `getmetatable` it cannot see it.
+then `setmetatable`, `getmetatable`, `rawset` and `rawget` leave the
+surface a program sees ([the runtime cut]). the new checker's own source
+keeps the `setmetatable` dialect until the pin names a release that
+carries it.
 
 ### the new checker
 
 written for the language the foundations leave, not forked from
 [`checker/tl.tl`], at about 10,000 to 13,000 lines against the fork's
-22,000. it starts now, beside the fork's foundations, and holds each
-foundation's final form as the fork lands it. it holds the strongest
-default of every other rule from its first PR: fixed fields, records that
-are not maps, no `as`, nil out of every type, conditions that are
-booleans or optionals, and collections as views are its only relations.
-a sketch, not a design:
+22,000. it starts now, beside the frozen fork, and holds each
+foundation's final form. it holds the strongest default of every other
+rule from its first PR: fixed fields, records that are not maps, no `as`,
+nil out of every type, conditions that are booleans or optionals,
+collections as views, and classes the compiler writes are its only
+relations. a sketch, not a design:
 
 - its grammar is designed first ([the draft](new-checker-grammar.md)), with the syntax tree and the interface
   that about twenty `build/` modules read (`build/ast/`, the analyzer,
@@ -1146,7 +1108,8 @@ a sketch, not a design:
   would have been: where the new grammar only respells a construct, the new
   checker's Lua for the translated module is byte-identical to the fork's
   Lua for the original, over the whole tree, so the parser and code
-  generator are checked before any type rule is. a construct whose meaning
+  generator are checked before any type rule is. the oracle is needed
+  only until the switch. a construct whose meaning
   changes is listed, and its emitted Lua is compared by the test suite
   instead.
 - one pass builds a control-flow graph that narrowing and definite
@@ -1158,21 +1121,17 @@ a sketch, not a design:
   collection is a view unless `mut`, from the first PR. the tree does not
   obey these yet; the rules count their violations as ceilings.
 - one ceiling per rule: the new checker writes each rule's violations over
-  the translated tree into the build database, and each count is a ceiling
-  that only falls ([a count the tree cannot yet bring to zero is a
-  ceiling]). the rewrites ([the rewrites to zero]) bring each to zero.
+  the translated tree into the build database, per file and code, and
+  each count is a ceiling that only falls, a new violation being refused
+  ([a count the tree cannot yet bring to zero is a ceiling]). the rewrites
+  ([the rewrites to zero]) bring each to zero after the switch.
 - each error a code, its places and the fix, catalogued, from the first
   PR.
-- types cross processes as rows, and a requiring module is recompiled
-  only when the hash of what it reads moves ("what the language builds
-  on").
-- its gate to replace the fork: the translated tree checks with every
-  ceiling at zero, none left nonzero; it refuses every program pinned in
-  [`build/teal_test.tl`] (translated); and every verdict it gives
-  differently from the fork, file by file, is a row in the verdict tables
-  tied to a rule's name; the fuzz soundness property and checked narrowing
-  run against it. then it replaces `checker/` in one change that also
-  commits the translated tree.
+- after the switch, and only if checking the whole tree in one process is
+  fast enough for the test suite, types cross processes as rows, and a
+  requiring module is recompiled only when the hash of what it reads
+  moves ("what the language builds on").
+- its gate to replace the fork is [the switch].
 - its own source is written in Teal, in what the pinned release's checker
   accepts, since the seed compiles it and the seed parses only Teal until
   a release carries the new checker. once the pin moves to that release,
@@ -1180,21 +1139,40 @@ a sketch, not a design:
   compiles itself to a fixed point, one pin move behind its own grammar as
   the fork is behind its own rules.
 
+### the switch
+
+the new checker replaces the fork once it is at least as sound as the
+fork, not once every ceiling is zero. the aim is lower cost, accepting
+harder transitions while keeping a high bar for soundness and
+correctness. the gate:
+
+- it refuses every program pinned in [`build/teal_test.tl`] (translated);
+- every verdict it gives differently from the fork, file by file, is a
+  row in the verdict tables tied to a named rule;
+- the fuzz soundness property and checked narrowing run against it.
+
+then one change commits the translated tree and deletes `checker/` and
+the translator. each rule's existing violations are pinned as ceilings
+per file and code, and a new violation is refused, so code written after
+the switch meets the full rules. the rewrites that bring each ceiling to
+zero happen after it, in the new grammar, so they are no longer
+constrained to Teal the fork also accepts.
+
 ### the rewrites that bring each ceiling to zero
 
 the new checker counts each rule's violations over the translated tree,
-and each count is a ceiling that only falls. a rewrite is one or more PRs
-that bring one ceiling to zero. it counts the sites by query first, which
-sizes the rewrite and is no gate, rewrites the tree in Teal that the fork
-also accepts, one directory at a time with its tests, and lowers the
-ceiling in the same PR. the rewrites are independent: they land in the
-order their counts allow, and the new checker replaces the fork when all
-are at zero.
+per file and code, and each count is a ceiling that only falls. after the
+switch, a rewrite is one or more PRs that bring one ceiling to zero. it
+counts the sites by query first, which sizes the rewrite and is no gate,
+rewrites the tree in the new grammar, one directory at a time with its
+tests, and lowers the ceiling in the same PR. the rewrites are
+independent and land in the order their counts allow; the language is
+whole when all are at zero.
 
 - **nil out of the tree.** [nil is its own type], [an index read may be
   nil], [arrays are dense], [never is the bottom type] and [varargs end in
   nil]. the declarations audit comes first, then the count from the new
-  checker over everything outside `checker/`; the arrays whose element
+  checker; the arrays whose element
   type names nil are in it. `--check-types` cannot see a local or a field
   a literal leaves out, so the new checker is what verifies the rewrite.
   the nil error names the call that answered nil and its declaration,
@@ -1223,7 +1201,7 @@ are at zero.
   typed]: each `pcall` site handles the tagged union, and each use of raw
   `coroutine.*` moves to a `Coroutine<Y, R, S>`.
 - **no casts.** [no casts]: the new checker's refusals of the translated
-  casts guide the rewrite of the Teal source, to validators, `is` or
+  casts guide the rewrite of the source, to validators, `is` or
   guards, or deletion where nil, narrowing and variance make them
   unneeded, until the no-casts ceiling is zero.
 - **rows decode at the accessor.** the typed row accessors check each
@@ -1237,10 +1215,14 @@ it lands [no implicit conversion or hidden code], in parts:
 string-to-number and number-to-string coercion out of the VM, the surface cut to the globals a
 `.d.tl` declares (no text `load` or `string.dump` for a program among
 them), a standalone run that checks its file, no `__gc` or `__mode` on a
-program's tables, and a fixed `_G`. it depends on no checker
-step after the classes, and each part lands with the rewrite of the sites
-it counts; the checker's own source is free of string arithmetic and of `..` on
-numbers before the switch, since the seed's Lua runs on the tree's VM.
+program's tables, and a fixed `_G`. it depends on the classes, which the
+new checker builds ([compiler-written classes, in the new checker]), and
+on no piece after them. so the parts that take `setmetatable`, `__gc` and
+`__mode` from a program wait for the classes and land after the switch,
+while coercion and the checked standalone run wait on neither. each part
+lands with the rewrite of the sites it counts; the checker's own source
+is free of string arithmetic and of `..` on numbers before the switch,
+since the seed's Lua runs on the tree's VM.
 
 ## open questions
 
@@ -1258,7 +1240,7 @@ numbers before the switch, since the seed's Lua runs on the tree's VM.
 - **the constraint's syntax.** how a generic declares the interface its
   type variable satisfies ([generic bodies compare, pass and store]).
 - **strict-record checks in debug runs.** whether they come before or
-  after narrowing by construction.
+  after the switch.
 - **holes made by an index write.** whether an array write is only
   `t[#t+1]`, `table.insert` or an index proven in range, since any other
   write can make a hole in a sequence ([arrays are dense]).
@@ -1302,6 +1284,7 @@ numbers before the switch, since the seed's Lua runs on the tree's VM.
 [captures are read-only]: #captures-are-read-only
 [checker fuzzing]: #done
 [compiler-written classes]: #compiler-written-classes
+[compiler-written classes, in the new checker]: #compiler-written-classes-in-the-new-checker
 [no casts]: #no-casts
 [fields are fixed unless declared mutable]: #fields-are-fixed-unless-declared-mutable
 [dispatch only through declared types]: #dispatch-only-through-declared-types
@@ -1317,18 +1300,20 @@ numbers before the switch, since the seed's Lua runs on the tree's VM.
 [no implicit conversion or hidden code]: #no-implicit-conversion-or-hidden-code
 [one variance per type constructor]: #one-variance-per-type-constructor
 [records are not maps]: #records-are-not-maps
-[strict-teal-narrowing.md]: strict-teal-narrowing.md
 [tagged unions]: #tagged-unions
 [the new checker]: #the-new-checker
+[the order the pieces land in]: new-checker-types.md#the-order-the-pieces-land-in
+[the runtime cut]: #the-runtime-cut
+[the switch]: #the-switch
 [the pinned-release seed]: #the-pinned-release-seed
 [varargs end in nil]: #varargs-end-in-nil
-[`bin/cosmic-bootstrap`]: ../../bin/cosmic-bootstrap
 [`bin/perf`]: ../../bin/perf
 [`bin/vendor`]: ../../bin/vendor
 [`bin/zig`]: ../../bin/zig
 [`build.fuzz`]: ../../build/fuzz/init.tl
 [`build/compiler.d.tl`]: ../../build/compiler.d.tl
 [`build/compiler_test.tl`]: ../../build/compiler_test.tl
+[`build/checker_facts_reads_test.tl`]: ../../build/checker_facts_reads_test.tl
 [`build/confine.tl`]: ../../build/confine.tl
 [`build/teal.tl`]: ../../build/teal.tl
 [`build/teal_test.tl`]: ../../build/teal_test.tl
@@ -1343,8 +1328,6 @@ numbers before the switch, since the seed's Lua runs on the tree's VM.
 [`Json.array`]: ../../cosmic/json.tl
 [`Sqlite.rows`]: ../../cosmic/sqlite.tl
 
-[`build/bom/tl.LICENSE`]: ../../build/bom/tl.LICENSE
-[`build/bom/tl.pin`]: ../../build/bom/tl.pin
 [`build/shards.tl`]: ../../build/shards.tl
 [`checker/facts.tl`]: ../../checker/facts.tl
 [`checker/flow.tl`]: ../../checker/flow.tl

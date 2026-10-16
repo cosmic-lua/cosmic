@@ -38,7 +38,7 @@
 -- that a guard names the places of a test alike for the refusal that says
 -- what the test would have given; the fork narrows none of them. It waits
 -- on the new checker, where a path of fixed fields is a place
--- (doc/plans/strict-teal-narrowing.md, doc/roadmap.md's item that makes
+-- (doc/plans/strict-teal.md, doc/roadmap.md's item that makes
 -- every guard read every place alike).
 --
 -- TODO: reading a declared field of a record that declares `__index` or
