@@ -311,15 +311,6 @@ local record compiler
     -- finds: the name and the key of the binding it stands for, so that a
     -- test sees which binding a name was read as.
     key_trace: {string} | nil
-    -- When set, the checker compares the type its facts gave each read with
-    -- the one the narrowing on its scopes would have given, and appends
-    -- `y:x place: shadow T, old U` to it for each read where the two
-    -- disagree.
-    shadow_mismatches: {string} | nil
-    -- How many reads that took, so that none found does not mean none looked at.
-    shadow_reads: integer | nil
-    -- How many of those were reads of a field path.
-    shadow_field_reads: integer | nil
     reporter: any
   end
 

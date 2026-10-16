@@ -110,12 +110,10 @@ needs it.
   with the same interface agreement under `mut`: a record declares a field
   `mut` exactly when the interface does.
 - **the switch to the facts (done).** reads switch to `self.facts`; the old
-  state is written but unread, but by the shadow comparison, which stays
-  under its flag until the old state goes. the facts are kept on every
-  check, not under the flag. a refusal's cause (the tombstones that
+  state is written but unread. a refusal's cause (the tombstones that
   `narrowing_dropped` and the `narrowing_not_local` note read) comes from the
   facts, as does a loop's refusal of a read of a fact its body drops. the
-  flipped verdicts are pinned in [`build/checker_shadow_test.tl`], each
+  flipped verdicts are pinned in [`build/checker_facts_reads_test.tl`], each
   triaged: a use after an assignment or in a loop is told the assignment
   where the old state said nothing; one after a function declaration that
   widened its place is told nothing where the old state named a later
@@ -125,8 +123,40 @@ needs it.
   nothing assigns it after the function is made. message text may change
   where the facts give a better cause; no more mirroring of the old
   wording.
-- **the old narrowing deleted.** the checker's pinned type-error count
-  moves and is measured and set. once the seed step makes the count a
+- **the old narrowing deleted (done).** the scopes' narrowing, the shadow
+  comparison and what only they used are gone; the facts' bookkeeping lost
+  its `shadow_` and `sh_` names. the tree, ci and the checker-total corpus
+  are byte-identical; these verdicts moved, each pinned in
+  [`build/checker_facts_reads_test.tl`]:
+  - a read of a local that narrowing had put a view over (`local x: T | nil
+    = v`, `local x = x`) was credited to the variable of the same name it
+    shadows, so the local got a false `unused` warning and the shadowed
+    variable went unwarned. the read is now credited to the local (468
+    lines over the corpora and sixteen seeds of 400 programs, all removed
+    `unused` warnings);
+  - an assignment to a `local x = x`, after a function declaration or in a
+    loop, is refused against the type the local was narrowed to, as it is
+    without the declaration or the loop (the old state widened the local
+    by name and accepted it): stricter, and kept as the sound choice;
+  - `warning.shadows` for a local that shadows a narrowed variable (a
+    parameter or a local narrowed by a test, an assert or an assignment)
+    says where that variable was declared; it said nothing, or named an
+    assignment;
+  - a `<const>` or `<close>` local that a test narrowed can no longer be
+    assigned: the old narrowed copy dropped the attribute, so the
+    assignment was accepted, and Lua refuses it at load. a soundness fix;
+  - the looser direction: after `local x = x` with a function declaration or
+    a loop in between, assigning a value that may be nil and using the local
+    is accepted (it was refused), as it is without the declaration or the
+    loop. this is the nil leniency of a copy of a narrowed local, the TODO
+    in [`build/checker_narrowing_test.tl`] on `y = nil` after a test, and
+    it ends with the roadmap's nil item;
+  - the `unused` and never-read warning of a `local x = x` whose value was
+    narrowed shows the narrowed type, as without a function declaration.
+
+  the checker's pinned type-error count moved from 317 to 314 (two calls
+  that passed `nil` for a node and a `Variable` literal were in the
+  deleted code), measured and set. once the seed step makes the count a
   ceiling that only falls, it is set as one ([a count the tree cannot yet
   bring to zero is a ceiling]).
 
@@ -166,13 +196,12 @@ every checker change also needed a second review round. so:
   its difference pinned; old-side machinery the deletion removes is not
   built.
 - every checker PR gets two independent review rounds.
-- what remained pinned in [`build/checker_shadow_test.tl`] after the field
+- what remained pinned in the shadow test after the field
   change (`local x = x` widened by name) was the switch's triage list.
 
 known gaps left with TODOs: a declared field read on a record with
 `__index` or `__newindex` drops nothing, which narrowing only locals ends; a `goto` that skips a `<close>`
-declaration over-refuses in definite assignment; the shadow's comparison
-of generic types equates type variables of one name; the harness compares
+declaration over-refuses in definite assignment; the harness compares
 codes and messages, not types (`--types`).
 
 ## seed constraints
@@ -219,6 +248,7 @@ thin call sites.
 [the new checker]: strict-teal.md#the-new-checker
 [the pinned-release seed]: strict-teal.md#the-pinned-release-seed
 
-[`build/checker_shadow_test.tl`]: ../../build/checker_shadow_test.tl
+[`build/checker_facts_reads_test.tl`]: ../../build/checker_facts_reads_test.tl
+[`build/checker_narrowing_test.tl`]: ../../build/checker_narrowing_test.tl
 [`checker/facts.tl`]: ../../checker/facts.tl
 [`Place.key`]: ../../build/checker_narrowing_test.tl
