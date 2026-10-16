@@ -882,8 +882,10 @@ function declared_key.preimage(digests: declared_key.Digests,
   if effective.noexec then
     lines[#lines + 1] = part("noexec", effective.noexec_ready and "granted" or "unavailable", "")
   end
-  if spec.launcher ~= nil then lines[#lines + 1] = part("launcher", spec.launcher, "") end
-  if spec.tree ~= nil then lines[#lines + 1] = part("tree", spec.tree, "") end
+  local launcher = spec.launcher
+  if launcher ~= nil then lines[#lines + 1] = part("launcher", launcher, "") end
+  local spec_tree = spec.tree
+  if spec_tree ~= nil then lines[#lines + 1] = part("tree", spec_tree, "") end
   local files: {string} = {}
   for file in pairs(effective.files) do files[#files + 1] = file end
   table.sort(files)
@@ -916,10 +918,11 @@ function declared_key.preimage(digests: declared_key.Digests,
   -- that writes it that writes the same bytes. The names of the tree's modules a worker
   -- refuses a `require` of are no part of it: a name there only turns
   -- such a `require` into a refusal, never into a load.
+  local closure_store = spec.closure_store
   if effective.store then
     reads[#reads + 1] = "o/cosmic.db"
-  elseif spec.closure_store ~= nil then
-    lines[#lines + 1] = part("store", spec.closure_store, "")
+  elseif closure_store ~= nil then
+    lines[#lines + 1] = part("store", closure_store, "")
   end
   table.sort(reads)
   local seen: {string:boolean} = {}
@@ -1063,7 +1066,8 @@ end
 --- `from`'s `system`, or, where it names none, this host's, or the one
 --- whose kernel its `sysname` names ([`system_sources`]).
 local function system_of(from: declared_key.HostSources): {string}
-  if from.system ~= nil then return from.system end
+  local system = from.system
+  if system ~= nil then return system end
   local sysname = from.sysname
   if sysname == nil then
     local names, _ = sys.uname()

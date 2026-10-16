@@ -345,8 +345,9 @@ end
 --- names that only a child can have, which is made in a namespace the
 --- process is not in, or by a relay it has not.
 local function not_in_process(merged: Sandbox.Policy): string
-  if merged.database ~= nil then
-    return "database \"" .. merged.database.path .. "\" is the program a child runs on, which a " ..
+  local database = merged.database
+  if database ~= nil then
+    return "database \"" .. database.path .. "\" is the program a child runs on, which a " ..
       "running process cannot change: start a child with Child.start and a policy instead"
   end
   -- A merged policy holds every list, empty where it names none.
@@ -408,8 +409,9 @@ local function not_in_process(merged: Sandbox.Policy): string
       "a child has"
   end
   local user = merged.user
+  local group = merged.group
   if user ~= nil and (user ~= sys.getuid() or
-      (merged.group ~= nil and merged.group ~= sys.getgid())) then
+      (group ~= nil and group ~= sys.getgid())) then
     return "user " .. user .. " is who a child runs as; a running process stays the " ..
       "user it is (" .. sys.getuid() .. ")"
   end

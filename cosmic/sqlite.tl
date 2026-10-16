@@ -340,10 +340,14 @@ local function checked(values: {Sqlite.Value}): integer
     end
     if key is integer then
       local held = values[key]
-      if held.integers ~= nil then check_array(key, "integers", held.integers) end
-      if held.numbers ~= nil then check_array(key, "numbers", held.numbers) end
-      if held.texts ~= nil then check_array(key, "texts", held.texts) end
-      if held.blobs ~= nil then check_array(key, "blobs", held.blobs) end
+      local integers = held.integers
+      if integers ~= nil then check_array(key, "integers", integers) end
+      local numbers = held.numbers
+      if numbers ~= nil then check_array(key, "numbers", numbers) end
+      local texts = held.texts
+      if texts ~= nil then check_array(key, "texts", texts) end
+      local blobs = held.blobs
+      if blobs ~= nil then check_array(key, "blobs", blobs) end
     end
     if fields > 1 then
       error("sqlite: parameter " .. key .. " has more than one Value field", 4)
@@ -372,22 +376,24 @@ local function bind(
     end
     local ok: boolean
     local trouble: string
-    if value.integer ~= nil then
-      ok, trouble = statement:bind_integer(index, value.integer)
-    elseif value.number ~= nil then
-      ok, trouble = statement:bind_number(index, value.number)
-    elseif value.text ~= nil then
-      ok, trouble = statement:bind_text(index, value.text)
-    elseif value.blob ~= nil then
-      ok, trouble = statement:bind_blob(index, value.blob)
-    elseif value.integers ~= nil then
-      ok, trouble = statement:bind_integers(index, value.integers)
-    elseif value.numbers ~= nil then
-      ok, trouble = statement:bind_numbers(index, value.numbers)
-    elseif value.texts ~= nil then
-      ok, trouble = statement:bind_texts(index, value.texts)
-    elseif value.blobs ~= nil then
-      ok, trouble = statement:bind_blobs(index, value.blobs)
+    local integer, number, text, blob = value.integer, value.number, value.text, value.blob
+    local integers, numbers, texts, blobs = value.integers, value.numbers, value.texts, value.blobs
+    if integer ~= nil then
+      ok, trouble = statement:bind_integer(index, integer)
+    elseif number ~= nil then
+      ok, trouble = statement:bind_number(index, number)
+    elseif text ~= nil then
+      ok, trouble = statement:bind_text(index, text)
+    elseif blob ~= nil then
+      ok, trouble = statement:bind_blob(index, blob)
+    elseif integers ~= nil then
+      ok, trouble = statement:bind_integers(index, integers)
+    elseif numbers ~= nil then
+      ok, trouble = statement:bind_numbers(index, numbers)
+    elseif texts ~= nil then
+      ok, trouble = statement:bind_texts(index, texts)
+    elseif blobs ~= nil then
+      ok, trouble = statement:bind_blobs(index, blobs)
     else
       ok, trouble = statement:bind_null(index)
     end

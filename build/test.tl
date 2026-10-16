@@ -1477,7 +1477,8 @@ end
 local function unresolved(rec: Recording, m: importer.Module): string
   local effective = rec.effective ~= nil and rec.effective[m.path] or nil
   if effective ~= nil then return effective.unresolved or "" end
-  for _, declared in ipairs(m.inputs ~= nil and m.inputs.host or {}) do
+  local inputs = m.inputs
+  for _, declared in ipairs(inputs ~= nil and inputs.host or {}) do
     local path, trouble = test_inputs.resolved(declared, tree_roots(rec))
     if path == nil then return trouble end
   end
@@ -1515,9 +1516,10 @@ end
 --- once: a cache that cannot answer -- corrupt, or another format's --
 --- costs the run nothing but what it would have saved.
 local function drop_shared(rec: Recording, trouble: string)
-  if rec.shared == nil then return end
-  local path = rec.shared.path
-  shared_verdicts.close(rec.shared)
+  local shared = rec.shared
+  if shared == nil then return end
+  local path = shared.path
+  shared_verdicts.close(shared)
   rec.shared = nil
   -- TODO: retire broken caches automatically once cache-wide lifetime
   -- ownership and identity checks can exclude concurrent users and replacements.
@@ -1650,7 +1652,8 @@ end
 --- ([`declared_of`]). Worked out once a run needs it, from the program's
 --- own database, which sealing nothing reads; "unread" where it cannot be.
 local function extras_digest(rec: Recording): string
-  if rec.extras ~= nil then return rec.extras end
+  local extras = rec.extras
+  if extras ~= nil then return extras end
   local databases = Store.databases()
   local query = "SELECT path, lower(hex(source_hash)), lower(hex(sha256(bytecode))), " ..
     "coalesce((SELECT group_concat(requires, ' ' ORDER BY requires) FROM decl_imports d " ..
@@ -1935,10 +1938,11 @@ local function finish(rec: Recording, job: Job, result: Child.Result | nil,
         " declare `requires` or call Test.skip(reason)"
     end
   end
+  local deliberate = judged.deliberate
   -- A test that said why it did not check keeps its verdict: its pass is a
   -- function of its key, and it is counted apart.
-  if passed and judged.deliberate ~= nil and judged.deliberate ~= "" then
-    rec.deliberate[#rec.deliberate + 1] = judged.deliberate:match("^[^\n]+") or judged.deliberate
+  if passed and deliberate ~= nil and deliberate ~= "" then
+    rec.deliberate[#rec.deliberate + 1] = deliberate:match("^[^\n]+") or deliberate
   end
   -- What the records keep: a skip is no pass, nor is a pass that made no call to `assert`.
   local kept_pass = passed and skipped == "" and not unchecked
@@ -1990,8 +1994,9 @@ local function finish(rec: Recording, job: Job, result: Child.Result | nil,
   end
   job.passed = passed
   if not passed then
-    if job.scratch ~= nil then
-      message = message .. "\n  its directory is kept: " .. job.scratch .. "/real"
+    local scratch = job.scratch
+    if scratch ~= nil then
+      message = message .. "\n  its directory is kept: " .. scratch .. "/real"
     elseif job.own_scratch then
       message = message .. "\n  its directory was a tmpfs of its worker's own, gone with it " ..
         "(" .. test_sandbox.switch .. "=0 keeps one on the host; a fuzz failure's \"kept\" path " ..
@@ -2001,8 +2006,9 @@ local function finish(rec: Recording, job: Job, result: Child.Result | nil,
     rec.failures[#rec.failures + 1] = failure
     rec.failed[failure] = id
     rec.reruns[id] = job.m.file .. ":" .. job.name
-    if result ~= nil and result.stdout ~= nil and result.stdout ~= "" then
-      rec.outputs[id] = result.stdout
+    local stdout = result ~= nil and result.stdout or nil
+    if result ~= nil and stdout ~= nil and stdout ~= "" then
+      rec.outputs[id] = stdout
     end
   end
 end
@@ -2208,7 +2214,8 @@ end
 --- every other entry [`sweep_stores`] takes out. Nil and why where it
 --- could not be made.
 local function extraction_for(rec: Recording): string | nil, string
-  if rec.extraction ~= nil then return rec.extraction, "" end
+  local extraction = rec.extraction
+  if extraction ~= nil then return extraction, "" end
   local path = build_paths.resolve(rec.root).uses
   local made, trouble = closure_store.extract(projection_of(rec), path)
   if not made then return nil, "the index of the uses by source module: " .. trouble end
@@ -2218,8 +2225,9 @@ end
 
 --- Removes the database [`extraction_for`] made, if it made one.
 local function drop_extraction(rec: Recording)
-  if rec.extraction == nil then return end
-  local _, _ = Fs.remove(rec.extraction)
+  local extraction = rec.extraction
+  if extraction == nil then return end
+  local _, _ = Fs.remove(extraction)
   rec.extraction = nil
 end
 
@@ -2355,8 +2363,10 @@ local sealed_fill <const>: {string} = {
 --- directory's, which must be open to that user too: the start says if
 --- not). Nil and why where there is none, said once.
 local function sealing_for(rec: Recording): Sealing | nil, string
-  if rec.sealing ~= nil then return rec.sealing, "" end
-  if rec.sealing_trouble ~= nil then return nil, rec.sealing_trouble end
+  local sealing = rec.sealing
+  if sealing ~= nil then return sealing, "" end
+  local sealing_trouble = rec.sealing_trouble
+  if sealing_trouble ~= nil then return nil, sealing_trouble end
   local function refuse(why: string): nil, string
     rec.sealing_trouble = why
     return nil, why
@@ -2619,8 +2629,9 @@ local function shared_digest(rec: Recording, address: string): string | nil
   local kept = rec.store_kept[address]
   if kept == nil then
     kept = ""
-    if rec.shared ~= nil then
-      local found, trouble = shared_verdicts.store_digest(rec.shared, address)
+    local shared = rec.shared
+    if shared ~= nil then
+      local found, trouble = shared_verdicts.store_digest(shared, address)
       if found == nil and trouble ~= "" then drop_shared(rec, trouble) end
       kept = found or ""
     end
@@ -2675,7 +2686,8 @@ local function address_digest(rec: Recording, address: string, names: {string},
     local kept, where = took, "the digest this run took for it"
     if kept == nil then
       kept = shared_digest(rec, address)
-      where = rec.shared ~= nil and ("the shared verdicts at " .. rec.shared.path) or ""
+      local shared = rec.shared
+      where = shared ~= nil and ("the shared verdicts at " .. shared.path) or ""
     end
     if kept ~= nil and kept ~= digest and not rec.store_mismatched[address] then
       rec.store_mismatched[address] = true
@@ -2977,12 +2989,13 @@ local function launch(rec: Recording, job: Job, start: Proc.Relaunch,
       started = { argv = { start.argv[1], "--database", sealed }, env = {}, fds = {} }
     end
   end
+  local plan = job.plan
   local command = worker.invocation({
     start = started, env = env, root = root, cwd = cwd, module_path = job.m.path,
     name = job.name, scratch = inside, own_scratch = job.own_scratch, needs = test_inputs.canonical(declared), hold = hold,
     store = attached, closure = rec.closures[job.m.path], tree = rec.tree_names,
     policy = policy, runs = runs, checks = rec.checks,
-    program = job.plan ~= nil and job.plan.program or nil,
+    program = plan ~= nil and plan.program or nil,
   })
   local handle, trouble = Child.start(command.argv, command.options)
   if handle == nil then
@@ -3042,8 +3055,9 @@ local function run_jobs(rec: Recording, jobs: {Job}, limits: test.Limits,
     local done, trouble = Child.wait_any(handles, math.max(0, math.min(Clock.ms(100), left_ns)))
     local still: {Job} = {}
     for _, job in ipairs(running) do
-      local handle = assert(job.handle)
-      if job.handle == done then
+      local job_handle = job.handle
+      local handle = assert(job_handle)
+      if job_handle == done then
         -- Settled already, so this answers at once; the trouble
         -- `wait_any` gave beside the handle is the one reported.
         local result, _ = handle:wait()
@@ -3107,10 +3121,11 @@ local function run_jobs(rec: Recording, jobs: {Job}, limits: test.Limits,
   if cancelled == 0 and next_job <= #jobs then rec.not_run = #jobs - next_job + 1 end
   for _, job in ipairs(running) do
     local closed, trouble = assert(job.handle):close()
-    if not closed and job.scratch ~= nil then
+    local scratch = job.scratch
+    if not closed and scratch ~= nil then
       -- A member of its group may still be writing into it.
       rec.errors[#rec.errors + 1] = job.id .. ": its directory is kept: " ..
-        job.scratch .. ": " .. trouble
+        scratch .. ": " .. trouble
       job.scratch = nil
     end
   end
@@ -3822,8 +3837,9 @@ local function make_recording(ctx: Run)
   end
   ctx.native_lines = native_lines
   local sandbox_mode = ctx.sandbox_mode
+  local ctx_root = ctx.root
   local rec: Recording = {
-    records = records, root = assert(ctx.root), runtime = ctx.runtime,
+    records = records, root = assert(ctx_root), runtime = ctx.runtime,
     run_at_ns = ctx.run_at_ns, run = handle.run,
     checks = ctx.checks == true, files = {}, violations = {}, violation_order = {}, violation_tests = {},
     violations_dropped = 0,
@@ -3832,7 +3848,7 @@ local function make_recording(ctx: Run)
     hits = hits, by_test = by_test, unowned = unowned, tally = tally, not_run = 0,
     owed = { kept = {}, used = {}, failed = {}, stores = {} }, shared_keys = {},
     consult_shared = ctx.consult,
-    origin = checkout_id(records, assert(ctx.root), ctx.run_at_ns),
+    origin = checkout_id(records, assert(ctx_root), ctx.run_at_ns),
     sandbox = ctx.sandboxed, views = {}, caches = {}, unkeyed = {},
     forbiddable = {},
     epoch = ctx.epoch, timeout_ns = limits.timeout_ns,
@@ -4074,7 +4090,8 @@ local function require_of_host(ctx: Run): integer | nil
           local said = "requires " .. answer.name .. ": " .. answer.why
           local kind = answer.kind
           if held and kind ~= "refused" and host_names.promised(assert(ctx.promises), answer.name) then
-            said = said .. " (" .. (ctx.leg == "" and "this run" or "the leg " .. assert(ctx.leg)) ..
+            local leg = ctx.leg
+            said = said .. " (" .. (leg == "" and "this run" or "the leg " .. assert(leg)) ..
               " promises " .. answer.name .. ", and a held run fails what its leg promised)"
             kind = "refused"
           end
@@ -4175,8 +4192,9 @@ local function look_up_verdicts(ctx: Run)
       if key ~= nil then keyed_count = keyed_count + 1 end
       local own = key ~= nil and verdicts[key] or nil
       local elsewhere: shared_verdicts.Found | nil = nil
-      if key ~= nil and not forced and own == nil and consult and rec.shared ~= nil then
-        local answer, trouble = shared_verdicts.declared(rec.shared, key)
+      local rec_shared = rec.shared
+      if key ~= nil and not forced and own == nil and consult and rec_shared ~= nil then
+        local answer, trouble = shared_verdicts.declared(rec_shared, key)
         if answer == nil and trouble ~= "" then drop_shared(rec, trouble) end
         elsewhere = answer
         looked[id], looked_count = true, looked_count + 1
@@ -4212,7 +4230,8 @@ local function look_up_verdicts(ctx: Run)
       -- The key's harness parts, its epoch and timeout, as one word.
       { "harness", test.harness_word(rec.epoch, rec.timeout_ns) },
     }
-    if rec.launcher ~= nil then parts[#parts + 1] = { "launcher", rec.launcher:sub(1, 12) } end
+    local launcher = rec.launcher
+    if launcher ~= nil then parts[#parts + 1] = { "launcher", launcher:sub(1, 12) } end
     -- What every closure store holds alike, by its bytes, which the key
     -- of every test whose module does not declare `store` holds within
     -- its store's digest: named so a run whose stores all moved says
@@ -4254,8 +4273,9 @@ local function look_up_verdicts(ctx: Run)
     end
     if line == nil and census_asked then line = shared_verdicts.key_parts(parts) end
     if line ~= nil then log:say(line) end
-    if census_asked and rec.shared ~= nil then
-      local held, _ = shared_verdicts.held(rec.shared)
+    local rec_shared = rec.shared
+    if census_asked and rec_shared ~= nil then
+      local held, _ = shared_verdicts.held(rec_shared)
       if held ~= nil then log:say(shared_verdicts.census_line(held)) end
     end
   end

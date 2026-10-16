@@ -892,7 +892,8 @@ local relay_lost: function(Handle)
 --- This handle's child's exit status, once it has one. With `block`,
 --- waits for it.
 local function exited(self: Handle, block?: boolean): raw_process.ChildStatus | nil, string
-  if self._status then return self._status, "" end
+  local _status = self._status
+  if _status then return _status, "" end
   if self._relay ~= nil then relay_lost(self) end
   collect()
   if reaped[self.pid] then return claim(self, reaped[self.pid]), "" end
@@ -944,8 +945,9 @@ local function text_of(self: Handle, stream: Pipe): string
 end
 
 local function end_stream(stream: Pipe)
-  if stream.fd ~= nil then
-    close_fd(stream.fd)
+  local fd = stream.fd
+  if fd ~= nil then
+    close_fd(fd)
     stream.fd = nil
   end
 end
@@ -1078,13 +1080,15 @@ local function watching(handles: {Handle}, feeding?: Handle): {Entry}
   end
   for _, h in ipairs(handles) do
     for _, stream in ipairs(h._streams or {}) do
-      if stream.fd ~= nil and (not stream.streamed or stream.size < h._limit) then
-        entries[#entries + 1] = { fd = stream.fd, events = sys.POLLIN, owner = h,
+      local stream_fd = stream.fd
+      if stream_fd ~= nil and (not stream.streamed or stream.size < h._limit) then
+        entries[#entries + 1] = { fd = stream_fd, events = sys.POLLIN, owner = h,
           kind = "output", output = stream }
       end
     end
-    if h._input_fd ~= nil then
-      entries[#entries + 1] = { fd = h._input_fd, events = sys.POLLOUT, owner = h, kind = "input" }
+    local _input_fd = h._input_fd
+    if _input_fd ~= nil then
+      entries[#entries + 1] = { fd = _input_fd, events = sys.POLLOUT, owner = h, kind = "input" }
     end
     if h._status == nil and h._exit_fd >= 0 then
       entries[#entries + 1] = { fd = h._exit_fd, events = sys.POLLIN, owner = h, kind = "exit" }
@@ -1172,8 +1176,9 @@ local function pump(entries: {Entry}, timeout_ns: integer,
     if cancellable then look() else Poll.shielded(look) end
     -- A wait that ran out of time found nothing: no stream moved.
     if looked.answers == nil and looked.why == Poll.TIMEOUT then return false, "" end
-    if looked.answers == nil then return false, looked.why or "" end
-    revents = looked.answers
+    local answers = looked.answers
+    if answers == nil then return false, looked.why or "" end
+    revents = answers
   else
     -- Rounded up: a wait with time left polls for at least a millisecond.
     local polled, why = sys.poll(fds, events, timeout_ns >= 0 and Clock.ceil(timeout_ns, MS) or -1)
@@ -1254,7 +1259,8 @@ local function end_relay(self: Handle)
     if feed ~= nil then local _, _ = feed:close() end
     local _, _ = relay:wait(RELAY_STOP_NS)
     local _, _ = relay:close()
-    if relay._handover ~= nil then relay._handover.close() end
+    local _handover = relay._handover
+    if _handover ~= nil then _handover.close() end
   end
 end
 
@@ -1272,7 +1278,8 @@ end
 --- being killed, or a finalizer, no wait can yield, and they hold the
 --- thread in [`sys.poll`]: the cleanup there must finish too.
 local function end_child(self: Handle): Result | nil, string
-  if self._result ~= nil then return self._result, "" end
+  local _result = self._result
+  if _result ~= nil then return _result, "" end
   local status, trouble = exited(self)
   if status == nil and trouble ~= "" then return nil, trouble end
   local timed_out, killed = status == nil, false
@@ -1320,9 +1327,10 @@ local function end_child(self: Handle): Result | nil, string
   end
   -- The program's way out is of no use once its group is gone.
   end_relay(self)
+  local self__result = self._result
   -- Clearing the group waits, through the run in a task, where another
   -- task may settle this handle meanwhile: its Result is the one.
-  if self._result ~= nil then return self._result, "" end
+  if self__result ~= nil then return self__result, "" end
   local final = assert(self._status)
   local r: Result = {
     ok = final.code == 0 and not timed_out,
@@ -1461,8 +1469,9 @@ local function waiting_read(self: PipeReader, max_bytes?: integer): string | nil
   local _ownership <close> = self.owner
   pipe.consuming = true
   while pipe.size == 0 do
-    if pipe.failure ~= nil then
-      self.failed = pipe.failure
+    local failure = pipe.failure
+    if failure ~= nil then
+      self.failed = failure
       return nil, self.failed
     end
     if pipe.fd == nil then return nil, "" end
@@ -1598,8 +1607,9 @@ end
 --- Closes every streamed output a settle left open for its reader,
 --- which then reads what is queued and ends.
 local function end_streamed(self: Handle)
-  if not self._streams then return end
-  for _, stream in ipairs(self._streams) do
+  local _streams = self._streams
+  if not _streams then return end
+  for _, stream in ipairs(_streams) do
     if stream.streamed then end_stream(stream) end
   end
 end
@@ -1674,7 +1684,8 @@ local function drain(self: Handle, opts: DrainOptions): DrainResult
   local function complete(): DrainResult | nil
     local eof = true
     for _, pipe in ipairs(pipes) do
-      if pipe.size == 0 and pipe.failure ~= nil then return result("failed", pipe.failure) end
+      local failure = pipe.failure
+      if pipe.size == 0 and failure ~= nil then return result("failed", failure) end
       if pipe.fd ~= nil or pipe.size ~= 0 then eof = false end
     end
     if eof then return result("eof") end
@@ -1732,12 +1743,14 @@ end
 local function closing_outputs(self: Handle)
   self._explicit_close = true
   for _, pipe in ipairs(self._streams or {}) do
-    if pipe.streamed and pipe.fd ~= nil then Poll.closing(pipe.fd) end
+    local fd = pipe.fd
+    if pipe.streamed and fd ~= nil then Poll.closing(fd) end
   end
 end
 
 Handle.try_wait = function(self: Handle): TryWait | nil, string
-  if self._result then return { finished = true, result = self._result }, "" end
+  local _result = self._result
+  if _result then return { finished = true, result = _result }, "" end
   local _, _ = pump(watching({ self }), 0)
   local status, trouble = exited(self)
   if status == nil then
@@ -1758,7 +1771,8 @@ end
 
 Handle.wait = function(self: Handle, timeout_ns?: integer): Result | nil, string
   Poll.checked_ns(timeout_ns, "child", "timeout_ns", 2)
-  if self._result then return self._result, "" end
+  local _result = self._result
+  if _result then return _result, "" end
   if timeout_ns == nil and self._deadline == nil and Innermost.active() == nil and not self._streams and
       not self._input_fd and self._relay == nil and not through_run() then
     local status, trouble = exited(self, true)
@@ -1907,7 +1921,8 @@ end
 --- running past its timeout answers the signal that ended it, not the
 --- 124 of `timeout(1)`.
 function Child.shell_status(result: Result): integer
-  if result.signal ~= nil then return 128 + result.signal end
+  local signal = result.signal
+  if signal ~= nil then return 128 + signal end
   return result.code or 1
 end
 
@@ -1947,12 +1962,14 @@ local function validate(argv: {string}, opts: Options)
     end
     without_nul(value, "argv[" .. tostring(i) .. "]")
   end
-  if opts.cwd == "" then
+  local cwd = opts.cwd
+  if cwd == "" then
     error("child: cwd is empty; leave it nil to start in this process's directory", 3)
   end
-  if opts.cwd ~= nil then without_nul(opts.cwd, "cwd") end
-  if opts.env ~= nil then
-    for name, value in pairs(opts.env) do
+  if cwd ~= nil then without_nul(cwd, "cwd") end
+  local env = opts.env
+  if env ~= nil then
+    for name, value in pairs(env) do
       if type(name) ~= "string" or name == "" or name:find("=", 1, true) then
         error("child: environment name is empty, non-string, or contains '='", 3)
       end
@@ -1964,21 +1981,24 @@ local function validate(argv: {string}, opts: Options)
   local stdin = descriptor(opts.stdin, "stdin", STDIN_WORDS)
   descriptor(opts.stdout, "stdout", STDOUT_WORDS)
   descriptor(opts.stderr, "stderr", STDERR_WORDS)
-  if opts.input ~= nil then
-    if type(opts.input) ~= "string" then error("child: input must be a string", 3) end
+  local input = opts.input
+  if input ~= nil then
+    if type(input) ~= "string" then error("child: input must be a string", 3) end
     if stdin ~= "inherit" then
       error("child: input and a stdin of its own exclude each other", 3)
     end
   end
-  if opts.fds ~= nil then
-    for number, value in pairs(opts.fds) do
+  local fds = opts.fds
+  if fds ~= nil then
+    for number, value in pairs(fds) do
       if not (number is integer) or number < 3 or number > 255 then
         error("child: fds keys are child descriptors from 3 to 255", 3)
       end
       descriptor(value, "fds[" .. tostring(number) .. "]", FD_WORDS)
     end
   end
-  if opts.capture_limit ~= nil and (opts.capture_limit < 1 or opts.capture_limit > INT_MAX) then
+  local capture_limit = opts.capture_limit
+  if capture_limit ~= nil and (capture_limit < 1 or capture_limit > INT_MAX) then
     error("child: capture_limit is out of range", 3)
   end
   Poll.checked_ns(opts.timeout_ns, "child", "timeout_ns", 3)
@@ -1987,8 +2007,9 @@ local function validate(argv: {string}, opts: Options)
       not (logged is integer and logged >= 0 and logged <= INT_MAX) then
     error("child: relay_log must be \"null\", \"inherit\" or a descriptor", 3)
   end
-  if opts.policy ~= nil then
-    if type(opts.policy) ~= "table" then
+  local policy = opts.policy
+  if policy ~= nil then
+    if type(policy) ~= "table" then
       error("child: policy must be a cosmic.sandbox Policy", 3)
     end
     if opts.env ~= nil then
@@ -2001,8 +2022,9 @@ local function validate(argv: {string}, opts: Options)
           "as root, and where this process is root the policy chooses its user", 3)
     end
   end
-  if opts.credentials ~= nil then
-    local user, group = opts.credentials.user, opts.credentials.group
+  local credentials = opts.credentials
+  if credentials ~= nil then
+    local user, group = credentials.user, credentials.group
     if not (user is integer) or not (group is integer) or
         user < 1 or user > 4294967294 or group < 1 or group > 4294967294 then
       error("child: credentials need integer user and group from 1 to 4294967294", 3)
@@ -2013,12 +2035,16 @@ local function validate(argv: {string}, opts: Options)
       error("child: credentials exclude sandbox unveil, offline, user and group", 3)
     end
   end
-  if opts.sandbox ~= nil and opts.sandbox.noexec_scratch ~= nil then
-    if type(opts.sandbox.noexec_scratch) ~= "boolean" then
-      error("child: noexec_scratch must be a boolean", 3)
-    end
-    if opts.sandbox.noexec_scratch and opts.sandbox.unveil == nil then
-      error("child: noexec_scratch requires unveil", 3)
+  local opts_sandbox = opts.sandbox
+  if opts_sandbox ~= nil then
+    local noexec_scratch = opts_sandbox.noexec_scratch
+    if noexec_scratch ~= nil then
+      if type(noexec_scratch) ~= "boolean" then
+        error("child: noexec_scratch must be a boolean", 3)
+      end
+      if noexec_scratch and opts_sandbox.unveil == nil then
+        error("child: noexec_scratch requires unveil", 3)
+      end
     end
   end
   local sandbox = opts.sandbox
@@ -2188,8 +2214,10 @@ end
 --- child finds the directory in a root of its own, where `at` may bind
 --- it under another name.
 local function missing_cwd(opts: Options): boolean
-  if opts.cwd == nil or (opts.sandbox ~= nil and opts.sandbox.unveil ~= nil) then return false end
-  local there, _, errno = sys.stat(opts.cwd)
+  local cwd = opts.cwd
+  local sandbox = opts.sandbox
+  if cwd == nil or (sandbox ~= nil and sandbox.unveil ~= nil) then return false end
+  local there, _, errno = sys.stat(cwd)
   return there == nil and (errno == sys.ENOENT or errno == sys.ENOTDIR)
 end
 
@@ -2554,16 +2582,20 @@ local function mapped_user(merged: Rules.Policy): MappedUser | nil, string
   local platform, _, _ = raw.sandbox_platform()
   local own = effective_user()
   if not platform and own == 0 then
-    if merged.user ~= nil then
-      return nil, "user " .. merged.user .. ": a program runs as a user of the policy's only " ..
+    local merged_user = merged.user
+    if merged_user ~= nil then
+      return nil, "user " .. merged_user .. ": a program runs as a user of the policy's only " ..
         "where it is sandboxed, on Linux"
     end
     return nil, ""
   end
   if own ~= 0 then
     local group = effective_group()
-    if merged.user ~= nil and (merged.user ~= own or (merged.group ~= nil and merged.group ~= group)) then
-      return nil, "user " .. merged.user .. (merged.group ~= nil and ", group " .. merged.group or "") ..
+    local merged_group = merged.group
+    local merged_user = merged.user
+    if merged_user ~= nil and (merged_user ~= own or (merged_group ~= nil and merged_group ~= group)) then
+      local merged_group2 = merged.group
+      return nil, "user " .. merged_user .. (merged_group2 ~= nil and ", group " .. merged_group2 or "") ..
         ": only a root caller chooses the user its program runs as, and this process is user " ..
         own .. ", group " .. group .. ", which its program runs as: name that or none"
     end
@@ -3381,8 +3413,9 @@ local function held_by_seatbelt(argv: {string}, opts: Options, policy: Rules.Pol
     for _, word in ipairs(relaunch.argv) do run_argv[#run_argv + 1] = word end
     for i = 2, #argv do run_argv[#run_argv + 1] = argv[i] end
   end
-  if relaunch ~= nil and merged.database ~= nil then
-    local holds, held_why = database_holds(assert(merged.database), relaunch.argv[3])
+  local database = merged.database
+  if relaunch ~= nil and database ~= nil then
+    local holds, held_why = database_holds(database, relaunch.argv[3])
     if not holds then return nil, "sandbox: " .. held_why end
   end
   local sandbox: raw_process.Sandbox = {
@@ -3423,8 +3456,9 @@ local function make_tmp(held: Held): string
     local _, _ = Fs.remove_tree(dir)
     return "tmp: " .. dir .. ": " .. real_trouble
   end
-  if held.user ~= nil then
-    local given, given_trouble = sys.chown(real, held.user.uid, held.user.gid)
+  local user = held.user
+  if user ~= nil then
+    local given, given_trouble = sys.chown(real, user.uid, user.gid)
     if not given then
       local _, _ = Fs.remove_tree(dir)
       return "tmp: " .. real .. ": " .. given_trouble
@@ -3655,7 +3689,8 @@ end
 local function kill_relay(relay: Handle)
   local _, _ = sys.kill(target(relay), sys.SIGKILL)
   local _, _ = end_or_kill(relay)
-  if relay._handover ~= nil then relay._handover.close() end
+  local _handover = relay._handover
+  if _handover ~= nil then _handover.close() end
 end
 
 --- What a relay that ended without the line a start waits for tells, as
@@ -3784,18 +3819,20 @@ local function start(argv: {string}, opts: Options, pty?: Pty, serves_relay?: in
   -- raw.landlock_ruleset, a pledge -- once a caller wants a child held
   -- to one: build/sandbox_probe.tl, which reaches the raw table for them.
   local sandbox: raw_process.Sandbox | nil = nil
-  if opts.sandbox ~= nil then
-    local given = opts.sandbox.unveil
-    sandbox = { offline = opts.sandbox.offline == true,
-      noexec_scratch = opts.sandbox.noexec_scratch == true, user = opts.sandbox.user,
-      group = opts.sandbox.group }
+  local opts_sandbox = opts.sandbox
+  if opts_sandbox ~= nil then
+    local given = opts_sandbox.unveil
+    sandbox = { offline = opts_sandbox.offline == true,
+      noexec_scratch = opts_sandbox.noexec_scratch == true, user = opts_sandbox.user,
+      group = opts_sandbox.group }
     if given ~= nil then
       sandbox.unveil = { reads = given.reads or {}, writes = given.writes or {}, at = given.at }
     end
   end
   local credentials: raw_process.Credentials | nil
-  if opts.credentials ~= nil then
-    credentials = { user = opts.credentials.user, group = opts.credentials.group }
+  local opts_credentials = opts.credentials
+  if opts_credentials ~= nil then
+    credentials = { user = opts_credentials.user, group = opts_credentials.group }
   end
   local path, env, cwd = argv[1], opts.env, opts.cwd
   local prep: RelayPrep | nil
@@ -3803,13 +3840,16 @@ local function start(argv: {string}, opts: Options, pty?: Pty, serves_relay?: in
   local early: RelayLaunch | nil
   if held ~= nil then
     path, env, sandbox = held.path, held.env, held.sandbox
-    if held.drop ~= nil then credentials = { user = held.drop.uid, group = held.drop.gid } end
-    if held.cwd ~= nil then cwd = held.cwd end
-    if held.relay ~= nil and held.seatbelt then
+    local drop = held.drop
+    if drop ~= nil then credentials = { user = drop.uid, group = drop.gid } end
+    local held_cwd = held.cwd
+    if held_cwd ~= nil then cwd = held_cwd end
+    local held_relay = held.relay
+    if held_relay ~= nil and held.seatbelt then
       -- The relay starts first on the listening sockets the preparation
       -- bound, opens its database, which is then removed, and serves before
       -- the program exists, whose profile and environment name its port.
-      local made, relay_trouble = prepare_relay(held.relay, opts, true)
+      local made, relay_trouble = prepare_relay(held_relay, opts, true)
       if made == nil then
         unwire(wiring, false)
         return refuse("start: sandbox: relay: " .. relay_trouble)
@@ -3852,12 +3892,12 @@ local function start(argv: {string}, opts: Options, pty?: Pty, serves_relay?: in
       -- TODO); today the port is free from the relay's death, and this
       -- process's if it goes too, until the program's next wait.
       early = launched
-    elseif held.relay ~= nil then
+    elseif held_relay ~= nil then
       -- The relay starts first and opens its database before the program
       -- exists: the database is then removed, so no program can swap it
       -- while the relay opens it. The relay waits for the program's
       -- listeners on its end of this channel.
-      local made, relay_trouble = prepare_relay(held.relay, opts, false)
+      local made, relay_trouble = prepare_relay(held_relay, opts, false)
       if made == nil then
         unwire(wiring, false)
         return refuse("start: sandbox: relay: " .. relay_trouble)
@@ -3953,14 +3993,16 @@ local function start(argv: {string}, opts: Options, pty?: Pty, serves_relay?: in
   if held ~= nil and held.tmp ~= "" then h._tmp = held.tmp end
   if held ~= nil and held.seatbelt then h._seatbelt = held.sandbox.seatbelt end
   if #wiring.streams > 0 then h._streams = wiring.streams end
-  if wiring.input_fd ~= nil then
+  local input_fd = wiring.input_fd
+  if input_fd ~= nil then
     local input = assert(opts.input)
-    h._input_fd, h._input, h._input_at = wiring.input_fd, input, 0
+    h._input_fd, h._input, h._input_at = input_fd, input, 0
     if #input == 0 then end_input(h) end
   end
-  if wiring.feed_fd ~= nil then
-    h._feed_fd = wiring.feed_fd
-    h.stdin_stream = feed_writer(h, wiring.feed_fd)
+  local feed_fd = wiring.feed_fd
+  if feed_fd ~= nil then
+    h._feed_fd = feed_fd
+    h.stdin_stream = feed_writer(h, feed_fd)
   end
   for index, stream in ipairs(wiring.streams) do
     if stream.streamed then
@@ -4125,8 +4167,10 @@ function Child.start_on_pty(argv: {string}, opts: Options, pty: PtyOptions): Pty
   -- return, the master unless the caller is to have it.
   local holding <close>: PtyHolder = setmetatable({ master = made.master, slave = made.slave,
     keep = false, keep_slave = false }, pty_holder_mt)
-  if pty.rows ~= nil and pty.columns ~= nil then
-    local sized, size_why = sys.setwinsize(made.master, pty.rows, pty.columns)
+  local rows = pty.rows
+  local columns = pty.columns
+  if rows ~= nil and columns ~= nil then
+    local sized, size_why = sys.setwinsize(made.master, rows, columns)
     -- TODO: test this branch once the checked core has a fault point that
     -- makes TIOCSWINSZ fail on a fresh master, or a platform refuses it.
     if not sized then return refuse("pty size: " .. size_why) end

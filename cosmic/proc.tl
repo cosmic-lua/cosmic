@@ -126,11 +126,13 @@ end
 --- `fds` to [`Child.start`]. Returns nil and why when this process has no
 --- artifact to start again, or its executable or core cannot be reopened.
 function Proc.relaunch(): Proc.Relaunch | nil, string
-  if cached.relaunch ~= nil then return cached.relaunch, "" end
+  local relaunch = cached.relaunch
+  if relaunch ~= nil then return relaunch, "" end
   local found, trouble = raw.relaunch(ARTIFACT_FD, CORE_FD)
   if found == nil then return nil, trouble end
-  if found.database ~= nil then
-    cached.relaunch = { argv = { found.path, "--database", found.database }, env = {}, fds = {}, cwd = found.cwd }
+  local database = found.database
+  if database ~= nil then
+    cached.relaunch = { argv = { found.path, "--database", database }, env = {}, fds = {}, cwd = found.cwd }
     return cached.relaunch, ""
   end
   if found.host then
