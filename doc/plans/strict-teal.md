@@ -209,13 +209,21 @@ stack can carry.
   fixed by default, and a cast to a writer or a record passed as a map can
   still write one in the fork until [no casts] and [records are not maps]
   land. the checked-narrowing run-time checks report such a write in test
-  runs meanwhile.
-- **declarations are the trust boundary.** a `.d.tl` signature, and a
-  narrowing declaration, is the only typing the checker takes without
-  proof. the standard library's Lua declarations live in `.d.tl` files,
-  so auditing them changes no checker logic. a declaration answers `any`
-  only at a named untrusted-data entry point: `require` of an untyped
-  module, `string.unpack`, and the [`cosmic.sys`] bindings.
+  runs meanwhile, under the ceiling of [a count the tree cannot yet bring
+  to zero is a ceiling].
+- **declarations are the trust boundary.** a `.d.tl` signature is the
+  only typing the checker takes without proof. a narrowing declaration
+  ([narrowing declarations]) is taken on trust too, but a test run
+  verifies it: checked narrowing covers a read narrowed by a declaration
+  as it covers one narrowed by a test, so a declaration that lies fails a
+  run. the standard library's Lua declarations live in `.d.tl` files, so
+  auditing them changes no checker logic. a bare `any` in a `.d.tl` is
+  legal only on a declared untrusted-data entry point: `string.unpack`
+  and the [`cosmic.sys`] bindings. a callback in a standard library
+  declaration is typed with generics, not `any`, and `{string:any}` is
+  not a type outside an entry declaration. a `require` of a module with no
+  types is a build error, not an `any`: a Lua module needs a `.d.tl`
+  that types it.
 - **the rules are tested against programs that must be refused.** every
   hole found becomes a refused program in [`build/teal_test.tl`], which
   already pins today's known holes (`test_as_and_is_forge_a_never_function`,
@@ -227,9 +235,20 @@ stack can carry.
   return and record field write against the declared type's nil-ness and
   primitive kind (records are erased, so a record is checked as a table).
   it reports, and does not fail the run, until nil is out of every type:
-  before then it flags legal code. the check mode is part of every compile
-  cache key, a test proves no built executable carries a check, and a
-  report names the caller's line, not the callee's.
+  before then it flags legal code. the number of reports is a ceiling
+  ([a count the tree cannot yet bring to zero is a ceiling]). the check
+  mode is part of every compile cache key, a test proves no built
+  executable carries a check, and a report names the caller's line, not
+  the callee's.
+- **a count the tree cannot yet bring to zero is a ceiling that only
+  falls.** the run-time reports, the violations of a rule while it is
+  off, and the type errors in the checker's own source are each counted,
+  and each count is a ceiling kept in the build database. a rise fails
+  the build, so a change cannot add what the tree is working to remove.
+  [`build/compiler_test.tl`] pins the checker's own count today as an
+  exact number in its source; the ceiling replaces that pin, and the
+  checker's own ceiling is 0 when the new checker replaces the fork,
+  whose source obeys its own rules.
 - **a checker step is reviewed twice and measured against main.** each
   step has two review rounds. each also runs a differential against main
   over the common idioms of the tree, which measures over-refusal as well
@@ -393,7 +412,7 @@ initializer are checked by the same subtype relation as every other
 value, so the per-site nil patches become that relation. a method call or
 an index on `T | nil` is refused, as an index key that may be nil is. a
 type variable ranges over all types, unions with nil included: inside a
-generic body a `T` may be nil, and `x as T` removes no nil. a nil test of
+generic body a `T` may be nil. a nil test of
 a place typed `T` or `T | nil` narrows it to `T`, never to "T without
 nil", which no type can say. the standard library's declarations are
 audited, each of these named: `string.match` and `string.find` (each
@@ -409,7 +428,9 @@ rather than trapping. one refinement answers `T`, and only this: in
 of at least 1, `t[i]` (and `t[i + c]` for `c <= d`) is `T` when `t` is a
 local the body neither assigns nor passes to a call. an index is not a
 place: a test of `t[k]` narrows nothing, and the rewrite is
-`local v = t[k] if v then ... end`.
+`local v = t[k] if v then ... end`. a test file is held to the rule like
+any module, with no exemption: it reads an index into a local and
+asserts it, or uses a general accessor that raises on a miss.
 
 a tuple type indexed by a literal in range is its member's type, and out
 of range is refused. length facts (`#t > 0` giving `t[1]`) are not
@@ -420,7 +441,10 @@ tracked. a further pattern waits for a measured need.
 a restriction. `{T | nil}` is refused as an array type: `#`, `ipairs` and
 `table.insert` are defined on a sequence, and a hole makes each
 unreliable. sparse data is a map, `{integer:T}`, and `#` on a map is
-refused.
+refused. a map's value type does not name nil either: `{K: V | nil}` is
+refused, and `m[k] = nil` is the deletion of the key, typed as such, not a
+write of a value. which writes may make a hole in an array is an open
+question ("open questions").
 
 ### narrowing only what nothing else can change
 
@@ -445,7 +469,7 @@ decides narrowing and reachability.
   against that record type. a literal with no expected type has a type of
   its own, which is not a record with a read-only field, so no second
   reference to it can write the field. a literal of such a record gives
-  every read-only field a value.
+  every read-only field a value, except a `?` field.
 - a module's read-only fields are never seen before they are set: the
   build refuses a cycle of imports ([`compilation.ordered`] reports "a
   cycle of imports"), and only declarations, which run no code, may form
@@ -480,9 +504,10 @@ block-ending patches; [narrowing by construction] gives it its form. a
 read-only field is type-level syntax, erased in the emitted Lua. a record
 that implements an interface declares a field read-only exactly when the
 interface does, which the step that adds read-only fields checks (#3081)
-before [one variance per type constructor] makes field types exact, and
-[records are not maps] refuses a record where a map is expected, so no
-view of the table can assign the field.
+before [one variance per type constructor] makes field types exact. the
+agreement carries over to `mut`: a record declares a field `mut` exactly
+when the interface does. [records are not maps] refuses a record where a
+map is expected, so no view of the table can assign the field.
 
 ### captures are read-only
 
@@ -583,8 +608,9 @@ classes step makes class types nominal before [one variance per type
 constructor] does it for every record.
 
 the literal that makes a class's value names every field, a field not yet
-known taking its empty value or nil (`fd = -1`), since nothing can attach
-the metatable to a table built another way. a class's fields and methods
+known taking its empty value (`fd = -1`), or nil where the field is a `?`
+field, since nothing can attach the metatable to a table built another
+way. a class's fields and methods
 have distinct names, since an absent field would read as the method of
 its name through `__index`. `__close` takes the value and `__tostring`
 returns a string, both checked; a `<close>` local holds a class that
@@ -608,13 +634,15 @@ on each field the tree assigns after creation, read from the fork's
 `uses` rows, and drops the fork's `readonly`, which the default makes
 redundant. the literal rules carry over unchanged: a literal with no
 expected type is never a record, and a literal of a record gives every
-field without a default a value.
+field a value, except a `?` field. interface agreement carries over too:
+a record declares a field `mut` exactly when the interface does.
 
 ### records are not maps
 
 a restriction, in the new checker. a record is never passed where a map
-or `{string:any}` is expected, and `pairs`, `next` and `rawset` refuse it,
-because its fields have types of their own. a record type is not an
+is expected, and `pairs`, `next` and `rawset` refuse it, because its
+fields have types of their own. `{string:any}` is no type outside an entry
+declaration, so it is no way around the rule. a record type is not an
 index type: `r[k]` is legal only where `k`'s type is a literal, an enum or
 a union of them naming fields of the record.
 
@@ -651,8 +679,11 @@ naming the instance. of the tree's 1,624 casts, 666 are from `any` and
 become validators, and most of the 958 others exist to get past nil,
 narrowing and variance, which the rules before this one make unnecessary;
 230 of the 290 outside tests are in the checker's own source, which [the
-new checker] replaces. each one left is rewritten by its count, and the
-error for a cast names the check that replaces it.
+new checker] replaces. the tree's casts are rewritten in the fork's
+grammar, each by its count, before the translator runs: to a validator, to
+`is` or a guard, or deleted once nil, narrowing and variance make it
+unneeded. the translator then never carries a cast: it refuses a module
+that still has one, and its error names the check that replaces it.
 
 ### annotated parameters
 
@@ -682,12 +713,18 @@ are cut to what the language needs.
   in `luaconf.h`, which every unit that includes Lua sees, the core's C
   included. a number still converts to a string, so `"line " .. n` stays
   legal: it cannot go wrong, and removing it (`LUA_NOCVTN2S`) would
-  rewrite about a thousand sites and change the C API's `lua_tolstring`
-  for no soundness.
+  rewrite 100 to 200 sites outside tests, and those in tests besides, and
+  change the C API's `lua_tolstring` for no soundness.
+- a program's globals are exactly what a `.d.tl` declares, and the
+  surface [`core/surface.c`] opens is those names and no others. anything
+  undeclared is not reachable by a program, among it `debug`, `loadfile`,
+  `dofile`, `package` (its searchers and loaders), `rawequal`, `rawlen`
+  and `collectgarbage`. the checker refuses an undeclared name; where a
+  removed name once existed, [`core/surface.c`] answers with the stand-in
+  it gives `io` and `os` now, whose error names what to use instead.
 - a program has no `setmetatable`, `getmetatable`, `rawset`, `rawget`,
-  text `load` or `string.dump`; [`core/surface.c`] replaces each with the
-  stand-in it gives `io` and `os` now, whose error names what to use
-  instead. code the compiler emits reaches the VM through its reserved
+  text `load` or `string.dump`, since a `.d.tl` declares none of them for
+  a program. code the compiler emits reaches the VM through its reserved
   form; the build's compile and test harness, and the validators of
   untrusted data ([`cosmic.shape`], [`build/confine.tl`]), reach `load`
   and a raw field read through a raw value only a trusted module receives.
@@ -695,6 +732,11 @@ are cut to what the language needs.
   until the pin carries [compiler-written classes], the checker's own
   Lua, compiled by the seed, still calls `setmetatable`, `rawset` and
   `load`, and the boot keeps them in its environment.
+- `_ENV` is a reserved name: a program cannot declare it (`local _ENV`, a
+  parameter, a field of a record) or assign it, and the new checker
+  refuses both. a file run by `cosmic --standalone` is checked before it
+  runs and is refused on a type error, so no file a program runs escapes
+  the checker; the runtime cut lands that check.
 - a table a program makes has no `__gc` and no `__mode`, which needs no
   change to `lgc.c` once only the compiler and C attach metatables; a C
   userdata keeps its `__gc`, and a weak table is made in C.
@@ -743,7 +785,8 @@ each step measures again with the checker's own rows before it lands.
   rest. the largest remainder outside tests was a fixed-width row read by
   a constant index (`row[1]` from a [`Sqlite.rows`] result, about 520
   reads). rows are read through typed accessors, so these reads are gone.
-  about 4,613 test reads by index remain (see "open questions").
+  about 4,613 test reads by index remain, each rewritten to a local and
+  an `assert` or a general accessor that raises.
 - **variance ([one variance per type constructor]).** about 1,420 places
   compared a container covariantly. 1,344 are `table.concat` of a
   `{string}` against its `{string | number}` declaration; three option
@@ -769,6 +812,7 @@ each step measures again with the checker's own rows before it lands.
   of untrusted tables.
 - **coercion ([no implicit conversion or hidden code]).** about 100 to 200
   sites outside tests join a number with `..`, mostly in error messages;
+  tests add more;
   string arithmetic cannot be counted by text and is counted by a build
   with the switch on.
 - **narrowing by construction,** measured on `origin/main` at e95cd66f4.
@@ -791,9 +835,10 @@ each step measures again with the checker's own rows before it lands.
   - drop sites with field facts: 1,008. about 30% of their callees in the
     tree are pure one level deep.
   - `rawset` 11, `rawget` 29, `debug.*` 3 (all in the checker).
-- **the checker's own source.** 320 type errors under its own rules,
-  pinned as a count by [`build/compiler_test.tl`]. it has about 94 free
-  locals, short of Lua's limit of 200.
+- **the checker's own source.** 317 type errors under its own rules,
+  pinned as an exact count by [`build/compiler_test.tl`], which becomes a
+  ceiling that only falls ([a count the tree cannot yet bring to zero is a
+  ceiling]). it has about 94 free locals, short of Lua's limit of 200.
 - **nil ([nil is its own type], [assigned before read]).** the rewrite of
   every directory outside `checker/` cost less than planned.
   `--check-types` finds what a call or return passes, but not a local or a
@@ -923,7 +968,8 @@ not.
 the checker's own source may then use `name?: T`, `: never` and the strict
 rules, one pin move after each lands. it is never rewritten to a rule the
 new checker replaces it before, and the self-compile's pinned type-error
-count becomes a ceiling.
+count becomes a ceiling that only falls ([a count the tree cannot yet bring
+to zero is a ceiling]).
 
 ### compiler-written classes, in the fork
 
@@ -963,8 +1009,9 @@ foundation's final form as the fork lands it. a sketch, not a design:
   and every row the checker writes into the database ("what the language
   keeps working").
 - the grammar holds `mut` on a field ([fields are fixed unless declared
-  mutable]) and no `as` ([no casts]); beyond that, provisionally, beyond
-  Teal's: an `if` expression
+  mutable]) and no `as` ([no casts]); the translator refuses a module that
+  still has a cast, so the tree's casts are rewritten in the fork's
+  grammar before it runs. beyond that, provisionally, beyond Teal's: an `if` expression
   (`if n == 1 then "item" else "items" end`), which gives the 800 or so
   `and`/`or` ternaries a form that cannot answer the wrong branch when
   the middle value is false or nil; `match` over a tagged union, refused
@@ -980,7 +1027,8 @@ foundation's final form as the fork lands it. a sketch, not a design:
 - a translator comes with the grammar: it rewrites a Teal module into the
   new grammar, and is how the tree moves to it, in the change that
   replaces the fork. it writes `mut` on each field the tree assigns after
-  creation and drops `readonly`. it is also the oracle a drop-in parser would have
+  creation, drops `readonly`, and refuses a module with a cast. it is also
+  the oracle a drop-in parser would have
   been: where the new grammar only respells a construct, the new
   checker's Lua for the translated module is byte-identical to the fork's
   Lua for the original, over the whole tree, so the parser and code
@@ -1022,8 +1070,11 @@ declarations audit come first, the count from the new checker run with
 the rules on over everything outside `checker/`. `--check-types` cannot
 see a local or a field a literal leaves out, so the new checker is what
 verifies the tree's rewrite. the tree is rewritten one directory at a
-time, tests with their modules, while the rules are off, then one change
-turns them on. `never` becomes the bottom type as nil leaves it. the nil
+time, tests with their modules, while the rules are off and their
+violations are a ceiling that only falls ([a count the tree cannot yet
+bring to zero is a ceiling]), then one change turns them on, with the
+ceiling at 0. the count includes the arrays whose element type names nil
+([arrays are dense]); it sizes the rewrite and is no gate. `never` becomes the bottom type as nil leaves it. the nil
 error names the call that answered nil and its declaration, since the
 rule multiplies it.
 
@@ -1046,17 +1097,20 @@ record-as-map sites are counted and rewritten first.
 
 ### honest `or` and `and`, no casts and parameters
 
-[honest `or` and `and`], [no casts] and [annotated parameters], in the
-new checker. most of the tree's casts exist to get past nil, narrowing
-and variance, so after nil is out of every type most are deleted rather
-than rewritten; the rest become validators and `is`, and then `as` leaves
-the grammar.
+[honest `or` and `and`] and [annotated parameters], in the new checker,
+and [no casts] by the grammar: the new grammar has no `as`. the casts are
+rewritten in the fork's grammar before the translator runs, to validators
+and `is`, or deleted where nil, narrowing and variance make them
+unneeded; the translator refuses a module that still has one, so `as`
+never reaches the new checker.
 
 ### the runtime cut
 
 it lands [no implicit conversion or hidden code], in parts:
-string-to-number coercion out of the VM, no text `load` or `string.dump` for a program, no `__gc` or
-`__mode` on a program's tables, and a fixed `_G`. it depends on no checker
+string-to-number coercion out of the VM, the surface cut to the globals a
+`.d.tl` declares (no text `load` or `string.dump` for a program among
+them), a standalone run that checks its file, no `__gc` or `__mode` on a
+program's tables, and a fixed `_G`. it depends on no checker
 step after the classes, and each part lands with the rewrite of the sites
 it counts; the checker's own source is free of string arithmetic before
 the switch, since the seed's Lua runs on the tree's VM.
@@ -1070,13 +1124,11 @@ the switch, since the seed's Lua runs on the tree's VM.
   `cosmic docs` as plainly as a return type does.
 - **variadic generics.** whether `pcall`, `xpcall` and the coroutine
   functions earn them, or stay special.
-- **tests.** whether test files get a helper for an index they have
-  already asserted the length of, since about 4,613 array reads are in
-  tests and a nil there already fails the test.
 - **strict-record checks in debug runs.** whether they come before or
   after narrowing by construction.
-- **dense arrays.** what [arrays are dense] costs the tree, counted by the
-  new checker before nil leaves every type.
+- **holes made by an index write.** whether an array write is only
+  `t[#t+1]`, `table.insert` or an index proven in range, since any other
+  write can make a hole in a sequence ([arrays are dense]).
 
 ## what the first steps taught
 
@@ -1104,6 +1156,7 @@ the switch, since the seed's Lua runs on the tree's VM.
   factor of three on metamethods; the checker's own rows answer exactly,
   hence [every count is a query](#what-the-language-builds-on).
 
+[a count the tree cannot yet bring to zero is a ceiling]: #decisions
 [annotated parameters]: #annotated-parameters
 [arrays are dense]: #arrays-are-dense
 [assigned before read]: #assigned-before-read

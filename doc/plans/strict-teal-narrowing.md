@@ -3,7 +3,10 @@
 the design of the step of that name in [strict-teal.md]. it is written
 against main with [captures are read-only] merged, and with the plan's
 rule [narrowing only what nothing else can change]: a place is a local or
-a path of read-only fields from one.
+a path of read-only fields from one. in the fork a read-only field is the
+`readonly` marker, a bridge until `mut` lands in the new checker, where
+every field is fixed unless declared `mut` ([fields are fixed unless
+declared mutable]); the narrowing is the same for both.
 
 ## the model
 
@@ -96,7 +99,9 @@ needs it.
   mismatch that is an old-state bug is fixed first, in a PR of its own.
   the flag is off by default and nothing is kept without it.
 - **read-only fields,** in the PRs the plan's step lists: the syntax, the
-  write refusal and interface agreement (#3081), the literal rules
+  write refusal and interface agreement (#3081; it carries over to `mut`:
+  a record declares a field `mut` exactly when the interface does), the
+  literal rules
   (#3083), the [`cosmic.sys`] audit, and the change that declares the
   tree's read-only fields, copies
   the other narrowed reads to locals, and restricts the old narrowing to
@@ -111,7 +116,9 @@ needs it.
   mismatches, each triaged. message text may change where the facts give
   a better cause; no more mirroring of the old wording.
 - **the old narrowing deleted.** the checker's pinned type-error count
-  moves and is measured and set.
+  moves and is measured and set. once the seed step makes the count a
+  ceiling that only falls, it is set as one ([a count the tree cannot yet
+  bring to zero is a ceiling]).
 
 the refinements that accept more (one flow pass, function declarations
 keeping local facts, joins that unite types, edge-pair conditions, the
@@ -198,7 +205,9 @@ thin call sites.
   those two collector calls move to where facts are made.
 
 [`cosmic.sys`]: ../../core/syscalls.h
+[a count the tree cannot yet bring to zero is a ceiling]: strict-teal.md#decisions
 [captures are read-only]: strict-teal.md#captures-are-read-only
+[fields are fixed unless declared mutable]: strict-teal.md#fields-are-fixed-unless-declared-mutable
 [narrowing only what nothing else can change]: strict-teal.md#narrowing-only-what-nothing-else-can-change
 [strict-teal.md]: strict-teal.md
 [the new checker]: strict-teal.md#the-new-checker
