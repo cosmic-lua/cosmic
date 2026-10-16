@@ -2006,7 +2006,7 @@ local function finish(rec: Recording, job: Job, result: Child.Result | nil,
     rec.failures[#rec.failures + 1] = failure
     rec.failed[failure] = id
     rec.reruns[id] = job.m.file .. ":" .. job.name
-    local stdout = result ~= nil and result.stdout or nil
+    local stdout = result and result.stdout
     if result ~= nil and stdout ~= nil and stdout ~= "" then
       rec.outputs[id] = stdout
     end

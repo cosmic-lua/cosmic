@@ -611,7 +611,7 @@ function rules.merge(...: rules.Policy): rules.Policy | nil, string
       if database ~= nil and database.path ~= at then
         return refuse("database is given two values, " .. database.path .. " and " .. at)
       end
-      local database_sha256 = database ~= nil and database.sha256 or nil
+      local database_sha256 = database and database.sha256
       if database ~= nil and digest ~= nil and database_sha256 ~= nil and database_sha256 ~= digest then
         return refuse("database " .. at .. " is given two digests, " .. database_sha256 ..
             " and " .. digest)
