@@ -26,6 +26,18 @@ local record data
   record User
     name: string
   end
+  record Leaf
+    x: string
+  end
+  record Mid
+    c: string
+    e: Leaf | nil
+  end
+  record Outer
+    b: Mid | nil
+    c: string
+    s: string | nil
+  end
   record Page
     title: string
     cls: string
@@ -39,6 +51,7 @@ local record data
     items: {Item}
     user: User
     owner: User | nil
+    nest: Outer | nil
     error: string | nil
     flag: boolean
     list: {string}
@@ -392,6 +405,48 @@ local function test_a_tested_optional_field_is_read_inside_its_arm_as_a_local(tm
   assert(shown("optional-owner", { owner = { name = "o" } }) == "oo", "owner")
   assert(shown("optional-none", {}) == "none", "none")
   assert(shown("optional-flag", { flag = true, error = "e" }) == "<p>e</p>F", "flag")
+end
+
+--- A test inside a test of a prefix of its path: each path is bound to its own
+--- local, and a read of a path reads the local of the longest prefix bound.
+local function test_guards_on_nested_prefixes_build_and_render(tmp: string)
+  local function shown(case: string, template: string, page: {string: any}): string
+    return (render(tmp, case, HEAD .. template, page):gsub("^%s+", ""))
+  end
+  local full = { nest = { b = { c = "B", e = { x = "X" } }, c = "C", s = "S" } }
+  -- Two deep, and a sibling path read inside the inner block.
+  local two = "{{if .nest}}{{if .nest.b}}{{.nest.b.c}}{{.nest.c}}{{end}}{{end}}"
+  assert(shown("nest-two", two, full) == "BC", "two")
+  assert(shown("nest-two-nob", two, { nest = { c = "C" } }) == "", "two, no b")
+  assert(shown("nest-two-none", two, {}) == "", "two, none")
+  -- Three deep.
+  local three = "{{if .nest}}{{if .nest.b}}{{if .nest.b.e}}{{.nest.b.e.x}}{{end}}{{end}}{{end}}"
+  assert(shown("nest-three", three, full) == "X", "three")
+  assert(shown("nest-three-noe", three, { nest = { b = { c = "B" }, c = "C" } }) == "", "three, no e")
+  -- The tested path read again under the same name.
+  local same = "{{if .nest}}{{if .nest.s}}{{.nest.s}}{{end}}{{end}}"
+  assert(shown("nest-same", same, full) == "S", "same")
+  assert(shown("nest-same-nos", same, { nest = { c = "C" } }) == "", "same, no s")
+  -- In an arm of a chain, and a range over a bound path's field.
+  local chain = "{{if .flag}}F{{else if .nest}}{{if .nest.b}}{{.nest.b.c}}{{else}}-{{end}}{{.nest.c}}{{else}}none{{end}}"
+  assert(shown("nest-chain", chain, full) == "BC", "chain")
+  assert(shown("nest-chain-nob", chain, { nest = { c = "C" } }) == "-C", "chain, no b")
+  assert(shown("nest-chain-none", chain, {}) == "none", "chain, none")
+end
+
+--- A chain of many arms builds: it is flat, so what the checker nests grows
+--- with none of them.
+local function test_a_chain_of_three_hundred_arms_builds_and_renders(tmp: string)
+  local arms: {string} = { "{{if .flag}}F" }
+  for arm = 1, 300 do
+    arms[#arms + 1] = (arm % 2 == 0 and "{{else if .error}}e" or "{{else if .owner}}o") .. arm
+  end
+  arms[#arms + 1] = "{{else}}none{{end}}"
+  local template = HEAD .. table.concat(arms)
+  assert((render(tmp, "arms-none", template, {}):gsub("^%s+", "")) == "none", "none")
+  assert((render(tmp, "arms-flag", template, { flag = true }):gsub("^%s+", "")) == "F", "flag")
+  assert((render(tmp, "arms-owner", template, { owner = { name = "n" } }):gsub("^%s+", "")) == "o1", "owner")
+  assert((render(tmp, "arms-error", template, { error = "x" }):gsub("^%s+", "")) == "e2", "error")
 end
 
 local function test_a_template_with_no_action_builds_without_a_warning(tmp: string)

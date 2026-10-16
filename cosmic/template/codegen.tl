@@ -195,13 +195,20 @@ local function value(g: Gen, pipe: types.Pipeline, dot: Dot, raw?: boolean): str
     end
   end
   head.used = true
+  -- The path as the source writes it, which `g.bound` is keyed by, beside
+  -- the expression, in which a prefix an enclosing test bound is its local.
+  local written = head.name
   local expr = head.name
   for _, field in ipairs(pipe.path) do
+    written = member(written, field)
     expr = member(expr, field)
-    local held = not raw and g.bound[expr] or nil
+    local held = not raw and g.bound[written] or nil
     if held ~= nil then
       expr = held
     end
+  end
+  if raw then
+    expr = written
   end
   for _, stage in ipairs(pipe.stages) do
     g.staged = true
@@ -345,42 +352,60 @@ local function block(g: Gen, node: types.Node, dot: Dot)
     to_line(g, node.close_line)
     put(g, "end end")
   else
-    -- The ends the arms leave owing: one for the `if`, and two for each arm
-    -- that binds the value it tests (a `do` and the `if` it holds).
-    local owed = 0
+    -- A field path an arm tests is bound to a local before it is tested:
+    -- the test narrows the local, and the arm reads it.
+    local function bindable(pipeline: types.Pipeline | nil): string | nil
+      if pipeline == nil or #pipeline.stages > 0 or #pipeline.path == 0 then
+        return nil
+      end
+      local written = value(g, pipeline, dot, true)
+      return g.bound[written] == nil and written or nil
+    end
+    local any = false
+    for _, arm in ipairs(node.branches) do
+      any = any or bindable(arm.pipeline) ~= nil
+    end
+    -- A chain with a bound arm is flat, one `do` block to an arm in a
+    -- `repeat` that each arm leaves by `break`, so that its depth does not
+    -- grow with the arms (the checker nests by block) and a path is read
+    -- only when the arms before it have failed.
+    local flat = any and #node.branches > 1
+    local closing = ""
     for at, arm in ipairs(node.branches) do
       to_line(g, arm.line)
       local pipeline = arm.pipeline
-      local bound: string | nil = nil
-      local raw = ""
+      local written = pipeline ~= nil and bindable(pipeline) or nil
+      local lead = at == 1 and flat and "repeat " or ""
       if pipeline == nil then
-        put(g, "else")
+        put(g, flat and closing or "else")
+        closing = ""
       else
         local tested = value(g, pipeline, dot)
-        raw = value(g, pipeline, dot, true)
-        -- A field path is bound to a local before it is tested: the test
-        -- narrows the local, and the arm reads it.
-        if #pipeline.stages == 0 and #pipeline.path > 0 and g.bound[raw] == nil then
+        if written ~= nil then
           local name = new_dot(g).name
-          bound = name
-          put(g, (at == 1 and "do local " or "else do local ") .. name .. " = " .. tested .. " if " ..
-              name .. " then")
-          owed = owed + 2
-          g.bound[raw] = name
+          put(g, closing .. (closing ~= "" and " " or "") .. lead .. "do local " .. name .. " = " .. tested ..
+              " if " .. name .. " then")
+          g.bound[written] = name
+          closing = flat and "break end end" or "end end"
+        elseif flat then
+          put(g, closing .. (closing ~= "" and " " or "") .. lead .. "if " .. tested .. " then")
+          closing = "break end"
         else
           put(g, (at == 1 and "if " or "elseif ") .. tested .. " then")
-          if at == 1 then
-            owed = owed + 1
-          end
+          closing = "end"
         end
       end
       emit(g, arm.body, dot)
-      if bound ~= nil then
-        g.bound[raw] = nil
+      if written ~= nil then
+        g.bound[written] = nil
       end
     end
     to_line(g, node.close_line)
-    put(g, (("end "):rep(owed):gsub(" $", "")))
+    if flat then
+      put(g, closing .. (closing ~= "" and " " or "") .. "until true")
+    else
+      put(g, closing)
+    end
   end
 end
 
