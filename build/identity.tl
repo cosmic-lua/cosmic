@@ -85,7 +85,7 @@ local tool_trees: {string:boolean} = {
 }
 
 --- The trees of cosmic's own that hold Teal no module is: the checker
---- ([`checker/tl.tl`]) is compiled at boot by the vendored `tl.lua` into the
+--- ([`checker/tl.tl`]) is compiled at boot, from the seed, into the
 --- compiler the tree is built with, and is no module of the tree it
 --- compiles, nor a test. Another project's `checker/` is its own.
 local checker_trees: {string:boolean} = {
@@ -365,14 +365,19 @@ function identity.recorded_boot_hash(db: Sqlite.Handle): string | nil, string
   return rows[1]:text(1)
 end
 
---- The Teal compiler's and Lua's pins and sources, as one text: the
---- pins of the vendored `tl.lua` that compiles the checker and of Lua, the
---- checker's source ([`checker/tl.tl`]) and the Lua standard library's
---- declarations it is compiled with ([`checker/stdlib.d.tl`]), and Lua's
---- patches. Part of the compiler's identity, and the whole of `runtime_basis`.
+--- The Teal compiler's and Lua's pins and sources, as one text: the pin
+--- of Lua, the checker's source ([`checker/tl.tl`]) and the Lua standard
+--- library's declarations it is compiled with ([`checker/stdlib.d.tl`]),
+--- and Lua's patches. Part of the compiler's identity, and the whole of
+--- `runtime_basis`. Neither [`vendor/tl/PIN`] nor [`ci/cosmic-driver.pin`],
+--- which names the release that seeds a boot, is in it: a boot loads
+--- the checker's source compiled twice (core/bridge.lua's `bootstrap`),
+--- and the compiler it carries is the second stage, a function of that
+--- source alone (build/compiler_test.tl holds it to a fixed point), so no
+--- release's emitter is in what it is.
 local pins <const> =
   "coalesce((SELECT group_concat(path || ' ' || sha256, char(10) " ..
-  "ORDER BY path) FROM tool WHERE path IN ('vendor/tl/PIN', 'vendor/lua/PIN') " ..
+  "ORDER BY path) FROM tool WHERE path = 'vendor/lua/PIN' " ..
   "OR path GLOB 'checker/*' OR path GLOB 'patch/lua/*'), '')"
 
 --- What a module of the tree in the working database requires, as

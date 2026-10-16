@@ -1207,7 +1207,7 @@ end
 --- them (build.identity's `compiler_identity`), and the rest of build/
 --- beside.
 local COMPILER_HASH <const> = "${{ hashFiles('build/**/*.tl', '!build/**/*_test.tl', " ..
-  "'vendor/tl/PIN', 'vendor/lua/PIN', 'checker/**', 'patch/lua/**') }}"
+  "'vendor/lua/PIN', 'checker/**', 'patch/lua/**') }}"
 
 --- A branch's push saves its compiles for its own later pushes, where
 --- its builds compiled more than a few dozen modules the entry it
