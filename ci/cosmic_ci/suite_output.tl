@@ -171,8 +171,10 @@ end
 --- The share of `row`'s tests that stood, as a percentage with one
 --- decimal ("99.5"), or "" where it says neither count or both are 0.
 function SuiteOutput.stood_percent(row: State.SuiteRun): string
-  if row.ran == nil or row.stood == nil or row.ran + row.stood == 0 then return "" end
-  return string.format("%.1f", row.stood * 100.0 / (row.ran + row.stood))
+  local ran = row.ran
+  local stood = row.stood
+  if ran == nil or stood == nil or ran + stood == 0 then return "" end
+  return string.format("%.1f", stood * 100.0 / (ran + stood))
 end
 
 local function cell(value: any): string

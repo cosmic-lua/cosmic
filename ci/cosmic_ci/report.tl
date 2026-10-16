@@ -427,8 +427,9 @@ end
 
 --- `runs`, qualified (`qualify`), as the report's markdown.
 function Report.render(runs: {Report.Run}, o: Report.Options): string
+  local branch = o.branch
   local out: {string} = { string.format("# CI runs: %s, %s event%s, last %d\n",
-    o.workflow, o.event, o.branch ~= nil and (" on " .. o.branch) or "", #runs) }
+    o.workflow, o.event, branch ~= nil and (" on " .. branch) or "", #runs) }
   local qualifying: {Report.Run} = {}
   for _, run in ipairs(runs) do
     out[#out + 1] = string.format("\n## Run %s (%s, %s, attempt %s, %s)\n\n",
@@ -495,8 +496,10 @@ function Report.render(runs: {Report.Run}, o: Report.Options): string
         suites[key] = { ms = {}, stood = {}, ran = {} }
         suite_names[#suite_names + 1] = key
       end
-      if row.elapsed_ms then table.insert(suites[key].ms, row.elapsed_ms) end
-      if row.ran then table.insert(suites[key].ran, row.ran) end
+      local elapsed_ms = row.elapsed_ms
+      if elapsed_ms then table.insert(suites[key].ms, elapsed_ms) end
+      local row_ran = row.ran
+      if row_ran then table.insert(suites[key].ran, row_ran) end
       local percent = tonumber(SuiteOutput.stood_percent(row))
       if percent then table.insert(suites[key].stood, percent) end
     end
@@ -604,7 +607,8 @@ function Report.report(o: Report.Options): string
   -- has any.
   local listed = math.min(o.runs + lookback, 100)
   local query = "status=completed&per_page=" .. listed .. "&event=" .. o.event
-  if o.branch then query = query .. "&branch=" .. o.branch end
+  local branch = o.branch
+  if branch then query = query .. "&branch=" .. branch end
   local runs = Report.runs(api(o, "repos/" .. o.repo .. "/actions/workflows/" ..
       o.workflow .. "/runs?" .. query))
   local shown: {Report.Run} = {}

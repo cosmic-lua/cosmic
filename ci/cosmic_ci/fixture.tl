@@ -245,7 +245,8 @@ function Fixture.environment_of(base: {string:string},
   for _, name in ipairs(Fixture.inherited) do
     if base[name] ~= nil then environment[name] = base[name] end
   end
-  if builds.home ~= nil then environment.COSMIC_BUILD_HOME = builds.home end
+  local home = builds.home
+  if home ~= nil then environment.COSMIC_BUILD_HOME = home end
   environment.COSMIC_BUILD_CACHE = "0"
   environment.COSMIC_TEST_SANDBOX = "0"
   if extra then
@@ -278,11 +279,12 @@ function Fixture.call_with_environment(label: string, argv: {string},
   local outcome = Runner.execute({ argv = argv, cwd = directory,
     env = environment, timeout_ns = timeout_ns or default_child_timeout_ns,
     input = input, output = out, error = err, fds = fds })
-  if not outcome.result then
+  local outcome_result = outcome.result
+  if not outcome_result then
     error(label .. ": could not start: " .. tostring(outcome.trouble) ..
         "; stdout=" .. out .. "; stderr=" .. err)
   end
-  local finished = outcome.result as Child.Result
+  local finished = outcome_result as Child.Result
   assert(Fs.put(Fs.stderr, "fixture: " .. label .. ": DONE (" ..
       tostring(outcome.elapsed_ns // 1000000) .. " ms; code=" ..
       tostring(finished.code) .. "; signal=" .. tostring(finished.signal) ..

@@ -109,7 +109,8 @@ local function test_the_census_line_says_what_the_cache_held(tmp: string)
   assert(held[1].parts["host features"] == "01" and next(held[2].parts) == nil)
   -- An empty cache, said so; a run that said nothing has none.
   local empty = SuiteOutput.parse("test: census: no rows\n")
-  assert(empty.held == "" and #SuiteOutput.held(empty.held) == 0)
+  local empty_held = empty.held
+  assert(empty_held == "" and #SuiteOutput.held(empty_held) == 0)
   assert(SuiteOutput.parse(key_parts .. "\n").held == nil)
   -- Timed out, it keeps the census, said before its tests ran.
   local timed = SuiteOutput.read("test: census: 3 rows under runtime r, harness h\n", 124)

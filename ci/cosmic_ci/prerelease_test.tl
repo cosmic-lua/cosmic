@@ -345,9 +345,10 @@ local function serve(r: Repo, request: GithubApi.Request): GithubApi.Reply | nil
   local method = request.method
   r.log[#r.log + 1] = method .. " " .. path
   local body: {string:any} = {}
-  if request.body then
+  local request_body = request.body
+  if request_body then
     assert(request.headers["Content-Type"] == "application/json", "a JSON body is not typed")
-    body = assert(Json.decode_object(request.body))
+    body = assert(Json.decode_object(request_body))
   end
   if path == "repos/" .. repository then
     return reply(200, { full_name = repository, default_branch = "main" })
@@ -415,9 +416,10 @@ local function serve(r: Repo, request: GithubApi.Request): GithubApi.Reply | nil
       "the edit is not exactly draft=false, prerelease=true")
     if not r.fail["edit-draft"] then
       rel.draft = false
+      local target = rel.target
       -- Publishing a draft whose tag is missing makes the tag, at the
       -- draft's target.
-      if r.tags[rel.tag] == nil and rel.target then r.tags[rel.tag] = rel.target end
+      if r.tags[rel.tag] == nil and target then r.tags[rel.tag] = target end
     end
     rel.prerelease = true
     return reply(200, release_json(rel))

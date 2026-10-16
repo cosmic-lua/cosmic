@@ -104,7 +104,8 @@ local function uploads_of(base: string): string | nil, string
   local host, prefix = parts.host, "/api/uploads"
   if host:sub(1, 4) == "api." then host, prefix = "uploads." .. host:sub(5), "" end
   local authority = host:find(":", 1, true) and ("[" .. host .. "]") or host
-  if parts.port then authority = authority .. ":" .. parts.port end
+  local port = parts.port
+  if port then authority = authority .. ":" .. port end
   local origin, trouble = origin_of(parts.scheme .. "://" .. authority)
   if origin == nil then return nil, trouble end
   return origin, prefix
@@ -188,7 +189,8 @@ function GithubApi.live(env: {string:string}, test?: GithubApi.Live): GithubApi.
       script = script() })
     if response == nil then return nil, trouble end
     local body, read_trouble = Stream.read_all(response)
-    if test and test.sent then test.sent[#test.sent + 1] = response:sent() end
+    local sent = test and test.sent
+    if sent then sent[#sent + 1] = response:sent() end
     local status, reply_headers = response.status, response.headers
     response:close()
     if body == nil then return nil, read_trouble end
