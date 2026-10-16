@@ -1991,6 +1991,33 @@ local function lexable(root: string): {{string}} | nil, string
   return out
 end
 
+--- The `goto` statements among `tokens`, as the errors the grammar gives them.
+--- A `goto` is a keyword to the lexer; one that follows `.` or `:`, or is a
+--- table key or a member name, is a field name. [`lang.parser`] refuses the
+--- statement itself.
+local function gotos(tokens: {Lexer.Token}, file: string): {Lexer.Error}
+  local out: {Lexer.Error} = {}
+  for i, t in ipairs(tokens) do
+    if t.kind == "keyword" and t.text == "goto" then
+      local before, after, then_ = tokens[i - 1], tokens[i + 1], tokens[i + 2]
+      local field = (before ~= nil and (before.kind == "." or before.kind == ":")) or
+        (after ~= nil and (after.text == "=" or after.text == ":" or (after.text == "?" and then_ ~= nil and then_.text == ":")))
+      if not field then
+        local label = after ~= nil and after.y == t.y and (after.kind == "identifier" or after.kind == "keyword") and after.text or nil
+        out[#out + 1] = {
+          filename = file, code = "label_or_goto", y = t.y, x = t.x, offset = t.offset,
+          length = label and after.offset + after.length - t.offset or t.length,
+          msg = "`goto" .. (label and " " .. label or "") .. "` is not in the grammar",
+          fix = label == "continue" and "write `continue`" or
+            "write `continue` to skip the rest of a pass of the loop around it; restructure any other jump with an" ..
+            " `if` around the code to skip, or move the code into a function and `return` from it",
+        }
+      end
+    end
+  end
+  return out
+end
+
 --- Every `.tl` file of the tree, lexed in the new checker's grammar
 --- ([`lang.lexer`]): the file's tokens and comments must tile its bytes, and
 --- its errors are the cut forms `pinned` (by default `lexer_pins`) counts,
@@ -2018,6 +2045,17 @@ function tree_checks.lexed(root: string, pinned?: {string: integer}): {string}
       local held = by_code[e.code] or {}
       held[#held + 1] = e
       by_code[e.code] = held
+    end
+    local jumps = gotos(lexed.tokens, file)
+    if #jumps > 0 then
+      local held = by_code["label_or_goto"] or {}
+      for _, e in ipairs(jumps) do
+        held[#held + 1] = e
+      end
+      table.sort(held, function(a: Lexer.Error, b: Lexer.Error): boolean
+        return a.offset < b.offset
+      end)
+      by_code["label_or_goto"] = held
     end
     for _, code in ipairs(Lexer.codes) do
       local errors = by_code[code]
