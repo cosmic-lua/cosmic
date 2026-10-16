@@ -37,7 +37,7 @@ defines the target; once something ships, it leaves this file.
   [`build/teal_test.tl`] pins the rest). a call through `any` carries no flag
   either.
 - make every guard read every place alike, in the new checker: the fork
-  narrows only a local ([doc/plans/strict-teal-narrowing.md](plans/strict-teal-narrowing.md)),
+  narrows only a local ([narrowing by construction](plans/strict-teal.md#narrowing-by-construction)),
   so a test of a field, an index or a global narrows nothing there and a
   program copies the field to a local first. In the new checker a path of
   fixed fields (`a.b.c`) is a place, and so is an index (`t[k]`, `k` a
