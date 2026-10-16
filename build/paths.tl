@@ -48,6 +48,9 @@ local record paths
     carried: string
     --- The database `cosmic fix --check .` renders the docs it checks into.
     docs_check: string
+    --- The memo of what `cosmic fix --check .` found in each file it lexes
+    --- and translates ([`build.check_memo`]).
+    translate_check: string
     --- The index of the uses by source module a test run extracts.
     uses: string
     --- The stores of the test modules' import closures.
@@ -90,6 +93,7 @@ function paths.under(directory: string): paths.Layout
     working = directory .. "/build.db",
     carried = directory .. "/carried.db",
     docs_check = directory .. "/docs-check.db",
+    translate_check = directory .. "/translate-check.db",
     uses = directory .. "/uses-by-source.db",
     stores = directory .. "/stores",
     bin = directory .. "/bin",

@@ -937,3 +937,136 @@ local function test_the_tree_is_held_to_the_cut_forms_the_grammar_draft_counts(d
   assert(totals["label_or_goto"] == 10 and totals["semicolon"] == 1 and totals["long_comment"] == 27 and
       totals["digit_separator"] == 4 and totals["hex_float"] == 1)
 end
+
+--- A form the translator leaves is refused past its pin, with its place and
+--- the parser's fix; the fork's file is not read; a pin the tree no longer
+--- meets, and a ceiling above the methods moved above a name they read, are
+--- told to fall.
+local function test_a_form_the_translator_leaves_is_refused_past_its_pin_with_its_fix(dir: string)
+  local root = dir .. "/translateroot"
+  assert(Fs.mkdirs(root .. "/build"))
+  assert(Fs.mkdirs(root .. "/checker"))
+  assert(Fs.mkdirs(root .. "/vendor"))
+  assert(Fs.write(root .. "/build/ok.tl", source("local a: string | nil", "local n = a ~= nil and 1 or 2", "return n")))
+  assert(Fs.write(root .. "/build/tuple.tl", source("local a: {{string, integer}}", "return a")))
+  assert(Fs.write(root .. "/checker/tl.tl", source("local a: {{string, integer}}", "return a")))
+  assert(Fs.write(root .. "/vendor/v.tl", source("local a: {{string, integer}}", "return a")))
+  local found = table.concat(tree_checks.translated(root, {}, 0), "\n")
+  assert(found:find("build/tuple.tl:1:", 1, true) and found:find("(tuple_type)", 1, true) and
+      found:find("build/tuple.tl: 1 error of tuple_type after translation, pinned 0", 1, true),
+    found)
+  assert(not found:find("ok.tl", 1, true) and not found:find("checker/tl.tl", 1, true) and
+      not found:find("vendor", 1, true), found)
+  local pins: {string: integer} = { ["build/tuple.tl tuple_type"] = 1 }
+  assert(#tree_checks.translated(root, pins, 0) == 0)
+  pins["build/tuple.tl tuple_type"] = 2
+  pins["build/gone.tl tuple_type"] = 1
+  local fallen = tree_checks.translated(root, pins, 0)
+  assert(#fallen == 2 and fallen[1] == "build/gone.tl tuple_type: pinned 1 but 0 found; lower the pin in " ..
+      "build/tree_checks.tl's translate_pins" and
+      fallen[2]:find("build/tuple.tl tuple_type: pinned 2 but 1 found", 1, true), table.concat(fallen, "\n"))
+end
+
+--- A method that moved into its class above a local it reads is counted
+--- against the ceiling, each listed with its place; a translation that moved
+--- a line without a class is refused.
+local function test_a_method_moved_above_a_name_it_reads_is_counted_against_the_ceiling(dir: string)
+  local root = dir .. "/translatehazard"
+  assert(Fs.mkdirs(root .. "/build"))
+  assert(Fs.write(root .. "/build/moved.tl", source(
+    "local record R",
+    "  n: integer",
+    "end",
+    "local helper = 1",
+    "function R:f(): integer",
+    "  return self.n + helper",
+    "end",
+    "return R")))
+  local pins: {string: integer} = {}
+  local over = table.concat(tree_checks.translated(root, pins, 0), "\n")
+  assert(over:find("build/moved.tl:5: R:f reads helper", 1, true) and
+      over:find("methods moved into a class that read or give something else: 1, ceiling 0", 1, true), over)
+  assert(#tree_checks.translated(root, pins, 1) == 0)
+  local under = tree_checks.translated(root, pins, 2)
+  assert(#under == 1 and under[1]:find("lower translate_hazards", 1, true), table.concat(under, "\n"))
+end
+
+--- A file that has not changed is not read again: its findings come from the
+--- memo. A change to the file or to the code that translates it is a miss.
+local function test_a_memo_answers_for_a_file_that_has_not_changed_and_misses_when_it_or_the_code_does(dir: string)
+  local root = dir .. "/translatememo"
+  assert(Fs.mkdirs(root .. "/build"))
+  assert(Fs.mkdirs(root .. "/lang"))
+  assert(Fs.write(root .. "/lang/translate.tl", "-- one\n"))
+  assert(Fs.write(root .. "/build/tuple.tl", source("local a: {{string, integer}}", "return a")))
+  local memo = assert(Sqlite.memory())
+  local plain = table.concat(tree_checks.translated(root, {}, 0), "\n")
+  assert(plain:find("(tuple_type)", 1, true), plain)
+  assert(table.concat(tree_checks.translated(root, {}, 0, memo), "\n") == plain)
+  local count = assert(Sqlite.rows(memo, "SELECT count(*) FROM check_memo WHERE kind = 'translated'"))
+  assert(count[1]:integer(1) == 2, "the two files")
+  -- Plant another answer under the key: a run that finds it did not translate.
+  local planted = "M\t0\t1\t1\nE\tbare_function\t7\t9\tplanted\twrite it"
+  assert(Sqlite.run(memo, "UPDATE check_memo SET value = ?1", { { text = planted } }))
+  local hit = table.concat(tree_checks.translated(root, {}, 0, memo), "\n")
+  assert(hit:find("build/tuple.tl:7:9: planted (bare_function)", 1, true) and not hit:find("tuple_type", 1, true), hit)
+  -- The code that translates changed: the salt moves, the file is translated again.
+  assert(Fs.write(root .. "/lang/translate.tl", "-- two\n"))
+  assert(table.concat(tree_checks.translated(root, {}, 0, memo), "\n") == plain)
+  -- The file changed: its key moves, and the rows of the old one are dropped.
+  assert(Fs.write(root .. "/build/tuple.tl", source("local a: {{string, string}}", "return a")))
+  local edited = table.concat(tree_checks.translated(root, {}, 0, memo), "\n")
+  assert(edited:find("build/tuple.tl:1:", 1, true) and edited:find("(tuple_type)", 1, true), edited)
+  count = assert(Sqlite.rows(memo, "SELECT count(*) FROM check_memo WHERE kind = 'translated'"))
+  assert(count[1]:integer(1) == 2, "the old key of the edited file is dropped")
+  assert(memo:close())
+end
+
+--- The lexer check keeps its findings the same way.
+local function test_a_memo_answers_the_lexer_check_for_a_file_that_has_not_changed(dir: string)
+  local root = dir .. "/lexmemo"
+  assert(Fs.mkdirs(root .. "/build"))
+  assert(Fs.write(root .. "/build/jumps.tl", source("for i = 1, 3 do", "  goto continue", "  ::continue::", "end", "return 1")))
+  local memo = assert(Sqlite.memory())
+  local plain = table.concat(tree_checks.lexed(root, {}), "\n")
+  assert(plain:find("(label_or_goto)", 1, true), plain)
+  assert(table.concat(tree_checks.lexed(root, {}, memo), "\n") == plain)
+  assert(Sqlite.run(memo, "UPDATE check_memo SET value = 'C\tplanted'"))
+  local hit = table.concat(tree_checks.lexed(root, {}, memo), "\n")
+  assert(hit:find("build/jumps.tl: its tokens do not tile it: planted", 1, true), hit)
+  assert(memo:close())
+end
+
+--- A field given `mut` in a record that extends an interface of another file
+--- counts against the ceiling only when that interface, or one it extends,
+--- declares the field.
+local function test_a_mut_on_a_record_counts_only_when_the_interface_of_another_file_declares_the_field(dir: string)
+  local root = dir .. "/translateface"
+  assert(Fs.mkdirs(root .. "/build"))
+  assert(Fs.write(root .. "/build/face.tl", source(
+    "local interface Base",
+    "  size: integer",
+    "end",
+    "local interface Face is Base",
+    "  name: string",
+    "end",
+    "return Face")))
+  assert(Fs.write(root .. "/build/user.tl", source(
+    "local Face = require(\"build.face\")",
+    "local record Shape is Face",
+    "  size: integer",
+    "  name: string",
+    "  own: integer",
+    "end",
+    "local function set(s: Shape)",
+    "  s.size = 1",
+    "  s.name = \"x\"",
+    "  s.own = 2",
+    "end",
+    "return set")))
+  local pins: {string: integer} = {}
+  local over = table.concat(tree_checks.translated(root, pins, 0), "\n")
+  assert(over:find("build/user.tl:3: Shape:size is given mut, which the interface declares: Face", 1, true) and
+      over:find("Shape:name", 1, true) and not over:find("Shape:own", 1, true), over)
+  assert(#tree_checks.translated(root, pins, 2) == 0)
+end

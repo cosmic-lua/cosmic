@@ -32,6 +32,7 @@ local Fs = require("cosmic.fs")
 local Shape = require("cosmic.shape")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
+local check_memo = require("build.check_memo")
 local closure_store = require("build.closure_store")
 local Cover = require("lang.lexer_cover")
 local contracts = require("build.contracts")
@@ -43,6 +44,8 @@ local link_text = require("build.link_text")
 local host_names = require("build.host_names")
 local importer = require("build.importer")
 local Lexer = require("lang.lexer")
+local Parser = require("lang.parser")
+local Translate = require("lang.translate")
 local shared_compiles = require("build.shared_compiles")
 local standalone = require("build.standalone")
 local symbols = require("build.symbols")
@@ -2018,6 +2021,77 @@ local function gotos(tokens: {Lexer.Token}, file: string): {Lexer.Error}
   return out
 end
 
+--- What lexing one file found: why its tokens do not tile it (empty where they
+--- do) and its errors, with the `goto` statements the parser refuses among
+--- them, in source order.
+local record LexOutcome
+  tile: string
+  errors: {Lexer.Error}
+end
+
+--- The lexer's codes by name.
+local lexer_codes: {string: Lexer.Code} = {}
+for _, code in ipairs(Lexer.codes) do
+  lexer_codes[code] = code
+end
+
+--- The outcome a memo kept, or nil where it kept none or it does not read.
+local function kept_lex(text: string, file: string): LexOutcome | nil
+  local outcome: LexOutcome = { tile = "", errors = {} }
+  for _, fields in ipairs(check_memo.decode(text)) do
+    if fields[1] == "C" and #fields == 2 then
+      outcome.tile = fields[2]
+    elseif fields[1] == "E" and #fields == 8 then
+      local code = lexer_codes[fields[2]]
+      local y, x = math.tointeger(tonumber(fields[3])), math.tointeger(tonumber(fields[4]))
+      local offset, length = math.tointeger(tonumber(fields[5])), math.tointeger(tonumber(fields[6]))
+      if code == nil or y == nil or x == nil or offset == nil or length == nil then
+        return nil
+      end
+      outcome.errors[#outcome.errors + 1] = {
+        filename = file, code = code, y = y, x = x, offset = offset, length = length, msg = fields[7], fix = fields[8],
+      }
+    else
+      return nil
+    end
+  end
+  return outcome
+end
+
+--- The outcome of lexing `source`, from `memo` where it holds it under `salt`.
+local function lex_outcome(file: string, source: string, memo: Sqlite.Handle | nil, salt: string): LexOutcome
+  local key = ""
+  if memo ~= nil then
+    key = check_memo.key(salt, "tl", source)
+    local text = check_memo.get(memo, "lexed", key)
+    local kept = text ~= nil and kept_lex(text, file) or nil
+    if kept ~= nil then
+      return kept
+    end
+  end
+  local lexed = Lexer.lex(source, file)
+  local ok, reason = Cover.check(source, lexed)
+  local errors: {Lexer.Error} = {}
+  for _, e in ipairs(lexed.errors) do
+    errors[#errors + 1] = e
+  end
+  for _, e in ipairs(gotos(lexed.tokens, file)) do
+    errors[#errors + 1] = e
+  end
+  table.sort(errors, function(a: Lexer.Error, b: Lexer.Error): boolean
+    return a.offset < b.offset
+  end)
+  local outcome: LexOutcome = { tile = ok and "" or reason, errors = errors }
+  if memo ~= nil then
+    local rows: {{string}} = { { "C", outcome.tile } }
+    for _, e in ipairs(errors) do
+      rows[#rows + 1] = { "E", e.code, tostring(e.y), tostring(e.x), tostring(e.offset), tostring(e.length), e.msg, e.fix }
+    end
+    check_memo.put(memo, "lexed", key, check_memo.encode(rows))
+  end
+  return outcome
+end
+
 --- Every `.tl` file of the tree, lexed in the new checker's grammar
 --- ([`lang.lexer`]): the file's tokens and comments must tile its bytes, and
 --- its errors are the cut forms `pinned` (by default `lexer_pins`) counts,
@@ -2025,7 +2099,7 @@ end
 --- each, their places and the fix the lexer gives; one with fewer, and a pin
 --- for a file with none, is told to lower the pin. The sources are the
 --- `.tl` files under `root` ([`lexable`]).
-function tree_checks.lexed(root: string, pinned?: {string: integer}): {string}
+function tree_checks.lexed(root: string, pinned?: {string: integer}, memo?: Sqlite.Handle): {string}
   pinned = pinned or lexer_pins
   local files, trouble = lexable(root)
   if files == nil then
@@ -2033,29 +2107,22 @@ function tree_checks.lexed(root: string, pinned?: {string: integer}): {string}
   end
   local out: {string} = {}
   local found: {string: integer} = {}
+  local salt = check_memo.salt(root, { "lang/lexer.tl", "lang/lexer_cover.tl", "build/check_memo.tl", "build/tree_checks.tl" },
+    "lexed 1")
+  if memo ~= nil then
+    local _, _ = check_memo.prepare(memo, "lexed")
+  end
   for _, row in ipairs(files) do
     local file, source = row[1], row[2]
-    local lexed = Lexer.lex(source, file)
-    local ok, reason = Cover.check(source, lexed)
-    if not ok then
-      out[#out + 1] = file .. ": its tokens do not tile it: " .. reason
+    local outcome = lex_outcome(file, source, memo, salt)
+    if outcome.tile ~= "" then
+      out[#out + 1] = file .. ": its tokens do not tile it: " .. outcome.tile
     end
     local by_code: {string: {Lexer.Error}} = {}
-    for _, e in ipairs(lexed.errors) do
+    for _, e in ipairs(outcome.errors) do
       local held = by_code[e.code] or {}
       held[#held + 1] = e
       by_code[e.code] = held
-    end
-    local jumps = gotos(lexed.tokens, file)
-    if #jumps > 0 then
-      local held = by_code["label_or_goto"] or {}
-      for _, e in ipairs(jumps) do
-        held[#held + 1] = e
-      end
-      table.sort(held, function(a: Lexer.Error, b: Lexer.Error): boolean
-        return a.offset < b.offset
-      end)
-      by_code["label_or_goto"] = held
     end
     for _, code in ipairs(Lexer.codes) do
       local errors = by_code[code]
@@ -2073,6 +2140,9 @@ function tree_checks.lexed(root: string, pinned?: {string: integer}): {string}
       end
     end
   end
+  if memo ~= nil then
+    check_memo.finish(memo, "lexed")
+  end
   local keys: {string} = {}
   for key in pairs(pinned) do keys[#keys + 1] = key end
   table.sort(keys)
@@ -2082,6 +2152,333 @@ function tree_checks.lexed(root: string, pinned?: {string: integer}): {string}
       out[#out + 1] = key .. ": pinned " .. pinned[key] .. " but " .. count ..
         " found; lower the pin in build/tree_checks.tl's lexer_pins"
     end
+  end
+  return out
+end
+
+--- What translating one file found: the errors its translation still has, the
+--- places a rewrite may change meaning, and what the line check needs.
+local record TranslateOutcome
+  errors: {Parser.Error}
+  hazards: {Translate.Hazard}
+  --- The interfaces the file declares.
+  interfaces: {Translate.Interface}
+  --- How many records became classes.
+  classes: integer
+  --- The line breaks of the file and of its translation.
+  lines_before: integer
+  lines_after: integer
+end
+
+--- A file and what translating it found.
+local record Translated
+  file: string
+  made: TranslateOutcome
+end
+
+--- The last component of a dotted name.
+local function last_component(dotted: string): string
+  return dotted:match("([^%.]+)$") or dotted
+end
+
+--- The parser's codes by name.
+local parser_codes: {string: Parser.Code} = {}
+for _, code in ipairs(Parser.codes) do
+  parser_codes[code] = code
+end
+
+--- The outcome a memo kept, or nil where it kept none or it does not read.
+local function kept_translation(text: string, file: string): TranslateOutcome | nil
+  local outcome: TranslateOutcome = {
+    errors = {}, hazards = {}, interfaces = {}, classes = 0, lines_before = 0, lines_after = 0,
+  }
+  local seen_summary = false
+  for _, fields in ipairs(check_memo.decode(text)) do
+    if fields[1] == "M" and #fields == 4 then
+      local classes = math.tointeger(tonumber(fields[2]))
+      local before, after = math.tointeger(tonumber(fields[3])), math.tointeger(tonumber(fields[4]))
+      if classes == nil or before == nil or after == nil then
+        return nil
+      end
+      outcome.classes, outcome.lines_before, outcome.lines_after = classes, before, after
+      seen_summary = true
+    elseif fields[1] == "E" and #fields == 6 then
+      local code = parser_codes[fields[2]]
+      local y, x = math.tointeger(tonumber(fields[3])), math.tointeger(tonumber(fields[4]))
+      if code == nil or y == nil or x == nil then
+        return nil
+      end
+      outcome.errors[#outcome.errors + 1] = {
+        filename = file, code = code, y = y, x = x, offset = 0, length = 0, msg = fields[5], fix = fields[6],
+      }
+    elseif fields[1] == "H" and #fields == 6 then
+      local y = math.tointeger(tonumber(fields[5]))
+      if y == nil then
+        return nil
+      end
+      outcome.hazards[#outcome.hazards + 1] = {
+        kind = fields[2], class = fields[3], method = fields[4], y = y, name = fields[6],
+      }
+    elseif fields[1] == "I" and #fields == 4 then
+      local function names(joined: string): {string}
+        local list: {string} = {}
+        for name in joined:gmatch("[^,]+") do
+          list[#list + 1] = name
+        end
+        return list
+      end
+      outcome.interfaces[#outcome.interfaces + 1] = { name = fields[2], fields = names(fields[3]), supers = names(fields[4]) }
+    else
+      return nil
+    end
+  end
+  return seen_summary and outcome or nil
+end
+
+--- The outcome of translating `source`, from `memo` where it holds it under `salt`.
+local function translate_outcome(file: string, source: string, memo: Sqlite.Handle | nil, salt: string): TranslateOutcome
+  local dialect = file:match("%.d%.tl$") and "decl" or "tl"
+  local key = ""
+  if memo ~= nil then
+    key = check_memo.key(salt, dialect, source)
+    local text = check_memo.get(memo, "translated", key)
+    local kept = text ~= nil and kept_translation(text, file) or nil
+    if kept ~= nil then
+      return kept
+    end
+  end
+  local made = Translate.translate(source, file)
+  local _, before = source:gsub("\n", "")
+  local _, after = made.text:gsub("\n", "")
+  local outcome: TranslateOutcome = {
+    errors = made.errors, hazards = made.hazards, interfaces = made.interfaces, classes = made.counts["class"] or 0,
+    lines_before = before, lines_after = after,
+  }
+  if memo ~= nil then
+    local rows: {{string}} = { { "M", tostring(outcome.classes), tostring(before), tostring(after) } }
+    for _, e in ipairs(made.errors) do
+      rows[#rows + 1] = { "E", e.code, tostring(e.y), tostring(e.x), e.msg, e.fix }
+    end
+    for _, h in ipairs(made.hazards) do
+      rows[#rows + 1] = { "H", h.kind, h.class, h.method, tostring(h.y), h.name }
+    end
+    for _, i in ipairs(made.interfaces) do
+      rows[#rows + 1] = { "I", i.name, table.concat(i.fields, ","), table.concat(i.supers, ",") }
+    end
+    check_memo.put(memo, "translated", key, check_memo.encode(rows))
+  end
+  return outcome
+end
+
+--- The forms of Teal that [`lang.translate`] leaves as they are, which
+--- [`translated`] holds the tree to: `<file> <code>` to how many errors of
+--- that code the file's translation still has. Each is a form the draft has
+--- rewritten by hand before the translator runs, or does not translate; the
+--- rewrites that remove them lower a pin, and none is raised. The counts are
+--- the tree's apart from [`checker/tl.tl`], the fork, which goes.
+local translate_pins: {string: integer} = {
+  -- a tuple type `{A, B}`, which the draft counts once, in the tour: write a record with a field for each
+  -- position, or `{A | B}` for an array of either
+  ["build/archive.tl tuple_type"] = 1,
+  ["build/ast/rewrite.tl tuple_type"] = 3,
+  ["build/bridge_cache_test.tl tuple_type"] = 2,
+  ["build/cache_formats.tl tuple_type"] = 1,
+  ["build/vendor.tl tuple_type"] = 4,
+  ["build/workers_boot_spec_test.tl tuple_type"] = 1,
+  ["checker/stdlib.d.tl tuple_type"] = 4,
+  ["ci/cosmic_ci/orchestration.tl tuple_type"] = 1,
+  ["cosmic/archive.tl tuple_type"] = 1,
+  ["cosmic/archive_test.tl tuple_type"] = 1,
+  ["cosmic/compress_test.tl tuple_type"] = 7,
+  ["cosmic/csv_load_test.tl tuple_type"] = 1,
+  ["cosmic/html_test.tl tuple_type"] = 1,
+  ["cosmic/http/init.tl tuple_type"] = 2,
+  ["cosmic/internal/relay_server_test.tl tuple_type"] = 3,
+  ["cosmic/internal/relay_wire_test.tl tuple_type"] = 7,
+  ["cosmic/removed_example.tl tuple_type"] = 1,
+  ["cosmic/time_test.tl tuple_type"] = 4,
+  ["cosmic/time_zone_test.tl tuple_type"] = 1,
+  ["cosmic/zip_test.tl tuple_type"] = 1,
+  ["test/digit_separators_test.tl tuple_type"] = 1,
+  ["test/sqlite_parameter_test.tl tuple_type"] = 3,
+  -- `match` and `continue` bound as names: the draft renames them in Teal first
+  ["build/ast/match.tl reserved_word"] = 2,
+  ["build/ast/match_cast.tl reserved_word"] = 2,
+  ["build/ast/match_test.tl reserved_word"] = 25,
+  ["build/checker_assigned_fuzz_test.tl reserved_word"] = 7,
+  ["build/doctest/generate_test.tl reserved_word"] = 2,
+  ["build/json.tl reserved_word"] = 10,
+  ["build/json_query_fuzz_test.tl reserved_word"] = 2,
+  ["build/test_worker.tl reserved_word"] = 3,
+  ["cosmic/http/server_test.tl reserved_word"] = 4,
+  ["cosmic/http/wire.tl reserved_word"] = 3,
+  ["cosmic/web/router.tl reserved_word"] = 2,
+  -- a bare `function` type: write the signature
+  ["build/assertions_test.tl bare_function_type"] = 1,
+  ["checker/facts.tl bare_function_type"] = 2,
+  ["checker/stdlib.d.tl bare_function_type"] = 5,
+  ["cosmic/template_go_test.tl bare_function_type"] = 1,
+  -- a `goto` that is no `continue`, and its label: restructure with an `if`, or move the code into a function
+  -- and `return` from it
+  ["build/test.tl label_or_goto"] = 2,
+  ["cosmic/internal/relay_server.tl label_or_goto"] = 2,
+  -- `where`, `is userdata`, `userdata` as a type and a record that implements an array and an interface: the
+  -- draft drops them, and the tagged unions and declarations that replace them are written by hand
+  ["build/assertions_test.tl expected_name"] = 1,
+  ["checker/stdlib.d.tl expected_name"] = 3,
+  ["checker/stdlib.d.tl expected_token"] = 1,
+  ["checker/stdlib.d.tl expected_type"] = 2,
+  ["cosmic/removed_example.tl expected_name"] = 2,
+  ["cosmic/removed_example.tl expected_token"] = 2,
+  ["cosmic/sqlite.tl expected_name"] = 2,
+  ["lang/ast.tl expected_name"] = 72,
+  ["lang/ast.tl expected_token"] = 72,
+  -- a cast of several values, `as (A, B)`, which the grammar has no type for
+  ["core/surface_test.tl unclosed"] = 1,
+  ["core/surface_test.tl unexpected_token"] = 1,
+  ["cosmic/stream_test.tl unclosed"] = 1,
+  ["cosmic/stream_test.tl unexpected_token"] = 1,
+  -- a method written in a block, not at the top of the file, where its record cannot hold it
+  ["cosmic/errors_example.tl method_in_record"] = 1,
+  ["cosmic/removed_example.tl method_in_record"] = 1,
+}
+
+--- How many places the translator rewrites that may change what a program means:
+--- methods moved into a class that then read another name than they did (a local
+--- declared between the record and the method, which the class cannot see or
+--- which hides an earlier one) or give other types than the field that declared
+--- them (43), and fields that a record is given `mut` on, declared or inherited,
+--- which an interface of another file declares without it (12). A ceiling that
+--- only falls: hoist the local above the record, or rename it, make the types
+--- agree, and give the interface the `mut`, in Teal.
+local translate_hazards <const> = 55
+
+--- Every `.tl` file of the tree translated to the new checker's grammar
+--- ([`lang.translate`]), apart from [`checker/tl.tl`], which the new checker
+--- replaces. The translation must parse with the errors `pinned` (by
+--- default `translate_pins`) counts and no more; a file with more errors of a
+--- code is listed with each, their places and the parser's fix, and a pin the
+--- tree no longer meets is told to fall. A translation that is not a
+--- respelling keeps the lines of the file where they were unless a method
+--- moved into a class, and a respelling that moved one is listed. The
+--- methods that moved above a name they read must not exceed `ceiling`
+--- (by default `translate_hazards`). The sources are the `.tl` files under
+--- `root` ([`lexable`]).
+function tree_checks.translated(root: string, pinned?: {string: integer}, ceiling?: integer,
+                                memo?: Sqlite.Handle): {string}
+  pinned = pinned or translate_pins
+  ceiling = ceiling or translate_hazards
+  local files, trouble = lexable(root)
+  if files == nil then
+    return { "reading the sources: " .. trouble }
+  end
+  local out: {string} = {}
+  local found: {string: integer} = {}
+  local hazardous: {string} = {}
+  local seen: {string: boolean} = {}
+  local salt = check_memo.salt(root, { "lang/ast.tl", "lang/lexer.tl", "lang/parser.tl", "lang/translate.tl",
+    "build/check_memo.tl", "build/tree_checks.tl" }, "translated 1")
+  if memo ~= nil then
+    local _, _ = check_memo.prepare(memo, "translated")
+  end
+  local outcomes: {Translated} = {}
+  local declaring: {string: {Translate.Interface}} = {}
+  for _, row in ipairs(files) do
+    local file, source = row[1], row[2]
+    if file ~= "checker/tl.tl" then
+      local made = translate_outcome(file, source, memo, salt)
+      outcomes[#outcomes + 1] = { file = file, made = made }
+      for _, i in ipairs(made.interfaces) do
+        local held = declaring[i.name] or {}
+        held[#held + 1] = i
+        declaring[i.name] = held
+      end
+    end
+  end
+  --- Whether an interface of the tree called `name` declares `field`, itself or
+  --- through the interfaces it extends.
+  local function declares(name: string, field: string, visited: {string: boolean}): boolean
+    if visited[name] then
+      return false
+    end
+    visited[name] = true
+    for _, i in ipairs(declaring[name] or {}) do
+      for _, declared in ipairs(i.fields) do
+        if declared == field then
+          return true
+        end
+      end
+      for _, super in ipairs(i.supers) do
+        if declares(super, field, visited) then
+          return true
+        end
+      end
+    end
+    return false
+  end
+  for _, done in ipairs(outcomes) do
+    local file, made = done.file, done.made
+    local by_code: {string: {Parser.Error}} = {}
+    for _, e in ipairs(made.errors) do
+      local held = by_code[e.code] or {}
+      held[#held + 1] = e
+      by_code[e.code] = held
+    end
+    for _, code in ipairs(Parser.codes) do
+      local errors = by_code[code]
+      if errors ~= nil then
+        local key = file .. " " .. code
+        found[key] = #errors
+        local limit = pinned[key] or 0
+        if #errors > limit then
+          for _, e in ipairs(errors) do
+            out[#out + 1] = file .. ":" .. e.y .. ":" .. e.x .. ": " .. e.msg .. " (" .. code .. "): " .. e.fix
+          end
+          out[#out + 1] = file .. ": " .. String.counted(#errors, "error") .. " of " .. code .. " after translation, pinned " ..
+            limit .. "; rewrite the form (the fix above) in Teal rather than raise the pin"
+        end
+      end
+    end
+    if made.classes == 0 and made.lines_before ~= made.lines_after then
+      out[#out + 1] = file .. ": the translation has " .. String.counted(made.lines_after + 1, "line") ..
+        " where the file has " .. made.lines_before + 1 .. "; only a method moving into a class changes the lines"
+    end
+    for _, h in ipairs(made.hazards) do
+      local key = file .. " " .. h.class .. ":" .. h.method
+      -- A field given `mut` in a record that extends an interface of another
+      -- file matters when that interface declares the field.
+      local real = h.kind ~= "interface" or declares(last_component(h.name), h.method, {})
+      if real and not seen[key] then
+        seen[key] = true
+        local what = h.kind == "signature" and " differs from its field in " or
+          h.kind == "shadow" and " reads another " or
+          h.kind == "interface" and " is given mut, which the interface declares: " or " reads "
+        hazardous[#hazardous + 1] = file .. ":" .. h.y .. ": " .. h.class .. ":" .. h.method .. what .. h.name
+      end
+    end
+  end
+  if memo ~= nil then
+    check_memo.finish(memo, "translated")
+  end
+  local keys: {string} = {}
+  for key in pairs(pinned) do keys[#keys + 1] = key end
+  table.sort(keys)
+  for _, key in ipairs(keys) do
+    local count = found[key] or 0
+    if count < pinned[key] then
+      out[#out + 1] = key .. ": pinned " .. pinned[key] .. " but " .. count ..
+        " found; lower the pin in build/tree_checks.tl's translate_pins"
+    end
+  end
+  if #hazardous > ceiling then
+    for _, line in ipairs(hazardous) do
+      out[#out + 1] = line
+    end
+    out[#out + 1] = "methods moved into a class that read or give something else: " .. #hazardous .. ", ceiling " .. ceiling ..
+      "; declare the name above its record in Teal rather than raise the ceiling"
+  elseif #hazardous < ceiling then
+    out[#out + 1] = "methods moved into a class that read or give something else: " .. #hazardous .. ", ceiling " .. ceiling ..
+      "; lower translate_hazards in build/tree_checks.tl"
   end
   return out
 end
