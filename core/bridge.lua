@@ -1,13 +1,12 @@
 -- The bridge: the only Lua the tree writes by hand rather than compiling from Teal,
 -- because it is what makes Teal available. It builds the handful of
--- things the checker ([`checker/tl.tl`], whose Lua the seed supplies)
--- reaches for outside the pure libraries -- `io.open` and the handle it
--- returns, `io.stderr`, `io.type`, `os.getenv`, `package.path` and
--- `package.searchers` -- over the syscall table, so the compiler runs
--- unpatched and never observes that those names are gone. It also holds
--- the modules that exist before any file does, the declarations boot
--- derives from a header (the syscall table's and the raw process table's),
--- and serves them to the checker from memory.
+-- things a boot needs outside the pure libraries, over the syscall table:
+-- the files of the tree it compiles, which it serves to the checker
+-- ([`checker/tl.tl`], whose Lua the seed supplies) by name, as the build
+-- does from its database. The checker itself reads no file and no
+-- variable. The bridge also holds the modules that exist before any file
+-- does, the declarations boot derives from a header (the syscall table's
+-- and the raw process table's), and serves them to the checker from memory.
 --
 -- A boot (`cosmic-core --boot <root> ...`, core/boot.c) loads it from
 -- the tree it boots, as it loads the seed's compiler, and runs it with
@@ -50,14 +49,13 @@ end
 --     under the root (`manifest`).
 --
 -- The manifest is every file a compile here can read. The searcher and
--- the compiler's own (`tl.path`, which only `TL_PATH` could widen)
--- resolve a module name to `<stem>.d.tl`, `<stem>/init.d.tl`,
+-- `disk_search` resolve a module name to `<stem>.d.tl`, `<stem>/init.d.tl`,
 -- `<stem>.tl` or `<stem>/init.tl` under the root, and the declarations
 -- of `declare` are made from headers by [`build.gen_syscalls`], itself a
 -- `.tl`. A file added, removed, moved or edited moves the key, so a row
 -- never stands for a tree it was not made from. A tree the manifest
--- cannot vouch for (a link to a directory, a directory it cannot list,
--- `TL_PATH` set, even empty) is compiled and keeps nothing.
+-- cannot vouch for (a link to a directory, a directory it cannot list) is
+-- compiled and keeps nothing.
 --
 -- The manifest is taken when the first module loads and the modules are
 -- read over the seconds after, so a file edited in between would make a
@@ -171,13 +169,6 @@ local function manifest(dir)
   end
   if not visit(dir, '') then return nil end
   return (hasher:digest()), digests
-end
-
--- Whether `name` is set at all, empty or not: the checker takes `TL_PATH`
--- from `os.getenv` and an empty one is a path.
-local function is_set(variables, name)
-  if variables then return variables[name] ~= nil end
-  return sys.getenv(name) ~= nil
 end
 
 local function variable(variables, name)
@@ -412,15 +403,14 @@ end
 -- of this file, which sets the compiler's defaults and decides what is
 -- kept. The seed's Lua is what stage one runs, so the key names the
 -- compiler that made the row, not the release it came from.
--- Nil when one cannot be read, when the cache is off, or when `TL_PATH`
--- is set, which changes where the compiler looks for modules.
+-- Nil when one cannot be read or when the cache is off.
 --
 -- TODO: digest the text of this file that core/boot.c loaded, not a
 -- second read of it: an edit between the two keys rows to a file that is
 -- not the one running. Waits on core/boot.c handing the bridge the bytes
 -- it loaded (`slurp` already reads them whole).
 local function make_compiler_key(seed, source, parts, declarations, variables)
-  if is_set(variables, 'TL_PATH') or not location(variables) then
+  if not location(variables) then
     return nil
   end
   local bridge = file_digest(root .. '/core/bridge.lua')
@@ -470,75 +460,42 @@ local function text_handle(text)
   return h
 end
 
-local function make_handle(fd)
-  local h = { is_boot_handle = true }
-  function h:read(what)
-    if what ~= '*a' and what ~= 'a' then
-      error('the boot handle reads whole files only')
-    end
-    local parts = {}
-    while true do
-      local chunk, err = sys.read(fd, 65536)
-      if not chunk then return nil, err end
-      if #chunk == 0 then break end
-      parts[#parts + 1] = chunk
-    end
-    return table.concat(parts)
+-- What the checker finds a module by: the name it was found under and a
+-- handle that reads the whole source and then closes, as it asks of
+-- any other (build/compiler.d.tl's `search_module`). A file of the
+-- tree is searched by suffix, each as `<root>/<stem>` and then
+-- `<root>/<stem>/init`: `.d.tl` then `.tl` then `.lua` when the checker
+-- searches all (a `require` of a type), and `.tl` alone when it does not.
+-- The `.lua` is the fallback the manifest does not list, so a read of one
+-- keeps the row from being kept. Every path tried is noted as read or as
+-- failed, for [`searcher_for`]'s key. A name that is not dotted
+-- identifiers (a `/`, an empty segment, so a `..`) is refused, since it
+-- would name a path outside the root.
+local function disk_search(name, search_all)
+  if name:find('/', 1, true) or name:find('^%.') or name:find('%.%.') or name:find('%.$') then
+    return nil, nil, {}
   end
-  function h:write(...)
-    local n = select('#', ...)
-    for i = 1, n do
-      local data = tostring((select(i, ...)))
-      local at = 1
-      while at <= #data do
-        local put, err = sys.write(fd, data:sub(at))
-        if not put then return nil, err end
-        at = at + put
+  local slash_name = name:gsub('%.', '/')
+  local suffixes = search_all and { '.d.tl', '.tl', '.lua' } or { '.tl' }
+  for _, suffix in ipairs(suffixes) do
+    for _, pattern in ipairs({ root .. '/' .. slash_name, root .. '/' .. slash_name .. '/init' }) do
+      local path = pattern .. suffix
+      local text = read_all(path)
+      if text then
+        note_read(path, text)
+        return path, text_handle(text)
       end
-    end
-    return self
-  end
-  function h:flush() return self end
-  function h:close() return sys.close(fd) end
-  return h
-end
-
-local shim_io = {
-  stdout = make_handle(1),
-  stderr = make_handle(2),
-  type = function(value)
-    if type(value) == 'table' and value.is_boot_handle then
-      return 'file'
-    end
-    return nil
-  end,
-  open = function(path, mode)
-    if mode and mode:find('w') then
-      local fd, err = sys.open(path, sys.O_WRONLY | sys.O_CREAT | sys.O_TRUNC)
-      if not fd then return nil, err end
-      return make_handle(fd)
-    end
-    -- Read whole, which is all the handle offers, so what the compiler
-    -- sees is what [`note_read`] digested.
-    local text, err = read_all(path)
-    if not text then
       note_failed(path)
-      return nil, err
     end
-    note_read(path, text)
-    return text_handle(text)
-  end,
-}
+  end
+  return nil, nil, {}
+end
 
 -- The pure libraries, read straight out of the global table. The
 -- hint a removed name raises is for a program someone wrote; the
 -- compiler is not one, and a name it does not find is nil, which
 -- is what plain Lua does.
-local environment = setmetatable({
-  io = shim_io,
-  os = { getenv = sys.getenv },
-  package = { path = '', searchers = {}, loaded = {} },
-}, { __index = function(_, name) return rawget(_G, name) end })
+local environment = setmetatable({}, { __index = function(_, name) return rawget(_G, name) end })
 
 local function complain(file, result)
   local lines = {}
@@ -582,7 +539,7 @@ local function declared_digest()
 end
 
 -- `variables`, when given, is the variables `COSMIC_BUILD_CACHE`,
--- `XDG_CACHE_HOME`, `HOME` and `TL_PATH` are read from, in place of the
+-- `XDG_CACHE_HOME` and `HOME` are read from, in place of the
 -- process's own.
 --
 -- Every module loaded is answered from the `modules` row where one
@@ -592,8 +549,6 @@ end
 -- at its top -- is kept as the row. A module loaded after that is
 -- compiled and not kept.
 local function searcher_for(tl, variables)
-  tl.path = root .. '/?.lua;' .. root .. '/?/init.lua'
-  local disk_search = tl.search_module
   tl.search_module = function(name, search_all)
     local text = declared[name]
     if text then

@@ -1,7 +1,7 @@
 --- Conformance probes for [`build.ast.node`]'s `Node` record: parse small
 --- fixtures against the tree's pinned compiler and assert that the
---- fields `Node` names appear with the expected shape. A `tl` pin bump
---- that reshapes one fails here rather than in a consumer.
+--- fields `Node` names appear with the expected shape. A change to the
+--- checker that reshapes one fails here rather than in a consumer.
 local teal = require("build.teal")
 local node_mod = require("build.ast.node")
 

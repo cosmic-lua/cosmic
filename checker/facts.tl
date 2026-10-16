@@ -42,7 +42,7 @@
 -- is for tests: a copy of every table costs more than the checker can spare.
 --
 -- This file holds only upstream Teal 0.24.8: the boot compiles it with the
--- vendored `tl.lua` (core/bridge.lua), as it does checker/narrowing.tl.
+-- pinned release's seed (build.zig), as it does checker/narrowing.tl.
 -- It names none of the checker's types: [`facts.Type`] is seen through the
 -- one field narrowing.tl reads, and the checker passes `unite`, `is_a` and
 -- `fixed`, so this file knows no type beyond its identity.

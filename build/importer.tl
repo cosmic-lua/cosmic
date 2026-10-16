@@ -806,7 +806,7 @@ end
 
 --- Adds to an unused-variable or unused-argument warning the way to
 --- silence it. tl's checker treats a name starting with `_` as
---- intentionally unused (`tl.lua`'s `var_name:sub(1, 1) == "_"` check),
+--- intentionally unused (the checker's `var_name:sub(1, 1) == "_"` check),
 --- but the warning for any other name does not say so, and every
 --- warning is a refused compile on cosmic's paths (see `generate`).
 --- Added here, where every message is rendered, rather than in

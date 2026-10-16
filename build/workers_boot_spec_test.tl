@@ -33,7 +33,6 @@ local function test_workers_start_quickly_only_where_the_compiles_are_cached()
   local off: {{string, {string:string}}} = {
     { "COSMIC_BUILD_CACHE=0", { HOME = "/home/someone", COSMIC_BUILD_CACHE = "0" } },
     { "a relative name", { HOME = "/home/someone", COSMIC_BUILD_CACHE = "cache.db" } },
-    { "TL_PATH", { HOME = "/home/someone", TL_PATH = "" } },
     { "no absolute HOME", { HOME = "home" } },
     { "no absolute HOME or XDG_CACHE_HOME", { HOME = "home", XDG_CACHE_HOME = "relative" } },
   }

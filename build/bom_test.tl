@@ -73,9 +73,9 @@ end
 --- The binary carries the checker, not tl's own source, so the checker is
 --- listed with tl as the code that is not upstream's as published.
 local function test_the_checker_is_listed_with_tl(tmp: string)
-  assert(Fs.mkdirs(tmp .. "/vendor/tl"))
+  assert(Fs.mkdirs(tmp .. "/build/bom"))
   assert(Fs.mkdirs(tmp .. "/checker"))
-  assert(Fs.write(tmp .. "/vendor/tl/PIN", "version 0.24.8\nurl https://tl.example/t\nlicense MIT\n"))
+  assert(Fs.write(tmp .. "/build/bom/tl.pin", "version 0.24.8\nurl https://tl.example/t\nlicense MIT\n"))
   assert(Fs.write(tmp .. "/checker/tl.tl", "a checker"))
   local db = database()
   assert(bom.fill(db, tmp, "main."))

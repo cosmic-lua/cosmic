@@ -131,7 +131,6 @@ local function test_a_stub_keeps_the_keyword_and_types_the_same()
   assert(stubbed:find("readonly id: integer", 1, true) ~= nil, stubbed)
   local program = 'local R = require("ro")\nlocal r: R = { id = 1, n = 2 }\nr.id = 3\nr.n = 4\nreturn r\n'
   local function check(text: string): (string, compiler.Result)
-    built.path = ""
     built.search_module = function(name: string, _all: boolean): string | nil, any
       if name ~= "ro" then
         return nil

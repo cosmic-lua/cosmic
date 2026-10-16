@@ -30,12 +30,9 @@ local function test_lazy_write_lands_on_the_compiler()
     return nil
   end
   built.search_module = marker
-  built.path = "lazy-test"
   assert(rawget(built as {any:any}, "search_module") == nil,
     "the capsule kept the write instead of passing it on")
-  assert(rawget(built as {any:any}, "path") == nil)
   assert(built.search_module == marker)
-  assert(built.path == "lazy-test")
 end
 
 --- A read through the capsule answers from the loaded compiler.
@@ -50,10 +47,16 @@ end
 local function test_lazy_capsules_are_independent()
   local first = teal.lazy()
   local second = teal.lazy()
-  first.path = "first"
-  second.path = "second"
-  assert(first.path == "first")
-  assert(second.path == "second")
+  local function one(_name: string, _search_all: boolean): string | nil, any
+    return nil
+  end
+  local function other(_name: string, _search_all: boolean): string | nil, any
+    return nil
+  end
+  first.search_module = one
+  second.search_module = other
+  assert(first.search_module == one)
+  assert(second.search_module == other)
 end
 
 --- The field names of `record Error` and the members of `enum ErrorCode`

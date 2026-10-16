@@ -322,17 +322,11 @@ local record compiler
     comments: {Comment} | nil
   end
 
-  -- Where the checker looks for a module it has not been given. The
-  -- entries are package.path-shaped: a `?` stands for the module's
-  -- name with its dots turned into slashes, and the `.lua` suffix is
-  -- replaced with `.tl` or `.d.tl`.
-  path: string
-
   -- How the checker finds a module it has not been given: the name it
   -- was found under and a handle that reads the whole source with
   -- `read("*a")` and then closes. An ordinary field, so the build
-  -- replaces it with one that answers from the staged tree; `path`
-  -- above is only what the compiler's own looks at.
+  -- replaces it with one that answers from the staged tree; the
+  -- compiler's own finds nothing.
   search_module: function(name: string, search_all: boolean): string | nil, any
 
   new_env: function(Options): Env | nil, string

@@ -173,9 +173,9 @@ stack can carry.
   no step exists only to split.
 - **the seed is the pinned release.** the release [`ci/cosmic-driver.pin`]
   names compiles the checker's source to Lua, and boot loads that in place
-  of upstream's `tl.lua` ([the pinned-release seed]). `vendor/tl/` goes,
-  except for the license and notice the checker inherits, and so do the
-  stand-ins for `io`, `os` and `package` that `tl.lua` needs. the pin is
+  of upstream's `tl.lua` ([the pinned-release seed]). `vendor/tl/` has
+  gone, except for the license and notice the checker inherits, and so
+  have the stand-ins for `io`, `os` and `package` that `tl.lua` needed. the pin is
   already the root of trust for [`bin/zig`], [`bin/vendor`] and the
   scripts they run, so it adds no root; a seed committed to the tree would
   add one beside the pin and the pinned Zig. the checker's own source may
@@ -904,13 +904,21 @@ not.
   says which syntax and that the pin must move. the self-rebuild already
   uses the carried compiler and is unchanged.
 - **`vendor/tl/` removed.** it goes, except the license and notice, which
-  move beside the checker and stay in the bill of materials; the
-  compiler's identity loses [`vendor/tl/PIN`].
-- **the standalone shims removed.** [`checker/tl.tl`]'s command-line code,
-  which reads `io`, `os`, `package`, `load` and `debug`, is deleted, and
-  then the boot bridge's stand-ins and [`build/teal.tl`]'s copy of them
-  go. the bridge's compile of the `build.*` closure stays; only its
-  compiler row goes.
+  move to [`build/bom/tl.pin`] and [`build/bom/tl.LICENSE`], where the bill of
+  materials reads the components that are not a vendored tree; the
+  compiler's identity lost `vendor/tl/PIN` a step before.
+- **the standalone shims removed.** [`checker/tl.tl`]'s code that reads
+  `io`, `os`, `package`, `load` and `debug` is deleted: the `TL_DEBUG`
+  and `TL_DEBUG_FACTS` trace, the module search of the filesystem
+  (`TL_PATH`, `tl.path`), the file-opening `check_file` and the package
+  loader and `load`. what the checker is asked to `require` it is handed
+  through `search_module`. then the boot bridge's stand-ins and
+  [`build/teal.tl`]'s copy of them go, and the compiler is loaded in an
+  environment of the pure libraries and `load`, which the checker
+  wrapper uses. the bridge's compile of the
+  `build.*` closure stays, with a search of its own over the tree's files;
+  so does the row that caches the carried compiler, since boot still
+  compiles it twice.
 
 the checker's own source may then use `name?: T`, `: never` and the strict
 rules, one pin move after each lands. it is never rewritten to a rule the
@@ -1143,8 +1151,9 @@ the switch, since the seed's Lua runs on the tree's VM.
 [`cosmic.sys`]: ../../core/syscalls.h
 [`Json.array`]: ../../cosmic/json.tl
 [`Sqlite.rows`]: ../../cosmic/sqlite.tl
-[`vendor/tl/PIN`]: ../../vendor/tl/PIN
 
+[`build/bom/tl.LICENSE`]: ../../build/bom/tl.LICENSE
+[`build/bom/tl.pin`]: ../../build/bom/tl.pin
 [`build/shards.tl`]: ../../build/shards.tl
 [`checker/facts.tl`]: ../../checker/facts.tl
 [`checker/flow.tl`]: ../../checker/flow.tl

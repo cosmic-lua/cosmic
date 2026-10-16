@@ -116,16 +116,6 @@ local record Errors
 end
 
 local record tl
-   enum LoadMode
-      "b"
-      "t"
-      "bt"
-      "cb"
-      "ct"
-      "cbt"
-   end
-   type LoadFunction = function(...:any): any...
-
    enum GenCompat
       "off"
       "optional"
@@ -523,8 +513,6 @@ local record tl
    generate: function(ast: Node, gen_target: GenTarget, opts?: GenerateOptions): string, string
    get_token_at: function(tks: {Token}, y: integer, x: integer): string
    lex: function(input: string, filename: string): {Token}, {Error}
-   load: function(string, ? string, ? LoadMode, ...: {any:any}): LoadFunction, string
-   loader: function()
    new_env: function(? EnvOptions): Env, string
    parse: function(input: string, filename: string, parse_lang?: ParseLang): Node, {Error}, {string}
    parse_program: function(tokens: {Token}, errs: {Error}, filename?: string, parse_lang?: ParseLang): Node, {string}
@@ -534,8 +522,6 @@ local record tl
    symbols_in_scope: function(tr: TypeReport, y: integer, x: integer, filename: string): {string:integer}
    target_from_lua_version: function(str: string): GenTarget
    version: function(): string
-
-   path: string -- if set be the user, this overrides package.path for Teal
 
    -----------------------------------------------------------------------------
    -- Deprecated, mantained for backwards compatibility:
@@ -561,12 +547,6 @@ local record tl
    process_string: function(input: string, is_lua: boolean, env: Env, filename: string, _module_name: string): Result
    type_check: function(Node, TypeCheckOptions): Result, string
 
-   -----------------------------------------------------------------------------
-   -- Private data:
-   -----------------------------------------------------------------------------
-
-   package_loader_env: Env
-   load_envs: { {any:any} : Env }
 end
 
 local record TypeReporter
@@ -637,8 +617,6 @@ local type Error = tl.Error
 local type Feat = tl.Feat
 local type GenCompat = tl.GenCompat
 local type GenTarget = tl.GenTarget
-local type LoadFunction = tl.LoadFunction
-local type LoadMode = tl.LoadMode
 local type GenerateOptions = tl.GenerateOptions
 local type Result = tl.Result
 local type CheckOptions = tl.CheckOptions
@@ -712,55 +690,6 @@ end
 local record Mark
    order: integer
    loops: {integer}
-end
-
---------------------------------------------------------------------------------
--- Compiler debugging
---------------------------------------------------------------------------------
-
-local debugging = { level = os.getenv("TL_DEBUG") }
-local TL_DEBUG_FACTS = os.getenv("TL_DEBUG_FACTS")
-local TL_DEBUG_MAXLINE = math.maxinteger
-
-if TL_DEBUG_FACTS and not debugging.level then
-   debugging.level="1"
-end
-
-if debugging.level then
-   local max <const> = assert(tonumber(debugging.level), "TL_DEBUG was defined, but not a number")
-   if max < 0 then
-      TL_DEBUG_MAXLINE = math.tointeger(-max)
-   elseif max > 1 then
-      local record Hook
-         count: integer
-         skip: string
-      end
-      local hooked: Hook = { count = 0, skip = nil }
-      debug.sethook(function(event: debug.HookEvent)
-         if event == "call" or event == "tail call" or event == "return" then
-            local info <const> = debug.getinfo(2)
-
-            if hooked.skip then
-               if info.name == hooked.skip and event == "return" then
-                  hooked.skip = nil
-               end
-               return
-            elseif (info.name or "?"):match("^tl_debug_") and event == "call" then
-               hooked.skip = info.name
-               return
-            end
-
-            local name = info.name or "<anon>", info.currentline > 0 and "@" .. info.currentline or ""
-            io.stderr:write(name, " :: ", event as string, "\n")
-            io.stderr:flush()
-         else
-            hooked.count = hooked.count + 100
-            if hooked.count > max then
-               error("Too many instructions")
-            end
-         end
-      end, "cr", 100)
-   end
 end
 
 --------------------------------------------------------------------------------
@@ -2220,8 +2149,6 @@ local record Node
    pvalue: string
 
    opt: boolean
-
-   debug_type: Type
 
    -- run-time checks, set only when the environment asks for them
    -- (CheckOptions.runtime_checks): on an argument, "name=kinds"; on a
@@ -5033,70 +4960,6 @@ local function fields_of(t: RecordLikeType, meta?: MetaMode): (function(): strin
    end
 end
 
-local record DebugEntry
-   mark: string
-   y: integer
-   x: integer
-   msg: string
-end
-
--- What the debug trace has written: how deep it is, the entry waiting to
--- be written, and the line it has reached.
-local record DebugTrace
-   indent: integer
-   entry: DebugEntry
-   y: integer
-end
-
-local tl_debug: DebugTrace = { indent = 0, y = 1, entry = nil }
-
-local function tl_debug_loc(y: integer, x: integer): string
-   return (tostring(y) or "?") .. ":" .. (tostring(x) or "?")
-end
-
-local function tl_debug_indent_push(mark: string, y: integer, x: integer, fmt: string, ...: any)
-   if tl_debug.entry then
-      if tl_debug.entry.y and (tl_debug.entry.y > tl_debug.y) then
-         io.stderr:write("\n")
-         tl_debug.y = tl_debug.entry.y
-      end
-      io.stderr:write(("   "):rep(tl_debug.indent) .. tl_debug.entry.mark .. " " ..
-                      tl_debug_loc(tl_debug.entry.y, tl_debug.entry.x) .. " " ..
-                      tl_debug.entry.msg .. "\n")
-      io.stderr:flush()
-      tl_debug.entry = nil
-      tl_debug.indent = tl_debug.indent + 1
-   end
-   tl_debug.entry = {
-      mark = mark,
-      y = y,
-      x = x,
-      msg = fmt:format(...)
-   }
-end
-
-local function tl_debug_indent_pop(mark: string, single: string, y: integer, x: integer, fmt?: string, ...: any)
-   if tl_debug.entry then
-      local msg = tl_debug.entry.msg
-      if fmt then
-         msg = fmt:format(...)
-      end
-      if y and (y > tl_debug.y) then
-         io.stderr:write("\n")
-         tl_debug.y = y
-      end
-      io.stderr:write(("   "):rep(tl_debug.indent) .. single .. " " .. tl_debug_loc(y, x) .. " " .. msg .. "\n")
-      io.stderr:flush()
-      tl_debug.entry = nil
-   else
-      tl_debug.indent = tl_debug.indent - 1
-      if fmt then
-         io.stderr:write(("   "):rep(tl_debug.indent) .. mark .. " " .. fmt:format(...) .. "\n")
-         io.stderr:flush()
-      end
-   end
-end
-
 local recurse_type: function<S, T>(s: S, ast: Type, visit: Visitor<S, TypeName, Type, T>): T = nil
 
 local function aggregate_type_walker<S, T>(s: S, ast: AggregateType, visit: Visitor<S, TypeName, Type, T>): {T}
@@ -5228,10 +5091,6 @@ local type_walkers <total>: {TypeName: boolean | function<S, T>(s: S, ast: Type,
 recurse_type = function<S, T>(s: S, ast: Type, visit: Visitor<S, TypeName, Type, T>): T
    local kind = ast.typename
 
-   if debugging.level then
-      tl_debug_indent_push("---", ast.y, ast.x, "[%s] = %s", kind, show_type(ast))
-   end
-
    local cbs = visit.cbs
    local cbkind = cbs and cbs[kind]
    if cbkind then
@@ -5255,10 +5114,6 @@ recurse_type = function<S, T>(s: S, ast: Type, visit: Visitor<S, TypeName, Type,
    local visit_after = visit.after
    if visit_after then
       ret = visit_after(s, ast, xs, ret)
-   end
-
-   if debugging.level then
-      tl_debug_indent_pop("---", "---", ast.y, ast.x)
    end
 
    return ret
@@ -5504,7 +5359,6 @@ local function recurse_node<S, T>(s: S, root: tl.Node,
    recurse = function(ast: Node): T
       local xs: {T} = {}
       local kind = assert(ast.kind)
-      local kprint: string = nil
 
       local cbs = visit_node.cbs
       local cbkind = cbs and cbs[kind]
@@ -5512,16 +5366,6 @@ local function recurse_node<S, T>(s: S, root: tl.Node,
          if cbkind.before then
             cbkind.before(s, ast)
          end
-      end
-
-      if debugging.level then
-         if ast.y > TL_DEBUG_MAXLINE then
-            error("Halting execution at input line " .. ast.y)
-         end
-         kprint = kind == "op" and "op " .. ast.op.op
-                  or kind == "identifier" and "identifier " .. ast.tk
-                  or kind
-         tl_debug_indent_push("{{{", ast.y, ast.x, "[%s]", kprint)
       end
 
       local fn = walkers[kind]
@@ -5538,11 +5382,6 @@ local function recurse_node<S, T>(s: S, root: tl.Node,
       end
       if visit_after then
          ret = visit_after(s, ast, xs, ret)
-      end
-
-      if debugging.level then
-         local typ = ast.debug_type and " = " .. show_type(ast.debug_type) or ""
-         tl_debug_indent_pop("}}}", "***", ast.y, ast.x, "[%s]%s", kprint, typ)
       end
 
       return ret
@@ -7162,10 +7001,6 @@ local function insert_error(self: Errors, y: integer, x: integer, f: string, err
    err.x = assert(x)
    err.filename = assert(f)
 
-   if debugging.level then
-      io.stderr:write("ERROR:" .. err.y .. ":" .. err.x .. ": " .. err.msg .. "\n")
-   end
-
    table.insert(self.errors, err)
 end
 
@@ -7820,10 +7655,8 @@ local function is_unknown(t: Type): boolean
        or t.typename == "unresolved_emptytable_value"
 end
 
-local function display_typevar(typevar: string, what: TypeName): string
-   return debugging.level
-      and (what .. " " .. typevar)
-      or typevar:gsub("@.*", "")
+local function display_typevar(typevar: string): string
+   return (typevar:gsub("@.*", ""))
 end
 
 local function show_fields(t: RecordLikeType, show: function(Type):(string)): string
@@ -7871,16 +7704,10 @@ local function show_type_base(t: Type, short: boolean, seen: {Type:string}): str
       else
          ret = table.concat(t.names, ".")
       end
-      if debugging.level then
-         ret = "nominal " .. ret
-      end
       return ret
    elseif t is SelfType then
       if t.display_type then
          local ret = show_type_base(t.display_type, short, seen)
-         if debugging.level then
-            ret = "self " .. ret
-         end
          return ret
       end
       return "self"
@@ -7985,15 +7812,15 @@ local function show_type_base(t: Type, short: boolean, seen: {Type:string}): str
                 (t.literal and string.format(" %q", t.literal) or "")
       end
    elseif t is TypeVarType then
-      return display_typevar(t.typevar, "typevar")
+      return display_typevar(t.typevar)
    elseif t is TypeArgType then
-      local out = display_typevar(t.typearg, "typearg")
+      local out = display_typevar(t.typearg)
       if t.constraint then
          out = out .. " is " .. show(t.constraint)
       end
       return out
    elseif t is UnresolvableTypeArgType then
-      return display_typevar(t.typearg, "typearg") .. " (unresolved generic)"
+      return display_typevar(t.typearg) .. " (unresolved generic)"
    elseif is_unknown(t) then
       return "<unknown type>"
    elseif t is InvalidType then
@@ -8044,42 +7871,13 @@ function Errors.members(t: Type): {string}
    return out
 end
 
-local function search_for(module_name: string, suffix: string, path: string, tried: {string}): string, FILE, {string}
-   for entry in path:gmatch("[^;]+") do
-      local slash_name = module_name:gsub("%.", "/")
-      local filename = entry:gsub("?", slash_name)
-      local tl_filename = filename:gsub("%.lua$", suffix)
-      local fd = io.open(tl_filename, "rb")
-      if fd then
-         return tl_filename, fd, tried
-      end
-      table.insert(tried, "no file '" .. tl_filename .. "'")
-   end
-   return nil, nil, tried
-end
-
-tl.search_module = function(module_name: string, search_all: boolean): string, FILE, {string}
-   local found: string
-   local fd: FILE
-   local tried: {string} = {}
-   local path = os.getenv("TL_PATH") or tl.path or package.path
-   if search_all then
-      found, fd, tried = search_for(module_name, ".d.tl", path, tried)
-      if found then
-         return found, fd
-      end
-   end
-   found, fd, tried = search_for(module_name, ".tl", path, tried)
-   if found then
-      return found, fd
-   end
-   if search_all then
-      found, fd, tried = search_for(module_name, ".lua", path, tried)
-      if found then
-         return found, fd
-      end
-   end
-   return nil, nil, tried
+-- Finds no module: the compiler opens no file and searches no path. A
+-- caller that wants `require` answered gives the checker a function of its
+-- own (build/teal.tl's `serve` does), which answers the name found and a
+-- handle whose `read("*a")` is the module's whole source and whose `close`
+-- ends it.
+tl.search_module = function(_module_name: string, _search_all: boolean): string, FILE, {string}
+   return nil, nil, {}
 end
 
 local function require_module(w: Where, module_name: string, opts: CheckOptions, env: Env): Type, string
@@ -8126,9 +7924,6 @@ local function add_compat_entries(program: Node, used_set: {string: boolean}, ge
    if gen_compat == "off" or not next(used_set) then
       return
    end
-
-   local saved_level = debugging.level
-   debugging.level = nil
 
    local used_list: {string} = sorted_keys(used_set)
 
@@ -8178,8 +7973,6 @@ local function add_compat_entries(program: Node, used_set: {string: boolean}, ge
       end
    end
    program.y = 1
-
-   debugging.level = saved_level
 end
 
 local function get_stdlib_compat(): {string:boolean}
@@ -8300,9 +8093,6 @@ tl.new_env = function(opts?: EnvOptions): Env, string
    end
 
    if not prepared.globals then
-      local saved_level = debugging.level
-      debugging.level = nil
-
       do
          local program, syntax_errors = tl.parse(prelude, "prelude.d.tl", "tl")
          assert_no_errors(syntax_errors, "prelude contains syntax errors")
@@ -8318,8 +8108,6 @@ tl.new_env = function(opts?: EnvOptions): Env, string
       end
 
       prepared.globals = env.globals
-
-      debugging.level = saved_level
 
       -- special cases for compatibility
       local math_t = (prepared.globals["math"].t as TypeDeclType).def as RecordType
@@ -11056,7 +10844,7 @@ do
          -- but check interface constraint first if present
          if constraint then
             if not self:is_a(other, constraint) then
-               return false, { Err("given type %s does not satisfy %s constraint in type variable " .. display_typevar(typevar, "typevar"), other, constraint) }
+               return false, { Err("given type %s does not satisfy %s constraint in type variable " .. display_typevar(typevar), other, constraint) }
             end
 
             if self:same_type(other, constraint) then
@@ -12042,22 +11830,6 @@ do
       -- except for error messages, behavior is the same as
       -- `return (is_a(t1, t2) and self:is_a(t2, t1))`
       return compare_agreeing(self, self.eqtype_relations, t1, t2)
-   end
-
-   if debugging.level then
-      local orig_is_a = TypeChecker.is_a
-      TypeChecker.is_a = function(self: TypeChecker, t1: Type, t2: Type): boolean, {Error}
-         assert(type(t1) == "table")
-         assert(type(t2) == "table")
-
-         if t1.typeid == t2.typeid then
-            local st1, st2 = show_type_base(t1, false, {}), show_type_base(t2, false, {})
-            assert(st1 == st2, st1 .. " ~= " .. st2)
-            return true
-         end
-
-         return orig_is_a(self, t1, t2)
-      end
    end
 
    function TypeChecker:assert_is_a(w: Where, t1: Type, t2: Type, ctx?: string | Node, name?: string, described?: boolean): boolean
@@ -18649,10 +18421,6 @@ do
                   end
 
                   if ambiguous and not t then
-                     if debugging.level then
-                        self.errs:add_warning("debug", node, "the resulting type is ambiguous: %s or %s", ua, ub)
-                        self.errs:add_warning("debug", node, "currently choosing %s", ub)
-                     end
                      -- workaround to keep existing code working
                      t = ub
                   end
@@ -19571,15 +19339,6 @@ do
       end
    end
 
-   local function debug_type_after<S>(fn: VisitorAfter<S, Node, Type>): VisitorAfter<S, Node, Type>
-      return function(s: S, node: Node, children: {Type}, t: Type): Type
-         t = fn and fn(s, node, children, t) or t
-
-         node.debug_type = t
-         return t
-      end
-   end
-
    local function patch_visitors(my_visit_node: Visitor<TypeChecker, NodeKind, Node, Type>,
                                  after_node: VisitorAfterPatcher<TypeChecker, Node, Type>,
                                  my_visit_type?: Visitor<TypeChecker, TypeName, Type, Type>,
@@ -19735,11 +19494,6 @@ do
             visit_type, store_type_after
          )
       end
-      if debugging.level then
-         visit_node, visit_type = patch_visitors(
-            visit_node, debug_type_after
-         )
-      end
 
       assert(ast.kind == "statements")
       if self.runtime_checks then
@@ -19825,16 +19579,12 @@ tl.check_file = function(filename: string, env?: Env, fd?: FILE): Result, string
       return env.loaded[filename]
    end
 
-   local input, err: string, string
-
+   -- The compiler opens no file: whoever asks for one hands it a handle.
    if not fd then
-      fd, err = io.open(filename, "rb")
-      if not fd then
-         return nil, "could not open " .. filename .. ": " .. err
-      end
+      return nil, "could not open " .. filename .. ": no handle was given"
    end
 
-   input, err = read_full_file(fd)
+   local input, err = read_full_file(fd)
    fd:close()
    if not input then
       return nil, "could not read " .. filename .. ": " .. err
@@ -19911,116 +19661,6 @@ tl.gen = function(input: string, env?: Env, opts?: GenerateOptions, parse_lang?:
    local code: string
    code, result.gen_error = tl.generate(result.ast, env.defaults.gen_target, opts)
    return code, result
-end
-
-local function tl_package_loader(module_name: string): any, any
-   local found_filename, fd, tried = tl.search_module(module_name, false)
-   if found_filename then
-      local parse_lang = lang_heuristic(found_filename)
-      local input = read_full_file(fd)
-      if not input then
-         return table.concat(tried, "\n\t")
-      end
-      fd:close()
-      local program, errs = tl.parse(input, found_filename, parse_lang)
-      if #errs > 0 then
-         error(found_filename .. ":" .. errs[1].y .. ":" .. errs[1].x .. ": " .. errs[1].msg)
-      end
-
-      local env = tl.package_loader_env
-      if not env then
-         tl.package_loader_env = assert(tl.new_env(), "Default environment initialization failed")
-         env = tl.package_loader_env
-      end
-
-      local opts = default_env_opts(true, parse_lang)
-
-      local w = { f = found_filename, x = 1, y = 1 }
-      env.modules[module_name] = a_typedecl(w, a_type(w, "circular_require", {}))
-
-      local result = tl.check(program, found_filename, opts.defaults, env)
-
-      env.modules[module_name] = result.type
-
-      -- TODO: a generator failure here raises through the assert, where a
-      -- Lua file with a syntax error in it is a loader error. If that is
-      -- wanted, the fix is to answer the generate error as the loader's
-      -- failure.
-      local code = assert(tl.generate(program, opts.defaults.gen_target, fast_generate_opts))
-      local chunk, err = load(code, "@" .. found_filename, "t")
-      if chunk then
-         return function(modname: string, loader_data: string): any
-            if loader_data == nil then
-               loader_data = found_filename
-            end
-            local ret = chunk(modname, loader_data)
-            return ret
-         end, found_filename
-      else
-         error("Internal Compiler Error: Teal generator produced invalid Lua. Please report a bug at https://github.com/teal-language/tl\n\n" .. err)
-      end
-   end
-   return table.concat(tried, "\n\t")
-end
-
-function tl.loader()
-   if package.searchers then
-      table.insert(package.searchers, 2, tl_package_loader)
-   else
-      table.insert(package.loaders, 2, tl_package_loader)
-   end
-end
-
-local function env_for(opts: EnvOptions, env_tbl: {any:any}): Env
-   if not env_tbl then
-      if not tl.package_loader_env then
-         tl.package_loader_env = tl.new_env(opts)
-      end
-      return tl.package_loader_env
-   end
-
-   if not tl.load_envs then
-      tl.load_envs = setmetatable({}, { __mode = "k" })
-   end
-
-   tl.load_envs[env_tbl] = tl.load_envs[env_tbl] or tl.new_env(opts)
-   return tl.load_envs[env_tbl]
-end
-
-tl.load = function(input: string, chunkname?: string, mode?: LoadMode, ...: {any:any}): LoadFunction, string
-   local parse_lang = lang_heuristic(chunkname)
-   local program, errs = tl.parse(input, chunkname, parse_lang)
-   if #errs > 0 then
-      return nil, (chunkname or "") .. ":" .. errs[1].y .. ":" .. errs[1].x .. ": " .. errs[1].msg
-   end
-
-   local opts = default_env_opts(true, parse_lang)
-
-   if not tl.package_loader_env then
-      tl.package_loader_env = tl.new_env(opts)
-   end
-
-   local filename = chunkname or ("string \"" .. input:sub(45) .. (#input > 45 and "..." or "") .. "\"")
-   local result = tl.check(program, filename, opts.defaults, env_for(opts, ...))
-
-   if mode and mode:match("c") then
-      if #result.type_errors > 0 then
-         local errout = {}
-         for _, err in ipairs(result.type_errors) do
-            table.insert(errout, err.filename .. ":" .. err.y .. ":" .. err.x .. ": " .. (err.msg or ""))
-         end
-         return nil, table.concat(errout, "\n")
-      end
-
-      mode = mode:gsub("c", "") as LoadMode
-   end
-
-   local code, err = tl.generate(program, opts.defaults.gen_target, fast_generate_opts)
-   if not code then
-      return nil, err
-   end
-
-   return load(code, chunkname, mode, ...)
 end
 
 tl.version = function(): string

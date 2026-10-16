@@ -43,7 +43,6 @@ local parts: {{string}} = {
 --- Makes `built` find the checker's other files by name in `texts`, as
 --- the bridge makes `stage0` do, and nothing else.
 local function serving(built: compiler, texts: {string:string})
-  built.path = ""
   built.search_module = function(name: string, _search_all: boolean): string | nil, any
     local text = texts[name]
     if text == nil then
@@ -86,14 +85,14 @@ local function test_the_compiler_compiles_itself_to_itself()
     return made, result
   end
   local code, result = compile(source)
-  -- It still reports type errors in its own source, which upstream's
-  -- `tl.lua` accepts (tables omitting a field that does not admit nil,
-  -- types passed where a narrower one is wanted). The count is pinned: a
+  -- It still reports type errors in its own source, which the pinned
+  -- release's checker accepts (tables omitting a field that does not admit
+  -- nil, types passed where a narrower one is wanted). The count is pinned: a
   -- change to the checker's source that fixes or adds one moves it.
   --
   -- TODO: assert `#result.type_errors == 0` instead, once the checker's own
   -- source is migrated to the rules the checker holds the tree to.
-  local known <const> = 320
+  local known <const> = 317
   assert(#result.type_errors == known, "the checker's source has " ..
       tostring(#result.type_errors) .. " type errors, not " .. tostring(known) ..
       ": update `known` if a change to the source fixed or added one")

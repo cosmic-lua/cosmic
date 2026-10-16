@@ -502,10 +502,9 @@ end
 local function test_compiler_identity_follows_the_compiler_not_the_stdlib()
   local root = assert(Fs.mkdtemp("cosmic-importer-test-identity-"))
   for _, dir in ipairs({ "build", "core", "cosmic", "cmd/cosmic", "checker",
-      "patch/lua", "vendor/tl", "vendor/lua", "bin" }) do
+      "patch/lua", "vendor/lua", "bin" }) do
     assert(Fs.mkdirs(root .. "/" .. dir))
   end
-  assert(Fs.write(root .. "/vendor/tl/PIN", "version 1"))
   assert(Fs.write(root .. "/vendor/lua/PIN", "version 1"))
   assert(Fs.write(root .. "/checker/tl.tl", "a checker"))
   assert(Fs.write(root .. "/cosmic/fs.tl", "local record Fs\nend\nreturn Fs\n"))
@@ -559,10 +558,9 @@ end
 local function test_compiler_identity_follows_the_standard_library_declarations()
   local root = assert(Fs.mkdtemp("cosmic-importer-test-identity-declarations-"))
   for _, dir in ipairs({ "build", "core", "cosmic", "cmd/cosmic", "checker",
-      "patch/lua", "vendor/tl", "vendor/lua", "bin" }) do
+      "patch/lua", "vendor/lua", "bin" }) do
     assert(Fs.mkdirs(root .. "/" .. dir))
   end
-  assert(Fs.write(root .. "/vendor/tl/PIN", "version 1"))
   assert(Fs.write(root .. "/vendor/lua/PIN", "version 1"))
   assert(Fs.write(root .. "/checker/tl.tl", "a checker"))
   assert(Fs.write(root .. "/checker/stdlib.d.tl", "do\n   global function f(): string\n   end\nend\n"))
@@ -595,12 +593,12 @@ end
 --- never edited in place, so its contents are not walked.
 local function test_boot_hash_tracks_embedded_inputs()
   local root = assert(Fs.mkdtemp("cosmic-importer-test-boot-hash-"))
-  for _, dir in ipairs({ "build", "core", "cosmic", "cmd/cosmic", "checker", "vendor/tl", "bin" }) do
+  for _, dir in ipairs({ "build", "core", "cosmic", "cmd/cosmic", "checker", "vendor/lua", "bin" }) do
     assert(Fs.mkdirs(root .. "/" .. dir))
   end
   local paths = {
     "build/main.tl", "core/main.c", "cosmic/example.tl",
-    "cosmic/example_example.tl", "checker/tl.tl", "vendor/tl/PIN",
+    "cosmic/example_example.tl", "checker/tl.tl", "vendor/lua/PIN",
     "cmd/cosmic/main.tl", "build.zig", "build.zig.zon", "bin/zig", "bin/zig.pin",
   }
   for _, path in ipairs(paths) do
@@ -624,7 +622,7 @@ local function test_boot_hash_tracks_embedded_inputs()
   assert(boot_hash_of(root) == original)
   -- A vendored tree's own files are reached through its pin, never
   -- edited in place, so a stray write there is not an input.
-  assert(Fs.write(root .. "/vendor/tl/tl.lua", "edited in place"))
+  assert(Fs.write(root .. "/vendor/lua/lua.c", "edited in place"))
   assert(boot_hash_of(root) == original, "walked into a vendored tree")
 end
 
@@ -828,10 +826,9 @@ end
 local function test_compiler_identity_is_the_same_on_a_fresh_database()
   local root = assert(Fs.mkdtemp("cosmic-importer-test-fresh-identity-"))
   for _, dir in ipairs({ "build", "core", "cosmic", "cmd/cosmic", "checker",
-      "patch/lua", "vendor/tl", "vendor/lua", "bin" }) do
+      "patch/lua", "vendor/lua", "bin" }) do
     assert(Fs.mkdirs(root .. "/" .. dir))
   end
-  assert(Fs.write(root .. "/vendor/tl/PIN", "version 1"))
   assert(Fs.write(root .. "/vendor/lua/PIN", "version 1"))
   assert(Fs.write(root .. "/build/helper.tl",
     "local record helper\nend\nreturn helper\n"))
@@ -875,10 +872,9 @@ end
 local function test_writer_identity_follows_the_writer_closure()
   local root = assert(Fs.mkdtemp("cosmic-importer-test-writer-identity-"))
   for _, dir in ipairs({ "build", "core", "cosmic", "cmd/cosmic", "checker",
-      "patch/lua", "vendor/tl", "vendor/lua", "bin" }) do
+      "patch/lua", "vendor/lua", "bin" }) do
     assert(Fs.mkdirs(root .. "/" .. dir))
   end
-  assert(Fs.write(root .. "/vendor/tl/PIN", "version 1"))
   assert(Fs.write(root .. "/vendor/lua/PIN", "version 1"))
   assert(Fs.write(root .. "/build/schema.tl",
     "local record schema\nend\nreturn schema\n"))
@@ -1008,10 +1004,9 @@ end
 local function test_a_changed_analyzer_forgets_what_it_derived()
   local root = assert(Fs.mkdtemp("cosmic-importer-test-analyzer-"))
   for _, dir in ipairs({ "build", "core", "cosmic", "cmd/cosmic", "checker",
-      "patch/lua", "vendor/tl", "vendor/lua", "bin" }) do
+      "patch/lua", "vendor/lua", "bin" }) do
     assert(Fs.mkdirs(root .. "/" .. dir))
   end
-  assert(Fs.write(root .. "/vendor/tl/PIN", "version 1"))
   assert(Fs.write(root .. "/vendor/lua/PIN", "version 1"))
   assert(Fs.write(root .. "/cosmic/thing.tl",
     "--- A thing.\nlocal record Thing\nend\nreturn Thing\n"))
@@ -1203,11 +1198,10 @@ end
 local function test_own_tree_staging_skips_the_ci_driver_tree()
   local root = assert(Fs.mkdtemp("cosmic-importer-test-skip-ci-"))
   for _, dir in ipairs({ "build", "core", "cosmic", "cmd/cosmic", "checker",
-      "patch/lua", "vendor/tl", "vendor/lua", "bin",
+      "patch/lua", "vendor/lua", "bin",
       "ci/cosmic_ci", "ci/o" }) do
     assert(Fs.mkdirs(root .. "/" .. dir))
   end
-  assert(Fs.write(root .. "/vendor/tl/PIN", "version 1"))
   assert(Fs.write(root .. "/vendor/lua/PIN", "version 1"))
   assert(Fs.write(root .. "/build/importer.tl",
     "local record importer\nend\nreturn importer\n"))
@@ -1379,7 +1373,6 @@ end
 --- ones do, beside the pins and patches.
 local function identity_fixture(case: string): string
   local files: {string:string} = {
-    ["vendor/tl/PIN"] = "version 1",
     ["vendor/lua/PIN"] = "version 1",
     ["checker/tl.tl"] = "a checker",
     ["patch/lua/01.txt"] = "a record",
@@ -1441,10 +1434,7 @@ end
 --- reports, the check that fails a whole build before any key is looked
 --- up, the host's caches and build/zig.tl, which the caches reach, the
 --- catalog of removed names, which only a refusal quotes, though
---- build.teal requires it, and the pin of upstream's `tl.lua`, which a boot
---- no longer reads (it compiles the checker from the pinned release's
---- seed and carries the second stage, a function of the checker's source
---- alone) -- compiles and parses nothing again: it moves
+--- build.teal requires it -- compiles and parses nothing again: it moves
 --- neither the compiler's identity nor the analyzer's.
 local function test_compiler_identity_leaves_out_what_shapes_no_compile()
   local root = identity_fixture("identity-leaves-out")
@@ -1452,7 +1442,7 @@ local function test_compiler_identity_leaves_out_what_shapes_no_compile()
   assert(identities_of(root)[1] == original[1], "a second open moved the identity")
   for _, path in ipairs({ "build/importer.tl", "build/work.tl", "build/todo_scan.tl", "build/positions.tl",
       "build/symbols.tl", "build/caches.tl", "build/zig.tl",
-      "cosmic/fs.tl", "cosmic/removed.tl", "vendor/tl/PIN" }) do
+      "cosmic/fs.tl", "cosmic/removed.tl" }) do
     edit(root, path)
     local after = identities_of(root)
     assert(after[1] == original[1], "an edit to " .. path .. " moved the compiler identity")
