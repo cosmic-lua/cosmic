@@ -1041,8 +1041,12 @@ where it is declared (`declared_y`, `declared_x`); its hint says to return
 the value from the function, or keep it in a field of a table both read
 (`local held = { n = 0 }`, then `held.n = ...`).
 
-a field of a record or interface may be declared `readonly name: T`. the
-keyword is type-level and erased from the emitted Lua; `readonly: T` is still a
+a field of a record or interface may be declared `readonly name: T`. this is
+the fork's syntax, which the tree does not use and which goes with the fork:
+the new checker has `mut`, where every field is fixed unless declared `mut`
+and a collection parameter is a view unless declared `mut` ([the plan's
+fixed-fields rule]). interface agreement carries over to `mut`, so an
+implementing record declares a field `mut` exactly when the interface does. the keyword is type-level and erased from the emitted Lua; `readonly: T` is still a
 field named `readonly`, as `metamethod: T` is one named `metamethod`. only the
 table literal that makes the record sets the field: an assignment through the
 record, an alias of it, `self` or a literal key (`r["id"] = v`) is refused with
@@ -1251,13 +1255,13 @@ those, never its message, which only a person reads; an error no hint reads
 has the code `other`. a rule that refuses more lands with its code and its
 hint together.
 
-the planned cast restriction would allow `x as T` only from `any`, from a
-userdata record declared in a `.d.tl`, or from the enclosing
-generic's type variable. `any` is legal only where untrusted data
-enters and a shape validator turns it into a record by construction.
-no justification comments, no ledger in the target policy. this cast
-restriction is not implemented. record-field narrowing has landed in the
-checker; container covariance was dropped (see the roadmap).
+the language has no casts: the plan's [no casts] rule leaves `as` out of the
+new grammar, and a type changes only by `is`, a guard, a narrowing
+declaration or a validator. `any` is legal only where untrusted data
+enters and a shape validator turns it into a record by construction. the
+fork still accepts `as`, so the rule is not implemented. record-field
+narrowing has landed in the checker; container covariance was dropped (see
+the roadmap).
 there is no planned `cosmic check` verb: compilation performs checking,
 while `cosmic fix`'s structural rule list ([`build/fix/rule.tl`]) is still
 empty: its one type-driven fix wraps a multi-value `assert(...)` in
@@ -1275,7 +1279,7 @@ of every function with the same parameters, a function that may return is
 never taken for one (at the root of a comparison or nested in any type:
 a container, a generic's argument, a callback's parameter), and a function
 declared `: never` neither returns nor reaches its end. the `as` and `is`
-casts and the holes every type has (`coroutine.wrap`, `rawset`,
+casts (`as` leaves the grammar with [no casts]) and the holes every type has (`coroutine.wrap`, `rawset`,
 `setmetatable`) are on the roadmap, and [`test/narrowing_test.tl`] and
 [`build/teal_test.tl`] pin today's behavior of each.
 
@@ -1332,22 +1336,21 @@ retires the second, and that hole with it.
 
 the spirit is consistent, strong, explicit typing, the same shape the
 languages that hold it converged on: the top type inert until
-narrowed, casts confined to subtype moves or runtime-checked, the
-escape hatch in one greppable region, boundaries decoded through
-declared shapes. a runtime-checked cast is closed to Teal because
-Lua erases record types, so shapes construct their records rather
-than asserting them.
+narrowed, no casts, the escape hatch in one greppable region,
+boundaries decoded through declared shapes. a runtime-checked cast is
+closed to Teal because Lua erases record types, so shapes construct their
+records rather than asserting them.
 
 the target type policy adds three rules. `any` never assigns into a
 typed slot; tl already refuses that on assignment, argument, return, index, and
 call. an unannotated parameter is an error, never an implicit `any`,
 which tl does not enforce and a planned lint would. `v is R` for a
-record `R` would be refused on an `any` or a union of records by lint,
-because it compiles to a table check that cannot tell two records apart; the
-shape module is the way in. the checker's own hint on an `any`
-index points at a shape, not at a cast. the per-release report
-names the modules that cast from `any`; the expected list is the
-shape module, the codec decoders, the C declaration layer, and the
+record `R` that is not a class is refused by the new checker ([tagged
+unions]), because it compiles to a table check that cannot tell two records
+apart; the error names a tag field or the shape module, which is the way in. the checker's own hint on an `any`
+index points at a shape, not at a cast. until casts go, the
+per-release report names the modules that cast from `any`; the expected list
+is the shape module, the codec decoders, the C declaration layer, and the
 build step that loads the compiler chunk.
 
 a build refuses a Teal `global` declaration in every source it holds:
@@ -1368,7 +1371,10 @@ covers. tl's own prelude ([`checker/tl.tl`]) and the Lua
 standard-library declarations ([`checker/stdlib.d.tl`]) are read by the
 checker's environment, not built as a source, and are unaffected. a Lua runtime trick the checker cannot
 see, `setmetatable(_G, ...)` or `local _ENV = ...`, is not refused, and
-neither is a file run by `cosmic --standalone`, which no build checks.
+neither is a file run by `cosmic --standalone`, which no build checks. the
+plan's [hidden-code rule] ends both: `_ENV` is a reserved name a program
+cannot declare or assign, and a standalone run checks its file and refuses
+it on a type error, cached by content hash like any compile.
 
 ### the runtime
 
@@ -1664,6 +1670,10 @@ in [roadmap.md](roadmap.md).
 [`cosmic/fs.tl`]: ../cosmic/fs.tl
 [`cosmic/fs_example.tl`]: ../cosmic/fs_example.tl
 [`doc/plans/strict-teal.md`]: plans/strict-teal.md
+[hidden-code rule]: plans/strict-teal.md#no-implicit-conversion-or-hidden-code
+[no casts]: plans/strict-teal.md#no-casts
+[tagged unions]: plans/strict-teal.md#tagged-unions
+[the plan's fixed-fields rule]: plans/strict-teal.md#fields-are-fixed-unless-declared-mutable
 [`Proc.exit`]: ../cosmic/proc.tl
 [`schema.tables_digest`]: ../build/schema.tl
 [`Server.serve`]: ../cosmic/http/server.tl
