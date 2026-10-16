@@ -1110,7 +1110,7 @@ are not maps, no `as`, nil out of every type, conditions that are
 booleans or optionals, and collections as views are its only relations.
 a sketch, not a design:
 
-- its grammar is designed first, with the syntax tree and the interface
+- its grammar is designed first ([the draft](new-checker-grammar.md)), with the syntax tree and the interface
   that about twenty `build/` modules read (`build/ast/`, the analyzer,
   stubs, docs, links, scopes); those modules are rewritten to it beside
   the checker, not after. what it keeps of the fork's contract is what the
