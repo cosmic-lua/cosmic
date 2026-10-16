@@ -539,21 +539,29 @@ local function milliseconds(source: string): integer
   return elapsed
 end
 
---- A line of a megabyte (300 KB where it is nothing but tokens) lexes in time that holds the line's length once: a
---- search for the next line break that runs to the end of the source at
---- every string or long token would take minutes.
-local function test_a_megabyte_on_one_line_lexes_in_well_under_a_second()
-  local sources: {string} = {
-    ("'ab', "):rep(170000),
-    ("--[[c]] "):rep(130000),
-    ("[[x]] "):rep(170000),
-    ("'ab', "):rep(120000) .. ("'a\\q' "):rep(30000),
-    ("x = 1 "):rep(50000),
-  }
-  for i, source in ipairs(sources) do
-    assert(#source >= 300000)
-    local took = milliseconds(source)
-    assert(took < 1000, "source " .. i .. " took " .. took .. " ms")
+--- The least time of three over `source`, so a slow moment on a shared
+--- machine does not count against it.
+local function least_milliseconds(source: string): integer
+  local least = milliseconds(source)
+  for _ = 1, 2 do
+    least = math.min(least, milliseconds(source))
+  end
+  return least
+end
+
+--- A long line lexes in time that holds the line's length once: a search
+--- for the next line break that ran to the end of the source at every
+--- string or long token made one line of 200 KB take 30 times as long as
+--- the same tokens one to a line. The bound is a ratio to that, not a
+--- clock, so a slow machine slows both alike.
+local function test_one_long_line_lexes_as_fast_as_the_same_tokens_on_lines_of_their_own()
+  local forms: {string} = { "'ab',", "--[[c]]", "[[x]]", "'a\\q'", "x = 1" }
+  for _, form in ipairs(forms) do
+    local one_line = (form .. " "):rep(20000)
+    local own_lines = (form .. "\n"):rep(20000)
+    local long = least_milliseconds(one_line)
+    local short = least_milliseconds(own_lines)
+    assert(long <= 4 * short + 20, form .. ": one line took " .. long .. " ms, own lines " .. short .. " ms")
   end
 end
 
