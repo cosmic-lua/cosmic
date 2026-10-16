@@ -13,9 +13,17 @@ local Sqlite = require("cosmic.sqlite")
 local Test = require("cosmic.test")
 local artifact = require("build.artifact")
 local cache_formats = require("build.cache_formats")
+local teal = require("build.teal")
 
-Test.policy{ grants = { { path = "core/bridge.lua", letters = "r" } } }
+Test.policy{ grants = {
+  { path = "core/bridge.lua", letters = "r" },
+  { path = "build/checker_wrapper.tl", letters = "r" },
+} }
 
+--- A stand-in compiler is the seed here: the Lua the pinned release
+--- writes for the checker's files, which the stand-in "compiles" by
+--- passing each through, so a file's Lua is its text.
+---
 --- A compiler that passes its source through, writing a file to the
 --- directory `COUNT_DIR` names for each compile it makes: `compiler-N`
 --- for a compile of itself (its source holds `search_module`) and
@@ -87,18 +95,49 @@ return {
 local boot_source <const> = [[
 local a = require("build.a")
 local b = require("build.b")
-return function() return a.n + b.n end
+return function(_root, _argv, carried)
+  local sys = require("cosmic.sys")
+  local path = sys.getenv("CARRIED_FILE")
+  if path then
+    local fd = assert(sys.open(path, sys.O_WRONLY | sys.O_CREAT | sys.O_TRUNC, 420))
+    assert(sys.write(fd, carried))
+    sys.close(fd)
+  end
+  return a.n + b.n
+end
 ]]
 
 local bridge_source = assert(Fs.read("core/bridge.lua"))
+
+local held: {string:string} = {}
+
+--- The Lua of build/checker_wrapper.tl, which a seed holds beside the
+--- checker's: the real wrapper, since the bridge joins the parts with it.
+local function wrapper(): string
+  if held.wrapper == nil then
+    local built = assert(teal.load(true))
+    local env = assert(built.new_env({ defaults = {
+      feat_lax = "off", gen_compat = "off", gen_target = "5.4",
+    } }))
+    local made, result = built.gen(assert(Fs.read("build/checker_wrapper.tl")), env, nil, "tl")
+    assert(made ~= nil and #result.syntax_errors == 0, "the wrapper did not compile")
+    held.wrapper = made
+  end
+  return held.wrapper
+end
 
 local record Fixture
   core: string
   tmp: string
   tree: string
+  --- The seed directory.
   tl: string
   cache: string
   runs: integer
+  --- Whether `boot` writes the seed from the tree's checker first, as a
+  --- release that agrees with it would; a case about a seed that does not
+  --- agree clears it and writes its own.
+  seeded: boolean
 end
 
 local function put(path: string, text: string)
@@ -117,7 +156,7 @@ local function fixture(tmp: string, name: string): Fixture
     assert(Fs.chmod(core, 0x1ed))
   end
   local f: Fixture = { core = core, tmp = base, tree = base .. "/tree", tl = base .. "/tl",
-    cache = base .. "/cache/cache.db", runs = 0 }
+    cache = base .. "/cache/cache.db", runs = 0, seeded = true }
   put(f.tree .. "/core/bridge.lua", bridge_source)
   put(f.tree .. "/core/syscalls.h", "/* stand-in */\n")
   put(f.tree .. "/build/gen_syscalls.tl", gen_syscalls)
@@ -126,7 +165,6 @@ local function fixture(tmp: string, name: string): Fixture
   put(f.tree .. "/build/b/init.tl", "return { n = 20 }\n")
   put(f.tree .. "/build/note.md", "not a source\n")
   put(f.tree .. "/build/dep.tl", "return { n = 7 }\n")
-  put(f.tl .. "/tl.lua", compiler)
   put(f.tree .. "/checker/tl.tl", compiler)
   put(f.tree .. "/checker/stdlib.d.tl", "-- the standard library\n")
   assert(Fs.mkdirs(Fs.dirname(f.cache)))
@@ -140,10 +178,23 @@ local record Boot
   modules: integer
 end
 
+--- Writes the seed a release that agrees with `f`'s checker would: the
+--- wrapper's Lua, and the text of each of the checker's files.
+local function reseed(f: Fixture)
+  put(f.tl .. "/checker_wrapper.lua", wrapper())
+  put(f.tl .. "/tl.lua", (assert(Fs.read(f.tree .. "/checker/tl.tl"))))
+  for _, name in ipairs((assert(Fs.list(f.tree .. "/checker")))) do
+    local stem = name:match("^([%a_][%w_]*)%.tl$")
+    if stem ~= nil and stem ~= "tl" then
+      put(f.tl .. "/" .. stem .. ".lua", (assert(Fs.read(f.tree .. "/checker/" .. name))))
+    end
+  end
+end
+
 --- Boots `f`'s tree once, with `variables` beside the environment that
---- names its cache, and answers its exit status and how many compiles it
---- made of the compiler and of modules.
-local function boot(f: Fixture, variables?: {string:string}): Boot
+--- names its cache: the process's result and the directory of its counts.
+local function start(f: Fixture, variables?: {string:string}): Child.Result, string
+  if f.seeded then reseed(f) end
   f.runs = f.runs + 1
   local counts = f.tmp .. "/counts-" .. f.runs
   assert(Fs.mkdirs(counts))
@@ -151,10 +202,18 @@ local function boot(f: Fixture, variables?: {string:string}): Boot
   for name, value in pairs(Env.all()) do env[name] = value end
   env.COSMIC_BUILD_CACHE = f.cache
   env.COUNT_DIR = counts
+  env.CARRIED_FILE = f.tmp .. "/carried"
   env.TL_PATH = nil
   for name, value in pairs(variables or {}) do env[name] = value end
   local r = assert(Child.run({ f.core, "--boot", f.tree, f.tl, "go" },
     { stdout = "capture", stderr = "capture", env = env, timeout_ns = Clock.seconds(30) }))
+  return r, counts
+end
+
+--- Boots `f`'s tree once and answers its exit status and how many
+--- compiles it made of the compiler and of modules.
+local function boot(f: Fixture, variables?: {string:string}): Boot
+  local r, counts = start(f, variables)
   assert(r.code ~= nil and r.code >= 20, "exit " .. tostring(r.code) .. ": " .. tostring(r.stderr))
   local out: Boot = { status = r.code, compiler = 0, modules = 0 }
   for _, name in ipairs((assert(Fs.list(counts)))) do
@@ -244,8 +303,14 @@ local function test_any_input_that_changes_is_a_miss(tmp: string)
     { "the standard library's declarations", true, function(f: Fixture)
       put(f.tree .. "/checker/stdlib.d.tl", "-- edited\n")
     end },
-    { "the vendored compiler", true, function(f: Fixture)
+    { "the seed", true, function(f: Fixture)
+      f.seeded = false
       put(f.tl .. "/tl.lua", compiler .. "-- edited\n")
+      put(f.tree .. "/checker/SEED_DIFFERS", "tl.lua\n")
+    end },
+    { "the seed's wrapper", true, function(f: Fixture)
+      f.seeded = false
+      put(f.tl .. "/checker_wrapper.lua", wrapper() .. "\n-- edited\n")
     end },
     { "the bridge", true, function(f: Fixture)
       put(f.tree .. "/core/bridge.lua", bridge_source .. "\n-- edited\n")
@@ -462,4 +527,94 @@ local function test_the_bridge_makes_the_table_the_formats_name(tmp: string)
   assert(schema(made) ~= "" and schema(made) == schema(expected), schema(made))
   assert(made:close())
   assert(expected:close())
+end
+
+--- A seed whose Lua is not what the checker compiles itself to fails the
+--- boot, naming the files: a seed that miscompiles, or a generator that
+--- writes other Lua than the release's. A tree that lists the files
+--- (`checker/SEED_DIFFERS`) boots, and what it carries is the second
+--- stage's Lua, never the seed's.
+local function test_a_seed_that_differs_from_the_second_stage_fails_the_boot(tmp: string)
+  local f = fixture(tmp, "differs")
+  put(f.tree .. "/checker/part.tl", "-- search_module\nreturn 1\n")
+  assert(boot(f).status == 21)
+  f.seeded = false
+  put(f.tl .. "/part.lua", "-- search_module\nreturn 2\n")
+  local r = start(f)
+  assert(r.code == 1, "exit " .. tostring(r.code))
+  local said = tostring(r.stderr)
+  assert(said:find("differs from the checker compiled by itself in part.lua", 1, true), said)
+  assert(said:find("SEED_DIFFERS", 1, true), said)
+  put(f.tree .. "/checker/SEED_DIFFERS", "part.lua\n")
+  assert(boot(f).status == 21, "a declared difference did not boot")
+  local carried = assert(Fs.read(f.tmp .. "/carried"))
+  assert(carried:find("return 1", 1, true) and not carried:find("return 2", 1, true),
+    "the tool carries the seed's Lua, not the second stage's")
+end
+
+--- The list holds file by file: a difference in a file it does not name
+--- still fails the boot, so a seed that miscompiles one file is not
+--- excused by the declared change to another.
+local function test_a_difference_in_an_unlisted_file_fails_the_boot(tmp: string)
+  local f = fixture(tmp, "unlisted")
+  put(f.tree .. "/checker/part.tl", "-- search_module\nreturn 1\n")
+  f.seeded = false
+  reseed(f)
+  put(f.tl .. "/part.lua", "-- search_module\nreturn 2\n")
+  put(f.tl .. "/tl.lua", compiler .. "-- seed\n")
+  put(f.tree .. "/checker/SEED_DIFFERS", "tl.lua\n")
+  local r = start(f)
+  assert(r.code == 1, "exit " .. tostring(r.code))
+  local said = tostring(r.stderr)
+  assert(said:find("itself in part.lua:", 1, true), said)
+  put(f.tree .. "/checker/SEED_DIFFERS", "tl.lua\npart.lua\n")
+  local carried_boot = boot(f)
+  assert(carried_boot.status == 21)
+  local carried = assert(Fs.read(f.tmp .. "/carried"))
+  assert(not carried:find("-- seed", 1, true), "the tool carries the seed's Lua")
+end
+
+--- The list holds only while it is true: a file it names that does not
+--- differ fails the boot, even on a boot that finds the compiler in the
+--- cache, naming the file; so does a file that names nothing.
+local function test_a_declared_difference_the_seed_does_not_have_fails_the_boot(tmp: string)
+  local f = fixture(tmp, "stale-declaration")
+  assert(boot(f).status == 21)
+  put(f.tree .. "/checker/SEED_DIFFERS", "tl.lua\n")
+  local r = start(f)
+  assert(r.code == 1, "exit " .. tostring(r.code))
+  local said = tostring(r.stderr)
+  assert(said:find("differs in tl.lua, and it does not: remove", 1, true), said)
+  put(f.tree .. "/checker/SEED_DIFFERS", "\n")
+  r = start(f)
+  assert(r.code == 1 and tostring(r.stderr):find("names no file: remove it", 1, true),
+    tostring(r.stderr))
+end
+
+--- An entry that is not a bare name of a file the seed writes (a path, a
+--- comment) is refused as that, not taken for a file that does not differ.
+local function test_a_declared_name_that_is_no_seed_file_fails_the_boot(tmp: string)
+  local f = fixture(tmp, "bad-entry")
+  assert(boot(f).status == 21)
+  for _, entry in ipairs({ "checker/tl.lua", "# the generator moved" }) do
+    put(f.tree .. "/checker/SEED_DIFFERS", entry .. "\n")
+    local r = start(f)
+    assert(r.code == 1, "exit " .. tostring(r.code))
+    local said = tostring(r.stderr)
+    assert(said:find(entry .. " names no file the seed writes: list bare output names", 1, true), said)
+  end
+end
+
+--- A seed directory that lacks a file says which, and that the seed step
+--- of build.zig writes it.
+local function test_a_seed_without_a_file_fails_the_boot_naming_it(tmp: string)
+  local f = fixture(tmp, "missing")
+  put(f.tree .. "/checker/part.tl", "-- search_module\nreturn 1\n")
+  f.seeded = false
+  reseed(f)
+  assert(Fs.remove(f.tl .. "/part.lua"))
+  local r = start(f)
+  assert(r.code == 1, "exit " .. tostring(r.code))
+  local said = tostring(r.stderr)
+  assert(said:find("/part.lua: ", 1, true) and said:find("seed step of build.zig", 1, true), said)
 end

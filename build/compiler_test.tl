@@ -1,13 +1,25 @@
 --- The compiler compiles itself to itself. A boot compiles the tree's own
 --- checker, [`checker/tl.tl`] and the files beside it ([`checker/flow.tl`],
---- [`checker/narrowing.tl`], [`checker/captures.tl`], [`checker/facts.tl`]), with the vendored `tl.lua`, and the tool
---- carries what that compiled to (core/bridge.lua's `bootstrap`): the
---- entry's Lua behind a first line that holds the Lua standard library's
---- declarations, [`checker/stdlib.d.tl`], as its local `stdlib` and the Lua
---- of each other file for its local `require`. That compiler, compiling the
---- same files, must give back exactly the Lua it is, so the compiler the
---- tree is built with is a function of its Teal sources and those
---- declarations alone, not of the one that first compiled it.
+--- [`checker/narrowing.tl`], [`checker/captures.tl`], [`checker/facts.tl`]),
+--- in stages (core/bridge.lua's `bootstrap`). The seed, the Lua the pinned
+--- release wrote for them, is stage one; stage one compiles them to stage
+--- two, which the tool carries: the entry's Lua behind a first line that
+--- holds the Lua standard library's declarations, [`checker/stdlib.d.tl`],
+--- as its local `stdlib` and the Lua of each other file for its local
+--- `require`. The carried compiler, compiling the same files, is stage
+--- three, which must be exactly stage two: the compiler the tree is built
+--- with is a function of its Teal sources and those declarations alone,
+--- not of the seed that first compiled it, nor of the emitter that wrote
+--- the seed. That is what this test holds.
+---
+--- Stage one against stage two is held at the boot, not here, since only
+--- a boot holds a seed made from the files it compiles (a seed on disk
+--- would be stale after the first edit of `checker/`, which the tool
+--- rebuilds itself on without a boot): stage one equals stage two while
+--- the generator writes what the release's does, so a seed that
+--- miscompiles fails the boot, and a change to the generator declares
+--- itself in `checker/SEED_DIFFERS` until the pin moves
+--- ([`build/bridge_cache_test.tl`] holds the three cases).
 local Fs = require("cosmic.fs")
 local Store = require("cosmic.store")
 local Test = require("cosmic.test")

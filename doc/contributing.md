@@ -157,6 +157,24 @@ the release records) and take up every `TODO:` the release unblocks:
 `bin/cosmic todos '"cosmic-driver.pin"'` lists them. otherwise say in
 the PR that the pin was left alone.
 
+the pin is also the seed a boot compiles the checker from: a `build.zig`
+step runs the release's `cosmic compile` over `checker/*.tl`, and the
+boot's first stage is the Lua it writes. the checker's source may use only
+what that release parses; a boot whose seed refuses it fails naming the
+file and line, and the pin must move to a release that parses it. a change
+to what the generator in [`checker/tl.tl`] writes also differs from the
+seed, which the boot refuses unless the change adds `checker/SEED_DIFFERS`
+naming, one a line, each seed output file whose Lua differs (`tl.lua`,
+`flow.lua`, ...): bare output file names, no paths and no comments. a
+difference in a file not listed still fails the boot, as does a listed
+file that does not differ; the pin move that takes a release carrying
+the change empties the list and removes the file.
+`COSMIC_BOOTSTRAP` names another cosmic for the seed too. with it pointing
+at the tree's own tool, the seed is always what the checker compiles itself
+to, so a standing entry fails the boot saying to remove it: boot with the
+pinned release (unset `COSMIC_BOOTSTRAP`) or leave the file out locally,
+and keep the entry in the commit.
+
 [`.github/workflows/ci.yml`]: ../.github/workflows/ci.yml
 [`AGENTS.md`]: ../AGENTS.md
 [`bin/cosmic-bootstrap`]: ../bin/cosmic-bootstrap
@@ -166,6 +184,7 @@ the PR that the pin was left alone.
 [`bin/zig`]: ../bin/zig
 [`build/paths.tl`]: ../build/paths.tl
 [`build/zig.tl`]: ../build/zig.tl
+[`checker/tl.tl`]: ../checker/tl.tl
 [`ci/cosmic-driver.pin`]: ../ci/cosmic-driver.pin
 [`ci/README.md`]: ../ci/README.md
 [`ci/run-local`]: ../ci/run-local

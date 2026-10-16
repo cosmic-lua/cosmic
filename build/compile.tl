@@ -173,9 +173,13 @@ local record Compiled
 end
 
 -- TODO: this, core/bridge.lua's `bootstrap` and build/compiler_test.tl each
--- build the same compiler environment and the checker's parts-and-wrapper;
--- keep one copy, in the tree, once ci/cosmic-driver.pin names a release
--- that carries this verb and boot compiles the checker through it.
+-- build the same compiler environment (the defaults of `new_env`) and
+-- answer a `require` of a checker part with its text; keep one copy. The
+-- wrapper that joins the parts is one copy already
+-- ([`build/checker_wrapper.tl`], which the bridge loads as the seed
+-- compiled it). Waits on the seed step of build.zig compiling the closure
+-- of this verb beside the checker, so that the bridge's second stage runs
+-- through it.
 
 --- Checks and generates `text`, the file `path`, in an environment of its
 --- own so no file sees another's declarations but through a `require`.

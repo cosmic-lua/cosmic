@@ -858,11 +858,13 @@ not.
   compiling it again, and the tool carries the second stage, so the
   carried compiler never depends on the pin's emitter.
   [`build/compiler_test.tl`]'s fixed point is the third stage equal to
-  the second; a change that leaves the emitter alone also asserts the
-  first equal to the second, which catches a seed that miscompiles. a boot
-  whose seed cannot parse the checker says which syntax and that the pin
-  must move. the self-rebuild already uses the carried compiler and is
-  unchanged.
+  the second; the boot also asserts the first equal to the second, file by
+  file, which catches a seed that miscompiles: a change to the emitter
+  lists the files it moves in `checker/SEED_DIFFERS` until the pin
+  moves, and a difference in an unlisted file, or a listed file that does
+  not differ, fails the boot. a boot whose seed cannot parse the checker
+  says which syntax and that the pin must move. the self-rebuild already
+  uses the carried compiler and is unchanged.
 - **`vendor/tl/` removed.** it goes, except the license and notice, which
   move beside the checker and stay in the bill of materials; the
   compiler's identity loses [`vendor/tl/PIN`].

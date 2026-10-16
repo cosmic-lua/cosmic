@@ -47,37 +47,22 @@ static int run_bridge (lua_State *L, const char *root) {
   return 0;
 }
 
-/* Loads the vendored compiler (`tl_dir`/tl.lua) under the environment the
- * bridge built, then has it compile the tree's own checker, `root`/
- * checker/tl.tl (the bridge's `bootstrap`, which is told where tl.lua is
- * too, to key what it keeps): leaves that checker, and the Lua it was
- * compiled to, on the stack. */
-static int run_compiler (lua_State *L, const char *root, const char *tl_dir,
+/* Has the bridge build the compiler from the seed: the Lua the pinned
+ * release wrote for the tree's checker, in `seed_dir` (build.zig's seed
+ * step). The bridge's `bootstrap` loads it under the environment the
+ * bridge built as the first-stage compiler and has that compile the tree's
+ * own checker, `root`/checker/tl.tl, again: leaves that checker, and the
+ * Lua it was compiled to, on the stack. */
+static int run_compiler (lua_State *L, const char *root, const char *seed_dir,
                          int bridge) {
-  char path[4096];
   char source[4096];
   if (!join_path(source, sizeof source, root, "checker/tl.tl")) {
     return 1;
   }
-  if (!join_path(path, sizeof path, tl_dir, "tl.lua")) {
-    return 1;
-  }
-  if (luaL_loadfilex(L, path, "t") != LUA_OK) {
-    return report(L, "the compiler would not load");
-  }
-  lua_getfield(L, bridge, "environment");
-  if (lua_setupvalue(L, -2, 1) == NULL) {
-    fprintf(stderr, "cosmic boot: the compiler has no environment to set\n");
-    return 1;
-  }
-  if (lua_pcall(L, 0, 1, 0) != LUA_OK) {
-    return report(L, "the compiler would not run");
-  }
   lua_getfield(L, bridge, "bootstrap");
-  lua_insert(L, -2);
+  lua_pushstring(L, seed_dir);
   lua_pushstring(L, source);
-  lua_pushstring(L, tl_dir);
-  if (lua_pcall(L, 3, 2, 0) != LUA_OK) {
+  if (lua_pcall(L, 2, 2, 0) != LUA_OK) {
     return report(L, "the compiler would not compile itself");
   }
   return 0;
@@ -187,14 +172,14 @@ static int declare_syscalls (lua_State *L, const char *root, int bridge) {
   return 0;
 }
 
-int cosmic_boot (lua_State *L, const char *root, const char *tl_dir, int argc,
+int cosmic_boot (lua_State *L, const char *root, const char *seed_dir, int argc,
                  char **argv) {
   if (run_bridge(L, root) != 0) {
     return 1;
   }
   int bridge = lua_gettop(L);
 
-  if (run_compiler(L, root, tl_dir, bridge) != 0) {
+  if (run_compiler(L, root, seed_dir, bridge) != 0) {
     return 1;
   }
   int source = lua_gettop(L);
