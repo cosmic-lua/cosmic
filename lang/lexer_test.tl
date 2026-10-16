@@ -3,7 +3,7 @@
 --- code and the fix it gives. Every source here is also held to
 --- [`lang.lexer_cover`], which asks that its tokens and comments tile it.
 local Lexer = require("lang.lexer")
-local Clock = require("cosmic.clock")
+local Speed = require("lang.speed")
 local Cover = require("lang.lexer_cover")
 
 --- The letter e with an acute accent, in UTF-8, so that this file holds
@@ -520,38 +520,27 @@ local function test_a_bad_escape_is_placed_on_its_own_line_in_a_string_across_li
   assert(across.y == 3 and across.x == 3, across.y .. ":" .. across.x)
 end
 
---- The time [`Lexer.lex`] takes over `source`, in milliseconds.
-local function milliseconds(source: string): integer
-  local started = Clock.monotonic_ns()
-  local lexed = Lexer.lex(source, "t.tl")
-  local elapsed = (Clock.monotonic_ns() - started) // 1000000
-  assert(#lexed.tokens > 1 or #lexed.errors > 1)
-  return elapsed
-end
-
---- The least time of three over `source`, so a slow moment on a shared
---- machine does not count against it.
-local function least_milliseconds(source: string): integer
-  local least = milliseconds(source)
-  for _ = 1, 2 do
-    least = math.min(least, milliseconds(source))
-  end
-  return least
-end
-
 --- A long line lexes in time that holds the line's length once: a search
 --- for the next line break that ran to the end of the source at every
 --- string or long token made one line of 200 KB take 30 times as long as
---- the same tokens one to a line. The bound is a ratio to that, not a
---- clock, so a slow machine slows both alike.
+--- the same tokens one to a line (about 9 times at the 60 KB here). Both
+--- sides are the same size, so the bound of 4 is a ratio to that, not a
+--- clock, and a slow machine slows both alike.
 local function test_one_long_line_lexes_as_fast_as_the_same_tokens_on_lines_of_their_own()
   local forms: {string} = { "'ab',", "--[[c]]", "[[x]]", "'a\\q'", "x = 1" }
   for _, form in ipairs(forms) do
-    local one_line = (form .. " "):rep(20000)
-    local own_lines = (form .. "\n"):rep(20000)
-    local long = least_milliseconds(one_line)
-    local short = least_milliseconds(own_lines)
-    assert(long <= 4 * short + 20, form .. ": one line took " .. long .. " ms, own lines " .. short .. " ms")
+    local one_line = (form .. " "):rep(10000)
+    local own_lines = (form .. "\n"):rep(10000)
+    local function lexes(source: string)
+      local lexed = Lexer.lex(source, "t.tl")
+      assert(#lexed.tokens > 1 or #lexed.errors > 1)
+    end
+    local ok, why = Speed.within(function()
+      lexes(own_lines)
+    end, function()
+      lexes(one_line)
+    end, 4)
+    assert(ok, form .. ": one line " .. why)
   end
 end
 

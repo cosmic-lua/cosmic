@@ -9,8 +9,8 @@
 --- declares promised by a CI leg, every verb's spec listed and
 --- readable, no public doc citing the build or carrying a TODO, no
 --- literal plural after a number, every file under ci/testdata
---- type-checking standalone, and every `.tl` file lexing in the new
---- checker's grammar but for the cut forms pinned. Each asks the tree's projection,
+--- type-checking standalone, and every `.tl` file lexing, translating and
+--- scoping in the new checker's grammar but for the forms pinned. Each asks the tree's projection,
 --- `cosmic.db`, which holds every module's docs, uses, imports,
 --- examples and source.
 ---
@@ -43,8 +43,12 @@ local docs_checks = require("build.docs_checks")
 local link_text = require("build.link_text")
 local host_names = require("build.host_names")
 local importer = require("build.importer")
+local Ast = require("lang.ast")
 local Lexer = require("lang.lexer")
 local Parser = require("lang.parser")
+local Scopes = require("lang.scopes")
+local ScopesCover = require("lang.scopes_cover")
+local teal = require("build.teal")
 local Translate = require("lang.translate")
 local shared_compiles = require("build.shared_compiles")
 local standalone = require("build.standalone")
@@ -110,8 +114,6 @@ for _, name in ipairs({ "install_checks", "dropped_violations", "most_kept" }) d
 end
 allowed["cosmic.sandbox.policy.system_profile"] = "the seam that lets a test draw the " ..
   "other host's \"system\" profile; rules.profile calls it with this host's"
-allowed["build.teal.withheld"] = "the names `strip` takes from the checker, spelled in this " ..
-  "module for its compiler identity; build/teal_catalog_test.tl holds them to the catalog's"
 allowed["build.teal.withheld_package"] = "the fields of `package` `strip` takes from the checker, " ..
   "spelled here as `withheld` is; build/teal_catalog_test.tl holds them to the catalog's"
 allowed["build.c.variants"] = "the ways the C check dumps a file, written out as build.zig " ..
@@ -2479,6 +2481,197 @@ function tree_checks.translated(root: string, pinned?: {string: integer}, ceilin
   elseif #hazardous < ceiling then
     out[#out + 1] = "methods moved into a class that read or give something else: " .. #hazardous .. ", ceiling " .. ceiling ..
       "; lower translate_hazards in build/tree_checks.tl"
+  end
+  return out
+end
+
+--- The errors of the new checker's scope builder ([`lang.scopes`]) that files of the
+--- tree have, which [`scoped`] holds the tree to: `<file> <code>` to how many errors
+--- of that code the file has. Each is a form the grammar drops, a type the fork resolves
+--- where it is used and not where it is written, or a local that names a type; a rewrite
+--- removes it and a pin falls with it, and none is raised. The fork's [`checker/captures.tl`] is compiled by the seed, which
+--- warns of a shadow where the fork refuses it.
+local scope_pins: {string: integer} = {
+  -- the parser reads the `self` of a `where` clause, which the grammar drops, as a type
+  ["checker/stdlib.d.tl unknown_type"] = 1,
+  ["cosmic/removed_example.tl unknown_type"] = 2,
+  ["lang/ast.tl unknown_type"] = 72,
+  -- a cast of several values, `as (A, B)`, which the grammar has no type for: the parser reads `any` as a value
+  ["core/surface_test.tl not_a_value"] = 1,
+  ["cosmic/stream_test.tl not_a_value"] = 1,
+  -- the fork finds `Orchestration` for the type `Orchestration.Group` of a record field in the local of a function
+  -- that uses the record: declare `local type Orchestration = require("cosmic_ci.orchestration")` above the record
+  ["ci/cosmic_ci/orchestration_test.tl unknown_type"] = 2,
+  -- a local that names a type of a module (`local Seatbelt = Rules.Seatbelt`), used as the head of a type:
+  -- write `local type Seatbelt = Rules.Seatbelt`
+  --
+  -- TODO: rewrite these three in Teal, or have the translator write the `local type`, once lang/translate.tl
+  -- reads the scope builder to tell a local used as the head of a type from one that is not.
+  ["cosmic/child.tl not_a_type"] = 1,
+  ["cosmic/internal/relay_server.tl not_a_type"] = 1,
+  ["cosmic/web/headers_test.tl not_a_type"] = 1,
+  ["checker/captures.tl shadows"] = 1,
+}
+
+--- What scoping one file found.
+local record ScopeOutcome
+  --- Why the scopes are not consistent with the tree ([`lang.scopes_cover`]), "" where they are.
+  consistent: string
+  errors: {Scopes.Error}
+end
+
+--- The scope builder's codes by name.
+local scope_codes: {string: Scopes.Code} = {}
+for _, code in ipairs(Scopes.codes) do
+  scope_codes[code] = code
+end
+
+--- The outcome a memo kept, or nil where it kept none or it does not read.
+local function kept_scopes(text: string, file: string): ScopeOutcome | nil
+  local outcome: ScopeOutcome = { consistent = "", errors = {} }
+  for _, fields in ipairs(check_memo.decode(text)) do
+    if fields[1] == "C" and #fields == 2 then
+      outcome.consistent = fields[2]
+    elseif fields[1] == "E" and #fields == 6 then
+      local code = scope_codes[fields[2]]
+      local y, x = math.tointeger(tonumber(fields[3])), math.tointeger(tonumber(fields[4]))
+      if code == nil or y == nil or x == nil then
+        return nil
+      end
+      outcome.errors[#outcome.errors + 1] = {
+        filename = file, code = code, y = y, x = x, offset = 0, length = 0, msg = fields[5], fix = fields[6],
+      }
+    else
+      return nil
+    end
+  end
+  return outcome
+end
+
+--- The outcome of scoping `source`, from `memo` where it holds it under `salt`.
+local function scope_outcome(file: string, source: string, declared: {string: Scopes.Global}, memo: Sqlite.Handle | nil,
+                             salt: string): ScopeOutcome
+  local dialect: Ast.Dialect = file:match("%.d%.tl$") and "decl" or "tl"
+  local key = ""
+  if memo ~= nil then
+    key = check_memo.key(salt, dialect, source)
+    local text = check_memo.get(memo, "scoped", key)
+    local kept = text ~= nil and kept_scopes(text, file) or nil
+    if kept ~= nil then
+      return kept
+    end
+  end
+  local parsed = Parser.parse(Lexer.lex(source, file), file, dialect)
+  local scoped = Scopes.build(parsed.chunk, file, declared)
+  local ok, reason = ScopesCover.check(parsed.chunk, scoped, declared)
+  local outcome: ScopeOutcome = { consistent = ok and "" or reason, errors = scoped.errors }
+  if memo ~= nil then
+    local rows: {{string}} = { { "C", outcome.consistent } }
+    for _, e in ipairs(scoped.errors) do
+      rows[#rows + 1] = { "E", e.code, tostring(e.y), tostring(e.x), e.msg, e.fix }
+    end
+    check_memo.put(memo, "scoped", key, check_memo.encode(rows))
+  end
+  return outcome
+end
+
+--- The globals a program may use, as the fork's environment has them: the declarations of the
+--- prelude in [`checker/tl.tl`] and of [`checker/stdlib.d.tl`], less the names cosmic's runtime
+--- withholds ([`teal.withheld`]), and `_G`, which the checker answers itself.
+---
+--- TODO: read the globals from the declaration files of the new checker, once it replaces
+--- checker/tl.tl, whose prelude is a string that declares `interface userdata is userdata`
+--- in a way the new parser reads as the declaration of `interface`.
+local function declared_globals(root: string): {string: Scopes.Global}
+  local out: {string: Scopes.Global} = {}
+  local function add(path: string, text: string)
+    for name, g in pairs(Scopes.declared(Parser.parse(Lexer.lex(text, path), path, "decl").chunk)) do
+      out[name] = g
+    end
+  end
+  local tl, _ = Fs.read(root .. "/checker/tl.tl")
+  local prelude = tl ~= nil and tl:match("%[=====%[\n(.-)%]=====%]") or nil
+  if prelude ~= nil then
+    add("prelude.d.tl", prelude)
+    out["interface"] = nil
+    out["userdata"] = { space = "type", const = false }
+  end
+  local stdlib, _ = Fs.read(root .. "/checker/stdlib.d.tl")
+  if stdlib ~= nil then
+    add("checker/stdlib.d.tl", stdlib)
+  end
+  for _, name in ipairs(teal.withheld) do
+    out[name] = nil
+  end
+  out["_G"] = { space = "value", const = false }
+  return out
+end
+
+--- Every `.tl` file of the tree, scoped ([`lang.scopes`]) in the new checker's grammar, apart from
+--- [`checker/tl.tl`], which the new checker replaces: the names it resolves must agree with the tree
+--- ([`lang.scopes_cover`]), and its errors, which are the fork's `shadows`, `captured_assigned` and
+--- `unknown_variable` and the new ones for names and types, are the ones `pinned` (by default
+--- `scope_pins`) counts, no more. A file with more errors of a code than pinned is listed with each,
+--- their places and fix; one with fewer, and a pin for a file with none, is told to lower the pin.
+--- The sources are the `.tl` files under `root` ([`lexable`]).
+function tree_checks.scoped(root: string, pinned?: {string: integer}, memo?: Sqlite.Handle): {string}
+  pinned = pinned or scope_pins
+  local files, trouble = lexable(root)
+  if files == nil then
+    return { "reading the sources: " .. trouble }
+  end
+  local out: {string} = {}
+  local found: {string: integer} = {}
+  local declared = declared_globals(root)
+  local salt = check_memo.salt(root, { "lang/ast.tl", "lang/lexer.tl", "lang/parser.tl", "lang/scopes.tl",
+    "lang/scopes_cover.tl", "checker/stdlib.d.tl", "checker/tl.tl", "build/teal.tl", "build/check_memo.tl",
+    "build/tree_checks.tl" },
+    "scoped 1")
+  if memo ~= nil then
+    local _, _ = check_memo.prepare(memo, "scoped")
+  end
+  for _, row in ipairs(files) do
+    local file, source = row[1], row[2]
+    if file ~= "checker/tl.tl" then
+      local outcome = scope_outcome(file, source, declared, memo, salt)
+      if outcome.consistent ~= "" then
+        out[#out + 1] = file .. ": its scopes are not consistent with its tree: " .. outcome.consistent
+      end
+      local by_code: {string: {Scopes.Error}} = {}
+      for _, e in ipairs(outcome.errors) do
+        local held = by_code[e.code] or {}
+        held[#held + 1] = e
+        by_code[e.code] = held
+      end
+      for _, code in ipairs(Scopes.codes) do
+        local errors = by_code[code]
+        if errors ~= nil then
+          local key = file .. " " .. code
+          found[key] = #errors
+          local limit = pinned[key] or 0
+          if #errors > limit then
+            for _, e in ipairs(errors) do
+              out[#out + 1] = file .. ":" .. e.y .. ":" .. e.x .. ": " .. e.msg .. " (" .. code .. "): " .. e.fix
+            end
+            out[#out + 1] = file .. ": " .. String.counted(#errors, "error") .. " of " .. code .. " in its scopes, pinned " ..
+              limit .. "; follow the fix above rather than raise the pin"
+          end
+        end
+      end
+    end
+  end
+  if memo ~= nil then
+    check_memo.finish(memo, "scoped")
+  end
+  local keys: {string} = {}
+  for key in pairs(pinned) do keys[#keys + 1] = key end
+  table.sort(keys)
+  for _, key in ipairs(keys) do
+    local count = found[key] or 0
+    if count < pinned[key] then
+      out[#out + 1] = key .. ": pinned " .. pinned[key] .. " but " .. count ..
+        " found; lower the pin in build/tree_checks.tl's scope_pins"
+    end
   end
   return out
 end

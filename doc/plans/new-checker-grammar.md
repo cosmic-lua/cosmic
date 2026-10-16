@@ -627,6 +627,72 @@ errors are the account of what the translator did not handle.
   reserved word as a name (the draft renames those first) and a method
   written in a block.
 
+### what the scope builder settled
+
+[`lang/scopes.tl`] resolves the names of a parsed chunk; [`build/scopes.tl`]
+stays what the `build/` readers use until they are rewritten to the tree, and
+then goes. it sets [`Name.binding`] and answers a `Var` per `Binding` by the
+node's id, the uses of each (`reads`, `writes`, the type names that name it),
+and the globals the chunk uses. its rules:
+
+- **scoping is Lua 5.5's.** a local is visible from the token after its
+  statement, a `local function`, record, class and the other declarations from
+  their own name, a parameter in its whole function, a `for` variable in its
+  body, a `match` binding in its arm and the locals of a `repeat` body in its
+  `until`. the bounds of a `for` and the `elseif` conditions are outside the
+  scope the arm before them opened.
+- **one namespace, a space per binding.** as in the fork, a name is looked up once and
+  the binding it finds says what it is for: a variable, a function, a
+  parameter, a loop variable and a `match` binding are values, an enum, an
+  interface, an alias and a type parameter are types, and a record, a class and
+  an import are both. a type used as a value is `not_a_value`; a parameter, loop
+  variable, `match` binding, function, or a local that holds no module, used
+  as a type, is `not_a_type`. a local is the head of a type path only when it
+  holds a module (`local Rules = require("rules")`, then `Rules.Grant`); a local
+  that aliases a type through a value (`local Seatbelt = Rules.Seatbelt`) is
+  refused, with the fix `local type Seatbelt = Rules.Seatbelt` (three sites in the
+  tree, pinned). a primitive type name (`integer`, `string`, ...) is never a
+  binding, and declaring a type, record, class, enum, alias or type parameter of
+  that name is `primitive_type_name`.
+- **types may be declared later in a signature or a type.** a type name in a
+  function's signature or constraint, a type declaration or a function type
+  may be declared later in an enclosing scope; one in the annotation of a local
+  may not. this is the new checker's own rule, not the fork's, which is lazier
+  (it rejects a name only where the type is used, and accepts `local x: {Later}`):
+  the tree writes forward names in signatures and records about 50 times, and
+  would not scope without it. the
+  names of a signature wait outside the function, so a parameter or a local of
+  the function never answers them. a name not declared by the end of the chunk
+  is `unknown_type`.
+- **globals are what a declaration file declares.** `build` takes the declared
+  names; `declared` reads them off a `.d.tl` chunk, `do` blocks included. a use
+  of any other name is `unknown_variable`, with the nearest name in scope or
+  declared if one is within an edit or two, and a note where the name is
+  declared later in its scope. a declaration file's `global` is not a local:
+  any function may assign it.
+- **captures.** a function that assigns a local of the code around it is
+  `captured_assigned`. for each local a function reads from outside,
+  [`Capture.after`] says whether an assignment may run after that function is
+  made: one later in the source, one in the same statement, or one in a loop
+  that holds both inside the local's scope. a test of the local inside the
+  function narrows it only where this is false ([narrowing only what nothing
+  else can change]).
+- **shadowing is the fork's.** a declaration whose name is visible in an enclosing scope, the
+  same scope or the declared globals is `shadows`, with the fork's exceptions: a name
+  that begins with `_`, `self`, a type declared inside a record or class, `local x = x`
+  (the copy, [`Var.copies`]), and a declared global that is a type (`any`, `thread`) hidden by a
+  value. the parameters of `local function f` do not shadow `f`, as the fork has it.
+- **read-only.** an assignment to a `<const>` or `<close>` variable, to the
+  control variable of a numeric `for` and to the first variable of a generic
+  `for` (Lua 5.5 refuses them) is `const_assigned`; `_ENV` declared or
+  assigned is `env_reserved`; a narrowing return that names no parameter is
+  `unknown_parameter`.
+- **what the fork resolves that the builder does not.** the fork resolves a type
+  name in a record by the scope where the record is used, so a field of the
+  type `Orchestration.Group` finds a local of a function that uses the record
+  (two sites in [`ci/cosmic_ci/orchestration_test.tl`], pinned in
+  [`build/tree_checks.tl`]'s `scoped`). the builder reports `unknown_type`.
+
 ### who reads what
 
 - [`build/analyzer.tl`] and [`build/link_text.tl`]: declarations and their
@@ -748,6 +814,11 @@ returns as the production named, when a use appears.
   pinned by file and code. its `lex` answers a `Lexed` record of the tokens and the errors,
   since [`build/contracts.tl`] holds an exported function to one result; the
   declaration in [`build/compiler.d.tl`] may keep the pair.
+- the scope builder, [`lang/scopes.tl`], against the fork's `shadows`,
+  `captured_assigned` and `unknown_variable` over the checker's corpora and
+  generated programs, and over the tree: [`build/tree_checks.tl`]'s `scoped`
+  scopes every `.tl` file in `fix --check .` and holds it to the errors the tree
+  has, pinned by file and code.
 - the translator and the oracle, before any type rule exists, so the
   lexer, parser and code generator are checked against the fork's Lua
   alone; then [`build/fix/`] and the readers above are rewritten to the
@@ -762,6 +833,7 @@ returns as the production named, when a use appears.
 [goto only as continue]: strict-teal.md#goto-only-as-continue
 [honest `or` and `and`]: strict-teal.md#honest-or-and-and
 [lookahead]: #lookahead
+[narrowing only what nothing else can change]: strict-teal.md#narrowing-only-what-nothing-else-can-change
 [named receivers]: strict-teal.md#named-receivers
 [no casts]: strict-teal.md#no-casts
 [no implicit conversion or hidden code]: strict-teal.md#no-implicit-conversion-or-hidden-code
@@ -787,8 +859,10 @@ returns as the production named, when a use appears.
 [`build/stub.tl`]: ../../build/stub.tl
 [`build/teal.tl`]: ../../build/teal.tl
 [`build/tree_checks.tl`]: ../../build/tree_checks.tl
+[`Capture.after`]: ../../lang/scopes.tl
 [`checker/stdlib.d.tl`]: ../../checker/stdlib.d.tl
 [`ci/cosmic_ci/orchestration.tl`]: ../../ci/cosmic_ci/orchestration.tl
+[`ci/cosmic_ci/orchestration_test.tl`]: ../../ci/cosmic_ci/orchestration_test.tl
 [`compiler.Result`]: ../../build/compiler.d.tl
 [`cosmic/channel.tl`]: ../../cosmic/channel.tl
 [`cosmic/http/wire.tl`]: ../../cosmic/http/wire.tl
@@ -797,6 +871,9 @@ returns as the production named, when a use appears.
 [`lang/ast.tl`]: ../../lang/ast.tl
 [`lang/lexer.tl`]: ../../lang/lexer.tl
 [`lang/parser.tl`]: ../../lang/parser.tl
+[`lang/scopes.tl`]: ../../lang/scopes.tl
 [`lang/translate.tl`]: ../../lang/translate.tl
+[`Name.binding`]: ../../lang/ast.tl
 [`Result.ast`]: ../../build/compiler.d.tl
 [`Stream.Reader`]: ../../cosmic/stream.tl
+[`Var.copies`]: ../../lang/scopes.tl
