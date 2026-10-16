@@ -2,8 +2,11 @@
 
 the design of the step of that name in [strict-teal.md]. it is written
 against main with [captures are read-only] merged, and with the plan's
-rule [narrowing only what nothing else can change]: a place is a local or
-a path of read-only fields from one.
+rule [narrowing only what nothing else can change]: in the fork a place is
+a local. the fork's `readonly` syntax (#3081, #3083) is unused by the tree
+and goes with the fork; paths of fixed fields become places in the new
+checker ([fields are fixed unless declared mutable]), and its one pass
+builds them.
 
 ## the model
 
@@ -11,8 +14,9 @@ a path of read-only fields from one.
   immutable `Facts`: `t` (place id to narrowed type) and `gone` (place id
   to what removed it, for messages). `nil` means control cannot reach.
 - a place's id is its binding's identity, not its name: `Variable.key`, a
-  counter value given in `add_var`; `"17"` a local, `"17.f"` a path of
-  read-only fields. a `local x = x` is a new variable with a new key, so
+  counter value given in `add_var`; `"17"` a local. a path of fixed
+  fields (`"17.f"`) is the shape the new checker's places take; the fork
+  has none. a `local x = x` is a new variable with a new key, so
   the shadowing cases disappear. [`Place.key`] stays the display name in
   messages. a global, a mutable field and an index have no id: a test of
   one narrows nothing.
@@ -47,16 +51,15 @@ a path of read-only fields from one.
   and an exit edge keeps a head fact only if the back edge does. a fact
   that came unchanged from the head is recognised by object identity,
   which immutability makes sound.
-- a function body starts from `for_body`: a local, and the read-only
-  paths from it, kept only if `local_is_fixed` says nothing assigns it
+- a function body starts from `for_body`: a local, kept only if `local_is_fixed` says nothing assigns it
   after the literal is made. the same test decides whether a test inside
   the body narrows a local of the code around it at all, since the code
   that declares it can assign it while the function is suspended in a
   coroutine. on leaving, the saved facts come back; nothing was
   changed, so there is nothing to undo.
 - a fact is dropped only by an assignment to its local. a closure cannot
-  assign a local it does not declare, and nothing assigns a read-only
-  field after its table is made, so no call, write through an alias,
+  assign a local it does not declare, and the fork narrows no field, so
+  no call, write through an alias,
   operator or metamethod can change a place, and the walk keeps no list of
   what runs code for narrowing. `run_event` stays only to set `runs_code`
   for definite assignment in `flow.tl`. the old narrowing lists what drops
@@ -76,8 +79,8 @@ shrinks to places and the two refinements. `flow.tl`, `captures.tl`,
 
 ## the PRs, in order
 
-each keeps the tree green. the first three change no verdict; read-only
-fields refuse the narrowings the rule no longer allows, with the tree's
+each keeps the tree green. the first three change no verdict; the field
+change refuses the narrowings the rule no longer allows, with the tree's
 rewrite; the switch moves exactly the pinned shadow mismatches that
 remain. [the pinned-release seed] runs beside these and none of them
 needs it.
@@ -95,23 +98,25 @@ needs it.
   unexplained mismatches over the tree, corpora, tests and fuzz. a
   mismatch that is an old-state bug is fixed first, in a PR of its own.
   the flag is off by default and nothing is kept without it.
-- **read-only fields,** in the PRs the plan's step lists: the syntax and
-  the write refusal, the literal rules, interface agreement and the casts
-  that would forge a writer, the [`cosmic.sys`] audit, [records are not
-  maps], and the change that declares the tree's read-only fields, copies
-  the other narrowed reads to locals, and restricts the old narrowing to
-  the same places. the facts then narrow only locals and read-only paths,
-  and the field-path and global mismatches pinned by shadow mode leave the
-  triage list. the old places are one field deep, so a mismatch on a
-  deeper read-only path is expected and pinned. this restricts old-side
-  machinery that the deletion below removes, an exception to building
-  none, so that the switch flips only what the facts decide differently.
+- **the field reads copied.** one change copies the narrowed field reads
+  (752, 609 outside tests) to locals and restricts the old narrowing to
+  locals. the facts then narrow only locals, and the field-path and global
+  mismatches pinned by shadow mode leave the triage list. this restricts
+  old-side machinery that the deletion below removes, an exception to
+  building none, so that the switch flips only what the facts decide
+  differently. the tree declares no read-only field in the fork, so the
+  `readonly` syntax and rules (#3081, #3083) stay unused and go with the
+  fork; the new checker's fixed fields bring field paths back as places,
+  with the same interface agreement under `mut`: a record declares a field
+  `mut` exactly when the interface does.
 - **the switch to the facts.** reads switch to `self.facts`; the old state
   is written but unread. the flipped verdicts are the pinned shadow
   mismatches, each triaged. message text may change where the facts give
   a better cause; no more mirroring of the old wording.
 - **the old narrowing deleted.** the checker's pinned type-error count
-  moves and is measured and set.
+  moves and is measured and set. once the seed step makes the count a
+  ceiling that only falls, it is set as one ([a count the tree cannot yet
+  bring to zero is a ceiling]).
 
 the refinements that accept more (one flow pass, function declarations
 keeping local facts, joins that unite types, edge-pair conditions, the
@@ -154,8 +159,7 @@ every checker change also needed a second review round. so:
   x` widened by name) is the switch's triage list.
 
 known gaps left with TODOs: a declared field read on a record with
-`__index` or `__newindex` drops nothing, which read-only fields end by
-narrowing no mutable field; a `goto` that skips a `<close>`
+`__index` or `__newindex` drops nothing, which narrowing only locals ends; a `goto` that skips a `<close>`
 declaration over-refuses in definite assignment; the shadow's comparison
 of generic types equates type variables of one name; the harness compares
 codes and messages, not types (`--types`).
@@ -176,8 +180,7 @@ thin call sites.
   a subtype of the declared type; the register is `nil` after a statement
   exactly when `flow.ends` says it ends; the frame stack balances.
 - a metamorphic fuzz property: insert, between a test and a narrowed
-  read, a statement that changes the place (`x = nil`, a write to a
-  read-only field through another reference); the program must then be
+  read, a statement that changes the place (`x = nil`); the program must then be
   refused, at the read or at the write.
 - checked narrowing: under the existing `runtime_checks` option, the code
   generator wraps each read whose type came from a fact in a check of the
@@ -197,10 +200,10 @@ thin call sites.
 - the type report reads narrowed types at declarations and assignments;
   those two collector calls move to where facts are made.
 
-[`cosmic.sys`]: ../../core/syscalls.h
+[a count the tree cannot yet bring to zero is a ceiling]: strict-teal.md#decisions
 [captures are read-only]: strict-teal.md#captures-are-read-only
+[fields are fixed unless declared mutable]: strict-teal.md#fields-are-fixed-unless-declared-mutable
 [narrowing only what nothing else can change]: strict-teal.md#narrowing-only-what-nothing-else-can-change
-[records are not maps]: strict-teal.md#records-are-not-maps
 [strict-teal.md]: strict-teal.md
 [the new checker]: strict-teal.md#the-new-checker
 [the pinned-release seed]: strict-teal.md#the-pinned-release-seed
