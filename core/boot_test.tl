@@ -1,6 +1,6 @@
 --- core/boot.c, the `--boot` bridge a bare core runs a tree's
 --- [`build.boot`] through. `bin/zig build boot` runs it over this whole
---- tree with the vendored compiler; here a tree of three stand-in modules
+--- tree from the pinned release's seed; here a tree of three stand-in modules
 --- and a compiler that passes its source through unchanged drive the same
 --- C in a fraction of a second: the tree's own bridge, the compiler's load, the
 --- syscall declaration, the raw modules preloaded for the tree, and the
@@ -26,6 +26,12 @@ return {
   new_env = function() return {} end,
   gen = function(source) return source, {} end,
 }
+]]
+
+--- The seed's wrapper, which joins a checker's parts into the Lua the tool
+--- carries: the stand-in checker has none.
+local wrapper <const> = [[
+return { wrapped = function(code) return code end }
 ]]
 
 local gen_syscalls <const> = [[
@@ -63,6 +69,7 @@ local function run_boot(tmp: string, mode: string, bridge?: boolean): Child.Resu
   assert(Fs.write(tmp .. "/tree/build/gen_syscalls.tl", gen_syscalls))
   assert(Fs.write(tmp .. "/tree/build/boot.tl", boot))
   assert(Fs.write(tmp .. "/tl/tl.lua", compiler))
+  assert(Fs.write(tmp .. "/tl/checker_wrapper.lua", wrapper))
   assert(Fs.write(tmp .. "/tree/checker/tl.tl", compiler))
   assert(Fs.write(tmp .. "/tree/checker/stdlib.d.tl", "do\nend\n"))
   return (assert(Child.run({ path, "--boot", tmp .. "/tree", tmp .. "/tl", mode },

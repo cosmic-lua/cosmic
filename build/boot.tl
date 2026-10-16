@@ -2,9 +2,9 @@
 ---
 --- Every boot runs this on the freshly built host core. The pinned
 --- bootstrap cosmic starts zig; no tree-built tool is needed. The C entry
---- has already loaded the vendored compiler from the tree and installed
---- a searcher that compiles a `.tl` straight from it; everything from
---- here is ordinary cosmic code.
+--- has already loaded the seed's compiler (the pinned release's Lua for
+--- the checker) and installed a searcher that compiles a `.tl` straight
+--- from it; everything from here is ordinary cosmic code.
 
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
@@ -105,7 +105,7 @@ end
 --- and compiles it, and writes the projection and the carried database
 --- beside the tool. Everything the Teal half of a boot does before the
 --- raw cores matter. Says why on failure, returning nil.
-local function stage(root: string, tl_dir: string, compiler_source: string,
+local function stage(root: string, seed_dir: string, compiler_source: string,
                      working: build_paths.Layout, output: build_paths.Layout,
                      started: integer): Staged | nil
   local made, mkdir_trouble = Fs.mkdirs(output.bin)
@@ -171,7 +171,7 @@ local function stage(root: string, tl_dir: string, compiler_source: string,
     function(recorded: identity.Identities): string, string
       return recorded.compiler, ""
     end, false, shared_compiles.for_build(),
-    workers.pool(workers.boot_spec(root, tl_dir)))
+    workers.pool(workers.boot_spec(root, seed_dir)))
   if result == nil then
     local _, _ = work.record(handle, clock.elapsed_ms(started), staged, 0, 0, "FAIL")
     local _, _ = work.close(handle)

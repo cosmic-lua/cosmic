@@ -1441,7 +1441,10 @@ end
 --- reports, the check that fails a whole build before any key is looked
 --- up, the host's caches and build/zig.tl, which the caches reach, the
 --- catalog of removed names, which only a refusal quotes, though
---- build.teal requires it -- compiles and parses nothing again: it moves
+--- build.teal requires it, and the pin of upstream's `tl.lua`, which a boot
+--- no longer reads (it compiles the checker from the pinned release's
+--- seed and carries the second stage, a function of the checker's source
+--- alone) -- compiles and parses nothing again: it moves
 --- neither the compiler's identity nor the analyzer's.
 local function test_compiler_identity_leaves_out_what_shapes_no_compile()
   local root = identity_fixture("identity-leaves-out")
@@ -1449,7 +1452,7 @@ local function test_compiler_identity_leaves_out_what_shapes_no_compile()
   assert(identities_of(root)[1] == original[1], "a second open moved the identity")
   for _, path in ipairs({ "build/importer.tl", "build/work.tl", "build/todo_scan.tl", "build/positions.tl",
       "build/symbols.tl", "build/caches.tl", "build/zig.tl",
-      "cosmic/fs.tl", "cosmic/removed.tl" }) do
+      "cosmic/fs.tl", "cosmic/removed.tl", "vendor/tl/PIN" }) do
     edit(root, path)
     local after = identities_of(root)
     assert(after[1] == original[1], "an edit to " .. path .. " moved the compiler identity")
@@ -1470,7 +1473,7 @@ local function test_compiler_identity_follows_what_shapes_a_compile()
       "build/contracts.tl", "build/receivers.tl", "build/tree.tl",
       "build/analysis_schema.tl", "build/analyzer.tl",
       "build/cache_names.tl", "build/ast.tl",
-      "vendor/tl/PIN", "checker/tl.tl", "vendor/lua/PIN",
+      "checker/tl.tl", "vendor/lua/PIN",
       "patch/lua/01.txt" }) do
     local before = identities_of(root)
     edit(root, path)

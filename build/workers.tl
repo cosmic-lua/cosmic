@@ -136,7 +136,7 @@ local function bridge_has_a_cache(): boolean
 end
 
 --- How a boot starts a worker: the core it runs on, asked to boot the
---- tree at `root` with the compiler in `tl_dir` and then serve as a
+--- tree at `root` with the seed in `seed_dir` and then serve as a
 --- worker ([`build.boot`]). The worker loads the build's code from that
 --- source. The bridge ran before this and kept its compiles in the
 --- shared cache (core/bridge.lua), so the worker takes them from it and
@@ -150,8 +150,8 @@ end
 -- nine seconds while the build waits on the short start below. Waits on
 -- a way for core/bridge.lua to hand build.boot what it did: core/boot.c
 -- passes build.boot only the root, the command line and the compiler's Lua.
-function workers.boot_spec(root: string, tl_dir: string): workers.Spec
-  local argv, _, _ = again({ "--boot", root, tl_dir, "--worker" })
+function workers.boot_spec(root: string, seed_dir: string): workers.Spec
+  local argv, _, _ = again({ "--boot", root, seed_dir, "--worker" })
   if not bridge_has_a_cache() then
     return { argv = argv, open_bytes = 3 * 1024 * 1024, phase_bytes = 128 * 1024,
       startup_ns = Clock.seconds(9) }
