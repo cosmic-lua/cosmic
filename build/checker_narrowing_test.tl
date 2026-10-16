@@ -43,22 +43,6 @@ local record Node
   guard?: Guard
 end
 
-local record Drop
-  kind: string
-  text: string
-  y: integer
-  x: integer
-  place?: string
-end
-
-local record Scope
-  vars: {string:any}
-  narrows?: {string:boolean}
-  dropped?: {string:Drop}
-  hidden?: {any}
-  journal?: {any}
-end
-
 local record Host
   type_of: function(Place, any): Type | nil
   is_a: function(Type, Type): boolean
@@ -77,22 +61,8 @@ local record Narrowing
   field_place: function(string, string): Place
   place_of: function(Node): Place | nil
   target_of: function(Node): Place | nil
-  forgets: function(Place, string): boolean
-  drop: function({Scope}, Place, Drop)
-  drop_written: function({Scope}, string, Drop)
-  drop_paths: function({Scope}, Drop)
-  narrowed: function({Scope}): boolean, {string} | nil
-  has_paths: function({Scope}): boolean
-  note: function({Scope}, string, Drop)
-  dropped_by: function({Scope}, string): Drop | nil
-  cut: function({Scope}, string, Drop)
   places: function(Guard | nil): {Place}
-  renarrowed: function({Scope}, string)
   forget: function(Guard | nil, function(Place): boolean): Guard | nil
-  mark: function({Scope}): integer
-  undo: function({Scope}, integer)
-  enter_function: function({Scope}, Drop, function(string): boolean)
-  leave_function: function({Scope}, {any})
   type_is: function(any, Place, Type): Guard
   value_is: function(any, Place, Type): Guard
   negate: function(any, Guard | nil): Guard | nil
@@ -306,151 +276,6 @@ local function test_an_assignment_targets_a_name_by_its_text_else_a_place()
   assert(module().target_of(op("@index", variable("t"), variable("i"))) == nil)
 end
 
-local function test_an_assignment_to_a_local_drops_its_fields_not_itself()
-  setup()
-  local x = module().local_place("x")
-  assert(module().forgets(x, "x.f") and module().forgets(x, "x.f.g"))
-  assert(not module().forgets(x, "x"))
-  assert(not module().forgets(x, "xy.f") and not module().forgets(x, "y.f"))
-end
-
-local function test_an_assignment_to_a_field_drops_that_field()
-  setup()
-  local f = module().field_place("x", "f")
-  assert(module().forgets(f, "x.f") and module().forgets(f, "x.f.g"))
-  assert(not module().forgets(f, "x.fx") and not module().forgets(f, "x.foo"))
-  assert(not module().forgets(f, "x.g") and not module().forgets(f, "y.f"))
-  assert(not module().forgets(f, "x"))
-end
-
---- A field is a path, not a prefix of text: `x.f` does not drop `x.foo`.
-local function test_an_assignment_to_a_field_keeps_a_longer_name()
-  setup()
-  assert(not module().forgets(module().field_place("x", "f"), "x.foo"))
-end
-
---- What drops, as the checker names it.
-local call <const>: Drop = { kind = "call", text = "clear(...)", y = 3, x = 5 }
-local write <const>: Drop = { kind = "write", text = "c.n = ...", y = 4, x = 1 }
-
-local function test_drop_removes_the_names_from_every_scope()
-  setup()
-  local outer: Scope = {
-    vars = { ["x.f"] = true, ["x.g"] = true, x = true, ["y.f"] = true },
-    narrows = { ["x.f"] = true, ["x.g"] = true, x = true },
-  }
-  local inner: Scope = { vars = { ["x.f"] = true, z = true }, narrows = { ["x.f"] = true } }
-  module().drop({ outer, inner }, module().field_place("x", "f"), write)
-  assert(outer.vars["x.f"] == nil and inner.vars["x.f"] == nil)
-  local outer_narrows = outer.narrows
-  local inner_narrows = inner.narrows
-  assert(outer_narrows ~= nil and inner_narrows ~= nil)
-  assert(outer_narrows["x.f"] == nil and inner_narrows["x.f"] == nil)
-  assert(outer_narrows["x.g"] and outer_narrows["x"])
-  assert(outer.vars["x.g"] and outer.vars["x"] and outer.vars["y.f"] and inner.vars["z"])
-  module().drop({ outer, inner }, module().local_place("x"), write)
-  assert(outer.vars["x.g"] == nil and outer.vars["x"] and outer.vars["y.f"])
-end
-
---- A scope with the field facts `keys` narrowed, each held as a narrowed view.
-local function holding(...: string): Scope
-  local scope: Scope = { vars = {}, narrows = {} }
-  for _, key in ipairs({ ... }) do
-    scope.vars[key] = { is_specialized = "narrow" }
-    assert(scope.narrows)[key] = true
-  end
-  return scope
-end
-
-local function test_a_write_drops_every_path_ending_in_the_field_it_names()
-  setup()
-  local outer = holding("r.n", "q.n", "r.m", "r.nn", "x")
-  local inner = holding("c.n", "r.n")
-  module().drop_written({ outer, inner }, "n", write)
-  assert(outer.vars["r.n"] == nil and outer.vars["q.n"] == nil and inner.vars["c.n"] == nil and
-      inner.vars["r.n"] == nil)
-  assert(outer.vars["r.m"] and outer.vars["r.nn"] and outer.vars["x"])
-  local narrows = outer.narrows
-  assert(narrows ~= nil and narrows["r.n"] == nil and narrows["r.m"])
-  local told = assert(outer.dropped)
-  assert(told["r.n"] == write and told["q.n"] == write)
-end
-
-local function test_a_write_drops_every_path_with_the_field_after_its_base()
-  setup()
-  -- `b.f = v` may write the `f` that `a.f.g` goes through, the `f` of `a.g.f`,
-  -- or the end of `a.f`: any path with `.f` among its components. A longer
-  -- name, a base named `f` and a path without it stay.
-  local outer = holding("a.f", "a.f.g", "a.f.g.h", "a.g.f", "a.g.f.h", "a.ff.g", "a.gf.h", "f.g", "f", "a.g")
-  local inner = holding("c.f.g", "c.h")
-  module().drop_written({ outer, inner }, "f", write)
-  for _, key in ipairs({ "a.f", "a.f.g", "a.f.g.h", "a.g.f", "a.g.f.h" }) do
-    assert(outer.vars[key] == nil, key)
-    assert(assert(outer.narrows)[key] == nil, key)
-    assert(assert(outer.dropped)[key] == write, key)
-  end
-  assert(inner.vars["c.f.g"] == nil and inner.vars["c.h"])
-  for _, key in ipairs({ "a.ff.g", "a.gf.h", "f.g", "f", "a.g" }) do
-    assert(outer.vars[key], key)
-  end
-  -- A write of `g` drops the paths through `g`, wherever it is in them.
-  local other = holding("a.f.g", "a.g.f", "a.f", "a.gg")
-  module().drop_written({ other }, "g", write)
-  assert(other.vars["a.f.g"] == nil and other.vars["a.g.f"] == nil)
-  assert(other.vars["a.f"] and other.vars["a.gg"])
-end
-
-local function test_a_call_drops_every_field_path_and_no_local()
-  setup()
-  local outer = holding("r.n", "r.m", "x")
-  local inner = holding("q.a")
-  module().drop_paths({ outer, inner }, call)
-  assert(outer.vars["r.n"] == nil and outer.vars["r.m"] == nil and inner.vars["q.a"] == nil)
-  assert(outer.vars["x"] and assert(outer.narrows)["x"])
-  local told = assert(outer.dropped)
-  assert(told["r.m"] == call and told["x"] == nil)
-end
-
-local function test_what_a_call_has_to_drop_is_the_paths_and_the_locals_narrowed()
-  setup()
-  local outer = holding("x", "r.n", "y")
-  local inner = holding("x", "q.a", "z")
-  local paths, names = module().narrowed({ outer, inner })
-  assert(paths and table.concat(assert(names), ",") == "x,y,z")
-  assert(module().has_paths({ outer, inner }) and not module().has_paths({ holding("x") }))
-  local none, nobody = module().narrowed({ holding("r.n") })
-  assert(none and nobody == nil)
-  local empty, no_names = module().narrowed({ { vars = {} } })
-  assert(not empty and no_names == nil)
-end
-
---- A place is told as dropped until it is narrowed again, and a local that
---- a drop widened (its entry in a scope above is a `widen` view) is too.
-local function test_a_place_stays_dropped_until_it_is_narrowed_again()
-  setup()
-  local outer = holding("r.n")
-  local scopes = { outer }
-  assert(module().dropped_by(scopes, "r.n") == nil)
-  module().drop_paths(scopes, call)
-  assert(module().dropped_by(scopes, "r.n") == call)
-  assert(module().dropped_by(scopes, "r.m") == nil)
-  module().renarrowed(scopes, "r.n")
-  assert(module().dropped_by(scopes, "r.n") == nil)
-  -- A local narrowed in the outer scope, dropped (so the scope above holds
-  -- a widened view), is dropped; narrowed there again, it is not.
-  local below = holding("x")
-  local above: Scope = { vars = { x = { is_specialized = "widen" } } }
-  module().note({ below }, "x", call)
-  assert(module().dropped_by({ below, above }, "x") == call)
-  module().renarrowed({ below, above }, "x")
-  assert(module().dropped_by({ below, above }, "x") == nil)
-  -- A fact a guard would have given, cut before it was applied, is told
-  -- in the innermost scope.
-  module().cut({ below, above }, "r.n", write)
-  assert(module().dropped_by({ below, above }, "r.n") == write)
-  assert(module().dropped_by({ below }, "r.n") == nil)
-end
-
 local function test_a_guard_forgets_the_facts_about_what_may_change()
   setup()
   local path = module().field_place("r", "n")
@@ -470,68 +295,6 @@ local function test_a_guard_forgets_the_facts_about_what_may_change()
   assert(module().forget(nil, droppable) == nil)
   local either = module().either(here, module().type_is(here, path, number), module().type_is(here, name, number))
   expect({}, (facts(module().forget(either, droppable), types)))
-end
-
-local function test_the_drops_of_a_block_that_leaves_are_put_back()
-  setup()
-  local outer = holding("r.n", "r.m")
-  local scopes = { outer }
-  local marked = module().mark(scopes)
-  module().drop_written(scopes, "n", write)
-  module().drop_paths(scopes, call)
-  assert(outer.vars["r.n"] == nil and outer.vars["r.m"] == nil)
-  module().undo(scopes, marked)
-  assert(outer.vars["r.n"] and outer.vars["r.m"] and assert(outer.narrows)["r.n"])
-  local told = assert(outer.dropped)
-  assert(told["r.n"] == nil)
-  assert(module().mark(scopes) == marked)
-  -- What was narrowed again since is left as it is.
-  local before = module().mark(scopes)
-  module().drop_paths(scopes, call)
-  local again = { is_specialized = "narrow" }
-  outer.vars["r.n"] = again
-  module().undo(scopes, before)
-  assert(outer.vars["r.n"] == again and outer.vars["r.m"] ~= nil)
-  -- And the drops before the mark stay.
-  module().drop_paths(scopes, call)
-  module().undo(scopes, module().mark(scopes))
-  assert(outer.vars["r.m"] == nil)
-end
-
-local function test_a_function_body_is_hidden_the_facts_that_may_change_before_it_runs()
-  setup()
-  local outer = holding("r.n", "x", "y")
-  local inner: Scope = { vars = {} }
-  local scopes = { outer, inner }
-  -- Every field path is hidden; a local only if it is not `fixed`.
-  module().enter_function(scopes, call, function(name: string): boolean return name == "y" end)
-  assert(outer.vars["r.n"] == nil and outer.vars["x"] == nil and outer.vars["y"] ~= nil)
-  assert(inner.vars["r.n"] == nil and inner.vars["x"] == nil)
-  local inner_hidden = inner.hidden
-  assert(inner_hidden ~= nil and #inner_hidden == 2)
-  -- A read in the body is told what hid the place.
-  assert(module().dropped_by(scopes, "r.n") == call and module().dropped_by(scopes, "x") == call)
-  assert(module().dropped_by(scopes, "y") == nil)
-  local hidden = assert(inner.hidden)
-  module().leave_function({ outer }, hidden)
-  assert(outer.vars["r.n"] ~= nil and assert(outer.narrows)["r.n"])
-  assert(outer.vars["x"] ~= nil and assert(outer.narrows)["x"])
-end
-
---- A narrowed view of a variable declared in the scope is given its declared
---- type while the body is checked, and its narrowed one again after.
-local function test_a_variable_narrowed_where_it_is_declared_gets_its_type_back_after_the_body()
-  setup()
-  local declared = ty("declared")
-  local narrowed = ty("narrowed")
-  local var = { is_specialized = "narrowed_declaration", t = narrowed, specialized_from = declared }
-  local outer: Scope = { vars = { x = var }, narrows = { x = true } }
-  local inner: Scope = { vars = {} }
-  module().enter_function({ outer, inner }, call, function(_: string): boolean return false end)
-  assert(var.t == declared and var.is_specialized == nil and var.specialized_from == nil)
-  assert(outer.vars.x == var)
-  module().leave_function({ outer }, assert(inner.hidden))
-  assert(var.t == narrowed and var.is_specialized == "narrowed_declaration" and var.specialized_from == declared)
 end
 
 local function test_a_type_test_gives_its_type_and_its_negation_the_rest()
@@ -1091,8 +854,8 @@ end
 
 --- The checker narrows no path of two fields today, so a write through another
 --- reference cannot leave one standing: the program is refused at the read.
---- This pins that, until paths are places and [`drop_written`]
---- (which drops a path with the field anywhere after its base) decides it.
+--- This pins that, until paths are places and a write drops a path with the
+--- field anywhere after its base.
 local function test_a_write_through_another_reference_leaves_no_nested_path_narrowed()
   local records <const> = "local record G\n  g: integer | nil\nend\nlocal record H\n  f: G\nend\nlocal record A\n  f: G\n  ff: G\n  h: H\nend\n" ..
     "local a: A = { f = { g = 1 }, ff = { g = 1 }, h = { f = { g = 1 } } }\nlocal b = a\n"

@@ -1066,9 +1066,6 @@ local function dropped_hint(e: compiler.Error): string | nil
   local before = "the call"
   if kind == "call" then
     cause = "the call `" .. by .. "` at " .. where .. " may change it"
-  elseif kind == "write" then
-    cause = "the write `" .. by .. "` at " .. where .. " may be to the same table"
-    before = "the write"
   elseif kind == "operator" then
     cause = "the operator `" .. by .. "` at " .. where .. " may run a metamethod that changes it"
     before = "the operator"
@@ -1080,27 +1077,19 @@ local function dropped_hint(e: compiler.Error): string | nil
     -- the place is read in its body.
     cause = "the function at " .. where .. " runs later, when it may have changed"
     before = "the function"
-  elseif kind == "binding" then
-    cause = "`" .. by:sub(9) .. "` declared at " .. where .. " may name another table than the one it was checked on"
-    before = "the new binding"
   elseif kind == "loop" then
     before = "the loop"
-    if by:sub(1, 8) == "binding " then
-      cause = "`" .. by:sub(9) .. "` declared at " .. where .. " in this loop dropped what was known, " ..
-        "so the loop cannot carry it to its next pass"
-    else
-      -- What the loop's own pass ran is told by how it is written.
-      local what = "the operator"
-      if e.dropped_via == "close" then
-        what = "the"
-      elseif by:sub(-5) == "(...)" then
-        what = "the call"
-      elseif by:sub(-6) == " = ..." then
-        what = by:sub(1, -7):find("[%.%[]") and "the write" or "the assignment"
-      end
-      local ran = e.dropped_via == "close" and "`__close` of `" .. by .. "`" or "`" .. by .. "`"
-      cause = what .. " " .. ran .. " at " .. where .. " in this loop may change it before the loop comes round again"
+    -- What the loop's own pass ran is told by how it is written.
+    local what = "the operator"
+    if e.dropped_via == "close" then
+      what = "the"
+    elseif by:sub(-5) == "(...)" then
+      what = "the call"
+    elseif by:sub(-6) == " = ..." then
+      what = by:sub(1, -7):find("[%.%[]") and "the write" or "the assignment"
     end
+    local ran = e.dropped_via == "close" and "`__close` of `" .. by .. "`" or "`" .. by .. "`"
+    cause = what .. " " .. ran .. " at " .. where .. " in this loop may change it before the loop comes round again"
   else
     local dropped_y, dropped_x = e.dropped_y, e.dropped_x
     if dropped_y ~= nil and dropped_x ~= nil and
