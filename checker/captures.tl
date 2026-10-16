@@ -21,7 +21,7 @@
 -- `captured_assigned`. The answer is computed from the tree on every ask.
 --
 -- This file holds only upstream Teal 0.24.8: the boot compiles it with
--- the vendored `tl.lua` (core/bridge.lua), as it does checker/tl.tl.
+-- the pinned release's seed (build.zig), as it does checker/tl.tl.
 
 -- The node fields this walk reads. The checker's own `Node`
 -- (checker/tl.tl) has all of them, and its callers cast to this type,

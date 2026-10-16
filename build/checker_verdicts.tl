@@ -246,7 +246,6 @@ end
 --- Points `built` at the modules under `root` and the binary's own
 --- `cosmic.*` modules ([`build.teal`]'s `standard_text`), and nothing else.
 local function serving(built: compiler, root: string)
-  built.path = ""
   local function handle(text: string): any
     return {
       read = function(_self: any, _what: string): string

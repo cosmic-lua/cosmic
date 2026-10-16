@@ -29,55 +29,58 @@ Test.policy{ grants = {
 --- for a compile of itself (its source holds `search_module`) and
 --- `module-N` for any other.
 local compiler <const> = [[
-local dir = os.getenv("COUNT_DIR")
+local sys = require("cosmic.sys")
+local dir = sys.getenv("COUNT_DIR")
 local made = 0
-return {
+local function write(path, text)
+  local fd = assert(sys.open(path, sys.O_WRONLY | sys.O_CREAT | sys.O_TRUNC, 420))
+  assert(sys.write(fd, text))
+  sys.close(fd)
+end
+local compiler
+compiler = {
   search_module = function() return nil end,
   new_env = function() return {} end,
   gen = function(source)
     made = made + 1
     local kind = source:find("search_module", 1, true) and "compiler" or "module"
-    io.open(dir .. "/" .. kind .. "-" .. made, "w"):close()
-    local action, path = os.getenv("DEP_ACTION"), os.getenv("DEP_PATH")
+    write(dir .. "/" .. kind .. "-" .. made, "")
+    local action, path = sys.getenv("DEP_ACTION"), sys.getenv("DEP_PATH")
     if kind == "module" and made == 1 and action then
-      -- A read of another file as tl's search reads a dependency.
+      -- A search for another module, as the checker's `require` of a
+      -- dependency searches for it, and a write of the file it finds.
+      local name, all = sys.getenv("DEP_NAME"), sys.getenv("DEP_ALL") ~= nil
       local function read()
-        local file = io.open(path, "r")
-        if file == nil then return nil end
-        local text = file:read("*a")
-        file:close()
+        local _, handle = compiler.search_module(name, all)
+        if handle == nil then return nil end
+        local text = handle:read("*a")
+        handle:close()
         return text
-      end
-      local function write(text)
-        local file = io.open(path, "w")
-        file:write(text)
-        file:close()
       end
       if action == "read" then
         read()
       elseif action == "edit" then
-        write("return { n = 9 }\n")
+        write(path, "return { n = 9 }\n")
         read()
       elseif action == "twice" then
         local text = read()
-        write("-- other\n")
+        write(path, "-- other\n")
         read()
-        write(text)
+        write(path, text)
         read()
       elseif action == "vanish" then
-        require("cosmic.sys").unlink(path)
+        sys.unlink(path)
         read()
       end
     end
-    local edit = os.getenv("EDIT_A")
+    local edit = sys.getenv("EDIT_A")
     if kind == "module" and made == 1 and edit then
-      local file = io.open(edit, "w")
-      file:write("return { n = 2 }\n")
-      file:close()
+      write(edit, "return { n = 2 }\n")
     end
     return source, {}
   end,
 }
+return compiler
 ]]
 
 --- Declarations that `DECL` decides, so a boot can derive others from
@@ -203,7 +206,6 @@ local function start(f: Fixture, variables?: {string:string}): Child.Result, str
   env.COSMIC_BUILD_CACHE = f.cache
   env.COUNT_DIR = counts
   env.CARRIED_FILE = f.tmp .. "/carried"
-  env.TL_PATH = nil
   for name, value in pairs(variables or {}) do env[name] = value end
   local r = assert(Child.run({ f.core, "--boot", f.tree, f.tl, "go" },
     { stdout = "capture", stderr = "capture", env = env, timeout_ns = Clock.seconds(30) }))
@@ -390,44 +392,52 @@ local function test_a_file_edited_while_the_bridge_runs_is_not_kept(tmp: string)
 end
 
 --- What a compile reads is held to the key as the searcher's own reads
---- are, whichever way tl reads it. Each case has the stand-in compiler
---- read a file as it compiles the first module; only a read of a file
---- as the manifest has it leaves the row kept.
+--- are, whichever way the checker asks. Each case has the stand-in
+--- compiler search for a module as it compiles the first one; only a read
+--- of a file as the manifest has it leaves the row kept.
 local function test_every_read_of_a_compile_is_held_to_the_key(tmp: string)
   local function dep(f: Fixture): string return f.tree .. "/build/dep.tl" end
+  local function reads(f: Fixture, action: string): {string:string}
+    return { DEP_ACTION = action, DEP_NAME = "build.dep", DEP_PATH = dep(f) }
+  end
 
   -- The control: a dependency read as the manifest has it is kept.
   local f = fixture(tmp, "read-control")
-  boot(f, { DEP_ACTION = "read", DEP_PATH = dep(f) })
+  boot(f, reads(f, "read"))
   assert(rows(f, "WHERE kind = 'modules'") == 1, "an unchanged dependency read kept no row")
   assert(boot(f).modules == 0)
 
   -- A dependency edited before it is read.
   f = fixture(tmp, "read-edit")
-  boot(f, { DEP_ACTION = "edit", DEP_PATH = dep(f) })
+  boot(f, reads(f, "edit"))
   assert(rows(f, "WHERE kind = 'modules'") == 0, "a row was kept for an edited dependency")
 
   -- The same file read as different bytes, ending as the manifest has it.
   f = fixture(tmp, "read-twice")
-  boot(f, { DEP_ACTION = "twice", DEP_PATH = dep(f) })
+  boot(f, reads(f, "twice"))
   assert(rows(f, "WHERE kind = 'modules'") == 0, "a row was kept for a file read two ways")
 
-  -- A file under the root that the manifest does not list.
+  -- A file under the root that the manifest does not list: the `.lua`
+  -- the search opens when no `.d.tl` or `.tl` is there.
   f = fixture(tmp, "read-unlisted")
-  boot(f, { DEP_ACTION = "read", DEP_PATH = f.tree .. "/build/note.md" })
+  put(f.tree .. "/build/note.lua", "return {}\n")
+  boot(f, { DEP_ACTION = "read", DEP_NAME = "build.note", DEP_ALL = "1" })
   assert(rows(f, "WHERE kind = 'modules'") == 0, "a row was kept after a read the key does not name")
 
-  -- A file outside the root whose tail is a listed path's, with the same bytes.
+  -- A name that climbs out of the root to a file with a listed path's
+  -- tail and the same bytes is refused, not read: a read of it would not
+  -- be the manifest's and would keep the row from being kept, so the row
+  -- being kept (as in the control) is the refusal.
   f = fixture(tmp, "read-outside")
   put(tmp .. "/read-outside/twin/build/a.tl", "return { n = 1 }\n")
   assert(#(f.tree .. "/") == #(tmp .. "/read-outside/twin/"))
-  boot(f, { DEP_ACTION = "read", DEP_PATH = tmp .. "/read-outside/twin/build/a.tl" })
-  assert(rows(f, "WHERE kind = 'modules'") == 0, "a row was kept after a read outside the root")
+  boot(f, { DEP_ACTION = "read", DEP_NAME = "x/../../twin/build/a" })
+  assert(rows(f, "WHERE kind = 'modules'") == 1, "a name that leaves the root was read")
 
   -- A listed file that was gone when it was looked for: restoring it
   -- must not take the row.
   f = fixture(tmp, "read-vanish")
-  boot(f, { DEP_ACTION = "vanish", DEP_PATH = dep(f) })
+  boot(f, reads(f, "vanish"))
   assert(rows(f, "WHERE kind = 'modules'") == 0, "a row was kept though a listed file was missing")
   put(dep(f), "return { n = 7 }\n")
   assert(boot(f).modules == loaded, "the restored tree took a row")
@@ -446,7 +456,7 @@ local function test_changed_declarations_are_a_miss(tmp: string)
   assert(boot(f, { DECL = "{ x = 2 }" }).modules == 0, "the row was not made again")
 end
 
---- `COSMIC_BUILD_CACHE=0`, a name that is not absolute and `TL_PATH` each
+--- `COSMIC_BUILD_CACHE=0` and a name that is not absolute each
 --- turn the cache off: nothing is read or kept.
 local function test_the_cache_can_be_turned_off(tmp: string)
   local control = fixture(tmp, "control")
@@ -455,14 +465,12 @@ local function test_the_cache_can_be_turned_off(tmp: string)
   local cases: {{string, {string:string}}} = {
     { "0", { COSMIC_BUILD_CACHE = "0" } },
     { "a relative name", { COSMIC_BUILD_CACHE = "cache.db" } },
-    { "TL_PATH", { TL_PATH = "/nowhere/?.lua" } },
-    { "an empty TL_PATH", { TL_PATH = "" } },
   }
   for index, case in ipairs(cases) do
     local f = fixture(tmp, "off-" .. index)
     assert(boot(f, case[2]).modules == loaded)
     assert(boot(f, case[2]).modules == loaded, case[1] .. " did not turn the cache off")
-    if index ~= 3 then assert(Fs.stat(f.cache) == nil, case[1] .. " made the file") end
+    assert(Fs.stat(f.cache) == nil, case[1] .. " made the file")
   end
   local f = fixture(tmp, "off-read")
   boot(f)

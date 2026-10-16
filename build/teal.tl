@@ -1,15 +1,11 @@
 --- The Teal compiler, loaded to run.
 ---
---- The compiler reaches outside the pure Lua libraries in a few places:
---- `io.open` and the handle it returns, `io.stderr`, `os.getenv`,
---- `package.path` and `package.searchers`. Those names are not in this
---- runtime's global environment, so the compiler is loaded in an
---- environment of its own that supplies them over the syscall table.
---- The compiler itself is unpatched and never observes that the names
---- are gone.
+--- The compiler reaches for nothing outside the pure Lua libraries: it
+--- opens no file, reads no variable and searches no path, so it is loaded
+--- in an environment of its own that names the pure libraries and `load`
+--- (the checker's wrapper loads its parts with it), and whatever it must find (a module it is asked to
+--- `require`) it is handed ([`teal.serve_standard`], [`serve`]).
 
-local Env = require("cosmic.env")
-local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local ast = require("build.ast")
@@ -42,101 +38,18 @@ local record teal
     --- Whether `text` is the module's stub rather than its source.
     stubbed: boolean
   end
-
-  --- What `io.open` gives back. It reads whole files and writes
-  --- strings; the compiler asks nothing else of a handle.
-  record Handle
-    fd: integer
-    read: function(Handle, what: string): string | nil, string
-    write: function(Handle, ...: any): Handle | nil, string
-    flush: function(Handle): Handle
-    close: function(Handle): boolean
-  end
-end
-
-local chunk_size = 1 << 16
-
-local function make_handle(fd: integer): teal.Handle
-  local handle: teal.Handle = {
-    fd = fd,
-    read = nil,
-    write = nil,
-    flush = nil,
-    close = nil,
-  }
-
-  handle.read = function(self: teal.Handle, what: string): string | nil, string
-    if what ~= "*a" and what ~= "a" then
-      return nil, "this handle reads whole files only"
-    end
-    local parts: {string} = {}
-    while true do
-      local chunk, trouble = Fs.take(self.fd, chunk_size)
-      if chunk == nil then
-        return nil, trouble
-      end
-      if #chunk == 0 then
-        break
-      end
-      parts[#parts + 1] = chunk
-    end
-    return table.concat(parts)
-  end
-
-  handle.write = function(self: teal.Handle, ...: any): teal.Handle | nil, string
-    for index = 1, select("#", ...) do
-      local put, trouble = Fs.put(self.fd, tostring((select(index, ...))))
-      if not put then
-        return nil, trouble
-      end
-    end
-    return self
-  end
-
-  handle.flush = function(self: teal.Handle): teal.Handle
-    return self
-  end
-
-  handle.close = function(self: teal.Handle): boolean
-    local ok, _ = Fs.close(self.fd)
-    return ok
-  end
-
-  return handle
-end
-
-local function open_file(path: string, mode: string): teal.Handle | nil, string
-  local fd: integer | nil
-  local trouble: string
-  if mode ~= nil and mode:find("w") ~= nil then
-    fd, trouble = Fs.open_write(path)
-  else
-    fd, trouble = Fs.open_read(path)
-  end
-  if fd == nil then
-    return nil, trouble
-  end
-  return make_handle(fd)
 end
 
 --- The environment the compiler runs in. It is stated rather than
---- inherited: the pure libraries by name, the handful of outside
---- reaches over the syscall table, and nothing else. `io.type` is not
---- in it, because the compiler names it only inside the declaration
---- text it carries for Lua's own standard library and never calls it.
---- This is the compiler's private bootstrap environment, not a program's
---- runtime surface: [`environment_for`] removes io, os and debug from the
+--- inherited: the pure libraries by name and nothing else. `load` is in
+--- it, for the wrapper that loads the checker's parts
+--- ([`build/checker_wrapper.tl`]); `io`, `os` and `package` are not,
+--- because the compiler names them only inside the declaration text it
+--- carries for Lua's own standard library and never calls them. This is the compiler's private
+--- bootstrap environment, not a program's runtime surface: [`environment_for`] removes io, os and debug from the
 --- checker, and [`core/surface.c`] removes the same names at execution.
 local function compiler_environment(): {string:any}
   local environment: {string:any} = {
-    io = {
-      stdout = make_handle(1),
-      stderr = make_handle(2),
-      open = open_file,
-    },
-    os = { getenv = Env.get },
-    package = { path = "", searchers = {}, loaded = {} },
-
     _VERSION = _VERSION,
     assert = assert,
     collectgarbage = collectgarbage,
@@ -201,7 +114,7 @@ end
 --- The result is an empty table whose metatable calls [`teal.load`] on the
 --- first field read or written and keeps what it loaded. A write lands
 --- on the loaded compiler, never the capsule: tl reaches its own
---- `search_module` and `path` through its module table, so `serve`'s
+--- `search_module` through its module table, so `serve`'s
 --- overrides must land there. A load failure raises [`teal.load`]'s
 --- message through `error(_, 0)`, so a broken binary says "the compiler
 --- is not in this binary: ..." rather than showing a nil-index
@@ -299,7 +212,6 @@ end
 --- stub or its source ([`teal.standard_text`]), and nothing else: no path
 --- is searched, and any other name is not found.
 function teal.serve_standard(built: compiler)
-  built.path = ""
   built.search_module = function(name: string, _search_all: boolean): string | nil, any
     return standard(name, "")
   end
@@ -317,7 +229,6 @@ end
 --- found, however a file of that name sits on disk, so a module reaches
 --- a build only by being staged.
 local function serve(built: compiler, db: Sqlite.Handle, root: string)
-  built.path = ""
   built.search_module = function(name: string, _search_all: boolean): string | nil, any
     local rows, _ = Sqlite.text_rows(db,
       "SELECT kind, source FROM inputs WHERE path = ?1 " ..

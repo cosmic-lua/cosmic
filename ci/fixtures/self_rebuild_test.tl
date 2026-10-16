@@ -422,7 +422,7 @@ local function run_rebuild_case(fixture_dir: string,
   end)
 end
 
--- One of the three ways a stale tool (a pinned tl version, an edited
+-- One of the three ways a stale tool (a pinned Lua version, an edited
 -- checker, or an edited launcher generator) is refused outright, when
 -- COSMIC_AUTO_BOOT=0 says not to boot, without ever reaching `test.run` or
 -- touching the artifact.
@@ -437,8 +437,8 @@ local function run_refusal_case(fixture_dir: string,
   local program = place_runtime(fixture_dir, tree)
   local before = Fixture.hash(program)
 
-  if name == "tl-pin" then
-    local pin = tree .. "/vendor/tl/PIN"
+  if name == "lua-pin" then
+    local pin = tree .. "/vendor/lua/PIN"
     Fixture.write(pin, Fixture.read(pin) .. "\n# refusal fixture\n")
   elseif name == "tl-checker" then
     local checker = tree .. "/checker/tl.tl"
@@ -489,7 +489,7 @@ end
 
 local function test_self_rebuild_refusals(tmp: string)
   local fixture_dir = Fixture.required("COSMIC_FIXTURE_RUNTIME")
-  for _, name in ipairs({ "tl-pin", "tl-checker", "launcher" }) do
+  for _, name in ipairs({ "lua-pin", "tl-checker", "launcher" }) do
     run_refusal_case(fixture_dir, tmp, name)
   end
 end

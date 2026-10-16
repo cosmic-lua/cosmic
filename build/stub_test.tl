@@ -36,7 +36,6 @@ end
 --- A checker environment that answers each module `modules` names with
 --- its text, and nothing else.
 local function environment(modules: {string:string}): compiler.Env
-  built.path = ""
   built.search_module = function(name: string, _search_all: boolean): string | nil, any
     local text = modules[name]
     if text == nil then
@@ -207,7 +206,6 @@ end
 --- What the checker says of `program` when each standard-library module
 --- is answered by `text_of` its name.
 local function said(program: string, text_of: function(string): string | nil): {string}
-  built.path = ""
   built.search_module = function(name: string, _search_all: boolean): string | nil, any
     local text = name:sub(1, 7) == "cosmic." and text_of(name) or nil
     if text == nil then
