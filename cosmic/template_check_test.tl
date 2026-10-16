@@ -38,6 +38,8 @@ local record data
     j: html.SafeJson
     items: {Item}
     user: User
+    owner: User | nil
+    error: string | nil
     flag: boolean
     list: {string}
     ["end"]: string
@@ -373,6 +375,23 @@ local function test_nested_blocks_build_without_a_warning_or_a_repeated_name(tmp
 {{with .user}}{{end}}{{range .list}}x{{end}}
 ]])
   assert(clean ~= nil, why)
+end
+
+--- A field that may be nil is tested by an `{{if}}` and read in its arm: the
+--- test narrows only a local, so the arm reads what the test bound. It builds,
+--- and renders as it would if the field were read each time.
+local function test_a_tested_optional_field_is_read_inside_its_arm_as_a_local(tmp: string)
+  local template = HEAD .. "{{if .error}}<p>{{.error}}</p>{{end}}" ..
+    "{{if .flag}}F{{else if .error}}<i>{{.error}}</i>{{else if .owner}}{{.owner.name}}{{else}}none{{end}}" ..
+    "{{if .owner}}{{if .owner}}{{.owner.name}}{{end}}{{end}}"
+  local function shown(case: string, page: {string: any}): string
+    return (render(tmp, case, template, page):gsub("^%s+", ""))
+  end
+  local both = shown("optional-both", { error = "<b>", owner = { name = "n" }, flag = false })
+  assert(both == "<p>&lt;b&gt;</p><i>&lt;b&gt;</i>n", both)
+  assert(shown("optional-owner", { owner = { name = "o" } }) == "oo", "owner")
+  assert(shown("optional-none", {}) == "none", "none")
+  assert(shown("optional-flag", { flag = true, error = "e" }) == "<p>e</p>F", "flag")
 end
 
 local function test_a_template_with_no_action_builds_without_a_warning(tmp: string)

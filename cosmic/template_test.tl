@@ -892,7 +892,7 @@ end
 
 local function test_a_condition_chain_is_one_if()
   local out = compiled(HEAD .. "{{if .a}}1{{else if .b | m.f}}2{{else}}3{{end}}")
-  assert(out:find("if d.a then", 1, true) and out:find("elseif _one(m.f(d.b)) then", 1, true) and
+  assert(out:find("do local d1 = d.a if d1 then", 1, true) and out:find("elseif _one(m.f(d.b)) then", 1, true) and
       out:find(" else ", 1, true), out)
   assert(out:find('require("m")', 1, true), out)
 end
@@ -1428,7 +1428,7 @@ local function test_dollar_is_the_render_argument_anywhere()
       "{{if $.admin}}{{$}}{{end}}")
   assert(out:find("= d1.name parts", 1, true) and out:find("= d.title parts", 1, true), out)
   assert(out:find("= _one(m.f(d.who)) parts", 1, true), out)
-  assert(out:find("if d.admin then", 1, true) and out:find("= d parts", 1, true), out)
+  assert(out:find("local d3 = d.admin if d3 then", 1, true) and out:find("= d parts", 1, true), out)
   -- Only `$` reads the argument here, so it must be named.
   local only = compiled(HEAD .. "{{$.x}}")
   assert(only:find("render(d: t.T)", 1, true) and only:find("= d.x parts", 1, true), only)

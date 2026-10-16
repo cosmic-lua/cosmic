@@ -127,6 +127,9 @@ local record Gen
   root: Dot
   --- The template's variables in scope, by name without the `$`.
   vars: {string: Dot}
+  --- The local an `{{if}}` has bound a field path to, by the path as
+  --- written in the source (`d.error`), while the arm it guards is written.
+  bound: {string: string}
 end
 
 --- The start of a statement that adds to the output.
@@ -178,8 +181,10 @@ end
 
 --- The expression for `pipe` at `dot`: its path of fields from its head,
 --- each stage wrapped round what is before it and held to one value by
---- `_one`.
-local function value(g: Gen, pipe: types.Pipeline, dot: Dot): string
+--- `_one`. A path an enclosing `{{if}}` tested is read from the local that
+--- test bound, unless `raw` asks for the path itself: only a local is
+--- narrowed, so the checker takes the guarded reads as the test's value.
+local function value(g: Gen, pipe: types.Pipeline, dot: Dot, raw?: boolean): string
   local head = dot
   if pipe.head == "root" then
     head = g.root
@@ -193,6 +198,10 @@ local function value(g: Gen, pipe: types.Pipeline, dot: Dot): string
   local expr = head.name
   for _, field in ipairs(pipe.path) do
     expr = member(expr, field)
+    local held = not raw and g.bound[expr] or nil
+    if held ~= nil then
+      expr = held
+    end
   end
   for _, stage in ipairs(pipe.stages) do
     g.staged = true
@@ -336,18 +345,42 @@ local function block(g: Gen, node: types.Node, dot: Dot)
     to_line(g, node.close_line)
     put(g, "end end")
   else
+    -- The ends the arms leave owing: one for the `if`, and two for each arm
+    -- that binds the value it tests (a `do` and the `if` it holds).
+    local owed = 0
     for at, arm in ipairs(node.branches) do
       to_line(g, arm.line)
       local pipeline = arm.pipeline
+      local bound: string | nil = nil
+      local raw = ""
       if pipeline == nil then
         put(g, "else")
       else
-        put(g, (at == 1 and "if " or "elseif ") .. value(g, assert(pipeline), dot) .. " then")
+        local tested = value(g, pipeline, dot)
+        raw = value(g, pipeline, dot, true)
+        -- A field path is bound to a local before it is tested: the test
+        -- narrows the local, and the arm reads it.
+        if #pipeline.stages == 0 and #pipeline.path > 0 and g.bound[raw] == nil then
+          local name = new_dot(g).name
+          bound = name
+          put(g, (at == 1 and "do local " or "else do local ") .. name .. " = " .. tested .. " if " ..
+              name .. " then")
+          owed = owed + 2
+          g.bound[raw] = name
+        else
+          put(g, (at == 1 and "if " or "elseif ") .. tested .. " then")
+          if at == 1 then
+            owed = owed + 1
+          end
+        end
       end
       emit(g, arm.body, dot)
+      if bound ~= nil then
+        g.bound[raw] = nil
+      end
     end
     to_line(g, node.close_line)
-    put(g, "end")
+    put(g, (("end "):rep(owed):gsub(" $", "")))
   end
 end
 
@@ -420,7 +453,7 @@ end
 function Codegen.generate(template: types.Template): string
   local g: Gen = { pieces = {}, line = template.line, started = false, mode = template.mode,
     imports = { order = {}, alias_of = {}, taken = {}, as_value = {} }, html = "", helpers = {}, staged = false,
-    dots = 0, root = { name = "d", used = false }, vars = {} }
+    dots = 0, root = { name = "d", used = false }, vars = {}, bound = {} }
   local type_alias = alias_for(g, template.import_path)
   if template.mode == "html" then
     g.html = value_alias(g, "cosmic.html")
