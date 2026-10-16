@@ -1070,3 +1070,62 @@ local function test_a_mut_on_a_record_counts_only_when_the_interface_of_another_
       over:find("Shape:name", 1, true) and not over:find("Shape:own", 1, true), over)
   assert(#tree_checks.translated(root, pins, 2) == 0)
 end
+
+--- A name the scope builder cannot resolve, and a declaration that hides one, are refused past
+--- their pins with the place, the message and the fix; the globals are the ones the tree's
+--- declaration file declares; the fork's file is not read; a pin above what the tree has is
+--- told to fall.
+local function test_a_name_the_scope_builder_cannot_resolve_is_refused_past_its_pin_with_its_fix(dir: string)
+  local root = dir .. "/scoperoot"
+  assert(Fs.mkdirs(root .. "/build"))
+  assert(Fs.mkdirs(root .. "/checker"))
+  assert(Fs.mkdirs(root .. "/vendor"))
+  assert(Fs.write(root .. "/checker/stdlib.d.tl", source("global print: integer")))
+  assert(Fs.write(root .. "/build/ok.tl", source("local x = 1", "print(x)", "return x")))
+  assert(Fs.write(root .. "/build/bad.tl", source("local x = 1", "local x = 2", "print(y)", "return x")))
+  assert(Fs.write(root .. "/checker/tl.tl", source("print(unknown_to_the_fork)")))
+  assert(Fs.write(root .. "/vendor/v.tl", source("print(unknown_to_vendor)")))
+  local found = table.concat(tree_checks.scoped(root, {}), "\n")
+  assert(found:find("build/bad.tl:2:7: variable `x` shadows the variable `x` declared at 1:7 (shadows): to change the existing", 1, true) and
+      found:find("build/bad.tl:3:7: `y` is not declared (unknown_variable): declare it with `local y = ...`", 1, true) and
+      found:find("build/bad.tl: 1 error of shadows in its scopes, pinned 0; follow the fix above rather than raise the pin", 1, true),
+    found)
+  assert(not found:find("ok.tl", 1, true) and not found:find("checker/tl.tl", 1, true) and
+      not found:find("vendor", 1, true) and not found:find("print", 1, true), found)
+  local pins: {string: integer} = { ["build/bad.tl shadows"] = 1, ["build/bad.tl unknown_variable"] = 1 }
+  assert(#tree_checks.scoped(root, pins) == 0)
+  pins["build/bad.tl shadows"] = 2
+  pins["build/gone.tl shadows"] = 1
+  local fallen = tree_checks.scoped(root, pins)
+  assert(#fallen == 2 and fallen[1] == "build/bad.tl shadows: pinned 2 but 1 found; lower the pin in " ..
+      "build/tree_checks.tl's scope_pins" and
+      fallen[2] == "build/gone.tl shadows: pinned 1 but 0 found; lower the pin in build/tree_checks.tl's scope_pins",
+    table.concat(fallen, "\n"))
+end
+
+--- A file that has not changed is not scoped again: its findings come from the memo. A change to
+--- the file, the declarations or the code that scopes it is a miss.
+local function test_a_memo_answers_the_scope_check_for_a_file_that_has_not_changed(dir: string)
+  local root = dir .. "/scopememo"
+  assert(Fs.mkdirs(root .. "/build"))
+  assert(Fs.mkdirs(root .. "/lang"))
+  assert(Fs.mkdirs(root .. "/checker"))
+  assert(Fs.write(root .. "/lang/scopes.tl", "-- one\n"))
+  assert(Fs.write(root .. "/checker/stdlib.d.tl", source("global print: integer")))
+  assert(Fs.write(root .. "/build/bad.tl", source("print(y)", "return 1")))
+  local memo = assert(Sqlite.memory())
+  local plain = table.concat(tree_checks.scoped(root, {}), "\n")
+  assert(plain:find("(unknown_variable)", 1, true), plain)
+  assert(table.concat(tree_checks.scoped(root, {}, memo), "\n") == plain)
+  local count = assert(Sqlite.rows(memo, "SELECT count(*) FROM check_memo WHERE kind = 'scoped'"))
+  assert(count[1]:integer(1) == 3, "the three files")
+  -- Plant another answer under the key: a run that finds it did not scope.
+  local planted = "C\t\nE\tshadows\t7\t9\tplanted\tdo it"
+  assert(Sqlite.run(memo, "UPDATE check_memo SET value = ?1", { { text = planted } }))
+  local hit = table.concat(tree_checks.scoped(root, {}, memo), "\n")
+  assert(hit:find("build/bad.tl:7:9: planted (shadows): do it", 1, true) and not hit:find("unknown_variable", 1, true), hit)
+  -- The code that scopes changed: the salt moves, the file is scoped again.
+  assert(Fs.write(root .. "/lang/scopes.tl", "-- two\n"))
+  assert(table.concat(tree_checks.scoped(root, {}, memo), "\n") == plain)
+  assert(memo:close())
+end

@@ -4,9 +4,9 @@
 --- input costs about four times the time, for each form that could cost more
 --- than its length (a long chain of ternaries, a long union, a class of many
 --- methods, many statements).
-local Clock = require("cosmic.clock")
 local Lexer = require("lang.lexer")
 local Parser = require("lang.parser")
+local Speed = require("lang.speed")
 local Translate = require("lang.translate")
 
 --- Statements of Teal that every row of the translator rewrites, to repeat.
@@ -25,25 +25,14 @@ end
 local f: function(string..., ? integer): (function(): R) | nil
 ]]
 
-local function nanoseconds(f: function()): integer
-  local least = math.maxinteger
-  for _ = 1, 3 do
-    local started = Clock.monotonic_ns()
-    f()
-    least = math.min(least, Clock.monotonic_ns() - started)
-  end
-  return least
-end
-
 local function test_translating_costs_a_small_multiple_of_parsing()
   local source = SAMPLE:rep(20)
-  local parse = nanoseconds(function()
+  local ok, why = Speed.within(function()
     local _ = Parser.parse(Lexer.lex(source, "t.tl"), "t.tl", "tl")
-  end)
-  local translate = nanoseconds(function()
+  end, function()
     local _ = Translate.translate(source, "t.tl")
-  end)
-  assert(translate <= 12 * parse, "translating took " .. translate // 1000000 .. " ms, parsing " .. parse // 1000000 .. " ms")
+  end, 12)
+  assert(ok, "translating " .. why)
 end
 
 --- Forms that could cost more than their length, each as a function of how many to write.
@@ -87,8 +76,12 @@ local FORMS <const>: {string: function(n: integer): string} = {
 
 local function test_four_times_the_input_costs_about_four_times_the_time_for_each_form()
   for name, form in pairs(FORMS) do
-    local small = nanoseconds(function() local _ = Translate.translate(form(4), "t.tl") end)
-    local large = nanoseconds(function() local _ = Translate.translate(form(16), "t.tl") end)
-    assert(large <= 10 * small, name .. ": four times the input took " .. large // 1000 .. " us against " .. small // 1000 .. " us")
+    local small, large = form(4), form(16)
+    local ok, why = Speed.within(function()
+      local _ = Translate.translate(small, "t.tl")
+    end, function()
+      local _ = Translate.translate(large, "t.tl")
+    end, 10)
+    assert(ok, name .. ": four times the input " .. why)
   end
 end

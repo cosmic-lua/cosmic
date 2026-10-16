@@ -3,10 +3,9 @@
 --- parser costs a small multiple of the lexer's time, and four times the input
 --- costs about four times the time, for each form that could cost more than its
 --- length (a long chain, a long list, a run of errors, constructs left open).
-local Ast = require("lang.ast")
-local Clock = require("cosmic.clock")
 local Lexer = require("lang.lexer")
 local Parser = require("lang.parser")
+local Speed = require("lang.speed")
 
 --- The statements of a program of the grammar, to repeat.
 local SAMPLE <const> = [[
@@ -30,32 +29,16 @@ match fetch(noun) do
 end
 ]]
 
---- The least time, in nanoseconds, of five parses of `lexed`, so that a slow
---- moment on a shared machine does not count against it.
-local function nanoseconds(lexed: Lexer.Lexed, dialect: Ast.Dialect): integer
-  local least = math.maxinteger
-  for _ = 1, 5 do
-    local started = Clock.monotonic_ns()
-    local parsed = Parser.parse(lexed, "t.tl", dialect)
-    local elapsed = Clock.monotonic_ns() - started
-    assert(#parsed.chunk.tokens == #lexed.tokens)
-    least = math.min(least, elapsed)
-  end
-  return least
-end
-
 local function test_parsing_costs_a_small_multiple_of_lexing()
   local source = SAMPLE:rep(100)
   local lexed = Lexer.lex(source, "t.tl")
-  local lex_least = math.maxinteger
-  for _ = 1, 5 do
-    local started = Clock.monotonic_ns()
-    Lexer.lex(source, "t.tl")
-    lex_least = math.min(lex_least, Clock.monotonic_ns() - started)
-  end
-  local parse_least = nanoseconds(lexed, "tl")
   assert(#Parser.parse(lexed, "t.tl", "tl").errors == 0, "the sample parses clean")
-  assert(parse_least <= 12 * lex_least, "parsing took " .. parse_least // 1000000 .. " ms, lexing " .. lex_least // 1000000 .. " ms")
+  local ok, why = Speed.within(function()
+    local _ = Lexer.lex(source, "t.tl")
+  end, function()
+    local _ = Parser.parse(lexed, "t.tl", "tl")
+  end, 12)
+  assert(ok, "parsing " .. why)
 end
 
 --- Forms that a parser could make slower than their length, each as a function of how many to write.
@@ -101,8 +84,12 @@ local FORMS <const>: {string: function(n: integer): string} = {
 
 local function test_four_times_the_input_costs_about_four_times_the_time_for_each_form()
   for name, form in pairs(FORMS) do
-    local small = nanoseconds(Lexer.lex(form(15), "t.tl"), "tl")
-    local large = nanoseconds(Lexer.lex(form(60), "t.tl"), "tl")
-    assert(large <= 8 * small, name .. ": four times the input took " .. large // 1000 .. " us against " .. small // 1000 .. " us")
+    local small, large = Lexer.lex(form(15), "t.tl"), Lexer.lex(form(60), "t.tl")
+    local ok, why = Speed.within(function()
+      local _ = Parser.parse(small, "t.tl", "tl")
+    end, function()
+      local _ = Parser.parse(large, "t.tl", "tl")
+    end, 10)
+    assert(ok, name .. ": four times the input " .. why)
   end
 end
