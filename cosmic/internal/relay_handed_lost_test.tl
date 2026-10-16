@@ -117,4 +117,8 @@ local function test_a_connector_ended_already_is_told_to_lost_once_and_asked_not
   assert(not ok and tostring(why):find("handed.lost must be a function", 1, true) ~= nil, tostring(why))
   ok, why = pcall(Relay.handed, {} as Relay.Handed)
   assert(not ok and tostring(why):find("handed needs a connector", 1, true) ~= nil, tostring(why))
+  -- Only a nil connector is none: `false` passes the check, as it always has.
+  ok, why = pcall(Relay.handed, { connector = false as any as Net.Connector, lost = function(_: string)
+  end })
+  assert(ok, tostring(why))
 end

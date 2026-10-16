@@ -171,7 +171,7 @@ function relay_config.naming(connect: {string}, host: string): string
   local key = address_key(wanted)
   for _, target in ipairs(connect) do
     local parsed, _ = Grant.parse(target)
-    local bytes = parsed ~= nil and parsed.bytes or nil
+    local bytes = parsed and parsed.bytes
     if parsed ~= nil and bytes ~= nil and address_key(bytes) == key then
       return target
     end

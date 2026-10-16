@@ -222,8 +222,8 @@ function Seatbelt.compile(policy: rules.Policy, options?: Seatbelt.Options): Sea
     end
   end
   local database = policy.database
-  local options_core = options ~= nil and options.core or nil
-  local options_database = options ~= nil and options.database or nil
+  local options_core = options and options.core
+  local options_database = options and options.database
   -- A policy's own `database` is the file its core runs on, which a start
   -- of this program names itself, so the two must be one file.
   if database ~= nil then

@@ -2338,7 +2338,7 @@ function docs.render(view: docs.View, entry: docs.Entry): {string} | nil, string
   -- [`by_options`].
   local verb = entry.module == "cosmic.cli" and entry.symbol:match("^Cli%.(%w+)$") or nil
   local command = verb ~= nil and Cli.verbs[verb] or nil
-  local spec = command ~= nil and command.spec or nil
+  local spec = command and command.spec
   if command ~= nil and spec ~= nil then
     lines[#lines + 1] = "  options:"
     for line in String.lines(Flags.options(spec)) do

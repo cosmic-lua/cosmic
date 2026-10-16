@@ -545,7 +545,7 @@ local function bound_names(root: Node): {Node: string}
           elseif value.kind == "literal_table" then
             for _, item in ipairs(list_of(value)) do
               local key, field = item.key, item.value
-              local conststr = key ~= nil and key.conststr or nil
+              local conststr = key and key.conststr
               if key ~= nil and key.kind == "string" and conststr ~= nil and
                   field ~= nil and field.kind == "function" then
                 out[field] = name .. "." .. conststr
@@ -895,7 +895,7 @@ end
 local function neutral(n: Node): boolean
   if n.kind == "nil" or (n.kind == "string" and n.conststr == "") then return true end
   local how, member = n.op, n.e2
-  local member_tk = member ~= nil and member.tk or nil
+  local member_tk = member and member.tk
   return n.kind == "op" and how ~= nil and how.op == "." and is_name(n.e1, "Poll") and
     (member_tk == "TIMEOUT" or member_tk == "CANCELLED")
 end
@@ -1159,7 +1159,7 @@ local function export_name(root: Node): string
   local last = statements[#statements]
   local exps = last ~= nil and last.kind == "return" and list_of(last.exps) or {}
   local first = exps[1]
-  local tk = first ~= nil and first.tk or nil
+  local tk = first and first.tk
   if first ~= nil and first.kind == "variable" and tk ~= nil then return tk end
   return ""
 end
@@ -1240,7 +1240,7 @@ local function exported_nodes(root: Node, exported: {Exported}): {Node: Exported
   local function fields_of(constructor: Node, prefix: string)
     for _, item in ipairs(list_of(constructor)) do
       local key = item.key
-      local conststr = key ~= nil and key.conststr or nil
+      local conststr = key and key.conststr
       if key ~= nil and key.kind == "string" and conststr ~= nil then
         stored(item.value, prefix == "" and conststr or prefix .. "." .. conststr)
       end
@@ -1248,7 +1248,7 @@ local function exported_nodes(root: Node, exported: {Exported}): {Node: Exported
   end
   for _, statement in ipairs(list_of(root)) do
     local name = statement.name
-    local tk = name ~= nil and name.tk or nil
+    local tk = name and name.tk
     if statement.kind == "local_function" and name ~= nil and tk ~= nil then
       locals[tk] = statement
     end
@@ -1358,7 +1358,7 @@ end
 --- looked through.
 local function definition_of(typedecl: ast.TypeNode | nil): ast.TypeNode | nil
   local def = typedecl ~= nil and typedecl.def or nil
-  local t = def ~= nil and def.t or nil
+  local t = def and def.t
   if def ~= nil and def.typename == "generic" and t ~= nil then
     return t
   end
@@ -1537,7 +1537,7 @@ local function check_modes(file: string, root: Node, index: Index, records: {int
   end
   local literals: {Declared: {string: boolean}} = {}
   local function note(field: Declared, literal: Node | nil)
-    local conststr = literal ~= nil and literal.conststr or nil
+    local conststr = literal and literal.conststr
     if literal ~= nil and literal.kind == "string" and conststr ~= nil and
         conststr ~= "" then
       local set = literals[field] or {}
@@ -1572,7 +1572,7 @@ local function check_modes(file: string, root: Node, index: Index, records: {int
   local function visit(n: Node)
     local op = n.op
     local name = n.name
-    local tk = name ~= nil and name.tk or nil
+    local tk = name and name.tk
     if n.kind == "local_function" and name ~= nil and tk ~= nil then
       functions[tk] = n
       bind(stack[#stack], name.tk, nil)
@@ -1604,7 +1604,7 @@ local function check_modes(file: string, root: Node, index: Index, records: {int
       end
     elseif is_call(n) then
       local callee = n.e1
-      local callee_tk = callee ~= nil and callee.tk or nil
+      local callee_tk = callee and callee.tk
       local fn = callee ~= nil and callee.kind == "variable" and callee_tk ~= nil and
         functions[callee_tk] or nil
       if fn ~= nil then

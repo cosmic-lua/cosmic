@@ -493,7 +493,7 @@ end
 
 --- The boot token for `opts`.
 local function boot_of(opts: Dev.Options | nil): string
-  local boot = opts ~= nil and opts.boot or nil
+  local boot = opts and opts.boot
   if opts ~= nil and boot ~= nil then return boot end
   return Env.get("COSMIC_WEB_BOOT") or tostring(Clock.now_ns())
 end

@@ -906,7 +906,7 @@ end
 function Net.connector(endpoints: {Net.Endpoint}, opts?: Net.ConnectorOptions): Net.Connector | nil, string
   local timeout_ms = Leaf.checked_timeout_ms(opts ~= nil and opts.timeout_ns or nil, 2)
   local public: Leaf.Public | nil
-  local given_public = opts ~= nil and opts.public or nil
+  local given_public = opts and opts.public
   if given_public ~= nil then public = checked_public(given_public) end
   if public == nil and (type(endpoints) ~= "table" or #endpoints == 0) then
     error("net: a connector needs endpoints, opts.public, or both", 2)

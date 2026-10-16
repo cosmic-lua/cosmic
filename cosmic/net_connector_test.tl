@@ -792,6 +792,9 @@ local function test_a_public_connector_is_asked_nothing_it_was_not_started_for()
   assert(not ok and tostring(why):find("net: public must hold a deny list", 1, true) ~= nil, tostring(why))
   ok, why = pcall(Net.connector, {}, { public = { deny = { "10.0.0.0" } } })
   assert(not ok, "a prefix with no length")
+  -- A `false` is a public that is no table, not an absent one.
+  ok, why = pcall(Net.connector, {}, { public = false as any as Net.PublicOptions })
+  assert(not ok and tostring(why):find("net: public must hold a deny list", 1, true) ~= nil, tostring(why))
   -- A table connector with no public mode asks only its table.
   Poll.run(function()
     local listener, task = echo_server()

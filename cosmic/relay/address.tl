@@ -244,7 +244,7 @@ end
 local function granted(bytes: {integer}, port: integer, grants: {string}): boolean
   for _, grant in ipairs(grants) do
     local parsed, _ = Grant.parse(grant)
-    local parsed_bytes = parsed ~= nil and parsed.bytes or nil
+    local parsed_bytes = parsed and parsed.bytes
     if parsed ~= nil and parsed_bytes ~= nil and same(parsed_bytes, bytes) and
         (parsed.port == 0 or parsed.port == port) then
       return true

@@ -576,7 +576,7 @@ local function run_here(argv: {string}, opts: Child.Options): Child.Result | nil
   local terminal: TermRelay.Terminal | nil
   local notes: Notes | nil
   local policy = opts.policy
-  local connect = policy ~= nil and policy.connect or nil
+  local connect = policy and policy.connect
   local connects = policy ~= nil and connect ~= nil and #connect > 0
   if opts.relay_log == "inherit" and connects and sys.isatty(2) then
     local made, why = notes_pipe()

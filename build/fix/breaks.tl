@@ -177,8 +177,8 @@ local function shape(n: Node): {Node} | nil, {ast.Position} | nil
     end
   elseif kind == "repeat" then
     local body = n.body
-    local xend = body ~= nil and body.xend or nil
-    local yend = body ~= nil and body.yend or nil
+    local xend = body and body.xend
+    local yend = body and body.yend
     if body == nil or yend == nil or xend == nil then
       return nil, nil
     end

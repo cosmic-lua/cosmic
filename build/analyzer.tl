@@ -499,7 +499,7 @@ end
 --- looked through.
 local function definition_of(typedecl: ast.TypeNode): ast.TypeNode
   local def = typedecl.def
-  local t = def ~= nil and def.t or nil
+  local t = def and def.t
   if def ~= nil and def.typename == "generic" and t ~= nil then
     return t
   end
@@ -855,7 +855,7 @@ local function canonicalize_docs(entries: {analyzer.DocEntry}, parsed: ast.Parse
   local members: {string: string} = {}
   for _, stmt in ipairs(parsed.node) do
     local name = stmt.name
-    local name_tk = name ~= nil and name.tk or nil
+    local name_tk = name and name.tk
     local stmt_vars, fn_owner = stmt.vars, stmt.fn_owner
     if stmt.kind == "local_function" and name ~= nil and name_tk ~= nil then
       values[name_tk] = name_tk
@@ -865,7 +865,7 @@ local function canonicalize_docs(entries: {analyzer.DocEntry}, parsed: ast.Parse
         local rhs = exps ~= nil and exps[index] or nil
         local tk = lhs.tk
         if tk ~= nil then
-          local rhs_tk = rhs ~= nil and rhs.tk or nil
+          local rhs_tk = rhs and rhs.tk
           values[tk] = rhs ~= nil and rhs.kind == "variable" and
             rhs_tk ~= nil and (values[rhs_tk] or "") or ""
         end
@@ -881,13 +881,13 @@ local function canonicalize_docs(entries: {analyzer.DocEntry}, parsed: ast.Parse
       for index in ipairs(targets) do
         local exps = stmt.exps
         local rhs = exps ~= nil and exps[index] or nil
-        local tk = rhs ~= nil and rhs.tk or nil
+        local tk = rhs and rhs.tk
         rhs_values[index] = rhs ~= nil and rhs.kind == "variable" and
           tk ~= nil and (values[tk] or "") or ""
       end
       for index, lhs in ipairs(targets) do
         local member = lhs.e2
-        local tk = member ~= nil and member.tk or nil
+        local tk = member and member.tk
         local lhs_tk = lhs.tk
         local op = lhs.op
         local e1 = lhs.e1
@@ -907,8 +907,8 @@ local function canonicalize_docs(entries: {analyzer.DocEntry}, parsed: ast.Parse
     for _, item in ipairs(returned) do
       local key = item.key
       local value = item.value
-      local conststr = key ~= nil and key.conststr or nil
-      local value_tk = value ~= nil and value.tk or nil
+      local conststr = key and key.conststr
+      local value_tk = value and value.tk
       if item.kind == "literal_table_item" and item.key_parsed ~= "implicit" and
           key ~= nil and conststr ~= nil and value ~= nil and
           value.kind == "variable" and value_tk ~= nil then
@@ -1149,9 +1149,9 @@ local function preamble_of(lines: {string}, nodes: {ast.Node}): Preamble
         stmt.kind == "local_declaration" then
       local names: {string} = {}
       local stmt_name = stmt.name
-      local stmt_name_tk = stmt_name ~= nil and stmt_name.tk or nil
+      local stmt_name_tk = stmt_name and stmt_name.tk
       local stmt_var = stmt.var
-      local stmt_var_tk = stmt_var ~= nil and stmt_var.tk or nil
+      local stmt_var_tk = stmt_var and stmt_var.tk
       if stmt.kind == "local_function" and stmt_name ~= nil and stmt_name_tk ~= nil then
         names[1] = stmt_name_tk
       elseif stmt.kind == "local_type" and stmt_var ~= nil and stmt_var_tk ~= nil then
@@ -1493,7 +1493,7 @@ end
 --- or `["name"] = ...`, or nil for an entry with none.
 local function entry_name(item: ast.Node): string | nil
   local key = item.key
-  local conststr = key ~= nil and key.conststr or nil
+  local conststr = key and key.conststr
   if key ~= nil and item.key_parsed ~= "implicit" and conststr ~= nil then
     return conststr
   end
@@ -1891,7 +1891,7 @@ local function chunk_of(parsed: ast.Parsed): Chunk
       local exps = stmt.exps
       out.returned = exps ~= nil and exps[1] or nil
       local returned = out.returned
-      local returned_tk = returned ~= nil and returned.tk or nil
+      local returned_tk = returned and returned.tk
       if returned ~= nil and returned.kind == "variable" and returned_tk ~= nil then
         out.export = returned_tk
       end

@@ -383,7 +383,8 @@ end
 --- @param handed Relay.Handed The connector
 --- @return Relay.Connector What [`Relay.Spec.connector`] takes
 function Relay.handed(handed: Relay.Handed): Relay.Connector
-  local given = type(handed) == "table" and handed.connector or nil
+  local given: Net.Connector | nil = nil
+  if type(handed) == "table" then given = handed.connector end
   if given == nil then
     error("relay: handed needs a connector", 2)
   end

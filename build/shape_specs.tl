@@ -277,7 +277,7 @@ local function declarations(root: Node, name: string): {Declaration}
     if block.kind ~= "statements" then return end
     for _, statement in ipairs(block) do
       local var, value = statement.var, statement.value
-      local newtype = value ~= nil and value.newtype or nil
+      local newtype = value and value.newtype
       if statement.kind == "local_type" and var ~= nil and var.tk == name and
           value ~= nil and value.kind == "newtype" and newtype ~= nil then
         out[#out + 1] = {
@@ -337,7 +337,7 @@ local function required(root: Node): {string: string}
       alias = statement.var
       name = required_name(statement.value)
     end
-    local tk = alias ~= nil and alias.tk or nil
+    local tk = alias and alias.tk
     if name ~= nil and alias ~= nil and tk ~= nil and out[name] == nil then
       out[name] = tk
     end

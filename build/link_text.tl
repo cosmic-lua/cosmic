@@ -913,7 +913,7 @@ function link_text.declarations(parsed: ast.Parsed): link_text.Declarations
   end
   for _, statement in ipairs(parsed.node) do
     local var, value = statement.var, statement.value
-    local var_tk = var ~= nil and var.tk or nil
+    local var_tk = var and var.tk
     if statement.kind == "local_type" and var ~= nil and var_tk ~= nil and value ~= nil and
         value.kind == "newtype" then
       declare_type(var_tk, value.newtype, 0)

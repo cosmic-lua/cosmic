@@ -407,7 +407,7 @@ end
 --- `opts.body`, raises, naming [`Http.request`], which sends any method
 --- and a body.
 function Http.get(url: string, opts?: Http.Options): Http.Body | nil, string
-  local method = opts ~= nil and opts.method or nil
+  local method = opts and opts.method
   if method ~= nil and method ~= "GET" then
     error(("http: Http.get sends a GET, not %q; send another method with Http.request(method, url, opts)"):
         format(method), 2)
@@ -444,7 +444,7 @@ function Http.request(method: string, url: string, opts?: Http.Options): Http.Bo
   if method == nil or method == "" then
     error("http: Http.request's method is empty; name one, as \"GET\" or \"PUT\"", 2)
   end
-  local given = opts ~= nil and opts.method or nil
+  local given = opts and opts.method
   if given ~= nil and given ~= method then
     error(("http: Http.request was given %q and opts.method %q; leave opts.method out"):
         format(method, given), 2)

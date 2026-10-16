@@ -330,7 +330,7 @@ local function send(client: Testing.Client, method: string, path: string, opts: 
   local now = Clock.now_ns()
   for name, value in pairs(client.jar) do
     local entry = client.attrs[name]
-    local expires_ns = entry ~= nil and entry.expires_ns or nil
+    local expires_ns = entry and entry.expires_ns
     if entry ~= nil and expires_ns ~= nil and expires_ns <= now then
       client.jar[name] = nil
       client.attrs[name] = nil

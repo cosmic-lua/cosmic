@@ -762,8 +762,8 @@ local function moved(known: {string:Known}, file: string, st: sys.Stat,
                      mtime_ns: integer): boolean
   local was = known[file]
   known[file] = nil
-  local was_mtime_ns = was ~= nil and was.mtime_ns or nil
-  local ctime_ns = was ~= nil and was.ctime_ns or nil
+  local was_mtime_ns = was and was.mtime_ns
+  local ctime_ns = was and was.ctime_ns
   return was == nil or was.size ~= st.size or was_mtime_ns == nil or
     was_mtime_ns ~= mtime_ns or ctime_ns == nil or
     st.ctime_ns == nil or ctime_ns ~= Clock.seconds(st.ctime) + st.ctime_ns or

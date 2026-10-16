@@ -171,7 +171,7 @@ end
 local function stderr_of(handle: Child.Handle): string
   local result, _ = handle:wait(1000000000)
   local said = ""
-  local stderr = result ~= nil and result.stderr or nil
+  local stderr = result and result.stderr
   if result ~= nil and stderr ~= nil then said = stderr end
   if said == "" then return "" end
   return ": " .. (said:gsub("%s+$", ""):gsub("\n", " / "))

@@ -139,7 +139,7 @@ local function git(root: string, args: {string}, run_git: GitRunner | nil): stri
   local result, _ = Child.run(argv, {
     stdin = "null", stdout = "capture", stderr = "null", timeout_ns = git_timeout_ns,
   })
-  local result_stdout = result ~= nil and result.stdout or nil
+  local result_stdout = result and result.stdout
   if result == nil or not result.ok or result_stdout == nil then
     return nil
   end
@@ -248,7 +248,7 @@ local function spawning(program: string, root: string): Blamer
         handle = handle,
         said = function(): string | nil
           local result, _ = handle:wait()
-          local stdout = result ~= nil and result.stdout or nil
+          local stdout = result and result.stdout
           if result ~= nil and result.ok and stdout ~= nil then
             return stdout
           end

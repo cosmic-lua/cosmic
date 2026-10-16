@@ -121,7 +121,7 @@ local function declared(source: string, file: string): Surface
     local value = stmt.value
     local typedecl = value ~= nil and value.kind == "newtype" and value.newtype or nil
     local var = stmt.var
-    local def = typedecl ~= nil and typedecl.def or nil
+    local def = typedecl and typedecl.def
     if stmt.kind == "local_type" and var ~= nil and var.tk == returned and
         typedecl ~= nil and def ~= nil then
       return surface_of(def)
