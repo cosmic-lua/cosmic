@@ -95,10 +95,10 @@ needs it.
   unexplained mismatches over the tree, corpora, tests and fuzz. a
   mismatch that is an old-state bug is fixed first, in a PR of its own.
   the flag is off by default and nothing is kept without it.
-- **read-only fields,** in the PRs the plan's step lists: the syntax and
-  the write refusal, the literal rules, interface agreement and the casts
-  that would forge a writer, the [`cosmic.sys`] audit, [records are not
-  maps], and the change that declares the tree's read-only fields, copies
+- **read-only fields,** in the PRs the plan's step lists: the syntax, the
+  write refusal and interface agreement (#3081), the literal rules
+  (#3083), the [`cosmic.sys`] audit, and the change that declares the
+  tree's read-only fields, copies
   the other narrowed reads to locals, and restricts the old narrowing to
   the same places. the facts then narrow only locals and read-only paths,
   and the field-path and global mismatches pinned by shadow mode leave the
@@ -200,7 +200,6 @@ and the checker's source may use what that release's checker accepts.
 [`vendor/tl/tl.lua`]: ../../vendor/tl/tl.lua
 [captures are read-only]: strict-teal.md#captures-are-read-only
 [narrowing only what nothing else can change]: strict-teal.md#narrowing-only-what-nothing-else-can-change
-[records are not maps]: strict-teal.md#records-are-not-maps
 [strict-teal.md]: strict-teal.md
 [the new checker]: strict-teal.md#the-new-checker
 [the pinned-release seed]: strict-teal.md#the-pinned-release-seed

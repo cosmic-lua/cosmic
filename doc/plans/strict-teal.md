@@ -198,9 +198,18 @@ stack can carry.
   verified by a checker that enforces the rule, so the new checker is that
   checker. every rule after the foundations ([nil out of every type] first,
   then [one variance per type constructor], [named receivers], [narrowing
-  declarations], [tagged unions], [honest `or` and `and`], [confined
-  casts], [annotated parameters]) is specified here and
-  built in [the new checker], not in the fork.
+  declarations], [tagged unions], [honest `or` and `and`], [no casts],
+  [records are not maps], [fields are fixed unless declared mutable],
+  [annotated parameters]) is specified here and built in [the new
+  checker], not in the fork.
+- **the fork stops at what narrowing needs.** a hole the fork leaves that
+  the new checker closes by its defaults is not closed in the fork. the
+  fork's `readonly` marker is a bridge: it gives narrowing its read-only
+  paths until [fields are fixed unless declared mutable] makes every field
+  fixed by default, and a cast to a writer or a record passed as a map can
+  still write one in the fork until [no casts] and [records are not maps]
+  land. the checked-narrowing run-time checks report such a write in test
+  runs meanwhile.
 - **declarations are the trust boundary.** a `.d.tl` signature, and a
   narrowing declaration, is the only typing the checker takes without
   proof. the standard library's Lua declarations live in `.d.tl` files,
@@ -419,10 +428,11 @@ a restriction, with read-only fields as its extension. one flow analysis
 decides narrowing and reachability.
 
 - a place is a local, or a path of read-only fields from a local
-  (`r.a.b`, with `a` and `b` each declared read-only). a field of a record
-  is read-only when the record declares it so: it is given a value by the
-  table literal that makes the record and is never assigned after,
-  through any reference. a global, a mutable field and an index are not
+  (`r.a.b`, with `a` and `b` each read-only). a field is read-only when it
+  is given a value by the table literal that makes the record and is never
+  assigned after, through any reference: in the fork, a field the record
+  declares `readonly`; in the new checker, every field not declared
+  mutable ([fields are fixed unless declared mutable]). a global, a mutable field and an index are not
   places, and a test of one narrows nothing; the rewrite is a local copy,
   `local n = r.n if n then ... end`, which the error gives.
 - inside a function, a local of the code around it is a place only if
@@ -444,11 +454,11 @@ decides narrowing and reachability.
   promises that its C does not write it; the step that adds read-only
   fields audits every [`cosmic.sys`] binding that takes a table, and a
   binding that fills a table takes a map or returns a fresh one.
-- a cast cannot forge a writer: `x as T` to a record with a read-only
-  field, to a class, or from a record to a map or an interface is refused,
-  in the fork from the step that adds read-only fields. data typed `any`
-  becomes such a record through a [`cosmic.shape`] validator, and a class
-  through `is`.
+- nothing forges a writer: there is no cast ([no casts]), and a record
+  is never a map ([records are not maps]), both in the new checker. data
+  typed `any` becomes a record through a [`cosmic.shape`] validator, and
+  a class through `is`. the fork does not close these
+  ("the fork stops at what narrowing needs").
 - a guard is a truthiness test, `== nil` and `~= nil`, `==` with a
   literal, `is`, `type(x) == "..."`, their `not`, `and` and `or`, a call
   of a narrowing declaration, and a branch that ends its block.
@@ -469,10 +479,10 @@ this replaces upstream's facts and the per-form narrowing and
 block-ending patches; [narrowing by construction] gives it its form. a
 read-only field is type-level syntax, erased in the emitted Lua. a record
 that implements an interface declares a field read-only exactly when the
-interface does, which the step that adds read-only fields checks before
-[one variance per type constructor] makes field types exact, and [records
-are not maps] refuses a record where a map is expected, so no view of the
-table can assign the field.
+interface does, which the step that adds read-only fields checks (#3081)
+before [one variance per type constructor] makes field types exact, and
+[records are not maps] refuses a record where a map is expected, so no
+view of the table can assign the field.
 
 ### captures are read-only
 
@@ -582,11 +592,31 @@ declares `__close`, or nil. there is no inheritance. the compiler emits
 the literal as one reserved form, which the patched parser compiles to a
 table made with its metatable in one opcode.
 
+### fields are fixed unless declared mutable
+
+a restriction, in the new checker. a field of a record or class is given
+its value by the table literal that makes the value (or the class's
+constructor) and is never assigned after, unless the field is declared
+`mut`. a field read is then a place for narrowing by default, and a
+mutable field is the visible exception: a test of one narrows nothing, and
+the error gives the local copy. of the tree's narrowed field reads, 79%
+are on fields never written after creation ("what the tree measured"), so
+most records need no marker. the error for a write to a fixed field names
+the field and its record, and says to declare it `mut` or to make a new
+value. the translator that moves the tree to the new grammar writes `mut`
+on each field the tree assigns after creation, read from the fork's
+`uses` rows, and drops the fork's `readonly`, which the default makes
+redundant. the literal rules carry over unchanged: a literal with no
+expected type is never a record, and a literal of a record gives every
+field without a default a value.
+
 ### records are not maps
 
-a restriction. a record is never passed where a map or `{string:any}` is
-expected, and `pairs`, `next` and `rawset` refuse it, because its fields
-have types of their own.
+a restriction, in the new checker. a record is never passed where a map
+or `{string:any}` is expected, and `pairs`, `next` and `rawset` refuse it,
+because its fields have types of their own. a record type is not an
+index type: `r[k]` is legal only where `k`'s type is a literal, an enum or
+a union of them naming fields of the record.
 
 ### honest `or` and `and`
 
@@ -609,13 +639,20 @@ a restriction. an element of `...: T` read by `local a, b = ...`,
 `select(n, ...)` or `({...})[i]` is `T | nil`. a call that may answer no
 values, used where one value is wanted, answers `T | nil`.
 
-### confined casts
+### no casts
 
-a restriction. as [design.md](../design.md)'s teal section states:
-`x as T` only from `any`, from a userdata record declared in a `.d.tl`, or
-from the enclosing generic's type variable. 230 of the 290 non-test casts
-not from `any` are in the checker's own source, which [the new checker]
-replaces.
+a restriction: the new grammar has no `as`. a type changes only by a
+check the checker can see: `is` (a class, a tagged union's tag, a
+primitive kind), a guard, a narrowing declaration, or a function that
+checks and answers the type, such as a [`cosmic.shape`] validator for data
+typed `any`. a value of a userdata record comes typed from its `.d.tl`
+declaration, and a generic's body works on its type variable without
+naming the instance. of the tree's 1,624 casts, 666 are from `any` and
+become validators, and most of the 958 others exist to get past nil,
+narrowing and variance, which the rules before this one make unnecessary;
+230 of the 290 outside tests are in the checker's own source, which [the
+new checker] replaces. each one left is rewritten by its count, and the
+error for a cast names the check that replaces it.
 
 ### annotated parameters
 
@@ -823,17 +860,18 @@ and #3075. in short:
   path's. the field-path and global drops, and the facts that serve them,
   go.
 - read-only fields land before reads switch, in PRs small enough to
-  review: the syntax and the refusal of a write outside the record's
-  literal; the literal rules; interface agreement and the casts that would
-  forge a writer; the [`cosmic.sys`] audit; [records are not maps],
-  counted first; then one change that declares read-only each field the
-  tree never writes after creation, copies the other narrowed reads to
+  review: the syntax, the refusal of a write outside the record's literal
+  and interface agreement (#3081); the literal rules (#3083); the
+  [`cosmic.sys`] audit; then one change that declares read-only each field
+  the tree never writes after creation, copies the other narrowed reads to
   locals, and restricts the old narrowing to the same places, so the
-  switch to the facts flips only what the facts decide differently.
+  switch to the facts flips only what the facts decide differently. the
+  casts that would forge a writer and [records are not maps] are not built
+  in the fork ("the fork stops at what narrowing needs").
 - before reads switch, the fuzz generator makes coroutines that yield
-  between a test and a read, literals aliased before they are typed, and
-  casts, and is shown to find each hole [narrowing only what nothing else
-  can change] closes on a checker without its fix.
+  between a test and a read and literals aliased before they are typed,
+  and is shown to find each hole the fork's narrowing closes on a checker
+  without its fix. casts and maps join the generator in the new checker.
 - the refinements that accept more are not built in the fork: the new
   checker's one pass gives them.
 
@@ -916,22 +954,25 @@ foundation's final form as the fork lands it. a sketch, not a design:
   line-preserving output, the `--check-types` and checked-narrowing code,
   and every row the checker writes into the database ("what the language
   keeps working").
-- the grammar holds, provisionally, beyond Teal's: an `if` expression
+- the grammar holds `mut` on a field ([fields are fixed unless declared
+  mutable]) and no `as` ([no casts]); beyond that, provisionally, beyond
+  Teal's: an `if` expression
   (`if n == 1 then "item" else "items" end`), which gives the 800 or so
   `and`/`or` ternaries a form that cannot answer the wrong branch when
   the middle value is false or nil; `match` over a tagged union, refused
   when a member is missing, so exhaustiveness is checked in one place,
   not in `if` chains; a `class` declaration holding a class's fields,
   read-only markers and methods in one place, which [compiler-written
-  classes] needs to read plainly; and `T?` and read-only fields as
-  syntax of their own. it drops `goto` (a `continue` takes its one
-  allowed use), the `and`/`or` ternary, and `as` (a checked `is` takes
-  its place). each is confirmed or dropped when the grammar is written. files in the
+  classes] needs to read plainly; and `T?` as syntax of its own. it drops
+  `goto` (a `continue` takes its one allowed use) and the `and`/`or`
+  ternary. each of these is confirmed or dropped when the grammar is
+  written. files in the
   new grammar keep `.tl`: the tree holds one language, and no path rule,
   glob or importer changes with the grammar.
 - a translator comes with the grammar: it rewrites a Teal module into the
   new grammar, and is how the tree moves to it, in the change that
-  replaces the fork. it is also the oracle a drop-in parser would have
+  replaces the fork. it writes `mut` on each field the tree assigns after
+  creation and drops `readonly`. it is also the oracle a drop-in parser would have
   been: where the new grammar only respells a construct, the new
   checker's Lua for the translated module is byte-identical to the fork's
   Lua for the original, over the whole tree, so the parser and code
@@ -988,12 +1029,20 @@ checker. `table.concat` and the three option signatures take views first.
 [narrowing declarations] and [tagged unions], in the new checker, each
 with its count over the tree first.
 
-### honest `or` and `and`, casts and parameters
+### fixed fields and records that are not maps
 
-[honest `or` and `and`], [confined casts] and [annotated parameters], in
-the new checker. most of the tree's casts exist to get past nil,
-narrowing and variance, so after nil is out of every type most are
-deleted rather than justified.
+[fields are fixed unless declared mutable] and [records are not maps], in
+the new checker, from the change that replaces the fork: the translator
+writes `mut` where the tree assigns a field after creation, and the
+record-as-map sites are counted and rewritten first.
+
+### honest `or` and `and`, no casts and parameters
+
+[honest `or` and `and`], [no casts] and [annotated parameters], in the
+new checker. most of the tree's casts exist to get past nil, narrowing
+and variance, so after nil is out of every type most are deleted rather
+than rewritten; the rest become validators and `is`, and then `as` leaves
+the grammar.
 
 ### the runtime cut
 
@@ -1053,7 +1102,8 @@ the switch, since the seed's Lua runs on the tree's VM.
 [captures are read-only]: #captures-are-read-only
 [checker fuzzing]: #done
 [compiler-written classes]: #compiler-written-classes
-[confined casts]: #confined-casts
+[no casts]: #no-casts
+[fields are fixed unless declared mutable]: #fields-are-fixed-unless-declared-mutable
 [dispatch only through declared types]: #dispatch-only-through-declared-types
 [goto only as continue]: #goto-only-as-continue
 [honest `or` and `and`]: #honest-or-and-and

@@ -16695,14 +16695,15 @@ do
    -- (`r.b.n = 1`, `r.xs[1] = 3`) is not a write to the field. A key of type
    -- `string` is refused as an index of a record before this is reached.
    --
-   -- TODO: refuse the casts that forge a writer (`(r as W).id = 2` with `W` a
-   -- writable record, `local m = r as {string:integer}; m.id = 3`), once the
-   -- read-only fields step that lands interface agreement and the casts that
-   -- would forge a writer (strict-teal.md, narrowing by construction) merges.
+   -- TODO: a cast still forges a writer (`(r as W).id = 2` with `W` a
+   -- writable record, `local m = r as {string:integer}; m.id = 3`); it goes
+   -- once the new checker replaces this one, whose grammar has no `as`
+   -- (strict-teal.md, no casts). the fork does not close it (strict-teal.md,
+   -- the fork stops at what narrowing needs).
    --
-   -- TODO: refuse a record with a read-only field passed as a map, to
-   -- `pairs`, `next` or `rawset`, once the rule that records are not maps (strict-teal.md,
-   -- narrowing by construction) lands.
+   -- TODO: a record with a read-only field still passes as a map, to
+   -- `pairs`, `next` or `rawset`; it is refused once the new checker
+   -- replaces this one (strict-teal.md, records are not maps).
    function TypeChecker:check_readonly_write(varnode: Node)
       if varnode.kind ~= "op" or not varnode.op then
          return
