@@ -97,8 +97,10 @@ the lexer is Lua 5.5's with these changes.
   (140 with `=` levels); decimal integers and floats with exponents and
   hex integers; every Lua operator and punctuator. an unterminated string
   or comment or a stray byte is a token of kind `$ERR$` and lexing goes
-  on, so one run reports several problems.
-- **a comment is `--` to the end of the line.** a doc comment is the run
+  on, so one run reports several problems; an unterminated long string
+  or long comment runs to the end of the file, as in Lua.
+- **a comment is `--` to the end of the line.** a line break is Lua's: `\n`,
+  `\r`, `\r\n` and `\n\r` are each one. a doc comment is the run
   ending on the line before a declaration's first token; the parser
   attaches it once to the declaration, field, method or enum value.
   tokens keep the comments before them, and gain a byte offset and
@@ -120,8 +122,7 @@ the lexer is Lua 5.5's with these changes.
   continue the expression before it. the fork inserts a `;` token on
   seeing this and the formatter writes it out; here it is a rule of the
   call suffix, the parser inserts nothing and the tree holds no token the
-  source lacks. a doc example tagged `lua` is parsed in a Lua dialect that
-  keeps Lua's reading; with `.tl` and `.d.tl` that is three kinds of file.
+  source lacks.
 - **the bindings of `match` and `continue`** (about a dozen) are renamed
   in Teal before the translator runs, so the translator renames nothing
   and the Lua stays identical.
@@ -508,7 +509,7 @@ nothing else reaches into it. the new interface keeps its calls and
 changes their types.
 
 - `lex(source, name): {Token}, {Error}` and `parse(tokens, errs, name,
-  dialect): Chunk`, where `dialect` is `tl`, `decl` or `lua`. `Token`
+  dialect): Chunk`, where `dialect` is `tl` or `decl`. `Token`
   gains `offset` and `length`.
 - `check(chunk, env, name): Result` and `generate(chunk, options):
   string`. [`Result.ast`] is a `Chunk`, not `any`; `Result.types` is the
@@ -536,6 +537,9 @@ returns as the production named, when a use appears.
 - **`;`** (1 statement, in [`ci/cosmic_ci/orchestration.tl`]; 0 as a table
   separator): removed by hand. would add `";"` to `stat` and tables.
 - **`#!` first line** (0 in `.tl`). would add `[ hashbang ]` to `chunk`.
+- **a `lua` dialect** (0: no doc example outside `vendor/` is tagged `lua`).
+  it would add a third value of `dialect`, with Lua's reserved words alone
+  and none of the cut forms below, to the lexer and the parser.
 - **long comments** (27, all in [`checker/stdlib.d.tl`]): rewritten as line
   comments. would add `--[==[ ... ]==]` to the lexer.
 - **`_` digit separators** (4 tokens) and **hex floats** (1): the fork
@@ -583,7 +587,17 @@ returns as the production named, when a use appears.
   ordinary change the fork accepts, along with the hand rewrites in [what
   the grammar leaves out].
 - the lexer and tree, with a round trip: every file of the tree is written
-  back from its tokens and spans to the same bytes.
+  back from its tokens and spans to the same bytes. the lexer is
+  [`lang/lexer.tl`]. the new checker lives in `lang/` until it replaces the
+  fork, as ordinary modules of the tree compiled by the tool's compiler and
+  tested like any other. the fork sits outside the module closure because
+  the pinned seed compiles it before a module system exists; the new checker
+  is no one's seed yet, and moves to `checker/` in the change that replaces
+  the fork. [`build/tree_checks.tl`]'s `lexed` lexes every `.tl` file of
+  the tree in `fix --check .` and holds it to the cut forms it still writes,
+  pinned by file and code. its `lex` answers a `Lexed` record of the tokens and the errors,
+  since [`build/contracts.tl`] holds an exported function to one result; the
+  declaration in [`build/compiler.d.tl`] may keep the pair.
 - the translator and the oracle, before any type rule exists, so the
   lexer, parser and code generator are checked against the fork's Lua
   alone; then [`build/fix/`] and the readers above are rewritten to the
@@ -627,4 +641,5 @@ returns as the production named, when a use appears.
 [`cosmic/channel.tl`]: ../../cosmic/channel.tl
 [`cosmic/removed_example.tl`]: ../../cosmic/removed_example.tl
 [`cosmic/web/init.tl`]: ../../cosmic/web/init.tl
+[`lang/lexer.tl`]: ../../lang/lexer.tl
 [`Result.ast`]: ../../build/compiler.d.tl

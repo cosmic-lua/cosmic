@@ -8,8 +8,9 @@
 --- declaration's requires declared, every requirement a test module
 --- declares promised by a CI leg, every verb's spec listed and
 --- readable, no public doc citing the build or carrying a TODO, no
---- literal plural after a number, and every file under ci/testdata
---- type-checking standalone. Each asks the tree's projection,
+--- literal plural after a number, every file under ci/testdata
+--- type-checking standalone, and every `.tl` file lexing in the new
+--- checker's grammar but for the cut forms pinned. Each asks the tree's projection,
 --- `cosmic.db`, which holds every module's docs, uses, imports,
 --- examples and source.
 ---
@@ -32,6 +33,7 @@ local Shape = require("cosmic.shape")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local closure_store = require("build.closure_store")
+local Cover = require("lang.lexer_cover")
 local contracts = require("build.contracts")
 local declared_key = require("build.declared_key")
 local ast = require("build.ast")
@@ -40,6 +42,7 @@ local docs_checks = require("build.docs_checks")
 local link_text = require("build.link_text")
 local host_names = require("build.host_names")
 local importer = require("build.importer")
+local Lexer = require("lang.lexer")
 local shared_compiles = require("build.shared_compiles")
 local standalone = require("build.standalone")
 local symbols = require("build.symbols")
@@ -1934,6 +1937,112 @@ function tree_checks.ci_testdata(root: string, built: compiler): {string}
           out[#out + 1] = file .. ": the compiler refused it"
         end
       end
+    end
+  end
+  return out
+end
+
+--- The forms of the new checker's grammar ([`lang.lexer`]) that files of the
+--- tree still write, which [`lexed`] holds the tree to: `<file> <code>` to
+--- how many errors of that code the file has. The rewrites that bring the
+--- tree to the grammar remove them, and a pin falls as its form does; none
+--- is raised. The counts outside [`checker/tl.tl`] (the fork, which goes) are
+--- the grammar draft's: `goto` 5 and its 5 labels, `;` 1, long comments 27,
+--- `_` in a number 4 and hexadecimal floats 1.
+local lexer_pins: {string: integer} = {
+  ["build/declared_key.tl label_or_goto"] = 2,
+  ["build/fuzz/init.tl label_or_goto"] = 2,
+  ["build/json_query.tl label_or_goto"] = 2,
+  ["build/test.tl label_or_goto"] = 2,
+  ["checker/stdlib.d.tl long_comment"] = 27,
+  ["checker/tl.tl long_comment"] = 1,
+  ["checker/tl.tl semicolon"] = 1,
+  ["ci/cosmic_ci/orchestration.tl semicolon"] = 1,
+  ["cosmic/internal/relay_server.tl label_or_goto"] = 2,
+  ["cosmic/removed_example.tl digit_separator"] = 2,
+  ["test/digit_separators_test.tl digit_separator"] = 2,
+  ["test/digit_separators_test.tl hex_float"] = 1,
+}
+
+--- Every `.tl` file under `root` as `{file, source}` pairs, read from disk:
+--- the modules and tests, the checker's files, the declaration files and
+--- `ci/`'s. The projection is not read, as it holds no declaration file and
+--- its [`checker/tl.tl`] is the compiled bridge chunk, not the file. `vendor/`,
+--- the hidden directories, `o/` (never read) and `ci/o` hold none the tree
+--- owns.
+local function lexable(root: string): {{string}} | nil, string
+  local listed, trouble = Fs.walk(root, function(relative: string, name: string, kind: Fs.Kind): boolean
+    return kind == "dir" and (name:sub(1, 1) == "." or relative == "vendor" or relative == "o" or
+      relative == "ci/o")
+  end)
+  if listed == nil then
+    return nil, trouble
+  end
+  local out: {{string}} = {}
+  for _, file in ipairs(listed) do
+    if file:match("%.tl$") then
+      local text, read_trouble = Fs.read(root .. "/" .. file)
+      if text == nil then
+        return nil, read_trouble
+      end
+      out[#out + 1] = { file, text }
+    end
+  end
+  return out
+end
+
+--- Every `.tl` file of the tree, lexed in the new checker's grammar
+--- ([`lang.lexer`]): the file's tokens and comments must tile its bytes, and
+--- its errors are the cut forms `pinned` (by default `lexer_pins`) counts,
+--- no more. A file with more errors of a code than pinned is listed with
+--- each, their places and the fix the lexer gives; one with fewer, and a pin
+--- for a file with none, is told to lower the pin. The sources are the
+--- `.tl` files under `root` ([`lexable`]).
+function tree_checks.lexed(root: string, pinned?: {string: integer}): {string}
+  pinned = pinned or lexer_pins
+  local files, trouble = lexable(root)
+  if files == nil then
+    return { "reading the sources: " .. trouble }
+  end
+  local out: {string} = {}
+  local found: {string: integer} = {}
+  for _, row in ipairs(files) do
+    local file, source = row[1], row[2]
+    local lexed = Lexer.lex(source, file)
+    local ok, reason = Cover.check(source, lexed)
+    if not ok then
+      out[#out + 1] = file .. ": its tokens do not tile it: " .. reason
+    end
+    local by_code: {string: {Lexer.Error}} = {}
+    for _, e in ipairs(lexed.errors) do
+      local held = by_code[e.code] or {}
+      held[#held + 1] = e
+      by_code[e.code] = held
+    end
+    for _, code in ipairs(Lexer.codes) do
+      local errors = by_code[code]
+      if errors ~= nil then
+        local key = file .. " " .. code
+        found[key] = #errors
+        local limit = pinned[key] or 0
+        if #errors > limit then
+          for _, e in ipairs(errors) do
+            out[#out + 1] = file .. ":" .. e.y .. ":" .. e.x .. ": " .. e.msg .. " (" .. code .. "): " .. e.fix
+          end
+          out[#out + 1] = file .. ": " .. String.counted(#errors, "error") .. " of " .. code .. ", pinned " .. limit ..
+            "; remove the form (the fix above) rather than raise the pin"
+        end
+      end
+    end
+  end
+  local keys: {string} = {}
+  for key in pairs(pinned) do keys[#keys + 1] = key end
+  table.sort(keys)
+  for _, key in ipairs(keys) do
+    local count = found[key] or 0
+    if count < pinned[key] then
+      out[#out + 1] = key .. ": pinned " .. pinned[key] .. " but " .. count ..
+        " found; lower the pin in build/tree_checks.tl's lexer_pins"
     end
   end
   return out

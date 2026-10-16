@@ -880,3 +880,60 @@ local function test_an_unused_local_in_ci_testdata_follows_the_unused_rule(dir: 
   assert(all:find("zz_test", 1, true) == nil, all)
   assert(all:find("ci/testdata/sub/label.tl:2:", 1, true) ~= nil, all)
 end
+
+--- A form the new checker's grammar cuts is refused past its pin, each with
+--- its place and the lexer's fix; the sources are the `.tl` files under the
+--- root, `vendor/`, `o/` and hidden directories apart. A pin the tree no longer meets is told to fall.
+local function test_a_cut_form_of_the_new_grammar_past_its_pin_is_refused_with_its_fix(dir: string)
+  local root = dir .. "/lexroot"
+  assert(Fs.mkdirs(root .. "/build"))
+  assert(Fs.write(root .. "/build/ok.tl", source("local x = 1", "return x")))
+  assert(Fs.write(root .. "/build/jumps.tl", source(
+    "for i = 1, 3 do",
+    "  goto continue",
+    "  ::continue::",
+    "end",
+    "return 1")))
+  assert(Fs.mkdirs(root .. "/checker"))
+  assert(Fs.mkdirs(root .. "/vendor"))
+  assert(Fs.mkdirs(root .. "/o"))
+  assert(Fs.mkdirs(root .. "/.hidden"))
+  assert(Fs.write(root .. "/checker/decls.d.tl", "--[[ one ]]\nreturn 1\n"))
+  assert(Fs.write(root .. "/vendor/v.tl", "goto x\n"))
+  assert(Fs.write(root .. "/o/stale.tl", "goto x\n"))
+  assert(Fs.write(root .. "/.hidden/h.tl", "goto x\n"))
+  local found = table.concat(tree_checks.lexed(root, {}), "\n")
+  assert(found:find("build/jumps.tl:2:3: `goto continue` is not in the grammar (label_or_goto): write `continue`",
+    1, true), found)
+  assert(found:find("build/jumps.tl:3:3: the label `::continue::` is not in the grammar (label_or_goto): delete the label",
+    1, true), found)
+  assert(found:find("build/jumps.tl: 2 errors of label_or_goto, pinned 0; remove the form", 1, true), found)
+  assert(found:find("checker/decls.d.tl:1:1: long comments are not in the grammar (long_comment): write line comments",
+    1, true), found)
+  assert(not found:find("ok.tl", 1, true) and not found:find("vendor", 1, true) and not found:find("stale", 1, true) and
+      not found:find("hidden", 1, true), found)
+  local pins: {string: integer} = { ["build/jumps.tl label_or_goto"] = 2, ["checker/decls.d.tl long_comment"] = 1 }
+  assert(#tree_checks.lexed(root, pins) == 0)
+  pins["build/jumps.tl label_or_goto"] = 3
+  pins["build/gone.tl semicolon"] = 1
+  local fallen = tree_checks.lexed(root, pins)
+  assert(#fallen == 2 and fallen[1] == "build/gone.tl semicolon: pinned 1 but 0 found; lower the pin in " ..
+      "build/tree_checks.tl's lexer_pins" and fallen[2]:find("build/jumps.tl label_or_goto: pinned 3 but 2 found", 1, true),
+    table.concat(fallen, "\n"))
+end
+
+--- The pins the tree is held to are the grammar draft's counts for what it
+--- cuts, apart from the fork's own [`checker/tl.tl`].
+local function test_the_tree_is_held_to_the_cut_forms_the_grammar_draft_counts(dir: string)
+  local stale = tree_checks.lexed(dir)
+  local totals: {string: integer} = {}
+  for _, line in ipairs(stale) do
+    local file, code, count = line:match("^(%S+) (%S+): pinned (%d+) but")
+    assert(file ~= nil, line)
+    if file ~= "checker/tl.tl" then
+      totals[code] = (totals[code] or 0) + assert(math.tointeger(tonumber(count)))
+    end
+  end
+  assert(totals["label_or_goto"] == 10 and totals["semicolon"] == 1 and totals["long_comment"] == 27 and
+      totals["digit_separator"] == 4 and totals["hex_float"] == 1)
+end
