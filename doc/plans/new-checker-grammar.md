@@ -26,8 +26,8 @@ searches where marked. type counts can repeat a type that nodes share.
 - **syntax the grammar replaces.** `as` 1,635 and `is` 652; `goto` 5, all
   of the shape [goto only as continue] allows; `and` 14,222 and `or`
   8,082 operator nodes, about 800 of them ternaries; unions with `nil`
-  about 4,600 (about 2,800 lines outside tests); `function R:m()` 156;
-  `metamethod` 41, all `__close`; `pcall` 132 sites and `coroutine.*` 32
+  3,751 outside the fork; `function R:m()` 156;
+  `metamethod` 45, all `__close`; `pcall` 132 sites and `coroutine.*` 32
   outside tests.
 - **words the grammar adds that the tree uses as names.** `match` binds in
   about ten places and is a field everywhere (`s:match(p)`); `continue`
@@ -559,6 +559,74 @@ draft was loose, the parser chose the smallest form that fits it:
   `Lexed` and answers a `Parsed`: the chunk, and the lexer's errors and the
   parser's as one list in source order.
 
+### what the translator settled
+
+[`lang/translate.tl`] reads Teal with [`lang/parser.tl`]: the grammar is Teal
+less the cut forms, and the parser keeps a tree for each form it refuses
+(`T | nil` is a `TypeUnion` with a `TypeNil`, `function R:m` a `Function`,
+`goto continue` an `Error` and a `Continue`), so a rewrite is an edit of the
+bytes of tokens the source has. the fork's parser gives positions of where a
+node was built, no comments and a `;` and a `self` the source never wrote. a
+rewrite repeats until the text holds none, then the class rewrite moves the
+methods, and the answer is the text and the errors of its last parse: those
+errors are the account of what the translator did not handle.
+
+- **respellings.** the lines of the file stay where they are for every row
+  but the class: `T?`, `...: T`, `argN?: T`, `continue`, `;`, `_` in a
+  number, a hexadecimal float, `local record X`, `__close: T`, a dropped
+  `readonly` and the `if` expression. a long comment of several lines
+  becomes as many line comments, and a label's line is left empty. a
+  comment is never touched.
+- **a return list that begins `(A | B)?`** and goes on is written
+  `((A | B)?, C)`: the parser reads a `(` that begins a return list as the
+  list. a return list that begins with a parenthesized type in Teal is read
+  the same way, and is not handled (the tree has none).
+- **the `if` expression** is written where the middle operand is a literal,
+  a table, a function, an arithmetic or concatenation or a cast to a type of
+  those: 1,217 sites outside the fork, in chains as `elseif`. the draft asks
+  for the fork's type report on a name or a call; those stay and count under
+  the `or` and `and` ceiling.
+- **the class** takes each record that has `function R:m` statements at the
+  top of the file (53 outside the fork): the record's field of the same name
+  is dropped, its doc comment goes to the method, and the types it gives
+  (parameters and returns the method leaves out) are written on the method.
+  a method moves above every local declared between its record and it, so a
+  method that reads one reads another name, or none: 42 methods do. a method
+  whose types differ from its field's is another (1). both are a ceiling in
+  `translated` that only falls with the `mut` places above (55 in all), each
+  to be fixed in Teal by declaring the name above its record, by making the
+  types agree, or by giving the interface its `mut`. a record that
+  implements an array, is `userdata`, or whose methods are written inside a
+  block stays.
+- **`mut`** is written for a field assigned through a name declared as its
+  record, for an array or map held by a field that an index write or a
+  `table` function changes (`table.move` changes its fifth argument, or its
+  first without one), and for a collection parameter that the function
+  changes the same way (834, 221 and 141 outside the fork). a record
+  declares a field `mut` where its interface does, so the mark spreads to
+  every type of the file that implements it and declares it, up through the
+  interfaces that declare it (a super written [`Stream.Reader`] is the type of
+  the file called `Reader`). a record that extends an interface of another
+  file and is given `mut` on a field, declared or inherited, is a place
+  `translated` counts when that interface, or one it extends, declares the
+  field (12 in the tree: 3 declared, 9 inherited). a name counts only where
+  its block binds it once, with the record's plain name as its type or as `self` in a
+  method. the writes the syntax cannot attribute (a call's result, a field
+  of a field, a collection passed on to a function that changes it) wait for
+  the checker's type report.
+- **a `goto continue`** becomes `continue` only where the nearest label a
+  block around it holds, before a function ends, ends the body of the
+  innermost loop; the label goes with the gotos that reach it. any other
+  stays, with its label.
+- **`;` between table items** becomes `,`: the parser ends the table at the
+  first, so the ones after it, up to the first word that begins a block, are
+  changed in the same read, and each after such a word takes a read of its
+  own. a long comment followed by another long comment or by code stays.
+- **the forms left**, pinned by file and code in `translated`: a tuple type
+  or cast, `where`, a bare `function` type, a `goto` that is no `continue`, a
+  reserved word as a name (the draft renames those first) and a method
+  written in a block.
+
 ### who reads what
 
 - [`build/analyzer.tl`] and [`build/link_text.tl`]: declarations and their
@@ -602,12 +670,13 @@ changes their types.
 counts are over the whole tree, tests included, unless noted. each cut
 returns as the production named, when a use appears.
 
-- **`T | nil`** (about 4,600): the translator respells it `T?`. a second
+- **`T | nil`** (3,751 outside the fork): the translator respells it `T?`. a second
   spelling; it does not return.
-- **`? T` as an omittable parameter** (6, in function types):
-  hand-rewritten to `name?: T`. does not return.
-- **`T...` as a parameter type** (at most 33 variadic function types):
-  respelled `...: T`. does not return.
+- **`? T` as an omittable parameter** (100 in function types outside the
+  fork): the translator writes `argN?: T`, N being its place. does not
+  return.
+- **`T...` as a parameter type** (68 outside the fork): respelled `...: T`.
+  does not return.
 - **`goto` and labels** (5, all `continue`). a general jump would add
   `goto Name` and `::Name::`.
 - **`;`** (1 statement, in [`ci/cosmic_ci/orchestration.tl`]; 0 as a table
@@ -627,13 +696,15 @@ returns as the production named, when a use appears.
 - **type parameters on a function literal** (0) **and on a method** (0 of
   its own: the generic methods in [`cosmic/channel.tl`] repeat the class's
   `T`). `fn` and `method` would gain `[ typeparams ]`.
-- **bare `function` and `table` types** (0), **tuple tables** `{A, B}` (1,
-  in the tour) and **string-literal types** (0 asking for them: no union
-  of records outside the tour). `base` would gain `String`, or a tuple
-  form.
+- **bare `function` and `table` types** (9 `function` outside the fork, in 4
+  files; 0 `table`), **tuple tables** `{A, B}` (51 outside the fork, in 22
+  files, most as `{{string, integer}}`; the tour has one) and **string-literal
+  types** (0 asking for them: no union of records outside the tour). `base`
+  would gain `String`, or a tuple form. the translator leaves each, and
+  [`build/tree_checks.tl`]'s `translated` pins them by file.
 - **`where`** (3: `FILE` and the tour's two), **`macroexp`** (0),
   **`<total>`** (0), **`--#pragma`** (0), **a table item with a type** (0
-  by text) and **`metamethod`** (41, all `__close`, which becomes a
+  by text) and **`metamethod`** (45, all `__close`, which becomes a
   `__close` field or class method).
 - **combined constraints** `T is A & B` or a list (0 of 6) and **a generic
   interface as a constraint** (0). `tparam` would gain a list or `&`, and
@@ -726,4 +797,6 @@ returns as the production named, when a use appears.
 [`lang/ast.tl`]: ../../lang/ast.tl
 [`lang/lexer.tl`]: ../../lang/lexer.tl
 [`lang/parser.tl`]: ../../lang/parser.tl
+[`lang/translate.tl`]: ../../lang/translate.tl
 [`Result.ast`]: ../../build/compiler.d.tl
+[`Stream.Reader`]: ../../cosmic/stream.tl

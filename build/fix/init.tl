@@ -1476,8 +1476,17 @@ local function run_tree_checks(ctx: Fix)
           findings[#findings + 1] = "ci testdata: " .. line
         end
       end
-      for _, line in ipairs(tree_checks.lexed(root)) do
+      -- What the lexer and the translator found in a file that has not changed
+      -- is kept in the build directory; without the memo the checks run in full.
+      local memo, _ = Sqlite.open(build_paths.resolve(root).translate_check, { writable = true })
+      for _, line in ipairs(tree_checks.lexed(root, nil, memo)) do
         findings[#findings + 1] = "lexer: " .. line
+      end
+      for _, line in ipairs(tree_checks.translated(root, nil, nil, memo)) do
+        findings[#findings + 1] = "translator: " .. line
+      end
+      if memo ~= nil then
+        local _, _ = memo:close()
       end
       for _, line in ipairs(promise_findings(root)) do
         findings[#findings + 1] = line
