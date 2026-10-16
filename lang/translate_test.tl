@@ -835,6 +835,13 @@ local function test_a_semicolon_after_a_nested_table_separates_the_items_of_the_
   translates("local a = {};\nlocal b = { 1 }; local c = 2\n", "local a = {}\nlocal b = { 1 } local c = 2\n")
 end
 
+local function test_a_table_of_data_with_many_semicolons_is_translated_in_one_read()
+  local items = ("1; k = 2; {3; 4}; "):rep(100)
+  local result = clean("local t = {" .. items .. "}\n")
+  assert(result.reads == 2 and not result.text:find(";", 1, true), result.reads .. " reads")
+  assert(result.text:sub(1, 30) == "local t = {1, k = 2, {3, 4}, 1")
+end
+
 local function test_an_interface_named_with_its_qualifier_in_the_same_file_is_linked()
   translates(lines(
     "local record Stream",

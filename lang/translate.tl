@@ -33,8 +33,9 @@
 ---   function ends, ends the innermost loop; otherwise the gotos and their
 ---   label stay.
 --- - `semicolon`, `long_comment`, `digit_separator`, `hex_float`: removed or
----   respelled. Each `;` between table items is a read of its own, since the
----   parser ends the table at the first. A long comment with code or another
+---   respelled. The parser ends a table at its first `;`, so the ones after
+---   it are changed in the same read up to the first word that begins a block,
+---   and each after that takes a read. A long comment with code or another
 ---   long comment after its end on the last line stays.
 --- - `type_declaration`: `local type X = record` becomes `local record X`.
 --- - `metamethod`: `metamethod __close: T` becomes the field `__close: T`.
@@ -1497,6 +1498,11 @@ end
 -- the rewrites of one read
 
 --- A loop whose body may be left by `continue`, or a function boundary.
+--- The words after which a `;` may end a statement.
+local BLOCK_WORDS <const>: {string: boolean} = {
+  ["function"] = true, ["do"] = true, ["if"] = true, ["repeat"] = true, ["while"] = true, ["for"] = true,
+}
+
 --- A block being walked, or the boundary of a function, which no `goto` crosses.
 local record Frame
   barrier: boolean
@@ -1544,7 +1550,7 @@ local function collect(source: string, parsed: Parser.Parsed, hazards: {Translat
 
   local covered: {Ast.Node: boolean} = {}
   local frames: {Frame} = {}
-  local stopped: {integer: boolean} = {}
+  local stopped: {integer: integer} = {}
   local open_tables: {integer} = {}
   local loop_bodies: {Ast.Block: boolean} = {}
   local jumps: {integer: Jumps} = {}
@@ -1622,7 +1628,7 @@ local function collect(source: string, parsed: Parser.Parsed, hazards: {Translat
       local first, last = bounds(node)
       local after = tokens[last + 1]
       if after.kind == "$ERR$" and after.text == ";" and brace_end(tokens, first) ~= last then
-        stopped[last + 1] = true
+        stopped[last + 1] = first
         open_tables[#open_tables + 1] = first
       end
     elseif kind == "While" or kind == "Repeat" or kind == "ForNum" or kind == "ForIn" then
@@ -1722,8 +1728,34 @@ local function collect(source: string, parsed: Parser.Parsed, hazards: {Translat
   end
 
   -- A `;` between table items stops the table, which then ends before it
-  -- with no `}`; the ones after it in that table wait for the next read, when
-  -- the table reaches them.
+  -- with no `}`. The `;` after it that stand between items of the same table,
+  -- up to the first word that begins a block (a `;` there may end a statement),
+  -- are commas too, so a table of data takes one read. The rest of the table
+  -- waits for the next read, when the table reaches it.
+  local commas: {integer: boolean} = {}
+  for _, s in ipairs(semicolons) do
+    local open = stopped[s]
+    if open ~= nil and not commas[s] then
+      commas[s] = true
+      local close = brace_end(tokens, open)
+      local openers: {string} = {}
+      local i = s + 1
+      while i < close do
+        local t = tokens[i]
+        local kind = t.kind
+        if kind == "{" or kind == "(" or kind == "[" then
+          openers[#openers + 1] = kind
+        elseif kind == "}" or kind == ")" or kind == "]" then
+          openers[#openers] = nil
+        elseif kind == "keyword" and BLOCK_WORDS[t.text] then
+          break
+        elseif kind == "$ERR$" and t.text == ";" and (openers[#openers] or "{") == "{" then
+          commas[i] = true
+        end
+        i = i + 1
+      end
+    end
+  end
   local waiting: {{integer}} = {}
   for _, open in ipairs(open_tables) do
     waiting[#waiting + 1] = { open, brace_end(tokens, open) }
@@ -1735,7 +1767,7 @@ local function collect(source: string, parsed: Parser.Parsed, hazards: {Translat
         pending = true
       end
     end
-    if stopped[s] == true then
+    if commas[s] then
       out[#out + 1] = { row = "semicolon", edits = { replace_token(tokens, s, ",") } }
     elseif not pending then
       out[#out + 1] = { row = "semicolon", edits = { delete_with_blanks_before(source, tokens, s) } }

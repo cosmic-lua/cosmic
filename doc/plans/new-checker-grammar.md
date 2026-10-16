@@ -618,9 +618,10 @@ errors are the account of what the translator did not handle.
   block around it holds, before a function ends, ends the body of the
   innermost loop; the label goes with the gotos that reach it. any other
   stays, with its label.
-- **`;` between table items** becomes `,` one at a time, since the parser
-  ends the table at the first; a long comment followed by another long
-  comment or by code stays.
+- **`;` between table items** becomes `,`: the parser ends the table at the
+  first, so the ones after it, up to the first word that begins a block, are
+  changed in the same read, and each after such a word takes a read of its
+  own. a long comment followed by another long comment or by code stays.
 - **the forms left**, pinned by file and code in `translated`: a tuple type
   or cast, `where`, a bare `function` type, a `goto` that is no `continue`, a
   reserved word as a name (the draft renames those first) and a method

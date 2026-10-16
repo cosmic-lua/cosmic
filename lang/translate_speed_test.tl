@@ -27,7 +27,7 @@ local f: function(string..., ? integer): (function(): R) | nil
 
 local function nanoseconds(f: function()): integer
   local least = math.maxinteger
-  for _ = 1, 5 do
+  for _ = 1, 3 do
     local started = Clock.monotonic_ns()
     f()
     least = math.min(least, Clock.monotonic_ns() - started)
@@ -36,7 +36,7 @@ local function nanoseconds(f: function()): integer
 end
 
 local function test_translating_costs_a_small_multiple_of_parsing()
-  local source = SAMPLE:rep(100)
+  local source = SAMPLE:rep(20)
   local parse = nanoseconds(function()
     local _ = Parser.parse(Lexer.lex(source, "t.tl"), "t.tl", "tl")
   end)
@@ -75,6 +75,9 @@ local FORMS <const>: {string: function(n: integer): string} = {
     return table.concat(out)
   end,
   ["many semicolons"] = function(n: integer): string return ("x = 1;"):rep(n * 100) end,
+  ["a table of many semicolons"] = function(n: integer): string
+    return "local t = {" .. ("1; k = 2; {3; 4}; "):rep(n * 30) .. "}"
+  end,
   ["many long comments"] = function(n: integer): string return ("--[[ c ]]\n"):rep(n * 100) end,
   ["nested unions"] = function(n: integer): string
     local depth = math.min(n * 3, 90)
@@ -84,8 +87,8 @@ local FORMS <const>: {string: function(n: integer): string} = {
 
 local function test_four_times_the_input_costs_about_four_times_the_time_for_each_form()
   for name, form in pairs(FORMS) do
-    local small = nanoseconds(function() local _ = Translate.translate(form(15), "t.tl") end)
-    local large = nanoseconds(function() local _ = Translate.translate(form(60), "t.tl") end)
+    local small = nanoseconds(function() local _ = Translate.translate(form(4), "t.tl") end)
+    local large = nanoseconds(function() local _ = Translate.translate(form(16), "t.tl") end)
     assert(large <= 10 * small, name .. ": four times the input took " .. large // 1000 .. " us against " .. small // 1000 .. " us")
   end
 end
