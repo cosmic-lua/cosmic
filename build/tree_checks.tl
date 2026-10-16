@@ -2335,6 +2335,8 @@ local translate_pins: {string: integer} = {
   ["cosmic/sqlite.tl expected_name"] = 2,
   ["lang/ast.tl expected_name"] = 72,
   ["lang/ast.tl expected_token"] = 72,
+  ["lang/types.tl expected_name"] = 6,
+  ["lang/types.tl expected_token"] = 7,
   -- a cast of several values, `as (A, B)`, which the grammar has no type for
   ["core/surface_test.tl unclosed"] = 1,
   ["core/surface_test.tl unexpected_token"] = 1,
@@ -2496,6 +2498,7 @@ local scope_pins: {string: integer} = {
   ["checker/stdlib.d.tl unknown_type"] = 1,
   ["cosmic/removed_example.tl unknown_type"] = 2,
   ["lang/ast.tl unknown_type"] = 72,
+  ["lang/types.tl unknown_type"] = 7,
   -- a cast of several values, `as (A, B)`, which the grammar has no type for: the parser reads `any` as a value
   ["core/surface_test.tl not_a_value"] = 1,
   ["cosmic/stream_test.tl not_a_value"] = 1,
