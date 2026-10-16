@@ -95,6 +95,15 @@ local record compiler
     -- interface), `expected` (the field's type) and `readonly_in`
     -- (`record` or `interface`, the one that declares it read-only)
     "readonly_disagrees"
+    -- a table made without the type of a record with a read-only field, taken
+    -- for that record: `key` (the field, the first when `fields` lists
+    -- several), `subject` (the record) and `variable` (the name the table
+    -- is held by, where it has one)
+    "readonly_literal"
+    -- a table literal checked against a record that leaves out a read-only
+    -- field: `key` (the field, the first when `fields` lists several) and
+    -- `subject` (the record)
+    "readonly_missing"
     "other"
   end
 
