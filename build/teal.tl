@@ -1102,6 +1102,14 @@ local function dropped_hint(e: compiler.Error): string | nil
       cause = what .. " " .. ran .. " at " .. where .. " in this loop may change it before the loop comes round again"
     end
   else
+    local dropped_y, dropped_x = e.dropped_y, e.dropped_x
+    if dropped_y ~= nil and dropped_x ~= nil and
+        (dropped_y > e.y or (dropped_y == e.y and dropped_x > e.x)) then
+      -- The assignment comes after the use: only a later pass of a loop runs it first.
+      return "'" .. place .. "' was checked, but the loop assigns it at " .. where .. ", after this use, " ..
+        "so a later pass reaches the use with what it assigned: copy it to a local at the top of the loop body " ..
+        "(`local " .. place .. " = " .. place .. "`), then check and use that"
+    end
     return "'" .. place .. "' was checked, then assigned at " .. where .. ": the checker narrows nothing after " ..
       "an assignment, so keep the value in a local (`local " .. name .. " = <the value>`, " ..
       place .. " = " .. name .. ") and use that"
@@ -1112,8 +1120,8 @@ local function dropped_hint(e: compiler.Error): string | nil
   return "'" .. place .. "' was checked, but " .. cause .. ": " .. first
 end
 
---- The note on a use of a field or a global that a test of narrowed
---- nothing (an error's `also` is `narrowing_not_local`, see
+--- The note on a use of a field, a global or a captured local that a test of
+--- narrowed nothing (an error's `also` is `narrowing_not_local`, see
 --- [`teal.replacement`]): only a local is narrowed, so the place is copied to
 --- a local, which the test and the use then name. The checker cannot say
 --- whether the use relies on the test, so the note is conditional. The local
@@ -1130,6 +1138,12 @@ local function not_local_note(e: compiler.Error): string | nil
   local field = place:match("%.([%a_][%w_]*)$")
   local name = e.dropped_copy or field or place
   local what = kind == "field" and "a field" or "a global"
+  if kind == "captured" then
+    return "note: the test of '" .. place .. "' at " .. where .. " does not narrow it in this function: the code " ..
+      "around the function assigns '" .. place .. "' after the function is made, and the function may run when " ..
+      "it has changed (in a coroutine, or later). If this use relies on that test, copy it first (`local " ..
+      name .. " = " .. place .. "`) inside the function, then test and use `" .. name .. "`"
+  end
   if by:sub(-6) == " = ..." then
     return "note: the assignment to '" .. place .. "' at " .. where .. " does not narrow it, as " .. what ..
       " is not narrowed by an assignment: only a local is. If this use relies on that assignment, keep the " ..

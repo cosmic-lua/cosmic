@@ -166,9 +166,10 @@ local record tl
       -- When set, `find_var` appends `name=key` for each variable it finds,
       -- so a test can see which binding a name was read as.
       key_trace: {string}
-      -- When set, the checker keeps the shadow facts beside the narrowing it
-      -- decides by, and appends a line `y:x place: shadow T, old U` for each
-      -- read where the two disagree (`TypeChecker:shadow_check`).
+      -- When set, the checker compares the facts it decides by with the
+      -- narrowing on its scopes, which is written beside them and read by
+      -- nothing else, and appends a line `y:x place: shadow T, old U` for each
+      -- read where the two disagree (`TypeChecker:shadow_compare`).
       shadow_mismatches: {string}
       -- How many reads were compared, so that no disagreement can mean none
       -- was looked for.
@@ -266,8 +267,9 @@ local record tl
       "narrowing_dropped"
       -- the note on a use of a field or a global that a test of narrowed
       -- nothing (only a local is narrowed): the error keeps its own code and
-      -- carries this one as `also`, with `dropped_place`, `dropped_kind` (`field`
-      -- or `global`), `dropped_by` (the place, or the assignment as written),
+      -- carries this one as `also`, with `dropped_place`, `dropped_kind` (`field`,
+      -- `global`, or `captured` for a local the code around a function assigns
+      -- after the function is made), `dropped_by` (the place, or the assignment as written),
       -- `dropped_y`, `dropped_x` and `dropped_copy`. It is a note: the use may
       -- not rely on the test
       "narrowing_not_local"
@@ -662,15 +664,6 @@ local record Variable
    -- puts back (`widen_in_scope`).
    widened_from: Type
    is_specialized: Specialization
-   -- On a "narrow" entry a test made (a guard, `assert`) under
-   -- `runtime_checks`: what the test says of the place, that a read
-   -- checks (`TypeChecker:narrowed_fact`). Nil on an entry made by the
-   -- type of a value assigned or declared with, which is left unchecked
-   -- (see the TODO at the read of a variable).
-   test_fact: string
-   -- The type `test_fact` holds of: the entry's `t` when the test made it,
-   -- which anything that widens or hides the entry changes.
-   test_fact_for: Type
    declared_at: Node
    is_func_arg: boolean
    used_as_type: boolean
@@ -692,8 +685,9 @@ local record Variable
    -- one. A `local x = x` is a binding of its own and has a key of its own.
    key: string
    -- The name this binding was declared with, and the type it was declared
-   -- with, which the shadow facts read (`TypeChecker:shadow_check`). Set on
-   -- the entry that declares it, not on the narrowed views of it.
+   -- with, which a read gives where the facts hold none of the binding
+   -- (`TypeChecker:find_var_type`). Set on the entry that declares it, not
+   -- on the narrowed views of it.
    name: string
    declared: Type
 end
@@ -2046,13 +2040,15 @@ local record Node
    -- On an `if` block: where the journal of drops was when its body began.
    journal_mark: integer
    tick_mark: integer
-   -- On an `if` block: the shadow facts when its body began, which a body
+   -- On an `if` block: the facts when its body began, which a body
    -- that never reaches the code after the `if` gives back. On an `if`: the
    -- locals any branch assigned. On a call: whether it stands as a
    -- statement. (`TypeChecker:shadow_close`)
    shadow_mark: Facts.Facts
    shadow_journal: integer
+   shadow_dead: boolean
    shadow_widens: {string:boolean}
+   shadow_widen_whys: {string:Facts.Drop}
    shadow_stmt: boolean
    -- On a read in a loop: whether the facts / the narrowing refuse it for a
    -- fact the loop's body drops; on an `if` block, the tick when its body began.
@@ -7012,12 +7008,12 @@ local function blame_drop(err: Error, w: Where)
    local why = dropped_for(err, w, false)
    if not why then
       why = dropped_for(err, w, true)
-      if why and why.kind ~= "field" and why.kind ~= "global" then
+      if why and why.kind ~= "field" and why.kind ~= "global" and why.kind ~= "captured" then
          why = nil
       end
    end
    if why then
-      local refused = why.kind == "field" or why.kind == "global"
+      local refused = why.kind == "field" or why.kind == "global" or why.kind == "captured"
       if refused then
          err.also = "narrowing_not_local"
       else
@@ -8279,20 +8275,43 @@ do
    local type InvalidOrTupleType = InvalidType | TupleType
 
    -- A read of a fact the facts held at a loop's head, in its body: the
-   -- node, the place and the tick it was made at.
+   -- node, the place and the tick it was made at. `why` is the first drop of
+   -- the fact after the read, set when the loop ends.
    local record ShadowRead
       node: Node
       name: string
       key: string
       tick: integer
+      why: Facts.Drop
    end
 
-   -- A loop the shadow facts are in: the facts at its head, what its body read
+   -- A drop of a fact held at a loop's head: the tick it was met at and what
+   -- dropped it.
+   local record ShadowDrop
+      tick: integer
+      why: Facts.Drop
+   end
+
+   -- What dropped the fact of a place that an assignment then narrowed
+   -- again to `fact`: it names the cause of a refusal while the place has that
+   -- very type.
+   local record Reassigned
+      fact: Type
+      why: Facts.Drop
+   end
+
+   -- What the test that narrowed the place `key` says of it (`Node.rt_fact`).
+   local record TestFact
+      key: string
+      said: string
+   end
+
+   -- A loop being checked: the facts at its head, what its body read
    -- of them, and when its body dropped each key (every drop's tick).
    local record ShadowLoop
       head: Facts.Facts
       reads: {ShadowRead}
-      drops: {string:{integer}}
+      drops: {string:{ShadowDrop}}
    end
 
    -- A disagreement about the type of a read inside a loop, held until the
@@ -8359,15 +8378,22 @@ do
       -- as its value (`local Q = R`): it names the type like `R` does, so a
       -- `function Q.f() end` defines a field rather than writes one.
       type_value_keys: {string:boolean}
-      shadow_host_made: narrowing.Host
-      -- Set by `place_type` when the narrowing holds a fact of a field that
-      -- the shadow facts do not, or the other way about.
-      sh_disagree: boolean
-      -- The shadow facts (checker/facts.tl): what is known of the places at
-      -- the point the walk has reached, kept beside the narrowing on `st`,
-      -- which decides every verdict. Nil where control cannot reach. See
-      -- `shadow_close`.
+      -- What the tests that narrowed a place said of it, by the type each
+      -- gave it: see `keep_test_fact`. Made under `runtime_checks` only.
+      test_facts: {Type:TestFact}
+      -- The assignments that narrowed a place again, by the place's key: see
+      -- `shadow_reassign`.
+      reassigned: {string:Reassigned}
+      -- The facts (checker/facts.tl): what is known of the places at the
+      -- point the walk has reached, which decide the type of every read. The
+      -- narrowing on `st` is written beside them and read by none. Nil where
+      -- control cannot reach. See `shadow_close`.
       facts: Facts.Facts
+      -- Whether control cannot reach the code being checked (after a `return`,
+      -- a `break`, a `goto` or a call that never returns). The code is checked
+      -- as if reached from the point control left: `facts` goes on from the
+      -- facts there (`last_live`) and narrows and drops as it would.
+      dead: boolean
       -- The facts at the last point control reached before a dead one.
       last_live: Facts.Facts
       -- The binding of each key, as `add_var` made it.
@@ -8378,9 +8404,17 @@ do
       sh_depth: integer
       sh_entry: {integer:Facts.Facts}
       sh_assigned: {integer:{string:boolean}}
+      -- What assigned or dropped each of those keys, where it is known: the
+      -- tombstone of the fact the scope's end leaves out.
+      sh_assigned_why: {integer:{string:Facts.Drop}}
       sh_fn: {integer:boolean}
       sh_dirty: {integer:boolean}
       sh_saved: {integer:Facts.Facts}
+      -- Whether `dead` was set, and `last_live`, when a function's body began.
+      sh_saved_dead: {integer:boolean}
+      sh_saved_last: {integer:Facts.Facts}
+      -- The scopes opened where control could not reach.
+      sh_dead: {integer:boolean}
       -- The field paths the scope narrowed itself, which a widening of every
       -- narrowed name (`widen_all_unions`) drops from the innermost scope
       -- only.
@@ -8404,8 +8438,16 @@ do
       -- Set before the `end_scope` of a branch of an `if`, whose widenings
       -- the `if` makes when it ends (`if_widens`) and not the branch.
       sh_deferred: boolean
-      -- The keys assigned in the scope `shadow_close` closed last.
+      -- Whether a key is a binding no code of the file alone assigns, made on
+      -- first use (`shadow_run`).
+      sh_unowned: function(string): boolean
+      -- The keys the last widening of every narrowed name dropped, which a
+      -- function body that follows it is told of.
+      sh_widened: {string}
+      -- The keys assigned in the scope `shadow_close` closed last, and what
+      -- assigned them.
       sh_last_assigned: {string:boolean}
+      sh_last_whys: {string:Facts.Drop}
       -- The lines of `shadow_log` so far, so that none is written twice.
       sh_logged: {string:boolean}
       -- The loops being checked, innermost last; the number of reads and drops
@@ -8427,6 +8469,11 @@ do
       assignments: {Node:{Mark}}
       function_marks: {Node:Mark}
       binder_loops: {Node:{integer}}
+      -- The target of each of the assignments `assignments` lists for a
+      -- binder, in the same order, and the id the loops around an assignment
+      -- name each loop node by.
+      assignment_targets: {Node:{Node}}
+      loop_numbers: {Node:integer}
       -- Set when an index was served by an `__index` metamethod that runs
       -- code, and by `check_metamethod` for the metamethod it found last.
       index_metamethod: boolean
@@ -8456,15 +8503,17 @@ do
       drop_through: function(TypeChecker, Node)
       may_dispatch: function(TypeChecker, Type, ? string): boolean
       may_be_table: function(TypeChecker, Type): boolean
-      note_dropped: function(TypeChecker, Node, string)
+      note_dropped: function(TypeChecker, Node, string, ? string, ? Type)
       guard_before: function(TypeChecker, Node, Node): narrowing.Guard
       droppable: function(TypeChecker, narrowing.Place): boolean
+      captured_unfixed: function(TypeChecker, narrowing.Place): boolean
       narrowable: function(TypeChecker, narrowing.Place): boolean
       refuse_narrowing: function(TypeChecker, narrowing.Place, narrowing.Where, ? string, ? Type)
       copy_name: function(TypeChecker, narrowing.Place): string
       loop_begin: function(TypeChecker)
       check_gotos: function(TypeChecker, Node)
       loop_end: function(TypeChecker)
+      shadow_compare_loop: function(TypeChecker, {ShadowRead})
       record_read: function(TypeChecker, Node, string, ? Type)
       loop_dropped: function(TypeChecker, integer, string, narrowing.Drop)
       loops_forget_since: function(TypeChecker, integer)
@@ -8474,37 +8523,42 @@ do
       written_name: function(TypeChecker, Node): string
       find_assignments: function(TypeChecker, Node)
       local_is_fixed: function(TypeChecker, string, Node): boolean
+      loop_assignment: function(TypeChecker, string, Node): Node
+      assigned_within: function(TypeChecker, string, string, Node): boolean
       declared_around: function(TypeChecker): {string:boolean}
       enter_function_body: function(TypeChecker, Node)
       macroexp_calls: function(TypeChecker, Node): boolean
       var_is_fixed: function(TypeChecker, Variable, Node): boolean
       field_through: function(TypeChecker, Type, narrowing.Place, Where): Type
-      shadow_host: function(TypeChecker): narrowing.Host
       shadow_carry: function(TypeChecker, string, string)
       shadow_key: function(TypeChecker, string): string
-      shadow_open: function(TypeChecker)
       shadow_close: function(TypeChecker)
       shadow_kill: function(TypeChecker)
       shadow_widen: function(TypeChecker, ? Node)
       shadow_run: function(TypeChecker, narrowing.Drop)
       shadow_edge_run: function(TypeChecker, narrowing.Drop)
       shadow_narrow: function(TypeChecker, string, Type)
+      shadow_reassign: function(TypeChecker, string, Type)
       shadow_assigned: function(TypeChecker, narrowing.Place, narrowing.Drop)
-      shadow_assign_local: function(TypeChecker, string)
+      shadow_assign_local: function(TypeChecker, Node)
       shadow_written: function(TypeChecker, string, narrowing.Drop)
       shadow_paths: function(TypeChecker, narrowing.Drop)
       shadow_global: function(TypeChecker, string, narrowing.Drop)
       shadow_globals: function(TypeChecker, narrowing.Drop)
       shadow_enter_function: function(TypeChecker, Node)
       shadow_declared: function(TypeChecker, string): Type
-      shadow_check: function(TypeChecker, Where, string, Type, boolean, boolean, ? Type)
+      shadow_compare: function(TypeChecker, Where, string, Type)
+      shadow_loop_read: function(TypeChecker, Where, string, string, Type)
+      shadow_note: function(TypeChecker, string, narrowing.Drop, ? boolean)
+      keep_test_fact: function(TypeChecker, string, Type, string)
+      test_fact_of: function(TypeChecker, string, Type): string
       shadow_loop_begin: function(TypeChecker)
       shadow_loop_end: function(TypeChecker): {ShadowRead}
       shadow_forget: function(TypeChecker, integer)
       shadow_say: function(TypeChecker, Where, string)
-      shadow_drop: function(TypeChecker, function(Facts.Facts): Facts.Facts)
+      shadow_drop: function(TypeChecker, (function(Facts.Facts): Facts.Facts), narrowing.Drop)
       shadow_undo: function(TypeChecker, integer)
-      shadow_widen_key: function(TypeChecker, string)
+      shadow_widen_key: function(TypeChecker, string, Facts.Drop)
    end
 
    local enum VarUse
@@ -8641,10 +8695,30 @@ do
       return gt
    end
 
-   function TypeChecker:find_var_type(name: string, use?: VarUse): Type, Attribute, Type
+   -- The type a read of `name` gives: the fact the facts hold of the binding
+   -- the name finds, else the type it was declared with. The scopes' narrowed
+   -- views of a binding are not read. `key` and `fact` are the binding's key
+   -- and its fact, for a read in a loop. Where control cannot reach, the facts
+   -- go on from those at the point it left (`dead`).
+   function TypeChecker:find_var_type(name: string, use?: VarUse): Type, Attribute, Type, string, Type
       local var = self:find_var(name, use)
       if var then
          local t = var.t
+         local key = var.key
+         local fact: Type = nil
+         if key and use ~= "lvalue" and use ~= "use_type" then
+            fact = self.facts.t[key] as Type
+            if fact then
+               t = fact
+            elseif var.is_specialized then
+               -- The entry is a narrowed view of the binding: its declared
+               -- type is what the facts leave.
+               local bound = self.bindings[key]
+               if bound then
+                  t = bound.declared
+               end
+            end
+         end
          if t is UnresolvedTypeArgType then
             return nil, nil, t.constraint
          end
@@ -8653,7 +8727,7 @@ do
             t = fresh_typeargs(self, t)
          end
 
-         return t, var.attribute
+         return t, var.attribute, nil, key, fact
       end
    end
 
@@ -9116,9 +9190,7 @@ do
             local made: Variable = { t = fresh_t, key = old.key, name = emptytable.assigned_to, declared = fresh_t }
             scope.vars[emptytable.assigned_to] = made
             if old.key then
-               if self.shadow_log then
-                  self.bindings[old.key] = made
-               end
+               self.bindings[old.key] = made
             end
          end
       end
@@ -9271,11 +9343,7 @@ do
                end
             end
             local made = specialize_var(scope, node, name, t, attribute, specialization, key)
-            if specialization == "widen" or specialization == "localizing" then
-               -- An entry reused from a test keeps no fact of it.
-               made.test_fact = nil
-            end
-            if specialization == "localizing" and self.shadow_log then
+            if specialization == "localizing" then
                -- A binding of its own, declared with the type it was given.
                made.name, made.declared = name, t
                self.bindings[key] = made
@@ -9314,10 +9382,14 @@ do
          end
          var = { t = t, attribute = attribute, declared_at = node, key = tostring(self.binding_count) }
          scope.vars[name] = var
-         if self.shadow_log then
-            var.name, var.declared = name, t
-            self.bindings[var.key] = var
+         -- The scope's entry for the name is now this binding's, not the one a
+         -- test narrowed in the scope: what is listed of that one would hide
+         -- this one from a function literal (`narrowing.enter_function`).
+         if scope.narrows then
+            scope.narrows[name] = nil
          end
+         var.name, var.declared = name, t
+         self.bindings[var.key] = var
 
          return var
       end
@@ -9373,16 +9445,26 @@ do
       end
    end
 
-   -- What is known of a place (checker/narrowing.tl) lives on the scope
-   -- stack under the place's key: a variable narrowed from the one below
-   -- (`add_var` with "narrow"), listed in its scope's `narrows`. Assigning
-   -- a local widens it back to its declared type: `widen_back_var` at the
-   -- assignment; `widen_all_unions` for every narrowed name at the start
-   -- of a function, at a label and at a function value assigned, and for
-   -- the names a loop assigns, at the loop; `widen_all` for the names the
-   -- branches of an `if`, or a scope, widened, when it ends. Assigning a
+   -- What is known of a place (checker/narrowing.tl) is held in `facts`,
+   -- which every read goes by. It is also written to the scope stack under
+   -- the place's key, which no read uses: a variable narrowed from the one
+   -- below (`add_var` with "narrow"), listed in its scope's `narrows`.
+   -- Assigning a local widens it back to its declared type: `widen_back_var`
+   -- at the assignment; `widen_all_unions` for every narrowed name at the
+   -- start of a function, at a label and at a function value assigned, and
+   -- for the names a loop assigns, at the loop; `widen_all` for the names
+   -- the branches of an `if`, or a scope, widened, when it ends. Assigning a
    -- field drops what is known of it before the value is checked
    -- (`narrowing.drop`).
+   --
+   -- TODO: delete the narrowing on the scopes (`specialize_var`,
+   -- `widen_in_scope`, `widen_back_var`, `widen_all`, the `narrows`,
+   -- `widens`, `dropped` and `hidden` of a scope, `record_read`, the
+   -- `Specialization` entries and what `narrowing.tl` keeps for them), which
+   -- only the comparison under `Env.shadow_mismatches` reads, and the
+   -- comparison with them, in the change that follows this one; it waits on
+   -- this change merging. The `shadow_` and `sh_` names of the facts'
+   -- bookkeeping then lose their reason.
    function TypeChecker:widen_in_scope(n: integer, var: string): boolean
       local scope = self.st[n]
       local v = scope.vars[var]
@@ -9391,7 +9473,6 @@ do
       if (specialization == "widen" or specialization == "localizing") and v.widened_from then
          v.t = v.widened_from
          v.widened_from = nil
-         v.test_fact = nil
          if scope.narrows and specialization == "widen" then
             scope.narrows[var] = nil
          end
@@ -9435,7 +9516,6 @@ do
          v.t = v.specialized_from
          v.specialized_from = nil
          v.is_specialized = nil
-         v.test_fact = nil
       else
          scope.vars[var] = nil
       end
@@ -9556,6 +9636,8 @@ do
       local writes: {Node:{Mark}} = {}
       local marks: {Node:Mark} = {}
       local binder_loops: {Node:{integer}} = {}
+      local write_targets: {Node:{Node}} = {}
+      local loop_of: {Node:integer} = {}
       local loop_ids: {integer} = {}
       local scopes: {{string:Node}} = {}
       local scan = { order = 0, loops_made = 0 }
@@ -9567,9 +9649,10 @@ do
          end
          return copy
       end
-      local function loop_open()
+      local function loop_open(node: Node)
          scan.loops_made = scan.loops_made + 1
          table.insert(loop_ids, scan.loops_made)
+         loop_of[node] = scan.loops_made
       end
       local function loop_close()
          table.remove(loop_ids)
@@ -9586,16 +9669,21 @@ do
             binder_loops[node] = loops_now()
          end
       end
-      local function resolve(name: string)
+      local function resolve(target: Node)
+         local name = target.tk
          for i = #scopes, 1, -1 do
             local binder = scopes[i][name]
             if binder then
                local list = writes[binder]
+               local targets = write_targets[binder]
                if not list then
                   list = {}
                   writes[binder] = list
+                  targets = {}
+                  write_targets[binder] = targets
                end
                table.insert(list, { order = tick(), loops = loops_now() })
+               table.insert(targets, target)
                return
             end
          end
@@ -9661,7 +9749,7 @@ do
             end
             for _, v in ipairs(s.vars) do
                if v.kind == "variable" then
-                  resolve(v.tk)
+                  resolve(v)
                else
                   walk_expression(v)
                end
@@ -9682,13 +9770,13 @@ do
                walk_block(block.body)
             end
          elseif kind == "while" then
-            loop_open()
+            loop_open(s)
             walk_expression(s.exp)
             walk_block(s.body)
             loop_close()
          elseif kind == "repeat" then
             -- The condition sees the body's locals.
-            loop_open()
+            loop_open(s)
             table.insert(scopes, {})
             for _, statement in ipairs(s.body) do
                walk_statement(statement)
@@ -9702,7 +9790,7 @@ do
             if s.step then
                walk_expression(s.step)
             end
-            loop_open()
+            loop_open(s)
             table.insert(scopes, {})
             bind(s.var, s.var.tk)
             walk_block(s.body)
@@ -9710,7 +9798,7 @@ do
             loop_close()
          elseif kind == "forin" then
             walk_expression(s.exps)
-            loop_open()
+            loop_open(s)
             table.insert(scopes, {})
             for _, v in ipairs(s.vars) do
                bind(v, v.tk)
@@ -9737,6 +9825,8 @@ do
       self.assignments = writes
       self.function_marks = marks
       self.binder_loops = binder_loops
+      self.assignment_targets = write_targets
+      self.loop_numbers = loop_of
    end
 
    function TypeChecker:widen_back_var(name: string): boolean
@@ -9830,8 +9920,11 @@ do
 
    function TypeChecker:begin_scope(node?: Node)
       table.insert(self.st, { vars = {} })
-      if self.shadow_log then
-         self:shadow_open()
+      local d = self.sh_depth + 1
+      self.sh_depth = d
+      self.sh_entry[d] = self.facts
+      if self.dead then
+         self.sh_dead[d] = true
       end
 
       if self.collector and node then
@@ -9840,15 +9933,13 @@ do
    end
 
    function TypeChecker:end_scope(node?: Node)
-      if self.shadow_log then
-         self:shadow_close()
-      end
+      self:shadow_close()
       local st = self.st
       local scope = st[#st]
 
       -- The `__close` of a `<close>` local runs here, and before a `break`
       -- or `goto` that leaves the block, which the checker visits with the
-      -- drop already made (`drop_close` drops the shadow facts at the jump
+      -- drop already made (`drop_close` drops the facts at the jump
       -- as well).
       if scope.close_var and node then
          self:drop_close(node, scope.close_var)
@@ -9941,9 +10032,7 @@ do
       assert(not scope.pending_nominals)
 
       -- Nothing is narrowed or dropped while a call's parameters are matched.
-      if self.shadow_log then
-         self:shadow_close()
-      end
+      self:shadow_close()
 
       for name, var in pairs(scope.vars) do
          local t = var.t
@@ -10480,8 +10569,7 @@ do
    end
 
    -- The type the place had before a test narrowed it, silently: what the
-   -- scopes know of it, else the field its record declares (`place_type`
-   -- without the shadow facts' bookkeeping).
+   -- facts hold of it, else the field its record declares (`place_type`).
    function TypeChecker:type_before(place: narrowing.Place, w: Where): Type
       local typ = self:find_var_type(place.key, "check_only")
       if typ or #place.fields == 0 then
@@ -10490,14 +10578,28 @@ do
       return self:field_through(self:find_var_type(place.base, "check_only"), place, w)
    end
 
-   -- The fact of the test that narrowed the place already, if its entry
-   -- still holds the type the test gave it.
-   function TypeChecker:prior_fact(key: string): string
-      local var = self:find_var(key, "check_only")
-      if var and var.t == var.test_fact_for then
-         return var.test_fact
+   -- Keeps what the test that narrowed the local `name` to `t` says of it,
+   -- for the reads that `t` is the fact of.
+   function TypeChecker:keep_test_fact(name: string, t: Type, said: string)
+      if said then
+         self.test_facts[t] = { key = self:shadow_key(name), said = said }
+      end
+   end
+
+   -- What the test that gave the place `key` the type `fact` says of it, if
+   -- `fact` is that test's and no other narrowing of the place has replaced it.
+   function TypeChecker:test_fact_of(key: string, fact: Type): string
+      local kept = fact and self.test_facts[fact]
+      if kept and kept.key == key then
+         return kept.said
       end
       return nil
+   end
+
+   -- The fact of the test that narrowed the local `name` already.
+   function TypeChecker:prior_fact(name: string): string
+      local _t, _attribute, _constraint, key, fact = self:find_var_type(name, "check_only")
+      return self:test_fact_of(key, fact)
    end
 
    local function unite(w: Where, types: {Type}, flatten_constants?: boolean): Type
@@ -12782,16 +12884,18 @@ do
       end
    end
 
-   -- Whether `root` assigns a local of that name. A field a loop writes is
-   -- told when the loop ends (`loop_end`), not here.
-   local function assigned_anywhere(name: string, root: Node): boolean
+   -- The last target in `root` that assigns a local of that name, nil if
+   -- there is none. A field a loop writes is told when the loop ends
+   -- (`loop_end`), not here.
+   local function last_assignment(name: string, root: Node): Node
+      local found: {Node} = {}
       local visit_node: Visitor<nil, NodeKind, Node, boolean> = {
          cbs = {
             ["assignment"] = {
                after = function(_: nil, node: Node, _children: {boolean}): boolean
                   for _, v in ipairs(node.vars) do
                      if v.kind == "variable" and v.tk == name then
-                        return true
+                        found[1] = v
                      end
                   end
                   return false
@@ -12817,18 +12921,61 @@ do
          end
       }
 
-      return recurse_node(nil, root, visit_node, visit_type)
+      recurse_node(nil, root, visit_node, visit_type)
+      return found[1]
+   end
+
+   -- The last assignment inside the loop `loop` to the binding of `key`, nil
+   -- if there is none: a local of the same name that the loop declares, or a
+   -- function literal in it declares, is another binding.
+   function TypeChecker:loop_assignment(key: string, loop: Node): Node
+      local var = self.bindings[key]
+      local binder = var and var.declared_at
+      if not binder then
+         return nil
+      end
+      if not self.binders then
+         self:find_assignments(self.root_ast)
+      end
+      local id = self.loop_numbers[loop]
+      local writes = self.assignments[binder]
+      if not id or not writes then
+         return nil
+      end
+      local targets = self.assignment_targets[binder]
+      for i = #writes, 1, -1 do
+         for _, around in ipairs(writes[i].loops) do
+            if around == id then
+               return targets[i]
+            end
+         end
+      end
+      return nil
+   end
+
+   -- Whether `node`, a loop or a function literal, assigns the binding of
+   -- `key`, named `name`. A loop is held to the binding, which the pre-pass
+   -- knows; a binding it does not know, and a function literal, to the name.
+   function TypeChecker:assigned_within(key: string, name: string, node: Node): boolean
+      if not self.binders then
+         self:find_assignments(self.root_ast)
+      end
+      local var = self.bindings[key]
+      if var and var.declared_at and self.loop_numbers[node] then
+         if self.binders[var.declared_at] then
+            return self:loop_assignment(key, node) ~= nil
+         end
+      end
+      return last_assignment(name, node) ~= nil
    end
 
    function TypeChecker:widen_all_unions(node?: Node)
-      if self.shadow_log then
-         self:shadow_widen(node)
-      end
+      self:shadow_widen(node)
       for i = #self.st, 1, -1 do
          local scope = self.st[i]
          if scope.narrows then
             for name, _ in pairs(scope.narrows) do
-               if not node or assigned_anywhere(name, node) then
+               if not node or last_assignment(name, node) ~= nil then
                   self:widen_in_scope(i, name)
                end
             end
@@ -12860,11 +13007,9 @@ do
 
       local var = { t = valtype, attribute = is_const and "const" or nil, key = "g:" .. varname }
       self.st[1].vars[varname] = var
-      if self.shadow_log then
-         local bound = var as Variable
-         bound.name, bound.declared = varname, valtype
-         self.bindings[bound.key] = bound
-      end
+      local bound = var as Variable
+      bound.name, bound.declared = varname, valtype
+      self.bindings[bound.key] = bound
 
       return var
    end
@@ -12981,12 +13126,16 @@ do
    function TypeChecker:end_function_scope(node: Node)
       self.errs:fail_unresolved_labels(self.st[#self.st])
       local hidden = self.st[#self.st].hidden
-      local in_function = self.shadow_log and self.sh_fn[self.sh_depth]
-      local saved = self.shadow_log and self.sh_saved[self.sh_depth] or nil
+      local in_function = self.sh_fn[self.sh_depth]
+      local saved = self.sh_saved[self.sh_depth]
+      local saved_dead = self.sh_saved_dead[self.sh_depth]
+      local saved_last = self.sh_saved_last[self.sh_depth]
       self:end_scope(node)
-      if in_function and self.shadow_log then
+      if in_function then
          -- What the body knew is gone; the facts outside it stand as they were.
          self.facts = saved
+         self.dead = saved_dead
+         self.last_live = saved_last
       end
       if hidden then
          narrowing.leave_function(self.st as {narrowing.Scope}, hidden)
@@ -13079,10 +13228,10 @@ do
    end
 
    -- The type a place has now, even the first time a field is narrowed:
-   -- a local's is whatever the checker already tracks for it
-   -- (find_var_type finds it directly); a field with no narrow recorded
-   -- yet falls back to the field's type as declared on the base local's
-   -- CURRENT type. This must be a SILENT query -- by the time a guard
+   -- a local's is whatever the facts hold of it, else its declared type
+   -- (find_var_type finds it directly); a field falls back to the field's
+   -- type as declared on the base local's CURRENT type. This must be a
+   -- SILENT query -- by the time a guard
    -- composed with another (an `or`, say) is finally applied, the scope
    -- that temporarily narrowed the base local while the guard was built
    -- has already closed, so its current type can be one the field access
@@ -13093,14 +13242,6 @@ do
    -- all just answers nil here, the same as an unknown variable would.
    function TypeChecker:place_type(place: narrowing.Place, w: Where): Type
       local typ = self:find_var_type(place.key, "check_only")
-      local held = self.facts
-      if #place.fields > 0 and held ~= nil and (typ ~= nil or held.paths > 0)
-         and (typ ~= nil) ~= Facts.has(held, self:shadow_key(place.key)) then
-         self.sh_disagree = true
-      end
-      if self.shadow_log and (typ or #place.fields > 0) then
-         self:shadow_check(w, place.key, typ, #place.fields > 0, false)
-      end
       if typ then
          return typ
       end
@@ -13494,59 +13635,13 @@ do
          return host
       end
 
-      -- What evaluating a guard asks of the checker, answered by the shadow
-      -- facts: the type a place has is its fact, else the type it was declared
-      -- with, else the field of its base's. It reports nothing.
-      function TypeChecker:shadow_host(): narrowing.Host
-         local host = self.shadow_host_made
-         if host then
-            return host
-         end
-         local old = narrowing_host(self)
-         host = {
-            type_of = function(place: narrowing.Place, w: narrowing.Where): narrowing.Type
-               local key = self:shadow_key(place.key)
-               local fact = Facts.get(self.facts, key)
-               if fact ~= nil then
-                  return fact as narrowing.Type
-               end
-               local base_key = self:shadow_key(place.base)
-               local base = Facts.get(self.facts, base_key) as Type
-               if base == nil then
-                  base = self:shadow_declared(base_key)
-               end
-               if #place.fields == 0 then
-                  return base as narrowing.Type
-               end
-               return self:field_through(base, place, w as Where) as narrowing.Type
-            end,
-            is_a = old.is_a,
-            unite = old.unite,
-            intersect = old.intersect,
-            subtract = old.subtract,
-            invalid = old.invalid,
-            show = old.show,
-            warn_never = function() end,
-            refuse_never = function() end,
-         }
-         self.shadow_host_made = host
-         return host
-      end
-
       -- Narrows the places `guard` is about, in the scope that is open.
       function TypeChecker:apply_guard(w: Where, guard: narrowing.Guard)
          if not guard then
             return
          end
 
-         self.sh_disagree = false
          local facts = narrowing.evaluate(narrowing_host(self), guard)
-         -- The shadow facts narrow by the narrowing's types where the two
-         -- agree on the places. Where the narrowing holds a fact of a field
-         -- the facts do not (the fact of another variable of the name), they
-         -- narrow by what they know of the places themselves.
-         local disagree = self.sh_disagree
-         local held = disagree and self.facts ~= nil and narrowing.evaluate(self:shadow_host(), guard) or nil
 
          for v, f in pairs(facts) do
             local typ = f.typ as Type
@@ -13566,22 +13661,11 @@ do
                   before = self:type_before(f.place, w)
                   prior = self:prior_fact(v)
                end
-               local made = self:add_var(nil, v, t, "const", "narrow")
-               made.test_fact = self.runtime_checks and self:narrowed_fact(before, t, prior) or nil
-               made.test_fact_for = made.t
+               self:add_var(nil, v, t, "const", "narrow")
                narrowing.renarrowed(self.st as {narrowing.Scope}, v)
-               if not disagree then
-                  if self.shadow_log then
-                     self:shadow_narrow(v, t)
-                  end
-               end
-            end
-         end
-         for v, f in pairs(held or {}) do
-            local typ = f.typ as Type
-            if typ.typename ~= "invalid" and self:narrowable(f.place) then
-               if self.shadow_log then
-                  self:shadow_narrow(v, f.no_infer and typ or self:infer_at(w, typ))
+               self:shadow_narrow(v, t)
+               if self.runtime_checks then
+                  self:keep_test_fact(v, t, self:narrowed_fact(before, t, prior))
                end
             end
          end
@@ -13623,9 +13707,9 @@ do
          self.last_drop, self.last_drop_node, self.last_drop_kind, self.last_drop_text = nil, w, kind, text
          local scopes = self.st as {narrowing.Scope}
          local paths, names = narrowing.narrowed(scopes)
-         -- The shadow facts drop whatever they hold of the places, which the
+         -- The facts drop whatever they hold of the places, which the
          -- narrowing may no longer hold (a new variable of the name dropped it).
-         local held = self.shadow_log ~= nil and self.facts ~= nil and not Facts.is_empty(self.facts)
+         local held = self.facts ~= nil and not Facts.is_empty(self.facts)
          if not paths and not names and not held then
             return
          end
@@ -13636,9 +13720,7 @@ do
          for _, name in ipairs(names or {}) do
             self:drop_global(name, why)
          end
-         if self.shadow_log then
-            self:shadow_run(why)
-         end
+         self:shadow_run(why)
       end
 
       -- The `__close` of the `<close>` local `var` runs where the block
@@ -13652,11 +13734,12 @@ do
          -- the live ones are those at the jump, which the code after an `if`
          -- or a label goes on from. The old narrowing drops here in the text
          -- for the code after them too, so the facts at the jump do as well.
-         if self.shadow_log and self.facts == nil and self.last_live ~= nil then
+         if self.dead and self.last_live ~= nil then
+            local kept = self.facts
             self.facts = self.last_live
             self:shadow_edge_run(narrowing.because("close", var.tk, var.y, var.x))
             self.last_live = self.facts
-            self.facts = nil
+            self.facts = kept
          end
       end
 
@@ -13769,13 +13852,21 @@ do
          return rt is RecordLikeType or is_lua_table_type(rt) or self:may_dispatch(rt)
       end
 
-      -- Records on the node `n`, a read of the place `key`, what dropped
-      -- the narrowing it would have had, for a refusal to tell.
-      function TypeChecker:note_dropped(n: Node, key: string)
-         local why = narrowing.dropped_by(self.st as {narrowing.Scope}, key)
+      -- Records on the node `n`, a read of the place `name`, what dropped
+      -- the fact it would have had, for a refusal to tell. `binding` is the
+      -- key of the binding the name found, where the caller has it.
+      function TypeChecker:note_dropped(n: Node, name: string, binding?: string, fact?: Type)
+         local held = self.facts
+         local why: Facts.Drop = nil
+         if fact ~= nil then
+            local again = self.reassigned[binding]
+            why = again and again.fact == fact and again.why or nil
+         elseif Facts.has_gone(held) then
+            why = Facts.dropped(held, binding or self:shadow_key(name))
+         end
          if why then
             n.dropped = {
-               kind = why.kind, text = why.text, y = why.y, x = why.x, place = key,
+               kind = why.kind, text = why.text, y = why.y, x = why.x, place = name,
                copy = why.copy,
             }
             -- An argument refused is reported at the name of the field.
@@ -13788,8 +13879,7 @@ do
       -- TODO: the drops of field paths and globals (`narrowing.drop_paths`,
       -- `drop_written`, `drop_global`, the paths of `shadow_assigned` and the
       -- loops' reads of them) drop what is never held now. They go with the
-      -- old narrowing, once the reads switch to the facts and the old state is
-      -- deleted (doc/plans/strict-teal-narrowing.md).
+      -- old narrowing, once it is deleted (the TODO at `widen_in_scope`).
 
       -- Whether a test or an assignment narrows `place`: only a local is a
       -- place. A field of a table or a global can be written by code
@@ -13804,7 +13894,33 @@ do
             local var = self.st[i].vars[place.base]
             if var and ((not var.is_specialized) or var.specialized_from or var.is_specialized == "localizing") then
                -- A global's key is "g:" and its name (see `Variable.key`).
-               return var.key == nil or var.key:sub(1, 2) ~= "g:"
+               if var.key ~= nil and var.key:sub(1, 2) == "g:" then
+                  return false
+               end
+               return not self:captured_unfixed(place)
+            end
+         end
+         return false
+      end
+
+      -- Whether the local `place` names is one of the code around the function
+      -- literal being checked that the code around assigns after the literal is
+      -- made. The literal may run, in a coroutine or later, when the local has
+      -- changed, so a test inside it narrows nothing of the local.
+      function TypeChecker:captured_unfixed(place: narrowing.Place): boolean
+         for i = #self.st, 1, -1 do
+            local var = self.st[i].vars[place.base]
+            if var and ((not var.is_specialized) or var.specialized_from or var.is_specialized == "localizing") then
+               if var.key == nil or var.key:sub(1, 2) == "g:" then
+                  return false
+               end
+               for j = i + 1, #self.st do
+                  local body = self.st[j].body
+                  if body then
+                     return not self:var_is_fixed(var, body)
+                  end
+               end
+               return false
             end
          end
          return false
@@ -13934,10 +14050,15 @@ do
                return
             end
          end
-         local kind = #place.fields > 0 and "field" or "global"
+         local kind = "global"
+         if #place.fields > 0 then
+            kind = "field"
+         elseif self:captured_unfixed(place) then
+            kind = "captured"
+         end
          local why = narrowing.because(kind, text or place.key, w.y, w.x)
          why.copy = self:copy_name(place)
-         narrowing.cut(self.st as {narrowing.Scope}, place.key, why)
+         self:shadow_note(place.key, why)
       end
 
       -- The guard of `left`, an operand evaluated before `right`: what it
@@ -13953,13 +14074,12 @@ do
       -- `guard` without what code that has run since may have changed,
       -- remembering in the scope that would have held it what did.
       function TypeChecker:prune(guard: narrowing.Guard): narrowing.Guard
-         local scopes = self.st as {narrowing.Scope}
          local why: narrowing.Drop = nil
          for _, place in ipairs(narrowing.places(guard)) do
             if self:droppable(place) then
                why = why or self:last_dropper()
                if why then
-                  narrowing.cut(scopes, place.key, why)
+                  self:shadow_note(place.key, why)
                end
             end
          end
@@ -13974,9 +14094,7 @@ do
       -- local that an assignment can change after the literal is made.
       function TypeChecker:enter_function_body(node: Node)
          self.st[#self.st].body = node
-         if self.shadow_log then
-            self:shadow_enter_function(node)
-         end
+         self:shadow_enter_function(node)
          narrowing.enter_function(self.st as {narrowing.Scope},
             narrowing.because("function", "function", node.y, node.x),
             function(name: string): boolean
@@ -14141,13 +14259,14 @@ do
          finish(frames[1])
       end
 
-      -- A loop begins: its body is checked once with the facts of the scopes
-      -- outside it, and what it reads of them is held until `loop_end`.
+      -- A loop begins: its body is checked once with the facts at its head,
+      -- and what it reads of them is held until `loop_end`. The narrowing's
+      -- own reads are kept only for the comparison with the facts.
       function TypeChecker:loop_begin()
-         table.insert(self.loops, { depth = #self.st, reads = {}, dropped = {} })
          if self.shadow_log then
-            self:shadow_loop_begin()
+            table.insert(self.loops, { depth = #self.st, reads = {}, dropped = {} })
          end
+         self:shadow_loop_begin()
       end
 
       -- A read of `key` where a fact narrowed outside a loop stood: it is
@@ -14218,53 +14337,60 @@ do
       -- from outside it that came before a drop of that fact is of what the
       -- previous pass left, and is refused.
       function TypeChecker:loop_end()
+         local refused = self:shadow_loop_end()
+         for _, read in ipairs(refused) do
+            local why = read.why as narrowing.Drop
+            local details = Errors.make({
+               code = "narrowing_dropped", dropped_place = read.name, dropped_kind = "loop", dropped_via = why.kind,
+               dropped_by = why.text, dropped_y = why.y, dropped_x = why.x,
+            })
+            local said = ("the loop's previous pass ran %s at %d:%d, which may have changed it")
+               :format(why.text:gsub("%%", "%%%%"), why.y, why.x)
+            if why.kind == "close" then
+               said = ("the loop's previous pass ran the `__close` of `%s` at %d:%d, which may have changed it")
+                  :format(why.text:gsub("%%", "%%%%"), why.y, why.x)
+            elseif why.kind == "binding" then
+               said = ("the binding of %s at %d:%d dropped what was known, " ..
+                  "so the loop cannot carry it to its next pass"):format(why.text:sub(9):gsub("%%", "%%%%"), why.y, why.x)
+            end
+            self.errs:add_coded(read.node, details,
+               ("'%s' was narrowed before this loop, but %s"):format(read.name, said))
+         end
+         if self.shadow_log then
+            self:shadow_compare_loop(refused)
+         end
+      end
+
+      -- The narrowing's refusals at the end of the loop, which the facts must
+      -- have made too, and the type disagreements held for the loops.
+      function TypeChecker:shadow_compare_loop(refused: {ShadowRead})
          local loop = table.remove(self.loops)
-         local refused = self.shadow_log and self:shadow_loop_end() or nil
          for _, read in ipairs(loop.reads) do
-            local events = loop.dropped[read.key]
-            for _, event in ipairs(events or {}) do
+            for _, event in ipairs(loop.dropped[read.key] or {}) do
                if event.clock > read.clock then
-                  local why = event.why
-                  local details = Errors.make({
-                     code = "narrowing_dropped", dropped_place = read.key, dropped_kind = "loop", dropped_via = why.kind,
-                     dropped_by = why.text, dropped_y = why.y, dropped_x = why.x,
-                  })
-                  local said = ("the loop's previous pass ran %s at %d:%d, which may have changed it")
-                     :format(why.text:gsub("%%", "%%%%"), why.y, why.x)
-                  if why.kind == "close" then
-                     said = ("the loop's previous pass ran the `__close` of `%s` at %d:%d, which may have changed it")
-                        :format(why.text:gsub("%%", "%%%%"), why.y, why.x)
-                  elseif why.kind == "binding" then
-                     said = ("the binding of %s at %d:%d dropped what was known, " ..
-                        "so the loop cannot carry it to its next pass"):format(why.text:sub(9):gsub("%%", "%%%%"), why.y, why.x)
-                  end
-                  self.errs:add_coded(read.node as Node, details,
-                     ("'%s' was narrowed before this loop, but %s"):format(read.key, said))
                   local node = read.node as Node
                   node.shadow_old_refused = true
-                  if refused and not node.shadow_refused then
+                  if not node.shadow_refused then
                      self:shadow_say(node, read.key .. ": old refuses the read of a fact the loop drops, the facts do not")
                   end
                   break
                end
             end
          end
-         if refused then
-            for _, read in ipairs(refused) do
-               if not read.node.shadow_old_refused then
-                  self:shadow_say(read.node, read.name .. ": the facts refuse the read of a fact the loop drops, old does not")
+         for _, read in ipairs(refused) do
+            if not read.node.shadow_old_refused then
+               self:shadow_say(read.node, read.name .. ": the facts refuse the read of a fact the loop drops, old does not")
+            end
+         end
+         if #self.sh_loops == 0 then
+            -- The type disagreements of the reads in the loops, but those
+            -- both sides refuse.
+            for _, held in ipairs(self.sh_pending) do
+               if not (held.node.shadow_refused and held.node.shadow_old_refused) then
+                  self:shadow_say(held.node, held.line)
                end
             end
-            if #self.sh_loops == 0 then
-               -- The type disagreements of the reads in the loops, but those
-               -- both sides refuse.
-               for _, held in ipairs(self.sh_pending) do
-                  if not (held.node.shadow_refused and held.node.shadow_old_refused) then
-                     self:shadow_say(held.node, held.line)
-                  end
-               end
-               self.sh_pending = {}
-            end
+            self.sh_pending = {}
          end
       end
 
@@ -14384,8 +14510,8 @@ do
          end
          local scopes = self.st as {narrowing.Scope}
          local paths, names = narrowing.narrowed(scopes)
-         -- Nor does the narrowing's holding nothing mean the shadow facts hold none.
-         local facts_held = self.shadow_log ~= nil and self.facts ~= nil
+         -- Nor does the narrowing's holding nothing mean the facts hold none.
+         local facts_held = self.facts ~= nil
             and (self.facts.paths > 0 or self.facts.globals > 0)
          if not paths and not names and not facts_held then
             return
@@ -14416,9 +14542,7 @@ do
             if paths then
                narrowing.drop_written(scopes, field, why)
             end
-            if self.shadow_log then
-               self:shadow_written(field, why)
-            end
+            self:shadow_written(field, why)
          else
             if paths then
                -- TODO: a write to an index (`t[k] = v`) drops every index
@@ -14430,33 +14554,28 @@ do
                -- every narrowed global below, and waits on the same rule.
                narrowing.drop_paths(scopes, why)
             end
-            if self.shadow_log then
-               self:shadow_paths(why)
-            end
+            self:shadow_paths(why)
          end
          if field then
             self:drop_global(field, why)
-            if self.shadow_log then
-               self:shadow_global(field, why)
-            end
+            self:shadow_global(field, why)
          else
             for _, name in ipairs(names or {}) do
                self:drop_global(name, why)
             end
-            if self.shadow_log then
-               self:shadow_globals(why)
-            end
+            self:shadow_globals(why)
          end
       end
    end
 
-   -- The shadow facts. `self.facts` is what the walk knows of each place at
-   -- the point it has reached, as a value (checker/facts.tl), kept beside
-   -- the narrowing on the scope stack, which still decides every verdict.
-   -- Each place the narrowing changes is changed here at the same step, and
-   -- with `Env.shadow_mismatches` set every read of a place compares the
-   -- type the shadow gives (the fact where one is held, else the type the
-   -- place was declared with) with the one the narrowing gave.
+   -- The facts. `self.facts` is what the walk knows of each place at the
+   -- point it has reached, as a value (checker/facts.tl). A read of a place
+   -- is the fact where one is held, else the type the place was declared
+   -- with (`find_var_type`). The names are those of the comparison that
+   -- brought the facts in: each place the narrowing on the scope stack
+   -- changes is changed here at the same step, so that with
+   -- `Env.shadow_mismatches` set every read compares the type the facts
+   -- give with the one the narrowing would have given.
    --
    -- A scope narrows places for its own length: what it narrows is gone when
    -- it ends, a drop is not, and an assignment widens the place outside it
@@ -14487,12 +14606,6 @@ do
          return key
       end
 
-      function TypeChecker:shadow_open()
-         local d = self.sh_depth + 1
-         self.sh_depth = d
-         self.sh_entry[d] = self.facts
-      end
-
       -- A scope ends. See the comment above.
       function TypeChecker:shadow_close()
          local d = self.sh_depth
@@ -14501,6 +14614,7 @@ do
          end
          local entry = self.sh_entry[d]
          local assigned: {string:boolean} = nil
+         local whys: {string:Facts.Drop} = nil
          local revive = self.sh_revive
          local deferred = self.sh_deferred
          if revive or deferred then
@@ -14509,28 +14623,40 @@ do
          end
          self.sh_depth = d - 1
          self.sh_entry[d] = nil
+         local opened_dead = self.sh_dead[d]
+         if opened_dead then
+            self.sh_dead[d] = nil
+         end
          -- Most scopes keep nothing of their own: only a scope that
          -- narrowed a field, assigned a local or began a function is dirty.
          if self.sh_dirty[d] then
             self.sh_dirty[d] = nil
             assigned = self.sh_assigned[d]
+            whys = self.sh_assigned_why[d]
             self.sh_assigned[d] = nil
+            self.sh_assigned_why[d] = nil
             self.sh_fn[d] = nil
             self.sh_saved[d] = nil
+            self.sh_saved_dead[d] = nil
+            self.sh_saved_last[d] = nil
             self.sh_fields[d] = nil
             self.sh_renarrowed[d] = nil
             self.sh_widen_entry[d] = nil
          end
          self.sh_last_assigned = assigned
+         self.sh_last_whys = whys
          local now = self.facts
-         if now == entry and assigned == nil then
+         -- A scope that ended where control cannot reach, though it began
+         -- where it could, goes on from the facts at the jump; one that began
+         -- dead is all dead code and ends with the facts it has.
+         local jumped = self.dead and not opened_dead
+         local at = now
+         if jumped then
+            at = self.last_live or now
+         end
+         if now == entry and assigned == nil and not (jumped and revive) then
             return
          end
-         if entry == nil then
-            self.facts = nil
-            return
-         end
-         local at = now or self.last_live or entry
          local result = entry
          if at ~= entry then
             local doomed: {string} = nil
@@ -14556,7 +14682,8 @@ do
                end
             end
             for _, key in ipairs(doomed or {}) do
-               result = Facts.without(result, key, Facts.dropped(at, key))
+               local why = Facts.dropped(at, key) or (whys and whys[key])
+               result = Facts.without(result, key, why)
                if assigned ~= nil and assigned[key] and d > 1 then
                   -- The scope outside widened it too.
                   local outer = self.sh_assigned[d - 1]
@@ -14566,55 +14693,74 @@ do
                      self.sh_dirty[d - 1] = true
                   end
                   outer[key] = true
+                  if why then
+                     self.sh_assigned_why[d - 1] = self.sh_assigned_why[d - 1] or {}
+                     self.sh_assigned_why[d - 1][key] = why
+                  end
                end
             end
          end
-         if now == nil and not revive then
-            result = nil
+         if jumped and revive then
+            self.dead = false
          end
          self.facts = result
       end
 
-      -- Control cannot reach the code that follows.
+      -- Control cannot reach the code that follows, which is checked from the
+      -- facts here.
       function TypeChecker:shadow_kill()
-         local now = self.facts
-         if now ~= nil then
-            self.last_live = now
-            self.facts = nil
+         if not self.dead then
+            self.last_live = self.facts
+            self.dead = true
          end
       end
 
       -- Narrows the place named `name` to `t`.
       function TypeChecker:shadow_narrow(name: string, t: Type)
-         if self.facts ~= nil then
-            self.facts = Facts.with(self.facts, self:shadow_key(name), t as Facts.Type)
-            local widened_here = self.sh_widen_entry[self.sh_depth]
-            if not name:find(".", 1, true) and widened_here ~= nil and widened_here[self:shadow_key(name)] then
-               local d = self.sh_depth
-               local again = self.sh_renarrowed[d]
-               if not again then
-                  again = {}
-                  self.sh_renarrowed[d] = again
-                  self.sh_dirty[d] = true
-               end
-               again[self:shadow_key(name)] = true
+         local key = self:shadow_key(name)
+         self.facts = Facts.with(self.facts, key, t as Facts.Type)
+         local d = self.sh_depth
+         local is_path = name:find(".", 1, true) ~= nil
+         local widened_here = self.sh_widen_entry[d]
+         if not is_path and widened_here ~= nil and widened_here[key] then
+            local again = self.sh_renarrowed[d]
+            if not again then
+               again = {}
+               self.sh_renarrowed[d] = again
+               self.sh_dirty[d] = true
             end
-            if name:find(".", 1, true) then
-               local d = self.sh_depth
-               local fields = self.sh_fields[d]
-               if not fields then
-                  fields = {}
-                  self.sh_fields[d] = fields
-                  self.sh_dirty[d] = true
-               end
-               fields[self:shadow_key(name)] = true
+            again[key] = true
+         end
+         if is_path then
+            local fields = self.sh_fields[d]
+            if not fields then
+               fields = {}
+               self.sh_fields[d] = fields
+               self.sh_dirty[d] = true
             end
+            fields[key] = true
+         end
+      end
+
+      -- The assignment of a value of type `t` to the local `name` narrows it to
+      -- `t`, which takes its tombstone away. A refusal while the local has that
+      -- type still names what dropped the fact the assignment replaced.
+      function TypeChecker:shadow_reassign(name: string, t: Type)
+         local f = self.facts
+         if f == nil then
+            return
+         end
+         local key = self:shadow_key(name)
+         local why = Facts.dropped(f, key)
+         self:shadow_narrow(name, t)
+         if why then
+            self.reassigned[key] = { fact = t, why = why }
          end
       end
 
       -- Says that the innermost scope widened the place of `key`, which the
       -- scope outside is told if the place has another type when it ends.
-      local function mark_widened(self: TypeChecker, key: string)
+      local function mark_widened(self: TypeChecker, key: string, why: Facts.Drop)
          local d = self.sh_depth
          local began = self.sh_entry[d]
          local own_entry = began ~= nil and Facts.has(began, key)
@@ -14641,6 +14787,14 @@ do
             self.sh_dirty[d] = true
          end
          assigned[key] = true
+         if why then
+            local whys = self.sh_assigned_why[d]
+            if not whys then
+               whys = {}
+               self.sh_assigned_why[d] = whys
+            end
+            whys[key] = why
+         end
          if own_entry then
             local own = self.sh_widen_entry[d]
             if not own then
@@ -14654,28 +14808,28 @@ do
 
       -- The widening an `if` makes of a local one of its branches assigned:
       -- the scope it is in is told, as it is of an assignment.
-      function TypeChecker:shadow_widen_key(key: string)
+      function TypeChecker:shadow_widen_key(key: string, why: Facts.Drop)
          if self.facts ~= nil and Facts.has(self.facts, key) then
-            mark_widened(self, key)
-            self.facts = Facts.without(self.facts, key, no_why)
+            mark_widened(self, key, why)
+            self.facts = Facts.without(self.facts, key, why)
          end
       end
 
-      -- Says that a fact of `key` was dropped by code that ran, for the loops
-      -- that held it at their head.
-      local function lost(self: TypeChecker, key: string)
+      -- Says that a fact of `key` was dropped by `why`, for the loops that
+      -- held it at their head.
+      local function lost(self: TypeChecker, key: string, why: Facts.Drop)
          if #self.sh_loops == 0 then
             return
          end
          self.sh_tick = self.sh_tick + 1
          for _, loop in ipairs(self.sh_loops) do
             if Facts.has(loop.head, key) then
-               local ticks = loop.drops[key]
-               if not ticks then
-                  ticks = {}
-                  loop.drops[key] = ticks
+               local drops = loop.drops[key]
+               if not drops then
+                  drops = {}
+                  loop.drops[key] = drops
                end
-               ticks[#ticks + 1] = self.sh_tick
+               drops[#drops + 1] = { tick = self.sh_tick, why = why }
             end
          end
       end
@@ -14694,7 +14848,15 @@ do
 
       -- `widen_all_unions`: every local the narrowing widens, those `node`
       -- assigns when it is given.
+      --
+      -- TODO: tell a use the declaration that widened its place: a function
+      -- declaration widens every narrowed name, and a use after an assignment
+      -- that follows it is refused with no cause. It waits on a wording in
+      -- build/teal.tl's `dropped_hint` for a declaration that widens, and on
+      -- the new checker's declarations keeping the facts of the locals nothing
+      -- assigns, which makes the widening go.
       function TypeChecker:shadow_widen(node?: Node)
+         self.sh_widened = nil
          local f = self.facts
          if f == nil or Facts.is_empty(f) then
             return
@@ -14725,12 +14887,25 @@ do
             end
             local var = self.bindings[key]
             local name = var and var.name or key:sub(3)
-            return assigned_anywhere(name, node)
+            return self:assigned_within(key, name, node)
          end)
          for _, key in ipairs(doomed or {}) do
-            f = Facts.without(f, key, no_why)
-            mark_widened(self, key)
+            -- A loop that assigns the name drops what is known of it, and says
+            -- which assignment. A function literal's own locals of the name
+            -- are no assignment to this one.
+            local why = no_why
+            if node and node.kind ~= "function" and node.kind ~= "macroexp" then
+               local var = self.bindings[key]
+               local name = var and var.name or key:sub(3)
+               local at = self:loop_assignment(key, node)
+               if at then
+                  why = narrowing.because("assignment", name .. " = ...", at.y, at.x) as Facts.Drop
+               end
+            end
+            f = Facts.without(f, key, why)
+            mark_widened(self, key, no_why)
          end
+         self.sh_widened = doomed
          self.facts = f
       end
 
@@ -14750,7 +14925,7 @@ do
       -- Drops from the facts, and from the facts every scope outside began
       -- with, what `drop` removes: the narrowing drops from every scope. The
       -- scopes' old facts are journaled (`shadow_undo`).
-      function TypeChecker:shadow_drop(drop: function(Facts.Facts): Facts.Facts)
+      function TypeChecker:shadow_drop(drop: (function(Facts.Facts): Facts.Facts), why: narrowing.Drop)
          local now = self.facts
          if now == nil then
             return
@@ -14763,7 +14938,7 @@ do
          if #self.sh_loops > 0 then
             for key in pairs(now.t) do
                if not Facts.has(after, key) then
-                  lost(self, key)
+                  lost(self, key, why as Facts.Drop)
                end
             end
          end
@@ -14808,16 +14983,17 @@ do
       -- drops a path.
       local function widen_names(self: TypeChecker, wanted: function(string): boolean, why: Facts.Drop)
          local f = self.facts
-         if f == nil then
-            return
+         local doomed: {string} = nil
+         for key in pairs(f.t) do
+            if not key:find(".", 1, true) and wanted(key) then
+               doomed = doomed or {}
+               doomed[#doomed + 1] = key
+            end
          end
-         local doomed = keys_where(f, function(key: string): boolean
-            return not key:find(".", 1, true) and wanted(key)
-         end)
          for _, key in ipairs(doomed or {}) do
-            mark_widened(self, key)
+            mark_widened(self, key, why)
             f = Facts.without(f, key, why)
-            lost(self, key)
+            lost(self, key, why)
          end
          self.facts = f
       end
@@ -14830,12 +15006,19 @@ do
             return
          end
          local d = why as Facts.Drop
-         self:shadow_drop(function(held: Facts.Facts): Facts.Facts
-            return Facts.without_paths(held, d)
-         end)
-         widen_names(self, function(key: string): boolean
-            return unowned(self, key)
-         end, d)
+         if f.paths > 0 then
+            self:shadow_drop(function(held: Facts.Facts): Facts.Facts
+               return Facts.without_paths(held, d)
+            end, why)
+         end
+         local wanted = self.sh_unowned
+         if not wanted then
+            wanted = function(key: string): boolean
+               return unowned(self, key)
+            end
+            self.sh_unowned = wanted
+         end
+         widen_names(self, wanted, d)
       end
 
       -- The facts lose what `shadow_run` drops, and nothing else: the scopes'
@@ -14862,7 +15045,7 @@ do
          local d = why as Facts.Drop
          self:shadow_drop(function(held: Facts.Facts): Facts.Facts
             return Facts.without_paths(held, d)
-         end)
+         end, why)
       end
 
       -- A write through the name of the global `name` (a field of `_G`): what is
@@ -14886,7 +15069,7 @@ do
                out = Facts.without(out, name_held, d)
             end
             return out
-         end)
+         end, why)
          widen_names(self, function(held: string): boolean
             return held == key
          end, d)
@@ -14911,7 +15094,7 @@ do
                out = Facts.without(out, name_held, d)
             end
             return out
-         end)
+         end, why)
          widen_names(self, owned_global, d)
       end
 
@@ -14925,7 +15108,7 @@ do
          if not name:find(".", 1, true) then
             self:shadow_drop(function(held: Facts.Facts): Facts.Facts
                return Facts.without_field(held, name, d)
-            end)
+            end, why)
             return
          end
          -- A name with a dot is a key of several fields; it drops the paths that hold it.
@@ -14939,7 +15122,7 @@ do
                out = Facts.without(out, key, d)
             end
             return out
-         end)
+         end, why)
       end
 
       -- An assignment to `assigned` begins: what is known under its key
@@ -14965,23 +15148,47 @@ do
                out = Facts.without(out, name, d)
             end
             return out
-         end)
+         end, why)
       end
 
-      -- The local `name` is assigned: what is known of it is gone, and the
-      -- scope outside is told if it held a fact.
-      function TypeChecker:shadow_assign_local(name: string)
+      -- The local `target` is assigned: what is known of it is gone, and the
+      -- scope outside is told if it held a fact. A place that lost its fact
+      -- is told its assignment instead of what dropped it.
+      function TypeChecker:shadow_assign_local(target: Node)
          local f = self.facts
-         if f == nil or Facts.is_empty(f) then
+         if f == nil or (Facts.is_empty(f) and not Facts.has_gone(f)) then
+            return
+         end
+         local key = self:shadow_key(target.tk)
+         local held = Facts.has(f, key)
+         if not held and Facts.dropped(f, key) == nil then
+            return
+         end
+         local why = narrowing.because("assignment", target.tk .. " = ...", target.y, target.x) as Facts.Drop
+         if not held then
+            -- What dropped the fact earlier is the assignment from here on.
+            self.facts = Facts.note(f, key, why)
+            return
+         end
+         mark_widened(self, key, why)
+         self.facts = Facts.without(f, key, why)
+         lost(self, key, why)
+      end
+
+      -- `why` is what removed the fact of the place named `name` that a test
+      -- would have given: a test that narrowed nothing, or a guard cut before
+      -- it was applied. With `replace`, only a place that has such a record
+      -- already takes the new one.
+      function TypeChecker:shadow_note(name: string, why: narrowing.Drop, replace?: boolean)
+         local f = self.facts
+         if f == nil or (replace and not Facts.has_gone(f)) then
             return
          end
          local key = self:shadow_key(name)
-         if not Facts.has(f, key) then
+         if replace and Facts.dropped(f, key) == nil then
             return
          end
-         mark_widened(self, key)
-         self.facts = Facts.without(f, key, no_why)
-         lost(self, key)
+         self.facts = Facts.note(f, key, why as Facts.Drop)
       end
 
       -- A function literal's body begins: its facts are those of the places
@@ -14991,29 +15198,41 @@ do
          local f = self.facts
          self.sh_fn[d] = true
          self.sh_saved[d] = f
+         self.sh_saved_dead[d] = self.dead
+         self.sh_saved_last[d] = self.last_live
          self.sh_dirty[d] = true
-         if f == nil then
-            return
-         end
-         self.facts = Facts.for_body(f, function(key: string): boolean
+         -- The body is checked as reached from its entry, whether or not the
+         -- code that makes the function is.
+         self.dead = false
+         local function fixed(key: string): boolean
             local var = self.bindings[key]
             return var ~= nil and self:var_is_fixed(var, node)
-         end, narrowing.because("function", "function", node.y, node.x) as Facts.Drop)
+         end
+         local why = narrowing.because("function", "function", node.y, node.x) as Facts.Drop
+         local body = Facts.for_body(f, fixed, why)
+         -- The declaration widened the names it did (`widen_all_unions`), which
+         -- the body would otherwise find with nothing to say what dropped them.
+         for _, key in ipairs(self.sh_widened or {}) do
+            if not fixed(key) then
+               body = Facts.note(body, key, why)
+            end
+         end
+         self.facts = body
       end
 
-      -- `local x = x` makes a variable of the same value: what is known of
-      -- the fields of `from` is known of those of `to`.
+      -- `local x = x` makes a variable of the same value: what a test of a
+      -- field of `from` left, a refusal to narrow it, is told of the fields of
+      -- `to`.
       function TypeChecker:shadow_carry(from: string, to: string)
          local f = self.facts
-         if f == nil or f.paths == 0 then
+         if not Facts.has_gone(f) then
             return
          end
          local prefix = from .. "."
-         local found = keys_where(f, function(key: string): boolean
-            return key:sub(1, #prefix) == prefix
-         end)
-         for _, key in ipairs(found or {}) do
-            f = Facts.with(f, to .. key:sub(#from + 1), Facts.get(f, key))
+         for key, why in pairs(f.gone) do
+            if key:sub(1, #prefix) == prefix then
+               f = Facts.note(f, to .. key:sub(#from + 1), why)
+            end
          end
          self.facts = f
       end
@@ -15033,31 +15252,36 @@ do
          table.insert(self.sh_loops, { head = self.facts, reads = {}, drops = {} })
       end
 
-      -- A read in a loop of the fact `fact`, which tells more than `declared`:
-      -- held for each loop that had it at its head.
-      local function read_in_loops(self: TypeChecker, w: Where, name: string, key: string,
-                                   fact: Type, declared: Type)
-         if #self.sh_loops == 0 or (declared ~= nil and self:same_narrowing(fact, declared)) then
+      -- A read in a loop of the fact `fact` of the binding `key`, which tells
+      -- more than the type the binding was declared with: held for each loop
+      -- that had it at its head.
+      function TypeChecker:shadow_loop_read(w: Where, name: string, key: string, fact: Type)
+         if self.dead then
+            return
+         end
+         local declared = self:shadow_declared(key)
+         if declared ~= nil and self:same_narrowing(fact, declared) then
             return
          end
          self.sh_tick = self.sh_tick + 1
          for _, loop in ipairs(self.sh_loops) do
             if Facts.get(loop.head, key) == fact as Facts.Type then
-               table.insert(loop.reads, { node = w as Node, name = name, key = key, tick = self.sh_tick })
+               table.insert(loop.reads, { node = w as Node, name = name, key = key, tick = self.sh_tick, why = no_why })
             end
          end
       end
 
       -- A loop ends: the reads whose fact the body dropped afterwards, which the
-      -- next pass would read dropped, are refused (marked on their nodes) and
-      -- returned.
+      -- next pass would read dropped, are refused (marked on their nodes, with
+      -- the drop that the refusal names) and returned.
       function TypeChecker:shadow_loop_end(): {ShadowRead}
          local loop = table.remove(self.sh_loops)
          local refused: {ShadowRead} = {}
          for _, read in ipairs(loop.reads) do
-            for _, tick in ipairs(loop.drops[read.key] or {}) do
-               if tick > read.tick then
+            for _, drop in ipairs(loop.drops[read.key] or {}) do
+               if drop.tick > read.tick then
                   read.node.shadow_refused = true
+                  read.why = drop.why
                   refused[#refused + 1] = read
                   break
                end
@@ -15074,10 +15298,10 @@ do
                   table.remove(loop.reads, i)
                end
             end
-            for _, ticks in pairs(loop.drops) do
-               for i = #ticks, 1, -1 do
-                  if ticks[i] > tick then
-                     table.remove(ticks, i)
+            for _, drops in pairs(loop.drops) do
+               for i = #drops, 1, -1 do
+                  if drops[i].tick > tick then
+                     table.remove(drops, i)
                   end
                end
             end
@@ -15094,33 +15318,24 @@ do
          return var and var.declared
       end
 
-      -- A read of the place named `name`, where the narrowing gave `old` (nil
-      -- for a field it holds no fact of): the shadow must give its type.
-      function TypeChecker:shadow_check(w: Where, name: string, old: Type, is_field: boolean, counted: boolean, field_declared?: Type)
-         local log = self.shadow_log
-         local f = self.facts
-         if log == nil or f == nil then
+      -- Counts a read the facts decided, for the comparison with the narrowing
+      -- (`Env.shadow_reads`); a field read is counted apart.
+      function TypeChecker:shadow_count(is_field: boolean)
+         self.env.shadow_reads = (self.env.shadow_reads or 0) + 1
+         if is_field then
+            self.env.shadow_field_reads = (self.env.shadow_field_reads or 0) + 1
+         end
+      end
+
+      -- A read of the local named `name` gave `new`, from the facts: the
+      -- narrowing, which no longer decides, must have given its type.
+      function TypeChecker:shadow_compare(w: Where, name: string, new: Type)
+         if self.shadow_log == nil or self.dead then
             return
          end
-         -- A read is counted where it is made; the test of a guard that asks the
-         -- type of a place again (`place_type`) compares it but does not count it.
-         if counted then
-            self.env.shadow_reads = (self.env.shadow_reads or 0) + 1
-            if is_field then
-               self.env.shadow_field_reads = (self.env.shadow_field_reads or 0) + 1
-            end
-         end
-         local key = self:shadow_key(name)
-         local new = Facts.get(f, key) as Type
-         if counted and new ~= nil and #self.sh_loops > 0 then
-            read_in_loops(self, w, name, key, new, is_field and field_declared or self:shadow_declared(key))
-         end
-         if new == nil and not is_field then
-            new = self:shadow_declared(key)
-            if new == nil then
-               return
-            end
-         end
+         self:shadow_count(false)
+         local bound = self:find_var(name, "check_only")
+         local old = bound and bound.t
          -- Each read of a generic gets fresh type variables (`find_var_type`:
          -- `T@12`, `T@13`), so two reads of one variable are not the same type
          -- to `same_type`. They agree if they show alike with the numbers
@@ -16765,8 +16980,8 @@ do
                break
             end
          end
-         if self.shadow_log then
-            self:shadow_assign_local(varname)
+         if varnode.kind == "variable" then
+            self:shadow_assign_local(varnode)
          end
          if self:widen_back_var(varname) then
             vartype, attr = self:find_var_type(varname)
@@ -16818,11 +17033,9 @@ do
       ["statements"] = {
          before = function(self: TypeChecker, node: Node)
             self:begin_scope(node)
-            if self.shadow_log then
-               for _, statement in ipairs(node) do
-                  if statement.kind == "op" then
-                     statement.shadow_stmt = true
-                  end
+            for _, statement in ipairs(node) do
+               if statement.kind == "op" then
+                  statement.shadow_stmt = true
                end
             end
          end,
@@ -16935,7 +17148,7 @@ do
                local value_type = value_var and value_var.t and self:to_structural(value_var.t)
                local type_value = value_type and value_type is TypeDeclType or (value_var and self.type_value_keys[value_var.key])
                local localizing = is_localizing_a_variable(node, i)
-               local from = localizing and self.shadow_log and self:shadow_key(var.tk)
+               local from = localizing and self:shadow_key(var.tk)
                local declared = self:add_var(var, var.tk, t, var.attribute, localizing and "localizing")
                declared.is_loop_control = false
                if type_value then
@@ -16963,10 +17176,8 @@ do
                      and not self:same_type(t, infertype)
                   then
                      t = self:infer_at(w, infertype)
-                     self:add_var(w, var.tk, t, "const", "narrowed_declaration").test_fact = nil
-                     if self.shadow_log then
-                        self:shadow_narrow(var.tk, t)
-                     end
+                     self:add_var(w, var.tk, t, "const", "narrowed_declaration")
+                     self:shadow_narrow(var.tk, t)
                   end
                end
 
@@ -17022,14 +17233,12 @@ do
                      narrowing.note(scopes, assigned.key, why)
                   end
                   narrowing.drop(scopes, assigned, why)
-                  if not self:narrowable(assigned) and narrowing.dropped_by(scopes, assigned.key) then
+                  if not self:narrowable(assigned) then
                      -- A test of the place narrowed nothing, and now it is
                      -- assigned: that is what a later refusal names.
-                     narrowing.cut(scopes, assigned.key, why)
+                     self:shadow_note(assigned.key, why, true)
                   end
-                  if self.shadow_log then
-                     self:shadow_assigned(assigned, why)
-                  end
+                  self:shadow_assigned(assigned, why)
                end
             end
          end,
@@ -17070,10 +17279,8 @@ do
                      -- narrow unions and interfaces
                      local assigned = narrowing.local_place(varname)
                      if self:narrowable(assigned) then
-                        self:add_var(varnode, varname, valtype, nil, "narrow").test_fact = nil
-                        if self.shadow_log then
-                           self:shadow_narrow(varname, valtype)
-                        end
+                        self:add_var(varnode, varname, valtype, nil, "narrow")
+                        self:shadow_reassign(varname, valtype)
                      else
                         self:refuse_narrowing(assigned, varnode, varname .. " = ...", valtype)
                      end
@@ -17121,10 +17328,9 @@ do
             -- A local any branch assigned, whatever it ended with.
             local assigned = node.shadow_widens
             if assigned then
+               local whys = node.shadow_widen_whys
                for key in pairs(assigned) do
-                  if self.shadow_log then
-                     self:shadow_widen_key(key)
-                  end
+                  self:shadow_widen_key(key, whys[key])
                end
             end
 
@@ -17158,11 +17364,10 @@ do
          before_statements = function(self: TypeChecker, node: Node)
             -- What the condition left, before the test narrows: the body's
             -- narrowing is its own, a drop of the body's is undone with it.
-            if self.shadow_log then
-               node.shadow_mark = self.facts
-               node.shadow_journal = self.sh_j_n
-               node.shadow_tick = self.sh_tick
-            end
+            node.shadow_mark = self.facts
+            node.shadow_dead = self.dead
+            node.shadow_journal = self.sh_j_n
+            node.shadow_tick = self.sh_tick
             if node.exp then
                self:apply_guard(node.exp, node.exp.guard)
             end
@@ -17178,11 +17383,10 @@ do
             if node.journal_mark and flow.leaves_body(node.body as flow.Node) then
                narrowing.undo(self.st as {narrowing.Scope}, node.journal_mark)
                self:loops_forget_since(node.tick_mark)
-               if self.shadow_log then
-                  self.facts = node.shadow_mark
-                  self:shadow_undo(node.shadow_journal)
-                  self:shadow_forget(node.shadow_tick)
-               end
+               self.facts = node.shadow_mark
+               self.dead = node.shadow_dead
+               self:shadow_undo(node.shadow_journal)
+               self:shadow_forget(node.shadow_tick)
             end
 
             -- Control goes on past the `if` by the other branches.
@@ -17193,10 +17397,16 @@ do
             if assigned then
                local parent = node.if_parent
                local widens = parent.shadow_widens or {}
+               local whys = parent.shadow_widen_whys or {}
+               local assigners = self.sh_last_whys
                for key in pairs(assigned) do
                   widens[key] = true
+                  if assigners and assigners[key] then
+                     whys[key] = assigners[key]
+                  end
                end
                parent.shadow_widens = widens
+               parent.shadow_widen_whys = whys
             end
 
             return NONE
@@ -17226,8 +17436,9 @@ do
             -- A label is reached by the gotos before it. The narrowing keeps the
             -- state outside their branches, which is what the facts at the last
             -- live point are, so the facts continue from there.
-            if self.shadow_log and self.facts == nil then
+            if self.dead then
                self.facts = self.last_live
+               self.dead = false
             end
             local label_id = node.label
             do
@@ -17263,9 +17474,7 @@ do
                   break
                end
             end
-            if self.shadow_log then
-               self:shadow_kill()
-            end
+            self:shadow_kill()
 
             if not found_label then
                local scope = self.st[#self.st]
@@ -17423,9 +17632,7 @@ do
             end
          end,
          after = function(self: TypeChecker, node: Node, children: {Type}): Type
-            if self.shadow_log then
-               self:shadow_kill()
-            end
+            self:shadow_kill()
             local got = children[1]
             assert(got is TupleType)
             local got_t = got.tuple
@@ -18363,9 +18570,7 @@ do
                   self:drop_all(node, "call")
                end
                if node.shadow_stmt and flow.ends(node as flow.Node) then
-                  if self.shadow_log then
-                     self:shadow_kill()
-                  end
+                  self:shadow_kill()
                end
                return t
 
@@ -18419,30 +18624,17 @@ do
                   self:drop_all(node, "operator", "." .. node.e2.tk .. " served by __index")
                end
 
-               -- A prior narrow recorded for this field is read back
-               -- here, which is what lets a chain like `o.sub.x` see a
-               -- narrow recorded on `o.sub` through `o.sub`'s own
-               -- return value. A truthy read here (`if x.field then`,
-               -- or any other read in a boolean context) then sets the
-               -- fact for reads that follow; `==`/`~=` nil and `assert`
-               -- set it at their own call sites, keyed the same way.
+               -- A field is no place, so a read of one is of the type it was
+               -- declared with. A read in a boolean context (`if x.field
+               -- then`) gives the guard of the test, which is refused
+               -- (`refuse_narrowing`); `note_dropped` tells a later read of
+               -- the field that it was.
                local field_place = place_of(node)
                if field_place then
-                  local narrowed = self:find_var_type(field_place.key, "check_only")
                   if self.shadow_log then
-                     self:shadow_check(node, field_place.key, narrowed, true, true, t)
+                     self:shadow_count(true)
                   end
-                  if self.runtime_checks then
-                     local entry = not node.is_lvalue and narrowed and self:find_var(field_place.key, "check_only") or nil
-                     local fact = entry and entry.t == entry.test_fact_for and entry.test_fact or nil
-                     node.rt_fact = fact and (node.e1.tk .. "." .. node.e2.tk .. ";" .. fact) or nil
-                  end
-                  if narrowed then
-                     if #self.loops > 0 and not node.is_lvalue then
-                        self:record_read(node, field_place.key, t)
-                     end
-                     t = narrowed
-                  elseif not node.is_lvalue then
+                  if not node.is_lvalue then
                      self:note_dropped(node, field_place.key)
                   end
                   node.field_type = t
@@ -18928,12 +19120,15 @@ do
             end
 
             local t: Type
+            local key: string = nil
+            local fact: Type = nil
             if node.tk == "_G" then
                t, node.attribute = self:simulate_g()
                t.f, t.x, t.y = node.f, node.x, node.y
             else
                local use: VarUse = node.is_lvalue and "lvalue" or "use"
-               t, node.attribute = self:find_var_type(node.tk, use)
+               local _constraint: Type = nil
+               t, node.attribute, _constraint, key, fact = self:find_var_type(node.tk, use)
             end
             if not t then
                if self.feat_lax then
@@ -18944,8 +19139,13 @@ do
                return self.errs:invalid_coded(node, Errors.make({ code = "unknown_variable", variable = node.tk }), "unknown variable: " .. node.tk)
             end
 
-            if self.shadow_log and not node.is_lvalue and node.tk ~= "_G" and node.tk ~= "..." then
-               self:shadow_check(node, node.tk, t, false, true)
+            if not node.is_lvalue and node.tk ~= "_G" and node.tk ~= "..." then
+               if fact ~= nil and #self.sh_loops > 0 then
+                  self:shadow_loop_read(node, node.tk, key, fact)
+               end
+               if self.shadow_log then
+                  self:shadow_compare(node, node.tk, t)
+               end
             end
 
             if self.runtime_checks and not node.is_lvalue and node.tk ~= "_G" and node.tk ~= "..." then
@@ -18957,9 +19157,8 @@ do
                -- (doc/roadmap.md's nil item): until then such a type holds nil
                -- where it does not say so, and the check fails on code the checker
                -- accepts by design (an optional parameter `opts?: T` is a `T`).
-               local var = self:find_var(node.tk, "check_only")
-               local fact = var and var.t == var.test_fact_for and var.test_fact or nil
-               node.rt_fact = fact and (node.tk .. ";" .. fact) or nil
+               local said = self:test_fact_of(key, fact)
+               node.rt_fact = said and (node.tk .. ";" .. said) or nil
             end
 
             if t is TypeDeclType then
@@ -18967,7 +19166,7 @@ do
             end
 
             if not node.is_lvalue then
-               self:note_dropped(node, node.tk)
+               self:note_dropped(node, node.tk, key, fact)
                if #self.loops > 0 then
                   self:record_read(node, node.tk)
                end
@@ -19071,9 +19270,7 @@ do
 
    visit_node.cbs["break"] = {
       after = function(self: TypeChecker, _node: Node, _children: {Type}): Type
-         if self.shadow_log then
-            self:shadow_kill()
-         end
+         self:shadow_kill()
          return NONE
       end,
    }
@@ -19642,35 +19839,40 @@ do
          drop_clock = 0,
          binding_count = 0,
          type_value_keys = {},
+         test_facts = {},
+         reassigned = {},
          loops = {},
          loop_tick = 0,
          shadow_log = env.shadow_mismatches,
          program = ast,
          body_names = {},
       }
-      if env.shadow_mismatches then
-         -- The shadow's state is made only when the shadow is kept.
-         self.facts = Facts.empty()
-         self.bindings = {}
-         self.sh_depth = 0
-         self.sh_entry = {}
-         self.sh_assigned = {}
-         self.sh_fn = {}
-         self.sh_dirty = {}
-         self.sh_saved = {}
-         self.sh_fields = {}
-         self.sh_j_index = {}
-         self.sh_j_facts = {}
-         self.sh_j_n = 0
-         self.sh_logged = {}
-         self.sh_loops = {}
-         self.sh_tick = 0
-         self.sh_pending = {}
-         self.sh_renarrowed = {}
-         self.sh_widen_entry = {}
-      end
+      self.facts = Facts.empty()
+      self.bindings = {}
+      self.sh_depth = 0
+      self.sh_entry = {}
+      self.sh_assigned = {}
+      self.sh_assigned_why = {}
+      self.sh_fn = {}
+      self.sh_dirty = {}
+      self.sh_saved = {}
+      self.sh_saved_dead = {}
+      self.sh_saved_last = {}
+      self.sh_dead = {}
+      self.dead = false
+      self.sh_fields = {}
+      self.sh_j_index = {}
+      self.sh_j_facts = {}
+      self.sh_j_n = 0
+      self.sh_logged = {}
+      self.sh_loops = {}
+      self.sh_tick = 0
+      self.sh_pending = {}
+      self.sh_renarrowed = {}
+      self.sh_widen_entry = {}
 
-      (self.st[1] as narrowing.Scope).on_drop = function(index: integer, key: string, why: narrowing.Drop)
+      local outermost = self.st[1] as narrowing.Scope
+      outermost.on_drop = function(index: integer, key: string, why: narrowing.Drop)
          self:loop_dropped(index, key, why)
       end
 

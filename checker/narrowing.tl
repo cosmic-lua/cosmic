@@ -4,17 +4,21 @@
 -- refused. A guard is a test (a truthiness read, a comparison, `is`,
 -- `type(x) == "..."`, an assert-like call) or a combination of tests
 -- (`not`, `and`, `or`). A guard evaluates to the facts it gives, one per
--- place; the checker holds those of a local on its scopes, keyed by the
--- place's key, and drops what is known of a place where its value can
--- change. It holds none of a field or a global: a test of one is evaluated
--- and refused (`TypeChecker:refuse_narrowing`), since code that runs
--- between the test and a use can change the place.
+-- place; the checker holds those of a local keyed by the binding, and drops
+-- what is known of a place where its value can change. It holds none of a
+-- field or a global: a test of one is evaluated and refused
+-- (`TypeChecker:refuse_narrowing`), since code that runs between the test and
+-- a use can change the place.
 --
 -- The checker (checker/tl.tl) builds a guard on each expression and applies
 -- one wherever a branch begins or an expression is cut short: the body of
 -- an `if` or a `while`, the right operand of `and` and `or`, what follows
 -- an `assert`, and what follows an `if` all of whose branches end
 -- ([`flow.ends_all`]) by the negation of its conditions.
+--
+-- The facts the checker reads are in `checker/facts.tl`. What this file
+-- keeps for the scopes' own copy of them is read only by the comparison
+-- under `Env.shadow_mismatches`.
 --
 -- A fact is dropped by an assignment to its place or a prefix of it
 -- ([`narrowing.drop`]), by a write to a field of its name through any

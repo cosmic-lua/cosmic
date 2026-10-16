@@ -97,7 +97,7 @@ needs it.
   old state and, under a flag, compares every read. the gate is zero
   unexplained mismatches over the tree, corpora, tests and fuzz. a
   mismatch that is an old-state bug is fixed first, in a PR of its own.
-  the flag is off by default and nothing is kept without it.
+  the flag is off by default; it gates the comparison, not the facts.
 - **the field reads copied.** one change copies the narrowed field reads
   (752, 609 outside tests) to locals and restricts the old narrowing to
   locals. the facts then narrow only locals, and the field-path and global
@@ -109,10 +109,22 @@ needs it.
   fork; the new checker's fixed fields bring field paths back as places,
   with the same interface agreement under `mut`: a record declares a field
   `mut` exactly when the interface does.
-- **the switch to the facts.** reads switch to `self.facts`; the old state
-  is written but unread. the flipped verdicts are the pinned shadow
-  mismatches, each triaged. message text may change where the facts give
-  a better cause; no more mirroring of the old wording.
+- **the switch to the facts (done).** reads switch to `self.facts`; the old
+  state is written but unread, but by the shadow comparison, which stays
+  under its flag until the old state goes. the facts are kept on every
+  check, not under the flag. a refusal's cause (the tombstones that
+  `narrowing_dropped` and the `narrowing_not_local` note read) comes from the
+  facts, as does a loop's refusal of a read of a fact its body drops. the
+  flipped verdicts are pinned in [`build/checker_shadow_test.tl`], each
+  triaged: a use after an assignment or in a loop is told the assignment
+  where the old state said nothing; one after a function declaration that
+  widened its place is told nothing where the old state named a later
+  assignment; the local of `local x = x` keeps its type past a function
+  declaration. unreachable code is checked from the facts at the jump, and a
+  test inside a function narrows a local of the code around it only if
+  nothing assigns it after the function is made. message text may change
+  where the facts give a better cause; no more mirroring of the old
+  wording.
 - **the old narrowing deleted.** the checker's pinned type-error count
   moves and is measured and set. once the seed step makes the count a
   ceiling that only falls, it is set as one ([a count the tree cannot yet
@@ -154,9 +166,8 @@ every checker change also needed a second review round. so:
   its difference pinned; old-side machinery the deletion removes is not
   built.
 - every checker PR gets two independent review rounds.
-- what remains pinned in [`build/checker_shadow_test.tl`] (old drops more
-  after #3072, the facts refuse where old misses in loops, and `local x =
-  x` widened by name) is the switch's triage list.
+- what remained pinned in [`build/checker_shadow_test.tl`] after the field
+  change (`local x = x` widened by name) was the switch's triage list.
 
 known gaps left with TODOs: a declared field read on a record with
 `__index` or `__newindex` drops nothing, which narrowing only locals ends; a `goto` that skips a `<close>`
