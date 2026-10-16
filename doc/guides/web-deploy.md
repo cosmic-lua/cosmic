@@ -160,7 +160,8 @@ function Hello.app(opts: Hello.Options): Web.App
         return Web.text((assert(req:url_for("static", { path = "app.css" }))))
       end),
       Web.get("/whoami", function(req: Web.Request): Web.Response
-        return Web.text(req.scheme .. " " .. (req.client ~= nil and req.client.host or "?"))
+        local client = req.client
+        return Web.text(req.scheme .. " " .. (client ~= nil and client.host or "?"))
       end),
       StaticFiles.mount("/static", { source = opts.assets }),
     },
@@ -267,7 +268,8 @@ local function test_the_settings_are_read_from_the_environment()
   local set = assert(Config.read({ HELLO_KEYS = key, HELLO_LISTEN = "0.0.0.0:9000",
     HELLO_BEHIND_PROXY = "1", HELLO_HOSTS = "a.example,b.example", HELLO_HTTPS = "1" }))
   assert(set.host == "0.0.0.0" and set.port == 9000 and set.behind_proxy and set.https)
-  assert(set.hosts ~= nil and #set.hosts == 2 and set.hosts[2] == "b.example")
+  local hosts = set.hosts
+  assert(hosts ~= nil and #hosts == 2 and hosts[2] == "b.example")
   assert(Config.read({}) == nil, "no key, no program")
   assert(Config.read({ HELLO_KEYS = key, HELLO_LISTEN = "nowhere" }) == nil)
 end

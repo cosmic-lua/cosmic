@@ -1112,6 +1112,39 @@ local function dropped_hint(e: compiler.Error): string | nil
   return "'" .. place .. "' was checked, but " .. cause .. ": " .. first
 end
 
+--- The note on a use of a field or a global that a test of narrowed
+--- nothing (an error's `also` is `narrowing_not_local`, see
+--- [`teal.replacement`]): only a local is narrowed, so the place is copied to
+--- a local, which the test and the use then name. The checker cannot say
+--- whether the use relies on the test, so the note is conditional. The local
+--- is named by the checker, one that nothing in scope, no global, no keyword
+--- and no later declaration of the function has. A global assigned a union
+--- is told the same of its assignment, and an `is` of a field that it tests
+--- only a local.
+local function not_local_note(e: compiler.Error): string | nil
+  local place, kind, by = e.dropped_place, e.dropped_kind, e.dropped_by
+  if place == nil or kind == nil or by == nil then
+    return nil
+  end
+  local where = tostring(e.dropped_y) .. ":" .. tostring(e.dropped_x)
+  local field = place:match("%.([%a_][%w_]*)$")
+  local name = e.dropped_copy or field or place
+  local what = kind == "field" and "a field" or "a global"
+  if by:sub(-6) == " = ..." then
+    return "note: the assignment to '" .. place .. "' at " .. where .. " does not narrow it, as " .. what ..
+      " is not narrowed by an assignment: only a local is. If this use relies on that assignment, keep the " ..
+      "value in a local (`local " .. name .. " = <the value>`, " .. place .. " = " .. name .. ") and use that"
+  end
+  if by:sub(-7) == " is ..." then
+    return "note: `is` tests a local, not " .. what .. ". Copy '" .. place .. "' to a local first (`local " ..
+      name .. " = " .. place .. "`), then test and use `" .. name .. "`"
+  end
+  return "note: the test of '" .. place .. "' at " .. where .. " does not narrow it, as " .. what ..
+    " is not narrowed by a test: only a local is. If this use relies on that test, copy it first (`local " ..
+    name .. " = " .. place .. "`), then test and use `" .. name .. "`. If a loop or later code updates '" ..
+    place .. "', update `" .. name .. "` instead and store it back after (`" .. place .. " = " .. name .. "`)"
+end
+
 --- What to do about a local read before every path to the read assigns it
 --- (the code `not_assigned`, [`compiler.Error`]): give it a value where it
 --- is declared, assign it on every path, or declare it `T | nil`, which is
@@ -1978,152 +2011,9 @@ local function later_method_hint(e: compiler.Error, source: string): string | ni
     "parameters, and keep the definition where it is"
 end
 
---- What to write instead, when `e` is the checker refusing a name
---- [`environment_for`] stripped or a member [`cosmic.removed`] lists; nil
---- for any other error, and for those where the catalog cannot be
---- loaded (`catalog_module`). `e` is read by its `code` and the fields
---- the checker sets for it ([`compiler.ErrorCode`]), never by its message;
---- `source` is the file it was reported in, at `e.y` and `e.x`, and
---- `file` its name.
----
---- `unknown variable: os` is read together with the field that follows
---- it there (`os.getenv` names [`Env.get`]); `module not found: 'io'`
---- answers a `require`. The answer is [`cosmic.removed`]'s `message`, the
---- words [`core/surface.c`] raises with when a running program reaches
---- for the name.
----
---- `invalid key 'hex' in record 'Digest' of type Hash` and `unknown
---- type Zip.ZipReader` (`cosmic.zip.ZipReader`, a type the module no
---- longer declares) are answered from [`cosmic.removed`]'s `members` when
---- `source` binds the type's own name (`Hash`) to `require("cosmic.hash")`.
---- The checker names a module's record after the local its `require` was
---- first bound to, whatever alias reads it now; one whose record is a local
---- of its own ([`cosmic.cli`]'s) is `of type record Module`, and the alias
---- answers for it. There is no answer for a record of the program's own,
---- a name bound to more than one module, or a binding whose value is more
---- than the `require` (`local Hash: T = ...`, a `global`, `require("m").sub`),
---- though the left side of an `or` and parentheses are read through. Scope
---- is not read: a `require` in a nested block counts as the file's own.
----
---- `argument 2: got boolean, expected Sqlite.OpenOptions` is answered from
---- [`cosmic.removed`]'s `arguments` the same way: a type that replaced a
---- boolean parameter says what to write for the boolean. The message
---- does not name the function, so the entry does.
----
---- `in assignment: got number, expected integer` names the variable when
---- `source` has, at that position, the single assignment
---- `name = <expression>` and `name` resolves through the lexical scopes
---- to `local name = <integer literal>` with no annotation
---- (`local peak = 0`). The checker inferred `integer` there, and the
---- answer is to spell the float or the type. The position is the
---- operator of a binary expression, the inside of parentheses, or the
---- target itself for any other expression (`x = f()`, `x = t.n`).
---- Nothing is said for a parameter, `self`, a loop variable, a
---- declaration with an annotation, a non-literal (or negative, or
---- hexadecimal) initializer or several names, a global, a field
---- (`t.n = ...`), a multiple assignment (`a, b = ...`), or a source that
---- does not parse. Any other number where an integer was expected (an
---- argument, a declaration, a return value, `tonumber(s)`, `a / b`) is
---- told the conversions, since `as integer` only silences the checker.
----
---- A local, argument or loop variable shadowing one of
---- [`standard_globals`] is told to rename it, and a refused index of one
---- named for a library but of another type (`table.insert` where `table`
---- is a local of the program's) that the name is a local hiding it.
----
---- A key a record lacks (`invalid key 'type' in record 'st' of type
---- sys.Stat`), where the checker gave the record's value `fields` with
---- the error, is told the nearest of them and the first few
---- ([`field_hint`]), after any removed member's answer.
----
---- A call given fewer arguments than its callee takes exactly
---- (`wrong number of arguments (given 1, expects 2)`, the checker's
---- position the call's `(`) is told how to declare the parameters it
---- leaves out optional (`b?: string`), when every function of the file
---- the call may reach ([`callee_arguments`]) admits nil for each of
---- them, spelled alike; nothing when one does not, since then the call
---- is short, nor when the file declares no function the call reaches.
----
---- A vararg given a name (`local function f(...names: string)`, the
---- parser's `syntax error, expected one of: ')', ','` at the name) is told
---- it takes none and to write `...: string` ([`vararg_name_hint`]); any other
---- such error is told nothing, nor is a name on a later line than its `...`.
----
---- A record's `function Rec:m` refused against an interface method declared
---- with an unnamed receiver (`m: function(Iface, ...)`) is told to declare
---- it `function(self: Iface, ...)` ([`interface_self_hint`]), and a call
---- whose type parameter the expected result type fixed before its arguments
---- is told to bind it in a local ([`type_parameter_hint`]).
----
---- A generic record's method declared `function Rec:m` (`missing type
---- arguments in record<K, V> Rec`) is told to write `function Rec.m<K, V>(self:
---- Rec<K, V>, ...)` ([`method_type_arguments_hint`]); a string literal in a
---- type position (`expected a type list`) to declare an enum
---- ([`string_type_hint`]); type arguments at a call (`f<string>(x)`, refused
---- as `cannot use operator '<' for types function<K>(K): K and string`) that
---- Teal has none ([`call_type_arguments_hint`]); a key a record lacks that
---- the file defines below the use as a method, to define it above or declare
---- it in the record ([`later_method_hint`]); and `<close>` on a record
---- type, to declare a `__close` ([`closable_hint`]).
----
---- One nominal type refused for another of the same last name
---- (`Store is not a Kv.Store`) is told they are two types, and an
---- `unknown type Kv.Kv` whose `Kv` `source` binds to a `require` that
---- `Kv` itself is the module's record type, unless `refused` holds `Kv`.
----
---- A use refused because the narrowing it relied on was dropped (the code
---- `narrowing_dropped`) is told what dropped it and the copy to a local that
---- keeps the check with the use ([`dropped_hint`]).
----
---- A local read where a path from its declaration has not assigned it (the
---- code `not_assigned`) is told to give it a value, assign it on every path
---- or declare it `T | nil` ([`unassigned_hint`]), and a local declared with
---- neither a type nor a value (`no_type`) to declare `T | nil`
---- ([`untyped_local_hint`]).
----
---- A function literal that assigns a local declared outside it (the code
---- `captured_assigned`) is told to return the value or keep it in a field
---- of a table ([`captured_hint`]).
----
---- A write to a field its record declares `readonly` (the code
---- `readonly_field`) is told to give the field its value in the table
---- literal that makes the record, or to declare it without `readonly`
---- ([`readonly_hint`]).
----
---- A table made without the type of a record with a read-only field, taken
---- for that record (the code `readonly_literal`), is told to give the
---- literal the type where it is made ([`readonly_literal_hint`]), and a
---- literal that leaves out a read-only field (`readonly_missing`) to give it
---- its value or declare it optional ([`readonly_missing_hint`]).
----
---- A record and an interface that disagree on `readonly` for a field (the code
---- `readonly_disagrees`) are told to declare it the same in both
---- ([`readonly_disagrees_hint`]).
----
---- A `goto` that is not a continue, and a label no continue names, are told to
---- restructure with an `if` or move the body into a function ([`goto_hint`]).
----
---- `local x = fail()` where `fail` is declared `: never` is told that
---- `fail` never returns, so it has no value to assign
---- ([`never_value_hint`]), whichever module declares it.
----
---- A field a table literal names that its record lacks (`in local
---- declaration: r: unknown field alpah`) is told the record's fields like a
---- missing key ([`field_hint`]).
----
---- A `local type Ledger = require("ledger")` refused because the module
---- returns a value (`'require' did not return a type, got record
---- Ledger`) is told to return a type, and, for a value of a record, that
---- requiring the module as a value would do too. In a template's module (`file`, the file being compiled,
---- a `.tmpl`) that require is the one its `{{type Page from ledger}}`
---- makes, and the module is told to return the record type: a template
---- requires its record's module as a value only for a stage that reads it.
---- An `unknown type Ledger.Month` or `Ledger.Ledger` that follows from
---- such a refusal is told nothing where `refused`
---- ([`teal.refused_type_requires`]) holds `Ledger`, since no type is
---- reached through it.
-function teal.replacement(e: compiler.Error, source: string, file?: string,
-                          refused?: {string:boolean}): string | nil
+--- What [`teal.replacement`] answers for the error's own code.
+local function replacement_of(e: compiler.Error, source: string, file?: string,
+                              refused?: {string:boolean}): string | nil
   local code = e.code
   local y, x = e.y, e.x
   if code == "require_not_type" then
@@ -2337,6 +2227,164 @@ function teal.replacement(e: compiler.Error, source: string, file?: string,
     return nil
   end
   return removed.message(wanted, field)
+end
+
+--- What to write instead, when `e` is the checker refusing a name
+--- [`environment_for`] stripped or a member [`cosmic.removed`] lists; nil
+--- for any other error, and for those where the catalog cannot be
+--- loaded (`catalog_module`). `e` is read by its `code` and the fields
+--- the checker sets for it ([`compiler.ErrorCode`]), never by its message;
+--- `source` is the file it was reported in, at `e.y` and `e.x`, and
+--- `file` its name.
+---
+--- `unknown variable: os` is read together with the field that follows
+--- it there (`os.getenv` names [`Env.get`]); `module not found: 'io'`
+--- answers a `require`. The answer is [`cosmic.removed`]'s `message`, the
+--- words [`core/surface.c`] raises with when a running program reaches
+--- for the name.
+---
+--- `invalid key 'hex' in record 'Digest' of type Hash` and `unknown
+--- type Zip.ZipReader` (`cosmic.zip.ZipReader`, a type the module no
+--- longer declares) are answered from [`cosmic.removed`]'s `members` when
+--- `source` binds the type's own name (`Hash`) to `require("cosmic.hash")`.
+--- The checker names a module's record after the local its `require` was
+--- first bound to, whatever alias reads it now; one whose record is a local
+--- of its own ([`cosmic.cli`]'s) is `of type record Module`, and the alias
+--- answers for it. There is no answer for a record of the program's own,
+--- a name bound to more than one module, or a binding whose value is more
+--- than the `require` (`local Hash: T = ...`, a `global`, `require("m").sub`),
+--- though the left side of an `or` and parentheses are read through. Scope
+--- is not read: a `require` in a nested block counts as the file's own.
+---
+--- `argument 2: got boolean, expected Sqlite.OpenOptions` is answered from
+--- [`cosmic.removed`]'s `arguments` the same way: a type that replaced a
+--- boolean parameter says what to write for the boolean. The message
+--- does not name the function, so the entry does.
+---
+--- `in assignment: got number, expected integer` names the variable when
+--- `source` has, at that position, the single assignment
+--- `name = <expression>` and `name` resolves through the lexical scopes
+--- to `local name = <integer literal>` with no annotation
+--- (`local peak = 0`). The checker inferred `integer` there, and the
+--- answer is to spell the float or the type. The position is the
+--- operator of a binary expression, the inside of parentheses, or the
+--- target itself for any other expression (`x = f()`, `x = t.n`).
+--- Nothing is said for a parameter, `self`, a loop variable, a
+--- declaration with an annotation, a non-literal (or negative, or
+--- hexadecimal) initializer or several names, a global, a field
+--- (`t.n = ...`), a multiple assignment (`a, b = ...`), or a source that
+--- does not parse. Any other number where an integer was expected (an
+--- argument, a declaration, a return value, `tonumber(s)`, `a / b`) is
+--- told the conversions, since `as integer` only silences the checker.
+---
+--- A local, argument or loop variable shadowing one of
+--- [`standard_globals`] is told to rename it, and a refused index of one
+--- named for a library but of another type (`table.insert` where `table`
+--- is a local of the program's) that the name is a local hiding it.
+---
+--- A key a record lacks (`invalid key 'type' in record 'st' of type
+--- sys.Stat`), where the checker gave the record's value `fields` with
+--- the error, is told the nearest of them and the first few
+--- ([`field_hint`]), after any removed member's answer.
+---
+--- A call given fewer arguments than its callee takes exactly
+--- (`wrong number of arguments (given 1, expects 2)`, the checker's
+--- position the call's `(`) is told how to declare the parameters it
+--- leaves out optional (`b?: string`), when every function of the file
+--- the call may reach ([`callee_arguments`]) admits nil for each of
+--- them, spelled alike; nothing when one does not, since then the call
+--- is short, nor when the file declares no function the call reaches.
+---
+--- A vararg given a name (`local function f(...names: string)`, the
+--- parser's `syntax error, expected one of: ')', ','` at the name) is told
+--- it takes none and to write `...: string` ([`vararg_name_hint`]); any other
+--- such error is told nothing, nor is a name on a later line than its `...`.
+---
+--- A record's `function Rec:m` refused against an interface method declared
+--- with an unnamed receiver (`m: function(Iface, ...)`) is told to declare
+--- it `function(self: Iface, ...)` ([`interface_self_hint`]), and a call
+--- whose type parameter the expected result type fixed before its arguments
+--- is told to bind it in a local ([`type_parameter_hint`]).
+---
+--- A generic record's method declared `function Rec:m` (`missing type
+--- arguments in record<K, V> Rec`) is told to write `function Rec.m<K, V>(self:
+--- Rec<K, V>, ...)` ([`method_type_arguments_hint`]); a string literal in a
+--- type position (`expected a type list`) to declare an enum
+--- ([`string_type_hint`]); type arguments at a call (`f<string>(x)`, refused
+--- as `cannot use operator '<' for types function<K>(K): K and string`) that
+--- Teal has none ([`call_type_arguments_hint`]); a key a record lacks that
+--- the file defines below the use as a method, to define it above or declare
+--- it in the record ([`later_method_hint`]); and `<close>` on a record
+--- type, to declare a `__close` ([`closable_hint`]).
+---
+--- One nominal type refused for another of the same last name
+--- (`Store is not a Kv.Store`) is told they are two types, and an
+--- `unknown type Kv.Kv` whose `Kv` `source` binds to a `require` that
+--- `Kv` itself is the module's record type, unless `refused` holds `Kv`.
+---
+--- A use refused because the narrowing it relied on was dropped (the code
+--- `narrowing_dropped`) is told what dropped it and the copy to a local that
+--- keeps the check with the use ([`dropped_hint`]). A use that reads a field
+--- or a global that a test of narrowed nothing (an error whose `also` is
+--- `narrowing_not_local`) keeps its own hint and is also given a note: if
+--- the use relies on that test, copy the place to a local, which the test
+--- and the use name ([`not_local_note`]).
+---
+--- A local read where a path from its declaration has not assigned it (the
+--- code `not_assigned`) is told to give it a value, assign it on every path
+--- or declare it `T | nil` ([`unassigned_hint`]), and a local declared with
+--- neither a type nor a value (`no_type`) to declare `T | nil`
+--- ([`untyped_local_hint`]).
+---
+--- A function literal that assigns a local declared outside it (the code
+--- `captured_assigned`) is told to return the value or keep it in a field
+--- of a table ([`captured_hint`]).
+---
+--- A write to a field its record declares `readonly` (the code
+--- `readonly_field`) is told to give the field its value in the table
+--- literal that makes the record, or to declare it without `readonly`
+--- ([`readonly_hint`]).
+---
+--- A table made without the type of a record with a read-only field, taken
+--- for that record (the code `readonly_literal`), is told to give the
+--- literal the type where it is made ([`readonly_literal_hint`]), and a
+--- literal that leaves out a read-only field (`readonly_missing`) to give it
+--- its value or declare it optional ([`readonly_missing_hint`]).
+---
+--- A record and an interface that disagree on `readonly` for a field (the code
+--- `readonly_disagrees`) are told to declare it the same in both
+--- ([`readonly_disagrees_hint`]).
+---
+--- A `goto` that is not a continue, and a label no continue names, are told to
+--- restructure with an `if` or move the body into a function ([`goto_hint`]).
+---
+--- `local x = fail()` where `fail` is declared `: never` is told that
+--- `fail` never returns, so it has no value to assign
+--- ([`never_value_hint`]), whichever module declares it.
+---
+--- A field a table literal names that its record lacks (`in local
+--- declaration: r: unknown field alpah`) is told the record's fields like a
+--- missing key ([`field_hint`]).
+---
+--- A `local type Ledger = require("ledger")` refused because the module
+--- returns a value (`'require' did not return a type, got record
+--- Ledger`) is told to return a type, and, for a value of a record, that
+--- requiring the module as a value would do too. In a template's module (`file`, the file being compiled,
+--- a `.tmpl`) that require is the one its `{{type Page from ledger}}`
+--- makes, and the module is told to return the record type: a template
+--- requires its record's module as a value only for a stage that reads it.
+--- An `unknown type Ledger.Month` or `Ledger.Ledger` that follows from
+--- such a refusal is told nothing where `refused`
+--- ([`teal.refused_type_requires`]) holds `Ledger`, since no type is
+--- reached through it.
+function teal.replacement(e: compiler.Error, source: string, file?: string,
+                          refused?: {string:boolean}): string | nil
+  local own = replacement_of(e, source, file, refused)
+  local note = e.also == "narrowing_not_local" and not_local_note(e) or nil
+  if note == nil then
+    return own
+  end
+  return own ~= nil and own .. "; " .. note or note
 end
 
 return teal

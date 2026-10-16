@@ -1,10 +1,14 @@
 -- Narrowing: what the checker knows of a place after a test of it. A
--- place is what a program names and can change: a local, or a field of
--- one. A guard is a test (a truthiness read, a comparison, `is`,
+-- place is what a program names and can change; the fork narrows only a
+-- local, and a test of a field of one or of a global is evaluated and
+-- refused. A guard is a test (a truthiness read, a comparison, `is`,
 -- `type(x) == "..."`, an assert-like call) or a combination of tests
 -- (`not`, `and`, `or`). A guard evaluates to the facts it gives, one per
--- place; the checker holds those on its scopes, keyed by the place's
--- key, and drops what is known of a place where its value can change.
+-- place; the checker holds those of a local on its scopes, keyed by the
+-- place's key, and drops what is known of a place where its value can
+-- change. It holds none of a field or a global: a test of one is evaluated
+-- and refused (`TypeChecker:refuse_narrowing`), since code that runs
+-- between the test and a use can change the place.
 --
 -- The checker (checker/tl.tl) builds a guard on each expression and applies
 -- one wherever a branch begins or an expression is cut short: the body of
@@ -35,17 +39,12 @@
 -- This file holds only upstream Teal 0.24.8: the boot compiles it with
 -- the pinned release's seed (build.zig), as it does checker/tl.tl.
 --
--- TODO: the places are a local and `x.f` of a local: `place_of` answers
--- nothing for `a.b.c`, and no index (`t[k]`) is a place. `Place.fields`
--- already carries a path and `Host.type_of` walks it. It waits on
--- doc/roadmap.md's item that makes every guard read every place alike;
--- a write to an index then drops every index place, and the checker drops
--- every field path for the write through a key that may be a field name
--- (`TypeChecker:drop_through`).
---
--- TODO: `x.f is T` is refused ("can only use 'is' on variables"), though
--- `x.f` is a place that `type(x.f) == "..."` narrows. It waits on the
--- roadmap item that makes every guard read every place alike.
+-- TODO: `Place.fields` carries a field path and `Host.type_of` walks it, so
+-- that a guard names the places of a test alike for the refusal that says
+-- what the test would have given; the fork narrows none of them. It waits
+-- on the new checker, where a path of fixed fields is a place
+-- (doc/plans/strict-teal-narrowing.md, doc/roadmap.md's item that makes
+-- every guard read every place alike).
 --
 -- TODO: reading a declared field of a record that declares `__index` or
 -- `__newindex` runs it when the field is absent, and drops nothing that is
@@ -131,6 +130,9 @@ local record narrowing
       -- The place a read found dropped; nil on the drop itself, which
       -- may have removed many.
       place: string
+      -- A name free where that test is for a local holding a copy of the
+      -- place, for the hint of a refusal to give.
+      copy: string
    end
 
    -- The scopes' part a place is dropped from: a scope holds its
@@ -314,7 +316,7 @@ local no_type: narrowing.Type = nil
 --- What dropped a fact: a `kind` of drop (see [`narrowing.Drop`]), the
 --- expression as a message shows it, and where it begins.
 function narrowing.because(kind: string, text: string, y: integer, x: integer): narrowing.Drop
-   return { kind = kind, text = text, y = y, x = x, place = no_place }
+   return { kind = kind, text = text, y = y, x = x, place = no_place, copy = no_name }
 end
 
 -- Says that a drop of `key` is told in some scope.

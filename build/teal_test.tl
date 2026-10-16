@@ -2081,7 +2081,8 @@ end
 
 --- `name?: T` declares a field that a table literal may omit and whose
 --- type admits nil, as `name: T | nil` does: a
---- read is `T | nil`, a guard narrows it, and nil may be assigned to it.
+--- read is `T | nil`, a guard narrows its copy in a local, and nil may be
+--- assigned to it.
 --- Its record is open, so the literal omitting a plain field compiles
 --- too; what tells the two apart is the type a read has.
 local function test_an_optional_field_admits_nil()
@@ -2089,7 +2090,8 @@ local function test_an_optional_field_admits_nil()
   assert_accepted(declared .. "r.name = nil\nr.name = 'x'\nprint(r)\n")
   assert_refused(declared .. "print(r.name:upper())\n", "cannot index key 'upper' in type string | nil")
   assert_refused(declared .. "r.name = 1\n", "in assignment: got integer")
-  assert_accepted(declared .. "if r.name then\n  print(r.name:upper())\nend\n")
+  assert_refused(declared .. "if r.name then\n  print(r.name:upper())\nend\n", "cannot index key 'upper' in type string | nil")
+  assert_accepted(declared .. "local name = r.name\nif name then\n  print(name:upper())\nend\n")
   assert_accepted(declared .. "local n: string = r.name or 'none'\nprint(n)\n")
   assert_accepted("local record P\n  name: string\nend\nlocal p: P = { name = 'a' }\nprint(p.name:upper())\n")
 end
@@ -2118,7 +2120,7 @@ local function test_an_optional_interface_field()
   local source = "local interface Named\n  name?: string\nend\n" ..
     "local record Dog\n  is Named\n  age: integer\nend\n" ..
     "local d: Dog = { age = 3 }\nlocal n: Named = d\n"
-  assert_accepted(source .. "if d.name then\n  print(d.name:upper())\nend\nprint(n)\n")
+  assert_accepted(source .. "local name = d.name\nif name then\n  print(name:upper())\nend\nprint(n)\n")
   assert_refused(source .. "print(d.name:upper(), n)\n", "cannot index key 'upper' in type string | nil")
   assert_accepted("local interface Named\n  name?: string\nend\nlocal n: Named = {}\nprint(n)\n")
 end
@@ -2131,7 +2133,7 @@ local function test_an_optional_field_in_nested_and_generic_records()
   assert_accepted(nested .. "o.inner = {}\nlocal i = o.inner\nif i then\n  local d: integer = i.depth or 0\n  print(d)\nend\n")
   assert_refused(nested .. "local d = o.inner.depth\nprint(d)\n", "cannot index")
   local generic = "local record Box<T>\n  value?: T\nend\nlocal b: Box<string> = {}\n"
-  assert_accepted(generic .. "b.value = 's'\nif b.value then\n  print(b.value:upper())\nend\n")
+  assert_accepted(generic .. "b.value = 's'\nlocal value = b.value\nif value then\n  print(value:upper())\nend\n")
   assert_refused(generic .. "print(b.value:upper())\n", "cannot index key 'upper' in type string | nil")
   assert_refused(generic .. "b.value = 1\n", "in assignment: got integer")
 end
@@ -2141,7 +2143,8 @@ end
 local function test_an_optional_field_with_a_string_key_or_a_function_type()
   assert_accepted("local record R\n  [\"a b\"]?: integer\nend\nlocal r: R = {}\nprint(r[\"a b\"])\n")
   local callback = "local record R\n  done?: function(code: integer)\nend\nlocal r: R = {}\n"
-  assert_accepted(callback .. "if r.done then\n  r.done(1)\nend\n")
+  assert_accepted(callback .. "local done = r.done\nif done then\n  done(1)\nend\n")
+  assert_refused(callback .. "if r.done then\n  r.done(1)\nend\n", "not a function: function(integer) | nil")
   assert_refused(callback .. "r.done(1)\n", "not a function: function(integer) | nil")
 end
 
@@ -2306,7 +2309,7 @@ end
 local function test_an_optional_field_may_be_named_for_a_declaration_word()
   for _, word in ipairs({ "type", "record", "enum", "interface", "userdata", "metamethod" }) do
     assert_accepted("local record R\n  " .. word .. "?: integer\n  other?: string\nend\n" ..
-        "local r: R = {}\nif r." .. word .. " then\n  print(r." .. word .. " + 1)\nend\n")
+        "local r: R = {}\nlocal v = r." .. word .. "\nif v then\n  print(v + 1)\nend\n")
     assert_refused("local record R\n  " .. word .. "?: integer\nend\nlocal r: R = {}\n" ..
         "print(r." .. word .. ".x)\n", "in type integer | nil")
     assert_accepted("local interface I\n  " .. word .. "?: string\nend\nlocal i: I = {}\nprint(i)\n")
@@ -2345,9 +2348,10 @@ local function test_a_narrowed_operand_is_accepted()
   assert_accepted(head .. "assert(s)\nprint(s .. 'x')\n")
   assert_accepted(head .. "local t = assert(find())\nprint(t .. 'x')\n")
   assert_accepted(head .. "print((s or '') .. 'x', #(r.items or {}), (r.n or 0) + 1)\n")
-  assert_accepted(head .. "if r.n then\n  print(r.n + 1, r.n < 3)\nend\n")
-  assert_accepted(head .. "if r.n ~= nil and r.n > 1 then\n  print(r.n - 1)\nend\n")
-  assert_accepted(head .. "if r.items then\n  print(#r.items)\nend\n")
+  assert_accepted(head .. "local field = r.n\nif field then\n  print(field + 1, field < 3)\nend\n")
+  assert_accepted(head .. "local field = r.n\nif field ~= nil and field > 1 then\n  print(field - 1)\nend\n")
+  assert_accepted(head .. "local list = r.items\nif list then\n  print(#list)\nend\n")
+  assert_refused(head .. "if r.n then\n  print(r.n + 1)\nend\n", "cannot use operator")
   assert_accepted(head .. "print(s == nil, s ~= 'a', not s, s and #s, s or 'none')\n")
   assert_accepted(head .. "print(a .. 'x', a + 1, a < 2, -a)\n")
   assert_accepted(head .. "local plain: string = 'p'\nprint(plain .. 'x', #plain)\n")
@@ -2382,14 +2386,17 @@ local function test_a_conjunction_with_an_invalid_right_operand_reports_once()
   assert(found[1]:find("nosuch", 1, true) ~= nil, found[1])
 end
 
---- A field fact is read against its base without the nil the field's
---- read proved away: `m ~= nil and m.f ~= nil` narrows
---- `m.f` for a base that is itself a union with nil.
-local function test_a_field_guard_after_its_nil_base_check_narrows()
+--- `m ~= nil and m.f ~= nil` narrows `m`, a local that is itself a union with
+--- nil, and not `m.f`: the field is copied to a local, read through `m` where
+--- `m` is not nil.
+local function test_a_field_guard_after_its_nil_base_check_narrows_the_base_only()
   local head = "local record Node\n  tk?: string\n  e2?: Node\nend\n" ..
     "local function f(owner: Node): string\n  local m = owner.e2\n"
-  assert_accepted(head .. "  if m ~= nil and m.tk ~= nil then\n    return '.' .. m.tk\n  end\n  return ''\nend\nprint(f)\n")
-  assert_accepted(head .. "  if m and m.tk then\n    return '.' .. m.tk\n  end\n  return ''\nend\nprint(f)\n")
+  assert_refused(head .. "  if m ~= nil and m.tk ~= nil then\n    return '.' .. m.tk\n  end\n  return ''\nend\nprint(f)\n",
+    "cannot use operator '..'")
+  assert_refused(head .. "  if m and m.tk then\n    return '.' .. m.tk\n  end\n  return ''\nend\nprint(f)\n",
+    "cannot use operator '..'")
+  assert_accepted(head .. "  local tk = m ~= nil and m.tk or nil\n  if tk ~= nil then\n    return '.' .. tk\n  end\n  return ''\nend\nprint(f)\n")
   assert_refused(head .. "  if m ~= nil then\n    return '.' .. m.tk\n  end\n  return ''\nend\nprint(f)\n",
     "cannot use operator '..'")
   assert_refused(head .. "  if m.tk ~= nil then\n    return ''\n  end\n  return ''\nend\nprint(f)\n",
@@ -2413,7 +2420,7 @@ local function test_a_table_argument_that_may_be_nil_is_refused()
   assert_accepted(head .. "assert(s)\ntable.insert(list, s)\n")
   assert_accepted(head .. "table.insert(list, s or 'none')\n")
   assert_accepted(head .. "table.insert(assert(r.items), 'x')\nprint(table.concat(r.items or {}, ','))\n")
-  assert_accepted(head .. "if r.items then\n  print(table.concat(r.items, ','))\nend\n")
+  assert_accepted(head .. "local list = r.items\nif list then\n  print(table.concat(list, ','))\nend\n")
   assert_accepted(head .. "local maybe: {string | nil} = {}\ntable.insert(maybe, s)\n")
   assert_accepted(head .. "local anything: {any} = {}\ntable.insert(anything, s)\n")
 end

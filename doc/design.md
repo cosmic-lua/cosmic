@@ -929,99 +929,105 @@ an `if` with an `else` all of whose branches end, `while true` with no
 `break`, a call of a `: never` function), which a function declared `:
 never` or returning a value and a narrowing after an `if` that ends read.
 the checker asks it, never decides it. [`checker/narrowing.tl`] decides what
-a test tells of a place. a place is a local or a field of one. a guard is a
+a test tells of a place. a place is a local. a guard is a
 test of a place (a truthiness read, a comparison with nil or a literal,
 `is`, `type(x) == "..."`, an `assert`), or a `not`, `and` or `or` of
 guards. evaluating a guard gives the facts it holds, one per place. the
 checker builds a guard on each expression and applies one where a branch
 begins.
 
-a fact is dropped where the value it is about can change, and a use that
-relied on a dropped fact is refused. an assignment to a place, or to a
-prefix of it, drops it. a write to a field `.f` through any reference drops
-every narrowed path with `.f` after its base (`a.f`, and `a.f.g` or `a.g.f`
-once a path of two fields is a place), because another reference may name
-the same table or one on the way to it; a write through a key that may name
-a field drops every field path. a call drops every narrowed field path, and every narrowed global: a
-local stays narrowed across a call, because no function literal assigns a
-local it does not declare (below). an operator or index that dispatches to a metamethod
-is a call, and a value dispatches only through the metamethods its type
-declares: an operator or an index served by a metamethod a record, an
-interface or a userdata declares runs code, unless it is a macro expression
-(a `where` clause is one) that calls nothing; `==` of two values that may be
-tables runs code only if the type of one declares `__eq`; `any` and a type
-variable may be anything, so they always dispatch; and an operator on a
-string, a number, a plain array or map, a function, nil or a record that
-declares no metamethod does not. a call of `assert` or `type`, of a function
-declared `: never`, and of a standard library function that runs no code of
-the program's (`tostring`, `print`, `ipairs`, the `string`, `math` and
-`utf8` functions, `table.concat`, `table.insert` and a few more) given
-arguments that cannot dispatch (a type that declares a metamethod, `any`, or
-a function, alone or in a union, can) drops nothing.
+a test of a field (`r.n`) or of a global narrows nothing. code that runs
+between the test and the use can write the field through any reference to its
+table, and any function can assign a global, while only the code that declares a
+local assigns it. so `if r.n then ... r.n ... end` is refused at the use, as the
+field with its nil is refused wherever it is used, and the refusal keeps its own
+code and message. a use that reads a place a test of narrowed nothing carries a
+note beside it: the error's `also` is `narrowing_not_local`, with the place,
+`field` or `global`, the test as written and where it is (`dropped_place`,
+`dropped_kind`, `dropped_by`, `dropped_y`, `dropped_x`), and a name for the copy
+(`dropped_copy`). an assignment of a union or an interface to a global does not
+narrow it either (the test is then written `g = ...`), and `r.v is T` of a field,
+which `is` refuses outright, carries the same note (`r.v is ...`). the note is
+conditional, because the checker does not ask whether the use relies on the
+test: "if this use relies on that test, copy it first (`local n = r.n`), then
+test and use `n`". no type is re-checked to decide it. the note is not made for
+a test that leaves the place nil only, the branch where the test does not hold,
+which no use relies on. the hint adds that a loop or later code that updates
+the field updates the local instead and stores it back after.
+
+the local's name is one that nothing in scope, no global or builtin, no keyword
+and no name the enclosing function declares anywhere (before the test or after
+it) has, and none begins with an underscore: the field's own, else the place
+with its dot made an underscore (`r_n`), else that with `_copy` and a count; a
+global is copied under `g_copy`.
+
+a fact of a local is dropped where the value it is about can change, and a use
+that relied on a dropped fact is refused. an assignment to the local drops it.
+a call, a write through a reference and an operator drop none: a local stays
+narrowed across a call, because no function literal assigns a local it does
+not declare (below). what runs code of the program's is still told apart,
+for the check that a local is assigned before it is read (below): a call, an operator or index that dispatches to
+a metamethod, and the end of a block with a `<close>` local. an operator or
+index served by a metamethod a record, an interface or a userdata declares
+runs code, unless it is a macro expression (a `where` clause is one) that
+calls nothing; `==` of two values that may be tables runs code only if the
+type of one declares `__eq`; `any` and a type variable may be anything, so
+they always dispatch; and an operator on a string, a number, a plain array or
+map, a function, nil or a record that declares no metamethod does not. a call
+of `assert` or `type`, of a function declared `: never`, and of a standard
+library function that runs no code of the program's (`tostring`, `print`,
+`ipairs`, the `string`, `math` and `utf8` functions, `table.concat`,
+`table.insert` and a few more) given arguments that cannot dispatch (a type
+that declares a metamethod, `any`, or a function, alone or in a union, can)
+runs none.
 
 the principle stops where the checker cannot see: a metatable attached at run
 time, by `setmetatable({}, {__index = f})` on a plain map or a metamethod a
 record does not declare, dispatches whatever the program gave it, and a
-`__gc` finalizer runs at a time no operation names. neither is seen, so a
-narrowing is not held against them; the roadmap's `setmetatable` item
+`__gc` finalizer runs at a time no operation names. neither is seen, so
+neither is held against the program; the roadmap's `setmetatable` item
 closes the first, and the second is outside the claim.
 
-the order is the order Lua runs things in: operands and arguments left to
-right, a call after its arguments. so a narrowed read before a call in the same
-expression keeps its fact and one after it loses it (`print(r.n + 1, clear())`
-is accepted, `print(clear(), r.n + 1)` is refused). what one operand of `and`
-or `or`, or the first argument of `assert`, tested holds past a later operand
-only if that ran nothing that drops it, and what an `if` chain's earlier
-condition tested holds past its later conditions on the same terms. a loop body
-is checked once with the facts from before the loop standing, and a read of one
-it narrowed outside itself is remembered. when the body then drops that fact (a
-call, a write, an operator that dispatches, an iterator that is not `pairs`,
-`ipairs` or `gmatch` of what runs no code, or `next`), each such read that came
-before the drop is refused, because the next pass reads what this one dropped.
-the condition of a `while` or `repeat` is part of the body, so what it drops is
-dropped for the body after it. after the loop what it dropped stays dropped, as
-in straight-line code, and a drop in a branch that leaves the loop is not one
-of the next pass. a branch leaves only if its last statement does and no path
-through it goes out first by a `break` of a loop around it or a `goto` (a
-continue, below) that is not of a loop inside the branch. a function literal
-runs later, when what a test established may no longer hold (`local f =
-function() return r.n + 1 end`, then a call that clears `r.n`, then `f()`), so
-its body begins without the facts of the places outside it that may change
-before it runs, and keeps the rest. it loses every field path, because any code
-that runs before it may write one, and each local that an assignment can change
-once the literal is made (a parameter, a `local x = x` copy and a local
-declared with a value alike): an assignment in a function literal, one that
-comes after the literal in the text, and one in a loop that also makes the
-literal (a later pass runs it) all can. it keeps the facts of a local that no
-such assignment changes, since that local holds the same value whenever the
-literal runs: a default assigned before it (`opts = opts or {}`) or the best of
-a loop that has ended is the value its test, or the value it was declared with,
-still speaks of. a `local x = x` declares a variable of its own, even in the
-scope of the one it copies, with its own assignments. a hidden local reads with
-the type it was declared with (for a copy, the type of the variable it copies
-where the copy is made, narrowed by any test before it), never the type of
-another variable of the name. a read in the body of a place so hidden is
-refused with the code `narrowing_dropped`, kind `function`, and the hint copies
-the value to a local before the function. the body still learns what it tests
-itself, and creating the function runs none of its body, so the facts outside
-it stand after it. a branch that ends in `return` or a call that never returns
-drops nothing for the code after its `if`.
+a loop body is checked once with the facts from before the loop standing, and
+a local the loop assigns is widened to the type it was declared with at the
+loop, so a read of it before the assignment sees that type. after the loop what
+it assigned stays dropped, as in straight-line code. a branch leaves only if its
+last statement does and no path through it goes out first by a `break` of a
+loop around it or a `goto` (a continue, below) that is not of a loop inside the
+branch. a function literal runs later, when what a test established may no
+longer hold (`local f = function() return n + 1 end`, then an assignment of
+`n`, then `f()`), so its body begins without the facts of the places outside
+it that may change before it runs, and keeps the rest. it loses each local that
+an assignment can change once the literal is made (a parameter, a `local x = x`
+copy and a local declared with a value alike): an assignment in a function
+literal, one that comes after the literal in the text, and one in a loop that
+also makes the literal (a later pass runs it) all can. it keeps the facts of a
+local that no such assignment changes, since that local holds the same value
+whenever the literal runs: a default assigned before it (`opts = opts or {}`) or
+the best of a loop that has ended is the value its test, or the value it was
+declared with, still speaks of. a `local x = x` declares a variable of its own,
+even in the scope of the one it copies, with its own assignments. a hidden
+local reads with the type it was declared with (for a copy, the type of the
+variable it copies where the copy is made, narrowed by any test before it),
+never the type of another variable of the name. a read in the body of a place
+so hidden is refused with the code `narrowing_dropped`, kind `function`, and
+the hint copies the value to a local before the function. the body still
+learns what it tests itself, and creating the function runs none of its body,
+so the facts outside it stand after it. a branch that ends in `return` or a call
+that never returns drops nothing for the code after its `if`.
 
 a test of `a or b` that holds tells what `a` and `not a` tell together, which
 is nothing of a place: `a` held, or `a` failed and `b` held, so
 `assert(x == nil or y)` leaves `x` as it was. what `a or b` tells when it fails
-is what both fail to be. `type(x.f) == "..."` and the left operand of `and`
-test a field as they test a local (`r.a and r.a + 1`). a narrowing made in a
-scope that already widened the name (a function literal declared before the
-test assigns it) keeps the widening and can be dropped from it, so a call or an
-assignment drops it as it does elsewhere.
+is what both fail to be. a narrowing made in a scope that already widened the
+name (a function literal declared before the test assigns it) keeps the
+widening and can be dropped from it, so an assignment drops it as it does
+elsewhere.
 
-a refusal of this kind has the code `narrowing_dropped`, with the place, what
-dropped it (`call`, `write`, `operator`, `loop`, `function` or `assignment`), that
-expression as written and where it is, beside the fields of the refusal it
-was. its hint copies the value to a local before the call or write
-(`local n = r.n`, then `if n then clear() print(n + 1) end`), which stays
-narrowed across the call because no function can assign it.
+a refusal of the dropped kind has the code `narrowing_dropped`, with the place,
+what dropped it (`assignment` or `function` for a local), that expression as
+written and where it is, beside the fields of the refusal it was. its hint
+copies the value to a local before the assignment or the function.
 
 a function literal does not assign a local declared outside it
 ([`checker/captures.tl`]'s `find`, asked of each file before it is checked):
@@ -1116,8 +1122,8 @@ program's may run in between: a call, an operator, index or `==` that
 dispatches to a declared metamethod, a `tostring` or `print` of a value with a
 declared `__tostring`, a `for ... in` loop whose iterator is not `pairs`,
 `ipairs` or `gmatch` of what runs none: what the checker counts as running code
-for the narrowing it drops (`TypeChecker:drop_all`, which marks the expression
-`runs_code` for `unassigned_read`), and a call of `assert` or `type` or of the
+(`TypeChecker:drop_all`, which marks the expression `runs_code` for
+`unassigned_read`), and a call of `assert` or `type` or of the
 standard library that examines no value that may dispatch is none. it also
 becomes one where the function may get out unassigned: at a `return`, at a call
 of a function typed `: never` (the path ends, but the function may be stored or
@@ -1130,9 +1136,9 @@ pending goes round once more in the walk, so the code at its start counts. so
 local function g() f() end; g(); f = ...`, a function that is returned or whose
 scope ends with `f` unassigned, and an assignment a path skips are refused. a
 call that is not marked runs code even if it does not call the function; the
-refusal is the checker's guess that it may, as the dropped narrowing is.
+refusal is the checker's guess that it may.
 
-what counts as running code is what narrowing counts, so the rule shares its
+what counts as running code is what `drop_all` counts, so the rule shares its
 gaps. the read of a declared field of a record that declares `__index` runs
 code that neither sees (the TODO in [`checker/narrowing.tl`] names it), nor
 does a metatable attached at run time (the `setmetatable` TODOs in
@@ -1259,9 +1265,8 @@ the language has no casts: the plan's [no casts] rule leaves `as` out of the
 new grammar, and a type changes only by `is`, a guard, a narrowing
 declaration or a validator. `any` is legal only where untrusted data
 enters and a shape validator turns it into a record by construction. the
-fork still accepts `as`, so the rule is not implemented. record-field
-narrowing has landed in the checker; container covariance was dropped (see
-the roadmap).
+fork still accepts `as`, so the rule is not implemented. the fork narrows
+only a local; container covariance was dropped (see the roadmap).
 there is no planned `cosmic check` verb: compilation performs checking,
 while `cosmic fix`'s structural rule list ([`build/fix/rule.tl`]) is still
 empty: its one type-driven fix wraps a multi-value `assert(...)` in
@@ -1305,7 +1310,7 @@ the tool and every executable `cosmic build` writes never carry a check.
 without them.
 
 the same run checks narrowing, the oracle the strict plan asked for: a read
-of a local, a global or a field of a local whose type a test narrowed
+of a local whose type a test narrowed
 (`if x then`, `~= nil`, `is`, `type()`, `assert`) is written as a call of
 the hook with the place and the test's fact, the kinds the test took out
 of the type, and the hook raises "fact violated at file:y:x" for a

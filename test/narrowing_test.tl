@@ -1,11 +1,11 @@
 --- Proves the narrowing that the checker ([`checker/tl.tl`]) does. A bare
 --- variable narrows across a statement-form `assert(x, ...)`.
---- `x.field` on a plain-variable base narrows as a bare variable does
---- -- truthy read, `assert`, `== nil` / `~= nil`, and the early-return
---- shape -- through the checker's fact-key mechanism. Each such
---- positive case has a negative one proving a write drops the narrow,
---- and one proving a chained base (`a.b.field`, whose base is itself a
---- field access rather than a bare variable) is never narrowed.
+--- `x.field` is narrowed by no test -- truthy read, `assert`, `== nil` /
+--- `~= nil`, `type(...)`, the early-return shape: a build that relies on
+--- one is refused, saying that only a local is narrowed, and the same
+--- build with the field copied to a local first passes. A write to the
+--- field or its base, and a chained base (`a.b.field`, whose base is
+--- itself a field access rather than a bare variable), change nothing.
 ---
 --- Further: `a or b` drops a's nil (20-or-drops-nil.txt); an `if` with
 --- no `else` does not end the block holding it (21); and a guard
@@ -69,6 +69,12 @@ local record Holder
 end
 ]]
 
+--- Whether a refused build was refused because a test of a field narrowed
+--- nothing, the one refusal the cases about fields are about.
+local function refused_unnarrowed(ok: boolean, trouble: string): boolean
+  return not ok and trouble:find("is not narrowed by a test: only a local is", 1, true) ~= nil
+end
+
 local function test_assert_narrows_bare_variable(tmp: string)
   local ok, trouble = try_build(tmp, "assert-bare", [[
 local record R
@@ -91,7 +97,7 @@ print(use())
       "should narrow it, but: " .. tostring(trouble))
 end
 
-local function test_truthy_record_field_narrows(tmp: string)
+local function test_truthy_record_field_narrows_nothing(tmp: string)
   local ok, trouble = try_build(tmp, "field-truthy", record_prelude .. [[
 local function use(h: Holder): number
    if h.field then
@@ -102,11 +108,23 @@ end
 
 print(use({ field = { x = 1 } }))
 ]])
-  assert(ok, "if h.field then ... should narrow h.field, but: " ..
+  assert(refused_unnarrowed(ok, trouble), "if h.field then ... should narrow nothing, but: " ..
       tostring(trouble))
+  local copied, copy_trouble = try_build(tmp, "field-truthy-copy", record_prelude .. [[
+local function use(h: Holder): number
+   local field = h.field
+   if field then
+      return field.x
+   end
+   return 0
 end
 
-local function test_assert_record_field_narrows(tmp: string)
+print(use({ field = { x = 1 } }))
+]])
+  assert(copied, "the copy of h.field in a local should be narrowed, but: " .. tostring(copy_trouble))
+end
+
+local function test_assert_record_field_narrows_nothing(tmp: string)
   local ok, trouble = try_build(tmp, "field-assert", record_prelude .. [[
 local function use(h: Holder): number
    assert(h.field)
@@ -115,11 +133,20 @@ end
 
 print(use({ field = { x = 1 } }))
 ]])
-  assert(ok, "assert(h.field) should narrow h.field, but: " ..
+  assert(refused_unnarrowed(ok, trouble), "assert(h.field) should narrow nothing, but: " ..
       tostring(trouble))
+  local copied, copy_trouble = try_build(tmp, "field-assert-copy", record_prelude .. [[
+local function use(h: Holder): number
+   local field = assert(h.field)
+   return field.x
 end
 
-local function test_eq_nil_record_field_narrows(tmp: string)
+print(use({ field = { x = 1 } }))
+]])
+  assert(copied, "assert(h.field) taken into a local should be narrowed, but: " .. tostring(copy_trouble))
+end
+
+local function test_eq_nil_record_field_narrows_nothing(tmp: string)
   local ok, trouble = try_build(tmp, "field-eq-nil", record_prelude .. [[
 local function use_eq(h: Holder): number
    if h.field == nil then
@@ -138,11 +165,32 @@ end
 print(use_eq({ field = { x = 1 } }))
 print(use_neq({ field = { x = 1 } }))
 ]])
-  assert(ok, "h.field == nil / ~= nil should narrow h.field, but: " ..
+  assert(refused_unnarrowed(ok, trouble), "h.field == nil / ~= nil should narrow nothing, but: " ..
       tostring(trouble))
+  local copied, copy_trouble = try_build(tmp, "field-eq-nil-copy", record_prelude .. [[
+local function use_eq(h: Holder): number
+   local field = h.field
+   if field == nil then
+      return 0
+   end
+   return field.x
 end
 
-local function test_early_return_record_field_narrows(tmp: string)
+local function use_neq(h: Holder): number
+   local field = h.field
+   if field ~= nil then
+      return field.x
+   end
+   return 0
+end
+
+print(use_eq({ field = { x = 1 } }))
+print(use_neq({ field = { x = 1 } }))
+]])
+  assert(copied, "the copy of h.field in a local should be narrowed, but: " .. tostring(copy_trouble))
+end
+
+local function test_early_return_record_field_narrows_nothing(tmp: string)
   local ok, trouble = try_build(tmp, "field-early-return", record_prelude .. [[
 local function use(h: Holder): number
    if not h.field then
@@ -153,11 +201,24 @@ end
 
 print(use({ field = { x = 1 } }))
 ]])
-  assert(ok, "if not h.field then return end should narrow h.field " ..
-      "below the guard, but: " .. tostring(trouble))
+  assert(refused_unnarrowed(ok, trouble), "if not h.field then return end should narrow " ..
+      "nothing below the guard, but: " .. tostring(trouble))
+  local copied, copy_trouble = try_build(tmp, "field-early-return-copy", record_prelude .. [[
+local function use(h: Holder): number
+   local field = h.field
+   if not field then
+      return 0
+   end
+   return field.x
 end
 
-local function test_record_field_narrow_chains_through_base(tmp: string)
+print(use({ field = { x = 1 } }))
+]])
+  assert(copied, "the copy of h.field in a local should be narrowed below the guard, but: " ..
+      tostring(copy_trouble))
+end
+
+local function test_record_field_narrow_does_not_chain_through_base(tmp: string)
   local ok, trouble = try_build(tmp, "field-chain", [[
 local record R
    x: number
@@ -178,12 +239,34 @@ end
 
 print(use({ sub = { field = { x = 1 } } }))
 ]])
-  assert(ok, "guarding o.sub should let o.sub.field see the narrow " ..
-      "through o.sub's own return value, but: " .. tostring(trouble))
+  assert(refused_unnarrowed(ok, trouble), "guarding o.sub should narrow nothing for o.sub.field, but: " ..
+      tostring(trouble))
+  local copied, copy_trouble = try_build(tmp, "field-chain-copy", [[
+local record R
+   x: number
+end
+local record Sub
+   field: R
+end
+local record Outer
+   sub: Sub | nil
 end
 
-local function test_record_field_narrow_invalidated_by_field_write(tmp: string)
-  local ok, _ = try_build(tmp, "field-invalidate-field", record_prelude .. [[
+local function use(o: Outer): number
+   local sub = o.sub
+   if sub then
+      return sub.field.x
+   end
+   return 0
+end
+
+print(use({ sub = { field = { x = 1 } } }))
+]])
+  assert(copied, "the copy of o.sub in a local should be narrowed, but: " .. tostring(copy_trouble))
+end
+
+local function test_record_field_write_leaves_it_unnarrowed(tmp: string)
+  local ok, trouble = try_build(tmp, "field-invalidate-field", record_prelude .. [[
 local function use(h: Holder): number
    if h.field then
       h.field = nil
@@ -192,12 +275,12 @@ local function use(h: Holder): number
    return 0
 end
 ]])
-  assert(not ok, "writing h.field after guarding it should drop the " ..
-      "narrow, requiring the guard again")
+  assert(not ok and trouble:find("then assigned at", 1, true) ~= nil,
+    "writing h.field after guarding it is told as an assignment, but: " .. tostring(trouble))
 end
 
-local function test_record_field_narrow_invalidated_by_base_write(tmp: string)
-  local ok, _ = try_build(tmp, "field-invalidate-base", record_prelude .. [[
+local function test_record_base_write_leaves_a_field_unnarrowed(tmp: string)
+  local ok, trouble = try_build(tmp, "field-invalidate-base", record_prelude .. [[
 local function use(h: Holder, other: Holder): number
    if h.field then
       h = other
@@ -206,8 +289,7 @@ local function use(h: Holder, other: Holder): number
    return 0
 end
 ]])
-  assert(not ok, "reassigning h after guarding h.field should drop the " ..
-      "narrow, requiring the guard again")
+  assert(refused_unnarrowed(ok, trouble), "reassigning h after guarding h.field leaves it as unnarrowed as before")
 end
 
 local function test_record_field_narrow_does_not_chain_through_field_base(tmp: string)
@@ -635,7 +717,7 @@ print(upper(1))
       "holding it, so a test of it must not narrow")
 end
 
-local function test_type_test_of_a_field_narrows_and_is_of_a_field_does_not(tmp: string)
+local function test_type_test_and_is_of_a_field_narrow_nothing(tmp: string)
   local ok, trouble = try_build(tmp, "type-field", [[
 local record Holder
    v: any
@@ -646,7 +728,20 @@ local function upper(h: Holder): string
 end
 print(upper({}))
 ]])
-  assert(ok, "type() narrows a field as it does a local, but: " .. tostring(trouble))
+  assert(refused_unnarrowed(ok, trouble), "type() narrows a local and a field not at all, but: " ..
+      tostring(trouble))
+  local copied, copy_trouble = try_build(tmp, "type-field-copy", [[
+local record Holder
+   v: any
+end
+local function upper(h: Holder): string
+   local v = h.v
+   if type(v) == "string" then return v:upper() end
+   return ""
+end
+print(upper({}))
+]])
+  assert(copied, "type() narrows the copy of a field in a local, but: " .. tostring(copy_trouble))
   local built, why = try_build(tmp, "is-field", [[
 local record Holder
    v: string | number

@@ -304,9 +304,8 @@ carry none.
 ### checked narrowing
 
 A checked run also tests what the checker concluded from a test. A read of
-a local, a global or a field of a local (`x`, `t.a`) whose type a test
-narrowed (`if x then`, `x ~= nil`, `is`, `type(x) ==`, `assert(x)`) is
-written as a check of what the test took out: the kinds of the type before
+a local whose type a test narrowed (`if x then`, `x ~= nil`, `is`,
+`type(x) ==`, `assert(x)`) is written as a check of what the test took out: the kinds of the type before
 the test that the type after lacks (`x is string` on `string | R` takes out
 `string` in the else branch and `R` in the then branch), and nil where the
 place was declared to admit it and the test left it none. A value of a kind
@@ -314,8 +313,8 @@ taken out raises `fact violated at <file>:<y>:<x>: <place> is <kind>, the
 checker proved not <kinds>` at the read, which fails the test. Where the type
 before was `any`, the test took the value to the kinds of the type after, and
 the check is that. Such a failure is the checker's: it accepted a program in
-which a place it narrowed is not what it narrowed it to (a read that runs
-`__index` again, a write it did not see), so a test that meets one found a
+which a place it narrowed is not what it narrowed it to (a write it did not
+see), so a test that meets one found a
 hole in the narrowing, not a fault of the test. Report it with the smallest
 program that shows it.
 
@@ -326,8 +325,8 @@ program that shows it.
 - It checks nothing of a place narrowed by the type of a value assigned or
   declared with (`x = f() or g()`), which holds nil where the checker's type
   does not say so (checker/tl.tl's TODO at the read of a variable).
-- A place that is not a local, a global or a field of a local (`a.b.c`,
-  `t[k]`) is not checked, as the narrowing does not hold one.
+- A place that is not a local (a field, a global, `a.b.c`, `t[k]`) is not
+  checked, as the narrowing does not hold one.
 - The check is a call of the hook per narrowed read, which costs. A fuzz
   property's instruction budget allows a checked run four times as many
   instructions ([`build.fuzz`]).

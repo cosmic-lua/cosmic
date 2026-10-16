@@ -36,21 +36,24 @@ defines the target; once something ships, it leaves this file.
   `__index` is checked, and `test_a_function_index_serves_any` in
   [`build/teal_test.tl`] pins the rest). a call through `any` carries no flag
   either.
-- make every guard read every place alike: a field path of any depth
-  (`a.b.c`) and an index (`t[k]`, `k` a literal or a local never
-  reassigned) are places, and a write to any index drops every index
-  place; `is` tests a field as it does a local; `x is A | B | C` guards all its members, not the last
-  pair; an assignment drops the place assigned and its extensions only
-  (`r.f = v` keeps `r.foo`).
+- make every guard read every place alike, in the new checker: the fork
+  narrows only a local ([doc/plans/strict-teal-narrowing.md](plans/strict-teal-narrowing.md)),
+  so a test of a field, an index or a global narrows nothing there and a
+  program copies the field to a local first. In the new checker a path of
+  fixed fields (`a.b.c`) is a place, and so is an index (`t[k]`, `k` a
+  literal or a local never reassigned), where a write to any index drops
+  every index place; `is` tests a field as it does a local; `x is A | B | C`
+  guards all its members, not the last pair; an assignment drops the place
+  assigned and its extensions only (`r.f = v` keeps `r.foo`).
 - let `setmetatable` attach metamethods only to a record type that
   declares them, so that "a value dispatches only through metamethods its
   type declares" ([doc/design.md](design.md)'s narrowing paragraph) holds of
   run-time metatables too: today `setmetatable({}, {__index = f})` gives a
-  plain map an `__index` the checker never sees, and the narrowing checks
-  let `f` change a field the program had checked.
+  plain map an `__index` the checker never sees, so a call it makes is not
+  one the rule that a local is assigned before it is read counts.
   `may_dispatch` and `runs_no_code` in [`checker/tl.tl`] carry a TODO that
-  names this item, and `test_a_metatable_attached_at_run_time_is_not_seen_yet`
-  in [`build/checker_narrowing_test.tl`] pins four programs it will refuse.
+  names this item, and `test_unnarrowed_field_metatable_attached_at_run_time`
+  in [`build/checker_narrowing_test.tl`] pins four programs.
   `__gc` finalizers stay outside the claim.
 - make a metamethod's run a call wherever it can happen, which the checker
   tells today by the operator or index it dispatches from: reading a

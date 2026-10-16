@@ -306,7 +306,8 @@ function Site.routes(store: Store): {Web.Route}
 
   local function create(req: Web.Request): Web.Response
     local read = Input.form(req)
-    if read.invalid ~= nil then return Web.abort(read.invalid.status, read.invalid.message) end
+    local invalid = read.invalid
+    if invalid ~= nil then return Web.abort(invalid.status, invalid.message) end
     local title = (Url.query_last(assert(read.value), "title") or ""):match("^%s*(.-)%s*$")
     if title == "" then
       return Web.html(shown("", "give the task a name"), { status = 422 })

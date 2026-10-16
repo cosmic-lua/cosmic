@@ -113,6 +113,8 @@ local record Errors
    unknown_dots: {string:boolean}
    -- Defined once `show_type` is: the members of a union, each shown alone.
    members: function(Type): {string}
+   -- The words a local cannot be named, set once `show_type` is.
+   reserved_words: {string:boolean}
 end
 
 local record tl
@@ -262,6 +264,13 @@ local record tl
       -- it: `dropped_place`, `dropped_kind`, `dropped_by`, `dropped_y`,
       -- `dropped_x`, and the fields of the refusal it was
       "narrowing_dropped"
+      -- the note on a use of a field or a global that a test of narrowed
+      -- nothing (only a local is narrowed): the error keeps its own code and
+      -- carries this one as `also`, with `dropped_place`, `dropped_kind` (`field`
+      -- or `global`), `dropped_by` (the place, or the assignment as written),
+      -- `dropped_y`, `dropped_x` and `dropped_copy`. It is a note: the use may
+      -- not rely on the test
+      "narrowing_not_local"
       -- a local read where a path from its declaration has not assigned it:
       -- `variable`, `closure` where the read is a function literal that
       -- names it, and `skipped_kind`, `skipped_y`, `skipped_x` for the
@@ -390,6 +399,12 @@ local record tl
       dropped_place: string
       dropped_kind: string
       dropped_by: string
+      -- For a use that reads a place a test of narrowed nothing: the code
+      -- `narrowing_not_local`, beside the error's own, and the test in the
+      -- fields above, with a name for the local the place is to be copied
+      -- to (`dropped_copy`).
+      also: ErrorCode
+      dropped_copy: string
       -- For a loop's refusal (`dropped_kind` `loop`): the kind of the drop
       -- its pass ran.
       dropped_via: string
@@ -1708,6 +1723,8 @@ local record Scope
    -- not see, put back when it ends (`narrowing.enter_function`).
    hidden: {narrowing.Hidden}
    is_transaction: boolean
+   -- The function literal whose body this scope opens.
+   body: Node
    -- A `<close>` local of this scope whose type declares `__close`, which
    -- runs where the scope ends, however control leaves it.
    close_var: Node
@@ -2018,6 +2035,8 @@ local record Node
 
    -- What dropped the narrowing a read of this place would have had.
    dropped: narrowing.Drop
+   -- On the key of an index that was refused: the expression it indexes.
+   subject: Node
    -- How many call-like expressions the checker had met when it finished
    -- this node, and, on an `if` block, when it began.
    drop_clock: integer
@@ -6938,38 +6957,41 @@ end
 
 -- What dropped the narrowing of the place that the node `w` reads, when
 -- `err` refuses a value that may be nil there: the operand the refusal
--- names, or `w` itself.
-local function dropped_for(err: Error, w: Where): narrowing.Drop
+-- names, or `w` itself. With `any`, a refusal of any other value counts
+-- too, as a test narrowed nothing of a place (`refuse_narrowing`) leaves
+-- every kind of it that the test took out; of a binary operator's operands,
+-- the first that reads such a place.
+local function dropped_for(err: Error, w: Where, any: boolean): narrowing.Drop
    local n = w as Node
    if not n.kind then
       return nil
    end
+   local function refused(members: {string}): boolean
+      return any or has_nil(members)
+   end
    local code = err.code
    if code == "operator_binary" then
-      if has_nil(err.left_members) then
-         return dropped_read(n.e1)
-      elseif has_nil(err.right_members) then
-         return dropped_read(n.e2)
-      end
+      local left = refused(err.left_members) and dropped_read(n.e1) or nil
+      return left or (refused(err.right_members) and dropped_read(n.e2) or nil)
    elseif code == "operator_unary" then
-      if has_nil(err.members) then
+      if refused(err.members) then
          return dropped_read(n.e1)
       end
    elseif code == "mismatch" or code == "not_a" then
-      if has_nil(err.got_members) then
+      if refused(err.got_members) then
          return dropped_read(n)
       end
    elseif code == "cannot_index_key" or code == "cannot_index_object" then
-      if has_nil(err.members) then
-         return dropped_read(n)
+      if refused(err.members) then
+         return dropped_read(n) or dropped_read(n.e1) or dropped_read(n.subject)
       end
    elseif code == "not_array" or code == "pairs_of_non_table" then
       -- Refused at the arguments of the call, whose first is the table.
-      if has_nil(err.members) and n.kind == "expression_list" then
+      if refused(err.members) and n.kind == "expression_list" then
          return dropped_read(n[1])
       end
    elseif code == "for_bound" then
-      if has_nil(err.members) then
+      if refused(err.members) then
          return dropped_read(err.index == 2 and n.from or err.index == 3 and n.to or n.step)
       end
    end
@@ -6978,17 +7000,33 @@ end
 
 -- `err`, marked as the refusal of a place whose narrowing was dropped,
 -- when the node `w` it was made at reads one and the refusal is of the nil
--- the drop let back in.
+-- the drop let back in. A use that reads a field or a global a test left
+-- un-narrowed because it is no local (`refuse_narrowing`) keeps its own code
+-- and message, and also carries `narrowing_not_local` with the test, as a
+-- note: whether the use relies on that test is not for the checker to say,
+-- so the note is conditional.
 local function blame_drop(err: Error, w: Where)
-   if not w or err.code == "narrowing_dropped" then
+   if not w or err.code == "narrowing_dropped" or err.also then
       return
    end
-   local why = dropped_for(err, w)
+   local why = dropped_for(err, w, false)
+   if not why then
+      why = dropped_for(err, w, true)
+      if why and why.kind ~= "field" and why.kind ~= "global" then
+         why = nil
+      end
+   end
    if why then
-      err.code = "narrowing_dropped"
+      local refused = why.kind == "field" or why.kind == "global"
+      if refused then
+         err.also = "narrowing_not_local"
+      else
+         err.code = "narrowing_dropped"
+      end
       err.dropped_place = why.place
       err.dropped_kind = why.kind
       err.dropped_by = why.text
+      err.dropped_copy = why.copy
       err.dropped_y = why.y
       err.dropped_x = why.x
    end
@@ -7871,6 +7909,17 @@ function Errors.members(t: Type): {string}
    return out
 end
 
+-- Set here, after `show_type` is assigned: a call above that could run a
+-- function that names it before it has a value.
+Errors.reserved_words = {}
+for _, word in ipairs({
+   "and", "break", "do", "else", "elseif", "end", "false", "for", "function", "goto", "if", "in",
+   "local", "nil", "not", "or", "repeat", "return", "then", "true", "until", "while",
+   "global", "record", "enum", "interface", "type", "self",
+}) do
+   Errors.reserved_words[word] = true
+end
+
 -- Finds no module: the compiler opens no file and searches no path. A
 -- caller that wants `require` answered gives the checker a function of its
 -- own (build/teal.tl's `serve` does), which answers the name found and a
@@ -8389,6 +8438,9 @@ do
       last_drop_node: Where
       last_drop_kind: string
       last_drop_text: string
+      -- The whole program, and the names each function body (and it) declares.
+      program: Node
+      body_names: {Node:{string:boolean}}
       -- The loops being checked, innermost last, and a count of the reads
       -- they hold and the drops met, which orders them.
       loops: {narrowing.Loop}
@@ -8407,6 +8459,9 @@ do
       note_dropped: function(TypeChecker, Node, string)
       guard_before: function(TypeChecker, Node, Node): narrowing.Guard
       droppable: function(TypeChecker, narrowing.Place): boolean
+      narrowable: function(TypeChecker, narrowing.Place): boolean
+      refuse_narrowing: function(TypeChecker, narrowing.Place, narrowing.Where, ? string, ? Type)
+      copy_name: function(TypeChecker, narrowing.Place): string
       loop_begin: function(TypeChecker)
       check_gotos: function(TypeChecker, Node)
       loop_end: function(TypeChecker)
@@ -8419,6 +8474,7 @@ do
       written_name: function(TypeChecker, Node): string
       find_assignments: function(TypeChecker, Node)
       local_is_fixed: function(TypeChecker, string, Node): boolean
+      declared_around: function(TypeChecker): {string:boolean}
       enter_function_body: function(TypeChecker, Node)
       macroexp_calls: function(TypeChecker, Node): boolean
       var_is_fixed: function(TypeChecker, Variable, Node): boolean
@@ -13179,6 +13235,7 @@ do
          return meta_t
       end
 
+      bnode.subject = anode
       return self.errs:invalid_key_at(bnode, errdetails, errm, erra, errb)
    end
 
@@ -13496,29 +13553,33 @@ do
             if typ.typename == "invalid" then
                self.errs:add(w, "cannot resolve a type for " .. v .. " here")
             end
-            local t = f.no_infer and typ or self:infer_at(w, typ)
-            if f.no_infer then
-               t.inferred_at = nil
-            end
-            local before: Type = nil
-            local prior: string = nil
-            if self.runtime_checks then
-               before = self:type_before(f.place, w)
-               prior = self:prior_fact(v)
-            end
-            local made = self:add_var(nil, v, t, "const", "narrow")
-            made.test_fact = self.runtime_checks and self:narrowed_fact(before, t, prior) or nil
-            made.test_fact_for = made.t
-            narrowing.renarrowed(self.st as {narrowing.Scope}, v)
-            if not disagree then
-               if self.shadow_log then
-                  self:shadow_narrow(v, t)
+            if not self:narrowable(f.place) then
+               self:refuse_narrowing(f.place, f.w, nil, typ)
+            else
+               local t = f.no_infer and typ or self:infer_at(w, typ)
+               if f.no_infer then
+                  t.inferred_at = nil
+               end
+               local before: Type = nil
+               local prior: string = nil
+               if self.runtime_checks then
+                  before = self:type_before(f.place, w)
+                  prior = self:prior_fact(v)
+               end
+               local made = self:add_var(nil, v, t, "const", "narrow")
+               made.test_fact = self.runtime_checks and self:narrowed_fact(before, t, prior) or nil
+               made.test_fact_for = made.t
+               narrowing.renarrowed(self.st as {narrowing.Scope}, v)
+               if not disagree then
+                  if self.shadow_log then
+                     self:shadow_narrow(v, t)
+                  end
                end
             end
          end
          for v, f in pairs(held or {}) do
             local typ = f.typ as Type
-            if typ.typename ~= "invalid" then
+            if typ.typename ~= "invalid" and self:narrowable(f.place) then
                if self.shadow_log then
                   self:shadow_narrow(v, f.no_infer and typ or self:infer_at(w, typ))
                end
@@ -13713,14 +13774,170 @@ do
       function TypeChecker:note_dropped(n: Node, key: string)
          local why = narrowing.dropped_by(self.st as {narrowing.Scope}, key)
          if why then
-            n.dropped = { kind = why.kind, text = why.text, y = why.y, x = why.x, place = key }
+            n.dropped = {
+               kind = why.kind, text = why.text, y = why.y, x = why.x, place = key,
+               copy = why.copy,
+            }
+            -- An argument refused is reported at the name of the field.
+            if n.kind == "op" and n.e2 and n.e2.kind == "identifier" then
+               n.e2.dropped = n.dropped
+            end
          end
       end
 
+      -- TODO: the drops of field paths and globals (`narrowing.drop_paths`,
+      -- `drop_written`, `drop_global`, the paths of `shadow_assigned` and the
+      -- loops' reads of them) drop what is never held now. They go with the
+      -- old narrowing, once the reads switch to the facts and the old state is
+      -- deleted (doc/plans/strict-teal-narrowing.md).
+
+      -- Whether a test or an assignment narrows `place`: only a local is a
+      -- place. A field of a table or a global can be written by code
+      -- that runs between the test and the use, through any reference to the
+      -- table or by any function, so a test of one narrows nothing
+      -- (`refuse_narrowing`).
+      function TypeChecker:narrowable(place: narrowing.Place): boolean
+         if #place.fields > 0 then
+            return false
+         end
+         for i = #self.st, 1, -1 do
+            local var = self.st[i].vars[place.base]
+            if var and ((not var.is_specialized) or var.specialized_from or var.is_specialized == "localizing") then
+               -- A global's key is "g:" and its name (see `Variable.key`).
+               return var.key == nil or var.key:sub(1, 2) ~= "g:"
+            end
+         end
+         return false
+      end
+
       -- Whether code that runs may change what a guard says of `place`: a
-      -- field path, or a name that is no local of the file.
+      -- name that is no local of the file's own declaration (`self`). A
+      -- field and a global are not narrowed at all, so there is nothing of
+      -- theirs to drop, and the refusal says why.
       function TypeChecker:droppable(place: narrowing.Place): boolean
-         return #place.fields > 0 or not self:local_is_own(place.base)
+         return self:narrowable(place) and not self:local_is_own(place.base)
+      end
+
+      -- The names a local of the function around the code being checked is
+      -- given anywhere in it, before the code or after: its parameters, its
+      -- locals and loop variables, and the local functions it declares.
+      function TypeChecker:declared_around(): {string:boolean}
+         local body = self.program
+         for i = #self.st, 1, -1 do
+            local opened = self.st[i].body
+            if opened then
+               body = opened
+               break
+            end
+         end
+         local known = self.body_names[body]
+         if known then
+            return known
+         end
+         known = {}
+         -- Only the function's own level counts: what a function literal
+         -- inside it declares is that function's, not a name in the way.
+         local base = (body.kind == "function" or body.kind == "local_function" or
+                       body.kind == "global_function" or body.kind == "record_function") and 1 or 0
+         local depth = { 0 }
+         local function enter(_: nil, _node: Node)
+            depth[1] = depth[1] + 1
+         end
+         local function leave(_: nil, _node: Node, _children: {boolean}): boolean
+            depth[1] = depth[1] - 1
+            return false
+         end
+         local visit_node: Visitor<nil, NodeKind, Node, boolean> = {
+            cbs = {
+               ["function"] = { before = enter, after = leave },
+               ["local_function"] = { before = enter, after = leave },
+               ["global_function"] = { before = enter, after = leave },
+               ["record_function"] = { before = enter, after = leave },
+            },
+            allow_missing_cbs = false,
+            after = function(_: nil, node: Node, _children: {boolean}): boolean
+               local kind = node.kind
+               if depth[1] ~= base then
+                  return false
+               end
+               if kind == "argument" then
+                  known[node.tk] = true
+               elseif kind == "local_declaration" or kind == "forin" then
+                  for _, v in ipairs(node.vars) do
+                     known[v.tk] = true
+                  end
+               elseif kind == "fornum" then
+                  known[node.var.tk] = true
+               elseif kind == "local_function" then
+                  known[node.name.tk] = true
+               end
+               return false
+            end
+         }
+         local visit_type: Visitor<nil, TypeName, Type, boolean> = { cbs = {}, allow_missing_cbs = true }
+         recurse_node(nil, body, visit_node, visit_type)
+         self.body_names[body] = known
+         return known
+      end
+
+      -- A name for the local that holds a copy of `place`, which no name in
+      -- scope, no global or builtin, no keyword and no name the enclosing
+      -- function declares later has, and no `_` name: the field's own name
+      -- where that is free, else the place with its dots made underscores
+      -- (`r_a`), else that with `_copy` and a count.
+      function TypeChecker:copy_name(place: narrowing.Place): string
+         local around = self:declared_around()
+         local function free(name: string): boolean
+            if Errors.reserved_words[name] or around[name] or not name:match("^[%a][%w_]*$") then
+               return false
+            end
+            for i = #self.st, 1, -1 do
+               if self.st[i].vars[name] then
+                  return false
+               end
+            end
+            return true
+         end
+         local last = place.fields[#place.fields]
+         if last and free(last) then
+            return last
+         end
+         local flat = place.key:gsub("[^%w_]", "_")
+         if flat:sub(1, 1) == "_" then
+            flat = "v" .. flat
+         end
+         if free(flat) then
+            return flat
+         end
+         local named = flat .. "_copy"
+         local n = 1
+         while not free(named) do
+            n = n + 1
+            named = flat .. "_copy" .. n
+         end
+         return named
+      end
+
+      -- Says in the innermost scope that a test or an assignment of `place`
+      -- narrowed nothing, for a use that relied on it to be told. `text` is
+      -- the assignment as a message shows it; none for a test. `typ` is the
+      -- type the test or the assignment would have given the place: a test
+      -- that leaves it nil only (the branch where the test does not hold) is
+      -- relied on by no use, and is not told.
+      function TypeChecker:refuse_narrowing(place: narrowing.Place, w: narrowing.Where, text?: string, typ?: Type)
+         if typ then
+            local nil_only = true
+            for _, member in ipairs(Errors.members(typ)) do
+               nil_only = nil_only and member == "nil"
+            end
+            if nil_only then
+               return
+            end
+         end
+         local kind = #place.fields > 0 and "field" or "global"
+         local why = narrowing.because(kind, text or place.key, w.y, w.x)
+         why.copy = self:copy_name(place)
+         narrowing.cut(self.st as {narrowing.Scope}, place.key, why)
       end
 
       -- The guard of `left`, an operand evaluated before `right`: what it
@@ -13756,6 +13973,7 @@ do
       -- before then (`narrowing.enter_function`): every field path, and each
       -- local that an assignment can change after the literal is made.
       function TypeChecker:enter_function_body(node: Node)
+         self.st[#self.st].body = node
          if self.shadow_log then
             self:shadow_enter_function(node)
          end
@@ -16804,6 +17022,11 @@ do
                      narrowing.note(scopes, assigned.key, why)
                   end
                   narrowing.drop(scopes, assigned, why)
+                  if not self:narrowable(assigned) and narrowing.dropped_by(scopes, assigned.key) then
+                     -- A test of the place narrowed nothing, and now it is
+                     -- assigned: that is what a later refusal names.
+                     narrowing.cut(scopes, assigned.key, why)
+                  end
                   if self.shadow_log then
                      self:shadow_assigned(assigned, why)
                   end
@@ -16845,9 +17068,14 @@ do
 
                   if varname and (rvar is UnionType or rvar is InterfaceType) then
                      -- narrow unions and interfaces
-                     self:add_var(varnode, varname, valtype, nil, "narrow").test_fact = nil
-                     if self.shadow_log then
-                        self:shadow_narrow(varname, valtype)
+                     local assigned = narrowing.local_place(varname)
+                     if self:narrowable(assigned) then
+                        self:add_var(varnode, varname, valtype, nil, "narrow").test_fact = nil
+                        if self.shadow_log then
+                           self:shadow_narrow(varname, valtype)
+                        end
+                     else
+                        self:refuse_narrowing(assigned, varnode, varname .. " = ...", valtype)
                      end
                   end
 
@@ -18277,7 +18505,22 @@ do
                      add_type = false
                   end
                else
-                  self.errs:add(node, "can only use 'is' on variables")
+                  local tested = narrowing.place_of(node.e1 as narrowing.Node)
+                  if tested and #tested.fields > 0 then
+                     -- A field is no place `is` can test: it is told the copy
+                     -- to a local, as a test of a field that narrows nothing is.
+                     self.errs:add_coded(node, Errors.make({
+                        also = "narrowing_not_local",
+                        dropped_place = tested.key,
+                        dropped_kind = "field",
+                        dropped_by = tested.key .. " is ...",
+                        dropped_copy = self:copy_name(tested),
+                        dropped_y = node.y,
+                        dropped_x = node.x,
+                     }), "can only use 'is' on variables")
+                  else
+                     self.errs:add(node, "can only use 'is' on variables")
+                  end
                end
                if add_type then
                   self.all_needs_compat["type"] = true
@@ -19402,6 +19645,8 @@ do
          loops = {},
          loop_tick = 0,
          shadow_log = env.shadow_mismatches,
+         program = ast,
+         body_names = {},
       }
       if env.shadow_mismatches then
          -- The shadow's state is made only when the shadow is kept.
