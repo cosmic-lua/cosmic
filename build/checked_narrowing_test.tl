@@ -1,8 +1,7 @@
 --- Checked narrowing: under the checker's `runtime_checks` option
 --- ([`importer.compile`]'s `checks`, `cosmic test --check-types`), each read
 --- whose type a fact narrowed (`if x then`, `x ~= nil`, `is`, `type(x) ==`,
---- `assert`, a field `if t.a then`, a global) is written as a check of the
---- fact, and the test worker's hook ([`worker.install_checks`]) raises
+--- `assert`) is written as a check of the fact, and the test worker's hook ([`worker.install_checks`]) raises
 --- "fact violated at <file>:<y>:<x>" for a value the fact is false of. A
 --- compile without the option writes none of it.
 
@@ -44,35 +43,19 @@ local function count_of(text: string, what: string): integer
   return n
 end
 
---- A record whose `a` is served by `__index` when it is absent: the checker
---- narrows `r.a` after `if r.a then` and does not see that reading it again
---- runs the function again (checker/narrowing.tl's TODO on `__index`).
-local lazy_source = table.concat({
-  "local record Lazy",
-  "  a: string | nil",
-  "  metamethod __index: function(Lazy, string): string | nil",
+--- `assert(x)` narrows `x`. A function that stands in for `assert` and does not
+--- raise leaves the nil the checker proved away.
+local lie_source = table.concat({
+  "local function read(x: string | nil): string",
+  "  assert(x)",
+  "  return x",
   "end",
-  "local function lazy(): Lazy",
-  "  local state = { reads = 0 }",
-  "  return setmetatable({} as Lazy, { __index = function(_: Lazy, _key: string): string | nil",
-  "    state.reads = state.reads + 1",
-  "    if state.reads == 1 then return \"once\" end",
-  "    return nil",
-  "  end })",
-  "end",
-  "local function read_twice(r: Lazy): string",
-  "  if r.a then",
-  "    return r.a",
-  "  end",
-  "  return \"\"",
-  "end",
-  "return { lazy = lazy, read_twice = read_twice }",
+  "return { read = read }",
   "",
 }, "\n")
 
-local record Lazy
-  lazy: function(): any
-  read_twice: function(any): string
+local record Raising
+  read: function(any): string
 end
 
 --- The failure a function raises, or nil.
@@ -82,16 +65,51 @@ local function failure(fn: function(): any): string
   return tostring(err)
 end
 
+--- Returns what it is given, as an `assert` that does not check would.
+local function unchecked(...: any): any...
+  return ...
+end
+
 local function test_a_narrowed_read_whose_fact_is_false_raises()
   worker.install_checks()
-  local chunk = assert(load(compiled(lazy_source, true), "=snippet", "t"))
-  local fixture = chunk() as Lazy
-  local line, column = place_of(lazy_source, "return r.a")
-  local message = failure(function(): any return fixture.read_twice(fixture.lazy()) end)
-  assert(message ~= nil, "the second read of r.a was not refused")
+  local chunk = assert(load(compiled(lie_source, true), "=snippet", "t"))
+  local fixture = chunk() as Raising
+  local line, column = place_of(lie_source, "return x")
+  local globals = _G as {string:any}
+  local real = globals.assert
+  globals.assert = unchecked
+  local message = failure(function(): any return fixture.read(nil) end)
+  globals.assert = real
+  assert(message ~= nil, "the read of x was not refused")
   local at = "fact violated at snippet:" .. line .. ":" .. (column + #"return ") .. ":"
   assert(message:find(at, 1, true), message)
-  assert(message:find("r.a", 1, true) and message:find("nil", 1, true), message)
+  assert(message:find("x is nil", 1, true) and message:find("nil", 1, true), message)
+end
+
+--- A test of a field or a global narrows nothing, so no read of one is
+--- written as a check: a field served lazily by `__index`, read again after
+--- its test, has no fact to violate.
+local function test_a_read_of_a_field_is_not_checked()
+  local source = table.concat({
+    "local record Lazy",
+    "  a: string | nil",
+    "  metamethod __index: function(Lazy, string): string | nil",
+    "end",
+    "global shared: string | nil",
+    "local function read_twice(r: Lazy): string",
+    "  if r.a then",
+    "    return r.a",
+    "  end",
+    "  if shared then",
+    "    return shared",
+    "  end",
+    "  return \"\"",
+    "end",
+    "return read_twice",
+    "",
+  }, "\n")
+  local code = compiled(source, true)
+  assert(not code:find("n;snippet", 1, true), "a read of a field or a global was checked: " .. code)
 end
 
 --- What the hook holds a value to, from the specs the code generator writes:
@@ -150,20 +168,21 @@ local valid_source = table.concat({
   "  if x ~= nil then",
   "    out[#out + 1] = \"neq\" .. x",
   "  end",
-  "  if b.name then",
+  "  local name, items, count = b.name, b.items, b.count",
+  "  if name then",
   "    n = n + 1",
-  "    b.name:upper()",
-  "    out[#out + 1] = b.name",
-  "    out[#out + 1] = b.name and b.name or \"unreachable\"",
-  "    local both = { b.name, b.name }",
+  "    name:upper()",
+  "    out[#out + 1] = name",
+  "    out[#out + 1] = name and name or \"unreachable\"",
+  "    local both = { name, name }",
   "    out[#out + 1] = tostring(both[2])",
   "  end",
-  "  if b.items then",
-  "    out[#out + 1] = tostring(#b.items)",
-  "    for _, item in ipairs(b.items) do out[#out + 1] = item end",
+  "  if items then",
+  "    out[#out + 1] = tostring(#items)",
+  "    for _, item in ipairs(items) do out[#out + 1] = item end",
   "  end",
-  "  if b.count and b.count > 1 then",
-  "    out[#out + 1] = tostring(b.count + 1)",
+  "  if count and count > 1 then",
+  "    out[#out + 1] = tostring(count + 1)",
   "  end",
   "  if v is string then",
   "    out[#out + 1] = v:lower()",
@@ -173,8 +192,9 @@ local valid_source = table.concat({
   "  if type(a) == \"string\" then",
   "    out[#out + 1] = a",
   "  end",
-  "  if shared then",
-  "    out[#out + 1] = shared",
+  "  local copy = shared",
+  "  if copy then",
+  "    out[#out + 1] = copy",
   "  end",
   "  if x then",
   "    local f = function(): string return x end",
@@ -223,10 +243,10 @@ local function test_valid_narrowed_reads_pass_and_answer_what_they_did()
   worker.install_checks()
   local code = compiled(valid_source, true)
   assert(count_of(code, "n;snippet:%d+:%d+;x;~nil") > 3, "no read of x was checked")
-  assert(code:find("n;snippet:%d+:%d+;b.name;~nil", 1), "no read of a field was checked")
+  assert(code:find("n;snippet:%d+:%d+;name;~nil", 1), "no read of a copy of a field was checked")
   assert(code:find("n;snippet:%d+:%d+;v;~nil|number", 1), "no `is` was checked")
   assert(code:find("n;snippet:%d+:%d+;a;string", 1), "no `type()` test was checked")
-  assert(code:find("n;snippet:%d+:%d+;shared;~nil", 1), "no global was checked")
+  assert(code:find("n;snippet:%d+:%d+;copy;~nil", 1), "no copy of a global was checked")
   local with = (assert(load(code, "=snippet", "t"))() as Valid)
   local without = (assert(load(compiled(valid_source, false), "=snippet", "t"))() as Valid)
   for _, shared in ipairs({ "g", "" }) do
@@ -423,11 +443,11 @@ end
 --- Without the hook a checked compile still runs, and checks nothing: the
 --- `select` the code falls back to answers the value.
 local function test_a_chunk_without_the_hook_answers_its_values()
-  local env = { select = select, tostring = tostring, type = type, assert = assert, ipairs = ipairs,
+  local env = { select = select, tostring = tostring, type = type, assert = unchecked, ipairs = ipairs,
     setmetatable = setmetatable }
-  local chunk = assert(load(compiled(lazy_source, true), "=snippet", "t", env as {string:any}))
-  local fixture = chunk() as Lazy
-  assert(fixture.read_twice(fixture.lazy()) == nil, "the second read answers what __index gave")
+  local chunk = assert(load(compiled(lie_source, true), "=snippet", "t", env as {string:any}))
+  local fixture = chunk() as Raising
+  assert(fixture.read(nil) == nil, "the read answers the nil it was given")
 end
 
 --- A compile without the option is the Lua it always was: no hook, the
@@ -441,8 +461,9 @@ local plain_expected = table.concat({
   "    x:upper()",
   "    return x .. (p.first or \"\")",
   "  end",
-  "  if p.first then",
-  "    return p.first",
+  "  local first = p.first",
+  "  if first then",
+  "    return first",
   "  end",
   "  return \"\"",
   "end",
@@ -463,8 +484,9 @@ local function test_a_compile_without_the_option_writes_no_check()
     "      x:upper()",
     "      return x .. (p.first or \"\")",
     "   end",
-    "   if p.first then",
-    "      return p.first",
+    "   local first = p.first",
+    "   if first then",
+    "      return first",
     "   end",
     "   return \"\"",
     "end",

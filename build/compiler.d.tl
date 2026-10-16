@@ -69,6 +69,13 @@ local record compiler
     -- it: `dropped_place`, `dropped_kind`, `dropped_by`, `dropped_y`,
     -- `dropped_x`, and the fields of the refusal it was
     "narrowing_dropped"
+    -- the note on a use of a field or a global that a test of narrowed
+    -- nothing (only a local is narrowed): the error keeps its own code and
+    -- carries this one as `also`, with `dropped_place`, `dropped_kind` (`field`
+    -- or `global`), `dropped_by` (the place, or the assignment as written),
+    -- `dropped_y`, `dropped_x` and `dropped_copy`. It is a note: the use may
+    -- not rely on the test
+    "narrowing_not_local"
     -- a local read where a path from its declaration has not assigned it:
     -- `variable`, `closure` where the read is a function literal that
     -- names it with `ran_kind`, `ran_y`, `ran_x` for what may call it, and
@@ -197,9 +204,19 @@ local record compiler
     -- For a refusal of a place whose narrowing was dropped: the place
     -- (`r.n`), what dropped it (`assignment`, `write`, `call`,
     -- `operator` or `loop`), that expression as written, and where it is.
+    -- For a use of a field or a global a test of narrowed nothing (`also`
+    -- is `narrowing_not_local`): the place, `field` or `global`, the place
+    -- (or the assignment `g = ...`) as written, and where the test is.
     dropped_place: string | nil
     dropped_kind: string | nil
     dropped_by: string | nil
+    -- A name for the local to copy the place to (`also` is
+    -- `narrowing_not_local`): one that no name in scope, global, builtin,
+    -- keyword or later declaration of the function around it has.
+    dropped_copy: string | nil
+    -- A second code the error carries beside `code`: `narrowing_not_local`
+    -- on a use that reads a place a test of narrowed nothing.
+    also: ErrorCode | nil
     dropped_y: integer | nil
     dropped_x: integer | nil
     -- For a loop's refusal: the kind of the drop its pass ran.

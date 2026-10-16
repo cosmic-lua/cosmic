@@ -1,8 +1,9 @@
---- A use refused because the narrowing it relied on was dropped: the
---- checker's error says which place, what dropped it and where, and
---- [`build.teal`]'s hint says the copy to a local that keeps the check
---- with the use. The refused programs here are accepted by a checker that
---- drops nothing, and fail at run time.
+--- A use refused because the narrowing it relied on was dropped, or was never
+--- made: the checker's error says which place, what dropped it and where, and
+--- [`build.teal`]'s hint says the copy to a local that keeps the check with
+--- the use. A local's narrowing is dropped by an assignment; a field or a
+--- global is narrowed by no test, whatever code runs between the test and the
+--- use, and its refusal says to copy it to a local.
 local type compiler = require("build.compiler")
 local teal = require("build.teal")
 
@@ -20,7 +21,8 @@ local function answers(source: string, msg: string, want: string)
   for _, e in ipairs(type_errors(source)) do
     if e.msg == msg then
       local got = teal.replacement(e, source)
-      assert(got == want, tostring(got))
+      -- A note follows the error's own hint, after a semicolon.
+      assert(got == want or (got ~= nil and got:sub(-#want - 2) == "; " .. want), tostring(got))
       return
     end
     seen[#seen + 1] = e.msg
@@ -41,6 +43,19 @@ local function diagnostic(source: string, code: compiler.ErrorCode): compiler.Er
   error("no " .. code .. " among: " .. table.concat(seen, "; ") .. "\n" .. source)
 end
 
+--- The first error for `source` that carries the note that a test of a field
+--- or a global narrowed nothing.
+local function noted(source: string): compiler.Error
+  local seen: {string} = {}
+  for _, e in ipairs(type_errors(source)) do
+    if e.also == "narrowing_not_local" then
+      return e
+    end
+    seen[#seen + 1] = tostring(e.code) .. " " .. e.msg
+  end
+  error("no note among: " .. table.concat(seen, "; ") .. "\n" .. source)
+end
+
 --- Whether `found` holds the strings `want`, in order.
 local function listed(found: {string} | nil, ...: string): boolean
   local want = { ... }
@@ -59,120 +74,176 @@ local head <const> = "local record R\n  n: integer | nil\nend\nlocal r: R = { n 
   "local function clear()\n  r.n = nil\nend\n"
 local plus <const> = "cannot use operator '+' for types integer | nil and integer"
 
---- The call and the write of the two programs a checker that drops
---- nothing accepts.
-local function test_a_narrowing_dropped_by_a_call_or_an_alias_write_is_told_the_copy()
-  answers(head .. "if r.n then\n  clear()\n  print(r.n + 1)\nend\n", plus,
-    "'r.n' was checked, but the call `clear(...)` at 9:3 may change it: " ..
-      "copy it to a local before the call (`local n = r.n`), check and use that")
+--- What a test of the field `place` at `at` is told: only a local is narrowed,
+--- and the copy of the field in `name` is.
+local function field_hint(place: string, at: string, name: string): string
+  return "note: the test of '" .. place .. "' at " .. at .. " does not narrow it, as a field is not narrowed " ..
+    "by a test: only a local is. If this use relies on that test, copy it first (`local " .. name .. " = " ..
+    place .. "`), then test and use `" .. name .. "`. If a loop or later code updates '" .. place ..
+    "', update `" .. name .. "` instead and store it back after (`" .. place .. " = " .. name .. "`)"
+end
+
+--- A test of a field is told the copy, wherever code that runs comes between
+--- the test and the use: a call, a write through an alias, an operator, a
+--- loop, a function.
+local function test_a_test_of_a_field_is_told_the_copy_wherever_code_runs()
+  answers(head .. "if r.n then\n  print(r.n + 1)\nend\n", plus, field_hint("r.n", "8:5", "n"))
+  answers(head .. "if r.n then\n  clear()\n  print(r.n + 1)\nend\n", plus, field_hint("r.n", "8:5", "n"))
   answers(head .. "if r.n then\n  local c = r\n  c.n = nil\n  print(r.n + 1)\nend\n", plus,
-    "'r.n' was checked, but the write `c.n = ...` at 10:3 may be to the same table: " ..
-      "copy it to a local before the write (`local n = r.n`), check and use that")
-  -- A write through a longer path names its last field.
+    field_hint("r.n", "8:5", "n"))
+  -- A write through a longer path.
   answers("local record Box\n  n: integer | nil\nend\nlocal record Holder\n  box: Box\nend\n" ..
       "local b: Box = { n = 1 }\nlocal h: Holder = { box = b }\n" ..
-      "if b.n then\n  h.box.n = nil\n  print(b.n + 1)\nend\n", plus,
-    "'b.n' was checked, but the write `h.box.n = ...` at 10:3 may be to the same table: " ..
-      "copy it to a local before the write (`local n = b.n`), check and use that")
-  -- Copied to a local first, the program is accepted.
+      "if b.n then\n  h.box.n = nil\n  print(b.n + 1)\nend\n", plus, field_hint("b.n", "9:5", "n"))
+  -- An operator that runs a metamethod.
+  answers("local record V\n  metamethod __add: function(V, V): V\nend\n" ..
+      "local record H\n  n: integer | nil\nend\nlocal v: V = setmetatable({} as V, {})\nlocal h: H = { n = 1 }\n" ..
+      "if h.n then\n  local sum = v + v\n  print(h.n + 1, sum)\nend\n", plus, field_hint("h.n", "9:5", "n"))
+  -- A loop whose later passes run what its first reads.
+  answers(head .. "if r.n then\n  for _ = 1, 2 do\n    print(r.n + 1)\n    clear()\n  end\nend\n", plus,
+    field_hint("r.n", "8:5", "n"))
+  -- A function literal.
+  answers(head .. "if r.n then\n  local get = function(): integer\n    return r.n + 1\n  end\n  print(get())\nend\n",
+    plus, field_hint("r.n", "8:5", "n"))
+  -- A place assigned after the test.
+  answers(head .. "if r.n then\n  r.n = nil\n  print(r.n + 1)\nend\n", plus,
+    "'r.n' was checked, then assigned at 9:3: the checker narrows nothing after an assignment, " ..
+      "so keep the value in a local (`local n = <the value>`, r.n = n) and use that")
+  -- A binding of the name.
+  answers(head .. "local r2: R = { n = 2 }\nif r.n then\n  local r = r2\n  print(r.n + 1)\nend\n", plus,
+    field_hint("r.n", "9:5", "n"))
+  -- Wherever the value is used.
+  answers(head .. "local function use(n: integer) print(n) end\nif r.n then\n  clear()\n  use(r.n)\nend\n",
+    "argument 1: got integer | nil, expected integer", field_hint("r.n", "9:5", "n"))
+  -- The end of a block that holds a `<close>` local.
+  local closing <const> = "local record C\n  n: integer | nil\n  metamethod __close: function(C)\nend\n" ..
+    "local c0: C = setmetatable({ n = 1 } as C, {})\n"
+  answers(closing .. "if c0.n then\n  do\n    local c <close> = c0\n    local _ = c\n  end\n  print(c0.n + 1)\nend\n", plus,
+    field_hint("c0.n", "6:6", "n"))
+  -- Copied to a local first, the program is accepted whatever runs between.
   local copied = head .. "local n = r.n\nif n then\n  clear()\n  print(n + 1)\nend\n"
   assert(#type_errors(copied) == 0, copied)
 end
 
---- The end of a block that holds a `<close>` local is told by the local.
-local function test_a_narrowing_dropped_by_a_close_is_told_the_local()
-  local closing <const> = "local record C\n  n: integer | nil\n  metamethod __close: function(C)\nend\n" ..
-    "local c0: C = setmetatable({ n = 1 } as C, {})\n"
-  answers(closing .. "if c0.n then\n  do\n    local c <close> = c0\n    local _ = c\n  end\n  print(c0.n + 1)\nend\n", plus,
-    "'c0.n' was checked, but the `__close` of `c` at 8:11 runs at the end of its block and may change it: " ..
-      "copy it to a local before the block ends (`local n = c0.n`), check and use that")
-  answers(closing .. "if c0.n then\n  for _ = 1, 2 do\n    print(c0.n + 1)\n    local c <close> = c0\n    local _ = c\n  end\nend\n",
-    "'c0.n' was narrowed before this loop, but the loop's previous pass ran the `__close` of `c` at 9:11, " ..
-      "which may have changed it",
-    "'c0.n' was checked, but the `__close` of `c` at 9:11 in this loop may change it before the loop " ..
-      "comes round again: copy it to a local before the loop (`local n = c0.n`), check and use that")
+--- The copy is named for a name that is free where the test is: not a local
+--- or a global the program has, nor a builtin or a keyword. The field's own
+--- name is the first choice; then the place with its dot made an underscore.
+local function test_the_copy_is_named_for_a_name_that_is_free()
+  local record_head <const> = "local record R\n  a: integer | nil\n  type: integer | nil\n  next: integer | nil\n" ..
+    "  g: integer | nil\nend\nlocal r: R = { a = 1 }\n"
+  -- A local of that name.
+  answers(record_head .. "local a = 5\nif r.a then\n  print(r.a + a)\nend\n", plus,
+    field_hint("r.a", "9:5", "r_a"))
+  -- The names of builtins.
+  answers(record_head .. "if r.type then\n  print(r.type + 1)\nend\n", plus, field_hint("r.type", "8:5", "r_type"))
+  answers(record_head .. "if r.next then\n  print(r.next + 1)\nend\n", plus, field_hint("r.next", "8:5", "r_next"))
+  -- A global of the program.
+  answers("global g: string = \"g\"\n" .. record_head .. "if r.g then\n  print(r.g + 1)\nend\n", plus,
+    field_hint("r.g", "9:5", "r_g"))
+  -- Free: the field's own name.
+  answers(record_head .. "if r.a then\n  print(r.a + 1)\nend\n", plus, field_hint("r.a", "8:5", "a"))
+  -- Both taken: the flat name is, too.
+  answers(record_head .. "local a = 5\nlocal r_a = 6\nif r.a then\n  print(r.a + a + r_a)\nend\n", plus,
+    field_hint("r.a", "10:5", "r_a_copy"))
 end
 
---- The other things that run code, and a global a function assigns.
-local function test_a_narrowing_dropped_by_other_code_is_told_what_ran_it()
-  -- An operator that runs a metamethod.
-  answers("local record V\n  metamethod __add: function(V, V): V\nend\n" ..
-      "local record H\n  n: integer | nil\nend\nlocal v: V = setmetatable({} as V, {})\nlocal h: H = { n = 1 }\n" ..
-      "if h.n then\n  local sum = v + v\n  print(h.n + 1, sum)\nend\n", plus,
-    "'h.n' was checked, but the operator `+` at 10:15 may run a metamethod that changes it: " ..
-      "copy it to a local before the operator (`local n = h.n`), check and use that")
-  -- A loop whose later passes run what its first reads.
-  answers(head .. "if r.n then\n  for _ = 1, 2 do\n    print(r.n + 1)\n    clear()\n  end\nend\n",
-    "'r.n' was narrowed before this loop, but the loop's previous pass ran clear(...) at 11:5, " ..
-      "which may have changed it",
-    "'r.n' was checked, but the call `clear(...)` at 11:5 in this loop may change it before the loop " ..
-      "comes round again: copy it to a local before the loop (`local n = r.n`), check and use that")
-  -- A loop whose later passes run a write, an assignment or an operator is
-  -- told what it was, not "the call".
-  answers(head .. "if r.n then\n  for _ = 1, 2 do\n    print(r.n + 1)\n    r.n = nil\n  end\nend\n",
-    "'r.n' was narrowed before this loop, but the loop's previous pass ran r.n = ... at 11:5, " ..
-      "which may have changed it",
-    "'r.n' was checked, but the write `r.n = ...` at 11:5 in this loop may change it before the loop " ..
-      "comes round again: copy it to a local before the loop (`local n = r.n`), check and use that")
-  answers(head .. "local r2: R = { n = 2 }\nif r.n then\n  for _ = 1, 2 do\n    print(r.n + 1)\n    r = r2\n  end\nend\n",
-    "'r.n' was narrowed before this loop, but the loop's previous pass ran r = ... at 12:5, " ..
-      "which may have changed it",
-    "'r.n' was checked, but the assignment `r = ...` at 12:5 in this loop may change it before the loop " ..
-      "comes round again: copy it to a local before the loop (`local n = r.n`), check and use that")
-  -- A global, which any function may assign, is copied into a local, which none does.
-  answers("global gx: integer | nil = 1\nlocal function reset()\n  gx = nil\nend\n" ..
-      "if gx then\n  reset()\n  print(gx + 1)\nend\n", plus,
-    "'gx' was checked, but the call `reset(...)` at 6:3 may change it: copy it into a local of its own " ..
-      "after the check (`local gx = gx`, which no function assigns)")
-  -- A function literal begins without the facts that may change before it runs.
-  answers(head .. "if r.n then\n  local get = function(): integer\n    return r.n + 1\n  end\n  print(get())\nend\n",
+--- The name is also not one the enclosing function declares after the test,
+--- and not one that begins with an underscore.
+local function test_the_copy_is_not_named_for_a_later_declaration_or_an_underscore()
+  local record_head <const> = "local record R\n  a: integer | nil\n  _x: integer | nil\nend\nlocal r: R = { a = 1 }\n"
+  -- A local declared in the arm that uses the copy.
+  answers(record_head .. "if r.a then\n  local a = 5\n  print(r.a + a)\nend\n", plus, field_hint("r.a", "6:5", "r_a"))
+  -- A local function, a parameter of a function literal and a loop variable.
+  answers(record_head .. "if r.a then\n  print(r.a + 1)\nend\nlocal function a() end\nprint(a)\n", plus,
+    field_hint("r.a", "6:5", "r_a"))
+  answers(record_head .. "local function f(a: integer)\n  if r.a then\n    print(r.a + a)\n  end\nend\nprint(f)\n", plus,
+    field_hint("r.a", "7:7", "r_a"))
+  answers(record_head .. "if r.a then\n  print(r.a + 1)\nend\nfor a = 1, 2 do print(a) end\n", plus,
+    field_hint("r.a", "6:5", "r_a"))
+  -- Declared in another function: not the enclosing one, so free.
+  answers(record_head .. "local function g()\n  local a = 1\n  return a\nend\nlocal function f()\n" ..
+      "  if r.a then\n    print(r.a + 1)\n  end\nend\nprint(f, g)\n", plus, field_hint("r.a", "11:7", "a"))
+  -- An underscore name.
+  answers(record_head .. "if r._x then\n  print(r._x + 1)\nend\n", plus, field_hint("r._x", "6:5", "r__x"))
+end
+
+--- A field `is` cannot test is told the copy to a local, the way a test that
+--- narrows nothing is.
+local function test_an_is_of_a_field_is_told_the_copy()
+  local source <const> = "local record R\n  v: string | number\nend\nlocal r: R = { v = 1 }\n" ..
+    "if r.v is string then\n  print(1)\nend\n"
+  answers(source, "can only use 'is' on variables",
+    "note: `is` tests a local, not a field. Copy 'r.v' to a local first (`local v = r.v`), then test and use `v`")
+  local at = noted(source)
+  assert(at.dropped_place == "r.v" and at.dropped_kind == "field", tostring(at.dropped_place))
+  -- Copied to a local, it is accepted.
+  assert(#type_errors((source:gsub("if r.v is string", "local v = r.v\nif v is string"))) == 0)
+end
+
+--- A field a loop counts down is told to be copied before the loop, the local
+--- counted, and the field stored back after.
+local function test_a_field_a_loop_updates_is_told_to_update_the_copy()
+  answers(head .. "while r.n and r.n > 0 do\n  r.n = r.n - 1\nend\n",
+    "cannot use operator '>' for types integer | nil and integer", field_hint("r.n", "8:8", "n"))
+end
+
+--- A test of a global is told the copy to a local, which no function assigns.
+local function test_a_test_of_a_global_is_told_the_copy()
+  local source = "global gx: integer | nil = 1\nlocal function reset()\n  gx = nil\nend\n" ..
+    "if gx then\n  reset()\n  print(gx + 1)\nend\n"
+  -- The copy is named for a name that nothing else has: the global's own is taken.
+  answers(source, plus,
+    "note: the test of 'gx' at 5:4 does not narrow it, as a global is not narrowed by a test: only a local " ..
+      "is. If this use relies on that test, copy it first (`local gx_copy = gx`), then test and use `gx_copy`. " ..
+      "If a loop or later code updates 'gx', update `gx_copy` instead and store it back after (`gx = gx_copy`)")
+  -- A global assigned a union value is not narrowed by the assignment.
+  answers("global gu: string | number\nlocal function f(): string\n  gu = \"x\"\n  return gu\nend\nprint(f)\n",
+    "in return value: got string | number, expected string",
+    "note: the assignment to 'gu' at 3:3 does not narrow it, as a global is not narrowed by an assignment: " ..
+      "only a local is. If this use relies on that assignment, keep the value in a local " ..
+      "(`local gu_copy = <the value>`, gu = gu_copy) and use that")
+  local copied = "global gx: integer | nil = 1\nlocal function reset()\n  gx = nil\nend\n" ..
+    "local copy = gx\nif copy then\n  reset()\n  print(copy + 1)\nend\n"
+  assert(#type_errors(copied) == 0, copied)
+end
+
+--- A local assigned after its test, or before a function that reads it runs, is
+--- told the copy that no assignment changes.
+local function test_a_narrowing_dropped_by_an_assignment_or_a_function_is_told_the_copy()
+  local local_head <const> = "local function maybe(): integer | nil return nil end\nlocal n: integer | nil = maybe()\n"
+  answers(local_head .. "if n then\n  n = maybe()\n  print(n + 1)\nend\n", plus,
+    "'n' was checked, then assigned at 4:3: the checker narrows nothing after an assignment, " ..
+      "so keep the value in a local (`local n = <the value>`, n = n) and use that")
+  answers(local_head .. "if n then\n  local get = function(): integer\n    return n + 1\n  end\n  n = maybe()\n  print(get())\nend\n",
     plus,
-    "'r.n' was checked, but the function at 9:15 runs later, when it may have changed: " ..
-      "copy it to a local before the function (`local n = r.n`), check and use that")
-  -- A place assigned after the check.
-  answers(head .. "if r.n then\n  r.n = nil\n  print(r.n + 1)\nend\n", plus,
-    "'r.n' was checked, then assigned at 9:3: the checker narrows nothing after an assignment, " ..
-      "so keep the value in a local (`local n = <the value>`, r.n = n) and use that")
-  -- A binding of the name is another table than the one that was checked.
-  answers(head .. "local r2: R = { n = 2 }\nif r.n then\n  local r = r2\n  print(r.n + 1)\nend\n", plus,
-    "'r.n' was checked, but `r` declared at 10:9 may name another table than the one it was checked on: " ..
-      "copy it to a local before the new binding (`local n = r.n`), check and use that")
-  -- Wherever the value is used.
-  answers(head .. "local function use(n: integer) print(n) end\nif r.n then\n  clear()\n  use(r.n)\nend\n",
-    "argument 1: got integer | nil, expected integer",
-    "'r.n' was checked, but the call `clear(...)` at 10:3 may change it: " ..
-      "copy it to a local before the call (`local n = r.n`), check and use that")
+    "'n' was checked, but the function at 4:15 runs later, when it may have changed: " ..
+      "copy it to a local before the function (`local n = n`), check and use that")
 end
 
---- The refusal says which place, what dropped it, and where, beside what
---- the use was refused for.
-local function test_a_refusal_of_a_dropped_narrowing_carries_the_place_and_what_dropped_it()
-  local called = diagnostic(head .. "if r.n then\n  clear()\n  print(r.n + 1)\nend\n", "narrowing_dropped")
-  assert(called.dropped_place == "r.n" and called.dropped_kind == "call" and
-      called.dropped_by == "clear(...)" and called.dropped_y == 9 and called.dropped_x == 3,
+--- The refusal says which place, what kind it is or what dropped it, and
+--- where, beside what the use was refused for.
+local function test_a_refusal_of_an_unnarrowed_or_dropped_place_carries_the_place_and_the_cause()
+  local called = noted(head .. "if r.n then\n  clear()\n  print(r.n + 1)\nend\n")
+  assert(called.code == "operator_binary", tostring(called.code))
+  assert(called.dropped_place == "r.n" and called.dropped_kind == "field" and
+      called.dropped_by == "r.n" and called.dropped_y == 8 and called.dropped_x == 5,
     tostring(called.dropped_place) .. " " .. tostring(called.dropped_kind) .. " " .. tostring(called.dropped_by))
   assert(called.y == 10 and called.x == 13 and listed(called.left_members, "integer", "nil"), called.msg)
-  local written = diagnostic(head .. "if r.n then\n  local c = r\n  c.n = nil\n  print(r.n + 1)\nend\n",
-    "narrowing_dropped")
-  assert(written.dropped_kind == "write" and written.dropped_by == "c.n = ..." and written.dropped_y == 10,
-    tostring(written.dropped_by))
   -- A refusal keeps its own fields.
-  local argument = diagnostic(head .. "local function use(n: integer) print(n) end\n" ..
-      "if r.n then\n  clear()\n  use(r.n)\nend\n", "narrowing_dropped")
+  local argument = noted(head .. "local function use(n: integer) print(n) end\n" ..
+      "if r.n then\n  clear()\n  use(r.n)\nend\n")
   assert(argument.context == "argument" and argument.index == 1 and listed(argument.got_members, "integer", "nil"),
     argument.msg)
-  local indexed = diagnostic("local record Inner\n  v: integer\nend\nlocal record O\n  inner: Inner | nil\nend\n" ..
-      "local o: O = {}\nlocal function clear()\n  o.inner = nil\nend\n" ..
-      "if o.inner then\n  clear()\n  print(o.inner.v)\nend\n", "narrowing_dropped")
+  local indexed = noted("local record Inner\n  v: integer\nend\nlocal record O\n  inner: Inner | nil\nend\n" ..
+      "local o: O = {}\nif o.inner then\n  print(o.inner.v)\nend\n")
   assert(indexed.dropped_place == "o.inner" and listed(indexed.members, "Inner", "nil"), indexed.msg)
-  local looped = diagnostic("local function more(): boolean return false end\n" .. head ..
-      "if r.n then\n  while true do\n    print(r.n + 1)\n    if more() then break end\n  end\nend\n", "narrowing_dropped")
-  assert(looped.dropped_kind == "loop" and looped.dropped_by == "more(...)" and looped.dropped_place == "r.n",
-    tostring(looped.dropped_by))
-  -- The condition of a loop is run before the body, in every pass.
-  local conditioned = diagnostic("local function more(): boolean return false end\n" .. head ..
-      "if r.n then\n  while more() do\n    print(r.n + 1)\n  end\nend\n", "narrowing_dropped")
-  assert(conditioned.dropped_kind == "call" and conditioned.dropped_by == "more(...)", tostring(conditioned.dropped_kind))
+  local used = noted("global gx: integer | nil = 1\nif gx then\n  print(gx + 1)\nend\n")
+  assert(used.dropped_place == "gx" and used.dropped_kind == "global" and used.dropped_by == "gx",
+    tostring(used.dropped_kind))
+  -- A local dropped by an assignment, in a loop.
+  local assigned = diagnostic("local function maybe(): integer | nil return nil end\nlocal n: integer | nil = maybe()\nif n then\n  n = maybe()\n  print(n + 1)\nend\n", "narrowing_dropped")
+  assert(assigned.dropped_place == "n" and assigned.dropped_kind == "assignment" and
+      assigned.dropped_by == "n = ..." and assigned.dropped_y == 4, tostring(assigned.dropped_by))
   -- An operand that was never narrowed is refused for what it is.
   local plain = diagnostic(head .. "print(r.n + 1)\n", "operator_binary")
   assert(plain.dropped_place == nil and plain.dropped_kind == nil)

@@ -1,9 +1,10 @@
 --- The checker's shadow facts (`self.facts`, checker/facts.tl) beside the
 --- narrowing that decides every verdict: with [`Env.shadow_mismatches`] set,
---- every read of a local or a field compares the type the facts give with
---- the type the narrowing gave, and a disagreement is recorded. These tests
---- run the programs that put narrowing at risk with the comparison on and
---- hold the disagreements to none.
+--- every read of a place compares the type the facts give with the type the
+--- narrowing gave, and a disagreement is recorded. Both narrow only a local; a
+--- read of a field or a global is compared too, and neither side holds a fact
+--- of one. These tests run the programs that put narrowing at risk with the
+--- comparison on and hold the disagreements to none.
 ---
 --- This is the gate of step 7a's shadow mode: when a read switches to the
 --- facts, this test is what says the facts were right. A disagreement that
@@ -904,17 +905,10 @@ local function test_each_narrowing_shape_agrees_with_the_facts()
   assert(fields >= 8, "only " .. tostring(fields) .. " field reads were compared")
 end
 
--- The old narrowing drops, for good, the field facts of a name where a new
--- plain variable of the name is declared (not `local t = t`), and not
--- when that variable's scope ends. The facts are keyed by variable and keep
--- the outer `t.a` for the code that reads it again: after the inner scope
--- ends, after a loop whose variable is a new `t`, and in the `else` beside
--- the branch that declared it. Each program is pinned as the one mismatch it
--- gives: the old narrowing is the more conservative, the facts hold what the
--- code before left. A read of it in a loop is another matter, below.
--- TODO: pin these to no mismatch once the reads switch to the facts (step 7a's
--- PR 3), which gives the outer fact back where the old narrowing dropped it
--- and moves the verdict of each program, which is triaged there.
+-- A new plain variable of a name (not `local t = t`) declared after a test of a
+-- field of the name: neither side narrows the field, so after the inner
+-- scope ends, after a loop whose variable is a new `t`, and in the `else`
+-- beside the branch that declared it, the two agree.
 local old_drops_more: {{string}} = {
   { "after_inner_scope", [[
 local record R
@@ -931,8 +925,7 @@ local function g(t: R): integer
   return 0
 end
 return g
-]],
-    "10:13 t.a: shadow integer (inferred at :5:7), old none" },
+]] },
   { "loop_after_binding", [[
 local record R
   a: integer | nil
@@ -948,8 +941,7 @@ local function g(t: R, rs: {R}): integer
   return n
 end
 return g
-]],
-    "10:13 t.a: shadow integer (inferred at :6:7), old none" },
+]] },
   { "sibling_else", [[
 local record R
   a: integer | nil
@@ -966,32 +958,21 @@ local function g(t: R, s: R, c: boolean): integer
   return 0
 end
 return g
-]],
-    "10:15 t.a: shadow integer (inferred at :5:7), old none" },
+]] },
 }
 
-local function test_old_narrowing_drops_field_facts_the_facts_keep()
+local function test_a_new_variable_of_the_name_of_a_tested_field_agrees_with_the_facts()
   for _, case in ipairs(old_drops_more) do
     local name, text = case[1], case[2]
     local found, _, fields = mismatches(name .. ".tl", text)
     assert(fields > 0, name .. ": no field read was compared")
-    local expected: {string} = {}
-    for i = 3, #case do
-      expected[#expected + 1] = name .. ".tl:" .. case[i]
-    end
-    assert(table.concat(found, "\n") == table.concat(expected, "\n"),
-      name .. ": " .. table.concat(found, "\n"))
+    assert(#found == 0, name .. ": " .. table.concat(found, "\n"))
   end
 end
 
--- The facts carry a fact into a loop and refuse a read of it that the body
--- drops afterwards, as the narrowing does (`record_read`, `loop_end`). Where a
--- new variable of the name came first, the narrowing holds no fact to refuse
--- (it dropped it, above), so it misses the read and the facts are the
--- stricter side. Each program is pinned as the two lines it gives.
--- TODO: pin these to no mismatch once the reads switch to the facts (step 7a's
--- PR 3), which refuses the read on the facts' account, and the loop rule that
--- PR 8 replaces moves in the facts alone.
+-- A field tested before a loop whose body drops it, with a new variable of the
+-- name came first or not: neither side holds a fact of the field to refuse a
+-- read of, so the two agree.
 local facts_refuse: {{string}} = {
   { "while_cond", [[
 local record R
@@ -1014,8 +995,7 @@ local function f(q: R, s: R): number
   return n
 end
 print(f)
-]],
-    "13:12 q.a: shadow number (inferred at :11:7), old none", "13:12 q.a: the facts refuse the read of a fact the loop drops, old does not" },
+]] },
   { "while_body", [[
 local record R
    a: number | nil
@@ -1037,8 +1017,7 @@ local function f(q: R, s: R): number
   return n
 end
 print(f)
-]],
-    "14:16 q.a: shadow number (inferred at :11:7), old none", "14:16 q.a: the facts refuse the read of a fact the loop drops, old does not" },
+]] },
   { "for_body", [[
 local record R
    a: number | nil
@@ -1060,8 +1039,7 @@ local function f(q: R, s: R): number
   return n
 end
 print(f)
-]],
-    "14:16 q.a: shadow number (inferred at :11:7), old none", "14:16 q.a: the facts refuse the read of a fact the loop drops, old does not" },
+]] },
   { "forin_body", [[
 local record R
    a: number | nil
@@ -1083,8 +1061,7 @@ local function f(q: R, s: R, t: {integer}): number
   return n
 end
 print(f)
-]],
-    "14:16 q.a: shadow number (inferred at :11:7), old none", "14:16 q.a: the facts refuse the read of a fact the loop drops, old does not" },
+]] },
   { "repeat_body", [[
 local record R
    a: number | nil
@@ -1106,22 +1083,14 @@ local function f(q: R, s: R): number
   return n
 end
 print(f)
-]],
-    "14:16 q.a: shadow number (inferred at :11:7), old none", "14:16 q.a: the facts refuse the read of a fact the loop drops, old does not" },
+]] },
 }
 
-local function test_the_facts_refuse_a_read_of_a_fact_the_loop_drops_where_the_narrowing_misses_it()
+local function test_a_field_tested_before_a_loop_that_drops_it_agrees_with_the_facts()
   for _, case in ipairs(facts_refuse) do
     local name, text = case[1], case[2]
     local found = mismatches(name .. ".tl", text)
-    local expected: {string} = {}
-    for i = 3, #case do
-      expected[#expected + 1] = name .. ".tl:" .. case[i]
-    end
-    table.sort(found)
-    table.sort(expected)
-    assert(table.concat(found, "\n") == table.concat(expected, "\n"),
-      name .. ": " .. table.concat(found, "\n"))
+    assert(#found == 0, name .. ": " .. table.concat(found, "\n"))
   end
 end
 
@@ -2748,13 +2717,9 @@ local function test_global_writes_agree_with_the_facts()
   assert(reads > 0, "no read was compared")
 end
 
--- A new variable of a name inside a loop, after reads of a narrowed field of the
--- name: the narrowing counts the binding's drop of the field facts as an event
--- of the loop (#3072) and refuses the reads of the next pass; the facts are keyed
--- by variable, so the binding drops nothing of the outer `q.a`, which is sound,
--- and they do not refuse. Each program is pinned as the two lines it gives.
--- TODO: pin these to no mismatch once the reads switch to the facts (step 7a's
--- PR 3), which moves the verdict of each program, triaged there.
+-- A new variable of a name inside a loop, after reads of a tested field of the
+-- name: neither side narrows the field, so neither refuses a read of a fact the
+-- binding drops, and the two agree.
 local old_refuses_more: {{string}} = {
   { "assert_again_loop", [[
 local record Inner
@@ -2781,8 +2746,7 @@ end
 print(p, x, y)
 end
 print(f, touch, maybe)
-]],
-    "15:13 q.a: old refuses the read of a fact the loop drops, the facts do not", "16:24 q.a: old refuses the read of a fact the loop drops, the facts do not" },
+]] },
   { "if_again_loop_binding", [[
 local record Inner
    n: number | nil
@@ -2809,22 +2773,14 @@ end
 print(p, x, y)
 end
 print(f, touch, maybe)
-]],
-    "15:9 q.a: old refuses the read of a fact the loop drops, the facts do not", "16:26 q.a: old refuses the read of a fact the loop drops, the facts do not" },
+]] },
 }
 
-local function test_the_narrowing_refuses_reads_of_a_fact_a_binding_in_the_loop_drops()
+local function test_a_binding_in_a_loop_after_reads_of_a_tested_field_agrees_with_the_facts()
   for _, case in ipairs(old_refuses_more) do
     local name, text = case[1], case[2]
     local found = mismatches(name .. ".tl", text)
-    local expected: {string} = {}
-    for i = 3, #case do
-      expected[#expected + 1] = name .. ".tl:" .. case[i]
-    end
-    table.sort(found)
-    table.sort(expected)
-    assert(table.concat(found, "\n") == table.concat(expected, "\n"),
-      name .. ": " .. table.concat(found, "\n"))
+    assert(#found == 0, name .. ": " .. table.concat(found, "\n"))
   end
 end
 

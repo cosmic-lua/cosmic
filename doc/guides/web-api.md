@@ -84,8 +84,9 @@ function Api.mount(opts: Api.Options): Web.Route
 
   local function list(_req: Web.Request, _p: Web.None, q: Page, _b: Web.None): Web.Response
     local out: {Api.Note} = {}
+    local limit = q.limit
     for _, note in ipairs(notes) do
-      if q.limit == nil or #out < q.limit then out[#out + 1] = note end
+      if limit == nil or #out < limit then out[#out + 1] = note end
     end
     return Web.json({ notes = Json.array(out) })
   end
