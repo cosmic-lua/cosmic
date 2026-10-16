@@ -1118,6 +1118,7 @@ a sketch, not a design:
   line-preserving output, the `--check-types` and checked-narrowing code,
   and every row the checker writes into the database ("what the language
   keeps working").
+- its type system is drafted in [the types draft](new-checker-types.md).
 - the grammar holds `mut` on a field ([fields are fixed unless declared
   mutable]) and on a collection ([collections are views unless declared
   mutable]), and no `as` ([no casts]); the translator writes a remaining
