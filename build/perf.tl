@@ -440,11 +440,12 @@ end
 local function measure(f: Fixture, w: Workload, phase: string, pair: integer,
                        label: string, leaf_value: integer): Observation
   local executable = f.binary
-  if w.executable == "portable" then
+  local w_executable = w.executable
+  if w_executable == "portable" then
     executable = f.portable
-  elseif w.executable == "host" then
+  elseif w_executable == "host" then
     executable = f.host
-  elseif w.executable == "host_tool" then
+  elseif w_executable == "host_tool" then
     executable = f.host_tool
   end
   local argv = { executable }
@@ -481,9 +482,10 @@ local function measure(f: Fixture, w: Workload, phase: string, pair: integer,
   elseif w.name:find("startup", 1, true) or w.name:find("require", 1, true) then
     assert(stdout == "" and stderr == "", "startup/require unexpectedly produced output")
   end
-  if w.ran ~= nil then
+  local w_ran = w.ran
+  if w_ran ~= nil then
     local ran, stood = (stdout .. stderr):match("; (%d+) ran, (%d+) stood")
-    assert(tonumber(ran) == w.ran and tonumber(stood) == w.stood,
+    assert(tonumber(ran) == w_ran and tonumber(stood) == w.stood,
       w.name .. ": unexpected test counters: " .. stdout .. stderr)
     assert(not (stdout .. stderr):find("test: SKIP", 1, true), "fixture skipped a test")
   end

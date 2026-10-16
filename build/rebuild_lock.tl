@@ -213,10 +213,11 @@ function rebuild_lock.take(root: string, wait_ns: integer,
   local layout = build_paths.under(directory)
   local path = layout.lock
   if held.lock ~= nil then
-    if held.path == path then
+    local held_path = held.path
+    if held_path == path then
       return "held", ""
     end
-    return nil, "this process holds " .. tostring(held.path) ..
+    return nil, "this process holds " .. tostring(held_path) ..
       " and cannot take another checkout's too"
   end
   local holding, trouble = acquire(path, wait_ns)

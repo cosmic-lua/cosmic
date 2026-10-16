@@ -45,8 +45,9 @@ local function get_all_pattern(built: compiler): Node | nil, string
     all_pattern.pattern, all_pattern.err = ast_match.compile_pattern(built, ALL_PATTERN_SRC)
     all_pattern.compiled = true
   end
-  if all_pattern.pattern == nil then return nil, all_pattern.err end
-  return all_pattern.pattern, ""
+  local pattern = all_pattern.pattern
+  if pattern == nil then return nil, all_pattern.err end
+  return pattern, ""
 end
 
 --- Every module a `require(...)` call names anywhere in `parsed`'s

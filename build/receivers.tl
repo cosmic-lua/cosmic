@@ -310,16 +310,18 @@ function receivers.references(state: receivers.State, env: compiler.Env,
   local visited: {ast.Node: boolean} = {}
 
   local function consider(n: ast.Node)
-    if n.kind == "assignment" and n.vars ~= nil then
-      for _, var in ipairs(n.vars) do
+    local vars = n.vars
+    if n.kind == "assignment" and vars ~= nil then
+      for _, var in ipairs(vars) do
         targets[var] = true
       end
       return
     end
-    if n.kind ~= "op" or n.op == nil or targets[n] then
+    local n_op = n.op
+    if n.kind ~= "op" or n_op == nil or targets[n] then
       return
     end
-    local op = n.op.op
+    local op = n_op.op
     if op ~= "." and op ~= ":" then
       return
     end

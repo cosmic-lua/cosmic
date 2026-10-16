@@ -579,18 +579,22 @@ function c.check(root: string, files: {string}, cwd?: string, limit?: integer):
     for _, f in ipairs(known and rules.single_file(every) or {}) do
       for _, u in ipairs(every) do
         local o = by_file[u.file]
-        if u.defines[f.within] ~= nil and o.findings ~= nil then
-          f.variants = { c.variants[1].name }
-          o.findings[#o.findings + 1] = f
+        if u.defines[f.within] ~= nil then
+          local findings = o.findings
+          if findings ~= nil then
+            f.variants = { c.variants[1].name }
+            findings[#findings + 1] = f
+          end
         end
       end
     end
   end
   local seen: {string: boolean} = {}
   for _, o in ipairs(outcomes) do
-    if o.findings ~= nil then
+    local o_findings = o.findings
+    if o_findings ~= nil then
       local kept: {rules.Finding} = {}
-      for _, f in ipairs(o.findings) do
+      for _, f in ipairs(o_findings) do
         local key = f.file .. ":" .. f.line .. ":" .. f.rule
         if not seen[key] then
           seen[key] = true

@@ -139,10 +139,11 @@ local function git(root: string, args: {string}, run_git: GitRunner | nil): stri
   local result, _ = Child.run(argv, {
     stdin = "null", stdout = "capture", stderr = "null", timeout_ns = git_timeout_ns,
   })
-  if result == nil or not result.ok or result.stdout == nil then
+  local result_stdout = result ~= nil and result.stdout or nil
+  if result == nil or not result.ok or result_stdout == nil then
     return nil
   end
-  return result.stdout
+  return result_stdout
 end
 
 --- Whether `root` lies in a git repository: whether it, or a directory
@@ -247,8 +248,9 @@ local function spawning(program: string, root: string): Blamer
         handle = handle,
         said = function(): string | nil
           local result, _ = handle:wait()
-          if result ~= nil and result.ok and result.stdout ~= nil then
-            return result.stdout
+          local stdout = result ~= nil and result.stdout or nil
+          if result ~= nil and result.ok and stdout ~= nil then
+            return stdout
           end
           return nil
         end,

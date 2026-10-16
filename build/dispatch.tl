@@ -169,8 +169,9 @@ local function spec_notes(verb: string, spec: verb_spec.Spec | nil): string
     paragraphs[1] = fix_layout
   end
   paragraphs[#paragraphs + 1] = wrapped("Takes " .. spec.takes .. ".", help_width)
-  if spec.exits ~= nil then
-    paragraphs[#paragraphs + 1] = wrapped(spec.exits, help_width)
+  local exits = spec.exits
+  if exits ~= nil then
+    paragraphs[#paragraphs + 1] = wrapped(exits, help_width)
   elseif verb == "test" then
     paragraphs[#paragraphs + 1] = wrapped("Once its tests ran, ends its stdout in their summary, " ..
         "`test: 9 tests passed in 2 modules; ...` or `test: 2 of 9 tests failed, ...`, and exits " ..
@@ -242,7 +243,8 @@ local function usage_line(verb: string): string
   local command = require("cosmic.cli").verbs[verb]
   local usage = command.usage
   if usage == nil then
-    usage = command.spec ~= nil and next(command.spec) ~= nil and "[options]" or ""
+    local spec = command.spec
+    usage = spec ~= nil and next(spec) ~= nil and "[options]" or ""
   end
   if usage ~= "" then words[#words + 1] = usage end
   return table.concat(words, " ")

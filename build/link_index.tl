@@ -517,8 +517,9 @@ function link_index.fill(db: Sqlite.Handle, pending: link_index.Pending,
       end
     end
   end
-  if resolver.trouble ~= nil then
-    return false, resolver.trouble
+  local resolver_trouble = resolver.trouble
+  if resolver_trouble ~= nil then
+    return false, resolver_trouble
   end
   table.sort(rows, function(a: link_index.Row, b: link_index.Row): boolean
     if a.module ~= b.module then return a.module < b.module end

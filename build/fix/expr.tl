@@ -239,11 +239,12 @@ local function table_item(c: Ctx, n: Node)
     refuse(c, "a table entry with no value")
     return
   end
-  if n.key_parsed == "short" then
+  local key_parsed = n.key_parsed
+  if key_parsed == "short" then
     local key = n.key
     emit.text(c.em, key ~= nil and key.conststr or "")
     emit.put(c.em, " =")
-  elseif n.key_parsed == "long" then
+  elseif key_parsed == "long" then
     local key = n.key
     if key == nil then
       refuse(c, "a bracketed table key with no key")

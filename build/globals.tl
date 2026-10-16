@@ -78,7 +78,8 @@ function globals.found(parsed: ast.Parsed): {globals.Place}
       if bindings[1] == nil then
         bindings[1] = scopes.bindings_of(parsed)
       end
-      local name = n.name ~= nil and n.name.tk or nil
+      local n_name = n.name
+      local name = n_name ~= nil and n_name.tk or nil
       if name ~= nil and scopes.in_scope(bindings[1], n.y, n.x, false)[name] ~= nil then
         return
       end

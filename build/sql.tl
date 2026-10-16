@@ -657,11 +657,12 @@ local function read_inputs(parsed: Flags.Parsed): {sql.Input} | nil, string
   end
   for _, input in ipairs(inputs) do
     if input.format == "" then
-      if input.path == nil then
+      local input_path = input.path
+      if input_path == nil then
         return nil, "standard input has no extension to read a format from; " ..
           "give --as (" .. table.concat(dataset.names(), ", ") .. ") after its --from -"
       end
-      local format, why = dataset.format_of(input.path)
+      local format, why = dataset.format_of(input_path)
       if format == nil then
         return nil, input.label .. ": " .. why .. "; or give --as after its --from"
       end
@@ -806,10 +807,11 @@ local function run_from(parsed: Flags.Parsed, to: sql.Output,
   for _, input in ipairs(inputs) do
     local text: string | nil
     local read_trouble: string
-    if input.path == nil then
+    local path = input.path
+    if path == nil then
       text, read_trouble = stdin()
     else
-      text, read_trouble = Fs.read(input.path)
+      text, read_trouble = Fs.read(path)
     end
     if text == nil then
       -- A file's failure already names the file; standard input's does not.

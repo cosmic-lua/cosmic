@@ -335,8 +335,9 @@ function verdicts.tree_lines(built: compiler, root: string, names: {string}, fre
         else
           collect(out, relative, result, relative)
           shadow_lines(out, relative, env)
-          if name ~= nil and result.type ~= nil then
-            env.modules[name] = result.type
+          local module_type = result.type
+          if name ~= nil and module_type ~= nil then
+            env.modules[name] = module_type
           end
         end
       end

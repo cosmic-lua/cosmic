@@ -139,8 +139,9 @@ local function arguments(argv: {integer:string}): verb.Request | nil, string
   elseif #words > 2 then
     return nil, "give a path and a file at most, not " .. plural.count(#words, "word")
   end
-  if request.file == "" then return nil, bare.empty_file end
-  if request.file == "-" then request.file = nil end
+  local file = request.file
+  if file == "" then return nil, bare.empty_file end
+  if file == "-" then request.file = nil end
   if path ~= nil then
     local query, why = Json.query(path)
     if query == nil then return nil, plain(why) end
@@ -256,10 +257,11 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
   local request: verb.Request = parsed
   local text: string | nil
   local read_trouble: string
-  if request.file == nil then
+  local file = request.file
+  if file == nil then
     text, read_trouble = to.stdin()
   else
-    text, read_trouble = Fs.read(request.file)
+    text, read_trouble = Fs.read(file)
   end
   if text == nil then
     local named = request.file

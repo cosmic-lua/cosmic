@@ -72,10 +72,12 @@ function json_query.flatten(value: any, opts?: json_query.FlattenOptions): {Json
   local limit = Json.default_depth
   local root: Json.Steps = {}
   if opts ~= nil then
-    if opts.max_depth ~= nil then
-      limit = checked_depth(opts.max_depth, 1, Json.depth_limit, 2)
+    local max_depth = opts.max_depth
+    if max_depth ~= nil then
+      limit = checked_depth(max_depth, 1, Json.depth_limit, 2)
     end
-    if opts.root ~= nil then root = opts.root end
+    local opts_root = opts.root
+    if opts_root ~= nil then root = opts_root end
   end
   local leaves: {Json.Match} = {}
   local open: {any:boolean} = {}
@@ -272,12 +274,13 @@ local function render(node: Node): string
   if node.arrays > 0 then
     local size = tostring(node.shortest)
     if node.longest ~= node.shortest then size = size .. ".." .. node.longest end
+    local elements = node.elements
     if node.cut then
       parts[#parts + 1] = "[" .. size .. " x ...]"
-    elseif node.elements == nil then
+    elseif elements == nil then
       parts[#parts + 1] = "[" .. size .. "]"
     else
-      parts[#parts + 1] = "[" .. size .. " x " .. render(node.elements) .. "]"
+      parts[#parts + 1] = "[" .. size .. " x " .. render(elements) .. "]"
     end
   end
   return table.concat(parts, "|")

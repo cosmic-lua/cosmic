@@ -552,7 +552,8 @@ local function inline_text(node: flow.Node): string
   local parts: {string} = {}
   for _, item in ipairs(members(node)) do
     local value = inline_text(item.value)
-    parts[#parts + 1] = item.key ~= nil and key_text(item.key) .. ": " .. value or value
+    local key = item.key
+    parts[#parts + 1] = key ~= nil and key_text(key) .. ": " .. value or value
   end
   local open, close = "[", "]"
   if node.kind == "object" then open, close = "{", "}" end
@@ -594,14 +595,17 @@ local function write(out: {string}, node: flow.Node, pad: string, after: integer
   end
   local open, close = "[", "]"
   if node.kind == "object" then open, close = "{", "}" end
-  out[#out] = out[#out] .. open .. (node.comment ~= nil and " " .. node.comment or "")
+  local comment = node.comment
+  out[#out] = out[#out] .. open .. (comment ~= nil and " " .. comment or "")
   local inner = pad .. "  "
   local items = members(node)
   for index, item in ipairs(items) do
     comment_lines(out, tidy(item.before, index == 1, false), inner)
-    out[#out + 1] = inner .. (item.key ~= nil and key_text(item.key) .. ": " or "")
+    local key = item.key
+    out[#out + 1] = inner .. (key ~= nil and key_text(key) .. ": " or "")
     write(out, item.value, inner, 1)
-    out[#out] = out[#out] .. "," .. (item.comment ~= nil and " " .. item.comment or "")
+    local item_comment = item.comment
+    out[#out] = out[#out] .. "," .. (item_comment ~= nil and " " .. item_comment or "")
   end
   comment_lines(out, tidy(node.tail, #items == 0, true), inner)
   out[#out + 1] = pad .. close
@@ -613,7 +617,8 @@ function flow.render(doc: flow.Doc): string
   comment_lines(out, tidy(doc.head, true, false), "")
   out[#out + 1] = ""
   write(out, doc.root, "", 0)
-  if doc.comment ~= nil then out[#out] = out[#out] .. " " .. doc.comment end
+  local comment = doc.comment
+  if comment ~= nil then out[#out] = out[#out] .. " " .. comment end
   comment_lines(out, tidy(doc.foot, false, true), "")
   return table.concat(out, "\n") .. "\n"
 end

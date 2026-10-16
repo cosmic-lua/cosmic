@@ -171,7 +171,8 @@ end
 local function stderr_of(handle: Child.Handle): string
   local result, _ = handle:wait(1000000000)
   local said = ""
-  if result ~= nil and result.stderr ~= nil then said = result.stderr end
+  local stderr = result ~= nil and result.stderr or nil
+  if result ~= nil and stderr ~= nil then said = stderr end
   if said == "" then return "" end
   return ": " .. (said:gsub("%s+$", ""):gsub("\n", " / "))
 end
@@ -310,9 +311,10 @@ function workers.pool(spec: workers.Spec, jobs?: integer): importer.Workers
       return state.broken and 0 or most
     end,
     path = function(name: string): string | nil, string
-      if state.scratch == nil then return nil, "no workers are running" end
+      local scratch = state.scratch
+      if scratch == nil then return nil, "no workers are running" end
       state.jobs_made = state.jobs_made + 1
-      return state.scratch.path .. "/" .. name .. "-" .. state.jobs_made, ""
+      return scratch.path .. "/" .. name .. "-" .. state.jobs_made, ""
     end,
     -- TODO: give a phase a deadline: a hung worker holds the build, and
     -- the rebuild lock, until its lifetime ends. Waits on a read of a
@@ -375,8 +377,9 @@ function workers.pool(spec: workers.Spec, jobs?: integer): importer.Workers
     end,
     close = function()
       finish_workers()
-      if state.scratch ~= nil then
-        local _gone <close> = state.scratch
+      local scratch = state.scratch
+      if scratch ~= nil then
+        local _gone <close> = scratch
         state.scratch = nil
       end
       state.started = false

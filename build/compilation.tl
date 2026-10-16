@@ -612,8 +612,9 @@ function compilation.generate(m: Module, built: compiler, env: compiler.Env,
   end
   local result = assert(outcome, "the checker answered no result")
   local code: string | nil = nil
-  if result.ast ~= nil and #result.syntax_errors == 0 then
-    local written, write_trouble = built.generate(result.ast, env.defaults.gen_target, nil)
+  local result_ast = result.ast
+  if result_ast ~= nil and #result.syntax_errors == 0 then
+    local written, write_trouble = built.generate(result_ast, env.defaults.gen_target, nil)
     if written == nil then
       return nil, m.file .. ": " .. write_trouble
     end

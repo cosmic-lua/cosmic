@@ -933,7 +933,8 @@ end
 
 local lock_mt: metatable<Lock> = {
   __close = function(self: Lock)
-    if self.db ~= nil then local _, _ = self.db:close() end
+    local db = self.db
+    if db ~= nil then local _, _ = db:close() end
     local _, _ = sys.close(self.fd)
   end,
 }
@@ -949,8 +950,9 @@ local function take(lock: Lock, path: string, wait_ns: integer): string | nil, s
   if kind == nil then return nil, path .. ": " .. kind_trouble end
   if kind == "apart" then
     local db: Sqlite.Handle
-    if lock.db ~= nil then
-      db = lock.db
+    local lock_db = lock.db
+    if lock_db ~= nil then
+      db = lock_db
     else
       local opened, db_trouble = Sqlite.open(path, { writable = true })
       if opened == nil then return nil, path .. ": " .. db_trouble end
@@ -1038,8 +1040,9 @@ function Zig.main(argv: {integer:string}): integer
   -- The pinned release runs on its library with patch/zig-lib/'s records
   -- applied, unless the caller names a library of their own.
   local environment = Env.all()
-  if found.install ~= nil and (environment.ZIG_LIB_DIR or "") == "" then
-    local lib, lib_trouble = patched_lib(root, found.install)
+  local install = found.install
+  if install ~= nil and (environment.ZIG_LIB_DIR or "") == "" then
+    local lib, lib_trouble = patched_lib(root, install)
     if lib_trouble ~= "" then
       log:complain(lib_trouble)
       return 1

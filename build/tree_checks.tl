@@ -1720,7 +1720,8 @@ end
 --- literal, or arithmetic (parenthesized or not).
 local function counted(node: Node): boolean
   local inner = node
-  if node.kind == "paren" and node.e1 ~= nil then inner = node.e1 end
+  local e1 = node.e1
+  if node.kind == "paren" and e1 ~= nil then inner = e1 end
   local info = inner.op
   if inner.kind == "integer" or inner.kind == "number" then return true end
   if inner.kind ~= "op" or info == nil then return false end
@@ -1743,7 +1744,8 @@ end
 --- operand is that string or a chain of `..` that begins with one.
 local function leading_literal(node: Node): string | nil
   if node.kind == "string" then return node.conststr end
-  if is_concat(node) and node.e1 ~= nil then return leading_literal(node.e1) end
+  local e1 = node.e1
+  if is_concat(node) and e1 ~= nil then return leading_literal(e1) end
   return nil
 end
 
@@ -1756,6 +1758,7 @@ local function sites_in(parsed: ast.Parsed): {{string}}
   local sites: {{string}} = {}
   ast.walk(parsed.node, function(node: Node)
     local left, right = node.e1, node.e2
+    local conststr = node.conststr
     if is_concat(node) and left ~= nil and right ~= nil and left.kind ~= "string" and
         not is_concat(left) then
       local literal = leading_literal(right)
@@ -1765,8 +1768,8 @@ local function sites_in(parsed: ast.Parsed): {{string}}
           "write `plural.count(n, singular)` (with the plural as a third argument when it is " ..
             "not the singular and an `s`)" }
       end
-    elseif node.kind == "string" and node.conststr ~= nil and node.conststr:find("%%d ") then
-      for _, noun in ipairs(format_plurals(node.conststr)) do
+    elseif node.kind == "string" and conststr ~= nil and conststr:find("%%d ") then
+      for _, noun in ipairs(format_plurals(conststr)) do
         sites[#sites + 1] = { tostring(node.y), noun, "%d " .. noun,
           "print `plural.noun(n, singular)` beside the number" }
       end

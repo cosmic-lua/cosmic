@@ -177,12 +177,14 @@ local function shape(n: Node): {Node} | nil, {ast.Position} | nil
     end
   elseif kind == "repeat" then
     local body = n.body
-    if body == nil or body.yend == nil or body.xend == nil then
+    local xend = body ~= nil and body.xend or nil
+    local yend = body ~= nil and body.yend or nil
+    if body == nil or yend == nil or xend == nil then
       return nil, nil
     end
     bodies[1] = body
     -- The body's recorded end is its `until`'s last column.
-    closers[1] = { y = body.yend, x = body.xend - #"until" + 1 }
+    closers[1] = { y = yend, x = xend - #"until" + 1 }
     return bodies, closers
   elseif (opens_block[kind] and kind ~= "local_macroexp") or kind == "function" then
     local body = n.body
@@ -192,11 +194,13 @@ local function shape(n: Node): {Node} | nil, {ast.Position} | nil
   else
     return nil, nil
   end
-  if n.yend == nil or n.xend == nil then
+  local xend = n.xend
+  local yend = n.yend
+  if yend == nil or xend == nil then
     return nil, nil
   end
   -- A construct's recorded end is its `end`'s last column.
-  closers[#closers + 1] = { y = n.yend, x = n.xend - #"end" + 1 }
+  closers[#closers + 1] = { y = yend, x = xend - #"end" + 1 }
   return bodies, closers
 end
 

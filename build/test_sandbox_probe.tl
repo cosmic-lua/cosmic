@@ -134,8 +134,9 @@ local function ran_under(argv: {string}, fds: {integer:integer | string},
   end
   if not result.ok then
     local said = (result.stdout or ""):gsub("%s+$", "")
+    local signal = result.signal
     return { ok = false, broken = not host_limit(said), why = "a sandboxed start of this program " ..
-        (result.signal ~= nil and ("was killed by signal " .. tostring(result.signal)) or
+        (signal ~= nil and ("was killed by signal " .. tostring(signal)) or
           ("exited " .. tostring(result.code))) .. (said ~= "" and (": " .. said) or "") }
   end
   return { ok = true, why = "", broken = false }

@@ -211,7 +211,8 @@ function invoke.run(args: {string}, opts: invoke.Options): invoke.Result
     error("invoke: the working directory could not be put back: " .. back_trouble)
   end
   if not ran then error(trouble, 0) end
-  if run.refused ~= nil then error(run.refused, 0) end
+  local run_refused = run.refused
+  if run_refused ~= nil then error(run_refused, 0) end
   return result
 end
 

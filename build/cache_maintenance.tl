@@ -448,12 +448,14 @@ local function fresh_keys(path: string, restored: string, expected: {string:Shap
   local st, stat_why, errno = sys.stat(restored)
   if st ~= nil then
     old.db, why = Sqlite.open(restored)
-    if old.db == nil then return nil, why end
-    old.db:busy_timeout(Clock.seconds(10))
+    local old_db = old.db
+    if old_db == nil then return nil, why end
+    old_db:busy_timeout(Clock.seconds(10))
   elseif errno ~= sys.ENOENT then
     return nil, stat_why
   end
-  for _, db in ipairs(old.db ~= nil and { opened, old.db } or { opened }) do
+  local old_db = old.db
+  for _, db in ipairs(old_db ~= nil and { opened, old_db } or { opened }) do
     local tables, table_why = inspect(db, "compiles", expected)
     if tables == nil then return nil, table_why end
     for _, entry in ipairs(tables) do
@@ -518,8 +520,9 @@ function maintenance.run(options: maintenance.Options): maintenance.Result
       report.warnings[#report.warnings + 1] = why
       complete = false
     end
-    if complete and options.restored ~= nil and #paths > 0 then
-      report.fresh, why = fresh_keys(paths[1], options.restored, expected, held)
+    local restored = options.restored
+    if complete and restored ~= nil and #paths > 0 then
+      report.fresh, why = fresh_keys(paths[1], restored, expected, held)
       if why ~= "" then
         report.warnings[#report.warnings + 1] = why
         complete = false

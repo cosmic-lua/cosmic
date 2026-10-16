@@ -397,8 +397,9 @@ local last_parse: LastParse = {}
 --- a compile asks for each refusal's hint, and the hints of a file share
 --- one parse.
 local function declarations_of(source: string): Declarations
-  if source == last_parse.source and last_parse.declarations ~= nil then
-    return last_parse.declarations
+  local declarations = last_parse.declarations
+  if source == last_parse.source and declarations ~= nil then
+    return declarations
   end
   local found: Declarations = { typed = {}, bound = {}, kinds = {} }
   local ambiguous: {string: boolean} = {}
@@ -421,6 +422,7 @@ local function declarations_of(source: string): Declarations
   if parsed ~= nil then
     ast.walk(parsed.node, function(n: ast.Node)
       local var = n.var
+      local n_vars, n_exps = n.vars, n.exps
       if n.kind == "local_type" and var ~= nil and var.tk ~= nil then
         local call = n.value
         local op = call ~= nil and call.op or nil
@@ -435,11 +437,12 @@ local function declarations_of(source: string): Declarations
             bind(var.tk, module)
           end
         end
-      elseif n.kind == "local_declaration" and n.vars ~= nil and n.exps ~= nil then
-        local exps = n.exps
-        local written = n.decltuple ~= nil and n.decltuple.tuple or nil
+      elseif n.kind == "local_declaration" and n_vars ~= nil and n_exps ~= nil then
+        local exps = n_exps
+        local decltuple = n.decltuple
+        local written = decltuple ~= nil and decltuple.tuple or nil
         if written == nil or #written == 0 then
-          for i, name in ipairs(n.vars) do
+          for i, name in ipairs(n_vars) do
             bind(name.tk, (required_module(bound_value(exps[i]))))
           end
         end
@@ -540,6 +543,7 @@ local function scoped_walk(root: ast.Node, visitor: Visitor)
       return
     end
     local kind = n.kind
+    local fn_args = n.args
     if kind == "statements" then
       scopes[#scopes + 1] = {}
       for _, statement in ipairs(n) do
@@ -549,12 +553,15 @@ local function scoped_walk(root: ast.Node, visitor: Visitor)
     elseif kind == "local_declaration" then
       -- Its expressions are read before its names exist.
       visit_all(n.exps)
-      local names = n.vars ~= nil and n.vars or {}
+      local vars = n.vars
+      local names = vars ~= nil and vars or {}
+      local decltuple = n.decltuple
       -- The parser gives an unannotated declaration an empty tuple.
-      local written = n.decltuple ~= nil and n.decltuple.tuple or nil
+      local written = decltuple ~= nil and decltuple.tuple or nil
       local alone = #names == 1 and (written == nil or #written == 0)
       for i, name in ipairs(names) do
-        local value = n.exps ~= nil and n.exps[i] or nil
+        local exps = n.exps
+        local value = exps ~= nil and exps[i] or nil
         declare(name.tk, {
           declaration = alone and n or nil,
           args = value ~= nil and value.kind == "function" and value.args or nil,
@@ -562,20 +569,23 @@ local function scoped_walk(root: ast.Node, visitor: Visitor)
         })
       end
     elseif kind == "local_type" then
-      declare(n.var ~= nil and n.var.tk or nil, {})
+      local var = n.var
+      declare(var ~= nil and var.tk or nil, {})
       visit_all(n.value)
     elseif kind == "fornum" then
       visit_all(n.from)
       visit_all(n.to)
       visit_all(n.step)
       scopes[#scopes + 1] = {}
-      declare(n.var ~= nil and n.var.tk or nil, {})
+      local var = n.var
+      declare(var ~= nil and var.tk or nil, {})
       visit_all(n.body)
       scopes[#scopes] = nil
     elseif kind == "forin" then
       visit_all(n.exps)
       scopes[#scopes + 1] = {}
-      for _, name in ipairs(n.vars ~= nil and n.vars or {}) do
+      local vars = n.vars
+      for _, name in ipairs(vars ~= nil and vars or {}) do
         declare(name.tk, {})
       end
       visit_all(n.body)
@@ -583,15 +593,17 @@ local function scoped_walk(root: ast.Node, visitor: Visitor)
     elseif kind == "repeat" then
       -- `until` reads the body's own locals.
       scopes[#scopes + 1] = {}
-      for _, statement in ipairs(n.body ~= nil and n.body or {}) do
+      local body = n.body
+      for _, statement in ipairs(body ~= nil and body or {}) do
         visit(statement)
       end
       visit_all(n.exp)
       scopes[#scopes] = nil
-    elseif n.args ~= nil and n.body ~= nil then
-      local arguments = n.args
-      if kind == "local_function" and n.name ~= nil then
-        declare(n.name.tk, { args = arguments })
+    elseif fn_args ~= nil and n.body ~= nil then
+      local arguments = fn_args
+      local n_name = n.name
+      if kind == "local_function" and n_name ~= nil then
+        declare(n_name.tk, { args = arguments })
       end
       scopes[#scopes + 1] = {}
       if n.is_method == true then
@@ -642,8 +654,9 @@ local function target_of(root: ast.Node, y: integer, x: integer): Binding | nil
     if names == nil or #names ~= 1 or values == nil or #values ~= 1 or target == nil or not at then
       return false
     end
-    if target.kind == "variable" and target.tk ~= nil then
-      answer[1] = lookup(target.tk)
+    local tk = target.tk
+    if target.kind == "variable" and tk ~= nil then
+      answer[1] = lookup(tk)
     end
     return true
   end)
@@ -831,7 +844,8 @@ local function callee_arguments(root: ast.Node, y: integer, x: integer): {ast.No
       end
     end
     local kind = n.kind
-    local name = n.name ~= nil and n.name.tk or nil
+    local n_name = n.name
+    local name = n_name ~= nil and n_name.tk or nil
     if kind == "global_function" and name ~= nil and n.args ~= nil and lookup(name) == nil then
       local declared = globals[name] or {}
       declared[#declared + 1] = n.args
@@ -839,11 +853,14 @@ local function callee_arguments(root: ast.Node, y: integer, x: integer): {ast.No
     elseif kind == "record_function" then
       member(n.fn_owner, name, n.args)
     elseif kind == "assignment" then
-      for i, target in ipairs(n.vars ~= nil and n.vars or {}) do
-        local value = n.exps ~= nil and n.exps[i] or nil
+      local vars = n.vars
+      for i, target in ipairs(vars ~= nil and vars or {}) do
+        local exps = n.exps
+        local value = exps ~= nil and exps[i] or nil
         local info = target.op
         if info ~= nil and info.op == "." and value ~= nil and value.kind == "function" then
-          member(target.e1, target.e2 ~= nil and target.e2.tk or nil, value.args)
+          local e2 = target.e2
+          member(target.e1, e2 ~= nil and e2.tk or nil, value.args)
         end
       end
     elseif kind == "op" and n.y == y and n.x == x then
@@ -872,10 +889,12 @@ local function callee_arguments(root: ast.Node, y: integer, x: integer): {ast.No
     return false
   end)
   local found: {ast.Node} = {}
-  if called.bound ~= nil then
-    found[1] = called.bound.args
-  elseif called.bare ~= nil then
-    found = globals[called.bare] or {}
+  local bound = called.bound
+  local bare = called.bare
+  if bound ~= nil then
+    found[1] = bound.args
+  elseif bare ~= nil then
+    found = globals[bare] or {}
   end
   for _, m in ipairs(called.key ~= nil and members or {}) do
     if m.name == called.key and (m.owner == receivers[1] or m.owner == receivers[2]) then
@@ -1263,12 +1282,14 @@ local function goto_hint(e: compiler.Error): string | nil
       "a label is only for `goto " .. name .. "` to skip the rest of a pass of the loop, so remove it and " ..
       "restructure the jump with an `if`, or move the body into a function"
   end
-  if e.local_y ~= nil then
-    return "'goto " .. name .. "' jumps over the local declared at " .. tostring(e.local_y) .. ":" ..
+  local local_y = e.local_y
+  if local_y ~= nil then
+    return "'goto " .. name .. "' jumps over the local declared at " .. tostring(local_y) .. ":" ..
       tostring(e.local_x) .. ", between the goto and the label: the `until` of a `repeat` sees it, and the " ..
       "program is refused. Wrap the code after the goto in `do ... end` or an `if`, or move it into a function"
   end
-  local at = e.label_y ~= nil and " (the label it names, at " .. tostring(e.label_y) .. ":" ..
+  local label_y = e.label_y
+  local at = label_y ~= nil and " (the label it names, at " .. tostring(label_y) .. ":" ..
     tostring(e.label_x) .. ", is not)" or ""
   return "'goto " .. name .. "' may only skip the rest of a pass of the loop around it, to a label that is the " ..
     "last statement of that loop's body" .. at .. ": restructure with an `if` around the code to skip, " ..
@@ -1314,10 +1335,11 @@ end
 --- is no value for the variable. Nil for another error, and for a callee
 --- the checker did not find to be a never-function.
 local function never_value_hint(e: compiler.Error): string | nil
-  if e.code ~= "no_initial_value" or not e.callee_never or e.callee == nil then
+  local callee = e.callee
+  if e.code ~= "no_initial_value" or not e.callee_never or callee == nil then
     return nil
   end
-  return "`" .. e.callee .. "` never returns, so it has no value to assign: call it as a " ..
+  return "`" .. callee .. "` never returns, so it has no value to assign: call it as a " ..
     "statement, and the code after it is unreachable"
 end
 
@@ -1335,16 +1357,17 @@ local value_contexts <const>: {string:boolean} = {
 --- returned value. A return list entry, a receiver, a field's type, a
 --- type parameter and the like are somewhere the hints say nothing of.
 local function wanted_value(e: compiler.Error): boolean
-  if e.code ~= "mismatch" or e.nested or e.context == nil then
+  local context = e.context
+  if e.code ~= "mismatch" or e.nested or context == nil then
     return false
   end
-  if e.context == "argument" then
+  if context == "argument" then
     return e.index ~= nil
   end
   if e.context_name ~= nil then
-    return e.context == "in local declaration"
+    return context == "in local declaration"
   end
-  return value_contexts[e.context] == true
+  return value_contexts[context] == true
 end
 
 --- The hint for a value the checker refused because it is `any` or may
@@ -1694,14 +1717,16 @@ end
 --- variable. A record described rather than named (cosmic.cli's `record
 --- Module`) is named by the variable, or, with none, as "the record".
 local function missing_key(e: compiler.Error): MissingKey | nil
-  if e.code ~= "invalid_key" or e.key == nil or e.subject == nil then
+  local subject = e.subject
+  local e_key = e.key
+  if e.code ~= "invalid_key" or e_key == nil or subject == nil then
     return nil
   end
-  local owner = e.subject
+  local owner = subject
   if e.subject_kind == "record" then
     owner = e.variable or "the record"
   end
-  return { key = e.key, owner = owner }
+  return { key = e_key, owner = owner }
 end
 
 --- Whether `before`, the text of a line up to a `...`, ends inside a
@@ -1805,8 +1830,9 @@ end
 --- instead. The hint says so conditionally, since the arguments may simply
 --- disagree. nil for any other error.
 local function type_parameter_hint(e: compiler.Error): string | nil
-  if e.context ~= "argument" or e.index == nil or e.type_parameter == nil or
-      e.type_parameter:match("^[%w_]+$") == nil then
+  local type_parameter = e.type_parameter
+  if e.context ~= "argument" or e.index == nil or type_parameter == nil or
+      type_parameter:match("^[%w_]+$") == nil then
     return nil
   end
   return "if this call's result is expected to have a type (a return type or a declaration), " ..
@@ -1822,8 +1848,10 @@ end
 --- other error, and for a line that does not declare a method of that
 --- record.
 local function method_type_arguments_hint(e: compiler.Error, source: string): string | nil
-  local name = e.names ~= nil and e.names[1] or nil
-  local arguments = e.type_arguments ~= nil and table.concat(e.type_arguments, ", ") or nil
+  local names = e.names
+  local name = names ~= nil and names[1] or nil
+  local type_arguments = e.type_arguments
+  local arguments = type_arguments ~= nil and table.concat(type_arguments, ", ") or nil
   local line = e.code == "missing_type_arguments" and e.subject_kind == "record" and name ~= nil and
     arguments ~= nil and line_at(source, e.y) or nil
   if line == nil or name:match("^[%a_][%w_]*$") == nil then
@@ -2129,25 +2157,29 @@ function teal.replacement(e: compiler.Error, source: string, file?: string,
   if code == "goto_not_continue" then
     return goto_hint(e)
   end
-  if code == "mismatch" and e.got_members ~= nil and #e.got_members == 1 and
-      e.got_members[1] == "number" and
-      (e.expected == "integer" or e.expected == "integer | nil") then
+  local expected = e.expected
+  local got_members = e.got_members
+  if code == "mismatch" and got_members ~= nil and #got_members == 1 and
+      got_members[1] == "number" and
+      (expected == "integer" or expected == "integer | nil") then
     -- TODO: hint a table field too (`local t = {n = 0}; t.n = t.n + 0.5`,
     -- `t.n` an "op" node here): it waits on the checker's inferred type of
     -- a record field being readable from the AST; the parser alone does
     -- not give it.
     local inferred = e.context == "in assignment" and e.context_name == nil and not e.nested and
-      e.got == "number" and e.expected == "integer" and integer_hint(source, y, x) or nil
+      e.got == "number" and expected == "integer" and integer_hint(source, y, x) or nil
     return inferred or integer_conversion
   end
-  if code == "expected_one_of" and e.expected_tokens ~= nil and #e.expected_tokens == 2 and
-      e.expected_tokens[1] == ")" and e.expected_tokens[2] == "," then
+  local expected_tokens = e.expected_tokens
+  if code == "expected_one_of" and expected_tokens ~= nil and #expected_tokens == 2 and
+      expected_tokens[1] == ")" and expected_tokens[2] == "," then
     return vararg_name_hint(source, y, x)
   end
+  local e_names = e.names
   -- A type name the checker shows as written, with no type arguments or
   -- place it was inferred at.
-  local names = code == "unknown_type" and e.names ~= nil and e.subject == table.concat(e.names, ".") and
-    e.names or nil
+  local names = code == "unknown_type" and e_names ~= nil and e.subject == table.concat(e_names, ".") and
+    e_names or nil
   if names ~= nil and #names == 1 and names[1] == "never" then
     return "`never` is no type: `: never` is the whole return list of a function that does not " ..
       "return, so `function(): never | nil` is a function returning `never | nil`. " ..
@@ -2272,19 +2304,23 @@ function teal.replacement(e: compiler.Error, source: string, file?: string,
     return later
   end
   local missing = missing_key(e)
-  if missing ~= nil and e.fields ~= nil then
-    return field_hint(missing.key, missing.owner, e.fields)
+  local e_fields = e.fields
+  if missing ~= nil and e_fields ~= nil then
+    return field_hint(missing.key, missing.owner, e_fields)
   end
-  if code == "unknown_field" and e.key ~= nil and e.fields ~= nil then
-    return field_hint(e.key, e.subject or "the record", e.fields)
+  local fields = e.fields
+  local e_key = e.key
+  if code == "unknown_field" and e_key ~= nil and fields ~= nil then
+    return field_hint(e_key, e.subject or "the record", fields)
   end
   if key ~= nil then
     return nil
   end
   local name: string | nil = nil
   local field: string | nil = nil
-  if code == "unknown_variable" and e.variable ~= nil then
-    name = e.variable
+  local variable = e.variable
+  if code == "unknown_variable" and variable ~= nil then
+    name = variable
     local line = line_at(source, y)
     if line ~= nil and line:sub(x, x + #name - 1) == name then
       field = line:sub(x + #name):match("^%s*[%.:]%s*([%a_][%w_]*)")

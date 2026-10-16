@@ -873,8 +873,9 @@ function fix.links(context: link_resolve.Context, built: compiler, files: {strin
       end
     end
   end
-  if resolver.trouble ~= nil then
-    out[#out + 1] = "links: reading the symbols: " .. resolver.trouble
+  local resolver_trouble = resolver.trouble
+  if resolver_trouble ~= nil then
+    out[#out + 1] = "links: reading the symbols: " .. resolver_trouble
   end
   local notes: {string} = {}
   if resolver.unchecked > 0 then
@@ -1124,8 +1125,9 @@ local function choose_files(ctx: Fix): integer | nil
       return 2
     end
     picked = fix.narrowed(root, picked, paths, Store.databases())
-    if picked.widened ~= nil then
-      log:say("fix: --changed: laying out the whole tree, since " .. picked.widened)
+    local widened = picked.widened
+    if widened ~= nil then
+      log:say("fix: --changed: laying out the whole tree, since " .. widened)
     else
       log:say("fix: --changed: laying out " .. plural.count(#picked.files + #picked.c_files +
           #picked.flow_files, "file") .. " of the paths named; the checks spanning files " ..
@@ -1235,14 +1237,16 @@ local function lay_out_c(ctx: Fix)
     if String.ends_with(file, ".c") then compiled[#compiled + 1] = file end
   end
   for _, outcome in ipairs(c_check.check(root, compiled)) do
-    if outcome.findings == nil then
+    local findings = outcome.findings
+    if findings == nil then
       failures[#failures + 1] = outcome.file .. ": " .. assert(outcome.trouble)
     else
-      for _, f in ipairs(outcome.findings) do
+      for _, f in ipairs(findings) do
+        local variants = f.variants
         -- Named only when the variants it was found in are not all that
         -- its file was checked under.
-        local seen = f.variants ~= nil and #f.variants < #assert(outcome.variants) and
-          " [" .. table.concat(f.variants, ", ") .. "]" or ""
+        local seen = variants ~= nil and #variants < #assert(outcome.variants) and
+          " [" .. table.concat(variants, ", ") .. "]" or ""
         failures[#failures + 1] = f.file .. ":" .. f.line .. ": " .. f.rule ..
           " in " .. f.within .. seen .. ": " .. f.message
       end
@@ -1531,9 +1535,10 @@ local function check_links(ctx: Fix)
     linked_out = fix.links(source.context, built, linked, ctx.checking and "check" or "write",
       ctx.facts, laid_out)
     source.close()
+    local unbuilt = source.unbuilt
     -- A refusal the build above met already fails the run.
-    if source.unbuilt ~= nil and ctx.unbuilt == nil then
-      links_unbuilt = "links: not rebuilt, resolved from the last build: " .. source.unbuilt
+    if unbuilt ~= nil and ctx.unbuilt == nil then
+      links_unbuilt = "links: not rebuilt, resolved from the last build: " .. unbuilt
     end
   end
   -- Held no longer than the links need them.
