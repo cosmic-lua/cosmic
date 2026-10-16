@@ -125,11 +125,10 @@ local cache_variable <const> = "COSMIC_BUILD_CACHE"
 
 --- Whether core/bridge.lua can keep and take its compiles, as far as the
 --- environment says: it does not with the cache off, a name that is not
---- absolute, `TL_PATH` set (even empty), or neither `XDG_CACHE_HOME` nor
---- `HOME` an absolute path.
+--- absolute, or neither `XDG_CACHE_HOME` nor `HOME` an absolute path.
 local function bridge_has_a_cache(): boolean
   local named = Env.get_or(cache_variable, "")
-  if named == "0" or Env.get("TL_PATH") ~= nil then return false end
+  if named == "0" then return false end
   if named ~= "" then return named:sub(1, 1) == "/" end
   if Env.get_or("XDG_CACHE_HOME", ""):sub(1, 1) == "/" then return true end
   return Env.get_or("HOME", ""):sub(1, 1) == "/"

@@ -293,18 +293,16 @@ the replacement for that very field, at the site that used it.
 replacement lives.
 
 the compiler -- the Lua the tree's checker, [`checker/tl.tl`], compiles to (below) --
-reaches outside the pure libraries in five
-places: `io.open` and the file handle it returns, `os.getenv`,
-`package.path`, `package.searchers`, and `load`. it ships as a row
-in the database and is loaded with its own environment that supplies
-those over the syscall table. the checker resolves the types of a
-`require` through tl's own path search over the tree, which is a
-build reading its inputs; tl's loader, the part that would compile
-and run a module, is never called, and `package.path`'s absence in
-the runtime is never observed. the compiler is not patched for any
-of this. before Teal exists, at boot, a short Lua bridge,
-[`core/bridge.lua`], which the boot reads from the tree as it reads the
-seed's compiler, supplies the same environment.
+reaches outside the pure libraries nowhere: it opens no file, reads no
+variable and runs no code it compiles. it ships as a row in the
+database and is loaded with an environment that names the pure
+libraries and `load`, which the wrapper that joins the checker's files
+uses. the checker resolves the types of a
+`require` through `search_module`, which it is handed: the build
+answers it from the staged tree, which is a build reading its inputs,
+and the compiler's own finds nothing. before Teal exists, at boot, a
+short Lua bridge, [`core/bridge.lua`], which the boot reads from the
+tree as it reads the seed's compiler, answers it from the tree's files.
 
 Lua is built with `LUA_USE_POSIX` on both OSes and no compatibility
 defines, so assigning an undeclared global is a compile error and
@@ -912,8 +910,8 @@ and `inet_pton.c`, carry ISC's text.
 
 each PIN also names its component's SPDX license and the notices a copy
 must travel with (`license`, `notice`); what the build links without
-vendoring -- zig's runtime, musl -- has a record of the same grammar
-under `build/bom/`. the tool's database carries them as a bill of
+vendoring -- zig's runtime, musl, and the license the checker inherits from
+tl -- has a record of the same grammar under `build/bom/`. the tool's database carries them as a bill of
 materials ([`build/bom.tl`]), every executable `cosmic build` writes
 carries the same rows, and `cosmic bom` prints them, their notices, or
 a CycloneDX document. a pin with no license fails the build.
@@ -922,8 +920,8 @@ a CycloneDX document. a pin with no license fails the build.
 
 the checker and compiler are the tree's own source, [`checker/tl.tl`] and the
 files beside it: they descend from tl 0.24.8 (MIT; the license and notice
-travel in the bill of materials with `tl.lua`, which boot no longer reads)
-and are edited directly.
+travel in the bill of materials, as [`build/bom/tl.pin`]) and are edited
+directly.
 [`checker/tl.tl`] is the entry and holds most of the checker.
 [`checker/flow.tl`] is the first module split out of it, and it decides
 reachability: which statements end their block (`return`, `break`, `goto`,
@@ -1187,9 +1185,8 @@ later parts of the checker move into modules the same way, each a file in
 `checker/` with a main chunk and a count of locals of its own. the files sit
 outside the module closure they compile: the scanner
 reads `checker/` as part of the tool, never as a module or a test
-([`build/identity.tl`]), and `cosmic fix` does not lay it out. the vendored
-tree still holds upstream's `tl.lua` alone, unedited, but the boot no longer
-reads it. the seed is the pinned release: a `build.zig` step runs
+([`build/identity.tl`]), and `cosmic fix` does not lay it out. the tree
+holds no copy of upstream's `tl.lua`. the seed is the pinned release: a `build.zig` step runs
 `bin/cosmic-bootstrap compile` (the release [`ci/cosmic-driver.pin`] names;
 `COSMIC_BOOTSTRAP` names another cosmic) over `checker/*.tl` and
 [`build/checker_wrapper.tl`], and zig caches the Lua it writes. the boot
@@ -1502,7 +1499,7 @@ patch/<name>/       exact find/replace records, each with a note
 core/               C: entry, locator, VFS, store, sqlite, surface, boot
 core/syscalls.h     the annotated header cosmic.sys's .d.tl and doc rows derive from
 core/process.h      the same for the raw cosmic.internal.process table
-core/bridge.lua     the boot environment for tl, and its compile of checker/*.tl, by hand
+core/bridge.lua     the boot bridge: its compile of checker/*.tl and of the build, by hand
 checker/tl.tl       the Teal checker and compiler, the entry, compiled at boot from the pinned release's seed
 checker/flow.tl     the checker's reachability: which statements end their block
 checker/narrowing.tl the checker's places and guards: what a test tells of a place
@@ -1599,6 +1596,7 @@ in [roadmap.md](roadmap.md).
 [`build.work`]: ../build/work.tl
 [`build.writer`]: ../build/writer.tl
 [`build/bom.tl`]: ../build/bom.tl
+[`build/bom/tl.pin`]: ../build/bom/tl.pin
 [`build/checker_assigned_fuzz_test.tl`]: ../build/checker_assigned_fuzz_test.tl
 [`build/checker_wrapper.tl`]: ../build/checker_wrapper.tl
 [`build/closure_store.tl`]: ../build/closure_store.tl

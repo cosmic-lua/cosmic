@@ -369,8 +369,8 @@ end
 --- of Lua, the checker's source ([`checker/tl.tl`]) and the Lua standard
 --- library's declarations it is compiled with ([`checker/stdlib.d.tl`]),
 --- and Lua's patches. Part of the compiler's identity, and the whole of
---- `runtime_basis`. Neither [`vendor/tl/PIN`] nor [`ci/cosmic-driver.pin`],
---- which names the release that seeds a boot, is in it: a boot loads
+--- `runtime_basis`. [`ci/cosmic-driver.pin`], which names the release that
+--- seeds a boot, is not in it: a boot loads
 --- the checker's source compiled twice (core/bridge.lua's `bootstrap`),
 --- and the compiler it carries is the second stage, a function of that
 --- source alone (build/compiler_test.tl holds it to a fixed point), so no

@@ -120,7 +120,7 @@ and an ordinary environment value checked on arrival. The rebuilt file keeps
 the retained prefix and cache entry count, and its bytes change. A subsequent
 core input edit ([`core/startup.h`]) is refused, under `COSMIC_AUTO_BOOT=0`,
 with the named `bin/zig build boot` remedy and touches neither the artifact
-nor the cache. Three further cases -- an edited [`vendor/tl/PIN`], an
+nor the cache. Three further cases -- an edited [`vendor/lua/PIN`], an
 edited [`checker/tl.tl`] and an edited [`build/launcher.tl`] -- are refused
 outright, before `test.run` or the artifact is ever reached. A last,
 dependency-free case exercises the prefix comparison itself: an exact match, a
@@ -143,4 +143,4 @@ command contracts are documented in `ci`.
 [`core/portable.c`]: ../../core/portable.c
 [`core/startup.h`]: ../../core/startup.h
 [`test.portable`]: init.tl
-[`vendor/tl/PIN`]: ../../vendor/tl/PIN
+[`vendor/lua/PIN`]: ../../vendor/lua/PIN

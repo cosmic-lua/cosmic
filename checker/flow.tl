@@ -40,7 +40,7 @@
 -- parts'.
 --
 -- This file holds only upstream Teal 0.24.8: the boot compiles it with
--- the vendored `tl.lua` (core/bridge.lua), as it does checker/tl.tl.
+-- the pinned release's seed (build.zig), as it does checker/tl.tl.
 --
 -- TODO: a global declared with a type and no value (`global gx: integer`)
 -- is read as a value though nothing assigned it, and a local given a call
@@ -229,9 +229,10 @@ end
 -- until it has one. The checker's own source relies on nil being in every
 -- type, as the rest of this directory does.
 -- TODO: type what may be absent `T | nil` and narrow it where it is read,
--- once nil is excluded from every type but one that names it, and the
--- checker's source may use what upstream's `tl.lua` (the seed that compiles
--- it) refuses today: indexing a `T | nil` after its guard.
+-- once nil is excluded from every type but one that names it, and once
+-- ci/cosmic-driver.pin names a release whose checker accepts indexing a
+-- `T | nil` after its guard (the seed that compiles this file refuses it
+-- today). Both are needed.
 local no_node: flow.Node = nil
 
 -- The references to a name in an expression, a block and a function, which

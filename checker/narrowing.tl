@@ -33,7 +33,7 @@
 -- this file names none of the checker's types.
 --
 -- This file holds only upstream Teal 0.24.8: the boot compiles it with
--- the vendored `tl.lua` (core/bridge.lua), as it does checker/tl.tl.
+-- the pinned release's seed (build.zig), as it does checker/tl.tl.
 --
 -- TODO: the places are a local and `x.f` of a local: `place_of` answers
 -- nothing for `a.b.c`, and no index (`t[k]`) is a place. `Place.fields`
@@ -803,36 +803,6 @@ function narrowing.forget(g: narrowing.Guard, droppable: function(narrowing.Plac
    return join("or", g.w, f1 or (g.f1 and TRUTHY), f2 or (g.f2 and TRUTHY))
 end
 
-local function describe(host: narrowing.Host, g: narrowing.Guard): string
-   if g == nil then
-      return "nil"
-   end
-   local function show(f: narrowing.Guard): string
-      return describe(host, f)
-   end
-   if g.fact == "is" then
-      return ("(%s is %s)"):format(g.place.key, host.show(g.typ))
-   elseif g.fact == "==" then
-      return ("(%s == %s)"):format(g.place.key, host.show(g.typ))
-   elseif g.fact == "truthy" then
-      return "*"
-   elseif g.fact == "not" then
-      return ("(not %s)"):format(show(g.f1))
-   elseif g.fact == "and" then
-      return ("(%s and %s)"):format(show(g.f1), show(g.f2))
-   end
-   return ("(%s or %s)"):format(show(g.f1), show(g.f2))
-end
-
-local function sorted_keys(m: {string:narrowing.Guard}): {string}
-   local keys: {string} = {}
-   for k, _ in pairs(m) do
-      table.insert(keys, k)
-   end
-   table.sort(keys)
-   return keys
-end
-
 local evaluate: function(narrowing.Host, narrowing.Guard): {string:narrowing.Guard} = nil
 local evaluate_not: function(narrowing.Host, narrowing.Guard): {string:narrowing.Guard} = nil
 
@@ -989,26 +959,6 @@ evaluate = function(host: narrowing.Host, f: narrowing.Guard): {string:narrowing
       return and_facts(host, evaluate(host, f.f1), evaluate(host, f.f2))
    elseif f.fact == "or" then
       return or_facts(host, evaluate(host, f.f1), evaluate(host, f.f2))
-   end
-end
-
-if os.getenv("TL_DEBUG_FACTS") then
-   local trace = { indent = -1 }
-   local untraced = evaluate
-   evaluate = function(host: narrowing.Host, known: narrowing.Guard): {string:narrowing.Guard}
-      trace.indent = trace.indent + 1
-      io.stderr:write(("   "):rep(trace.indent))
-      io.stderr:write("eval fact: ", describe(host, known), "\n")
-      local facts = untraced(host, known)
-      if facts then
-         for _, k in ipairs(sorted_keys(facts)) do
-            io.stderr:write(("   "):rep(trace.indent), "=> ", describe(host, facts[k]), "\n")
-         end
-      else
-         io.stderr:write(("   "):rep(trace.indent), "=> .\n")
-      end
-      trace.indent = trace.indent - 1
-      return facts
    end
 end
 

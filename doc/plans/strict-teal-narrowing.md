@@ -162,12 +162,13 @@ codes and messages, not types (`--types`).
 
 ## seed constraints
 
-until [the pinned-release seed], [`vendor/tl/tl.lua`] (upstream 0.24.8) compiles the checker:
-no `name?: T`, no `: never`, no narrowing of a field (copy to a local
-first), and `nil` as a typed value through the `local x: T = nil` idiom
-with its TODO. the new code lives in `facts.tl` with no type errors;
-`tl.tl` gets thin call sites. from then the pinned release compiles it,
-and the checker's source may use what that release's checker accepts.
+the pinned release compiles the checker ([the pinned-release seed]), and
+the checker's source may use what that release's checker accepts. until
+the pin moves to a release with each rule, that is upstream 0.24.8's: no
+`name?: T`, no `: never`, no narrowing of a field (copy to a local first),
+and `nil` as a typed value through the `local x: T = nil` idiom with its
+TODO. the new code lives in `facts.tl` with no type errors; `tl.tl` gets
+thin call sites.
 
 ## oracles
 
@@ -197,7 +198,6 @@ and the checker's source may use what that release's checker accepts.
   those two collector calls move to where facts are made.
 
 [`cosmic.sys`]: ../../core/syscalls.h
-[`vendor/tl/tl.lua`]: ../../vendor/tl/tl.lua
 [captures are read-only]: strict-teal.md#captures-are-read-only
 [narrowing only what nothing else can change]: strict-teal.md#narrowing-only-what-nothing-else-can-change
 [records are not maps]: strict-teal.md#records-are-not-maps
