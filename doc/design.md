@@ -1374,7 +1374,7 @@ see, `setmetatable(_G, ...)` or `local _ENV = ...`, is not refused, and
 neither is a file run by `cosmic --standalone`, which no build checks. the
 plan's [hidden-code rule] ends both: `_ENV` is a reserved name a program
 cannot declare or assign, and a standalone run checks its file and refuses
-it on a type error.
+it on a type error, cached by content hash like any compile.
 
 ### the runtime
 

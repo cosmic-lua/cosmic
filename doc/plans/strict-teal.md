@@ -145,7 +145,7 @@ stack can carry.
   then calling a function is refused rather than tracked through the
   callee: copy the field to a local first.
 - **sound from the start, looser by measurement.** a rule lands at its
-  sound form. a refinement that accepts more (a loop pattern, an escape
+  sound form. a refinement that accepts more (an escape
   analysis) is added later, when a measurement shows the need, and breaks
   no program that already checks. the reverse order would break the tree
   at every tightening.
@@ -441,19 +441,18 @@ standard library's declarations are audited, each of these named:
 
 a restriction. `m[k]` and `m.k` on a `{K:V}` are `V | nil`. `t[i]` on a
 `{T}` is `T | nil`, because Lua answers nil for an index out of range
-rather than trapping. one refinement answers `T`, and only this: in
-`for i = a, #t` (or `#t - d`) and `for i = #t, 1, -1`, with `a` a literal
-of at least 1, `t[i]` (and `t[i + c]` for `c <= d`) is `T` when `t` is a
-local the body does not assign and does not pass as `mut` ([collections
-are views unless declared mutable]). an index is not a
-place: a test of `t[k]` narrows nothing, and the rewrite is
-`local v = t[k] if v then ... end`. a test file is held to the rule like
+rather than trapping, and no refinement answers `T`: any other reference
+to the array may change it between a length test and the read. a loop
+over the elements is `for i, v in ipairs(t)`, which gives `v: T`, and the
+error for a nil-guarded index read in a numeric `for` suggests it. an
+index is not a place: a test of `t[k]` narrows nothing, and the rewrite
+is `local v = t[k] if v then ... end`. a test file is held to the rule like
 any module, with no exemption: it reads an index into a local and
 asserts it, or uses a general accessor that raises on a miss.
 
 a tuple type indexed by a literal in range is its member's type, and out
 of range is refused. length facts (`#t > 0` giving `t[1]`) are not
-tracked. a further pattern waits for a measured need.
+tracked.
 
 ### arrays are dense
 
@@ -630,8 +629,8 @@ function's returned expression is itself a guard the checker verifies.
 ### pcall and coroutines are typed
 
 a restriction, in the new checker. `pcall` and `xpcall` answer a tagged
-union ([tagged unions]): a success that carries the values the call
-answered, or a failure that carries the error as untrusted data, the one
+union ([tagged unions]): a success that carries the call's returns as
+one tuple value, or a failure that carries the error as untrusted data, the one
 `any` the call lets in ("declarations are the trust boundary"). a
 coroutine is a typed `Coroutine<Y, R, S>`: `Y` is the type it yields, `R`
 the type it returns, and `S` the type sent to it by a resume. a program
@@ -727,12 +726,15 @@ rewrite writes the explicit test each error names.
 
 ### honest `or` and `and`
 
-a restriction. `a or b` is refused when `a` may be `false`, since `or`
-replaces false as well as nil; the error says `if a == nil then`. a tested
-operand is a condition ([conditions are booleans or optionals]), so a
-`boolean?` operand is refused there first.
-`c and x or y` is refused when `x` may be false or nil, since the
-expression then answers `y`; the error says to use an `if`.
+a restriction. an operand `or` or `and` tests is a condition
+([conditions are booleans or optionals]). `a or b` with both operands
+`boolean` is logical or and is accepted. `a or b` with `a: T?` for a `T`
+that is not boolean is the default-value form and is accepted. any other
+mix is refused, since `or` replaces false as well as nil: `a` that may be
+`false` with a `b` that is not boolean, or `a: boolean?`. the error gives
+the explicit form, `if a == nil then` or `== nil`. `c and x or y` stays
+refused as a ternary, since the expression answers `y` when `x` is false
+or nil; the `if` expression replaces it, and the error says to use one.
 
 ### named receivers
 
@@ -760,11 +762,15 @@ naming the instance. of the tree's 1,624 casts, 666 are from `any` and
 become validators, and most of the 958 others exist to get past nil,
 narrowing and variance, which the other rules make unnecessary;
 230 of the 290 outside tests are in the checker's own source, which [the
-new checker] replaces. the tree's casts are rewritten in the fork's
-grammar, each by its count, before the translator runs: to a validator, to
-`is` or a guard, or deleted once nil, narrowing and variance make it
-unneeded. the translator then never carries a cast: it refuses a module
-that still has one, and its error names the check that replaces it.
+new checker] replaces. until the replacing change the translated tree is
+only checked, never committed. the translator writes each remaining cast
+as a form the new checker parses only to refuse as a cast, counted under
+the no-casts ceiling, and its error names the check that replaces it. the
+new checker's verdicts on the translated tree then guide the Teal source:
+a cast becomes a validator, `is` or a guard, or is deleted once nil,
+narrowing and variance make it unneeded. the gate (every ceiling at zero)
+means the tree has no casts when the fork is replaced, and the
+translation form goes with that change: the final grammar has no `as`.
 
 ### numeric keys are integers
 
@@ -826,7 +832,9 @@ are cut to what the language needs.
   parameter, a field of a record) or assign it, and the new checker
   refuses both. a file run by `cosmic --standalone` is checked before it
   runs and is refused on a type error, so no file a program runs escapes
-  the checker; the runtime cut lands that check.
+  the checker; the check is cached by content hash in the build database
+  like any compile, so a repeated run pays nothing. the runtime cut lands
+  that check.
 - a table a program makes has no `__gc` and no `__mode`, which needs no
   change to `lgc.c` once only the compiler and C attach metatables; a C
   userdata keeps its `__gc`, and a weak table is made in C.
@@ -871,8 +879,9 @@ each step measures again with the checker's own rows before it lands.
 
 - **array index ([an index read may be nil]).** 10,719 index reads: 6,310
   on arrays, 4,613 of them in tests. about 27% are already nil-checked
-  where they stand. the loop and guard patterns cover about 13% of the
-  rest. the largest remainder outside tests was a fixed-width row read by
+  where they stand. the loop and guard patterns covered about 13% of the
+  rest; the loop reads are rewritten to `ipairs`, which gives `T`, since no
+  loop refinement remains. the largest remainder outside tests was a fixed-width row read by
   a constant index (`row[1]` from a [`Sqlite.rows`] result, about 520
   reads). rows are read through typed accessors, so these reads are gone.
   about 4,613 test reads by index remain, each rewritten to a local and
@@ -1111,9 +1120,9 @@ a sketch, not a design:
   keeps working").
 - the grammar holds `mut` on a field ([fields are fixed unless declared
   mutable]) and on a collection ([collections are views unless declared
-  mutable]), and no `as` ([no casts]); the translator refuses a module
-  that still has a cast, so the tree's casts are rewritten in the fork's
-  grammar before it runs. beyond that, provisionally, beyond Teal's: an `if` expression
+  mutable]), and no `as` ([no casts]); the translator writes a remaining
+  cast as a form the checker refuses and counts, so a cast never survives
+  the gate. beyond that, provisionally, beyond Teal's: an `if` expression
   (`if n == 1 then "item" else "items" end`), which gives the 800 or so
   `and`/`or` ternaries a form that cannot answer the wrong branch when
   the middle value is false or nil; `match` over a tagged union, refused
@@ -1132,7 +1141,7 @@ a sketch, not a design:
   counts are taken over that output; the change that replaces the fork
   commits it. it writes `mut` on each field the tree assigns after
   creation and on each collection parameter its function changes, and
-  refuses a module with a cast. it is also the oracle a drop-in parser
+  writes each cast as a form the checker refuses. it is also the oracle a drop-in parser
   would have been: where the new grammar only respells a construct, the new
   checker's Lua for the translated module is byte-identical to the fork's
   Lua for the original, over the whole tree, so the parser and code
@@ -1212,11 +1221,10 @@ are at zero.
 - **typed protected calls and coroutines.** [pcall and coroutines are
   typed]: each `pcall` site handles the tagged union, and each use of raw
   `coroutine.*` moves to a `Coroutine<Y, R, S>`.
-- **no casts.** [no casts]: the tree's casts are rewritten in the fork's
-  grammar before the translator runs, to validators, `is` or guards, or
-  deleted where nil, narrowing and variance make them unneeded. the
-  translator refuses a module that still has one, so `as` never reaches
-  the new checker.
+- **no casts.** [no casts]: the new checker's refusals of the translated
+  casts guide the rewrite of the Teal source, to validators, `is` or
+  guards, or deletion where nil, narrowing and variance make them
+  unneeded, until the no-casts ceiling is zero.
 - **rows decode at the accessor.** the typed row accessors check each
   value's SQLite kind and NULL against the type they answer ("what the
   language keeps working"), and the caller's assertions of a row's types
@@ -1243,6 +1251,9 @@ numbers before the switch, since the seed's Lua runs on the tree's VM.
 - **collections outside parameters.** whether `{T}` as a local, a field or
   a return type is a view too, and the type of an array or map literal,
   since a collection a function builds and changes must be `mut`.
+- **multiple returns as a value.** how the grammar and the type language
+  represent a call's returns as one tuple value, which the success case of
+  `pcall` needs ([pcall and coroutines are typed]).
 - **the constraint's syntax.** how a generic declares the interface its
   type variable satisfies ([generic bodies compare, pass and store]).
 - **strict-record checks in debug runs.** whether they come before or
