@@ -1042,10 +1042,11 @@ the value from the function, or keep it in a field of a table both read
 (`local held = { n = 0 }`, then `held.n = ...`).
 
 a field of a record or interface may be declared `readonly name: T`. this is
-the fork's bridge until the new checker's `mut` lands, where every field is
-fixed unless declared `mut` ([the plan's fixed-fields rule]); interface
-agreement carries over to `mut`, so an implementing record declares a field
-`mut` exactly when the interface does. the keyword is type-level and erased from the emitted Lua; `readonly: T` is still a
+the fork's syntax, which the tree does not use and which goes with the fork:
+the new checker has `mut`, where every field is fixed unless declared `mut`
+and a collection parameter is a view unless declared `mut` ([the plan's
+fixed-fields rule]). interface agreement carries over to `mut`, so an
+implementing record declares a field `mut` exactly when the interface does. the keyword is type-level and erased from the emitted Lua; `readonly: T` is still a
 field named `readonly`, as `metamethod: T` is one named `metamethod`. only the
 table literal that makes the record sets the field: an assignment through the
 record, an alias of it, `self` or a literal key (`r["id"] = v`) is refused with
