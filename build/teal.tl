@@ -1264,6 +1264,51 @@ local function readonly_hint(e: compiler.Error): string | nil
     names .. " without `readonly` if " .. (many and "they change" or "it changes") .. " after creation"
 end
 
+--- What to do about a table made without the type of a record with a
+--- read-only field, taken for that record (the code `readonly_literal`):
+--- give the literal the type where it is made.
+local function readonly_literal_hint(e: compiler.Error): string | nil
+  local field, record = e.key, e.subject
+  if field == nil or record == nil then
+    return nil
+  end
+  local listed = e.fields
+  local many = listed ~= nil and #listed > 1
+  local names = "`" .. field .. "`"
+  if listed ~= nil and many then
+    names = "`" .. table.concat(listed, "`, `") .. "`"
+  end
+  local held = e.variable
+  local fix = "give the literal the type `" .. record .. "` where it is made (e.g. `local x: " .. record ..
+    " = {...}`, or pass it where a `" .. record .. "` is expected)"
+  if held ~= nil then
+    fix = "give the literal the type where it is made (`local " .. held .. ": " .. record .. " = {...}`)"
+  end
+  return (held and "`" .. held .. "` is a table" or "this table is") .. " made without the type `" .. record ..
+    "`, so another reference could write `" .. record .. "`'s read-only " .. (many and "fields " or "field ") ..
+    names .. ": " .. fix
+end
+
+--- What to do about a table literal that leaves out a read-only field of
+--- the record it is checked against (the code `readonly_missing`): only the
+--- literal can give the field its value.
+local function readonly_missing_hint(e: compiler.Error): string | nil
+  local field, record = e.key, e.subject
+  if field == nil or record == nil then
+    return nil
+  end
+  local listed = e.fields
+  local many = listed ~= nil and #listed > 1
+  local names = "`" .. field .. "`"
+  if listed ~= nil and many then
+    names = "`" .. table.concat(listed, "`, `") .. "`"
+  end
+  return (many and "fields " or "field ") .. names .. " of `" .. record .. "` " .. (many and "are" or "is") ..
+    " read-only, so only this literal can give " .. (many and "them values" or "it a value") ..
+    ": add " .. (many and "them" or "it") .. " to the literal, or declare " .. (many and "them" or "it") ..
+    " optional (`readonly " .. field .. "?: ...`) if " .. (many and "they may" or "it may") .. " be absent"
+end
+
 --- What to do about a record and an interface that disagree on whether a
 --- field is `readonly` (the code `readonly_disagrees`): declare it the same
 --- in both, as the side that declares it read-only does.
@@ -2106,6 +2151,12 @@ end
 --- literal that makes the record, or to declare it without `readonly`
 --- ([`readonly_hint`]).
 ---
+--- A table made without the type of a record with a read-only field, taken
+--- for that record (the code `readonly_literal`), is told to give the
+--- literal the type where it is made ([`readonly_literal_hint`]), and a
+--- literal that leaves out a read-only field (`readonly_missing`) to give it
+--- its value or declare it optional ([`readonly_missing_hint`]).
+---
 --- A record and an interface that disagree on `readonly` for a field (the code
 --- `readonly_disagrees`) are told to declare it the same in both
 --- ([`readonly_disagrees_hint`]).
@@ -2154,6 +2205,12 @@ function teal.replacement(e: compiler.Error, source: string, file?: string,
   end
   if code == "readonly_field" then
     return readonly_hint(e)
+  end
+  if code == "readonly_literal" then
+    return readonly_literal_hint(e)
+  end
+  if code == "readonly_missing" then
+    return readonly_missing_hint(e)
   end
   if code == "readonly_disagrees" then
     return readonly_disagrees_hint(e)

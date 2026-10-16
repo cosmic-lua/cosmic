@@ -297,6 +297,15 @@ local record tl
       -- interface), `expected` (the field's type) and `readonly_in`
       -- (`record` or `interface`, the one that declares it read-only)
       "readonly_disagrees"
+      -- a table made without the type of a record with a read-only field, taken
+      -- for that record: `key` (the field, the first when `fields` lists
+      -- several), `subject` (the record) and `variable` (the name the table
+      -- is held by, where it has one)
+      "readonly_literal"
+      -- a table literal checked against a record that leaves out a read-only
+      -- field: `key` (the field, the first when `fields` lists several) and
+      -- `subject` (the record)
+      "readonly_missing"
       "other"
    end
 
@@ -1833,6 +1842,11 @@ end
 local record RecordType
    is RecordLikeType
    where self.typename == "record"
+
+   -- Set on the record a table literal with no expected type is given, which
+   -- is the literal's own type and no record that declares a field read-only:
+   -- a second reference to it could write that field.
+   made_without_type: boolean
 end
 
 local record InterfaceType
@@ -7392,6 +7406,20 @@ function Errors:add_prefixing(w: Where, src: {Error}, prefix: string, dst?: {Err
    end
 end
 
+-- Tells the `readonly_literal` errors in `errs` which variable `w` names,
+-- the one that holds the table made without a type.
+function Errors.name_held_table(errs: {Error}, w: Where)
+   local node = w as Node
+   if not node or node.kind ~= "variable" then
+      return
+   end
+   for _, err in ipairs(errs or {}) do
+      if err.code == "readonly_literal" then
+         err.variable = node.tk
+      end
+   end
+end
+
 local function ensure_not_abstract_type(def: Type, node?: Node): boolean, string
    if def is RecordType then
       return true
@@ -9152,6 +9180,9 @@ do
             end
 
             copy.is_userdata = t.is_userdata
+            if t is RecordType and copy is RecordType then
+               copy.made_without_type = t.made_without_type
+            end
 
             if t.readonly_fields then
                copy.readonly_fields = {}
@@ -10358,6 +10389,7 @@ do
       end
 
       if not ok then
+         Errors.name_held_table(errs, w)
          self.errs:add_prefixing(w, errs, mode .. (n and " " .. n or "") .. ": ", all_errs, Errors.make({ context = mode, index = n }))
          return false
       end
@@ -10749,6 +10781,7 @@ do
    local function refuse_omitted_fields(self: TypeChecker, node: Node, decltype: RecordLikeType, given: function(string): boolean)
       node.omissions_checked = true
       local absent: {string} = {}
+      local absent_readonly: {string} = {}
       for _, fname in ipairs(decltype.field_order) do
          local ftype = decltype.fields[fname]
          if not given(fname)
@@ -10760,10 +10793,27 @@ do
             if sft is GenericType then
                sft = sft.t
             end
-            if not (sft is FunctionType or sft is PolyType) then
+            if decltype.readonly_fields and decltype.readonly_fields[fname] then
+               -- Nothing else can give a read-only field its value, a function
+               -- among them.
+               table.insert(absent_readonly, fname)
+            elseif not (sft is FunctionType or sft is PolyType) then
                table.insert(absent, fname)
             end
          end
+      end
+      if #absent_readonly > 0 then
+         local many = #absent_readonly > 1
+         local record = decltype.declname or "the record"
+         self.errs:add_coded_in_context(node, node, Errors.make({
+            code = "readonly_missing",
+            key = absent_readonly[1],
+            fields = many and absent_readonly or nil,
+            subject = record,
+         }), "table literal omits read-only " .. (many and "fields '" or "field '") ..
+            table.concat(absent_readonly, "', '") .. "' of " .. (decltype is RecordType and "record " or "interface ") ..
+            tostring(record) .. " (give " .. (many and "them their values" or "it its value") ..
+            " in the literal: nothing can set " .. (many and "them" or "it") .. " after)")
       end
       if #absent > 0 then
          self.errs:add_in_context(node, node, "table literal omits field(s) of " ..
@@ -10883,6 +10933,26 @@ do
       if a.is_userdata ~= b.is_userdata then
          return false, { Err(a.is_userdata and "userdata is not a record"
                                               or  "record is not a userdata") }
+      end
+
+      -- TODO: carry this error out of a variable holding an array or map of
+      -- such tables (`local ys = {{ id = 1 }}; local zs: {R} = ys`), which
+      -- `subtype_array` and `compare_map` refuse with their own message and no
+      -- `readonly_literal` code or hint, once they return the errors of their
+      -- elements. A literal array or map written there carries the code.
+      if a is RecordType and a.made_without_type and b.readonly_fields then
+         local held = sorted_keys(b.readonly_fields)
+         if #held > 0 then
+            local record = b.declname or "the record"
+            return false, { Errors.coded(Errors.make({
+               code = "readonly_literal",
+               key = held[1],
+               fields = #held > 1 and held or nil,
+               subject = record,
+            }), "a table made without the type '" .. record ..
+               "' cannot be taken for it: another reference could write its read-only " ..
+               (#held > 1 and "fields '" or "field '") .. table.concat(held, "', '") .. "'", a) }
+         end
       end
 
       local errs: {Error} = {}
@@ -11031,6 +11101,23 @@ do
             return x
          end
       end
+   end
+
+   -- ∃ t ∈ b, a <: t, and for a table made without a type that no member
+   -- takes, the refusal of the first member with a read-only field.
+   function TypeChecker:exists_supertype_or_readonly_literal(a: Type, b: UnionType): boolean, {Error}
+      if self:exists_supertype_in(a, b) then
+         return true
+      end
+      if a is RecordType and a.made_without_type then
+         for _, member in ipairs(b.types) do
+            local rm = self:to_structural(member)
+            if rm is RecordLikeType and rm.readonly_fields and next(rm.readonly_fields) then
+               return self:is_a(a, member)
+            end
+         end
+      end
+      return false
    end
 
    -- ∀ x ∈ xs, x <: t
@@ -11627,7 +11714,7 @@ do
                return self:is_a(a, b.constraint)
             end
          end,
-         ["union"] = TypeChecker.exists_supertype_in as CompareTypes,                   -- ∃ t ∈ b, a <: t
+         ["union"] = TypeChecker.exists_supertype_or_readonly_literal as CompareTypes,  -- ∃ t ∈ b, a <: t
                                                                                         -- ───────────────
                                                                                         --  a <: b union
          ["nominal"] = TypeChecker.subtype_nominal,
@@ -11986,6 +12073,11 @@ do
 
       local ok, match_errs = self:is_a(t1, t2)
       if not ok then
+         if ctx ~= "in assignment" then
+            -- `w` of an assignment is its target, which holds no table made
+            -- without a type.
+            Errors.name_held_table(match_errs, w)
+         end
          self.errs:add_prefixing(w, match_errs, self.errs:get_context(ctx, name), nil, self.errs:wrap_of(ctx, name, described))
       end
       return ok
@@ -16235,6 +16327,9 @@ do
       if not t then
          t = a_type(node, "emptytable", {})
       end
+      if t is RecordType then
+         t.made_without_type = true
+      end
 
       return type_at(node, t)
    end
@@ -16608,10 +16703,6 @@ do
    -- TODO: refuse a record with a read-only field passed as a map, to
    -- `pairs`, `next` or `rawset`, once the rule that records are not maps (strict-teal.md,
    -- narrowing by construction) lands.
-   --
-   -- TODO: refuse a literal with no expected type assigned to a record with a
-   -- read-only field, and a literal that omits one, once the literal rules of
-   -- read-only fields (strict-teal.md, narrowing by construction) land.
    function TypeChecker:check_readonly_write(varnode: Node)
       if varnode.kind ~= "op" or not varnode.op then
          return
@@ -18196,7 +18287,10 @@ do
                elseif e1type is PolyType then
                   -- TODO: an overload with a generic function gives no
                   -- context; it waits on applying each generic member's
-                  -- type variables, as a single generic callee's are.
+                  -- type variables, as a single generic callee's are. So a
+                  -- table literal passed to one (`table.insert(rs, { id = 1 })`
+                  -- with `rs: {R}`) is made without the type, and is refused
+                  -- as `readonly_literal` when `R` has a read-only field.
                   local argdelta = (node.e1.op and node.e1.op.op == ":") and -1 or 0
                   for k, arg in ipairs(node.e2) do
                      if arg.kind == "function" then

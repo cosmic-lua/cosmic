@@ -1059,9 +1059,32 @@ a write through a key whose type is a string literal, an enum or a union of
 them is refused if any value names a read-only field, and so is a function
 statement on a value (`function r.cb() end`). one field's overloads all agree
 on `readonly`.
+a record with a read-only field is made only by a table literal checked against
+that record type. a literal with no expected type (`local t = { id = 1 }`) has a
+type of its own, which is not such a record, because a second reference to it
+could write the field: `local r: R = t`, passing `t` where an `R` is wanted,
+returning it as one and storing it in a field of type `R` are refused with the
+code `readonly_literal` (the field as `key`, the record as `subject`, and the
+variable that holds the table as `variable`). the hint says to give the literal
+the type where it is made (`local t: R = {...}`). a literal written in the place
+that wants the `R` (an initializer, an argument, a return, a field of an outer
+literal or an assignment) is checked against it and stays accepted, and a record
+with no read-only field is unaffected. a literal checked against a record gives
+every read-only field a value, or the code `readonly_missing` names the omitted
+field (`key`, and `fields` when several); a field declared `readonly name?: T`
+may be left out, since it admits nil.
+a table built in a local and then handed on is such a table too: `local self =
+{ id = id }; return setmetatable(self, mt)` is refused for a record with a
+read-only field. write `local self: C = { id = id }`, or pass the literal
+inline. a literal passed to an overloaded generic function
+(`table.insert(rs, { id = 1 })` with `rs: {R}`) gets no expected type and is
+refused the same way until such calls give their arguments one; build it in a
+local typed `R` first. an array or map literal written where `{R}` is wanted
+checks its elements against `R`, while a variable holding one made without the
+type is refused with a plain mismatch.
 stubs and declarations keep the keyword, being the source less its bodies. the
-rest of the read-only rules (the literal's, interface agreement, casts,
-narrowing through a read-only path) are in [`doc/plans/strict-teal.md`].
+rest of the read-only rules (casts, records are not maps, narrowing through a
+read-only path) are in [`doc/plans/strict-teal.md`].
 
 a local is assigned before it is read. `local x: T` with no value is nil until
 something assigns it, and a read that comes first gets nil where the type
