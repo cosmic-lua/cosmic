@@ -129,8 +129,10 @@ nothing outside keeps one.
 *path* (the module's name, then the names it is nested under) and a body:
 type parameters, `supers`, ordered `fields`, `array?`, `methods`, or an
 enum's `values`. comparison of named types is by path and arguments and
-never unfolds a body, so a recursive record cannot loop the relation and the
-relation needs no assumption set (the fork counts open comparisons for it).
+never unfolds a body to compare two uses, so a recursive record cannot loop the relation and
+the relation needs no assumption set (the fork counts open comparisons for it). it reads
+`supers` for the interfaces a type lists and `array?` for a record's view, as [the
+relation](#the-relation) says.
 a body is checked once, where it is declared:
 
 - **interface agreement.** a type that lists an interface has every field of
@@ -195,9 +197,14 @@ process that wrote it.
 
 ## the relation
 
-one relation, `T <: U`, in the rules below. it never unfolds a declaration,
-so it ends by recursion on the structure of anonymous types, which is
-finite. each result is cached per pair in the store.
+one relation, `T <: U`, in the rules below. it reads a declaration's `supers` and
+array part, never its fields or methods, and compares two uses of a declaration by
+path and arguments. so it ends by recursion on the structure of anonymous types, which
+is finite: a body is read only to find the interfaces a type lists, which a bound
+ends, and to take a record's array part, where the type compared with is smaller. each result is cached per pair in the judge of [`lang/relation.tl`], not in the store: a
+pair that mentions a type variable depends on the binders it is asked under, and the ids that key
+the cache are the store's, which a refused decode reuses, so nothing is related while a decode is
+open.
 
 - **identity and bottom.** `T <: T`. `never <: T` for every `T`; nothing else
   is below `never`.
@@ -649,6 +656,52 @@ error asks for a type. `{1, "a"}` as `{integer | string}` is nearly always a
 mistake, and the union can be written. *not adopted:* the union of the
 members.
 
+### the relation reads the rules strictly
+
+[`lang/relation.tl`] is these rules over the interned types of a store. where a rule above is
+silent or allows two readings, the judge takes the one that refuses more, and a looser one is
+added when a measurement asks for it. *not adopted:* each reading's looser form, named here.
+
+- **`any` is a sink in one position only.** `accepts(argument, param)` is true for a parameter
+  declared `any` (a rest parameter included), and the relation proper never admits a type below
+  `any`. so `function(): string` is not `function(): any`, `{string}` is not `{any}`, and a
+  function over `any` is not a function over `string`. *not adopted:* `any` as a return.
+- **a call's argument list is met exactly.** `F` is below `G` when every argument list `G`
+  is called with is one `F` accepts. `function()` is not `function(integer)`, since the call
+  passes an argument `F` has no place for; a parameter `G` may omit is omittable (or met by a
+  rest parameter) in `F`; a parameter `F` requires that `G` never passes is refused. *not
+  adopted:* ignoring a surplus argument as Lua does.
+- **return alternatives have equal length.** `function(): (A, B)` is not `function(): A`, and a
+  list that ends in `T...` matches only one that ends in `U...` with `T <: U`. a narrowing
+  declaration is met by one with the same parameter and kind. `asserts v is T` takes a
+  narrower `T`. `v is T` takes only the same `T`, since the call has a false edge, where the
+  checker removes `T` from the value: a function that tests for `KeyEvent` removes too little
+  where one that tests for `Event` is wanted. *not adopted:* dropping surplus values, a fixed
+  list below a tailed one, and `v is T` covariant in `T`.
+- **a generic function type is below only itself.** an instance of it where a function type
+  is wanted waits for generic inference, which owns instantiation. *not adopted:* matching type
+  parameters in the relation.
+- **an invariant position compares by `==`, with one exception.** `invalid` stands for a
+  mistake already reported, so it is equal to every type at the top of an invariant position;
+  deeper in one it is not.
+- **a type variable is below itself and its bound** and unrelated to every other variable,
+  whatever their bounds. the bound is read from the binders the caller has entered, so the
+  result of a pair that mentions a variable is for those binders.
+- **a map key is invariant in a view and in a `mut` map**, and `{T}` is unrelated to
+  `{integer: T}`: an array is not a map.
+- **only an interface is a target of a listing.** a type is below a named type of another
+  declaration only if that is an interface its declaration lists, with its arguments put in
+  through the declaration, or one the listed ones extend. a chain of listings is followed
+  until a listing has been larger or deeper than the one above it 64 times, and holds 4096 at
+  most, so a declaration that lists itself with larger arguments ends. a listing whose arguments differ from the target's only by
+  `invalid` is listed, where `invalid` is an argument itself and not a part of one. a
+  listing, or an array part, that would nest past the store's depth is dropped, so a pair
+  that holds by it is refused until the declarations' lowering makes `invalid` of such a type.
+- **a declaration is read once it is defined.** the judge keeps what it has read of a
+  declaration and the results that depended on it, so a type whose declaration has no body to
+  read raises `relation: <declaration> is not defined`, and so do two uses of a declaration
+  whose count of type arguments is not known with different counts.
+
 [a count the tree cannot yet bring to zero is a ceiling]: strict-teal.md#decisions
 [annotated parameters]: strict-teal.md#annotated-parameters
 [an index read may be nil]: strict-teal.md#an-index-read-may-be-nil
@@ -691,6 +744,7 @@ members.
 [`cosmic/removed_example.tl`]: ../../cosmic/removed_example.tl
 [`Fs.read`]: ../../cosmic/fs.tl
 [`lang/ast.tl`]: ../../lang/ast.tl
+[`lang/relation.tl`]: ../../lang/relation.tl
 [`lang/scopes.tl`]: ../../lang/scopes.tl
 [`lang/scopes_speed_test.tl`]: ../../lang/scopes_speed_test.tl
 [`lang/speed.tl`]: ../../lang/speed.tl
