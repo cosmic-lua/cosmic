@@ -215,29 +215,34 @@ function Typed.route_typed<P,Q,B>(methods: string | {string}, pattern: string, i
     local b: B
     if has_path then
       local read: Types.Parsed<P> = Input.path_into(req, input.path, options)
-      if read.invalid ~= nil then return refuse(req, read.invalid) end
+      local invalid = read.invalid
+      if invalid ~= nil then return refuse(req, invalid) end
       p = read.value
     else
       p = absent(input.path)
     end
     if has_query then
       local read: Types.Parsed<Q> = Input.query_into(req, input.query, options)
-      if read.invalid ~= nil then return refuse(req, read.invalid) end
+      local invalid = read.invalid
+      if invalid ~= nil then return refuse(req, invalid) end
       q = read.value
     else
       q = absent(input.query)
     end
     if kind == "form" then
       local read: Types.Parsed<B> = Input.form_into(req, input.body.typed, options)
-      if read.invalid ~= nil then return refuse(req, read.invalid) end
+      local invalid = read.invalid
+      if invalid ~= nil then return refuse(req, invalid) end
       b = read.value
     elseif kind == "multipart" then
       local read: Types.Parsed<B> = Input.multipart_into(req, input.body.typed, options)
-      if read.invalid ~= nil then return refuse(req, read.invalid) end
+      local invalid = read.invalid
+      if invalid ~= nil then return refuse(req, invalid) end
       b = read.value
     elseif kind == "json" then
       local read: Types.Parsed<B> = Input.json_into(req, input.body.typed, options)
-      if read.invalid ~= nil then return refuse(req, read.invalid) end
+      local invalid = read.invalid
+      if invalid ~= nil then return refuse(req, invalid) end
       b = read.value
     else
       b = absent(input.body.typed)

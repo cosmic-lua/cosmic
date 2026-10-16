@@ -508,9 +508,10 @@ end
 
 local function same(a: Place, b: Place): boolean
   if a.alts == "" and b.alts == "" and alike(a, b) then
+    local off = a.off
     -- In `<noscript>` text, where both have one, the scripting-off
     -- readings may themselves stand apart in a tag, as `join` holds them.
-    return a.off == nil or same(a.off, assert(b.off))
+    return off == nil or same(off, assert(b.off))
   end
   return apart(a, b)
 end
@@ -733,8 +734,9 @@ local function merge(a: Place, b: Place)
 end
 
 local function join(a: Place, b: Place)
-  if a.off ~= nil then
-    join(a.off, assert(b.off))
+  local off = a.off
+  if off ~= nil then
+    join(off, assert(b.off))
   end
   a.fresh = a.fresh and b.fresh
   a.ident = a.ident and b.ident

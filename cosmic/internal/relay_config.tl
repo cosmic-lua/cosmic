@@ -171,7 +171,8 @@ function relay_config.naming(connect: {string}, host: string): string
   local key = address_key(wanted)
   for _, target in ipairs(connect) do
     local parsed, _ = Grant.parse(target)
-    if parsed ~= nil and parsed.bytes ~= nil and address_key(parsed.bytes) == key then
+    local bytes = parsed ~= nil and parsed.bytes or nil
+    if parsed ~= nil and bytes ~= nil and address_key(bytes) == key then
       return target
     end
   end
@@ -390,12 +391,13 @@ end
 --- `up` as the record [`decode`] reads, or nil for none.
 local function upstream_record(up: relay_config.Upstream | nil): any
   if up == nil then return nil end
+  local addresses = up.addresses
   return {
     host = up.host,
     port = up.port,
     authorization = up.authorization,
     no_proxy = Json.array(up.no_proxy),
-    addresses = up.addresses ~= nil and Json.array(up.addresses) or nil,
+    addresses = addresses ~= nil and Json.array(addresses) or nil,
   }
 end
 

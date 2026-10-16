@@ -386,7 +386,8 @@ local function await(channel: Channel, deadline: integer | nil, late: boolean,
   while true do
     pump(channel)
     if ready() then return true, "" end
-    if channel.lost ~= nil then return false, channel.lost end
+    local lost = channel.lost
+    if lost ~= nil then return false, lost end
     local left = deadline ~= nil and math.max(0, deadline - Clock.monotonic_ns()) or nil
     local woke, why = waited(channel.process.fd, false, left)
     if not woke then
@@ -411,10 +412,11 @@ end
 local asking_mt: metatable<Asking> = {
   __close = function(self: Asking)
     local pending = self.pending
+    local socket = pending.socket
     if not pending.done then
       pending.given_up = true
-    elseif pending.socket ~= nil and not pending.taken then
-      local _, _ = pending.socket:close()
+    elseif socket ~= nil and not pending.taken then
+      local _, _ = socket:close()
     end
   end,
 }
@@ -458,9 +460,10 @@ local function ask(channel: Channel, body: string, host: string, port: integer, 
   local _held <close> = asking
   local answered, why = await(channel, deadline, true, function(): boolean return pending.done end)
   if not answered then return nil, why end
-  if pending.socket == nil then return nil, pending.why end
+  local socket = pending.socket
+  if socket == nil then return nil, pending.why end
   pending.taken = true
-  return pending.socket, ""
+  return socket, ""
 end
 
 --- A request's body, past its tag: `index` and `port`, then the wait in
@@ -808,7 +811,8 @@ function Served:through(index: integer, port: integer, deadline: integer | nil):
 end
 
 function Served:lost(): string | nil
-  return self.channel ~= nil and self.channel.lost or nil
+  local channel = self.channel
+  return channel ~= nil and channel.lost or nil
 end
 
 function Served:ended(): boolean
@@ -820,7 +824,8 @@ end
 function Served:close(): boolean, string
   if not self.open then return true, "" end
   self.open = false
-  if self.channel ~= nil then lose(self.channel, "net: the connector is closed") end
+  local channel = self.channel
+  if channel ~= nil then lose(channel, "net: the connector is closed") end
   return true, ""
 end
 

@@ -300,8 +300,9 @@ function Flags.help(command: Flags.Command, name: string): string
   local spec = command.spec or {}
   local usage = command.usage or (next(spec) ~= nil and "[options]" or "")
   local parts: {string} = { "usage: " .. (usage ~= "" and name .. " " .. usage or name) }
-  if command.about ~= nil and command.about ~= "" then
-    parts[#parts + 1] = "\n" .. command.about
+  local about = command.about
+  if about ~= nil and about ~= "" then
+    parts[#parts + 1] = "\n" .. about
   end
   if next(spec) ~= nil then
     parts[#parts + 1] = "\noptions:\n" .. Flags.options(spec)
@@ -320,7 +321,8 @@ local function commands_help(program: string, commands: {string:Flags.Command}):
   table.sort(names)
   local any_options = false
   for _, command in pairs(commands) do
-    if command.spec ~= nil and next(command.spec) ~= nil then any_options = true end
+    local spec = command.spec
+    if spec ~= nil and next(spec) ~= nil then any_options = true end
   end
   local usage = "usage: " .. program .. " <command>" .. (any_options and " [options]" or "")
   local lines: {string} = { usage, "", "commands:" }

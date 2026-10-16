@@ -383,13 +383,15 @@ end
 --- @param handed Relay.Handed The connector
 --- @return Relay.Connector What [`Relay.Spec.connector`] takes
 function Relay.handed(handed: Relay.Handed): Relay.Connector
-  if type(handed) ~= "table" or handed.connector == nil then
+  local given = type(handed) == "table" and handed.connector or nil
+  if given == nil then
     error("relay: handed needs a connector", 2)
   end
   if handed.lost ~= nil and type(handed.lost) ~= "function" then
     error("relay: handed.lost must be a function", 2)
   end
-  local connector, lost = handed.connector, handed.lost
+  -- A copy that takes the type of the checked one, for the functions below.
+  local connector, lost = given, handed.lost
   local telling = { told = false }
   --- Tells `lost`, the first time, that the connector has ended.
   local function ended(): string
@@ -796,7 +798,8 @@ local function address_of(run: Running, name: string, kind: Wire.Kind, port: int
       -- Ended without an answer, which a cancel or a stop does not do.
       why = "the lookup ended without an answer"
     end
-    if found == nil and opts.connector ~= nil and opts.connector:ended() and run.spec.lost ~= nil and
+    local connector = opts.connector
+    if found == nil and connector ~= nil and connector:ended() and run.spec.lost ~= nil and
         not run.told_lost then
       run.told_lost = true
       run.spec.lost("relay: the name servers' connector has ended")
@@ -999,8 +1002,9 @@ local function tunnel(run: Running, req: Request, client: Net.Conn, far: Net.Con
     while flow.ended == "" do
       local left = idle - (Clock.monotonic_ns() - flow.stamp)
       local hello_late = false
-      if sniffed.check ~= nil and sniffed.check.deadline ~= 0 then
-        local remaining = sniffed.check.deadline - Clock.monotonic_ns()
+      local sniffed_check = sniffed.check
+      if sniffed_check ~= nil and sniffed_check.deadline ~= 0 then
+        local remaining = sniffed_check.deadline - Clock.monotonic_ns()
         if remaining < left then left, hello_late = remaining, true end
       end
       if left <= 0 then
@@ -1147,13 +1151,14 @@ local function serve_connection(run: Running, protocol: string, client: Net.Conn
     req.host, req.kind, req.port, req.leftover = asked.host, asked.kind, asked.port, asked.leftover
   end
   local shown = target(req.host, req.port)
-  if admission.over == nil then
+  local admission_over = admission.over
+  if admission_over == nil then
     -- A relay with a token has admitted nothing that did not authenticate.
     reject(refusal("not authenticated", 407, "failure"), true)
     return
   end
-  if admission.over ~= "" then
-    reject(refusal(admission.over, 503, "failure"), true)
+  if admission_over ~= "" then
+    reject(refusal(admission_over, 503, "failure"), true)
     return
   end
   -- Step 2: the grants, before anything is resolved.
@@ -1180,14 +1185,16 @@ local function serve_connection(run: Running, protocol: string, client: Net.Conn
   local how: string
   if through == nil then
     local found = address_of(run, req.host, req.kind, req.port)
-    if found.refused ~= nil then
-      reject(found.refused, true)
+    local refused = found.refused
+    if refused ~= nil then
+      reject(refused, true)
       return
     end
     local made = connect_any(run, found.addresses, req.port, Clock.monotonic_ns() + run.timeouts.connect, "",
       req.host)
-    if made.refused ~= nil then
-      reject(made.refused, true)
+    local made_refused = made.refused
+    if made_refused ~= nil then
+      reject(made_refused, true)
       return
     end
     local conn, address = assert(made.conn), assert(made.address)
@@ -1196,20 +1203,23 @@ local function serve_connection(run: Running, protocol: string, client: Net.Conn
   else
     local up = through
     local found = address_of(run, up.host, "name", up.port, true)
-    if found.refused ~= nil then
-      reject(found.refused, true)
+    local refused = found.refused
+    if refused ~= nil then
+      reject(refused, true)
       return
     end
     local deadline = Clock.monotonic_ns() + run.timeouts.connect
     local made = connect_any(run, found.addresses, up.port, deadline, "the upstream proxy ", up.host)
-    if made.refused ~= nil then
-      reject(made.refused, true)
+    local made_refused = made.refused
+    if made_refused ~= nil then
+      reject(made_refused, true)
       return
     end
     local conn, address = assert(made.conn), assert(made.address)
     run.live[id] = { client, conn }
+    local authorization = up.authorization
     local ask = ("CONNECT %s HTTP/1.1\r\nHost: %s\r\n%s\r\n"):format(shown, shown,
-      up.authorization ~= nil and ("Proxy-Authorization: " .. up.authorization .. "\r\n") or "")
+      authorization ~= nil and ("Proxy-Authorization: " .. authorization .. "\r\n") or "")
     local rest, bad = upstream_connect(conn, ask, deadline, run.timeouts.connect)
     if rest == nil then
       local _, _ = conn:close()
@@ -1300,7 +1310,8 @@ local function checked_upstream(up: Relay.Upstream)
   if number_of(tostring(up.port)) == nil or math.type(up.port) ~= "integer" then
     error("relay: spec.upstream.port must be a port from 1 to 65535", 3)
   end
-  if up.authorization ~= nil and (type(up.authorization) ~= "string" or up.authorization:find("[%c]")) then
+  local authorization = up.authorization
+  if authorization ~= nil and (type(authorization) ~= "string" or authorization:find("[%c]")) then
     error("relay: spec.upstream.authorization must be a header value with no control bytes", 3)
   end
   if type(up.no_proxy) ~= "table" then
@@ -1311,11 +1322,12 @@ local function checked_upstream(up: Relay.Upstream)
       error("relay: spec.upstream.no_proxy must be a list of strings", 3)
     end
   end
-  if up.addresses ~= nil then
-    if type(up.addresses) ~= "table" or #up.addresses == 0 then
+  local addresses = up.addresses
+  if addresses ~= nil then
+    if type(addresses) ~= "table" or #addresses == 0 then
       error("relay: spec.upstream.addresses must be a list of one numeric address or more", 3)
     end
-    for _, address in ipairs(up.addresses) do
+    for _, address in ipairs(addresses) do
       if Address.parse(address) == nil then
         error("relay: spec.upstream.addresses must hold numeric addresses", 3)
       end
@@ -1342,7 +1354,8 @@ end
 --- @return Relay.Serving The running relay
 function Relay.start(spec: Relay.Spec): Relay.Serving
   if type(spec) ~= "table" then error("relay: start takes a spec table", 2) end
-  if spec.mixed ~= nil and type(spec.mixed) ~= "table" then
+  local mixed = spec.mixed
+  if mixed ~= nil and type(mixed) ~= "table" then
     error("relay: spec.mixed must be a list of listeners", 2)
   end
   if spec.http == nil and spec.socks == nil and #(spec.mixed or {}) == 0 then
@@ -1365,7 +1378,8 @@ function Relay.start(spec: Relay.Spec): Relay.Serving
   table_or_nil(spec.timeouts, "timeouts")
   table_or_nil(spec.limits, "limits")
   table_or_nil(spec.resolve, "resolve")
-  if spec.unresolved ~= nil and type(spec.unresolved) ~= "string" then
+  local unresolved = spec.unresolved
+  if unresolved ~= nil and type(unresolved) ~= "string" then
     error("relay: spec.unresolved must be a string", 2)
   end
   table_or_nil(spec.own_addresses, "own_addresses")
@@ -1373,10 +1387,12 @@ function Relay.start(spec: Relay.Spec): Relay.Serving
   if spec.lost ~= nil and type(spec.lost) ~= "function" then
     error("relay: spec.lost must be a function", 2)
   end
-  if spec.upstream ~= nil then checked_upstream(spec.upstream) end
+  local upstream = spec.upstream
+  if upstream ~= nil then checked_upstream(upstream) end
   if not Poll.in_task() then error("relay: start runs in a task of Poll.run", 2) end
-  if spec.token ~= nil and (type(spec.token) ~= "string" or #spec.token < 16 or #spec.token > 255 or
-      spec.token:find("[%c\127]")) then
+  local token = spec.token
+  if token ~= nil and (type(token) ~= "string" or #token < 16 or #token > 255 or
+      token:find("[%c\127]")) then
     error("relay: spec.token must be a string of 16 to 255 bytes with no control byte (draw 128 bits or more)", 2)
   end
   local given_timeouts: Relay.Timeouts = spec.timeouts or {}
@@ -1403,9 +1419,10 @@ function Relay.start(spec: Relay.Spec): Relay.Serving
   end
   local logger = Log.new("relay")
   local names, notes = name_grants(spec.grants)
+  local spec_token = spec.token
   local run: Running = {
     spec = spec, names = names, own = Address.own_addresses(spec.own_addresses or {}), timeouts = timeouts,
-    limits = limits, tls_ports = tls, token_digest = spec.token ~= nil and Hash.sha256(spec.token) or nil,
+    limits = limits, tls_ports = tls, token_digest = spec_token ~= nil and Hash.sha256(spec_token) or nil,
     log = function(line: string)
       -- A line carries what the program chose (a refused version, a resolver's
       -- words), so it is cut to a length and its control bytes shown as "?".
@@ -1419,11 +1436,13 @@ function Relay.start(spec: Relay.Spec): Relay.Serving
     stopping = false, told_lost = false, pending = 0, open = 0, accepted = 0, refused = 0, next_id = 0, live = {}, tasks = {}, acceptors = {}, lookups = {},
   }
   for _, note in ipairs(notes) do run.log(note) end
-  if spec.unresolved ~= nil then
-    run.log("no name is resolved, so only an address a grant names is reached: " .. spec.unresolved)
+  local spec_unresolved = spec.unresolved
+  if spec_unresolved ~= nil then
+    run.log("no name is resolved, so only an address a grant names is reached: " .. spec_unresolved)
   end
-  if spec.upstream ~= nil then
-    local up = spec.upstream
+  local spec_upstream = spec.upstream
+  if spec_upstream ~= nil then
+    local up = spec_upstream
     run.log(("upstream proxy %s: it resolves the names it is asked for, so the relay's address checks do " ..
       "not apply to what it reaches; names are still matched against the grants, and the proxy's own " ..
       "address is the one the caller's https_proxy names, so the relay connects to it without the program being granted it"):format(target(up.host, up.port)))

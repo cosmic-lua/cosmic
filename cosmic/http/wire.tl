@@ -360,8 +360,9 @@ local function target_parts(method: string, target: string): Target | nil, strin
     end
     if parts.userinfo ~= nil then return nil, "an absolute target holds userinfo" end
     local host = parts.host:find(":", 1, true) and "[" .. parts.host .. "]" or parts.host
+    local port = parts.port
     return { path = parts.path ~= "" and parts.path or "/", query = parts.query or "",
-      authority = parts.port ~= nil and host .. ":" .. parts.port or host }, ""
+      authority = port ~= nil and host .. ":" .. port or host }, ""
   end
   local mark = target:find("?", 1, true)
   if mark == nil then return { path = target, query = "" }, "" end
@@ -496,9 +497,10 @@ function wire.read_head(input: wire.Input, limits: wire.Limits): wire.Read
       continue = true
     end
   end
+  local authority = parts.authority
   -- An absolute-form target names the host, and Host is replaced by it
   -- (RFC 9112 3.2.2).
-  if parts.authority ~= nil then headers["host"] = parts.authority end
+  if authority ~= nil then headers["host"] = authority end
   return { status = 0, why = "", head = {
     method = method, target = target, path = parts.path, query = parts.query, version = version,
     headers = headers, length = length, chunked = chunked, close = close,

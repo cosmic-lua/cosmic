@@ -159,24 +159,27 @@ local function prepare(method: string, path: string, opts: Options): Prepared
   local at = path:find("?", 1, true)
   local base = at and path:sub(1, at - 1) or path
   local query = at and path:sub(at + 1) or ""
-  if opts.query ~= nil then
-    local extra = Url.encode_query(pairs_of(opts.query))
+  local opts_query = opts.query
+  if opts_query ~= nil then
+    local extra = Url.encode_query(pairs_of(opts_query))
     if extra ~= "" then query = query == "" and extra or query .. "&" .. extra end
   end
   local headers: {string:string} = { host = "testserver" }
   for name, value in pairs(opts.headers or {}) do headers[name:lower()] = value end
   local body = ""
-  if opts.form ~= nil then
-    body = Url.encode_query(pairs_of(opts.form))
+  local form, json, raw = opts.form, opts.json, opts.body
+  if form ~= nil then
+    body = Url.encode_query(pairs_of(form))
     headers["content-type"] = headers["content-type"] or "application/x-www-form-urlencoded"
-  elseif opts.json ~= nil then
-    local text, why = Json.encode(opts.json)
+  elseif json ~= nil then
+    local text, why = Json.encode(json)
     if text == nil then error("web: test client: json: " .. why, 3) end
     body = text
     headers["content-type"] = headers["content-type"] or "application/json"
-  elseif opts.body ~= nil then
-    body = bytes_of(opts.body)
-    if opts.content_type ~= nil then headers["content-type"] = opts.content_type end
+  elseif raw ~= nil then
+    body = bytes_of(raw)
+    local content_type = opts.content_type
+    if content_type ~= nil then headers["content-type"] = content_type end
   end
   if body ~= "" or method == "POST" or method == "PUT" or method == "PATCH" then
     headers["content-length"] = tostring(#body)
@@ -282,14 +285,15 @@ local function remember(client: Testing.Client, line: string, path: string)
   local now = Clock.now_ns()
   local expires: integer | nil = nil
   local gone = false
-  if parsed.max_age ~= nil then
-    gone = parsed.max_age <= 0
+  local max_age, expires_ns = parsed.max_age, parsed.expires_ns
+  if max_age ~= nil then
+    gone = max_age <= 0
     -- A huge Max-Age lasts as long as the clock can say.
     local room = (math.maxinteger - now) // 1000000000
-    expires = now + math.min(parsed.max_age, room) * 1000000000
-  elseif parsed.expires_ns ~= nil then
-    gone = parsed.expires_ns <= now
-    expires = parsed.expires_ns
+    expires = now + math.min(max_age, room) * 1000000000
+  elseif expires_ns ~= nil then
+    gone = expires_ns <= now
+    expires = expires_ns
   end
   if gone then
     local old = client.attrs[name]
@@ -326,7 +330,8 @@ local function send(client: Testing.Client, method: string, path: string, opts: 
   local now = Clock.now_ns()
   for name, value in pairs(client.jar) do
     local entry = client.attrs[name]
-    if entry ~= nil and entry.expires_ns ~= nil and entry.expires_ns <= now then
+    local expires_ns = entry ~= nil and entry.expires_ns or nil
+    if entry ~= nil and expires_ns ~= nil and expires_ns <= now then
       client.jar[name] = nil
       client.attrs[name] = nil
     elseif entry == nil or ((not entry.secure or client.scheme == "https") and
@@ -413,15 +418,17 @@ local function request(self: Testing.Client, method: string, path: string, opts?
   opts = opts or {}
   local res = send(self, method, path, opts)
   local hops = 0
-  while opts.follow_redirects and res.redirect_location ~= nil and hops < 10 do
-    hops = hops + 1
+  while true do
     local target = res.redirect_location
+    if not opts.follow_redirects or target == nil or hops >= 10 then break end
+    hops = hops + 1
     if target:sub(1, 1) ~= "/" then
       local parts, why = Url.parse(target)
       if parts == nil then
         error("web: test client: the redirect to " .. target .. ": " .. why, 2)
       end
-      target = parts.path .. (parts.query ~= nil and "?" .. parts.query or "")
+      local query = parts.query
+      target = parts.path .. (query ~= nil and "?" .. query or "")
     end
     local switch = res.status ~= 307 and res.status ~= 308 and method ~= "HEAD"
     if switch then

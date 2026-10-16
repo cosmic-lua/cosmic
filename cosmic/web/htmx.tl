@@ -293,8 +293,9 @@ local function events_of(what: string, events: {Htmx.Event}): string | nil, stri
       local key, key_why = header_json(what, event.name)
       if key == nil then return nil, key_why end
       local body = "{}"
-      if event.detail ~= nil then
-        local encoded, why = header_json(what, event.detail)
+      local detail = event.detail
+      if detail ~= nil then
+        local encoded, why = header_json(what, detail)
         if encoded == nil then return nil, why end
         body = encoded
       end
@@ -322,13 +323,15 @@ function Htmx.apply(res: Types.Response, reply: Htmx.Reply): Types.Response | ni
   local function put(name: string, value: string)
     lines[#lines + 1] = { name, value }
   end
-  if reply.redirect ~= nil then
-    local url, why = url_of("redirect", reply.redirect)
+  local redirect = reply.redirect
+  if redirect ~= nil then
+    local url, why = url_of("redirect", redirect)
     if url == nil then return nil, why end
     put("HX-Redirect", url)
   end
-  if reply.location ~= nil then
-    local location = reply.location
+  local reply_location = reply.location
+  if reply_location ~= nil then
+    local location = reply_location
     if location is Htmx.Location then
       local path, why = url_of("location path", location.path)
       if path == nil then return nil, why end
@@ -365,13 +368,15 @@ function Htmx.apply(res: Types.Response, reply: Htmx.Reply): Types.Response | ni
     url_field("replace_url", "HX-Replace-Url", reply.replace_url)
   if trouble ~= nil then return nil, trouble end
   if reply.refresh then put("HX-Refresh", "true") end
-  if reply.retarget ~= nil then
-    local text, why = text_of("retarget", reply.retarget)
+  local retarget = reply.retarget
+  if retarget ~= nil then
+    local text, why = text_of("retarget", retarget)
     if text == nil then return nil, why end
     put("HX-Retarget", text)
   end
-  if reply.reselect ~= nil then
-    local text, why = text_of("reselect", reply.reselect)
+  local reselect = reply.reselect
+  if reselect ~= nil then
+    local text, why = text_of("reselect", reselect)
     if text == nil then return nil, why end
     put("HX-Reselect", text)
   end
@@ -463,14 +468,17 @@ local function config_of(opts: Htmx.HeadOptions): {string: any}
       { code = "...", swap = false },
     },
   }
-  if config.history_cache_size ~= nil then out.historyCacheSize = config.history_cache_size end
-  if opts.nonce ~= nil then out.inlineScriptNonce = opts.nonce end
+  local history_cache_size = config.history_cache_size
+  if history_cache_size ~= nil then out.historyCacheSize = history_cache_size end
+  local nonce = opts.nonce
+  if nonce ~= nil then out.inlineScriptNonce = nonce end
   return out
 end
 
 --- One script tag: the parts are the binary's own or escaped.
 local function script_tag(which: Htmx.Asset, opts: Htmx.HeadOptions): string
-  local nonce = opts.nonce ~= nil and (' nonce="' .. Html.raw_attr(Html.escape_attr(opts.nonce)) .. '"') or ""
+  local opts_nonce = opts.nonce
+  local nonce = opts_nonce ~= nil and (' nonce="' .. Html.raw_attr(Html.escape_attr(opts_nonce)) .. '"') or ""
   local prefix = opts.prefix or ""
   return '<script src="' .. prefix .. Htmx.path(which) .. '" integrity="' .. Htmx.integrity(which) ..
     '" crossorigin="anonymous"' .. nonce .. " defer></script>"
@@ -488,11 +496,13 @@ end
 --- @return Html.SafeHtml The tags
 function Htmx.head(opts?: Htmx.HeadOptions): Html.SafeHtml
   opts = opts or {}
-  if opts.prefix ~= nil and opts.prefix ~= "" and
-      not (opts.prefix:find("^/[%w._~/-]*$") and not opts.prefix:find("^//") and opts.prefix:sub(-1) ~= "/") then
+  local prefix = opts.prefix
+  if prefix ~= nil and prefix ~= "" and
+      not (prefix:find("^/[%w._~/-]*$") and not prefix:find("^//") and prefix:sub(-1) ~= "/") then
     error("htmx: head: the prefix is a path on this origin without a trailing slash, like /app", 2)
   end
-  if opts.nonce ~= nil and opts.nonce:find("[%z\1-\31\127]") then
+  local nonce = opts.nonce
+  if nonce ~= nil and nonce:find("[%z\1-\31\127]") then
     error("htmx: head: the nonce is text without a control byte", 2)
   end
   local json = assert(Html.json(config_of(opts)))

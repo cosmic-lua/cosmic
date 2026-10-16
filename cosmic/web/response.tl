@@ -188,14 +188,18 @@ end
 --- Applies `opts` to `res`.
 local function finish(res: Types.Response, opts: Types.ResponseOptions | nil): Types.Response
   if opts == nil then return res end
-  if opts.status ~= nil then
-    check_status(opts.status, 4)
+  local status = opts.status
+  if status ~= nil then
+    check_status(status, 4)
     res.status = opts.status
   end
-  if opts.close ~= nil then res.close = opts.close end
-  if opts.length ~= nil then res.length = opts.length end
-  if opts.headers ~= nil then
-    for name, value in pairs(opts.headers) do put(res, name, value) end
+  local close = opts.close
+  if close ~= nil then res.close = close end
+  local length = opts.length
+  if length ~= nil then res.length = length end
+  local headers = opts.headers
+  if headers ~= nil then
+    for name, value in pairs(headers) do put(res, name, value) end
   end
   return res
 end

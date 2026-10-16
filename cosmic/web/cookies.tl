@@ -205,12 +205,14 @@ function Cookies.format(name: string, value: string, attrs?: Cookies.Attributes)
     return nil, "cookies: " .. name .. " needs Secure (a __Secure- cookie)"
   end
   local parts: {string} = { name .. "=" .. value, "Path=" .. path }
-  if a.max_age ~= nil then
-    if math.type(a.max_age) ~= "integer" then error("cookies: max_age must be an integer", 2) end
-    parts[#parts + 1] = "Max-Age=" .. a.max_age
+  local max_age = a.max_age
+  if max_age ~= nil then
+    if math.type(max_age) ~= "integer" then error("cookies: max_age must be an integer", 2) end
+    parts[#parts + 1] = "Max-Age=" .. max_age
   end
-  if a.expires_ns ~= nil then
-    parts[#parts + 1] = "Expires=" .. Time.format_http(a.expires_ns)
+  local expires_ns = a.expires_ns
+  if expires_ns ~= nil then
+    parts[#parts + 1] = "Expires=" .. Time.format_http(expires_ns)
   end
   if domain ~= nil then parts[#parts + 1] = "Domain=" .. domain end
   if secure then parts[#parts + 1] = "Secure" end

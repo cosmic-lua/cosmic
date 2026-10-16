@@ -93,8 +93,10 @@ local function header(self: Req, name: string): string | nil
 end
 
 local function bytes(self: Req): string | nil, string
-  if self.body_text ~= nil then return self.body_text, "" end
-  if self.body_failure ~= nil then return nil, self.body_failure end
+  local body_text = self.body_text
+  if body_text ~= nil then return body_text, "" end
+  local body_failure = self.body_failure
+  if body_failure ~= nil then return nil, body_failure end
   local data, why = Stream.read_all(self.raw.body)
   if data == nil then
     -- The reader is spent: a second call answers the same failure.
@@ -144,10 +146,12 @@ local function base_url(self: Req): string | nil, string
   if self.app.spec.trusted_hosts == nil then
     return nil, "web: base_url needs trusted_hosts, since the Host header is the client's"
   end
-  if self.host == nil then return nil, "web: the request names no host" end
-  local parsed = Request.parse_host(self.host)
+  local host = self.host
+  if host == nil then return nil, "web: the request names no host" end
+  local parsed = Request.parse_host(host)
   if parsed == nil then return nil, "web: the request's host is not a host name" end
-  return self.scheme .. "://" .. parsed.host .. (parsed.port ~= nil and ":" .. parsed.port or ""), ""
+  local port = parsed.port
+  return self.scheme .. "://" .. parsed.host .. (port ~= nil and ":" .. port or ""), ""
 end
 
 local methods = {
@@ -180,8 +184,9 @@ function Request.new(app: Types.App, raw: Server.Request, parts: Request.Parts):
   local scheme = "http"
   local host = headers["host"]
   local client: Types.Client | nil = nil
-  if raw.peer ~= nil and raw.peer.kind == "tcp" then
-    client = { host = raw.peer.host, port = raw.peer.port }
+  local peer = raw.peer
+  if peer ~= nil and peer.kind == "tcp" then
+    client = { host = peer.host, port = peer.port }
   end
   if app.spec.trusted_proxy then
     local proto = last_entry(headers["x-forwarded-proto"])

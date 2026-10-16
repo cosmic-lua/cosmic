@@ -182,8 +182,9 @@ end
 local function descend(root: Types.Node, segments: {Types.Segment}, what: string): Types.Node
   local node = root
   for _, segment in ipairs(segments) do
-    if node.mount ~= nil then
-      refuse(what, ("it is under the mount at %s, which answers every path below it"):format(node.mount.prefix))
+    local mount = node.mount
+    if mount ~= nil then
+      refuse(what, ("it is under the mount at %s, which answers every path below it"):format(mount.prefix))
     end
     if segment.kind == "literal" then
       local child = node.literal[segment.text]
@@ -199,8 +200,9 @@ local function descend(root: Types.Node, segments: {Types.Segment}, what: string
       return node
     end
   end
-  if node.mount ~= nil then
-    refuse(what, ("it is under the mount at %s, which answers every path below it"):format(node.mount.prefix))
+  local mount = node.mount
+  if mount ~= nil then
+    refuse(what, ("it is under the mount at %s, which answers every path below it"):format(mount.prefix))
   end
   return node
 end
@@ -381,15 +383,18 @@ end
 
 local function walk(node: Types.Node, segments: {string}, i: integer, values: {string},
                     state: Walk): Hit | nil
-  if node.mount ~= nil then
-    return { mount = node.mount, at = i, values = values, rest_from = 0 }
+  local node_mount = node.mount
+  if node_mount ~= nil then
+    return { mount = node_mount, at = i, values = values, rest_from = 0 }
   end
   if i > #segments then
-    if node.exact ~= nil then
-      local hit = settle(state, node.exact, values, 0)
+    local exact = node.exact
+    if exact ~= nil then
+      local hit = settle(state, exact, values, 0)
       if hit ~= nil then return hit end
     end
-    if node.wild ~= nil then return settle(state, node.wild, values, i) end
+    local wild = node.wild
+    if wild ~= nil then return settle(state, wild, values, i) end
     return nil
   end
   local segment = segments[i]
@@ -398,14 +403,16 @@ local function walk(node: Types.Node, segments: {string}, i: integer, values: {s
     local hit = walk(child, segments, i + 1, values, state)
     if hit ~= nil then return hit end
   end
-  if node.param ~= nil then
+  local param = node.param
+  if param ~= nil then
     values[#values + 1] = segment
-    local hit = walk(node.param, segments, i + 1, values, state)
+    local hit = walk(param, segments, i + 1, values, state)
     if hit ~= nil then return hit end
     values[#values] = nil
   end
-  if node.wild ~= nil then
-    return settle(state, node.wild, values, i)
+  local wild = node.wild
+  if wild ~= nil then
+    return settle(state, wild, values, i)
   end
   return nil
 end
@@ -448,8 +455,9 @@ function Router.lookup(router: Types.Router, method: string, segments: {string},
   end
   local mount = hit.mount
   if mount ~= nil then
-    if mount.router ~= nil then
-      return Router.lookup(mount.router, method, segments, trailing, hit.at)
+    local mount_router = mount.router
+    if mount_router ~= nil then
+      return Router.lookup(mount_router, method, segments, trailing, hit.at)
     end
     return { kind = "match", route = mount.info, params = {}, handler = mount.handler,
       mount_path = mount.prefix }

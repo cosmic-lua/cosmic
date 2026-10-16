@@ -497,15 +497,17 @@ function Session.middleware(opts: Session.Options): Types.Middleware
     error("session: max_age is a number of seconds, at least 1", 0)
   end
   local cookie: string
-  if opts.cookie_name ~= nil then
-    cookie = opts.cookie_name
+  local cookie_name = opts.cookie_name
+  if cookie_name ~= nil then
+    cookie = cookie_name
   elseif opts.secure == true then
     cookie = opts.domain == nil and "__Host-session" or "__Secure-session"
   else
     cookie = "session"
   end
+  local opts_secure = opts.secure
   -- SameSite=None needs Secure, which an unset `secure` decides per request.
-  local probe = opts.secure == true or (opts.secure == nil and opts.same_site == "None")
+  local probe = opts_secure == true or (opts_secure == nil and opts.same_site == "None")
   local _, why = Cookies.format(cookie, "x", attributes(opts, probe))
   if why ~= "" then error("session: " .. why, 0) end
   local clock = opts.now or function(): integer return Clock.now_ns() // 1000000000 end
@@ -525,8 +527,9 @@ function Session.middleware(opts: Session.Options): Types.Middleware
         Response.set_header(res, "Cache-Control", "private")
       end
       local secure: boolean
-      if opts.secure ~= nil then
-        secure = opts.secure
+      local opts_secure2 = opts.secure
+      if opts_secure2 ~= nil then
+        secure = opts_secure2
       else
         -- TODO: once the app can tell its middleware where it listens
         -- (Web.app's listeners), warn once at startup when `secure` is unset

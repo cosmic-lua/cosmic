@@ -447,7 +447,8 @@ end
 local function extract_from(from: string | Archive.Reader, dest: string,
                             given: Archive.ExtractOptions | nil): {string} | nil, string
   local opts: Archive.ExtractOptions = given or {}
-  if opts.max_entries ~= nil and opts.max_entries < 0 then
+  local max_entries = opts.max_entries
+  if max_entries ~= nil and max_entries < 0 then
     error("archive: max_entries is negative", 2)
   end
   local entry_limit = byte_limit("max_entry_bytes", opts.max_entry_bytes, DEFAULT_MAX_ENTRY_BYTES)
@@ -601,10 +602,11 @@ local function extract_from(from: string | Archive.Reader, dest: string,
         local rel = table.concat(at, "/")
         if pending[rel] ~= nil then return true end
         local st, _ = sys.lstat(dest .. "/" .. rel)
-        if (st == nil or st.kind ~= "dir") and opts.resolve_in ~= nil and not pending[rel] then
+        local resolve_in = opts.resolve_in
+        if (st == nil or st.kind ~= "dir") and resolve_in ~= nil and not pending[rel] then
           -- Staged apart: a directory the real destination holds counts,
           -- unless something staged took its place.
-          local there, _ = sys.lstat(opts.resolve_in .. "/" .. rel)
+          local there, _ = sys.lstat(resolve_in .. "/" .. rel)
           if st == nil and there ~= nil and there.kind == "dir" then st = there end
         end
         if st == nil or st.kind ~= "dir" then return true end

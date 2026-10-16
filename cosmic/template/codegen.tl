@@ -338,10 +338,11 @@ local function block(g: Gen, node: types.Node, dot: Dot)
   else
     for at, arm in ipairs(node.branches) do
       to_line(g, arm.line)
-      if arm.pipeline == nil then
+      local pipeline = arm.pipeline
+      if pipeline == nil then
         put(g, "else")
       else
-        put(g, (at == 1 and "if " or "elseif ") .. value(g, assert(arm.pipeline), dot) .. " then")
+        put(g, (at == 1 and "if " or "elseif ") .. value(g, assert(pipeline), dot) .. " then")
       end
       emit(g, arm.body, dot)
     end

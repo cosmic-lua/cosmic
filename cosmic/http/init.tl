@@ -407,9 +407,10 @@ end
 --- `opts.body`, raises, naming [`Http.request`], which sends any method
 --- and a body.
 function Http.get(url: string, opts?: Http.Options): Http.Body | nil, string
-  if opts ~= nil and opts.method ~= nil and opts.method ~= "GET" then
+  local method = opts ~= nil and opts.method or nil
+  if method ~= nil and method ~= "GET" then
     error(("http: Http.get sends a GET, not %q; send another method with Http.request(method, url, opts)"):
-        format(opts.method), 2)
+        format(method), 2)
   end
   if opts ~= nil and opts.body ~= nil then
     error("http: Http.get sends no body; send one with Http.request(method, url, { body = ... })", 2)
@@ -443,9 +444,10 @@ function Http.request(method: string, url: string, opts?: Http.Options): Http.Bo
   if method == nil or method == "" then
     error("http: Http.request's method is empty; name one, as \"GET\" or \"PUT\"", 2)
   end
-  if opts ~= nil and opts.method ~= nil and opts.method ~= method then
+  local given = opts ~= nil and opts.method or nil
+  if given ~= nil and given ~= method then
     error(("http: Http.request was given %q and opts.method %q; leave opts.method out"):
-        format(method, opts.method), 2)
+        format(method, given), 2)
   end
   -- core/http.c's set_method drops a body sent with HEAD, and sends one
   -- with GET as a POST (its TODO says when that changes).
@@ -502,8 +504,10 @@ end
 
 local pending_mt: metatable<PendingDownload> = {
   __close = function(self: PendingDownload)
-    if self.response ~= nil then local _, _ = self.response:close() end
-    if self.file ~= nil then local _, _ = self.file:abort() end
+    local response = self.response
+    if response ~= nil then local _, _ = response:close() end
+    local file = self.file
+    if file ~= nil then local _, _ = file:abort() end
   end,
 }
 

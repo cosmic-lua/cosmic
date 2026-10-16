@@ -219,21 +219,25 @@ function Headers.middleware(opts?: Headers.Options): Types.Middleware
     if text ~= "" then fixed[#fixed + 1] = { name, text } end
   end
   add("Referrer-Policy", opts.referrer_policy, "strict-origin-when-cross-origin")
-  local frame = opts.frame_options == nil and "DENY" or opts.frame_options
+  local frame_options = opts.frame_options
+  local frame = frame_options == nil and "DENY" or frame_options
   one_of(frame, { "DENY", "SAMEORIGIN", "" }, "frame_options")
   if frame ~= "" then fixed[#fixed + 1] = { "X-Frame-Options", frame } end
-  local coop = opts.coop == nil and "same-origin" or opts.coop
+  local opts_coop = opts.coop
+  local coop = opts_coop == nil and "same-origin" or opts_coop
   one_of(coop, { "same-origin", "same-origin-allow-popups", "unsafe-none", "" }, "coop")
   if coop ~= "" then fixed[#fixed + 1] = { "Cross-Origin-Opener-Policy", coop } end
-  if opts.corp ~= nil then
-    one_of(opts.corp, { "same-origin", "same-site", "cross-origin" }, "corp")
+  local corp = opts.corp
+  if corp ~= nil then
+    one_of(corp, { "same-origin", "same-site", "cross-origin" }, "corp")
     fixed[#fixed + 1] = { "Cross-Origin-Resource-Policy", opts.corp }
   end
   add("Permissions-Policy", opts.permissions_policy, "camera=(), microphone=(), geolocation=()")
 
   local hsts: string | nil = nil
-  if opts.hsts ~= nil then
-    local h = opts.hsts
+  local opts_hsts = opts.hsts
+  if opts_hsts ~= nil then
+    local h = opts_hsts
     if math.type(h.max_age) ~= "integer" or h.max_age < 0 then
       error("headers: hsts.max_age is a number of seconds, 0 or more", 2)
     end

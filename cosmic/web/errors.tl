@@ -63,7 +63,8 @@ local function respond(req: Types.Request, status: integer, detail?: string,
                        extra?: {string:any}, headers?: {string:string}): Types.Response
   local spec = req.app.spec
   local res: Types.Response
-  local custom = spec.error_pages ~= nil and spec.error_pages[status] or nil
+  local error_pages = spec.error_pages
+  local custom = error_pages ~= nil and error_pages[status] or nil
   if custom ~= nil then
     res = custom(req)
   elseif spec.error_view ~= nil then

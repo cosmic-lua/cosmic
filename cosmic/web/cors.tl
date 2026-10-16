@@ -157,8 +157,9 @@ function Cors.middleware(opts: Cors.Options): Types.Middleware
     if each ~= "*" then listed_headers[#listed_headers + 1] = each end
   end
   names_of(opts.expose_headers, "expose_headers")
-  local exposed = opts.expose_headers ~= nil and #opts.expose_headers > 0 and
-    table.concat(opts.expose_headers, ", ") or nil
+  local expose_headers = opts.expose_headers
+  local exposed = expose_headers ~= nil and #expose_headers > 0 and
+    table.concat(expose_headers, ", ") or nil
   local max_age = opts.max_age or 600
   if math.type(max_age) ~= "integer" or max_age < 0 then
     error("cors: max_age is a number of seconds, 0 or more", 2)

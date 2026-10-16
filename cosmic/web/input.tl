@@ -327,7 +327,8 @@ local function body_text(req: Types.Request, kind: string, opts: Types.InputOpti
   if cached ~= nil then
     data = cached
   else
-    if req.body_failure ~= nil then return nil, read_failed(req.body_failure) end
+    local body_failure = req.body_failure
+    if body_failure ~= nil then return nil, read_failed(body_failure) end
     local read, why = Stream.read_all(Stream.limit(req.raw.body, limit + 1))
     if read == nil then
       req.body_failure = why
@@ -422,7 +423,8 @@ local function read_multipart(req: Types.Request, limit: integer, opts: Types.In
 ): Types.Parsed<Input.Multipart>
   local cached = req:get(MULTIPART)
   if cached ~= nil then
-    if cached.value ~= nil and cached.value.size > limit then
+    local cached_value = cached.value
+    if cached_value ~= nil and cached_value.size > limit then
       return { invalid = stop(413, "body", "", "too_large",
         ("the body is over the limit, max_bytes = %d"):format(limit)) }
     end
@@ -448,7 +450,8 @@ local function read_multipart(req: Types.Request, limit: integer, opts: Types.In
     return { invalid = stop(413, "body", "", "too_large",
       ("the body is over the limit, max_bytes = %d"):format(limit)) }
   end
-  if req.body_failure ~= nil then return { invalid = read_failed(req.body_failure) } end
+  local body_failure = req.body_failure
+  if body_failure ~= nil then return { invalid = read_failed(body_failure) } end
 
   local max_file = opts and opts.max_file_bytes or DEFAULT_FILE_MAX
   local max_field = opts and opts.max_field_bytes or DEFAULT_FIELD_MAX
@@ -468,8 +471,9 @@ local function read_multipart(req: Types.Request, limit: integer, opts: Types.In
       local _, _ = Fs.remove(upload.path)
     end
     spooled.kept = {}
-    if spooled.made ~= nil then
-      local _, _ = Fs.remove_tree(spooled.made)
+    local made = spooled.made
+    if made ~= nil then
+      local _, _ = Fs.remove_tree(made)
       spooled.made = nil
     end
   end
@@ -664,7 +668,8 @@ function Input.form(req: Types.Request, opts?: Types.InputOptions): Types.Parsed
     local seen = req:get(Input.FORM)
     if seen ~= nil then return { value = seen } end
     local got = read_multipart(req, opts and opts.max_bytes or DEFAULT_MAX, opts)
-    if got.invalid ~= nil then return { invalid = got.invalid } end
+    local got_invalid = got.invalid
+    if got_invalid ~= nil then return { invalid = got_invalid } end
     local fields = assert(got.value).fields
     req:set(Input.FORM, fields)
     return { value = fields }
@@ -1109,7 +1114,8 @@ end
 --- @return Types.Parsed<T> The record, or why not
 function Input.query_into<T>(req: Types.Request, typed: Shape.Typed<T>, opts?: Types.InputOptions): Types.Parsed<T>
   local read = Input.query(req)
-  if read.invalid ~= nil then return { invalid = read.invalid } end
+  local read_invalid = read.invalid
+  if read_invalid ~= nil then return { invalid = read_invalid } end
   local out: Types.Parsed<T> = Input.bind_strings(assert(read.value), typed.spec, with_source(opts, "query"))
   return out
 end
@@ -1123,7 +1129,8 @@ end
 --- @return Types.Parsed<T> The record, or why not
 function Input.form_into<T>(req: Types.Request, typed: Shape.Typed<T>, opts?: Types.InputOptions): Types.Parsed<T>
   local read = Input.form(req, opts)
-  if read.invalid ~= nil then return { invalid = read.invalid } end
+  local read_invalid = read.invalid
+  if read_invalid ~= nil then return { invalid = read_invalid } end
   local out: Types.Parsed<T> = Input.bind_strings(assert(read.value), typed.spec, with_source(opts, "form"))
   return out
 end
@@ -1139,7 +1146,8 @@ end
 --- @return Types.Parsed<T> The record, or why not
 function Input.multipart_into<T>(req: Types.Request, typed: Shape.Typed<T>, opts?: Types.InputOptions): Types.Parsed<T>
   local read = Input.multipart(req, opts)
-  if read.invalid ~= nil then return { invalid = read.invalid } end
+  local read_invalid = read.invalid
+  if read_invalid ~= nil then return { invalid = read_invalid } end
   local out: Types.Parsed<T> = Input.bind_strings(assert(read.value).fields, typed.spec, with_source(opts, "form"))
   return out
 end
@@ -1154,7 +1162,8 @@ end
 --- @return Types.Parsed<T> The record, or why not
 function Input.json_into<T>(req: Types.Request, typed: Shape.Typed<T>, opts?: Types.InputOptions): Types.Parsed<T>
   local read = Input.json(req, opts)
-  if read.invalid ~= nil then return { invalid = read.invalid } end
+  local read_invalid = read.invalid
+  if read_invalid ~= nil then return { invalid = read_invalid } end
   local out: Types.Parsed<T> = bind_json(read.value, typed.spec)
   return out
 end
@@ -1213,8 +1222,9 @@ end
 --- @param name string The field
 --- @return string The value, to put back in the input
 function Input.value(bad: Types.Invalid, name: string): string
-  if bad.submitted == nil then return "" end
-  return Url.query_last(bad.submitted, name) or ""
+  local submitted = bad.submitted
+  if submitted == nil then return "" end
+  return Url.query_last(submitted, name) or ""
 end
 
 return Input

@@ -135,14 +135,16 @@ end
 local function adopted(config: Config.Config): Relay.Handed | nil, Net.Connector | nil, string
   local handed: Relay.Handed = {}
   if config.table ~= nil or config.public then
-    local made, why = Connector.adopted(Config.connector_fd, config.table ~= nil and table_of(config.table) or nil, config.public,
+    local config_table = config.table
+    local made, why = Connector.adopted(Config.connector_fd, config_table ~= nil and table_of(config_table) or nil, config.public,
       Config.connect_ns)
     if made == nil then return nil, nil, "the connector: " .. why end
     handed.connector = made
   end
   local dns: Net.Connector | nil
-  if config.name_servers ~= nil then
-    local made, why = Connector.adopted(Config.name_server_fd, table_of(config.name_servers), false,
+  local name_servers = config.name_servers
+  if name_servers ~= nil then
+    local made, why = Connector.adopted(Config.name_server_fd, table_of(name_servers), false,
       config.name_server_wait_ns)
     if made == nil then return nil, nil, "the name servers' connector: " .. why end
     dns = made
@@ -182,7 +184,8 @@ local function serve(config: Config.Config): integer
     if run.lost ~= nil then return end
     run.lost = why
     log(why .. ": the relay ends")
-    if run.serving ~= nil then run.serving:stop() end
+    local serving = run.serving
+    if serving ~= nil then serving:stop() end
   end
   handed.lost = lose
   Poll.run(function()
@@ -254,7 +257,8 @@ local function serve(config: Config.Config): integer
     say("ready")
     running:wait()
     watch:cancel()
-    if handed.connector ~= nil then local _, _ = handed.connector:close() end
+    local handed_connector = handed.connector
+    if handed_connector ~= nil then local _, _ = handed_connector:close() end
     if dns ~= nil then local _, _ = dns:close() end
     run.status = run.ended and 0 or failed(run.lost or "the relay's listeners ended")
   end)

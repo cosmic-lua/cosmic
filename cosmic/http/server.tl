@@ -287,8 +287,9 @@ local timed_mt: metatable<Timed> = { __index = Timed }
 
 function Timed:read(max_bytes?: integer): string | nil, string
   local wait = self.each
-  if self.deadline ~= nil then
-    local left = self.deadline - Clock.monotonic_ns()
+  local deadline = self.deadline
+  if deadline ~= nil then
+    local left = deadline - Clock.monotonic_ns()
     if left <= 0 then return nil, Poll.TIMEOUT end
     if wait == nil or left < wait then wait = left end
   end
