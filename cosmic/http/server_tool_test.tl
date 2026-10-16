@@ -72,12 +72,13 @@ end
       server:stop()
     end,
   })
-  assert(result.value ~= nil, "the server never became ready")
-  assert(result.value.code == 0, tostring(result.value.code) .. " " .. tostring(result.value.stderr))
+  local result_value = result.value
+  assert(result_value ~= nil, "the server never became ready")
+  assert(result_value.code == 0, tostring(result_value.code) .. " " .. tostring(result_value.stderr))
   local expected = table.concat({
     "404 no a", "201 stored", "200 first value text/plain", "200 [] 11", "204",
   }, "\n")
-  assert(result.value.stdout == expected, result.value.stdout)
+  assert(result_value.stdout == expected, result_value.stdout)
   assert(items.a == nil)
 end
 
@@ -123,14 +124,15 @@ end
       server:stop()
     end,
   })
-  assert(result.value ~= nil, "the server never became ready")
-  assert(result.value.code == 0, tostring(result.value.code) .. " " .. tostring(result.value.stderr))
+  local result_value = result.value
+  assert(result_value ~= nil, "the server never became ready")
+  assert(result_value.code == 0, tostring(result_value.code) .. " " .. tostring(result_value.stderr))
   assert(table.concat(targets, " ") == "/two%20words.txt /caf%C3%A9.txt /two%20words.txt /a=b&c;d?e=f",
     table.concat(targets, " "))
   local expected = table.concat({
     "200 this is two words.txt", "200 this is caf\xc3\xa9.txt", "200 this is two words.txt", "404 ",
   }, "\n")
-  assert(result.value.stdout == expected, result.value.stdout)
+  assert(result_value.stdout == expected, result_value.stdout)
 end
 
 --- SIGTERM stops a server in a process of its own, which exits 0: an

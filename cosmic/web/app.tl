@@ -59,8 +59,9 @@ end
 --- Whether `address` is on the loopback: a unix socket, `::1` or a dotted
 --- 127/8 address (not a name that merely starts with "127.").
 local function loopback(address: Net.Address): boolean
-  return address.kind == "unix" or address.host == "::1" or
-    assert(address.host):find("^127%.%d+%.%d+%.%d+$") ~= nil
+  local host = address.host
+  return address.kind == "unix" or host == "::1" or
+    assert(host):find("^127%.%d+%.%d+%.%d+$") ~= nil
 end
 
 --- What `fn` raised, or nil when it returned.
@@ -109,7 +110,8 @@ function App.new(spec: Types.AppSpec): Types.App
     builtin = spec.builtin ~= false,
     hubs = hubs, max_streams = spec.max_streams, dev = spec.dev == true,
   }
-  if kept.max_streams ~= nil and (math.type(kept.max_streams) ~= "integer" or kept.max_streams < 0) then
+  local kept_max_streams = kept.max_streams
+  if kept_max_streams ~= nil and (math.type(kept_max_streams) ~= "integer" or kept_max_streams < 0) then
     error("web: max_streams must be a non-negative integer", 2)
   end
   for _, hub in ipairs(hubs) do
@@ -170,7 +172,8 @@ function App.new(spec: Types.AppSpec): Types.App
     end
     local req = Request.new(app, raw, parts)
     if trusted ~= nil then
-      local named = req.host ~= nil and Request.parse_host(req.host) or nil
+      local host = req.host
+      local named = host ~= nil and Request.parse_host(host) or nil
       if named == nil or not trusted[named.host] then
         outcome = { kind = "bad_host", detail = "the host is not one this app answers to",
           handler = router.miss, mount_path = "" }

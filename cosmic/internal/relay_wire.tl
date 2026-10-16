@@ -506,8 +506,9 @@ function relay_wire.connect_reader(): relay_wire.ConnectReader
 
   return {
     feed = function(_: relay_wire.ConnectReader, chunk: string): relay_wire.Connect
-      if st.final ~= nil then
-        return st.final
+      local final = st.final
+      if final ~= nil then
+        return final
       end
       local size = #chunk
       local i = 1
@@ -791,8 +792,9 @@ end
 local function small_reader<T>(read: function(string): T, decided: function(T): boolean): function(string): T
   local st: Held<T> = { held = "" }
   return function(chunk: string): T
-    if st.final ~= nil then
-      return st.final
+    local final = st.final
+    if final ~= nil then
+      return final
     end
     st.held = st.held .. chunk
     local answer = read(st.held)
@@ -1298,8 +1300,9 @@ function relay_wire.hello_reader(): relay_wire.HelloReader
 
   return {
     feed = function(_: relay_wire.HelloReader, chunk: string): relay_wire.Hello
-      if st.final ~= nil then
-        return st.final
+      local final = st.final
+      if final ~= nil then
+        return final
       end
       st.pending[#st.pending + 1] = chunk
       st.pending_len = st.pending_len + #chunk
@@ -1317,8 +1320,9 @@ function relay_wire.hello_reader(): relay_wire.HelloReader
       local pos = 1
       while true do
         local header = record_header(data, pos, st.records == 0)
-        if header.refusal ~= nil then
-          return finish(header.refusal)
+        local refusal = header.refusal
+        if refusal ~= nil then
+          return finish(refusal)
         end
         local length = header.length
         if length == 0 then

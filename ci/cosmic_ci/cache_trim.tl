@@ -75,10 +75,12 @@ local function report(text: string, request: CacheTrim.Request): Report | nil, s
   if value.fresh ~= nil and (value.digest == nil or request.family ~= "compiles" or request.restored == nil) then
     return nil, "cache report has an unexpected fresh count"
   end
-  if value.fresh ~= nil and value.fresh < 0 then
+  local fresh = value.fresh
+  if fresh ~= nil and fresh < 0 then
     return nil, "cache report has a negative fresh count"
   end
-  if value.digest ~= nil and (#value.digest ~= 64 or not value.digest:match("^[0-9a-f]+$")) then
+  local digest = value.digest
+  if digest ~= nil and (#digest ~= 64 or not digest:match("^[0-9a-f]+$")) then
     return nil, "cache report has an invalid digest"
   end
   return value, ""
@@ -162,8 +164,9 @@ local function invoke(request: CacheTrim.Request): Report | nil, string
     argv[#argv + 1] = "--since-ns"
     argv[#argv + 1] = tostring(request.since_ns)
   end
-  if request.restored ~= nil then
-    argv[#argv + 1], argv[#argv + 2] = "--restored", request.restored
+  local restored = request.restored
+  if restored ~= nil then
+    argv[#argv + 1], argv[#argv + 2] = "--restored", restored
   end
   argv[#argv + 1] = "--json"
   local env = Env.all()
@@ -189,7 +192,8 @@ function CacheTrim.run(request: CacheTrim.Request, env: {string:string}): string
   local verb = request.family .. "-trim"
   local opened, guard_trouble = Signal.guard()
   if opened == nil then
-    local cleanup = request.restored ~= nil and remove_snapshot(request.restored) or ""
+    local restored = request.restored
+    local cleanup = restored ~= nil and remove_snapshot(restored) or ""
     return "", verb .. ": " .. guard_trouble .. (cleanup ~= "" and "\n" .. cleanup or "") .. "\n"
   end
   local guard <close> = opened
@@ -199,8 +203,9 @@ function CacheTrim.run(request: CacheTrim.Request, env: {string:string}): string
     local ok, answer, why = pcall(invoke, request)
     if ok then value, trouble = answer as Report, why else trouble = tostring(answer) end
   end
-  if request.restored ~= nil then
-    local why = remove_snapshot(request.restored)
+  local restored = request.restored
+  if restored ~= nil then
+    local why = remove_snapshot(restored)
     if why ~= "" then
       value = nil
       trouble = trouble .. "\n" .. why
@@ -211,10 +216,14 @@ function CacheTrim.run(request: CacheTrim.Request, env: {string:string}): string
   local lines: {string} = {}
   for _, file in ipairs(value.files) do
     local line = verb .. ": " .. file.path .. ": " .. file.state
-    if file.kept ~= nil then line = line .. "; kept " .. file.kept end
-    if file.removed ~= nil then line = line .. ", removed " .. file.removed end
-    if file.before_bytes ~= nil and file.after_bytes ~= nil then
-      line = line .. "; " .. file.before_bytes .. " -> " .. Plural.count(file.after_bytes, "byte")
+    local kept = file.kept
+    if kept ~= nil then line = line .. "; kept " .. kept end
+    local removed = file.removed
+    if removed ~= nil then line = line .. ", removed " .. removed end
+    local after_bytes = file.after_bytes
+    local before_bytes = file.before_bytes
+    if before_bytes ~= nil and after_bytes ~= nil then
+      line = line .. "; " .. before_bytes .. " -> " .. Plural.count(after_bytes, "byte")
     end
     lines[#lines + 1] = line .. "\n"
     if #file.removed_set_aside > 0 then
@@ -230,13 +239,15 @@ function CacheTrim.run(request: CacheTrim.Request, env: {string:string}): string
     trouble = trouble .. verb .. ": " .. warning .. "\n"
   end
   local values = ""
-  if value.digest ~= nil then
-    values = "digest=" .. value.digest .. "\n"
-    lines[#lines + 1] = verb .. ": digest " .. value.digest .. "\n"
+  local digest = value.digest
+  if digest ~= nil then
+    values = "digest=" .. digest .. "\n"
+    lines[#lines + 1] = verb .. ": digest " .. digest .. "\n"
   end
-  if value.fresh ~= nil then
-    values = values .. "fresh=" .. value.fresh .. "\n"
-    lines[#lines + 1] = verb .. ": " .. value.fresh .. " compiles not in what was restored\n"
+  local fresh = value.fresh
+  if fresh ~= nil then
+    values = values .. "fresh=" .. fresh .. "\n"
+    lines[#lines + 1] = verb .. ": " .. fresh .. " compiles not in what was restored\n"
   end
   local unsaid = output(env, values)
   if unsaid ~= "" then trouble = trouble .. verb .. ": " .. unsaid .. "\n" end

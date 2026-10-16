@@ -890,11 +890,41 @@ local function test_a_dot_nothing_reads_is_not_named()
   assert(out:find("local d2 = d.b if d2 then", 1, true), out)
 end
 
-local function test_a_condition_chain_is_one_if()
+local function test_a_condition_chain_is_one_flat_block()
   local out = compiled(HEAD .. "{{if .a}}1{{else if .b | m.f}}2{{else}}3{{end}}")
-  assert(out:find("if d.a then", 1, true) and out:find("elseif _one(m.f(d.b)) then", 1, true) and
-      out:find(" else ", 1, true), out)
+  assert(out:find("repeat do local d1 = d.a if d1 then", 1, true) and out:find("break end end if _one(m.f(d.b)) then", 1, true) and
+      out:find("break end parts[#parts + 1] = ", 1, true) and out:find(" until true", 1, true), out)
   assert(out:find('require("m")', 1, true), out)
+  -- A chain with no field path to bind stays an `if`.
+  local plain = compiled(HEAD .. "{{if .b | m.f}}1{{else if .c | m.f}}2{{else}}3{{end}}")
+  assert(plain:find("if _one(m.f(d.b)) then", 1, true) and plain:find("elseif _one(m.f(d.c)) then", 1, true) and
+      not plain:find("repeat", 1, true), plain)
+end
+
+--- An `{{else}}` closes the chain that has no field path to bind as it does
+--- one that has, including a test of a path an enclosing test bound.
+local function test_an_else_closes_a_chain_with_nothing_to_bind()
+  local plain = compiled(HEAD .. "{{if .b | m.f}}1{{else}}2{{end}}")
+  assert(plain:find("if _one(m.f(d.b)) then", 1, true) and plain:find(" else ", 1, true) and
+      not plain:find("repeat", 1, true), plain)
+  local _, plain_ends = plain:gsub("%f[%w]end%f[%W]", "")
+  local _, plain_opens = plain:gsub("%f[%w]if%f[%W]", "")
+  assert(plain_ends >= plain_opens, plain)
+  local nested = compiled(HEAD .. "{{if .a}}{{if .a}}x{{else}}y{{end}}{{end}}")
+  assert(nested:find("do local d1 = d.a if d1 then if d1 then", 1, true) and
+      nested:find(" else parts[#parts + 1] = \"y\" end end end", 1, true), nested)
+end
+
+--- A path an enclosing test bound is a prefix of the paths inside it: each
+--- reads the local of the longest prefix bound, the key being the path as
+--- the source writes it.
+local function test_a_nested_guard_reads_the_local_of_its_longest_bound_prefix()
+  local out = compiled(HEAD .. "{{if .a}}{{if .a.b}}{{.a.b.c}}{{.a.d}}{{end}}{{end}}")
+  assert(out:find("do local d1 = d.a if d1 then do local d2 = d1.b if d2 then", 1, true), out)
+  assert(out:find("= d2.c parts", 1, true) and out:find("= d1.d parts", 1, true), out)
+  assert(not out:find("d1.b.c", 1, true) and not out:find("d.a.", 1, true), out)
+  local same = compiled(HEAD .. "{{if .a}}{{if .a.s}}{{.a.s}}{{end}}{{end}}")
+  assert(same:find("do local d2 = d1.s if d2 then", 1, true) and same:find("= d2 parts", 1, true), same)
 end
 
 local function test_a_with_that_is_empty_runs_its_else()
@@ -1428,7 +1458,7 @@ local function test_dollar_is_the_render_argument_anywhere()
       "{{if $.admin}}{{$}}{{end}}")
   assert(out:find("= d1.name parts", 1, true) and out:find("= d.title parts", 1, true), out)
   assert(out:find("= _one(m.f(d.who)) parts", 1, true), out)
-  assert(out:find("if d.admin then", 1, true) and out:find("= d parts", 1, true), out)
+  assert(out:find("local d3 = d.admin if d3 then", 1, true) and out:find("= d parts", 1, true), out)
   -- Only `$` reads the argument here, so it must be named.
   local only = compiled(HEAD .. "{{$.x}}")
   assert(only:find("render(d: t.T)", 1, true) and only:find("= d.x parts", 1, true), only)

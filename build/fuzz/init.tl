@@ -219,7 +219,8 @@ local counting: Counting = {}
 --- does nothing.
 --- @param name string The label
 function Fuzz.label(name: string)
-  if counting.reached ~= nil then counting.reached[name] = true end
+  local reached = counting.reached
+  if reached ~= nil then reached[name] = true end
 end
 
 --- Runs `check` on `input` once, under the budget.
@@ -365,14 +366,16 @@ local function run(p: Fuzz.Property): integer
   -- Fewer inputs than the default, as reproducing one failure asks for,
   -- may reach no label at all by chance: `requires` holds of a whole run.
   local whole = p.iters ~= nil or iters >= DEFAULT_ITERS
-  if p.iters == nil and p.max_iters ~= nil and iters > p.max_iters then
-    iters = p.max_iters
+  local max_iters = p.max_iters
+  if p.iters == nil and max_iters ~= nil and iters > max_iters then
+    iters = max_iters
   end
   if case_name ~= nil then iters, whole = 1, false end
   local budget = p.budget or DEFAULT_BUDGET
   local kept: string | nil
-  if p.dir ~= nil then
-    kept = p.dir .. "/" .. slug(p.name) .. ".input"
+  local dir = p.dir
+  if dir ~= nil then
+    kept = dir .. "/" .. slug(p.name) .. ".input"
     print(("fuzz %s: seed=%d iters=%d; the input under test is kept at %s"):
         format(p.name, seed, iters, kept))
   end

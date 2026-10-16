@@ -28,27 +28,33 @@ local function test_funcall_index_and_string_literal()
   local call = root[1]
   assert(call.kind == "op", "call kind: " .. tostring(call.kind))
   assert(call.tk == nil, "an op node must carry no tk")
-  assert(call.op, "call.op must not be nil")
-  assert(call.op.op == "@funcall", "call.op.op: " .. tostring(call.op.op))
-  assert(call.e1, "call.e1 must not be nil")
-  assert(call.e1.kind == "variable" and call.e1.tk == "print",
+  local op = call.op
+  assert(op, "call.op must not be nil")
+  assert(op.op == "@funcall", "call.op.op: " .. tostring(op.op))
+  local e1 = call.e1
+  assert(e1, "call.e1 must not be nil")
+  assert(e1.kind == "variable" and e1.tk == "print",
     "call.e1 not the 'print' variable")
 
-  assert(call.e2, "call.e2 must not be nil")
-  assert(call.e2.kind == "expression_list", "call.e2 kind: " .. tostring(call.e2.kind))
+  local e2 = call.e2
+  assert(e2, "call.e2 must not be nil")
+  assert(e2.kind == "expression_list", "call.e2 kind: " .. tostring(e2.kind))
 
-  local index = call.e2[1]
+  local index = e2[1]
   assert(index.kind == "op", "index kind: " .. tostring(index.kind))
-  assert(index.op, "index.op must not be nil")
-  assert(index.op.op == ".", "index.op.op: " .. tostring(index.op.op))
-  assert(index.e1, "index.e1 must not be nil")
-  assert(index.e1.kind == "variable" and index.e1.tk == "x",
+  local index_op = index.op
+  assert(index_op, "index.op must not be nil")
+  assert(index_op.op == ".", "index.op.op: " .. tostring(index_op.op))
+  local index_e1 = index.e1
+  assert(index_e1, "index.e1 must not be nil")
+  assert(index_e1.kind == "variable" and index_e1.tk == "x",
     "index.e1 not the 'x' variable")
-  assert(index.e2, "index.e2 must not be nil")
-  assert(index.e2.kind == "identifier" and index.e2.tk == "y",
+  local index_e2 = index.e2
+  assert(index_e2, "index.e2 must not be nil")
+  assert(index_e2.kind == "identifier" and index_e2.tk == "y",
     "index.e2 not the 'y' identifier")
 
-  local str = call.e2[2]
+  local str = e2[2]
   assert(str.kind == "string", "str kind: " .. tostring(str.kind))
   assert(str.tk == "\"hi\"", "str.tk: " .. tostring(str.tk))
   assert(str.conststr == "hi", "str.conststr: " .. tostring(str.conststr))
@@ -66,25 +72,29 @@ local function test_if_block_cycle_and_return()
 
   local if_stmt = root[1]
   assert(if_stmt.kind == "if", "if_stmt kind: " .. tostring(if_stmt.kind))
-  assert(if_stmt.if_blocks, "if_stmt.if_blocks must not be nil")
-  assert(#if_stmt.if_blocks == 1, "expected exactly one if_block")
+  local if_blocks = if_stmt.if_blocks
+  assert(if_blocks, "if_stmt.if_blocks must not be nil")
+  assert(#if_blocks == 1, "expected exactly one if_block")
 
-  local blk = if_stmt.if_blocks[1]
+  local blk = if_blocks[1]
   assert(blk.kind == "if_block", "blk kind: " .. tostring(blk.kind))
   assert(blk.if_block_n == 1, "blk.if_block_n: " .. tostring(blk.if_block_n))
   assert(blk.if_parent == if_stmt,
     "if_block.if_parent must be the SAME table as its enclosing if (a real cycle)")
-  assert(blk.exp, "blk.exp must not be nil")
-  assert(blk.exp.kind == "variable" and blk.exp.tk == "x", "blk.exp not the 'x' variable")
+  local exp = blk.exp
+  assert(exp, "blk.exp must not be nil")
+  assert(exp.kind == "variable" and exp.tk == "x", "blk.exp not the 'x' variable")
 
-  assert(blk.body, "blk.body must not be nil")
-  assert(blk.body.kind == "statements", "blk.body kind: " .. tostring(blk.body.kind))
+  local body = blk.body
+  assert(body, "blk.body must not be nil")
+  assert(body.kind == "statements", "blk.body kind: " .. tostring(body.kind))
 
-  local ret = blk.body[1]
+  local ret = body[1]
   assert(ret.kind == "return", "ret kind: " .. tostring(ret.kind))
-  assert(ret.exps, "ret.exps must not be nil")
-  assert(ret.exps.kind == "expression_list", "ret.exps kind: " .. tostring(ret.exps.kind))
-  assert(#ret.exps == 1, "expected one returned expression")
+  local exps = ret.exps
+  assert(exps, "ret.exps must not be nil")
+  assert(exps.kind == "expression_list", "ret.exps kind: " .. tostring(exps.kind))
+  assert(#exps == 1, "expected one returned expression")
 end
 
 --- `local function test_foo() end`, reached as `root[1]`: a
@@ -95,9 +105,10 @@ local function test_local_function_name()
   local root = parse_ok("local function test_foo()\nend\n", "local_function.tl")
   local fn = root[1]
   assert(fn.kind == "local_function", "fn kind: " .. tostring(fn.kind))
-  assert(fn.name, "fn.name must not be nil")
-  assert(fn.name.kind == "identifier" and fn.name.tk == "test_foo",
-    "fn.name: " .. tostring(fn.name.kind) .. " " .. tostring(fn.name.tk))
+  local name = fn.name
+  assert(name, "fn.name must not be nil")
+  assert(name.kind == "identifier" and name.tk == "test_foo",
+    "fn.name: " .. tostring(name.kind) .. " " .. tostring(name.tk))
 end
 
 --- `Parsed` carries the token stream from the same parse. This checks

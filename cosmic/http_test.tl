@@ -1160,3 +1160,14 @@ local function test_get_refuses_another_method_and_a_body()
   local got, trouble = Http.get(url, { method = "GET", script = script })
   assert(got ~= nil and got.status == 200, trouble)
 end
+
+--- A `false` where a method is wanted is a method that is not GET, not an
+--- absent one: both raise as any other method does.
+local function test_a_method_that_is_false_is_refused_not_taken_for_none()
+  local script = { reply("200 OK", "") }
+  local opts = { method = false, script = script } as any as Http.Options
+  local ok, why = pcall(Http.get, url, opts)
+  assert(not ok and tostring(why):find("Http.request", 1, true), tostring(why))
+  ok, why = pcall(Http.request, "PUT", url, opts)
+  assert(not ok and tostring(why):find("leave opts.method out", 1, true), tostring(why))
+end

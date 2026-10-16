@@ -636,10 +636,11 @@ local function test_carray_reads_back_a_bound_list(tmp: string)
         Fuzz.label("bound in Lua")
       else
         local result = Sqlite.rows_result(handle, "SELECT value FROM carray(?1)", { list })
-        if result.rows == nil then
+        local result_rows = result.rows
+        if result_rows == nil then
           return false, "carray failed its statement: " .. result.reason
         end
-        rows = result.rows
+        rows = result_rows
         Fuzz.label("bound in C")
       end
       if #rows ~= #fields - 1 then

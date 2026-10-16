@@ -490,7 +490,8 @@ local function release(self: FdReader): boolean, string
 end
 
 function FdReader:read(max_bytes?: integer): string | nil, string
-  if self.failed then return nil, self.failed end
+  local failed = self.failed
+  if failed then return nil, failed end
   if self.closed then return nil, closed_reader end
   if self.ended then return nil, "" end
   local fd, opts = self.fd, self.opts
@@ -528,7 +529,8 @@ end
 -- socket reads and discards, which a caller tests for): it is set as a field
 -- of that Reader, not put on the shared methods.
 local function file_skip(self: FdReader, n: integer): boolean, string
-  if self.failed then return false, self.failed end
+  local failed = self.failed
+  if failed then return false, failed end
   if self.closed then return false, closed_reader end
   if n == 0 then return true, "" end
   if self.ended then
@@ -647,7 +649,8 @@ local function step(self: TransformReader): string | nil, string
 end
 
 function TransformReader:read(max_bytes?: integer): string | nil, string
-  if self.failed then return nil, self.failed end
+  local failed = self.failed
+  if failed then return nil, failed end
   if self.closed then return nil, closed_reader end
   while self.at > #self.batch and not self.finished do
     local out, trouble = step(self)
@@ -869,13 +872,15 @@ function StickyWriter:put(data: string): boolean, string
 end
 
 function StickyWriter:usable(): boolean, string
-  if self.failed then return false, self.failed end
+  local failed = self.failed
+  if failed then return false, failed end
   if self.closed then return false, self.name .. ": the writer is closed" end
   return true, ""
 end
 
 function StickyWriter:close(trailer: string): boolean, string
-  if self.failed then return false, self.failed end
+  local failed = self.failed
+  if failed then return false, failed end
   if self.closed then return true, "" end
   self.closed = true
   local ok, trouble = self:put(trailer)
@@ -1131,7 +1136,8 @@ local to_fd_writer_mt: metatable<ToFdWriter> = { __index = ToFdWriter }
 
 function ToFdWriter:write(data: string): boolean, string
   if self.closed then return false, closed_writer end
-  if self.failed then return false, self.failed end
+  local failed = self.failed
+  if failed then return false, failed end
   local fd, options = self.fd, self.options
   local deadline: integer | nil = nil
   local timeout = options.timeout_ns
@@ -1334,8 +1340,9 @@ function HashingWriter:digest(): string | nil, string
     end
     self.result = digest
   end
-  if self.result == nil then return nil, self.failure end
-  return self.result, ""
+  local result = self.result
+  if result == nil then return nil, self.failure end
+  return result, ""
 end
 
 --- A Writer that digests what is written to it under `algorithm`,
@@ -1444,7 +1451,8 @@ end
 
 function TransformWriter:write(data: string): boolean, string
   if self.closed then return false, closed_writer end
-  if self.failed then return false, self.failed end
+  local failed = self.failed
+  if failed then return false, failed end
   if self.hold > 0 and #data == 0 then return true, "" end
   local ok, trouble = feed(self, data)
   if not ok then
@@ -1462,7 +1470,8 @@ end
 
 function TransformWriter:close(): boolean, string
   if self.closed then
-    if self.failed then return false, self.failed end
+    local failed = self.failed
+    if failed then return false, failed end
     return true, ""
   end
   self.closed = true

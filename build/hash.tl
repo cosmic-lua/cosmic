@@ -235,8 +235,9 @@ local function arguments(argv: {integer:string}): Request | nil, string
     files = parsed.words, check = parsed.values["--check"],
     warning = "", quiet = parsed.set["--quiet"] or false, json = parsed.set["--json"] or false,
   }
-  if request.check == "" then return nil, "--check needs a sums file, or - for standard input" end
-  if request.check ~= nil then
+  local request_check = request.check
+  if request_check == "" then return nil, "--check needs a sums file, or - for standard input" end
+  if request_check ~= nil then
     if #parsed.words > 0 then
       return nil, "--check reads the files its sums file lists, not " .. #parsed.words .. " named on the command line"
     end
@@ -322,7 +323,8 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
   local label = request.key ~= nil and "hmac-" .. request.algorithm or request.algorithm
   local code = bare.ok
 
-  if request.check == nil then
+  local check = request.check
+  if check == nil then
     local rows: {string} = {}
     for _, name in ipairs(request.files) do
       local digest, why = digest_named(to, request, name)
@@ -353,7 +355,7 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
   end
 
   -- A sums file is a list, small beside what it names: read whole.
-  local sums_name = request.check
+  local sums_name = check
   local text: string
   if sums_name == "-" then
     local reader, why = to.stdin()

@@ -306,8 +306,9 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
   end
 
   local source: Source
-  if request.seed ~= nil then
-    source = seeded(request.seed)
+  local request_seed = request.seed
+  if request_seed ~= nil then
+    source = seeded(request_seed)
   else
     source = { int = secret_int }
   end
@@ -430,8 +431,9 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
 
   local ok, result = pcall(body)
   if not ok then
-    if drawn.broken ~= nil then
-      complain("the operating system's entropy source failed: " .. drawn.broken)
+    local drawn_broken = drawn.broken
+    if drawn_broken ~= nil then
+      complain("the operating system's entropy source failed: " .. drawn_broken)
       return 1
     end
     error(result, 0)

@@ -72,8 +72,9 @@ end
 --- @param req Types.Request The request
 --- @return string | nil The origin
 function Origin.of_request(req: Types.Request): string | nil
-  if req.host == nil then return nil end
-  return reduce(req.scheme, req.host)
+  local host = req.host
+  if host == nil then return nil end
+  return reduce(req.scheme, host)
 end
 
 return Origin

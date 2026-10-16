@@ -198,6 +198,7 @@ local function test_a_failed_pump_does_not_close_a_reused_descriptor()
     local chunk, trouble = reader:read()
     assert(chunk == nil and trouble == "child: the reader is closed", trouble)
   end)
-  if replacement.value ~= nil then assert(Fs.close(replacement.value)) end
+  local replacement_value = replacement.value
+  if replacement_value ~= nil then assert(Fs.close(replacement_value)) end
   assert(ok, tostring(why))
 end

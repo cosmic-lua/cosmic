@@ -1121,11 +1121,12 @@ function Json.from_path(text: string): Json.Steps | nil, string
   if q == nil then return nil, err end
   local steps: Json.Steps = {}
   for i, seg in ipairs(q.segments) do
-    if seg.descendant or seg.kind == "wildcard" then
+    local seg_kind = seg.kind
+    if seg.descendant or seg_kind == "wildcard" then
       return refuse(("JSONPath %s selects many values (segment %d): read it with Json.query"):
           format(Json.quote(text), i))
     end
-    if seg.kind == "name" then
+    if seg_kind == "name" then
       steps[i] = seg.name
     else
       local index = assert(seg.index)
@@ -1172,12 +1173,13 @@ local function apply(seg: Json.Segment, node: Json.Match, out: {Json.Match}): bo
   if shape == "mixed" then
     return false, "json: the value at " .. at_pointer(pointer_of(node.steps)) .. " is a table with mixed keys"
   end
-  if seg.kind == "name" then
+  local seg_kind = seg.kind
+  if seg_kind == "name" then
     local name = seg.name
     if shape == "object" and name ~= nil and t[name] ~= nil then
       out[#out + 1] = { steps = extended(node.steps, name), value = t[name] }
     end
-  elseif seg.kind == "index" then
+  elseif seg_kind == "index" then
     if shape == "array" then
       local index = assert(seg.index)
       local position = index + 1
@@ -1310,7 +1312,8 @@ function TokenReader:steps(): Json.Steps
   local steps: Json.Steps = {}
   for _, f in ipairs(self.frames) do
     if f.object then
-      if f.key ~= nil then steps[#steps + 1] = f.key end
+      local key = f.key
+      if key ~= nil then steps[#steps + 1] = key end
     elseif f.count > 0 then
       steps[#steps + 1] = f.count
     end

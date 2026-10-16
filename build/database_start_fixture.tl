@@ -96,8 +96,10 @@ function database_start_fixture.write_database(path: string, modules: {Module}, 
     end
   end
   local meta: {{string}} = { { "runtime_basis", "fixture-basis" } }
-  if made.main ~= nil then meta[#meta + 1] = { "main", made.main } end
-  if made.core ~= nil then meta[#meta + 1] = { "core_sha256", made.core } end
+  local main = made.main
+  if main ~= nil then meta[#meta + 1] = { "main", main } end
+  local core = made.core
+  if core ~= nil then meta[#meta + 1] = { "core_sha256", core } end
   for _, pair in ipairs(meta) do
     assert(Sqlite.run(db, "INSERT INTO meta (key, value) VALUES (?1, ?2)",
       { text(pair[1]), text(pair[2]) }))

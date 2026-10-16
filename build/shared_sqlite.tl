@@ -45,8 +45,9 @@ local function to_wal(db: Sqlite.Handle, wait_ns: integer): boolean, string
   local deadline = started + wait_ns
   while true do
     local result = text_rows_result(db, "PRAGMA journal_mode = WAL")
-    if result.rows ~= nil then
-      local mode = result.rows[1] ~= nil and result.rows[1]:text(1) or ""
+    local rows = result.rows
+    if rows ~= nil then
+      local mode = rows[1] ~= nil and rows[1]:text(1) or ""
       if mode ~= "wal" then return false, "journal mode is " .. mode .. ", not wal" end
       return true, ""
     end

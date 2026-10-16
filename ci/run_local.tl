@@ -73,8 +73,9 @@ local function say(text: string)
 end
 
 local function successful(result: Child.Result, program: string)
+  local signal = result.signal
   assert(result.ok, program .. ": " .. (result.stderr or "") ..
-      (result.signal and "signal " .. tostring(result.signal) or "exit " .. tostring(result.code)))
+      (signal and "signal " .. tostring(signal) or "exit " .. tostring(result.code)))
 end
 
 local function present(path: string): boolean

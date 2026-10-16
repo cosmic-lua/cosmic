@@ -239,7 +239,10 @@ local function from_environment(): boolean
 end
 
 local function is_enabled(opts: Dev.Options | nil): boolean
-  if opts ~= nil and opts.enabled ~= nil then return opts.enabled end
+  if opts ~= nil then
+    local enabled = opts.enabled
+    if enabled ~= nil then return enabled end
+  end
   return from_environment()
 end
 
@@ -455,7 +458,8 @@ end
 
 --- Whether the request names a host the app answers to.
 local function host_ok(req: Types.Request): boolean
-  local named = req.host ~= nil and Request.parse_host(req.host) or nil
+  local req_host = req.host
+  local named = req_host ~= nil and Request.parse_host(req_host) or nil
   if named == nil then return false end
   for _, host in ipairs(req.app.spec.trusted_hosts or {}) do
     if host == named.host then return true end
@@ -489,7 +493,8 @@ end
 
 --- The boot token for `opts`.
 local function boot_of(opts: Dev.Options | nil): string
-  if opts ~= nil and opts.boot ~= nil then return opts.boot end
+  local boot = opts and opts.boot
+  if opts ~= nil and boot ~= nil then return boot end
   return Env.get("COSMIC_WEB_BOOT") or tostring(Clock.now_ns())
 end
 
@@ -558,7 +563,8 @@ end
 
 --- How an exited program ended, for a line.
 local function ended(result: Child.Result): string
-  if result.signal ~= nil then return ("was ended by signal %d"):format(result.signal) end
+  local signal = result.signal
+  if signal ~= nil then return ("was ended by signal %d"):format(signal) end
   return ("exited with status %d"):format(result.code or -1)
 end
 
@@ -589,8 +595,9 @@ function Dev.supervise(opts?: Dev.SuperviseOptions): boolean, string
   local grace_ns = given.grace_ns or DEFAULT_GRACE_NS
   local roots = given.watch or { "." }
   local ignore: {string}
-  if given.ignore ~= nil then
-    ignore = given.ignore
+  local given_ignore = given.ignore
+  if given_ignore ~= nil then
+    ignore = given_ignore
   else
     ignore = {}
     for i, glob in ipairs(DEFAULT_IGNORE) do ignore[i] = glob end
@@ -600,8 +607,9 @@ function Dev.supervise(opts?: Dev.SuperviseOptions): boolean, string
   local start = given.start
   if start == nil then
     local command: {string}
-    if given.command ~= nil then
-      command = given.command
+    local given_command = given.command
+    if given_command ~= nil then
+      command = given_command
     else
       local program, why = Proc.executable()
       if program == nil then return false, "web: dev: no program to run: " .. why end
@@ -639,8 +647,9 @@ function Dev.supervise(opts?: Dev.SuperviseOptions): boolean, string
   end
 
   local function halt()
-    if program.handle == nil then return end
-    local h = program.handle
+    local handle = program.handle
+    if handle == nil then return end
+    local h = handle
     program.handle = nil
     local _, _ = h:stop()
     -- Not `h:wait(grace_ns)`: it stops at the guard's pending signal, the

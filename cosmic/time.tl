@@ -607,10 +607,11 @@ Time.UTC = make_zone("UTC", { transitions = {}, kinds = {}, first = UTC_KIND, na
 --- The day, as days since the epoch, `r` names in `year`.
 local function rule_day(r: Rule, year: integer): integer
   local jan1 = days_from_civil(year, 1, 1)
-  if r.form == "J" then
+  local form = r.form
+  if form == "J" then
     local day = assert(r.day)
     return jan1 + day - 1 + ((day >= 60 and leap(year)) and 1 or 0)
-  elseif r.form == "n" then
+  elseif form == "n" then
     return jan1 + assert(r.day)
   end
   local month, week, weekday = assert(r.month), assert(r.week), assert(r.weekday)
@@ -654,12 +655,14 @@ local function kind_at(rules: Rules, s: integer): Kind
   local t = rules.transitions
   local n = #t
   if n == 0 or s < t[1] then
+    local footer = rules.footer
     -- RFC 8536 3.2: with no transitions, the footer holds for every
     -- moment; before the first, local time type 0 does.
-    if n == 0 and rules.footer ~= nil then return posix_kind(rules.footer, s) end
+    if n == 0 and footer ~= nil then return posix_kind(footer, s) end
     return rules.first
   end
-  if s > t[n] and rules.footer ~= nil then return posix_kind(rules.footer, s) end
+  local footer = rules.footer
+  if s > t[n] and footer ~= nil then return posix_kind(footer, s) end
   local lo, hi = 1, n
   while lo < hi do
     local mid = (lo + hi + 1) // 2
@@ -697,7 +700,8 @@ local function offsets_near(rules: Rules, s: integer): {integer}
   local footer = rules.footer
   if footer ~= nil and (#t == 0 or hi > t[#t]) then
     add(footer.std)
-    if footer.dst ~= nil then add(footer.dst) end
+    local dst = footer.dst
+    if dst ~= nil then add(dst) end
   end
   return out
 end
@@ -801,15 +805,18 @@ local function parse_posix(tz: string): Posix | nil, string
 
   local std_name = abbreviation("standard time's abbreviation")
   local west = duration(24, "standard time's offset")
-  if cur.why ~= nil then return nil, cur.why end
+  local why = cur.why
+  if why ~= nil then return nil, why end
   local p: Posix = { std = { offset = -west, abbreviation = std_name, dst = false }, years = {} }
   if cur.at > #tz then return p, "" end
   local dst_name = abbreviation("daylight saving time's abbreviation")
-  if cur.why ~= nil then return nil, cur.why end
+  local cur_why = cur.why
+  if cur_why ~= nil then return nil, cur_why end
   local offset = p.std.offset + 3600
   if cur.at <= #tz and tz:sub(cur.at, cur.at) ~= "," then
     local dst_west = duration(24, "daylight saving time's offset")
-    if cur.why ~= nil then return nil, cur.why end
+    local cur_why2 = cur.why
+    if cur_why2 ~= nil then return nil, cur_why2 end
     offset = -dst_west
   end
   p.dst = { offset = offset, abbreviation = dst_name, dst = true }
@@ -823,7 +830,8 @@ local function parse_posix(tz: string): Posix | nil, string
   expect(cur, ",", "between daylight saving time's start and end")
   p.finish = rule("daylight saving time's end")
   finish(cur)
-  if cur.why ~= nil then return nil, cur.why end
+  local cur_why2 = cur.why
+  if cur_why2 ~= nil then return nil, cur_why2 end
   return p, ""
 end
 
@@ -1079,7 +1087,8 @@ local NEWER_ZONES <const> = "if the zone is new, `cosmic refresh tzdata --binary
 
 --- Every zone name the binary carries, read at the first call.
 local function carried_set(): {string:boolean} | nil, string
-  if carried_zones.names ~= nil then return carried_zones.names, "" end
+  local carried_zones_names = carried_zones.names
+  if carried_zones_names ~= nil then return carried_zones_names, "" end
   local Store = require("cosmic.store")
   local names, trouble = Store.zone_names()
   if names == nil then return nil, trouble end
@@ -1666,7 +1675,8 @@ local function parse(text: string): Time.Zoned | nil, string
   expect(cur, "T", "between the date and the time")
   clock_into(cur, c)
   c.ns = accept(cur, ".") and read_fraction(cur) or 0
-  if cur.why ~= nil then return nil, cur.why end
+  local why = cur.why
+  if why ~= nil then return nil, why end
   local offset = 0
   -- `Z` and `-00:00` say the local offset is unknown (RFC 9557 2.2), so
   -- a zone after either is not held to the offset.
@@ -1674,7 +1684,8 @@ local function parse(text: string): Time.Zoned | nil, string
   local mark = text:sub(cur.at, cur.at)
   if mark == "+" or mark == "-" then
     offset = offset_at(cur, "the offset")
-    if cur.why ~= nil then return nil, cur.why end
+    local cur_why = cur.why
+    if cur_why ~= nil then return nil, cur_why end
     unknown = mark == "-" and offset == 0
   elseif mark == "Z" or mark == "z" then
     cur.at = cur.at + 1
@@ -1730,7 +1741,8 @@ local function parse(text: string): Time.Zoned | nil, string
     cur.at = close + 1
   end
   finish(cur)
-  if cur.why ~= nil then return nil, cur.why end
+  local cur_why = cur.why
+  if cur_why ~= nil then return nil, cur_why end
   if named == nil then named = unknown and Time.UTC or fixed_zone(offset) end
   return { ns = ns, zone = named }, ""
 end
@@ -1784,7 +1796,8 @@ function Time.parse_date(text: string, zone?: Time.Zone): integer | nil, string
   local cur <close> = borrow(text)
   date_into(cur, c)
   finish(cur)
-  if cur.why ~= nil then return refuse(cur.why) end
+  local why = cur.why
+  if why ~= nil then return refuse(why) end
   if zone == nil then
     local ns, range_why = moment(c, 0)
     if ns == nil then return refuse(range_why) end
@@ -1877,7 +1890,8 @@ function Time.parse_http(text: string): integer | nil, string
     expect(cur, " GMT", "after the time")
   end
   finish(cur)
-  if cur.why ~= nil then return refuse(cur.why) end
+  local cur_why = cur.why
+  if cur_why ~= nil then return refuse(cur_why) end
   local ns, why = moment(c, 0)
   if ns == nil then return refuse(why) end
   return ns, ""

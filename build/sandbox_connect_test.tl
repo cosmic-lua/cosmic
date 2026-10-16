@@ -133,7 +133,8 @@ local function against(args: {string}, body: function(relay: Net.Conn, send: fun
       assert(client:join(WAIT), "the client did not end")
       ran.out = held.out
     end)
-    if relay.value ~= nil then local _, _ = relay.value:close() end
+    local relay_value = relay.value
+    if relay_value ~= nil then local _, _ = relay_value:close() end
     client:cancel()
     local _, _ = listener:close()
     if not ok then

@@ -235,14 +235,16 @@ function Channel.new<T>(opts?: Channel.Options): Channel.Queue<T>
   local capacity = DEFAULT_CAPACITY
   local overflow: Channel.Overflow = "block"
   if opts ~= nil then
-    if opts.capacity ~= nil then
-      if math.type(opts.capacity) ~= "integer" or opts.capacity < 1 then
+    local opts_capacity = opts.capacity
+    if opts_capacity ~= nil then
+      if math.type(opts_capacity) ~= "integer" or opts_capacity < 1 then
         error("channel: capacity must be an integer of at least 1", 2)
       end
-      capacity = opts.capacity
+      capacity = opts_capacity
     end
-    if opts.overflow ~= nil then
-      overflow = opts.overflow
+    local opts_overflow = opts.overflow
+    if opts_overflow ~= nil then
+      overflow = opts_overflow
       if overflow ~= "block" and overflow ~= "drop_oldest" and overflow ~= "drop_newest" and
           overflow ~= "close" then
         error("channel: overflow must be \"block\", \"drop_oldest\", \"drop_newest\" or \"close\"", 2)

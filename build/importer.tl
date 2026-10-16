@@ -812,7 +812,8 @@ end
 --- Added here, where every message is rendered, rather than in
 --- the checker's own text.
 local function with_unused_hint(e: compiler.Error): string
-  if e.code == "unused" and (e.declares == "variable" or e.declares == "argument") then
+  local declares = e.declares
+  if e.code == "unused" and (declares == "variable" or declares == "argument") then
     return e.msg .. " -- name it _ or _<name> to mark it intentionally unused"
   end
   return e.msg
@@ -825,9 +826,10 @@ end
 --- literal string nothing provides). `nil` for any other error, since only
 --- these two name a single missing word worth looking up.
 local function unresolved_name(e: compiler.Error): string | nil
-  if e.code == "unknown_variable" then
+  local code = e.code
+  if code == "unknown_variable" then
     return e.variable
-  elseif e.code == "module_not_found" then
+  elseif code == "module_not_found" then
     return e.key
   end
   return nil
@@ -866,9 +868,10 @@ end
 --- Only a message [`teal.replacement`] leaves unanswered is pointed here
 --- ([`with_hint`]).
 local function diagnostic_docs(e: compiler.Error): string | nil
-  if e.code == "arity" or (e.code == "mismatch" and e.context == "argument" and not e.nested) then
+  local code = e.code
+  if code == "arity" or (code == "mismatch" and e.context == "argument" and not e.nested) then
     return importer.diagnostic_queries.arguments
-  elseif e.code == "invalid_key" and e.variable ~= nil and e.resolved_kind ~= "interface" then
+  elseif code == "invalid_key" and e.variable ~= nil and e.resolved_kind ~= "interface" then
     return importer.diagnostic_queries.record_key
   end
   return nil
@@ -1307,8 +1310,9 @@ local function compile_derived(handle: work.Handle, built: compiler, tool: strin
           -- also how a refusal is told: the pool only knows it did not
           -- compile.
           local early: compilation.Generated | nil = nil
-          if progress.ahead ~= nil then
-            early = progress.ahead.take(m.path)
+          local ahead = progress.ahead
+          if ahead ~= nil then
+            early = ahead.take(m.path)
           end
           local generated: compilation.Generated
           if early ~= nil then
@@ -1389,12 +1393,14 @@ local function compile_derived(handle: work.Handle, built: compiler, tool: strin
     return db:exec(importer.prune_references)
   end
   local made, compile_trouble = compile_all()
-  if progress.ahead ~= nil then
-    progress.ahead.close()
+  local ahead = progress.ahead
+  if ahead ~= nil then
+    ahead.close()
   end
+  local hinting_projection = hinting.projection
   -- The projection the hints opened, once a message earned one.
-  if hinting.projection ~= nil then
-    local _, _ = hinting.projection:close()
+  if hinting_projection ~= nil then
+    local _, _ = hinting_projection:close()
   end
   if not made then
     return nil, compile_trouble

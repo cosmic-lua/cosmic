@@ -117,11 +117,13 @@ local function unsupported(policy: rules.Policy): string
   for _, grant in ipairs(policy.grants or {}) do
     if grant.from ~= nil then return "grant from needs isolate file" end
   end
-  if policy.limits ~= nil and policy.limits.processes ~= nil then
+  local limits = policy.limits
+  if limits ~= nil and limits.processes ~= nil then
     return "limits.processes needs a user namespace of its own"
   end
   for name in pairs(policy.set_env_digests or {}) do
-    if policy.set_env == nil or policy.set_env[name] == nil then
+    local set_env = policy.set_env
+    if set_env == nil or set_env[name] == nil then
       return "set_env_digests holds a digest, not a value to set"
     end
   end
@@ -219,24 +221,27 @@ function Seatbelt.compile(policy: rules.Policy, options?: Seatbelt.Options): Sea
       if trouble ~= "" then return refuse(trouble) end
     end
   end
+  local database = policy.database
+  local options_core = options and options.core
+  local options_database = options and options.database
   -- A policy's own `database` is the file its core runs on, which a start
   -- of this program names itself, so the two must be one file.
-  if policy.database ~= nil then
-    if options == nil or options.core == nil or options.database == nil then
+  if database ~= nil then
+    if options == nil or options_core == nil or options_database == nil then
       return refuse("database needs the core to run and the database it runs on")
     end
-    local named, held = options.paths[policy.database.path], options.paths[options.database]
+    local named, held = options.paths[database.path], options.paths[options_database]
     if named == nil or held == nil or named.path ~= held.path then
-      return refuse("database " .. string.format("%q", policy.database.path) ..
-          " is not the database the core is run on, " .. string.format("%q", options.database))
+      return refuse("database " .. string.format("%q", database.path) ..
+          " is not the database the core is run on, " .. string.format("%q", options_database))
     end
   end
-  if options ~= nil and options.core ~= nil then
-    trouble = add(options.core, "rx")
+  if options_core ~= nil then
+    trouble = add(options_core, "rx")
     if trouble ~= "" then return refuse(trouble) end
   end
-  if options ~= nil and options.database ~= nil then
-    trouble = add(options.database, "r")
+  if options_database ~= nil then
+    trouble = add(options_database, "r")
     if trouble ~= "" then return refuse(trouble) end
   end
   for _, grant in ipairs(policy.grants or {}) do
@@ -272,7 +277,7 @@ function Seatbelt.compile(policy: rules.Policy, options?: Seatbelt.Options): Sea
   local serves = options and options.serves_relay
   -- The relay runs its core alone, which the start executes under the profile.
   local runs: string | nil
-  if serves ~= nil and options.core ~= nil then runs = paths[options.core].path end
+  if serves ~= nil and options_core ~= nil then runs = paths[options_core].path end
   for i, grant in ipairs(merged.grants or {}) do
     local name = "PATH_" .. i
     parameters[name] = grant.path
@@ -333,11 +338,13 @@ function Seatbelt.credentials_unmet(merged: rules.Policy, user: integer, group: 
       "Seatbelt cannot change the user to: start as another user"
   end
   local differs: {string} = {}
-  if merged.user ~= nil and merged.user ~= user then
-    differs[#differs + 1] = "user " .. merged.user
+  local merged_user = merged.user
+  if merged_user ~= nil and merged_user ~= user then
+    differs[#differs + 1] = "user " .. merged_user
   end
-  if merged.group ~= nil and merged.group ~= group then
-    differs[#differs + 1] = "group " .. merged.group
+  local merged_group = merged.group
+  if merged_group ~= nil and merged_group ~= group then
+    differs[#differs + 1] = "group " .. merged_group
   end
   if #differs == 0 then return "" end
   return table.concat(differs, ", ") .. ": Seatbelt runs a program as this process's own user and " ..

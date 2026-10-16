@@ -183,7 +183,8 @@ local function test_cooperative_cancel_releases_drain_ownership()
     assert(Poll.delay(0))
     task:cancel()
     assert(task:join())
-    assert(got.value ~= nil and got.value.kind == "failed" and got.value.reason == Poll.CANCELLED)
+    local got_value = got.value
+    assert(got_value ~= nil and got_value.kind == "failed" and got_value.reason == Poll.CANCELLED)
     assert(h:drain(options(Stream.collect(), nil, 0)).kind == "timeout")
   end)
 end
@@ -198,7 +199,8 @@ local function test_a_new_signal_wakes_a_parked_drain_without_taking_it()
     assert(Poll.delay(0))
     assert(sys.kill(sys.getpid(), sys.SIGTERM))
     assert(task:join())
-    assert(got.value ~= nil and got.value.kind == "interrupted" and got.value.bytes == 0)
+    local got_value = got.value
+    assert(got_value ~= nil and got_value.kind == "interrupted" and got_value.bytes == 0)
     assert(guard:take() == sys.SIGTERM)
   end)
   assert(guard:release() == sys.SIGTERM)
@@ -215,7 +217,8 @@ local function test_closing_the_captured_guard_under_another_ends_the_wait()
     local inner = assert(Signal.guard())
     assert(outer:release() == 0)
     assert(task:join())
-    assert(got.value ~= nil and got.value.kind == "failed" and got.value.reason == "child: the guard is closed")
+    local got_value = got.value
+    assert(got_value ~= nil and got_value.kind == "failed" and got_value.reason == "child: the guard is closed")
     assert(inner:release() == 0)
   end)
   assert(h:drain(options(Stream.collect(), nil, 0)).kind == "timeout")
@@ -230,7 +233,8 @@ local function test_an_explicit_handle_close_wakes_drain_before_cleanup_finishes
     assert(Poll.delay(0))
     assert(h:close())
     assert(task:join())
-    assert(got.value ~= nil and got.value.kind == "failed" and got.value.reason == "child: the handle is closed")
+    local got_value = got.value
+    assert(got_value ~= nil and got_value.kind == "failed" and got_value.reason == "child: the handle is closed")
   end)
 end
 
@@ -386,7 +390,8 @@ assert(Fs.take(0, 1)) assert(Fs.put(1, "finished"))]],
     task:cancel()
     assert(assert(h.stdin_stream):close())
     assert(task:join())
-    assert(got.value ~= nil and got.value.kind == "eof" and sink:result() == "finished")
+    local got_value = got.value
+    assert(got_value ~= nil and got_value.kind == "eof" and sink:result() == "finished")
   end)
 end
 

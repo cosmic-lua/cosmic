@@ -68,8 +68,9 @@ local function test_format_event_makes_one_event_with_the_fields_given_and_no_ot
       if present:sub(2, 2) == "1" then ev.event = fields[3] end
       if present:sub(3, 3) == "1" then ev.id = fields[4] end
       if present:sub(4, 4) == "1" then ev.comment = fields[5] end
+      local ev_event, ev_id = ev.event, ev.id
       local expect_refusal = (retry ~= nil and retry < 0) or
-        (ev.event ~= nil and not carried(ev.event)) or (ev.id ~= nil and not carried(ev.id))
+        (ev_event ~= nil and not carried(ev_event)) or (ev_id ~= nil and not carried(ev_id))
       local ok, out = pcall(Sse.format_event, ev)
       if not ok then
         if not expect_refusal then return false, "refused a valid event: " .. tostring(out) end
@@ -106,11 +107,13 @@ local function test_format_event_makes_one_event_with_the_fields_given_and_no_ot
       for name, n in pairs(seen) do
         if n > 1 then return false, name .. " appears " .. n .. " times" end
       end
-      if ev.data ~= nil and table.concat(data, "\n") ~= unified(ev.data) then
+      local ev_data = ev.data
+      if ev_data ~= nil and table.concat(data, "\n") ~= unified(ev_data) then
         return false, "the data does not rejoin"
       end
       if ev.data == nil and #data > 0 then return false, "data from nowhere" end
-      if ev.comment ~= nil and table.concat(comment, "\n") ~= unified(ev.comment) then
+      local ev_comment = ev.comment
+      if ev_comment ~= nil and table.concat(comment, "\n") ~= unified(ev_comment) then
         return false, "the comment does not rejoin"
       end
       if ev.comment == nil and #comment > 0 then return false, "a comment from nowhere" end

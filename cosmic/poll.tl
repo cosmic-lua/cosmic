@@ -427,12 +427,14 @@ end
 --- rebuilt without them.
 local function finish(w: Wait)
   w.done = true
+  local joined = w.joined
   -- A task that has ended answers its joiners while it walks them, and
   -- is marked ended first, so none is taken from under the walk.
-  if w.joined ~= nil and not w.joined.ended then unjoin(w) end
+  if joined ~= nil and not joined.ended then unjoin(w) end
   if w.gate ~= nil then ungate(w) end
-  if w.watches ~= nil then
-    for _, watch in ipairs(w.watches) do leave(watch) end
+  local watches = w.watches
+  if watches ~= nil then
+    for _, watch in ipairs(watches) do leave(watch) end
     w.watches = nil
   end
   if w.in_heap then
@@ -465,11 +467,12 @@ end
 --- none: a wait outside [`Poll.run`], in a coroutine a task made of its
 --- own, or while the run closes its tasks.
 local function current(what: string, level: integer): State
-  if ongoing.loop == nil then error("poll: " .. what .. " outside Poll.run", level + 1) end
-  if ongoing.loop.closing then
+  local loop = ongoing.loop
+  if loop == nil then error("poll: " .. what .. " outside Poll.run", level + 1) end
+  if loop.closing then
     error("poll: " .. what .. " while Poll.run closes its tasks", level + 1)
   end
-  local task = ongoing.loop.tasks[coroutine.running()]
+  local task = loop.tasks[coroutine.running()]
   if task == nil then error("poll: " .. what .. " outside a task's own coroutine", level + 1) end
   if task.killed then error("poll: " .. what .. " while its task is killed", level + 1) end
   return task
@@ -500,13 +503,15 @@ local function park(task: State, w: Wait, timeout_ns: integer | nil): boolean, s
   if task.cancelled and task.shields == 0 then
     wake(w, false, Poll.CANCELLED)
   else
-    if w.fd ~= nil then
+    local w_fd = w.fd
+    local w_fds = w.fds
+    if w_fd ~= nil then
       w.watches = {}
-      enter(w, w.fd, assert(w.events), 0)
-    elseif w.fds ~= nil then
+      enter(w, w_fd, assert(w.events), 0)
+    elseif w_fds ~= nil then
       w.watches = {}
       local masks = assert(w.masks)
-      for place, fd in ipairs(w.fds) do enter(w, fd, masks[place], place) end
+      for place, fd in ipairs(w_fds) do enter(w, fd, masks[place], place) end
     end
     if timeout_ns ~= nil then
       w.at, w.in_heap = Clock.monotonic_ns() + timeout_ns, true
@@ -669,17 +674,19 @@ end
 --- raised.
 local function close_task(task: State)
   task.killed = true
-  if task.parked ~= nil then
-    finish(task.parked)
+  local parked = task.parked
+  if parked ~= nil then
+    finish(parked)
     task.parked = nil
   end
   local ready: {Wake} = {}
   local lost: {NotifierState} = {}
   for _, wakened in ipairs(running().ready) do
+    local notice = wakened.notice
     if wakened.task ~= task then
       ready[#ready + 1] = wakened
-    elseif wakened.notice ~= nil then
-      lost[#lost + 1] = wakened.notice
+    elseif notice ~= nil then
+      lost[#lost + 1] = notice
     end
   end
   running().ready = ready
@@ -706,7 +713,8 @@ end
 function State:cancel()
   if self.loop ~= ongoing.loop or self.ended or self.cancelled then return end
   self.cancelled = true
-  if self.parked ~= nil and self.shields == 0 then wake(self.parked, false, Poll.CANCELLED) end
+  local parked = self.parked
+  if parked ~= nil and self.shields == 0 then wake(parked, false, Poll.CANCELLED) end
 end
 
 function State:kill()
@@ -718,8 +726,9 @@ end
 --- A new notifier for the tasks of the running [`Poll.run`] to wait on
 --- and notify, as [`Poll.Notifier`] says. It raises outside a run.
 function Poll.notifier(): Poll.Notifier
-  if ongoing.loop == nil then error("poll: Poll.notifier outside Poll.run", 2) end
-  local notifier: NotifierState = setmetatable({ loop = ongoing.loop, waiters = {} }, notifier_mt)
+  local ongoing_loop = ongoing.loop
+  if ongoing_loop == nil then error("poll: Poll.notifier outside Poll.run", 2) end
+  local notifier: NotifierState = setmetatable({ loop = ongoing_loop, waiters = {} }, notifier_mt)
   return notifier
 end
 
@@ -919,11 +928,12 @@ local function turn()
     local batch = running().ready
     running().ready = {}
     for _, wakened in ipairs(batch) do
+      local wakened_notice = wakened.notice
       -- One killed by a task earlier in the batch is passed by.
       if not wakened.task.ended then
         step(wakened.task, wakened.ok, wakened.why)
-      elseif wakened.notice ~= nil then
-        wakened.notice:notify_one()
+      elseif wakened_notice ~= nil then
+        wakened_notice:notify_one()
       end
     end
     if running().live == 0 then break end
@@ -935,8 +945,9 @@ end
 --- Answers every wait on `fd` as though it had `answer` (a mask, for a
 --- wait on several descriptors), or what it asked where `answer` is nil.
 local function answer_waits(fd: integer, answer: integer | nil)
-  if ongoing.loop == nil then return end
-  local entry = ongoing.loop.watched[fd]
+  local loop = ongoing.loop
+  if loop == nil then return end
+  local entry = loop.watched[fd]
   if entry == nil then return end
   local hits: {Wait} = {}
   for _, watch in ipairs(entry.watches) do
@@ -974,7 +985,8 @@ end
 --- too, in a `<close>` handler of a task being killed, where waits
 --- raise: a wait there fails at once rather than hold the thread.
 function Poll.in_task(): boolean
-  return ongoing.loop ~= nil and not ongoing.loop.closing and ongoing.loop.tasks[coroutine.running()] ~= nil
+  local loop = ongoing.loop
+  return loop ~= nil and not loop.closing and loop.tasks[coroutine.running()] ~= nil
 end
 
 --- Starts `main` as the first task and runs the loop until every task

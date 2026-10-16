@@ -94,8 +94,10 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
       end
       lines[#lines + 1] = line
     end
-    if report.digest ~= nil then lines[#lines + 1] = "digest " .. report.digest end
-    if report.fresh ~= nil then lines[#lines + 1] = "fresh " .. report.fresh end
+    local digest = report.digest
+    if digest ~= nil then lines[#lines + 1] = "digest " .. digest end
+    local fresh = report.fresh
+    if fresh ~= nil then lines[#lines + 1] = "fresh " .. fresh end
     output = table.concat(lines, "\n") .. "\n"
   end
   if not bare.delivered(complain, to.out(output)) then return 1 end

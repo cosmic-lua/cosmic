@@ -318,8 +318,9 @@ local compiled = { value = nil as compiler | nil }
 
 --- The carried compiler, loaded once.
 local function carried(): compiler
-  if compiled.value ~= nil then
-    return compiled.value
+  local value = compiled.value
+  if value ~= nil then
+    return value
   end
   local loaded = assert(teal.load(true))
   compiled.value = loaded

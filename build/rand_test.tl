@@ -33,8 +33,9 @@ local function run(words: {string}, stand?: Stand): Ran
     end,
     err = function(line: string) ran.err = ran.err .. line .. "\n" end,
     stdin = function(): string | nil, string
-      if given.stdin == nil then return nil, "no standard input in this test" end
-      return given.stdin, ""
+      local stdin = given.stdin
+      if stdin == nil then return nil, "no standard input in this test" end
+      return stdin, ""
     end,
     entropy = given.entropy or Rand.entropy,
     now_ns = given.now_ns or function(): integer return 1700000000123456789 end,

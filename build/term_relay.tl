@@ -217,10 +217,11 @@ end
 
 local restoring_mt: metatable<Restoring> = {
   __close = function(self: Restoring)
+    local saved = self.saved
     -- The termios first, which waits for nothing; the resets after, for
     -- as long as the terminal takes them.
-    if self.saved ~= nil then
-      local _, _ = sys.tcsetattr(self.input, self.saved)
+    if saved ~= nil then
+      local _, _ = sys.tcsetattr(self.input, saved)
       self.saved = nil
     end
     local resets = self.filter:restore()
@@ -560,7 +561,8 @@ function TermRelay.run(argv: {string}, opts: Child.Options, terminal?: Terminal)
     enqueue(errors, TermRelay.note_lines(relay.note_tail, "\n").text, false)
     settle(false)
   end
-  if relay.failure ~= nil then return nil, relay.failure end
+  local relay_failure = relay.failure
+  if relay_failure ~= nil then return nil, relay_failure end
   return result, ""
 end
 

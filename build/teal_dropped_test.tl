@@ -32,10 +32,11 @@ end
 local function diagnostic(source: string, code: compiler.ErrorCode): compiler.Error
   local seen: {string} = {}
   for _, e in ipairs(type_errors(source)) do
-    if e.code == code then
+    local e_code = e.code
+    if e_code == code then
       return e
     end
-    seen[#seen + 1] = tostring(e.code) .. " " .. e.msg
+    seen[#seen + 1] = tostring(e_code) .. " " .. e.msg
   end
   error("no " .. code .. " among: " .. table.concat(seen, "; ") .. "\n" .. source)
 end

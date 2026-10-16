@@ -326,8 +326,9 @@ local function declare(needs: Test.Needs)
   if installed ~= nil and installed.loaded == true then
     error("test: policy is called at the top of a test module, while it loads", 3)
   end
-  if declared.called_at ~= nil then
-    error("test: policy is called once, and " .. declared.called_at .. " called it already; " ..
+  local called_at = declared.called_at
+  if called_at ~= nil then
+    error("test: policy is called once, and " .. called_at .. " called it already; " ..
         "a test module never requires another that calls it", 3)
   end
   declared.called_at = caller()

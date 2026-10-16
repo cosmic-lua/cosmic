@@ -453,7 +453,8 @@ end
 local body_reader_mt: metatable<BodyReader> = { __index = BodyReader }
 
 function BodyReader:read(max_bytes?: integer): string | nil, string
-  if self.failed then return nil, self.failed end
+  local failed = self.failed
+  if failed then return nil, failed end
   if self.closed then return refuse("the entry body is closed") end
   local state = self.state
   if self.generation ~= state.generation then
@@ -486,7 +487,8 @@ local function fail(self: EntryReader, trouble: string): nil, string
 end
 
 function EntryReader:next(): Tar.Entry | nil, string
-  if self.failed then return nil, self.failed end
+  local failed = self.failed
+  if failed then return nil, failed end
   if self.closed then return refuse("the reader is closed") end
   if self.ended then return nil, "" end
   local src = self.src

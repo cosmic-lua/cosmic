@@ -298,7 +298,8 @@ local function reference_select(seg: Json.Segment, node: Json.Match, out: {Json.
   end
   for _, kid in ipairs(kids) do
     local last = kid.steps[#kid.steps]
-    local hit = seg.kind == "wildcard" or (seg.kind == "name" and last == seg.name)
+    local kind = seg.kind
+    local hit = kind == "wildcard" or (kind == "name" and last == seg.name)
     if seg.kind == "index" and last is integer then
       local index = assert(seg.index)
       local want = index >= 0 and index + 1 or top + 1 + index

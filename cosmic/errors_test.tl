@@ -31,8 +31,9 @@ local function catalog(rows: {Row}, docs?: {string:string}): Sqlite.Handle
   ]]))
   for _, row in ipairs(rows) do
     local text: Sqlite.Value = {}
-    if row.text ~= nil then
-      text = { text = row.text }
+    local row_text = row.text
+    if row_text ~= nil then
+      text = { text = row_text }
     end
     assert(Sqlite.run(db, "INSERT INTO catalog (kind, module, symbol, message, " ..
         "text, file, line) VALUES ('extracted', ?1, ?2, ?3, ?4, ?5, ?6)",

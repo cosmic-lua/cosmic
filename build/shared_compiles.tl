@@ -553,10 +553,11 @@ function shared_compiles.for_build(environment?: {string:string}): importer.Shar
   local open: Opened = { cache = nil }
   if path ~= nil then open.cache, trouble = shared_compiles.open(path) end
   local function drop(why: string)
+    local cache = open.cache
     -- TODO: retire broken caches automatically once cache-wide lifetime
     -- ownership and identity checks can exclude concurrent users and replacements.
-    if open.cache ~= nil then
-      shared_compiles.close(open.cache)
+    if cache ~= nil then
+      shared_compiles.close(cache)
       open.cache = nil
     end
     local _, _ = log:complain("build: shared compiles: " .. why ..
@@ -588,8 +589,9 @@ function shared_compiles.for_build(environment?: {string:string}): importer.Shar
       }
     end,
     analyzers = function(hashes: {string}): {string}
-      if open.cache == nil then return {} end
-      local found, found_trouble = shared_compiles.analyzers(open.cache, hashes)
+      local cache = open.cache
+      if cache == nil then return {} end
+      local found, found_trouble = shared_compiles.analyzers(cache, hashes)
       if found == nil then
         drop(found_trouble)
         return {}
@@ -597,8 +599,9 @@ function shared_compiles.for_build(environment?: {string:string}): importer.Shar
       return found
     end,
     requires = function(analyzer: string, hashes: {string}): {string:{string}}
-      if open.cache == nil then return {} end
-      local found, found_trouble = shared_compiles.requires(open.cache, analyzer, hashes)
+      local cache = open.cache
+      if cache == nil then return {} end
+      local found, found_trouble = shared_compiles.requires(cache, analyzer, hashes)
       if found == nil then
         drop(found_trouble)
         return {}
@@ -607,11 +610,12 @@ function shared_compiles.for_build(environment?: {string:string}): importer.Shar
     end,
     parse = function(analyzer: string, source_hash: string,
                      mapped: boolean): importer.Shared.Parse | nil
-      if open.cache == nil then return nil end
+      local cache = open.cache
+      if cache == nil then return nil end
       local key: shared_compiles.ParseKey = {
         analyzer = analyzer, source_hash = source_hash, mapped = mapped,
       }
-      local found, look_trouble = shared_compiles.look_parse(open.cache, key)
+      local found, look_trouble = shared_compiles.look_parse(cache, key)
       if found == nil then
         if look_trouble ~= "" then drop(look_trouble) end
         return nil

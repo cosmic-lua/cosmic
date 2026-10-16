@@ -171,8 +171,9 @@ local function test_children_hands_back_what_a_skipped_field_leads_to()
   walk_mod.walk(parsed.node, function(n: node_mod.Node)
     if n.kind == "if_block" then block.value = n end
   end)
-  assert(block.value ~= nil, "no if_block")
-  local found = block.value
+  local block_value = block.value
+  assert(block_value ~= nil, "no if_block")
+  local found = block_value
   local parent = found.if_parent
   local passed: {node_mod.Node} = {}
   local kept = walk_mod.children(found, { if_parent = true }, passed)

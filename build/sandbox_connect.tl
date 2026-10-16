@@ -304,8 +304,9 @@ local function run_in(args: {string}, io: sandbox_connect.Io): integer
     return bare.refused
   end
   local login: string | nil
-  if proxy.password ~= nil then
-    local message, login_why = RelayWire.socks_client_auth(assert(proxy.user), proxy.password)
+  local password = proxy.password
+  if password ~= nil then
+    local message, login_why = RelayWire.socks_client_auth(assert(proxy.user), password)
     if message == nil then
       complain("the userinfo of ALL_PROXY: " .. login_why)
       return bare.refused

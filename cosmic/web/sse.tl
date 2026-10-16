@@ -233,25 +233,30 @@ end
 local function format_event(ev: Sse.Event): string
   if type(ev) ~= "table" then error("sse: an event must be a table", 2) end
   local out: {string} = {}
-  if ev.comment ~= nil then
-    if type(ev.comment) ~= "string" then error("sse: comment must be a string", 2) end
-    for _, line in ipairs(lines_of(ev.comment)) do out[#out + 1] = ": " .. line .. "\n" end
+  local comment = ev.comment
+  if comment ~= nil then
+    if type(comment) ~= "string" then error("sse: comment must be a string", 2) end
+    for _, line in ipairs(lines_of(comment)) do out[#out + 1] = ": " .. line .. "\n" end
   end
-  if ev.event ~= nil and ev.event ~= "" then
-    out[#out + 1] = "event: " .. field_text("event", ev.event, "[\r\n%z]") .. "\n"
+  local event = ev.event
+  if event ~= nil and event ~= "" then
+    out[#out + 1] = "event: " .. field_text("event", event, "[\r\n%z]") .. "\n"
   end
-  if ev.id ~= nil then
-    out[#out + 1] = "id: " .. field_text("id", ev.id, "[\r\n%z]") .. "\n"
+  local id = ev.id
+  if id ~= nil then
+    out[#out + 1] = "id: " .. field_text("id", id, "[\r\n%z]") .. "\n"
   end
-  if ev.retry ~= nil and ev.retry ~= 0 then
-    if math.type(ev.retry) ~= "integer" or ev.retry < 0 then
+  local retry = ev.retry
+  if retry ~= nil and retry ~= 0 then
+    if math.type(retry) ~= "integer" or retry < 0 then
       error("sse: retry must be a positive integer of milliseconds", 2)
     end
-    out[#out + 1] = ("retry: %d\n"):format(ev.retry)
+    out[#out + 1] = ("retry: %d\n"):format(retry)
   end
-  if ev.data ~= nil then
-    if type(ev.data) ~= "string" then error("sse: data must be a string", 2) end
-    for _, line in ipairs(lines_of(ev.data)) do out[#out + 1] = "data: " .. line .. "\n" end
+  local data = ev.data
+  if data ~= nil then
+    if type(data) ~= "string" then error("sse: data must be a string", 2) end
+    for _, line in ipairs(lines_of(data)) do out[#out + 1] = "data: " .. line .. "\n" end
   end
   if #out == 0 then return "" end
   out[#out + 1] = "\n"
@@ -376,8 +381,9 @@ function Body.read(self: Body, max_bytes?: integer): string | nil, string
   end
   while self.pending == "" do
     local timeout = self.heartbeat_ns > 0 and self.heartbeat_ns or nil
-    if self.deadline ~= nil then
-      local left = self.deadline - Clock.monotonic_ns()
+    local self_deadline = self.deadline
+    if self_deadline ~= nil then
+      local left = self_deadline - Clock.monotonic_ns()
       if left <= 0 then
         finish(self, "end")
         return nil, ""
@@ -626,17 +632,19 @@ end
 function State.publish(self: State, name: string, ev: Sse.Event): integer
   if not name is string then error("sse: publish takes a topic name", 2) end
   format_event(ev)
-  if ev.data ~= nil and #ev.data > self.max_event_bytes then
+  local ev_data = ev.data
+  if ev_data ~= nil and #ev_data > self.max_event_bytes then
     error(("sse: the event's data (%d) is over the hub's max_event_bytes (%d)"):
-        format(#ev.data, self.max_event_bytes), 2)
+        format(#ev_data, self.max_event_bytes), 2)
   end
   if self.shut then return 0 end
   self.seq = self.seq + 1
+  local ev_id = ev.id
   -- Ids are a count that restarts at 1 with the process, so a Last-Event-ID
   -- from before a restart can match an unrelated event. That stays: the
   -- rings are lost with the process anyway, and an app whose clients must
   -- resume across restarts publishes ids of its own.
-  local kept: Sse.Event = { id = (ev.id ~= nil and ev.id ~= "") and ev.id or tostring(self.seq), event = ev.event, data = ev.data,
+  local kept: Sse.Event = { id = (ev_id ~= nil and ev_id ~= "") and ev_id or tostring(self.seq), event = ev.event, data = ev.data,
     retry = ev.retry, comment = ev.comment }
   local topic = topic_of(self, name)
   if self.replay > 0 then

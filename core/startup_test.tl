@@ -57,8 +57,9 @@ local function test_the_joined_artifact_argument_starts_as_the_two_argument_form
   local split = run_relaunched(relaunch,
     { core, "--artifact", artifact, "-e", SHOW_EXECUTABLE, "a", "b c" })
   assert(split.ok, "exit " .. tostring(split.code) .. ": " .. tostring(split.stderr))
-  assert(joined.stdout == artifact .. "\ta\tb c\n", tostring(joined.stdout))
-  assert(joined.stdout == split.stdout, tostring(split.stdout))
+  local stdout = joined.stdout
+  assert(stdout == artifact .. "\ta\tb c\n", tostring(stdout))
+  assert(stdout == split.stdout, tostring(split.stdout))
 end
 
 --- `--artifact=` naming no path is refused as `--artifact` with no path

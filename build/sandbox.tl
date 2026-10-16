@@ -576,7 +576,8 @@ local function run_here(argv: {string}, opts: Child.Options): Child.Result | nil
   local terminal: TermRelay.Terminal | nil
   local notes: Notes | nil
   local policy = opts.policy
-  local connects = policy ~= nil and policy.connect ~= nil and #policy.connect > 0
+  local connect = policy and policy.connect
+  local connects = policy ~= nil and connect ~= nil and #connect > 0
   if opts.relay_log == "inherit" and connects and sys.isatty(2) then
     local made, why = notes_pipe()
     if made == nil then return nil, "the relay's log: " .. why end
@@ -615,11 +616,13 @@ local function execute(argv: {integer:string}, io: verb.Io | nil, held: {string}
   end
   local database: string | nil
   local sealing: Sealing | nil
-  if request.database ~= nil then
-    local path, why = absolute(request.database, request.cwd)
+  local request_database = request.database
+  local request_modules = request.modules
+  if request_database ~= nil then
+    local path, why = absolute(request_database, request.cwd)
     sealing = { path = path, why = why, refused = true }
-  elseif request.modules ~= nil then
-    local modules = request.modules
+  elseif request_modules ~= nil then
+    local modules = request_modules
     -- The first is the main, which the core runs; the rest are what it
     -- requires, as the program's whole set.
     if preloaded(modules[1]) then
@@ -634,11 +637,12 @@ local function execute(argv: {integer:string}, io: verb.Io | nil, held: {string}
     if sealing.path ~= nil then table.remove(request.argv, 2) end
   end
   if sealing ~= nil then
-    if sealing.path == nil then
+    local sealing_path = sealing.path
+    if sealing_path == nil then
       complain(sealing.refused and sealing.why .. "; see `cosmic help sandbox`" or sealing.why)
       return sealing.refused and bare.refused or START_FAILED
     end
-    database = sealing.path
+    database = sealing_path
   end
   local policy, why = policy_of(request, database)
   if policy == nil then

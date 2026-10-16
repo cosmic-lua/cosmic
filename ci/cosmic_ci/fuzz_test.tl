@@ -418,8 +418,9 @@ local function test_a_sink_constructor_failure_closes_the_output_descriptor(tmp:
     summarize = function(_text: string) end })
   Fs.open_write, Stream.tee = original_open, original_tee
   assert(not ok and tostring(why):find("injected sink constructor failure", 1, true))
-  assert(opened.value ~= nil)
-  local _, _, errno = sys.write(opened.value, "must be closed")
+  local opened_value = opened.value
+  assert(opened_value ~= nil)
+  local _, _, errno = sys.write(opened_value, "must be closed")
   assert(errno == sys.EBADF, "the output descriptor leaked")
 end
 

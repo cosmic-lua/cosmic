@@ -38,8 +38,9 @@ verb_cases.passthrough = {
   version = "it prints one line and no summary",
 }
 for _, spec in ipairs(verb_list.specs()) do
-  if spec.passthrough ~= nil then
-    verb_cases.passthrough[spec.name] = spec.passthrough
+  local spec_passthrough = spec.passthrough
+  if spec_passthrough ~= nil then
+    verb_cases.passthrough[spec.name] = spec_passthrough
   end
 end
 

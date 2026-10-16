@@ -212,8 +212,9 @@ function HexDecoder:finish(): string | nil, string
   if self.total % 2 ~= 0 then
     return nil, ("codec: hex text of odd length %d"):format(self.total)
   end
-  if self.bad_at ~= nil then
-    return nil, ("codec: byte 0x%02x at %d is not a hex digit"):format(self.bad_byte, self.bad_at)
+  local bad_at = self.bad_at
+  if bad_at ~= nil then
+    return nil, ("codec: byte 0x%02x at %d is not a hex digit"):format(self.bad_byte, bad_at)
   end
   return "", ""
 end
@@ -507,7 +508,8 @@ local function at_end(self: Decoding, why: string): nil, string
 end
 
 function Decoding:update(chunk: string): string | nil, string
-  if self.failed ~= nil then return nil, self.failed end
+  local failed = self.failed
+  if failed ~= nil then return nil, failed end
   local name = self.name
   local clean = squeezed(chunk)
   local bad = clean:find(self.wrong)
@@ -541,7 +543,8 @@ function Decoding:update(chunk: string): string | nil, string
 end
 
 function Decoding:finish(): string | nil, string
-  if self.failed ~= nil then return nil, self.failed end
+  local failed = self.failed
+  if failed ~= nil then return nil, failed end
   local name, seen, pad_at = self.name, self.seen, self.pad_at
   -- Padding: `=` is only ever a run at the end, at most two long.
   local head = ""
@@ -630,8 +633,9 @@ local function arguments(argv: {integer:string}): Request | nil, string
     return nil, "give an encoding and a file at most, not " .. plural.count(#words, "word")
   end
   request.file = words[2]
-  if request.file == "" then return nil, bare.empty_file end
-  if request.file == "-" then request.file = nil end
+  local file = request.file
+  if file == "" then return nil, bare.empty_file end
+  if file == "-" then request.file = nil end
   local wrap = parsed.values["--wrap"]
   if wrap ~= nil then
     local n = math.tointeger(tonumber(wrap))
@@ -707,8 +711,9 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
   end
   local opened: Stream.Reader | nil
   local read_trouble: string
-  if request.file ~= nil then
-    opened, read_trouble = Stream.open(request.file)
+  local file = request.file
+  if file ~= nil then
+    opened, read_trouble = Stream.open(file)
   elseif to.input ~= nil then
     opened, read_trouble = to.input()
   elseif to.stdin ~= nil then

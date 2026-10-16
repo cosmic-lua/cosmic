@@ -115,9 +115,10 @@ function test_report.failures(failures: {test_report.Failure}, prefix: string): 
     if rest ~= "" then
       lines[#lines + 1] = rest
     end
-    if failure.rerun ~= nil then
+    local rerun = failure.rerun
+    if rerun ~= nil then
       lines[#lines + 1] = "  rerun: " .. prefix .. "cosmic test " ..
-        shell_word(failure.rerun)
+        shell_word(rerun)
     end
     local printed = failure.printed
     if printed ~= nil then

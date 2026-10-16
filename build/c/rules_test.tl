@@ -44,8 +44,9 @@ local root = assert(Fs.absolute("."))
 local function findings(tmp: string, source: string): {rules.Finding}
   assert(Fs.write(tmp .. "/case.c", source))
   local outcome = c.check(root, { "case.c" }, tmp)[1]
-  assert(outcome.findings ~= nil, outcome.trouble)
-  return outcome.findings
+  local outcome_findings = outcome.findings
+  assert(outcome_findings ~= nil, outcome.trouble)
+  return outcome_findings
 end
 
 --- Asserts `found` is exactly one finding of `rule`, on `line`.
@@ -589,8 +590,9 @@ local function checked(tmp: string, sources: {string: string}, files: {string}):
   end
   local out: {rules.Finding} = {}
   for _, outcome in ipairs(c.check(root, files, tmp)) do
-    assert(outcome.findings ~= nil, outcome.trouble)
-    for _, f in ipairs(outcome.findings) do out[#out + 1] = f end
+    local outcome_findings = outcome.findings
+    assert(outcome_findings ~= nil, outcome.trouble)
+    for _, f in ipairs(outcome_findings) do out[#out + 1] = f end
   end
   return out
 end
@@ -661,8 +663,9 @@ local function test_a_compiler_reads_no_path_it_was_not_given(tmp: string)
   -- own, where the kernel gives one.
   local sandboxed = root == "/tree"
   local outcome = c.check(root, { "case.c" }, tmp)[1]
-  local not_found = outcome.findings == nil and outcome.trouble ~= nil and
-    outcome.trouble:find("AGENTS.md' file not found", 1, true) ~= nil
+  local trouble = outcome.trouble
+  local not_found = outcome.findings == nil and trouble ~= nil and
+    trouble:find("AGENTS.md' file not found", 1, true) ~= nil
   if not sandboxed and not not_found then
     -- The kernel could confine none: the compiler read what it found,
     -- which, not being C, it answers with errors rather than findings.
@@ -691,8 +694,9 @@ local function test_a_violation_under_each_target_is_found(tmp: string)
       ["defined(COSMIC_CHECKED)"] = "x86_64-linux-musl checked",
   }) do
     local outcome = guarded(tmp, condition)
-    assert(outcome.findings ~= nil, outcome.trouble)
-    local found = only(outcome.findings, "narrowed-integer")
+    local outcome_findings = outcome.findings
+    assert(outcome_findings ~= nil, outcome.trouble)
+    local found = only(outcome_findings, "narrowed-integer")
     assert(#found == 1, condition .. ": " .. #found .. " findings")
     local named = table.concat(assert(found[1].variants), ",")
     assert(named:find(variant, 1, true), condition .. " was found under " .. named)

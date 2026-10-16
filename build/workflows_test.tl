@@ -953,8 +953,9 @@ local function test_every_leg_keeps_its_verdicts()
   local back: integer | nil
   for i, step in ipairs(steps) do
     if step.name == "move the tree back to where it was checked out" then back = i end
-    if step.id == "boot" or step.id == "release-suite" or step.id == "portable-suite" then
-      at[step.id as string] = i
+    local id = step.id
+    if id == "boot" or id == "release-suite" or id == "portable-suite" then
+      at[id as string] = i
     end
   end
   local order = { "host-id", "merge-base", "verdicts-base-lookup", "verdicts-base", "verdicts-restore", "boot",

@@ -165,9 +165,10 @@ function Result.build(transcript: string | nil, files: Result.Files, grade: Resu
     elapsed = (finished - started) // 1000000000
   end
   local contamination: any = Json.null
-  if files.summary ~= nil then
+  local summary = files.summary
+  if summary ~= nil then
     local flagged: {string} = {}
-    for line in files.summary:gmatch("[^\n]+") do
+    for line in summary:gmatch("[^\n]+") do
       if line:sub(1, 8) == "BREACH: " or line:sub(1, 15) == "CONTAMINATION: " then
         flagged[#flagged + 1] = line
       end

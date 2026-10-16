@@ -82,7 +82,8 @@ end
 --- The module `call` names when it is `require("<module>")`, a call
 --- of `require` on one string literal; nil for any other expression.
 local function required_name(call: ast.Node): string | nil
-  if call.kind ~= "op" or call.op == nil or call.op.op ~= "@funcall" then
+  local op = call.op
+  if call.kind ~= "op" or op == nil or op.op ~= "@funcall" then
     return nil
   end
   local callee, args = call.e1, call.e2
@@ -98,10 +99,11 @@ end
 --- import form whose identity is sure. "" for any other.
 local function alias_of(stmt: ast.Node): string
   local value: ast.Node | nil = nil
+  local vars, exps = stmt.vars, stmt.exps
   if stmt.kind == "local_type" then
     value = stmt.value
-  elseif stmt.vars ~= nil and #stmt.vars == 1 and stmt.exps ~= nil and #stmt.exps == 1 then
-    value = stmt.exps[1]
+  elseif vars ~= nil and #vars == 1 and exps ~= nil and #exps == 1 then
+    value = exps[1]
   end
   return value ~= nil and required_name(value) or ""
 end
@@ -172,7 +174,8 @@ function scopes.walk(parsed: ast.Parsed,
     end
     local receiver, field = n.e1, n.e2
     local read = field ~= nil and field.tk or nil
-    if member ~= nil and n.kind == "op" and n.op ~= nil and n.op.op == "." and receiver ~= nil and
+    local op = n.op
+    if member ~= nil and n.kind == "op" and op ~= nil and op.op == "." and receiver ~= nil and
         read ~= nil then
       -- `alias.member`, or a member read straight off the module a
       -- literal `require` names: `require("build.test").run`.
@@ -192,16 +195,19 @@ function scopes.walk(parsed: ast.Parsed,
 
   --- A function, or a macroexp, whose body is one expression.
   process_function = function(fn: ast.Node)
-    if fn.body ~= nil then open(fn.body) else open(fn) end
-    if fn.args ~= nil then
-      for _, parameter in ipairs(fn.args) do
+    local body = fn.body
+    if body ~= nil then open(body) else open(fn) end
+    local args = fn.args
+    if args ~= nil then
+      for _, parameter in ipairs(args) do
         declare(parameter.tk, "", at(parameter), 0)
       end
     end
-    if fn.body ~= nil then
-      process_block(fn.body)
-    elseif fn.exp ~= nil then
-      walk_expression(fn.exp)
+    local fn_body, fn_exp = fn.body, fn.exp
+    if fn_body ~= nil then
+      process_block(fn_body)
+    elseif fn_exp ~= nil then
+      walk_expression(fn_exp)
     end
     close()
   end
@@ -213,16 +219,19 @@ function scopes.walk(parsed: ast.Parsed,
     for _, stmt in ipairs(block) do
       for _, each in ipairs(pending) do each.from = head_of(stmt) end
       pending = {}
+      local if_blocks = stmt.if_blocks
       if stmt.kind == "local_declaration" then
-        if stmt.exps ~= nil then
-          walk_expression(stmt.exps)
+        local exps = stmt.exps
+        if exps ~= nil then
+          walk_expression(exps)
         end
         local vars = stmt.vars
         if vars ~= nil then
           -- A `require` a local or a parameter shadows is no import. A
           -- `local type`'s is read by the compiler whatever is in scope.
           local module = bound(stack, "require") and "" or alias_of(stmt)
-          local declared = stmt.decltuple ~= nil and stmt.decltuple.tuple or nil
+          local decltuple = stmt.decltuple
+          local declared = decltuple ~= nil and decltuple.tuple or nil
           for index, var in ipairs(vars) do
             local made = declare(var.tk, module, math.maxinteger, head_of(stmt),
               declared ~= nil and declared[index] ~= nil)
@@ -230,62 +239,82 @@ function scopes.walk(parsed: ast.Parsed,
           end
         end
       elseif stmt.kind == "local_type" then
-        declare(stmt.var ~= nil and stmt.var.tk or nil, alias_of(stmt),
-          stmt.var ~= nil and at(stmt.var) or head_of(stmt), head_of(stmt))
+        local stmt_var = stmt.var
+        declare(stmt_var ~= nil and stmt_var.tk or nil, alias_of(stmt),
+          stmt_var ~= nil and at(stmt_var) or head_of(stmt), head_of(stmt))
       elseif stmt.kind == "local_function" then
-        declare(stmt.name ~= nil and stmt.name.tk or nil, "",
-          stmt.name ~= nil and at(stmt.name) or head_of(stmt), head_of(stmt))
+        local name = stmt.name
+        declare(name ~= nil and name.tk or nil, "",
+          name ~= nil and at(name) or head_of(stmt), head_of(stmt))
         process_function(stmt)
       elseif stmt.kind == "local_macroexp" then
-        declare(stmt.name ~= nil and stmt.name.tk or nil, "",
-          stmt.name ~= nil and at(stmt.name) or head_of(stmt), head_of(stmt))
-        if stmt.macrodef ~= nil then process_function(stmt.macrodef) end
+        local name = stmt.name
+        declare(name ~= nil and name.tk or nil, "",
+          name ~= nil and at(name) or head_of(stmt), head_of(stmt))
+        local macrodef = stmt.macrodef
+        if macrodef ~= nil then process_function(macrodef) end
       elseif stmt.kind == "record_function" or stmt.kind == "global_function" then
         process_function(stmt)
       elseif stmt.kind == "assignment" then
-        if stmt.exps ~= nil then
-          walk_expression(stmt.exps)
+        local exps = stmt.exps
+        if exps ~= nil then
+          walk_expression(exps)
         end
-        if stmt.vars ~= nil then
-          for _, var in ipairs(stmt.vars) do
-            if var.kind == "variable" and var.tk ~= nil then
-              invalidate(stack, var.tk)
+        local stmt_vars = stmt.vars
+        if stmt_vars ~= nil then
+          for _, var in ipairs(stmt_vars) do
+            local tk = var.tk
+            if var.kind == "variable" and tk ~= nil then
+              invalidate(stack, tk)
             end
           end
         end
-      elseif stmt.kind == "if" and stmt.if_blocks ~= nil then
-        for _, branch in ipairs(stmt.if_blocks) do
-          if branch.exp ~= nil then walk_expression(branch.exp) end
+      elseif stmt.kind == "if" and if_blocks ~= nil then
+        for _, branch in ipairs(if_blocks) do
+          local exp = branch.exp
+          if exp ~= nil then walk_expression(exp) end
           open(branch.body)
-          if branch.body ~= nil then process_block(branch.body) end
+          local body = branch.body
+          if body ~= nil then process_block(body) end
           close()
         end
       elseif stmt.kind == "fornum" or stmt.kind == "forin" then
-        if stmt.from ~= nil then walk_expression(stmt.from) end
-        if stmt.to ~= nil then walk_expression(stmt.to) end
-        if stmt.step ~= nil then walk_expression(stmt.step) end
-        if stmt.exps ~= nil then walk_expression(stmt.exps) end
+        local from = stmt.from
+        if from ~= nil then walk_expression(from) end
+        local to = stmt.to
+        if to ~= nil then walk_expression(to) end
+        local step = stmt.step
+        if step ~= nil then walk_expression(step) end
+        local exps = stmt.exps
+        if exps ~= nil then walk_expression(exps) end
         open(stmt.body)
-        if stmt.var ~= nil then
-          declare(stmt.var.tk, "", at(stmt.var), 0)
+        local stmt_var = stmt.var
+        if stmt_var ~= nil then
+          declare(stmt_var.tk, "", at(stmt_var), 0)
         end
-        if stmt.vars ~= nil then
-          for _, var in ipairs(stmt.vars) do
+        local stmt_vars = stmt.vars
+        if stmt_vars ~= nil then
+          for _, var in ipairs(stmt_vars) do
             declare(var.tk, "", at(var), 0)
           end
         end
-        if stmt.body ~= nil then process_block(stmt.body) end
+        local body = stmt.body
+        if body ~= nil then process_block(body) end
         close()
       elseif stmt.kind == "repeat" then
         -- Lua keeps the repeat body's locals in scope through `until`.
         open(stmt.body)
-        if stmt.body ~= nil then process_block(stmt.body) end
-        if stmt.exp ~= nil then walk_expression(stmt.exp) end
+        local body = stmt.body
+        if body ~= nil then process_block(body) end
+        local exp = stmt.exp
+        if exp ~= nil then walk_expression(exp) end
         close()
       elseif stmt.kind == "while" or stmt.kind == "do" then
-        if stmt.exp ~= nil then walk_expression(stmt.exp) end
+        local exp = stmt.exp
+        if exp ~= nil then walk_expression(exp) end
         open(stmt.body)
-        if stmt.body ~= nil then process_block(stmt.body) end
+        local body = stmt.body
+        if body ~= nil then process_block(body) end
         close()
       else
         -- A statement that binds nothing of a scope's (a call, a

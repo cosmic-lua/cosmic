@@ -373,13 +373,14 @@ function worker.compile(pool: worker.Pool, db: Sqlite.Handle, root: string,
     for seq, path in ipairs(paths) do
       local m = by_path[path]
       shard_of[path] = shard
+      local stub = m.stub
       local ok, why = Sqlite.run(writing,
         "INSERT INTO modules (shard, seq, path, file, kind, generated, tests, stubbed, stub, " ..
           "pruned) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
         { integer(shard), integer(seq), text(m.path), text(m.file), text(m.kind),
           integer(m.generated and 1 or 0), text(table.concat(m.tests, "\n")),
-          integer(m.stub ~= nil and 1 or 0), text(m.stub ~= nil and m.stub.text or ""),
-          integer(m.stub ~= nil and m.stub.pruned and 1 or 0) })
+          integer(stub ~= nil and 1 or 0), text(stub ~= nil and stub.text or ""),
+          integer(stub ~= nil and stub.pruned and 1 or 0) })
       if not ok then return fail(why) end
     end
   end

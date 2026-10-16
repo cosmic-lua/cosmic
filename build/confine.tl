@@ -1016,10 +1016,11 @@ local function enter(own?: {string}, sandboxed?: boolean): Leave, {string}
     -- its pid alone, as the real one answers it: a reason and an errno
     -- come only with a failure (a later slot left out is the failure idiom).
     if entry.ended then
+      local strict = declared_by.strict
       -- A reference to a stand-in that no longer stands in starts a
       -- process no confinement holds: under [`must_confine`], none.
-      if declared_by.strict ~= nil and declared_by.confinement ~= nil then
-        return nil, refuse(declared_by.strict, path, "unveil and offline",
+      if strict ~= nil and declared_by.confinement ~= nil then
+        return nil, refuse(strict, path, "unveil and offline",
           "started through a spawn taken while an earlier stand-in ran", sys.EINVAL), sys.EINVAL
       end
       return own_spawn(path, argv, environment, cwd, stdin, stdout, stderr, process_group,

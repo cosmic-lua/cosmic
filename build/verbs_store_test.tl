@@ -56,7 +56,8 @@ local function says_how_it_went(tmp: string)
       local _ = verbs_fixture.expect(tree, verb, case.pass, 0)
       local fail = case.fail
       if fail is {string} then
-        local dir = case.fail_in ~= nil and tmp .. "/" .. case.fail_in or tree
+        local fail_in = case.fail_in
+        local dir = fail_in ~= nil and tmp .. "/" .. fail_in or tree
         local _ = verbs_fixture.expect(dir, verb, fail, 1)
       end
     end
@@ -90,7 +91,8 @@ local function test_help_lists_each_option_a_verb_parses(tmp: string)
     for name, entry in pairs(options) do
       assert(entry is Flags.Option and entry.about ~= nil and entry.about ~= "",
         verb .. " " .. name .. " says nothing of what it does")
-      local shown = entry.value ~= nil and name .. " <" .. entry.value .. ">" or name
+      local value = entry.value
+      local shown = value ~= nil and name .. " <" .. value .. ">" or name
       assert(out:find("\n  " .. shown .. " ", 1, true), verb .. ": " .. out)
     end
   end
@@ -202,15 +204,17 @@ local function test_help_prints_what_each_spec_says(tmp: string)
     -- Help wraps what the specs say, so it is read with its lines joined.
     local joined = " " .. out:gsub("%s+", " ") .. " "
     assert(joined:find(spec.takes, 1, true), spec.name .. ": takes")
-    if spec.exits ~= nil then
-      assert(joined:find(spec.exits, 1, true), spec.name .. ": exits")
+    local exits = spec.exits
+    if exits ~= nil then
+      assert(joined:find(exits, 1, true), spec.name .. ": exits")
     end
   end
   local exit = verbs_fixture.expect(tmp, "help", { "help", "exit" }, 0).stdout or ""
   local joined = " " .. exit:gsub("%s+", " ") .. " "
   for _, spec in ipairs(verb_list.specs()) do
-    if spec.exits ~= nil then
-      assert(joined:find(spec.exits, 1, true), spec.name .. ": exits")
+    local exits = spec.exits
+    if exits ~= nil then
+      assert(joined:find(exits, 1, true), spec.name .. ": exits")
     end
   end
 end

@@ -299,7 +299,8 @@ end
 local span_reader_mt: metatable<SpanReader> = { __index = SpanReader }
 
 function SpanReader:read(max_bytes?: integer): string | nil, string
-  if self.failed then return nil, self.failed end
+  local failed = self.failed
+  if failed then return nil, failed end
   local left = self.left
   if left <= 0 then return nil, "" end
   local want = max_bytes or chunk_size
@@ -353,7 +354,8 @@ end
 local checked_reader_mt: metatable<CheckedReader> = { __index = CheckedReader }
 
 function CheckedReader:read(max_bytes?: integer): string | nil, string
-  if self.failed then return nil, self.failed end
+  local failed = self.failed
+  if failed then return nil, failed end
   local chunk, trouble = self.inner:read(max_bytes)
   if chunk == nil then
     if trouble ~= "" then
@@ -613,7 +615,8 @@ function EntryReader:next(): Zip.Entry | nil, string
 end
 
 function EntryReader:entries(): {Zip.Entry} | nil, string
-  if self.listed ~= nil then return self.listed, "" end
+  local listed = self.listed
+  if listed ~= nil then return listed, "" end
   local all: {Zip.Entry} = {}
   local c = cursor(self.pread, self.cd_offset, self.cd_size)
   while true do

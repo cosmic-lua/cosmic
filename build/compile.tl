@@ -195,8 +195,9 @@ local function compile_one(built: compiler, path: string, filename: string, text
   local result = built.check_string(text, env, filename, "tl")
   compiled.syntax_errors = result.syntax_errors
   compiled.type_errors = result.type_errors
-  if #result.syntax_errors == 0 and result.ast ~= nil then
-    local code, why = built.generate(result.ast, env.defaults.gen_target, nil)
+  local ast = result.ast
+  if #result.syntax_errors == 0 and ast ~= nil then
+    local code, why = built.generate(ast, env.defaults.gen_target, nil)
     compiled.code = code
     compiled.trouble = code == nil and tostring(why) or ""
   end

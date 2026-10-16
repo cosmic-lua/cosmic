@@ -123,7 +123,8 @@ end
 ---     local text = PolicyJson.encode(assert(Sandbox.merge({ tmp = true, set_env = { MODE = "fast" } })))
 ---     print(text) -- {"set_env_digests":{"MODE":"..."},"tmp":true}
 function PolicyJson.encode(p: Sandbox.Policy): string
-  if p.profiles ~= nil and #p.profiles > 0 then
+  local profiles = p.profiles
+  if profiles ~= nil and #profiles > 0 then
     error("sandbox: encode takes a merged policy: resolve profiles with Sandbox.merge first", 2)
   end
   local made, why = Sandbox.merge(p)

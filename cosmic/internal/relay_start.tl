@@ -300,8 +300,9 @@ function relay.name_servers(opts?: relay.NameServerOptions): relay.NameServers |
     error("relay: name_servers' resolve must be a positive integer of nanoseconds", 2)
   end
   local listed: {Config.Endpoint}
-  if opts.servers ~= nil then
-    listed = opts.servers
+  local opts_servers = opts.servers
+  if opts_servers ~= nil then
+    listed = opts_servers
   else
     local read, why = Resolv.nameservers(opts.resolv_conf)
     if read == nil then return nil, why end
@@ -345,8 +346,9 @@ function relay.plan(grants: {string}, env: {string: string}): relay.Plan | nil, 
     -- checked; one that is not parsed here opens nothing.
     local parsed, _ = Relay.Grant.parse(grant)
     if parsed ~= nil then
-      if parsed.bytes ~= nil then
-        listed[#listed + 1] = { host = numeric(parsed.bytes), port = parsed.port }
+      local bytes = parsed.bytes
+      if bytes ~= nil then
+        listed[#listed + 1] = { host = numeric(bytes), port = parsed.port }
       else
         names = true
       end

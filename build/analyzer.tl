@@ -150,7 +150,8 @@ local function static_text(node: ast.Node | nil): string
   if node.kind == "string" then
     return node.conststr or ""
   end
-  if node.kind == "op" and node.op ~= nil and node.op.op == ".." then
+  local op = node.op
+  if node.kind == "op" and op ~= nil and op.op == ".." then
     return static_text(node.e1) .. static_text(node.e2)
   end
   return ""
@@ -313,8 +314,9 @@ local function owner_name(owner: ast.Node | nil): string
   if owner == nil then
     return ""
   end
-  if owner.tk ~= nil then
-    return owner.tk
+  local tk = owner.tk
+  if tk ~= nil then
+    return tk
   end
   local op, member = owner.op, owner.e2
   local member_name = member ~= nil and member.tk or nil
@@ -497,8 +499,9 @@ end
 --- looked through.
 local function definition_of(typedecl: ast.TypeNode): ast.TypeNode
   local def = typedecl.def
-  if def ~= nil and def.typename == "generic" and def.t ~= nil then
-    return def.t
+  local t = def and def.t
+  if def ~= nil and def.typename == "generic" and t ~= nil then
+    return t
   end
   return def
 end
@@ -528,8 +531,9 @@ local function field_signature(lines: {string}, tokens: {compiler.Token},
         previous.tk ~= "," and previous.tk ~= "|" and previous.tk ~= ":" then
       break
     end
-    if token.comments ~= nil and at > first then
-      for _, comment in ipairs(token.comments) do
+    local comments = token.comments
+    if comments ~= nil and at > first then
+      for _, comment in ipairs(comments) do
         if comment_at[comment.y] == nil then
           comment_at[comment.y] = comment.x
         end
@@ -678,6 +682,7 @@ local function docs_of(lines: {string}, parsed: ast.Parsed): {analyzer.DocEntry}
       kind = "module", signature = "", text = opening, line = opening_line }
   end
   for _, stmt in ipairs(parsed.node) do
+    local stmt_vars = stmt.vars
     if (stmt.kind == "local_function" or stmt.kind == "record_function" or
         stmt.kind == "global_function") and not is_example_function(stmt) then
       local symbol = symbol_of(stmt)
@@ -705,9 +710,9 @@ local function docs_of(lines: {string}, parsed: ast.Parsed): {analyzer.DocEntry}
           record_docs(lines, parsed.tokens, symbol, def, out)
         end
       end
-    elseif stmt.kind == "local_declaration" and stmt.vars ~= nil and
-        stmt.vars[1] ~= nil then
-      local first = stmt.vars[1]
+    elseif stmt.kind == "local_declaration" and stmt_vars ~= nil and
+        stmt_vars[1] ~= nil then
+      local first = stmt_vars[1]
       local text = doc_before(lines, stmt.comments, stmt.y)
       -- The run above the file's first `local` is the module's (see
       -- [`module_doc`]), never that value's.
@@ -738,7 +743,8 @@ local function surface_of(parsed: ast.Parsed, export: string,
   end
   for _, stmt in ipairs(parsed.node) do
     local vars = stmt.vars or {}
-    local declared = stmt.decltuple ~= nil and stmt.decltuple.tuple or nil
+    local decltuple = stmt.decltuple
+    local declared = decltuple ~= nil and decltuple.tuple or nil
     local written = declared ~= nil and declared[1] or nil
     local names = written ~= nil and written.typename == "nominal" and written.names or nil
     if stmt.kind == "local_declaration" and #vars == 1 and vars[1].tk == export and
@@ -848,50 +854,65 @@ local function canonicalize_docs(entries: {analyzer.DocEntry}, parsed: ast.Parse
   local values: {string: string} = {}
   local members: {string: string} = {}
   for _, stmt in ipairs(parsed.node) do
-    local fn_name = stmt.name
-    if stmt.kind == "local_function" and stmt.name ~= nil and stmt.name.tk ~= nil then
-      values[stmt.name.tk] = stmt.name.tk
-    elseif stmt.kind == "local_declaration" and stmt.vars ~= nil then
-      for index, lhs in ipairs(stmt.vars) do
-        local rhs = stmt.exps ~= nil and stmt.exps[index] or nil
-        if lhs.tk ~= nil then
-          values[lhs.tk] = rhs ~= nil and rhs.kind == "variable" and
-            rhs.tk ~= nil and (values[rhs.tk] or "") or ""
+    local name = stmt.name
+    local name_tk = name and name.tk
+    local stmt_vars, fn_owner = stmt.vars, stmt.fn_owner
+    if stmt.kind == "local_function" and name ~= nil and name_tk ~= nil then
+      values[name_tk] = name_tk
+    elseif stmt.kind == "local_declaration" and stmt_vars ~= nil then
+      for index, lhs in ipairs(stmt_vars) do
+        local exps = stmt.exps
+        local rhs = exps ~= nil and exps[index] or nil
+        local tk = lhs.tk
+        if tk ~= nil then
+          local rhs_tk = rhs and rhs.tk
+          values[tk] = rhs ~= nil and rhs.kind == "variable" and
+            rhs_tk ~= nil and (values[rhs_tk] or "") or ""
         end
       end
-    elseif export ~= "" and stmt.kind == "record_function" and stmt.fn_owner ~= nil and
-        stmt.fn_owner.tk == export and fn_name ~= nil and
-        fn_name.tk ~= nil then
-      local public_source = export .. "." .. fn_name.tk
+    elseif export ~= "" and stmt.kind == "record_function" and fn_owner ~= nil and
+        fn_owner.tk == export and name ~= nil and
+        name_tk ~= nil then
+      local public_source = export .. "." .. name_tk
       members[public_source] = public_source
-    elseif stmt.kind == "assignment" and stmt.vars ~= nil then
-      local targets = stmt.vars
+    elseif stmt.kind == "assignment" and stmt_vars ~= nil then
+      local targets = stmt_vars
       local rhs_values: {string} = {}
       for index in ipairs(targets) do
-        local rhs = stmt.exps ~= nil and stmt.exps[index] or nil
+        local exps = stmt.exps
+        local rhs = exps ~= nil and exps[index] or nil
+        local tk = rhs and rhs.tk
         rhs_values[index] = rhs ~= nil and rhs.kind == "variable" and
-          rhs.tk ~= nil and (values[rhs.tk] or "") or ""
+          tk ~= nil and (values[tk] or "") or ""
       end
       for index, lhs in ipairs(targets) do
         local member = lhs.e2
-        if lhs.kind == "op" and lhs.op ~= nil and lhs.op.op == "." and
-            lhs.e1 ~= nil and lhs.e1.kind == "variable" and
-            export ~= "" and lhs.e1.tk == export and
-            member ~= nil and member.tk ~= nil
+        local tk = member and member.tk
+        local lhs_tk = lhs.tk
+        local op = lhs.op
+        local e1 = lhs.e1
+        if lhs.kind == "op" and op ~= nil and op.op == "." and
+            e1 ~= nil and e1.kind == "variable" and
+            export ~= "" and e1.tk == export and
+            member ~= nil and tk ~= nil
             then
-          members[export .. "." .. member.tk] = rhs_values[index]
-        elseif lhs.kind == "variable" and lhs.tk ~= nil then
-          values[lhs.tk] = rhs_values[index]
+          members[export .. "." .. tk] = rhs_values[index]
+        elseif lhs.kind == "variable" and lhs_tk ~= nil then
+          values[lhs_tk] = rhs_values[index]
         end
       end
     end
   end
   if export == "" and returned ~= nil and returned.kind == "literal_table" then
     for _, item in ipairs(returned) do
+      local key = item.key
+      local value = item.value
+      local conststr = key and key.conststr
+      local value_tk = value and value.tk
       if item.kind == "literal_table_item" and item.key_parsed ~= "implicit" and
-          item.key ~= nil and item.key.conststr ~= nil and item.value ~= nil and
-          item.value.kind == "variable" and item.value.tk ~= nil then
-        members[item.key.conststr] = values[item.value.tk] or ""
+          key ~= nil and conststr ~= nil and value ~= nil and
+          value.kind == "variable" and value_tk ~= nil then
+        members[conststr] = values[value_tk] or ""
       end
     end
   end
@@ -986,15 +1007,18 @@ local function uses_of(root: ast.Node, used: {string: boolean})
     if n == nil then return end
     local kind = n.kind
     if kind == "variable" then
-      if n.tk ~= nil and not bound(n.tk) then used[n.tk] = true end
+      local tk = n.tk
+      if tk ~= nil and not bound(tk) then used[n.tk] = true end
     elseif kind == "local_declaration" then
       walk(n.exps)
       for _, var in ipairs(n.vars or {}) do bind(var.tk) end
     elseif kind == "local_type" then
-      bind(n.var ~= nil and n.var.tk or nil)
+      local n_var = n.var
+      bind(n_var ~= nil and n_var.tk or nil)
     elseif kind == "local_function" or kind == "record_function" or
         kind == "global_function" or kind == "function" then
-      if kind == "local_function" and n.name ~= nil then bind(n.name.tk) end
+      local name = n.name
+      if kind == "local_function" and name ~= nil then bind(name.tk) end
       stack[#stack + 1] = {}
       for _, parameter in ipairs(n.args or {}) do bind(parameter.tk) end
       walk(n.body)
@@ -1005,7 +1029,8 @@ local function uses_of(root: ast.Node, used: {string: boolean})
       walk(n.step)
       walk(n.exps)
       stack[#stack + 1] = {}
-      bind(n.var ~= nil and n.var.tk or nil)
+      local n_var = n.var
+      bind(n_var ~= nil and n_var.tk or nil)
       for _, var in ipairs(n.vars or {}) do bind(var.tk) end
       walk(n.body)
       stack[#stack] = nil
@@ -1119,16 +1144,22 @@ local function preamble_of(lines: {string}, nodes: {ast.Node}): Preamble
         out.requires[#out.requires + 1] = { name, code }
       end
     end
+    local stmt_op = stmt.op
     if stmt.kind == "local_function" or stmt.kind == "local_type" or
         stmt.kind == "local_declaration" then
       local names: {string} = {}
-      if stmt.kind == "local_function" and stmt.name ~= nil and stmt.name.tk ~= nil then
-        names[1] = stmt.name.tk
-      elseif stmt.kind == "local_type" and stmt.var ~= nil and stmt.var.tk ~= nil then
-        names[1] = stmt.var.tk
+      local stmt_name = stmt.name
+      local stmt_name_tk = stmt_name and stmt_name.tk
+      local stmt_var = stmt.var
+      local stmt_var_tk = stmt_var and stmt_var.tk
+      if stmt.kind == "local_function" and stmt_name ~= nil and stmt_name_tk ~= nil then
+        names[1] = stmt_name_tk
+      elseif stmt.kind == "local_type" and stmt_var ~= nil and stmt_var_tk ~= nil then
+        names[1] = stmt_var_tk
       elseif stmt.kind == "local_declaration" then
         for _, var in ipairs(stmt.vars or {}) do
-          if var.tk ~= nil then names[#names + 1] = var.tk end
+          local tk = var.tk
+          if tk ~= nil then names[#names + 1] = tk end
         end
       end
       local first = stmt.y
@@ -1147,7 +1178,7 @@ local function preamble_of(lines: {string}, nodes: {ast.Node}): Preamble
         local _, breaks = code:gsub("\n", "\n")
         out.helpers[#out.helpers + 1] = { names = names, code = code, lines = breaks + 1, node = stmt }
       end
-    elseif stmt.kind == "op" and stmt.op ~= nil and stmt.op.op == "@funcall" then
+    elseif stmt.kind == "op" and stmt_op ~= nil and stmt_op.op == "@funcall" then
       local start = leftmost(stmt)
       local code = block_text(lines, start.y, start.x, until_y, until_x)
       out.calls[#out.calls + 1] = own_text(code)
@@ -1444,7 +1475,8 @@ table.sort(policy_field_order)
 
 --- `node` as a string written plainly, or nil and why, naming `path`.
 local function plain_string(node: ast.Node, path: string): string | nil, string
-  if node.kind ~= "string" or node.conststr == nil then
+  local conststr = node.conststr
+  if node.kind ~= "string" or conststr == nil then
     return nil, path .. " takes a string written out as a literal"
   end
   -- The literal as written, which is what `conststr` holds: an escape the
@@ -1454,15 +1486,16 @@ local function plain_string(node: ast.Node, path: string): string | nil, string
     return nil, path .. ": " .. written ..
       ": write declared paths plainly, without escapes or long brackets"
   end
-  return node.conststr, ""
+  return conststr, ""
 end
 
 --- The name an entry of a table literal is written with, in `name = ...`
 --- or `["name"] = ...`, or nil for an entry with none.
 local function entry_name(item: ast.Node): string | nil
   local key = item.key
-  if key ~= nil and item.key_parsed ~= "implicit" and key.conststr ~= nil then
-    return key.conststr
+  local conststr = key and key.conststr
+  if key ~= nil and item.key_parsed ~= "implicit" and conststr ~= nil then
+    return conststr
   end
   return nil
 end
@@ -1474,10 +1507,11 @@ local function string_list(node: ast.Node, path: string): {string} | nil, string
   end
   local out: {string} = {}
   for _, item in ipairs(node) do
-    if item.key_parsed ~= "implicit" or item.value == nil then
+    local value = item.value
+    if item.key_parsed ~= "implicit" or value == nil then
       return nil, path .. " lists string literals only"
     end
-    local text, why = plain_string(item.value, path)
+    local text, why = plain_string(value, path)
     if text == nil then return nil, why end
     out[#out + 1] = text
   end
@@ -1491,8 +1525,9 @@ local function string_map(node: ast.Node, path: string): {string:string} | nil, 
   local out: {string:string} = {}
   for _, item in ipairs(node) do
     local name = entry_name(item)
-    if name == nil or item.value == nil then return nil, path .. " names each entry" end
-    local text, why = plain_string(item.value, path .. "." .. name)
+    local value = item.value
+    if name == nil or value == nil then return nil, path .. " names each entry" end
+    local text, why = plain_string(value, path .. "." .. name)
     if text == nil then return nil, why end
     out[name] = text
   end
@@ -1559,8 +1594,9 @@ local function policy_data(node: ast.Node): PolicyData | nil, string
       if given.kind ~= "literal_table" then why = "limits takes a table, written out" end
       for _, entry in ipairs(given.kind == "literal_table" and given or {}) do
         local name = entry_name(entry)
-        local number = entry.value ~= nil and entry.value.kind == "integer" and
-          math.tointeger(tonumber(entry.value.tk)) or nil
+        local value = entry.value
+        local number = value ~= nil and value.kind == "integer" and
+          math.tointeger(tonumber(value.tk)) or nil
         if name == nil or number == nil or not (name == "open_files" or name == "file_bytes" or
             name == "cpu_seconds" or name == "processes") then
           why = "limits takes open_files, file_bytes, cpu_seconds and processes, each an integer"
@@ -1574,12 +1610,13 @@ local function policy_data(node: ast.Node): PolicyData | nil, string
       if given.kind ~= "literal_table" then why = "grants takes a list of grants" end
       for i, entry in ipairs(given.kind == "literal_table" and given or {}) do
         local at = "grants[" .. i .. "]"
-        if entry.value == nil or entry.key_parsed ~= "implicit" or
-            entry.value.kind ~= "literal_table" then
+        local value = entry.value
+        if value == nil or entry.key_parsed ~= "implicit" or
+            value.kind ~= "literal_table" then
           why = at .. " takes a table"
           break
         end
-        local grant, grant_why = string_map(entry.value, at)
+        local grant, grant_why = string_map(value, at)
         if grant == nil then
           why = grant_why
           break
@@ -1772,12 +1809,14 @@ local function inputs_of(parsed: ast.Parsed): analyzer.Declared | nil, string
   local callees: {ast.Node:boolean} = {}
   local jump: ast.Node | nil = nil
   for _, stmt in ipairs(parsed.node) do
-    if stmt.kind == "local_declaration" and stmt.vars ~= nil then
-      for i, var in ipairs(stmt.vars) do
+    local vars = stmt.vars
+    local stmt_op = stmt.op
+    if stmt.kind == "local_declaration" and vars ~= nil then
+      for i, var in ipairs(vars) do
         local exps: ast.Node = stmt.exps
         if exps ~= nil and requires_test(exps[i]) then names[var.tk] = true end
       end
-    elseif stmt.kind == "op" and stmt.op ~= nil and stmt.op.op == "@funcall" and
+    elseif stmt.kind == "op" and stmt_op ~= nil and stmt_op.op == "@funcall" and
         names_policy(stmt.e1, names) then
       if found ~= nil then
         return nil, at(stmt) .. "a module declares its policy once; line " ..
@@ -1852,8 +1891,9 @@ local function chunk_of(parsed: ast.Parsed): Chunk
       local exps = stmt.exps
       out.returned = exps ~= nil and exps[1] or nil
       local returned = out.returned
-      if returned ~= nil and returned.kind == "variable" and returned.tk ~= nil then
-        out.export = returned.tk
+      local returned_tk = returned and returned.tk
+      if returned ~= nil and returned.kind == "variable" and returned_tk ~= nil then
+        out.export = returned_tk
       end
     end
   end

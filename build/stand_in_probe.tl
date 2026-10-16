@@ -41,7 +41,8 @@ local probe: Probe = { trapped = 0, ignoring = false, troubles = {} }
 local started: {Child.Handle} = {}
 
 local function trap_fired(): boolean
-  return probe.guard ~= nil and not probe.ignoring and probe.guard:cancelled() ~= 0
+  local guard = probe.guard
+  return guard ~= nil and not probe.ignoring and guard:cancelled() ~= 0
 end
 
 --- Sleeps `ns` nanoseconds by the clock, a slice at a time, however

@@ -72,7 +72,8 @@ local function test_a_worker_that_ran_an_unkeyed_module_fails_its_test()
   assert(not failed.passed)
   assert(failed.message:find("its worker ran build.docs,", 1, true), failed.message)
   assert(failed.message:find("worker.loads", 1, true), failed.message)
-  assert(failed.report ~= nil and failed.report.passed)
+  local report = failed.report
+  assert(report ~= nil and report.passed)
   -- Given no set of what the tool carries, nothing of what it ran is held.
   assert(judged({ "build.docs" }, false).passed)
 end
@@ -206,7 +207,8 @@ local function test_a_report_passes_only_after_successful_process_shutdown()
     local judged = worker.judge({ result = result, trouble = "", timeout_ns = Clock.seconds(1),
       sandboxed = false })
     assert(not judged.passed and judged.skipped == "")
-    assert(judged.report ~= nil and judged.report.test_hits["suite.tl"][12])
+    local judged_report = judged.report
+    assert(judged_report ~= nil and judged_report.test_hits["suite.tl"][12])
     local ending = i == 2 and "was killed by signal 9" or
       "exited with status " .. (i == 1 and "7" or "0")
     assert(judged.message:find(ending .. " after it reported", 1, true), judged.message)

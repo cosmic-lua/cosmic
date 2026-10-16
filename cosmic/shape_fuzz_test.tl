@@ -86,7 +86,8 @@ local function gen_value(r: Recipe, spec: Shape.Spec, depth: integer, strict: bo
   elseif kind == "boolean" then
     return byte(r, 2) == 0
   elseif kind == "one_of" then
-    return assert(spec.values)[byte(r, #assert(spec.values)) + 1]
+    local values = spec.values
+    return assert(values)[byte(r, #assert(values)) + 1]
   elseif kind == "list" then
     local t: {any} = {}
     for i = 1, byte(r, 4) do t[i] = gen_value(r, assert(spec.of), depth - 1, strict) end

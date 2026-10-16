@@ -292,7 +292,8 @@ local function invalid(p: rules.Policy, exact: boolean): string
       return at(base .. "/letters", "\"" .. grant.letters .. "\" is not in the order of \"" ..
           LETTERS .. "\", each letter once: \"" .. canonical .. "\"")
     end
-    if grant.from ~= nil and (grant.from == "" or grant.from:find("\0", 1, true)) then
+    local from = grant.from
+    if from ~= nil and (from == "" or from:find("\0", 1, true)) then
       return at(base .. "/from", "a host path is not empty and holds no NUL")
     end
   end
@@ -610,8 +611,9 @@ function rules.merge(...: rules.Policy): rules.Policy | nil, string
       if database ~= nil and database.path ~= at then
         return refuse("database is given two values, " .. database.path .. " and " .. at)
       end
-      if database ~= nil and digest ~= nil and database.sha256 ~= nil and database.sha256 ~= digest then
-        return refuse("database " .. at .. " is given two digests, " .. database.sha256 ..
+      local database_sha256 = database and database.sha256
+      if database ~= nil and digest ~= nil and database_sha256 ~= nil and database_sha256 ~= digest then
+        return refuse("database " .. at .. " is given two digests, " .. database_sha256 ..
             " and " .. digest)
       end
       database = { path = at, sha256 = digest or (database and database.sha256) }
@@ -645,11 +647,13 @@ function rules.merge(...: rules.Policy): rules.Policy | nil, string
       digests[name] = digest
     end
     if p.tmp then tmp = true end
-    if p.user ~= nil and user ~= nil and p.user ~= user then
-      return refuse("user is given two values, " .. user .. " and " .. p.user)
+    local p_user = p.user
+    if p_user ~= nil and user ~= nil and p_user ~= user then
+      return refuse("user is given two values, " .. user .. " and " .. p_user)
     end
-    if p.group ~= nil and group ~= nil and p.group ~= group then
-      return refuse("group is given two values, " .. group .. " and " .. p.group)
+    local p_group = p.group
+    if p_group ~= nil and group ~= nil and p_group ~= group then
+      return refuse("group is given two values, " .. group .. " and " .. p_group)
     end
     user, group = p.user or user, p.group or group
     local own = p.limits or {}

@@ -780,10 +780,11 @@ local function place(project: string, placements: {Placement})
     assert(placement.kind:match("^[%w_]+$"), "invalid fixture placement")
     local where = BuildPaths.driven(project) .. "/fixtures/" .. placement.kind
     assert(Fs.mkdirs(Fs.dirname(where)))
-    if placement.only == nil then
+    local only = placement.only
+    if only == nil then
       assert(Fs.copy_tree(placement.from, where))
     else
-      for _, name in ipairs(placement.only) do
+      for _, name in ipairs(only) do
         local target = where .. "/" .. name
         assert(Fs.mkdirs(Fs.dirname(target)))
         local st = assert(Fs.stat(placement.from .. "/" .. name))
@@ -822,7 +823,8 @@ local function prepare_fixture(c: Context, work: string, spec: FixtureSpec,
   local name, source = spec.name, spec.source
   assert(name:match("^[%w-]+$"), "invalid fixture test name")
   assert(source:match("^[%w_]+$"), "invalid fixture test source")
-  if spec.setup then spec.setup() end
+  local setup = spec.setup
+  if setup then setup() end
   local project = Orchestration.fixture_project(c.driver, work, group)
   place(project, spec.placements or {})
   local diagnostics = work .. "/fixture-test-diagnostics/" .. name

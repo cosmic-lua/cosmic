@@ -814,10 +814,12 @@ local function statement(ctx: Context, node: Node, state: State): boolean
     expression(ctx, cond, state)
     local absent = tested(cond, state)
     local a = copy(state)
-    if absent.yes ~= nil then a.held[absent.yes] = nil end
+    local absent_yes = absent.yes
+    if absent_yes ~= nil then a.held[absent_yes] = nil end
     local ended_a = statement(ctx, yes, a)
     local b = copy(state)
-    if absent.no ~= nil then b.held[absent.no] = nil end
+    local absent_no = absent.no
+    if absent_no ~= nil then b.held[absent_no] = nil end
     local ended_b = no ~= nil and statement(ctx, no, b)
     local open: {State} = {}
     if not ended_a then open[#open + 1] = a end

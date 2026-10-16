@@ -141,8 +141,9 @@ local function test_a_reader_body_is_read_whole_or_left_as_a_stream_or_closed_fo
   local head = client:head("/s")
   assert(head.body == "" and closed.value == 2)
   local streaming = client:get("/s", { stream = true })
-  assert(streaming.body == "" and streaming.stream ~= nil and closed.value == 2)
-  assert(Stream.read_all(streaming.stream) == "streamed")
+  local streaming_stream = streaming.stream
+  assert(streaming.body == "" and streaming_stream ~= nil and closed.value == 2)
+  assert(Stream.read_all(streaming_stream) == "streamed")
 end
 
 local function test_the_client_fails_a_reply_the_server_would_answer_500_for()

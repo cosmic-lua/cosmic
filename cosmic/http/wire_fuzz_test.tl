@@ -399,7 +399,8 @@ local function test_a_reply_is_framed_as_its_status_and_method_say(tmp: string)
       elseif (kind == "none" or kind == "string") and method ~= "HEAD" then
         own = 0
       end
-      if declared ~= nil and ((reply.length ~= nil and declared ~= reply.length) or
+      local length = reply.length
+      if declared ~= nil and ((length ~= nil and declared ~= length) or
           (bodiless and status ~= 304) or (not bodiless and own ~= nil and declared ~= own)) then
         if why == "" then return false, "a Content-Length of " .. declared .. " was taken" end
         Fuzz.label("refused length")

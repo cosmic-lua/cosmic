@@ -610,19 +610,22 @@ function worker.encode(report: worker.Report): string
   encode_hits(lines, "load-hit", report.load_hits)
   encode_hits(lines, "test-hit", report.test_hits)
   for _, name in ipairs(report.modules or {}) do lines[#lines + 1] = "module " .. hex(name) end
-  if report.skipped ~= nil and report.skipped ~= "" then
-    lines[#lines + 1] = "skipped " .. hex(report.skipped)
+  local skipped = report.skipped
+  if skipped ~= nil and skipped ~= "" then
+    lines[#lines + 1] = "skipped " .. hex(skipped)
   end
   lines[#lines + 1] = "asserted " .. tostring(report.asserted or 0)
-  if report.deliberate ~= nil and report.deliberate ~= "" then
-    lines[#lines + 1] = "deliberate " .. hex(report.deliberate)
+  local deliberate = report.deliberate
+  if deliberate ~= nil and deliberate ~= "" then
+    lines[#lines + 1] = "deliberate " .. hex(deliberate)
   end
   for _, met in ipairs(report.violations or {}) do
     lines[#lines + 1] = "violation " .. hex(table.concat({ met.kind, met.at, met.target,
       met.declared, met.actual }, "\t")) .. " " .. tostring(met.count)
   end
-  if report.dropped ~= nil and report.dropped > 0 then
-    lines[#lines + 1] = "dropped " .. tostring(report.dropped)
+  local dropped = report.dropped
+  if dropped ~= nil and dropped > 0 then
+    lines[#lines + 1] = "dropped " .. tostring(dropped)
   end
   lines[#lines + 1] = "end"
   return table.concat(lines, "\n") .. "\n"
@@ -859,10 +862,11 @@ end
 function worker.invocation(given: worker.Invocation): worker.Command
   local argv: {string} = {}
   for i, value in ipairs(given.start.argv) do argv[i] = value end
+  local program = given.program
   -- A relaunch's argv is the core, `--artifact` and the artifact's path,
   -- which the worker's startup takes as it is given.
-  if given.program ~= nil and argv[2] == "--artifact" and argv[3] ~= nil then
-    argv[3] = given.program
+  if program ~= nil and argv[2] == "--artifact" and argv[3] ~= nil then
+    argv[3] = program
   end
   for _, value in ipairs({ "test", hold_flag[given.hold] or "--worker",
       given.root, given.module_path, given.name, given.scratch .. "/tmp",
@@ -877,9 +881,10 @@ function worker.invocation(given: worker.Invocation): worker.Command
     argv[#argv + 1] = tostring(#runs)
     for _, path in ipairs(runs) do argv[#argv + 1] = path end
   end
-  if given.store ~= nil then
+  local given_store = given.store
+  if given_store ~= nil then
     argv[#argv + 1] = "--store"
-    argv[#argv + 1] = given.store
+    argv[#argv + 1] = given_store
   end
   for _, name in ipairs(given.closure) do argv[#argv + 1] = name end
   argv[#argv + 1] = "--tree"
@@ -891,7 +896,8 @@ function worker.invocation(given: worker.Invocation): worker.Command
   env.COSMIC_TEST_TYPES = given.checks and "1" or nil
   local fds: {integer:integer | string} = { [worker.report_fd] = "capture" }
   for number, fd in pairs(given.start.fds) do fds[number] = fd end
-  if given.policy ~= nil and promises_nest(given.policy) then
+  local given_policy = given.policy
+  if given_policy ~= nil and promises_nest(given_policy) then
     -- A worker that builds roots of its own is handed no descriptor of the
     -- program ([`Child.start`] refuses it any file open for reading alone:
     -- its owner could reopen it for writing through /proc/self/fd). Its
@@ -903,11 +909,12 @@ function worker.invocation(given: worker.Invocation): worker.Command
       env[name] = nil
     end
   end
-  if given.policy ~= nil then
+  local given_policy2 = given.policy
+  if given_policy2 ~= nil then
     -- A policy is the whole of its child's environment, which `env` beside
     -- it would contradict: what the worker is given, the one place it is
     -- made whole, goes in the policy's `set_env`.
-    local held = given.policy
+    local held = given_policy2
     local policy: Sandbox.Policy = { profiles = held.profiles, grants = held.grants,
       isolate = held.isolate, promises = held.promises, connect = held.connect,
       loopback = held.loopback, env = held.env, tmp = held.tmp, limits = held.limits,
@@ -945,7 +952,8 @@ local function unkeyed(modules: {string}, carried: {string:boolean},
 end
 
 local function ending(result: Child.Result): string
-  if result.signal ~= nil then return "was killed by signal " .. tostring(result.signal) end
+  local signal = result.signal
+  if signal ~= nil then return "was killed by signal " .. tostring(signal) end
   return "exited with status " .. tostring(result.code)
 end
 
@@ -980,8 +988,10 @@ function worker.judge(judging: worker.Judging): worker.Judgement
     judgement.passed = false
     judgement.message = report.message ~= "" and report.message .. "\n  " .. message or message
   end
-  if judgement.passed and judging.carried ~= nil and judging.closure ~= nil then
-    local names = unkeyed(report.modules, judging.carried, judging.closure)
+  local closure = judging.closure
+  local carried = judging.carried
+  if judgement.passed and carried ~= nil and closure ~= nil then
+    local names = unkeyed(report.modules, carried, closure)
     if #names > 0 then
       judgement.passed = false
       judgement.message = "its worker ran " .. table.concat(names, ", ") .. ", which the " ..

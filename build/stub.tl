@@ -114,10 +114,12 @@ local function scan(statements: {ast.Node}): Scan
       local body = n.body
       local typed_by_context = n.kind == "function" and n.rets_omitted == true
       local left_out = false
+      local yend = n.yend
+      local xend = n.xend
       if function_kinds[n.kind] and not typed_by_context and body ~= nil and #body > 0 and
-          n.yend ~= nil and n.xend ~= nil then
+          yend ~= nil and xend ~= nil then
         -- tl's `end_at` stamps the last column of `end`.
-        local to_y, to_x = n.yend, n.xend - 2
+        local to_y, to_x = yend, xend - 2
         if not n.never or body.y < to_y or to_x - body.x > #never_body then
           found[#found + 1] = {
             y = body.y, x = body.x, to_y = to_y, to_x = to_x,
@@ -165,14 +167,15 @@ local droppable <const>: {string:boolean} = {
 --- `function M.f`, the name it adds a field to (its owner's first part).
 local function names_of(s: ast.Node): {string}, string | nil
   local declared: {string} = {}
+  local fn_name, type_var = s.name, s.var
   if s.kind == "local_declaration" then
     for _, var in ipairs(s.vars or {}) do
       declared[#declared + 1] = var.tk
     end
-  elseif s.kind == "local_function" and s.name ~= nil then
-    declared[1] = s.name.tk
-  elseif s.kind == "local_type" and s.var ~= nil then
-    declared[1] = s.var.tk
+  elseif s.kind == "local_function" and fn_name ~= nil then
+    declared[1] = fn_name.tk
+  elseif s.kind == "local_type" and type_var ~= nil then
+    declared[1] = type_var.tk
   elseif s.kind == "record_function" then
     local owner = s.fn_owner
     while owner ~= nil and owner.e1 ~= nil do
@@ -207,8 +210,10 @@ local function spells_its_type(s: ast.Node): boolean
   if s.kind == "local_type" or s.kind == "local_function" then
     return true
   end
-  local written = s.decltuple ~= nil and s.decltuple.tuple or nil
-  return s.kind == "local_declaration" and s.vars ~= nil and #s.vars == 1 and
+  local decltuple = s.decltuple
+  local written = decltuple ~= nil and decltuple.tuple or nil
+  local vars = s.vars
+  return s.kind == "local_declaration" and vars ~= nil and #vars == 1 and
     written ~= nil and #written == 1
 end
 
@@ -377,9 +382,12 @@ function stub.made(parsed: ast.Parsed): stub.Made
     local span = spans[next_span]
     if span == nil or before(token.y, token.x, span.y, span.x) then
       put(token.y, token.x, token.tk)
-    elseif span.instead ~= nil then
-      put(span.y, span.x, span.instead)
-      span.instead = nil
+    else
+      local instead = span.instead
+      if instead ~= nil then
+        put(span.y, span.x, instead)
+        span.instead = nil
+      end
     end
   end
   return { text = table.concat(out) .. "\n", pruned = dropped ~= nil }

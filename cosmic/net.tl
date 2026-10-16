@@ -512,7 +512,8 @@ end
 
 local connecting_mt: metatable<Connecting> = {
   __close = function(self: Connecting)
-    if self.socket ~= nil then local _, _ = self.socket:close() end
+    local socket = self.socket
+    if socket ~= nil then local _, _ = socket:close() end
   end,
 }
 
@@ -582,8 +583,9 @@ function Net.resolve(name: string, opts?: Net.ResolveOptions): {Net.Resolved} | 
     error("net: hosts_file must be a string", 2)
   end
   local servers: string | nil
-  if opts.servers ~= nil then
-    local listed = opts.servers
+  local opts_servers = opts.servers
+  if opts_servers ~= nil then
+    local listed = opts_servers
     if type(listed) ~= "table" or #listed == 0 then
       error("net: servers must be a list of endpoints", 2)
     end
@@ -794,10 +796,11 @@ function Net.connect(address: Net.Address, opts?: Net.ConnectOptions): Net.Conn 
   if unusable ~= "" then error("net: address must be " .. unusable, 2) end
   local timeout_ns = opts ~= nil and opts.timeout_ns or nil
   local attempt = connection(address, timeout_ns)
-  if attempt.socket == nil then
+  local socket = attempt.socket
+  if socket == nil then
     return nil, named(address) .. ": " .. said(assert(attempt.trouble), assert(attempt.errno), address)
   end
-  return new_conn(attempt.socket, timeout_ns), ""
+  return new_conn(socket, timeout_ns), ""
 end
 
 resolved_through = function(name: string, opts: Net.ResolveOptions): {Net.Resolved} | nil, string
@@ -807,8 +810,9 @@ resolved_through = function(name: string, opts: Net.ResolveOptions): {Net.Resolv
   end
   if not served.open then return nil, "net: the connector is closed" end
   local listed: {Net.Endpoint} = {}
-  if opts.servers ~= nil then
-    for i, server in ipairs(opts.servers) do
+  local opts_servers = opts.servers
+  if opts_servers ~= nil then
+    for i, server in ipairs(opts_servers) do
       listed[i] = { host = server.host, port = server.port }
     end
   else
@@ -850,9 +854,13 @@ end
 --- A copy of the public lists `public`, raising for one the process would
 --- refuse to start with.
 local function checked_public(public: Net.PublicOptions): Leaf.Public
-  if type(public) ~= "table" or type(public.deny) ~= "table" or
-      (public.own ~= nil and type(public.own) ~= "table") then
-    error("net: public must hold a deny list and optionally an own list", 3)
+  local refused <const> = "net: public must hold a deny list and optionally an own list"
+  if type(public) ~= "table" or type(public.deny) ~= "table" then
+    error(refused, 3)
+  end
+  local given_own = public.own
+  if given_own ~= nil and type(given_own) ~= "table" then
+    error(refused, 3)
   end
   local deny: {string} = {}
   local own: {string} = {}
@@ -898,7 +906,8 @@ end
 function Net.connector(endpoints: {Net.Endpoint}, opts?: Net.ConnectorOptions): Net.Connector | nil, string
   local timeout_ms = Leaf.checked_timeout_ms(opts ~= nil and opts.timeout_ns or nil, 2)
   local public: Leaf.Public | nil
-  if opts ~= nil and opts.public ~= nil then public = checked_public(opts.public) end
+  local given_public = opts and opts.public
+  if given_public ~= nil then public = checked_public(given_public) end
   if public == nil and (type(endpoints) ~= "table" or #endpoints == 0) then
     error("net: a connector needs endpoints, opts.public, or both", 2)
   end
@@ -1019,11 +1028,12 @@ local serving_mt: metatable<Serving> = {
   __close = function(self: Serving)
     for _, accepting in ipairs(self.accepts) do local _, _ = accepting.listener:close() end
     for _, conn in pairs(self.conns) do local _, _ = conn:close() end
+    local guard = self.guard
     -- Closed, so a signal caught is delivered as it would be without
     -- the server's guard: this runs as the run raises, or after
     -- `serving` has closed or released the guard itself, when closing
     -- again does nothing.
-    if self.guard ~= nil then local _, _ = self.guard:close() end
+    if guard ~= nil then local _, _ = guard:close() end
   end,
 }
 
@@ -1103,7 +1113,8 @@ end
 --- once `grace_ns` has passed, or a signal has ended the grace, are
 --- killed where they wait, their connections closed first.
 local function drain(s: Serving)
-  if s.stopper ~= nil then local _, _ = s.stopper:join() end
+  local stopper = s.stopper
+  if stopper ~= nil then local _, _ = stopper:join() end
   if not s.hurried then
     local grace = s.spec.grace_ns
     local deadline = grace ~= nil and Clock.monotonic_ns() + grace or nil
@@ -1145,7 +1156,8 @@ local function stop(s: Serving)
   for _, a in ipairs(s.accepts) do
     local closed, why = a.listener:close()
     if not closed then report(s, why) end
-    if a.task ~= nil then a.task:cancel() end
+    local task = a.task
+    if task ~= nil then task:cancel() end
   end
   assert(s.waiter):cancel()
 end
@@ -1162,8 +1174,10 @@ local function watch(s: Serving)
       stop(s)
     else
       s.hurried = true
-      if s.stopper ~= nil then s.stopper:cancel() end
-      if s.grace ~= nil then s.grace:cancel() end
+      local stopper = s.stopper
+      if stopper ~= nil then stopper:cancel() end
+      local grace = s.grace
+      if grace ~= nil then grace:cancel() end
     end
   end
 end

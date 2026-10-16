@@ -72,8 +72,9 @@ end
 --- Whether `outcome` is a start refused for want of a sandbox: no Landlock
 --- on this kernel, or none on this platform (ENOSYS).
 local function unsandboxable(outcome: Outcome): boolean
-  return outcome.refused ~= nil and (outcome.errno == sys.ENOSYS or
-    outcome.refused:find("Landlock is not available", 1, true) ~= nil)
+  local refused = outcome.refused
+  return refused ~= nil and (outcome.errno == sys.ENOSYS or
+    refused:find("Landlock is not available", 1, true) ~= nil)
 end
 
 --- The kernel's Landlock ABI, skipping the test where the call, which alone
@@ -203,7 +204,8 @@ local function test_a_grant_that_does_not_exist_fails_the_start_naming_it(tmp: s
   local outcome = start(tmp, probe, { { path = probe, access = "rx" }, { path = missing, access = "r" } },
     "print never")
   if unsandboxable(outcome) then Test.skip(assert(outcome.refused)) end
-  assert(outcome.refused ~= nil and outcome.refused:find(missing, 1, true), "names the path: " .. tostring(outcome.refused))
+  local refused = outcome.refused
+  assert(refused ~= nil and refused:find(missing, 1, true), "names the path: " .. tostring(refused))
   assert(outcome.errno == sys.ENOENT, "ENOENT: " .. tostring(outcome.errno))
   assert(outcome.said == "")
 end
@@ -228,10 +230,11 @@ local function test_u_connects_to_a_granted_socket_where_the_kernel_can_hold_it(
   local grants: {raw_process.Grant} = { { path = probe, access = "rx" }, { path = socket, access = "u" } }
   local with = start(tmp, probe, grants, script)
   if abi < 9 then
+    local refused = with.refused
     -- Below ABI 9 the start fails, naming the ABI that is needed and the one given.
-    assert(with.refused ~= nil and with.errno == sys.EOPNOTSUPP, "EOPNOTSUPP: " .. tostring(with.refused))
-    assert(with.refused:find("Landlock ABI 9 is needed", 1, true) and
-        with.refused:find("this kernel gives " .. abi, 1, true), with.refused)
+    assert(refused ~= nil and with.errno == sys.EOPNOTSUPP, "EOPNOTSUPP: " .. tostring(refused))
+    assert(refused:find("Landlock ABI 9 is needed", 1, true) and
+        refused:find("this kernel gives " .. abi, 1, true), refused)
     return
   end
   assert(with.refused == nil, "the start was refused: " .. tostring(with.refused))
@@ -373,9 +376,10 @@ local function test_no_grants_grant_nothing_and_the_program_needs_its_own(tmp: s
   local probe = assert(stand_in.build(tmp .. "/stand-in"))
   local none = start(tmp, probe, {}, "print never")
   if unsandboxable(none) then Test.skip(assert(none.refused)) end
+  local refused = none.refused
   -- Held to nothing, the child cannot run its own program: the start fails, and says why.
-  assert(none.refused ~= nil and none.errno == sys.EACCES, "EACCES: " .. tostring(none.refused))
-  assert(none.refused:find("`rx` grant", 1, true), none.refused)
+  assert(refused ~= nil and none.errno == sys.EACCES, "EACCES: " .. tostring(refused))
+  assert(refused:find("`rx` grant", 1, true), refused)
   local read_only = start(tmp, probe, { { path = probe, access = "r" } }, "print never")
   assert(read_only.errno == sys.EACCES, "execute is its own letter: " .. tostring(read_only.refused))
 end

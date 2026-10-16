@@ -83,7 +83,8 @@ end
 --- @return Hits | nil Every line hit since `start`, or nil if refused
 --- @return string Error message when refused, "" on success
 function Coverage.stop(session: Coverage.Session): Coverage.Hits | nil, string
-  if active.session == nil or session ~= active.session then
+  local active_session = active.session
+  if active_session == nil or session ~= active_session then
     return refuse("no matching open collection for this session")
   end
   active.session = nil

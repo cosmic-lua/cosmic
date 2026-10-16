@@ -68,9 +68,12 @@ local function prepare(request: Runner.Request): Child.Options, {integer}
   end
   local fds_opened: Opened = {}
   local opened, open_failure = pcall(function(): boolean
-    if request.input then fds_opened.input = assert(Fs.open_read(request.input)) end
-    if request.output then fds_opened.output = assert(Fs.open_write(request.output)) end
-    if request.error then fds_opened.error = assert(Fs.open_write(request.error)) end
+    local input = request.input
+    if input then fds_opened.input = assert(Fs.open_read(input)) end
+    local output = request.output
+    if output then fds_opened.output = assert(Fs.open_write(output)) end
+    local request_error = request.error
+    if request_error then fds_opened.error = assert(Fs.open_write(request_error)) end
     return true
   end)
   local input_fd, output_fd, error_fd = fds_opened.input, fds_opened.output, fds_opened.error
@@ -83,16 +86,19 @@ local function prepare(request: Runner.Request): Child.Options, {integer}
     error(open_failure)
   end
   local options: Child.Options = { cwd = request.cwd, process_group = true }
-  if request.env then options.env = request.env end
-  if request.timeout_ns ~= nil and request.timeout_ns > 0 then
-    options.timeout_ns = request.timeout_ns
+  local env = request.env
+  if env then options.env = env end
+  local timeout_ns = request.timeout_ns
+  if timeout_ns ~= nil and timeout_ns > 0 then
+    options.timeout_ns = timeout_ns
   end
   if input_fd then options.stdin = input_fd end
   if output_fd then options.stdout = output_fd end
   if error_fd then options.stderr = error_fd end
-  if request.fds then
+  local request_fds = request.fds
+  if request_fds then
     local fds: {integer:integer | string} = {}
-    for number, fd in pairs(request.fds) do fds[number] = fd end
+    for number, fd in pairs(request_fds) do fds[number] = fd end
     options.fds = fds
   end
   return options, descriptors
@@ -176,7 +182,8 @@ local function finish(recording: Recording, phase: string, outcome: Runner.Outco
   -- so an operation that fails without output of its own (a timeout, a
   -- command that never started) is named where the failure is read.
   if outcome.status ~= "success" then
-    local why = outcome.trouble ~= nil and (": " .. outcome.trouble) or ""
+    local trouble = outcome.trouble
+    local why = trouble ~= nil and (": " .. trouble) or ""
     Fs.put(Fs.stderr, phase .. ": " .. outcome.status .. " (status " ..
         tostring(outcome.code) .. ")" .. why .. "\n")
   end
