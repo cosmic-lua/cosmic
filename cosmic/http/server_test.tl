@@ -492,8 +492,9 @@ local function test_stopping_closes_idle_connections_at_once()
     end,
   })
   assert(idle_ended.value)
-  assert(in_flight.value ~= nil, "the reply in flight never came")
-  assert(in_flight.value.status == 200 and in_flight.value.headers["connection"] == "close")
+  local in_flight_value = in_flight.value
+  assert(in_flight_value ~= nil, "the reply in flight never came")
+  assert(in_flight_value.status == 200 and in_flight_value.headers["connection"] == "close")
   assert(Clock.monotonic_ns() - started < Clock.seconds(10))
 end
 
@@ -674,8 +675,9 @@ local function test_a_request_carries_its_peer_address()
     assert(reply(p).status == 200)
   end)
   assert(#troubles == 0, troubles[1])
-  assert(seen.value ~= nil and seen.value.kind == "tcp" and seen.value.host == "127.0.0.1", "no peer")
-  assert(assert(seen.value.port) > 0 and seen.value.port ~= server_port.value)
+  local seen_value = seen.value
+  assert(seen_value ~= nil and seen_value.kind == "tcp" and seen_value.host == "127.0.0.1", "no peer")
+  assert(assert(seen_value.port) > 0 and seen_value.port ~= server_port.value)
 end
 
 --- A caller's on_stop runs once, as the server stops, with the server;
@@ -700,7 +702,8 @@ local function test_a_callers_on_stop_runs_once_and_its_raise_is_reported()
   end })
   local _, _ = assert(idle_peer.value).conn:close()
   assert(calls.value == 1, tostring(calls.value))
-  assert(given.value ~= nil and type(given.value.stop) == "function")
+  local given_value = given.value
+  assert(given_value ~= nil and type(given_value.stop) == "function")
   assert(idle_ended.value, "the idle connection was left open")
   assert(#troubles == 1 and troubles[1]:find("stopping badly", 1, true) ~= nil, tostring(troubles[1]))
 end
@@ -960,6 +963,7 @@ local function test_on_stop_runs_after_the_server_has_stopped_taking_work()
   local _, _ = assert(busy_peer.value).conn:close()
   assert(#troubles == 0, troubles[1])
   assert(idle_ended_at_stop.value, "the idle connection was open when on_stop ran")
-  assert(in_flight.value ~= nil and in_flight.value.status == 200 and in_flight.value.headers["connection"] == "close",
+  local in_flight_value = in_flight.value
+  assert(in_flight_value ~= nil and in_flight_value.status == 200 and in_flight_value.headers["connection"] == "close",
     "the reply in flight did not close")
 end

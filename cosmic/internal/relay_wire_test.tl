@@ -682,7 +682,8 @@ local function test_client_hello_says_what_is_not_tls()
   for _, input in ipairs(cases) do
     local r = client_hello(input)
     assert(r.status == "not_tls", ("%q: %s"):format(input, r.status))
-    assert(r.reason ~= nil and r.reason ~= "")
+    local reason = r.reason
+    assert(reason ~= nil and reason ~= "")
     assert(r.consumed == 0)
     for cut = 0, #input do
       local part = client_hello(input:sub(1, cut))

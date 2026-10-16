@@ -109,8 +109,10 @@ local narrowing = { value = nil as Narrowing | nil }
 --- The carried compiler, and [`checker/narrowing.tl`] compiled by it and
 --- loaded.
 local function setup(): compiler, Narrowing
-  if built.value ~= nil and narrowing.value ~= nil then
-    return built.value, narrowing.value
+  local value = built.value
+  local narrowing_value = narrowing.value
+  if value ~= nil and narrowing_value ~= nil then
+    return value, narrowing_value
   end
   local compiled = assert(teal.load(true))
   local env = assert(compiled.new_env({ defaults = {
@@ -340,9 +342,11 @@ local function test_drop_removes_the_names_from_every_scope()
   local inner: Scope = { vars = { ["x.f"] = true, z = true }, narrows = { ["x.f"] = true } }
   module().drop({ outer, inner }, module().field_place("x", "f"), write)
   assert(outer.vars["x.f"] == nil and inner.vars["x.f"] == nil)
-  assert(outer.narrows ~= nil and inner.narrows ~= nil)
-  assert(outer.narrows["x.f"] == nil and inner.narrows["x.f"] == nil)
-  assert(outer.narrows["x.g"] and outer.narrows["x"])
+  local outer_narrows = outer.narrows
+  local inner_narrows = inner.narrows
+  assert(outer_narrows ~= nil and inner_narrows ~= nil)
+  assert(outer_narrows["x.f"] == nil and inner_narrows["x.f"] == nil)
+  assert(outer_narrows["x.g"] and outer_narrows["x"])
   assert(outer.vars["x.g"] and outer.vars["x"] and outer.vars["y.f"] and inner.vars["z"])
   module().drop({ outer, inner }, module().local_place("x"), write)
   assert(outer.vars["x.g"] == nil and outer.vars["x"] and outer.vars["y.f"])
@@ -366,7 +370,8 @@ local function test_a_write_drops_every_path_ending_in_the_field_it_names()
   assert(outer.vars["r.n"] == nil and outer.vars["q.n"] == nil and inner.vars["c.n"] == nil and
       inner.vars["r.n"] == nil)
   assert(outer.vars["r.m"] and outer.vars["r.nn"] and outer.vars["x"])
-  assert(outer.narrows ~= nil and outer.narrows["r.n"] == nil and outer.narrows["r.m"])
+  local narrows = outer.narrows
+  assert(narrows ~= nil and narrows["r.n"] == nil and narrows["r.m"])
   local told = assert(outer.dropped)
   assert(told["r.n"] == write and told["q.n"] == write)
 end
@@ -502,7 +507,8 @@ local function test_a_function_body_is_hidden_the_facts_that_may_change_before_i
   module().enter_function(scopes, call, function(name: string): boolean return name == "y" end)
   assert(outer.vars["r.n"] == nil and outer.vars["x"] == nil and outer.vars["y"] ~= nil)
   assert(inner.vars["r.n"] == nil and inner.vars["x"] == nil)
-  assert(inner.hidden ~= nil and #inner.hidden == 2)
+  local inner_hidden = inner.hidden
+  assert(inner_hidden ~= nil and #inner_hidden == 2)
   -- A read in the body is told what hid the place.
   assert(module().dropped_by(scopes, "r.n") == call and module().dropped_by(scopes, "x") == call)
   assert(module().dropped_by(scopes, "y") == nil)

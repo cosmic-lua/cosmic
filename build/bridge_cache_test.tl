@@ -216,8 +216,9 @@ end
 --- compiles it made of the compiler and of modules.
 local function boot(f: Fixture, variables?: {string:string}): Boot
   local r, counts = start(f, variables)
-  assert(r.code ~= nil and r.code >= 20, "exit " .. tostring(r.code) .. ": " .. tostring(r.stderr))
-  local out: Boot = { status = r.code, compiler = 0, modules = 0 }
+  local code = r.code
+  assert(code ~= nil and code >= 20, "exit " .. tostring(code) .. ": " .. tostring(r.stderr))
+  local out: Boot = { status = code, compiler = 0, modules = 0 }
   for _, name in ipairs((assert(Fs.list(counts)))) do
     if name:find("^compiler%-") then
       out.compiler = out.compiler + 1

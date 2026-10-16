@@ -58,8 +58,9 @@ local loaded = { value = nil as Api | nil }
 
 --- [`checker/facts.tl`], compiled by the carried compiler and loaded once.
 local function module(): Api
-  if loaded.value ~= nil then
-    return loaded.value
+  local value = loaded.value
+  if value ~= nil then
+    return value
   end
   local compiled = assert(teal.load(true))
   local env = assert(compiled.new_env({ defaults = {

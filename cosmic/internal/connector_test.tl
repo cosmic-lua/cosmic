@@ -390,13 +390,15 @@ local function test_a_reply_another_task_reads_wakes_its_owner()
       first.value, took.value = why, Clock.monotonic_ns() - started
     end)
     assert(Poll.delay(Clock.ms(100)))
-    assert(first_tag.value ~= nil, "the first request was not asked")
+    local first_tag_value = first_tag.value
+    assert(first_tag_value ~= nil, "the first request was not asked")
     -- Its reply, and then a request of this task's, whose read takes it.
-    assert(sys.write(pair[2], string.pack(">I4I4", first_tag.value, socket.ECONNREFUSED)) == 8)
+    assert(sys.write(pair[2], string.pack(">I4I4", first_tag_value, socket.ECONNREFUSED)) == 8)
     local conn, why = dial(connector, "127.0.0.2", 9, Clock.ms(100))
     assert(conn == nil and why == Poll.TIMEOUT, tostring(why))
     assert(asking:join(Clock.seconds(5)))
-    assert(first.value ~= nil and first.value:find("refused", 1, true) ~= nil, tostring(first.value))
+    local first_value = first.value
+    assert(first_value ~= nil and first_value:find("refused", 1, true) ~= nil, tostring(first_value))
     local waited = assert(took.value, "the first request was answered")
     assert(waited < Clock.seconds(1), "the first request was answered after " .. waited // Clock.ms(1) .. " ms")
     serving:cancel()

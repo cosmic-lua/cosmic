@@ -129,7 +129,8 @@ b",
   assert(v.unquoted == "single", "an unquoted key and a single-quoted string")
   local list = v.trailing as {integer}
   assert(#list == 2 and Json.is_array(list), "a trailing comma")
-  assert(v.hex == 31 and math.type(v.hex as number) == "integer", "a hexadecimal integer")
+  local hex = v.hex
+  assert(hex == 31 and math.type(hex as number) == "integer", "a hexadecimal integer")
   assert(v.plus == 1 and v.lead == 0.5 and v.trail == 5.0, "the other number forms")
   assert(v.nl == "ab", "a line continuation")
   local nan = decoded("NaN", five) as number
@@ -564,7 +565,8 @@ local function test_big_numbers_as_strings()
   assert(v.big == "123456789012345678901234567890", "past 64 bits")
   assert(v.neg == "-9223372036854775809", "below the smallest integer")
   assert(v.huge == "1e400", "past a double")
-  assert(v.fits == math.maxinteger and math.type(v.fits as number) == "integer", "what fits is a number")
+  local fits = v.fits
+  assert(fits == math.maxinteger and math.type(fits as number) == "integer", "what fits is a number")
   assert(v.f == 0.5, "and so is an ordinary float")
   assert(math.type(decoded("18446744073709551615") as number) == "float", "the default is unchanged")
   assert(encoded(v.id) == '"18446744073709551615"', "it encodes back as a string")

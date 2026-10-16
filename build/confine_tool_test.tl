@@ -95,9 +95,10 @@ local function test_a_confined_process_has_what_it_was_given(tmp: string)
     code.value = r.code
   end, nil, { own })
   assert(ran.ok, tostring(ran.produced))
+  local code_value = code.value
   -- Unconfined, it sees what it was not given.
-  if code.value == 3 then return end
-  assert(code.value == 0, "the confined process exited " .. tostring(code.value))
+  if code_value == 3 then return end
+  assert(code_value == 0, "the confined process exited " .. tostring(code_value))
   assert(assert(Fs.read(own .. "/out")) == "in")
 end
 

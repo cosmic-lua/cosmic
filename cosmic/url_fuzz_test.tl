@@ -208,8 +208,9 @@ local function test_parse_is_total(tmp: string)
       if parts.host == "" or parts.host ~= parts.host:lower() or parts.host:find("[@%[%]/?#]") then
         return false, "host " .. parts.host
       end
-      if parts.port ~= nil and (parts.port < 0 or parts.port > 65535) then
-        return false, "port " .. parts.port
+      local port = parts.port
+      if port ~= nil and (port < 0 or port > 65535) then
+        return false, "port " .. port
       end
       if parts.path ~= "" and parts.path:sub(1, 1) ~= "/" then
         return false, "path " .. parts.path

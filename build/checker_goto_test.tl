@@ -51,10 +51,11 @@ local function shown(e: compiler.Error): string
   local function place(y: integer | nil, x: integer | nil): string
     return y ~= nil and tostring(y) .. ":" .. tostring(x) or "-"
   end
-  if e.goto_y == nil then
+  local goto_y = e.goto_y
+  if goto_y == nil then
     return "label " .. place(e.label_y, e.label_x)
   end
-  return "goto " .. place(e.goto_y, e.goto_x) .. " -> " .. place(e.label_y, e.label_x)
+  return "goto " .. place(goto_y, e.goto_x) .. " -> " .. place(e.label_y, e.label_x)
 end
 
 --- The refusals of the rule in `source`, in source order, after holding
@@ -64,7 +65,8 @@ local function refusals(source: string): {string}
   local out: {string} = {}
   for _, e in ipairs(type_errors(source)) do
     if e.code == "goto_not_continue" then
-      assert(e.variable ~= nil and e.variable ~= "", e.msg)
+      local variable = e.variable
+      assert(variable ~= nil and variable ~= "", e.msg)
       assert(e.y == (e.goto_y or e.label_y) and e.x == (e.goto_x or e.label_x), e.msg)
       out[#out + 1] = shown(e)
     end

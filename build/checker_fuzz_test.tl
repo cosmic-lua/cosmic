@@ -76,10 +76,11 @@ end
 
 --- Why an error is not one a reader could act on, or nil.
 local function malformed(e: compiler.Error, lines: integer): string | nil
-  if e.code == nil then return "no code: " .. e.msg end
-  if e.msg == nil or e.msg == "" then return "no message for code " .. e.code end
+  local code = e.code
+  if code == nil then return "no code: " .. e.msg end
+  if e.msg == nil or e.msg == "" then return "no message for code " .. code end
   if e.y < 1 or e.y > lines or e.x < 1 then
-    return ("%s at %d:%d, outside a source of %d lines: %s"):format(e.code, e.y, e.x, lines, e.msg)
+    return ("%s at %d:%d, outside a source of %d lines: %s"):format(code, e.y, e.x, lines, e.msg)
   end
   return nil
 end

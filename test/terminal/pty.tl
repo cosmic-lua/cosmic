@@ -165,7 +165,8 @@ else
       local ran = assert(Child.run({ assert(Proc.executable()), arg[0], "inherited", case }, opts))
       local said = "code " .. tostring(ran.code) .. " signal " .. tostring(ran.signal) ..
         " stderr " .. tostring(ran.stderr) .. " stdout " .. tostring(ran.stdout)
-      if not ran.ok or (ran.stdout ~= nil and not ran.stdout:find("inherited: PASS", 1, true)) then
+      local stdout = ran.stdout
+      if not ran.ok or (stdout ~= nil and not stdout:find("inherited: PASS", 1, true)) then
         error(said, 0)
       end
     end

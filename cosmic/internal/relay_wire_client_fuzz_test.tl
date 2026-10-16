@@ -223,10 +223,11 @@ local function test_a_request_the_client_writes_is_read_back_by_the_relay(tmp: s
         if seen.port ~= port or seen.consumed ~= #request then
           return false, ("%q:%d was read as %s:%d"):format(host, port, seen.host, seen.port)
         end
+        local kind = seen.kind
         -- The host read is the host written, as its form has it.
-        if seen.kind == "ipv4" then
+        if kind == "ipv4" then
           if seen.host ~= host then return false, ("%q was read as %s"):format(host, seen.host) end
-        elseif seen.kind == "ipv6" then
+        elseif kind == "ipv6" then
           if Fixture.ipv6_bytes(assert(seen.host)) ~= request:sub(5, 20) then
             return false, ("%q was read as %s, other bytes"):format(host, seen.host)
           end

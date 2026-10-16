@@ -54,10 +54,12 @@ function relay_wire_fixture.hello(opts?: relay_wire_fixture.HelloOptions): strin
   opts = opts or {}
   local suites = opts.suites or 1
   local exts: {string} = {}
-  if opts.server_name ~= nil then
-    exts[#exts + 1] = relay_wire_fixture.extension(0, opts.server_name)
-  elseif opts.name ~= nil then
-    exts[#exts + 1] = relay_wire_fixture.extension(0, relay_wire_fixture.server_name(opts.name))
+  local server_name = opts.server_name
+  local name = opts.name
+  if server_name ~= nil then
+    exts[#exts + 1] = relay_wire_fixture.extension(0, server_name)
+  elseif name ~= nil then
+    exts[#exts + 1] = relay_wire_fixture.extension(0, relay_wire_fixture.server_name(name))
   end
   for _, extra in ipairs(opts.extra or {}) do
     exts[#exts + 1] = extra
@@ -65,8 +67,9 @@ function relay_wire_fixture.hello(opts?: relay_wire_fixture.HelloOptions): strin
   local fixed = "\3\3" .. ("r"):rep(32) .. be(opts.session or 0, 1) .. ("s"):rep(opts.session or 0) ..
     be(2 * suites, 2) .. ("\0\47"):rep(suites) .. "\1\0"
   local joined = table.concat(exts)
-  if opts.size ~= nil then
-    local pad = opts.size - (#fixed + 2 + #joined + 4)
+  local size = opts.size
+  if size ~= nil then
+    local pad = size - (#fixed + 2 + #joined + 4)
     if pad < 0 then
       error("hello: size is smaller than the hello's own fields", 2)
     end

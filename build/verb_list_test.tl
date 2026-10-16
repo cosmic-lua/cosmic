@@ -44,7 +44,8 @@ end
 local function test_a_bare_verb_says_how_it_exits_and_why_it_is_uncased()
   for _, spec in ipairs(verb_list.specs()) do
     if spec.bare then
-      assert(spec.exits ~= nil and spec.exits:find("`" .. spec.name .. "`", 1, true),
+      local exits = spec.exits
+      assert(exits ~= nil and exits:find("`" .. spec.name .. "`", 1, true),
         spec.name .. ": bare, so its exit codes are help's to state, starting with its name")
       assert(spec.passthrough ~= nil, spec.name .. ": bare, so verb_cases needs its reason")
     else

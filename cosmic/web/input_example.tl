@@ -115,8 +115,9 @@ function Example.plain_route()
   local app = Web.app{ routes = {
     Web.post("/signup", function(req: Web.Request): Web.Response
       local read = Input.form(req)
-      if read.invalid ~= nil then
-        return Web.text(read.invalid.message, { status = read.invalid.status })
+      local invalid = read.invalid
+      if invalid ~= nil then
+        return Web.text(invalid.message, { status = invalid.status })
       end
       assert(rawequal(req:get(Input.FORM), read.value))
       if Url.query_last(assert(read.value), "email") == "taken@example.org" then
@@ -127,15 +128,17 @@ function Example.plain_route()
     end),
     Web.post("/json", function(req: Web.Request): Web.Response
       local read = Input.json(req)
-      if read.invalid ~= nil then
-        return Web.text(read.invalid.message, { status = read.invalid.status })
+      local invalid = read.invalid
+      if invalid ~= nil then
+        return Web.text(invalid.message, { status = invalid.status })
       end
       assert(rawequal(req:get(Input.JSON), read.value))
       return Web.text(Input.media_type(req).essence)
     end),
     Web.get("/page", function(req: Web.Request): Web.Response
       local q = Input.query(req)
-      if q.invalid ~= nil then return Web.text(q.invalid.message, { status = q.invalid.status }) end
+      local invalid = q.invalid
+      if invalid ~= nil then return Web.text(invalid.message, { status = invalid.status }) end
       return Web.text(tostring(#assert(q.value).pairs))
     end),
   } }

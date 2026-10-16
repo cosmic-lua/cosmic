@@ -35,8 +35,10 @@ local flow = { value = nil as Flow | nil }
 
 --- The carried compiler, and [`checker/flow.tl`] compiled by it and loaded.
 local function setup(): compiler, Flow
-  if built.value ~= nil and flow.value ~= nil then
-    return built.value, flow.value
+  local value = built.value
+  local flow_value = flow.value
+  if value ~= nil and flow_value ~= nil then
+    return value, flow_value
   end
   local compiled = assert(teal.load(true))
   local env = assert(compiled.new_env({ defaults = {

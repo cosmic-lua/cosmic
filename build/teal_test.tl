@@ -2687,7 +2687,8 @@ local function test_a_refused_value_carries_its_place_and_types()
   assert(argument.context == "argument" and argument.index == 1 and not argument.nested,
     tostring(argument.context))
   assert(argument.expected == "integer" and listed(argument.expected_members, "integer"))
-  assert(argument.got_members ~= nil and #argument.got_members == 1, argument.msg)
+  local got_members = argument.got_members
+  assert(got_members ~= nil and #got_members == 1, argument.msg)
   local declared = diagnostic("local n: integer = \"x\"\nprint(n)\n", "mismatch")
   assert(declared.context == "in local declaration" and declared.context_name == "n" and
       not declared.nested, tostring(declared.context))

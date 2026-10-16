@@ -117,8 +117,9 @@ local function test_find_result_preserves_stat_refusal(dir: string)
   local legacy, trouble = Proc.find("tool", hidden)
   assert(Fs.chmod(hidden, 0x1c0))
   if overrides_permissions() then
-    assert(result.kind == "resolved" and result.path == hidden .. "/tool" and result.reason == "")
-    assert(legacy == result.path and trouble == "")
+    local path = result.path
+    assert(result.kind == "resolved" and path == hidden .. "/tool" and result.reason == "")
+    assert(legacy == path and trouble == "")
   else
     assert(result.kind == "not_found" and result.path == nil and result.reason == "tool: not found")
     assert(legacy == nil and trouble == result.reason)

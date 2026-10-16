@@ -210,7 +210,8 @@ local function test_parts_come_back_as_they_were_drawn(tmp: string)
       local fields: {string} = { boundary, tostring(src:int(1, 80)), text }
       for _, d in ipairs(drawn) do
         fields[#fields + 1] = d.name
-        fields[#fields + 1] = d.filename ~= nil and ("F" .. d.filename) or "N"
+        local filename = d.filename
+        fields[#fields + 1] = filename ~= nil and ("F" .. filename) or "N"
         fields[#fields + 1] = d.content_type
         fields[#fields + 1] = d.body
       end

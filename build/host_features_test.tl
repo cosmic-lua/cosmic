@@ -182,8 +182,10 @@ local function test_every_recorded_host_is_named_as_the_ci_names_it(tmp: string)
   for i, entry in ipairs(recorded) do
     local vector = entry as Vector
     local release, version = tmp .. "/osrelease-" .. i, tmp .. "/version-" .. i
-    if vector.osrelease ~= nil then assert(Fs.write(release, vector.osrelease)) end
-    if vector.version ~= nil then assert(Fs.write(version, vector.version)) end
+    local osrelease = vector.osrelease
+    if osrelease ~= nil then assert(Fs.write(release, osrelease)) end
+    local vector_version = vector.version
+    if vector_version ~= nil then assert(Fs.write(version, vector_version)) end
     local features: {string} = {}
     if vector.sysname == "Darwin" then
       for name, answer in pairs(vector.sysctl or {}) do

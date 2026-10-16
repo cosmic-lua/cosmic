@@ -43,8 +43,9 @@ local function run(words: {string}, answer?: Answer): Ran
     err = function(line: string) ran.err = ran.err .. line .. "\n" end,
     run = function(command: {string}, opts: Child.Options): Child.Result | nil, string
       ran.argv, ran.opts = command, opts
-      if given.result == nil then return nil, given.why end
-      return given.result, ""
+      local result = given.result
+      if result == nil then return nil, given.why end
+      return result, ""
     end,
   })
   return ran

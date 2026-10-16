@@ -84,7 +84,8 @@ end
 
 local function bound_count(text: string): integer | nil, string
   local r: Types.Parsed<Counts> = Input.bind_strings(decoded(text), COUNTS.spec)
-  if r.invalid ~= nil then return nil, r.invalid.errors[1].code end
+  local invalid = r.invalid
+  if invalid ~= nil then return nil, invalid.errors[1].code end
   return assert(r.value).n, ""
 end
 
@@ -135,7 +136,8 @@ local FLAGS <const> = Shape.record_of("Flags")
 
 local function flags(text: string): Flags | nil, string
   local r: Types.Parsed<Flags> = Input.bind_strings(decoded(text), FLAGS.spec)
-  if r.invalid ~= nil then return nil, r.invalid.errors[1].code end
+  local invalid = r.invalid
+  if invalid ~= nil then return nil, invalid.errors[1].code end
   return r.value, ""
 end
 
@@ -171,7 +173,8 @@ end
 
 local function test_repeated_error_refuses_a_repeated_scalar()
   local r: Types.Parsed<Counts> = Input.bind_strings(decoded("n=1&n=2"), COUNTS.spec, { repeated = "error" })
-  assert(r.invalid ~= nil and r.invalid.errors[1].code == "repeated" and r.invalid.errors[1].field == "n")
+  local invalid = r.invalid
+  assert(invalid ~= nil and invalid.errors[1].code == "repeated" and invalid.errors[1].field == "n")
   r = Input.bind_strings(decoded("n=1"), COUNTS.spec, { repeated = "error" })
   assert(r.invalid == nil and assert(r.value).n == 1)
 end
@@ -188,9 +191,10 @@ local function test_one_of_compares_text_or_the_listed_kind()
   assert(r.invalid == nil, message_of(r.invalid))
   assert(assert(r.value).c == "green" and assert(r.value).n == 2.5 and assert(r.value).t == true)
   r = Input.bind_strings(decoded("c=blue&n=3&t=no"), spec)
-  assert(r.invalid ~= nil and #r.invalid.errors == 3)
-  for _, e in ipairs(r.invalid.errors) do assert(e.code == "one_of", e.field) end
-  assert(r.invalid.errors[1].message == "must be one of red, green")
+  local invalid = r.invalid
+  assert(invalid ~= nil and #invalid.errors == 3)
+  for _, e in ipairs(invalid.errors) do assert(e.code == "one_of", e.field) end
+  assert(invalid.errors[1].message == "must be one of red, green")
   local p: Types.Parsed<Pick> = Input.bind_strings(decoded("color=red"), PICK.spec)
   assert(p.invalid == nil and assert(p.value).color == "red")
 end
@@ -198,8 +202,9 @@ end
 local function test_a_string_with_a_nul_is_refused()
   local spec = Shape.record({ s = Shape.string, t = Shape.optional(Shape.string) })
   local r: Types.Parsed<{string:any}> = Input.bind_strings(pairs_of({ { "s", "a\0b" }, { "t", "ok" } }), spec)
-  assert(r.invalid ~= nil and #r.invalid.errors == 1)
-  assert(r.invalid.errors[1].field == "s" and r.invalid.errors[1].code == "type")
+  local invalid = r.invalid
+  assert(invalid ~= nil and #invalid.errors == 1)
+  assert(invalid.errors[1].field == "s" and invalid.errors[1].code == "type")
   r = Input.bind_strings(pairs_of({ { "s", "" } }), spec)
   assert(r.invalid == nil and assert(r.value).s == "", "an empty string is a string")
 end
@@ -213,8 +218,9 @@ local function test_a_list_takes_every_value_and_names_the_bad_element()
   r = Input.bind_strings(decoded(""), spec)
   assert(r.invalid == nil and Json.is_array(assert(r.value).nums), "no value is the empty list")
   r = Input.bind_strings(decoded("nums=1&nums=x&nums=3&nums=y"), spec)
-  assert(r.invalid ~= nil and #r.invalid.errors == 2)
-  assert(r.invalid.errors[1].field == "nums.1" and r.invalid.errors[2].field == "nums.3")
+  local invalid = r.invalid
+  assert(invalid ~= nil and #invalid.errors == 2)
+  assert(invalid.errors[1].field == "nums.1" and invalid.errors[2].field == "nums.3")
 end
 
 local function test_unknown_names_are_dropped_and_a_strict_record_refuses_them()
@@ -224,9 +230,10 @@ local function test_unknown_names_are_dropped_and_a_strict_record_refuses_them()
   assert(bound["is_admin"] == nil, "the spec is the allow-list")
   local strict = Shape.strict_record({ n = Shape.integer })
   local s: Types.Parsed<{string:any}> = Input.bind_strings(decoded("n=1&zz=1&aa=2&csrf_token=t"), strict)
-  assert(s.invalid ~= nil and #s.invalid.errors == 2, "csrf_token is the web layer's")
-  assert(s.invalid.errors[1].field == "aa" and s.invalid.errors[1].code == "unknown")
-  assert(s.invalid.errors[2].field == "zz")
+  local invalid = s.invalid
+  assert(invalid ~= nil and #invalid.errors == 2, "csrf_token is the web layer's")
+  assert(invalid.errors[1].field == "aa" and invalid.errors[1].code == "unknown")
+  assert(invalid.errors[2].field == "zz")
   s = Input.bind_strings(decoded("n=1&csrf_token=t"), strict)
   assert(s.invalid == nil)
 end
@@ -241,7 +248,8 @@ local function test_nested_records_read_dotted_names()
   local none: Types.Parsed<{string:any}> = Input.bind_strings(decoded("y=1"), opt)
   assert(none.invalid == nil and assert(none.value).a == nil, "no name under a. leaves the optional record nil")
   local some: Types.Parsed<{string:any}> = Input.bind_strings(decoded("a.x="), opt)
-  assert(some.invalid ~= nil and some.invalid.errors[1].field == "a.x", "one name under it asks for the rest")
+  local invalid = some.invalid
+  assert(invalid ~= nil and invalid.errors[1].field == "a.x", "one name under it asks for the rest")
 end
 
 local function test_every_field_error_is_collected_in_field_order()
@@ -362,7 +370,8 @@ local function test_a_form_after_json_is_415()
     local read = Input.json(req)
     assert(read.invalid == nil)
     local form = Input.form(req)
-    assert(form.invalid ~= nil and form.invalid.status == 415)
+    local invalid = form.invalid
+    assert(invalid ~= nil and invalid.status == 415)
   end)
 end
 
@@ -397,7 +406,8 @@ local function test_a_request_with_no_body_is_an_empty_form_and_no_json()
     local form = Input.form(req)
     assert(form.invalid == nil and #assert(form.value).pairs == 0, "no type is asked of no body")
     local json = Input.json(req)
-    assert(json.invalid ~= nil and json.invalid.status == 422 and json.invalid.errors[1].code == "required")
+    local invalid = json.invalid
+    assert(invalid ~= nil and invalid.status == 422 and invalid.errors[1].code == "required")
   end)
 end
 
@@ -544,7 +554,8 @@ local function test_a_query_is_shared_with_the_request()
     local a = Input.query(req).value
     assert(rawequal(a, (assert(req:query()))), "one decode")
     local b = Input.query(req, { max_pairs = 1 })
-    assert(b.invalid ~= nil and b.invalid.status == 400, "options decode afresh, and refuse")
+    local invalid = b.invalid
+    assert(invalid ~= nil and invalid.status == 400, "options decode afresh, and refuse")
     return Web.text("seen")
   end) } }
   assert(Web.test_client(app):get("/q?a=1&b=2"):text() == "seen")
@@ -562,9 +573,10 @@ local function json_error(text: string): Types.FieldError
   local got = { value = nil as Types.FieldError | nil }
   with_request("POST", { body = text, content_type = "application/json" }, function(req: Web.Request)
     local read = Input.json_into(req, ITEM)
-    assert(read.invalid ~= nil and read.invalid.status == 422, text)
-    assert(#read.invalid.errors == 1 and read.invalid.submitted == nil)
-    got.value = read.invalid.errors[1]
+    local invalid = read.invalid
+    assert(invalid ~= nil and invalid.status == 422, text)
+    assert(#invalid.errors == 1 and invalid.submitted == nil)
+    got.value = invalid.errors[1]
   end)
   return got.value
 end
@@ -631,7 +643,8 @@ local function test_form_into_and_query_into_bind_a_request()
     local q = Input.query_into(req, COUNTS)
     assert(q.invalid == nil and assert(q.value).n == 4)
     local f = Input.form_into(req, COUNTS)
-    assert(f.invalid ~= nil and f.invalid.errors[1].source == "form")
+    local invalid = f.invalid
+    assert(invalid ~= nil and invalid.errors[1].source == "form")
     local g: Web.Invalid = Input.form_into(req, COUNTS, { source = "path" }).invalid
     assert(g.errors[1].source == "form", "the entry points choose the source")
     return Web.text("ok")

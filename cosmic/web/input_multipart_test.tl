@@ -64,8 +64,9 @@ local function refusal(body: string, opts?: Types.InputOptions, content_type?: s
     return Web.empty()
   end, content_type, chunked)
   assert(reply.status == 204, reply.status)
-  assert(got.value ~= nil, "read: " .. body:sub(1, 80))
-  return got.value
+  local got_value = got.value
+  assert(got_value ~= nil, "read: " .. body:sub(1, 80))
+  return got_value
 end
 
 local function test_text_and_file_parts_are_read_and_the_file_is_spooled(tmp: string)
@@ -208,7 +209,8 @@ local function test_a_typed_multipart_route_binds_and_answers_problems(tmp: stri
   local client = Web.test_client(app)
   local ok_body = body_of(field("email", "e"), field("news", "0"), file("pic", "p.png", "0123456789"))
   local reply = client:post("/up", { body = ok_body, headers = { ["Content-Type"] = FORM_TYPE } })
-  assert(reply.status == 204 and got.value ~= nil and got.value.email == "e" and files.value == 1, reply.status)
+  local got_value = got.value
+  assert(reply.status == 204 and got_value ~= nil and got_value.email == "e" and files.value == 1, reply.status)
   assert(#assert(Fs.list(tmp)) == 0)
   reply = client:post("/up", { body = body_of(field("age", "x")), headers = { ["Content-Type"] = FORM_TYPE,
     Accept = "application/json" } })
@@ -247,7 +249,8 @@ local function test_a_form_route_takes_multipart_within_its_own_small_limit(tmp:
     fields.value = Input.form(req, { dir = tmp, max_bytes = 100000 })
     return Web.empty()
   end)
-  assert(fields.value ~= nil and fields.value.invalid == nil)
+  local fields_value = fields.value
+  assert(fields_value ~= nil and fields_value.invalid == nil)
   assert(#assert(Fs.list(tmp)) == 0)
 end
 
@@ -471,7 +474,8 @@ local function test_a_limit_failure_is_not_kept_for_a_reader_with_a_higher_limit
     seen.value = assert(Input.multipart(req, { dir = tmp }).value)
     return Web.empty()
   end)
-  assert(seen.value ~= nil and seen.value.files["f"][1].size == 70000, "the upload's own limit took the body")
+  local seen_value = seen.value
+  assert(seen_value ~= nil and seen_value.files["f"][1].size == 70000, "the upload's own limit took the body")
   local again = { value = nil as Types.Invalid | nil }
   post(text, function(req: Web.Request): Web.Response
     local first = Input.form(req, { dir = tmp })
@@ -479,7 +483,8 @@ local function test_a_limit_failure_is_not_kept_for_a_reader_with_a_higher_limit
     again.value = Input.multipart(req, { dir = tmp }).invalid
     return Web.empty()
   end, nil, true)
-  assert(again.value ~= nil and again.value.status == 413 and again.value.message:find("max_bytes = 65536", 1, true),
+  local again_value = again.value
+  assert(again_value ~= nil and again_value.status == 413 and again_value.message:find("max_bytes = 65536", 1, true),
     "a body spent past a lower limit says whose limit it was")
   assert(#assert(Fs.list(tmp)) == 0)
 end
@@ -572,8 +577,10 @@ local function test_a_long_filename_is_cut_to_its_last_component_in_linear_time(
   local names: {string} = {}
   post(body_of(table.concat(parts)), function(req: Web.Request): Web.Response
     local read = Input.multipart(req, { dir = tmp, max_parts = 200, max_files = 200 })
-    assert(read.value ~= nil, read.invalid ~= nil and read.invalid.message or "no value")
-    for _, up in ipairs(read.value.files["f"]) do names[#names + 1] = up.filename end
+    local invalid = read.invalid
+    local value = read.value
+    assert(value ~= nil, invalid ~= nil and invalid.message or "no value")
+    for _, up in ipairs(value.files["f"]) do names[#names + 1] = up.filename end
     return Web.empty()
   end)
   local took = Clock.monotonic_ns() - start

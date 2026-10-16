@@ -49,9 +49,10 @@ local function test_any_multipart_body_is_bounded_and_leaves_no_file(tmp: string
   app = Web.app{ routes = { Web.post("/x", function(req: Web.Request): Web.Response
     local parsed = Input.multipart(req, handler.opts)
     handler.outcome = parsed
-    if parsed.value ~= nil then
+    local value = parsed.value
+    if value ~= nil then
       -- What a handler could still read while the request lasts.
-      for _, list in pairs(assert(parsed.value).files) do
+      for _, list in pairs(assert(value).files) do
         for _, up in ipairs(list) do
           local st = assert(Fs.stat(up.path))
           assert(st.size == up.size, "the size is the file's")
@@ -92,11 +93,12 @@ local function test_any_multipart_body_is_bounded_and_leaves_no_file(tmp: string
       local left = assert(Fs.list(uploads))
       if #left ~= 0 then return false, "left behind: " .. table.concat(left, ", ") end
       local read = assert(handler.outcome, "the handler read nothing")
-      if read.invalid ~= nil then
-        if read.value ~= nil or not ALLOWED[read.invalid.status] then
-          return false, "a bad refusal: " .. read.invalid.status
+      local invalid = read.invalid
+      if invalid ~= nil then
+        if read.value ~= nil or not ALLOWED[invalid.status] then
+          return false, "a bad refusal: " .. invalid.status
         end
-        Fuzz.label("refused_" .. read.invalid.status)
+        Fuzz.label("refused_" .. invalid.status)
         return true, ""
       end
       local m = assert(read.value)

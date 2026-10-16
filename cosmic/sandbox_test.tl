@@ -228,7 +228,8 @@ local function test_proc_profile_is_proc_on_linux_and_nothing_on_macos()
   local proc = assert(Sandbox.profile("proc"))
   local names = assert(sys.uname())
   if names.sysname == "Darwin" then
-    assert(proc.grants == nil or #assert(proc.grants) == 0)
+    local proc_grants = proc.grants
+    assert(proc_grants == nil or #assert(proc_grants) == 0)
   else
     assert(#assert(proc.grants) == 1 and assert(proc.grants)[1].path == "/proc" and assert(proc.grants)[1].letters == "r")
   end

@@ -177,8 +177,9 @@ local function test_open_temporary_closes_its_descriptor_whenever_an_allocation_
   local ended = under_every_failure(function()
     received.value = sys.open_temporary(path, 420)
   end, function()
-    if received.value ~= nil then
-      sys.close(received.value.fd)
+    local value = received.value
+    if value ~= nil then
+      sys.close(value.fd)
       received.value = nil
       opened.value = opened.value + 1
     end

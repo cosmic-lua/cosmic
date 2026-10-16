@@ -114,14 +114,17 @@ local function declared(source: string, file: string): Surface
   local parsed = assert(ast.parse(built, source, file))
   local chunk = parsed.node
   local last = chunk[#chunk]
-  assert(last.kind == "return" and last.exps ~= nil, file .. " returns no record")
-  local returned = last.exps[1].tk
+  local exps = last.exps
+  assert(last.kind == "return" and exps ~= nil, file .. " returns no record")
+  local returned = exps[1].tk
   for _, stmt in ipairs(chunk) do
     local value = stmt.value
     local typedecl = value ~= nil and value.kind == "newtype" and value.newtype or nil
-    if stmt.kind == "local_type" and stmt.var ~= nil and stmt.var.tk == returned and
-        typedecl ~= nil and typedecl.def ~= nil then
-      return surface_of(typedecl.def)
+    local var = stmt.var
+    local def = typedecl ~= nil and typedecl.def or nil
+    if stmt.kind == "local_type" and var ~= nil and var.tk == returned and
+        typedecl ~= nil and def ~= nil then
+      return surface_of(def)
     end
   end
   error(file .. " returns " .. tostring(returned) .. ", which is no record it declares")

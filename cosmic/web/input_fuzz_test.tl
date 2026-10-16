@@ -82,14 +82,16 @@ local function test_binding_never_raises_and_answers_a_value_or_every_error(tmp:
         return Input.bind_strings(q, spec, { secret = { "name" }, repeated = which == 2 and "error" or nil })
       end)
       if not ok then return false, "raised: " .. tostring(r) end
-      if r.invalid == nil then
-        if r.value == nil then return false, "neither a value nor a refusal" end
-        local again, why = Shape.into(r.value, spec)
+      local invalid = r.invalid
+      if invalid == nil then
+        local r_value = r.value
+        if r_value == nil then return false, "neither a value nor a refusal" end
+        local again, why = Shape.into(r_value, spec)
         if again == nil then return false, "the value fails its own spec: " .. why end
         Fuzz.label("bound")
         return true, ""
       end
-      local bad = r.invalid
+      local bad = invalid
       if r.value ~= nil then return false, "both a value and a refusal" end
       if bad.status ~= 422 or #bad.errors == 0 or bad.message == "" then
         return false, ("a refusal of status %d with %d errors"):format(bad.status, #bad.errors)
@@ -167,12 +169,13 @@ local function test_json_refusals_point_at_the_field_they_name(tmp: string)
       if res.status ~= 204 then return false, "the handler faulted: " .. res.status end
       local parsed = last.value
       if parsed == nil then return false, "the handler parsed nothing" end
-      if parsed.invalid == nil then
+      local invalid = parsed.invalid
+      if invalid == nil then
         if parsed.value == nil then return false, "neither a value nor a refusal" end
         Fuzz.label("bound")
         return true, ""
       end
-      local bad = parsed.invalid
+      local bad = invalid
       if bad.status ~= 400 and bad.status ~= 422 then return false, "status " .. bad.status end
       local e = bad.errors[1]
       if #bad.errors ~= 1 or e.message == "" or e.source ~= "body" then return false, "errors" end
@@ -180,11 +183,12 @@ local function test_json_refusals_point_at_the_field_they_name(tmp: string)
         Fuzz.label("unreadable")
         return true, ""
       end
-      if e.pointer == nil then return false, "a JSON refusal without a pointer" end
-      if e.pointer ~= "" and "/" .. e.field:gsub("%.", "/") ~= e.pointer then
-        return false, ("field %q is not pointer %q"):format(e.field, e.pointer)
+      local pointer = e.pointer
+      if pointer == nil then return false, "a JSON refusal without a pointer" end
+      if pointer ~= "" and "/" .. e.field:gsub("%.", "/") ~= pointer then
+        return false, ("field %q is not pointer %q"):format(e.field, pointer)
       end
-      if e.pointer == "" and e.field ~= "" then return false, "a field beside the root pointer" end
+      if pointer == "" and e.field ~= "" then return false, "a field beside the root pointer" end
       Fuzz.label("pointed")
       return true, ""
     end,

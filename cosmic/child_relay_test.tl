@@ -236,7 +236,8 @@ local function while_waiting(tmp: string, body: function(handle: Child.Handle))
     end
     body(handle)
   end)
-  if refusal.value ~= nil then Test.skip(refusal.value) end
+  local refusal_value = refusal.value
+  if refusal_value ~= nil then Test.skip(refusal_value) end
 end
 
 --- Whether the process `pid` is gone: reaped, or never there.
@@ -273,7 +274,8 @@ local function flows(tmp: string): {string:string}, integer
     assert(result.ok, "exit " .. tostring(result.code) .. ": " .. tostring(result.stderr))
     said.value, other.value = fields(assert(result.stdout)), ungranted
   end)
-  if refusal.value ~= nil then Test.skip(refusal.value) end
+  local refusal_value = refusal.value
+  if refusal_value ~= nil then Test.skip(refusal_value) end
   return said.value, other.value
 end
 
@@ -476,7 +478,8 @@ local function test_the_relays_log_goes_where_the_start_says(tmp: string)
     assert(errors.inherit:find("connect 127.0.0.2:" .. granted .. ": allowed", 1, true),
       "the granted flow is logged: " .. errors.inherit)
   end)
-  if refusal.value ~= nil then Test.skip(refusal.value) end
+  local refusal_value = refusal.value
+  if refusal_value ~= nil then Test.skip(refusal_value) end
   assert(not errors["null"]:find("not granted", 1, true), "the log was dropped: " .. errors["null"])
 end
 
@@ -509,7 +512,8 @@ local function test_the_relays_log_goes_to_a_descriptor_the_caller_gives(tmp: st
   end)
   assert(sys.close(reader))
   assert(sys.close(writer))
-  if refusal.value ~= nil then Test.skip(refusal.value) end
+  local refusal_value = refusal.value
+  if refusal_value ~= nil then Test.skip(refusal_value) end
   assert(not tostring(program_stderr.value):find("not granted", 1, true), "the program's own standard error holds no line")
 end
 
@@ -546,7 +550,8 @@ local function test_a_relay_whose_connector_has_ended_ends_with_its_program(tmp:
   end)
   assert(sys.close(reader))
   assert(sys.close(writer))
-  if refusal.value ~= nil then Test.skip(refusal.value) end
+  local refusal_value = refusal.value
+  if refusal_value ~= nil then Test.skip(refusal_value) end
 end
 
 --- The directories of a start's making that are in the temporary directory.
@@ -674,9 +679,11 @@ local function test_the_relays_policy_gives_it_no_network_of_its_own(tmp: string
     assert(result.ok, "exit " .. tostring(result.code) .. ": " .. tostring(result.stderr))
     said.value = fields(assert(result.stdout)).dial
   end)
-  if refusal.value ~= nil then Test.skip(refusal.value) end
-  assert(said.value ~= nil and said.value ~= "connected", "the relay's policy made a connection: " .. tostring(said.value))
-  assert(said.value:find("not permitted", 1, true), "the kernel refused the socket: " .. said.value)
+  local refusal_value = refusal.value
+  if refusal_value ~= nil then Test.skip(refusal_value) end
+  local said_value = said.value
+  assert(said_value ~= nil and said_value ~= "connected", "the relay's policy made a connection: " .. tostring(said_value))
+  assert(said_value:find("not permitted", 1, true), "the kernel refused the socket: " .. said_value)
 end
 
 --- A policy that names more addresses literally than the relay's
@@ -745,7 +752,8 @@ local function test_the_upstream_proxy_is_reached_through_the_table(tmp: string)
     assert(result.ok, "exit " .. tostring(result.code) .. ": " .. tostring(result.stderr))
     said.value = fields(assert(result.stdout))
   end)
-  if refusal.value ~= nil then Test.skip(refusal.value) end
+  local refusal_value = refusal.value
+  if refusal_value ~= nil then Test.skip(refusal_value) end
   local fields_said = assert(said.value)
   assert(fields_said.connect == "HTTP/1.1 200 Connection established" and fields_said.connect_echo == "echo:ping",
     tostring(fields_said.connect) .. " " .. tostring(fields_said.connect_echo))

@@ -81,13 +81,15 @@ local function test_waitpid_never_loses_a_status_to_a_failed_allocation()
   under_every_failure(function()
     if reaped.value == nil then received.value = process.waitpid(pid, false) end
   end, function()
-    if received.value ~= nil then
-      reaped.value = received.value
+    local value = received.value
+    if value ~= nil then
+      reaped.value = value
       received.value = nil
     end
   end)
-  assert(reaped.value ~= nil, "the child's status was lost to a refused allocation")
-  assert(reaped.value.pid == pid and reaped.value.code == 7 and reaped.value.signal == -1)
+  local reaped_value = reaped.value
+  assert(reaped_value ~= nil, "the child's status was lost to a refused allocation")
+  assert(reaped_value.pid == pid and reaped_value.code == 7 and reaped_value.signal == -1)
 end
 
 --- An exit watch owns its descriptor from the call that opens it: a
@@ -108,8 +110,9 @@ local function test_an_exit_watch_leaves_no_descriptor_whenever_an_allocation_fa
   under_every_failure(function()
     received.value = process.exit_watch(pid)
   end, function()
-    if received.value ~= nil then
-      sys.close(received.value)
+    local value = received.value
+    if value ~= nil then
+      sys.close(value)
       received.value = nil
       opened.value = opened.value + 1
     end

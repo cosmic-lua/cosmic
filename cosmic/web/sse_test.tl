@@ -478,7 +478,8 @@ local function serving(app: Web.App, grace_ns: integer, fn: function(host: strin
       if not ran then failure.value = tostring(trouble) end
       server:stop()
     end })
-  if failure.value ~= nil then error(failure.value, 0) end
+  local failure_value = failure.value
+  if failure_value ~= nil then error(failure_value, 0) end
   assert(ok, why)
 end
 
@@ -635,6 +636,7 @@ local function test_a_quiet_stream_with_heartbeats_outlives_the_servers_timeouts
       if not ran then failure.value = tostring(trouble) end
       server:stop()
     end })
-  if failure.value ~= nil then error(failure.value, 0) end
+  local failure_value = failure.value
+  if failure_value ~= nil then error(failure_value, 0) end
   assert(ok, why)
 end

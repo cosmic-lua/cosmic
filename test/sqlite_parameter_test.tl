@@ -112,7 +112,8 @@ local function test_lists_bind_as_arrays_for_carray()
     { { integers = { 1, 2, 3 } } }))
   assert(table.concat(rows[1]:texts(), " ") == "1 0 NULL", table.concat(rows[1]:texts(), " "))
   local result = Sqlite.text_rows_result(db, "SELECT value FROM carray(?1)", { { texts = { "x", "y" } } })
-  assert(result.code == Sqlite.OK and result.rows ~= nil and #result.rows == 2, result.reason)
+  local result_rows = result.rows
+  assert(result.code == Sqlite.OK and result_rows ~= nil and #result_rows == 2, result.reason)
   local ok, why: boolean, any = pcall(Sqlite.text_rows_result, db, "SELECT value FROM carray(?1)",
     { { texts = { "x\0" } } })
   assert(not ok and tostring(why):find("holds a NUL", 1, true) ~= nil, tostring(why))

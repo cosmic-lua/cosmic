@@ -361,9 +361,10 @@ local function check_case(file: string, case: Case, reach: Reach)
     if not tried.value then
       tried.value = true
       closer.value = closer_for(input, tree)
-      if closer.value == nil then
+      local value = closer.value
+      if value == nil then
         reach.unclosed = reach.unclosed + 1
-      elseif closer.value ~= "" then
+      elseif value ~= "" then
         reach.closers = reach.closers + 1
       end
     end

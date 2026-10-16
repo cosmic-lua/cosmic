@@ -209,6 +209,7 @@ local function test_where_names_a_frame_by_source_and_line()
   -- first Lua frame above it is this one, at the line of the call.
   local viewed = { value = nil as string | nil }
   local ok, line = pcall(function() viewed.value = errors.where(2) end), number(errors.where() as string)
-  assert(ok and viewed.value ~= nil and number(viewed.value) == line, tostring(viewed.value) .. " against " .. line)
+  local viewed_value = viewed.value
+  assert(ok and viewed_value ~= nil and number(viewed_value) == line, tostring(viewed_value) .. " against " .. line)
   assert(errors.where(1000) == nil)
 end

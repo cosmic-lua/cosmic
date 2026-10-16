@@ -339,9 +339,10 @@ local function test_changed_lays_out_only_the_paths_named(tmp: string)
       { ".", "the whole tree" }, { "/elsewhere/x.tl", "outside the tree" },
   }) do
     local widened = fix.narrowed(own, every, { "ci/a.tl", case[1] }, { db })
-    assert(widened.widened ~= nil and widened.widened:find(case[2], 1, true) ~= nil and
+    local widened_widened = widened.widened
+    assert(widened_widened ~= nil and widened_widened:find(case[2], 1, true) ~= nil and
         #widened.files == #every.files and widened.noted == nil,
-      case[1] .. ": " .. tostring(widened.widened))
+      case[1] .. ": " .. tostring(widened_widened))
   end
   -- A test of the core is not what the program runs on; its links are
   -- checked with every other file's, and it is not laid out.
@@ -349,8 +350,9 @@ local function test_changed_lays_out_only_the_paths_named(tmp: string)
   assert(tested.widened == nil and #tested.files == 0, tostring(tested.widened))
   local empty = assert(Sqlite.memory())
   local unknown = fix.narrowed(own, every, { "ci/a.tl" }, { empty })
-  assert(unknown.widened ~= nil and unknown.widened:find("not among the program's modules", 1, true) ~= nil,
-    tostring(unknown.widened))
+  local unknown_widened = unknown.widened
+  assert(unknown_widened ~= nil and unknown_widened:find("not among the program's modules", 1, true) ~= nil,
+    tostring(unknown_widened))
   assert(db:close() and empty:close())
 end
 
