@@ -328,6 +328,27 @@ local record Cli
   --- malformed line among them) or a write to standard output it cannot
   --- use, with `cosmic: hash: ...` on standard error
   hash: string
+  --- `cosmic compile [--errors] [--root dir] [-o dir] file.tl...`: the Lua
+  --- source of each `.tl` file, one text per file, written by this binary's
+  --- own carried compiler for the tree's Lua (compat targets off), as it
+  --- writes the tree's own modules. It reads the files named and the
+  --- `cosmic.*` modules the binary carries, never the tree around them, so
+  --- any release runs it in any directory. One file's Lua goes to standard
+  --- output; several need `-o dir`, which gets `<name>.lua` for each (two
+  --- files of one name are refused: compile them in two runs). A file is
+  --- checked as the module its path below `--root` (the working directory)
+  --- names, [`checker/flow.tl`] as `checker.flow`, and a `require` of
+  --- another named file is answered with its text; a path outside the
+  --- root is refused. A `.d.tl` file is skipped with a note, and types a
+  --- `require` of it. The Lua is raw: no wrapper, nothing joining files.
+  --- A type error is reported and the Lua is written anyway: standard
+  --- error gets a count per file, and with `--errors` each error as
+  --- `file:line:column: message`. Only a syntax error refuses: each is
+  --- named as `file:line:column: message`, no file is written, and the
+  --- exit is 2, as for a command line or a file it cannot use. After a
+  --- non-zero exit do not use the `-o` directory: it may hold files of an
+  --- earlier run. It prints no summary; exits 0 when the Lua is written
+  compile: string
   --- `cosmic cache trim compiles PATH --since-ns N` keeps supported compile
   --- and parse rows last used at or after N, a Unix nanosecond timestamp.
   --- `trim verdicts PATH... --since-ns N` keeps an unreached cache whole;
@@ -691,7 +712,7 @@ end
 local module: Module = {
   fields = {
     run = "run", standalone = "standalone", eval = "eval", version = "version", test = "test", fix = "fix", build = "build",
-    db = "db", sql = "sql", cache = "cache", json = "json", hash = "hash", codec = "codec", archive = "archive", fetch = "fetch", time = "time", rand = "rand", docs = "docs", uses = "uses", todos = "todos", bom = "bom",
+    db = "db", sql = "sql", cache = "cache", json = "json", hash = "hash", codec = "codec", archive = "archive", fetch = "fetch", time = "time", rand = "rand", compile = "compile", docs = "docs", uses = "uses", todos = "todos", bom = "bom",
     refresh = "refresh", sandbox = "sandbox", help = "help",
   },
   verbs = {
@@ -943,6 +964,15 @@ local module: Module = {
         ["--cwd"] = { value = "dir", about = "start it in this directory, which relative paths are taken from" },
       },
     },
+    compile = {
+      about = "Lua source for Teal files, despite type errors",
+      usage = "[options] <file.tl>...",
+      spec = {
+        ["-o"] = { value = "dir", about = "write <name>.lua for each file in this directory" },
+        ["--errors"] = { about = "list each type error, not only the count" },
+        ["--root"] = { value = "dir", about = "the directory module names are relative to (default: here)" },
+      },
+    },
     help = {
       about = "this index, or a verb's full text",
       usage = "[verb]",
@@ -951,11 +981,11 @@ local module: Module = {
   groups = {
     { "Running code", "run", "standalone", "eval", "version", "sandbox" },
     { "Project", "test", "fix", "build", "db" },
-    { "Quick tools", "sql", "cache", "json", "hash", "codec", "archive", "fetch", "time", "rand" },
+    { "Quick tools", "sql", "cache", "json", "hash", "codec", "archive", "fetch", "time", "rand", "compile" },
     { "Lookup", "docs", "uses", "todos", "help" },
     { "This binary", "bom", "refresh" },
   },
-  order = { "run", "standalone", "eval", "version", "test", "fix", "build", "db", "sql", "cache", "json", "hash", "codec", "archive", "fetch", "time", "rand", "docs", "uses", "todos",
+  order = { "run", "standalone", "eval", "version", "test", "fix", "build", "db", "sql", "cache", "json", "hash", "codec", "archive", "fetch", "time", "rand", "compile", "docs", "uses", "todos",
     "bom", "refresh", "sandbox", "help" },
 }
 

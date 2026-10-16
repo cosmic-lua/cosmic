@@ -39,6 +39,7 @@ verb_list.entries = {
   { name = "fetch", load = function(): verb_spec.Spec return require("build.fetch").spec end },
   { name = "time", load = function(): verb_spec.Spec return require("build.time").spec end },
   { name = "rand", load = function(): verb_spec.Spec return require("build.rand").spec end },
+  { name = "compile", load = function(): verb_spec.Spec return require("build.compile").spec end },
   { name = "docs", load = function(): verb_spec.Spec return require("build.docs").spec end },
   { name = "uses", load = function(): verb_spec.Spec return require("build.docs").uses_spec end },
   { name = "todos", load = function(): verb_spec.Spec return require("build.todos").spec end },
