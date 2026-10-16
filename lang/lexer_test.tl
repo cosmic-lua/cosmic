@@ -49,9 +49,7 @@ end
 local function test_every_reserved_word_is_a_keyword()
   for word in pairs(Lexer.reserved) do
     assert(token("x." .. word, 3).kind == "keyword", word .. " after a dot")
-    if word ~= "goto" then
-      assert(shape(word) == "keyword:" .. word, word)
-    end
+    assert(shape(word) == "keyword:" .. word, word)
   end
   assert(Lexer.reserved["global"] and Lexer.reserved["goto"], "Lua 5.5 reserves goto and global")
   assert(not Lexer.reserved["record"] and not Lexer.reserved["type"])
@@ -84,14 +82,10 @@ local function test_a_reserved_word_stands_where_a_field_name_does()
     for _, t in ipairs(lexed.tokens) do
       if t.kind == "keyword" then
         found = true
-        assert(Lexer.field_word(t), source)
       end
     end
     assert(found, "no keyword in " .. source)
   end
-  assert(Lexer.field_word(token("x", 1)))
-  assert(not Lexer.field_word(token("1", 1)))
-  assert(not Lexer.field_word(token("(", 1)))
 end
 
 local function test_every_operator_and_punctuator_is_kept()
@@ -249,22 +243,18 @@ local function test_the_end_of_input_is_an_empty_token()
   assert(#blank == 1 and blank[1].y == 3 and blank[1].x == 1 and blank[1].offset == 7)
 end
 
-local function test_goto_with_a_label_is_refused_with_continue()
-  local e = only_error("for i = 1, 3 do goto continue end")
-  assert(e.code == "label_or_goto" and e.msg == "`goto continue` is not in the grammar")
-  assert(e.fix == "write `continue`")
-  assert(e.y == 1 and e.x == 17 and e.offset == 17 and e.length == 13)
-  local found = token("goto continue", 1)
-  assert(found.kind == "$ERR$" and found.text == "goto continue")
-end
-
-local function test_goto_to_another_label_says_how_to_restructure()
-  local e = only_error("goto done")
-  assert(e.code == "label_or_goto" and e.msg == "`goto done` is not in the grammar")
-  assert(e.fix == "write `continue` to skip the rest of a pass of the loop around it; restructure any other " ..
-      "jump with an `if` around the code to skip, or move the code into a function and `return` from it")
-  local bare = only_error("goto\nx = 1")
-  assert(bare.msg == "`goto` is not in the grammar" and bare.length == 4, "a name on the next line is not its label")
+local function test_goto_is_a_keyword_wherever_it_stands_and_the_parser_refuses_the_statement()
+  for _, source in ipairs({ "goto continue", "x.goto", "{ goto = 1 }", "goto: boolean", "goto\nx = 1", "t = { goto -- c" }) do
+    local lexed = lex(source)
+    assert(#lexed.errors == 0, source)
+    local kind = ""
+    for _, t in ipairs(lexed.tokens) do
+      if t.text == "goto" then
+        kind = t.kind
+      end
+    end
+    assert(kind == "keyword", source)
+  end
 end
 
 local function test_a_label_is_refused()
@@ -444,7 +434,7 @@ local function test_a_control_byte_is_shown_as_hex()
 end
 
 local function test_one_run_reports_every_problem()
-  local lexed = lex("goto a; @ 1_0 'x\nlocal y = 0x1p1 --[[c]] [[z")
+  local lexed = lex("::a:: ; @ 1_0 'x\nlocal y = 0x1p1 --[[c]] [[z")
   local codes: {string} = {}
   for _, e in ipairs(lexed.errors) do
     codes[#codes + 1] = e.code
@@ -467,7 +457,7 @@ end
 
 --- One source for each code, whose first error has that code.
 local REFUSALS <const>: {Lexer.Code: string} = {
-  label_or_goto = "goto continue",
+  label_or_goto = "::continue::",
   semicolon = ";",
   long_comment = "--[[ x ]]",
   unterminated_long_comment = "--[[ x",
@@ -645,41 +635,6 @@ local function test_a_comment_ends_before_its_line_break_whatever_the_style()
     assert(comments[1].text == "-- a" and comments[1].length == 4, string.format("%q", brk))
   end
   assert(lex("#!/bin/cosmic\r\nx").errors[1].length == 13, "a #! line ends before its break")
-end
-
-local function test_goto_stands_as_a_field_name_across_lines_and_comments()
-  local sources: {string} = {
-    "x = {\ngoto\n= 1 }",
-    "record R\ngoto\n: string\nend",
-    "{ goto -- c\n= 1 }",
-    "{ goto --[=[ c\n]=] = 1 }",
-    "{ goto\r\n  --  c\r\n  ?: T }",
-    "goto =",
-    "goto :",
-  }
-  for _, source in ipairs(sources) do
-    local lexed = lex(source)
-    if source:find("--[=[", 1, true) then
-      assert(#lexed.errors == 1 and lexed.errors[1].code == "long_comment", "only the long comment is refused")
-    else
-      assert(#lexed.errors == 0, source)
-    end
-    local kind = ""
-    for _, t in ipairs(lexed.tokens) do
-      if t.text == "goto" then
-        kind = t.kind
-      end
-    end
-    assert(kind == "keyword", source)
-  end
-end
-
-local function test_goto_with_nothing_that_names_a_field_after_it_is_refused()
-  for _, source in ipairs({ "goto", "goto -- c", "goto == x", "goto\nx = 1", "goto ? x", "t = { goto",
-      "t = { goto -- note" }) do
-    local e = only_error(source)
-    assert(e.code == "label_or_goto" and e.length >= 4, source)
-  end
 end
 
 local function test_a_hexadecimal_float_out_of_range_is_not_told_to_write_inf()

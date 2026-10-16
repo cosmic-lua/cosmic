@@ -8,11 +8,12 @@
 --- several problems. An unterminated short string ends at the end of its
 --- line; an unterminated long string or long comment runs to the end of the
 --- file, as in Lua, so it is the last problem the run finds. A form the
---- grammar cuts (a `goto`, a label, a `;`, a long comment, a `#!` line, a
---- `_` in a number, a hexadecimal float) is refused the same way. A cut form
---- that has a token of its own meaning (a long comment, a number) keeps that
---- token and gains an error. A cut form that has none (a `goto`, a label, a
---- `;`, a `#!` line) is an `$ERR$` token.
+--- grammar cuts (a label, a `;`, a long comment, a `#!` line, a `_` in a
+--- number, a hexadecimal float) is refused the same way. A cut form that has
+--- a token of its own meaning (a long comment, a number) keeps that token and
+--- gains an error. A cut form that has none (a label, a `;`, a `#!` line) is
+--- an `$ERR$` token. A `goto` is a `keyword` token like any reserved word,
+--- and [`lang.parser`] refuses the statement.
 ---
 --- The tokens and the comments between them hold every byte of the source
 --- but whitespace: a token's `offset` and `length` and a comment's say where
@@ -36,7 +37,7 @@
 --- `fix` as it reads the fork's `msg` today.
 ---
 --- The core never calls `setlocale`, so `%w` in the patterns below is ASCII.
-local find, byte, sub, match, concat = string.find, string.byte, string.sub, string.match, table.concat
+local find, byte, sub, capture, concat = string.find, string.byte, string.sub, string.match, table.concat
 local tonumber, math_type = tonumber, math.type
 
 local record Lexer
@@ -76,7 +77,7 @@ local record Lexer
   --- What an error is, so that a reader does not parse its `msg`. Every code
   --- is a lexical error and sets the fields of [`Error`].
   enum Code
-    -- `goto`, with its label if one follows, or a label `::name::`
+    -- a label `::name::` (the parser refuses a `goto`)
     "label_or_goto"
     -- a `;`
     "semicolon"
@@ -187,10 +188,6 @@ local record Lexer
   --- times in the tree, so the lexer gives each an `identifier`.
   declaration_words: {string}
 
-  --- Whether `token` may stand where a field name does (after `.` or `:`,
-  --- as a table key before `=`, or in a member position before `:`): a
-  --- name or any reserved word.
-  field_word: function(token: Token): boolean
 end
 
 local lua_words: {string} = {
@@ -201,20 +198,12 @@ local lua_words: {string} = {
 
 local added_words: {string} = { "match", "continue", "mut", "is", "asserts", "userdata", "as" }
 
--- 1 is a plain reserved word; 2 is `goto`, which is refused unless it stands
--- where a field name does.
---
--- TODO: take the test of where a field name stands out of the lexer, which
--- guesses it from the bytes around `goto` (after `.` or `:`, before `=` or
--- `:`), once the parser exists and refuses a `goto` statement itself with
--- the code `label_or_goto` (doc/plans/new-checker-grammar.md, "the lexical
--- grammar").
-local words: {string: integer} = {}
+local words: {string: boolean} = {}
 for _, w in ipairs(lua_words) do
-  words[w] = w == "goto" and 2 or 1
+  words[w] = true
 end
 for _, w in ipairs(added_words) do
-  words[w] = 1
+  words[w] = true
 end
 
 local reserved_set: {string: boolean} = {}
@@ -539,65 +528,6 @@ local function hex_float_fix(value: number): string
   return "write the value in decimal: `" .. text .. "`"
 end
 
-function Lexer.field_word(token: Lexer.Token): boolean
-  return token.kind == "identifier" or token.kind == "keyword"
-end
-
---- The fix for a `goto`, whose label is `label` where one follows.
-local function goto_fix(label: string | nil): string
-  if label == "continue" then
-    return "write `continue`"
-  end
-  return "write `continue` to skip the rest of a pass of the loop around it; restructure any other jump with an" ..
-    " `if` around the code to skip, or move the code into a function and `return` from it"
-end
-
---- The offset of the first byte at or after `i` that is not whitespace and
---- not in a comment; one past the end of `source` where none is.
-local function significant(source: string, i: integer): integer
-  while true do
-    local s = find(source, "[^ \t\r\n\v\f]", i)
-    if not s then
-      return #source + 1
-    end
-    if byte(source, s) ~= 45 or byte(source, s + 1) ~= 45 then
-      return s
-    end
-    local _, open_end, level = find(source, "^%[(=*)%[", s + 2)
-    if open_end then
-      local _, close_end = find(source, "]" .. level .. "]", open_end + 1, true)
-      if not close_end then
-        return #source + 1
-      end
-      i = close_end + 1
-    else
-      local line_end = find(source, "[\r\n]", s + 2)
-      if not line_end then
-        return #source + 1
-      end
-      i = line_end
-    end
-  end
-end
-
---- Whether the `goto` that ends at `e` stands where a field name does: after
---- `.` or `:`, as a table key before `=`, or as a member before `:` or `?:`.
-local function names_a_field(source: string, e: integer, previous: Lexer.Token | nil): boolean
-  if previous ~= nil and (previous.kind == "." or previous.kind == ":") then
-    return true
-  end
-  local at = significant(source, e + 1)
-  local c = byte(source, at)
-  if c == 61 then
-    return byte(source, at + 1) ~= 61
-  elseif c == 58 then
-    return byte(source, at + 1) ~= 58
-  elseif c == 63 then
-    return byte(source, significant(source, at + 1)) == 58
-  end
-  return false
-end
-
 local malformed_fix <const> = "write decimal digits with an optional fraction and exponent (`12`, `1.5`, `2e10`) " ..
   "or `0x` and hexadecimal digits (`0xFF`), and put a space between a number and the name or operator after it"
 
@@ -632,26 +562,9 @@ function Lexer.lex(source: string, name: string): Lexer.Lexed
     local text = ""
     local e = pos
     if c == 1 then
-      text = match(source, "^[%a_][%w_]*", pos)
+      text = capture(source, "^[%a_][%w_]*", pos)
       e = pos + #text - 1
-      local word = words[text]
-      if word == nil then
-        kind = "identifier"
-      elseif word == 1 then
-        kind = "keyword"
-      else
-        kind = "keyword"
-        if not names_a_field(source, e, tokens[n]) then
-          kind = "$ERR$"
-          local _, le, label = find(source, "^[ \t]+([%a_][%w_]*)", e + 1)
-          if le then
-            e = le
-            text = sub(source, pos, e)
-          end
-          add_error(errors, name, "label_or_goto", "`" .. text .. "` is not in the grammar", goto_fix(label),
-            pos, e - pos + 1, line, pos - line_start + 1)
-        end
-      end
+      kind = words[text] and "keyword" or "identifier"
     elseif c == 2 then
       pos = pos + 1
       if class[byte(source, pos)] == 2 then

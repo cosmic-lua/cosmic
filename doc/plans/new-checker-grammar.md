@@ -110,11 +110,14 @@ the lexer is Lua 5.5's with these changes.
   in local nil not or repeat return then true until while`, and `goto` and
   `global`, which Lua 5.5 reserves in this build, so no program names a
   variable with them; and new, `match`, `continue`, `mut`, `is`,
-  `asserts`, `userdata`, and `as` (temporary, see [no casts]). each is
-  also accepted wherever a field name stands: after `.` or `:`, as a table
-  key before `=`, and in a member position followed by `:` or `?:`.
-  `goto` has no statement; a use is a syntax error that says to write
-  `continue`. `global` begins a declaration in a declaration file only.
+  `asserts`, `userdata`, and `as` (temporary, see [no casts]). each of the
+  new words, and `goto` and `global`, is also accepted wherever a field name
+  stands: after `.` or `:`, as a table key before `=`, and in a member
+  position followed by `:` or `?:`. no other Lua word is a field name: the
+  tree writes none, and `y.` at the end of a line must not take the `local`
+  after it for a field. `goto` has no statement; a use is a syntax error that
+  says to write `continue`. `global` begins a declaration in a declaration
+  file only.
 - **`>>` closing two type-argument lists** (`Cache<K, List<V>>`) is one
   token consumed as two closers, without rewriting it; the fork rewrites
   it and [`build/ast/node.tl`] puts it back after the parse.
@@ -169,8 +172,14 @@ prefix      = primary { suffix }                  (* a call is a prefix ending i
 - `continue` is legal in the body of a `while`, `for` or `repeat`, not
   across a function, and emits `goto continue` with a `::continue::`
   before the loop's `end`. in a `repeat` it is refused when the body
-  declares a local at its own level that the `until` reads, which Lua
-  cannot jump past; the error says to wrap the rest in `do ... end`.
+  declares a local at its own level after the `continue`: the `until` is
+  inside the scope of every local of the body, so Lua cannot jump past one,
+  whether or not the `until` reads it. the error says to declare the local
+  before the `repeat` if the `until` reads it, and else to wrap the code from
+  the local to the end of the body in `do ... end`. a local here is a
+  `local` or `local function`, and a `local class`, `local record` or
+  `local type m = require(...)`, which are values in the Lua written for them;
+  an enum, an alias and an interface are not.
 - `match` takes a call whose function type returns a union of value
   lists. each arm is one list, `true` and `false` selecting the member
   and a name binding the value in that position; the arms cover the
@@ -195,7 +204,7 @@ args        = "(" [ explist ] ")" | tablector     (* "(" on the callee's line *)
 literal     = "nil" | "true" | "false" | Number | String | "..."
 tablector   = "{" [ item { "," item } [ "," ] ] "}"
 item        = "[" exp "]" "=" exp | fname "=" exp | exp
-fname       = Name | reserved word
+fname       = Name | added word                  (* match continue mut is as asserts userdata, goto, global *)
 
 ifexp       = "if" exp "then" exp { "elseif" exp "then" exp } "else" exp "end"
 ```
@@ -328,8 +337,8 @@ the places the parser reads past the current token. none backtracks.
 - `record`, `interface`, `class`, `enum` or `type` followed by a name
   begins a type declaration after `local` or `global` and in a member
   position. `local class = 1` and `local type, x` bind those names.
-- in a member position a reserved word followed by `:` or `?:` is a field
-  of that name (`userdata: boolean`); `mut` followed by a name or `[` is
+- in a member position one of those words followed by `:` or `?:` is a
+  field of that name (`userdata: boolean`); `mut` followed by a name or `[` is
   the modifier, and `mut mut: T` is both; `userdata` alone is the marker.
 - after a type in a type list or return list, a `,` continues the list
   unless a parameter begins after it: `Name :`, `Name ? :` or `...`
@@ -483,6 +492,73 @@ Userdata
 a `Local`'s doc comment is on its first binding, a type declaration's on
 its `name`.
 
+### what the parser settled
+
+[`lang/parser.tl`] builds this tree; [`lang/ast.tl`] declares it. where the
+draft was loose, the parser chose the smallest form that fits it:
+
+- **names.** two kinds were named twice: the statement is `Function` and the
+  function literal `FunctionLit`; a record member is `FieldDecl` and the
+  expression `a.b` is `Field`. the nodes the draft left unnamed are `Arm`,
+  `ExpArm` and `MatchArm` (the arms of `if`, an `if` expression and `match`),
+  `PatBool` and `PatBind`, `Positional`, `Named` and `Keyed`, `PType` (a
+  parameter of a function type, whose name is a string, not a `Binding`) and
+  `EnumValue`. an operator is the field `op` of `Unary` and `Binary`. the
+  Teal record of `Alias` is `TypeAlias`, since another module of the tree
+  has an `Alias` of its own and the shorter name would make a link to either
+  ambiguous.
+- **spans.** a block ends at its terminator, so an `Arm` begins at its
+  condition and a `MatchArm` at its `(`, which leaves the `elseif` or `|` that
+  ends the block before it to the block alone, and the nodes of one parent
+  never overlap. where a construct is not closed, its block ends before the
+  token that stopped it.
+- **scope.** `Local` and each declaration have `scope`, `local` or `global`,
+  and nested declarations have none. a `Method` lists `self` as its first
+  parameter, and a rest parameter `...: T` has no name.
+- **doc comments.** a doc comment is the run of comments each alone on its
+  line, ending on the line before the first token of a local, a type
+  declaration (on its `name`), a field, a method or an enum value; a comment at
+  the end of a line of code is no doc.
+- **`as` chains.** `e as any as T` is nested casts: 16 of the tree's casts
+  are chained. `is` does not chain.
+- **`|` at the start of a line** in a `match` arm, followed by `(` and not
+  inside a bracket the arm opened, begins the next arm and continues no
+  expression, type or return list, as a `(` that begins a line begins a
+  statement. a function literal's signature in an arm is outside the arm. a
+  second arm on a line is refused, with the fix to start each on its own.
+- **`continue` in a `repeat`** is refused when the body declares a local at
+  its own level after it, as above.
+- **what takes a suffix.** only a name or a parenthesized expression, and
+  what a suffix makes of one, takes `.`, `:`, `[`, a call or a table or
+  string argument, as in Lua: `"abc":upper()` is refused with the fix to
+  parenthesize.
+- **lists.** a trailing `,` is refused in parameters (of a function or of a
+  function type) and in the patterns of an arm; a table may end in one. a
+  table item on the next line with no `,` before it is refused with the fix
+  to add one.
+- **reserved words as names.** `match = 1`, `continue = true` (the tree writes
+  it once, in [`cosmic/http/wire.tl`]), `match(a, b)` and `continue(a)` at the
+  start of a statement are errors with a rename, read as the name they were
+  meant for.
+- **left to the checker.** a `...` outside a vararg function, which the
+  grammar cannot tell from one; and every rule of types.
+- **declarations.** a type declaration nested in an interface is refused. a
+  narrowing return stands alone as the whole return list. a method and a
+  field, or two methods, cannot share a name. a declaration file holds the
+  types, `local x = require("m")`, `global` declarations, `do` blocks of
+  those and one `return Name`. `local type X = record ... end` (5 uses in the
+  tree, 3 records and 2 enums) is refused with the fix `local record X ...
+  end` and is rewritten by hand with the other cut forms.
+- **nesting** past 200 levels of blocks, expressions and types is the error
+  `too_deep`, a limit of the size of Lua's own (which counts its C levels); the rest of that construct is skipped and not
+  reported, and the statements after it are.
+- **errors.** the parser's codes are the lexer's and those of `Code` in
+  [`lang/parser.tl`], among them the draft's `reserved_word`, `label_or_goto`,
+  `nil_union`, `method_in_record` and `continue_outside_loop`. `cast_refused`
+  is the checker's, since the parser keeps the `Cast`. `parse` takes the
+  `Lexed` and answers a `Parsed`: the chunk, and the lexer's errors and the
+  parser's as one list in source order.
+
 ### who reads what
 
 - [`build/analyzer.tl`] and [`build/link_text.tl`]: declarations and their
@@ -495,8 +571,8 @@ its `name`.
   loops, `Function`, `If`, and `Repeat` (the `until` sees the body's
   locals). [`build/stub.tl`]: function-body spans to cut, `rets` nil for a
   literal typed by context.
-- [`build/fix/`]: tokens with comments and offsets, spans, `Block.close`,
-  `Table` items, `Binding.attr`.
+- [`build/fix/`]: tokens with comments and offsets, spans, [`Block.close`],
+  `Table` items, [`Binding.attr`].
 - [`build/shape_specs.tl`], [`build/receivers.tl`], [`build/teal.tl`],
   [`build/importer.tl`], [`build/globals.tl`], [`build/tree_checks.tl`]:
   type nodes, `Require`, `Name` and `Binding` text, `Table` keys, node ids
@@ -571,6 +647,9 @@ returns as the production named, when a use appears.
   `is` patterns, and a value-yielding `match`** (the rule is new and its
   users are the `pcall` and `coroutine` sites, which need none). each
   returns when a rewrite of those sites asks.
+- **`local type X = record ... end`** (5): the fork's declaration of a record
+  or enum as a type. rewritten as `local record X ... end`; the parser refuses
+  it and reads the declaration.
 - **`defer`** (0), **a `view` marker** and **a packed tuple**: decided
   against, above.
 - **checked and kept:** every Lua operator (`~` 27 binary and 7 unary, `^`
@@ -620,6 +699,8 @@ returns as the production named, when a use appears.
 [what the grammar leaves out]: #what-the-grammar-leaves-out-and-how-it-would-come-back
 [what the language keeps working]: strict-teal.md#what-the-language-keeps-working
 
+[`Binding.attr`]: ../../lang/ast.tl
+[`Block.close`]: ../../lang/ast.tl
 [`build/analyzer.tl`]: ../../build/analyzer.tl
 [`build/ast/node.tl`]: ../../build/ast/node.tl
 [`build/ast/rewrite.tl`]: ../../build/ast/rewrite.tl
@@ -639,7 +720,10 @@ returns as the production named, when a use appears.
 [`ci/cosmic_ci/orchestration.tl`]: ../../ci/cosmic_ci/orchestration.tl
 [`compiler.Result`]: ../../build/compiler.d.tl
 [`cosmic/channel.tl`]: ../../cosmic/channel.tl
+[`cosmic/http/wire.tl`]: ../../cosmic/http/wire.tl
 [`cosmic/removed_example.tl`]: ../../cosmic/removed_example.tl
 [`cosmic/web/init.tl`]: ../../cosmic/web/init.tl
+[`lang/ast.tl`]: ../../lang/ast.tl
 [`lang/lexer.tl`]: ../../lang/lexer.tl
+[`lang/parser.tl`]: ../../lang/parser.tl
 [`Result.ast`]: ../../build/compiler.d.tl
