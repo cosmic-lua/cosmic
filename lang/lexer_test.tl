@@ -523,13 +523,14 @@ end
 --- A long line lexes in time that holds the line's length once: a search
 --- for the next line break that ran to the end of the source at every
 --- string or long token made one line of 200 KB take 30 times as long as
---- the same tokens one to a line. The bound is a ratio to that, not a
---- clock, so a slow machine slows both alike.
+--- the same tokens one to a line (about 9 times at the 60 KB here). Both
+--- sides are the same size, so the bound of 4 is a ratio to that, not a
+--- clock, and a slow machine slows both alike.
 local function test_one_long_line_lexes_as_fast_as_the_same_tokens_on_lines_of_their_own()
   local forms: {string} = { "'ab',", "--[[c]]", "[[x]]", "'a\\q'", "x = 1" }
   for _, form in ipairs(forms) do
-    local one_line = (form .. " "):rep(20000)
-    local own_lines = (form .. "\n"):rep(20000)
+    local one_line = (form .. " "):rep(10000)
+    local own_lines = (form .. "\n"):rep(10000)
     local function lexes(source: string)
       local lexed = Lexer.lex(source, "t.tl")
       assert(#lexed.tokens > 1 or #lexed.errors > 1)
@@ -538,7 +539,7 @@ local function test_one_long_line_lexes_as_fast_as_the_same_tokens_on_lines_of_t
       lexes(own_lines)
     end, function()
       lexes(one_line)
-    end, 8)
+    end, 4)
     assert(ok, form .. ": one line " .. why)
   end
 end

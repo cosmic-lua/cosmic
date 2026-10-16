@@ -8,7 +8,7 @@
 local Clock = require("cosmic.clock")
 
 local record Speed
-  --- The least time, in nanoseconds, that one run of `work` takes over five samples.
+  --- The least time, in nanoseconds, that one run of `work` takes over three samples.
   --- A sample repeats `work` until it has taken a few milliseconds, which a clock reads without
   --- much error.
   least: function(work: function()): integer
@@ -20,7 +20,7 @@ end
 
 --- The time a sample takes at least, in nanoseconds.
 local FLOOR <const> = 5000000
-local SAMPLES <const> = 5
+local SAMPLES <const> = 3
 --- The most runs a sample makes, for work that takes almost no time.
 local MOST_RUNS <const> = 2000
 
