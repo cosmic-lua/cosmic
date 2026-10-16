@@ -1001,8 +1001,8 @@ review rounds per PR.
 it lands before every later rule, so the flow analysis they read is the
 sound one. the design is in [strict-teal-narrowing.md]; its verdict
 harness, facts module and shadow mode are done (#3070, #3069, #3074), and
-shadow mode found four old-narrowing bugs, fixed in #3071, #3072, #3073
-and #3075. in short:
+shadow mode found four old-narrowing bugs, fixed in #3071, #3072, #3073 and
+#3075. the reads have switched to the facts. in short:
 
 - declared types are never mutated. facts live in an immutable map from
   place to type, keyed by binding, carried along a small control-flow

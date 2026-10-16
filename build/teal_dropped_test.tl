@@ -109,9 +109,19 @@ local function test_a_test_of_a_field_is_told_the_copy_wherever_code_runs()
   answers(head .. "if r.n then\n  r.n = nil\n  print(r.n + 1)\nend\n", plus,
     "'r.n' was checked, then assigned at 9:3: the checker narrows nothing after an assignment, " ..
       "so keep the value in a local (`local n = <the value>`, r.n = n) and use that")
-  -- A binding of the name.
-  answers(head .. "local r2: R = { n = 2 }\nif r.n then\n  local r = r2\n  print(r.n + 1)\nend\n", plus,
-    field_hint("r.n", "9:5", "n"))
+  -- A binding of the name is another place: the test of the outer `r.n` says
+  -- nothing of the new one, and the use is refused without the note.
+  local rebound = head .. "local r2: R = { n = 2 }\nif r.n then\n  local r = r2\n  print(r.n + 1)\nend\n"
+  local refused = 0
+  for _, e in ipairs(type_errors(rebound)) do
+    if e.msg == plus then
+      refused = refused + 1
+      assert(e.also == nil and e.code == "operator_binary", tostring(e.also) .. " " .. tostring(e.code))
+    end
+  end
+  assert(refused == 1, "the use of the new binding's field is refused once")
+  -- A copy of the same value keeps the note.
+  answers(head .. "if r.n then\n  local r = r\n  print(r.n + 1)\nend\n", plus, field_hint("r.n", "8:5", "n"))
   -- Wherever the value is used.
   answers(head .. "local function use(n: integer) print(n) end\nif r.n then\n  clear()\n  use(r.n)\nend\n",
     "argument 1: got integer | nil, expected integer", field_hint("r.n", "9:5", "n"))
@@ -247,4 +257,55 @@ local function test_a_refusal_of_an_unnarrowed_or_dropped_place_carries_the_plac
   -- An operand that was never narrowed is refused for what it is.
   local plain = diagnostic(head .. "print(r.n + 1)\n", "operator_binary")
   assert(plain.dropped_place == nil and plain.dropped_kind == nil)
+end
+
+--- A read in a loop that assigns the place later in it is told so: the check
+--- before the loop does not hold in a later pass, and the copy goes at the top
+--- of the loop body.
+local function test_a_read_before_a_later_assignment_in_the_loop_is_told_the_loop()
+  local source = "local function id(v: integer | nil): integer | nil\n  return v\nend\n" ..
+    "local function g(x: integer | nil): integer\n  local sink = 0\n  if x then\n    local i = 0\n" ..
+    "    while i < 2 do\n      sink = sink + x + 1\n      x = id(nil)\n      i = i + 1\n    end\n  end\n" ..
+    "  return sink\nend\nreturn g\n"
+  answers(source, "cannot use operator '+' for types integer and integer | nil",
+    "'x' was checked, but the loop assigns it at 10:7, after this use, so a later pass reaches the use with " ..
+      "what it assigned: copy it to a local at the top of the loop body (`local x = x`), then check and use that")
+end
+
+--- The assignment a loop names is to the place's own binding: a local of the
+--- same name declared in the loop, or in a function literal in it, is another.
+local function test_the_loop_names_an_assignment_to_the_place_itself()
+  local source = "local function id(v: integer | nil): integer | nil\n  return v\nend\n" ..
+    "local function g(x: integer | nil): integer\n  local s = 0\n  if x then\n    for _ = 1, 2 do\n" ..
+    "      s = s + x\n      x = id(nil)\n      local x = 5\n      x = 6\n      s = s + x\n    end\n  end\n" ..
+    "  return s\nend\nreturn g\n"
+  local e = diagnostic(source, "narrowing_dropped")
+  assert(e.dropped_y == 9 and e.dropped_x == 7, tostring(e.dropped_y) .. ":" .. tostring(e.dropped_x))
+  -- With only the other binding assigned, nothing assigns the place.
+  local other = "local function g(x: integer | nil): integer\n  local s = 0\n  if x then\n    for _ = 1, 2 do\n" ..
+    "      s = s + x\n      local x = 5\n      x = 6\n      s = s + x\n    end\n  end\n  return s\nend\nreturn g\n"
+  assert(#type_errors(other) == 0, other)
+end
+
+--- A test inside a function narrows a local of the code around it only if
+--- nothing assigns it after the function is made: the function may run, in a
+--- coroutine that yields between the test and the use, when it has changed.
+local function test_a_captured_local_the_code_around_assigns_is_not_narrowed()
+  local opening <const> = "local function maybe(): integer | nil\n  return nil\nend\nlocal function f(): function\n" ..
+    "  local x: integer | nil = maybe()\n"
+  local refused = opening .. "  local co = coroutine.wrap(function()\n    if x then\n      coroutine.yield()\n" ..
+    "      print(x + 1)\n    end\n  end)\n  x = nil\n  return co\nend\nreturn f\n"
+  answers(refused, "cannot use operator '+' for types integer | nil and integer",
+    "note: the test of 'x' at 7:8 does not narrow it in this function: the code around the function assigns 'x' " ..
+      "after the function is made, and the function may run when it has changed (in a coroutine, or later). If this " ..
+      "use relies on that test, copy it first (`local x_copy = x`) inside the function, then test and use `x_copy`")
+  assert(noted(refused).dropped_kind == "captured")
+  -- Copied inside the function, the program is accepted.
+  local copied = opening .. "  local co = coroutine.wrap(function()\n    local v = x\n    if v then\n" ..
+    "      coroutine.yield()\n      print(v + 1)\n    end\n  end)\n  x = nil\n  return co\nend\nreturn f\n"
+  assert(#type_errors(copied) == 0, copied)
+  -- Nothing assigns it after the function is made: the test narrows.
+  local fixed = opening .. "  local co = coroutine.wrap(function()\n    if x then\n      coroutine.yield()\n" ..
+    "      print(x + 1)\n    end\n  end)\n  return co\nend\nreturn f\n"
+  assert(#type_errors(fixed) == 0, fixed)
 end

@@ -37,9 +37,10 @@
 --- served to a `require` and not checked alone), and the modules the build
 --- generates (doc examples, templates).
 ---
---- `TL_SHADOW_FACTS=1` makes any command also write the lines of the checker's
---- shadow facts' disagreements with its narrowing (`shadow.mismatch`,
---- `shadow.reads`); leave it out of a run that is diffed.
+--- `TL_SHADOW_FACTS=1` makes any command also write the lines of the
+--- disagreements of the checker's facts, which decide every read, with the
+--- narrowing its scopes still hold (`shadow.mismatch`, `shadow.reads`); leave
+--- it out of a run that is diffed.
 ---
 --- To compare the checker of a tree with main's, build both tools and run
 --- the same sources through each, reading one tree from both. The script is
@@ -143,8 +144,8 @@ local record verdicts
   main: function(argv: {string}): integer
 end
 
---- Whether the checker's shadow facts are compared with its narrowing, so
---- that each disagreement is a line (`shadow.mismatch`). `main` sets it when
+--- Whether the checker's facts are compared with the narrowing its scopes
+--- hold, so that each disagreement is a line (`shadow.mismatch`). `main` sets it when
 --- `TL_SHADOW_FACTS=1`; the lines are for reading, not for the diff that
 --- shows no verdict moved.
 local held = { shadow_facts = false }
@@ -164,7 +165,7 @@ function verdicts.environment(built: compiler): compiler.Env
 end
 local environment <const> = verdicts.environment
 
---- The disagreements the checker's shadow facts found in `env`, as lines of
+--- The disagreements of the checker's facts found in `env`, as lines of
 --- `file`, and none left in it.
 local function shadow_lines(out: {verdicts.Line}, file: string, env: compiler.Env)
   local found = env.shadow_mismatches

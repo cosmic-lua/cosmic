@@ -25,7 +25,8 @@
 --
 -- A place that held a fact and lost it leaves a tombstone in `gone`, the
 -- [`facts.Drop`] that removed it, so the refusal of a read that relied on the
--- fact can say what dropped it. A key is in `t` or in `gone`, never both;
+-- fact can say what dropped it. So does a place a test would have narrowed
+-- but could not be (`note`). A key is in `t` or in `gone`, never both;
 -- narrowing the place again takes its tombstone away.
 --
 -- `paths` and `globals` count the keys that are field paths (they contain a
@@ -63,6 +64,9 @@ local record facts
       y: integer
       x: integer
       place: string
+      -- A name free where the test was, for a local holding a copy of the
+      -- place, for the hint of a refusal to give.
+      copy: string
    end
 
    -- The facts at one point. Never written to after it is returned.
@@ -86,6 +90,8 @@ local record facts
    has: function(Facts, string): boolean
    is_empty: function(Facts): boolean
    dropped: function(Facts, string): Drop
+   has_gone: function(Facts): boolean
+   note: function(Facts, string, Drop): Facts
    with: function(Facts, string, Type): Facts
    without: function(Facts, string, Drop): Facts
    without_prefix: function(Facts, string, Drop): Facts
@@ -223,9 +229,14 @@ local function before(x: facts.Drop, y: facts.Drop): boolean
    return (x.place or "") <= (y.place or "")
 end
 
+-- The tombstones of facts that have none, shared: no operation writes to a
+-- map it was given, so one empty map serves every `Facts` that never lost a
+-- fact, and `has_gone` answers for them without a walk.
+local no_tombstones: {string:facts.Drop} = {}
+
 --- The facts at the start of a program: live, and holding nothing.
 function facts.empty(): facts.Facts
-   return finish({}, {}, 0, 0)
+   return finish({}, no_tombstones, 0, 0)
 end
 
 --- The type `id` is narrowed to in `f`; nil when `f` is dead or holds no
@@ -244,6 +255,33 @@ function facts.dropped(f: facts.Facts, id: string): facts.Drop
       return nil
    end
    return f.gone[id]
+end
+
+--- Whether `f` has a tombstone for any key. False for a dead `f`.
+function facts.has_gone(f: facts.Facts): boolean
+   if f == nil or f.gone == no_tombstones then
+      return false
+   end
+   for _ in pairs(f.gone) do
+      return true
+   end
+   return false
+end
+
+--- `f` with `why` as the tombstone of `id`, a place `f` holds no fact of:
+--- what removed the fact a test would have given it. Answers `f` itself when
+--- it holds a fact of `id` (the place is narrowed, so nothing is gone) or
+--- already has `why` for it, and nil for a dead `f`.
+function facts.note(f: facts.Facts, id: string, why: facts.Drop): facts.Facts
+   if f == nil then
+      return nil
+   end
+   if f.t[id] ~= nil or f.gone[id] == why then
+      return f
+   end
+   local gone = copy(f.gone as {string:any}) as {string:facts.Drop}
+   gone[id] = why
+   return finish(f.t, gone, f.paths, f.globals)
 end
 
 --- Whether `f` holds a fact of `id`. False for a dead `f`.

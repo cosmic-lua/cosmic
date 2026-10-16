@@ -43,6 +43,8 @@ local record Api
   has: function(Facts | nil, string): boolean
   is_empty: function(Facts | nil): boolean
   dropped: function(Facts | nil, string): Drop | nil
+  has_gone: function(Facts | nil): boolean
+  note: function(Facts | nil, string, Drop): Facts | nil
   with: function(Facts | nil, string, Type): Facts | nil
   without: function(Facts | nil, string, Drop): Facts | nil
   without_prefix: function(Facts | nil, string, Drop): Facts | nil
@@ -788,6 +790,24 @@ local function test_a_tombstone_lasts_until_the_place_is_narrowed_again()
   local again = api.with(f, "1", token(3))
   assert(api.get(again, "1") == token(3) and api.dropped(again, "1") == nil)
   assert(api.dropped(f, "1") == WHY, "the earlier value is as it was")
+end
+
+--- A place that held no fact takes a tombstone (a test that narrowed nothing),
+--- which holds until it is narrowed; a place that holds a fact takes none.
+local function test_a_place_with_no_fact_takes_a_tombstone()
+  local api = module()
+  local f = held(api, { "1" })
+  assert(not api.has_gone(f) and not api.has_gone(nil))
+  assert(api.note(f, "1", WHY) == f, "a place that holds a fact has nothing gone")
+  local noted = api.note(f, "2", WHY)
+  assert(noted ~= f and api.has_gone(noted) and api.dropped(noted, "2") == WHY)
+  assert(api.get(noted, "1") == token(7) and api.get(noted, "2") == nil)
+  assert(api.note(noted, "2", WHY) == noted, "the same tombstone again is the same facts")
+  local other: Drop = { kind = "write", text = "r.n = ...", y = 5, x = 1, place = "" }
+  assert(api.dropped(api.note(noted, "2", other), "2") == other, "a later drop replaces it")
+  assert(api.dropped(noted, "2") == WHY, "the earlier value is as it was")
+  assert(api.dropped(api.with(noted, "2", token(3)), "2") == nil, "narrowing the place takes it away")
+  assert(api.note(nil, "2", WHY) == nil, "a dead point stays dead")
 end
 
 local function test_unite_nil_drops_a_key_without_a_tombstone()

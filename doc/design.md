@@ -1012,8 +1012,15 @@ variable it copies where the copy is made, narrowed by any test before it),
 never the type of another variable of the name. a read in the body of a place
 so hidden is refused with the code `narrowing_dropped`, kind `function`, and
 the hint copies the value to a local before the function. the body still
-learns what it tests itself, and creating the function runs none of its body,
-so the facts outside it stand after it. a branch that ends in `return` or a call
+learns what it tests itself of its own locals, and of a local of the code around
+it only if no assignment can change that local once the literal is made: a
+coroutine can yield between the test and the use, and the code around runs, so
+a test of any other local of the code around narrows nothing, and the use is
+told so by the note `narrowing_not_local` with the kind `captured` and a copy
+inside the function. creating the function runs none of its body, so the facts
+outside it stand after it. code that control cannot reach (after a `return`, a
+`break`, a `goto` or a call that never returns) is checked from the facts where
+control left, narrowing and dropping as reached code does. a branch that ends in `return` or a call
 that never returns drops nothing for the code after its `if`.
 
 a test of `a or b` that holds tells what `a` and `not a` tell together, which
@@ -1027,7 +1034,10 @@ elsewhere.
 a refusal of the dropped kind has the code `narrowing_dropped`, with the place,
 what dropped it (`assignment` or `function` for a local), that expression as
 written and where it is, beside the fields of the refusal it was. its hint
-copies the value to a local before the assignment or the function.
+copies the value to a local before the assignment or the function. a read in a
+loop of a place that the loop assigns later in its body is told the assignment
+and the loop: the check before the loop does not hold in a later pass, so the
+hint copies the value to a local at the top of the loop body.
 
 a function literal does not assign a local declared outside it
 ([`checker/captures.tl`]'s `find`, asked of each file before it is checked):

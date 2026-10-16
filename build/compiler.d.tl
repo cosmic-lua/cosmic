@@ -71,9 +71,10 @@ local record compiler
     "narrowing_dropped"
     -- the note on a use of a field or a global that a test of narrowed
     -- nothing (only a local is narrowed): the error keeps its own code and
-    -- carries this one as `also`, with `dropped_place`, `dropped_kind` (`field`
-    -- or `global`), `dropped_by` (the place, or the assignment as written),
-    -- `dropped_y`, `dropped_x` and `dropped_copy`. It is a note: the use may
+    -- carries this one as `also`, with `dropped_place`, `dropped_kind` (`field`,
+    -- `global`, or `captured` for a local the code around a function assigns
+    -- after the function is made), `dropped_by` (the place, or the assignment
+    -- as written), `dropped_y`, `dropped_x` and `dropped_copy`. It is a note: the use may
     -- not rely on the test
     "narrowing_not_local"
     -- a local read where a path from its declaration has not assigned it:
@@ -205,8 +206,8 @@ local record compiler
     -- (`r.n`), what dropped it (`assignment`, `write`, `call`,
     -- `operator` or `loop`), that expression as written, and where it is.
     -- For a use of a field or a global a test of narrowed nothing (`also`
-    -- is `narrowing_not_local`): the place, `field` or `global`, the place
-    -- (or the assignment `g = ...`) as written, and where the test is.
+    -- is `narrowing_not_local`): the place, `field`, `global` or `captured`,
+    -- the place (or the assignment `g = ...`) as written, and where the test is.
     dropped_place: string | nil
     dropped_kind: string | nil
     dropped_by: string | nil
@@ -310,9 +311,10 @@ local record compiler
     -- finds: the name and the key of the binding it stands for, so that a
     -- test sees which binding a name was read as.
     key_trace: {string} | nil
-    -- When set, the checker keeps its shadow facts beside its narrowing and
-    -- appends `y:x place: shadow T, old U` to it for each read where the
-    -- two disagree.
+    -- When set, the checker compares the type its facts gave each read with
+    -- the one the narrowing on its scopes would have given, and appends
+    -- `y:x place: shadow T, old U` to it for each read where the two
+    -- disagree.
     shadow_mismatches: {string} | nil
     -- How many reads that took, so that none found does not mean none looked at.
     shadow_reads: integer | nil

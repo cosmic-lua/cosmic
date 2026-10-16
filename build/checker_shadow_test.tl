@@ -1,16 +1,14 @@
---- The checker's shadow facts (`self.facts`, checker/facts.tl) beside the
---- narrowing that decides every verdict: with [`Env.shadow_mismatches`] set,
---- every read of a place compares the type the facts give with the type the
---- narrowing gave, and a disagreement is recorded. Both narrow only a local; a
---- read of a field or a global is compared too, and neither side holds a fact
---- of one. These tests run the programs that put narrowing at risk with the
---- comparison on and hold the disagreements to none.
+--- The checker's facts (`self.facts`, checker/facts.tl), which decide the
+--- type of every read, beside the narrowing the scopes still hold and no
+--- read uses: with [`Env.shadow_mismatches`] set, every read of a local
+--- compares the type the facts gave with the type the narrowing would have
+--- given, and a disagreement is recorded. Both narrow only a local. These
+--- tests run the programs that put narrowing at risk with the comparison on
+--- and hold the disagreements to none.
 ---
---- This is the gate of step 7a's shadow mode: when a read switches to the
---- facts, this test is what says the facts were right. A disagreement that
---- the old narrowing is to blame for is not allowed: it is pinned as the
---- exact mismatch it gives, with a TODO naming the fix of the old narrowing
---- it waits on, until that fix merges and the pin goes.
+--- A disagreement that the old narrowing is to blame for is pinned as the
+--- exact mismatch it gives, until the narrowing on the scopes is deleted. The
+--- verdicts that the facts moved are pinned in the tests at the end.
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
 local programs = require("build.checker_programs")
@@ -2871,9 +2869,10 @@ end
 --- variables: a widening of the outer one reaches the inner one (to a type
 --- it was not declared with), and spares the outer one when the inner one
 --- is in the way. The facts are keyed by variable.
--- TODO: pin this to no mismatch once the old narrowing is deleted (the PR that
--- removes `specialize_var` and `widen_in_scope`), or the reads switch to the
--- facts and the verdict this moves is triaged.
+-- TODO: delete this test once the change that deletes the narrowing on the
+-- scopes and the comparison (the TODO at `widen_in_scope` in checker/tl.tl)
+-- has merged: it pins a disagreement between the two, which goes with the
+-- narrowing. The verdict it moves is pinned below.
 local function test_old_narrowing_widens_the_wrong_variable_of_a_localized_name()
   local found = mismatches("localized.tl", [[
 local function f(x1: integer | nil): integer
@@ -2889,8 +2888,225 @@ local function f(x1: integer | nil): integer
 end
 return f
 ]])
-  assert(table.concat(found, "\n") == table.concat({
-    "localized.tl:6:13 x1: shadow integer (inferred at :2:6), old integer | nil",
-    "localized.tl:6:17 x1: shadow integer (inferred at :2:6), old integer | nil",
-  }, "\n"), table.concat(found, "\n"))
+  assert(table.concat(found, "\n") ==
+      "localized.tl:6:13 x1: shadow integer (inferred at :2:6), old integer | nil", table.concat(found, "\n"))
+end
+
+--- The verdict of `text` as a program of its own, the lines of
+--- [`build.checker_verdicts`] joined.
+local function verdict(file: string, text: string): string
+  return (verdicts.render(verdicts.program_lines(checker(), file, text)))
+end
+
+--- A `local x = x` is a variable of its own: a function declared after it
+--- widens the outer `x1` and not the local, which keeps the type it was
+--- declared with. A widening by name would reach the local too, and refuse
+--- the use.
+local function test_a_localized_name_keeps_its_type_past_a_function_declaration()
+  assert(verdict("localized.tl", [[
+local function f(x1: integer | nil): integer
+  if x1 then
+    local x1 = x1
+    local function p() end
+    p()
+    return x1 + 1
+  end
+  return 0
+end
+return f
+]]) == "")
+end
+
+--- A use of a local that an assignment gave a type that tells nothing (an
+--- optional value) is told that the assignment dropped what a test established,
+--- wherever the test was: here a test that ends the block, in the scope of the
+--- assignment.
+local function test_a_use_after_an_assignment_is_told_the_assignment()
+  assert(verdict("early.tl", [[
+local record R
+  a: integer | nil
+end
+local function g(x: integer | nil, r: R): integer
+  if x == nil then
+    return 0
+  end
+  x = r.a
+  return x + 1
+end
+return g
+]]) == "early.tl\ttype.narrowing_dropped\t9\t12\tcannot use operator '+' for types integer | nil and integer\n")
+end
+
+--- A loop that assigns a local drops the test's fact for the whole body: a
+--- read before the assignment in it is told the assignment.
+local function test_a_read_in_a_loop_is_told_the_assignment_later_in_it()
+  assert(verdict("loop.tl", [[
+local function id(v: integer | nil): integer | nil
+  return v
+end
+local function g(x: integer | nil): integer
+  local sink = 0
+  if x then
+    local i = 0
+    while i < 2 do
+      sink = sink + x + 1
+      x = id(nil)
+      i = i + 1
+    end
+  end
+  return sink
+end
+return g
+]]) == "loop.tl\ttype.narrowing_dropped\t9\t19\tcannot use operator '+' for types integer and integer | nil\n")
+end
+
+--- A function declared after the test widens every narrowed name without
+--- saying so, and an assignment after that is no drop of a fact the facts hold:
+--- a later use is refused plainly (`shadow_widen` has the TODO).
+local function test_a_declaration_that_widened_a_place_is_not_told()
+  assert(verdict("declared.tl", [[
+local function maybe(): integer | nil
+  return nil
+end
+local function g(x: integer | nil): integer
+  local sink = 0
+  if x then
+    local function get(): integer
+      return 1
+    end
+    x = maybe()
+    sink = sink + get() + x
+  end
+  return sink
+end
+return g
+]]) == "declared.tl\ttype.operator_binary\t11\t25\tcannot use operator '+' for types integer and integer | nil\n")
+end
+
+--- Control that cannot reach a statement leaves the facts as they were where
+--- it left: a use after a jump reads them.
+local function test_unreachable_code_reads_the_facts_at_the_jump()
+  assert(verdict("jump.tl", [[
+local function f(x: integer | nil): integer
+  if x == nil then return 0 end
+  do return x + 1 end
+  print(x + 1)
+end
+return f
+]]) == "")
+end
+
+--- Unreachable code is checked as if control reached it from where it left,
+--- and narrows and drops as reached code does: an assignment there is checked
+--- against the type the local has by then, a test narrows, and a function
+--- literal made there begins from the facts at the jump.
+local function test_unreachable_code_is_checked_from_the_facts_at_the_jump()
+  assert(verdict("dead.tl", [[
+local function use(n: integer) print(n) end
+local function f(): integer
+  local x: integer | nil = nil
+  error("unimplemented")
+  x = 1
+  return x
+end
+local function g(y: integer | nil)
+  error("todo")
+  if y then use(y) end
+end
+local function h(): integer
+  error("a")
+  local function k(z: integer | nil): integer
+    if z then return z + 1 end
+    return 0
+  end
+  return k(1)
+end
+return f, g, h
+]]) == "")
+end
+
+--- An assignment in unreachable code changes what the code after it reads, as
+--- it does in reached code.
+local function test_unreachable_code_drops_on_an_assignment()
+  assert(verdict("dropped.tl", [[
+local function f(x: integer | nil): integer
+  if x then
+    do return 1 end
+    x = nil
+    print(x + 1)
+  end
+  return 0
+end
+return f
+]]) == "dropped.tl\ttype.narrowing_dropped\t5\t13\tcannot use operator '+' for types nil and integer\n")
+end
+
+--- A local declared in the scope of a test of the same name is another
+--- binding. A function literal made after it reads that binding, not the one
+--- the test narrowed: every use below is refused, whatever narrowed the
+--- shadowed one (a test that returns, `assert`, an assignment) and whatever
+--- uses the shadowing local (a call, arithmetic, a coroutine).
+local function test_a_local_declared_over_a_narrowed_name_is_read_by_a_function_literal()
+  local head <const> = "local function maybe(): integer | nil return nil end\n" ..
+    "local function use(n: integer) print(n) end\n" ..
+    "local function t(z: integer | nil, flag: boolean)\n"
+  local tail <const> = "end\nreturn t\n"
+  local bodies <const>: {string} = {
+    "if z == nil then return end\nlocal z: integer | nil = maybe()\nlocal f = function() use(z) end\nf()\nz = nil\n",
+    "assert(z)\nlocal z: integer | nil = maybe()\nlocal f = function() use(z) end\nf()\nz = nil\n",
+    "z = 1\nlocal z: integer | nil = maybe()\nlocal f = function() use(z) end\nf()\nz = nil\n",
+    "if z == nil then return end\nlocal z: integer | nil = maybe()\nlocal f = function() print(z + 1) end\nf()\nz = nil\n",
+    "if z == nil then return end\nlocal z: integer | nil = maybe()\n" ..
+      "local co = coroutine.wrap(function() coroutine.yield() use(z) end)\nco()\nz = nil\nco()\n",
+    "if z == nil then return end\nlocal z: integer | nil = maybe()\nlocal z: integer | nil = maybe()\n" ..
+      "local f = function() use(z) end\nf()\nz = nil\n",
+    "if z == nil then return end\nlocal z: integer | nil = maybe()\nlocal function f() use(z) end\nf()\nz = nil\n",
+    "if flag then\n  if z == nil then return end\n  local z: integer | nil = maybe()\n" ..
+      "  local f = function() use(z) end\n  f()\n  z = nil\nend\n",
+    "assert(z)\nlocal z: integer | nil = maybe()\nlocal f = function() use(z) end\nf()\nif z then z = nil end\n",
+  }
+  for n, body in ipairs(bodies) do
+    local found = verdict("shadowed" .. n .. ".tl", head .. body .. tail)
+    -- The line of the use inside the function literal.
+    local line = 0
+    local at = 0
+    for text in (head .. body):gmatch("([^\n]*)\n") do
+      at = at + 1
+      if line == 0 and at > 3 and (text:find("use(z)", 1, true) or text:find("z + 1", 1, true)) then
+        line = at
+      end
+    end
+    local refused = false
+    for entry in found:gmatch("[^\n]+") do
+      local code, y = entry:match("^[^\t]*\t(type%.[^\t]*)\t(%d+)\t")
+      refused = refused or (code ~= nil and tonumber(y) == line)
+    end
+    assert(refused, "case " .. n .. " is not refused at " .. line .. ":\n" .. found)
+  end
+  -- A parameter redeclared in the body of the function that tests it.
+  assert(verdict("param.tl", [[
+local function maybe(): integer | nil return nil end
+local function use(n: integer) print(n) end
+local g = function(z: integer | nil)
+  if z == nil then return end
+  local z: integer | nil = maybe()
+  local f = function() use(z) end
+  f()
+  z = nil
+end
+g(1)
+]]):find("\ttype%.mismatch\t6\t", 1) ~= nil)
+  -- The name tested, redeclared and tested again is the new binding's own.
+  assert(verdict("again.tl", [[
+local function maybe(): integer | nil return nil end
+local function use(n: integer) print(n) end
+local function t(z: integer | nil)
+  if z == nil then return end
+  local z: integer | nil = maybe()
+  if z == nil then return end
+  local f = function() use(z) end
+  f()
+end
+return t
+]]):find("\ttype%.", 1) == nil)
 end

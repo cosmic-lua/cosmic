@@ -87,12 +87,15 @@ local function cases_of(text: string): {Case}
   local section = ""
   local data: {string} = {}
   local function finish()
-    if current ~= nil then
-      current.input = table.concat(data, "\n")
-      while #current.tree > 0 and current.tree[#current.tree] == "" do
-        current.tree[#current.tree] = nil
+    -- A test of `current` inside this function narrows nothing: the code
+    -- around it assigns `current` after the function is made.
+    local done = current
+    if done ~= nil then
+      done.input = table.concat(data, "\n")
+      while #done.tree > 0 and done.tree[#done.tree] == "" do
+        done.tree[#done.tree] = nil
       end
-      cases[#cases + 1] = current
+      cases[#cases + 1] = done
     end
   end
   for line in (text .. "\n"):gmatch("([^\n]*)\n") do
