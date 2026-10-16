@@ -901,6 +901,20 @@ local function test_a_condition_chain_is_one_flat_block()
       not plain:find("repeat", 1, true), plain)
 end
 
+--- An `{{else}}` closes the chain that has no field path to bind as it does
+--- one that has, including a test of a path an enclosing test bound.
+local function test_an_else_closes_a_chain_with_nothing_to_bind()
+  local plain = compiled(HEAD .. "{{if .b | m.f}}1{{else}}2{{end}}")
+  assert(plain:find("if _one(m.f(d.b)) then", 1, true) and plain:find(" else ", 1, true) and
+      not plain:find("repeat", 1, true), plain)
+  local _, plain_ends = plain:gsub("%f[%w]end%f[%W]", "")
+  local _, plain_opens = plain:gsub("%f[%w]if%f[%W]", "")
+  assert(plain_ends >= plain_opens, plain)
+  local nested = compiled(HEAD .. "{{if .a}}{{if .a}}x{{else}}y{{end}}{{end}}")
+  assert(nested:find("do local d1 = d.a if d1 then if d1 then", 1, true) and
+      nested:find(" else parts[#parts + 1] = \"y\" end end end", 1, true), nested)
+end
+
 --- A path an enclosing test bound is a prefix of the paths inside it: each
 --- reads the local of the longest prefix bound, the key being the path as
 --- the source writes it.

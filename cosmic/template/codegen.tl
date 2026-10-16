@@ -378,7 +378,7 @@ local function block(g: Gen, node: types.Node, dot: Dot)
       local lead = at == 1 and flat and "repeat " or ""
       if pipeline == nil then
         put(g, flat and closing or "else")
-        closing = ""
+        closing = flat and "" or "end"
       else
         local tested = value(g, pipeline, dot)
         if written ~= nil then

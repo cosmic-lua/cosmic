@@ -427,6 +427,10 @@ local function test_guards_on_nested_prefixes_build_and_render(tmp: string)
   local same = "{{if .nest}}{{if .nest.s}}{{.nest.s}}{{end}}{{end}}"
   assert(shown("nest-same", same, full) == "S", "same")
   assert(shown("nest-same-nos", same, { nest = { c = "C" } }) == "", "same, no s")
+  -- An inner test of a path already bound, with an `else`.
+  local twice = "{{if .nest}}{{if .nest}}x{{else}}y{{end}}{{if .nest.s}}{{.nest.s}}{{else}}-{{end}}{{end}}"
+  assert(shown("nest-twice", twice, full) == "xS", "twice")
+  assert(shown("nest-twice-nos", twice, { nest = { c = "C" } }) == "x-", "twice, no s")
   -- In an arm of a chain, and a range over a bound path's field.
   local chain = "{{if .flag}}F{{else if .nest}}{{if .nest.b}}{{.nest.b.c}}{{else}}-{{end}}{{.nest.c}}{{else}}none{{end}}"
   assert(shown("nest-chain", chain, full) == "BC", "chain")
