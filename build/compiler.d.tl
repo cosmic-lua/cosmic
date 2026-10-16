@@ -86,6 +86,15 @@ local record compiler
     -- `label_x` (none where the `goto` names no label), and `local_y`, `local_x`
     -- where a `repeat` continue jumps over a local its `until` sees
     "goto_not_continue"
+    -- an assignment to a field its record declares `readonly`: `key` (the
+    -- field, the first when `fields` lists several) and `subject` (the
+    -- record, as it is named)
+    "readonly_field"
+    -- a record and an interface it takes a field from that disagree on
+    -- `readonly`: `key`, `subject` (the record), `declared_in` (the
+    -- interface), `expected` (the field's type) and `readonly_in`
+    -- (`record` or `interface`, the one that declares it read-only)
+    "readonly_disagrees"
     "other"
   end
 
@@ -122,6 +131,9 @@ local record compiler
     -- record that declares it, when the error is that signature's.
     signature_of: string | nil
     declared_in: string | nil
+    -- For a field a record and its interface disagree on: which of them
+    -- declares it read-only, `record` or `interface`.
+    readonly_in: string | nil
     -- The kind (typename) of the record-like type a key was refused.
     resolved_kind: string | nil
 

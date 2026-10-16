@@ -288,6 +288,15 @@ local record tl
       -- `label_x` (none where the `goto` names no label), and `local_y`, `local_x`
       -- where a `repeat` continue jumps over a local its `until` sees
       "goto_not_continue"
+      -- an assignment to a field its record declares `readonly`: `key` (the
+      -- field, the first when `fields` lists several) and `subject` (the
+      -- record, as it is named)
+      "readonly_field"
+      -- a record and an interface it takes a field from that disagree on
+      -- `readonly`: `key`, `subject` (the record), `declared_in` (the
+      -- interface), `expected` (the field's type) and `readonly_in`
+      -- (`record` or `interface`, the one that declares it read-only)
+      "readonly_disagrees"
       "other"
    end
 
@@ -321,6 +330,9 @@ local record tl
       -- record that declares it, when the error is that signature's.
       signature_of: string
       declared_in: string
+      -- For a field the record and its interface disagree on: which of them
+      -- declares it read-only, `record` or `interface`.
+      readonly_in: string
 
       -- The kind of the record-like type a key was refused: its typename.
       resolved_kind: string
@@ -1811,6 +1823,10 @@ local interface RecordLikeType
    meta_fields: {string: Type}
    meta_field_order: {string}
    meta_field_comments: {string: {{Comment}}}
+   -- The fields declared `readonly name: T`, which only the table literal that
+   -- makes the record sets (nil where it has none). A field an interface
+   -- declares read-only is read-only in a record that takes it from there.
+   readonly_fields: {string: boolean}
    is_userdata: boolean
 end
 
@@ -2154,6 +2170,9 @@ local record Node
    op: Operator
    e1: Node
    e2: Node
+   -- An index `t[k]`: the types of `t` and `k`, for the check of a write to it.
+   indexed: Type
+   indexed_key: Type
    constnum: number
    conststr: string
    failstore: boolean
@@ -3968,7 +3987,7 @@ local function optional_field_type(ps: ParseState, i: integer, t: Type): Type
    return u
 end
 
-local function store_field_in_record(ps: ParseState, i: integer, field_name: string, newt: Type, def: RecordLikeType, comments?: {Comment}, meta?: MetaMode): boolean
+local function store_field_in_record(ps: ParseState, i: integer, field_name: string, newt: Type, def: RecordLikeType, comments?: {Comment}, meta?: MetaMode, readonly?: boolean): boolean
    local field_order, fields, field_comments: {string}, {string:Type}, {string: {{Comment}}}
    if meta then
       field_order, fields, field_comments = def.meta_field_order, def.meta_fields, def.meta_field_comments
@@ -3991,7 +4010,16 @@ local function store_field_in_record(ps: ParseState, i: integer, field_name: str
          field_comments[field_name] = {comments}
       end
       table.insert(field_order, field_name)
+      if readonly and not meta then
+         def.readonly_fields = def.readonly_fields or {}
+         def.readonly_fields[field_name] = true
+      end
       return true
+   end
+
+   if not meta and ((def.readonly_fields and def.readonly_fields[field_name]) or false) ~= (readonly or false) then
+      fail(ps, i, "field '" .. field_name .. "' is declared both with and without 'readonly': give every declaration of it the same, since a read-only field is read-only whatever its overload")
+      return false
    end
 
    local oldt = fields[field_name]
@@ -4373,8 +4401,22 @@ parse_record_body = function(ps: ParseState, i: integer, def: RecordLikeType): i
       else
          local comments = get_attached_comments(ps.tokens[i])
          local is_metamethod = false
+         local is_readonly = false
+         -- Type-level only: a field literally named `readonly` still parses
+         -- (`readonly: T`), as `metamethod` does.
+         if ps.tokens[i].tk == "readonly" and not field_name_follows(ps, i) then
+            is_readonly = true
+            i = i + 1
+            local after = ps.tokens[i].tk
+            if (after == "type" or after == "userdata" or parse_type_body_fns[after as BodyTypeName] ~= nil) and not field_name_follows(ps, i) then
+               return fail(ps, i, "'readonly' marks a field (`readonly name: T`), not a nested type: declare the type without it")
+            end
+         end
          if ps.tokens[i].tk == "metamethod" and not field_name_follows(ps, i) then
             is_metamethod = true
+            if is_readonly then
+               fail(ps, i, "a metamethod cannot be read-only")
+            end
             i = i + 1
          end
 
@@ -4439,7 +4481,7 @@ parse_record_body = function(ps: ParseState, i: integer, def: RecordLikeType): i
                t = optional_field_type(ps, type_at, t)
             end
 
-            store_field_in_record(ps, iv, field_name, t, def, comments, is_metamethod and "meta" or nil)
+            store_field_in_record(ps, iv, field_name, t, def, comments, is_metamethod and "meta" or nil, is_readonly)
          elseif ps.tokens[i].tk == "=" then
             local next_word = ps.tokens[i + 1].tk
             if next_word == "record" or next_word == "enum" then
@@ -8448,6 +8490,10 @@ do
       -- The bindings `add_var` and `add_global` have made so far, counted:
       -- each takes the count as its `Variable.key`.
       binding_count: integer
+      -- The `Variable.key` of each local declared with a type declaration
+      -- as its value (`local Q = R`): it names the type like `R` does, so a
+      -- `function Q.f() end` defines a field rather than writes one.
+      type_value_keys: {string:boolean}
       shadow_host_made: narrowing.Host
       -- Set by `place_type` when the narrowing holds a fact of a field that
       -- the shadow facts do not, or the other way about.
@@ -9106,6 +9152,13 @@ do
             end
 
             copy.is_userdata = t.is_userdata
+
+            if t.readonly_fields then
+               copy.readonly_fields = {}
+               for k, v in pairs(t.readonly_fields) do
+                  copy.readonly_fields[k] = v
+               end
+            end
 
             copy.fields = {}
             copy.field_order = {}
@@ -16485,6 +16538,123 @@ do
       "missing"
    end
 
+   -- The record, of the types `t` may be, that declares `key` read-only
+   -- (nil if none does), seen through a name, `self` or a generic record.
+   function TypeChecker:readonly_declarer(t: Type, key: string): RecordLikeType
+      if not t or t is TupleType then
+         return nil
+      end
+      t = self:to_structural(t)
+      if t is SelfType then
+         t = self:type_of_self(t)
+      end
+      if t is TypeDeclType then
+         t = t.def
+         if t is NominalType then
+            t = self:resolve_nominal(t)
+         end
+      end
+      if t is GenericType then
+         t = t.t
+      end
+      if t is UnionType then
+         for _, member in ipairs(t.types) do
+            local found = self:readonly_declarer(member, key)
+            if found then
+               return found
+            end
+         end
+         return nil
+      end
+      if t is RecordLikeType and t.readonly_fields and t.readonly_fields[key] and t.fields[key] then
+         return t
+      end
+      return nil
+   end
+
+   -- Adds to `names` the strings a key of type `t` may be: the literal of a
+   -- string literal type, each value of an enum, each member of a union.
+   local function key_names(self: TypeChecker, t: Type, names: {string:boolean})
+      if not t or t is TupleType then
+         return
+      end
+      t = self:to_structural(t)
+      if t is StringType and t.literal then
+         names[t.literal] = true
+      elseif t is EnumType then
+         for name, _ in pairs(t.enumset) do
+            names[name] = true
+         end
+      elseif t is UnionType then
+         for _, member in ipairs(t.types) do
+            key_names(self, member, names)
+         end
+      end
+   end
+
+   -- Refuses a write to a field its record declares `readonly`, through
+   -- `r.f`, an alias of `r`, `self.f`, `r["f"]` or `r[k]` where the type of
+   -- `k` is a literal, an enum or a union of them that names it. The table
+   -- literal that makes the record is not an assignment, so it is not met
+   -- here. Read-only is shallow: a write inside a read-only field's value
+   -- (`r.b.n = 1`, `r.xs[1] = 3`) is not a write to the field. A key of type
+   -- `string` is refused as an index of a record before this is reached.
+   --
+   -- TODO: refuse the casts that forge a writer (`(r as W).id = 2` with `W` a
+   -- writable record, `local m = r as {string:integer}; m.id = 3`), once the
+   -- read-only fields step that lands interface agreement and the casts that
+   -- would forge a writer (strict-teal.md, narrowing by construction) merges.
+   --
+   -- TODO: refuse a record with a read-only field passed as a map, to
+   -- `pairs`, `next` or `rawset`, once the rule that records are not maps (strict-teal.md,
+   -- narrowing by construction) lands.
+   --
+   -- TODO: refuse a literal with no expected type assigned to a record with a
+   -- read-only field, and a literal that omits one, once the literal rules of
+   -- read-only fields (strict-teal.md, narrowing by construction) land.
+   function TypeChecker:check_readonly_write(varnode: Node)
+      if varnode.kind ~= "op" or not varnode.op then
+         return
+      end
+      local dotted = varnode.op.op == "."
+      local names: {string:boolean} = {}
+      if dotted then
+         names[varnode.e2.tk] = true
+      elseif varnode.op.op == "@index" then
+         if varnode.e2.conststr then
+            names[varnode.e2.conststr] = true
+         end
+         key_names(self, varnode.indexed_key, names)
+      end
+      local receiver = dotted and varnode.receiver or varnode.indexed
+      local found: {string} = {}
+      local record = ""
+      for _, key in ipairs(sorted_keys(names)) do
+         local declarer = self:readonly_declarer(receiver, key)
+         if declarer then
+            table.insert(found, key)
+            if record == "" then
+               record = declarer.declname or "the record"
+            end
+         end
+      end
+      if #found == 0 then
+         return
+      end
+      local msg: string
+      if #found == 1 then
+         msg = ("field '%s' of '%s' is read-only"):format(found[1], record)
+      else
+         msg = ("fields '%s' of '%s' are read-only"):format(table.concat(found, "', '"), record)
+      end
+      self.errs:add_coded(varnode, Errors.make({
+         code = "readonly_field",
+         key = found[1],
+         fields = #found > 1 and found or nil,
+         subject = record,
+      }), msg)
+   end
+
    function TypeChecker:check_assignment(varnode: Node, vartype: Type, valtype: Type): Type, Type, MissingError
       local varname = varnode.tk
       local attr = varnode.attribute
@@ -16504,6 +16674,15 @@ do
       end
 
       if varname then
+         -- A local assigned a value no longer names the type it was given.
+         -- Found by hand: `find_var` would add to the key trace.
+         for i = #self.st, 1, -1 do
+            local assigned = varnode.kind == "variable" and self.st[i].vars[varname]
+            if assigned then
+               self.type_value_keys[assigned.key] = nil
+               break
+            end
+         end
          if self.shadow_log then
             self:shadow_assign_local(varname)
          end
@@ -16519,6 +16698,8 @@ do
          self.errs:add(varnode, "cannot assign to <" .. attr .. "> variable")
          return nil
       end
+
+      self:check_readonly_write(varnode)
 
       local var = self:to_structural(vartype)
       if var is TypeDeclType then
@@ -16666,10 +16847,18 @@ do
                   node.unvalued = node.unvalued or {}
                   table.insert(node.unvalued, var)
                end
+               -- A local given a type's name as its value (`local Q = R`).
+               local value_node = node.exps and node.exps[i]
+               local value_var = value_node and value_node.kind == "variable" and self:find_var(value_node.tk)
+               local value_type = value_var and value_var.t and self:to_structural(value_var.t)
+               local type_value = value_type and value_type is TypeDeclType or (value_var and self.type_value_keys[value_var.key])
                local localizing = is_localizing_a_variable(node, i)
                local from = localizing and self.shadow_log and self:shadow_key(var.tk)
                local declared = self:add_var(var, var.tk, t, var.attribute, localizing and "localizing")
                declared.is_loop_control = false
+               if type_value then
+                  self.type_value_keys[declared.key] = true
+               end
                if var.attribute == "close" and self:may_dispatch(t, "__close") then
                   self.st[#self.st].close_var = var
                   -- Marked for `flow.unassigned_read`: this is the closer.
@@ -17655,6 +17844,21 @@ do
                return
             end
 
+            local named = self:to_structural(t)
+            local owner = node.fn_owner
+            local owner_var = owner and owner.kind == "type_identifier" and self:find_var(owner.tk)
+            if not named is TypeDeclType and not (owner_var and self.type_value_keys[owner_var.key]) then
+               local key = node.name.tk
+               local declarer = self:readonly_declarer(t, key)
+               if declarer then
+                  self.errs:add_coded(node.name, Errors.make({
+                     code = "readonly_field",
+                     key = key,
+                     subject = declarer.declname or "the record",
+                  }), ("field '%s' of '%s' is read-only"):format(key, declarer.declname or "the record"))
+               end
+            end
+
             local selftype = self:get_self_type(node.fn_owner)
             if node.is_method then
                if not selftype then
@@ -18169,6 +18373,8 @@ do
             end
 
             if node.op.op == "@index" then
+               node.indexed = ua
+               node.indexed_key = ub
                node.key_kind = rb and rb.typename
                self.index_metamethod = false
                local t = self:type_check_index(node.e1, node.e2, ua, ub)
@@ -18845,15 +19051,40 @@ do
    end
 
    do
-      local function add_interface_fields(self: TypeChecker, fields: {string:Type}, field_order: {string}, resolved: RecordLikeType, named: NominalType, list?: MetaMode)
+      local function add_interface_fields(self: TypeChecker, fields: {string:Type}, field_order: {string}, resolved: RecordLikeType, named: NominalType, list?: MetaMode, owner?: RecordLikeType)
          for fname, ftype in fields_of(resolved, list) do
             if fields[fname] then
+               if owner then
+                  local in_iface = (resolved.readonly_fields and resolved.readonly_fields[fname]) or false
+                  local in_owner = (owner.readonly_fields and owner.readonly_fields[fname]) or false
+                  if in_iface ~= in_owner then
+                     local where = owner.declname or "this record"
+                     local shown = show_type(fields[fname])
+                     local details = Errors.make({
+                        code = "readonly_disagrees",
+                        key = fname,
+                        subject = where,
+                        declared_in = show_type(named),
+                        expected = shown,
+                        readonly_in = in_iface and "interface" or "record",
+                     })
+                     if in_iface then
+                        self.errs:add_coded(fields[fname], details, "field '" .. fname .. "' is read-only in interface %s but not in " .. where .. ": declare it `readonly " .. fname .. ": " .. shown .. "` there, or drop `readonly` from the interface", named)
+                     else
+                        self.errs:add_coded(fields[fname], details, "field '" .. fname .. "' is read-only in " .. where .. " but not in interface %s: drop `readonly` from it there, or declare it `readonly " .. fname .. ": " .. shown .. "` in the interface", named)
+                     end
+                  end
+               end
                if not self:is_a_field(fields[fname], ftype) then
                   local what = list == "meta" and "metamethod" or "field"
                   self.errs:add(fields[fname], what .." '" .. fname .. "' does not match definition in interface %s", named)
                end
             else
                table.insert(field_order, fname)
+               if owner and resolved.readonly_fields and resolved.readonly_fields[fname] then
+                  owner.readonly_fields = owner.readonly_fields or {}
+                  owner.readonly_fields[fname] = true
+               end
                if ftype is TypeDeclType then
                   fields[fname] = ftype
                else
@@ -18900,7 +19131,7 @@ do
             if iface is NominalType then
                local ri = self:resolve_nominal(iface)
                assert(ri is InterfaceType)
-               add_interface_fields(self, t.fields, t.field_order, ri, iface)
+               add_interface_fields(self, t.fields, t.field_order, ri, iface, nil, t)
                if ri.meta_fields then
                   t.meta_fields = t.meta_fields or {}
                   t.meta_field_order = t.meta_field_order or {}
@@ -19313,6 +19544,7 @@ do
          type_priorities = TypeChecker.type_priorities,
          drop_clock = 0,
          binding_count = 0,
+         type_value_keys = {},
          loops = {},
          loop_tick = 0,
          shadow_log = env.shadow_mismatches,

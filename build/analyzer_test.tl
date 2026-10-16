@@ -754,6 +754,25 @@ local function test_documents_a_records_metamethods()
     table.concat(order, " "))
 end
 
+--- A `readonly` field keeps the keyword in its signature, on one line or
+--- spread over several, so `cosmic docs` shows it.
+local function test_a_readonly_field_keeps_its_keyword_in_the_signature()
+  local by_symbol = docs(lines({
+    "local record Thing",
+    "  --- Never changes.",
+    "  readonly id: integer",
+    "  readonly pair: {string:",
+    "                  integer}",
+    "  readonly: boolean",
+    "end",
+    "return Thing",
+  }))
+  assert(by_symbol["id"].signature == "readonly id: integer", by_symbol["id"].signature)
+  assert(by_symbol["id"].text == "Never changes.", by_symbol["id"].text)
+  assert(by_symbol["pair"].signature == "readonly pair: {string: integer}", by_symbol["pair"].signature)
+  assert(by_symbol["readonly"].signature == "readonly: boolean", by_symbol["readonly"].signature)
+end
+
 --- The `__is` a `where` clause makes up has no source of its own and no
 --- row.
 local function test_a_where_clause_adds_no_metamethod_row()
