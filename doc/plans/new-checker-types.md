@@ -153,14 +153,16 @@ a body is checked once, where it is declared:
 **types cross processes as rows** ([the database](strict-teal.md#the-database)).
 a type is never stored by id but by a *canonical encoding*: a text that names
 a declaration by its path and builds the rest from its parts, so any process
-decodes it into its own store. union members are sorted by the hash of their
-encoding, so the text does not depend on the process that wrote it.
+decodes it into its own store. union members are sorted by their digest, the
+hash of the encoding with each part written as its own digest (a Merkle hash,
+so a part held many times costs once), so the text does not depend on the
+process that wrote it.
 
 ```text
 (array (ref "cosmic.stream" "Stream.Reader"))         {Stream.Reader}
 (mmap string (union (ref "sys" "Fd") nil))            mut {string: Fd?}
 (fn (tp (ref "m" "Ordered")) ((var 0 0)) (rets ((var 0 0))))   function<T is Ordered>(T): T
-(rets ((true string)) ((false any)))                  (true, string) | (false, any)
+(fn (tp) () (rets (true string) (false any)))         function(): (true, string) | (false, any)
 ```
 
 - **a row per declaration.** `declared(key, path, decl_hash, body)`: the body
