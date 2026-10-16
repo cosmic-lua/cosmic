@@ -1472,6 +1472,9 @@ local function run_tree_checks(ctx: Fix)
           findings[#findings + 1] = "ci testdata: " .. line
         end
       end
+      for _, line in ipairs(tree_checks.lexed(root)) do
+        findings[#findings + 1] = "lexer: " .. line
+      end
       for _, line in ipairs(promise_findings(root)) do
         findings[#findings + 1] = line
       end
