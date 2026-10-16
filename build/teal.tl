@@ -1244,6 +1244,43 @@ local function captured_hint(e: compiler.Error): string | nil
     table_name .. "." .. name .. " = ...` in the function)"
 end
 
+--- What to do about a write to a field its record declares `readonly` (the
+--- code `readonly_field`): give the field its value in the table literal
+--- that makes the record, or declare it without `readonly`.
+local function readonly_hint(e: compiler.Error): string | nil
+  local field, record = e.key, e.subject
+  if field == nil or record == nil then
+    return nil
+  end
+  local listed = e.fields
+  local many = listed ~= nil and #listed > 1
+  local names = "`" .. field .. "`"
+  if listed ~= nil and many then
+    names = "`" .. table.concat(listed, "`, `") .. "`"
+  end
+  return (many and "fields " or "field ") .. names .. " of `" .. record .. "` " .. (many and "are" or "is") ..
+    " read-only: " .. (many and "they are" or "it is") .. " set only in the table literal that makes a `" ..
+    record .. "`; give " .. (many and "them their values" or "it its value") .. " there, or declare " ..
+    names .. " without `readonly` if " .. (many and "they change" or "it changes") .. " after creation"
+end
+
+--- What to do about a record and an interface that disagree on whether a
+--- field is `readonly` (the code `readonly_disagrees`): declare it the same
+--- in both, as the side that declares it read-only does.
+local function readonly_disagrees_hint(e: compiler.Error): string | nil
+  local field, record, interface, shown = e.key, e.subject, e.declared_in, e.expected
+  if field == nil or record == nil or interface == nil or shown == nil then
+    return nil
+  end
+  local declaration = "`readonly " .. field .. ": " .. shown .. "`"
+  if e.readonly_in == "interface" then
+    return "interface `" .. interface .. "` declares `" .. field .. "` read-only, so `" .. record ..
+      "` must too: write " .. declaration .. " in `" .. record .. "`, or drop `readonly` from the interface"
+  end
+  return "`" .. record .. "` declares `" .. field .. "` read-only but interface `" .. interface ..
+    "` does not: write " .. declaration .. " in the interface, or drop `readonly` from `" .. record .. "`"
+end
+
 --- What to declare for a local with neither a type nor a value (the code
 --- `no_type`): its type, with `| nil` where it starts with no value.
 local function untyped_local_hint(e: compiler.Error): string | nil
@@ -2064,6 +2101,15 @@ end
 --- `captured_assigned`) is told to return the value or keep it in a field
 --- of a table ([`captured_hint`]).
 ---
+--- A write to a field its record declares `readonly` (the code
+--- `readonly_field`) is told to give the field its value in the table
+--- literal that makes the record, or to declare it without `readonly`
+--- ([`readonly_hint`]).
+---
+--- A record and an interface that disagree on `readonly` for a field (the code
+--- `readonly_disagrees`) are told to declare it the same in both
+--- ([`readonly_disagrees_hint`]).
+---
 --- A `goto` that is not a continue, and a label no continue names, are told to
 --- restructure with an `if` or move the body into a function ([`goto_hint`]).
 ---
@@ -2105,6 +2151,12 @@ function teal.replacement(e: compiler.Error, source: string, file?: string,
   end
   if code == "captured_assigned" then
     return captured_hint(e)
+  end
+  if code == "readonly_field" then
+    return readonly_hint(e)
+  end
+  if code == "readonly_disagrees" then
+    return readonly_disagrees_hint(e)
   end
   if code == "goto_not_continue" then
     return goto_hint(e)

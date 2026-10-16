@@ -1042,6 +1042,26 @@ where it is declared (`declared_y`, `declared_x`); its hint says to return
 the value from the function, or keep it in a field of a table both read
 (`local held = { n = 0 }`, then `held.n = ...`).
 
+a field of a record or interface may be declared `readonly name: T`. the
+keyword is type-level and erased from the emitted Lua; `readonly: T` is still a
+field named `readonly`, as `metamethod: T` is one named `metamethod`. only the
+table literal that makes the record sets the field: an assignment through the
+record, an alias of it, `self` or a literal key (`r["id"] = v`) is refused with
+the code `readonly_field`, with the field (`key`) and the record (`subject`);
+its hint says to give the value in the literal or declare the field without
+`readonly`. read-only is shallow: a write inside the field's value
+(`r.b.n = 1`, `r.xs[1] = 3`) is not a write to the field. a record declares a
+field of an interface read-only exactly when the interface does, and a
+mismatch either way is refused with the code `readonly_disagrees`, which names
+the field, the record, the interface and the side that declares it read-only.
+a write through a key whose type is a string literal, an enum or a union of
+them is refused if any value names a read-only field, and so is a function
+statement on a value (`function r.cb() end`). one field's overloads all agree
+on `readonly`.
+stubs and declarations keep the keyword, being the source less its bodies. the
+rest of the read-only rules (the literal's, interface agreement, casts,
+narrowing through a read-only path) are in [`doc/plans/strict-teal.md`].
+
 a local is assigned before it is read. `local x: T` with no value is nil until
 something assigns it, and a read that comes first gets nil where the type
 promised a `T`, so it is legal only where every path from the declaration
@@ -1607,6 +1627,7 @@ in [roadmap.md](roadmap.md).
 [`cosmic.web`]: ../cosmic/web/init.tl
 [`cosmic/fs.tl`]: ../cosmic/fs.tl
 [`cosmic/fs_example.tl`]: ../cosmic/fs_example.tl
+[`doc/plans/strict-teal.md`]: plans/strict-teal.md
 [`Proc.exit`]: ../cosmic/proc.tl
 [`schema.tables_digest`]: ../build/schema.tl
 [`Server.serve`]: ../cosmic/http/server.tl
