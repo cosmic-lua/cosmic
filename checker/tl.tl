@@ -19675,6 +19675,7 @@ function tl.get_types(result: Result): TypeReport, TypeReporter
 end
 
 tl.init_env = function(lax?: boolean, gen_compat?: boolean | GenCompat, gen_target?: GenTarget, predefined?: {string}): Env, string
+   local lua_version = _VERSION
    local opts = {
       defaults = {
          feat_lax = (lax and "on" or "off") as Feat,
@@ -19682,7 +19683,7 @@ tl.init_env = function(lax?: boolean, gen_compat?: boolean | GenCompat, gen_targ
                        (gen_compat == false and "off") or
                        (gen_compat == true or gen_compat == nil) and "optional",
          gen_target = gen_target or
-                      ((_VERSION == "Lua 5.1" or _VERSION == "Lua 5.2") and "5.1") or
+                      ((lua_version == "Lua 5.1" or lua_version == "Lua 5.2") and "5.1") or
                       "5.3",
       },
       predefined_modules = predefined,
