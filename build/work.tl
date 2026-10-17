@@ -488,6 +488,36 @@ local function begin_waiting(db: Sqlite.Handle, path: string): boolean, string
   return true, ""
 end
 
+--- Puts `db`, the working database at `path`, in write-ahead mode, so a
+--- reader -- `cosmic lsp`'s ([`build.lsp.source`]), `cosmic docs`,
+--- `cosmic sql --build` -- reads the last commit while a run holds its
+--- write transaction open for minutes, and never waits on it. In the
+--- rollback mode a file is made in, a writer whose cache spills, or that
+--- commits, holds the file whole, and every reader waits or fails
+--- "database is locked". A file already in write-ahead mode answers so
+--- from its header. Switching one that is not writes the header, and
+--- where another run holds the write lock SQLite answers "database is
+--- locked" at once, calling no busy handler: the run waits for that
+--- lock as for its own transaction ([`begin_waiting`]), lets it go, and
+--- asks again. Any mode answered but "wal" is kept: a file system with
+--- no shared memory, which write-ahead mode needs, leaves the file in
+--- rollback mode, where its readers wait on a writer as they always
+--- did.
+local function to_wal(db: Sqlite.Handle, path: string): boolean, string
+  while true do
+    local result = Sqlite.text_rows_result(db, "PRAGMA journal_mode = WAL")
+    if result.rows ~= nil then return true, "" end
+    if result.cancelled then return false, "interrupted while waiting for the write lock" end
+    if result.code ~= Sqlite.BUSY and result.code ~= Sqlite.LOCKED then
+      return false, result.reason
+    end
+    local begun, begin_trouble = begin_waiting(db, path)
+    if not begun then return false, begin_trouble end
+    local rolled_back, roll_trouble = db:exec("ROLLBACK")
+    if not rolled_back then return false, roll_trouble end
+  end
+end
+
 --- Creates every table the schema names, in order, in the working
 --- database `db` at `path`. A fresh file's go in in one transaction,
 --- which commits, and syncs, once rather than once a statement: about
@@ -525,9 +555,11 @@ end
 
 --- Opens `build.db` in `dir`, or where nil in `root`'s build directory,
 --- which [`build.paths`] names and makes. It creates the database and
---- its tables when new, and counts this run. A file whose schema is not
---- this module's is removed and made again: it holds nothing the tree
---- cannot produce.
+--- its tables when new, puts it in write-ahead mode ([`to_wal`]), and
+--- counts this run. A file whose schema is not this module's is
+--- removed and made again: it holds nothing the tree cannot produce.
+--- Its write-ahead log is left, where another process reading the old
+--- file keeps one: SQLite deletes a log it finds beside an empty file.
 function work.open(root: string, dir?: string): work.Handle | nil, string
   local out = dir
   if out == nil then
@@ -552,6 +584,13 @@ function work.open(root: string, dir?: string): work.Handle | nil, string
   if not encoded then
     local _, _ = db:close()
     return nil, path .. ": " .. encode_trouble
+  end
+  -- After the encoding: on a fresh file the switch is the first write,
+  -- which fixes the encoding.
+  local logged, log_trouble = to_wal(db, path)
+  if not logged then
+    local _, _ = db:close()
+    return nil, path .. ": " .. log_trouble
   end
   local created, create_trouble = create(db, path)
   if not created then
@@ -625,8 +664,24 @@ function work.open(root: string, dir?: string): work.Handle | nil, string
   return { db = db, root = root, dir = out, run = integer_of(runs), inside = true }
 end
 
---- Ends the run's transaction, keeping everything it did. Nothing to
---- do when it has already ended.
+--- Copies the commits in `db`'s write-ahead log into the file itself
+--- and empties the log, so the file alone holds the last commit: what a
+--- sandboxed test that declares `o/build.db` is given, with no log
+--- beside it, and what its verdict is keyed by ([`build.test_sandbox`]),
+--- and what a copy of the file alone holds. It waits on a reader still
+--- reading an older commit for `notice_ns` at most, never as a run waits
+--- for the write lock: one left short keeps the rest in the log, which
+--- SQLite reads, and only a reader of the file alone reads an older
+--- commit. A file in rollback mode has no log, and nothing is done.
+local function checkpoint(db: Sqlite.Handle)
+  db:busy_timeout(notice_ns)
+  local _ = Sqlite.text_rows_result(db, "PRAGMA wal_checkpoint(TRUNCATE)")
+  db:busy_timeout(wait_ns)
+end
+
+--- Ends the run's transaction, keeping everything it did, and copies it
+--- into the file ([`checkpoint`]). Nothing to do when it has already
+--- ended.
 function work.commit(handle: work.Handle): boolean, string
   if not handle.inside then
     return true, ""
@@ -644,6 +699,7 @@ function work.commit(handle: work.Handle): boolean, string
     return false, trouble
   end
   handle.inside = false
+  checkpoint(handle.db)
   return true, ""
 end
 

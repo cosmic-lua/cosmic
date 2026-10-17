@@ -24,11 +24,16 @@
 --- ([`importer.analyzer_identity`]); otherwise, and for an open document,
 --- it is made here from the text, once a text.
 ---
---- Staging waits for no other run: where another holds the database's
---- write lock (a `cosmic test` compiling, say), the session says so and
---- answers from what was staged last, and stages again at its next check.
---- Once the lock is free it stages as a build does, waiting, as
---- [`work.open`] waits, only for a run that took the lock in between.
+--- Reading waits on no lock. The database is in write-ahead mode
+--- ([`work.open`]), so the read handle reads the last commit at once
+--- while another run holds the write lock for minutes (a `cosmic test`
+--- compiling, say). Staging is a write, and waits for no other run either: where
+--- another holds the write lock, the session says so, does not stage, and
+--- answers from the tree as last committed; that run stages the same
+--- tree, and its commit brings the database up to it. It stages again at
+--- its next check. Once the lock is free it stages as a build does,
+--- waiting, as [`work.open`] waits, only for a run that took the lock in
+--- between.
 
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
@@ -140,7 +145,8 @@ local function working(root: string): string | nil
 end
 
 --- Whether another run holds the write lock of the database at `path`
---- now: asked by taking it, and letting it go, without waiting.
+--- now: asked by taking it, and letting it go, without waiting. It
+--- decides only whether to stage, never whether to read.
 local function busy(path: string): boolean
   local there, _ = Fs.exists(path)
   if there ~= true then return false end
@@ -156,6 +162,11 @@ local function busy(path: string): boolean
 end
 
 --- The read handle on the database, opened once there is one to open.
+--- It waits on no lock: in write-ahead mode a read never needs to. In
+--- rollback mode -- a file no run of this tool has opened since an
+--- older one made it, or one on a file system with no shared memory --
+--- a read a writer holds off fails at once, saying so, rather than
+--- hold up the session.
 local function database(src: source.View): Sqlite.Handle | nil
   local db = src.db
   if db ~= nil then return db end
@@ -168,6 +179,7 @@ local function database(src: source.View): Sqlite.Handle | nil
     src.err("cosmic: lsp: " .. path .. ": " .. trouble)
     return nil
   end
+  opened:busy_timeout(0)
   src.db = opened
   return opened
 end
@@ -204,8 +216,8 @@ function source.refresh(src: source.View, built: compiler)
   local path = working(src.root)
   if path ~= nil and busy(path) then
     if not src.told then
-      src.err("cosmic: lsp: another cosmic run holds " .. path ..
-          "; answering from the tree as last staged until it ends")
+      src.err("cosmic: lsp: another cosmic run holds the write lock of " .. path ..
+          "; not staging, answering from the tree as last committed")
       src.told = true
     end
     listed(src)

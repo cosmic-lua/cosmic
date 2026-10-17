@@ -4,6 +4,7 @@
 --- declaration, a template; and the stage made again when the editor says
 --- a file changed on disk, and only then.
 
+local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Json = require("cosmic.json")
 local Sqlite = require("cosmic.sqlite")
@@ -173,7 +174,11 @@ local function test_the_disk_is_read_only_when_the_editor_says_it_changed()
   assert(messages_of(nth(ran, 4)):find("got string", 1, true) ~= nil, messages_of(nth(ran, 4)))
 end
 
-local function test_a_busy_database_is_answered_from_as_last_staged()
+--- While another run holds the database's write transaction open, with
+--- more written than its cache holds (in rollback mode, a spill that
+--- holds the file whole), the session stages nothing and reads the last
+--- commit at once: it waits on no lock, and none fails its read.
+local function test_a_busy_database_is_read_at_once_as_last_committed()
   local root = assert(Fs.mkdtemp("cosmic-lsp-"))
   assert(Fs.mkdirs(root .. "/lib"))
   assert(Fs.write(root .. "/lib/shapes.tl", "return { sides = 3 }\n"))
@@ -181,13 +186,24 @@ local function test_a_busy_database_is_answered_from_as_last_staged()
   local send = serving(root)
   send({ initialize(root), open(root, "main.tl", main) })
   assert(Fs.write(root .. "/lib/shapes.tl", 'return { sides = "three" }\n'))
-  -- Another run holds the database's write lock, as a build's does.
+  -- Another run holds the database's write lock, as a build's does, and
+  -- has written more than its cache of a few pages holds.
   local held = assert(Sqlite.open(build_paths.under((assert(build_paths.directory(root)))).working,
     { writable = true }))
   assert(held:exec("BEGIN IMMEDIATE"))
+  assert(held:exec("PRAGMA cache_size = 10"))
+  -- Uncommitted, the file is gone: a read of it would find no module.
+  assert(held:exec("DELETE FROM files WHERE path = 'lib/shapes.tl'"))
+  assert(held:exec("WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n " ..
+      "WHERE i < 4000) INSERT INTO meta (key, value) SELECT 'filler ' || i, " ..
+      "hex(randomblob(512)) FROM n"))
+  local started = Clock.monotonic_ns()
   local busy = send({ save(root, "lib/shapes.tl") })
-  assert(busy.err:find("another cosmic run holds", 1, true) ~= nil, busy.err)
-  assert(counts(busy) == "0", "nothing changed as last staged: " .. counts(busy))
+  local took = Clock.monotonic_ns() - started
+  assert(busy.err:find("another cosmic run holds the write lock", 1, true) ~= nil, busy.err)
+  assert(busy.err:find("locked", 1, true) == nil, busy.err)
+  assert(counts(busy) == "0", "nothing changed as last committed: " .. counts(busy))
+  assert(took < Clock.seconds(10), "the answer took " .. tostring(took) .. " ns")
   assert(held:exec("ROLLBACK"))
   assert(held:close())
   local ran = send({ change(root, "main.tl", main .. "\n") })
