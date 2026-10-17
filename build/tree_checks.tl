@@ -48,6 +48,7 @@ local Ast = require("lang.ast")
 local Check = require("lang.check")
 local CheckPins = require("build.check_pins")
 local Codegen = require("lang.codegen")
+local Corrections = require("lang.stdlib_corrections")
 local Declarations = require("lang.declarations")
 local Lexer = require("lang.lexer")
 local Parser = require("lang.parser")
@@ -2949,6 +2950,8 @@ local record Lowering
   --- Nanoseconds spent translating, parsing and scoping, and lowering.
   prepare_ns: integer
   lower_ns: integer
+  --- What [`lang.stdlib_corrections`] could not apply to the declaration file of the standard library.
+  problems: {string}
 end
 
 --- Lowers the files of `missed` and everything they require (the prelude and the declaration file of the fork's
@@ -2963,11 +2966,20 @@ local function lower_tree(root: string, tree: Tree, missed: {DeclareFile}, decla
     program.external[name] = true
   end
   local made: Lowering = {
-    program = program, inputs = {}, lowered = {}, broken = {}, prepare_ns = 0, lower_ns = 0,
+    program = program, inputs = {}, lowered = {}, broken = {}, prepare_ns = 0, lower_ns = 0, problems = {},
   }
   local function prepare(row: DeclareFile): Declarations.Input
     local started = Clock.monotonic_ns()
-    local translated = Translate.translate(row.source, row.file)
+    local source = row.source
+    if row.module == "checker.stdlib" then
+      -- The declarations of the standard library the new checker reads differently from the fork.
+      local corrected = Corrections.apply(source)
+      source = corrected.text
+      for _, t in ipairs(corrected.problems) do
+        made.problems[#made.problems + 1] = row.file .. ": " .. t .. " (lang/stdlib_corrections.tl)"
+      end
+    end
+    local translated = Translate.translate(source, row.file)
     local parsed = Parser.parse(Lexer.lex(translated.text, row.file), row.file, row.dialect)
     made.broken[row.module] = #parsed.errors > 0
     local input: Declarations.Input = {
@@ -3122,15 +3134,17 @@ function tree_checks.declared(root: string, pinned?: {string: integer}, memo?: S
     return { "reading the sources: " .. trouble }
   end
   local salt = check_memo.salt(root, { "lang/ast.tl", "lang/lexer.tl", "lang/parser.tl", "lang/scopes.tl",
-    "lang/translate.tl", "lang/types.tl", "lang/relation.tl", "lang/declarations.tl", "checker/stdlib.d.tl",
-    "checker/tl.tl", "build/teal.tl", "build/check_memo.tl", "build/tree_checks.tl" }, "declared 1")
+    "lang/translate.tl", "lang/types.tl", "lang/relation.tl", "lang/declarations.tl", "lang/stdlib_corrections.tl",
+    "checker/stdlib.d.tl", "checker/tl.tl", "build/teal.tl", "build/check_memo.tl", "build/tree_checks.tl" }, "declared 1")
   local tree = tree_of(files, salt)
   if memo ~= nil then
     local _, _ = check_memo.prepare(memo, "declared")
   end
   local outcomes, missed = kept_outcomes(memo, "declared", tree, kept_declarations)
+  local problems: {string} = {}
   if #missed > 0 then
     local lowering = lower_tree(root, tree, missed, declared_globals(root), false)
+    problems = lowering.problems
     for _, row in ipairs(missed) do
       local outcome: DeclareOutcome = { errors = {} }
       if not lowering.broken[row.module] then
@@ -3147,7 +3161,11 @@ function tree_checks.declared(root: string, pinned?: {string: integer}, memo?: S
   if memo ~= nil then
     check_memo.finish(memo, "declared")
   end
-  return held_to_pins(tree, outcomes, Declarations.codes, pinned, "declarations", "build/tree_checks.tl's declare_pins")
+  local out = held_to_pins(tree, outcomes, Declarations.codes, pinned, "declarations", "build/tree_checks.tl's declare_pins")
+  for _, problem in ipairs(problems) do
+    table.insert(out, 1, problem)
+  end
+  return out
 end
 
 local function kept_checks(text: string, _file: string): DeclareOutcome | nil
@@ -3172,15 +3190,17 @@ function tree_checks.checked(root: string, pinned?: {string: integer}, memo?: Sq
   end
   local salt = check_memo.salt(root, { "lang/ast.tl", "lang/lexer.tl", "lang/parser.tl", "lang/scopes.tl",
     "lang/translate.tl", "lang/types.tl", "lang/relation.tl", "lang/declarations.tl", "lang/check.tl",
-    "lang/check_codes.tl", "checker/stdlib.d.tl", "checker/tl.tl", "build/teal.tl", "build/check_memo.tl",
-    "build/tree_checks.tl" }, "checked 1")
+    "lang/check_codes.tl", "lang/stdlib_corrections.tl", "checker/stdlib.d.tl", "checker/tl.tl", "build/teal.tl",
+    "build/check_memo.tl", "build/tree_checks.tl" }, "checked 1")
   local tree = tree_of(files, salt)
   if memo ~= nil then
     local _, _ = check_memo.prepare(memo, "checked")
   end
   local outcomes, missed = kept_outcomes(memo, "checked", tree, kept_checks)
+  local problems: {string} = {}
   if #missed > 0 then
     local lowering = lower_tree(root, tree, missed, declared_globals(root), true)
+    problems = lowering.problems
     local started = Clock.monotonic_ns()
     for _, row in ipairs(missed) do
       local outcome: DeclareOutcome = { errors = {} }
@@ -3204,7 +3224,11 @@ function tree_checks.checked(root: string, pinned?: {string: integer}, memo?: Sq
   if memo ~= nil then
     check_memo.finish(memo, "checked")
   end
-  return held_to_pins(tree, outcomes, Check.codes, pinned, "bodies", "build/check_pins.tl")
+  local out = held_to_pins(tree, outcomes, Check.codes, pinned, "bodies", "build/check_pins.tl")
+  for _, problem in ipairs(problems) do
+    table.insert(out, 1, problem)
+  end
+  return out
 end
 
 --- The files of the tree whose Lua ([`lang.codegen`]) differs from the fork's, which [`generated`] holds the tree to:

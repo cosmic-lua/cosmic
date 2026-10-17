@@ -93,6 +93,8 @@ local record Codes
     "cast_refused"
     -- `is` on a type a run-time tag cannot tell
     "is_on_record"
+    -- `is` of a type the value cannot have
+    "is_disjoint"
     -- a literal or an `is` of a class of another module
     "class_scope"
     -- a `<close>` local that holds neither nil nor a class that declares `__close`
@@ -185,7 +187,7 @@ Codes.codes = {
   "return_unexpected", "no_value", "alternatives_as_value", "value_count", "vararg_outside", "local_untyped",
   "param_untyped",
   "condition_type", "or_mix", "and_ternary", "concat_type", "operand_type", "compare_disjoint", "generic_op",
-  "cast_refused", "is_on_record", "class_scope", "close_not_closable", "setmetatable_call", "enum_member",
+  "cast_refused", "is_on_record", "is_disjoint", "class_scope", "close_not_closable", "setmetatable_call", "enum_member",
   "literal_missing", "literal_unknown", "literal_repeated",
   "literal_needs_type", "literal_ambiguous", "literal_shape", "arms_differ", "array_of_optional", "require_unknown",
   "export_not_declared", "unchecked_generic", "unchecked_protected", "unchecked_coroutine", "unchecked_match",
@@ -294,7 +296,8 @@ Codes.catalog = {
   {
     code = "not_callable", rule = "calls take functions",
     why = "a call runs the function its callee holds, which has to be a function type: a value that is not, or is " ..
-      "one of several, is not called",
+      "one of several, is not called. A method called through a union of records is one function when every member " ..
+      "declares it the same once the receiver is the union, and one of several otherwise",
     fix = "call a function, or narrow the value to one function type first",
   },
   {
@@ -410,6 +413,12 @@ Codes.catalog = {
     why = "`is` is a test of a run-time tag: a class is told by its metatable, and a primitive or an enum by its " ..
       "value; a record, an interface or a collection leaves nothing to test, and the contents of `any` are unchecked",
     fix = "test a tag (`x.kind == \"...\"`), declare a class, or validate the data with a [`cosmic.shape`] validator",
+  },
+  {
+    code = "is_disjoint", rule = "no casts",
+    why = "`v is T` is true when the run-time tag of `v` is that of `T`, so it narrows a value that may be a `T`: when " ..
+      "no type `v` can have is below `T`, or `T` below it, the test is never true and the branch it guards never runs",
+    fix = "this test is always false: remove it and the branch it guards, or test a type <value> can have",
   },
   {
     code = "class_scope", rule = "compiler-written classes",
