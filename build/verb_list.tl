@@ -43,6 +43,7 @@ verb_list.entries = {
   { name = "docs", load = function(): verb_spec.Spec return require("build.docs").spec end },
   { name = "uses", load = function(): verb_spec.Spec return require("build.docs").uses_spec end },
   { name = "todos", load = function(): verb_spec.Spec return require("build.todos").spec end },
+  { name = "lsp", load = function(): verb_spec.Spec return require("build.lsp").spec end },
   { name = "bom", load = function(): verb_spec.Spec return require("build.bom").spec end },
   { name = "refresh", load = function(): verb_spec.Spec return require("build.refresh").spec end },
   { name = "sandbox", load = function(): verb_spec.Spec return require("build.sandbox").spec end },

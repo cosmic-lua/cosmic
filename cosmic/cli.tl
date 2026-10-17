@@ -533,6 +533,20 @@ local record Cli
   --- first, in FTS5's own syntax ("a phrase", OR, prefix*) when they
   --- parse as that. The tree is found as `test` finds it
   todos: string
+  --- `cosmic lsp [--stdio] [--listen [host:]port] [--socket path]`: a
+  --- Language Server Protocol server for Teal, which an editor starts.
+  --- It publishes the checker's errors and warnings as a document is
+  --- opened, changed or saved, checked in memory as the editor holds it,
+  --- with a project's `require` answered from open documents, then the
+  --- files below the workspace's root, then the binary's `cosmic.*`; it
+  --- answers hover with a symbol's docs, as `cosmic docs`, and formats
+  --- a document as `cosmic fix` does. It serves one editor over standard
+  --- input and output, or, with `--listen` (a numeric host, the loopback
+  --- when only a port is given) or `--socket`, each editor that connects
+  --- until SIGINT or SIGTERM. Exits 0 after the editor's `shutdown` then
+  --- `exit`, 1 when it exits without `shutdown`, the stream breaks or a
+  --- listener fails, 2 for a command line it refuses
+  lsp: string
   --- `cosmic bom [--licenses | --json <path>]`: the bill of materials
   --- this binary ships under -- every third-party component its cores
   --- and database carry, one line each: name, version, license, and
@@ -712,7 +726,7 @@ end
 local module: Module = {
   fields = {
     run = "run", standalone = "standalone", eval = "eval", version = "version", test = "test", fix = "fix", build = "build",
-    db = "db", sql = "sql", cache = "cache", json = "json", hash = "hash", codec = "codec", archive = "archive", fetch = "fetch", time = "time", rand = "rand", compile = "compile", docs = "docs", uses = "uses", todos = "todos", bom = "bom",
+    db = "db", sql = "sql", cache = "cache", json = "json", hash = "hash", codec = "codec", archive = "archive", fetch = "fetch", time = "time", rand = "rand", compile = "compile", docs = "docs", uses = "uses", todos = "todos", lsp = "lsp", bom = "bom",
     refresh = "refresh", sandbox = "sandbox", help = "help",
   },
   verbs = {
@@ -909,6 +923,17 @@ local module: Module = {
       about = "every place that refers to a symbol",
       usage = "<symbol> [path...]",
     },
+    lsp = {
+      about = "a language server for editors",
+      usage = "[--stdio] [--listen [host:]port] [--socket path]",
+      spec = {
+        ["--stdio"] = { about = "serve one editor over standard input and output (the default)" },
+        ["--listen"] = { value = "[host:]port",
+          about = "serve each editor that connects to this TCP port" },
+        ["--socket"] = { value = "path",
+          about = "serve each editor that connects to this socket file" },
+      },
+    },
     todos = {
       about = "every TODO, with its date and commit",
       usage = "[path | words...]",
@@ -982,11 +1007,11 @@ local module: Module = {
     { "Running code", "run", "standalone", "eval", "version", "sandbox" },
     { "Project", "test", "fix", "build", "db" },
     { "Quick tools", "sql", "cache", "json", "hash", "codec", "archive", "fetch", "time", "rand", "compile" },
-    { "Lookup", "docs", "uses", "todos", "help" },
+    { "Lookup", "docs", "uses", "todos", "lsp", "help" },
     { "This binary", "bom", "refresh" },
   },
   order = { "run", "standalone", "eval", "version", "test", "fix", "build", "db", "sql", "cache", "json", "hash", "codec", "archive", "fetch", "time", "rand", "compile", "docs", "uses", "todos",
-    "bom", "refresh", "sandbox", "help" },
+    "lsp", "bom", "refresh", "sandbox", "help" },
 }
 
 return module
