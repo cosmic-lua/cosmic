@@ -44,6 +44,7 @@ local link_text = require("build.link_text")
 local host_names = require("build.host_names")
 local importer = require("build.importer")
 local Ast = require("lang.ast")
+local Declarations = require("lang.declarations")
 local Lexer = require("lang.lexer")
 local Parser = require("lang.parser")
 local Scopes = require("lang.scopes")
@@ -57,6 +58,7 @@ local work = require("build.work")
 local writer = require("build.writer")
 local type compiler = require("build.compiler")
 local String = require("cosmic.string")
+local Hash = require("cosmic.hash")
 
 local type Node = ast.Node
 
@@ -2674,6 +2676,383 @@ function tree_checks.scoped(root: string, pinned?: {string: integer}, memo?: Sql
     if count < pinned[key] then
       out[#out + 1] = key .. ": pinned " .. pinned[key] .. " but " .. count ..
         " found; lower the pin in build/tree_checks.tl's scope_pins"
+    end
+  end
+  return out
+end
+
+--- The errors of the new checker's lowering of declarations ([`lang.declarations`]) that files of the
+--- tree have, which [`declared`] holds the tree to: `<file> <code>` to how many errors of that code the
+--- file has. Each is a rule the tree still breaks or a form it writes that the checker has no type for;
+--- a rewrite removes it and a pin falls with it, and none is raised.
+local declare_pins: {string: integer} = {
+  -- a union of records told apart by the `where` clause the grammar drops, which the tagged unions of the plan (a field of a
+  -- single-member enum) replace: the syntax tree's union of declarations
+  ["lang/parser.tl untagged_union"] = 1,
+  -- a map keyed by `any` (the registry, a decoded table's keys, the shape validators), by a union or by a collection:
+  -- key by an `integer` or a `string`, or declare an enum or a record for the keys
+  ["build/analyzer.tl key_type"] = 2,
+  ["build/ast/walk.tl key_type"] = 2,
+  ["build/c/rules.tl key_type"] = 1,
+  ["build/confine.tl key_type"] = 4,
+  ["build/fix/equiv.tl key_type"] = 9,
+  ["build/fix/equiv_test.tl key_type"] = 6,
+  ["build/flow.tl key_type"] = 3,
+  ["build/flow_fuzz_test.tl key_type"] = 1,
+  ["build/json_query.tl key_type"] = 4,
+  ["build/json_query_test.tl key_type"] = 4,
+  ["build/link_resolve.tl key_type"] = 1,
+  ["build/perf.tl key_type"] = 2,
+  ["build/sandbox_test.tl key_type"] = 1,
+  ["build/stdlib_declarations_test.tl key_type"] = 3,
+  ["build/stub.tl key_type"] = 4,
+  ["build/teal.tl key_type"] = 3,
+  ["build/teal_test.tl key_type"] = 1,
+  ["build/test_test.tl key_type"] = 2,
+  ["checker/captures.tl key_type"] = 3,
+  ["cosmic/http/server.tl key_type"] = 6,
+  ["cosmic/http_test.tl key_type"] = 3,
+  ["cosmic/json.tl key_type"] = 8,
+  ["cosmic/json_fuzz_test.tl key_type"] = 7,
+  ["cosmic/json_path_fuzz_test.tl key_type"] = 4,
+  ["cosmic/json_path_test.tl key_type"] = 1,
+  ["cosmic/json_reader_fuzz_test.tl key_type"] = 3,
+  ["cosmic/json_test.tl key_type"] = 20,
+  ["cosmic/net.tl key_type"] = 3,
+  ["cosmic/shape.tl key_type"] = 7,
+  ["cosmic/shape_fuzz_test.tl key_type"] = 8,
+  ["cosmic/shape_record_test.tl key_type"] = 2,
+  ["cosmic/shape_test.tl key_type"] = 7,
+  ["cosmic/test.tl key_type"] = 5,
+  ["cosmic/web/app.tl key_type"] = 1,
+  ["cosmic/web/dev.tl key_type"] = 3,
+  ["cosmic/web/sse.tl key_type"] = 1,
+  ["cosmic/web/types.tl key_type"] = 3,
+  ["eval/check/grade.tl key_type"] = 2,
+  ["lang/translate.tl key_type"] = 2,
+  -- a type named through a field of a record ([`importer.Module`] is the field `Module: Module`): write `type Module = ...`
+  -- inside the record, where the grammar declares a nested type
+  ["build/c/init.tl member_missing"] = 1,
+  ["build/closure_store_test.tl member_missing"] = 1,
+  ["build/coverage/init.tl member_missing"] = 1,
+  ["build/declared_key_test.tl member_missing"] = 5,
+  ["build/doctest_test.tl member_missing"] = 1,
+  ["build/gen_syscalls_test.tl member_missing"] = 1,
+  ["build/importer.tl member_missing"] = 7,
+  ["build/importer_test.tl member_missing"] = 4,
+  ["build/positions.tl member_missing"] = 4,
+  ["build/positions_test.tl member_missing"] = 2,
+  ["build/runtime_checks_keys_test.tl member_missing"] = 3,
+  ["build/shared_compiles.tl member_missing"] = 2,
+  ["build/shared_parses_test.tl member_missing"] = 1,
+  ["build/test_inputs.tl member_missing"] = 1,
+  ["build/test_inputs_test.tl member_missing"] = 1,
+  ["build/worker.tl member_missing"] = 1,
+  ["build/worker_test.tl member_missing"] = 1,
+  ["build/workers.tl member_missing"] = 1,
+  ["core/declarations_test.tl member_missing"] = 1,
+  -- a type that lists an interface and lacks a field it declares (`mut skip` of [`Stream.Reader`]), or declares
+  -- it with another type: add the field, or make the types agree, in Teal
+  ["build/codec.tl interface_disagrees"] = 9,
+  ["cosmic/child.tl interface_disagrees"] = 1,
+  ["cosmic/http/multipart.tl interface_disagrees"] = 1,
+  ["cosmic/http/server.tl interface_disagrees"] = 1,
+  ["cosmic/http/wire_fuzz_test.tl interface_disagrees"] = 1,
+  ["cosmic/http/wire_test.tl interface_disagrees"] = 1,
+  ["cosmic/internal/compress.d.tl interface_disagrees"] = 1,
+  ["cosmic/internal/sqlite.d.tl interface_disagrees"] = 1,
+  ["cosmic/json_reader_fuzz_test.tl interface_disagrees"] = 1,
+  ["cosmic/json_reader_test.tl interface_disagrees"] = 1,
+  ["cosmic/net.tl interface_disagrees"] = 2,
+  ["cosmic/signal.tl interface_disagrees"] = 3,
+  ["cosmic/stream.tl interface_disagrees"] = 5,
+  ["cosmic/tar.tl interface_disagrees"] = 10,
+  ["cosmic/time.tl interface_disagrees"] = 8,
+  ["cosmic/web/sse.tl interface_disagrees"] = 2,
+  ["cosmic/zip.tl interface_disagrees"] = 10,
+  -- an array of optional elements: a map `{integer: T}` for sparse data
+  ["build/stub.tl array_of_optional"] = 1,
+  ["ci/cosmic_ci/github_test.tl array_of_optional"] = 1,
+  -- the raw `thread` type, until coroutines are typed (`Coroutine<Y, R, S>`)
+  ["cosmic/errors.tl thread_type"] = 1,
+  ["cosmic/internal/errors.d.tl thread_type"] = 1,
+  ["cosmic/poll.tl thread_type"] = 3,
+}
+
+--- What lowering one file found: its errors.
+local record DeclareOutcome
+  errors: {Declarations.Error}
+end
+
+local declare_codes: {string: Declarations.Code} = {}
+for _, code in ipairs(Declarations.codes) do
+  declare_codes[code] = code
+end
+
+local function kept_declarations(text: string, file: string): DeclareOutcome | nil
+  local outcome: DeclareOutcome = { errors = {} }
+  for _, fields in ipairs(check_memo.decode(text)) do
+    if fields[1] == "E" and #fields == 6 then
+      local code = declare_codes[fields[2]]
+      local y, x = math.tointeger(tonumber(fields[3])), math.tointeger(tonumber(fields[4]))
+      if code == nil or y == nil or x == nil then
+        return nil
+      end
+      outcome.errors[#outcome.errors + 1] = {
+        filename = file, code = code, y = y, x = x, offset = 0, length = 0, msg = fields[5], fix = fields[6], types = {},
+      }
+    elseif fields[1] ~= "N" then
+      return nil
+    end
+  end
+  return outcome
+end
+
+--- A file of the tree to lower: its module, the modules it requires and what its answer is keyed by.
+local record DeclareFile
+  file: string
+  source: string
+  module: string
+  dialect: Ast.Dialect
+  imports: {string}
+  key: string
+end
+
+--- The modules a source requires by a literal name.
+local function required_modules(source: string): {string}
+  local out: {string} = {}
+  local seen: {string: boolean} = {}
+  for _, name in source:gmatch("require%s*%(?%s*([\"'])([%w_%.%-]+)%1") do
+    if not seen[name] then
+      seen[name] = true
+      out[#out + 1] = name
+    end
+  end
+  return out
+end
+
+--- Every `.tl` file of the tree, its declarations and annotations lowered ([`lang.declarations`]) in the new
+--- checker's grammar from the translated source, apart from [`checker/tl.tl`], which the new checker replaces, and
+--- the files of a `testdata` directory, and counting nothing of a file whose translation does not parse:
+--- the errors are the ones `pinned` (by default `declare_pins`) counts, no more. A file with more errors of a
+--- code than pinned is listed with each, their places and fix; one with fewer, and a pin for a file with none,
+--- is told to lower the pin. The declaration files of the checker and the prelude of its fork declare the
+--- globals; every other file imports the modules it names from the whole tree, so the answer for a file is
+--- kept in `memo` under the sources of every module it requires, directly or not.
+function tree_checks.declared(root: string, pinned?: {string: integer}, memo?: Sqlite.Handle): {string}
+  pinned = pinned or declare_pins
+  local files, trouble = lexable(root)
+  if files == nil then
+    return { "reading the sources: " .. trouble }
+  end
+  local salt = check_memo.salt(root, { "lang/ast.tl", "lang/lexer.tl", "lang/parser.tl", "lang/scopes.tl",
+    "lang/translate.tl", "lang/types.tl", "lang/relation.tl", "lang/declarations.tl", "checker/stdlib.d.tl",
+    "checker/tl.tl", "build/teal.tl", "build/check_memo.tl", "build/tree_checks.tl" }, "declared 1")
+  local declared = declared_globals(root)
+  local rows: {DeclareFile} = {}
+  local by_module: {string: DeclareFile} = {}
+  local hashes: {string: string} = {}
+  for _, entry in ipairs(files) do
+    local file, source = entry[1], entry[2]
+    -- A directory of testdata holds programs for other projects, whose modules are not in the tree.
+    local data = file:find("^testdata/") ~= nil or file:find("/testdata/", 1, true) ~= nil
+    if file ~= "checker/tl.tl" and not data then
+      local row: DeclareFile = {
+        file = file, source = source, module = Declarations.module_of(file),
+        dialect = file:match("%.d%.tl$") and "decl" or "tl", imports = required_modules(source), key = "",
+      }
+      rows[#rows + 1] = row
+      by_module[row.module] = row
+      hashes[row.module] = Hash.hex_sha256(source)
+    end
+  end
+  local names_of: {string: {string}} = {}
+  -- A project inside the tree (`ci/`, a fixture directory) names its modules from its own root: a module
+  -- is also known by the name of its path below each directory.
+  for _, row in ipairs(rows) do
+    local name = row.module
+    local dot = name:find(".", 1, true)
+    while dot ~= nil do
+      name = name:sub(dot + 1)
+      if by_module[name] == nil then
+        by_module[name] = row
+        local held = names_of[row.module] or {}
+        held[#held + 1] = name
+        names_of[row.module] = held
+      end
+      dot = name:find(".", 1, true)
+    end
+  end
+  -- The key of a file is its source and the sources of every module it requires, however far.
+  for _, row in ipairs(rows) do
+    local reached: {string: boolean} = { [row.module] = true }
+    local stack: {string} = {}
+    for _, m in ipairs(row.imports) do
+      stack[#stack + 1] = m
+    end
+    while #stack > 0 do
+      local m = stack[#stack]
+      stack[#stack] = nil
+      local dep = by_module[m]
+      if dep ~= nil and not reached[dep.module] then
+        reached[dep.module] = true
+        for _, next_module in ipairs(dep.imports) do
+          stack[#stack + 1] = next_module
+        end
+      end
+    end
+    local names: {string} = {}
+    for m in pairs(reached) do
+      names[#names + 1] = m
+    end
+    table.sort(names)
+    local parts: {string} = {}
+    for i, m in ipairs(names) do
+      parts[i] = m .. "=" .. hashes[m]
+    end
+    -- The files of a cycle of requires reach the same modules: the file itself tells their keys apart.
+    row.key = check_memo.key(salt, row.dialect, row.module .. "\n" .. table.concat(parts, "\n"))
+  end
+  if memo ~= nil then
+    local _, _ = check_memo.prepare(memo, "declared")
+  end
+  local outcomes: {string: DeclareOutcome} = {}
+  local missed: {DeclareFile} = {}
+  for _, row in ipairs(rows) do
+    local text = memo ~= nil and check_memo.get(memo, "declared", row.key) or nil
+    local kept = text ~= nil and kept_declarations(text, row.file) or nil
+    if kept ~= nil then
+      outcomes[row.file] = kept
+    else
+      missed[#missed + 1] = row
+    end
+  end
+  if #missed > 0 then
+    local program = Declarations.new()
+    for _, name in ipairs({ "cosmic.sys", "cosmic.internal.process", "cosmic.internal.socket" }) do
+      program.external[name] = true
+    end
+    -- A file whose translation does not parse is lowered as far as its tree goes, for the files that import it, and
+    -- has no errors of its own: [`translated`] counts the forms that keep it from parsing.
+    -- TODO: count a broken file's own declaration errors once its `translated` pins reach 0: until then nothing holds
+    -- what its translation's parse errors hide (44 files when this landed, among them lang/ast.tl and lang/types.tl).
+    local broken: {string: boolean} = {}
+    local function prepare(row: DeclareFile): Declarations.Input
+      local made = Translate.translate(row.source, row.file)
+      local parsed = Parser.parse(Lexer.lex(made.text, row.file), row.file, row.dialect)
+      broken[row.module] = #parsed.errors > 0
+      return {
+        module = row.module, filename = row.file, chunk = parsed.chunk, dialect = row.dialect,
+        scoped = Scopes.build(parsed.chunk, row.file, declared),
+      }
+    end
+    program.provider = function(self: Declarations.Program, module: string): boolean
+      local row = by_module[module]
+      if row == nil then
+        return false
+      end
+      self:declare(prepare(row))
+      for _, name in ipairs(names_of[row.module] or {}) do
+        self:alias(name, row.module)
+      end
+      return true
+    end
+    -- The globals first: the prelude of the fork's checker, then its declaration file.
+    local tl, _ = Fs.read(root .. "/checker/tl.tl")
+    local prelude = tl ~= nil and tl:match("%[=====%[\n(.-)%]=====%]") or nil
+    if prelude ~= nil then
+      local parsed = Parser.parse(Lexer.lex(prelude, "prelude.d.tl"), "prelude.d.tl", "decl")
+      local _ = program:lower({
+        module = "checker.prelude", filename = "prelude.d.tl", chunk = parsed.chunk, dialect = "decl",
+        scoped = Scopes.build(parsed.chunk, "prelude.d.tl", {}),
+      })
+    end
+    local done: {string: boolean} = {}
+    local function lower_file(row: DeclareFile)
+      if done[row.module] then
+        return
+      end
+      done[row.module] = true
+      local _ = program:lower(prepare(row))
+      for _, name in ipairs(names_of[row.module] or {}) do
+        program:alias(name, row.module)
+      end
+    end
+    local stdlib = by_module["checker.stdlib"]
+    if stdlib ~= nil then
+      lower_file(stdlib)
+    end
+    -- What a missed file requires is lowered before it.
+    local state: {string: boolean} = {}
+    local order: {DeclareFile} = {}
+    local function visit(row: DeclareFile)
+      if state[row.module] then
+        return
+      end
+      state[row.module] = true
+      for _, m in ipairs(row.imports) do
+        local dep = by_module[m]
+        if dep ~= nil then
+          visit(dep)
+        end
+      end
+      order[#order + 1] = row
+    end
+    for _, row in ipairs(missed) do
+      visit(row)
+    end
+    for _, row in ipairs(order) do
+      lower_file(row)
+    end
+    for _, row in ipairs(missed) do
+      local outcome: DeclareOutcome = { errors = broken[row.module] and {} or program:errors(row.module) }
+      outcomes[row.file] = outcome
+      if memo ~= nil then
+        local kept: {{string}} = { { "N" } }
+        for _, e in ipairs(outcome.errors) do
+          kept[#kept + 1] = { "E", e.code, tostring(e.y), tostring(e.x), e.msg, e.fix }
+        end
+        check_memo.put(memo, "declared", row.key, check_memo.encode(kept))
+      end
+    end
+  end
+  if memo ~= nil then
+    check_memo.finish(memo, "declared")
+  end
+  local out: {string} = {}
+  local found: {string: integer} = {}
+  for _, row in ipairs(rows) do
+    local outcome = outcomes[row.file]
+    local by_code: {string: {Declarations.Error}} = {}
+    for _, e in ipairs(outcome.errors) do
+      local held = by_code[e.code] or {}
+      held[#held + 1] = e
+      by_code[e.code] = held
+    end
+    for _, code in ipairs(Declarations.codes) do
+      local errors = by_code[code]
+      if errors ~= nil then
+        local key = row.file .. " " .. code
+        found[key] = #errors
+        local limit = pinned[key] or 0
+        if #errors > limit then
+          for _, e in ipairs(errors) do
+            out[#out + 1] = row.file .. ":" .. e.y .. ":" .. e.x .. ": " .. e.msg .. " (" .. code .. "): " .. e.fix
+          end
+          out[#out + 1] = row.file .. ": " .. String.counted(#errors, "error") .. " of " .. code ..
+            " in its declarations, pinned " .. limit .. "; follow the fix above rather than raise the pin"
+        end
+      end
+    end
+  end
+  local keys: {string} = {}
+  for key in pairs(pinned) do keys[#keys + 1] = key end
+  table.sort(keys)
+  for _, key in ipairs(keys) do
+    local count = found[key] or 0
+    if count < pinned[key] then
+      out[#out + 1] = key .. ": pinned " .. pinned[key] .. " but " .. count ..
+        " found; lower the pin in build/tree_checks.tl's declare_pins"
     end
   end
   return out

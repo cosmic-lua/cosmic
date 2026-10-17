@@ -51,7 +51,9 @@
 ---   becomes a `class` that holds them as `function m(self, ...)`, with the
 ---   field of the same name that declared the method dropped, its doc comment
 ---   carried over and its parameter and return types written on the method
----   where the method leaves them out. A record with an array part or
+---   where the method leaves them out, and the `__close = function(self: R)` of the
+---   `metatable<R>` literal that follows it, which the class declares as the method
+---   `__close`. A record with an array part or
 ---   `userdata` stays a record. A method that reads a name declared between its
 ---   record and where it was written, or gives types that differ from its
 ---   field's, is a [`Hazard`].
@@ -715,6 +717,8 @@ end
 local record Owner
   record: Ast.Record
   methods: {Ast.Function}
+  --- The `__close = function(self: R) ... end` item of a `local m: metatable<R> = { ... }` of the chunk.
+  close: Ast.Named | nil
 end
 
 --- The name of the record that `f`, a statement `function R:m(...)`, is a
@@ -1037,6 +1041,58 @@ local function class_rewrite(source: string, tokens: {Lexer.Token}, declared: {s
       end
     end
   end
+  local close = held.close
+  if close ~= nil then
+    local value = close.value
+    local first, last = bounds(close)
+    if value is Ast.FunctionLit and #value.fn.params > 0 and starts_line(tokens, first) and tokens[last + 1] ~= nil and
+        tokens[last + 1].kind == "," and ends_line(tokens, last + 1) then
+      local fl, ll = bounds(value)
+      local pf, pl = bounds(value.fn.params[1])
+      local indent = sub(source, line_start(source, tokens[first].offset), tokens[first].offset - 1)
+      local text = indent .. "function __close" .. sub(source, stop_of(tokens, fl), tokens[pf].offset - 1) ..
+        tokens[pf].text .. sub(source, stop_of(tokens, pl), stop_of(tokens, ll) - 1) .. "\n"
+      -- The field `metamethod __close: T` declared goes, its docs to the method.
+      local docs = ""
+      local field = fields["__close"]
+      if field ~= nil then
+        local field_first, field_last = bounds(field)
+        local field_doc = field.doc
+        local first_doc = field_doc ~= nil and #field_doc > 0 and field_doc[1] or nil
+        local flo = line_start(source, first_doc ~= nil and first_doc.offset or tokens[field_first].offset)
+        local fhi = after_line(source, tokens[field_last].offset)
+        docs = sub(source, flo, line_start(source, tokens[field_first].offset) - 1)
+        edits[#edits + 1] = { lo = flo, hi = fhi, text = "" }
+      end
+      pieces[#pieces + 1] = ((#pieces == 0 and #rec.members == 0) and "" or "\n") .. docs .. text
+      edits[#edits + 1] = {
+        lo = line_start(source, tokens[first].offset), hi = after_line(source, tokens[last + 1].offset), text = "",
+      }
+      local own: {string: boolean} = {}
+      for _, p in ipairs(value.fn.params) do
+        local pn = p.name
+        if pn ~= nil then
+          own[pn.name] = true
+        end
+      end
+      local reported: {string: boolean} = {}
+      for i = fl, ll do
+        local t = tokens[i]
+        local prev = tokens[i - 1]
+        if t.kind == "identifier" and declared[t.text] ~= nil and not own[t.text] and not reported[t.text] and
+            not (prev ~= nil and (prev.kind == "." or prev.kind == ":")) then
+          local between, before = declared_between(declared, t.text, rec_last, fl)
+          if between then
+            reported[t.text] = true
+            found[#found + 1] = {
+              kind = before and "shadow" or "scope", class = rec.name.name, method = "__close", y = tokens[fl].y,
+              name = t.text,
+            }
+          end
+        end
+      end
+    end
+  end
   local at = line_start(source, tokens[rec_last].offset)
   edits[#edits + 1] = { lo = at, hi = at, text = concat(pieces) }
   for _, h in ipairs(found) do
@@ -1056,9 +1112,25 @@ local function class_rewrites(source: string, parsed: Parser.Parsed, hazards: {T
   for _, s in ipairs(stats) do
     if s is Ast.Record then
       times[s.name.name] = (times[s.name.name] or 0) + 1
-      owners[s.name.name] = { record = s, methods = {} }
+      owners[s.name.name] = { record = s, methods = {}, close = nil }
     elseif s is Ast.Interface or s is Ast.Class or s is Ast.Enum or s is Ast.TypeAlias or s is Ast.Import then
       times[s.name.name] = (times[s.name.name] or 0) + 1
+    end
+  end
+  for _, s in ipairs(stats) do
+    local annotation = s is Ast.Local and #s.types == 1 and s.types[1] or nil
+    local literal = s is Ast.Local and #s.values == 1 and s.values[1] or nil
+    if annotation ~= nil and annotation is Ast.TypeName and #annotation.path == 1 and annotation.path[1] == "metatable" and
+        #annotation.args == 1 and literal ~= nil and literal is Ast.Table then
+      local target = annotation.args[1]
+      local held = target is Ast.TypeName and #target.path == 1 and owners[target.path[1]] or nil
+      if held ~= nil then
+        for _, item in ipairs(literal.items) do
+          if item is Ast.Named and item.name == "__close" and held.close == nil then
+            held.close = item
+          end
+        end
+      end
     end
   end
   local order: {Owner} = {}

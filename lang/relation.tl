@@ -185,8 +185,20 @@ local record Relation
   record Closure
     set: {integer: boolean}
     list: {Type}
+    --- Whether every listing is in `list`: false where `MAX_LISTED` ended it or a listing would
+    --- nest past the store's depth.
+    complete: boolean
     --- The uses in `list`, by declaration.
     by_decl: {Types.Decl: {Named}}
+  end
+
+  --- What a declaration lists ([`Relation.Judge.listed`]).
+  record Listing
+    types: {Type}
+    --- Whether `types` is all of them. It is not where the closure is as large as the judge reads
+    --- (4096) or a listing would nest deeper than a store allows ([`Types.max_depth`]): the
+    --- relation then holds for the listings in `types` alone.
+    complete: boolean
   end
 
   --- The relation of one store.
@@ -213,6 +225,10 @@ local record Relation
     accepts: function(Judge, argument: Type, param: Type): boolean
     --- Nil where `argument` may be passed to `param`, else why not.
     refuse_argument: function(Judge, argument: Type, param: Type): Refusal | nil
+    --- Every interface that the declaration of `n` lists after `is`, and every one those extend,
+    --- with the arguments of each listing read through the declarations, in the order the
+    --- listings are met. Raises where a declaration it reads is not defined.
+    listed: function(Judge, n: Named): Listing
     --- Enters a binder: the type variables of the types compared from now on, the nearest
     --- binder's at depth 0, are bounded by `tparams` until [`Relation.Judge.leave`]. A bound is an
     --- interface used with no arguments, as a store requires; anything else raises.
@@ -223,6 +239,12 @@ local record Relation
 
   --- A judge for the types of `store`.
   new: function(store: Store): Judge
+
+  --- `t`, which is written inside a declaration with type parameters, with each of them replaced
+  --- by the matching type of `args`, which stand where the declaration is used; or nil where the
+  --- type it makes would nest deeper than the store allows ([`Types.max_depth`]). Raises where `t`
+  --- names a variable of a binder other than the one declaration's, or `args` is another store's.
+  instantiate: function(store: Store, t: Type, args: {Type}): Type | nil
 
   --- The binder of a declaration: its type parameters and their bounds. Raises where the
   --- declaration has no body.
@@ -235,15 +257,11 @@ end
 --- How many members of a target union a refusal explains.
 local MAX_ALTERNATIVES <const> = 16
 
---- How many times a listing may grow along a closure of interfaces, a listing growing when its
---- text is larger or it nests deeper than the one that lists it (the text saturates, the depth
---- does not). A chain of listings that stay as large is followed to its end (a cycle ends at a
---- listing already seen), and a declaration that lists itself with ever larger arguments stops
---- here.
-local MAX_LISTING_GROWTH <const> = 64
-
---- How many interfaces a closure holds at most, which ends a chain of listings that is long
---- without growing.
+--- How many interfaces a closure holds at most. A store refuses a declaration that lists itself,
+--- so a closure is finite, but a ladder of declarations that each list the next twice with
+--- other arguments has a closure as large as the ladder is long, doubled each step. The judge
+--- stops here, and [`Relation.Judge.listed`] says it did, so that [`lang.declarations`] refuses
+--- the declaration whose closure it is.
 local MAX_LISTED <const> = 4096
 
 local judge_mt: metatable<Relation.Judge> = { __index = Relation.Judge }
@@ -380,10 +398,10 @@ local function instantiate(store: Store, t: Type, args: {Type}): Type
 end
 
 --- [`instantiate`], or nil where the type it makes would nest past what the store allows.
--- TODO: have the declarations' lowering make `invalid` of a type that nests that deep, as lang/types.tl's
--- own TODO waits to, and drop this: until then a listing or an array part that would nest past the
--- store's depth is dropped, and a pair that holds by it is refused (doc/plans/new-checker-types.md,
--- "the order the pieces land in", declarations).
+-- TODO: refuse a use of a declaration in [`lang.declarations`] whose arguments would make a listing
+-- or an array part nest past the store's depth, and drop this, once the lowering checks the height
+-- that each listing chain adds: until then such a listing or array part is dropped, and a pair
+-- that holds by it is refused.
 local function instantiate_within(store: Store, t: Type, args: {Type}): Type | nil
   local made: {Type} = {}
   local ok, why = pcall(function()
@@ -410,38 +428,37 @@ end
 --- Every interface that the declaration of `n` lists after `is`, and every one those
 --- extend, with the arguments of `n` put in.
 local function closure_of(j: Relation.Judge, n: Named): Relation.Closure
-  -- TODO: drop MAX_LISTING_GROWTH and MAX_LISTED once the declarations' lowering refuses a declaration
-  -- that lists itself, directly or through what it lists, and one whose listing grows its own
-  -- arguments (doc/plans/new-checker-types.md, "declarations"): until then they end such a closure.
   local held = j.closures[n.id]
   if held ~= nil then
     return held
   end
-  local closure: Relation.Closure = { set = {}, list = {}, by_decl = {} }
+  local closure: Relation.Closure = { set = {}, list = {}, by_decl = {}, complete = true }
   local queue: {Named} = { n }
-  -- How many times the arguments have grown on the way to each.
-  local growth: {integer} = { 0 }
   local head = 1
   while head <= #queue do
-    local x, grown = queue[head], growth[head]
+    local x = queue[head]
     head = head + 1
     defined(x)
     local body = x.decl.body
-    if body ~= nil and grown < MAX_LISTING_GROWTH then
+    if body ~= nil then
       for _, super in ipairs(body.supers) do
         local listed: Type | nil = super
         if #x.args > 0 then
           listed = instantiate_within(j.store, super, x.args)
         end
-        if listed ~= nil and listed is Named and not closure.set[listed.id] and #closure.list < MAX_LISTED then
-          closure.set[listed.id] = true
-          closure.list[#closure.list + 1] = listed
-          local same = closure.by_decl[listed.decl] or {}
-          same[#same + 1] = listed
-          closure.by_decl[listed.decl] = same
-          queue[#queue + 1] = listed
-          local grows = listed.weight > x.weight or listed.height > x.height
-          growth[#growth + 1] = grows and grown + 1 or grown
+        if listed == nil then
+          closure.complete = false
+        elseif listed is Named and not closure.set[listed.id] then
+          if #closure.list >= MAX_LISTED then
+            closure.complete = false
+          else
+            closure.set[listed.id] = true
+            closure.list[#closure.list + 1] = listed
+            local same = closure.by_decl[listed.decl] or {}
+            same[#same + 1] = listed
+            closure.by_decl[listed.decl] = same
+            queue[#queue + 1] = listed
+          end
         end
       end
     end
@@ -973,6 +990,16 @@ Relation.Judge.refuse_argument = function(self: Relation.Judge, argument: Type, 
   return self:refuse(argument, param)
 end
 
+Relation.Judge.listed = function(self: Relation.Judge, n: Named): Relation.Listing
+  owned(self, n)
+  local closure = closure_of(self, n)
+  local copied: {Type} = {}
+  for i, listed in ipairs(closure.list) do
+    copied[i] = listed
+  end
+  return { types = copied, complete = closure.complete }
+end
+
 Relation.Judge.enter = function(self: Relation.Judge, tparams: {Types.TParam})
   local copied: {Types.TParam} = {}
   for i, tp in ipairs(tparams) do
@@ -994,6 +1021,18 @@ Relation.Judge.leave = function(self: Relation.Judge)
     error("relation: leave without enter", 2)
   end
   self.scopes[#self.scopes] = nil
+end
+
+function Relation.instantiate(store: Store, t: Type, args: {Type}): Type | nil
+  for _, a in ipairs(args) do
+    if a.owner ~= store.owner then
+      error("relation: a type of another store", 2)
+    end
+  end
+  if t.owner ~= store.owner then
+    error("relation: a type of another store", 2)
+  end
+  return instantiate_within(store, t, args)
 end
 
 function Relation.new(store: Store): Relation.Judge

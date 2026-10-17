@@ -1219,8 +1219,13 @@ typedecl = function(d: Ast.Node, nested: boolean)
   else
     return
   end
-  local v = declare(name, KINDS[kind], name.first, not nested, nil, scope == "global")
-  if kind == "Import" and d is Ast.Import then
+  -- An alias does not see its own name, so that `type Node = Node` inside a record names the `Node`
+  -- around it; the name is declared once its type is walked.
+  local v: Scopes.Var | nil = nil
+  if kind ~= "Alias" then
+    v = declare(name, KINDS[kind], name.first, not nested, nil, scope == "global")
+  end
+  if kind == "Import" and d is Ast.Import and v ~= nil then
     v.module = d.module
   end
   if kind == "Enum" or kind == "Import" then
@@ -1250,6 +1255,9 @@ typedecl = function(d: Ast.Node, nested: boolean)
   end
   close()
   S.defer = deferring
+  if kind == "Alias" then
+    local _ = declare(name, KINDS[kind], name.first, not nested, nil, scope == "global")
+  end
 end
 
 local function stat_function(s: Ast.Function)

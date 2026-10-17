@@ -641,6 +641,84 @@ local function test_a_name_bound_twice_is_taken_for_the_record_where_it_is_decla
       "end"))
 end
 
+local function test_the_close_of_the_metatable_literal_of_a_record_becomes_a_method_of_its_class()
+  -- The class carries `__close`, which an interface that declares it needs; the literal keeps the rest.
+  translates(lines(
+    "local record R",
+    "  open: boolean",
+    "  close: function(R)",
+    "end",
+    "",
+    "local r_mt: metatable<R> = {",
+    "  __index = R,",
+    "  __close = function(self: R)",
+    "    self:close()",
+    "  end,",
+    "}",
+    "",
+    "function R:close()",
+    "  self.open = false",
+    "end",
+    "",
+    "return R"), lines(
+      "local class R",
+      "  mut open: boolean",
+      "",
+      "  function close(self)",
+      "    self.open = false",
+      "  end",
+      "",
+      "  function __close(self)",
+      "    self:close()",
+      "  end",
+      "end",
+      "",
+      "local r_mt: metatable<R> = {",
+      "  __index = R,",
+      "}",
+      "",
+      "return R"))
+end
+
+local function test_the_close_field_a_record_declares_goes_with_its_docs_to_the_method()
+  translates(lines(
+    "local record R",
+    "  open: boolean",
+    "  --- Closes it.",
+    "  metamethod __close: function(R)",
+    "  close: function(R)",
+    "end",
+    "",
+    "local r_mt: metatable<R> = {",
+    "  __close = function(self: R)",
+    "    self:close()",
+    "  end,",
+    "}",
+    "",
+    "function R:close()",
+    "  self.open = false",
+    "end",
+    "",
+    "return R"), lines(
+      "local class R",
+      "  mut open: boolean",
+      "",
+      "  function close(self)",
+      "    self.open = false",
+      "  end",
+      "",
+      "  --- Closes it.",
+      "  function __close(self)",
+      "    self:close()",
+      "  end",
+      "end",
+      "",
+      "local r_mt: metatable<R> = {",
+      "}",
+      "",
+      "return R"))
+end
+
 local function test_a_class_that_writes_a_field_without_mut_is_given_it()
   translates(lines(
     "local class C",

@@ -1,0 +1,82 @@
+--- The speed of the lowering ([`lang.declarations`]), held to ratios and never to a clock: four times the
+--- declarations costs about four times the time, for each form of the tree's own that could cost more than its
+--- length: a union of many records told apart by a tag (the syntax tree's `Node`), a record that lists an
+--- interface of many parents, a record of many fields, and aliases that name each other.
+local Declarations = require("lang.declarations")
+local Lexer = require("lang.lexer")
+local Parser = require("lang.parser")
+local Scopes = require("lang.scopes")
+local Speed = require("lang.speed")
+local Test = require("cosmic.test")
+
+Test.policy{}
+
+--- `source` parsed and scoped, to lower again and again.
+local function prepare(source: string): Declarations.Input
+  local parsed = Parser.parse(Lexer.lex(source, "t.tl"), "t.tl", "tl")
+  assert(#parsed.errors == 0, parsed.errors[1] and parsed.errors[1].msg or "")
+  local scoped = Scopes.build(parsed.chunk, "t.tl", {})
+  return { module = "t", filename = "t.tl", chunk = parsed.chunk, scoped = scoped, dialect = "tl" }
+end
+
+local function lower(input: Declarations.Input)
+  local result = Declarations.new():lower(input)
+  assert(#result.errors == 0, result.errors[1] and result.errors[1].msg or "")
+end
+
+local FORMS <const>: {string: function(n: integer): string} = {
+  ["a union of tagged records"] = function(n: integer): string
+    local out: {string} = {}
+    local members: {string} = {}
+    for i = 1, n * 20 do
+      out[#out + 1] = "local enum K" .. i .. " \"k" .. i .. "\" end\nlocal record R" .. i .. "\n  kind: K" .. i ..
+        "\n  value: integer\nend\n"
+      members[i] = "R" .. i
+    end
+    out[#out + 1] = "local type Any = " .. table.concat(members, " | ") .. "\n"
+    return table.concat(out)
+  end,
+  ["a record that lists an interface of many parents"] = function(n: integer): string
+    local out: {string} = {}
+    local parents: {string} = {}
+    for i = 1, n * 20 do
+      out[#out + 1] = "local interface I" .. i .. "\n  f" .. i .. ": integer\nend\n"
+      parents[i] = "I" .. i
+    end
+    out[#out + 1] = "local interface Wide is " .. table.concat(parents, ", ") .. "\nend\n"
+    out[#out + 1] = "local record R is Wide\n"
+    for i = 1, n * 20 do
+      out[#out + 1] = "  f" .. i .. ": integer\n"
+    end
+    out[#out + 1] = "end\n"
+    return table.concat(out)
+  end,
+  ["a record of many fields"] = function(n: integer): string
+    local out: {string} = { "local record R\n" }
+    for i = 1, n * 50 do
+      out[#out + 1] = "  f" .. i .. ": {string: integer}\n"
+    end
+    out[#out + 1] = "end\n"
+    return table.concat(out)
+  end,
+  ["aliases that name each other"] = function(n: integer): string
+    local out: {string} = { "local type A0 = integer\n" }
+    for i = 1, n * 20 do
+      out[#out + 1] = "local type A" .. i .. " = {A" .. (i - 1) .. "}\n"
+    end
+    return table.concat(out)
+  end,
+}
+
+local function test_four_times_the_input_costs_about_four_times_the_time_for_each_form()
+  for name, form in pairs(FORMS) do
+    local small = prepare(form(5))
+    local large = prepare(form(20))
+    local ok, why = Speed.within(function()
+      lower(small)
+    end, function()
+      lower(large)
+    end, 10)
+    assert(ok, name .. ": four times the input " .. why)
+  end
+end

@@ -514,6 +514,11 @@ local function test_the_display_of_a_type_parses_and_lowers_to_the_same_type(tmp
       local t = Programs.generate(w.store, w.fixture, draws)
       local text = Types.display(t)
       local lowered, why = Programs.parse(w.store, w.fixture, text)
+      if lowered == nil and why:find("refused ", 1, true) == 1 then
+        -- a type the rules of declarations refuse: an array of optionals, a key that is no key, a union of records
+        Fuzz.label("refused")
+        return true, ""
+      end
       if lowered == nil then
         return false, "the display " .. text .. " does not parse: " .. why
       end
@@ -525,7 +530,8 @@ local function test_the_display_of_a_type_parses_and_lowers_to_the_same_type(tmp
       return true, ""
     end,
     requires = { "array", "map", "union", "optional", "named", "fn", "generic use", "generic function", "bound",
-      "omittable", "tail", "narrows", "var", "several alternatives" },
+      "omittable", "tail", "narrows", "var", "several alternatives", "refused" },
+    shares = { refused = 0.01 },
   })
 end
 
