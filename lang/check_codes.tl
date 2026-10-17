@@ -25,6 +25,8 @@ local record Codes
     "invariant_mut"
     -- a record where a map is wanted, or a map where a record is
     "record_as_map"
+    -- a declaration used as a value where a value of it is wanted, or the reverse
+    "declaration_value"
     -- untrusted data operated on, or a value stored as untrusted data
     "any_use"
     -- writes
@@ -49,6 +51,8 @@ local record Codes
     "not_callable"
     -- an overloaded function used as a value
     "overload_value"
+    -- a method of an interface read as a value, or called as a field
+    "interface_method_value"
     -- calls and returns
     -- too few or too many arguments
     "arity"
@@ -89,6 +93,12 @@ local record Codes
     "cast_refused"
     -- `is` on a type a run-time tag cannot tell
     "is_on_record"
+    -- a literal or an `is` of a class of another module
+    "class_scope"
+    -- a `<close>` local that holds neither nil nor a class that declares `__close`
+    "close_not_closable"
+    -- a call of `setmetatable`
+    "setmetatable_call"
     -- a string literal that is not a member of the enum wanted
     "enum_member"
     -- table literals and joins
@@ -170,12 +180,13 @@ end
 
 Codes.codes = {
   "not_assignable", "nil_not_allowed", "index_may_be_nil", "view_as_mut", "invariant_mut", "record_as_map",
-  "any_use", "view_written", "field_fixed", "array_hole", "float_key", "field_unknown", "map_field",
-  "record_index", "not_indexable", "not_callable", "overload_value", "arity", "overload_none", "return_arity",
+  "declaration_value", "any_use", "view_written", "field_fixed", "array_hole", "float_key", "field_unknown", "map_field",
+  "record_index", "not_indexable", "not_callable", "overload_value", "interface_method_value", "arity", "overload_none", "return_arity",
   "return_unexpected", "no_value", "alternatives_as_value", "value_count", "vararg_outside", "local_untyped",
   "param_untyped",
   "condition_type", "or_mix", "and_ternary", "concat_type", "operand_type", "compare_disjoint", "generic_op",
-  "cast_refused", "is_on_record", "enum_member", "literal_missing", "literal_unknown", "literal_repeated",
+  "cast_refused", "is_on_record", "class_scope", "close_not_closable", "setmetatable_call", "enum_member",
+  "literal_missing", "literal_unknown", "literal_repeated",
   "literal_needs_type", "literal_ambiguous", "literal_shape", "arms_differ", "array_of_optional", "require_unknown",
   "export_not_declared", "unchecked_generic", "unchecked_protected", "unchecked_coroutine", "unchecked_match",
   "unchecked_binding", "unchecked_nested",
@@ -225,6 +236,14 @@ Codes.catalog = {
     why = "a record's fields have types of their own, so a record is never passed where a map is wanted, nor a map " ..
       "where a record is",
     fix = "pass a value of the declared type, or declare a `{K: V}` for the data that is keyed",
+  },
+  {
+    code = "declaration_value", rule = "compiler-written classes",
+    why = "a declaration used as a value is the table of its functions, and a record or class value is made by a " ..
+      "table literal typed as it or by a function that makes one: the table of a class is its metatable, so no " ..
+      "program passes it for a value of the class. A module typed with its record (`Seatbelt: Seatbelt`) is the " ..
+      "same mistake the grammar cannot yet spell otherwise, and a ceiling holds it",
+    fix = "make a value with a literal typed as <type>, or call a function of <type> that makes one",
   },
   {
     code = "any_use", rule = "what any may do",
@@ -283,6 +302,13 @@ Codes.catalog = {
     why = "overloads exist in declarations only, and the call picks the first whose parameters accept the arguments, " ..
       "so a set of overloads has no type of its own to give a variable or a parameter",
     fix = "call it where you use it, or write a function of the one overload you mean",
+  },
+  {
+    code = "interface_method_value", rule = "compiler-written classes",
+    why = "a type that lists an interface declares each method with itself as the receiver, so a method read through " ..
+      "the interface is the one function of the value's own class, and calling that with another implementer would run " ..
+      "one class's code on another's fields: a method of an interface is called on its receiver, `v:m(...)`",
+    fix = "call it as `<value>:<method>(...)`",
   },
   {
     code = "arity", rule = "calls take the arguments the function declares",
@@ -384,6 +410,25 @@ Codes.catalog = {
     why = "`is` is a test of a run-time tag: a class is told by its metatable, and a primitive or an enum by its " ..
       "value; a record, an interface or a collection leaves nothing to test, and the contents of `any` are unchecked",
     fix = "test a tag (`x.kind == \"...\"`), declare a class, or validate the data with a [`cosmic.shape`] validator",
+  },
+  {
+    code = "class_scope", rule = "compiler-written classes",
+    why = "the compiler attaches the metatable of a class to the literal that makes its value and tests it with " ..
+      "`is`, and the table is a local of the module that declares the class, so a module makes and tests the values " ..
+      "of its own classes and calls a function of another module's class for the rest",
+    fix = "make the value, or test it, in <module> with a function of the class, and call that",
+  },
+  {
+    code = "close_not_closable", rule = "compiler-written classes",
+    why = "`<close>` calls the `__close` of the value's metatable at the end of the block and raises where there " ..
+      "is none, so the local holds nil or a class that declares `__close`",
+    fix = "hold a class that declares `function __close(self)` in <name>, or release the value by hand",
+  },
+  {
+    code = "setmetatable_call", rule = "dispatch only through declared types",
+    why = "the only metatables on tables a program makes are the compiler's, attached to the literal of a class, " ..
+      "so the only code they run is a class's `__close` and `__tostring`",
+    fix = "declare a `class` and write the value as a table literal typed as the class",
   },
   {
     code = "enum_member", rule = "enums are nominal strings",

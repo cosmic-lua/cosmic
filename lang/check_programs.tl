@@ -64,6 +64,7 @@ do
     require: function(string): any
     pcall: function(function(...: any): any, ...: any): boolean
     type: function(any): string
+    setmetatable: function<A>(A, any): A
   end
   global print <const> = Lib.print
   global tostring <const> = Lib.tostring
@@ -74,6 +75,7 @@ do
   global require <const> = Lib.require
   global pcall <const> = Lib.pcall
   global type <const> = Lib.type
+  global setmetatable <const> = Lib.setmetatable
 end
 ]]
 
@@ -97,7 +99,7 @@ local function lower(program: Declarations.Program, module: string, source: stri
   for _, e in ipairs(lowered.errors) do
     before[#before + 1] = e.code
   end
-  local result: Check.Checked = { errors = {}, vars = {} }
+  local result: Check.Checked = { errors = {}, vars = {}, literals = {} }
   if dialect == "tl" then
     result = Check.check(program, input, lowered)
   end

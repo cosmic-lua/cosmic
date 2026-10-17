@@ -1,0 +1,10 @@
+file: src/lparser.c
+note: '@' is a prefix operator.
+--- find
+    case '#': return OPR_LEN;
+    default: return OPR_NOUNOPR;
+--- replace
+    case '#': return OPR_LEN;
+    case '@': return OPR_CLASSOF;
+    default: return OPR_NOUNOPR;
+--- end

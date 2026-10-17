@@ -25,7 +25,7 @@ Test.policy{ grants = { { path = "o/cosmic.db", letters = "r" } } }
 local function test_the_verb_prints_the_binary_s_own_rows(tmp: string)
   local listed = invoke.run({ "bom" }, { cwd = tmp })
   assert(listed.code == 0, listed.stderr)
-  assert(listed.stdout:find("\nlua %S+  MIT\n") or listed.stdout:find("^lua %S+  MIT\n"),
+  assert(listed.stdout:find("\nlua %S+  MIT  %(%d+ patches%)\n") or listed.stdout:find("^lua %S+  MIT  %(%d+ patches%)\n"),
     listed.stdout)
   -- Data is what `cosmic refresh` updates, and the line says so.
   assert(listed.stdout:find("\ntzdata %S+  %S+  %(data: `cosmic refresh` updates it%)\n"), listed.stdout)

@@ -71,14 +71,21 @@ local fifo, await_ready, release = Process.fifo, Process.await_ready, Process.re
 -- they check is the rebuild's way through the lock, the artifact and the
 -- re-entry, which a compile of every module only slows. The docs verb's
 -- compiles the whole tree cold, as the product rebuilding itself on a
--- fresh checkout does: 55 to 60 s of one core for the tree's modules
--- (some 500 in October 2026), on a runner or under ci/run-local on a
--- four-core host, which this bound holds 2.5 times over: a macOS runner
--- took 90 s (run 37630361708 timed out at 90213 ms). Five cold
--- compiles at once on four cores would take 86 to 90 s each.
--- The driver bounds each test here at 180 s (orchestration.tl), which
+-- fresh checkout does, and that follows the tree: 140 to 177 s for its 952
+-- modules, on four cores of a development host (the same cold compile of
+-- 954 modules took 156 s), where it took 55 to 60 s for some 500 in
+-- October 2026. A macOS runner took 90 s then (run 37630361708 timed out
+-- at 90213 ms), and the merge queue run of #3102 XX
+-- on the linux-x86_64 leg. The bound keeps 1.5 times the slowest of those host timings, as
+-- #2834 did, and names a hung rebuild rather than a slow one. Five cold
+-- compiles at once on four cores would take far longer each.
+-- The driver bounds each test here at 300 s (orchestration.tl), which
 -- this leaves room inside.
-local rebuild_timeout_ns <const> = Clock.seconds(150)
+-- TODO: this bound follows the tree (about 5% a day the week of October
+-- 3) and will be passed again: report the docs case's elapsed time against
+-- it, so the growth shows before it fails a run, and bring it back down
+-- once a cold compile of the tree is quicker.
+local rebuild_timeout_ns <const> = Clock.seconds(270)
 
 -- The `rename`/`unlink` cases' run once the rebuilt tool is released: it
 -- builds the tree from the seeded compiles, runs four tests, and writes

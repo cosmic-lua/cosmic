@@ -165,6 +165,18 @@ local CASES <const>: {Case} = {
     fix = "write the type: `n: T`",
   },
   {
+    code = "metamethod_signature",
+    source = "local class C\n  function __close(self, by: integer)\n  end\nend\n",
+    msg = "the method `__close` of `C` takes more than the value",
+    fix = "write `function __close(self)`",
+  },
+  {
+    code = "class_metamethod",
+    source = "local class C\n  function __call(self)\n  end\nend\n",
+    msg = "the method `__call` of `C` would be read by Lua as a metamethod of its values",
+    fix = "rename `__call` and call it as a method (`v:call(...)`)",
+  },
+  {
     code = "thread_type",
     source = "local x: thread\n",
     msg = "`thread` is no type",
@@ -725,7 +737,7 @@ end
 
 -- function statements, global values and the library records of primitives ------------------------------
 
-local function test_a_statement_that_defines_a_function_of_a_record_gives_the_record_that_field_unless_it_declares_one()
+local function test_a_statement_that_defines_a_function_of_a_record_gives_the_declaration_that_field_unless_it_declares_one()
   local program = fresh()
   local source = [[
 local record R
@@ -750,13 +762,13 @@ end
   for _, f in ipairs(body.fields) do
     names[#names + 1] = f.name
   end
-  assert(table.concat(names, " ") == "declared n defined untyped", table.concat(names, " "))
+  assert(table.concat(names, " ") == "declared n", table.concat(names, " "))
   local decl = program.store:find("t", "R")
   assert(decl ~= nil)
   local statics = program.statics[decl]
   assert(statics ~= nil and statics.defined and statics.untyped and not statics.declared and not statics.n)
-  assert(Types.display(body.fields[3].type) == "function<T>(T, p2?: string): {T}", Types.display(body.fields[3].type))
-  assert(body.fields[4].type.tag == "invalid")
+  assert(Types.display(statics.defined.type) == "function<T>(T, p2?: string): {T}", Types.display(statics.defined.type))
+  assert(statics.untyped.type.tag == "invalid")
   -- the statement of a declared field is lowered once, as any function is
   local twice = 0
   for _, e in ipairs(result.lowered.errors) do

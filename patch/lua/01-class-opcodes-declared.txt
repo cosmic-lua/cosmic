@@ -1,0 +1,11 @@
+file: src/lopcodes.h
+note: The class form of the new checker's code generator needs two instructions that only the compiler's text can reach: OP_SETCLASS sets the metatable of a table made by a constructor, and OP_CLASSOF reads the metatable of a value, which `v is C` compares with the class. They come last before OP_EXTRAARG so that no other instruction moves.
+--- find
+OP_EXTRAARG/*	Ax	extra (larger) argument for previous opcode	*/
+--- replace
+OP_SETCLASS,/*	A B	R[A]'s metatable := R[B], a table			*/
+
+OP_CLASSOF,/*	A B	R[A] := the metatable of R[B], or nil		*/
+
+OP_EXTRAARG/*	Ax	extra (larger) argument for previous opcode	*/
+--- end

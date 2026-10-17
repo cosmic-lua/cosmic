@@ -2689,8 +2689,13 @@ end
 --- The errors of the new checker's lowering of declarations ([`lang.declarations`]) that files of the
 --- tree have, which [`declared`] holds the tree to: `<file> <code>` to how many errors of that code the
 --- file has. Each is a rule the tree still breaks or a form it writes that the checker has no type for;
---- a rewrite removes it and a pin falls with it, and none is raised.
+--- a rewrite removes it and a pin falls with it. A change that adds or sharpens a rule of the lowering may raise some, or
+--- add some for a new code, and says why in its message.
 local declare_pins: {string: integer} = {
+  -- a class whose metatable keeps its `__close` as a field, since the metatable also holds a `__gc` that a class has
+  -- no form for: the process handle becomes a C userdata whose finalizer C owns (doc/plans/strict-teal.md,
+  -- "compiler-written classes, in the new checker")
+  ["cosmic/internal/connector.tl class_metamethod"] = 1,
   -- a union of records told apart by the `where` clause the grammar drops, which the tagged unions of the plan (a field of a
   -- single-member enum) replace: the syntax tree's union of declarations
   ["lang/parser.tl untagged_union"] = 1,
@@ -3202,30 +3207,11 @@ function tree_checks.checked(root: string, pinned?: {string: integer}, memo?: Sq
   return held_to_pins(tree, outcomes, Check.codes, pinned, "bodies", "build/check_pins.tl")
 end
 
--- TODO: compare a file with a class apart from the class, once the class literal lands: the reserved form is not the
--- fork's `setmetatable` pattern, so these pins would otherwise stay.
 --- The files of the tree whose Lua ([`lang.codegen`]) differs from the fork's, which [`generated`] holds the tree to:
---- the file to how many lines differ. Each has a `class`, which the generator refuses until the reserved class literal
---- lands: the lines it lacks are the methods the translator moved into the class and the table the fork writes for its
---- record. A pin falls as the generator learns the construct, and none is raised.
-local generate_pins: {string: integer} = {
-  ["build/codec.tl"] = 403,
-  ["cosmic/child.tl"] = 83,
-  ["cosmic/fs.tl"] = 96,
-  ["cosmic/http/multipart.tl"] = 132,
-  ["cosmic/http/server.tl"] = 30,
-  ["cosmic/http/wire_fuzz_test.tl"] = 26,
-  ["cosmic/internal/connector.tl"] = 176,
-  ["cosmic/json.tl"] = 303,
-  ["cosmic/json_reader_fuzz_test.tl"] = 20,
-  ["cosmic/json_reader_test.tl"] = 20,
-  ["cosmic/net.tl"] = 214,
-  ["cosmic/poll.tl"] = 99,
-  ["cosmic/stream.tl"] = 814,
-  ["cosmic/tar.tl"] = 404,
-  ["cosmic/zip.tl"] = 356,
-  ["eval/check/testdata/mirror_api_test.tl"] = 38,
-}
+--- the file to how many lines differ. A file with a class is held to the fork's Lua apart from its classes
+--- ([`lang.codegen`]'s `without_classes` and `fork_without_classes`), since the reserved class form is not the fork's
+--- `setmetatable` pattern. A pin falls as the generator learns the construct, and none is raised.
+local generate_pins: {string: integer} = {}
 
 local function lines_of(text: string): {string}
   local out: {string} = {}
@@ -3390,7 +3376,16 @@ local function generate_outcome(file: string, source: string, memo: Sqlite.Handl
       if loaded == nil then
         outcome.invalid = tostring(load_why)
       end
+      -- The reserved form is not the fork's `setmetatable` pattern, so a file with a class is held to the fork's Lua
+      -- apart from its classes.
       local ours, fork = Codegen.compared(generated.text), Codegen.compared(lua)
+      for _, s in ipairs(parsed.chunk.body.stats) do
+        if s is Ast.Class then
+          ours = Codegen.without_classes(generated.text, parsed.chunk)
+          fork = Codegen.fork_without_classes(lua, parsed.chunk, made.metatables)
+          break
+        end
+      end
       if ours ~= fork then
         local a, b = lines_of(ours), lines_of(fork)
         outcome.differ = line_changes(a, b)
@@ -3424,7 +3419,9 @@ end
 --- and its Lua compared with the fork's for the Teal it started from: the same bytes, once the layout of a
 --- `continue` is set aside ([`lang.codegen`]'s `compared`). The fork compiles each file alone with no module served, so its Lua is
 --- a function of the file; what it writes from the types of other modules (a `local _ = require("m")` it drops where
---- `m` returns a type, an `is` of an imported enum or userdata) is outside this check. A file the check cannot compare
+--- `m` returns a type, an `is` of an imported enum or userdata) is outside this check. A file with a class is
+--- compared apart from its classes (see [`generate_pins`]), and nothing of the Lua the generator writes for a class is
+--- compared here: [`lang.codegen_test`] runs it. A file the check cannot compare
 --- (its translation does not parse, which `translated` counts, or the fork writes none) and the fork's own
 --- [`checker/tl.tl`] and the declaration files, which have no Lua, are left out. The files that differ are the ones
 --- `pinned` (by default `generate_pins`) names, with how many lines differ: a file with more lines than pinned is listed
