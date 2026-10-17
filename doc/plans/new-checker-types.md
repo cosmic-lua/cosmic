@@ -421,15 +421,17 @@ and `fixed`), so it is reused as written with interned types as its values.
 - **a place narrowed to `never` makes its edge unreachable,** by the
   mechanism that a `return` and a call of a `never` function use. it lets a
   chain of tag tests that covers every member end a function.
-- **an assignment** drops the place and every path from it. nothing else does:
-  a call, a closure, an alias or an operator cannot change a place.
+- **an assignment** to a place drops the facts of it and every path from it, then narrows it to the view of the value's type
+  (see [flow reads the rules strictly](#flow-reads-the-rules-strictly)). nothing else changes a place:
+  a call, a closure, an alias or an operator cannot.
 - **definite assignment** is a state in the same map. `local x: T` with no
   value puts `x` in as *unset*; a read of an unset place is `not_assigned`; a
   join keeps it assigned only if both edges assign it; a function literal
   reads each outer variable it names where it is made.
-- **loops** are walked once under the head's facts minus what the loop
-  assigns. a read of a head fact the back edge no longer supports is
-  refused, and an exit edge keeps a head fact only if the back edge does.
+- **loops** are walked to a fixed point: the head is where the entry and the back edge (the end of the body, with
+  its `continue`s) meet, so a fact the back edge loses is lost at the head, and the exit keeps a head fact only if
+  the back edge does. the passes that settle the head report nothing; one more, from the head they settle on,
+  does. [flow reads the rules strictly](#flow-reads-the-rules-strictly) has the rest.
 
 ### `match` and tagged unions
 
@@ -872,6 +874,59 @@ reading's looser form, named here.
   `LUAC_FORMAT` is 1 and every stored chunk of the old format fails at its header. *not adopted:* a hidden function
   of the core, which the generated chunk could reach only by a name.
 
+### flow reads the rules strictly
+
+[`lang/flow.tl`] and the walk of [`lang/check.tl`] take the reading of [narrowing and reachability](#narrowing-and-reachability)
+that refuses more where it is silent. *not adopted:* each reading's looser form, named here.
+
+- **an assignment narrows the place to the type of the value assigned, as the view of it, and an initializer does the same.** After
+  `x = e` the value of `x` is the value of `e`, so `if x == nil then x = d end` leaves `x` a non-nil, and `local c: Color? = nil` leaves `c`
+  nil. Two conditions, found by measuring it over the tree. The narrowed type is never `mut`: `mut` is a capability and no fact, and
+  narrowing `local xs: {integer} = {}` to the literal's `mut {integer}` would let `xs[#xs + 1] = v` stand, defeating the view rule
+  (`view_written` 6,109 to 555 and `array_hole` +845). And `unite` absorbs a member that is below another (`mut {T} | {T}` is
+  `{T}`, a class and the interface it lists are the interface), so a join never carries a type its edges do not need. A value
+  of `invalid` or `never` narrows nothing. An assignment of a value that is itself optional (`x, why = find()`) narrows nothing,
+  so a test before it is dropped and the use is `narrowing_dropped`, naming the assignment. A closure made before the assignment
+  reads no fact of the local ([`Capture.after`]). Measured over the tree: `nil_not_allowed` 5,351 to 4,938 and `narrowing_dropped` 77 to
+  12, the rises being the next rule a nil hid (`unchecked_generic` +104; `any_use` +5, the `a[k]` of an `any` that `is table` found to be one; `field_unknown` +8, the fields the fork's records inherit from an interface, which the translation leaves out and `interface_disagrees` reports, read through the union an assignment narrowed to). *not adopted:* the
+  first reading of this piece, that an assignment narrows nothing, which the review of the flow showed to be sound and needlessly
+  strict.
+- **`v is E` of an enum tests the values,** where `type(v) == "string"` (the fork's Lua) lets a string that is no member through: the
+  Lua [`lang.codegen`] writes for the checker is `({["red"] = true, ...})[v] == true`, and `Check.enums` hands it the values. The kinds
+  the checker took out stay the kinds, so a narrowed read of a `string` the test passed is held by the member check. The tree reads this
+  ([`build/cache.tl`]). The `generated` oracle of [`build.tree_checks`] keeps the fork's kind test, since it compares with the fork's Lua.
+- **`v is table` narrows to a table of unknown shape,** the kind test `type(v) == "table"`, and never to the standard library's record
+  `table`, whose fields are its functions (`v.concat` of a `{string}` is not `table.concat`).
+- **a narrowing declaration is proved of the argument and a parameter the body assigns cannot carry one.** `function f(v: string?): v is
+  string` whose body assigns `v` is `narrows_unproved`: the declaration speaks of the value the caller passed, and the body's edges are
+  about the value assigned. *not adopted:* proving it of the original value, which needs the facts of the parameter kept apart from
+  the local it becomes.
+- **a captured local that is assigned after the function is made is not narrowed inside it,** by a test inside the function either: the
+  function may run after any assignment, so a test in it holds only for a local that is fixed from then on.
+- **a local is assigned once by a statement:** `x, x = a, b` is `assign_repeated`, since Lua leaves the order open.
+- **a loop is walked to a fixed point.** The head is where the entry and the back edge meet, so a fact the back edge loses is lost at
+  the head, and a read of it before the assignment is refused; the passes that settle the head report nothing and skip the bodies of
+  functions. *not adopted:* a head that keeps what the entry held and refuses the reads the back edge does not support.
+- **a function names the locals it reads where it is made.** `local f: function()` with no value, read by a function made before `f`
+  is assigned, is `not_assigned` whatever code runs between, so functions that call each other are the functions of a record. A local of
+  type `any` with no value is unset (only `T?` admits nil). *not adopted:* the fork's walk of what runs between the function's
+  creation and the first call that may run it.
+- **a test no value can pass keeps what was known.** `x == nil` of a value that is never nil, `v is T` of a type `v` cannot have and a
+  tag no member has are refused (`compare_disjoint`, `is_disjoint`, `enum_member`) and narrow nothing, so one mistake is one error.
+  The edge that no value can take (the rest of a chain of tests that covered every member, `x ~= nil` of `nil`) is unreachable.
+- **a place is a local or a path of fixed fields of a record, class or interface** read through the type the facts hold of what is
+  before it. A field of a userdata record, of a union, of a type variable, a `mut` field, a global and an index are not places.
+- **`==` of an enum with a literal narrows nothing,** since an enum is one type: a chain of such tests does not end a function, and
+  the rewrite is a tag of a union of records or a `match`. A tag test narrows a union of records or classes by the enum of the field.
+- **a statement after a jump is `unreachable`,** reported once for the run of them and checked from the facts at the jump; the
+  declaration of a type is no code. A function declared `never` that can reach its end is `missing_return`, since a call of a binding
+  of C that is not declared `never` ends no path ([`Proc.exit`] ends in [`sys.exit`], which [`cosmic.sys`] does not yet declare).
+- **the narrowing a Teal body declares is proved where it returns.** A function declared `v is T` shows at each `return` that `v` is a
+  `T` when the value is true and not when it is false, from the edges of that value; one declared `asserts v is T` shows it at each
+  `return` and at its end (`narrows_unproved`). *not adopted:* a declaration taken on trust outside a declaration file.
+- **`assert` narrows as a special case** of the global (not a local of that name): the first argument's true edge holds after the call,
+  and the call is still `unchecked_generic`, until the generics piece declares `assert` as `asserts v`.
+
 [a count the tree cannot yet bring to zero is a ceiling]: strict-teal.md#decisions
 [annotated parameters]: strict-teal.md#annotated-parameters
 [an index read may be nil]: strict-teal.md#an-index-read-may-be-nil
@@ -903,7 +958,9 @@ reading's looser form, named here.
 [what the types leave out]: #what-the-types-leave-out
 
 [`bin/perf`]: ../../bin/perf
+[`build.tree_checks`]: ../../build/tree_checks.tl
 [`build/alias_members.tl`]: ../../build/alias_members.tl
+[`build/cache.tl`]: ../../build/cache.tl
 [`build/shards.tl`]: ../../build/shards.tl
 [`build/teal_test.tl`]: ../../build/teal_test.tl
 [`build/tree_checks.tl`]: ../../build/tree_checks.tl
@@ -918,20 +975,24 @@ reading's looser form, named here.
 [`cosmic/removed_example.tl`]: ../../cosmic/removed_example.tl
 [`Fs.read`]: ../../cosmic/fs.tl
 [`importer.Module`]: ../../build/importer.tl
+[`lang.codegen`]: ../../lang/codegen.tl
 [`lang/ast.tl`]: ../../lang/ast.tl
 [`lang/check.tl`]: ../../lang/check.tl
 [`lang/check_codes.tl`]: ../../lang/check_codes.tl
 [`lang/codegen.tl`]: ../../lang/codegen.tl
 [`lang/declarations.tl`]: ../../lang/declarations.tl
+[`lang/flow.tl`]: ../../lang/flow.tl
 [`lang/relation.tl`]: ../../lang/relation.tl
 [`lang/scopes.tl`]: ../../lang/scopes.tl
 [`lang/scopes_speed_test.tl`]: ../../lang/scopes_speed_test.tl
 [`lang/speed.tl`]: ../../lang/speed.tl
 [`lang/stdlib_corrections.tl`]: ../../lang/stdlib_corrections.tl
 [`lang/translate.tl`]: ../../lang/translate.tl
+[`Proc.exit`]: ../../cosmic/proc.tl
 [`Scoped.resolved`]: ../../lang/scopes.tl
 [`Scopes.declared`]: ../../lang/scopes.tl
 [`Store.define`]: ../../lang/types.tl
+[`sys.exit`]: ../../core/syscalls.h
 [`Var.assigned`]: ../../lang/scopes.tl
 [`Var.captures`]: ../../lang/scopes.tl
 [`Var.copies`]: ../../lang/scopes.tl

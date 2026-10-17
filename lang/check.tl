@@ -1,6 +1,6 @@
---- The new checker's expressions ([`doc/plans/new-checker-types.md`], "checking" and "errors"): every
+--- The new checker's expressions and flow ([`doc/plans/new-checker-types.md`], "checking" and "errors"): every
 --- expression and statement of a module's bodies typed against the declarations [`lang.declarations`] lowered,
---- by the relation of [`lang.relation`], without flow.
+--- by the relation of [`lang.relation`], under the facts [`lang.flow`] holds.
 ---
 --- [`Check.check`] walks a lowered module in source order. An expression is inferred ([`expr`]), with the type
 --- the position expects where it has one, which only a literal uses: a table, a function, a string for an enum,
@@ -27,12 +27,23 @@
 --- is in reach (`class_scope`). A `<close>` local holds nil or a class that declares `__close`
 --- (`close_not_closable`).
 ---
---- **What it leaves.** No test narrows a type, and no assignment is tracked: a value that may be nil stays
---- so until the flow piece lands, and a read of a name before its assignment, a function that can reach its
---- end without its return, and the arms of a `match` are that piece's. A call of a generic function, a
---- protected call, a coroutine function and a `match` are typed `invalid` and reported (`unchecked_*`), so
---- that no `invalid` is silent: the one that stands for a mistake already reported, by this checker or by the
---- lowering of the declarations, is the only other.
+--- **Flow.** The walk keeps what is known at the point it has reached ([`lang.flow`]): a place a test narrowed, a local
+--- not yet assigned, and whether control reaches the point. A place is a local, or a path of fixed fields (not `mut`) of
+--- a record, class or interface from one; it is narrowed by `x ~= nil`, `x == nil` and the truthiness of an optional,
+--- `v is T`, `type(v) == "..."`, a tag compared with a literal (`v.kind == "a"`), a call of a function declared `v is T`,
+--- `not`, `and` and `or` of these, `assert(c)` and a call of a function declared `asserts v is T`, and by a branch
+--- that ends its block (`return`, `break`, `continue`, a call of a function declared `never`). `if` and `match` meet
+--- the ends of their arms; a loop is walked to a fixed point, its head being where the entry and the back edge meet.
+--- An assignment drops the fact of the local and of the paths from it, then narrows the local to the view of the value's
+--- type where that is below the declared type (an initializer likewise). A function
+--- starts from the facts of the code around it except those of a local assigned after the function is made
+--- ([`Scopes.Capture.after`]). The flow gives `missing_return`, `not_assigned` (a local declared with no value, read
+--- or named by a function made before every path assigns it), `unreachable` and `narrowing_dropped`; a function
+--- declared to narrow must show it where it returns (`narrows_unproved`).
+---
+--- **What it leaves.** A call of a generic function, a protected call, a coroutine function and a `match` are typed
+--- `invalid` and reported (`unchecked_*`), so that no `invalid` is silent: the one that stands for a mistake already
+--- reported, by this checker or by the lowering of the declarations, is the only other.
 ---
 --- **Types of names.** A local, parameter or loop variable has the type its annotation or value gives;
 --- a name of a record or class used as a value ([`Fs.read`]) is the declaration's own type; a module
@@ -45,6 +56,7 @@
 local Ast = require("lang.ast")
 local Codes = require("lang.check_codes")
 local Declarations = require("lang.declarations")
+local Flow = require("lang.flow")
 local Lexer = require("lang.lexer")
 local Relation = require("lang.relation")
 local Scopes = require("lang.scopes")
@@ -62,6 +74,32 @@ local type Code = Codes.Code
 local record Check
   type Error = Codes.Error
 
+  --
+  -- TODO: have `cosmic test --check-types` ask [`lang.codegen`] to wrap each [`Check.Narrowed`] read, as
+  -- [`lang.check_programs`] does, once the switch makes the new checker's Lua the one the tests run
+  -- (doc/plans/strict-teal.md, "the switch").
+  --- A read of a local, or of a path of fixed fields from one, whose type a test narrowed. The checker took the value
+  --- to have none of the kinds of Lua value in `taken`, and the values of the enums, classes and tags the other fields
+  --- name, which a run can check at the read.
+  record Narrowed
+    --- The id of the node of the read, and where the place is read: the offset of its first token, and its length in bytes.
+    id: integer
+    offset: integer
+    length: integer
+    --- The place as the program writes it.
+    text: string
+    --- The kinds of value (`nil`, `number`, `string`, `boolean`, `table`, `function`, `userdata`) the read has none of.
+    taken: {string}
+    --- Where the read is of an enum: the strings a string there is one of. Nil where the type says no more of a string.
+    strings: {string} | nil
+    --- Where the read is of classes: their names, a table there has the metatable of one. Nil where it says no more.
+    classes: {string} | nil
+    --- Where the read is of members of a union that a field with one value each tells apart: the field, and the values
+    --- of the members the read is of.
+    tag: string | nil
+    tags: {string} | nil
+  end
+
   --- What checking a module answers.
   record Checked
     --- The errors, in source order.
@@ -71,12 +109,20 @@ local record Check
     --- The class of each table literal that makes a value of a class, by the id of its node: what the code
     --- generator writes as the class literal, a class of this module.
     literals: {integer: Decl}
+    --- The reads of a place whose type a test narrowed, in source order: what the checker concluded, for a run
+    --- that checks it ([`Check.Narrowed`]).
+    narrowed: {Narrowed}
   end
 
   --- Checks `input`, which `program` has lowered into `lowered` ([`Declarations.Program.lower`]), and answers
   --- its errors. The modules it requires must be lowered: a type whose declaration has no body raises
   --- `relation: <declaration> is not defined`.
   check: function(program: Declarations.Program, input: Declarations.Input, lowered: Declarations.Lowered): Checked
+
+  --- The values of the enum each type node of `lowered` stands for, by the id of the node: what the code generator
+  --- ([`lang.codegen`]'s `enums`) tests membership of for `v is Enum`, since a string that passed `type(v) == "string"` is
+  --- no member of the enum for that.
+  enums: function(lowered: Declarations.Lowered): {integer: {string}}
 
   --- Every [`Codes.Code`] an error may have, with its row in [`Check.catalog`] or in [`Declarations.catalog`].
   codes: {Codes.Code}
@@ -103,10 +149,37 @@ local record Members
   array: Type | nil
 end
 
+--- A loop being walked: where its `break`s and `continue`s leave from.
+local record Loop
+  --- The states at the `break`s, met: nil where none.
+  breaks: Flow.State | nil
+  --- The states at the `continue`s, met.
+  continues: Flow.State | nil
+end
+
+--- A call that tests a value: the argument it narrows, and the type it takes it to ([`Types.Narrows`]).
+local record Guarded
+  arg: Ast.Exp
+  to: Type
+end
+
+--- The edges of an `and` or an `or`: the state after it, and the states where it is true and false.
+local record Edges
+  post: Flow.State
+  yes: Flow.State
+  no: Flow.State
+end
+
 --- A function being checked.
 local record Frame
   --- What it may return: a set of lists. Empty, it never returns.
   alts: {Alt}
+  --- The narrowing declaration it makes good, the id of the parameter it names and the type that parameter was
+  --- declared with, or nil.
+  narrows: Types.Narrows | nil
+  narrowed_id: integer
+  narrowed_name: string
+  narrowed_type: Type | nil
   --- The type of each value `...` stands for, or nil where it has no rest parameter.
   rest: Type | nil
   --- Whether it is the module's own chunk, whose `return` is what `require` answers.
@@ -155,6 +228,31 @@ local record Ctx
   unknown: {integer: boolean} | nil
   invalid: Type
   nil_type: Type
+  --- What is known at the point the walk has reached ([`lang.flow`]), and how many passes of a loop that is
+  --- settling are open: they report nothing and skip the bodies of functions, since the pass that follows reports.
+  flow: Flow.State
+  --- The locals of the code around the function being walked that an assignment may change after the function is made:
+  --- no place inside it, for a test there narrows only a local that is fixed from then on.
+  unfixed_now: {integer: boolean}
+  --- The locals the assignment being checked assigns, whose function literals name them while they are unset.
+  assigning: {integer: boolean}
+  quiet: integer
+  --- The loops being walked, innermost last.
+  loops: {Loop}
+  --- The key of each local's place, by id.
+  keys: {integer: string}
+  --- The edges of the `and`s and `or`s evaluated, by the id of the node.
+  edges: {integer: Edges}
+  --- The calls that narrow an argument, by the id of the node.
+  guards: {integer: Guarded}
+  --- By the id of a function: the locals it reads from outside (named where it is made), and those an assignment may
+  --- change after it is made ([`Scopes.Capture.after`]), which no fact of the code around it holds inside it.
+  reads: {integer: {Scopes.Var}}
+  unfixed: {integer: {integer: boolean}}
+  --- The reads of narrowed places, by the offset of the place.
+  narrowed: {integer: Check.Narrowed}
+  unite: function(Type, Type): Type
+  covers: function(Type, Type): boolean
 end
 
 -- Helpers ------------------------------------------------------------------------------------
@@ -201,13 +299,73 @@ local function subject(ctx: Ctx, node: Ast.Node): string
   return quoted(text_of(ctx, node))
 end
 
---- Reports `code` on the tokens of `node`.
+local function peel(e: Ast.Node): Ast.Node
+  local at = e
+  while at is Ast.Paren do
+    at = at.inner
+  end
+  return at
+end
+
+--- The key of the place of the local `id`.
+local function id_key(ctx: Ctx, id: integer): string
+  local key = ctx.keys[id]
+  if key == nil then
+    key = tostring(id)
+    ctx.keys[id] = key
+  end
+  return key
+end
+
+--- The key of the place a name or a chain of fields from a name is, whatever the facts hold of it: a local's id, then
+--- `.` and each field. Nil for any other expression.
+local function path_key(ctx: Ctx, e: Ast.Exp): string | nil
+  local at = peel(e)
+  if at is Ast.Name then
+    local id = at.binding
+    return id ~= nil and id_key(ctx, id) or nil
+  elseif at is Ast.Field then
+    local base = path_key(ctx, at.object)
+    return base ~= nil and base .. "." .. at.name or nil
+  end
+  return nil
+end
+
+--- Where an assignment dropped the fact the place of `node` had, or nil.
+local function dropped_by(ctx: Ctx, node: Ast.Node): Scopes.Place | nil
+  if next(ctx.flow.gone) == nil then
+    return nil
+  end
+  local at = peel(node)
+  if at is Ast.Name or at is Ast.Field then
+    local key = path_key(ctx, at)
+    return key ~= nil and ctx.flow.gone[key] or nil
+  end
+  return nil
+end
+
+--- Reports `code` on the tokens of `node`. A value that may be nil because an assignment dropped what a test had
+--- shown is told that (`narrowing_dropped`), with the assignment as the second place.
 local function report(ctx: Ctx, code: Code, node: Ast.Node, msg: string, fix: string, shown?: {string},
                       other?: Scopes.Place)
+  if ctx.quiet > 0 then
+    return
+  end
   local b = base_of(node)
   local tokens = ctx.tokens
   local a = tokens[b.first]
   local z = tokens[math.max(b.first, b.last)]
+  local why = code == "nil_not_allowed" and dropped_by(ctx, node) or nil
+  if why ~= nil then
+    code = "narrowing_dropped"
+    other = why
+    local at = why.y .. ":" .. why.x
+    local name = text_of(ctx, node)
+    msg = msg .. " (a test showed it was not nil, and the assignment at " .. at .. " dropped that)"
+    fix = "test " .. quoted(name) .. " again after the assignment at " .. at .. " (`if " .. name ..
+      " == nil then return nil, why end`), or read the value into a new local that nothing assigns (`local v = " ..
+      name .. "`) and test that"
+  end
   ctx.errors[#ctx.errors + 1] = {
     filename = ctx.filename, code = code, msg = msg, fix = fix, y = a.y, x = a.x, offset = a.offset,
     length = math.max(0, z.offset + z.length - a.offset), other = other, types = shown or {},
@@ -449,14 +607,6 @@ end
 local KIND_WORDS <const>: {Types.DeclKind: string} = {
   record = "record", class = "class", interface = "interface", enum = "enum", userdata = "userdata record",
 }
-
-local function peel(e: Ast.Node): Ast.Node
-  local at = e
-  while at is Ast.Paren do
-    at = at.inner
-  end
-  return at
-end
 
 -- Refusals -----------------------------------------------------------------------------------
 
@@ -1784,6 +1934,569 @@ local function condition(ctx: Ctx, node: Ast.Exp): Type
   return t
 end
 
+local edges: function(ctx: Ctx, f: Flow.State, e: Ast.Node): Flow.State, Flow.State
+
+-- Narrowing ------------------------------------------------------------------------------------
+
+--- A place the facts may hold: a local, or a path of fixed fields from one.
+local record Place
+  key: string
+  --- What the program declared it with.
+  declared: Type
+end
+
+--- The union `t` without a member that is below another, so that the join of two facts is the wider one (`{T}` for
+--- `mut {T} | {T}`, a class for the interface it lists): a fact never carries a type its edges' do not need.
+local function subsume(ctx: Ctx, t: Type): Type
+  if not (t is Types.Union) then
+    return t
+  end
+  local members = members_of(ctx.store, t)
+  local kept: {Type} = {}
+  for i, m in ipairs(members) do
+    local covered = false
+    for j, n in ipairs(members) do
+      if m.tag == "invalid" or n.tag == "invalid" then
+        return t
+      elseif i ~= j and m.tag ~= "nil" and below(ctx, m, n) and (j < i or not below(ctx, n, m)) then
+        covered = true
+        break
+      end
+    end
+    if not covered then
+      kept[#kept + 1] = m
+    end
+  end
+  if #kept < #members then
+    return ctx.store:union(kept)
+  end
+  return t
+end
+
+--- The states `a` and `b` meet in.
+local function merge(ctx: Ctx, a: Flow.State, b: Flow.State): Flow.State
+  return Flow.join(a, b, ctx.unite, ctx.covers)
+end
+
+--- The state where all of `list` meet; the first where there is one.
+local function merge_all(ctx: Ctx, list: {Flow.State}): Flow.State
+  local at = list[1]
+  for i = 2, #list do
+    at = merge(ctx, at, list[i])
+  end
+  return at
+end
+
+--- The type of `place` in `f`: what it was narrowed to, else what it was declared with.
+local function current(f: Flow.State, place: Place): Type
+  local fact = f.facts[place.key]
+  if fact ~= nil then
+    return fact.type
+  end
+  return place.declared
+end
+
+--- The kinds of binding a place may be.
+local PLACE_KINDS <const>: {Scopes.Kind: boolean} = {
+  ["local"] = true, ["function"] = true, param = true, loop = true, pattern = true,
+}
+
+--- The place the expression `e` names in the state `f`, or nil: a local, or `a.b.c` from one with each field fixed
+--- (not declared `mut`) of a record, class or interface, read through the type the facts hold of what is before it.
+--- A global, a `mut` field, an index and a field of anything else are not places: code that runs between a test and a
+--- use can change them.
+local function place_of(ctx: Ctx, f: Flow.State, e: Ast.Node): Place | nil
+  local at = peel(e)
+  if at is Ast.Name then
+    local id = at.binding
+    if id == nil then
+      return nil
+    end
+    local v = ctx.scoped.vars[id]
+    local declared = ctx.vars[id]
+    local key = path_key(ctx, at)
+    if v == nil or declared == nil or key == nil or not PLACE_KINDS[v.kind] or ctx.unfixed_now[id] then
+      return nil
+    end
+    return { key = key, declared = declared }
+  elseif at is Ast.Field then
+    local base = place_of(ctx, f, at.object)
+    if base == nil then
+      return nil
+    end
+    local owner = ctx.store:non_nil(current(f, base))
+    if not (owner is Named) or owner.value then
+      return nil
+    end
+    local kind = owner.decl.kind
+    if kind ~= "record" and kind ~= "class" and kind ~= "interface" then
+      return nil
+    end
+    local list = member_types(ctx, owner, at.name)
+    local m = list ~= nil and list[1] or nil
+    if list == nil or m == nil or #list ~= 1 or m.method or m.mut then
+      return nil
+    end
+    return { key = base.key .. "." .. at.name, declared = put_in(ctx, owner, m.type) }
+  end
+  return nil
+end
+
+--- The tests of a type: what Lua value it is, which strings, tables and tags it holds, and what a test of a place leaves of it.
+local record Tests
+  lua_kind: function(t: Type): string
+  kinds_of: function(ctx: Ctx, t: Type): {string: boolean} | nil
+  enum_strings: function(ctx: Ctx, t: Type): {string} | nil
+  table_members: function(ctx: Ctx, t: Type): {Type} | nil
+  tag_field: function(ctx: Ctx, list: {Type}): string | nil, {string} | nil
+  tag_values: function(ctx: Ctx, m: Type, name: string): {string} | nil
+  nil_of: function(ctx: Ctx, cur: Type): Type
+  not_nil_of: function(ctx: Ctx, cur: Type): Type
+  by_kind: function(ctx: Ctx, cur: Type, kind: string, keep: boolean): Type
+  keep_is: function(ctx: Ctx, cur: Type, tested: Type): Type
+  drop_is: function(ctx: Ctx, cur: Type, tested: Type): Type
+end
+
+--- The kind of Lua value a value of type `t` is, or "" where the type does not say (`any`, a type variable, a union).
+function Tests.lua_kind(t: Type): string
+  local tag = t.tag
+  if tag == "integer" or tag == "number" then
+    return "number"
+  elseif tag == "string" then
+    return "string"
+  elseif tag == "boolean" or tag == "true" or tag == "false" then
+    return "boolean"
+  elseif tag == "nil" then
+    return "nil"
+  elseif tag == "fn" then
+    return "function"
+  elseif tag == "array" or tag == "map" then
+    return "table"
+  elseif t is Named then
+    local kind = t.decl.kind
+    if kind == "enum" then
+      return "string"
+    elseif kind == "userdata" then
+      return "userdata"
+    end
+    return "table"
+  end
+  return ""
+end
+
+local LUA_KINDS <const>: {string} = { "nil", "number", "string", "boolean", "table", "function", "userdata" }
+
+--- The kinds of Lua value a value of type `t` may be, or nil where it may be any.
+function Tests.kinds_of(ctx: Ctx, t: Type): {string: boolean} | nil
+  local out: {string: boolean} = {}
+  for _, m in ipairs(members_of(ctx.store, t)) do
+    local kind = Tests.lua_kind(m)
+    if kind ~= "" then
+      out[kind] = true
+    elseif m.tag ~= "never" then
+      return nil
+    end
+  end
+  return out
+end
+
+--- The values of the enum a field of `m` is declared with, or nil where `m` has no such field.
+function Tests.tag_values(ctx: Ctx, m: Type, name: string): {string} | nil
+  if not (m is Named) or m.value or (m.decl.kind ~= "record" and m.decl.kind ~= "class") then
+    return nil
+  end
+  local field = plain_field(ctx, m, name)
+  local t = field ~= nil and field.type or nil
+  local body = t ~= nil and t is Named and t.decl.kind == "enum" and t.decl.body or nil
+  return body ~= nil and body.values or nil
+end
+
+--- The strings a value of type `t` may be when `t` says no more of a string than the values of its enums, else nil.
+function Tests.enum_strings(ctx: Ctx, t: Type): {string} | nil
+  local out: {string} = {}
+  local seen: {string: boolean} = {}
+  for _, m in ipairs(members_of(ctx.store, t)) do
+    if Tests.lua_kind(m) == "string" then
+      local body = m is Named and m.decl.kind == "enum" and m.decl.body or nil
+      if body == nil then
+        return nil
+      end
+      for _, v in ipairs(body.values) do
+        if not seen[v] then
+          seen[v] = true
+          out[#out + 1] = v
+        end
+      end
+    end
+  end
+  table.sort(out)
+  return #out > 0 and out or nil
+end
+
+--- The members of `t` that are tables, or nil where `t` may be a table of any kind (`any`, a type variable).
+function Tests.table_members(ctx: Ctx, t: Type): {Type} | nil
+  local out: {Type} = {}
+  for _, m in ipairs(members_of(ctx.store, t)) do
+    local kind = Tests.lua_kind(m)
+    if kind == "" and m.tag ~= "never" then
+      return nil
+    elseif kind == "table" then
+      out[#out + 1] = m
+    end
+  end
+  return out
+end
+
+--- The field that tells the types of `list` apart: one every one declares with an enum of one value, and the values.
+function Tests.tag_field(ctx: Ctx, list: {Type}): string | nil, {string} | nil
+  local first = list[1]
+  local body = first ~= nil and first is Named and first.decl.body or nil
+  if body == nil then
+    return nil
+  end
+  for _, f in ipairs(body.fields) do
+    local values: {string} = {}
+    for _, m in ipairs(list) do
+      local v = Tests.tag_values(ctx, m, f.name)
+      if v == nil or #v ~= 1 then
+        values = {}
+        break
+      end
+      values[#values + 1] = v[1]
+    end
+    if #values == #list then
+      return f.name, values
+    end
+  end
+  return nil
+end
+
+--- Notes that the read `node` of a place declared `declared` has the type `narrowed`, for a run that checks it.
+local function note_narrowed(ctx: Ctx, node: Ast.Node, declared: Type, narrowed: Type)
+  if ctx.quiet > 0 then
+    return
+  end
+  local after = Tests.kinds_of(ctx, narrowed)
+  if after == nil then
+    return
+  end
+  local before = Tests.kinds_of(ctx, declared)
+  local taken: {string} = {}
+  for _, kind in ipairs(LUA_KINDS) do
+    if not after[kind] and (before == nil or before[kind]) then
+      taken[#taken + 1] = kind
+    end
+  end
+  -- An enum, a class or a tag the test narrowed to: what the declared type left a string or a table to be.
+  local strings = Tests.enum_strings(ctx, narrowed)
+  local was = Tests.enum_strings(ctx, declared)
+  if strings ~= nil and was ~= nil and table.concat(strings, "\0") == table.concat(was, "\0") then
+    strings = nil
+  end
+  local classes: {string} | nil = nil
+  local tag: string | nil = nil
+  local tags: {string} | nil = nil
+  local now = Tests.table_members(ctx, narrowed)
+  local old = Tests.table_members(ctx, declared)
+  if now ~= nil and #now > 0 and (old == nil or #old > #now) then
+    local names: {string} = {}
+    for _, m in ipairs(now) do
+      if m is Named and m.decl.kind == "class" and #m.decl.names == 1 and m.decl.module == ctx.input.module and not m.value then
+        names[#names + 1] = m.decl.name
+      end
+    end
+    if #names == #now then
+      classes = names
+    end
+    if old ~= nil then
+      tag, tags = Tests.tag_field(ctx, now)
+      if tag ~= nil then
+        local field = tag
+        for _, m in ipairs(old) do
+          local v = Tests.tag_values(ctx, m, field)
+          if v == nil or #v ~= 1 then
+            tag, tags = nil, nil
+          end
+        end
+      end
+    end
+  end
+  if #taken == 0 and strings == nil and classes == nil and tag == nil then
+    return
+  end
+  local b = base_of(node)
+  local a = ctx.tokens[b.first]
+  local z = ctx.tokens[math.max(b.first, b.last)]
+  ctx.narrowed[a.offset] = {
+    id = b.id, offset = a.offset, length = math.max(0, z.offset + z.length - a.offset), text = text_of(ctx, node),
+    taken = taken, strings = strings, classes = classes, tag = tag, tags = tags,
+  }
+end
+
+--- `f` where the place is known to have the type `t`. A type no value has makes the edge unreachable, with the place
+--- kept at it so that the code there reads it as `never` and reports nothing of it.
+local function narrowed_flow(f: Flow.State, place: Place, t: Type): Flow.State
+  if t.tag == "never" then
+    return Flow.dead(Flow.narrow(f, place.key, t, place.declared))
+  end
+  return Flow.narrow(f, place.key, t, place.declared)
+end
+
+--- `f` where a test that the place is of type `t` holds. A test no value of the place can pass has been refused for
+--- that (`compare_disjoint`, `is_disjoint`), so what follows it keeps what was known and reports nothing more.
+local function when_true(f: Flow.State, place: Place, t: Type): Flow.State
+  if t.tag == "never" then
+    return f
+  end
+  return Flow.narrow(f, place.key, t, place.declared)
+end
+
+--- What a value of type `cur` is where a test says it is a `tested`: the members that are one, the tested type for a
+--- member it is more specific than (`any` and an interface become the class tested), and nothing else.
+function Tests.keep_is(ctx: Ctx, cur: Type, tested: Type): Type
+  if cur.tag == "invalid" or tested.tag == "invalid" then
+    return cur
+  end
+  local store = ctx.store
+  local out: {Type} = {}
+  local tested_members = members_of(store, tested)
+  for _, m in ipairs(members_of(store, cur)) do
+    if m.tag == "invalid" then
+      out[#out + 1] = m
+    elseif m.tag == "any" or m is Types.Var then
+      for _, tm in ipairs(tested_members) do
+        out[#out + 1] = tm
+      end
+    elseif below(ctx, m, tested) then
+      out[#out + 1] = m
+    else
+      for _, tm in ipairs(tested_members) do
+        if below(ctx, tm, m) then
+          out[#out + 1] = tm
+        end
+      end
+    end
+  end
+  return store:union(out)
+end
+
+--- What a value of type `cur` is where a test says it is no `tested`: the members that are not below it. `any`, an
+--- interface and a type variable stay, since none is below a class.
+function Tests.drop_is(ctx: Ctx, cur: Type, tested: Type): Type
+  if cur.tag == "invalid" or tested.tag == "invalid" then
+    return cur
+  end
+  local store = ctx.store
+  local out: {Type} = {}
+  for _, m in ipairs(members_of(store, cur)) do
+    if m.tag == "invalid" or not below(ctx, m, tested) then
+      out[#out + 1] = m
+    end
+  end
+  return store:union(out)
+end
+
+--- What a value of type `cur` is where a test says it is nil.
+function Tests.nil_of(ctx: Ctx, cur: Type): Type
+  if cur.tag == "invalid" then
+    return cur
+  elseif nilable(cur) or cur.tag == "any" or cur is Types.Var then
+    return ctx.nil_type
+  end
+  return ctx.store.never
+end
+
+--- What a value of type `cur` is where a test says it is not nil.
+function Tests.not_nil_of(ctx: Ctx, cur: Type): Type
+  if cur.tag == "invalid" or cur.tag == "any" then
+    return cur
+  end
+  return ctx.store:non_nil(cur)
+end
+
+--- The members of `cur` that are of the Lua type `kind` (`type(x) == "string"`), or none of them where `keep` is false.
+--- `any` becomes the type the name says, where there is one.
+function Tests.by_kind(ctx: Ctx, cur: Type, kind: string, keep: boolean): Type
+  local store = ctx.store
+  local out: {Type} = {}
+  for _, m in ipairs(members_of(store, cur)) do
+    local k = Tests.lua_kind(m)
+    if m.tag == "any" and keep then
+      if kind == "string" then
+        out[#out + 1] = store.string
+      elseif kind == "number" then
+        out[#out + 1] = store.number
+      elseif kind == "boolean" then
+        out[#out + 1] = store.boolean
+      elseif kind == "nil" then
+        out[#out + 1] = ctx.nil_type
+      else
+        out[#out + 1] = m
+      end
+    elseif k == "" then
+      out[#out + 1] = m
+    elseif (k == kind) == keep then
+      out[#out + 1] = m
+    end
+  end
+  return store:union(out)
+end
+
+--- The edges of `field == "lit"` for a field that tells the members of a union of records apart: the members whose
+--- tag has the value, and those whose tag has no other.
+local function tag_edges(ctx: Ctx, f: Flow.State, field: Ast.Field, lit: string): Flow.State, Flow.State
+  local p = place_of(ctx, f, field.object)
+  if p == nil then
+    return f, f
+  end
+  local store = ctx.store
+  local members = members_of(store, store:non_nil(current(f, p)))
+  local yes: {Type} = {}
+  local no: {Type} = {}
+  for _, m in ipairs(members) do
+    local values = Tests.tag_values(ctx, m, field.name)
+    if values == nil then
+      yes[#yes + 1] = m
+      no[#no + 1] = m
+    else
+      local has = false
+      for _, v in ipairs(values) do
+        has = has or v == lit
+      end
+      if has then
+        yes[#yes + 1] = m
+      end
+      if not (has and #values == 1) then
+        no[#no + 1] = m
+      end
+    end
+  end
+  return when_true(f, p, store:union(yes)), narrowed_flow(f, p, store:union(no))
+end
+
+--- The edges of `type(x) == "kind"`.
+local function type_edges(ctx: Ctx, f: Flow.State, call: Ast.Call, kind: string): Flow.State, Flow.State
+  local callee = call.callee
+  local subject_arg = call.args[1]
+  if not (callee is Ast.Name) or callee.binding ~= nil or callee.text ~= "type" or #call.args ~= 1 or subject_arg == nil then
+    return f, f
+  end
+  local p = place_of(ctx, f, subject_arg)
+  if p == nil then
+    return f, f
+  end
+  local cur = current(f, p)
+  return narrowed_flow(f, p, Tests.by_kind(ctx, cur, kind, true)), narrowed_flow(f, p, Tests.by_kind(ctx, cur, kind, false))
+end
+
+--- The edges of `a == b`.
+local function compare_edges(ctx: Ctx, f: Flow.State, node: Ast.Binary): Flow.State, Flow.State
+  local l, r = peel(node.left), peel(node.right)
+  local yes, no = f, f
+  if r is Ast.Nil or l is Ast.Nil then
+    local p = place_of(ctx, f, r is Ast.Nil and l or r)
+    if p ~= nil then
+      local cur = current(f, p)
+      yes, no = when_true(f, p, Tests.nil_of(ctx, cur)), narrowed_flow(f, p, Tests.not_nil_of(ctx, cur))
+    end
+  elseif r is Ast.String and l is Ast.Call then
+    yes, no = type_edges(ctx, f, l, r.value)
+  elseif l is Ast.String and r is Ast.Call then
+    yes, no = type_edges(ctx, f, r, l.value)
+  elseif r is Ast.String and l is Ast.Field then
+    yes, no = tag_edges(ctx, f, l, r.value)
+  elseif l is Ast.String and r is Ast.Field then
+    yes, no = tag_edges(ctx, f, r, l.value)
+  end
+  if node.op == "==" then
+    return yes, no
+  end
+  return no, yes
+end
+
+--- The edges of a name or a field used as a condition: an optional is not nil when true, and nil when false unless
+--- what it holds may be false.
+local function truthy_edges(ctx: Ctx, f: Flow.State, e: Ast.Node): Flow.State, Flow.State
+  local p = place_of(ctx, f, e)
+  if p == nil then
+    return f, f
+  end
+  local cur = current(f, p)
+  if not nilable(cur) then
+    return f, f
+  end
+  local store = ctx.store
+  local kept = store:non_nil(cur)
+  local falsy = ctx.nil_type
+  for _, m in ipairs(members_of(store, kept)) do
+    if is_bool(m) then
+      falsy = cur
+    end
+  end
+  return narrowed_flow(f, p, kept), narrowed_flow(f, p, falsy)
+end
+
+--- The edges of a test that the place `p` is a `tested`. `is table` tests that it is a table of any shape, the standard
+--- library's record `table` being the type of its functions and no type of a value: it narrows as `type(v) == "table"`.
+local function is_edges(ctx: Ctx, f: Flow.State, p: Place, tested: Type): Flow.State, Flow.State
+  local cur = current(f, p)
+  local library = ctx.program.globals["table"]
+  if tested is Named and library ~= nil and tested.decl == library.decl then
+    return when_true(f, p, Tests.by_kind(ctx, cur, "table", true)), narrowed_flow(f, p, Tests.by_kind(ctx, cur, "table", false))
+  end
+  return when_true(f, p, Tests.keep_is(ctx, cur, tested)), narrowed_flow(f, p, Tests.drop_is(ctx, cur, tested))
+end
+
+--- The edges of the condition `e` in the state `f`: the states where it is true and where it is false. The test of a
+--- place narrows it; `not`, `and` and `or` combine what their operands say, the right operand under the left's edge;
+--- a call that narrows an argument says it, and a literal `true` or `false` leaves one edge unreachable.
+edges = function(ctx: Ctx, f: Flow.State, e: Ast.Node): Flow.State, Flow.State
+  local at = peel(e)
+  if at is Ast.Unary then
+    if at.op == "not" then
+      local yes, no = edges(ctx, f, at.operand)
+      return no, yes
+    end
+  elseif at is Ast.Binary then
+    local op = at.op
+    if op == "and" or op == "or" then
+      local held = ctx.edges[at.id]
+      if held ~= nil and held.post == f then
+        return held.yes, held.no
+      end
+      local ly, ln = edges(ctx, f, at.left)
+      if op == "and" then
+        local ry, rn = edges(ctx, ly, at.right)
+        return ry, merge(ctx, ln, rn)
+      end
+      local ry, rn = edges(ctx, ln, at.right)
+      return merge(ctx, ly, ry), rn
+    elseif op == "==" or op == "~=" then
+      return compare_edges(ctx, f, at)
+    end
+  elseif at is Ast.IsTest then
+    local p = place_of(ctx, f, at.value)
+    local tested = ctx.lowered.types[at.type.id]
+    if p ~= nil and tested ~= nil then
+      return is_edges(ctx, f, p, tested)
+    end
+  elseif at is Ast.Name or at is Ast.Field then
+    return truthy_edges(ctx, f, at)
+  elseif at is Ast.Call or at is Ast.MethodCall then
+    local g = ctx.guards[at.id]
+    local p = g ~= nil and place_of(ctx, f, g.arg) or nil
+    if g ~= nil and p ~= nil then
+      return is_edges(ctx, f, p, g.to)
+    end
+  elseif at is Ast.Boolean then
+    if at.value then
+      return f, Flow.dead(f)
+    end
+    return Flow.dead(f), f
+  end
+  return f, f
+end
+
 -- Binary and unary operators ---------------------------------------------------------------
 
 local ARITHMETIC <const>: {string: boolean} = { ["+"] = true, ["-"] = true, ["*"] = true, ["%"] = true, ["//"] = true }
@@ -1902,14 +2615,41 @@ local function conjunction(ctx: Ctx, node: Ast.Binary, left: Type, expected: Typ
   return store:optional(right)
 end
 
+--- `a and b` and `a or b` whose left operand has type `left`: the right operand is evaluated under the state where the
+--- left is true (`and`) or false (`or`), and what follows has the states of both ways out met: the left's short cut and
+--- the right operand's end, which a call that never returns does not reach.
+local function logical(ctx: Ctx, node: Ast.Binary, left: Type, expected: Type | nil): Type
+  local is_and = node.op == "and"
+  local ly, ln = edges(ctx, ctx.flow, node.left)
+  local into, short = ly, ln
+  if not is_and then
+    into, short = ln, ly
+  end
+  ctx.flow = into
+  local result: Type
+  if is_and then
+    result = conjunction(ctx, node, left, expected)
+  else
+    result = disjunction(ctx, node, left, expected)
+  end
+  local after = ctx.flow
+  local ry, rn = edges(ctx, after, node.right)
+  local yes, no = ry, merge(ctx, ln, rn)
+  if not is_and then
+    yes, no = merge(ctx, ly, ry), rn
+  end
+  local met = merge(ctx, short, after)
+  ctx.edges[node.id] = { post = met, yes = yes, no = no }
+  ctx.flow = met
+  return result
+end
+
 --- A binary expression whose left operand has type `left`.
 local function binary(ctx: Ctx, node: Ast.Binary, left: Type, expected: Type | nil): Type
   local store = ctx.store
   local op = node.op
-  if op == "or" then
-    return disjunction(ctx, node, left, expected)
-  elseif op == "and" then
-    return conjunction(ctx, node, left, expected)
+  if op == "or" or op == "and" then
+    return logical(ctx, node, left, expected)
   end
   local right = expr(ctx, node.right, (op == "==" or op == "~=") and left or nil)
   if op == ".." then
@@ -2014,14 +2754,22 @@ local function is_test(ctx: Ctx, node: Ast.IsTest, value: Type): Type
   return store.boolean
 end
 
---- An `if` expression: conditions, and arms with a common type.
+--- An `if` expression: conditions, and arms with a common type. Each arm is evaluated under the state where its
+--- condition holds and those before it do not.
 local function if_expression(ctx: Ctx, node: Ast.IfExp, expected: Type | nil): Type
   local types: {Type} = {}
+  local ends: {Flow.State} = {}
   for _, arm in ipairs(node.arms) do
     local _ = condition(ctx, arm.cond)
+    local yes, no = edges(ctx, ctx.flow, arm.cond)
+    ctx.flow = yes
     types[#types + 1] = expr(ctx, arm.value, expected)
+    ends[#ends + 1] = ctx.flow
+    ctx.flow = no
   end
   types[#types + 1] = expr(ctx, node.else_value, expected)
+  ends[#ends + 1] = ctx.flow
+  ctx.flow = merge_all(ctx, ends)
   local both = join(ctx, types)
   if both == nil then
     if expected ~= nil and expected.tag ~= "any" then
@@ -2043,6 +2791,7 @@ end
 -- Functions ------------------------------------------------------------------------------------
 
 local block: function(ctx: Ctx, b: Ast.Block)
+local stats: function(ctx: Ctx, b: Ast.Block)
 
 local function rtype_base(item: Ast.RType): Ast.Base
   return item
@@ -2136,10 +2885,135 @@ local function function_type(ctx: Ctx, fn: Ast.Fn, expected: Type | nil, name: s
   return ctx.store:fn({ params = params, rest = rest, rets = alts })
 end
 
+--- The lists of values `alts` answers, as a program writes them.
+local function lists_text(ctx: Ctx, alts: {Alt}): string
+  local lists: {string} = {}
+  for i, alt in ipairs(alts) do
+    local items: {string} = {}
+    for j, t in ipairs(alt.items) do
+      items[j] = show(ctx, t)
+    end
+    local tail = alt.tail
+    if tail ~= nil then
+      items[#items + 1] = show(ctx, tail) .. "..."
+    end
+    lists[i] = "(" .. table.concat(items, ", ") .. ")"
+  end
+  return table.concat(lists, " | ")
+end
+
+--- Whether a function that answers `alts` may return no value: one of its lists is empty.
+local function may_end(alts: {Alt}): boolean
+  for _, alt in ipairs(alts) do
+    if #alt.items == 0 then
+      return true
+    end
+  end
+  return false
+end
+
+--- The type of the place `key` in `f`: what it was narrowed to, else `declared`.
+local function fact_type(f: Flow.State, key: string, declared: Type): Type
+  local fact = f.facts[key]
+  if fact ~= nil then
+    return fact.type
+  end
+  return declared
+end
+
+--- Checks that the function being checked makes good the narrowing it declares at `node`, a `return` or its end. A
+--- function declared `v is T` answers true only where `v` is a `T` and false only where it is not: the edges of the
+--- value returned say so. One declared `asserts v is T` returns only where `v` is a `T`.
+local function narrows_proved(ctx: Ctx, node: Ast.Node, value: Ast.Exp | nil)
+  local frame = ctx.frames[#ctx.frames]
+  local nr = frame.narrows
+  local declared = frame.narrowed_type
+  if nr == nil or declared == nil or ctx.quiet > 0 or not ctx.flow.live then
+    return
+  end
+  local key = id_key(ctx, frame.narrowed_id)
+  local want = nr.to
+  local name = frame.narrowed_name
+  if nr.asserts then
+    local got = fact_type(ctx.flow, key, declared)
+    if not below(ctx, got, want) then
+      report(ctx, "narrows_unproved", node, "this function is declared `asserts " .. name .. " is " .. show(ctx, want) ..
+          "`, and here it returns with " .. quoted(name) .. " still " .. tq(ctx, got),
+        "test the parameter and stop where it is not " .. tq(ctx, want) .. " (`if not (v is T) then error(...) end`), or " ..
+          "declare the narrowing the test proves", { show(ctx, got), show(ctx, want) })
+    end
+    return
+  end
+  if value == nil then
+    return
+  end
+  local yes, no = edges(ctx, ctx.flow, value)
+  local got = fact_type(yes, key, declared)
+  if yes.live and not below(ctx, got, want) then
+    report(ctx, "narrows_unproved", node, "this function is declared `" .. name .. " is " .. show(ctx, want) ..
+        "`, and " .. subject(ctx, value) .. " does not show it when true: " .. quoted(name) .. " is then " .. tq(ctx, got),
+      "return a test that decides " .. tq(ctx, want) .. " (`return v is T`, `return v.kind == \"...\"`), or declare the " ..
+        "function `boolean`", { show(ctx, got), show(ctx, want) })
+    return
+  end
+  local rest = Tests.drop_is(ctx, declared, want)
+  local left = fact_type(no, key, declared)
+  if no.live and not below(ctx, left, rest) then
+    report(ctx, "narrows_unproved", node, "this function is declared `" .. name .. " is " .. show(ctx, want) ..
+        "`, and " .. subject(ctx, value) .. " does not show it is not " .. tq(ctx, want) .. " when false: " ..
+        quoted(name) .. " is then " .. tq(ctx, left),
+      "return a test that decides " .. tq(ctx, want) .. " both ways (`return v is T`), or declare the function " ..
+        "`boolean`", { show(ctx, left), show(ctx, rest) })
+  end
+end
+
+--- The fix for the local `name` of type `t` that is read before it is assigned. A function declared ahead for a
+--- function that calls it before it is defined is the functions of a record, which one body may call before another is
+--- defined.
+local function assign_fix(ctx: Ctx, name: string, t: Type, own: boolean): string
+  if t is Fn and own then
+    return "declare " .. quoted(name) .. " where it is defined, `local function " .. name .. "(...)`, which a function " ..
+      "may call itself in"
+  elseif t is Fn then
+    return "define " .. quoted(name) .. " before the function that names it is made, or make the functions that call " ..
+      "each other the functions of a record declared first (`local record Walk end`, `function Walk.visit(...)`)"
+  end
+  return "assign " .. quoted(name) .. " on every path before this read, give it a value where it is declared (`local " ..
+    name .. ": " .. show(ctx, t) .. " = ...`), or declare it `" .. show(ctx, ctx.store:optional(t)) .. "`, which is nil " ..
+    "until assigned and is checked where it is used"
+end
+
+--- Notes that making the function `fn_id` reads each local of the code around it that it names, and reports one that no
+--- path has assigned yet.
+local function read_at_creation(ctx: Ctx, fn_id: integer, whole: Ast.Node)
+  local list = ctx.reads[fn_id]
+  if list == nil or ctx.flow.unsets == 0 then
+    return
+  end
+  for _, v in ipairs(list) do
+    if ctx.flow.unset[v.id] then
+      local at = ctx.tokens[v.declared]
+      local t = ctx.vars[v.id]
+      report(ctx, "not_assigned", whole, "this function names " .. quoted(v.name) .. ", which no path has assigned yet, and " ..
+          "making a function reads what it names",
+        t ~= nil and assign_fix(ctx, v.name, t, ctx.assigning[v.id] == true) or "assign " .. quoted(v.name) .. " before this function is made",
+        { t ~= nil and show(ctx, t) or "" }, { y = at.y, x = at.x, offset = at.offset, length = at.length })
+      ctx.flow = Flow.assigned(ctx.flow, v.id)
+    end
+  end
+end
+
 --- Checks a function body: its parameters are the variables of the types in `ft`, its `return`s are checked against
---- `ft`'s return list. `names` are the type parameters of a generic function, for display.
+--- `ft`'s return list. `names` are the type parameters of a generic function, for display. The body starts from the
+--- facts of the code around it that hold inside it ([`Flow.State`]'s `enter`), and a function that answers values
+--- reaches its end only where the flow does not.
 local function function_body(ctx: Ctx, params: {Ast.Param}, body: Ast.Block, ft: Type, names: {string}, whole: Ast.Node,
-                             declared: boolean)
+                             declared: boolean, fn_id: integer)
+  read_at_creation(ctx, fn_id, whole)
+  if ctx.quiet > 0 then
+    -- A pass that is settling a loop reports nothing, and a function's body changes nothing of the code around it.
+    return
+  end
   local f: Fn | nil = ft is Fn and ft or nil
   local generic = f ~= nil and #f.tparams > 0
   if generic and f ~= nil then
@@ -2152,28 +3026,76 @@ local function function_body(ctx: Ctx, params: {Ast.Param}, body: Ast.Block, ft:
     ctx.bounds[#ctx.bounds + 1] = f.tparams
   end
   local j = 0
+  local narrows: Types.Narrows | nil = nil
+  local alts: {Alt} = f ~= nil and f.rets or unknown_lists(ctx)
+  if #alts == 1 and alts[1].narrows ~= nil then
+    narrows = alts[1].narrows
+  end
+  local narrowed_id = 0
+  local narrowed_name = ""
+  local narrowed_type: Type | nil = nil
   for _, p in ipairs(params) do
     if not p.variadic then
       j = j + 1
       local binding = p.name
       if binding ~= nil then
         ctx.vars[binding.id] = f ~= nil and f.params[j] ~= nil and f.params[j].type or ctx.invalid
+        if narrows ~= nil and narrows.param == j then
+          narrowed_id, narrowed_name, narrowed_type = binding.id, binding.name, ctx.vars[binding.id]
+          local assigned = ctx.scoped.vars[binding.id]
+          if assigned ~= nil and assigned.assigned then
+            report(ctx, "narrows_unproved", whole, "this function assigns " .. quoted(binding.name) .. ", the parameter it narrows, so " ..
+                "what its body shows is about the new value and not the argument",
+              "do not assign the parameter: copy it to a local and assign that")
+          end
+        end
       end
     end
   end
-  local alts: {Alt} = f ~= nil and f.rets or unknown_lists(ctx)
   local rest: Type | nil = ctx.invalid
   if f ~= nil then
     rest = f.rest
   end
-  ctx.frames[#ctx.frames + 1] = { alts = alts, rest = rest, chunk = false, declared = declared }
+  ctx.frames[#ctx.frames + 1] = {
+    alts = alts, rest = rest, chunk = false, declared = declared, narrows = narrows, narrowed_id = narrowed_id,
+    narrowed_name = narrowed_name, narrowed_type = narrowed_type,
+  }
   local saved = ctx.lenient
   ctx.lenient = 0
+  local outer, outer_loops = ctx.flow, ctx.loops
+  ctx.flow, ctx.loops = Flow.enter(outer, ctx.unfixed[fn_id]), {}
+  local outer_unfixed = ctx.unfixed_now
+  local unfixed_now: {integer: boolean} = {}
+  for id in pairs(outer_unfixed) do
+    unfixed_now[id] = true
+  end
+  for id in pairs(ctx.unfixed[fn_id] or {}) do
+    unfixed_now[id] = true
+  end
+  ctx.unfixed_now = unfixed_now
   block(ctx, body)
+  ctx.unfixed_now = outer_unfixed
+  if ctx.flow.live then
+    local last = body.stats[#body.stats]
+    local at: Ast.Node = last ~= nil and last or whole
+    if f ~= nil and not may_end(alts) then
+      if #alts == 0 then
+        report(ctx, "missing_return", at, "this function is declared `never`, and control can reach its end",
+          "end every path with `error(...)` or a call of a function that never returns, or declare the return list the " ..
+            "function answers")
+      else
+        local lists = lists_text(ctx, alts)
+        report(ctx, "missing_return", at, "control can reach the end of this function, which answers " .. lists .. ", with no " ..
+            "`return`",
+          "end every path with a `return` of " .. lists .. " (or `error(...)`), or declare the function without a return list",
+          { lists })
+      end
+    elseif narrows ~= nil then
+      narrows_proved(ctx, at, nil)
+    end
+  end
+  ctx.flow, ctx.loops = outer, outer_loops
   ctx.lenient = saved
-  -- TODO: report `missing_return` for a function with return lists whose end is reachable, and `not_assigned` for a
-  -- read before an assignment, once the flow piece lands (doc/plans/new-checker-types.md, "narrowing and
-  -- reachability"): both read the facts of the walk, which this walk keeps none of.
   ctx.frames[#ctx.frames] = nil
   if generic then
     ctx.judge:leave()
@@ -2185,7 +3107,7 @@ end
 --- A function literal: its type, and its body checked.
 local function function_literal(ctx: Ctx, e: Ast.FunctionLit, expected: Type | nil): Type
   local ft = function_type(ctx, e.fn, expected, "this function")
-  function_body(ctx, e.fn.params, e.fn.body, ft, {}, e, e.fn.rets ~= nil)
+  function_body(ctx, e.fn.params, e.fn.body, ft, {}, e, e.fn.rets ~= nil, e.fn.id)
   return ft
 end
 
@@ -2596,6 +3518,50 @@ local function dispatch_call(ctx: Ctx, node: Ast.Node, callee_node: Ast.Node, ca
   return apply_overloads(ctx, node, callee, list, args, recv)
 end
 
+--- What a call that has returned shows. A function declared `never` does not return, so the state after it is
+--- unreachable. `assert(c)` returns only where `c` holds, and a function declared `asserts v is T` only where `v` is a
+--- `T`: the state after is the one where the argument is. A function declared `v is T` is a test of its argument, which
+--- [`edges`] reads from `ctx.guards`.
+--
+-- TODO: declare the standard library's `assert` as `asserts v` and drop the special case here, once the generics piece
+-- types a call of a generic function (`assert` answers its argument's type, so it is generic): the global is still
+-- `unchecked_generic` where it is called.
+local function after_call(ctx: Ctx, node: Ast.Node, callee: Ast.Exp | nil, alts: {Alt}, args: {Ast.Exp},
+                          receiver: Ast.Exp | nil)
+  ctx.guards[base_of(node).id] = nil
+  if #alts == 0 then
+    ctx.flow = Flow.dead(ctx.flow)
+    return
+  end
+  local first = args[1]
+  if callee ~= nil and callee is Ast.Name and callee.binding == nil and callee.text == "assert" and first ~= nil then
+    local yes, _ = edges(ctx, ctx.flow, first)
+    ctx.flow = yes
+    return
+  end
+  local alt = alts[1]
+  local narrows = #alts == 1 and alt.narrows or nil
+  if narrows == nil then
+    return
+  end
+  local target: Ast.Exp | nil = args[narrows.param]
+  if receiver ~= nil then
+    target = narrows.param == 1 and receiver or args[narrows.param - 1]
+  end
+  if target == nil then
+    return
+  end
+  if narrows.asserts then
+    local p = place_of(ctx, ctx.flow, target)
+    if p ~= nil then
+      local yes, _ = is_edges(ctx, ctx.flow, p, narrows.to)
+      ctx.flow = yes
+    end
+  else
+    ctx.guards[base_of(node).id] = { arg = target, to = narrows.to }
+  end
+end
+
 --- The names `pcall` and `xpcall` have as globals the checker types in a later piece.
 local PROTECTED <const>: {string: boolean} = { pcall = true, xpcall = true }
 
@@ -2687,11 +3653,39 @@ local function spine_child(node: Ast.Exp): Ast.Exp | nil
   return nil
 end
 
+--- The type of the read of a name: the type the facts hold of it, else the type it was declared with. A local that
+--- no path has assigned yet is refused (`not_assigned`) and taken as assigned from there on.
+local function read_name(ctx: Ctx, e: Ast.Name): Type
+  local t = name_value(ctx, e)
+  local id = e.binding
+  if id == nil then
+    return t
+  end
+  if ctx.flow.unsets > 0 and ctx.flow.unset[id] then
+    local v = ctx.scoped.vars[id]
+    local name = quoted(e.text)
+    local at = v ~= nil and ctx.tokens[v.declared] or nil
+    report(ctx, "not_assigned", e, name .. " is read before every path assigns it: `local " .. e.text .. "` was given no value",
+      assign_fix(ctx, e.text, t, false), { show(ctx, t) },
+      at ~= nil and { y = at.y, x = at.x, offset = at.offset, length = at.length } or nil)
+    ctx.flow = Flow.assigned(ctx.flow, id)
+  end
+  if next(ctx.flow.facts) ~= nil then
+    local key = path_key(ctx, e)
+    local fact = key ~= nil and ctx.flow.facts[key] or nil
+    if fact ~= nil then
+      note_narrowed(ctx, e, fact.declared, fact.type)
+      return fact.type
+    end
+  end
+  return t
+end
+
 --- The type of an expression that is not a chain: a name, a literal, a function, a table, a unary operator or an `if`.
 local function leaf(ctx: Ctx, e: Ast.Exp, expected: Type | nil): Type
   local store = ctx.store
   if e is Ast.Name then
-    return name_value(ctx, e)
+    return read_name(ctx, e)
   elseif e is Ast.Integer then
     return store.integer
   elseif e is Ast.Float then
@@ -2728,7 +3722,16 @@ local function apply(ctx: Ctx, n: Ast.Exp, t: Type, expected: Type | nil, wants_
     if base == nil then
       return ctx.invalid, nil
     end
-    return member_read(ctx, n, base, n.name), nil
+    local read = member_read(ctx, n, base, n.name)
+    if ctx.flow.paths > 0 and read.tag ~= "invalid" then
+      local key = path_key(ctx, n)
+      local fact = key ~= nil and ctx.flow.facts[key] or nil
+      if fact ~= nil then
+        note_narrowed(ctx, n, fact.declared, fact.type)
+        return fact.type, nil
+      end
+    end
+    return read, nil
   elseif n is Ast.Index then
     return index_read(ctx, n, t), nil
   elseif n is Ast.Call then
@@ -2736,6 +3739,7 @@ local function apply(ctx: Ctx, n: Ast.Exp, t: Type, expected: Type | nil, wants_
     ctx.lenient = 0
     local alts = apply_call(ctx, n, t)
     ctx.lenient = saved
+    after_call(ctx, n, n.callee, alts, n.args, nil)
     if wants_lists then
       return ctx.invalid, alts
     end
@@ -2745,6 +3749,7 @@ local function apply(ctx: Ctx, n: Ast.Exp, t: Type, expected: Type | nil, wants_
     ctx.lenient = 0
     local alts = apply_method(ctx, n, t)
     ctx.lenient = saved
+    after_call(ctx, n, nil, alts, n.args, n.object)
     if wants_lists then
       return ctx.invalid, alts
     end
@@ -2910,6 +3915,22 @@ local function check_closable(ctx: Ctx, b: Ast.Binding, t: Type)
       "hand and make " .. quoted(b.name) .. " an ordinary local", { show(ctx, t) })
 end
 
+--- The type a local declared `declared` has after it is given a value of type `t`: the view of `t` where that is below
+--- `declared`, else nil. A `mut` is a capability and no fact of a value, so a fresh `mut {T}` held by a `{T}` stays a view.
+local function value_narrowing(ctx: Ctx, t: Type, declared: Type): Type | nil
+  local seen = view(ctx.store, t)
+  local tag = seen.tag
+  if tag == "invalid" or tag == "never" or declared.tag == "invalid" or seen == declared or not below(ctx, seen, declared) then
+    return nil
+  end
+  return seen
+end
+
+--- The local `id` is declared: another place than any of the same name, with no fact, and unset where it has no value.
+local function declare_local(ctx: Ctx, id: integer, unset: boolean)
+  ctx.flow = Flow.declare(ctx.flow, id, unset)
+end
+
 --- `local a, b: T, U = f(), g()`.
 local function local_statement(ctx: Ctx, s: Ast.Local)
   local n = #s.bindings
@@ -2920,6 +3941,9 @@ local function local_statement(ctx: Ctx, s: Ast.Local)
   if #s.values == 0 then
     for i, b in ipairs(s.bindings) do
       ctx.vars[b.id] = wants[i] or ctx.invalid
+      -- A type that admits nil is nil until assigned; any other has no value until a path assigns it.
+      local want = wants[i]
+      declare_local(ctx, b.id, want ~= nil and want.tag ~= "invalid" and not nilable(want))
       if wants[i] == nil then
         report(ctx, "local_untyped", b, quoted(b.name) .. " has no type and no value",
           "write its type: `local " .. b.name .. ": T` (`T?` if it may stay unset), or give it a value")
@@ -2944,6 +3968,11 @@ local function local_statement(ctx: Ctx, s: Ast.Local)
       ctx.vars[b.id] = t
     else
       ctx.vars[b.id] = ctx.invalid
+    end
+    declare_local(ctx, b.id, false)
+    local given = want ~= nil and t ~= nil and counted and value_narrowing(ctx, t, want) or nil
+    if given ~= nil and want ~= nil then
+      ctx.flow = Flow.narrow(ctx.flow, id_key(ctx, b.id), given, want)
     end
     if b.attr == "close" then
       check_closable(ctx, b, ctx.vars[b.id])
@@ -3083,7 +4112,24 @@ local function place_of_target(ctx: Ctx, target: Ast.Exp): Type | nil, boolean
   return nil
 end
 
-local function assign_statement(ctx: Ctx, s: Ast.Assign)
+local function check_assignment(ctx: Ctx, s: Ast.Assign): Values | nil
+  local named: {integer: boolean} = {}
+  for _, target in ipairs(s.targets) do
+    local id = target is Ast.Name and target.binding or nil
+    -- A name that begins with `_` discards the value, so there is no order to leave open.
+    if id ~= nil and target is Ast.Name and target.text:sub(1, 1) == "_" then
+      id = nil
+    end
+    if id ~= nil and named[id] then
+      report(ctx, "assign_repeated", target, subject(ctx, target) .. " is assigned twice by one statement, and Lua leaves " ..
+          "the order of the two open",
+        "assign " .. subject(ctx, target) .. " once, or in two statements in the order you mean")
+    elseif id ~= nil then
+      named[id] = true
+    end
+  end
+  local outer_assigning = ctx.assigning
+  ctx.assigning = named
   local wants: {Type} = {}
   local deletes: {boolean} = {}
   for i, target in ipairs(s.targets) do
@@ -3094,9 +4140,10 @@ local function assign_statement(ctx: Ctx, s: Ast.Assign)
     end
   end
   local vals = values_of(ctx, s.values, wants, nil)
+  ctx.assigning = outer_assigning
   local counted = check_counts(ctx, s, #s.targets, vals, #s.values, "target")
   if not counted then
-    return
+    return nil
   end
   for i, target in ipairs(s.targets) do
     local t = value_at(ctx, vals, i)
@@ -3107,6 +4154,31 @@ local function assign_statement(ctx: Ctx, s: Ast.Assign)
       local written = peel(at)
       if not (deletes[i] and written is Ast.Nil) then
         local _ = expect(ctx, at, t, want, " in the assignment to " .. subject(ctx, target))
+      end
+    end
+  end
+  return vals
+end
+
+--- An assignment: the values are evaluated and checked, then each local assigned is another value than it was. Its
+--- facts and the facts of the paths from it are gone ([`Flow.State`]), it is assigned from here on, and it is known
+--- to have the view of the type of the value ([`value_narrowing`]).
+local function assign_statement(ctx: Ctx, s: Ast.Assign)
+  local vals = check_assignment(ctx, s)
+  for i, target in ipairs(s.targets) do
+    local id = target is Ast.Name and target.binding or nil
+    if id ~= nil then
+      local at = ctx.tokens[base_of(target).first]
+      -- The drop is told to a later use only where it took away a test that showed the value was not nil.
+      local fact = ctx.flow.facts[id_key(ctx, id)]
+      local told = (fact ~= nil and not nilable(fact.type)) or ctx.flow.paths > 0
+      ctx.flow = Flow.assign(ctx.flow, id, told and { y = at.y, x = at.x, offset = at.offset, length = at.length } or nil)
+      local v = ctx.scoped.vars[id]
+      local declared = ctx.vars[id]
+      local t = vals ~= nil and value_at(ctx, vals, i) or nil
+      local given = t ~= nil and declared ~= nil and v ~= nil and PLACE_KINDS[v.kind] and value_narrowing(ctx, t, declared) or nil
+      if given ~= nil and declared ~= nil then
+        ctx.flow = Flow.narrow(ctx.flow, id_key(ctx, id), given, declared)
       end
     end
   end
@@ -3143,7 +4215,7 @@ local function list_fits(ctx: Ctx, types: {Type}, tail: Type | nil, alt: Alt): b
   return true
 end
 
-local function return_statement(ctx: Ctx, s: Ast.Return)
+local function check_return(ctx: Ctx, s: Ast.Return)
   local frame = ctx.frames[#ctx.frames]
   if frame.chunk then
     local _ = values_of(ctx, s.values, nil, nil)
@@ -3279,6 +4351,72 @@ local function return_statement(ctx: Ctx, s: Ast.Return)
     "return the values of one of the lists the function declares")
 end
 
+--- A `return`: checked against the list the function declares, and the end of the path. A function that declares a
+--- narrowing must show it here.
+local function return_statement(ctx: Ctx, s: Ast.Return)
+  check_return(ctx, s)
+  narrows_proved(ctx, s, s.values[1])
+  ctx.flow = Flow.dead(ctx.flow)
+end
+
+--- The most rounds a loop is walked quietly before it gives up what it knows of its places.
+local ROUNDS <const> = 6
+
+--- Walks a loop to a fixed point. `walk` takes the state at the head of the loop and answers the state its pass ends in,
+--- which goes back to the head, and the state the loop leaves in. The head is where the entry and the back edge meet,
+--- so a place keeps a fact only if the back edge keeps it too, and a local is unset if it may be; the passes that
+--- settle it report nothing (`ctx.quiet`), and one more that reports is made from the head they settle on. A loop whose
+--- entry knows nothing has no head to settle.
+local function run_loop(ctx: Ctx, entry: Flow.State, walk: function(head: Flow.State): Flow.State, Flow.State): Flow.State
+  local head = entry
+  if next(entry.facts) ~= nil or entry.unsets > 0 then
+    ctx.quiet = ctx.quiet + 1
+    local round = 0
+    while true do
+      round = round + 1
+      local back, _ = walk(head)
+      local nxt = merge(ctx, entry, back)
+      if round > ROUNDS then
+        nxt = Flow.forget(nxt)
+      end
+      if Flow.same(nxt, head) then
+        break
+      end
+      head = nxt
+    end
+    ctx.quiet = ctx.quiet - 1
+  end
+  local _, leaves = walk(head)
+  return leaves
+end
+
+--- Opens a loop: where its `break`s and `continue`s are met.
+local function open_loop(ctx: Ctx): Loop
+  local loop: Loop = {}
+  ctx.loops[#ctx.loops + 1] = loop
+  return loop
+end
+
+--- Closes the loop `loop`. Answers the state its pass ends in (the end of the body, with the `continue`s) and the
+--- states its `break`s left in.
+local function close_loop(ctx: Ctx, loop: Loop, body_end: Flow.State): Flow.State, Flow.State | nil
+  ctx.loops[#ctx.loops] = nil
+  local continues = loop.continues
+  local back = body_end
+  if continues ~= nil then
+    back = merge(ctx, body_end, continues)
+  end
+  return back, loop.breaks
+end
+
+--- Two states met, either of which may be absent.
+local function merge_maybe(ctx: Ctx, a: Flow.State, b: Flow.State | nil): Flow.State
+  if b == nil then
+    return a
+  end
+  return merge(ctx, a, b)
+end
+
 local function numeric_bound(ctx: Ctx, e: Ast.Exp, what: string): integer
   local t = expr(ctx, e, nil)
   return arithmetic_operand(ctx, e, t, "for " .. what)
@@ -3293,7 +4431,15 @@ local function for_numeric(ctx: Ctx, s: Ast.ForNum)
     step = numeric_bound(ctx, step_node, "step")
   end
   ctx.vars[s.var.id] = (from == 1 and step == 1) and ctx.store.integer or ctx.store.number
-  block(ctx, s.body)
+  local entry = ctx.flow
+  ctx.flow = run_loop(ctx, entry, function(head: Flow.State): Flow.State, Flow.State
+    ctx.flow = head
+    local loop = open_loop(ctx)
+    declare_local(ctx, s.var.id, false)
+    block(ctx, s.body)
+    local back, breaks = close_loop(ctx, loop, ctx.flow)
+    return back, merge_maybe(ctx, head, breaks)
+  end)
 end
 
 local function for_generic(ctx: Ctx, s: Ast.ForIn)
@@ -3354,7 +4500,17 @@ local function for_generic(ctx: Ctx, s: Ast.ForIn)
   for i, v in ipairs(s.vars) do
     ctx.vars[v.id] = types[i]
   end
-  block(ctx, s.body)
+  local entry = ctx.flow
+  ctx.flow = run_loop(ctx, entry, function(head: Flow.State): Flow.State, Flow.State
+    ctx.flow = head
+    local loop = open_loop(ctx)
+    for _, v in ipairs(s.vars) do
+      declare_local(ctx, v.id, false)
+    end
+    block(ctx, s.body)
+    local back, breaks = close_loop(ctx, loop, ctx.flow)
+    return back, merge_maybe(ctx, head, breaks)
+  end)
 end
 
 --- The bodies of the methods of a class, and of the declarations nested in a record, interface or class.
@@ -3378,7 +4534,7 @@ local function declaration_bodies(ctx: Ctx, node: Ast.Node, decl: Decl | nil)
   for _, m in ipairs(members) do
     if m is Ast.Method then
       local ft = ctx.lowered.types[m.id] or ctx.invalid
-      function_body(ctx, m.params, m.body, ft, {}, m, m.rets ~= nil)
+      function_body(ctx, m.params, m.body, ft, {}, m, m.rets ~= nil, m.id)
     elseif m is Ast.Record or m is Ast.Interface or m is Ast.Class then
       local nested = ctx.lowered.decls[m.id]
       if nested ~= nil then
@@ -3407,7 +4563,8 @@ local function function_statement(ctx: Ctx, s: Ast.Function)
   local head = s.path[1]
   if head == nil then
     -- The parser said the statement has no name; its body is still checked.
-    function_body(ctx, s.fn.params, s.fn.body, function_type(ctx, s.fn, nil, "this function"), {}, s, s.fn.rets ~= nil)
+    function_body(ctx, s.fn.params, s.fn.body, function_type(ctx, s.fn, nil, "this function"), {}, s, s.fn.rets ~= nil,
+      s.fn.id)
     return
   end
   local owner = name_value(ctx, head)
@@ -3432,7 +4589,102 @@ local function function_statement(ctx: Ctx, s: Ast.Function)
       local _ = expect(ctx, s, ft, field_type, " as the declaration of " .. quoted(text))
     end
   end
-  function_body(ctx, s.fn.params, s.fn.body, ft, names_of_params(s.typeparams), s, s.fn.rets ~= nil)
+  function_body(ctx, s.fn.params, s.fn.body, ft, names_of_params(s.typeparams), s, s.fn.rets ~= nil, s.fn.id)
+end
+
+--- `if`: each arm is walked under the state where its condition holds and those before it do not, and what follows is
+--- where the ends of the arms, and of the path that took none, meet.
+local function if_statement(ctx: Ctx, s: Ast.If)
+  local ends: {Flow.State} = {}
+  for _, arm in ipairs(s.arms) do
+    local _ = condition(ctx, arm.cond)
+    local yes, no = edges(ctx, ctx.flow, arm.cond)
+    ctx.flow = yes
+    block(ctx, arm.body)
+    ends[#ends + 1] = ctx.flow
+    ctx.flow = no
+  end
+  local else_body = s.else_body
+  if else_body ~= nil then
+    block(ctx, else_body)
+  end
+  ends[#ends + 1] = ctx.flow
+  ctx.flow = merge_all(ctx, ends)
+end
+
+--- `while`: the condition is evaluated at the head, the body under the state where it holds, and the loop is left where
+--- it does not hold or at a `break`.
+local function while_statement(ctx: Ctx, s: Ast.While)
+  ctx.flow = run_loop(ctx, ctx.flow, function(head: Flow.State): Flow.State, Flow.State
+    ctx.flow = head
+    local _ = condition(ctx, s.cond)
+    local yes, no = edges(ctx, ctx.flow, s.cond)
+    ctx.flow = yes
+    local loop = open_loop(ctx)
+    block(ctx, s.body)
+    local back, breaks = close_loop(ctx, loop, ctx.flow)
+    return back, merge_maybe(ctx, no, breaks)
+  end)
+end
+
+--- `repeat ... until c`: the body runs once before `c`, which sees the locals of the body and the `continue`s; the loop
+--- is left where `c` holds or at a `break`, and goes back where it does not.
+local function repeat_statement(ctx: Ctx, s: Ast.Repeat)
+  ctx.flow = run_loop(ctx, ctx.flow, function(head: Flow.State): Flow.State, Flow.State
+    ctx.flow = head
+    local loop = open_loop(ctx)
+    stats(ctx, s.body)
+    local continues = loop.continues
+    if continues ~= nil then
+      ctx.flow = merge(ctx, ctx.flow, continues)
+    end
+    local _ = condition(ctx, s.cond)
+    local yes, no = edges(ctx, ctx.flow, s.cond)
+    ctx.loops[#ctx.loops] = nil
+    return no, merge_maybe(ctx, yes, loop.breaks)
+  end)
+end
+
+--- `break` (`leaves`) and `continue`: the state goes to the innermost loop, and the path ends.
+local function jump_statement(ctx: Ctx, leaves: boolean)
+  local loop = ctx.loops[#ctx.loops]
+  if loop ~= nil then
+    local f = ctx.flow
+    if leaves then
+      loop.breaks = merge_maybe(ctx, f, loop.breaks)
+    else
+      loop.continues = merge_maybe(ctx, f, loop.continues)
+    end
+  end
+  ctx.flow = Flow.dead(ctx.flow)
+end
+
+--- `match`: each arm is walked from the state after the scrutinee, and what follows is where their ends meet. The arms
+--- cover the alternatives ([`doc/plans/new-checker-types.md`], "`match` and tagged unions"), so no path takes none.
+local function match_statement(ctx: Ctx, s: Ast.Match)
+  unchecked(ctx, "unchecked_match", s, "a `match`")
+  local c = s.scrutinee
+  ctx.lenient = ctx.lenient + 1
+  if c is Ast.Call or c is Ast.MethodCall then
+    local _ = lists_of(ctx, c, nil)
+  end
+  ctx.lenient = ctx.lenient - 1
+  local start = ctx.flow
+  local ends: {Flow.State} = {}
+  for _, arm in ipairs(s.arms) do
+    ctx.flow = start
+    for _, p in ipairs(arm.pats) do
+      if p is Ast.PatBind then
+        ctx.vars[p.name.id] = ctx.invalid
+        declare_local(ctx, p.name.id, false)
+      end
+    end
+    block(ctx, arm.body)
+    ends[#ends + 1] = ctx.flow
+  end
+  if #ends > 0 then
+    ctx.flow = merge_all(ctx, ends)
+  end
 end
 
 local function stat(ctx: Ctx, s: Ast.Stat)
@@ -3446,28 +4698,24 @@ local function stat(ctx: Ctx, s: Ast.Stat)
   elseif s is Ast.Assign then
     assign_statement(ctx, s)
   elseif s is Ast.If then
-    for _, arm in ipairs(s.arms) do
-      local _ = condition(ctx, arm.cond)
-      block(ctx, arm.body)
-    end
-    local else_body = s.else_body
-    if else_body ~= nil then
-      block(ctx, else_body)
-    end
+    if_statement(ctx, s)
   elseif s is Ast.Return then
     return_statement(ctx, s)
+  elseif s is Ast.Break then
+    jump_statement(ctx, true)
+  elseif s is Ast.Continue then
+    jump_statement(ctx, false)
   elseif s is Ast.LocalFunction then
     local ft = function_type(ctx, s.fn, nil, quoted(s.name.name))
     ctx.vars[s.name.id] = ft
-    function_body(ctx, s.fn.params, s.fn.body, ft, names_of_params(s.typeparams), s, s.fn.rets ~= nil)
+    declare_local(ctx, s.name.id, false)
+    function_body(ctx, s.fn.params, s.fn.body, ft, names_of_params(s.typeparams), s, s.fn.rets ~= nil, s.fn.id)
   elseif s is Ast.Function then
     function_statement(ctx, s)
   elseif s is Ast.While then
-    local _ = condition(ctx, s.cond)
-    block(ctx, s.body)
+    while_statement(ctx, s)
   elseif s is Ast.Repeat then
-    block(ctx, s.body)
-    local _ = condition(ctx, s.cond)
+    repeat_statement(ctx, s)
   elseif s is Ast.Do then
     block(ctx, s.body)
   elseif s is Ast.ForNum then
@@ -3475,21 +4723,7 @@ local function stat(ctx: Ctx, s: Ast.Stat)
   elseif s is Ast.ForIn then
     for_generic(ctx, s)
   elseif s is Ast.Match then
-    unchecked(ctx, "unchecked_match", s, "a `match`")
-    local c = s.scrutinee
-    ctx.lenient = ctx.lenient + 1
-    if c is Ast.Call or c is Ast.MethodCall then
-      local _ = lists_of(ctx, c, nil)
-    end
-    ctx.lenient = ctx.lenient - 1
-    for _, arm in ipairs(s.arms) do
-      for _, p in ipairs(arm.pats) do
-        if p is Ast.PatBind then
-          ctx.vars[p.name.id] = ctx.invalid
-        end
-      end
-      block(ctx, arm.body)
-    end
+    match_statement(ctx, s)
   elseif s is Ast.Record or s is Ast.Interface or s is Ast.Class then
     local decl = ctx.lowered.decls[s.id]
     if decl ~= nil then
@@ -3499,10 +4733,63 @@ local function stat(ctx: Ctx, s: Ast.Stat)
   end
 end
 
-block = function(ctx: Ctx, b: Ast.Block)
+--- Whether a statement is code that runs, which a type declaration is not.
+local function runs(s: Ast.Stat): boolean
+  return not (s is Ast.Record or s is Ast.Interface or s is Ast.Class or s is Ast.Enum or s is Ast.TypeAlias or
+    s is Ast.Import or s is Ast.Error)
+end
+
+--- Walks the statements of `b`. The first that control cannot reach is reported (`unreachable`), where the block was
+--- reached; it and the rest are walked from the state at the jump.
+stats = function(ctx: Ctx, b: Ast.Block)
+  local reported = not ctx.flow.live
   for _, s in ipairs(b.stats) do
+    if not ctx.flow.live and not reported and runs(s) then
+      reported = true
+      report(ctx, "unreachable", s, "control never reaches this statement: what comes before it ends the block",
+        "remove it, or move it before the `return`, `break`, `continue`, call that never returns, or loop with no exit " ..
+          "that ends the block")
+    end
     stat(ctx, s)
   end
+end
+
+block = function(ctx: Ctx, b: Ast.Block)
+  stats(ctx, b)
+end
+
+--- The locals each function reads from outside, and those an assignment may change after the function is made, from the
+--- captures the scope builder found.
+local function captures_by_function(ctx: Ctx)
+  for _, v in ipairs(ctx.scoped.list) do
+    for _, c in ipairs(v.captures) do
+      local reads = ctx.reads[c.fn]
+      if reads == nil then
+        reads = {}
+        ctx.reads[c.fn] = reads
+      end
+      reads[#reads + 1] = v
+      if c.after then
+        local unfixed = ctx.unfixed[c.fn]
+        if unfixed == nil then
+          unfixed = {}
+          ctx.unfixed[c.fn] = unfixed
+        end
+        unfixed[v.id] = true
+      end
+    end
+  end
+end
+
+function Check.enums(lowered: Declarations.Lowered): {integer: {string}}
+  local out: {integer: {string}} = {}
+  for id, t in pairs(lowered.types) do
+    local body = t is Named and not t.value and t.decl.kind == "enum" and t.decl.body or nil
+    if body ~= nil then
+      out[id] = body.values
+    end
+  end
+  return out
 end
 
 function Check.check(program: Declarations.Program, input: Declarations.Input, lowered: Declarations.Lowered): Check.Checked
@@ -3510,9 +4797,27 @@ function Check.check(program: Declarations.Program, input: Declarations.Input, l
   local ctx: Ctx = {
     program = program, store = store, judge = program.judge, input = input, lowered = lowered, scoped = input.scoped,
     tokens = input.chunk.tokens, filename = input.filename, errors = {}, vars = {}, frames = {}, binders = {},
-    bounds = {}, lenient = 0, members = {}, value_members = {}, literals = {}, declared = {}, union_fields = {}, spine = {}, top = 0, ternaries = {}, invalid = store.invalid, nil_type = store:atom("nil"),
+    bounds = {}, lenient = 0, members = {}, value_members = {}, literals = {}, declared = {}, union_fields = {}, spine = {},
+    top = 0, ternaries = {}, invalid = store.invalid, nil_type = store:atom("nil"), flow = Flow.start(), unfixed_now = {}, assigning = {}, quiet = 0,
+    loops = {}, keys = {}, edges = {}, guards = {}, reads = {}, unfixed = {}, narrowed = {},
+    unite = function(a: Type, b: Type): Type
+      return store:union({ a, b })
+    end,
+    covers = function(declared: Type, united: Type): boolean
+      return declared == united
+    end,
   }
-  ctx.frames[1] = { alts = {}, rest = store.string, chunk = true, declared = false }
+  ctx.covers = function(declared: Type, united: Type): boolean
+    return below(ctx, declared, united)
+  end
+  ctx.unite = function(a: Type, b: Type): Type
+    return subsume(ctx, store:union({ a, b }))
+  end
+  captures_by_function(ctx)
+  ctx.frames[1] = {
+    alts = {}, rest = store.string, chunk = true, declared = false, narrows = nil, narrowed_id = 0, narrowed_name = "",
+    narrowed_type = nil,
+  }
   block(ctx, input.chunk.body)
   -- Source order; errors at one place stay in the order they were found.
   local position: {Codes.Error: integer} = {}
@@ -3525,7 +4830,14 @@ function Check.check(program: Declarations.Program, input: Declarations.Input, l
     end
     return position[a] < position[b]
   end)
-  return { errors = ctx.errors, vars = ctx.vars, literals = ctx.literals }
+  local narrowed: {Check.Narrowed} = {}
+  for _, n in pairs(ctx.narrowed) do
+    narrowed[#narrowed + 1] = n
+  end
+  table.sort(narrowed, function(a: Check.Narrowed, b: Check.Narrowed): boolean
+    return a.offset < b.offset
+  end)
+  return { errors = ctx.errors, vars = ctx.vars, literals = ctx.literals, narrowed = narrowed }
 end
 
 return Check

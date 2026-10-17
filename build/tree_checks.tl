@@ -3190,7 +3190,7 @@ function tree_checks.checked(root: string, pinned?: {string: integer}, memo?: Sq
   end
   local salt = check_memo.salt(root, { "lang/ast.tl", "lang/lexer.tl", "lang/parser.tl", "lang/scopes.tl",
     "lang/translate.tl", "lang/types.tl", "lang/relation.tl", "lang/declarations.tl", "lang/check.tl",
-    "lang/check_codes.tl", "lang/stdlib_corrections.tl", "checker/stdlib.d.tl", "checker/tl.tl", "build/teal.tl",
+    "lang/flow.tl", "lang/check_codes.tl", "lang/stdlib_corrections.tl", "checker/stdlib.d.tl", "checker/tl.tl", "build/teal.tl",
     "build/check_memo.tl", "build/tree_checks.tl" }, "checked 1")
   local tree = tree_of(files, salt)
   if memo ~= nil then
@@ -3394,6 +3394,11 @@ local function generate_outcome(file: string, source: string, memo: Sqlite.Handl
       outcome.skipped = "the fork writes no Lua: " .. why
     else
       -- The translator writes an `if` expression only for a value that is never false, which it tells the generator.
+      -- The enums are not passed, so `v is E` is the fork's test of the kind, which this oracle compares with the fork's
+      -- Lua; the checker's Lua tests the values ([`lang.check`] `enums`).
+      --
+      -- TODO: once the new checker's Lua is what the build writes, pass [`Check.enums`] here and compare the membership
+      -- test with the fork's kind test normalized, or drop this oracle.
       local generated = Codegen.generate(parsed.chunk, Scopes.build(parsed.chunk, file, {}), Translate.never_false)
       outcome.errors = generated.errors
       local loaded, load_why = load(generated.text, "=" .. file, "t", {})

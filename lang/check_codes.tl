@@ -125,6 +125,19 @@ local record Codes
     "require_unknown"
     -- a module that returns what no declaration describes
     "export_not_declared"
+    -- flow
+    -- a function that answers values, or is declared `never`, whose end is reachable
+    "missing_return"
+    -- a local read before every path assigns it
+    "not_assigned"
+    -- a statement control cannot reach
+    "unreachable"
+    -- a value that may be nil because an assignment dropped what a test had shown
+    "narrowing_dropped"
+    -- a function declared to narrow an argument whose body does not show it
+    "narrows_unproved"
+    -- a local assigned twice by one statement
+    "assign_repeated"
     -- not yet checked: a form a later piece of the checker types
     -- a call of a generic function
     "unchecked_generic"
@@ -190,7 +203,8 @@ Codes.codes = {
   "cast_refused", "is_on_record", "is_disjoint", "class_scope", "close_not_closable", "setmetatable_call", "enum_member",
   "literal_missing", "literal_unknown", "literal_repeated",
   "literal_needs_type", "literal_ambiguous", "literal_shape", "arms_differ", "array_of_optional", "require_unknown",
-  "export_not_declared", "unchecked_generic", "unchecked_protected", "unchecked_coroutine", "unchecked_match",
+  "export_not_declared", "missing_return", "not_assigned", "unreachable", "narrowing_dropped", "narrows_unproved",
+  "assign_repeated", "unchecked_generic", "unchecked_protected", "unchecked_coroutine", "unchecked_match",
   "unchecked_binding", "unchecked_nested",
 }
 
@@ -492,6 +506,47 @@ Codes.catalog = {
     why = "a module returns a declaration, a name whose type is written, or a function with a written signature, " ..
       "so an interface never depends on a body",
     fix = "return a record, class, interface or enum, or a local declared with its type",
+  },
+  {
+    code = "missing_return", rule = "returns are checked against the declared list",
+    why = "a function answers the values its return list declares, so a path that reaches its end answers none: " ..
+      "its caller would read nil where a value was declared. A function declared `never` returns on no path",
+    fix = "end every path with a `return` of <list> (or `error(...)`), or declare the function without a return list",
+  },
+  {
+    code = "not_assigned", rule = "assigned before read",
+    why = "`local x: T` with no value is legal only where every path assigns it before its first read, since a read " ..
+      "of it before then is nil where `T` admits none; a function made while it is unset reads it, so it is read " ..
+      "where the function is made",
+    fix = "assign <name> on every path before the read, give it a value where it is declared, or declare it `T?`, " ..
+      "which is nil until assigned and is checked where it is used",
+  },
+  {
+    code = "unreachable", rule = "never is the bottom type",
+    why = "a path that ends (a `return`, a `break` or `continue`, a call of a `never` function, a loop with no way " ..
+      "out, a place narrowed to `never`) has no successor, so a statement after it is code that cannot run and is " ..
+      "most often a mistake in the jump",
+    fix = "remove the statement, or move it before the jump",
+  },
+  {
+    code = "narrowing_dropped", rule = "narrowing only what nothing else can change",
+    why = "a test narrows a local until the local is assigned, and an assignment of a value that may itself be nil says " ..
+      "nothing of the new value, so a value that may be nil after the assignment is read where the test no longer holds",
+    fix = "test it again after the assignment, or keep the value in a new local that is not assigned and test that",
+  },
+  {
+    code = "narrows_unproved", rule = "narrowing declarations",
+    why = "a callee's declaration `v is T` or `asserts v is T` tells every caller what to assume of its argument, so " ..
+      "a function in Teal that makes it returns a test of the parameter that decides `T`, and one that asserts it " ..
+      "returns only where the parameter is a `T`",
+    fix = "return a test that decides <type> (`return v is T`, `return v.kind == \"...\"`), or declare the function " ..
+      "`boolean`",
+  },
+  {
+    code = "assign_repeated", rule = "narrowing only what nothing else can change",
+    why = "`x, x = a, b` leaves the order of the two assignments open in Lua, so the value of `x` after it, and the fact " ..
+      "a test held of it, would depend on an order the program does not fix",
+    fix = "assign <name> once, or in two statements in the order you mean",
   },
   { code = "unchecked_generic", rule = "generic inference is local to the call", why = WAITING,
     fix = "none yet: the generics piece types a call of a generic function" },

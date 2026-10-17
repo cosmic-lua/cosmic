@@ -2,6 +2,7 @@
 --- lowered, checked) against a small standard library written in the grammar.
 local Ast = require("lang.ast")
 local Check = require("lang.check")
+local Codegen = require("lang.codegen")
 local Codes = require("lang.check_codes")
 local Corrections = require("lang.stdlib_corrections")
 local Declarations = require("lang.declarations")
@@ -39,6 +40,26 @@ local record Programs
   --- The codes of the errors of `run`, space separated, in order.
   codes: function(run: Run): string
 
+  --- What running a checked program did.
+  record Execution
+    run: Run
+    --- Whether the checker took the program (no error but the `unchecked_*` of forms a later piece types) and it ran.
+    ran: boolean
+    --- The Lua that ran, or "".
+    lua: string
+    --- What the program printed, one string per call of `print`, its arguments tab separated.
+    printed: {string}
+    --- The error the run raised, or nil: a nil operand, a `fact violated` or an `assert` that failed.
+    fault: string | nil
+  end
+
+  --- Checks `source` and, where the checker takes it, writes it as Lua and runs it with `print` collected. With `facts`
+  --- every read of a place whose type a test narrowed ([`Check.Checked.narrowed`]) is wrapped in a check of what the
+  --- checker concluded: that the value is none of the kinds taken out, a member of the enum, of a class, or of the
+  --- members a tag tells apart, which raises `fact violated: <place> is ...`. `kind_only` writes `v is E` of an enum as the
+  --- fork does, a test for the kind, to show that the checks see what that lets through.
+  execute: function(source: string, facts: boolean, modules?: {string: string}, kind_only?: boolean): Execution
+
   --- The type of the first variable called `name`.
   var: function(run: Run, name: string): Types.Type
 end
@@ -71,6 +92,8 @@ do
   end
   global record coroutine
     create: function(function()): any
+    wrap: function(function()): function()
+    yield: function()
   end
   global record table
     insert: function<A>(mut {A}, A)
@@ -122,7 +145,7 @@ local function lower(program: Declarations.Program, module: string, source: stri
   for _, e in ipairs(lowered.errors) do
     before[#before + 1] = e.code
   end
-  local result: Check.Checked = { errors = {}, vars = {}, literals = {} }
+  local result: Check.Checked = { errors = {}, vars = {}, literals = {}, narrowed = {} }
   if dialect == "tl" then
     result = Check.check(program, input, lowered)
   end
@@ -176,6 +199,117 @@ function Programs.standard(prelude: string, stdlib: string, source: string, modu
     local _ = lower(program, name, (modules or {})[name], "tl", globals)
   end
   return lower(program, "t", source, "tl", globals)
+end
+
+--- The checker took the program: it has no error but the forms a later piece types.
+local function taken(run: Programs.Run): boolean
+  if #run.before > 0 then
+    return false
+  end
+  for _, e in ipairs(run.errors) do
+    if not tostring(e.code):find("^unchecked_") then
+      return false
+    end
+  end
+  return true
+end
+
+--- The Lua text of the strings of `list`, as a table.
+local function lua_strings(list: {string}): string
+  local out: {string} = {}
+  for i, v in ipairs(list) do
+    out[i] = (string.format("%q", v):gsub("\\\n", "\\n"))
+  end
+  return "{" .. table.concat(out, ", ") .. "}"
+end
+
+--- The arguments after the value of the call of `__fact` that wraps the read `n`: the kinds taken out, the place, and what
+--- the checker concluded of the strings, classes and tag of the value, each nil where it concluded nothing.
+local function fact_arguments(n: Check.Narrowed): string
+  local strings, classes, tags = n.strings, n.classes, n.tags
+  local parts: {string} = {
+    lua_strings({ table.concat(n.taken, ",") }):sub(2, -2), (string.format("%q", n.text):gsub("\\\n", "\\n")),
+    strings ~= nil and lua_strings(strings) or "nil", classes ~= nil and "{" .. table.concat(classes, ", ") .. "}" or "nil",
+    n.tag ~= nil and lua_strings({ n.tag }):sub(2, -2) or "nil", tags ~= nil and lua_strings(tags) or "nil",
+  }
+  return table.concat(parts, ", ")
+end
+
+function Programs.execute(source: string, facts: boolean, modules?: {string: string}, kind_only?: boolean): Programs.Execution
+  local run = Programs.run(source, modules)
+  local done: Programs.Execution = { run = run, ran = false, lua = "", printed = {}, fault = nil }
+  if not taken(run) then
+    return done
+  end
+  local wraps: {integer: string} = {}
+  if facts then
+    for _, n in ipairs(run.result.narrowed) do
+      wraps[n.id] = fact_arguments(n)
+    end
+  end
+  local classes: {integer: string} = {}
+  for id, decl in pairs(run.result.literals) do
+    classes[id] = decl.name
+  end
+  done.lua = Codegen.generate(run.chunk, run.scoped, nil, classes, kind_only and {} or Check.enums(run.lowered), wraps).text
+  local env: {string: any} = {
+    assert = assert, ipairs = ipairs, tostring = tostring, tonumber = tonumber, type = type, error = error, pcall = pcall,
+    string = string, table = table, select = select, setmetatable = setmetatable, getmetatable = getmetatable,
+    coroutine = coroutine,
+  }
+  env.print = function(...: any)
+    local parts: {string} = {}
+    for i = 1, select("#", ...) do
+      parts[i] = tostring((select(i, ...)))
+    end
+    done.printed[#done.printed + 1] = table.concat(parts, "\t")
+  end
+  env.__fact = function(v: any, kinds: string, name: string, strings: {string} | nil, tables: {any} | nil, tag: string | nil,
+                        tags: {string} | nil): any
+    local kind = type(v)
+    local function fails(why: string)
+      error("fact violated: " .. name .. " is " .. why, 0)
+    end
+    for k in kinds:gmatch("[^,]+") do
+      if k == kind then
+        fails("a " .. kind .. ", the checker proved not " .. kinds)
+      end
+    end
+    local function among(list: {any}, value: any): boolean
+      for _, each in ipairs(list) do
+        if each == value then
+          return true
+        end
+      end
+      return false
+    end
+    if strings ~= nil and kind == "string" and not among(strings, v) then
+      fails("the string " .. tostring(v) .. ", the checker proved one of " .. table.concat(strings, ","))
+    end
+    if v is {string: any} then
+      if tables ~= nil and not among(tables, getmetatable(v)) then
+        fails("a table of another class than the checker proved")
+      end
+      if tag ~= nil and tags ~= nil then
+        local field = v[tag]
+        if not among(tags, field) then
+          fails("a table whose " .. tag .. " is " .. tostring(field) .. ", the checker proved one of " .. table.concat(tags, ","))
+        end
+      end
+    end
+    return v
+  end
+  local chunk, why = load(done.lua, "=t", "t", env)
+  if chunk == nil then
+    done.fault = "the Lua does not load: " .. tostring(why)
+    return done
+  end
+  local ok, err = pcall(chunk)
+  done.ran = true
+  if not ok then
+    done.fault = tostring(err)
+  end
+  return done
 end
 
 function Programs.codes(run: Programs.Run): string
