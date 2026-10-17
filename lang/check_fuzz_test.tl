@@ -89,12 +89,9 @@ local function numeric(g: Gen, depth: integer): string
   return gen_expr(g, g.src:int(1, 2) == 1 and "integer" or "number", depth)
 end
 
---- An expression of the optional type `t` that may be nil: a variable of it, or an index read.
+--- An expression of the optional type `t` that may be nil: an index read. A variable of the type is no source: its
+--- initializer narrows it to the type of the value, which a test of nil then refuses.
 local function maybe(g: Gen, t: string): string
-  local names = variables(g, t)
-  if #names > 0 and g.src:int(1, 2) == 1 then
-    return Fuzz.pick(g.src, names)
-  end
   return t == "integer?" and Fuzz.pick(g.src, { "a0[1]", "m0[\"k\"]" }) or "sn0"
 end
 

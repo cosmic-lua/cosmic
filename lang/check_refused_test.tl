@@ -41,7 +41,7 @@ end
 -- `test_an_untyped_value_is_told_the_check_and_the_cast`: untrusted data is read and stored by no program, and the
 -- error gives the validator.
 local function test_untrusted_data_is_neither_read_nor_assigned_to_a_type()
-  local decoded = "local decode: function(string): any, string\n"
+  local decoded = "local function decode(_s: string): any, string\n  error(\"x\")\nend\n"
   refused(decoded .. "local cfg = decode(\"\")\nlocal x = cfg.cmd\n", "any_use", "`cfg` is untrusted data (`any`)")
   refused(decoded .. "local n: integer = decode(\"\")\n", "any_use", "`decode(\"\")` is untrusted data (`any`)")
   refused("local record Spec\n  cmd: string\nend\nlocal function run(s: Spec)\nend\nlocal function f(c: any)\n  run(c)\nend\n",

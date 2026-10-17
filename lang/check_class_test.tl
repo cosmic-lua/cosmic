@@ -199,7 +199,7 @@ local function test_a_method_of_an_interface_is_called_on_its_receiver_and_never
   local head = "local interface Sized\n  size: function(self: Sized): integer\nend\n" ..
     "local class Bag is Sized\n  items: {integer}\n  function size(self): integer\n    return #self.items\n  end\nend\n" ..
     "local class Num is Sized\n  n: integer\n  function size(self): integer\n    return self.n\n  end\nend\n" ..
-    "local b: Bag = { items = { 1, 2 } }\nlocal n: Num = { n = 7 }\nlocal s: Sized = n\n"
+    "local b: Bag = { items = { 1, 2 } }\nlocal n: Num = { n = 7 }\nlocal function make(): Sized\n  return n\nend\nlocal s: Sized = make()\n"
   -- the reviewer's program: another implementer is handed to the one function the value has
   refused(head .. "local f = s.size\nlocal x = f(b)\n", "interface_method_value",
     "`s.size` reads the method `size` of the interface `Sized` as a value, and its implementation depends on the receiver")

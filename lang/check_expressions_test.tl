@@ -165,8 +165,8 @@ end
 -- the values the last argument of a call expands to --------------------------------------------------------
 
 local EXPANDED <const> = [[
-local ints: function(): integer...
-local strs: function(): string...
+local ints: function(): integer... = function() end
+local strs: function(): string... = function() end
 local function take(a: string, b: integer): string
   return a
 end
@@ -220,14 +220,14 @@ local function test_a_tail_in_a_method_call_counts_its_arguments_after_the_recei
 end
 
 local function test_a_value_known_past_the_parameters_is_a_surplus_argument_whatever_the_tail_gives()
-  local mixed = "local mixed: function(): integer, integer, integer...\n"
+  local mixed = "local mixed: function(): integer, integer, integer... = function() return 1, 2 end\n"
   refused(EXPANDED .. mixed .. "local x = one(mixed())\n", "arity", "`one` takes 1 argument, but 2 are given")
   assert(codes_of(EXPANDED .. "local x = one(ints())\n") == "nil_not_allowed")
   assert(codes_of(EXPANDED .. mixed .. "local x = every(\"a\", mixed())\n") == "")
 end
 
 local function test_an_expanding_last_argument_leaves_the_literals_before_it_to_the_overload_taken()
-  local head = "local count: function(): integer...\n"
+  local head = "local count: function(): integer... = function() end\n"
   -- the function literal takes its parameter's type from the overload taken
   assert(codes_of(head .. "local r = (\"x\"):gsub(\"a\", function(c) return c end, count())\n") == "")
   -- and is held to it
@@ -236,14 +236,14 @@ local function test_an_expanding_last_argument_leaves_the_literals_before_it_to_
   -- a literal that fits no overload fails the call
   refused(head .. "local r = (\"x\"):gsub(\"a\", 1, count())\n", "overload_none", "no overload of `(\"x\"):gsub`")
   -- the tail is part of what an overload accepts: a string fills the count, which an integer is
-  local strs = "local strs: function(): string...\n"
+  local strs = "local strs: function(): string... = function() end\n"
   refused(strs .. "local r = (\"x\"):gsub(\"a\", \"b\", strs())\n", "overload_none", "no overload of",
     "argument 3 is filled by `string...`, where `integer?` is wanted")
   assert(codes_of(head .. "local r = (\"x\"):gsub(\"a\", \"b\", count())\n") == "")
 end
 
 local function test_a_table_literal_before_an_expanding_argument_is_checked_against_the_overload_taken()
-  local head = "local ints: function(): integer...\n"
+  local head = "local ints: function(): integer... = function() end\n"
   assert(codes_of(head .. "local x = Over.put({ n = 1 }, ints())\n") == "")
   refused(head .. "local x = Over.put({ n = \"s\" }, ints())\n", "not_assignable", "as the field `n` of `Opts`")
   refused(head .. "local x = Over.put({}, ints())\n", "literal_missing", "this literal of `Opts` leaves out `n`")

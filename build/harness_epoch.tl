@@ -144,7 +144,7 @@ harness_epoch.acknowledged = {
 
   ["cosmic.hash"] = "c6b73b0d1b1aafdf5a122b5a8cffa74fd1ff0b39f7129ff48d1ef91b2769f83a",
 
-  ["cosmic.proc"] = "0d7ce937591bc50094b1c6f3a34b7853ad4545e77a90f3a66a0ff7a81509a394",
+  ["cosmic.proc"] = "a5e3f73f45f2df5f6104313300f479ec0b16a5325c3b05a95ca2393ae6397574",
 
   ["cosmic.project"] = "ff7ae4d2958b9a7d24d13c990b8e3e3f41f0574fa169a645298c21b246924843",
 
