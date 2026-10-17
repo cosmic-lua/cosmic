@@ -536,16 +536,23 @@ local record Cli
   --- `cosmic lsp [--stdio] [--listen [host:]port] [--socket path]`: a
   --- Language Server Protocol server for Teal, which an editor starts.
   --- It publishes the checker's errors and warnings as a document is
-  --- opened, changed or saved, checked in memory as the editor holds it,
-  --- with a project's `require` answered from open documents, then the
-  --- files below the workspace's root, then the binary's `cosmic.*`; it
-  --- answers hover with a symbol's docs, as `cosmic docs`, and formats
-  --- a document as `cosmic fix` does. It serves one editor over standard
-  --- input and output, or, with `--listen` (a numeric host, the loopback
-  --- when only a port is given) or `--socket`, each editor that connects
-  --- until SIGINT or SIGTERM. Exits 0 after the editor's `shutdown` then
-  --- `exit`, 1 when it exits without `shutdown`, the stream breaks or a
-  --- listener fails, 2 for a command line it refuses
+  --- opened, changed or saved, checked in memory as the editor holds it
+  --- and as a build checks it, with a project's `require` answered as a
+  --- build names modules, from open documents, then the files below the
+  --- workspace's root, then the binary's `cosmic.*`; it answers hover
+  --- with a symbol's docs, as `cosmic docs`, and formats a document as
+  --- `cosmic fix` does. It serves one editor over standard input and
+  --- output, or, with `--listen` (a numeric IPv4 host or a bracketed
+  --- IPv6 one, the loopback when only a port is given) or `--socket`,
+  --- each editor that connects until SIGINT or SIGTERM. Whoever reaches
+  --- a listener reads the files below the root it names, unasked who it
+  --- is: it warns on standard error when it listens beyond the loopback.
+  --- `--stdio` takes neither of the others. Over standard input and
+  --- output it exits 0 after the editor's `shutdown`, at `exit` or the
+  --- stream's end, and 1 at an `exit` or an end with no `shutdown`
+  --- before it or a stream that breaks; a listener exits 0 when a signal
+  --- stops it and 1 when it cannot listen; 2 for a command line it
+  --- refuses
   lsp: string
   --- `cosmic bom [--licenses | --json <path>]`: the bill of materials
   --- this binary ships under -- every third-party component its cores
@@ -926,6 +933,7 @@ local module: Module = {
     lsp = {
       about = "a language server for editors",
       usage = "[--stdio] [--listen [host:]port] [--socket path]",
+      run = nil,
       spec = {
         ["--stdio"] = { about = "serve one editor over standard input and output (the default)" },
         ["--listen"] = { value = "[host:]port",

@@ -309,6 +309,9 @@ local record compiler
     -- Each file checked, by file name: [`check_string`] answers a file
     -- found here without checking it again.
     loaded: {string:any}
+    -- The file name of each entry of `loaded`, in the order checked; one
+    -- a check of no file name ("") made among them.
+    loaded_order: {string}
     -- When set, the checker hands every node's type to `reporter`'s
     -- collector as it checks; see [`build.receivers`].
     report_types: boolean | nil

@@ -382,6 +382,10 @@ promises lean on come first:
     `Last-Modified` for a file a handler serves itself.
   - File-based routing that generates the route table, and OpenAPI
     documents made from typed routes.
+- go to definition and completion in `cosmic lsp` ([`build/lsp.tl`]), which
+  answers diagnostics, hover and formatting today. tl's type report answers
+  both: `env.report_types`, `get_types`, `symbols_in_scope` and `undeclared`,
+  none of which [`build/compiler.d.tl`] declares yet.
 
 ## documentation and examples
 
@@ -460,6 +464,7 @@ four-producer provenance join.
 [`build/c/tree.tl`]: ../build/c/tree.tl
 [`build/c_functions.tl`]: ../build/c_functions.tl
 [`build/checker_narrowing_test.tl`]: ../build/checker_narrowing_test.tl
+[`build/compiler.d.tl`]: ../build/compiler.d.tl
 [`build/contracts.tl`]: ../build/contracts.tl
 [`build/dataset.tl`]: ../build/dataset.tl
 [`build/fix/rule.tl`]: ../build/fix/rule.tl
@@ -467,6 +472,7 @@ four-producer provenance join.
 [`build/hash_test.tl`]: ../build/hash_test.tl
 [`build/json.tl`]: ../build/json.tl
 [`build/locator_fuzz_test.tl`]: ../build/locator_fuzz_test.tl
+[`build/lsp.tl`]: ../build/lsp.tl
 [`build/shape_specs.tl`]: ../build/shape_specs.tl
 [`build/teal_test.tl`]: ../build/teal_test.tl
 [`build/workflows_test.tl`]: ../build/workflows_test.tl
