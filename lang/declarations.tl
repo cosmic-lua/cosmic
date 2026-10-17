@@ -206,12 +206,18 @@ local record Declarations
     aliases: {integer: Type}
     --- What the module returns, if it returns a declaration.
     export?: Entry
+    --- The declaration or alias each binding that names one stands for, by the id of the binding
+    --- ([`Scopes.Var.id`]): what a name used as a value ([`Fs.read`]) stands for.
+    entries: {integer: Entry}
   end
 
   --- A module as the program knows it.
   record Module
     name: string
     export?: Entry
+    --- The type of what the module returns when that is no declaration but its type is written: a function with
+    --- written parameters (a `local function` or a literal), or a local declared with a type.
+    value?: Type
     --- Whether [`Declarations.Program.lower`] ran for it.
     lowered: boolean
     errors: {Error}
@@ -244,6 +250,16 @@ local record Declarations
     --- Asked for a module that a type name imports and the program lacks.
     provider: Provider | nil
     requires: {Decl: Requires}
+    --- The types of the values a declaration file declares as globals (`global print <const> = Lib.print`,
+    --- `global arg: {string}`), by name: one type, or the overloads of a function in the order they are declared.
+    values: {string: {Type}}
+    --- The fields of a declaration that its `function R.m(...)` statements gave it, by name: a table literal of the
+    --- declaration need not give them, since a record that has such a function is the module of its functions as
+    --- much as the type of its values.
+    --
+    -- TODO: make a record and its statics two types, once the class piece lands (doc/plans/new-checker-types.md,
+    -- "the order the pieces land in"): a declaration used as a value then has a type of its own, and this table goes.
+    statics: {Decl: {string: boolean}}
 
     --- Makes `name` another name of the module `module`, which the program knows.
     alias: function(Program, name: string, module: string)
@@ -527,6 +543,10 @@ local record Ctx
   lowering: boolean
   --- The checks that wait for every declaration of the module to be defined.
   checks: {function(): boolean}
+  --- The `function R.m` statements of the module's top level, by the declaration `R` names, and the ids of
+  --- those whose signature was lowered with the declaration.
+  statics: {Decl: {Ast.Function}}
+  static_done: {integer: boolean}
 end
 
 local lower_type: function(ctx: Ctx, t: Ast.Type): Type
@@ -1296,6 +1316,11 @@ local function declare_one(ctx: Ctx, node: Ast.Node, place: Place, seen: {string
     names[i] = n
   end
   names[#names + 1] = name
+  -- The library record of a primitive (`global record string`) is a value only, for `string.format` and `s:upper()`:
+  -- the type `string` stays the primitive, so the record is declared as `std.string`.
+  if ctx.decl_file and #place.names == 0 and Scopes.primitives[name] then
+    names = { "std", name }
+  end
   local top = place.top
   if #place.names == 0 then
     module = ctx.module
@@ -1417,6 +1442,11 @@ local function find_export(ctx: Ctx): Entry | nil
         local vid = ctx.scoped.resolved[annotation.id]
         local v = vid ~= nil and ctx.scoped.vars[vid] or nil
         local base = v ~= nil and ctx.by_binding[v.id] or nil
+        if base == nil and v ~= nil and v.module ~= "" and not ctx.program.external[v.module] then
+          -- A type of an imported module: `local x: Mod.Type = ... return x`.
+          local imported = known_module(ctx, v.module)
+          base = imported ~= nil and imported.export or nil
+        end
         if base ~= nil then
           local names: {string} = {}
           for i, n in ipairs(base.names) do
@@ -1428,6 +1458,31 @@ local function find_export(ctx: Ctx): Entry | nil
           return ctx.program.entries[entry_key(base.module, names)]
         end
       end
+    end
+  end
+  return nil
+end
+
+--- The type of what the module returns when no declaration describes it and the type is written: the signature of
+--- a function the module returns, or the annotation of a local it returns. Run once the tree is lowered.
+local function find_value(ctx: Ctx): Type | nil
+  local stats = ctx.input.chunk.body.stats
+  local last = stats[#stats]
+  if last == nil or not (last is Ast.Return) or #last.values ~= 1 then
+    return nil
+  end
+  local value = last.values[1]
+  if value is Ast.FunctionLit then
+    return ctx.types[value.fn.id]
+  elseif not (value is Ast.Name) or value.binding == nil then
+    return nil
+  end
+  for _, stat in ipairs(stats) do
+    if stat is Ast.LocalFunction and stat.name.id == value.binding then
+      return ctx.types[stat.fn.id]
+    elseif stat is Ast.Local and #stat.bindings == 1 and stat.bindings[1].id == value.binding then
+      local annotation = stat.types[1]
+      return annotation ~= nil and ctx.types[annotation.id] or nil
     end
   end
   return nil
@@ -1564,6 +1619,42 @@ local function lower_field(ctx: Ctx, build: Build, m: Ast.FieldDecl)
   build.fields[#build.fields + 1] = { name = m.name.name, type = ft, mut = m.mut, omittable = m.omittable }
 end
 
+-- Static functions ---------------------------------------------------------------------
+
+--- Lowers the signature of the statement `function R.m(...)`, which stands outside the declaration `R`: its
+--- type parameters are the one binder, and no type parameter of the code around it is in scope. Answers its
+--- function type, or `invalid` where a parameter has no type.
+local function lower_static(ctx: Ctx, f: Ast.Function): Type
+  local saved = ctx.frames
+  ctx.frames = {}
+  push_frame(ctx, false, f.typeparams)
+  local tparams: {Types.TParam} = {}
+  for i, p in ipairs(f.typeparams) do
+    tparams[i] = { bound = lower_bound(ctx, p) }
+  end
+  lower_fn(ctx, f.fn, tparams)
+  ctx.frames = saved
+  ctx.static_done[f.id] = true
+  return ctx.types[f.fn.id] or ctx.store.invalid
+end
+
+--- Finds the statements `function R.m(...)` at the top of the module whose `R` is a record, class or userdata
+--- record of the module, for [`enter_declaration`] to give `R` the field `m`.
+local function collect_statics(ctx: Ctx)
+  for _, stat in ipairs(ctx.input.chunk.body.stats) do
+    if stat is Ast.Function and #stat.path == 2 then
+      local binding = stat.path[1].binding
+      local entry = binding ~= nil and ctx.by_binding[binding] or nil
+      local decl = entry ~= nil and entry.decl or nil
+      if decl ~= nil and (decl.kind == "record" or decl.kind == "class" or decl.kind == "userdata") then
+        local list = ctx.statics[decl] or {}
+        list[#list + 1] = stat
+        ctx.statics[decl] = list
+      end
+    end
+  end
+end
+
 --- Lists the supers of a declaration: interfaces, none that lists the declaration.
 local function lower_supers(ctx: Ctx, build: Build, supers: {Ast.TypeName})
   for _, s in ipairs(supers) do
@@ -1664,6 +1755,19 @@ local function enter_declaration(ctx: Ctx, node: Ast.Node): {Ast.Node}
       kids[#kids + 1] = m.body
     elseif DECLARATIONS[mkind] then
       kids[#kids + 1] = m
+    end
+  end
+  -- A function statement `function R.m(...)` gives `R` the fixed field `m` unless `R` declares one: that field is
+  -- then what the statement implements.
+  for _, f in ipairs(ctx.statics[decl] or {}) do
+    local name = f.path[2].text
+    if build.overloads[name] == nil then
+      build.overloads[name] = false
+      build.first_of[name] = f
+      build.fields[#build.fields + 1] = { name = name, type = lower_static(ctx, f), mut = false, omittable = false }
+      local named = ctx.program.statics[decl] or {}
+      named[name] = true
+      ctx.program.statics[decl] = named
     end
   end
   if kind == "Interface" or kind == "Record" or kind == "Class" then
@@ -2168,6 +2272,33 @@ end
 
 -- The walk ------------------------------------------------------------------------------------
 
+--- The types of the globals a `global` statement of a declaration file declares: the annotation of a binding, or
+--- the fields of a record that its value names (`global print <const> = Lib.print`), one for each overload.
+local function declare_values(ctx: Ctx, node: Ast.Local)
+  for i, b in ipairs(node.bindings) do
+    local annotation = node.types[i]
+    local value = node.values[i]
+    local found: {Type} = {}
+    if annotation ~= nil then
+      found[1] = ctx.types[annotation.id] or ctx.store.invalid
+    elseif value ~= nil and value is Ast.Field then
+      local head = value.object
+      local binding = head is Ast.Name and head.binding or nil
+      local entry = binding ~= nil and ctx.by_binding[binding] or nil
+      local decl = entry ~= nil and entry.decl or nil
+      local body = decl ~= nil and decl.body or nil
+      for _, f in ipairs(body ~= nil and body.fields or {}) do
+        if f.name == value.name then
+          found[#found + 1] = f.type
+        end
+      end
+    end
+    if #found > 0 then
+      ctx.program.values[b.name] = found
+    end
+  end
+end
+
 --- What a node does when the walk reaches it: the nodes to walk next (nil for all its children), and whether
 --- a frame of type parameters it pushed is popped when the walk leaves it.
 local function enter(ctx: Ctx, node: Ast.Node): {Ast.Node} | nil, boolean
@@ -2179,6 +2310,9 @@ local function enter(ctx: Ctx, node: Ast.Node): {Ast.Node} | nil, boolean
     for _, t in ipairs(node.types) do
       local _ = lower_type(ctx, t)
     end
+    if ctx.decl_file and node.scope == "global" then
+      declare_values(ctx, node)
+    end
     return nil, false
   elseif (kind == "IsTest" and node is Ast.IsTest) or (kind == "Cast" and node is Ast.Cast) then
     local _ = lower_type(ctx, node.type)
@@ -2186,11 +2320,13 @@ local function enter(ctx: Ctx, node: Ast.Node): {Ast.Node} | nil, boolean
   elseif (kind == "LocalFunction" and node is Ast.LocalFunction) or (kind == "Function" and node is Ast.Function) then
     local params = node.typeparams
     push_frame(ctx, false, params)
-    local tparams: {Types.TParam} = {}
-    for i, p in ipairs(params) do
-      tparams[i] = { bound = lower_bound(ctx, p) }
+    if not ctx.static_done[node.id] then
+      local tparams: {Types.TParam} = {}
+      for i, p in ipairs(params) do
+        tparams[i] = { bound = lower_bound(ctx, p) }
+      end
+      lower_fn(ctx, node.fn, tparams)
     end
-    lower_fn(ctx, node.fn, tparams)
     return { node.fn.body }, true
   elseif kind == "FunctionLit" and node is Ast.FunctionLit then
     lower_fn(ctx, node.fn, {})
@@ -2261,7 +2397,7 @@ local program_mt: metatable<Program> = { __index = Declarations.Program }
 function Declarations.new(store?: Store): Program
   local s = store or Types.new()
   local program: Program = setmetatable({
-    store = s, judge = Relation.new(s), modules = {}, entries = {}, globals = {}, waiting = {}, requires = {}, external = {},
+    store = s, judge = Relation.new(s), modules = {}, entries = {}, globals = {}, waiting = {}, requires = {}, external = {}, values = {}, statics = {},
   }, program_mt)
   return program
 end
@@ -2277,6 +2413,7 @@ local function new_ctx(program: Program, input: Declarations.Input, lowering: bo
     tokens = input.chunk.tokens, scoped = input.scoped, decl_file = input.dialect == "decl", info = info,
     frames = {}, entry_of = {}, by_binding = {}, types = {}, decls = {}, aliases = {}, errors = info.errors,
     unions = {}, uses = {}, tainted = {}, alias_depth = 0, kids = {}, lowering = lowering, checks = {},
+    statics = {}, static_done = {},
   }
 end
 
@@ -2334,7 +2471,11 @@ Declarations.Program.lower = function(self: Program, input: Declarations.Input):
   local ctx = new_ctx(self, input, true)
   declare_all(ctx)
   ctx.info.export = find_export(ctx)
+  collect_statics(ctx)
   walk(ctx)
+  if ctx.info.export == nil then
+    ctx.info.value = find_value(ctx)
+  end
   for _, site in ipairs(ctx.unions) do
     ctx.checks[#ctx.checks + 1] = function(): boolean
       return check_union(ctx, site)
@@ -2355,7 +2496,7 @@ Declarations.Program.lower = function(self: Program, input: Declarations.Input):
   retry_waiting(self)
   return {
     module = ctx.module, errors = in_order(ctx.errors), decls = ctx.decls, types = ctx.types, aliases = ctx.aliases,
-    export = ctx.info.export,
+    export = ctx.info.export, entries = ctx.by_binding,
   }
 end
 

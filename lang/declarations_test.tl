@@ -722,3 +722,118 @@ local function test_a_module_is_lowered_once_and_its_declarations_are_the_stores
   end)
   assert(not ok and tostring(why):find("was lowered already", 1, true) ~= nil, tostring(why))
 end
+
+-- function statements, global values and the library records of primitives ------------------------------
+
+local function test_a_statement_that_defines_a_function_of_a_record_gives_the_record_that_field_unless_it_declares_one()
+  local program = fresh()
+  local source = [[
+local record R
+  declared: function(integer): integer
+  n: integer
+end
+function R.declared(n: integer): integer
+  return n
+end
+function R.defined<T>(a: T, b?: string): {T}
+  return {}
+end
+function R.untyped(a)
+end
+function R.defined(n: integer)
+end
+]]
+  local result = Programs.lower(program, "t", source)
+  assert(Programs.codes(result.lowered) == "", Programs.codes(result.lowered))
+  local body = body_of(program, "t", "R")
+  local names: {string} = {}
+  for _, f in ipairs(body.fields) do
+    names[#names + 1] = f.name
+  end
+  assert(table.concat(names, " ") == "declared n defined untyped", table.concat(names, " "))
+  local decl = program.store:find("t", "R")
+  assert(decl ~= nil)
+  local statics = program.statics[decl]
+  assert(statics ~= nil and statics.defined and statics.untyped and not statics.declared and not statics.n)
+  assert(Types.display(body.fields[3].type) == "function<T>(T, p2?: string): {T}", Types.display(body.fields[3].type))
+  assert(body.fields[4].type.tag == "invalid")
+  -- the statement of a declared field is lowered once, as any function is
+  local twice = 0
+  for _, e in ipairs(result.lowered.errors) do
+    twice = twice + (e.code == "repeated_field" and 1 or 0)
+  end
+  assert(twice == 0)
+end
+
+local function test_a_function_statement_of_a_record_declared_in_a_function_or_on_a_longer_path_gives_no_field()
+  local program = fresh()
+  local source = [[
+local record Outer
+  record Inner
+    n: integer
+  end
+end
+function Outer.Inner.make()
+end
+local function f()
+  local record Local
+    n: integer
+  end
+  function Local.make()
+  end
+end
+]]
+  local result = Programs.lower(program, "t", source)
+  assert(Programs.codes(result.lowered) == "", Programs.codes(result.lowered))
+  assert(#body_of(program, "t", "Outer.Inner").fields == 1)
+  local decl = program.store:find("t", "Outer.Inner")
+  assert(decl ~= nil and program.statics[decl] == nil)
+end
+
+local function test_a_declaration_file_gives_the_types_of_its_global_values()
+  local program = fresh()
+  local source = [[
+local record Lib
+  print: function(...: any)
+  tonumber: function(any): number?
+  tonumber: function(any, integer): integer?
+  arg: {string}
+end
+global print <const> = Lib.print
+global tonumber <const> = Lib.tonumber
+global arg <const> = Lib.arg
+global version: string
+global missing <const> = Lib.missing
+]]
+  local result = Programs.lower(program, "t", source, "decl")
+  assert(Programs.codes(result.lowered) == "", Programs.codes(result.lowered))
+  local values = program.values
+  assert(#values.print == 1 and Types.display(values.print[1]) == "function(...: any)")
+  assert(#values.tonumber == 2 and Types.display(values.tonumber[2]) == "function(any, integer): integer?")
+  assert(Types.display(values.arg[1]) == "{string}" and Types.display(values.version[1]) == "string")
+  assert(values.missing == nil)
+end
+
+local function test_a_global_record_named_for_a_primitive_is_a_value_and_the_type_stays_the_primitive()
+  local program = fresh()
+  local library = Programs.lower(program, "std", "global record string\n  upper: function(string): string\nend\n", "decl")
+  assert(Programs.codes(library.lowered) == "", Programs.codes(library.lowered))
+  local entry = program.globals["string"]
+  local decl = entry ~= nil and entry.decl or nil
+  assert(decl ~= nil and decl.name == "std.string")
+  local user = Programs.lower(program, "user", "local s: string\n")
+  assert(#user.lowered.errors == 0)
+  assert(annotation(user, 1) == program.store.string)
+end
+
+local function test_a_lowered_module_names_the_declaration_each_binding_stands_for()
+  local program = fresh()
+  local result = Programs.lower(program, "t", "local record R\nend\nlocal type A = {R}\nlocal enum E \"a\" end\n")
+  local entries = result.lowered.entries
+  local count = 0
+  for _, entry in pairs(entries) do
+    count = count + 1
+    assert(entry.decl ~= nil or entry.alias ~= nil)
+  end
+  assert(count == 3)
+end

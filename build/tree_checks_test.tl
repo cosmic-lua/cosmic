@@ -1218,6 +1218,107 @@ local function test_a_change_to_the_code_or_the_declarations_the_declaration_che
   assert(memo:close())
 end
 
+--- A mistake in a body is listed past its pin with the place, the message and the fix, in a file that imports the
+--- declarations it uses; the fork's file, a declaration file, a file whose translation does not parse and the files of
+--- a `testdata` directory are not checked; a pin above what the tree has is told to fall.
+local function test_a_mistake_in_a_body_is_refused_past_its_pin_with_its_fix(dir: string)
+  local root = dir .. "/checkroot"
+  assert(Fs.mkdirs(root .. "/build"))
+  assert(Fs.mkdirs(root .. "/checker"))
+  assert(Fs.mkdirs(root .. "/eval/testdata"))
+  assert(Fs.write(root .. "/checker/tl.tl", source("local n: integer = 3.5")))
+  assert(Fs.write(root .. "/build/shape.tl", source("local record Shape", "  n: integer", "end", "return Shape")))
+  assert(Fs.write(root .. "/build/ok.tl", source("local Shape = require(\"build.shape\")", "local s: Shape = { n = 1 }")))
+  assert(Fs.write(root .. "/build/bad.tl", source("local Shape = require(\"build.shape\")", "local s: Shape = { n = 1.5 }",
+    "local t: integer = 3.5")))
+  assert(Fs.write(root .. "/build/broken.tl", source("local t: {{string, integer}}", "local u: integer = 3.5", "return t")))
+  assert(Fs.write(root .. "/build/types.d.tl", source("global record Gone", "  n: integer", "end")))
+  assert(Fs.write(root .. "/eval/testdata/t.tl", source("local u: integer = 3.5", "return u")))
+  local found = table.concat(tree_checks.checked(root, {}), "\n")
+  assert(found:find("build/bad.tl:2:24: `1.5` is `number`, where `integer` is wanted as the field `n` of `Shape`", 1, true) and
+      found:find("(not_assignable): convert with `math.tointeger(1.5)` or `math.floor(1.5)`", 1, true) and
+      found:find("build/bad.tl:3:20:", 1, true) and
+      found:find("build/bad.tl: 2 errors of not_assignable in its bodies, pinned 0; follow the fix above rather than raise the pin", 1, true),
+    found)
+  assert(not found:find("ok.tl", 1, true) and not found:find("checker/tl.tl", 1, true) and not found:find("broken.tl", 1, true) and
+      not found:find("testdata", 1, true), found)
+  local pins: {string: integer} = { ["build/bad.tl not_assignable"] = 2 }
+  assert(#tree_checks.checked(root, pins) == 0, table.concat(tree_checks.checked(root, pins), "\n"))
+  pins["build/bad.tl not_assignable"] = 3
+  pins["build/gone.tl nil_not_allowed"] = 1
+  local fallen = tree_checks.checked(root, pins)
+  assert(#fallen == 2 and fallen[1] == "build/bad.tl not_assignable: pinned 3 but 2 found; lower the pin in " ..
+      "build/check_pins.tl" and
+      fallen[2] == "build/gone.tl nil_not_allowed: pinned 1 but 0 found; lower the pin in build/check_pins.tl",
+    table.concat(fallen, "\n"))
+end
+
+--- The phases of a check that lowered files are timed, and a run the memo answers times none.
+local function test_the_phases_of_a_check_are_timed_for_the_files_the_memo_lacked(dir: string)
+  local root = dir .. "/checkphases"
+  assert(Fs.mkdirs(root .. "/build"))
+  assert(Fs.write(root .. "/build/a.tl", source("local n: integer = 3.5")))
+  local memo = assert(Sqlite.memory())
+  local phases: {string: integer} = {}
+  local first = table.concat(tree_checks.checked(root, {}, memo, phases), "\n")
+  assert(phases.prepare > 0 and phases.lower > 0 and phases.check > 0, first)
+  local again: {string: integer} = {}
+  assert(table.concat(tree_checks.checked(root, {}, memo, again), "\n") == first)
+  assert(again.check == nil)
+  assert(memo:close())
+end
+
+--- The answer for a file is kept under the sources of every module it requires and of the checker: a change to a
+--- module it imports, however far, or to the checker misses; an unrelated file does not.
+local function test_a_memo_answers_the_body_check_until_a_module_a_file_requires_or_the_checker_changes(dir: string)
+  local root = dir .. "/checkmemo"
+  assert(Fs.mkdirs(root .. "/build"))
+  assert(Fs.mkdirs(root .. "/lang"))
+  assert(Fs.write(root .. "/build/base.tl", source("local record Base", "  n: integer", "end", "return Base")))
+  assert(Fs.write(root .. "/build/top.tl", source("local Base = require(\"build.base\")", "local b: Base = { n = 1.5 }")))
+  assert(Fs.write(root .. "/build/alone.tl", source("local x: integer = 1.5")))
+  local memo = assert(Sqlite.memory())
+  local plain = table.concat(tree_checks.checked(root, {}, memo), "\n")
+  assert(plain:find("build/top.tl:2:", 1, true) and plain:find("build/alone.tl:1:", 1, true), plain)
+  local count = assert(Sqlite.rows(memo, "SELECT count(*) FROM check_memo WHERE kind = 'checked'"))
+  assert(count[1]:integer(1) == 3, "the three files: " .. count[1]:integer(1))
+  assert(Sqlite.run(memo, "UPDATE check_memo SET value = ?1", { { text = "N\nE\tnil_not_allowed\t7\t9\tplanted\tdo it" } }))
+  local hit = table.concat(tree_checks.checked(root, {}, memo), "\n")
+  assert(hit:find("build/top.tl:7:9: planted (nil_not_allowed): do it", 1, true) and not hit:find("not_assignable", 1, true), hit)
+  assert(Fs.write(root .. "/build/base.tl", source("local record Base", "  n: integer", "  m: integer", "end", "return Base")))
+  local again = table.concat(tree_checks.checked(root, {}, memo), "\n")
+  assert(again:find("build/top.tl:2:", 1, true) and again:find("not_assignable", 1, true), again)
+  assert(again:find("build/alone.tl:7:9: planted", 1, true), again)
+  assert(memo:close())
+end
+
+--- Each file whose code or declarations decide what the check finds is in the memo's salt.
+local function test_a_change_to_the_code_or_the_declarations_the_body_check_reads_misses_the_memo(dir: string)
+  local root = dir .. "/checksalt"
+  local salted: {string} = { "lang/ast.tl", "lang/lexer.tl", "lang/parser.tl", "lang/scopes.tl", "lang/translate.tl",
+    "lang/types.tl", "lang/relation.tl", "lang/declarations.tl", "lang/check.tl", "lang/check_codes.tl",
+    "checker/stdlib.d.tl", "checker/tl.tl", "build/teal.tl", "build/check_memo.tl", "build/tree_checks.tl" }
+  assert(Fs.mkdirs(root .. "/build"))
+  assert(Fs.mkdirs(root .. "/lang"))
+  assert(Fs.mkdirs(root .. "/checker"))
+  for _, path in ipairs(salted) do
+    assert(Fs.write(root .. "/" .. path, "-- one\n"))
+  end
+  assert(Fs.write(root .. "/build/bad.tl", source("local x: integer = 1.5")))
+  local memo = assert(Sqlite.memory())
+  local plain = table.concat(tree_checks.checked(root, {}, memo), "\n")
+  assert(plain:find("(not_assignable)", 1, true), plain)
+  for _, path in ipairs(salted) do
+    assert(Sqlite.run(memo, "UPDATE check_memo SET value = ?1", { { text = "N\nE\tnil_not_allowed\t7\t9\tplanted\tdo it" } }))
+    local hit = table.concat(tree_checks.checked(root, {}, memo), "\n")
+    assert(hit:find("planted", 1, true), path .. " moved the key by itself: " .. hit)
+    assert(Fs.write(root .. "/" .. path, "-- two " .. path .. "\n"))
+    local missed = table.concat(tree_checks.checked(root, {}, memo), "\n")
+    assert(missed:find("(not_assignable)", 1, true) and not missed:find("planted", 1, true), path .. " is not in the salt: " .. missed)
+  end
+  assert(memo:close())
+end
+
 --- A file that has not changed is not scoped again: its findings come from the memo. A change to
 --- the file, the declarations or the code that scopes it is a miss.
 local function test_a_memo_answers_the_scope_check_for_a_file_that_has_not_changed(dir: string)
