@@ -1488,6 +1488,9 @@ local function run_tree_checks(ctx: Fix)
       for _, line in ipairs(tree_checks.scoped(root, nil, memo)) do
         findings[#findings + 1] = "scopes: " .. line
       end
+      for _, line in ipairs(tree_checks.declared(root, nil, memo)) do
+        findings[#findings + 1] = "declarations: " .. line
+      end
       if memo ~= nil then
         local _, _ = memo:close()
       end

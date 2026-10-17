@@ -23,8 +23,11 @@
 --- with other than its declaration's count of arguments (a use made before the count is known is
 --- checked when [`Store.define`] gives it), a variable that names a type parameter its binder lacks
 --- (checked where a function type or a declaration holds it), a bound that is not an interface
---- used with no arguments, and a type that nests past 1000. The rest of "declarations" in the
---- plan (agreement, tags, keys, dense arrays) is for the lowering of declarations.
+--- used with no arguments, a declaration that lists itself directly or through the declarations
+--- it lists, and a type that nests past [`Types.max_depth`]. The rest of "declarations" in the
+--- plan (agreement, tags, keys, dense arrays, distinct names) is for [`lang.declarations`], which
+--- lowers the syntax tree's declarations and refuses with an error rather than raising, and
+--- makes `invalid` of a type that nests too deep.
 ---
 --- **Union normal form.** [`Store.union`] flattens nested unions, drops `never`
 --- and duplicates, keeps `nil` as a flag beside the other members, and lets `any`
@@ -356,7 +359,8 @@ local record Types
     declare: function(Store, kind: DeclKind, module: string, names: {string}, arity?: integer): Decl
     --- Gives `decl` its body. Raises where it has one, or the body does not suit its kind, holds a
     --- variable that no binder of it binds, or has a bound that is not an interface, or a use of
-    --- the declaration with another count of arguments than its parameters.
+    --- the declaration with another count of arguments than its parameters, or lists the declaration
+    --- itself, directly or through the declarations it lists.
     define: function(Store, decl: Decl, body: Body): Decl
     --- The declaration at a path, or nil.
     find: function(Store, module: string, name: string): Decl | nil
@@ -376,6 +380,22 @@ local record Types
   --- The store of a check. `loader` is asked for a declaration that decoding meets and the
   --- store lacks.
   new: function(loader?: Loader): Store
+
+  --- How deeply a type may nest in a store and in text being decoded: the innermost type counts
+  --- as one. A constructor raises for a type that would nest deeper.
+  max_depth: integer
+
+  --- The types `t` is made of, in the order its text writes them: the arguments of a named type,
+  --- the element, key and value of a collection, the members of a union, and for a function the
+  --- bounds, parameters, rest, and each alternative's items, tail and narrowing type. A variable
+  --- and an atom have none. The list may be the type's own: it is not changed.
+  parts: function(t: Type): {Type}
+
+  --- The declaration that lists `decl` among the declarations `supers` and what those list, or
+  --- nil: `decl` itself where one of `supers` is `decl`. A declaration with no body lists
+  --- nothing, so a cycle shows when its last declaration is defined. [`Store.define`] raises for
+  --- a body whose `supers` have one.
+  listing_cycle: function(decl: Decl, supers: {Type}): Decl | nil
 
   --- The type in the grammar's own spelling, as an error prints it. `binders` names the
   --- type parameters a free variable stands for, outermost first.
@@ -424,6 +444,8 @@ local DECL_KINDS <const>: {string: Types.DeclKind} = {
 --- The most a type may nest, in a store and in text being decoded, whose innermost type counts
 --- as one. It bounds every recursion over a type, so that no type or text exhausts the stack.
 local MAX_DEPTH <const> = 1000
+
+Types.max_depth = MAX_DEPTH
 
 --- The most types of text [`Types.encode`] writes.
 local TEXT_LIMIT <const> = 100000
@@ -529,7 +551,6 @@ local function render(t: Type, sub: function(Type): string): string
   return table.concat(parts)
 end
 
---- Every type `t` is made of, in the order its text writes them.
 local function parts_of(t: Type): {Type}
   local parts: {Type} = {}
   if t is Named then
@@ -569,6 +590,10 @@ local function parts_of(t: Type): {Type}
     end
   end
   return parts
+end
+
+function Types.parts(t: Type): {Type}
+  return parts_of(t)
 end
 
 local function id_text(t: Type): string
@@ -955,8 +980,7 @@ local function intern(store: Store, candidate: Type): Type
   end
   measure(candidate)
   if candidate.height > MAX_DEPTH then
-    -- TODO: have the declarations' lowering make `invalid` of a type that nests this deep, once
-    -- it lowers declarations (doc/plans/new-checker-types.md, "the order the pieces land in").
+    -- [`lang.declarations`] makes `invalid` of a type that would nest this deep before it asks.
     error("types: a type nested deeper than " .. MAX_DEPTH, 3)
   end
   store.count = store.count + 1
@@ -1391,8 +1415,38 @@ Types.Store.declarations = function(self: Store): {Decl}
   return out
 end
 
+function Types.listing_cycle(decl: Decl, supers: {Type}): Decl | nil
+  local seen: {Decl: boolean} = {}
+  local stack: {Decl} = {}
+  for _, super in ipairs(supers) do
+    if super is Named then
+      stack[#stack + 1] = super.decl
+    end
+  end
+  while #stack > 0 do
+    local d = stack[#stack]
+    stack[#stack] = nil
+    if d == decl then
+      return decl
+    end
+    local body = d.body
+    if not seen[d] and body ~= nil then
+      seen[d] = true
+      for _, super in ipairs(body.supers) do
+        if super is Named then
+          if super.decl == decl then
+            return d
+          end
+          stack[#stack + 1] = super.decl
+        end
+      end
+    end
+  end
+  return nil
+end
+
 --- `body` as the store keeps it: copied, with an omittable field typed `T?`. Raises where it does
---- not suit `decl`.
+--- not suit `decl`, or lists `decl` itself.
 local function normal_body(store: Store, decl: Decl, body: Body): Body
   local is_enum = decl.kind == "enum"
   if is_enum and (#body.tparams > 0 or #body.supers > 0 or #body.fields > 0 or #body.methods > 0 or
@@ -1424,9 +1478,11 @@ local function normal_body(store: Store, decl: Decl, body: Body): Body
     made.supers[i] = super
     roots[#roots + 1] = super
   end
-  -- TODO: refuse a name that two fields or a field and a method share, other than the repeated
-  -- function-typed fields of an overload in a declaration file, once the declarations' lowering
-  -- checks a body ("distinct names" in doc/plans/new-checker-types.md).
+  local through = Types.listing_cycle(decl, made.supers)
+  if through ~= nil then
+    error("types: " .. decl.name .. " lists itself" ..
+        (through ~= decl and ", through " .. through.name or ""), 3)
+  end
   for i, field in ipairs(body.fields) do
     owned(store, field.type)
     local omittable = field.omittable or false

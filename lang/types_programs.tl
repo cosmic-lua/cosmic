@@ -1,10 +1,9 @@
 --- Types for the tests of [`lang.types`]: a fixture of declarations that recurse, nest, take
---- arguments and implement an interface, a generator of random types over them, and a small
---- lowering of the syntax tree's types ([`lang.ast`]) that lets a test hold the display of a
---- type to the parser.
+--- arguments and implement an interface, a generator of random types over them, and a parse of
+--- a type's display by the parser and the lowering ([`lang.declarations`]).
 local Ast = require("lang.ast")
-local Lexer = require("lang.lexer")
-local Parser = require("lang.parser")
+local Declarations = require("lang.declarations")
+local DeclPrograms = require("lang.declarations_programs")
 local Types = require("lang.types")
 
 local record Programs
@@ -30,8 +29,9 @@ local record Programs
   --- The integers of `text`, separated by spaces.
   numbers: function(text: string): {integer}
 
-  --- The type that the source `source` of a type, parsed as the alias `local type X = ...`, lowers
-  --- to, or nil and why: a parse error, a name the fixture lacks.
+  --- The type that the source `source` of a type, written as the alias `local type X = ...` in the module that
+  --- declares the fixture (in the grammar), lowers to, as a type of `store`; or nil and why: a parse error, or the
+  --- error code of a rule it breaks (`refused <code>`).
   parse: function(store: Types.Store, fixture: Fixture, source: string): Types.Type | nil, string
 end
 
@@ -309,161 +309,39 @@ function Programs.numbers(text: string): {integer}
   return out
 end
 
--- The lowering ----------------------------------------------------------------------
-
--- TODO: delete this lowering, and hold the display to the parser through the declarations'
--- lowering, once that lands (doc/plans/new-checker-types.md, "the order the pieces land in").
-local record Lowering
-  store: Types.Store
-  fixture: Programs.Fixture
-  --- The names of the type parameters in scope, the nearest binder last.
-  binders: {{string}}
-end
-
-local lower: function(l: Lowering, t: Ast.Type): Types.Type
-
-local function lower_name(l: Lowering, t: Ast.TypeName): Types.Type
-  local name = table.concat(t.path, ".")
-  if #t.path == 1 then
-    for depth = 0, #l.binders - 1 do
-      for i, declared in ipairs(l.binders[#l.binders - depth]) do
-        if declared == name then
-          return l.store:var(depth, i - 1)
-        end
-      end
-    end
-    local prim = l.store.atoms[name]
-    if prim ~= nil and name ~= "nil" and name ~= "true" and name ~= "false" and name ~= "invalid" then
-      return prim
-    end
-  end
-  local decl = l.fixture.decls[name]
-  if decl == nil then
-    error("types: no type " .. name, 0)
-  end
-  local args: {Types.Type} = {}
-  for i, a in ipairs(t.args) do
-    args[i] = lower(l, a)
-  end
-  return l.store:named(decl, args)
-end
-
-local function lower_collection(l: Lowering, t: Ast.Type, mutable: boolean): Types.Type
-  if t is Ast.TypeArray then
-    return l.store:array(lower(l, t.element), mutable)
-  elseif t is Ast.TypeMap then
-    local key = lower(l, t.key)
-    return l.store:map(key, lower(l, t.value), mutable)
-  end
-  error("types: mut on something that is not a collection", 0)
-end
-
-local function lower_alt(l: Lowering, list: {Ast.RType}, variadic: boolean, params: {Ast.PType}): Types.Alt
-  local alt: Types.Alt = { items = {} }
-  for i, item in ipairs(list) do
-    if item is Ast.Narrows then
-      local position = 0
-      for p, param in ipairs(params) do
-        if param.name == item.param then
-          position = p
-        end
-      end
-      if position == 0 then
-        error("types: no parameter " .. item.param, 0)
-      end
-      alt.narrows = { param = position, to = lower(l, item.type), asserts = item.asserts }
-    elseif variadic and i == #list then
-      alt.tail = lower(l, item)
-    else
-      alt.items[#alt.items + 1] = lower(l, item)
-    end
-  end
-  return alt
-end
-
-local function lower_function(l: Lowering, t: Ast.TypeFunction): Types.Type
-  local names: {string} = {}
-  for i, tp in ipairs(t.typeparams) do
-    names[i] = tp.name.name
-  end
-  if #names > 0 then
-    l.binders[#l.binders + 1] = names
-  end
-  local tparams: {Types.TParam} = {}
-  for i, tp in ipairs(t.typeparams) do
-    local constraint = tp.constraint
-    tparams[i] = { bound = constraint ~= nil and lower_name(l, constraint) or nil }
-  end
-  local params: {Types.Param} = {}
-  local rest: Types.Type | nil
-  for _, p in ipairs(t.params) do
-    if p.variadic then
-      rest = lower(l, p.type)
-    else
-      params[#params + 1] = { type = lower(l, p.type), omittable = p.optional }
-    end
-  end
-  local rets: {Types.Alt} | nil
-  local declared = t.rets
-  if declared ~= nil then
-    rets = {}
-    for _, list in ipairs(declared.lists) do
-      rets[#rets + 1] = lower_alt(l, list, declared.variadic, t.params)
-    end
-  end
-  if #names > 0 then
-    l.binders[#l.binders] = nil
-  end
-  return l.store:fn({ tparams = tparams, params = params, rest = rest, rets = rets })
-end
-
-lower = function(l: Lowering, t: Ast.Type): Types.Type
-  local store = l.store
-  if t is Ast.TypeName then
-    return lower_name(l, t)
-  elseif t is Ast.TypeBool then
-    return store:atom(t.value and "true" or "false")
-  elseif t is Ast.TypeNil then
-    return store:atom("nil")
-  elseif t is Ast.TypeError then
-    return store.invalid
-  elseif t is Ast.TypeArray or t is Ast.TypeMap then
-    return lower_collection(l, t, false)
-  elseif t is Ast.TypeMut then
-    return lower_collection(l, t.inner, true)
-  elseif t is Ast.TypeUnion then
-    local out: {Types.Type} = {}
-    for i, m in ipairs(t.members) do
-      out[i] = lower(l, m)
-    end
-    return store:union(out)
-  elseif t is Ast.TypeOptional then
-    return store:optional(lower(l, t.inner))
-  elseif t is Ast.TypeFunction then
-    return lower_function(l, t)
-  end
-  error("types: not a type", 0)
-end
+-- The parser ------------------------------------------------------------------------
 
 function Programs.parse(store: Types.Store, fixture: Programs.Fixture, source: string): Types.Type | nil, string
-  local parsed = Parser.parse(Lexer.lex("local type X = " .. source .. "\n", "t.tl"), "t.tl", "tl")
-  local first = parsed.errors[1]
-  if first ~= nil then
-    return nil, first.code .. ": " .. first.msg
+  local _ = fixture
+  -- The fixture's declarations, in the grammar, with the type as the last alias of the module that declares them,
+  -- lowered by [`lang.declarations`] in a store of their own and read back here by text.
+  local program = Declarations.new()
+  local stream = DeclPrograms.lower(program, "cosmic.stream", DeclPrograms.stream_source)
+  local whole = DeclPrograms.lower(program, "m", DeclPrograms.fixture_source .. "local type X = " .. source .. "\n", "decl")
+  if #stream.parse_errors > 0 then
+    return nil, "the fixture does not parse: " .. stream.parse_errors[1].msg
   end
-  local stat = parsed.chunk.body.stats[1]
-  if not (stat is Ast.TypeAlias) then
+  local first = whole.parse_errors[1]
+  if first ~= nil then
+    return nil, "parse " .. first.code .. ": " .. first.msg
+  end
+  local refused = whole.lowered.errors[1]
+  if refused ~= nil and refused.code == "store_refused" then
+    return nil, "the store refused it: " .. refused.msg
+  end
+  if refused ~= nil then
+    return nil, "refused " .. refused.code .. ": " .. refused.msg
+  end
+  local stats = whole.chunk.body.stats
+  local alias = stats[#stats]
+  if not (alias is Ast.TypeAlias) then
     return nil, "not an alias"
   end
-  local l: Lowering = { store = store, fixture = fixture, binders = {} }
-  local lowered: {Types.Type} = {}
-  local ok, why = pcall(function()
-    lowered[1] = lower(l, stat.type)
-  end)
-  if not ok then
-    return nil, tostring(why)
+  local lowered = whole.lowered.aliases[alias.id]
+  if lowered == nil then
+    return nil, "the alias was not lowered"
   end
-  return lowered[1], ""
+  return store:decode(Types.encode(lowered))
 end
 
 return Programs

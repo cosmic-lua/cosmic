@@ -493,7 +493,11 @@ the others are named for the rule or form they refuse: `record_as_map`,
 `literal_needs_type`, `literal_ambiguous`, `literal_shape`, `arms_differ`,
 `overload_none`, `arity`, `cannot_infer`, `infer_conflict`, `missing_return`,
 `return_unexpected`, `not_assigned`, `export_not_declared`, `unreachable`, and
-`narrowing_dropped`, kept from the fork. each has a fix pinned by its test.
+`narrowing_dropped`, kept from the fork. each has a fix pinned by its test. the declarations'
+lowering adds `super_not_interface`, `super_cycle`, `listing_too_large`, `untagged_union`, `key_type`, `repeated_field`,
+`repeated_value`, `type_arguments`, `type_too_deep`, `alias_cycle`, `bound_not_interface`, `outer_type_parameter`,
+`member_missing`, `param_untyped`, `thread_type` and `store_refused`, and uses `float_key` and `array_of_optional`
+for the declarations that break their rules.
 
 ## performance
 
@@ -705,16 +709,53 @@ added when a measurement asks for it. *not adopted:* each reading's looser form,
   `{integer: T}`: an array is not a map.
 - **only an interface is a target of a listing.** a type is below a named type of another
   declaration only if that is an interface its declaration lists, with its arguments put in
-  through the declaration, or one the listed ones extend. a chain of listings is followed
-  until a listing has been larger or deeper than the one above it 64 times, and holds 4096 at
-  most, so a declaration that lists itself with larger arguments ends. a listing whose arguments differ from the target's only by
-  `invalid` is listed, where `invalid` is an argument itself and not a part of one. a
-  listing, or an array part, that would nest past the store's depth is dropped, so a pair
-  that holds by it is refused until the declarations' lowering makes `invalid` of such a type.
+  through the declaration, or one the listed ones extend. a store refuses a declaration that lists
+  itself, so the chain ends; the judge follows at most 4096 listings of one type, and [declarations are
+  lowered strictly](#declarations-are-lowered-strictly) refuses a declaration with more. a listing
+  whose arguments differ from the target's only by `invalid` is listed, where `invalid` is an
+  argument itself and not a part of one. a listing, or an array part, that would nest past the
+  store's depth is dropped, so a pair that holds by it is refused.
 - **a declaration is read once it is defined.** the judge keeps what it has read of a
   declaration and the results that depended on it, so a type whose declaration has no body to
   read raises `relation: <declaration> is not defined`, and so do two uses of a declaration
   whose count of type arguments is not known with different counts.
+
+### declarations are lowered strictly
+
+[`lang/declarations.tl`] lowers a module's declarations and annotations, and holds each to [declarations](#declarations).
+Where the rule above is silent, it takes the stricter reading, and a type that fails to lower is `invalid`, so a
+mistake is reported once. *not adopted:* each reading's looser form, named here.
+
+- **a tag is on every union written, not only an alias,** and applies to records: a class is told by its metatable,
+  so a union of classes needs none. A union with one record, or with primitives, needs none. The tag is a fixed,
+  required field of the same name in each record, typed by an enum of one value, and no two members have the same
+  value (not the same enum: the value is what `x.kind == "..."` selects). *not adopted:* a tag on aliases only; a
+  `mut` or omittable tag.
+- **a key is** `integer`, `string`, `boolean`, an enum, or a declaration, and a union of those is not a key.
+  `number` is `float_key`; `any`, `nil`, `true`, an optional, a union, a collection and a function are `key_type`.
+- **an instance is checked where it is written.** A record, class, interface or alias records which of its type
+  parameters are an element or value of a collection (dense) or a key, directly or by passing them on to another
+  declaration; a use whose argument is optional, or no key, is refused. A variable of the code around stays unchecked until
+  it is instantiated. *not adopted:* refusing `{T}` for a `T` that may be nil.
+- **a declaration lists no declaration that lists it,** even through others, and [`Store.define`] raises for one; a
+  closure of more than 4096 listings is `listing_too_large`, so the judge needs no limit on growth. The listing of an
+  alias that names an interface is the interface.
+- **agreement compares the interface's field, its receiver replaced,** with the field or method of the type, by `==`,
+  and `mut` and `?` exactly. An interface that extends another may leave a field out or repeat it exactly. A generic
+  function field has its receiver as written.
+- **an alias does not see its own name,** so `type Node = Node` in a record names the `Node` around it; one that
+  reaches itself through another is `alias_cycle`. An alias of a module not yet lowered is unavailable.
+- **a declaration names only its own type parameters:** one in a function's body that names the function's is
+  `outer_type_parameter`. A declaration that is not at the top of its module (in a body, or a repeated top-level name)
+  is in the module `<name>@<id>` of its node.
+- **a record's field is not a type member:** `Module: Module` in `importer` does not make [`importer.Module`] a type;
+  declare a nested `type Module = ...` or a nested declaration. A file whose translation does not parse, and a
+  `testdata` directory, are not held to these rules.
+- **a function field of a userdata record that names the record first is a method of it.** A function-typed field of a
+  declaration file may be repeated as an overload (fixed, not omittable) and no other name may.
+- **`thread` is `thread_type`** until coroutines are typed; the bindings of C that the tree has no declaration file for
+  ([`cosmic.sys`], [`cosmic.internal.process`], [`cosmic.internal.socket`]) are external, and a type named through one is
+  `invalid` with no error.
 
 [a count the tree cannot yet bring to zero is a ceiling]: strict-teal.md#decisions
 [annotated parameters]: strict-teal.md#annotated-parameters
@@ -753,12 +794,16 @@ added when a measurement asks for it. *not adopted:* each reading's looser form,
 [`Capture.after`]: ../../lang/scopes.tl
 [`checker/facts.tl`]: ../../checker/facts.tl
 [`checker/stdlib.d.tl`]: ../../checker/stdlib.d.tl
+[`cosmic.internal.process`]: ../../core/process.h
+[`cosmic.internal.socket`]: ../../core/socket.h
 [`cosmic.poll`]: ../../cosmic/poll.tl
 [`cosmic.shape`]: ../../cosmic/shape.tl
 [`cosmic.sys`]: ../../core/syscalls.h
 [`cosmic/removed_example.tl`]: ../../cosmic/removed_example.tl
 [`Fs.read`]: ../../cosmic/fs.tl
+[`importer.Module`]: ../../build/importer.tl
 [`lang/ast.tl`]: ../../lang/ast.tl
+[`lang/declarations.tl`]: ../../lang/declarations.tl
 [`lang/relation.tl`]: ../../lang/relation.tl
 [`lang/scopes.tl`]: ../../lang/scopes.tl
 [`lang/scopes_speed_test.tl`]: ../../lang/scopes_speed_test.tl
@@ -766,6 +811,7 @@ added when a measurement asks for it. *not adopted:* each reading's looser form,
 [`lang/translate.tl`]: ../../lang/translate.tl
 [`Scoped.resolved`]: ../../lang/scopes.tl
 [`Scopes.declared`]: ../../lang/scopes.tl
+[`Store.define`]: ../../lang/types.tl
 [`Var.assigned`]: ../../lang/scopes.tl
 [`Var.captures`]: ../../lang/scopes.tl
 [`Var.copies`]: ../../lang/scopes.tl

@@ -879,31 +879,35 @@ local function test_a_judge_that_has_settled_a_pair_answers_it_the_same_way_unex
   assert(w.judge:refuse(b, a) == nil and w.judge:subtype(b, a))
 end
 
-local function test_a_declaration_that_lists_itself_with_larger_arguments_lists_a_bounded_few()
-  -- class Loop<T> lists Loop<{T}>: each listing is a new type, and the closure stops.
+local function test_a_ladder_of_interfaces_that_each_list_the_next_twice_has_a_closure_the_judge_cuts_short()
+  -- Every rung lists the next as an array and as a map of its argument: the closure holds every
+  -- way of wrapping the argument, twice as many for each rung, and the judge stops at 4096.
   local w = world()
   local s = w.store
-  local loop = s:declare("class", "m", { "Loop" }, 1)
-  s:define(loop, { tparams = { { name = "T" } }, supers = { s:named(loop, { s:array(s:var(0, 0)) }) },
-    fields = {}, methods = {}, values = {} })
-  local r = refused(w, s:named(loop, { s.integer }), named(w, "Event"), "not_listed")
-  local lists = r.lists
-  -- the arguments grow 64 times
-  assert(lists ~= nil and #lists == 64, tostring(lists and #lists))
-end
-
-local function test_a_declaration_that_lists_a_cycle_ends()
-  local w = world()
-  local s = w.store
-  local a = s:declare("interface", "m", { "CycleA" }, 0)
-  local b = s:declare("interface", "m", { "CycleB" }, 0)
-  s:define(a, { tparams = {}, supers = { s:named(b) }, fields = {}, methods = {}, values = {} })
-  s:define(b, { tparams = {}, supers = { s:named(a) }, fields = {}, methods = {}, values = {} })
-  assert(below(w, s:named(a), s:named(b)))
-  assert(below(w, s:named(b), s:named(a)))
-  local r = refused(w, s:named(a), named(w, "Event"), "not_listed")
-  local lists = r.lists
-  assert(lists ~= nil and #lists == 2 and lists[1] == s:named(b) and lists[2] == s:named(a))
+  local rungs: {Types.Decl} = {}
+  for i = 1, 14 do
+    rungs[i] = s:declare("interface", "m", { "Rung" .. i }, 1)
+  end
+  for i, rung in ipairs(rungs) do
+    local supers: {Types.Type} = {}
+    local next_rung = rungs[i + 1]
+    if next_rung ~= nil then
+      supers = { s:named(next_rung, { s:array(s:var(0, 0)) }), s:named(next_rung, { s:map(s.integer, s:var(0, 0)) }) }
+    end
+    s:define(rung, { tparams = { { name = "T" } }, supers = supers, fields = {}, methods = {}, values = {} })
+  end
+  local top = s:named(rungs[1], { s.integer })
+  assert(top is Types.Named)
+  local listing = w.judge:listed(top)
+  assert(#listing.types == 4096 and not listing.complete, #listing.types)
+  -- the listings the judge holds are related, and the others are refused
+  assert(below(w, top, s:named(rungs[2], { s:array(s.integer) })))
+  refused(w, top, named(w, "Event"), "not_listed")
+  -- a ladder of fewer rungs is whole
+  local middle = s:named(rungs[10], { s.integer })
+  assert(middle is Types.Named)
+  local short = w.judge:listed(middle)
+  assert(#short.types == 30 and short.complete, #short.types)
 end
 
 -- limits ---------------------------------------------------------------------------------------------
@@ -925,16 +929,28 @@ end
 local function test_a_listing_whose_argument_is_as_deep_as_the_store_allows_ends_the_closure()
   local w = world()
   local s = w.store
-  local loop = s:declare("class", "m", { "Loop" }, 1)
-  s:define(loop, { tparams = { { name = "T" } }, supers = { s:named(loop, { s:array(s:var(0, 0)) }) },
-    fields = {}, methods = {}, values = {} })
+  -- Every rung lists the next with its argument in an array: one level deeper at each step.
+  local rungs: {Types.Decl} = {}
+  for i = 1, 40 do
+    rungs[i] = s:declare("interface", "m", { "Wrap" .. i }, 1)
+  end
+  for i, rung in ipairs(rungs) do
+    local next_rung = rungs[i + 1]
+    local supers: {Types.Type} = {}
+    if next_rung ~= nil then
+      supers = { s:named(next_rung, { s:array(s:var(0, 0)) }) }
+    end
+    s:define(rung, { tparams = { { name = "T" } }, supers = supers, fields = {}, methods = {}, values = {} })
+  end
   local deep = s.integer
   for _ = 1, 980 do
     deep = s:array(deep)
   end
-  local r = refused(w, s:named(loop, { deep }), named(w, "Event"), "not_listed")
-  local lists = r.lists
-  assert(lists ~= nil and #lists > 1 and #lists < 64, tostring(lists and #lists))
+  local top = s:named(rungs[1], { deep })
+  assert(top is Types.Named)
+  local listing = w.judge:listed(top)
+  assert(#listing.types > 1 and #listing.types < 39 and not listing.complete, #listing.types)
+  refused(w, top, named(w, "Event"), "not_listed")
   -- the same for an array part, whose type would nest one deeper than the store allows
   for _ = 1, 18 do
     deep = s:array(deep)
@@ -1239,10 +1255,10 @@ local function test_a_chain_of_listings_longer_than_a_closure_holds_is_followed_
   refused(w, uses[4200], uses[1], "not_listed")
 end
 
-local function test_a_listing_is_grown_when_it_is_larger_or_deeper_than_the_one_above_it_not_the_root()
+local function test_a_chain_of_generic_interfaces_that_pass_their_argument_on_is_followed_to_its_end()
   local w = world()
   local s = w.store
-  -- 100 generic interfaces, each listing the next with its own argument: none is larger than the one above.
+  -- 100 generic interfaces, each listing the next with its own argument.
   local decls: {Types.Decl} = {}
   for i = 1, 100 do
     decls[i] = s:declare("interface", "m", { "G" .. i }, 1)
@@ -1259,20 +1275,6 @@ local function test_a_listing_is_grown_when_it_is_larger_or_deeper_than_the_one_
     values = {} })
   assert(below(w, s:named(root), s:named(decls[100], { s.integer })))
   refused(w, s:named(root), s:named(decls[100], { s.string }), "not_listed")
-end
-
-local function test_a_listing_that_doubles_its_argument_lists_exactly_the_times_it_may_grow()
-  -- class Dbl<T> lists Dbl<Pair<T, T>>: the text saturates after about forty doublings, and the depth
-  -- goes on growing by one.
-  local w = world()
-  local s = w.store
-  local dbl = s:declare("class", "m", { "Dbl" }, 1)
-  local v = s:var(0, 0)
-  s:define(dbl, { tparams = { { name = "T" } }, supers = { s:named(dbl, { named(w, "Pair", { v, v }) }) },
-    fields = {}, methods = {}, values = {} })
-  local r = refused(w, s:named(dbl, { s.integer }), named(w, "Event"), "not_listed")
-  local lists = r.lists
-  assert(lists ~= nil and #lists == 64, tostring(lists and #lists))
 end
 
 local function test_a_failing_alternative_is_named_by_its_position_whichever_it_is()

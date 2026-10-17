@@ -1045,3 +1045,54 @@ local function test_a_type_parameter_does_not_take_the_first_name_of_a_dotted_de
   same(shown(s:fn({ tparams = { {} }, params = { { type = s:named(inner) }, { type = s:var(0, 0) } } })),
     "function<T_>(T.Inner, T_)")
 end
+
+local function test_a_declaration_that_lists_itself_directly_or_through_others_is_refused_and_left_as_it_was()
+  local store = Types.new()
+  local a = store:declare("interface", "m", { "A" }, 0)
+  local b = store:declare("interface", "m", { "B" }, 0)
+  local c = store:declare("interface", "m", { "C" }, 0)
+  local function body(...: Types.Type): Types.Body
+    return { tparams = {}, supers = { ... }, fields = {}, methods = {}, values = {} }
+  end
+  local ok, why = pcall(function()
+    store:define(a, body(store:named(a)))
+  end)
+  assert(not ok and tostring(why):find("types: A lists itself", 1, true) ~= nil, tostring(why))
+  assert(a.body == nil)
+  -- B lists A, and A lists C: C lists B, which lists A, which lists C
+  store:define(a, body(store:named(c)))
+  store:define(b, body(store:named(a)))
+  ok, why = pcall(function()
+    store:define(c, body(store:named(b)))
+  end)
+  assert(not ok and tostring(why):find("types: C lists itself, through A", 1, true) ~= nil, tostring(why))
+  assert(c.body == nil)
+  -- C may list nothing; listing A would close the cycle again
+  store:define(c, body())
+  assert(c.body ~= nil)
+  assert(Types.listing_cycle(c, { store:named(a) }) == a)
+  assert(Types.listing_cycle(b, { store:named(c) }) == nil)
+end
+
+local function test_a_type_nested_past_the_depth_limit_is_refused_and_the_limit_is_exported()
+  local store = Types.new()
+  local t = store.integer
+  for _ = 1, Types.max_depth - 1 do
+    t = store:array(t)
+  end
+  assert(t.height == Types.max_depth)
+  local ok, why = pcall(function()
+    local _ = store:array(t)
+  end)
+  assert(not ok and tostring(why):find("nested deeper than " .. Types.max_depth, 1, true) ~= nil, tostring(why))
+end
+
+local function test_the_parts_of_a_type_are_the_types_its_text_holds()
+  local w = world()
+  local s = w.store
+  assert(#Types.parts(s.integer) == 0 and #Types.parts(s:var(0, 0)) == 0)
+  assert(#Types.parts(s:map(s.string, s.integer)) == 2)
+  assert(#Types.parts(named(w, "Pair", { s.integer, s.string })) == 2)
+  local f = s:fn({ params = { { type = s.integer } }, rest = s.string, rets = { { items = { s.boolean }, tail = s.number } } })
+  assert(#Types.parts(f) == 4)
+end
