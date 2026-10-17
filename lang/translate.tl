@@ -59,6 +59,12 @@
 ---   `userdata` stays a record. A method that reads a name declared between its
 ---   record and where it was written, or gives types that differ from its
 ---   field's, is a [`Hazard`].
+--- - `class_literal`: `setmetatable(T, mt)` is `T` where `T` is a table literal, `mt` is the metatable of a class of
+---   the file (`local mt: metatable<R> = { __index = R }`, or the literal `{ __index = R }`) and the place gives the
+---   class as the type of the literal: the only value of a local declared `R`, which is declared `R` where it had no
+---   type, or of a `return` in a function that answers `R`. The metatable local goes when every use of its name was
+---   such a call, and with it every call of it stays when one is not. A row counts one metatable (or one inline
+---   call) with its calls.
 --- - `mut_field`, `mut_collection`, `mut_param`: `mut` on a field that a name
 ---   declared as its record assigns, on the array or map a field holds when
 ---   an index of it is assigned or a `table` function changes it, and on a
@@ -138,6 +144,8 @@ local record Translate
     hazards: {Hazard}
     --- The interfaces of the file.
     interfaces: {Interface}
+    --- The names of the metatable locals the translation removed, whose calls are class literals now.
+    metatables: {string}
     --- How many times the source was read, the last read being the one that
     --- gave `errors`.
     reads: integer
@@ -158,8 +166,8 @@ end
 
 Translate.rows = {
   "nil_union", "variadic_type", "optional_type", "continue", "semicolon", "long_comment",
-  "digit_separator", "hex_float", "type_declaration", "metamethod", "readonly", "ternary", "class", "mut_field",
-  "mut_collection", "mut_param", "unary_power",
+  "digit_separator", "hex_float", "type_declaration", "metamethod", "readonly", "ternary", "class", "class_literal",
+  "mut_field", "mut_collection", "mut_param", "unary_power",
 }
 
 --- One replacement of the bytes `lo` to `hi - 1` of the source by `text`. An
@@ -176,6 +184,8 @@ local record Rewrite
   edits: {Edit}
   --- Whether the rewritten text begins with a `(`.
   opens?: boolean
+  --- The name of the local the rewrite removes, for [`Translate.Result.metatables`].
+  removed?: string
 end
 
 local MAX_READS <const> = 8
@@ -944,6 +954,11 @@ local function carried_types(source: string, tokens: {Lexer.Token}, f: Ast.Funct
   return out
 end
 
+-- TODO: write a record with no method, whose metatable holds only a `__close`, as a class with that method (the
+-- `Descriptor` and `AppendFile` of cosmic/fs.tl), so that its `setmetatable(T, mt)` is a class literal too: the
+-- rewrite takes only a record with `function R:m` statements, and the guards that remain are the ceiling of
+-- `setmetatable_call`.
+
 --- The rewrite that moves the methods written for `held.record` into it.
 --- Nil where a method or the record is not written so that the lines can
 --- be cut: a statement that shares its line with other code.
@@ -1132,7 +1147,13 @@ local function class_rewrites(source: string, parsed: Parser.Parsed, hazards: {T
         #annotation.args == 1 and literal ~= nil and literal is Ast.Table then
       local target = annotation.args[1]
       local held = target is Ast.TypeName and #target.path == 1 and owners[target.path[1]] or nil
-      if held ~= nil then
+      -- A class has the metamethods `__close` and `__tostring` and no other: a metatable that holds more keeps its
+      -- `__close`, since a value made with it would lose the method that moved.
+      local only = true
+      for _, item in ipairs(literal.items) do
+        only = only and item is Ast.Named and (item.name == "__index" or item.name == "__close")
+      end
+      if held ~= nil and only then
         for _, item in ipairs(literal.items) do
           if item is Ast.Named and item.name == "__close" and held.close == nil then
             held.close = item
@@ -1165,6 +1186,212 @@ local function class_rewrites(source: string, parsed: Parser.Parsed, hazards: {T
     if made ~= nil then
       out[#out + 1] = made
     end
+  end
+  return out
+end
+
+-- class literals
+
+--- A call `setmetatable(T, mt)` that can be written as the class literal `T`.
+local record Literal
+  call: Ast.Call
+  literal: Ast.Node
+  --- The binding of the local it initializes, which gets the class as its type where it has none written.
+  annotate: Ast.Binding | nil
+  class: string
+end
+
+--- A metatable local of the file that is the metatable of a class: `local mt: metatable<R> = { __index = R }`, `R` a
+--- class of the file.
+local record ClassMetatable
+  --- The class's name.
+  class: string
+  stat: Ast.Local
+  binding: Ast.Binding
+  --- The calls `setmetatable(T, mt)` that can be written as `T`.
+  calls: {Literal}
+end
+
+--- The return list of the function being walked, nil where it writes none.
+local record Returning
+  rets: Ast.Rets | nil
+end
+
+--- The name `t` writes alone as a type with no arguments, or nil.
+local function plain_type(t: Ast.Type | nil): string | nil
+  if t ~= nil and t is Ast.TypeName and #t.path == 1 and #t.args == 0 then
+    return t.path[1]
+  end
+  return nil
+end
+
+--- The class `{ __index = R }` is the metatable of, for a literal that holds that item alone and nothing else.
+local function index_class(literal: Ast.Table, classes: {string: boolean}): string | nil
+  local items = literal.items
+  local item = items[1]
+  if #items == 1 and item is Ast.Named and item.name == "__index" then
+    local value = item.value
+    if value is Ast.Name and classes[value.text] then
+      return value.text
+    end
+  end
+  return nil
+end
+
+--- The edit that removes the lines of the statement `s`, its docs with it, and a blank line where two would meet; nil
+--- where it shares its lines with other code.
+local function statement_cut(source: string, tokens: {Lexer.Token}, s: Ast.Local, binding: Ast.Binding): Edit | nil
+  local first, last = bounds(s)
+  if not (starts_line(tokens, first) and ends_line(tokens, last)) then
+    return nil
+  end
+  local doc = binding.doc
+  local doc_first = doc ~= nil and #doc > 0 and doc[1] or nil
+  local lo = line_start(source, doc_first ~= nil and doc_first.offset or tokens[first].offset)
+  local hi = after_line(source, tokens[last].offset)
+  if lo > 1 and hi <= #source and blank_line(source, hi) and blank_line(source, line_start(source, lo - 1)) then
+    hi = after_line(source, hi)
+  end
+  return { lo = lo, hi = hi, text = "" }
+end
+
+--- The class literals of a chunk: each `setmetatable(T, mt)` whose table `T` is a literal and whose `mt` is the
+--- metatable of a class of the file (a local `metatable<R> = { __index = R }`, or the literal `{ __index = R }`), in a
+--- place that gives the class as the literal's type: the only value of a local declared `R` or with no type, which
+--- then is declared `R`, or of a `return` in a function that answers `R`. The call is written as `T`. A metatable
+--- local goes with its calls when every use of its name is one of them; one used otherwise stays, with its calls.
+local function literal_rewrites(source: string, parsed: Parser.Parsed): {Rewrite}
+  local chunk = parsed.chunk
+  local tokens = chunk.tokens
+  local stats = chunk.body.stats
+  local declared = declarations(stats)
+  local classes: {string: boolean} = {}
+  for _, s in ipairs(stats) do
+    if s is Ast.Class and #(declared[s.name.name] or {}) == 1 then
+      classes[s.name.name] = true
+    end
+  end
+  local out: {Rewrite} = {}
+  if next(classes) == nil then
+    return out
+  end
+  local metatables: {string: ClassMetatable} = {}
+  local order: {string} = {}
+  for _, s in ipairs(stats) do
+    if s is Ast.Local and #s.bindings == 1 and #s.types == 1 and #s.values == 1 then
+      local annotation, literal = s.types[1], s.values[1]
+      local binding = s.bindings[1]
+      if annotation is Ast.TypeName and #annotation.path == 1 and annotation.path[1] == "metatable" and
+          #annotation.args == 1 and literal is Ast.Table and #(declared[binding.name] or {}) == 1 then
+        local class = index_class(literal, classes)
+        local target = plain_type(annotation.args[1])
+        if class ~= nil and class == target then
+          metatables[binding.name] = { class = class, stat = s, binding = binding, calls = {} }
+          order[#order + 1] = binding.name
+        end
+      end
+    end
+  end
+  local inline: {Literal} = {}
+  local returns: {Returning} = {}
+  --- Notes the call `e` as a class literal if it is one, where the place wants the class `accepts` says.
+  local function consider(e: Ast.Exp, accepts: function(class: string): boolean, annotate: Ast.Binding | nil)
+    if not (e is Ast.Call) then
+      return
+    end
+    local callee = e.callee
+    local args = e.args
+    local made, second = args[1], args[2]
+    if not (callee is Ast.Name and callee.text == "setmetatable" and #args == 2 and made is Ast.Table and
+        tokens[e.first + 1].kind == "(") then
+      return
+    end
+    local held: ClassMetatable | nil = nil
+    local class: string | nil = nil
+    if second is Ast.Name then
+      held = metatables[second.text]
+      class = held ~= nil and held.class or nil
+    elseif second is Ast.Table then
+      class = index_class(second, classes)
+    end
+    if class == nil or not accepts(class) then
+      return
+    end
+    -- A comment between the table and the end of the call would go with the metatable.
+    if find(sub(source, stop_of(tokens, made.last), stop_of(tokens, e.last)), "--", 1, true) ~= nil then
+      return
+    end
+    local noted: Literal = { call = e, literal = made, annotate = annotate, class = class }
+    if held ~= nil then
+      held.calls[#held.calls + 1] = noted
+    else
+      inline[#inline + 1] = noted
+    end
+  end
+  local function enter(node: Ast.Node)
+    if node is Ast.Fn then
+      returns[#returns + 1] = { rets = node.rets }
+    elseif node is Ast.Method then
+      returns[#returns + 1] = { rets = node.rets }
+    elseif node is Ast.Local and #node.bindings == 1 and #node.values == 1 then
+      local given = node.types[1]
+      consider(node.values[1], function(class: string): boolean
+        return given == nil or plain_type(given) == class
+      end, given == nil and node.bindings[1] or nil)
+    elseif node is Ast.Return and #node.values == 1 then
+      local frame = returns[#returns]
+      local rets = frame ~= nil and frame.rets or nil
+      consider(node.values[1], function(class: string): boolean
+        if rets == nil or #rets.lists ~= 1 or rets.variadic then
+          return false
+        end
+        local list = rets.lists[1]
+        local item = list[1]
+        return #list == 1 and not (item is Ast.Narrows) and plain_type(item) == class
+      end, nil)
+    end
+  end
+  local function leave(node: Ast.Node)
+    if node is Ast.Fn or node is Ast.Method then
+      returns[#returns] = nil
+    end
+  end
+  walk(chunk.body, enter, leave)
+  local references: {string: integer} = {}
+  for _, t in ipairs(tokens) do
+    if t.kind == "identifier" and metatables[t.text] ~= nil then
+      references[t.text] = (references[t.text] or 0) + 1
+    end
+  end
+  --- The edits that write the call of `l` as its table.
+  local function call_edits(l: Literal): {Edit}
+    local edits: {Edit} = {
+      { lo = tokens[l.call.first].offset, hi = stop_of(tokens, l.call.first + 1), text = "" },
+      { lo = stop_of(tokens, l.literal.last), hi = stop_of(tokens, l.call.last), text = "" },
+    }
+    local binding = l.annotate
+    if binding ~= nil then
+      local _, last = bounds(binding)
+      edits[#edits + 1] = insert_after(tokens, last, ": " .. l.class)
+    end
+    return edits
+  end
+  for _, name in ipairs(order) do
+    local held = metatables[name]
+    local cut = statement_cut(source, tokens, held.stat, held.binding)
+    -- The declaration is one reference of its name, and each call one.
+    if #held.calls > 0 and cut ~= nil and references[name] == 1 + #held.calls then
+      local edits: {Edit} = { cut }
+      for _, l in ipairs(held.calls) do
+        for _, e in ipairs(call_edits(l)) do
+          edits[#edits + 1] = e
+        end
+      end
+      out[#out + 1] = { row = "class_literal", edits = edits, removed = name }
+    end
+  end
+  for _, l in ipairs(inline) do
+    out[#out + 1] = { row = "class_literal", edits = call_edits(l) }
   end
   return out
 end
@@ -1885,7 +2112,7 @@ end
 --- `source` with the edits of the `rewrites` made. Rewrites whose edits
 --- overlap another's are left out (they are made on a later read), and the
 --- count of each row made is added to `counts`.
-local function apply(source: string, rewrites: {Rewrite}, counts: {string: integer}): string, integer
+local function apply(source: string, rewrites: {Rewrite}, counts: {string: integer}, removed?: {string}): string, integer
   local dropped: {integer: boolean} = {}
   local placed: {Placed} = {}
   local seq = 0
@@ -1937,6 +2164,10 @@ local function apply(source: string, rewrites: {Rewrite}, counts: {string: integ
     if not dropped[g] then
       made = made + 1
       counts[r.row] = (counts[r.row] or 0) + 1
+      local gone = r.removed
+      if removed ~= nil and gone ~= nil then
+        removed[#removed + 1] = gone
+      end
     end
   end
   return concat(out), made
@@ -1997,6 +2228,21 @@ function Translate.translate(source: string, name: string): Translate.Result
       converge(run, name, dialect, counts, hazards, interfaces)
     end
   end
+  -- The class literals follow the classes and the `mut` rewrites, which read the calls as they were written.
+  local removed: {string} = {}
+  while run.reads < run.limit do
+    local literals = literal_rewrites(run.text, run.parsed)
+    if #literals == 0 then
+      break
+    end
+    local after, made = apply(run.text, literals, counts, removed)
+    if made == 0 then
+      break
+    end
+    run.text = after
+    run.reads = run.reads + 1
+    run.parsed = read(after, name, dialect)
+  end
   local text, parsed, reads = run.text, run.parsed, run.reads
   -- A rewrite left for a later read can report the same place twice.
   local unique: {Translate.Hazard} = {}
@@ -2008,7 +2254,10 @@ function Translate.translate(source: string, name: string): Translate.Result
       unique[#unique + 1] = h
     end
   end
-  return { text = text, counts = counts, errors = parsed.errors, hazards = unique, interfaces = interfaces, reads = reads }
+  return {
+    text = text, counts = counts, errors = parsed.errors, hazards = unique, interfaces = interfaces, metatables = removed,
+    reads = reads,
+  }
 end
 
 return Translate

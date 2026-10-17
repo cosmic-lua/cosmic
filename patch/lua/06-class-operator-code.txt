@@ -1,0 +1,22 @@
+file: src/lcode.c
+note: `@v` is OP_CLASSOF of v. unopr2op maps the other unary operators by their order, which this one is outside of.
+--- find
+    case OPR_NOT: codenot(fs, e); break;
+    default: lua_assert(0);
+  }
+}
+
+
+/*
+** Process 1st operand 'v' of binary operation 'op' before reading
+--- replace
+    case OPR_NOT: codenot(fs, e); break;
+    case OPR_CLASSOF: codeunexpval(fs, OP_CLASSOF, e, line); break;
+    default: lua_assert(0);
+  }
+}
+
+
+/*
+** Process 1st operand 'v' of binary operation 'op' before reading
+--- end

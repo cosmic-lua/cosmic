@@ -522,6 +522,178 @@ local function test_a_name_declared_between_the_record_and_a_method_is_reported(
     #result.hazards .. " hazards")
 end
 
+-- class literals
+
+local function test_a_call_of_the_metatable_of_a_class_on_a_literal_is_the_literal_and_the_metatable_goes()
+  local result = clean(lines(
+    "local record Counter",
+    "  n: integer",
+    "  bump: function(Counter, integer): integer",
+    "end",
+    "",
+    "local counter_mt: metatable<Counter> = { __index = Counter }",
+    "",
+    "function Counter:bump(by: integer): integer",
+    "  self.n = self.n + by",
+    "  return self.n",
+    "end",
+    "",
+    "local function make(start: integer): Counter",
+    "  return setmetatable({ n = start }, counter_mt)",
+    "end",
+    "",
+    "local c: Counter = setmetatable({ n = 1 }, counter_mt)",
+    "local d = setmetatable({",
+    "  n = 2,",
+    "}, counter_mt)",
+    "local e <close> = setmetatable({ n = 3 }, counter_mt)",
+    "return make(c.n)"))
+  assert(result.text == lines(
+    "local class Counter",
+    "  mut n: integer",
+    "",
+    "  function bump(self, by: integer): integer",
+    "    self.n = self.n + by",
+    "    return self.n",
+    "  end",
+    "end",
+    "",
+    "local function make(start: integer): Counter",
+    "  return { n = start }",
+    "end",
+    "",
+    "local c: Counter = { n = 1 }",
+    "local d: Counter = {",
+    "  n = 2,",
+    "}",
+    "local e <close>: Counter = { n = 3 }",
+    "return make(c.n)"), result.text)
+  assert(result.counts.class_literal == 1 and table.concat(result.metatables, " ") == "counter_mt")
+end
+
+local function test_the_metatable_of_a_class_stays_with_every_call_when_one_of_them_is_not_a_literal()
+  local source = lines(
+    "local record Box",
+    "  n: integer",
+    "  get: function(Box): integer",
+    "end",
+    "",
+    "local box_mt: metatable<Box> = { __index = Box }",
+    "",
+    "function Box:get(): integer",
+    "  return self.n",
+    "end",
+    "",
+    "local function adopt(t: {string: any}): Box",
+    "  return setmetatable(t, box_mt)",
+    "end",
+    "",
+    "local a: Box = setmetatable({ n = 1 }, box_mt)",
+    "return a")
+  local result = clean(source)
+  assert(result.text:find("local box_mt: metatable<Box> = { __index = Box }", 1, true) ~= nil, result.text)
+  assert(result.text:find("setmetatable({ n = 1 }, box_mt)", 1, true) ~= nil and result.counts.class_literal == nil)
+  assert(#result.metatables == 0)
+end
+
+local function test_a_metatable_with_more_than_an_index_keeps_its_close_and_its_calls()
+  -- A value made with the metatable would lose a `__close` that moved into the class.
+  local source = lines(
+    "local record Handle",
+    "  fd: integer",
+    "  get: function(Handle): integer",
+    "end",
+    "",
+    "local handle_mt: metatable<Handle> = {",
+    "  __index = Handle,",
+    "  __close = function(self: Handle)",
+    "    self.fd = -1",
+    "  end,",
+    "  __gc = function(self: Handle)",
+    "    self.fd = -1",
+    "  end,",
+    "}",
+    "",
+    "function Handle:get(): integer",
+    "  return self.fd",
+    "end",
+    "",
+    "local h <close>: Handle = setmetatable({ fd = 1 }, handle_mt)",
+    "return h")
+  local result = clean(source)
+  assert(result.text:find("__close = function(self: Handle)", 1, true) ~= nil, result.text)
+  assert(result.text:find("__gc = function(self: Handle)", 1, true) ~= nil, result.text)
+  assert(result.text:find("setmetatable({ fd = 1 }, handle_mt)", 1, true) ~= nil, result.text)
+  assert(result.text:find("function __close", 1, true) == nil, "the class does not take the close: " .. result.text)
+  assert(result.counts.class_literal == nil and #result.metatables == 0)
+  -- the same metatable with an index and a close alone is the class's
+  local plain = clean((source:gsub("  __gc = function%(self: Handle%)\n    self.fd = %-1\n  end,\n", "")))
+  assert(plain.text:find("function __close(self)", 1, true) ~= nil and plain.text:find("handle_mt", 1, true) == nil, plain.text)
+  assert(plain.counts.class_literal == 1)
+end
+
+local function test_a_literal_is_the_class_only_where_the_place_says_so()
+  local head = lines(
+    "local record Box",
+    "  n: integer",
+    "  get: function(Box): integer",
+    "end",
+    "",
+    "local box_mt: metatable<Box> = { __index = Box }",
+    "",
+    "function Box:get(): integer",
+    "  return self.n",
+    "end",
+    "")
+  for _, place in ipairs({
+      "local x: Stream.Reader = setmetatable({ n = 1 }, box_mt)",
+      "local function f(): string\n  return setmetatable({ n = 1 }, box_mt)\nend",
+      "local function f(): Box?\n  return setmetatable({ n = 1 }, box_mt)\nend",
+      "local function f(): Box, string\n  return setmetatable({ n = 1 }, box_mt)\nend",
+      "local x, y = setmetatable({ n = 1 }, box_mt)",
+      "local x = f(setmetatable({ n = 1 }, box_mt))",
+      "local x: Box = setmetatable({ n = 1 } as Box, box_mt)",
+      "local t: Box = {}\nt.next = setmetatable({ n = 1 }, box_mt)",
+  }) do
+    local result = clean(head .. place .. "\n")
+    assert(result.text:find("setmetatable(", 1, true) ~= nil and result.text:find("box_mt: metatable<Box>", 1, true) ~= nil,
+      "converted at\n" .. place .. "\n" .. result.text)
+    assert(result.counts.class_literal == nil)
+  end
+end
+
+local function test_a_table_with_the_methods_of_a_class_as_its_index_is_the_literal_too()
+  local result = clean(lines(
+    "local record Pt",
+    "  x: integer",
+    "  get: function(Pt): integer",
+    "end",
+    "",
+    "function Pt:get(): integer",
+    "  return self.x",
+    "end",
+    "",
+    "local p: Pt = setmetatable({ x = 1 }, { __index = Pt })",
+    "local q: Pt = setmetatable({ x = 1 }, { __index = Pt, __mode = \"k\" })",
+    "return p, q"))
+  assert(result.text:find("local p: Pt = { x = 1 }\n", 1, true) ~= nil, result.text)
+  assert(result.text:find("local q: Pt = setmetatable({ x = 1 }, { __index = Pt, __mode = \"k\" })", 1, true) ~= nil, result.text)
+  assert(result.counts.class_literal == 1 and #result.metatables == 0)
+end
+
+local function test_a_record_with_no_method_is_no_class_and_its_calls_stay()
+  local source = lines(
+    "local record Plain",
+    "  n: integer",
+    "end",
+    "",
+    "local plain_mt: metatable<Plain> = { __index = Plain }",
+    "",
+    "local p: Plain = setmetatable({ n = 1 }, plain_mt)",
+    "return p")
+  assert(clean(source).text == source)
+end
+
 -- mut
 
 local function test_a_field_assigned_after_creation_is_mut()

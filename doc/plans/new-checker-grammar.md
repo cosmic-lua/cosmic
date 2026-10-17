@@ -601,6 +601,13 @@ errors are the account of what the translator did not handle.
   types agree, or by giving the interface its `mut`. a record that
   implements an array, is `userdata`, or whose methods are written inside a
   block stays.
+- **the class literal** takes each `setmetatable(T, mt)` of a class of the file whose `T` is a table literal and
+  whose `mt` is `local mt: metatable<R> = { __index = R }` (or the literal `{ __index = R }`), in a place that gives
+  `R` as the type of the value: the only value of a local declared `R`, which gets `: R` where it had none, or of a
+  `return` in a function that answers `R`. the call is written `T`, and the metatable goes when no other use of its
+  name is left. a metatable with a use that is no such call, or with an item besides `__index` (a `__gc`, a `__mode`),
+  stays with all its calls and keeps its `__close`: the class rewrite moves a `__close` only out of a metatable that
+  holds nothing else. the calls left are the ceiling of `setmetatable_call` in `checked`.
 - **`mut`** is written for a field assigned through a name declared as its
   record, for an array or map held by a field that an index write or a
   `table` function changes (`table.move` changes its fifth argument, or its

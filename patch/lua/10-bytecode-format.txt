@@ -1,0 +1,7 @@
+file: src/lundump.h
+note: A chunk dumped by a VM without OP_SETCLASS and OP_CLASSOF would run a later numbering of the instructions, and one dumped here would not load in the other: the header names the format, so the load fails at the header.
+--- find
+#define LUAC_FORMAT	0	/* this is the official format */
+--- replace
+#define LUAC_FORMAT	1	/* 0 is the official format; 1 adds OP_SETCLASS and OP_CLASSOF */
+--- end

@@ -46,9 +46,10 @@ local text = bind.text
 ---
 --- The bytes are the signature, the version and format, the data check,
 --- and the size and value of an int, an instruction, an integer and a
---- number.
+--- number. The format is 1: patch/lua/ adds the instructions of the class
+--- form to the official format 0.
 local bytecode_header =
-  "\27LuaU\0\25\147\13\10\26\10" ..
+  "\27LuaU\1\25\147\13\10\26\10" ..
   "\4\136\169\255\255" ..
   "\4\120\86\52\18" ..
   "\8\136\169\255\255\255\255\255\255" ..

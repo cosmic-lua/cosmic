@@ -340,6 +340,33 @@ local function test_named_types_are_nominal()
   refused(w, named(w, "Node"), func(w, {}, {}), "mismatch")
 end
 
+local function test_a_class_is_as_nominal_as_a_record_and_a_declaration_used_as_a_value_is_below_itself_alone()
+  local w = world()
+  local s = w.store
+  local fields = { { name = "n", type = s.integer } }
+  local one = s:declare("class", "m", { "ClassOne" }, 0)
+  local two = s:declare("class", "m", { "ClassTwo" }, 0)
+  local plain = s:declare("record", "m", { "PlainOne" }, 0)
+  for _, d in ipairs({ one, two, plain }) do
+    s:define(d, { tparams = {}, supers = {}, methods = {}, values = {}, fields = fields })
+  end
+  refused(w, s:named(one), s:named(two), "nominal")
+  refused(w, s:named(one), s:named(plain), "nominal")
+  refused(w, s:named(plain), s:named(one), "nominal")
+  local file, node = s:named(w.fixture.decls["File"]), named(w, "Node")
+  local file_value = s:named(w.fixture.decls["File"], {}, true)
+  local node_value = s:named(w.fixture.decls["Node"], {}, true)
+  assert(below(w, file_value, file_value) and below(w, file_value, s:optional(file_value)))
+  refused(w, file_value, file, "declaration_value")
+  refused(w, file, file_value, "declaration_value")
+  refused(w, file_value, node_value, "nominal")
+  -- it lists no interface, is no enum and has no array part
+  refused(w, file_value, named(w, "Stream.Reader"), "declaration_value")
+  refused(w, node_value, s:array(node), "mismatch")
+  refused(w, node_value, s.string, "mismatch")
+  assert(below(w, node, s:array(node)))
+end
+
 local function test_a_use_of_a_generic_is_invariant_in_its_arguments()
   local w = world()
   local s = w.store

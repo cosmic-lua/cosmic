@@ -38,6 +38,11 @@
 --- which depends on structure alone, so the order is the same in every store.
 --- No other subsumption is searched for.
 ---
+--- **A declaration as a value.** The name of a record, class or userdata record used as a value
+--- (`Circle.make()`, `require("m")`) is the table of its functions, and no instance of it: a
+--- [`Named`] with `value` set, written `(val ...)` in the text. It is a type of its own, below only
+--- itself, so `local c: Circle = Circle` is refused.
+---
 --- **Type variables.** A variable is `(depth, index)`: `index` is the position
 --- in a binder's list of type parameters, and `depth` counts the binders between
 --- the variable and its own, 0 for the nearest. Only a function type with type
@@ -57,6 +62,7 @@
 --- whatever the text was. Equal types have equal text, so the text can be hashed or compared:
 ---
 ---     (array (ref "cosmic.stream" "Stream.Reader"))   {Stream.Reader}
+---     (val "cosmic.stream" "Stream")                  the declaration Stream used as a value
 ---     (mmap string (union (ref "sys" "Fd") nil))      mut {string: Fd?}
 ---     (fn (tp (ref "m" "Ordered")) ((var 0 0)) (rets ((var 0 0))))
 ---                                                     function<T is Ordered>(T): T
@@ -138,11 +144,15 @@ local record Types
     where self.atom
   end
 
-  --- A use of a declaration and its type arguments.
+  --- A use of a declaration and its type arguments, or the declaration itself as a value.
   record Named is Base
     where self.tag == "named"
     decl: Decl
     args: {Type}
+    --- Whether it is the declaration used as a value (`Circle` in `Circle.make()`): the table of its
+    --- functions, which is no instance of it and has no interface listed. A declaration and its
+    --- value are two types.
+    value: boolean
   end
 
   --- `{T}`, or `mut {T}` where `mut`.
@@ -349,8 +359,8 @@ local record Types
     --- The variable at `depth` and `index`. It is checked against its binder when a function
     --- type or a declaration holds it: a variable in no binder has none to check against.
     var: function(Store, depth: integer, index: integer): Type
-    --- The use of `decl` with `args`.
-    named: function(Store, decl: Decl, args?: {Type}): Type
+    --- The use of `decl` with `args`, or the declaration itself as a value where `value`.
+    named: function(Store, decl: Decl, args?: {Type}, value?: boolean): Type
     --- The function type of `spec`.
     fn: function(Store, spec: FnSpec): Type
     --- The declaration at a path, made if it is new. A use of it takes `arity` type arguments
@@ -502,7 +512,7 @@ local function render(t: Type, sub: function(Type): string): string
   if t is Atom then
     return t.tag
   elseif t is Named then
-    local parts: {string} = { "(ref ", t.decl.text }
+    local parts: {string} = { t.value and "(val " or "(ref ", t.decl.text }
     for _, a in ipairs(t.args) do
       parts[#parts + 1] = " " .. sub(a)
     end
@@ -899,6 +909,9 @@ show = function(t: Type, names: Names, parenthesized: boolean): string
     if #t.args > 0 then
       text = text .. "<" .. table.concat(show_list(t.args, names), ", ") .. ">"
     end
+    if t.value then
+      text = text .. " (declaration)"
+    end
     return text
   elseif t is Array then
     return (t.mut and "mut " or "") .. "{" .. show(t.element, names, false) .. "}"
@@ -1183,7 +1196,7 @@ Types.Store.var = function(self: Store, depth: integer, index: integer): Type
   return intern(self, var)
 end
 
-Types.Store.named = function(self: Store, decl: Decl, args?: {Type}): Type
+Types.Store.named = function(self: Store, decl: Decl, args?: {Type}, value?: boolean): Type
   if decl.owner ~= self.owner then
     error("types: a declaration of another store", 2)
   end
@@ -1199,7 +1212,7 @@ Types.Store.named = function(self: Store, decl: Decl, args?: {Type}): Type
   local named: Named = {
     tag = "named", atom = false, id = 0, owner = self.owner, digest = "", open = 0, has_mut = false,
     weight = 1, height = 1,
-    decl = decl, args = copied,
+    decl = decl, args = copied, value = value or false,
   }
   local made = intern(self, named)
   if arity == nil and made == named then
@@ -1851,11 +1864,11 @@ read_type = function(r: Reader): Type
       result = store:map(key, read_type(r), word == "mmap")
     elseif word == "union" then
       result = store:union(read_types(r))
-    elseif word == "ref" then
+    elseif word == "ref" or word == "val" then
       local module = string_of(r)
       local name = string_of(r)
       local decl = resolve(r, module, name)
-      result = store:named(decl, read_types(r))
+      result = store:named(decl, read_types(r), word == "val")
     elseif word == "var" then
       local depth = integer(r)
       result = store:var(depth, integer(r))

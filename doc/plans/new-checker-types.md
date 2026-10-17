@@ -787,9 +787,9 @@ readings, takes the one that refuses more. *not adopted:* each reading's looser 
 - **an overload set is no value** (`overload_value`): only a call picks one. *not adopted:* the first overload.
 - **a call with several return lists is no value to one name** (`local x = f()`), and gives each of several names the
   union of its column. *not adopted:* the first list.
-- **a literal gives every field that is not `name?:`**, the `T?` ones too (`name = nil`); the fields a
-  `function R.m(...)` statement gave the record are not required of its literals. *not adopted:* a literal that may
-  omit a field that admits nil or a function.
+- **a literal gives every field that is not `name?:`**, the `T?` ones too (`name = nil`); a class's literal gives
+  its `?` fields as well ([classes read the rules strictly](#classes-read-the-rules-strictly)). *not adopted:* a
+  literal that may omit a field that admits nil or a function.
 - **a write to an array is the append, and nothing else** (`array_hole`), `t[#t] = nil` included. *not adopted:*
   any integer index.
 - **a literal of named items with no type expected is a map `{string: V}`,** so `t.name` on it is `map_field`.
@@ -803,6 +803,45 @@ readings, takes the one that refuses more. *not adopted:* each reading's looser 
   wants, and `x or "lit"` for an enum `x` joins to `string`.
 - **`...` read as one value is `T?`,** and an expression of `any` is neither stored (a field, an element, a
   return of another type) nor read: `any_use`.
+
+### classes read the rules strictly
+
+the class piece ([`lang/check.tl`], [`lang/declarations.tl`], [`lang/codegen.tl`] and the patched parser) takes the
+reading that refuses more where [compiler-written classes, in the new checker] is silent. *not adopted:* each
+reading's looser form, named here.
+
+- **a class's literal names every field, the `?` ones as `name = nil`.** nothing can attach the metatable to a table
+  built another way, and a field left absent would read through `__index`. *not adopted:* a class literal that
+  leaves out a `?` field, as a record's may.
+- **a class's table is the metatable of its values and a local of its module,** so a literal of a class and `is` of
+  one are written where the class is declared (`class_scope`), and a class declared inside another type is not
+  generated. the class of another module is made there, by a function of the class. *not adopted:* a class
+  reached through `require` from another module (a TODO in [`lang/codegen.tl`]).
+- **a method or function of a class named for a metamethod is refused** (`class_metamethod`), `__close` and
+  `__tostring` included as functions, since the table of the methods is the metatable and `function C.__call()` would
+  make a metamethod no rule saw. `__close` takes the value alone and `__tostring` answers a `string`
+  (`metamethod_signature`). *not adopted:* the names with two underscores a class may use for other things.
+- **`is` of a generic class is refused:** the metatable tells the class and not its arguments, so `v is Box<integer>`
+  would narrow `Box<string>`. *not adopted:* the test with the arguments unchecked.
+- **a `<close>` local holds nil or a class that declares `__close`** (`close_not_closable`). *not adopted:* an
+  interface that declares one: a record may list it too, and its `__close` is a field no metatable holds. the
+  rewrite that brings the ceiling to zero turns such a record into a class.
+- **a method of an interface is called as `v:m(...)` and never read as a value** (`interface_method_value`): agreement
+  gives the method the implementing type as its receiver, so `s.size` through a `Sized` is the one function of the
+  value's own class, and `s.size(other)` would run that class's code on another implementer, because the implementation
+  depends on the receiver. a class's own methods, read through the class or an instance, are one class's and stay
+  readable. *not adopted:* the read typed with the interface as receiver.
+- **a program has no `setmetatable`** (`setmetatable_call`): a call is reported where it stands and is a ceiling
+  until the rewrite writes the class. *not adopted:* the call typed through the generics piece.
+- **a declaration used as a value is a type of its own** (a [`Named`](../../lang/types.tl) with `value`, written `(val ...)`), below
+  itself alone, and the functions `function R.m(...)` gave it are members of that type and of no instance
+  (`declaration_value` for `local c: C = C`). *not adopted:* the statics as fields of the record.
+- **the reserved form is two instructions of the patched parser,** `{ ... } @ C` (`OP_SETCLASS` after the
+  constructor's fields) and `@v` (`OP_CLASSOF`, the metatable of a value, which `v is C` compares with `C`). the
+  character is no token of Teal or of Lua, so only code the compiler writes holds it, and a chunk loaded from text
+  reaches it until the runtime cut takes text `load` from programs. the instructions change the bytecode, so
+  `LUAC_FORMAT` is 1 and every stored chunk of the old format fails at its header. *not adopted:* a hidden function
+  of the core, which the generated chunk could reach only by a name.
 
 [a count the tree cannot yet bring to zero is a ceiling]: strict-teal.md#decisions
 [annotated parameters]: strict-teal.md#annotated-parameters

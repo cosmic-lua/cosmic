@@ -501,13 +501,14 @@ local format_test_timeout_ns <const> = Clock.seconds(300)
 -- each bound is several times that.
 local launcher_test_timeout_ns <const> = Clock.seconds(60)
 local launcher_noexec_test_timeout_ns <const> = Clock.seconds(60)
-local self_rebuild_test_timeout_ns <const> = Clock.seconds(450)
+local self_rebuild_test_timeout_ns <const> = Clock.seconds(600)
 -- A self-rebuild test rebuilds the tool: the docs verb's from a cold
--- compile of the whole tree, 50 to 90 s of one core on a runner, past the
+-- compile of the whole tree, 140 to 180 s on four cores (the tree has
+-- doubled since this was first measured at 50 to 90 s), past the
 -- runner's default 30 s per test; the rest from the leg's compiles
 -- ([`seed_compiles`]), in seconds. The bound is above the case's own
--- (`rebuild_timeout_ns` in fixtures/self_rebuild_test.tl, 150 s).
-local self_rebuild_per_test_timeout_s <const> = "180"
+-- (`rebuild_timeout_ns` in fixtures/self_rebuild_test.tl, 270 s).
+local self_rebuild_per_test_timeout_s <const> = "300"
 -- Each fixed-point test rebuilds the product twice from a fresh tree. The
 -- compiler's three cases share no compiles (fixtures/fixed_point_test.tl
 -- says why) and compile the whole tree cold about three times, about 43 s

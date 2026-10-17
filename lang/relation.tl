@@ -28,7 +28,9 @@
 ---   arguments are the same types; a use is below an interface only when its
 ---   declaration lists the interface, or one that extends it, with `is`, the
 ---   arguments of each listing read through the declaration. A record is not a
----   map and a map is not a record.
+---   map and a map is not a record. A declaration used as a value (a [`Named`] with
+---   `value`) is below itself alone: it is no instance of the declaration, lists no
+---   interface and has no array part.
 --- - A function is below another when every argument count the other takes is
 ---   accepted (a parameter the other may omit is omittable here, one it does not
 ---   have is omittable here, a rest parameter is met by a rest parameter), each
@@ -77,7 +79,8 @@ local record Relation
   ---
   --- - `mismatch`: no rule relates the two forms. `nominal`: two declarations, the target
   ---   not an interface. `not_listed`: the target is an interface the source's declaration
-  ---   does not list. `variable`: a type variable, below only itself and its bound.
+  ---   does not list. `declaration_value`: a declaration used as a value, the table of its
+  ---   functions, where a value of it is wanted, or the reverse. `variable`: a type variable, below only itself and its bound.
   --- - `nil`: the source is `nil` and the target admits none. `number_for_integer`: a `number`
   ---   where an `integer` is wanted. `never_target`: nothing is below `never`.
   --- - `any_source`: the data of `any` is no other type. `any_sink`: a value reaches `any` only as
@@ -110,6 +113,7 @@ local record Relation
     "invariant_key"
     "invariant_generic"
     "not_listed"
+    "declaration_value"
     "record_as_map"
     "map_as_record"
     "variable"
@@ -316,7 +320,7 @@ local function rewrite(
     for i, part in ipairs(t.args) do
       args[i] = rewrite(store, part, level, on_var, memo)
     end
-    out = store:named(t.decl, args)
+    out = store:named(t.decl, args, t.value)
   elseif t is Array then
     out = store:array(rewrite(store, t.element, level, on_var, memo), t.mut)
   elseif t is Map then
@@ -615,6 +619,14 @@ local function from_atom(j: Relation.Judge, a: Atom, b: Type, why: boolean): Rel
 end
 
 local function from_named(j: Relation.Judge, a: Named, b: Type, why: boolean): Relation.Refusal | nil
+  if b is Named and a.value ~= b.value then
+    return leaf(j, why, "declaration_value", a, b)
+  elseif a.value then
+    -- The table of a declaration's functions lists no interface, is no enum and has no array part.
+    if not (b is Named) then
+      return leaf(j, why, "mismatch", a, b)
+    end
+  end
   if b is Named then
     if a.decl == b.decl then
       if #a.args ~= #b.args then

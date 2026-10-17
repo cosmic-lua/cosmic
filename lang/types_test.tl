@@ -561,6 +561,26 @@ local function test_text_decodes_to_the_same_type_in_the_store_and_in_another()
   assert(second:find("m", "Handle") == nil, "and no other")
 end
 
+local function test_a_declaration_used_as_a_value_is_a_type_of_its_own_in_text_and_in_every_store()
+  local w = world()
+  local s = w.store
+  local second = Types.new(loading_from(s))
+  local decl = w.fixture.decls["File"]
+  local instance, value = s:named(decl), s:named(decl, {}, true)
+  assert(instance ~= value and value is Types.Named and value.value and instance is Types.Named and not instance.value)
+  assert(s:named(decl, {}, true) == value and s:named(decl, nil, false) == instance, "each is interned")
+  assert(Types.digest(instance) ~= Types.digest(value))
+  same(shown(value), "File (declaration)")
+  same(shown(s:optional(value)), "File (declaration)?")
+  same(Types.encode(value), '(val "m" "File")')
+  assert(s:decode('(val "m" "File")') == value and s:decode('(ref "m" "File")') == instance)
+  local there, why = second:decode('(val "m" "File")')
+  assert(there ~= nil and there is Types.Named and there.value, why)
+  same(Types.encode(there), '(val "m" "File")')
+  local both = a_union(s:union({ instance, value }))
+  assert(#both.members == 2, "a declaration and its value do not collapse into one")
+end
+
 local function test_decoding_normalizes_text_that_is_not_canonical()
   local s = Types.new()
   assert(s:decode("(union integer number)") == s.number)

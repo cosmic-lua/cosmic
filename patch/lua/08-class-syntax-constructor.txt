@@ -1,0 +1,15 @@
+file: src/lparser.c
+note: A constructor followed by '@' is a class literal.
+--- find
+    case '{' /*}*/: {  /* constructor */
+      constructor(ls, v);
+      return;
+    }
+--- replace
+    case '{' /*}*/: {  /* constructor */
+      constructor(ls, v);
+      if (ls->t.token == '@')  /* class literal? */
+        classliteral(ls, v);
+      return;
+    }
+--- end

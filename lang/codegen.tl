@@ -38,9 +38,16 @@
 --- block, and each arm is an `if` on the `true` and `false` of its pattern that
 --- binds the names of the rest.
 ---
---- What the tree holds and Lua cannot yet say is refused with an [`Error`],
---- and the text then lacks it: a `class` ([`Code`]'s `class_refused`) and an
---- `is` of a class (`class_test_refused`).
+--- * A `class` is its method table, which is also the metatable of its values: `local C = {}; C.__index = C`
+---   on the line of the `class`, then each method as `function C.name(self, ...)` on its line. A method named
+---   `__close` or `__tostring` is the metamethod of that name. The values are made by the reserved form of the
+---   patched parser ([`patch/lua/`]): `{ ... } @ C` is the table the constructor makes with `C` as its metatable, and
+---   `@v == C` is the test `v is C`, `@v` being the metatable of `v`. Which table literals make a value of a class
+---   is the checker's to say ([`lang.check`]'s [`Checked.literals`]), so [`generate`] is told; a literal it is not told
+---   of is a plain table.
+---
+--- What the tree holds and Lua cannot yet say is refused with an [`Error`], and the text then lacks it: a `class`
+--- declared inside another type (`class_nested_refused`), which has no table of its own at run time.
 ---
 --- [`generate`] needs the names the scope builder ([`lang.scopes`]) resolved:
 --- the fork writes a `local record R` as `local R = {}` only where `R` is read
@@ -52,9 +59,13 @@
 --- re-entrant: it runs one generation at a time, as the one thread of a cosmic
 --- program does.
 
--- TODO: write the class as the reserved class literal and an `is` of a class as the check of its metatable, once the
--- class piece of doc/plans/new-checker-types.md lands the literal and the patched parser gains its opcode
--- (doc/plans/strict-teal.md, "compiler-written classes, in the new checker").
+-- TODO: write the reserved form of the class only in the code the compiler writes, once the runtime cut takes text
+-- `load` from programs (doc/plans/strict-teal.md, "no implicit conversion or hidden code"): a program cannot spell
+-- `@` in Teal, but a chunk it loads from text is read by the patched parser, which takes both forms today
+-- (`load("return @'abc'")` answers the string metatable), and `@v` reads a metatable whatever its `__metatable` says.
+--
+-- TODO: reach the table of a class of another module, for a class literal or an `is` of it there, once the checker
+-- has a use for one ([`lang.check`]'s `class_scope` refuses both): the table is the module's own local.
 --
 -- TODO: take truthiness from the new checker's types, in place of the translator's syntactic rule
 -- ([`lang.translate`]'s `never_false`), once expressions land (doc/plans/new-checker-types.md, "expressions
@@ -71,10 +82,8 @@ local Scopes = require("lang.scopes")
 local record Codegen
   --- What a refusal is, so that a reader does not parse its `msg`.
   enum Code
-    -- a `class`, which Lua writes with the reserved class literal
-    "class_refused"
-    -- an `is` of a class, which Lua writes as a check of the class's metatable
-    "class_test_refused"
+    -- a `class` declared inside another type, which has no table of its own at run time
+    "class_nested_refused"
   end
 
   --- Something the tree holds that this generator does not write yet. `y` and `x` place its first token.
@@ -100,8 +109,11 @@ local record Codegen
   --- ([`lang.scopes`]'s `build`), as Lua. `truthy` says of an expression whether it can be neither false nor nil;
   --- an `if` expression whose values all are is `c and a or b`, and any other is a function called on the spot, which
   --- is right for a value that is false or nil. By default only what the syntax shows is truthy (a literal other
-  --- than `false` and `nil`, a table, a function, an arithmetic or a concatenation).
-  generate: function(chunk: Ast.Chunk, scoped: Scopes.Scoped, truthy?: function(e: Ast.Exp): boolean): Generated
+  --- than `false` and `nil`, a table, a function, an arithmetic or a concatenation). `classes` names the class of each
+  --- table literal that makes a value of one, by the id of its node: [`lang.check`]'s [`Checked.literals`] with the
+  --- name of each class.
+  generate: function(chunk: Ast.Chunk, scoped: Scopes.Scoped, truthy?: function(e: Ast.Exp): boolean,
+                     classes?: {integer: string}): Generated
 
   --- `lua`, the Lua of this generator or of the fork's for the same Teal, once the layout of a `continue` is set
   --- aside: the `::continue::` that ends a loop is deleted, since the fork's source has it on a line of its own and
@@ -109,14 +121,165 @@ local record Codegen
   --- are equal then are the same Lua, line for line.
   compared: function(lua: string): string
 
+  --- `text`, the Lua this generator wrote for `chunk`, without the lines of its top-level classes and without blank
+  --- lines: what is left to hold to the fork's Lua once [`fork_without_classes`] has cut the pattern of a class from
+  --- that.
+  without_classes: function(text: string, chunk: Ast.Chunk): string
+
+  --- `lua`, the fork's Lua for the Teal [`lang.translate`] started from, without the pattern of a class, and without
+  --- blank lines: the table `local C = {}` and the methods `function C:name()` of each top-level class of `chunk`, the
+  --- metatable locals `metatables` names (the translator removed them) and `__index = C` of them, and the call
+  --- `setmetatable(T, mt)` of such a metatable written as `T`, which is how the class literal reads without its class.
+  fork_without_classes: function(lua: string, chunk: Ast.Chunk, metatables: {string}): string
+
   --- Every [`Code`], in the order the enum lists them.
   codes: {Code}
 end
 
-Codegen.codes = { "class_refused", "class_test_refused" }
+Codegen.codes = { "class_nested_refused" }
 
 function Codegen.compared(lua: string): string
   return (lua:gsub("::continue:: ?", ""):gsub("[ \t]+\n", "\n"))
+end
+
+function Codegen.without_classes(text: string, chunk: Ast.Chunk): string
+  local tokens = chunk.tokens
+  local dropped: {integer: boolean} = {}
+  for _, s in ipairs(chunk.body.stats) do
+    if s is Ast.Class then
+      for y = tokens[s.first].y, tokens[s.last].yend do
+        dropped[y] = true
+      end
+    end
+  end
+  local kept: {string} = {}
+  local y = 0
+  for line in (text .. "\n"):gmatch("(.-)\n") do
+    y = y + 1
+    if not dropped[y] and line:find("%S") ~= nil then
+      kept[#kept + 1] = line
+    end
+  end
+  return Codegen.compared(table.concat(kept, "\n"))
+end
+
+--- The index of the `,` that ends the argument of a call which begins at `from`, or nil: the first at no depth of
+--- brackets, outside strings.
+local function argument_end(text: string, from: integer): integer | nil
+  local depth = 0
+  local i = from
+  local n = #text
+  while i <= n do
+    local c = text:sub(i, i)
+    if c == "\"" or c == "'" then
+      i = i + 1
+      while i <= n and text:sub(i, i) ~= c do
+        if text:sub(i, i) == "\\" then
+          i = i + 1
+        end
+        i = i + 1
+      end
+    elseif c == "[" and text:find("^%[=*%[", i) ~= nil then
+      local level = text:match("^%[(=*)%[", i) or ""
+      local _, stop = text:find("]" .. level .. "]", i, true)
+      if stop == nil then
+        return nil
+      end
+      i = stop
+    elseif c == "(" or c == "{" or c == "[" then
+      depth = depth + 1
+    elseif c == ")" or c == "}" or c == "]" then
+      if depth == 0 then
+        return nil
+      end
+      depth = depth - 1
+    elseif c == "," and depth == 0 then
+      return i
+    end
+    i = i + 1
+  end
+  return nil
+end
+
+--- The index of the `)` that ends a call of `setmetatable` whose first argument ends at `comma`, when its second is a
+--- name of `metatables` or the literal `{ __index = C }` for a `C` of `classes`; nil for any other call.
+local function metatable_call_end(text: string, comma: integer, classes: {string: boolean},
+                                  metatables: {string: boolean}): integer | nil
+  local name = text:match("^%s*([%a_][%w_]*)%s*%)", comma + 1)
+  if name ~= nil and metatables[name] then
+    local _, stop = text:find("^%s*[%a_][%w_]*%s*%)", comma + 1)
+    return stop
+  end
+  local class = text:match("^%s*{%s*__index%s*=%s*([%a_][%w_]*)%s*,?%s*}%s*%)", comma + 1)
+  if class ~= nil and classes[class] then
+    local _, stop = text:find("^%s*{%s*__index%s*=%s*[%a_][%w_]*%s*,?%s*}%s*%)", comma + 1)
+    return stop
+  end
+  return nil
+end
+
+--- `text` with each `setmetatable(T, mt)` of such a metatable written as `T`.
+local function without_metatable_calls(text: string, classes: {string: boolean}, metatables: {string: boolean}): string
+  local out: {string} = {}
+  local at = 1
+  while true do
+    local s, e = text:find("setmetatable(", at, true)
+    if s == nil then
+      break
+    end
+    local comma = argument_end(text, e + 1)
+    local stop = comma ~= nil and metatable_call_end(text, comma, classes, metatables) or nil
+    local previous = s > 1 and text:sub(s - 1, s - 1) or ""
+    if comma ~= nil and stop ~= nil and not previous:find("[%w_.:]") then
+      out[#out + 1] = text:sub(at, s - 1)
+      out[#out + 1] = without_metatable_calls(text:sub(e + 1, comma - 1), classes, metatables)
+      at = stop + 1
+    else
+      out[#out + 1] = text:sub(at, e)
+      at = e + 1
+    end
+  end
+  out[#out + 1] = text:sub(at)
+  return table.concat(out)
+end
+
+function Codegen.fork_without_classes(lua: string, chunk: Ast.Chunk, metatables: {string}): string
+  local classes: {string: boolean} = {}
+  for _, s in ipairs(chunk.body.stats) do
+    if s is Ast.Class then
+      classes[s.name.name] = true
+    end
+  end
+  local removed: {string: boolean} = {}
+  for _, name in ipairs(metatables) do
+    removed[name] = true
+  end
+  local kept: {string} = {}
+  local dropping = false
+  -- How many brackets the lines so far have left open: the fork writes a table that spans lines with its last line
+  -- in the first column.
+  local depth = 0
+  for line in (lua .. "\n"):gmatch("(.-)\n") do
+    -- A statement of the top level begins in the first column, outside any bracket; what follows it is indented or
+    -- closes it.
+    local opens_here = depth == 0
+    local bare = line:gsub("\\.", ""):gsub("\"[^\"]*\"", ""):gsub("'[^']*'", "")
+    local _, opened = bare:gsub("[%({%[]", "")
+    local _, closed = bare:gsub("[%)}%]]", "")
+    depth = math.max(0, depth + opened - closed)
+    if opens_here and line:find("^%S") ~= nil and line:find("^[%)}%]]") == nil and line:find("^end%f[^%w_]") == nil and
+        line:find("^else") == nil and line:find("^until%f[^%w_]") == nil then
+      local declared = line:match("^local ([%a_][%w_]*) =")
+      local method = line:match("^function ([%a_][%w_]*):")
+      local index = line:match("^([%a_][%w_]*)%.__index = ")
+      dropping = (declared ~= nil and (classes[declared] == true or removed[declared] == true)) or
+        (method ~= nil and classes[method] == true) or (index ~= nil and classes[index] == true)
+    end
+    if not dropping and line:find("%S") ~= nil then
+      kept[#kept + 1] = line
+    end
+  end
+  return Codegen.compared(without_metatable_calls(table.concat(kept, "\n"), classes, removed))
 end
 
 --- A piece of the Lua being written, with the lines of the source it spans: `y` is the line it begins on, `h` how
@@ -149,12 +312,14 @@ local record State
   --- The `return` that ends the body of a loop that a `continue` jumps to the end of: no label may follow a
   --- `return` in its block, so it is written `do return ... end`.
   guarded: Ast.Node | nil
+  --- The name of the class each table literal makes a value of, by the id of the literal.
+  classes: {integer: string}
 end
 
 local G: State = {
   tokens = {}, scoped = { vars = {}, list = {}, resolved = {}, globals = {}, global_writes = {}, errors = {} },
   indent = 0, saved = {}, errors = {}, loops = {}, declarations = nil, matches = 0, body = nil,
-  truthy = function(_e: Ast.Exp): boolean return false end, guarded = nil,
+  truthy = function(_e: Ast.Exp): boolean return false end, guarded = nil, classes = {},
 }
 
 local function base_of(node: Ast.Node): Ast.Base
@@ -344,9 +509,6 @@ local function declared_type(declaration: Ast.Node, hops: integer): string
     if hops > 0 then
       return lua_type(declaration.type, hops - 1)
     end
-  elseif declaration is Ast.Class then
-    refuse("class_test_refused", declaration.first, "`is` of the class `" .. declaration.name.name .. "` is not generated yet",
-      "test a field that tells the class apart, until the class literal lands")
   end
   return "table"
 end
@@ -612,8 +774,10 @@ local function table_literal(node: Ast.Table): Output
   local yend = line_of(node.last)
   local items = node.items
   local out = new(y)
+  local class = G.classes[node.id]
+  local made = class ~= nil and " @ " .. class or ""
   if #items == 0 then
-    put(out, "{}")
+    put(out, "{}" .. made)
     return out
   end
   local child_y = line_of(items[1].first)
@@ -630,7 +794,7 @@ local function table_literal(node: Ast.Table): Output
     end
   end
   indent_out(y, child_y)
-  add_child(out, text(yend, "}"), " ", G.indent)
+  add_child(out, text(yend, "}" .. made), " ", G.indent)
   return out
 end
 
@@ -659,13 +823,42 @@ local function function_literal(node: Ast.FunctionLit): Output
   return out
 end
 
+--- Wraps `child` in parentheses where an operator of precedence `own` stands over an operand that binds looser.
+local function guard(own: integer, operand: Ast.Exp, child: Output)
+  local inner = precedence(operand)
+  -- `a == type(b) == "string"` is not `a == (b is string)`.
+  if inner ~= nil and (own > inner or (own == IS_PRECEDENCE and inner == IS_PRECEDENCE and operand is Ast.IsTest)) then
+    parenthesize(child)
+  end
+end
+
+--- The class a type names, through the aliases of the file, or nil where it names none of this file's.
+local function class_named(t: Ast.Type): Ast.Class | nil
+  if t is Ast.TypeName then
+    local declaration = declaration_of(t)
+    if declaration ~= nil and declaration is Ast.Class then
+      return declaration
+    end
+  end
+  return nil
+end
+
 --- The test of `value` for the type `t`, on the line `y`: one of the three shapes the fork writes, for what `t`
---- stands for through its aliases.
-local function type_test(declared: Ast.Type, value: Output, y: integer): Output
+--- stands for through its aliases, or for a class the test of its metatable: `@v == C`. `operand` is the
+--- expression `value` writes, which a prefix operator takes in parentheses where it binds looser.
+local function type_test(declared: Ast.Type, value: Output, y: integer, operand?: Ast.Exp): Output
   local t = through_aliases(declared, 32)
   local out = new(y)
   local kind = base_of(t).kind
-  if kind == "TypeName" and t is Ast.TypeName and #t.path == 1 and t.path[1] == "integer" then
+  local class = class_named(t)
+  if class ~= nil then
+    if operand ~= nil then
+      guard(UNARY_PRECEDENCE, operand, value)
+    end
+    put(out, "@")
+    add_child(out, value, "", G.indent)
+    put(out, " == " .. class.name.name)
+  elseif kind == "TypeName" and t is Ast.TypeName and #t.path == 1 and t.path[1] == "integer" then
     put(out, "math.type(")
     add_child(out, value, "", G.indent)
     put(out, ") == \"integer\"")
@@ -691,7 +884,7 @@ local function is_test(node: Ast.IsTest, value: Output): Output
   local value_node = node.value
   local members = union_members(node.type, 32)
   if members == nil then
-    return type_test(node.type, value, line_of(node.value.last + 1))
+    return type_test(node.type, value, line_of(node.value.last + 1), node.value)
   end
   local y = value.y
   local out = new(line_of(node.value.last + 1))
@@ -711,7 +904,7 @@ local function is_test(node: Ast.IsTest, value: Output): Output
     else
       operand = exp(node.value)
     end
-    add_child(out, type_test(member, operand, y), "", G.indent)
+    add_child(out, type_test(member, operand, y, not held and node.value or nil), "", G.indent)
   end
   if held then
     put(out, " end)(")
@@ -719,15 +912,6 @@ local function is_test(node: Ast.IsTest, value: Output): Output
     put(out, ")")
   end
   return out
-end
-
---- Wraps `child` in parentheses where an operator of precedence `own` stands over an operand that binds looser.
-local function guard(own: integer, operand: Ast.Exp, child: Output)
-  local inner = precedence(operand)
-  -- `a == type(b) == "string"` is not `a == (b is string)`.
-  if inner ~= nil and (own > inner or (own == IS_PRECEDENCE and inner == IS_PRECEDENCE and operand is Ast.IsTest)) then
-    parenthesize(child)
-  end
 end
 
 --- `e` given the output `left` of the expression to its left, the one [`left_of`] finds. The pieces of `e` are all
@@ -1040,6 +1224,21 @@ local function record_table(members: {Ast.Member}): string
   return "{" .. table.concat(pieces, ",") .. " }"
 end
 
+--- Refuses each class declared in `members`, however deep in the types around it: only a class of the file's own
+--- blocks has a table to name.
+local function refuse_nested_classes(members: {Ast.Member})
+  for _, m in ipairs(members) do
+    if m is Ast.Class then
+      refuse("class_nested_refused", m.first, "the class `" .. m.name.name .. "` is declared inside another type, and " ..
+          "has no table of its own at run time",
+        "declare `" .. m.name.name .. "` beside the type around it")
+    end
+    if m is Ast.Record or m is Ast.Class or m is Ast.Interface then
+      refuse_nested_classes(m.members)
+    end
+  end
+end
+
 --- Whether the program reads or assigns the binding `name` as a value. A record the program names only in types
 --- is not written.
 local function used_as_value(name: Ast.Binding): boolean
@@ -1049,6 +1248,7 @@ end
 
 --- A `local record` that the program uses as a value is `local R = {}`, holding its nested records.
 local function record_statement(node: Ast.Record): Output
+  refuse_nested_classes(node.members)
   if not used_as_value(node.name) then
     return new(1)
   end
@@ -1275,10 +1475,46 @@ local function match_statement(s: Ast.Match): Output
   return out
 end
 
+--- A method of the class `class`: `function C.name(self, ...)` on the line of the method.
+local function method_statement(class: Ast.Class, m: Ast.Method): Output
+  local y = line_of(m.first)
+  local body = m.body
+  local outer = G.loops
+  G.loops = {}
+  indent_in(y, line_of(body.first))
+  local out = new(y)
+  put(out, "function")
+  add_child(out, text(y, class.name.name), " ")
+  put(out, ".")
+  add_child(out, text(line_of(m.name.first), m.name.name))
+  put(out, "(")
+  add_child(out, params_of(m.name.last + 1, m.params))
+  put(out, ")")
+  add_child(out, block(body), " ")
+  indent_out(y, line_of(body.first))
+  add_child(out, text(line_of(body.close), "end"), " ", G.indent)
+  G.loops = outer
+  return out
+end
+
+--- A `class` as its table, which is its methods' and the metatable of its values (`__index` is the table; a method
+--- named `__close` or `__tostring` is that metamethod), and then each method.
 local function class_statement(s: Ast.Class): Output
-  refuse("class_refused", s.first, "`class " .. s.name.name .. "` is not generated yet: Lua has no form for the class literal",
-    "keep the module in Teal, as a record and its `function " .. s.name.name .. ":name()` functions, until the class literal lands")
-  return new(1)
+  local name = s.name.name
+  local y = line_of(s.first)
+  local out = new(y)
+  put(out, "local")
+  add_child(out, text(line_of(s.name.first), name), " ")
+  put(out, " =")
+  add_child(out, text(y, #s.typeparams > 0 and "{}" or record_table(s.members)), " ")
+  put(out, "; " .. name .. ".__index = " .. name)
+  refuse_nested_classes(s.members)
+  for _, m in ipairs(s.members) do
+    if m is Ast.Method then
+      add_child(out, method_statement(s, m), "; ", G.indent)
+    end
+  end
+  return out
 end
 
 stat = function(s: Ast.Stat): Output
@@ -1369,14 +1605,18 @@ stat = function(s: Ast.Stat): Output
     return import_statement(s)
   elseif kind == "Class" and s is Ast.Class then
     return class_statement(s)
+  elseif kind == "Interface" and s is Ast.Interface then
+    refuse_nested_classes(s.members)
   end
   -- An interface, an enum and an alias are types only; a failed production's [`Ast.Error`] node is a refusal the parser already made.
   return new(1)
 end
 
-function Codegen.generate(chunk: Ast.Chunk, scoped: Scopes.Scoped, truthy?: function(e: Ast.Exp): boolean): Codegen.Generated
+function Codegen.generate(chunk: Ast.Chunk, scoped: Scopes.Scoped, truthy?: function(e: Ast.Exp): boolean,
+                          classes?: {integer: string}): Codegen.Generated
   G.tokens, G.scoped = chunk.tokens, scoped
   G.truthy = truthy or syntactically_truthy
+  G.classes = classes or {}
   G.guarded = nil
   G.indent, G.saved, G.errors, G.loops, G.declarations, G.matches = 0, {}, {}, {}, nil, 0
   G.body = chunk.body
@@ -1385,7 +1625,7 @@ function Codegen.generate(chunk: Ast.Chunk, scoped: Scopes.Scoped, truthy?: func
   add_child(whole, out)
   local written = (flatten(whole):gsub(" *\n", "\n"))
   local errors = G.errors
-  G.tokens, G.saved, G.errors, G.loops, G.declarations, G.body = {}, {}, {}, {}, nil, nil
+  G.tokens, G.saved, G.errors, G.loops, G.declarations, G.body, G.classes = {}, {}, {}, {}, nil, nil, {}
   return { text = written, errors = errors }
 end
 

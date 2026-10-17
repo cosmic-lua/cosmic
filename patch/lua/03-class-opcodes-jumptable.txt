@@ -1,0 +1,11 @@
+file: src/ljumptab.h
+note: The jump table lists the instructions in the order of the enumeration.
+--- find
+&&L_OP_VARARGPREP,
+&&L_OP_EXTRAARG
+--- replace
+&&L_OP_VARARGPREP,
+&&L_OP_SETCLASS,
+&&L_OP_CLASSOF,
+&&L_OP_EXTRAARG
+--- end

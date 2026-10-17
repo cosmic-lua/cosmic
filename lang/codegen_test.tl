@@ -7,6 +7,7 @@
 
 local Ast = require("lang.ast")
 local Codegen = require("lang.codegen")
+local Programs = require("lang.check_programs")
 local Lexer = require("lang.lexer")
 local Parser = require("lang.parser")
 local Scopes = require("lang.scopes")
@@ -682,23 +683,338 @@ local function test_a_protected_call_is_an_ordinary_call()
   assert(ok == false and err == "x")
 end
 
-local function test_a_class_is_refused_with_the_line_it_is_on()
-  local result = generated("local x = 1\nlocal class Counter\n  n: integer\n  function bump(self)\n    self.n = self.n + 1\n  end\nend\nreturn x\n")
-  assert(#result.errors == 1, #result.errors)
-  local e = result.errors[1]
-  assert(e.code == "class_refused" and e.y == 2 and e.x == 1, e.code .. " " .. e.y .. ":" .. e.x)
-  assert(e.msg:find("Counter", 1, true) and e.fix ~= "")
-  assert(result.text == "local x = 1\n\n\n\n\n\n\nreturn x", result.text)
+-- classes ------------------------------------------------------------------------------------------------------
+
+--- The generator's result for `source`, a program of one module checked as [`lang.check`] checks it, told which table
+--- literals make a value of a class.
+local function classed(source: string): Codegen.Generated
+  local checked = Programs.run(source)
+  -- The programs return what they run for the test to read, which a module does not declare.
+  local codes = Programs.codes(checked):gsub("export_not_declared", ""):gsub("%s+", "")
+  assert(#checked.before == 0 and codes == "", table.concat(checked.before, " ") .. " " .. codes .. " in\n" .. source)
+  local names: {integer: string} = {}
+  for id, decl in pairs(checked.result.literals) do
+    names[id] = decl.name
+  end
+  return Codegen.generate(checked.chunk, checked.scoped, nil, names)
 end
 
-local function test_an_is_of_a_class_is_refused()
-  local result = generated("local class C\n  n: integer\nend\nlocal x: any = nil\nreturn x is C\n")
-  local codes: {string} = {}
-  for _, e in ipairs(result.errors) do
-    codes[#codes + 1] = e.code
+--- Runs the Lua of `classed(source)` and answers the five values it returns.
+local function run_classes(source: string): any, any, any, any, any
+  local result = classed(source)
+  assert(#result.errors == 0, result.errors[1] ~= nil and result.errors[1].msg or "")
+  -- No `setmetatable` and no `getmetatable`: a class reaches the metatable through the reserved form alone.
+  local env: {string: any} = { tostring = tostring, pcall = pcall, error = error, select = select, ipairs = ipairs }
+  local chunk = assert(load(result.text, "=t", "t", env))
+  return chunk()
+end
+
+local function test_a_class_is_its_method_table_and_a_literal_of_it_gets_that_table_as_its_metatable()
+  local a, b, c, d = run_classes(program(
+    "local class Counter",
+    "  mut n: integer",
+    "  function bump(self, by: integer): integer",
+    "    self.n = self.n + by",
+    "    return self.n",
+    "  end",
+    "  function get(self): integer",
+    "    return self.n",
+    "  end",
+    "end",
+    "function Counter.make(start: integer): Counter",
+    "  return { n = start }",
+    "end",
+    "local c = Counter.make(10)",
+    "local d: Counter = { n = 1 }",
+    "return c:bump(5), c:get(), d:bump(1), c.n"))
+  assert(a == 15 and b == 15 and c == 2 and d == 15, tostring(a) .. " " .. tostring(b) .. " " .. tostring(c) .. " " .. tostring(d))
+end
+
+local function test_a_class_is_written_on_the_lines_of_its_source_and_a_literal_adds_its_class_to_its_line()
+  local result = classed(program(
+    "local class Box",
+    "  n: integer",
+    "  function get(self): integer",
+    "    return self.n",
+    "  end",
+    "end",
+    "local b: Box = {",
+    "  n = 1,",
+    "}",
+    "return b:get()"))
+  assert(result.text == program(
+    "local Box = {}; Box.__index = Box",
+    "",
+    "function Box.get(self)",
+    "   return self.n",
+    "end",
+    "",
+    "local b = {",
+    "   n = 1,",
+    "} @ Box",
+    "return b:get()"):sub(1, -2), result.text)
+end
+
+local function test_a_close_method_runs_at_the_end_of_the_block_of_a_close_local_in_the_reverse_order()
+  local a, b = run_classes(program(
+    "local record Out",
+    "  mut text: string",
+    "end",
+    "local class Guard",
+    "  out: Out",
+    "  name: string",
+    "  function __close(self)",
+    "    self.out.text = self.out.text .. self.name .. \";\"",
+    "  end",
+    "end",
+    "local out: Out = { text = \"\" }",
+    "do",
+    "  local first <close>: Guard = { out = out, name = \"first\" }",
+    "  local second <close>: Guard = { out = out, name = \"second\" }",
+    "  out.text = out.text .. \"body;\"",
+    "end",
+    "local after: Guard? = nil",
+    "local last <close>: Guard? = after",
+    "return out.text, last"))
+  assert(a == "body;second;first;" and b == nil, tostring(a))
+end
+
+local function test_a_tostring_method_is_what_tostring_calls()
+  local a, b = run_classes(program(
+    "local class Point",
+    "  x: integer",
+    "  y: integer",
+    "  function __tostring(self): string",
+    "    return \"(\" .. tostring(self.x) .. \", \" .. tostring(self.y) .. \")\"",
+    "  end",
+    "end",
+    "local p: Point = { x = 1, y = 2 }",
+    "local q: Point = { x = 3, y = 4 }",
+    "return tostring(p), tostring(q)"))
+  assert(a == "(1, 2)" and b == "(3, 4)", tostring(a) .. tostring(b))
+end
+
+local function test_is_of_a_class_is_the_test_of_its_metatable()
+  local a, b, c, d, e = run_classes(program(
+    "local class A",
+    "  n: integer",
+    "end",
+    "local class B",
+    "  n: integer",
+    "end",
+    "local function kind(v: any): string",
+    "  if v is A then return \"A\" end",
+    "  if v is B then return \"B\" end",
+    "  return \"other\"",
+    "end",
+    "local a: A = { n = 1 }",
+    "local b: B = { n = 1 }",
+    "return kind(a), kind(b), kind({ n = 1 }), kind(\"A\"), kind(nil)"))
+  assert(a == "A" and b == "B" and c == "other" and d == "other" and e == "other", tostring(a) .. tostring(b) .. tostring(c) .. tostring(d) .. tostring(e))
+end
+
+local function test_a_class_test_is_written_as_the_metatable_compared_with_the_class_and_binds_looser_operands_in_parentheses()
+  local result = classed(program(
+    "local class C",
+    "  n: integer",
+    "end",
+    "local function f(v: any, w: any): boolean",
+    "  return v is C or (w is C and not (v is C))",
+    "end",
+    "local function g(v: C?): boolean",
+    "  return v is C",
+    "end",
+    "return f, g"))
+  assert(result.text:find("@v == C or (@w == C and not (@v == C))", 1, true) ~= nil, result.text)
+  assert(result.text:find("return @v == C", 1, true) ~= nil, result.text)
+end
+
+local function test_a_literal_of_a_class_in_a_function_inside_a_method_is_written_with_the_class()
+  local a, b = run_classes(program(
+    "local class Cell",
+    "  n: integer",
+    "  function twice(self): Cell",
+    "    local function build(): Cell",
+    "      return { n = self.n * 2 }",
+    "    end",
+    "    return build()",
+    "  end",
+    "end",
+    "local start: Cell = { n = 4 }",
+    "return start:twice().n, start:twice():twice().n"))
+  assert(a == 8 and b == 16)
+end
+
+local function test_a_class_in_a_block_is_written_as_a_local_of_the_block()
+  local result = generated(program(
+    "local function make(n: integer): integer",
+    "  local class Cell",
+    "    function twice(self): integer",
+    "      return 2",
+    "    end",
+    "  end",
+    "  return n",
+    "end",
+    "return make"))
+  assert(#result.errors == 0 and result.text:find("   local Cell = {}; Cell.__index = Cell\n", 1, true) ~= nil, result.text)
+end
+
+local function test_a_generic_class_is_one_table_whatever_its_arguments()
+  local a, b = run_classes(program(
+    "local class Stack<T>",
+    "  items: mut {T}",
+    "  function push(self, v: T)",
+    "    self.items[#self.items + 1] = v",
+    "  end",
+    "  function size(self): integer",
+    "    return #self.items",
+    "  end",
+    "end",
+    "local s: Stack<integer> = { items = {} }",
+    "local t: Stack<string> = { items = {} }",
+    "s:push(1)",
+    "s:push(2)",
+    "t:push(\"a\")",
+    "return s:size(), t:size()"))
+  assert(a == 2 and b == 1)
+  local result = classed(program(
+    "local class Stack<T>",
+    "  items: mut {T}",
+    "end",
+    "local s: Stack<integer> = { items = {} }",
+    "return s"))
+  assert(result.text:find("local s = { items = {} } @ Stack", 1, true) ~= nil, result.text)
+end
+
+local function test_a_class_declared_inside_another_type_is_refused_where_it_is()
+  local result = generated(program(
+    "local record Outer",
+    "  class Inner",
+    "    n: integer",
+    "  end",
+    "end",
+    "return Outer"))
+  assert(#result.errors == 1 and result.errors[1].code == "class_nested_refused" and result.errors[1].y == 2,
+    #result.errors > 0 and result.errors[1].code or "none")
+  assert(result.errors[1].msg:find("Inner", 1, true) and result.errors[1].fix ~= "")
+  local deeper = generated(program(
+    "local class Outer",
+    "  record Middle",
+    "    class Inner",
+    "      n: integer",
+    "    end",
+    "  end",
+    "end",
+    "return Outer"))
+  assert(#deeper.errors == 1 and deeper.errors[1].code == "class_nested_refused" and deeper.errors[1].y == 3)
+end
+
+local function test_a_program_cannot_write_the_reserved_form_of_the_virtual_machine()
+  for _, source in ipairs({
+      "local C = {}\nlocal v = {} @ C\nreturn v\n",
+      "local C = {}\nlocal v = @C\nreturn v\n",
+  }) do
+    local parsed = Parser.parse(Lexer.lex(source, "t.tl"), "t.tl", "tl")
+    assert(#parsed.errors > 0, source)
   end
-  table.sort(codes)
-  assert(table.concat(codes, " ") == "class_refused class_test_refused", table.concat(codes, " "))
+end
+
+-- the class files against the fork's -----------------------------------------------------------------------------
+
+--- The generator's Lua and the fork's for the Teal `source`, each apart from the classes of its translation.
+local function apart_from_classes(source: string): string, string, Translate.Result
+  local made = Translate.translate(source, "t.tl")
+  assert(#made.errors == 0, made.errors[1] ~= nil and made.errors[1].msg .. "\n" .. made.text or "")
+  local parsed = Parser.parse(Lexer.lex(made.text, "t.tl"), "t.tl", "tl")
+  assert(#parsed.errors == 0)
+  local ours = Codegen.generate(parsed.chunk, Scopes.build(parsed.chunk, "t.tl", {}), Translate.never_false)
+  assert(#ours.errors == 0)
+  local theirs = assert(compile.lua(fork(), "t.tl", source))
+  return Codegen.without_classes(ours.text, parsed.chunk), Codegen.fork_without_classes(theirs, parsed.chunk, made.metatables), made
+end
+
+local function test_a_file_with_a_class_is_the_forks_lua_apart_from_the_class_and_its_metatable()
+  local ours, theirs, made = apart_from_classes(program(
+    "local record Counter",
+    "  n: integer",
+    "  bump: function(Counter, integer): integer",
+    "end",
+    "",
+    "local counter_mt: metatable<Counter> = { __index = Counter }",
+    "",
+    "function Counter:bump(by: integer): integer",
+    "  self.n = self.n + by",
+    "  return self.n",
+    "end",
+    "",
+    "function Counter.make(start: integer): Counter",
+    "  return setmetatable({ n = start, tag = \"(a, b)\" }, counter_mt)",
+    "end",
+    "",
+    "local function twice(): integer",
+    "  local c: Counter = setmetatable({",
+    "    n = 1,",
+    "  }, counter_mt)",
+    "  return c:bump(1) + c:bump(1)",
+    "end",
+    "return twice"))
+  assert(table.concat(made.metatables, " ") == "counter_mt", table.concat(made.metatables, " "))
+  assert(ours == theirs, "ours\n" .. ours .. "\nfork's\n" .. theirs)
+  -- What is compared is the statements around the class: the function with the constructors, and the statics.
+  assert(ours:find("function Counter.make(start)", 1, true) ~= nil and ours:find("return twice", 1, true) ~= nil, ours)
+  assert(ours:find("function Counter.bump", 1, true) == nil and ours:find("__index", 1, true) == nil,
+    "the class is not compared: " .. ours)
+end
+
+local function test_a_metatable_that_stays_is_compared_with_its_calls()
+  local ours, theirs, made = apart_from_classes(program(
+    "local record Box",
+    "  n: integer",
+    "  get: function(Box): integer",
+    "end",
+    "local box_mt: metatable<Box> = { __index = Box }",
+    "function Box:get(): integer",
+    "  return self.n",
+    "end",
+    "local function adopt(t: {string: any}): Box",
+    "  return setmetatable(t, box_mt)",
+    "end",
+    "return adopt"))
+  assert(#made.metatables == 0)
+  assert(ours == theirs and ours:find("local box_mt = { __index = Box }", 1, true) ~= nil and
+      ours:find("return setmetatable(t, box_mt)", 1, true) ~= nil, ours .. "\n" .. theirs)
+end
+
+--- A metatable the translator removed had only calls on literals left, so the call of one is the literal.
+local function test_the_fork_loses_a_setmetatable_call_only_of_a_metatable_the_translator_removed()
+  local fork_lua = program(
+    "local R = {}",
+    "R.__index = R",
+    "function R:m()",
+    "   return setmetatable({}, gone_mt)",
+    "end",
+    "local gone_mt = { __index = R }",
+    "local kept_mt = { __index = R, __gc = f }",
+    "local a = setmetatable({ x = (\"a, b\"), y = f(1, 2), z = { 1, 2 } },",
+    "   gone_mt)",
+    "local b = setmetatable(a, gone_mt)",
+    "local c = setmetatable({}, kept_mt)",
+    "local d = setmetatable({ n = 1 }, { __index = R })",
+    "local e = setmetatable({ n = 1 }, { __index = R, __mode = \"k\" })",
+    "local f = not_setmetatable({}, gone_mt)",
+    "local g = setmetatable(setmetatable({}, gone_mt), gone_mt)")
+  local parsed = Parser.parse(Lexer.lex("local class R\n  n: integer\nend\n", "t.tl"), "t.tl", "tl")
+  local got = Codegen.fork_without_classes(fork_lua, parsed.chunk, { "gone_mt" })
+  assert(got == table.concat({
+    "local kept_mt = { __index = R, __gc = f }",
+    "local a = { x = (\"a, b\"), y = f(1, 2), z = { 1, 2 } }",
+    "local b = a",
+    "local c = setmetatable({}, kept_mt)",
+    "local d = { n = 1 }",
+    "local e = setmetatable({ n = 1 }, { __index = R, __mode = \"k\" })",
+    "local f = not_setmetatable({}, gone_mt)",
+    "local g = {}",
+  }, "\n"), got)
 end
 
 local function test_the_generator_is_a_function_of_its_tree()

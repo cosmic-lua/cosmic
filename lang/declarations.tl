@@ -28,7 +28,12 @@
 --- - keys: a map's key is `integer`, `string`, `boolean`, an enum or a record, class, interface or
 ---   userdata, never `number` (`float_key`), `any`, an optional or a union (`key_type`).
 --- - distinct names: a field or a method of the name another has, apart from the overloads of a
----   declaration file, and an enum value written twice: `repeated_field`, `repeated_value`.
+---   declaration file, and an enum value written twice: `repeated_field`, `repeated_value`. A class
+---   holds its fields, its methods and its functions (`function C.m(...)`) in one namespace, since the
+---   table of its methods is the metatable of its values.
+--- - classes: a method named for a metamethod, other than `__close` (which takes the value alone) and
+---   `__tostring` (which also answers a `string`), and a function of a class with such a name:
+---   `class_metamethod`, `metamethod_signature`.
 --- - the form of a type: the count of type arguments (`type_arguments`), a type that nests deeper
 ---   than a store allows (`type_too_deep`), an alias that reaches itself (`alias_cycle`), a bound that
 ---   is no interface (`bound_not_interface`), a declaration that names the type parameter of
@@ -39,6 +44,10 @@
 --- A type that fails to lower is `invalid`, which relates to everything, so a mistake is reported
 --- once where it is made. The lowering never raises: what a store refuses that none of these rules
 --- caught is `store_refused`, which a property test holds to never happening.
+---
+--- **Statics.** The functions a module gives a record, class or userdata record with `function R.m(...)`
+--- ([`Declarations.Program.statics`]) are members of the declaration used as a value, a type of its own
+--- ([`Types.Named`]'s `value`), and of no value of the declaration.
 ---
 --- **Declarations** are paths in the store: the module's name and the names the declaration is nested
 --- under. One that is not at the top of its module (in a function's body) is in the module `<name>@<id>`
@@ -100,6 +109,10 @@ local record Declarations
     "member_missing"
     -- a parameter of a method with no type
     "param_untyped"
+    -- a `__close` that takes more than the value, or a `__tostring` that does not answer a string
+    "metamethod_signature"
+    -- a method or function of a class named for a metamethod other than `__close` and `__tostring`
+    "class_metamethod"
     -- `thread`
     "thread_type"
     -- a refusal of the store that no rule above foresaw
@@ -253,13 +266,12 @@ local record Declarations
     --- The types of the values a declaration file declares as globals (`global print <const> = Lib.print`,
     --- `global arg: {string}`), by name: one type, or the overloads of a function in the order they are declared.
     values: {string: {Type}}
-    --- The fields of a declaration that its `function R.m(...)` statements gave it, by name: a table literal of the
-    --- declaration need not give them, since a record that has such a function is the module of its functions as
-    --- much as the type of its values.
+    --- The functions its `function R.m(...)` statements gave a declaration, by name: members of the declaration used
+    --- as a value (`R.m(...)`), the table of its functions, and of no instance of it ([`Types.Named`]'s `value`).
     --
-    -- TODO: make a record and its statics two types, once the class piece lands (doc/plans/new-checker-types.md,
-    -- "the order the pieces land in"): a declaration used as a value then has a type of its own, and this table goes.
-    statics: {Decl: {string: boolean}}
+    -- TODO: write the statics into the row of the declaration, once the rows of the new checker are written: a
+    -- module that imports it reads them from the program until then.
+    statics: {Decl: {string: Types.Field}}
 
     --- Makes `name` another name of the module `module`, which the program knows.
     alias: function(Program, name: string, module: string)
@@ -293,7 +305,7 @@ Declarations.codes = {
   "interface_disagrees", "super_not_interface", "super_cycle", "listing_too_large", "untagged_union",
   "array_of_optional", "float_key", "key_type", "repeated_field", "repeated_value", "type_arguments",
   "type_too_deep", "alias_cycle", "bound_not_interface", "outer_type_parameter", "member_missing",
-  "param_untyped", "thread_type", "store_refused",
+  "param_untyped", "metamethod_signature", "class_metamethod", "thread_type", "store_refused",
 }
 
 Declarations.catalog = {
@@ -398,6 +410,21 @@ Declarations.catalog = {
     why = "the signature of a method is part of its class and crosses modules as a row, so it never depends " ..
       "on a body",
     fix = "write the type: <parameter>: <type>",
+  },
+  {
+    code = "metamethod_signature", rule = "compiler-written classes",
+    why = "Lua runs `__close` with the value at the end of its block and `tostring` calls `__tostring` with the " ..
+      "value and takes a string, so a class that writes either with other parameters, or a `__tostring` that " ..
+      "answers another type, breaks at the call",
+    fix = "write `function __close(self)` and `function __tostring(self): string`",
+  },
+  {
+    code = "class_metamethod", rule = "dispatch only through declared types",
+    why = "the table of a class's methods is the metatable of its values, so a method or function of a name that " ..
+      "begins with two underscores is read by Lua as a metamethod: a class has `__close` and `__tostring` and no other, " ..
+      "since no other runs code the program can see; a field of such a name is refused too, since a value that lacks it " ..
+      "reads the table for it",
+    fix = "rename <name>, and call it as a method (`v:name(...)`)",
   },
   {
     code = "thread_type", rule = "coroutines are typed",
@@ -1550,12 +1577,45 @@ local function claim(ctx: Ctx, build: Build, node: Ast.Node, binding: Ast.Bindin
   return false
 end
 
+--- Whether `name` is one a metatable gives a meaning to: two underscores begin it.
+local function metamethod_name(name: string): boolean
+  return name:sub(1, 2) == "__"
+end
+
+--- Holds the method `m` of a class, of function type `made`, to what its name means when it is `__close` (it
+--- takes the value alone) or `__tostring` (it also answers a `string`), and refuses a name of any other metamethod.
+local function check_metamethod(ctx: Ctx, build: Build, m: Ast.Method, made: Type)
+  local name = m.name.name
+  local class = quoted(build.decl.name)
+  if name ~= "__close" and name ~= "__tostring" then
+    if metamethod_name(name) then
+      report_at(ctx, "class_metamethod", m.name, "the method " .. quoted(name) .. " of " .. class .. " would be read " ..
+          "by Lua as a metamethod of its values, and a class has `__close` and `__tostring` and no other",
+        "rename " .. quoted(name) .. " and call it as a method (`v:" .. name:gsub("^_+", "") .. "(...)`)")
+    end
+    return
+  end
+  if not (made is Types.Fn) then
+    return
+  end
+  if #made.params ~= 1 or made.rest ~= nil then
+    report_at(ctx, "metamethod_signature", m.name, "the method " .. quoted(name) .. " of " .. class .. " takes more than " ..
+        "the value, and Lua calls it with the value alone",
+      "write `function " .. name .. "(self)" .. (name == "__tostring" and ": string" or "") .. "`")
+  elseif name == "__tostring" then
+    local alt = made.rets[1]
+    if #made.rets ~= 1 or alt.tail ~= nil or #alt.items ~= 1 or alt.items[1] ~= ctx.store.string then
+      report_at(ctx, "metamethod_signature", m.name, "the method `__tostring` of " .. class .. " does not answer a " ..
+          "`string`, which `tostring` needs",
+        "write `function __tostring(self): string`")
+    end
+  end
+end
+
 --- The method `m` of a class: its function type, the class its first parameter.
 --
--- TODO: hold `__close` to a method of the value alone and `__tostring` to one that answers a `string` ("compiler-written
--- classes" in doc/plans/strict-teal.md), and refuse `any` outside a parameter in an annotation ("what `any` may do" in
--- doc/plans/new-checker-types.md), once the checker for expressions lands: both are checked with the types the
--- bodies are checked with.
+-- TODO: refuse `any` outside a parameter in an annotation ("what `any` may do" in doc/plans/new-checker-types.md),
+-- once the checker for expressions lands: it is checked with the types the bodies are checked with.
 local function lower_method(ctx: Ctx, build: Build, m: Ast.Method)
   local store = ctx.store
   local params: {Types.Param} = {}
@@ -1598,6 +1658,7 @@ local function lower_method(ctx: Ctx, build: Build, m: Ast.Method)
     return store:fn({ params = params, rest = rest, rets = alts })
   end)
   ctx.types[m.id] = made
+  check_metamethod(ctx, build, m, made)
   if claim(ctx, build, m, m.name, false) then
     build.methods[#build.methods + 1] = { name = m.name.name, type = made }
   end
@@ -1606,6 +1667,12 @@ end
 --- The field `m` of a record, interface or class.
 local function lower_field(ctx: Ctx, build: Build, m: Ast.FieldDecl)
   local ft = lower_type(ctx, m.type)
+  -- A value reads the table of its class for a field it lacks, and that table holds the metamethods.
+  if build.decl.kind == "class" and metamethod_name(m.name.name) then
+    report_at(ctx, "class_metamethod", m.name, "the field " .. quoted(m.name.name) .. " of " .. quoted(build.decl.name) ..
+        " is a name Lua reads as a metamethod, and a value that lacks it would read the class's table for it",
+      "rename " .. quoted(m.name.name) .. ": a class has no name that begins with two underscores")
+  end
   local overload = ctx.decl_file and ft is Types.Fn and not m.mut and not m.omittable
   if not claim(ctx, build, m, m.name, overload) then
     return
@@ -1757,16 +1824,24 @@ local function enter_declaration(ctx: Ctx, node: Ast.Node): {Ast.Node}
       kids[#kids + 1] = m
     end
   end
-  -- A function statement `function R.m(...)` gives `R` the fixed field `m` unless `R` declares one: that field is
-  -- then what the statement implements.
+  -- A function statement `function R.m(...)` gives the declaration used as a value the fixed field `m` unless `R`
+  -- declares one: that field is then what the statement implements. An instance of `R` has no such field.
   for _, f in ipairs(ctx.statics[decl] or {}) do
     local name = f.path[2].text
-    if build.overloads[name] == nil then
+    if decl.kind == "class" and metamethod_name(name) then
+      report_at(ctx, "class_metamethod", f, "the function " .. quoted(decl.name .. "." .. name) .. " is a name Lua reads as a " ..
+          "metamethod of the values of " .. quoted(decl.name) .. ", and `__close` and `__tostring` are written as methods",
+        "rename " .. quoted(name) .. ", or write it as a method inside the class")
+    elseif decl.kind == "class" and build.overloads[name] ~= nil then
+      report_at(ctx, "repeated_field", f, quoted(name) .. " is declared twice in " .. quoted(decl.name) .. ": a function " ..
+          quoted(decl.name .. "." .. name) .. " and a field or method of its values",
+        "rename the function or the member: a class's fields, methods and functions share one namespace, since the " ..
+          "table of its methods holds them all", nil, place_of(ctx, build.first_of[name]))
+    elseif build.overloads[name] == nil then
       build.overloads[name] = false
       build.first_of[name] = f
-      build.fields[#build.fields + 1] = { name = name, type = lower_static(ctx, f), mut = false, omittable = false }
       local named = ctx.program.statics[decl] or {}
-      named[name] = true
+      named[name] = { name = name, type = lower_static(ctx, f), mut = false, omittable = false }
       ctx.program.statics[decl] = named
     end
   end

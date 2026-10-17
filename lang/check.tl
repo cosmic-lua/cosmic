@@ -13,6 +13,13 @@
 --- array grows by an append); returns against the declared list; conditions (booleans or optionals) and the
 --- honest `or` and `and`; numeric keys, views and `mut` collections, records and maps.
 ---
+--- **Classes.** A class is a nominal type, and its value is made by a table literal typed as the class that names
+--- every field, `?` ones as `name = nil` ([`Check.Checked.literals`] tells the code generator which literals make
+--- one); there is no other way to make one, so a declaration used as a value is a type of its own, no `setmetatable`
+--- call is typed (`setmetatable_call`), and a literal or an `is` of a class is allowed only where the class's table
+--- is in reach (`class_scope`). A `<close>` local holds nil or a class that declares `__close`
+--- (`close_not_closable`).
+---
 --- **What it leaves.** No test narrows a type, and no assignment is tracked: a value that may be nil stays
 --- so until the flow piece lands, and a read of a name before its assignment, a function that can reach its
 --- end without its return, and the arms of a `match` are that piece's. A call of a generic function, a
@@ -54,6 +61,9 @@ local record Check
     errors: {Codes.Error}
     --- The type of each local, parameter and loop variable that was given one, by [`Scopes.Var.id`].
     vars: {integer: Type}
+    --- The class of each table literal that makes a value of a class, by the id of its node: what the code
+    --- generator writes as the class literal, a class of this module.
+    literals: {integer: Decl}
   end
 
   --- Checks `input`, which `program` has lowered into `lowered` ([`Declarations.Program.lower`]), and answers
@@ -117,6 +127,13 @@ local record Ctx
   --- How many generic-call arguments are being checked: a literal there has no type to be checked against.
   lenient: integer
   members: {Decl: Members}
+  --- The same for a declaration used as a value, which also has its statics.
+  value_members: {Decl: Members}
+  --- The class each table literal of a class is a literal of, by the id of its node.
+  literals: {integer: Decl}
+  --- The classes whose declaration the walk has passed: a literal or a test of a class before that reads a name that
+  --- is not yet its table.
+  declared: {Decl: boolean}
   --- The type of a field read through a union, by the union and the field.
   union_fields: {string: Type}
   --- The nodes a left-leaning chain visits, and how many are in use.
@@ -357,9 +374,14 @@ local expr: function(ctx: Ctx, e: Ast.Exp, expected: Type | nil): Type
 
 -- Members --------------------------------------------------------------------------------
 
---- The members of `decl` by name, or nil where it has no body to read.
-local function members_index(ctx: Ctx, decl: Decl): Members | nil
-  local held = ctx.members[decl]
+--- The members of `decl` by name, or nil where it has no body to read. Where `value` they are those of the
+--- declaration used as a value: the statics its `function R.m(...)` statements gave it besides, and no array part. The
+--- table of a class holds its methods and statics and none of the fields of its values, so a class's value has no
+--- field. A record's value keeps the fields it declares, since a module record declares its functions and constants
+--- as fields.
+local function members_index(ctx: Ctx, decl: Decl, value: boolean): Members | nil
+  local cache = value and ctx.value_members or ctx.members
+  local held = cache[decl]
   if held ~= nil then
     return held
   end
@@ -367,18 +389,27 @@ local function members_index(ctx: Ctx, decl: Decl): Members | nil
   if body == nil then
     return nil
   end
-  local index: Members = { by_name = {}, array = body.array }
+  local index: Members = { by_name = {}, array = not value and body.array or nil }
   for _, f in ipairs(body.fields) do
-    local list = index.by_name[f.name] or {}
-    list[#list + 1] = { type = f.type, mut = f.mut or false, method = false }
-    index.by_name[f.name] = list
+    if not (value and decl.kind == "class") then
+      local list = index.by_name[f.name] or {}
+      list[#list + 1] = { type = f.type, mut = f.mut or false, method = false }
+      index.by_name[f.name] = list
+    end
   end
   for _, m in ipairs(body.methods) do
     local list = index.by_name[m.name] or {}
     list[#list + 1] = { type = m.type, mut = false, method = true }
     index.by_name[m.name] = list
   end
-  ctx.members[decl] = index
+  if value then
+    for name, f in pairs(ctx.program.statics[decl] or {}) do
+      local list = index.by_name[name] or {}
+      list[#list + 1] = { type = f.type, mut = false, method = false }
+      index.by_name[name] = list
+    end
+  end
+  cache[decl] = index
   return index
 end
 
@@ -397,7 +428,7 @@ end
 --- The names of the members of `n`, for the nearest to a name that is none.
 local function names_of(ctx: Ctx, n: Named): {string}
   local out: {string} = {}
-  local index = members_index(ctx, n.decl)
+  local index = members_index(ctx, n.decl, n.value)
   if index ~= nil then
     for name in pairs(index.by_name) do
       out[#out + 1] = name
@@ -470,6 +501,27 @@ local function refused(ctx: Ctx, node: Ast.Node, got: Type, want: Type, r: Relat
         quoted(Types.display(r.super, ctx.binders)) .. " (" .. s .. " is " .. quoted(g) .. ", where " .. quoted(w) ..
         " is wanted" .. where .. "): a receiver could store another element type through a `mut` collection",
       "pass a view, or declare the receiver's type " .. quoted(g) .. " as the argument has it", shown)
+  elseif code == "declaration_value" then
+    local sub, super = r.sub, r.super
+    local name = sub is Named and sub.decl.name or super is Named and super.decl.name or g
+    local kind = sub is Named and sub.decl.kind or super is Named and super.decl.kind or "record"
+    if kind ~= "class" then
+      -- A module is a record used as a value, and a place that holds one (`Seatbelt: Seatbelt`, `local raw: hash =
+      -- require(...)`) is typed with the record, which the grammar cannot spell as the declaration.
+      report(ctx, "declaration_value", node, s .. " is " .. quoted(g) .. ", the table of the functions of " .. quoted(name) ..
+          ", where " .. quoted(w) .. " is wanted" .. where,
+        "no change of this program fixes it: the grammar has no type for " .. quoted(name) .. " used as a value yet " ..
+          "(the TODO of `declaration_value` in lang/check.tl), and build/check_pins.tl holds the places that need one", shown)
+    elseif sub is Named and sub.value then
+      report(ctx, "declaration_value", node, s .. " is " .. quoted(g) .. ", the table of the functions of " .. quoted(name) ..
+          ", where a value of " .. quoted(w) .. " is wanted" .. where,
+        "make a value with a table literal typed as the type (`local v: " .. name .. " = { ... }`), or call a function " ..
+          "of " .. quoted(name) .. " that makes one (`" .. name .. ".new(...)`)", shown)
+    else
+      report(ctx, "declaration_value", node, s .. " is a value of " .. quoted(name) .. ", where the declaration " ..
+          quoted(name) .. " itself is wanted" .. where,
+        "pass the declaration " .. quoted(name) .. ", not a value of it", shown)
+    end
   elseif code == "record_as_map" or code == "map_as_record" then
     report(ctx, "record_as_map", node, s .. " is " .. quoted(g) .. ", where " .. quoted(w) .. " is wanted" .. where ..
         ": " .. (code == "record_as_map" and "a record is not a map" or "a map is not a record"),
@@ -551,16 +603,20 @@ end
 
 -- Names ------------------------------------------------------------------------------------
 
---- A declaration used as a value: the table of its functions, which is the declaration's own type.
--- TODO: give a declaration used as a value a type of its own, once the class piece lands
--- (doc/plans/new-checker-types.md, "the order the pieces land in"): until then `local c: Circle = Circle` is accepted,
--- and a record's statics are fields of its instances ([`Declarations.Program.statics`]).
+--- A declaration used as a value: the table of its functions, a type of its own that is no instance of the
+--- declaration ([`Types.Named`]'s `value`).
+--
+-- TODO: let a field be typed as a declaration used as a value, once the grammar has a type for one: a record that
+-- re-exports a module as a field (`Seatbelt: Seatbelt` in [`cosmic.sandbox`]) types it as the module's record, and a
+-- function of the module read through it is [`field_unknown`], since an instance has none of the statics. A record's
+-- value still carries the fields its instances have, so the table of a record with a field it never defines is typed
+-- as if it did.
 local function declaration_value(ctx: Ctx, decl: Decl): Type
   local args: {Type} = {}
   for i = 1, decl.arity or 0 do
     args[i] = ctx.store:var(0, i - 1)
   end
-  return ctx.store:named(decl, args)
+  return ctx.store:named(decl, args, true)
 end
 
 --- The value `require("name")` answers: the declaration the module returns.
@@ -1020,7 +1076,7 @@ end
 
 --- The field of `n` called `name`, not a method.
 local function plain_field(ctx: Ctx, n: Named, name: string): Member | nil
-  local index = members_index(ctx, n.decl)
+  local index = members_index(ctx, n.decl, n.value)
   local list = index ~= nil and index.by_name[name] or nil
   if list ~= nil and not list[1].method then
     return list[1]
@@ -1041,14 +1097,59 @@ local function item_name(item: Ast.Item): string | nil
   return nil
 end
 
+--- Why the table of the class `decl` is out of reach of the module being checked, or "" where it is in reach: the
+--- class is one of this module's (its module is this one, or a module of a declaration in a function's body, which is
+--- this one with `@` and the node's id after it, [`lang.declarations`]), and is no member of another type, which has
+--- no table of its own at run time.
+local function out_of_reach(ctx: Ctx, decl: Decl): string
+  if decl.module:gsub("@.*$", "") ~= ctx.input.module then
+    return "a class of the module " .. quoted(decl.module) .. ", whose metatable only that module reaches"
+  elseif decl.module:find("@", 1, true) ~= nil then
+    return "a class declared in a block, whose table is made again each time the block runs, so values of one run " ..
+      "are no values of the next"
+  elseif not ctx.declared[decl] then
+    return "a class declared further down the module, whose table is not made yet where this stands"
+  elseif #decl.names > 1 then
+    return "a class declared inside " .. quoted(table.concat(decl.names, ".", 1, #decl.names - 1)) ..
+      ", which has no table of its own at run time"
+  end
+  return ""
+end
+
+--- The fix for a class out of reach: made, or tested, by a function of the class in the module that has its table.
+local function reach_fix(ctx: Ctx, decl: Decl, function_name: string): string
+  if decl.module == ctx.input.module and not ctx.declared[decl] and #decl.names == 1 then
+    return "move the declaration of " .. quoted(decl.name) .. " above this, or make the value with a function of the " ..
+      "class declared after it"
+  elseif decl.module:find("@", 1, true) ~= nil and decl.module:gsub("@.*$", "") == ctx.input.module then
+    return "declare " .. quoted(decl.name) .. " at the top level of the module, as a statement of it"
+  elseif #decl.names > 1 and decl.module == ctx.input.module then
+    return "declare " .. quoted(decl.name) .. " beside the type around it, as a statement of the module"
+  end
+  return function_name
+end
+
 --- A literal checked against a record or a class: each field given once and none the declaration lacks, every field
---- that is not omittable given, each value checked against its field.
+--- that is not omittable given (a class names every field), each value checked against its field. A literal of a
+--- class of this module is noted for the code generator, which writes the class literal; the table of a class of
+--- another module is out of reach, so it is refused.
 local function literal_record(ctx: Ctx, e: Ast.Table, n: Named): Type
   local body = n.decl.body
-  local index = members_index(ctx, n.decl)
+  local index = members_index(ctx, n.decl, false)
   if body == nil or index == nil then
     items_unshaped(ctx, e.items)
     return n
+  end
+  local is_class = n.decl.kind == "class"
+  if is_class then
+    local why = out_of_reach(ctx, n.decl)
+    if why == "" then
+      ctx.literals[e.id] = n.decl
+    else
+      report(ctx, "class_scope", e, "this literal makes a value of " .. quoted(n.decl.name) .. ", " .. why,
+        reach_fix(ctx, n.decl, "make the value in " .. quoted(n.decl.module) .. " with a function of the class (`function " ..
+            n.decl.name .. ".new(...): " .. n.decl.name .. "`), and call it here"), { show(ctx, n) })
+    end
   end
   local given: {string: boolean} = {}
   local owner = quoted(n.decl.name)
@@ -1098,15 +1199,16 @@ local function literal_record(ctx: Ctx, e: Ast.Table, n: Named): Type
     end
   end
   local missing: {string} = {}
-  local statics = ctx.program.statics[n.decl] or {}
   for _, f in ipairs(body.fields) do
-    if not f.omittable and not given[f.name] and not statics[f.name] then
+    if (is_class or not f.omittable) and not given[f.name] then
       missing[#missing + 1] = quoted(f.name)
     end
   end
   if #missing > 0 and shaped then
     report(ctx, "literal_missing", e, "this literal of " .. owner .. " leaves out " .. listed(missing, "and"),
-      "add " .. listed(missing, "and") .. " to the literal (`name = nil` for a value that may be nil), or declare " ..
+      is_class and "add " .. listed(missing, "and") .. " to the literal: a class literal names every field, a field " ..
+        "not yet known as its empty value (`fd = -1`) and a `?` field as `name = nil`" or
+        "add " .. listed(missing, "and") .. " to the literal (`name = nil` for a value that may be nil), or declare " ..
         (#missing == 1 and "the field" or "them") .. " `name?: T`")
   end
   return n
@@ -1175,7 +1277,13 @@ local function table_literal(ctx: Ctx, e: Ast.Table, expected: Type | nil): Type
   end
   if want is Named then
     local kind = want.decl.kind
-    if kind == "record" or kind == "class" then
+    if want.value then
+      report(ctx, "literal_shape", e, "a table literal cannot make " .. tq(ctx, want) .. ", the table of the functions of " ..
+          quoted(want.decl.name),
+        "write a value of " .. quoted(want.decl.name) .. " where one is wanted, or the declaration itself", { show(ctx, want) })
+      items_unshaped(ctx, e.items)
+      return ctx.invalid
+    elseif kind == "record" or kind == "class" then
       return literal_record(ctx, e, want)
     end
     report(ctx, "literal_shape", e, "a table literal cannot make " .. tq(ctx, want) .. ", " ..
@@ -1221,11 +1329,35 @@ end
 
 --- The members called `name` of `t`, each with the type arguments put in.
 local function member_types(ctx: Ctx, t: Named, name: string): {Member} | nil
-  local index = members_index(ctx, t.decl)
+  local index = members_index(ctx, t.decl, t.value)
   return index ~= nil and index.by_name[name] or nil
 end
 
 local function field_unknown(ctx: Ctx, node: Ast.Node, t: Type, name: string)
+  if t is Named and not t.value and (ctx.program.statics[t.decl] or {})[name] ~= nil then
+    -- A module re-exported as a field of a record is typed with its record, whose values have none of its functions.
+    local owner = quoted(t.decl.name)
+    local through_field = false
+    if node is Ast.Field then
+      local object = node.object
+      through_field = object is Ast.Field
+    end
+    local call = "call it on the declaration: `" .. t.decl.name .. "." .. name .. "(...)`"
+    local module = "no change of this program fixes it where this value is a module typed with its record: the grammar " ..
+      "has no type for " .. owner .. " used as a value yet (the TODO of `declaration_value` in lang/check.tl), and " ..
+      "build/check_pins.tl holds the places that need one"
+    -- A class has no module among its values; a record read through a field is a module re-exported by a record.
+    local fix = call .. "; " .. module
+    if t.decl.kind == "class" then
+      fix = call
+    elseif through_field then
+      fix = module
+    end
+    report(ctx, "field_unknown", node, owner .. " has no field " .. quoted(name) .. ": " .. quoted(name) ..
+        " is a function of the declaration " .. owner .. " used as a value, and this is typed as a value of it",
+      fix, { show(ctx, t) })
+    return
+  end
   local names: {string} = {}
   if t is Named then
     names = names_of(ctx, t)
@@ -1238,6 +1370,17 @@ local function field_unknown(ctx: Ctx, node: Ast.Node, t: Type, name: string)
       "declare " .. quoted(name) .. " in " .. owner, { show(ctx, t) })
 end
 
+--- Whether the field type `ft` of the interface `t` is a method of it: a function whose first parameter is the
+--- interface itself.
+local function interface_method(t: Named, ft: Type): boolean
+  if not (ft is Fn) then
+    return false
+  end
+  local first = ft.params[1]
+  local receiver = first ~= nil and first.type or nil
+  return receiver ~= nil and receiver is Named and receiver.decl == t.decl
+end
+
 --- The type of the field or method `name` of the value of type `t`, reported where it has none. `node` is the
 --- expression that reads it; it holds the overloads of the field in `ctx.cands` when it has several.
 local function member_read(ctx: Ctx, node: Ast.Node, t: Type, name: string): Type
@@ -1246,6 +1389,16 @@ local function member_read(ctx: Ctx, node: Ast.Node, t: Type, name: string): Typ
     local list = member_types(ctx, t, name)
     if list == nil then
       field_unknown(ctx, node, t, name)
+      return ctx.invalid
+    end
+    if t.decl.kind == "interface" and not (node is Ast.MethodCall) and not list[1].method and
+        interface_method(t, list[1].type) then
+      -- The implementation depends on the receiver, which agreement fixes to the implementing type: read as a value, it
+      -- would be called with another implementer.
+      local receiver = node is Ast.Field and text_of(ctx, node.object) or "v"
+      report(ctx, "interface_method_value", node, subject(ctx, node) .. " reads the method " .. quoted(name) ..
+          " of the interface " .. tq(ctx, t) .. " as a value, and its implementation depends on the receiver",
+        "call it as `" .. receiver .. ":" .. name .. "(...)`", { show(ctx, t) })
       return ctx.invalid
     end
     if #list > 1 then
@@ -1289,7 +1442,7 @@ local function member_read(ctx: Ctx, node: Ast.Node, t: Type, name: string): Typ
   elseif is_text(t) then
     local entry = ctx.program.globals["string"]
     local decl = entry ~= nil and entry.decl or nil
-    local index = decl ~= nil and members_index(ctx, decl) or nil
+    local index = decl ~= nil and members_index(ctx, decl, false) or nil
     local list = index ~= nil and index.by_name[name] or nil
     if list == nil then
       report(ctx, "field_unknown", node, "a string has no field " .. quoted(name),
@@ -1375,7 +1528,7 @@ local function index_read(ctx: Ctx, node: Ast.Index, object: Type): Type
     end
     local names = key_names(node.key, k)
     if names == nil then
-      local index = members_index(ctx, t.decl)
+      local index = members_index(ctx, t.decl, t.value)
       local array_part = index ~= nil and index.array or nil
       if array_part ~= nil and below(ctx, k, store.integer) then
         return store:optional(put_in(ctx, t, array_part))
@@ -1483,7 +1636,7 @@ local function length_operand(ctx: Ctx, node: Ast.Node, t: Type): boolean
   elseif t.tag == "invalid" then
     return false
   elseif t is Named then
-    local index = members_index(ctx, t.decl)
+    local index = members_index(ctx, t.decl, t.value)
     if index ~= nil and index.array ~= nil then
       return true
     end
@@ -1744,7 +1897,15 @@ local function is_test(ctx: Ctx, node: Ast.IsTest, value: Type): Type
     return store.boolean
   end
   if tested is Named and tested.decl.kind ~= "enum" and tested.decl.kind ~= "class" then
-    refuse("a " .. (KIND_WORDS[tested.decl.kind] or "type") .. " leaves nothing to test")
+    local word = KIND_WORDS[tested.decl.kind] or "type"
+    refuse((word == "interface" and "an " or "a ") .. word .. " leaves nothing to test")
+  elseif tested is Named and tested.decl.kind == "class" and out_of_reach(ctx, tested.decl) ~= "" then
+    report(ctx, "class_scope", node, "`is " .. show(ctx, tested) .. "` tests the metatable of " ..
+        out_of_reach(ctx, tested.decl),
+      reach_fix(ctx, tested.decl, "test in " .. quoted(tested.decl.module) .. " with a function of the class (`function " ..
+          tested.decl.name .. ".owns(v: any): boolean`), and call it here"), { show(ctx, tested) })
+  elseif tested is Named and tested.decl.kind == "class" and #tested.args > 0 then
+    refuse("the metatable tells the class and not its type arguments")
   elseif tested is Types.Fn then
     refuse("a function type is tested as `function` and its parameters go unchecked")
   elseif value.tag == "any" and (tested is Types.Array or tested is Types.Map or tested is Union) then
@@ -2257,6 +2418,13 @@ local function apply_call(ctx: Ctx, node: Ast.Call, ft: Type): {Alt}
       unchecked(ctx, "unchecked_protected", node, "a protected call " .. quoted(callee.text))
       unchecked_arguments(ctx, node.args)
       return unknown_lists(ctx)
+    elseif callee.text == "setmetatable" then
+      report(ctx, "setmetatable_call", node, "a program has no `setmetatable`: the metatable of a value is the compiler's, " ..
+          "attached to the literal that makes the value of a class",
+        "declare a `class` with the methods and write the value as a table literal typed as the class " ..
+          "(`local v: C = { field = value }`)")
+      unchecked_arguments(ctx, node.args)
+      return unknown_lists(ctx)
     elseif callee.text == "require" then
       local named = node.args[1]
       if named ~= nil and named is Ast.String and #node.args == 1 then
@@ -2493,9 +2661,51 @@ local function check_counts(ctx: Ctx, node: Ast.Node, n: integer, vals: Values, 
   return true
 end
 
+--- Whether a value of type `t` is nil or a value of a class that declares `__close`, which is what a `<close>` local
+--- holds ("compiler-written classes" in doc/plans/strict-teal.md). `invalid` and `never` stand for a mistake already
+--- reported.
+local function closable(t: Type): boolean
+  local tag = t.tag
+  if tag == "nil" or tag == "invalid" or tag == "never" then
+    return true
+  elseif t is Named then
+    local body = t.decl.body
+    if t.value or t.decl.kind ~= "class" then
+      return false
+    elseif body == nil then
+      return true
+    end
+    for _, m in ipairs(body.methods) do
+      if m.name == "__close" then
+        return true
+      end
+    end
+    return false
+  elseif t is Union then
+    for _, m in ipairs(t.members) do
+      if not closable(m) then
+        return false
+      end
+    end
+    return true
+  end
+  return false
+end
+
+--- Reports the `<close>` local `b`, of type `t`, unless it holds nil or a class that declares `__close`.
+local function check_closable(ctx: Ctx, b: Ast.Binding, t: Type)
+  if closable(t) then
+    return
+  end
+  local what = t is Named and not t.value and t.decl.kind == "class" and "the class " .. tq(ctx, t) .. " declares no `__close`" or
+    tq(ctx, t) .. " is not a class"
+  report(ctx, "close_not_closable", b, quoted(b.name) .. " is a `<close>` local of " .. tq(ctx, t) .. ", and " .. what ..
+      ": Lua would raise at the declaration, since the value has no `__close` to call at the end of the block",
+    "hold a class that declares `function __close(self)` (or nil) in " .. quoted(b.name) .. ", or release the value by " ..
+      "hand and make " .. quoted(b.name) .. " an ordinary local", { show(ctx, t) })
+end
+
 --- `local a, b: T, U = f(), g()`.
--- TODO: refuse a `<close>` local whose value is neither nil nor a class that declares `__close`, once the class piece
--- lands: until then `local a <close> = 5` is accepted.
 local function local_statement(ctx: Ctx, s: Ast.Local)
   local n = #s.bindings
   local wants: {Type} = {}
@@ -2508,6 +2718,8 @@ local function local_statement(ctx: Ctx, s: Ast.Local)
       if wants[i] == nil then
         report(ctx, "local_untyped", b, quoted(b.name) .. " has no type and no value",
           "write its type: `local " .. b.name .. ": T` (`T?` if it may stay unset), or give it a value")
+      elseif b.attr == "close" then
+        check_closable(ctx, b, wants[i])
       end
     end
     return
@@ -2527,6 +2739,9 @@ local function local_statement(ctx: Ctx, s: Ast.Local)
       ctx.vars[b.id] = t
     else
       ctx.vars[b.id] = ctx.invalid
+    end
+    if b.attr == "close" then
+      check_closable(ctx, b, ctx.vars[b.id])
     end
   end
 end
@@ -2628,7 +2843,7 @@ local function place_of_target(ctx: Ctx, target: Ast.Exp): Type | nil, boolean
         return nil
       end
       local names = key_names(target.key, k)
-      local index = members_index(ctx, base.decl)
+      local index = members_index(ctx, base.decl, base.value)
       if names == nil and index ~= nil and index.array ~= nil and below(ctx, k, store.integer) then
         -- TODO: let a record declare its array part `mut`, once the grammar can write it (`record R is mut {T}`): the
         -- array part follows the collection rule, a view unless `mut`, and nothing can declare it so yet.
@@ -2960,7 +3175,11 @@ local function declaration_bodies(ctx: Ctx, node: Ast.Node, decl: Decl | nil)
       local ft = ctx.lowered.types[m.id] or ctx.invalid
       function_body(ctx, m.params, m.body, ft, {}, m, m.rets ~= nil)
     elseif m is Ast.Record or m is Ast.Interface or m is Ast.Class then
-      declaration_bodies(ctx, m, ctx.lowered.decls[m.id])
+      local nested = ctx.lowered.decls[m.id]
+      if nested ~= nil then
+        ctx.declared[nested] = true
+      end
+      declaration_bodies(ctx, m, nested)
     end
   end
   if binder then
@@ -3067,7 +3286,11 @@ local function stat(ctx: Ctx, s: Ast.Stat)
       block(ctx, arm.body)
     end
   elseif s is Ast.Record or s is Ast.Interface or s is Ast.Class then
-    declaration_bodies(ctx, s, ctx.lowered.decls[s.id])
+    local decl = ctx.lowered.decls[s.id]
+    if decl ~= nil then
+      ctx.declared[decl] = true
+    end
+    declaration_bodies(ctx, s, decl)
   end
 end
 
@@ -3082,7 +3305,7 @@ function Check.check(program: Declarations.Program, input: Declarations.Input, l
   local ctx: Ctx = {
     program = program, store = store, judge = program.judge, input = input, lowered = lowered, scoped = input.scoped,
     tokens = input.chunk.tokens, filename = input.filename, errors = {}, vars = {}, frames = {}, binders = {},
-    bounds = {}, lenient = 0, members = {}, union_fields = {}, spine = {}, top = 0, ternaries = {}, invalid = store.invalid, nil_type = store:atom("nil"),
+    bounds = {}, lenient = 0, members = {}, value_members = {}, literals = {}, declared = {}, union_fields = {}, spine = {}, top = 0, ternaries = {}, invalid = store.invalid, nil_type = store:atom("nil"),
   }
   ctx.frames[1] = { alts = {}, rest = store.string, chunk = true, declared = false }
   block(ctx, input.chunk.body)
@@ -3097,7 +3320,7 @@ function Check.check(program: Declarations.Program, input: Declarations.Input, l
     end
     return position[a] < position[b]
   end)
-  return { errors = ctx.errors, vars = ctx.vars }
+  return { errors = ctx.errors, vars = ctx.vars, literals = ctx.literals }
 end
 
 return Check

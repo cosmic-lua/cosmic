@@ -227,6 +227,33 @@ local CASES <const>: {Case} = {
     fix = "test a tag (`x.kind == \"...\"`), declare a class",
   },
   {
+    code = "interface_method_value",
+    source = "local interface Sized\n  size: function(self: Sized): integer\nend\nlocal function f(s: Sized)\n  local g = s.size\nend\n",
+    at = { 5, 13 }, msg = "`s.size` reads the method `size` of the interface `Sized` as a value",
+    fix = "call it as `s:size(...)`",
+  },
+  {
+    code = "declaration_value", source = "local class C\n  n: integer\nend\nlocal c: C = C\n",
+    msg = "`C` is `C (declaration)`, the table of the functions of `C`, where a value of `C` is wanted as the value of `c`",
+    fix = "make a value with a table literal typed as the type (`local v: C = { ... }`)",
+  },
+  {
+    code = "class_scope", source = "local type K = require(\"other\")\nlocal k: K = { n = 1 }\n", at = { 2, 14 },
+    modules = { other = "local class K\n  n: integer\nend\nreturn K\n" },
+    msg = "this literal makes a value of `K`, a class of the module `other`, whose metatable only that module reaches",
+    fix = "make the value in `other` with a function of the class (`function K.new(...): K`)",
+  },
+  {
+    code = "close_not_closable", source = RECORD .. "local r: R = { name = \"a\", n = 1 }\nlocal c <close>: R = r\n",
+    msg = "`c` is a `<close>` local of `R`, and `R` is not a class",
+    fix = "hold a class that declares `function __close(self)` (or nil) in `c`",
+  },
+  {
+    code = "setmetatable_call", source = "local t = setmetatable({}, {})\n", at = { 1, 11 },
+    msg = "a program has no `setmetatable`: the metatable of a value is the compiler's",
+    fix = "declare a `class` with the methods and write the value as a table literal typed as the class",
+  },
+  {
     code = "enum_member", source = "local enum E \"a\" \"b\" end\nlocal e: E = \"c\"\n", at = { 2, 14 },
     msg = "`\"c\"` is not a member of `E`", fix = "write `\"a\"` or `\"b\"`",
   },
