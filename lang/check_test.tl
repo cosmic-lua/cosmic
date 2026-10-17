@@ -227,6 +227,11 @@ local CASES <const>: {Case} = {
     fix = "test a tag (`x.kind == \"...\"`), declare a class",
   },
   {
+    code = "is_disjoint", source = "local function f(n: integer): boolean\n  return n is string\nend\n", at = { 2, 10 },
+    msg = "`n is string` is always false: `n` is `integer`, and no value of it is `string`",
+    fix = "this test is always false: remove it and the branch it guards, or test a type that `n` can have (`integer`)",
+  },
+  {
     code = "interface_method_value",
     source = "local interface Sized\n  size: function(self: Sized): integer\nend\nlocal function f(s: Sized)\n  local g = s.size\nend\n",
     at = { 5, 13 }, msg = "`s.size` reads the method `size` of the interface `Sized` as a value",

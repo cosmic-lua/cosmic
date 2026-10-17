@@ -3,10 +3,12 @@
 local Ast = require("lang.ast")
 local Check = require("lang.check")
 local Codes = require("lang.check_codes")
+local Corrections = require("lang.stdlib_corrections")
 local Declarations = require("lang.declarations")
 local Lexer = require("lang.lexer")
 local Parser = require("lang.parser")
 local Scopes = require("lang.scopes")
+local Translate = require("lang.translate")
 local Types = require("lang.types")
 
 local record Programs
@@ -29,6 +31,11 @@ local record Programs
   --- order of their names).
   run: function(source: string, modules?: {string: string}): Run
 
+  --- Checks `source` as the module `t` against the declarations the tree's checks read: `prelude`, the text of the
+  --- fork's prelude (between the `[=====[` marks of checker/tl.tl), and `stdlib`, the text of checker/stdlib.d.tl, which
+  --- [`lang.stdlib_corrections`] corrects and [`lang.translate`] writes in the new grammar.
+  standard: function(prelude: string, stdlib: string, source: string, modules?: {string: string}): Run
+
   --- The codes of the errors of `run`, space separated, in order.
   codes: function(run: Run): string
 
@@ -45,6 +52,22 @@ do
     find: function(string, string, p3?: integer, p4?: boolean): integer?, integer?
     gsub: function(string, string, string, p4?: integer): string, integer
     gsub: function(string, string, function(string): string, p4?: integer): string, integer
+  end
+  global record Opts
+    n: integer
+  end
+  global record Over
+    put: function(Opts, p2?: integer): integer
+    put: function(string, p2?: integer): integer
+  end
+  global record More
+    run: function(function(string, string): string)
+    run: function(function(string): string)
+    run: function(function(): string)
+  end
+  global record Fewer
+    run: function(function(string): string)
+    run: function(function(string, string): string)
   end
   global record coroutine
     create: function(function()): any
@@ -115,6 +138,35 @@ function Programs.run(source: string, modules?: {string: string}): Programs.Run
   local library = Parser.parse(Lexer.lex(Programs.library, "std.d.tl"), "std.d.tl", "decl")
   local globals = Scopes.declared(library.chunk)
   local _ = lower(program, "std", Programs.library, "decl", {})
+  local names: {string} = {}
+  for name in pairs(modules or {}) do
+    names[#names + 1] = name
+  end
+  table.sort(names)
+  for _, name in ipairs(names) do
+    local _ = lower(program, name, (modules or {})[name], "tl", globals)
+  end
+  return lower(program, "t", source, "tl", globals)
+end
+
+function Programs.standard(prelude: string, stdlib: string, source: string, modules?: {string: string}): Programs.Run
+  local program = Declarations.new()
+  program.external["cosmic.sys"] = true
+  local globals: {string: Scopes.Global} = {}
+  local function add(file: string, text: string)
+    for name, g in pairs(Scopes.declared(Parser.parse(Lexer.lex(text, file), file, "decl").chunk)) do
+      globals[name] = g
+    end
+  end
+  add("prelude.d.tl", prelude)
+  -- The prelude declares `interface userdata is userdata`, which the new parser reads as the declaration of `interface`.
+  globals["interface"] = nil
+  globals["userdata"] = { space = "type", const = false }
+  add("checker/stdlib.d.tl", stdlib)
+  local _ = lower(program, "checker.prelude", prelude, "decl", {})
+  local corrected = Corrections.apply(stdlib)
+  assert(#corrected.problems == 0, table.concat(corrected.problems, "\n"))
+  local _ = lower(program, "checker.stdlib", Translate.translate(corrected.text, "checker/stdlib.d.tl").text, "decl", globals)
   local names: {string} = {}
   for name in pairs(modules or {}) do
     names[#names + 1] = name

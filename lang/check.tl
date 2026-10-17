@@ -13,6 +13,13 @@
 --- array grows by an append); returns against the declared list; conditions (booleans or optionals) and the
 --- honest `or` and `and`; numeric keys, views and `mut` collections, records and maps.
 ---
+--- **Calls.** A method called through a union of declarations is typed when every member declares it alike once the
+--- receiver is the union, and reported (`not_callable`) otherwise. The last argument of a call may add values (a call
+--- or `...` that ends in `T...`): they fill the parameters after the values known, each of which may stay empty, so
+--- the call is held to `T?` for them and `T` for the rest parameter, and its literals are checked against the overload
+--- taken. A function literal or a string literal fits an overload by its form: the arguments it takes, the enum that
+--- has it.
+---
 --- **Classes.** A class is a nominal type, and its value is made by a table literal typed as the class that names
 --- every field, `?` ones as `name = nil` ([`Check.Checked.literals`] tells the code generator which literals make
 --- one); there is no other way to make one, so a declaration used as a value is a type of its own, no `setmetatable`
@@ -671,10 +678,9 @@ local function unknown_offsets(ctx: Ctx): {integer: boolean}
   return out
 end
 
---- The type of a global the declaration files declare.
--- TODO: audit the standard library's declarations for the new rules, in the second part of expressions: they are the
--- fork's (`string.find` answers integers and not nil on a miss, `tonumber` answers a number and not nil, `string.match`
--- and `table.remove` likewise), so each use of such a result is held to a type it does not have.
+--- The type of a global the declaration files declare. The standard library's are the fork's, as
+--- [`lang.stdlib_corrections`] corrects them: a function that answers nil where Lua does says so (`s:find(p)` is
+--- `integer?`), so each use of its result is held to that.
 local function global_value(ctx: Ctx, node: Ast.Name): Type
   local program = ctx.program
   local values = program.values[node.text]
@@ -1411,8 +1417,7 @@ local function member_read(ctx: Ctx, node: Ast.Node, t: Type, name: string): Typ
     end
     return put_in(ctx, t, list[1].type)
   elseif t is Union then
-    -- TODO: type a method called through a union of records that all declare it, in the second part of expressions:
-    -- the read is the union of their function types, which a call refuses (`not_callable`).
+    -- Read as a value, the member is the union of their types; a call is typed by [`union_method`] and not by this.
     local key = t.id .. "." .. name
     local held = ctx.union_fields[key]
     if held ~= nil then
@@ -1472,6 +1477,74 @@ local function member_read(ctx: Ctx, node: Ast.Node, t: Type, name: string): Typ
   report(ctx, "not_indexable", node, subject(ctx, node) .. " reads a field of " .. tq(ctx, t) .. ", which has none",
     "read a field of a record, class or interface", { show(ctx, t) })
   return ctx.invalid
+end
+
+--- The method `name` called as `object:name(...)` through the union `u`: the function type every member declares it as
+--- once the receiver is `u`, with its overloads, or nil after reporting that a member lacks it or declares it
+--- differently. The value is one member at run time and each member's method takes that member as its receiver, so a
+--- receiver that is the member itself (as a method has it) is replaced by `u`, and the call is typed when the members then
+--- agree exactly: the same parameters, rest and return lists. A method that differs in any of them is the call of one of
+--- several functions, which only a test of the value tells apart.
+local function union_method(ctx: Ctx, node: Ast.MethodCall, u: Union): Type | nil, {Type} | nil
+  local store = ctx.store
+  local common: {Type} | nil = nil
+  local first: Type | nil = nil
+  for _, m in ipairs(u.members) do
+    if not (m is Named) or member_types(ctx, m, node.name) == nil then
+      report(ctx, "field_unknown", node, quoted(node.name) .. " is not a field of " .. tq(ctx, m) .. ", a member of " ..
+          tq(ctx, u),
+        "narrow the value to the member that has it (`x.kind == \"...\"` or `x is T`), or declare " .. quoted(node.name) ..
+          " in every member", { show(ctx, u) })
+      return nil
+    end
+    ctx.cands, ctx.cand_node = nil, nil
+    local read = member_read(ctx, node, m, node.name)
+    local declared: {Type} = { read }
+    if ctx.cand_node == node and ctx.cands ~= nil then
+      declared = ctx.cands
+    end
+    ctx.cands, ctx.cand_node = nil, nil
+    if read.tag == "invalid" then
+      return nil
+    end
+    local replaced: {Type} = {}
+    for i, each in ipairs(declared) do
+      local f = each
+      if f is Fn and f.params[1] ~= nil and f.params[1].type == m then
+        local params: {Types.Param} = {}
+        for j, p in ipairs(f.params) do
+          params[j] = p
+        end
+        params[1] = { type = u, omittable = f.params[1].omittable }
+        f = store:fn({ tparams = f.tparams, params = params, rest = f.rest, rets = f.rets })
+      end
+      replaced[i] = f
+    end
+    local held = common
+    if held == nil then
+      common = replaced
+      first = m
+    else
+      local agree = #held == #replaced
+      for i = 1, agree and #held or 0 do
+        agree = agree and held[i] == replaced[i]
+      end
+      if not agree then
+        local other = first
+        report(ctx, "not_callable", node, subject(ctx, node) .. " calls the method " .. quoted(node.name) .. " of each member " ..
+            "of " .. tq(ctx, u) .. ", and " .. tq(ctx, other ~= nil and other or m) .. " and " .. tq(ctx, m) ..
+            " declare it differently: " .. quoted(show(ctx, held[1])) .. " and " .. quoted(show(ctx, replaced[1])),
+          "narrow the value to one member first (`x.kind == \"...\"` or `x is T`), or declare " .. quoted(node.name) ..
+            " the same in every member", { show(ctx, held[1]), show(ctx, replaced[1]) })
+        return nil
+      end
+    end
+  end
+  local list = common
+  if list == nil or list[1] == nil then
+    return nil
+  end
+  return list[1], #list > 1 and list or nil
 end
 
 --- Checks that `key`, of type `kt`, may index a collection keyed by `want`: an `integer` where that is wanted, never
@@ -1878,6 +1951,25 @@ local function unary(ctx: Ctx, node: Ast.Unary, operand: Type): Type
   return integer_operand(ctx, node.operand, operand, "~") and ctx.store.integer or ctx.invalid
 end
 
+--- Whether a value of type `value` may be a `tested`: some member of one is below some member of the other (a class
+--- below the interface the value is of, a number below `number`), as for `==`. `any`, `invalid` and a type variable,
+--- which the code around may instantiate as the type, overlap everything.
+local function testable(ctx: Ctx, value: Type, tested: Type): boolean
+  if value == tested or value.tag == "any" or tested.tag == "any" or value.tag == "invalid" or tested.tag == "invalid" or
+      value.tag == "never" or tested.tag == "never" then
+    return true
+  end
+  local store = ctx.store
+  for _, x in ipairs(members_of(store, value)) do
+    for _, y in ipairs(members_of(store, tested)) do
+      if x == y or x is Types.Var or y is Types.Var or below(ctx, x, y) or below(ctx, y, x) then
+        return true
+      end
+    end
+  end
+  return false
+end
+
 --- `e is T`: a test of a run-time tag.
 local function is_test(ctx: Ctx, node: Ast.IsTest, value: Type): Type
   local store = ctx.store
@@ -1890,12 +1982,11 @@ local function is_test(ctx: Ctx, node: Ast.IsTest, value: Type): Type
       "test a tag (`x.kind == \"...\"`), declare a class, or validate the data with a [`cosmic.shape`] validator",
       { show(ctx, tested) })
   end
-  -- TODO: refuse a test of a type the value cannot have, as `==` refuses a dead test, in the second part of
-  -- expressions.
   local library = ctx.program.globals["table"]
   if tested is Named and library ~= nil and tested.decl == library.decl then
     return store.boolean
   end
+  local before = #ctx.errors
   if tested is Named and tested.decl.kind ~= "enum" and tested.decl.kind ~= "class" then
     local word = KIND_WORDS[tested.decl.kind] or "type"
     refuse((word == "interface" and "an " or "a ") .. word .. " leaves nothing to test")
@@ -1912,6 +2003,13 @@ local function is_test(ctx: Ctx, node: Ast.IsTest, value: Type): Type
     refuse("the tag says `table` and the contents of untrusted data go unchecked")
   elseif tested is Types.Array or tested is Types.Map then
     refuse("the tag says `table` and the elements go unchecked")
+  end
+  -- A test the rules refuse is reported once, for that.
+  if #ctx.errors == before and not testable(ctx, value, tested) then
+    report(ctx, "is_disjoint", node, subject(ctx, node) .. " is always false: " .. subject(ctx, node.value) .. " is " ..
+        tq(ctx, value) .. ", and no value of it is " .. tq(ctx, tested),
+      "this test is always false: remove it and the branch it guards, or test a type that " .. subject(ctx, node.value) ..
+        " can have (" .. tq(ctx, value) .. ")", { show(ctx, value), show(ctx, tested) })
   end
   return store.boolean
 end
@@ -2112,8 +2210,54 @@ local function plural(n: integer, word: string): string
   return n .. " " .. word .. (n == 1 and "" or "s")
 end
 
+--- Whether a function literal takes the arguments a call of `g` passes: every count from the required parameters of
+--- `g` to all of them (and any more where it has a rest parameter), as the relation meets a call's argument list
+--- exactly. A parameter the literal leaves untyped takes its type and whether it may be omitted from the position, so
+--- the position has to have it, and it is never the one that requires an argument.
+local function arguments_fit(lit: Ast.FunctionLit, g: Fn): boolean
+  local total, last_required, last_untyped, rest, rest_untyped = 0, 0, 0, false, false
+  for _, p in ipairs(lit.fn.params) do
+    if p.variadic then
+      rest = true
+      rest_untyped = p.type == nil
+    else
+      total = total + 1
+      if p.type == nil then
+        last_untyped = total
+      elseif not p.optional then
+        last_required = total
+      end
+    end
+  end
+  if last_untyped > #g.params or (rest_untyped and g.rest == nil) then
+    return false
+  end
+  local needed = 0
+  for pos, p in ipairs(g.params) do
+    if not p.omittable then
+      needed = pos
+    end
+  end
+  return last_required <= needed and (#g.params <= total or rest) and (g.rest == nil or rest)
+end
+
+--- Whether the enum `m` has the member `value`, or has no body to say.
+local function enum_holds(m: Named, value: string): boolean
+  local body = m.decl.body
+  if body == nil then
+    return true
+  end
+  for _, v in ipairs(body.values) do
+    if v == value then
+      return true
+    end
+  end
+  return false
+end
+
 --- Whether the literal `e` could be a value of `want`: its form fits, which is all a position can tell of a literal
---- before it is checked against the overload.
+--- before it is checked against the overload. A function literal fits a function type whose calls it takes, and a
+--- string literal a `string` or an enum that has it, which tells overloads of enums apart.
 local function literal_fits(ctx: Ctx, written: Ast.Exp, want: Type): boolean
   if want.tag == "any" or want.tag == "invalid" then
     return true
@@ -2130,7 +2274,7 @@ local function literal_fits(ctx: Ctx, written: Ast.Exp, want: Type): boolean
   end
   for _, m in ipairs(members_of(ctx.store, want)) do
     if e is Ast.FunctionLit then
-      if m is Fn then
+      if m is Fn and (#m.tparams > 0 or arguments_fit(e, m)) then
         return true
       end
     elseif e is Ast.Table then
@@ -2138,7 +2282,7 @@ local function literal_fits(ctx: Ctx, written: Ast.Exp, want: Type): boolean
         return true
       end
     elseif e is Ast.String then
-      if is_text(m) then
+      if m.tag == "string" or (m is Named and m.decl.kind == "enum" and enum_holds(m, e.value)) then
         return true
       end
     elseif e is Ast.Boolean then
@@ -2152,11 +2296,12 @@ local function literal_fits(ctx: Ctx, written: Ast.Exp, want: Type): boolean
   return false
 end
 
---- Why `f` cannot be called with `n` arguments (and a receiver where `off` is 1), or nil. `open` says the last
---- argument may be several values.
+--- Why `f` cannot be called with `n` known arguments (and a receiver where `off` is 1), or nil. `open` says the last
+--- argument may add values: those it is known to give are in `n`, so a surplus among them is certain, and a missing one
+--- is not (the tail fills it, [`tail_problem`] checks that).
 local function arity_problem(f: Fn, off: integer, n: integer, open: boolean): string | nil
   local np = #f.params
-  if n + off > np and f.rest == nil and not (open and n + off - 1 <= np) then
+  if n + off > np and f.rest == nil then
     return "too many"
   end
   if not open then
@@ -2165,6 +2310,34 @@ local function arity_problem(f: Fn, off: integer, n: integer, open: boolean): st
         return "too few"
       end
     end
+  end
+  return nil
+end
+
+--- Where the `tail` (`T...`) that the last argument of a call ends in does not fit what it fills, or nil: the call
+--- passes `n` values (a receiver where `off` is 1) before it, so the tail gives the parameters from `n + 1` and then the
+--- rest parameter. A parameter it may leave empty takes `T?`, and the rest parameter takes `T`. Answers the position of
+--- the argument (from 1, after the receiver), the type wanted there, and whether the tail fits that type and only the
+--- missing value is the fault.
+local function tail_problem(ctx: Ctx, f: Fn, off: integer, n: integer, tail: Type): integer | nil, Type | nil, boolean
+  if tail.tag == "invalid" then
+    return nil
+  end
+  local maybe = ctx.store:optional(tail)
+  local np = #f.params - off
+  for pos = n + 1, np do
+    local want = f.params[pos + off].type
+    if want.tag ~= "any" then
+      if not below(ctx, tail, want) then
+        return pos, want, false
+      elseif not below(ctx, maybe, want) then
+        return pos, want, true
+      end
+    end
+  end
+  local rest = f.rest
+  if rest ~= nil and rest.tag ~= "any" and not below(ctx, tail, rest) then
+    return math.max(n + 1, np + 1), rest, false
   end
   return nil
 end
@@ -2233,8 +2406,6 @@ local function apply_function(ctx: Ctx, node: Ast.Node, callee: string, f: Fn, a
   end
   local open = vals.tail ~= nil or vals.lists ~= nil
   local n = #vals.types
-  -- TODO: check the `T...` that a last argument ends in against the parameters it fills past the values known, in the
-  -- second part of expressions: until then only the values known are checked, and the others may be nil.
   local why = arity_problem(f, off, n, open)
   local reported = false
   for i, t in ipairs(vals.types) do
@@ -2251,6 +2422,20 @@ local function apply_function(ctx: Ctx, node: Ast.Node, callee: string, f: Fn, a
   end
   if why == "too few" or (why == "too many" and not reported) then
     arity_error(ctx, node, quoted(callee), f, off, n, why)
+  end
+  local tail = vals.tail
+  if tail ~= nil and last ~= nil and why == nil then
+    local pos, want, missing = tail_problem(ctx, f, off, n, tail)
+    if pos ~= nil and want ~= nil then
+      if missing then
+        report(ctx, "nil_not_allowed", last, subject(ctx, last) .. " ends in " .. quoted(show(ctx, tail) .. "...") ..
+            ", so argument " .. pos .. " of " .. quoted(callee) .. " may be missing, where " .. tq(ctx, want) .. " is wanted",
+          "varargs end in nil: take the values into locals and test them (`local a, b = " .. text_of(ctx, last) ..
+            " if b == nil then ... end`), or declare the parameter `name?: T`", { show(ctx, ctx.store:optional(tail)), show(ctx, want) })
+      else
+        local _ = expect(ctx, last, tail, want, " as argument " .. pos .. " of " .. quoted(callee))
+      end
+    end
   end
   return f.rets
 end
@@ -2270,27 +2455,30 @@ local function apply_overloads(ctx: Ctx, node: Ast.Node, callee: string, cands: 
   local known: {Type} = {}
   local pending: {integer: boolean} = {}
   local tail: Type | nil = nil
-  if open then
-    -- TODO: check the literals of a call whose last argument expands against the overload taken, in the second part of
-    -- expressions: here they are typed with no position, as a call that is not yet checked types its arguments.
-    ctx.lenient = ctx.lenient + 1
-    local vals = values_of(ctx, args, nil, nil)
-    ctx.lenient = ctx.lenient - 1
-    known, tail = vals.types, vals.tail
-    local several, last_expr = vals.lists, vals.last
-    if several ~= nil and last_expr ~= nil then
-      local _ = first_value(ctx, last_expr, several)
-    end
-  else
-    for i, a in ipairs(args) do
-      if is_literal(a) then
-        pending[i] = true
-      else
-        known[i] = expr(ctx, a, nil)
-      end
+  -- The arguments before an expanding last one are typed as the others, a literal when the overload is taken; the last
+  -- one gives the values it is known to give, and the tail.
+  local written = open and n - 1 or n
+  for i = 1, written do
+    local a = args[i]
+    if is_literal(a) then
+      pending[i] = true
+    else
+      known[i] = expr(ctx, a, nil)
     end
   end
-  local count = open and #known or n
+  local count = n
+  if open and last ~= nil then
+    local vals = values_of(ctx, { last }, nil, nil)
+    for j, t in ipairs(vals.types) do
+      known[written + j] = t
+    end
+    count = written + #vals.types
+    tail = vals.tail
+    local several = vals.lists
+    if several ~= nil then
+      local _ = first_value(ctx, last, several)
+    end
+  end
   local reasons: {string} = {}
   for _, c in ipairs(cands) do
     if c is Fn and #c.tparams > 0 then
@@ -2322,6 +2510,13 @@ local function apply_overloads(ctx: Ctx, node: Ast.Node, callee: string, cands: 
             failure = "argument " .. i .. " is a literal that is not " .. (want ~= nil and "a " .. tq(ctx, want) or "taken")
             break
           end
+        end
+      end
+      if failure == "" and tail ~= nil then
+        local pos, want, missing = tail_problem(ctx, c, off, count, tail)
+        if pos ~= nil and want ~= nil then
+          failure = "argument " .. pos .. " is filled by " .. quoted(show(ctx, tail) .. "...") .. (missing and
+            ", which may leave it missing, where " or ", where ") .. tq(ctx, want) .. " is wanted"
         end
       end
       if failure == "" then
@@ -2451,12 +2646,22 @@ local function apply_method(ctx: Ctx, node: Ast.MethodCall, object: Type): {Alt}
     return unknown_lists(ctx)
   end
   ctx.cands, ctx.cand_node = nil, nil
-  local ft = member_read(ctx, node, t, node.name)
+  local ft: Type
   local cands: {Type} | nil = nil
-  if ctx.cand_node == node then
-    cands = ctx.cands
+  if t is Union then
+    local common, overloads = union_method(ctx, node, t)
+    if common == nil then
+      unchecked_arguments(ctx, node.args)
+      return unknown_lists(ctx)
+    end
+    ft, cands = common, overloads
+  else
+    ft = member_read(ctx, node, t, node.name)
+    if ctx.cand_node == node then
+      cands = ctx.cands
+    end
+    ctx.cands, ctx.cand_node = nil, nil
   end
-  ctx.cands, ctx.cand_node = nil, nil
   return dispatch_call(ctx, node, node, text, ft, cands, node.args, t, node.object)
 end
 

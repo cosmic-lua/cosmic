@@ -488,7 +488,7 @@ the main codes, each named for its rule, with a fix in the program's names:
   language: validate, test with `is`, or delete the cast."
 
 the others are named for the rule or form they refuse: `record_as_map`,
-`array_of_optional`, `view_as_mut`, `is_on_record`, `match_redundant`,
+`array_of_optional`, `view_as_mut`, `is_on_record`, `is_disjoint`, `match_redundant`,
 `lists_overlap`, `interface_disagrees`, `literal_missing`, `literal_unknown`,
 `literal_needs_type`, `literal_ambiguous`, `literal_shape`, `arms_differ`,
 `overload_none`, `arity`, `cannot_infer`, `infer_conflict`, `missing_return`,
@@ -803,6 +803,35 @@ readings, takes the one that refuses more. *not adopted:* each reading's looser 
   wants, and `x or "lit"` for an enum `x` joins to `string`.
 - **`...` read as one value is `T?`,** and an expression of `any` is neither stored (a field, an element, a
   return of another type) nor read: `any_use`.
+- **a method called through a union is one function only where its members declare it alike:** the receiver, the member
+  itself as a method has it, is replaced by the union, and the parameters, rest and return lists must then be equal; a
+  member without the method is `field_unknown` and members that differ are `not_callable`, and both say to narrow first.
+  *not adopted:* the call typed by the join of the returns or by the meet of the parameters, and a union of overloads.
+- **`v is T` is `is_disjoint` where no type `v` can have is `T`:** some member of one has to be below some member of the
+  other, as `==` asks, with `any`, `invalid` and a type variable overlapping everything. A test the rules already refuse
+  (`is_on_record`, `class_scope`) is reported for that alone. *not adopted:* an always-false test that is accepted as
+  dead code.
+- **an expanding last argument fills the parameters after the values known:** each with `T?` (a missing value is
+  `nil_not_allowed` where the parameter is not omittable) and the rest parameter with `T`. A value known past the
+  parameters is a surplus argument whether or not a tail follows, since the tail may be empty and the value is certain.
+  Literals before it are checked against the overload taken, which the tail is part of. *not adopted:* a tail that
+  fills nothing it must, and the one more value a call with a tail was let pass.
+- **a literal fits an overload by its form:** a function literal takes the arguments the function type is called with,
+  every count from its required parameters to all of them and more with a rest parameter, since the relation meets a
+  call's argument list exactly; a string literal is a `string` or an enum that has it. *not adopted:* the first candidate
+  whatever the arguments the literal takes.
+- **the standard library answers nil where Lua does:** `string.find` and `byte`, `tonumber`, `math.tointeger`,
+  `table.remove`, `utf8.len` and `offset`, `next`, `rawget`, `getmetatable`, `load` and `loadfile`, the `io`, `os` and
+  `debug` calls that fail (`os.execute` answers its three values every time), as `T?` on their first value in place of the fork's `T`, and the values after it `string?` and `integer?` where a success
+  returns the first alone (`io.open`, `FILE:close`, `os.remove`, `utf8.len`, `load`), unlike the tree's own `T?, string` that
+  its functions answer. The callbacks of
+  `string.gsub` are enumerated by the number of captures they take (0 to 3) and answer `string | number | nil`, a nil
+  keeping the match. The fork reads the same file and lets a result that may be nil be added and passed on, so a
+  corrected declaration goes in [`checker/stdlib.d.tl`] where its check of the tree takes it, and in
+  [`lang/stdlib_corrections.tl`] where it does not. A capture is declared a `string` and a position capture `()` is an
+  integer: a TODO until the checker reads patterns. `select` and `string.match` are unchanged: what they answer past
+  the first value is a tail, which reads `T?` as one value. *not adopted:* alternatives (`(T) | (nil, string, integer)`) for the
+  calls that fail, which every call would have to `match`.
 
 ### classes read the rules strictly
 
@@ -898,6 +927,7 @@ reading's looser form, named here.
 [`lang/scopes.tl`]: ../../lang/scopes.tl
 [`lang/scopes_speed_test.tl`]: ../../lang/scopes_speed_test.tl
 [`lang/speed.tl`]: ../../lang/speed.tl
+[`lang/stdlib_corrections.tl`]: ../../lang/stdlib_corrections.tl
 [`lang/translate.tl`]: ../../lang/translate.tl
 [`Scoped.resolved`]: ../../lang/scopes.tl
 [`Scopes.declared`]: ../../lang/scopes.tl
