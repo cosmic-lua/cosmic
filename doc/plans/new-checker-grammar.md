@@ -117,7 +117,8 @@ the lexer is Lua 5.5's with these changes.
   tree writes none, and `y.` at the end of a line must not take the `local`
   after it for a field. `goto` has no statement; a use is a syntax error that
   says to write `continue`. `global` begins a declaration in a declaration
-  file only.
+  file only. `goto` and `global` after `:` are refused: a method call
+  would have to be written `x["goto"](x, ...)`, evaluating `x` twice.
 - **`>>` closing two type-argument lists** (`Cache<K, List<V>>`) is one
   token consumed as two closers, without rewriting it; the fork rewrites
   it and [`build/ast/node.tl`] puts it back after the parse.
@@ -184,6 +185,8 @@ prefix      = primary { suffix }                  (* a call is a prefix ending i
   lists. each arm is one list, `true` and `false` selecting the member
   and a name binding the value in that position; the arms cover the
   union exactly, so there is no `else`, and a missing member is an error.
+  an arm after one with no `true` or `false` is unreachable and refused,
+  as is a name bound twice in one arm (a name starting with `_` aside).
   it emits an `if` chain over the first value. the tree has 132 `pcall`
   sites and 32 `coroutine.*` for it to replace.
 - a statement cannot begin with an expression, so an `if` at a statement's

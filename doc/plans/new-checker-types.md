@@ -544,8 +544,18 @@ the fork, and rows and incremental checking come after it.
 - **declarations.** lowering of every declaration and annotation with its
   checks (agreement, tags, keys, dense arrays). the tree check lowers every
   declaration of the tree and pins what fails.
+- **the code generator and the oracle.** the grammar draft planned them
+  ([the order the grammar lands in]) and they land here. [`lang/codegen.tl`]
+  writes the tree as Lua, a statement on its source line, and `generated` in
+  [`build/tree_checks.tl`] holds that Lua to the fork's for every translated
+  file: byte for byte where the construct is a respelling, after the one
+  normalization the grammar table gives a `continue`, and a pin for each file
+  with a `class`, which the generator refuses.
 - **classes,** built once, here ([compiler-written classes, in the new
-  checker]): nominal class types, the class literal and its reserved form.
+  checker]): nominal class types, the class literal and its reserved form. it
+  follows the generator, since the reserved form is Lua the generator writes:
+  the class piece lifts the generator's refusal of a `class` and of `is` of a
+  class, and the pins of `generated` fall with it.
 - **expressions without flow.** operators, calls, overloads, literals, fields,
   writes, returns. the ceilings for nil, indexes, views, mutable fields,
   records as maps, conditions, `or`/`and`, concatenation and numeric keys
@@ -783,6 +793,7 @@ mistake is reported once. *not adopted:* each reading's looser form, named here.
 [the new checker]: strict-teal.md#the-new-checker
 [the switch]: strict-teal.md#the-switch
 [the decisions]: #decisions
+[the order the grammar lands in]: new-checker-grammar.md#the-order-the-grammar-lands-in
 [varargs end in nil]: strict-teal.md#varargs-end-in-nil
 [what the types leave out]: #what-the-types-leave-out
 
@@ -803,6 +814,7 @@ mistake is reported once. *not adopted:* each reading's looser form, named here.
 [`Fs.read`]: ../../cosmic/fs.tl
 [`importer.Module`]: ../../build/importer.tl
 [`lang/ast.tl`]: ../../lang/ast.tl
+[`lang/codegen.tl`]: ../../lang/codegen.tl
 [`lang/declarations.tl`]: ../../lang/declarations.tl
 [`lang/relation.tl`]: ../../lang/relation.tl
 [`lang/scopes.tl`]: ../../lang/scopes.tl

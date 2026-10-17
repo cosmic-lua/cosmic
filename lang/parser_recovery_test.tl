@@ -66,7 +66,7 @@ local function test_a_lua_keyword_is_no_field_name_and_the_words_the_grammar_res
     assert(parsed.errors[1] ~= nil, source)
   end
   clean("x = t.match + t.continue + t.mut + t.is + t.as + t.asserts + t.userdata + t.goto + t.global")
-  clean("t:match(p)\nt:goto()\nx = { match = 1, goto = 2, global = 3, as = 4 }")
+  clean("t:match(p)\nt.goto()\nx = { match = 1, goto = 2, global = 3, as = 4 }")
   clean("local record R\n  match: integer\n  goto?: string\n  mut global: T\nend")
 end
 

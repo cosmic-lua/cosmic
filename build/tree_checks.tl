@@ -9,8 +9,8 @@
 --- declares promised by a CI leg, every verb's spec listed and
 --- readable, no public doc citing the build or carrying a TODO, no
 --- literal plural after a number, every file under ci/testdata
---- type-checking standalone, and every `.tl` file lexing, translating and
---- scoping in the new checker's grammar but for the forms pinned. Each asks the tree's projection,
+--- type-checking standalone, and every `.tl` file lexing, translating, scoping
+--- and generating Lua in the new checker's grammar but for the forms pinned. Each asks the tree's projection,
 --- `cosmic.db`, which holds every module's docs, uses, imports,
 --- examples and source.
 ---
@@ -34,6 +34,7 @@ local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local check_memo = require("build.check_memo")
 local closure_store = require("build.closure_store")
+local compile = require("build.compile")
 local Cover = require("lang.lexer_cover")
 local contracts = require("build.contracts")
 local declared_key = require("build.declared_key")
@@ -44,6 +45,7 @@ local link_text = require("build.link_text")
 local host_names = require("build.host_names")
 local importer = require("build.importer")
 local Ast = require("lang.ast")
+local Codegen = require("lang.codegen")
 local Declarations = require("lang.declarations")
 local Lexer = require("lang.lexer")
 local Parser = require("lang.parser")
@@ -3053,6 +3055,289 @@ function tree_checks.declared(root: string, pinned?: {string: integer}, memo?: S
     if count < pinned[key] then
       out[#out + 1] = key .. ": pinned " .. pinned[key] .. " but " .. count ..
         " found; lower the pin in build/tree_checks.tl's declare_pins"
+    end
+  end
+  return out
+end
+
+-- TODO: compare a file with a class apart from the class, once the class literal lands: the reserved form is not the
+-- fork's `setmetatable` pattern, so these pins would otherwise stay.
+--- The files of the tree whose Lua ([`lang.codegen`]) differs from the fork's, which [`generated`] holds the tree to:
+--- the file to how many lines differ. Each has a `class`, which the generator refuses until the reserved class literal
+--- lands: the lines it lacks are the methods the translator moved into the class and the table the fork writes for its
+--- record. A pin falls as the generator learns the construct, and none is raised.
+local generate_pins: {string: integer} = {
+  ["build/codec.tl"] = 403,
+  ["cosmic/child.tl"] = 83,
+  ["cosmic/fs.tl"] = 96,
+  ["cosmic/http/multipart.tl"] = 132,
+  ["cosmic/http/server.tl"] = 30,
+  ["cosmic/http/wire_fuzz_test.tl"] = 26,
+  ["cosmic/internal/connector.tl"] = 176,
+  ["cosmic/json.tl"] = 303,
+  ["cosmic/json_reader_fuzz_test.tl"] = 20,
+  ["cosmic/json_reader_test.tl"] = 20,
+  ["cosmic/net.tl"] = 214,
+  ["cosmic/poll.tl"] = 99,
+  ["cosmic/stream.tl"] = 814,
+  ["cosmic/tar.tl"] = 404,
+  ["cosmic/zip.tl"] = 356,
+  ["eval/check/testdata/mirror_api_test.tl"] = 38,
+}
+
+local function lines_of(text: string): {string}
+  local out: {string} = {}
+  for line in (text .. "\n"):gmatch("(.-)\n") do
+    out[#out + 1] = line
+  end
+  return out
+end
+
+--- How many lines `a` and `b` differ by: the lines of either that no ordered match pairs with the other's (the
+--- length of a shortest edit script, Myers' greedy search).
+local function line_changes(a: {string}, b: {string}): integer
+  local lo = 1
+  while lo <= #a and lo <= #b and a[lo] == b[lo] do
+    lo = lo + 1
+  end
+  local hi_a, hi_b = #a, #b
+  while hi_a >= lo and hi_b >= lo and a[hi_a] == b[hi_b] do
+    hi_a, hi_b = hi_a - 1, hi_b - 1
+  end
+  local n, m = hi_a - lo + 1, hi_b - lo + 1
+  if n == 0 or m == 0 then
+    return n + m
+  end
+  local reach: {integer: integer} = { [1] = 0 }
+  for d = 0, n + m do
+    for k = -d, d, 2 do
+      local x: integer
+      if k == -d or (k ~= d and reach[k - 1] < reach[k + 1]) then
+        x = reach[k + 1]
+      else
+        x = reach[k - 1] + 1
+      end
+      local y = x - k
+      while x < n and y < m and a[lo + x] == b[lo + y] do
+        x, y = x + 1, y + 1
+      end
+      reach[k] = x
+      if x >= n and y >= m then
+        return d
+      end
+    end
+  end
+  return n + m
+end
+
+--- What generating one file found.
+local record GenerateOutcome
+  --- Why there is nothing to compare, "" where there is: the translation does not parse (`translated` counts
+  --- that) or the fork writes no Lua.
+  skipped: string
+  --- How many lines of the generator's Lua differ from the fork's.
+  differ: integer
+  --- The first line that differs, with the generator's text of it and the fork's.
+  at: integer
+  ours: string
+  fork: string
+  --- What the generator refused.
+  errors: {Codegen.Error}
+  --- Why the Lua it wrote does not load, "" where it does.
+  invalid: string
+end
+
+local codegen_codes: {string: Codegen.Code} = {}
+for _, code in ipairs(Codegen.codes) do
+  codegen_codes[code] = code
+end
+
+--- The outcome a memo kept, or nil where it kept none or it does not read.
+local function kept_generation(text: string): GenerateOutcome | nil
+  local outcome: GenerateOutcome = { skipped = "", differ = 0, at = 0, ours = "", fork = "", errors = {}, invalid = "" }
+  for _, fields in ipairs(check_memo.decode(text)) do
+    if fields[1] == "S" and #fields == 2 then
+      outcome.skipped = fields[2]
+    elseif fields[1] == "I" and #fields == 2 then
+      outcome.invalid = fields[2]
+    elseif fields[1] == "D" and #fields == 5 then
+      local differ, at = math.tointeger(tonumber(fields[2])), math.tointeger(tonumber(fields[3]))
+      if differ == nil or at == nil then
+        return nil
+      end
+      outcome.differ, outcome.at, outcome.ours, outcome.fork = differ, at, fields[4], fields[5]
+    elseif fields[1] == "E" and #fields == 6 then
+      local code = codegen_codes[fields[2]]
+      local y, x = math.tointeger(tonumber(fields[3])), math.tointeger(tonumber(fields[4]))
+      if code == nil or y == nil or x == nil then
+        return nil
+      end
+      outcome.errors[#outcome.errors + 1] = { code = code, y = y, x = x, msg = fields[5], fix = fields[6] }
+    else
+      return nil
+    end
+  end
+  return outcome
+end
+
+--- The fork's compiler, loaded on the first file whose Lua is not in the memo.
+local function fork_compiler(held: {compiler}): compiler | nil
+  if held[1] == nil then
+    local loaded, _ = teal.load()
+    if loaded == nil then
+      return nil
+    end
+    held[1] = loaded
+  end
+  return held[1]
+end
+
+--- The Lua the fork writes for `source`, from `memo` where it holds it under `key`; nil and why where it writes none.
+local function fork_lua(file: string, source: string, memo: Sqlite.Handle | nil, key: string, held: {compiler}): string | nil, string
+  if memo ~= nil then
+    local kept = check_memo.get(memo, "generated", key)
+    if kept ~= nil then
+      if kept:sub(1, 1) == "L" then
+        return kept:sub(2), ""
+      end
+      return nil, kept:sub(2)
+    end
+  end
+  local built = fork_compiler(held)
+  if built == nil then
+    return nil, "the fork's compiler is not in this binary"
+  end
+  local lua, why = compile.lua(built, file, source)
+  if memo ~= nil then
+    check_memo.put(memo, "generated", key, lua ~= nil and "L" .. lua or "N" .. why)
+  end
+  if lua == nil then
+    return nil, why
+  end
+  return lua, ""
+end
+
+--- The outcome of generating `source`, from `memo` where it holds it under `salt`.
+local function generate_outcome(file: string, source: string, memo: Sqlite.Handle | nil, salt: string, fork_salt: string,
+                                held: {compiler}): GenerateOutcome
+  local fork_key = check_memo.key(fork_salt, "tl", source)
+  local key = check_memo.key(salt, "tl", source)
+  if memo ~= nil then
+    local text = check_memo.get(memo, "generated", key)
+    local kept = text ~= nil and kept_generation(text) or nil
+    if kept ~= nil then
+      -- The fork's Lua is kept as long as the file is, so that a change to the generator does not run the fork again.
+      local _ = check_memo.get(memo, "generated", fork_key)
+      return kept
+    end
+  end
+  local outcome: GenerateOutcome = { skipped = "", differ = 0, at = 0, ours = "", fork = "", errors = {}, invalid = "" }
+  local made = Translate.translate(source, file)
+  local parsed = Parser.parse(Lexer.lex(made.text, file), file, "tl")
+  if #parsed.errors > 0 then
+    outcome.skipped = "its translation does not parse"
+  else
+    local lua, why = fork_lua(file, source, memo, fork_key, held)
+    if lua == nil then
+      outcome.skipped = "the fork writes no Lua: " .. why
+    else
+      -- The translator writes an `if` expression only for a value that is never false, which it tells the generator.
+      local generated = Codegen.generate(parsed.chunk, Scopes.build(parsed.chunk, file, {}), Translate.never_false)
+      outcome.errors = generated.errors
+      local loaded, load_why = load(generated.text, "=" .. file, "t", {})
+      if loaded == nil then
+        outcome.invalid = tostring(load_why)
+      end
+      local ours, fork = Codegen.compared(generated.text), Codegen.compared(lua)
+      if ours ~= fork then
+        local a, b = lines_of(ours), lines_of(fork)
+        outcome.differ = line_changes(a, b)
+        local at = 1
+        while a[at] == b[at] do
+          at = at + 1
+        end
+        outcome.at, outcome.ours, outcome.fork = at, (a[at] or ""):sub(1, 100), (b[at] or ""):sub(1, 100)
+      end
+    end
+  end
+  if memo ~= nil then
+    local rows: {{string}} = {}
+    if outcome.skipped ~= "" then
+      rows[1] = { "S", outcome.skipped }
+    else
+      rows[1] = { "D", tostring(outcome.differ), tostring(outcome.at), outcome.ours, outcome.fork }
+    end
+    if outcome.invalid ~= "" then
+      rows[#rows + 1] = { "I", outcome.invalid }
+    end
+    for _, e in ipairs(outcome.errors) do
+      rows[#rows + 1] = { "E", e.code, tostring(e.y), tostring(e.x), e.msg, e.fix }
+    end
+    check_memo.put(memo, "generated", key, check_memo.encode(rows))
+  end
+  return outcome
+end
+
+--- Every `.tl` file of the tree, translated ([`lang.translate`]), parsed, scoped and generated ([`lang.codegen`]),
+--- and its Lua compared with the fork's for the Teal it started from: the same bytes, once the layout of a
+--- `continue` is set aside ([`lang.codegen`]'s `compared`). The fork compiles each file alone with no module served, so its Lua is
+--- a function of the file; what it writes from the types of other modules (a `local _ = require("m")` it drops where
+--- `m` returns a type, an `is` of an imported enum or userdata) is outside this check. A file the check cannot compare
+--- (its translation does not parse, which `translated` counts, or the fork writes none) and the fork's own
+--- [`checker/tl.tl`] and the declaration files, which have no Lua, are left out. The files that differ are the ones
+--- `pinned` (by default `generate_pins`) names, with how many lines differ: a file with more lines than pinned is listed
+--- with its first difference and each refusal of the generator, and one with fewer, and a pin for a file that
+--- matches, is told to lower the pin. The Lua the generator writes must also load, whatever the fork writes. The
+--- answer for a file is kept in `memo` under its source, the sources of the generator and of everything it reads and
+--- the fork's compiler, and the fork's Lua under the file and the compiler alone.
+function tree_checks.generated(root: string, pinned?: {string: integer}, memo?: Sqlite.Handle): {string}
+  pinned = pinned or generate_pins
+  local files, trouble = lexable(root)
+  if files == nil then
+    return { "reading the sources: " .. trouble }
+  end
+  local fork_salt = check_memo.salt(root, { "checker/tl.tl", "checker/flow.tl", "checker/narrowing.tl",
+    "checker/captures.tl", "checker/facts.tl", "checker/stdlib.d.tl", "build/compile.tl" }, "forked 1")
+  local salt = check_memo.salt(root, { "lang/ast.tl", "lang/lexer.tl", "lang/parser.tl", "lang/scopes.tl",
+    "lang/translate.tl", "lang/codegen.tl", "build/check_memo.tl", "build/tree_checks.tl" }, "generated 1 " .. fork_salt)
+  if memo ~= nil then
+    local _, _ = check_memo.prepare(memo, "generated")
+  end
+  local out: {string} = {}
+  local found: {string: integer} = {}
+  local held: {compiler} = {}
+  for _, row in ipairs(files) do
+    local file, source = row[1], row[2]
+    if file ~= "checker/tl.tl" and not file:match("%.d%.tl$") then
+      local outcome = generate_outcome(file, source, memo, salt, fork_salt, held)
+      if outcome.invalid ~= "" then
+        out[#out + 1] = file .. ": the Lua the generator wrote does not load: " .. outcome.invalid
+      end
+      if outcome.skipped == "" and outcome.differ > 0 then
+        found[file] = outcome.differ
+        if outcome.differ > (pinned[file] or 0) then
+          for _, e in ipairs(outcome.errors) do
+            out[#out + 1] = file .. ":" .. e.y .. ":" .. e.x .. ": " .. e.msg .. " (" .. e.code .. "): " .. e.fix
+          end
+          out[#out + 1] = file .. ":" .. outcome.at .. ": the Lua differs from the fork's: " .. outcome.ours .. " | " ..
+            outcome.fork
+          out[#out + 1] = file .. ": " .. String.counted(outcome.differ, "line") .. " differ from the fork's Lua, pinned " ..
+            (pinned[file] or 0) .. "; write the Lua the fork writes rather than raise the pin"
+        end
+      end
+    end
+  end
+  if memo ~= nil then
+    check_memo.finish(memo, "generated")
+  end
+  local keys: {string} = {}
+  for key in pairs(pinned) do keys[#keys + 1] = key end
+  table.sort(keys)
+  for _, key in ipairs(keys) do
+    local count = found[key] or 0
+    if count < pinned[key] then
+      out[#out + 1] = key .. ": pinned " .. String.counted(pinned[key], "line") .. " but " .. count ..
+        " differ; lower the pin in build/tree_checks.tl's generate_pins"
     end
   end
   return out

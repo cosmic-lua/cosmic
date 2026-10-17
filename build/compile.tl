@@ -52,6 +52,13 @@ local type compiler = require("build.compiler")
 local record verb
   --- The verb's registration: see build/verb_spec.tl.
   spec: verb_spec.Spec
+  --- The Lua the compiler `built` writes for `text`, the source of the file `name`, as a compile of that file alone
+  --- writes it but with no module served: a `require` finds nothing, not even a `cosmic.*` module. The Lua is then
+  --- a function of the text and the compiler, which a check that keeps it relies on. Nil and why where the parser
+  --- refuses the text or the generator writes none. `built` is the caller's own compiler (from [`build.teal`]'s
+  --- `load`), since this sets how it searches for modules.
+  lua: function(built: compiler, name: string, text: string): string | nil, string
+
   --- Where `run` writes: what a test stands in for.
   record Io
     --- Writes to standard output, as given: the caller adds newlines.
@@ -202,6 +209,21 @@ local function compile_one(built: compiler, path: string, filename: string, text
     compiled.trouble = code == nil and tostring(why) or ""
   end
   return compiled
+end
+
+function verb.lua(built: compiler, name: string, text: string): string | nil, string
+  built.search_module = function(_name: string, _search_all: boolean): string | nil, any
+    return nil
+  end
+  local compiled = compile_one(built, name, name, text)
+  if #compiled.syntax_errors > 0 then
+    return nil, name .. ":" .. compiled.syntax_errors[1].y .. ": " .. compiled.syntax_errors[1].msg
+  end
+  local code = compiled.code
+  if code == nil then
+    return nil, compiled.trouble
+  end
+  return code, ""
 end
 
 --- The line that names one error of `path`.

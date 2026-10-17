@@ -1242,12 +1242,17 @@ end
 local function test_a_chain_of_listings_longer_than_a_closure_holds_is_followed_as_far_as_it_holds()
   local w = world()
   local s = w.store
+  local decls: {Types.Decl} = {}
   local uses: {Types.Type} = {}
   for i = 1, 4200 do
-    local decl = s:declare("interface", "m", { "Long" .. i }, 0)
-    s:define(decl, { tparams = {}, supers = uses[i - 1] ~= nil and { uses[i - 1] } or {}, fields = {},
-      methods = {}, values = {} })
-    uses[i] = s:named(decl)
+    decls[i] = s:declare("interface", "m", { "Long" .. i }, 0)
+    uses[i] = s:named(decls[i])
+  end
+  -- Defined from the top down, so that the store's check for a cycle stops at a declaration it has no
+  -- body for and does not walk the chain below each one (4200 steps each, which took seconds).
+  for i = 4200, 1, -1 do
+    s:define(decls[i], { tparams = {}, supers = i > 1 and { uses[i - 1] } or {}, fields = {}, methods = {},
+      values = {} })
   end
   assert(below(w, uses[4200], uses[200]))
   assert(below(w, uses[4200], uses[105]))

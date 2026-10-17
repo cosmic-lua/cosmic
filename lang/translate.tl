@@ -47,6 +47,8 @@
 ---   of those. The draft asks for the checker's type report; a ternary whose
 ---   middle operand needs one stays, and counts under the `or` and `and`
 ---   ceiling.
+--- - `unary_power`: the fork reads `-a ^ b` as `(-a) ^ b`, Lua and the new grammar as `-(a ^ b)`, so the
+---   unary operator and its operand are parenthesized, and so are those of `not not a ^ b`.
 --- - `class`: a record with `function R:m()` statements at the top of the file
 ---   becomes a `class` that holds them as `function m(self, ...)`, with the
 ---   field of the same name that declared the method dropped, its doc comment
@@ -80,8 +82,9 @@
 --- by the parser as a list, so it is not handled either.
 ---
 --- `translate` is a function of its source: the same text gives the same
---- result, and text in the new grammar gives itself, `mut` aside: a field
---- assigned in a class without `mut` is given it.
+--- result, and text in the new grammar gives itself, `mut` aside (a field
+--- assigned in a class without `mut` is given it) and a unary operator over a
+--- `^`, which it reads as the fork does.
 local Ast = require("lang.ast")
 local Lexer = require("lang.lexer")
 local Parser = require("lang.parser")
@@ -146,12 +149,17 @@ local record Translate
 
   --- The name of each row, in the order the module doc lists them.
   rows: {string}
+
+  --- Whether `e` can be neither false nor nil, from its syntax alone: a literal, a table, a function, an
+  --- arithmetic or concatenation, or a cast to a type that holds neither. It is what the translator
+  --- needs of a middle operand to write an `if` expression, and what a code generator may take as truthy.
+  never_false: function(e: Ast.Exp): boolean
 end
 
 Translate.rows = {
   "nil_union", "variadic_type", "optional_type", "continue", "semicolon", "long_comment",
   "digit_separator", "hex_float", "type_declaration", "metamethod", "readonly", "ternary", "class", "mut_field",
-  "mut_collection", "mut_param",
+  "mut_collection", "mut_param", "unary_power",
 }
 
 --- One replacement of the bytes `lo` to `hi - 1` of the source by `text`. An
@@ -1666,6 +1674,19 @@ local function collect(source: string, parsed: Parser.Parsed, hazards: {Translat
           out[#out + 1] = made
         end
       end
+    elseif kind == "Unary" then
+      if node is Ast.Unary and not covered[node] then
+        local cur: Ast.Exp = node.operand
+        while cur is Ast.Unary do
+          covered[cur] = true
+          cur = cur.operand
+        end
+        if cur is Ast.Binary and cur.op == "^" then
+          local first = bounds(node)
+          local _, last = bounds(cur.left)
+          out[#out + 1] = { row = "unary_power", edits = { insert_before(tokens, first, "("), insert_after(tokens, last, ")") } }
+        end
+      end
     elseif kind == "FieldDecl" then
       if node is Ast.FieldDecl then
         local made = field_rewrite(source, tokens, node)
@@ -1951,6 +1972,8 @@ local function converge(run: Run, name: string, dialect: Ast.Dialect, counts: {s
     run.parsed = read(after, name, dialect)
   end
 end
+
+Translate.never_false = never_false
 
 function Translate.translate(source: string, name: string): Translate.Result
   local dialect: Ast.Dialect = find(name, "%.d%.tl$") and "decl" or "tl"
