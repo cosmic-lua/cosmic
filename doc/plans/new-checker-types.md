@@ -493,7 +493,7 @@ the others are named for the rule or form they refuse: `record_as_map`,
 `literal_needs_type`, `literal_ambiguous`, `literal_shape`, `arms_differ`,
 `overload_none`, `arity`, `cannot_infer`, `infer_conflict`, `missing_return`,
 `return_unexpected`, `not_assigned`, `export_not_declared`, `unreachable`, and
-`narrowing_dropped`, kept from the fork. each has a fix pinned by its test. the declarations'
+`narrowing_dropped`, kept from the fork, and the expressions' own (`nil_not_allowed` and the rest of [`lang/check_codes.tl`]). a form a later piece types is typed `invalid` and reported as `unchecked_generic`, `unchecked_protected`, `unchecked_coroutine`, `unchecked_match`, `unchecked_binding` or `unchecked_nested`, so no `invalid` is silent. each has a fix pinned by its test. the declarations'
 lowering adds `super_not_interface`, `super_cycle`, `listing_too_large`, `untagged_union`, `key_type`, `repeated_field`,
 `repeated_value`, `type_arguments`, `type_too_deep`, `alias_cycle`, `bound_not_interface`, `outer_type_parameter`,
 `member_missing`, `param_untyped`, `thread_type` and `store_refused`, and uses `float_key` and `array_of_optional`
@@ -551,17 +551,21 @@ the fork, and rows and incremental checking come after it.
   file: byte for byte where the construct is a respelling, after the one
   normalization the grammar table gives a `continue`, and a pin for each file
   with a `class`, which the generator refuses.
-- **classes,** built once, here ([compiler-written classes, in the new
-  checker]): nominal class types, the class literal and its reserved form. it
-  follows the generator, since the reserved form is Lua the generator writes:
-  the class piece lifts the generator's refusal of a `class` and of `is` of a
-  class, and the pins of `generated` fall with it.
 - **expressions without flow.** operators, calls, overloads, literals, fields,
   writes, returns. the ceilings for nil, indexes, views, mutable fields,
   records as maps, conditions, `or`/`and`, concatenation and numeric keys
   start here. once expressions exist, the speed harness measures checking the
   whole tree in one process against the test suite's budget. that
-  decides where rows go.
+  decides where rows go. measured, cold, on the 1,039 files: lowering takes
+  5.1 s and checking 3.8 s, 9 s together (39 s with the 30 s of translating,
+  parsing and scoping that every check repeats), against the 30 s of `cosmic test` in an
+  edit loop and the 153 s of a run that finds 1,179 tests unstood. that is fast
+  enough, so rows come after the switch.
+- **classes,** built once, here ([compiler-written classes, in the new
+  checker]): nominal class types, the class literal and its reserved form. it
+  follows the expressions, since a class literal is checked against the expected
+  type they compute: the class piece lifts the generator's refusal of a `class`
+  and of `is` of a class, and the pins of `generated` fall with it.
 - **flow.** facts, narrowing, definite assignment, reachability, with the fuzz
   and checked narrowing of [narrowing by construction] run against it.
 - **generics, `match`, tagged unions, protected calls and coroutines.** they
@@ -767,6 +771,39 @@ mistake is reported once. *not adopted:* each reading's looser form, named here.
   ([`cosmic.sys`], [`cosmic.internal.process`], [`cosmic.internal.socket`]) are external, and a type named through one is
   `invalid` with no error.
 
+### expressions read the rules strictly
+
+[`lang/check.tl`] types a body by the rules of [checking](#checking) and, where they are silent or allow two
+readings, takes the one that refuses more. *not adopted:* each reading's looser form, named here.
+
+- **a form a later piece types is reported, not silent.** a call of a generic function, a protected call, a
+  coroutine function, a `match`, a binding of C and a generic function inside another are `invalid`, and each is an
+  `unchecked_*` error that a ceiling holds. *not adopted:* `invalid` with no error.
+- **a function literal takes from the position what its signature leaves out:** the types of its parameters, whether
+  each may be omitted, and its return list (`never` too, so it cannot return). *not adopted:* a literal that returns
+  nothing unless it says otherwise.
+- **an overload skips a candidate whose parameter cannot take a literal's form** (a function literal for a `string`),
+  and the literal is then checked against the one taken. *not adopted:* the first candidate whatever the literal.
+- **an overload set is no value** (`overload_value`): only a call picks one. *not adopted:* the first overload.
+- **a call with several return lists is no value to one name** (`local x = f()`), and gives each of several names the
+  union of its column. *not adopted:* the first list.
+- **a literal gives every field that is not `name?:`**, the `T?` ones too (`name = nil`); the fields a
+  `function R.m(...)` statement gave the record are not required of its literals. *not adopted:* a literal that may
+  omit a field that admits nil or a function.
+- **a write to an array is the append, and nothing else** (`array_hole`), `t[#t] = nil` included. *not adopted:*
+  any integer index.
+- **a literal of named items with no type expected is a map `{string: V}`,** so `t.name` on it is `map_field`.
+  *not adopted:* an anonymous record.
+- **`x == "lit"` for an enum `x` is dead when the literal is no member** (`enum_member`), as `==` of two types that
+  share no value is.
+- **a record's array part follows the collection rule:** a view unless declared `mut`, and the grammar has no way to
+  declare it so, so every write to it is `view_written`.
+- **only a literal `nil` deletes a key of a map;** any other value written is of the map's value type.
+- **an `if` expression whose arms have no common type** is accepted only where each arm is below the type the position
+  wants, and `x or "lit"` for an enum `x` joins to `string`.
+- **`...` read as one value is `T?`,** and an expression of `any` is neither stored (a field, an element, a
+  return of another type) nor read: `any_use`.
+
 [a count the tree cannot yet bring to zero is a ceiling]: strict-teal.md#decisions
 [annotated parameters]: strict-teal.md#annotated-parameters
 [an index read may be nil]: strict-teal.md#an-index-read-may-be-nil
@@ -814,6 +851,8 @@ mistake is reported once. *not adopted:* each reading's looser form, named here.
 [`Fs.read`]: ../../cosmic/fs.tl
 [`importer.Module`]: ../../build/importer.tl
 [`lang/ast.tl`]: ../../lang/ast.tl
+[`lang/check.tl`]: ../../lang/check.tl
+[`lang/check_codes.tl`]: ../../lang/check_codes.tl
 [`lang/codegen.tl`]: ../../lang/codegen.tl
 [`lang/declarations.tl`]: ../../lang/declarations.tl
 [`lang/relation.tl`]: ../../lang/relation.tl
