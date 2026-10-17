@@ -18,6 +18,7 @@ local work = require("build.work")
 local workers = require("build.workers")
 local writer = require("build.writer")
 local log = require("build.logger").log
+local type compiler = require("build.compiler")
 
 local record rebuild
 end
@@ -89,6 +90,36 @@ local function project(root: string, verb: string, start: boolean): boolean, str
   local _, _ = work.close(handle)
   if not written then return false, write_trouble end
   return true, ""
+end
+
+--- Stages the project at `root` and derives what a parse finds of each
+--- source, as a build does before it compiles ([`work.stage`],
+--- [`importer.derive`]), so the working database's `inputs` rows and the
+--- `stubs` of their sources are the tree as it stands: no compile, no
+--- projection. `built` parses what is new. A derive that fails leaves
+--- the database as it was, stage and all. Waits, as a build does, for
+--- another run that holds the database ([`work.open`]). Answers whether
+--- it did, and why not.
+function rebuild.stage(root: string, built: compiler): boolean, string
+  local own_tree, own_trouble = tree.is_own(root)
+  if own_tree == nil then return false, own_trouble end
+  local handle, open_trouble = work.open(root)
+  if handle == nil then return false, open_trouble end
+  local staged, stage_trouble = work.stage(handle, own_tree)
+  if staged == nil then
+    local _, _ = work.abort(handle)
+    return false, stage_trouble
+  end
+  local shared = shared_compiles.for_build()
+  local pool = workers.pool(workers.tool_spec())
+  local parses, derive_trouble = importer.derive(handle, own_tree, built, shared, pool)
+  if shared ~= nil then shared.finish() end
+  pool.close()
+  if parses == nil then
+    local _, _ = work.abort(handle)
+    return false, derive_trouble
+  end
+  return work.close(handle)
 end
 
 --- Builds the project in the working directory, as `project` does, for

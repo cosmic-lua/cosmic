@@ -191,8 +191,9 @@ local record Cli
   --- It publishes the checker's errors and warnings as a document is
   --- opened, changed or saved, checked in memory as the editor holds it
   --- and as a build checks it, with a project's `require` answered as a
-  --- build names modules, from open documents, then the files below the
-  --- workspace's root, then the binary's `cosmic.*`; it answers hover
+  --- build names modules, from open documents, then the modules a build
+  --- stages of the workspace's root, staged again when the editor says a
+  --- file changed on disk, then the binary's `cosmic.*`; it answers hover
   --- with a symbol's docs, as `cosmic docs`, and formats a document as
   --- `cosmic fix` does. It serves one editor over standard input and
   --- output, or, with `--listen` (a numeric IPv4 host or a bracketed
@@ -204,8 +205,9 @@ local record Cli
   --- output it exits 0 after the editor's `shutdown`, at `exit` or the
   --- stream's end, and 1 at an `exit` or an end with no `shutdown`
   --- before it or a stream that breaks; a listener exits 0 when a signal
-  --- stops it and 1 when it cannot listen; 2 for a command line it
-  --- refuses
+  --- stops it and 1 when it cannot listen, as at a socket file already
+  --- there, which it leaves for a person to remove; 2 for a command line
+  --- it refuses
   lsp: string
   --- `cosmic sql [--db <path> | --build | --store] [--to csv|ndjson] <statement>`: runs
   --- one SQL statement read-only -- SQLite itself refuses a write --

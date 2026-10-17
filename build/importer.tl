@@ -86,6 +86,10 @@ local record importer
   --- parsed, and how many more another checkout's parse stood in for.
   Parses: derivation.Parses
 
+  --- The databases a hint looks a name up in, and whether each is read
+  --- as the public standard library's ([`importer.said`]).
+  type Hints = function(): {Sqlite.Handle}, {boolean}
+
   --- The compiles and parses every checkout shares
   --- ([`build.shared_compiles`]), as the caller that opened them hands
   --- them to `derive` and `compile`: looked in when a source or a
@@ -840,7 +844,7 @@ end
 --- hint: a handle on the store's databases is one a test worker's hold
 --- on the store refuses ([`Store.databases`]), which a build that
 --- compiles clean never asks for.
-local type Hints = function(): {Sqlite.Handle}, {boolean}
+local type Hints = importer.Hints
 
 --- Appends a pointer at whatever `cosmic docs` already answers for the
 --- name a resolution failure names, when [`symbols.named`] finds it
@@ -903,6 +907,26 @@ local function with_hint(e: compiler.Error, hints: Hints, answered: boolean): st
   return with_diagnostic_docs(said, e, hints)
 end
 
+--- What a build says of the checker's error `e` met checking `file`,
+--- whose source is `source`: the checker's words, then what to write
+--- instead where [`teal.replacement`] answers (`refused` is what
+--- [`teal.refused_type_requires`] found of the check), then every hint it
+--- earns ([`with_hint`]), whole, as the first line of a build's
+--- complaint to earn it reads.
+function importer.said(e: compiler.Error, file: string, source: string,
+                       refused: {string:boolean}, hints: Hints): string
+  local instead: string | nil = nil
+  local named: string | nil = e.filename
+  if named == nil or named == "" or named == file then
+    instead = teal.replacement(e, source, file, refused)
+  end
+  local said = with_hint(e, hints, instead ~= nil)
+  if instead ~= nil then
+    said = e.msg .. " -- " .. instead .. said:sub(#e.msg + 1)
+  end
+  return said
+end
+
 --- `file`'s own complaints, one line each. A removed name's replacement
 --- ([`teal.replacement`]) comes straight after the checker's own words,
 --- ahead of any pointer at the docs: it is the answer, they are more.
@@ -919,12 +943,7 @@ local function complain(file: string, source: string, result: compiler.Result,
   for _, group in ipairs({ result.syntax_errors, result.type_errors, result.warnings }) do
     for _, e in ipairs(group or {}) do
       local where = e.filename ~= "" and e.filename or file
-      local instead = where == file and
-        teal.replacement(e, source, file, refused) or nil
-      local said = with_hint(e, hints, instead ~= nil)
-      if instead ~= nil then
-        said = e.msg .. " -- " .. instead .. said:sub(#e.msg + 1)
-      end
+      local said = importer.said(e, file, source, refused, hints)
       local hint = said:sub(#e.msg + 1)
       local seen = where .. "\0" .. hint
       local first = hint ~= "" and hinted[seen] or nil

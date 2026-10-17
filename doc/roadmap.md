@@ -383,7 +383,7 @@ promises lean on come first:
   - File-based routing that generates the route table, and OpenAPI
     documents made from typed routes.
 
-- go to definition and completion in `cosmic lsp` ([`build/lsp.tl`]), which
+- go to definition and completion in `cosmic lsp` ([`build/lsp/session.tl`]), which
   answers diagnostics, hover and formatting today. tl's type report answers
   both: with `env.report_types` on, which [`build/compiler.d.tl`] declares,
   its `get_types`, `symbols_in_scope` and `undeclared`, which it does not
@@ -474,7 +474,7 @@ four-producer provenance join.
 [`build/hash_test.tl`]: ../build/hash_test.tl
 [`build/json.tl`]: ../build/json.tl
 [`build/locator_fuzz_test.tl`]: ../build/locator_fuzz_test.tl
-[`build/lsp.tl`]: ../build/lsp.tl
+[`build/lsp/session.tl`]: ../build/lsp/session.tl
 [`build/shape_specs.tl`]: ../build/shape_specs.tl
 [`build/teal_test.tl`]: ../build/teal_test.tl
 [`build/workflows_test.tl`]: ../build/workflows_test.tl

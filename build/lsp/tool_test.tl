@@ -1,7 +1,8 @@
 --- `cosmic lsp` run as this program: the command lines it refuses, one
---- editor over standard input and output, and a listener that a signal
---- stops while an editor holds a connection open. These start this
---- program, so they need `tool`; a session's answers are in `lsp_test.tl`.
+--- editor over standard input and output, a listener that a signal
+--- stops while an editor holds a connection open, and the socket paths it
+--- refuses. These start this program, so they need `tool`; a session's
+--- answers are in session_test.tl.
 
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
@@ -11,7 +12,7 @@ local Net = require("cosmic.net")
 local Shape = require("cosmic.shape")
 local Stream = require("cosmic.stream")
 local Test = require("cosmic.test")
-local lsp = require("build.lsp")
+local protocol = require("build.lsp.protocol")
 local this_program = require("build.this_program")
 local unix_socket = require("build.unix_socket")
 
@@ -55,12 +56,12 @@ end
 local INITIALIZE_SENT <const> = Shape.record_of("InitializeSent")
 
 local function initialize(root: string): string
-  return lsp.frame('{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"rootUri":' ..
+  return protocol.frame('{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"rootUri":' ..
       Json.quote("file://" .. root) .. ',"capabilities":{}}}')
 end
 
-local SHUTDOWN <const> = lsp.frame('{"jsonrpc":"2.0","id":2,"method":"shutdown"}')
-local EXIT <const> = lsp.frame('{"jsonrpc":"2.0","method":"exit"}')
+local SHUTDOWN <const> = protocol.frame('{"jsonrpc":"2.0","id":2,"method":"shutdown"}')
+local EXIT <const> = protocol.frame('{"jsonrpc":"2.0","method":"exit"}')
 
 --- Whether `body` answers `initialize` as this server does.
 local function answers_initialize(body: string): boolean
@@ -90,7 +91,7 @@ end
 local function test_one_editor_over_standard_input_and_output(tmp: string)
   local ran = cosmic(tmp, { "lsp" }, initialize(tmp) .. SHUTDOWN .. EXIT)
   assert(ran.code == 0, ran.err)
-  local body = assert(lsp.frames(Stream.from_string(ran.out)):next())
+  local body = assert(protocol.frames(Stream.from_string(ran.out)):next())
   assert(answers_initialize(body), body)
   local ended = cosmic(tmp, { "lsp", "--stdio" }, initialize(tmp) .. SHUTDOWN)
   assert(ended.code == 0, "the stream ends after shutdown: " .. ended.err)
@@ -131,7 +132,7 @@ local function served_and_stopped(root: string, started: Listening, address: Net
   local handle = started.handle
   local first <close> = assert(Net.connect(address, { timeout_ns = Clock.seconds(10) }))
   assert(first:write(initialize(root) .. SHUTDOWN .. EXIT))
-  local frames = lsp.frames(first)
+  local frames = protocol.frames(first)
   local body = assert(frames:next())
   assert(answers_initialize(body), body)
   assert(frames:next())
@@ -139,7 +140,7 @@ local function served_and_stopped(root: string, started: Listening, address: Net
   assert(after == nil and why == "", "the server closes the connection at exit: " .. why)
   local held <close> = assert(Net.connect(address, { timeout_ns = Clock.seconds(10) }))
   assert(held:write(initialize(root)))
-  local answered = assert(lsp.frames(held):next())
+  local answered = assert(protocol.frames(held):next())
   assert(answers_initialize(answered), answered)
   local stopped = Clock.monotonic_ns()
   assert(handle:stop())
@@ -152,7 +153,7 @@ local function served_and_stopped(root: string, started: Listening, address: Net
   assert(took < Clock.seconds(3), tostring(took // 1000000) .. " ms")
   local rest = said:gsub("cosmic: lsp: listening at [^\n]*\n", "")
   assert(rest == "", said)
-  local ended, _ = lsp.frames(held):next()
+  local ended, _ = protocol.frames(held):next()
   assert(ended == nil, "the held connection is closed")
 end
 
@@ -178,7 +179,7 @@ end
 --- The signal that ends a process with no chance to clean up, as a crash does.
 local SIGKILL <const> = 9
 
-local function test_a_socket_file_a_crashed_listener_left_is_listened_at_again(tmp: string)
+local function test_a_socket_file_already_there_is_refused_and_left(tmp: string)
   if unix_socket.skipped(tmp) then return end
   local path = tmp .. "/lsp.sock"
   local crashed = listening(tmp, { "lsp", "--socket", path })
@@ -186,9 +187,13 @@ local function test_a_socket_file_a_crashed_listener_left_is_listened_at_again(t
   local result = assert(crashed.handle:wait(Clock.seconds(20)))
   assert(result.signal == SIGKILL, tostring(result.signal))
   assert(Fs.exists(path) == true, "the crash leaves the socket file")
-  local started = listening(tmp, { "lsp", "--socket", path })
-  assert(started.at == path, started.at)
-  served_and_stopped(tmp, started, Net.unix(path))
+  -- Whether a listener is behind it no connect can tell: a live one's
+  -- full backlog refuses as a dead one does.
+  local ran = cosmic(tmp, { "lsp", "--socket", path })
+  assert(ran.code == 1, tostring(ran.code) .. ": " .. ran.err)
+  assert(ran.err:find(path .. " is a socket file already; remove it if no server is running there",
+    1, true) ~= nil, ran.err)
+  assert(Fs.exists(path) == true, "the socket file is left")
 end
 
 local function test_a_socket_path_holding_another_file_is_left_alone(tmp: string)

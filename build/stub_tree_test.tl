@@ -52,8 +52,8 @@ end
 --- parses carries that stub.
 local function with_a_wrong_stub(run: function())
   local made = stub.made
-  stub.made = function(parsed: ast.Parsed): stub.Made
-    local right = made(parsed)
+  stub.made = function(parsed: ast.Parsed, every?: boolean): stub.Made
+    local right = made(parsed, every)
     return { text = (right.text:gsub("n: integer", "n: string")), pruned = right.pruned }
   end
   local ok, raised = pcall(function(): string

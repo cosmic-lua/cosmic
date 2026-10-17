@@ -330,3 +330,15 @@ local function test_a_standard_module_this_test_requires_is_served_from_its_stub
   local served = teal.standard_text("cosmic.web")
   assert(served ~= nil and served.stubbed, "cosmic.web was served from its source")
 end
+
+local function test_a_stub_of_every_statement_drops_bodies_alone()
+  local text = source('local Json = require("cosmic.json")', "local record M end",
+    "local unused = Json.encode({})", "function M.f(): integer return 1 end", "return M")
+  local parsed = assert(ast.parse(built, text, "m.tl"))
+  local pruned = stub.made(parsed)
+  assert(pruned.pruned and pruned.text:find("unused", 1, true) == nil, pruned.text)
+  local every = stub.made(parsed, true)
+  assert(not every.pruned, "every statement is kept")
+  assert(every.text:find("local unused = Json.encode({})", 1, true) ~= nil, every.text)
+  assert(every.text:find("return 1", 1, true) == nil, "a body is left out: " .. every.text)
+end
