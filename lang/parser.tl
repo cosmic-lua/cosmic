@@ -93,6 +93,10 @@ local record Parser
     "trailing_comma"
     -- two `match` arms on a line
     "arm_on_same_line"
+    -- a `match` arm after one that every value matches, and a name bound twice in an arm
+    "unreachable_arm" "duplicate_binding"
+    -- `obj:goto()`, a method call by a word Lua 5.5 reserves
+    "reserved_method"
     -- a suffix on what is not a name or a parenthesis
     "suffix_needs_parens"
     -- a type declaration in an `interface`, `local type X = record`, a narrowing among other return items
@@ -1307,9 +1311,14 @@ parse_prefix = function(): Ast.Exp
       e = { kind = "Index", id = 0, first = first, last = S.pos - 1, object = e, key = key }
     elseif t == ":" then
       advance()
+      local name_at = S.pos
       local name = field_name()
+      if name == "goto" or name == "global" then
+        report("reserved_method", name_at, "`" .. name .. "` is a reserved word in Lua 5.5 and cannot be called as a method",
+          "call it as a field of the object: `obj[\"" .. name .. "\"](obj, ...)`, or rename the method")
+      end
       local args: {Ast.Exp}
-      if S.text == "(" then
+      if S.text == "(" and S.tokens[S.pos].y == S.tokens[S.pos - 1].yend then
         args = parse_args()
       elseif S.text == "{" then
         args = { parse_table() }
@@ -2151,6 +2160,8 @@ local function parse_match(): Ast.Stat
   end
   expect("do", "after the call of a `match`", "write `match f() do | (true, v) then ... end`")
   local arms: {Ast.MatchArm} = {}
+  -- Whether an arm so far matches every value: no arm after it can run.
+  local caught = false
   if S.text ~= "|" then
     report("expected_token", S.pos, "expected the first arm `|` of the `match`, found " .. shown(S.tokens[S.pos]),
       "write each arm as `| (true, name) then ...`, `true` and `false` selecting the member and a name binding the value")
@@ -2159,6 +2170,11 @@ local function parse_match(): Ast.Stat
     advance()
     local afirst = S.pos
     local open = S.pos
+    if caught then
+      report("unreachable_arm", afirst, "this `match` arm can never run: the arm before it matches every value",
+        "delete the arm, or move the arm that matches every value (`| (a, b) then`, with no `true` or `false`) to the end")
+      caught = false
+    end
     local pats: {Ast.PatItem} = {}
     if expect("(", "after `|` in a `match` arm", "write the arm as `| (true, name) then`") then
       while S.text ~= ")" and S.kind ~= "$EOF$" do
@@ -2179,6 +2195,21 @@ local function parse_match(): Ast.Stat
       end
       close(")", open, "pattern")
     end
+    local bools = 0
+    local bound: {string: boolean} = {}
+    for _, pat in ipairs(pats) do
+      if pat is Ast.PatBool then
+        bools = bools + 1
+      elseif pat is Ast.PatBind then
+        local bound_name = pat.name.name
+        if bound[bound_name] and bound_name:sub(1, 1) ~= "_" then
+          report("duplicate_binding", pat.first, "`" .. bound_name .. "` is bound twice in this arm",
+            "give each value of the pattern a name of its own, or `_` for one the arm does not use")
+        end
+        bound[bound_name] = true
+      end
+    end
+    caught = bools == 0
     expect("then", "after the pattern of a `match` arm",
       "write `| (true, v) then ...`; an expression that goes on to the next line keeps its operator at the end of " ..
         "the line before, since a `|` that begins a line starts an arm")
@@ -2541,7 +2572,8 @@ Parser.codes = {
   "body_in_declaration", "statement_in_declaration", "mut_needs_collection", "string_call", "variadic_type",
   "optional_type", "tuple_type", "string_literal_type", "bare_function_type", "metamethod", "several_supers",
   "generic_function_literal", "bad_attribute", "if_needs_else", "match_needs_call", "method_needs_self",
-  "method_path", "trailing_comma", "arm_on_same_line", "suffix_needs_parens", "nested_in_interface",
+  "method_path", "trailing_comma", "arm_on_same_line", "unreachable_arm", "duplicate_binding", "reserved_method",
+  "suffix_needs_parens", "nested_in_interface",
   "old_type_declaration", "narrowing_return", "too_deep",
 }
 

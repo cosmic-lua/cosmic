@@ -1244,3 +1244,93 @@ local function test_a_memo_answers_the_scope_check_for_a_file_that_has_not_chang
   assert(table.concat(tree_checks.scoped(root, {}, memo), "\n") == plain)
   assert(memo:close())
 end
+
+--- A file whose Lua the generator writes as the fork does passes; a class, which the generator refuses, leaves
+--- lines the fork writes, which are refused past their pin with the refusal and the first line that differs; a
+--- pin the file no longer needs, and a file the check leaves out (the fork's, a declaration file, one whose
+--- translation does not parse), are not counted.
+local function test_the_lua_of_a_file_is_held_to_the_forks_but_for_its_pins(dir: string)
+  local root = dir .. "/generated"
+  assert(Fs.mkdirs(root .. "/build"))
+  assert(Fs.mkdirs(root .. "/checker"))
+  assert(Fs.write(root .. "/build/ok.tl", source(
+    "local a: string | nil = nil",
+    "for i = 1, 3 do",
+    "  if i == 2 then goto continue end",
+    "  print(i)",
+    "  ::continue::",
+    "end",
+    "return a")))
+  assert(Fs.write(root .. "/build/classy.tl", source(
+    "local record R",
+    "  n: integer",
+    "end",
+    "function R:bump()",
+    "  self.n = self.n + 1",
+    "end",
+    "return R")))
+  assert(Fs.write(root .. "/build/tuple.tl", source("local a: {{string, integer}}", "return a")))
+  assert(Fs.write(root .. "/build/types.d.tl", source("global record G", "end")))
+  assert(Fs.write(root .. "/checker/tl.tl", source(
+    "local record R",
+    "end",
+    "function R:m() end",
+    "return R")))
+  local found = tree_checks.generated(root, {})
+  local joined = table.concat(found, "\n")
+  assert(#found == 3, joined)
+  assert(found[1]:find("^build/classy%.tl:1:1: `class R` is not generated yet") and found[1]:find("(class_refused)", 1, true),
+    joined)
+  assert(found[2]:find("^build/classy%.tl:%d+: the Lua differs from the fork's: ", 1), joined)
+  local differ = assert(math.tointeger(tonumber(found[3]:match("^build/classy%.tl: (%d+) lines differ from the fork's Lua, pinned 0"))), joined)
+  assert(differ > 0)
+  local pins: {string: integer} = { ["build/classy.tl"] = differ }
+  assert(#tree_checks.generated(root, pins) == 0)
+  pins["build/classy.tl"] = differ + 2
+  pins["build/ok.tl"] = 1
+  local fallen = tree_checks.generated(root, pins)
+  assert(#fallen == 2 and fallen[1] == "build/classy.tl: pinned " .. differ + 2 .. " lines but " .. differ ..
+      " differ; lower the pin in build/tree_checks.tl's generate_pins" and
+      fallen[2] == "build/ok.tl: pinned 1 line but 0 differ; lower the pin in build/tree_checks.tl's generate_pins",
+    table.concat(fallen, "\n"))
+end
+
+--- A file that has not changed is not generated again, and the fork's Lua for it is kept apart: a change to
+--- the generator runs the fork on no file.
+local function test_a_memo_answers_the_generator_check_and_keeps_the_forks_lua_for_a_change_of_the_generator(dir: string)
+  local root = dir .. "/generatememo"
+  assert(Fs.mkdirs(root .. "/build"))
+  assert(Fs.mkdirs(root .. "/lang"))
+  assert(Fs.write(root .. "/lang/codegen.tl", "-- one\n"))
+  assert(Fs.write(root .. "/build/classy.tl", source(
+    "local record R",
+    "end",
+    "function R:bump() end",
+    "return R")))
+  local memo = assert(Sqlite.memory())
+  local plain = table.concat(tree_checks.generated(root, {}), "\n")
+  assert(plain:find("(class_refused)", 1, true), plain)
+  assert(table.concat(tree_checks.generated(root, {}, memo), "\n") == plain)
+  local count = assert(Sqlite.rows(memo, "SELECT count(*) FROM check_memo WHERE kind = 'generated'"))
+  assert(count[1]:integer(1) == 4, "the fork's Lua and the answer, for each of the two files")
+  -- Plant another answer under the key: a run that finds it did not generate.
+  local planted = "D\t3\t7\tmine\ttheirs\nE\tclass_refused\t7\t9\tplanted\tdo it"
+  assert(Sqlite.run(memo, "UPDATE check_memo SET value = ?1 WHERE value LIKE '%class_refused%'", { { text = planted } }))
+  local hit = table.concat(tree_checks.generated(root, {}, memo), "\n")
+  assert(hit:find("build/classy.tl:7:9: planted (class_refused): do it", 1, true) and
+      hit:find("build/classy.tl:7: the Lua differs from the fork's: mine | theirs", 1, true), hit)
+  -- Lua that does not load is refused, whatever the fork wrote.
+  local invalid = "D\t0\t0\t\t\nI\t[string \"x\"]:1: planted"
+  assert(Sqlite.run(memo, "UPDATE check_memo SET value = ?1 WHERE value LIKE '%class_refused%'", { { text = invalid } }))
+  local unloadable = table.concat(tree_checks.generated(root, {}, memo), "\n")
+  assert(unloadable:find("build/classy.tl: the Lua the generator wrote does not load: [string \"x\"]:1: planted", 1, true),
+    unloadable)
+  -- The generator changed: the answer is made again, from the fork's Lua the memo kept.
+  assert(Sqlite.run(memo, "UPDATE check_memo SET value = 'L-- planted\n' WHERE value LIKE 'L%local R%'"))
+  assert(Fs.write(root .. "/lang/codegen.tl", "-- two\n"))
+  local again = table.concat(tree_checks.generated(root, {}, memo), "\n")
+  assert(again:find("(class_refused)", 1, true) and again:find("the Lua differs from the fork's: ", 1, true) and
+      again:find("| -- planted", 1, true), "the fork's Lua is the one the memo kept: " .. again)
+  assert(not again:find("planted (class_refused)", 1, true), again)
+  assert(memo:close())
+end

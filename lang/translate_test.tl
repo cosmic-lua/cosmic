@@ -346,6 +346,31 @@ local function test_readonly_is_dropped()
       "end"))
 end
 
+-- unary operators over a power
+
+--- The fork binds a unary operator to its operand before a `^`; Lua and the new grammar bind the `^` first.
+local function test_a_unary_operator_over_a_power_is_parenthesized_as_the_fork_reads_it()
+  translates(lines(
+    "local a = -x ^ 2",
+    "local b = not y ^ z",
+    "local c = - - x ^ 2 ^ 3",
+    "local d = 1 + #t ^ 2 * 3",
+    "local e = w ^ -x ^ 2",
+    "local f = -(x ^ 2)",
+    "local g = (-x) ^ 2",
+    "local h = -x * 2",
+    "return a"), lines(
+      "local a = (-x) ^ 2",
+      "local b = (not y) ^ z",
+      "local c = (- - x) ^ 2 ^ 3",
+      "local d = 1 + (#t) ^ 2 * 3",
+      "local e = w ^ (-x) ^ 2",
+      "local f = -(x ^ 2)",
+      "local g = (-x) ^ 2",
+      "local h = -x * 2",
+      "return a"))
+end
+
 -- ternaries
 
 local function test_a_ternary_with_a_middle_that_is_never_false_is_an_if_expression()
