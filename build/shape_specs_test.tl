@@ -3,6 +3,7 @@
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
 local importer = require("build.importer")
+local shape_specs = require("build.shape_specs")
 local teal = require("build.teal")
 local work = require("build.work")
 
@@ -401,4 +402,43 @@ local function test_a_comment_after_the_call_does_not_hide_it()
     'Shape.record_of("R") -- the spec of R')
   assert(lua ~= nil, trouble)
   has(lua, [[Shape.record_of("R", Shape.record({ ["n"] = Shape.integer }),]])
+end
+
+local function test_the_splices_are_the_last_first_and_a_refusal_names_its_line()
+  -- Each call resolved in memory, as `cosmic lsp` resolves an open
+  -- document, rather than compiled as a fixture.
+  local direct = assert(teal.load(true))
+  teal.serve_standard(direct)
+  local env = assert(direct.new_env({ defaults = { feat_lax = "off", gen_compat = "off", gen_target = "5.4" } }))
+  teal.strip(env)
+  local source = table.concat({
+    'local Shape = require("cosmic.shape")',
+    "local record A",
+    "  a: string",
+    "end",
+    "local record B",
+    "  b: integer",
+    "end",
+    'local both = { Shape.record_of("A"), Shape.record_of("B") }',
+    "return both",
+    "",
+  }, "\n")
+  local found = shape_specs.splices(direct, env, "main.tl", "main", source)
+  assert(found.refusal == "" and found.line == 0, found.refusal)
+  assert(#found.splices == 2, tostring(#found.splices))
+  local last, first = assert(found.splices[1]), assert(found.splices[2])
+  assert(last.at > first.at, "the last in the source comes first")
+  -- Each goes right after its call's name.
+  assert(source:sub(first.at - 2, first.at) == '"A"', source:sub(first.at - 2, first.at))
+  assert(source:sub(last.at - 2, last.at) == '"B"', source:sub(last.at - 2, last.at))
+  assert(first.text:find("function(): A return nil end", 1, true) ~= nil, first.text)
+  local want = source:sub(1, first.at) .. first.text .. source:sub(first.at + 1, last.at) .. last.text ..
+    source:sub(last.at + 1)
+  assert(shape_specs.spliced(source, found.splices) == want, shape_specs.spliced(source, found.splices))
+  local unread = shape_specs.splices(direct, env, "main.tl", "main",
+    (source:gsub('record_of%("B"%)', 'record_of(("B"))')))
+  assert(#unread.splices == 0, "a refused call splices none")
+  assert(unread.line == 8, tostring(unread.line))
+  assert(unread.refusal:find("main.tl:8: Shape.record_of: the name must be a string literal", 1, true) ~= nil,
+    unread.refusal)
 end

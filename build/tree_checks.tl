@@ -2764,7 +2764,6 @@ local declare_pins: {string: integer} = {
   -- a type that lists an interface and lacks a field it declares (`mut skip` of [`Stream.Reader`]), or declares
   -- it with another type: add the field, or make the types agree, in Teal
   ["build/codec.tl interface_disagrees"] = 9,
-  ["build/lsp_test.tl interface_disagrees"] = 1,
   ["cosmic/child.tl interface_disagrees"] = 1,
   ["cosmic/http/multipart.tl interface_disagrees"] = 1,
   ["cosmic/http/server.tl interface_disagrees"] = 1,

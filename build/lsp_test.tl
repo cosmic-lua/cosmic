@@ -15,30 +15,20 @@ local lsp = require("build.lsp")
 
 Test.policy{ loopback = { "127.0.0.1" } }
 
---- A Reader that answers one byte a read, so a message arrives split at
---- every place it can be.
-local record Trickle is Stream.Reader
-  data: string
+--- How far a [`trickle`] has read.
+local record Read
   at: integer
-  read: function(Trickle, max_bytes?: integer): string | nil, string
-  close: function(Trickle): boolean, string
 end
 
-local trickle_mt: metatable<Trickle> = { __index = Trickle }
-
-function Trickle:read(_max_bytes?: integer): string | nil, string
-  if self.at > #self.data then return nil, "" end
-  self.at = self.at + 1
-  return self.data:sub(self.at - 1, self.at - 1), ""
-end
-
-function Trickle:close(): boolean, string
-  return true, ""
-end
-
-local function trickle(data: string): Stream.Reader
-  local r: Trickle = setmetatable({ data = data, at = 1 }, trickle_mt)
-  return r
+--- A stream's `read` that answers one byte of `data` a call, so a
+--- message arrives split at every place it can be.
+local function trickle(data: string): function(): string | nil, string
+  local read: Read = { at = 1 }
+  return function(): string | nil, string
+    if read.at > #data then return nil, "" end
+    read.at = read.at + 1
+    return data:sub(read.at - 1, read.at - 1), ""
+  end
 end
 
 -- What the tests read of the messages the server sends.
@@ -70,15 +60,21 @@ local record Publication
   diagnostics: {Diagnostic}
 end
 
---- Any message the server sends, but for its `result`.
+--- Any message the server sends, but for its `result` and `params`.
 local record Sent
   id: integer | nil
   method: string | nil
   error: Failed | nil
-  params: Published | nil
 end
 
 local SENT <const> = Shape.record_of("Sent")
+
+--- A publication of diagnostics.
+local record PublishSent
+  params: Published
+end
+
+local PUBLISH_SENT <const> = Shape.record_of("PublishSent")
 
 local record Sync
   change: integer
@@ -177,7 +173,8 @@ end
 local function answer(ran: Ran, id: integer): string
   for _, body in ipairs(ran.sent) do
     local sent = assert(SENT:decode_into(body))
-    if sent.id == id then return body end
+    -- A request the server makes has a method; an answer has none.
+    if sent.id == id and sent.method == nil then return body end
   end
   error("no answer to request " .. tostring(id) .. ": " .. table.concat(ran.sent, "\n") .. ran.err)
 end
@@ -194,9 +191,8 @@ local function published(ran: Ran): {{Diagnostic}}
   local out: {{Diagnostic}} = {}
   for _, body in ipairs(ran.sent) do
     local sent = assert(SENT:decode_into(body))
-    local params = sent.params
-    if sent.method == "textDocument/publishDiagnostics" and params ~= nil then
-      out[#out + 1] = params.diagnostics
+    if sent.method == "textDocument/publishDiagnostics" then
+      out[#out + 1] = assert(PUBLISH_SENT:decode_into(body)).params.diagnostics
     end
   end
   return out
@@ -207,8 +203,8 @@ local function publications(ran: Ran): {Publication}
   local out: {Publication} = {}
   for _, body in ipairs(ran.sent) do
     local sent = assert(SENT:decode_into(body))
-    local params = sent.params
-    if sent.method == "textDocument/publishDiagnostics" and params ~= nil then
+    if sent.method == "textDocument/publishDiagnostics" then
+      local params = assert(PUBLISH_SENT:decode_into(body)).params
       out[#out + 1] = { uri = params.uri, diagnostics = params.diagnostics }
     end
   end
@@ -241,6 +237,14 @@ local function change(root: string, name: string, text: string): string
     uri(root, name) .. ',"version":2},"contentChanges":[{"text":' .. Json.quote(text) .. "}]}}"
 end
 
+--- A change of the document `name` that sends each of `texts` whole.
+local function changes(root: string, name: string, texts: {string}): string
+  local quoted: {string} = {}
+  for _, text in ipairs(texts) do quoted[#quoted + 1] = '{"text":' .. Json.quote(text) .. "}" end
+  return '{"jsonrpc":"2.0","method":"textDocument/didChange","params":{"textDocument":{"uri":' ..
+    uri(root, name) .. ',"version":2},"contentChanges":[' .. table.concat(quoted, ",") .. "]}}"
+end
+
 local function close(root: string, name: string): string
   return '{"jsonrpc":"2.0","method":"textDocument/didClose","params":{"textDocument":{"uri":' ..
     uri(root, name) .. "}}}"
@@ -263,7 +267,7 @@ local EXIT <const> = '{"jsonrpc":"2.0","method":"exit"}'
 
 local function test_frames_split_at_every_byte()
   local bytes = framed({ '{"a":1}', '{"b":"ü"}' }) .. "Content-Length: 2\r\ncontent-type: x\r\n\r\n{}"
-  local frames = lsp.frames(trickle(bytes))
+  local frames = lsp.frames_of(trickle(bytes))
   assert(frames:next() == '{"a":1}')
   assert(frames:next() == '{"b":"ü"}')
   assert(frames:next() == "{}")
@@ -486,14 +490,14 @@ local function test_a_header_too_long_is_refused_whole_or_not()
   local body, trouble = lsp.frames(Stream.from_string(long)):next()
   assert(body == nil and trouble:find("a header longer than", 1, true) ~= nil, trouble)
   local endless = "X-Long: " .. ("a"):rep(9000)
-  local none, why = lsp.frames(trickle(endless)):next()
+  local none, why = lsp.frames_of(trickle(endless)):next()
   assert(none == nil and why:find("a header longer than", 1, true) ~= nil, why)
 end
 
 local function test_a_large_body_arriving_in_pieces_is_whole()
   local text = ("x"):rep(200000)
   local body = '"' .. text .. '"'
-  local frames = lsp.frames(trickle(lsp.frame(body)))
+  local frames = lsp.frames_of(trickle(lsp.frame(body)))
   assert(frames:next() == body)
 end
 
@@ -593,19 +597,207 @@ local function test_a_save_checks_every_open_document_again()
     table.concat(again, " "))
 end
 
-local function test_a_global_of_an_earlier_text_is_not_declared_again()
-  local root = assert(Fs.mkdtemp("cosmic-lsp-"))
-  local runs = published(served(root, { initialize(root),
-    open(root, "a.tl", "global shared_count: integer = 1\nreturn shared_count\n"),
-    open(root, "b.tl", 'global shared_count: string = "one"\nreturn shared_count\n') }))
-  assert(#runs == 2 and #runs[1] == #runs[2], messages_of(assert(runs[1])) .. "\n--\n" .. messages_of(assert(runs[2])))
+--- The diagnostics of publication `n` of those `ran` sent.
+local function nth(ran: Ran, n: integer): {Diagnostic}
+  return (assert(published(ran)[n], "no publication " .. tostring(n)))
 end
 
-local function test_a_required_module_errors_are_its_own()
+--- How many diagnostics each publication `ran` sent holds, in order:
+--- "1,0" for one then none.
+local function counts(ran: Ran): string
+  local out: {string} = {}
+  for _, diagnostics in ipairs(published(ran)) do out[#out + 1] = tostring(#diagnostics) end
+  return table.concat(out, ",")
+end
+
+--- The one diagnostic of `diagnostics`.
+local function only(diagnostics: {Diagnostic}): Diagnostic
+  assert(#diagnostics == 1, messages_of(diagnostics))
+  return assert(diagnostics[1])
+end
+
+--- Where `diagnostic` starts or ends, as `side` ("start" or "end") says.
+local function edge(diagnostic: Diagnostic, side: string): Place
+  return assert(diagnostic.range[side])
+end
+
+local function test_a_global_is_published_as_refused()
+  local root = assert(Fs.mkdtemp("cosmic-lsp-"))
+  local refused = only(nth(served(root, { initialize(root),
+    open(root, "main.tl", "local n = 1\nglobal shared_count: integer = n\nreturn shared_count\n") }), 1))
+  assert(refused.message:find("a global is not allowed in a cosmic build", 1, true) ~= nil, refused.message)
+  local start = edge(refused, "start")
+  assert(start.line == 1 and start.character == 0, tostring(start.line) .. ":" .. tostring(start.character))
+end
+
+local function test_a_test_file_that_returns_a_value_is_refused()
+  local root = assert(Fs.mkdtemp("cosmic-lsp-"))
+  local text = "local function test_it() assert(true) end\nreturn {}\n"
+  local refused = only(nth(served(root, { initialize(root), open(root, "it_test.tl", text) }), 1))
+  assert(refused.message:find("a test file may not both define test_* functions and return", 1, true) ~= nil,
+    refused.message)
+  assert(edge(refused, "start").line == 1, "at its return")
+end
+
+local function test_the_same_text_checks_the_same_each_time()
+  local root = assert(Fs.mkdtemp("cosmic-lsp-"))
+  -- A module that declares a global, which the document reads.
+  assert(Fs.write(root .. "/g.tl", "global G_VAL: integer = 1\nreturn {}\n"))
+  local reader = 'local _ = require("g")\nlocal n: integer = G_VAL\nreturn n\n'
+  local declares = "global G_OWN: integer = 1\nlocal s: string = G_OWN\nreturn s\n"
+  -- A request between two changes keeps the second from standing for
+  -- both ([`lsp.serve`] checks only the last of changes read together).
+  local between = '{"jsonrpc":"2.0","id":7,"method":"nosuch"}'
+  local ran = served(root, { initialize(root),
+    open(root, "m2.tl", reader), change(root, "m2.tl", reader), between, change(root, "m2.tl", reader),
+    open(root, "own.tl", declares), change(root, "own.tl", declares),
+  })
+  assert(counts(ran) == "0,0,0,2,2", counts(ran) .. "\n" .. messages_of(nth(ran, 2)))
+  local own, again = messages_of(nth(ran, 4)), messages_of(nth(ran, 5))
+  assert(own == again, own .. "\n--\n" .. again)
+end
+
+local function test_a_refused_record_shape_is_published_at_its_call()
+  local root = assert(Fs.mkdtemp("cosmic-lsp-"))
+  local text = 'local Shape = require("cosmic.shape")\nlocal record R\n  n: integer\nend\n' ..
+    'local name = "R"\nlocal R_SHAPE <const> = Shape.record_of(name)\nreturn R_SHAPE\n'
+  local refused = only(nth(served(root, { initialize(root), open(root, "main.tl", text) }), 1))
+  assert(refused.message:find("the name must be a string literal", 1, true) ~= nil, refused.message)
+  assert(edge(refused, "start").line == 5, tostring(edge(refused, "start").line))
+end
+
+local function test_a_column_after_a_surrogate_pair_counts_two_units()
+  local root = assert(Fs.mkdtemp("cosmic-lsp-"))
+  -- "😀" is four bytes and two UTF-16 units; the error is at `nope`.
+  local text = 'local _ = { "😀", nope }\n'
+  local wide = only(nth(served(root, { initialize(root), open(root, "main.tl", text) }), 1))
+  assert(edge(wide, "start").character == 18, tostring(edge(wide, "start").character))
+  assert(edge(wide, "end").character == 22, tostring(edge(wide, "end").character))
+  local narrow = only(nth(served(root, { initialize(root, '{"general":{"positionEncodings":["utf-8"]}}'),
+    open(root, "main.tl", text) }), 1))
+  assert(edge(narrow, "start").character == 20, tostring(edge(narrow, "start").character))
+end
+
+local function test_hover_counts_bytes_when_utf8_is_negotiated()
+  local root = assert(Fs.mkdtemp("cosmic-lsp-"))
+  local text = 'local F = require("cosmic.fs")\nlocal _ = { "😀", F.read }\n'
+  local ran = served(root, { initialize(root, '{"general":{"positionEncodings":["utf-8"]}}'),
+    open(root, "main.tl", text),
+    -- Byte 25 is the `d` of `read`; as UTF-16 units it would be the `}`.
+    at(2, "textDocument/hover", root, "main.tl", 1, 25),
+    -- Byte 19 is the space before `F`.
+    at(3, "textDocument/hover", root, "main.tl", 1, 19),
+  }, { fs_docs(root) })
+  local value = assert(hovered(ran, 2), ran.err)
+  assert(value:find("cosmic.fs.read", 1, true) ~= nil, value)
+  assert(hovered(ran, 3) == nil, "the space before F")
+end
+
+local function test_the_last_of_several_changes_is_the_text()
+  local root = assert(Fs.mkdtemp("cosmic-lsp-"))
+  local good, bad = "local n: integer = 1\nreturn n\n", "local n: integer = 'x'\nreturn n\n"
+  local fixed = served(root, { initialize(root), open(root, "main.tl", bad), changes(root, "main.tl", { bad, good }) })
+  assert(counts(fixed) == "1,0", counts(fixed))
+  local broken = served(root, { initialize(root), open(root, "main.tl", good), changes(root, "main.tl", { good, bad }) })
+  assert(counts(broken) == "0,1", counts(broken))
+end
+
+--- A `file:` URI of `path`, a space and a `%` escaped.
+local function escaped(path: string): string
+  return "file://" .. (path:gsub("%%", "%%25"):gsub(" ", "%%20"))
+end
+
+local function test_a_root_is_read_from_its_escaped_uri_or_its_path_or_folder()
+  local base = assert(Fs.mkdtemp("cosmic-lsp-"))
+  local root = base .. "/a b%c"
+  assert(Fs.mkdirs(root .. "/lib"))
+  assert(Fs.write(root .. "/lib/shapes.tl", 'return { sides = "three" }\n'))
+  local main = 'local shapes = require("lib.shapes")\nlocal n: integer = shapes.sides\nreturn n\n'
+  local opened = '{"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":{"uri":' ..
+    Json.quote(escaped(root .. "/main.tl")) .. ',"languageId":"teal","version":1,"text":' ..
+    Json.quote(main) .. "}}}"
+  local inits: {string} = {
+    '{"rootUri":' .. Json.quote(escaped(root)) .. "}",
+    '{"rootPath":' .. Json.quote(root) .. "}",
+    '{"workspaceFolders":[{"uri":' .. Json.quote(escaped(root)) .. ',"name":"w"}]}',
+  }
+  for _, params in ipairs(inits) do
+    local init = '{"jsonrpc":"2.0","id":1,"method":"initialize","params":' .. params .. "}"
+    -- The session starts at another directory: only the root it is
+    -- given finds lib/shapes.tl.
+    local found = only(nth(served(base, { init, opened }), 1))
+    assert(found.message:find("expected integer", 1, true) ~= nil, params .. ": " .. found.message)
+  end
+end
+
+local function test_a_template_is_a_module_and_testdata_is_none()
+  local root = assert(Fs.mkdtemp("cosmic-lsp-"))
+  assert(Fs.mkdirs(root .. "/testdata"))
+  assert(Fs.write(root .. "/data.tl", "local record data\n  record Page\n    title: string\n  end\nend\nreturn data\n"))
+  assert(Fs.write(root .. "/page.tmpl", "{{type Page from data}}{{mode text}}one {{.title}}"))
+  assert(Fs.write(root .. "/testdata/m.tl", "return { n = 1 }\n"))
+  local main = 'local page = require("page")\nlocal data = require("data")\n' ..
+    'local p: data.Page = { title = "t" }\nlocal n: integer = page.render(p)\nreturn n\n'
+  local rendered = only(nth(served(root, { initialize(root), open(root, "main.tl", main) }), 1))
+  assert(rendered.message:find("expected integer", 1, true) ~= nil, "the template renders a string: " ..
+      rendered.message)
+  local fixture = 'local m = require("testdata.m")\nreturn m\n'
+  local unfound = only(nth(served(root, { initialize(root), open(root, "main.tl", fixture) }), 1))
+  assert(unfound.message:find("testdata.m", 1, true) ~= nil, unfound.message)
+end
+
+--- Messages a session sent that are requests of its own.
+local function requests(ran: Ran): {string}
+  local out: {string} = {}
+  for _, body in ipairs(ran.sent) do
+    local sent = assert(SENT:decode_into(body))
+    local method = sent.method
+    if method ~= nil and sent.id ~= nil then out[#out + 1] = method end
+  end
+  return out
+end
+
+local function test_a_file_changed_on_disk_checks_open_documents_again()
   local root = assert(Fs.mkdtemp("cosmic-lsp-"))
   assert(Fs.mkdirs(root .. "/lib"))
-  assert(Fs.write(root .. "/lib/bad.tl", 'local n: integer = "x"\nreturn { n = n }\n'))
-  local main = 'local bad = require("lib.bad")\nlocal n: integer = bad.n\nreturn n\n'
-  local diagnostics = published(served(root, { initialize(root), open(root, "main.tl", main) }))[1]
-  assert(#diagnostics == 0, messages_of(diagnostics))
+  assert(Fs.write(root .. "/lib/shapes.tl", "return { sides = 3 }\n"))
+  local main = 'local shapes = require("lib.shapes")\nlocal n: integer = shapes.sides\nreturn n\n'
+  local watching = '{"workspace":{"didChangeWatchedFiles":{"dynamicRegistration":true}}}'
+  local initialized = '{"jsonrpc":"2.0","method":"initialized","params":{}}'
+  local registered = '{"jsonrpc":"2.0","id":1,"result":null}'
+  local first = served(root, { initialize(root, watching), initialized, registered,
+    open(root, "main.tl", main) })
+  local asked = table.concat(requests(first), " ")
+  assert(asked == "client/registerCapability", asked)
+  assert(table.concat(first.sent, "\n"):find('"globPattern":"**/*.tl"', 1, true) ~= nil)
+  assert(#requests(served(root, { initialize(root), initialized })) == 0,
+    "no registration where the editor takes none")
+  -- One session, served twice: the file changes between.
+  local wrote: {string} = {}
+  local session = lsp.new(root, { err = function(_line: string) end, store = nil })
+  local function send(messages: {string})
+    local _ = lsp.serve(session, Stream.from_string(framed(messages)), function(text: string): boolean, string
+      wrote[#wrote + 1] = text
+      return true, ""
+    end)
+  end
+  send({ initialize(root, watching), initialized, open(root, "main.tl", main) })
+  assert(Fs.write(root .. "/lib/shapes.tl", 'return { sides = "three" }\n'))
+  send({ '{"jsonrpc":"2.0","method":"workspace/didChangeWatchedFiles","params":{"changes":[{"uri":' ..
+      uri(root, "lib/shapes.tl") .. ',"type":2}]}}' })
+  local ran: Ran = { code = 0, sent = bodies(table.concat(wrote)), err = "" }
+  assert(counts(ran) == "0,1", "the file as it was types, and as it is now does not: " .. counts(ran))
+end
+
+local function test_cosmics_own_tree_holds_a_standard_module_to_its_stub()
+  local root = assert(Fs.mkdtemp("cosmic-lsp-"))
+  local text = "local x = 1\nreturn { x = x }\n"
+  local elsewhere = served(root, { initialize(root), open(root, "cosmic/thing.tl", text) })
+  assert(counts(elsewhere) == "0", messages_of(nth(elsewhere, 1)))
+  -- What tells cosmic's own tree ([`build.tree`]).
+  assert(Fs.mkdirs(root .. "/core"))
+  assert(Fs.mkdirs(root .. "/build"))
+  assert(Fs.write(root .. "/build/importer.tl", "return {}\n"))
+  local own = only(nth(served(root, { initialize(root), open(root, "cosmic/thing.tl", text) }), 1))
+  assert(own.message:find("its stub keeps every statement", 1, true) ~= nil, own.message)
 end

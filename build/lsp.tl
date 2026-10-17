@@ -11,7 +11,10 @@
 ---
 --- - Diagnostics, published as a document is opened, changed or saved:
 ---   the checker's syntax and type errors and its warnings, which a build
----   refuses as it refuses errors, each with [`teal.replacement`]'s hint.
+---   refuses as it refuses errors, each with [`teal.replacement`]'s hint,
+---   and what else a build refuses of a module: a `global`, a test that
+---   returns a value, and in cosmic's own tree its contracts and its stub
+---   ([`compilation.generate`]).
 ---   The text is checked in memory, as the editor holds it, after the
 ---   rewrite a build makes of it first ([`build.shape_specs`]), so a
 ---   column is the document's own. A `require` is answered as a build
@@ -26,6 +29,10 @@
 ---   [`cosmic.fs.read`].
 --- - Formatting: the whole document as `cosmic fix` writes it.
 ---
+--- Where the editor takes a registration of the files to watch, the
+--- server registers every `.tl` and `.tmpl` file at `initialized`, and
+--- checks each open document again when one changes on disk.
+---
 --- Positions are UTF-16, the protocol's default, or UTF-8 where the
 --- client offers it (`general.positionEncodings`). A line ends at "\r\n",
 --- "\n" or a lone "\r".
@@ -34,7 +41,9 @@
 --- or the stream's end, and 1 at an `exit` or an end that comes without
 --- `shutdown`, or a stream that breaks. A listener exits 0 when SIGINT or
 --- SIGTERM stops it, closing every connection still open, and 1 when it
---- cannot listen. A command line it refuses exits 2.
+--- cannot listen. A socket file that a listener which crashed left, one
+--- nothing listens at, is removed before listening at its path. A
+--- command line it refuses exits 2.
 ---
 --- Its `spec` (build/verb_spec.tl) is `bare`: standard output is the
 --- protocol's. Complaints go to standard error as `cosmic: lsp: ...`.
@@ -51,14 +60,21 @@ local Store = require("cosmic.store")
 local Stream = require("cosmic.stream")
 local Template = require("cosmic.template")
 local Url = require("cosmic.url")
+local analyzer = require("build.analyzer")
 local ast = require("build.ast")
 local bare = require("build.bare")
+local compilation = require("build.compilation")
 local docs = require("build.docs")
+local globals = require("build.globals")
 local plural = require("build.plural")
+local receivers = require("build.receivers")
 local shape_specs = require("build.shape_specs")
+local stub = require("build.stub")
 local teal = require("build.teal")
+local tree = require("build.tree")
 local verb_spec = require("build.verb_spec")
 local type compiler = require("build.compiler")
+local type build_module = require("build.module")
 
 local record lsp
   --- The verb's registration: see build/verb_spec.tl.
@@ -103,6 +119,14 @@ local record lsp
     err: function(line: string)
     built: compiler | nil
     env: compiler.Env | nil
+    --- The types the checker reports of the document it checks, which
+    --- [`build.contracts`] reads.
+    typed: receivers.State | nil
+    --- Whether the root is cosmic's own tree, which a build holds to its
+    --- contracts and its stubs as well.
+    own_tree: boolean
+    --- Whether the editor takes a registration of the files to watch.
+    watch: boolean
     --- The globals a fresh environment has, so a check drops those an
     --- earlier text declared.
     base_globals: {string:boolean}
@@ -191,8 +215,17 @@ local record General
   positionEncodings: {string} | nil
 end
 
+local record DynamicRegistration
+  dynamicRegistration: boolean | nil
+end
+
+local record WorkspaceCapabilities
+  didChangeWatchedFiles: DynamicRegistration | nil
+end
+
 local record ClientCapabilities
   general: General | nil
+  workspace: WorkspaceCapabilities | nil
 end
 
 local record InitializeParams
@@ -262,6 +295,28 @@ local record ResponseError
   message: string
 end
 
+local record Watcher
+  globPattern: string
+end
+
+local record WatchOptions
+  watchers: {Watcher}
+end
+
+local record Registration
+  id: string
+  method: string
+  registerOptions: WatchOptions
+end
+
+local record RegistrationParams
+  registrations: {Registration}
+end
+
+--- The id of the one request the server makes, which registers the
+--- files it watches: its answer is read as any response is, and dropped.
+local WATCH_REQUEST <const> = 1
+
 --- `body` with its header, as one message on the wire.
 function lsp.frame(body: string): string
   return "Content-Length: " .. tostring(#body) .. "\r\n\r\n" .. body
@@ -317,14 +372,16 @@ local function header_of(buffer: string): Header | nil, string
   return { finish = finish, length = length }, ""
 end
 
---- The messages `reader` holds, one body at a time ([`lsp.Frames`]).
-function lsp.frames(reader: Stream.Reader): lsp.Frames
+--- The messages `read` gives, one body at a time ([`lsp.Frames`]):
+--- `read` answers the next chunk of the stream, as a [`Stream.Reader`]'s
+--- `read` does.
+function lsp.frames_of(read: function(): string | nil, string): lsp.Frames
   local held: FrameState = { buffer = "", ended = false }
-  --- The next chunk `reader` gives: nil and "" at its end, nil and why
+  --- The next chunk `read` gives: nil and "" at its end, nil and why
   --- where it breaks.
   local function more(): string | nil, string
     if held.ended then return nil, "" end
-    local chunk, trouble = reader:read()
+    local chunk, trouble = read()
     if chunk == nil then
       held.ended = true
       return nil, trouble
@@ -378,6 +435,11 @@ function lsp.frames(reader: Stream.Reader): lsp.Frames
       return body
     end,
   }
+end
+
+--- The messages `reader` holds, one body at a time ([`lsp.Frames`]).
+function lsp.frames(reader: Stream.Reader): lsp.Frames
+  return lsp.frames_of(function(): string | nil, string return reader:read() end)
 end
 
 --- The path a `file:` URI names, or nil for another scheme.
@@ -528,6 +590,9 @@ function lsp.new(root: string, options?: lsp.Options): lsp.Session
     err = given.err or bare.err,
     built = nil,
     env = nil,
+    typed = nil,
+    own_tree = false,
+    watch = false,
     base_globals = {},
     served = {},
     store = given.store,
@@ -616,6 +681,9 @@ local function checker(session: lsp.Session): compiler, compiler.Env
   if made == nil then error(env_trouble, 0) end
   teal.strip(made)
   for name in pairs(made.globals) do session.base_globals[name] = true end
+  session.typed = receivers.install(made)
+  local own, _ = tree.is_own(session.root)
+  session.own_tree = own == true
   session.built, session.env = loaded, made
   return loaded, made
 end
@@ -624,14 +692,21 @@ end
 --- which would be declared twice, and the project modules served before
 --- when one of them now reads otherwise (an open document, or the file,
 --- changed, or one shadows another), all of them, since one that requires
---- the changed one may change with it. The `cosmic.*` modules stay, which
---- is most of what a check costs.
+--- the changed one may change with it. A module whose global was dropped
+--- is checked again too, to declare it again: the served modules are
+--- dropped whenever an earlier check declared a global, the document's
+--- own or a module's. The `cosmic.*` modules stay, which is most of what
+--- a check costs.
 local function refresh(session: lsp.Session, env: compiler.Env)
-  for name in pairs(env.globals) do
-    if session.base_globals[name] ~= true then env.globals[name] = nil end
-  end
   local stale = false
+  for name in pairs(env.globals) do
+    if session.base_globals[name] ~= true then
+      env.globals[name] = nil
+      stale = true
+    end
+  end
   for name, was in pairs(session.served) do
+    if stale then break end
     local now = project_module(session, name)
     if now == nil or now.file ~= was.file or now.text ~= was.text then
       stale = true
@@ -646,63 +721,194 @@ local function refresh(session: lsp.Session, env: compiler.Env)
   session.served = {}
 end
 
---- The names of the tests of the test file `document` ([`cosmic.layout`]'s
---- `tests`), whose functions nothing calls: a build does not warn of them.
-local function tests_of(built: compiler, document: lsp.Document): {string:boolean}
-  local out: {string:boolean} = {}
-  if document.name:match("_test%.tl$") == nil then return out end
-  local parsed, _ = ast.parse(built, document.text, document.name)
-  if parsed == nil then return out end
-  for _, statement in ipairs(parsed.node) do
-    local named = statement.name
-    if statement.kind == "local_function" and named ~= nil then
-      local token = named.tk
-      if token ~= nil and token:match("^test_") ~= nil then out[token] = true end
-    end
+--- The kind a build gives the file `name` below the root, as the
+--- `inputs` view of build/analysis_schema.tl names it: a declaration, a
+--- test, an example, a program's `cmd/<name>/main.tl`, or a module.
+local function kind_of(name: string): string
+  if name:match("%.d%.tl$") ~= nil then return "decl" end
+  if name:match("_test%.tl$") ~= nil then return "test" end
+  if name:match("_example%.tl$") ~= nil then return "example" end
+  if name:match("^cmd/[^/]+/main%.tl$") ~= nil then return "main" end
+  return "module"
+end
+
+--- What a build refuses beyond the checker's errors: where, in the
+--- checker's lines and columns, and why.
+local record Refusal
+  line: integer
+  column: integer
+  message: string
+end
+
+--- The number `digits` spell.
+local function number_of(digits: string): integer
+  local value = math.tointeger(tonumber(digits))
+  if value == nil then return 1 end
+  return value
+end
+
+--- The refusal `said`, as a build words one (`file:line:column: why`,
+--- `file:line: why` or `file: why`), at the place it names: the first
+--- line, or its first column, where it names none.
+local function refusal_of(said: string): Refusal
+  local y, x, why = said:match("^[^:\n]*:(%d+):(%d+): (.*)$")
+  if y ~= nil and x ~= nil and why ~= nil then
+    return { line = number_of(y), column = number_of(x), message = why }
   end
+  local line, rest = said:match("^[^:\n]*:(%d+): (.*)$")
+  if line ~= nil and rest ~= nil then
+    return { line = number_of(line), column = 1, message = rest }
+  end
+  return { line = 1, column = 1, message = said:match("^[^:\n]*: (.*)$") or said }
+end
+
+--- The refusals `said` holds, one a line, as [`compilation.generate`]
+--- joins its contracts' ([`refusal_of`]): what a build prints, put where
+--- it says, since it answers them in no other shape.
+local function refusals_of(said: string): {Refusal}
+  local out: {Refusal} = {}
+  for line in said:gmatch("[^\n]+") do out[#out + 1] = refusal_of(line) end
   return out
+end
+
+--- The line of the top-level `return` of `parsed`, or 1 where it has none.
+local function return_line(parsed: ast.Parsed): integer
+  for _, statement in ipairs(parsed.node) do
+    if statement.kind == "return" then return statement.y end
+  end
+  return 1
+end
+
+--- The plan a build makes of `document` ([`compilation.collect`]), from
+--- a parse of it, and what a build refuses that the parse tells: a
+--- `global` ([`compilation.global_refusal`]), a test that returns a value
+--- or an example that returns none ([`compilation.refusal`]), a
+--- [`Test.policy`] the build does not take. No plan for a text that does
+--- not parse, whose errors the checker reports, or whose analysis is
+--- refused.
+local function plan_of(built: compiler, document: lsp.Document): build_module.Plan | nil, {Refusal}
+  local refusals: {Refusal} = {}
+  local parsed, _ = ast.parse(built, document.text, document.name)
+  if parsed == nil then return nil, refusals end
+  for _, place in ipairs(globals.found(parsed)) do
+    refusals[#refusals + 1] = refusal_of(compilation.global_refusal(document.name .. ":" ..
+        tostring(place.line) .. ":" .. tostring(place.column)))
+  end
+  local analysis, trouble = analyzer.analysis_of(built, parsed, document.text)
+  if analysis == nil then
+    refusals[#refusals + 1] = refusal_of(trouble)
+    return nil, refusals
+  end
+  local kind = kind_of(document.name)
+  local tests: {string} = {}
+  if kind == "test" then
+    tests = analysis.tests
+  elseif kind == "example" then
+    for _, example in ipairs(analysis.examples) do tests[#tests + 1] = example.name end
+  end
+  -- A source that returns nothing has no stub ([`build.derivation`]).
+  local made: stub.Made | nil = nil
+  if analysis.has_top_level_return then made = stub.made(parsed) end
+  local plan: build_module.Plan = {
+    path = module_of(document.name),
+    file = document.name,
+    kind = kind,
+    source = document.text,
+    source_hash = "",
+    requires = {},
+    tests = tests,
+    inputs = analysis.inputs,
+    has_top_level_return = analysis.has_top_level_return,
+    generated = false,
+    key = nil,
+    graph_key = nil,
+    lua = nil,
+    stub = made,
+  }
+  local refused = compilation.refusal(plan)
+  if refused ~= nil then
+    local at = refusal_of(refused)
+    at.line = return_line(parsed)
+    refusals[#refusals + 1] = at
+  end
+  return plan, refusals
 end
 
 --- What one check of a document found: the errors of the document
 --- itself, and the text and splices they are positioned in.
 local record Checked
   errors: {compiler.Error}
-  --- Why the build's rewrite refused the text, as the compiler words a
-  --- refusal, and the line of the call refused; nil when it did not.
-  refusal: string | nil
-  refusal_line: integer
+  --- What a build refuses beyond the checker's errors.
+  refusals: {Refusal}
   --- The text as checked, after the build's rewrite.
   text: string
   splices: {shape_specs.Splice}
   refused: {string:boolean}
 end
 
+--- The checker's reading of a text [`compilation.generate`] refused for
+--- the checker's errors, which it hands its renderer.
+local record Rendered
+  result: compiler.Result | nil
+end
+
 --- Checks `document` in `env`, as a build checks it.
-local function check(built: compiler, env: compiler.Env, document: lsp.Document): Checked
+local function check(session: lsp.Session, built: compiler, env: compiler.Env,
+                     document: lsp.Document): Checked
+  -- TODO: a build also refuses a `require` that reaches into a closed
+  -- directory, or into build/ or a test in cosmic's own tree
+  -- (build/positions.tl), which wants every module the root holds: it
+  -- waits on a session listing the root's modules as a build stages them.
   local none: {shape_specs.Splice} = {}
   local found: {compiler.Error} = {}
+  local plan, refusals = plan_of(built, document)
+  -- A build refuses a test that returns a value, or an example that
+  -- returns none, before it checks it ([`compilation.refusal`]).
+  if plan ~= nil and compilation.refusal(plan) ~= nil then
+    return { errors = found, refusals = refusals, text = document.text, splices = none, refused = {} }
+  end
   local resolution = shape_specs.splices(built, env, document.name, module_of(document.name),
     document.text)
   if resolution.refusal ~= "" then
-    return { errors = found, refusal = resolution.refusal, refusal_line = resolution.line,
-      text = document.text, splices = none, refused = {} }
+    local refused = refusal_of(resolution.refusal)
+    refused.line = resolution.line
+    refusals[#refusals + 1] = refused
+    return { errors = found, refusals = refusals, text = document.text, splices = none, refused = {} }
   end
   local splices = resolution.splices
   local text = shape_specs.spliced(document.text, splices)
-  local result = built.check_string(text, env, document.name, "tl")
-  local tests = tests_of(built, document)
+  local result: compiler.Result | nil = nil
+  if plan == nil or plan.kind == "decl" then
+    result = built.check_string(text, env, document.name, "tl")
+  else
+    -- Compiled as a build compiles it, which drops the warnings a build
+    -- discounts and refuses what a build refuses beyond the checker's
+    -- errors: in cosmic's own tree its stub and its contracts, and Lua's
+    -- refusal of the code. The checker's reading of a text it refuses is
+    -- what it hands the renderer. The type it records of the module is
+    -- put back: an open document is read through `search_module`.
+    local rendered: Rendered = { result = nil }
+    local kept = env.modules[plan.path]
+    local made, trouble = compilation.generate(plan, built, env, assert(session.typed),
+      session.own_tree, true, function(_file: string, _source: string, checked: compiler.Result): string
+        rendered.result = checked
+        return ""
+      end)
+    env.modules[plan.path] = kept
+    result = rendered.result
+    if made == nil and result == nil then
+      for _, refusal in ipairs(refusals_of(trouble)) do refusals[#refusals + 1] = refusal end
+    end
+  end
+  if result == nil then
+    return { errors = found, refusals = refusals, text = text, splices = splices, refused = {} }
+  end
   -- A text with a syntax error has no warnings, nor a list of them: the
   -- list of lists ends there.
   for _, group in ipairs({ result.syntax_errors, result.type_errors, result.warnings }) do
-    for _, e in ipairs(group) do
-      local own = e.filename == "" or e.filename == document.name
-      local variable = e.variable
-      local a_test = e.code == "unused" and e.declares == "function" and variable ~= nil and
-        tests[variable] == true
-      if own and not a_test then found[#found + 1] = e end
-    end
+    for _, e in ipairs(group) do found[#found + 1] = e end
   end
-  return { errors = found, refusal = nil, refusal_line = 0, text = text, splices = splices,
+  return { errors = found, refusals = refusals, text = text, splices = splices,
     refused = teal.refused_type_requires(document.name, text, result) }
 end
 
@@ -715,7 +921,7 @@ local function diagnose(session: lsp.Session, document: lsp.Document): {string}
   -- later check reads, and a text read again is checked again.
   local order = env.loaded_order
   local before = #order
-  local ok, outcome = pcall(check, built, env, document)
+  local ok, outcome = pcall(check, session, built, env, document)
   for i = #order, before + 1, -1 do
     local name = order[i]
     if name ~= nil then env.loaded[name] = nil end
@@ -743,8 +949,9 @@ local function diagnose(session: lsp.Session, document: lsp.Document): {string}
     }
     out[#out + 1] = assert(Json.encode(diagnostic))
   end
-  local refusal = checked.refusal
-  if refusal ~= nil then add(checked.refusal_line, 1, refusal, nil) end
+  for _, refusal in ipairs(checked.refusals) do
+    add(refusal.line, refusal.column, refusal.message, nil)
+  end
   for _, e in ipairs(checked.errors) do
     local instead = teal.replacement(e, checked.text, document.name, checked.refused)
     local message = e.msg
@@ -887,6 +1094,11 @@ local function initialize(session: lsp.Session, params: InitializeParams): Initi
   for _, name in ipairs(offered) do
     if name == "utf-8" then session.encoding = "utf-8" end
   end
+  local workspace: WorkspaceCapabilities | nil = nil
+  if capabilities ~= nil then workspace = capabilities.workspace end
+  local watched: DynamicRegistration | nil = nil
+  if workspace ~= nil then watched = workspace.didChangeWatchedFiles end
+  session.watch = watched ~= nil and watched.dynamicRegistration == true
   session.initialized = true
   return {
     capabilities = {
@@ -897,6 +1109,28 @@ local function initialize(session: lsp.Session, params: InitializeParams): Initi
     },
     serverInfo = { name = "cosmic" },
   }
+end
+
+--- The request that registers the files the server watches: every
+--- module a `require` may read ([`candidates`]).
+local function watch_request(): string
+  local params: RegistrationParams = { registrations = { {
+    id = "cosmic.watch",
+    method = "workspace/didChangeWatchedFiles",
+    registerOptions = { watchers = { { globPattern = "**/*.tl" }, { globPattern = "**/*.tmpl" } } },
+  } } }
+  return '{"jsonrpc":"2.0","id":' .. tostring(WATCH_REQUEST) ..
+    ',"method":"client/registerCapability","params":' .. assert(Json.encode(params)) .. "}"
+end
+
+--- A publication of each open document's diagnostics: a document may
+--- require the one saved, or the file changed on disk.
+local function republished(session: lsp.Session): {string}
+  local out: {string} = {}
+  for _, document in pairs(session.documents) do
+    out[#out + 1] = publication(document.uri, diagnose(session, document))
+  end
+  return out
 end
 
 --- The response to the request `id` (encoded) answering `result` (encoded).
@@ -959,6 +1193,13 @@ local function handle(session: lsp.Session, message: Message): {string}
     out[#out + 1] = response(id, "null")
     return out
   end
+  if method == "initialized" then
+    if session.watch then out[#out + 1] = watch_request() end
+    return out
+  end
+  if method == "workspace/didChangeWatchedFiles" then
+    return republished(session)
+  end
   if method:sub(1, #"textDocument/") ~= "textDocument/" then
     if is_request then out[#out + 1] = failure(id, METHOD_NOT_FOUND, "no method " .. method) end
     return out
@@ -985,10 +1226,7 @@ local function handle(session: lsp.Session, message: Message): {string}
       end
     end
   elseif method == "textDocument/didSave" then
-    -- A document the others require may be the one saved.
-    for _, document in pairs(session.documents) do
-      out[#out + 1] = publication(document.uri, diagnose(session, document))
-    end
+    for _, published in ipairs(republished(session)) do out[#out + 1] = published end
   elseif method == "textDocument/didClose" then
     local document = document_of(session, params)
     if document ~= nil then
@@ -1267,6 +1505,28 @@ local function listen(root: string, listeners: {Net.Address}): integer
   return bare.ok
 end
 
+--- Removes the socket file at `path` that a listener which did not close,
+--- one that crashed, left behind: a socket nothing listens at, where a
+--- connect fails. Anything else at `path`, a socket a server
+--- listens at or a file of another kind, is left for the listen to refuse.
+local function clear_stale(path: string)
+  -- A link, to a socket or to anything else, is left alone.
+  local link, _ = Fs.readlink(path)
+  if link ~= nil then return end
+  local st, _ = Fs.stat(path)
+  if st == nil or st.kind ~= "socket" then return end
+  local conn, _ = Net.connect(Net.unix(path), { timeout_ns = Clock.seconds(1) })
+  if conn ~= nil then
+    local _, _ = conn:close()
+    return
+  end
+  -- TODO: remove the file only where the connect is refused, not where a
+  -- live listener's backlog is full, which fails a connect at once too:
+  -- that waits on Net.connect answering why it failed in a shape of its
+  -- own, an errno, rather than in words.
+  local _, _ = Fs.remove(path)
+end
+
 --- Runs the command line `argv`, `lsp` at slot 1, and answers the exit
 --- code.
 local function run(argv: {integer:string}): integer
@@ -1306,6 +1566,7 @@ local function run(argv: {integer:string}): integer
   if #listeners == 0 then
     return lsp.serve(lsp.new(root), Stream.from_fd(0), bare.out)
   end
+  for _, path in ipairs(parsed.all["--socket"] or none) do clear_stale(path) end
   return listen(root, listeners)
 end
 

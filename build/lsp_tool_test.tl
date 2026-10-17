@@ -174,3 +174,53 @@ local function test_a_socket_listener_stops_at_sigterm_with_a_connection_open(tm
   served_and_stopped(tmp, started, Net.unix(path))
   assert(Fs.exists(path) ~= true, "the stop removes the socket file")
 end
+
+--- The signal that ends a process with no chance to clean up, as a crash does.
+local SIGKILL <const> = 9
+
+local function test_a_socket_file_a_crashed_listener_left_is_listened_at_again(tmp: string)
+  if unix_socket.skipped(tmp) then return end
+  local path = tmp .. "/lsp.sock"
+  local crashed = listening(tmp, { "lsp", "--socket", path })
+  assert(crashed.handle:stop(SIGKILL))
+  local result = assert(crashed.handle:wait(Clock.seconds(20)))
+  assert(result.signal == SIGKILL, tostring(result.signal))
+  assert(Fs.exists(path) == true, "the crash leaves the socket file")
+  local started = listening(tmp, { "lsp", "--socket", path })
+  assert(started.at == path, started.at)
+  served_and_stopped(tmp, started, Net.unix(path))
+end
+
+local function test_a_socket_path_holding_another_file_is_left_alone(tmp: string)
+  local path = tmp .. "/lsp.sock"
+  assert(Fs.write(path, "not a socket\n"))
+  local ran = cosmic(tmp, { "lsp", "--socket", path })
+  assert(ran.code == 1, tostring(ran.code) .. ": " .. ran.err)
+  assert(Fs.read(path) == "not a socket\n", "the file is not removed")
+end
+
+local function test_a_listener_beyond_the_loopback_is_warned_of(tmp: string)
+  local err = tmp .. "/lsp.err"
+  local fd = assert(Fs.open_write(err))
+  local start = this_program.program({ "lsp", "--listen", "0.0.0.0:0" }, { cwd = tmp, stdout = fd, stderr = fd })
+  local handle = assert(Child.start(start.argv, start.options))
+  assert(Fs.close(fd))
+  local deadline = Clock.monotonic_ns() + Clock.seconds(30)
+  local said = ""
+  while said:find("warning: ", 1, true) == nil do
+    said = Fs.read(err) or ""
+    if Child.wait_any({ handle }, Clock.ms(10)) ~= nil then
+      -- A sandboxed worker may be refused an address beyond its loopback.
+      Test.skip("this host refuses a listener at 0.0.0.0: " .. said)
+      return
+    end
+    assert(Clock.monotonic_ns() < deadline, said)
+  end
+  assert(handle:stop())
+  local result = assert(handle:wait(Clock.seconds(20)))
+  assert(result.code == 0, tostring(result.code) .. ": " .. said)
+  local at = said:match("cosmic: lsp: listening at (0%.0%.0%.0:%d+)\n")
+  assert(at ~= nil, said)
+  assert(said:find("cosmic: lsp: warning: " .. at .. " is reached from beyond this host", 1, true) ~= nil,
+    said)
+end

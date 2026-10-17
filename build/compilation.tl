@@ -549,6 +549,13 @@ local function held_to_stub(m: Module, built: compiler, env: compiler.Env,
   return true, ""
 end
 
+--- Why a cosmic build refuses a global declared at `at` (`file:line:column`).
+function compilation.global_refusal(at: string): string
+  return at .. ": a global is not allowed in a cosmic build: it reaches other modules by no " ..
+    "`require`, which is all a build's cache and its order see -- put the value " ..
+    "in a module and `require` it"
+end
+
 --- Why the build may not go on: the globals declared by any source the
 --- tree holds but tl's own, one line each at the declaration, in file
 --- order, or nil when there are none. A module's compile key holds its
@@ -572,10 +579,8 @@ function compilation.refuse_globals(db: Sqlite.Handle): string | nil, string
   end
   local lines: {string} = {}
   for _, row in ipairs(rows) do
-    lines[#lines + 1] = row:text(1) .. ":" .. row:text(2) .. ":" .. row:text(3) ..
-      ": a global is not allowed in a cosmic build: it reaches other modules by no " ..
-      "`require`, which is all a build's cache and its order see -- put the value " ..
-      "in a module and `require` it"
+    lines[#lines + 1] = compilation.global_refusal(row:text(1) .. ":" .. row:text(2) .. ":" ..
+        row:text(3))
   end
   return table.concat(lines, "\n"), ""
 end

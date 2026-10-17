@@ -382,10 +382,12 @@ promises lean on come first:
     `Last-Modified` for a file a handler serves itself.
   - File-based routing that generates the route table, and OpenAPI
     documents made from typed routes.
+
 - go to definition and completion in `cosmic lsp` ([`build/lsp.tl`]), which
   answers diagnostics, hover and formatting today. tl's type report answers
-  both: `env.report_types`, `get_types`, `symbols_in_scope` and `undeclared`,
-  none of which [`build/compiler.d.tl`] declares yet.
+  both: with `env.report_types` on, which [`build/compiler.d.tl`] declares,
+  its `get_types`, `symbols_in_scope` and `undeclared`, which it does not
+  declare yet.
 
 ## documentation and examples
 
