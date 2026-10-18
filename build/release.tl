@@ -4,21 +4,22 @@
 --- holding three assets: `cosmic`, `SHA256SUMS` (`<sha256>  cosmic`) and
 --- `source.json` (the commit, the digest and the run that made it).
 ---
---- The releases are found through their tags, which GitHub's REST API
---- makes only when a release is published, and main's history. The
+--- The releases are found through their tags and main's history. The
 --- API's list of releases is no use: it serves only the first 1000, page
 --- 11 answering 422 or not by the server it reaches, and orders them by
 --- the day of each tagged commit, so a draft published days after its
 --- commit lands among the old. Instead the API's git matching-refs names
---- every `next-` tag in one request; main's commits are read newest
---- first, a page of 100 at a time; and each commit that has a tag is
---- asked for its release, until enough are found. So the newest release
---- is that of the latest commit on main that has one, three requests.
---- The history read stops at a page none of whose commits has a tag:
---- releases began after cosmic's earlier history, and a hundred commits
---- in a row with none published means the history read has passed them.
---- A draft, a release not tagged `next-<40 hex>` and one missing any of
---- the three assets, or with others, are passed over.
+--- every `next-` tag in one request (all of them, a few hundred bytes
+--- each); main's commits are read newest first, a page of 100 at a time;
+--- and each commit that has a tag is asked for its release by the tag,
+--- until enough are found. ci/cosmic_ci/prerelease.tl makes the tag
+--- before the draft, so a tag may have only a draft, or nothing, behind
+--- it: the API answers 404 for either, and the commit is passed over. So
+--- the newest release is that of the latest commit on main that has one,
+--- three requests. The history read ends once every tagged commit has
+--- been passed, or at its end, and fails rather than answer in part past
+--- 100 pages. A draft, a release not tagged `next-<40 hex>` and one
+--- missing any of the three assets, or with others, are passed over.
 ---
 --- With no criterion the newest is picked. `--commit <hex>` keeps the
 --- release whose commit starts with the hex (7 to 40 digits), and
@@ -48,9 +49,11 @@
 --- * nothing given: prints the release as the three lines of
 ---   ci/cosmic-driver.pin (commit, URL, sha256), or with `--json` an
 ---   object, without downloading the binary.
---- * `--list`: prints the matches, newest first, up to `-n` (20 by
----   default): the publication time and commit, a line each, or with
----   `--json` an array. Nothing is downloaded or verified.
+--- * `--list`: prints the matches, up to `-n` (20 by default), in main's
+---   order, latest commit first (by `--commit`, newest published first):
+---   the publication time and commit, a line each, or with `--json` an
+---   array. Each costs a request, against an unauthenticated limit of 60
+---   an hour. Nothing is downloaded or verified.
 --- * `-o <file>`: writes the binary there, mode 0755.
 --- * `--cache`: writes it where bin/cosmic-bootstrap caches the pin's,
 ---   `$XDG_CACHE_HOME/cosmic/bootstrap/cosmic-<sha256>`, and prints that
@@ -112,6 +115,9 @@ local record verb
     --- which the printed and pinned URLs still name GitHub's.
     api?: string
     downloads?: string
+    --- Called with each API request's URL before it is sent, for a test
+    --- to see what was asked.
+    requested?: function(url: string)
     --- The variables read (`GH_TOKEN`, `XDG_CACHE_HOME`, `HOME`), by
     --- name; the process's own when nil.
     env?: {string:string}
@@ -346,6 +352,8 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
       ["User-Agent"] = "cosmic-release",
     }
     if token ~= "" then headers["Authorization"] = "Bearer " .. token end
+    local requested = to.requested
+    if requested ~= nil then requested(url) end
     local got, why = Http.get(url, options(headers))
     if got == nil then return nil, url .. ": " .. why end
     local status = tostring(got.status)
@@ -426,9 +434,10 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
       end
       return sorted(), ""
     end
-    -- Each commit that has a `next-` tag, which only a published release
-    -- gets.
+    -- Each commit that has a `next-` tag, and how many of them the
+    -- history read has yet to pass.
     local tagged: {string:boolean} = {}
+    local unpassed = 0
     local refs_url = repo_url .. "/git/matching-refs/tags/next-"
     local refs_text, refs_why = call(refs_url)
     if refs_text == nil then
@@ -439,8 +448,12 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
     if refs == nil then return nil, refs_url .. ": no list of refs: " .. refs_trouble end
     for _, ref in ipairs(refs) do
       local commit = ref.ref:match("^refs/tags/next%-(%x+)$")
-      if commit ~= nil and #commit == 40 then tagged[commit:lower()] = true end
+      if commit ~= nil and #commit == 40 and tagged[commit:lower()] == nil then
+        tagged[commit:lower()] = true
+        unpassed = unpassed + 1
+      end
     end
+    if unpassed == 0 then return found, "" end
     local asked: {string:boolean} = {}
     local query = "?sha=main&per_page=" .. tostring(per_page)
     if until_ns ~= nil then
@@ -455,12 +468,11 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
       end
       local commits, shape_trouble: {Commit} | nil, string = Shape.decode_into(text, HISTORY_SPEC)
       if commits == nil then return nil, url .. ": no list of commits: " .. shape_trouble end
-      local any_tagged = false
       for _, commit in ipairs(commits) do
-        if tagged[commit.sha] == true then any_tagged = true end
         -- History that grew between two pages' requests repeats a commit.
         if tagged[commit.sha] == true and asked[commit.sha] == nil then
           asked[commit.sha] = true
+          unpassed = unpassed - 1
           local release_url = releases_url .. "/tags/next-" .. commit.sha
           local release_text, release_why = call(release_url)
           if release_text == nil and release_why ~= "" then return nil, release_why end
@@ -471,11 +483,13 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
             take(r)
             if #found >= need then return found, "" end
           end
+          if unpassed == 0 then return found, "" end
         end
       end
-      if not any_tagged or #commits < per_page then break end
+      if #commits < per_page then return found, "" end
     end
-    return found, ""
+    return nil, repo_url .. ": main's history runs past " .. plural.count(max_pages, "page") ..
+      " with tags not yet passed"
   end
 
   local function written(ok: boolean, why: string): integer

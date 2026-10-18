@@ -19,6 +19,8 @@ local record Ran
   code: integer
   out: string
   err: string
+  --- Each API request's URL, in order.
+  asked: {string}
 end
 
 --- What `--json` prints of one release.
@@ -89,7 +91,9 @@ local function run(words: {string}, script: {string}, env?: {string:string}): Ra
   for i, one in ipairs(script) do scripts[i] = { one } end
   local out: {string} = {}
   local err: {string} = {}
+  local asked: {string} = {}
   local code = release.run(argv, {
+    requested = function(url: string) asked[#asked + 1] = url end,
     script = scripts,
     api = "http://cosmic.test/repo",
     downloads = "http://cosmic.test/download/",
@@ -100,7 +104,7 @@ local function run(words: {string}, script: {string}, env?: {string:string}): Ra
     end,
     err = function(line: string) err[#err + 1] = line .. "\n" end,
   })
-  return { code = code, out = table.concat(out), err = table.concat(err) }
+  return { code = code, out = table.concat(out), err = table.concat(err), asked = asked }
 end
 
 --- Asserts `ran` failed with exit 1 saying `says`, and printed nothing.
@@ -168,7 +172,7 @@ local function test_a_prefix_naming_too_many_tags_is_refused()
   failed(run({ "--commit", "1234567" }, ten), "no release matches, among the tags")
 end
 
---- The history comes from the API cut at `--until`; a commit made by
+--- The history is main's, asked for cut at `--until`; a commit made by
 --- then whose release was published after is passed over, a time
 --- includes itself, and a date runs to the second before the next
 --- midnight.
@@ -180,26 +184,32 @@ local function test_until_takes_the_latest_published_at_or_before()
     sums(), source(older) })
   assert(at.code == 0, at.err)
   assert(at.out:sub(1, 41) == older .. "\n", "a time includes itself: " .. at.out)
+  assert(at.asked[2] == "http://cosmic.test/repo/commits?sha=main&per_page=100&until=2026-10-17T10:00:00Z&page=1",
+    tostring(at.asked[2]))
   local day = run({ "--until", "2026-10-17" }, {
     refs(late, older), history(late, older),
     ok(entry(late, "2026-10-18T00:00:00Z")), ok(entry(older, "2026-10-17T23:59:59Z")),
     sums(), source(older) })
   assert(day.code == 0, day.err)
   assert(day.out:sub(1, 41) == older .. "\n", "a date ends before the next one's midnight: " .. day.out)
+  assert(tostring(day.asked[2]):find("&until=2026-10-17T23:59:59Z&", 1, true) ~= nil, tostring(day.asked[2]))
   failed(run({ "--until", "2026-01-01" }, { refs(newest), history() }), "no release matches, published by --until")
 end
 
---- An untagged commit is not asked for, a tagged one whose release is
---- gone (404) or unlike a published prerelease is passed over.
+--- An untagged commit is not asked for, and a tagged one whose release
+--- is gone (404), a draft, or unlike a published prerelease is passed
+--- over.
 local function test_history_passes_over_commits_without_a_usable_release()
   local untagged = string.rep("9", 40)
   local gone = "ab" .. string.rep("e", 38)
+  local draft = "ab" .. string.rep("f", 38)
   local ran = run({}, {
-    refs(newest, gone, oldest, older),
-    history(untagged, newest, gone, oldest, older),
+    refs(newest, gone, draft, oldest, older),
+    history(untagged, newest, gone, draft, oldest, older),
     ok(string.format('{"tag_name":"next-%s","draft":false,"prerelease":false,"published_at":"%s","assets":%s}',
       newest, "2026-10-18T10:00:00Z", all_assets)),
     reply("404 Not Found", "{}"),
+    ok(entry(draft, "2026-10-18T09:30:00Z", true)),
     ok(entry(oldest, "2026-10-18T09:00:00Z", false,
       '[{"name":"cosmic"},{"name":"SHA256SUMS"},{"name":"source.json"},{"name":"extra"}]')),
     ok(entry(older, "2026-10-17T10:00:00Z")),
@@ -209,26 +219,49 @@ local function test_history_passes_over_commits_without_a_usable_release()
   assert(ran.out:sub(1, 41) == older .. "\n", ran.out)
 end
 
---- A full page of history leads to the next, a commit the next repeats
---- (history that grew between the two requests) is asked for once, and
---- a page with no tagged commit ends the read: the script holds no
---- third page.
-local function test_history_is_read_until_a_page_without_a_tag()
-  local first: {string} = {}
-  for i = 1, 99 do first[i] = string.format("%040x", i) end
-  first[100] = older
+--- A full page of history leads to the next, even one with no tagged
+--- commit; a commit the next repeats (history that grew between the two
+--- requests) is asked for once.
+local function test_history_is_read_past_a_page_without_a_tag()
+  local untagged: {string} = {}
+  for i = 1, 99 do untagged[i] = string.format("%040x", i) end
+  untagged[100] = older
+  local blank: {string} = {}
+  for i = 1, 100 do blank[i] = string.format("%040x", 1000 + i) end
   local ran = run({ "--list" }, {
     refs(newest, older, oldest),
-    history(table.unpack(first)),
+    history(table.unpack(blank)),
+    history(table.unpack(untagged)),
     ok(entry(older, "2026-10-17T10:00:00Z")),
     history(older, oldest),
     ok(entry(oldest, "2026-10-16T10:00:00Z")),
   })
   assert(ran.code == 0, ran.err)
   assert(ran.out == "2026-10-17T10:00:00Z  " .. older .. "\n2026-10-16T10:00:00Z  " .. oldest .. "\n", ran.out)
-  local untagged: {string} = {}
-  for i = 1, 100 do untagged[i] = string.format("%040x", i) end
-  failed(run({}, { refs(newest), history(table.unpack(untagged)) }), "no release matches")
+  assert(#ran.asked == 6, "older is asked for once: " .. table.concat(ran.asked, " "))
+end
+
+--- The read ends once every tagged commit has been passed, mid-page:
+--- the script holds no next page. With no tags it reads no history.
+local function test_history_ends_once_every_tag_is_passed()
+  local page: {string} = { older }
+  for i = 2, 100 do page[i] = string.format("%040x", i) end
+  local ran = run({ "--list" }, { refs(older), history(table.unpack(page)), ok(entry(older, "2026-10-17T10:00:00Z")) })
+  assert(ran.code == 0, ran.err)
+  assert(ran.out == "2026-10-17T10:00:00Z  " .. older .. "\n", ran.out)
+  local none = run({}, { refs() })
+  failed(none, "no release matches")
+  assert(#none.asked == 1, table.concat(none.asked, " "))
+end
+
+--- Past 100 full pages with a tag not yet passed, it fails rather than
+--- answer in part.
+local function test_history_past_100_pages_fails()
+  local blank: {string} = {}
+  for i = 1, 100 do blank[i] = string.format("%040x", i) end
+  local script: {string} = { refs(newest) }
+  for i = 2, 101 do script[i] = history(table.unpack(blank)) end
+  failed(run({}, script), "main's history runs past 100 pages")
 end
 
 local function test_a_full_commit_is_asked_for_by_its_tag()

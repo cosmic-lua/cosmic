@@ -603,8 +603,9 @@ local record Cli
   --- With nothing more it prints the release as the three lines of
   --- ci/cosmic-driver.pin (commit, URL, sha256), or with `--json` an
   --- object, downloading no binary. `--list` prints the matches instead,
-  --- newest first, up to `-n` (20): the time each was published and its
-  --- commit, or with `--json` an array, verifying none. `-o` writes the
+  --- latest commit first, up to `-n` (20, a request each): the time each
+  --- was published and its commit, or with `--json` an array, verifying
+  --- none. `-o` writes the
   --- binary to a file, and `--cache` where bin/cosmic-bootstrap caches
   --- the pin's (`$XDG_CACHE_HOME/cosmic/bootstrap/cosmic-<sha256>`),
   --- printing that path; either renames it into place only once its
