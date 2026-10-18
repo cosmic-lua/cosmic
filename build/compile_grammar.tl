@@ -1,0 +1,324 @@
+--- The new checker's grammar for `cosmic compile` (`--grammar new`, [`build/compile.tl`]): files written
+--- in it, lexed ([`lang.lexer`]), parsed ([`lang.parser`]), scoped ([`lang.scopes`]), lowered
+--- ([`lang.declarations`]), checked ([`lang.check`]) and written as Lua ([`lang.codegen`]), the way
+--- [`build/tree_checks.tl`] and [`lang.check_programs`] drive them, but for the files a command line
+--- names and nothing else.
+---
+--- THE PROGRAM IS THE FILES GIVEN. A `.tl` file is checked as the module its path below the root
+--- names ([`lang.declarations`]'s [`module_of`]: [`lang/ast.tl`] is [`lang.ast`], `a/init.tl` is `a`), and
+--- a `require` of another file given is answered from it. A `.d.tl` file given is a declaration file:
+--- its `global` declarations are the globals of every file, which is how the standard library reaches
+--- the checker, and it has no Lua. A `cosmic.*` module no file given is the module of is a binding the
+--- new checker cannot declare: it is typed `invalid` and reported (`unchecked_binding`), as the tree
+--- check does. Any other `require` of a module not given is `require_unknown`.
+---
+--- A SYNTAX ERROR (the lexer's or the parser's, among them each form the grammar cuts) stops the run
+--- before anything is scoped, lowered or written, in every file. Any other error, the scope builder's, the
+--- declarations' and the checker's, is reported and the Lua is written all the same, line for line:
+--- the generator reads the syntax tree and the names the scope builder resolved, and no type.
+---
+--- THE GENERATOR SEES NO OTHER MODULE, so what a test `v is T` needs of a name of another file comes from the
+--- checker: a name the checker resolved to a primitive or a function type is written as a test for that, and
+--- a test the Lua cannot tell (a record or an interface, which the checker reports as `is_on_record`, or a class
+--- of another module) is a refusal, with no Lua: such a test written as a table test would be a
+--- different program from the one the source says. A test of a collection or a function type, whose Lua is the
+--- right one, is only reported.
+---
+--- The generator keeps state of its own, so this is not re-entrant, like [`lang.codegen`].
+
+local Ast = require("lang.ast")
+local Check = require("lang.check")
+local Codegen = require("lang.codegen")
+local Declarations = require("lang.declarations")
+local Lexer = require("lang.lexer")
+local Parser = require("lang.parser")
+local Scopes = require("lang.scopes")
+local Types = require("lang.types")
+
+local record compile_grammar
+  --- A file to compile.
+  record Source
+    --- The path as the command line gave it, for the complaints about it.
+    path: string
+    --- The path below the root, which names the module and the file in an error.
+    relative: string
+    text: string
+    --- Whether it is a `.d.tl` file.
+    declaration: boolean
+  end
+
+  --- An error of any stage, as `cosmic compile` reports it.
+  record Problem
+    code: string
+    msg: string
+    fix: string
+    y: integer
+    x: integer
+    offset: integer
+  end
+
+  --- What one file came to.
+  record Compiled
+    path: string
+    --- Whether it is a `.d.tl` file, which has no Lua.
+    declaration: boolean
+    --- The Lua; nil for a declaration file, for a file with a syntax error, and where the generator refused
+    --- a construct (`trouble` says which).
+    code: string | nil
+    --- The lexer's and the parser's errors.
+    syntax_errors: {Problem}
+    --- Every other error, in source order.
+    type_errors: {Problem}
+    --- Why the generator wrote no Lua for a tree that parsed.
+    trouble: string
+  end
+
+  --- The module the file `relative` (its path below the root) is.
+  module_of: function(relative: string): string
+
+  --- Compiles `sources` together. The answer holds one entry for each, in order. After a syntax error in
+  --- any file no file has Lua and the other stages did not run.
+  compile: function(sources: {Source}): {Compiled}
+end
+
+compile_grammar.module_of = Declarations.module_of
+
+--- A source, parsed.
+local record Syntax
+  source: compile_grammar.Source
+  module: string
+  dialect: Ast.Dialect
+  chunk: Ast.Chunk
+end
+
+--- A source, parsed and scoped, ready to lower.
+local record Unit
+  syntax: Syntax
+  scoped: Scopes.Scoped
+  input: Declarations.Input
+end
+
+local function problem(code: string, msg: string, fix: string, y: integer, x: integer, offset: integer): compile_grammar.Problem
+  return { code = code, msg = msg, fix = fix, y = y, x = x, offset = offset }
+end
+
+--- `list`, in source order: by offset, and where two are at one offset in the order they were given.
+local function in_order(list: {compile_grammar.Problem}): {compile_grammar.Problem}
+  local place: {compile_grammar.Problem: integer} = {}
+  for index, p in ipairs(list) do
+    place[p] = index
+  end
+  table.sort(list, function(a: compile_grammar.Problem, b: compile_grammar.Problem): boolean
+    if a.offset ~= b.offset then
+      return a.offset < b.offset
+    end
+    return (place[a] or 0) < (place[b] or 0)
+  end)
+  return list
+end
+
+--- How many of a file's refusals the complaint lists.
+local REPORTED <const> = 20
+
+--- What a test for a type of these tags writes: the word of `type(v)`, or `integer`, `true`, `false`, `nil`.
+local KINDS <const>: {string: string} = {
+  integer = "integer", number = "number", string = "string", boolean = "boolean",
+  ["true"] = "true", ["false"] = "false", ["nil"] = "nil",
+}
+
+--- The word a test for the type `t` is written by, nil where the syntax says it.
+local function kind_of(t: Types.Type): string | nil
+  if t is Types.Fn then
+    return "function"
+  end
+  return KINDS[t.tag]
+end
+
+--- What the checker concluded of the type names of `unit`, for the generator, and the tests of it the Lua cannot tell.
+local function type_facts(program: Declarations.Program, unit: Unit, lowered: Declarations.Lowered): {integer: string}, {string}
+  local kinds: {integer: string} = {}
+  local refused: {string} = {}
+  local library = program.globals["table"]
+  -- Every node, the walk's own list growing as it goes.
+  local nodes: {Ast.Node} = { unit.syntax.chunk.body }
+  for _, node in ipairs(nodes) do
+    if node is Ast.TypeName then
+      local t = lowered.types[node.id]
+      if t ~= nil then
+        local word = kind_of(t)
+        if word ~= nil then
+          kinds[node.id] = word
+        end
+      end
+    elseif node is Ast.IsTest then
+      local t = lowered.types[node.type.id]
+      local why: string | nil
+      if t is Types.Named and t.decl.kind ~= "enum" and not (library ~= nil and library.decl == t.decl) then
+        if t.decl.kind ~= "class" then
+          why = "a " .. t.decl.kind .. " has no run-time tag to test"
+        elseif t.decl.module ~= unit.syntax.module then
+          why = "the class belongs to " .. t.decl.module .. ", whose table this module cannot reach"
+        end
+      end
+      local first = unit.syntax.chunk.tokens[node.first]
+      if why ~= nil and first ~= nil then
+        refused[#refused + 1] = tostring(first.y) .. ":" .. tostring(first.x) .. ": a test the Lua cannot tell: " .. why ..
+          " (is_on_record): test a tag (`x.kind == \"...\"`), declare a class, or validate the data"
+      end
+    end
+    Ast.children(node, function(child: Ast.Node)
+      nodes[#nodes + 1] = child
+    end)
+  end
+  return kinds, refused
+end
+
+function compile_grammar.compile(sources: {compile_grammar.Source}): {compile_grammar.Compiled}
+  local parsed_files: {Syntax} = {}
+  local syntax_errors: {{compile_grammar.Problem}} = {}
+  local refused = false
+  for index, source in ipairs(sources) do
+    local dialect: Ast.Dialect = source.declaration and "decl" or "tl"
+    local parsed = Parser.parse(Lexer.lex(source.text, source.relative), source.relative, dialect)
+    local found: {compile_grammar.Problem} = {}
+    for _, e in ipairs(parsed.errors) do
+      found[#found + 1] = problem(e.code, e.msg, e.fix, e.y, e.x, e.offset)
+    end
+    syntax_errors[index] = found
+    refused = refused or #found > 0
+    parsed_files[index] = {
+      source = source, module = Declarations.module_of(source.relative), dialect = dialect, chunk = parsed.chunk,
+    }
+  end
+  local made: {compile_grammar.Compiled} = {}
+  if refused then
+    for index, source in ipairs(sources) do
+      made[index] = {
+        path = source.path, declaration = source.declaration, code = nil, syntax_errors = syntax_errors[index] or {},
+        type_errors = {}, trouble = "",
+      }
+    end
+    return made
+  end
+
+  -- The globals are what the declaration files declare, for every file's names.
+  local globals: {string: Scopes.Global} = {}
+  local provided: {string: boolean} = {}
+  for _, syntax in ipairs(parsed_files) do
+    provided[syntax.module] = true
+    if syntax.dialect == "decl" then
+      for name, g in pairs(Scopes.declared(syntax.chunk)) do
+        globals[name] = g
+      end
+    end
+  end
+  local program = Declarations.new()
+  local units: {Unit} = {}
+  local by_module: {string: Unit} = {}
+  for index, syntax in ipairs(parsed_files) do
+    local scoped = Scopes.build(syntax.chunk, syntax.source.relative, globals)
+    local unit: Unit = {
+      syntax = syntax, scoped = scoped, input = {
+        module = syntax.module, filename = syntax.source.relative, chunk = syntax.chunk, scoped = scoped,
+        dialect = syntax.dialect,
+      },
+    }
+    units[index] = unit
+    by_module[syntax.module] = unit
+    for _, r in ipairs(syntax.chunk.requires) do
+      if r.module:sub(1, 7) == "cosmic." and provided[r.module] ~= true then
+        program.external[r.module] = true
+      end
+    end
+  end
+  program.provider = function(self: Declarations.Program, module: string): boolean
+    local unit = by_module[module]
+    if unit == nil then
+      return false
+    end
+    self:declare(unit.input)
+    return true
+  end
+
+  -- A file is lowered after the files it requires, so that the checker finds their bodies; the declaration
+  -- files come first, since every file may use their globals.
+  local order: {Unit} = {}
+  local visited: {Unit: boolean} = {}
+  local function visit(unit: Unit)
+    if visited[unit] == true then
+      return
+    end
+    visited[unit] = true
+    for _, r in ipairs(unit.syntax.chunk.requires) do
+      local dependency = by_module[r.module]
+      if dependency ~= nil then
+        visit(dependency)
+      end
+    end
+    order[#order + 1] = unit
+  end
+  for _, unit in ipairs(units) do
+    if unit.syntax.dialect == "decl" then
+      visit(unit)
+    end
+  end
+  for _, unit in ipairs(units) do
+    visit(unit)
+  end
+  local lowered: {Unit: Declarations.Lowered} = {}
+  local checked: {Unit: Check.Checked} = {}
+  for _, unit in ipairs(order) do
+    local result = program:lower(unit.input)
+    lowered[unit] = result
+    if unit.syntax.dialect == "tl" then
+      checked[unit] = Check.check(program, unit.input, result)
+    end
+  end
+
+  for index, unit in ipairs(units) do
+    local errors: {compile_grammar.Problem} = {}
+    for _, e in ipairs(unit.scoped.errors) do
+      errors[#errors + 1] = problem(e.code, e.msg, e.fix, e.y, e.x, e.offset)
+    end
+    for _, e in ipairs(program:errors(unit.syntax.module)) do
+      errors[#errors + 1] = problem(e.code, e.msg, e.fix, e.y, e.x, e.offset)
+    end
+    local code: string | nil = nil
+    local trouble = ""
+    local result = checked[unit]
+    local lowering = lowered[unit]
+    if result ~= nil and lowering ~= nil then
+      for _, e in ipairs(result.errors) do
+        errors[#errors + 1] = problem(e.code, e.msg, e.fix, e.y, e.x, e.offset)
+      end
+      local classes: {integer: string} = {}
+      for id, decl in pairs(result.literals) do
+        classes[id] = decl.name
+      end
+      local kinds, refusals = type_facts(program, unit, lowering)
+      local generated = Codegen.generate(unit.syntax.chunk, unit.scoped, nil, classes, Check.enums(lowering), nil, kinds)
+      local lines: {string} = {}
+      for _, e in ipairs(generated.errors) do
+        lines[#lines + 1] = tostring(e.y) .. ":" .. tostring(e.x) .. ": " .. e.msg .. " (" .. e.code .. "): " .. e.fix
+      end
+      for _, line in ipairs(refusals) do
+        lines[#lines + 1] = line
+      end
+      if #lines == 0 then
+        code = generated.text
+      elseif #lines > REPORTED then
+        local more = #lines - REPORTED
+        trouble = table.concat(lines, "\n", 1, REPORTED) .. "\n... and " .. tostring(more) .. " more"
+      else
+        trouble = table.concat(lines, "\n")
+      end
+    end
+    made[index] = {
+      path = unit.syntax.source.path, declaration = unit.syntax.source.declaration, code = code,
+      syntax_errors = syntax_errors[index] or {}, type_errors = in_order(errors), trouble = trouble,
+    }
+  end
+  return made
+end
+
+return compile_grammar

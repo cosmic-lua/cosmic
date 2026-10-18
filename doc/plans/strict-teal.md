@@ -1158,6 +1158,36 @@ the switch meets the full rules. the rewrites that bring each ceiling to
 zero happen after it, in the new grammar, so they are no longer
 constrained to Teal the fork also accepts.
 
+- the islands, which stay Teal until the pin moves past the switch, are
+  `ci/` and the bootstrap scripts [`build/zig.tl`], [`build/vendor.tl`],
+  [`build/verify_codesign.tl`], [`build/perf.tl`] and [`build/paths.tl`]
+  ([`build/islands.tl`] lists them); the new checker's own source is not
+  one, since the pin moves before the switch to a release whose
+  `cosmic compile --grammar new` reads the new grammar (option A), and
+  `lang/` is translated with the rest. `ci/` is read by the pinned
+  release alone, since nothing outside it requires it. the scripts of
+  `build/` are also modules the tool requires (`build/paths.tl` by about
+  twenty), so the new parser reads them too: they are written in the
+  subset both grammars read, and `T | nil` (45 sites) and `metamethod
+  __close` (1) have no common spelling. the switch decides how the tool
+  reads those, by translating them on read while the pin runs their Teal,
+  or by compiling them with the pinned release's `compile`; the count of
+  each form, which only falls, is `blocked` in [`build/islands.tl`].
+- the pin move to that release follows the change that adds the flag,
+  and waits for the release main publishes from it.
+- the switch change rewrites, in lang/ and in [`build/tree_checks.tl`],
+  every test `x is Ast.Local` or `x is Types.Named` of a record that a
+  `where` clause told apart (about 900) to a tag test or a `match`, and
+  does not pin them as ceilings: the code generator reads one file and
+  writes such a test as one for a table once the clause is gone, so the
+  Lua is a different program (`cosmic compile --grammar new` refuses the
+  test, as `is_on_record`). the `where` clauses of lang/ast.tl and
+  lang/types.tl become tags in the same change. [`build/lang_proof.tl`]
+  does these steps mechanically on the translation, compiles it with the
+  seed and runs the tests of `lang/` against the Lua (`bin/cosmic
+  build/lang_proof_main.tl prove <dir>`): 65 files and 41 test modules
+  pass. the switch reruns it before and after the hand edits.
+
 ### the rewrites that bring each ceiling to zero
 
 the new checker counts each rule's violations over the translated tree,
@@ -1312,6 +1342,13 @@ since the seed's Lua runs on the tree's VM.
 [`bin/zig`]: ../../bin/zig
 [`build.fuzz`]: ../../build/fuzz/init.tl
 [`build/compiler.d.tl`]: ../../build/compiler.d.tl
+[`build/islands.tl`]: ../../build/islands.tl
+[`build/lang_proof.tl`]: ../../build/lang_proof.tl
+[`build/paths.tl`]: ../../build/paths.tl
+[`build/perf.tl`]: ../../build/perf.tl
+[`build/vendor.tl`]: ../../build/vendor.tl
+[`build/verify_codesign.tl`]: ../../build/verify_codesign.tl
+[`build/zig.tl`]: ../../build/zig.tl
 [`build/compiler_test.tl`]: ../../build/compiler_test.tl
 [`build/checker_facts_reads_test.tl`]: ../../build/checker_facts_reads_test.tl
 [`build/confine.tl`]: ../../build/confine.tl
@@ -1329,6 +1366,7 @@ since the seed's Lua runs on the tree's VM.
 [`Sqlite.rows`]: ../../cosmic/sqlite.tl
 
 [`build/shards.tl`]: ../../build/shards.tl
+[`build/tree_checks.tl`]: ../../build/tree_checks.tl
 [`checker/facts.tl`]: ../../checker/facts.tl
 [`checker/flow.tl`]: ../../checker/flow.tl
 [`checker/narrowing.tl`]: ../../checker/narrowing.tl

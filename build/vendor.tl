@@ -58,6 +58,12 @@ local record Vendor
     keep: {string}
     drop: {string}
   end
+
+  --- A digest a download is checked against.
+  record Digest
+    algorithm: Hash.Algorithm
+    hex: string
+  end
 end
 
 local log = Log.new("vendor")
@@ -138,25 +144,25 @@ function Vendor.all_names(root: string): {string} | nil, string
 end
 
 --- The digests `pin` names, as algorithm and hex, in a fixed order.
-function Vendor.digests(pin: Vendor.Pin): {{Hash.Algorithm, string}}
-  local digests: {{Hash.Algorithm, string}} = {}
+function Vendor.digests(pin: Vendor.Pin): {Vendor.Digest}
+  local digests: {Vendor.Digest} = {}
   if pin.sha256 ~= "" then
-    digests[#digests + 1] = { "sha256", pin.sha256 }
+    digests[#digests + 1] = { algorithm = "sha256", hex = pin.sha256 }
   end
   if pin.sha3_256 ~= "" then
-    digests[#digests + 1] = { "sha3-256", pin.sha3_256 }
+    digests[#digests + 1] = { algorithm = "sha3-256", hex = pin.sha3_256 }
   end
   return digests
 end
 
 --- True when `path` exists and has every one of `digests`, at least one.
-function Vendor.matches(path: string, digests: {{Hash.Algorithm, string}}): boolean
+function Vendor.matches(path: string, digests: {Vendor.Digest}): boolean
   local data, _ = Fs.read(path)
   if data == nil or #digests == 0 then
     return false
   end
   for _, digest in ipairs(digests) do
-    if Codec.hex(Hash.digest(digest[1], data)) ~= digest[2]:lower() then
+    if Codec.hex(Hash.digest(digest.algorithm, data)) ~= digest.hex:lower() then
       return false
     end
   end
@@ -167,7 +173,7 @@ end
 --- with every one of `digests`: a stale or corrupt cached file is
 --- refetched, never reused, and [`Http.download`] checks each digest as
 --- it writes, so a download that lacks one never lands.
-function Vendor.fetch(url: string, path: string, digests: {{Hash.Algorithm, string}}): string | nil, string
+function Vendor.fetch(url: string, path: string, digests: {Vendor.Digest}): string | nil, string
   if #digests == 0 then
     return nil, url .. ": no digest to check it against"
   end
@@ -177,10 +183,10 @@ function Vendor.fetch(url: string, path: string, digests: {{Hash.Algorithm, stri
   local _, _ = Fs.remove(path)
   local options: Http.Options = {}
   for _, digest in ipairs(digests) do
-    if digest[1] == "sha256" then
-      options.sha256 = digest[2]
-    elseif digest[1] == "sha3-256" then
-      options.sha3_256 = digest[2]
+    if digest.algorithm == "sha256" then
+      options.sha256 = digest.hex
+    elseif digest.algorithm == "sha3-256" then
+      options.sha3_256 = digest.hex
     end
   end
   local ok, trouble = Http.download(url, path, options)

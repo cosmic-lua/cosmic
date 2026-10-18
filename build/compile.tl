@@ -32,6 +32,18 @@
 --- resolution, check contracts or hold a file to the tree's other rules:
 --- it is the checker and the generator and nothing else.
 ---
+--- THE GRAMMAR is Teal's unless `--grammar new` says otherwise, never
+--- guessed from a file's text: files in the new checker's grammar
+--- ([`doc/plans/new-checker-grammar.md`]) keep the `.tl` extension, and a
+--- run reads all its files in one grammar. The new grammar's pipeline is
+--- [`build/compile_grammar.tl`]'s: the files named are the whole program,
+--- a `.d.tl` among them declares the globals every file may use (the
+--- standard library's), and a `cosmic.*` module no file named is the
+--- module of is typed `invalid` and reported, since the new checker
+--- cannot declare the binary's own modules. The rest is as above: a
+--- syntax error refuses and writes nothing, any other error is reported
+--- and the Lua written anyway.
+---
 --- Like `cosmic json` it prints no summary: its standard output is the Lua
 --- of a single file written without `-o`, and its exit status says how it
 --- went, 0 for Lua written (type errors or none) and 2 for a command line
@@ -47,6 +59,7 @@ local bare = require("build.bare")
 local teal = require("build.teal")
 local verb_spec = require("build.verb_spec")
 local type compiler = require("build.compiler")
+local type Grammar = require("build.compile_grammar")
 
 --- The `cosmic compile` verb: `run` is what [`build/dispatch.tl`] calls.
 local record verb
@@ -71,7 +84,16 @@ end
 
 local spec = Cli.verbs.compile.spec or {}
 
-local usage = "cosmic compile [--errors] [--root <dir>] [-o <dir>] <file.tl>..."
+local usage = "cosmic compile [--grammar teal|new] [--errors] [--root <dir>] [-o <dir>] <file.tl>..."
+
+-- TODO: once ci/cosmic-driver.pin names a release whose compile reads the new grammar, have build.zig's
+-- `seedCompiler` run `compile --grammar new` over the translated `lang/*.tl` and [`build/checker_wrapper.tl`] in
+-- place of `checker/*.tl` (no declaration file is needed: the Lua does not depend on them), and make the switch:
+-- commit the translated tree but for the `ci/` island of [`build/islands.tl`], decide how the tool reads the
+-- islands of `build/` that it also requires as modules (they hold `T | nil`, which the pinned release alone
+-- reads), rewrite the tests of `where` records ([`build/lang_proof.tl`] does it on the translation) and rerun
+-- that proof. The pin moves to that release in the change that follows the one that added the flag
+-- (doc/plans/strict-teal.md, "the switch").
 
 --- What a command line asks for.
 local record Request
@@ -81,6 +103,8 @@ local record Request
   errors: boolean
   --- The directory module names are relative to, nil for the working directory.
   root: string | nil
+  --- The grammar of every file: "teal" or "new".
+  grammar: string
 end
 
 --- The name of the file `path`, without its directory.
@@ -97,7 +121,11 @@ local function arguments(argv: {integer:string}): Request | nil, string
     directory = parsed.values["-o"],
     errors = parsed.set["--errors"] or false,
     root = parsed.values["--root"],
+    grammar = parsed.values["--grammar"] or "teal",
   }
+  if request.grammar ~= "teal" and request.grammar ~= "new" then
+    return nil, "--grammar names teal or new, not " .. request.grammar
+  end
   if request.root == "" then
     return nil, "--root needs a directory"
   end
@@ -168,15 +196,18 @@ local function serving(built: compiler, texts: {string:string}, paths: {string:s
   end
 end
 
---- One file compiled: its Lua, nil when the parser refused it, and what
---- the checker found.
-local record Compiled
-  path: string
-  code: string | nil
-  syntax_errors: {compiler.Error}
-  type_errors: {compiler.Error}
-  --- Why the generator wrote no Lua for a tree that parsed.
-  trouble: string
+--- The error of the fork `e`, as this verb reports it.
+local function problem(e: compiler.Error): Grammar.Problem
+  return { code = e.code, msg = e.msg, fix = "", y = e.y, x = e.x, offset = 0 }
+end
+
+--- The errors `list` of the fork, as this verb reports them.
+local function problems(list: {compiler.Error}): {Grammar.Problem}
+  local out: {Grammar.Problem} = {}
+  for index, e in ipairs(list) do
+    out[index] = problem(e)
+  end
+  return out
 end
 
 -- TODO: this, core/bridge.lua's `bootstrap` and build/compiler_test.tl each
@@ -190,25 +221,31 @@ end
 
 --- Checks and generates `text`, the file `path`, in an environment of its
 --- own so no file sees another's declarations but through a `require`.
-local function compile_one(built: compiler, path: string, filename: string, text: string): Compiled
+local function compile_one(built: compiler, path: string, filename: string, text: string): Grammar.Compiled
   local env, trouble = built.new_env({
     defaults = { feat_lax = "off", gen_compat = "off", gen_target = "5.4" },
   })
-  local compiled: Compiled = { path = path, syntax_errors = {}, type_errors = {}, trouble = "" }
   if env == nil then
-    compiled.trouble = "the checker made no environment: " .. tostring(trouble)
-    return compiled
+    return {
+      path = path, declaration = false, code = nil, syntax_errors = {}, type_errors = {},
+      trouble = "the checker made no environment: " .. tostring(trouble),
+    }
   end
   local result = built.check_string(text, env, filename, "tl")
-  compiled.syntax_errors = result.syntax_errors
-  compiled.type_errors = result.type_errors
+  local code: string | nil = nil
+  local why_not = ""
   local ast = result.ast
   if #result.syntax_errors == 0 and ast ~= nil then
-    local code, why = built.generate(ast, env.defaults.gen_target, nil)
-    compiled.code = code
-    compiled.trouble = code == nil and tostring(why) or ""
+    local generated, why = built.generate(ast, env.defaults.gen_target, nil)
+    code = generated
+    if generated == nil then
+      why_not = tostring(why)
+    end
   end
-  return compiled
+  return {
+    path = path, declaration = false, code = code, syntax_errors = problems(result.syntax_errors),
+    type_errors = problems(result.type_errors), trouble = why_not,
+  }
 end
 
 function verb.lua(built: compiler, name: string, text: string): string | nil, string
@@ -227,9 +264,12 @@ function verb.lua(built: compiler, name: string, text: string): string | nil, st
 end
 
 --- The line that names one error of `path`.
-local function located(path: string, e: compiler.Error): string
+local function located(path: string, e: Grammar.Problem): string
   local line = path .. ":" .. tostring(e.y) .. ":" .. tostring(e.x) .. ": " .. e.msg
-  if e.code == "module_not_found" then
+  if e.fix ~= "" then
+    line = line .. " (" .. e.code .. "): " .. e.fix
+  end
+  if e.code == "module_not_found" or e.code == "require_unknown" then
     line = line .. " -- if it is one of the files you compile, pass that file too; " ..
       "if its name is rooted at another directory, set --root to that directory"
   end
@@ -265,9 +305,9 @@ function verb.run(argv: {integer:string}, io?: verb.Io, built?: compiler): integ
   end
   local texts: {string:string} = {}
   local paths: {string:string} = {}
-  --- The files that get Lua: the path as given, the name the checker
-  --- knows it by, and its text.
-  local todo: {{string}} = {}
+  --- The files in the order given, each with the name the checker knows
+  --- it by.
+  local todo: {Grammar.Source} = {}
   local skipped: {string} = {}
   --- The file given for each module name, and for each resolved path.
   local holders: {string:string} = {}
@@ -295,9 +335,14 @@ function verb.run(argv: {integer:string}, io?: verb.Io, built?: compiler): integ
           ": pass --root <dir> naming a directory above it, or a path below the current directory")
       return bare.refused
     end
+    local new_grammar = request.grammar == "new"
     local name = module_of(relative)
+    if new_grammar then
+      name = require("build.compile_grammar").module_of(relative)
+    end
     local declaration = base_of(path):match("%.d%.tl$") ~= nil
-    local kind = name .. (declaration and "\0d" or "\0t")
+    -- The new grammar's program has one file for a module.
+    local kind = name .. ((declaration and not new_grammar) and "\0d" or "\0t")
     if holders[kind] ~= nil then
       complain(path .. " and " .. holders[kind] .. " are both the module " .. name ..
           ": a require could mean only one; name one of them, or compile them in two runs")
@@ -320,40 +365,46 @@ function verb.run(argv: {integer:string}, io?: verb.Io, built?: compiler): integ
         return bare.refused
       end
       bases[base] = path
-      todo[#todo + 1] = { path, relative, text }
     end
+    todo[#todo + 1] = { path = path, relative = relative, text = text, declaration = declaration }
   end
   if #skipped > 0 then
-    complain(table.concat(skipped, ", ") .. ": declares types and has no Lua, so none is written; " ..
+    complain(table.concat(skipped, ", ") .. ": declares " ..
+        (request.grammar == "new" and "globals and types" or "types") .. " and has no Lua, so none is written; " ..
         "it still types a require of it")
   end
 
-  local compiler_in_use = built
-  if compiler_in_use == nil then
-    local loaded, why = teal.load()
-    if loaded == nil then
-      complain(why)
-      return bare.refused
+  local made: {Grammar.Compiled} = {}
+  if request.grammar == "new" then
+    made = require("build.compile_grammar").compile(todo)
+  else
+    local compiler_in_use = built
+    if compiler_in_use == nil then
+      local loaded, why = teal.load()
+      if loaded == nil then
+        complain(why)
+        return bare.refused
+      end
+      compiler_in_use = loaded
     end
-    compiler_in_use = loaded
+    serving(compiler_in_use, texts, paths)
+    for _, entry in ipairs(todo) do
+      if not entry.declaration then
+        made[#made + 1] = compile_one(compiler_in_use, entry.path, entry.relative, entry.text)
+      end
+    end
   end
-  serving(compiler_in_use, texts, paths)
-
-  local made: {Compiled} = {}
   local refused = false
-  for index, entry in ipairs(todo) do
-    local path = entry[1]
-    local compiled = compile_one(compiler_in_use, path, entry[2], entry[3])
-    made[index] = compiled
+  for _, compiled in ipairs(made) do
     for _, e in ipairs(compiled.syntax_errors) do
-      complain(located(path, e))
+      complain(located(compiled.path, e))
     end
     if #compiled.syntax_errors > 0 then
-      complain(path .. ": syntax error, so no Lua was written for any file: fix the line named above " ..
+      complain(compiled.path .. ": syntax error, so no Lua was written for any file: fix the line named above " ..
           "(type errors never stop a compile)")
       refused = true
-    elseif compiled.code == nil then
-      complain(path .. ": the generator wrote no Lua: " .. compiled.trouble)
+    elseif compiled.trouble ~= "" then
+      complain(compiled.path .. ": the generator wrote no Lua: " .. compiled.trouble)
       refused = true
     end
   end
@@ -367,7 +418,8 @@ function verb.run(argv: {integer:string}, io?: verb.Io, built?: compiler): integ
       end
     end
     if count > 0 then
-      complain(compiled.path .. ": " .. counted(count) .. ", the Lua is written anyway" ..
+      complain(compiled.path .. ": " .. counted(count) ..
+          (compiled.declaration and ", a declaration file, which has no Lua" or ", the Lua is written anyway") ..
           (request.errors and "" or " (--errors lists them)"))
     end
   end
@@ -381,8 +433,10 @@ function verb.run(argv: {integer:string}, io?: verb.Io, built?: compiler): integ
     end
   end
   for _, compiled in ipairs(made) do
-    local code = compiled.code or ""
-    if directory == nil then
+    local code = compiled.code
+    if code == nil then
+      -- A declaration file: it has no Lua.
+    elseif directory == nil then
       if not bare.delivered(complain, to.out(code)) then return bare.refused end
     else
       local target = directory:gsub("/+$", "") .. "/" .. base_of(compiled.path):gsub("%.tl$", ".lua")
@@ -402,7 +456,7 @@ end
 verb.spec = {
   name = "compile",
   guide = "the Lua of a Teal file",
-  tests = { "build.compile_test", "build.compile_tool_test" },
+  tests = { "build.compile_test", "build.compile_grammar_test", "build.compile_lang_test", "build.compile_tool_test" },
   run = function(argv: {integer:string}): integer return verb.run(argv) end,
   bare = true,
   takes = "the .tl files to compile",

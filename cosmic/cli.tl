@@ -328,7 +328,7 @@ local record Cli
   --- malformed line among them) or a write to standard output it cannot
   --- use, with `cosmic: hash: ...` on standard error
   hash: string
-  --- `cosmic compile [--errors] [--root dir] [-o dir] file.tl...`: the Lua
+  --- `cosmic compile [--grammar teal|new] [--errors] [--root dir] [-o dir] file.tl...`: the Lua
   --- source of each `.tl` file, one text per file, written by this binary's
   --- own carried compiler for the tree's Lua (compat targets off), as it
   --- writes the tree's own modules. It reads the files named and the
@@ -345,7 +345,13 @@ local record Cli
   --- error gets a count per file, and with `--errors` each error as
   --- `file:line:column: message`. Only a syntax error refuses: each is
   --- named as `file:line:column: message`, no file is written, and the
-  --- exit is 2, as for a command line or a file it cannot use. After a
+  --- exit is 2, as for a command line or a file it cannot use. The files
+  --- are Teal unless `--grammar new` says they are written in the new
+  --- checker's grammar ([`doc/plans/new-checker-grammar.md`]), whose files
+  --- keep the `.tl` extension: the grammar is never guessed from a file.
+  --- Then the files named are the whole program, the globals are those the
+  --- `.d.tl` files named declare, and a `cosmic.*` module no file named
+  --- is the module of is typed `invalid` and reported. After a
   --- non-zero exit do not use the `-o` directory: it may hold files of an
   --- earlier run. It prints no summary; exits 0 when the Lua is written
   compile: string
@@ -971,6 +977,7 @@ local module: Module = {
         ["-o"] = { value = "dir", about = "write <name>.lua for each file in this directory" },
         ["--errors"] = { about = "list each type error, not only the count" },
         ["--root"] = { value = "dir", about = "the directory module names are relative to (default: here)" },
+        ["--grammar"] = { value = "teal|new", about = "the grammar of the files: Teal (default) or the new checker's" },
       },
     },
     help = {

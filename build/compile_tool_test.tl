@@ -73,3 +73,14 @@ local function test_a_run_from_another_directory_with_root_gives_the_same(tmp: s
   local without = cosmic(tmp .. "/elsewhere", { "compile", "-o", "o3", "../lib.tl" })
   assert(without.code == 2 and without.err:find("pass --root", 1, true), without.err)
 end
+
+--- The grammar is the flag's, in a process as in one run: the same text is a program under `--grammar new` and a
+--- syntax error as Teal.
+local function test_the_grammar_flag_reads_the_new_grammar(tmp: string)
+  assert(Fs.write(tmp .. "/n.tl", "for i = 1, 2 do\n  if i == 1 then continue end\nend\nlocal n = 7\n"))
+  local new = cosmic(tmp, { "compile", "--grammar", "new", "n.tl" })
+  assert(new.code == 0, new.err)
+  assert(new.out:find("goto continue", 1, true) and new.out:find("local n = 7", 1, true), new.out)
+  local teal = cosmic(tmp, { "compile", "n.tl" })
+  assert(teal.code == 2 and teal.err:find("n.tl:2:", 1, true), teal.err)
+end

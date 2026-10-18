@@ -76,10 +76,13 @@
 --- body. A refused decode leaves the store as it was, and says why in a message that begins
 --- `types:`.
 
--- TODO: replace each `where` clause with the single-member enum tag the plan's tagged unions
--- use, and read the types by their forms, once ci/cosmic-driver.pin names a release whose
--- checker discriminates a union of records by a tag (lang/ast.tl has the same gap): the fork
--- discriminates only by a `where` clause.
+-- TODO: at the switch, replace each `where` clause with the single-member enum tag the plan's
+-- tagged unions use, and write each test `t is Named`, `t is Types.Atom` (and the others of
+-- this union, here and in the modules that import it) as a tag test or a `match`, in the same
+-- change (doc/plans/strict-teal.md, "the switch"): the new code generator writes such a test
+-- as one for a table once the clause is gone. The pinned release is the fork's, which
+-- discriminates only by a `where` clause, so nothing earlier makes this due (lang/ast.tl has
+-- the same gap).
 local Hash = require("cosmic.hash")
 local Lexer = require("lang.lexer")
 

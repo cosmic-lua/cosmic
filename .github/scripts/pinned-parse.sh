@@ -1,6 +1,6 @@
 #!/bin/sh
 # Compiles the Teal that bin/cosmic-bootstrap runs -- bin/zig,
-# bin/vendor, bin/verify-codesign and the build directory's lookup --
+# bin/vendor, bin/verify-codesign, bin/perf and the build directory's lookup --
 # on the cosmic-driver the job has on its PATH, the release
 # ci/cosmic-driver.pin names, whose Teal is the one those scripts must
 # parse under. Each runs standalone, which type-checks the file before
@@ -26,6 +26,7 @@ check() {
 check zig.tl env COSMIC_ZIG="$true_path" cosmic-driver --standalone "$root/build/zig.tl" --help
 check vendor.tl cosmic-driver --standalone "$root/build/vendor.tl" --help
 check verify_codesign.tl cosmic-driver --standalone "$root/build/verify_codesign.tl" --help
+check perf.tl cosmic-driver --standalone "$root/build/perf.tl" --help
 check paths.tl cosmic-driver --standalone "$root/build/paths.tl" "$root"
 
 exit "$failed"
