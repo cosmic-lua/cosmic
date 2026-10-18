@@ -202,6 +202,13 @@ methods 55
 [generated]
 # The lines of the Lua of a file that differ from the fork's; none today.
 
+[read]
+# How many of the readers of the syntax tree ([`build.syntax_compared`]) answer a file otherwise than the fork's readers
+# do of the same file. The stub of a `local function f(): never` has `error()` for its body, as the stub of the
+# function of a record does; the fork leaves the body empty, since it does not mark a local function `never`. The
+# stub is read by no one but the stdlib's own, which has no such function, so the port keeps the right body.
+build/flow.tl 1
+
 [checked]
 # The ceilings of [`build.tree_checks`]'s `checked`: how many errors of each code of [`lang.check`] each file of the
 # tree has in its bodies, which the new checker's expressions and flow report and no rewrite or later piece has removed yet.
@@ -624,6 +631,8 @@ build/core_image.tl nil_not_allowed 9
 build/core_image_fuzz_test.tl nil_not_allowed 5
 build/coverage/lines.tl nil_not_allowed 1
 build/coverage/lines_test.tl nil_not_allowed 1
+build/coverage/syntax_lines.tl nil_not_allowed 3
+build/coverage/syntax_lines_test.tl nil_not_allowed 1
 build/credentials_proof.tl nil_not_allowed 9
 build/database_start_fixture.tl nil_not_allowed 1
 build/databases.tl nil_not_allowed 6
@@ -770,6 +779,22 @@ build/stub_test.tl nil_not_allowed 8
 build/stub_tree_test.tl nil_not_allowed 3
 build/subdirectory_verbs_test.tl nil_not_allowed 1
 build/symbol_index.tl nil_not_allowed 4
+build/syntax_compared.tl nil_not_allowed 6
+build/syntax_compared_test.tl nil_not_allowed 1
+build/syntax_derivation_test.tl nil_not_allowed 1
+build/syntax_globals.tl nil_not_allowed 2
+build/syntax_match.tl nil_not_allowed 11
+build/syntax_match_test.tl nil_not_allowed 11
+build/syntax_node.tl nil_not_allowed 8
+build/syntax_node_test.tl nil_not_allowed 1
+build/syntax_rewrite.tl nil_not_allowed 13
+build/syntax_rewrite_test.tl nil_not_allowed 3
+build/syntax_scopes.tl nil_not_allowed 9
+build/syntax_scopes_test.tl nil_not_allowed 11
+build/syntax_shape_specs.tl nil_not_allowed 11
+build/syntax_shape_specs_test.tl nil_not_allowed 1
+build/syntax_stub.tl nil_not_allowed 9
+build/syntax_stub_test.tl nil_not_allowed 4
 build/teal.tl nil_not_allowed 29
 build/teal_catalog_test.tl nil_not_allowed 4
 build/teal_test.tl nil_not_allowed 33
@@ -801,8 +826,8 @@ build/todo_scan.tl nil_not_allowed 7
 build/todos.tl nil_not_allowed 13
 build/todos_git_test.tl nil_not_allowed 31
 build/todos_test.tl nil_not_allowed 63
-build/tree_checks.tl nil_not_allowed 116
-build/tree_checks_test.tl nil_not_allowed 83
+build/tree_checks.tl nil_not_allowed 125
+build/tree_checks_test.tl nil_not_allowed 84
 build/tree_root.tl nil_not_allowed 8
 build/vendor.tl nil_not_allowed 12
 build/vendor_test.tl nil_not_allowed 1
@@ -1183,6 +1208,8 @@ build/fix/typescan.tl not_assigned 1
 build/flow.tl not_assigned 1
 build/scopes.tl not_assigned 3
 build/shape_specs.tl not_assigned 1
+build/syntax_match.tl not_assigned 1
+build/syntax_shape_specs.tl not_assigned 1
 build/teal.tl not_assigned 1
 build/test.tl not_assigned 2
 build/work.tl not_assigned 1
@@ -1347,6 +1374,14 @@ build/standalone.tl index_may_be_nil 1
 build/stub.tl index_may_be_nil 5
 build/symbol_index.tl index_may_be_nil 1
 build/symbols.tl index_may_be_nil 1
+build/syntax_compared.tl index_may_be_nil 5
+build/syntax_match.tl index_may_be_nil 7
+build/syntax_match_test.tl index_may_be_nil 1
+build/syntax_node.tl index_may_be_nil 1
+build/syntax_node_test.tl index_may_be_nil 1
+build/syntax_rewrite_test.tl index_may_be_nil 1
+build/syntax_shape_specs_test.tl index_may_be_nil 1
+build/syntax_stub.tl index_may_be_nil 8
 build/teal.tl index_may_be_nil 3
 build/teal_test.tl index_may_be_nil 12
 build/term_filter.tl index_may_be_nil 1
@@ -1369,7 +1404,7 @@ build/todo_scan.tl index_may_be_nil 5
 build/todos.tl index_may_be_nil 3
 build/todos_git_test.tl index_may_be_nil 3
 build/todos_test.tl index_may_be_nil 2
-build/tree_checks.tl index_may_be_nil 37
+build/tree_checks.tl index_may_be_nil 39
 build/tree_root.tl index_may_be_nil 1
 build/vendor.tl index_may_be_nil 2
 build/verb_list_test.tl index_may_be_nil 2
@@ -1637,6 +1672,8 @@ build/core_image_fixture.tl view_written 1
 build/core_image_fuzz_test.tl view_written 4
 build/coverage/init.tl view_written 1
 build/coverage/lines.tl view_written 4
+build/coverage/syntax_lines.tl view_written 4
+build/coverage/syntax_lines_test.tl view_written 1
 build/credentials_proof.tl view_written 1
 build/database_start_fixture.tl view_written 10
 build/databases.tl view_written 4
@@ -1681,7 +1718,7 @@ build/fix/emit.tl view_written 5
 build/fix/equiv.tl view_written 3
 build/fix/expr.tl view_written 1
 build/fix/fix_test.tl view_written 1
-build/fix/init.tl view_written 100
+build/fix/init.tl view_written 101
 build/fix/link_build_tool_test.tl view_written 1
 build/fix/near.tl view_written 18
 build/fix/near_test.tl view_written 1
@@ -1805,6 +1842,21 @@ build/stub.tl view_written 22
 build/stub_test.tl view_written 2
 build/symbol_index.tl view_written 16
 build/symbols.tl view_written 6
+build/syntax_compared.tl view_written 25
+build/syntax_derivation_test.tl view_written 1
+build/syntax_globals.tl view_written 1
+build/syntax_globals_test.tl view_written 1
+build/syntax_match.tl view_written 5
+build/syntax_node.tl view_written 7
+build/syntax_node_test.tl view_written 4
+build/syntax_rewrite.tl view_written 8
+build/syntax_rewrite_test.tl view_written 1
+build/syntax_scopes.tl view_written 10
+build/syntax_scopes_test.tl view_written 6
+build/syntax_shape_specs.tl view_written 8
+build/syntax_shape_specs_test.tl view_written 1
+build/syntax_stub.tl view_written 20
+build/syntax_stub_test.tl view_written 1
 build/teal.tl view_written 39
 build/teal_catalog_test.tl view_written 1
 build/teal_dropped_test.tl view_written 3
@@ -1845,7 +1897,7 @@ build/todo_scan.tl view_written 9
 build/todos.tl view_written 27
 build/todos_git_test.tl view_written 1
 build/todos_test.tl view_written 10
-build/tree_checks.tl view_written 270
+build/tree_checks.tl view_written 277
 build/tree_checks_test.tl view_written 19
 build/tree_root.tl view_written 2
 build/type_watch.tl view_written 2
@@ -2288,10 +2340,13 @@ build/shape_specs.tl view_as_mut 1
 build/stand_in.tl view_as_mut 1
 build/stand_in_probe.tl view_as_mut 1
 build/symbol_index.tl view_as_mut 10
+build/syntax_compared.tl view_as_mut 2
+build/syntax_shape_specs.tl view_as_mut 1
+build/syntax_stub.tl view_as_mut 1
 build/test.tl view_as_mut 10
 build/test_inputs.tl view_as_mut 1
 build/test_worker.tl view_as_mut 3
-build/tree_checks.tl view_as_mut 10
+build/tree_checks.tl view_as_mut 11
 build/work.tl view_as_mut 3
 build/worker.tl view_as_mut 1
 build/workers.tl view_as_mut 1
@@ -2461,6 +2516,7 @@ build/stub.tl field_fixed 1
 build/stub_test.tl field_fixed 2
 build/stub_tree_test.tl field_fixed 2
 build/symbols.tl field_fixed 2
+build/syntax_compared_test.tl field_fixed 17
 build/teal.tl field_fixed 4
 build/teal_test.tl field_fixed 42
 build/term_relay.tl field_fixed 3
@@ -2481,7 +2537,8 @@ build/time.tl field_fixed 3
 build/todos.tl field_fixed 8
 build/todos_git_test.tl field_fixed 6
 build/todos_test.tl field_fixed 3
-build/tree_checks.tl field_fixed 1
+build/tree_checks.tl field_fixed 2
+build/tree_checks_test.tl field_fixed 2
 build/udp_fixture.tl field_fixed 1
 build/vendor.tl field_fixed 7
 build/verb_cases.tl field_fixed 2
@@ -2661,6 +2718,10 @@ build/driver_test.tl field_unknown 1
 build/fetch.tl field_unknown 2
 build/hash_tool_test.tl field_unknown 3
 build/lang_proof.tl field_unknown 4
+build/syntax_compared.tl field_unknown 1
+build/syntax_match.tl field_unknown 1
+build/syntax_shape_specs.tl field_unknown 5
+build/syntax_stub.tl field_unknown 2
 build/time.tl field_unknown 7
 build/worker.tl field_unknown 2
 ci/cosmic_ci/github_api.tl field_unknown 1
@@ -2848,6 +2909,7 @@ build/sqlite_wait_lua_test.tl map_field 4
 build/standalone.tl map_field 1
 build/standalone_tool_test.tl map_field 1
 build/stub.tl map_field 15
+build/syntax_node_test.tl map_field 4
 build/teal.tl map_field 7
 build/test.tl map_field 14
 build/test_bail_tool_test.tl map_field 2
@@ -3177,6 +3239,8 @@ build/compile_lang_test.tl overload_none 1
 build/confine.tl overload_none 2
 build/contracts.tl overload_none 4
 build/coverage/lines.tl overload_none 1
+build/coverage/syntax_lines.tl overload_none 1
+build/coverage/syntax_lines_test.tl overload_none 1
 build/dataset.tl overload_none 3
 build/dataset_fuzz_test.tl overload_none 2
 build/declared_key.tl overload_none 13
@@ -3231,6 +3295,13 @@ build/stand_in_probe.tl overload_none 2
 build/stdlib_declarations_test.tl overload_none 2
 build/stub.tl overload_none 2
 build/symbol_index.tl overload_none 1
+build/syntax_compared.tl overload_none 6
+build/syntax_globals.tl overload_none 1
+build/syntax_node.tl overload_none 1
+build/syntax_rewrite.tl overload_none 2
+build/syntax_scopes_test.tl overload_none 4
+build/syntax_shape_specs.tl overload_none 2
+build/syntax_shape_specs_test.tl overload_none 1
 build/teal.tl overload_none 2
 build/teal_test.tl overload_none 2
 build/term_filter.tl overload_none 1
@@ -3488,6 +3559,7 @@ build/shape_specs.tl any_use 2
 build/sql.tl any_use 3
 build/stand_in_probe.tl any_use 1
 build/stub.tl any_use 4
+build/syntax_match.tl any_use 2
 build/teal.tl any_use 21
 build/term_relay_backpressure_test.tl any_use 1
 build/test.tl any_use 3
@@ -3966,11 +4038,23 @@ build/ast/walk.tl is_on_record 1
 build/compile_grammar.tl is_on_record 4
 build/compile_grammar_test.tl is_on_record 3
 build/compile_lang_test.tl is_on_record 3
+build/coverage/syntax_lines.tl is_on_record 2
 build/dataset.tl is_on_record 2
 build/flow.tl is_on_record 7
 build/lang_proof.tl is_on_record 3
 build/shape_specs.tl is_on_record 1
 build/standalone.tl is_on_record 3
+build/syntax_compared.tl is_on_record 1
+build/syntax_derivation.tl is_on_record 1
+build/syntax_globals.tl is_on_record 1
+build/syntax_match.tl is_on_record 12
+build/syntax_match_test.tl is_on_record 1
+build/syntax_node.tl is_on_record 6
+build/syntax_node_test.tl is_on_record 4
+build/syntax_rewrite.tl is_on_record 1
+build/syntax_scopes.tl is_on_record 9
+build/syntax_shape_specs.tl is_on_record 14
+build/syntax_stub.tl is_on_record 25
 build/teal.tl is_on_record 1
 build/test_closure_test.tl is_on_record 1
 build/test_worker.tl is_on_record 3
@@ -4188,6 +4272,7 @@ build/confine.tl condition_type 8
 build/contracts.tl condition_type 14
 build/coverage/lines.tl condition_type 1
 build/coverage/lines_test.tl condition_type 3
+build/coverage/syntax_lines_test.tl condition_type 3
 build/database_start_fixture.tl condition_type 1
 build/databases.tl condition_type 1
 build/dataset.tl condition_type 5
@@ -4277,6 +4362,10 @@ build/stub.tl condition_type 9
 build/subdirectory_verbs_test.tl condition_type 2
 build/symbol_index.tl condition_type 2
 build/symbols.tl condition_type 2
+build/syntax_compared.tl condition_type 1
+build/syntax_node.tl condition_type 1
+build/syntax_scopes.tl condition_type 1
+build/syntax_shape_specs.tl condition_type 2
 build/teal.tl condition_type 9
 build/teal_test.tl condition_type 11
 build/term_filter.tl condition_type 1
@@ -4966,6 +5055,12 @@ build/standalone.tl and_ternary 2
 build/stub.tl and_ternary 4
 build/stub_test.tl and_ternary 1
 build/symbols.tl and_ternary 1
+build/syntax_compared.tl and_ternary 1
+build/syntax_match.tl and_ternary 2
+build/syntax_rewrite.tl and_ternary 2
+build/syntax_scopes.tl and_ternary 4
+build/syntax_shape_specs.tl and_ternary 6
+build/syntax_stub.tl and_ternary 2
 build/teal.tl and_ternary 51
 build/teal_test.tl and_ternary 2
 build/term_filter.tl and_ternary 3
@@ -4981,7 +5076,7 @@ build/this_program_test.tl and_ternary 1
 build/time.tl and_ternary 3
 build/todo_scan.tl and_ternary 2
 build/todos.tl and_ternary 7
-build/tree_checks.tl and_ternary 15
+build/tree_checks.tl and_ternary 16
 build/vendor.tl and_ternary 1
 build/vendor_test.tl and_ternary 1
 build/verbs_store_test.tl and_ternary 1
@@ -5199,6 +5294,7 @@ build/confine_declared_types_test.tl concat_type 1
 build/contracts_test.tl concat_type 1
 build/core_image_test.tl concat_type 1
 build/coverage/lines_test.tl concat_type 1
+build/coverage/syntax_lines_test.tl concat_type 1
 build/dataset.tl concat_type 5
 build/dataset_fuzz_test.tl concat_type 6
 build/dataset_test.tl concat_type 7
@@ -5291,6 +5387,12 @@ build/sql.tl concat_type 11
 build/stand_in_probe.tl concat_type 2
 build/standalone_test.tl concat_type 1
 build/stub_test.tl concat_type 4
+build/syntax_compared.tl concat_type 5
+build/syntax_globals_test.tl concat_type 2
+build/syntax_node_test.tl concat_type 2
+build/syntax_scopes_test.tl concat_type 1
+build/syntax_shape_specs_test.tl concat_type 1
+build/syntax_stub_test.tl concat_type 2
 build/teal.tl concat_type 6
 build/teal_catalog_test.tl concat_type 1
 build/teal_test.tl concat_type 16
@@ -5309,7 +5411,7 @@ build/time_test.tl concat_type 1
 build/todos.tl concat_type 3
 build/todos_git_test.tl concat_type 7
 build/todos_test.tl concat_type 19
-build/tree_checks.tl concat_type 23
+build/tree_checks.tl concat_type 24
 build/tree_checks_test.tl concat_type 4
 build/unix_socket_declared_types_test.tl concat_type 1
 build/vendor.tl concat_type 2

@@ -25,7 +25,9 @@ local test = require("build.test")
 local todo_scan = require("build.todo_scan")
 local TypeWatch = require("build.type_watch")
 
-Test.policy{ loopback = { "127.0.0.1" } }
+-- TODO: drop the grant of build/ once `UNVEIL_MAX` of core/process.h no longer bounds the paths a test worker's closure
+-- gives its sandbox: build.fix's closure holds nearly as many modules as it takes, and a directory is one path.
+Test.policy{ loopback = { "127.0.0.1" }, grants = { { path = "build", letters = "r" } } }
 
 local built = assert(teal.load())
 

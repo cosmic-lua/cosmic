@@ -1,0 +1,189 @@
+--- Reading source into the new checker's syntax tree for the `build/` readers: [`lang.lexer`] and [`lang.parser`]
+--- ([`lang.ast`]), and [`lang.scopes`] for the readers that need to know which binding a name refers to; walking it,
+--- where a node is, its parent, and the modules a file requires. The tree is a range of tokens for each node, so a place
+--- is read from the tokens ([`Ast.span`]) and a node holds no parent: [`Node.parents`] makes the map for a reader that
+--- asks. Walks keep their own stack, so a chain of any length ([`Ast.number`]) is walked.
+---
+--- The readers named `build.syntax_*` work on the tree beside the fork's, which [`build.ast`] reads: a reader takes the
+--- tree and its tokens, never the compiler, and a source in the fork's Teal reaches it through
+--- [`lang.translate`] until the fork goes. Each is the port of the fork's reader of the same name
+--- ([`build/syntax_scopes.tl`] for [`build/scopes.tl`], [`build/syntax_node.tl`] for [`build/ast/walk.tl`] and [`build/ast/requires.tl`]), and the switch
+--- moves it there.
+local Ast = require("lang.ast")
+local Lexer = require("lang.lexer")
+local Parser = require("lang.parser")
+local Scopes = require("lang.scopes")
+
+local record Node
+  --- The name and the scope of a type declaration: a record, interface, class, enum, alias or import.
+  record Declared
+    name: Ast.Binding
+    scope: Ast.Scope | nil
+  end
+
+  --- What every node holds: its kind, its tokens and its id.
+  base: function(node: Ast.Node): Ast.Base
+
+  --- The tree of `source`, a program (`tl`) or, for a file named `*.d.tl` when `dialect` is not given, a declaration
+  --- file. nil and the first error, worded `file:line:column: message (code): fix`, where the source has one: a
+  --- reader works on a tree that is whole.
+  parse: function(source: string, name: string, dialect?: Ast.Dialect): Ast.Chunk | nil, string
+
+  --- The names of `chunk` resolved against the globals `declared`, none by default: it sets `binding` on each
+  --- [`Ast.Name`] that refers to a binding and answers the facts. The chunk must come from [`Node.parse`].
+  scope: function(chunk: Ast.Chunk, name: string, declared?: {string: Scopes.Global}): Scopes.Scoped
+
+  --- The line and column where `node` starts, and the line and column of its last byte.
+  span: function(chunk: Ast.Chunk, node: Ast.Node): Ast.Span
+
+  --- The declaration `node` is, if it declares a type.
+  declared: function(node: Ast.Node): Declared | nil
+  --- A range of bytes of the source, 1-based and inclusive.
+  record Range
+    first: integer
+    last: integer
+  end
+
+  --- Calls `visit` with each node of the tree under `root`, `root` first, in source order (pre-order, which is the
+  --- order of the nodes' ids).
+  walk: function(root: Ast.Node, visit: function(Ast.Node))
+
+  --- As [`Node.walk`], and where `visit` answers false the nodes under that node are not visited.
+  walk_until: function(root: Ast.Node, visit: function(Ast.Node): boolean)
+
+  --- The nodes directly under `node`, in source order.
+  children: function(node: Ast.Node): {Ast.Node}
+
+  --- The parent of each node under `root` and of `root` itself where it has one, by node id. The chunk's numbering
+  --- ([`Ast.number`]) keys it, so the tree must come from [`lang.parser`].
+  parents: function(root: Ast.Node): {integer: Ast.Node}
+
+  --- The bytes of `node`, 1-based and inclusive: its first byte and its last. A node of no token (a failed
+  --- production) is empty at the token it stands before, and its last byte is the one before its first.
+  range: function(chunk: Ast.Chunk, node: Ast.Node): Range
+
+  --- Every module `chunk` requires, in source order, each name once: the literal `require("m")` calls anywhere in the
+  --- file and the type imports (`local type T = require("m")`), whether or not they feed a top-level local, so that
+  --- `store = require("cosmic.internal.store")` in a branch and a type-only import are dependencies as well. A call whose
+  --- argument is not a string literal contributes nothing, since its target is unknown until the program runs, and text in
+  --- a string or a comment is no call. [`build.importer`] builds its import order and the recompilation key from this.
+  requires: function(chunk: Ast.Chunk): {string}
+end
+
+function Node.base(node: Ast.Node): Ast.Base
+  return node
+end
+
+function Node.declared(node: Ast.Node): Node.Declared | nil
+  if node is Ast.Record then
+    return { name = node.name, scope = node.scope }
+  elseif node is Ast.Interface then
+    return { name = node.name, scope = node.scope }
+  elseif node is Ast.Class then
+    return { name = node.name, scope = node.scope }
+  elseif node is Ast.Enum then
+    return { name = node.name, scope = node.scope }
+  elseif node is Ast.TypeAlias then
+    return { name = node.name, scope = node.scope }
+  elseif node is Ast.Import then
+    return { name = node.name, scope = node.scope }
+  end
+  return nil
+end
+
+function Node.parse(source: string, name: string, dialect?: Ast.Dialect): Ast.Chunk | nil, string
+  local kind: Ast.Dialect = "tl"
+  if dialect ~= nil then
+    kind = dialect
+  elseif name:find("%.d%.tl$") ~= nil then
+    kind = "decl"
+  end
+  local parsed = Parser.parse(Lexer.lex(source, name), name, kind)
+  local first = parsed.errors[1]
+  if first ~= nil then
+    return nil, name .. ":" .. tostring(first.y) .. ":" .. tostring(first.x) .. ": " .. first.msg .. " (" ..
+      tostring(first.code) .. "): " .. first.fix
+  end
+  return parsed.chunk, ""
+end
+
+function Node.scope(chunk: Ast.Chunk, name: string, declared?: {string: Scopes.Global}): Scopes.Scoped
+  return Scopes.build(chunk, name, declared or {})
+end
+
+function Node.span(chunk: Ast.Chunk, node: Ast.Node): Ast.Span
+  return Ast.span(chunk, node)
+end
+
+function Node.children(node: Ast.Node): {Ast.Node}
+  local out: {Ast.Node} = {}
+  Ast.children(node, function(child: Ast.Node)
+    out[#out + 1] = child
+  end)
+  return out
+end
+
+function Node.walk_until(root: Ast.Node, visit: function(Ast.Node): boolean)
+  local stack: {Ast.Node} = { root }
+  local top = 1
+  while top > 0 do
+    local node = stack[top]
+    stack[top] = nil
+    top = top - 1
+    if visit(node) then
+      local kids = Node.children(node)
+      for i = #kids, 1, -1 do
+        top = top + 1
+        stack[top] = kids[i]
+      end
+    end
+  end
+end
+
+function Node.walk(root: Ast.Node, visit: function(Ast.Node))
+  Node.walk_until(root, function(node: Ast.Node): boolean
+    visit(node)
+    return true
+  end)
+end
+
+function Node.parents(root: Ast.Node): {integer: Ast.Node}
+  local out: {integer: Ast.Node} = {}
+  Node.walk(root, function(node: Ast.Node)
+    Ast.children(node, function(child: Ast.Node)
+      out[Node.base(child).id] = node
+    end)
+  end)
+  return out
+end
+
+function Node.range(chunk: Ast.Chunk, node: Ast.Node): Node.Range
+  local base = Node.base(node)
+  local first = chunk.tokens[base.first]
+  if base.last < base.first then
+    return { first = first.offset, last = first.offset - 1 }
+  end
+  local last = chunk.tokens[base.last]
+  return { first = first.offset, last = last.offset + last.length - 1 }
+end
+
+function Node.requires(chunk: Ast.Chunk): {string}
+  local found: {Ast.Require} = {}
+  for _, r in ipairs(chunk.requires) do
+    found[#found + 1] = r
+  end
+  table.sort(found, function(a: Ast.Require, b: Ast.Require): boolean
+    return a.node < b.node
+  end)
+  local seen: {string: boolean} = {}
+  local out: {string} = {}
+  for _, r in ipairs(found) do
+    if not seen[r.module] then
+      seen[r.module] = true
+      out[#out + 1] = r.module
+    end
+  end
+  return out
+end
+
+return Node

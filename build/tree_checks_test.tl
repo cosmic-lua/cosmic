@@ -11,6 +11,7 @@ local fixture = require("build.docs_fixture")
 local schema = require("build.schema")
 local symbols = require("build.symbols")
 local ast = require("build.ast")
+local stub = require("build.stub")
 local teal = require("build.teal")
 local Test = require("cosmic.test")
 local tree_checks = require("build.tree_checks")
@@ -1554,4 +1555,76 @@ local function test_a_ceiling_for_a_file_that_is_gone_is_refused_when_a_check_re
   local fine = tree_checks.checked(root)
   assert(#fine == 1, table.concat(fine, "\n"))
   assert(fine[1] == "build/there.tl nil_not_allowed: pinned 1 but 0 found; lower the pin in build/ceilings.txt's [checked]", fine[1])
+end
+
+--- A file the fork's readers and their ports read alike passes, and so does one with a class made the way the tree makes
+--- it; a file the check cannot compare (its translation does not parse, a declaration file, the fork's own) is left
+--- out; a pin for a file that agrees is told to lower; and a reader that answers otherwise is named, refused past its pin.
+local function test_the_readers_of_a_file_are_held_to_the_forks_but_for_their_pins(dir: string)
+  local root = dir .. "/read"
+  assert(Fs.mkdirs(root .. "/build"))
+  assert(Fs.mkdirs(root .. "/checker"))
+  assert(Fs.write(root .. "/build/ok.tl", source(
+    'local Fs = require("cosmic.fs")',
+    "local record M",
+    "  n: integer",
+    "end",
+    "function M.read(path: string): string | nil",
+    "  local text = Fs.read(path)",
+    "  return text",
+    "end",
+    "return M")))
+  assert(Fs.write(root .. "/build/classy.tl", source(
+    "local record R",
+    "  n: integer",
+    "  bump: function(R)",
+    "end",
+    "function R:bump()",
+    "  self.n = self.n + 1",
+    "end",
+    "return R")))
+  assert(Fs.write(root .. "/build/tuple.tl", source("local a: {{string, integer}}", "return a")))
+  assert(Fs.write(root .. "/build/types.d.tl", source("global record G", "end")))
+  assert(Fs.write(root .. "/checker/tl.tl", source("global record R", "end")))
+  assert(#tree_checks.read(root, {}) == 0, table.concat(tree_checks.read(root, {}), "\n"))
+  local fallen = tree_checks.read(root, { ["build/ok.tl"] = 1 })
+  assert(#fallen == 1 and fallen[1] == "build/ok.tl: pinned 1 but 0 found; lower the pin in build/ceilings.txt's [read]",
+    table.concat(fallen, "\n"))
+  local made = stub.made
+  stub.made = function(parsed: ast.Parsed): stub.Made
+    local right = made(parsed)
+    return { text = right.text, pruned = not right.pruned }
+  end
+  local ok, raised = pcall(function(): string
+    local found = tree_checks.read(root, {})
+    local joined = table.concat(found, "\n")
+    assert(joined:find("build/ok.tl: stub: pruned false against true", 1, true) ~= nil and
+        joined:find("build/ok.tl: 1 reader differs from the fork's, pinned 0", 1, true) ~= nil and
+        joined:find("build/classy.tl: stub: pruned", 1, true) ~= nil, joined)
+    assert(joined:find("tuple.tl", 1, true) == nil and joined:find("types.d.tl", 1, true) == nil, joined)
+    assert(#tree_checks.read(root, { ["build/ok.tl"] = 1, ["build/classy.tl"] = 1 }) == 0)
+    return ""
+  end)
+  stub.made = made
+  assert(ok, raised)
+end
+
+--- A file that has not changed is not read again: the memo answers, and a change to a reader reads the file again.
+local function test_a_memo_answers_the_reader_check_until_a_reader_changes(dir: string)
+  local root = dir .. "/readmemo"
+  assert(Fs.mkdirs(root .. "/build"))
+  assert(Fs.write(root .. "/build/syntax_stub.tl", "-- one\n"))
+  assert(Fs.write(root .. "/build/ok.tl", source("local x = 1", "return x")))
+  local memo = assert(Sqlite.memory())
+  assert(#tree_checks.read(root, {}, memo) == 0)
+  local count = assert(Sqlite.rows(memo, "SELECT count(*) FROM check_memo WHERE kind = 'read'"))
+  assert(count[1]:integer(1) == 2, "the file and the reader, each once")
+  -- Plant another answer under the keys: a run that finds it did not read.
+  assert(Sqlite.run(memo, "UPDATE check_memo SET value = 'D\tstub: planted'"))
+  local hit = table.concat(tree_checks.read(root, {}, memo), "\n")
+  assert(hit:find("build/ok.tl: stub: planted", 1, true) ~= nil, hit)
+  -- A reader changed: the salt moves, and the file is read again.
+  assert(Fs.write(root .. "/build/syntax_stub.tl", "-- two\n"))
+  assert(#tree_checks.read(root, {}, memo) == 0)
+  assert(memo:close())
 end

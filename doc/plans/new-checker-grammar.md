@@ -842,6 +842,16 @@ returns as the production named, when a use appears.
   alone; then [`build/fix/`] and the readers above are rewritten to the
   tree beside the checker, the typed `Node` replacing the cast in
   [`build/ast/node.tl`].
+- the first readers are rewritten as `build/syntax_<name>.tl` beside the one they replace ([`build/syntax_node.tl`],
+  which also walks the tree and lists what a file requires, `_match`, `_rewrite`, `_scopes`, `_globals`, `_stub`,
+  `_shape_specs`, `_derivation` and
+  [`build/coverage/syntax_lines.tl`]), each taking the tree and never the compiler. [`build/syntax_compared.tl`]
+  reads every file of the tree through the fork's readers and through these, over the translated file
+  ([`lang.translate`]), and `fix --check .` holds the answers equal but for the `[read]` pins of
+  [`build/ceilings.txt`] (no program declares a global and the check leaves out declaration files, so the globals are
+  compared by the unit tests alone; a pattern `function $F() end` no longer compiles, as a program may not declare
+  a global function). The switch deletes the fork's readers and the comparison, and moves each
+  `build/syntax_<name>.tl` to the name it replaces.
 
 [annotated parameters]: strict-teal.md#annotated-parameters
 [assigned before read]: strict-teal.md#assigned-before-read
@@ -867,9 +877,11 @@ returns as the production named, when a use appears.
 [`build/ast/node.tl`]: ../../build/ast/node.tl
 [`build/ast/rewrite.tl`]: ../../build/ast/rewrite.tl
 [`build/ast/walk.tl`]: ../../build/ast/walk.tl
+[`build/ceilings.txt`]: ../../build/ceilings.txt
 [`build/compile.tl`]: ../../build/compile.tl
 [`build/compiler.d.tl`]: ../../build/compiler.d.tl
 [`build/contracts.tl`]: ../../build/contracts.tl
+[`build/coverage/syntax_lines.tl`]: ../../build/coverage/syntax_lines.tl
 [`build/globals.tl`]: ../../build/globals.tl
 [`build/importer.tl`]: ../../build/importer.tl
 [`build/link_text.tl`]: ../../build/link_text.tl
@@ -877,6 +889,8 @@ returns as the production named, when a use appears.
 [`build/scopes.tl`]: ../../build/scopes.tl
 [`build/shape_specs.tl`]: ../../build/shape_specs.tl
 [`build/stub.tl`]: ../../build/stub.tl
+[`build/syntax_compared.tl`]: ../../build/syntax_compared.tl
+[`build/syntax_node.tl`]: ../../build/syntax_node.tl
 [`build/teal.tl`]: ../../build/teal.tl
 [`build/tree_checks.tl`]: ../../build/tree_checks.tl
 [`Capture.after`]: ../../lang/scopes.tl
@@ -888,6 +902,7 @@ returns as the production named, when a use appears.
 [`cosmic/http/wire.tl`]: ../../cosmic/http/wire.tl
 [`cosmic/removed_example.tl`]: ../../cosmic/removed_example.tl
 [`cosmic/web/init.tl`]: ../../cosmic/web/init.tl
+[`lang.translate`]: ../../lang/translate.tl
 [`lang/ast.tl`]: ../../lang/ast.tl
 [`lang/lexer.tl`]: ../../lang/lexer.tl
 [`lang/parser.tl`]: ../../lang/parser.tl
