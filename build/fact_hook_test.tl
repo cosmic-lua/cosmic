@@ -9,13 +9,15 @@ local worker = require("build.test_worker")
 
 Test.policy{}
 
---- The violations met after the first `before`.
+--- The facts violated after the first `before` violations. A checked run also reports the boundaries this file's own
+--- functions cross (parameters, return values, fields: kinds `parameter`, `return` and `field`), which are not what
+--- the program under test did.
 local function since(before: integer): {worker.Violation}
   local met = worker.violations()
   local out: {worker.Violation} = {}
   for i = before + 1, #met do
     local each = met[i]
-    if each ~= nil then out[#out + 1] = each end
+    if each ~= nil and each.kind == "fact" then out[#out + 1] = each end
   end
   return out
 end
