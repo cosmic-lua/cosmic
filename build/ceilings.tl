@@ -3,7 +3,7 @@
 --- counts and lowers the number, and a file that goes over one is refused.
 ---
 --- The file is text, a section per stage (`[checked]`) and a line per ceiling: a file, a code and a count, or for the stage
---- `generated` a file and a count, and for `hazards` a name and a count. A line that begins with `#` is a comment, and a comment before the lines it explains
+--- `generated` and `read` a file and a count, and for `hazards` a name and a count. A line that begins with `#` is a comment, and a comment before the lines it explains
 --- says what brings them to zero. The stages are the checks of [`build.tree_checks`], and `scoped`, `declared` and
 --- `checked` are also the stages of a compile ([`build.driver`]), whose [`Ceilings.over`] a compile calls for a module (`scoped`
 --- for a module in the new grammar, `translated` for one that is the fork's Teal, translated): the tree's check of a file and
@@ -28,6 +28,7 @@ local record Ceilings
     "declared"
     "hazards"
     "generated"
+    "read"
     "checked"
   end
 
@@ -40,7 +41,7 @@ local record Ceilings
     fix: string
   end
 
-  --- The ceilings of each stage, by stage: a key (`<file> <code>`, or `<file>` for `generated`) to its count.
+  --- The ceilings of each stage, by stage: a key (`<file> <code>`, or `<file>` for `generated` and `read`) to its count.
   record Table
     stages: {string: {string: integer}}
   end
@@ -121,7 +122,8 @@ local function unmeetable(stage: string, key: string): string
 end
 
 local STAGES <const>: {string: boolean} = {
-  lexed = true, translated = true, scoped = true, declared = true, hazards = true, generated = true, checked = true,
+  lexed = true, translated = true, scoped = true, declared = true, hazards = true, generated = true, read = true,
+  checked = true,
 }
 
 function Ceilings.parse(text: string): Ceilings.Table | nil, string

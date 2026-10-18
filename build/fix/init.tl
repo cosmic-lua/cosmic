@@ -1494,6 +1494,9 @@ local function run_tree_checks(ctx: Fix)
       for _, line in ipairs(tree_checks.generated(root, nil, memo)) do
         findings[#findings + 1] = "generator: " .. line
       end
+      for _, line in ipairs(tree_checks.read(root, nil, memo)) do
+        findings[#findings + 1] = "readers: " .. line
+      end
       for _, line in ipairs(tree_checks.checked(root, nil, memo)) do
         findings[#findings + 1] = "checker: " .. line
       end
