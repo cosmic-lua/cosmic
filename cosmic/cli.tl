@@ -591,7 +591,9 @@ local record Cli
   --- finds cosmic's own releases, the `next-<commit>` prereleases of
   --- cosmic-lua/cosmic on GitHub, picks one and verifies it. Every page
   --- of releases is read, since the API does not list them by time, and
-  --- they are sorted newest first by when they were published. With no
+  --- they are sorted newest first by when they were published; a
+  --- `--commit` reads only the releases of the tags its prefix starts,
+  --- refusing a prefix that names more than 10. With no
   --- criterion it picks the newest; `--commit` the one whose commit
   --- starts with the hex (7 to 40 digits), `--until` the newest published
   --- at or before an RFC 3339 time, or by the end of a date in UTC; both
