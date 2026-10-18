@@ -90,14 +90,25 @@ do
     run: function(function(string): string)
     run: function(function(string, string): string)
   end
-  global record coroutine
-    create: function(function()): any
-    wrap: function(function()): function()
-    yield: function()
-  end
+]] .. "  global record coroutine\n    " .. table.concat(Corrections.lines("coroutine", "create"), "\n    ") .. "\n    " ..
+  table.concat(Corrections.lines("coroutine", "wrap"), "\n    ") .. "\n    " ..
+  table.concat(Corrections.lines("coroutine", "resume"), "\n    ") .. "\n    " ..
+  table.concat(Corrections.lines("coroutine", "close"), "\n    ") .. "\n    " ..
+  table.concat(Corrections.lines("coroutine", "status"), "\n    ") .. "\n  end\n  " ..
+  table.concat(Corrections.added, "\n  ") .. "\n" .. [[
   global record table
+    insert: function<A>(mut {A}, integer, A)
     insert: function<A>(mut {A}, A)
     concat: function({string}, p2?: string): string
+    remove: function<A>(mut {A}, p2?: integer): A?
+    sort: function(mut {integer}, ? function(integer, integer): boolean)
+    sort: function(mut {number}, ? function(number, number): boolean)
+    sort: function(mut {string}, ? function(string, string): boolean)
+    sort: function<A>(mut {A}, function(A, A): boolean)
+  end
+  global record math
+    max: function(integer, ...: integer): integer
+    max: function(number, ...: number): number
   end
   local record Lib
     print: function(...: any)
@@ -105,10 +116,13 @@ do
     tonumber: function(any): number?
     tonumber: function(any, integer): integer?
     ipairs: function<A>({A}): (function({A}, integer): (integer, A), {A}, integer)
-    assert: function<A>(A?, p2?: string): A
+    pairs: function<K, V>({K: V}): (function({K: V}, p2?: K): (K, V), {K: V}, K)
+    assert: function<A>(A?): A
+    assert: function<A, B>(A?, B, ...: any): (A, B, any...)
     error: function(p1?: any): never
     require: function(string): any
-    pcall: function(function(...: any): any, ...: any): boolean
+]] .. "    " .. table.concat(Corrections.protected("pcall", 3, 2), "\n    ") .. "\n    " ..
+  table.concat(Corrections.protected("xpcall", 2, 2), "\n    ") .. "\n" .. [[
     type: function(any): string
     setmetatable: function<A>(A, any): A
   end
@@ -116,10 +130,12 @@ do
   global tostring <const> = Lib.tostring
   global tonumber <const> = Lib.tonumber
   global ipairs <const> = Lib.ipairs
+  global pairs <const> = Lib.pairs
   global assert <const> = Lib.assert
   global error <const> = Lib.error
   global require <const> = Lib.require
   global pcall <const> = Lib.pcall
+  global xpcall <const> = Lib.xpcall
   global type <const> = Lib.type
   global setmetatable <const> = Lib.setmetatable
 end
@@ -186,6 +202,7 @@ function Programs.standard(prelude: string, stdlib: string, source: string, modu
   globals["interface"] = nil
   globals["userdata"] = { space = "type", const = false }
   add("checker/stdlib.d.tl", stdlib)
+  add("lang/stdlib_corrections.tl", table.concat(Corrections.added, "\n"))
   local _ = lower(program, "checker.prelude", prelude, "decl", {})
   local corrected = Corrections.apply(stdlib)
   assert(#corrected.problems == 0, table.concat(corrected.problems, "\n"))
@@ -235,6 +252,68 @@ local function fact_arguments(n: Check.Narrowed): string
   return table.concat(parts, ", ")
 end
 
+--- A coroutine of the typed library, over Lua's own: what can be done with it, each closed over the thread.
+local record Co
+  resume: function(...: any): (boolean, any...)
+  close: function(): (boolean, any...)
+  status: function(): string
+end
+
+--- The typed `coroutine` library the declarations of [`lang.stdlib_corrections`] describe, over Lua's: a body is called
+--- with the handle that yields and the value the first `resume` sent, `resume` answers `true` and what was yielded or
+--- returned or `false` and the error, and a handle yields only for the coroutine it was made for.
+--
+-- TODO: drop this library, and run the Lua against the runtime's, once the runtime provides the typed `coroutine`
+-- (the TODO of [`lang.stdlib_corrections`]).
+local function typed_coroutines(): {string: any}
+  local library: {string: any} = {}
+  local function create(body: function(...: any): any...): Co
+    local handle: {string: any} = {}
+    local thread = coroutine.create(function(first: any): any
+      return body(handle, first)
+    end)
+    handle.yield = function(_self: any, y: any): any
+      if coroutine.running() ~= thread then
+        error("a handle yields for the coroutine it was made for", 2)
+      end
+      return coroutine.yield(y)
+    end
+    return {
+      resume = function(...: any): (boolean, any...)
+        return coroutine.resume(thread, ...)
+      end,
+      close = function(): (boolean, any...)
+        return coroutine.close(thread)
+      end,
+      status = function(): string
+        return coroutine.status(thread)
+      end,
+    }
+  end
+  library.create = create
+  library.resume = function(co: Co, ...: any): (boolean, any...)
+    return co.resume(...)
+  end
+  library.close = function(co: Co): (boolean, any...)
+    return co.close()
+  end
+  library.status = function(co: Co): string
+    return co.status()
+  end
+  library.isyieldable = coroutine.isyieldable
+  library.wrap = function(body: function(...: any): any...): function(...: any): any
+    local co = create(body)
+    return function(...: any): any
+      local results = table.pack(co.resume(...))
+      if not results[1] then
+        error(results[2], 0)
+      end
+      return results[2]
+    end
+  end
+  return library
+end
+
 function Programs.execute(source: string, facts: boolean, modules?: {string: string}, kind_only?: boolean): Programs.Execution
   local run = Programs.run(source, modules)
   local done: Programs.Execution = { run = run, ran = false, lua = "", printed = {}, fault = nil }
@@ -253,9 +332,9 @@ function Programs.execute(source: string, facts: boolean, modules?: {string: str
   end
   done.lua = Codegen.generate(run.chunk, run.scoped, nil, classes, kind_only and {} or Check.enums(run.lowered), wraps).text
   local env: {string: any} = {
-    assert = assert, ipairs = ipairs, tostring = tostring, tonumber = tonumber, type = type, error = error, pcall = pcall,
+    assert = assert, ipairs = ipairs, pairs = pairs, math = math, tostring = tostring, tonumber = tonumber, type = type, error = error, pcall = pcall, xpcall = xpcall,
     string = string, table = table, select = select, setmetatable = setmetatable, getmetatable = getmetatable,
-    coroutine = coroutine,
+    coroutine = typed_coroutines(),
   }
   env.print = function(...: any)
     local parts: {string} = {}

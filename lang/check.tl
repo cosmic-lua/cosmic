@@ -7,11 +7,22 @@
 --- a boolean for `true`. What is inferred is then required to be below what the position wants, and where it is
 --- not the error names the rule, the place and the change that fixes it ([`lang.check_codes`]).
 ---
---- **What it checks.** Literals, names, fields, indexes, operators and concatenation; calls of functions that
---- are not generic, with the first-match rule of overloads; table literals against the expected type (records
---- included); assignments, writes to fields (fixed unless `mut`) and indexes (views are never written, and an
---- array grows by an append); returns against the declared list; conditions (booleans or optionals) and the
---- honest `or` and `and`; numeric keys, views and `mut` collections, records and maps.
+--- **What it checks.** Literals, names, fields, indexes, operators and concatenation; calls, with the first-match rule
+--- of overloads; table literals against the expected type (records included); assignments, writes to fields (fixed
+--- unless `mut`) and indexes (views are never written, and an array grows by an append); returns against the declared
+--- list; conditions (booleans or optionals) and the honest `or` and `and`; numeric keys, views and `mut` collections,
+--- records and maps; `match` over a call that answers one of several lists of values.
+---
+--- **Generic calls.** A call of a generic function, an overload among them, instantiates it: each type parameter is
+--- solved from the receiver and the arguments, then from the type the call is expected to answer ([`lang.generics`]),
+--- and met against its bound, and the instance is applied as any function is. `pcall`, `xpcall`, `ipairs`, `assert`,
+--- `table.insert` and the typed `Coroutine<Y, R, S>` are declarations of this ([`lang.stdlib_corrections`]); a generic
+--- function is a value of the function types its parameters can be taken from ([`lang.relation`]).
+---
+--- **`match`.** The arms cover the lists the call answers exactly: `true` and `false` select the lists that have the
+--- value at their position, a name takes the union of what the lists it selects have there, a list no arm takes is
+--- `match_missing`, an arm that takes no list `match_redundant`, and a pattern that tests a position the lists do not give
+--- as `true` or `false`, or names another number of values, `match_pattern`.
 ---
 --- **Calls.** A method called through a union of declarations is typed when every member declares it alike once the
 --- receiver is the union, and reported (`not_callable`) otherwise. The last argument of a call may add values (a call
@@ -41,9 +52,9 @@
 --- or named by a function made before every path assigns it), `unreachable` and `narrowing_dropped`; a function
 --- declared to narrow must show it where it returns (`narrows_unproved`).
 ---
---- **What it leaves.** A call of a generic function, a protected call, a coroutine function and a `match` are typed
---- `invalid` and reported (`unchecked_*`), so that no `invalid` is silent: the one that stands for a mistake already
---- reported, by this checker or by the lowering of the declarations, is the only other.
+--- **What it leaves.** A binding of C and a global the declarations lack are typed `invalid` and reported
+--- (`unchecked_binding`), so that no `invalid` is silent: the one that stands for a mistake already reported, by this
+--- checker or by the lowering of the declarations, is the only other.
 ---
 --- **Types of names.** A local, parameter or loop variable has the type its annotation or value gives;
 --- a name of a record or class used as a value ([`Fs.read`]) is the declaration's own type; a module
@@ -57,6 +68,7 @@ local Ast = require("lang.ast")
 local Codes = require("lang.check_codes")
 local Declarations = require("lang.declarations")
 local Flow = require("lang.flow")
+local Generics = require("lang.generics")
 local Lexer = require("lang.lexer")
 local Relation = require("lang.relation")
 local Scopes = require("lang.scopes")
@@ -253,6 +265,8 @@ local record Ctx
   narrowed: {integer: Check.Narrowed}
   unite: function(Type, Type): Type
   covers: function(Type, Type): boolean
+  --- What [`lang.generics`] reads types through, made when a generic call first needs it.
+  hooks: Generics.Hooks | nil
 end
 
 -- Helpers ------------------------------------------------------------------------------------
@@ -626,11 +640,25 @@ local function nil_fix(ctx: Ctx, node: Ast.Node): string
   return "test it first (`if " .. s .. " == nil then return nil, why end`), or take it with `assert(" .. s .. ")`"
 end
 
+--- Whether the type `t` names `invalid` anywhere.
+local function names_invalid(t: Type): boolean
+  if t.tag == "invalid" then
+    return true
+  end
+  for _, part in ipairs(Types.parts(t)) do
+    if names_invalid(part) then
+      return true
+    end
+  end
+  return false
+end
+
 --- Reports that the value of `node`, of type `got`, is not below `want`, and `r` says why. `where` is a phrase that
---- says what wants it, with a space before it, or "".
-local function refused(ctx: Ctx, node: Ast.Node, got: Type, want: Type, r: Relation.Refusal, where: string)
+--- says what wants it, with a space before it, or "". `named` is how to write `want` where the program spells it
+--- otherwise than the type is (a parameter of a generic function that a failed inference made `invalid`).
+local function refused(ctx: Ctx, node: Ast.Node, got: Type, want: Type, r: Relation.Refusal, where: string, named?: string)
   local s = subject(ctx, node)
-  local g, w = show(ctx, got), show(ctx, want)
+  local g, w = show(ctx, got), named or show(ctx, want)
   local shown = { g, w }
   local code = r.code
   local e = peel(node)
@@ -649,10 +677,18 @@ local function refused(ctx: Ctx, node: Ast.Node, got: Type, want: Type, r: Relat
           " is wanted" .. where, nil_fix(ctx, node), shown)
     end
   elseif code == "view_as_mut" then
+    -- A view where a `mut` collection of a parameter that nothing else solved is wanted taints it: the collection
+    -- wanted is the view, made `mut`.
+    local super = Types.display(r.super, ctx.binders)
+    local made = w
+    if names_invalid(r.super) and g:sub(1, 1) == "{" then
+      made = "mut " .. g
+      super = made
+    end
     report(ctx, "view_as_mut", node, s .. " is " .. quoted(g) .. ", where " .. quoted(w) .. " is wanted" .. where ..
-        ": the view " .. quoted(Types.display(r.sub, ctx.binders)) .. " is not " ..
-        quoted(Types.display(r.super, ctx.binders)) .. ", which the receiver may change",
-      "declare " .. s .. " `" .. w .. "` where it is made or received, or pass a collection made `mut`", shown)
+        ": the view " .. quoted(Types.display(r.sub, ctx.binders)) .. " is not " .. quoted(super) ..
+        ", which the receiver may change",
+      "declare " .. s .. " `" .. made .. "` where it is made or received, or pass a collection made `mut`", shown)
   elseif code == "invariant_mut" or code == "invariant_key" then
     report(ctx, "invariant_mut", node, quoted(Types.display(r.sub, ctx.binders)) .. " is not " ..
         quoted(Types.display(r.super, ctx.binders)) .. " (" .. s .. " is " .. quoted(g) .. ", where " .. quoted(w) ..
@@ -715,23 +751,23 @@ local function refused(ctx: Ctx, node: Ast.Node, got: Type, want: Type, r: Relat
 end
 
 --- Whether the value of `node`, of type `got`, may stand where `want` is wanted, reporting it where not.
-local function expect(ctx: Ctx, node: Ast.Node, got: Type, want: Type, where: string): boolean
+local function expect(ctx: Ctx, node: Ast.Node, got: Type, want: Type, where: string, named?: string): boolean
   if below(ctx, got, want) then
     return true
   end
   local r = ctx.judge:refuse(got, want)
   if r ~= nil then
-    refused(ctx, node, got, want, r, where)
+    refused(ctx, node, got, want, r, where, named)
   end
   return false
 end
 
 --- [`expect`] for a position that accepts any value as `any`: an argument to a parameter declared `any`.
-local function expect_argument(ctx: Ctx, node: Ast.Node, got: Type, want: Type, where: string): boolean
+local function expect_argument(ctx: Ctx, node: Ast.Node, got: Type, want: Type, where: string, named?: string): boolean
   if want.tag == "any" then
     return true
   end
-  return expect(ctx, node, got, want, where)
+  return expect(ctx, node, got, want, where, named)
 end
 
 -- Not yet checked ----------------------------------------------------------------------------
@@ -3017,10 +3053,6 @@ local function function_body(ctx: Ctx, params: {Ast.Param}, body: Ast.Block, ft:
   local f: Fn | nil = ft is Fn and ft or nil
   local generic = f ~= nil and #f.tparams > 0
   if generic and f ~= nil then
-    if #ctx.binders > 0 then
-      unchecked(ctx, "unchecked_nested", whole, "this generic function is inside the code of another")
-      return
-    end
     ctx.judge:enter(f.tparams)
     ctx.binders[#ctx.binders + 1] = names
     ctx.bounds[#ctx.bounds + 1] = f.tparams
@@ -3177,6 +3209,35 @@ local function enum_holds(m: Named, value: string): boolean
   return false
 end
 
+--- Whether the return lists a function literal writes have as many values as some list of `g` answers (the relation meets
+--- the returns of a function by the number of values), or the literal writes none and takes `g`'s.
+local function returns_fit(ctx: Ctx, lit: Ast.FunctionLit, g: Fn): boolean
+  local written = lit.fn.rets
+  if written == nil then
+    return true
+  end
+  for _, list in ipairs(written.lists) do
+    local never = false
+    for _, item in ipairs(list) do
+      if not (item is Ast.Narrows) then
+        local t = ctx.lowered.types[rtype_base(item).id]
+        never = never or (t ~= nil and t.tag == "never")
+      end
+    end
+    if not never then
+      local values = #list - (written.variadic and 1 or 0)
+      local fits = false
+      for _, alt in ipairs(g.rets) do
+        fits = fits or (#alt.items == values and (alt.tail ~= nil) == written.variadic)
+      end
+      if not fits then
+        return false
+      end
+    end
+  end
+  return true
+end
+
 --- Whether the literal `e` could be a value of `want`: its form fits, which is all a position can tell of a literal
 --- before it is checked against the overload. A function literal fits a function type whose calls it takes, and a
 --- string literal a `string` or an enum that has it, which tells overloads of enums apart.
@@ -3196,7 +3257,7 @@ local function literal_fits(ctx: Ctx, written: Ast.Exp, want: Type): boolean
   end
   for _, m in ipairs(members_of(ctx.store, want)) do
     if e is Ast.FunctionLit then
-      if m is Fn and (#m.tparams > 0 or arguments_fit(e, m)) then
+      if m is Fn and (#m.tparams > 0 or arguments_fit(e, m)) and returns_fit(ctx, e, m) then
         return true
       end
     elseif e is Ast.Table then
@@ -3307,23 +3368,129 @@ local function check_receiver(ctx: Ctx, f: Fn, callee: string, recv: Type, recv_
   end
 end
 
---- A call of the function `f`, with the arguments checked against its parameters. Answers its return lists.
+--- What the arguments of a call are before the function it calls is taken.
+local record Prepared
+  --- The type of each argument that is not a literal, by position; the values the last argument expands to follow the
+  --- others.
+  known: {integer: Type}
+  --- The literal arguments, by position: their type depends on the position they stand in, so they are typed once the
+  --- function is taken.
+  pending: {integer: boolean}
+  --- How many positions the arguments fill, the last one's values included.
+  count: integer
+  --- Set when the last argument is a call or `...` that ends in `T...`.
+  tail: Type | nil
+  --- Whether the last argument may add values (a call or `...`).
+  open: boolean
+  --- The lists of a last argument that answers several, which are no values.
+  lists: {Alt} | nil
+  --- The last argument, when it was expanded.
+  last: Ast.Exp | nil
+end
+
+--- What instantiating a generic function for a call gave: the instance, or nil and why not.
+local record Instance
+  fn: Fn | nil
+  why: string
+  --- The type parameters that a shape the arguments lack left with no type, and nothing else reported (the instance
+  --- holds `invalid` for them).
+  holes: {integer} | nil
+end
+
+--- The steps of a generic call.
+local record Calls
+  prepare: function(ctx: Ctx, args: {Ast.Exp}, wants: {Type} | nil): Prepared
+  hooks: function(ctx: Ctx): Generics.Hooks
+  source: function(at: integer): string
+  typed_literal: function(e: Ast.Exp): boolean
+  shown: function(ctx: Ctx, declared: Fn, t: Type): string
+  sparse: function(t: Type): Type | nil
+  holes: function(ctx: Ctx, node: Ast.Node, callee: string, c: Fn, solved: Instance, before: integer)
+  --- What to do where no overload of a function takes the arguments, for a function whose overloads cannot say.
+  fixes: {string: string}
+  solve: function(ctx: Ctx, node: Ast.Node, callee: string, c: Fn, args: {Ast.Exp}, prep: Prepared, off: integer,
+                  recv: Type | nil, expected: Type | nil, loud: boolean): Instance
+  generic: function(ctx: Ctx, node: Ast.Node, callee: string, c: Fn, args: {Ast.Exp}, recv: Type | nil,
+                    recv_node: Ast.Node | nil, expected: Type | nil): {Alt}
+end
+
+--- Types the arguments of a call that are not literals, and notes the literals. `wants` are the types a position expects
+--- where the callee is known to expect one.
+function Calls.prepare(ctx: Ctx, args: {Ast.Exp}, wants: {Type} | nil): Prepared
+  local n = #args
+  local last = args[n]
+  local open = last ~= nil and (last is Ast.Call or last is Ast.MethodCall or last is Ast.Vararg)
+  local prep: Prepared = { known = {}, pending = {}, count = n, open = open }
+  -- The arguments before an expanding last one are typed as the others; the last one gives the values it is known to
+  -- give, and the tail.
+  local written = open and n - 1 or n
+  for i = 1, written do
+    local a = args[i]
+    if is_literal(a) then
+      prep.pending[i] = true
+    else
+      prep.known[i] = expr(ctx, a, wants ~= nil and wants[i] or nil)
+    end
+  end
+  if open and last ~= nil then
+    local vals = values_of(ctx, { last }, wants ~= nil and { wants[n] } or nil, nil)
+    for j, t in ipairs(vals.types) do
+      prep.known[written + j] = t
+    end
+    prep.count = written + #vals.types
+    prep.tail = vals.tail
+    prep.last = vals.last
+    local several = vals.lists
+    if several ~= nil then
+      prep.lists = several
+      local _ = first_value(ctx, last, several)
+    end
+  end
+  return prep
+end
+
+--- `t`, a type written in the generic function `declared` (a parameter of it), as a program writes it: the type
+--- parameters of the function have their letters.
+function Calls.shown(ctx: Ctx, declared: Fn, t: Type): string
+  if #declared.tparams == 0 then
+    return show(ctx, t)
+  end
+  local names: {string} = {}
+  for i = 1, #declared.tparams do
+    names[i] = Types.letter(i - 1)
+  end
+  local binders: {{string}} = {}
+  for i, b in ipairs(ctx.binders) do
+    binders[i] = b
+  end
+  binders[#binders + 1] = names
+  return Types.display(t, binders)
+end
+
+--- A call of the function `f`, with the arguments checked against its parameters. Answers its return lists. `given`
+--- holds the values of the arguments when the caller typed them already (a generic call types its arguments to solve the
+--- function's type parameters).
 local function apply_function(ctx: Ctx, node: Ast.Node, callee: string, f: Fn, args: {Ast.Exp}, recv: Type | nil,
-                              recv_node: Ast.Node | nil): {Alt}
+                              recv_node: Ast.Node | nil, given?: Values, declared?: Fn): {Alt}
   local off = recv ~= nil and 1 or 0
   if recv ~= nil and recv_node ~= nil then
     check_receiver(ctx, f, callee, recv, recv_node)
   end
-  local wants: {Type} = {}
-  for i = 1, #args do
-    local w = parameter_at(f, off, i)
-    if w ~= nil then
-      wants[i] = w
+  local vals: Values
+  if given ~= nil then
+    vals = given
+  else
+    local wants: {Type} = {}
+    for i = 1, #args do
+      local w = parameter_at(f, off, i)
+      if w ~= nil then
+        wants[i] = w
+      end
     end
+    vals = values_of(ctx, args, wants, f.rest)
   end
-  local vals = values_of(ctx, args, wants, f.rest)
   local several, last = vals.lists, vals.last
-  if several ~= nil and last ~= nil then
+  if several ~= nil and last ~= nil and given == nil then
     local _ = first_value(ctx, last, several)
   end
   local open = vals.tail ~= nil or vals.lists ~= nil
@@ -3339,7 +3506,12 @@ local function apply_function(ctx: Ctx, node: Ast.Node, callee: string, f: Fn, a
         arity_error(ctx, node, quoted(callee), f, off, n, why)
       end
     else
-      local _ = expect_argument(ctx, at, t, want, " as argument " .. i .. " of " .. quoted(callee))
+      local named: string | nil = nil
+      local original = declared ~= nil and parameter_at(declared, off, i) or nil
+      if original ~= nil and declared ~= nil and names_invalid(want) then
+        named = Calls.shown(ctx, declared, original)
+      end
+      local _ = expect_argument(ctx, at, t, want, " as argument " .. i .. " of " .. quoted(callee), named)
     end
   end
   if why == "too few" or (why == "too many" and not reported) then
@@ -3367,69 +3539,330 @@ local function overload_line(ctx: Ctx, f: Type, why: string): string
   return Types.display(f, ctx.binders) .. (why ~= "" and ": " .. why or "")
 end
 
---- A call of the first of `cands`, in declared order, whose parameters accept the arguments; the literal arguments are
---- checked last, against it.
-local function apply_overloads(ctx: Ctx, node: Ast.Node, callee: string, cands: {Type}, args: {Ast.Exp}, recv: Type | nil): {Alt}
-  local off = recv ~= nil and 1 or 0
-  local n = #args
-  local last = args[n]
-  local open = last ~= nil and (last is Ast.Call or last is Ast.MethodCall or last is Ast.Vararg)
-  local known: {Type} = {}
-  local pending: {integer: boolean} = {}
-  local tail: Type | nil = nil
-  -- The arguments before an expanding last one are typed as the others, a literal when the overload is taken; the last
-  -- one gives the values it is known to give, and the tail.
-  local written = open and n - 1 or n
-  for i = 1, written do
-    local a = args[i]
-    if is_literal(a) then
-      pending[i] = true
+-- Generic calls ----------------------------------------------------------------------------------
+
+--- What [`lang.generics`] reads types through: the judge, and the array part of a record.
+function Calls.hooks(ctx: Ctx): Generics.Hooks
+  local held = ctx.hooks
+  if held ~= nil then
+    return held
+  end
+  local made: Generics.Hooks = {
+    below = function(a: Type, b: Type): boolean
+      return below(ctx, a, b)
+    end,
+    listed = function(n: Named): {Type}
+      return ctx.judge:listed(n).types
+    end,
+    array_part = function(n: Named): Type | nil
+      local index = members_index(ctx, n.decl, false)
+      local part = index ~= nil and index.array or nil
+      return part ~= nil and put_in(ctx, n, part) or nil
+    end,
+  }
+  ctx.hooks = made
+  return made
+end
+
+Calls.fixes = {
+  pcall = "`pcall` passes on at most 6 values, takes a function that answers at most 3 values and none that answers `T...`, " ..
+    "and takes no function that may be nil: pass arguments one overload accepts, in its order",
+  xpcall = "`xpcall` passes on at most 3 values, takes a function that answers at most 3 values and none that answers " ..
+    "`T...`, and takes no function that may be nil: pass arguments one overload accepts, in its order",
+  ["table.sort"] = "pass a comparator (`table.sort(xs, function(a, b) return a.key < b.key end)`), because `<` orders only " ..
+    "numbers and strings of one type; or pass arguments one overload accepts, in its order",
+}
+
+--- Where a type came from, in the words of a message: the receiver, or an argument.
+function Calls.source(at: integer): string
+  if at == 0 then
+    return "the receiver"
+  end
+  return "argument " .. at
+end
+
+--- Whether a function literal gives every parameter a type, so that its type does not depend on the position it stands in.
+function Calls.typed_literal(e: Ast.Exp): boolean
+  local at = peel(e)
+  if not (at is Ast.FunctionLit) then
+    return false
+  end
+  for _, p in ipairs(at.fn.params) do
+    if p.type == nil then
+      return false
+    end
+  end
+  return true
+end
+
+--- The function type `c`, which is generic, as a call with these arguments instantiates it: each type parameter solved
+--- from the receiver and the arguments, then from what the call is `expected` to answer, then from a literal whose position
+--- names a parameter nothing else solved (typed on its own), and each checked against its bound ([`lang.generics`]). Where it cannot
+--- be, a `loud` call reports it (`infer_conflict`, `cannot_infer`, `bound_unmet`) and goes on with `invalid` for the
+--- parameter, so the arguments are checked and one mistake is one error; a call that is not loud (a candidate among
+--- overloads) answers nil and why.
+function Calls.solve(ctx: Ctx, node: Ast.Node, callee: string, c: Fn, args: {Ast.Exp}, prep: Prepared, off: integer,
+                     recv: Type | nil, expected: Type | nil, loud: boolean): Instance
+  local store = ctx.store
+  local solver = Generics.new(store, c, Calls.hooks(ctx))
+  if recv ~= nil and c.params[1] ~= nil then
+    Generics.match(solver, c.params[1].type, recv, "into", 0)
+  end
+  for i = 1, prep.count do
+    local t = prep.known[i]
+    local want = parameter_at(c, off, i)
+    if t ~= nil and want ~= nil then
+      Generics.match(solver, want, t, "into", i)
+    end
+  end
+  local tail = prep.tail
+  if tail ~= nil then
+    for pos = prep.count + 1, #c.params - off do
+      Generics.match(solver, c.params[pos + off].type, tail, "into", prep.count + 1)
+    end
+    local rest = c.rest
+    if rest ~= nil then
+      Generics.match(solver, rest, tail, "into", prep.count + 1)
+    end
+  end
+  -- What the call is expected to answer solves a parameter before a literal is held to the instance.
+  if expected ~= nil then
+    local alt = c.rets[1]
+    local item = alt ~= nil and (alt.items[1] or alt.tail) or nil
+    if item ~= nil then
+      Generics.expect(solver, item, expected)
+    end
+  end
+  local failure = ""
+  for i = 1, #args do
+    local want = parameter_at(c, off, i)
+    if prep.pending[i] and want ~= nil and Generics.unsolved(solver, want) then
+      local a = args[i]
+      local e = peel(a)
+      if e is Ast.Table or e is Ast.String or e is Ast.Boolean or e is Ast.IfExp or Calls.typed_literal(a) then
+        local t = expr(ctx, a, nil)
+        prep.pending[i] = nil
+        prep.known[i] = t
+        Generics.match(solver, want, t, "into", i)
+      elseif failure == "" then
+        failure = "argument " .. i .. " is a literal whose type depends on a type parameter nothing else gives"
+      end
+    end
+  end
+  local given: {Type} = {}
+  local unbound: {integer} = {}
+  local holes: {integer} = {}
+  for i = 1, #c.tparams do
+    local held = Generics.value(solver, i)
+    if held ~= nil then
+      given[i] = held
     else
-      known[i] = expr(ctx, a, nil)
+      given[i] = ctx.invalid
+      if not solver.tainted[i] and not solver.invalid then
+        unbound[#unbound + 1] = i
+      elseif solver.tainted[i] and not solver.invalid then
+        holes[#holes + 1] = i
+      end
     end
   end
-  local count = n
-  if open and last ~= nil then
-    local vals = values_of(ctx, { last }, nil, nil)
-    for j, t in ipairs(vals.types) do
-      known[written + j] = t
-    end
-    count = written + #vals.types
-    tail = vals.tail
-    local several = vals.lists
-    if several ~= nil then
-      local _ = first_value(ctx, last, several)
+  local name = quoted(callee)
+  local problems: {string} = {}
+  if failure ~= "" then
+    problems[#problems + 1] = failure
+  end
+  for _, k in ipairs(solver.conflicts) do
+    local letter = quoted(Types.letter(k.index - 1))
+    local same = k.first_at == k.second_at
+    local msg = letter .. " of " .. name .. " is " .. tq(ctx, k.first) .. " from " .. Calls.source(k.first_at) .. " and " ..
+      tq(ctx, k.second) .. " from " .. (same and "another type in it" or Calls.source(k.second_at)) .. ", which " ..
+      (k.exact and "must be one type here: a `mut` collection and the arguments of a generic are invariant" or
+        "have no common type")
+    problems[#problems + 1] = msg
+    -- The parameter is none: the arguments are not held to a type they disagree on, so the mistake is the one error.
+    given[k.index] = ctx.invalid
+    if loud then
+      report(ctx, "infer_conflict", args[k.second_at] or node, msg,
+        same and "narrow " .. Calls.source(k.first_at) .. " to one of its types first (`if v is ... then`), or declare the " ..
+          "parameter as the union" or
+          "pass values of one type to " .. name .. ", or convert " .. Calls.source(k.second_at) .. " to " .. tq(ctx, k.first),
+        { show(ctx, k.first), show(ctx, k.second) })
     end
   end
+  for _, i in ipairs(unbound) do
+    local letter = quoted(Types.letter(i - 1))
+    local msg = name .. " is generic, and nothing fixes its type parameter " .. letter .. ": no argument has it, and the " ..
+      "call is not expected to answer it"
+    problems[#problems + 1] = msg
+    if loud then
+      report(ctx, "cannot_infer", node, msg,
+        "type the result, so the call is expected to have the type (`local v: T = " .. callee .. "(...)`), or pass an " ..
+          "argument that has it", { Types.display(c, ctx.binders) })
+    end
+  end
+  for i, tp in ipairs(c.tparams) do
+    local bound = tp.bound
+    local held = given[i]
+    if bound ~= nil and held.tag ~= "invalid" and not below(ctx, held, bound) then
+      local msg = tq(ctx, held) .. " is the type parameter " .. quoted(Types.letter(i - 1)) .. " of " .. name ..
+        ", which is bounded by " .. tq(ctx, bound) .. ", and " .. tq(ctx, held) .. " does not list it"
+      problems[#problems + 1] = msg
+      if loud then
+        report(ctx, "bound_unmet", node, msg,
+          "list the interface in the declaration of " .. tq(ctx, held) .. " (`is " .. show(ctx, bound) .. "`), or pass a " ..
+            "type that does", { show(ctx, held), show(ctx, bound) })
+      end
+      given[i] = ctx.invalid
+    end
+  end
+  if #problems > 0 and not loud then
+    return { why = problems[1] }
+  end
+  local made = Relation.specialize(store, c, given)
+  local sparse: Type | nil = nil
+  for i = 1, #c.tparams do
+    local held = given[i]
+    if made ~= nil and sparse == nil and (held.tag == "nil" or held is Types.Union and held.nilable) then
+      sparse = Calls.sparse(made)
+    end
+  end
+  if sparse ~= nil then
+    local msg = name .. " with these type arguments has " .. tq(ctx, sparse) .. ", whose elements may be nil, and an array is dense"
+    if loud then
+      report(ctx, "array_of_optional", node, msg, "use a map `{integer: T}` for sparse data, or pass a value that is not " ..
+          "optional: test it for nil first", { show(ctx, sparse) })
+    end
+    return { why = msg }
+  end
+  if made == nil then
+    if loud then
+      report(ctx, "not_assignable", node, name .. " with these type arguments nests more than " .. Types.max_depth ..
+          " types deep", "name a part of the arguments with a record, which a type does not unfold")
+    end
+    return { why = "its instance nests too deep" }
+  end
+  return { fn = made, why = "", holes = holes }
+end
+
+--- An array or map type that `t` holds whose elements or values may be nil, or nil: what an instance makes of a type
+--- parameter that an argument gave as optional.
+function Calls.sparse(t: Type): Type | nil
+  local function maybe(x: Type): boolean
+    return x.tag == "nil" or x is Types.Union and x.nilable
+  end
+  if t is Types.Array and maybe(t.element) then
+    return t
+  elseif t is Types.Map and maybe(t.value) then
+    return t
+  end
+  for _, part in ipairs(Types.parts(t)) do
+    local found = Calls.sparse(part)
+    if found ~= nil then
+      return found
+    end
+  end
+  return nil
+end
+
+--- Reports the type parameters of a call of the generic `c` that the shapes of the arguments left with no type, if
+--- nothing else was reported for the call since `before` errors: the instance holds `invalid` for them, which the
+--- argument check does not refuse, and a hole needs its error.
+function Calls.holes(ctx: Ctx, node: Ast.Node, callee: string, c: Fn, solved: Instance, before: integer)
+  local holes = solved.holes
+  if holes == nil or #holes == 0 or #ctx.errors ~= before then
+    return
+  end
+  local letters: {string} = {}
+  for _, i in ipairs(holes) do
+    letters[#letters + 1] = quoted(Types.letter(i - 1))
+  end
+  report(ctx, "cannot_infer", node, quoted(callee) .. " is generic, and its type " .. (#holes == 1 and "parameter " or "parameters ") ..
+      table.concat(letters, ", ") .. " get no type from the arguments: a parameter that is a union of shapes with " ..
+      "a type parameter in each (`{T} | {U}`) says no more of an argument than that it is one of them",
+    "give the parameter one shape, or one type parameter for the whole union (`x: T`)",
+    { Types.display(c, ctx.binders) })
+end
+
+--- A call of the generic function `c`: its type parameters solved from the arguments and the type expected, then the
+--- instance applied as any function is.
+function Calls.generic(ctx: Ctx, node: Ast.Node, callee: string, c: Fn, args: {Ast.Exp}, recv: Type | nil,
+                       recv_node: Ast.Node | nil, expected: Type | nil): {Alt}
+  local off = recv ~= nil and 1 or 0
+  -- A position that names no type parameter of the function expects its type of the argument there.
+  local wants: {Type} = {}
+  for i = 1, #args do
+    local w = parameter_at(c, off, i)
+    if w ~= nil and w.open == 0 then
+      wants[i] = w
+    end
+  end
+  local prep = Calls.prepare(ctx, args, wants)
+  local before = #ctx.errors
+  local solved = Calls.solve(ctx, node, callee, c, args, prep, off, recv, expected, true)
+  local made = solved.fn
+  if made == nil then
+    unchecked_arguments(ctx, args)
+    return unknown_lists(ctx)
+  end
+  for i = 1, #args do
+    if prep.pending[i] then
+      prep.known[i] = expr(ctx, args[i], parameter_at(made, off, i))
+    end
+  end
+  local vals: Values = { types = {}, tail = prep.tail, lists = prep.lists, last = prep.last }
+  for i = 1, prep.count do
+    vals.types[i] = prep.known[i] or ctx.invalid
+  end
+  local alts = apply_function(ctx, node, callee, made, args, recv, recv_node, vals, c)
+  Calls.holes(ctx, node, callee, c, solved, before)
+  return alts
+end
+
+--- A call of the first of `cands`, in declared order, whose parameters accept the arguments; the literal arguments are
+--- checked last, against it. A generic candidate is instantiated by the arguments first.
+local function apply_overloads(ctx: Ctx, node: Ast.Node, callee: string, cands: {Type}, args: {Ast.Exp}, recv: Type | nil,
+                               expected: Type | nil): {Alt}
+  local off = recv ~= nil and 1 or 0
+  local prep = Calls.prepare(ctx, args, nil)
+  local known, pending, tail, count = prep.known, prep.pending, prep.tail, prep.count
   local reasons: {string} = {}
-  for _, c in ipairs(cands) do
-    if c is Fn and #c.tparams > 0 then
-      unchecked(ctx, "unchecked_generic", node, "this call of " .. quoted(callee) .. " may take a generic overload")
-      for i, a in ipairs(args) do
-        if pending[i] then
-          ctx.lenient = ctx.lenient + 1
-          local _ = expr(ctx, a, nil)
-          ctx.lenient = ctx.lenient - 1
+  for _, declared in ipairs(cands) do
+    if declared is Fn then
+      local c: Fn = declared
+      local failure = ""
+      -- The number of arguments does not depend on the type parameters, so a candidate that takes another is not solved.
+      local wrong_count = arity_problem(declared, off, count, prep.open and tail ~= nil)
+      if wrong_count == nil and #declared.tparams > 0 then
+        local solved = Calls.solve(ctx, node, callee, declared, args, prep, off, recv, expected, false)
+        local made = solved.fn
+        if made == nil then
+          failure = solved.why
+        else
+          c = made
         end
       end
-      return unknown_lists(ctx)
-    elseif c is Fn then
-      local why = arity_problem(c, off, count, open and tail ~= nil)
-      local failure = ""
-      if why ~= nil then
-        failure = why .. " arguments"
+      if failure ~= "" then
+        -- The candidate could not be instantiated.
+      elseif wrong_count ~= nil then
+        failure = wrong_count .. " arguments"
       elseif recv ~= nil and c.params[1] ~= nil and not accepts(ctx, recv, c.params[1].type) then
-        failure = "the receiver is " .. tq(ctx, recv) .. ", where " .. tq(ctx, c.params[1].type) .. " is wanted"
+        failure = "the receiver is " .. tq(ctx, recv) .. ", where " ..
+          quoted(Calls.shown(ctx, declared, declared.params[1] ~= nil and declared.params[1].type or c.params[1].type)) ..
+          " is wanted"
       else
         for i = 1, count do
           local want = parameter_at(c, off, i)
           local t = known[i]
+          local wanted = ""
+          if want ~= nil then
+            local original = parameter_at(declared, off, i)
+            wanted = quoted(Calls.shown(ctx, declared, original ~= nil and original or want))
+          end
           if t ~= nil and (want == nil or not accepts(ctx, t, want)) then
-            failure = "argument " .. i .. " is " .. tq(ctx, t) .. (want ~= nil and ", where " .. tq(ctx, want) ..
+            failure = "argument " .. i .. " is " .. tq(ctx, t) .. (want ~= nil and ", where " .. wanted ..
               " is wanted" or ", which it does not take")
             break
           elseif pending[i] and (want == nil or not literal_fits(ctx, args[i], want)) then
-            failure = "argument " .. i .. " is a literal that is not " .. (want ~= nil and "a " .. tq(ctx, want) or "taken")
+            failure = "argument " .. i .. " is a literal that is not " .. (want ~= nil and "a " .. wanted or "taken")
             break
           end
         end
@@ -3453,7 +3886,7 @@ local function apply_overloads(ctx: Ctx, node: Ast.Node, callee: string, cands: 
         end
         return c.rets
       end
-      reasons[#reasons + 1] = overload_line(ctx, c, failure)
+      reasons[#reasons + 1] = overload_line(ctx, declared, failure)
     end
   end
   for i, a in ipairs(args) do
@@ -3477,13 +3910,15 @@ local function apply_overloads(ctx: Ctx, node: Ast.Node, callee: string, cands: 
   local first = reasons[1]
   report(ctx, "overload_none", node, "no overload of " .. quoted(callee) .. " takes the arguments (" ..
       table.concat(shown, ", ") .. ")",
-    "pass arguments one overload accepts, in its order: " .. table.concat(reasons, "; "), { first or "" })
+    (Calls.fixes[callee] or "pass arguments one overload accepts, in its order") .. ": " .. table.concat(reasons, "; "),
+    { first or "" })
   return unknown_lists(ctx)
 end
 
---- The lists a call answers, where the callee has type `ft` (and the overloads `cands`, if it has several).
+--- The lists a call answers, where the callee has type `ft` (and the overloads `cands`, if it has several). `expected`
+--- is the type the call is expected to answer, which solves a type parameter no argument does.
 local function dispatch_call(ctx: Ctx, node: Ast.Node, callee_node: Ast.Node, callee: string, ft: Type, cands: {Type} | nil,
-                             args: {Ast.Exp}, recv: Type | nil, recv_node: Ast.Node | nil): {Alt}
+                             args: {Ast.Exp}, recv: Type | nil, recv_node: Ast.Node | nil, expected: Type | nil): {Alt}
   local list = cands or { ft }
   local first = list[1]
   if first.tag == "invalid" then
@@ -3504,9 +3939,7 @@ local function dispatch_call(ctx: Ctx, node: Ast.Node, callee_node: Ast.Node, ca
   if #list == 1 then
     if first is Fn then
       if #first.tparams > 0 then
-        unchecked(ctx, "unchecked_generic", node, "this call of the generic function " .. quoted(callee))
-        unchecked_arguments(ctx, args)
-        return unknown_lists(ctx)
+        return Calls.generic(ctx, node, callee, first, args, recv, recv_node, expected)
       end
       return apply_function(ctx, node, callee, first, args, recv, recv_node)
     end
@@ -3515,7 +3948,7 @@ local function dispatch_call(ctx: Ctx, node: Ast.Node, callee_node: Ast.Node, ca
     unchecked_arguments(ctx, args)
     return unknown_lists(ctx)
   end
-  return apply_overloads(ctx, node, callee, list, args, recv)
+  return apply_overloads(ctx, node, callee, list, args, recv, expected)
 end
 
 --- What a call that has returned shows. A function declared `never` does not return, so the state after it is
@@ -3523,9 +3956,11 @@ end
 --- `T`: the state after is the one where the argument is. A function declared `v is T` is a test of its argument, which
 --- [`edges`] reads from `ctx.guards`.
 --
--- TODO: declare the standard library's `assert` as `asserts v` and drop the special case here, once the generics piece
--- types a call of a generic function (`assert` answers its argument's type, so it is generic): the global is still
--- `unchecked_generic` where it is called.
+-- TODO: drop the special case of `assert` here, once a narrowing declaration can say that a function returns only where
+-- its argument holds and answers it (`asserts v` without a type, which the grammar leaves out): `asserts v is T`
+-- narrows a place to a type and answers nothing, while `assert(x ~= nil)` and `local s = assert(find())` narrow by the
+-- condition and answer the value. The type of the call is the declaration's (a generic function, solved as any is); only
+-- what follows it is this.
 local function after_call(ctx: Ctx, node: Ast.Node, callee: Ast.Exp | nil, alts: {Alt}, args: {Ast.Exp},
                           receiver: Ast.Exp | nil)
   ctx.guards[base_of(node).id] = nil
@@ -3562,11 +3997,8 @@ local function after_call(ctx: Ctx, node: Ast.Node, callee: Ast.Exp | nil, alts:
   end
 end
 
---- The names `pcall` and `xpcall` have as globals the checker types in a later piece.
-local PROTECTED <const>: {string: boolean} = { pcall = true, xpcall = true }
-
 --- A call `callee(args)` whose callee has type `ft`.
-local function apply_call(ctx: Ctx, node: Ast.Call, ft: Type): {Alt}
+local function apply_call(ctx: Ctx, node: Ast.Call, ft: Type, expected: Type | nil): {Alt}
   local callee = node.callee
   local cands: {Type} | nil = nil
   if ctx.cand_node == callee then
@@ -3575,11 +4007,7 @@ local function apply_call(ctx: Ctx, node: Ast.Call, ft: Type): {Alt}
   ctx.cands, ctx.cand_node = nil, nil
   local callee_text = text_of(ctx, callee)
   if callee is Ast.Name and callee.binding == nil then
-    if PROTECTED[callee.text] then
-      unchecked(ctx, "unchecked_protected", node, "a protected call " .. quoted(callee.text))
-      unchecked_arguments(ctx, node.args)
-      return unknown_lists(ctx)
-    elseif callee.text == "setmetatable" then
+    if callee.text == "setmetatable" then
       report(ctx, "setmetatable_call", node, "a program has no `setmetatable`: the metatable of a value is the compiler's, " ..
           "attached to the literal that makes the value of a class",
         "declare a `class` with the methods and write the value as a table literal typed as the class " ..
@@ -3592,19 +4020,12 @@ local function apply_call(ctx: Ctx, node: Ast.Call, ft: Type): {Alt}
         return { { items = { module_value(ctx, node, named.value) } } }
       end
     end
-  elseif callee is Ast.Field then
-    local object = callee.object
-    if object is Ast.Name and object.binding == nil and object.text == "coroutine" then
-      unchecked(ctx, "unchecked_coroutine", node, "a coroutine function " .. quoted(callee_text))
-      unchecked_arguments(ctx, node.args)
-      return unknown_lists(ctx)
-    end
   end
-  return dispatch_call(ctx, node, callee, callee_text, ft, cands, node.args, nil, nil)
+  return dispatch_call(ctx, node, callee, callee_text, ft, cands, node.args, nil, nil, expected)
 end
 
 --- A method call `object:name(args)` whose object has type `object`.
-local function apply_method(ctx: Ctx, node: Ast.MethodCall, object: Type): {Alt}
+local function apply_method(ctx: Ctx, node: Ast.MethodCall, object: Type, expected: Type | nil): {Alt}
   local text = text_of(ctx, node.object) .. ":" .. node.name
   local t = readable(ctx, node.object, object, "it has no method " .. quoted(node.name) .. " to call")
   if t == nil then
@@ -3628,7 +4049,7 @@ local function apply_method(ctx: Ctx, node: Ast.MethodCall, object: Type): {Alt}
     end
     ctx.cands, ctx.cand_node = nil, nil
   end
-  return dispatch_call(ctx, node, node, text, ft, cands, node.args, t, node.object)
+  return dispatch_call(ctx, node, node, text, ft, cands, node.args, t, node.object, expected)
 end
 
 -- Expressions: the spine --------------------------------------------------------------------
@@ -3737,7 +4158,7 @@ local function apply(ctx: Ctx, n: Ast.Exp, t: Type, expected: Type | nil, wants_
   elseif n is Ast.Call then
     local saved = ctx.lenient
     ctx.lenient = 0
-    local alts = apply_call(ctx, n, t)
+    local alts = apply_call(ctx, n, t, expected)
     ctx.lenient = saved
     after_call(ctx, n, n.callee, alts, n.args, nil)
     if wants_lists then
@@ -3747,7 +4168,7 @@ local function apply(ctx: Ctx, n: Ast.Exp, t: Type, expected: Type | nil, wants_
   elseif n is Ast.MethodCall then
     local saved = ctx.lenient
     ctx.lenient = 0
-    local alts = apply_method(ctx, n, t)
+    local alts = apply_method(ctx, n, t, expected)
     ctx.lenient = saved
     after_call(ctx, n, nil, alts, n.args, n.object)
     if wants_lists then
@@ -4455,12 +4876,32 @@ local function for_generic(ctx: Ctx, s: Ast.ForIn)
     report(ctx, "no_value", first, subject(ctx, first) .. " answers nothing, so there is no iterator to loop over",
       "iterate with `ipairs(...)`, `pairs(...)` or an iterator function")
   end
+  local before = #ctx.errors
+  local generic_iterator: Fn | nil = nil
+  local solved: Instance | nil = nil
+  if iterator ~= nil and iterator is Fn and #iterator.tparams > 0 then
+    -- An iterator that is a generic function is called with the state and the control value.
+    local known: {integer: Type} = {}
+    for i = 1, 2 do
+      local value = vals.types[i + 1]
+      if value ~= nil then
+        known[i] = value
+      end
+    end
+    local given: Prepared = { known = known, pending = {}, count = math.max(0, math.min(2, #vals.types - 1)), open = false }
+    before = #ctx.errors
+    generic_iterator = iterator
+    solved = Calls.solve(ctx, s.iterators[1], text_of(ctx, s.iterators[1]), iterator, s.iterators, given, 0, nil, nil, true)
+    local made = solved.fn
+    if made ~= nil then
+      iterator = made
+    end
+  end
   if iterator == nil or iterator.tag == "invalid" then
     for i = 1, #s.vars do
       types[i] = ctx.invalid
     end
   elseif iterator is Fn and #iterator.tparams > 0 then
-    unchecked(ctx, "unchecked_generic", s.iterators[1], "this iterator is a generic function")
     for i = 1, #s.vars do
       types[i] = ctx.invalid
     end
@@ -4496,6 +4937,9 @@ local function for_generic(ctx: Ctx, s: Ast.ForIn)
     for i = 1, #s.vars do
       types[i] = ctx.invalid
     end
+  end
+  if solved ~= nil and generic_iterator ~= nil then
+    Calls.holes(ctx, s.iterators[1], text_of(ctx, s.iterators[1]), generic_iterator, solved, before)
   end
   for i, v in ipairs(s.vars) do
     ctx.vars[v.id] = types[i]
@@ -4659,28 +5103,132 @@ local function jump_statement(ctx: Ctx, leaves: boolean)
   ctx.flow = Flow.dead(ctx.flow)
 end
 
---- `match`: each arm is walked from the state after the scrutinee, and what follows is where their ends meet. The arms
---- cover the alternatives ([`doc/plans/new-checker-types.md`], "`match` and tagged unions"), so no path takes none.
-local function match_statement(ctx: Ctx, s: Ast.Match)
-  unchecked(ctx, "unchecked_match", s, "a `match`")
-  local c = s.scrutinee
-  ctx.lenient = ctx.lenient + 1
-  if c is Ast.Call or c is Ast.MethodCall then
-    local _ = lists_of(ctx, c, nil)
+--- How the tests of `arm` stand against the list `alt` the call may answer: "yes" when each `true` and `false` is the
+--- value the list has at its position, "no" when one is the other, and "unclear" when the list has no `true` or `false`
+--- at a position the arm tests (the position it is, or 0, for the message).
+local function arm_against(arm: Ast.MatchArm, alt: Alt): string, integer
+  local unclear = 0
+  for i, p in ipairs(arm.pats) do
+    if p is Ast.PatBool then
+      local item = alt.items[i]
+      local tag = item ~= nil and item.tag or ""
+      if tag == "true" or tag == "false" then
+        if (tag == "true") ~= p.value then
+          return "no", i
+        end
+      elseif unclear == 0 then
+        unclear = i
+      end
+    end
   end
-  ctx.lenient = ctx.lenient - 1
+  if unclear > 0 then
+    return "unclear", unclear
+  end
+  return "yes", 0
+end
+
+--- The arm that takes the list `alt`: `true` and `false` where the list has them, and a name for each other value.
+local function arm_for(alt: Alt): string
+  local pats: {string} = {}
+  for i, item in ipairs(alt.items) do
+    pats[i] = (item.tag == "true" or item.tag == "false") and item.tag or "v" .. i
+  end
+  if #pats == 0 and alt.tail ~= nil then
+    pats[1] = "v1"
+  end
+  return "| (" .. table.concat(pats, ", ") .. ") then ..."
+end
+
+--- `match`: the arms cover the lists the call may answer exactly ([`doc/plans/new-checker-types.md`], "`match` and
+--- tagged unions"). An arm takes the lists whose value at each position it tests with `true` or `false` is that one,
+--- and a list some earlier arm takes is not its: the names of the arm are the union of what those lists have where the
+--- name stands, and each arm names every value of them. An arm that takes no list, or only lists the arms before it took,
+--- is `match_redundant`; a list no arm takes is `match_missing`. Each arm is walked from the state after the call, and what
+--- follows is where their ends meet.
+local function match_statement(ctx: Ctx, s: Ast.Match)
+  local c = s.scrutinee
+  local alts = unknown_lists(ctx)
+  if c is Ast.Call or c is Ast.MethodCall then
+    alts = lists_of(ctx, c, nil)
+  end
+  local unknown = false
+  for _, alt in ipairs(alts) do
+    local tail = alt.tail
+    unknown = unknown or (tail ~= nil and tail.tag == "invalid")
+  end
   local start = ctx.flow
   local ends: {Flow.State} = {}
+  local taken: {boolean} = {}
   for _, arm in ipairs(s.arms) do
     ctx.flow = start
-    for _, p in ipairs(arm.pats) do
+    local mine: {Alt} = {}
+    local explained = false
+    if not unknown then
+      local selected = 0
+      for k, alt in ipairs(alts) do
+        local verdict, at = arm_against(arm, alt)
+        if verdict == "unclear" then
+          explained = true
+          taken[k] = true
+          local pat = arm.pats[at]
+          local item = alt.items[at]
+          report(ctx, "match_pattern", pat, "this pattern tests position " .. at .. " with `" ..
+              tostring(pat is Ast.PatBool and pat.value or "") .. "`, and the list " .. quoted(lists_text(ctx, { alt })) .. " has " ..
+              (item ~= nil and tq(ctx, item) or "no value") .. " there, which `true` and `false` do not tell",
+            "test only the positions that are `true` or `false` in the lists the call answers, and name the others",
+            { lists_text(ctx, { alt }) })
+        elseif verdict == "yes" then
+          selected = selected + 1
+          local have, n = #alt.items, #arm.pats
+          if n < have or (alt.tail == nil and n > have) then
+            explained = true
+            report(ctx, "match_pattern", arm, "this arm names " .. plural(n, "value") .. ", and the list " ..
+                quoted(lists_text(ctx, { alt })) .. " it takes has " .. (alt.tail ~= nil and "at least " or "") ..
+                plural(have, "value"),
+              "write " .. (alt.tail ~= nil and "at least " or "") .. plural(have, "pattern") .. ", `_` for a value the arm " ..
+                "does not use: " .. quoted(arm_for(alt)), { lists_text(ctx, { alt }) })
+          end
+          if not taken[k] then
+            mine[#mine + 1] = alt
+            taken[k] = true
+          end
+        end
+      end
+      if #mine == 0 and not explained then
+        report(ctx, "match_redundant", arm, selected == 0 and "this arm takes no list the call answers: no list has the " ..
+            "values its `true` and `false` test" or "this arm takes only lists the arms before it take, so it never runs",
+          "delete the arm, or change its `true` and `false` to take a list no arm before it takes")
+      end
+    end
+    for i, p in ipairs(arm.pats) do
       if p is Ast.PatBind then
-        ctx.vars[p.name.id] = ctx.invalid
+        local types: {Type} = {}
+        for _, alt in ipairs(mine) do
+          local item = alt.items[i]
+          local tail = alt.tail
+          if item ~= nil then
+            types[#types + 1] = item
+          elseif tail ~= nil then
+            types[#types + 1] = ctx.store:optional(tail)
+          else
+            types[#types + 1] = ctx.nil_type
+          end
+        end
+        ctx.vars[p.name.id] = #types > 0 and ctx.store:union(types) or ctx.invalid
         declare_local(ctx, p.name.id, false)
       end
     end
     block(ctx, arm.body)
     ends[#ends + 1] = ctx.flow
+  end
+  if not unknown then
+    for k, alt in ipairs(alts) do
+      if not taken[k] then
+        report(ctx, "match_missing", s, "this `match` takes no arm for the list " .. quoted(lists_text(ctx, { alt })) ..
+            " the call may answer",
+          "add the arm " .. quoted(arm_for(alt)), { lists_text(ctx, { alt }) })
+      end
+    end
   end
   if #ends > 0 then
     ctx.flow = merge_all(ctx, ends)

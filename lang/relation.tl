@@ -40,6 +40,11 @@
 ---   of its parameters. A method has no receiver exemption. A narrowing declaration is met
 ---   by one with the same parameter and kind: `asserts v is T` takes a narrower `T`, and
 ---   `v is T` the same `T`, since the checker removes `T` on its false edge.
+--- - A generic function is below a function type that is not generic when its type
+---   parameters can be taken from it: each from the parameter of the type wanted in its
+---   place, else from what the type wanted answers, and each meeting its bound
+---   ([`lang.generics`]). The function with those types in is then compared as any other. A
+---   generic function type wanted is met only by itself.
 --- - A type variable is below itself and its bound. The bound is read from the
 ---   binders [`Relation.Judge.enter`] has entered.
 --- - `any` is below `any` and nothing below it but `never`.
@@ -61,6 +66,7 @@
 --- related while one is (a [`lang.types`] loader that relates types would leave the judge
 --- with ids that mean other types). A judge is not re-entrant.
 
+local Generics = require("lang.generics")
 local Types = require("lang.types")
 
 local type Type = Types.Type
@@ -92,7 +98,8 @@ local record Relation
   --- - `record_as_map` and `map_as_record`: a record is no map and a map is no record.
   --- - `union_none`: no member of the target union takes the source; `alternatives` says why
   ---   for each.
-  --- - `generic_function`: a generic function type is below only itself.
+  --- - `generic_function`: a generic function type is below only itself and the function types its type
+  ---   parameters can be solved from; a generic function type wanted is met only by itself.
   --- - `arity`: the functions disagree on whether the argument at `index` is passed.
   ---   `may_return`: the function may return where the target never does. `return_unmatched`:
   ---   none of the alternatives of the target takes an alternative of the source.
@@ -253,6 +260,11 @@ local record Relation
   --- The binder of a declaration: its type parameters and their bounds. Raises where the
   --- declaration has no body.
   binder: function(decl: Types.Decl): {Types.TParam}
+
+  --- The generic function type `f` with each of its type parameters replaced by the matching type of `args`, which
+  --- stand where the function is used: a function type with no type parameters. Nil where the type it makes would
+  --- nest deeper than the store allows. The variables of the binders around `f` keep their meaning.
+  specialize: function(store: Store, f: Fn, args: {Type}): Fn | nil
 
   --- The refusal's code and path in one line, for a test or a log: not what an error prints.
   trace: function(r: Refusal): string
@@ -508,6 +520,64 @@ local function array_part_of(j: Relation.Judge, n: Named): Type | nil
     return instantiate_within(j.store, part, n.args)
   end
   return part
+end
+
+--- The function type `f` with its own variables replaced by `args` and the variables of the binders around it, which
+--- the binder of `f` no longer separates from the code around, numbered one binder nearer.
+local function specialize(store: Store, f: Fn, args: {Type}): Fn
+  local memo: {string: Type} = {}
+  local function on_var(v: Var, level: integer): Type
+    if v.depth == level then
+      local given = args[v.index + 1]
+      if given == nil then
+        return store.invalid
+      end
+      return shift(store, given, level)
+    end
+    return store:var(v.depth - 1, v.index)
+  end
+  local function part(t: Type): Type
+    return rewrite(store, t, 0, on_var, memo)
+  end
+  local params: {Types.Param} = {}
+  for i, p in ipairs(f.params) do
+    params[i] = { type = part(p.type), omittable = p.omittable }
+  end
+  local rest = f.rest
+  local rets: {Alt} = {}
+  for i, alt in ipairs(f.rets) do
+    local items: {Type} = {}
+    for k, item in ipairs(alt.items) do
+      items[k] = part(item)
+    end
+    local tail = alt.tail
+    local narrows = alt.narrows
+    rets[i] = {
+      items = items,
+      tail = tail ~= nil and part(tail) or nil,
+      narrows = narrows ~= nil and { param = narrows.param, to = part(narrows.to), asserts = narrows.asserts } or nil,
+    }
+  end
+  local made = store:fn({ tparams = {}, params = params, rest = rest ~= nil and part(rest) or nil, rets = rets })
+  if not (made is Fn) then
+    error("relation: a function type is a function type")
+  end
+  return made
+end
+
+--- [`specialize`], or nil where the type it makes would nest past what the store allows.
+local function specialize_within(store: Store, f: Fn, args: {Type}): Fn | nil
+  local made: {Fn} = {}
+  local ok, why = pcall(function()
+    made[1] = specialize(store, f, args)
+  end)
+  if ok then
+    return made[1]
+  end
+  if tostring(why):find("types: a type nested deeper", 1, true) == nil then
+    error(why, 0)
+  end
+  return nil
 end
 
 -- The relation ---------------------------------------------------------------------------------
@@ -873,15 +943,86 @@ local function returns_below(j: Relation.Judge, f: Fn, g: Fn, why: boolean): Rel
   return nil
 end
 
--- TODO: relate a generic function to the function type it is passed for by matching its type
--- parameters, once the checker's generic inference lands (doc/plans/new-checker-types.md, "the
--- order the pieces land in", generics): until then a generic function type is below only itself.
+--- The hooks [`lang.generics`] reads the judge's declarations through.
+local function hooks_of(j: Relation.Judge): Generics.Hooks
+  return {
+    below = function(a: Type, b: Type): boolean
+      return rel(j, a, b, false) == nil
+    end,
+    listed = function(n: Named): {Type}
+      return closure_of(j, n).list
+    end,
+    array_part = function(n: Named): Type | nil
+      return array_part_of(j, n)
+    end,
+  }
+end
+
+--- The generic function `a` where the function type `b` is wanted: `a` with its type parameters taken from what `b` is
+--- called with and answers, below `b`. Each parameter of `a` is solved from the parameter of `b` in its place (the value
+--- `b` passes is the one `a` takes), else from the values `b` answers, and has to meet its bound.
+local function from_generic(j: Relation.Judge, a: Fn, b: Fn, why: boolean): Relation.Refusal | nil
+  local solver = Generics.new(j.store, a, hooks_of(j))
+  for i, p in ipairs(a.params) do
+    local wanted = b.params[i]
+    local given = wanted ~= nil and wanted.type or b.rest
+    if given ~= nil then
+      Generics.match(solver, p.type, given, "into", i)
+    end
+  end
+  local a_rest, b_rest = a.rest, b.rest
+  if a_rest ~= nil and b_rest ~= nil then
+    Generics.match(solver, a_rest, b_rest, "into", 0)
+  end
+  if #a.rets == 1 and #b.rets == 1 then
+    local ours, theirs = a.rets[1], b.rets[1]
+    for k, item in ipairs(ours.items) do
+      local wanted = theirs.items[k]
+      if wanted ~= nil then
+        Generics.match(solver, item, wanted, "from", 0)
+      end
+    end
+    local ours_tail, theirs_tail = ours.tail, theirs.tail
+    if ours_tail ~= nil and theirs_tail ~= nil then
+      Generics.match(solver, ours_tail, theirs_tail, "from", 0)
+    end
+  end
+  local args: {Type} = {}
+  for i = 1, #a.tparams do
+    local held = Generics.value(solver, i)
+    if held == nil then
+      return leaf(j, why, "generic_function", a, b)
+    end
+    args[i] = held
+  end
+  if #solver.conflicts > 0 then
+    return leaf(j, why, "generic_function", a, b)
+  end
+  for i, tp in ipairs(a.tparams) do
+    local bound = tp.bound
+    if bound ~= nil and rel(j, args[i], bound, false) ~= nil then
+      return leaf(j, why, "generic_function", a, b)
+    end
+  end
+  local instance = specialize_within(j.store, a, args)
+  if instance == nil then
+    return leaf(j, why, "generic_function", a, b)
+  end
+  local r = parameters_below(j, instance, b, why)
+  if r ~= nil then
+    return r
+  end
+  return returns_below(j, instance, b, why)
+end
+
 local function from_fn(j: Relation.Judge, a: Fn, b: Type, why: boolean): Relation.Refusal | nil
   if not (b is Fn) then
     return leaf(j, why, "mismatch", a, b)
   end
-  if #a.tparams > 0 or #b.tparams > 0 then
+  if #b.tparams > 0 then
     return leaf(j, why, "generic_function", a, b)
+  elseif #a.tparams > 0 then
+    return from_generic(j, a, b, why)
   end
   local r = parameters_below(j, a, b, why)
   if r ~= nil then
@@ -1045,6 +1186,15 @@ function Relation.instantiate(store: Store, t: Type, args: {Type}): Type | nil
     error("relation: a type of another store", 2)
   end
   return instantiate_within(store, t, args)
+end
+
+function Relation.specialize(store: Store, f: Fn, args: {Type}): Fn | nil
+  for _, a in ipairs(args) do
+    if a.owner ~= store.owner then
+      error("relation: a type of another store", 2)
+    end
+  end
+  return specialize_within(store, f, args)
 end
 
 function Relation.new(store: Store): Relation.Judge

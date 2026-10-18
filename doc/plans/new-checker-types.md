@@ -493,11 +493,11 @@ the others are named for the rule or form they refuse: `record_as_map`,
 `array_of_optional`, `view_as_mut`, `is_on_record`, `is_disjoint`, `match_redundant`,
 `lists_overlap`, `interface_disagrees`, `literal_missing`, `literal_unknown`,
 `literal_needs_type`, `literal_ambiguous`, `literal_shape`, `arms_differ`,
-`overload_none`, `arity`, `cannot_infer`, `infer_conflict`, `missing_return`,
+`overload_none`, `arity`, `cannot_infer`, `infer_conflict`, `bound_unmet`, `match_pattern`, `missing_return`,
 `return_unexpected`, `not_assigned`, `export_not_declared`, `unreachable`, and
-`narrowing_dropped`, kept from the fork, and the expressions' own (`nil_not_allowed` and the rest of [`lang/check_codes.tl`]). a form a later piece types is typed `invalid` and reported as `unchecked_generic`, `unchecked_protected`, `unchecked_coroutine`, `unchecked_match`, `unchecked_binding` or `unchecked_nested`, so no `invalid` is silent. each has a fix pinned by its test. the declarations'
+`narrowing_dropped`, kept from the fork, and the expressions' own (`nil_not_allowed` and the rest of [`lang/check_codes.tl`]). a binding of C, which the checker types once it reads the bindings from declaration files, is typed `invalid` and reported as `unchecked_binding`, so no `invalid` is silent. each has a fix pinned by its test. the declarations'
 lowering adds `super_not_interface`, `super_cycle`, `listing_too_large`, `untagged_union`, `key_type`, `repeated_field`,
-`repeated_value`, `type_arguments`, `type_too_deep`, `alias_cycle`, `bound_not_interface`, `outer_type_parameter`,
+`repeated_value`, `type_arguments`, `type_too_deep`, `alias_cycle`, `bound_not_interface`, `bound_not_met`, `outer_type_parameter`,
 `member_missing`, `param_untyped`, `thread_type` and `store_refused`, and uses `float_key` and `array_of_optional`
 for the declarations that break their rules.
 
@@ -778,9 +778,11 @@ mistake is reported once. *not adopted:* each reading's looser form, named here.
 [`lang/check.tl`] types a body by the rules of [checking](#checking) and, where they are silent or allow two
 readings, takes the one that refuses more. *not adopted:* each reading's looser form, named here.
 
-- **a form a later piece types is reported, not silent.** a call of a generic function, a protected call, a
-  coroutine function, a `match`, a binding of C and a generic function inside another are `invalid`, and each is an
-  `unchecked_*` error that a ceiling holds. *not adopted:* `invalid` with no error.
+- **a form a later piece types is reported, not silent.** a binding of C, and a global the declarations lack, are
+  `invalid` and an `unchecked_binding` error that a ceiling holds; the calls of generic functions, protected calls,
+  coroutine functions and `match` the first expressions piece left so are typed by [generics, `match`, protected calls and
+  coroutines](#generics-match-protected-calls-and-coroutines-read-the-rules-strictly). *not adopted:* `invalid` with no
+  error.
 - **a function literal takes from the position what its signature leaves out:** the types of its parameters, whether
   each may be omitted, and its return list (`never` too, so it cannot return). *not adopted:* a literal that returns
   nothing unless it says otherwise.
@@ -924,8 +926,92 @@ that refuses more where it is silent. *not adopted:* each reading's looser form,
 - **the narrowing a Teal body declares is proved where it returns.** A function declared `v is T` shows at each `return` that `v` is a
   `T` when the value is true and not when it is false, from the edges of that value; one declared `asserts v is T` shows it at each
   `return` and at its end (`narrows_unproved`). *not adopted:* a declaration taken on trust outside a declaration file.
-- **`assert` narrows as a special case** of the global (not a local of that name): the first argument's true edge holds after the call,
-  and the call is still `unchecked_generic`, until the generics piece declares `assert` as `asserts v`.
+- **`assert` narrows as a special case** of the global (not a local of that name): the first argument's true edge holds after the call.
+  Its type is its declaration's ([generics, `match`, ...](#generics-match-protected-calls-and-coroutines-read-the-rules-strictly)).
+
+### generics, `match`, protected calls and coroutines read the rules strictly
+
+[`lang/check.tl`], [`lang/generics.tl`] and the declarations of [`lang/stdlib_corrections.tl`] take the reading of [calls and
+overloads](#calls-and-overloads) and [`match` and tagged unions](#match-and-tagged-unions) that refuses more where they are
+silent. *not adopted:* each reading's looser form, named here.
+
+- **a type parameter is solved from the receiver and the arguments left to right, and the type the call is expected to
+  answer comes last.** A position the argument flows into gives the parameter a lower bound, the join of the types found there (a
+  type all are below, `T?` where one is `nil`, else `infer_conflict`); a parameter of a function argument gives an upper
+  bound; a `mut` collection, the arguments of a generic and a map's key fix it exactly, and two exact types are one type or
+  `infer_conflict`. A parameter is its exact type, else its lower bound, else its upper bound. The type expected fills a
+  parameter nothing else fixed; it also picks the exact type an invariant position of the result requires when the arguments
+  are below it (`local xs: mut {number} = wrap(1)`), and the type two arguments with no common type are both below
+  (`local a: Animal = pick(dog, cat)`). `any` as the type expected says nothing. Nothing is solved from the body of a
+  callee or across calls, so `local s: Server = must(Shape.into(v, SPEC))` is `cannot_infer` for the inner call. *not
+  adopted:* unification across calls; the union of the types found, which `{1, "a"}` already refuses.
+- **every argument is checked against the instance.** The solution is a guess the parameters are put through, so a wrong
+  guess is an error of the argument and never a hole. A parameter that conflicts is `invalid` in the instance, so the
+  conflict is the one error; a parameter whose pattern the argument does not fit (a view where a `mut` collection is
+  wanted, a record where a map is) is left unsolved without `cannot_infer`, and the check of the argument reports the
+  mistake once, with the parameter as the function declares it.
+- **a literal is typed once the parameters its position names are solved.** A table, a string, a boolean, an `if`
+  expression of them or a function literal that types every parameter stands in a position that names a parameter nothing
+  else fixed: it is typed on its own, as it would be with no type expected, and its type solves the parameter. A function
+  literal that leaves a parameter type out there has no type to be checked against, and the candidate is refused
+  (`cannot_infer`; `overload_none` among overloads). A literal in a position whose parameters are solved is checked last
+  against the instance, so `pick(1, "a")` is `not_assignable` at the literal and `pick(n, s)` is `infer_conflict`.
+- **a bound is met by the type argument,** at a call (`bound_unmet`) and at a use of a generic declaration
+  (`bound_not_met`): a type conforms to an interface only by listing it, and a type variable of the code around meets it
+  through its own bound. A use whose argument names a variable of the code around is unchecked until it is instantiated.
+- **a generic function is a value of a function type that is not generic** when its parameters can be taken from the type
+  wanted: each from the parameter in its place, else from what the type answers, each meeting its bound
+  ([`lang/relation.tl`]). A generic function type wanted is met only by itself. A callee whose function-typed parameter names a
+  parameter only the result of a generic function argument fixes (`map(xs, identity)`) is `cannot_infer`.
+- **an overload set is searched with the arity first.** A generic candidate is instantiated only if it takes the number of
+  arguments, and a candidate that cannot be instantiated is listed with its reason in `overload_none`. A function literal fits an
+  overload by the arguments it takes and by the number of values its return list writes. A generic function inside another is
+  checked, with the variables of both in scope.
+- **`assert` is two overloads and narrows as a special case.** `function<A>(A?): A` answers its argument without the nil, and
+  `function<A, B>(A?, B, ...: any): (A, B, any...)` the message too. `asserts v is T` answers no value and narrows a place to a
+  type, while `local s = assert(find())` and `assert(x ~= nil)` are the idiom of 945 and 1,455 sites, so the special case stays
+  for what follows the call, until a narrowing declaration can say "returns only where the argument holds, and answers it".
+  *not adopted:* `function<T>(v: T?, message?: string): asserts v is T`.
+- **the standard library's mutators take `mut`, and numbers are numbers.** `table.insert`, `remove`, `sort` and `move`
+  (whose source is a view when a destination is given) take `mut {A}`, and `rawset` `mut {K: V}`; `table.sort` writes its
+  comparison as a function type, since `SortFunction<A>` named a generic function type applied to an argument. `math.abs` is
+  an overload for integers and one for numbers, and `math.max` and `min` take one number and more, with no overload that takes
+  anything. *not adopted:* `<N is Numeric>` over a union, which no bound is.
+- **an arm of a `match` takes the lists its tests select, and the arms cover the lists exactly.** `true` and `false` at a
+  position select the lists that have that value there; a name takes the union of what the lists it selects have at its
+  position, `T?` for a position a tail gives. A list some earlier arm takes is not a later arm's. An arm that takes no list, or
+  only lists taken before, is `match_redundant`; a list no arm takes is `match_missing`, with the arm that takes it. A test at a
+  position a list does not have as `true` or `false` (`boolean`, an integer, nothing) selects nothing and is `match_pattern`,
+  since the test could hold at run time for a list the arm was not typed for; so is an arm that names fewer or more values than
+  the lists it takes have. A `match` on a call with one list takes it with one arm. *not adopted:* a name for the values left
+  unnamed; an arm that tests a position the lists give as `boolean`.
+- **return lists are told apart by `true` and `false`,** which the declaration checks (`lists_overlap`): two lists that no
+  position has `true` in one and `false` in the other would be told apart by nothing. The grammar spells no tail among
+  alternatives, so a function that answers `T...` is no argument of `pcall`.
+- **`pcall` and `xpcall` are enumerated overloads** over the values passed on (0 to 6 for `pcall`, 0 to 3 for `xpcall`) and the
+  values answered (0 to 3), each `(true, R...) | (false, any)`; for `xpcall` the failure is what its message handler answers or `string`:
+  Lua answers `"error in error handling"` when the handler raises, so `H` alone would let `n + 1` through a handler that raises.
+  The tree writes at most six extra arguments in all but a handful of sites, which are `overload_none`. The failure is untrusted
+  data (`any`), and a column of the two lists is `any` for a name that takes both, so a `local ok, v = pcall(f)` is left with
+  the `any_use` that `match` removes.
+- **a union of shapes is solved member by member.** An argument `{integer} | {string}` for `{T}` gives `T` each member's
+  element, so `T` is the type they join to (`{integer} | {number}` gives `number`) or `infer_conflict`; a parameter that
+  is a union with a type parameter in each member (`{T} | {U}`) gets no type from an argument and is `cannot_infer`. A
+  type parameter with no type is never left as `invalid` in silence. *not adopted:* an instance that is the union of the
+  members' types, which would give `string` and `integer` to the same element.
+- **`table.sort` without a comparator is declared for `integer`, `number` and `string`;** any other element type needs a
+  comparator, because `<` raises on the rest. An instance that would make an array or a map of optionals
+  (`wrap(m)` for `m: integer?`) is `array_of_optional`, as the annotation `mut {integer?}` is.
+- **a coroutine is a `Coroutine<Y, R, S>` and yields through a handle.** `coroutine.create` and `wrap` take a body that gets a
+  `Yielder<Y, S>` and the first value sent (or the handle alone, or nothing), and answer what it returns (`R`, or `nil` where it
+  answers nothing); `resume` sends `S` (nothing where it is `nil`) and answers `(true, Y | R) | (false, any)`; `close` answers
+  `(true) | (false, any)`; `status` an enum of the four states. The raw `running` and `yield` are not declared: no type says
+  which coroutine a bare `yield` feeds. The declarations are the contract of the typed library: a handle yields only for the
+  coroutine it was made for, which [`lang/check_programs.tl`] holds its Lua to, and the runtime provides with the typed
+  library.
+- **a tag test narrows as flow already reads it,** so tagged unions add no rule: `==` and `~=` of a field with one value an
+  enum has in each member, in an `if` chain, a condition or an `elseif`; a chain that covers every member ends a function; a
+  `mut` field, a global and an index are not places. A `match` tells lists apart and never records.
 
 [a count the tree cannot yet bring to zero is a ceiling]: strict-teal.md#decisions
 [annotated parameters]: strict-teal.md#annotated-parameters
@@ -979,9 +1065,11 @@ that refuses more where it is silent. *not adopted:* each reading's looser form,
 [`lang/ast.tl`]: ../../lang/ast.tl
 [`lang/check.tl`]: ../../lang/check.tl
 [`lang/check_codes.tl`]: ../../lang/check_codes.tl
+[`lang/check_programs.tl`]: ../../lang/check_programs.tl
 [`lang/codegen.tl`]: ../../lang/codegen.tl
 [`lang/declarations.tl`]: ../../lang/declarations.tl
 [`lang/flow.tl`]: ../../lang/flow.tl
+[`lang/generics.tl`]: ../../lang/generics.tl
 [`lang/relation.tl`]: ../../lang/relation.tl
 [`lang/scopes.tl`]: ../../lang/scopes.tl
 [`lang/scopes_speed_test.tl`]: ../../lang/scopes_speed_test.tl

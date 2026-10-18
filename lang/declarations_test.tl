@@ -147,6 +147,19 @@ local CASES <const>: {Case} = {
     fix = "bound `T` by an interface that takes no type parameters, or write no bound",
   },
   {
+    code = "lists_overlap",
+    source = "local type Reply = function(): (integer, string) | (string, integer)\n",
+    msg = "the return lists `(integer, string)` and `(string, integer)` are told apart by no position that is `true` in one and `false` in the other",
+    fix = "make one position `true` in one list and `false` in the other (`(true, R) | (false, E)`)",
+  },
+  {
+    code = "bound_not_met",
+    source = "local interface Named\n  name: string\nend\nlocal record Plain\n  name: string\nend\n" ..
+      "local record Box<T is Named>\n  value: T\nend\nlocal b: Box<Plain>\n",
+    msg = "`Box` bounds its type parameter 1 by `Named`, and `Plain` does not list it",
+    fix = "list the interface in the declaration of `Plain` (`is Named`), or pass a type that does",
+  },
+  {
     code = "outer_type_parameter",
     source = "local function f<T>(x: T)\n  local record Inner\n    v: T\n  end\nend\n",
     msg = "`T` is a type parameter of the code around this declaration, which a declaration cannot name",
@@ -531,6 +544,13 @@ local function test_a_bound_is_one_interface_used_with_no_arguments()
   -- a generic interface used bare is the arguments' mistake, and the bound is dropped
   local args = only("local interface G<T>\nend\nlocal function f<T is G>(a: T)\nend\n")
   assert(args.code == "type_arguments" and has(args.msg, "`G` takes 1 type argument, not 0"), args.msg)
+end
+
+local function test_a_type_parameter_of_the_code_around_a_use_is_not_held_to_a_bound_until_it_is_instantiated()
+  local head = "local interface Named\n  name: string\nend\nlocal record Box<T is Named>\n  value: T\nend\n"
+  assert(#errors_of(head .. "local function f<U>(b: Box<U>)\nend\n") == 0)
+  local unmet = only(head .. "local record Plain\n  name: string\nend\nlocal function f<U>(b: Box<Plain>)\nend\n")
+  assert(unmet.code == "bound_not_met", unmet.code)
 end
 
 -- modules ------------------------------------------------------------------------------------
