@@ -27,8 +27,13 @@
 
 /* The most paths a sandbox unveils (`Unveil`): a test worker's
  * (build/test_sandbox.tl) is given each file of its module's import
- * closure by name. */
-#define UNVEIL_MAX 256
+ * closure by name, and the largest closure of the tree held 253 files when
+ * this was raised from 256, so it is twice that and a little over. The
+ * paths are held in arrays on `spawn`'s frame, some 50 bytes each; the
+ * kernel limits neither a Landlock ruleset's rules nor the bind mounts of a root (one
+ * each, far below `fs.mount-max`). Only Linux unveils: macOS answers ENOSYS,
+ * so [`SEATBELT_PARAMETER_MAX`] does not follow it. */
+#define UNVEIL_MAX 512
 
 /* The most parameters a Seatbelt profile takes (`Seatbelt`'s
  * `parameters`): a grant's path is one each, and a start's argv carries
