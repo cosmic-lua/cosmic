@@ -329,13 +329,15 @@ end
 
 --- `db` describes no working database of another schema, another
 --- tool's, whose rows this tool's code may misread: it says so, and
---- describes the rest.
+--- describes the rest. Here the file lacks a table this tool's has, so
+--- reading it, narrowed or not, would fail.
 local function test_db_reads_none_of_a_working_database_of_another_schema(tmp: string)
   local tree = write_programs(tmp)
   local _ = verbs_fixture.expect(tree, "build", { "build" }, 0)
   local working = build_dir(tree) .. "/build.db"
   local db = assert(Sqlite.open(working, { writable = true }))
   assert(db:exec("UPDATE meta SET value = 'another' WHERE key = 'schema'"))
+  assert(db:exec("DROP TABLE derived"))
   assert(db:close())
   local whole = verbs_fixture.expect(tree, "db", { "db" }, 0)
   local err, out = whole.stderr, whole.stdout
