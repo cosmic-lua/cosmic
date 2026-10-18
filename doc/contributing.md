@@ -152,8 +152,15 @@ driver step alike.
 
 when a change adds what a `TODO:` waiting on the pin needs, or API those
 scripts would use, open a follow-up once that prerelease exists. move
-the pin to it (its commit, URL and SHA-256, checked against the digest
-the release records) and take up every `TODO:` the release unblocks:
+the pin to it with `cosmic release`, which writes the pin's three lines
+(commit, URL and SHA-256) only once the binary it downloads has the
+digest the release records:
+
+```text
+bin/cosmic release --commit <commit> --pin ci/cosmic-driver.pin
+```
+
+then take up every `TODO:` the release unblocks:
 `bin/cosmic todos '"cosmic-driver.pin"'` lists them. otherwise say in
 the PR that the pin was left alone.
 
