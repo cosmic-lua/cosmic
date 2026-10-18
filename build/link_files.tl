@@ -11,7 +11,6 @@
 
 local Fs = require("cosmic.fs")
 local String = require("cosmic.string")
-local ast = require("build.ast")
 local c_tokens = require("build.c_tokens")
 local link_text = require("build.link_text")
 
@@ -184,11 +183,11 @@ end
 --- the whole.
 function link_files.blocks(kind: string, source: string): {link_text.Block}
   if kind == "markdown" then
-    return { { line = 1, text = source, starts = ast.line_starts(source) } }
+    return { { line = 1, text = source, starts = link_text.line_starts(source) } }
   end
   local comments: {link_text.Comment} = {}
   if kind == "c" then
-    local line_starts = ast.line_starts(source)
+    local line_starts = link_text.line_starts(source)
     for _, comment in ipairs(c_tokens.comments(source)) do
       local line_start = line_starts[comment.line] or 1
       local raw_at = source:find(comment.text, line_start, true) or 0
@@ -286,7 +285,7 @@ function link_files.found(kind: string, source: string): {link_text.Found}
     return out
   end
   local names: {string: boolean} | nil = nil
-  local line_starts = ast.line_starts(source)
+  local line_starts = link_text.line_starts(source)
   for _, block in ipairs(link_files.blocks(kind, source)) do
     local starts = block.starts or {}
     for _, link in ipairs(link_text.parse(block.text)) do

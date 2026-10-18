@@ -1628,3 +1628,40 @@ local function test_a_memo_answers_the_reader_check_until_a_reader_changes(dir: 
   assert(#tree_checks.read(root, {}, memo) == 0)
   assert(memo:close())
 end
+
+--- A dimension of the analysis that compared no row over a tree of some size is a comparison of nothing with nothing,
+--- and is named; a memo keeps how many rows each file compared, so that a warm run says what a cold one does.
+local function test_a_dimension_of_the_analysis_that_compared_nothing_is_named_cold_and_warm(dir: string)
+  local root = dir .. "/readempty"
+  assert(Fs.mkdirs(root .. "/build"))
+  for index = 1, 12 do
+    assert(Fs.write(root .. "/build/small" .. index .. ".tl", source("local x = " .. index, "return x")))
+  end
+  local memo = assert(Sqlite.memory())
+  local cold = tree_checks.read(root, {}, memo)
+  local warm = tree_checks.read(root, {}, memo)
+  assert(table.concat(cold, "\n") == table.concat(warm, "\n"), table.concat(warm, "\n"))
+  -- The rows every file has are compared; the ones it has none of are named.
+  local joined = table.concat(cold, "\n")
+  assert(joined:find("analyzer tests: no row compared in 12 files", 1, true) ~= nil, joined)
+  -- A file's export and policy rows count only where they say something: these files return a name and declare no policy.
+  assert(joined:find("analyzer docs: no row compared", 1, true) ~= nil and
+      joined:find("analyzer inputs: no row compared", 1, true) ~= nil and
+      joined:find("analyzer export: no row compared", 1, true) == nil, joined)
+  -- One file with a row of each kind is enough.
+  assert(Fs.write(root .. "/build/rich_test.tl", source(
+    'local Test = require("cosmic.test")',
+    'local Fs = require("cosmic.fs")',
+    'Test.policy{ env = { "HOME" } }',
+    "--- Opens: see [`open`] and [`Fs.read`].",
+    "local function open(path: string): nil, string",
+    '  return nil, "the path is empty"',
+    "end",
+    "local function test_it() assert(Fs.read(\"x\") == nil) end",
+    "function Example.open() assert(Fs.read(\"x\") == nil) end",
+    "return open")))
+  local rich = tree_checks.read(root, {}, memo)
+  assert(#rich == 0, table.concat(rich, "\n"))
+  assert(table.concat(tree_checks.read(root, {}, memo), "\n") == "")
+  assert(memo:close())
+end

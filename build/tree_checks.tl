@@ -98,9 +98,10 @@ local function allow(names: {string}, why: string)
 end
 
 allow({
-  "build.coverage.syntax_lines.executable_cached", "build.syntax_derivation.rows_of", "build.syntax_derivation.insert",
-  "build.syntax_match.matches", "build.syntax_match.text", "build.syntax_rewrite.rewrite", "build.syntax_scopes.position",
-  "build.syntax_scopes.bindings_of", "build.syntax_shape_specs.resolve", "build.syntax_node.children",
+  "build.coverage.syntax_lines.executable_cached", "build.syntax_analyzer.analyze", "build.syntax_analyzer.docs",
+  "build.syntax_derivation.rows_of", "build.syntax_derivation.insert", "build.syntax_links.check",
+  "build.syntax_links.facts", "build.syntax_links.rewrite", "build.syntax_match.matches", "build.syntax_match.text",
+  "build.syntax_rewrite.rewrite", "build.syntax_shape_specs.resolve", "build.syntax_node.children",
   "build.syntax_node.require_sites", "build.syntax_shape_specs.splices", "build.syntax_shape_specs.spliced",
 }, "a reader of the new syntax tree (build/syntax_*.tl) that the rewrites of the readers of the fork's tree call; " ..
     "tested directly until they do")
@@ -3244,12 +3245,14 @@ end
 
 --- The outcome a memo kept, or nil where it kept none or it does not read.
 local function kept_reading(text: string): Compared.Outcome | nil
-  local outcome: Compared.Outcome = { skipped = "", differences = {} }
+  local outcome: Compared.Outcome = { skipped = "", differences = {}, counts = {} }
   for _, fields in ipairs(check_memo.decode(text)) do
     if fields[1] == "S" and #fields == 2 then
       outcome.skipped = fields[2]
     elseif fields[1] == "D" and #fields == 2 then
       outcome.differences[#outcome.differences + 1] = fields[2]
+    elseif fields[1] == "N" and #fields == 3 and math.tointeger(tonumber(fields[3])) ~= nil then
+      outcome.counts[fields[2]] = math.tointeger(tonumber(fields[3])) or 0
     else
       return nil
     end
@@ -3281,6 +3284,9 @@ local function read_outcome(file: string, source: string, memo: Sqlite.Handle | 
     for _, line in ipairs(outcome.differences) do
       rows[#rows + 1] = { "D", line }
     end
+    for _, dimension in ipairs(Compared.dimensions) do
+      rows[#rows + 1] = { "N", dimension, tostring(outcome.counts[dimension] or 0) }
+    end
     check_memo.put(memo, "read", key, check_memo.encode(rows))
   end
   return outcome, ""
@@ -3289,7 +3295,8 @@ end
 --- Every `.tl` file of the tree read by the fork's readers ([`build.ast`], [`build.scopes`], [`build.globals`],
 --- [`build.stub`], [`build.coverage`]) and by their ports ([`build.syntax_compared`]) over the file translated to the
 --- new grammar, and what each reader answers compared: the modules a file requires, the lines of its global
---- declarations, the references through an alias and the names in scope, its stub, its executable lines. A file that
+--- declarations, the references through an alias and the names in scope, its stub, its executable lines, and each row of
+--- its analysis (a dimension that compared no row over a tree of twelve files or more fails). A file that
 --- differs in more readers than `pinned` (by default the `[read]` ceilings) allows is listed with each reader that
 --- differs and how; one that differs in fewer, and a pin for a file that agrees, is told to lower the pin. A file the
 --- check cannot compare (the fork or its translation does not parse, which `translated` counts), the fork's own
@@ -3313,19 +3320,31 @@ function tree_checks.read(root: string, pinned?: {string: integer}, memo?: Sqlit
     "build/syntax_stub.tl", "build/coverage/syntax_lines.tl", "build/ast/init.tl", "build/ast/node.tl", "build/ast/walk.tl",
     "build/ast/match_cast.tl", "build/coverage/init.tl",
     "build/ast/match.tl", "build/ast/rewrite.tl", "build/ast/requires.tl", "build/scopes.tl", "build/globals.tl",
-    "build/stub.tl", "build/coverage/lines.tl", "checker/tl.tl", "build/check_memo.tl" }, "read 2")
+    "build/stub.tl", "build/coverage/lines.tl", "checker/tl.tl", "build/check_memo.tl",
+    "build/syntax_compared_analysis.tl", "build/syntax_analyzer.tl", "build/syntax_link_text.tl",
+    "build/policy_rules.tl", "build/analyzer.tl", "build/link_text.tl", "build/cache_names.tl",
+    "build/host_names.tl" }, "read 3")
   if memo ~= nil then
     local _, _ = check_memo.prepare(memo, "read")
   end
   local out: {string} = {}
   local found: {string: integer} = {}
   local held: {compiler} = {}
+  -- How many rows each counted dimension compared over the tree, and how many files were compared.
+  local totals: {string: integer} = {}
+  local compared = 0
   for _, row in ipairs(files) do
     local file, source = row[1], row[2]
     if file ~= "checker/tl.tl" and not file:match("%.d%.tl$") then
       local outcome, missing = read_outcome(file, source, memo, check_memo.key(salt, "tl", source), held)
       if outcome == nil then
         return { missing }
+      end
+      if outcome.skipped == "" then
+        compared = compared + 1
+        for dimension, rows in pairs(outcome.counts) do
+          totals[dimension] = (totals[dimension] or 0) + rows
+        end
       end
       local count = #outcome.differences
       if outcome.skipped == "" and count > 0 then
@@ -3342,6 +3361,16 @@ function tree_checks.read(root: string, pinned?: {string: integer}, memo?: Sqlit
   end
   if memo ~= nil then
     check_memo.finish(memo, "read")
+  end
+  -- A dimension that compared no row over a tree of some size is a comparison of nothing with nothing: a reader that
+  -- stopped finding anything would pass. (A tree of a few files may lack a form.)
+  if compared >= 12 then
+    for _, dimension in ipairs(Compared.dimensions) do
+      if (totals[dimension] or 0) == 0 then
+        out[#out + 1] = dimension .. ": no row compared in " .. String.counted(compared, "file") ..
+          "; the comparison is empty"
+      end
+    end
   end
   for _, line in ipairs(Ceilings.fallen(found, pinned, Ceilings.path .. "'s [read]")) do
     out[#out + 1] = line

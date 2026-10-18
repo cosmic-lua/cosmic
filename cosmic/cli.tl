@@ -587,6 +587,33 @@ local record Cli
   --- bill of materials records the release each came from, and the
   --- binary it reads is never written
   refresh: string
+  --- `cosmic release [--commit hex] [--until time] [--list [-n count] | -o file | --cache] [--pin file] [--json]`:
+  --- finds cosmic's own releases, the `next-<commit>` prereleases of
+  --- cosmic-lua/cosmic on GitHub, picks one and verifies it. Every page
+  --- of releases is read, since the API does not list them by time, and
+  --- they are sorted newest first by when they were published; a
+  --- `--commit` reads only the releases of the tags its prefix starts,
+  --- refusing a prefix that names more than 10. With no
+  --- criterion it picks the newest; `--commit` the one whose commit
+  --- starts with the hex (7 to 40 digits), `--until` the newest published
+  --- at or before an RFC 3339 time, or by the end of a date in UTC; both
+  --- may be given. A release is verified first: its SHA256SUMS names one
+  --- digest for cosmic and its source.json the same commit and digest.
+  --- With nothing more it prints the release as the three lines of
+  --- ci/cosmic-driver.pin (commit, URL, sha256), or with `--json` an
+  --- object, downloading no binary. `--list` prints the matches instead,
+  --- newest first, up to `-n` (20): the time each was published and its
+  --- commit, or with `--json` an array, verifying none. `-o` writes the
+  --- binary to a file, and `--cache` where bin/cosmic-bootstrap caches
+  --- the pin's (`$XDG_CACHE_HOME/cosmic/bootstrap/cosmic-<sha256>`),
+  --- printing that path; either renames it into place only once its
+  --- sha256 is the release's digest. `--pin` writes the three pin lines
+  --- to a file once the binary's bytes are verified. GH_TOKEN goes with
+  --- the API's requests when set, and every redirect must stay on https.
+  --- It prints no summary. Exits 0 when it did what was asked, 1 when it
+  --- could not (no connection, no matching release, a release that fails
+  --- verification, a write that failed), 2 for a command line it refused
+  release: string
   --- `cosmic sandbox [options] [--] program [args...]`: runs a program held
   --- to nothing at all but what the options grant, and everything it
   --- starts with it: the paths it reads, runs, writes and creates, the
@@ -742,7 +769,7 @@ local module: Module = {
   fields = {
     run = "run", standalone = "standalone", eval = "eval", version = "version", test = "test", fix = "fix", build = "build",
     db = "db", lsp = "lsp", sql = "sql", cache = "cache", json = "json", hash = "hash", codec = "codec", archive = "archive", fetch = "fetch", time = "time", rand = "rand", compile = "compile", docs = "docs", uses = "uses", todos = "todos", bom = "bom",
-    refresh = "refresh", sandbox = "sandbox", help = "help",
+    refresh = "refresh", release = "release", sandbox = "sandbox", help = "help",
   },
   verbs = {
     run = {
@@ -974,6 +1001,20 @@ local module: Module = {
         ["--tzdata"] = { value = "file", about = "read the time zones from this tzdata sdist" },
       },
     },
+    release = {
+      about = "find, verify and download cosmic's own releases",
+      usage = "[--commit <hex>] [--until <time>] [--list [-n <count>] | -o <file> | --cache] [--pin <file>] [--json]",
+      spec = {
+        ["--commit"] = { value = "hex", about = "the release whose commit starts with this, 7 to 40 hex digits" },
+        ["--until"] = { value = "time", about = "the newest published at or before this RFC 3339 time, or by the end of this date (UTC)" },
+        ["--list"] = { about = "print the matching releases, newest first, verifying none" },
+        ["-n"] = { value = "count", about = "with --list, print at most this many (default 20)" },
+        ["--json"] = { about = "print the release, or with --list the releases, as JSON" },
+        ["-o"] = { value = "file", about = "write the verified binary here, mode 0755" },
+        ["--cache"] = { about = "write the verified binary into bin/cosmic-bootstrap's cache and print its path" },
+        ["--pin"] = { value = "file", about = "write the release as ci/cosmic-driver.pin's three lines, once verified" },
+      },
+    },
     sandbox = {
       about = "run a program held to what you grant it",
       usage = "[options] [--] <program> [args...]",
@@ -1024,10 +1065,10 @@ local module: Module = {
     { "Project", "test", "fix", "build", "db", "lsp" },
     { "Quick tools", "sql", "cache", "json", "hash", "codec", "archive", "fetch", "time", "rand", "compile" },
     { "Lookup", "docs", "uses", "todos", "help" },
-    { "This binary", "bom", "refresh" },
+    { "This binary", "bom", "refresh", "release" },
   },
   order = { "run", "standalone", "eval", "version", "test", "fix", "build", "db", "lsp", "sql", "cache", "json", "hash", "codec", "archive", "fetch", "time", "rand", "compile", "docs", "uses", "todos",
-    "bom", "refresh", "sandbox", "help" },
+    "bom", "refresh", "release", "sandbox", "help" },
 }
 
 return module

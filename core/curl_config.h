@@ -116,6 +116,10 @@
 #define USE_MBEDTLS 1
 #define USE_IPV6 1
 
+/* Unix domain sockets, which CURLOPT_UNIX_SOCKET_PATH (core/http.c's
+ * `unix_socket`) needs; sys/un.h is on every target here. */
+#define USE_UNIX_SOCKETS 1
+
 /* Every protocol but HTTP/HTTPS is already stripped out of
  * vendor/curl's PIN; these flags mainly turn off pieces of the files
  * that remain (auth mechanisms, cookies, altsvc, ...). */
