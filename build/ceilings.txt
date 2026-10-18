@@ -1837,8 +1837,8 @@ build/refresh_store_test.tl view_written 7
 build/refresh_test.tl view_written 1
 build/refresh_tool_test.tl view_written 2
 build/relay_wire_fixture.tl view_written 10
-build/release.tl view_written 8
-build/release_test.tl view_written 9
+build/release.tl view_written 10
+build/release_test.tl view_written 16
 build/removed_fix_test.tl view_written 9
 build/roots.tl view_written 4
 build/roots_test.tl view_written 3
