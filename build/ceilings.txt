@@ -578,7 +578,7 @@ build/bom.tl nil_not_allowed 24
 build/bom_test.tl nil_not_allowed 21
 build/boot.tl nil_not_allowed 3
 build/bridge_cache_test.tl nil_not_allowed 1
-build/c/declared_types_test.tl nil_not_allowed 6
+build/c/declared_types_test.tl nil_not_allowed 5
 build/c/init.tl nil_not_allowed 13
 build/c/layout.tl nil_not_allowed 17
 build/c/rules.tl nil_not_allowed 34
