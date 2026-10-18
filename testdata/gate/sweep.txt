@@ -1,0 +1,5 @@
+gate sweep: 1000 draws a property, seeds 1 2 3
+seed 1: exit 0, 7 tests passed in 3 modules
+seed 2: exit 0, 7 tests passed in 3 modules
+seed 3: exit 0, 7 tests passed in 3 modules
+verdict table: exit 0, 23 tests passed in 1 module

@@ -428,10 +428,47 @@ keeps every part of it working and builds on it where it helps.
   quotes. the reviews of this plan had to count by regex; a measurement
   the checker writes is exact and is taken again by running it.
 - **the verdict harness is tables.** the harness writes the fork's
-  verdicts and the new checker's into tables of the working database, and
-  the gate's triage is a join: each difference a row with the name of the
-  rule that explains it, and the gate is the query that finds a row with
-  none.
+  verdicts and the new checker's into tables, and the gate's triage is a
+  join: each difference a row with the name of the rule that explains it,
+  and the gate is the query that finds a row with none. the tables are
+  data under [`testdata/gate/`], so that they outlive the fork: `verdicts.json`
+  holds a row for each program [`build/teal_test.tl`] pins and each input
+  of the checker corpora, with what the fork said (frozen) and what the
+  new checker says and with which codes; `retired.json` holds a row for
+  each program the fork refuses and the new checker takes, with the code
+  of the rule that makes it right and a twin that the rule refuses;
+  `rules.json` names the rule of each code of the lexer, the parser and
+  the scope builder, which no catalog holds yet. [`lang/check_verdicts_test.tl`]
+  runs the query and fails on a difference with no rule, on a program the
+  fork refuses that is taken without a retired row, and on a row that is no
+  longer what the checker says; `bin/cosmic build/gate_record.tl` writes the
+  table again, and `cosmic sql --from` asks it anything else.
+- **a pin the new rules retire is a row, not a refusal.** a program of
+  [`build/teal_test.tl`] that the fork refuses because of what the fork
+  lacks (`never` as a flag, joins that keep the declared type, fields that
+  are never places, a receiver that is not the interface's) and that the
+  new checker takes by a rule of this plan is not refused again to keep the
+  pin: it is a row of `retired.json`, run in
+  [`lang/check_verdicts_test.tl`], with the twin that the same rule
+  refuses, one for each form the row is about, so that a change of that
+  form is seen; and the program is run. a refusal at the lexer, the parser
+  or the scope builder (a form the grammar cut) shows the verdict only, not
+  that the rule a pin is about is held. the table leaves out the programs of
+  the four parser-timing tests of [`build/teal_test.tl`]: 15 distinct
+  programs of one line repeated 2000 times, which say nothing of a rule
+  and whose lines name a variable `record` or `enum`, which the new grammar reserves (`unknown_variable`).
+- **an optional field is a plain value, never a metamethod and never a
+  generic function.** the fork refused `metamethod __index?: T` ("a
+  metamethod cannot be optional") and `pick?: function<T>(T): T` ("an
+  optional field cannot have a generic type"); the new checker took both for
+  want of a rule, and the owner's decision is to refuse them, with the
+  stricter reading: the codes `optional_metamethod` and `optional_generic`
+  of [`lang/declarations.tl`], in any spelling that admits nil (`name?:`,
+  `T?`, `T | nil`), and when a type parameter that a declaration makes
+  optional is filled with a generic function (`Box<function<T>(T): T>` for
+  `v?: X`). it is a choice and no hole: the checker narrows and calls a
+  generic function that a local or a parameter holds, and lifting the decision
+  is the removal of the two codes.
 - **errors are catalogued.** an uncaught run-time error is already looked
   up in `catalog` and answered with the doc comment of the function that
   raised it. a checker error is catalogued the same way: each code a row
@@ -1146,10 +1183,28 @@ fork, not once every ceiling is zero. the aim is lower cost, accepting
 harder transitions while keeping a high bar for soundness and
 correctness. the gate:
 
-- it refuses every program pinned in [`build/teal_test.tl`] (translated);
+- every program pinned in [`build/teal_test.tl`] (translated) is refused by
+  a rule of this plan, or is accepted because a sound rule of this plan
+  admits it: such a program is a row of [`testdata/gate/retired.json`] with
+  the code of that rule, a near-twin that the same rule refuses, and a run
+  of the accepted program. a pin is retired only by a rule the plan
+  states, never to make the count agree;
 - every verdict it gives differently from the fork, file by file, is a
   row in the verdict tables tied to a named rule;
 - the fuzz soundness property and checked narrowing run against it.
+
+the evidence is in the tree: the verdict tables ([the verdict harness is
+tables]), the pins retired by a rule ([a pin the new rules retire is a row,
+not a refusal]), the soundness property of narrowing and its corpus
+([`lang/check_flow_fuzz_test.tl`]), the totality property
+([`lang/check_total_fuzz_test.tl`]) and the oracle of definite assignment
+([`lang/check_assigned_fuzz_test.tl`]), each against the new checker.
+checked narrowing in a real tool run (`cosmic test --check-types`) waits on
+the tool's wiring (the TODO of [`lang/check_flow_fuzz_test.tl`]). the full
+sweep of the properties, many draws from several seeds, is
+[`bin/gate-sweep`], which writes its result to
+[`testdata/gate/sweep.txt`]; the nightly fuzz workflow draws them from a seed
+of its own.
 
 then one change commits the translated tree and deletes `checker/` and
 the translator. each rule's existing violations are pinned as ceilings
@@ -1360,6 +1415,16 @@ since the seed's Lua runs on the tree's VM.
 [`build/confine.tl`]: ../../build/confine.tl
 [`build/teal.tl`]: ../../build/teal.tl
 [`build/teal_test.tl`]: ../../build/teal_test.tl
+[`bin/gate-sweep`]: ../../bin/gate-sweep
+[`testdata/gate/`]: ../../testdata/gate
+[`testdata/gate/sweep.txt`]: ../../testdata/gate/sweep.txt
+[`lang/check_verdicts_test.tl`]: ../../lang/check_verdicts_test.tl
+[`lang/declarations.tl`]: ../../lang/declarations.tl
+[`lang/check_flow_fuzz_test.tl`]: ../../lang/check_flow_fuzz_test.tl
+[`lang/check_total_fuzz_test.tl`]: ../../lang/check_total_fuzz_test.tl
+[`lang/check_assigned_fuzz_test.tl`]: ../../lang/check_assigned_fuzz_test.tl
+[the verdict harness is tables]: #decisions
+[a pin the new rules retire is a row, not a refusal]: #decisions
 [`ci/cosmic-driver.pin`]: ../../ci/cosmic-driver.pin
 [`core/json.c`]: ../../core/json.c
 [`core/store.c`]: ../../core/store.c
@@ -1380,3 +1445,4 @@ since the seed's Lua runs on the tree's VM.
 [`Child.Handle`]: ../../cosmic/child.tl
 [`compilation.ordered`]: ../../build/compilation.tl
 [`cosmic.json.array`]: ../../cosmic/json.tl
+[`testdata/gate/retired.json`]: ../../testdata/gate/retired.json
