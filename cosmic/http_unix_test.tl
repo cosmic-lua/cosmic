@@ -98,3 +98,109 @@ end
   assert(seen == "/moved @files.test|/moved @files.test|/final @files.test",
     seen)
 end
+
+--- A client script's lines: a download's destination is `out` beside the
+--- socket, and what a download wrote there is read back and printed.
+local download_prelude = [[
+local Fs = require("cosmic.fs")
+local Http = require("cosmic.http")
+local Net = require("cosmic.net")
+local function destination(sock: string): string
+  return (sock:gsub("/s%.sock$", "/out"))
+end
+]]
+
+--- `open` takes the same `via`: the URL gives the request line and the
+--- Host, and the body streams from the socket's server.
+local function test_open_streams_a_body_over_the_socket(tmp: string)
+  local said, seen = across(tmp, [[
+local Fs = require("cosmic.fs")
+local Http = require("cosmic.http")
+local Net = require("cosmic.net")
+local Stream = require("cosmic.stream")
+return function(argv: {string}): integer
+  local response = assert(Http.open("http://files.test:8080/streamed?y=2", { via = Net.unix(argv[1]) }))
+  local body = assert(Stream.read_all(response))
+  local _, _ = response:close()
+  Fs.put(Fs.stdout, response.status .. " " .. body)
+  return 0
+end
+]])
+  assert(said == "200 body of /streamed", said)
+  assert(seen == "/streamed?y=2 @files.test:8080", seen)
+end
+
+--- `open`, like `get`, answers a redirect rather than following it.
+local function test_open_does_not_follow_a_redirect_over_the_socket(tmp: string)
+  local said, seen = across(tmp, [[
+local Fs = require("cosmic.fs")
+local Http = require("cosmic.http")
+local Net = require("cosmic.net")
+return function(argv: {string}): integer
+  local response = assert(Http.open("http://files.test/moved", { via = Net.unix(argv[1]) }))
+  local _, _ = response:close()
+  Fs.put(Fs.stdout, response.status .. " " .. response.headers.location)
+  return 0
+end
+]])
+  assert(said == "302 /final", said)
+  assert(seen == "/moved @files.test", seen)
+end
+
+--- `download` writes the served body to its file, asking the socket's
+--- server for the URL's path with the URL's host.
+local function test_download_writes_the_body_it_fetched_over_the_socket(tmp: string)
+  local said, seen = across(tmp, download_prelude .. [[
+return function(argv: {string}): integer
+  local dest = destination(argv[1])
+  local ok, why = Http.download("http://files.test:8080/pkg.tar?z=3", dest, { via = Net.unix(argv[1]) })
+  assert(ok, why)
+  Fs.put(Fs.stdout, (assert(Fs.read(dest))))
+  return 0
+end
+]])
+  assert(said == "body of /pkg.tar", said)
+  assert(seen == "/pkg.tar?z=3 @files.test:8080", seen)
+end
+
+--- `download_result` takes the same `via` and reports "downloaded".
+local function test_download_result_writes_the_body_it_fetched_over_the_socket(tmp: string)
+  local said, seen = across(tmp, download_prelude .. [[
+return function(argv: {string}): integer
+  local dest = destination(argv[1])
+  local result = Http.download_result("http://files.test:8080/pkg.tar?z=3", dest, { via = Net.unix(argv[1]) })
+  assert(result.kind == "downloaded", result.kind .. ": " .. result.reason)
+  Fs.put(Fs.stdout, result.kind .. " " .. result.reason .. "|" .. assert(Fs.read(dest)))
+  return 0
+end
+]])
+  assert(said == "downloaded |body of /pkg.tar", said)
+  assert(seen == "/pkg.tar?z=3 @files.test:8080", seen)
+end
+
+--- A download is of the first response: over `via` a 3xx is not followed,
+--- so it is not a 2xx and fails with its status, leaving no file; with
+--- `follow = true` the redirect goes through the same socket and the
+--- final body is written.
+local function test_a_download_over_the_socket_fails_on_a_redirect_unless_asked_to_follow(tmp: string)
+  local said, seen = across(tmp, download_prelude .. [[
+return function(argv: {string}): integer
+  local via = Net.unix(argv[1])
+  local dest = destination(argv[1])
+  local ok, why = Http.download("http://files.test/moved", dest, { via = via })
+  local result = Http.download_result("http://files.test/moved", dest, { via = via })
+  local lines = {
+    tostring(ok) .. " " .. why,
+    result.kind .. " " .. tostring(result.status),
+    "exists " .. tostring((Fs.exists(dest))),
+  }
+  local followed, followed_why = Http.download("http://files.test/moved", dest, { via = via, follow = true })
+  assert(followed, followed_why)
+  lines[#lines + 1] = (assert(Fs.read(dest)))
+  Fs.put(Fs.stdout, table.concat(lines, "\n"))
+  return 0
+end
+]])
+  assert(said == "false http://files.test/moved: HTTP 302\nhttp_status 302\nexists false\nbody of /final", said)
+  assert(seen == "/moved @files.test|/moved @files.test|/moved @files.test|/final @files.test", seen)
+end
