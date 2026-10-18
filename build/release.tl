@@ -1,0 +1,515 @@
+--- `cosmic release`: finds cosmic's own releases, picks one, and
+--- downloads and verifies it. A release is the `next-<commit>`
+--- prerelease ci/cosmic_ci/prerelease.tl publishes for a commit on main,
+--- holding three assets: `cosmic`, `SHA256SUMS` (`<sha256>  cosmic`) and
+--- `source.json` (the commit, the digest and the run that made it).
+---
+--- The releases come from GitHub's REST API, newest first, a page of 100
+--- at a time; a draft, a release not tagged `next-<40 hex>` and one
+--- missing any of the three assets are passed over. With no criterion
+--- the newest is picked. `--commit <hex>` keeps the release whose commit
+--- starts with the hex (7 to 40 digits; a full commit is asked for by
+--- its tag, so its age does not matter), and `--before <time>` those
+--- published before an RFC 3339 time or a date's first moment in UTC.
+--- Both may be given. The API lists releases by creation, which follows
+--- publication closely, so the newest match is taken from the first page
+--- that holds one. A prefix that matches two releases is refused,
+--- naming both.
+---
+--- A release is verified before anything about it is printed or kept:
+--- its SHA256SUMS names one digest for `cosmic`, and its source.json
+--- names the tag's commit and that digest. A binary written anywhere is
+--- downloaded beside its target and renamed into place only once its
+--- sha256 is that digest, so a failed check leaves nothing. The trust
+--- rests on TLS to GitHub: the assets are not signed, so the checks
+--- catch a release that disagrees with itself or a broken transfer, not
+--- a forged release.
+---
+--- What it does with the release:
+---
+--- * nothing given: prints the release as the three lines of
+---   ci/cosmic-driver.pin (commit, URL, sha256), or with `--json` an
+---   object, without downloading the binary.
+--- * `--list`: prints the matches, newest first, up to `-n` (20 by
+---   default): the publication time and commit, a line each, or with
+---   `--json` an array. Nothing is downloaded or verified.
+--- * `-o <file>`: writes the binary there, mode 0755.
+--- * `--cache`: writes it where bin/cosmic-bootstrap caches the pin's,
+---   `$XDG_CACHE_HOME/cosmic/bootstrap/cosmic-<sha256>`, and prints that
+---   path. A file already there whose sha256 is the digest is kept.
+--- * `--pin <file>`: writes the three pin lines there, once the binary's
+---   bytes are verified: streamed and hashed when neither `-o` nor
+---   `--cache` keeps them.
+---
+--- `GH_TOKEN`, when set, goes with the API's requests, and with nothing
+--- else, lifting the unauthenticated rate limit of 60 an hour; a GitHub
+--- Actions step sets it from `github.token`. Every redirect must stay on
+--- https.
+---
+--- It prints no summary: its output is data for a pipe. Exits 0 when it
+--- did what was asked, 1 when it could not (no connection, no matching
+--- release, a release that fails verification, a write that failed), 2
+--- for a command line it refused.
+---
+--- The repository is cosmic-lua/cosmic, fixed: a fork's releases are
+--- not the ones the pin and bin/cosmic-bootstrap name.
+
+local bare = require("build.bare")
+local Cli = require("cosmic.cli")
+local Codec = require("cosmic.codec")
+local Env = require("cosmic.env")
+local Flags = require("cosmic.flags")
+local Fs = require("cosmic.fs")
+local Hash = require("cosmic.hash")
+local Http = require("cosmic.http")
+local Json = require("cosmic.json")
+local plural = require("build.plural")
+local Shape = require("cosmic.shape")
+local Signal = require("cosmic.signal")
+local Stream = require("cosmic.stream")
+local Time = require("cosmic.time")
+local verb_spec = require("build.verb_spec")
+
+--- The `cosmic release` verb: `run` is what [`build/dispatch.tl`] calls.
+local record verb
+  --- The verb's registration: see build/verb_spec.tl.
+  spec: verb_spec.Spec
+  --- Where `run` reads and writes: what a test stands in for.
+  record Io
+    --- Writes to standard output, as given. False and why when the bytes
+    --- did not all go.
+    out: function(text: string): boolean, string
+    --- Writes one complaint line, without its newline.
+    err: function(line: string)
+    --- For a test, in place of the network: the [`Http.Options.script`]
+    --- of each request in turn, a request past the last answered by an
+    --- empty reply.
+    script?: {{string}}
+    --- In place of GitHub's, for a test whose script cannot answer TLS:
+    --- the API's releases URL and the prefix of a release's asset URLs,
+    --- which the printed and pinned URLs still name GitHub's.
+    api?: string
+    downloads?: string
+    --- The variables read (`GH_TOKEN`, `XDG_CACHE_HOME`, `HOME`), by
+    --- name; the process's own when nil.
+    env?: {string:string}
+  end
+  --- One release as it is picked and printed.
+  record Release
+    tag: string
+    commit: string
+    --- When it was published, as RFC 3339 in UTC.
+    published_at: string
+    --- The binary's download URL, as ci/cosmic-driver.pin names it.
+    url: string
+  end
+  --- The digest SHA256SUMS names for `cosmic`, or nil and why.
+  sums_digest: function(text: string): string | nil, string
+  --- The three lines of ci/cosmic-driver.pin for a release.
+  pin_text: function(commit: string, digest: string): string
+end
+
+local spec <const> = assert((assert(Cli.verbs["release"])).spec)
+
+local usage = "cosmic release [--commit <hex>] [--before <time>] " ..
+  "[--list [-n <count>] | -o <file> | --cache] [--pin <file>] [--json]"
+
+local repository <const> = "cosmic-lua/cosmic"
+local api <const> = "https://api.github.com/repos/" .. repository .. "/releases"
+local downloads <const> = "https://github.com/" .. repository .. "/releases/download/"
+local per_page <const> = 100
+--- The most pages one scan reads: the newest 1000 releases.
+local max_pages <const> = 10
+local default_count <const> = 20
+--- What SHA256SUMS or source.json may weigh; each is a line or two.
+local max_small <const> = 65536
+
+--- One asset of a release, as the API lists it.
+local record Asset
+  name: string
+end
+--- One release, as the API lists it. Only what is read is kept.
+local record ApiRelease
+  tag_name: string
+  draft: boolean
+  published_at: string | nil
+  assets: {Asset}
+end
+local RELEASE_SPEC <const> = Shape.record({
+  tag_name = Shape.string,
+  draft = Shape.boolean,
+  published_at = Shape.optional(Shape.string),
+  assets = Shape.list(Shape.record({ name = Shape.string })),
+})
+local PAGE_SPEC <const> = Shape.list(RELEASE_SPEC)
+
+--- What source.json says.
+local record Source
+  commit: string
+  digest: string
+end
+local SOURCE_SPEC <const> = Shape.record({ commit = Shape.string, digest = Shape.string })
+
+local required_assets <const> = { "cosmic", "SHA256SUMS", "source.json" }
+
+--- The release's binary URL, as bin/cosmic-bootstrap requires the pin to
+--- name it.
+local function binary_url(commit: string): string
+  return downloads .. "next-" .. commit .. "/cosmic"
+end
+
+function verb.sums_digest(text: string): string | nil, string
+  local found: string | nil = nil
+  for line in text:gmatch("[^\n]+") do
+    -- `*` marks a digest of a file read in binary mode, as sha256sum -b writes it.
+    local digest, name = line:match("^(%x+) [ *](.+)$")
+    if digest ~= nil and name == "cosmic" then
+      if found ~= nil then return nil, "SHA256SUMS names cosmic twice" end
+      if #digest ~= 64 then return nil, "SHA256SUMS's digest for cosmic is not a sha256" end
+      found = digest:lower()
+    end
+  end
+  if found == nil then return nil, "SHA256SUMS names no digest for cosmic" end
+  return found, ""
+end
+
+function verb.pin_text(commit: string, digest: string): string
+  return commit .. "\n" .. binary_url(commit) .. "\n" .. digest .. "\n"
+end
+
+--- The release `r` names, or nil when it is not a published release with
+--- the three assets.
+local function usable(r: ApiRelease): verb.Release | nil
+  local published = r.published_at
+  if r.draft or published == nil then return nil end
+  local commit = r.tag_name:match("^next%-(%x+)$")
+  if commit == nil or #commit ~= 40 or commit:find("[A-F]") ~= nil then return nil end
+  local names: {string:boolean} = {}
+  for _, asset in ipairs(r.assets) do names[asset.name] = true end
+  for _, name in ipairs(required_assets) do
+    if names[name] ~= true then return nil end
+  end
+  return { tag = r.tag_name, commit = commit, published_at = published, url = binary_url(commit) }
+end
+
+--- How many requests a run has made, which picks each one's script.
+local record Requests
+  made: integer
+end
+
+local standard: verb.Io = { out = bare.out, err = bare.err }
+
+--- `cosmic release [options]`: returns the exit code.
+--- @param argv the command line, `release` at slot 1
+--- @param io where output, complaints and requests go; the process's own when nil
+function verb.run(argv: {integer:string}, io?: verb.Io): integer
+  local to = io or standard
+  local complain = bare.complainer("release", to.err)
+  local function refuse(why: string): integer
+    complain(why .. "; " .. usage)
+    return bare.refused
+  end
+  local function fail(why: string): integer
+    complain(why)
+    return bare.failed
+  end
+  local function getenv(name: string): string
+    local env = to.env
+    if env ~= nil then return env[name] or "" end
+    return Env.get_or(name, "")
+  end
+
+  local flags, trouble = Flags.parse(argv, 2, spec)
+  if flags == nil then return refuse(trouble) end
+  local parsed: Flags.Parsed = flags
+  if #parsed.words ~= 0 then
+    return refuse("takes no words, but was given " .. plural.count(#parsed.words, "word"))
+  end
+  local prefix = parsed.values["--commit"]
+  if prefix ~= nil then
+    if #prefix < 7 or #prefix > 40 or prefix:find("[^%x]") ~= nil then
+      return refuse("--commit wants 7 to 40 hex digits, not " .. prefix)
+    end
+    prefix = prefix:lower()
+  end
+  local before: integer | nil = nil
+  local before_text = parsed.values["--before"]
+  if before_text ~= nil then
+    local ns, _ = Time.parse_rfc3339(before_text)
+    if ns == nil then ns, _ = Time.parse_date(before_text) end
+    if ns == nil then
+      return refuse("--before wants an RFC 3339 time or a date, not " .. before_text)
+    end
+    before = ns
+  end
+  local listing = parsed.set["--list"] == true
+  local as_json = parsed.set["--json"] == true
+  local target = parsed.values["-o"]
+  local to_cache = parsed.set["--cache"] == true
+  local pin = parsed.values["--pin"]
+  if target == "" then return refuse(bare.empty_file .. " after -o") end
+  if pin == "" then return refuse(bare.empty_file .. " after --pin") end
+  local count = default_count
+  local count_text = parsed.values["-n"]
+  if count_text ~= nil then
+    if not listing then return refuse("-n counts what --list prints") end
+    local n = math.tointeger(tonumber(count_text))
+    if n == nil or n < 1 or count_text:match("^%d+$") == nil then
+      return refuse("-n wants a whole number from 1, not " .. count_text)
+    end
+    count = n
+  end
+  if listing and (target ~= nil or to_cache or pin ~= nil) then
+    return refuse("--list downloads nothing, so there is nothing for -o, --cache or --pin")
+  end
+  if target ~= nil and to_cache then
+    return refuse("give -o or --cache, not both")
+  end
+  if as_json and (target ~= nil or to_cache or pin ~= nil) then
+    return refuse("--json shapes what is printed with no -o, --cache or --pin")
+  end
+
+  local releases_url = to.api or api
+  local assets_url = to.downloads or downloads
+  local token = getenv("GH_TOKEN")
+  local https_only: {string} = { "https" }
+  local requests: Requests = { made = 0 }
+  --- The options of one request. Only an API call has `headers`, and it
+  --- takes no redirect, which would carry its token elsewhere.
+  local function never(): boolean return false end
+  local function options(headers?: {string:string}, sha256?: string, cancelled?: function(): boolean): Http.Options
+    requests.made = requests.made + 1
+    local script: {string} | nil = nil
+    local scripts = to.script
+    if scripts ~= nil then
+      script = scripts[requests.made]
+      if script == nil then script = { "" } end
+    end
+    return { script = script, headers = headers, follow = headers == nil, sha256 = sha256,
+      redirect_protocols = https_only, cancelled = cancelled or never }
+  end
+
+  --- One request to the API: the body, or nil and why. A 404 is nil and "".
+  local function call(url: string): string | nil, string
+    local headers: {string:string} = {
+      ["Accept"] = "application/vnd.github+json",
+      ["X-GitHub-Api-Version"] = "2022-11-28",
+      ["User-Agent"] = "cosmic-release",
+    }
+    if token ~= "" then headers["Authorization"] = "Bearer " .. token end
+    local got, why = Http.get(url, options(headers))
+    if got == nil then return nil, url .. ": " .. why end
+    local status = tostring(got.status)
+    if got.status == 404 then return nil, "" end
+    if got.status == 403 or got.status == 429 then
+      local hint = ""
+      if token == "" then hint = " (set GH_TOKEN to lift the unauthenticated limit)" end
+      return nil, url .. ": HTTP " .. status .. ", likely the API's rate limit" .. hint
+    end
+    if got.status < 200 or got.status >= 300 then
+      return nil, url .. ": HTTP " .. status
+    end
+    return got.body, ""
+  end
+
+  local function wanted(r: verb.Release): boolean
+    if prefix ~= nil and r.commit:sub(1, #prefix) ~= prefix then return false end
+    if before ~= nil then
+      local at, _ = Time.parse_rfc3339(r.published_at)
+      if at == nil or at >= before then return false end
+    end
+    return true
+  end
+
+  -- Up to `limit` matches, newest first as the API lists them: the pages
+  -- are read until one holds the limit's last or the releases run out.
+  local function matches(limit: integer): {verb.Release} | nil, string
+    local found: {verb.Release} = {}
+    local function take(r: ApiRelease)
+      local release = usable(r)
+      if release ~= nil and wanted(release) and #found < limit then found[#found + 1] = release end
+    end
+    if prefix ~= nil and #prefix == 40 then
+      local url = releases_url .. "/tags/next-" .. prefix
+      local text, why = call(url)
+      if text == nil then
+        if why ~= "" then return nil, why end
+        return found, ""
+      end
+      local r, shape_trouble: ApiRelease | nil, string =
+        Shape.decode_into(text, RELEASE_SPEC, { null_value = Json.null })
+      if r == nil then return nil, url .. ": no release: " .. shape_trouble end
+      take(r)
+      return found, ""
+    end
+    for page = 1, max_pages do
+      local url = releases_url .. "?per_page=" .. tostring(per_page) .. "&page=" .. tostring(page)
+      local text, why = call(url)
+      if text == nil then
+        if why == "" then why = url .. ": HTTP 404" end
+        return nil, why
+      end
+      local releases, shape_trouble: {ApiRelease} | nil, string =
+        Shape.decode_into(text, PAGE_SPEC, { null_value = Json.null })
+      if releases == nil then return nil, url .. ": no list of releases: " .. shape_trouble end
+      for _, r in ipairs(releases) do take(r) end
+      if #found >= limit or #releases < per_page then break end
+    end
+    return found, ""
+  end
+
+  local function written(ok: boolean, why: string): integer
+    return bare.written(complain, ok, why)
+  end
+
+  if listing then
+    local found, why = matches(count)
+    if found == nil then return fail(why) end
+    if as_json then
+      if #found == 0 then return written(to.out("[]\n")) end
+      local encoded = assert(Json.encode(found, { pretty = true }))
+      return written(to.out(encoded .. "\n"))
+    end
+    local lines: {string} = {}
+    for _, r in ipairs(found) do lines[#lines + 1] = r.published_at .. "  " .. r.commit .. "\n" end
+    return written(to.out(table.concat(lines)))
+  end
+
+  -- A prefix asks for two, so a second match is seen and refused.
+  local limit = 1
+  if prefix ~= nil then limit = 2 end
+  local found, why = matches(limit)
+  if found == nil then return fail(why) end
+  local release = found[1]
+  if release == nil then
+    local where = "among the newest " .. plural.count(per_page * max_pages, "release")
+    if prefix ~= nil and #prefix == 40 then where = "by its tag" end
+    return fail("no release matches, " .. where)
+  end
+  local second = found[2]
+  if second ~= nil then
+    return fail("the commits of two releases start with " .. tostring(prefix) .. ", " .. release.commit ..
+        " and " .. second.commit .. "; give more of it")
+  end
+
+  local function small(name: string): string | nil, string
+    local url = assets_url .. release.tag .. "/" .. name
+    local got, get_trouble = Http.get(url, options())
+    if got == nil then return nil, url .. ": " .. get_trouble end
+    if got.status < 200 or got.status >= 300 then
+      return nil, url .. ": HTTP " .. tostring(got.status)
+    end
+    if #got.body > max_small then
+      return nil, url .. ": more than " .. plural.count(max_small, "byte")
+    end
+    return got.body, ""
+  end
+  local sums, sums_trouble = small("SHA256SUMS")
+  if sums == nil then return fail(sums_trouble) end
+  local summed, digest_trouble = verb.sums_digest(sums)
+  if summed == nil then return fail(release.tag .. ": " .. digest_trouble) end
+  local digest: string = summed
+  local source_text, source_trouble = small("source.json")
+  if source_text == nil then return fail(source_trouble) end
+  local source, decode_trouble: Source | nil, string = Shape.decode_into(source_text, SOURCE_SPEC)
+  if source == nil then
+    return fail(release.tag .. ": source.json is no source record: " .. decode_trouble)
+  end
+  if source.commit ~= release.commit then
+    return fail(release.tag .. ": source.json names commit " .. source.commit)
+  end
+  if source.digest ~= digest then
+    return fail(release.tag .. ": source.json names digest " .. source.digest .. ", SHA256SUMS " .. digest)
+  end
+
+  if target == nil and not to_cache and pin == nil then
+    if as_json then
+      local encoded = assert(Json.encode({ tag = release.tag, commit = release.commit,
+        published_at = release.published_at, url = release.url, sha256 = digest }, { pretty = true }))
+      return written(to.out(encoded .. "\n"))
+    end
+    return written(to.out(verb.pin_text(release.commit, digest)))
+  end
+
+  local binary = assets_url .. release.tag .. "/cosmic"
+  local function download_until(path: string, cancelled: function(): boolean): boolean, string
+    local result = Http.download_result(binary, path, options(nil, digest, cancelled))
+    if result.kind == "downloaded" then return Fs.chmod(path, 0x1ed) end
+    if result.kind == "http_status" then
+      return false, binary .. ": HTTP " .. tostring(result.status)
+    end
+    if result.kind == "digest_mismatch" then
+      return false, binary .. ": sha256 mismatch: want " .. digest .. ", got " .. tostring(result.actual)
+    end
+    return false, binary .. ": " .. result.reason
+  end
+  --- Downloads the binary to `path`, renamed into place once verified.
+  --- Held for the download and closed however it leaves, a guard ends it
+  --- on SIGINT or SIGTERM with no temporary file left, and closing it
+  --- delivers the signal again, so the process still dies of it. A guard
+  --- that cannot be had leaves the download uninterruptible.
+  local function download(path: string): boolean, string
+    local held, _ = Signal.guard()
+    if held == nil then return download_until(path, never) end
+    local guard <close> = held
+    return download_until(path, function(): boolean return guard:cancelled() ~= 0 end)
+  end
+
+  local kept: string | nil = nil
+  if target ~= nil then
+    local ok, download_trouble = download(target)
+    if not ok then return fail(download_trouble) end
+  elseif to_cache then
+    local dir, dir_trouble = Fs.cache_dir("bootstrap", { environment = to.env })
+    if dir == nil then return fail(dir_trouble) end
+    local path = dir .. "/cosmic-" .. digest
+    local have, _ = Fs.read(path)
+    if have == nil or Hash.hex_sha256(have) ~= digest then
+      local ok, download_trouble = download(path)
+      if not ok then return fail(download_trouble) end
+    end
+    kept = path
+  else
+    -- Only the pin is kept, so the bytes are hashed as they arrive.
+    local response, open_trouble = Http.open(binary, options())
+    if response == nil then return fail(binary .. ": " .. open_trouble) end
+    local hashing = assert(Stream.hashing("sha256"))
+    local copied, copy_trouble: integer | nil, string = nil, ""
+    if response.status >= 200 and response.status < 300 then
+      copied, copy_trouble = Stream.copy(response, hashing)
+    end
+    local _, _ = response:close()
+    if response.status < 200 or response.status >= 300 then
+      return fail(binary .. ": HTTP " .. tostring(response.status))
+    end
+    if copied == nil then return fail(binary .. ": " .. copy_trouble) end
+    local got = Codec.hex((assert(hashing:digest())))
+    if got ~= digest then
+      return fail(binary .. ": sha256 mismatch: want " .. digest .. ", got " .. got)
+    end
+  end
+
+  if pin ~= nil then
+    local ok, write_trouble = Fs.write(pin, verb.pin_text(release.commit, digest))
+    if not ok then return fail(write_trouble) end
+  end
+  if kept ~= nil then return written(to.out(kept .. "\n")) end
+  return bare.ok
+end
+
+--- The `release` verb as [`build/verb_list.tl`] lists it. Reads GitHub's
+--- releases, never the tree: never stale-checked (`bare` in
+--- build/verb_spec.tl).
+verb.spec = {
+  name = "release",
+  guide = "none: finds and fetches cosmic's own releases, described by `cosmic help release`",
+  tests = { "build.release_test" },
+  run = function(argv: {integer:string}): integer return verb.run(argv) end,
+  bare = true,
+  takes = "the criteria a release must meet",
+  exits = "`release` prints the release, the list or the cached path and nothing after, and exits 0 when it " ..
+    "did what was asked, 1 when it could not, 2 for a command line it refused.",
+  passthrough = "every case reaches GitHub's API, so build/release_test.tl holds it over a scripted transport",
+}
+
+return verb
