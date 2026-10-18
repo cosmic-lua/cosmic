@@ -2,8 +2,8 @@
 --- in [`build/ceilings.txt`] and not as Teal compiled into the tool. A ceiling only falls: a rewrite removes the places it
 --- counts and lowers the number, and a file that goes over one is refused.
 ---
---- The file is text, a section per stage (`[checked]`) and a line per ceiling: a file, a code and a count, or for the stage
---- `generated` and `read` a file and a count, and for `hazards` a name and a count. A line that begins with `#` is a comment, and a comment before the lines it explains
+--- The file is text, a section per stage (`[checked]`) and a line per ceiling: a file, a code and a count, or for the stages
+--- `generated`, `read`, `typed` and `untyped` a file and a count, and for `hazards` a name and a count. A line that begins with `#` is a comment, and a comment before the lines it explains
 --- says what brings them to zero. The stages are the checks of [`build.tree_checks`], and `scoped`, `declared` and
 --- `checked` are also the stages of a compile ([`build.driver`]), whose [`Ceilings.over`] a compile calls for a module (`scoped`
 --- for a module in the new grammar, `translated` for one that is the fork's Teal, translated): the tree's check of a file and
@@ -29,6 +29,8 @@ local record Ceilings
     "hazards"
     "generated"
     "read"
+    "typed"
+    "untyped"
     "checked"
   end
 
@@ -41,7 +43,7 @@ local record Ceilings
     fix: string
   end
 
-  --- The ceilings of each stage, by stage: a key (`<file> <code>`, or `<file>` for `generated` and `read`) to its count.
+  --- The ceilings of each stage, by stage: a key (`<file> <code>`, or `<file>` for `generated`, `read`, `typed` and `untyped`) to its count.
   record Table
     stages: {string: {string: integer}}
   end
@@ -123,7 +125,7 @@ end
 
 local STAGES <const>: {string: boolean} = {
   lexed = true, translated = true, scoped = true, declared = true, hazards = true, generated = true, read = true,
-  checked = true,
+  typed = true, untyped = true, checked = true,
 }
 
 function Ceilings.parse(text: string): Ceilings.Table | nil, string

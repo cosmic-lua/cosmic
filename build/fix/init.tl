@@ -93,6 +93,7 @@ local template = require("cosmic.template")
 local tree = require("build.tree")
 local example_checks = require("build.example_checks")
 local tree_checks = require("build.tree_checks")
+local Typed = require("build.syntax_typed")
 local type compiler = require("build.compiler")
 local Sqlite = require("cosmic.sqlite")
 
@@ -1428,6 +1429,17 @@ local function sealed_launch_findings(root: string, db: Sqlite.Handle): {string}
   return out
 end
 
+--- What the readers that need the checker's types answer over the tree, against what the compile of the tree in the working
+--- database says ([`tree_checks.typed`]).
+local function typed_findings(root: string, memo: Sqlite.Handle | nil): {string}
+  local build, open_trouble = Sqlite.open(build_paths.resolve(root).working)
+  if build == nil then return { open_trouble } end
+  local fork, fork_trouble = Typed.from_database(build)
+  local _, _ = build:close()
+  if fork == nil then return { fork_trouble } end
+  return tree_checks.typed(root, nil, memo, fork)
+end
+
 --- Over the whole of cosmic's own tree, what only the whole tree can
 --- answer ([`build.tree_checks`]), asked of its projection built afresh:
 --- a finding is the tree's, not a file's, so it is counted apart.
@@ -1496,6 +1508,9 @@ local function run_tree_checks(ctx: Fix)
       end
       for _, line in ipairs(tree_checks.read(root, nil, memo)) do
         findings[#findings + 1] = "readers: " .. line
+      end
+      for _, line in ipairs(typed_findings(root, memo)) do
+        findings[#findings + 1] = "typed: " .. line
       end
       for _, line in ipairs(tree_checks.checked(root, nil, memo)) do
         findings[#findings + 1] = "checker: " .. line

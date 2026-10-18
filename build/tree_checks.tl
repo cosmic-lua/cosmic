@@ -35,6 +35,7 @@ local Store = require("cosmic.store")
 local check_memo = require("build.check_memo")
 local closure_store = require("build.closure_store")
 local compile = require("build.compile")
+local gen_syscalls = require("build.gen_syscalls")
 local Cover = require("lang.lexer_cover")
 local contracts = require("build.contracts")
 local declared_key = require("build.declared_key")
@@ -48,6 +49,11 @@ local Ast = require("lang.ast")
 local Check = require("lang.check")
 local Ceilings = require("build.ceilings")
 local Compared = require("build.syntax_compared")
+local Receivers = require("build.syntax_receivers")
+local Report = require("build.syntax_report")
+local SyntaxContracts = require("build.syntax_contracts")
+local SyntaxStub = require("build.syntax_stub")
+local Typed = require("build.syntax_typed")
 local Codegen = require("lang.codegen")
 local Declarations = require("lang.declarations")
 local Driver = require("build.driver")
@@ -101,7 +107,7 @@ allow({
   "build.coverage.syntax_lines.executable_cached", "build.syntax_analyzer.analyze", "build.syntax_analyzer.docs",
   "build.syntax_derivation.rows_of", "build.syntax_derivation.insert", "build.syntax_links.check",
   "build.syntax_links.facts", "build.syntax_links.rewrite", "build.syntax_match.matches", "build.syntax_match.text",
-  "build.syntax_rewrite.rewrite", "build.syntax_shape_specs.resolve", "build.syntax_node.children",
+  "build.syntax_rewrite.rewrite", "build.syntax_shape_specs.resolve",
   "build.syntax_node.require_sites", "build.syntax_shape_specs.splices", "build.syntax_shape_specs.spliced",
 }, "a reader of the new syntax tree (build/syntax_*.tl) that the rewrites of the readers of the fork's tree call; " ..
     "tested directly until they do")
@@ -2711,9 +2717,39 @@ local record Tree
   index: Driver.Index
 end
 
+--- The declarations of the bindings of C ([`cosmic.sys`], the raw process and socket tables), written from the headers under
+--- `root` as the build derives them ([`build.gen_syscalls`]), as the files they stand for; none where the tree has no header.
+--
+-- TODO: have build.gen_syscalls write a field that may be nil as `name?: T` and a table a binding fills in as `mut`, once
+-- the build compiles with the new checker (doc/plans/strict-teal.md, "the switch"): it writes `name: T | nil` and no
+-- `mut`, so a literal of such a record that leaves the field out (literal_missing) and a write to a stand-in's field
+-- (field_fixed) are refused, and the [checked] ceilings of the files that use the bindings hold those counts.
+local function bindings_of(root: string): {{string}}
+  local out: {{string}} = {}
+  for _, derivation in ipairs(gen_syscalls.targets) do
+    local header, _ = Fs.read(root .. "/" .. derivation.target.header)
+    if header ~= nil then
+      local text, _ = gen_syscalls.declaration(header, derivation.target)
+      if text ~= nil then
+        out[#out + 1] = { (derivation.path:gsub("%.", "/")) .. ".d.tl", text }
+      end
+    end
+  end
+  return out
+end
+
 --- The files of `files` that a lowering covers, each with the key its answer is kept under: `salt`, its dialect and
 --- its source and the sources of every module it requires, however far.
-local function tree_of(files: {{string}}, salt: string): Tree
+local function tree_of(given: {{string}}, salt: string, bindings?: {{string}}): Tree
+  local files: {{string}} = {}
+  local derived: {string: boolean} = {}
+  for _, entry in ipairs(given) do
+    files[#files + 1] = entry
+  end
+  for _, entry in ipairs(bindings or {}) do
+    files[#files + 1] = entry
+    derived[entry[1]] = true
+  end
   local index = Driver.index(files, true, function(file: string): boolean
     -- A directory of testdata holds programs for other projects, whose modules are not in the tree.
     return file == "checker/tl.tl" or file:find("^testdata/") ~= nil or file:find("/testdata/", 1, true) ~= nil
@@ -2723,14 +2759,17 @@ local function tree_of(files: {{string}}, salt: string): Tree
   local hashes: {string: string} = {}
   local row_of: {Driver.Source: DeclareFile} = {}
   for _, source in ipairs(index.sources) do
-    local row: DeclareFile = {
-      file = source.filename, source = source.text, module = source.module, dialect = source.dialect,
-      imports = required_modules(source.text), key = "",
-    }
-    rows[#rows + 1] = row
-    row_of[source] = row
-    -- A module given as a declaration and a source is read from the declaration; the key holds both texts.
-    hashes[row.module] = (hashes[row.module] or "") .. Hash.hex_sha256(source.text)
+    -- A declaration derived from a header is no file of the tree: its text is in the salt of the checks that read it.
+    if not derived[source.filename] then
+      local row: DeclareFile = {
+        file = source.filename, source = source.text, module = source.module, dialect = source.dialect,
+        imports = required_modules(source.text), key = "",
+      }
+      rows[#rows + 1] = row
+      row_of[source] = row
+      -- A module given as a declaration and a source is read from the declaration; the key holds both texts.
+      hashes[row.module] = (hashes[row.module] or "") .. Hash.hex_sha256(source.text)
+    end
   end
   for name, source in pairs(index.by_module) do
     local row = row_of[source]
@@ -2776,12 +2815,23 @@ end
 ---
 -- TODO: count a broken file's own declaration errors once its `translated` pins reach 0: until then nothing holds
 -- what its translation's parse errors hide (44 files when this landed, among them lang/ast.tl and lang/types.tl).
-local function tree_build(root: string, tree: Tree): Driver.Build
+local function tree_build(root: string, tree: Tree, types?: boolean, stubs?: {string: Driver.Source}): Driver.Build
   local globals, adjust = fork_globals(root, tree.index.by_module["checker.stdlib"])
-  local build = Driver.new({
-    globals = globals, adjust = adjust, external = { "cosmic.sys", "cosmic.internal.process", "cosmic.internal.socket" },
-    types = false,
-  })
+  -- A binding of C is typed when the tree has the header its declaration is derived from, and is left untyped (`external`)
+  -- where it does not.
+  local external: {string} = {}
+  for _, derivation in ipairs(gen_syscalls.targets) do
+    if tree.index.by_module[derivation.path] == nil then
+      external[#external + 1] = derivation.path
+    end
+  end
+  local build = Driver.new({ globals = globals, adjust = adjust, external = external, types = types == true })
+  if stubs ~= nil then
+    -- The modules whose stub is read in place of their source are answered ahead of the tree's files.
+    build:provide(function(module: string): Driver.Source | nil
+      return stubs[module]
+    end)
+  end
   build:provide(Driver.files(tree.index))
   return build
 end
@@ -2857,8 +2907,8 @@ function tree_checks.declared(root: string, pinned?: {string: integer}, memo?: S
   local salt = check_memo.salt(root, { "lang/ast.tl", "lang/lexer.tl", "lang/parser.tl", "lang/scopes.tl",
     "lang/translate.tl", "lang/types.tl", "lang/relation.tl", "lang/declarations.tl", "lang/stdlib_corrections.tl",
     "checker/stdlib.d.tl", "checker/tl.tl", "build/teal.tl", "build/check_memo.tl", "build/driver.tl",
-    "build/tree_checks.tl" }, "declared 1")
-  local tree = tree_of(files, salt)
+    "build/tree_checks.tl", "build/gen_syscalls.tl", "core/syscalls.h", "core/process.h", "core/socket.h" }, "declared 2")
+  local tree = tree_of(files, salt, bindings_of(root))
   if memo ~= nil then
     local _, _ = check_memo.prepare(memo, "declared")
   end
@@ -2923,8 +2973,9 @@ function tree_checks.checked(root: string, pinned?: {string: integer}, memo?: Sq
   local salt = check_memo.salt(root, { "lang/ast.tl", "lang/lexer.tl", "lang/parser.tl", "lang/scopes.tl",
     "lang/translate.tl", "lang/types.tl", "lang/relation.tl", "lang/declarations.tl", "lang/check.tl",
     "lang/flow.tl", "lang/check_codes.tl", "lang/warnings.tl", "lang/stdlib_corrections.tl", "checker/stdlib.d.tl",
-    "checker/tl.tl", "build/teal.tl", "build/check_memo.tl", "build/driver.tl", "build/tree_checks.tl" }, "checked 1")
-  local tree = tree_of(files, salt)
+    "checker/tl.tl", "build/teal.tl", "build/check_memo.tl", "build/driver.tl", "build/tree_checks.tl",
+    "build/gen_syscalls.tl", "core/syscalls.h", "core/process.h", "core/socket.h" }, "checked 2")
+  local tree = tree_of(files, salt, bindings_of(root))
   if memo ~= nil then
     local _, _ = check_memo.prepare(memo, "checked")
   end
@@ -3373,6 +3424,256 @@ function tree_checks.read(root: string, pinned?: {string: integer}, memo?: Sqlit
     end
   end
   for _, line in ipairs(Ceilings.fallen(found, pinned, Ceilings.path .. "'s [read]")) do
+    out[#out + 1] = line
+  end
+  return out
+end
+
+--- The row a memo kept for `typed`, or nil where it kept none or it does not read.
+local function kept_typed(memo: Sqlite.Handle | nil, key: string): Typed.Row | nil
+  local text = memo ~= nil and check_memo.get(memo, "typed", key) or nil
+  if text == nil then
+    return nil
+  end
+  return Typed.decode(check_memo.decode(text))
+end
+
+--- Every `.tl` file of the tree read through the new checker's types by the readers that need them ([`build.syntax_typed`]:
+--- the record-field uses `cosmic uses` lists, the error-slot discipline, the stub of a standard-library module), and what
+--- each answers compared with what the fork's build wrote of the same tree, `fork` (the working database's rows,
+--- [`Typed.from_database`]): in each dimension the rows of both sides, in order. A file that differs in more dimensions than
+--- `pinned` (by default the `[typed]` ceilings) allows is listed with each difference; one that differs in fewer, and a pin for a
+--- file that agrees, is told to lower the pin. A dimension that compared no row over a tree of twelve files or more fails, as
+--- does a rule of the discipline that judged no place in it. The files left out are those of `read`: the declaration files and
+--- those whose translation does not parse; a file the fork's build did not compile is read and not compared. The answer for a
+--- file is kept in `memo` under its source and the sources of every module it requires, and of the readers and the checker.
+--- `counts`, when given, gets the rows each dimension compared and the places each rule of the discipline judged.
+function tree_checks.typed(root: string, pinned?: {string: integer}, memo?: Sqlite.Handle, fork?: Typed.Fork,
+                           counts?: {string: integer}, untyped_pins?: {string: integer}): {string}
+  local given_pins = pinned
+  local ceilings, why = ceilings_for(root, "typed", pinned)
+  if ceilings == nil then
+    return { "reading the ceilings: " .. why }
+  end
+  pinned = ceilings
+  -- The calls no rule judged are held to the `[untyped]` ceilings, which a caller that gave pins of its own leaves to it.
+  local untyped_pins_now: {string: integer} = untyped_pins or {}
+  if untyped_pins == nil and given_pins == nil then
+    local from_file, from_why = ceilings_for(root, "untyped", nil)
+    if from_file == nil then
+      return { "reading the ceilings: " .. from_why }
+    end
+    untyped_pins_now = from_file
+  end
+  if fork == nil then
+    return { "no compile of the tree to compare with: the working database holds none" }
+  end
+  local files, trouble = lexable(root)
+  if files == nil then
+    return { "reading the sources: " .. trouble }
+  end
+  local salt = check_memo.salt(root, { "lang/ast.tl", "lang/lexer.tl", "lang/parser.tl", "lang/scopes.tl",
+    "lang/translate.tl", "lang/types.tl", "lang/relation.tl", "lang/declarations.tl", "lang/check.tl", "lang/flow.tl",
+    "lang/check_codes.tl", "lang/warnings.tl", "lang/stdlib_corrections.tl", "checker/stdlib.d.tl", "checker/tl.tl",
+    "build/teal.tl", "build/check_memo.tl", "build/driver.tl", "build/syntax_node.tl", "build/syntax_report.tl",
+    "build/syntax_receivers.tl", "build/syntax_contracts.tl", "build/syntax_stub.tl", "build/syntax_typed.tl",
+    "build/contracts.tl", "build/tree_checks.tl", "build/gen_syscalls.tl", "core/syscalls.h", "core/process.h",
+    "core/socket.h" }, "typed 2")
+  local tree = tree_of(files, salt, bindings_of(root))
+  if memo ~= nil then
+    local _, _ = check_memo.prepare(memo, "typed")
+  end
+  local read: {string: Typed.Row} = {}
+  local skipped: {string: boolean} = {}
+  local missed: {DeclareFile} = {}
+  -- What a row keeps depends on the places the fork found a use at, so its key holds them.
+  local keys: {string: string} = {}
+  for _, row in ipairs(tree.rows) do
+    local held = fork.files[row.file]
+    local at: {string} = {}
+    for _, r in ipairs(held ~= nil and held.refs or {}) do
+      at[#at + 1] = r.line .. " " .. r.member
+    end
+    keys[row.file] = Hash.hex_sha256(row.key .. "\n" .. table.concat(at, "\n"))
+    local kept = row.dialect == "tl" and kept_typed(memo, keys[row.file]) or nil
+    if row.dialect ~= "tl" then
+      skipped[row.file] = true
+    elseif kept ~= nil then
+      read[row.file] = kept
+    else
+      missed[#missed + 1] = row
+    end
+  end
+  local problems: {string} = {}
+  if #missed > 0 then
+    local build = tree_build(root, tree, true)
+    local names: {string} = {}
+    for _, row in ipairs(missed) do
+      names[#names + 1] = row.module
+    end
+    build:lower(names)
+    -- The stub of each standard-library module read, to read the tree again with them in place of their sources.
+    local stubs: {string: Driver.Source} = {}
+    local made: {string: SyntaxStub.Made} = {}
+    local results: {string: Driver.Outcome} = {}
+    for _, row in ipairs(missed) do
+      local result = build:result(row.module, true)
+      local subject = result ~= nil and Report.of(build.program, result) or nil
+      if subject == nil or result == nil then
+        skipped[row.file] = true
+      else
+        local lines: {integer} = {}
+        local on: {integer: boolean} = {}
+        for _, e in ipairs(result.errors) do
+          if not on[e.y] then
+            on[e.y] = true
+            lines[#lines + 1] = e.y
+          end
+        end
+        for _, line in ipairs(Receivers.blind(subject)) do
+          if not on[line] then
+            on[line] = true
+            lines[#lines + 1] = line
+          end
+        end
+        table.sort(lines)
+        local wanted: {string: boolean} = {}
+        local held = fork.files[row.file]
+        for _, r in ipairs(held ~= nil and held.refs or {}) do
+          wanted[r.line .. " " .. (r.member:match("([^.]+)$") or r.member)] = true
+        end
+        read[row.file] = Typed.row(subject, SyntaxContracts.applies(row.file), lines, wanted)
+        if Typed.judges_stub(row.file, row.module) then
+          local stub = SyntaxStub.made(result.chunk)
+          made[row.file] = stub
+          results[row.file] = result
+          if stub.pruned then
+            local source = Driver.source(row.module, row.file, stub.text, "tl")
+            source.aliases = result.source.aliases
+            stubs[row.module] = source
+            for _, alias in ipairs(source.aliases) do
+              stubs[alias] = source
+            end
+          end
+        end
+      end
+    end
+    if next(made) ~= nil then
+      local stubbed = tree_build(root, tree, false, stubs)
+      local stubbed_names: {string} = {}
+      for _, row in ipairs(missed) do
+        if made[row.file] ~= nil then
+          stubbed_names[#stubbed_names + 1] = row.module
+        end
+      end
+      stubbed:lower(stubbed_names)
+      for _, row in ipairs(missed) do
+        local port, stub, result = read[row.file], made[row.file], results[row.file]
+        if port ~= nil and stub ~= nil and result ~= nil then
+          read[row.file] = Typed.judged(port, Typed.stub_verdict(stub, build, result, stubbed))
+        end
+      end
+    end
+    if memo ~= nil then
+      for _, row in ipairs(missed) do
+        local port = read[row.file]
+        if port ~= nil then
+          check_memo.put(memo, "typed", keys[row.file], check_memo.encode(Typed.encode(port)))
+        end
+      end
+    end
+    problems = build.problems
+  end
+  if memo ~= nil then
+    check_memo.finish(memo, "typed")
+  end
+  local out: {string} = {}
+  for _, problem in ipairs(problems) do
+    out[#out + 1] = problem
+  end
+  local found: {string: integer} = {}
+  local untyped_found: {string: integer} = {}
+  local totals: {string: integer} = {}
+  local sites: {string: integer} = {}
+  local compared = 0
+  for _, row in ipairs(tree.rows) do
+    local port, held = read[row.file], fork.files[row.file]
+    if port ~= nil then
+      for rule, n in pairs(port.sites) do
+        sites[rule] = (sites[rule] or 0) + n
+      end
+    end
+    if port ~= nil and held ~= nil then
+      compared = compared + 1
+      local outcome = Typed.compare(row.file, port, held, function(): boolean
+        -- Only a method written `function R:m()` makes a class of its record, which moves lines.
+        return row.source:find("function%s+[%w_%.]+:[%w_]+") ~= nil and
+          Translate.translate(row.source, row.file).counts["class"] ~= nil
+      end)
+      for dimension, n in pairs(outcome.counts) do
+        totals[dimension] = (totals[dimension] or 0) + n
+      end
+      -- A pin covers the uses the port finds and the fork loses, and nothing else: any other difference is always told.
+      local unpinnable = #outcome.differences - outcome.pinnable
+      if outcome.pinnable > 0 then
+        found[row.file] = outcome.pinnable
+      end
+      if unpinnable > 0 or outcome.pinnable > (pinned[row.file] or 0) then
+        for _, line in ipairs(outcome.differences) do
+          out[#out + 1] = row.file .. ": " .. line
+        end
+        if unpinnable > 0 then
+          out[#out + 1] = row.file .. ": " .. String.counted(unpinnable, "difference") .. " from the fork's build that no pin " ..
+            "covers (a pin of [typed] counts the uses the port finds and the fork loses alone); read what the fork reads"
+        else
+          out[#out + 1] = row.file .. ": " .. String.counted(outcome.pinnable, "difference") .. " from the fork's build, " ..
+            "pinned " .. (pinned[row.file] or 0) .. "; read what the fork reads rather than raise the pin"
+        end
+      end
+      -- The calls no rule judged, held to a ceiling that only falls.
+      if port.untyped > 0 then
+        untyped_found[row.file] = port.untyped
+        if port.untyped > (untyped_pins_now[row.file] or 0) then
+          out[#out + 1] = row.file .. ": " .. String.counted(port.untyped, "call") .. " the checker gave no function, which " ..
+            "no rule of the discipline judged, pinned " .. (untyped_pins_now[row.file] or 0) .. "; type what it calls through " ..
+            "rather than raise the pin"
+        end
+      end
+    end
+  end
+  local used = Typed.used(read, fork)
+  for dimension, n in pairs(used.counts) do
+    totals[dimension] = (totals[dimension] or 0) + n
+  end
+  for _, line in ipairs(used.differences) do
+    out[#out + 1] = line
+  end
+  if counts ~= nil then
+    for dimension, n in pairs(totals) do
+      counts[dimension] = n
+    end
+    for rule, n in pairs(sites) do
+      counts["rule " .. rule] = n
+    end
+    counts["files compared"] = compared
+  end
+  if compared >= 12 then
+    for _, dimension in ipairs(Typed.dimensions) do
+      if (totals[dimension] or 0) == 0 then
+        out[#out + 1] = dimension .. ": no row compared in " .. String.counted(compared, "file") .. "; the comparison is empty"
+      end
+    end
+    for _, rule in ipairs(SyntaxContracts.rules) do
+      if (sites[rule] or 0) == 0 then
+        out[#out + 1] = "contracts: the rule " .. rule .. " judged no place in " .. String.counted(compared, "file") ..
+          "; the port reads nothing of it"
+      end
+    end
+  end
+  for _, line in ipairs(Ceilings.fallen(found, pinned, Ceilings.path .. "'s [typed]")) do
+    out[#out + 1] = line
+  end
+  for _, line in ipairs(Ceilings.fallen(untyped_found, untyped_pins_now, Ceilings.path .. "'s [untyped]")) do
     out[#out + 1] = line
   end
   return out
