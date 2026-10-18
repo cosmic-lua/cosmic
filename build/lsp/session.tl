@@ -438,15 +438,17 @@ local function served(s: Session, frames: protocol.Frames,
       if s.shut_down then return 0 end
       return 1
     end
+    -- The answers go out before the dependents of a changed document are
+    -- checked: the editor shows them without waiting for those.
     local sending = answers(s, latest(frames, ahead, body))
-    for _, publication in ipairs(dependents_due(s, frames, ahead)) do
-      sending[#sending + 1] = publication
-    end
-    for _, answer in ipairs(sending) do
-      local sent, why = write(protocol.frame(answer))
-      if not sent then
-        s.err("cosmic: lsp: " .. why)
-        return 1
+    for round = 1, 2 do
+      if round == 2 then sending = dependents_due(s, frames, ahead) end
+      for _, answer in ipairs(sending) do
+        local sent, why = write(protocol.frame(answer))
+        if not sent then
+          s.err("cosmic: lsp: " .. why)
+          return 1
+        end
       end
     end
   end
