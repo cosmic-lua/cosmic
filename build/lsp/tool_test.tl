@@ -128,8 +128,8 @@ local function listening(tmp: string, words: {string}): Listening
 end
 
 --- Runs a whole session at `address`, then holds a second one open and
---- idle and stops the server with SIGTERM (`stop`'s signal), which it ends at promptly,
---- with exit 0, closing the connection held.
+--- idle and stops the server with SIGTERM (`stop`'s signal), which it
+--- ends at promptly, with exit 0, closing the connection held.
 local function served_and_stopped(root: string, started: Listening, address: Net.Address)
   -- Reaped by the wait below.
   local handle = started.handle
@@ -238,16 +238,20 @@ local function test_a_listener_beyond_the_loopback_is_warned_of(tmp: string)
     said)
 end
 
---- How many open documents require the helper the editor changes: one
---- check each, which must outlast the request's way to the server.
+--- How many open documents require the helper the editor changes, and
+--- how many lines of them use it: one check each, of a tenth of a second
+--- or so, all of which but the first must outlast the request's way to
+--- the server, however slow the host.
 local DEPENDENTS <const> = 8
+local USES <const> = 300
 
 --- A project of a helper and the [`DEPENDENTS`] modules requiring it,
 --- and the messages that open them all, framed.
 local function helped(): string, string
   local root = session_fixture.project()
   local integer = "local function twice(n: integer): integer return n * 2 end\nreturn { twice = twice }\n"
-  local main = 'local helper = require("helper")\nlocal n: integer = helper.twice(2)\nreturn n\n'
+  local main = 'local helper = require("helper")\nlocal n = 0\n' ..
+    ("n = n + helper.twice(2)\n"):rep(USES) .. "return n\n"
   assert(Fs.write(root .. "/helper.tl", integer))
   local opening = protocol.frame(session_fixture.initialize(root)) ..
     protocol.frame(session_fixture.open(root, "helper.tl", integer))

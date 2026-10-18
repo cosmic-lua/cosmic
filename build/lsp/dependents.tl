@@ -9,7 +9,8 @@
 --- the form's tokens and where each is, which leaves out its comments
 --- and its whitespace but where they move a token: an edit that moves
 --- none, such as one to a comment's words or to the spaces ending a
---- line, checks no dependent, and any change of a type changes a token. A dependent's message that names a place in the module (a type
+--- line, checks no dependent, and any change of a type changes a token.
+--- A dependent's message that names a place in the module (a type
 --- "inferred at" it) is checked again once the place moves.
 ---
 --- What the dependents were last checked against is what was keyed of
@@ -112,14 +113,17 @@ function dependents.changed(q: Queue, document: check.Document)
   q.keying[document.uri] = "change"
 end
 
---- Notes that the document `document` was closed: its dependents are
---- due where what its file serves now is not what they were last
---- checked against, as is found once the close is answered
---- ([`dependents.next`]).
-function dependents.closed(q: Queue, document: check.Document)
+--- Notes that the document `document` is closing, before the close is
+--- checked: its dependents are due where what its file serves now is
+--- not what they were last checked against, as is found once the close
+--- is answered ([`dependents.next`]); but not where the close checks
+--- every other open document again ([`check.regraphs`]).
+function dependents.closed(q: Queue, checker: check.Checker, document: check.Document)
   local uri = document.uri
   drop(q, uri)
-  if q.due[document.name] == nil then q.closing[document.name] = q.served[uri] or "?" end
+  if q.due[document.name] == nil and not check.regraphs(checker, document) then
+    q.closing[document.name] = q.served[uri] or "?"
+  end
   q.served[uri] = nil
   q.keying[uri] = nil
 end

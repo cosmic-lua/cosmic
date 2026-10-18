@@ -43,7 +43,6 @@ local Hash = require("cosmic.hash")
 local Json = require("cosmic.json")
 local Template = require("cosmic.template")
 local analysis_schema = require("build.analysis_schema")
-local compilation = require("build.compilation")
 local graph = require("build.lsp.graph")
 local identity = require("build.identity")
 local importer = require("build.importer")
@@ -55,7 +54,6 @@ local source = require("build.lsp.source")
 local splice = require("build.lsp.splice")
 local teal = require("build.teal")
 local type compiler = require("build.compiler")
-local type build_module = require("build.module")
 
 local record check
   --- A document the editor holds open.
@@ -103,6 +101,9 @@ local record check
     --- before, since [`check.moved`] last asked: a cycle of imports
     --- through another open document may have closed or opened.
     graph_moved: boolean
+    --- How many times each document was checked, by name, those
+    --- answered from its last check among them: what a test reads.
+    checks: {string:integer}
   end
 end
 
@@ -123,6 +124,7 @@ function check.new(root: string, err: function(line: string), hints: importer.Hi
     open = {},
     hints = hints,
     graph_moved = false,
+    checks = {},
   }
 end
 
@@ -161,20 +163,33 @@ local function hash_of(document: Document): string
   return hash
 end
 
+--- Whether closing `document`, open as a module a `require` reads, moves
+--- what the open documents require: it required other modules than its
+--- file as staged.
+function check.regraphs(checker: Checker, document: Document): boolean
+  if checker.open[document.name] ~= document then return false end
+  local listed = source.module(checker.source, document.name)
+  if listed == nil then return false end
+  local staged = checker.source.requires[listed.source_hash] or {}
+  return table.concat(document.requires or staged, "\0") ~= table.concat(staged, "\0")
+end
+
 --- Makes `document` one a `require` no longer reads. Where it stood for
---- its file with another text, or other requires, than the stage's, what
---- is served moves as for an edit: every other open document is to be
---- checked again ([`check.moved`]), and its modules served are dropped
---- at the next check ([`refresh`]).
+--- its file with another text than the stage's, the modules served are
+--- dropped at the next check ([`refresh`]); its dependents are checked
+--- again where what it serves changed ([`build.lsp.dependents`]). Where
+--- it required other modules than the stage's, a cycle of imports may
+--- have closed or opened: every other open document is to be checked
+--- again ([`check.moved`]).
 function check.closed(checker: Checker, document: Document)
   if checker.open[document.name] ~= document then return end
+  local regraphs = check.regraphs(checker, document)
   checker.open[document.name] = nil
   local listed = source.module(checker.source, document.name)
-  if listed == nil then return end
-  local staged = checker.source.requires[listed.source_hash] or {}
-  if hash_of(document) ~= listed.source_hash or
-      table.concat(document.requires or staged, "\0") ~= table.concat(staged, "\0") then
+  if regraphs then
     checker.graph_moved = true
+    checker.epoch = checker.epoch + 1
+  elseif listed ~= nil and hash_of(document) ~= listed.source_hash then
     checker.epoch = checker.epoch + 1
   end
 end
@@ -295,12 +310,6 @@ local record Checked
   generated: boolean
 end
 
---- The checker's reading of a text [`compilation.generate`] refused for
---- the checker's errors, which it hands its renderer.
-local record Rendered
-  result: compiler.Result | nil
-end
-
 --- What each other open document required at its last check, by name.
 local function opened_requires(checker: Checker, document: Document): {string:{string}}
   local out: {string:{string}} = {}
@@ -384,31 +393,9 @@ local function checked_of(checker: Checker, built: compiler, env: compiler.Env,
   if subject == nil or subject.kind == "decl" then
     result = built.check_string(spliced, env, document.name, "tl")
   else
-    -- Compiled as a build compiles it, which drops the warnings a build
-    -- discounts and refuses what a build refuses beyond the checker's
-    -- errors: in cosmic's own tree its stub and its contracts, and Lua's
-    -- refusal of the code. The checker's reading of a text it refuses is
-    -- what it hands the renderer. The type it records of the module is
-    -- put back, whatever the compile does: an open document is read
-    -- through `search_module`.
-    local compiled: build_module.Plan = subject
-    local rendered: Rendered = { result = nil }
-    local kept = env.modules[compiled.path]
-    local typed = assert(checker.typed)
-    local function generate(): compilation.Generated | nil, string
-      return compilation.generate(compiled, built, env, typed, own_tree, true,
-        function(_file: string, _source: string, seen: compiler.Result): string
-          rendered.result = seen
-          return ""
-        end, spliced, true)
-    end
-    local ok, made, trouble = pcall(generate)
-    env.modules[compiled.path] = kept
-    if not ok then error(made, 0) end
-    result = rendered.result
-    if made == nil and result == nil then
-      for _, refusal in ipairs(plan.refusals_of(trouble)) do refusals[#refusals + 1] = refusal end
-    end
+    local compiled = plan.compiled(subject, built, env, assert(checker.typed), own_tree, spliced)
+    result = compiled.result
+    for _, refusal in ipairs(compiled.refusals) do refusals[#refusals + 1] = refusal end
   end
   if result == nil then return checked(refusals, spliced, splices, {}) end
   -- A text with a syntax error has no warnings, nor a list of them: the
@@ -447,6 +434,7 @@ function check.diagnose(checker: Checker, document: Document, encoding: string):
     checker.epoch = checker.epoch + 1
   end
   refresh(checker, env)
+  checker.checks[document.name] = (checker.checks[document.name] or 0) + 1
   local published = document.published
   if published ~= nil and document.published_text == document.text and
       document.published_epoch == checker.epoch then

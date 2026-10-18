@@ -9,7 +9,7 @@
 --- - A check that finds a document requiring other modules than before
 ---   checks every other open document again, which a cycle of imports
 ---   may now reach ([`check.moved`]); so does closing a document that
----   stood for its file with another text than the stage's.
+---   stood for its file with other requires than the stage's.
 --- - A change of what a module serves the modules that require it, by an
 ---   edit or by closing its document, checks again the open documents
 ---   that require it, or require one that does ([`graph.dependents`]), one
@@ -86,8 +86,9 @@ end
 
 --- What closing `document`, no longer among the open documents,
 --- publishes: its diagnostics cleared, then, where it stood for its file
---- with another text or other requires than the stage's, those of every
---- other open document that changed.
+--- with other requires than the stage's, those of every other open
+--- document that changed. Its dependents, where only its text was not
+--- the stage's, are checked once, one at a time ([`build.lsp.dependents`]).
 function publish.closed(o: Open, document: check.Document): {string}
   check.closed(o.checker, document)
   local cleared: {string} = {}

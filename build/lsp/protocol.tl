@@ -356,27 +356,35 @@ function protocol.path_of(uri: string): string | nil
   return path
 end
 
---- `path` below `root`, its `.` and `..` segments resolved and its
---- slashes collapsed, or nil when it is not below it: `<root>/../x.tl`
---- is not.
-function protocol.below(path: string, root: string): string | nil
-  local prefix = root
-  if prefix:sub(-1) ~= "/" then prefix = prefix .. "/" end
-  if path:sub(1, #prefix) ~= prefix then return nil end
-  -- The segments kept are the first `depth` of `kept`.
+--- The segments of the absolute path `path`, the first as many of them
+--- as the count answered, its `.` and `..` segments resolved and its
+--- slashes collapsed, as the path reads with no symlink in it: what is a
+--- link is not asked, which would read the disk.
+local function segments(path: string): {string}, integer
   local kept: {string} = {}
   local depth = 0
-  for segment in path:sub(#prefix + 1):gmatch("[^/]+") do
+  for segment in path:gmatch("[^/]+") do
     if segment == ".." then
-      if depth == 0 then return nil end
-      depth = depth - 1
+      if depth > 0 then depth = depth - 1 end
     elseif segment ~= "." then
       depth = depth + 1
       kept[depth] = segment
     end
   end
-  if depth == 0 then return nil end
-  return table.concat(kept, "/", 1, depth)
+  return kept, depth
+end
+
+--- `path` below `root`, both read as [`segments`] reads them, or nil when
+--- it is not below it: `<root>/../x.tl` is not, and
+--- `<root>/../<root's name>/x.tl` and `<root>/./x.tl` are `x.tl`.
+function protocol.below(path: string, root: string): string | nil
+  local base, base_depth = segments(root)
+  local full, depth = segments(path)
+  if depth <= base_depth then return nil end
+  for i = 1, base_depth do
+    if full[i] ~= base[i] then return nil end
+  end
+  return table.concat(full, "/", base_depth + 1, depth)
 end
 
 --- The lines of `text` ([`protocol.Lines`]).

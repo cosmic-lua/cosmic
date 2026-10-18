@@ -2,9 +2,10 @@
 --- checks it, as `cosmic lsp` ([`build.lsp.check`]) finds it of a
 --- document: a `global`, an analysis it refuses, a [`Test.policy`]
 --- outside a test, a test that returns a value, an example that returns
---- none; and the plan ([`build.module`]) a build compiles it by, from the
---- import path and kind the working database lists it as. A refusal
---- worded as a build words one is read back into where it is.
+--- none; the plan ([`build.module`]) a build compiles it by, from the
+--- import path and kind the working database lists it as; and that
+--- compile ([`plan.compiled`]). A refusal worded as a build words one is
+--- read back into where it is.
 
 local analyzer = require("build.analyzer")
 local ast = require("build.ast")
@@ -12,6 +13,7 @@ local compilation = require("build.compilation")
 local globals = require("build.globals")
 local stub = require("build.stub")
 local type compiler = require("build.compiler")
+local type receivers = require("build.receivers")
 local type build_module = require("build.module")
 
 local record plan
@@ -41,6 +43,14 @@ local record plan
     name: string
     line: integer
     column: integer
+  end
+
+  --- What [`plan.compiled`] makes of a text: the checker's reading of
+  --- it, nil where the compile handed it none, and what else the build
+  --- refused.
+  record Compiled
+    result: compiler.Result | nil
+    refusals: {Refusal}
   end
 
   --- A module's import path and its kind, as the `inputs` view names them.
@@ -107,7 +117,7 @@ end
 --- The refusals `said` holds, one a line, as [`compilation.generate`]
 --- joins its contracts' ([`refusal_of`]): what a build prints, put where
 --- it says, since it answers them in no other shape.
-function plan.refusals_of(said: string): {Refusal}
+local function refusals_of(said: string): {Refusal}
   local out: {Refusal} = {}
   for line in said:gmatch("[^\n]+") do out[#out + 1] = plan.refusal_of(line) end
   return out
@@ -233,6 +243,42 @@ function plan.of(built: compiler, name: string, text: string, path: string, kind
     return { plan = made_plan, refusals = refusals, halted = true, requires = requires }
   end
   return { plan = made_plan, refusals = refusals, halted = false, requires = requires }
+end
+
+--- The checker's reading of a text [`compilation.generate`] refused for
+--- the checker's errors, which it hands its renderer.
+local record Rendered
+  result: compiler.Result | nil
+end
+
+--- Compiles the text `spliced` of `compiled` in `env` as a build compiles
+--- it, which drops the warnings a build discounts and refuses what a
+--- build refuses beyond the checker's errors: in cosmic's own tree its
+--- stub and its contracts, and Lua's refusal of the code. The checker's
+--- reading is the one a refusal for the checker's errors hands the
+--- renderer. The type the checker records of the module is put back,
+--- whatever the compile does: an open document is read through
+--- `search_module`.
+function plan.compiled(compiled: build_module.Plan, built: compiler, env: compiler.Env,
+                       typed: receivers.State, own_tree: boolean,
+                       spliced: string): plan.Compiled
+  local rendered: Rendered = { result = nil }
+  local kept = env.modules[compiled.path]
+  local function generate(): compilation.Generated | nil, string
+    return compilation.generate(compiled, built, env, typed, own_tree, true,
+      function(_file: string, _source: string, seen: compiler.Result): string
+        rendered.result = seen
+        return ""
+      end, spliced, true)
+  end
+  local ok, made, trouble = pcall(generate)
+  env.modules[compiled.path] = kept
+  if not ok then error(made, 0) end
+  local result = rendered.result
+  if made == nil and result == nil then
+    return { result = nil, refusals = refusals_of(trouble) }
+  end
+  return { result = result, refusals = {} }
 end
 
 return plan

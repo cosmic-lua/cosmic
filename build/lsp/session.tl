@@ -312,7 +312,7 @@ local function handle(s: Session, message: protocol.Message): {string}
   elseif method == "textDocument/didClose" then
     local document = document_of(s, params)
     if document ~= nil then
-      dependents.closed(s.queue, document)
+      dependents.closed(s.queue, s.checker, document)
       s.documents[document.uri] = nil
       for _, publication in ipairs(publish.closed(open_of(s), document)) do
         out[#out + 1] = publication
@@ -450,11 +450,11 @@ end
 
 --- Serves `s` the messages `reader` holds, writing each answer through
 --- `write`, and asking `poll`, when given, what has arrived of them
---- without waiting, between the dependents it checks, until `exit` or the end of the stream, then lets go of the
---- databases the session opened. Answers the exit status: 0 after
---- `shutdown`, at `exit` or the stream's end, and 1 at an `exit` or an
---- end with no `shutdown` before it, a stream that breaks or a write that
---- fails.
+--- without waiting, between the dependents it checks, until `exit` or
+--- the end of the stream, then lets go of the databases the session
+--- opened. Answers the exit status: 0 after `shutdown`, at `exit` or the
+--- stream's end, and 1 at an `exit` or an end with no `shutdown` before
+--- it, a stream that breaks or a write that fails.
 function session.serve(s: Session, reader: Stream.Reader,
                        write: function(text: string): boolean, string, poll?: protocol.Poll): integer
   local code = served(s, protocol.frames(reader, poll), write)

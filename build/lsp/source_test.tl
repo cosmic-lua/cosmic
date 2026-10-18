@@ -68,9 +68,9 @@ local function test_a_closed_document_no_longer_shadows_the_file()
     change(root, "main.tl", main),
   })
   local sent = publications(ran)
-  assert(#sent == 5, tostring(#sent))
-  assert(counts(ran) == "0,1,0,0,0", counts(ran))
-  -- The close clears its own, and publishes main again, now the file's.
+  assert(#sent == 4, tostring(#sent))
+  assert(counts(ran) == "0,1,0,0", counts(ran))
+  -- The close clears its own, and main, changed after, reads the file.
   local closed, main_again = assert(sent[3]), assert(sent[4])
   assert(closed.uri:sub(-14) == "/lib/shapes.tl", closed.uri)
   assert(main_again.uri:sub(-8) == "/main.tl", main_again.uri)

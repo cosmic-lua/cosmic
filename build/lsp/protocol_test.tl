@@ -74,3 +74,28 @@ local function test_a_position_counts_utf16_units_or_bytes()
   assert(narrow.character == 5, tostring(narrow.character))
   assert(protocol.byte_of('"😀x"', 3, "utf-16") == 6)
 end
+
+--- A path is below the root as the system reads both, but for symlinks,
+--- which are not asked: their `.` and `..` segments and doubled slashes
+--- resolved alike.
+local function test_a_path_and_its_root_are_read_alike()
+  local cases: {{string}} = {
+    { "/r/a/x.tl", "/r", "a/x.tl" },
+    { "/r/a/x.tl", "/r/", "a/x.tl" },
+    { "/r//a/./x.tl", "/r", "a/x.tl" },
+    { "/r/../r/x.tl", "/r", "x.tl" },
+    { "/r/a/x.tl", "//r", "a/x.tl" },
+    { "/r/a/x.tl", "/./r//", "a/x.tl" },
+    { "/r/x.tl", "/s/../r", "x.tl" },
+    { "/r/a/../x.tl", "/r", "x.tl" },
+  }
+  for _, case in ipairs(cases) do
+    local got = protocol.below(case[1], case[2])
+    assert(got == case[3], case[1] .. " below " .. case[2] .. ": " .. tostring(got))
+  end
+  for _, outside in ipairs({ { "/r/../x.tl", "/r" }, { "/r", "/r" }, { "/r/.", "/r" },
+      { "/rs/x.tl", "/r" }, { "/r/a/../../r2/x.tl", "/r" } }) do
+    local got = protocol.below(outside[1], outside[2])
+    assert(got == nil, outside[1] .. " below " .. outside[2] .. ": " .. tostring(got))
+  end
+end

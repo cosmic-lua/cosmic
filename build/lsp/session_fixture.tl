@@ -73,7 +73,8 @@ local record session_fixture
   --- What a session answered: its exit status, the body of each message
   --- it sent, its complaints, how it served each module, and how many
   --- dependents it checked, all told ([`dependents.Queue`]), and as it
-  --- sent each message, where it was asked to tell.
+  --- sent each message, where it was asked to tell, and how many times
+  --- it checked each document, by name ([`build.lsp.check`]).
   record Ran
     code: integer
     sent: {string}
@@ -81,6 +82,7 @@ local record session_fixture
     tally: source.Tally
     dependents: integer
     checked: {integer}
+    checks: {string:integer}
   end
 
   SHUTDOWN: string
@@ -207,7 +209,7 @@ function session_fixture.served_between(root: string, batches: {{string}},
   end)
   return { code = code, sent = session_fixture.bodies(table.concat(wrote)),
     err = table.concat(complaints, "\n"), tally = copied(s.checker.source.tally),
-    dependents = s.queue.checked, checked = {} }
+    dependents = s.queue.checked, checked = {}, checks = s.checker.checks }
 end
 
 --- What a session at `root` answers `messages` with, reading docs from
@@ -226,7 +228,7 @@ function session_fixture.served(root: string, messages: {string}, store?: {Sqlit
     end)
   return { code = code, sent = session_fixture.bodies(table.concat(wrote)),
     err = table.concat(complaints, "\n"), tally = copied(s.checker.source.tally),
-    dependents = s.queue.checked, checked = {} }
+    dependents = s.queue.checked, checked = {}, checks = s.checker.checks }
 end
 
 --- What a session at `root` answers `messages` with, where `arrived`
@@ -256,7 +258,7 @@ function session_fixture.served_arriving(root: string, messages: {string},
     end)
   return { code = code, sent = session_fixture.bodies(table.concat(wrote)),
     err = table.concat(complaints, "\n"), tally = copied(s.checker.source.tally),
-    dependents = s.queue.checked, checked = checked }
+    dependents = s.queue.checked, checked = checked, checks = s.checker.checks }
 end
 
 --- A session at `root` served one batch of messages after another, as an
@@ -276,7 +278,7 @@ function session_fixture.serving(root: string): function(messages: {string}): Ra
       end)
     return { code = code, sent = session_fixture.bodies(table.concat(wrote)),
       err = table.concat(complaints, "\n"), tally = copied(s.checker.source.tally),
-      dependents = s.queue.checked, checked = {} }
+      dependents = s.queue.checked, checked = {}, checks = s.checker.checks }
   end
 end
 

@@ -36,6 +36,21 @@ local function opened(root: string, names: {string}): {string}
   return out
 end
 
+--- What main is told, opened, checked against the helper returning a
+--- string, then against the helper as on disk.
+local CHECKED_AGAIN <const> = "[][in local declaration: n: got string, expected integer][]"
+
+--- What `ran` told main at each of its publications.
+local function told_main(ran: session_fixture.Ran): string
+  local told = ""
+  for _, publication in ipairs(publications(ran)) do
+    if publication.uri:sub(-8) == "/main.tl" then
+      told = told .. "[" .. session_fixture.messages_of(publication.diagnostics) .. "]"
+    end
+  end
+  return told
+end
+
 --- A comment or a space that moves no token checks no dependent. Each
 --- batch the editor sends with time between: what a document serves is
 --- keyed once no message waits.
@@ -104,14 +119,7 @@ local function test_a_change_reverted_as_it_closes_checks_its_dependents_again()
   local ran = served_between(root, { opened(root, { "main" }),
     { change(root, "helper.tl", text) },
     { change(root, "helper.tl", integer), session_fixture.close(root, "helper.tl") } }, between)
-  -- What main was told at each publication.
-  local told = ""
-  for _, publication in ipairs(publications(ran)) do
-    if publication.uri:sub(-8) == "/main.tl" then
-      told = told .. "[" .. session_fixture.messages_of(publication.diagnostics) .. "]"
-    end
-  end
-  assert(told == "[][in local declaration: n: got string, expected integer][]", told)
+  assert(told_main(ran) == CHECKED_AGAIN, told_main(ran))
 end
 
 --- An edit that moves where a module's types are, and nothing else,
@@ -158,4 +166,50 @@ local function test_a_dependent_of_two_changed_documents_is_checked_once()
   assert(ran.dependents == 1, tostring(ran.dependents))
   local last = assert(publications(ran)[#publications(ran)])
   assert(last.uri:sub(-8) == "/main.tl" and #last.diagnostics > 0, last.uri)
+end
+
+--- Closing a document whose text is its file's checks no dependent:
+--- what its file serves once it is closed is what it served open.
+local function test_closing_an_unchanged_document_checks_no_dependent()
+  local root = helped({ "main" })
+  local function between(_after: integer) end
+  local ran = served_between(root, { opened(root, { "main" }),
+    { session_fixture.close(root, "helper.tl") } }, between)
+  assert(ran.dependents == 0, tostring(ran.dependents))
+  assert(ran.checks["main.tl"] == 1, tostring(ran.checks["main.tl"]))
+end
+
+--- A document opened with another text than its file's and closed in
+--- the same batch, before what it served was keyed: a dependent checked
+--- against it meanwhile is checked again against the file.
+local function test_a_document_opened_and_closed_together_checks_its_dependents_again()
+  local root = helped({ "main" })
+  local main = assert(Fs.read(root .. "/main.tl"))
+  local function between(_after: integer) end
+  local ran = served_between(root, { { initialize(root), open(root, "main.tl", main) },
+    { open(root, "helper.tl", text), change(root, "main.tl", main), session_fixture.close(root, "helper.tl") } },
+    between)
+  assert(told_main(ran) == CHECKED_AGAIN, told_main(ran))
+end
+
+--- Closing a document whose text is not its file's checks each of its
+--- dependents once, against the file: one at a time where only its type
+--- changed, and with every other open document where its requires did.
+local function test_closing_a_changed_document_checks_each_dependent_once()
+  local root = helped({ "main" })
+  assert(Fs.write(root .. "/other.tl", integer))
+  local requiring = 'local other = require("other")\n' ..
+    "local function twice(n: integer): string return tostring(other.twice(n)) end\n" ..
+    "return { twice = twice }\n"
+  local function between(_after: integer) end
+  for changed_text, queued in pairs({ [text] = 1, [requiring] = 0 }) do
+    local start, change_it = opened(root, { "main" }), { change(root, "helper.tl", changed_text) }
+    local changed = served_between(root, { start, change_it }, between)
+    local closed = served_between(root, { start, change_it, { session_fixture.close(root, "helper.tl") } },
+      between)
+    local before, after = changed.checks["main.tl"] or 0, closed.checks["main.tl"] or 0
+    assert(after - before == 1, tostring(before) .. " then " .. tostring(after))
+    assert(closed.dependents - changed.dependents == queued, tostring(closed.dependents))
+    assert(told_main(closed) == CHECKED_AGAIN, told_main(closed))
+  end
 end
