@@ -59,9 +59,12 @@ local record work
 
   --- What [`work.try_open`] opened: the run's handle, or nil where
   --- another run held the write lock, which it waited for no more than to
-  --- find it held.
+  --- find it held, or where the file was of another schema.
   record Opening
     handle: Handle | nil
+    --- The schema the file was found of, where it was not this module's:
+    --- the open read nothing else of it and left it where it was.
+    other_schema: string | nil
   end
 
   --- What one staging pass found and what it had to read.
@@ -579,14 +582,38 @@ local function create(db: Sqlite.Handle, path: string, wait: boolean): Took | ni
   return "done", ""
 end
 
+--- The device and inode of the file at `path`, or "" where there is none.
+local function identity_of(path: string): string
+  local st, _ = Fs.stat(path)
+  if st == nil then return "" end
+  return tostring(st.dev) .. ":" .. tostring(st.ino)
+end
+
+--- The schema `db` records in `meta`, or nil where it records none: a
+--- fresh file, or one whose run never stamped it.
+local function schema_of(db: Sqlite.Handle): string | nil, string
+  local tables, table_trouble = Sqlite.text_rows(db,
+    "SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = 'meta'")
+  if tables == nil then return nil, table_trouble end
+  if assert(tables[1]):text(1) == "0" then return nil, "" end
+  local versions, version_trouble = Sqlite.text_rows(db,
+    "SELECT value FROM meta WHERE key = 'schema'")
+  if versions == nil then return nil, version_trouble end
+  local row = versions[1]
+  if row == nil then return nil, "" end
+  return row:text(1), ""
+end
+
 --- Opens `build.db` in `dir`, or where nil in `root`'s build directory,
 --- which [`build.paths`] names and makes. It creates the database and
 --- its tables when new, puts it in write-ahead mode ([`to_wal`]), and
---- counts this run. A file whose schema is not this module's is
---- removed and made again: it holds nothing the tree cannot produce.
---- Its write-ahead log is left, where another process reading the old
---- file keeps one: SQLite deletes a log it finds beside an empty file.
---- Unless `wait`, it waits for no other run ([`work.try_open`]).
+--- counts this run. A file whose schema is not this module's holds
+--- nothing the tree cannot produce: a run that waits for others removes
+--- it, holding its write lock, and makes it again. Its write-ahead log is
+--- left, where another process reading the old file keeps one: SQLite
+--- deletes a log it finds beside an empty file. Unless `wait`, it waits
+--- for no other run ([`work.try_open`]) and removes no file: it answers
+--- one of another schema with no handle, having read nothing else of it.
 local function opened(root: string, dir: string | nil, wait: boolean): work.Opening | nil, string
   local out: string
   if dir == nil then
@@ -601,6 +628,9 @@ local function opened(root: string, dir: string | nil, wait: boolean): work.Open
     out = dir
   end
   local path = build_paths.under(out).working
+  -- Before the open: a file found of another schema is removed only
+  -- where it is still this one once the write lock is held.
+  local before = identity_of(path)
   local db, open_trouble = Sqlite.open(path, { writable = true })
   if db == nil then
     return nil, path .. ": " .. open_trouble
@@ -622,34 +652,53 @@ local function opened(root: string, dir: string | nil, wait: boolean): work.Open
   local logged, log_trouble = to_wal(db, path, wait)
   if logged ~= "done" then
     local _, _ = db:close()
-    if logged == "busy" then return { handle = nil }, "" end
+    if logged == "busy" then return { handle = nil, other_schema = nil }, "" end
     return nil, path .. ": " .. log_trouble
   end
+
+  -- Before the tables are made, which would write this module's into a
+  -- file of another schema.
+  local found, schema_trouble = schema_of(db)
+  if found == nil and schema_trouble ~= "" then
+    local _, _ = db:close()
+    return nil, path .. ": " .. schema_trouble
+  end
+  if found ~= nil and found ~= version then
+    -- A run that waits for no other may be of an older tool than the run
+    -- building in the file, which a newer tool made; so it never removes
+    -- one, holding the lock or not, and a writer of this tool's
+    -- (`cosmic test`, `cosmic fix`) makes it again.
+    if not wait then
+      local _, _ = db:close()
+      return { handle = nil, other_schema = found }, ""
+    end
+    -- The lock first: another run building in the file holds it till
+    -- its commit, and a file removed under it is one it goes on writing
+    -- to, unlinked, and loses.
+    local begun, begin_trouble = begin_waiting(db, path, wait)
+    if begun ~= "done" then
+      local _, _ = db:close()
+      return nil, path .. ": " .. begin_trouble
+    end
+    -- Another run that waited for the lock as this one did may have
+    -- removed the file and made it again meanwhile: the file at `path`
+    -- is then that run's, and this one opens it anew instead.
+    if identity_of(path) == before then
+      local removed, remove_trouble = Fs.remove(path)
+      if not removed then
+        local _, _ = db:close()
+        return nil, remove_trouble
+      end
+    end
+    local _, _ = db:close()
+    return opened(root, dir, wait)
+  end
+
   local created, create_trouble = create(db, path, wait)
   if created ~= "done" then
     local _, _ = db:close()
-    if created == "busy" then return { handle = nil }, "" end
+    if created == "busy" then return { handle = nil, other_schema = nil }, "" end
     return nil, path .. ": " .. create_trouble
-  end
-
-  local versions, version_trouble = Sqlite.text_rows(db,
-    "SELECT value FROM meta WHERE key = 'schema'")
-  if versions == nil then
-    local _, _ = db:close()
-    return nil, path .. ": " .. version_trouble
-  end
-  -- TODO: take the write lock before removing a file of another schema:
-  -- it is removed here before any lock is held, so a run of an older
-  -- tool, a reader that waits for no run among them, removes the file a
-  -- newer one is building in. The fix: `BEGIN IMMEDIATE` first, and a
-  -- reader that finds the lock held reads nothing of a schema not its own.
-  if #versions > 0 and versions[1]:text(1) ~= version then
-    local _, _ = db:close()
-    local removed, remove_trouble = Fs.remove(path)
-    if not removed then
-      return nil, remove_trouble
-    end
-    return opened(root, dir, wait)
   end
 
   -- IMMEDIATE takes the write lock before reading, so a second build of
@@ -658,7 +707,7 @@ local function opened(root: string, dir: string | nil, wait: boolean): work.Open
   local begun, begin_trouble = begin_waiting(db, path, wait)
   if begun ~= "done" then
     local _, _ = db:close()
-    if begun == "busy" then return { handle = nil }, "" end
+    if begun == "busy" then return { handle = nil, other_schema = nil }, "" end
     return nil, path .. ": " .. begin_trouble
   end
   -- Old rows have no change time: retain their content caches, but read
@@ -701,7 +750,8 @@ local function opened(root: string, dir: string | nil, wait: boolean): work.Open
     local _, _ = db:close()
     return nil, path .. ": " .. run_trouble
   end
-  return { handle = { db = db, root = root, dir = out, run = integer_of(runs), inside = true } }, ""
+  return { handle = { db = db, root = root, dir = out, run = integer_of(runs), inside = true },
+    other_schema = nil }, ""
 end
 
 --- Opens `build.db` in `dir`, or where nil in `root`'s build directory,
@@ -721,22 +771,39 @@ end
 --- [`rebuild.here`]) or `cosmic lsp`'s stage ([`rebuild.stage`]) opens it
 --- so: the run
 --- holding the lock builds the same tree, and what it last committed is
---- read meanwhile, never waited for.
+--- read meanwhile, never waited for. A file of another schema it neither
+--- reads nor removes, whoever holds the lock: it answers no handle, and
+--- the schema it found (`other_schema`).
 function work.try_open(root: string): work.Opening | nil, string
   return opened(root, nil, false)
 end
 
---- Whether the process has said another run holds the working database.
+--- Whether the process has said why it reads none of the working
+--- database at a path, or only its last commit ([`tell_once`]).
 local told: {string:boolean} = {}
+
+--- Says `line` once a process on stderr, of the working database at
+--- `path`.
+local function tell_once(path: string, line: string)
+  if told[path] == true then return end
+  told[path] = true
+  log:complain(line)
+end
 
 --- Says once a process, on stderr, that `verb` does not wait for the
 --- other run that holds the working database at `path`, and reads what
 --- that run last committed.
 function work.tell_busy(verb: string, path: string)
-  if told[path] == true then return end
-  told[path] = true
-  log:complain(verb .. ": another cosmic run holds the write lock of " .. path ..
+  tell_once(path, verb .. ": another cosmic run holds the write lock of " .. path ..
       "; not waiting for it, reading what it last committed")
+end
+
+--- Says once a process, on stderr, that `verb` reads none of the
+--- working database at `path`, found of the schema `schema`, another than
+--- this tool's ([`work.try_open`]).
+function work.tell_other_schema(verb: string, path: string, schema: string)
+  tell_once(path, verb .. ": " .. path .. " is of schema " .. schema .. ", not this tool's " ..
+      version .. "; not reading or removing it: a `cosmic test` of this tool makes it again")
 end
 
 --- Copies the commits in `db`'s write-ahead log into the file itself

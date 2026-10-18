@@ -223,6 +223,35 @@ local function test_a_busy_database_is_read_at_once_as_last_committed()
   assert(counts(ran) == "0,1", "staged once the lock is free: " .. counts(ran))
 end
 
+--- A database of another schema, another tool's, the session neither
+--- stages nor reads, saying so, and leaves where it is; once a build of
+--- this tool makes it again, it stages it.
+local function test_a_database_of_another_schema_is_neither_staged_nor_read()
+  local root = project()
+  assert(Fs.mkdirs(root .. "/lib"))
+  assert(Fs.write(root .. "/lib/shapes.tl", "return { sides = 3 }\n"))
+  local main = 'local shapes = require("lib.shapes")\nlocal n: integer = shapes.sides\nreturn n\n'
+  local send = serving(root)
+  send({ initialize(root), open(root, "main.tl", main) })
+  local working = build_paths.under((assert(build_paths.directory(root)))).working
+  local stale = assert(Sqlite.open(working, { writable = true }))
+  assert(stale:exec("UPDATE meta SET value = 'another' WHERE key = 'schema'"))
+  assert(stale:close())
+  local before = assert(Fs.stat(working)).ino
+  assert(Fs.write(root .. "/lib/shapes.tl", 'return { sides = "three" }\n'))
+  local other = send({ save(root, "lib/shapes.tl") })
+  assert(other.err:find("is of schema another", 1, true), other.err)
+  assert(assert(Fs.stat(working)).ino == before, "the file was removed")
+  -- None of its modules is read.
+  assert(counts(other) == "0,1", counts(other))
+  assert(messages_of(nth(other, 2)):find("module not found: 'lib.shapes'", 1, true),
+    messages_of(nth(other, 2)))
+  assert(work.close((assert(work.open(root)))))
+  local ran = send({ change(root, "main.tl", main .. "\n") })
+  assert(counts(ran) == "0,1,1", "staged once made again: " .. counts(ran))
+  assert(messages_of(nth(ran, 3)):find("got string", 1, true), messages_of(nth(ran, 3)))
+end
+
 --- A module is served as the stub the stage derived, as a stub made here
 --- of an open document, or as its source where it has no stub: a
 --- declaration, or a source that returns nothing.
@@ -334,7 +363,9 @@ local function test_a_database_made_again_is_opened_again()
       local stale = assert(Sqlite.open(working, { writable = true }))
       assert(stale:exec("UPDATE meta SET value = 'stale' WHERE key = 'schema'"))
       assert(stale:close())
-      -- Another session's stage makes the file again, and stages the change.
+      -- A build makes the file again; a stage, which removes no file,
+      -- then stages the change in it.
+      assert(work.close((assert(work.open(root)))))
       assert(counts(served(root, { initialize(root), open(root, "main.tl", main) })) == "1")
     end)
   assert(ran.tally.reopened == 1, tostring(ran.tally.reopened))

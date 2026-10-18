@@ -790,7 +790,13 @@ function reboot.stale_exit(argv: {integer:string}, reads?: boolean, root?: strin
     end
     local held = tried.handle
     if held == nil then
-      work.tell_busy(argv[1] or "cosmic", build_paths.resolve(at).working)
+      local working = build_paths.resolve(at).working
+      local other = tried.other_schema
+      if other ~= nil then
+        work.tell_other_schema(argv[1] or "cosmic", working, other)
+      else
+        work.tell_busy(argv[1] or "cosmic", working)
+      end
       return nil
     end
     handle = held
