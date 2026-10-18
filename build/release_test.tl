@@ -44,7 +44,7 @@ local function ok(body: string): string return reply("200 OK", body) end
 
 --- One release as the API lists it.
 local function entry(commit: string, published: string, draft?: boolean, assets?: string): string
-  return string.format('{"tag_name":"next-%s","draft":%s,"published_at":"%s","assets":%s}',
+  return string.format('{"tag_name":"next-%s","draft":%s,"prerelease":true,"published_at":"%s","assets":%s}',
     commit, tostring(draft == true), published, assets or all_assets)
 end
 
@@ -130,6 +130,23 @@ local function test_until_takes_the_newest_published_at_or_before()
   assert(just.code == 0, just.err)
   assert(just.out:sub(1, 41) == oldest .. "\n", just.out)
   failed(run({ "--until", "2026-01-01" }, { ok(page()) }), "no release matches")
+  local edges = "[" .. entry(newest, "2026-10-18T00:00:00Z") .. "," .. entry(older, "2026-10-17T23:59:59Z") .. "]"
+  local last = run({ "--until", "2026-10-17" }, { ok(edges), sums(), source(older) })
+  assert(last.code == 0, last.err)
+  assert(last.out:sub(1, 41) == older .. "\n", "a date ends before the next one's midnight: " .. last.out)
+end
+
+local function test_a_release_unlike_a_published_prerelease_is_passed_over()
+  local text = "[" .. table.concat({
+    string.format('{"tag_name":"next-%s","draft":false,"prerelease":false,"published_at":"%s","assets":%s}',
+      newest, "2026-10-18T10:00:00Z", all_assets),
+    entry(oldest, "2026-10-18T09:00:00Z", false,
+      '[{"name":"cosmic"},{"name":"SHA256SUMS"},{"name":"source.json"},{"name":"extra"}]'),
+    entry(older, "2026-10-17T10:00:00Z"),
+  }, ",") .. "]"
+  local ran = run({}, { ok(text), sums(), source(older) })
+  assert(ran.code == 0, ran.err)
+  assert(ran.out:sub(1, 41) == older .. "\n", ran.out)
 end
 
 --- Every page is read, a full one leading to the next, and a release
@@ -189,10 +206,13 @@ local function test_cache_fills_bootstraps_cache_once(tmp: string)
   assert(ran.code == 0, ran.err)
   assert(ran.out == want .. "\n", ran.out)
   assert(Fs.read(want) == binary)
-  -- No reply for the binary: a second download would fail the run.
+  -- No reply for the binary: a second download would fail the run. A
+  -- run cut off before its chmod leaves the file unexecutable.
+  assert(Fs.chmod(want, 0x1a4))
   local again = run({ "--cache" }, { ok(page()), sums(), source(newest) }, env)
   assert(again.code == 0, again.err)
   assert(again.out == want .. "\n", again.out)
+  assert(assert(Fs.stat(want)).mode & 0x1ff == 0x1ed, "a cached binary is made executable again")
 end
 
 local function test_pin_writes_the_pin_once_the_bytes_check(tmp: string)

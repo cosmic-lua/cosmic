@@ -39,7 +39,9 @@
 --- * `-o <file>`: writes the binary there, mode 0755.
 --- * `--cache`: writes it where bin/cosmic-bootstrap caches the pin's,
 ---   `$XDG_CACHE_HOME/cosmic/bootstrap/cosmic-<sha256>`, and prints that
----   path. A file already there whose sha256 is the digest is kept, and
+---   path, as an absolute `XDG_CACHE_HOME` or `HOME` names it ([`Fs.cache_dir`];
+---   bin/cosmic-bootstrap also takes a relative `XDG_CACHE_HOME`, which
+---   this does not). A file already there whose sha256 is the digest is kept, and
 ---   made executable, as a run cut off before its chmod would leave it.
 --- * `--pin <file>`: writes the three pin lines there, once the binary's
 ---   bytes are verified: streamed and hashed when neither `-o` nor
@@ -138,12 +140,14 @@ end
 local record ApiRelease
   tag_name: string
   draft: boolean
+  prerelease: boolean
   published_at: string | nil
   assets: {Asset}
 end
 local RELEASE_SPEC <const> = Shape.record({
   tag_name = Shape.string,
   draft = Shape.boolean,
+  prerelease = Shape.boolean,
   published_at = Shape.optional(Shape.string),
   assets = Shape.list(Shape.record({ name = Shape.string })),
 })
@@ -183,11 +187,14 @@ function verb.pin_text(commit: string, digest: string): string
   return commit .. "\n" .. binary_url(commit) .. "\n" .. digest .. "\n"
 end
 
---- The release `r` names, or nil when it is not a published release with
---- the three assets.
+--- The release `r` names, or nil when it is not a published prerelease
+--- holding the three assets and no others, as ci/cosmic_ci/prerelease.tl
+--- publishes one.
 local function usable(r: ApiRelease): verb.Release | nil
   local published = r.published_at
-  if r.draft or published == nil then return nil end
+  if r.draft or not r.prerelease or published == nil or #r.assets ~= #required_assets then
+    return nil
+  end
   local commit = r.tag_name:match("^next%-(%x+)$")
   if commit == nil or #commit ~= 40 or commit:find("[A-F]") ~= nil then return nil end
   local names: {string:boolean} = {}
@@ -285,7 +292,9 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
   local https_only: {string} = { "https" }
   local requests: Requests = { made = 0 }
   --- The options of one request. Only an API call has `headers`, and it
-  --- takes no redirect, which would carry its token elsewhere.
+  --- takes no redirect: its token is for the API's own origin, and an
+  --- answer that moved (a renamed repository) fails rather than be
+  --- followed.
   local function never(): boolean return false end
   local function options(headers?: {string:string}, sha256?: string, cancelled?: function(): boolean): Http.Options
     requests.made = requests.made + 1
@@ -332,6 +341,9 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
   end
 
   -- Every match, newest first.
+  -- TODO: look a --commit prefix up with the API's git matching-refs
+  -- (`git/matching-refs/tags/next-<prefix>`, one request for the tags it
+  -- names) rather than every page of releases, a request per hundred.
   local function matches(): {verb.Release} | nil, string
     local found: {verb.Release} = {}
     local seen: {string:boolean} = {}
