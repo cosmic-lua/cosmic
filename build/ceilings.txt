@@ -5916,7 +5916,6 @@ build/todos.tl literal_missing 2
 build/tree_root.tl literal_missing 5
 build/tree_root_test.tl literal_missing 1
 build/udp_fixture.tl literal_missing 1
-build/vendor.tl literal_missing 1
 build/verbs_fixture.tl literal_missing 1
 build/verbs_test.tl literal_missing 2
 build/version_store_test.tl literal_missing 1
