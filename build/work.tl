@@ -230,6 +230,14 @@ local version <const> = "29"
 ---
 --- `builds` is one row per run: what was staged, what was read, what
 --- was compiled and what came from the cache, and how the run ended.
+--- `ms` is from the run's start to when its row was written, which is
+--- not the same point for every verb. `cosmic test` and a boot, which
+--- hold the rebuild lock, write the row once the projection is
+--- published, so it counts the publication. Every other build (a file
+--- run, `cosmic build`, `embed`, a lookup's or `fix`'s) writes it in the
+--- transaction its compile commits ([`build.writer`]'s `write_recorded`), so
+--- that a run removing the file once the locks are free cannot lose
+--- it; its `ms` stops at that commit and leaves the publication out.
 ---
 --- `runs` is one row per test, keyed by the module and the test's own
 --- name inside it, so a later run of the same test replaces its row
