@@ -4,25 +4,35 @@
 --- holding three assets: `cosmic`, `SHA256SUMS` (`<sha256>  cosmic`) and
 --- `source.json` (the commit, the digest and the run that made it).
 ---
---- The releases come from GitHub's REST API, a page of 100 at a time,
---- every page read: the API orders them by day and then by tag name, not
---- by time, so no page can be known to hold the newest match, and a
---- release published between two pages' requests can come back on both.
---- So they are taken once each, by tag, and sorted newest first by when
---- they were published. A draft, a release not tagged `next-<40 hex>`
---- and one missing any of the three assets are passed over. With no
---- criterion the newest is picked. `--commit <hex>` keeps the release
---- whose commit starts with the hex (7 to 40 digits), and `--until
---- <time>` those published at or before an RFC 3339 time, or by the end
---- of a date in UTC. Both may be given. A prefix that matches two
---- releases is refused, naming both.
+--- The releases are found through their tags, which GitHub's REST API
+--- makes only when a release is published, and main's history. The
+--- API's list of releases is no use: it serves only the first 1000, page
+--- 11 answering 422 or not by the server it reaches, and orders them by
+--- the day of each tagged commit, so a draft published days after its
+--- commit lands among the old. Instead the API's git matching-refs names
+--- every `next-` tag in one request; main's commits are read newest
+--- first, a page of 100 at a time; and each commit that has a tag is
+--- asked for its release, until enough are found. So the newest release
+--- is that of the latest commit on main that has one, three requests.
+--- The history read stops at a page none of whose commits has a tag:
+--- releases began after cosmic's earlier history, and a hundred commits
+--- in a row with none published means the history read has passed them.
+--- A draft, a release not tagged `next-<40 hex>` and one missing any of
+--- the three assets, or with others, are passed over.
 ---
---- Reading every page costs a request per hundred releases, against an
---- unauthenticated limit of 60 an hour, so a `--commit` reads none: the
---- API's git matching-refs names the tags `next-<prefix>` starts (one
---- request), and each is asked for its release by its tag, so a prefix
---- naming more than 10 tags is refused as too short to tell one. A full
---- commit names its one tag without asking.
+--- With no criterion the newest is picked. `--commit <hex>` keeps the
+--- release whose commit starts with the hex (7 to 40 digits), and
+--- `--until <time>` those published at or before an RFC 3339 time, or by
+--- the end of a date in UTC: main's commits are read from the last one
+--- made by then (a release is published after its commit), and the
+--- first whose release was published by then is the pick. Both may be
+--- given. A prefix that matches two releases is refused, naming both.
+---
+--- A `--commit` reads no history: matching-refs names the tags
+--- `next-<prefix>` starts, and each is asked for its release by its tag,
+--- so a prefix naming more than 10 tags is refused as too short to tell
+--- one. A full commit names its one tag without asking. Its matches are
+--- sorted newest first by when they were published.
 ---
 --- A release is verified before anything about it is printed or kept:
 --- its SHA256SUMS names one digest for `cosmic`, and its source.json
@@ -134,8 +144,8 @@ local per_page <const> = 100
 --- prefix too short to tell one release, and would cost about what
 --- reading every page does.
 local max_tags <const> = 10
---- The most pages one scan reads, against a runaway: 10000 releases,
---- some years of them at the rate main publishes.
+--- The most pages of main's history one scan reads, against a runaway:
+--- 10000 commits, past the first release.
 local max_pages <const> = 100
 local default_count <const> = 20
 --- What SHA256SUMS or source.json may weigh; each is a line or two.
@@ -160,7 +170,11 @@ local RELEASE_SPEC <const> = Shape.record({
   published_at = Shape.optional(Shape.string),
   assets = Shape.list(Shape.record({ name = Shape.string })),
 })
-local PAGE_SPEC <const> = Shape.list(RELEASE_SPEC)
+--- One commit as the API lists main's history; only its hash is read.
+local record Commit
+  sha: string
+end
+local HISTORY_SPEC <const> = Shape.list(Shape.record({ sha = Shape.string }))
 
 --- One ref as git matching-refs lists it: `refs/tags/<tag>`.
 local record Ref
@@ -356,8 +370,9 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
     return true
   end
 
-  -- Every match, newest first.
-  local function matches(): {verb.Release} | nil, string
+  -- The matches, newest first: up to `need` of them from main's history,
+  -- or every one a `--commit` names.
+  local function matches(need: integer): {verb.Release} | nil, string
     local found: {verb.Release} = {}
     local seen: {string:boolean} = {}
     local function take(r: ApiRelease)
@@ -411,23 +426,56 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
       end
       return sorted(), ""
     end
-    for page = 1, max_pages + 1 do
-      if page > max_pages then
-        return nil, releases_url .. ": more than " .. plural.count(max_pages, "page") .. " of releases"
-      end
-      local url = releases_url .. "?per_page=" .. tostring(per_page) .. "&page=" .. tostring(page)
+    -- Each commit that has a `next-` tag, which only a published release
+    -- gets.
+    local tagged: {string:boolean} = {}
+    local refs_url = repo_url .. "/git/matching-refs/tags/next-"
+    local refs_text, refs_why = call(refs_url)
+    if refs_text == nil then
+      if refs_why == "" then refs_why = refs_url .. ": HTTP 404" end
+      return nil, refs_why
+    end
+    local refs, refs_trouble: {Ref} | nil, string = Shape.decode_into(refs_text, REFS_SPEC)
+    if refs == nil then return nil, refs_url .. ": no list of refs: " .. refs_trouble end
+    for _, ref in ipairs(refs) do
+      local commit = ref.ref:match("^refs/tags/next%-(%x+)$")
+      if commit ~= nil and #commit == 40 then tagged[commit:lower()] = true end
+    end
+    local asked: {string:boolean} = {}
+    local query = "?sha=main&per_page=" .. tostring(per_page)
+    if until_ns ~= nil then
+      query = query .. "&until=" .. Time.format_rfc3339(until_ns, nil, { digits = 0 })
+    end
+    for page = 1, max_pages do
+      local url = repo_url .. "/commits" .. query .. "&page=" .. tostring(page)
       local text, why = call(url)
       if text == nil then
         if why == "" then why = url .. ": HTTP 404" end
         return nil, why
       end
-      local releases, shape_trouble: {ApiRelease} | nil, string =
-        Shape.decode_into(text, PAGE_SPEC, { null_value = Json.null })
-      if releases == nil then return nil, url .. ": no list of releases: " .. shape_trouble end
-      for _, r in ipairs(releases) do take(r) end
-      if #releases < per_page then break end
+      local commits, shape_trouble: {Commit} | nil, string = Shape.decode_into(text, HISTORY_SPEC)
+      if commits == nil then return nil, url .. ": no list of commits: " .. shape_trouble end
+      local any_tagged = false
+      for _, commit in ipairs(commits) do
+        if tagged[commit.sha] == true then any_tagged = true end
+        -- History that grew between two pages' requests repeats a commit.
+        if tagged[commit.sha] == true and asked[commit.sha] == nil then
+          asked[commit.sha] = true
+          local release_url = releases_url .. "/tags/next-" .. commit.sha
+          local release_text, release_why = call(release_url)
+          if release_text == nil and release_why ~= "" then return nil, release_why end
+          if release_text ~= nil then
+            local r, release_trouble: ApiRelease | nil, string =
+              Shape.decode_into(release_text, RELEASE_SPEC, { null_value = Json.null })
+            if r == nil then return nil, release_url .. ": no release: " .. release_trouble end
+            take(r)
+            if #found >= need then return found, "" end
+          end
+        end
+      end
+      if not any_tagged or #commits < per_page then break end
     end
-    return sorted(), ""
+    return found, ""
   end
 
   local function written(ok: boolean, why: string): integer
@@ -435,7 +483,7 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
   end
 
   if listing then
-    local found, why = matches()
+    local found, why = matches(count)
     if found == nil then return fail(why) end
     local shown: {verb.Release} = {}
     for _, r in ipairs(found) do
@@ -452,7 +500,7 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
     return written(to.out(table.concat(lines)))
   end
 
-  local found, why = matches()
+  local found, why = matches(1)
   if found == nil then return fail(why) end
   local release = found[1]
   if release == nil then

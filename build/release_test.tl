@@ -2,9 +2,10 @@
 --- transport ([`build.release.Io.script`]: a canned reply per request, in
 --- order, so no test reaches the network; [`build.release.Io.api`] points
 --- it at http, since a canned reply cannot answer TLS). A run asks the
---- API for every page of releases -- or, for a `--commit` prefix, the
---- tags it starts and each one's release -- then SHA256SUMS, source.json
---- and, when it keeps or pins it, the binary.
+--- API for the `next-` tags, main's history and the release of each
+--- tagged commit in it until enough are found -- or, for a `--commit`
+--- prefix, the tags it starts and each one's release -- then SHA256SUMS,
+--- source.json and, when it keeps or pins it, the binary.
 
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
@@ -49,24 +50,29 @@ local function entry(commit: string, published: string, draft?: boolean, assets?
     commit, tostring(draft == true), published, assets or all_assets)
 end
 
---- A page of the API's: a draft newest of all, a release missing its
---- assets, then three usable ones out of time order, as the API sorts
---- by day and tag name.
-local function page(): string
-  return "[" .. table.concat({
-    entry(string.rep("f", 40), "2026-10-18T12:00:00Z", true),
-    entry(string.rep("e", 40), "2026-10-18T11:00:00Z", false, '[{"name":"cosmic"}]'),
-    entry(oldest, "2026-10-16T10:00:00Z"),
-    entry(newest, "2026-10-18T10:00:00Z"),
-    entry(older, "2026-10-17T10:00:00Z"),
-  }, ",") .. "]"
-end
-
 --- What git matching-refs answers for tags of these commits.
 local function refs(...: string): string
   local items: {string} = {}
   for i, commit in ipairs({ ... }) do items[i] = '{"ref":"refs/tags/next-' .. commit .. '"}' end
   return ok("[" .. table.concat(items, ",") .. "]")
+end
+
+--- A page of main's history: these commits, newest first.
+local function history(...: string): string
+  local items: {string} = {}
+  for i, commit in ipairs({ ... }) do items[i] = '{"sha":"' .. commit .. '"}' end
+  return ok("[" .. table.concat(items, ",") .. "]")
+end
+
+--- The replies that find the newest of the three, then `rest`.
+local function newest_then(...: string): {string}
+  local script: {string} = {
+    refs(newest, older, oldest),
+    history(newest, older, oldest),
+    ok(entry(newest, "2026-10-18T10:00:00Z")),
+  }
+  for _, one in ipairs({ ... }) do script[#script + 1] = one end
+  return script
 end
 
 local function sums(): string return ok(digest .. "  cosmic\n") end
@@ -105,7 +111,7 @@ local function failed(ran: Ran, says: string)
 end
 
 local function test_the_newest_published_release_prints_as_a_pin()
-  local ran = run({}, { ok(page()), sums(), source(newest) })
+  local ran = run({}, newest_then(sums(), source(newest)))
   assert(ran.code == 0, ran.err)
   assert(ran.out == newest .. "\nhttps://github.com/cosmic-lua/cosmic/releases/download/next-" ..
       newest .. "/cosmic\n" .. digest .. "\n", ran.out)
@@ -162,47 +168,67 @@ local function test_a_prefix_naming_too_many_tags_is_refused()
   failed(run({ "--commit", "1234567" }, ten), "no release matches, among the tags")
 end
 
-local function test_until_takes_the_newest_published_at_or_before()
-  local day = run({ "--until", "2026-10-17" }, { ok(page()), sums(), source(older) })
-  assert(day.code == 0, day.err)
-  assert(day.out:sub(1, 41) == older .. "\n", "a date runs to its end: " .. day.out)
-  local at = run({ "--until", "2026-10-17T10:00:00Z" }, { ok(page()), sums(), source(older) })
+--- The history comes from the API cut at `--until`; a commit made by
+--- then whose release was published after is passed over, a time
+--- includes itself, and a date runs to the second before the next
+--- midnight.
+local function test_until_takes_the_latest_published_at_or_before()
+  local late = "ab" .. string.rep("e", 38)
+  local at = run({ "--until", "2026-10-17T10:00:00Z" }, {
+    refs(late, older, oldest), history(late, older, oldest),
+    ok(entry(late, "2026-10-17T10:30:00Z")), ok(entry(older, "2026-10-17T10:00:00Z")),
+    sums(), source(older) })
   assert(at.code == 0, at.err)
   assert(at.out:sub(1, 41) == older .. "\n", "a time includes itself: " .. at.out)
-  local just = run({ "--until", "2026-10-17T09:59:59Z" }, { ok(page()), sums(), source(oldest) })
-  assert(just.code == 0, just.err)
-  assert(just.out:sub(1, 41) == oldest .. "\n", just.out)
-  failed(run({ "--until", "2026-01-01" }, { ok(page()) }), "no release matches")
-  local edges = "[" .. entry(newest, "2026-10-18T00:00:00Z") .. "," .. entry(older, "2026-10-17T23:59:59Z") .. "]"
-  local last = run({ "--until", "2026-10-17" }, { ok(edges), sums(), source(older) })
-  assert(last.code == 0, last.err)
-  assert(last.out:sub(1, 41) == older .. "\n", "a date ends before the next one's midnight: " .. last.out)
+  local day = run({ "--until", "2026-10-17" }, {
+    refs(late, older), history(late, older),
+    ok(entry(late, "2026-10-18T00:00:00Z")), ok(entry(older, "2026-10-17T23:59:59Z")),
+    sums(), source(older) })
+  assert(day.code == 0, day.err)
+  assert(day.out:sub(1, 41) == older .. "\n", "a date ends before the next one's midnight: " .. day.out)
+  failed(run({ "--until", "2026-01-01" }, { refs(newest), history() }), "no release matches, published by --until")
 end
 
-local function test_a_release_unlike_a_published_prerelease_is_passed_over()
-  local text = "[" .. table.concat({
-    string.format('{"tag_name":"next-%s","draft":false,"prerelease":false,"published_at":"%s","assets":%s}',
-      newest, "2026-10-18T10:00:00Z", all_assets),
-    entry(oldest, "2026-10-18T09:00:00Z", false,
-      '[{"name":"cosmic"},{"name":"SHA256SUMS"},{"name":"source.json"},{"name":"extra"}]'),
-    entry(older, "2026-10-17T10:00:00Z"),
-  }, ",") .. "]"
-  local ran = run({}, { ok(text), sums(), source(older) })
+--- An untagged commit is not asked for, a tagged one whose release is
+--- gone (404) or unlike a published prerelease is passed over.
+local function test_history_passes_over_commits_without_a_usable_release()
+  local untagged = string.rep("9", 40)
+  local gone = "ab" .. string.rep("e", 38)
+  local ran = run({}, {
+    refs(newest, gone, oldest, older),
+    history(untagged, newest, gone, oldest, older),
+    ok(string.format('{"tag_name":"next-%s","draft":false,"prerelease":false,"published_at":"%s","assets":%s}',
+      newest, "2026-10-18T10:00:00Z", all_assets)),
+    reply("404 Not Found", "{}"),
+    ok(entry(oldest, "2026-10-18T09:00:00Z", false,
+      '[{"name":"cosmic"},{"name":"SHA256SUMS"},{"name":"source.json"},{"name":"extra"}]')),
+    ok(entry(older, "2026-10-17T10:00:00Z")),
+    sums(), source(older),
+  })
   assert(ran.code == 0, ran.err)
   assert(ran.out:sub(1, 41) == older .. "\n", ran.out)
 end
 
---- Every page is read, a full one leading to the next, and a release
---- that comes back on two pages is taken once.
-local function test_every_page_is_read_and_a_repeat_taken_once()
+--- A full page of history leads to the next, a commit the next repeats
+--- (history that grew between the two requests) is asked for once, and
+--- a page with no tagged commit ends the read: the script holds no
+--- third page.
+local function test_history_is_read_until_a_page_without_a_tag()
   local first: {string} = {}
-  for i = 1, 99 do first[i] = entry(string.format("%040x", i), "2026-10-19T00:00:00Z", true) end
-  first[100] = entry(older, "2026-10-17T10:00:00Z")
-  local second = "[" .. entry(older, "2026-10-17T10:00:00Z") .. "," .. entry(newest, "2026-10-18T10:00:00Z") .. "]"
-  local page1, page2 = ok("[" .. table.concat(first, ",") .. "]"), ok(second)
-  local ran = run({ "--list" }, { page1, page2 })
+  for i = 1, 99 do first[i] = string.format("%040x", i) end
+  first[100] = older
+  local ran = run({ "--list" }, {
+    refs(newest, older, oldest),
+    history(table.unpack(first)),
+    ok(entry(older, "2026-10-17T10:00:00Z")),
+    history(older, oldest),
+    ok(entry(oldest, "2026-10-16T10:00:00Z")),
+  })
   assert(ran.code == 0, ran.err)
-  assert(ran.out == "2026-10-18T10:00:00Z  " .. newest .. "\n2026-10-17T10:00:00Z  " .. older .. "\n", ran.out)
+  assert(ran.out == "2026-10-17T10:00:00Z  " .. older .. "\n2026-10-16T10:00:00Z  " .. oldest .. "\n", ran.out)
+  local untagged: {string} = {}
+  for i = 1, 100 do untagged[i] = string.format("%040x", i) end
+  failed(run({}, { refs(newest), history(table.unpack(untagged)) }), "no release matches")
 end
 
 local function test_a_full_commit_is_asked_for_by_its_tag()
@@ -213,16 +239,16 @@ local function test_a_full_commit_is_asked_for_by_its_tag()
 end
 
 local function test_a_release_that_disagrees_with_itself_fails()
-  failed(run({}, { ok(page()), sums(), source(older) }), "source.json names commit " .. older)
+  failed(run({}, newest_then(sums(), source(older))), "source.json names commit " .. older)
   local other = string.rep("0", 64)
-  failed(run({}, { ok(page()), sums(), source(newest, other) }), "source.json names digest " .. other)
-  failed(run({}, { ok(page()), ok("") }), "no digest for cosmic")
-  failed(run({}, { ok(page()), ok(string.rep("x", 65537)) }), "more than 65536 bytes")
+  failed(run({}, newest_then(sums(), source(newest, other))), "source.json names digest " .. other)
+  failed(run({}, newest_then(ok(""))), "no digest for cosmic")
+  failed(run({}, newest_then(ok(string.rep("x", 65537)))), "more than 65536 bytes")
 end
 
 local function test_o_writes_the_verified_binary_executable(tmp: string)
   local path = tmp .. "/cosmic"
-  local ran = run({ "-o", path }, { ok(page()), sums(), source(newest), ok(binary) })
+  local ran = run({ "-o", path }, newest_then(sums(), source(newest), ok(binary)))
   assert(ran.code == 0, ran.err)
   assert(ran.out == "", ran.out)
   assert(Fs.read(path) == binary)
@@ -232,25 +258,25 @@ end
 
 local function test_a_binary_that_is_not_the_digest_leaves_nothing(tmp: string)
   local path = tmp .. "/cosmic"
-  failed(run({ "-o", path }, { ok(page()), sums(), source(newest), ok("other bytes") }), "sha256 mismatch")
+  failed(run({ "-o", path }, newest_then(sums(), source(newest), ok("other bytes"))), "sha256 mismatch")
   assert(Fs.exists(path) == false)
   assert(#assert(Fs.list(tmp)) == 0, "a temporary file was left")
   local pin = tmp .. "/pin"
-  failed(run({ "--pin", pin }, { ok(page()), sums(), source(newest), ok("other bytes") }), "sha256 mismatch")
+  failed(run({ "--pin", pin }, newest_then(sums(), source(newest), ok("other bytes"))), "sha256 mismatch")
   assert(Fs.exists(pin) == false)
 end
 
 local function test_cache_fills_bootstraps_cache_once(tmp: string)
   local env = { XDG_CACHE_HOME = tmp .. "/cache" }
   local want = tmp .. "/cache/cosmic/bootstrap/cosmic-" .. digest
-  local ran = run({ "--cache" }, { ok(page()), sums(), source(newest), ok(binary) }, env)
+  local ran = run({ "--cache" }, newest_then(sums(), source(newest), ok(binary)), env)
   assert(ran.code == 0, ran.err)
   assert(ran.out == want .. "\n", ran.out)
   assert(Fs.read(want) == binary)
   -- No reply for the binary: a second download would fail the run. A
   -- run cut off before its chmod leaves the file unexecutable.
   assert(Fs.chmod(want, 0x1a4))
-  local again = run({ "--cache" }, { ok(page()), sums(), source(newest) }, env)
+  local again = run({ "--cache" }, newest_then(sums(), source(newest)), env)
   assert(again.code == 0, again.err)
   assert(again.out == want .. "\n", again.out)
   assert(assert(Fs.stat(want)).mode & 0x1ff == 0x1ed, "a cached binary is made executable again")
@@ -258,19 +284,23 @@ end
 
 local function test_pin_writes_the_pin_once_the_bytes_check(tmp: string)
   local pin = tmp .. "/cosmic-driver.pin"
-  local ran = run({ "--pin", pin }, { ok(page()), sums(), source(newest), ok(binary) })
+  local ran = run({ "--pin", pin }, newest_then(sums(), source(newest), ok(binary)))
   assert(ran.code == 0, ran.err)
   assert(ran.out == "", ran.out)
   assert(Fs.read(pin) == release.pin_text(newest, digest))
   assert(#assert(Fs.list(tmp)) == 1, "only the pin is kept")
   local path = tmp .. "/bin"
-  local both = run({ "--pin", pin, "-o", path }, { ok(page()), sums(), source(newest), ok(binary) })
+  local both = run({ "--pin", pin, "-o", path }, newest_then(sums(), source(newest), ok(binary)))
   assert(both.code == 0, both.err)
   assert(Fs.read(path) == binary)
 end
 
 local function test_list_prints_the_matches_newest_first()
-  local ran = run({ "--list" }, { ok(page()) })
+  local ran = run({ "--list" }, {
+    refs(newest, older, oldest), history(newest, older, oldest),
+    ok(entry(newest, "2026-10-18T10:00:00Z")), ok(entry(older, "2026-10-17T10:00:00Z")),
+    ok(entry(oldest, "2026-10-16T10:00:00Z")),
+  })
   assert(ran.code == 0, ran.err)
   assert(ran.out == "2026-10-18T10:00:00Z  " .. newest .. "\n" ..
       "2026-10-17T10:00:00Z  " .. older .. "\n" ..
@@ -281,7 +311,7 @@ local function test_list_prints_the_matches_newest_first()
   local empty = run({ "--list", "--json", "--commit", "abcdeff" }, { refs() })
   assert(empty.code == 0, empty.err)
   assert(empty.out == "[]\n", empty.out)
-  local json = run({ "--list", "--json", "-n", "1" }, { ok(page()) })
+  local json = run({ "--list", "--json", "-n", "1" }, newest_then())
   assert(json.code == 0, json.err)
   local decoded, why: {Printed} | nil, string = Shape.decode_into(json.out, Shape.list(PRINTED))
   assert(decoded ~= nil, why)
@@ -291,7 +321,7 @@ local function test_list_prints_the_matches_newest_first()
 end
 
 local function test_json_prints_the_verified_release()
-  local ran = run({ "--json" }, { ok(page()), sums(), source(newest) })
+  local ran = run({ "--json" }, newest_then(sums(), source(newest)))
   assert(ran.code == 0, ran.err)
   local decoded, why: Printed | nil, string = Shape.decode_into(ran.out, PRINTED)
   assert(decoded ~= nil, why)
