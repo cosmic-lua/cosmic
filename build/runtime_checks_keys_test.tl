@@ -67,6 +67,16 @@ local function test_a_checked_compile_is_keyed_by_a_compiler_of_its_own()
   assert(importer.checked_tool("t") ~= importer.checked_tool("u"))
 end
 
+--- The checks the new checker's generator writes (the calls of `__fact`) are another Lua than the fork's, and so another
+--- compiler of a key: a compile cached with one is never taken for the other, or for none.
+local function test_a_compile_with_fact_wraps_is_keyed_apart_from_the_forks_checks_and_from_none()
+  local wraps = importer.checked_tool("t", true)
+  assert(wraps ~= importer.checked_tool("t") and wraps ~= "t")
+  assert(wraps == importer.checked_tool("t", true))
+  assert(wraps ~= importer.checked_tool("u", true))
+  assert(importer.checked_tool("t", false) == importer.checked_tool("t"))
+end
+
 --- The same source compiles to two keys and two Luas, and the shared
 --- cache gives neither to the other: a compile of one kind is taken from
 --- it only when an entry of that kind was kept.

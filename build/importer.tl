@@ -1476,8 +1476,14 @@ end
 --- with checks and one without share no row of the working database and no
 --- entry of the compiles every checkout shares, and the verdict of a test
 --- keyed by it is kept apart from a test run without.
-function importer.checked_tool(tool: string): string
-  return Hash.hex_sha256(tool .. "\0run-time-checks")
+---
+--- `wraps` says the checks are the calls of `__fact` that the new checker's code
+--- generator writes at the reads a test narrowed ([`lang.fact_wraps`]), and not
+--- the fork's `__cosmic_tc`: the Lua of the two differs, so their keys do. A
+--- compile cached with the one is never the answer to a request for the other,
+--- nor for none.
+function importer.checked_tool(tool: string, wraps?: boolean): string
+  return Hash.hex_sha256(tool .. (wraps == true and "\0fact-wraps" or "\0run-time-checks"))
 end
 
 --- Compiles every module, in import order, into Lua and bytecode --
@@ -1534,6 +1540,9 @@ function importer.compile(handle: work.Handle, built: compiler,
       if shared ~= nil then shared.finish() end
       return nil, "a compile with run-time checks is made in this process: it takes no pool"
     end
+    -- TODO: key a checked compile by `importer.checked_tool(tool, true)` here and in build.test's `compiled_with`,
+    -- once the tool wires `--check-types` to the new checker (doc/plans/strict-teal.md, "the switch"), whose code
+    -- generator writes the checks as the calls of `__fact` ([`build.compile_grammar`]'s `facts`).
     tool = importer.checked_tool(tool)
   end
   return consuming_compile(handle, built, tool, unjudged, shared, pool, nil, checks)

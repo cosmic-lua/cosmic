@@ -336,7 +336,13 @@ program that shows it.
 The new checker records the same reads in [`Check.Checked.narrowed`] (the offset of the read and the kinds of Lua value
 the checker took out). [`lang.check_programs`]'s `execute` wraps each in a check that raises `fact violated`, runs the
 Lua [`lang.codegen`] writes, and the flow's fuzz properties ([`lang/check_flow_fuzz_test.tl`]) hold every program the
-checker takes to run without one.
+checker takes to run without one. Those properties run it with the hook the tool's worker defines
+([`build.test_worker`]'s `install_checks`), the `__fact` that [`lang.fact_wraps`] gives each read the place, the kinds, the
+enum strings, the classes and the tag of: a false conclusion raises as above and is also kept as a row of
+`type_violations` of kind `fact` (the read as `<file>:<line>:<column>`, the place as written, what the checker proved,
+what the value was), which survives a test that catches the error. [`build.compile_grammar`]'s `compile`
+writes the wraps given `facts` (no flag of `cosmic compile` asks for them); the build compiles with the fork until the tool
+is wired to the new checker.
 
 CI runs the whole suite so in the `checked` job of a full run
 (`cosmic-driver cosmic_ci/driver.tl platform checked-narrowing`), and
@@ -457,6 +463,7 @@ Other rules:
 
 [`bin/cosmic`]: ../bin/cosmic
 [`build.checker_verdicts`]: ../build/checker_verdicts.tl
+[`build.compile_grammar`]: ../build/compile_grammar.tl
 [`build.confine`]: ../build/confine.tl
 [`build.fuzz`]: ../build/fuzz/init.tl
 [`build.harness_epoch_test`]: ../build/harness_epoch_test.tl
@@ -466,6 +473,7 @@ Other rules:
 [`build.sandboxed_verdicts_test`]: ../build/sandboxed_verdicts_test.tl
 [`build.test_sandbox_probe`]: ../build/test_sandbox_probe.tl
 [`build.test_sandbox`]: ../build/test_sandbox.tl
+[`build.test_worker`]: ../build/test_worker.tl
 [`build.this_program`]: ../build/this_program.tl
 [`build.tree_checks`]: ../build/tree_checks.tl
 [`build/harness_epoch_test.tl`]: ../build/harness_epoch_test.tl
@@ -481,6 +489,7 @@ Other rules:
 [`Fuzz.more`]: ../build/fuzz/init.tl
 [`lang.check_programs`]: ../lang/check_programs.tl
 [`lang.codegen`]: ../lang/codegen.tl
+[`lang.fact_wraps`]: ../lang/fact_wraps.tl
 [`lang/check_flow_fuzz_test.tl`]: ../lang/check_flow_fuzz_test.tl
 [`Test.passed_unchecked`]: ../cosmic/test.tl
 [`Test.policy`]: ../cosmic/test.tl

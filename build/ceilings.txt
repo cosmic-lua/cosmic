@@ -227,6 +227,7 @@ build/c/rules.tl setmetatable_call 1
 build/cache_maintenance.tl setmetatable_call 1
 build/compile_grammar_test.tl setmetatable_call 1
 build/compile_lang_test.tl setmetatable_call 1
+build/fact_hook_test.tl setmetatable_call 4
 build/json_query_test.tl setmetatable_call 1
 build/link_text.tl setmetatable_call 1
 build/rebuild_lock.tl setmetatable_call 2
@@ -308,6 +309,7 @@ build/declared_key.tl unchecked_binding 1
 build/declared_key_test.tl unchecked_binding 1
 build/dispatch.tl unchecked_binding 3
 build/docs_test.tl unchecked_binding 1
+build/fact_hook_test.tl unchecked_binding 1
 build/fetch_tool_test.tl unchecked_binding 1
 build/fix/init.tl unchecked_binding 1
 build/fuzz/fuzz_test.tl unchecked_binding 1
@@ -1725,6 +1727,8 @@ build/error_render.tl view_written 6
 build/example_checks.tl view_written 11
 build/example_checks_test.tl view_written 5
 build/exports_test.tl view_written 3
+build/fact_hook_test.tl view_written 2
+build/fact_hook_tool_test.tl view_written 2
 build/fetch.tl view_written 4
 build/fetch_test.tl view_written 5
 build/fix/breaks.tl view_written 14
@@ -1931,7 +1935,7 @@ build/test_selection_test.tl view_written 3
 build/test_skip_tool_test.tl view_written 1
 build/test_standing_test.tl view_written 1
 build/test_test.tl view_written 12
-build/test_worker.tl view_written 59
+build/test_worker.tl view_written 58
 build/test_worker_loads_test.tl view_written 2
 build/this_program.tl view_written 10
 build/time.tl view_written 6
@@ -2287,7 +2291,7 @@ lang/check_class_test.tl view_written 2
 lang/check_flow_fuzz_test.tl view_written 4
 lang/check_fuzz_test.tl view_written 4
 lang/check_generics_test.tl view_written 1
-lang/check_programs.tl view_written 16
+lang/check_programs.tl view_written 14
 lang/check_speed_test.tl view_written 14
 lang/check_test.tl view_written 15
 lang/check_verdicts.tl view_written 25
@@ -2300,6 +2304,7 @@ lang/declarations.tl view_written 82
 lang/declarations_programs.tl view_written 1
 lang/declarations_speed_test.tl view_written 12
 lang/declarations_test.tl view_written 13
+lang/fact_wraps.tl view_written 1
 lang/flow.tl view_written 20
 lang/generics.tl view_written 18
 lang/lexer.tl view_written 38
@@ -2392,7 +2397,7 @@ build/syntax_shape_specs.tl view_as_mut 1
 build/syntax_stub.tl view_as_mut 1
 build/test.tl view_as_mut 10
 build/test_inputs.tl view_as_mut 1
-build/test_worker.tl view_as_mut 3
+build/test_worker.tl view_as_mut 5
 build/tree_checks.tl view_as_mut 11
 build/work.tl view_as_mut 3
 build/worker.tl view_as_mut 1
@@ -2509,6 +2514,7 @@ build/driver.tl field_fixed 18
 build/driver_test.tl field_fixed 1
 build/embed.tl field_fixed 1
 build/error_render.tl field_fixed 1
+build/fact_hook_test.tl field_fixed 2
 build/fetch.tl field_fixed 5
 build/fetch_test.tl field_fixed 2
 build/fix/breaks.tl field_fixed 2
@@ -2590,7 +2596,7 @@ build/test_sandbox.tl field_fixed 5
 build/test_sandbox_probe.tl field_fixed 7
 build/test_sandbox_test.tl field_fixed 6
 build/test_sandbox_tool_test.tl field_fixed 23
-build/test_worker.tl field_fixed 40
+build/test_worker.tl field_fixed 41
 build/test_worker_test.tl field_fixed 16
 build/this_program.tl field_fixed 1
 build/this_program_test.tl field_fixed 2
@@ -3610,6 +3616,7 @@ build/dataset_fuzz_test.tl any_use 14
 build/dataset_test.tl any_use 5
 build/declared_key_test.tl any_use 3
 build/digest.tl any_use 1
+build/fact_hook_test.tl any_use 1
 build/flow.tl any_use 1
 build/flow_fuzz_test.tl any_use 4
 build/flow_test.tl any_use 21
@@ -3843,6 +3850,7 @@ build/dispatch.tl cast_refused 1
 build/doctest_test.tl cast_refused 4
 build/exit_status_store_test.tl cast_refused 1
 build/exit_status_test.tl cast_refused 1
+build/fact_hook_test.tl cast_refused 7
 build/fetch_test.tl cast_refused 6
 build/fix/equiv_test.tl cast_refused 1
 build/flow_fuzz_test.tl cast_refused 1
@@ -4135,7 +4143,7 @@ build/syntax_shape_specs.tl is_on_record 14
 build/syntax_stub.tl is_on_record 25
 build/teal.tl is_on_record 1
 build/test_closure_test.tl is_on_record 1
-build/test_worker.tl is_on_record 3
+build/test_worker.tl is_on_record 4
 build/tree_checks.tl is_on_record 1
 build/tree_root.tl is_on_record 1
 build/verbs_store_test.tl is_on_record 2
@@ -5308,7 +5316,6 @@ lang/check.tl and_ternary 81
 lang/check_class_test.tl and_ternary 2
 lang/check_expressions_test.tl and_ternary 2
 lang/check_fuzz_test.tl and_ternary 2
-lang/check_programs.tl and_ternary 3
 lang/check_refused_test.tl and_ternary 2
 lang/check_test.tl and_ternary 2
 lang/codegen.tl and_ternary 11
@@ -6153,6 +6160,7 @@ build/derivation.tl literal_needs_type 1
 build/dispatch.tl literal_needs_type 2
 build/docs.tl literal_needs_type 2
 build/example_checks.tl literal_needs_type 1
+build/fact_hook_test.tl literal_needs_type 3
 build/fetch.tl literal_needs_type 1
 build/fetch_test.tl literal_needs_type 1
 build/fix/fix_test.tl literal_needs_type 3

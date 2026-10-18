@@ -24,12 +24,17 @@
 --- different program from the one the source says. A test of a collection or a function type, whose Lua is the
 --- right one, is only reported.
 ---
+--- WITH `facts` each read of a place whose type a test narrowed is written as a call of `__fact` that checks what the
+--- checker concluded of it ([`lang.fact_wraps`]), for a run that defines the hook (`cosmic test --check-types`'s worker,
+--- [`build.test_worker`]'s `install_checks`). The Lua has the same lines.
+---
 --- The generator keeps state of its own, so this is not re-entrant, like [`lang.codegen`].
 
 local Ast = require("lang.ast")
 local Check = require("lang.check")
 local Codegen = require("lang.codegen")
 local Declarations = require("lang.declarations")
+local FactWraps = require("lang.fact_wraps")
 local Lexer = require("lang.lexer")
 local Parser = require("lang.parser")
 local Scopes = require("lang.scopes")
@@ -77,8 +82,9 @@ local record compile_grammar
   module_of: function(relative: string): string
 
   --- Compiles `sources` together. The answer holds one entry for each, in order. After a syntax error in
-  --- any file no file has Lua and the other stages did not run.
-  compile: function(sources: {Source}): {Compiled}
+  --- any file no file has Lua and the other stages did not run. With `facts` the Lua checks the conclusions of the
+  --- checker about the places a test narrowed.
+  compile: function(sources: {Source}, facts?: boolean): {Compiled}
 end
 
 compile_grammar.module_of = Declarations.module_of
@@ -173,7 +179,7 @@ local function type_facts(program: Declarations.Program, unit: Unit, lowered: De
   return kinds, refused
 end
 
-function compile_grammar.compile(sources: {compile_grammar.Source}): {compile_grammar.Compiled}
+function compile_grammar.compile(sources: {compile_grammar.Source}, facts?: boolean): {compile_grammar.Compiled}
   local parsed_files: {Syntax} = {}
   local syntax_errors: {{compile_grammar.Problem}} = {}
   local refused = false
@@ -296,7 +302,11 @@ function compile_grammar.compile(sources: {compile_grammar.Source}): {compile_gr
         classes[id] = decl.name
       end
       local kinds, refusals = type_facts(program, unit, lowering)
-      local generated = Codegen.generate(unit.syntax.chunk, unit.scoped, nil, classes, Check.enums(lowering), nil, kinds)
+      local wraps: {integer: string} | nil = nil
+      if facts == true then
+        wraps = FactWraps.of(result.narrowed, unit.syntax.source.text, unit.syntax.source.relative)
+      end
+      local generated = Codegen.generate(unit.syntax.chunk, unit.scoped, nil, classes, Check.enums(lowering), wraps, kinds)
       local lines: {string} = {}
       for _, e in ipairs(generated.errors) do
         lines[#lines + 1] = tostring(e.y) .. ":" .. tostring(e.x) .. ": " .. e.msg .. " (" .. e.code .. "): " .. e.fix
