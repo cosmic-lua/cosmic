@@ -18,24 +18,59 @@ local work = require("build.work")
 local workers = require("build.workers")
 local writer = require("build.writer")
 local log = require("build.logger").log
+local type compiler = require("build.compiler")
 
 local record rebuild
+  --- What [`rebuild.stage`] finds of a directory ([`where`]).
+  record Where
+    --- Whether it is one to build ([`where`]).
+    project: boolean
+    --- Whether it is cosmic's own tree ([`tree.is_own`]).
+    own_tree: boolean
+    --- Its build directory, or nil where it can have none.
+    directory: string | nil
+    --- Whether [`rebuild.stage`] staged nothing, another run holding
+    --- the working database.
+    busy: boolean
+  end
 end
 
---- Whether the directory `root` is one to build: cosmic's own tree, or
---- one whose build directory holds a projection. Anything else is left
---- alone, whatever it holds: a lookup never starts a tree of its own in
---- a directory that has a stray `.tl`, nor below the home directory.
-local function is_project(root: string): boolean | nil, string
+--- Whether a build was started with the build directory `directory`,
+--- failed or not: it holds the working database, which every build opens
+--- before it does anything else ([`work.open`]), or a projection. It
+--- looks at nothing but those two files, and nothing outside the build
+--- directory. Nil and why where it cannot tell.
+function rebuild.started(directory: string): boolean | nil, string
+  local layout = build_paths.under(directory)
+  for _, path in ipairs({ layout.working, layout.projection }) do
+    local there, trouble = Fs.exists(path)
+    if there == nil then return nil, trouble end
+    if there == true then return true, "" end
+  end
+  return false, ""
+end
+
+--- What the directory `root` is to a build: whether it is one to build,
+--- whether it is cosmic's own tree, and its build directory. A project
+--- is what `cosmic test` builds: cosmic's own tree, or a directory a build
+--- has been started in, wherever it was run, failed or not. Every build
+--- opens the working database before it does anything else
+--- ([`work.open`]), so a build directory holding it, or a projection, is
+--- one a build was started in. Anything else is left alone, whatever it
+--- holds: a lookup never starts a tree of its own in a directory that has
+--- a stray `.tl`, nor below the home directory.
+local function where(root: string): rebuild.Where | nil, string
   local own, own_trouble = tree.is_own(root)
   if own == nil then return nil, own_trouble end
-  if own then return true, "" end
+  local own_tree = own == true
   local directory, directory_trouble = build_paths.optional(root)
   if directory == nil then
-    if directory_trouble ~= "" then return nil, directory_trouble end
-    return false, ""
+    if directory_trouble ~= "" and not own_tree then return nil, directory_trouble end
+    return { project = own_tree, own_tree = own_tree, directory = nil, busy = false }, ""
   end
-  return Fs.exists(build_paths.under(directory).projection)
+  local started, trouble = rebuild.started(directory)
+  if started == nil then return nil, trouble end
+  return { project = own_tree or started == true, own_tree = own_tree, directory = directory, busy = false }, ""
 end
 
 --- Whether `root` looks like a project that has not been built: Teal at
@@ -49,27 +84,45 @@ local function looks_unbuilt(root: string): boolean
   return false
 end
 
+--- `root`'s working database, opened as a build opens it, waiting for
+--- another run that holds it, where `wait`; otherwise opened only where
+--- no run holds it ([`work.try_open`]), with no handle where one does.
+local function opened_for(root: string, wait: boolean): work.Opening | nil, string
+  if not wait then return work.try_open(root) end
+  local handle, trouble = work.open(root)
+  if handle == nil then return nil, trouble end
+  return { handle = handle }, ""
+end
+
 --- Builds the project at `root` as `cosmic test` does, leaving
 --- its projection as the tree stands. It does nothing, answering true,
---- where `root` is not one to build ([`is_project`]) and `start` is not
+--- where `root` is not one to build ([`where`]) and `start` is not
 --- set, saying so on stderr when it looks like a project no build has
 --- been made of. Answers false and why when the build fails, which the
---- caller may say and go on from the last build.
+--- caller may say and go on from the last build. Only a build with
+--- `start` waits for another run that holds the working database: a
+--- lookup's does nothing where one does, which builds the same tree, but
+--- say so once ([`work.tell_busy`]), and answers true, the caller reading
+--- what that run last committed.
 local function project(root: string, verb: string, start: boolean): boolean, string
-  local found, found_trouble = is_project(root)
+  local found, found_trouble = where(root)
   if found == nil then return false, found_trouble end
-  if not found and not start then
+  if not found.project and not start then
     if looks_unbuilt(root) then
       log:complain(verb .. ": this directory has not been built; `cosmic build` or `cosmic test` " ..
           "first to include its modules")
     end
     return true, ""
   end
-  local own_tree, own_trouble = tree.is_own(root)
-  if own_tree == nil then return false, own_trouble end
+  local own_tree = found.own_tree
   local started = Clock.monotonic_ns()
-  local handle, open_trouble = work.open(root)
-  if handle == nil then return false, open_trouble end
+  local opening, open_trouble = opened_for(root, start)
+  if opening == nil then return false, open_trouble end
+  local handle = opening.handle
+  if handle == nil then
+    work.tell_busy(verb, build_paths.resolve(root).working)
+    return true, ""
+  end
   local staged, stage_trouble = work.stage(handle, own_tree)
   if staged == nil then
     local _, _ = work.close(handle)
@@ -91,12 +144,54 @@ local function project(root: string, verb: string, start: boolean): boolean, str
   return true, ""
 end
 
+--- Stages the project at `root` and derives what a parse finds of each
+--- source, as a build does before it compiles ([`work.stage`],
+--- [`importer.derive`]), so the working database's `inputs` rows and the
+--- `stubs` of their sources are the tree as it stands: no compile, no
+--- projection. `built` parses what is new. A directory that is no
+--- project ([`where`]) is left alone: nothing is staged, and no
+--- build directory is made. A derive that fails leaves the database as
+--- it was, stage and all. It waits for no other run: where one holds the
+--- database ([`work.try_open`]), nothing is staged, and what it answers
+--- is `busy`. Answers what the directory is, or nil and why it could not
+--- be staged.
+function rebuild.stage(root: string, built: compiler): rebuild.Where | nil, string
+  local found, found_trouble = where(root)
+  if found == nil then return nil, found_trouble end
+  if not found.project then return found, "" end
+  local opening, open_trouble = work.try_open(root)
+  if opening == nil then return nil, open_trouble end
+  local handle = opening.handle
+  if handle == nil then
+    return { project = true, own_tree = found.own_tree, directory = found.directory, busy = true }, ""
+  end
+  local staged, stage_trouble = work.stage(handle, found.own_tree)
+  if staged == nil then
+    local _, _ = work.abort(handle)
+    return nil, stage_trouble
+  end
+  local shared = shared_compiles.for_build()
+  local pool = workers.pool(workers.tool_spec())
+  local parses, derive_trouble = importer.derive(handle, found.own_tree, built, shared, pool)
+  if shared ~= nil then shared.finish() end
+  pool.close()
+  if parses == nil then
+    local _, _ = work.abort(handle)
+    return nil, derive_trouble
+  end
+  local closed, close_trouble = work.close(handle)
+  if not closed then return nil, close_trouble end
+  return found, ""
+end
+
 --- Builds the project in the working directory, as `project` does, for
---- the verb `verb`, which names itself in what it says. With `start`, it
---- builds one no build has been made of yet too: `cosmic fix`, which
---- stages and compiles the directory to check it whatever it holds
---- ([`build.fix.spill`]), so that what its links name is the tree as it
---- stands rather than whatever an earlier `cosmic test` left.
+--- the verb `verb`, which names itself in what it says: a lookup's,
+--- which waits for no other run. With `start`, it builds one no build
+--- has been made of yet too, and waits for another run as a build does:
+--- `cosmic fix`, which stages and compiles the directory to check it
+--- whatever it holds ([`build.fix.spill`]), so that what its links name
+--- is the tree as it stands rather than whatever an earlier `cosmic test`
+--- left.
 function rebuild.here(verb: string, start?: boolean): boolean, string
   local root, trouble = Fs.absolute(".")
   if root == nil then return false, trouble end

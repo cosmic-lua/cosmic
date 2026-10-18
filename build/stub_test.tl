@@ -154,7 +154,7 @@ local function test_a_record_name_declared_again_as_a_value_keeps_every_statemen
     "local M = {}",
     "M.x = 1",
     "return M"))
-  assert(stubbed:find("M.x = 1", 1, true) ~= nil, stubbed)
+  assert(stubbed:find("M.x = 1", 1, true), stubbed)
 end
 
 local function test_a_never_function_s_stub_body_raises()
@@ -167,10 +167,10 @@ local function test_a_never_function_s_stub_body_raises()
     "function M.quit(): never error('x') end",
     "function M.halt(): never stop() end",
     "return M"))
-  assert(stubbed:find("function M.die(why: string): never\n  error()\nend", 1, true) ~= nil, stubbed)
-  assert(stubbed:find("function M.quit(): never error()    end", 1, true) ~= nil, stubbed)
+  assert(stubbed:find("function M.die(why: string): never\n  error()\nend", 1, true), stubbed)
+  assert(stubbed:find("function M.quit(): never error()    end", 1, true), stubbed)
   -- A body with no room for `error()` on its line is kept.
-  assert(stubbed:find("function M.halt(): never stop() end", 1, true) ~= nil, stubbed)
+  assert(stubbed:find("function M.halt(): never stop() end", 1, true), stubbed)
   local env = environment({})
   local checked = built.check_string(stubbed, env, "m.tl", "tl")
   assert(#checked.type_errors == 0, checked.type_errors[1] and checked.type_errors[1].msg)
@@ -184,8 +184,8 @@ local function test_a_function_inside_a_top_level_value_loses_its_body()
     "  end,",
     "}",
     "return handlers"))
-  assert(stubbed:find("n * 2", 1, true) == nil and
-      stubbed:find("double = function(n: integer): integer\n\n  end,", 1, true) ~= nil, stubbed)
+  assert(stubbed:find("n * 2", 1, true) == nil, stubbed)
+  assert(stubbed:find("double = function(n: integer): integer\n\n  end,", 1, true), stubbed)
 end
 
 local function test_the_difference_names_where_two_types_part()
@@ -199,8 +199,9 @@ local function test_the_difference_names_where_two_types_part()
   local b = built.check_string('return require("b")', env, "z.tl", "tl")
   assert(stub.difference(a.type, again.type) == nil, "the same type declared twice")
   local found = stub.difference(a.type, b.type)
-  assert(found ~= nil and found:find("f", 1, true) ~= nil and found:find("elements", 1, true) ~= nil,
-    tostring(found))
+  local said = assert(found, "two types that differ")
+  assert(said:find("f", 1, true), said)
+  assert(said:find("elements", 1, true), said)
 end
 
 --- What the checker says of `program` when each standard-library module
@@ -278,9 +279,9 @@ local function test_a_literal_typed_by_its_context_keeps_its_body()
     "return (M)")
   local stubbed = stub_of(text)
   -- A literal with a return list loses its body as any function does.
-  assert(stubbed:find("M.f = function(n) return n end", 1, true) ~= nil and
-      stubbed:find("M.stop = function(why) error(why) end", 1, true) ~= nil and
-      stubbed:find("M%.g = function%(n: integer%): integer +end") ~= nil, stubbed)
+  assert(stubbed:find("M.f = function(n) return n end", 1, true), stubbed)
+  assert(stubbed:find("M.stop = function(why) error(why) end", 1, true), stubbed)
+  assert(stubbed:find("M%.g = function%(n: integer%): integer +end"), stubbed)
   local checked = built.check_string(stubbed, environment({}), "m.tl", "tl")
   assert(#checked.type_errors == 0, checked.type_errors[1] and checked.type_errors[1].msg)
 end
@@ -314,8 +315,8 @@ local function test_a_stub_of_a_module_returning_a_typed_local_types_it_the_same
     "local m: M = { f = f }",
     "return m")
   local stubbed = stub_of(text)
-  assert(stubbed:find("cosmic.json", 1, true) == nil and
-      stubbed:find("local m: M = { f = f }", 1, true) ~= nil, stubbed)
+  assert(stubbed:find("cosmic.json", 1, true) == nil, stubbed)
+  assert(stubbed:find("local m: M = { f = f }", 1, true), stubbed)
   local from_source = built.check_string(text, environment({ ["cosmic.json"] =
       assert(Store.source("cosmic.json")) }), "m.tl", "tl")
   local from_stub = built.check_string(stubbed, environment({}), "m.tl", "tl")
@@ -329,4 +330,16 @@ end
 local function test_a_standard_module_this_test_requires_is_served_from_its_stub()
   local served = teal.standard_text("cosmic.web")
   assert(served ~= nil and served.stubbed, "cosmic.web was served from its source")
+end
+
+local function test_a_stub_of_every_statement_drops_bodies_alone()
+  local text = source('local Json = require("cosmic.json")', "local record M end",
+    "local unused = Json.encode({})", "function M.f(): integer return 1 end", "return M")
+  local parsed = assert(ast.parse(built, text, "m.tl"))
+  local pruned = stub.made(parsed)
+  assert(pruned.pruned and pruned.text:find("unused", 1, true) == nil, pruned.text)
+  local every = stub.made(parsed, true)
+  assert(not every.pruned, "every statement is kept")
+  assert(every.text:find("local unused = Json.encode({})", 1, true), every.text)
+  assert(every.text:find("return 1", 1, true) == nil, "a body is left out: " .. every.text)
 end

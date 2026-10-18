@@ -295,6 +295,21 @@ function compilation.dependency_keys(db: Sqlite.Handle, modules: {Module},
   return out, ""
 end
 
+--- Why a build refuses the module `file` of `kind` that declares what
+--- its tests read (`inputs`, [`Test.policy`]), or nil when it does not:
+--- a declaration holds for the tests of its own module, and a module
+--- that is no test's has none. What a module it requires reads, the
+--- test declares.
+function compilation.policy_refusal(file: string, kind: string,
+                                    inputs: analyzer.Declared | nil): string | nil
+  if inputs == nil or kind == "test" or kind == "example" then
+    return nil
+  end
+  return file .. ":" .. inputs.line .. ": test.policy: only a test or example " ..
+    "module declares what its tests read; call it in each test module that " ..
+    "requires this one"
+end
+
 --- Every module the derived tree holds ([`build.importer.derive`]), with what
 --- its parse found.
 function compilation.collect(db: Sqlite.Handle): {Module} | nil, string
@@ -330,13 +345,9 @@ function compilation.collect(db: Sqlite.Handle): {Module} | nil, string
     local path, file, kind, origin = row:text(1), row:text(2), row:text(3), row:text(4)
     local source, source_hash, has_return = row:text(5), row:text(6), row:text(7)
     local inputs = declared[source_hash]
-    if inputs ~= nil and kind ~= "test" and kind ~= "example" then
-      -- A declaration holds for the tests of its own module, and a
-      -- module that is no test's has none: what a module it requires
-      -- reads, the test declares.
-      return nil, file .. ":" .. inputs.line .. ": test.policy: only a test or example " ..
-        "module declares what its tests read; call it in each test module that " ..
-        "requires this one"
+    local misplaced = compilation.policy_refusal(file, kind, inputs)
+    if misplaced ~= nil then
+      return nil, misplaced
     end
     out[#out + 1] = {
       path = path,
@@ -549,6 +560,13 @@ local function held_to_stub(m: Module, built: compiler, env: compiler.Env,
   return true, ""
 end
 
+--- Why a cosmic build refuses a global declared at `at` (`file:line:column`).
+function compilation.global_refusal(at: string): string
+  return at .. ": a global is not allowed in a cosmic build: it reaches other modules by no " ..
+    "`require`, which is all a build's cache and its order see -- put the value " ..
+    "in a module and `require` it"
+end
+
 --- Why the build may not go on: the globals declared by any source the
 --- tree holds but tl's own, one line each at the declaration, in file
 --- order, or nil when there are none. A module's compile key holds its
@@ -572,10 +590,8 @@ function compilation.refuse_globals(db: Sqlite.Handle): string | nil, string
   end
   local lines: {string} = {}
   for _, row in ipairs(rows) do
-    lines[#lines + 1] = row:text(1) .. ":" .. row:text(2) .. ":" .. row:text(3) ..
-      ": a global is not allowed in a cosmic build: it reaches other modules by no " ..
-      "`require`, which is all a build's cache and its order see -- put the value " ..
-      "in a module and `require` it"
+    lines[#lines + 1] = compilation.global_refusal(row:text(1) .. ":" .. row:text(2) .. ":" ..
+        row:text(3))
   end
   return table.concat(lines, "\n"), ""
 end
@@ -583,12 +599,24 @@ end
 --- Compiles one module: the checker over its source (with each
 --- [`Shape.record_of`] call resolved first, [`build.shape_specs`]), the test
 --- tail when it is a test, and the bytecode.
+--- @param resolved the source with its calls resolved already, as
+---   [`shape_specs.resolve`] answers it, when the caller has it: it is
+---   not resolved again
+--- @param unreferenced whether to leave out the record-field uses
+---   (`references`, none), which only a build keeps
 function compilation.generate(m: Module, built: compiler, env: compiler.Env,
                               typed: receivers.State, own_tree: boolean, judged: boolean,
-                              render: function(string, string, compiler.Result): string): compilation.Generated | nil, string
-  local source, spec_trouble = shape_specs.resolve(built, env, m.file, m.path, m.source)
-  if source == nil then
-    return nil, spec_trouble
+                              render: function(string, string, compiler.Result): string,
+                              resolved?: string, unreferenced?: boolean): compilation.Generated | nil, string
+  local source = ""
+  if resolved ~= nil then
+    source = resolved
+  else
+    local found, spec_trouble = shape_specs.resolve(built, env, m.file, m.path, m.source)
+    if found == nil then
+      return nil, spec_trouble
+    end
+    source = found
   end
   -- Checked under the module's own file name, not `gen`'s empty
   -- one: a mismatch between a value's type and the type a slot
@@ -665,7 +693,10 @@ function compilation.generate(m: Module, built: compiler, env: compiler.Env,
     end
     refused = refused or #problems > 0
   end
-  local references = receivers.references(typed, env, checked)
+  local references: {receivers.Reference} = {}
+  if unreferenced ~= true then
+    references = receivers.references(typed, env, checked)
+  end
   if m.kind == "test" then
     code = with_test_tail(code, m.tests)
   end

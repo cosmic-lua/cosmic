@@ -1,3 +1,4 @@
+local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
@@ -233,4 +234,40 @@ local function test_web_assets_fall_back_to_the_vendored_trees_for_an_older_bina
   local kept = assert(reboot.web_assets(newer, tmp))
   assert(#kept == 1 and kept[1].version == "1.0.0", "the binary's own files are kept")
   assert(newer:close())
+end
+
+--- The check before a verb that only reads waits for no run that holds
+--- the working database of cosmic's own tree: that run checks the tool
+--- against the same tree, and the verb goes on at once.
+local function test_a_reading_verbs_check_waits_for_no_run_holding_the_database(tmp: string)
+  assert(Fs.mkdirs(tmp .. "/core"))
+  assert(Fs.mkdirs(tmp .. "/build"))
+  assert(Fs.write(tmp .. "/build/importer.tl", "return {}\n"))
+  assert(work.close((assert(work.open(tmp)))))
+  local held = assert(Sqlite.open(paths.under((assert(paths.directory(tmp)))).working, { writable = true }))
+  assert(held:exec("BEGIN IMMEDIATE"))
+  local started = Clock.monotonic_ns()
+  local code = reboot.stale_exit({ [1] = "docs", [2] = "Fs.read" }, true, tmp)
+  local took = Clock.monotonic_ns() - started
+  assert(held:exec("ROLLBACK"))
+  assert(held:close())
+  assert(code == nil, tostring(code))
+  assert(took < Clock.seconds(10), tostring(took) .. " ns")
+end
+
+--- Where no run holds the working database, the check before a verb
+--- that only reads is the check before any verb: it stages the tree and
+--- holds the tool to it. The test runner's tool is not the tree's own
+--- ([`reboot.own_tool`]), so it refuses, and rebuilds nothing.
+local function test_a_reading_verbs_check_holds_the_tool_to_the_tree_when_the_lock_is_free(tmp: string)
+  assert(Fs.mkdirs(tmp .. "/core"))
+  assert(Fs.mkdirs(tmp .. "/build"))
+  assert(Fs.write(tmp .. "/build/importer.tl", "return {}\n"))
+  assert(work.close((assert(work.open(tmp)))))
+  local code = reboot.stale_exit({ [1] = "docs", [2] = "Fs.read" }, true, tmp)
+  assert(code == 3, tostring(code))
+  local db = assert(Sqlite.open(paths.under((assert(paths.directory(tmp)))).working))
+  local rows = assert(Sqlite.text_rows(db, "SELECT path FROM files WHERE path = 'build/importer.tl'"))
+  assert(db:close())
+  assert(#rows == 1, "the tree is staged")
 end

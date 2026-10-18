@@ -129,3 +129,22 @@ local function test_a_require_that_names_no_literal_or_sits_in_text_is_no_depend
   }, "\n")
   assert(required(source) == "", required(source))
 end
+
+local function test_a_require_site_is_where_the_string_naming_its_module_stands()
+  local source = table.concat({
+    "local A = require(\"a.first\")",
+    "local type T = require( 'b.types' )",
+    "local function f()",
+    "  return require(\"c.inner\"), require(\"a.first\")",
+    "end",
+    "return A, T, f",
+    "",
+  }, "\n")
+  local chunk, why = Node.parse(source, "t.tl")
+  local found: {string} = {}
+  for _, site in ipairs(Node.require_sites((assert(chunk, why)))) do
+    found[#found + 1] = ("%s@%d:%d"):format(site.name, site.y, site.x)
+  end
+  local got = table.concat(found, " ")
+  assert(got == "a.first@1:19 b.types@2:25 c.inner@4:18", got)
+end

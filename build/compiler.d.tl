@@ -304,6 +304,14 @@ local record compiler
     defaults: Defaults
     globals: {string:Global}
     modules: {string:any}
+    -- The file each module of `modules` was read from, by module name.
+    module_filenames: {string:string}
+    -- Each file checked, by file name: [`check_string`] answers a file
+    -- found here without checking it again.
+    loaded: {string:any}
+    -- The file name of each entry of `loaded`, in the order checked: ""
+    -- for a text checked under no file name, as `gen` checks one.
+    loaded_order: {string}
     -- When set, the checker hands every node's type to `reporter`'s
     -- collector as it checks; see [`build.receivers`].
     report_types: boolean | nil

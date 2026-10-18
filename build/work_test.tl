@@ -105,6 +105,98 @@ local function test_symbol_schema_upgrade_discards_old_analysis(tmp: string)
   assert(work.close(upgraded))
 end
 
+--- The journal mode of the file at `path`, as a reader opening it sees.
+local function journal_mode(path: string): string
+  local db = assert(Sqlite.open(path))
+  local rows = assert(Sqlite.text_rows(db, "PRAGMA journal_mode"))
+  assert(db:close())
+  return assert(rows[1]):text(1)
+end
+
+--- A working database is in write-ahead mode, and one made in rollback
+--- mode, by a build before this one, is put in it at its next writable
+--- open.
+local function test_a_rollback_mode_database_is_put_in_write_ahead_mode(tmp: string)
+  local path = build_dir(tmp) .. "/build.db"
+  assert(work.close((assert(work.open(tmp)))))
+  assert(journal_mode(path) == "wal", journal_mode(path))
+  local db = assert(Sqlite.open(path, { writable = true }))
+  local set = assert(assert(Sqlite.text_rows(db, "PRAGMA journal_mode = DELETE"))[1]):text(1)
+  assert(set == "delete", set)
+  assert(db:close())
+  assert(journal_mode(path) == "delete", journal_mode(path))
+  local reopened = assert(work.open(tmp))
+  local mode = assert(assert(Sqlite.text_rows(reopened.db, "PRAGMA journal_mode"))[1]):text(1)
+  assert(mode == "wal", mode)
+  assert(work.close(reopened))
+  assert(journal_mode(path) == "wal", journal_mode(path))
+end
+
+--- A commit is in the file itself, not in its write-ahead log alone,
+--- while the run that made it keeps its handle open, as `cosmic test`
+--- does while its tests run: a reader of the file alone, as
+--- [`Store.attach`] opens it, reads it.
+local function test_a_commit_is_in_the_file_while_its_run_goes_on(tmp: string)
+  local handle = assert(work.open(tmp))
+  assert(Sqlite.run(handle.db, "INSERT INTO meta (key, value) VALUES ('marker', 'committed')"))
+  assert(work.commit(handle))
+  local alone = assert(Sqlite.open(build_dir(tmp) .. "/build.db", { immutable = true }))
+  -- Without the copy into the file, it holds no table yet.
+  local rows = assert(Sqlite.text_rows(alone, "SELECT value FROM meta WHERE key = 'marker'"))
+  assert(alone:close())
+  assert(work.close(handle))
+  assert(#rows == 1 and assert(rows[1]):text(1) == "committed", tostring(#rows))
+end
+
+--- An open that waits for no run answers at once, with no handle, while
+--- another run holds the write lock, and opens the database once it is
+--- free.
+local function test_an_open_that_waits_for_no_run_finds_one_holding_it(tmp: string)
+  assert(work.close((assert(work.open(tmp)))))
+  local held = assert(Sqlite.open(build_dir(tmp) .. "/build.db", { writable = true }))
+  assert(held:exec("BEGIN IMMEDIATE"))
+  local started = Clock.monotonic_ns()
+  local busy = assert(work.try_open(tmp))
+  local took = Clock.monotonic_ns() - started
+  assert(busy.handle == nil, "opened while another run holds it")
+  assert(took < Clock.seconds(5), tostring(took) .. " ns")
+  assert(held:exec("ROLLBACK"))
+  assert(held:close())
+  local free = assert(work.try_open(tmp))
+  assert(work.close((assert(free.handle))))
+end
+
+--- A read of the working database answers at once, with the last
+--- commit, while a run holds its write transaction open with more
+--- written than its cache holds. In rollback mode that run's spill holds
+--- the file whole, and the read would wait for the run to end; the
+--- reader here waits two seconds at most, so a read held off fails.
+local function test_a_read_answers_at_once_while_a_run_writes(tmp: string)
+  local handle = assert(work.open(tmp))
+  assert(Sqlite.run(handle.db, "INSERT INTO meta (key, value) VALUES ('marker', 'committed')"))
+  assert(work.commit(handle))
+  assert(work.begin(handle))
+  assert(Sqlite.run(handle.db, "UPDATE meta SET value = 'uncommitted' WHERE key = 'marker'"))
+  -- A cache of a few pages, and far more written than it holds: spilled.
+  assert(handle.db:exec("PRAGMA cache_size = 10"))
+  assert(handle.db:exec("WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n " ..
+      "WHERE i < 4000) INSERT INTO meta (key, value) SELECT 'filler ' || i, " ..
+      "hex(randomblob(512)) FROM n"))
+  local started = Clock.monotonic_ns()
+  local reader = assert(Sqlite.open(build_dir(tmp) .. "/build.db"))
+  reader:busy_timeout(Clock.seconds(2))
+  local rows = assert(Sqlite.text_rows(reader, "SELECT value FROM meta WHERE key = 'marker'"))
+  local fillers = assert(Sqlite.text_rows(reader,
+    "SELECT count(*) FROM meta WHERE key LIKE 'filler %'"))
+  local took = Clock.monotonic_ns() - started
+  assert(reader:close())
+  assert(work.abort(handle))
+  local marker = assert(rows[1]):text(1)
+  assert(marker == "committed", marker)
+  assert(assert(fillers[1]):text(1) == "0", "no uncommitted row is read")
+  assert(took < Clock.seconds(1), "the read took " .. tostring(took) .. " ns")
+end
+
 --- The bytes `files` holds for one staged path.
 local function staged_bytes(db: Sqlite.Handle, path: string): string
   local rows = assert(Sqlite.text_rows(db,

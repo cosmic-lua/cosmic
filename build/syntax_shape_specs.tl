@@ -42,6 +42,30 @@ local record ShapeSpecs
   --- not a string literal, a record the module does not reach, a field with no shape. A source the compiler would
   --- refuse anyway comes back as it is, for the compile that follows to report.
   resolve: function(build: Driver.Build, module: string, file: string, source: string): string | nil, string
+
+  --- One call's resolution: `text` goes after byte `at` of the source.
+  record Splice
+    at: integer
+    text: string
+  end
+
+  --- What [`ShapeSpecs.splices`] found of a source.
+  record Found
+    --- Each call's splice, the last in the source first; none where a call was refused.
+    splices: {Splice}
+    --- What was refused, as the compiler words a refusal (`file:line: ...`); "" where nothing was.
+    refusal: string
+    --- The line of the call refused; 0 where none was.
+    line: integer
+  end
+
+  --- What [`ShapeSpecs.resolve`] splices into `source`, each call's [`ShapeSpecs.Splice`], the last in the source first;
+  --- none for a source that has no such call, or that the compiler would refuse anyway. Where a call cannot be
+  --- resolved, none, and the refusal `resolve` makes and the call's line ([`ShapeSpecs.Found`]).
+  splices: function(build: Driver.Build, module: string, file: string, source: string): Found
+
+  --- `source` with each of `splices` put in, the last first as [`ShapeSpecs.splices`] answers them.
+  spliced: function(source: string, splices: {Splice}): string
 end
 
 local type Type = Types.Type
@@ -281,31 +305,27 @@ local function resolve_name(build: Driver.Build, outcome: Driver.Outcome, name: 
   return entry_target(program.store, found, required_by[longest] .. "." .. inside)
 end
 
---- A splice into the source: after the byte `at`, the text.
-local record Splice
-  at: integer
-  text: string
-end
+local type Splice = ShapeSpecs.Splice
 
-function ShapeSpecs.resolve(build: Driver.Build, module: string, file: string, source: string):
-    string | nil, string
+function ShapeSpecs.splices(build: Driver.Build, module: string, file: string, source: string): ShapeSpecs.Found
+  local none: {Splice} = {}
   if not source:find("record_of", 1, true) then
-    return source, ""
+    return { splices = none, refusal = "", line = 0 }
   end
   build:lower({ module })
   local outcome = build:result(module, false)
   if outcome == nil or outcome.broken then
-    return source, ""
+    return { splices = none, refusal = "", line = 0 }
   end
   local chunk = outcome.chunk
   local aliases = required(chunk)
   local shape = aliases["cosmic.shape"]
   if shape == nil then
-    return source, ""
+    return { splices = none, refusal = "", line = 0 }
   end
   local pattern, pattern_trouble = Match.compile("$S.record_of($N)")
   if pattern == nil then
-    return nil, pattern_trouble
+    return { splices = none, refusal = pattern_trouble, line = 0 }
   end
   local calls: {Match.Hit} = {}
   for _, hit in ipairs(Match.find_all(pattern, chunk, chunk)) do
@@ -322,16 +342,19 @@ function ShapeSpecs.resolve(build: Driver.Build, module: string, file: string, s
     local named = hit.caps["_N"]
     local literal = named ~= nil and named.nodes[1] or nil
     if literal == nil or not (literal is Ast.String) then
-      return nil, where .. ": the name must be a string literal, which the build reads"
+      return { splices = none, line = span.y,
+        refusal = where .. ": the name must be a string literal, which the build reads" }
     end
     local token = chunk.tokens[named.first]
     local quote = token.text:sub(1, 1)
     if literal.long or (quote ~= '"' and quote ~= "'") or token.text:find("\\", 1, true) ~= nil then
-      return nil, where .. ": the name must be a plain quoted string with no escape in it"
+      return { splices = none, line = span.y,
+        refusal = where .. ": the name must be a plain quoted string with no escape in it" }
     end
     local target, unresolved = resolve_name(build, outcome, literal.value, Node.base(hit.node).first, aliases)
     if target == nil then
-      return nil, ("%s(%q): %s"):format(where, literal.value, unresolved)
+      return { splices = none, line = span.y,
+        refusal = ("%s(%q): %s"):format(where, literal.value, unresolved) }
     end
     local at = target.type
     if not (at is Types.Named) or at.decl.kind ~= "record" then
@@ -340,11 +363,13 @@ function ShapeSpecs.resolve(build: Driver.Build, module: string, file: string, s
         what = at.decl.kind == "enum" and "an enum, which " .. shape .. ".one_of checks" or
           "a " .. at.decl.kind .. ", not a record"
       end
-      return nil, ("%s(%q): it is %s"):format(where, literal.value, what)
+      return { splices = none, line = span.y,
+        refusal = ("%s(%q): it is %s"):format(where, literal.value, what) }
     end
     local spec, refusal = spec_of(at, literal.value, shape, {}, build.program.store)
     if spec == nil then
-      return nil, ("%s(%q): %s"):format(where, literal.value, refusal)
+      return { splices = none, line = span.y,
+        refusal = ("%s(%q): %s"):format(where, literal.value, refusal) }
     end
     splices[#splices + 1] = {
       at = token.offset + token.length - 1, text = (", %s, function(): %s return nil end"):format(spec, target.spelled),
@@ -353,11 +378,24 @@ function ShapeSpecs.resolve(build: Driver.Build, module: string, file: string, s
   table.sort(splices, function(a: Splice, b: Splice): boolean
     return a.at > b.at
   end)
+  return { splices = splices, refusal = "", line = 0 }
+end
+
+function ShapeSpecs.spliced(source: string, splices: {Splice}): string
   local out = source
   for _, splice in ipairs(splices) do
     out = out:sub(1, splice.at) .. splice.text .. out:sub(splice.at + 1)
   end
-  return out, ""
+  return out
+end
+
+function ShapeSpecs.resolve(build: Driver.Build, module: string, file: string, source: string):
+    string | nil, string
+  local found = ShapeSpecs.splices(build, module, file, source)
+  if found.refusal ~= "" then
+    return nil, found.refusal
+  end
+  return ShapeSpecs.spliced(source, found.splices), ""
 end
 
 return ShapeSpecs

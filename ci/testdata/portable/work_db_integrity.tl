@@ -23,10 +23,11 @@ return function(argv: {string}): integer
     print("work database integrity: FAIL (usage: work_db_integrity.tl DATABASE)")
     return 2
   end
-  -- A raw snapshot can include a hot rollback journal. CI passes
-  -- --recover-copy only for its second disposable copy, allowing SQLite to
-  -- recover that copy before integrity checks. The preserved bytes remain
-  -- unopened and retain their exact database+journal hashes.
+  -- A raw snapshot can include a hot rollback journal, or the write-ahead
+  -- log holding commits not yet in the file. CI passes --recover-copy only
+  -- for its second disposable copy, allowing SQLite to recover that copy,
+  -- or read its log, before integrity checks. The preserved bytes remain
+  -- unopened and retain their exact hashes, the journal's or log's too.
   -- This file runs only on the candidate's own binary (orchestration.tl's
   -- local and portable boundaries), so the options table is read as such,
   -- and a row is read through its accessors.

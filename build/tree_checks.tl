@@ -88,9 +88,9 @@ allowed["build.dataset.read"] = "the reader load_text composes and falls back on
 allowed["build.dataset.load"] = "the loader load_text composes and falls back on, tested directly " ..
   "over rows a test builds, whose keys no file need hold"
 
--- TODO: drop these allowances as build.analyzer, build.link_text, build.links, build.receivers, build.contracts and
--- build/fix are rewritten to the new syntax tree and call the readers that the tree's checks and tests alone call now
--- (doc/plans/strict-teal.md, "the switch").
+-- TODO: drop these allowances as build.analyzer, build.link_text, build.links, build.receivers, build.contracts,
+-- build/fix and build/lsp are rewritten to the new syntax tree and call the readers that the tree's checks and tests
+-- alone call now (doc/plans/strict-teal.md, "the switch").
 local function allow(names: {string}, why: string)
   for _, name in ipairs(names) do
     allowed[name] = why
@@ -101,6 +101,7 @@ allow({
   "build.coverage.syntax_lines.executable_cached", "build.syntax_derivation.rows_of", "build.syntax_derivation.insert",
   "build.syntax_match.matches", "build.syntax_match.text", "build.syntax_rewrite.rewrite", "build.syntax_scopes.position",
   "build.syntax_scopes.bindings_of", "build.syntax_shape_specs.resolve", "build.syntax_node.children",
+  "build.syntax_node.require_sites", "build.syntax_shape_specs.splices", "build.syntax_shape_specs.spliced",
 }, "a reader of the new syntax tree (build/syntax_*.tl) that the rewrites of the readers of the fork's tree call; " ..
     "tested directly until they do")
 
@@ -241,9 +242,8 @@ for _, name in ipairs({ "key", "open", "close", "look", "settle", "analyzers", "
 end
 allowed["build.importer.analyzer_modules"] = "tested directly: the test holds the " ..
   "list to every module the analysis requires"
-allowed["build.importer.analyzer_identity"] = "tested directly: the test names " ..
-  "the analyzer of a projection it wrote as the binary would, which no " ..
-  "running binary but the tree's own carries"
+allowed["build.lsp.protocol.frames_of"] = "tested directly: the test hands it a " ..
+  "stream that answers a byte a read, so a message arrives split at every place it can be"
 allowed["build.importer.tree_code"] = "tested directly: the test holds what a " ..
   "boot names its analyzer by to what the tool it writes names it by, around a " ..
   "derive run as a boot runs it, which no binary under the suite otherwise does"
