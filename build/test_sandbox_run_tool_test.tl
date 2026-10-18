@@ -18,6 +18,7 @@ local test_sandbox = require("build.test_sandbox")
 local confine = require("build.confine")
 local fixture = require("build.test_sandbox_fixture")
 local Test = require("cosmic.test")
+local build_paths = require("build.paths")
 
 --- What a worker's plan gives it of the host, the program it runs,
 --- roots of their own for the sandboxed workers it starts (`nests`), and
@@ -183,16 +184,26 @@ local function test_a_host_path_is_given_where_it_is_declared(tmp: string)
   assert(text:find("read|given|nil|end", 1, true), text)
 end
 
+--- The names of the copies of closures' files beneath the build directory
+--- of the tree at `root`, run with `env`.
+local function copies_of(root: string, env: {string:string}): {string}
+  local names, _ = Fs.list(build_paths.resolve(root, env).copies)
+  return names or {}
+end
+
 --- End to end: a test whose closure's files, each a path of its own, are
 --- more paths than a sandbox holds starts, requires each module of it and
 --- reads each file at its place in /tree, given as copies of a directory's
---- files of the closure alone: a file beside them that the closure does
---- not hold is not there.
+--- files of the closure alone, with a file its module declares it reads
+--- among them: a file beside them it does not declare is not there. The
+--- run says once that its scratch directory is the host's, and why. A run
+--- takes out the copies the run before it made, so only its own are left.
 local function test_a_closure_past_the_most_paths_starts_and_reads_its_modules(tmp: string)
   local root = tmp .. "/root"
   local count = confine.unveil_max + 20
   assert(Fs.mkdirs(root .. "/suite"))
   assert(Fs.write(root .. "/suite/notes.txt", "not of the closure"))
+  assert(Fs.write(root .. "/suite/data.txt", "declared"))
   local requires: {string} = {}
   for i = 1, count do
     assert(Fs.write(string.format("%s/suite/m%03d.tl", root, i), "return " .. tostring(i) .. "\n"))
@@ -200,6 +211,9 @@ local function test_a_closure_past_the_most_paths_starts_and_reads_its_modules(t
   end
   assert(Fs.write(root .. "/suite/many_test.tl", [[
 local Fs = require("cosmic.fs")
+local Test = require("cosmic.test")
+
+Test.policy{ grants = { { path = "suite/data.txt", letters = "r" } } }
 
 local loaded: {integer} = {
 ]] .. table.concat(requires, "\n") .. [[
@@ -212,7 +226,8 @@ local function test_many()
     local text = (Fs.read(string.format("suite/m%03d.tl", i)))
     if value == i and text == "return " .. i .. "\n" then read = read + 1 end
   end
-  error("many|" .. read .. "|" .. tostring((Fs.exists("suite/notes.txt"))) .. "|end")
+  error("many|" .. read .. "|" .. tostring((Fs.read("suite/data.txt"))) .. "|" ..
+    tostring((Fs.exists("suite/notes.txt"))) .. "|end")
 end
 ]]))
   local env = this_program.environment()
@@ -224,7 +239,24 @@ end
   assert(not ok, text)
   if unsandboxed(text) then return end
   assert(text:find("; sandboxed", 1, true), text)
-  assert(text:find("many|" .. tostring(count) .. "|false|end", 1, true), text)
+  assert(text:find("many|" .. tostring(count) .. "|declared|false|end", 1, true), text)
+  local said = "test: suite.many_test: its scratch directory is the host's, not its " ..
+    "sandbox's own: the files of the tree it is given are more paths than a sandbox holds, " ..
+    "so those beneath suite are given as a copy, a directory"
+  local at = text:find(said, 1, true)
+  assert(at ~= nil and text:find(said, at + 1, true) == nil, text)
+  local first = copies_of(root, env)
+  assert(#first > 0, "the run left no copy")
+  text, ok = run(root, tmp .. "/again", env)
+  assert(not ok, text)
+  assert(text:find("many|" .. tostring(count) .. "|declared|false|end", 1, true), text)
+  local second = copies_of(root, env)
+  assert(#second > 0, "the second run left no copy")
+  for _, name in ipairs(first) do
+    for _, left in ipairs(second) do
+      assert(left ~= name, name .. " is left from the run before")
+    end
+  end
 end
 
 --- The suite the tests below run `cosmic test` on, two modules whose

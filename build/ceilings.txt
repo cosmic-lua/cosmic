@@ -1879,11 +1879,12 @@ build/test_policy_test.tl view_written 1
 build/test_policy_tool_test.tl view_written 1
 build/test_report.tl view_written 11
 build/test_requires_tool_test.tl view_written 2
-build/test_sandbox.tl view_written 37
+build/test_sandbox.tl view_written 38
 build/test_sandbox_probe.tl view_written 9
 build/test_sandbox_run_tool_test.tl view_written 7
+build/test_sandbox_system_test.tl view_written 1
 build/test_sandbox_test.tl view_written 1
-build/test_sandbox_tool_test.tl view_written 5
+build/test_sandbox_tool_test.tl view_written 8
 build/test_selection_test.tl view_written 3
 build/test_skip_tool_test.tl view_written 1
 build/test_standing_test.tl view_written 1
@@ -2345,7 +2346,6 @@ build/syntax_shape_specs.tl view_as_mut 1
 build/syntax_stub.tl view_as_mut 1
 build/test.tl view_as_mut 10
 build/test_inputs.tl view_as_mut 1
-build/test_sandbox.tl view_as_mut 1
 build/test_worker.tl view_as_mut 3
 build/tree_checks.tl view_as_mut 11
 build/work.tl view_as_mut 3

@@ -34,10 +34,11 @@ local function build_dir(root: string): string
   return (assert(build_paths.prepare(root)))
 end
 
---- An `Effective` holding `files` of the tree and nothing else declared.
-local function effective(files: {string}): test_inputs.Effective
-  local out: test_inputs.Effective = { files = {}, reads = {}, host = {}, env = {}, network = {},
-    tool = false, store = false }
+--- An `Effective` holding `files` of the tree, and what of it `reads` names
+--- (none for nil), and nothing else declared.
+local function effective(files: {string}, reads?: {string}): test_inputs.Effective
+  local out: test_inputs.Effective = { files = {}, reads = reads or {}, host = {}, env = {},
+    network = {}, tool = false, store = false }
   for _, file in ipairs(files) do out.files[file] = true end
   return out
 end
@@ -108,14 +109,23 @@ end
 --- copy of them alone, at that directory's place in /tree, holding each
 --- of them at its path and nothing beside them (a file the key does not
 --- hold). Its scratch directory is the host's then, since a copy is a
---- directory, and it says so. Given nowhere to make a copy, the plan is
---- over the most, as every plan past it was.
+--- directory, and it says so. Each directory and file of a copy is
+--- readable by anyone, whatever the umask, as a worker run as a user of
+--- its own reads the tree. Given nowhere to make a copy, the plan is over
+--- the most, as every plan past it was.
 local function test_a_closure_past_the_most_paths_is_given_as_copies(tmp: string)
   local root, scratch, copies = tmp .. "/root", scratch_in(tmp), tmp .. "/copies"
   assert(Fs.write(build_dir(root) .. "/cosmic.db", "x"))
   local files = closure_files(root, "many", confine.unveil_max + 40)
   for _, file in ipairs(closure_files(root, "few", 1)) do files[#files + 1] = file end
-  local plan = test_sandbox.plan(root, scratch, effective(files), {}, nil, nil, copies)
+  local kept: {string:test_sandbox.Plan} = {}
+  local umask = sys.umask(0x3f)
+  local planned, why = pcall(function()
+    kept["plan"] = test_sandbox.plan(root, scratch, effective(files), {}, nil, nil, copies)
+  end)
+  sys.umask(umask)
+  assert(planned, tostring(why))
+  local plan = assert(kept["plan"])
   assert(plan.trouble == "", plan.trouble)
   assert(plan.over == 0, "over by " .. tostring(plan.over))
   local unveil = assert(plan.sandbox.unveil)
@@ -136,7 +146,12 @@ local function test_a_closure_past_the_most_paths_is_given_as_copies(tmp: string
     end
   end
   assert(Fs.exists(given .. "/notes.txt") ~= true, "a file the key does not hold is given")
-  assert((assert(sys.stat(given)).mode & 0x1ff) == 0x1ed)
+  for _, dir in ipairs({ given, given .. "/deeper" }) do
+    assert((assert(sys.stat(dir)).mode & 0x1ff) == 0x1ed, dir)
+  end
+  for _, file in ipairs(held) do
+    assert((assert(sys.stat(given .. "/" .. file)).mode & 0x1ff) == 0x1a4, file)
+  end
   -- The one file of few/ saves no path as a copy, and stays its own.
   assert(holds(unveil.reads, root .. "/few/m001.tl") and at[root .. "/few/m001.tl"] == "/tree/few/m001.tl")
   assert(not plan.own_scratch, plan.why_shared)
@@ -169,7 +184,9 @@ local function test_a_closure_is_counted_as_a_start_counts_its_grants(tmp: strin
 end
 
 --- Within the most paths a sandbox holds, each file of the closure is a
---- path of its own, as it always was, and nothing is copied.
+--- path of its own, and nothing is copied. A guard that the copies are
+--- only for a plan past the most: it fails where every plan is copied,
+--- and passes with no copies at all.
 local function test_a_closure_within_the_most_paths_is_given_file_by_file(tmp: string)
   local root, scratch, copies = tmp .. "/root", scratch_in(tmp), tmp .. "/copies"
   assert(Fs.write(build_dir(root) .. "/cosmic.db", "x"))
@@ -185,6 +202,143 @@ local function test_a_closure_within_the_most_paths_is_given_file_by_file(tmp: s
   assert(Fs.exists(copies) ~= true, "a copy is made for a plan that fits")
   local unchanged = test_sandbox.plan(root, scratch, effective(files), {})
   assert(#assert(unchanged.sandbox.unveil).reads == #unveil.reads)
+end
+
+--- Makes `count` files of the closure directly beneath `root`/`dir`;
+--- answers their paths.
+local function spread(root: string, dir: string, count: integer): {string}
+  assert(Fs.mkdirs(root .. "/" .. dir))
+  local files: {string} = {}
+  for i = 1, count do
+    local file = string.format("%s/m%03d.tl", dir, i)
+    assert(Fs.write(root .. "/" .. file, "return " .. tostring(i)))
+    files[#files + 1] = file
+  end
+  return files
+end
+
+--- `list` and `more` joined, as a list of its own.
+local function joined(list: {string}, more: {string}): {string}
+  local out: {string} = {}
+  for _, part in ipairs({ list, more }) do
+    for _, each in ipairs(part) do out[#out + 1] = each end
+  end
+  return out
+end
+
+--- Whether the places in /tree a plan gives a copy beneath `copies` at
+--- are `want`, in any order.
+local function copied_at(plan: test_sandbox.Plan, copies: string, want: {string}): boolean
+  local unveil = assert(plan.sandbox.unveil)
+  local count = 0
+  for _, path in ipairs(unveil.reads) do
+    if Fs.within(path, copies) then
+      count = count + 1
+      if not holds(want, (unveil.at or {})[path] or path) then return false end
+    end
+  end
+  return count == #want
+end
+
+--- A file the module declares it reads beside the closure's, in the
+--- directory a copy would give, is copied with them, since its key holds
+--- it by its contents too: a directory that holds one stays a copy's, and
+--- the test starts.
+local function test_a_declared_file_beside_the_closure_is_copied_with_it(tmp: string)
+  local root, scratch, copies = tmp .. "/root", scratch_in(tmp), tmp .. "/copies"
+  assert(Fs.write(build_dir(root) .. "/cosmic.db", "x"))
+  local inputs = effective(spread(root, "suite", confine.unveil_max + 20), { "suite/data.txt" })
+  assert(Fs.write(root .. "/suite/data.txt", "data"))
+  local plan = test_sandbox.plan(root, scratch, inputs, {}, nil, nil, copies)
+  assert(plan.trouble == "" and plan.over == 0, plan.trouble .. " over " .. tostring(plan.over))
+  assert(copied_at(plan, copies, { "/tree/suite" }))
+  local unveil = assert(plan.sandbox.unveil)
+  assert(not holds(unveil.reads, root .. "/suite/data.txt"))
+  for _, path in ipairs(unveil.reads) do
+    if (unveil.at or {})[path] == "/tree/suite" then
+      assert(Fs.read(path .. "/data.txt") == "data")
+    end
+  end
+end
+
+--- A file the module declares it reads that is run keeps its own path,
+--- which grants it `x`, and is not copied; nor is a directory it is in,
+--- which would bind it inside a copy. The next directory that is free of
+--- it is copied instead.
+local function test_a_file_that_is_run_is_not_copied(tmp: string)
+  local root, scratch, copies = tmp .. "/root", scratch_in(tmp), tmp .. "/copies"
+  assert(Fs.write(build_dir(root) .. "/cosmic.db", "x"))
+  local half = (confine.unveil_max + 10) // 2
+  local inputs = effective(joined(spread(root, "suite/a", half), spread(root, "suite/b", half)),
+    { "suite/a/tool.sh" })
+  local tool = root .. "/suite/a/tool.sh"
+  assert(Fs.write(tool, "#!/bin/sh\n"))
+  assert(Fs.chmod(tool, 0x1ed))
+  local plan = test_sandbox.plan(root, scratch, inputs, {}, nil, nil, copies)
+  assert(plan.trouble == "" and plan.over == 0, plan.trouble .. " over " .. tostring(plan.over))
+  local unveil = assert(plan.sandbox.unveil)
+  assert(holds(unveil.reads, tool) and (unveil.at or {})[tool] == "/tree/suite/a/tool.sh" and
+      plan.runs[tool] == true)
+  assert(copied_at(plan, copies, { "/tree/suite/b" }))
+  assert(holds(unveil.reads, root .. "/suite/a/m001.tl"))
+end
+
+--- A directory any other path is given in, beneath or above, is not
+--- copied: a directory the module declares it reads is bound whole, and a
+--- copy around it would bind it inside the copy. A directory beside it
+--- is copied instead.
+local function test_a_directory_another_path_is_given_in_is_not_copied(tmp: string)
+  local root, scratch, copies = tmp .. "/root", scratch_in(tmp), tmp .. "/copies"
+  assert(Fs.write(build_dir(root) .. "/cosmic.db", "x"))
+  local half = (confine.unveil_max + 10) // 2
+  local inputs = effective(joined(spread(root, "suite/a", half), spread(root, "suite/b", half)),
+    { "suite/data" })
+  assert(Fs.mkdirs(root .. "/suite/data"))
+  assert(Fs.write(root .. "/suite/data/f", "f"))
+  local plan = test_sandbox.plan(root, scratch, inputs, {}, nil, nil, copies)
+  assert(plan.trouble == "" and plan.over == 0, plan.trouble .. " over " .. tostring(plan.over))
+  local unveil = assert(plan.sandbox.unveil)
+  assert(holds(unveil.reads, root .. "/suite/data") and
+      (unveil.at or {})[root .. "/suite/data"] == "/tree/suite/data")
+  assert(copied_at(plan, copies, { "/tree/suite/a" }))
+end
+
+--- Of two directories one beneath the other, only one is copied: the
+--- other's files are in its copy already, and a copy of it would be bound
+--- inside the first. The next directory apart from both is copied
+--- instead, where one is not enough.
+local function test_nested_directories_are_not_both_copied(tmp: string)
+  local root, scratch, copies = tmp .. "/root", scratch_in(tmp), tmp .. "/copies"
+  assert(Fs.write(build_dir(root) .. "/cosmic.db", "x"))
+  local most = confine.unveil_max
+  local files = joined(spread(root, "a/sub", most + most // 2), spread(root, "a", most // 2))
+  files = joined(files, spread(root, "b", most))
+  local plan = test_sandbox.plan(root, scratch, effective(files), {}, nil, nil, copies)
+  assert(plan.trouble == "" and plan.over == 0, plan.trouble .. " over " .. tostring(plan.over))
+  assert(copied_at(plan, copies, { "/tree/a", "/tree/b" }))
+end
+
+--- A copy that fails part-way leaves the plan's paths as they were, each
+--- file at its place in /tree, says why, and leaves no copy behind: a file
+--- whose copy's path is too long for the host.
+local function test_a_copy_that_fails_leaves_the_paths_as_they_were(tmp: string)
+  local root, scratch = tmp .. "/root", scratch_in(tmp)
+  local copies = tmp .. "/" .. string.rep("c", 250) .. "/" .. string.rep("d", 250)
+  assert(Fs.write(build_dir(root) .. "/cosmic.db", "x"))
+  -- Beneath many/, short enough at its place in the tree, too long in a copy.
+  local deep = "many/" .. string.rep(string.rep("p", 200), 18, "/")
+  assert(Fs.mkdirs(root .. "/" .. deep))
+  assert(Fs.write(root .. "/" .. deep .. "/f.tl", "f"))
+  local files = joined(spread(root, "many", confine.unveil_max + 20), { deep .. "/f.tl" })
+  local plan = test_sandbox.plan(root, scratch, effective(files), {}, nil, nil, copies)
+  assert(plan.trouble:find("copied to fewer paths", 1, true) ~= nil, plan.trouble)
+  local unveil = assert(plan.sandbox.unveil)
+  for _, file in ipairs(files) do
+    assert(holds(unveil.reads, root .. "/" .. file) and
+        (unveil.at or {})[root .. "/" .. file] == "/tree/" .. file, file)
+  end
+  assert(#(plan.copied or {}) == 0)
+  assert(#(assert(Fs.list(copies))) == 0, "a failed copy is left")
 end
 
 --- The program is named in the worker's build directory, its bin/cosmic,

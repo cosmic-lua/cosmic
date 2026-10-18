@@ -15,10 +15,9 @@
 ---   it, and its working directory there. Each read-only, it holds only
 ---   its module's import closure as source files, the fuzz corpora for a
 ---   module that uses [`build.fuzz`], and what the module declares it
----   `reads`. Each file of the closure is a path of its own, but where
----   that would give the worker more paths than a sandbox holds: then a
----   directory's files of the closure are given as one, a copy of them
----   alone ([`in_copies`]);
+---   `reads`. Each file is a path of its own, but where that would give
+---   the worker more paths than a sandbox holds: then a directory's files
+---   among them are given as one, a copy of them alone ([`in_copies`]);
 --- - the tree's build directory at [`test_sandbox.output`], wherever the
 ---   host keeps it, read-only, holding only the store at its `cosmic.db`
 ---   (the store of its module's import closure,
@@ -136,6 +135,10 @@ local record test_sandbox
     --- nothing).
     own_scratch: boolean
     why_shared: string
+    --- The directories of the tree whose files it is given as one copy
+    --- each ([`in_copies`]), where each file a path of its own would be
+    --- more paths than a sandbox holds; nil or empty for none.
+    copied?: {string}
   end
 end
 
@@ -449,36 +452,60 @@ local function granted(reads: {string}, writes: {string}, at: {string:string}, o
   return count
 end
 
+--- Makes the directories of `rest` (a relative path, "" for none)
+--- beneath `given`, each readable by anyone, whatever the umask: true, or
+--- false and why.
+local function make_open(given: string, rest: string): boolean, string
+  local dir = given
+  for part in rest:gmatch("[^/]+") do
+    dir = dir .. "/" .. part
+    local made, trouble, errno = sys.mkdir(dir, 0x1ed)
+    if not made and errno ~= sys.EEXIST then return false, dir .. ": " .. trouble end
+    if made then
+      local opened, open_trouble = Fs.chmod(dir, 0x1ed)
+      if not opened then return false, dir .. ": " .. open_trouble end
+    end
+  end
+  return true, ""
+end
+
 --- Gives `reads` -- a worker's paths to read, each placed where `at` says
 --- or at its own name -- in `need` fewer paths, where it can, by giving
---- the files of the closure (`closure`, plain relative paths) beneath a
---- directory of the tree as one path: a copy of those files alone, at
---- their paths beneath it, made in a directory of its own beneath `copies`
---- and given where the worker has that directory of the tree. A
---- directory of the tree given whole would show the files beside them,
---- which the module's key does not hold, and a test that read one would
---- pass on a file whose edit runs it not again; the copy holds what the
---- key holds and no more. A file of the closure that is run, or a
---- directory any other path the worker is given is placed in, beneath or
---- above, is not copied, so nothing is bound inside a copy. The directory
---- whose files of the closure are the most is copied first, until the
---- paths fit or no directory saves one.
---- @return the paths to read, the directories of the tree given as copies
---- (joined by ", ", "" for none), and why a copy could not be made or ""
+--- the files of the tree among them beneath a directory of the tree as
+--- one path: a copy of those files alone, at their paths beneath it, made
+--- in a directory of its own beneath `copies` and given where the worker
+--- has that directory of the tree. The files of the tree a worker is
+--- given are its closure's and those its module declares it reads, which
+--- its key holds by their contents ([`build.declared_key`]); a directory
+--- of the tree given whole would show the files beside them, which the key
+--- does not hold, and a test that read one would pass on a file whose edit
+--- runs it not again. The copy holds what the key holds and no more.
+--- A file that is run keeps a path of its own, which grants it `x`, and so
+--- does a directory given whole. A directory of the tree that holds any
+--- other path the worker is given, or lies beneath one, is not copied, so
+--- nothing is bound inside a copy. The directory that holds the most files
+--- to copy is copied first, until the paths fit or no directory saves one.
+--- Each directory and file of a copy is readable by anyone, as the tree's
+--- are to a worker run as a user of its own.
+--- @return the paths to read, where each is given (`at` itself where
+--- nothing is copied or a copy fails, which leaves `at` as it was), the
+--- directories of the tree given as copies, and why a copy could not be
+--- made or ""
 local function in_copies(reads: {string}, at: {string:string}, runs: {string:boolean},
-                         closure: {string:boolean}, copies: string,
-                         need: integer): {string}, string, string
+                         copies: string, need: integer): {string}, {string:string}, {string},
+                                                         string
   local prefix = test_sandbox.tree .. "/"
-  -- Each file of the closure among the paths, by its relative path.
+  -- Each file to copy among the paths, by its path beneath /tree.
   local file_of: {string:string} = {}
   local others: {string} = {}
   for _, path in ipairs(reads) do
     local inside = at[path]
     local relative = ""
-    if inside ~= nil and String.starts_with(inside, prefix) then
-      relative = inside:sub(#prefix + 1)
+    if inside ~= nil and String.starts_with(inside, prefix) and runs[path] ~= true then
+      local there, _ = sys.stat(path)
+      if there ~= nil and there.kind == "file" then relative = inside:sub(#prefix + 1) end
     end
-    if closure[relative] == true and runs[path] ~= true then
+    if relative ~= "" then
       file_of[relative] = path
     else
       others[#others + 1] = inside or path
@@ -493,6 +520,12 @@ local function in_copies(reads: {string}, at: {string:string}, runs: {string:boo
       dir = Fs.dirname(dir)
     end
   end
+  -- TODO: copy a file that is run too, its mode kept and `x` granted on
+  -- its copy, and a directory the module declares it reads, which its key
+  -- holds by its listing and contents, so a directory of the tree that
+  -- holds either stays a candidate. A closure past the most paths whose
+  -- files are all in one directory beside such a path has no directory
+  -- here to copy, and its tests fail to start, saying how many paths over.
   local candidates: {string} = {}
   for dir in pairs(counts) do
     local place, free = prefix .. dir, true
@@ -519,39 +552,56 @@ local function in_copies(reads: {string}, at: {string:string}, runs: {string:boo
       need = need - ((counts[dir] or 0) - 1)
     end
   end
-  if #chosen == 0 then return reads, "", "" end
+  if #chosen == 0 then return reads, at, {}, "" end
   local made, trouble = Fs.mkdirs(copies)
-  if not made then return reads, "", copies .. ": " .. trouble end
+  if not made then return reads, at, {}, copies .. ": " .. trouble end
   local copied: {string:boolean} = {}
   local out: {string} = {}
+  -- Answers `why`, the copy at `given` having failed, and takes it out
+  -- with those made before it: no plan names them.
+  local function failed(given: string | nil, why: string): {string}, {string:string}, {string},
+                                                           string
+    if given ~= nil then
+      local _, _ = Fs.remove_tree(given)
+    end
+    for _, each in ipairs(out) do
+      local _, _ = Fs.remove_tree(each)
+    end
+    return reads, at, {}, why
+  end
   for _, dir in ipairs(chosen) do
     local given, view_trouble = sys.mkdtemp(copies .. "/copy.XXXXXX")
-    if given == nil then return reads, "", copies .. ": " .. view_trouble end
-    -- Readable by a worker run as a user of its own, as the tree is.
+    if given == nil then return failed(nil, copies .. ": " .. view_trouble) end
     local opened, open_trouble = Fs.chmod(given, 0x1ed)
-    if not opened then return reads, "", given .. ": " .. open_trouble end
+    if not opened then return failed(given, given .. ": " .. open_trouble) end
     for relative, path in pairs(file_of) do
       local rest = beneath(relative, dir)
       if rest ~= nil then
         local data, read_trouble = Fs.read(path)
-        if data == nil then return reads, "", path .. ": " .. read_trouble end
+        if data == nil then return failed(given, path .. ": " .. read_trouble) end
         local copy = given .. rest
-        local placed, place_trouble = Fs.mkdirs(Fs.dirname(copy))
-        if placed then placed, place_trouble = Fs.write(copy, data) end
-        if not placed then return reads, "", copy .. ": " .. place_trouble end
+        local ready, place_trouble = make_open(given, Fs.dirname(rest))
+        if ready then ready, place_trouble = Fs.write(copy, data) end
+        if ready then ready, place_trouble = Fs.chmod(copy, 0x1a4) end
+        if not ready then return failed(given, copy .. ": " .. place_trouble) end
         copied[path] = true
-        at[path] = nil
       end
     end
     out[#out + 1] = given
-    at[given] = prefix .. dir
   end
+  -- Made only now that every copy is: `at` is the caller's, kept as it
+  -- was where one fails.
+  local placed: {string:string} = {}
+  for path, inside in pairs(at) do
+    if copied[path] ~= true then placed[path] = inside end
+  end
+  for i, given in ipairs(out) do placed[given] = prefix .. assert(chosen[i]) end
   local kept: {string} = {}
   for _, path in ipairs(reads) do
     if copied[path] ~= true then kept[#kept + 1] = path end
   end
   for _, given in ipairs(out) do kept[#kept + 1] = given end
-  return kept, table.concat(chosen, ", "), ""
+  return kept, placed, chosen, ""
 end
 
 --- The paths of a worker of the tree at `root` that runs a test of the module
@@ -565,10 +615,11 @@ end
 --- store of its closure, keyed by its bytes. `projection` names the whole
 --- projection where it is not at the build directory's cosmic.db.
 ---
---- Where the closure's files, each a path of its own, would give the worker
---- more paths than a sandbox holds, and `copies` names a directory to make
---- them in, some directories' files of the closure are given as one each:
---- a copy of those files alone, made beneath `copies` ([`in_copies`]).
+--- Where the files of the tree it is given, each a path of its own, would
+--- give the worker more paths than a sandbox holds, and `copies` names a
+--- directory to make them in, some directories' files among them are given
+--- as one each: a copy of those files alone, made beneath `copies`
+--- ([`in_copies`]), which `copied` names.
 ---
 --- The plan holds the paths of a worker started under a [`cosmic.sandbox`]
 --- policy ([`build.test_policy`]) but for what a policy gives of itself --
@@ -794,25 +845,24 @@ function test_sandbox.plan(root: string, scratch: string, effective: test_inputs
   -- directory is the sandbox's own tmpfs's, made by the worker at the same
   -- name, not a bind of the host's.
   local why_shared = why_shared_scratch(effective, reads)
-  -- Past the most grants a start takes, the closure's files are given in
+  -- Past the most grants a start takes, the files of the tree are given in
   -- fewer ([`in_copies`]), and only then: a plan that fits is as it was.
   -- A copy is a directory, which puts a directory of the host in its
   -- root, so its scratch directory is the host's too, which takes a grant
   -- of its own.
   local system = system_paths(effective)
   local past = granted(reads, writes, at, why_shared == "", effective, system) - MOST_GRANTS
+  local copied: {string} = {}
   if past > 0 and copies ~= nil and refused == "" and made then
-    local closure: {string:boolean} = {}
-    for file in pairs(effective.files) do closure[test_inputs.plain(file)] = true end
-    local copied_dirs, copy_trouble = "", ""
-    reads, copied_dirs, copy_trouble = in_copies(reads, at, runs, closure, copies,
+    local copy_trouble = ""
+    reads, at, copied, copy_trouble = in_copies(reads, at, runs, copies,
       granted(reads, writes, at, false, effective, system) - MOST_GRANTS)
     if copy_trouble ~= "" then
-      refused = "its closure's files, copied to fewer paths: " .. copy_trouble
+      refused = "the files of the tree it is given, copied to fewer paths: " .. copy_trouble
     end
-    if copied_dirs ~= "" then
-      why_shared = "its closure's files are more paths than a sandbox holds, so those " ..
-        "beneath " .. copied_dirs .. " are given as a copy, a directory"
+    if #copied > 0 then
+      why_shared = "the files of the tree it is given are more paths than a sandbox holds, " ..
+        "so those beneath " .. table.concat(copied, ", ") .. " are given as a copy, a directory"
     end
   end
   local own_scratch = why_shared == ""
@@ -844,6 +894,7 @@ function test_sandbox.plan(root: string, scratch: string, effective: test_inputs
     runs = runs,
     own_scratch = own_scratch,
     why_shared = why_shared,
+    copied = copied,
   }
 end
 
@@ -871,6 +922,7 @@ function test_sandbox.rebind(plan: test_sandbox.Plan, from: string, scratch: str
   for name, value in pairs(plan.env) do env[name] = value end
   local runs: {string:boolean} = {}
   for path in pairs(plan.runs) do runs[path] = true end
+  local copied: {string} = { table.unpack(plan.copied or {}) }
   local made, trouble = make_own_cores(effective, scratch)
   return {
     sandbox = { unveil = { reads = reads, writes = writes, at = at }, offline = plan.sandbox.offline },
@@ -881,6 +933,7 @@ function test_sandbox.rebind(plan: test_sandbox.Plan, from: string, scratch: str
     runs = runs,
     own_scratch = plan.own_scratch,
     why_shared = plan.why_shared,
+    copied = copied,
   }
 end
 

@@ -2847,6 +2847,14 @@ local function launch(rec: Recording, job: Job, start: Proc.Relaunch,
       plan = test_sandbox.plan(rec.root, scratch, effective, worker_view(), store,
         rec.projection, build_paths.resolve(rec.root).copies)
       if plan.trouble == "" then rec.plans[job.m.path] = { plan = plan, scratch = scratch } end
+      -- Said once a module a run, as its plan is made once. A host
+      -- directory in its root keeps it from making a unix socket below
+      -- Landlock ABI 9 ([`test_sandbox.Plan`]'s `why_shared`), and nothing
+      -- its module declares says why it has one.
+      if #(plan.copied or {}) > 0 and plan.trouble == "" and plan.over == 0 then
+        log:say("test: " .. job.m.path .. ": its scratch directory is the host's, not its " ..
+            "sandbox's own: " .. plan.why_shared)
+      end
     end
     if plan.over > 0 then
       finish(rec, job, nil, "its sandbox would give it " .. plural.count(plan.over, "path") ..
