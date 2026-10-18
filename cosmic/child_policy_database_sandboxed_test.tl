@@ -116,6 +116,35 @@ local function test_a_database_policy_refuses_another_program_and_this_ones_own_
   end
 end
 
+--- The core and the database a start grants are counted with the policy's
+--- own grants: a policy that holds as many as a start takes is refused,
+--- saying why, rather than failing in spawn past the most it unveils.
+local function test_a_database_policy_at_the_most_grants_is_refused_saying_why(tmp: string)
+  if fixture.core_path() == nil then
+    Test.skip("there is no core of this program to give a database")
+    return
+  end
+  local path = tmp .. "/sealed.db"
+  fixture.seal(tmp, path)
+  local executable = assert(Proc.executable())
+  -- As many as a start under isolate file takes: 256 paths it unveils, one
+  -- of them its /proc.
+  local grants: {Sandbox.Grant} = {}
+  assert(Fs.mkdirs(tmp .. "/many"))
+  for i = 1, 255 do
+    local file = string.format("%s/many/%03d", tmp, i)
+    assert(Fs.write(file, ""))
+    grants[#grants + 1] = { path = file, letters = "r" }
+  end
+  local ok, started, why = pcall(Child.start, { executable, executable }, { policy = {
+    database = { path = path, sha256 = nil }, isolate = { "file" }, grants = grants },
+    cwd = tmp .. "/many" })
+  assert(ok, "the start raised: " .. tostring(started))
+  assert(started == nil, "it started")
+  assert(tostring(why):find("with its program's own (the core it runs and its " ..
+      "database), past the most a start takes, 255", 1, true), tostring(why))
+end
+
 --- A policy decoded from text names the database by its digest, and the
 --- start holds the file to it: one changed since the text was read is
 --- refused, not run.

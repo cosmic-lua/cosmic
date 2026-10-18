@@ -2845,7 +2845,7 @@ local function launch(rec: Recording, job: Job, start: Proc.Relaunch,
       plan = test_sandbox.rebind(kept.plan, kept.scratch, scratch, effective)
     else
       plan = test_sandbox.plan(rec.root, scratch, effective, worker_view(), store,
-        rec.projection, build_paths.resolve(rec.root).copies)
+        rec.projection, build_paths.resolve(rec.root).copies, sealed ~= nil)
       if plan.trouble == "" then rec.plans[job.m.path] = { plan = plan, scratch = scratch } end
       -- Said once a module a run, as its plan is made once. A host
       -- directory in its root keeps it from making a unix socket below

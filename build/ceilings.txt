@@ -2023,6 +2023,7 @@ cosmic/child.tl view_written 72
 cosmic/child_example.tl view_written 7
 cosmic/child_policy_anywhere_test.tl view_written 7
 cosmic/child_policy_cosmic_test.tl view_written 1
+cosmic/child_policy_database_sandboxed_test.tl view_written 1
 cosmic/child_policy_isolate_test.tl view_written 5
 cosmic/child_policy_nest_calls_test.tl view_written 1
 cosmic/child_policy_nest_test.tl view_written 3

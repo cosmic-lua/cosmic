@@ -3116,6 +3116,21 @@ local function held_to(argv: {string}, opts: Options, policy: Rules.Policy): Hel
     if found.argv[2] == "--database" then
       granted[#granted + 1] = { path = found.argv[3], letters = "r" }
     end
+    -- Counted again with them, which `unmet` could not: past the most,
+    -- spawn would raise rather than answer why.
+    local most, held = MAX_GRANTS, #granted
+    if file then
+      most = MAX_ISOLATED_GRANTS
+    elseif merged.tmp == true then
+      held = held + 1
+    end
+    if held > most then
+      local own = "the core it runs"
+      if found.argv[2] == "--database" then own = own .. " and its database" end
+      return nil, "sandbox: grants: the policy holds " .. tostring(held) .. " with its " ..
+        "program's own (" .. own .. "), past the most a start takes, " .. tostring(most) ..
+        "; grant a directory above them instead"
+    end
   end
   local idmap: {boolean} = {}
   local drop: MappedUser | nil

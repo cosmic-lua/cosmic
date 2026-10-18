@@ -413,6 +413,12 @@ end
 --- the sandbox's own /proc (cosmic.child's `MAX_ISOLATED_GRANTS`).
 local MOST_GRANTS <const> = UNVEIL_MAX - 1
 
+--- The grants a start adds to the policy of a worker that runs on a sealed
+--- database ([`build.test`]'s `sealed_for`): the core it runs, and the
+--- database (cosmic.child's `held_to`). They are joined after the policy
+--- is merged, each a path of the start's whatever the policy holds.
+local SEALED_GRANTS <const> = 2
+
 --- The paths of the profile "system" a worker of `effective` is given
 --- beside its plan's ([`build.test_policy`]), or none where it does not
 --- declare `system`.
@@ -431,9 +437,10 @@ end
 --- makes it and a merge joins it with `system`: one a path in the sandbox,
 --- with the private noexec scratch where its scratch directory is the
 --- host's, or the sandbox's own /tmp, not `writes`, where it is the
---- worker's own (`own`).
+--- worker's own (`own`); and `started` more, which the start adds of its own.
 local function granted(reads: {string}, writes: {string}, at: {string:string}, own: boolean,
-                       effective: test_inputs.Effective, system: {string}): integer
+                       effective: test_inputs.Effective, system: {string},
+                       started: integer): integer
   local paths: {string} = {}
   for _, path in ipairs(reads) do paths[#paths + 1] = at[path] or path end
   if own then
@@ -444,7 +451,7 @@ local function granted(reads: {string}, writes: {string}, at: {string:string}, o
   end
   for _, path in ipairs(system) do paths[#paths + 1] = path end
   local seen: {string:boolean} = {}
-  local count = 0
+  local count = started
   for _, path in ipairs(paths) do
     if seen[path] ~= true then count = count + 1 end
     seen[path] = true
@@ -619,7 +626,8 @@ end
 --- give the worker more paths than a sandbox holds, and `copies` names a
 --- directory to make them in, some directories' files among them are given
 --- as one each: a copy of those files alone, made beneath `copies`
---- ([`in_copies`]), which `copied` names.
+--- ([`in_copies`]), which `copied` names. A worker that runs on a sealed
+--- database (`sealed`) is counted with the grants its start adds for it.
 ---
 --- The plan holds the paths of a worker started under a [`cosmic.sandbox`]
 --- policy ([`build.test_policy`]) but for what a policy gives of itself --
@@ -628,7 +636,8 @@ end
 --- paths alone (`unveil`), and `runs` says which reads are run.
 function test_sandbox.plan(root: string, scratch: string, effective: test_inputs.Effective,
                            environment: {string:string}, closure_store?: string,
-                           projection?: string, copies?: string): test_sandbox.Plan
+                           projection?: string, copies?: string,
+                           sealed?: boolean): test_sandbox.Plan
   -- The program is given at its own name only where the worker does
   -- not have it as the tree's own, in its build directory. A worker
   -- whose module does not declare `tool` has no name to read it by, so
@@ -851,12 +860,15 @@ function test_sandbox.plan(root: string, scratch: string, effective: test_inputs
   -- root, so its scratch directory is the host's too, which takes a grant
   -- of its own.
   local system = system_paths(effective)
-  local past = granted(reads, writes, at, why_shared == "", effective, system) - MOST_GRANTS
+  local started = 0
+  if sealed == true then started = SEALED_GRANTS end
+  local past = granted(reads, writes, at, why_shared == "", effective, system, started) -
+    MOST_GRANTS
   local copied: {string} = {}
   if past > 0 and copies ~= nil and refused == "" and made then
     local copy_trouble = ""
     reads, at, copied, copy_trouble = in_copies(reads, at, runs, copies,
-      granted(reads, writes, at, false, effective, system) - MOST_GRANTS)
+      granted(reads, writes, at, false, effective, system, started) - MOST_GRANTS)
     if copy_trouble ~= "" then
       refused = "the files of the tree it is given, copied to fewer paths: " .. copy_trouble
     end
@@ -866,7 +878,8 @@ function test_sandbox.plan(root: string, scratch: string, effective: test_inputs
     end
   end
   local own_scratch = why_shared == ""
-  local over = math.max(0, granted(reads, writes, at, own_scratch, effective, system) - MOST_GRANTS)
+  local over = math.max(0, granted(reads, writes, at, own_scratch, effective, system, started) -
+      MOST_GRANTS)
   if own_scratch then
     writes = {}
     at[scratch] = nil

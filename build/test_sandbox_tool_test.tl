@@ -183,6 +183,30 @@ local function test_a_closure_is_counted_as_a_start_counts_its_grants(tmp: strin
   assert(nowhere.over == 1, tostring(nowhere.over))
 end
 
+--- A worker that runs on a sealed database is counted with the core and the
+--- database its start grants beside its policy: a closure that fits
+--- without them is given as copies where the worker is sealed, so its
+--- start does not unveil more paths than it takes.
+local function test_a_sealed_worker_is_counted_with_its_start_s_grants(tmp: string)
+  local root, scratch, copies = tmp .. "/root", scratch_in(tmp), tmp .. "/copies"
+  assert(Fs.write(build_dir(root) .. "/cosmic.db", "x"))
+  local bare = test_sandbox.plan(root, scratch, effective({}), {}, nil, nil, copies, true)
+  assert(bare.own_scratch)
+  -- Its paths and its /tmp: as many as a policy holds, but for the two.
+  local count = (confine.unveil_max - 1) - (#assert(bare.sandbox.unveil).reads + 1)
+  local files = closure_files(root, "many", count)
+  local plain = test_sandbox.plan(root, scratch, effective(files), {}, nil, nil, copies)
+  assert(plain.trouble == "" and plain.over == 0 and #(plain.copied or {}) == 0, plain.trouble)
+  local sealed = test_sandbox.plan(root, scratch, effective(files), {}, nil, nil, copies, true)
+  assert(sealed.trouble == "" and sealed.over == 0, sealed.trouble)
+  assert(#(sealed.copied or {}) > 0, "no copy was made")
+  local unveil = assert(sealed.sandbox.unveil)
+  local grants = #unveil.reads + #(unveil.writes or {}) + (sealed.own_scratch and 1 or 0) + 2
+  assert(grants + 1 <= confine.unveil_max, tostring(grants) .. " grants and /proc")
+  local nowhere = test_sandbox.plan(root, scratch, effective(files), {}, nil, nil, nil, true)
+  assert(nowhere.over == 2, tostring(nowhere.over))
+end
+
 --- Within the most paths a sandbox holds, each file of the closure is a
 --- path of its own, and nothing is copied. A guard that the copies are
 --- only for a plan past the most: it fails where every plan is copied,
