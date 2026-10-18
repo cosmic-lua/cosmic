@@ -1833,6 +1833,8 @@ build/refresh_store_test.tl view_written 7
 build/refresh_test.tl view_written 1
 build/refresh_tool_test.tl view_written 2
 build/relay_wire_fixture.tl view_written 10
+build/release.tl view_written 6
+build/release_test.tl view_written 6
 build/removed_fix_test.tl view_written 9
 build/roots.tl view_written 4
 build/roots_test.tl view_written 3
@@ -2558,6 +2560,7 @@ build/reboot_test.tl field_fixed 2
 build/rebuild_lock.tl field_fixed 3
 build/receivers.tl field_fixed 7
 build/refresh.tl field_fixed 4
+build/release.tl field_fixed 1
 build/runtime_checks_test.tl field_fixed 4
 build/sandbox.tl field_fixed 2
 build/sandbox_connect_test.tl field_fixed 2
@@ -2777,6 +2780,7 @@ build/driver_test.tl field_unknown 1
 build/fetch.tl field_unknown 2
 build/hash_tool_test.tl field_unknown 3
 build/lang_proof.tl field_unknown 4
+build/release.tl field_unknown 2
 build/syntax_compared.tl field_unknown 1
 build/syntax_match.tl field_unknown 1
 build/syntax_shape_specs.tl field_unknown 5
@@ -3349,6 +3353,7 @@ build/reboot_test.tl overload_none 1
 build/receivers.tl overload_none 1
 build/refresh_store_test.tl overload_none 1
 build/refresh_tool_test.tl overload_none 1
+build/release.tl overload_none 1
 build/removed_fix_test.tl overload_none 1
 build/roots.tl overload_none 1
 build/scopes_test.tl overload_none 2
@@ -4216,6 +4221,7 @@ build/lsp/tool_test.tl close_not_closable 4
 build/patch.tl close_not_closable 2
 build/rebuild_lock.tl close_not_closable 1
 build/rebuild_lock_test.tl close_not_closable 1
+build/release.tl close_not_closable 1
 build/shared_sqlite_test.tl close_not_closable 1
 build/sqlite_wait_lua_test.tl close_not_closable 8
 build/term_relay.tl close_not_closable 4
@@ -5932,6 +5938,7 @@ build/rand_test.tl literal_missing 28
 build/rebuild_lock.tl literal_missing 4
 build/refresh.tl literal_missing 3
 build/refresh_store_test.tl literal_missing 4
+build/release.tl literal_missing 1
 build/sandbox.tl literal_missing 14
 build/sandbox_test.tl literal_missing 2
 build/sql.tl literal_missing 7

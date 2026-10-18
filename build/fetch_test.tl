@@ -1,5 +1,5 @@
 --- `cosmic fetch` in process, over [`cosmic.http`]'s scripted transport
---- ([`Io.script`]: a canned reply per connection, so no test reaches the
+--- ([`build.fetch.Io.script`]: a canned reply per connection, so no test reaches the
 --- network), and refusals on a local port closed for them. Like
 --- cosmic/http_test.tl it declares only loopback, so it is keyed and
 --- runs offline. The program run as a process is build/fetch_tool_test.tl's.
