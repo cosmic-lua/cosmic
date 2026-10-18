@@ -4,16 +4,8 @@
 --- build/invoke_store_test.tl's.
 
 local Store = require("cosmic.store")
-local Test = require("cosmic.test")
 local invoke = require("build.invoke")
 local sys = require("cosmic.sys")
-
--- The import closure, which holds every verb through build.verb_list, is
--- one grant a module, and a worker's start takes 255: build/lsp/ is given
--- as one directory, which shows the closure's modules beneath it.
--- TODO: drop the build/lsp/ grant once a worker's grants show a directory's
--- modules as one (build.test_sandbox's `plan`), which a closure past 255 needs.
-Test.policy{ grants = { { path = "build/lsp/", letters = "r" } } }
 
 --- What a verb writes -- `print`'s C included -- and what it exits with
 --- come back as a started binary's would.

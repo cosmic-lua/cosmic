@@ -7,16 +7,8 @@
 
 local Cli = require("cosmic.cli")
 local Fs = require("cosmic.fs")
-local Test = require("cosmic.test")
 local invoke = require("build.invoke")
 local verb_cases = require("build.verb_cases")
-
--- The import closure, which holds every verb through build.verb_list, is
--- one grant a module, and a worker's start takes 255: build/lsp/ is given
--- as one directory, which shows the closure's modules beneath it.
--- TODO: drop the build/lsp/ grant once a worker's grants show a directory's
--- modules as one (build.test_sandbox's `plan`), which a closure past 255 needs.
-Test.policy{ grants = { { path = "build/lsp/", letters = "r" } } }
 
 local passthrough = verb_cases.passthrough
 local surplus = verb_cases.surplus

@@ -22,15 +22,9 @@ local verbs_fixture = require("build.verbs_fixture")
 
 --- The tool itself, the CA bundle a file run reads, and what bin/zig reads
 --- to find or fetch zig.
---- The import closure, which holds every verb through build.verb_list, is
---- one grant a module, and a worker's start takes 255: build/lsp/ is given
---- as one directory, which shows the closure's modules beneath it.
--- TODO: drop the build/lsp/ grant once a worker's grants show a directory's
--- modules as one (build.test_sandbox's `plan`), which a closure past 255 needs.
 Test.policy{
   profiles = { "cosmic" },
-  grants = { { path = "o/bin", letters = "rx" }, { path = "vendor/cacert/cacert.pem", letters = "r" },
-    { path = "build/lsp/", letters = "r" } },
+  grants = { { path = "o/bin", letters = "rx" }, { path = "vendor/cacert/cacert.pem", letters = "r" } },
   env = { "ALL_PROXY", "COSMIC_BOOTSTRAP", "COSMIC_BOOTSTRAP_ATTEMPTS", "COSMIC_BOOTSTRAP_VERIFY",
     "COSMIC_ZIG", "COSMIC_ZIG_CACHE", "COSMIC_ZIG_GLOBAL_CACHE", "CURL_CA_BUNDLE", "HTTPS_PROXY",
     "HTTP_PROXY", "NO_PROXY", "SSL_CERT_DIR", "SSL_CERT_FILE", "all_proxy", "http_proxy",

@@ -4,18 +4,10 @@
 local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
-local Test = require("cosmic.test")
 local invoke = require("build.invoke")
 local sys = require("cosmic.sys")
 local tree_root = require("build.tree_root")
 local build_paths = require("build.paths")
-
--- The import closure, which holds every verb through build.verb_list, is
--- one grant a module, and a worker's start takes 255: build/lsp/ is given
--- as one directory, which shows the closure's modules beneath it.
--- TODO: drop the build/lsp/ grant once a worker's grants show a directory's
--- modules as one (build.test_sandbox's `plan`), which a closure past 255 needs.
-Test.policy{ grants = { { path = "build/lsp/", letters = "r" } } }
 
 --- `root`'s build directory ([`build.paths`]), made, with `root` made
 --- first where it is not there yet.
