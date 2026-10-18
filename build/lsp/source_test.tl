@@ -18,10 +18,12 @@ local counts, initialize, messages_of = session_fixture.counts, session_fixture.
 local nth, only, open = session_fixture.nth, session_fixture.only, session_fixture.open
 local publications, published = session_fixture.publications, session_fixture.published
 local requests, save, served = session_fixture.requests, session_fixture.save, session_fixture.served
+local served_between = session_fixture.served_between
+local made_project, project = session_fixture.made_project, session_fixture.project
 local serving = session_fixture.serving
 
 local function test_a_require_reads_an_open_document_before_the_disk()
-  local root = assert(Fs.mkdtemp("cosmic-lsp-"))
+  local root = project()
   assert(Fs.mkdirs(root .. "/lib"))
   assert(Fs.write(root .. "/lib/shapes.tl", "return { sides = 3 }\n"))
   local main = 'local shapes = require("lib.shapes")\nlocal n: integer = shapes.sides\nreturn n\n'
@@ -40,7 +42,7 @@ local function test_a_require_reads_an_open_document_before_the_disk()
 end
 
 local function test_a_package_module_is_its_init()
-  local root = assert(Fs.mkdtemp("cosmic-lsp-"))
+  local root = project()
   assert(Fs.mkdirs(root .. "/lib/shapes"))
   assert(Fs.write(root .. "/lib/shapes/init.tl", "return { sides = 3 }\n"))
   assert(Fs.write(root .. "/lib/decl.d.tl", "local record decl\n  sides: integer\nend\nreturn decl\n"))
@@ -52,7 +54,7 @@ local function test_a_package_module_is_its_init()
 end
 
 local function test_a_closed_document_no_longer_shadows_the_file()
-  local root = assert(Fs.mkdtemp("cosmic-lsp-"))
+  local root = project()
   assert(Fs.mkdirs(root .. "/lib"))
   assert(Fs.write(root .. "/lib/shapes.tl", "return { sides = 3 }\n"))
   local main = 'local shapes = require("lib.shapes")\nlocal n: integer = shapes.sides\nreturn n\n'
@@ -69,7 +71,7 @@ local function test_a_closed_document_no_longer_shadows_the_file()
 end
 
 local function test_a_save_stages_again_and_publishes_what_changed()
-  local root = assert(Fs.mkdtemp("cosmic-lsp-"))
+  local root = project()
   assert(Fs.mkdirs(root .. "/lib"))
   assert(Fs.write(root .. "/lib/shapes.tl", "return { sides = 3 }\n"))
   local main = 'local shapes = require("lib.shapes")\nlocal n: integer = shapes.sides\nreturn n\n'
@@ -82,7 +84,7 @@ local function test_a_save_stages_again_and_publishes_what_changed()
 end
 
 local function test_the_same_text_checks_the_same_each_time()
-  local root = assert(Fs.mkdtemp("cosmic-lsp-"))
+  local root = project()
   -- A module that declares a global, which the document reads.
   assert(Fs.write(root .. "/g.tl", "global G_VAL: integer = 1\nreturn {}\n"))
   local reader = 'local _ = require("g")\nlocal n: integer = G_VAL\nreturn n\n'
@@ -108,6 +110,7 @@ local function test_a_root_is_read_from_its_escaped_uri_or_its_path_or_folder()
   local base = assert(Fs.mkdtemp("cosmic-lsp-"))
   local root = base .. "/a b%c"
   assert(Fs.mkdirs(root .. "/lib"))
+  made_project(root)
   assert(Fs.write(root .. "/lib/shapes.tl", 'return { sides = "three" }\n'))
   local main = 'local shapes = require("lib.shapes")\nlocal n: integer = shapes.sides\nreturn n\n'
   local opened = '{"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":{"uri":' ..
@@ -128,7 +131,7 @@ local function test_a_root_is_read_from_its_escaped_uri_or_its_path_or_folder()
 end
 
 local function test_a_template_is_a_module_and_testdata_is_none()
-  local root = assert(Fs.mkdtemp("cosmic-lsp-"))
+  local root = project()
   assert(Fs.mkdirs(root .. "/testdata"))
   assert(Fs.write(root .. "/data.tl", "local record data\n  record Page\n    title: string\n  end\nend\nreturn data\n"))
   assert(Fs.write(root .. "/page.tmpl", "{{type Page from data}}{{mode text}}one {{.title}}"))
@@ -144,7 +147,7 @@ local function test_a_template_is_a_module_and_testdata_is_none()
 end
 
 local function test_the_disk_is_read_only_when_the_editor_says_it_changed()
-  local root = assert(Fs.mkdtemp("cosmic-lsp-"))
+  local root = project()
   assert(Fs.mkdirs(root .. "/lib"))
   assert(Fs.write(root .. "/lib/shapes.tl", "return { sides = 3 }\n"))
   local main = 'local shapes = require("lib.shapes")\nlocal n: integer = shapes.sides\nreturn n\n'
@@ -158,6 +161,9 @@ local function test_the_disk_is_read_only_when_the_editor_says_it_changed()
   assert(table.concat(first.sent, "\n"):find('"globPattern":"**/*.tl"', 1, true) ~= nil)
   assert(#requests(served(root, { initialize(root), initialized })) == 0,
     "no registration where the editor takes none")
+  local declined = '{"workspace":{"didChangeWatchedFiles":{"dynamicRegistration":false}}}'
+  assert(#requests(served(root, { initialize(root, declined), initialized })) == 0,
+    "no registration where the editor says it takes none")
   -- One session, sent messages with time between: the file changes on
   -- disk, then main changes, then the editor says the file did.
   local send = serving(root)
@@ -179,7 +185,7 @@ end
 --- holds the file whole), the session stages nothing and reads the last
 --- commit at once: it waits on no lock, and none fails its read.
 local function test_a_busy_database_is_read_at_once_as_last_committed()
-  local root = assert(Fs.mkdtemp("cosmic-lsp-"))
+  local root = project()
   assert(Fs.mkdirs(root .. "/lib"))
   assert(Fs.write(root .. "/lib/shapes.tl", "return { sides = 3 }\n"))
   local main = 'local shapes = require("lib.shapes")\nlocal n: integer = shapes.sides\nreturn n\n'
@@ -208,4 +214,104 @@ local function test_a_busy_database_is_read_at_once_as_last_committed()
   assert(held:close())
   local ran = send({ change(root, "main.tl", main .. "\n") })
   assert(counts(ran) == "0,1", "staged once the lock is free: " .. counts(ran))
+end
+
+--- A module is served as the stub the stage derived, as a stub made here
+--- of an open document, or as its source where it has no stub: a
+--- declaration, or a source that returns nothing.
+local function test_each_module_is_served_as_its_stub_where_it_has_one()
+  local root = project()
+  assert(Fs.mkdirs(root .. "/lib"))
+  assert(Fs.write(root .. "/lib/shapes.tl", "return { sides = 3 }\n"))
+  assert(Fs.write(root .. "/lib/decl.d.tl", "local record decl\n  sides: integer\nend\nreturn decl\n"))
+  assert(Fs.write(root .. "/lib/none.tl", "local _ = 1\n"))
+  local main = 'local shapes = require("lib.shapes")\nlocal decl = require("lib.decl")\n' ..
+    'local _ = require("lib.none")\nlocal n: integer = shapes.sides + decl.sides\nreturn n\n'
+  local send = serving(root)
+  local first = send({ initialize(root), open(root, "main.tl", main) })
+  assert(counts(first) == "0", messages_of(nth(first, 1)))
+  local tally = first.tally
+  assert(tally.database_stubs == 1 and tally.made_stubs == 0 and tally.sources == 2,
+    tostring(tally.database_stubs) .. "," .. tostring(tally.made_stubs) .. "," .. tostring(tally.sources))
+  local after = send({ open(root, "lib/shapes.tl", "return { sides = 4 }\n"), change(root, "main.tl", main) }).tally
+  assert(after.made_stubs == 1 and after.database_stubs == 1, tostring(after.made_stubs))
+end
+
+--- Where the database's stubs are another analyzer's, each is made here
+--- from the source the database holds.
+local function test_a_stub_of_another_analyzer_is_made_here()
+  local root = project()
+  assert(Fs.mkdirs(root .. "/lib"))
+  assert(Fs.write(root .. "/lib/shapes.tl", "return { sides = 3 }\n"))
+  local main = 'local shapes = require("lib.shapes")\nlocal n: integer = shapes.sides\nreturn n\n'
+  assert(counts(served(root, { initialize(root), open(root, "main.tl", main) })) == "0")
+  local held = assert(Sqlite.open(build_paths.under((assert(build_paths.directory(root)))).working,
+    { writable = true }))
+  assert(held:exec("UPDATE meta SET value = 'another' WHERE key = 'analyzer'"))
+  -- Held, so the next session stages nothing and reads the rows as they are.
+  assert(held:exec("BEGIN IMMEDIATE"))
+  local ran = served(root, { initialize(root), open(root, "main.tl", main) })
+  assert(held:exec("ROLLBACK"))
+  assert(held:close())
+  assert(counts(ran) == "0", messages_of(nth(ran, 1)))
+  assert(ran.tally.made_stubs == 1 and ran.tally.database_stubs == 0,
+    tostring(ran.tally.made_stubs) .. "," .. tostring(ran.tally.database_stubs))
+end
+
+--- A stage that fails says so, and the tree is read as last staged.
+local function test_a_stage_that_fails_answers_from_the_last()
+  local root = project()
+  assert(Fs.mkdirs(root .. "/lib"))
+  assert(Fs.write(root .. "/lib/shapes.tl", "return { sides = 3 }\n"))
+  local main = 'local shapes = require("lib.shapes")\nlocal n: integer = shapes.sides\nreturn n\n'
+  local send = serving(root)
+  assert(counts(send({ initialize(root), open(root, "main.tl", main) })) == "0")
+  assert(Fs.write(root .. "/lib/shapes.tl", 'return { sides = "three" }\n'))
+  assert(Fs.write(root .. "/lib/broken.tl", "local = \n"))
+  local ran = send({ save(root, "lib/broken.tl") })
+  assert(ran.err:find("cosmic: lsp: not staged, answering from the tree as last staged", 1, true) ~= nil,
+    ran.err)
+  assert(ran.tally.stages == 1, tostring(ran.tally.stages))
+  assert(counts(ran) == "0", "as last staged: " .. counts(ran))
+end
+
+--- A root that is no project is not staged, nor given a build directory:
+--- only the binary's modules are found, and the session says so once.
+local function test_a_root_that_is_no_project_is_never_staged()
+  local root = assert(Fs.mkdtemp("cosmic-lsp-"))
+  assert(Fs.mkdirs(root .. "/lib"))
+  assert(Fs.write(root .. "/lib/shapes.tl", "return { sides = 3 }\n"))
+  local main = 'local Fs = require("cosmic.fs")\nlocal shapes = require("lib.shapes")\n' ..
+    "return { Fs = Fs, shapes = shapes }\n"
+  local ran = served(root, { initialize(root), open(root, "main.tl", main), change(root, "main.tl", main),
+    save(root, "main.tl") })
+  assert(only(nth(ran, 1)).message == "module not found: 'lib.shapes'", messages_of(nth(ran, 1)))
+  local _, told = ran.err:gsub("is no project", "")
+  assert(told == 1, ran.err)
+  assert(ran.tally.stages == 0)
+  local made, trouble = Fs.exists((assert(build_paths.directory(root))))
+  assert(made ~= nil, trouble)
+  assert(made == false, "a root that is no project gets a build directory")
+end
+
+--- A run that finds the database's schema stale makes it again
+--- ([`work.open`]): the session reads the new file, not the one its
+--- handle held.
+local function test_a_database_made_again_is_opened_again()
+  local root = project()
+  assert(Fs.mkdirs(root .. "/lib"))
+  assert(Fs.write(root .. "/lib/shapes.tl", "return { sides = 3 }\n"))
+  local main = 'local shapes = require("lib.shapes")\nlocal n: integer = shapes.sides\nreturn n\n'
+  local working = build_paths.under((assert(build_paths.directory(root)))).working
+  local ran = served_between(root, { { initialize(root), open(root, "main.tl", main) },
+    { change(root, "main.tl", main .. "\n") } }, function(_after: integer)
+      assert(Fs.write(root .. "/lib/shapes.tl", 'return { sides = "three" }\n'))
+      local stale = assert(Sqlite.open(working, { writable = true }))
+      assert(stale:exec("UPDATE meta SET value = 'stale' WHERE key = 'schema'"))
+      assert(stale:close())
+      -- Another session's stage makes the file again, and stages the change.
+      assert(counts(served(root, { initialize(root), open(root, "main.tl", main) })) == "1")
+    end)
+  assert(ran.tally.reopened == 1, tostring(ran.tally.reopened))
+  assert(counts(ran) == "0,1", "the new file is read: " .. counts(ran))
 end

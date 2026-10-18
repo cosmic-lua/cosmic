@@ -243,9 +243,11 @@ lsp.spec = {
   run = run,
   bare = true,
   -- TODO: a tool the tree outdates while a session runs goes on checking
-  -- with its own code until the editor starts it again: it waits on a
-  -- session that re-enters the rebuilt tool and hands it the documents
-  -- the editor holds open.
+  -- with its own code until the editor starts it again, since `fresh`
+  -- rebuilds it only before the verb runs. The fix: at each stage, ask
+  -- [`build.reboot`] whether the tool is stale, and if so re-enter the rebuilt
+  -- tool in this process, as [`build.reboot`] does, keeping the editor's stream
+  -- and handing it the session's root, encoding and open documents.
   fresh = true,
   recheck_on_refusal = nil,
   summarizes_failure = nil,
@@ -258,8 +260,8 @@ lsp.spec = {
     "2 for a command line it refuses",
   passthrough = "it serves until its editor exits, which a case of the verb list cannot be",
   guide = "none: an editor starts it, not a person",
-  tests = { "build.lsp.protocol_test", "build.lsp.session_test", "build.lsp.source_test",
-    "build.lsp.tool_test" },
+  tests = { "build.lsp.check_test", "build.lsp.protocol_test", "build.lsp.session_test",
+    "build.lsp.source_test", "build.lsp.tool_test" },
 }
 
 return lsp

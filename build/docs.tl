@@ -46,6 +46,13 @@ local record docs
     --- the store's own are not among them.
     opened: {Sqlite.Handle}
   end
+  --- What a caller already knows of the project `databases` reads, so it
+  --- looks at none of the project's paths: its build directory, nil
+  --- where it has none, and whether it is cosmic's own tree.
+  record Known
+    directory: string | nil
+    own_tree: boolean
+  end
   --- One ordered database view and the owner of every module in it.
   record View
     databases: {Sqlite.Handle}
@@ -952,16 +959,28 @@ end
 --- @param store the store's databases, [`Store.databases()`] unless the
 --- caller hands it others, as a test of databases of its own does
 --- @param at the project's directory, the working directory when nil
-function docs.databases(store?: {Sqlite.Handle}, at?: string): docs.Sources
+--- @param known what the caller knows of the project, which `at` is then
+---   not read for
+function docs.databases(store?: {Sqlite.Handle}, at?: string, known?: docs.Known): docs.Sources
   local out: {Sqlite.Handle} = {}
   local public: {boolean} = {}
   local opened: {Sqlite.Handle} = {}
-  local root, root_trouble = Fs.absolute(at or ".")
-  assert(root ~= nil, root_trouble)
-  -- A directory with no build directory to have one in has no build of
-  -- its own; one whose build directory cannot be named is answered from
-  -- the binary's databases too, as a stale build is below.
-  local directory, _ = build_paths.optional(root)
+  local directory: string | nil = nil
+  local own_tree = false
+  if known ~= nil then
+    directory, own_tree = known.directory, known.own_tree
+  else
+    local root, root_trouble = Fs.absolute(at or ".")
+    assert(root ~= nil, root_trouble)
+    -- A directory with no build directory to have one in has no build of
+    -- its own; one whose build directory cannot be named is answered from
+    -- the binary's databases too, as a stale build is below.
+    local optional, _ = build_paths.optional(root)
+    directory = optional
+    local own, tree_trouble = tree.is_own(root)
+    assert(own ~= nil, tree_trouble)
+    own_tree = own
+  end
   local own_path = build_paths.under(directory or "/nonexistent").projection
   local own_exists, own_trouble = false, ""
   if directory ~= nil then
@@ -988,8 +1007,6 @@ function docs.databases(store?: {Sqlite.Handle}, at?: string): docs.Sources
   -- Outside cosmic's own tree the store's databases are public sources:
   -- a project sees its own code and the standard library, never the
   -- build that made the binary.
-  local own_tree, tree_trouble = tree.is_own(root)
-  assert(own_tree ~= nil, tree_trouble)
   local outside = not own_tree
   for _, db in ipairs(store or Store.databases()) do
     out[#out + 1] = db

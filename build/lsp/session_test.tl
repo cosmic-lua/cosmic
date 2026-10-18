@@ -256,7 +256,7 @@ local function test_changes_already_read_are_checked_once()
 end
 
 local function test_a_record_shape_is_resolved_as_a_build_does()
-  local root = assert(Fs.mkdtemp("cosmic-lsp-"))
+  local root = session_fixture.project()
   local text = 'local Shape = require("cosmic.shape")\n' ..
     "local record R\n  n: integer\nend\n" ..
     'local R_SHAPE <const> = Shape.record_of("R"); local bad: integer = "x"\n' ..
@@ -272,6 +272,10 @@ local function test_a_record_shape_is_resolved_as_a_build_does()
   local user = 'local shaped = require("shaped")\nlocal n: integer = shaped.n\nreturn n\n'
   local through = published(served(root, { initialize(root), open(root, "user.tl", user) }))[1]
   assert(#through == 0, messages_of(through))
+  -- Every call is at the top: the copy with no function bodies finds them.
+  local tally = served(root, { initialize(root), open(root, "main.tl", text) }).tally
+  assert(tally.bodiless_splices == 1 and tally.whole_splices == 0,
+    tostring(tally.bodiless_splices) .. "," .. tostring(tally.whole_splices))
 end
 
 local function test_a_test_file_is_not_warned_of_its_tests()
@@ -347,19 +351,6 @@ local function test_the_last_of_several_changes_is_the_text()
   assert(counts(broken) == "0,1", counts(broken))
 end
 
-local function test_cosmics_own_tree_holds_a_standard_module_to_its_stub()
-  local root = assert(Fs.mkdtemp("cosmic-lsp-"))
-  local text = "local x = 1\nreturn { x = x }\n"
-  local elsewhere = served(root, { initialize(root), open(root, "cosmic/thing.tl", text) })
-  assert(counts(elsewhere) == "0", messages_of(nth(elsewhere, 1)))
-  -- What tells cosmic's own tree ([`build.tree`]).
-  assert(Fs.mkdirs(root .. "/core"))
-  assert(Fs.mkdirs(root .. "/build"))
-  assert(Fs.write(root .. "/build/importer.tl", "return {}\n"))
-  local own = only(nth(served(root, { initialize(root), open(root, "cosmic/thing.tl", text) }), 1))
-  assert(own.message:find("its stub keeps every statement", 1, true) ~= nil, own.message)
-end
-
 local function test_a_message_with_no_method_is_never_answered()
   local root = assert(Fs.mkdtemp("cosmic-lsp-"))
   local responses: {string} = {
@@ -424,8 +415,12 @@ local function test_a_record_shape_in_a_function_body_is_resolved_too()
     '\tlocal _ = "é"; local S = Shape.record_of("R"); local bad: integer = "x"\n' ..
     "  return assert(S:into({ n = 1 })).n + bad\nend\n" ..
     "return { f = f, n = assert(TOP:into({ n = 2 })).n }\n"
-  local found = only(nth(served(root, { initialize(root), open(root, "main.tl", text) }), 1))
+  local ran = served(root, { initialize(root), open(root, "main.tl", text) })
+  local found = only(nth(ran, 1))
   assert(found.message:find("got string", 1, true) ~= nil, found.message)
+  -- One call is in a body: the whole text is read for them.
+  assert(ran.tally.bodiless_splices == 0 and ran.tally.whole_splices == 1,
+    tostring(ran.tally.bodiless_splices) .. "," .. tostring(ran.tally.whole_splices))
   -- At `"x"`, counted in UTF-16 units: the tab and "é" are one each.
   local start = edge(found, "start")
   assert(start.line == 6 and start.character == 69, tostring(start.line) .. ":" .. tostring(start.character))

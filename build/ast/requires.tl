@@ -16,7 +16,7 @@
 --- a string literal or comment, which never parses into a call node.
 local ast_node = require("build.ast.node")
 local ast_match = require("build.ast.match")
-local ast_rewrite = require("build.ast.rewrite")
+local ast_walk = require("build.ast.walk")
 local type compiler = require("build.compiler")
 
 local type Node = ast_node.Node
@@ -50,42 +50,89 @@ local function get_all_pattern(built: compiler): Node | nil, string
   return pattern, ""
 end
 
+--- A `require` of a module: the module it names, and where the name is
+--- in the source.
+local record Site
+  name: string
+  y: integer
+  x: integer
+end
+
 --- Every module a `require(...)` call names anywhere in `parsed`'s
---- tree, in source order, each name once. A call whose argument is not
---- a string literal (`require(name)`) contributes nothing, since its
---- target is unknown until the program runs.
+--- tree, in source order, each name once, at its first call. A call
+--- whose argument is not a string literal (`require(name)`) contributes
+--- nothing, since its target is unknown until the program runs.
+---
+--- Fails only if `ALL_PATTERN_SRC` does not compile.
+--- @param built compiler The loaded compiler capsule ([`build.teal.load()`])
+--- @param parsed Parsed A file's own parse ([`build.ast.node.parse`])
+--- @return {Site} | nil Every required module, in source order
+--- @return string error When the module's own pattern failed to compile
+local function require_sites(built: compiler, parsed: Parsed): {Site} | nil, string
+  local pattern, err = get_all_pattern(built)
+  if pattern == nil then
+    return nil, err
+  end
+  -- Only a node of the pattern's own kind can match it: the rest are
+  -- passed over without the generic match, most of a walk's cost.
+  local hits: {Node} = {}
+  local caps_of: {Node: {string: Node}} = {}
+  ast_walk.walk(parsed.node, function(n: Node)
+    if n.kind == pattern.kind then
+      local caps = ast_match.match(pattern, n)
+      if caps then
+        hits[#hits + 1] = n
+        caps_of[n] = caps
+      end
+    end
+  end)
+  local memo: {Node: {integer}} = {}
+  table.sort(hits, function(p: Node, q: Node): boolean
+    local ps, qs = ast_walk.span_start(p, memo), ast_walk.span_start(q, memo)
+    return ps.y < qs.y or (ps.y == qs.y and ps.x < qs.x)
+  end)
+  local seen: {string: boolean} = {}
+  local out: {Site} = {}
+  for _, hit in ipairs(hits) do
+    local mod_node = assert(caps_of[hit])["_M"]
+    if mod_node ~= nil then
+      local mod_name = mod_node.conststr
+      if mod_name ~= nil and seen[mod_name] == nil then
+        seen[mod_name] = true
+        out[#out + 1] = { name = mod_name, y = mod_node.y, x = mod_node.x }
+      end
+    end
+  end
+  return out, ""
+end
+
+--- Every module a `require(...)` call names anywhere in `parsed`'s
+--- tree, in source order, each name once ([`require_sites`]).
 ---
 --- [`build.importer`] builds its dependency graph (import order, the
 --- recompilation key) from this.
----
---- Fails only if `ALL_PATTERN_SRC` does not compile.
 --- @param built compiler The loaded compiler capsule ([`build.teal.load()`])
 --- @param parsed Parsed A file's own parse ([`build.ast.node.parse`])
 --- @return {string} | nil Every required module name, in source order
 --- @return string error When the module's own pattern failed to compile
 local function all_requires(built: compiler, parsed: Parsed): {string} | nil, string
-  local pattern, err = get_all_pattern(built)
-  if pattern == nil then
+  local sites, err = require_sites(built, parsed)
+  if sites == nil then
     return nil, err
   end
-  local seen: {string: boolean} = {}
   local out: {string} = {}
-  for _, hit in ipairs(ast_rewrite.find_all(parsed.node, pattern)) do
-    local mod_node = hit.caps["_M"]
-    local mod_name = mod_node and mod_node.conststr
-    if mod_name and not seen[mod_name] then
-      seen[mod_name] = true
-      out[#out + 1] = mod_name
-    end
-  end
+  for _, site in ipairs(sites) do out[#out + 1] = site.name end
   return out
 end
 
 local record RequiresModule
+  type Site = Site
+  require_sites: function(built: compiler, parsed: Parsed): {Site} | nil, string
   all_requires: function(built: compiler, parsed: Parsed): {string} | nil, string
 end
 
 local M: RequiresModule = {
+  require_sites = require_sites,
   all_requires = all_requires,
 }
 

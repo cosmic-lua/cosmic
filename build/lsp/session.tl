@@ -6,29 +6,26 @@
 ---
 --- - Diagnostics, published as a document is opened, changed or saved,
 ---   as [`build.lsp.check`] finds them.
---- - Hover: the docs of the symbol under the cursor, from the binary's own
----   docs and the project's last build, as `cosmic docs`. A name whose
----   first part is a local bound to a `require` is looked up in the module
----   required: [`Fs.read`], with `local Fs = require("cosmic.fs")`, is
----   [`cosmic.fs.read`].
+--- - Hover: the docs of the symbol under the cursor ([`build.lsp.hover`]).
 --- - Formatting: the whole document as `cosmic fix` writes it.
 ---
 --- A save, or a change on disk the editor reports of a file it watches,
 --- stages the tree again ([`build.lsp.source`]) and checks each open
---- document again. Where the editor takes a registration of the files to
---- watch, the session registers every `.tl` and `.tmpl` file at
---- `initialized`.
+--- document again. A check that finds a document requiring other
+--- modules than before checks every other open document again too, which
+--- a cycle of imports may now reach ([`check.moved`]). Where the editor
+--- takes a registration of the files to watch, the session registers
+--- every `.tl` and `.tmpl` file at `initialized`.
 ---
 --- A message with no method answers a request of the session's own, and
 --- is never answered, whatever its id.
 
 local Json = require("cosmic.json")
 local Sqlite = require("cosmic.sqlite")
-local Store = require("cosmic.store")
 local Stream = require("cosmic.stream")
 local bare = require("build.bare")
 local check = require("build.lsp.check")
-local docs = require("build.docs")
+local hover = require("build.lsp.hover")
 local protocol = require("build.lsp.protocol")
 local type importer = require("build.importer")
 
@@ -59,11 +56,7 @@ local record session
     --- Whether the editor takes a registration of the files to watch.
     watch: boolean
     store: {Sqlite.Handle} | nil
-    --- The docs databases, once read.
-    sources: docs.Sources | nil
-    view: docs.View | nil
-    --- Why the docs could not be read, once they were tried.
-    view_trouble: string | nil
+    docs: hover.Docs
   end
 end
 
@@ -73,25 +66,22 @@ local type Session = session.State
 --- files it watches: its answer is read as any response is, and dropped.
 local WATCH_REQUEST <const> = 1
 
---- The docs databases, opened once.
-local function sources_of(s: Session): docs.Sources
-  local sources = s.sources
-  if sources == nil then
-    sources = docs.databases(s.store or Store.databases(), s.root)
-    s.sources = sources
-  end
-  return sources
-end
-
 --- The databases a message's hint looks a name up in: the docs
 --- databases of the session `held` holds.
 local function hints_of(held: {Session}): importer.Hints
   return function(): {Sqlite.Handle}, {boolean}
     local s = held[1]
     if s == nil then return {}, {} end
-    local sources = sources_of(s)
+    local sources = hover.sources(s.docs)
     return sources.handles, sources.public
   end
+end
+
+--- A session's checker and docs at `root`.
+local function checked_at(s: Session, root: string)
+  s.root = root
+  s.checker = check.new(root, s.err, hints_of({ s }))
+  s.docs = hover.new(root, s.checker.source, s.store, s.err)
 end
 
 --- A new session, before `initialize`, answering below `root`.
@@ -99,6 +89,7 @@ function session.new(root: string, options?: session.Options): Session
   local given: session.Options = options or {}
   local err = given.err or bare.err
   local held: {Session} = {}
+  local checker = check.new(root, err, hints_of(held))
   local made: Session = {
     root = root,
     encoding = "utf-16",
@@ -107,12 +98,10 @@ function session.new(root: string, options?: session.Options): Session
     exit = nil,
     documents = {},
     err = err,
-    checker = check.new(root, err, hints_of(held)),
+    checker = checker,
     watch = false,
     store = given.store,
-    sources = nil,
-    view = nil,
-    view_trouble = nil,
+    docs = hover.new(root, checker.source, given.store, err),
   }
   held[1] = made
   return made
@@ -133,75 +122,12 @@ local function document_of(s: Session, params: protocol.DocumentParams, text?: s
   return document
 end
 
---- The docs view, read once.
-local function view_of(s: Session): docs.View | nil
-  if s.view ~= nil or s.view_trouble ~= nil then return s.view end
-  local sources = sources_of(s)
-  local view, trouble = docs.view(sources.handles, sources.public)
-  s.view = view
-  s.view_trouble = trouble
-  if view == nil then s.err("cosmic: lsp: no docs: " .. trouble) end
-  return view
-end
-
---- The dotted name under byte `x` of `line`, up to the end of the word
---- the cursor is in: [`Fs.read`] with the cursor anywhere in `Fs`'s `read`.
-local function name_at(line: string, x: integer): string | nil
-  local first = x
-  while first > 1 do
-    if line:sub(first - 1, first - 1):match("[%w_%.]") == nil then break end
-    first = first - 1
-  end
-  local last = x
-  while last <= #line do
-    if line:sub(last, last):match("[%w_]") == nil then break end
-    last = last + 1
-  end
-  local name = line:sub(first, last - 1):gsub("^%.+", "")
-  if name:match("^[%a_]") == nil then return nil end
-  return name
-end
-
---- `name` with its first part read as the module a `require` in `text`
---- bound to it: [`Fs.read`] as [`cosmic.fs.read`]. Nil when no `require` did.
-local function resolved(text: string, name: string): string | nil
-  local head, rest = name:match("^([%a_][%w_]*)(.*)$")
-  for alias, module in text:gmatch("local%s+([%a_][%w_]*)%s*=%s*require%s*%(?%s*[\"']([%w_%.]+)[\"']") do
-    if alias == head then return module .. rest end
-  end
-  return nil
-end
-
 --- The hover for `params`, or nil when nothing is documented there.
-local function hover(s: Session, params: protocol.DocumentParams): protocol.Hover | nil
+local function hovered(s: Session, params: protocol.DocumentParams): protocol.Hover | nil
   local document = document_of(s, params)
   local where = params.position
   if document == nil or where == nil then return nil end
-  local line = protocol.lines_of(document.text).texts[where.line + 1] or ""
-  local name = name_at(line, protocol.byte_of(line, where.character, s.encoding))
-  if name == nil then return nil end
-  local view = view_of(s)
-  if view == nil then return nil end
-  local queries: {string} = {}
-  local through = resolved(document.text, name)
-  if through ~= nil then queries[#queries + 1] = through end
-  queries[#queries + 1] = name
-  for _, query in ipairs(queries) do
-    local found, _ = docs.exact(view, query)
-    local entry: docs.Entry | nil = nil
-    if found ~= nil then entry = found[1] end
-    if entry ~= nil then
-      local title = entry.module
-      if entry.symbol ~= "" then title = title .. "." .. entry.symbol end
-      local parts: {string} = { "**" .. title .. "**" }
-      if entry.signature ~= "" then
-        parts[#parts + 1] = "```teal\n" .. entry.signature .. "\n```"
-      end
-      if entry.text ~= "" then parts[#parts + 1] = entry.text end
-      return { contents = { kind = "markdown", value = table.concat(parts, "\n\n") } }
-    end
-  end
-  return nil
+  return hover.at(s.docs, document.text, where, s.encoding)
 end
 
 --- The edits that format `params`' document, encoded, or nil and why
@@ -237,9 +163,9 @@ end
 local function initialize(s: Session, params: protocol.InitializeParams): protocol.InitializeResult
   local root = root_of(params)
   if root ~= nil and root ~= s.root then
-    s.root = root
     check.close(s.checker)
-    s.checker = check.new(root, s.err, hints_of({ s }))
+    hover.close(s.docs)
+    checked_at(s, root)
   end
   local capabilities = params.capabilities
   local general: protocol.General | nil = nil
@@ -295,6 +221,25 @@ local function republished(s: Session): {string}
       out[#out + 1] = protocol.publication(document.uri, now)
     end
   end
+  return out
+end
+
+--- The publication of `document`'s diagnostics, then, where its check
+--- found it requiring other modules than before, those of every other
+--- open document that changed.
+local function published_with(s: Session, document: check.Document): {string}
+  local out: {string} = { published(s, document) }
+  if not check.moved(s.checker) then return out end
+  for _, other in pairs(s.documents) do
+    if other ~= document then
+      local before = other.published
+      local now = check.diagnose(s.checker, other, s.encoding)
+      if before == nil or table.concat(now, ",") ~= table.concat(before, ",") then
+        out[#out + 1] = protocol.publication(other.uri, now)
+      end
+    end
+  end
+  check.moved(s.checker)
   return out
 end
 
@@ -363,7 +308,9 @@ local function handle(s: Session, message: protocol.Message): {string}
   end
   if method == "textDocument/didOpen" then
     local document = document_of(s, params, params.textDocument.text)
-    if document ~= nil then out[#out + 1] = published(s, document) end
+    if document ~= nil then
+      for _, publication in ipairs(published_with(s, document)) do out[#out + 1] = publication end
+    end
   elseif method == "textDocument/didChange" then
     -- The server asked for whole texts, so the last is the document.
     local none: {protocol.ContentChange} = {}
@@ -371,7 +318,9 @@ local function handle(s: Session, message: protocol.Message): {string}
     local last = changes[#changes]
     if last ~= nil then
       local document = document_of(s, params, last.text)
-      if document ~= nil then out[#out + 1] = published(s, document) end
+      if document ~= nil then
+        for _, publication in ipairs(published_with(s, document)) do out[#out + 1] = publication end
+      end
     end
   elseif method == "textDocument/didSave" then
     for _, publication in ipairs(republished(s)) do out[#out + 1] = publication end
@@ -384,7 +333,7 @@ local function handle(s: Session, message: protocol.Message): {string}
       out[#out + 1] = protocol.publication(document.uri, cleared)
     end
   elseif method == "textDocument/hover" then
-    local found = hover(s, params)
+    local found = hovered(s, params)
     local result = "null"
     if found ~= nil then result = assert(Json.encode(found)) end
     out[#out + 1] = protocol.response(id, result)
@@ -494,13 +443,7 @@ end
 function session.serve(s: Session, reader: Stream.Reader,
                        write: function(text: string): boolean, string): integer
   local code = served(s, protocol.frames(reader), write)
-  local sources = s.sources
-  if sources ~= nil then
-    for _, db in ipairs(sources.opened) do
-      local _, _ = db:close()
-    end
-  end
-  s.sources, s.view, s.view_trouble = nil, nil, nil
+  hover.close(s.docs)
   check.close(s.checker)
   return code
 end

@@ -6,8 +6,14 @@
 --- warnings, which a build refuses as it refuses errors, each worded as a
 --- build words it ([`importer.said`]), and what else a build refuses of a
 --- module: a `global`, a test that returns a value, an example that
---- returns none, a [`Test.policy`] outside a test, and in cosmic's own
---- tree its contracts and its stub ([`compilation.generate`]).
+--- returns none, a [`Test.policy`] outside a test, a `require` that
+--- position refuses or that closes a cycle of imports
+--- ([`build.lsp.graph`]), and in cosmic's own tree its contracts and its
+--- stub ([`compilation.generate`]). A template is checked as a build
+--- checks one: compiled ([`Template.compile`]), its refusal where it
+--- says, then its Teal checked as the module it is, whose errors a build
+--- puts in the Teal, not the template, and which are published at its
+--- start.
 ---
 --- The text is checked after the rewrite a build makes of it first
 --- ([`build.shape_specs`]), so a column is the document's own. A `require`
@@ -23,17 +29,17 @@
 
 local Hash = require("cosmic.hash")
 local Json = require("cosmic.json")
-local ast = require("build.ast")
+local Template = require("cosmic.template")
 local compilation = require("build.compilation")
+local graph = require("build.lsp.graph")
 local importer = require("build.importer")
 local plan = require("build.lsp.plan")
 local protocol = require("build.lsp.protocol")
 local receivers = require("build.receivers")
 local shape_specs = require("build.shape_specs")
 local source = require("build.lsp.source")
-local stub = require("build.stub")
+local splice = require("build.lsp.splice")
 local teal = require("build.teal")
-local tree = require("build.tree")
 local type compiler = require("build.compiler")
 local type build_module = require("build.module")
 
@@ -52,6 +58,8 @@ local record check
     published: {string} | nil
     published_text: string
     published_epoch: integer
+    --- What its text required at its last check, nil before one.
+    requires: {string} | nil
   end
 
   --- One session's checker.
@@ -63,9 +71,6 @@ local record check
     --- The types the checker reports of the document it checks, which
     --- [`build.contracts`] reads.
     typed: receivers.State | nil
-    --- Whether the root is cosmic's own tree, which a build holds to its
-    --- contracts and its stubs as well.
-    own_tree: boolean
     --- The globals a fresh environment has, so a check drops those an
     --- earlier text declared.
     base_globals: {string:boolean}
@@ -78,6 +83,10 @@ local record check
     open: {string:Document}
     --- The databases a message's hint looks a name up in.
     hints: importer.Hints
+    --- Whether a check found a document requiring other modules than
+    --- before, since [`check.moved`] last asked: a cycle of imports
+    --- through another open document may have closed or opened.
+    graph_moved: boolean
   end
 end
 
@@ -92,19 +101,19 @@ function check.new(root: string, err: function(line: string), hints: importer.Hi
     built = nil,
     env = nil,
     typed = nil,
-    own_tree = false,
     base_globals = {},
     served = {},
     epoch = 0,
     open = {},
     hints = hints,
+    graph_moved = false,
   }
 end
 
 --- A document of `text` at `uri`, named `name`.
 function check.document(uri: string, name: string, text: string): Document
   return { uri = uri, text = text, name = name, hash = nil, published = nil, published_text = "",
-    published_epoch = 0 }
+    published_epoch = 0, requires = nil }
 end
 
 --- Gives `document` the text `text`.
@@ -125,6 +134,15 @@ end
 --- Stages the tree again before the next check: files changed on disk.
 function check.stale(checker: Checker)
   source.stale(checker.source)
+end
+
+--- Whether a check since the last ask found a document requiring other
+--- modules than before ([`Checker`]'s `graph_moved`): every other open
+--- document is then to be checked again.
+function check.moved(checker: Checker): boolean
+  local moved = checker.graph_moved
+  checker.graph_moved = false
+  return moved
 end
 
 --- Lets go of what the checker holds open.
@@ -203,8 +221,6 @@ local function prepared(checker: Checker): compiler, compiler.Env
   teal.strip(made)
   for name in pairs(made.globals) do checker.base_globals[name] = true end
   checker.typed = receivers.install(made)
-  local own, _ = tree.is_own(checker.root)
-  checker.own_tree = own == true
   checker.built, checker.env = loaded, made
   return loaded, made
 end
@@ -245,62 +261,21 @@ local function refresh(checker: Checker, env: compiler.Env)
   checker.epoch = checker.epoch + 1
 end
 
---- `splices`, found in `from`, moved to the same lines and columns of
---- `text`, which holds every token of `from` where `from` has it (a stub
---- of it, [`stub.made`]); nil where a splice does not follow the same
---- token in both.
-local function moved(from: string, text: string, splices: {shape_specs.Splice}): {shape_specs.Splice} | nil
-  local from_starts, starts = protocol.checker_starts(from), protocol.checker_starts(text)
-  local out: {shape_specs.Splice} = {}
-  for _, splice in ipairs(splices) do
-    local line = 1
-    while from_starts[line + 1] ~= nil and from_starts[line + 1] <= splice.at do line = line + 1 end
-    local start, from_start = starts[line], from_starts[line]
-    if start == nil or from_start == nil then return nil end
-    local at = start + (splice.at - from_start)
-    local token = from:sub(from_start, splice.at):match("[^%s]*$")
-    if text:sub(at - #token + 1, at) ~= token then return nil end
-    out[#out + 1] = { at = at, text = splice.text }
-  end
-  return out
-end
-
---- What [`shape_specs.splices`] finds of `document`, the module `path`.
---- Where every call to resolve is a top-level statement's, they are found
---- in the document with every function body left out, which the checker
---- reads in a fraction of the time and which declares the same records;
---- otherwise, or where that finds other calls, in the whole document.
-local function splices_of(built: compiler, env: compiler.Env, document: Document,
-                          path: string): shape_specs.Found
-  local text = document.text
-  local _, wanted = text:gsub("record_of%(", "")
-  if wanted > 0 then
-    local parsed, _ = ast.parse(built, text, document.name)
-    if parsed ~= nil then
-      local bodiless = stub.made(parsed, true).text
-      local _, kept = bodiless:gsub("record_of%(", "")
-      if kept == wanted then
-        local found = shape_specs.splices(built, env, document.name, path, bodiless)
-        if found.refusal == "" and #found.splices == wanted then
-          local splices = moved(bodiless, text, found.splices)
-          if splices ~= nil then return { splices = splices, refusal = "", line = 0 } end
-        end
-      end
-    end
-  end
-  return shape_specs.splices(built, env, document.name, path, text)
-end
-
 --- What one check of a document found: the errors of the document
 --- itself, and the text and splices they are positioned in.
 local record Checked
   errors: {compiler.Error}
   --- What a build refuses beyond the checker's errors.
   refusals: {plan.Refusal}
-  --- The text as checked, after the build's rewrite.
+  --- The Teal checked, before and after the build's rewrite: a
+  --- template's is the Teal it compiles to.
+  source: string
   text: string
   splices: {shape_specs.Splice}
   refused: {string:boolean}
+  --- Whether the places found are in a template's Teal, not in the
+  --- document's own text.
+  generated: boolean
 end
 
 --- The checker's reading of a text [`compilation.generate`] refused for
@@ -309,38 +284,88 @@ local record Rendered
   result: compiler.Result | nil
 end
 
+--- What each other open document required at its last check, by name.
+local function opened_requires(checker: Checker, document: Document): {string:{string}}
+  local out: {string:{string}} = {}
+  for name, other in pairs(checker.open) do
+    local requires = other.requires
+    if other ~= document and requires ~= nil then out[name] = requires end
+  end
+  return out
+end
+
+--- Keeps what `document` requires now (`sites`), and says the graph moved
+--- where that is not what it required before: at its last check, or, at
+--- its first, as staged.
+local function remember(checker: Checker, document: Document, sites: {plan.Site})
+  local names: {string} = {}
+  for _, site in ipairs(sites) do names[#names + 1] = site.name end
+  local before: {string} = {}
+  local had = document.requires
+  if had ~= nil then
+    before = had
+  else
+    local listed = source.module(checker.source, document.name)
+    if listed ~= nil then before = checker.source.requires[listed.source_hash] or before end
+  end
+  if table.concat(before, "\0") ~= table.concat(names, "\0") then
+    checker.graph_moved = true
+    checker.epoch = checker.epoch + 1
+  end
+  document.requires = names
+end
+
 --- Checks `document` in `env`, as a build checks it.
 local function checked_of(checker: Checker, built: compiler, env: compiler.Env,
                           document: Document): Checked
-  -- TODO: a build also refuses a `require` that reaches into a closed
-  -- directory, or into build/ or a test in cosmic's own tree
-  -- (build/positions.tl), which wants every module the root holds: it
-  -- waits on build/positions.tl reading them from the working database,
-  -- as the session does ([`source.View`]'s `modules`).
   local none: {shape_specs.Splice} = {}
   local found: {compiler.Error} = {}
+  local generated = document.name:match("%.tmpl$") ~= nil
+  local text = document.text
+  if generated then
+    local compiled, trouble = Template.compile(document.text, document.name)
+    if compiled == nil then
+      return { errors = found, refusals = { plan.refusal_of(trouble) }, source = text, text = text,
+        splices = none, refused = {}, generated = false }
+    end
+    text = compiled
+  end
+  --- What was found, its places in `spliced` as spliced by `splices`.
+  local function checked(refusals: {plan.Refusal}, spliced: string, splices: {shape_specs.Splice},
+                         refused: {string:boolean}): Checked
+    return { errors = found, refusals = refusals, source = text, text = spliced, splices = splices,
+      refused = refused, generated = generated }
+  end
   local named = plan.named(document.name)
   local path, kind = named.path, named.kind
   local listed = source.module(checker.source, document.name)
   if listed ~= nil then path, kind = listed.path, listed.kind end
-  local planned = plan.of(built, document.name, document.text, path, kind, checker.own_tree)
+  local own_tree = source.own_tree(checker.source)
+  local planned = plan.of(built, document.name, text, path, kind, own_tree, generated)
+  remember(checker, document, planned.requires)
   local refusals = planned.refusals
-  if planned.halted then
-    return { errors = found, refusals = refusals, text = document.text, splices = none, refused = {} }
-  end
   local subject = planned.plan
-  local resolution = splices_of(built, env, document, path)
+  if planned.halted and subject == nil then return checked(refusals, text, none, {}) end
+  -- A build checks where every module's requires reach before it checks
+  -- any, a declaration's aside ([`compilation.collect`]), and stops there.
+  if subject ~= nil and kind ~= "decl" then
+    local placed = graph.refusals(checker.source, document.name, path, kind, planned.requires,
+      opened_requires(checker, document))
+    if #placed > 0 then return checked(placed, text, none, {}) end
+  end
+  if planned.halted then return checked(refusals, text, none, {}) end
+  local resolution = splice.found(built, env, document.name, text, path, checker.source.tally)
   if resolution.refusal ~= "" then
     local refused = plan.refusal_of(resolution.refusal)
     refused.line = resolution.line
     refusals[#refusals + 1] = refused
-    return { errors = found, refusals = refusals, text = document.text, splices = none, refused = {} }
+    return checked(refusals, text, none, {})
   end
   local splices = resolution.splices
-  local text = shape_specs.spliced(document.text, splices)
+  local spliced = shape_specs.spliced(text, splices)
   local result: compiler.Result | nil = nil
   if subject == nil or subject.kind == "decl" then
-    result = built.check_string(text, env, document.name, "tl")
+    result = built.check_string(spliced, env, document.name, "tl")
   else
     -- Compiled as a build compiles it, which drops the warnings a build
     -- discounts and refuses what a build refuses beyond the checker's
@@ -353,14 +378,14 @@ local function checked_of(checker: Checker, built: compiler, env: compiler.Env,
     local rendered: Rendered = { result = nil }
     local kept = env.modules[compiled.path]
     local typed = assert(checker.typed)
-    local function generated(): compilation.Generated | nil, string
-      return compilation.generate(compiled, built, env, typed, checker.own_tree, true,
+    local function generate(): compilation.Generated | nil, string
+      return compilation.generate(compiled, built, env, typed, own_tree, true,
         function(_file: string, _source: string, seen: compiler.Result): string
           rendered.result = seen
           return ""
-        end, text, true)
+        end, spliced, true)
     end
-    local ok, made, trouble = pcall(generated)
+    local ok, made, trouble = pcall(generate)
     env.modules[compiled.path] = kept
     if not ok then error(made, 0) end
     result = rendered.result
@@ -368,31 +393,13 @@ local function checked_of(checker: Checker, built: compiler, env: compiler.Env,
       for _, refusal in ipairs(plan.refusals_of(trouble)) do refusals[#refusals + 1] = refusal end
     end
   end
-  if result == nil then
-    return { errors = found, refusals = refusals, text = text, splices = splices, refused = {} }
-  end
+  if result == nil then return checked(refusals, spliced, splices, {}) end
   -- A text with a syntax error has no warnings, nor a list of them: the
   -- list of lists ends there.
   for _, group in ipairs({ result.syntax_errors, result.type_errors, result.warnings }) do
     for _, e in ipairs(group) do found[#found + 1] = e end
   end
-  return { errors = found, refusals = refusals, text = text, splices = splices,
-    refused = teal.refused_type_requires(document.name, document.text, result) }
-end
-
---- The byte of the document's own text at byte `offset` of it as
---- spliced (`splices`, the last first, as [`shape_specs.splices`] answers
---- them). A byte a splice put in is the byte the splice follows.
-local function unspliced(splices: {shape_specs.Splice}, offset: integer): integer
-  local shift = 0
-  for i = #splices, 1, -1 do
-    local splice = splices[i]
-    local first = splice.at + shift + 1
-    if offset < first then break end
-    if offset < first + #splice.text then return splice.at end
-    shift = shift + #splice.text
-  end
-  return offset - shift
+  return checked(refusals, spliced, splices, teal.refused_type_requires(document.name, text, result))
 end
 
 --- The diagnostics of `document`, each encoded, its positions counted in
@@ -426,7 +433,9 @@ function check.diagnose(checker: Checker, document: Document, encoding: string):
   local function add(y: integer, x: integer, message: string, code: string | nil)
     local line = math.min(math.max(y, 1), #starts)
     local at = math.min(starts[line] + math.max(x, 1) - 1, #checked.text + 1)
-    local offset = unspliced(checked.splices, at)
+    local offset = splice.unspliced(checked.splices, at)
+    -- A place in a template's Teal is none in the template.
+    if checked.generated then offset = 1 end
     local word = document.text:match("^[%w_]+", offset) or ""
     local diagnostic: protocol.Diagnostic = {
       range = protocol.range(protocol.position(lines, offset, encoding),
@@ -445,7 +454,7 @@ function check.diagnose(checker: Checker, document: Document, encoding: string):
   for _, e in ipairs(checked.errors) do
     local code: string | nil = e.code
     if code == nil then code = e.tag end
-    add(e.y, e.x, importer.said(e, document.name, document.text, checked.refused, checker.hints), code)
+    add(e.y, e.x, importer.said(e, document.name, checked.source, checked.refused, checker.hints), code)
   end
   document.published = out
   document.published_text = document.text

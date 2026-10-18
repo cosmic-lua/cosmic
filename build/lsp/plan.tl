@@ -31,6 +31,16 @@ local record plan
     plan: build_module.Plan | nil
     refusals: {Refusal}
     halted: boolean
+    --- What it requires and where, in order ([`ast.require_sites`]): none
+    --- for a text that does not parse.
+    requires: {Site}
+  end
+
+  --- A `require` of a document: the module it names, and where.
+  record Site
+    name: string
+    line: integer
+    column: integer
   end
 
   --- A module's import path and its kind, as the `inputs` view names them.
@@ -43,11 +53,18 @@ end
 local type Refusal = plan.Refusal
 local type Planned = plan.Planned
 local type Named = plan.Named
+local type Site = plan.Site
 
 --- The import path and kind a build gives the file `name` below the root
 --- that the working database does not list yet: the `inputs` view's
---- reading of a path (build/analysis_schema.tl).
+--- reading of a path (build/analysis_schema.tl), and a template's
+--- (build/derivation.tl), the convention a `.tl` file gets with its
+--- extension swapped.
 function plan.named(name: string): Named
+  if name:match("%.tmpl$") ~= nil then
+    local template = name:gsub("%.tmpl$", ""):gsub("/init$", "")
+    return { path = (template:gsub("/", ".")), kind = "module" }
+  end
   local stem = name:gsub("%.d%.tl$", "")
   if stem == name then stem = name:gsub("/init%.tl$", "") end
   if stem == name then stem = name:gsub("%.tl$", "") end
@@ -104,6 +121,47 @@ local function return_line(parsed: ast.Parsed): integer
   return 1
 end
 
+--- What `parsed` requires and where, in source order, each name once, as
+--- [`ast.require_sites`] finds them: read off its tokens, a fraction of a
+--- walk of its tree, but from the tree where a name is spelled with an
+--- escape or in long brackets, which only the tree reads. A `require`
+--- after `.` or `:` is a field, and one given anything but one string
+--- names nothing.
+local function sites_of(built: compiler, parsed: ast.Parsed): {Site}
+  local tokens = parsed.tokens
+  local out: {Site} = {}
+  local seen: {string:boolean} = {}
+  for i, token in ipairs(tokens) do
+    local before = tokens[i - 1]
+    if token.kind == "identifier" and token.tk == "require" and
+        (before == nil or (before.kind ~= "." and before.kind ~= ":")) then
+      local literal = tokens[i + 1]
+      if literal ~= nil and literal.kind == "(" then
+        local closing = tokens[i + 3]
+        literal = tokens[i + 2]
+        if closing == nil or closing.kind ~= ")" then literal = nil end
+      end
+      if literal ~= nil and literal.kind == "string" then
+        local quote = literal.tk:sub(1, 1)
+        if (quote ~= '"' and quote ~= "'") or literal.tk:find("\\", 1, true) ~= nil then
+          local found, _ = ast.require_sites(built, parsed)
+          local whole: {Site} = {}
+          for _, site in ipairs(found or {}) do
+            whole[#whole + 1] = { name = site.name, line = site.y, column = site.x }
+          end
+          return whole
+        end
+        local name = literal.tk:sub(2, -2)
+        if seen[name] == nil then
+          seen[name] = true
+          out[#out + 1] = { name = name, line = literal.y, column = literal.x }
+        end
+      end
+    end
+  end
+  return out
+end
+
 --- The plan a build makes of the document `text`, the file `name` below
 --- the root, the module `path` of `kind` ([`compilation.collect`]), from a
 --- parse of it, and what a build refuses that the parse tells: a `global`
@@ -113,12 +171,16 @@ end
 --- example that returns none ([`compilation.refusal`]). A build checks
 --- none of these but a global's. With `own_tree`, the plan of a
 --- standard-library module carries its stub, which cosmic's own build
---- holds it to.
+--- holds it to. A `generated` text is a template's Teal, whose warnings a
+--- build discounts as it does a generated module's.
 function plan.of(built: compiler, name: string, text: string, path: string, kind: string,
-                 own_tree: boolean): Planned
+                 own_tree: boolean, generated: boolean): Planned
   local refusals: {Refusal} = {}
   local parsed, _ = ast.parse(built, text, name)
-  if parsed == nil then return { plan = nil, refusals = refusals, halted = false } end
+  if parsed == nil then
+    return { plan = nil, refusals = refusals, halted = false, requires = {} }
+  end
+  local requires = sites_of(built, parsed)
   for _, place in ipairs(globals.found(parsed)) do
     refusals[#refusals + 1] = plan.refusal_of(compilation.global_refusal(name .. ":" ..
         tostring(place.line) .. ":" .. tostring(place.column)))
@@ -126,12 +188,12 @@ function plan.of(built: compiler, name: string, text: string, path: string, kind
   local analysis, trouble = analyzer.analysis_of(built, parsed, text)
   if analysis == nil then
     refusals[#refusals + 1] = plan.refusal_of(trouble)
-    return { plan = nil, refusals = refusals, halted = true }
+    return { plan = nil, refusals = refusals, halted = true, requires = requires }
   end
   local misplaced = compilation.policy_refusal(name, kind, analysis.inputs)
   if misplaced ~= nil then
     refusals[#refusals + 1] = plan.refusal_of(misplaced)
-    return { plan = nil, refusals = refusals, halted = true }
+    return { plan = nil, refusals = refusals, halted = true, requires = requires }
   end
   local tests: {string} = {}
   if kind == "test" then
@@ -157,7 +219,7 @@ function plan.of(built: compiler, name: string, text: string, path: string, kind
     tests = tests,
     inputs = analysis.inputs,
     has_top_level_return = analysis.has_top_level_return,
-    generated = false,
+    generated = generated,
     key = nil,
     graph_key = nil,
     lua = nil,
@@ -168,9 +230,9 @@ function plan.of(built: compiler, name: string, text: string, path: string, kind
     local at = plan.refusal_of(refused)
     at.line = return_line(parsed)
     refusals[#refusals + 1] = at
-    return { plan = made_plan, refusals = refusals, halted = true }
+    return { plan = made_plan, refusals = refusals, halted = true, requires = requires }
   end
-  return { plan = made_plan, refusals = refusals, halted = false }
+  return { plan = made_plan, refusals = refusals, halted = false, requires = requires }
 end
 
 return plan

@@ -2,12 +2,15 @@
 --- the messages an editor sends, a session served them, and what the tests
 --- read of the messages it sends back.
 
+local Fs = require("cosmic.fs")
 local Json = require("cosmic.json")
 local Shape = require("cosmic.shape")
 local Sqlite = require("cosmic.sqlite")
 local Stream = require("cosmic.stream")
+local build_paths = require("build.paths")
 local protocol = require("build.lsp.protocol")
 local session = require("build.lsp.session")
+local source = require("build.lsp.source")
 
 local record session_fixture
   record Failed
@@ -68,11 +71,12 @@ local record session_fixture
   end
 
   --- What a session answered: its exit status, the body of each message
-  --- it sent, and its complaints.
+  --- it sent, its complaints, and how it served each module, all told.
   record Ran
     code: integer
     sent: {string}
     err: string
+    tally: source.Tally
   end
 
   SHUTDOWN: string
@@ -110,6 +114,96 @@ function session_fixture.bodies(bytes: string): {string}
   end
 end
 
+--- A copy of `tally`, as it stands now.
+local function copied(tally: source.Tally): source.Tally
+  return { database_stubs = tally.database_stubs, made_stubs = tally.made_stubs,
+    sources = tally.sources, templates = tally.templates, bodiless_splices = tally.bodiless_splices,
+    whole_splices = tally.whole_splices, stages = tally.stages, reopened = tally.reopened }
+end
+
+--- Makes the directory `root` a project to a session, as one a build has
+--- been made of is ([`rebuild.where`]): its build directory holds a
+--- projection, here an empty one, which docs leave out
+--- ([`docs.databases`]). Answers `root`.
+function session_fixture.made_project(root: string): string
+  local directory = assert(build_paths.prepare(root))
+  assert(Fs.write(build_paths.under(directory).projection, ""))
+  return root
+end
+
+--- A new directory that is a project to a session ([`made_project`]).
+function session_fixture.project(): string
+  return session_fixture.made_project((assert(Fs.mkdtemp("cosmic-lsp-"))))
+end
+
+--- A stream of `batches` of messages, each framed whole, that calls
+--- `between` with a batch's number once the session has read all of it
+--- and asks for more: what an editor sends with time between, within one
+--- [`session.serve`].
+local record Batches is Stream.Reader
+  batches: {string}
+  following: integer
+  rest: string
+  between: function(after: integer)
+  read: function(Batches, max_bytes?: integer): string | nil, string
+  close: function(Batches): boolean, string
+  skip: function(Batches, n: integer): boolean, string
+end
+
+local batches_mt: metatable<Batches> = { __index = Batches }
+
+function Batches:read(max_bytes?: integer): string | nil, string
+  if self.rest == "" then
+    local batch = self.batches[self.following]
+    if batch == nil then return nil, "" end
+    if self.following > 1 then self.between(self.following - 1) end
+    self.following = self.following + 1
+    self.rest = batch
+  end
+  local n = #self.rest
+  if max_bytes ~= nil and max_bytes < n then n = max_bytes end
+  local piece = self.rest:sub(1, n)
+  self.rest = self.rest:sub(n + 1)
+  return piece, ""
+end
+
+function Batches:close(): boolean, string
+  return true, ""
+end
+
+--- Passes over `n` bytes, read and dropped.
+function Batches:skip(n: integer): boolean, string
+  local left = n
+  while left > 0 do
+    local piece, trouble = self:read(left)
+    if piece == nil then return false, trouble end
+    left = left - #piece
+  end
+  return true, ""
+end
+
+--- What one session at `root`, served `batches` of messages in one
+--- stream, answers, `between` called after each batch but the last.
+function session_fixture.served_between(root: string, batches: {{string}},
+                                        between: function(after: integer)): Ran
+  local framed: {string} = {}
+  for _, messages in ipairs(batches) do framed[#framed + 1] = session_fixture.framed(messages) end
+  local reader: Batches = setmetatable({ batches = framed, following = 1, rest = "", between = between },
+    batches_mt)
+  local wrote: {string} = {}
+  local complaints: {string} = {}
+  local s = session.new(root, {
+    err = function(line: string) complaints[#complaints + 1] = line end,
+    store = nil,
+  })
+  local code = session.serve(s, reader, function(text: string): boolean, string
+    wrote[#wrote + 1] = text
+    return true, ""
+  end)
+  return { code = code, sent = session_fixture.bodies(table.concat(wrote)),
+    err = table.concat(complaints, "\n"), tally = copied(s.checker.source.tally) }
+end
+
 --- What a session at `root` answers `messages` with, reading docs from
 --- `store` when given.
 function session_fixture.served(root: string, messages: {string}, store?: {Sqlite.Handle}): Ran
@@ -125,7 +219,7 @@ function session_fixture.served(root: string, messages: {string}, store?: {Sqlit
       return true, ""
     end)
   return { code = code, sent = session_fixture.bodies(table.concat(wrote)),
-    err = table.concat(complaints, "\n") }
+    err = table.concat(complaints, "\n"), tally = copied(s.checker.source.tally) }
 end
 
 --- A session at `root` served one batch of messages after another, as an
@@ -144,7 +238,7 @@ function session_fixture.serving(root: string): function(messages: {string}): Ra
         return true, ""
       end)
     return { code = code, sent = session_fixture.bodies(table.concat(wrote)),
-      err = table.concat(complaints, "\n") }
+      err = table.concat(complaints, "\n"), tally = copied(s.checker.source.tally) }
   end
 end
 
