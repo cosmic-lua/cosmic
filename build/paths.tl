@@ -55,6 +55,10 @@ local record paths
     uses: string
     --- The stores of the test modules' import closures.
     stores: string
+    --- The copies of the closures' files a test run gives its sandboxed
+    --- workers where each file a path of its own is too many
+    --- ([`build.test_sandbox`]'s `plan`), which each run makes afresh.
+    copies: string
     --- The executables a build writes, the tool among them.
     bin: string
     --- The tree's own tool, [`bin/cosmic`].
@@ -96,6 +100,7 @@ function paths.under(directory: string): paths.Layout
     translate_check = directory .. "/translate-check.db",
     uses = directory .. "/uses-by-source.db",
     stores = directory .. "/stores",
+    copies = directory .. "/copies",
     bin = directory .. "/bin",
     tool = directory .. "/bin/cosmic",
     cores = directory .. "/core",

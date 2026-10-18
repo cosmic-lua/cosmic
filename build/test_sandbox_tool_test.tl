@@ -16,6 +16,7 @@ local test_sandbox = require("build.test_sandbox")
 local fixture = require("build.test_sandbox_fixture")
 local Test = require("cosmic.test")
 local build_paths = require("build.paths")
+local confine = require("build.confine")
 
 --- What a worker's plan gives it of the host, the program the run that
 --- refuses a path starts, and roots of their own for the workers of that
@@ -85,6 +86,105 @@ local function test_a_path_another_bind_shows_is_not_bound_again(tmp: string)
   assert(holds(unveil.reads, root .. "/data/y.tl") and
       (unveil.at or {})[root .. "/data/y.tl"] == "/tree/data/y.tl")
   assert(holds(unveil.reads, dir) and not holds(unveil.reads, dir .. "/given"))
+end
+
+--- Makes `count` files of the closure beneath `root`/`dir`, and a file
+--- beside them that is not, `notes.txt`; answers the closure's paths.
+local function closure_files(root: string, dir: string, count: integer): {string}
+  assert(Fs.mkdirs(root .. "/" .. dir .. "/deeper"))
+  assert(Fs.write(root .. "/" .. dir .. "/notes.txt", "not of the closure"))
+  local files: {string} = {}
+  for i = 1, count do
+    -- One of every ten beneath a directory of its own: a copy keeps it there.
+    local file = string.format("%s/%sm%03d.tl", dir, i % 10 == 0 and "deeper/" or "", i)
+    assert(Fs.write(root .. "/" .. file, "return " .. tostring(i)))
+    files[#files + 1] = file
+  end
+  return files
+end
+
+--- A closure whose files, each a path of its own, are more paths than a
+--- sandbox holds is given in fewer: the files beneath a directory as one
+--- copy of them alone, at that directory's place in /tree, holding each
+--- of them at its path and nothing beside them (a file the key does not
+--- hold). Its scratch directory is the host's then, since a copy is a
+--- directory, and it says so. Given nowhere to make a copy, the plan is
+--- over the most, as every plan past it was.
+local function test_a_closure_past_the_most_paths_is_given_as_copies(tmp: string)
+  local root, scratch, copies = tmp .. "/root", scratch_in(tmp), tmp .. "/copies"
+  assert(Fs.write(build_dir(root) .. "/cosmic.db", "x"))
+  local files = closure_files(root, "many", confine.unveil_max + 40)
+  for _, file in ipairs(closure_files(root, "few", 1)) do files[#files + 1] = file end
+  local plan = test_sandbox.plan(root, scratch, effective(files), {}, nil, nil, copies)
+  assert(plan.trouble == "", plan.trouble)
+  assert(plan.over == 0, "over by " .. tostring(plan.over))
+  local unveil = assert(plan.sandbox.unveil)
+  local at = unveil.at or {}
+  assert(#unveil.reads + #(unveil.writes or {}) <= confine.unveil_max)
+  local copy: string | nil = nil
+  for _, path in ipairs(unveil.reads) do
+    if at[path] == "/tree/many" then copy = path end
+    assert(not Fs.within(path, root .. "/many"), path .. " is given beside its copy")
+  end
+  local given = assert(copy, "no copy of many/ is given")
+  assert(Fs.within(given, copies), given)
+  local held = assert(Fs.walk(given))
+  assert(#held == confine.unveil_max + 40, tostring(#held))
+  for _, file in ipairs(files) do
+    if file:sub(1, 5) == "many/" then
+      assert(Fs.read(given .. file:sub(5)) == Fs.read(root .. "/" .. file), file)
+    end
+  end
+  assert(Fs.exists(given .. "/notes.txt") ~= true, "a file the key does not hold is given")
+  assert((assert(sys.stat(given)).mode & 0x1ff) == 0x1ed)
+  -- The one file of few/ saves no path as a copy, and stays its own.
+  assert(holds(unveil.reads, root .. "/few/m001.tl") and at[root .. "/few/m001.tl"] == "/tree/few/m001.tl")
+  assert(not plan.own_scratch, plan.why_shared)
+  assert(plan.why_shared:find("beneath many are given as a copy", 1, true) ~= nil, plan.why_shared)
+  local nowhere = test_sandbox.plan(root, scratch, effective(files), {})
+  assert(nowhere.over > 0)
+end
+
+--- The grants a start takes are its plan's paths, the sandbox's own /tmp
+--- where its scratch directory is its own, and the sandbox's own /proc, which
+--- the start counts too: a closure one file short of the most paths a
+--- sandbox unveils is past them, and is given as copies so the start's
+--- grants fit.
+local function test_a_closure_is_counted_as_a_start_counts_its_grants(tmp: string)
+  local root, scratch, copies = tmp .. "/root", scratch_in(tmp), tmp .. "/copies"
+  assert(Fs.write(build_dir(root) .. "/cosmic.db", "x"))
+  local bare = test_sandbox.plan(root, scratch, effective({}), {}, nil, nil, copies)
+  assert(bare.own_scratch and #(assert(bare.sandbox.unveil).writes or {}) == 0)
+  local base = #assert(bare.sandbox.unveil).reads
+  -- Its paths and its /tmp: as many as a sandbox unveils, before /proc.
+  local files = closure_files(root, "many", confine.unveil_max - 1 - base)
+  local plan = test_sandbox.plan(root, scratch, effective(files), {}, nil, nil, copies)
+  assert(plan.trouble == "" and plan.over == 0, plan.trouble)
+  local unveil = assert(plan.sandbox.unveil)
+  local grants = #unveil.reads + #(unveil.writes or {}) + (plan.own_scratch and 1 or 0)
+  assert(grants + 1 <= confine.unveil_max, tostring(grants) .. " grants and /proc")
+  assert(not plan.own_scratch, "no copy was made")
+  local nowhere = test_sandbox.plan(root, scratch, effective(files), {})
+  assert(nowhere.over == 1, tostring(nowhere.over))
+end
+
+--- Within the most paths a sandbox holds, each file of the closure is a
+--- path of its own, as it always was, and nothing is copied.
+local function test_a_closure_within_the_most_paths_is_given_file_by_file(tmp: string)
+  local root, scratch, copies = tmp .. "/root", scratch_in(tmp), tmp .. "/copies"
+  assert(Fs.write(build_dir(root) .. "/cosmic.db", "x"))
+  local files = closure_files(root, "many", 20)
+  local plan = test_sandbox.plan(root, scratch, effective(files), {}, nil, nil, copies)
+  assert(plan.trouble == "" and plan.over == 0, plan.trouble)
+  local unveil = assert(plan.sandbox.unveil)
+  for _, file in ipairs(files) do
+    assert(holds(unveil.reads, root .. "/" .. file) and
+        (unveil.at or {})[root .. "/" .. file] == "/tree/" .. file, file)
+  end
+  assert(plan.own_scratch and plan.why_shared == "", plan.why_shared)
+  assert(Fs.exists(copies) ~= true, "a copy is made for a plan that fits")
+  local unchanged = test_sandbox.plan(root, scratch, effective(files), {})
+  assert(#assert(unchanged.sandbox.unveil).reads == #unveil.reads)
 end
 
 --- The program is named in the worker's build directory, its bin/cosmic,

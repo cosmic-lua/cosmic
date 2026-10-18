@@ -15,7 +15,10 @@
 ---   it, and its working directory there. Each read-only, it holds only
 ---   its module's import closure as source files, the fuzz corpora for a
 ---   module that uses [`build.fuzz`], and what the module declares it
----   `reads`;
+---   `reads`. Each file of the closure is a path of its own, but where
+---   that would give the worker more paths than a sandbox holds: then a
+---   directory's files of the closure are given as one, a copy of them
+---   alone ([`in_copies`]);
 --- - the tree's build directory at [`test_sandbox.output`], wherever the
 ---   host keeps it, read-only, holding only the store at its `cosmic.db`
 ---   (the store of its module's import closure,
@@ -75,6 +78,7 @@ local confine = require("build.confine")
 local test_inputs = require("build.test_inputs")
 local caches = require("build.caches")
 local String = require("cosmic.string")
+local Sandbox = require("cosmic.sandbox")
 
 local build_layout = build_paths.resolve
 
@@ -103,7 +107,8 @@ local record test_sandbox
     --- contract, coverage from the first instruction): what a test's
     --- read of a variable answers, and so what its key holds.
     env: {string:string}
-    --- The paths it was given beyond the most a sandbox holds, or 0.
+    --- The grants its policy would hold beyond the most a start takes,
+    --- or 0.
     over: integer
     --- Why it cannot start as planned -- a cache it declares that could
     --- not be made, a `host` path it declares that cannot be given -- or
@@ -401,6 +406,154 @@ local function make_own_cores(effective: test_inputs.Effective, scratch: string)
   return true, ""
 end
 
+--- The most grants a worker's policy holds: one path a start unveils is
+--- the sandbox's own /proc (cosmic.child's `MAX_ISOLATED_GRANTS`).
+local MOST_GRANTS <const> = UNVEIL_MAX - 1
+
+--- The paths of the profile "system" a worker of `effective` is given
+--- beside its plan's ([`build.test_policy`]), or none where it does not
+--- declare `system`.
+local function system_paths(effective: test_inputs.Effective): {string}
+  local out: {string} = {}
+  if effective.system ~= true then return out end
+  -- A profile this host cannot resolve fails the start, which says why.
+  local profile, _ = Sandbox.profile("system")
+  if profile == nil then return out end
+  for _, grant in ipairs(profile.grants or {}) do out[#out + 1] = grant.path end
+  return out
+end
+
+--- How many grants the policy of a worker given `reads` and `writes`,
+--- placed where `at` says, holds, as [`build.test_policy`]'s `worker`
+--- makes it and a merge joins it with `system`: one a path in the sandbox,
+--- with the private noexec scratch where its scratch directory is the
+--- host's, or the sandbox's own /tmp, not `writes`, where it is the
+--- worker's own (`own`).
+local function granted(reads: {string}, writes: {string}, at: {string:string}, own: boolean,
+                       effective: test_inputs.Effective, system: {string}): integer
+  local paths: {string} = {}
+  for _, path in ipairs(reads) do paths[#paths + 1] = at[path] or path end
+  if own then
+    paths[#paths + 1] = "/tmp"
+  else
+    for _, path in ipairs(writes) do paths[#paths + 1] = at[path] or path end
+    if effective.noexec_ready == true and #writes > 0 then paths[#paths + 1] = "/noexec" end
+  end
+  for _, path in ipairs(system) do paths[#paths + 1] = path end
+  local seen: {string:boolean} = {}
+  local count = 0
+  for _, path in ipairs(paths) do
+    if seen[path] ~= true then count = count + 1 end
+    seen[path] = true
+  end
+  return count
+end
+
+--- Gives `reads` -- a worker's paths to read, each placed where `at` says
+--- or at its own name -- in `need` fewer paths, where it can, by giving
+--- the files of the closure (`closure`, plain relative paths) beneath a
+--- directory of the tree as one path: a copy of those files alone, at
+--- their paths beneath it, made in a directory of its own beneath `copies`
+--- and given where the worker has that directory of the tree. A
+--- directory of the tree given whole would show the files beside them,
+--- which the module's key does not hold, and a test that read one would
+--- pass on a file whose edit runs it not again; the copy holds what the
+--- key holds and no more. A file of the closure that is run, or a
+--- directory any other path the worker is given is placed in, beneath or
+--- above, is not copied, so nothing is bound inside a copy. The directory
+--- whose files of the closure are the most is copied first, until the
+--- paths fit or no directory saves one.
+--- @return the paths to read, the directories of the tree given as copies
+--- (joined by ", ", "" for none), and why a copy could not be made or ""
+local function in_copies(reads: {string}, at: {string:string}, runs: {string:boolean},
+                         closure: {string:boolean}, copies: string,
+                         need: integer): {string}, string, string
+  local prefix = test_sandbox.tree .. "/"
+  -- Each file of the closure among the paths, by its relative path.
+  local file_of: {string:string} = {}
+  local others: {string} = {}
+  for _, path in ipairs(reads) do
+    local inside = at[path]
+    local relative = ""
+    if inside ~= nil and String.starts_with(inside, prefix) then
+      relative = inside:sub(#prefix + 1)
+    end
+    if closure[relative] == true and runs[path] ~= true then
+      file_of[relative] = path
+    else
+      others[#others + 1] = inside or path
+    end
+  end
+  -- How many of those files each directory of the tree holds.
+  local counts: {string:integer} = {}
+  for relative in pairs(file_of) do
+    local dir = Fs.dirname(relative)
+    while dir ~= "." and dir ~= "/" and dir ~= "" do
+      counts[dir] = (counts[dir] or 0) + 1
+      dir = Fs.dirname(dir)
+    end
+  end
+  local candidates: {string} = {}
+  for dir in pairs(counts) do
+    local place, free = prefix .. dir, true
+    for _, other in ipairs(others) do
+      if beneath(other, place) ~= nil or beneath(place, other) ~= nil then free = false end
+    end
+    if free and (counts[dir] or 0) > 1 then candidates[#candidates + 1] = dir end
+  end
+  table.sort(candidates, function(a: string, b: string): boolean
+    local count_a, count_b = counts[a] or 0, counts[b] or 0
+    if count_a ~= count_b then return count_a > count_b end
+    if #a ~= #b then return #a > #b end
+    return a < b
+  end)
+  local chosen: {string} = {}
+  for _, dir in ipairs(candidates) do
+    if need <= 0 then break end
+    local apart = true
+    for _, taken in ipairs(chosen) do
+      if beneath(dir, taken) ~= nil or beneath(taken, dir) ~= nil then apart = false end
+    end
+    if apart then
+      chosen[#chosen + 1] = dir
+      need = need - ((counts[dir] or 0) - 1)
+    end
+  end
+  if #chosen == 0 then return reads, "", "" end
+  local made, trouble = Fs.mkdirs(copies)
+  if not made then return reads, "", copies .. ": " .. trouble end
+  local copied: {string:boolean} = {}
+  local out: {string} = {}
+  for _, dir in ipairs(chosen) do
+    local given, view_trouble = sys.mkdtemp(copies .. "/copy.XXXXXX")
+    if given == nil then return reads, "", copies .. ": " .. view_trouble end
+    -- Readable by a worker run as a user of its own, as the tree is.
+    local opened, open_trouble = Fs.chmod(given, 0x1ed)
+    if not opened then return reads, "", given .. ": " .. open_trouble end
+    for relative, path in pairs(file_of) do
+      local rest = beneath(relative, dir)
+      if rest ~= nil then
+        local data, read_trouble = Fs.read(path)
+        if data == nil then return reads, "", path .. ": " .. read_trouble end
+        local copy = given .. rest
+        local placed, place_trouble = Fs.mkdirs(Fs.dirname(copy))
+        if placed then placed, place_trouble = Fs.write(copy, data) end
+        if not placed then return reads, "", copy .. ": " .. place_trouble end
+        copied[path] = true
+        at[path] = nil
+      end
+    end
+    out[#out + 1] = given
+    at[given] = prefix .. dir
+  end
+  local kept: {string} = {}
+  for _, path in ipairs(reads) do
+    if copied[path] ~= true then kept[#kept + 1] = path end
+  end
+  for _, given in ipairs(out) do kept[#kept + 1] = given end
+  return kept, table.concat(chosen, ", "), ""
+end
+
 --- The paths of a worker of the tree at `root` that runs a test of the module
 --- `effective` holds the inputs of in, its scratch directory `scratch`,
 --- with the runner's view of a worker's environment `environment`, and
@@ -412,6 +565,11 @@ end
 --- store of its closure, keyed by its bytes. `projection` names the whole
 --- projection where it is not at the build directory's cosmic.db.
 ---
+--- Where the closure's files, each a path of its own, would give the worker
+--- more paths than a sandbox holds, and `copies` names a directory to make
+--- them in, some directories' files of the closure are given as one each:
+--- a copy of those files alone, made beneath `copies` ([`in_copies`]).
+---
 --- The plan holds the paths of a worker started under a [`cosmic.sandbox`]
 --- policy ([`build.test_policy`]) but for what a policy gives of itself --
 --- the system's (its profile "system"), a /proc of the sandbox's own -- and
@@ -419,7 +577,7 @@ end
 --- paths alone (`unveil`), and `runs` says which reads are run.
 function test_sandbox.plan(root: string, scratch: string, effective: test_inputs.Effective,
                            environment: {string:string}, closure_store?: string,
-                           projection?: string): test_sandbox.Plan
+                           projection?: string, copies?: string): test_sandbox.Plan
   -- The program is given at its own name only where the worker does
   -- not have it as the tree's own, in its build directory. A worker
   -- whose module does not declare `tool` has no name to read it by, so
@@ -636,12 +794,33 @@ function test_sandbox.plan(root: string, scratch: string, effective: test_inputs
   -- directory is the sandbox's own tmpfs's, made by the worker at the same
   -- name, not a bind of the host's.
   local why_shared = why_shared_scratch(effective, reads)
+  -- Past the most grants a start takes, the closure's files are given in
+  -- fewer ([`in_copies`]), and only then: a plan that fits is as it was.
+  -- A copy is a directory, which puts a directory of the host in its
+  -- root, so its scratch directory is the host's too, which takes a grant
+  -- of its own.
+  local system = system_paths(effective)
+  local past = granted(reads, writes, at, why_shared == "", effective, system) - MOST_GRANTS
+  if past > 0 and copies ~= nil and refused == "" and made then
+    local closure: {string:boolean} = {}
+    for file in pairs(effective.files) do closure[test_inputs.plain(file)] = true end
+    local copied_dirs, copy_trouble = "", ""
+    reads, copied_dirs, copy_trouble = in_copies(reads, at, runs, closure, copies,
+      granted(reads, writes, at, false, effective, system) - MOST_GRANTS)
+    if copy_trouble ~= "" then
+      refused = "its closure's files, copied to fewer paths: " .. copy_trouble
+    end
+    if copied_dirs ~= "" then
+      why_shared = "its closure's files are more paths than a sandbox holds, so those " ..
+        "beneath " .. copied_dirs .. " are given as a copy, a directory"
+    end
+  end
   local own_scratch = why_shared == ""
+  local over = math.max(0, granted(reads, writes, at, own_scratch, effective, system) - MOST_GRANTS)
   if own_scratch then
     writes = {}
     at[scratch] = nil
   end
-  local over = math.max(0, #reads + #writes - UNVEIL_MAX)
   -- Offline, always: a module declares only loopback addresses, which
   -- the worker's own loopback answers as the host's would. Keying it is
   -- sound so:

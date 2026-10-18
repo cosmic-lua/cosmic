@@ -183,6 +183,50 @@ local function test_a_host_path_is_given_where_it_is_declared(tmp: string)
   assert(text:find("read|given|nil|end", 1, true), text)
 end
 
+--- End to end: a test whose closure's files, each a path of its own, are
+--- more paths than a sandbox holds starts, requires each module of it and
+--- reads each file at its place in /tree, given as copies of a directory's
+--- files of the closure alone: a file beside them that the closure does
+--- not hold is not there.
+local function test_a_closure_past_the_most_paths_starts_and_reads_its_modules(tmp: string)
+  local root = tmp .. "/root"
+  local count = confine.unveil_max + 20
+  assert(Fs.mkdirs(root .. "/suite"))
+  assert(Fs.write(root .. "/suite/notes.txt", "not of the closure"))
+  local requires: {string} = {}
+  for i = 1, count do
+    assert(Fs.write(string.format("%s/suite/m%03d.tl", root, i), "return " .. tostring(i) .. "\n"))
+    requires[#requires + 1] = string.format("  require(\"suite.m%03d\"),", i)
+  end
+  assert(Fs.write(root .. "/suite/many_test.tl", [[
+local Fs = require("cosmic.fs")
+
+local loaded: {integer} = {
+]] .. table.concat(requires, "\n") .. [[
+
+}
+
+local function test_many()
+  local read = 0
+  for i, value in ipairs(loaded) do
+    local text = (Fs.read(string.format("suite/m%03d.tl", i)))
+    if value == i and text == "return " .. i .. "\n" then read = read + 1 end
+  end
+  error("many|" .. read .. "|" .. tostring((Fs.exists("suite/notes.txt"))) .. "|end")
+end
+]]))
+  local env = this_program.environment()
+  env["COSMIC_VERDICT_CACHE"] = "0"
+  env["COSMIC_TEST_ALL"] = nil
+  env["COSMIC_SANDBOX"] = nil
+  env["COSMIC_TEST_SANDBOX"] = nil
+  local text, ok = run(root, tmp .. "/out", env)
+  assert(not ok, text)
+  if unsandboxed(text) then return end
+  assert(text:find("; sandboxed", 1, true), text)
+  assert(text:find("many|" .. tostring(count) .. "|false|end", 1, true), text)
+end
+
 --- The suite the tests below run `cosmic test` on, two modules whose
 --- tests start the stand-in, and the first of those runs, which runs both.
 --- Answers its root and `said`, which runs again and checks the summary says

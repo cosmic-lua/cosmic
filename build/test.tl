@@ -2845,7 +2845,7 @@ local function launch(rec: Recording, job: Job, start: Proc.Relaunch,
       plan = test_sandbox.rebind(kept.plan, kept.scratch, scratch, effective)
     else
       plan = test_sandbox.plan(rec.root, scratch, effective, worker_view(), store,
-        rec.projection)
+        rec.projection, build_paths.resolve(rec.root).copies)
       if plan.trouble == "" then rec.plans[job.m.path] = { plan = plan, scratch = scratch } end
     end
     if plan.over > 0 then
@@ -3985,6 +3985,14 @@ local function gather_key_inputs(ctx: Run): integer | nil
     return 1
   end
   sweep_stores(rec)
+  -- The copies of closures' files the last run gave its workers
+  -- ([`test_sandbox.plan`]'s `copies`): each run makes its own, so none of
+  -- them is asked for again. A failure to take them out costs only room.
+  do
+    local copies = build_paths.resolve(rec.root).copies
+    local gone, trouble = Fs.remove_tree(copies)
+    if not gone then log:complain("test: " .. copies .. ": " .. trouble) end
+  end
   -- The compiler a checked run's modules were compiled by
   -- ([`importer.compile`]'s `checks`).
   local compiled_with = assert(ctx.tool)

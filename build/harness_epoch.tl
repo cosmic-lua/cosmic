@@ -108,7 +108,7 @@ harness_epoch.acknowledged = {
 
   ["build.launcher"] = "bc52c3884cb494ea6a2e0bb2812bef61e0c273a87485be51e15e0f38e9c0bf97",
 
-  ["build.paths"] = "52fa3778b65d84d25a1dc1d36722e986925fbaf0444f9df7d2182e1bb08c836c",
+  ["build.paths"] = "6b7deba6fcc62042a96683d7576c26789838825e650ce70621c305315c78f4cd",
 
   ["build.plural"] = "08dc094acbdc34d3bc0ed7d04238e33810e3ff573574b2e612e1202bde7f24c4",
 
@@ -116,13 +116,13 @@ harness_epoch.acknowledged = {
 
   ["build.shared_verdicts"] = "8ebd1caf3241a119bed76eb61f3992b681453bfef5e3cb19f12cee99b2b8ba31",
 
-  ["build.test"] = "b157149aeca36fb10a8ec57116933c82dc2a519237c0f4ee1352ee2a0d988396",
+  ["build.test"] = "b79b230d9cbcb20c1ab346c120bca8be760b9e0a113dca53d1b399df1d6b8523",
 
   ["build.test_inputs"] = "c4df041918cc0a05acae546709cdfd912b4b1e8cdb26b51d8e515abf7e58713c",
 
   ["build.test_policy"] = "597348dbe514ef0cee04cbfdcee0f3b3198d9a15a2bd4f51961b3fc1894de607",
 
-  ["build.test_sandbox"] = "2d53271ebd9cb3ea1e659b68e1d2a58298df01891295932641087153daa000b8",
+  ["build.test_sandbox"] = "2455f9e5686ca8d45f15dad33c498103d70f94df8bde8ce235a6d253b58f8da1",
 
   ["build.test_worker"] = "cf260d35867d05c79a8fad331ccdb661c37bd96328b5d681cdee976298498172",
 
@@ -170,7 +170,8 @@ harness_epoch.library = {
   ["cosmic.env"] = "the worker's environment, which its key holds, is read and built " ..
     "through it",
   ["cosmic.fs"] = "places each read, bind and unveil (`within`, `relative`), writes " ..
-    "the worker's report, and probes the paths a module requires of the host " ..
+    "the worker's report, copies a closure's files past the most paths a sandbox " ..
+    "holds (`build.test_sandbox`'s `in_copies`), and probes the paths a module requires of the host " ..
     "(`build.host_requires`: `exists`, `is_dir`, `absolute`)",
   ["cosmic.hash"] = "`build.paths` names a project's build directory by the SHA-256 of " ..
     "its root (`hex_sha256`), where the worker finds its tree's and builds its own",
@@ -181,7 +182,9 @@ harness_epoch.library = {
   ["cosmic.project"] = "`build.paths` asks its `directory` where a project's build " ..
     "directory is, where the worker finds its tree's and builds its own",
   ["cosmic.sandbox"] = "`merge` resolves a policy's profiles into the grants a worker " ..
-    "is held to (`build.test_policy`'s `runs`); held alone, what it requires is not walked",
+    "is held to (`build.test_policy`'s `runs`), and `profile` names the system's paths a " ..
+    "plan counts among them (`build.test_sandbox`'s `granted`); held alone, what it " ..
+    "requires is not walked",
   ["cosmic.sandbox.policy"] = "the policy layer cosmic.sandbox answers under its own " ..
     "name: its `merge` and the profiles it joins decide the grants a worker is held to " ..
     "(`build.test_policy`'s `runs`); held alone, what it requires is not walked",
