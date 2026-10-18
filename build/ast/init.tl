@@ -15,6 +15,7 @@ local type Hit = ast_rewrite.Hit
 local type Refusal = ast_rewrite.Refusal
 local type RewriteResult = ast_rewrite.RewriteResult
 local type Position = ast_walk.Position
+local type Site = ast_requires.Site
 
 local record AstModule
   type Node = Node
@@ -24,6 +25,7 @@ local record AstModule
   type Hit = Hit
   type Refusal = Refusal
   type RewriteResult = RewriteResult
+  type Site = Site
   parse: function(built: compiler, source: string, name: string): Parsed | nil, string
   walk: function(node: Node, visit: function(Node))
   children: function(node: Node, skipped?: {string: boolean}, passed?: {Node}): {Node}
@@ -32,6 +34,7 @@ local record AstModule
   compile_pattern: function(built: compiler, pattern_src: string): Node | nil, string
   find_all: function(ast: Node, pattern: Node): {Hit}
   all_requires: function(built: compiler, parsed: Parsed): {string} | nil, string
+  require_sites: function(built: compiler, parsed: Parsed): {Site} | nil, string
   line_starts: function(source: string): {integer}
   offset_of: function(starts: {integer}, y: integer, x: integer): integer
   rewrite: function(built: compiler, source: string, name: string, pattern: Node,
@@ -47,6 +50,7 @@ local M: AstModule = {
   compile_pattern = ast_match.compile_pattern,
   find_all = ast_rewrite.find_all,
   all_requires = ast_requires.all_requires,
+  require_sites = ast_requires.require_sites,
   line_starts = ast_rewrite.line_starts,
   offset_of = ast_rewrite.offset_of,
   rewrite = ast_rewrite.rewrite,

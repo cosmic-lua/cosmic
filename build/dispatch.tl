@@ -586,7 +586,7 @@ local function help(argv: {integer:string}, asked: string | nil): integer
   end
   -- The staleness guard `test` applies: a fingerprint compare when the
   -- tool is fresh. Help reads build.docs, so an edit to it must rebuild.
-  local code = require("build.reboot").stale_exit(argv)
+  local code = require("build.reboot").stale_exit(argv, true)
   if code ~= nil then
     return code
   end
@@ -647,6 +647,7 @@ help_spec = {
     return help(argv, nil)
   end,
   bare = false,
+  reads = true,
   recheck_on_refusal = false,
   takes = "a verb, or `exit`",
 }
@@ -663,11 +664,12 @@ local function spec_of(word: string): verb_spec.Spec | nil
   local found = verb_list.find(word)
   if found ~= nil and found.fresh then
     local inner = found.run
+    local reads = found.reads == true
     -- A tool older than the tree rebuilds first ([`build.reboot`]).
     found = {
       name = found.name,
       run = function(argv: {integer:string}): integer
-        local stale = require("build.reboot").stale_exit(argv)
+        local stale = require("build.reboot").stale_exit(argv, reads)
         if stale ~= nil then
           return stale
         end
@@ -675,6 +677,7 @@ local function spec_of(word: string): verb_spec.Spec | nil
       end,
       bare = found.bare,
       fresh = found.fresh,
+      reads = found.reads,
       recheck_on_refusal = found.recheck_on_refusal,
       summarizes_failure = found.summarizes_failure,
       takes = found.takes,
@@ -825,7 +828,7 @@ function dispatch.main(argv: {integer:string}): integer
       -- tool's refusal above the rebuild. Each verb would check
       -- staleness before reading its command line, or complain through
       -- a logger that holds usage lines back until main flushes them.
-      local stale = require("build.reboot").stale_exit(argv)
+      local stale = require("build.reboot").stale_exit(argv, chosen.reads == true)
       if stale ~= nil then
         code = stale
       end

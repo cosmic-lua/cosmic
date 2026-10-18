@@ -33,6 +33,23 @@ local type compiler = require("build.compiler")
 local receivers = require("build.receivers")
 
 local record shape_specs
+  --- One call's resolution: `text` goes after byte `at` of the source.
+  record Splice
+    at: integer
+    text: string
+  end
+
+  --- What [`shape_specs.splices`] found of a source.
+  record Found
+    --- Each call's splice, the last in the source first; none where a
+    --- call was refused.
+    splices: {Splice}
+    --- What was refused, as the compiler words a refusal (`file:line:
+    --- ...`); "" where nothing was.
+    refusal: string
+    --- The line of the call refused; 0 where none was.
+    line: integer
+  end
 end
 
 local type Node = ast.Node
@@ -356,11 +373,7 @@ local function name_end(source: string, starts: {integer}, name: Node): integer 
   return close
 end
 
---- One call to resolve: where the text goes and what it says.
-local record Splice
-  at: integer
-  text: string
-end
+local type Splice = shape_specs.Splice
 
 --- What a call's name stands for.
 local record Target
@@ -403,11 +416,112 @@ local function resolve(name: string, owned: Node, y: integer, x: integer,
   return { type = view_of_type(found), spelled = required_by[longest] .. "." .. inside }, ""
 end
 
+--- What [`shape_specs.resolve`] splices into `source`, each call's
+--- [`shape_specs.Splice`], the last in the source first; none for source
+--- that has no such call, or that the compiler would refuse anyway. Where
+--- a call cannot be resolved, none, and the refusal `resolve` makes and
+--- the call's line ([`shape_specs.Found`]).
+--- @param built the compiler
+--- @param env the checker's environment, in which the module's
+---   requires are loaded
+--- @param file the module's file, for a message
+--- @param path the module's import path
+--- @param source the module's source
+--- @return Found the splices, or what was refused
+function shape_specs.splices(built: compiler, env: compiler.Env, file: string,
+                             path: string, source: string): shape_specs.Found
+  local none: {Splice} = {}
+  if not source:find("record_of", 1, true) then
+    return { splices = none, refusal = "", line = 0 }
+  end
+  local parsed, _ = ast.parse(built, source, path)
+  if parsed == nil then
+    return { splices = none, refusal = "", line = 0 }
+  end
+  local root = parsed.node
+  local aliases = required(root)
+  local shape = aliases["cosmic.shape"]
+  if shape == nil then
+    return { splices = none, refusal = "", line = 0 }
+  end
+  local pattern, pattern_trouble = ast.compile_pattern(built, "$S.record_of($N)")
+  if pattern == nil then return { splices = none, refusal = pattern_trouble, line = 0 } end
+  local calls: {ast.Hit} = {}
+  for _, hit in ipairs(ast.find_all(root, pattern)) do
+    local on = hit.caps["_S"]
+    if on ~= nil and on.kind == "variable" and on.tk == shape then
+      calls[#calls + 1] = hit
+    end
+  end
+  if #calls == 0 then
+    return { splices = none, refusal = "", line = 0 }
+  end
+
+  -- The module is checked once as written, which reports the calls'
+  -- answers as unresolved generics: the types are all that is read.
+  local code, result = built.gen(source, env, nil, "tl")
+  if code == nil or result == nil or #result.syntax_errors > 0 then
+    return { splices = none, refusal = "", line = 0 }
+  end
+  local checked = result.ast
+  if not (checked is Node) then
+    return { splices = none, refusal = "", line = 0 }
+  end
+
+  local starts = ast.line_starts(source)
+  local splices: {Splice} = {}
+  for _, hit in ipairs(calls) do
+    local name = hit.caps["_N"]
+    local where = ("%s:%d: %s.record_of"):format(file, hit.node.y, shape)
+    local literal = name ~= nil and name.conststr or nil
+    if name == nil or name.kind ~= "string" or literal == nil then
+      return { splices = none, line = hit.node.y,
+        refusal = where .. ": the name must be a string literal, which the build reads" }
+    end
+    local close = name_end(source, starts, name)
+    if close == nil then
+      return { splices = none, line = hit.node.y,
+        refusal = where .. ": the name must be a plain quoted string with no escape in it" }
+    end
+    local target, unresolved = resolve(literal, checked, name.y, name.x, aliases, env)
+    if target == nil then
+      return { splices = none, refusal = ("%s(%q): %s"):format(where, literal, unresolved), line = hit.node.y }
+    end
+    local at, why = unwrapped(target.type)
+    if at == nil then
+      return { splices = none, refusal = ("%s(%q): %s"):format(where, literal, why), line = hit.node.y }
+    end
+    if at.typename ~= "record" then
+      return { splices = none, line = hit.node.y, refusal = ("%s(%q): %s"):format(where, literal,
+        "it is " .. (at.typename == "enum" and "an enum, which " ..
+          shape .. ".one_of checks" or "a " .. at.typename .. ", not a record")) }
+    end
+    local spec, refusal = spec_of(at, literal, shape, {})
+    if spec == nil then
+      return { splices = none, refusal = ("%s(%q): %s"):format(where, literal, refusal), line = hit.node.y }
+    end
+    splices[#splices + 1] = { at = close, text = (", %s, function(): %s return nil end"):format(spec, target.spelled) }
+  end
+  table.sort(splices, function(a: Splice, b: Splice): boolean return a.at > b.at end)
+  return { splices = splices, refusal = "", line = 0 }
+end
+
+--- `source` with each of `splices` put in, the last first as
+--- [`shape_specs.splices`] answers them.
+function shape_specs.spliced(source: string, splices: {Splice}): string
+  local out = source
+  for _, splice in ipairs(splices) do
+    out = out:sub(1, splice.at) .. splice.text .. out:sub(splice.at + 1)
+  end
+  return out
+end
+
 --- `source` with each `Shape.record_of("name")` it holds given what the
 --- build knows of `name`: the call's spec and a function that answers
 --- the record's type ([`Shape.record_of`]'s `built` and `_witness`), spliced
 --- after the name on its own line: lines a message names do not move, but
---- columns after the call on that line do.
+--- columns after the call on that line do ([`shape_specs.splices`] says
+--- by how much).
 --- Nothing changes in source that has no such call, which is every
 --- module but the few that use it, and is not even checked then.
 ---
@@ -426,81 +540,9 @@ end
 --- @return string "" or what was refused
 function shape_specs.resolve(built: compiler, env: compiler.Env, file: string,
                              path: string, source: string): string | nil, string
-  if not source:find("record_of", 1, true) then
-    return source, ""
-  end
-  local parsed, _ = ast.parse(built, source, path)
-  if parsed == nil then
-    return source, ""
-  end
-  local root = parsed.node
-  local aliases = required(root)
-  local shape = aliases["cosmic.shape"]
-  if shape == nil then
-    return source, ""
-  end
-  local pattern, pattern_trouble = ast.compile_pattern(built, "$S.record_of($N)")
-  if pattern == nil then return nil, pattern_trouble end
-  local calls: {ast.Hit} = {}
-  for _, hit in ipairs(ast.find_all(root, pattern)) do
-    local on = hit.caps["_S"]
-    if on ~= nil and on.kind == "variable" and on.tk == shape then
-      calls[#calls + 1] = hit
-    end
-  end
-  if #calls == 0 then
-    return source, ""
-  end
-
-  -- The module is checked once as written, which reports the calls'
-  -- answers as unresolved generics: the types are all that is read.
-  local code, result = built.gen(source, env, nil, "tl")
-  if code == nil or result == nil or #result.syntax_errors > 0 then
-    return source, ""
-  end
-  local checked = result.ast
-  if not (checked is Node) then
-    return source, ""
-  end
-
-  local starts = ast.line_starts(source)
-  local splices: {Splice} = {}
-  for _, hit in ipairs(calls) do
-    local name = hit.caps["_N"]
-    local where = ("%s:%d: %s.record_of"):format(file, hit.node.y, shape)
-    local literal = name ~= nil and name.conststr or nil
-    if name == nil or name.kind ~= "string" or literal == nil then
-      return nil, where .. ": the name must be a string literal, which the build reads"
-    end
-    local close = name_end(source, starts, name)
-    if close == nil then
-      return nil, where .. ": the name must be a plain quoted string with no escape in it"
-    end
-    local target, unresolved = resolve(literal, checked, name.y, name.x, aliases, env)
-    if target == nil then
-      return nil, ("%s(%q): %s"):format(where, literal, unresolved)
-    end
-    local at, why = unwrapped(target.type)
-    if at == nil then
-      return nil, ("%s(%q): %s"):format(where, literal, why)
-    end
-    if at.typename ~= "record" then
-      return nil, ("%s(%q): %s"):format(where, literal,
-        "it is " .. (at.typename == "enum" and "an enum, which " ..
-          shape .. ".one_of checks" or "a " .. at.typename .. ", not a record"))
-    end
-    local spec, refusal = spec_of(at, literal, shape, {})
-    if spec == nil then
-      return nil, ("%s(%q): %s"):format(where, literal, refusal)
-    end
-    splices[#splices + 1] = { at = close, text = (", %s, function(): %s return nil end"):format(spec, target.spelled) }
-  end
-  table.sort(splices, function(a: Splice, b: Splice): boolean return a.at > b.at end)
-  local out = source
-  for _, splice in ipairs(splices) do
-    out = out:sub(1, splice.at) .. splice.text .. out:sub(splice.at + 1)
-  end
-  return out, ""
+  local found = shape_specs.splices(built, env, file, path, source)
+  if found.refusal ~= "" then return nil, found.refusal end
+  return shape_specs.spliced(source, found.splices), ""
 end
 
 return shape_specs

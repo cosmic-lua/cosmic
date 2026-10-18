@@ -23,9 +23,8 @@ local STANDARD <const>: {string: string} = {
   }, "\n"),
 }
 
---- The source of the module `main` after the build resolved its `record_of` calls, or what it refused, in a project of
---- `files` (name to text).
-local function resolved(files: {string: string}): string | nil, string
+--- A build of the project `files` (name to text).
+local function build_of(files: {string: string}): Driver.Build
   local entries: {{string}} = {}
   for name, text in pairs(files) do
     entries[#entries + 1] = { name, text }
@@ -42,7 +41,13 @@ local function resolved(files: {string: string}): string | nil, string
   })
   build:provide(Driver.files(index))
   build:provide(Driver.stubs(STANDARD))
-  return ShapeSpecs.resolve(build, "main", "main.tl", files["main.tl"])
+  return build
+end
+
+--- The source of the module `main` after the build resolved its `record_of` calls, or what it refused, in a project of
+--- `files` (name to text).
+local function resolved(files: {string: string}): string | nil, string
+  return ShapeSpecs.resolve(build_of(files), "main", "main.tl", files["main.tl"])
 end
 
 --- A module that declares `declaration` and asks for the spec of its record `R` (or the `call`).
@@ -355,4 +360,37 @@ local function test_a_record_a_module_re_exports_under_an_alias_is_read_through_
     ["main.tl"] = 'local Shape = require("cosmic.shape")\nlocal type Sb = require("sb")\nreturn Shape.record_of("sb.Policy")\n',
   })
   has(source, why, [[Shape.record_of("sb.Policy", Shape.record({ ["n"] = Shape.integer }), function(): Sb.Policy return nil end)]])
+end
+
+local function test_the_splices_are_the_last_first_and_a_refusal_names_its_line()
+  local source = table.concat({
+    'local Shape = require("cosmic.shape")',
+    "local record A",
+    "  a: string",
+    "end",
+    "local record B",
+    "  b: integer",
+    "end",
+    'local both = { Shape.record_of("A"), Shape.record_of("B") }',
+    "return both",
+    "",
+  }, "\n")
+  local found = ShapeSpecs.splices(build_of({ ["main.tl"] = source }), "main", "main.tl", source)
+  assert(found.refusal == "" and found.line == 0, found.refusal)
+  assert(#found.splices == 2, tostring(#found.splices))
+  local last, first = assert(found.splices[1]), assert(found.splices[2])
+  assert(last.at > first.at, "the last in the source comes first")
+  -- Each goes right after its call's name.
+  assert(source:sub(first.at - 2, first.at) == '"A"', source:sub(first.at - 2, first.at))
+  assert(source:sub(last.at - 2, last.at) == '"B"', source:sub(last.at - 2, last.at))
+  assert(first.text:find("function(): A return nil end", 1, true) ~= nil, first.text)
+  local want = source:sub(1, first.at) .. first.text .. source:sub(first.at + 1, last.at) .. last.text ..
+    source:sub(last.at + 1)
+  assert(ShapeSpecs.spliced(source, found.splices) == want, ShapeSpecs.spliced(source, found.splices))
+  local computed = (source:gsub('record_of%("B"%)', 'record_of("B" .. "")'))
+  local unread = ShapeSpecs.splices(build_of({ ["main.tl"] = computed }), "main", "main.tl", computed)
+  assert(#unread.splices == 0, "a refused call splices none")
+  assert(unread.line == 8, tostring(unread.line))
+  assert(unread.refusal:find("main.tl:8: Shape.record_of: the name must be a string literal", 1, true) ~= nil,
+    unread.refusal)
 end

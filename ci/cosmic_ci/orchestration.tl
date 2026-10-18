@@ -1095,8 +1095,12 @@ local function checked_suite(c: Context, target: string, work: string,
   -- the workflow uploads with the diagnostics when the leg fails: what
   -- a timeout here leaves to read, since the suite's output names no
   -- times, and what says which tests the checked core runs slowest.
-  if exists(BuildPaths.directory(c.root) .. "/build.db") then
-    write(diagnostics .. "/build.db", read(BuildPaths.directory(c.root) .. "/build.db"))
+  -- With its write-ahead log, which holds what a run committed and has
+  -- not yet copied into the file.
+  for _, name in ipairs({ "build.db", "build.db-wal" }) do
+    if exists(BuildPaths.directory(c.root) .. "/" .. name) then
+      write(diagnostics .. "/" .. name, read(BuildPaths.directory(c.root) .. "/" .. name))
+    end
   end
   return s
 end
@@ -1112,13 +1116,21 @@ local function snapshot(c: Context, diagnostics: string, label: string,
   local out = destination .. "/" .. label
   assert(not exists(out), "snapshot already exists: " .. out)
   mkdir(out)
+  -- The file, and beside it what SQLite reads with it: a rollback
+  -- journal, or the write-ahead log the working database is kept in
+  -- (build/work.tl), which holds the commits not yet copied into the file.
+  local sidecars <const> = { "build.db-journal", "build.db-wal" }
   write(out .. "/build.db", read(BuildPaths.directory(c.root) .. "/build.db"))
-  if exists(BuildPaths.directory(c.root) .. "/build.db-journal") then
-    write(out .. "/build.db-journal", read(BuildPaths.directory(c.root) .. "/build.db-journal"))
+  for _, name in ipairs(sidecars) do
+    if exists(BuildPaths.directory(c.root) .. "/" .. name) then
+      write(out .. "/" .. name, read(BuildPaths.directory(c.root) .. "/" .. name))
+    end
   end
   local hashes = hash(out .. "/build.db") .. "  build.db\n"
-  if exists(out .. "/build.db-journal") then
-    hashes = hashes .. hash(out .. "/build.db-journal") .. "  build.db-journal\n"
+  for _, name in ipairs(sidecars) do
+    if exists(out .. "/" .. name) then
+      hashes = hashes .. hash(out .. "/" .. name) .. "  " .. name .. "\n"
+    end
   end
   write(out .. "/hashes.sha256", hashes)
   local temporary_root = Env.get_or("TMPDIR", "/tmp")
@@ -1126,8 +1138,10 @@ local function snapshot(c: Context, diagnostics: string, label: string,
   local inspect = assert(Fs.mkdtemp("cosmic-work-db-integrity-"))
   local called, answer = pcall(function(): integer
     write(inspect .. "/build.db", read(out .. "/build.db"))
-    if exists(out .. "/build.db-journal") then
-      write(inspect .. "/build.db-journal", read(out .. "/build.db-journal"))
+    for _, name in ipairs(sidecars) do
+      if exists(out .. "/" .. name) then
+        write(inspect .. "/" .. name, read(out .. "/" .. name))
+      end
     end
     write(inspect .. "/work_db_integrity.tl",
       read(c.root .. "/ci/testdata/portable/work_db_integrity.tl"))

@@ -186,6 +186,29 @@ local record Cli
   --- bytes and builds are not per source, so a narrowed report leaves
   --- them out. The tree is found as `test` finds it
   db: string
+  --- `cosmic lsp [--stdio] [--listen [host:]port] [--socket path]`: a
+  --- Language Server Protocol server for Teal, which an editor starts.
+  --- It publishes the checker's errors and warnings as a document is
+  --- opened, changed or saved, checked in memory as the editor holds it
+  --- and as a build checks it, with a project's `require` answered as a
+  --- build names modules, from open documents, then the modules a build
+  --- stages of the workspace's root, staged again when the editor says a
+  --- file changed on disk, then the binary's `cosmic.*`; it answers hover
+  --- with a symbol's docs, as `cosmic docs`, and formats a document as
+  --- `cosmic fix` does. It serves one editor over standard input and
+  --- output, or, with `--listen` (a numeric IPv4 host or a bracketed
+  --- IPv6 one, the loopback when only a port is given) or `--socket`,
+  --- each editor that connects until SIGINT or SIGTERM. Whoever reaches
+  --- a listener reads the files below the root it names, unasked who it
+  --- is: it warns on standard error when it listens beyond the loopback.
+  --- `--stdio` takes neither of the others. Over standard input and
+  --- output it exits 0 after the editor's `shutdown`, at `exit` or the
+  --- stream's end, and 1 at an `exit` or an end with no `shutdown`
+  --- before it or a stream that breaks; a listener exits 0 when a signal
+  --- stops it and 1 when it cannot listen, as at a socket file already
+  --- there, which it leaves for a person to remove; 2 for a command line
+  --- it refuses
+  lsp: string
   --- `cosmic sql [--db <path> | --build | --store] [--to csv|ndjson] <statement>`: runs
   --- one SQL statement read-only -- SQLite itself refuses a write --
   --- against the projection in the build directory, or the binary's own
@@ -718,7 +741,7 @@ end
 local module: Module = {
   fields = {
     run = "run", standalone = "standalone", eval = "eval", version = "version", test = "test", fix = "fix", build = "build",
-    db = "db", sql = "sql", cache = "cache", json = "json", hash = "hash", codec = "codec", archive = "archive", fetch = "fetch", time = "time", rand = "rand", compile = "compile", docs = "docs", uses = "uses", todos = "todos", bom = "bom",
+    db = "db", lsp = "lsp", sql = "sql", cache = "cache", json = "json", hash = "hash", codec = "codec", archive = "archive", fetch = "fetch", time = "time", rand = "rand", compile = "compile", docs = "docs", uses = "uses", todos = "todos", bom = "bom",
     refresh = "refresh", sandbox = "sandbox", help = "help",
   },
   verbs = {
@@ -782,6 +805,17 @@ local module: Module = {
     db = {
       about = "what the databases in the build directory hold",
       usage = "[path...]",
+    },
+    lsp = {
+      about = "a language server for editors",
+      usage = "[--stdio] [--listen [host:]port] [--socket path]",
+      spec = {
+        ["--stdio"] = { about = "serve one editor over standard input and output (the default)" },
+        ["--listen"] = { value = "[host:]port",
+          about = "serve each editor that connects to this TCP port" },
+        ["--socket"] = { value = "path",
+          about = "serve each editor that connects to this socket file" },
+      },
     },
     sql = {
       about = "read-only SQL on a database or data files",
@@ -987,12 +1021,12 @@ local module: Module = {
   },
   groups = {
     { "Running code", "run", "standalone", "eval", "version", "sandbox" },
-    { "Project", "test", "fix", "build", "db" },
+    { "Project", "test", "fix", "build", "db", "lsp" },
     { "Quick tools", "sql", "cache", "json", "hash", "codec", "archive", "fetch", "time", "rand", "compile" },
     { "Lookup", "docs", "uses", "todos", "help" },
     { "This binary", "bom", "refresh" },
   },
-  order = { "run", "standalone", "eval", "version", "test", "fix", "build", "db", "sql", "cache", "json", "hash", "codec", "archive", "fetch", "time", "rand", "compile", "docs", "uses", "todos",
+  order = { "run", "standalone", "eval", "version", "test", "fix", "build", "db", "lsp", "sql", "cache", "json", "hash", "codec", "archive", "fetch", "time", "rand", "compile", "docs", "uses", "todos",
     "bom", "refresh", "sandbox", "help" },
 }
 

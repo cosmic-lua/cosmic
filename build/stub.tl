@@ -336,13 +336,19 @@ end
 --- The stub of the module `parsed` holds (see the module's own doc).
 --- @param parsed a parse of the module's source ([`ast.parse`]), whose
 ---   tokens are in source order
-function stub.made(parsed: ast.Parsed): stub.Made
+--- @param every whether to keep every top-level statement, leaving out
+---   only bodies, as for a module that returns no name whose declaration
+---   spells its type: what is kept of a statement is the same either way,
+---   which `cosmic lsp` reads the top-level calls of
+---   ([`build.lsp.check`]). The stub made is never `pruned` then.
+function stub.made(parsed: ast.Parsed, every?: boolean): stub.Made
   local scanned = scan(parsed.node)
   local spans: {Span} = {}
   for _, span in ipairs(scanned.bodies) do
     spans[#spans + 1] = span
   end
-  local dropped = unneeded(parsed, scanned)
+  local dropped: {Span} | nil = nil
+  if every ~= true then dropped = unneeded(parsed, scanned) end
   for _, span in ipairs(dropped or {}) do
     spans[#spans + 1] = span
   end

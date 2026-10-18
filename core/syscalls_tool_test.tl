@@ -9,6 +9,7 @@
 --- core/syscalls_tool_unsandboxed_test.tl's. The executable's own path,
 --- which only a `tool` test can read, is core/artifact_fd_tool_test.tl's.
 
+local String = require("cosmic.string")
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 local type raw_process = require("cosmic.internal.process")
@@ -446,6 +447,50 @@ local function test_an_idmapped_bind_is_the_users_where_it_is_mapped(tmp: string
   -- The path's owner is what the mapping makes the user, and no other:
   -- the child's user owns it there, though the host's owner is root.
   assert(assert(sys.stat(dir)).uid == sys.getuid())
+end
+
+--- A sandbox takes a path to each file of a big closure, as a test
+--- worker's does: 400 are all there in the child, the last as the first,
+--- and `UNVEIL_MAX` is the most -- one past it raises, naming the limit,
+--- before anything is started.
+local function test_an_unveiled_child_takes_up_to_the_most_paths_and_no_more(tmp: string)
+  local probe = probe_in(tmp)
+  local many = tmp .. "/many"
+  assert(sys.mkdir(many, 0x1c0))
+  local first = table.concat(probe_reads(probe), "\n")
+  local base = #String.split(first, "\n")
+  for i = 1, process.UNVEIL_MAX do sys.close(create(many .. "/f" .. tostring(i))) end
+  --- `count` paths in all: the probe's, and a file each of the rest.
+  local function paths(count: integer): {string}
+    local listing = first
+    for i = 1, count - base do listing = listing .. "\n" .. many .. "/f" .. tostring(i) end
+    return String.split(listing, "\n")
+  end
+  local function run(reads: {string}, report: integer): integer | nil, string, integer
+    local sandbox: raw_process.Sandbox = { unveil = { reads = reads }, offline = true }
+    local last = assert(reads[#reads])
+    return process.spawn(probe, { probe,
+      "present " .. many .. "/f1 && print first; present " .. last .. " && print last" },
+      nil, tmp, nil, report, report, false, nil, sandbox)
+  end
+  assert(process.UNVEIL_MAX > 400, "the limit is below the 400 paths this gives")
+  for _, count in ipairs({ 400, process.UNVEIL_MAX }) do
+    local reads = paths(count)
+    assert(#reads == count)
+    local report = create(tmp .. "/report" .. tostring(count))
+    local pid, trouble, errno = run(reads, report)
+    if pid == nil then
+      sys.close(report)
+      refused("unveiling", trouble, errno)
+    end
+    assert(assert(process.waitpid(assert(pid), false)).code == 0)
+    local said = assert(sys.pread(report, 4096, 0))
+    sys.close(report)
+    assert(said == "first\nlast\n", tostring(count) .. " paths: " .. said)
+  end
+  local ok, why = pcall(run, paths(process.UNVEIL_MAX + 1), 1)
+  assert(not ok, "a sandbox over the most was started")
+  assert(tostring(why):find("too many unveiled paths", 1, true), tostring(why))
 end
 
 --- A path given with a name in `at` is bound there, and not at its own

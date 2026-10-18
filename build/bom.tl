@@ -562,6 +562,7 @@ bom.spec = {
   bare = false,
   takes = "nothing",
   fresh = true,
+  reads = true,
 }
 
 return bom
