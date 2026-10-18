@@ -575,6 +575,15 @@ the fork, and rows and incremental checking come after it.
   so they land as few pieces as the seam allows, cut where the work cuts.
   `table.insert`, `ipairs`, `assert`, `pcall` and `Coroutine` lose their
   special cases to declarations.
+- **the driver.** [`build/driver.tl`] builds one program over a module graph
+  from providers (the tree's files, the `cosmic.*` modules, stubs, and the
+  declaration files of the standard library, which it corrects with
+  [`lang/stdlib_corrections.tl`] and reports the drift of), and gives each module
+  its errors, its warnings ([`lang/warnings.tl`]: `unused`, `unread`, `branch`,
+  `hint`, each with a code and a catalogue row) and the type of every node it
+  typed, by the id of the node. the tree checks run through it. the ceilings are
+  data in [`build/ceilings.txt`], and the driver refuses a module over its
+  ceiling with the same words as `fix --check .`.
 - **the switch.** the gate, then one change that commits the translated tree
   and deletes `checker/` and the translator.
 - **rows, then incremental,** after the switch if checking the whole tree in
@@ -1047,6 +1056,8 @@ silent. *not adopted:* each reading's looser form, named here.
 [`build.tree_checks`]: ../../build/tree_checks.tl
 [`build/alias_members.tl`]: ../../build/alias_members.tl
 [`build/cache.tl`]: ../../build/cache.tl
+[`build/ceilings.txt`]: ../../build/ceilings.txt
+[`build/driver.tl`]: ../../build/driver.tl
 [`build/shards.tl`]: ../../build/shards.tl
 [`build/teal_test.tl`]: ../../build/teal_test.tl
 [`build/tree_checks.tl`]: ../../build/tree_checks.tl
@@ -1076,6 +1087,7 @@ silent. *not adopted:* each reading's looser form, named here.
 [`lang/speed.tl`]: ../../lang/speed.tl
 [`lang/stdlib_corrections.tl`]: ../../lang/stdlib_corrections.tl
 [`lang/translate.tl`]: ../../lang/translate.tl
+[`lang/warnings.tl`]: ../../lang/warnings.tl
 [`Proc.exit`]: ../../cosmic/proc.tl
 [`Scoped.resolved`]: ../../lang/scopes.tl
 [`Scopes.declared`]: ../../lang/scopes.tl

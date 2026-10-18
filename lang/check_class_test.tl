@@ -183,7 +183,7 @@ local function test_the_error_for_a_module_typed_with_its_record_says_the_gramma
   assert(Programs.codes(r) == "declaration_value", Programs.codes(r))
   assert(r.errors[1].fix:find("no change of this program fixes it: the grammar has no type for `Circle` used as a value yet", 1, true) ~= nil,
     r.errors[1].fix)
-  assert(r.errors[1].fix:find("build/check_pins.tl", 1, true) ~= nil)
+  assert(r.errors[1].fix:find("build/ceilings.txt", 1, true) ~= nil)
   local field = Programs.run(record .. "local record Holder\n  circle: Circle\nend\nlocal h: Holder = { circle = Circle.unit() }\n" ..
       "local f = h.circle.unit\n")
   assert(Programs.codes(field) == "field_unknown", Programs.codes(field))
