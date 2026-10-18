@@ -5,16 +5,19 @@
 ---
 --- A reader is compared on what its callers read, not on its raw rows, since the translation moves columns: the modules
 --- a file requires, the lines of its global declarations, the references through an alias and what is in scope at the
---- first token of each line, the lines its stub keeps and whether the stub is declaration-only, and its executable
---- lines. [`Shape.record_of`] needs the checker's types of a whole project, so [`build.syntax_shape_specs`]'s tests hold it
+--- first token of each line, the lines its stub keeps and whether the stub is declaration-only, its executable lines,
+--- and each row of its analysis (its tests, policy, catalog, docs, references, bound names, examples and the links of
+--- its comments, [`build.syntax_compared_analysis`]). [`Shape.record_of`] needs the checker's types of a whole project, so [`build.syntax_shape_specs`]'s tests hold it
 --- to the fork's results instead.
 ---
 -- TODO: compare a stub's identifier words line by line, with `nil`, `mut`, `local` and `type` set aside, and compare the
--- lines, bindings and stub of a file whose translation makes a class, once the translator gives its result a map of the
--- lines it moved: a stub is compared by the lines it keeps, and the twenty files that make a class by their references
--- and `pruned` alone, and the stub is the standard library's.
+-- lines, bindings and stub of a file whose translation makes a class, and the lines of the rows of its analysis, once the
+-- translator gives its result a map of the lines it moved: a stub is compared by the lines it keeps, and the twenty files
+-- that make a class by their references and `pruned` alone (their analysis rows without a line), and the stub is the
+-- standard library's.
 -- TODO: delete this module and the fork's readers it compares with at the switch, when the tree is written in the new
 -- grammar and nothing is translated on read (doc/plans/strict-teal.md, "the switch").
+local Analysis = require("build.syntax_compared_analysis")
 local Ast = require("lang.ast")
 local Globals = require("build.syntax_globals")
 local Match = require("build.syntax_match")
@@ -37,11 +40,19 @@ local record Compared
   record Outcome
     skipped: string
     differences: {string}
+    --- How many rows each dimension of [`build.syntax_compared_analysis`] compared, which a tree total shows
+    --- compared something.
+    counts: {string: integer}
   end
 
   --- The readers of `file`, whose text is `source` in the fork's Teal, compared; `built` is the fork's compiler.
   file: function(built: compiler, file: string, source: string): Outcome
+
+  --- The dimensions of an [`Outcome`]'s `counts`: the rows of an analysis that are compared.
+  dimensions: {string}
 end
+
+Compared.dimensions = Analysis.dimensions
 
 --- A source in the fork's Teal read as the ports read it: through [`lang.translate`], which writes it in the new grammar
 --- with its lines where they were.
@@ -220,11 +231,11 @@ function Compared.file(built: compiler, file: string, source: string): Compared.
   end
   local parsed, why = ast.parse(built, source, file)
   if parsed == nil then
-    return { skipped = "the fork does not parse it: " .. why, differences = {} }
+    return { skipped = "the fork does not parse it: " .. why, differences = {}, counts = {} }
   end
   local read, trouble = translated(source, file)
   if read == nil then
-    return { skipped = "its translation does not parse: " .. trouble, differences = {} }
+    return { skipped = "its translation does not parse: " .. trouble, differences = {}, counts = {} }
   end
   local chunk, scoped = read.chunk, read.scoped
   -- A translation that moves lines moves every place read from it: what is compared of such a file does not depend on a
@@ -349,7 +360,11 @@ function Compared.file(built: compiler, file: string, source: string): Compared.
   elseif placed and line_set(without_labels(parsed, old_lines)) ~= line_set(new_lines) then
     differ("lines", "executable " .. first_difference(words(line_set(old_lines)), words(line_set(new_lines))))
   end
-  return { skipped = "", differences = differences }
+  local analysed = Analysis.file(built, file, source, parsed, read.text, chunk, scoped, read.moved)
+  for _, line in ipairs(analysed.differences) do
+    differences[#differences + 1] = line
+  end
+  return { skipped = "", differences = differences, counts = analysed.counts }
 end
 
 return Compared

@@ -8,9 +8,10 @@
 local type compiler = require("build.compiler")
 local ast = require("build.ast")
 local String = require("cosmic.string")
-local cache_names = require("build.cache_names")
-local host_names = require("build.host_names")
+local PolicyRules = require("build.policy_rules")
 local scopes = require("build.scopes")
+
+local type PolicyData = PolicyRules.PolicyData
 
 local record analyzer
   --- One catalog entry: a literal `return nil, ...`/`return false, ...`
@@ -76,7 +77,7 @@ local record analyzer
   record ExampleEntry
     name: string
     --- The doc comment directly above it, leaders stripped, the same
-    --- way [`DocEntry.text`] reads one -- what the example is FOR; the
+    --- way [`build.analyzer.DocEntry.text`] reads one -- what the example is FOR; the
     --- source below it is how, and is documentation in its own right.
     text: string
     --- The whole `function Example.<name>() ... end`, as written, under
@@ -86,30 +87,9 @@ local record analyzer
     line: integer
   end
 
-  --- A test module's `policy` declaration ([`cosmic.test`]), read as
-  --- data, as the [`Test.Needs`] it stands for -- see [`inputs_of`]. A flag
-  --- it does not make reads as one never declared.
-  record Declared
-    --- The line the declaration starts on.
-    line: integer
-    reads: {string}
-    host: {string}
-    env: {string}
-    network: {string}
-    tool: boolean
-    lua: boolean
-    nests: boolean
-    noexec: boolean
-    store: boolean
-    system: boolean
-    caches: {string}
-    --- The files of the project root's parent directory a policy
-    --- grants (`/parent/<file>`), relative to it.
-    parent?: {string}
-    --- The host requirements a policy declares ([`Test.policy`]'s
-    --- `requires`), as written.
-    requires: {string}
-  end
+  --- A test module's `policy` declaration ([`cosmic.test`]), read as data, as the [`Test.Needs`] it stands for -- see
+  --- [`inputs_of`] and [`build.policy_rules`].
+  type Declared = PolicyRules.Declared
 
   --- What a single parse of a module's source tells the importer: its
   --- own test names, whether it also returns its own value at the top
@@ -121,7 +101,7 @@ local record analyzer
   record Analysis
     tests: {string}
     --- The chunk's `Test.policy { ... }` declaration, or nil for none.
-    inputs: Declared | nil
+    inputs: PolicyRules.Declared | nil
     has_top_level_return: boolean
     --- The name the chunk's top-level `return` hands back, when it is a
     --- plain name (`return Fs`): what a reference through an alias of
@@ -1338,77 +1318,6 @@ local function bound_of(bindings: {scopes.Binding}): {analyzer.Bound}
   return out
 end
 
---- The rule a policy's `loopback` is held to, as a refusal names it.
-local LOOPBACK_ONLY <const> = "loopback takes loopback addresses 127.a.b.c only: no test " ..
-  "reaches another host, whose answer no key holds (::1 and localhost included), so one " ..
-  "that needs a service starts its own on 127.0.0.1"
-
---- Why `host` may not be declared in `loopback`, or "" when it may: a
---- dotted quad of 127/8, `127.a.b.c`, each part decimal, 0 to 255,
---- with no leading zero. Strict: a name a lookup might answer
---- elsewhere, `localhost` or `::1`, a shortened or octal spelling,
---- `0.0.0.0`, a range or `*` is none; nor is a spelling no request's
---- host is (`127.0.0.1:8080`, whose port a request's host leaves out).
-local function loopback_trouble(host: string): string
-  local refused = string.format("loopback %q: %s", host, LOOPBACK_ONLY)
-  local a, b, c, d = host:match("^(%d+)%.(%d+)%.(%d+)%.(%d+)$")
-  if a ~= "127" then return refused end
-  for _, part in ipairs({ b, c, d }) do
-    if #part > 3 or (#part > 1 and part:sub(1, 1) == "0") or tonumber(part) > 255 then
-      return refused
-    end
-  end
-  return ""
-end
-
---- What a host grant of a directory is refused with: the rule.
-local HOST_FILES <const> = "a grant of the host names files, or /proc: grant the files the tests read"
-
---- Why `path`, the path of a grant, is none, or "" when it is one: a
---- path of the tree (`absolute` false), relative to its root, or of the
---- host (`absolute`). Neither climbs with "..", nor is spelled with "." or
---- an empty name, which a match by prefix would read as another path, nor
---- begins a name with "$": no grant takes a variable. A host grant names a
---- file, or /proc (R3): one written as a directory, with a "/" after
---- it, is refused here, and one that is a directory on the host fails its
---- tests as they start ([`build.test_inputs`]' `resolve`).
-local function path_trouble(path: string, absolute: boolean): string
-  if path == "" then return "an empty path" end
-  local quoted = "\"" .. path .. "\""
-  if absolute and path:sub(-1) == "/" and path:sub(1, 6) ~= "/proc/" then
-    return quoted .. " names a directory; " .. HOST_FILES
-  end
-  local inner = path:gsub("^/", ""):gsub("/$", "")
-  for name in (inner .. "/"):gmatch("([^/]*)/") do
-    if name == "" or name == "." or name == ".." then
-      return quoted .. " names \"" .. name .. "\"; spell the path plainly"
-    end
-    if name:sub(1, 1) == "$" then
-      return quoted .. " names a variable; no grant takes one, so write the path out"
-    end
-  end
-  return ""
-end
-
---- Why `value` is no entry of the list `field` (`reads` or `host`, the
---- grants of the tree and of the host, `env` or `network`, the
---- loopback addresses) of a declaration, or "": the path rules, the
---- loopback rule. The message names the field the policy writes.
-local function entry_trouble(field: string, value: string): string
-  if field == "network" then
-    -- The rule's own words, which name the field and the host.
-    return loopback_trouble(value)
-  end
-  local trouble = ""
-  if field == "env" then
-    if value == "" then trouble = "an empty name" end
-  else
-    trouble = path_trouble(value, field == "host")
-  end
-  if trouble ~= "" then return (field == "env" and "env" or "grants") .. ": " .. trouble end
-  return ""
-end
-
 --- Whether `node` names [`Test.policy`] through one of `names`, the locals
 --- a chunk binds `require("cosmic.test")` to.
 local function names_policy(node: ast.Node | nil, names: {string:boolean}): boolean
@@ -1432,46 +1341,6 @@ local function requires_test(node: ast.Node | nil): boolean
     callee.kind == "variable" and callee.tk == "require" and first ~= nil and
     first.kind == "string" and first.conststr == "cosmic.test"
 end
-
---- What a `policy` declaration ([`cosmic.test`]'s `Policy`) holds, as the
---- build reads it from the source.
-local record PolicyData
-  profiles?: {string}
-  isolate?: {string}
-  promises?: {string}
-  connect?: {string}
-  loopback?: {string}
-  env?: {string}
-  grants?: {{string:string}}
-  set_env?: {string:string}
-  set_env_digests?: {string:string}
-  limits?: {string:integer}
-  tmp?: boolean
-  user?: integer
-  group?: integer
-  database?: string
-  requires?: {string}
-end
-
---- What each field of a `policy` declaration takes: a list of string
---- literals ("list"), a table of names to string literals ("map"), `true`
---- or `false` ("flag"), a list of tables of string literals ("grants") or
---- a table of integers ("limits"), or an integer ("id"). [`cosmic.test`] cannot be required here --
---- the writer's identity would then hold it -- so the translation of a
---- policy into a declaration is written twice, and the worker holds the
---- one to the other: a module whose `policy` call was handed anything but
---- what this reads fails to load, and cosmic/test_policy_test.tl holds
---- both to the same cases.
-local policy_fields <const>: {string:string} = {
-  profiles = "list", grants = "grants", isolate = "list", promises = "list",
-  connect = "list", loopback = "list", env = "list", set_env = "map",
-  set_env_digests = "map", tmp = "flag", limits = "limits", user = "id", group = "id",
-  database = "string", requires = "list",
-}
-
-local policy_field_order: {string} = {}
-for name in pairs(policy_fields) do policy_field_order[#policy_field_order + 1] = name end
-table.sort(policy_field_order)
 
 --- `node` as a string written plainly, or nil and why, naming `path`.
 local function plain_string(node: ast.Node, path: string): string | nil, string
@@ -1536,14 +1405,28 @@ end
 
 --- A `policy` table literal as [`PolicyData`], or nil and why.
 local function policy_data(node: ast.Node): PolicyData | nil, string
-  local out: PolicyData = {}
+  local profiles: {string} | nil
+  local isolate: {string} | nil
+  local promises: {string} | nil
+  local connect: {string} | nil
+  local loopback: {string} | nil
+  local env: {string} | nil
+  local requires: {string} | nil
+  local set_env: {string: string} | nil
+  local set_env_digests: {string: string} | nil
+  local grants: {{string: string}} | nil
+  local limits: {string: integer} | nil
+  local tmp: boolean | nil
+  local user: integer | nil
+  local group: integer | nil
+  local database: string | nil
   local seen: {string:boolean} = {}
   for _, item in ipairs(node) do
     local field = entry_name(item)
-    local takes = field ~= nil and policy_fields[field] or nil
+    local takes = field ~= nil and PolicyRules.kind_of(field) or nil
     if field == nil or takes == nil or item.value == nil then
       return nil, (field ~= nil and ("has no field " .. field) or "has an entry with no name") ..
-        "; it has " .. table.concat(policy_field_order, ", ")
+        "; it has " .. PolicyRules.field_list()
     end
     if seen[field] then return nil, field .. " is declared twice" end
     seen[field] = true
@@ -1551,46 +1434,46 @@ local function policy_data(node: ast.Node): PolicyData | nil, string
     local why = ""
     if takes == "flag" then
       if given.kind == "boolean" then
-        out.tmp = given.tk == "true"
+        tmp = given.tk == "true"
       else
         why = field .. " takes true or false"
       end
     elseif takes == "list" then
       if field == "profiles" then
-        out.profiles, why = string_list(given, field)
+        profiles, why = string_list(given, field)
       elseif field == "isolate" then
-        out.isolate, why = string_list(given, field)
+        isolate, why = string_list(given, field)
       elseif field == "promises" then
-        out.promises, why = string_list(given, field)
+        promises, why = string_list(given, field)
       elseif field == "connect" then
-        out.connect, why = string_list(given, field)
+        connect, why = string_list(given, field)
       elseif field == "loopback" then
-        out.loopback, why = string_list(given, field)
+        loopback, why = string_list(given, field)
       elseif field == "requires" then
-        out.requires, why = string_list(given, field)
+        requires, why = string_list(given, field)
       else
-        out.env, why = string_list(given, field)
+        env, why = string_list(given, field)
       end
     elseif takes == "string" then
-      out.database, why = plain_string(given, field)
+      database, why = plain_string(given, field)
     elseif takes == "map" then
       if field == "set_env" then
-        out.set_env, why = string_map(given, field)
+        set_env, why = string_map(given, field)
       else
-        out.set_env_digests, why = string_map(given, field)
+        set_env_digests, why = string_map(given, field)
       end
     elseif takes == "id" then
       local number = given.kind == "integer" and math.tointeger(tonumber(given.tk)) or nil
       if number == nil then
         why = field .. " takes a whole number"
       elseif field == "user" then
-        out.user = number
+        user = number
       else
-        out.group = number
+        group = number
       end
     elseif takes == "limits" then
-      local limits: {string:integer} = {}
-      out.limits = limits
+      local found_limits: {string: integer} = {}
+      limits = found_limits
       if given.kind ~= "literal_table" then why = "limits takes a table, written out" end
       for _, entry in ipairs(given.kind == "literal_table" and given or {}) do
         local name = entry_name(entry)
@@ -1601,12 +1484,12 @@ local function policy_data(node: ast.Node): PolicyData | nil, string
             name == "cpu_seconds" or name == "processes") then
           why = "limits takes open_files, file_bytes, cpu_seconds and processes, each an integer"
         else
-          limits[name] = number
+          found_limits[name] = number
         end
       end
     else
-      local grants: {{string:string}} = {}
-      out.grants = grants
+      local found_grants: {{string: string}} = {}
+      grants = found_grants
       if given.kind ~= "literal_table" then why = "grants takes a list of grants" end
       for i, entry in ipairs(given.kind == "literal_table" and given or {}) do
         local at = "grants[" .. i .. "]"
@@ -1626,169 +1509,14 @@ local function policy_data(node: ast.Node): PolicyData | nil, string
             why = at .. " has no field " .. name .. "; it has from, letters, path"
           end
         end
-        grants[#grants + 1] = grant
+        found_grants[#found_grants + 1] = grant
       end
     end
     if why ~= "" then return nil, why end
   end
-  return out, ""
-end
-
---- Why `relative`, the part of a `/parent/` grant after the prefix, names no
---- file of the parent directory a grant may hold, or "": the one rule of
---- cosmic/test.tl's `needs_of`, which this module cannot require.
-local function parent_fault(relative: string): string
-  if relative == "" then return "names no file" end
-  if relative:find("\0", 1, true) then return "holds a NUL" end
-  if relative:find("$", 1, true) then return "holds a $" end
-  if relative:sub(-1) == "/" then return "ends in a \"/\": it names a file, not a directory" end
-  for name in (relative .. "/"):gmatch("([^/]*)/") do
-    if name == "" then return "has an empty name" end
-    if name == "." or name == ".." then return "has a \"" .. name .. "\" name" end
-  end
-  return ""
-end
-
---- The declaration the policy `data` stands for ([`Test.needs_of`] of
---- cosmic.test, whose refusals these are): nil and why where it is none.
-local function policy_declared(data: PolicyData, line: integer): analyzer.Declared | nil, string
-  local parents: {string} = {}
-  local out: analyzer.Declared = {
-    line = line, reads = {}, host = {}, env = {}, network = {},
-    tool = false, lua = false, nests = false, noexec = false, store = false,
-    system = false, caches = {}, requires = {}, parent = parents,
-  }
-  local not_yet = " is not yet taken: a worker is held to, and a key made of, what a " ..
-    "policy's paths, profiles and variables say, and nothing holds a test to this"
-  local bin, cosmic, proc = false, false, false
-  for _, profile in ipairs(data.profiles or {}) do
-    if profile == "system" then
-      out.system = true
-    elseif profile == "cosmic" then
-      cosmic = true
-    elseif profile == "proc" then
-      proc = true
-    else
-      return nil, "profiles: no profile " .. profile .. "; the profiles are cosmic, proc, system"
-    end
-  end
-  for i, grant in ipairs(data.grants or {}) do
-    local at = "grants[" .. i .. "]"
-    local path, letters = grant.path, grant.letters
-    if path == nil or path == "" then return nil, at .. ".path takes a path" end
-    if letters == nil or letters == "" or letters:find("^r?w?x?c?u?$") == nil then
-      return nil, at .. ".letters takes letters of rwxcu, in that order"
-    end
-    local named = path:match("^/cache/(.*)$")
-    local above = path:match("^/parent/(.*)$")
-    if path == "o/cosmic.db" then
-      if letters ~= "r" or grant.from ~= nil then
-        return nil, at .. ".path o/cosmic.db is the store, granted " ..
-          "{ path = \"o/cosmic.db\", letters = \"r\" } with no from"
-      end
-      out.store = true
-    elseif path == "o/bin" then
-      if letters ~= "rx" or grant.from ~= nil then
-        return nil, at .. ".path o/bin is the directory the program is in, granted " ..
-          "{ path = \"o/bin\", letters = \"rx\" } with no from, beside the profile \"cosmic\""
-      end
-      bin = true
-    elseif path == "/noexec" then
-      if letters ~= "rwc" or grant.from ~= nil then
-        return nil, at .. ".path /noexec is the private scratch the harness gives, " ..
-          "granted { path = \"/noexec\", letters = \"rwc\" }: writable, never executable, " ..
-          "with no from"
-      end
-      out.noexec = true
-    elseif named ~= nil then
-      if letters ~= "rwxc" or grant.from ~= nil then
-        return nil, at .. ".path /cache/<name> is a host cache, granted " ..
-          "{ path = \"/cache/<name>\", letters = \"rwxc\" } with no from"
-      end
-      if cache_names.names[named] == nil then
-        local known: {string} = {}
-        for name in pairs(cache_names.names) do known[#known + 1] = name end
-        table.sort(known)
-        return nil, at .. ".path /cache/" .. named .. ": no cache " .. named ..
-          "; the caches are " .. table.concat(known, ", ")
-      end
-      out.caches[#out.caches + 1] = named
-    elseif above ~= nil then
-      if letters ~= "r" or grant.from ~= nil then
-        return nil, at .. ".path /parent/<file> is a file of the project root's parent " ..
-          "directory, granted { path = \"/parent/<file>\", letters = \"r\" } with no from"
-      end
-      local fault = parent_fault(above)
-      if fault ~= "" then return nil, at .. ".path /parent/" .. above .. " " .. fault end
-      parents[#parents + 1] = above
-    else
-      if grant.from ~= nil then return nil, at .. ".from" .. not_yet end
-      if letters ~= "r" then
-        return nil, at .. ".letters \"" .. letters .. "\"" .. not_yet ..
-          "; a test reads, with \"r\", what it declares"
-      end
-      local list = path:sub(1, 1) == "/" and out.host or out.reads
-      list[#list + 1] = path
-    end
-  end
-  for _, promise in ipairs(data.promises or {}) do
-    if promise == "nest" then
-      out.nests = true
-    elseif not (promise == "fork" or promise == "jit" or promise == "fattr") then
-      return nil, "promises: no promise " .. promise .. "; the promises are fattr, fork, jit, nest"
-    end
-  end
-  if #(data.isolate or {}) > 0 then return nil, "isolate" .. not_yet end
-  if next(data.limits or {}) ~= nil then return nil, "limits" .. not_yet end
-  if next(data.set_env or {}) ~= nil then return nil, "set_env" .. not_yet end
-  if next(data.set_env_digests or {}) ~= nil then
-    return nil, "set_env_digests is refused: a digest holds no value to set; " ..
-      "a test names the value in set_env"
-  end
-  if #(data.connect or {}) > 0 then
-    return nil, "connect is refused: no test reaches a host but loopback, whose answer no " ..
-      "key holds; declare the addresses in loopback and start the service in the test"
-  end
-  -- A limit decided for good, as cosmic/test.tl's `needs_of` says.
-  if data.database ~= nil then
-    return nil, "database is refused: the harness chooses the database a worker runs on " ..
-      "(a sealed one of its closure, or the whole program's for `store` and `tool`)"
-  end
-  if data.tmp == false then
-    return nil, "tmp = false" .. not_yet .. "; every test has a temporary directory today"
-  end
-  if data.user ~= nil or data.group ~= nil then
-    return nil, (data.user ~= nil and "user" or "group") .. " is refused: the harness " ..
-      "chooses the user a worker runs as"
-  end
-  for _, name in ipairs(data.env or {}) do
-    if name == "*" then
-      return nil, 'env: a policy names each variable it passes through; no wildcard "*" in a policy'
-    end
-  end
-  if bin and not cosmic then
-    return nil, "grants: .path o/bin is the program's directory, granted only beside " ..
-      "the profile \"cosmic\"; add the profile, or drop the grant"
-  end
-  if proc then out.host[#out.host + 1] = "/proc" end
-  out.tool, out.lua = cosmic and bin, cosmic and not bin
-  if out.lua then
-    local beside = out.store and "o/cosmic.db" or out.system and "system" or
-      #out.caches > 0 and "/cache/" .. out.caches[1] or nil
-    if beside ~= nil then
-      return nil, "profiles: \"cosmic\" without the grant of o/bin holds the program to " ..
-        "what the module requires, which is refused beside " .. beside ..
-        "; grant { path = \"o/bin\", letters = \"rx\" } beside the profile to " ..
-        "run the program itself, whose key holds every module it carries"
-    end
-  end
-  out.env = data.env or {}
-  out.network = data.loopback or {}
-  local fine, trouble = host_names.check(data.requires or {},
-    { system = out.system, host = out.host, env = out.env })
-  if not fine then return nil, trouble end
-  out.requires = data.requires or {}
-  return out, ""
+  return { profiles = profiles, isolate = isolate, promises = promises, connect = connect, loopback = loopback,
+    env = env, requires = requires, set_env = set_env, set_env_digests = set_env_digests, grants = grants,
+    limits = limits, tmp = tmp, user = user, group = group, database = database }, ""
 end
 
 --- The chunk's `Test.policy { ... }` (see [`cosmic.test`]), read as data,
@@ -1800,7 +1528,7 @@ end
 --- value computed -- is refused. The policy is held to the rules its own
 --- fields are ([`Test.needs_of`]'s), and read as the declaration it
 --- stands for.
-local function inputs_of(parsed: ast.Parsed): analyzer.Declared | nil, string
+local function inputs_of(parsed: ast.Parsed): PolicyRules.Declared | nil, string
   local function at(node: ast.Node): string
     return (node.f or "") .. ":" .. tostring(node.y) .. ": test.policy: "
   end
@@ -1854,13 +1582,13 @@ local function inputs_of(parsed: ast.Parsed): analyzer.Declared | nil, string
   end
   local data, why = policy_data(value)
   if data == nil then return nil, at(found) .. why end
-  local declared, trouble = policy_declared(data, found.y)
+  local declared, trouble = PolicyRules.declared(data, found.y)
   if declared == nil then return nil, at(found) .. trouble end
   local lists: {string:{string}} = { reads = declared.reads, host = declared.host,
     env = declared.env, network = declared.network }
   for _, field in ipairs({ "reads", "host", "env", "network" }) do
     for _, entry in ipairs(lists[field]) do
-      local refused = entry_trouble(field, entry)
+      local refused = PolicyRules.entry_trouble(field, entry)
       if refused ~= "" then return nil, at(found) .. refused end
     end
   end
