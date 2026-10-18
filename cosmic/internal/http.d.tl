@@ -56,6 +56,12 @@ local record http
     low_speed_seconds?: integer
     -- Whether curl logs the transfer to standard error.
     verbose?: boolean
+    -- The path of a unix domain socket to connect to in place of the
+    -- network: the URL still gives the request line and the Host header.
+    -- curl uses no proxy then and sends every redirect it follows
+    -- through the same socket. A path longer than the system's
+    -- `sun_path` (104 bytes on macOS, 108 on Linux) fails the request.
+    unix_socket?: string
     -- Tests only: canned replies, one per connection, in place of the
     -- network. Every entry must be a string.
     script?: {string}
@@ -71,7 +77,8 @@ local record http
   -- `low_speed_seconds` above 65535). Data that cannot be sent as
   -- given returns `nil, err`: a method that is no HTTP token, a
   -- header name or value holding CR, LF or NUL, an empty header name
-  -- or one holding ':', a URL holding NUL.
+  -- or one holding ':', a URL holding NUL, a `unix_socket` that is empty
+  -- or holds NUL.
   open: function(url: string, opts?: Options): Handle | nil, string
 
   -- True and "" when the TLS stack reads `der` as one X.509

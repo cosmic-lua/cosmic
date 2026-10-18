@@ -889,6 +889,7 @@ struct request {
   size_t body_len;
   int follow;
   int verbose;
+  const char *unix_socket; /* NULL: the network */
   const char *redirect_protocols; /* a static CURLOPT_REDIR_PROTOCOLS_STR */
   long max_redirects;
   long connect_timeout_ms;
@@ -969,6 +970,8 @@ static CURLcode configure (struct transfer *t, const struct request *r,
   SET(CURLOPT_LOW_SPEED_TIME, r->low_speed_seconds);
   SET(CURLOPT_VERBOSE, r->verbose ? 1L : 0L);
   SET(CURLOPT_SSL_CTX_FUNCTION, use_roots);
+  /* curl sends every redirect it follows through the same socket. */
+  if (r->unix_socket != NULL) SET(CURLOPT_UNIX_SOCKET_PATH, r->unix_socket);
   return set_method(t, r, which);
 }
 
@@ -1090,6 +1093,8 @@ static int http_open (lua_State *L) {
   if (has_headers) headers_check(L);
   int has_script = opt_table(L, "script");         /* index 6 */
   if (has_script) script_check(L);
+  size_t unix_socket_len = 0;
+  r.unix_socket = opt_string(L, "unix_socket", &unix_socket_len); /* index 7 */
   r.follow = opt_boolean(L, "follow", 1);
   r.verbose = opt_boolean(L, "verbose", 0);
   r.redirect_protocols = opt_redirect_protocols(L);
@@ -1112,6 +1117,14 @@ static int http_open (lua_State *L) {
   if (memchr(r.url, '\0', url_len) != NULL) {
     return failed(L, "invalid url: contains a NUL byte");
   }
+  if (r.unix_socket != NULL) {
+    if (unix_socket_len == 0) {
+      return failed(L, "invalid unix_socket: empty");
+    }
+    if (memchr(r.unix_socket, '\0', unix_socket_len) != NULL) {
+      return failed(L, "invalid unix_socket: contains a NUL byte");
+    }
+  }
   if (has_headers) {
     lua_pushvalue(L, 5);
     if (headers_problem(L)) {
@@ -1126,7 +1139,7 @@ static int http_open (lua_State *L) {
 
   /* The body's one uservalue keeps it alive for as long as curl may
    * still be sending it, which is well past `open`'s return. */
-  struct transfer *t = lua_newuserdatauv(L, sizeof *t, 1); /* index 7 */
+  struct transfer *t = lua_newuserdatauv(L, sizeof *t, 1); /* index 8 */
   memset(t, 0, sizeof *t);
 #ifdef COSMIC_CHECKED
   cosmic_http_live_transfers++;
@@ -1134,7 +1147,7 @@ static int http_open (lua_State *L) {
   luaL_setmetatable(L, HANDLE_TYPE);
   if (r.body != NULL) {
     lua_pushvalue(L, 4);
-    lua_setiuservalue(L, 7, 1);
+    lua_setiuservalue(L, 8, 1);
   }
 
   t->easy = COSMIC_FAULT("curl_easy_init") ? NULL : curl_easy_init();
@@ -1210,7 +1223,7 @@ static int http_open (lua_State *L) {
     transfer_release(t);
     return 2;
   }
-  lua_settop(L, 7);
+  lua_settop(L, 8);
   return cosmic_succeeded(L);
 }
 
