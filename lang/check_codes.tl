@@ -308,7 +308,7 @@ Codes.catalog = {
     code = "not_indexable", rule = "a record has the fields it declares",
     why = "only a record, a class, an interface, a userdata record, a collection or a string has fields or " ..
       "elements to read",
-    fix = "index a value of one of those types",
+    fix = "read a field of a record, class, interface or userdata, an element of a collection `{T}` or `{K: V}`, or a function of a string (`s:upper()`); test a union down to the member that has the field first",
   },
   {
     code = "not_callable", rule = "calls take functions",
@@ -590,7 +590,7 @@ Codes.catalog = {
     fix = "assign <name> once, or in two statements in the order you mean",
   },
   { code = "unchecked_binding", rule = "declarations are the trust boundary", why = WAITING,
-    fix = "none yet: the bindings of C are typed once the checker reads them from declaration files" },
+    fix = "call the library function that wraps the binding (`cosmic docs <name>` names it) in place of the raw binding; the bindings of C are typed once the checker reads them from declaration files" },
 }
 
 function Codes.row(code: Codes.Code): Codes.Row | nil

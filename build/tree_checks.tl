@@ -91,14 +91,27 @@ allowed["build.dataset.load"] = "the loader load_text composes and falls back on
 -- TODO: drop these allowances as build.analyzer, build.link_text, build.links, build.receivers, build.contracts and
 -- build/fix are rewritten to the new syntax tree and call the readers that the tree's checks and tests alone call now
 -- (doc/plans/strict-teal.md, "the switch").
-for _, name in ipairs({
-    "build.coverage.syntax_lines.executable_cached", "build.syntax_derivation.rows_of", "build.syntax_derivation.insert",
-    "build.syntax_match.matches", "build.syntax_match.text", "build.syntax_rewrite.rewrite", "build.syntax_scopes.position",
-    "build.syntax_scopes.bindings_of", "build.syntax_shape_specs.resolve", "build.syntax_node.children",
-}) do
-  allowed[name] = "a reader of the new syntax tree (build/syntax_*.tl) that the rewrites of the readers of the fork's " ..
-    "tree call; tested directly until they do"
+local function allow(names: {string}, why: string)
+  for _, name in ipairs(names) do
+    allowed[name] = why
+  end
 end
+
+allow({
+  "build.coverage.syntax_lines.executable_cached", "build.syntax_derivation.rows_of", "build.syntax_derivation.insert",
+  "build.syntax_match.matches", "build.syntax_match.text", "build.syntax_rewrite.rewrite", "build.syntax_scopes.position",
+  "build.syntax_scopes.bindings_of", "build.syntax_shape_specs.resolve", "build.syntax_node.children",
+}, "a reader of the new syntax tree (build/syntax_*.tl) that the rewrites of the readers of the fork's tree call; " ..
+    "tested directly until they do")
+
+-- TODO: drop these allowances as the build prints its errors and writes the rule behind each code through them
+-- (doc/plans/strict-teal.md, "the switch").
+allow({
+  "build.error_catalog.rows", "build.error_catalog.check", "build.error_catalog.problems",
+  "build.error_catalog.text", "build.error_render.queries", "build.error_render.line", "build.error_render.lines",
+  "build.error_render.complain",
+}, "the new checker's error reporting (build/error_catalog.tl, build/error_render.tl), which the build's wiring calls in " ..
+    "place of the fork's; tested directly until then")
 
 allowed["build.ceilings.parse"] = "the text of a ceilings file, which `read` composes with the file it reads; a database filled " ..
   "from the file hands its text here, and the tests read fixtures"
