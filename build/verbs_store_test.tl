@@ -6,6 +6,7 @@
 local Cli = require("cosmic.cli")
 local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
+local Sqlite = require("cosmic.sqlite")
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 local verb_cases = require("build.verb_cases")
@@ -324,6 +325,27 @@ local function test_db_takes_paths_to_narrow_it(tmp: string)
   assert((whole.stdout or ""):find("builds, latest first", 1, true), whole.stdout)
   local none = verbs_fixture.expect(tree, "db", { "db", "nowhere" }, 1).stderr or ""
   assert(none:find("db: no row is about nowhere", 1, true), none)
+end
+
+--- `db` describes no working database of another schema, another
+--- tool's, whose rows this tool's code may misread: it says so, and
+--- describes the rest. Here the file lacks a table this tool's has, so
+--- reading it, narrowed or not, would fail.
+local function test_db_reads_none_of_a_working_database_of_another_schema(tmp: string)
+  local tree = write_programs(tmp)
+  local _ = verbs_fixture.expect(tree, "build", { "build" }, 0)
+  local working = build_dir(tree) .. "/build.db"
+  local db = assert(Sqlite.open(working, { writable = true }))
+  assert(db:exec("UPDATE meta SET value = 'another' WHERE key = 'schema'"))
+  assert(db:exec("DROP TABLE derived"))
+  assert(db:close())
+  local whole = verbs_fixture.expect(tree, "db", { "db" }, 0)
+  local err, out = whole.stderr, whole.stdout
+  assert(err:find("db: " .. working .. " is of schema another", 1, true), err)
+  assert(not out:find("builds, latest first", 1, true), out)
+  assert(not out:find(working, 1, true), out)
+  local narrowed = verbs_fixture.expect(tree, "db", { "db", "./lib/" }, 0).stdout
+  assert(not narrowed:find(working, 1, true), narrowed)
 end
 
 --- `sql` reads o/ and nothing else: it never lists a directory of the

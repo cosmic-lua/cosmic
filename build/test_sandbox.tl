@@ -641,6 +641,14 @@ function test_sandbox.plan(root: string, scratch: string, effective: test_inputs
     writes = {}
     at[scratch] = nil
   end
+  -- TODO: count a worker's grants as its start counts them
+  -- ([`cosmic.child`]'s `unmet` and `held_to`, [`build.test_policy`]'s
+  -- worker): the sandbox's own /proc, /tmp where the scratch is the
+  -- worker's own, /noexec where the scratch is shared (a module that
+  -- declares `noexec` never has its own), the system profile's paths,
+  -- and a sealed worker's core and database. Counted as here, a plan passes its own
+  -- check and still fails at start. The fix: count as the start counts,
+  -- and refuse a plan past the most saying how many paths over.
   local over = math.max(0, #reads + #writes - UNVEIL_MAX)
   -- Offline, always: a module declares only loopback addresses, which
   -- the worker's own loopback answers as the host's would. Keying it is

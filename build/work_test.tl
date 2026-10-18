@@ -166,6 +166,109 @@ local function test_an_open_that_waits_for_no_run_finds_one_holding_it(tmp: stri
   assert(work.close((assert(free.handle))))
 end
 
+--- A working database at `tmp` stamped with another schema, as another
+--- tool's would be, holding a row a remade file would not: its path.
+local function of_another_schema(tmp: string): string
+  local path = build_dir(tmp) .. "/build.db"
+  local made = assert(work.open(tmp))
+  assert(Sqlite.run(made.db, "UPDATE meta SET value = 'another' WHERE key = 'schema'"))
+  assert(Sqlite.run(made.db, "INSERT INTO meta (key, value) VALUES ('marker', 'kept')"))
+  assert(work.close(made))
+  return path
+end
+
+--- The device and inode of the file at `path`.
+local function inode_of(path: string): string
+  local st = assert(Fs.stat(path))
+  return tostring(st.dev) .. ":" .. tostring(st.ino)
+end
+
+--- The value `meta` holds for `key` in the file at `path`, read alone.
+local function meta_of(path: string, key: string): string
+  local db = assert(Sqlite.open(path))
+  local rows = assert(Sqlite.text_rows(db, "SELECT value FROM meta WHERE key = '" .. key .. "'"))
+  assert(db:close())
+  if #rows == 0 then return "" end
+  return assert(rows[1]):text(1)
+end
+
+--- An open that waits for no run, which may be a run of an older tool,
+--- answers at once with no handle where the file is of another schema
+--- and another run holds its write lock, as a newer tool building in it
+--- would: it leaves the file where it is, for that run goes on writing
+--- to it.
+local function test_an_open_that_waits_for_no_run_never_removes_a_held_file_of_another_schema(tmp: string)
+  local path = of_another_schema(tmp)
+  local before = inode_of(path)
+  local held = assert(Sqlite.open(path, { writable = true }))
+  assert(held:exec("BEGIN IMMEDIATE"))
+  local started = Clock.monotonic_ns()
+  local opening, trouble = work.try_open(tmp)
+  local took = Clock.monotonic_ns() - started
+  local after = inode_of(path)
+  assert(held:exec("ROLLBACK"))
+  assert(held:close())
+  assert(opening ~= nil, trouble)
+  assert(opening.handle == nil, "opened a file of another schema")
+  assert(after == before, "the file another run holds was removed")
+  assert(meta_of(path, "marker") == "kept")
+  assert(took < Clock.seconds(5), tostring(took) .. " ns")
+end
+
+--- An open that waits for no run reads nothing of a file of another
+--- schema, holding its write lock or not: it neither removes it nor
+--- writes this module's tables into it, and answers the schema it found.
+local function test_an_open_that_waits_for_no_run_reads_nothing_of_another_schema(tmp: string)
+  local path = of_another_schema(tmp)
+  local before = inode_of(path)
+  local dropped = assert(Sqlite.open(path, { writable = true }))
+  assert(dropped:exec("DROP TABLE files"))
+  assert(dropped:close())
+  local opening = assert(work.try_open(tmp))
+  assert(opening.handle == nil, "opened a file of another schema")
+  assert(opening.other_schema == "another", tostring(opening.other_schema))
+  assert(inode_of(path) == before, "the file was removed")
+  assert(meta_of(path, "schema") == "another" and meta_of(path, "marker") == "kept")
+  local db = assert(Sqlite.open(path))
+  assert(count(db, "sqlite_master WHERE name = 'files'") == 0, "a table was made in it")
+  assert(db:close())
+  -- A run that waits for others makes it again, of this module's schema.
+  local remade = assert(work.open(tmp))
+  assert(work.close(remade))
+  -- By its rows, not its inode, which a file made at once after the old
+  -- one is removed may be given again.
+  assert(meta_of(path, "marker") == "", "the file of another schema was kept")
+  local again = assert(work.try_open(tmp))
+  assert(again.other_schema == nil)
+  assert(work.close((assert(again.handle))))
+end
+
+--- An open that remakes a file of another schema waiting for no run
+--- leaves it to a run that holds the checkout's rebuild lock, as a `cosmic
+--- test` run does from its compile's commit to its records' own
+--- transaction: the file's write lock is free between the two, and a
+--- file removed then is one that run goes on writing its records to,
+--- unlinked, and loses.
+local function test_a_remaking_open_leaves_a_file_a_run_holding_the_rebuild_lock_writes_to(tmp: string)
+  local path = build_dir(tmp) .. "/build.db"
+  local running = assert(work.open(tmp))
+  assert(Sqlite.run(running.db, "UPDATE meta SET value = 'another' WHERE key = 'schema'"))
+  assert(work.commit(running))
+  -- Held as another process holds the rebuild lock
+  -- ([`build.rebuild_lock`]): one this process holds through that
+  -- module is one it takes as its own.
+  local lock = assert(sys.open(build_paths.resolve(tmp).lock, sys.O_RDWR | sys.O_CREAT, 0x1a4))
+  assert(sys.flock(lock, "exclusive"))
+  local tried = assert(work.try_open_remaking(tmp))
+  assert(tried.handle == nil, "opened a file of another schema another run writes to")
+  assert(tried.other_schema == "another", tostring(tried.other_schema))
+  assert(work.begin(running))
+  assert(Sqlite.run(running.db, "INSERT INTO meta (key, value) VALUES ('marker', 'kept')"))
+  assert(work.close(running))
+  assert(sys.close(lock))
+  assert(meta_of(path, "marker") == "kept", "the run's records were lost to a removed file")
+end
+
 --- A read of the working database answers at once, with the last
 --- commit, while a run holds its write transaction open with more
 --- written than its cache holds. In rollback mode that run's spill holds

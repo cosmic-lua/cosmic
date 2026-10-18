@@ -438,9 +438,7 @@ local function run(file: string, argv: {integer:string}): integer
     return 1
   end
   local written, write_trouble =
-    writer.write_result(handle, database, result)
-  local _, _ = work.record(handle, clock.elapsed_ms(started), staged, result.compiled,
-    result.cached, written and "PASS" or "FAIL")
+    writer.write_recorded(handle, database, result, started, staged)
   local _, _ = work.close(handle)
   if not written then
     log:complain(write_trouble)

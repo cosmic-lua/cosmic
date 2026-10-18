@@ -1,7 +1,7 @@
 --- What [`rebuild.stage`] stages for `cosmic lsp`: a directory a build was
 --- started in, never one that is no project, and nothing while another
 --- run holds the working database, which it waits for no more than to
---- find it held.
+--- find it held, nor in one of another schema.
 
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
@@ -51,4 +51,26 @@ local function test_a_stage_waits_for_no_run_holding_the_database(tmp: string)
   assert(held:close())
   assert(where.project and where.busy)
   assert(took < Clock.seconds(10), tostring(took) .. " ns")
+end
+
+--- A stage that finds the working database of another schema, another
+--- tool's, stages nothing in it and leaves it where it is, answering the
+--- schema it found.
+local function test_a_stage_leaves_a_database_of_another_schema(tmp: string)
+  local root = tmp .. "/project"
+  assert(Fs.mkdirs(root))
+  local made = assert(work.open(root))
+  assert(Sqlite.run(made.db, "UPDATE meta SET value = 'another' WHERE key = 'schema'"))
+  assert(work.close(made))
+  assert(Fs.write(root .. "/a.tl", "return {}\n"))
+  local path = build_paths.required(root) .. "/build.db"
+  local before = assert(Fs.stat(path)).ino
+  local where = assert(rebuild.stage(root, (assert(teal.load()))))
+  assert(where.project and not where.busy)
+  assert(where.other_schema == "another", tostring(where.other_schema))
+  assert(assert(Fs.stat(path)).ino == before, "the file was removed")
+  local db = assert(Sqlite.open(path))
+  local rows = assert(Sqlite.text_rows(db, "SELECT path FROM inputs"))
+  assert(db:close())
+  assert(#rows == 0, "staged " .. tostring(#rows) .. " files in it")
 end

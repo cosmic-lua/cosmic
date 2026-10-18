@@ -49,7 +49,11 @@
 --- either ([`rebuild.stage`]): where another holds the write lock, the
 --- session says so, does not stage, and answers from the tree as last
 --- committed; that run stages the same tree, and its commit brings the
---- database up to it. It stages again at its next check.
+--- database up to it. It stages again at its next check. A database of
+--- another schema, another tool's, it neither stages nor reads, and
+--- finds no module in, saying so, until a run of this tool makes it
+--- again: found so by a stage, or when the file is made again under the
+--- session.
 
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
@@ -59,6 +63,7 @@ local build_paths = require("build.paths")
 local importer = require("build.importer")
 local rebuild = require("build.rebuild")
 local stub = require("build.stub")
+local work = require("build.work")
 local type compiler = require("build.compiler")
 
 local record source
@@ -138,7 +143,7 @@ local record source
     pending: boolean
     --- Whether the session has said the database is busy, since it last
     --- staged.
-    told: boolean
+    told_busy: boolean
     --- The stub made here of each text, by its SHA-256: "" for a text
     --- with none.
     made: {string:string}
@@ -188,7 +193,7 @@ function source.new(root: string, err: function(line: string)): source.View
     stubs = false,
     analyzer = nil,
     pending = true,
-    told = false,
+    told_busy = false,
     made = {},
     tally = tally,
     err = err,
@@ -221,28 +226,35 @@ end
 --- rollback mode -- a file no run of this tool has opened since an
 --- older one made it, or one on a file system with no shared memory --
 --- a read a writer holds off fails at once, saying so, rather than
---- hold up the session.
-local function database(src: source.View): Sqlite.Handle | nil
+--- hold up the session. A file of another schema, another tool's, whose
+--- rows this one's code may misread, it opens no handle on: it answers
+--- nil and that schema, having read nothing of it but its schema.
+local function database(src: source.View): Sqlite.Handle | nil, string
   local db = src.db
-  if db ~= nil then return db end
+  if db ~= nil then return db, "" end
   local path = src.working
-  if path == nil then return nil end
+  if path == nil then return nil, "" end
   local identity = identity_of(path)
-  if identity == "" then return nil end
+  if identity == "" then return nil, "" end
   local opened, trouble = Sqlite.open(path)
   if opened == nil then
     src.err("cosmic: lsp: " .. path .. ": " .. trouble)
-    return nil
+    return nil, ""
   end
   opened:busy_timeout(0)
+  local other, _ = work.other_schema(opened)
+  if other ~= nil then
+    local _, _ = opened:close()
+    return nil, other
+  end
   src.db, src.identity = opened, identity
-  return opened
+  return opened, ""
 end
 
 --- Reads whether the database's stubs are the running analyzer's: the
 --- one that derived them, where this session `staged` them.
 local function trusted(src: source.View, staged: boolean)
-  local db = database(src)
+  local db, _ = database(src)
   if db == nil then return end
   local named, _ = Sqlite.text_rows(db, "SELECT value FROM meta WHERE key = 'analyzer'")
   local recorded: string | nil = nil
@@ -257,7 +269,7 @@ end
 --- Reads the modules the database lists, what each requires, and
 --- whether its stubs are the running analyzer's ([`trusted`]).
 local function listed(src: source.View, staged: boolean)
-  local db = database(src)
+  local db, _ = database(src)
   if db == nil then return end
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT path, file, kind, source_hash FROM inputs " ..
@@ -303,19 +315,43 @@ local function adopt(src: source.View, where: rebuild.Where)
   end
 end
 
+--- Closes the read handle, where there is one, so the next read opens
+--- the file anew.
+local function let_go(src: source.View)
+  local db = src.db
+  if db ~= nil then
+    local _, _ = db:close()
+  end
+  src.db = nil
+end
+
+--- What [`reopened`] did: kept the handle, the file being the one it
+--- reads; read the file anew; or found it of another schema, which it
+--- reads nothing of.
+local enum Reopening
+  "kept"
+  "read"
+  "other"
+end
+
 --- Opens the database again where the file its path names is no longer
 --- the one the handle reads, a run having made it again, and reads what
---- it lists; answers whether it did.
-local function reopened(src: source.View): boolean
+--- it lists, unless it is now of another schema ([`database`]). Where
+--- no handle is open, it opens one, and finds so too.
+local function reopened(src: source.View): Reopening
   local db, path = src.db, src.working
-  if db == nil or path == nil then return false end
-  local identity = identity_of(path)
-  if identity == "" or identity == src.identity then return false end
-  local _, _ = db:close()
-  src.db = nil
-  src.tally.reopened = src.tally.reopened + 1
+  if path == nil then return "kept" end
+  if db ~= nil then
+    local identity = identity_of(path)
+    if identity == "" or identity == src.identity then return "kept" end
+    let_go(src)
+    src.tally.reopened = src.tally.reopened + 1
+  end
+  local _, other = database(src)
+  if other ~= "" then return "other" end
+  if db == nil then return "kept" end
   listed(src, false)
-  return true
+  return "read"
 end
 
 --- Stages the tree when it is yet to be ([`source.View`]'s `pending`),
@@ -331,23 +367,38 @@ function source.refresh(src: source.View, built: compiler)
     if started ~= true then return end
     src.pending = true
   end
-  if not src.pending then
-    if not reopened(src) then trusted(src, false) end
+  -- A file made again under the session as another schema's goes to
+  -- the stage, which finds that schema and says so.
+  local again = reopened(src)
+  if not src.pending and again ~= "other" then
+    if again == "kept" then trusted(src, false) end
     return
   end
-  reopened(src)
   local staged, trouble = rebuild.stage(src.root, built)
   if staged ~= nil then adopt(src, staged) end
-  if staged ~= nil and not staged.project then
-    src.pending = false
+  -- A database of another schema is another tool's, whose rows this
+  -- one's code may misread: none of it is read, and no module found in
+  -- it. The stage is tried again at every check, and the file read once
+  -- a run of this tool has made it again. That is said once for each
+  -- stage that finds another schema than the one before it found
+  -- (`where`, from before this one).
+  local other: string | nil = nil
+  if staged ~= nil then other = staged.other_schema end
+  if other ~= nil then let_go(src) end
+  if staged ~= nil and (not staged.project or other ~= nil) then
+    src.pending = other ~= nil
     src.modules, src.files, src.requires = {}, {}, {}
+    if other ~= nil and (where == nil or where.other_schema ~= other) then
+      src.err("cosmic: lsp: " .. tostring(src.working) .. " is of schema " .. other ..
+          ", another tool's; not staging or reading it until a `cosmic test` of this tool makes it again")
+    end
     return
   end
   if staged ~= nil and staged.busy then
-    if not src.told then
+    if not src.told_busy then
       src.err("cosmic: lsp: another cosmic run holds the write lock of " ..
           tostring(src.working) .. "; not staging, answering from the tree as last committed")
-      src.told = true
+      src.told_busy = true
     end
     listed(src, false)
     return
@@ -357,7 +408,7 @@ function source.refresh(src: source.View, built: compiler)
   else
     src.tally.stages = src.tally.stages + 1
   end
-  src.pending, src.told = false, false
+  src.pending, src.told_busy = false, false
   listed(src, staged ~= nil)
 end
 
@@ -466,7 +517,7 @@ function source.served(src: source.View, built: compiler, name: string,
     end
     return serving_as("source", text, key)
   end
-  local db = database(src)
+  local db, _ = database(src)
   if db == nil then return nil end
   local key = source.key(src, name, open)
   if found.kind ~= "decl" and src.stubs then

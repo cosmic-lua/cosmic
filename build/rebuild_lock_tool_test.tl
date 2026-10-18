@@ -163,6 +163,59 @@ local function test_a_write_of_the_projection_waits_for_the_lock(tmp: string)
   assert(text:find("hello\n", 1, true), text)
 end
 
+--- The verdicts of the rows in `builds` of the working database at
+--- `path`, in run order, joined by spaces; or why they could not be
+--- read, which raises nothing, so a caller holding the lock lets it go.
+local function build_verdicts(path: string): string
+  local db, open_trouble = Sqlite.open(path)
+  if db == nil then return "unreadable: " .. open_trouble end
+  local rows, trouble = Sqlite.text_rows(db, "SELECT verdict FROM builds ORDER BY run")
+  local _, _ = db:close()
+  if rows == nil then return "unreadable: " .. trouble end
+  local verdicts = ""
+  for i, row in ipairs(rows) do
+    verdicts = verdicts .. (i > 1 and " " or "") .. row:text(1)
+  end
+  return verdicts
+end
+
+--- A build that holds no rebuild lock, here a file run
+--- (build/dispatch.tl), commits its row in `builds` with its compile,
+--- before it waits for the lock to publish the projection: read from
+--- another connection while it waits, the row is there, and once the
+--- build lands it is the run's one row, a pass. A row written after the
+--- publication would be lost to a run that removes the file once the
+--- locks are free ([`writer.write_recorded`]).
+local function test_a_build_commits_its_row_before_it_waits_to_publish(tmp: string)
+  local root = tmp .. "/project"
+  assert(build_dir(root))
+  assert(Fs.write(root .. "/hello.tl", 'print("hello")\n'))
+  local working = build_paths.resolve(root).working
+  assert(rebuild_lock.take(root, 0, "test") == "held")
+  local output = tmp .. "/run.out"
+  local fd = assert(Fs.open_write(output))
+  local started = this_program.program({ "hello.tl" }, {
+    cwd = root, env = this_program.environment(), stdout = fd, stderr = fd,
+    process_group = true,
+  })
+  local h = assert(Child.start(started.argv, started.options))
+  assert(Fs.close(fd))
+  local ok, failure = pcall(await, "the write to wait", function(): boolean
+    local text = Fs.read(output) or ""
+    return text:find("waiting for it", 1, true) ~= nil
+  end)
+  local during = build_verdicts(working)
+  rebuild_lock.release()
+  local result = assert(h:wait(Clock.seconds(20)))
+  local text = assert(Fs.read(output))
+  assert(ok, tostring(failure) .. "\n" .. text)
+  assert(during == "PASS", "the build's row was not committed before publication: " .. during)
+  assert(result.ok, text)
+  assert(text:find("hello\n", 1, true), text)
+  local after = build_verdicts(working)
+  assert(after == "PASS", "the build's rows once published: " .. after)
+end
+
 --- A result waiting to publish keeps the rows and signature it compiled,
 --- even when another run commits a failed or a different successful plan.
 local function test_a_waiting_projection_keeps_its_compiled_snapshot(tmp: string)
