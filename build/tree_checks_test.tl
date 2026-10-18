@@ -1591,8 +1591,8 @@ local function test_the_readers_of_a_file_are_held_to_the_forks_but_for_their_pi
   assert(#fallen == 1 and fallen[1] == "build/ok.tl: pinned 1 but 0 found; lower the pin in build/ceilings.txt's [read]",
     table.concat(fallen, "\n"))
   local made = stub.made
-  stub.made = function(parsed: ast.Parsed): stub.Made
-    local right = made(parsed)
+  stub.made = function(parsed: ast.Parsed, every?: boolean): stub.Made
+    local right = made(parsed, every)
     return { text = right.text, pruned = not right.pruned }
   end
   local ok, raised = pcall(function(): string

@@ -72,8 +72,8 @@ end
 
 local function test_a_reader_that_answers_otherwise_is_named()
   local made = stub.made
-  stub.made = function(parsed: ast.Parsed): stub.Made
-    local right = made(parsed)
+  stub.made = function(parsed: ast.Parsed, every?: boolean): stub.Made
+    local right = made(parsed, every)
     return { text = right.text, pruned = not right.pruned }
   end
   local ok, raised = pcall(function(): string
@@ -159,8 +159,8 @@ local function test_every_dimension_of_the_comparison_reports_a_difference_in_it
     end },
     { reader = "stub", file = "m.tl", text = TREE_FILE, plant = function(): function()
       local held = Stub.made
-      Stub.made = function(chunk: Ast.Chunk): Stub.Made
-        local right = held(chunk)
+      Stub.made = function(chunk: Ast.Chunk, every?: boolean): Stub.Made
+        local right = held(chunk, every)
         return { text = right.text:gsub("\n[^\n]*\n$", "\n"), pruned = right.pruned }
       end
       return function() Stub.made = held end

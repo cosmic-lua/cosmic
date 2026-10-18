@@ -719,9 +719,11 @@ function reboot.guard(handle: work.Handle, root: string,
   return reboot.rebuild_failed(root, argv, trouble, moved)
 end
 
---- The staleness guard for a read-only verb -- `docs`, `uses`, `db`,
---- `help` -- that never compiles the tree itself but still runs
---- `build.*` Teal that this binary embedded at its own boot. Inside
+--- The staleness guard for a verb that runs `build.*` Teal this binary
+--- embedded at its own boot before, or without, compiling the tree
+--- itself -- `docs`, `uses`, `db`, `help`, `todos`, `fix`, and the
+--- `fresh` ones, `lsp` among them ([`verb_spec.Spec`]). `fix` compiles
+--- the tree after this check, with the code the check holds to it. Inside
 --- cosmic's own tree, an edit to that Teal is otherwise invisible
 --- until `bin/zig build boot`, where `AGENTS.md` (step 3) promises an
 --- edit to Teal rebuilds on its own.
@@ -738,17 +740,40 @@ end
 --- for), does this fall back to [`work.stage`]'s directory walk and
 --- [`reboot.guard`] -- the same path `cosmic test` always takes.
 ---
---- Answers as [`reboot.guard`] does for the tree in the working
---- directory: nil to go on, when the tree is not cosmic's own or the
---- tool is fresh, or an exit code to return at once, having said why.
+--- A verb that only reads (`reads`: [`verb_spec.Spec`]'s `reads`) never
+--- waits here for another run that holds the working database's write
+--- lock, whatever that run is: a build or a test run, which checks the
+--- tool against the tree as it goes; a lookup's own build or `cosmic
+--- lsp`'s stage, which stage the tree and check no tool; or a boot,
+--- which writes a newer tool. This check is skipped, said once on stderr
+--- ([`work.tell_busy`]), and the verb goes on with this binary's code,
+--- stale or not, reading what that run last committed, which a newer
+--- tool may have written. Where the lock is free, the check is as for
+--- any verb. A verb that writes waits for the lock, as its build would.
+---
+--- Answers as [`reboot.guard`] does for the tree at `root`, the working
+--- directory by default: nil to go on, when the tree is not cosmic's own
+--- or the tool is fresh, or an exit code to return at once, having said
+--- why.
 --- @param argv the command line, re-entered after a rebuild
-function reboot.stale_exit(argv: {integer:string}): integer | nil
-  local root, root_trouble = Fs.absolute(".")
-  if root == nil then
-    log:complain(root_trouble)
-    return 1
+-- TODO: a reader that skipped this check reads rows and a projection a
+-- newer tool may have written with its own older code, and `cosmic lsp`,
+-- which runs for good, reads them so at every stage and hover once a
+-- boot or a rebuild has moved the tool on. Once the working database and
+-- the projection record the code of the tool that wrote them, as `meta`'s
+-- `analyzer` records the stubs', a reader whose code is other than that
+-- says so and reads none of what its code may misread.
+function reboot.stale_exit(argv: {integer:string}, reads?: boolean, root?: string): integer | nil
+  local at = root
+  if at == nil then
+    local found, root_trouble = Fs.absolute(".")
+    if found == nil then
+      log:complain(root_trouble)
+      return 1
+    end
+    at = found
   end
-  local own_tree, own_trouble = tree.is_own(root)
+  local own_tree, own_trouble = tree.is_own(at)
   if own_tree == nil then
     log:complain(own_trouble)
     return 1
@@ -756,10 +781,26 @@ function reboot.stale_exit(argv: {integer:string}): integer | nil
   if not own_tree then
     return nil
   end
-  local handle, open_trouble = work.open(root)
-  if handle == nil then
-    log:complain(open_trouble)
-    return 1
+  local handle: work.Handle
+  if reads == true then
+    local tried, try_trouble = work.try_open(at)
+    if tried == nil then
+      log:complain(try_trouble)
+      return 1
+    end
+    local held = tried.handle
+    if held == nil then
+      work.tell_busy(argv[1] or "cosmic", build_paths.resolve(at).working)
+      return nil
+    end
+    handle = held
+  else
+    local opened, open_trouble = work.open(at)
+    if opened == nil then
+      log:complain(open_trouble)
+      return 1
+    end
+    handle = opened
   end
 
   local moved, moved_trouble = work.tool_moved(handle)
@@ -778,7 +819,7 @@ function reboot.stale_exit(argv: {integer:string}): integer | nil
     -- A tool that is not the tree's own never settles ([`reboot.guard`]),
     -- so only the tree's own is sent there to.
     if fresh and unsettled() then
-      local own, _ = reboot.own_tool(root)
+      local own, _ = reboot.own_tool(at)
       fresh = own == false
     end
   end
@@ -788,7 +829,7 @@ function reboot.stale_exit(argv: {integer:string}): integer | nil
       log:complain(closing(handle, stage_trouble))
       return 1
     end
-    local code = reboot.guard(handle, root, argv)
+    local code = reboot.guard(handle, at, argv)
     if code ~= nil then
       return code
     end

@@ -68,6 +68,17 @@ local record Node
   --- argument is not a string literal contributes nothing, since its target is unknown until the program runs, and text in
   --- a string or a comment is no call. [`build.importer`] builds its import order and the recompilation key from this.
   requires: function(chunk: Ast.Chunk): {string}
+
+  --- A `require` of a module: the module it names, and the line and column of the string that names it.
+  record Site
+    name: string
+    y: integer
+    x: integer
+  end
+
+  --- Every module `chunk` requires, as [`Node.requires`] finds them, each at its first call or import (line and column
+  --- 0 where the tree holds no such node).
+  require_sites: function(chunk: Ast.Chunk): {Site}
 end
 
 function Node.base(node: Ast.Node): Ast.Base
@@ -167,21 +178,49 @@ function Node.range(chunk: Ast.Chunk, node: Ast.Node): Node.Range
   return { first = first.offset, last = last.offset + last.length - 1 }
 end
 
-function Node.requires(chunk: Ast.Chunk): {string}
+function Node.require_sites(chunk: Ast.Chunk): {Node.Site}
   local found: {Ast.Require} = {}
+  local wanted: {integer: boolean} = {}
   for _, r in ipairs(chunk.requires) do
     found[#found + 1] = r
+    wanted[r.node] = true
   end
   table.sort(found, function(a: Ast.Require, b: Ast.Require): boolean
     return a.node < b.node
   end)
+  local nodes: {integer: Ast.Base} = {}
+  Node.walk(chunk, function(node: Ast.Node)
+    local base = Node.base(node)
+    if wanted[base.id] == true then nodes[base.id] = base end
+  end)
   local seen: {string: boolean} = {}
-  local out: {string} = {}
+  local out: {Node.Site} = {}
   for _, r in ipairs(found) do
-    if not seen[r.module] then
+    if seen[r.module] == nil then
       seen[r.module] = true
-      out[#out + 1] = r.module
+      -- The module's name is the first string of the call or the import: `require("m")` is all of a call, and an
+      -- import's name and `=` come before it.
+      local y, x = 0, 0
+      local base = nodes[r.node]
+      if base ~= nil then
+        for k = base.first, base.last do
+          local token = chunk.tokens[k]
+          if token ~= nil and token.kind == "string" then
+            y, x = token.y, token.x
+            break
+          end
+        end
+      end
+      out[#out + 1] = { name = r.module, y = y, x = x }
     end
+  end
+  return out
+end
+
+function Node.requires(chunk: Ast.Chunk): {string}
+  local out: {string} = {}
+  for _, site in ipairs(Node.require_sites(chunk)) do
+    out[#out + 1] = site.name
   end
   return out
 end

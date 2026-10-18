@@ -226,3 +226,16 @@ local function test_a_local_never_function_with_a_body_on_its_own_lines_gets_the
     "return (M)"))
   assert(stubbed:find("local function fail(why: string): never\n  error()\nend", 1, true) ~= nil, stubbed)
 end
+
+local function test_a_stub_of_every_statement_drops_bodies_alone()
+  local text = source('local Json = require("cosmic.json")', "local record M", "end",
+    "local unused = Json.encode({})", "function M.f(): integer return 1 end", "return M")
+  local chunk, why = Node.parse(text, "m.tl")
+  local parsed = assert(chunk, why)
+  local pruned = Stub.made(parsed)
+  assert(pruned.pruned and pruned.text:find("unused", 1, true) == nil, pruned.text)
+  local every = Stub.made(parsed, true)
+  assert(not every.pruned, "every statement is kept")
+  assert(every.text:find("local unused = Json.encode({})", 1, true) ~= nil, every.text)
+  assert(every.text:find("return 1", 1, true) == nil, "a body is left out: " .. every.text)
+end

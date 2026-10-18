@@ -236,11 +236,14 @@ local function test_a_policy_of_too_many_grants_fails_before_it_makes_anything(t
   skip_where_seatbelt_holds("the most grants")
   local probe = stand_in_of(tmp)
   local before = #sandbox_directories()
-  for _, count in ipairs({ 256, 300 }) do
+  local most = confine.unveil_max
+  for _, count in ipairs({ most, most + 44 }) do
     local grants = itself(probe)
     for i = #grants + 1, count do grants[i] = { path = tmp .. "/g" .. i, letters = "r" } end
     local none, why = Child.start({ probe, "print hi" }, { policy = { grants = grants, tmp = true } })
-    assert(none == nil and why:find("^child: start: sandbox: grants: ") and why:find("256", 1, true), why)
+    assert(none == nil, "a start over the most was made")
+    assert(why:find("^child: start: sandbox: grants: "), why)
+    assert(why:find("takes, " .. tostring(most) .. ";", 1, true), why)
     assert(#sandbox_directories() == before, count .. " grants left a directory behind")
   end
 end

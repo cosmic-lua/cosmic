@@ -227,6 +227,14 @@ local function test_dispatch_runs_the_command_with_its_own_options()
   assert(not pcall(Flags.dispatch, { "x" }, 1, {}))
 end
 
+local function test_dispatch_refuses_a_command_with_no_run()
+  local commands: {string:Flags.Command} = { told = { about = "described, not run" } }
+  local refused, trouble = Flags.dispatch({ [1] = "told" }, 1, commands)
+  assert(refused == nil and trouble == "told: the command has no run", trouble)
+  local helped = assert(Flags.dispatch({ [1] = "help", [2] = "told" }, 1, commands))
+  assert(helped.help:find("described, not run", 1, true) ~= nil, helped.help)
+end
+
 local help_commands: {string:Flags.Command} = {
   build = {
     about = "Builds the target.",

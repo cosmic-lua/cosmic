@@ -63,8 +63,9 @@ local record Flags
     --- for help; "[options]" when nil and the command takes any.
     usage?: string
     --- Runs the command with what its line held, answering its exit
-    --- status.
-    run: function(Parsed): integer
+    --- status. None for a command only described, as [`cosmic.cli`]'s
+    --- verbs are, which [`Flags.dispatch`] refuses to run.
+    run?: function(Parsed): integer
   end
 end
 
@@ -368,7 +369,8 @@ end
 --- would, and answers what its `run` answers. Answers nil and why, run
 --- nothing, when the line names no command, one `commands` does not
 --- hold -- an option before the command is one -- or a line the
---- command's spec refuses, whose why names the command. Empty
+--- command's spec refuses, whose why names the command, or a command
+--- with no `run`. Empty
 --- `commands` raises.
 ---
 --- Help is answered rather than run -- `code` 0 and `help` for the
@@ -436,7 +438,11 @@ function Flags.dispatch(argv: {integer:string}, from: integer,
   if parsed == nil then
     return nil, name .. ": " .. why
   end
-  return { code = command.run(parsed), help = "" }, ""
+  local run = command.run
+  if run == nil then
+    return nil, name .. ": the command has no run"
+  end
+  return { code = run(parsed), help = "" }, ""
 end
 
 return Flags

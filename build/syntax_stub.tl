@@ -31,8 +31,11 @@ local record Stub
     pruned: boolean
   end
 
-  --- The stub of the module `chunk` holds.
-  made: function(chunk: Ast.Chunk): Made
+  --- The stub of the module `chunk` holds. With `every`, every top-level statement is kept, leaving out only bodies,
+  --- as for a module that returns no name whose declaration spells its type: what is kept of a statement is the same
+  --- either way, which `cosmic lsp` reads the top-level calls of ([`build.lsp.check`]). The stub made is never `pruned`
+  --- then.
+  made: function(chunk: Ast.Chunk, every?: boolean): Made
 end
 
 --- What stands for a `: never` function's body.
@@ -248,7 +251,7 @@ local function unneeded(chunk: Ast.Chunk, bodies: {Span}): {Span} | nil
   return out
 end
 
-function Stub.made(chunk: Ast.Chunk): Stub.Made
+function Stub.made(chunk: Ast.Chunk, every?: boolean): Stub.Made
   local tokens = chunk.tokens
   local bodies: {Span} = {}
   for _, s in ipairs(chunk.body.stats) do
@@ -258,7 +261,8 @@ function Stub.made(chunk: Ast.Chunk): Stub.Made
   for _, span in ipairs(bodies) do
     spans[#spans + 1] = span
   end
-  local dropped = unneeded(chunk, bodies)
+  local dropped: {Span} | nil = nil
+  if every ~= true then dropped = unneeded(chunk, bodies) end
   for _, span in ipairs(dropped or {}) do
     spans[#spans + 1] = span
   end
