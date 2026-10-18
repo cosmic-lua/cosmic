@@ -1,0 +1,42 @@
+local record Leaf
+  n?: integer
+end
+local record Node
+  a?: integer
+  leaf: Leaf
+end
+local record State
+  mut count: integer
+end
+local st: State = { count = 0 }
+local function maybe(): integer?
+  st.count = st.count + 1
+  if st.count % 3 == 0 then
+    return nil
+  end
+  return st.count
+end
+local function node(): Node
+  return { a = maybe(), leaf = { n = maybe() } }
+end
+local function empty(): Node
+  return { a = nil, leaf = { n = nil } }
+end
+local function main(): integer
+  local total = 0
+  local a: integer? = maybe()
+  local b: integer? = maybe()
+  local r: Node = node()
+  local s: Node = node()
+  local v1: integer? = maybe()
+  if s.a ~= nil then
+    local k2 <const> = maybe()
+    s = node()
+    total = total + s.a
+    local v3: integer? = maybe()
+  end
+  local v4: integer? = maybe()
+  local v5: integer? = maybe()
+  return total
+end
+print(main())

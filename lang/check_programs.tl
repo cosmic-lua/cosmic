@@ -32,10 +32,19 @@ local record Programs
   --- order of their names).
   run: function(source: string, modules?: {string: string}): Run
 
+  --- The library of [`Programs.run`] lowered once: a function that checks a source as the module `module` (`t` by
+  --- default), after the `modules` it requires. Each source is a module of its own, so name them apart.
+  runner: function(): function(source: string, module?: string, modules?: {string: string}): Run
+
   --- Checks `source` as the module `t` against the declarations the tree's checks read: `prelude`, the text of the
   --- fork's prelude (between the `[=====[` marks of checker/tl.tl), and `stdlib`, the text of checker/stdlib.d.tl, which
   --- [`lang.stdlib_corrections`] corrects and [`lang.translate`] writes in the new grammar.
   standard: function(prelude: string, stdlib: string, source: string, modules?: {string: string}): Run
+
+  --- The declarations of [`Programs.standard`] lowered once: a function that checks a source as the module `module`
+  --- (`t` by default), after the `modules` it requires, against them. Each source is a module of its own, so name them
+  --- apart; a program that declares a global would show it to the next, and the translated programs do not.
+  session: function(prelude: string, stdlib: string): function(source: string, module?: string, modules?: {string: string}): Run
 
   --- The codes of the errors of `run`, space separated, in order.
   codes: function(run: Run): string
@@ -171,24 +180,30 @@ local function lower(program: Declarations.Program, module: string, source: stri
   }
 end
 
-function Programs.run(source: string, modules?: {string: string}): Programs.Run
+function Programs.runner(): function(source: string, module?: string, modules?: {string: string}): Programs.Run
   local program = Declarations.new()
   program.external["cosmic.sys"] = true
   local library = Parser.parse(Lexer.lex(Programs.library, "std.d.tl"), "std.d.tl", "decl")
   local globals = Scopes.declared(library.chunk)
   local _ = lower(program, "std", Programs.library, "decl", {})
-  local names: {string} = {}
-  for name in pairs(modules or {}) do
-    names[#names + 1] = name
+  return function(source: string, module?: string, modules?: {string: string}): Programs.Run
+    local names: {string} = {}
+    for name in pairs(modules or {}) do
+      names[#names + 1] = name
+    end
+    table.sort(names)
+    for _, name in ipairs(names) do
+      local _ = lower(program, name, (modules or {})[name], "tl", globals)
+    end
+    return lower(program, module or "t", source, "tl", globals)
   end
-  table.sort(names)
-  for _, name in ipairs(names) do
-    local _ = lower(program, name, (modules or {})[name], "tl", globals)
-  end
-  return lower(program, "t", source, "tl", globals)
 end
 
-function Programs.standard(prelude: string, stdlib: string, source: string, modules?: {string: string}): Programs.Run
+function Programs.run(source: string, modules?: {string: string}): Programs.Run
+  return Programs.runner()(source, "t", modules)
+end
+
+function Programs.session(prelude: string, stdlib: string): function(source: string, module?: string, modules?: {string: string}): Programs.Run
   local program = Declarations.new()
   program.external["cosmic.sys"] = true
   local globals: {string: Scopes.Global} = {}
@@ -207,15 +222,21 @@ function Programs.standard(prelude: string, stdlib: string, source: string, modu
   local corrected = Corrections.apply(stdlib)
   assert(#corrected.problems == 0, table.concat(corrected.problems, "\n"))
   local _ = lower(program, "checker.stdlib", Translate.translate(corrected.text, "checker/stdlib.d.tl").text, "decl", globals)
-  local names: {string} = {}
-  for name in pairs(modules or {}) do
-    names[#names + 1] = name
+  return function(source: string, module?: string, modules?: {string: string}): Programs.Run
+    local names: {string} = {}
+    for name in pairs(modules or {}) do
+      names[#names + 1] = name
+    end
+    table.sort(names)
+    for _, name in ipairs(names) do
+      local _ = lower(program, name, (modules or {})[name], "tl", globals)
+    end
+    return lower(program, module or "t", source, "tl", globals)
   end
-  table.sort(names)
-  for _, name in ipairs(names) do
-    local _ = lower(program, name, (modules or {})[name], "tl", globals)
-  end
-  return lower(program, "t", source, "tl", globals)
+end
+
+function Programs.standard(prelude: string, stdlib: string, source: string, modules?: {string: string}): Programs.Run
+  return Programs.session(prelude, stdlib)(source, "t", modules)
 end
 
 --- The checker took the program: it has no error but the forms a later piece types.

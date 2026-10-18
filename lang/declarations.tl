@@ -31,6 +31,8 @@
 ---   declaration file, and an enum value written twice: `repeated_field`, `repeated_value`. A class
 ---   holds its fields, its methods and its functions (`function C.m(...)`) in one namespace, since the
 ---   table of its methods is the metatable of its values.
+--- - optional fields: a field that may be nil is a plain value of one type, never a metamethod (`optional_metamethod`)
+---   and never a generic function (`optional_generic`).
 --- - classes: a method named for a metamethod, other than `__close` (which takes the value alone) and
 ---   `__tostring` (which also answers a `string`), and a function of a class with such a name:
 ---   `class_metamethod`, `metamethod_signature`.
@@ -119,6 +121,10 @@ local record Declarations
     "metamethod_signature"
     -- a method or function of a class named for a metamethod other than `__close` and `__tostring`
     "class_metamethod"
+    -- a field named for a metamethod that may be nil
+    "optional_metamethod"
+    -- a field that may be nil and holds a generic function
+    "optional_generic"
     -- `thread`
     "thread_type"
     -- a refusal of the store that no rule above foresaw
@@ -184,11 +190,13 @@ local record Declarations
     node: Ast.TypeAlias | nil
   end
 
-  --- Which type parameters of a declaration or alias have to be dense (not optional) or keys, and
-  --- which pass themselves on to the parameter of another declaration.
+  --- Which type parameters of a declaration or alias have to be dense (not optional) or keys, which are
+  --- made optional (`X?`, or the type of a `name?:` field), and which pass themselves on to the parameter of
+  --- another declaration.
   record Requires
     dense: {boolean}
     key: {boolean}
+    optional: {boolean}
     flows: {Flow}
   end
 
@@ -311,7 +319,8 @@ Declarations.codes = {
   "interface_disagrees", "super_not_interface", "super_cycle", "listing_too_large", "untagged_union",
   "array_of_optional", "float_key", "key_type", "repeated_field", "repeated_value", "type_arguments",
   "type_too_deep", "alias_cycle", "bound_not_interface", "lists_overlap", "bound_not_met", "outer_type_parameter", "member_missing",
-  "param_untyped", "metamethod_signature", "class_metamethod", "thread_type", "store_refused",
+  "param_untyped", "metamethod_signature", "class_metamethod", "optional_metamethod", "optional_generic", "thread_type",
+  "store_refused",
 }
 
 Declarations.catalog = {
@@ -444,6 +453,21 @@ Declarations.catalog = {
       "since no other runs code the program can see; a field of such a name is refused too, since a value that lacks it " ..
       "reads the table for it",
     fix = "rename <name>, and call it as a method (`v:name(...)`)",
+  },
+  {
+    code = "optional_metamethod", rule = "an optional field is a plain value",
+    why = "Lua reads a metamethod from the table that has it, so a field named for one that may be nil is a function " ..
+      "that may be missing where Lua calls it, and the fork refused it (\"a metamethod cannot be optional\")",
+    fix = "make <field> a field the literal always gives, or rename it: a name that begins with two underscores is " ..
+      "a metamethod's",
+  },
+  {
+    code = "optional_generic", rule = "an optional field is a plain value",
+    why = "the fork refused a field that may be nil and holds a generic function, and the owner's decision keeps it " ..
+      "refused (doc/plans/strict-teal.md, \"an optional field is a plain value\"): the checker narrows and calls a " ..
+      "local or a parameter of such a type, so this is a choice and no hole, and it holds for a type parameter that an " ..
+      "instance fills with a generic function as well",
+    fix = "make <field> a field the literal always gives, or write the function type with its type arguments fixed",
   },
   {
     code = "thread_type", rule = "coroutines are typed",
@@ -1714,9 +1738,45 @@ local function lower_method(ctx: Ctx, build: Build, m: Ast.Method)
   end
 end
 
+--- Whether `t` is a generic function type, or a union that has one.
+local function generic_function(t: Type): boolean
+  if t is Types.Fn then
+    return #t.tparams > 0
+  end
+  if t.tag == "union" then
+    for _, member in ipairs(Types.parts(t)) do
+      if generic_function(member) then
+        return true
+      end
+    end
+  end
+  return false
+end
+
 --- The field `m` of a record, interface or class.
 local function lower_field(ctx: Ctx, build: Build, m: Ast.FieldDecl)
   local ft = lower_type(ctx, m.type)
+  -- A field that may be nil is a plain value of one type: `name?: T`, or a type that has `nil` in it.
+  --
+  -- TODO: take an optional generic function field, if the owner lifts the decision (doc/plans/strict-teal.md, "an
+  -- optional field is a plain value"): the checker narrows and calls a generic function held in a local or a
+  -- parameter, so the rule exists and the refusal is a choice.
+  if m.omittable or nilable(ft) then
+    -- A class refuses every such name already (`class_metamethod`), and one mistake is one error.
+    if build.decl.kind ~= "class" and metamethod_name(m.name.name) then
+      report_at(ctx, "optional_metamethod", m.name, "the field " .. quoted(m.name.name) .. " of " ..
+          quoted(build.decl.name) .. " is named for a metamethod and may be nil, so Lua may find it missing where it " ..
+          "calls it",
+        "make " .. quoted(m.name.name) .. " a field the literal always gives, or rename it")
+    end
+    if generic_function(ft) then
+      report_at(ctx, "optional_generic", m.name, "the field " .. quoted(m.name.name) .. " of " ..
+          quoted(build.decl.name) .. " may be nil and holds a generic function, which the checker has no rule to " ..
+          "narrow and call",
+        "make " .. quoted(m.name.name) .. " a field the literal always gives, or write the function type with its " ..
+          "type arguments fixed")
+    end
+  end
   -- A value reads the table of its class for a field it lacks, and that table holds the metamethods.
   if build.decl.kind == "class" and metamethod_name(m.name.name) then
     report_at(ctx, "class_metamethod", m.name, "the field " .. quoted(m.name.name) .. " of " .. quoted(build.decl.name) ..
@@ -2220,7 +2280,7 @@ end
 --- What the parameters of a declaration or alias must be: every place a type parameter is the element of
 --- an array, the value or key of a map, or an argument another declaration needs of its own.
 local function scan_requires(roots: {Type}): Requires
-  local req: Requires = { dense = {}, key = {}, flows = {} }
+  local req: Requires = { dense = {}, key = {}, optional = {}, flows = {} }
   local seen: {string: boolean} = {}
   local walk: function(t: Type, level: integer)
   walk = function(t: Type, level: integer)
@@ -2257,6 +2317,9 @@ local function scan_requires(roots: {Type}): Requires
       end
     elseif t is Types.Union then
       for _, m in ipairs(t.members) do
+        if t.nilable and m is Types.Var and m.depth == level then
+          req.optional[m.index + 1] = true
+        end
         walk(m, level)
       end
     elseif t is Types.Fn then
@@ -2308,11 +2371,16 @@ local function requires_of(program: Program, decl: Decl): Requires | nil
   return made
 end
 
---- Whether parameter `index` (from 0) of what `req` describes must be dense (`dense`) or a key, or nil where
---- a declaration it passes the parameter to has no body yet.
-local function must(program: Program, req: Requires, index: integer, dense: boolean,
+--- Whether parameter `index` (from 0) of what `req` describes must be dense (`kind` "dense"), a key ("key") or is
+--- made optional ("optional"), or nil where a declaration it passes the parameter to has no body yet.
+local function must(program: Program, req: Requires, index: integer, kind: string,
                     seen: {Decl: {string: boolean}}): boolean | nil
-  local direct = dense and req.dense or req.key
+  local direct = req.key
+  if kind == "dense" then
+    direct = req.dense
+  elseif kind == "optional" then
+    direct = req.optional
+  end
   if direct[index + 1] then
     return true
   end
@@ -2323,14 +2391,14 @@ local function must(program: Program, req: Requires, index: integer, dense: bool
         marks = {}
         seen[flow.to] = marks
       end
-      local mark = flow.into .. (dense and "d" or "k")
+      local mark = flow.into .. kind
       if not marks[mark] then
         marks[mark] = true
         local theirs = requires_of(program, flow.to)
         if theirs == nil then
           return nil
         end
-        local r = must(program, theirs, flow.into, dense, seen)
+        local r = must(program, theirs, flow.into, kind, seen)
         if r == nil or r then
           return r
         end
@@ -2404,7 +2472,7 @@ local function check_use(ctx: Ctx, use: Use): boolean
               "`), or pass a type that does", { shown })
         end
       end
-      local dense = must(program, req, i - 1, true, {})
+      local dense = must(program, req, i - 1, "dense", {})
       if dense == nil then
         return false
       end
@@ -2415,9 +2483,20 @@ local function check_use(ctx: Ctx, use: Use): boolean
           "pass " .. quoted(Types.display(ctx.store:non_nil(argument), use.names)) .. ", which is not optional; an array is dense, " ..
             "and a map's missing key already answers nil", { shown })
       end
-      local key = must(program, req, i - 1, false, {})
+      local key = must(program, req, i - 1, "key", {})
       if key == nil then
         return false
+      end
+      local optional = must(program, req, i - 1, "optional", {})
+      if optional == nil then
+        return false
+      end
+      if optional == true and generic_function(argument) then
+        local shown = Types.display(argument, use.names)
+        report_at(ctx, "optional_generic", use.node, quoted(name) .. " makes its type parameter " .. tostring(i) ..
+            " optional, so " .. quoted(shown) .. " would be a generic function that may be nil",
+          "pass a function type with its type arguments fixed, or make the field the declaration holds it in required",
+          { shown })
       end
       if key and key_refusal(argument) ~= nil then
         local shown = Types.display(argument, use.names)
