@@ -17,6 +17,9 @@
 --- the report that [`build.receivers`], [`build.links`], [`build.shape_specs`] and [`build.contracts`] will read in
 --- place of the fork's. A module that is not checked (a library, a stub, a binding) is lowered and has no body errors.
 ---
+--- An error about a name cosmic removed (`os`, `Hash.hex`, `Zip.ZipReader`) has the replacement as its fix
+--- ([`build.removed_fix`]).
+---
 --- The ceilings ([`build.ceilings`]) are enforced for a module by [`Driver.Build.held`]: a count of errors of a code
 --- above its ceiling is refused, with the same words as the check of the tree. A module that did not parse is refused
 --- for that alone.
@@ -35,6 +38,7 @@ local Corrections = require("lang.stdlib_corrections")
 local Declarations = require("lang.declarations")
 local Lexer = require("lang.lexer")
 local Parser = require("lang.parser")
+local RemovedFix = require("build.removed_fix")
 local Scopes = require("lang.scopes")
 local Translate = require("lang.translate")
 local Types = require("lang.types")
@@ -79,6 +83,8 @@ local record Driver
     y: integer
     x: integer
     offset: integer
+    --- Whether the fix is what to write instead of a name cosmic removed ([`build.removed_fix`]), in place of the checker's own.
+    removed: boolean
   end
 
   --- What a module came to.
@@ -347,7 +353,18 @@ end
 
 local function problem_of(kind: string, stage: string, code: string, msg: string, fix: string, y: integer, x: integer,
                           offset: integer): Driver.Problem
-  return { kind = kind, stage = stage, code = code, msg = msg, fix = fix, y = y, x = x, offset = offset }
+  return { kind = kind, stage = stage, code = code, msg = msg, fix = fix, y = y, x = x, offset = offset, removed = false }
+end
+
+--- The problem for an error: its fix is the words of [`cosmic.removed`] where it is about a name cosmic removed
+--- ([`build.removed_fix`]), else the fix the checker wrote.
+local function error_of(result: Driver.Outcome, stage: string, code: string, msg: string, fix: string, y: integer, x: integer,
+                        offset: integer, length: integer, types: {string}): Driver.Problem
+  local instead = RemovedFix.fix({ tokens = result.chunk.tokens, scoped = result.scoped }, code, offset, length, types)
+  return {
+    kind = "error", stage = stage, code = code, msg = msg, fix = instead or fix, y = y, x = x, offset = offset,
+    removed = instead ~= nil,
+  }
 end
 
 --- `list` in source order: by offset, and where two are at one offset in the order they were found.
@@ -568,7 +585,8 @@ function Driver.new(options: Driver.Options): Driver.Build
         timing.check = timing.check + Clock.monotonic_ns() - started
         result.checked = checked
         for _, e in ipairs(checked.errors) do
-          result.bodies[#result.bodies + 1] = problem_of("error", "checked", tostring(e.code), e.msg, e.fix, e.y, e.x, e.offset)
+          result.bodies[#result.bodies + 1] = error_of(result, "checked", tostring(e.code), e.msg, e.fix, e.y, e.x, e.offset,
+            e.length, e.types)
         end
         local exempt: {integer: boolean} = {}
         if source.tests then
@@ -578,7 +596,7 @@ function Driver.new(options: Driver.Options): Driver.Build
           if not (w.code == "unused_function" and exempt[w.offset] == true) then
             result.warnings[#result.warnings + 1] = {
               kind = w.kind, stage = "warning", code = w.code, msg = w.msg, fix = w.fix, y = w.y, x = w.x,
-              offset = w.offset,
+              offset = w.offset, removed = false,
             }
           end
         end
@@ -594,11 +612,13 @@ function Driver.new(options: Driver.Options): Driver.Build
     if not entry.checked then
       entry.checked = true
       for _, e in ipairs(result.scoped.errors) do
-        result.scope_errors[#result.scope_errors + 1] = problem_of("error", "scoped", tostring(e.code), e.msg, e.fix, e.y, e.x, e.offset)
+        result.scope_errors[#result.scope_errors + 1] = error_of(result, "scoped", tostring(e.code), e.msg, e.fix, e.y, e.x,
+          e.offset, e.length, {})
       end
       if lowered ~= nil then
         for _, e in ipairs(program:errors(result.module)) do
-          result.declared[#result.declared + 1] = problem_of("error", "declared", tostring(e.code), e.msg, e.fix, e.y, e.x, e.offset)
+          result.declared[#result.declared + 1] = error_of(result, "declared", tostring(e.code), e.msg, e.fix, e.y, e.x,
+            e.offset, e.length, e.types)
         end
       end
     end

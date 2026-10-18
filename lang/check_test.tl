@@ -380,7 +380,7 @@ local CASES <const>: {Case} = {
   {
     code = "unchecked_binding", source = "local sys = require(\"cosmic.sys\")\n", at = { 1, 13 },
     msg = "the module `cosmic.sys` is a binding of C that has no declarations",
-    fix = "none yet: the bindings of C are typed once the checker reads them from declaration files",
+    fix = "call the library function that wraps the binding (`cosmic docs <name>` names it) in place of the raw binding; the bindings of C are typed once the checker reads them from declaration files",
   },
 }
 

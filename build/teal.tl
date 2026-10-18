@@ -5,6 +5,17 @@
 --- in an environment of its own that names the pure libraries and `load`
 --- (the checker's wrapper loads its parts with it), and whatever it must find (a module it is asked to
 --- `require`) it is handed ([`teal.serve_standard`], [`serve`]).
+--
+-- TODO: retire the fork's hint layer at the switch (doc/plans/strict-teal.md, "the switch"), once the build compiles with
+-- the new checker and prints its errors through [`build.error_render`]. What goes: `replacement` with every helper only it
+-- reads, [`refused_type_requires`], [`build.importer`]'s `complain` and `with_hint`, and the tests of build/teal_test.tl that
+-- pin them: those that read a hint (through `answers`, `hint_for`, `hint` or [`teal.replacement`]) and those that read the
+-- fork's error record (`diagnostic`, `diagnostics`, `checker_says`). What stays, moved: `withheld` and `withheld_package`,
+-- which [`build.tree_checks`] reads for the names the driver withholds and build/teal_catalog_test.tl holds to
+-- [`cosmic.removed`]. What replaces it: the new errors carry their fix, [`build.removed_fix`] gives a removed name its
+-- replacement from [`cosmic.removed`], [`build.error_catalog`] writes the rule behind each code for `cosmic docs <code>`,
+-- and [`build.error_render`] prints the lines. The verdict tests of build/teal_test.tl go with `checker/`, replaced by the
+-- gate's table (testdata/gate).
 
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
