@@ -1337,13 +1337,14 @@
           run: "cosmic-driver test cosmic_ci",
         },
         # What bin/cosmic-bootstrap runs (bin/zig, bin/vendor,
-        # bin/verify-codesign and build/paths.tl) must compile under the
-        # pinned driver's Teal, not only the tree's: the check above
-        # compiles ci/ on it, and this the rest. Every scope, since it takes
-        # well under a second a file.
+        # bin/verify-codesign, bin/perf and build/paths.tl) must
+        # type-check under the pinned driver's Teal, not only the tree's:
+        # the check above compiles ci/ on it, and this the rest, the
+        # files ci/islands.txt lists, none of them run. Every scope, since
+        # it takes well under a second a file.
         {
-          name: "compile the bootstrap's scripts on the pinned driver",
-          run: "sh ../.github/scripts/pinned-parse.sh",
+          name: "type-check the bootstrap's scripts on the pinned driver",
+          run: "cosmic-driver cosmic_ci/driver.tl check-islands",
         },
         {
           name: "build release Cosmic",

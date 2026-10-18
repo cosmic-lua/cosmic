@@ -229,10 +229,11 @@ end
 -- until it has one. The checker's own source relies on nil being in every
 -- type, as the rest of this directory does.
 -- TODO: type what may be absent `T | nil` and narrow it where it is read,
--- once nil is excluded from every type but one that names it, and once
--- ci/cosmic-driver.pin names a release whose checker accepts indexing a
--- `T | nil` after its guard (the seed that compiles this file refuses it
--- today). Both are needed.
+-- once nil is excluded from every type but one that names it (the new
+-- checker's "nil is its own type", doc/plans/strict-teal.md), which the
+-- switch brings. The seed that compiles this file narrows a local and not a
+-- field, so each read of a `T | nil` field is copied to a local first; no
+-- pin move changes that, as the new checker narrows only a local too.
 local no_node: flow.Node = nil
 
 -- The references to a name in an expression, a block and a function, which
