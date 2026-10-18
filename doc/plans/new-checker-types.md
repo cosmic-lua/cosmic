@@ -421,15 +421,17 @@ and `fixed`), so it is reused as written with interned types as its values.
 - **a place narrowed to `never` makes its edge unreachable,** by the
   mechanism that a `return` and a call of a `never` function use. it lets a
   chain of tag tests that covers every member end a function.
-- **an assignment** drops the place and every path from it. nothing else does:
-  a call, a closure, an alias or an operator cannot change a place.
+- **an assignment** to a place drops the facts of it and every path from it, then narrows it to the view of the value's type
+  (see [flow reads the rules strictly](#flow-reads-the-rules-strictly)). nothing else changes a place:
+  a call, a closure, an alias or an operator cannot.
 - **definite assignment** is a state in the same map. `local x: T` with no
   value puts `x` in as *unset*; a read of an unset place is `not_assigned`; a
   join keeps it assigned only if both edges assign it; a function literal
   reads each outer variable it names where it is made.
-- **loops** are walked once under the head's facts minus what the loop
-  assigns. a read of a head fact the back edge no longer supports is
-  refused, and an exit edge keeps a head fact only if the back edge does.
+- **loops** are walked to a fixed point: the head is where the entry and the back edge (the end of the body, with
+  its `continue`s) meet, so a fact the back edge loses is lost at the head, and the exit keeps a head fact only if
+  the back edge does. the passes that settle the head report nothing; one more, from the head they settle on,
+  does. [flow reads the rules strictly](#flow-reads-the-rules-strictly) has the rest.
 
 ### `match` and tagged unions
 
@@ -488,14 +490,14 @@ the main codes, each named for its rule, with a fix in the program's names:
   language: validate, test with `is`, or delete the cast."
 
 the others are named for the rule or form they refuse: `record_as_map`,
-`array_of_optional`, `view_as_mut`, `is_on_record`, `match_redundant`,
+`array_of_optional`, `view_as_mut`, `is_on_record`, `is_disjoint`, `match_redundant`,
 `lists_overlap`, `interface_disagrees`, `literal_missing`, `literal_unknown`,
 `literal_needs_type`, `literal_ambiguous`, `literal_shape`, `arms_differ`,
-`overload_none`, `arity`, `cannot_infer`, `infer_conflict`, `missing_return`,
+`overload_none`, `arity`, `cannot_infer`, `infer_conflict`, `bound_unmet`, `match_pattern`, `missing_return`,
 `return_unexpected`, `not_assigned`, `export_not_declared`, `unreachable`, and
-`narrowing_dropped`, kept from the fork, and the expressions' own (`nil_not_allowed` and the rest of [`lang/check_codes.tl`]). a form a later piece types is typed `invalid` and reported as `unchecked_generic`, `unchecked_protected`, `unchecked_coroutine`, `unchecked_match`, `unchecked_binding` or `unchecked_nested`, so no `invalid` is silent. each has a fix pinned by its test. the declarations'
+`narrowing_dropped`, kept from the fork, and the expressions' own (`nil_not_allowed` and the rest of [`lang/check_codes.tl`]). a binding of C, which the checker types once it reads the bindings from declaration files, is typed `invalid` and reported as `unchecked_binding`, so no `invalid` is silent. each has a fix pinned by its test. the declarations'
 lowering adds `super_not_interface`, `super_cycle`, `listing_too_large`, `untagged_union`, `key_type`, `repeated_field`,
-`repeated_value`, `type_arguments`, `type_too_deep`, `alias_cycle`, `bound_not_interface`, `outer_type_parameter`,
+`repeated_value`, `type_arguments`, `type_too_deep`, `alias_cycle`, `bound_not_interface`, `bound_not_met`, `outer_type_parameter`,
 `member_missing`, `param_untyped`, `thread_type` and `store_refused`, and uses `float_key` and `array_of_optional`
 for the declarations that break their rules.
 
@@ -776,9 +778,11 @@ mistake is reported once. *not adopted:* each reading's looser form, named here.
 [`lang/check.tl`] types a body by the rules of [checking](#checking) and, where they are silent or allow two
 readings, takes the one that refuses more. *not adopted:* each reading's looser form, named here.
 
-- **a form a later piece types is reported, not silent.** a call of a generic function, a protected call, a
-  coroutine function, a `match`, a binding of C and a generic function inside another are `invalid`, and each is an
-  `unchecked_*` error that a ceiling holds. *not adopted:* `invalid` with no error.
+- **a form a later piece types is reported, not silent.** a binding of C, and a global the declarations lack, are
+  `invalid` and an `unchecked_binding` error that a ceiling holds; the calls of generic functions, protected calls,
+  coroutine functions and `match` the first expressions piece left so are typed by [generics, `match`, protected calls and
+  coroutines](#generics-match-protected-calls-and-coroutines-read-the-rules-strictly). *not adopted:* `invalid` with no
+  error.
 - **a function literal takes from the position what its signature leaves out:** the types of its parameters, whether
   each may be omitted, and its return list (`never` too, so it cannot return). *not adopted:* a literal that returns
   nothing unless it says otherwise.
@@ -803,6 +807,35 @@ readings, takes the one that refuses more. *not adopted:* each reading's looser 
   wants, and `x or "lit"` for an enum `x` joins to `string`.
 - **`...` read as one value is `T?`,** and an expression of `any` is neither stored (a field, an element, a
   return of another type) nor read: `any_use`.
+- **a method called through a union is one function only where its members declare it alike:** the receiver, the member
+  itself as a method has it, is replaced by the union, and the parameters, rest and return lists must then be equal; a
+  member without the method is `field_unknown` and members that differ are `not_callable`, and both say to narrow first.
+  *not adopted:* the call typed by the join of the returns or by the meet of the parameters, and a union of overloads.
+- **`v is T` is `is_disjoint` where no type `v` can have is `T`:** some member of one has to be below some member of the
+  other, as `==` asks, with `any`, `invalid` and a type variable overlapping everything. A test the rules already refuse
+  (`is_on_record`, `class_scope`) is reported for that alone. *not adopted:* an always-false test that is accepted as
+  dead code.
+- **an expanding last argument fills the parameters after the values known:** each with `T?` (a missing value is
+  `nil_not_allowed` where the parameter is not omittable) and the rest parameter with `T`. A value known past the
+  parameters is a surplus argument whether or not a tail follows, since the tail may be empty and the value is certain.
+  Literals before it are checked against the overload taken, which the tail is part of. *not adopted:* a tail that
+  fills nothing it must, and the one more value a call with a tail was let pass.
+- **a literal fits an overload by its form:** a function literal takes the arguments the function type is called with,
+  every count from its required parameters to all of them and more with a rest parameter, since the relation meets a
+  call's argument list exactly; a string literal is a `string` or an enum that has it. *not adopted:* the first candidate
+  whatever the arguments the literal takes.
+- **the standard library answers nil where Lua does:** `string.find` and `byte`, `tonumber`, `math.tointeger`,
+  `table.remove`, `utf8.len` and `offset`, `next`, `rawget`, `getmetatable`, `load` and `loadfile`, the `io`, `os` and
+  `debug` calls that fail (`os.execute` answers its three values every time), as `T?` on their first value in place of the fork's `T`, and the values after it `string?` and `integer?` where a success
+  returns the first alone (`io.open`, `FILE:close`, `os.remove`, `utf8.len`, `load`), unlike the tree's own `T?, string` that
+  its functions answer. The callbacks of
+  `string.gsub` are enumerated by the number of captures they take (0 to 3) and answer `string | number | nil`, a nil
+  keeping the match. The fork reads the same file and lets a result that may be nil be added and passed on, so a
+  corrected declaration goes in [`checker/stdlib.d.tl`] where its check of the tree takes it, and in
+  [`lang/stdlib_corrections.tl`] where it does not. A capture is declared a `string` and a position capture `()` is an
+  integer: a TODO until the checker reads patterns. `select` and `string.match` are unchanged: what they answer past
+  the first value is a tail, which reads `T?` as one value. *not adopted:* alternatives (`(T) | (nil, string, integer)`) for the
+  calls that fail, which every call would have to `match`.
 
 ### classes read the rules strictly
 
@@ -843,6 +876,143 @@ reading's looser form, named here.
   `LUAC_FORMAT` is 1 and every stored chunk of the old format fails at its header. *not adopted:* a hidden function
   of the core, which the generated chunk could reach only by a name.
 
+### flow reads the rules strictly
+
+[`lang/flow.tl`] and the walk of [`lang/check.tl`] take the reading of [narrowing and reachability](#narrowing-and-reachability)
+that refuses more where it is silent. *not adopted:* each reading's looser form, named here.
+
+- **an assignment narrows the place to the type of the value assigned, as the view of it, and an initializer does the same.** After
+  `x = e` the value of `x` is the value of `e`, so `if x == nil then x = d end` leaves `x` a non-nil, and `local c: Color? = nil` leaves `c`
+  nil. Two conditions, found by measuring it over the tree. The narrowed type is never `mut`: `mut` is a capability and no fact, and
+  narrowing `local xs: {integer} = {}` to the literal's `mut {integer}` would let `xs[#xs + 1] = v` stand, defeating the view rule
+  (`view_written` 6,109 to 555 and `array_hole` +845). And `unite` absorbs a member that is below another (`mut {T} | {T}` is
+  `{T}`, a class and the interface it lists are the interface), so a join never carries a type its edges do not need. A value
+  of `invalid` or `never` narrows nothing. An assignment of a value that is itself optional (`x, why = find()`) narrows nothing,
+  so a test before it is dropped and the use is `narrowing_dropped`, naming the assignment. A closure made before the assignment
+  reads no fact of the local ([`Capture.after`]). Measured over the tree: `nil_not_allowed` 5,351 to 4,938 and `narrowing_dropped` 77 to
+  12, the rises being the next rule a nil hid (`unchecked_generic` +104; `any_use` +5, the `a[k]` of an `any` that `is table` found to be one; `field_unknown` +8, the fields the fork's records inherit from an interface, which the translation leaves out and `interface_disagrees` reports, read through the union an assignment narrowed to). *not adopted:* the
+  first reading of this piece, that an assignment narrows nothing, which the review of the flow showed to be sound and needlessly
+  strict.
+- **`v is E` of an enum tests the values,** where `type(v) == "string"` (the fork's Lua) lets a string that is no member through: the
+  Lua [`lang.codegen`] writes for the checker is `({["red"] = true, ...})[v] == true`, and `Check.enums` hands it the values. The kinds
+  the checker took out stay the kinds, so a narrowed read of a `string` the test passed is held by the member check. The tree reads this
+  ([`build/cache.tl`]). The `generated` oracle of [`build.tree_checks`] keeps the fork's kind test, since it compares with the fork's Lua.
+- **`v is table` narrows to a table of unknown shape,** the kind test `type(v) == "table"`, and never to the standard library's record
+  `table`, whose fields are its functions (`v.concat` of a `{string}` is not `table.concat`).
+- **a narrowing declaration is proved of the argument and a parameter the body assigns cannot carry one.** `function f(v: string?): v is
+  string` whose body assigns `v` is `narrows_unproved`: the declaration speaks of the value the caller passed, and the body's edges are
+  about the value assigned. *not adopted:* proving it of the original value, which needs the facts of the parameter kept apart from
+  the local it becomes.
+- **a captured local that is assigned after the function is made is not narrowed inside it,** by a test inside the function either: the
+  function may run after any assignment, so a test in it holds only for a local that is fixed from then on.
+- **a local is assigned once by a statement:** `x, x = a, b` is `assign_repeated`, since Lua leaves the order open.
+- **a loop is walked to a fixed point.** The head is where the entry and the back edge meet, so a fact the back edge loses is lost at
+  the head, and a read of it before the assignment is refused; the passes that settle the head report nothing and skip the bodies of
+  functions. *not adopted:* a head that keeps what the entry held and refuses the reads the back edge does not support.
+- **a function names the locals it reads where it is made.** `local f: function()` with no value, read by a function made before `f`
+  is assigned, is `not_assigned` whatever code runs between, so functions that call each other are the functions of a record. A local of
+  type `any` with no value is unset (only `T?` admits nil). *not adopted:* the fork's walk of what runs between the function's
+  creation and the first call that may run it.
+- **a test no value can pass keeps what was known.** `x == nil` of a value that is never nil, `v is T` of a type `v` cannot have and a
+  tag no member has are refused (`compare_disjoint`, `is_disjoint`, `enum_member`) and narrow nothing, so one mistake is one error.
+  The edge that no value can take (the rest of a chain of tests that covered every member, `x ~= nil` of `nil`) is unreachable.
+- **a place is a local or a path of fixed fields of a record, class or interface** read through the type the facts hold of what is
+  before it. A field of a userdata record, of a union, of a type variable, a `mut` field, a global and an index are not places.
+- **`==` of an enum with a literal narrows nothing,** since an enum is one type: a chain of such tests does not end a function, and
+  the rewrite is a tag of a union of records or a `match`. A tag test narrows a union of records or classes by the enum of the field.
+- **a statement after a jump is `unreachable`,** reported once for the run of them and checked from the facts at the jump; the
+  declaration of a type is no code. A function declared `never` that can reach its end is `missing_return`, since a call of a binding
+  of C that is not declared `never` ends no path ([`Proc.exit`] ends in [`sys.exit`], which [`cosmic.sys`] does not yet declare).
+- **the narrowing a Teal body declares is proved where it returns.** A function declared `v is T` shows at each `return` that `v` is a
+  `T` when the value is true and not when it is false, from the edges of that value; one declared `asserts v is T` shows it at each
+  `return` and at its end (`narrows_unproved`). *not adopted:* a declaration taken on trust outside a declaration file.
+- **`assert` narrows as a special case** of the global (not a local of that name): the first argument's true edge holds after the call.
+  Its type is its declaration's ([generics, `match`, ...](#generics-match-protected-calls-and-coroutines-read-the-rules-strictly)).
+
+### generics, `match`, protected calls and coroutines read the rules strictly
+
+[`lang/check.tl`], [`lang/generics.tl`] and the declarations of [`lang/stdlib_corrections.tl`] take the reading of [calls and
+overloads](#calls-and-overloads) and [`match` and tagged unions](#match-and-tagged-unions) that refuses more where they are
+silent. *not adopted:* each reading's looser form, named here.
+
+- **a type parameter is solved from the receiver and the arguments left to right, and the type the call is expected to
+  answer comes last.** A position the argument flows into gives the parameter a lower bound, the join of the types found there (a
+  type all are below, `T?` where one is `nil`, else `infer_conflict`); a parameter of a function argument gives an upper
+  bound; a `mut` collection, the arguments of a generic and a map's key fix it exactly, and two exact types are one type or
+  `infer_conflict`. A parameter is its exact type, else its lower bound, else its upper bound. The type expected fills a
+  parameter nothing else fixed; it also picks the exact type an invariant position of the result requires when the arguments
+  are below it (`local xs: mut {number} = wrap(1)`), and the type two arguments with no common type are both below
+  (`local a: Animal = pick(dog, cat)`). `any` as the type expected says nothing. Nothing is solved from the body of a
+  callee or across calls, so `local s: Server = must(Shape.into(v, SPEC))` is `cannot_infer` for the inner call. *not
+  adopted:* unification across calls; the union of the types found, which `{1, "a"}` already refuses.
+- **every argument is checked against the instance.** The solution is a guess the parameters are put through, so a wrong
+  guess is an error of the argument and never a hole. A parameter that conflicts is `invalid` in the instance, so the
+  conflict is the one error; a parameter whose pattern the argument does not fit (a view where a `mut` collection is
+  wanted, a record where a map is) is left unsolved without `cannot_infer`, and the check of the argument reports the
+  mistake once, with the parameter as the function declares it.
+- **a literal is typed once the parameters its position names are solved.** A table, a string, a boolean, an `if`
+  expression of them or a function literal that types every parameter stands in a position that names a parameter nothing
+  else fixed: it is typed on its own, as it would be with no type expected, and its type solves the parameter. A function
+  literal that leaves a parameter type out there has no type to be checked against, and the candidate is refused
+  (`cannot_infer`; `overload_none` among overloads). A literal in a position whose parameters are solved is checked last
+  against the instance, so `pick(1, "a")` is `not_assignable` at the literal and `pick(n, s)` is `infer_conflict`.
+- **a bound is met by the type argument,** at a call (`bound_unmet`) and at a use of a generic declaration
+  (`bound_not_met`): a type conforms to an interface only by listing it, and a type variable of the code around meets it
+  through its own bound. A use whose argument names a variable of the code around is unchecked until it is instantiated.
+- **a generic function is a value of a function type that is not generic** when its parameters can be taken from the type
+  wanted: each from the parameter in its place, else from what the type answers, each meeting its bound
+  ([`lang/relation.tl`]). A generic function type wanted is met only by itself. A callee whose function-typed parameter names a
+  parameter only the result of a generic function argument fixes (`map(xs, identity)`) is `cannot_infer`.
+- **an overload set is searched with the arity first.** A generic candidate is instantiated only if it takes the number of
+  arguments, and a candidate that cannot be instantiated is listed with its reason in `overload_none`. A function literal fits an
+  overload by the arguments it takes and by the number of values its return list writes. A generic function inside another is
+  checked, with the variables of both in scope.
+- **`assert` is two overloads and narrows as a special case.** `function<A>(A?): A` answers its argument without the nil, and
+  `function<A, B>(A?, B, ...: any): (A, B, any...)` the message too. `asserts v is T` answers no value and narrows a place to a
+  type, while `local s = assert(find())` and `assert(x ~= nil)` are the idiom of 945 and 1,455 sites, so the special case stays
+  for what follows the call, until a narrowing declaration can say "returns only where the argument holds, and answers it".
+  *not adopted:* `function<T>(v: T?, message?: string): asserts v is T`.
+- **the standard library's mutators take `mut`, and numbers are numbers.** `table.insert`, `remove`, `sort` and `move`
+  (whose source is a view when a destination is given) take `mut {A}`, and `rawset` `mut {K: V}`; `table.sort` writes its
+  comparison as a function type, since `SortFunction<A>` named a generic function type applied to an argument. `math.abs` is
+  an overload for integers and one for numbers, and `math.max` and `min` take one number and more, with no overload that takes
+  anything. *not adopted:* `<N is Numeric>` over a union, which no bound is.
+- **an arm of a `match` takes the lists its tests select, and the arms cover the lists exactly.** `true` and `false` at a
+  position select the lists that have that value there; a name takes the union of what the lists it selects have at its
+  position, `T?` for a position a tail gives. A list some earlier arm takes is not a later arm's. An arm that takes no list, or
+  only lists taken before, is `match_redundant`; a list no arm takes is `match_missing`, with the arm that takes it. A test at a
+  position a list does not have as `true` or `false` (`boolean`, an integer, nothing) selects nothing and is `match_pattern`,
+  since the test could hold at run time for a list the arm was not typed for; so is an arm that names fewer or more values than
+  the lists it takes have. A `match` on a call with one list takes it with one arm. *not adopted:* a name for the values left
+  unnamed; an arm that tests a position the lists give as `boolean`.
+- **return lists are told apart by `true` and `false`,** which the declaration checks (`lists_overlap`): two lists that no
+  position has `true` in one and `false` in the other would be told apart by nothing. The grammar spells no tail among
+  alternatives, so a function that answers `T...` is no argument of `pcall`.
+- **`pcall` and `xpcall` are enumerated overloads** over the values passed on (0 to 6 for `pcall`, 0 to 3 for `xpcall`) and the
+  values answered (0 to 3), each `(true, R...) | (false, any)`; for `xpcall` the failure is what its message handler answers or `string`:
+  Lua answers `"error in error handling"` when the handler raises, so `H` alone would let `n + 1` through a handler that raises.
+  The tree writes at most six extra arguments in all but a handful of sites, which are `overload_none`. The failure is untrusted
+  data (`any`), and a column of the two lists is `any` for a name that takes both, so a `local ok, v = pcall(f)` is left with
+  the `any_use` that `match` removes.
+- **a union of shapes is solved member by member.** An argument `{integer} | {string}` for `{T}` gives `T` each member's
+  element, so `T` is the type they join to (`{integer} | {number}` gives `number`) or `infer_conflict`; a parameter that
+  is a union with a type parameter in each member (`{T} | {U}`) gets no type from an argument and is `cannot_infer`. A
+  type parameter with no type is never left as `invalid` in silence. *not adopted:* an instance that is the union of the
+  members' types, which would give `string` and `integer` to the same element.
+- **`table.sort` without a comparator is declared for `integer`, `number` and `string`;** any other element type needs a
+  comparator, because `<` raises on the rest. An instance that would make an array or a map of optionals
+  (`wrap(m)` for `m: integer?`) is `array_of_optional`, as the annotation `mut {integer?}` is.
+- **a coroutine is a `Coroutine<Y, R, S>` and yields through a handle.** `coroutine.create` and `wrap` take a body that gets a
+  `Yielder<Y, S>` and the first value sent (or the handle alone, or nothing), and answer what it returns (`R`, or `nil` where it
+  answers nothing); `resume` sends `S` (nothing where it is `nil`) and answers `(true, Y | R) | (false, any)`; `close` answers
+  `(true) | (false, any)`; `status` an enum of the four states. The raw `running` and `yield` are not declared: no type says
+  which coroutine a bare `yield` feeds. The declarations are the contract of the typed library: a handle yields only for the
+  coroutine it was made for, which [`lang/check_programs.tl`] holds its Lua to, and the runtime provides with the typed
+  library.
+- **a tag test narrows as flow already reads it,** so tagged unions add no rule: `==` and `~=` of a field with one value an
+  enum has in each member, in an `if` chain, a condition or an `elseif`; a chain that covers every member ends a function; a
+  `mut` field, a global and an index are not places. A `match` tells lists apart and never records.
+
 [a count the tree cannot yet bring to zero is a ceiling]: strict-teal.md#decisions
 [annotated parameters]: strict-teal.md#annotated-parameters
 [an index read may be nil]: strict-teal.md#an-index-read-may-be-nil
@@ -874,7 +1044,9 @@ reading's looser form, named here.
 [what the types leave out]: #what-the-types-leave-out
 
 [`bin/perf`]: ../../bin/perf
+[`build.tree_checks`]: ../../build/tree_checks.tl
 [`build/alias_members.tl`]: ../../build/alias_members.tl
+[`build/cache.tl`]: ../../build/cache.tl
 [`build/shards.tl`]: ../../build/shards.tl
 [`build/teal_test.tl`]: ../../build/teal_test.tl
 [`build/tree_checks.tl`]: ../../build/tree_checks.tl
@@ -889,19 +1061,26 @@ reading's looser form, named here.
 [`cosmic/removed_example.tl`]: ../../cosmic/removed_example.tl
 [`Fs.read`]: ../../cosmic/fs.tl
 [`importer.Module`]: ../../build/importer.tl
+[`lang.codegen`]: ../../lang/codegen.tl
 [`lang/ast.tl`]: ../../lang/ast.tl
 [`lang/check.tl`]: ../../lang/check.tl
 [`lang/check_codes.tl`]: ../../lang/check_codes.tl
+[`lang/check_programs.tl`]: ../../lang/check_programs.tl
 [`lang/codegen.tl`]: ../../lang/codegen.tl
 [`lang/declarations.tl`]: ../../lang/declarations.tl
+[`lang/flow.tl`]: ../../lang/flow.tl
+[`lang/generics.tl`]: ../../lang/generics.tl
 [`lang/relation.tl`]: ../../lang/relation.tl
 [`lang/scopes.tl`]: ../../lang/scopes.tl
 [`lang/scopes_speed_test.tl`]: ../../lang/scopes_speed_test.tl
 [`lang/speed.tl`]: ../../lang/speed.tl
+[`lang/stdlib_corrections.tl`]: ../../lang/stdlib_corrections.tl
 [`lang/translate.tl`]: ../../lang/translate.tl
+[`Proc.exit`]: ../../cosmic/proc.tl
 [`Scoped.resolved`]: ../../lang/scopes.tl
 [`Scopes.declared`]: ../../lang/scopes.tl
 [`Store.define`]: ../../lang/types.tl
+[`sys.exit`]: ../../core/syscalls.h
 [`Var.assigned`]: ../../lang/scopes.tl
 [`Var.captures`]: ../../lang/scopes.tl
 [`Var.copies`]: ../../lang/scopes.tl

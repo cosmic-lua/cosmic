@@ -41,7 +41,7 @@ local record HoverSent
   result: Hovered | nil
 end
 
-local HOVER_SENT <const> = Shape.record_of("HoverSent")
+local HOVER_SENT <const>: Shape.Typed<HoverSent> = Shape.record_of("HoverSent")
 
 local record Edit
   newText: string
@@ -51,7 +51,7 @@ local record FormatSent
   result: {Edit}
 end
 
-local FORMAT_SENT <const> = Shape.record_of("FormatSent")
+local FORMAT_SENT <const>: Shape.Typed<FormatSent> = Shape.record_of("FormatSent")
 
 --- A docs database that documents [`cosmic.fs`] and its `read`.
 local function fs_docs(root: string): Sqlite.Handle
@@ -83,10 +83,11 @@ local function test_a_type_error_is_published_where_it_is()
   local init = initialized(answer(ran, 1))
   assert(init.capabilities.positionEncoding == "utf-16")
   assert(init.capabilities.textDocumentSync.change == 1)
-  local diagnostics = published(ran)[1]
+  local diagnostics = nth(ran, 1)
   assert(#diagnostics == 1, table.concat(ran.sent, "\n"))
-  assert(diagnostics[1].message:find("got string, expected integer", 1, true), diagnostics[1].message)
-  local start, finish = diagnostics[1].range["start"], diagnostics[1].range["end"]
+  local diagnostic = only(diagnostics)
+  assert(diagnostic.message:find("got string, expected integer", 1, true), diagnostic.message)
+  local start, finish = edge(diagnostic, "start"), edge(diagnostic, "end")
   assert(start.line == 1 and start.character == 19)
   -- The range covers the word, `s`, not the place alone.
   assert(finish.line == 1 and finish.character == 20)
@@ -98,25 +99,25 @@ local function test_a_column_counts_utf16_units_or_bytes_as_negotiated()
   -- "é" is two bytes and one UTF-16 unit; the error is at `nope`.
   local text = 'local _ = { "é", nope }\n'
   local wide = served(root, { initialize(root), open(root, "main.tl", text) })
-  local found = published(wide)[1][1].range
-  assert(found["start"].character == 17)
-  assert(found["end"].character == 21, "the end is past the start, by the word `nope`")
+  local found = only(nth(wide, 1))
+  assert(edge(found, "start").character == 17)
+  assert(edge(found, "end").character == 21, "the end is past the start, by the word `nope`")
   local narrow = served(root, { initialize(root, '{"general":{"positionEncodings":["utf-8","utf-16"]}}'),
     open(root, "main.tl", text) })
   local init = initialized(answer(narrow, 1))
   assert(init.capabilities.positionEncoding == "utf-8")
-  assert(published(narrow)[1][1].range["start"].character == 18)
+  assert(edge(only(nth(narrow, 1)), "start").character == 18)
 end
 
 local function test_a_change_that_fixes_the_error_clears_it()
   local root = session_fixture.project()
-  local runs = published(served(root, {
+  local ran = served(root, {
     initialize(root),
     open(root, "main.tl", "local n: integer = 'x'\nreturn n\n"),
     change(root, "main.tl", "local n: integer = 1\nreturn n\n"),
     close(root, "main.tl"),
-  }))
-  assert(#runs == 3 and #runs[1] == 1 and #runs[2] == 0 and #runs[3] == 0)
+  })
+  assert(counts(ran) == "1,0,0", counts(ran))
 end
 
 local function test_hover_shows_the_docs_of_a_required_symbol()
@@ -186,7 +187,8 @@ local function test_formatting_answers_the_fixed_text()
   local body = answer(ran, 2)
   local formatted = assert(FORMAT_SENT:decode_into(body))
   assert(#formatted.result == 1)
-  assert(formatted.result[1].newText == "local n = 1\nreturn n\n", formatted.result[1].newText)
+  local edit = assert(formatted.result[1])
+  assert(edit.newText == "local n = 1\nreturn n\n", edit.newText)
   assert(body:find('"end":{"character":0,"line":2}', 1, true), body)
   assert(failed(answer(ran, 3)) == -32803)
 end
@@ -262,9 +264,7 @@ local function test_a_lone_carriage_return_ends_a_line()
   local root = session_fixture.project()
   for _, ending in ipairs({ "\r", "\r\n", "\n" }) do
     local text = "local x = 1" .. ending .. 'local n: integer = "s"' .. ending .. "return n + x" .. ending
-    local diagnostics = published(served(root, { initialize(root), open(root, "main.tl", text) }))[1]
-    assert(#diagnostics == 1, messages_of(diagnostics))
-    local start = diagnostics[1].range["start"]
+    local start = edge(only(nth(served(root, { initialize(root), open(root, "main.tl", text) }), 1)), "start")
     assert(start.line == 1 and start.character == 19, tostring(ending:byte()) .. ": " ..
         tostring(start.line) .. ":" .. tostring(start.character))
   end
@@ -280,7 +280,8 @@ local function test_changes_already_read_are_checked_once()
     close(root, "main.tl"),
   }))
   assert(#runs == 3, "the first change is not checked: " .. tostring(#runs))
-  assert(#runs[2] == 0, messages_of(assert(runs[2])))
+  local second = assert(runs[2])
+  assert(#second == 0, messages_of(second))
 end
 
 local function test_a_record_shape_is_resolved_as_a_build_does()
@@ -289,16 +290,14 @@ local function test_a_record_shape_is_resolved_as_a_build_does()
     "local record R\n  n: integer\nend\n" ..
     'local R_SHAPE <const> = Shape.record_of("R"); local bad: integer = "x"\n' ..
     "local r = assert(R_SHAPE:into({ n = 1 }))\nlocal n: integer = r.n\nreturn n + bad\n"
-  local diagnostics = published(served(root, { initialize(root), open(root, "main.tl", text) }))[1]
-  assert(#diagnostics == 1, messages_of(diagnostics))
   -- At `"x"` in the text as written, not as the build's rewrite moved it.
-  local start = diagnostics[1].range["start"]
+  local start = edge(only(nth(served(root, { initialize(root), open(root, "main.tl", text) }), 1)), "start")
   assert(start.line == 4 and start.character == 67, tostring(start.line) .. ":" .. tostring(start.character))
   -- A module required is rewritten too.
   local module = text:gsub('; local bad: integer = "x"', "")
   assert(Fs.write(root .. "/shaped.tl", (module:gsub("n %+ bad", "r"))))
   local user = 'local shaped = require("shaped")\nlocal n: integer = shaped.n\nreturn n\n'
-  local through = published(served(root, { initialize(root), open(root, "user.tl", user) }))[1]
+  local through = nth(served(root, { initialize(root), open(root, "user.tl", user) }), 1)
   assert(#through == 0, messages_of(through))
   -- Every call is at the top: the copy with no function bodies finds them.
   local tally = served(root, { initialize(root), open(root, "main.tl", text) }).tally
@@ -309,11 +308,11 @@ end
 local function test_a_test_file_is_not_warned_of_its_tests()
   local root = session_fixture.project()
   local text = "local function test_it() assert(true) end\n"
-  local runs = published(served(root, { initialize(root), open(root, "it_test.tl", text),
-    open(root, "it.tl", text) }))
-  assert(#runs[1] == 0, messages_of(assert(runs[1])))
-  assert(#runs[2] == 1, "a warning is published: " .. messages_of(assert(runs[2])))
-  assert(runs[2][1].message:find("unused", 1, true), messages_of(assert(runs[2])))
+  local ran = served(root, { initialize(root), open(root, "it_test.tl", text), open(root, "it.tl", text) })
+  local test_file, other = nth(ran, 1), nth(ran, 2)
+  assert(#test_file == 0, messages_of(test_file))
+  assert(#other == 1, "a warning is published: " .. messages_of(other))
+  assert(only(other).message:find("unused", 1, true), messages_of(other))
 end
 
 local function test_a_global_is_published_as_refused()

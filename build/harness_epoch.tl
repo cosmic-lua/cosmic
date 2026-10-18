@@ -86,7 +86,7 @@ harness_epoch.acknowledged = {
 
   ["build.bind"] = "e6e670add858a2a3b3fe668d61a1447b7ade175ca3c8de64ab040e091c3038a6",
 
-  ["build.cache_formats"] = "82d516785e323622ccd8a15a97a39573dd70cd74f0ff769f745579efbbe53d90",
+  ["build.cache_formats"] = "c8ff0b082d587dde5b954b9966119e935ea1d2b052f9d9cdb3784a3fddc94ac5",
 
   ["build.cache_names"] = "f3ffd43d849dcd48fc9d781a0826d9c500484e41fc5c9cc0597a4b37cd650516",
 
@@ -116,7 +116,7 @@ harness_epoch.acknowledged = {
 
   ["build.shared_verdicts"] = "8ebd1caf3241a119bed76eb61f3992b681453bfef5e3cb19f12cee99b2b8ba31",
 
-  ["build.test"] = "6d7ef98f0280fdc6bbe75e10c8969e34f074f46fdc59e7a00c0f038ddff901a0",
+  ["build.test"] = "b157149aeca36fb10a8ec57116933c82dc2a519237c0f4ee1352ee2a0d988396",
 
   ["build.test_inputs"] = "c4df041918cc0a05acae546709cdfd912b4b1e8cdb26b51d8e515abf7e58713c",
 
@@ -124,7 +124,7 @@ harness_epoch.acknowledged = {
 
   ["build.test_sandbox"] = "2d53271ebd9cb3ea1e659b68e1d2a58298df01891295932641087153daa000b8",
 
-  ["build.test_worker"] = "005b85728ec5bce9a4e468942d02a1a9b2b93e6640b2f4842826ad7657cea1ad",
+  ["build.test_worker"] = "cf260d35867d05c79a8fad331ccdb661c37bd96328b5d681cdee976298498172",
 
   ["build.this_program"] = "a8fd0caa3b712ad0b9e6b31f8db858f20273a3a0d1e83784bb507e24bb7feead",
 
@@ -144,7 +144,7 @@ harness_epoch.acknowledged = {
 
   ["cosmic.hash"] = "c6b73b0d1b1aafdf5a122b5a8cffa74fd1ff0b39f7129ff48d1ef91b2769f83a",
 
-  ["cosmic.proc"] = "0d7ce937591bc50094b1c6f3a34b7853ad4545e77a90f3a66a0ff7a81509a394",
+  ["cosmic.proc"] = "a5e3f73f45f2df5f6104313300f479ec0b16a5325c3b05a95ca2393ae6397574",
 
   ["cosmic.project"] = "ff7ae4d2958b9a7d24d13c990b8e3e3f41f0574fa169a645298c21b246924843",
 
@@ -152,7 +152,7 @@ harness_epoch.acknowledged = {
 
   ["cosmic.sandbox.policy"] = "062777703fa8bf520e872d8e1b39ed9da6cbe62089498e044055a08b46b59404",
 
-  ["cosmic.sqlite"] = "9759c76c2fa3ce5df1bfb982709845212b5731effb976a7740deca7b05b2ee67",
+  ["cosmic.sqlite"] = "70e62606a82d6381773966682bf48837b73a0ea26de44ad604636ad5c2ccc3a9",
 
   ["cosmic.string"] = "e1ca89bb3a9446c9d398d8be50425177b32981a9b1b40bdf8504661e7f388691",
 

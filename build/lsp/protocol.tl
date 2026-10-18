@@ -210,9 +210,9 @@ local MESSAGE <const> = Shape.record({
   params = Shape.optional(Shape.any),
 })
 
-local DOCUMENT_PARAMS <const> = Shape.record_of("protocol.DocumentParams")
+local DOCUMENT_PARAMS <const>: Shape.Typed<protocol.DocumentParams> = Shape.record_of("protocol.DocumentParams")
 
-local INITIALIZE_PARAMS <const> = Shape.record_of("protocol.InitializeParams")
+local INITIALIZE_PARAMS <const>: Shape.Typed<protocol.InitializeParams> = Shape.record_of("protocol.InitializeParams")
 
 --- `body` with its header, as one message on the wire.
 function protocol.frame(body: string): string
@@ -248,7 +248,7 @@ local function header_of(buffer: string): Header | nil, string
   local length: integer | nil = nil
   for line in buffer:sub(1, finish - 1):gmatch("[^\r\n]+") do
     local name, value = line:match("^([^:]+):%s*(.-)%s*$")
-    if name == nil then
+    if name == nil or value == nil then
       return nil, "a header line with no name: " .. line
     end
     if name:lower() == "content-length" then
@@ -307,8 +307,9 @@ function protocol.frames_of(read: function(): string | nil, string, poll?: proto
       if header == nil then return nil, trouble end
       -- The body's chunks are joined once, not one at a time: a body of
       -- many chunks would be copied once for each.
-      local parts: {string} = { held.buffer:sub(header.finish + 4) }
-      local have = #parts[1]
+      local first = held.buffer:sub(header.finish + 4)
+      local parts: {string} = { first }
+      local have = #first
       while have < header.length do
         local chunk, why = more()
         if chunk == nil then
@@ -437,10 +438,10 @@ function protocol.position(lines: Lines, offset: integer, encoding: string): Pos
   local low, high = 1, #lines.starts
   while low < high do
     local middle = (low + high + 1) // 2
-    if lines.starts[middle] <= offset then low = middle else high = middle - 1 end
+    if assert(lines.starts[middle]) <= offset then low = middle else high = middle - 1 end
   end
-  local line = lines.texts[low]
-  local x = math.min(math.max(offset - lines.starts[low] + 1, 1), #line + 1)
+  local line = assert(lines.texts[low])
+  local x = math.min(math.max(offset - assert(lines.starts[low]) + 1, 1), #line + 1)
   return { line = low - 1, character = character_of(line, x, encoding) }
 end
 

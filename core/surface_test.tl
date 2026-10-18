@@ -113,7 +113,7 @@ local function test_a_removed_package_field_says_what_replaced_it()
   assert(package.config ~= nil)
   local other = assert(load("package.frobnicate = 1\nlocal seen = package.frobnicate\n" ..
       "package.frobnicate = nil\nreturn seen, package.frobnicate", "=other.lua", "t"))
-  local seen, gone = other() as (integer, any)
+  local seen, gone = other()
   assert(seen == 1 and gone == nil)
 end
 

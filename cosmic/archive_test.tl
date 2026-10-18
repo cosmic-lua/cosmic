@@ -202,9 +202,13 @@ local function test_extract_strips_by_a_whole_float(tmp: string)
   local written = assert(Archive.extract(archive, tmp .. "/out", { strip_components = float(1.0) }))
   assert(#written == 2, table.concat(written, ","))
   assert(Fs.read(tmp .. "/out/tool") == "#!/bin/sh\necho hi\n")
-  local refusals: {{integer, string}} = { { float(1.5), "whole number" }, { -1, "negative" } }
+  local record Refusal
+    count: integer
+    says: string
+  end
+  local refusals: {Refusal} = { { count = float(1.5), says = "whole number" }, { count = -1, says = "negative" } }
   for _, refusal in ipairs(refusals) do
-    local count, says = refusal[1], refusal[2]
+    local count, says = refusal.count, refusal.says
     local ok, why = pcall(Archive.extract, archive, tmp .. "/bad", { strip_components = count })
     assert(not ok and tostring(why):find(says, 1, true) ~= nil, tostring(why))
     assert(Fs.exists(tmp .. "/bad") == false)

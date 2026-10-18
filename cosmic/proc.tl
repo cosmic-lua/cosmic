@@ -74,6 +74,10 @@ local cached: Cached = {}
 
 --- Ends the process with a status. This is the explicit replacement for
 --- os.exit; it does not run finalizers and does not return.
+--
+-- TODO: once cosmic.sys is declared (lang/declarations.tl lists the bindings) with `exit` as `never`, the new
+-- checker reports this function's end as reachable (`missing_return`): the C binding [`sys.exit`] is not known to end
+-- control, and declaring it removes the gap.
 function Proc.exit(status: integer): never
   sys.exit(status)
 end

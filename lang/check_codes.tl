@@ -58,6 +58,12 @@ local record Codes
     "arity"
     -- no overload takes the arguments
     "overload_none"
+    -- a type parameter of a generic function that nothing at the call fixes
+    "cannot_infer"
+    -- a type parameter that two arguments make two types
+    "infer_conflict"
+    -- a type argument that lacks the interface its parameter is bounded by
+    "bound_unmet"
     -- a return of the wrong number of values
     "return_arity"
     -- a return in a function that returns nothing, or never
@@ -66,6 +72,12 @@ local record Codes
     "no_value"
     -- a call with several return lists, used as a value
     "alternatives_as_value"
+    -- a list a `match` call may answer that no arm takes
+    "match_missing"
+    -- a `match` arm no list the call answers reaches
+    "match_redundant"
+    -- a `match` pattern that tests or binds what the lists do not have
+    "match_pattern"
     -- more or fewer values than names or targets
     "value_count"
     -- `...` in a function that has no rest parameter
@@ -93,6 +105,8 @@ local record Codes
     "cast_refused"
     -- `is` on a type a run-time tag cannot tell
     "is_on_record"
+    -- `is` of a type the value cannot have
+    "is_disjoint"
     -- a literal or an `is` of a class of another module
     "class_scope"
     -- a `<close>` local that holds neither nil nor a class that declares `__close`
@@ -123,19 +137,22 @@ local record Codes
     "require_unknown"
     -- a module that returns what no declaration describes
     "export_not_declared"
+    -- flow
+    -- a function that answers values, or is declared `never`, whose end is reachable
+    "missing_return"
+    -- a local read before every path assigns it
+    "not_assigned"
+    -- a statement control cannot reach
+    "unreachable"
+    -- a value that may be nil because an assignment dropped what a test had shown
+    "narrowing_dropped"
+    -- a function declared to narrow an argument whose body does not show it
+    "narrows_unproved"
+    -- a local assigned twice by one statement
+    "assign_repeated"
     -- not yet checked: a form a later piece of the checker types
-    -- a call of a generic function
-    "unchecked_generic"
-    -- a protected call
-    "unchecked_protected"
-    -- a coroutine function
-    "unchecked_coroutine"
-    -- a `match`
-    "unchecked_match"
     -- a binding of C, or a global the declarations lack
     "unchecked_binding"
-    -- a generic function inside the code of another
-    "unchecked_nested"
   end
 
   --- An error: the scope builder's, with the types it is about.
@@ -181,21 +198,23 @@ end
 Codes.codes = {
   "not_assignable", "nil_not_allowed", "index_may_be_nil", "view_as_mut", "invariant_mut", "record_as_map",
   "declaration_value", "any_use", "view_written", "field_fixed", "array_hole", "float_key", "field_unknown", "map_field",
-  "record_index", "not_indexable", "not_callable", "overload_value", "interface_method_value", "arity", "overload_none", "return_arity",
-  "return_unexpected", "no_value", "alternatives_as_value", "value_count", "vararg_outside", "local_untyped",
+  "record_index", "not_indexable", "not_callable", "overload_value", "interface_method_value", "arity", "overload_none", "cannot_infer", "infer_conflict",
+  "bound_unmet", "return_arity",
+  "return_unexpected", "no_value", "alternatives_as_value", "match_missing", "match_redundant", "match_pattern", "value_count", "vararg_outside", "local_untyped",
   "param_untyped",
   "condition_type", "or_mix", "and_ternary", "concat_type", "operand_type", "compare_disjoint", "generic_op",
-  "cast_refused", "is_on_record", "class_scope", "close_not_closable", "setmetatable_call", "enum_member",
+  "cast_refused", "is_on_record", "is_disjoint", "class_scope", "close_not_closable", "setmetatable_call", "enum_member",
   "literal_missing", "literal_unknown", "literal_repeated",
   "literal_needs_type", "literal_ambiguous", "literal_shape", "arms_differ", "array_of_optional", "require_unknown",
-  "export_not_declared", "unchecked_generic", "unchecked_protected", "unchecked_coroutine", "unchecked_match",
-  "unchecked_binding", "unchecked_nested",
+  "export_not_declared", "missing_return", "not_assigned", "unreachable", "narrowing_dropped", "narrows_unproved",
+  "assign_repeated",
+  "unchecked_binding",
 }
 
 --- The text every `unchecked_*` row shares: the form is typed `invalid` and reported until its piece lands.
-local WAITING <const> = "the checker types this form in a later piece of its order (doc/plans/new-checker-types.md, " ..
-  "\"the order the pieces land in\"); until then its result is `invalid`, which relates to every type, so the " ..
-  "form is reported where it stands and a silent `invalid` is never made"
+local WAITING <const> = "the checker types this form when it reads the declarations of the bindings of C " ..
+  "(doc/plans/new-checker-types.md, \"what the checker starts from\"); until then its result is `invalid`, which " ..
+  "relates to every type, so the form is reported where it stands and a silent `invalid` is never made"
 
 Codes.catalog = {
   {
@@ -294,7 +313,8 @@ Codes.catalog = {
   {
     code = "not_callable", rule = "calls take functions",
     why = "a call runs the function its callee holds, which has to be a function type: a value that is not, or is " ..
-      "one of several, is not called",
+      "one of several, is not called. A method called through a union of records is one function when every member " ..
+      "declares it the same once the receiver is the union, and one of several otherwise",
     fix = "call a function, or narrow the value to one function type first",
   },
   {
@@ -322,6 +342,25 @@ Codes.catalog = {
     fix = "pass arguments one overload accepts (listed), in its order",
   },
   {
+    code = "cannot_infer", rule = "generic inference is local to the call",
+    why = "a type parameter is solved at the call from the arguments and the type the call is expected to answer, and " ..
+      "nothing outlives it, so a parameter neither gives has no type and the call cannot be checked",
+    fix = "type the result (`local v: T = <f>(...)`), or pass an argument that has the type",
+  },
+  {
+    code = "infer_conflict", rule = "generic inference is local to the call",
+    why = "a type parameter is one type at a call: the arguments in covariant positions grow it to a type all are below, " ..
+      "and an invariant position (a `mut` collection, a generic's argument, a map's key) fixes it exactly, so " ..
+      "arguments that have no common type, or disagree with the exact one, are refused",
+    fix = "pass values of one type to <f>, or convert the argument that differs",
+  },
+  {
+    code = "bound_unmet", rule = "generic bodies compare, pass and store",
+    why = "a type parameter bounded by an interface (`T is Ordered`) takes only the types that list it, since the body " ..
+      "does with a `T` only what the interface declares; a type conforms to an interface only by listing it",
+    fix = "list the interface in the declaration of <type> (`is <interface>`), or pass a type that does",
+  },
+  {
     code = "return_arity", rule = "returns are checked against the declared list",
     why = "a function answers the values its return list declares, so a `return` of another number of values is " ..
       "refused at the `return`",
@@ -343,6 +382,25 @@ Codes.catalog = {
     why = "a function that answers one of several value lists is told apart by `match`; used as a value it would " ..
       "answer none of them",
     fix = "match the call: `match <call> do | (true, v) then ... end`",
+  },
+  {
+    code = "match_missing", rule = "multiple returns are a matched call",
+    why = "the arms of a `match` cover the lists the call may answer exactly, so exhaustiveness is checked in one place " ..
+      "and a list left out is found where the `match` is written and not when the call answers it",
+    fix = "add the arm that takes the list: `| (false, v2) then ...`",
+  },
+  {
+    code = "match_redundant", rule = "multiple returns are a matched call",
+    why = "an arm runs only for a list no arm before it takes, so an arm that selects no list, or only lists an earlier " ..
+      "arm takes, can never run",
+    fix = "delete the arm, or change its `true` and `false` to select a list no arm before it takes",
+  },
+  {
+    code = "match_pattern", rule = "multiple returns are a matched call",
+    why = "`true` and `false` in a pattern select the lists whose value at that position is `true` or `false`, and a name " ..
+      "binds the value there, so a position the lists lack or do not tell by `true` or `false` selects nothing, and an " ..
+      "arm names each value of the lists it takes",
+    fix = "write one pattern for each value of the lists the arm takes, `true` or `false` only where the lists have one",
   },
   {
     code = "value_count", rule = "a name has a value",
@@ -410,6 +468,12 @@ Codes.catalog = {
     why = "`is` is a test of a run-time tag: a class is told by its metatable, and a primitive or an enum by its " ..
       "value; a record, an interface or a collection leaves nothing to test, and the contents of `any` are unchecked",
     fix = "test a tag (`x.kind == \"...\"`), declare a class, or validate the data with a [`cosmic.shape`] validator",
+  },
+  {
+    code = "is_disjoint", rule = "no casts",
+    why = "`v is T` is true when the run-time tag of `v` is that of `T`, so it narrows a value that may be a `T`: when " ..
+      "no type `v` can have is below `T`, or `T` below it, the test is never true and the branch it guards never runs",
+    fix = "this test is always false: remove it and the branch it guards, or test a type <value> can have",
   },
   {
     code = "class_scope", rule = "compiler-written classes",
@@ -484,18 +548,49 @@ Codes.catalog = {
       "so an interface never depends on a body",
     fix = "return a record, class, interface or enum, or a local declared with its type",
   },
-  { code = "unchecked_generic", rule = "generic inference is local to the call", why = WAITING,
-    fix = "none yet: the generics piece types a call of a generic function" },
-  { code = "unchecked_protected", rule = "pcall and coroutines are typed", why = WAITING,
-    fix = "none yet: the piece of `match` and protected calls types `pcall` and `xpcall`" },
-  { code = "unchecked_coroutine", rule = "pcall and coroutines are typed", why = WAITING,
-    fix = "none yet: the same piece types `coroutine.*`" },
-  { code = "unchecked_match", rule = "multiple returns are a matched call", why = WAITING,
-    fix = "none yet: the piece of `match` types the arms" },
+  {
+    code = "missing_return", rule = "returns are checked against the declared list",
+    why = "a function answers the values its return list declares, so a path that reaches its end answers none: " ..
+      "its caller would read nil where a value was declared. A function declared `never` returns on no path",
+    fix = "end every path with a `return` of <list> (or `error(...)`), or declare the function without a return list",
+  },
+  {
+    code = "not_assigned", rule = "assigned before read",
+    why = "`local x: T` with no value is legal only where every path assigns it before its first read, since a read " ..
+      "of it before then is nil where `T` admits none; a function made while it is unset reads it, so it is read " ..
+      "where the function is made",
+    fix = "assign <name> on every path before the read, give it a value where it is declared, or declare it `T?`, " ..
+      "which is nil until assigned and is checked where it is used",
+  },
+  {
+    code = "unreachable", rule = "never is the bottom type",
+    why = "a path that ends (a `return`, a `break` or `continue`, a call of a `never` function, a loop with no way " ..
+      "out, a place narrowed to `never`) has no successor, so a statement after it is code that cannot run and is " ..
+      "most often a mistake in the jump",
+    fix = "remove the statement, or move it before the jump",
+  },
+  {
+    code = "narrowing_dropped", rule = "narrowing only what nothing else can change",
+    why = "a test narrows a local until the local is assigned, and an assignment of a value that may itself be nil says " ..
+      "nothing of the new value, so a value that may be nil after the assignment is read where the test no longer holds",
+    fix = "test it again after the assignment, or keep the value in a new local that is not assigned and test that",
+  },
+  {
+    code = "narrows_unproved", rule = "narrowing declarations",
+    why = "a callee's declaration `v is T` or `asserts v is T` tells every caller what to assume of its argument, so " ..
+      "a function in Teal that makes it returns a test of the parameter that decides `T`, and one that asserts it " ..
+      "returns only where the parameter is a `T`",
+    fix = "return a test that decides <type> (`return v is T`, `return v.kind == \"...\"`), or declare the function " ..
+      "`boolean`",
+  },
+  {
+    code = "assign_repeated", rule = "narrowing only what nothing else can change",
+    why = "`x, x = a, b` leaves the order of the two assignments open in Lua, so the value of `x` after it, and the fact " ..
+      "a test held of it, would depend on an order the program does not fix",
+    fix = "assign <name> once, or in two statements in the order you mean",
+  },
   { code = "unchecked_binding", rule = "declarations are the trust boundary", why = WAITING,
     fix = "none yet: the bindings of C are typed once the checker reads them from declaration files" },
-  { code = "unchecked_nested", rule = "generic bodies compare, pass and store", why = WAITING,
-    fix = "none yet: the generics piece types a generic function inside another" },
 }
 
 function Codes.row(code: Codes.Code): Codes.Row | nil

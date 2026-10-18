@@ -152,10 +152,10 @@ local function formatting(s: Session, params: protocol.DocumentParams): string |
   local fixed, trouble = require("build.fix").source(built, document.text, document.name)
   if fixed == nil then return nil, trouble end
   if fixed.source == document.text then return "[]", "" end
-  local lines = protocol.lines_of(document.text)
+  local held = protocol.lines_of(document.text)
   local edit: protocol.TextEdit = {
     range = protocol.range({ line = 0, character = 0 },
-      protocol.position(lines, #document.text + 1, s.encoding)),
+      protocol.position(held, #document.text + 1, s.encoding)),
     newText = fixed.source,
   }
   return "[" .. assert(Json.encode(edit)) .. "]", ""
@@ -165,7 +165,10 @@ end
 local function root_of(params: protocol.InitializeParams): string | nil
   local uri = params.rootUri
   local folders = params.workspaceFolders
-  if uri == nil and folders ~= nil and folders[1] ~= nil then uri = folders[1].uri end
+  if uri == nil and folders ~= nil then
+    local first = folders[1]
+    if first ~= nil then uri = first.uri end
+  end
   local path = params.rootPath
   if uri ~= nil then path = protocol.path_of(uri) end
   if path == nil or path == "" then return nil end

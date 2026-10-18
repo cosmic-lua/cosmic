@@ -355,15 +355,19 @@ local function test_a_name_is_matched_to_the_grants_before_it_is_resolved(tmp: s
     local port = server.port
     local rig = start(tmp, { grants = { "svc.test:" .. port, "127.0.0.1:" .. port } })
     -- Neither name is in the hosts file: resolving either would say so.
-    local cases: {{string, string}} = {
-      { "ungranted.test:" .. port, "not granted: --connect ungranted.test:" .. port },
-      { "svc.test:" .. (port % 60000 + 1), "not granted: --connect svc.test:" .. (port % 60000 + 1) },
-      { "sub.svc.test:" .. port, "not granted: --connect sub.svc.test:" .. port },
+    local record Case
+      target: string
+      says: string
+    end
+    local cases: {Case} = {
+      { target = "ungranted.test:" .. port, says = "not granted: --connect ungranted.test:" .. port },
+      { target = "svc.test:" .. (port % 60000 + 1), says = "not granted: --connect svc.test:" .. (port % 60000 + 1) },
+      { target = "sub.svc.test:" .. port, says = "not granted: --connect sub.svc.test:" .. port },
     }
     for _, case in ipairs(cases) do
-      local conn, head = connect_to(rig, case[1])
+      local conn, head = connect_to(rig, case.target)
       local line = status_line(head)
-      assert(line:find("^HTTP/1.1 403 ") and line:find(case[2], 1, true), line)
+      assert(line:find("^HTTP/1.1 403 ") and line:find(case.says, 1, true), line)
       assert(not line:find("resolve", 1, true), line)
       local _, _ = conn:close()
     end
@@ -707,23 +711,29 @@ local function test_a_connection_that_fails_or_times_out_says_which(tmp: string)
         assert(Poll.delay(Clock.ms(5)))
         return nil, outcome
       end })
-    local cases: {{string, string, integer, integer}} = {
-      { "Connection refused", "^HTTP/1.1 502 ", 502, 5 },
-      { Poll.TIMEOUT, "^HTTP/1.1 504 ", 504, 6 },
-      { "Network is unreachable", "^HTTP/1.1 502 ", 502, 3 },
-      { "No route to host", "^HTTP/1.1 502 ", 502, 4 },
+    local record Case
+      outcome: string
+      pattern: string
+      status: integer
+      reply: integer
+    end
+    local cases: {Case} = {
+      { outcome = "Connection refused", pattern = "^HTTP/1.1 502 ", status = 502, reply = 5 },
+      { outcome = Poll.TIMEOUT, pattern = "^HTTP/1.1 504 ", status = 504, reply = 6 },
+      { outcome = "Network is unreachable", pattern = "^HTTP/1.1 502 ", status = 502, reply = 3 },
+      { outcome = "No route to host", pattern = "^HTTP/1.1 502 ", status = 502, reply = 4 },
     }
     for _, case in ipairs(cases) do
-      outcome = case[1]
+      outcome = case.outcome
       local conn, head = connect_to(rig, "127.0.0.1:" .. port)
       local line = status_line(head)
-      assert(line:find(case[2]) and line:find("could not connect to 127.0.0.1:" .. port .. ": " .. case[1], 1, true), line)
+      assert(line:find(case.pattern) and line:find("could not connect to 127.0.0.1:" .. port .. ": " .. case.outcome, 1, true), line)
       local _, _ = conn:close()
       local socks = dial(rig.socks)
       assert(socks:write("\5\1\0"))
       assert(read_exact(socks, 2) == "\5\0")
       assert(socks:write(Fixture.socks_request(1, 1, "\127\0\0\1", port)))
-      assert(read_exact(socks, 10):byte(2) == case[4], case[1])
+      assert(read_exact(socks, 10):byte(2) == case.reply, case.outcome)
       local _, _ = socks:close()
     end
     finish(rig)
@@ -1407,33 +1417,37 @@ local function test_a_spec_that_is_no_spec_raises(tmp: string)
     local function connector(): Net.Conn | nil, string
       return nil, "unused"
     end
-    local cases: {{Relay.Spec, string}} = {
-      { { grants = {}, connector = connector }, "an http, a socks or a mixed listener" },
-      { { http = listener, grants = {} }, "spec.connector" },
-      { { http = listener, connector = connector } as Relay.Spec, "spec.grants" },
-      { { http = listener, grants = { 1 as any as string }, connector = connector }, "spec.grants must hold strings" },
-      { { http = listener, grants = {}, connector = connector, timeouts = { idle = 0 } }, "timeouts.idle must be an integer from 1" },
-      { { http = listener, grants = {}, connector = connector, limits = { total = -1 } }, "limits.total must be an integer from 1" },
-      { { http = listener, grants = {}, connector = connector, tls_ports = { 0 } }, "tls_ports" },
-      { { http = listener, grants = {}, connector = connector, token = "" }, "spec.token must be a string of 16 to 255 bytes" },
-      { { http = listener, grants = {}, connector = connector, token = ("t"):rep(15) }, "spec.token must be a string of 16" },
-      { { http = listener, grants = {}, connector = connector, timeouts = { auth = 0 } }, "timeouts.auth must be an integer from 1" },
-      { { http = listener, grants = {}, connector = connector, token = ("t"):rep(256) }, "spec.token must be a string" },
-      { { http = listener, grants = {}, connector = connector, token = "a\nb" }, "spec.token must be a string" },
-      { { http = listener, grants = {}, connector = connector, token = 5 as any as string }, "spec.token must be a string" },
-      { { http = listener, grants = {}, connector = connector, limits = { pre_auth = 0 } }, "limits.pre_auth must be an integer from 1" },
-      { { http = listener, grants = {}, connector = connector, own_addresses = { "nope" } }, "not numeric" },
-      { { http = listener, grants = {}, connector = connector, timeouts = 5 as any as Relay.Timeouts }, "spec.timeouts must be a table" },
-      { { http = listener, grants = {}, connector = connector, upstream = { host = "", port = 80, no_proxy = {} } }, "upstream.host" },
-      { { http = listener, grants = {}, connector = connector, upstream = { host = "p", port = 0, no_proxy = {} } }, "upstream.port" },
-      { { http = listener, grants = {}, connector = connector,
-        upstream = { host = "p", port = 80, authorization = "x\r\nHost: y", no_proxy = {} } }, "upstream.authorization" },
-      { { http = listener, grants = {}, connector = connector,
-        upstream = { host = "p", port = 80, no_proxy = { 1 as any as string } } }, "upstream.no_proxy" },
+    local record Case
+      spec: Relay.Spec
+      says: string
+    end
+    local cases: {Case} = {
+      { spec = { grants = {}, connector = connector }, says = "an http, a socks or a mixed listener" },
+      { spec = { http = listener, grants = {} }, says = "spec.connector" },
+      { spec = { http = listener, connector = connector } as Relay.Spec, says = "spec.grants" },
+      { spec = { http = listener, grants = { 1 as any as string }, connector = connector }, says = "spec.grants must hold strings" },
+      { spec = { http = listener, grants = {}, connector = connector, timeouts = { idle = 0 } }, says = "timeouts.idle must be an integer from 1" },
+      { spec = { http = listener, grants = {}, connector = connector, limits = { total = -1 } }, says = "limits.total must be an integer from 1" },
+      { spec = { http = listener, grants = {}, connector = connector, tls_ports = { 0 } }, says = "tls_ports" },
+      { spec = { http = listener, grants = {}, connector = connector, token = "" }, says = "spec.token must be a string of 16 to 255 bytes" },
+      { spec = { http = listener, grants = {}, connector = connector, token = ("t"):rep(15) }, says = "spec.token must be a string of 16" },
+      { spec = { http = listener, grants = {}, connector = connector, timeouts = { auth = 0 } }, says = "timeouts.auth must be an integer from 1" },
+      { spec = { http = listener, grants = {}, connector = connector, token = ("t"):rep(256) }, says = "spec.token must be a string" },
+      { spec = { http = listener, grants = {}, connector = connector, token = "a\nb" }, says = "spec.token must be a string" },
+      { spec = { http = listener, grants = {}, connector = connector, token = 5 as any as string }, says = "spec.token must be a string" },
+      { spec = { http = listener, grants = {}, connector = connector, limits = { pre_auth = 0 } }, says = "limits.pre_auth must be an integer from 1" },
+      { spec = { http = listener, grants = {}, connector = connector, own_addresses = { "nope" } }, says = "not numeric" },
+      { spec = { http = listener, grants = {}, connector = connector, timeouts = 5 as any as Relay.Timeouts }, says = "spec.timeouts must be a table" },
+      { spec = { http = listener, grants = {}, connector = connector, upstream = { host = "", port = 80, no_proxy = {} } }, says = "upstream.host" },
+      { spec = { http = listener, grants = {}, connector = connector, upstream = { host = "p", port = 0, no_proxy = {} } }, says = "upstream.port" },
+      { spec = { http = listener, grants = {}, connector = connector,
+        upstream = { host = "p", port = 80, authorization = "x\r\nHost: y", no_proxy = {} } }, says = "upstream.authorization" },
+      { spec = { http = listener, grants = {}, connector = connector,
+        upstream = { host = "p", port = 80, no_proxy = { 1 as any as string } } }, says = "upstream.no_proxy" },
     }
     for _, case in ipairs(cases) do
-      local started, why = pcall(Relay.start, case[1])
-      assert(not started and tostring(why):find(case[2], 1, true), tostring(why))
+      local started, why = pcall(Relay.start, case.spec)
+      assert(not started and tostring(why):find(case.says, 1, true), tostring(why))
     end
     local _, _ = listener:close()
     assert(tmp ~= nil)

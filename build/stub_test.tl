@@ -199,8 +199,7 @@ local function test_the_difference_names_where_two_types_part()
   local b = built.check_string('return require("b")', env, "z.tl", "tl")
   assert(stub.difference(a.type, again.type) == nil, "the same type declared twice")
   local found = stub.difference(a.type, b.type)
-  assert(found ~= nil, "two types that differ")
-  local said = found or ""
+  local said = assert(found, "two types that differ")
   assert(said:find("f", 1, true), said)
   assert(said:find("elements", 1, true), said)
 end

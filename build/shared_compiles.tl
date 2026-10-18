@@ -256,7 +256,7 @@ local function prepare(db: Sqlite.Handle): boolean, string
   local current = 0
   for _, row in ipairs(rows) do
     for _, format in ipairs(formats) do
-      local prefix, number = format[1], format[2]
+      local prefix, number = format.prefix, format.number
       local found = math.tointeger(tonumber(row:text(1):match("^" .. prefix .. "(%d+)$")))
       if found == number then
         current = current + 1

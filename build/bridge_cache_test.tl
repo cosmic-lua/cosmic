@@ -284,38 +284,43 @@ end
 --- the declarations are made from, the compiler and the bridge itself.
 --- A file nothing reads does not.
 local function test_any_input_that_changes_is_a_miss(tmp: string)
-  local changes: {{string, boolean, function(Fixture)}} = {
-    { "a module's source", false, function(f: Fixture)
+  local record Change
+    name: string
+    compiler_row_stands: boolean
+    apply: function(Fixture)
+  end
+  local changes: {Change} = {
+    { name = "a module's source", compiler_row_stands = false, apply = function(f: Fixture)
       put(f.tree .. "/build/a.tl", "return { n = 2 }\n")
     end },
-    { "a module of a directory", false, function(f: Fixture)
+    { name = "a module of a directory", compiler_row_stands = false, apply = function(f: Fixture)
       put(f.tree .. "/build/b/init.tl", "return { n = 30 }\n")
     end },
-    { "a module added", false, function(f: Fixture)
+    { name = "a module added", compiler_row_stands = false, apply = function(f: Fixture)
       put(f.tree .. "/build/c.tl", "return 3\n")
     end },
-    { "a declaration file added", false, function(f: Fixture)
+    { name = "a declaration file added", compiler_row_stands = false, apply = function(f: Fixture)
       put(f.tree .. "/build/a.d.tl", "return 4\n")
     end },
-    { "a header", false, function(f: Fixture)
+    { name = "a header", compiler_row_stands = false, apply = function(f: Fixture)
       put(f.tree .. "/core/syscalls.h", "/* edited */\n")
     end },
-    { "the compiler's source", true, function(f: Fixture)
+    { name = "the compiler's source", compiler_row_stands = true, apply = function(f: Fixture)
       put(f.tree .. "/checker/tl.tl", compiler .. "-- edited\n")
     end },
-    { "the standard library's declarations", true, function(f: Fixture)
+    { name = "the standard library's declarations", compiler_row_stands = true, apply = function(f: Fixture)
       put(f.tree .. "/checker/stdlib.d.tl", "-- edited\n")
     end },
-    { "the seed", true, function(f: Fixture)
+    { name = "the seed", compiler_row_stands = true, apply = function(f: Fixture)
       f.seeded = false
       put(f.tl .. "/tl.lua", compiler .. "-- edited\n")
       put(f.tree .. "/checker/SEED_DIFFERS", "tl.lua\n")
     end },
-    { "the seed's wrapper", true, function(f: Fixture)
+    { name = "the seed's wrapper", compiler_row_stands = true, apply = function(f: Fixture)
       f.seeded = false
       put(f.tl .. "/checker_wrapper.lua", wrapper() .. "\n-- edited\n")
     end },
-    { "the bridge", true, function(f: Fixture)
+    { name = "the bridge", compiler_row_stands = true, apply = function(f: Fixture)
       put(f.tree .. "/core/bridge.lua", bridge_source .. "\n-- edited\n")
     end },
   }
@@ -323,12 +328,12 @@ local function test_any_input_that_changes_is_a_miss(tmp: string)
     local f = fixture(tmp, "stale-" .. index)
     boot(f)
     local control = boot(f)
-    assert(control.modules == 0 and control.compiler == 0, change[1] .. ": the control boot missed")
-    change[3](f)
+    assert(control.modules == 0 and control.compiler == 0, change.name .. ": the control boot missed")
+    change.apply(f)
     local after = boot(f)
-    assert(after.modules == loaded, change[1] .. ": a module was taken from a stale row")
-    assert((after.compiler == 1) == change[2], change[1] .. ": the compiler's row " ..
-        (change[2] and "stood" or "missed"))
+    assert(after.modules == loaded, change.name .. ": a module was taken from a stale row")
+    assert((after.compiler == 1) == change.compiler_row_stands, change.name .. ": the compiler's row " ..
+        (change.compiler_row_stands and "stood" or "missed"))
   end
   local f = fixture(tmp, "unrelated")
   boot(f)
@@ -463,15 +468,19 @@ local function test_the_cache_can_be_turned_off(tmp: string)
   local control = fixture(tmp, "control")
   boot(control)
   assert(rows(control) == 2, "the control kept nothing")
-  local cases: {{string, {string:string}}} = {
-    { "0", { COSMIC_BUILD_CACHE = "0" } },
-    { "a relative name", { COSMIC_BUILD_CACHE = "cache.db" } },
+  local record Case
+    name: string
+    environment: {string:string}
+  end
+  local cases: {Case} = {
+    { name = "0", environment = { COSMIC_BUILD_CACHE = "0" } },
+    { name = "a relative name", environment = { COSMIC_BUILD_CACHE = "cache.db" } },
   }
   for index, case in ipairs(cases) do
     local f = fixture(tmp, "off-" .. index)
-    assert(boot(f, case[2]).modules == loaded)
-    assert(boot(f, case[2]).modules == loaded, case[1] .. " did not turn the cache off")
-    assert(Fs.stat(f.cache) == nil, case[1] .. " made the file")
+    assert(boot(f, case.environment).modules == loaded)
+    assert(boot(f, case.environment).modules == loaded, case.name .. " did not turn the cache off")
+    assert(Fs.stat(f.cache) == nil, case.name .. " made the file")
   end
   local f = fixture(tmp, "off-read")
   boot(f)

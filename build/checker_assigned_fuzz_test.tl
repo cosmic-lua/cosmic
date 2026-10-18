@@ -125,7 +125,7 @@ function draws.statement(r: Recipe, p: Program, depth: integer, loop_end: string
       ["for"] = "for _ = 1, count() do",
     }
     r.labels = r.labels + 1
-    local continue = "c" .. r.labels
+    local continue_label = "c" .. r.labels
     emit(p, opening[kind])
     emit(p, "use(0)")
     -- A body may declare a variable of its own, unassigned on each pass, which
@@ -137,17 +137,17 @@ function draws.statement(r: Recipe, p: Program, depth: integer, loop_end: string
     -- needs no statement to stay last, and a `return` may end the body. The
     -- label is written only if the body jumps to it.
     emit(p, "do")
-    local body_ended = draws.block(r, p, depth - 1, continue)
+    local body_ended = draws.block(r, p, depth - 1, continue_label)
     emit(p, "end")
-    if r.jumped[continue] then
-      emit(p, "::" .. continue .. "::")
+    if r.jumped[continue_label] then
+      emit(p, "::" .. continue_label .. "::")
     end
     -- The condition of a `repeat` may read the variable the body declared.
     emit(p, kind ~= "repeat" and "end" or draw(r, 2) == 0 and "until condx(x)" or "until cond()")
     if kind == "repeat" then
-      return body_ended and not r.broke[continue] and not r.jumped[continue]
+      return body_ended and not r.broke[continue_label] and not r.jumped[continue_label]
     end
-    return kind == "while true" and not r.broke[continue]
+    return kind == "while true" and not r.broke[continue_label]
   elseif kind == "scoped local" then
     -- A variable of its own in a block inside the body, which a `goto` or a
     -- `break` leaves.

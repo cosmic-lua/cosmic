@@ -43,7 +43,7 @@ local record lsp
   spec: verb_spec.Spec
 end
 
-local spec = Cli.verbs["lsp"].spec or {}
+local spec = assert(Cli.verbs["lsp"]).spec or {}
 
 local usage = "cosmic lsp [--stdio] [--listen [host:]port] [--socket path]"
 
@@ -71,7 +71,7 @@ local function ipv6(host: string): boolean
   local first, last = text:find("::", 1, true)
   if first ~= nil and text:find("::", last, true) ~= nil then return false end
   local parts: {string} = {}
-  if first ~= nil then
+  if first ~= nil and last ~= nil then
     parts = { text:sub(1, first - 1), text:sub(last + 1) }
   else
     parts = { text }
@@ -197,7 +197,6 @@ local function listen(root: string, listeners: {Net.Address}): integer
         local _, _ = conn:close()
       end
     end,
-    on_error = nil,
   })
   if not ok then
     bare.err("cosmic: lsp: " .. trouble)
@@ -226,8 +225,9 @@ local function run(argv: {integer:string}): integer
     complain(trouble .. "; " .. usage)
     return bare.refused
   end
-  if #parsed.words > 0 then
-    complain("takes no words, given " .. parsed.words[1] .. "; " .. usage)
+  local given = parsed.words[1]
+  if given ~= nil then
+    complain("takes no words, given " .. given .. "; " .. usage)
     return bare.refused
   end
   local none: {string} = {}
@@ -281,7 +281,6 @@ lsp.spec = {
   reads = true,
   recheck_on_refusal = nil,
   summarizes_failure = nil,
-  program_slot = nil,
   takes = "where to listen",
   exits = "`lsp` speaks the Language Server Protocol on its standard output and " ..
     "exits 0 after `shutdown`, at `exit` or the stream's end, 1 at an `exit` or an end " ..

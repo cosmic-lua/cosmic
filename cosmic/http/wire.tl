@@ -487,14 +487,14 @@ function wire.read_head(input: wire.Input, limits: wire.Limits): wire.Read
   for _, option in ipairs(members((headers["connection"] or ""):lower())) do
     if option == "close" then close = true end
   end
-  local continue = false
+  local expects_continue = false
   local expect = headers["expect"]
   if version == "HTTP/1.1" and expect ~= nil then
     for _, expectation in ipairs(members(expect:lower())) do
       if expectation ~= "100-continue" then
         return refused(417, "this server meets no expectation but 100-continue")
       end
-      continue = true
+      expects_continue = true
     end
   end
   local authority = parts.authority
@@ -504,7 +504,7 @@ function wire.read_head(input: wire.Input, limits: wire.Limits): wire.Read
   return { status = 0, why = "", head = {
     method = method, target = target, path = parts.path, query = parts.query, version = version,
     headers = headers, length = length, chunked = chunked, close = close,
-    continue = continue, spent = spent,
+    continue = expects_continue, spent = spent,
   } }
 end
 

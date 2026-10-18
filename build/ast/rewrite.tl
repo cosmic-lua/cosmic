@@ -36,6 +36,12 @@ local record Hit
   caps: {string: Node}
 end
 
+--- A byte range `[first, last]`, inclusive.
+local record Span
+  first: integer
+  last: integer
+end
+
 --- One hit left unmodified because its replacement would delete a
 --- comment. It is reported, never applied.
 local record Refusal
@@ -187,14 +193,14 @@ end
 --- @param replacement string The (already desugared) replacement template
 --- @param tokens {compiler.Token} The token stream from the SAME parse as `caps`' nodes
 --- @param starts {integer} [`line_starts`]'s own result, for the same source
---- @return {{integer, integer}} Kept ranges, unordered
+--- @return {Span} Kept ranges, unordered
 local function kept_ranges(caps: {string: Node}, replacement: string,
-                           tokens: {compiler.Token}, starts: {integer}): {{integer, integer}}
-  local kept: {{integer, integer}} = {}
+                           tokens: {compiler.Token}, starts: {integer}): {Span}
+  local kept: {Span} = {}
   for name, cap in pairs(caps) do
     if find_name(replacement, name, 1) and not empty_rest(cap) then
       local a, b = byte_span(cap, tokens, starts)
-      kept[#kept + 1] = { a, b }
+      kept[#kept + 1] = { first = a, last = b }
     end
   end
   return kept
@@ -209,10 +215,10 @@ end
 --- @param starts {integer} [`line_starts`]'s own result, for the same source
 --- @param a integer Match's start byte offset
 --- @param b integer Match's end byte offset
---- @param kept {{integer, integer}} Ranges the replacement carries forward verbatim
+--- @param kept {Span} Ranges the replacement carries forward verbatim
 --- @return {string} The dropped comments' own text, in token order
 local function dropped_comments(tokens: {compiler.Token}, starts: {integer},
-                                a: integer, b: integer, kept: {{integer, integer}}): {string}
+                                a: integer, b: integer, kept: {Span}): {string}
   local dropped: {string} = {}
   for _, t in ipairs(tokens) do
     local comments = t.comments
@@ -222,7 +228,7 @@ local function dropped_comments(tokens: {compiler.Token}, starts: {integer},
         if coff >= a and coff <= b then
           local covered = false
           for _, r in ipairs(kept) do
-            if coff >= r[1] and coff <= r[2] then
+            if coff >= r.first and coff <= r.last then
               covered = true
               break
             end

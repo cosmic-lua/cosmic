@@ -34,7 +34,7 @@ local function test_a_directory_a_build_was_started_in_is_staged(tmp: string)
   local db = assert(Sqlite.open(build_paths.required(root) .. "/build.db"))
   local rows = assert(Sqlite.text_rows(db, "SELECT path FROM inputs"))
   assert(db:close())
-  assert(#rows == 1 and rows[1]:text(1) == "a", tostring(#rows))
+  assert(#rows == 1 and assert(rows[1]):text(1) == "a", tostring(#rows))
 end
 
 local function test_a_stage_waits_for_no_run_holding_the_database(tmp: string)

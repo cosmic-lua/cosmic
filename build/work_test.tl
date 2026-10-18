@@ -110,7 +110,7 @@ local function journal_mode(path: string): string
   local db = assert(Sqlite.open(path))
   local rows = assert(Sqlite.text_rows(db, "PRAGMA journal_mode"))
   assert(db:close())
-  return rows[1]:text(1)
+  return assert(rows[1]):text(1)
 end
 
 --- A working database is in write-ahead mode, and one made in rollback
@@ -121,13 +121,13 @@ local function test_a_rollback_mode_database_is_put_in_write_ahead_mode(tmp: str
   assert(work.close((assert(work.open(tmp)))))
   assert(journal_mode(path) == "wal", journal_mode(path))
   local db = assert(Sqlite.open(path, { writable = true }))
-  local set = assert(Sqlite.text_rows(db, "PRAGMA journal_mode = DELETE"))
-  assert(set[1]:text(1) == "delete", set[1]:text(1))
+  local set = assert(assert(Sqlite.text_rows(db, "PRAGMA journal_mode = DELETE"))[1]):text(1)
+  assert(set == "delete", set)
   assert(db:close())
   assert(journal_mode(path) == "delete", journal_mode(path))
   local reopened = assert(work.open(tmp))
-  local mode = assert(Sqlite.text_rows(reopened.db, "PRAGMA journal_mode"))
-  assert(mode[1]:text(1) == "wal", mode[1]:text(1))
+  local mode = assert(assert(Sqlite.text_rows(reopened.db, "PRAGMA journal_mode"))[1]):text(1)
+  assert(mode == "wal", mode)
   assert(work.close(reopened))
   assert(journal_mode(path) == "wal", journal_mode(path))
 end
@@ -191,8 +191,9 @@ local function test_a_read_answers_at_once_while_a_run_writes(tmp: string)
   local took = Clock.monotonic_ns() - started
   assert(reader:close())
   assert(work.abort(handle))
-  assert(rows[1]:text(1) == "committed", rows[1]:text(1))
-  assert(fillers[1]:text(1) == "0", "no uncommitted row is read")
+  local marker = assert(rows[1]):text(1)
+  assert(marker == "committed", marker)
+  assert(assert(fillers[1]):text(1) == "0", "no uncommitted row is read")
   assert(took < Clock.seconds(1), "the read took " .. tostring(took) .. " ns")
 end
 

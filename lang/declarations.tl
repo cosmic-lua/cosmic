@@ -36,7 +36,9 @@
 ---   `class_metamethod`, `metamethod_signature`.
 --- - the form of a type: the count of type arguments (`type_arguments`), a type that nests deeper
 ---   than a store allows (`type_too_deep`), an alias that reaches itself (`alias_cycle`), a bound that
----   is no interface (`bound_not_interface`), a declaration that names the type parameter of
+---   is no interface (`bound_not_interface`), return lists that no position of `true` and `false` tells apart
+---   (`lists_overlap`), a type argument that does not list the interface its parameter is bounded by
+---   (`bound_not_met`), a declaration that names the type parameter of
 ---   the one around it (`outer_type_parameter`), a name that a module or a record does not
 ---   declare (`member_missing`), a parameter of a method with no type (`param_untyped`) and
 ---   `thread` (`thread_type`).
@@ -103,6 +105,10 @@ local record Declarations
     "alias_cycle"
     -- a type parameter bounded by what is no interface
     "bound_not_interface"
+    -- two return lists that no position of `true` and `false` tells apart
+    "lists_overlap"
+    -- a type argument that does not list the interface its parameter is bounded by
+    "bound_not_met"
     -- a declaration that names a type parameter of the code around it
     "outer_type_parameter"
     -- a type that a module, a record or the declared globals do not have
@@ -304,7 +310,7 @@ end
 Declarations.codes = {
   "interface_disagrees", "super_not_interface", "super_cycle", "listing_too_large", "untagged_union",
   "array_of_optional", "float_key", "key_type", "repeated_field", "repeated_value", "type_arguments",
-  "type_too_deep", "alias_cycle", "bound_not_interface", "outer_type_parameter", "member_missing",
+  "type_too_deep", "alias_cycle", "bound_not_interface", "lists_overlap", "bound_not_met", "outer_type_parameter", "member_missing",
   "param_untyped", "metamethod_signature", "class_metamethod", "thread_type", "store_refused",
 }
 
@@ -393,6 +399,19 @@ Declarations.catalog = {
     why = "a type parameter ranges over all types unless it has a bound, and a bound is one interface used with " ..
       "no arguments, which the operations of the body are checked against",
     fix = "bound <parameter> by an interface with no type parameters, or leave it unbounded",
+  },
+  {
+    code = "lists_overlap", rule = "multiple returns are a matched call",
+    why = "a call that answers one of several lists of values is taken apart by `match`, which tells the lists apart by " ..
+      "a position that is `true` in one and `false` in the other; lists that no position tells apart would be " ..
+      "told apart by nothing",
+    fix = "make a position `true` in one list and `false` in the other, as `(true, R) | (false, E)` does",
+  },
+  {
+    code = "bound_not_met", rule = "a constraint is one interface",
+    why = "a type argument takes the place of a type parameter that the body treats as the interface it is bounded by, " ..
+      "and a type conforms to an interface only by listing it, so an argument that does not list it breaks the body",
+    fix = "list the interface in the declaration of <type> (`is <interface>`), or pass a type that does",
   },
   {
     code = "outer_type_parameter", rule = "a declaration is closed over its own parameters",
@@ -949,10 +968,6 @@ local function wrong_count(ctx: Ctx, t: Ast.TypeName, e: Entry, expected: intege
 end
 
 --- The type a name that resolved to `e` is, with the arguments of `t`.
---
--- TODO: check each argument against the bound of its type parameter, with the judge, once the checker's calls
--- infer type arguments (doc/plans/new-checker-types.md, "generics, then `match`, ..."): a bound is only read
--- at a call today, and a use written with an argument that lacks the interface is not refused.
 local function use_entry(ctx: Ctx, t: Ast.TypeName, e: Entry): Type
   local store = ctx.store
   local decl = e.decl
@@ -1031,8 +1046,9 @@ local function lower_name(ctx: Ctx, t: Ast.TypeName): Type
     end
     return store:atom(primitive)
   end
-  -- TODO: drop `thread` here and from the primitives of lang/scopes.tl once the tree writes `Coroutine<Y, R, S>`
-  -- (doc/plans/new-checker-types.md, "generics, then `match`, tagged unions, protected calls and coroutines").
+  -- TODO: drop `thread` here and from the primitives of lang/scopes.tl once the `debug` functions that take a thread
+  -- (`debug.traceback`, `debug.getinfo`) are declared over `Coroutine<Y, R, S>` or dropped: the typed `coroutine` library
+  -- no longer names it.
   if #path == 1 and head == "thread" then
     report_at(ctx, "thread_type", t, "`thread` is no type: a coroutine is a `Coroutine<Y, R, S>`",
       "write `Coroutine<Y, R, S>` with the type it yields, returns and is sent")
@@ -1101,6 +1117,17 @@ local function names_positions(names: {string}): {string: integer}
   return out
 end
 
+--- Whether the lists `a` and `b` have `true` in one and `false` in the other at a position, which tells them apart.
+local function told_apart(a: Types.Alt, b: Types.Alt): boolean
+  for i = 1, math.min(#a.items, #b.items) do
+    local x, y = a.items[i].tag, b.items[i].tag
+    if (x == "true" and y == "false") or (x == "false" and y == "true") then
+      return true
+    end
+  end
+  return false
+end
+
 --- The alternatives of a return list, or nil where a narrowing return names a parameter that is
 --- not there (the scope builder said so).
 local function lower_rets(ctx: Ctx, rets: Ast.Rets, positions: {string: integer}): {Types.Alt} | nil
@@ -1122,6 +1149,29 @@ local function lower_rets(ctx: Ctx, rets: Ast.Rets, positions: {string: integer}
       end
     end
     alts[#alts + 1] = alt
+  end
+  for i = 1, #alts do
+    for j = i + 1, #alts do
+      if not told_apart(alts[i], alts[j]) then
+        local shown: {string} = {}
+        for _, each in ipairs({ alts[i], alts[j] }) do
+          local items: {string} = {}
+          for k, t in ipairs(each.items) do
+            items[k] = show(ctx, t)
+          end
+          local tail = each.tail
+          if tail ~= nil then
+            items[#items + 1] = show(ctx, tail) .. "..."
+          end
+          shown[#shown + 1] = "(" .. table.concat(items, ", ") .. ")"
+        end
+        report_at(ctx, "lists_overlap", rets, "the return lists " .. quoted(shown[1]) .. " and " .. quoted(shown[2]) ..
+            " are told apart by no position that is `true` in one and `false` in the other",
+          "make one position `true` in one list and `false` in the other (`(true, R) | (false, E)`), so that a `match` can " ..
+            "tell which list a call answered", { shown[1], shown[2] })
+        break
+      end
+    end
   end
   return alts
 end
@@ -2290,6 +2340,21 @@ local function must(program: Program, req: Requires, index: integer, dense: bool
   return false
 end
 
+--- Whether `argument` is below the interface `bound`, or nil where a declaration either names has no body yet.
+local function bound_met(ctx: Ctx, argument: Type, bound: Type): boolean | nil
+  local answer: {boolean} = {}
+  local ok, why = pcall(function()
+    answer[1] = ctx.program.judge:subtype(argument, bound)
+  end)
+  if ok then
+    return answer[1]
+  end
+  if tostring(why):find("is not defined", 1, true) == nil then
+    error(why, 0)
+  end
+  return nil
+end
+
 --- Checks the arguments of a use against what the parameters must be.
 local function check_use(ctx: Ctx, use: Use): boolean
   local program = ctx.program
@@ -2315,8 +2380,30 @@ local function check_use(ctx: Ctx, use: Use): boolean
   if req == nil then
     return false
   end
+  local params: {Types.DeclParam} = {}
+  local decl_body = decl ~= nil and decl.body or nil
+  if alias ~= nil then
+    params = alias.tparams
+  elseif decl_body ~= nil then
+    params = decl_body.tparams
+  end
   for i, argument in ipairs(use.args) do
     if not tainted(ctx, argument) then
+      local param = params[i]
+      local bound = param ~= nil and param.bound or nil
+      -- A variable of the code around stays unchecked until it is instantiated.
+      if bound ~= nil and argument.open == 0 then
+        local met = bound_met(ctx, argument, bound)
+        if met == nil then
+          return false
+        elseif not met then
+          local shown = Types.display(argument, use.names)
+          report_at(ctx, "bound_not_met", use.node, quoted(name) .. " bounds its type parameter " .. i .. " by " ..
+              quoted(Types.display(bound, use.names)) .. ", and " .. quoted(shown) .. " does not list it",
+            "list the interface in the declaration of " .. quoted(shown) .. " (`is " .. Types.display(bound, use.names) ..
+              "`), or pass a type that does", { shown })
+        end
+      end
       local dense = must(program, req, i - 1, true, {})
       if dense == nil then
         return false

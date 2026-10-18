@@ -22,18 +22,22 @@ end
 local function test_mismatched_parameters_do_not_execute()
   local db = assert(Sqlite.memory())
   assert(db:exec("CREATE TABLE items (a, b)"))
-  local mismatched: {{any, string}} = {
-    { {}, "sqlite: parameter 1 has no value (use {} for NULL)" },
-    { { { integer = 1 } }, "sqlite: parameter 2 has no value (use {} for NULL)" },
-    { { {}, {}, {} }, "sqlite: values holds a parameter 3, and the statement has 2" },
-    { { [2] = {} }, "sqlite: parameter 1 has no value (use {} for NULL)" },
+  local record Case
+    values: any
+    says: string
+  end
+  local mismatched: {Case} = {
+    { values = {}, says = "sqlite: parameter 1 has no value (use {} for NULL)" },
+    { values = { { integer = 1 } }, says = "sqlite: parameter 2 has no value (use {} for NULL)" },
+    { values = { {}, {}, {} }, says = "sqlite: values holds a parameter 3, and the statement has 2" },
+    { values = { [2] = {} }, says = "sqlite: parameter 1 has no value (use {} for NULL)" },
   }
   for _, case in ipairs(mismatched) do
-    local values = case[1] as {Sqlite.Value}
+    local values = case.values as {Sqlite.Value}
     local ok, why = Sqlite.run(db, "INSERT INTO items VALUES (?1, ?2)", values)
-    assert(not ok and why == case[2], tostring(why))
+    assert(not ok and why == case.says, tostring(why))
     local rows, failure = Sqlite.text_rows(db, "SELECT ?1, ?2", values)
-    assert(rows == nil and failure == case[2], tostring(failure))
+    assert(rows == nil and failure == case.says, tostring(failure))
   end
   local rows = assert(Sqlite.text_rows(db, "SELECT count(*) FROM items"))
   assert(rows[1]:text(1) == "0")
@@ -45,18 +49,22 @@ end
 local function test_malformed_values_raise_and_do_not_execute()
   local db = assert(Sqlite.memory())
   assert(db:exec("CREATE TABLE items (a, b)"))
-  local malformed: {{any, string}} = {
-    { { 1, {} }, "parameter 1 is no Value table" },
-    { { { integer = 1, text = "one" }, {} }, "parameter 1 has more than one Value field" },
-    { { { typo = "one" }, {} }, "parameter 1 has an unknown Value field: typo" },
-    { { {}, {}, typo = {} }, "values holds the key typo" },
-    { { {}, {}, [0] = {} }, "values holds the key 0" },
-    { { { integers = { 1, 2.5 } }, {} }, "element 2 of parameter 1's integers is not of its type" },
-    { { { texts = { "a\0b" } }, {} }, "element 1 of parameter 1's texts holds a NUL" },
-    { { { blobs = "bytes" }, {} }, "parameter 1's blobs is no list" },
+  local record Case
+    values: any
+    says: string
+  end
+  local malformed: {Case} = {
+    { values = { 1, {} }, says = "parameter 1 is no Value table" },
+    { values = { { integer = 1, text = "one" }, {} }, says = "parameter 1 has more than one Value field" },
+    { values = { { typo = "one" }, {} }, says = "parameter 1 has an unknown Value field: typo" },
+    { values = { {}, {}, typo = {} }, says = "values holds the key typo" },
+    { values = { {}, {}, [0] = {} }, says = "values holds the key 0" },
+    { values = { { integers = { 1, 2.5 } }, {} }, says = "element 2 of parameter 1's integers is not of its type" },
+    { values = { { texts = { "a\0b" } }, {} }, says = "element 1 of parameter 1's texts holds a NUL" },
+    { values = { { blobs = "bytes" }, {} }, says = "parameter 1's blobs is no list" },
   }
   for _, case in ipairs(malformed) do
-    local values = case[1] as {Sqlite.Value}
+    local values = case.values as {Sqlite.Value}
     local calls: {function()} = {
       function() local _, _ = Sqlite.run(db, "INSERT INTO items VALUES (?1, ?2)", values) end,
       function() local _, _ = Sqlite.rows(db, "SELECT ?1, ?2", values) end,
@@ -65,8 +73,8 @@ local function test_malformed_values_raise_and_do_not_execute()
     }
     for _, call in ipairs(calls) do
       local ok, why: boolean, any = pcall(call)
-      assert(not ok and tostring(why):find("sqlite: " .. case[2], 1, true) ~= nil,
-        case[2] .. ": " .. tostring(why))
+      assert(not ok and tostring(why):find("sqlite: " .. case.says, 1, true) ~= nil,
+        case.says .. ": " .. tostring(why))
       assert(tostring(why):find("sqlite_parameter_test", 1, true) ~= nil,
         "blames the caller: " .. tostring(why))
     end
@@ -95,18 +103,22 @@ end
 --- elements, and that reads as NULL anywhere else.
 local function test_lists_bind_as_arrays_for_carray()
   local db = assert(Sqlite.memory())
-  local cases: {{Sqlite.Value, string}} = {
-    { { integers = { 1, -2, 9007199254740993 } }, "1 -2 9007199254740993" },
-    { { numbers = { 1.5, 2 } }, "1.5 2.0" },
-    { { texts = { "a", "ü", "" } }, "a ü " },
-    { { blobs = { "a\0b", "" } }, "a\0b " },
-    { { integers = {} }, "" },
+  local record Case
+    value: Sqlite.Value
+    text: string
+  end
+  local cases: {Case} = {
+    { value = { integers = { 1, -2, 9007199254740993 } }, text = "1 -2 9007199254740993" },
+    { value = { numbers = { 1.5, 2 } }, text = "1.5 2.0" },
+    { value = { texts = { "a", "ü", "" } }, text = "a ü " },
+    { value = { blobs = { "a\0b", "" } }, text = "a\0b " },
+    { value = { integers = {} }, text = "" },
   }
   for _, case in ipairs(cases) do
-    local rows = assert(Sqlite.text_rows(db, "SELECT value FROM carray(?1)", { case[1] }))
+    local rows = assert(Sqlite.text_rows(db, "SELECT value FROM carray(?1)", { case.value }))
     local got: {string} = {}
     for _, row in ipairs(rows) do got[#got + 1] = row:text(1) end
-    assert(table.concat(got, " ") == case[2], table.concat(got, " "))
+    assert(table.concat(got, " ") == case.text, table.concat(got, " "))
   end
   local rows = assert(Sqlite.text_rows(db, "SELECT 2 IN carray(?1), 5 IN carray(?1), quote(?1)",
     { { integers = { 1, 2, 3 } } }))

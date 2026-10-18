@@ -169,7 +169,7 @@ function dependents.next(q: Queue, o: publish.Open, waiting: function(): boolean
     end
   end
   while #q.waiting > 0 do
-    local uri = table.remove(q.waiting, 1)
+    local uri = assert(table.remove(q.waiting, 1))
     q.queued[uri] = nil
     local document = o.documents[uri]
     if document ~= nil then

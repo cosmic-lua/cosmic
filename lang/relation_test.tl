@@ -672,7 +672,7 @@ local function test_an_is_declaration_is_invariant_in_its_type_and_an_asserts_de
   refused(w, narrowing(key, 1, true), narrowing(key, 1, false), "narrows_other", "alternative 1")
 end
 
-local function test_a_generic_function_is_below_only_itself()
+local function test_a_generic_function_wanted_is_met_only_by_itself()
   local w = world()
   local s = w.store
   local v = s:var(0, 0)
@@ -681,8 +681,44 @@ local function test_a_generic_function_is_below_only_itself()
   assert(identity == again and below(w, identity, again))
   local other = s:fn({ tparams = { {} }, params = { { type = v } }, rets = { { items = { s:array(v) } } } })
   refused(w, identity, other, "generic_function")
-  refused(w, identity, func(w, { s.integer }, { s.integer }), "generic_function")
   refused(w, func(w, { s.integer }, { s.integer }), identity, "generic_function")
+  refused(w, other, identity, "generic_function")
+end
+
+local function test_a_generic_function_is_below_the_function_type_its_type_parameters_can_be_taken_from()
+  local w = world()
+  local s = w.store
+  local v = s:var(0, 0)
+  local identity = s:fn({ tparams = { {} }, params = { { type = v } }, rets = { { items = { v } } } })
+  assert(below(w, identity, func(w, { s.integer }, { s.integer })))
+  assert(below(w, identity, func(w, { s.string }, { s.string })))
+  assert(below(w, identity, func(w, { s:optional(s.string) }, { s:optional(s.string) })))
+  -- The value the wanted type passes is the one the function takes, and what it answers is that value.
+  refused(w, identity, func(w, { s.integer }, { s.string }), "generic_function")
+  refused(w, identity, func(w, {}, { s.integer }), "arity")
+  assert(below(w, identity, func(w, { s.integer }, { s.number })))
+  refused(w, identity, func(w, { s.number }, { s.integer }), "generic_function")
+  -- The element type comes from the parameter and the result is checked as a function of it.
+  local wrap = s:fn({ tparams = { {} }, params = { { type = v } }, rets = { { items = { s:array(v) } } } })
+  assert(below(w, wrap, func(w, { s.string }, { s:array(s.string) })))
+  refused(w, wrap, func(w, { s.string }, { s:array(s.integer) }), "generic_function")
+  -- A type parameter only the result gives is taken from it.
+  local make = s:fn({ tparams = { {} }, params = {}, rets = { { items = { s:array(v) } } } })
+  assert(below(w, make, func(w, {}, { s:array(s.integer) })))
+  -- A type parameter nothing gives has no type to take.
+  local unused = s:fn({ tparams = { {} }, params = {}, rets = { { items = { s.integer } } } })
+  refused(w, unused, func(w, {}, { s.integer }), "generic_function")
+end
+
+local function test_a_generic_function_is_below_a_function_type_only_if_its_instance_meets_the_bound()
+  local w = world()
+  local s = w.store
+  local v = s:var(0, 0)
+  local source = named(w, "Source", { s.integer })
+  local bounded = s:fn({ tparams = { { bound = named(w, "Event") } }, params = { { type = v } }, rets = { { items = { v } } } })
+  local key = named(w, "KeyEvent")
+  assert(below(w, bounded, func(w, { key }, { key })))
+  refused(w, bounded, func(w, { source }, { source }), "generic_function")
 end
 
 -- any ----------------------------------------------------------------------------------------------

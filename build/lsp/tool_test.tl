@@ -39,7 +39,8 @@ local function cosmic(dir: string, words: {string}, input?: string): Ran
     timeout_ns = Clock.seconds(30),
   })
   local result = assert(Child.run(started.argv, started.options))
-  return { code = result.code, out = result.stdout or "", err = result.stderr or "" }
+  -- A child a signal ended has no code: -1 is none a test expects.
+  return { code = result.code or -1, out = result.stdout or "", err = result.stderr or "" }
 end
 
 local record Info
@@ -56,7 +57,7 @@ local record InitializeSent
   result: Initialized
 end
 
-local INITIALIZE_SENT <const> = Shape.record_of("InitializeSent")
+local INITIALIZE_SENT <const>: Shape.Typed<InitializeSent> = Shape.record_of("InitializeSent")
 
 local function initialize(root: string): string
   return protocol.frame('{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"rootUri":' ..

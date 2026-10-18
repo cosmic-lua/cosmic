@@ -916,8 +916,8 @@ end
 function importer.said(e: compiler.Error, file: string, source: string,
                        refused: {string:boolean}, hints: Hints): string
   local instead: string | nil = nil
-  local named: string | nil = e.filename
-  if named == nil or named == "" or named == file then
+  local named = e.filename
+  if named == "" or named == file then
     instead = teal.replacement(e, source, file, refused)
   end
   local said = with_hint(e, hints, instead ~= nil)

@@ -126,8 +126,9 @@ end
 --- bound to it: [`Fs.read`] as [`cosmic.fs.read`]. Nil when no `require` did.
 local function resolved(text: string, name: string): string | nil
   local head, rest = name:match("^([%a_][%w_]*)(.*)$")
+  if head == nil or rest == nil then return nil end
   for alias, module in text:gmatch("local%s+([%a_][%w_]*)%s*=%s*require%s*%(?%s*[\"']([%w_%.]+)[\"']") do
-    if alias == head then return module .. rest end
+    if alias == head and module ~= nil then return module .. rest end
   end
   return nil
 end

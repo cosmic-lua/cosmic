@@ -246,7 +246,10 @@ local function trusted(src: source.View, staged: boolean)
   if db == nil then return end
   local named, _ = Sqlite.text_rows(db, "SELECT value FROM meta WHERE key = 'analyzer'")
   local recorded: string | nil = nil
-  if named ~= nil and #named > 0 then recorded = named[1]:text(1) end
+  if named ~= nil then
+    local row = named[1]
+    if row ~= nil then recorded = row:text(1) end
+  end
   if staged and recorded ~= nil then src.analyzer = recorded end
   src.stubs = recorded ~= nil and recorded == (src.analyzer or analyzer_identity())
 end
@@ -408,8 +411,10 @@ end
 --- One column of the first row `sql` answers given `value`, or nil.
 local function first(db: Sqlite.Handle, sql: string, value: string): string | nil
   local rows, _ = Sqlite.text_rows(db, sql, { { text = value } })
-  if rows == nil or #rows == 0 then return nil end
-  return rows[1]:text(1)
+  if rows == nil then return nil end
+  local row = rows[1]
+  if row == nil then return nil end
+  return row:text(1)
 end
 
 --- What the checker reads for the module `name`, or nil when the

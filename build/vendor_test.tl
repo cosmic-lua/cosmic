@@ -215,10 +215,10 @@ local function test_matches_compares_sha256_case_insensitively(dir: string)
   local path = dir .. "/data"
   assert(Fs.write(path, "hello"))
   local digest = Hash.hex_sha256("hello")
-  assert(Vendor.matches(path, { { "sha256", digest } }))
-  assert(Vendor.matches(path, { { "sha256", digest:upper() } }))
-  assert(not Vendor.matches(path, { { "sha256", (digest:gsub("^.", "0")) } }))
-  assert(not Vendor.matches(dir .. "/nothing-here", { { "sha256", digest } }))
+  assert(Vendor.matches(path, { { algorithm = "sha256", hex = digest } }))
+  assert(Vendor.matches(path, { { algorithm = "sha256", hex = digest:upper() } }))
+  assert(not Vendor.matches(path, { { algorithm = "sha256", hex = (digest:gsub("^.", "0")) } }))
+  assert(not Vendor.matches(dir .. "/nothing-here", { { algorithm = "sha256", hex = digest } }))
 end
 
 --- sqlite.org publishes SHA3-256 alone, so a PIN may name it in
@@ -227,14 +227,14 @@ local function test_a_pin_may_name_sha3_256_and_every_digest_must_match(dir: str
   local pin = Vendor.read_pin("url https://example.com/a.zip\nsha3-256 ABC\n")
   assert(pin.sha3_256 == "ABC" and pin.sha256 == "", pin.sha3_256)
   local digests = Vendor.digests(pin)
-  assert(#digests == 1 and digests[1][1] == "sha3-256", tostring(digests[1]))
+  assert(#digests == 1 and digests[1].algorithm == "sha3-256", tostring(digests[1]))
   local path = dir .. "/data"
   assert(Fs.write(path, "hello"))
   local sha256 = Hash.hex_sha256("hello")
   local sha3 = Codec.hex(Hash.digest("sha3-256", "hello"))
-  assert(Vendor.matches(path, { { "sha3-256", sha3:upper() } }))
-  assert(Vendor.matches(path, { { "sha256", sha256 }, { "sha3-256", sha3 } }))
-  assert(not Vendor.matches(path, { { "sha256", sha256 }, { "sha3-256", (sha3:gsub("^.", "0")) } }),
+  assert(Vendor.matches(path, { { algorithm = "sha3-256", hex = sha3:upper() } }))
+  assert(Vendor.matches(path, { { algorithm = "sha256", hex = sha256 }, { algorithm = "sha3-256", hex = sha3 } }))
+  assert(not Vendor.matches(path, { { algorithm = "sha256", hex = sha256 }, { algorithm = "sha3-256", hex = (sha3:gsub("^.", "0")) } }),
     "a right sha256 does not excuse a wrong sha3-256")
   assert(not Vendor.matches(path, {}), "no digest matches nothing")
   local fetched, trouble = Vendor.fetch("https://example.invalid/a.zip", path, {})
@@ -256,7 +256,7 @@ local function test_the_fetch_step_is_a_cache_hit_when_already_verified(dir: str
   assert(Fs.mkdirs(dir .. "/cache"))
   assert(Fs.write(cached, data))
   local fetched = assert(Vendor.fetch("https://example.invalid/thing-1.tar", cached,
-    { { "sha256", digest } }))
+    { { algorithm = "sha256", hex = digest } }))
   assert(fetched == cached)
 
   local tree = dir .. "/vendor/thing"

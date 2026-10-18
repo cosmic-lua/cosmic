@@ -3,6 +3,13 @@
 --- these definitions without opening a cache through a writer or migrating it.
 --- No compiler, test coordinator, CLI or SQLite connection belongs here.
 
+--- A table name's prefix and the version of it that is current. A local type, so the module table gains no
+--- field for it.
+local record Version
+  prefix: string
+  number: integer
+end
+
 local record cache_formats
   --- Current compiled-module table.
   compiled: string
@@ -13,7 +20,7 @@ local record cache_formats
   --- Current closure-store digest table.
   stores: string
   --- Compile/parse prefixes and current versions, for writer migration.
-  compile_versions: {{string, integer}}
+  compile_versions: {Version}
   --- Statements the compile cache initializes with.
   compiles: {string}
   --- Current table of the boot bridge's compiles (core/bridge.lua), which
@@ -36,7 +43,7 @@ local stores <const> = "stores_v1"
 cache_formats.compiled, cache_formats.parsed = compiled, parsed
 cache_formats.declared, cache_formats.stores = declared, stores
 cache_formats.bridge = bridge
-cache_formats.compile_versions = { { "compiled_v", 2 }, { "parsed_v", 1 } }
+cache_formats.compile_versions = { { prefix = "compiled_v", number = 2 }, { prefix = "parsed_v", number = 1 } }
 
 cache_formats.compiles = {
   "CREATE TABLE IF NOT EXISTS " .. compiled .. [[ (key TEXT PRIMARY KEY,

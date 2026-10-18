@@ -143,6 +143,31 @@ local function test_looks_up_a_symbol_as_declared(dir: string)
   assert(found[1].uses == 2, tostring(found[1].uses))
 end
 
+--- A function a module exports under another name than its local one (a
+--- local cannot be called `match`) is documented on the record's field,
+--- which is the name a caller looks up.
+local function test_a_function_exported_under_another_name_is_documented_on_its_field(dir: string)
+  local db = built(dir, { ["build/ast/found.tl"] = source(
+    "local function matched(pattern: string): boolean",
+    "  return pattern ~= \"\"",
+    "end",
+    "",
+    "local record Found",
+    "  --- Whether `pattern` is not empty.",
+    "  match: function(pattern: string): boolean",
+    "end",
+    "",
+    "local M: Found = { match = matched }",
+    "",
+    "return M") })
+  local found, trouble = docs.lookup(view({ db }), "build.ast.found.match")
+  assert(found ~= nil, trouble)
+  local entry = found[1]
+  assert(entry ~= nil, "no entry")
+  local text = table.concat(assert(docs.render(view({ db }), entry)), "\n")
+  assert(text:find("Whether `pattern` is not empty.", 1, true), text)
+end
+
 --- A symbol's last name alone finds every symbol ending in it.
 local function test_looks_up_a_symbol_by_its_last_name(dir: string)
   local db = built(dir, fs_tree())

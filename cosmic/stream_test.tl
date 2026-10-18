@@ -1062,7 +1062,7 @@ local function test_rest_ends_the_lines_and_closes_the_reader()
         for _ in lines:each() do end
       end,
   }) do
-    local ok, trouble = pcall(call) as (boolean, any)
+    local ok, trouble = pcall(call as function(): any)
     assert(not ok and tostring(trouble):find("ended at `rest`", 1, true) ~= nil,
       tostring(trouble))
   end

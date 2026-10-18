@@ -76,10 +76,13 @@
 --- body. A refused decode leaves the store as it was, and says why in a message that begins
 --- `types:`.
 
--- TODO: replace each `where` clause with the single-member enum tag the plan's tagged unions
--- use, and read the types by their forms, once ci/cosmic-driver.pin names a release whose
--- checker discriminates a union of records by a tag (lang/ast.tl has the same gap): the fork
--- discriminates only by a `where` clause.
+-- TODO: at the switch, replace each `where` clause with the single-member enum tag the plan's
+-- tagged unions use, and write each test `t is Named`, `t is Types.Atom` (and the others of
+-- this union, here and in the modules that import it) as a tag test or a `match`, in the same
+-- change (doc/plans/strict-teal.md, "the switch"): the new code generator writes such a test
+-- as one for a table once the clause is gone. The pinned release is the fork's, which
+-- discriminates only by a `where` clause, so nothing earlier makes this due (lang/ast.tl has
+-- the same gap).
 local Hash = require("cosmic.hash")
 local Lexer = require("lang.lexer")
 
@@ -411,6 +414,10 @@ local record Types
   --- type parameters a free variable stands for, outermost first.
   display: function(t: Type, binders?: {{string}}): string
 
+  --- The name display gives the type parameter at `index` (from 0) of a function type that has no binder around it:
+  --- a letter, and `P` and the index from the 27th.
+  letter: function(index: integer): string
+
   --- The canonical text of the type. Raises for a type of more than 100,000 types of text: a
   --- type that shares its parts has the text of the tree it unfolds to.
   encode: function(t: Type): string
@@ -692,6 +699,13 @@ local function parameter_name(names: Names, level: integer, index: integer): str
     name = name .. "_"
   end
   return name
+end
+
+function Types.letter(index: integer): string
+  if index < #NAME_LETTERS then
+    return NAME_LETTERS:sub(index + 1, index + 1)
+  end
+  return "P" .. index
 end
 
 --- How an atom or a form is told from another when a union is written: atoms in the order

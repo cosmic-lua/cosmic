@@ -90,12 +90,14 @@ local function test_a_path_and_its_root_are_read_alike()
     { "/r/a/../x.tl", "/r", "x.tl" },
   }
   for _, case in ipairs(cases) do
-    local got = protocol.below(case[1], case[2])
-    assert(got == case[3], case[1] .. " below " .. case[2] .. ": " .. tostring(got))
+    local path, root = assert(case[1]), assert(case[2])
+    local got = protocol.below(path, root)
+    assert(got == case[3], path .. " below " .. root .. ": " .. tostring(got))
   end
   for _, outside in ipairs({ { "/r/../x.tl", "/r" }, { "/r", "/r" }, { "/r/.", "/r" },
       { "/rs/x.tl", "/r" }, { "/r/a/../../r2/x.tl", "/r" } }) do
-    local got = protocol.below(outside[1], outside[2])
-    assert(got == nil, outside[1] .. " below " .. outside[2] .. ": " .. tostring(got))
+    local path, root = assert(outside[1]), assert(outside[2])
+    local got = protocol.below(path, root)
+    assert(got == nil, path .. " below " .. root .. ": " .. tostring(got))
   end
 end

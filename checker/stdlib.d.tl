@@ -1,4 +1,7 @@
 do
+   -- The new checker reads some of these declarations as lang/stdlib_corrections.tl has them: a result that may be nil
+   -- is declared so there, where the fork's own check of the tree lets the old one pass. Edit those lines there too.
+
    local enum FileStringMode
       "a" "l" "L" "*a" "*l" "*L"
    end
@@ -14,6 +17,7 @@ do
    global record coroutine
       type Function = function(any...): any...
 
+      -- The new checker reads these as lang/stdlib_corrections.tl declares them, over a typed `Coroutine<Y, R, S>`.
       close: function(thread): boolean, string
       create: function(Function): thread
       isyieldable: function(): boolean
@@ -53,35 +57,39 @@ do
       type AnyFunction = function(any...):any...
 
       debug: function()
-      gethook: function(? thread): HookFunction, integer
+      gethook: function(? thread): HookFunction | nil, integer
 
-      getinfo: function(thread, AnyFunction | integer, ? string): GetInfoTable
-      getinfo: function(        AnyFunction | integer, ? string): GetInfoTable
+      getinfo: function(thread, AnyFunction, ? string): GetInfoTable
+      getinfo: function(thread, integer, ? string): GetInfoTable | nil
+      getinfo: function(        AnyFunction, ? string): GetInfoTable
+      getinfo: function(        integer, ? string): GetInfoTable | nil
 
-      getlocal: function(thread, AnyFunction, integer): string
-      getlocal: function(thread, integer, integer): string, any
-      getlocal: function(AnyFunction, integer): string
-      getlocal: function(integer, integer): string, any
+      getlocal: function(thread, AnyFunction, integer): string | nil
+      getlocal: function(thread, integer, integer): string | nil, any
+      getlocal: function(AnyFunction, integer): string | nil
+      getlocal: function(integer, integer): string | nil, any
 
-      getmetatable: function<T>(T): metatable<T>
+      getmetatable: function<T>(T): metatable<T> | nil
       getregistry: function(): {any:any}
-      getupvalue: function(AnyFunction, integer): string, any
+      getupvalue: function(AnyFunction, integer): string | nil, any
       getuservalue: function(userdata, ? integer): any, boolean
 
       sethook: function(thread, HookFunction, string, ? integer)
       sethook: function(HookFunction, string, ? integer)
 
-      setlocal: function(thread, integer, integer, any): string
-      setlocal: function(integer, integer, any): string
+      setlocal: function(thread, integer, integer, any): string | nil
+      setlocal: function(integer, integer, any): string | nil
 
       setmetatable: function<T>(T, metatable<T>): T
-      setupvalue: function(AnyFunction, integer, any): string
+      setupvalue: function(AnyFunction, integer, any): string | nil
       setuservalue: function<U>(U, any, integer): U --[[U is userdata]]
 
       traceback: function(thread, ? string, ? integer): string
       traceback: function(? string, ? integer): string
       traceback: function(any): any
 
+      -- TODO: answer nil for an upvalue that does not exist, once the translator can write `userdata?`: the new grammar reads
+      -- `userdata` as the marker of a record, and a union with it is one more form `translated` pins.
       upvalueid: function(AnyFunction, integer): userdata
       upvaluejoin: function(AnyFunction, integer, AnyFunction, integer)
    end
@@ -109,11 +117,11 @@ do
       lines: function(? string, (number | FileMode)...): (function(): ((string | number)...))
       lines: function(? string, (number | string)...): (function(): (string...))
 
-      open: function(string, ? OpenMode): FILE, string, integer
+      open: function(string, ? OpenMode): FILE | nil, string | nil, integer | nil
       output: function(? FILE | string): FILE
-      popen: function(string, ? OpenMode): FILE, string
+      popen: function(string, ? OpenMode): FILE | nil, string | nil, integer | nil
 
-      read: function(): string
+      read: function(): string | nil
       read: function(FileNumberMode...): number...
       read: function((number | FileStringMode)...): string...
       read: function((number | FileMode)...): ((string | number)...)
@@ -122,9 +130,9 @@ do
       stderr: FILE
       stdin: FILE
       stdout: FILE
-      tmpfile: function(): FILE
-      type: function(any): FileType
-      write: function((string | number)...): FILE, string, integer
+      tmpfile: function(): FILE | nil, string | nil, integer | nil
+      type: function(any): FileType | nil
+      write: function((string | number)...): FILE | nil, string | nil, integer | nil
    end
 
    global record FILE
@@ -139,8 +147,8 @@ do
          "no" "full" "line"
       end
 
-      close: function(FILE): boolean, string, integer
-      flush: function(FILE): boolean, string, integer
+      close: function(FILE): boolean | nil, string | nil, integer | nil
+      flush: function(FILE): boolean | nil, string | nil, integer | nil
 
       lines: function(FILE): (function(): (string))
       lines: function(FILE, FileNumberMode...): (function(): (number...))
@@ -148,16 +156,16 @@ do
       lines: function(FILE, (number | FileMode)...): (function(): ((string | number)...))
       lines: function(FILE, (number | string)...): (function(): (string...))
 
-      read: function(FILE): string
+      read: function(FILE): string | nil
       read: function(FILE, FileNumberMode...): number...
       read: function(FILE, (number | FileStringMode)...): string...
       read: function(FILE, (number | FileMode)...): ((string | number)...)
       read: function(FILE, (number | string)...): (string...)
 
-      seek: function(FILE, ? SeekWhence, ? integer): integer, string, integer
-      setvbuf: function(FILE, SetVBufMode, ? integer): boolean, string, integer
+      seek: function(FILE, ? SeekWhence, ? integer): integer | nil, string | nil, integer | nil
+      setvbuf: function(FILE, SetVBufMode, ? integer): boolean | nil, string | nil, integer | nil
 
-      write: function(FILE, (string | number)...): FILE, string, integer
+      write: function(FILE, (string | number)...): FILE | nil, string | nil, integer | nil
 
       metamethod __close: function(FILE)
    end
@@ -215,7 +223,7 @@ do
       tan: function(number): number
       tanh: function(number): number
       tointeger: function(any): integer
-      type: function(any): string
+      type: function(any): string | nil
       ult: function(number, number): boolean
    end
 
@@ -242,12 +250,13 @@ do
       date: function(? string, ? number): string
 
       difftime: function(integer, integer): number
-      execute: function(string): boolean, string, integer
+      -- All three values every time: the status is `true` or nil, then "exit" or "signal", then the code.
+      execute: function(string): boolean | nil, string, integer
       exit: function(? (integer | boolean), ? boolean)
-      getenv: function(string): string
-      remove: function(string): boolean, string
-      rename: function(string, string): boolean, string
-      setlocale: function(string, ? string): string
+      getenv: function(string): string | nil
+      remove: function(string): boolean | nil, string | nil, integer | nil
+      rename: function(string, string): boolean | nil, string | nil, integer | nil
+      setlocale: function(string, ? string): string | nil
       time: function(? DateTable): integer
       tmpname: function(): string
    end
@@ -256,12 +265,12 @@ do
       config: string
       cpath: string
       loaded: {string:any}
-      loadlib: function(string, string): (function)
+      loadlib: function(string, string): (function | nil, string | nil, string | nil)
       loaders: { (function(string): (function(? string, ? any): (any), any)) }
       path: string
       preload: {string : function(? string, ? any): (any) }
       searchers: { (function(string): (function(? string, ? any): (any), any)) }
-      searchpath: function(string, string, ? string, ? string): string, string
+      searchpath: function(string, string, ? string, ? string): string | nil, string | nil
    end
 
    global record string
@@ -270,6 +279,8 @@ do
 
       char: function(integer...): string
       dump: function(function(any...): (any), ? boolean): string
+      -- TODO: type the captures of `find`, `match` and `gmatch` and the arguments of a `gsub` callback from the pattern,
+      -- once the new checker reads a pattern: a position capture `()` is an integer, and every capture is declared a string.
       find: function(string, string, ? integer, ? boolean): integer, integer, string... --[[special_function]]
       format: function(string, any...): string --[[special_function]]
       gmatch: function(string, string, ? integer): (function(): string...) --[[special_function]]
@@ -277,7 +288,10 @@ do
       gsub: function(string, string, string, ? integer): string, integer --[[special_function]]
       gsub: function(string, string, {string:string|integer|number}, ? integer): string, integer --[[special_function]]
       gsub: function(string, string, {integer:string|integer|number}, ? integer): string, integer --[[special_function]]
-      gsub: function(string, string, function(string...): ((string|integer|number)...), ? integer): string, integer --[[special_function]]
+      gsub: function(string, string, function(): (string | number | nil), ? integer): string, integer
+      gsub: function(string, string, function(string): (string | number | nil), ? integer): string, integer
+      gsub: function(string, string, function(string, string): (string | number | nil), ? integer): string, integer
+      gsub: function(string, string, function(string, string, string): (string | number | nil), ? integer): string, integer --[[special_function]]
 
       len: function(string): integer
       lower: function(string): string
@@ -325,8 +339,8 @@ do
       charpattern: string
       codepoint: function(string, ? number, ? number, ? boolean): integer...
       codes: function(string, ? boolean): (function(string, ? integer): (integer, integer), string, integer)
-      len: function(string, ? number, ? number, ? boolean): integer, integer
-      offset: function(string, number, ? number): integer
+      len: function(string, ? number, ? number, ? boolean): integer | nil, integer
+      offset: function(string, number, ? number): integer | nil
    end
 
    local record StandardLibrary
@@ -338,16 +352,24 @@ do
       end
 
       enum CollectGarbageSetValue
-         "step"
          "setpause"
          "setstepmul"
+      end
+
+      enum CollectGarbageStep
+         "step"
+      end
+
+      enum CollectGarbageMode
+         "incremental"
+         "generational"
       end
 
       enum CollectGarbageIsRunning
          "isrunning"
       end
 
-      type LoadFunction = function(): string
+      type LoadFunction = function(): string | nil
 
       enum LoadMode
          "b" "t" "bt"
@@ -362,9 +384,11 @@ do
       assert: function<A, B>(A | nil, ? B, ...: any): (A, B, any...) --[[special_function]]
 
       collectgarbage: function(? CollectGarbageCommand): number
+      collectgarbage: function(CollectGarbageStep, ? integer): boolean
+      collectgarbage: function(CollectGarbageMode, ? integer, ? integer, ? integer): string
       collectgarbage: function(CollectGarbageSetValue, integer): number
       collectgarbage: function(CollectGarbageIsRunning): boolean
-      collectgarbage: function(string, ? number): (boolean | number)
+      collectgarbage: function(string, ? number): (boolean | number | string)
 
       dofile: function(? string): any...
 
@@ -375,18 +399,18 @@ do
       load: function((string | LoadFunction), ? string, ? LoadMode, ? {any:any}): (function, string)
       load: function((string | LoadFunction), ? string, ? string,   ? {any:any}): (function, string)
 
-      loadfile: function(? string, ? LoadMode, ? {any:any}): (function, string)
-      loadfile: function(? string, ? string,   ? {any:any}): (function, string)
+      loadfile: function(? string, ? LoadMode, ? {any:any}): (function | nil, string | nil)
+      loadfile: function(? string, ? string,   ? {any:any}): (function | nil, string | nil)
 
-      next: function<K, V>({K:V}, ? K): (K, V)
-      next: function<A>({A}, ? integer): (integer, A)
+      next: function<K, V>({K:V}, ? K): (K | nil, V | nil)
+      next: function<A>({A}, ? integer): (integer | nil, A | nil)
 
       pairs: function<K, V>({K:V}): (function({K:V}, ? K):(K, V), {K:V}, K) --[[special_function]]
       pcall: function(function(any...):(any...), any...): boolean, any... --[[special_function]]
       print: function(any...)
       rawequal: function(any, any): boolean
 
-      rawget: function<K, V>({K:V}, K): V --[[special_function]]
+      rawget: function<K, V>({K:V}, K): V | nil --[[special_function]]
       rawget: function({any:any}, any): any
       rawget: function(any, any): any
 

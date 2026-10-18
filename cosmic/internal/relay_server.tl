@@ -422,12 +422,12 @@ local function bypasses(no_proxy: {string}, host: string, port: integer): boolea
     if entry == "*" then return true end
     local name, at = entry:match("^(.-):(%d+)$")
     if name ~= nil and not entry:find("::", 1, true) and not entry:find("^%[") then
-      if tonumber(at) ~= port then goto next end
+      if tonumber(at) ~= port then goto continue end
       entry = name
     end
     entry = entry:gsub("^%*?%.", "")
     if host == entry or (host:sub(-#entry - 1) == "." .. entry) then return true end
-    ::next::
+    ::continue::
   end
   return false
 end

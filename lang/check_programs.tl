@@ -2,11 +2,14 @@
 --- lowered, checked) against a small standard library written in the grammar.
 local Ast = require("lang.ast")
 local Check = require("lang.check")
+local Codegen = require("lang.codegen")
 local Codes = require("lang.check_codes")
+local Corrections = require("lang.stdlib_corrections")
 local Declarations = require("lang.declarations")
 local Lexer = require("lang.lexer")
 local Parser = require("lang.parser")
 local Scopes = require("lang.scopes")
+local Translate = require("lang.translate")
 local Types = require("lang.types")
 
 local record Programs
@@ -29,8 +32,33 @@ local record Programs
   --- order of their names).
   run: function(source: string, modules?: {string: string}): Run
 
+  --- Checks `source` as the module `t` against the declarations the tree's checks read: `prelude`, the text of the
+  --- fork's prelude (between the `[=====[` marks of checker/tl.tl), and `stdlib`, the text of checker/stdlib.d.tl, which
+  --- [`lang.stdlib_corrections`] corrects and [`lang.translate`] writes in the new grammar.
+  standard: function(prelude: string, stdlib: string, source: string, modules?: {string: string}): Run
+
   --- The codes of the errors of `run`, space separated, in order.
   codes: function(run: Run): string
+
+  --- What running a checked program did.
+  record Execution
+    run: Run
+    --- Whether the checker took the program (no error but the `unchecked_*` of forms a later piece types) and it ran.
+    ran: boolean
+    --- The Lua that ran, or "".
+    lua: string
+    --- What the program printed, one string per call of `print`, its arguments tab separated.
+    printed: {string}
+    --- The error the run raised, or nil: a nil operand, a `fact violated` or an `assert` that failed.
+    fault: string | nil
+  end
+
+  --- Checks `source` and, where the checker takes it, writes it as Lua and runs it with `print` collected. With `facts`
+  --- every read of a place whose type a test narrowed ([`Check.Checked.narrowed`]) is wrapped in a check of what the
+  --- checker concluded: that the value is none of the kinds taken out, a member of the enum, of a class, or of the
+  --- members a tag tells apart, which raises `fact violated: <place> is ...`. `kind_only` writes `v is E` of an enum as the
+  --- fork does, a test for the kind, to show that the checks see what that lets through.
+  execute: function(source: string, facts: boolean, modules?: {string: string}, kind_only?: boolean): Execution
 
   --- The type of the first variable called `name`.
   var: function(run: Run, name: string): Types.Type
@@ -46,12 +74,41 @@ do
     gsub: function(string, string, string, p4?: integer): string, integer
     gsub: function(string, string, function(string): string, p4?: integer): string, integer
   end
-  global record coroutine
-    create: function(function()): any
+  global record Opts
+    n: integer
   end
+  global record Over
+    put: function(Opts, p2?: integer): integer
+    put: function(string, p2?: integer): integer
+  end
+  global record More
+    run: function(function(string, string): string)
+    run: function(function(string): string)
+    run: function(function(): string)
+  end
+  global record Fewer
+    run: function(function(string): string)
+    run: function(function(string, string): string)
+  end
+]] .. "  global record coroutine\n    " .. table.concat(Corrections.lines("coroutine", "create"), "\n    ") .. "\n    " ..
+  table.concat(Corrections.lines("coroutine", "wrap"), "\n    ") .. "\n    " ..
+  table.concat(Corrections.lines("coroutine", "resume"), "\n    ") .. "\n    " ..
+  table.concat(Corrections.lines("coroutine", "close"), "\n    ") .. "\n    " ..
+  table.concat(Corrections.lines("coroutine", "status"), "\n    ") .. "\n  end\n  " ..
+  table.concat(Corrections.added, "\n  ") .. "\n" .. [[
   global record table
+    insert: function<A>(mut {A}, integer, A)
     insert: function<A>(mut {A}, A)
     concat: function({string}, p2?: string): string
+    remove: function<A>(mut {A}, p2?: integer): A?
+    sort: function(mut {integer}, ? function(integer, integer): boolean)
+    sort: function(mut {number}, ? function(number, number): boolean)
+    sort: function(mut {string}, ? function(string, string): boolean)
+    sort: function<A>(mut {A}, function(A, A): boolean)
+  end
+  global record math
+    max: function(integer, ...: integer): integer
+    max: function(number, ...: number): number
   end
   local record Lib
     print: function(...: any)
@@ -59,10 +116,13 @@ do
     tonumber: function(any): number?
     tonumber: function(any, integer): integer?
     ipairs: function<A>({A}): (function({A}, integer): (integer, A), {A}, integer)
-    assert: function<A>(A?, p2?: string): A
+    pairs: function<K, V>({K: V}): (function({K: V}, p2?: K): (K, V), {K: V}, K)
+    assert: function<A>(A?): A
+    assert: function<A, B>(A?, B, ...: any): (A, B, any...)
     error: function(p1?: any): never
     require: function(string): any
-    pcall: function(function(...: any): any, ...: any): boolean
+]] .. "    " .. table.concat(Corrections.protected("pcall", 3, 2), "\n    ") .. "\n    " ..
+  table.concat(Corrections.protected("xpcall", 2, 2), "\n    ") .. "\n" .. [[
     type: function(any): string
     setmetatable: function<A>(A, any): A
   end
@@ -70,10 +130,12 @@ do
   global tostring <const> = Lib.tostring
   global tonumber <const> = Lib.tonumber
   global ipairs <const> = Lib.ipairs
+  global pairs <const> = Lib.pairs
   global assert <const> = Lib.assert
   global error <const> = Lib.error
   global require <const> = Lib.require
   global pcall <const> = Lib.pcall
+  global xpcall <const> = Lib.xpcall
   global type <const> = Lib.type
   global setmetatable <const> = Lib.setmetatable
 end
@@ -99,7 +161,7 @@ local function lower(program: Declarations.Program, module: string, source: stri
   for _, e in ipairs(lowered.errors) do
     before[#before + 1] = e.code
   end
-  local result: Check.Checked = { errors = {}, vars = {}, literals = {} }
+  local result: Check.Checked = { errors = {}, vars = {}, literals = {}, narrowed = {} }
   if dialect == "tl" then
     result = Check.check(program, input, lowered)
   end
@@ -124,6 +186,209 @@ function Programs.run(source: string, modules?: {string: string}): Programs.Run
     local _ = lower(program, name, (modules or {})[name], "tl", globals)
   end
   return lower(program, "t", source, "tl", globals)
+end
+
+function Programs.standard(prelude: string, stdlib: string, source: string, modules?: {string: string}): Programs.Run
+  local program = Declarations.new()
+  program.external["cosmic.sys"] = true
+  local globals: {string: Scopes.Global} = {}
+  local function add(file: string, text: string)
+    for name, g in pairs(Scopes.declared(Parser.parse(Lexer.lex(text, file), file, "decl").chunk)) do
+      globals[name] = g
+    end
+  end
+  add("prelude.d.tl", prelude)
+  -- The prelude declares `interface userdata is userdata`, which the new parser reads as the declaration of `interface`.
+  globals["interface"] = nil
+  globals["userdata"] = { space = "type", const = false }
+  add("checker/stdlib.d.tl", stdlib)
+  add("lang/stdlib_corrections.tl", table.concat(Corrections.added, "\n"))
+  local _ = lower(program, "checker.prelude", prelude, "decl", {})
+  local corrected = Corrections.apply(stdlib)
+  assert(#corrected.problems == 0, table.concat(corrected.problems, "\n"))
+  local _ = lower(program, "checker.stdlib", Translate.translate(corrected.text, "checker/stdlib.d.tl").text, "decl", globals)
+  local names: {string} = {}
+  for name in pairs(modules or {}) do
+    names[#names + 1] = name
+  end
+  table.sort(names)
+  for _, name in ipairs(names) do
+    local _ = lower(program, name, (modules or {})[name], "tl", globals)
+  end
+  return lower(program, "t", source, "tl", globals)
+end
+
+--- The checker took the program: it has no error but the forms a later piece types.
+local function taken(run: Programs.Run): boolean
+  if #run.before > 0 then
+    return false
+  end
+  for _, e in ipairs(run.errors) do
+    if not tostring(e.code):find("^unchecked_") then
+      return false
+    end
+  end
+  return true
+end
+
+--- The Lua text of the strings of `list`, as a table.
+local function lua_strings(list: {string}): string
+  local out: {string} = {}
+  for i, v in ipairs(list) do
+    out[i] = (string.format("%q", v):gsub("\\\n", "\\n"))
+  end
+  return "{" .. table.concat(out, ", ") .. "}"
+end
+
+--- The arguments after the value of the call of `__fact` that wraps the read `n`: the kinds taken out, the place, and what
+--- the checker concluded of the strings, classes and tag of the value, each nil where it concluded nothing.
+local function fact_arguments(n: Check.Narrowed): string
+  local strings, classes, tags = n.strings, n.classes, n.tags
+  local parts: {string} = {
+    lua_strings({ table.concat(n.taken, ",") }):sub(2, -2), (string.format("%q", n.text):gsub("\\\n", "\\n")),
+    strings ~= nil and lua_strings(strings) or "nil", classes ~= nil and "{" .. table.concat(classes, ", ") .. "}" or "nil",
+    n.tag ~= nil and lua_strings({ n.tag }):sub(2, -2) or "nil", tags ~= nil and lua_strings(tags) or "nil",
+  }
+  return table.concat(parts, ", ")
+end
+
+--- A coroutine of the typed library, over Lua's own: what can be done with it, each closed over the thread.
+local record Co
+  resume: function(...: any): (boolean, any...)
+  close: function(): (boolean, any...)
+  status: function(): string
+end
+
+--- The typed `coroutine` library the declarations of [`lang.stdlib_corrections`] describe, over Lua's: a body is called
+--- with the handle that yields and the value the first `resume` sent, `resume` answers `true` and what was yielded or
+--- returned or `false` and the error, and a handle yields only for the coroutine it was made for.
+--
+-- TODO: drop this library, and run the Lua against the runtime's, once the runtime provides the typed `coroutine`
+-- (the TODO of [`lang.stdlib_corrections`]).
+local function typed_coroutines(): {string: any}
+  local library: {string: any} = {}
+  local function create(body: function(...: any): any...): Co
+    local handle: {string: any} = {}
+    local thread = coroutine.create(function(first: any): any
+      return body(handle, first)
+    end)
+    handle.yield = function(_self: any, y: any): any
+      if coroutine.running() ~= thread then
+        error("a handle yields for the coroutine it was made for", 2)
+      end
+      return coroutine.yield(y)
+    end
+    return {
+      resume = function(...: any): (boolean, any...)
+        return coroutine.resume(thread, ...)
+      end,
+      close = function(): (boolean, any...)
+        return coroutine.close(thread)
+      end,
+      status = function(): string
+        return coroutine.status(thread)
+      end,
+    }
+  end
+  library.create = create
+  library.resume = function(co: Co, ...: any): (boolean, any...)
+    return co.resume(...)
+  end
+  library.close = function(co: Co): (boolean, any...)
+    return co.close()
+  end
+  library.status = function(co: Co): string
+    return co.status()
+  end
+  library.isyieldable = coroutine.isyieldable
+  library.wrap = function(body: function(...: any): any...): function(...: any): any
+    local co = create(body)
+    return function(...: any): any
+      local results = table.pack(co.resume(...))
+      if not results[1] then
+        error(results[2], 0)
+      end
+      return results[2]
+    end
+  end
+  return library
+end
+
+function Programs.execute(source: string, facts: boolean, modules?: {string: string}, kind_only?: boolean): Programs.Execution
+  local run = Programs.run(source, modules)
+  local done: Programs.Execution = { run = run, ran = false, lua = "", printed = {}, fault = nil }
+  if not taken(run) then
+    return done
+  end
+  local wraps: {integer: string} = {}
+  if facts then
+    for _, n in ipairs(run.result.narrowed) do
+      wraps[n.id] = fact_arguments(n)
+    end
+  end
+  local classes: {integer: string} = {}
+  for id, decl in pairs(run.result.literals) do
+    classes[id] = decl.name
+  end
+  done.lua = Codegen.generate(run.chunk, run.scoped, nil, classes, kind_only and {} or Check.enums(run.lowered), wraps).text
+  local env: {string: any} = {
+    assert = assert, ipairs = ipairs, pairs = pairs, math = math, tostring = tostring, tonumber = tonumber, type = type, error = error, pcall = pcall, xpcall = xpcall,
+    string = string, table = table, select = select, setmetatable = setmetatable, getmetatable = getmetatable,
+    coroutine = typed_coroutines(),
+  }
+  env.print = function(...: any)
+    local parts: {string} = {}
+    for i = 1, select("#", ...) do
+      parts[i] = tostring((select(i, ...)))
+    end
+    done.printed[#done.printed + 1] = table.concat(parts, "\t")
+  end
+  env.__fact = function(v: any, kinds: string, name: string, strings: {string} | nil, tables: {any} | nil, tag: string | nil,
+                        tags: {string} | nil): any
+    local kind = type(v)
+    local function fails(why: string)
+      error("fact violated: " .. name .. " is " .. why, 0)
+    end
+    for k in kinds:gmatch("[^,]+") do
+      if k == kind then
+        fails("a " .. kind .. ", the checker proved not " .. kinds)
+      end
+    end
+    local function among(list: {any}, value: any): boolean
+      for _, each in ipairs(list) do
+        if each == value then
+          return true
+        end
+      end
+      return false
+    end
+    if strings ~= nil and kind == "string" and not among(strings, v) then
+      fails("the string " .. tostring(v) .. ", the checker proved one of " .. table.concat(strings, ","))
+    end
+    if v is {string: any} then
+      if tables ~= nil and not among(tables, getmetatable(v)) then
+        fails("a table of another class than the checker proved")
+      end
+      if tag ~= nil and tags ~= nil then
+        local field = v[tag]
+        if not among(tags, field) then
+          fails("a table whose " .. tag .. " is " .. tostring(field) .. ", the checker proved one of " .. table.concat(tags, ","))
+        end
+      end
+    end
+    return v
+  end
+  local chunk, why = load(done.lua, "=t", "t", env)
+  if chunk == nil then
+    done.fault = "the Lua does not load: " .. tostring(why)
+    return done
+  end
+  local ok, err = pcall(chunk)
+  done.ran = true
+  if not ok then
+    done.fault = tostring(err)
+  end
+  return done
 end
 
 function Programs.codes(run: Programs.Run): string

@@ -140,6 +140,23 @@ local CASES <const>: {Case} = {
     fix = "pass arguments one overload accepts, in its order: function(string, string, string, p4?: integer)",
   },
   {
+    code = "cannot_infer", source = "local function empty<T>(): mut {T}\n  return {}\nend\nlocal xs = empty()\n", at = { 4, 12 },
+    msg = "`empty` is generic, and nothing fixes its type parameter `T`",
+    fix = "type the result, so the call is expected to have the type (`local v: T = empty(...)`)",
+  },
+  {
+    code = "infer_conflict", source = "local function pick<T>(a: T, b: T): T\n  return a\nend\nlocal n = 1\nlocal s = \"a\"\nlocal x = pick(n, s)\n",
+    at = { 6, 19 }, msg = "`T` of `pick` is `integer` from argument 1 and `string` from argument 2, which have no common type",
+    fix = "pass values of one type to `pick`, or convert argument 2 to `integer`",
+  },
+  {
+    code = "bound_unmet",
+    source = "local interface Named\n  name: string\nend\nlocal record Plain\n  name: string\nend\n" ..
+      "local function label<T is Named>(x: T): string\n  return x.name\nend\nlocal p: Plain = { name = \"a\" }\nlocal s = label(p)\n",
+    at = { 11, 11 }, msg = "`Plain` is the type parameter `T` of `label`, which is bounded by `Named`",
+    fix = "list the interface in the declaration of `Plain` (`is Named`)",
+  },
+  {
     code = "return_arity", source = "local function f(): integer, string\n  return 1\nend\n", at = { 2, 3 },
     msg = "this returns 1 value, where the function answers 2 values", fix = "return 2 values",
   },
@@ -157,7 +174,7 @@ local CASES <const>: {Case} = {
   },
   {
     code = "alternatives_as_value",
-    source = "local f: function(): (true, integer) | (false, string)\nlocal x = f()\n",
+    source = "local f: function(): (true, integer) | (false, string) = function() return true, 1 end\nlocal x = f()\n",
     msg = "`f()` answers one of 2 lists of values, which is no value", fix = "match the call: `match f() do",
   },
   {
@@ -182,7 +199,7 @@ local CASES <const>: {Case} = {
     msg = "`s` is `string`, which is no boolean or optional, so it is no condition", fix = "write the test: `s ~= \"\"`",
   },
   {
-    code = "condition_type", source = "local b: boolean? = nil\nwhile b do\nend\n",
+    code = "condition_type", source = "local function f(b: boolean?)\n  while b do\n  end\nend\n",
     msg = "`b` is `boolean?`: nil and false would not be told apart", fix = "write the test: `b == true` or `b == nil`",
   },
   {
@@ -225,6 +242,11 @@ local CASES <const>: {Case} = {
     code = "is_on_record", source = RECORD .. "local function f(v: R | string)\n  if v is R then\n  end\nend\n",
     msg = "`is R` cannot be told by a run-time tag: a record leaves nothing to test",
     fix = "test a tag (`x.kind == \"...\"`), declare a class",
+  },
+  {
+    code = "is_disjoint", source = "local function f(n: integer): boolean\n  return n is string\nend\n", at = { 2, 10 },
+    msg = "`n is string` is always false: `n` is `integer`, and no value of it is `string`",
+    fix = "this test is always false: remove it and the branch it guards, or test a type that `n` can have (`integer`)",
   },
   {
     code = "interface_method_value",
@@ -301,33 +323,64 @@ local CASES <const>: {Case} = {
     msg = "this module returns `t`, which no declaration describes", fix = "return a record, class, interface or enum of the module",
   },
   {
-    code = "unchecked_generic", source = "local xs: mut {integer} = {}\ntable.insert(xs, 1)\n", at = { 2, 1 },
-    msg = "this call of the generic function `table.insert`, which the checker types in a later piece",
-    fix = "none yet: the generics piece types a call of a generic function",
+    code = "missing_return", source = "local function f(): integer\n  local x = 1\nend\n", at = { 2, 3 },
+    msg = "control can reach the end of this function, which answers (integer), with no `return`",
+    fix = "end every path with a `return` of (integer) (or `error(...)`)",
   },
   {
-    code = "unchecked_protected", source = "local ok = pcall(print)\n",
-    msg = "a protected call `pcall`", fix = "none yet: the piece of `match` and protected calls types `pcall` and `xpcall`",
+    code = "missing_return", source = "local function f(): never\n  local x = 1\nend\n", at = { 2, 3 },
+    msg = "this function is declared `never`, and control can reach its end",
+    fix = "end every path with `error(...)` or a call of a function that never returns",
   },
   {
-    code = "unchecked_coroutine", source = "local c = coroutine.create(print)\n",
-    msg = "a coroutine function `coroutine.create`", fix = "none yet: the same piece types `coroutine.*`",
+    code = "not_assigned", source = "local x: integer\nlocal y = x\n", at = { 2, 11 },
+    msg = "`x` is read before every path assigns it: `local x` was given no value",
+    fix = "assign `x` on every path before this read, give it a value where it is declared (`local x: integer = ...`), " ..
+      "or declare it `integer?`",
   },
   {
-    code = "unchecked_match",
-    source = "local f: function(): (true, integer) | (false, string)\nmatch f() do\n  | (true, v) then\n  | (false, why) then\nend\n",
-    msg = "a `match`, which the checker types in a later piece", fix = "none yet: the piece of `match` types the arms",
-    codes = "unchecked_match",
+    code = "unreachable", source = "local function f()\n  error(\"x\")\n  print(2)\nend\n", at = { 3, 3 },
+    msg = "control never reaches this statement: what comes before it ends the block",
+    fix = "remove it, or move it before the `return`, `break`, `continue`",
+  },
+  {
+    code = "narrowing_dropped", at = { 8, 11 },
+    source = FIND .. "local function f(): integer\n  local s = find()\n  if s == nil then return 0 end\n  s = find()\n" ..
+      "  return #s\nend\n",
+    msg = "(a test showed it was not nil, and the assignment at 7:3 dropped that)",
+    fix = "test `s` again after the assignment at 7:3 (`if s == nil then return nil, why end`)",
+  },
+  {
+    code = "narrows_unproved", source = "local function is_text(v: any): v is string\n  return true\nend\n", at = { 2, 3 },
+    msg = "this function is declared `v is string`, and `true` does not show it when true: `v` is then `any`",
+    fix = "return a test that decides `string` (`return v is T`",
+  },
+  {
+    code = "assign_repeated", source = "local x = 1\nx, x = 2, 3\n", at = { 2, 4 },
+    msg = "`x` is assigned twice by one statement, and Lua leaves the order of the two open",
+    fix = "assign `x` once, or in two statements in the order you mean",
+  },
+  {
+    code = "match_missing", at = { 3, 1 },
+    source = "local f: function(): (true, integer) | (false, string) = function() return true, 1 end\nlocal n = 0\nmatch f() do\n  | (true, v) then n = v\nend\n",
+    msg = "this `match` takes no arm for the list `(false, string)` the call may answer", fix = "add the arm `| (false, v2) then ...`",
+  },
+  {
+    code = "match_redundant",
+    source = "local f: function(): (true, integer) | (false, string) = function() return true, 1 end\nmatch f() do\n  | (true, v) then print(v)\n  | (true, w) then print(w)\n  | (false, why) then print(why)\nend\n",
+    msg = "this arm takes only lists the arms before it take, so it never runs",
+    fix = "delete the arm, or change its `true` and `false` to take a list no arm before it takes",
+  },
+  {
+    code = "match_pattern", at = { 3, 6 },
+    source = "local f: function(): (boolean, integer) = function() return true, 1 end\nmatch f() do\n  | (true, v) then print(v)\nend\n",
+    msg = "this pattern tests position 1 with `true`, and the list `(boolean, integer)` has `boolean` there",
+    fix = "test only the positions that are `true` or `false` in the lists the call answers",
   },
   {
     code = "unchecked_binding", source = "local sys = require(\"cosmic.sys\")\n", at = { 1, 13 },
     msg = "the module `cosmic.sys` is a binding of C that has no declarations",
     fix = "none yet: the bindings of C are typed once the checker reads them from declaration files",
-  },
-  {
-    code = "unchecked_nested",
-    source = "local function outer<T>(x: T)\n  local function inner<U>(y: U)\n  end\nend\n",
-    msg = "this generic function is inside the code of another", fix = "none yet: the generics piece types a generic function inside another",
   },
 }
 
@@ -534,6 +587,30 @@ local function f(): never
   error("never")
 end
 ]],
+  ["generic calls over unions and iterators"] = [[
+local function first<T>(xs: {T}): T?
+  return xs[1]
+end
+local function widest(u: {integer} | {number}): number?
+  return first(u)
+end
+local function sum(u: ({integer} | {number})?): number
+  local total: number = 0
+  if u ~= nil then
+    for _, v in ipairs(u) do
+      total = total + v
+    end
+  end
+  return total
+end
+local names: {string: integer} = {}
+for k, v in pairs(names) do
+  print(k, v)
+end
+local whole: {integer} = { 1 }
+local parts: {number} = { 1.5 }
+print(widest(whole), sum(parts))
+]],
   ["modules"] = [[
 local M = require("m")
 local v: integer = M.f(1)
@@ -650,7 +727,7 @@ end
 
 local function test_a_call_with_several_lists_gives_each_name_the_union_of_its_column_and_no_value_to_one_name()
   local r = Programs.run([[
-local f: function(): (true, integer) | (false, string)
+local f: function(): (true, integer) | (false, string) = function() return true, 1 end
 local ok, v = f()
 ]])
   assert(#r.before == 0 and #r.errors == 0, Programs.codes(r))
@@ -745,7 +822,7 @@ local function test_a_chain_of_any_length_is_checked_without_recursion()
   for i = 1, 30000 do
     hops[i] = ".next"
   end
-  local c = Programs.run("local record Node\n  next: Node\nend\nlocal n: Node\nlocal deep = n" .. table.concat(hops) .. "\n")
+  local c = Programs.run("local record Node\n  next: Node\nend\nlocal function chase(n: Node)\n  local deep = n" .. table.concat(hops) .. "\nend\n")
   assert(#c.before == 0 and #c.errors == 0 and Types.display(Programs.var(c, "deep")) == "Node", Programs.codes(c))
 end
 
@@ -758,7 +835,7 @@ local function codes_of(source: string, modules?: {string: string}): string
   return Programs.codes(r)
 end
 
-local TAILED <const> = "local tailed: function(): string...\n"
+local TAILED <const> = "local tailed: function(): string... = function() end\n"
 
 local function test_the_arms_of_an_if_expression_are_held_to_the_type_the_position_wants_when_they_have_no_join()
   local head = "local b: boolean = true\nlocal enum Color \"red\" \"green\" end\n"
@@ -800,7 +877,7 @@ local function test_the_tail_and_the_lists_of_a_last_item_of_a_literal_are_check
   assert(codes_of(TAILED .. "local xs: {string} = { 1, tailed() }\n") == "not_assignable")
   assert(codes_of(TAILED .. "local xs: {string} = { \"a\", tailed() }\n") == "")
   assert(codes_of(TAILED .. "local record L is {integer}\nend\nlocal l: L = { tailed() }\n") == "not_assignable")
-  local lists = "local f: function(): (true, integer) | (false, string)\n"
+  local lists = "local f: function(): (true, integer) | (false, string) = function() return true, 1 end\n"
   assert(codes_of(lists .. "local xs = { f() }\n") == "alternatives_as_value")
   assert(codes_of(lists .. "local xs: {integer} = { f() }\n") == "alternatives_as_value")
   assert(codes_of(lists .. "local record L is {integer}\nend\nlocal l: L = { f() }\n") == "alternatives_as_value")
@@ -842,7 +919,7 @@ end
 
 local function test_a_loop_over_a_call_that_gives_no_iterator_is_reported()
   assert(codes_of("local function f()\nend\nfor x in f() do\nend\n") == "no_value")
-  assert(codes_of("local f: function(): (true, integer) | (false, string)\nfor x in f() do\nend\n") == "alternatives_as_value")
+  assert(codes_of("local f: function(): (true, integer) | (false, string) = function() return true, 1 end\nfor x in f() do\nend\n") == "alternatives_as_value")
 end
 
 local function test_a_function_statement_with_no_name_does_not_stop_the_check()
@@ -859,14 +936,14 @@ local function test_only_a_literal_nil_deletes_a_key_of_a_map()
 end
 
 local function test_a_string_literal_on_the_left_of_an_equality_is_held_to_an_optional_enum()
-  local head = "local enum Color \"red\" \"green\" end\nlocal c: Color? = nil\n"
+  local head = "local enum Color \"red\" \"green\" end\nlocal function pick(): Color?\n  return nil\nend\nlocal c: Color? = pick()\n"
   assert(codes_of(head .. "local a = \"red\" == c\nlocal b = c == \"red\"\n") == "")
   assert(codes_of(head .. "local a = \"blue\" == c\n") == "enum_member")
   assert(codes_of(head .. "local b = c == \"blue\"\n") == "enum_member")
 end
 
 local function test_a_default_string_for_an_optional_enum_joins_to_a_string()
-  local head = "local enum Color \"red\" \"green\" end\nlocal c: Color? = nil\n"
+  local head = "local enum Color \"red\" \"green\" end\nlocal function pick(): Color?\n  return nil\nend\nlocal c: Color? = pick()\n"
   local r = Programs.run(head .. "local s = c or \"x\"\nlocal d: Color = c or \"red\"\n")
   assert(#r.before == 0 and #r.errors == 0, Programs.codes(r))
   assert(Types.display(Programs.var(r, "s")) == "string")
@@ -895,7 +972,9 @@ local function test_a_parenthesised_literal_and_an_if_expression_of_functions_pi
   assert(codes_of(head .. "local r = (\"x\"):gsub(\"a\", if b then \"y\" else \"z\" end)\n") == "")
 end
 
-local function test_every_variable_of_type_invalid_comes_with_an_error()
+--- The problems of the variables of type `invalid` that nothing was reported for, in the cases from `first` to `last` and,
+--- where `standing`, in the standing programs. Split in three tests so that none runs near the limit of a test.
+local function silent_invalids(first: integer, last: integer, standing: boolean): {string}
   local problems: {string} = {}
   local function hold(label: string, source: string, modules?: {string: string})
     local r = Programs.run(source, modules)
@@ -909,11 +988,29 @@ local function test_every_variable_of_type_invalid_comes_with_an_error()
       end
     end
   end
-  for i, case in ipairs(CASES) do
+  for i = first, math.min(last, #CASES) do
+    local case = CASES[i]
     hold("case " .. i .. " " .. case.code, case.source, case.modules)
   end
-  for name, source in pairs(STANDING) do
-    hold(name, source, MODULES)
+  if standing then
+    for name, source in pairs(STANDING) do
+      hold(name, source, MODULES)
+    end
   end
+  return problems
+end
+
+local function test_every_variable_of_type_invalid_comes_with_an_error_in_the_first_cases()
+  local problems = silent_invalids(1, #CASES // 2, false)
+  assert(#problems == 0, table.concat(problems, "\n"))
+end
+
+local function test_every_variable_of_type_invalid_comes_with_an_error_in_the_last_cases()
+  local problems = silent_invalids(#CASES // 2 + 1, #CASES, false)
+  assert(#problems == 0, table.concat(problems, "\n"))
+end
+
+local function test_every_variable_of_type_invalid_comes_with_an_error_in_the_standing_programs()
+  local problems = silent_invalids(1, 0, true)
   assert(#problems == 0, table.concat(problems, "\n"))
 end

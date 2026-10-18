@@ -24,12 +24,14 @@
 --- deep as its source nests, and as a chain of `a + a + ...` is long, so a
 --- recursive walker can overflow the stack where [`Ast.number`] does not.
 
--- TODO: replace each `where` clause with the single-member enum tag the
--- plan's tagged unions use, and read the nodes in `number` and `children` by
--- their kinds in place of as `{string: any}`, once ci/cosmic-driver.pin names
--- a release whose checker discriminates a union of records by a tag: the
--- fork discriminates only by a `where` clause, and tests `is` against a
--- union of unions as against a table.
+-- TODO: at the switch, replace each `where` clause with the single-member enum tag the
+-- plan's tagged unions use, write each test `n is Ast.Local` of a node (here and in every
+-- module that imports this one) as a tag test or a `match` in the same change, and read the
+-- nodes in `number` and `children` by their kinds in place of as `{string: any}`
+-- (doc/plans/strict-teal.md, "the switch"): the new code generator writes a test `is` of a
+-- record as one for a table once the clause is gone, and of a union of unions as well. The
+-- pinned release is the fork's, which discriminates only by a `where` clause, so nothing
+-- earlier makes this due.
 local Lexer = require("lang.lexer")
 
 local record Ast

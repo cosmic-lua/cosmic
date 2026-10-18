@@ -333,6 +333,11 @@ program that shows it.
 - The tests that compare a module's bytecode with the binary's skip in a
   checked run (a TODO beside each).
 
+The new checker records the same reads in [`Check.Checked.narrowed`] (the offset of the read and the kinds of Lua value
+the checker took out). [`lang.check_programs`]'s `execute` wraps each in a check that raises `fact violated`, runs the
+Lua [`lang.codegen`] writes, and the flow's fuzz properties ([`lang/check_flow_fuzz_test.tl`]) hold every program the
+checker takes to run without one.
+
 CI runs the whole suite so in the `checked` job of a full run
 (`cosmic-driver cosmic_ci/driver.tl platform checked-narrowing`), and
 `bin/cosmic test --check-types` runs it anywhere.
@@ -465,6 +470,7 @@ Other rules:
 [`build.tree_checks`]: ../build/tree_checks.tl
 [`build/harness_epoch_test.tl`]: ../build/harness_epoch_test.tl
 [`build/rebuild_lock_tool_test.tl`]: ../build/rebuild_lock_tool_test.tl
+[`Check.Checked.narrowed`]: ../lang/check.tl
 [`ci.cosmic_ci.capabilities`]: ../ci/cosmic_ci/capabilities.tl
 [`ci/README.md`]: ../ci/README.md
 [`cosmic.layout`]: ../cosmic/layout.tl
@@ -473,6 +479,9 @@ Other rules:
 [`doc/performance.md`]: performance.md
 [`Fuzz.label`]: ../build/fuzz/init.tl
 [`Fuzz.more`]: ../build/fuzz/init.tl
+[`lang.check_programs`]: ../lang/check_programs.tl
+[`lang.codegen`]: ../lang/codegen.tl
+[`lang/check_flow_fuzz_test.tl`]: ../lang/check_flow_fuzz_test.tl
 [`Test.passed_unchecked`]: ../cosmic/test.tl
 [`Test.policy`]: ../cosmic/test.tl
 [`Test.skip`]: ../cosmic/test.tl

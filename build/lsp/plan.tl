@@ -276,7 +276,7 @@ function plan.compiled(compiled: build_module.Plan, built: compiler, env: compil
   if not ok then error(made, 0) end
   local result = rendered.result
   if made == nil and result == nil then
-    return { result = nil, refusals = refusals_of(trouble) }
+    return { result = nil, refusals = refusals_of(trouble or "") }
   end
   return { result = result, refusals = {} }
 end

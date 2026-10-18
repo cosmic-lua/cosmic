@@ -178,6 +178,12 @@ local casts: {string: string} = {
     "_G is a record and rawset takes a map; the write is of a name the record does not declare",
   ["cosmic/time.tl:make_zone"] =
     "Teal's metatable record has no __metatable, which Lua reads; rawset takes a map",
+  ["cosmic/sqlite.tl:cells_of"] =
+    "a stored row is a record with an array part for its slots, and the grammar has no record " ..
+    "with an array part that also implements Sqlite.Row",
+  ["cosmic/sqlite.tl:texts_of"] =
+    "a stored row is a record with an array part for its slots, and the grammar has no record " ..
+    "with an array part that also implements Sqlite.Row",
 
   ["test/terminal/pty.tl:process_table"] =
     "the CI fixture reaches cosmic.child's raw process loader argument to test " ..
@@ -207,7 +213,7 @@ local casts: {string: string} = {
   ["build/ast/match.tl:match_value"] =
     "a pattern matched field by field, by reflection: a candidate " ..
     "found under any field is bound as the Node it is",
-  ["build/ast/match_cast.tl:match"] =
+  ["build/ast/match_cast.tl:matched"] =
     "a candidate cast node, reached by reflection, bound as the Node it is",
   ["build/ast/match_cast.tl:type_array"] =
     "a parsed type's fields, which no Node field names, by reflection",

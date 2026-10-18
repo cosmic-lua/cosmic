@@ -92,9 +92,9 @@ end
 local type Diagnostic = session_fixture.Diagnostic
 local type Ran = session_fixture.Ran
 
-local SENT <const> = Shape.record_of("session_fixture.Sent")
-local PUBLISH_SENT <const> = Shape.record_of("session_fixture.PublishSent")
-local INITIALIZE_SENT <const> = Shape.record_of("session_fixture.InitializeSent")
+local SENT <const>: Shape.Typed<session_fixture.Sent> = Shape.record_of("session_fixture.Sent")
+local PUBLISH_SENT <const>: Shape.Typed<session_fixture.PublishSent> = Shape.record_of("session_fixture.PublishSent")
+local INITIALIZE_SENT <const>: Shape.Typed<session_fixture.InitializeSent> = Shape.record_of("session_fixture.InitializeSent")
 
 session_fixture.SHUTDOWN = '{"jsonrpc":"2.0","id":99,"method":"shutdown"}'
 session_fixture.EXIT = '{"jsonrpc":"2.0","method":"exit"}'

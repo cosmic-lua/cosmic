@@ -28,7 +28,11 @@ local function moved(from: string, text: string, splices: {shape_specs.Splice}):
   local out: {shape_specs.Splice} = {}
   for _, one in ipairs(splices) do
     local line = 1
-    while from_starts[line + 1] ~= nil and from_starts[line + 1] <= one.at do line = line + 1 end
+    while true do
+      local next_start = from_starts[line + 1]
+      if next_start == nil or next_start > one.at then break end
+      line = line + 1
+    end
     local start, from_start = starts[line], from_starts[line]
     if start == nil or from_start == nil then return nil end
     local at = start + (one.at - from_start)

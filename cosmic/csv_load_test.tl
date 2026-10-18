@@ -57,15 +57,20 @@ end
 local function test_load_failures_leave_nothing(tmp: string)
   local db = assert(Sqlite.memory())
   assert(db:exec("CREATE TABLE taken (a)"))
-  local cases: {{string, Csv.Source, string}} = {
-    { "taken", { text = "a\n1\n" }, "already exists" },
-    { "fresh", { text = "" }, "holds no header" },
-    { "fresh", { text = "a\0b\n" }, "holds a NUL byte at byte 2" },
-    { "fresh", { path = tmp .. "/absent.csv" }, "cannot open" },
+  local record Case
+    table: string
+    source: Csv.Source
+    why: string
+  end
+  local cases: {Case} = {
+    { table = "taken", source = { text = "a\n1\n" }, why = "already exists" },
+    { table = "fresh", source = { text = "" }, why = "holds no header" },
+    { table = "fresh", source = { text = "a\0b\n" }, why = "holds a NUL byte at byte 2" },
+    { table = "fresh", source = { path = tmp .. "/absent.csv" }, why = "cannot open" },
   }
   for _, case in ipairs(cases) do
-    local copied, why = Csv.load(db, case[1], case[2])
-    assert(copied == nil and why:find(case[3], 1, true) ~= nil, why)
+    local copied, why = Csv.load(db, case.table, case.source)
+    assert(copied == nil and why:find(case.why, 1, true) ~= nil, why)
   end
   assert(quoted(db, "SELECT count(*) FROM sqlite_schema WHERE name = 'fresh'") == "0")
   assert(quoted(db, "SELECT count(*) FROM sqlite_temp_schema") == "0")

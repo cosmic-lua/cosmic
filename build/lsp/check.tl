@@ -449,24 +449,24 @@ function check.diagnose(checker: Checker, document: Document, encoding: string):
   for i = #order, before + 1, -1 do
     local name = order[i]
     if name ~= nil then env.loaded[name] = nil end
-    order[i] = nil
+    table.remove(order, i)
   end
   if not ok then error(tostring(outcome), 0) end
   local checked: Checked = outcome
-  local lines = protocol.lines_of(document.text)
+  local held = protocol.lines_of(document.text)
   local starts = protocol.checker_starts(checked.text)
   local out: {string} = {}
   --- The diagnostic `message` at the checker's line `y` and column `x`.
   local function add(y: integer, x: integer, message: string, code: string | nil)
     local line = math.min(math.max(y, 1), #starts)
-    local at = math.min(starts[line] + math.max(x, 1) - 1, #checked.text + 1)
+    local at = math.min(assert(starts[line]) + math.max(x, 1) - 1, #checked.text + 1)
     local offset = splice.unspliced(checked.splices, at)
     -- A place in a template's Teal is none in the template.
     if checked.generated then offset = 1 end
     local word = document.text:match("^[%w_]+", offset) or ""
     local diagnostic: protocol.Diagnostic = {
-      range = protocol.range(protocol.position(lines, offset, encoding),
-        protocol.position(lines, offset + math.max(#word, 1), encoding)),
+      range = protocol.range(protocol.position(held, offset, encoding),
+        protocol.position(held, offset + math.max(#word, 1), encoding)),
       -- A build refuses a warning as it does an error.
       severity = 1,
       source = "cosmic",

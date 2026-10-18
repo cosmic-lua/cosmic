@@ -48,6 +48,7 @@ local Ast = require("lang.ast")
 local Check = require("lang.check")
 local CheckPins = require("build.check_pins")
 local Codegen = require("lang.codegen")
+local Corrections = require("lang.stdlib_corrections")
 local Declarations = require("lang.declarations")
 local Lexer = require("lang.lexer")
 local Parser = require("lang.parser")
@@ -1958,8 +1959,8 @@ end
 --- how many errors of that code the file has. The rewrites that bring the
 --- tree to the grammar remove them, and a pin falls as its form does; none
 --- is raised. The counts outside [`checker/tl.tl`] (the fork, which goes) are
---- the grammar draft's: `goto` 5 and its 5 labels, `;` 1, long comments 27,
---- `_` in a number 4 and hexadecimal floats 1.
+--- the grammar draft's: `goto` 5 and its 5 labels, `;` 1, long comments 27 and
+--- `_` in a number 4; its one hexadecimal float is written in decimal.
 local lexer_pins: {string: integer} = {
   ["build/declared_key.tl label_or_goto"] = 2,
   ["build/fuzz/init.tl label_or_goto"] = 2,
@@ -1972,7 +1973,6 @@ local lexer_pins: {string: integer} = {
   ["cosmic/internal/relay_server.tl label_or_goto"] = 2,
   ["cosmic/removed_example.tl digit_separator"] = 2,
   ["test/digit_separators_test.tl digit_separator"] = 2,
-  ["test/digit_separators_test.tl hex_float"] = 1,
 }
 
 --- Every `.tl` file under `root` as `{file, source}` pairs, read from disk:
@@ -2286,70 +2286,29 @@ end
 --- the tree's apart from [`checker/tl.tl`], the fork, which goes.
 local translate_pins: {string: integer} = {
   -- a tuple type `{A, B}`, which the draft counts once, in the tour: write a record with a field for each
-  -- position, or `{A | B}` for an array of either
-  ["build/archive.tl tuple_type"] = 1,
-  ["build/ast/rewrite.tl tuple_type"] = 3,
-  ["build/bridge_cache_test.tl tuple_type"] = 2,
-  ["build/cache_formats.tl tuple_type"] = 1,
-  ["build/vendor.tl tuple_type"] = 4,
-  ["build/workers_boot_spec_test.tl tuple_type"] = 1,
+  -- position, or `{A | B}` for an array of either. What is left is the fork's own `unpack` (`{A1, A2}` is its
+  -- parameter) and the example that teaches the form
   ["checker/stdlib.d.tl tuple_type"] = 4,
   ["ci/cosmic_ci/orchestration.tl tuple_type"] = 1,
-  ["cosmic/archive.tl tuple_type"] = 1,
-  ["cosmic/archive_test.tl tuple_type"] = 1,
-  ["cosmic/compress_test.tl tuple_type"] = 7,
-  ["cosmic/csv_load_test.tl tuple_type"] = 1,
-  ["cosmic/html_test.tl tuple_type"] = 1,
-  ["cosmic/http/init.tl tuple_type"] = 2,
-  ["cosmic/internal/relay_server_test.tl tuple_type"] = 3,
-  ["cosmic/internal/relay_wire_test.tl tuple_type"] = 7,
   ["cosmic/removed_example.tl tuple_type"] = 1,
-  ["cosmic/time_test.tl tuple_type"] = 4,
-  ["cosmic/time_zone_test.tl tuple_type"] = 1,
-  ["cosmic/zip_test.tl tuple_type"] = 1,
-  ["test/digit_separators_test.tl tuple_type"] = 1,
-  ["test/sqlite_parameter_test.tl tuple_type"] = 3,
-  -- `match` and `continue` bound as names: the draft renames them in Teal first
-  ["build/ast/match.tl reserved_word"] = 2,
-  ["build/ast/match_cast.tl reserved_word"] = 2,
-  ["build/ast/match_test.tl reserved_word"] = 25,
-  ["build/checker_assigned_fuzz_test.tl reserved_word"] = 7,
-  ["build/doctest/generate_test.tl reserved_word"] = 2,
-  ["build/json.tl reserved_word"] = 10,
-  ["build/json_query_fuzz_test.tl reserved_word"] = 2,
-  ["build/test_worker.tl reserved_word"] = 3,
-  ["cosmic/http/server_test.tl reserved_word"] = 4,
-  ["cosmic/http/wire.tl reserved_word"] = 3,
-  ["cosmic/web/router.tl reserved_word"] = 2,
-  -- a bare `function` type: write the signature
-  ["build/assertions_test.tl bare_function_type"] = 1,
-  ["checker/facts.tl bare_function_type"] = 2,
+  -- a bare `function` type: write the signature. The fork's own declarations of the standard library take
+  -- the bare type for the functions they leave open, which a signature would narrow
   ["checker/stdlib.d.tl bare_function_type"] = 5,
-  ["cosmic/template_go_test.tl bare_function_type"] = 1,
-  -- a `goto` that is no `continue`, and its label: restructure with an `if`, or move the code into a function
-  -- and `return` from it
-  ["build/test.tl label_or_goto"] = 2,
-  ["cosmic/internal/relay_server.tl label_or_goto"] = 2,
   -- `where`, `is userdata`, `userdata` as a type and a record that implements an array and an interface: the
-  -- draft drops them, and the tagged unions and declarations that replace them are written by hand
-  ["build/assertions_test.tl expected_name"] = 1,
+  -- draft drops them, and the tagged unions and declarations that replace them are written by hand. What is
+  -- left is the fork's standard library, which goes with the fork, the example that teaches `where`, and the
+  -- checker's own two modules, which the switch writes as tagged unions
   ["checker/stdlib.d.tl expected_name"] = 3,
   ["checker/stdlib.d.tl expected_token"] = 1,
   ["checker/stdlib.d.tl expected_type"] = 2,
   ["cosmic/removed_example.tl expected_name"] = 2,
   ["cosmic/removed_example.tl expected_token"] = 2,
-  ["cosmic/sqlite.tl expected_name"] = 2,
   ["lang/ast.tl expected_name"] = 72,
   ["lang/ast.tl expected_token"] = 72,
   ["lang/types.tl expected_name"] = 6,
   ["lang/types.tl expected_token"] = 7,
-  -- a cast of several values, `as (A, B)`, which the grammar has no type for
-  ["core/surface_test.tl unclosed"] = 1,
-  ["core/surface_test.tl unexpected_token"] = 1,
-  ["cosmic/stream_test.tl unclosed"] = 1,
-  ["cosmic/stream_test.tl unexpected_token"] = 1,
-  -- a method written in a block, not at the top of the file, where its record cannot hold it
-  ["cosmic/errors_example.tl method_in_record"] = 1,
+  -- a method written in a block, not at the top of the file, where its record cannot hold it: the example
+  -- that teaches a record's methods
   ["cosmic/removed_example.tl method_in_record"] = 1,
 }
 
@@ -2505,9 +2464,6 @@ local scope_pins: {string: integer} = {
   ["cosmic/removed_example.tl unknown_type"] = 2,
   ["lang/ast.tl unknown_type"] = 72,
   ["lang/types.tl unknown_type"] = 7,
-  -- a cast of several values, `as (A, B)`, which the grammar has no type for: the parser reads `any` as a value
-  ["core/surface_test.tl not_a_value"] = 1,
-  ["cosmic/stream_test.tl not_a_value"] = 1,
   -- the fork finds `Orchestration` for the type `Orchestration.Group` of a record field in the local of a function
   -- that uses the record: declare `local type Orchestration = require("cosmic_ci.orchestration")` above the record
   ["ci/cosmic_ci/orchestration_test.tl unknown_type"] = 2,
@@ -2608,6 +2564,7 @@ local function declared_globals(root: string): {string: Scopes.Global}
   local stdlib, _ = Fs.read(root .. "/checker/stdlib.d.tl")
   if stdlib ~= nil then
     add("checker/stdlib.d.tl", stdlib)
+    add("lang/stdlib_corrections.tl", table.concat(Corrections.added, "\n"))
   end
   for _, name in ipairs(teal.withheld) do
     out[name] = nil
@@ -2689,7 +2646,8 @@ end
 --- tree have, which [`declared`] holds the tree to: `<file> <code>` to how many errors of that code the
 --- file has. Each is a rule the tree still breaks or a form it writes that the checker has no type for;
 --- a rewrite removes it and a pin falls with it. A change that adds or sharpens a rule of the lowering may raise some, or
---- add some for a new code, and says why in its message.
+--- add some for a new code, and says why in its message. A file whose translation did not parse, and now does, is
+--- pinned at what it has.
 local declare_pins: {string: integer} = {
   -- a class whose metatable keeps its `__close` as a field, since the metatable also holds a `__gc` that a class has
   -- no form for: the process handle becomes a C userdata whose finalizer C owns (doc/plans/strict-teal.md,
@@ -2701,6 +2659,9 @@ local declare_pins: {string: integer} = {
   -- a map keyed by `any` (the registry, a decoded table's keys, the shape validators), by a union or by a collection:
   -- key by an `integer` or a `string`, or declare an enum or a record for the keys
   ["build/analyzer.tl key_type"] = 2,
+  ["build/ast/match.tl key_type"] = 14,
+  ["build/ast/match_cast.tl key_type"] = 6,
+  ["build/ast/match_test.tl key_type"] = 5,
   ["build/ast/walk.tl key_type"] = 2,
   ["build/c/rules.tl key_type"] = 1,
   ["build/confine.tl key_type"] = 4,
@@ -2708,6 +2669,7 @@ local declare_pins: {string: integer} = {
   ["build/fix/equiv_test.tl key_type"] = 6,
   ["build/flow.tl key_type"] = 3,
   ["build/flow_fuzz_test.tl key_type"] = 1,
+  ["build/json.tl key_type"] = 1,
   ["build/json_query.tl key_type"] = 4,
   ["build/json_query_test.tl key_type"] = 4,
   ["build/link_resolve.tl key_type"] = 1,
@@ -2717,8 +2679,12 @@ local declare_pins: {string: integer} = {
   ["build/stub.tl key_type"] = 4,
   ["build/teal.tl key_type"] = 3,
   ["build/teal_test.tl key_type"] = 1,
+  ["build/test.tl key_type"] = 5,
   ["build/test_test.tl key_type"] = 2,
   ["checker/captures.tl key_type"] = 3,
+  ["checker/facts.tl key_type"] = 2,
+  ["cosmic/compress_test.tl key_type"] = 1,
+  ["cosmic/html_test.tl key_type"] = 3,
   ["cosmic/http/server.tl key_type"] = 6,
   ["cosmic/http_test.tl key_type"] = 3,
   ["cosmic/json.tl key_type"] = 8,
@@ -2732,6 +2698,7 @@ local declare_pins: {string: integer} = {
   ["cosmic/shape_fuzz_test.tl key_type"] = 8,
   ["cosmic/shape_record_test.tl key_type"] = 2,
   ["cosmic/shape_test.tl key_type"] = 7,
+  ["cosmic/sqlite.tl key_type"] = 2,
   ["cosmic/test.tl key_type"] = 5,
   ["cosmic/web/app.tl key_type"] = 1,
   ["cosmic/web/dev.tl key_type"] = 3,
@@ -2754,6 +2721,7 @@ local declare_pins: {string: integer} = {
   ["build/runtime_checks_keys_test.tl member_missing"] = 3,
   ["build/shared_compiles.tl member_missing"] = 2,
   ["build/shared_parses_test.tl member_missing"] = 1,
+  ["build/test.tl member_missing"] = 28,
   ["build/test_inputs.tl member_missing"] = 1,
   ["build/test_inputs_test.tl member_missing"] = 1,
   ["build/worker.tl member_missing"] = 1,
@@ -2765,8 +2733,11 @@ local declare_pins: {string: integer} = {
   ["build/codec.tl interface_disagrees"] = 9,
   ["build/lsp/session_fixture.tl interface_disagrees"] = 1,
   ["cosmic/child.tl interface_disagrees"] = 1,
+  ["cosmic/http/init.tl interface_disagrees"] = 5,
   ["cosmic/http/multipart.tl interface_disagrees"] = 1,
   ["cosmic/http/server.tl interface_disagrees"] = 1,
+  ["cosmic/http/server_test.tl interface_disagrees"] = 3,
+  ["cosmic/http/wire.tl interface_disagrees"] = 4,
   ["cosmic/http/wire_fuzz_test.tl interface_disagrees"] = 1,
   ["cosmic/http/wire_test.tl interface_disagrees"] = 1,
   ["cosmic/internal/compress.d.tl interface_disagrees"] = 1,
@@ -2776,6 +2747,7 @@ local declare_pins: {string: integer} = {
   ["cosmic/net.tl interface_disagrees"] = 2,
   ["cosmic/signal.tl interface_disagrees"] = 3,
   ["cosmic/stream.tl interface_disagrees"] = 5,
+  ["cosmic/stream_test.tl interface_disagrees"] = 9,
   ["cosmic/tar.tl interface_disagrees"] = 10,
   ["cosmic/time.tl interface_disagrees"] = 8,
   ["cosmic/web/sse.tl interface_disagrees"] = 2,
@@ -2949,6 +2921,8 @@ local record Lowering
   --- Nanoseconds spent translating, parsing and scoping, and lowering.
   prepare_ns: integer
   lower_ns: integer
+  --- What [`lang.stdlib_corrections`] could not apply to the declaration file of the standard library.
+  problems: {string}
 end
 
 --- Lowers the files of `missed` and everything they require (the prelude and the declaration file of the fork's
@@ -2963,11 +2937,20 @@ local function lower_tree(root: string, tree: Tree, missed: {DeclareFile}, decla
     program.external[name] = true
   end
   local made: Lowering = {
-    program = program, inputs = {}, lowered = {}, broken = {}, prepare_ns = 0, lower_ns = 0,
+    program = program, inputs = {}, lowered = {}, broken = {}, prepare_ns = 0, lower_ns = 0, problems = {},
   }
   local function prepare(row: DeclareFile): Declarations.Input
     local started = Clock.monotonic_ns()
-    local translated = Translate.translate(row.source, row.file)
+    local source = row.source
+    if row.module == "checker.stdlib" then
+      -- The declarations of the standard library the new checker reads differently from the fork.
+      local corrected = Corrections.apply(source)
+      source = corrected.text
+      for _, t in ipairs(corrected.problems) do
+        made.problems[#made.problems + 1] = row.file .. ": " .. t .. " (lang/stdlib_corrections.tl)"
+      end
+    end
+    local translated = Translate.translate(source, row.file)
     local parsed = Parser.parse(Lexer.lex(translated.text, row.file), row.file, row.dialect)
     made.broken[row.module] = #parsed.errors > 0
     local input: Declarations.Input = {
@@ -3122,15 +3105,17 @@ function tree_checks.declared(root: string, pinned?: {string: integer}, memo?: S
     return { "reading the sources: " .. trouble }
   end
   local salt = check_memo.salt(root, { "lang/ast.tl", "lang/lexer.tl", "lang/parser.tl", "lang/scopes.tl",
-    "lang/translate.tl", "lang/types.tl", "lang/relation.tl", "lang/declarations.tl", "checker/stdlib.d.tl",
-    "checker/tl.tl", "build/teal.tl", "build/check_memo.tl", "build/tree_checks.tl" }, "declared 1")
+    "lang/translate.tl", "lang/types.tl", "lang/relation.tl", "lang/declarations.tl", "lang/stdlib_corrections.tl",
+    "checker/stdlib.d.tl", "checker/tl.tl", "build/teal.tl", "build/check_memo.tl", "build/tree_checks.tl" }, "declared 1")
   local tree = tree_of(files, salt)
   if memo ~= nil then
     local _, _ = check_memo.prepare(memo, "declared")
   end
   local outcomes, missed = kept_outcomes(memo, "declared", tree, kept_declarations)
+  local problems: {string} = {}
   if #missed > 0 then
     local lowering = lower_tree(root, tree, missed, declared_globals(root), false)
+    problems = lowering.problems
     for _, row in ipairs(missed) do
       local outcome: DeclareOutcome = { errors = {} }
       if not lowering.broken[row.module] then
@@ -3147,7 +3132,11 @@ function tree_checks.declared(root: string, pinned?: {string: integer}, memo?: S
   if memo ~= nil then
     check_memo.finish(memo, "declared")
   end
-  return held_to_pins(tree, outcomes, Declarations.codes, pinned, "declarations", "build/tree_checks.tl's declare_pins")
+  local out = held_to_pins(tree, outcomes, Declarations.codes, pinned, "declarations", "build/tree_checks.tl's declare_pins")
+  for _, problem in ipairs(problems) do
+    table.insert(out, 1, problem)
+  end
+  return out
 end
 
 local function kept_checks(text: string, _file: string): DeclareOutcome | nil
@@ -3160,7 +3149,8 @@ end
 --- errors are the ones `pinned` (by default `check_pins`) counts, no more: a file with more errors of a code than
 --- pinned is listed with each, their places and fix; one with fewer, and a pin for a file with none, is told to lower
 --- the pin. The pins are those of [`build.check_pins`]: ceilings that each rewrite and each later piece of the checker
---- lowers, and none is raised. The answer for a file is kept in `memo` under the sources of every module it requires,
+--- lowers, and none is raised, but for a file whose translation did not parse and now does, which is pinned at what it has.
+--- The answer for a file is kept in `memo` under the sources of every module it requires,
 --- directly or not, and of the checker. `phases`, when given, gets the nanoseconds spent translating, parsing and scoping
 --- (`prepare`), lowering (`lower`) and checking (`check`) the files the memo lacked.
 function tree_checks.checked(root: string, pinned?: {string: integer}, memo?: Sqlite.Handle,
@@ -3172,15 +3162,17 @@ function tree_checks.checked(root: string, pinned?: {string: integer}, memo?: Sq
   end
   local salt = check_memo.salt(root, { "lang/ast.tl", "lang/lexer.tl", "lang/parser.tl", "lang/scopes.tl",
     "lang/translate.tl", "lang/types.tl", "lang/relation.tl", "lang/declarations.tl", "lang/check.tl",
-    "lang/check_codes.tl", "checker/stdlib.d.tl", "checker/tl.tl", "build/teal.tl", "build/check_memo.tl",
-    "build/tree_checks.tl" }, "checked 1")
+    "lang/flow.tl", "lang/check_codes.tl", "lang/stdlib_corrections.tl", "checker/stdlib.d.tl", "checker/tl.tl", "build/teal.tl",
+    "build/check_memo.tl", "build/tree_checks.tl" }, "checked 1")
   local tree = tree_of(files, salt)
   if memo ~= nil then
     local _, _ = check_memo.prepare(memo, "checked")
   end
   local outcomes, missed = kept_outcomes(memo, "checked", tree, kept_checks)
+  local problems: {string} = {}
   if #missed > 0 then
     local lowering = lower_tree(root, tree, missed, declared_globals(root), true)
+    problems = lowering.problems
     local started = Clock.monotonic_ns()
     for _, row in ipairs(missed) do
       local outcome: DeclareOutcome = { errors = {} }
@@ -3204,7 +3196,11 @@ function tree_checks.checked(root: string, pinned?: {string: integer}, memo?: Sq
   if memo ~= nil then
     check_memo.finish(memo, "checked")
   end
-  return held_to_pins(tree, outcomes, Check.codes, pinned, "bodies", "build/check_pins.tl")
+  local out = held_to_pins(tree, outcomes, Check.codes, pinned, "bodies", "build/check_pins.tl")
+  for _, problem in ipairs(problems) do
+    table.insert(out, 1, problem)
+  end
+  return out
 end
 
 --- The files of the tree whose Lua ([`lang.codegen`]) differs from the fork's, which [`generated`] holds the tree to:
@@ -3370,6 +3366,11 @@ local function generate_outcome(file: string, source: string, memo: Sqlite.Handl
       outcome.skipped = "the fork writes no Lua: " .. why
     else
       -- The translator writes an `if` expression only for a value that is never false, which it tells the generator.
+      -- The enums are not passed, so `v is E` is the fork's test of the kind, which this oracle compares with the fork's
+      -- Lua; the checker's Lua tests the values ([`lang.check`] `enums`).
+      --
+      -- TODO: once the new checker's Lua is what the build writes, pass [`Check.enums`] here and compare the membership
+      -- test with the fork's kind test normalized, or drop this oracle.
       local generated = Codegen.generate(parsed.chunk, Scopes.build(parsed.chunk, file, {}), Translate.never_false)
       outcome.errors = generated.errors
       local loaded, load_why = load(generated.text, "=" .. file, "t", {})

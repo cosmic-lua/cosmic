@@ -159,9 +159,9 @@ local function freeze(data: {string:any}): {string:any}
       __newindex = function(_: any, key: any)
          error("facts: a Facts is immutable: write to " .. tostring(key), 2)
       end,
-      __pairs = function(): function, {string:any}, any
+      __pairs = function(): function(any...): any..., {string:any}, any
          local step: any = next
-         return step as function, data, nil
+         return step as function(any...): any..., data, nil
       end,
    }
    setmetatable(proxy, meta as metatable<{string:any}>)

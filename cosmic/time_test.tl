@@ -107,23 +107,27 @@ local function test_from_civil_raises_for_a_field_that_is_no_integer()
 end
 
 local function test_from_civil_refuses_what_an_integer_cannot_hold()
-  local edges: {{Time.CivilFields, boolean}} = {
-    { civil(1677, 9, 21, 0, 12, 43, 145224192), true },
-    { civil(1677, 9, 21, 0, 12, 43, 145224191), false },
-    { civil(2262, 4, 11, 23, 47, 16, 854775807), true },
-    { civil(2262, 4, 11, 23, 47, 17), false },
-    { civil(1600, 1, 1), false },
-    { civil(3000, 1, 1), false },
-    { civil(math.maxinteger, 1, 1), false },
-    { civil(math.mininteger, 1, 1), false },
+  local record Edge
+    fields: Time.CivilFields
+    fits: boolean
+  end
+  local edges: {Edge} = {
+    { fields = civil(1677, 9, 21, 0, 12, 43, 145224192), fits = true },
+    { fields = civil(1677, 9, 21, 0, 12, 43, 145224191), fits = false },
+    { fields = civil(2262, 4, 11, 23, 47, 16, 854775807), fits = true },
+    { fields = civil(2262, 4, 11, 23, 47, 17), fits = false },
+    { fields = civil(1600, 1, 1), fits = false },
+    { fields = civil(3000, 1, 1), fits = false },
+    { fields = civil(math.maxinteger, 1, 1), fits = false },
+    { fields = civil(math.mininteger, 1, 1), fits = false },
   }
   for _, e in ipairs(edges) do
-    local v, why = Time.from_civil(e[1])
-    assert((v ~= nil) == e[2], why)
-    if not e[2] then assert(why:find("outside", 1, true), why) end
+    local v, why = Time.from_civil(e.fields)
+    assert((v ~= nil) == e.fits, why)
+    if not e.fits then assert(why:find("outside", 1, true), why) end
   end
-  assert(Time.from_civil(edges[1][1]) == math.mininteger)
-  assert(Time.from_civil(edges[3][1]) == math.maxinteger)
+  assert(Time.from_civil(edges[1].fields) == math.mininteger)
+  assert(Time.from_civil(edges[3].fields) == math.maxinteger)
 end
 
 local function test_format_writes_a_fraction_only_when_there_is_one()
@@ -204,20 +208,25 @@ end
 
 local function test_add_calendar_moves_years_months_then_days()
   local from = at("2024-01-31T10:20:30.5Z")
-  local cases: {{Time.Duration, string, string}} = {
-    { { days = 1 }, "reject", "2024-02-01T10:20:30.5Z" },
-    { { days = -31 }, "reject", "2023-12-31T10:20:30.5Z" },
-    { { months = 2 }, "reject", "2024-03-31T10:20:30.5Z" },
-    { { months = 1 }, "clamp", "2024-02-29T10:20:30.5Z" },
-    { { years = 1, months = 1 }, "clamp", "2025-02-28T10:20:30.5Z" },
-    { { months = -13 }, "reject", "2022-12-31T10:20:30.5Z" },
+  local record Case
+    duration: Time.Duration
+    overflow: string
+    want: string
+  end
+  local cases: {Case} = {
+    { duration = { days = 1 }, overflow = "reject", want = "2024-02-01T10:20:30.5Z" },
+    { duration = { days = -31 }, overflow = "reject", want = "2023-12-31T10:20:30.5Z" },
+    { duration = { months = 2 }, overflow = "reject", want = "2024-03-31T10:20:30.5Z" },
+    { duration = { months = 1 }, overflow = "clamp", want = "2024-02-29T10:20:30.5Z" },
+    { duration = { years = 1, months = 1 }, overflow = "clamp", want = "2025-02-28T10:20:30.5Z" },
+    { duration = { months = -13 }, overflow = "reject", want = "2022-12-31T10:20:30.5Z" },
     -- The month first, then the day: February 29, then March 1.
-    { { months = 1, days = 1 }, "clamp", "2024-03-01T10:20:30.5Z" },
-    { {}, "reject", "2024-01-31T10:20:30.5Z" },
+    { duration = { months = 1, days = 1 }, overflow = "clamp", want = "2024-03-01T10:20:30.5Z" },
+    { duration = {}, overflow = "reject", want = "2024-01-31T10:20:30.5Z" },
   }
   for _, case in ipairs(cases) do
-    local moved = assert(Time.add_calendar(from, case[1], nil, { overflow = case[2] as Time.Overflow }))
-    assert(Time.format_rfc3339(moved) == case[3], Time.format_rfc3339(moved) .. " not " .. case[3])
+    local moved = assert(Time.add_calendar(from, case.duration, nil, { overflow = case.overflow as Time.Overflow }))
+    assert(Time.format_rfc3339(moved) == case.want, Time.format_rfc3339(moved) .. " not " .. case.want)
   end
   local leap_day = at("2024-02-29T00:00:00Z")
   assert(Time.format_rfc3339((assert(Time.add_calendar(leap_day, { years = 4 })))) ==
@@ -278,26 +287,31 @@ end
 --- answers: the years are their twelves, so a count of months is a
 --- duration's years times 12 plus its months.
 local function test_between_counts_whole_months()
-  local cases: {{string, string, integer}} = {
-    { "2024-01-31T00:00:00Z", "2024-02-29T00:00:00Z", 0 },
-    { "2024-01-31T00:00:00Z", "2024-03-31T00:00:00Z", 2 },
-    { "2024-01-15T12:00:00Z", "2024-02-15T11:59:59Z", 0 },
-    { "2024-01-15T12:00:00Z", "2024-02-15T12:00:00Z", 1 },
-    { "2000-02-29T00:00:00Z", "2026-02-28T00:00:00Z", 311 },
-    { "2024-03-15T00:00:00Z", "2024-01-16T00:00:00Z", -1 },
-    { "2024-03-15T00:00:00Z", "2024-01-15T00:00:00Z", -2 },
-    { "1969-12-31T23:59:59Z", "1970-01-31T23:59:59Z", 1 },
+  local record Case
+    from: string
+    to: string
+    months: integer
+  end
+  local cases: {Case} = {
+    { from = "2024-01-31T00:00:00Z", to = "2024-02-29T00:00:00Z", months = 0 },
+    { from = "2024-01-31T00:00:00Z", to = "2024-03-31T00:00:00Z", months = 2 },
+    { from = "2024-01-15T12:00:00Z", to = "2024-02-15T11:59:59Z", months = 0 },
+    { from = "2024-01-15T12:00:00Z", to = "2024-02-15T12:00:00Z", months = 1 },
+    { from = "2000-02-29T00:00:00Z", to = "2026-02-28T00:00:00Z", months = 311 },
+    { from = "2024-03-15T00:00:00Z", to = "2024-01-16T00:00:00Z", months = -1 },
+    { from = "2024-03-15T00:00:00Z", to = "2024-01-15T00:00:00Z", months = -2 },
+    { from = "1969-12-31T23:59:59Z", to = "1970-01-31T23:59:59Z", months = 1 },
     -- Java's own answers, where the time of day and a shorter month meet.
-    { "2024-01-31T12:00:00Z", "2024-03-01T06:00:00Z", 0 },
-    { "2000-12-29T23:59:59.999Z", "2001-03-01T00:00:00Z", 1 },
-    { "2024-02-29T12:00:00Z", "2023-02-28T23:59:59.999Z", -11 },
-    { "2239-04-30T06:00:00Z", "2239-02-28T11:02:00Z", -1 },
-    { "1969-05-31T00:00:00Z", "1969-02-28T12:00:00Z", -2 },
+    { from = "2024-01-31T12:00:00Z", to = "2024-03-01T06:00:00Z", months = 0 },
+    { from = "2000-12-29T23:59:59.999Z", to = "2001-03-01T00:00:00Z", months = 1 },
+    { from = "2024-02-29T12:00:00Z", to = "2023-02-28T23:59:59.999Z", months = -11 },
+    { from = "2239-04-30T06:00:00Z", to = "2239-02-28T11:02:00Z", months = -1 },
+    { from = "1969-05-31T00:00:00Z", to = "1969-02-28T12:00:00Z", months = -2 },
   }
   for _, case in ipairs(cases) do
-    local span = assert(Time.between(at(case[1]), at(case[2])))
+    local span = assert(Time.between(at(case.from), at(case.to)))
     local got = (span.years or 0) * 12 + (span.months or 0)
-    assert(got == case[3], case[1] .. " to " .. case[2] .. ": " .. got)
+    assert(got == case.months, case.from .. " to " .. case.to .. ": " .. got)
   end
   -- A birthday's years: the whole years of a count that is not negative.
   local age = assert(Time.between(at("1990-06-15T00:00:00Z"), at("2026-06-14T00:00:00Z"))).years
@@ -322,17 +336,22 @@ end
 --- The duration is what `add_calendar` takes, and clamping the month, as
 --- `between` does, gives the moment `between` was asked about.
 local function test_between_and_add_calendar_are_inverses()
-  for _, pair in ipairs({
-      { "2024-01-31T09:00:00Z", "2026-03-15T10:30:00Z" },
-      { "2024-05-31T23:59:59.999999999Z", "2024-06-30T00:00:00Z" },
-      { "2026-03-15T10:30:00Z", "2024-01-31T09:00:00Z" },
-      { "1999-12-31T00:00:00Z", "2000-02-29T12:00:00Z" },
-      { "2020-02-29T00:00:00Z", "2021-02-28T00:00:00Z" },
-  } as {{string, string}}) do
-    local from, to = at(pair[1]), at(pair[2])
+  local record Pair
+    from: string
+    to: string
+  end
+  local pairs_of_times: {Pair} = {
+    { from = "2024-01-31T09:00:00Z", to = "2026-03-15T10:30:00Z" },
+    { from = "2024-05-31T23:59:59.999999999Z", to = "2024-06-30T00:00:00Z" },
+    { from = "2026-03-15T10:30:00Z", to = "2024-01-31T09:00:00Z" },
+    { from = "1999-12-31T00:00:00Z", to = "2000-02-29T12:00:00Z" },
+    { from = "2020-02-29T00:00:00Z", to = "2021-02-28T00:00:00Z" },
+  }
+  for _, pair in ipairs(pairs_of_times) do
+    local from, to = at(pair.from), at(pair.to)
     local span = assert(Time.between(from, to))
     local back = assert(Time.add_calendar(from, span, nil, { overflow = "clamp" }))
-    assert(back == to, ("%s to %s: %s adds to %s"):format(pair[1], pair[2],
+    assert(back == to, ("%s to %s: %s adds to %s"):format(pair.from, pair.to,
       Time.format_duration(span), Time.format_rfc3339(back)))
   end
 end

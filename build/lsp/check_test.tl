@@ -272,7 +272,7 @@ local function test_a_document_that_is_no_file_below_the_root_publishes_nothing(
     '{"uri":"untitled:Untitled-1.tl","languageId":"teal","version":1,"text":' ..
     '"local n: integer = \\"no\\"\\nreturn n\\n"}}}'
   local ran = served(root, { initialize(root), open(elsewhere, "y.tl", bad), untitled,
-    open(root, "../" .. elsewhere:match("[^/]+$") .. "/y.tl", bad), open(root, "sub/../new.tl", bad),
+    open(root, "../" .. (elsewhere:match("[^/]+$") or "") .. "/y.tl", bad), open(root, "sub/../new.tl", bad),
     open(root, "../" .. (root:match("[^/]+$") or "") .. "/back.tl", bad) })
   assert(counts(ran) == "0,0,0,1,1", counts(ran))
   local new = assert(publications(ran)[4])

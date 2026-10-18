@@ -105,7 +105,10 @@ end
 function publish.dependents(o: Open, name: string): {string}
   local open = o.checker.open
   local opened: {string:{string}} = {}
-  for file, other in pairs(open) do opened[file] = other.requires end
+  for file, other in pairs(open) do
+    local requires = other.requires
+    if requires ~= nil then opened[file] = requires end
+  end
   local out: {string} = {}
   for _, file in ipairs(graph.dependents(o.checker.source, name, opened)) do
     local other = open[file]

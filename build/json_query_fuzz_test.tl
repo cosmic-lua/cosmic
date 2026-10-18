@@ -56,7 +56,7 @@ local function test_every_flattened_path_reads_back_and_is_selectable(tmp: strin
       if leaves == nil then return false, "failed: " .. err end
       local every = assert(Json.select(doc, (assert(Json.query("$..*")))))
       local selectable: {string:boolean} = { ["$"] = true }
-      for _, match in ipairs(every) do selectable[assert(Json.path(match.steps))] = true end
+      for _, hit in ipairs(every) do selectable[assert(Json.path(hit.steps))] = true end
       local seen: {string:boolean} = {}
       for _, leaf in ipairs(leaves as {Json.Match}) do
         Fuzz.label("leaves")

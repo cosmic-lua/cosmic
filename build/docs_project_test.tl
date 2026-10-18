@@ -22,7 +22,7 @@ Test.policy{
 --- outside the test's own directory.
 local function cosmic(dir: string, args: {string}): invoke.Result
   return invoke.run(args, { cwd = dir,
-    env = { COSMIC_BUILD_CACHE = "0", COSMIC_BUILD_HOME = Env.get("COSMIC_BUILD_HOME") } })
+    env = { COSMIC_BUILD_CACHE = "0", COSMIC_BUILD_HOME = assert(Env.get("COSMIC_BUILD_HOME")) } })
 end
 
 local function docs_in(dir: string, ...: string): string
@@ -141,7 +141,7 @@ local function test_a_lookup_waits_for_no_run_holding_the_database(tmp: string)
     local result = cosmic(project, words)
     local took = Clock.monotonic_ns() - started
     assert(result.code == 0, result.stdout .. result.stderr)
-    assert(took < Clock.seconds(10), words[1] .. " took " .. tostring(took) .. " ns")
+    assert(took < Clock.seconds(10), table.concat(words, " ") .. " took " .. tostring(took) .. " ns")
     -- Said once a process, and both run in this one ([`build.invoke`]).
     local _, told = result.stderr:gsub("not waiting for it", "")
     assert(told == (words[1] == "docs" and 1 or 0), result.stderr)

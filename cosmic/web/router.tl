@@ -509,7 +509,7 @@ local function raw_part(text: string): string
   return Html.raw_url_part(Html.url_part(text))
 end
 
-local function match(self: Types.Router, method: string, path: string): Types.Outcome
+local function matched(self: Types.Router, method: string, path: string): Types.Outcome
   if path == "*" then return Router.star(self, method) end
   local canon, why = Router.canonical(path)
   if canon == nil then
@@ -582,7 +582,7 @@ local function reverse(self: Types.Router, name: string, params?: {string: strin
   return path, ""
 end
 
-local router_methods = { match = match, reverse = reverse }
+local router_methods = { match = matched, reverse = reverse }
 local router_mt: metatable<Types.Router> = { __index = router_methods }
 
 --- Compiles `routes` into a router. Raises, naming the pattern, for a route

@@ -29,18 +29,18 @@ local function test_a_require_reads_an_open_document_before_the_disk()
   assert(Fs.mkdirs(root .. "/lib"))
   assert(Fs.write(root .. "/lib/shapes.tl", "return { sides = 3 }\n"))
   local main = 'local shapes = require("lib.shapes")\nlocal n: integer = shapes.sides\nreturn n\n'
-  local runs = published(served(root, {
+  local ran = served(root, {
     initialize(root),
     open(root, "main.tl", main),
     open(root, "lib/shapes.tl", 'return { sides = "three" }\n'),
     change(root, "main.tl", main),
     change(root, "lib/shapes.tl", "return { sides = 4 }\n"),
     change(root, "main.tl", main),
-  }))
-  assert(#runs == 5)
-  assert(#runs[1] == 0, "the file on disk types")
-  assert(#runs[3] == 1, "the open document's string is what main reads")
-  assert(#runs[5] == 0, "the document's change is read again")
+  })
+  assert(#published(ran) == 5)
+  assert(#nth(ran, 1) == 0, "the file on disk types")
+  assert(#nth(ran, 3) == 1, "the open document's string is what main reads")
+  assert(#nth(ran, 5) == 0, "the document's change is read again")
 end
 
 local function test_a_package_module_is_its_init()
@@ -51,7 +51,7 @@ local function test_a_package_module_is_its_init()
   assert(Fs.write(root .. "/lib/decl.tl", 'return { sides = "three" }\n'))
   local main = 'local shapes = require("lib.shapes")\nlocal decl = require("lib.decl")\n' ..
     "local n: integer = shapes.sides + decl.sides\nreturn n\n"
-  local diagnostics = published(served(root, { initialize(root), open(root, "main.tl", main) }))[1]
+  local diagnostics = nth(served(root, { initialize(root), open(root, "main.tl", main) }), 1)
   assert(#diagnostics == 0, messages_of(diagnostics))
 end
 
@@ -86,7 +86,8 @@ local function test_a_save_stages_again_and_publishes_what_changed()
   assert(Fs.write(root .. "/lib/shapes.tl", 'return { sides = "three" }\n'))
   local sent = publications(send({ save(root, "lib/shapes.tl") }))
   assert(#sent == 3, "only main changed: " .. tostring(#sent))
-  assert(sent[3].uri == "file://" .. root .. "/main.tl" and #sent[3].diagnostics == 1, sent[3].uri)
+  local third = assert(sent[3])
+  assert(third.uri == "file://" .. root .. "/main.tl" and #third.diagnostics == 1, third.uri)
 end
 
 local function test_the_same_text_checks_the_same_each_time()
